@@ -20,7 +20,7 @@
 		"db:generate": "drizzle-kit generate",
 		"db:migrate": "bun run api/cli/migrate.ts",
 		"db:migrate:drizzle": "drizzle-kit migrate",
-		"test": "vitest run --exclude 'api/modules/scans/**/*.test.ts' && bun test ./api/modules/scans/**/*.test.ts",
+		"test": "vitest run --exclude 'api/modules/scans/**/*.test.ts' && bun test ./api/modules/scans/*.test.ts ./api/modules/scans/**/*.test.ts",
 		"test:watch": "vitest",
 		"typecheck": "tsc --noEmit",
 		"lint": "biome lint api web shared",
@@ -29,6 +29,7 @@
 		"build:web": "vite build",
 		"build": "bun run build:web",
 		"scan:import": "bun run api/cli/scan-import.ts",
+		"scan:semgrep": "bun run api/cli/scan-semgrep.ts",
 		"verify": "bun scripts/verify.ts",
 		"verify:strict": "bun run verify"
 	},
