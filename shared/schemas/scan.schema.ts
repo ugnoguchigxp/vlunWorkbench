@@ -86,6 +86,7 @@ export const scanArtifactKindSchema = z.enum([
 	"log",
 	"normalized_result",
 	"source_snippet",
+	"report",
 ]);
 export type ScanArtifactKind = z.infer<typeof scanArtifactKindSchema>;
 
@@ -230,3 +231,79 @@ export const findingReviewSchema = z.object({
 	updatedAt: z.string().or(z.date()),
 });
 export type FindingReview = z.infer<typeof findingReviewSchema>;
+
+// --- Finding Decision ---
+export const reviewerDecisionStateSchema = z.enum([
+	"accepted",
+	"false_positive",
+	"deferred",
+	"needs_fix",
+]);
+export type ReviewerDecisionState = z.infer<typeof reviewerDecisionStateSchema>;
+
+export const reviewerDecisionReasonSchema = z.enum([
+	"confirmed_by_evidence",
+	"confirmed_by_review",
+	"insufficient_evidence",
+	"environment_specific",
+	"tool_noise",
+	"not_exploitable",
+	"accepted_risk",
+	"other",
+]);
+export type ReviewerDecisionReason = z.infer<
+	typeof reviewerDecisionReasonSchema
+>;
+
+export const findingDecisionSchema = z.object({
+	id: z.string().uuid(),
+	findingId: z.string().uuid(),
+	decision: reviewerDecisionStateSchema,
+	reason: reviewerDecisionReasonSchema,
+	comment: z.string().nullable(),
+	linkedReviewId: z.string().uuid().nullable(),
+	decidedByUserId: z.string().uuid().nullable(),
+	createdAt: z.string().or(z.date()),
+	updatedAt: z.string().or(z.date()),
+});
+export type FindingDecision = z.infer<typeof findingDecisionSchema>;
+
+export const createFindingDecisionSchema = z.object({
+	decision: reviewerDecisionStateSchema,
+	reason: reviewerDecisionReasonSchema,
+	comment: z.string().optional(),
+	linkedReviewId: z.string().uuid().optional(),
+});
+export type CreateFindingDecisionInput = z.infer<
+	typeof createFindingDecisionSchema
+>;
+
+// --- Scan Report ---
+export const scanReportSchema = z.object({
+	id: z.string().uuid(),
+	scanRunId: z.string().uuid(),
+	artifactId: z.string().uuid().nullable(),
+	format: z.string(),
+	title: z.string(),
+	summary: z.string().nullable(),
+	options: z.object({
+		includeFalsePositives: z.boolean(),
+		includeDeferred: z.boolean(),
+		includeUndecided: z.boolean(),
+	}),
+	status: z.enum(["running", "completed", "failed"]),
+	errorMessage: z.string().nullable(),
+	generatedByUserId: z.string().uuid().nullable(),
+	createdAt: z.string().or(z.date()),
+	updatedAt: z.string().or(z.date()),
+});
+export type ScanReport = z.infer<typeof scanReportSchema>;
+
+export const createScanReportSchema = z.object({
+	format: z.literal("markdown").default("markdown"),
+	title: z.string().min(1).default("Security Report"),
+	includeFalsePositives: z.boolean().default(true),
+	includeDeferred: z.boolean().default(true),
+	includeUndecided: z.boolean().default(true),
+});
+export type CreateScanReportInput = z.infer<typeof createScanReportSchema>;

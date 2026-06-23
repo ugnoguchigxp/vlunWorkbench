@@ -44,9 +44,12 @@ import { createSearchRoute } from "../routes/search.route";
 import { createSettingsRoute } from "../routes/settings.route";
 import { createSourcesRoute } from "../routes/sources.route";
 import { createProjectsRoute } from "../routes/projects.route";
+import { createScanProfilesRoute } from "../routes/scan-profiles.route";
 import { createScansRoute } from "../routes/scans.route";
 import { createFindingsRoute } from "../routes/findings.route";
 import { createFindingReviewsRoute } from "../routes/finding-reviews.route";
+import { createFindingDecisionsRoute } from "../routes/finding-decisions.route";
+import { createScanReportsRoute } from "../routes/scan-reports.route";
 import {
 	ProjectRepository,
 	ScanRepository,
@@ -54,6 +57,9 @@ import {
 	FindingRepository,
 } from "../modules/scans/repositories";
 import { FindingReviewRepository } from "../modules/reviews/finding-review-repository";
+import { FindingDecisionRepository } from "../modules/decisions/finding-decision-repository";
+import { ScanReportRepository } from "../modules/scans/report-repository";
+import { ArtifactStorage } from "../modules/scans/artifact-storage";
 import { readAppEnv, type AppEnv } from "./env";
 
 type AppRuntime = {
@@ -522,6 +528,20 @@ app.use(
 	}),
 );
 app.use(
+	"/api/scan-profiles/*",
+	requireAuth({
+		env: runtime.env,
+		authService: runtime.authService,
+	}),
+);
+app.use(
+	"/api/scan-profiles",
+	requireAuth({
+		env: runtime.env,
+		authService: runtime.authService,
+	}),
+);
+app.use(
 	"/api/scans/*",
 	requireAuth({
 		env: runtime.env,
@@ -530,6 +550,20 @@ app.use(
 );
 app.use(
 	"/api/scans",
+	requireAuth({
+		env: runtime.env,
+		authService: runtime.authService,
+	}),
+);
+app.use(
+	"/api/scan-reports/*",
+	requireAuth({
+		env: runtime.env,
+		authService: runtime.authService,
+	}),
+);
+app.use(
+	"/api/scan-reports",
 	requireAuth({
 		env: runtime.env,
 		authService: runtime.authService,
@@ -558,6 +592,20 @@ app.use(
 );
 app.use(
 	"/api/finding-reviews",
+	requireAuth({
+		env: runtime.env,
+		authService: runtime.authService,
+	}),
+);
+app.use(
+	"/api/finding-decisions/*",
+	requireAuth({
+		env: runtime.env,
+		authService: runtime.authService,
+	}),
+);
+app.use(
+	"/api/finding-decisions",
 	requireAuth({
 		env: runtime.env,
 		authService: runtime.authService,
@@ -628,6 +676,11 @@ const findingRepository = new FindingRepository(runtime.dbConnection.db);
 const findingReviewRepository = new FindingReviewRepository(
 	runtime.dbConnection.db,
 );
+const findingDecisionRepository = new FindingDecisionRepository(
+	runtime.dbConnection.db,
+);
+const scanReportRepository = new ScanReportRepository(runtime.dbConnection.db);
+const artifactStorage = new ArtifactStorage();
 
 app.route(
 	"/api/projects",
@@ -635,6 +688,7 @@ app.route(
 		projectRepository,
 	}),
 );
+app.route("/api/scan-profiles", createScanProfilesRoute());
 app.route(
 	"/api/scans",
 	createScansRoute({
@@ -642,6 +696,20 @@ app.route(
 		projectRepository,
 		artifactRepository,
 		findingRepository,
+		decisionRepository: findingDecisionRepository,
+		scanReportRepository,
+		artifactStorage,
+		db: runtime.dbConnection.db,
+	}),
+);
+app.route(
+	"/api/scan-reports",
+	createScanReportsRoute({
+		scanReportRepository,
+		scanRepository,
+		projectRepository,
+		artifactRepository,
+		artifactStorage,
 	}),
 );
 app.route(
@@ -650,6 +718,7 @@ app.route(
 		findingRepository,
 		projectRepository,
 		reviewRepository: findingReviewRepository,
+		decisionRepository: findingDecisionRepository,
 		llmProvider: runtime.llmProvider,
 		env: runtime.env,
 		db: runtime.dbConnection.db,
@@ -659,6 +728,14 @@ app.route(
 	"/api/finding-reviews",
 	createFindingReviewsRoute({
 		reviewRepository: findingReviewRepository,
+		findingRepository,
+		projectRepository,
+	}),
+);
+app.route(
+	"/api/finding-decisions",
+	createFindingDecisionsRoute({
+		decisionRepository: findingDecisionRepository,
 		findingRepository,
 		projectRepository,
 	}),

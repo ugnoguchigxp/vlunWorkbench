@@ -30,6 +30,31 @@ describe("Findings Route", () => {
 		updateReview: vi.fn().mockResolvedValue({ id: "rev-456", status: "completed" }),
 	};
 
+	const mockDecisionRepo = {
+		findLatestDecisionForFinding: vi.fn().mockResolvedValue({
+			id: "dec-123",
+			decision: "needs_fix",
+			reason: "confirmed_by_evidence",
+		}),
+		listDecisionsForFinding: vi.fn().mockResolvedValue([{
+			id: "dec-123",
+			decision: "needs_fix",
+			reason: "confirmed_by_evidence",
+		}]),
+		createDecision: vi.fn().mockImplementation(async (params) => {
+			return {
+				id: "dec-456",
+				findingId: params.findingId,
+				decision: params.decision,
+				reason: params.reason,
+				comment: params.comment || null,
+				linkedReviewId: params.linkedReviewId || null,
+				decidedByUserId: params.decidedByUserId || null,
+				createdAt: new Date(),
+			};
+		}),
+	};
+
 	const app = new Hono();
 	app.use("*", async (c, next) => {
 		c.set("authUser", { userId: "user-123", email: "user@example.com", role: "member" });
@@ -47,18 +72,21 @@ describe("Findings Route", () => {
 			findingRepository: mockFindingRepo as any,
 			projectRepository: mockProjectRepo as any,
 			reviewRepository: mockReviewRepo as any,
+			decisionRepository: mockDecisionRepo as any,
 			env: { azureOpenAiDeployment: "test-deployment" } as any,
 			db: {} as any,
 		}),
 	);
 
-	it("GET /:findingId returns finding details with evidence and latestReview", async () => {
+	it("GET /:findingId returns finding details with evidence, latestReview, and latestDecision", async () => {
 		const res = await app.request("/f-1");
 		expect(res.status).toBe(200);
 		const body = await res.json();
 		expect(body.finding.id).toBe("f-1");
 		expect(body.evidence.length).toBe(1);
 		expect(body.latestReview.id).toBe("rev-123");
+		expect(body.latestDecision.id).toBe("dec-123");
+		expect(body.latestDecision.decision).toBe("needs_fix");
 	});
 
 	it("GET /:findingId returns 404 if finding not found", async () => {
@@ -72,5 +100,52 @@ describe("Findings Route", () => {
 		const body = await res.json();
 		expect(body.reviews).toHaveLength(1);
 		expect(body.reviews[0].id).toBe("rev-123");
+	});
+
+	it("GET /:findingId/decisions returns decisions list", async () => {
+		const res = await app.request("/f-1/decisions");
+		expect(res.status).toBe(200);
+		const body = await res.json();
+		expect(body.decisions).toHaveLength(1);
+		expect(body.decisions[0].id).toBe("dec-123");
+		expect(body.decisions[0].decision).toBe("needs_fix");
+	});
+
+	it("POST /:findingId/decisions creates a new decision", async () => {
+		const res = await app.request("/f-1/decisions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify({
+				decision: "accepted",
+				reason: "confirmed_by_review",
+				comment: "Looks solid.",
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		const body = await res.json();
+		expect(body.decision.id).toBe("dec-456");
+		expect(body.decision.decision).toBe("accepted");
+		expect(body.decision.reason).toBe("confirmed_by_review");
+		expect(body.decision.comment).toBe("Looks solid.");
+	});
+
+	it("POST /:findingId/decisions fails with 400 on invalid input", async () => {
+		const res = await app.request("/f-1/decisions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify({
+				decision: "invalid_state",
+				reason: "confirmed_by_review",
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const body = await res.json();
+		expect(body.message).toContain("Invalid decision request");
 	});
 });

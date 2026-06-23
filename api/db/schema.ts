@@ -307,7 +307,7 @@ export const scanArtifacts = sqliteTable(
 		toolRunId: text("tool_run_id").references(() => toolRuns.id, {
 			onDelete: "set null",
 		}),
-		kind: text("kind").notNull(), // raw_result, stdout, stderr, log, normalized_result, source_snippet
+		kind: text("kind").notNull(), // raw_result, stdout, stderr, log, normalized_result, source_snippet, report
 		format: text("format").notNull(), // json, sarif, text, markdown
 		path: text("path").notNull(),
 		sha256: text("sha256").notNull(),
@@ -418,5 +418,64 @@ export const findingReviews = sqliteTable(
 	(table) => ({
 		findingIdIdx: index("finding_reviews_finding_id_idx").on(table.findingId),
 		statusIdx: index("finding_reviews_status_idx").on(table.status),
+	}),
+);
+
+export const findingDecisions = sqliteTable(
+	"finding_decisions",
+	{
+		id: id(),
+		findingId: text("finding_id")
+			.notNull()
+			.references(() => findings.id, { onDelete: "cascade" }),
+		decision: text("decision").notNull(), // accepted, false_positive, deferred, needs_fix
+		reason: text("reason").notNull(), // confirmed_by_evidence, confirmed_by_review, etc.
+		comment: text("comment"),
+		linkedReviewId: text("linked_review_id").references(
+			() => findingReviews.id,
+			{
+				onDelete: "set null",
+			},
+		),
+		decidedByUserId: text("decided_by_user_id").references(() => users.id, {
+			onDelete: "set null",
+		}),
+		createdAt: timestampMs("created_at"),
+		updatedAt: timestampMs("updated_at"),
+	},
+	(table) => ({
+		findingIdIdx: index("finding_decisions_finding_id_idx").on(table.findingId),
+		linkedReviewIdIdx: index("finding_decisions_linked_review_id_idx").on(
+			table.linkedReviewId,
+		),
+	}),
+);
+
+export const scanReports = sqliteTable(
+	"scan_reports",
+	{
+		id: id(),
+		scanRunId: text("scan_run_id")
+			.notNull()
+			.references(() => scanRuns.id, { onDelete: "cascade" }),
+		artifactId: text("artifact_id").references(() => scanArtifacts.id, {
+			onDelete: "set null",
+		}),
+		format: text("format").notNull(), // markdown
+		title: text("title").notNull(),
+		summary: text("summary"),
+		options: jsonObject("options"),
+		status: text("status").notNull(), // running, completed, failed
+		errorMessage: text("error_message"),
+		generatedByUserId: text("generated_by_user_id").references(() => users.id, {
+			onDelete: "set null",
+		}),
+		createdAt: timestampMs("created_at"),
+		updatedAt: timestampMs("updated_at"),
+	},
+	(table) => ({
+		scanRunIdIdx: index("scan_reports_scan_run_id_idx").on(table.scanRunId),
+		artifactIdIdx: index("scan_reports_artifact_id_idx").on(table.artifactId),
+		statusIdx: index("scan_reports_status_idx").on(table.status),
 	}),
 );

@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import { z } from "zod";
-import { redactSecrets } from "./fixture";
+import { redactSecrets } from "./redaction";
 
 export const semgrepResultSchema = z.object({
 	check_id: z.string().min(1),

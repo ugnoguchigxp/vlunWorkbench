@@ -281,6 +281,16 @@ async function main() {
 		// 8. Update run statuses to completed
 		await scanRepo.updateToolRunStatus(toolRunId, "completed", {
 			exitCode: runResult.exitCode,
+			metadata: {
+				adapter: "semgrep",
+				elapsedMs: runResult.elapsedMs,
+				artifactIds,
+				findingCount,
+				evidenceCount,
+				config,
+				timeoutSec: timeoutSec ?? null,
+				maxTargetBytes: maxTargetBytes ?? null,
+			},
 		});
 
 		await scanRepo.updateScanRunStatus(scanRun.id, "completed", {
@@ -316,6 +326,16 @@ async function main() {
 			if (toolRunId) {
 				await scanRepo.updateToolRunStatus(toolRunId, "failed", {
 					exitCode: semgrepExitCode ?? 1,
+					metadata: {
+						adapter: "semgrep",
+						artifactIds,
+						findingCount,
+						evidenceCount,
+						config,
+						timeoutSec: timeoutSec ?? null,
+						maxTargetBytes: maxTargetBytes ?? null,
+						error: err.message,
+					},
 				});
 			}
 			await scanRepo.updateScanRunStatus(scanRun.id, "failed");

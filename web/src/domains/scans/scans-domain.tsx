@@ -1,22 +1,20 @@
 import {
 	AlertTriangle,
 	Brain,
-	CheckCircle,
 	CheckCircle2,
-	ChevronRight,
 	Clock,
 	Code,
-	Cpu,
-	ExternalLink,
-	FileText,
 	Info,
-	Play,
 	RefreshCw,
 	Shield,
 	Sparkles,
 	XCircle,
+	Download,
+	FileText,
 } from "lucide-react";
 import { useEffect, useState, useCallback } from "react";
+import mermaid from "mermaid";
+import { MarkdownEditor } from "markdown-wysiwyg-editor";
 import {
 	fetchFinding,
 	fetchFindingReviews,
@@ -24,11 +22,24 @@ import {
 	fetchScanFindings,
 	fetchScans,
 	triggerFindingReview,
+	fetchFindingDecisions,
+	createFindingDecision,
+	generateScanReport,
+	fetchScanReports,
+	fetchScanProfiles,
+	startScan,
+	fetchScanSummary,
+	fetchScanGroups,
 	type Finding,
 	type FindingEvidence,
 	type FindingReview,
+	type FindingDecision,
 	type Project,
 	type ScanRun,
+	type ScanReport,
+	type ScanProfile,
+	type ScanRunSummary,
+	type FindingGroup,
 } from "../../api";
 import { Button, SelectInput } from "../../ui";
 
@@ -58,13 +69,131 @@ export const ScansDomainSection = ({
 	const [selectedScanRunId, setSelectedScanRunId] = useState<string>("");
 	const [findings, setFindings] = useState<Finding[]>([]);
 	const [selectedFindingId, setSelectedFindingId] = useState<string>("");
+	const [profiles, setProfiles] = useState<ScanProfile[]>([]);
+	const [selectedProfileId, setSelectedProfileId] =
+		useState<string>("baseline");
+	const [continueOnToolFailure, setContinueOnToolFailure] =
+		useState<boolean>(true);
+	const [timeoutSec, setTimeoutSec] = useState<number>(600);
+	const [showRunScanForm, setShowRunScanForm] = useState<boolean>(false);
+	const [isScanning, setIsScanning] = useState<boolean>(false);
+	const [scanSummary, setScanSummary] = useState<ScanRunSummary | null>(null);
+	const [scanGroups, setScanGroups] = useState<FindingGroup[]>([]);
+	const [selectedGroupId, setSelectedGroupId] = useState<string>("");
+	const [findingsViewMode, setFindingsViewMode] = useState<"list" | "grouped">(
+		"list",
+	);
 	const [selectedFindingDetails, setSelectedFindingDetails] = useState<{
 		finding: Finding;
 		evidence: FindingEvidence[];
 		latestReview: FindingReview | null;
+		latestDecision: FindingDecision | null;
 	} | null>(null);
 	const [allReviews, setAllReviews] = useState<FindingReview[]>([]);
 	const [reviewLoading, setReviewLoading] = useState(false);
+
+	// Decisions state
+	const [allDecisions, setAllDecisions] = useState<FindingDecision[]>([]);
+	const [decisionInput, setDecisionInput] = useState<
+		"accepted" | "false_positive" | "deferred" | "needs_fix"
+	>("accepted");
+	const [reasonInput, setReasonInput] = useState<string>(
+		"confirmed_by_evidence",
+	);
+	const [commentInput, setCommentInput] = useState("");
+	const [linkReviewInput, setLinkReviewInput] = useState(false);
+	const [decisionSubmitLoading, setDecisionSubmitLoading] = useState(false);
+
+	// Report state
+	const [viewingReport, setViewingReport] = useState(false);
+	const [reportLoading, setReportLoading] = useState(false);
+	const [reports, setReports] = useState<ScanReport[]>([]);
+	const [selectedReport, setSelectedReport] = useState<ScanReport | null>(null);
+	const [reportPreviewContent, setReportPreviewContent] = useState<
+		string | null
+	>(null);
+	const [reportTitle, setReportTitle] = useState("Security Report");
+	const [includeFalsePositives, setIncludeFalsePositives] = useState(true);
+	const [includeDeferred, setIncludeDeferred] = useState(true);
+	const [includeUndecided, setIncludeUndecided] = useState(true);
+
+	// Load reports when scan run changes
+	useEffect(() => {
+		if (!selectedScanRunId || !active) {
+			setReports([]);
+			setSelectedReport(null);
+			setReportPreviewContent(null);
+			return;
+		}
+		void (async () => {
+			try {
+				const list = await fetchScanReports(selectedScanRunId);
+				setReports(list);
+				if (list.length > 0) {
+					setSelectedReport(list[0]);
+				} else {
+					setSelectedReport(null);
+					setReportPreviewContent(null);
+				}
+			} catch (err) {
+				console.error("Failed to load reports", err);
+			}
+		})();
+	}, [selectedScanRunId, active]);
+
+	// Load report content for preview when selectedReport changes
+	useEffect(() => {
+		if (!selectedReport || !active) {
+			setReportPreviewContent(null);
+			return;
+		}
+		if (selectedReport.status !== "completed") {
+			setReportPreviewContent(null);
+			return;
+		}
+		void (async () => {
+			try {
+				const response = await fetch(
+					`/api/scan-reports/${selectedReport.id}/download`,
+				);
+				if (response.ok) {
+					const text = await response.text();
+					setReportPreviewContent(text);
+				} else {
+					setReportPreviewContent(null);
+				}
+			} catch (err) {
+				setReportPreviewContent(null);
+			}
+		})();
+	}, [selectedReport, active]);
+
+	const handleGenerateReport = async () => {
+		if (!selectedScanRunId) return;
+		setReportLoading(true);
+		setErrorText(null);
+		try {
+			const res = await generateScanReport(selectedScanRunId, {
+				format: "markdown",
+				title: reportTitle,
+				includeFalsePositives,
+				includeDeferred,
+				includeUndecided,
+			});
+			const list = await fetchScanReports(selectedScanRunId);
+			setReports(list);
+			const createdReport =
+				list.find((r) => r.id === res.report.id) || res.report;
+			setSelectedReport(createdReport);
+			setViewingReport(true);
+		} catch (err) {
+			setErrorText(
+				err instanceof Error ? err.message : "Failed to generate report.",
+			);
+		} finally {
+			setReportLoading(false);
+		}
+	};
 
 	// Load projects on active
 	useEffect(() => {
@@ -131,6 +260,38 @@ export const ScansDomainSection = ({
 		})();
 	}, [selectedScanRunId, active, setErrorText]);
 
+	// Load scan profiles
+	useEffect(() => {
+		if (!active) return;
+		fetchScanProfiles().then(setProfiles).catch(console.error);
+	}, [active]);
+
+	// Load summary & groups when selected scan run changes
+	useEffect(() => {
+		if (!selectedScanRunId || !active) {
+			setScanSummary(null);
+			setScanGroups([]);
+			setSelectedGroupId("");
+			return;
+		}
+		void (async () => {
+			try {
+				const summary = await fetchScanSummary(selectedScanRunId);
+				setScanSummary(summary);
+			} catch (err) {
+				console.error("Failed to load scan summary", err);
+				setScanSummary(null);
+			}
+			try {
+				const { groups } = await fetchScanGroups(selectedScanRunId);
+				setScanGroups(groups);
+			} catch (err) {
+				console.error("Failed to load scan groups", err);
+				setScanGroups([]);
+			}
+		})();
+	}, [selectedScanRunId, active]);
+
 	// Helper to load finding details and history
 	const loadFindingDetails = useCallback(
 		async (findingId: string, quiet = false) => {
@@ -143,6 +304,13 @@ export const ScansDomainSection = ({
 				} catch (e) {
 					console.error("Failed to fetch all reviews", e);
 					setAllReviews([]);
+				}
+				try {
+					const decisionsRes = await fetchFindingDecisions(findingId);
+					setAllDecisions(decisionsRes.decisions);
+				} catch (e) {
+					console.error("Failed to fetch all decisions", e);
+					setAllDecisions([]);
 				}
 			};
 
@@ -164,6 +332,56 @@ export const ScansDomainSection = ({
 		if (!selectedFindingId || !active) return;
 		void loadFindingDetails(selectedFindingId);
 	}, [selectedFindingId, active, loadFindingDetails]);
+
+	// Reset form state when selected finding changes
+	useEffect(() => {
+		if (selectedFindingId) {
+			setDecisionInput("accepted");
+			setReasonInput("confirmed_by_evidence");
+			setCommentInput("");
+			setLinkReviewInput(false);
+		}
+	}, [selectedFindingId]);
+
+	const handleDecisionSubmit = async (e: React.FormEvent) => {
+		e.preventDefault();
+		if (!selectedFindingId) return;
+
+		setErrorText(null);
+		setDecisionSubmitLoading(true);
+		try {
+			const params: {
+				decision: "accepted" | "false_positive" | "deferred" | "needs_fix";
+				reason: string;
+				comment?: string;
+				linkedReviewId?: string;
+			} = {
+				decision: decisionInput,
+				reason: reasonInput,
+				comment: commentInput || undefined,
+			};
+
+			if (linkReviewInput && selectedFindingDetails?.latestReview) {
+				params.linkedReviewId = selectedFindingDetails.latestReview.id;
+			}
+
+			await createFindingDecision(selectedFindingId, params);
+
+			// Reload finding details, history, and the findings list to update badges
+			await loadFindingDetails(selectedFindingId, true);
+			const fnds = await fetchScanFindings(selectedScanRunId);
+			setFindings(fnds);
+
+			// Clear comment input after success
+			setCommentInput("");
+		} catch (err) {
+			setErrorText(
+				err instanceof Error ? err.message : "Failed to record decision.",
+			);
+		} finally {
+			setDecisionSubmitLoading(false);
+		}
+	};
 
 	// Polling loop for active review
 	useEffect(() => {
@@ -249,6 +467,14 @@ export const ScansDomainSection = ({
 
 	if (!active) return null;
 
+	const displayedFindings =
+		findingsViewMode === "grouped" && selectedGroupId
+			? findings.filter((f) => {
+					const group = scanGroups.find((g) => g.id === selectedGroupId);
+					return group ? group.findingIds.includes(f.id) : true;
+				})
+			: findings;
+
 	return (
 		<main className="scans-layout">
 			{/* Project and Scan Run Selector */}
@@ -274,7 +500,185 @@ export const ScansDomainSection = ({
 							</SelectInput>
 						</label>
 					</div>
+					{selectedProjectId && (
+						<div style={{ marginTop: "12px" }}>
+							<Button
+								type="button"
+								variant="secondary"
+								onClick={() => setShowRunScanForm(!showRunScanForm)}
+								style={{
+									width: "100%",
+									display: "flex",
+									alignItems: "center",
+									justifyContent: "center",
+									gap: "6px",
+								}}
+								disabled={isScanning}
+							>
+								<Sparkles
+									className="icon text-indigo-600"
+									style={{ width: "14px", height: "14px" }}
+								/>
+								{showRunScanForm
+									? "Hide Run Scan Settings"
+									: "Run New Scan Profile"}
+							</Button>
+						</div>
+					)}
 				</div>
+
+				{showRunScanForm && selectedProjectId && (
+					<div
+						style={{
+							padding: "16px",
+							borderBottom: "1px solid #e2e8f0",
+							background: "#f8fafc",
+						}}
+					>
+						<div className="form-stack" style={{ gap: "10px", padding: 0 }}>
+							<label htmlFor="profile-select">
+								<span
+									style={{
+										fontSize: "12px",
+										fontWeight: "600",
+										color: "#475569",
+									}}
+								>
+									Scan Profile
+								</span>
+								<select
+									id="profile-select"
+									value={selectedProfileId}
+									onChange={(e) => setSelectedProfileId(e.target.value)}
+									style={{
+										width: "100%",
+										padding: "8px",
+										borderRadius: "6px",
+										border: "1px solid #cbd5e1",
+										background: "#fff",
+										fontSize: "13px",
+									}}
+								>
+									{profiles.map((p) => (
+										<option key={p.id} value={p.id}>
+											{p.name}
+										</option>
+									))}
+								</select>
+							</label>
+
+							{selectedProfileId &&
+								profiles.find((p) => p.id === selectedProfileId) && (
+									<div
+										style={{
+											fontSize: "11px",
+											color: "#64748b",
+											marginTop: "-4px",
+										}}
+									>
+										{
+											profiles.find((p) => p.id === selectedProfileId)
+												?.description
+										}
+										<div style={{ marginTop: "4px", fontWeight: "600" }}>
+											Tools:{" "}
+											{profiles
+												.find((p) => p.id === selectedProfileId)
+												?.tools.map((t) => t.displayName)
+												.join(", ")}
+										</div>
+									</div>
+								)}
+
+							<div style={{ display: "flex", gap: "10px" }}>
+								<label htmlFor="timeout-input" style={{ flex: 1 }}>
+									<span
+										style={{
+											fontSize: "11px",
+											fontWeight: "600",
+											color: "#475569",
+										}}
+									>
+										Timeout (sec)
+									</span>
+									<input
+										id="timeout-input"
+										type="number"
+										value={timeoutSec}
+										onChange={(e) => setTimeoutSec(Number(e.target.value))}
+										style={{
+											width: "100%",
+											padding: "6px 8px",
+											borderRadius: "6px",
+											border: "1px solid #cbd5e1",
+											fontSize: "13px",
+										}}
+									/>
+								</label>
+
+								<label
+									style={{
+										display: "flex",
+										alignItems: "center",
+										gap: "6px",
+										flex: 1,
+										marginTop: "20px",
+										cursor: "pointer",
+									}}
+								>
+									<input
+										type="checkbox"
+										checked={continueOnToolFailure}
+										onChange={(e) => setContinueOnToolFailure(e.target.checked)}
+									/>
+									<span
+										style={{
+											fontSize: "11px",
+											fontWeight: "600",
+											color: "#475569",
+										}}
+									>
+										Continue on Fail
+									</span>
+								</label>
+							</div>
+
+							<Button
+								type="button"
+								variant="primary"
+								onClick={async () => {
+									setIsScanning(true);
+									setErrorText(null);
+									try {
+										const res = await startScan(selectedProjectId, {
+											profile: selectedProfileId,
+											continueOnToolFailure,
+											timeoutSec,
+										});
+										// Refresh scans list
+										const runs = await fetchScans(selectedProjectId);
+										setScanRuns(runs);
+										if (res.scan && res.scan.id) {
+											setSelectedScanRunId(res.scan.id);
+											// Reset findings & details
+											setSelectedFindingId("");
+											setSelectedFindingDetails(null);
+										}
+										setShowRunScanForm(false);
+									} catch (err: any) {
+										setErrorText(err.message || "Scan failed to run.");
+									} finally {
+										setIsScanning(false);
+									}
+								}}
+								disabled={isScanning}
+								style={{ width: "100%", marginTop: "5px" }}
+							>
+								{isScanning ? "Running Scan Profile..." : "Start Profile Scan"}
+							</Button>
+						</div>
+					</div>
+				)}
 
 				<div className="scans-list">
 					{scanRuns.length > 0 ? (
@@ -308,6 +712,139 @@ export const ScansDomainSection = ({
 						</div>
 					)}
 				</div>
+				{selectedScanRunId && (
+					<div
+						className="scans-report-subpanel"
+						style={{
+							borderTop: "1px solid #f1f5f9",
+							padding: "16px",
+							background: "#f8fafc",
+						}}
+					>
+						<h3
+							style={{
+								margin: "0 0 10px 0",
+								fontSize: "14px",
+								fontWeight: "700",
+								color: "#0f172a",
+							}}
+						>
+							Scan Report
+						</h3>
+						<div className="form-stack" style={{ gap: "8px" }}>
+							<label
+								style={{ display: "flex", flexDirection: "column", gap: "4px" }}
+							>
+								<span
+									style={{
+										fontSize: "12px",
+										fontWeight: "600",
+										color: "#475569",
+									}}
+								>
+									Report Title
+								</span>
+								<input
+									type="text"
+									value={reportTitle}
+									onChange={(e) => setReportTitle(e.target.value)}
+									style={{
+										padding: "6px 10px",
+										fontSize: "13px",
+										border: "1px solid #cbd5e1",
+										borderRadius: "6px",
+										width: "100%",
+									}}
+								/>
+							</label>
+
+							<div
+								style={{
+									display: "flex",
+									flexDirection: "column",
+									gap: "6px",
+									margin: "5px 0",
+								}}
+							>
+								<label
+									style={{
+										display: "flex",
+										alignItems: "center",
+										gap: "8px",
+										fontSize: "12px",
+										color: "#334155",
+									}}
+								>
+									<input
+										type="checkbox"
+										checked={includeFalsePositives}
+										onChange={(e) => setIncludeFalsePositives(e.target.checked)}
+									/>
+									Include False Positives
+								</label>
+								<label
+									style={{
+										display: "flex",
+										alignItems: "center",
+										gap: "8px",
+										fontSize: "12px",
+										color: "#334155",
+									}}
+								>
+									<input
+										type="checkbox"
+										checked={includeDeferred}
+										onChange={(e) => setIncludeDeferred(e.target.checked)}
+									/>
+									Include Deferred
+								</label>
+								<label
+									style={{
+										display: "flex",
+										alignItems: "center",
+										gap: "8px",
+										fontSize: "12px",
+										color: "#334155",
+									}}
+								>
+									<input
+										type="checkbox"
+										checked={includeUndecided}
+										onChange={(e) => setIncludeUndecided(e.target.checked)}
+									/>
+									Include Undecided
+								</label>
+							</div>
+
+							<div style={{ display: "flex", gap: "8px" }}>
+								<Button
+									type="button"
+									variant="primary"
+									onClick={handleGenerateReport}
+									disabled={reportLoading || busy}
+									style={{ flex: 1, padding: "8px", fontSize: "12px" }}
+								>
+									{reportLoading ? "Generating..." : "Generate"}
+								</Button>
+								{reports.length > 0 && (
+									<Button
+										type="button"
+										variant="secondary"
+										onClick={() => {
+											if (reports[0]) {
+												setSelectedReport(reports[0]);
+												setViewingReport(true);
+											}
+										}}
+										style={{ padding: "8px", fontSize: "12px" }}
+									>
+										View Latest
+									</Button>
+								)}
+							</div>
+						</div>
+					</div>
+				)}
 			</section>
 
 			{/* Findings List */}
@@ -315,20 +852,101 @@ export const ScansDomainSection = ({
 				<div className="scans-panel-header">
 					<h2>Findings</h2>
 					<small style={{ color: "#64748b" }}>
-						{findings.length} findings found
+						{displayedFindings.length} findings shown ({findings.length} total)
 					</small>
 				</div>
 
+				<div
+					style={{
+						display: "flex",
+						gap: "8px",
+						padding: "0 16px 10px 16px",
+						borderBottom: "1px solid #e2e8f0",
+					}}
+				>
+					<button
+						type="button"
+						className={`button ${findingsViewMode === "list" ? "button-primary" : "button-secondary"}`}
+						onClick={() => {
+							setFindingsViewMode("list");
+							setSelectedGroupId("");
+						}}
+						style={{
+							padding: "4px 8px",
+							fontSize: "12px",
+							flex: 1,
+							border: "1px solid #cbd5e1",
+							borderRadius: "6px",
+							cursor: "pointer",
+							background: findingsViewMode === "list" ? "#0f172a" : "#fff",
+							color: findingsViewMode === "list" ? "#fff" : "#0f172a",
+						}}
+					>
+						List View ({findings.length})
+					</button>
+					<button
+						type="button"
+						className={`button ${findingsViewMode === "grouped" ? "button-primary" : "button-secondary"}`}
+						onClick={() => setFindingsViewMode("grouped")}
+						style={{
+							padding: "4px 8px",
+							fontSize: "12px",
+							flex: 1,
+							border: "1px solid #cbd5e1",
+							borderRadius: "6px",
+							cursor: "pointer",
+							background: findingsViewMode === "grouped" ? "#0f172a" : "#fff",
+							color: findingsViewMode === "grouped" ? "#fff" : "#0f172a",
+						}}
+					>
+						Grouped View ({scanGroups.length})
+					</button>
+				</div>
+
+				{findingsViewMode === "grouped" && scanGroups.length > 0 && (
+					<div
+						style={{ padding: "10px 16px", borderBottom: "1px solid #e2e8f0" }}
+					>
+						<label
+							htmlFor="group-select"
+							style={{
+								fontSize: "12px",
+								fontWeight: "600",
+								color: "#475569",
+								display: "block",
+								marginBottom: "4px",
+							}}
+						>
+							Select Group
+						</label>
+						<SelectInput
+							id="group-select"
+							value={selectedGroupId}
+							onChange={(e) => setSelectedGroupId(e.target.value)}
+						>
+							<option value="">-- All Groups --</option>
+							{scanGroups.map((g) => (
+								<option key={g.id} value={g.id}>
+									[{g.severity.toUpperCase()}] {g.title} ({g.findingIds.length})
+								</option>
+							))}
+						</SelectInput>
+					</div>
+				)}
+
 				<div className="scans-list">
-					{findings.length > 0 ? (
-						findings.map((fnd) => (
+					{displayedFindings.length > 0 ? (
+						displayedFindings.map((fnd) => (
 							<button
 								key={fnd.id}
 								type="button"
 								className={`finding-item ${
 									selectedFindingId === fnd.id ? "active" : ""
 								}`}
-								onClick={() => setSelectedFindingId(fnd.id)}
+								onClick={() => {
+									setSelectedFindingId(fnd.id);
+									setViewingReport(false);
+								}}
 							>
 								<div className="finding-meta-row">
 									<span
@@ -339,6 +957,21 @@ export const ScansDomainSection = ({
 									<span style={{ fontSize: "11px", color: "#64748b" }}>
 										{fnd.sourceTool}
 									</span>
+									{fnd.latestDecision?.decision ? (
+										<span
+											className={`decision-badge badge-${fnd.latestDecision.decision}`}
+											style={{ marginLeft: "auto" }}
+										>
+											{fnd.latestDecision.decision.replace("_", " ")}
+										</span>
+									) : (
+										<span
+											className="decision-badge badge-open"
+											style={{ marginLeft: "auto" }}
+										>
+											Open
+										</span>
+									)}
 								</div>
 								<h4 className="finding-title">{fnd.title}</h4>
 								{fnd.primaryLocation?.path ? (
@@ -363,485 +996,1262 @@ export const ScansDomainSection = ({
 
 			{/* Finding Details & LLM Review Details */}
 			<section className="scans-panel scans-detail-col">
-				<div className="scans-panel-header">
-					<h2>Finding Analysis & LLM Review</h2>
-				</div>
-
-				{selectedFindingDetails ? (
-					<div className="scans-detail-scroll">
-						{/* Title Section */}
-						<div className="detail-section">
-							<div
-								style={{
-									display: "flex",
-									alignItems: "center",
-									gap: "10px",
-									flexWrap: "wrap",
-								}}
+				{viewingReport ? (
+					<>
+						<div
+							className="scans-panel-header"
+							style={{
+								display: "flex",
+								flexDirection: "row",
+								alignItems: "center",
+								justifyContent: "space-between",
+							}}
+						>
+							<h2>
+								{selectedReport
+									? `Report: ${selectedReport.title}`
+									: "Scan Report"}
+							</h2>
+							<Button
+								type="button"
+								variant="secondary"
+								onClick={() => setViewingReport(false)}
 							>
-								<span
-									className={`severity-badge ${getSeverityClass(
-										selectedFindingDetails.finding.severity,
-									)}`}
-									style={{ fontSize: "12px", padding: "4px 8px" }}
-								>
-									{selectedFindingDetails.finding.severity}
-								</span>
-								<span
-									style={{
-										fontSize: "13px",
-										fontWeight: "600",
-										color: "#475569",
-									}}
-								>
-									Tool: {selectedFindingDetails.finding.sourceTool}
-								</span>
-								<span
-									style={{
-										fontSize: "13px",
-										color: "#64748b",
-										fontFamily: "monospace",
-									}}
-								>
-									Rule: {selectedFindingDetails.finding.ruleId}
-								</span>
-							</div>
-							<h1
-								style={{
-									margin: "8px 0 4px",
-									fontSize: "20px",
-									fontWeight: "800",
-									color: "#0f172a",
-									lineHeight: "1.3",
-								}}
-							>
-								{selectedFindingDetails.finding.title}
-							</h1>
-							<p style={{ margin: 0, fontSize: "14px", color: "#334155" }}>
-								{selectedFindingDetails.finding.description}
-							</p>
+								Back to Findings
+							</Button>
 						</div>
-
-						{/* Primary Location and Evidence Code Snippet */}
-						{selectedFindingDetails.finding.primaryLocation ? (
-							<div className="detail-section">
-								<h3 className="detail-section-title">Primary Location</h3>
-								<div className="code-snippet-box">
-									<div className="code-snippet-header">
-										<div className="code-snippet-title">
-											{String(
-												selectedFindingDetails.finding.primaryLocation.path,
-											)}
-											{selectedFindingDetails.finding.primaryLocation.startLine
-												? `#L${selectedFindingDetails.finding.primaryLocation.startLine}`
-												: ""}
-											{selectedFindingDetails.finding.primaryLocation.endLine &&
-											selectedFindingDetails.finding.primaryLocation.endLine !==
-												selectedFindingDetails.finding.primaryLocation.startLine
-												? `-L${selectedFindingDetails.finding.primaryLocation.endLine}`
-												: ""}
-										</div>
-									</div>
-									<pre className="code-snippet-body">
-										<code>
-											{selectedFindingDetails.evidence.find(
-												(ev) => ev.kind === "source-location" && ev.snippet,
-											)?.snippet ||
-												(typeof selectedFindingDetails.finding.metadata
-													?.snippet === "string"
-													? selectedFindingDetails.finding.metadata.snippet
-													: "") ||
-												"// Snippet not available"}
-										</code>
-									</pre>
-								</div>
-							</div>
-						) : null}
-
-						{/* LLM Review Actions and Results */}
-						<div className="detail-section">
-							<h3 className="detail-section-title">LLM Finding Review</h3>
-
-							<div
-								style={{
-									display: "flex",
-									justifyContent: "space-between",
-									alignItems: "center",
-									gap: "12px",
-									flexWrap: "wrap",
-									marginBottom: "10px",
-								}}
-							>
-								<div
-									style={{ display: "flex", alignItems: "center", gap: "8px" }}
-								>
-									<Brain
-										className="icon text-teal-700"
-										style={{ width: "20px", height: "20px" }}
-									/>
-									<strong style={{ fontSize: "15px", color: "#0f172a" }}>
-										Review Status:
-									</strong>
-									{selectedFindingDetails.latestReview ? (
-										<span
-											className={`reviewer-header-badge reviewer-badge-${selectedFindingDetails.latestReview.status}`}
-										>
-											{getStatusIcon(
-												selectedFindingDetails.latestReview.status,
-											)}
-											<span style={{ textTransform: "capitalize" }}>
-												{selectedFindingDetails.latestReview.status}
-											</span>
-										</span>
-									) : (
-										<span
-											style={{
-												fontSize: "14px",
-												color: "#64748b",
-												fontStyle: "italic",
-											}}
-										>
-											No reviews conducted yet
-										</span>
-									)}
-								</div>
-
-								<Button
-									type="button"
-									variant="primary"
-									onClick={() => void handleTriggerReview()}
-									disabled={
-										busy ||
-										reviewLoading ||
-										selectedFindingDetails.latestReview?.status === "running"
-									}
-									style={{
-										display: "inline-flex",
-										alignItems: "center",
-										gap: "6px",
-									}}
-								>
-									{reviewLoading ||
-									selectedFindingDetails.latestReview?.status === "running" ? (
-										<RefreshCw className="icon animate-spin" />
-									) : (
-										<Sparkles className="icon" />
-									)}
-									<span>Run LLM Review</span>
-								</Button>
-							</div>
-
-							{selectedFindingDetails.latestReview ? (
+						<div className="scans-detail-scroll" style={{ padding: "20px" }}>
+							{selectedReport ? (
 								<div
 									style={{
 										display: "flex",
 										flexDirection: "column",
-										gap: "16px",
+										gap: "15px",
 									}}
 								>
-									{/* Review Info Bar */}
-									<div className="review-header-panel">
-										<div className="review-meta">
-											<div className="review-meta-item">
-												<strong>LLM Service:</strong>{" "}
-												{selectedFindingDetails.latestReview.provider} /{" "}
-												{selectedFindingDetails.latestReview.model}
-											</div>
-											<div className="review-meta-item">
-												<strong>Started:</strong>{" "}
-												{formatDateTime(
-													selectedFindingDetails.latestReview.startedAt,
-												)}
-											</div>
-											{selectedFindingDetails.latestReview.completedAt ? (
-												<div className="review-meta-item">
-													<strong>Completed:</strong>{" "}
-													{formatDateTime(
-														selectedFindingDetails.latestReview.completedAt,
-													)}
-												</div>
-											) : null}
-										</div>
+									<div
+										style={{
+											display: "flex",
+											alignItems: "center",
+											gap: "10px",
+										}}
+									>
+										<span
+											className={`scan-status-badge badge-${selectedReport.status}`}
+										>
+											Status: {selectedReport.status}
+										</span>
+										<small style={{ color: "#64748b" }}>
+											Created: {formatDateTime(selectedReport.createdAt as any)}
+										</small>
+										{selectedReport.status === "completed" && (
+											<a
+												href={`/api/scan-reports/${selectedReport.id}/download`}
+												download
+												className="button button-primary"
+												style={{
+													marginLeft: "auto",
+													textDecoration: "none",
+													display: "inline-flex",
+													alignItems: "center",
+													gap: "5px",
+													padding: "6px 12px",
+													background: "#0f172a",
+													color: "#fff",
+													borderRadius: "6px",
+													fontSize: "13px",
+													fontWeight: "600",
+												}}
+											>
+												<Download size={14} /> Download Report
+											</a>
+										)}
 									</div>
-
-									{selectedFindingDetails.latestReview.status === "failed" &&
-									selectedFindingDetails.latestReview.errorMessage ? (
+									{selectedReport.status === "running" && (
 										<div
 											style={{
-												background: "#fef2f2",
-												border: "1px solid #fee2e2",
-												borderRadius: "8px",
-												padding: "12px 16px",
-												color: "#b91c1c",
-												fontSize: "13px",
+												padding: "40px",
+												textAlign: "center",
+												color: "#64748b",
 											}}
 										>
-											<strong style={{ display: "block", marginBottom: "4px" }}>
-												Review Failed Error:
-											</strong>
-											{selectedFindingDetails.latestReview.errorMessage}
+											<RefreshCw
+												className="animate-spin"
+												style={{ margin: "0 auto 10px", display: "block" }}
+											/>
+											Generating report...
 										</div>
-									) : null}
-
-									{selectedFindingDetails.latestReview.status ===
-									"completed" ? (
-										<>
-											{/* Assessment Cards Grid */}
-											<div className="assessment-grid">
-												{/* False Positive Assessment */}
-												{selectedFindingDetails.latestReview
-													.falsePositiveAssessment ? (
-													<div className="assessment-card">
-														<div className="assessment-card-header">
-															<span className="assessment-card-title">
-																False Positive
-															</span>
-															<span
-																className={`assessment-card-value val-fp-${selectedFindingDetails.latestReview.falsePositiveAssessment.level}`}
-															>
-																{
-																	selectedFindingDetails.latestReview
-																		.falsePositiveAssessment.level
-																}
-															</span>
-														</div>
-														<p className="assessment-card-reasoning">
-															{
-																selectedFindingDetails.latestReview
-																	.falsePositiveAssessment.reasoning
-															}
-														</p>
-													</div>
-												) : null}
-
-												{/* Evidence Strength */}
-												{selectedFindingDetails.latestReview
-													.evidenceStrength ? (
-													<div className="assessment-card">
-														<div className="assessment-card-header">
-															<span className="assessment-card-title">
-																Evidence Strength
-															</span>
-															<span
-																className={`assessment-card-value val-strength-${selectedFindingDetails.latestReview.evidenceStrength.level}`}
-															>
-																{
-																	selectedFindingDetails.latestReview
-																		.evidenceStrength.level
-																}
-															</span>
-														</div>
-														<p className="assessment-card-reasoning">
-															{
-																selectedFindingDetails.latestReview
-																	.evidenceStrength.reasoning
-															}
-														</p>
-													</div>
-												) : null}
-
-												{/* Confidence Adjustment */}
-												{selectedFindingDetails.latestReview
-													.confidenceAdjustment ? (
-													<div className="assessment-card">
-														<div className="assessment-card-header">
-															<span className="assessment-card-title">
-																Confidence Adj.
-															</span>
-															<span
-																className={`assessment-card-value val-adj-${selectedFindingDetails.latestReview.confidenceAdjustment}`}
-															>
-																{
-																	selectedFindingDetails.latestReview
-																		.confidenceAdjustment
-																}
-															</span>
-														</div>
-														<p className="assessment-card-reasoning">
-															The reviewer suggested a{" "}
-															<strong>
-																{
-																	selectedFindingDetails.latestReview
-																		.confidenceAdjustment
-																}
-															</strong>{" "}
-															to the tool's finding confidence rating based on
-															the evidence structure.
-														</p>
-													</div>
-												) : null}
-											</div>
-
-											{/* Likely Impact */}
-											{selectedFindingDetails.latestReview.likelyImpact ? (
-												<div className="detail-section">
-													<div
-														style={{
-															display: "flex",
-															alignItems: "center",
-															gap: "6px",
-															fontWeight: "700",
-															fontSize: "13px",
-															color: "#475569",
-														}}
-													>
-														<AlertTriangle className="icon" />
-														<span>LIKELY IMPACT & SEVERITY ASSESSMENT</span>
-													</div>
-													<div
-														style={{
-															background: "#fff",
-															border: "1px solid #e2e8f0",
-															borderRadius: "8px",
-															padding: "12px 16px",
-															fontSize: "13px",
-															color: "#334155",
-															lineHeight: "1.5",
-														}}
-													>
-														{selectedFindingDetails.latestReview.likelyImpact}
-													</div>
-												</div>
-											) : null}
-
-											{/* Remediation Direction */}
-											{selectedFindingDetails.latestReview
-												.remediationDirection ? (
-												<div className="detail-section">
-													<div
-														style={{
-															display: "flex",
-															alignItems: "center",
-															gap: "6px",
-															fontWeight: "700",
-															fontSize: "13px",
-															color: "#475569",
-														}}
-													>
-														<Code className="icon" />
-														<span>REMEDIATION DIRECTION</span>
-													</div>
-													<pre className="remediation-box">
-														<code>
-															{
-																selectedFindingDetails.latestReview
-																	.remediationDirection
-															}
-														</code>
-													</pre>
-												</div>
-											) : null}
-
-											{/* Reviewer Notes */}
-											{selectedFindingDetails.latestReview.reviewerNotes &&
-											selectedFindingDetails.latestReview.reviewerNotes.length >
-												0 ? (
-												<div className="detail-section">
-													<div
-														style={{
-															display: "flex",
-															alignItems: "center",
-															gap: "6px",
-															fontWeight: "700",
-															fontSize: "13px",
-															color: "#475569",
-														}}
-													>
-														<Info className="icon" />
-														<span>ADDITIONAL REVIEWER NOTES</span>
-													</div>
-													<ul className="notes-list">
-														{selectedFindingDetails.latestReview.reviewerNotes.map(
-															(note, idx) => (
-																// biome-ignore lint/suspicious/noArrayIndexKey: index is safe here
-																<li key={idx}>{note}</li>
-															),
-														)}
-													</ul>
-												</div>
-											) : null}
-										</>
-									) : null}
-
-									{/* Historical Reviews List */}
-									{allReviews.length > 1 ? (
+									)}
+									{selectedReport.status === "failed" && (
 										<div
-											className="detail-section"
-											style={{ marginTop: "10px" }}
+											style={{
+												padding: "20px",
+												background: "#fef2f2",
+												border: "1px solid #fca5a5",
+												borderRadius: "8px",
+												color: "#b91c1c",
+											}}
 										>
-											<h4
+											<strong>Generation Failed</strong>
+											<p
 												style={{
-													fontSize: "12px",
-													fontWeight: "700",
-													color: "#64748b",
-													textTransform: "uppercase",
-													letterSpacing: "0.05em",
+													marginTop: "5px",
+													marginBottom: 0,
+													fontSize: "13px",
 												}}
 											>
-												Prior Reviews History ({allReviews.length})
-											</h4>
-											<div
-												style={{
-													display: "flex",
-													flexDirection: "column",
-													gap: "6px",
-													maxHeight: "150px",
-													overflowY: "auto",
-													border: "1px solid #e2e8f0",
-													borderRadius: "8px",
-													padding: "8px",
-													background: "#f8fafc",
-												}}
-											>
-												{allReviews.map((rev) => (
-													<div
-														key={rev.id}
-														style={{
-															display: "flex",
-															justifyContent: "space-between",
-															alignItems: "center",
-															fontSize: "12px",
-															padding: "6px",
-															borderRadius: "4px",
-															border:
-																rev.id ===
-																selectedFindingDetails.latestReview?.id
-																	? "1px solid #cbd5e1"
-																	: "1px solid transparent",
-															background:
-																rev.id ===
-																selectedFindingDetails.latestReview?.id
-																	? "#fff"
-																	: "transparent",
-														}}
-													>
-														<span style={{ color: "#334155" }}>
-															{rev.provider} ({rev.model}) -{" "}
-															{formatDateTime(rev.completedAt || rev.createdAt)}
-														</span>
-														<span
-															className={`scan-status-badge badge-${rev.status}`}
-															style={{ fontSize: "10px", padding: "1px 5px" }}
-														>
-															{rev.status}
-														</span>
-													</div>
-												))}
-											</div>
+												{selectedReport.errorMessage}
+											</p>
+										</div>
+									)}
+									{selectedReport.status === "completed" &&
+									reportPreviewContent ? (
+										<div
+											className="artifact-renderer"
+											style={{
+												border: "1px solid #e2e8f0",
+												borderRadius: "8px",
+												padding: "16px",
+												background: "#fff",
+											}}
+										>
+											<MarkdownEditor
+												value={reportPreviewContent}
+												editable={false}
+												enableMermaid={true}
+												mermaidLib={mermaid}
+												toolbarMode="hidden"
+												autoHeight={true}
+												className="wysiwyg-viewer"
+											/>
+										</div>
+									) : selectedReport.status === "completed" ? (
+										<div
+											style={{
+												padding: "20px",
+												textAlign: "center",
+												color: "#64748b",
+											}}
+										>
+											Loading report preview...
 										</div>
 									) : null}
 								</div>
-							) : null}
+							) : (
+								<div
+									style={{
+										padding: "40px",
+										textAlign: "center",
+										color: "#64748b",
+									}}
+								>
+									No report selected.
+								</div>
+							)}
 						</div>
-					</div>
+					</>
 				) : (
-					<div
-						className="tree-info"
-						style={{ padding: "40px 20px", textAlign: "center" }}
-					>
-						Select a finding from the list to view its details and
-						trigger/review LLM assessments.
-					</div>
+					<>
+						<div className="scans-panel-header">
+							<h2>Finding Analysis & LLM Review</h2>
+						</div>
+
+						{selectedFindingDetails ? (
+							<div className="scans-detail-scroll">
+								{/* Title Section */}
+								<div className="detail-section">
+									<div
+										style={{
+											display: "flex",
+											alignItems: "center",
+											gap: "10px",
+											flexWrap: "wrap",
+										}}
+									>
+										<span
+											className={`severity-badge ${getSeverityClass(
+												selectedFindingDetails.finding.severity,
+											)}`}
+											style={{ fontSize: "12px", padding: "4px 8px" }}
+										>
+											{selectedFindingDetails.finding.severity}
+										</span>
+										<span
+											style={{
+												fontSize: "13px",
+												fontWeight: "600",
+												color: "#475569",
+											}}
+										>
+											Tool: {selectedFindingDetails.finding.sourceTool}
+										</span>
+										<span
+											style={{
+												fontSize: "13px",
+												color: "#64748b",
+												fontFamily: "monospace",
+											}}
+										>
+											Rule: {selectedFindingDetails.finding.ruleId}
+										</span>
+									</div>
+									<h1
+										style={{
+											margin: "8px 0 4px",
+											fontSize: "20px",
+											fontWeight: "800",
+											color: "#0f172a",
+											lineHeight: "1.3",
+										}}
+									>
+										{selectedFindingDetails.finding.title}
+									</h1>
+									<p style={{ margin: 0, fontSize: "14px", color: "#334155" }}>
+										{selectedFindingDetails.finding.description}
+									</p>
+								</div>
+
+								{/* Primary Location and Evidence Code Snippet */}
+								{selectedFindingDetails.finding.primaryLocation ? (
+									<div className="detail-section">
+										<h3 className="detail-section-title">Primary Location</h3>
+										<div className="code-snippet-box">
+											<div className="code-snippet-header">
+												<div className="code-snippet-title">
+													{String(
+														selectedFindingDetails.finding.primaryLocation.path,
+													)}
+													{selectedFindingDetails.finding.primaryLocation
+														.startLine
+														? `#L${selectedFindingDetails.finding.primaryLocation.startLine}`
+														: ""}
+													{selectedFindingDetails.finding.primaryLocation
+														.endLine &&
+													selectedFindingDetails.finding.primaryLocation
+														.endLine !==
+														selectedFindingDetails.finding.primaryLocation
+															.startLine
+														? `-L${selectedFindingDetails.finding.primaryLocation.endLine}`
+														: ""}
+												</div>
+											</div>
+											<pre className="code-snippet-body">
+												<code>
+													{selectedFindingDetails.evidence.find(
+														(ev) => ev.kind === "source-location" && ev.snippet,
+													)?.snippet ||
+														(typeof selectedFindingDetails.finding.metadata
+															?.snippet === "string"
+															? selectedFindingDetails.finding.metadata.snippet
+															: "") ||
+														"// Snippet not available"}
+												</code>
+											</pre>
+										</div>
+									</div>
+								) : null}
+
+								{/* LLM Review Actions and Results */}
+								<div className="detail-section">
+									<h3 className="detail-section-title">LLM Finding Review</h3>
+
+									<div
+										style={{
+											display: "flex",
+											justifyContent: "space-between",
+											alignItems: "center",
+											gap: "12px",
+											flexWrap: "wrap",
+											marginBottom: "10px",
+										}}
+									>
+										<div
+											style={{
+												display: "flex",
+												alignItems: "center",
+												gap: "8px",
+											}}
+										>
+											<Brain
+												className="icon text-teal-700"
+												style={{ width: "20px", height: "20px" }}
+											/>
+											<strong style={{ fontSize: "15px", color: "#0f172a" }}>
+												Review Status:
+											</strong>
+											{selectedFindingDetails.latestReview ? (
+												<span
+													className={`reviewer-header-badge reviewer-badge-${selectedFindingDetails.latestReview.status}`}
+												>
+													{getStatusIcon(
+														selectedFindingDetails.latestReview.status,
+													)}
+													<span style={{ textTransform: "capitalize" }}>
+														{selectedFindingDetails.latestReview.status}
+													</span>
+												</span>
+											) : (
+												<span
+													style={{
+														fontSize: "14px",
+														color: "#64748b",
+														fontStyle: "italic",
+													}}
+												>
+													No reviews conducted yet
+												</span>
+											)}
+										</div>
+
+										<Button
+											type="button"
+											variant="primary"
+											onClick={() => void handleTriggerReview()}
+											disabled={
+												busy ||
+												reviewLoading ||
+												selectedFindingDetails.latestReview?.status ===
+													"running"
+											}
+											style={{
+												display: "inline-flex",
+												alignItems: "center",
+												gap: "6px",
+											}}
+										>
+											{reviewLoading ||
+											selectedFindingDetails.latestReview?.status ===
+												"running" ? (
+												<RefreshCw className="icon animate-spin" />
+											) : (
+												<Sparkles className="icon" />
+											)}
+											<span>Run LLM Review</span>
+										</Button>
+									</div>
+
+									{selectedFindingDetails.latestReview ? (
+										<div
+											style={{
+												display: "flex",
+												flexDirection: "column",
+												gap: "16px",
+											}}
+										>
+											{/* Review Info Bar */}
+											<div className="review-header-panel">
+												<div className="review-meta">
+													<div className="review-meta-item">
+														<strong>LLM Service:</strong>{" "}
+														{selectedFindingDetails.latestReview.provider} /{" "}
+														{selectedFindingDetails.latestReview.model}
+													</div>
+													<div className="review-meta-item">
+														<strong>Started:</strong>{" "}
+														{formatDateTime(
+															selectedFindingDetails.latestReview.startedAt,
+														)}
+													</div>
+													{selectedFindingDetails.latestReview.completedAt ? (
+														<div className="review-meta-item">
+															<strong>Completed:</strong>{" "}
+															{formatDateTime(
+																selectedFindingDetails.latestReview.completedAt,
+															)}
+														</div>
+													) : null}
+												</div>
+											</div>
+
+											{selectedFindingDetails.latestReview.status ===
+												"failed" &&
+											selectedFindingDetails.latestReview.errorMessage ? (
+												<div
+													style={{
+														background: "#fef2f2",
+														border: "1px solid #fee2e2",
+														borderRadius: "8px",
+														padding: "12px 16px",
+														color: "#b91c1c",
+														fontSize: "13px",
+													}}
+												>
+													<strong
+														style={{ display: "block", marginBottom: "4px" }}
+													>
+														Review Failed Error:
+													</strong>
+													{selectedFindingDetails.latestReview.errorMessage}
+												</div>
+											) : null}
+
+											{selectedFindingDetails.latestReview.status ===
+											"completed" ? (
+												<>
+													{/* Assessment Cards Grid */}
+													<div className="assessment-grid">
+														{/* False Positive Assessment */}
+														{selectedFindingDetails.latestReview
+															.falsePositiveAssessment ? (
+															<div className="assessment-card">
+																<div className="assessment-card-header">
+																	<span className="assessment-card-title">
+																		False Positive
+																	</span>
+																	<span
+																		className={`assessment-card-value val-fp-${selectedFindingDetails.latestReview.falsePositiveAssessment.level}`}
+																	>
+																		{
+																			selectedFindingDetails.latestReview
+																				.falsePositiveAssessment.level
+																		}
+																	</span>
+																</div>
+																<p className="assessment-card-reasoning">
+																	{
+																		selectedFindingDetails.latestReview
+																			.falsePositiveAssessment.reasoning
+																	}
+																</p>
+															</div>
+														) : null}
+
+														{/* Evidence Strength */}
+														{selectedFindingDetails.latestReview
+															.evidenceStrength ? (
+															<div className="assessment-card">
+																<div className="assessment-card-header">
+																	<span className="assessment-card-title">
+																		Evidence Strength
+																	</span>
+																	<span
+																		className={`assessment-card-value val-strength-${selectedFindingDetails.latestReview.evidenceStrength.level}`}
+																	>
+																		{
+																			selectedFindingDetails.latestReview
+																				.evidenceStrength.level
+																		}
+																	</span>
+																</div>
+																<p className="assessment-card-reasoning">
+																	{
+																		selectedFindingDetails.latestReview
+																			.evidenceStrength.reasoning
+																	}
+																</p>
+															</div>
+														) : null}
+
+														{/* Confidence Adjustment */}
+														{selectedFindingDetails.latestReview
+															.confidenceAdjustment ? (
+															<div className="assessment-card">
+																<div className="assessment-card-header">
+																	<span className="assessment-card-title">
+																		Confidence Adj.
+																	</span>
+																	<span
+																		className={`assessment-card-value val-adj-${selectedFindingDetails.latestReview.confidenceAdjustment}`}
+																	>
+																		{
+																			selectedFindingDetails.latestReview
+																				.confidenceAdjustment
+																		}
+																	</span>
+																</div>
+																<p className="assessment-card-reasoning">
+																	The reviewer suggested a{" "}
+																	<strong>
+																		{
+																			selectedFindingDetails.latestReview
+																				.confidenceAdjustment
+																		}
+																	</strong>{" "}
+																	to the tool's finding confidence rating based
+																	on the evidence structure.
+																</p>
+															</div>
+														) : null}
+													</div>
+
+													{/* Likely Impact */}
+													{selectedFindingDetails.latestReview.likelyImpact ? (
+														<div className="detail-section">
+															<div
+																style={{
+																	display: "flex",
+																	alignItems: "center",
+																	gap: "6px",
+																	fontWeight: "700",
+																	fontSize: "13px",
+																	color: "#475569",
+																}}
+															>
+																<AlertTriangle className="icon" />
+																<span>LIKELY IMPACT & SEVERITY ASSESSMENT</span>
+															</div>
+															<div
+																style={{
+																	background: "#fff",
+																	border: "1px solid #e2e8f0",
+																	borderRadius: "8px",
+																	padding: "12px 16px",
+																	fontSize: "13px",
+																	color: "#334155",
+																	lineHeight: "1.5",
+																}}
+															>
+																{
+																	selectedFindingDetails.latestReview
+																		.likelyImpact
+																}
+															</div>
+														</div>
+													) : null}
+
+													{/* Remediation Direction */}
+													{selectedFindingDetails.latestReview
+														.remediationDirection ? (
+														<div className="detail-section">
+															<div
+																style={{
+																	display: "flex",
+																	alignItems: "center",
+																	gap: "6px",
+																	fontWeight: "700",
+																	fontSize: "13px",
+																	color: "#475569",
+																}}
+															>
+																<Code className="icon" />
+																<span>REMEDIATION DIRECTION</span>
+															</div>
+															<pre className="remediation-box">
+																<code>
+																	{
+																		selectedFindingDetails.latestReview
+																			.remediationDirection
+																	}
+																</code>
+															</pre>
+														</div>
+													) : null}
+
+													{/* Reviewer Notes */}
+													{selectedFindingDetails.latestReview.reviewerNotes &&
+													selectedFindingDetails.latestReview.reviewerNotes
+														.length > 0 ? (
+														<div className="detail-section">
+															<div
+																style={{
+																	display: "flex",
+																	alignItems: "center",
+																	gap: "6px",
+																	fontWeight: "700",
+																	fontSize: "13px",
+																	color: "#475569",
+																}}
+															>
+																<Info className="icon" />
+																<span>ADDITIONAL REVIEWER NOTES</span>
+															</div>
+															<ul className="notes-list">
+																{selectedFindingDetails.latestReview.reviewerNotes.map(
+																	(note, idx) => (
+																		// biome-ignore lint/suspicious/noArrayIndexKey: index is safe here
+																		<li key={idx}>{note}</li>
+																	),
+																)}
+															</ul>
+														</div>
+													) : null}
+												</>
+											) : null}
+
+											{/* Historical Reviews List */}
+											{allReviews.length > 1 ? (
+												<div
+													className="detail-section"
+													style={{ marginTop: "10px" }}
+												>
+													<h4
+														style={{
+															fontSize: "12px",
+															fontWeight: "700",
+															color: "#64748b",
+															textTransform: "uppercase",
+															letterSpacing: "0.05em",
+														}}
+													>
+														Prior Reviews History ({allReviews.length})
+													</h4>
+													<div
+														style={{
+															display: "flex",
+															flexDirection: "column",
+															gap: "6px",
+															maxHeight: "150px",
+															overflowY: "auto",
+															border: "1px solid #e2e8f0",
+															borderRadius: "8px",
+															padding: "8px",
+															background: "#f8fafc",
+														}}
+													>
+														{allReviews.map((rev) => (
+															<div
+																key={rev.id}
+																style={{
+																	display: "flex",
+																	justifyContent: "space-between",
+																	alignItems: "center",
+																	fontSize: "12px",
+																	padding: "6px",
+																	borderRadius: "4px",
+																	border:
+																		rev.id ===
+																		selectedFindingDetails.latestReview?.id
+																			? "1px solid #cbd5e1"
+																			: "1px solid transparent",
+																	background:
+																		rev.id ===
+																		selectedFindingDetails.latestReview?.id
+																			? "#fff"
+																			: "transparent",
+																}}
+															>
+																<span style={{ color: "#334155" }}>
+																	{rev.provider} ({rev.model}) -{" "}
+																	{formatDateTime(
+																		rev.completedAt || rev.createdAt,
+																	)}
+																</span>
+																<span
+																	className={`scan-status-badge badge-${rev.status}`}
+																	style={{
+																		fontSize: "10px",
+																		padding: "1px 5px",
+																	}}
+																>
+																	{rev.status}
+																</span>
+															</div>
+														))}
+													</div>
+												</div>
+											) : null}
+										</div>
+									) : null}
+								</div>
+
+								{/* Reviewer Decision Section */}
+								<div
+									className="detail-section"
+									style={{ borderTop: "1px solid #e2e8f0", paddingTop: "20px" }}
+								>
+									<div
+										style={{
+											display: "flex",
+											alignItems: "center",
+											gap: "8px",
+											marginBottom: "10px",
+										}}
+									>
+										<Shield
+											className="icon text-teal-700"
+											style={{ width: "20px", height: "20px" }}
+										/>
+										<h3
+											style={{
+												fontSize: "16px",
+												fontWeight: "700",
+												color: "#0f172a",
+												margin: 0,
+											}}
+										>
+											Reviewer Decision
+										</h3>
+									</div>
+
+									<div className="decision-panel">
+										<form
+											onSubmit={handleDecisionSubmit}
+											style={{
+												display: "flex",
+												flexDirection: "column",
+												gap: "16px",
+											}}
+										>
+											<div className="decision-form-row">
+												<div className="decision-form-field">
+													<label htmlFor="decision-select">
+														Decision State
+													</label>
+													<select
+														id="decision-select"
+														value={decisionInput}
+														onChange={(e) =>
+															setDecisionInput(
+																e.target.value as
+																	| "accepted"
+																	| "false_positive"
+																	| "deferred"
+																	| "needs_fix",
+															)
+														}
+														required
+													>
+														<option value="accepted">Accepted</option>
+														<option value="false_positive">
+															False Positive
+														</option>
+														<option value="deferred">Deferred</option>
+														<option value="needs_fix">Needs Fix</option>
+													</select>
+												</div>
+
+												<div className="decision-form-field">
+													<label htmlFor="reason-select">Reason</label>
+													<select
+														id="reason-select"
+														value={reasonInput}
+														onChange={(e) => setReasonInput(e.target.value)}
+														required
+													>
+														<option value="confirmed_by_evidence">
+															Confirmed by Evidence
+														</option>
+														<option value="confirmed_by_review">
+															Confirmed by Review
+														</option>
+														<option value="insufficient_evidence">
+															Insufficient Evidence
+														</option>
+														<option value="environment_specific">
+															Environment Specific
+														</option>
+														<option value="tool_noise">Tool Noise</option>
+														<option value="not_exploitable">
+															Not Exploitable
+														</option>
+														<option value="accepted_risk">Accepted Risk</option>
+														<option value="other">Other</option>
+													</select>
+												</div>
+											</div>
+
+											<div className="decision-form-field">
+												<label htmlFor="comment-textarea">
+													Comment / Rationale
+												</label>
+												<textarea
+													id="comment-textarea"
+													rows={3}
+													value={commentInput}
+													onChange={(e) => setCommentInput(e.target.value)}
+													placeholder="Explain the reason for this decision..."
+												/>
+											</div>
+
+											{selectedFindingDetails.latestReview && (
+												<div
+													style={{
+														display: "flex",
+														alignItems: "center",
+														gap: "8px",
+													}}
+												>
+													<input
+														id="link-review-checkbox"
+														type="checkbox"
+														checked={linkReviewInput}
+														onChange={(e) =>
+															setLinkReviewInput(e.target.checked)
+														}
+														style={{ cursor: "pointer" }}
+													/>
+													<label
+														htmlFor="link-review-checkbox"
+														style={{
+															fontSize: "13px",
+															color: "#475569",
+															cursor: "pointer",
+														}}
+													>
+														Link to latest LLM Review (
+														{selectedFindingDetails.latestReview.model})
+													</label>
+												</div>
+											)}
+
+											<div
+												style={{ display: "flex", justifyContent: "flex-end" }}
+											>
+												<Button
+													type="submit"
+													variant="primary"
+													disabled={busy || decisionSubmitLoading}
+												>
+													{decisionSubmitLoading
+														? "Submitting..."
+														: "Record Decision"}
+												</Button>
+											</div>
+										</form>
+									</div>
+								</div>
+
+								{/* Historical Decisions Timeline */}
+								{allDecisions.length > 0 && (
+									<div
+										className="detail-section"
+										style={{
+											borderTop: "1px solid #e2e8f0",
+											paddingTop: "20px",
+										}}
+									>
+										<h4
+											style={{
+												fontSize: "12px",
+												fontWeight: "700",
+												color: "#64748b",
+												textTransform: "uppercase",
+												letterSpacing: "0.05em",
+												marginBottom: "12px",
+											}}
+										>
+											Decision History & Timeline
+										</h4>
+										<div
+											style={{
+												display: "flex",
+												flexDirection: "column",
+												gap: "4px",
+											}}
+										>
+											{allDecisions.map((dec, idx) => (
+												<div
+													key={dec.id}
+													className={`timeline-item ${idx === 0 ? "active-node" : ""}`}
+												>
+													<div
+														style={{
+															flex: 1,
+															display: "flex",
+															flexDirection: "column",
+															gap: "4px",
+														}}
+													>
+														<div
+															style={{
+																display: "flex",
+																alignItems: "center",
+																gap: "8px",
+																flexWrap: "wrap",
+															}}
+														>
+															<span
+																className={`decision-badge badge-${dec.decision}`}
+															>
+																{dec.decision.replace("_", " ")}
+															</span>
+															<span
+																style={{
+																	fontSize: "12px",
+																	fontWeight: "600",
+																	color: "#475569",
+																}}
+															>
+																Reason: {dec.reason.replace(/_/g, " ")}
+															</span>
+															<span
+																style={{
+																	fontSize: "11px",
+																	color: "#94a3b8",
+																	marginLeft: "auto",
+																}}
+															>
+																{formatDateTime(dec.createdAt)}
+															</span>
+														</div>
+														{dec.comment && (
+															<p
+																style={{
+																	margin: "4px 0 0 0",
+																	fontSize: "13px",
+																	color: "#334155",
+																	fontStyle: "italic",
+																}}
+															>
+																"{dec.comment}"
+															</p>
+														)}
+														{dec.linkedReviewId && (
+															<span
+																style={{
+																	fontSize: "11px",
+																	color: "#64748b",
+																	display: "inline-flex",
+																	alignItems: "center",
+																	gap: "4px",
+																	marginTop: "2px",
+																}}
+															>
+																<Brain
+																	style={{ width: "12px", height: "12px" }}
+																/>
+																Linked to LLM Review
+															</span>
+														)}
+													</div>
+												</div>
+											))}
+										</div>
+									</div>
+								)}
+							</div>
+						) : scanSummary ? (
+							<div className="scans-detail-scroll" style={{ padding: "20px" }}>
+								<div
+									className="detail-section"
+									style={{
+										borderBottom: "1px solid #e2e8f0",
+										paddingBottom: "20px",
+									}}
+								>
+									<div
+										style={{
+											display: "flex",
+											alignItems: "center",
+											gap: "10px",
+											flexWrap: "wrap",
+											marginBottom: "8px",
+										}}
+									>
+										<span
+											className={`scan-status-badge badge-${scanSummary.profileOutcome}`}
+											style={{ padding: "4px 8px", fontSize: "12px" }}
+										>
+											Outcome:{" "}
+											{scanSummary.profileOutcome
+												.replace(/_/g, " ")
+												.toUpperCase()}
+										</span>
+										<strong style={{ fontSize: "14px", color: "#475569" }}>
+											Profile: {scanSummary.profileId}
+										</strong>
+									</div>
+									<h2
+										style={{
+											fontSize: "20px",
+											fontWeight: "800",
+											color: "#0f172a",
+											margin: "10px 0",
+										}}
+									>
+										Scan Profile Summary
+									</h2>
+									<p style={{ margin: 0, fontSize: "14px", color: "#475569" }}>
+										Review the execution status and results of each tool in the
+										profile.
+									</p>
+								</div>
+
+								<div
+									className="detail-section"
+									style={{
+										borderBottom: "1px solid #e2e8f0",
+										paddingBottom: "20px",
+										marginTop: "20px",
+									}}
+								>
+									<h3
+										className="detail-section-title"
+										style={{ marginBottom: "15px" }}
+									>
+										Tool Results
+									</h3>
+									<div
+										style={{
+											display: "flex",
+											flexDirection: "column",
+											gap: "12px",
+										}}
+									>
+										{scanSummary.tools.map((t) => (
+											<div
+												key={t.toolId}
+												style={{
+													background: "#f8fafc",
+													borderRadius: "8px",
+													border: "1px solid #e2e8f0",
+													padding: "14px",
+												}}
+											>
+												<div
+													style={{
+														display: "flex",
+														alignItems: "center",
+														justifyContent: "space-between",
+														marginBottom: "10px",
+													}}
+												>
+													<strong
+														style={{
+															color: "#0f172a",
+															fontSize: "14px",
+															textTransform: "capitalize",
+														}}
+													>
+														{t.toolId}
+													</strong>
+													<div
+														style={{
+															display: "flex",
+															gap: "6px",
+															alignItems: "center",
+														}}
+													>
+														{t.required && (
+															<span
+																style={{
+																	fontSize: "11px",
+																	background: "#fee2e2",
+																	color: "#ef4444",
+																	padding: "2px 6px",
+																	borderRadius: "4px",
+																	fontWeight: "600",
+																}}
+															>
+																Required
+															</span>
+														)}
+														<span
+															className={`scan-status-badge badge-${t.status}`}
+															style={{ fontSize: "11px", padding: "2px 6px" }}
+														>
+															{t.status}
+														</span>
+													</div>
+												</div>
+												{t.status === "completed" && (
+													<div
+														style={{
+															display: "grid",
+															gridTemplateColumns: "1fr 1fr 1fr",
+															gap: "10px",
+															marginTop: "10px",
+														}}
+													>
+														<div
+															style={{
+																background: "#fff",
+																padding: "8px",
+																borderRadius: "6px",
+																border: "1px solid #f1f5f9",
+																textAlign: "center",
+															}}
+														>
+															<div
+																style={{ fontSize: "11px", color: "#64748b" }}
+															>
+																Findings
+															</div>
+															<strong
+																style={{ fontSize: "16px", color: "#0f172a" }}
+															>
+																{t.findingCount}
+															</strong>
+														</div>
+														<div
+															style={{
+																background: "#fff",
+																padding: "8px",
+																borderRadius: "6px",
+																border: "1px solid #f1f5f9",
+																textAlign: "center",
+															}}
+														>
+															<div
+																style={{ fontSize: "11px", color: "#64748b" }}
+															>
+																Artifacts
+															</div>
+															<strong
+																style={{ fontSize: "16px", color: "#0f172a" }}
+															>
+																{t.artifactCount}
+															</strong>
+														</div>
+														<div
+															style={{
+																background: "#fff",
+																padding: "8px",
+																borderRadius: "6px",
+																border: "1px solid #f1f5f9",
+																textAlign: "center",
+															}}
+														>
+															<div
+																style={{ fontSize: "11px", color: "#64748b" }}
+															>
+																Exit Code
+															</div>
+															<strong
+																style={{ fontSize: "16px", color: "#0f172a" }}
+															>
+																{t.exitCode ?? 0}
+															</strong>
+														</div>
+													</div>
+												)}
+												{t.status === "completed" && t.findingCount > 0 && (
+													<div
+														style={{
+															display: "flex",
+															gap: "8px",
+															flexWrap: "wrap",
+															marginTop: "10px",
+															background: "#fff",
+															padding: "8px",
+															borderRadius: "6px",
+															border: "1px solid #f1f5f9",
+														}}
+													>
+														<span
+															style={{
+																fontSize: "11px",
+																color: "#64748b",
+																display: "block",
+																width: "100%",
+																marginBottom: "4px",
+															}}
+														>
+															Severities:
+														</span>
+														{Object.entries(t.severityCounts)
+															.filter(([_, count]) => count > 0)
+															.map(([sev, count]) => (
+																<span
+																	key={sev}
+																	className={`severity-badge ${getSeverityClass(sev)}`}
+																	style={{
+																		fontSize: "11px",
+																		padding: "2px 6px",
+																	}}
+																>
+																	{sev}: {count}
+																</span>
+															))}
+													</div>
+												)}
+												{t.error && (
+													<div
+														style={{
+															marginTop: "10px",
+															padding: "8px 12px",
+															background: "#fef2f2",
+															color: "#991b1b",
+															fontSize: "12px",
+															borderRadius: "6px",
+															border: "1px solid #fca5a5",
+														}}
+													>
+														<strong>Error:</strong> {t.error}
+													</div>
+												)}
+											</div>
+										))}
+									</div>
+								</div>
+
+								<div className="detail-section" style={{ marginTop: "20px" }}>
+									<h3
+										className="detail-section-title"
+										style={{ marginBottom: "15px" }}
+									>
+										Scan Totals
+									</h3>
+									<div
+										style={{
+											display: "grid",
+											gridTemplateColumns: "1fr 1fr",
+											gap: "12px",
+										}}
+									>
+										<div
+											style={{
+												background: "#f8fafc",
+												border: "1px solid #e2e8f0",
+												padding: "14px",
+												borderRadius: "8px",
+											}}
+										>
+											<div style={{ fontSize: "12px", color: "#64748b" }}>
+												Total Findings
+											</div>
+											<strong style={{ fontSize: "24px", color: "#0f172a" }}>
+												{scanSummary.totals.findingCount}
+											</strong>
+										</div>
+										<div
+											style={{
+												background: "#f8fafc",
+												border: "1px solid #e2e8f0",
+												padding: "14px",
+												borderRadius: "8px",
+											}}
+										>
+											<div style={{ fontSize: "12px", color: "#64748b" }}>
+												Total Artifacts
+											</div>
+											<strong style={{ fontSize: "24px", color: "#0f172a" }}>
+												{scanSummary.totals.artifactCount}
+											</strong>
+										</div>
+										<div
+											style={{
+												background: "#f8fafc",
+												border: "1px solid #e2e8f0",
+												padding: "14px",
+												borderRadius: "8px",
+											}}
+										>
+											<div style={{ fontSize: "12px", color: "#64748b" }}>
+												Reviewed Findings
+											</div>
+											<strong style={{ fontSize: "24px", color: "#0f172a" }}>
+												{scanSummary.totals.reviewedFindingCount}
+											</strong>
+										</div>
+										<div
+											style={{
+												background: "#f8fafc",
+												border: "1px solid #e2e8f0",
+												padding: "14px",
+												borderRadius: "8px",
+											}}
+										>
+											<div style={{ fontSize: "12px", color: "#64748b" }}>
+												Decided Findings
+											</div>
+											<strong style={{ fontSize: "24px", color: "#0f172a" }}>
+												{scanSummary.totals.decidedFindingCount}
+											</strong>
+										</div>
+									</div>
+								</div>
+							</div>
+						) : (
+							<div
+								className="tree-info"
+								style={{ padding: "40px 20px", textAlign: "center" }}
+							>
+								Select a finding from the list to view its details and
+								trigger/review LLM assessments.
+							</div>
+						)}
+					</>
 				)}
 			</section>
 		</main>

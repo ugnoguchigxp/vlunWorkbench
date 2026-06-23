@@ -692,6 +692,26 @@ export type ScanArtifact = {
 	createdAt: string;
 };
 
+export type FindingDecision = {
+	id: string;
+	findingId: string;
+	decision: "accepted" | "false_positive" | "deferred" | "needs_fix";
+	reason:
+		| "confirmed_by_evidence"
+		| "confirmed_by_review"
+		| "insufficient_evidence"
+		| "environment_specific"
+		| "tool_noise"
+		| "not_exploitable"
+		| "accepted_risk"
+		| "other";
+	comment: string | null;
+	linkedReviewId: string | null;
+	decidedByUserId: string | null;
+	createdAt: string;
+	updatedAt: string;
+};
+
 export type Finding = {
 	id: string;
 	scanRunId: string;
@@ -708,6 +728,7 @@ export type Finding = {
 	metadata: Record<string, unknown>;
 	createdAt: string;
 	updatedAt: string;
+	latestDecision?: FindingDecision | null;
 };
 
 export type FindingEvidence = {
@@ -818,11 +839,13 @@ export async function fetchFinding(findingId: string): Promise<{
 	finding: Finding;
 	evidence: FindingEvidence[];
 	latestReview: FindingReview | null;
+	latestDecision: FindingDecision | null;
 }> {
 	return requestJson<{
 		finding: Finding;
 		evidence: FindingEvidence[];
 		latestReview: FindingReview | null;
+		latestDecision: FindingDecision | null;
 	}>(`/api/findings/${findingId}`);
 }
 
@@ -856,4 +879,203 @@ export async function fetchFindingReview(
 	return requestJson<{ review: FindingReview }>(
 		`/api/finding-reviews/${reviewId}`,
 	);
+}
+
+export async function fetchFindingDecisions(
+	findingId: string,
+): Promise<{ decisions: FindingDecision[] }> {
+	return requestJson<{ decisions: FindingDecision[] }>(
+		`/api/findings/${findingId}/decisions`,
+	);
+}
+
+export async function createFindingDecision(
+	findingId: string,
+	params: {
+		decision: "accepted" | "false_positive" | "deferred" | "needs_fix";
+		reason: string;
+		comment?: string;
+		linkedReviewId?: string;
+	},
+): Promise<{ decision: FindingDecision }> {
+	return requestJson<{ decision: FindingDecision }>(
+		`/api/findings/${findingId}/decisions`,
+		{
+			method: "POST",
+			body: params,
+		},
+	);
+}
+
+export async function fetchFindingDecision(
+	decisionId: string,
+): Promise<{ decision: FindingDecision }> {
+	return requestJson<{ decision: FindingDecision }>(
+		`/api/finding-decisions/${decisionId}`,
+	);
+}
+
+// --- Phase 5: Markdown Report Export API functions ---
+
+export type ScanReport = {
+	id: string;
+	scanRunId: string;
+	artifactId: string | null;
+	format: string;
+	title: string;
+	summary: string | null;
+	options: {
+		includeFalsePositives: boolean;
+		includeDeferred: boolean;
+		includeUndecided: boolean;
+	};
+	status: "running" | "completed" | "failed";
+	errorMessage: string | null;
+	generatedByUserId: string | null;
+	createdAt: string;
+	updatedAt: string;
+};
+
+export type CreateScanReportInput = {
+	format: string;
+	title: string;
+	includeFalsePositives: boolean;
+	includeDeferred: boolean;
+	includeUndecided: boolean;
+};
+
+export async function generateScanReport(
+	scanRunId: string,
+	input: CreateScanReportInput,
+): Promise<{ report: ScanReport }> {
+	return requestJson<{ report: ScanReport }>(
+		`/api/scans/${scanRunId}/reports`,
+		{
+			method: "POST",
+			body: input,
+		},
+	);
+}
+
+export async function fetchScanReports(
+	scanRunId: string,
+): Promise<ScanReport[]> {
+	const data = await requestJson<{ reports: ScanReport[] }>(
+		`/api/scans/${scanRunId}/reports`,
+	);
+	return data.reports;
+}
+
+export async function fetchScanReport(
+	reportId: string,
+): Promise<{ report: ScanReport }> {
+	return requestJson<{ report: ScanReport }>(`/api/scan-reports/${reportId}`);
+}
+
+export type ScanProfileTool = {
+	toolId: string;
+	displayName: string;
+	required: boolean;
+	timeoutSec?: number;
+};
+
+export type ScanProfile = {
+	id: string;
+	name: string;
+	description: string;
+	enabled: boolean;
+	defaultTimeoutSec: number;
+	tools: ScanProfileTool[];
+};
+
+export type ToolSummary = {
+	toolId: string;
+	toolRunId: string | null;
+	status: string;
+	required: boolean;
+	exitCode: number | null;
+	findingCount: number;
+	severityCounts: {
+		critical: number;
+		high: number;
+		medium: number;
+		low: number;
+		info: number;
+		unknown: number;
+	};
+	artifactCount: number;
+	error: string | null;
+};
+
+export type ScanRunSummary = {
+	scanRunId: string;
+	profileId: string;
+	profileOutcome: string;
+	tools: ToolSummary[];
+	totals: {
+		findingCount: number;
+		artifactCount: number;
+		reviewedFindingCount: number;
+		decidedFindingCount: number;
+	};
+};
+
+export type FindingGroup = {
+	id: string;
+	groupKey: string;
+	title: string;
+	severity: string;
+	findingIds: string[];
+	sourceTools: string[];
+	metadata: {
+		strategy: string;
+	};
+};
+
+export type GroupedFindingsResult = {
+	groups: FindingGroup[];
+};
+
+export async function fetchScanProfiles(): Promise<ScanProfile[]> {
+	const data = await requestJson<{ profiles: ScanProfile[] }>(
+		"/api/scan-profiles",
+	);
+	return data.profiles;
+}
+
+export async function startScan(
+	projectId: string,
+	params: {
+		profile: string;
+		continueOnToolFailure?: boolean;
+		timeoutSec?: number;
+	},
+): Promise<{
+	scan: { id: string; status: string; profile: string };
+	profileOutcome: string;
+	toolResults: any[];
+}> {
+	return requestJson<{
+		scan: { id: string; status: string; profile: string };
+		profileOutcome: string;
+		toolResults: any[];
+	}>(`/api/projects/${projectId}/scans`, {
+		method: "POST",
+		body: params,
+	});
+}
+
+export async function fetchScanSummary(
+	scanRunId: string,
+): Promise<ScanRunSummary> {
+	const data = await requestJson<{ summary: ScanRunSummary }>(
+		`/api/scans/${scanRunId}/summary`,
+	);
+	return data.summary;
+}
+
+export async function fetchScanGroups(
+	scanRunId: string,
+): Promise<GroupedFindingsResult> {
+	return requestJson<GroupedFindingsResult>(`/api/scans/${scanRunId}/groups`);
 }

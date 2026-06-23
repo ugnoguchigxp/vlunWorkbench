@@ -163,8 +163,18 @@ describe("SemgrepRunner", () => {
 				} as any;
 			}
 
+			const githubToken = `ghp_${"abcdefghijklmnopqrstuvwxyz0123456789"}`;
+			let writePromise = Promise.resolve();
+			const outputIdx = args.indexOf("--output");
+			if (outputIdx !== -1 && args[outputIdx + 1]) {
+				writePromise = fs.writeFile(
+					args[outputIdx + 1],
+					`{"token":"${githubToken}"`,
+				);
+			}
+
 			return {
-				exited: Promise.resolve(2),
+				exited: writePromise.then(() => 2),
 				stdout: new ReadableStream({
 					start(controller) {
 						controller.enqueue(new TextEncoder().encode("Error log"));
@@ -187,7 +197,15 @@ describe("SemgrepRunner", () => {
 		expect(result.exitCode).toBe(2);
 		expect(result.stdoutArtifact).toBeDefined();
 		expect(result.stderrArtifact).toBeDefined();
-		expect(result.rawJsonArtifact).toBeUndefined();
+		expect(result.rawJsonArtifact).toBeDefined();
+
+		const rawArtifactPath = path.join(
+			artifactRoot,
+			result.rawJsonArtifact?.path ?? "",
+		);
+		const rawArtifact = await fs.readFile(rawArtifactPath, "utf8");
+		expect(rawArtifact).toContain("[REDACTED]");
+		expect(rawArtifact).not.toContain("ghp_");
 	});
 
 	it("should fail on timeout", async () => {

@@ -2352,3 +2352,115 @@ select {
 	color: #b91c1c;
 	border: 1px solid #fecaca;
 }
+
+/* Decision badges */
+.badge-accepted {
+	background: #dcfce7;
+	color: #15803d;
+	border: 1px solid #bbf7d0;
+}
+.badge-false_positive {
+	background: #dbeafe;
+	color: #1e40af;
+	border: 1px solid #bfdbfe;
+}
+.badge-deferred {
+	background: #ffedd5;
+	color: #c2410c;
+	border: 1px solid #fed7aa;
+}
+.badge-needs_fix {
+	background: #fee2e2;
+	color: #9f1d1d;
+	border: 1px solid #fecaca;
+}
+.badge-open {
+	background: #f1f5f9;
+	color: #475569;
+	border: 1px solid #e2e8f0;
+}
+
+.decision-badge {
+	display: inline-flex;
+	align-items: center;
+	font-size: 11px;
+	font-weight: 600;
+	padding: 2px 6px;
+	border-radius: 4px;
+	width: fit-content;
+}
+
+/* Reviewer Decision Panel styles */
+.decision-panel {
+	background: #ffffff;
+	border: 1px solid #e2e8f0;
+	border-radius: 8px;
+	padding: 16px;
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+}
+
+.decision-form-row {
+	display: flex;
+	gap: 12px;
+	flex-wrap: wrap;
+}
+
+.decision-form-field {
+	flex: 1;
+	min-width: 200px;
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+}
+
+.decision-form-field label {
+	font-size: 12px;
+	font-weight: 600;
+	color: #475569;
+}
+
+.decision-form-field select,
+.decision-form-field input,
+.decision-form-field textarea {
+	padding: 8px 12px;
+	border-radius: 6px;
+	border: 1px solid #cbd5e1;
+	font-size: 13px;
+	background: #fff;
+	color: #1e293b;
+}
+
+.decision-form-field select:focus,
+.decision-form-field input:focus,
+.decision-form-field textarea:focus {
+	outline: none;
+	border-color: #1f7a6a;
+	box-shadow: 0 0 0 2px rgba(31, 122, 106, 0.2);
+}
+
+.timeline-item {
+	display: flex;
+	gap: 12px;
+	padding: 12px;
+	border-left: 2px solid #e2e8f0;
+	margin-left: 8px;
+	position: relative;
+}
+
+.timeline-item::before {
+	content: "";
+	position: absolute;
+	left: -6px;
+	top: 16px;
+	width: 10px;
+	height: 10px;
+	border-radius: 50%;
+	background: #cbd5e1;
+	border: 2px solid #fff;
+}
+
+.timeline-item.active-node::before {
+	background: #1f7a6a;
+}

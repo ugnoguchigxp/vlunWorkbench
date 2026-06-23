@@ -3,16 +3,21 @@ import { Hono } from "hono";
 import { createProjectsRoute } from "./projects.route";
 import { HttpError } from "../modules/auth/errors";
 
-vi.mock("node:fs/promises", () => ({
-	default: {
-		access: vi.fn().mockImplementation(async (path: string) => {
-			if (path === "/invalid/path") {
-				throw new Error("ENOENT");
-			}
-			return Promise.resolve();
-		}),
-	},
-}));
+vi.mock("node:fs/promises", async (importOriginal) => {
+	const original = await importOriginal<any>();
+	return {
+		...original,
+		default: {
+			...original.default,
+			access: vi.fn().mockImplementation(async (path: string) => {
+				if (path === "/invalid/path") {
+					throw new Error("ENOENT");
+				}
+				return Promise.resolve();
+			}),
+		},
+	};
+});
 
 describe("Projects Route", () => {
 	const mockProjectRepo = {

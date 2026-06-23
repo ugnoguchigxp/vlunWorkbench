@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { redactSecrets } from "../scans/normalizers/fixture";
+import { redactSecrets } from "../scans/normalizers/redaction";
 import type {
 	ReviewInputBundle,
 	ReviewFindingInfo,

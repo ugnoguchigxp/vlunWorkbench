@@ -172,6 +172,16 @@ process.exit(0);
 		expect(scanRunRow?.status).toBe("completed");
 		expect(scanRunRow?.profile).toBe("my-semgrep-profile");
 
+		const toolRunRow = await connection.db.query.toolRuns.findFirst({
+			where: (fields, { eq }) => eq(fields.id, result.toolRunId),
+		});
+		expect(toolRunRow?.metadata).toMatchObject({
+			adapter: "semgrep",
+			findingCount: 1,
+			evidenceCount: 2,
+			config: "auto",
+		});
+
 		// Verify findings are present and secrets are redacted
 		const findingsList = await connection.db.query.findings.findMany({
 			where: (fields, { eq }) => eq(fields.scanRunId, result.scanRunId),
@@ -189,6 +199,12 @@ process.exit(0);
 		const rawJsonArtifact = dbArtifacts.find((a) => a.kind === "raw_result");
 		expect(rawJsonArtifact).toBeDefined();
 		expect(rawJsonArtifact?.path).toContain("semgrep-result.json");
+		const rawArtifactContent = await fs.readFile(
+			path.join(artifactRoot, rawJsonArtifact?.path ?? ""),
+			"utf8",
+		);
+		expect(rawArtifactContent).toContain("[REDACTED]");
+		expect(rawArtifactContent).not.toContain("ghp_1234567890123");
 		
 		// Verify evidence is present and snippet is redacted
 		const evidenceList = await connection.db.query.findingEvidences.findMany({

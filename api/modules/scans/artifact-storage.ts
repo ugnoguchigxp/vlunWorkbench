@@ -91,4 +91,43 @@ export class ArtifactStorage {
 			sizeBytes,
 		};
 	}
+
+	async saveTextArtifact(
+		scanRunId: string,
+		subDir: string,
+		content: string,
+		filename: string,
+	): Promise<ArtifactSaveResult> {
+		const scanDir = this.getScanDir(scanRunId);
+		const targetDir = path.join(scanDir, subDir);
+		await fs.mkdir(targetDir, { recursive: true });
+
+		const targetPath = path.join(targetDir, filename);
+		this.validatePath(targetPath, scanRunId);
+
+		const buffer = Buffer.from(content, "utf8");
+		const sizeBytes = buffer.length;
+		const sha256 = crypto.createHash("sha256").update(buffer).digest("hex");
+
+		await fs.writeFile(targetPath, buffer);
+
+		const relativePath = path.relative(this.baseDir, targetPath);
+
+		return {
+			path: relativePath,
+			sha256,
+			sizeBytes,
+		};
+	}
+
+	async readTextArtifact(relativePath: string): Promise<string> {
+		const targetPath = path.resolve(this.baseDir, relativePath);
+		const relative = path.relative(this.baseDir, targetPath);
+		if (relative.startsWith("..") || path.isAbsolute(relative)) {
+			throw new Error(
+				"Path traversal detected: target path is outside of artifact root.",
+			);
+		}
+		return await fs.readFile(targetPath, "utf8");
+	}
 }

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { normalizeFixture, redactSecrets, generateFingerprint } from "./fixture";
+import { normalizeFixture, generateFingerprint } from "./fixture";
+import { redactSecrets } from "./redaction";
 
 describe("Fixture Normalizer", () => {
 	it("should parse and normalize valid fixture results", () => {
@@ -83,6 +84,12 @@ describe("Fixture Normalizer", () => {
 			const githubToken = `ghp_${"abcdefghijklmnopqrstuvwxyz0123456789"}`;
 			const text = `token is ${githubToken}`;
 			expect(redactSecrets(text)).toContain("[REDACTED]");
+		});
+
+		it("should redact AWS access key IDs", () => {
+			const awsAccessKey = "AKIAIOSFODNN7EXAMPLE";
+			const text = `aws key is ${awsAccessKey}`;
+			expect(redactSecrets(text)).toBe("aws key is [REDACTED]");
 		});
 
 		it("should redact API keys and passwords in assignment syntax", () => {

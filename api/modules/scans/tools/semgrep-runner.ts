@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { ArtifactStorage, ArtifactSaveResult } from "../artifact-storage";
+import { redactJsonSecrets, redactSecrets } from "../normalizers/redaction";
 
 export interface SemgrepRunResult {
 	ok: boolean;
@@ -163,10 +164,11 @@ export class SemgrepRunner {
 		}
 
 		let rawJson: any = null;
+		let rawJsonText: string | null = null;
 		let jsonValid = false;
 		try {
-			const jsonContent = await fs.readFile(tempJsonPath, "utf8");
-			rawJson = JSON.parse(jsonContent);
+			rawJsonText = await fs.readFile(tempJsonPath, "utf8");
+			rawJson = JSON.parse(rawJsonText);
 			jsonValid = true;
 		} catch {
 			// output was invalid or not found
@@ -182,22 +184,36 @@ export class SemgrepRunner {
 		const isCompleted = exitCode === 0 || (exitCode === 1 && jsonValid);
 
 		if (!isCompleted) {
+			let rawJsonArtifact: ArtifactSaveResult | undefined;
 			let stdoutArtifact: ArtifactSaveResult | undefined;
 			let stderrArtifact: ArtifactSaveResult | undefined;
 
 			if (this.storage) {
+				if (rawJsonText !== null) {
+					const tempOutDir = await fs.mkdtemp(
+						path.join(os.tmpdir(), "semgrep-invalid-"),
+					);
+					const finalTempPath = path.join(tempOutDir, "semgrep-result.json");
+					await fs.writeFile(finalTempPath, redactSecrets(rawJsonText));
+					rawJsonArtifact = await this.storage.saveRawArtifact(
+						scanRunId,
+						finalTempPath,
+						"semgrep-result.json",
+					);
+					await fs.rm(tempOutDir, { recursive: true, force: true });
+				}
 				if (stdout) {
 					stdoutArtifact = await this.storage.saveLog(
 						scanRunId,
 						"stdout",
-						stdout,
+						redactSecrets(stdout),
 					);
 				}
 				if (stderr) {
 					stderrArtifact = await this.storage.saveLog(
 						scanRunId,
 						"stderr",
-						stderr,
+						redactSecrets(stderr),
 					);
 				}
 			}
@@ -208,6 +224,7 @@ export class SemgrepRunner {
 				stdout,
 				stderr,
 				elapsedMs,
+				rawJsonArtifact,
 				stdoutArtifact,
 				stderrArtifact,
 				error: `Semgrep exited with code ${exitCode}`,
@@ -217,13 +234,17 @@ export class SemgrepRunner {
 		let rawJsonArtifact: ArtifactSaveResult | undefined;
 		let stdoutArtifact: ArtifactSaveResult | undefined;
 		let stderrArtifact: ArtifactSaveResult | undefined;
+		const redactedRawJson = redactJsonSecrets(rawJson);
 
 		if (this.storage) {
 			const tempOutDir = await fs.mkdtemp(
 				path.join(os.tmpdir(), "semgrep-final-"),
 			);
 			const finalTempPath = path.join(tempOutDir, "semgrep-result.json");
-			await fs.writeFile(finalTempPath, JSON.stringify(rawJson, null, 2));
+			await fs.writeFile(
+				finalTempPath,
+				JSON.stringify(redactedRawJson, null, 2),
+			);
 
 			rawJsonArtifact = await this.storage.saveRawArtifact(
 				scanRunId,
@@ -237,14 +258,14 @@ export class SemgrepRunner {
 				stdoutArtifact = await this.storage.saveLog(
 					scanRunId,
 					"stdout",
-					stdout,
+					redactSecrets(stdout),
 				);
 			}
 			if (stderr) {
 				stderrArtifact = await this.storage.saveLog(
 					scanRunId,
 					"stderr",
-					stderr,
+					redactSecrets(stderr),
 				);
 			}
 		}
@@ -255,7 +276,7 @@ export class SemgrepRunner {
 			stdout,
 			stderr,
 			elapsedMs,
-			rawJson,
+			rawJson: redactedRawJson,
 			rawJsonArtifact,
 			stdoutArtifact,
 			stderrArtifact,

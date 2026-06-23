@@ -32,6 +32,10 @@ describe("Scans Route", () => {
 		listFindings: vi.fn().mockResolvedValue([{ id: "f-1", ruleId: "rule-1" }]),
 	};
 
+	const mockDecisionRepo = {
+		findLatestDecisionForFinding: vi.fn().mockResolvedValue(null),
+	};
+
 	const app = new Hono();
 	app.use("*", async (c, next) => {
 		c.set("authUser", { userId: "user-123", email: "user@example.com", role: "member" });
@@ -50,6 +54,10 @@ describe("Scans Route", () => {
 			projectRepository: mockProjectRepo as any,
 			artifactRepository: mockArtifactRepo as any,
 			findingRepository: mockFindingRepo as any,
+			decisionRepository: mockDecisionRepo as any,
+			scanReportRepository: {} as any,
+			artifactStorage: {} as any,
+			db: {} as any,
 		}),
 	);
 
@@ -86,5 +94,35 @@ describe("Scans Route", () => {
 		expect(res.status).toBe(200);
 		const body = await res.json();
 		expect(body.findings.length).toBe(1);
+	});
+
+	it("GET /:scanRunId/summary returns scan summary", async () => {
+		// Mock the module function
+		const summaryModule = await import("../modules/scans/summary-builder");
+		vi.spyOn(summaryModule, "buildScanRunSummary").mockResolvedValue({
+			scanRunId: "s-1",
+			profileId: "baseline",
+			profileOutcome: "completed",
+			tools: [],
+			totals: { findingCount: 0, artifactCount: 0, reviewedFindingCount: 0, decidedFindingCount: 0 }
+		});
+
+		const res = await app.request("/s-1/summary");
+		expect(res.status).toBe(200);
+		const body = await res.json();
+		expect(body.summary.scanRunId).toBe("s-1");
+	});
+
+	it("GET /:scanRunId/groups returns grouped findings", async () => {
+		// Mock the module function
+		const groupingModule = await import("../modules/scans/grouping-builder");
+		vi.spyOn(groupingModule, "buildGroupedFindings").mockResolvedValue({
+			groups: []
+		});
+
+		const res = await app.request("/s-1/groups");
+		expect(res.status).toBe(200);
+		const body = await res.json();
+		expect(body.groups).toHaveLength(0);
 	});
 });

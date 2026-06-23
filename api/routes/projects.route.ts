@@ -1,5 +1,6 @@
 import { zValidator } from "@hono/zod-validator";
 import { Hono } from "hono";
+import { z } from "zod";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { getAuthContextUser } from "../modules/auth/context";
@@ -65,5 +66,75 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 			});
 
 			return c.json({ project: created }, 201);
-		});
+		})
+		.post(
+			"/:projectId/scans",
+			zValidator(
+				"json",
+				z.object({
+					profile: z.string().default("baseline"),
+					continueOnToolFailure: z.boolean().default(true).optional(),
+					timeoutSec: z.number().int().positive().optional(),
+				}),
+			),
+			async (c) => {
+				const authUser = getAuthContextUser(c);
+				const projectId = c.req.param("projectId");
+				const body = c.req.valid("json");
+
+				const project = await repo.findById(projectId);
+				if (!project) {
+					throw new HttpError(404, "Project not found");
+				}
+				if (project.ownerUserId !== authUser.userId) {
+					throw new HttpError(403, "Forbidden");
+				}
+
+				// Run CLI scan:profile synchronously as a bridge
+				const args = [
+					"api/cli/scan-profile.ts",
+					"--project-id",
+					projectId,
+					"--profile",
+					body.profile,
+					"--continue-on-tool-failure",
+					String(body.continueOnToolFailure ?? true),
+				];
+
+				if (body.timeoutSec !== undefined) {
+					args.push("--timeout-sec", String(body.timeoutSec));
+				}
+
+				const proc = Bun.spawn(["bun", "run", ...args], {
+					stdout: "pipe",
+					stderr: "pipe",
+				});
+
+				const exitCode = await proc.exited;
+				const stdoutText = await new Response(proc.stdout).text();
+				const stderrText = await new Response(proc.stderr).text();
+
+				try {
+					const result = JSON.parse(stdoutText.trim());
+					if (result && typeof result.scanRunId === "string") {
+						return c.json({
+							scan: {
+								id: result.scanRunId,
+								status: result.status,
+								profile: result.profileId,
+							},
+							profileOutcome: result.profileOutcome,
+							toolResults: result.toolResults,
+						});
+					}
+				} catch (err) {
+					// Fallback on JSON parse error
+				}
+
+				throw new HttpError(
+					500,
+					`Scan execution failed (Exit code: ${exitCode}). Error: ${stderrText.trim() || stdoutText.trim() || "Unknown error"}`,
+				);
+			},
+		);
 }
