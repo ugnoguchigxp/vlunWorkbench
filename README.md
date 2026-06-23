@@ -1,4 +1,4 @@
-# Hono Standard
+# vulnWorkbench
 
 [![Bun](https://img.shields.io/badge/Bun-%23000000.svg?style=for-the-badge&logo=bun&logoColor=white)](https://bun.sh/)
 [![Hono](https://img.shields.io/badge/Hono-%23E36022.svg?style=for-the-badge&logo=hono&logoColor=white)](https://hono.dev/)
@@ -7,132 +7,189 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-%23007ACC.svg?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![MIT License](https://img.shields.io/badge/License-MIT-green.svg?style=for-the-badge)](LICENSE.md)
 
-Hono backend と React + Vite frontend を同一 origin で動かす、RAG app template です。SQLite + sqlite-vec + Drizzle のユーザー認証、Markdown ingestion、hybrid retrieval、chat endpoint、React Router ベースの画面、コンポーネント showcase を含みます。
+vulnWorkbench は、ローカルリポジトリに対するCLIセキュリティスキャン結果を保存、正規化、レビューするための脆弱性診断ワークベンチです。
 
-## 構成
+重い診断と証拠生成は Semgrep などのCLIツールが担当します。LLMはリポジトリを自由探索して脆弱性を探す主体ではなく、既存のfinding、raw artifact、source snippet、scan logをレビューして、人間が判断しやすい形に整理する後段処理として扱います。
+
+## Current Status
+
+実装済み:
+
+- project registration API
+- scan run / tool run / artifact / finding / evidence の保存基盤
+- fixture JSON artifact import CLI
+- Semgrep CLI adapter
+- Semgrep raw JSON / stdout / stderr artifact保存
+- Semgrep JSONからfinding/evidenceへのdeterministic normalizer
+- findings / scans / projects API
+
+次の実装対象:
+
+- 既存findingに対するLLM review
+- review結果の構造化保存
+- LLMが読むevidence bundleの境界定義
+- review結果をAPIから参照できる最小UI/API surface
+
+## Architecture
+
+基本フロー:
+
+```text
+CLI scan command
+  -> raw artifacts / logs / JSON / SARIF
+  -> deterministic normalizer
+  -> findings / evidence store
+  -> LLM review
+  -> human review / report
+```
+
+責務分担:
+
+| Component | Role |
+| --- | --- |
+| CLI tools | 診断実行、raw evidence生成 |
+| Normalizer | CLI出力をdeterministicにfinding/evidenceへ変換 |
+| API | project、scan、finding、artifact、review surfaceを提供 |
+| LLM review | 既存findingと証拠の説明、誤検知観点、修正方針を構造化 |
+| Human reviewer | 採用、保留、誤検知、修正対象の最終判断 |
+
+## Project Layout
 
 | Path | Role |
 | --- | --- |
-| `api/app/hono.ts` | Hono app composition。middleware、API route、静的配信、`AppType` を登録 |
+| `api/app/hono.ts` | Hono app composition、route登録、静的配信 |
 | `api/app/server.ts` | Bun server bootstrap |
 | `api/app/env.ts` | runtime env parser |
-| `api/config/appDefaults.ts` | 非シークレットの既定値 |
 | `api/db/schema.ts` | Drizzle schema |
-| `api/routes/auth.route.ts` | `/api/auth/*` route |
-| `api/routes/health.route.ts` | `/api/health` route |
-| `api/routes/sources.route.ts` | Markdown source reindex / category API |
-| `api/routes/search.route.ts` | `/api/search` hybrid retrieval API |
-| `api/routes/chat.route.ts` | `/api/chat` RAG chat API |
-| `api/modules/auth/` | password hash、JWT、cookie、auth service |
-| `api/modules/sources/` | Markdown ingestion、source repository |
-| `api/modules/rag/` | source retriever、search evidence |
-| `api/providers/` | LLM / embedding provider interface と Azure OpenAI 実装 |
-| `api/middleware/auth.ts` | protected API middleware |
+| `api/routes/projects.route.ts` | project API |
+| `api/routes/scans.route.ts` | scan run / artifact API |
+| `api/routes/findings.route.ts` | finding / evidence API |
+| `api/cli/scan-import.ts` | fixture/raw scan artifact import CLI |
+| `api/cli/scan-semgrep.ts` | Semgrep scan CLI |
+| `api/modules/scans/` | scan repository、artifact storage、normalizers、tool runner |
+| `shared/schemas/scan.schema.ts` | scan domainの共有Zod schema |
 | `web/src/` | React frontend |
-| `shared/schemas/` | frontend/backend で共有する Zod schema と API object type |
 | `drizzle/` | SQL migrations |
-| `scripts/verify.ts` | typecheck / lint / format / test / build の検証 pipeline |
+| `spec/` | concept、実装計画、完了条件 |
+| `scripts/verify.ts` | typecheck / lint / format / test / build の検証pipeline |
 
-## 前提
+既存テンプレート由来のMarkdown source、search、chat APIも残っていますが、vulnWorkbench MVPの主軸はscan/finding/evidence/reviewです。
 
-| Tool | 用途 |
-| --- | --- |
-| Bun | package manager、runtime、scripts |
-| SQLite + sqlite-vec | auth user / refresh token / RAG source storage |
-
-## セットアップ
+## Setup
 
 ```bash
 bun install
 cp .env.example .env
 bun run db:migrate
 bun run auth:create-admin -- --email admin@example.com --name "Admin User"
-bun run import:markdown
 bun run dev
 ```
 
-`auth:create-admin` は対話で password を読みます。自動化する場合は次のように標準入力から渡せます。
+`auth:create-admin` は対話でpasswordを読みます。自動化する場合は標準入力から渡せます。
 
 ```bash
 printf '%s\n' '<password>' | bun run auth:create-admin -- --email admin@example.com --name "Admin User" --password-stdin
 ```
 
-開発サーバーは `http://localhost:5173` で起動します。Vite dev server が frontend を配信し、`/api/*` は Hono に渡されます。
+開発サーバーは `http://localhost:5173` で起動します。Vite dev server がfrontendを配信し、`/api/*` はHonoへ渡されます。
 
-## 環境変数
+## Scan Commands
 
-非シークレットの既定値は `api/config/appDefaults.ts` にあります。`.env.example` は local development 向けの値です。
+Fixture artifactを取り込む:
 
-| Variable | Required | Description | Default |
-| --- | --- | --- | --- |
-| `NODE_ENV` | no | `development` / `test` / `production` | `development` |
-| `DATABASE_URL` | no | SQLite database path。`file:` または `sqlite://` prefix を使えます | `file:./data/vuln-workbench.sqlite` |
-| `CONTENT_ROOT` | no | Markdown source root。`pages/<category>/*.md` を index する | `./wiki-knowledge` |
-| `AZURE_OPENAI_ENDPOINT` | chat/embedding yes | Azure OpenAI endpoint | none |
-| `AZURE_OPENAI_API_KEY` | chat/embedding yes | Azure OpenAI API key | none |
-| `AZURE_OPENAI_DEPLOYMENT` | no | chat completion deployment | `gpt-4o-mini` |
-| `AZURE_OPENAI_EMBEDDINGS_DEPLOYMENT` | no | embedding deployment。1536 dimensions が必要 | `text-embedding-3-small` |
-| `JWT_SECRET` | production yes | JWT signing secret。32 文字以上。production では未設定または dev default のままだと起動しません | dev default |
-| `APP_URL` | no | public origin。cookie secure 既定値と CORS に使う | `http://localhost:5173` |
-| `CORS_ORIGINS` | no | 追加許可 origin。カンマ区切り | `http://localhost:5173` |
-| `AUTH_COOKIE_SECURE` | no | auth cookie に `Secure` を付けるか | production/HTTPS では `true` |
-| `AUTH_COOKIE_SAME_SITE` | no | auth cookie SameSite | `lax` |
-| `SECURITY_HEADERS_MODE` | no | HTTPS 前提 header の有効化方針。`auto` / `http` / `https` | `auto` |
+```bash
+bun run scan:import -- \
+  --project-id <project-id> \
+  --tool fixture \
+  --artifact tests/fixtures/scans/fixture-result.json
+```
 
-`AUTH_COOKIE_SAME_SITE=none` を使う場合は、HTTPS の `APP_URL` または `AUTH_COOKIE_SECURE=true` が必要です。
+Semgrepを実行して取り込む:
 
-## Scripts
+```bash
+bun run scan:semgrep -- \
+  --project-id <project-id> \
+  --profile semgrep-baseline \
+  --config auto
+```
 
-| Command | Purpose |
-| --- | --- |
-| `bun run dev` | Vite + Hono dev server |
-| `bun run start` | Bun server を直接起動 |
-| `bun run auth:create-admin -- --email <email> --name "<name>"` | admin user 作成 |
-| `bun run import:markdown` | `CONTENT_ROOT/pages/**.md` を source index に取り込む |
-| `bun run db:migrate` | `drizzle/*.sql` を順番に適用 |
-| `bun run db:generate` | Drizzle migration 生成 |
-| `bun run db:migrate:drizzle` | drizzle-kit migration generation/check。`DATABASE_URL` は process env または `.env` から読む |
-| `bun run typecheck` | TypeScript check |
-| `bun run lint` | Biome lint |
-| `bun run format` | Biome format write |
-| `bun run format:check` | Biome format check |
-| `bun run test` | Vitest |
-| `bun run build` | Vite production build |
-| `bun run verify` | typecheck、lint、format:check、test、build |
+Semgrep scanはhost上の `semgrep` executableを呼びます。LLM provider設定は不要です。
 
 ## API
 
 | Method | Path | Description |
 | --- | --- | --- |
 | `GET` | `/api/health` | health check |
-| `POST` | `/api/auth/login` | email/password login。httpOnly cookie を設定 |
+| `POST` | `/api/auth/login` | email/password login。httpOnly cookieを設定 |
 | `POST` | `/api/auth/refresh` | refresh token rotation |
 | `POST` | `/api/auth/logout` | refresh token revoke と cookie clear |
-| `GET` | `/api/auth/me` | 現在の login user |
-| `GET` | `/api/sources/health` | source index 設定確認 |
-| `GET` | `/api/sources/categories` | indexed category 一覧 |
-| `POST` | `/api/sources/reindex` | Markdown source を再取り込み |
-| `POST` | `/api/search` | local Markdown の hybrid retrieval |
-| `POST` | `/api/chat` | retrieved context を使った chat response |
+| `GET` | `/api/auth/me` | 現在のlogin user |
+| `GET` | `/api/projects` | project一覧 |
+| `POST` | `/api/projects` | local repo project登録 |
+| `GET` | `/api/projects/:projectId` | project detail |
+| `GET` | `/api/scans?projectId=<project-id>` | project内のscan run一覧 |
+| `GET` | `/api/scans/:id` | scan run detail |
+| `GET` | `/api/scans/:id/events` | scan event一覧 |
+| `GET` | `/api/scans/:id/artifacts` | scan artifact一覧 |
+| `GET` | `/api/scans/:id/findings` | scan内のfinding一覧 |
+| `GET` | `/api/findings/:id` | finding detailとevidence |
 
-`/api/auth/me` は access token が必要です。frontend client は 401 を受けると `/api/auth/refresh` を一度試し、成功した場合だけ元の request を再実行します。
+`/api/auth/me` などのprotected endpointはaccess tokenが必要です。frontend clientは401を受けると `/api/auth/refresh` を一度試し、成功した場合だけ元のrequestを再実行します。
 
-API request / response の共有 schema は `shared/schemas/` に置きます。Backend route はその schema を `zValidator` で使い、frontend は `api/app/hono.ts` から export される `AppType` を `hono/client` に渡して API 型を共有します。
+## Environment Variables
 
-## Build / Runtime
+非シークレットの既定値は `api/config/appDefaults.ts` にあります。`.env.example` はlocal development向けの値です。
+
+| Variable | Required | Description | Default |
+| --- | --- | --- | --- |
+| `NODE_ENV` | no | `development` / `test` / `production` | `development` |
+| `DATABASE_URL` | no | SQLite database path。`file:` または `sqlite://` prefixを使えます | `file:./data/vuln-workbench.sqlite` |
+| `JWT_SECRET` | production yes | JWT signing secret。32文字以上。productionではdev defaultのままだと起動しません | dev default |
+| `APP_URL` | no | public origin。cookie secure既定値とCORSに使う | `http://localhost:5173` |
+| `CORS_ORIGINS` | no | 追加許可origin。カンマ区切り | `http://localhost:5173` |
+| `AUTH_COOKIE_SECURE` | no | auth cookieに`Secure`を付けるか | production/HTTPSでは`true` |
+| `AUTH_COOKIE_SAME_SITE` | no | auth cookie SameSite | `lax` |
+| `SECURITY_HEADERS_MODE` | no | HTTPS前提headerの有効化方針。`auto` / `http` / `https` | `auto` |
+| `AZURE_OPENAI_ENDPOINT` | LLM review/chat yes | Azure OpenAI endpoint | none |
+| `AZURE_OPENAI_API_KEY` | LLM review/chat yes | Azure OpenAI API key | none |
+| `AZURE_OPENAI_DEPLOYMENT` | no | chat/review deployment | `gpt-4o-mini` |
+| `OPENAI_API_KEY` | optional | OpenAI-compatible provider key | none |
+| `CONTENT_ROOT` | legacy Markdown search only | Markdown source root | `./wiki-knowledge` |
+
+Scan foundationとSemgrep adapterはLLM API keyなしで動く必要があります。LLM provider設定はreview/chatなどの後段機能でのみ使います。
+
+## Scripts
+
+| Command | Purpose |
+| --- | --- |
+| `bun run dev` | Vite + Hono dev server |
+| `bun run start` | Bun serverを直接起動 |
+| `bun run auth:create-admin -- --email <email> --name "<name>"` | admin user作成 |
+| `bun run db:migrate` | `drizzle/*.sql` を順番に適用 |
+| `bun run scan:import` | raw/fixture scan artifactを取り込みfinding/evidenceを作成 |
+| `bun run scan:semgrep` | Semgrep CLIを実行してfinding/evidenceを作成 |
+| `bun run typecheck` | TypeScript check |
+| `bun run lint` | Biome lint |
+| `bun run format` | Biome format write |
+| `bun run format:check` | Biome format check |
+| `bun run test` | Vitest + Bun scan module tests |
+| `bun run build` | Vite production build |
+| `bun run verify` | typecheck、lint、format:check、test、build |
+
+## Security Boundary
+
+- LLM API keyはhost側にのみ置く。
+- scan対象repoへLLM API keyやsecretを注入しない。
+- Semgrepなどのtool processへLLM API keyを渡さない。
+- CLI commandはshell文字列ではなくstructured argsとして組み立てる。
+- raw artifactは保存するが、LLM reviewへ渡す前に必要最小限へ絞る。
+- secret findingの値は原則redactして表示、保存、reviewする。
+- external target scan、DAST、fuzzing、sandbox再現、patch自動適用はMVP対象外。
+
+## Verification
 
 ```bash
-bun run build
-NODE_ENV=production bun run start
+bun run verify
 ```
 
-production では `JWT_SECRET` を必ず強いランダム値に変更してください。未設定または dev default のままの場合、アプリは起動時に失敗します。HTTPS で公開する場合は `APP_URL=https://...` とし、必要に応じて `AUTH_COOKIE_SECURE=true`、`SECURITY_HEADERS_MODE=https` を明示します。
-
-## RAG Notes
-
-- この branch は `variant/rag` です。RAG の基本機能は `api/` に配置し、frontend/backend 共通 request schema は `shared/schemas/rag.schema.ts` にあります。
-- 認証は optional UI として残しています。Home と Showcase は未ログインでも表示されます。
-- `/api/sources/*`, `/api/search`, `/api/chat` は login が必要です。
-- `CONTENT_ROOT/pages/<category>/*.md` を `bun run import:markdown` または `/api/sources/reindex` で index します。
-- Azure OpenAI が未設定でも全文検索 API は動きます。embedding と chat response には Azure OpenAI の設定が必要です。
-- clone 後は `package.json` の name / description、README、`.env.example`、SQLite DB path、cookie/CORS/security 設定を利用先に合わせて見直してください。
+実装計画とMVP境界は `spec/vuln-workbench-concept.md` を基準に確認します。

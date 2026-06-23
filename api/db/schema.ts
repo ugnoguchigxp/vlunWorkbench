@@ -376,3 +376,47 @@ export const findingEvidences = sqliteTable(
 		findingIdIdx: index("finding_evidence_finding_id_idx").on(table.findingId),
 	}),
 );
+
+export const findingReviews = sqliteTable(
+	"finding_reviews",
+	{
+		id: id(),
+		findingId: text("finding_id")
+			.notNull()
+			.references(() => findings.id, { onDelete: "cascade" }),
+		provider: text("provider").notNull(),
+		model: text("model").notNull(),
+		status: text("status").notNull(), // running, completed, failed
+		summary: text("summary"),
+		likelyImpact: text("likely_impact"),
+		falsePositiveAssessment: text("false_positive_assessment", {
+			mode: "json",
+		}).$type<{
+			level: "low" | "medium" | "high" | "unknown";
+			reasoning: string;
+		}>(),
+		evidenceStrength: text("evidence_strength", { mode: "json" }).$type<{
+			level: "weak" | "moderate" | "strong" | "unknown";
+			reasoning: string;
+		}>(),
+		remediationDirection: text("remediation_direction"),
+		reviewerNotes: text("reviewer_notes", { mode: "json" }).$type<string[]>(),
+		confidenceAdjustment: text("confidence_adjustment").notNull(), // unchanged, increase, decrease, unknown
+		inputBundle: text("input_bundle", { mode: "json" }).$type<
+			Record<string, unknown>
+		>(),
+		output: text("output", { mode: "json" }).$type<Record<string, unknown>>(),
+		errorMessage: text("error_message"),
+		createdByUserId: text("created_by_user_id").references(() => users.id, {
+			onDelete: "set null",
+		}),
+		startedAt: integer("started_at", { mode: "timestamp_ms" }),
+		completedAt: integer("completed_at", { mode: "timestamp_ms" }),
+		createdAt: timestampMs("created_at"),
+		updatedAt: timestampMs("updated_at"),
+	},
+	(table) => ({
+		findingIdIdx: index("finding_reviews_finding_id_idx").on(table.findingId),
+		statusIdx: index("finding_reviews_status_idx").on(table.status),
+	}),
+);

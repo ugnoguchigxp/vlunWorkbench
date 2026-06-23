@@ -159,3 +159,74 @@ export const findingEvidenceSchema = z.object({
 	createdAt: z.string().or(z.date()),
 });
 export type FindingEvidence = z.infer<typeof findingEvidenceSchema>;
+
+// --- Finding Review ---
+export const falsePositiveLevelSchema = z.enum([
+	"low",
+	"medium",
+	"high",
+	"unknown",
+]);
+export const evidenceStrengthLevelSchema = z.enum([
+	"weak",
+	"moderate",
+	"strong",
+	"unknown",
+]);
+export const confidenceAdjustmentSchema = z.enum([
+	"unchanged",
+	"increase",
+	"decrease",
+	"unknown",
+]);
+
+export const findingReviewOutputSchema = z.object({
+	summary: z.string().min(1).max(2000),
+	likelyImpact: z.string().min(1).max(2000),
+	falsePositiveAssessment: z.object({
+		level: falsePositiveLevelSchema,
+		reasoning: z.string().min(1).max(2000),
+	}),
+	evidenceStrength: z.object({
+		level: evidenceStrengthLevelSchema,
+		reasoning: z.string().min(1).max(2000),
+	}),
+	remediationDirection: z.string().min(1).max(2000),
+	reviewerNotes: z.array(z.string().min(1).max(1000)).max(10),
+	confidenceAdjustment: confidenceAdjustmentSchema,
+});
+export type FindingReviewOutput = z.infer<typeof findingReviewOutputSchema>;
+
+export const findingReviewSchema = z.object({
+	id: z.string().uuid(),
+	findingId: z.string().uuid(),
+	provider: z.string(),
+	model: z.string(),
+	status: z.enum(["running", "completed", "failed"]),
+	summary: z.string().nullable(),
+	likelyImpact: z.string().nullable(),
+	falsePositiveAssessment: z
+		.object({
+			level: falsePositiveLevelSchema,
+			reasoning: z.string(),
+		})
+		.nullable(),
+	evidenceStrength: z
+		.object({
+			level: evidenceStrengthLevelSchema,
+			reasoning: z.string(),
+		})
+		.nullable(),
+	remediationDirection: z.string().nullable(),
+	reviewerNotes: z.array(z.string()).nullable(),
+	confidenceAdjustment: confidenceAdjustmentSchema,
+	inputBundle: z.record(z.string(), z.unknown()).nullable(),
+	output: findingReviewOutputSchema.nullable(),
+	errorMessage: z.string().nullable(),
+	createdByUserId: z.string().uuid().nullable(),
+	startedAt: z.string().or(z.date()).nullable(),
+	completedAt: z.string().or(z.date()).nullable(),
+	createdAt: z.string().or(z.date()),
+	updatedAt: z.string().or(z.date()),
+});
+export type FindingReview = z.infer<typeof findingReviewSchema>;

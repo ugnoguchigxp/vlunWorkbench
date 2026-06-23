@@ -18,7 +18,8 @@ export type HeaderActiveItem =
 	| "search"
 	| "settings"
 	| "admin"
-	| "showcase";
+	| "showcase"
+	| "scans";
 
 type AppHeaderProps = {
 	active: HeaderActiveItem;
@@ -55,6 +56,10 @@ export function AppHeader({
 					<Link to="/search" className={menuClass(active === "search")}>
 						<Search className="icon" />
 						Search
+					</Link>
+					<Link to="/scans" className={menuClass(active === "scans")}>
+						<Shield className="icon" />
+						Scans
 					</Link>
 					<Link to="/settings" className={menuClass(active === "settings")}>
 						<Settings className="icon" />

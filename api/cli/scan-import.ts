@@ -89,6 +89,7 @@ async function main() {
 	}
 
 	// Create scan run in running state
+	// biome-ignore lint/suspicious/noExplicitAny: CLI scan run
 	let scanRun: any;
 	try {
 		scanRun = await scanRepo.createScanRun({
@@ -96,6 +97,7 @@ async function main() {
 			profile,
 			status: "running",
 		});
+		// biome-ignore lint/suspicious/noExplicitAny: CLI error
 	} catch (err: any) {
 		writeResult({
 			ok: false,
@@ -160,9 +162,11 @@ async function main() {
 		});
 
 		const content = await fs.readFile(artifactPath, "utf8");
+		// biome-ignore lint/suspicious/noExplicitAny: parsed JSON
 		let parsedJson: any;
 		try {
 			parsedJson = JSON.parse(content);
+			// biome-ignore lint/suspicious/noExplicitAny: error
 		} catch (err: any) {
 			throw new Error(`Failed to parse artifact JSON: ${err.message}`);
 		}
@@ -254,6 +258,7 @@ async function main() {
 			evidenceCount,
 			status: "completed",
 		});
+		// biome-ignore lint/suspicious/noExplicitAny: final catch
 	} catch (err: any) {
 		// Log error event
 		try {

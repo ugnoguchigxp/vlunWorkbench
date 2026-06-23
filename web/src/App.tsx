@@ -22,9 +22,16 @@ import {
 	KnowledgeNavigationProvider,
 } from "./domains/knowledge/knowledge-domain";
 import { SearchDomainSection } from "./domains/search/search-domain";
+import { ScansDomainSection } from "./domains/scans/scans-domain";
 import { Button, TextArea } from "./ui";
 
-export type AppViewId = "knowledge" | "chat" | "search" | "settings" | "admin";
+export type AppViewId =
+	| "knowledge"
+	| "chat"
+	| "search"
+	| "settings"
+	| "admin"
+	| "scans";
 
 type AppProps = {
 	view: AppViewId;
@@ -233,6 +240,12 @@ export function App({ view }: AppProps) {
 						busy={busy}
 						runWithBusy={withBusy}
 						availableCategories={availableCategories}
+					/>
+					<ScansDomainSection
+						active={view === "scans"}
+						busy={busy}
+						runWithBusy={withBusy}
+						setErrorText={setErrorText}
 					/>
 					{view === "settings" ? (
 						<main className="layout columns-2">

@@ -48,6 +48,12 @@ const settingsRoute = createRoute({
 	component: renderAppView("settings"),
 });
 
+const scansRoute = createRoute({
+	getParentRoute: () => rootRoute,
+	path: "/scans",
+	component: renderAppView("scans"),
+});
+
 const adminRoute = createRoute({
 	getParentRoute: () => rootRoute,
 	path: "/admin",
@@ -121,6 +127,7 @@ const routeTree = rootRoute.addChildren([
 	chatRoute,
 	knowledgeRoute,
 	searchRoute,
+	scansRoute,
 	settingsRoute,
 	adminRoute,
 	showcaseRoute,

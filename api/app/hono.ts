@@ -46,12 +46,14 @@ import { createSourcesRoute } from "../routes/sources.route";
 import { createProjectsRoute } from "../routes/projects.route";
 import { createScansRoute } from "../routes/scans.route";
 import { createFindingsRoute } from "../routes/findings.route";
+import { createFindingReviewsRoute } from "../routes/finding-reviews.route";
 import {
 	ProjectRepository,
 	ScanRepository,
 	ArtifactRepository,
 	FindingRepository,
 } from "../modules/scans/repositories";
+import { FindingReviewRepository } from "../modules/reviews/finding-review-repository";
 import { readAppEnv, type AppEnv } from "./env";
 
 type AppRuntime = {
@@ -548,6 +550,20 @@ app.use(
 	}),
 );
 app.use(
+	"/api/finding-reviews/*",
+	requireAuth({
+		env: runtime.env,
+		authService: runtime.authService,
+	}),
+);
+app.use(
+	"/api/finding-reviews",
+	requireAuth({
+		env: runtime.env,
+		authService: runtime.authService,
+	}),
+);
+app.use(
 	"/api/admin/*",
 	requireAuth({
 		env: runtime.env,
@@ -609,6 +625,9 @@ const projectRepository = new ProjectRepository(runtime.dbConnection.db);
 const scanRepository = new ScanRepository(runtime.dbConnection.db);
 const artifactRepository = new ArtifactRepository(runtime.dbConnection.db);
 const findingRepository = new FindingRepository(runtime.dbConnection.db);
+const findingReviewRepository = new FindingReviewRepository(
+	runtime.dbConnection.db,
+);
 
 app.route(
 	"/api/projects",
@@ -628,6 +647,18 @@ app.route(
 app.route(
 	"/api/findings",
 	createFindingsRoute({
+		findingRepository,
+		projectRepository,
+		reviewRepository: findingReviewRepository,
+		llmProvider: runtime.llmProvider,
+		env: runtime.env,
+		db: runtime.dbConnection.db,
+	}),
+);
+app.route(
+	"/api/finding-reviews",
+	createFindingReviewsRoute({
+		reviewRepository: findingReviewRepository,
 		findingRepository,
 		projectRepository,
 	}),

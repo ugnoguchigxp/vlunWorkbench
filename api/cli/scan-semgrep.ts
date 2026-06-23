@@ -1,5 +1,4 @@
 import { parseArgs } from "node:util";
-import fs from "node:fs/promises";
 import { createDbConnection } from "../db";
 import { readAppEnv } from "../app/env";
 import {
@@ -17,6 +16,7 @@ function writeResult(payload: Record<string, unknown>): void {
 }
 
 async function main() {
+	// biome-ignore lint/suspicious/noExplicitAny: CLI args
 	let argsValues: any;
 	try {
 		const parsed = parseArgs({
@@ -31,6 +31,7 @@ async function main() {
 			strict: true,
 		});
 		argsValues = parsed.values;
+		// biome-ignore lint/suspicious/noExplicitAny: error
 	} catch (err: any) {
 		writeResult({
 			ok: false,
@@ -97,6 +98,7 @@ async function main() {
 	}
 
 	// 3. Create scan run in running state
+	// biome-ignore lint/suspicious/noExplicitAny: CLI scan run
 	let scanRun: any;
 	try {
 		scanRun = await scanRepo.createScanRun({
@@ -104,6 +106,7 @@ async function main() {
 			profile,
 			status: "running",
 		});
+		// biome-ignore lint/suspicious/noExplicitAny: error
 	} catch (err: any) {
 		writeResult({
 			ok: false,
@@ -300,6 +303,7 @@ async function main() {
 			evidenceCount,
 			status: "completed",
 		});
+		// biome-ignore lint/suspicious/noExplicitAny: final catch
 	} catch (err: any) {
 		// Log error event
 		try {

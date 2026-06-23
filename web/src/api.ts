@@ -785,10 +785,75 @@ export async function fetchScanFindings(scanRunId: string): Promise<Finding[]> {
 	return data.findings;
 }
 
-export async function fetchFinding(
+export type FindingReview = {
+	id: string;
+	findingId: string;
+	provider: string;
+	model: string;
+	status: "running" | "completed" | "failed";
+	summary: string | null;
+	likelyImpact: string | null;
+	falsePositiveAssessment: {
+		level: "low" | "medium" | "high" | "unknown";
+		reasoning: string;
+	} | null;
+	evidenceStrength: {
+		level: "weak" | "moderate" | "strong" | "unknown";
+		reasoning: string;
+	} | null;
+	remediationDirection: string | null;
+	reviewerNotes: string[] | null;
+	confidenceAdjustment: "unchanged" | "increase" | "decrease" | "unknown";
+	inputBundle: Record<string, unknown> | null;
+	output: Record<string, unknown> | null;
+	errorMessage: string | null;
+	createdByUserId: string | null;
+	startedAt: string | null;
+	completedAt: string | null;
+	createdAt: string;
+	updatedAt: string;
+};
+
+export async function fetchFinding(findingId: string): Promise<{
+	finding: Finding;
+	evidence: FindingEvidence[];
+	latestReview: FindingReview | null;
+}> {
+	return requestJson<{
+		finding: Finding;
+		evidence: FindingEvidence[];
+		latestReview: FindingReview | null;
+	}>(`/api/findings/${findingId}`);
+}
+
+export async function fetchFindingReviews(
 	findingId: string,
-): Promise<{ finding: Finding; evidence: FindingEvidence[] }> {
-	return requestJson<{ finding: Finding; evidence: FindingEvidence[] }>(
-		`/api/findings/${findingId}`,
+): Promise<{ reviews: FindingReview[] }> {
+	return requestJson<{ reviews: FindingReview[] }>(
+		`/api/findings/${findingId}/reviews`,
+	);
+}
+
+export async function triggerFindingReview(findingId: string): Promise<{
+	ok: boolean;
+	reviewId: string;
+	status: "completed" | "failed";
+	error?: string;
+}> {
+	return requestJson<{
+		ok: boolean;
+		reviewId: string;
+		status: "completed" | "failed";
+		error?: string;
+	}>(`/api/findings/${findingId}/reviews`, {
+		method: "POST",
+	});
+}
+
+export async function fetchFindingReview(
+	reviewId: string,
+): Promise<{ review: FindingReview }> {
+	return requestJson<{ review: FindingReview }>(
+		`/api/finding-reviews/${reviewId}`,
 	);
 }

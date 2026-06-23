@@ -9,7 +9,7 @@ export interface SemgrepRunResult {
 	stdout: string;
 	stderr: string;
 	elapsedMs: number;
-	rawJson?: any;
+	rawJson?: unknown;
 	rawJsonArtifact?: ArtifactSaveResult;
 	stdoutArtifact?: ArtifactSaveResult;
 	stderrArtifact?: ArtifactSaveResult;
