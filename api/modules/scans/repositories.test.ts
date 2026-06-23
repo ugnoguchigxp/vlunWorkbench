@@ -1,0 +1,198 @@
+import { describe, expect, it, beforeEach, afterEach } from "vitest";
+import { readFileSync, readdirSync } from "node:fs";
+import path from "node:path";
+import { createDbConnection, type DbConnection } from "../../db";
+import { users } from "../../db/schema";
+import {
+	ProjectRepository,
+	ScanRepository,
+	ArtifactRepository,
+	FindingRepository,
+} from "./repositories";
+
+describe("Scan Domain Repositories", () => {
+	let connection: DbConnection;
+	let projectRepo: ProjectRepository;
+	let scanRepo: ScanRepository;
+	let artifactRepo: ArtifactRepository;
+	let findingRepo: FindingRepository;
+	let userId: string;
+
+	beforeEach(async () => {
+		connection = createDbConnection(":memory:");
+
+		// Apply Drizzle migrations manually to in-memory SQLite
+		const migrationsDir = path.resolve(process.cwd(), "drizzle");
+		const sqlFiles = readdirSync(migrationsDir)
+			.filter((file) => file.endsWith(".sql"))
+			.sort((a, b) => a.localeCompare(b));
+
+		for (const filename of sqlFiles) {
+			const sqlPath = path.resolve(migrationsDir, filename);
+			const sql = readFileSync(sqlPath, "utf8");
+			connection.sqlite.exec(sql);
+		}
+
+		projectRepo = new ProjectRepository(connection.db);
+		scanRepo = new ScanRepository(connection.db);
+		artifactRepo = new ArtifactRepository(connection.db);
+		findingRepo = new FindingRepository(connection.db);
+
+		// Seed a test user
+		const now = new Date();
+		const [user] = await connection.db
+			.insert(users)
+			.values({
+				email: "test@example.com",
+				passwordHash: "hash",
+				displayName: "Test User",
+				role: "member",
+				isActive: true,
+				createdAt: now,
+				updatedAt: now,
+			})
+			.returning();
+		userId = user.id;
+	});
+
+	afterEach(() => {
+		connection.sqlite.close();
+	});
+
+	it("should create projects and retrieve them", async () => {
+		const project = await projectRepo.createProject({
+			ownerUserId: userId,
+			name: "Test Project",
+			repoPath: "/path/to/repo",
+		});
+
+		expect(project.id).toBeDefined();
+		expect(project.name).toBe("Test Project");
+
+		const found = await projectRepo.findById(project.id);
+		expect(found).not.toBeNull();
+		expect(found?.name).toBe("Test Project");
+
+		const foundByPath = await projectRepo.findByRepoPath(userId, "/path/to/repo");
+		expect(foundByPath?.id).toBe(project.id);
+
+		const list = await projectRepo.listProjects(userId);
+		expect(list.length).toBe(1);
+		expect(list[0].id).toBe(project.id);
+	});
+
+	it("should run scans, generate events, and tools", async () => {
+		const project = await projectRepo.createProject({
+			ownerUserId: userId,
+			name: "Test Project",
+			repoPath: "/path/to/repo",
+		});
+
+		const scanRun = await scanRepo.createScanRun({
+			projectId: project.id,
+			profile: "baseline",
+			status: "queued",
+			createdByUserId: userId,
+		});
+
+		expect(scanRun.id).toBeDefined();
+		expect(scanRun.status).toBe("queued");
+
+		const updated = await scanRepo.updateScanRunStatus(scanRun.id, "running");
+		expect(updated?.status).toBe("running");
+
+		const found = await scanRepo.findById(scanRun.id);
+		expect(found?.status).toBe("running");
+
+		const scansForProject = await scanRepo.listScanRuns(project.id);
+		expect(scansForProject).toHaveLength(1);
+		expect(scansForProject[0].id).toBe(scanRun.id);
+
+		// scan events
+		const event = await scanRepo.createScanEvent({
+			scanRunId: scanRun.id,
+			level: "info",
+			eventType: "scan.started",
+			message: "Scan started",
+		});
+		expect(event.id).toBeDefined();
+
+		const events = await scanRepo.listScanEvents(scanRun.id);
+		expect(events.length).toBe(1);
+		expect(events[0].message).toBe("Scan started");
+
+		// tool runs
+		const tool = await scanRepo.createToolRun({
+			scanRunId: scanRun.id,
+			toolName: "fixture",
+			status: "running",
+		});
+		expect(tool.id).toBeDefined();
+		expect(tool.toolName).toBe("fixture");
+
+		const updatedTool = await scanRepo.updateToolRunStatus(tool.id, "completed", {
+			exitCode: 0,
+		});
+		expect(updatedTool?.exitCode).toBe(0);
+	});
+
+	it("should store scan artifacts, findings, and evidence", async () => {
+		const project = await projectRepo.createProject({
+			ownerUserId: userId,
+			name: "Test Project",
+			repoPath: "/path/to/repo",
+		});
+
+		const scanRun = await scanRepo.createScanRun({
+			projectId: project.id,
+			profile: "baseline",
+			status: "running",
+		});
+
+		const artifact = await artifactRepo.createArtifact({
+			scanRunId: scanRun.id,
+			toolRunId: null,
+			kind: "raw_result",
+			format: "json",
+			path: "raw.json",
+			sha256: "abc",
+			sizeBytes: 123,
+		});
+		expect(artifact.id).toBeDefined();
+
+		const artifacts = await artifactRepo.listArtifacts(scanRun.id);
+		expect(artifacts.length).toBe(1);
+
+		const finding = await findingRepo.createFinding({
+			scanRunId: scanRun.id,
+			projectId: project.id,
+			sourceTool: "fixture",
+			ruleId: "rule-1",
+			title: "vuln",
+			description: "desc",
+			severity: "high",
+			confidence: "static",
+			status: "open",
+			primaryLocation: { path: "src/index.js", line: 10 },
+			fingerprint: "fp-1",
+		});
+		expect(finding.id).toBeDefined();
+
+		const findingsList = await findingRepo.listFindings(scanRun.id);
+		expect(findingsList.length).toBe(1);
+
+		const evidence = await findingRepo.createEvidence({
+			findingId: finding.id,
+			kind: "tool-output",
+			title: "evidence 1",
+			artifactId: artifact.id,
+			location: { line: 10 },
+			snippet: "code snippet",
+		});
+		expect(evidence.id).toBeDefined();
+
+		const evidenceList = await findingRepo.listEvidence(finding.id);
+		expect(evidenceList.length).toBe(1);
+		expect(evidenceList[0].snippet).toBe("code snippet");
+	});
+});

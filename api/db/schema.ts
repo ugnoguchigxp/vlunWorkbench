@@ -208,3 +208,171 @@ export const userSettings = sqliteTable("user_settings", {
 	createdAt: timestampMs("created_at"),
 	updatedAt: timestampMs("updated_at"),
 });
+
+export const projects = sqliteTable(
+	"projects",
+	{
+		id: id(),
+		ownerUserId: text("owner_user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		name: text("name").notNull(),
+		repoPath: text("repo_path").notNull(),
+		defaultBranch: text("default_branch").notNull().default("main"),
+		metadata: jsonObject("metadata"),
+		createdAt: timestampMs("created_at"),
+		updatedAt: timestampMs("updated_at"),
+	},
+	(table) => ({
+		ownerUserIdIdx: index("projects_owner_user_id_idx").on(table.ownerUserId),
+		ownerRepoPathUniqueIdx: uniqueIndex(
+			"projects_owner_repo_path_unique_idx",
+		).on(table.ownerUserId, table.repoPath),
+	}),
+);
+
+export const scanRuns = sqliteTable(
+	"scan_runs",
+	{
+		id: id(),
+		projectId: text("project_id")
+			.notNull()
+			.references(() => projects.id, { onDelete: "cascade" }),
+		profile: text("profile").notNull().default("baseline"),
+		status: text("status").notNull(), // queued, running, completed, failed, cancelled
+		startedAt: integer("started_at", { mode: "timestamp_ms" }),
+		completedAt: integer("completed_at", { mode: "timestamp_ms" }),
+		createdByUserId: text("created_by_user_id").references(() => users.id, {
+			onDelete: "set null",
+		}),
+		summary: text("summary"),
+		metadata: jsonObject("metadata"),
+		createdAt: timestampMs("created_at"),
+		updatedAt: timestampMs("updated_at"),
+	},
+	(table) => ({
+		projectIdIdx: index("scan_runs_project_id_idx").on(table.projectId),
+		statusIdx: index("scan_runs_status_idx").on(table.status),
+	}),
+);
+
+export const scanEvents = sqliteTable(
+	"scan_events",
+	{
+		id: id(),
+		scanRunId: text("scan_run_id")
+			.notNull()
+			.references(() => scanRuns.id, { onDelete: "cascade" }),
+		level: text("level").notNull(), // debug, info, warn, error
+		eventType: text("event_type").notNull(), // scan.started, etc.
+		message: text("message").notNull(),
+		data: jsonObject("data"),
+		createdAt: timestampMs("created_at"),
+	},
+	(table) => ({
+		scanRunIdIdx: index("scan_events_scan_run_id_idx").on(table.scanRunId),
+	}),
+);
+
+export const toolRuns = sqliteTable(
+	"tool_runs",
+	{
+		id: id(),
+		scanRunId: text("scan_run_id")
+			.notNull()
+			.references(() => scanRuns.id, { onDelete: "cascade" }),
+		toolName: text("tool_name").notNull(),
+		toolVersion: text("tool_version"),
+		command: text("command"),
+		status: text("status").notNull(),
+		exitCode: integer("exit_code"),
+		startedAt: integer("started_at", { mode: "timestamp_ms" }),
+		completedAt: integer("completed_at", { mode: "timestamp_ms" }),
+		metadata: jsonObject("metadata"),
+		createdAt: timestampMs("created_at"),
+		updatedAt: timestampMs("updated_at"),
+	},
+	(table) => ({
+		scanRunIdIdx: index("tool_runs_scan_run_id_idx").on(table.scanRunId),
+	}),
+);
+
+export const scanArtifacts = sqliteTable(
+	"scan_artifacts",
+	{
+		id: id(),
+		scanRunId: text("scan_run_id")
+			.notNull()
+			.references(() => scanRuns.id, { onDelete: "cascade" }),
+		toolRunId: text("tool_run_id").references(() => toolRuns.id, {
+			onDelete: "set null",
+		}),
+		kind: text("kind").notNull(), // raw_result, stdout, stderr, log, normalized_result, source_snippet
+		format: text("format").notNull(), // json, sarif, text, markdown
+		path: text("path").notNull(),
+		sha256: text("sha256").notNull(),
+		sizeBytes: integer("size_bytes").notNull(),
+		metadata: jsonObject("metadata"),
+		createdAt: timestampMs("created_at"),
+	},
+	(table) => ({
+		scanRunIdIdx: index("scan_artifacts_scan_run_id_idx").on(table.scanRunId),
+		toolRunIdIdx: index("scan_artifacts_tool_run_id_idx").on(table.toolRunId),
+	}),
+);
+
+export const findings = sqliteTable(
+	"findings",
+	{
+		id: id(),
+		scanRunId: text("scan_run_id")
+			.notNull()
+			.references(() => scanRuns.id, { onDelete: "cascade" }),
+		projectId: text("project_id")
+			.notNull()
+			.references(() => projects.id, { onDelete: "cascade" }),
+		sourceTool: text("source_tool").notNull(),
+		ruleId: text("rule_id").notNull(),
+		title: text("title").notNull(),
+		description: text("description").notNull(),
+		severity: text("severity").notNull(), // info, low, medium, high, critical, unknown
+		confidence: text("confidence").notNull().default("static"),
+		status: text("status").notNull().default("open"),
+		primaryLocation: text("primary_location", { mode: "json" }).$type<
+			Record<string, unknown>
+		>(),
+		fingerprint: text("fingerprint").notNull(),
+		metadata: jsonObject("metadata"),
+		createdAt: timestampMs("created_at"),
+		updatedAt: timestampMs("updated_at"),
+	},
+	(table) => ({
+		scanRunIdIdx: index("findings_scan_run_id_idx").on(table.scanRunId),
+		projectIdIdx: index("findings_project_id_idx").on(table.projectId),
+		fingerprintIdx: index("findings_fingerprint_idx").on(table.fingerprint),
+	}),
+);
+
+export const findingEvidences = sqliteTable(
+	"finding_evidence",
+	{
+		id: id(),
+		findingId: text("finding_id")
+			.notNull()
+			.references(() => findings.id, { onDelete: "cascade" }),
+		kind: text("kind").notNull(), // tool-output, source-location, scan-log
+		title: text("title").notNull(),
+		artifactId: text("artifact_id").references(() => scanArtifacts.id, {
+			onDelete: "set null",
+		}),
+		location: text("location", { mode: "json" }).$type<
+			Record<string, unknown>
+		>(),
+		snippet: text("snippet"),
+		metadata: jsonObject("metadata"),
+		createdAt: timestampMs("created_at"),
+	},
+	(table) => ({
+		findingIdIdx: index("finding_evidence_finding_id_idx").on(table.findingId),
+	}),
+);

@@ -43,6 +43,15 @@ import { createHealthRoute } from "../routes/health.route";
 import { createSearchRoute } from "../routes/search.route";
 import { createSettingsRoute } from "../routes/settings.route";
 import { createSourcesRoute } from "../routes/sources.route";
+import { createProjectsRoute } from "../routes/projects.route";
+import { createScansRoute } from "../routes/scans.route";
+import { createFindingsRoute } from "../routes/findings.route";
+import {
+	ProjectRepository,
+	ScanRepository,
+	ArtifactRepository,
+	FindingRepository,
+} from "../modules/scans/repositories";
 import { readAppEnv, type AppEnv } from "./env";
 
 type AppRuntime = {
@@ -497,6 +506,48 @@ app.use(
 	}),
 );
 app.use(
+	"/api/projects/*",
+	requireAuth({
+		env: runtime.env,
+		authService: runtime.authService,
+	}),
+);
+app.use(
+	"/api/projects",
+	requireAuth({
+		env: runtime.env,
+		authService: runtime.authService,
+	}),
+);
+app.use(
+	"/api/scans/*",
+	requireAuth({
+		env: runtime.env,
+		authService: runtime.authService,
+	}),
+);
+app.use(
+	"/api/scans",
+	requireAuth({
+		env: runtime.env,
+		authService: runtime.authService,
+	}),
+);
+app.use(
+	"/api/findings/*",
+	requireAuth({
+		env: runtime.env,
+		authService: runtime.authService,
+	}),
+);
+app.use(
+	"/api/findings",
+	requireAuth({
+		env: runtime.env,
+		authService: runtime.authService,
+	}),
+);
+app.use(
 	"/api/admin/*",
 	requireAuth({
 		env: runtime.env,
@@ -551,6 +602,34 @@ app.route(
 	"/api/artifacts",
 	createArtifactsRoute({
 		db: runtime.dbConnection.db,
+	}),
+);
+
+const projectRepository = new ProjectRepository(runtime.dbConnection.db);
+const scanRepository = new ScanRepository(runtime.dbConnection.db);
+const artifactRepository = new ArtifactRepository(runtime.dbConnection.db);
+const findingRepository = new FindingRepository(runtime.dbConnection.db);
+
+app.route(
+	"/api/projects",
+	createProjectsRoute({
+		projectRepository,
+	}),
+);
+app.route(
+	"/api/scans",
+	createScansRoute({
+		scanRepository,
+		projectRepository,
+		artifactRepository,
+		findingRepository,
+	}),
+);
+app.route(
+	"/api/findings",
+	createFindingsRoute({
+		findingRepository,
+		projectRepository,
 	}),
 );
 

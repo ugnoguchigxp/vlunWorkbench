@@ -635,3 +635,160 @@ export async function resetAdminUserPassword(
 		body: { newPassword },
 	});
 }
+
+// --- Phase 1: CLI Scan Foundation Types ---
+
+export type Project = {
+	id: string;
+	ownerUserId: string;
+	name: string;
+	repoPath: string;
+	defaultBranch: string;
+	metadata: Record<string, unknown>;
+	createdAt: string;
+	updatedAt: string;
+};
+
+export type ScanRun = {
+	id: string;
+	projectId: string;
+	profile: string;
+	status: "queued" | "running" | "completed" | "failed" | "cancelled";
+	startedAt: string | null;
+	completedAt: string | null;
+	createdByUserId: string | null;
+	summary: string | null;
+	metadata: Record<string, unknown>;
+	createdAt: string;
+	updatedAt: string;
+};
+
+export type ScanEvent = {
+	id: string;
+	scanRunId: string;
+	level: "debug" | "info" | "warn" | "error";
+	eventType: string;
+	message: string;
+	data: Record<string, unknown>;
+	createdAt: string;
+};
+
+export type ScanArtifact = {
+	id: string;
+	scanRunId: string;
+	toolRunId: string | null;
+	kind:
+		| "raw_result"
+		| "stdout"
+		| "stderr"
+		| "log"
+		| "normalized_result"
+		| "source_snippet";
+	format: string;
+	path: string;
+	sha256: string;
+	sizeBytes: number;
+	metadata: Record<string, unknown>;
+	createdAt: string;
+};
+
+export type Finding = {
+	id: string;
+	scanRunId: string;
+	projectId: string;
+	sourceTool: string;
+	ruleId: string;
+	title: string;
+	description: string;
+	severity: "info" | "low" | "medium" | "high" | "critical" | "unknown";
+	confidence: "static";
+	status: "open";
+	primaryLocation: Record<string, unknown> | null;
+	fingerprint: string;
+	metadata: Record<string, unknown>;
+	createdAt: string;
+	updatedAt: string;
+};
+
+export type FindingEvidence = {
+	id: string;
+	findingId: string;
+	kind: "tool-output" | "source-location" | "scan-log";
+	title: string;
+	artifactId: string | null;
+	location: Record<string, unknown> | null;
+	snippet: string | null;
+	metadata: Record<string, unknown>;
+	createdAt: string;
+};
+
+// --- Phase 1: CLI Scan Foundation API functions ---
+
+export async function fetchProjects(): Promise<Project[]> {
+	const data = await requestJson<{ projects: Project[] }>("/api/projects");
+	return data.projects;
+}
+
+export async function fetchProject(projectId: string): Promise<Project> {
+	const data = await requestJson<{ project: Project }>(
+		`/api/projects/${projectId}`,
+	);
+	return data.project;
+}
+
+export async function createProject(params: {
+	name: string;
+	repoPath: string;
+	defaultBranch?: string;
+	metadata?: Record<string, unknown>;
+}): Promise<Project> {
+	const data = await requestJson<{ project: Project }>("/api/projects", {
+		method: "POST",
+		body: params,
+	});
+	return data.project;
+}
+
+export async function fetchScans(projectId: string): Promise<ScanRun[]> {
+	const params = new URLSearchParams({ projectId });
+	const data = await requestJson<{ scans: ScanRun[] }>(
+		`/api/scans?${params.toString()}`,
+	);
+	return data.scans;
+}
+
+export async function fetchScan(scanRunId: string): Promise<ScanRun> {
+	const data = await requestJson<{ scan: ScanRun }>(`/api/scans/${scanRunId}`);
+	return data.scan;
+}
+
+export async function fetchScanEvents(scanRunId: string): Promise<ScanEvent[]> {
+	const data = await requestJson<{ events: ScanEvent[] }>(
+		`/api/scans/${scanRunId}/events`,
+	);
+	return data.events;
+}
+
+export async function fetchScanArtifacts(
+	scanRunId: string,
+): Promise<ScanArtifact[]> {
+	const data = await requestJson<{ artifacts: ScanArtifact[] }>(
+		`/api/scans/${scanRunId}/artifacts`,
+	);
+	return data.artifacts;
+}
+
+export async function fetchScanFindings(scanRunId: string): Promise<Finding[]> {
+	const data = await requestJson<{ findings: Finding[] }>(
+		`/api/scans/${scanRunId}/findings`,
+	);
+	return data.findings;
+}
+
+export async function fetchFinding(
+	findingId: string,
+): Promise<{ finding: Finding; evidence: FindingEvidence[] }> {
+	return requestJson<{ finding: Finding; evidence: FindingEvidence[] }>(
+		`/api/findings/${findingId}`,
+	);
+}
