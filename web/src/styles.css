@@ -968,7 +968,7 @@ select {
 	color: #475569;
 }
 
-.artifact-chart-row strong {
+body .artifact-chart-row strong {
 	font-size: 12px;
 	color: #0f172a;
 }
@@ -2037,6 +2037,36 @@ select {
 .badge-queued {
 	background: #f1f5f9;
 	color: #475569;
+}
+
+.badge-cancelled {
+	background: #f1f5f9;
+	color: #475569;
+}
+
+.badge-timed_out {
+	background: #ffedd5;
+	color: #c2410c;
+}
+
+.badge-reproduced {
+	background: #fee2e2;
+	color: #b91c1c;
+}
+
+.badge-not_reproduced {
+	background: #dcfce7;
+	color: #15803d;
+}
+
+.badge-inconclusive {
+	background: #ffedd5;
+	color: #c2410c;
+}
+
+.badge-error {
+	background: #fee2e2;
+	color: #b91c1c;
 }
 
 @keyframes scans-pulse {

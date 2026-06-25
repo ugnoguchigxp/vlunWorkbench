@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import { z } from "zod";
-import { redactSecrets } from "./redaction";
 import type { NormalizedFinding } from "./fixture";
+import { redactSecrets } from "./redaction";
 
 export const osvVulnerabilitySchema = z.object({
 	id: z.string().min(1),
@@ -219,7 +219,7 @@ export function normalizeOsv(
 					fingerprint,
 					evidences,
 					metadata,
-				} as any);
+				});
 			}
 		}
 	}

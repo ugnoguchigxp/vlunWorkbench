@@ -1,9 +1,14 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import type { ArtifactStorage, ArtifactSaveResult } from "../artifact-storage";
+import type { ArtifactSaveResult, ArtifactStorage } from "../artifact-storage";
 import { redactJsonSecrets, redactSecrets } from "../normalizers/redaction";
-import { checkToolVersion, runToolProcess } from "./tool-process-runner";
+import {
+	checkToolVersion,
+	runToolProcess,
+	type ToolExecutionConfig,
+	type ToolLifecycleEvent,
+} from "./tool-process-runner";
 
 export interface TrivyRunResult {
 	ok: boolean;
@@ -16,17 +21,24 @@ export interface TrivyRunResult {
 	stdoutArtifact?: ArtifactSaveResult;
 	stderrArtifact?: ArtifactSaveResult;
 	error?: string;
+	executionMetadata?: Record<string, unknown>;
 }
 
 export interface TrivyRunnerOptions {
 	timeoutSec?: number;
+	onLifecycleEvent?: (event: ToolLifecycleEvent) => Promise<void> | void;
 }
 
 export class TrivyRunner {
-	constructor(private readonly storage?: ArtifactStorage) {}
+	constructor(
+		private readonly storage?: ArtifactStorage,
+		private readonly execution?: ToolExecutionConfig,
+	) {}
 
 	async checkVersion(): Promise<string | null> {
-		return await checkToolVersion("trivy", ["--version"]);
+		return await checkToolVersion("trivy", ["--version"], {
+			execution: this.execution,
+		});
 	}
 
 	async run(
@@ -55,6 +67,10 @@ export class TrivyRunner {
 		const startTime = Date.now();
 		const runResult = await runToolProcess("trivy", args, {
 			timeoutSec: options.timeoutSec,
+			execution: this.execution,
+			repoPath,
+			outputPath: tempJsonPath,
+			onLifecycleEvent: options.onLifecycleEvent,
 		});
 		const elapsedMs = Date.now() - startTime;
 
@@ -67,6 +83,7 @@ export class TrivyRunner {
 				stderr: runResult.stderr,
 				elapsedMs,
 				error: runResult.error || "Trivy run failed",
+				executionMetadata: runResult.executionMetadata,
 			};
 		}
 
@@ -136,6 +153,7 @@ export class TrivyRunner {
 				stdoutArtifact,
 				stderrArtifact,
 				error: `Trivy exited with code ${runResult.exitCode}`,
+				executionMetadata: runResult.executionMetadata,
 			};
 		}
 
@@ -189,6 +207,7 @@ export class TrivyRunner {
 			rawJsonArtifact,
 			stdoutArtifact,
 			stderrArtifact,
+			executionMetadata: runResult.executionMetadata,
 		};
 	}
 }

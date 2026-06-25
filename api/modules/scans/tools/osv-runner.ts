@@ -1,9 +1,14 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import type { ArtifactStorage, ArtifactSaveResult } from "../artifact-storage";
+import type { ArtifactSaveResult, ArtifactStorage } from "../artifact-storage";
 import { redactJsonSecrets, redactSecrets } from "../normalizers/redaction";
-import { checkToolVersion, runToolProcess } from "./tool-process-runner";
+import {
+	checkToolVersion,
+	runToolProcess,
+	type ToolExecutionConfig,
+	type ToolLifecycleEvent,
+} from "./tool-process-runner";
 
 export interface OsvRunResult {
 	ok: boolean;
@@ -16,17 +21,24 @@ export interface OsvRunResult {
 	stdoutArtifact?: ArtifactSaveResult;
 	stderrArtifact?: ArtifactSaveResult;
 	error?: string;
+	executionMetadata?: Record<string, unknown>;
 }
 
 export interface OsvRunnerOptions {
 	timeoutSec?: number;
+	onLifecycleEvent?: (event: ToolLifecycleEvent) => Promise<void> | void;
 }
 
 export class OsvRunner {
-	constructor(private readonly storage?: ArtifactStorage) {}
+	constructor(
+		private readonly storage?: ArtifactStorage,
+		private readonly execution?: ToolExecutionConfig,
+	) {}
 
 	async checkVersion(): Promise<string | null> {
-		return await checkToolVersion("osv-scanner", ["--version"]);
+		return await checkToolVersion("osv-scanner", ["--version"], {
+			execution: this.execution,
+		});
 	}
 
 	async run(
@@ -62,6 +74,10 @@ export class OsvRunner {
 		const startTime = Date.now();
 		const runResult = await runToolProcess("osv-scanner", args, {
 			timeoutSec: options.timeoutSec,
+			execution: this.execution,
+			repoPath,
+			outputPath: tempJsonPath,
+			onLifecycleEvent: options.onLifecycleEvent,
 		});
 		const elapsedMs = Date.now() - startTime;
 
@@ -74,6 +90,7 @@ export class OsvRunner {
 				stderr: runResult.stderr,
 				elapsedMs,
 				error: runResult.error || "OSV-Scanner run failed",
+				executionMetadata: runResult.executionMetadata,
 			};
 		}
 
@@ -144,6 +161,7 @@ export class OsvRunner {
 				stdoutArtifact,
 				stderrArtifact,
 				error: `OSV-Scanner exited with code ${runResult.exitCode}`,
+				executionMetadata: runResult.executionMetadata,
 			};
 		}
 
@@ -195,6 +213,7 @@ export class OsvRunner {
 			rawJsonArtifact,
 			stdoutArtifact,
 			stderrArtifact,
+			executionMetadata: runResult.executionMetadata,
 		};
 	}
 }

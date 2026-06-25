@@ -1,8 +1,14 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import type { ArtifactStorage, ArtifactSaveResult } from "../artifact-storage";
+import type { ArtifactSaveResult, ArtifactStorage } from "../artifact-storage";
 import { redactJsonSecrets, redactSecrets } from "../normalizers/redaction";
+import {
+	checkToolVersion,
+	runToolProcess,
+	type ToolExecutionConfig,
+	type ToolLifecycleEvent,
+} from "./tool-process-runner";
 
 export interface SemgrepRunResult {
 	ok: boolean;
@@ -15,36 +21,30 @@ export interface SemgrepRunResult {
 	stdoutArtifact?: ArtifactSaveResult;
 	stderrArtifact?: ArtifactSaveResult;
 	error?: string;
+	executionMetadata?: Record<string, unknown>;
 }
 
 export interface SemgrepRunnerOptions {
 	config?: string;
 	timeoutSec?: number;
 	maxTargetBytes?: number;
+	onLifecycleEvent?: (event: ToolLifecycleEvent) => Promise<void> | void;
 }
 
 export class SemgrepRunner {
-	constructor(private readonly storage?: ArtifactStorage) {}
+	constructor(
+		private readonly storage?: ArtifactStorage,
+		private readonly execution?: ToolExecutionConfig,
+	) {}
 
 	/**
 	 * Checks if the semgrep executable is available on the system.
 	 * Returns the version string if found, or null otherwise.
 	 */
 	async checkVersion(): Promise<string | null> {
-		try {
-			const proc = Bun.spawn(["semgrep", "--version"], {
-				stdout: "pipe",
-				stderr: "pipe",
-			});
-			const exitCode = await proc.exited;
-			if (exitCode !== 0) {
-				return null;
-			}
-			const stdoutText = await new Response(proc.stdout).text();
-			return stdoutText.trim();
-		} catch {
-			return null;
-		}
+		return await checkToolVersion("semgrep", ["--version"], {
+			execution: this.execution,
+		});
 	}
 
 	/**
@@ -84,82 +84,29 @@ export class SemgrepRunner {
 
 		args.push(repoPath);
 
-		const startTime = Date.now();
-		let exitCode: number | null = null;
-		let stdout = "";
-		let stderr = "";
-		let proc: any;
-		let timeoutId: any;
-		let isKilled = false;
+		const runResult = await runToolProcess("semgrep", args, {
+			timeoutSec: options.timeoutSec,
+			execution: this.execution,
+			repoPath,
+			outputPath: tempJsonPath,
+			onLifecycleEvent: options.onLifecycleEvent,
+		});
+		const { exitCode, stdout, stderr, elapsedMs, executionMetadata } =
+			runResult;
 
-		try {
-			// Clean environment without sensitive environment keys
-			const cleanEnv: Record<string, string> = {};
-			for (const [key, val] of Object.entries(process.env)) {
-				const normalizedKey = key.toUpperCase();
-				if (
-					val &&
-					!normalizedKey.includes("OPENAI") &&
-					!normalizedKey.includes("AZURE") &&
-					!normalizedKey.includes("LLM") &&
-					!normalizedKey.includes("SECRET") &&
-					!normalizedKey.includes("KEY") &&
-					!normalizedKey.includes("TOKEN")
-				) {
-					cleanEnv[key] = val;
-				}
-			}
-
-			proc = Bun.spawn(["semgrep", ...args], {
-				stdout: "pipe",
-				stderr: "pipe",
-				env: cleanEnv,
-			});
-
-			const timeoutSec = options.timeoutSec ?? 300;
-			timeoutId = setTimeout(() => {
-				isKilled = true;
-				proc.kill();
-			}, timeoutSec * 1000);
-
-			const [stdoutBuf, stderrBuf, code] = await Promise.all([
-				new Response(proc.stdout).arrayBuffer(),
-				new Response(proc.stderr).arrayBuffer(),
-				proc.exited,
-			]);
-
-			exitCode = code;
-			stdout = new TextDecoder().decode(stdoutBuf);
-			stderr = new TextDecoder().decode(stderrBuf);
-		} catch (err: any) {
+		if (!runResult.ok) {
 			await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
 			return {
 				ok: false,
-				exitCode: null,
-				stdout,
-				stderr: stderr || err.message,
-				elapsedMs: Date.now() - startTime,
-				error: isKilled
-					? "Semgrep execution timed out"
-					: `Process error: ${err.message}`,
-			};
-		} finally {
-			if (timeoutId) {
-				clearTimeout(timeoutId);
-			}
-		}
-
-		const elapsedMs = Date.now() - startTime;
-
-		if (isKilled) {
-			await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
-			return {
-				ok: false,
-				exitCode: null,
+				exitCode: runResult.exitCode,
 				stdout,
 				stderr,
 				elapsedMs,
-				error: "Semgrep execution timed out",
+				error:
+					runResult.error === "semgrep execution timed out"
+						? "Semgrep execution timed out"
+						: (runResult.error ?? "Semgrep run failed"),
+				executionMetadata,
 			};
 		}
 
@@ -228,6 +175,7 @@ export class SemgrepRunner {
 				stdoutArtifact,
 				stderrArtifact,
 				error: `Semgrep exited with code ${exitCode}`,
+				executionMetadata,
 			};
 		}
 
@@ -280,6 +228,7 @@ export class SemgrepRunner {
 			rawJsonArtifact,
 			stdoutArtifact,
 			stderrArtifact,
+			executionMetadata,
 		};
 	}
 }

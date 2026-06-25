@@ -4,42 +4,49 @@ import {
 	CheckCircle2,
 	Clock,
 	Code,
+	Download,
 	Info,
 	RefreshCw,
 	Shield,
 	Sparkles,
 	XCircle,
-	Download,
-	FileText,
 } from "lucide-react";
-import { useEffect, useState, useCallback } from "react";
-import mermaid from "mermaid";
 import { MarkdownEditor } from "markdown-wysiwyg-editor";
+import mermaid from "mermaid";
+import { useCallback, useEffect, useState } from "react";
 import {
+	createFindingDecision,
+	type Finding,
+	type FindingDecision,
+	type FindingEvidence,
+	type FindingGroup,
+	type FindingReview,
 	fetchFinding,
+	fetchFindingDecisions,
+	fetchFindingReproductions,
 	fetchFindingReviews,
 	fetchProjects,
+	fetchReproductionProfiles,
+	fetchReproductionRunArtifacts,
 	fetchScanFindings,
-	fetchScans,
-	triggerFindingReview,
-	fetchFindingDecisions,
-	createFindingDecision,
-	generateScanReport,
-	fetchScanReports,
-	fetchScanProfiles,
-	startScan,
-	fetchScanSummary,
 	fetchScanGroups,
-	type Finding,
-	type FindingEvidence,
-	type FindingReview,
-	type FindingDecision,
+	fetchScanProfiles,
+	fetchScanReports,
+	fetchScanSummary,
+	fetchScans,
+	generateScanReport,
 	type Project,
-	type ScanRun,
-	type ScanReport,
+	type ReproductionArtifact,
+	type ReproductionEvidence,
+	type ReproductionProfile,
+	type ReproductionRun,
 	type ScanProfile,
+	type ScanReport,
+	type ScanRun,
 	type ScanRunSummary,
-	type FindingGroup,
+	startScan,
+	triggerFindingReproduction,
+	triggerFindingReview,
 } from "../../api";
 import { Button, SelectInput } from "../../ui";
 
@@ -114,6 +121,23 @@ export const ScansDomainSection = ({
 	>(null);
 	const [reportTitle, setReportTitle] = useState("Security Report");
 	const [includeFalsePositives, setIncludeFalsePositives] = useState(true);
+
+	// Reproduction state
+	const [reproProfiles, setReproProfiles] = useState<ReproductionProfile[]>([]);
+	const [reproRuns, setReproRuns] = useState<ReproductionRun[]>([]);
+	const [selectedReproProfile, setSelectedReproProfile] = useState<string>("");
+	const [reproLoading, setReproLoading] = useState(false);
+	const [reproError, setReproError] = useState<string | null>(null);
+	const [expandedReproRunId, setExpandedReproRunId] = useState<string | null>(
+		null,
+	);
+	const [reproRunArtifacts, setReproRunArtifacts] = useState<
+		Record<string, ReproductionArtifact[]>
+	>({});
+	const [reproRunEvidence, setReproRunEvidence] = useState<
+		Record<string, ReproductionEvidence[]>
+	>({});
+
 	const [includeDeferred, setIncludeDeferred] = useState(true);
 	const [includeUndecided, setIncludeUndecided] = useState(true);
 
@@ -162,7 +186,7 @@ export const ScansDomainSection = ({
 				} else {
 					setReportPreviewContent(null);
 				}
-			} catch (err) {
+			} catch (_err) {
 				setReportPreviewContent(null);
 			}
 		})();
@@ -312,6 +336,25 @@ export const ScansDomainSection = ({
 					console.error("Failed to fetch all decisions", e);
 					setAllDecisions([]);
 				}
+				try {
+					const profilesRes = await fetchReproductionProfiles(findingId);
+					setReproProfiles(profilesRes.profiles);
+					const firstApplicable = profilesRes.profiles.find(
+						(p) => p.isApplicable,
+					);
+					setSelectedReproProfile(firstApplicable ? firstApplicable.id : "");
+				} catch (e) {
+					console.error("Failed to fetch reproduction profiles", e);
+					setReproProfiles([]);
+					setSelectedReproProfile("");
+				}
+				try {
+					const reprosRes = await fetchFindingReproductions(findingId);
+					setReproRuns(reprosRes.reproductions);
+				} catch (e) {
+					console.error("Failed to fetch reproduction runs", e);
+					setReproRuns([]);
+				}
 			};
 
 			if (quiet) {
@@ -444,6 +487,65 @@ export const ScansDomainSection = ({
 			);
 		} finally {
 			setReviewLoading(false);
+		}
+	};
+
+	const handleTriggerReproduction = async () => {
+		if (!selectedFindingId || !selectedReproProfile) return;
+		setReproLoading(true);
+		setReproError(null);
+		try {
+			const res = await triggerFindingReproduction(selectedFindingId, {
+				profileId: selectedReproProfile,
+			});
+			if (res.reproductionRunId) {
+				setExpandedReproRunId(res.reproductionRunId);
+				try {
+					const artRes = await fetchReproductionRunArtifacts(
+						res.reproductionRunId,
+					);
+					setReproRunArtifacts((prev) => ({
+						...prev,
+						[res.reproductionRunId]: artRes.artifacts,
+					}));
+					setReproRunEvidence((prev) => ({
+						...prev,
+						[res.reproductionRunId]: artRes.evidence,
+					}));
+				} catch (e) {
+					console.error("Failed to load artifacts/evidence for new run", e);
+				}
+			}
+			const reprosRes = await fetchFindingReproductions(selectedFindingId);
+			setReproRuns(reprosRes.reproductions);
+		} catch (err: any) {
+			console.error("Failed to trigger reproduction", err);
+			setReproError(
+				err.message ||
+					"An unexpected error occurred during reproduction execution.",
+			);
+		} finally {
+			setReproLoading(false);
+		}
+	};
+
+	const handleToggleReproRun = async (runId: string) => {
+		if (expandedReproRunId === runId) {
+			setExpandedReproRunId(null);
+			return;
+		}
+		setExpandedReproRunId(runId);
+		if (!reproRunArtifacts[runId]) {
+			try {
+				const artRes = await fetchReproductionRunArtifacts(runId);
+				setReproRunArtifacts((prev) => ({
+					...prev,
+					[runId]: artRes.artifacts,
+				}));
+				setReproRunEvidence((prev) => ({ ...prev, [runId]: artRes.evidence }));
+			} catch (e) {
+				console.error("Failed to fetch artifacts/evidence for run", e);
+			}
 		}
 	};
 
@@ -658,7 +760,7 @@ export const ScansDomainSection = ({
 										// Refresh scans list
 										const runs = await fetchScans(selectedProjectId);
 										setScanRuns(runs);
-										if (res.scan && res.scan.id) {
+										if (res.scan?.id) {
 											setSelectedScanRunId(res.scan.id);
 											// Reset findings & details
 											setSelectedFindingId("");
@@ -1642,6 +1744,540 @@ export const ScansDomainSection = ({
 											) : null}
 										</div>
 									) : null}
+								</div>
+
+								{/* Sandbox Reproduction Section */}
+								<div
+									className="detail-section"
+									style={{ borderTop: "1px solid #e2e8f0", paddingTop: "20px" }}
+								>
+									<div
+										style={{
+											display: "flex",
+											justifyContent: "space-between",
+											alignItems: "center",
+											gap: "12px",
+											flexWrap: "wrap",
+											marginBottom: "10px",
+										}}
+									>
+										<div
+											style={{
+												display: "flex",
+												alignItems: "center",
+												gap: "8px",
+											}}
+										>
+											<Shield
+												className="icon text-teal-700"
+												style={{ width: "20px", height: "20px" }}
+											/>
+											<h3
+												style={{
+													fontSize: "16px",
+													fontWeight: "700",
+													color: "#0f172a",
+													margin: 0,
+												}}
+											>
+												Sandbox Reproduction
+											</h3>
+										</div>
+									</div>
+
+									<p
+										style={{
+											fontSize: "14px",
+											color: "#475569",
+											marginBottom: "16px",
+										}}
+									>
+										Run verification checks in an isolated Docker container to
+										confirm if this finding is still active in the current
+										codebase state.
+									</p>
+
+									{reproError && (
+										<div
+											style={{
+												background: "#fef2f2",
+												border: "1px solid #fee2e2",
+												borderRadius: "8px",
+												padding: "12px 16px",
+												color: "#b91c1c",
+												fontSize: "13px",
+												marginBottom: "16px",
+											}}
+										>
+											{reproError}
+										</div>
+									)}
+
+									{/* Profile Trigger Form */}
+									{reproProfiles.length > 0 ? (
+										<div
+											style={{
+												display: "flex",
+												gap: "12px",
+												alignItems: "flex-end",
+												flexWrap: "wrap",
+												marginBottom: "20px",
+												background: "#f8fafc",
+												border: "1px solid #e2e8f0",
+												borderRadius: "8px",
+												padding: "16px",
+											}}
+										>
+											<div style={{ flex: "1 1 250px" }}>
+												<label
+													htmlFor="repro-profile-select"
+													style={{
+														display: "block",
+														fontSize: "12px",
+														fontWeight: "600",
+														color: "#475569",
+														marginBottom: "6px",
+													}}
+												>
+													Select Bounded Verification Profile
+												</label>
+												<select
+													id="repro-profile-select"
+													value={selectedReproProfile}
+													onChange={(e) =>
+														setSelectedReproProfile(e.target.value)
+													}
+													style={{
+														width: "100%",
+														padding: "8px 12px",
+														borderRadius: "6px",
+														border: "1px solid #cbd5e1",
+														background: "#fff",
+														fontSize: "14px",
+														color: "#0f172a",
+													}}
+												>
+													{reproProfiles.map((p) => (
+														<option
+															key={p.id}
+															value={p.id}
+															disabled={!p.isApplicable}
+														>
+															{p.displayName}{" "}
+															{!p.isApplicable ? "(Not Applicable)" : ""}
+														</option>
+													))}
+												</select>
+											</div>
+
+											<Button
+												type="button"
+												variant="primary"
+												onClick={() => void handleTriggerReproduction()}
+												disabled={reproLoading || busy || !selectedReproProfile}
+												style={{
+													display: "inline-flex",
+													alignItems: "center",
+													gap: "6px",
+													height: "38px",
+												}}
+											>
+												{reproLoading ? (
+													<RefreshCw className="icon animate-spin" />
+												) : (
+													<Shield className="icon" />
+												)}
+												<span>Trigger Sandbox Run</span>
+											</Button>
+
+											{/* Applicability Description */}
+											{(() => {
+												const selected = reproProfiles.find(
+													(p) => p.id === selectedReproProfile,
+												);
+												if (!selected) return null;
+												return (
+													<div
+														style={{
+															width: "100%",
+															marginTop: "8px",
+															fontSize: "13px",
+															color: "#64748b",
+														}}
+													>
+														<strong>Description:</strong> {selected.description}
+														{selected.applicabilityReason && (
+															<div
+																style={{
+																	marginTop: "4px",
+																	color: selected.isApplicable
+																		? "#059669"
+																		: "#dc2626",
+																}}
+															>
+																<strong>Status:</strong>{" "}
+																{selected.applicabilityReason}
+															</div>
+														)}
+													</div>
+												);
+											})()}
+										</div>
+									) : (
+										<div
+											style={{
+												fontSize: "14px",
+												color: "#64748b",
+												fontStyle: "italic",
+												marginBottom: "20px",
+											}}
+										>
+											No reproduction profiles available.
+										</div>
+									)}
+
+									{/* Reproduction History List */}
+									{reproRuns.length > 0 ? (
+										<div
+											style={{
+												display: "flex",
+												flexDirection: "column",
+												gap: "12px",
+											}}
+										>
+											<h4
+												style={{
+													fontSize: "13px",
+													fontWeight: "700",
+													color: "#475569",
+													margin: 0,
+												}}
+											>
+												Sandbox Run History ({reproRuns.length})
+											</h4>
+											<div
+												style={{
+													display: "flex",
+													flexDirection: "column",
+													gap: "8px",
+												}}
+											>
+												{reproRuns.map((run) => {
+													const isExpanded = expandedReproRunId === run.id;
+													const runArt = reproRunArtifacts[run.id] || [];
+													const runEv = reproRunEvidence[run.id] || [];
+													return (
+														<div
+															key={run.id}
+															style={{
+																border: "1px solid #e2e8f0",
+																borderRadius: "8px",
+																overflow: "hidden",
+																background: "#fff",
+															}}
+														>
+															{/* Run Header */}
+															<button
+																type="button"
+																onClick={() =>
+																	void handleToggleReproRun(run.id)
+																}
+																style={{
+																	display: "flex",
+																	width: "100%",
+																	justifyContent: "space-between",
+																	alignItems: "center",
+																	padding: "12px 16px",
+																	border: 0,
+																	background: "#f8fafc",
+																	cursor: "pointer",
+																	font: "inherit",
+																	textAlign: "left",
+																	userSelect: "none",
+																}}
+															>
+																<div
+																	style={{
+																		display: "flex",
+																		alignItems: "center",
+																		gap: "12px",
+																		flexWrap: "wrap",
+																	}}
+																>
+																	<span
+																		style={{
+																			fontSize: "14px",
+																			fontWeight: "600",
+																			color: "#0f172a",
+																		}}
+																	>
+																		{reproProfiles.find(
+																			(p) => p.id === run.profileId,
+																		)?.displayName || run.profileId}
+																	</span>
+																	<span
+																		style={{
+																			fontSize: "12px",
+																			color: "#64748b",
+																		}}
+																	>
+																		{formatDateTime(run.createdAt)}
+																	</span>
+																</div>
+
+																<div
+																	style={{
+																		display: "flex",
+																		alignItems: "center",
+																		gap: "8px",
+																	}}
+																>
+																	<span
+																		className={`scan-status-badge badge-${run.status}`}
+																		style={{ textTransform: "capitalize" }}
+																	>
+																		{run.status}
+																	</span>
+																	{run.outcome && (
+																		<span
+																			className={`scan-status-badge badge-${run.outcome}`}
+																		>
+																			{run.outcome === "reproduced"
+																				? "Reproduced"
+																				: run.outcome === "not_reproduced"
+																					? "Not Reproduced"
+																					: run.outcome === "inconclusive"
+																						? "Inconclusive"
+																						: run.outcome === "error"
+																							? "Error"
+																							: run.outcome}
+																		</span>
+																	)}
+																</div>
+															</button>
+
+															{/* Run Details */}
+															{isExpanded && (
+																<div
+																	style={{
+																		padding: "16px",
+																		borderTop: "1px solid #e2e8f0",
+																		background: "#fff",
+																		display: "flex",
+																		flexDirection: "column",
+																		gap: "16px",
+																	}}
+																>
+																	{/* Metadata info */}
+																	<div
+																		style={{
+																			display: "grid",
+																			gridTemplateColumns:
+																				"repeat(auto-fit, minmax(200px, 1fr))",
+																			gap: "12px",
+																			fontSize: "13px",
+																			color: "#334155",
+																		}}
+																	>
+																		<div>
+																			<strong>Runner:</strong> {run.runner}
+																		</div>
+																		{run.exitCode !== null && (
+																			<div>
+																				<strong>Exit Code:</strong>{" "}
+																				{run.exitCode}
+																			</div>
+																		)}
+																		{run.completedAt && (
+																			<div>
+																				<strong>Duration:</strong> {(() => {
+																					const start = new Date(
+																						run.startedAt || run.createdAt,
+																					).getTime();
+																					const end = new Date(
+																						run.completedAt,
+																					).getTime();
+																					return `${((end - start) / 1000).toFixed(1)}s`;
+																				})()}
+																			</div>
+																		)}
+																	</div>
+
+																	{/* Command JSON */}
+																	{run.commandJson && (
+																		<div>
+																			<strong
+																				style={{
+																					display: "block",
+																					fontSize: "12px",
+																					color: "#475569",
+																					marginBottom: "6px",
+																				}}
+																			>
+																				Executed Bounded Command:
+																			</strong>
+																			<pre
+																				style={{
+																					margin: 0,
+																					padding: "10px",
+																					background: "#0f172a",
+																					color: "#38bdf8",
+																					borderRadius: "6px",
+																					fontSize: "12px",
+																					overflowX: "auto",
+																				}}
+																			>
+																				<code>{run.commandJson.join(" ")}</code>
+																			</pre>
+																		</div>
+																	)}
+
+																	{run.errorMessage && (
+																		<div
+																			style={{
+																				padding: "10px 12px",
+																				background: "#fef2f2",
+																				border: "1px solid #fee2e2",
+																				borderRadius: "6px",
+																				color: "#b91c1c",
+																				fontSize: "13px",
+																			}}
+																		>
+																			<strong>Error:</strong> {run.errorMessage}
+																		</div>
+																	)}
+
+																	{/* Evidence section */}
+																	{runEv.length > 0 && (
+																		<div>
+																			<strong
+																				style={{
+																					display: "block",
+																					fontSize: "12px",
+																					color: "#475569",
+																					marginBottom: "6px",
+																				}}
+																			>
+																				Reproduction Observations:
+																			</strong>
+																			<div
+																				style={{
+																					display: "flex",
+																					flexDirection: "column",
+																					gap: "8px",
+																				}}
+																			>
+																				{runEv.map((ev) => (
+																					<div
+																						key={ev.id}
+																						style={{
+																							border: "1px solid #cbd5e1",
+																							borderRadius: "6px",
+																							padding: "12px",
+																						}}
+																					>
+																						<div
+																							style={{
+																								fontWeight: "600",
+																								fontSize: "13px",
+																								color: "#0f172a",
+																								marginBottom: "4px",
+																							}}
+																						>
+																							{ev.title}
+																						</div>
+																						{ev.snippet && (
+																							<pre
+																								style={{
+																									margin: 0,
+																									padding: "8px",
+																									background: "#f1f5f9",
+																									borderRadius: "4px",
+																									fontSize: "12px",
+																									overflowX: "auto",
+																									color: "#334155",
+																								}}
+																							>
+																								<code>{ev.snippet}</code>
+																							</pre>
+																						)}
+																					</div>
+																				))}
+																			</div>
+																		</div>
+																	)}
+
+																	{/* Artifacts links */}
+																	{runArt.length > 0 && (
+																		<div>
+																			<strong
+																				style={{
+																					display: "block",
+																					fontSize: "12px",
+																					color: "#475569",
+																					marginBottom: "6px",
+																				}}
+																			>
+																				Run Artifacts:
+																			</strong>
+																			<div
+																				style={{
+																					display: "flex",
+																					gap: "8px",
+																					flexWrap: "wrap",
+																				}}
+																			>
+																				{runArt.map((art) => (
+																					<a
+																						key={art.id}
+																						href={`/api/reproduction-runs/${run.id}/artifacts/${art.id}`}
+																						target="_blank"
+																						rel="noreferrer"
+																						style={{
+																							display: "inline-flex",
+																							alignItems: "center",
+																							gap: "6px",
+																							fontSize: "12px",
+																							padding: "6px 10px",
+																							background: "#f1f5f9",
+																							border: "1px solid #cbd5e1",
+																							borderRadius: "4px",
+																							color: "#2563eb",
+																							textDecoration: "none",
+																						}}
+																					>
+																						<Download
+																							style={{
+																								width: "12px",
+																								height: "12px",
+																							}}
+																						/>
+																						<span>
+																							{art.kind} ({art.format})
+																						</span>
+																					</a>
+																				))}
+																			</div>
+																		</div>
+																	)}
+																</div>
+															)}
+														</div>
+													);
+												})}
+											</div>
+										</div>
+									) : (
+										<div
+											style={{
+												fontSize: "14px",
+												color: "#64748b",
+												fontStyle: "italic",
+											}}
+										>
+											No reproduction runs recorded for this finding.
+										</div>
+									)}
 								</div>
 
 								{/* Reviewer Decision Section */}

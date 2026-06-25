@@ -1,12 +1,12 @@
+import fs from "node:fs/promises";
+import path from "node:path";
 import { zValidator } from "@hono/zod-validator";
 import { Hono } from "hono";
 import { z } from "zod";
-import fs from "node:fs/promises";
-import path from "node:path";
+import { createProjectSchema } from "../../shared/schemas/scan.schema";
 import { getAuthContextUser } from "../modules/auth/context";
 import { HttpError } from "../modules/auth/errors";
 import type { ProjectRepository } from "../modules/scans/repositories";
-import { createProjectSchema } from "../../shared/schemas/scan.schema";
 
 type ProjectsRouteDeps = {
 	projectRepository: ProjectRepository;
@@ -75,6 +75,13 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 					profile: z.string().default("baseline"),
 					continueOnToolFailure: z.boolean().default(true).optional(),
 					timeoutSec: z.number().int().positive().optional(),
+					runner: z.enum(["host", "docker"]).default("host").optional(),
+					dockerBin: z.string().optional(),
+					dockerImage: z.string().optional(),
+					network: z.enum(["none", "default"]).default("none").optional(),
+					memory: z.string().optional(),
+					cpus: z.string().optional(),
+					toolCacheDir: z.string().optional(),
 				}),
 			),
 			async (c) => {
@@ -99,10 +106,30 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 					body.profile,
 					"--continue-on-tool-failure",
 					String(body.continueOnToolFailure ?? true),
+					"--runner",
+					body.runner ?? "host",
 				];
 
 				if (body.timeoutSec !== undefined) {
 					args.push("--timeout-sec", String(body.timeoutSec));
+				}
+				if (body.dockerBin) {
+					args.push("--docker-bin", body.dockerBin);
+				}
+				if (body.dockerImage) {
+					args.push("--docker-image", body.dockerImage);
+				}
+				if (body.network) {
+					args.push("--network", body.network);
+				}
+				if (body.memory) {
+					args.push("--memory", body.memory);
+				}
+				if (body.cpus) {
+					args.push("--cpus", body.cpus);
+				}
+				if (body.toolCacheDir) {
+					args.push("--tool-cache-dir", body.toolCacheDir);
 				}
 
 				const proc = Bun.spawn(["bun", "run", ...args], {
@@ -123,11 +150,13 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 								status: result.status,
 								profile: result.profileId,
 							},
+							runner: result.runner,
 							profileOutcome: result.profileOutcome,
+							message: result.message,
 							toolResults: result.toolResults,
 						});
 					}
-				} catch (err) {
+				} catch (_err) {
 					// Fallback on JSON parse error
 				}
 

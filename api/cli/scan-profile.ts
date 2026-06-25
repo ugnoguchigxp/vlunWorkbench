@@ -1,10 +1,15 @@
-import { parseArgs } from "node:util";
 import fs from "node:fs/promises";
-import { createDbConnection } from "../db";
+import { parseArgs } from "node:util";
 import { readAppEnv } from "../app/env";
-import { ProjectRepository } from "../modules/scans/repositories";
+import { createDbConnection } from "../db";
 import { runProfileScan } from "../modules/scans/profile-runner";
 import { getProfileById } from "../modules/scans/profiles";
+import { ProjectRepository } from "../modules/scans/repositories";
+import {
+	type DockerNetworkMode,
+	normalizeToolExecutionConfig,
+	type ToolRunnerKind,
+} from "../modules/scans/tools/tool-process-runner";
 
 function writeResult(payload: Record<string, unknown>): void {
 	console.log(JSON.stringify(payload));
@@ -23,6 +28,13 @@ async function main() {
 				"continue-on-tool-failure": { type: "string", default: "true" },
 				"output-summary": { type: "string" },
 				"dry-run": { type: "string", default: "false" },
+				runner: { type: "string", default: "host" },
+				"docker-bin": { type: "string" },
+				"docker-image": { type: "string" },
+				network: { type: "string", default: "none" },
+				memory: { type: "string" },
+				cpus: { type: "string" },
+				"tool-cache-dir": { type: "string" },
 			},
 			strict: true,
 		});
@@ -43,6 +55,40 @@ async function main() {
 		argsValues["continue-on-tool-failure"] !== "false";
 	const outputSummaryPath = argsValues["output-summary"];
 	const dryRun = argsValues["dry-run"] === "true";
+	const runner = argsValues.runner as ToolRunnerKind;
+	const networkMode = argsValues.network as DockerNetworkMode;
+
+	if (runner !== "host" && runner !== "docker") {
+		writeResult({
+			ok: false,
+			status: "failed",
+			message: "--runner must be host or docker.",
+		});
+		process.exit(1);
+	}
+	if (networkMode !== "none" && networkMode !== "default") {
+		writeResult({
+			ok: false,
+			status: "failed",
+			message: "--network must be none or default.",
+		});
+		process.exit(1);
+	}
+
+	const execution = normalizeToolExecutionConfig({
+		runner,
+		docker:
+			runner === "docker"
+				? {
+						dockerBin: argsValues["docker-bin"],
+						image: argsValues["docker-image"],
+						networkMode,
+						memory: argsValues.memory,
+						cpus: argsValues.cpus,
+						toolCacheDir: argsValues["tool-cache-dir"],
+					}
+				: undefined,
+	});
 
 	// Validate profile exists
 	const profile = getProfileById(profileId);
@@ -85,6 +131,7 @@ async function main() {
 		writeResult({
 			dryRun: true,
 			profileId,
+			runner: execution.runner,
 			toolOrder,
 			resolvedTools,
 		});
@@ -122,19 +169,24 @@ async function main() {
 			repoPath: project.repoPath,
 			continueOnToolFailure,
 			timeoutSec,
+			execution,
 		});
 
 		const outputPayload = {
 			ok: result.ok,
 			scanRunId: result.scanRunId,
 			profileId: result.profileId,
+			runner: result.runner,
 			status: result.status,
 			profileOutcome: result.profileOutcome,
+			message: result.message,
 			toolResults: result.toolResults.map((r) => ({
 				toolId: r.toolId,
 				toolRunId: r.toolRunId,
 				status: r.status,
+				exitCode: r.exitCode,
 				findingCount: r.findingCount,
+				error: r.error,
 			})),
 		};
 
@@ -154,6 +206,7 @@ async function main() {
 	} catch (err: any) {
 		writeResult({
 			ok: false,
+			runner: execution.runner,
 			status: "failed",
 			message: err.message,
 			toolResults: [],

@@ -1,9 +1,14 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import type { ArtifactStorage, ArtifactSaveResult } from "../artifact-storage";
+import type { ArtifactSaveResult, ArtifactStorage } from "../artifact-storage";
 import { redactJsonSecrets, redactSecrets } from "../normalizers/redaction";
-import { checkToolVersion, runToolProcess } from "./tool-process-runner";
+import {
+	checkToolVersion,
+	runToolProcess,
+	type ToolExecutionConfig,
+	type ToolLifecycleEvent,
+} from "./tool-process-runner";
 
 export interface GitleaksRunResult {
 	ok: boolean;
@@ -16,17 +21,24 @@ export interface GitleaksRunResult {
 	stdoutArtifact?: ArtifactSaveResult;
 	stderrArtifact?: ArtifactSaveResult;
 	error?: string;
+	executionMetadata?: Record<string, unknown>;
 }
 
 export interface GitleaksRunnerOptions {
 	timeoutSec?: number;
+	onLifecycleEvent?: (event: ToolLifecycleEvent) => Promise<void> | void;
 }
 
 export class GitleaksRunner {
-	constructor(private readonly storage?: ArtifactStorage) {}
+	constructor(
+		private readonly storage?: ArtifactStorage,
+		private readonly execution?: ToolExecutionConfig,
+	) {}
 
 	async checkVersion(): Promise<string | null> {
-		return await checkToolVersion("gitleaks", ["version"]);
+		return await checkToolVersion("gitleaks", ["version"], {
+			execution: this.execution,
+		});
 	}
 
 	async run(
@@ -64,6 +76,10 @@ export class GitleaksRunner {
 		const startTime = Date.now();
 		const runResult = await runToolProcess("gitleaks", args, {
 			timeoutSec: options.timeoutSec,
+			execution: this.execution,
+			repoPath,
+			outputPath: tempJsonPath,
+			onLifecycleEvent: options.onLifecycleEvent,
 		});
 		const elapsedMs = Date.now() - startTime;
 
@@ -76,6 +92,7 @@ export class GitleaksRunner {
 				stderr: runResult.stderr,
 				elapsedMs,
 				error: runResult.error || "Gitleaks run failed",
+				executionMetadata: runResult.executionMetadata,
 			};
 		}
 
@@ -146,6 +163,7 @@ export class GitleaksRunner {
 				stdoutArtifact,
 				stderrArtifact,
 				error: `Gitleaks exited with code ${runResult.exitCode}`,
+				executionMetadata: runResult.executionMetadata,
 			};
 		}
 
@@ -199,6 +217,7 @@ export class GitleaksRunner {
 			rawJsonArtifact,
 			stdoutArtifact,
 			stderrArtifact,
+			executionMetadata: runResult.executionMetadata,
 		};
 	}
 }

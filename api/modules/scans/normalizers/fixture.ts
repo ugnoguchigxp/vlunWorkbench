@@ -48,6 +48,7 @@ export interface NormalizedFinding {
 		location: Record<string, unknown> | null;
 		snippet: string | null;
 	}>;
+	metadata?: Record<string, unknown>;
 }
 
 export function generateFingerprint(

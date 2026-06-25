@@ -1,23 +1,25 @@
 import type { AppDatabase } from "../../db";
-import {
-	ScanRepository,
-	ArtifactRepository,
-	FindingRepository,
-} from "./repositories";
 import { ArtifactStorage } from "./artifact-storage";
-import { getProfileById } from "./profiles";
-
-// Import runners
-import { SemgrepRunner } from "./tools/semgrep-runner";
-import { GitleaksRunner } from "./tools/gitleaks-runner";
-import { OsvRunner } from "./tools/osv-runner";
-import { TrivyRunner } from "./tools/trivy-runner";
-
-// Import normalizers
-import { normalizeSemgrep } from "./normalizers/semgrep";
 import { normalizeGitleaks } from "./normalizers/gitleaks";
 import { normalizeOsv } from "./normalizers/osv";
+// Import normalizers
+import { normalizeSemgrep } from "./normalizers/semgrep";
 import { normalizeTrivy } from "./normalizers/trivy";
+import { getProfileById } from "./profiles";
+import {
+	ArtifactRepository,
+	FindingRepository,
+	ScanRepository,
+} from "./repositories";
+import { GitleaksRunner } from "./tools/gitleaks-runner";
+import { OsvRunner } from "./tools/osv-runner";
+// Import runners
+import { SemgrepRunner } from "./tools/semgrep-runner";
+import {
+	normalizeToolExecutionConfig,
+	type ToolExecutionConfig,
+} from "./tools/tool-process-runner";
+import { TrivyRunner } from "./tools/trivy-runner";
 
 export interface ToolResult {
 	toolId: string;
@@ -35,8 +37,32 @@ export interface ProfileScanResult {
 	profileId: string;
 	status: "completed" | "failed";
 	profileOutcome: "completed" | "completed_with_warnings" | "failed";
+	runner: "host" | "docker";
 	message?: string;
 	toolResults: ToolResult[];
+}
+
+function buildBaseExecutionMetadata(execution: ToolExecutionConfig) {
+	if (execution.runner === "docker") {
+		const docker = execution.docker ?? {};
+		return {
+			runner: "docker",
+			docker: {
+				image: docker.image ?? "vuln-workbench-toolbox:local",
+				networkMode: docker.networkMode ?? "none",
+				mountMode: {
+					repo: "read-only",
+					output: "read-write",
+					cache: docker.toolCacheDir ? "read-write" : "none",
+				},
+				resourceLimits: {
+					memory: docker.memory ?? null,
+					cpus: docker.cpus ?? null,
+				},
+			},
+		};
+	}
+	return { runner: "host" };
 }
 
 export async function runToolIntoExistingScan(params: {
@@ -48,6 +74,7 @@ export async function runToolIntoExistingScan(params: {
 	artifactStorage: ArtifactStorage;
 	timeoutSec?: number;
 	repoPath: string;
+	execution?: ToolExecutionConfig;
 }): Promise<{
 	toolRunId: string;
 	findingCount: number;
@@ -61,6 +88,8 @@ export async function runToolIntoExistingScan(params: {
 
 	const options = params.options ?? {};
 	const timeoutSec = params.timeoutSec;
+	const execution = normalizeToolExecutionConfig(params.execution);
+	const baseExecutionMetadata = buildBaseExecutionMetadata(execution);
 
 	// 1. Resolve Runner & Normalizer
 	let runner: SemgrepRunner | GitleaksRunner | OsvRunner | TrivyRunner;
@@ -70,25 +99,25 @@ export async function runToolIntoExistingScan(params: {
 
 	switch (params.toolId) {
 		case "semgrep":
-			runner = new SemgrepRunner(params.artifactStorage);
+			runner = new SemgrepRunner(params.artifactStorage, execution);
 			normalizer = normalizeSemgrep;
 			toolName = "semgrep";
 			defaultCommand = `semgrep scan --config ${options.config ?? "auto"}`;
 			break;
 		case "gitleaks":
-			runner = new GitleaksRunner(params.artifactStorage);
+			runner = new GitleaksRunner(params.artifactStorage, execution);
 			normalizer = normalizeGitleaks;
 			toolName = "gitleaks";
 			defaultCommand = "gitleaks detect";
 			break;
 		case "osv":
-			runner = new OsvRunner(params.artifactStorage);
+			runner = new OsvRunner(params.artifactStorage, execution);
 			normalizer = normalizeOsv;
 			toolName = "osv";
 			defaultCommand = "osv-scanner";
 			break;
 		case "trivy":
-			runner = new TrivyRunner(params.artifactStorage);
+			runner = new TrivyRunner(params.artifactStorage, execution);
 			normalizer = normalizeTrivy;
 			toolName = "trivy";
 			defaultCommand = "trivy fs";
@@ -107,6 +136,7 @@ export async function runToolIntoExistingScan(params: {
 		toolVersion,
 		status: "running",
 		command: defaultCommand,
+		metadata: baseExecutionMetadata,
 	});
 	const toolRunId = toolRun.id;
 
@@ -125,9 +155,11 @@ export async function runToolIntoExistingScan(params: {
 				exitCode: 127,
 				metadata: {
 					adapter: toolName,
+					...baseExecutionMetadata,
 					error: errMsg,
 					options,
 					timeoutSec: timeoutSec ?? null,
+					toolVersion,
 				},
 			});
 		});
@@ -138,6 +170,7 @@ export async function runToolIntoExistingScan(params: {
 	let findingCount = 0;
 	let evidenceCount = 0;
 	const artifactIds: string[] = [];
+	let executionMetadata = baseExecutionMetadata;
 
 	try {
 		await scanRepo.createScanEvent({
@@ -160,15 +193,30 @@ export async function runToolIntoExistingScan(params: {
 					maxTargetBytes: options.maxTargetBytes
 						? Number(options.maxTargetBytes)
 						: undefined,
+					onLifecycleEvent: async (event) => {
+						await scanRepo.createScanEvent({
+							scanRunId: params.scanRunId,
+							...event,
+						});
+					},
 				},
 			);
 		} else {
 			runResult = await (
 				runner as GitleaksRunner | OsvRunner | TrivyRunner
-			).run(params.scanRunId, params.repoPath, { timeoutSec });
+			).run(params.scanRunId, params.repoPath, {
+				timeoutSec,
+				onLifecycleEvent: async (event) => {
+					await scanRepo.createScanEvent({
+						scanRunId: params.scanRunId,
+						...event,
+					});
+				},
+			});
 		}
 
 		exitCode = runResult.exitCode;
+		executionMetadata = runResult.executionMetadata ?? baseExecutionMetadata;
 
 		// 5. Register Artifacts
 		let rawArtifactId: string | null = null;
@@ -304,12 +352,14 @@ export async function runToolIntoExistingScan(params: {
 			exitCode: runResult.exitCode,
 			metadata: {
 				adapter: toolName,
+				...executionMetadata,
 				elapsedMs: runResult.elapsedMs,
 				artifactIds,
 				findingCount,
 				evidenceCount,
 				options,
 				timeoutSec: timeoutSec ?? null,
+				toolVersion,
 			},
 		});
 
@@ -342,11 +392,13 @@ export async function runToolIntoExistingScan(params: {
 				exitCode: exitCode ?? 1,
 				metadata: {
 					adapter: toolName,
+					...executionMetadata,
 					artifactIds,
 					findingCount,
 					evidenceCount,
 					options,
 					timeoutSec: timeoutSec ?? null,
+					toolVersion,
 					error: err.message,
 				},
 			});
@@ -368,9 +420,11 @@ export async function runProfileScan(params: {
 	continueOnToolFailure?: boolean;
 	timeoutSec?: number;
 	createdByUserId?: string | null;
+	execution?: ToolExecutionConfig;
 }): Promise<ProfileScanResult> {
 	const scanRepo = new ScanRepository(params.db);
 	const artifactStorage = new ArtifactStorage();
+	const execution = normalizeToolExecutionConfig(params.execution);
 
 	const profile = getProfileById(params.profileId);
 	if (!profile) {
@@ -389,6 +443,7 @@ export async function runProfileScan(params: {
 			profileId: params.profileId,
 			profileVersion: 1,
 			continueOnToolFailure,
+			runner: execution.runner,
 			toolOrder: profile.tools.map((t) => t.toolId),
 			toolResults: [],
 		},
@@ -442,6 +497,7 @@ export async function runProfileScan(params: {
 				artifactStorage,
 				timeoutSec: resolvedTimeout,
 				repoPath: params.repoPath,
+				execution,
 			});
 
 			toolRunId = toolRes.toolRunId;
@@ -503,6 +559,7 @@ export async function runProfileScan(params: {
 			profileVersion: 1,
 			profileOutcome,
 			continueOnToolFailure,
+			runner: execution.runner,
 			toolOrder: profile.tools.map((t) => t.toolId),
 			toolResults,
 		},
@@ -521,6 +578,8 @@ export async function runProfileScan(params: {
 		profileId: params.profileId,
 		status: finalScanStatus,
 		profileOutcome,
+		runner: execution.runner,
+		message: summaryMsg,
 		toolResults,
 	};
 }

@@ -1,15 +1,16 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { serveStatic } from "hono/bun";
-import { csrf } from "hono/csrf";
 import { Hono } from "hono";
+import { serveStatic } from "hono/bun";
 import { cors } from "hono/cors";
-import { logger } from "hono/logger";
+import { csrf } from "hono/csrf";
 import { HTTPException } from "hono/http-exception";
+import { logger } from "hono/logger";
 import { secureHeaders } from "hono/secure-headers";
 import type { DbConnection } from "../db";
 import { createDbConnection } from "../db";
-import { SourceRetriever } from "../modules/rag/retriever";
+import { requireAdmin, requireAuth } from "../middleware/auth";
+import { rateLimiter } from "../middleware/rate-limiter";
 import { AgenticSearchService } from "../modules/agentic-search/agentic-search.service";
 import { OpenAiResponsesAdapter } from "../modules/agentic-search/llm/openai-responses-adapter";
 import { AgenticSearchRunner } from "../modules/agentic-search/runner";
@@ -17,7 +18,18 @@ import { AgenticToolRegistry } from "../modules/agentic-search/tools/registry";
 import type { AgenticSearchResult } from "../modules/agentic-search/types";
 import { AuthService } from "../modules/auth/auth.service";
 import { HttpError } from "../modules/auth/errors";
+import { FindingDecisionRepository } from "../modules/decisions/finding-decision-repository";
+import { SourceRetriever } from "../modules/rag/retriever";
 import { SearchEvidenceCollector } from "../modules/rag/search-evidence";
+import { FindingReviewRepository } from "../modules/reviews/finding-review-repository";
+import { ArtifactStorage } from "../modules/scans/artifact-storage";
+import { ScanReportRepository } from "../modules/scans/report-repository";
+import {
+	ArtifactRepository,
+	FindingRepository,
+	ProjectRepository,
+	ScanRepository,
+} from "../modules/scans/repositories";
 import { SettingsRepository } from "../modules/settings/settings.repository";
 import { SourceRepository } from "../modules/sources/source.repository";
 import {
@@ -25,8 +37,6 @@ import {
 	type WikiBlobSyncer,
 } from "../modules/sources/wiki/blob-sync";
 import { readPage } from "../modules/sources/wiki/content-repo";
-import { requireAdmin, requireAuth } from "../middleware/auth";
-import { rateLimiter } from "../middleware/rate-limiter";
 import { createAzureOpenAiProviderFromAppEnv } from "../providers/azureOpenAiProviderFactory";
 import type {
 	EmbeddingProvider,
@@ -39,28 +49,20 @@ import { createAgenticSearchRoute } from "../routes/agentic-search.route";
 import { createArtifactsRoute } from "../routes/artifacts.route";
 import { createAuthRoute } from "../routes/auth.route";
 import { createChatRoute } from "../routes/chat.route";
+import { createFindingDecisionsRoute } from "../routes/finding-decisions.route";
+import { createFindingReviewsRoute } from "../routes/finding-reviews.route";
+import { createFindingsRoute } from "../routes/findings.route";
 import { createHealthRoute } from "../routes/health.route";
+import { createProjectsRoute } from "../routes/projects.route";
+import { createReproductionsRoute } from "../routes/reproductions.route";
+import { createDynamicRoute } from "../routes/dynamic.route";
+import { createScanProfilesRoute } from "../routes/scan-profiles.route";
+import { createScanReportsRoute } from "../routes/scan-reports.route";
+import { createScansRoute } from "../routes/scans.route";
 import { createSearchRoute } from "../routes/search.route";
 import { createSettingsRoute } from "../routes/settings.route";
 import { createSourcesRoute } from "../routes/sources.route";
-import { createProjectsRoute } from "../routes/projects.route";
-import { createScanProfilesRoute } from "../routes/scan-profiles.route";
-import { createScansRoute } from "../routes/scans.route";
-import { createFindingsRoute } from "../routes/findings.route";
-import { createFindingReviewsRoute } from "../routes/finding-reviews.route";
-import { createFindingDecisionsRoute } from "../routes/finding-decisions.route";
-import { createScanReportsRoute } from "../routes/scan-reports.route";
-import {
-	ProjectRepository,
-	ScanRepository,
-	ArtifactRepository,
-	FindingRepository,
-} from "../modules/scans/repositories";
-import { FindingReviewRepository } from "../modules/reviews/finding-review-repository";
-import { FindingDecisionRepository } from "../modules/decisions/finding-decision-repository";
-import { ScanReportRepository } from "../modules/scans/report-repository";
-import { ArtifactStorage } from "../modules/scans/artifact-storage";
-import { readAppEnv, type AppEnv } from "./env";
+import { type AppEnv, readAppEnv } from "./env";
 
 type AppRuntime = {
 	env: AppEnv;
@@ -584,6 +586,34 @@ app.use(
 	}),
 );
 app.use(
+	"/api/reproduction-runs/*",
+	requireAuth({
+		env: runtime.env,
+		authService: runtime.authService,
+	}),
+);
+app.use(
+	"/api/reproduction-runs",
+	requireAuth({
+		env: runtime.env,
+		authService: runtime.authService,
+	}),
+);
+app.use(
+	"/api/dynamic-runs/*",
+	requireAuth({
+		env: runtime.env,
+		authService: runtime.authService,
+	}),
+);
+app.use(
+	"/api/dynamic-runs",
+	requireAuth({
+		env: runtime.env,
+		authService: runtime.authService,
+	}),
+);
+app.use(
 	"/api/finding-reviews/*",
 	requireAuth({
 		env: runtime.env,
@@ -736,6 +766,22 @@ app.route(
 	"/api/finding-decisions",
 	createFindingDecisionsRoute({
 		decisionRepository: findingDecisionRepository,
+		findingRepository,
+		projectRepository,
+	}),
+);
+app.route(
+	"/api",
+	createReproductionsRoute({
+		db: runtime.dbConnection.db,
+		findingRepository,
+		projectRepository,
+	}),
+);
+app.route(
+	"/api",
+	createDynamicRoute({
+		db: runtime.dbConnection.db,
 		findingRepository,
 		projectRepository,
 	}),

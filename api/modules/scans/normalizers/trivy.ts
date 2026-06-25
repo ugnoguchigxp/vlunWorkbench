@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import { z } from "zod";
-import { redactSecrets } from "./redaction";
 import type { NormalizedFinding } from "./fixture";
+import { redactSecrets } from "./redaction";
 
 export const trivyVulnerabilitySchema = z.object({
 	VulnerabilityID: z.string().min(1),
@@ -173,7 +173,7 @@ export function normalizeTrivy(
 				fingerprint,
 				evidences,
 				metadata,
-			} as any);
+			});
 		}
 
 		// 2. Process Misconfigurations
@@ -247,7 +247,7 @@ export function normalizeTrivy(
 				fingerprint,
 				evidences,
 				metadata,
-			} as any);
+			});
 		}
 
 		// 3. Process Secrets
@@ -282,7 +282,7 @@ export function normalizeTrivy(
 				kind: "source-location",
 				title: `Secret leak: ${secret.RuleID} in ${target}`,
 				location: primaryLocation,
-				snippet: "Secret detected of type: " + (secret.Title || secret.RuleID),
+				snippet: `Secret detected of type: ${secret.Title || secret.RuleID}`,
 			});
 
 			// Redact secret before putting it into output evidence
@@ -319,7 +319,7 @@ export function normalizeTrivy(
 				fingerprint,
 				evidences,
 				metadata,
-			} as any);
+			});
 		}
 	}
 

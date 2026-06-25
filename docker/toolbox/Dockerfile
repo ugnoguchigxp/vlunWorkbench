@@ -1,0 +1,58 @@
+FROM python:3.12-slim-bookworm
+
+ARG TARGETARCH
+ARG SEMGREP_VERSION=1.99.0
+ARG GITLEAKS_VERSION=8.21.2
+ARG OSV_SCANNER_VERSION=1.9.0
+ARG TRIVY_VERSION=0.56.2
+
+LABEL org.opencontainers.image.title="vulnWorkbench toolbox"
+LABEL org.opencontainers.image.description="Toolbox image for Semgrep, Gitleaks, OSV-Scanner, and Trivy"
+LABEL vuln-workbench.toolbox.version="1"
+
+RUN apt-get update \
+	&& apt-get install -y --no-install-recommends ca-certificates curl tar gzip \
+	&& rm -rf /var/lib/apt/lists/*
+
+RUN pip install --no-cache-dir "semgrep==${SEMGREP_VERSION}"
+
+RUN set -eux; \
+	target_arch="${TARGETARCH:-$(dpkg --print-architecture)}"; \
+	case "${target_arch}" in \
+		amd64) arch="x64" ;; \
+		arm64) arch="arm64" ;; \
+		*) echo "unsupported arch: ${target_arch}" >&2; exit 1 ;; \
+	esac; \
+	curl -fsSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_${arch}.tar.gz" \
+		| tar -xz -C /usr/local/bin gitleaks; \
+	chmod +x /usr/local/bin/gitleaks
+
+RUN set -eux; \
+	target_arch="${TARGETARCH:-$(dpkg --print-architecture)}"; \
+	case "${target_arch}" in \
+		amd64) arch="amd64" ;; \
+		arm64) arch="arm64" ;; \
+		*) echo "unsupported arch: ${target_arch}" >&2; exit 1 ;; \
+	esac; \
+	curl -fsSL "https://github.com/google/osv-scanner/releases/download/v${OSV_SCANNER_VERSION}/osv-scanner_linux_${arch}" \
+		-o /usr/local/bin/osv-scanner; \
+	chmod +x /usr/local/bin/osv-scanner
+
+RUN set -eux; \
+	target_arch="${TARGETARCH:-$(dpkg --print-architecture)}"; \
+	case "${target_arch}" in \
+		amd64) arch="64bit" ;; \
+		arm64) arch="ARM64" ;; \
+		*) echo "unsupported arch: ${target_arch}" >&2; exit 1 ;; \
+	esac; \
+	curl -fsSL "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-${arch}.tar.gz" \
+		| tar -xz -C /usr/local/bin trivy; \
+	chmod +x /usr/local/bin/trivy
+
+RUN mkdir -p /workspace/repo /workspace/out /workspace/cache \
+	&& chown -R 65532:65532 /workspace
+
+USER 65532:65532
+WORKDIR /workspace/repo
+
+CMD ["semgrep", "--version"]
