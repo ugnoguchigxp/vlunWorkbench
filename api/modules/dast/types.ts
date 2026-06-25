@@ -15,20 +15,16 @@ export type {
 };
 
 export type DastFailureKind =
-	| "target_validation_failed"
-	| "target_unreachable"
-	| "target_redirect_out_of_scope"
-	| "profile_not_found"
-	| "profile_disabled"
+	| "dast_target_rejected"
+	| "dast_target_unreachable"
+	| "dast_redirect_out_of_scope"
 	| "browser_unavailable"
 	| "browser_timeout"
-	| "http_timeout"
-	| "max_requests_exceeded"
 	| "artifact_write_failed"
 	| "normalizer_failed"
 	| "cli_bridge_parse_failed"
 	| "docker_unavailable"
-	| "runner_failed";
+	| "unknown_error";
 
 export type ValidatedDastTarget = {
 	ok: true;

@@ -32,6 +32,29 @@ describe("DastArtifactStorage", () => {
 		expect(await storage.readTextArtifact(json.path)).toContain('"ok": true');
 	});
 
+	it("redacts DAST auth headers and cookies before persistence", async () => {
+		const artifact = await storage.saveJsonArtifact(
+			"run-1",
+			"raw",
+			{
+				request: {
+					headers: {
+						Authorization: "Bearer headerTokenValue123",
+						Cookie: "session=secretSessionValue123; theme=light",
+						"x-api-key": "jsonHeaderSecret123",
+					},
+				},
+			},
+			"headers.json",
+		);
+
+		const content = await storage.readTextArtifact(artifact.path);
+		expect(content).not.toContain("headerTokenValue123");
+		expect(content).not.toContain("secretSessionValue123");
+		expect(content).not.toContain("jsonHeaderSecret123");
+		expect(content).toContain("[REDACTED]");
+	});
+
 	it("rejects path traversal when reading", async () => {
 		await expect(storage.readTextArtifact("../outside.txt")).rejects.toThrow(
 			"Path traversal detected",

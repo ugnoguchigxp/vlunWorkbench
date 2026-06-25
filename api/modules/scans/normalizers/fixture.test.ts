@@ -98,6 +98,24 @@ describe("Fixture Normalizer", () => {
 
 			const text2 = 'const password = "superSecretPassword123"';
 			expect(redactSecrets(text2)).toBe('const password = "[REDACTED]"');
+
+			const text3 = "token=unquotedSecret123";
+			expect(redactSecrets(text3)).toBe("token=[REDACTED]");
+		});
+
+		it("should redact authorization and cookie headers", () => {
+			const headers = [
+				"Authorization: Bearer headerTokenValue123",
+				"Cookie: session=secretSessionValue123; theme=light",
+				'{"x-api-key":"jsonHeaderSecret123"}',
+			].join("\n");
+			const redacted = redactSecrets(headers);
+			expect(redacted).not.toContain("headerTokenValue123");
+			expect(redacted).not.toContain("secretSessionValue123");
+			expect(redacted).not.toContain("jsonHeaderSecret123");
+			expect(redacted).toContain("Authorization: [REDACTED]");
+			expect(redacted).toContain("Cookie: [REDACTED]");
+			expect(redacted).toContain('"x-api-key":"[REDACTED]"');
 		});
 	});
 });

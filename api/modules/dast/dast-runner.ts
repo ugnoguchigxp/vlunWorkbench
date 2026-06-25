@@ -115,7 +115,7 @@ export class DastRunner {
 		if (!project) {
 			return {
 				ok: false,
-				failureKind: "target_validation_failed",
+				failureKind: "dast_target_rejected",
 				message: "Project not found.",
 			};
 		}
@@ -123,7 +123,7 @@ export class DastRunner {
 		if (!target || target.projectId !== params.projectId) {
 			return {
 				ok: false,
-				failureKind: "target_validation_failed",
+				failureKind: "dast_target_rejected",
 				message: "DAST target config not found.",
 			};
 		}
@@ -136,14 +136,14 @@ export class DastRunner {
 		if (profileConfig && profileConfig.projectId !== params.projectId) {
 			return {
 				ok: false,
-				failureKind: "profile_not_found",
+				failureKind: "dast_target_rejected",
 				message: "DAST profile config does not belong to the project.",
 			};
 		}
 		if (profileConfig && profileConfig.targetConfigId !== target.id) {
 			return {
 				ok: false,
-				failureKind: "target_validation_failed",
+				failureKind: "dast_target_rejected",
 				message: "DAST profile config target does not match requested target.",
 			};
 		}
@@ -151,7 +151,7 @@ export class DastRunner {
 		if (!profile) {
 			return {
 				ok: false,
-				failureKind: "profile_not_found",
+				failureKind: "dast_target_rejected",
 				message: `DAST profile not found: ${params.profileId}`,
 			};
 		}
@@ -165,7 +165,7 @@ export class DastRunner {
 		} catch (error) {
 			return {
 				ok: false,
-				failureKind: "profile_disabled",
+				failureKind: "dast_target_rejected",
 				message:
 					error instanceof Error ? error.message : "DAST profile disabled.",
 			};
@@ -177,7 +177,7 @@ export class DastRunner {
 		if (!validation.ok) {
 			return {
 				ok: false,
-				failureKind: "target_validation_failed",
+				failureKind: "dast_target_rejected",
 				message: validation.message,
 				validation,
 			};
@@ -331,7 +331,7 @@ export class DastRunner {
 				scanRunId: params.scanRunId ?? null,
 				status: "failed",
 				outcome: "error",
-				failureKind: "target_validation_failed",
+				failureKind: "dast_target_rejected",
 				message: "Scan run not found or not owned by project.",
 				targetConfigId: params.targetConfigId,
 				profileId: params.profileId,
@@ -510,7 +510,7 @@ export class DastRunner {
 				outcome: "error",
 				failureKind: message.includes("browser_unavailable")
 					? "browser_unavailable"
-					: "runner_failed",
+					: "unknown_error",
 				message,
 				targetConfigId: prepared.target.id,
 				profileId: prepared.profile.id,

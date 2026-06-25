@@ -97,6 +97,54 @@ describe("DAST route", () => {
 		expect(body.targets).toHaveLength(1);
 	});
 
+	it("rejects unsafe DAST targets before persisting them", async () => {
+		const project = await projectRepo.createProject({
+			ownerUserId: userId,
+			name: "Unsafe Target Project",
+			repoPath: "/tmp/unsafe-target",
+		});
+		const createRes = await app.request(
+			`/api/projects/${project.id}/dast-targets`,
+			{
+				method: "POST",
+				body: JSON.stringify({
+					name: "public",
+					origin: "http://8.8.8.8",
+				}),
+				headers: { "content-type": "application/json" },
+			},
+		);
+		expect(createRes.status).toBe(400);
+		const listRes = await app.request(`/api/projects/${project.id}/dast-targets`);
+		const body = await listRes.json();
+		expect(body.targets).toHaveLength(0);
+	});
+
+	it("rejects DAST profile routes that broaden target scope", async () => {
+		const project = await projectRepo.createProject({
+			ownerUserId: userId,
+			name: "Scoped Profile Project",
+			repoPath: "/tmp/scoped-profile",
+		});
+		const target = await dastRepo.createTargetConfig({
+			projectId: project.id,
+			name: "local-app",
+			origin: "http://127.0.0.1:3000",
+			allowedPathsJson: ["/app"],
+		});
+		const res = await app.request(`/api/projects/${project.id}/dast-profiles`, {
+			method: "POST",
+			body: JSON.stringify({
+				targetConfigId: target.id,
+				profileId: "browser-smoke",
+				displayName: "Browser smoke",
+				routePathsJson: ["/apple"],
+			}),
+			headers: { "content-type": "application/json" },
+		});
+		expect(res.status).toBe(400);
+	});
+
 	it("rejects run requests without saved target/profile IDs", async () => {
 		const project = await projectRepo.createProject({
 			ownerUserId: userId,

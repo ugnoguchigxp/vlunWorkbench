@@ -1,6 +1,9 @@
+import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { Hono } from "hono";
 import {
+	type SaveDastProfileRequestInput,
+	type SaveDastTargetRequestInput,
 	runDastRequestSchema,
 	saveDastProfileRequestSchema,
 	saveDastTargetRequestSchema,
@@ -10,8 +13,11 @@ import { getAuthContextUser } from "../modules/auth/context";
 import { HttpError } from "../modules/auth/errors";
 import { DastArtifactStorage } from "../modules/dast/dast-artifact-storage";
 import { DastRepository } from "../modules/dast/dast-repository";
-import { listDastProfiles } from "../modules/dast/profiles";
-import { validateDastTargetConfig } from "../modules/dast/target-validator";
+import { getDastProfile, listDastProfiles } from "../modules/dast/profiles";
+import {
+	isPathAllowed,
+	validateDastTargetConfig,
+} from "../modules/dast/target-validator";
 import type { ProjectRepository } from "../modules/scans/repositories";
 
 type DastRouteDeps = {
@@ -48,6 +54,7 @@ export function createDastRoute(deps: DastRouteDeps) {
 		if (!parsed.success) {
 			throw new HttpError(400, validationMessage(parsed.error));
 		}
+		await assertTargetIsPersistable(projectId, parsed.data);
 		const created = await repo.createTargetConfig({
 			projectId,
 			...parsed.data,
@@ -73,6 +80,7 @@ export function createDastRoute(deps: DastRouteDeps) {
 			if (!existing || existing.projectId !== projectId) {
 				throw new HttpError(404, "DAST target config not found");
 			}
+			await assertTargetIsPersistable(projectId, parsed.data, existing);
 			const updated = await repo.updateTargetConfig(
 				targetConfigId,
 				parsed.data,
@@ -104,6 +112,7 @@ export function createDastRoute(deps: DastRouteDeps) {
 		if (!target || target.projectId !== projectId) {
 			throw new HttpError(404, "DAST target config not found");
 		}
+		assertProfileConfigIsPersistable(parsed.data, target);
 		const created = await repo.createProfileConfig({
 			projectId,
 			...parsed.data,
@@ -128,6 +137,26 @@ export function createDastRoute(deps: DastRouteDeps) {
 			if (!existing || existing.projectId !== projectId) {
 				throw new HttpError(404, "DAST profile config not found");
 			}
+			const merged = { ...existing, ...parsed.data };
+			const target = await repo.getTargetConfig(merged.targetConfigId);
+			if (!target || target.projectId !== projectId) {
+				throw new HttpError(404, "DAST target config not found");
+			}
+			assertProfileConfigIsPersistable(
+				{
+					targetConfigId: merged.targetConfigId,
+					profileId: merged.profileId,
+					displayName: merged.displayName,
+					enabled: merged.enabled,
+					routePathsJson: merged.routePathsJson,
+					formSelectorsJson: merged.formSelectorsJson,
+					checkOptionsJson: merged.checkOptionsJson,
+					timeoutSec: merged.timeoutSec,
+					maxRequests: merged.maxRequests,
+					metadata: merged.metadata,
+				},
+				target,
+			);
 			const updated = await repo.updateProfileConfig(
 				profileConfigId,
 				parsed.data,
@@ -215,6 +244,114 @@ export function createDastRoute(deps: DastRouteDeps) {
 	});
 
 	return route;
+}
+
+async function assertTargetIsPersistable(
+	projectId: string,
+	input: Partial<SaveDastTargetRequestInput>,
+	existing?: {
+		id: string;
+		name: string;
+		origin: string;
+		enabled: boolean;
+		allowLoopback: boolean;
+		allowPrivateNetwork: boolean;
+		allowedPathsJson: string[];
+		excludedPathsJson: string[];
+		defaultHeadersJson: Record<string, string>;
+		maxDepth: number;
+		maxRequests: number;
+		rateLimitPerSec: number;
+		timeoutSec: number;
+		metadata: Record<string, unknown>;
+		createdByUserId: string | null;
+		createdAt: string | Date;
+		updatedAt: string | Date;
+	},
+) {
+	const now = new Date();
+	const candidate = {
+		id: existing?.id ?? randomUUID(),
+		projectId,
+		name: input.name ?? existing?.name ?? "DAST target",
+		origin: input.origin ?? existing?.origin ?? "",
+		normalizedOrigin: input.origin ?? existing?.origin ?? "http://127.0.0.1",
+		enabled: true,
+		allowLoopback: input.allowLoopback ?? existing?.allowLoopback ?? true,
+		allowPrivateNetwork:
+			input.allowPrivateNetwork ?? existing?.allowPrivateNetwork ?? false,
+		allowedPathsJson: input.allowedPathsJson ??
+			existing?.allowedPathsJson ?? ["/"],
+		excludedPathsJson:
+			input.excludedPathsJson ?? existing?.excludedPathsJson ?? [],
+		defaultHeadersJson:
+			input.defaultHeadersJson ?? existing?.defaultHeadersJson ?? {},
+		maxDepth: input.maxDepth ?? existing?.maxDepth ?? 0,
+		maxRequests: input.maxRequests ?? existing?.maxRequests ?? 20,
+		rateLimitPerSec: input.rateLimitPerSec ?? existing?.rateLimitPerSec ?? 2,
+		timeoutSec: input.timeoutSec ?? existing?.timeoutSec ?? 120,
+		metadata: input.metadata ?? existing?.metadata ?? {},
+		createdByUserId: existing?.createdByUserId ?? null,
+		createdAt: existing?.createdAt ?? now,
+		updatedAt: existing?.updatedAt ?? now,
+	};
+	const validation = await validateDastTargetConfig(candidate);
+	if (!validation.ok) {
+		throw new HttpError(400, validation.message);
+	}
+}
+
+function assertProfileConfigIsPersistable(
+	input: SaveDastProfileRequestInput,
+	target: {
+		allowedPathsJson: string[];
+		excludedPathsJson: string[];
+	},
+) {
+	const profile = getDastProfile(input.profileId);
+	if (!profile) {
+		throw new HttpError(400, `DAST profile not found: ${input.profileId}`);
+	}
+	if (!profile.enabled && input.enabled !== false) {
+		throw new HttpError(400, `DAST profile is disabled: ${input.profileId}`);
+	}
+	const routes = input.routePathsJson ?? [];
+	for (const routePath of routes) {
+		if (
+			!isPathAllowed({
+				path: routePath,
+				allowedPaths: target.allowedPathsJson.length
+					? target.allowedPathsJson
+					: ["/"],
+				excludedPaths: target.excludedPathsJson,
+			})
+		) {
+			throw new HttpError(
+				400,
+				`DAST profile route path is outside target scope: ${routePath}`,
+			);
+		}
+	}
+	if (
+		input.enabled !== false &&
+		profile.requiresRoutes &&
+		routes.length === 0
+	) {
+		throw new HttpError(
+			400,
+			`DAST profile requires configured route paths: ${profile.id}`,
+		);
+	}
+	if (
+		input.enabled !== false &&
+		profile.requiresForms &&
+		(input.formSelectorsJson ?? []).length === 0
+	) {
+		throw new HttpError(
+			400,
+			`DAST profile requires configured form selectors: ${profile.id}`,
+		);
+	}
 }
 
 async function readJson(req: { json(): Promise<unknown> }): Promise<unknown> {

@@ -68,7 +68,7 @@ export class DastArtifactStorage {
 		value: unknown,
 		filename: string,
 	): Promise<DastArtifactSaveResult> {
-		const content = redactSecrets(JSON.stringify(value, null, 2));
+		const content = JSON.stringify(redactDastJsonValue(value), null, 2);
 		return await this.saveBuffer({
 			dastRunId,
 			subDir,
@@ -119,4 +119,34 @@ export class DastArtifactStorage {
 	async readTextArtifact(relativePath: string): Promise<string> {
 		return (await this.readArtifact(relativePath)).toString("utf8");
 	}
+}
+
+const DAST_SECRET_JSON_KEYS = new Set([
+	"authorization",
+	"proxy-authorization",
+	"cookie",
+	"set-cookie",
+	"x-api-key",
+	"x-auth-token",
+	"x-csrf-token",
+]);
+
+function redactDastJsonValue(value: unknown, key?: string): unknown {
+	if (key && DAST_SECRET_JSON_KEYS.has(key.toLowerCase())) {
+		return "[REDACTED]";
+	}
+	if (typeof value === "string") {
+		return redactSecrets(value);
+	}
+	if (Array.isArray(value)) {
+		return value.map((item) => redactDastJsonValue(item));
+	}
+	if (value && typeof value === "object") {
+		const redacted: Record<string, unknown> = {};
+		for (const [entryKey, entryValue] of Object.entries(value)) {
+			redacted[entryKey] = redactDastJsonValue(entryValue, entryKey);
+		}
+		return redacted;
+	}
+	return value;
 }

@@ -1,0 +1,39 @@
+{
+	"tool": "fixture",
+	"results": [
+		{
+			"ruleId": "fixture.rule.1",
+			"title": "Hardcoded API Key",
+			"description": "A hardcoded API key was found in the configuration.",
+			"severity": "high",
+			"path": "src/config.ts",
+			"startLine": 2,
+			"endLine": 2,
+			"snippet": "const api_key = \"fixtureSensitiveValue123\";",
+			"evidence": [
+				{
+					"kind": "tool-output",
+					"title": "Raw API key match",
+					"snippet": "Matched pattern api_key = \"fixtureSensitiveValue123\""
+				}
+			]
+		},
+		{
+			"ruleId": "fixture.rule.2",
+			"title": "SQL Injection",
+			"description": "User input is directly concatenated into a SQL query.",
+			"severity": "critical",
+			"path": "src/db.ts",
+			"startLine": 10,
+			"endLine": 12,
+			"snippet": "const query = `SELECT * FROM users WHERE id = ${id}`;",
+			"evidence": [
+				{
+					"kind": "tool-output",
+					"title": "Raw query interpolation",
+					"snippet": "Direct interpolation of variable 'id'"
+				}
+			]
+		}
+	]
+}

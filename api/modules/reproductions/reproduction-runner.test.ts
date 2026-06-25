@@ -295,7 +295,7 @@ describe("Reproduction Runner", () => {
 		const dbRun = await repo.getRun(result.reproductionRunId!);
 		expect(dbRun!.status).toBe("timed_out");
 		expect(dbRun!.outcome).toBe("error");
-		expect(dbRun!.metadata.failureKind).toBe("timeout");
+		expect(dbRun!.metadata.failureKind).toBe("sandbox_timeout");
 	});
 
 	it("should mark invalid raw JSON output as failed error", async () => {
@@ -338,6 +338,6 @@ describe("Reproduction Runner", () => {
 		const dbRun = await repo.getRun(result.reproductionRunId!);
 		expect(dbRun!.status).toBe("failed");
 		expect(dbRun!.outcome).toBe("error");
-		expect(dbRun!.metadata.failureKind).toBe("output_parse_failed");
+		expect(dbRun!.metadata.failureKind).toBe("tool_output_invalid");
 	});
 });

@@ -48,7 +48,7 @@ function classifyExecutionFailure(input: {
 } {
 	const text = `${input.error ?? ""}\n${input.stderr ?? ""}`.toLowerCase();
 	if (text.includes("timed out") || text.includes("timeout")) {
-		return { status: "timed_out", failureKind: "timeout" };
+		return { status: "timed_out", failureKind: "dynamic_timeout" };
 	}
 	if (
 		text.includes("no such image") ||
@@ -56,7 +56,7 @@ function classifyExecutionFailure(input: {
 		text.includes("pull access denied") ||
 		text.includes("manifest unknown")
 	) {
-		return { status: "failed", failureKind: "image_missing" };
+		return { status: "failed", failureKind: "docker_image_missing" };
 	}
 	if (
 		input.exitCode === 125 ||
@@ -68,7 +68,7 @@ function classifyExecutionFailure(input: {
 	) {
 		return { status: "failed", failureKind: "docker_unavailable" };
 	}
-	return { status: "failed", failureKind: "execution_failed" };
+	return { status: "failed", failureKind: "unknown_error" };
 }
 
 function resolveTimeoutSec(
@@ -530,7 +530,7 @@ export class DynamicRunner {
 				errorMessage: (err as Error).message,
 				metadata: {
 					...getBaseMetadata(runRecord.metadata),
-					failureKind: "unexpected_failure",
+					failureKind: "unknown_error",
 				},
 			});
 			return {

@@ -130,5 +130,26 @@ describe("DAST target validator", () => {
 				excludedPaths: ["/admin"],
 			}),
 		).toBe(false);
+		expect(
+			isPathAllowed({
+				path: "/app/health",
+				allowedPaths: ["/app"],
+				excludedPaths: [],
+			}),
+		).toBe(true);
+		expect(
+			isPathAllowed({
+				path: "/apple",
+				allowedPaths: ["/app"],
+				excludedPaths: [],
+			}),
+		).toBe(false);
+		expect(
+			isPathAllowed({
+				path: "/administrator",
+				allowedPaths: ["/"],
+				excludedPaths: ["/admin"],
+			}),
+		).toBe(true);
 	});
 });

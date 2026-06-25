@@ -59,7 +59,7 @@ async function main() {
 			scanRunId: null,
 			status: "failed",
 			outcome: "error",
-			failureKind: "target_validation_failed",
+			failureKind: "dast_target_rejected",
 			message: `Failed to parse arguments: ${(error as Error).message}`,
 		});
 		process.exit(1);
@@ -75,7 +75,7 @@ async function main() {
 			scanRunId: values["scan-run-id"] ?? null,
 			status: "failed",
 			outcome: "error",
-			failureKind: "target_validation_failed",
+			failureKind: "dast_target_rejected",
 			message:
 				"Missing required arguments: --project-id, --target-config-id, and --profile are required.",
 		});
@@ -93,7 +93,7 @@ async function main() {
 			scanRunId: values["scan-run-id"] ?? null,
 			status: "failed",
 			outcome: "error",
-			failureKind: "target_validation_failed",
+			failureKind: "dast_target_rejected",
 			message: "--runner must be host, docker, or mock.",
 		});
 		process.exit(1);
@@ -111,7 +111,7 @@ async function main() {
 			scanRunId: values["scan-run-id"] ?? null,
 			status: "failed",
 			outcome: "error",
-			failureKind: "target_validation_failed",
+			failureKind: "dast_target_rejected",
 			message: (error as Error).message,
 		});
 		process.exit(1);
@@ -145,7 +145,7 @@ async function main() {
 			scanRunId: values["scan-run-id"] ?? null,
 			status: "failed",
 			outcome: "error",
-			failureKind: "runner_failed",
+			failureKind: "unknown_error",
 			message:
 				error instanceof Error ? error.message : "DAST execution failed.",
 		});

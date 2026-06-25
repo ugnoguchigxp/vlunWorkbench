@@ -77,11 +77,26 @@ export function isPathAllowed(params: {
 	excludedPaths: string[];
 }): boolean {
 	const path = params.path.startsWith("/") ? params.path : `/${params.path}`;
-	const allowed = params.allowedPaths.some((prefix) => path.startsWith(prefix));
+	const allowed = params.allowedPaths.some((prefix) =>
+		matchesPathPrefix(path, prefix),
+	);
 	const excluded = params.excludedPaths.some((prefix) =>
-		path.startsWith(prefix),
+		matchesPathPrefix(path, prefix),
 	);
 	return allowed && !excluded;
+}
+
+function matchesPathPrefix(path: string, prefix: string): boolean {
+	const normalizedPrefix = prefix.startsWith("/") ? prefix : `/${prefix}`;
+	if (normalizedPrefix === "/") return true;
+	return (
+		path === normalizedPrefix ||
+		path.startsWith(
+			normalizedPrefix.endsWith("/")
+				? normalizedPrefix
+				: `${normalizedPrefix}/`,
+		)
+	);
 }
 
 function ipv4ToNumber(ip: string): number | null {
