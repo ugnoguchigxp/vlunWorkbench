@@ -1,0 +1,1 @@
+{"results":[{"check_id":"test-rule-id","path":"src/index.js","start":{"line":10,"col":1},"end":{"line":10,"col":5},"extra":{"message":"vuln found","severity":"ERROR"}}]}

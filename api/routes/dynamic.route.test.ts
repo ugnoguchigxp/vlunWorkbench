@@ -165,6 +165,38 @@ describe("Dynamic Route", () => {
 		expect(body.config).toBeDefined();
 	});
 
+	it("POST /projects/:projectId/dynamic-profiles rejects unsafe profile commands", async () => {
+		const res = await app.request("/projects/p-1/dynamic-profiles", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				profileId: "unsafe",
+				dynamicKind: "test",
+				displayName: "Unsafe",
+				commandJson: ["bash", "-c", "echo unsafe"],
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const body = await res.json();
+		expect(body.message).toContain("Profile command policy validation failed");
+	});
+
+	it("PATCH /projects/:projectId/dynamic-profiles/:profileId rejects unsafe merged profile policy", async () => {
+		const res = await app.request("/projects/p-1/dynamic-profiles/bun-test", {
+			method: "PATCH",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				commandJson: ["npm", "test"],
+				allowProjectScripts: false,
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const body = await res.json();
+		expect(body.message).toContain("allow_project_scripts");
+	});
+
 	it("POST /projects/:projectId/dynamic-runs invokes CLI process via Bun.spawn", async () => {
 		const mockSpawnResult = {
 			ok: true,

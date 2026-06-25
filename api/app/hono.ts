@@ -49,6 +49,7 @@ import { createAgenticSearchRoute } from "../routes/agentic-search.route";
 import { createArtifactsRoute } from "../routes/artifacts.route";
 import { createAuthRoute } from "../routes/auth.route";
 import { createChatRoute } from "../routes/chat.route";
+import { createDastRoute } from "../routes/dast.route";
 import { createFindingDecisionsRoute } from "../routes/finding-decisions.route";
 import { createFindingReviewsRoute } from "../routes/finding-reviews.route";
 import { createFindingsRoute } from "../routes/findings.route";
@@ -63,6 +64,7 @@ import { createSearchRoute } from "../routes/search.route";
 import { createSettingsRoute } from "../routes/settings.route";
 import { createSourcesRoute } from "../routes/sources.route";
 import { type AppEnv, readAppEnv } from "./env";
+import type { FailureKind } from "../../shared/schemas/failure.schema";
 
 type AppRuntime = {
 	env: AppEnv;
@@ -376,6 +378,8 @@ app.onError(async (error, c) => {
 	) {
 		return c.json(
 			{
+				ok: false,
+				kind: "unknown_error" as FailureKind,
 				message:
 					'Database schema is outdated. Run "bun run db:migrate" and retry.',
 			},
@@ -384,7 +388,11 @@ app.onError(async (error, c) => {
 	}
 	if (error instanceof HttpError) {
 		return c.json(
-			{ message: error.message },
+			{
+				ok: false,
+				kind: error.kind || ("unknown_error" as FailureKind),
+				message: error.message,
+			},
 			error.status as 400 | 401 | 403 | 404 | 409 | 500,
 		);
 	}
@@ -398,16 +406,40 @@ app.onError(async (error, c) => {
 			error.message ||
 			response.statusText ||
 			"Request failed";
+		let kind: FailureKind = "unknown_error";
+		if (error.status === 403) {
+			kind = "ownership_check_failed";
+		} else if (error.status === 404) {
+			kind = "artifact_read_failed";
+		}
 		return c.json(
-			{ message },
+			{
+				ok: false,
+				kind,
+				message,
+			},
 			error.status as 400 | 401 | 403 | 404 | 409 | 500,
 		);
 	}
 	if (error instanceof Error && error.message === "Unauthorized") {
-		return c.json({ message: "Unauthorized" }, 401);
+		return c.json(
+			{
+				ok: false,
+				kind: "ownership_check_failed" as FailureKind,
+				message: "Unauthorized",
+			},
+			401,
+		);
 	}
 	if (error instanceof Error && error.message === "Forbidden") {
-		return c.json({ message: "Forbidden" }, 403);
+		return c.json(
+			{
+				ok: false,
+				kind: "ownership_check_failed" as FailureKind,
+				message: "Forbidden",
+			},
+			403,
+		);
 	}
 	const message =
 		runtime.env.nodeEnv === "production"
@@ -417,6 +449,8 @@ app.onError(async (error, c) => {
 				: "Internal server error";
 	return c.json(
 		{
+			ok: false,
+			kind: "unknown_error" as FailureKind,
 			message,
 		},
 		500,
@@ -614,6 +648,20 @@ app.use(
 	}),
 );
 app.use(
+	"/api/dast-runs/*",
+	requireAuth({
+		env: runtime.env,
+		authService: runtime.authService,
+	}),
+);
+app.use(
+	"/api/dast-runs",
+	requireAuth({
+		env: runtime.env,
+		authService: runtime.authService,
+	}),
+);
+app.use(
 	"/api/finding-reviews/*",
 	requireAuth({
 		env: runtime.env,
@@ -783,6 +831,13 @@ app.route(
 	createDynamicRoute({
 		db: runtime.dbConnection.db,
 		findingRepository,
+		projectRepository,
+	}),
+);
+app.route(
+	"/api",
+	createDastRoute({
+		db: runtime.dbConnection.db,
 		projectRepository,
 	}),
 );

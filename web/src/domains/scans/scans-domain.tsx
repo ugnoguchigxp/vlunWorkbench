@@ -47,6 +47,26 @@ import {
 	startScan,
 	triggerFindingReproduction,
 	triggerFindingReview,
+	fetchProjectDynamicProfiles,
+	fetchFindingDynamicRuns,
+	triggerFindingDynamicRun,
+	fetchDynamicRunArtifacts,
+	type DynamicProfileConfig,
+	type DynamicRun,
+	type DynamicArtifact,
+	type DynamicEvidence,
+	fetchProjectDastTargets,
+	fetchProjectDastProfiles,
+	fetchProjectDastRuns,
+	saveProjectDastTarget,
+	triggerProjectDastRun,
+	fetchDastRunArtifacts,
+	type DastTargetConfig,
+	type DastProfile,
+	type DastProfileConfig,
+	type DastRun,
+	type DastArtifact,
+	type DastEvidence,
 } from "../../api";
 import { Button, SelectInput } from "../../ui";
 
@@ -136,6 +156,53 @@ export const ScansDomainSection = ({
 	>({});
 	const [reproRunEvidence, setReproRunEvidence] = useState<
 		Record<string, ReproductionEvidence[]>
+	>({});
+
+	// Dynamic runs state
+	const [dynamicProfiles, setDynamicProfiles] = useState<
+		DynamicProfileConfig[]
+	>([]);
+	const [dynamicRuns, setDynamicRuns] = useState<DynamicRun[]>([]);
+	const [selectedDynamicProfile, setSelectedDynamicProfile] =
+		useState<string>("");
+	const [dynamicLoading, setDynamicLoading] = useState(false);
+	const [dynamicError, setDynamicError] = useState<string | null>(null);
+	const [expandedDynamicRunId, setExpandedDynamicRunId] = useState<
+		string | null
+	>(null);
+	const [dynamicRunArtifacts, setDynamicRunArtifacts] = useState<
+		Record<string, DynamicArtifact[]>
+	>({});
+	const [dynamicRunEvidence, setDynamicRunEvidence] = useState<
+		Record<string, DynamicEvidence[]>
+	>({});
+	const [allowProjectScriptsConsent, setAllowProjectScriptsConsent] =
+		useState(false);
+
+	// DAST state
+	const [dastTargets, setDastTargets] = useState<DastTargetConfig[]>([]);
+	const [dastProfiles, setDastProfiles] = useState<DastProfile[]>([]);
+	const [dastProfileConfigs, setDastProfileConfigs] = useState<
+		DastProfileConfig[]
+	>([]);
+	const [dastRuns, setDastRuns] = useState<DastRun[]>([]);
+	const [selectedDastTargetId, setSelectedDastTargetId] = useState("");
+	const [selectedDastProfileId, setSelectedDastProfileId] =
+		useState("http-baseline");
+	const [dastTargetName, setDastTargetName] = useState("Local app");
+	const [dastTargetOrigin, setDastTargetOrigin] = useState(
+		"http://127.0.0.1:5173",
+	);
+	const [dastLoading, setDastLoading] = useState(false);
+	const [dastError, setDastError] = useState<string | null>(null);
+	const [expandedDastRunId, setExpandedDastRunId] = useState<string | null>(
+		null,
+	);
+	const [dastRunArtifacts, setDastRunArtifacts] = useState<
+		Record<string, DastArtifact[]>
+	>({});
+	const [dastRunEvidence, setDastRunEvidence] = useState<
+		Record<string, DastEvidence[]>
 	>({});
 
 	const [includeDeferred, setIncludeDeferred] = useState(true);
@@ -262,6 +329,43 @@ export const ScansDomainSection = ({
 		})();
 	}, [selectedProjectId, active, setErrorText]);
 
+	// Load DAST target/profile/run state when selected project changes
+	useEffect(() => {
+		if (!selectedProjectId || !active) {
+			setDastTargets([]);
+			setDastProfiles([]);
+			setDastProfileConfigs([]);
+			setDastRuns([]);
+			setSelectedDastTargetId("");
+			return;
+		}
+		void (async () => {
+			try {
+				const [targetsRes, profilesRes, runsRes] = await Promise.all([
+					fetchProjectDastTargets(selectedProjectId),
+					fetchProjectDastProfiles(selectedProjectId),
+					fetchProjectDastRuns(selectedProjectId),
+				]);
+				setDastTargets(targetsRes.targets);
+				setDastProfiles(profilesRes.profiles);
+				setDastProfileConfigs(profilesRes.configs);
+				setDastRuns(runsRes.dastRuns);
+				const firstEnabled = targetsRes.targets.find(
+					(target) => target.enabled,
+				);
+				setSelectedDastTargetId(firstEnabled?.id ?? "");
+			} catch (err) {
+				setDastError(
+					err instanceof Error ? err.message : "Failed to load DAST state.",
+				);
+				setDastTargets([]);
+				setDastProfiles([]);
+				setDastProfileConfigs([]);
+				setDastRuns([]);
+			}
+		})();
+	}, [selectedProjectId, active]);
+
 	// Load findings when selected scan run changes
 	useEffect(() => {
 		if (!selectedScanRunId || !active) return;
@@ -354,6 +458,25 @@ export const ScansDomainSection = ({
 				} catch (e) {
 					console.error("Failed to fetch reproduction runs", e);
 					setReproRuns([]);
+				}
+				try {
+					const profilesRes = await fetchProjectDynamicProfiles(
+						res.finding.projectId,
+					);
+					setDynamicProfiles(profilesRes.configs);
+					const firstEnabled = profilesRes.configs.find((p) => p.enabled);
+					setSelectedDynamicProfile(firstEnabled ? firstEnabled.profileId : "");
+				} catch (e) {
+					console.error("Failed to fetch dynamic profiles", e);
+					setDynamicProfiles([]);
+					setSelectedDynamicProfile("");
+				}
+				try {
+					const runsRes = await fetchFindingDynamicRuns(findingId);
+					setDynamicRuns(runsRes.dynamicRuns);
+				} catch (e) {
+					console.error("Failed to fetch dynamic runs", e);
+					setDynamicRuns([]);
 				}
 			};
 
@@ -549,6 +672,180 @@ export const ScansDomainSection = ({
 		}
 	};
 
+	const handleTriggerDynamic = async () => {
+		if (!selectedFindingId || !selectedDynamicProfile) return;
+
+		const profile = dynamicProfiles.find(
+			(p) => p.profileId === selectedDynamicProfile,
+		);
+		if (profile?.allowProjectScripts && !allowProjectScriptsConsent) {
+			setDynamicError(
+				"You must give explicit consent to run project scripts inside the Docker sandbox.",
+			);
+			return;
+		}
+
+		setDynamicLoading(true);
+		setDynamicError(null);
+		try {
+			const res = await triggerFindingDynamicRun(selectedFindingId, {
+				profileId: selectedDynamicProfile,
+			});
+			if (res.dynamicRunId) {
+				setExpandedDynamicRunId(res.dynamicRunId);
+				try {
+					const artRes = await fetchDynamicRunArtifacts(res.dynamicRunId);
+					setDynamicRunArtifacts((prev) => ({
+						...prev,
+						[res.dynamicRunId]: artRes.artifacts,
+					}));
+					setDynamicRunEvidence((prev) => ({
+						...prev,
+						[res.dynamicRunId]: artRes.evidence,
+					}));
+				} catch (e) {
+					console.error("Failed to load artifacts/evidence for new run", e);
+				}
+			}
+			const runsRes = await fetchFindingDynamicRuns(selectedFindingId);
+			setDynamicRuns(runsRes.dynamicRuns);
+		} catch (err: any) {
+			console.error("Failed to trigger dynamic check", err);
+			setDynamicError(
+				err.message ||
+					"An unexpected error occurred during dynamic check execution.",
+			);
+		} finally {
+			setDynamicLoading(false);
+		}
+	};
+
+	const handleToggleDynamicRun = async (runId: string) => {
+		if (expandedDynamicRunId === runId) {
+			setExpandedDynamicRunId(null);
+			return;
+		}
+		setExpandedDynamicRunId(runId);
+		if (!dynamicRunArtifacts[runId]) {
+			try {
+				const artRes = await fetchDynamicRunArtifacts(runId);
+				setDynamicRunArtifacts((prev) => ({
+					...prev,
+					[runId]: artRes.artifacts,
+				}));
+				setDynamicRunEvidence((prev) => ({
+					...prev,
+					[runId]: artRes.evidence,
+				}));
+			} catch (e) {
+				console.error("Failed to fetch artifacts/evidence for run", e);
+			}
+		}
+	};
+
+	const refreshDastRuns = async () => {
+		if (!selectedProjectId) return;
+		const runsRes = await fetchProjectDastRuns(selectedProjectId);
+		setDastRuns(runsRes.dastRuns);
+	};
+
+	const handleCreateDastTarget = async () => {
+		if (!selectedProjectId) return;
+		setDastLoading(true);
+		setDastError(null);
+		try {
+			const res = await saveProjectDastTarget(selectedProjectId, {
+				name: dastTargetName,
+				origin: dastTargetOrigin,
+				allowedPathsJson: ["/"],
+				maxDepth: 0,
+				maxRequests: 20,
+				rateLimitPerSec: 2,
+				timeoutSec: 120,
+			});
+			const targetsRes = await fetchProjectDastTargets(selectedProjectId);
+			setDastTargets(targetsRes.targets);
+			setSelectedDastTargetId(res.target.id);
+		} catch (err) {
+			setDastError(
+				err instanceof Error ? err.message : "Failed to save DAST target.",
+			);
+		} finally {
+			setDastLoading(false);
+		}
+	};
+
+	const handleTriggerDastRun = async () => {
+		if (!selectedProjectId || !selectedDastTargetId || !selectedDastProfileId) {
+			return;
+		}
+		setDastLoading(true);
+		setDastError(null);
+		try {
+			const profileConfig = dastProfileConfigs.find(
+				(config) =>
+					config.profileId === selectedDastProfileId &&
+					config.targetConfigId === selectedDastTargetId &&
+					config.enabled,
+			);
+			const res = await triggerProjectDastRun(selectedProjectId, {
+				targetConfigId: selectedDastTargetId,
+				profileId: selectedDastProfileId,
+				profileConfigId: profileConfig?.id,
+				runner: "host",
+			});
+			await refreshDastRuns();
+			if (res.dastRunId) {
+				setExpandedDastRunId(res.dastRunId);
+				const artifactsRes = await fetchDastRunArtifacts(res.dastRunId);
+				setDastRunArtifacts((prev) => ({
+					...prev,
+					[res.dastRunId as string]: artifactsRes.artifacts,
+				}));
+				setDastRunEvidence((prev) => ({
+					...prev,
+					[res.dastRunId as string]: artifactsRes.evidence,
+				}));
+			}
+			if (res.scanRunId) {
+				const runs = await fetchScans(selectedProjectId);
+				setScanRuns(runs);
+				setSelectedScanRunId(res.scanRunId);
+			}
+		} catch (err) {
+			setDastError(
+				err instanceof Error ? err.message : "Failed to run DAST profile.",
+			);
+		} finally {
+			setDastLoading(false);
+		}
+	};
+
+	const handleToggleDastRun = async (runId: string) => {
+		if (expandedDastRunId === runId) {
+			setExpandedDastRunId(null);
+			return;
+		}
+		setExpandedDastRunId(runId);
+		if (!dastRunArtifacts[runId]) {
+			try {
+				const artifactsRes = await fetchDastRunArtifacts(runId);
+				setDastRunArtifacts((prev) => ({
+					...prev,
+					[runId]: artifactsRes.artifacts,
+				}));
+				setDastRunEvidence((prev) => ({
+					...prev,
+					[runId]: artifactsRes.evidence,
+				}));
+			} catch (err) {
+				setDastError(
+					err instanceof Error ? err.message : "Failed to load DAST artifacts.",
+				);
+			}
+		}
+	};
+
 	const getSeverityClass = (sev: string | null | undefined): string => {
 		const s = (sev || "unknown").toLowerCase();
 		if (s === "critical") return "sev-critical";
@@ -686,7 +983,7 @@ export const ScansDomainSection = ({
 											Tools:{" "}
 											{profiles
 												.find((p) => p.id === selectedProfileId)
-												?.tools.map((t) => t.displayName)
+												?.tools.map((t: any) => t.displayName)
 												.join(", ")}
 										</div>
 									</div>
@@ -779,6 +1076,274 @@ export const ScansDomainSection = ({
 								{isScanning ? "Running Scan Profile..." : "Start Profile Scan"}
 							</Button>
 						</div>
+					</div>
+				)}
+
+				{selectedProjectId && (
+					<div
+						style={{
+							padding: "16px",
+							borderBottom: "1px solid #e2e8f0",
+							background: "#fff",
+						}}
+					>
+						<div
+							style={{
+								display: "flex",
+								alignItems: "center",
+								gap: "8px",
+								marginBottom: "12px",
+							}}
+						>
+							<Shield
+								className="icon text-teal-700"
+								style={{ width: "18px", height: "18px" }}
+							/>
+							<h3
+								style={{
+									fontSize: "15px",
+									fontWeight: "700",
+									color: "#0f172a",
+									margin: 0,
+								}}
+							>
+								DAST
+							</h3>
+						</div>
+
+						{dastError && (
+							<div
+								style={{
+									background: "#fef2f2",
+									border: "1px solid #fee2e2",
+									borderRadius: "8px",
+									padding: "10px 12px",
+									color: "#b91c1c",
+									fontSize: "12px",
+									marginBottom: "12px",
+								}}
+							>
+								{dastError}
+							</div>
+						)}
+
+						<div className="form-stack" style={{ padding: 0, gap: "10px" }}>
+							<label htmlFor="dast-target-name">
+								<span>Target Name</span>
+								<input
+									id="dast-target-name"
+									value={dastTargetName}
+									onChange={(e) => setDastTargetName(e.target.value)}
+									style={{
+										width: "100%",
+										padding: "8px",
+										borderRadius: "6px",
+										border: "1px solid #cbd5e1",
+										fontSize: "13px",
+									}}
+								/>
+							</label>
+							<label htmlFor="dast-target-origin">
+								<span>Local Target Origin</span>
+								<input
+									id="dast-target-origin"
+									value={dastTargetOrigin}
+									onChange={(e) => setDastTargetOrigin(e.target.value)}
+									placeholder="http://127.0.0.1:5173"
+									style={{
+										width: "100%",
+										padding: "8px",
+										borderRadius: "6px",
+										border: "1px solid #cbd5e1",
+										fontSize: "13px",
+									}}
+								/>
+							</label>
+							<Button
+								type="button"
+								variant="secondary"
+								onClick={() => void handleCreateDastTarget()}
+								disabled={dastLoading || !dastTargetName || !dastTargetOrigin}
+								style={{ width: "100%" }}
+							>
+								Save DAST Target
+							</Button>
+
+							<label htmlFor="dast-target-select">
+								<span>Saved Target</span>
+								<SelectInput
+									id="dast-target-select"
+									value={selectedDastTargetId}
+									onChange={(e) => setSelectedDastTargetId(e.target.value)}
+								>
+									<option value="">-- Select Target --</option>
+									{dastTargets.map((target) => (
+										<option
+											key={target.id}
+											value={target.id}
+											disabled={!target.enabled}
+										>
+											{target.name} ({target.normalizedOrigin})
+										</option>
+									))}
+								</SelectInput>
+							</label>
+							<label htmlFor="dast-profile-select">
+								<span>DAST Profile</span>
+								<SelectInput
+									id="dast-profile-select"
+									value={selectedDastProfileId}
+									onChange={(e) => setSelectedDastProfileId(e.target.value)}
+								>
+									{dastProfiles
+										.filter(
+											(profile) =>
+												profile.enabled &&
+												(profile.id === "http-baseline" ||
+													dastProfileConfigs.some(
+														(config) =>
+															config.profileId === profile.id &&
+															config.targetConfigId === selectedDastTargetId &&
+															config.enabled,
+													)),
+										)
+										.map((profile) => (
+											<option key={profile.id} value={profile.id}>
+												{profile.displayName}
+											</option>
+										))}
+								</SelectInput>
+							</label>
+							<Button
+								type="button"
+								variant="primary"
+								onClick={() => void handleTriggerDastRun()}
+								disabled={
+									dastLoading || !selectedDastTargetId || !selectedDastProfileId
+								}
+								style={{ width: "100%" }}
+							>
+								{dastLoading ? "Running DAST..." : "Run HTTP Baseline"}
+							</Button>
+						</div>
+
+						{dastRuns.length > 0 && (
+							<div
+								style={{
+									marginTop: "14px",
+									display: "flex",
+									flexDirection: "column",
+									gap: "8px",
+								}}
+							>
+								<h4
+									style={{
+										fontSize: "12px",
+										fontWeight: "700",
+										color: "#475569",
+										margin: 0,
+									}}
+								>
+									DAST Runs ({dastRuns.length})
+								</h4>
+								{dastRuns.slice(0, 5).map((run) => {
+									const artifacts = dastRunArtifacts[run.id] ?? [];
+									const evidence = dastRunEvidence[run.id] ?? [];
+									const expanded = expandedDastRunId === run.id;
+									return (
+										<div
+											key={run.id}
+											style={{
+												border: "1px solid #e2e8f0",
+												borderRadius: "8px",
+												overflow: "hidden",
+											}}
+										>
+											<button
+												type="button"
+												onClick={() => void handleToggleDastRun(run.id)}
+												style={{
+													width: "100%",
+													border: 0,
+													background: "#f8fafc",
+													padding: "10px",
+													cursor: "pointer",
+													textAlign: "left",
+													display: "flex",
+													justifyContent: "space-between",
+													gap: "8px",
+													font: "inherit",
+												}}
+											>
+												<span style={{ fontSize: "13px", fontWeight: "600" }}>
+													{run.profileId}
+												</span>
+												<span
+													className={`scan-status-badge badge-${run.status}`}
+													style={{ textTransform: "capitalize" }}
+												>
+													{run.outcome ?? run.status}
+												</span>
+											</button>
+											{expanded && (
+												<div style={{ padding: "10px", fontSize: "12px" }}>
+													{run.summary && (
+														<div
+															style={{ marginBottom: "8px", color: "#334155" }}
+														>
+															{run.summary}
+														</div>
+													)}
+													{evidence.length > 0 && (
+														<div style={{ marginBottom: "8px" }}>
+															<strong>Evidence</strong>
+															{evidence.map((item) => (
+																<div key={item.id} style={{ marginTop: "4px" }}>
+																	{item.title}
+																</div>
+															))}
+														</div>
+													)}
+													{artifacts.length > 0 && (
+														<div
+															style={{
+																display: "flex",
+																flexWrap: "wrap",
+																gap: "6px",
+															}}
+														>
+															{artifacts.map((artifact) => (
+																<a
+																	key={artifact.id}
+																	href={`/api/dast-runs/${run.id}/artifacts/${artifact.id}`}
+																	target="_blank"
+																	rel="noreferrer"
+																	style={{
+																		display: "inline-flex",
+																		alignItems: "center",
+																		gap: "5px",
+																		padding: "5px 8px",
+																		border: "1px solid #cbd5e1",
+																		borderRadius: "6px",
+																		color: "#2563eb",
+																		textDecoration: "none",
+																	}}
+																>
+																	<Download
+																		style={{ width: "12px", height: "12px" }}
+																	/>
+																	{artifact.kind}
+																</a>
+															))}
+														</div>
+													)}
+												</div>
+											)}
+										</div>
+									);
+								})}
+							</div>
+						)}
 					</div>
 				)}
 
@@ -1349,6 +1914,54 @@ export const ScansDomainSection = ({
 														"// Snippet not available"}
 												</code>
 											</pre>
+										</div>
+									</div>
+								) : null}
+
+								{/* Primary Evidence Artifacts */}
+								{selectedFindingDetails.evidence.some((ev) => ev.artifactId) ? (
+									<div className="detail-section">
+										<h3 className="detail-section-title">
+											Primary Scan Evidence Artifacts
+										</h3>
+										<div
+											style={{
+												display: "flex",
+												gap: "8px",
+												flexWrap: "wrap",
+												marginTop: "8px",
+											}}
+										>
+											{selectedFindingDetails.evidence
+												.filter((ev) => ev.artifactId)
+												.map((ev) => (
+													<a
+														key={ev.id}
+														href={`/api/scans/${selectedFindingDetails.finding.scanRunId}/artifacts/${ev.artifactId}/download`}
+														target="_blank"
+														rel="noreferrer"
+														style={{
+															display: "inline-flex",
+															alignItems: "center",
+															gap: "6px",
+															fontSize: "12px",
+															padding: "6px 10px",
+															background: "#f1f5f9",
+															border: "1px solid #cbd5e1",
+															borderRadius: "4px",
+															color: "#2563eb",
+															textDecoration: "none",
+														}}
+													>
+														<Download
+															style={{ width: "12px", height: "12px" }}
+														/>
+														<span>
+															{ev.title ||
+																`Artifact ${ev.artifactId?.slice(0, 8)}`}
+														</span>
+													</a>
+												))}
 										</div>
 									</div>
 								) : null}
@@ -2280,6 +2893,610 @@ export const ScansDomainSection = ({
 									)}
 								</div>
 
+								{/* Dynamic Verification Section */}
+								<div
+									className="detail-section"
+									style={{
+										borderTop: "1px solid #e2e8f0",
+										paddingTop: "20px",
+										marginTop: "20px",
+									}}
+								>
+									<div
+										style={{
+											display: "flex",
+											justifyContent: "space-between",
+											alignItems: "center",
+											gap: "12px",
+											flexWrap: "wrap",
+											marginBottom: "10px",
+										}}
+									>
+										<div
+											style={{
+												display: "flex",
+												alignItems: "center",
+												gap: "8px",
+											}}
+										>
+											<Shield
+												className="icon text-teal-700"
+												style={{ width: "20px", height: "20px" }}
+											/>
+											<h3
+												style={{
+													fontSize: "16px",
+													fontWeight: "700",
+													color: "#0f172a",
+													margin: 0,
+												}}
+											>
+												Dynamic Sandbox Verification
+											</h3>
+										</div>
+									</div>
+
+									<p
+										style={{
+											fontSize: "14px",
+											color: "#475569",
+											marginBottom: "16px",
+										}}
+									>
+										Run project-defined verification checks (tests, sanitizers,
+										or fuzzers) in a secure, bounded Docker sandbox. Note:
+										Bounded dynamic runs are observation-only; passing tests or
+										fuzzer runs do not guarantee code is secure or fix is
+										complete.
+									</p>
+
+									{dynamicError && (
+										<div
+											style={{
+												background: "#fef2f2",
+												border: "1px solid #fee2e2",
+												borderRadius: "8px",
+												padding: "12px 16px",
+												color: "#b91c1c",
+												fontSize: "13px",
+												marginBottom: "16px",
+											}}
+										>
+											{dynamicError}
+										</div>
+									)}
+
+									{/* Profile Trigger Form */}
+									{dynamicProfiles.length > 0 ? (
+										<div
+											style={{
+												display: "flex",
+												gap: "12px",
+												alignItems: "flex-end",
+												flexWrap: "wrap",
+												marginBottom: "20px",
+												background: "#f8fafc",
+												border: "1px solid #e2e8f0",
+												borderRadius: "8px",
+												padding: "16px",
+											}}
+										>
+											<div style={{ flex: "1 1 250px" }}>
+												<label
+													htmlFor="dynamic-profile-select"
+													style={{
+														display: "block",
+														fontSize: "12px",
+														fontWeight: "600",
+														color: "#475569",
+														marginBottom: "6px",
+													}}
+												>
+													Select Dynamic Verification Profile
+												</label>
+												<select
+													id="dynamic-profile-select"
+													value={selectedDynamicProfile}
+													onChange={(e) => {
+														setSelectedDynamicProfile(e.target.value);
+														setAllowProjectScriptsConsent(false);
+													}}
+													style={{
+														width: "100%",
+														padding: "8px 12px",
+														borderRadius: "6px",
+														border: "1px solid #cbd5e1",
+														background: "#fff",
+														fontSize: "14px",
+														color: "#0f172a",
+													}}
+												>
+													{dynamicProfiles.map((p) => (
+														<option
+															key={p.id}
+															value={p.profileId}
+															disabled={!p.enabled}
+														>
+															{p.displayName} ({p.dynamicKind.toUpperCase()}){" "}
+															{!p.enabled ? "(Disabled)" : ""}
+														</option>
+													))}
+												</select>
+											</div>
+
+											<Button
+												type="button"
+												variant="primary"
+												onClick={() => void handleTriggerDynamic()}
+												disabled={
+													dynamicLoading ||
+													busy ||
+													!selectedDynamicProfile ||
+													(() => {
+														const selected = dynamicProfiles.find(
+															(p) => p.profileId === selectedDynamicProfile,
+														);
+														return !!(
+															selected?.allowProjectScripts &&
+															!allowProjectScriptsConsent
+														);
+													})()
+												}
+												style={{
+													display: "inline-flex",
+													alignItems: "center",
+													gap: "6px",
+													height: "38px",
+												}}
+											>
+												{dynamicLoading ? (
+													<RefreshCw className="icon animate-spin" />
+												) : (
+													<Shield className="icon" />
+												)}
+												<span>Trigger Sandbox Run</span>
+											</Button>
+
+											{/* Profile Preview Command */}
+											{(() => {
+												const selected = dynamicProfiles.find(
+													(p) => p.profileId === selectedDynamicProfile,
+												);
+												if (!selected) return null;
+												return (
+													<div
+														style={{
+															width: "100%",
+															marginTop: "8px",
+															fontSize: "13px",
+															color: "#64748b",
+														}}
+													>
+														<div>
+															<strong>Command Preview:</strong>{" "}
+															<code
+																style={{
+																	background: "#e2e8f0",
+																	padding: "2px 4px",
+																	borderRadius: "4px",
+																}}
+															>
+																{selected.commandJson.join(" ")}
+															</code>
+														</div>
+														{selected.allowProjectScripts && (
+															<div
+																style={{
+																	marginTop: "12px",
+																	background: "#fffbeb",
+																	border: "1px solid #fef3c7",
+																	borderRadius: "8px",
+																	padding: "12px",
+																	fontSize: "13px",
+																	color: "#b45309",
+																	width: "100%",
+																}}
+															>
+																<div
+																	style={{
+																		fontWeight: "700",
+																		marginBottom: "4px",
+																	}}
+																>
+																	⚠️ Project Script Execution Consent Required
+																</div>
+																This profile runs project-defined commands (such
+																as npm test or custom test scripts) inside the
+																sandbox.
+																<label
+																	style={{
+																		display: "flex",
+																		alignItems: "center",
+																		gap: "8px",
+																		marginTop: "8px",
+																		cursor: "pointer",
+																		fontWeight: "600",
+																	}}
+																>
+																	<input
+																		type="checkbox"
+																		checked={allowProjectScriptsConsent}
+																		onChange={(e) =>
+																			setAllowProjectScriptsConsent(
+																				e.target.checked,
+																			)
+																		}
+																	/>
+																	I understand and consent to executing project
+																	scripts in the Docker sandbox
+																</label>
+															</div>
+														)}
+													</div>
+												);
+											})()}
+										</div>
+									) : (
+										<div
+											style={{
+												fontSize: "14px",
+												color: "#64748b",
+												fontStyle: "italic",
+												marginBottom: "20px",
+											}}
+										>
+											No dynamic verification profiles configured.
+										</div>
+									)}
+
+									{/* Dynamic Run History List */}
+									{dynamicRuns.length > 0 ? (
+										<div
+											style={{
+												display: "flex",
+												flexDirection: "column",
+												gap: "12px",
+											}}
+										>
+											<h4
+												style={{
+													fontSize: "13px",
+													fontWeight: "700",
+													color: "#475569",
+													margin: 0,
+												}}
+											>
+												Dynamic Sandbox Run History ({dynamicRuns.length})
+											</h4>
+											<div
+												style={{
+													display: "flex",
+													flexDirection: "column",
+													gap: "8px",
+												}}
+											>
+												{dynamicRuns.map((run) => {
+													const isExpanded = expandedDynamicRunId === run.id;
+													const runArt = dynamicRunArtifacts[run.id] || [];
+													const runEv = dynamicRunEvidence[run.id] || [];
+													return (
+														<div
+															key={run.id}
+															style={{
+																border: "1px solid #e2e8f0",
+																borderRadius: "8px",
+																overflow: "hidden",
+																background: "#fff",
+															}}
+														>
+															{/* Run Header */}
+															<button
+																type="button"
+																onClick={() =>
+																	void handleToggleDynamicRun(run.id)
+																}
+																style={{
+																	display: "flex",
+																	width: "100%",
+																	justifyContent: "space-between",
+																	alignItems: "center",
+																	padding: "12px 16px",
+																	border: 0,
+																	background: "#f8fafc",
+																	cursor: "pointer",
+																	font: "inherit",
+																	textAlign: "left",
+																	userSelect: "none",
+																}}
+															>
+																<div
+																	style={{
+																		display: "flex",
+																		alignItems: "center",
+																		gap: "12px",
+																		flexWrap: "wrap",
+																	}}
+																>
+																	<span
+																		style={{
+																			fontSize: "14px",
+																			fontWeight: "600",
+																			color: "#0f172a",
+																		}}
+																	>
+																		{dynamicProfiles.find(
+																			(p) => p.profileId === run.profileId,
+																		)?.displayName || run.profileId}
+																	</span>
+																	<span
+																		style={{
+																			fontSize: "12px",
+																			color: "#64748b",
+																		}}
+																	>
+																		{formatDateTime(run.createdAt)}
+																	</span>
+																</div>
+
+																<div
+																	style={{
+																		display: "flex",
+																		alignItems: "center",
+																		gap: "8px",
+																	}}
+																>
+																	<span
+																		className={`scan-status-badge badge-${run.status}`}
+																		style={{ textTransform: "capitalize" }}
+																	>
+																		{run.status}
+																	</span>
+																	{run.outcome && (
+																		<span
+																			className={`scan-status-badge badge-${run.outcome}`}
+																		>
+																			{run.outcome === "passed"
+																				? "Passed (Observed No Crash)"
+																				: run.outcome === "failed"
+																					? "Failed (Non-zero Exit Code)"
+																					: run.outcome === "crashed"
+																						? "Crashed (Observed Crash)"
+																						: run.outcome === "timed_out"
+																							? "Timed Out"
+																							: run.outcome === "inconclusive"
+																								? "Inconclusive"
+																								: run.outcome === "error"
+																									? "Runner Error"
+																									: run.outcome}
+																		</span>
+																	)}
+																</div>
+															</button>
+
+															{/* Run Details */}
+															{isExpanded && (
+																<div
+																	style={{
+																		padding: "16px",
+																		borderTop: "1px solid #e2e8f0",
+																		background: "#fff",
+																		display: "flex",
+																		flexDirection: "column",
+																		gap: "16px",
+																	}}
+																>
+																	{/* Metadata info */}
+																	<div
+																		style={{
+																			display: "grid",
+																			gridTemplateColumns:
+																				"repeat(auto-fit, minmax(200px, 1fr))",
+																			gap: "12px",
+																			fontSize: "13px",
+																			color: "#334155",
+																		}}
+																	>
+																		<div>
+																			<strong>Runner:</strong> {run.runner}
+																		</div>
+																		{run.exitCode !== null && (
+																			<div>
+																				<strong>Exit Code:</strong>{" "}
+																				{run.exitCode}
+																			</div>
+																		)}
+																		{run.completedAt && (
+																			<div>
+																				<strong>Duration:</strong> {(() => {
+																					const start = new Date(
+																						run.startedAt || run.createdAt,
+																					).getTime();
+																					const end = new Date(
+																						run.completedAt,
+																					).getTime();
+																					return `${((end - start) / 1000).toFixed(1)}s`;
+																				})()}
+																			</div>
+																		)}
+																	</div>
+
+																	{/* Command JSON */}
+																	{run.commandJson && (
+																		<div>
+																			<strong
+																				style={{
+																					display: "block",
+																					fontSize: "12px",
+																					color: "#475569",
+																					marginBottom: "6px",
+																				}}
+																			>
+																				Executed Bounded Command:
+																			</strong>
+																			<pre
+																				style={{
+																					margin: 0,
+																					padding: "10px",
+																					background: "#0f172a",
+																					color: "#38bdf8",
+																					borderRadius: "6px",
+																					fontSize: "12px",
+																					overflowX: "auto",
+																				}}
+																			>
+																				<code>{run.commandJson.join(" ")}</code>
+																			</pre>
+																		</div>
+																	)}
+
+																	{run.errorMessage && (
+																		<div
+																			style={{
+																				padding: "10px 12px",
+																				background: "#fef2f2",
+																				border: "1px solid #fee2e2",
+																				borderRadius: "6px",
+																				color: "#b91c1c",
+																				fontSize: "13px",
+																			}}
+																		>
+																			<strong>Error:</strong> {run.errorMessage}
+																		</div>
+																	)}
+
+																	{/* Evidence section */}
+																	{runEv.length > 0 && (
+																		<div>
+																			<strong
+																				style={{
+																					display: "block",
+																					fontSize: "12px",
+																					color: "#475569",
+																					marginBottom: "6px",
+																				}}
+																			>
+																				Verification Observations:
+																			</strong>
+																			<div
+																				style={{
+																					display: "flex",
+																					flexDirection: "column",
+																					gap: "8px",
+																				}}
+																			>
+																				{runEv.map((ev) => (
+																					<div
+																						key={ev.id}
+																						style={{
+																							border: "1px solid #cbd5e1",
+																							borderRadius: "6px",
+																							padding: "12px",
+																						}}
+																					>
+																						<div
+																							style={{
+																								fontWeight: "600",
+																								fontSize: "13px",
+																								color: "#0f172a",
+																								marginBottom: "4px",
+																							}}
+																						>
+																							{ev.title}
+																						</div>
+																						{ev.snippet && (
+																							<pre
+																								style={{
+																									margin: 0,
+																									padding: "8px",
+																									background: "#f1f5f9",
+																									borderRadius: "4px",
+																									fontSize: "12px",
+																									overflowX: "auto",
+																									color: "#334155",
+																								}}
+																							>
+																								<code>{ev.snippet}</code>
+																							</pre>
+																						)}
+																					</div>
+																				))}
+																			</div>
+																		</div>
+																	)}
+
+																	{/* Artifacts links */}
+																	{runArt.length > 0 && (
+																		<div>
+																			<strong
+																				style={{
+																					display: "block",
+																					fontSize: "12px",
+																					color: "#475569",
+																					marginBottom: "6px",
+																				}}
+																			>
+																				Run Artifacts:
+																			</strong>
+																			<div
+																				style={{
+																					display: "flex",
+																					gap: "8px",
+																					flexWrap: "wrap",
+																				}}
+																			>
+																				{runArt.map((art) => (
+																					<a
+																						key={art.id}
+																						href={`/api/dynamic-runs/${run.id}/artifacts/${art.id}`}
+																						target="_blank"
+																						rel="noreferrer"
+																						style={{
+																							display: "inline-flex",
+																							alignItems: "center",
+																							gap: "6px",
+																							fontSize: "12px",
+																							padding: "6px 10px",
+																							background: "#f1f5f9",
+																							border: "1px solid #cbd5e1",
+																							borderRadius: "4px",
+																							color: "#2563eb",
+																							textDecoration: "none",
+																						}}
+																					>
+																						<Download
+																							style={{
+																								width: "12px",
+																								height: "12px",
+																							}}
+																						/>
+																						<span>
+																							{art.kind} ({art.format})
+																						</span>
+																					</a>
+																				))}
+																			</div>
+																		</div>
+																	)}
+																</div>
+															)}
+														</div>
+													);
+												})}
+											</div>
+										</div>
+									) : (
+										<div
+											style={{
+												fontSize: "14px",
+												color: "#64748b",
+												fontStyle: "italic",
+											}}
+										>
+											No dynamic verification runs recorded for this finding.
+										</div>
+									)}
+								</div>
+
 								{/* Reviewer Decision Section */}
 								<div
 									className="detail-section"
@@ -2614,7 +3831,7 @@ export const ScansDomainSection = ({
 											gap: "12px",
 										}}
 									>
-										{scanSummary.tools.map((t) => (
+										{scanSummary.tools.map((t: any) => (
 											<div
 												key={t.toolId}
 												style={{
@@ -2765,7 +3982,12 @@ export const ScansDomainSection = ({
 														>
 															Severities:
 														</span>
-														{Object.entries(t.severityCounts)
+														{(
+															Object.entries(t.severityCounts || {}) as [
+																string,
+																number,
+															][]
+														)
 															.filter(([_, count]) => count > 0)
 															.map(([sev, count]) => (
 																<span

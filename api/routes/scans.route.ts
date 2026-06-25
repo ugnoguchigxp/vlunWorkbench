@@ -86,6 +86,25 @@ export function createScansRoute(deps: ScansRouteDeps) {
 			const list = await artifactRepository.listArtifacts(scanRunId);
 			return c.json({ artifacts: list });
 		})
+		.get("/:scanRunId/artifacts/:artifactId/download", async (c) => {
+			const authUser = getAuthContextUser(c);
+			const scanRunId = c.req.param("scanRunId");
+			const artifactId = c.req.param("artifactId");
+			await checkScanOwnership(scanRunId, authUser.userId);
+			const list = await artifactRepository.listArtifacts(scanRunId);
+			const artifact = list.find((a) => a.id === artifactId);
+			if (!artifact) {
+				throw new HttpError(404, "Artifact not found");
+			}
+			const content = await artifactStorage.readTextArtifact(artifact.path);
+			const filename = artifact.path.split("/").pop() || "artifact";
+			const contentType =
+				artifact.format === "json" ? "application/json" : "text/plain";
+			return c.body(content as any, 200, {
+				"Content-Type": `${contentType}; charset=utf-8`,
+				"Content-Disposition": `attachment; filename="${filename}"`,
+			});
+		})
 		.get("/:scanRunId/findings", async (c) => {
 			const authUser = getAuthContextUser(c);
 			const scanRunId = c.req.param("scanRunId");

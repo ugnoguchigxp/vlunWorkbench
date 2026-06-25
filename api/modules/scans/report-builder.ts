@@ -9,6 +9,10 @@ import {
 	findingEvidences,
 	findingReviews,
 	findingDecisions,
+	reproductionRuns,
+	dynamicRuns,
+	dastRuns,
+	dastEvidence,
 } from "../../db/schema";
 import { getProfileById } from "./profiles";
 
@@ -121,6 +125,7 @@ export async function buildMarkdownReport(
 	let allEvidences: (typeof findingEvidences.$inferSelect)[] = [];
 	let allReviews: (typeof findingReviews.$inferSelect)[] = [];
 	let allDecisions: (typeof findingDecisions.$inferSelect)[] = [];
+	let allDastEvidence: (typeof dastEvidence.$inferSelect)[] = [];
 
 	if (rawFindings.length > 0) {
 		const findingIds = rawFindings.map((f) => f.id);
@@ -136,7 +141,26 @@ export async function buildMarkdownReport(
 			.select()
 			.from(findingDecisions)
 			.where(inArray(findingDecisions.findingId, findingIds));
+		allDastEvidence = await db
+			.select()
+			.from(dastEvidence)
+			.where(inArray(dastEvidence.findingId, findingIds));
 	}
+
+	const allReproRuns = await db
+		.select()
+		.from(reproductionRuns)
+		.where(eq(reproductionRuns.scanRunId, scanRunId));
+
+	const allDynamicRuns = await db
+		.select()
+		.from(dynamicRuns)
+		.where(eq(dynamicRuns.scanRunId, scanRunId));
+
+	const allDastRuns = await db
+		.select()
+		.from(dastRuns)
+		.where(eq(dastRuns.scanRunId, scanRunId));
 
 	// Helper to get latest completed review: sorted by createdAt desc, id desc
 	const getLatestCompletedReview = (findingId: string) => {
@@ -424,6 +448,67 @@ export async function buildMarkdownReport(
 			}
 			lines.push("");
 
+			// Sandbox Reproduction
+			const fndRepros = allReproRuns.filter((r) => r.findingId === f.id);
+			lines.push("#### Sandbox Reproduction");
+			if (fndRepros.length > 0) {
+				for (const r of fndRepros) {
+					lines.push(`- **Run ID:** ${r.id}`);
+					lines.push(`  - **Profile:** ${toInlineText(r.profileId)}`);
+					lines.push(`  - **Status:** ${toInlineText(r.status)}`);
+					lines.push(`  - **Outcome:** ${toInlineText(r.outcome || "N/A")}`);
+					if (r.summary) {
+						lines.push(`  - **Summary:** ${toInlineText(r.summary)}`);
+					}
+					if (r.errorMessage) {
+						lines.push(`  - **Error:** ${toInlineText(r.errorMessage)}`);
+					}
+				}
+			} else {
+				lines.push("No sandbox reproduction runs recorded.");
+			}
+			lines.push("");
+
+			// Dynamic Verification
+			const fndDynamics = allDynamicRuns.filter((r) => r.findingId === f.id);
+			lines.push("#### Dynamic Verification");
+			if (fndDynamics.length > 0) {
+				for (const r of fndDynamics) {
+					lines.push(`- **Run ID:** ${r.id}`);
+					lines.push(`  - **Profile:** ${toInlineText(r.profileId)}`);
+					lines.push(`  - **Kind:** ${toInlineText(r.dynamicKind)}`);
+					lines.push(`  - **Status:** ${toInlineText(r.status)}`);
+					lines.push(`  - **Outcome:** ${toInlineText(r.outcome || "N/A")}`);
+					if (r.summary) {
+						lines.push(`  - **Summary:** ${toInlineText(r.summary)}`);
+					}
+					if (r.errorMessage) {
+						lines.push(`  - **Error:** ${toInlineText(r.errorMessage)}`);
+					}
+				}
+			} else {
+				lines.push("No dynamic verification runs recorded.");
+			}
+			lines.push("");
+
+			// DAST Evidence
+			const fndDastEv = allDastEvidence.filter((e) => e.findingId === f.id);
+			lines.push("#### DAST Evidence");
+			if (fndDastEv.length > 0) {
+				for (const ev of fndDastEv) {
+					lines.push(`- **Evidence ID:** ${ev.id}`);
+					lines.push(`  - **Run ID:** ${ev.dastRunId}`);
+					lines.push(`  - **Kind:** ${toInlineText(ev.kind)}`);
+					lines.push(`  - **Title:** ${toInlineText(ev.title)}`);
+					if (ev.snippet) {
+						lines.push(`  - **Snippet:** ${toInlineText(ev.snippet)}`);
+					}
+				}
+			} else {
+				lines.push("No DAST evidence recorded.");
+			}
+			lines.push("");
+
 			// Raw Artifact references for finding
 			const uniqueArtifactIds = Array.from(
 				new Set(item.evidences.map((e) => e.artifactId).filter(Boolean)),
@@ -465,6 +550,73 @@ export async function buildMarkdownReport(
 		undecidedFindings,
 		options.includeUndecided,
 	);
+
+	// Sandbox Reproduction Summary Section
+	lines.push("## Sandbox Reproduction Summary");
+	if (allReproRuns.length > 0) {
+		lines.push(
+			"| Run ID | Finding ID | Profile | Status | Outcome | Exit Code |",
+		);
+		lines.push("| --- | --- | --- | --- | --- | --- |");
+		const sortedReproRuns = [...allReproRuns].sort((a, b) =>
+			a.id.localeCompare(b.id),
+		);
+		for (const r of sortedReproRuns) {
+			lines.push(
+				`| ${r.id} | ${r.findingId} | ${escapeTableCell(r.profileId)} | ${escapeTableCell(r.status)} | ${escapeTableCell(r.outcome || "-")} | ${r.exitCode ?? "-"} |`,
+			);
+		}
+	} else {
+		lines.push("No sandbox reproduction runs recorded for this scan.");
+	}
+	lines.push("");
+
+	// Dynamic Verification Summary Section
+	lines.push("## Dynamic Verification Summary");
+	if (allDynamicRuns.length > 0) {
+		lines.push(
+			"| Run ID | Finding ID | Profile | Kind | Status | Outcome | Exit Code |",
+		);
+		lines.push("| --- | --- | --- | --- | --- | --- | --- |");
+		const sortedDynRuns = [...allDynamicRuns].sort((a, b) =>
+			a.id.localeCompare(b.id),
+		);
+		for (const r of sortedDynRuns) {
+			lines.push(
+				`| ${r.id} | ${r.findingId || "-"} | ${escapeTableCell(r.profileId)} | ${escapeTableCell(r.dynamicKind)} | ${escapeTableCell(r.status)} | ${escapeTableCell(r.outcome || "-")} | ${r.exitCode ?? "-"} |`,
+			);
+		}
+	} else {
+		lines.push("No dynamic verification runs recorded for this scan.");
+	}
+	lines.push("");
+
+	// DAST Summary Section
+	lines.push("## DAST Summary");
+	if (allDastRuns.length > 0) {
+		lines.push("| Run ID | Target Origin | Profile | Status | Outcome |");
+		lines.push("| --- | --- | --- | --- | --- |");
+		const sortedDastRuns = [...allDastRuns].sort((a, b) =>
+			a.id.localeCompare(b.id),
+		);
+		for (const r of sortedDastRuns) {
+			lines.push(
+				`| ${r.id} | ${escapeTableCell(r.targetOrigin)} | ${escapeTableCell(r.profileId)} | ${escapeTableCell(r.status)} | ${escapeTableCell(r.outcome || "-")} |`,
+			);
+		}
+	} else {
+		lines.push("No DAST runs recorded for this scan.");
+	}
+	lines.push("");
+
+	// Verification Metadata Section
+	lines.push("## Verification Metadata");
+	lines.push(
+		`- **Report Generated At:** ${formatDateTime(scanRun.completedAt || scanRun.startedAt || scanRun.createdAt)}`,
+	);
+	lines.push(`- **Scan Run ID:** ${scanRunId}`);
+	lines.push(`- **Drizzle Schema Version:** Phase 12 Hardened`);
+	lines.push("");
 
 	// Appendix: Raw Artifact References
 	lines.push("## Appendix: Raw Artifact References");

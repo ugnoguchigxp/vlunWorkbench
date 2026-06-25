@@ -9,38 +9,36 @@
 
 vulnWorkbench は、ローカルリポジトリに対するCLIセキュリティスキャン結果を保存、正規化、レビューするための脆弱性診断ワークベンチです。
 
-重い診断と証拠生成は Semgrep などのCLIツールが担当します。LLMはリポジトリを自由探索して脆弱性を探す主体ではなく、既存のfinding、raw artifact、source snippet、scan logをレビューして、人間が判断しやすい形に整理する後段処理として扱います。
+重い診断と証拠生成は CLIツールが担当します。LLMはリポジトリを自由探索して脆弱性を探す主体ではなく、既存のfinding、raw artifact、source snippet、scan logをレビューして、人間が判断しやすい形に整理する後段処理として扱います。
 
 ## Current Status
 
-実装済み:
+Phase 1〜12 の全実装および統合・堅牢化が完了しています。
 
-- project registration API
-- scan run / tool run / artifact / finding / evidence の保存基盤
-- fixture JSON artifact import CLI
-- Semgrep CLI adapter
-- Semgrep raw JSON / stdout / stderr artifact保存
-- Semgrep JSONからfinding/evidenceへのdeterministic normalizer
-- findings / scans / projects API
-
-次の実装対象:
-
-- 既存findingに対するLLM review
-- review結果の構造化保存
-- LLMが読むevidence bundleの境界定義
-- review結果をAPIから参照できる最小UI/API surface
+実装済み機能:
+- **CLI scan foundation** (Semgrep, Gitleaks, OSV, Trivy adapters & deterministic normalizer)
+- **Scan Profile Orchestration** (複数ツールを順次実行するプロファイルランナー)
+- **LLM Finding Review** (LLMによる脆弱性レビューと説明・誤検知判定)
+- **Human Decision Workflow** (人間による最終ステータス判断)
+- **Sandbox Reproduction** (Docker隔離コンテナによる再現実行)
+- **Dynamic Verification** (テスト、サニタイザ、ファジングの実行)
+- **DAST / Browser Automation** (HTTPベースライン及びブラウザスモークチェック)
+- **Markdown Report Export** (全診断結果、証拠、メタデータを統合したレポート出力)
+- **Final Hardening** (パス走査対策、Docker socketマウント不使用、シークレット難読化、Failure kindの統一)
 
 ## Architecture
 
 基本フロー:
 
 ```text
-CLI scan command
+CLI scan command / scan:profile
   -> raw artifacts / logs / JSON / SARIF
-  -> deterministic normalizer
+  -> deterministic normalizer & secret redaction
   -> findings / evidence store
   -> LLM review
-  -> human review / report
+  -> human decision
+  -> sandbox reproduction / dynamic verification / DAST check
+  -> Markdown report export
 ```
 
 責務分担:
@@ -57,21 +55,18 @@ CLI scan command
 
 | Path | Role |
 | --- | --- |
-| `api/app/hono.ts` | Hono app composition、route登録、静的配信 |
+| `api/app/hono.ts` | Hono app composition、route登録、静的配信、エラーハンドラ |
 | `api/app/server.ts` | Bun server bootstrap |
 | `api/app/env.ts` | runtime env parser |
-| `api/db/schema.ts` | Drizzle schema |
-| `api/routes/projects.route.ts` | project API |
-| `api/routes/scans.route.ts` | scan run / artifact API |
-| `api/routes/findings.route.ts` | finding / evidence API |
-| `api/cli/scan-import.ts` | fixture/raw scan artifact import CLI |
-| `api/cli/scan-semgrep.ts` | Semgrep scan CLI |
-| `api/modules/scans/` | scan repository、artifact storage、normalizers、tool runner |
-| `shared/schemas/scan.schema.ts` | scan domainの共有Zod schema |
+| `api/db/schema.ts` | Drizzle ORM schema (repro/dynamic/dast対応) |
+| `api/routes/` | API エンドポイント (scans, dast, reproductions, dynamic など) |
+| `api/cli/` | CLI ツール群 (scan:profile, repro:finding, dynamic:run, scan:dast など) |
+| `api/modules/` | コアビジネスロジック、runner、storage、normalizers、report |
+| `shared/schemas/` | フロント・バックエンド共有の Zod schema / failure定義 |
 | `web/src/` | React frontend |
 | `drizzle/` | SQL migrations |
 | `spec/` | concept、実装計画、完了条件 |
-| `scripts/verify.ts` | typecheck / lint / format / test / build の検証pipeline |
+| `scripts/verify.ts` | 一元化された検証パイプライン |
 
 既存テンプレート由来のMarkdown source、search、chat APIも残っていますが、vulnWorkbench MVPの主軸はscan/finding/evidence/reviewです。
 
@@ -93,27 +88,45 @@ printf '%s\n' '<password>' | bun run auth:create-admin -- --email admin@example.
 
 開発サーバーは `http://localhost:5173` で起動します。Vite dev server がfrontendを配信し、`/api/*` はHonoへ渡されます。
 
-## Scan Commands
+## CLI Commands
 
-Fixture artifactを取り込む:
-
+### 1. プロファイルスキャンの実行 (複数ツールのシーケンシャル実行)
 ```bash
-bun run scan:import -- \
+bun run scan:profile -- \
   --project-id <project-id> \
-  --tool fixture \
-  --artifact tests/fixtures/scans/fixture-result.json
+  --profile baseline \
+  --timeout-sec 600
 ```
 
-Semgrepを実行して取り込む:
-
+### 2. Sandbox上での脆弱性再現 (Reproduction)
 ```bash
-bun run scan:semgrep -- \
-  --project-id <project-id> \
-  --profile semgrep-baseline \
-  --config auto
+bun run repro:finding -- \
+  --finding-id <finding-id> \
+  --profile gitleaks-recheck
 ```
 
-Semgrep scanはhost上の `semgrep` executableを呼びます。LLM provider設定は不要です。
+### 3. Dynamic Verificationの実行
+```bash
+bun run dynamic:run -- \
+  --project-id <project-id> \
+  --profile bun-test
+```
+
+### 4. DAST / HTTP baseline スキャンの実行
+```bash
+bun run scan:dast -- \
+  --project-id <project-id> \
+  --target-config-id <target-config-id> \
+  --profile http-baseline
+```
+
+### 5. レポートのエクスポート
+```bash
+bun run report:scan -- \
+  --scan-run-id <scan-run-id> \
+  --format markdown \
+  --output-path report.md
+```
 
 ## API
 
@@ -156,7 +169,12 @@ Semgrep scanはhost上の `semgrep` executableを呼びます。LLM provider設�
 | `OPENAI_API_KEY` | optional | OpenAI-compatible provider key | none |
 | `CONTENT_ROOT` | legacy Markdown search only | Markdown source root | `./wiki-knowledge` |
 
-Scan foundationとSemgrep adapterはLLM API keyなしで動く必要があります。LLM provider設定はreview/chatなどの後段機能でのみ使います。
+## Security Boundary
+
+- **Path Traversal 防止**: リポジトリパスおよびアーティファクトの入出力に対し、`path.relative` を用いた厳格な正規化チェックを実施。
+- **隔離実行境界 (Docker)**: `toolbox`, `reproduction`, `dynamic`, `DAST` のすべてのコンテナランナーで Docker socket はマウントせず、非特権モードで実行。
+- **シークレット難読化**: APIキーやトークン、クッキーはLLM送信前およびレポート・アーティファクト永続化前に正規表現で自動難読化 (Redact)。
+- **環境変数の scrubbing**: ランナーコンテナへ LLM の API キーなどホスト側の不要な機密環境変数を漏洩させない環境フィルタリングを適用。
 
 ## Scripts
 

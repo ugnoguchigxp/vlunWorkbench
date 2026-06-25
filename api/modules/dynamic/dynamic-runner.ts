@@ -2,11 +2,12 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { eq } from "drizzle-orm";
+import { MAX_DYNAMIC_TIMEOUT_SEC } from "../../../shared/schemas/dynamic.schema";
 import type { AppDatabase } from "../../db";
-import { findings, projects } from "../../db/schema";
+import { projects } from "../../db/schema";
 import { DynamicArtifactStorage } from "./dynamic-artifact-storage";
 import { evaluateDynamicOutcome } from "./dynamic-evaluator";
-import { validateDynamicCommand } from "./dynamic-profiles";
+import { validateDynamicProfilePolicy } from "./dynamic-profiles";
 import { DynamicRepository } from "./dynamic-repository";
 
 export interface RunDynamicOptions {
@@ -23,6 +24,13 @@ export interface RunDynamicOptions {
 	toolCacheDir?: string;
 	createdByUserId?: string | null;
 }
+
+type PipeSubprocess = {
+	stdout: ReadableStream<Uint8Array>;
+	stderr: ReadableStream<Uint8Array>;
+	exited: Promise<number | null>;
+	kill(): void;
+};
 
 function getBaseMetadata(recordMetadata: unknown): Record<string, unknown> {
 	return recordMetadata && typeof recordMetadata === "object"
@@ -61,6 +69,50 @@ function classifyExecutionFailure(input: {
 		return { status: "failed", failureKind: "docker_unavailable" };
 	}
 	return { status: "failed", failureKind: "execution_failed" };
+}
+
+function resolveTimeoutSec(
+	profileTimeoutSec: number,
+	requested?: number,
+): number {
+	if (
+		!Number.isInteger(profileTimeoutSec) ||
+		profileTimeoutSec <= 0 ||
+		profileTimeoutSec > MAX_DYNAMIC_TIMEOUT_SEC
+	) {
+		throw new Error(
+			`Profile timeout_sec must be a positive integer no greater than ${MAX_DYNAMIC_TIMEOUT_SEC}.`,
+		);
+	}
+	if (requested === undefined) return profileTimeoutSec;
+	if (
+		!Number.isInteger(requested) ||
+		requested <= 0 ||
+		requested > MAX_DYNAMIC_TIMEOUT_SEC
+	) {
+		throw new Error(
+			`Requested timeout_sec must be a positive integer no greater than ${MAX_DYNAMIC_TIMEOUT_SEC}.`,
+		);
+	}
+	if (requested > profileTimeoutSec) {
+		throw new Error("Requested timeout_sec exceeds the profile timeout_sec.");
+	}
+	return requested;
+}
+
+function resolveNetworkMode(
+	profileNetwork: string,
+	requested?: "none" | "default",
+): "none" | "default" {
+	const normalizedProfile =
+		profileNetwork === "default" ? "default" : ("none" as const);
+	if (!requested) return normalizedProfile;
+	if (requested === "default" && normalizedProfile !== "default") {
+		throw new Error(
+			"Requested network mode exceeds the profile network policy.",
+		);
+	}
+	return requested;
 }
 
 async function walkFiles(dir: string, base: string = dir): Promise<string[]> {
@@ -110,21 +162,21 @@ export class DynamicRunner {
 			throw new Error(`Profile config is disabled: ${options.profileId}`);
 		}
 
-		const validation = validateDynamicCommand(
-			profileConfig.commandJson,
-			profileConfig.allowProjectScripts,
-		);
+		const validation = validateDynamicProfilePolicy(profileConfig);
 		if (!validation.valid) {
 			throw new Error(
 				`Profile command policy validation failed: ${validation.reason}`,
 			);
 		}
 
-		const timeoutSec = options.timeoutSec ?? profileConfig.timeoutSec ?? 120;
-		const networkMode =
-			options.network ??
-			(profileConfig.network as "none" | "default") ??
-			"none";
+		const timeoutSec = resolveTimeoutSec(
+			profileConfig.timeoutSec ?? 120,
+			options.timeoutSec,
+		);
+		const networkMode = resolveNetworkMode(
+			profileConfig.network ?? "none",
+			options.network,
+		);
 		const image = options.dockerImage ?? "vuln-workbench-dynamic:local";
 
 		return {
@@ -171,10 +223,7 @@ export class DynamicRunner {
 			throw new Error(`Profile config is disabled: ${options.profileId}`);
 		}
 
-		const validation = validateDynamicCommand(
-			profileConfig.commandJson,
-			profileConfig.allowProjectScripts,
-		);
+		const validation = validateDynamicProfilePolicy(profileConfig);
 		if (!validation.valid) {
 			throw new Error(
 				`Profile command policy validation failed: ${validation.reason}`,
@@ -186,11 +235,14 @@ export class DynamicRunner {
 			path.join(os.tmpdir(), "dynamic-run-out-"),
 		);
 
-		const timeoutSec = options.timeoutSec ?? profileConfig.timeoutSec ?? 120;
-		const networkMode =
-			options.network ??
-			(profileConfig.network as "none" | "default") ??
-			"none";
+		const timeoutSec = resolveTimeoutSec(
+			profileConfig.timeoutSec ?? 120,
+			options.timeoutSec,
+		);
+		const networkMode = resolveNetworkMode(
+			profileConfig.network ?? "none",
+			options.network,
+		);
 		const image = options.dockerImage ?? "vuln-workbench-dynamic:local";
 
 		// 2. Create dynamic run record
@@ -288,9 +340,9 @@ export class DynamicRunner {
 				sizeBytes: stderrArtifact.sizeBytes,
 			});
 
-			// 5. Handle Docker execution failures (daemon missing, crash, missing image, timeout)
+			// 5. Handle Docker infrastructure failures (daemon missing, missing image)
 			const hasDockerError =
-				!runResult.ok ||
+				(!runResult.ok && !runResult.timedOut) ||
 				runResult.exitCode === 125 ||
 				runResult.exitCode === 127 ||
 				(runResult.stderr &&
@@ -350,7 +402,9 @@ export class DynamicRunner {
 
 			// 6. Collect generated artifacts from the host output mount directory
 			const generatedFiles = await walkFiles(hostOutDir);
-			const collectedArtifacts: any[] = [];
+			const collectedArtifacts: Array<
+				Awaited<ReturnType<DynamicRepository["createArtifact"]>>
+			> = [];
 			for (const relPath of generatedFiles) {
 				const hostFilePath = path.join(hostOutDir, relPath);
 				const artifactSave = await this.storage.saveDynamicRawArtifact(
@@ -381,7 +435,7 @@ export class DynamicRunner {
 				exitCode: runResult.exitCode,
 				stdout: runResult.stdout,
 				stderr: runResult.stderr,
-				isTimeout: false,
+				isTimeout: runResult.timedOut,
 				hasExpectedArtifacts: collectedArtifacts.length > 0,
 			});
 
@@ -396,7 +450,11 @@ export class DynamicRunner {
 			};
 
 			const finalStatus =
-				evalResult.outcome === "error" ? "failed" : "completed";
+				evalResult.outcome === "error"
+					? "failed"
+					: evalResult.outcome === "timed_out"
+						? "timed_out"
+						: "completed";
 
 			await this.repo.updateRunStatus(runId, finalStatus, {
 				outcome: evalResult.outcome,
@@ -513,36 +571,38 @@ export class DynamicRunner {
 		stdout: string;
 		stderr: string;
 		elapsedMs: number;
+		timedOut: boolean;
 		error?: string;
 	}> {
 		const cleanGlobs = params.expectedArtifacts.map((glob) =>
 			glob.replace(/\*\*\/\*/g, "*").replace(/\*\*/g, "*"),
 		);
 
-		let copyCommands = "";
-		if (cleanGlobs.length > 0) {
-			copyCommands = "\n# Copy expected artifacts\n";
-			for (const glob of cleanGlobs) {
-				const lastSlash = glob.lastIndexOf("/");
-				const parentDir = lastSlash !== -1 ? glob.slice(0, lastSlash) : ".";
-				copyCommands += `mkdir -p "/workspace/out/${parentDir}"\n`;
-				copyCommands += `cp -R ${glob} "/workspace/out/${parentDir}/" 2>/dev/null || true\n`;
-			}
-		}
-
-		// Construct shell script containing copying and execution
+		// Static shell wrapper only; profile-controlled values are passed via env.
 		const shellScript = `set +e
+RUN_ROOT="/workspace/repo"
 if [ -d "/workspace/workdir" ]; then
   cp -a /workspace/repo/. /workspace/workdir/
-  cd "/workspace/workdir/${params.workingDirectory}"
-else
-  cd "/workspace/repo/${params.workingDirectory}"
+  RUN_ROOT="/workspace/workdir"
 fi
+cd "$RUN_ROOT/$DYNAMIC_WORKING_DIRECTORY"
 
 # Execute command
 "$@"
 EXIT_CODE=$?
-${copyCommands}
+if [ -n "$DYNAMIC_EXPECTED_ARTIFACTS" ]; then
+  printf '%s' "$DYNAMIC_EXPECTED_ARTIFACTS" | tr ':' '\\n' | while IFS= read -r artifact_pattern; do
+    [ -z "$artifact_pattern" ] && continue
+    find . -path "./$artifact_pattern" -type f -exec sh -c '
+      for src do
+        rel="\${src#./}"
+        dir="$(dirname "$rel")"
+        mkdir -p "/workspace/out/$dir"
+        cp -- "$src" "/workspace/out/$rel"
+      done
+    ' sh {} +
+  done
+fi
 exit $EXIT_CODE
 `;
 
@@ -568,6 +628,10 @@ exit $EXIT_CODE
 			"HOME=/tmp",
 			"--env",
 			"PATH=/usr/local/bin:/usr/bin:/bin",
+			"--env",
+			`DYNAMIC_WORKING_DIRECTORY=${params.workingDirectory}`,
+			"--env",
+			`DYNAMIC_EXPECTED_ARTIFACTS=${cleanGlobs.join(":")}`,
 		];
 
 		if (params.memory) {
@@ -600,8 +664,8 @@ exit $EXIT_CODE
 		let stdout = "";
 		let stderr = "";
 		let exitCode: number | null = null;
-		let proc: any;
-		let timeoutId: any;
+		let proc: PipeSubprocess | undefined;
+		let timeoutId: ReturnType<typeof setTimeout> | undefined;
 		let isKilled = false;
 
 		try {
@@ -611,11 +675,11 @@ exit $EXIT_CODE
 				env: {
 					...process.env,
 				},
-			});
+			}) as unknown as PipeSubprocess;
 
 			timeoutId = setTimeout(() => {
 				isKilled = true;
-				proc.kill();
+				proc?.kill();
 			}, params.timeoutSec * 1000);
 
 			const [stdoutBuf, stderrBuf, code] = await Promise.all([
@@ -627,16 +691,18 @@ exit $EXIT_CODE
 			exitCode = code;
 			stdout = new TextDecoder().decode(stdoutBuf);
 			stderr = new TextDecoder().decode(stderrBuf);
-		} catch (err: any) {
+		} catch (err: unknown) {
+			const message = err instanceof Error ? err.message : String(err);
 			return {
 				ok: false,
 				exitCode: null,
 				stdout,
-				stderr: stderr || err.message,
+				stderr: stderr || message,
 				elapsedMs: Date.now() - startTime,
+				timedOut: isKilled,
 				error: isKilled
 					? "Docker execution timed out"
-					: `Docker process error: ${err.message}`,
+					: `Docker process error: ${message}`,
 			};
 		} finally {
 			if (timeoutId) {
@@ -658,6 +724,7 @@ exit $EXIT_CODE
 				stdout,
 				stderr,
 				elapsedMs,
+				timedOut: true,
 				error: "Docker execution timed out",
 			};
 		}
@@ -668,6 +735,7 @@ exit $EXIT_CODE
 			stdout,
 			stderr,
 			elapsedMs,
+			timedOut: false,
 		};
 	}
 }

@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+export const MAX_DYNAMIC_TIMEOUT_SEC = 300;
+
 export const dynamicKindSchema = z.enum(["test", "sanitizer", "fuzz"]);
 export type DynamicKind = z.infer<typeof dynamicKindSchema>;
 
@@ -124,7 +126,12 @@ export const runDynamicRequestSchema = z.object({
 	runner: z.enum(["docker"]).default("docker"),
 	dockerImage: z.string().optional(),
 	network: z.enum(["none", "default"]).optional(),
-	timeoutSec: z.number().int().positive().optional(),
+	timeoutSec: z
+		.number()
+		.int()
+		.positive()
+		.max(MAX_DYNAMIC_TIMEOUT_SEC)
+		.optional(),
 	memory: z.string().optional(),
 	cpus: z.string().optional(),
 });
@@ -137,7 +144,13 @@ export const saveDynamicProfileRequestSchema = z.object({
 	enabled: z.boolean().optional().default(true),
 	commandJson: z.array(z.string()).min(1),
 	workingDirectory: z.string().optional().default(""),
-	timeoutSec: z.number().int().positive().optional().default(120),
+	timeoutSec: z
+		.number()
+		.int()
+		.positive()
+		.max(MAX_DYNAMIC_TIMEOUT_SEC)
+		.optional()
+		.default(120),
 	network: z.enum(["none", "default"]).optional().default("none"),
 	memory: z.string().nullable().optional(),
 	cpus: z.string().nullable().optional(),

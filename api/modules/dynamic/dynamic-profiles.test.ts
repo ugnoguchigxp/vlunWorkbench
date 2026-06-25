@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	DYNAMIC_PROFILE_TEMPLATES,
 	validateDynamicCommand,
+	validateDynamicProfilePolicy,
 } from "./dynamic-profiles";
 
 describe("Dynamic Profiles Validation & Registry", () => {
@@ -56,6 +57,41 @@ describe("Dynamic Profiles Validation & Registry", () => {
 			// npm test is allowed when allowProjectScripts is true
 			const resNpmAllowed = validateDynamicCommand(["npm", "test"], true);
 			expect(resNpmAllowed.valid).toBe(true);
+		});
+
+		it("should reject unsafe profile path, artifact, and timeout policy", () => {
+			const unsafeWorkingDir = validateDynamicProfilePolicy({
+				commandJson: ["bun", "test"],
+				allowProjectScripts: false,
+				workingDirectory: '"; touch /workspace/out/pwn #',
+				expectedArtifactsJson: [],
+				timeoutSec: 120,
+				network: "none",
+			});
+			expect(unsafeWorkingDir.valid).toBe(false);
+			expect(unsafeWorkingDir.reason).toContain("working_directory");
+
+			const unsafeArtifact = validateDynamicProfilePolicy({
+				commandJson: ["python3", "-m", "fuzz"],
+				allowProjectScripts: false,
+				workingDirectory: "",
+				expectedArtifactsJson: ["../crashes/*"],
+				timeoutSec: 120,
+				network: "none",
+			});
+			expect(unsafeArtifact.valid).toBe(false);
+			expect(unsafeArtifact.reason).toContain("expected_artifacts_json");
+
+			const tooLong = validateDynamicProfilePolicy({
+				commandJson: ["pytest", "-q"],
+				allowProjectScripts: false,
+				workingDirectory: "",
+				expectedArtifactsJson: [],
+				timeoutSec: 301,
+				network: "none",
+			});
+			expect(tooLong.valid).toBe(false);
+			expect(tooLong.reason).toContain("timeout_sec");
 		});
 	});
 

@@ -8,6 +8,7 @@ import type { AppDatabase } from "../db";
 import { getAuthContextUser } from "../modules/auth/context";
 import { HttpError } from "../modules/auth/errors";
 import { DynamicArtifactStorage } from "../modules/dynamic/dynamic-artifact-storage";
+import { validateDynamicProfilePolicy } from "../modules/dynamic/dynamic-profiles";
 import { DynamicRepository } from "../modules/dynamic/dynamic-repository";
 import type {
 	FindingRepository,
@@ -18,6 +19,12 @@ type DynamicRouteDeps = {
 	db: AppDatabase;
 	findingRepository: FindingRepository;
 	projectRepository: ProjectRepository;
+};
+
+type DynamicCliBridgeResult = Record<string, unknown> & {
+	ok?: boolean;
+	dynamicRunId?: string;
+	message?: string;
 };
 
 export function createDynamicRoute(deps: DynamicRouteDeps) {
@@ -51,7 +58,7 @@ export function createDynamicRoute(deps: DynamicRouteDeps) {
 			throw new HttpError(403, "Forbidden");
 		}
 
-		let body: any;
+		let body: unknown;
 		try {
 			body = await c.req.json();
 		} catch {
@@ -64,6 +71,14 @@ export function createDynamicRoute(deps: DynamicRouteDeps) {
 				.map((issue) => `${issue.path.join(".")}: ${issue.message}`)
 				.join("; ");
 			throw new HttpError(400, `Validation failed: ${message}`);
+		}
+
+		const policyValidation = validateDynamicProfilePolicy(parseResult.data);
+		if (!policyValidation.valid) {
+			throw new HttpError(
+				400,
+				`Profile command policy validation failed: ${policyValidation.reason}`,
+			);
 		}
 
 		// Create in DB
@@ -99,7 +114,7 @@ export function createDynamicRoute(deps: DynamicRouteDeps) {
 			throw new HttpError(403, "Forbidden");
 		}
 
-		let body: any;
+		let body: unknown;
 		try {
 			body = await c.req.json();
 		} catch {
@@ -118,6 +133,23 @@ export function createDynamicRoute(deps: DynamicRouteDeps) {
 		const existing = await repo.getConfigByProfileId(projectId, profileId);
 		if (!existing) {
 			throw new HttpError(404, "Profile config not found");
+		}
+
+		const candidate = {
+			commandJson: existing.commandJson,
+			allowProjectScripts: existing.allowProjectScripts,
+			workingDirectory: existing.workingDirectory,
+			expectedArtifactsJson: existing.expectedArtifactsJson,
+			timeoutSec: existing.timeoutSec,
+			network: existing.network,
+			...parseResult.data,
+		};
+		const policyValidation = validateDynamicProfilePolicy(candidate);
+		if (!policyValidation.valid) {
+			throw new HttpError(
+				400,
+				`Profile command policy validation failed: ${policyValidation.reason}`,
+			);
 		}
 
 		const updated = await repo.updateConfig(existing.id, parseResult.data);
@@ -150,7 +182,7 @@ export function createDynamicRoute(deps: DynamicRouteDeps) {
 			throw new HttpError(403, "Forbidden");
 		}
 
-		let body: any;
+		let body: unknown;
 		try {
 			body = await c.req.json();
 		} catch {
@@ -213,7 +245,7 @@ export function createDynamicRoute(deps: DynamicRouteDeps) {
 			throw new HttpError(403, "Forbidden");
 		}
 
-		let body: any;
+		let body: unknown;
 		try {
 			body = await c.req.json();
 		} catch {
@@ -377,15 +409,17 @@ async function executeDynamicRunCli(params: {
 	const stderr = new TextDecoder().decode(stderrBuf);
 	await proc.exited;
 
-	let cliResult: any;
+	let cliResult: DynamicCliBridgeResult;
 	try {
-		cliResult = JSON.parse(stdout.trim());
-	} catch (err: any) {
+		const parsed = JSON.parse(stdout.trim());
+		if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+			throw new Error("CLI returned a non-object JSON payload");
+		}
+		cliResult = parsed as DynamicCliBridgeResult;
+	} catch (err: unknown) {
+		const message = err instanceof Error ? err.message : String(err);
 		console.error(`Dynamic run CLI bridge failed: ${stderr}`);
-		throw new HttpError(
-			500,
-			`CLI bridge parse failure: ${stderr || err.message}`,
-		);
+		throw new HttpError(500, `CLI bridge parse failure: ${stderr || message}`);
 	}
 
 	if (!cliResult.ok && !cliResult.dynamicRunId) {

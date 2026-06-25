@@ -218,6 +218,15 @@ describe("Report Builder", () => {
 		expect(report1).toContain("## Undecided Findings");
 		expect(report1).toContain("### Finding " + findingId2);
 		expect(report1).toContain("- **Severity:** critical");
+
+		// Phase 12 Additions checks
+		expect(report1).toContain("## Sandbox Reproduction Summary");
+		expect(report1).toContain("## Dynamic Verification Summary");
+		expect(report1).toContain("## DAST Summary");
+		expect(report1).toContain("## Verification Metadata");
+		expect(report1).toContain("#### Sandbox Reproduction");
+		expect(report1).toContain("#### Dynamic Verification");
+		expect(report1).toContain("#### DAST Evidence");
 	});
 
 	it("uses the latest completed review as report content", async () => {
