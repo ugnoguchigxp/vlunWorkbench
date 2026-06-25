@@ -69,14 +69,24 @@ function nestedStringProp(
 
 async function main() {
 	const tempDbPath = "/tmp/vuln-workbench-phase12-temp.sqlite";
+	const tempArtifactRoot = "/tmp/vuln-workbench-phase12-artifacts";
 	const databaseUrl = `file:${tempDbPath}`;
 
 	log(`[P7 Workflow] Cleaning up old temp DB at ${tempDbPath}...`);
 	try {
 		await fs.unlink(tempDbPath);
 	} catch {}
+	try {
+		await fs.rm(tempArtifactRoot, { recursive: true, force: true });
+	} catch {}
 
-	const envOverride = { DATABASE_URL: databaseUrl };
+	const envOverride = {
+		DATABASE_URL: databaseUrl,
+		SCAN_ARTIFACT_ROOT: path.join(tempArtifactRoot, "scans"),
+		REPRODUCTION_ARTIFACT_ROOT: path.join(tempArtifactRoot, "reproductions"),
+		DYNAMIC_ARTIFACT_ROOT: path.join(tempArtifactRoot, "dynamic"),
+		DAST_ARTIFACT_ROOT: path.join(tempArtifactRoot, "dast"),
+	};
 
 	log("[P7 Workflow] Running migrations...");
 	const migrateResult = runCmd(["run", "api/cli/migrate.ts"], envOverride);
@@ -400,6 +410,9 @@ async function main() {
 	dbConnection.sqlite.close(false);
 	try {
 		await fs.unlink(tempDbPath);
+	} catch {}
+	try {
+		await fs.rm(tempArtifactRoot, { recursive: true, force: true });
 	} catch {}
 
 	console.log(
