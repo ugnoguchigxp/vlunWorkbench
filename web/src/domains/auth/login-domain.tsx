@@ -51,7 +51,7 @@ export const LoginDomainSection = ({
 							<Database className="icon" />
 						</div>
 						<div>
-							<h1>Hono Standard</h1>
+							<h1>vulnWorkbench</h1>
 							<p>ログイン</p>
 						</div>
 					</div>

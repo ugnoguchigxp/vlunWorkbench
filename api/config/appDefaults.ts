@@ -14,7 +14,7 @@ export const APP_CONFIG_DEFAULTS = {
 	azureOpenAiDeployment: "gpt-4o-mini",
 	azureOpenAiEmbeddingsDeployment: "text-embedding-3-small",
 	openAiApiVersion: undefined as string | undefined,
-	jwtSecret: "hono-standard-dev-jwt-secret-change-this-for-production",
+	jwtSecret: "vuln-workbench-dev-jwt-secret-change-this-for-production",
 	jwtAccessExpiresIn: "15m",
 	jwtRefreshExpiresIn: "7d",
 	appUrl: "http://localhost:29831",

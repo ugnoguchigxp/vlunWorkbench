@@ -10,7 +10,7 @@ const server = Bun.serve({
 });
 
 console.log(
-	`Hono Standard server listening on http://${env.host}:${server.port}`,
+	`vulnWorkbench server listening on http://${env.host}:${server.port}`,
 );
 
 const shutdown = async (signal: string) => {

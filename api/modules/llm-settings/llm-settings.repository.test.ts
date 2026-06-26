@@ -1,8 +1,8 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { readFileSync, readdirSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { createDbConnection, type DbConnection } from "../../db";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { AppEnv } from "../../app/env";
+import { createDbConnection, type DbConnection } from "../../db";
 import { LlmSettingsRepository } from "./llm-settings.repository";
 import { SECRET_MASK } from "./secret-mask";
 
@@ -193,5 +193,52 @@ describe("LlmSettingsRepository", () => {
 				],
 			}),
 		).rejects.toThrow("not configured");
+	});
+
+	it("persists a codex route for evidence context", async () => {
+		const repo = new LlmSettingsRepository(connection.db, appEnv());
+
+		await repo.updateSettings({
+			providerEndpoints: [
+				{
+					id: "codex-default",
+					name: "Codex SDK",
+					kind: "codex",
+					enabled: true,
+					apiKey: "",
+					baseUrl: "",
+					endpoint: "",
+					apiVersion: "",
+					region: "",
+					models: ["gpt-5.4-mini"],
+					modelDisplayNames: {},
+					modelCapabilities: {},
+				},
+			],
+			taskRoutes: [
+				{
+					task: "evidence_context",
+					primaryTarget: {
+						providerEndpointId: "codex-default",
+						model: "gpt-5.4-mini",
+					},
+					fallbackTargets: [],
+					policy: {},
+				},
+			],
+		});
+
+		const settings = await repo.getSettings({
+			maskSecrets: false,
+			seedFromEnv: false,
+		});
+
+		expect(settings.taskRoutes[0]).toMatchObject({
+			task: "evidence_context",
+			primaryTarget: {
+				providerEndpointId: "codex-default",
+				model: "gpt-5.4-mini",
+			},
+		});
 	});
 });

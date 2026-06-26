@@ -41,7 +41,7 @@ export function AppHeader({
 		<header className="topbar">
 			<Link to="/chat" className="brand">
 				<Database className="icon" />
-				<span>hono-standard rag</span>
+				<span>vulnWorkbench</span>
 			</Link>
 			<div className="topbar-actions">
 				<nav className="menu-nav" aria-label="Primary">

@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "hono-standard",
+      "name": "vuln-workbench",
       "dependencies": {
         "@azure/storage-blob": "^12.31.0",
         "@hono/zod-validator": "0.8.0",

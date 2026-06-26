@@ -1,8 +1,8 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { readFileSync, readdirSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { createDbConnection, type DbConnection } from "../db";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AppEnv } from "../app/env";
+import { createDbConnection, type DbConnection } from "../db";
 import { LlmSettingsRepository } from "../modules/llm-settings/llm-settings.repository";
 import { LlmRouter } from "./llmRouter";
 import { OpenAiCompatibleProvider } from "./openAiCompatibleProvider";
@@ -226,6 +226,51 @@ describe("LlmRouter", () => {
 		expect(resolution.ok).toBe(false);
 		if (!resolution.ok) {
 			expect(resolution.message).toContain("no execution adapter");
+		}
+	});
+
+	it("allows codex endpoints for evidence context routes before adapter creation", async () => {
+		const repo = new LlmSettingsRepository(connection.db, env);
+		await repo.updateSettings({
+			providerEndpoints: [
+				{
+					id: "codex-default",
+					name: "Codex SDK",
+					kind: "codex",
+					enabled: true,
+					apiKey: "",
+					baseUrl: "",
+					endpoint: "",
+					apiVersion: "",
+					region: "",
+					models: ["gpt-5.4-mini"],
+					modelDisplayNames: {},
+					modelCapabilities: {},
+				},
+			],
+			taskRoutes: [
+				{
+					task: "evidence_context",
+					primaryTarget: {
+						providerEndpointId: "codex-default",
+						model: "gpt-5.4-mini",
+					},
+					fallbackTargets: [],
+					policy: {},
+				},
+			],
+		});
+		const router = new LlmRouter(repo, env);
+
+		const resolution = await router.resolve("evidence_context");
+
+		expect(resolution).toMatchObject({
+			ok: false,
+			failureKind: "llm_provider_adapter_unavailable",
+		});
+		expect(resolution.ok).toBe(false);
+		if (!resolution.ok) {
+			expect(resolution.message).not.toContain("not allowed");
 		}
 	});
 });

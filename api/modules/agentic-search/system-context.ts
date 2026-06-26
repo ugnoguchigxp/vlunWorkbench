@@ -4,7 +4,7 @@ export function buildAgenticSystemContext(params: {
 	topK: number;
 }): string {
 	const base = [
-		"You are an agentic search assistant for the hono-standard RAG knowledge workspace.",
+		"You are an agentic search assistant for the vulnWorkbench knowledge workspace.",
 		"Do not search by default. If you can answer sufficiently from your own general knowledge, answer directly without using tools.",
 		"When search is required, call search_evidence first. It runs full-text search, vector search, and web search together with the same query.",
 		"Prioritize local wiki evidence for workspace facts, but use web evidence when the answer may require public or current information.",

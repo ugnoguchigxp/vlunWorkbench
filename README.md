@@ -7,9 +7,9 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-%23007ACC.svg?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![MIT License](https://img.shields.io/badge/License-MIT-green.svg?style=for-the-badge)](LICENSE.md)
 
-vulnWorkbench は、ローカルリポジトリに対するCLIセキュリティスキャン結果を保存、正規化、レビューするための脆弱性診断ワークベンチです。
+vulnWorkbench は、ローカルリポジトリに対する CLI セキュリティスキャン結果を保存、正規化、レビューするための脆弱性診断ワークベンチです。
 
-重い診断と証拠生成は CLIツールが担当します。LLMはリポジトリを自由探索して脆弱性を探す主体ではなく、既存のfinding、raw artifact、source snippet、scan logをレビューして、人間が判断しやすい形に整理する後段処理として扱います。
+重い診断と証拠生成は CLI ツールが担当します。LLM はリポジトリを自由探索して脆弱性を探す主体ではなく、既存の finding、raw artifact、source snippet、scan log をレビューして、人間が判断しやすい形に整理する後段処理として扱います。
 
 ## Current Status
 
@@ -59,8 +59,8 @@ CLI scan command / scan:profile
 | `api/app/server.ts` | Bun server bootstrap |
 | `api/app/env.ts` | runtime env parser |
 | `api/db/schema.ts` | Drizzle ORM schema (repro/dynamic/dast対応) |
-| `api/routes/` | API エンドポイント (scans, dast, reproductions, dynamic など) |
-| `api/cli/` | CLI ツール群 (scan:profile, repro:finding, dynamic:run, scan:dast など) |
+| `api/routes/` | API エンドポイント (auth, projects, scans, findings, dast, reproductions, dynamic など) |
+| `api/cli/` | CLI ツール群 (scan:profile, repro:finding, dynamic:run, scan:dast, report:diagnostic など) |
 | `api/modules/` | コアビジネスロジック、runner、storage、normalizers、report |
 | `shared/schemas/` | フロント・バックエンド共有の Zod schema / failure定義 |
 | `web/src/` | React frontend |
@@ -68,7 +68,7 @@ CLI scan command / scan:profile
 | `spec/` | concept、実装計画、完了条件 |
 | `scripts/verify.ts` | 一元化された検証パイプライン |
 
-既存テンプレート由来のMarkdown source、search、chat APIも残っていますが、vulnWorkbench MVPの主軸はscan/finding/evidence/reviewです。
+既存テンプレート由来の Markdown source、search、chat API も補助機能として残っていますが、vulnWorkbench の主軸は scan/finding/evidence/review です。
 
 ## Setup
 
@@ -175,7 +175,7 @@ bun run report:scan -- \
 | `GET` | `/api/scans/:id/findings` | scan内のfinding一覧 |
 | `GET` | `/api/findings/:id` | finding detailとevidence |
 
-`/api/auth/me` などのprotected endpointはaccess tokenが必要です。frontend clientは401を受けると `/api/auth/refresh` を一度試し、成功した場合だけ元のrequestを再実行します。
+`/api/auth/me` などの protected endpoint は access token が必要です。frontend client は 401 を受けると `/api/auth/refresh` を一度試し、成功した場合だけ元の request を再実行します。
 
 ## Environment Variables
 
@@ -185,7 +185,7 @@ bun run report:scan -- \
 | --- | --- | --- | --- |
 | `NODE_ENV` | no | `development` / `test` / `production` | `development` |
 | `DATABASE_URL` | no | SQLite database path。`file:` または `sqlite://` prefixを使えます | `file:./data/vuln-workbench.sqlite` |
-| `JWT_SECRET` | production yes | JWT signing secret。32文字以上。productionではdev defaultのままだと起動しません | dev default |
+| `JWT_SECRET` | production yes | JWT signing secret。32文字以上。productionではdev defaultのままだと起動しません | `vuln-workbench-dev-jwt-secret-change-this-for-production` |
 | `APP_URL` | no | public origin。cookie secure既定値とCORSに使う | `http://localhost:29831` |
 | `CORS_ORIGINS` | no | 追加許可origin。カンマ区切り | `http://localhost:29831` |
 | `AUTH_COOKIE_SECURE` | no | auth cookieに`Secure`を付けるか | production/HTTPSでは`true` |
@@ -197,7 +197,7 @@ bun run report:scan -- \
 | `OPENAI_API_KEY` | optional | OpenAI-compatible provider key | none |
 | `CONTENT_ROOT` | legacy Markdown search only | Markdown source root | `./wiki-knowledge` |
 
-## Security Boundary
+## Runtime Security Boundary
 
 - **Path Traversal 防止**: リポジトリパスおよびアーティファクトの入出力に対し、`path.relative` を用いた厳格な正規化チェックを実施。
 - **隔離実行境界 (Docker)**: `toolbox`, `reproduction`, `dynamic`, `DAST` のすべてのコンテナランナーで Docker socket はマウントせず、非特権モードで実行。
@@ -223,7 +223,7 @@ bun run report:scan -- \
 | `bun run build` | Vite production build |
 | `bun run verify` | typecheck、lint、format:check、test、build |
 
-## Security Boundary
+## Product Boundary
 
 - LLM API keyはhost側にのみ置く。
 - scan対象repoへLLM API keyやsecretを注入しない。
@@ -231,7 +231,9 @@ bun run report:scan -- \
 - CLI commandはshell文字列ではなくstructured argsとして組み立てる。
 - raw artifactは保存するが、LLM reviewへ渡す前に必要最小限へ絞る。
 - secret findingの値は原則redactして表示、保存、reviewする。
-- external target scan、DAST、fuzzing、sandbox再現、patch自動適用はMVP対象外。
+- DAST はローカル対象または明示的に保存した target config に限定する。
+- fuzzing / dynamic verification / sandbox reproduction は bounded profile と Docker 隔離を前提に実行する。
+- patch自動適用は対象外。
 
 ## Verification
 

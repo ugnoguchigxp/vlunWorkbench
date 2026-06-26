@@ -177,7 +177,7 @@ export function createSourcesRoute(deps: SourcesRouteDeps) {
 			await ensureSourceRuntime();
 			const git = await getGitSummary(deps.contentRoot);
 			return c.json({
-				service: "hono-standard-rag",
+				service: "vuln-workbench-knowledge",
 				git,
 			});
 		})

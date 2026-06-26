@@ -11,7 +11,7 @@ describe("health route", () => {
 		const body = await res.json();
 		expect(body).toEqual({
 			status: "ok",
-			service: "hono-standard",
+			service: "vuln-workbench",
 		});
 	});
 });

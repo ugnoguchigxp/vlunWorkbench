@@ -38,7 +38,7 @@ export const fetchTool: AgenticToolDefinition = {
 		const response = await fetchWithTimeout(args.url, {
 			timeout: 15000,
 			headers: {
-				"User-Agent": "hono-standard-rag-agentic-search/1.0",
+				"User-Agent": "vuln-workbench-agentic-search/1.0",
 				Accept: "text/html, text/plain;q=0.9",
 			},
 		});

@@ -575,6 +575,9 @@ export function SettingsPanel({
 		}
 	};
 
+	const llmSaveDisabled =
+		!llmSettings || llmSaving || llmLoading || validationErrors.length > 0;
+
 	return (
 		<main className="layout settings-layout">
 			<section className="panel">
@@ -644,7 +647,7 @@ export function SettingsPanel({
 							type="button"
 							variant="primary"
 							onClick={() => void handleSaveLlmSettings()}
-							disabled={llmSaving || llmLoading || validationErrors.length > 0}
+							disabled={llmSaveDisabled}
 						>
 							<Save className="icon" />
 							<span>Save</span>
@@ -664,18 +667,29 @@ export function SettingsPanel({
 									<strong>Codex SDK</strong>
 									<small>{codexStatus?.codexHome ?? "-"}</small>
 								</div>
-								<Button
-									type="button"
-									onClick={async () => {
-										const next = await fetchCodexStatus();
-										setCodexStatus(next);
-										setLlmSettings((current) =>
-											current ? ensureCodexEndpoint(current, next) : current,
-										);
-									}}
-								>
-									<RefreshCw className="icon" />
-								</Button>
+								<div className="actions">
+									<Button
+										type="button"
+										onClick={async () => {
+											const next = await fetchCodexStatus();
+											setCodexStatus(next);
+											setLlmSettings((current) =>
+												current ? ensureCodexEndpoint(current, next) : current,
+											);
+										}}
+									>
+										<RefreshCw className="icon" />
+									</Button>
+									<Button
+										type="button"
+										variant="primary"
+										onClick={() => void handleSaveLlmSettings()}
+										disabled={llmSaveDisabled}
+									>
+										<Save className="icon" />
+										<span>Save</span>
+									</Button>
+								</div>
 							</div>
 							<div className="codex-status-values">
 								<span
@@ -956,6 +970,15 @@ export function SettingsPanel({
 									</Button>
 									<Button
 										type="button"
+										variant="primary"
+										onClick={() => void handleSaveLlmSettings()}
+										disabled={llmSaveDisabled}
+									>
+										<Save className="icon" />
+										<span>Save</span>
+									</Button>
+									<Button
+										type="button"
 										variant="destructive"
 										onClick={() => handleDeleteEndpoint(selectedEndpoint.id)}
 									>
@@ -977,6 +1000,17 @@ export function SettingsPanel({
 			<section className="panel">
 				<div className="panel-header">
 					<h2>Task Routing</h2>
+					<div className="actions">
+						<Button
+							type="button"
+							variant="primary"
+							onClick={() => void handleSaveLlmSettings()}
+							disabled={llmSaveDisabled}
+						>
+							<Save className="icon" />
+							<span>Save</span>
+						</Button>
+					</div>
 				</div>
 				<div className="route-card-list">
 					{ensureRoutes(llmSettings?.taskRoutes ?? []).map((route) => (

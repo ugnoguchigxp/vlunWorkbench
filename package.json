@@ -1,14 +1,16 @@
 {
-	"name": "hono-standard",
+	"name": "vuln-workbench",
 	"version": "1.0.0",
-	"description": "Minimal Hono + React template with optional login and showcase screens.",
+	"description": "Local vulnerability diagnostic workbench for CLI scan evidence, LLM review, and human decisions.",
 	"type": "module",
 	"author": "",
 	"license": "MIT",
 	"keywords": [
+		"security",
+		"vulnerability",
+		"scanning",
 		"hono",
 		"react",
-		"vite",
 		"typescript"
 	],
 	"scripts": {

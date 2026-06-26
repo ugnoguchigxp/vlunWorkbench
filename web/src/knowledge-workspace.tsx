@@ -43,7 +43,7 @@ import { IconButton, SelectInput, TextInput } from "./ui";
 
 mermaid.initialize({ startOnLoad: false });
 
-const dragMimeType = "application/x-hono-standard-rag-wiki-node";
+const dragMimeType = "application/x-vuln-workbench-knowledge-node";
 const initialBody = "# New Page\n\nWrite your documentation here.\n";
 
 type ExplorerNode =

@@ -279,7 +279,7 @@ type RequestInitJson = Omit<RequestInit, "body"> & {
 	body?: unknown;
 };
 
-export const UNAUTHORIZED_EVENT_NAME = "hono-standard-rag:unauthorized";
+export const UNAUTHORIZED_EVENT_NAME = "vuln-workbench:unauthorized";
 
 let lastUnauthorizedEventAt = 0;
 

@@ -8,7 +8,7 @@ import {
 	type ReactNode,
 } from "react";
 
-const STORAGE_KEY = "hono-standard.design-system.settings.v1";
+const STORAGE_KEY = "vuln-workbench.design-system.settings.v1";
 const LEGACY_STORAGE_KEY = "hono-standard.showcase.settings.v1";
 const ROOT_THEME_ATTRIBUTE = "data-design-system-theme";
 

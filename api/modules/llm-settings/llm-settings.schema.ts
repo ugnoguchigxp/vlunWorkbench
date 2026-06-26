@@ -62,8 +62,14 @@ export const LLM_TASK_POLICIES: Record<
 		requiresStructuredJson: true,
 	},
 	evidence_context: {
-		allowProviderKinds: ["azure", "openai", "openai-compatible", "local"],
-		defaultAllowCodex: false,
+		allowProviderKinds: [
+			"azure",
+			"openai",
+			"openai-compatible",
+			"local",
+			"codex",
+		],
+		defaultAllowCodex: true,
 		requiresStructuredJson: false,
 	},
 	agentic_search: {
