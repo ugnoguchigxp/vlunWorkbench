@@ -24,13 +24,13 @@ vi.mock("./env", () => ({
 	readAppEnv: vi.fn().mockReturnValue({
 		nodeEnv: "test",
 		host: "127.0.0.1",
-		port: 5173,
+		port: 29831,
 		databaseUrl: "file:./data/test.sqlite",
 		jwtSecret: "x".repeat(32),
 		jwtAccessExpiresIn: "15m",
 		jwtRefreshExpiresIn: "7d",
-		appUrl: "http://localhost:5173",
-		corsOrigins: ["http://localhost:5173"],
+		appUrl: "http://localhost:29831",
+		corsOrigins: ["http://localhost:29831"],
 		trustProxy: true,
 		secureCookie: false,
 		cookieSameSite: "lax",
@@ -76,10 +76,10 @@ describe("hono app entry", () => {
 	it("should handle CORS origins", async () => {
 		const res = await app.request("/api/health", {
 			headers: {
-				Origin: "http://localhost:5173",
+				Origin: "http://localhost:29831",
 			},
 		});
-		expect(res.headers.get("Access-Control-Allow-Origin")).toBe("http://localhost:5173");
+		expect(res.headers.get("Access-Control-Allow-Origin")).toBe("http://localhost:29831");
 		expect(res.headers.get("Access-Control-Allow-Credentials")).toBe("true");
 
 		const resInvalid = await app.request("/api/health", {
@@ -119,10 +119,10 @@ describe("hono app entry", () => {
 	// Error Handler integration tests
 	describe("Error Handler", () => {
 		it("should handle HttpError and return custom status and message", async () => {
-			const res = await app.request("http://localhost:5173/api/test-http-error", {
+			const res = await app.request("http://localhost:29831/api/test-http-error", {
 				method: "POST",
 				headers: {
-					Origin: "http://localhost:5173",
+					Origin: "http://localhost:29831",
 				},
 			});
 			expect(res.status).toBe(400);
@@ -131,10 +131,10 @@ describe("hono app entry", () => {
 		});
 
 		it("should handle HTTPException and return custom status and message", async () => {
-			const res = await app.request("http://localhost:5173/api/test-hono-http-exception", {
+			const res = await app.request("http://localhost:29831/api/test-hono-http-exception", {
 				method: "POST",
 				headers: {
-					Origin: "http://localhost:5173",
+					Origin: "http://localhost:29831",
 				},
 			});
 			expect(res.status).toBe(403);
@@ -143,10 +143,10 @@ describe("hono app entry", () => {
 		});
 
 		it("should handle generic errors as 500 Internal Server Error", async () => {
-			const res = await app.request("http://localhost:5173/api/test-generic-error", {
+			const res = await app.request("http://localhost:29831/api/test-generic-error", {
 				method: "POST",
 				headers: {
-					Origin: "http://localhost:5173",
+					Origin: "http://localhost:29831",
 				},
 			});
 			expect(res.status).toBe(500);

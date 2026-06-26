@@ -89,7 +89,7 @@ printf '%s\n' '<password>' | bun run db:seed -- --password-stdin
 
 既存ユーザーのパスワードを変えずに管理者属性だけ揃える場合は `bun run db:seed -- --keep-existing-password` を使います。
 
-開発サーバーは `http://localhost:5173` で起動します。Vite dev server がfrontendを配信し、`/api/*` はHonoへ渡されます。
+開発サーバーは `http://localhost:29831` で起動します。Vite dev server がfrontendを配信し、`/api/*` はHonoへ渡されます。
 
 ## CLI Commands
 
@@ -174,8 +174,8 @@ bun run report:scan -- \
 | `NODE_ENV` | no | `development` / `test` / `production` | `development` |
 | `DATABASE_URL` | no | SQLite database path。`file:` または `sqlite://` prefixを使えます | `file:./data/vuln-workbench.sqlite` |
 | `JWT_SECRET` | production yes | JWT signing secret。32文字以上。productionではdev defaultのままだと起動しません | dev default |
-| `APP_URL` | no | public origin。cookie secure既定値とCORSに使う | `http://localhost:5173` |
-| `CORS_ORIGINS` | no | 追加許可origin。カンマ区切り | `http://localhost:5173` |
+| `APP_URL` | no | public origin。cookie secure既定値とCORSに使う | `http://localhost:29831` |
+| `CORS_ORIGINS` | no | 追加許可origin。カンマ区切り | `http://localhost:29831` |
 | `AUTH_COOKIE_SECURE` | no | auth cookieに`Secure`を付けるか | production/HTTPSでは`true` |
 | `AUTH_COOKIE_SAME_SITE` | no | auth cookie SameSite | `lax` |
 | `SECURITY_HEADERS_MODE` | no | HTTPS前提headerの有効化方針。`auto` / `http` / `https` | `auto` |

@@ -19,7 +19,7 @@ describe("readAppEnv", () => {
 			DATABASE_URL: "file:./data/example.sqlite",
 			JWT_SECRET: "x".repeat(32),
 			APP_URL: "https://showcase.example.com",
-			CORS_ORIGINS: "https://showcase.example.com,http://localhost:5173",
+			CORS_ORIGINS: "https://showcase.example.com,http://localhost:29831",
 			AUTH_COOKIE_SECURE: "true",
 			AUTH_COOKIE_SAME_SITE: "none",
 			SECURITY_HEADERS_MODE: "https",
@@ -30,7 +30,7 @@ describe("readAppEnv", () => {
 		expect(env.appUrl).toBe("https://showcase.example.com");
 		expect(env.corsOrigins).toEqual([
 			"https://showcase.example.com",
-			"http://localhost:5173",
+			"http://localhost:29831",
 		]);
 		expect(env.secureCookie).toBe(true);
 		expect(env.cookieSameSite).toBe("none");

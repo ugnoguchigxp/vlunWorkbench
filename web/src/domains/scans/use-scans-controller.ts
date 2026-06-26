@@ -4,6 +4,8 @@ import {
 	browseProjectFolder,
 	createFindingDecision,
 	createProject,
+	type AttackSurfaceItem,
+	type DiagnosticReport,
 	type DynamicArtifact,
 	type DynamicEvidence,
 	type DynamicProfileConfig,
@@ -23,13 +25,20 @@ import {
 	fetchProjects,
 	fetchReproductionProfiles,
 	fetchReproductionRunArtifacts,
+	fetchScanAttackSurface,
+	fetchScanDiagnosticReports,
 	fetchScanFindings,
 	fetchScanGroups,
 	fetchScanProfiles,
 	fetchScanReports,
+	fetchScanSecurityChecks,
 	fetchScanSummary,
 	fetchScans,
+	generateDiagnosticReport,
 	generateScanReport,
+	runScanAttackSurfaceInventory,
+	runScanSecurityChecks,
+	type SecurityCheckResult,
 	type Project,
 	type ReproductionArtifact,
 	type ReproductionEvidence,
@@ -119,6 +128,16 @@ export const useScansController = ({
 	const [includeFalsePositives, setIncludeFalsePositives] = useState(true);
 	const [includeDeferred, setIncludeDeferred] = useState(true);
 	const [includeUndecided, setIncludeUndecided] = useState(true);
+	const [attackSurfaceItems, setAttackSurfaceItems] = useState<
+		AttackSurfaceItem[]
+	>([]);
+	const [securityCheckResults, setSecurityCheckResults] = useState<
+		SecurityCheckResult[]
+	>([]);
+	const [diagnosticReports, setDiagnosticReports] = useState<
+		DiagnosticReport[]
+	>([]);
+	const [diagnosticLoading, setDiagnosticLoading] = useState(false);
 	const [reproProfiles, setReproProfiles] = useState<ReproductionProfile[]>([]);
 	const [reproRuns, setReproRuns] = useState<ReproductionRun[]>([]);
 	const [selectedReproProfile, setSelectedReproProfile] = useState("");
@@ -231,6 +250,9 @@ export const useScansController = ({
 			setReports([]);
 			setSelectedReport(null);
 			setReportPreviewContent(null);
+			setAttackSurfaceItems([]);
+			setSecurityCheckResults([]);
+			setDiagnosticReports([]);
 			return;
 		}
 		void fetchScanReports(selectedScanRunId).then((items) => {
@@ -238,6 +260,15 @@ export const useScansController = ({
 			setSelectedReport(items[0] ?? null);
 			if (!items[0]) setReportPreviewContent(null);
 		});
+		void fetchScanAttackSurface(selectedScanRunId)
+			.then(({ items }) => setAttackSurfaceItems(items))
+			.catch(() => setAttackSurfaceItems([]));
+		void fetchScanSecurityChecks(selectedScanRunId)
+			.then(({ results }) => setSecurityCheckResults(results))
+			.catch(() => setSecurityCheckResults([]));
+		void fetchScanDiagnosticReports(selectedScanRunId)
+			.then(({ reports }) => setDiagnosticReports(reports))
+			.catch(() => setDiagnosticReports([]));
 	}, [active, selectedScanRunId]);
 
 	useEffect(() => {
@@ -448,6 +479,55 @@ export const useScansController = ({
 		}
 	};
 
+	const reloadDiagnostics = async () => {
+		if (!selectedScanRunId) return;
+		const [inventory, checks, diagnostic] = await Promise.all([
+			fetchScanAttackSurface(selectedScanRunId).catch(() => ({ items: [] })),
+			fetchScanSecurityChecks(selectedScanRunId).catch(() => ({ results: [] })),
+			fetchScanDiagnosticReports(selectedScanRunId).catch(() => ({
+				reports: [],
+			})),
+		]);
+		setAttackSurfaceItems(inventory.items);
+		setSecurityCheckResults(checks.results);
+		setDiagnosticReports(diagnostic.reports);
+	};
+
+	const handleRunDiagnostics = async () => {
+		if (!selectedScanRunId) return;
+		setDiagnosticLoading(true);
+		setErrorText(null);
+		try {
+			await runScanAttackSurfaceInventory(selectedScanRunId);
+			await runScanSecurityChecks(selectedScanRunId);
+			await reloadDiagnostics();
+		} catch (err) {
+			setErrorText(
+				err instanceof Error ? err.message : "Failed to run diagnostics.",
+			);
+		} finally {
+			setDiagnosticLoading(false);
+		}
+	};
+
+	const handleGenerateDiagnosticReport = async () => {
+		if (!selectedScanRunId) return;
+		setDiagnosticLoading(true);
+		setErrorText(null);
+		try {
+			await generateDiagnosticReport(selectedScanRunId);
+			await reloadDiagnostics();
+		} catch (err) {
+			setErrorText(
+				err instanceof Error
+					? err.message
+					: "Failed to generate diagnostic report.",
+			);
+		} finally {
+			setDiagnosticLoading(false);
+		}
+	};
+
 	const handleTriggerReview = async () => {
 		if (!selectedFindingId) return;
 		setReviewLoading(true);
@@ -652,6 +732,10 @@ export const useScansController = ({
 		setIncludeDeferred,
 		includeUndecided,
 		setIncludeUndecided,
+		attackSurfaceItems,
+		securityCheckResults,
+		diagnosticReports,
+		diagnosticLoading,
 		reproProfiles,
 		reproRuns,
 		selectedReproProfile,
@@ -676,6 +760,8 @@ export const useScansController = ({
 		displayedFindings,
 		handleStartScanProfile,
 		handleGenerateReport,
+		handleRunDiagnostics,
+		handleGenerateDiagnosticReport,
 		handleTriggerReview,
 		handleDecisionSubmit,
 		handleTriggerReproduction,

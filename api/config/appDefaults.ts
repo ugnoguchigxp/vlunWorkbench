@@ -1,7 +1,7 @@
 export const APP_CONFIG_DEFAULTS = {
 	nodeEnv: "development",
 	host: "127.0.0.1",
-	port: 5173,
+	port: 29831,
 	databaseUrl: "file:./data/vuln-workbench.sqlite",
 	contentRoot: "./wiki-knowledge",
 	wikiStorageBackend: "local",
@@ -17,8 +17,8 @@ export const APP_CONFIG_DEFAULTS = {
 	jwtSecret: "hono-standard-dev-jwt-secret-change-this-for-production",
 	jwtAccessExpiresIn: "15m",
 	jwtRefreshExpiresIn: "7d",
-	appUrl: "http://localhost:5173",
-	corsOrigins: ["http://localhost:5173"],
+	appUrl: "http://localhost:29831",
+	corsOrigins: ["http://localhost:29831"],
 	trustProxy: true,
 	cookieSameSite: "lax",
 } as const;

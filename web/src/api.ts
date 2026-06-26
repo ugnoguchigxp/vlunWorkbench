@@ -1149,6 +1149,64 @@ export type GroupedFindingsResult = {
 	groups: FindingGroup[];
 };
 
+export type AttackSurfaceItem = {
+	id: string;
+	projectId: string;
+	scanRunId: string | null;
+	category: string;
+	name: string;
+	kind: string;
+	locationJson: Record<string, unknown>;
+	boundaryJson: Record<string, unknown>;
+	evidenceRefsJson: Array<Record<string, unknown>>;
+	confidence: "high" | "medium" | "low";
+	metadata: Record<string, unknown>;
+	createdAt: string;
+	updatedAt: string;
+};
+
+export type SecurityCheckResult = {
+	id: string;
+	projectId: string;
+	scanRunId: string | null;
+	checkId: string;
+	attackSurfaceItemId: string | null;
+	status:
+		| "pass"
+		| "fail"
+		| "warn"
+		| "not_applicable"
+		| "manual_review"
+		| "not_checked";
+	outcome: string | null;
+	title: string;
+	summary: string;
+	evidenceRefsJson: Array<Record<string, unknown>>;
+	remediationHint: string | null;
+	coverageGap: string | null;
+	metadata: Record<string, unknown>;
+	createdAt: string;
+	updatedAt: string;
+};
+
+export type DiagnosticReport = {
+	id: string;
+	projectId: string;
+	scanRunId: string;
+	reportKind: "zero-finding";
+	status: "running" | "completed" | "failed";
+	summary: string | null;
+	checkedCategoriesJson: Array<Record<string, unknown>>;
+	coverageGapsJson: Array<Record<string, unknown>>;
+	residualRisksJson: Array<Record<string, unknown>>;
+	recommendedNextActionsJson: Array<Record<string, unknown>>;
+	artifactId: string | null;
+	metadata: Record<string, unknown>;
+	errorMessage: string | null;
+	createdAt: string;
+	updatedAt: string;
+};
+
 export async function fetchScanProfiles(): Promise<ScanProfile[]> {
 	const data = await requestJson<{ profiles: ScanProfile[] }>(
 		"/api/scan-profiles",
@@ -1202,6 +1260,81 @@ export async function fetchScanGroups(
 	scanRunId: string,
 ): Promise<GroupedFindingsResult> {
 	return requestJson<GroupedFindingsResult>(`/api/scans/${scanRunId}/groups`);
+}
+
+export async function fetchScanAttackSurface(
+	scanRunId: string,
+): Promise<{ items: AttackSurfaceItem[] }> {
+	return requestJson<{ items: AttackSurfaceItem[] }>(
+		`/api/scans/${scanRunId}/attack-surface`,
+	);
+}
+
+export async function runScanAttackSurfaceInventory(
+	scanRunId: string,
+): Promise<{
+	ok: boolean;
+	inventoryCount: number;
+	categories: Record<string, number>;
+}> {
+	return requestJson<{
+		ok: boolean;
+		inventoryCount: number;
+		categories: Record<string, number>;
+	}>(`/api/scans/${scanRunId}/attack-surface/run`, {
+		method: "POST",
+		body: {},
+	});
+}
+
+export async function fetchScanSecurityChecks(
+	scanRunId: string,
+): Promise<{ results: SecurityCheckResult[] }> {
+	return requestJson<{ results: SecurityCheckResult[] }>(
+		`/api/scans/${scanRunId}/security-checks`,
+	);
+}
+
+export async function runScanSecurityChecks(scanRunId: string): Promise<{
+	ok: boolean;
+	resultCount: number;
+	statusCounts: Record<string, number>;
+}> {
+	return requestJson<{
+		ok: boolean;
+		resultCount: number;
+		statusCounts: Record<string, number>;
+	}>(`/api/scans/${scanRunId}/security-checks/run`, {
+		method: "POST",
+		body: {},
+	});
+}
+
+export async function fetchScanDiagnosticReports(
+	scanRunId: string,
+): Promise<{ reports: DiagnosticReport[] }> {
+	return requestJson<{ reports: DiagnosticReport[] }>(
+		`/api/scans/${scanRunId}/diagnostic-reports`,
+	);
+}
+
+export async function generateDiagnosticReport(scanRunId: string): Promise<{
+	ok: boolean;
+	reportId: string;
+	artifactId: string | null;
+	status: string;
+	summary: string;
+}> {
+	return requestJson<{
+		ok: boolean;
+		reportId: string;
+		artifactId: string | null;
+		status: string;
+		summary: string;
+	}>(`/api/scans/${scanRunId}/diagnostic-reports`, {
+		method: "POST",
+		body: { kind: "zero-finding" },
+	});
 }
 
 // --- Phase 11 DAST API types and functions ---

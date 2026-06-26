@@ -53,6 +53,7 @@ import { createArtifactsRoute } from "../routes/artifacts.route";
 import { createAuthRoute } from "../routes/auth.route";
 import { createChatRoute } from "../routes/chat.route";
 import { createDastRoute } from "../routes/dast.route";
+import { createDiagnosticsRoute } from "../routes/diagnostics.route";
 import { createDynamicRoute } from "../routes/dynamic.route";
 import { createFindingDecisionsRoute } from "../routes/finding-decisions.route";
 import { createFindingReviewsRoute } from "../routes/finding-reviews.route";
@@ -675,6 +676,20 @@ app.use(
 	}),
 );
 app.use(
+	"/api/diagnostic-reports/*",
+	requireAuth({
+		env: runtime.env,
+		authService: runtime.authService,
+	}),
+);
+app.use(
+	"/api/diagnostic-reports",
+	requireAuth({
+		env: runtime.env,
+		authService: runtime.authService,
+	}),
+);
+app.use(
 	"/api/finding-reviews/*",
 	requireAuth({
 		env: runtime.env,
@@ -855,6 +870,16 @@ app.route(
 	createDastRoute({
 		db: runtime.dbConnection.db,
 		projectRepository,
+	}),
+);
+app.route(
+	"/api",
+	createDiagnosticsRoute({
+		db: runtime.dbConnection.db,
+		projectRepository,
+		scanRepository,
+		artifactRepository,
+		artifactStorage,
 	}),
 );
 

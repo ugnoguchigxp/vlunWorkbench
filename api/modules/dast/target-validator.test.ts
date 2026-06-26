@@ -34,8 +34,8 @@ function target(overrides: Partial<DastTargetConfig> = {}): DastTargetConfig {
 
 describe("DAST target validator", () => {
 	it("normalizes loopback origins", () => {
-		expect(normalizeDastOrigin("http://localhost:5173/")).toBe(
-			"http://localhost:5173",
+		expect(normalizeDastOrigin("http://localhost:29831/")).toBe(
+			"http://localhost:29831",
 		);
 	});
 

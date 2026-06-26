@@ -38,7 +38,7 @@ export function useDastController({
 		useState("http-baseline");
 	const [dastTargetName, setDastTargetName] = useState("Local app");
 	const [dastTargetOrigin, setDastTargetOrigin] = useState(
-		"http://127.0.0.1:5173",
+		"http://127.0.0.1:29831",
 	);
 	const [dastLoading, setDastLoading] = useState(false);
 	const [dastError, setDastError] = useState<string | null>(null);
