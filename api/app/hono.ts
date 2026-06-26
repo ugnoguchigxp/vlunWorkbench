@@ -7,6 +7,7 @@ import { csrf } from "hono/csrf";
 import { HTTPException } from "hono/http-exception";
 import { logger } from "hono/logger";
 import { secureHeaders } from "hono/secure-headers";
+import type { FailureKind } from "../../shared/schemas/failure.schema";
 import type { DbConnection } from "../db";
 import { createDbConnection } from "../db";
 import { requireAdmin, requireAuth } from "../middleware/auth";
@@ -52,13 +53,13 @@ import { createArtifactsRoute } from "../routes/artifacts.route";
 import { createAuthRoute } from "../routes/auth.route";
 import { createChatRoute } from "../routes/chat.route";
 import { createDastRoute } from "../routes/dast.route";
+import { createDynamicRoute } from "../routes/dynamic.route";
 import { createFindingDecisionsRoute } from "../routes/finding-decisions.route";
 import { createFindingReviewsRoute } from "../routes/finding-reviews.route";
 import { createFindingsRoute } from "../routes/findings.route";
 import { createHealthRoute } from "../routes/health.route";
 import { createProjectsRoute } from "../routes/projects.route";
 import { createReproductionsRoute } from "../routes/reproductions.route";
-import { createDynamicRoute } from "../routes/dynamic.route";
 import { createScanProfilesRoute } from "../routes/scan-profiles.route";
 import { createScanReportsRoute } from "../routes/scan-reports.route";
 import { createScansRoute } from "../routes/scans.route";
@@ -67,7 +68,6 @@ import { createSettingsRoute } from "../routes/settings.route";
 import { createSourcesRoute } from "../routes/sources.route";
 import { type AppEnv, readAppEnv } from "./env";
 import { shouldLogAppError } from "./error-logging";
-import type { FailureKind } from "../../shared/schemas/failure.schema";
 
 type AppRuntime = {
 	env: AppEnv;
@@ -802,6 +802,7 @@ app.route(
 		projectRepository,
 		artifactRepository,
 		artifactStorage,
+		db: runtime.dbConnection.db,
 	}),
 );
 app.route(

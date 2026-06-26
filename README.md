@@ -93,12 +93,23 @@ printf '%s\n' '<password>' | bun run db:seed -- --password-stdin
 
 ## CLI Commands
 
-### 1. プロファイルスキャンの実行 (複数ツールのシーケンシャル実行)
+### 1. プロファイルスキャンの実行 (複数ツール + 最終レポート生成)
 ```bash
 bun run scan:profile -- \
   --project-id <project-id> \
-  --profile baseline \
-  --timeout-sec 600
+  --profile basic-security \
+  --timeout-sec 600 \
+  --report-output report.md
+```
+
+`basic-security` は静的解析、シークレット、依存関係、設定ミスの基本観点を1回で確認します。より広い対象を確認したい場合は `detailed-security` を使います。
+
+```bash
+bun run scan:profile -- \
+  --project-id <project-id> \
+  --profile detailed-security \
+  --timeout-sec 1200 \
+  --report-output detailed-report.md
 ```
 
 ### 2. Sandbox上での脆弱性再現 (Reproduction)
@@ -124,6 +135,8 @@ bun run scan:dast -- \
 ```
 
 ### 5. レポートのエクスポート
+`scan:profile` は既定で最終レポートを生成します。既存の scan run から再生成したい場合は次を使います。
+
 ```bash
 bun run report:scan -- \
   --scan-run-id <scan-run-id> \

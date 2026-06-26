@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import { parseArgs } from "node:util";
 import { readAppEnv } from "../app/env";
 import { createDbConnection } from "../db";
+import { ArtifactStorage } from "../modules/scans/artifact-storage";
 import { runProfileScan } from "../modules/scans/profile-runner";
 import { getProfileById } from "../modules/scans/profiles";
 import { ProjectRepository } from "../modules/scans/repositories";
@@ -13,6 +14,11 @@ import {
 
 function writeResult(payload: Record<string, unknown>): void {
 	console.log(JSON.stringify(payload));
+}
+
+function parseBooleanFlag(value: string | undefined, defaultValue: boolean) {
+	if (value === undefined) return defaultValue;
+	return value !== "false";
 }
 
 async function main() {
@@ -28,6 +34,9 @@ async function main() {
 				"continue-on-tool-failure": { type: "string", default: "true" },
 				"output-summary": { type: "string" },
 				"dry-run": { type: "string", default: "false" },
+				"final-report": { type: "string", default: "true" },
+				"report-title": { type: "string" },
+				"report-output": { type: "string" },
 				runner: { type: "string", default: "host" },
 				"docker-bin": { type: "string" },
 				"docker-image": { type: "string" },
@@ -55,6 +64,9 @@ async function main() {
 		argsValues["continue-on-tool-failure"] !== "false";
 	const outputSummaryPath = argsValues["output-summary"];
 	const dryRun = argsValues["dry-run"] === "true";
+	const finalReportEnabled = parseBooleanFlag(argsValues["final-report"], true);
+	const reportTitle = argsValues["report-title"];
+	const reportOutputPath = argsValues["report-output"];
 	const runner = argsValues.runner as ToolRunnerKind;
 	const networkMode = argsValues.network as DockerNetworkMode;
 
@@ -132,6 +144,7 @@ async function main() {
 			dryRun: true,
 			profileId,
 			runner: execution.runner,
+			finalReport: finalReportEnabled,
 			toolOrder,
 			resolvedTools,
 		});
@@ -170,7 +183,21 @@ async function main() {
 			continueOnToolFailure,
 			timeoutSec,
 			execution,
+			finalReport: {
+				enabled: finalReportEnabled,
+				title: reportTitle,
+				includeFalsePositives: true,
+				includeDeferred: true,
+				includeUndecided: true,
+			},
 		});
+
+		if (reportOutputPath && result.finalReport?.artifactPath) {
+			const reportMarkdown = await new ArtifactStorage().readTextArtifact(
+				result.finalReport.artifactPath,
+			);
+			await fs.writeFile(reportOutputPath, reportMarkdown, "utf8");
+		}
 
 		const outputPayload = {
 			ok: result.ok,
@@ -180,6 +207,7 @@ async function main() {
 			status: result.status,
 			profileOutcome: result.profileOutcome,
 			message: result.message,
+			finalReport: result.finalReport,
 			toolResults: result.toolResults.map((r) => ({
 				toolId: r.toolId,
 				toolRunId: r.toolRunId,

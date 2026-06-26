@@ -1,5 +1,6 @@
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createDbConnection, type DbConnection } from "../../db";
 import {
@@ -278,6 +279,32 @@ describe("Report Builder", () => {
 		});
 
 		expect(report).toContain("# セキュリティレポート");
+	});
+
+	it("states no findings as a scan-scoped conclusion", async () => {
+		await connection.db
+			.delete(findingDecisions)
+			.where(eq(findingDecisions.findingId, findingId1));
+		await connection.db
+			.delete(findingReviews)
+			.where(eq(findingReviews.findingId, findingId1));
+		await connection.db
+			.delete(findingEvidences)
+			.where(eq(findingEvidences.findingId, findingId1));
+		await connection.db.delete(findings);
+
+		const report = await buildMarkdownReport(connection.db, scanRunId, {
+			includeFalsePositives: true,
+			includeDeferred: true,
+			includeUndecided: true,
+		});
+
+		expect(report).toContain(
+			"**結論:** 今回のスキャン範囲では、対応が必要な指摘事項は発見されませんでした。",
+		);
+		expect(report).toContain(
+			"完全な安全性を証明するものではありません。",
+		);
 	});
 
 	it("respects exclusion options", async () => {

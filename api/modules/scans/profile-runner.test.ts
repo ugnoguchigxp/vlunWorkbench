@@ -5,7 +5,7 @@ import path from "node:path";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDbConnection, type DbConnection } from "../../db";
-import { projects, scanRuns, users } from "../../db/schema";
+import { projects, scanArtifacts, scanReports, scanRuns, users } from "../../db/schema";
 import * as profileRunnerModule from "./profile-runner";
 import { runProfileScan } from "./profile-runner";
 
@@ -127,7 +127,64 @@ describe("Profile Runner Orchestration", () => {
 					}),
 				}),
 			);
+	});
+
+	it("should generate a final report when requested", async () => {
+		vi.spyOn(profileRunnerModule, "runToolIntoExistingScan").mockImplementation(
+			async () => {
+				return {
+					toolRunId: "tool-run-report",
+					findingCount: 0,
+					exitCode: 0,
+					elapsedMs: 120,
+					artifactIds: [],
+				};
+			},
+		);
+
+		const result = await runProfileScan({
+			db: connection.db,
+			projectId,
+			profileId: "basic-security",
+			repoPath,
+			continueOnToolFailure: true,
+			finalReport: {
+				enabled: true,
+				title: "基本スキャン最終レポート",
+			},
 		});
+
+		expect(result.ok).toBe(true);
+		expect(result.finalReport).toEqual(
+			expect.objectContaining({
+				ok: true,
+				status: "completed",
+				reportId: expect.any(String),
+				artifactId: expect.any(String),
+				artifactPath: expect.stringContaining("/reports/report-"),
+			}),
+		);
+
+		const report = await connection.db.query.scanReports.findFirst({
+			where: eq(scanReports.id, result.finalReport!.reportId!),
+		});
+		expect(report).toEqual(
+			expect.objectContaining({
+				status: "completed",
+				title: "基本スキャン最終レポート",
+			}),
+		);
+
+		const artifact = await connection.db.query.scanArtifacts.findFirst({
+			where: eq(scanArtifacts.id, result.finalReport!.artifactId!),
+		});
+		expect(artifact).toEqual(
+			expect.objectContaining({
+				kind: "report",
+				format: "markdown",
+			}),
+		);
+	});
 
 	it("should handle optional tool failure with completed_with_warnings status", async () => {
 		const mockProfile = {

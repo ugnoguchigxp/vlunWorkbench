@@ -7,6 +7,8 @@ import { normalizeOsv } from "./normalizers/osv";
 import { normalizeSemgrep } from "./normalizers/semgrep";
 import { normalizeTrivy } from "./normalizers/trivy";
 import { getProfileById } from "./profiles";
+import { buildMarkdownReport } from "./report-builder";
+import { ScanReportRepository } from "./report-repository";
 import {
 	ArtifactRepository,
 	FindingRepository,
@@ -43,6 +45,24 @@ export interface ProfileScanResult {
 	runner: "host" | "docker";
 	message?: string;
 	toolResults: ToolResult[];
+	finalReport?: FinalReportResult;
+}
+
+export interface FinalReportOptions {
+	enabled: boolean;
+	title?: string;
+	includeFalsePositives?: boolean;
+	includeDeferred?: boolean;
+	includeUndecided?: boolean;
+}
+
+export interface FinalReportResult {
+	ok: boolean;
+	reportId: string | null;
+	artifactId: string | null;
+	artifactPath: string | null;
+	status: "completed" | "failed" | "skipped";
+	error: string | null;
 }
 
 function buildBaseExecutionMetadata(execution: ToolExecutionConfig) {
@@ -66,6 +86,79 @@ function buildBaseExecutionMetadata(execution: ToolExecutionConfig) {
 		};
 	}
 	return { runner: "host" };
+}
+
+async function generateFinalReport(params: {
+	db: AppDatabase;
+	scanRunId: string;
+	artifactStorage: ArtifactStorage;
+	options: Required<FinalReportOptions>;
+}): Promise<FinalReportResult> {
+	const reportRepo = new ScanReportRepository(params.db);
+	const artifactRepo = new ArtifactRepository(params.db);
+	const report = await reportRepo.createReport({
+		scanRunId: params.scanRunId,
+		format: "markdown",
+		title: params.options.title,
+		options: {
+			includeFalsePositives: params.options.includeFalsePositives,
+			includeDeferred: params.options.includeDeferred,
+			includeUndecided: params.options.includeUndecided,
+			source: "scan-profile-final-report",
+		},
+		status: "running",
+	});
+
+	try {
+		const markdown = await buildMarkdownReport(params.db, params.scanRunId, {
+			includeFalsePositives: params.options.includeFalsePositives,
+			includeDeferred: params.options.includeDeferred,
+			includeUndecided: params.options.includeUndecided,
+			title: params.options.title,
+		});
+		const filename = `report-${report.id}.md`;
+		const saveResult = await params.artifactStorage.saveTextArtifact(
+			params.scanRunId,
+			"reports",
+			markdown,
+			filename,
+		);
+		const artifact = await artifactRepo.createArtifact({
+			scanRunId: params.scanRunId,
+			toolRunId: null,
+			kind: "report",
+			format: "markdown",
+			path: saveResult.path,
+			sha256: saveResult.sha256,
+			sizeBytes: saveResult.sizeBytes,
+			metadata: { reportId: report.id, source: "scan-profile-final-report" },
+		});
+		await reportRepo.updateReportStatus(report.id, "completed", {
+			artifactId: artifact.id,
+			summary: markdown.slice(0, 500),
+		});
+		return {
+			ok: true,
+			reportId: report.id,
+			artifactId: artifact.id,
+			artifactPath: saveResult.path,
+			status: "completed",
+			error: null,
+		};
+	} catch (err) {
+		const error = err instanceof Error ? err.message : String(err);
+		await reportRepo.updateReportStatus(report.id, "failed", {
+			errorMessage: error,
+		});
+		return {
+			ok: false,
+			reportId: report.id,
+			artifactId: null,
+			artifactPath: null,
+			status: "failed",
+			error,
+		};
+	}
 }
 
 export async function runToolIntoExistingScan(params: {
@@ -454,6 +547,7 @@ export async function runProfileScan(params: {
 	timeoutSec?: number;
 	createdByUserId?: string | null;
 	execution?: ToolExecutionConfig;
+	finalReport?: FinalReportOptions;
 }): Promise<ProfileScanResult> {
 	const scanRepo = new ScanRepository(params.db);
 	const artifactStorage = new ArtifactStorage();
@@ -463,6 +557,15 @@ export async function runProfileScan(params: {
 	if (!profile) {
 		throw new Error(`Profile not found: ${params.profileId}`);
 	}
+	const finalReportOptions: Required<FinalReportOptions> = {
+		enabled: params.finalReport?.enabled ?? false,
+		title:
+			params.finalReport?.title ??
+			`${profile.name || params.profileId} 最終セキュリティレポート`,
+		includeFalsePositives: params.finalReport?.includeFalsePositives ?? true,
+		includeDeferred: params.finalReport?.includeDeferred ?? true,
+		includeUndecided: params.finalReport?.includeUndecided ?? true,
+	};
 	const resolvedScope = await resolveScanScope({
 		repoPath: params.repoPath,
 		scope: profile.scope,
@@ -615,14 +718,46 @@ export async function runProfileScan(params: {
 		message: summaryMsg,
 	});
 
+	let finalReport: FinalReportResult | undefined;
+	if (finalReportOptions.enabled) {
+		await scanRepo.createScanEvent({
+			scanRunId: scanRun.id,
+			level: "info",
+			eventType: "report.started",
+			message: "Final scan report generation started.",
+		});
+		finalReport = await generateFinalReport({
+			db: params.db,
+			scanRunId: scanRun.id,
+			artifactStorage,
+			options: finalReportOptions,
+		});
+		await scanRepo.createScanEvent({
+			scanRunId: scanRun.id,
+			level: finalReport.ok ? "info" : "error",
+			eventType: finalReport.ok ? "report.completed" : "report.failed",
+			message: finalReport.ok
+				? `Final scan report generated: ${finalReport.artifactPath}`
+				: `Final scan report generation failed: ${finalReport.error}`,
+			data: { ...finalReport },
+		});
+	}
+
+	const ok = profileOutcome !== "failed" && (finalReport?.ok ?? true);
+	const message =
+		finalReport && !finalReport.ok
+			? `${summaryMsg} Final report generation failed: ${finalReport.error}`
+			: summaryMsg;
+
 	return {
-		ok: profileOutcome !== "failed",
+		ok,
 		scanRunId: scanRun.id,
 		profileId: params.profileId,
 		status: finalScanStatus,
 		profileOutcome,
 		runner: execution.runner,
-		message: summaryMsg,
+		message,
 		toolResults,
+		finalReport,
 	};
 }

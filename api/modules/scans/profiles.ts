@@ -72,6 +72,7 @@ export const SCAN_PROFILES: ScanProfile[] = [
 		name: "Baseline Scan",
 		description:
 			"Standard source-focused check including Semgrep, Gitleaks, OSV-Scanner, and Trivy.",
+		category: "basic",
 		enabled: true,
 		defaultTimeoutSec: 600,
 		scope: SOURCE_BASELINE_SCOPE,
@@ -106,10 +107,50 @@ export const SCAN_PROFILES: ScanProfile[] = [
 		],
 	},
 	{
+		id: "basic-security",
+		name: "基本セキュリティスキャン",
+		description:
+			"1回の実行で静的解析、シークレット、依存関係、設定ミスの基本観点を確認する標準プリセット。",
+		category: "basic",
+		enabled: true,
+		defaultTimeoutSec: 600,
+		scope: SOURCE_BASELINE_SCOPE,
+		tools: [
+			{
+				toolId: "semgrep",
+				displayName: "Semgrep Static Analysis",
+				required: true,
+				failurePolicy: "fail_profile",
+				options: { config: "auto", scanners: ["vuln", "secret", "config"] },
+			},
+			{
+				toolId: "gitleaks",
+				displayName: "Gitleaks Secret Detection",
+				required: true,
+				failurePolicy: "fail_profile",
+			},
+			{
+				toolId: "osv",
+				displayName: "OSV Manifest Dependency Scanner",
+				required: true,
+				failurePolicy: "fail_profile",
+				options: { dependencyMode: "manifest" },
+			},
+			{
+				toolId: "trivy",
+				displayName: "Trivy Basic Filesystem Scanner",
+				required: true,
+				failurePolicy: "fail_profile",
+				options: { scanners: ["vuln", "secret", "misconfig"] },
+			},
+		],
+	},
+	{
 		id: "source-baseline",
 		name: "Source Baseline Scan",
 		description:
 			"Source-first scan that excludes generated output and installed dependencies.",
+		category: "basic",
 		enabled: true,
 		defaultTimeoutSec: 600,
 		scope: SOURCE_BASELINE_SCOPE,
@@ -148,6 +189,7 @@ export const SCAN_PROFILES: ScanProfile[] = [
 		name: "Secret Detection Profile",
 		description:
 			"Dedicated scan focused on secrets and credentials leak detection.",
+		category: "focused",
 		enabled: true,
 		defaultTimeoutSec: 300,
 		scope: SOURCE_BASELINE_SCOPE,
@@ -172,6 +214,7 @@ export const SCAN_PROFILES: ScanProfile[] = [
 		name: "Dependency Vulnerability Profile",
 		description:
 			"Focused scan on package manifest and lockfile vulnerabilities.",
+		category: "focused",
 		enabled: true,
 		defaultTimeoutSec: 300,
 		scope: DEPENDENCY_MANIFEST_SCOPE,
@@ -197,6 +240,7 @@ export const SCAN_PROFILES: ScanProfile[] = [
 		name: "Dependency Manifest Scan",
 		description:
 			"Dependency vulnerability scan focused on manifests and lockfiles, excluding installed package trees.",
+		category: "focused",
 		enabled: true,
 		defaultTimeoutSec: 300,
 		scope: DEPENDENCY_MANIFEST_SCOPE,
@@ -222,6 +266,7 @@ export const SCAN_PROFILES: ScanProfile[] = [
 		name: "Infrastructure as Code Profile",
 		description:
 			"Focused scan on configuration files, IaC, and deployment manifests.",
+		category: "focused",
 		enabled: true,
 		defaultTimeoutSec: 300,
 		scope: SOURCE_BASELINE_SCOPE,
@@ -247,6 +292,7 @@ export const SCAN_PROFILES: ScanProfile[] = [
 		name: "Artifact Scan",
 		description:
 			"Release artifact scan for dist, dist-web, build output, bundles, and source maps.",
+		category: "focused",
 		enabled: true,
 		defaultTimeoutSec: 600,
 		scope: ARTIFACT_SCOPE,
@@ -278,6 +324,7 @@ export const SCAN_PROFILES: ScanProfile[] = [
 		name: "Full Deep Scan",
 		description:
 			"Broad audit scan including generated output, vendored code, and installed dependency trees.",
+		category: "detailed",
 		enabled: true,
 		defaultTimeoutSec: 1200,
 		scope: FULL_DEEP_SCOPE,
@@ -298,6 +345,45 @@ export const SCAN_PROFILES: ScanProfile[] = [
 			{
 				toolId: "osv",
 				displayName: "OSV Deep Dependency Scanner",
+				required: true,
+				failurePolicy: "fail_profile",
+				options: { dependencyMode: "installed_tree" },
+			},
+			{
+				toolId: "trivy",
+				displayName: "Trivy Deep Filesystem Scanner",
+				required: true,
+				failurePolicy: "fail_profile",
+				options: { scanners: ["vuln", "secret", "misconfig"] },
+			},
+		],
+	},
+	{
+		id: "detailed-security",
+		name: "詳細セキュリティスキャン",
+		description:
+			"生成物、vendored code、installed dependency tree まで含め、基本プリセットより広い範囲と多い観点で確認する詳細プリセット。",
+		category: "detailed",
+		enabled: true,
+		defaultTimeoutSec: 1200,
+		scope: FULL_DEEP_SCOPE,
+		tools: [
+			{
+				toolId: "semgrep",
+				displayName: "Semgrep Deep Static Analysis",
+				required: true,
+				failurePolicy: "fail_profile",
+				options: { config: "auto", maxTargetBytes: 2000000 },
+			},
+			{
+				toolId: "gitleaks",
+				displayName: "Gitleaks Deep Secret Detection",
+				required: true,
+				failurePolicy: "fail_profile",
+			},
+			{
+				toolId: "osv",
+				displayName: "OSV Installed Tree Dependency Scanner",
 				required: true,
 				failurePolicy: "fail_profile",
 				options: { dependencyMode: "installed_tree" },

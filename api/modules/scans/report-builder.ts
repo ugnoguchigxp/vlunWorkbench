@@ -386,7 +386,10 @@ export async function buildMarkdownReport(
 	lines.push("## 全体考察");
 	if (rawFindings.length === 0) {
 		lines.push(
-			"- このスキャンでは finding は記録されていません。ツール実行結果と raw artifact は残っているため、対象範囲や除外設定が意図どおりだったかを確認する余地はあります。",
+			"- **結論:** 今回のスキャン範囲では、対応が必要な指摘事項は発見されませんでした。",
+		);
+		lines.push(
+			"- この結論は、実行したプロファイル、対象範囲、ツール設定、取得済み artifact に基づくものです。未実行の観点やスキャン対象外のコードまで含めた完全な安全性を証明するものではありません。",
 		);
 	} else {
 		const urgentCount = severityStats.critical + severityStats.high;

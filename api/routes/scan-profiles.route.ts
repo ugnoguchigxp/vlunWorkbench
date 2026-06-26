@@ -9,6 +9,7 @@ export function createScanProfilesRoute() {
 			id: p.id,
 			name: p.name,
 			description: p.description,
+			category: p.category,
 			enabled: p.enabled,
 			defaultTimeoutSec: p.defaultTimeoutSec,
 			scope: p.scope

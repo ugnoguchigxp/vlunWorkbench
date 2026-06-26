@@ -41,6 +41,7 @@ export const scanProfileSchema = z.object({
 	id: z.string(),
 	name: z.string(),
 	description: z.string(),
+	category: z.enum(["basic", "focused", "detailed"]).optional(),
 	enabled: z.boolean(),
 	defaultTimeoutSec: z.number().int().positive(),
 	scope: scanScopePolicySchema.optional(),

@@ -15,9 +15,11 @@ describe("Scan Profiles Route", () => {
 		expect(profileIds).toEqual(
 			expect.arrayContaining([
 				"source-baseline",
+				"basic-security",
 				"dependency-manifest",
 				"artifact",
 				"full-deep",
+				"detailed-security",
 			]),
 		);
 
@@ -33,9 +35,21 @@ describe("Scan Profiles Route", () => {
 		);
 		expect(sourceProfile.tools[0].options).toBeUndefined();
 
+		const basicProfile = body.profiles.find(
+			(profile: any) => profile.id === "basic-security",
+		);
+		expect(basicProfile.category).toBe("basic");
+		expect(basicProfile.tools.map((tool: any) => tool.toolId)).toEqual([
+			"semgrep",
+			"gitleaks",
+			"osv",
+			"trivy",
+		]);
+
 		const deepProfile = body.profiles.find(
 			(profile: any) => profile.id === "full-deep",
 		);
+		expect(deepProfile.category).toBe("detailed");
 		expect(deepProfile.scope).toEqual(
 			expect.objectContaining({
 				intent: "full_deep",
@@ -44,5 +58,11 @@ describe("Scan Profiles Route", () => {
 				includeVendoredDependencies: true,
 			}),
 		);
+
+		const detailedProfile = body.profiles.find(
+			(profile: any) => profile.id === "detailed-security",
+		);
+		expect(detailedProfile.category).toBe("detailed");
+		expect(detailedProfile.scope.intent).toBe("full_deep");
 	});
 });

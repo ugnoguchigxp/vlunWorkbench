@@ -116,6 +116,8 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 					memory: z.string().optional(),
 					cpus: z.string().optional(),
 					toolCacheDir: z.string().optional(),
+					finalReport: z.boolean().default(true).optional(),
+					reportTitle: z.string().optional(),
 				}),
 			),
 			async (c) => {
@@ -142,6 +144,8 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 					String(body.continueOnToolFailure ?? true),
 					"--runner",
 					body.runner ?? "host",
+					"--final-report",
+					String(body.finalReport ?? true),
 				];
 
 				if (body.timeoutSec !== undefined) {
@@ -165,6 +169,9 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 				if (body.toolCacheDir) {
 					args.push("--tool-cache-dir", body.toolCacheDir);
 				}
+				if (body.reportTitle) {
+					args.push("--report-title", body.reportTitle);
+				}
 
 				const proc = Bun.spawn(["bun", "run", ...args], {
 					stdout: "pipe",
@@ -187,6 +194,7 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 							runner: result.runner,
 							profileOutcome: result.profileOutcome,
 							message: result.message,
+							finalReport: result.finalReport,
 							toolResults: result.toolResults,
 						});
 					}
