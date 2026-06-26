@@ -31,6 +31,7 @@ import {
 	fetchScanGroups,
 	fetchScanProfiles,
 	fetchScanReports,
+	fetchScanReviews,
 	fetchScanSecurityChecks,
 	fetchScanSummary,
 	fetchScans,
@@ -46,9 +47,11 @@ import {
 	type ReproductionRun,
 	type ScanProfile,
 	type ScanReport,
+	type ScanReview,
 	type ScanRun,
 	type ScanRunSummary,
 	startScan,
+	triggerScanReview,
 	triggerFindingDynamicRun,
 	triggerFindingReproduction,
 	triggerFindingReview,
@@ -137,6 +140,8 @@ export const useScansController = ({
 	const [reportLoading, setReportLoading] = useState(false);
 	const [reports, setReports] = useState<ScanReport[]>([]);
 	const [selectedReport, setSelectedReport] = useState<ScanReport | null>(null);
+	const [scanReviewLoading, setScanReviewLoading] = useState(false);
+	const [scanReviews, setScanReviews] = useState<ScanReview[]>([]);
 	const [reportPreviewContent, setReportPreviewContent] = useState<
 		string | null
 	>(null);
@@ -297,6 +302,7 @@ export const useScansController = ({
 		if (!active || !selectedScanRunId) {
 			setReports([]);
 			setSelectedReport(null);
+			setScanReviews([]);
 			setReportPreviewContent(null);
 			setAttackSurfaceItems([]);
 			setSecurityCheckResults([]);
@@ -308,6 +314,9 @@ export const useScansController = ({
 			setSelectedReport(items[0] ?? null);
 			if (!items[0]) setReportPreviewContent(null);
 		});
+		void fetchScanReviews(selectedScanRunId)
+			.then(setScanReviews)
+			.catch(() => setScanReviews([]));
 		void fetchScanAttackSurface(selectedScanRunId)
 			.then(({ items }) => setAttackSurfaceItems(items))
 			.catch(() => setAttackSurfaceItems([]));
@@ -610,7 +619,11 @@ export const useScansController = ({
 		}
 	};
 
-	const handleGenerateReport = async () => {
+	const handleGenerateReport = async (
+		summaryMode:
+			| "deterministic"
+			| "deterministic_with_llm_summary" = "deterministic",
+	) => {
 		if (!selectedScanRunId) return;
 		setReportLoading(true);
 		setErrorText(null);
@@ -621,6 +634,7 @@ export const useScansController = ({
 				includeFalsePositives,
 				includeDeferred,
 				includeUndecided,
+				summaryMode,
 			});
 			const list = await fetchScanReports(selectedScanRunId);
 			setReports(list);
@@ -634,6 +648,23 @@ export const useScansController = ({
 			);
 		} finally {
 			setReportLoading(false);
+		}
+	};
+
+	const handleTriggerScanReview = async () => {
+		if (!selectedScanRunId) return;
+		setScanReviewLoading(true);
+		setErrorText(null);
+		try {
+			await triggerScanReview(selectedScanRunId);
+			setScanReviews(await fetchScanReviews(selectedScanRunId));
+			setScanDetailTab("review");
+		} catch (err) {
+			setErrorText(
+				err instanceof Error ? err.message : "Failed to run scan review.",
+			);
+		} finally {
+			setScanReviewLoading(false);
 		}
 	};
 
@@ -910,6 +941,8 @@ export const useScansController = ({
 		reports,
 		selectedReport,
 		setSelectedReport,
+		scanReviewLoading,
+		scanReviews,
 		reportPreviewContent,
 		reportTitle,
 		setReportTitle,
@@ -947,6 +980,7 @@ export const useScansController = ({
 		displayedFindings,
 		handleStartScanProfile,
 		handleGenerateReport,
+		handleTriggerScanReview,
 		handleRunDiagnostics,
 		handleGenerateDiagnosticReport,
 		handleTriggerReview,

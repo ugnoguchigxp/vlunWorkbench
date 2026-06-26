@@ -26,7 +26,7 @@ function routeSummary(settings: LlmSettingsResponse): Array<{
 
 function parseTasks(input: string | undefined): LlmTask[] {
 	if (!input?.trim()) {
-		throw new Error("Missing required argument: --tasks is required.");
+		return ["finding_review", "scan_review", "report_summary"];
 	}
 	const tasks = input
 		.split(",")

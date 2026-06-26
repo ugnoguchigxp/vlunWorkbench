@@ -1,4 +1,5 @@
 import type { LlmProviderEndpointSettings } from "./llm-settings.schema";
+import { readCodexStatus } from "./codex-status";
 
 export type LlmProviderHealthResult = {
 	ok: boolean;
@@ -55,12 +56,25 @@ export async function checkLlmProviderHealth(
 	const checkedAt = new Date().toISOString();
 	const url = buildHealthUrl(endpoint);
 	if (endpoint.kind === "codex") {
+		const status = await readCodexStatus({
+			settingsModels: endpoint.models,
+			codexApiKey: endpoint.apiKey,
+		});
+		const ok = status.authenticated && status.executableAdapterAvailable;
 		return {
-			ok: true,
-			reachable: true,
-			status: "codex_status_required",
+			ok,
+			reachable: ok,
+			status: ok
+				? "codex_ready"
+				: !status.authenticated
+					? "codex_auth_missing"
+					: "codex_adapter_unavailable",
 			url: null,
-			message: "Use the Codex status API for Codex endpoints.",
+			message: ok
+				? "Codex is authenticated and the execution adapter is available."
+				: !status.authenticated
+					? "Codex authentication is not configured."
+					: status.adapterDiagnostics.message,
 			durationMs: Date.now() - started,
 			checkedAt,
 		};

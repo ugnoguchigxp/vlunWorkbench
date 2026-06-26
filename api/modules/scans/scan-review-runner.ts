@@ -1,52 +1,58 @@
 import fs from "node:fs/promises";
 import type { AppDatabase } from "../../db";
-import { FindingReviewRepository } from "./finding-review-repository";
-import { FindingRepository, ProjectRepository } from "../scans/repositories";
 import {
-	buildReviewBundle,
-	type ExtractSnippetOptions,
-} from "./finding-review-bundle";
-import { buildSystemPrompt, buildUserMessage } from "./finding-review-prompt";
-import {
-	findingReviewOutputSchema,
-	type FindingReviewOutput,
-} from "../../../shared/schemas/scan.schema";
-import type { LlmProvider } from "../../providers/types";
-import { LlmProviderExecutionError } from "../../providers/types";
+	LlmProviderExecutionError,
+	type LlmProvider,
+} from "../../providers/types";
 import type { LlmRouter } from "../../providers/llmRouter";
 import type { LlmTask } from "../../providers/llmTaskTypes";
+import {
+	scanReviewOutputSchema,
+	type ScanReviewOutput,
+} from "../../../shared/schemas/scan.schema";
+import {
+	buildScanReviewBundle,
+	type ScanReviewBundle,
+	type ScanReviewBundleOptions,
+} from "./scan-review-bundle";
+import {
+	buildScanReviewSystemPrompt,
+	buildScanReviewUserMessage,
+} from "./scan-review-prompt";
+import { ScanReviewRepository } from "./scan-review-repository";
+import { ScanRepository } from "./repositories";
 
-export interface ReviewRunnerOptions extends ExtractSnippetOptions {
+export type ScanReviewRunnerOptions = ScanReviewBundleOptions & {
 	task?: LlmTask;
 	providerName?: string;
 	providerEndpointId?: string;
 	modelName?: string;
 	fixtureOutput?: string;
 	createdByUserId?: string | null;
-}
-
-type FindingReviewRunnerDeps = {
-	llmProvider?: LlmProvider;
-	llmRouter?: LlmRouter;
 };
 
-class StructuredReviewOutputError extends Error {
+type ScanReviewRunnerDeps = {
+	llmProvider?: LlmProvider;
+	llmRouter?: LlmRouter;
+	reviewRepository?: ScanReviewRepository;
+};
+
+class StructuredScanReviewOutputError extends Error {
 	constructor(message: string) {
 		super(message);
-		this.name = "StructuredReviewOutputError";
+		this.name = "StructuredScanReviewOutputError";
 	}
 }
 
-export class FindingReviewRunner {
-	private readonly reviewRepo: FindingReviewRepository;
-	private readonly findingRepo: FindingRepository;
-	private readonly projectRepo: ProjectRepository;
+export class ScanReviewRunner {
+	private readonly scanRepo: ScanRepository;
+	private readonly reviewRepo: ScanReviewRepository;
 	private readonly llmProvider?: LlmProvider;
 	private readonly llmRouter?: LlmRouter;
 
 	constructor(
 		private readonly db: AppDatabase,
-		llmProviderOrDeps?: LlmProvider | FindingReviewRunnerDeps,
+		llmProviderOrDeps?: LlmProvider | ScanReviewRunnerDeps,
 	) {
 		if (
 			llmProviderOrDeps &&
@@ -54,13 +60,13 @@ export class FindingReviewRunner {
 		) {
 			this.llmProvider = llmProviderOrDeps as LlmProvider;
 		} else {
-			const deps = llmProviderOrDeps as FindingReviewRunnerDeps | undefined;
+			const deps = llmProviderOrDeps as ScanReviewRunnerDeps | undefined;
 			this.llmProvider = deps?.llmProvider;
 			this.llmRouter = deps?.llmRouter;
+			this.reviewRepo = deps?.reviewRepository ?? new ScanReviewRepository(db);
 		}
-		this.reviewRepo = new FindingReviewRepository(db);
-		this.findingRepo = new FindingRepository(db);
-		this.projectRepo = new ProjectRepository(db);
+		this.scanRepo = new ScanRepository(db);
+		this.reviewRepo ??= new ScanReviewRepository(db);
 	}
 
 	private extractJsonObject(input: string): string | null {
@@ -72,19 +78,33 @@ export class FindingReviewRunner {
 		return candidate.slice(start, end + 1);
 	}
 
-	private parseReviewOutput(responseContent: string): FindingReviewOutput {
+	private parseOutput(
+		responseContent: string,
+		bundle: ScanReviewBundle,
+	): ScanReviewOutput {
 		const jsonText = this.extractJsonObject(responseContent);
 		if (!jsonText) {
-			throw new StructuredReviewOutputError(
+			throw new StructuredScanReviewOutputError(
 				"LLM response did not contain a valid JSON object.",
 			);
 		}
 		try {
 			const parsed = JSON.parse(jsonText);
-			return findingReviewOutputSchema.parse(parsed);
+			const output = scanReviewOutputSchema.parse(parsed);
+			const findingIds = new Set(bundle.findings.map((finding) => finding.id));
+			const invalidFindingIds = output.findingTriageHints
+				.map((hint) => hint.findingId)
+				.filter((findingId) => !findingIds.has(findingId));
+			if (invalidFindingIds.length > 0) {
+				throw new StructuredScanReviewOutputError(
+					`findingTriageHints referenced findings not in bundle: ${invalidFindingIds.join(", ")}`,
+				);
+			}
+			return output;
 		} catch (error) {
+			if (error instanceof StructuredScanReviewOutputError) throw error;
 			const message = error instanceof Error ? error.message : String(error);
-			throw new StructuredReviewOutputError(message);
+			throw new StructuredScanReviewOutputError(message);
 		}
 	}
 
@@ -92,67 +112,58 @@ export class FindingReviewRunner {
 		if (error instanceof LlmProviderExecutionError) {
 			return `llm_provider_execution_failed: ${error.message}`;
 		}
-		if (error instanceof StructuredReviewOutputError) {
+		if (error instanceof StructuredScanReviewOutputError) {
 			return `llm_structured_output_validation_failed: ${error.message}`;
 		}
 		return error instanceof Error ? error.message : String(error);
 	}
 
 	async run(
-		findingId: string,
-		options: ReviewRunnerOptions = {},
+		scanRunId: string,
+		options: ScanReviewRunnerOptions = {},
 	): Promise<{
 		ok: boolean;
 		reviewId: string;
 		status: "completed" | "failed";
 		error?: string;
 	}> {
-		const finding = await this.findingRepo.findById(findingId);
-		if (!finding) {
-			throw new Error(`Finding not found: ${findingId}`);
-		}
-
-		const project = await this.projectRepo.findById(finding.projectId);
-		if (!project) {
-			throw new Error(`Project not found for finding: ${finding.projectId}`);
+		const scan = await this.scanRepo.findById(scanRunId);
+		if (!scan) {
+			throw new Error(`Scan run not found: ${scanRunId}`);
 		}
 
 		let provider = options.providerName ?? "unresolved";
 		let model = options.modelName ?? "unresolved";
 		let resolvedProvider = this.llmProvider;
 
-		let bundle: Awaited<ReturnType<typeof buildReviewBundle>>;
+		let bundle: ScanReviewBundle;
 		try {
-			bundle = await buildReviewBundle(
-				this.db,
-				finding,
-				project.repoPath,
-				options,
-			);
+			bundle = await buildScanReviewBundle(this.db, scanRunId, options);
 		} catch (err) {
-			const errMsg = err instanceof Error ? err.message : String(err);
+			const errorMessage = err instanceof Error ? err.message : String(err);
 			const review = await this.reviewRepo.createReview({
-				findingId,
+				scanRunId,
+				projectId: scan.projectId,
 				provider,
 				model,
 				status: "failed",
 				createdByUserId: options.createdByUserId,
 			});
 			await this.reviewRepo.updateReview(review.id, "failed", {
-				errorMessage: `Bundle creation failed: ${errMsg}`,
+				errorMessage: `Bundle creation failed: ${errorMessage}`,
 			});
 			return {
 				ok: false,
 				reviewId: review.id,
 				status: "failed",
-				error: errMsg,
+				error: errorMessage,
 			};
 		}
 
 		let providerRouting: Record<string, unknown> | undefined;
 		if (!options.fixtureOutput && this.llmRouter) {
 			const resolution = await this.llmRouter.resolve(
-				options.task ?? "finding_review",
+				options.task ?? "scan_review",
 				{
 					providerEndpointId: options.providerEndpointId,
 					model: options.modelName,
@@ -161,9 +172,10 @@ export class FindingReviewRunner {
 			if (!resolution.ok) {
 				const errorMessage = `${resolution.failureKind}: ${resolution.message}`;
 				const review = await this.reviewRepo.createReview({
-					findingId,
+					scanRunId,
+					projectId: scan.projectId,
 					provider: `route:${resolution.failureKind}`,
-					model: options.modelName ?? "unresolved",
+					model,
 					status: "failed",
 					inputBundle: bundle as unknown as Record<string, unknown>,
 					createdByUserId: options.createdByUserId,
@@ -189,7 +201,8 @@ export class FindingReviewRunner {
 		}
 
 		const review = await this.reviewRepo.createReview({
-			findingId,
+			scanRunId,
+			projectId: scan.projectId,
 			provider,
 			model,
 			status: "running",
@@ -198,49 +211,33 @@ export class FindingReviewRunner {
 		});
 
 		try {
-			let outputData: FindingReviewOutput;
-
+			let outputData: ScanReviewOutput;
 			if (options.fixtureOutput) {
-				try {
-					const fixtureContent = await fs.readFile(
-						options.fixtureOutput,
-						"utf8",
-					);
-					const parsed = JSON.parse(fixtureContent);
-					outputData = findingReviewOutputSchema.parse(parsed);
-				} catch (err) {
-					const msg = err instanceof Error ? err.message : String(err);
-					throw new Error(`Failed to parse/validate fixture output: ${msg}`);
-				}
+				const fixtureContent = await fs.readFile(options.fixtureOutput, "utf8");
+				outputData = this.parseOutput(fixtureContent, bundle);
 			} else {
 				if (!resolvedProvider) {
 					throw new Error("LLM provider is not configured");
 				}
-
-				const systemPrompt = buildSystemPrompt();
-				const userMessage = buildUserMessage(bundle);
-
 				const response = await resolvedProvider.chatCompletion(
 					[
-						{ role: "system", content: systemPrompt },
-						{ role: "user", content: userMessage },
+						{ role: "system", content: buildScanReviewSystemPrompt() },
+						{ role: "user", content: buildScanReviewUserMessage(bundle) },
 					],
-					{
-						temperature: 0.1,
-					},
+					{ temperature: 0.1 },
 				);
-
-				outputData = this.parseReviewOutput(response.content);
+				outputData = this.parseOutput(response.content, bundle);
 			}
 
 			await this.reviewRepo.updateReview(review.id, "completed", {
 				summary: outputData.summary,
-				likelyImpact: outputData.likelyImpact,
-				falsePositiveAssessment: outputData.falsePositiveAssessment,
-				evidenceStrength: outputData.evidenceStrength,
-				remediationDirection: outputData.remediationDirection,
-				reviewerNotes: outputData.reviewerNotes,
-				confidenceAdjustment: outputData.confidenceAdjustment,
+				riskOverview: outputData.riskOverview,
+				priorityNotes: outputData.priorityNotes,
+				coverageNotes: outputData.coverageNotes,
+				falsePositiveHotspots: outputData.falsePositiveHotspots,
+				recommendedNextActions: outputData.recommendedNextActions,
+				findingTriageHints: outputData.findingTriageHints,
+				confidenceNotes: outputData.confidenceNotes,
 				output: {
 					...(outputData as unknown as Record<string, unknown>),
 					...(providerRouting ? { providerRouting } : {}),
@@ -249,15 +246,15 @@ export class FindingReviewRunner {
 
 			return { ok: true, reviewId: review.id, status: "completed" };
 		} catch (err) {
-			const errMsg = this.formatRunError(err);
+			const errorMessage = this.formatRunError(err);
 			await this.reviewRepo.updateReview(review.id, "failed", {
-				errorMessage: errMsg,
+				errorMessage,
 			});
 			return {
 				ok: false,
 				reviewId: review.id,
 				status: "failed",
-				error: errMsg,
+				error: errorMessage,
 			};
 		}
 	}

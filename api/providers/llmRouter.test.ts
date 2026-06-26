@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AppEnv } from "../app/env";
 import { createDbConnection, type DbConnection } from "../db";
 import { LlmSettingsRepository } from "../modules/llm-settings/llm-settings.repository";
+import { CodexSdkProvider } from "./codexSdkProvider";
 import { LlmRouter } from "./llmRouter";
 import { OpenAiCompatibleProvider } from "./openAiCompatibleProvider";
 
@@ -108,15 +109,107 @@ describe("LlmRouter", () => {
 		});
 
 		const router = new LlmRouter(repo, env);
-		const resolution = await router.resolve("finding_review", {
-			providerEndpointId: "openai-fallback",
-			model: "gpt-4.1-mini",
-		});
+		const resolution = await router.resolve("finding_review");
 
 		expect(resolution.ok).toBe(true);
 		if (resolution.ok) {
 			expect(resolution.target.providerEndpointId).toBe("openai-explicit");
 			expect(resolution.model).toBe("gpt-4.1-mini");
+		}
+	});
+
+	it("uses an explicit route override when provider and model are supplied", async () => {
+		const repo = new LlmSettingsRepository(connection.db, env);
+		await repo.updateSettings({
+			providerEndpoints: [
+				{
+					id: "codex-default",
+					name: "Codex SDK",
+					kind: "codex",
+					enabled: true,
+					apiKey: "",
+					baseUrl: "",
+					endpoint: "",
+					apiVersion: "",
+					region: "",
+					models: ["gpt-5.4-mini"],
+					modelDisplayNames: {},
+					modelCapabilities: {},
+				},
+				{
+					id: "openai-override",
+					name: "OpenAI Override",
+					kind: "openai",
+					enabled: true,
+					apiKey: "",
+					baseUrl: "https://api.openai.com/v1",
+					endpoint: "",
+					apiVersion: "",
+					region: "",
+					models: ["gpt-4.1-mini"],
+					modelDisplayNames: {},
+					modelCapabilities: {},
+				},
+			],
+			taskRoutes: [
+				{
+					task: "finding_review",
+					primaryTarget: {
+						providerEndpointId: "codex-default",
+						model: "gpt-5.4-mini",
+					},
+					fallbackTargets: [],
+					policy: {},
+				},
+			],
+		});
+
+		const router = new LlmRouter(repo, env);
+		const resolution = await router.resolve("finding_review", {
+			providerEndpointId: "openai-override",
+			model: "gpt-4.1-mini",
+		});
+
+		expect(resolution.ok).toBe(true);
+		if (resolution.ok) {
+			expect(resolution.target.providerEndpointId).toBe("openai-override");
+			expect(resolution.model).toBe("gpt-4.1-mini");
+			expect(resolution.provider).toBeInstanceOf(OpenAiCompatibleProvider);
+		}
+	});
+
+	it("can resolve a fully specified override without a stored route", async () => {
+		const repo = new LlmSettingsRepository(connection.db, env);
+		await repo.updateSettings({
+			providerEndpoints: [
+				{
+					id: "codex-default",
+					name: "Codex SDK",
+					kind: "codex",
+					enabled: true,
+					apiKey: "",
+					baseUrl: "",
+					endpoint: "",
+					apiVersion: "",
+					region: "",
+					models: ["gpt-5.4-mini"],
+					modelDisplayNames: {},
+					modelCapabilities: {},
+				},
+			],
+			taskRoutes: [],
+		});
+
+		const router = new LlmRouter(repo, env);
+		const resolution = await router.resolve("scan_review", {
+			providerEndpointId: "codex-default",
+			model: "gpt-5.4-mini",
+		});
+
+		expect(resolution.ok).toBe(true);
+		if (resolution.ok) {
+			expect(resolution.target.providerEndpointId).toBe("codex-default");
+			expect(resolution.provider).toBeInstanceOf(CodexSdkProvider);
 		}
 	});
 
@@ -174,17 +267,15 @@ describe("LlmRouter", () => {
 
 		const resolution = await router.resolve("finding_review");
 
-		expect(resolution).toMatchObject({
-			ok: false,
-			failureKind: "llm_provider_adapter_unavailable",
-		});
-		expect(resolution.ok).toBe(false);
-		if (!resolution.ok) {
-			expect(resolution.message).toContain("codex");
+		expect(resolution.ok).toBe(true);
+		if (resolution.ok) {
+			expect(resolution.target.providerEndpointId).toBe("codex-default");
+			expect(resolution.model).toBe("gpt-5.4-mini");
+			expect(resolution.provider).toBeInstanceOf(CodexSdkProvider);
 		}
 	});
 
-	it("returns adapter creation errors as failed route resolutions", async () => {
+	it("resolves codex routes to the Codex SDK provider", async () => {
 		const repo = new LlmSettingsRepository(connection.db, env);
 		await repo.updateSettings({
 			providerEndpoints: [
@@ -219,17 +310,55 @@ describe("LlmRouter", () => {
 
 		const resolution = await router.resolve("finding_review");
 
-		expect(resolution).toMatchObject({
-			ok: false,
-			failureKind: "llm_provider_adapter_unavailable",
-		});
-		expect(resolution.ok).toBe(false);
-		if (!resolution.ok) {
-			expect(resolution.message).toContain("no execution adapter");
+		expect(resolution.ok).toBe(true);
+		if (resolution.ok) {
+			expect(resolution.providerName).toBe("codex:codex-default");
+			expect(resolution.provider).toBeInstanceOf(CodexSdkProvider);
 		}
 	});
 
-	it("allows codex endpoints for evidence context routes before adapter creation", async () => {
+	it("rejects codex routes when route policy disables codex", async () => {
+		const repo = new LlmSettingsRepository(connection.db, env);
+		await repo.updateSettings({
+			providerEndpoints: [
+				{
+					id: "codex-default",
+					name: "Codex SDK",
+					kind: "codex",
+					enabled: true,
+					apiKey: "",
+					baseUrl: "",
+					endpoint: "",
+					apiVersion: "",
+					region: "",
+					models: ["gpt-5.4-mini"],
+					modelDisplayNames: {},
+					modelCapabilities: {},
+				},
+			],
+			taskRoutes: [
+				{
+					task: "finding_review",
+					primaryTarget: {
+						providerEndpointId: "codex-default",
+						model: "gpt-5.4-mini",
+					},
+					fallbackTargets: [],
+					policy: { allowCodex: false },
+				},
+			],
+		});
+		const router = new LlmRouter(repo, env);
+
+		const resolution = await router.resolve("finding_review");
+
+		expect(resolution).toMatchObject({
+			ok: false,
+			failureKind: "llm_provider_kind_not_allowed",
+		});
+	});
+
+	it("resolves codex endpoints for evidence context routes", async () => {
 		const repo = new LlmSettingsRepository(connection.db, env);
 		await repo.updateSettings({
 			providerEndpoints: [
@@ -264,13 +393,10 @@ describe("LlmRouter", () => {
 
 		const resolution = await router.resolve("evidence_context");
 
-		expect(resolution).toMatchObject({
-			ok: false,
-			failureKind: "llm_provider_adapter_unavailable",
-		});
-		expect(resolution.ok).toBe(false);
-		if (!resolution.ok) {
-			expect(resolution.message).not.toContain("not allowed");
+		expect(resolution.ok).toBe(true);
+		if (resolution.ok) {
+			expect(resolution.providerName).toBe("codex:codex-default");
+			expect(resolution.provider).toBeInstanceOf(CodexSdkProvider);
 		}
 	});
 });

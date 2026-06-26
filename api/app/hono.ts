@@ -807,6 +807,7 @@ app.route(
 		scanReportRepository,
 		artifactStorage,
 		db: runtime.dbConnection.db,
+		llmRouter: runtime.llmRouter,
 	}),
 );
 app.route(

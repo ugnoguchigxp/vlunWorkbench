@@ -1,6 +1,7 @@
 import type { AppEnv } from "../app/env";
 import type { LlmProviderEndpointSettings } from "../modules/llm-settings/llm-settings.schema";
 import { AzureOpenAiProvider } from "./AzureOpenAiProvider";
+import { CodexSdkProvider } from "./codexSdkProvider";
 import { OpenAiCompatibleProvider } from "./openAiCompatibleProvider";
 import type { LlmRouteFailureKind } from "./llmTaskTypes";
 import type { LlmProvider } from "./types";
@@ -88,6 +89,13 @@ export function createLlmProviderForEndpoint(
 			apiKey,
 			model,
 			apiVersion: endpoint.apiVersion,
+		});
+	}
+
+	if (endpoint.kind === "codex") {
+		return new CodexSdkProvider({
+			model,
+			apiKey,
 		});
 	}
 

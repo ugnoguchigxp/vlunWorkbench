@@ -26,6 +26,16 @@ export interface LlmResponse {
 	};
 }
 
+export class LlmProviderExecutionError extends Error {
+	constructor(
+		message: string,
+		readonly details?: Record<string, unknown>,
+	) {
+		super(message);
+		this.name = "LlmProviderExecutionError";
+	}
+}
+
 export interface ChatDelta {
 	id: string;
 	delta: string;

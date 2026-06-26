@@ -80,12 +80,20 @@ export function createSettingsRoute(deps: SettingsRouteDeps) {
 			}
 		})
 		.get("/llm/codex/status", async (c) => {
-			const settings = await llmRepo?.getSettings({ maskSecrets: true });
+			const settings = await llmRepo?.getSettings({ maskSecrets: false });
+			const codexEndpoint = settings?.providerEndpoints.find(
+				(endpoint) => endpoint.kind === "codex",
+			);
 			const codexModels =
 				settings?.providerEndpoints
 					.filter((endpoint) => endpoint.kind === "codex")
 					.flatMap((endpoint) => endpoint.models) ?? [];
-			return c.json(await readCodexStatus({ settingsModels: codexModels }));
+			return c.json(
+				await readCodexStatus({
+					settingsModels: codexModels,
+					codexApiKey: codexEndpoint?.apiKey,
+				}),
+			);
 		})
 		.post("/llm/provider-endpoints/:id/health", async (c) => {
 			if (!llmRepo) {

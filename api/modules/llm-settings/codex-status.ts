@@ -4,10 +4,16 @@ import path from "node:path";
 
 export type CodexStatus = {
 	authenticated: boolean;
-	authSource: "environment" | "codex-auth-json" | "none";
+	authSource: "environment" | "settings" | "codex-auth-json" | "none";
 	codexHome: string;
 	modelSource: "settings" | "cache" | "fallback" | "none";
 	detectedModels: string[];
+	executableAdapterAvailable: boolean;
+	adapterDiagnostics: {
+		packageName: string;
+		runtimeMode: "bun-direct";
+		message: string;
+	};
 };
 
 type CodexAuthJson = {
@@ -18,6 +24,15 @@ type CodexAuthJson = {
 };
 
 const DEFAULT_CODEX_MODELS = ["gpt-5.5", "gpt-5.4-mini", "gpt-5-mini"];
+
+async function canImportCodexSdk(): Promise<boolean> {
+	try {
+		const mod = await import("@openai/codex-sdk");
+		return typeof mod.Codex === "function";
+	} catch {
+		return false;
+	}
+}
 
 async function readJson<T>(filePath: string): Promise<T | null> {
 	try {
@@ -55,6 +70,7 @@ export async function readCodexStatus(
 		env?: NodeJS.ProcessEnv;
 		codexHome?: string;
 		settingsModels?: string[];
+		codexApiKey?: string;
 	} = {},
 ): Promise<CodexStatus> {
 	const env = options.env ?? process.env;
@@ -64,6 +80,7 @@ export async function readCodexStatus(
 		path.join(codexHome, "auth.json"),
 	);
 	const hasEnvToken = Boolean(env.CODEX_API_KEY || env.OPENAI_API_KEY);
+	const hasSettingsToken = Boolean(options.codexApiKey);
 	const hasAuthJsonToken = Boolean(
 		authJson?.OPENAI_API_KEY || authJson?.tokens?.access_token,
 	);
@@ -76,13 +93,17 @@ export async function readCodexStatus(
 		new Set([...settingsModels, ...cachedModels, ...DEFAULT_CODEX_MODELS]),
 	);
 
+	const executableAdapterAvailable = await canImportCodexSdk();
+
 	return {
-		authenticated: hasEnvToken || hasAuthJsonToken,
+		authenticated: hasEnvToken || hasSettingsToken || hasAuthJsonToken,
 		authSource: hasEnvToken
 			? "environment"
-			: hasAuthJsonToken
-				? "codex-auth-json"
-				: "none",
+			: hasSettingsToken
+				? "settings"
+				: hasAuthJsonToken
+					? "codex-auth-json"
+					: "none",
 		codexHome,
 		modelSource:
 			settingsModels.length > 0
@@ -93,5 +114,13 @@ export async function readCodexStatus(
 						? "fallback"
 						: "none",
 		detectedModels,
+		executableAdapterAvailable,
+		adapterDiagnostics: {
+			packageName: "@openai/codex-sdk",
+			runtimeMode: "bun-direct",
+			message: executableAdapterAvailable
+				? "Codex SDK package is importable."
+				: "Codex SDK package is not importable.",
+		},
 	};
 }

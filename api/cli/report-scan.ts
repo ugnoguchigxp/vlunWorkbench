@@ -6,8 +6,11 @@ import { createDbConnection } from "../db";
 import { scanRuns } from "../db/schema";
 import { ArtifactStorage } from "../modules/scans/artifact-storage";
 import { buildMarkdownReport } from "../modules/scans/report-builder";
+import { buildMarkdownReportWithLlmSummary } from "../modules/scans/report-summary-runner";
 import { ScanReportRepository } from "../modules/scans/report-repository";
 import { ArtifactRepository } from "../modules/scans/repositories";
+import { LlmSettingsRepository } from "../modules/llm-settings/llm-settings.repository";
+import { LlmRouter } from "../providers/llmRouter";
 
 function writeResult(payload: Record<string, unknown>): void {
 	console.log(JSON.stringify(payload));
@@ -26,6 +29,7 @@ async function main() {
 				"include-undecided": { type: "string" },
 				title: { type: "string" },
 				output: { type: "string" },
+				"summary-mode": { type: "string" },
 			},
 			strict: true,
 		});
@@ -75,6 +79,18 @@ async function main() {
 
 	const title = argsValues.title || "セキュリティレポート";
 	const outputPath = argsValues.output;
+	const summaryMode = argsValues["summary-mode"] || "deterministic";
+	if (
+		summaryMode !== "deterministic" &&
+		summaryMode !== "deterministic_with_llm_summary"
+	) {
+		writeResult({
+			ok: false,
+			status: "failed",
+			message: `Unsupported summary mode: ${summaryMode}`,
+		});
+		process.exit(1);
+	}
 
 	const env = readAppEnv();
 	const dbConnection = createDbConnection(env.databaseUrl);
@@ -111,18 +127,33 @@ async function main() {
 				includeFalsePositives,
 				includeDeferred,
 				includeUndecided,
+				summaryMode,
 			},
 			status: "running",
 		});
 		reportId = report.id;
 
 		// 4. Build report
-		const markdown = await buildMarkdownReport(db, scanRunId, {
+		const builderOptions = {
 			includeFalsePositives,
 			includeDeferred,
 			includeUndecided,
 			title,
-		});
+		};
+		const buildResult =
+			summaryMode === "deterministic_with_llm_summary"
+				? await buildMarkdownReportWithLlmSummary(db, scanRunId, {
+						...builderOptions,
+						llmRouter: new LlmRouter(
+							new LlmSettingsRepository(dbConnection.db, env),
+							env,
+						),
+					})
+				: {
+						markdown: await buildMarkdownReport(db, scanRunId, builderOptions),
+						providerRouting: undefined,
+					};
+		const markdown = buildResult.markdown;
 
 		// 5. Save to artifact storage
 		const filename = `report-${report.id}.md`;
@@ -142,7 +173,13 @@ async function main() {
 			path: saveResult.path,
 			sha256: saveResult.sha256,
 			sizeBytes: saveResult.sizeBytes,
-			metadata: { reportId: report.id },
+			metadata: {
+				reportId: report.id,
+				summaryMode,
+				...(buildResult.providerRouting
+					? { providerRouting: buildResult.providerRouting }
+					: {}),
+			},
 		});
 
 		// 7. If output path specified, write the exact stored Markdown content.
@@ -154,6 +191,15 @@ async function main() {
 		await reportRepo.updateReportStatus(report.id, "completed", {
 			artifactId: artifact.id,
 			summary: markdown.slice(0, 500),
+			options: {
+				includeFalsePositives,
+				includeDeferred,
+				includeUndecided,
+				summaryMode,
+				...(buildResult.providerRouting
+					? { providerRouting: buildResult.providerRouting }
+					: {}),
+			},
 		});
 
 		writeResult({

@@ -561,6 +561,67 @@ export const scanReports = sqliteTable(
 	}),
 );
 
+export const scanReviews = sqliteTable(
+	"scan_reviews",
+	{
+		id: id(),
+		scanRunId: text("scan_run_id")
+			.notNull()
+			.references(() => scanRuns.id, { onDelete: "cascade" }),
+		projectId: text("project_id")
+			.notNull()
+			.references(() => projects.id, { onDelete: "cascade" }),
+		provider: text("provider").notNull(),
+		model: text("model").notNull(),
+		status: text("status").notNull(),
+		summary: text("summary"),
+		riskOverview: text("risk_overview"),
+		priorityNotes: text("priority_notes_json", { mode: "json" })
+			.$type<string[]>()
+			.default(sql`'[]'`)
+			.notNull(),
+		coverageNotes: text("coverage_notes_json", { mode: "json" })
+			.$type<string[]>()
+			.default(sql`'[]'`)
+			.notNull(),
+		falsePositiveHotspots: text("false_positive_hotspots_json", {
+			mode: "json",
+		})
+			.$type<string[]>()
+			.default(sql`'[]'`)
+			.notNull(),
+		recommendedNextActions: text("recommended_next_actions_json", {
+			mode: "json",
+		})
+			.$type<string[]>()
+			.default(sql`'[]'`)
+			.notNull(),
+		findingTriageHints: text("finding_triage_hints_json", { mode: "json" })
+			.$type<Array<Record<string, unknown>>>()
+			.default(sql`'[]'`)
+			.notNull(),
+		confidenceNotes: text("confidence_notes_json", { mode: "json" })
+			.$type<string[]>()
+			.default(sql`'[]'`)
+			.notNull(),
+		inputBundle: jsonObject("input_bundle"),
+		output: jsonObject("output"),
+		errorMessage: text("error_message"),
+		createdByUserId: text("created_by_user_id").references(() => users.id, {
+			onDelete: "set null",
+		}),
+		startedAt: integer("started_at", { mode: "timestamp_ms" }),
+		completedAt: integer("completed_at", { mode: "timestamp_ms" }),
+		createdAt: timestampMs("created_at"),
+		updatedAt: timestampMs("updated_at"),
+	},
+	(table) => ({
+		scanRunIdIdx: index("scan_reviews_scan_run_id_idx").on(table.scanRunId),
+		projectIdIdx: index("scan_reviews_project_id_idx").on(table.projectId),
+		statusIdx: index("scan_reviews_status_idx").on(table.status),
+	}),
+);
+
 export const attackSurfaceItems = sqliteTable(
 	"attack_surface_items",
 	{

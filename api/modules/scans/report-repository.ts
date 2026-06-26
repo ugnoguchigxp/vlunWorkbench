@@ -37,6 +37,7 @@ export class ScanReportRepository {
 			artifactId?: string | null;
 			summary?: string | null;
 			errorMessage?: string | null;
+			options?: Record<string, unknown>;
 		},
 	) {
 		const now = new Date();
@@ -52,6 +53,9 @@ export class ScanReportRepository {
 		}
 		if (options?.errorMessage !== undefined) {
 			updateValues.errorMessage = options.errorMessage;
+		}
+		if (options?.options !== undefined) {
+			updateValues.options = options.options;
 		}
 
 		const [updated] = await this.db

@@ -1,0 +1,170 @@
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { LlmProviderExecutionError } from "./types";
+import { CodexSdkProvider } from "./codexSdkProvider";
+
+describe("CodexSdkProvider", () => {
+	let tmpRoot: string;
+
+	beforeEach(async () => {
+		tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-provider-test-"));
+	});
+
+	afterEach(async () => {
+		await fs.rm(tmpRoot, { recursive: true, force: true });
+	});
+
+	it("runs Codex with bounded read-only options and returns finalResponse", async () => {
+		const run = vi.fn().mockResolvedValue({
+			finalResponse: "done",
+			usage: {
+				input_tokens: 10,
+				cached_input_tokens: 0,
+				output_tokens: 4,
+				reasoning_output_tokens: 0,
+			},
+		});
+		const startThread = vi.fn().mockReturnValue({
+			id: "thread-1",
+			run,
+		});
+		const CodexMock = vi.fn(function () {
+			return { startThread };
+		});
+
+		const provider = new CodexSdkProvider({
+			model: "gpt-5.4-mini",
+			apiKey: "codex-key",
+			codexHome: path.join(tmpRoot, "codex-home"),
+			tmpRoot,
+			env: {
+				PATH: "/usr/bin",
+				OPENAI_API_KEY: "must-not-leak",
+			},
+			codexConstructor: CodexMock as any,
+		});
+
+		const response = await provider.chatCompletion([
+			{ role: "system", content: "Return JSON only." },
+			{ role: "user", content: "Review this." },
+		]);
+
+		expect(response).toEqual({
+			id: "thread-1",
+			content: "done",
+			usage: {
+				promptTokens: 10,
+				completionTokens: 4,
+				totalTokens: 14,
+			},
+		});
+		expect(CodexMock).toHaveBeenCalledWith({
+			apiKey: "codex-key",
+			env: expect.objectContaining({
+				PATH: "/usr/bin",
+				CODEX_HOME: path.join(tmpRoot, "codex-home"),
+				CODEX_API_KEY: "codex-key",
+			}),
+		});
+		const codexCalls = CodexMock.mock.calls as unknown as [
+			[{ env: Record<string, string> }],
+		];
+		const codexOptions = codexCalls[0]?.[0] as
+			| { env: Record<string, string> }
+			| undefined;
+		expect(codexOptions?.env.OPENAI_API_KEY).toBeUndefined();
+		expect(startThread).toHaveBeenCalledWith(
+			expect.objectContaining({
+				model: "gpt-5.4-mini",
+				sandboxMode: "read-only",
+				approvalPolicy: "never",
+				webSearchMode: "disabled",
+				networkAccessEnabled: false,
+				skipGitRepoCheck: true,
+			}),
+		);
+		const threadOptions = startThread.mock.calls[0][0];
+		expect(threadOptions.workingDirectory).toContain(tmpRoot);
+		expect(run).toHaveBeenCalledWith(
+			expect.stringContaining("### SYSTEM\nReturn JSON only."),
+			expect.objectContaining({ signal: expect.any(AbortSignal) }),
+		);
+	});
+
+	it("maps OPENAI_API_KEY from the environment to Codex's API key without leaking the original name", async () => {
+		const startThread = vi.fn().mockReturnValue({
+			id: "thread-env",
+			run: vi.fn().mockResolvedValue({
+				finalResponse: "done",
+				usage: null,
+			}),
+		});
+		const CodexMock = vi.fn(function () {
+			return { startThread };
+		});
+		const provider = new CodexSdkProvider({
+			model: "gpt-5.4-mini",
+			codexHome: path.join(tmpRoot, "codex-home"),
+			tmpRoot,
+			env: {
+				PATH: "/usr/bin",
+				OPENAI_API_KEY: "openai-env-key",
+			},
+			codexConstructor: CodexMock as any,
+		});
+
+		await provider.chatCompletion([{ role: "user", content: "hello" }]);
+
+		const codexCalls = CodexMock.mock.calls as unknown as [
+			[{ env: Record<string, string>; apiKey?: string }],
+		];
+		const codexOptions = codexCalls[0]?.[0];
+		expect(codexOptions?.apiKey).toBeUndefined();
+		expect(codexOptions?.env.CODEX_API_KEY).toBe("openai-env-key");
+		expect(codexOptions?.env.OPENAI_API_KEY).toBeUndefined();
+	});
+
+	it("maps empty final responses to provider execution errors", async () => {
+		const startThread = vi.fn().mockReturnValue({
+			id: "thread-empty",
+			run: vi.fn().mockResolvedValue({
+				finalResponse: "",
+				usage: null,
+			}),
+		});
+		const provider = new CodexSdkProvider({
+			model: "gpt-5.4-mini",
+			tmpRoot,
+			codexConstructor: vi.fn(function () {
+				return { startThread };
+			}) as any,
+		});
+
+		await expect(
+			provider.chatCompletion([{ role: "user", content: "hello" }]),
+		).rejects.toBeInstanceOf(LlmProviderExecutionError);
+	});
+
+	it("wraps SDK failures as provider execution errors", async () => {
+		const startThread = vi.fn().mockReturnValue({
+			id: "thread-failed",
+			run: vi.fn().mockRejectedValue(new Error("codex failed")),
+		});
+		const provider = new CodexSdkProvider({
+			model: "gpt-5.4-mini",
+			tmpRoot,
+			codexConstructor: vi.fn(function () {
+				return { startThread };
+			}) as any,
+		});
+
+		await expect(
+			provider.chatCompletion([{ role: "user", content: "hello" }]),
+		).rejects.toMatchObject({
+			name: "LlmProviderExecutionError",
+			message: "codex failed",
+		});
+	});
+});

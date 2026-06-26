@@ -278,7 +278,71 @@ export type CreateFindingDecisionInput = z.infer<
 	typeof createFindingDecisionSchema
 >;
 
+// --- Scan Review ---
+export const scanReviewOutputSchema = z.object({
+	summary: z.string().min(1).max(3000),
+	riskOverview: z.string().min(1).max(3000),
+	priorityNotes: z.array(z.string().min(1).max(1000)).max(20),
+	coverageNotes: z.array(z.string().min(1).max(1000)).max(20),
+	falsePositiveHotspots: z.array(z.string().min(1).max(1000)).max(20),
+	recommendedNextActions: z.array(z.string().min(1).max(1000)).max(20),
+	findingTriageHints: z
+		.array(
+			z.object({
+				findingId: z.string().uuid(),
+				note: z.string().min(1).max(1000),
+				priority: z.enum(["critical", "high", "medium", "low", "info"]),
+			}),
+		)
+		.max(50),
+	confidenceNotes: z.array(z.string().min(1).max(1000)).max(20),
+});
+export type ScanReviewOutput = z.infer<typeof scanReviewOutputSchema>;
+
+export const scanReviewSchema = z.object({
+	id: z.string().uuid(),
+	scanRunId: z.string().uuid(),
+	projectId: z.string().uuid(),
+	provider: z.string(),
+	model: z.string(),
+	status: z.enum(["running", "completed", "failed"]),
+	summary: z.string().nullable(),
+	riskOverview: z.string().nullable(),
+	priorityNotes: z.array(z.string()),
+	coverageNotes: z.array(z.string()),
+	falsePositiveHotspots: z.array(z.string()),
+	recommendedNextActions: z.array(z.string()),
+	findingTriageHints: z.array(z.record(z.string(), z.unknown())),
+	confidenceNotes: z.array(z.string()),
+	inputBundle: z.record(z.string(), z.unknown()).default({}),
+	output: z.record(z.string(), z.unknown()).default({}),
+	errorMessage: z.string().nullable(),
+	createdByUserId: z.string().uuid().nullable(),
+	startedAt: z.string().or(z.date()).nullable(),
+	completedAt: z.string().or(z.date()).nullable(),
+	createdAt: z.string().or(z.date()),
+	updatedAt: z.string().or(z.date()),
+});
+export type ScanReview = z.infer<typeof scanReviewSchema>;
+
 // --- Scan Report ---
+export const scanReportSummaryModeSchema = z.enum([
+	"deterministic",
+	"deterministic_with_llm_summary",
+]);
+export type ScanReportSummaryMode = z.infer<typeof scanReportSummaryModeSchema>;
+
+export const scanReportLlmSummaryOutputSchema = z.object({
+	executiveSummary: z.string().min(1).max(3000),
+	keyFindings: z.array(z.string().min(1).max(1000)).max(20),
+	riskNarrative: z.string().min(1).max(3000),
+	recommendedNextActions: z.array(z.string().min(1).max(1000)).max(20),
+	confidenceNotes: z.array(z.string().min(1).max(1000)).max(20),
+});
+export type ScanReportLlmSummaryOutput = z.infer<
+	typeof scanReportLlmSummaryOutputSchema
+>;
+
 export const scanReportSchema = z.object({
 	id: z.string().uuid(),
 	scanRunId: z.string().uuid(),
@@ -290,6 +354,9 @@ export const scanReportSchema = z.object({
 		includeFalsePositives: z.boolean(),
 		includeDeferred: z.boolean(),
 		includeUndecided: z.boolean(),
+		summaryMode: scanReportSummaryModeSchema
+			.optional()
+			.default("deterministic"),
 	}),
 	status: z.enum(["running", "completed", "failed"]),
 	errorMessage: z.string().nullable(),
@@ -305,5 +372,6 @@ export const createScanReportSchema = z.object({
 	includeFalsePositives: z.boolean().default(true),
 	includeDeferred: z.boolean().default(true),
 	includeUndecided: z.boolean().default(true),
+	summaryMode: scanReportSummaryModeSchema.default("deterministic"),
 });
 export type CreateScanReportInput = z.infer<typeof createScanReportSchema>;

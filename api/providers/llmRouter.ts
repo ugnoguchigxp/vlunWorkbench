@@ -14,6 +14,30 @@ import type { LlmRouteFailureKind, LlmRouteResolution } from "./llmTaskTypes";
 
 export type LlmRouteOverride = Partial<LlmModelTarget>;
 
+function hasOverride(override: LlmRouteOverride): boolean {
+	return (
+		override.providerEndpointId !== undefined ||
+		override.model !== undefined ||
+		override.thinkingDepth !== undefined
+	);
+}
+
+function mergeTarget(
+	target: LlmModelTarget | null | undefined,
+	override: LlmRouteOverride,
+): LlmModelTarget | null {
+	const providerEndpointId =
+		override.providerEndpointId ?? target?.providerEndpointId;
+	const model = override.model ?? target?.model;
+	if (!providerEndpointId || !model) return null;
+	const thinkingDepth = override.thinkingDepth ?? target?.thinkingDepth;
+	return {
+		providerEndpointId,
+		model,
+		...(thinkingDepth !== undefined ? { thinkingDepth } : {}),
+	};
+}
+
 export class LlmRouter {
 	constructor(
 		private readonly repository: LlmSettingsRepository,
@@ -22,7 +46,7 @@ export class LlmRouter {
 
 	async resolve(
 		task: LlmTask,
-		_override: LlmRouteOverride = {},
+		override: LlmRouteOverride = {},
 	): Promise<LlmRouteResolution> {
 		const settings = await this.repository.getSettings({
 			maskSecrets: false,
@@ -35,7 +59,9 @@ export class LlmRouter {
 		const route = settings.taskRoutes.find(
 			(candidate) => candidate.task === task,
 		);
-		if (!route) {
+		const overrideProvided = hasOverride(override);
+		const overrideTarget = mergeTarget(route?.primaryTarget, override);
+		if (!route && !overrideTarget) {
 			return {
 				ok: false,
 				task,
@@ -43,7 +69,7 @@ export class LlmRouter {
 				message: `No LLM task route is configured for task ${task}.`,
 			};
 		}
-		if (!route.primaryTarget) {
+		if (!overrideTarget && !route?.primaryTarget) {
 			return {
 				ok: false,
 				task,
@@ -52,12 +78,15 @@ export class LlmRouter {
 			};
 		}
 
-		const routeTargets = [
-			route.primaryTarget,
-			...(route.policy.fallbackMode === "explicit"
-				? route.fallbackTargets
-				: []),
-		];
+		const primaryTarget = overrideTarget ?? route?.primaryTarget;
+		const routeTargets = primaryTarget
+			? [
+					primaryTarget,
+					...(!overrideProvided && route?.policy.fallbackMode === "explicit"
+						? route.fallbackTargets
+						: []),
+				]
+			: [];
 		const targets = routeTargets;
 		let lastFailure: LlmRouteResolution | null = null;
 
@@ -67,7 +96,7 @@ export class LlmRouter {
 				task,
 				target,
 				endpoint,
-				route.policy.allowCodex,
+				route?.policy.allowCodex,
 			);
 			if (validationFailure) {
 				lastFailure = {
@@ -128,7 +157,7 @@ export class LlmRouter {
 		task: LlmTask,
 		target: LlmModelTarget,
 		endpoint?: LlmProviderEndpointSettings,
-		_allowCodexOverride?: boolean,
+		allowCodexOverride?: boolean,
 	): { failureKind: LlmRouteFailureKind; message: string } | null {
 		if (!endpoint) {
 			return {
@@ -143,6 +172,13 @@ export class LlmRouter {
 			};
 		}
 		const policy = LLM_TASK_POLICIES[task];
+		const allowCodex = allowCodexOverride ?? policy.defaultAllowCodex;
+		if (endpoint.kind === "codex" && !allowCodex) {
+			return {
+				failureKind: "llm_provider_kind_not_allowed",
+				message: `Provider kind codex is not allowed for task ${task}.`,
+			};
+		}
 		if (!policy.allowProviderKinds.includes(endpoint.kind)) {
 			return {
 				failureKind: "llm_provider_kind_not_allowed",

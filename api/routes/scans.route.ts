@@ -10,12 +10,16 @@ import type {
 } from "../modules/scans/repositories";
 import type { FindingDecisionRepository } from "../modules/decisions/finding-decision-repository";
 import type { ScanReportRepository } from "../modules/scans/report-repository";
+import { ScanReviewRepository } from "../modules/scans/scan-review-repository";
+import { ScanReviewRunner } from "../modules/scans/scan-review-runner";
 import type { ArtifactStorage } from "../modules/scans/artifact-storage";
 import type { AppDatabase } from "../db";
 import { createScanReportSchema } from "../../shared/schemas/scan.schema";
 import { buildMarkdownReport } from "../modules/scans/report-builder";
+import { buildMarkdownReportWithLlmSummary } from "../modules/scans/report-summary-runner";
 import { buildScanRunSummary } from "../modules/scans/summary-builder";
 import { buildGroupedFindings } from "../modules/scans/grouping-builder";
+import type { LlmRouter } from "../providers/llmRouter";
 
 type ScansRouteDeps = {
 	scanRepository: ScanRepository;
@@ -24,8 +28,10 @@ type ScansRouteDeps = {
 	findingRepository: FindingRepository;
 	decisionRepository: FindingDecisionRepository;
 	scanReportRepository: ScanReportRepository;
+	scanReviewRepository?: ScanReviewRepository;
 	artifactStorage: ArtifactStorage;
 	db: AppDatabase;
+	llmRouter?: LlmRouter;
 };
 
 export function createScansRoute(deps: ScansRouteDeps) {
@@ -38,7 +44,10 @@ export function createScansRoute(deps: ScansRouteDeps) {
 		scanReportRepository,
 		artifactStorage,
 		db,
+		llmRouter,
 	} = deps;
+	const scanReviewRepository =
+		deps.scanReviewRepository ?? new ScanReviewRepository(db);
 
 	async function checkScanOwnership(scanRunId: string, userId: string) {
 		const scan = await scanRepository.findById(scanRunId);
@@ -145,6 +154,28 @@ export function createScansRoute(deps: ScansRouteDeps) {
 			const list = await scanReportRepository.listReportsForScan(scanRunId);
 			return c.json({ reports: list });
 		})
+		.get("/:scanRunId/reviews", async (c) => {
+			const authUser = getAuthContextUser(c);
+			const scanRunId = c.req.param("scanRunId");
+			await checkScanOwnership(scanRunId, authUser.userId);
+			const reviews = await scanReviewRepository.listReviews(scanRunId);
+			return c.json({ reviews });
+		})
+		.post("/:scanRunId/reviews", async (c) => {
+			const authUser = getAuthContextUser(c);
+			const scanRunId = c.req.param("scanRunId");
+			await checkScanOwnership(scanRunId, authUser.userId);
+			const runner = new ScanReviewRunner(db, {
+				llmRouter,
+				reviewRepository: scanReviewRepository,
+			});
+			const result = await runner.run(scanRunId, {
+				task: "scan_review",
+				createdByUserId: authUser.userId,
+			});
+			const review = await scanReviewRepository.findById(result.reviewId);
+			return c.json({ review, result });
+		})
 		.post(
 			"/:scanRunId/reports",
 			zValidator("json", createScanReportSchema),
@@ -154,27 +185,45 @@ export function createScansRoute(deps: ScansRouteDeps) {
 				const input = c.req.valid("json");
 
 				await checkScanOwnership(scanRunId, authUser.userId);
+				const reportOptions = {
+					includeFalsePositives: input.includeFalsePositives,
+					includeDeferred: input.includeDeferred,
+					includeUndecided: input.includeUndecided,
+					summaryMode: input.summaryMode,
+				};
 
 				const report = await scanReportRepository.createReport({
 					scanRunId,
 					format: input.format,
 					title: input.title,
-					options: {
-						includeFalsePositives: input.includeFalsePositives,
-						includeDeferred: input.includeDeferred,
-						includeUndecided: input.includeUndecided,
-					},
+					options: reportOptions,
 					status: "running",
 					generatedByUserId: authUser.userId,
 				});
 
 				try {
-					const markdown = await buildMarkdownReport(db, scanRunId, {
+					const builderOptions = {
 						includeFalsePositives: input.includeFalsePositives,
 						includeDeferred: input.includeDeferred,
 						includeUndecided: input.includeUndecided,
 						title: input.title,
-					});
+					};
+					const reportBuild =
+						input.summaryMode === "deterministic_with_llm_summary"
+							? await buildMarkdownReportWithLlmSummary(db, scanRunId, {
+									...builderOptions,
+									llmRouter,
+								})
+							: {
+									markdown: await buildMarkdownReport(
+										db,
+										scanRunId,
+										builderOptions,
+									),
+									providerRouting: undefined,
+									output: undefined,
+								};
+					const markdown = reportBuild.markdown;
 
 					const filename = `report-${report.id}.md`;
 					const saveResult = await artifactStorage.saveTextArtifact(
@@ -192,7 +241,13 @@ export function createScansRoute(deps: ScansRouteDeps) {
 						path: saveResult.path,
 						sha256: saveResult.sha256,
 						sizeBytes: saveResult.sizeBytes,
-						metadata: { reportId: report.id },
+						metadata: {
+							reportId: report.id,
+							summaryMode: input.summaryMode,
+							...(reportBuild.providerRouting
+								? { providerRouting: reportBuild.providerRouting }
+								: {}),
+						},
 					});
 
 					const updated = await scanReportRepository.updateReportStatus(
@@ -201,6 +256,12 @@ export function createScansRoute(deps: ScansRouteDeps) {
 						{
 							artifactId: artifact.id,
 							summary: markdown.slice(0, 500),
+							options: {
+								...reportOptions,
+								...(reportBuild.providerRouting
+									? { providerRouting: reportBuild.providerRouting }
+									: {}),
+							},
 						},
 					);
 

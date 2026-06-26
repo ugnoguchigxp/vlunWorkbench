@@ -48,12 +48,24 @@ export function createScanReportsRoute(deps: ScanReportsRouteDeps) {
 		return typeof value === "boolean" ? value : true;
 	};
 
+	const getSummaryMode = (options: unknown): string => {
+		if (!options || typeof options !== "object") return "deterministic";
+		const value = (options as Record<string, unknown>).summaryMode;
+		return typeof value === "string" ? value : "deterministic";
+	};
+
 	async function regenerateReportArtifact(report: {
 		id: string;
 		scanRunId: string;
 		title: string;
 		options: unknown;
 	}) {
+		if (getSummaryMode(report.options) === "deterministic_with_llm_summary") {
+			throw new HttpError(
+				409,
+				"LLM summary report artifact is missing and cannot be deterministically regenerated from the download route. Generate a new report instead.",
+			);
+		}
 		const markdown = await buildMarkdownReport(db, report.scanRunId, {
 			includeFalsePositives: getBooleanOption(
 				report.options,

@@ -8,6 +8,7 @@ import { users, projects, scanRuns, findings, findingEvidences } from "../../db/
 import { extractSourceSnippet, buildReviewBundle } from "./finding-review-bundle";
 import { FindingReviewRunner } from "./finding-review-runner";
 import type { LlmProvider } from "../../providers/types";
+import { LlmProviderExecutionError } from "../../providers/types";
 import type { LlmRouter } from "../../providers/llmRouter";
 
 describe("FindingReviewRunner", () => {
@@ -333,6 +334,61 @@ describe("FindingReviewRunner", () => {
 			expect(reviewRow?.model).toBe("unresolved");
 			expect(reviewRow?.errorMessage).toContain(
 				"llm_provider_adapter_unavailable",
+			);
+		});
+
+		it("should classify provider execution failures", async () => {
+			const filePath = path.join(repoPath, "src/auth.ts");
+			await fs.mkdir(path.dirname(filePath), { recursive: true });
+			await fs.writeFile(filePath, "const slack = 'token';");
+
+			const mockLlm: LlmProvider = {
+				chatCompletion: vi
+					.fn()
+					.mockRejectedValue(new LlmProviderExecutionError("codex failed")),
+			};
+
+			const runner = new FindingReviewRunner(connection.db, mockLlm);
+			const result = await runner.run(findingId);
+
+			expect(result.ok).toBe(false);
+			expect(result.error).toContain("llm_provider_execution_failed");
+
+			const reviewRow = await connection.db.query.findingReviews.findFirst({
+				where: (fields, { eq }) => eq(fields.id, result.reviewId),
+			});
+			expect(reviewRow?.status).toBe("failed");
+			expect(reviewRow?.errorMessage).toContain(
+				"llm_provider_execution_failed: codex failed",
+			);
+		});
+
+		it("should classify structured output validation failures", async () => {
+			const filePath = path.join(repoPath, "src/auth.ts");
+			await fs.mkdir(path.dirname(filePath), { recursive: true });
+			await fs.writeFile(filePath, "const slack = 'token';");
+
+			const mockLlm: LlmProvider = {
+				chatCompletion: vi.fn().mockResolvedValue({
+					id: "resp-invalid",
+					content: "not json",
+				}),
+			};
+
+			const runner = new FindingReviewRunner(connection.db, mockLlm);
+			const result = await runner.run(findingId);
+
+			expect(result.ok).toBe(false);
+			expect(result.error).toContain(
+				"llm_structured_output_validation_failed",
+			);
+
+			const reviewRow = await connection.db.query.findingReviews.findFirst({
+				where: (fields, { eq }) => eq(fields.id, result.reviewId),
+			});
+			expect(reviewRow?.status).toBe("failed");
+			expect(reviewRow?.errorMessage).toContain(
+				"llm_structured_output_validation_failed",
 			);
 		});
 	});

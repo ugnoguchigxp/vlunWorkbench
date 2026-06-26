@@ -106,10 +106,12 @@ export type LlmProviderHealthResult = {
 
 export type CodexStatusResponse = {
 	authenticated: boolean;
-	authSource: "environment" | "codex-auth-json" | "none";
+	authSource: "environment" | "settings" | "codex-auth-json" | "none";
 	codexHome: string;
 	modelSource: "settings" | "cache" | "fallback" | "none";
 	detectedModels: string[];
+	executableAdapterAvailable: boolean;
+	adapterDiagnostics?: Record<string, unknown>;
 };
 
 export type AuthUser = {
@@ -1035,6 +1037,8 @@ export type ScanReport = {
 		includeFalsePositives: boolean;
 		includeDeferred: boolean;
 		includeUndecided: boolean;
+		summaryMode?: "deterministic" | "deterministic_with_llm_summary";
+		providerRouting?: Record<string, unknown>;
 	};
 	status: "running" | "completed" | "failed";
 	errorMessage: string | null;
@@ -1049,6 +1053,7 @@ export type CreateScanReportInput = {
 	includeFalsePositives: boolean;
 	includeDeferred: boolean;
 	includeUndecided: boolean;
+	summaryMode?: "deterministic" | "deterministic_with_llm_summary";
 };
 
 export async function generateScanReport(
@@ -1062,6 +1067,46 @@ export async function generateScanReport(
 			body: input,
 		},
 	);
+}
+
+export type ScanReview = {
+	id: string;
+	scanRunId: string;
+	projectId: string;
+	provider: string;
+	model: string;
+	status: "running" | "completed" | "failed";
+	summary: string | null;
+	riskOverview: string | null;
+	priorityNotes: string[];
+	coverageNotes: string[];
+	falsePositiveHotspots: string[];
+	recommendedNextActions: string[];
+	findingTriageHints: Array<Record<string, unknown>>;
+	confidenceNotes: string[];
+	errorMessage: string | null;
+	createdAt: string;
+	updatedAt: string;
+};
+
+export async function fetchScanReviews(
+	scanRunId: string,
+): Promise<ScanReview[]> {
+	const data = await requestJson<{ reviews: ScanReview[] }>(
+		`/api/scans/${scanRunId}/reviews`,
+	);
+	return [...data.reviews].sort(
+		(a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+	);
+}
+
+export async function triggerScanReview(
+	scanRunId: string,
+): Promise<{ review: ScanReview | null; result: Record<string, unknown> }> {
+	return requestJson<{
+		review: ScanReview | null;
+		result: Record<string, unknown>;
+	}>(`/api/scans/${scanRunId}/reviews`, { method: "POST" });
 }
 
 export async function fetchScanReports(

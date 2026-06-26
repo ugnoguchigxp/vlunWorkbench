@@ -123,7 +123,9 @@ const emptyCodexEndpoint = (
 	id: "codex-default",
 	name: "Codex SDK",
 	kind: "codex",
-	enabled: Boolean(codexStatus?.authenticated),
+	enabled: Boolean(
+		codexStatus?.authenticated && codexStatus.executableAdapterAvailable,
+	),
 	apiKey: "",
 	baseUrl: "",
 	endpoint: "",
@@ -354,6 +356,21 @@ export function SettingsPanel({
 			if (endpoint.models.length === 0 && endpoint.kind !== "codex") {
 				errors.push(`${endpoint.name} requires at least one model.`);
 			}
+			if (
+				endpoint.kind === "codex" &&
+				endpoint.enabled &&
+				!codexStatus?.authenticated
+			) {
+				errors.push("Codex SDK endpoint is enabled but not authenticated.");
+			}
+			if (
+				endpoint.kind === "codex" &&
+				endpoint.enabled &&
+				codexStatus &&
+				!codexStatus.executableAdapterAvailable
+			) {
+				errors.push("Codex SDK adapter is not available in this runtime.");
+			}
 			if (endpoint.kind === "azure" && !endpoint.endpoint?.trim()) {
 				errors.push(`${endpoint.name} requires an endpoint.`);
 			}
@@ -385,7 +402,7 @@ export function SettingsPanel({
 			}
 		}
 		return Array.from(new Set(errors));
-	}, [llmSettings]);
+	}, [codexStatus, llmSettings]);
 
 	const updateEndpoint = (
 		id: string,
@@ -704,6 +721,17 @@ export function SettingsPanel({
 									{codexStatus?.detectedModels.length
 										? `${codexStatus.detectedModels.length} models`
 										: "-"}
+								</span>
+								<span
+									className={
+										codexStatus?.executableAdapterAvailable
+											? "health-ok"
+											: "health-fail"
+									}
+								>
+									{codexStatus?.executableAdapterAvailable
+										? "adapter ready"
+										: "adapter unavailable"}
 								</span>
 							</div>
 							{codexEndpoint ? (

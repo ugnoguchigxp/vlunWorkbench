@@ -460,6 +460,34 @@ function ScanReportControls() {
 			>
 				{c.reportLoading ? "Generating..." : "Generate Report"}
 			</Button>
+			<Button
+				type="button"
+				variant="secondary"
+				onClick={() =>
+					void c.handleGenerateReport("deterministic_with_llm_summary")
+				}
+				disabled={c.reportLoading || c.busy}
+				full
+			>
+				Generate LLM Summary Report
+			</Button>
+			<Button
+				type="button"
+				variant="secondary"
+				onClick={() => void c.handleTriggerScanReview()}
+				disabled={c.scanReviewLoading || c.busy}
+				full
+			>
+				{c.scanReviewLoading ? "Reviewing..." : "Run Scan Review"}
+			</Button>
+			{c.scanReviews[0] ? (
+				<div className="tree-info">
+					<strong>Latest Scan Review:</strong>{" "}
+					{c.scanReviews[0].status === "completed"
+						? c.scanReviews[0].summary
+						: c.scanReviews[0].errorMessage || c.scanReviews[0].status}
+				</div>
+			) : null}
 			{c.reports[0] ? (
 				<Button
 					type="button"
