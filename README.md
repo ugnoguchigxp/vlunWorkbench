@@ -22,7 +22,7 @@ Phase 1〜12 の全実装および統合・堅牢化が完了しています。
 - **Human Decision Workflow** (人間による最終ステータス判断)
 - **Sandbox Reproduction** (Docker隔離コンテナによる再現実行)
 - **Dynamic Verification** (テスト、サニタイザ、ファジングの実行)
-- **DAST / Browser Automation** (HTTPベースライン及びブラウザスモークチェック)
+- **DAST / HTTP Baseline** (ローカル対象の自動起動・HTTPベースラインチェック。ブラウザスモークは実ブラウザadapter実装まで無効)
 - **Markdown Report Export** (全診断結果、証拠、メタデータを統合したレポート出力)
 - **Final Hardening** (パス走査対策、Docker socketマウント不使用、シークレット難読化、Failure kindの統一)
 
@@ -127,6 +127,18 @@ bun run dynamic:run -- \
 ```
 
 ### 4. DAST / HTTP baseline スキャンの実行
+
+対象プロジェクトの `package.json` から起動スクリプトと空きポートを推定し、一時的にローカル対象を起動してHTTP baselineを実行できます。
+
+```bash
+bun run scan:dast -- \
+  --project-id <project-id> \
+  --profile http-baseline \
+  --auto-target true
+```
+
+保存済みtargetを明示して実行する場合:
+
 ```bash
 bun run scan:dast -- \
   --project-id <project-id> \

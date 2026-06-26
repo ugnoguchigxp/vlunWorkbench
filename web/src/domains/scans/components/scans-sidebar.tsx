@@ -9,7 +9,6 @@ import {
 } from "lucide-react";
 import { Button, SelectInput, TextInput } from "../../../ui";
 import { useScans } from "../scans-context";
-import { formatDateTime } from "../scans-utils";
 
 const SCOPE_LABELS = {
 	source: "Source",
@@ -199,6 +198,24 @@ export function ScansSidebar() {
 							{c.dastError ? (
 								<p className="scan-inline-error">{c.dastError}</p>
 							) : null}
+							<Button
+								type="button"
+								variant="primary"
+								onClick={() => void c.handleAutoDastRun()}
+								disabled={!c.selectedProjectId || c.dastLoading}
+								full
+							>
+								<Play className="icon" />
+								{c.dastLoading
+									? "Preparing Auto DAST..."
+									: "Auto DAST HTTP Baseline"}
+							</Button>
+							{c.lastAutoDastTargetOrigin ? (
+								<div className="scan-profile-summary">
+									<strong>{c.lastAutoDastTargetOrigin}</strong>
+									<span>Last auto target origin used for this project.</span>
+								</div>
+							) : null}
 							<label htmlFor="scan-dast-target-name">
 								<span>Target Name</span>
 								<TextInput
@@ -216,7 +233,7 @@ export function ScansSidebar() {
 									onChange={(event) =>
 										c.setDastTargetOrigin(event.target.value)
 									}
-									placeholder="http://127.0.0.1:3000"
+									placeholder="Manual target only, for example http://127.0.0.1:5173"
 									disabled={!c.selectedProjectId}
 								/>
 							</label>
@@ -273,12 +290,12 @@ export function ScansSidebar() {
 								<strong>
 									{selectedTarget
 										? selectedTarget.normalizedOrigin
-										: "No DAST target selected"}
+										: "No manual DAST target selected"}
 								</strong>
 								<span>
 									{selectedDastProfile
 										? selectedDastProfile.description
-										: "Save or select a target before running DAST."}
+										: "Use Auto DAST or save a manual target before running a saved-target DAST profile."}
 								</span>
 							</div>
 							<Button
@@ -296,48 +313,6 @@ export function ScansSidebar() {
 				</div>
 			</div>
 			{c.showNewProjectModal ? <NewProjectModal /> : null}
-
-			<div className="scans-panel-header scans-history-head">
-				<h2>Recent Runs</h2>
-				{c.selectedProjectId ? (
-					<Button
-						type="button"
-						variant="secondary"
-						onClick={() => c.setSelectedScanRunId(c.scanRuns[0]?.id ?? "")}
-						disabled={!c.scanRuns[0]}
-					>
-						Latest
-					</Button>
-				) : null}
-			</div>
-			<div className="scans-list">
-				{c.scanRuns.length > 0 ? (
-					c.scanRuns.map((run) => (
-						<button
-							type="button"
-							key={run.id}
-							className={`scan-item ${c.selectedScanRunId === run.id ? "active" : ""}`}
-							onClick={() => c.setSelectedScanRunId(run.id)}
-						>
-							<div className="finding-meta-row">
-								<strong>{run.profile}</strong>
-								<span
-									className={`scan-status-badge badge-${run.status || "queued"}`}
-								>
-									{run.status || "queued"}
-								</span>
-							</div>
-							<small>{formatDateTime(run.createdAt)}</small>
-						</button>
-					))
-				) : (
-					<div className="tree-info">
-						{c.selectedProjectId
-							? "No scans found for this project."
-							: "Register or select a project folder to start scanning."}
-					</div>
-				)}
-			</div>
 			{c.selectedScanRunId ? <ScanReportControls /> : null}
 		</section>
 	);
@@ -445,8 +420,10 @@ function NewProjectModal() {
 function ScanReportControls() {
 	const c = useScans();
 	return (
-		<div className="scans-panel-header">
-			<h2>Scan Report</h2>
+		<div className="scan-launch-section">
+			<div className="scan-launch-section-title">
+				<span>Scan Report</span>
+			</div>
 			<label>
 				<span>Report Title</span>
 				<input
@@ -465,13 +442,13 @@ function ScanReportControls() {
 					["Include Undecided", c.includeUndecided, c.setIncludeUndecided],
 				] as const
 			).map(([label, checked, setChecked]) => (
-				<label key={label}>
+				<label className="scan-checkbox-row" key={label}>
 					<input
 						type="checkbox"
 						checked={checked}
 						onChange={(event) => setChecked(event.target.checked)}
-					/>{" "}
-					{label}
+					/>
+					<span>{label}</span>
 				</label>
 			))}
 			<Button
@@ -479,8 +456,9 @@ function ScanReportControls() {
 				variant="primary"
 				onClick={() => void c.handleGenerateReport()}
 				disabled={c.reportLoading || c.busy}
+				full
 			>
-				{c.reportLoading ? "Generating..." : "Generate"}
+				{c.reportLoading ? "Generating..." : "Generate Report"}
 			</Button>
 			{c.reports[0] ? (
 				<Button
@@ -490,8 +468,9 @@ function ScanReportControls() {
 						c.setSelectedReport(c.reports[0]);
 						c.setViewingReport(true);
 					}}
+					full
 				>
-					View Latest
+					View Latest Report
 				</Button>
 			) : null}
 		</div>

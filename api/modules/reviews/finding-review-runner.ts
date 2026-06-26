@@ -83,8 +83,8 @@ export class FindingReviewRunner {
 			throw new Error(`Project not found for finding: ${finding.projectId}`);
 		}
 
-		let provider = options.providerName ?? "azure-openai";
-		let model = options.modelName ?? "gpt-4";
+		let provider = options.providerName ?? "unresolved";
+		let model = options.modelName ?? "unresolved";
 		let resolvedProvider = this.llmProvider;
 
 		let bundle: Awaited<ReturnType<typeof buildReviewBundle>>;
@@ -119,28 +119,25 @@ export class FindingReviewRunner {
 		if (!options.fixtureOutput && this.llmRouter) {
 			const resolution = await this.llmRouter.resolve(
 				options.task ?? "finding_review",
-				{
-					providerEndpointId: options.providerEndpointId,
-					model: options.modelName,
-				},
 			);
 			if (!resolution.ok) {
+				const errorMessage = `${resolution.failureKind}: ${resolution.message}`;
 				const review = await this.reviewRepo.createReview({
 					findingId,
-					provider,
-					model,
+					provider: `route:${resolution.failureKind}`,
+					model: options.modelName ?? "unresolved",
 					status: "failed",
 					inputBundle: bundle as unknown as Record<string, unknown>,
 					createdByUserId: options.createdByUserId,
 				});
 				await this.reviewRepo.updateReview(review.id, "failed", {
-					errorMessage: `${resolution.failureKind}: ${resolution.message}`,
+					errorMessage,
 				});
 				return {
 					ok: false,
 					reviewId: review.id,
 					status: "failed",
-					error: `${resolution.failureKind}: ${resolution.message}`,
+					error: errorMessage,
 				};
 			}
 			resolvedProvider = resolution.provider;

@@ -11,26 +11,70 @@ export function FindingDetailPanel() {
 	const c = useScans();
 	return (
 		<section className="scans-panel scans-detail-col">
-			{c.viewingReport ? (
-				<ReportDetailPanel />
-			) : (
-				<>
-					<div className="scans-panel-header">
-						<h2>Finding Analysis & LLM Review</h2>
+			<div className="scans-panel-header scan-detail-header">
+				<div>
+					<h2>Finding Analysis & LLM Review</h2>
+					{c.selectedScanRunId ? (
+						<small>
+							{c.displayedFindings.length} findings / {c.reports.length} reports
+						</small>
+					) : null}
+				</div>
+				<div
+					className="scan-detail-tabs"
+					role="tablist"
+					aria-label="Scan result views"
+				>
+					<button
+						type="button"
+						className={c.scanDetailTab === "review" ? "active" : ""}
+						onClick={() => c.setScanDetailTab("review")}
+					>
+						Review Results
+					</button>
+					<button
+						type="button"
+						className={c.scanDetailTab === "verification" ? "active" : ""}
+						onClick={() => c.setScanDetailTab("verification")}
+					>
+						Verification
+					</button>
+					<button
+						type="button"
+						className={c.scanDetailTab === "report" ? "active" : ""}
+						onClick={() => c.setScanDetailTab("report")}
+					>
+						Report MD
+					</button>
+				</div>
+			</div>
+			{c.scanDetailTab === "report" ? (
+				<ReportDetailPanel showHeader={false} />
+			) : c.scanDetailTab === "verification" ? (
+				c.selectedFindingDetails ? (
+					<div className="scans-detail-scroll">
+						<VerificationSections />
 					</div>
-					{c.selectedFindingDetails ? (
-						<FindingBody />
-					) : c.scanSummary ? (
-						<ScanSummaryPanel />
-					) : (
-						<div className="tree-info">
-							Select a finding from the list to view its details and trigger
-							assessments.
-						</div>
-					)}
-				</>
+				) : (
+					<EmptyFindingState />
+				)
+			) : c.selectedFindingDetails ? (
+				<FindingBody />
+			) : c.scanSummary ? (
+				<ScanSummaryPanel />
+			) : (
+				<EmptyFindingState />
 			)}
 		</section>
+	);
+}
+
+function EmptyFindingState() {
+	return (
+		<div className="tree-info">
+			Select a finding from the list to view its details and trigger
+			assessments.
+		</div>
 	);
 }
 
@@ -102,7 +146,6 @@ function FindingBody() {
 				</div>
 			) : null}
 			<ReviewSection />
-			<VerificationSections />
 			<DecisionSection />
 		</div>
 	);

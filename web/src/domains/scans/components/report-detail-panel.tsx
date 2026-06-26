@@ -5,26 +5,32 @@ import { Button } from "../../../ui";
 import { useScans } from "../scans-context";
 import { formatDateTime } from "../scans-utils";
 
-export function ReportDetailPanel() {
+export function ReportDetailPanel({
+	showHeader = true,
+}: {
+	showHeader?: boolean;
+}) {
 	const c = useScans();
 	return (
 		<>
-			<div className="scans-panel-header">
-				<div className="finding-meta-row">
-					<h2>
-						{c.selectedReport
-							? `Report: ${c.selectedReport.title}`
-							: "Scan Report"}
-					</h2>
-					<Button
-						type="button"
-						variant="secondary"
-						onClick={() => c.setViewingReport(false)}
-					>
-						Back to Findings
-					</Button>
+			{showHeader ? (
+				<div className="scans-panel-header">
+					<div className="finding-meta-row">
+						<h2>
+							{c.selectedReport
+								? `Report: ${c.selectedReport.title}`
+								: "Scan Report"}
+						</h2>
+						<Button
+							type="button"
+							variant="secondary"
+							onClick={() => c.setViewingReport(false)}
+						>
+							Back to Findings
+						</Button>
+					</div>
 				</div>
-			</div>
+			) : null}
 			<div className="scans-detail-scroll">
 				{c.selectedReport ? (
 					<ReportBody />

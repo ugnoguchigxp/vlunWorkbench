@@ -64,6 +64,7 @@ export function ReviewSection() {
 					<Brain className="icon text-teal-700" /> No reviews conducted yet.
 				</p>
 			)}
+			{c.reviewError ? <p className="badge-failed">{c.reviewError}</p> : null}
 			{c.allReviews.length > 1 ? (
 				<div className="detail-section">
 					<h4 className="detail-section-title">

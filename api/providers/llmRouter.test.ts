@@ -63,24 +63,112 @@ describe("LlmRouter", () => {
 		connection.sqlite.close();
 	});
 
-	it("resolves the environment seeded route", async () => {
+	it("does not resolve an environment provider when the task route is missing", async () => {
 		const repo = new LlmSettingsRepository(connection.db, env);
 		const router = new LlmRouter(repo, env);
 
 		const resolution = await router.resolve("finding_review");
 
+		expect(resolution).toMatchObject({
+			ok: false,
+			failureKind: "llm_route_missing",
+		});
+	});
+
+	it("resolves an explicit primary target", async () => {
+		const repo = new LlmSettingsRepository(connection.db, env);
+		await repo.updateSettings({
+			providerEndpoints: [
+				{
+					id: "openai-explicit",
+					name: "OpenAI Explicit",
+					kind: "openai",
+					enabled: true,
+					apiKey: "",
+					baseUrl: "https://api.openai.com/v1",
+					endpoint: "",
+					apiVersion: "",
+					region: "",
+					models: ["gpt-4.1-mini"],
+					modelDisplayNames: {},
+					modelCapabilities: {},
+				},
+			],
+			taskRoutes: [
+				{
+					task: "finding_review",
+					primaryTarget: {
+						providerEndpointId: "openai-explicit",
+						model: "gpt-4.1-mini",
+					},
+					fallbackTargets: [],
+					policy: {},
+				},
+			],
+		});
+
+		const router = new LlmRouter(repo, env);
+		const resolution = await router.resolve("finding_review", {
+			providerEndpointId: "openai-fallback",
+			model: "gpt-4.1-mini",
+		});
+
 		expect(resolution.ok).toBe(true);
 		if (resolution.ok) {
-			expect(resolution.target.providerEndpointId).toBe("openai-env-default");
+			expect(resolution.target.providerEndpointId).toBe("openai-explicit");
 			expect(resolution.model).toBe("gpt-4.1-mini");
 		}
 	});
 
-	it("returns a typed unconfigured failure when no route can be selected", async () => {
-		const repo = new LlmSettingsRepository(connection.db, {
-			...env,
-			openAiCredentialSource: "none",
-			openAiApiKey: undefined,
+	it("does not use a fallback target when fallback policy is disabled", async () => {
+		const repo = new LlmSettingsRepository(connection.db, env);
+		await repo.updateSettings({
+			providerEndpoints: [
+				{
+					id: "codex-default",
+					name: "Codex SDK",
+					kind: "codex",
+					enabled: true,
+					apiKey: "",
+					baseUrl: "",
+					endpoint: "",
+					apiVersion: "",
+					region: "",
+					models: ["gpt-5.4-mini"],
+					modelDisplayNames: {},
+					modelCapabilities: {},
+				},
+				{
+					id: "openai-fallback",
+					name: "OpenAI fallback",
+					kind: "openai",
+					enabled: true,
+					apiKey: "",
+					baseUrl: "https://api.openai.com/v1",
+					endpoint: "",
+					apiVersion: "",
+					region: "",
+					models: ["gpt-4.1-mini"],
+					modelDisplayNames: {},
+					modelCapabilities: {},
+				},
+			],
+			taskRoutes: [
+				{
+					task: "finding_review",
+					primaryTarget: {
+						providerEndpointId: "codex-default",
+						model: "gpt-5.4-mini",
+					},
+					fallbackTargets: [
+						{
+							providerEndpointId: "openai-fallback",
+							model: "gpt-4.1-mini",
+						},
+					],
+					policy: {},
+				},
+			],
 		});
 		const router = new LlmRouter(repo, env);
 
@@ -88,8 +176,57 @@ describe("LlmRouter", () => {
 
 		expect(resolution).toMatchObject({
 			ok: false,
-			failureKind: "llm_provider_unconfigured",
+			failureKind: "llm_provider_adapter_unavailable",
 		});
+		expect(resolution.ok).toBe(false);
+		if (!resolution.ok) {
+			expect(resolution.message).toContain("codex");
+		}
+	});
+
+	it("returns adapter creation errors as failed route resolutions", async () => {
+		const repo = new LlmSettingsRepository(connection.db, env);
+		await repo.updateSettings({
+			providerEndpoints: [
+				{
+					id: "codex-default",
+					name: "Codex SDK",
+					kind: "codex",
+					enabled: true,
+					apiKey: "",
+					baseUrl: "",
+					endpoint: "",
+					apiVersion: "",
+					region: "",
+					models: ["gpt-5.4-mini"],
+					modelDisplayNames: {},
+					modelCapabilities: {},
+				},
+			],
+			taskRoutes: [
+				{
+					task: "finding_review",
+					primaryTarget: {
+						providerEndpointId: "codex-default",
+						model: "gpt-5.4-mini",
+					},
+					fallbackTargets: [],
+					policy: {},
+				},
+			],
+		});
+		const router = new LlmRouter(repo, env);
+
+		const resolution = await router.resolve("finding_review");
+
+		expect(resolution).toMatchObject({
+			ok: false,
+			failureKind: "llm_provider_adapter_unavailable",
+		});
+		expect(resolution.ok).toBe(false);
+		if (!resolution.ok) {
+			expect(resolution.message).toContain("no execution adapter");
+		}
 	});
 });
 

@@ -2,6 +2,7 @@ import type { AppEnv } from "../app/env";
 import type { LlmProviderEndpointSettings } from "../modules/llm-settings/llm-settings.schema";
 import { AzureOpenAiProvider } from "./AzureOpenAiProvider";
 import { OpenAiCompatibleProvider } from "./openAiCompatibleProvider";
+import type { LlmRouteFailureKind } from "./llmTaskTypes";
 import type { LlmProvider } from "./types";
 
 export type CreateLlmProviderInput = {
@@ -9,6 +10,21 @@ export type CreateLlmProviderInput = {
 	model: string;
 	env?: AppEnv;
 };
+
+export class LlmProviderFactoryError extends Error {
+	constructor(
+		readonly failureKind: Extract<
+			LlmRouteFailureKind,
+			| "llm_provider_missing"
+			| "llm_provider_credentials_missing"
+			| "llm_provider_adapter_unavailable"
+		>,
+		message: string,
+	) {
+		super(message);
+		this.name = "LlmProviderFactoryError";
+	}
+}
 
 function secretForEndpoint(
 	endpoint: LlmProviderEndpointSettings,
@@ -28,10 +44,16 @@ export function createLlmProviderForEndpoint(
 
 	if (endpoint.kind === "azure") {
 		if (!endpoint.endpoint) {
-			throw new Error(`Azure endpoint ${endpoint.id} is missing endpoint.`);
+			throw new LlmProviderFactoryError(
+				"llm_provider_missing",
+				`Azure endpoint ${endpoint.id} is missing endpoint.`,
+			);
 		}
 		if (!apiKey) {
-			throw new Error(`Azure endpoint ${endpoint.id} is missing an API key.`);
+			throw new LlmProviderFactoryError(
+				"llm_provider_credentials_missing",
+				`Azure endpoint ${endpoint.id} is missing an API key.`,
+			);
 		}
 		return new AzureOpenAiProvider({
 			endpoint: endpoint.endpoint,
@@ -50,7 +72,16 @@ export function createLlmProviderForEndpoint(
 			(endpoint.kind === "openai-compatible" || endpoint.kind === "local") &&
 			!endpoint.baseUrl
 		) {
-			throw new Error(`Endpoint ${endpoint.id} is missing baseUrl.`);
+			throw new LlmProviderFactoryError(
+				"llm_provider_missing",
+				`Endpoint ${endpoint.id} is missing baseUrl.`,
+			);
+		}
+		if (endpoint.kind === "openai" && !apiKey) {
+			throw new LlmProviderFactoryError(
+				"llm_provider_credentials_missing",
+				`OpenAI endpoint ${endpoint.id} is missing an API key.`,
+			);
 		}
 		return new OpenAiCompatibleProvider({
 			baseUrl: endpoint.baseUrl,
@@ -60,7 +91,8 @@ export function createLlmProviderForEndpoint(
 		});
 	}
 
-	throw new Error(
+	throw new LlmProviderFactoryError(
+		"llm_provider_adapter_unavailable",
 		`Provider kind ${endpoint.kind} is configured but no execution adapter is available.`,
 	);
 }

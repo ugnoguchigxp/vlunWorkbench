@@ -5,10 +5,12 @@ import {
 	type LlmModelTarget,
 	type LlmProviderEndpointSettings,
 	type LlmTask,
-	validateLlmRouteTargets,
 } from "../modules/llm-settings/llm-settings.schema";
-import { createLlmProviderForEndpoint } from "./llmProviderFactory";
-import type { LlmRouteResolution } from "./llmTaskTypes";
+import {
+	createLlmProviderForEndpoint,
+	LlmProviderFactoryError,
+} from "./llmProviderFactory";
+import type { LlmRouteFailureKind, LlmRouteResolution } from "./llmTaskTypes";
 
 export type LlmRouteOverride = Partial<LlmModelTarget>;
 
@@ -20,23 +22,12 @@ export class LlmRouter {
 
 	async resolve(
 		task: LlmTask,
-		override: LlmRouteOverride = {},
+		_override: LlmRouteOverride = {},
 	): Promise<LlmRouteResolution> {
 		const settings = await this.repository.getSettings({
 			maskSecrets: false,
 			seedFromEnv: true,
 		});
-
-		try {
-			validateLlmRouteTargets(settings);
-		} catch (error) {
-			return {
-				ok: false,
-				task,
-				failureKind: "llm_provider_unconfigured",
-				message: error instanceof Error ? error.message : String(error),
-			};
-		}
 
 		const endpoints = new Map(
 			settings.providerEndpoints.map((endpoint) => [endpoint.id, endpoint]),
@@ -44,35 +35,58 @@ export class LlmRouter {
 		const route = settings.taskRoutes.find(
 			(candidate) => candidate.task === task,
 		);
+		if (!route) {
+			return {
+				ok: false,
+				task,
+				failureKind: "llm_route_missing",
+				message: `No LLM task route is configured for task ${task}.`,
+			};
+		}
+		if (!route.primaryTarget) {
+			return {
+				ok: false,
+				task,
+				failureKind: "llm_route_target_missing",
+				message: `LLM task route ${task} does not have a primary target.`,
+			};
+		}
+
 		const routeTargets = [
-			...(route?.primaryTarget ? [route.primaryTarget] : []),
-			...(route?.fallbackTargets ?? []),
+			route.primaryTarget,
+			...(route.policy.fallbackMode === "explicit"
+				? route.fallbackTargets
+				: []),
 		];
-		const targets =
-			override.providerEndpointId || override.model
-				? [
-						{
-							providerEndpointId:
-								override.providerEndpointId ??
-								routeTargets[0]?.providerEndpointId ??
-								"",
-							model: override.model ?? routeTargets[0]?.model ?? "",
-							thinkingDepth:
-								override.thinkingDepth ?? routeTargets[0]?.thinkingDepth,
-						},
-					]
-				: routeTargets;
+		const targets = routeTargets;
+		let lastFailure: LlmRouteResolution | null = null;
 
 		for (const target of targets) {
 			const endpoint = endpoints.get(target.providerEndpointId);
-			const validationMessage = this.validateTarget(
+			const validationFailure = this.validateTarget(
 				task,
 				target,
 				endpoint,
-				route?.policy.allowCodex,
+				route.policy.allowCodex,
 			);
-			if (validationMessage) continue;
-			if (!endpoint) continue;
+			if (validationFailure) {
+				lastFailure = {
+					ok: false,
+					task,
+					failureKind: validationFailure.failureKind,
+					message: validationFailure.message,
+				};
+				continue;
+			}
+			if (!endpoint) {
+				lastFailure = {
+					ok: false,
+					task,
+					failureKind: "llm_provider_missing",
+					message: `LLM provider endpoint ${target.providerEndpointId} is missing.`,
+				};
+				continue;
+			}
 			try {
 				const provider = createLlmProviderForEndpoint({
 					endpoint,
@@ -87,15 +101,27 @@ export class LlmRouter {
 					providerName: `${endpoint.kind}:${endpoint.id}`,
 					model: target.model,
 				};
-			} catch {}
+			} catch (error) {
+				lastFailure = {
+					ok: false,
+					task,
+					failureKind:
+						error instanceof LlmProviderFactoryError
+							? error.failureKind
+							: "llm_provider_adapter_unavailable",
+					message: error instanceof Error ? error.message : String(error),
+				};
+			}
 		}
 
-		return {
-			ok: false,
-			task,
-			failureKind: "llm_provider_unconfigured",
-			message: `No configured LLM provider route is available for task ${task}.`,
-		};
+		return (
+			lastFailure ?? {
+				ok: false,
+				task,
+				failureKind: "llm_route_target_missing",
+				message: `LLM task route ${task} did not include a usable target.`,
+			}
+		);
 	}
 
 	private validateTarget(
@@ -103,15 +129,31 @@ export class LlmRouter {
 		target: LlmModelTarget,
 		endpoint?: LlmProviderEndpointSettings,
 		_allowCodexOverride?: boolean,
-	): string | null {
-		if (!endpoint) return `Missing endpoint ${target.providerEndpointId}.`;
-		if (!endpoint.enabled) return `Endpoint ${endpoint.id} is disabled.`;
+	): { failureKind: LlmRouteFailureKind; message: string } | null {
+		if (!endpoint) {
+			return {
+				failureKind: "llm_provider_missing",
+				message: `LLM provider endpoint ${target.providerEndpointId} is missing.`,
+			};
+		}
+		if (!endpoint.enabled) {
+			return {
+				failureKind: "llm_provider_disabled",
+				message: `LLM provider endpoint ${endpoint.id} is disabled.`,
+			};
+		}
 		const policy = LLM_TASK_POLICIES[task];
 		if (!policy.allowProviderKinds.includes(endpoint.kind)) {
-			return `Provider kind ${endpoint.kind} is not allowed for ${task}.`;
+			return {
+				failureKind: "llm_provider_kind_not_allowed",
+				message: `Provider kind ${endpoint.kind} is not allowed for task ${task}.`,
+			};
 		}
 		if (!endpoint.models.includes(target.model)) {
-			return `Model ${target.model} is not configured on ${endpoint.id}.`;
+			return {
+				failureKind: "llm_model_not_configured",
+				message: `Model ${target.model} is not configured on endpoint ${endpoint.id}.`,
+			};
 		}
 		return null;
 	}

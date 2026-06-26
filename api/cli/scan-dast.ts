@@ -2,10 +2,14 @@ import { parseArgs } from "node:util";
 import { readAppEnv } from "../app/env";
 import { createDbConnection } from "../db";
 import { DastRunner } from "../modules/dast/dast-runner";
+import { DastRepository } from "../modules/dast/dast-repository";
+import { prepareDastTargetWorkspace } from "../modules/dast/target-preparer";
+import { ProjectRepository } from "../modules/scans/repositories";
 
 type DastCliArgs = {
 	"project-id"?: string;
 	"target-config-id"?: string;
+	"auto-target"?: string;
 	profile?: string;
 	"profile-config-id"?: string;
 	"scan-run-id"?: string;
@@ -40,6 +44,7 @@ async function main() {
 			options: {
 				"project-id": { type: "string" },
 				"target-config-id": { type: "string" },
+				"auto-target": { type: "string", default: "false" },
 				profile: { type: "string" },
 				"profile-config-id": { type: "string" },
 				"scan-run-id": { type: "string" },
@@ -66,9 +71,10 @@ async function main() {
 	}
 
 	const projectId = values["project-id"];
-	const targetConfigId = values["target-config-id"];
+	let targetConfigId = values["target-config-id"];
+	const autoTarget = values["auto-target"] === "true";
 	const profileId = values.profile;
-	if (!projectId || !targetConfigId || !profileId) {
+	if (!projectId || !profileId || (!targetConfigId && !autoTarget)) {
 		writeResult({
 			ok: false,
 			dastRunId: null,
@@ -77,7 +83,7 @@ async function main() {
 			outcome: "error",
 			failureKind: "dast_target_rejected",
 			message:
-				"Missing required arguments: --project-id, --target-config-id, and --profile are required.",
+				"Missing required arguments: --project-id and --profile are required. Provide --target-config-id or --auto-target true.",
 		});
 		process.exit(1);
 	}
@@ -119,11 +125,41 @@ async function main() {
 
 	const env = readAppEnv();
 	const connection = createDbConnection(env.databaseUrl);
+	let preparedAutoTarget: Awaited<
+		ReturnType<typeof prepareDastTargetWorkspace>
+	> | null = null;
+	const dastRepo = new DastRepository(connection.db);
 	try {
+		if (autoTarget) {
+			const project = await new ProjectRepository(connection.db).findById(
+				projectId,
+			);
+			if (!project) {
+				writeResult({
+					ok: false,
+					dastRunId: null,
+					scanRunId: values["scan-run-id"] ?? null,
+					status: "failed",
+					outcome: "error",
+					failureKind: "dast_target_rejected",
+					message: "Project not found.",
+				});
+				process.exitCode = 1;
+				return;
+			}
+			preparedAutoTarget = await prepareDastTargetWorkspace({
+				repoPath: project.repoPath,
+			});
+			const target = await dastRepo.createTargetConfig({
+				projectId,
+				...preparedAutoTarget.targetConfig,
+			});
+			targetConfigId = target.id;
+		}
 		const runner = new DastRunner(connection.db);
 		const runOptions = {
 			projectId,
-			targetConfigId,
+			targetConfigId: targetConfigId as string,
 			profileId,
 			profileConfigId: values["profile-config-id"] ?? null,
 			scanRunId: values["scan-run-id"] ?? null,
@@ -136,8 +172,34 @@ async function main() {
 		const result = runOptions.dryRun
 			? await runner.dryRun(runOptions)
 			: await runner.run(runOptions);
-		writeResult(result);
-		process.exit(result.ok || result.dastRunId ? 0 : 1);
+		if (preparedAutoTarget) {
+			await dastRepo.updateTargetConfig(targetConfigId as string, {
+				enabled: false,
+				metadata: {
+					...preparedAutoTarget.targetConfig.metadata,
+					autoPreparedCompletedAt: new Date().toISOString(),
+				},
+			});
+		}
+		writeResult(
+			preparedAutoTarget && result.ok
+				? {
+						...result,
+						plan: {
+							...(result.plan ?? {}),
+							autoTarget: {
+								origin: preparedAutoTarget.origin,
+								command: preparedAutoTarget.plan.command,
+								scriptName: preparedAutoTarget.plan.scriptName,
+								port: preparedAutoTarget.plan.port,
+								warnings: preparedAutoTarget.plan.warnings,
+							},
+						},
+					}
+				: result,
+		);
+		process.exitCode = result.ok || result.dastRunId ? 0 : 1;
+		return;
 	} catch (error) {
 		writeResult({
 			ok: false,
@@ -149,8 +211,10 @@ async function main() {
 			message:
 				error instanceof Error ? error.message : "DAST execution failed.",
 		});
-		process.exit(1);
+		process.exitCode = 1;
+		return;
 	} finally {
+		await preparedAutoTarget?.stop().catch(() => undefined);
 		connection.sqlite.close(false);
 	}
 }

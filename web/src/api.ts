@@ -84,6 +84,7 @@ export type LlmTaskRoute = {
 	fallbackTargets: LlmModelTarget[];
 	policy: {
 		allowCodex?: boolean;
+		fallbackMode?: "disabled" | "explicit";
 	};
 };
 
@@ -879,7 +880,9 @@ export async function fetchScans(projectId: string): Promise<ScanRun[]> {
 	const data = await requestJson<{ scans: ScanRun[] }>(
 		`/api/scans?${params.toString()}`,
 	);
-	return data.scans;
+	return [...data.scans].sort(
+		(a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+	);
 }
 
 export async function fetchScan(scanRunId: string): Promise<ScanRun> {
@@ -1067,7 +1070,9 @@ export async function fetchScanReports(
 	const data = await requestJson<{ reports: ScanReport[] }>(
 		`/api/scans/${scanRunId}/reports`,
 	);
-	return data.reports;
+	return [...data.reports].sort(
+		(a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+	);
 }
 
 export async function fetchScanReport(
@@ -1558,7 +1563,8 @@ export async function fetchProjectDastRuns(
 export async function triggerProjectDastRun(
 	projectId: string,
 	input: {
-		targetConfigId: string;
+		targetConfigId?: string;
+		autoTarget?: boolean;
 		profileId: string;
 		profileConfigId?: string;
 		scanRunId?: string;
@@ -1576,6 +1582,15 @@ export async function triggerProjectDastRun(
 	outcome: string | null;
 	summary?: string;
 	message?: string;
+	plan?: {
+		autoTarget?: {
+			origin?: string;
+			command?: string[];
+			scriptName?: string;
+			port?: number;
+			warnings?: string[];
+		};
+	};
 }> {
 	return requestJson(`/api/projects/${projectId}/dast-runs`, {
 		method: "POST",

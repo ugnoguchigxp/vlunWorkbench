@@ -1,0 +1,39 @@
+{
+  "kind": "http",
+  "profileId": "http-baseline",
+  "targetOrigin": "http://127.0.0.1:56566",
+  "startedAt": "2026-06-26T08:36:52.348Z",
+  "completedAt": "2026-06-26T08:36:52.859Z",
+  "requestCount": 2,
+  "responses": [
+    {
+      "path": "/",
+      "url": "http://127.0.0.1:56566/",
+      "finalUrl": "http://127.0.0.1:56566/",
+      "status": 200,
+      "ok": true,
+      "redirectChain": [],
+      "headers": {
+        "content-type": "text/html"
+      },
+      "setCookies": [],
+      "durationMs": 2,
+      "error": null
+    },
+    {
+      "path": "/.env",
+      "url": "http://127.0.0.1:56566/.env",
+      "finalUrl": "http://127.0.0.1:56566/.env",
+      "status": 200,
+      "ok": true,
+      "redirectChain": [],
+      "headers": {
+        "content-type": "text/html"
+      },
+      "setCookies": [],
+      "durationMs": 8,
+      "error": null
+    }
+  ],
+  "warnings": []
+}

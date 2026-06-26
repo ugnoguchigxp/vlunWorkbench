@@ -8,8 +8,9 @@ import {
 	type ReactNode,
 } from "react";
 
-const STORAGE_KEY = "hono-standard.showcase.settings.v1";
-const ROOT_THEME_ATTRIBUTE = "data-showcase-page-theme";
+const STORAGE_KEY = "hono-standard.design-system.settings.v1";
+const LEGACY_STORAGE_KEY = "hono-standard.showcase.settings.v1";
+const ROOT_THEME_ATTRIBUTE = "data-design-system-theme";
 
 export type ShowcaseTheme =
 	| "emerald"
@@ -499,7 +500,9 @@ function readStoredSettings(): ShowcaseSettings {
 		return defaultSettings;
 	}
 
-	const rawSettings = window.localStorage.getItem(STORAGE_KEY);
+	const rawSettings =
+		window.localStorage.getItem(STORAGE_KEY) ??
+		window.localStorage.getItem(LEGACY_STORAGE_KEY);
 	if (!rawSettings) {
 		return defaultSettings;
 	}
@@ -532,6 +535,28 @@ function getShowcaseStyle(settings: ShowcaseSettings): ShowcaseStyle {
 	const fontSize = fontSizeTokens[settings.fontSize];
 
 	return {
+		"--color-page": theme.page,
+		"--color-surface": theme.surface,
+		"--color-surface-muted": theme.surfaceMuted,
+		"--color-border": theme.border,
+		"--color-border-strong": theme.borderStrong,
+		"--color-ink": theme.ink,
+		"--color-muted": theme.muted,
+		"--color-muted-strong": theme.mutedStrong,
+		"--color-brand": theme.accent,
+		"--color-brand-strong": theme.accentStrong,
+		"--color-brand-soft": theme.accentSoft,
+		"--color-brand-border": theme.accentBorder,
+		"--color-danger": theme.danger,
+		"--color-accent-surface": theme.accentSurface,
+		"--color-focus-ring": theme.focusRing,
+		"--color-on-brand": theme.onAccent,
+		"--color-shadow": theme.shadow,
+		"--color-backdrop": theme.backdrop,
+		"--color-danger-surface": theme.dangerSurface,
+		"--color-danger-border": theme.dangerBorder,
+		"--color-on-danger": theme.dangerSurface,
+		"--radius-control": radius.controlRadius,
 		"--showcase-accent": theme.accent,
 		"--showcase-accent-strong": theme.accentStrong,
 		"--showcase-accent-soft": theme.accentSoft,
@@ -593,3 +618,5 @@ function isShowcaseRadius(value: unknown): value is ShowcaseRadius {
 function isShowcaseFontSize(value: unknown): value is ShowcaseFontSize {
 	return showcaseFontSizeOptions.some((option) => option.value === value);
 }
+
+export const DesignSystemProvider = ShowcaseSettingsProvider;

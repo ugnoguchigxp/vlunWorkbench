@@ -23,6 +23,18 @@ export function DastPanel() {
 				</strong>
 			</div>
 			{c.dastError ? <p className="badge-failed">{c.dastError}</p> : null}
+			<Button
+				type="button"
+				variant="primary"
+				onClick={() => void c.handleAutoDastRun()}
+				disabled={c.dastLoading}
+				full
+			>
+				{c.dastLoading ? "Preparing DAST..." : "Auto DAST HTTP Baseline"}
+			</Button>
+			{c.lastAutoDastTargetOrigin ? (
+				<small>Last auto target: {c.lastAutoDastTargetOrigin}</small>
+			) : null}
 			<label>
 				<span>Target Name</span>
 				<input
@@ -35,6 +47,7 @@ export function DastPanel() {
 				<input
 					value={c.dastTargetOrigin}
 					onChange={(event) => c.setDastTargetOrigin(event.target.value)}
+					placeholder="Manual target only, for example http://127.0.0.1:5173"
 				/>
 			</label>
 			<Button

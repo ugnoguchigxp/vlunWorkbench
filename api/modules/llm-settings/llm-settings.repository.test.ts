@@ -65,7 +65,7 @@ describe("LlmSettingsRepository", () => {
 		connection.sqlite.close();
 	});
 
-	it("seeds environment Azure settings and masks stored secrets", async () => {
+	it("seeds environment Azure settings without auto-owning task routes", async () => {
 		const repo = new LlmSettingsRepository(
 			connection.db,
 			appEnv({
@@ -79,8 +79,7 @@ describe("LlmSettingsRepository", () => {
 		expect(settings.providerEndpoints.map((endpoint) => endpoint.id)).toContain(
 			"azure-env-default",
 		);
-		expect(settings.taskRoutes.find((route) => route.task === "finding_review"))
-			.toBeDefined();
+		expect(settings.taskRoutes).toEqual([]);
 		expect(
 			settings.providerEndpoints.find(
 				(endpoint) => endpoint.id === "azure-env-default",

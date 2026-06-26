@@ -182,15 +182,17 @@ export function createDastRoute(deps: DastRouteDeps) {
 		if (!parsed.success) {
 			throw new HttpError(400, validationMessage(parsed.error));
 		}
-		const target = await repo.getTargetConfig(parsed.data.targetConfigId);
-		if (!target || target.projectId !== projectId) {
-			throw new HttpError(404, "DAST target config not found");
-		}
-		const validation = await validateDastTargetConfig(target, {
-			runner: parsed.data.runner,
-		});
-		if (!validation.ok) {
-			throw new HttpError(400, validation.message);
+		if (parsed.data.targetConfigId) {
+			const target = await repo.getTargetConfig(parsed.data.targetConfigId);
+			if (!target || target.projectId !== projectId) {
+				throw new HttpError(404, "DAST target config not found");
+			}
+			const validation = await validateDastTargetConfig(target, {
+				runner: parsed.data.runner,
+			});
+			if (!validation.ok) {
+				throw new HttpError(400, validation.message);
+			}
 		}
 		const cliResult = await executeDastCli({
 			projectId,
@@ -372,7 +374,8 @@ function validationMessage(error: {
 
 async function executeDastCli(params: {
 	projectId: string;
-	targetConfigId: string;
+	targetConfigId?: string;
+	autoTarget?: boolean;
 	profileId: string;
 	profileConfigId?: string;
 	scanRunId?: string;
@@ -388,11 +391,13 @@ async function executeDastCli(params: {
 		"--",
 		"--project-id",
 		params.projectId,
-		"--target-config-id",
-		params.targetConfigId,
 		"--profile",
 		params.profileId,
 	];
+	if (params.targetConfigId) {
+		args.push("--target-config-id", params.targetConfigId);
+	}
+	if (params.autoTarget) args.push("--auto-target", "true");
 	if (params.profileConfigId)
 		args.push("--profile-config-id", params.profileConfigId);
 	if (params.scanRunId) args.push("--scan-run-id", params.scanRunId);

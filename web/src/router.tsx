@@ -8,12 +8,16 @@ import { useCallback, useEffect, useState } from "react";
 import { type AuthUser, fetchMe, logout, UNAUTHORIZED_EVENT_NAME } from "./api";
 import { App, type AppViewId } from "./App";
 import { AppHeader } from "./app-header";
-import { ShowcaseSettingsProvider } from "./showcase-settings-context";
+import { DesignSystemProvider } from "./showcase-settings-context";
 import { parseShowcaseTableSearch } from "./showcase-table-search";
 import { ShowcaseView } from "./views/showcase-view";
 
 const rootRoute = createRootRoute({
-	component: () => <Outlet />,
+	component: () => (
+		<DesignSystemProvider>
+			<Outlet />
+		</DesignSystemProvider>
+	),
 });
 
 const renderAppView = (view: AppViewId) => () => <App view={view} />;
@@ -108,9 +112,7 @@ function ShowcasePage() {
 				busy={busy}
 				onLogout={handleLogout}
 			/>
-			<ShowcaseSettingsProvider>
-				<ShowcaseView />
-			</ShowcaseSettingsProvider>
+			<ShowcaseView />
 		</div>
 	);
 }

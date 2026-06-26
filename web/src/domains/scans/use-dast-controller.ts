@@ -16,6 +16,13 @@ import {
 	triggerProjectDastRun,
 } from "../../api";
 
+function isVisibleDastTarget(target: DastTargetConfig): boolean {
+	return !(
+		target.metadata?.autoPrepared === true ||
+		target.metadata?.ephemeral === true
+	);
+}
+
 export function useDastController({
 	active,
 	selectedProjectId,
@@ -36,10 +43,11 @@ export function useDastController({
 	const [selectedDastTargetId, setSelectedDastTargetId] = useState("");
 	const [selectedDastProfileId, setSelectedDastProfileId] =
 		useState("http-baseline");
-	const [dastTargetName, setDastTargetName] = useState("Local app");
-	const [dastTargetOrigin, setDastTargetOrigin] = useState(
-		"http://127.0.0.1:29831",
-	);
+	const [dastTargetName, setDastTargetName] = useState("Manual local app");
+	const [dastTargetOrigin, setDastTargetOrigin] = useState("");
+	const [lastAutoDastTargetOrigin, setLastAutoDastTargetOrigin] = useState<
+		string | null
+	>(null);
 	const [dastLoading, setDastLoading] = useState(false);
 	const [dastError, setDastError] = useState<string | null>(null);
 	const [expandedDastRunId, setExpandedDastRunId] = useState<string | null>(
@@ -53,19 +61,29 @@ export function useDastController({
 	>({});
 
 	useEffect(() => {
-		if (!active || !selectedProjectId) return;
+		setDastTargetOrigin("");
+		setLastAutoDastTargetOrigin(null);
+		setSelectedDastTargetId("");
+		if (!active || !selectedProjectId) {
+			setDastTargets([]);
+			setDastProfiles([]);
+			setDastProfileConfigs([]);
+			setDastRuns([]);
+			return;
+		}
 		void Promise.all([
 			fetchProjectDastTargets(selectedProjectId),
 			fetchProjectDastProfiles(selectedProjectId),
 			fetchProjectDastRuns(selectedProjectId),
 		])
 			.then(([targets, profilesRes, runs]) => {
-				setDastTargets(targets.targets);
+				const visibleTargets = targets.targets.filter(isVisibleDastTarget);
+				setDastTargets(visibleTargets);
 				setDastProfiles(profilesRes.profiles);
 				setDastProfileConfigs(profilesRes.configs);
 				setDastRuns(runs.dastRuns);
 				setSelectedDastTargetId(
-					targets.targets.find((target) => target.enabled)?.id ?? "",
+					visibleTargets.find((target) => target.enabled)?.id ?? "",
 				);
 			})
 			.catch((err) => {
@@ -100,7 +118,9 @@ export function useDastController({
 				timeoutSec: 120,
 			});
 			setDastTargets(
-				(await fetchProjectDastTargets(selectedProjectId)).targets,
+				(await fetchProjectDastTargets(selectedProjectId)).targets.filter(
+					isVisibleDastTarget,
+				),
 			);
 			setSelectedDastTargetId(res.target.id);
 		} catch (err) {
@@ -153,6 +173,41 @@ export function useDastController({
 		}
 	};
 
+	const handleAutoDastRun = async () => {
+		if (!selectedProjectId) return;
+		setDastLoading(true);
+		setDastError(null);
+		try {
+			const res = await triggerProjectDastRun(selectedProjectId, {
+				autoTarget: true,
+				profileId: "http-baseline",
+				runner: "host",
+			});
+			const autoOrigin = res.plan?.autoTarget?.origin;
+			if (autoOrigin) {
+				setLastAutoDastTargetOrigin(autoOrigin);
+				setDastTargetOrigin("");
+			}
+			setDastTargets(
+				(await fetchProjectDastTargets(selectedProjectId)).targets.filter(
+					isVisibleDastTarget,
+				),
+			);
+			await refreshDastRuns();
+			if (res.dastRunId) await openDastRun(res.dastRunId);
+			if (res.scanRunId) {
+				setScanRuns(await fetchScans(selectedProjectId));
+				setSelectedScanRunId(res.scanRunId);
+			}
+		} catch (err) {
+			setDastError(
+				err instanceof Error ? err.message : "Failed to run auto DAST.",
+			);
+		} finally {
+			setDastLoading(false);
+		}
+	};
+
 	const handleToggleDastRun = async (runId: string) => {
 		if (expandedDastRunId === runId) return setExpandedDastRunId(null);
 		if (dastRunArtifacts[runId]) return setExpandedDastRunId(runId);
@@ -176,6 +231,7 @@ export function useDastController({
 		setDastTargetName,
 		dastTargetOrigin,
 		setDastTargetOrigin,
+		lastAutoDastTargetOrigin,
 		dastLoading,
 		dastError,
 		expandedDastRunId,
@@ -183,6 +239,7 @@ export function useDastController({
 		dastRunEvidence,
 		handleCreateDastTarget,
 		handleTriggerDastRun,
+		handleAutoDastRun,
 		handleToggleDastRun,
 	};
 }

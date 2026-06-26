@@ -183,15 +183,26 @@ export type SaveDastProfileRequestInput = z.infer<
 	typeof saveDastProfileRequestSchema
 >;
 
-export const runDastRequestSchema = z.object({
-	targetConfigId: z.string().uuid(),
-	profileId: z.string().min(1),
-	profileConfigId: z.string().uuid().optional(),
-	scanRunId: z.string().uuid().optional(),
-	runner: z.enum(["host", "docker", "mock"]).optional().default("host"),
-	dockerImage: z.string().optional(),
-	timeoutSec: z.number().int().positive().max(120).optional(),
-	maxRequests: z.number().int().positive().max(100).optional(),
-	dryRun: z.boolean().optional().default(false),
-});
+export const runDastRequestSchema = z
+	.object({
+		targetConfigId: z.string().uuid().optional(),
+		autoTarget: z.boolean().optional().default(false),
+		profileId: z.string().min(1),
+		profileConfigId: z.string().uuid().optional(),
+		scanRunId: z.string().uuid().optional(),
+		runner: z.enum(["host", "docker", "mock"]).optional().default("host"),
+		dockerImage: z.string().optional(),
+		timeoutSec: z.number().int().positive().max(120).optional(),
+		maxRequests: z.number().int().positive().max(100).optional(),
+		dryRun: z.boolean().optional().default(false),
+	})
+	.superRefine((value, ctx) => {
+		if (!value.autoTarget && !value.targetConfigId) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["targetConfigId"],
+				message: "targetConfigId is required unless autoTarget is true",
+			});
+		}
+	});
 export type RunDastRequestInput = z.infer<typeof runDastRequestSchema>;

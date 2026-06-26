@@ -35,9 +35,9 @@ export const DAST_PROFILES: DastProfileDefinition[] = [
 		id: "browser-smoke",
 		displayName: "Browser Smoke",
 		description:
-			"Load configured routes and capture browser console, network, and screenshot evidence.",
+			"Load configured routes and capture browser console, network, and screenshot evidence. Disabled until a real browser adapter is available.",
 		kind: "browser",
-		enabled: true,
+		enabled: false,
 		checks: [
 			"configured-route-load",
 			"console-errors",

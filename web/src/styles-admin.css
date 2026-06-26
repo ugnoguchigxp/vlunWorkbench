@@ -17,7 +17,7 @@
 
 .admin-toolbar {
 	padding: 10px 12px;
-	border-bottom: 1px solid #eef1f5;
+	border-bottom: 1px solid var(--color-border);
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
@@ -38,7 +38,7 @@
 	left: 12px;
 	width: 14px;
 	height: 14px;
-	color: #64748b;
+	color: var(--color-muted);
 	pointer-events: none;
 }
 
@@ -55,29 +55,29 @@
 
 .admin-filter-row select {
 	min-width: 130px;
-	border: 1px solid #cad3df;
+	border: 1px solid var(--color-border-strong);
 	border-radius: 8px;
 	padding: 10px 12px;
-	background: #ffffff;
+	background: var(--color-surface);
 	height: 38px;
 }
 
 .admin-clear-btn {
 	height: 38px;
-	border: 1px solid #cad3df;
-	background: #ffffff;
-	color: #334155;
+	border: 1px solid var(--color-border-strong);
+	background: var(--color-surface);
+	color: var(--color-muted-strong);
 }
 
 .admin-clear-btn:hover:not(:disabled) {
-	background: #f8fafc;
+	background: var(--color-surface-muted);
 }
 
 .admin-users-summary {
 	padding: 8px 12px;
-	border-bottom: 1px solid #eef1f5;
+	border-bottom: 1px solid var(--color-border);
 	font-size: 12px;
-	color: #64748b;
+	color: var(--color-muted);
 }
 
 .admin-users-table-wrap {
@@ -95,7 +95,7 @@
 .admin-users-table th,
 .admin-users-table td {
 	padding: 10px 12px;
-	border-bottom: 1px solid #e8edf4;
+	border-bottom: 1px solid var(--color-border);
 	vertical-align: middle;
 	text-align: left;
 	white-space: nowrap;
@@ -104,8 +104,8 @@
 .admin-users-table th {
 	font-size: 12px;
 	font-weight: 600;
-	color: #475569;
-	background: #f8fafc;
+	color: var(--color-muted);
+	background: var(--color-surface-muted);
 	position: sticky;
 	top: 0;
 	z-index: 1;
@@ -113,7 +113,7 @@
 
 .admin-user-name {
 	font-weight: 600;
-	color: #0f172a;
+	color: var(--color-ink);
 }
 
 .admin-role-pill,
@@ -142,8 +142,8 @@
 }
 
 .admin-status-pill.disabled {
-	background: #fee2e2;
-	color: #b91c1c;
+	background: var(--color-danger-surface);
+	color: var(--color-danger);
 }
 
 .admin-row-actions {
@@ -155,9 +155,9 @@
 
 .admin-row-btn {
 	height: 28px;
-	border: 1px solid #cfd7e1;
-	background: #ffffff;
-	color: #334155;
+	border: 1px solid var(--color-border-strong);
+	background: var(--color-surface);
+	color: var(--color-muted-strong);
 	border-radius: 6px;
 	padding: 0 8px;
 	display: inline-flex;
@@ -173,7 +173,7 @@
 }
 
 .admin-row-btn:hover:not(:disabled) {
-	background: #f8fafc;
+	background: var(--color-surface-muted);
 }
 
 .admin-row-btn:disabled {
@@ -182,13 +182,13 @@
 }
 
 .admin-row-btn-danger {
-	border-color: #fecaca;
-	color: #b91c1c;
-	background: #fef2f2;
+	border-color: var(--color-danger-border);
+	color: var(--color-danger);
+	background: var(--color-danger-surface);
 }
 
 .admin-row-btn-danger:hover:not(:disabled) {
-	background: #fee2e2;
+	background: var(--color-danger-surface);
 }
 
 .admin-row-btn-success {
@@ -203,7 +203,7 @@
 
 .admin-empty {
 	text-align: center;
-	color: #64748b;
+	color: var(--color-muted);
 	padding: 16px 12px;
 }
 
@@ -220,7 +220,7 @@
 
 .admin-modal {
 	width: min(540px, 100%);
-	background: #ffffff;
+	background: var(--color-surface);
 	border: 1px solid #d5deea;
 	border-radius: 12px;
 	box-shadow:
@@ -237,7 +237,7 @@
 
 .admin-modal-header {
 	padding: 14px 16px;
-	border-bottom: 1px solid #e8edf4;
+	border-bottom: 1px solid var(--color-border);
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
@@ -247,20 +247,20 @@
 .admin-modal-header h3 {
 	margin: 0;
 	font-size: 16px;
-	color: #0f172a;
+	color: var(--color-ink);
 }
 
 .admin-modal-close-btn {
 	border: none;
 	background: transparent;
-	color: #475569;
+	color: var(--color-muted);
 	font-size: 13px;
 	padding: 4px 6px;
 	cursor: pointer;
 }
 
 .admin-modal-close-btn:hover:not(:disabled) {
-	color: #0f172a;
+	color: var(--color-ink);
 }
 
 .admin-modal-body {
@@ -277,27 +277,27 @@
 	gap: 6px;
 	font-size: 12px;
 	font-weight: 600;
-	color: #334155;
+	color: var(--color-muted-strong);
 }
 
 .admin-modal-body input,
 .admin-modal-body select {
 	width: 100%;
-	border: 1px solid #cad3df;
+	border: 1px solid var(--color-border-strong);
 	border-radius: 8px;
 	padding: 8px 10px;
-	background: #ffffff;
+	background: var(--color-surface);
 }
 
 .admin-modal-body p {
 	margin: 0;
 	font-size: 13px;
-	color: #334155;
+	color: var(--color-muted-strong);
 }
 
 .admin-modal-footer {
 	padding: 12px 16px;
-	border-top: 1px solid #e8edf4;
+	border-top: 1px solid var(--color-border);
 	display: flex;
 	align-items: center;
 	justify-content: flex-end;
@@ -305,13 +305,13 @@
 }
 
 .admin-btn-danger {
-	background: #dc2626;
-	color: #ffffff;
+	background: var(--color-danger);
+	color: var(--color-on-danger);
 	box-shadow: 0 4px 10px rgba(220, 38, 38, 0.22);
 }
 
 .admin-btn-danger:hover:not(:disabled) {
-	background: #b91c1c;
+	background: var(--color-danger);
 	box-shadow: 0 6px 14px rgba(185, 28, 28, 0.3);
 }
 

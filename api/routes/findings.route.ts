@@ -37,7 +37,6 @@ export function createFindingsRoute(deps: FindingsRouteDeps) {
 		decisionRepository,
 		llmProvider,
 		llmRouter,
-		env,
 		db,
 	} = deps;
 	const route = new Hono();
@@ -106,7 +105,6 @@ export function createFindingsRoute(deps: FindingsRouteDeps) {
 		);
 		const result = await runner.run(findingId, {
 			createdByUserId: authUser.userId,
-			modelName: llmRouter ? undefined : env.azureOpenAiDeployment,
 		});
 
 		return c.json({

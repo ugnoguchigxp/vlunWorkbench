@@ -204,4 +204,44 @@ describe("DAST route", () => {
 		expect(args).toContain("--target-config-id");
 		expect(args).not.toContain("http://127.0.0.1:3000");
 	});
+
+	it("launches auto-target DAST without requiring a saved target", async () => {
+		const project = await projectRepo.createProject({
+			ownerUserId: userId,
+			name: "Auto Target Project",
+			repoPath: "/tmp/auto-target",
+		});
+		const spawn = vi.spyOn(Bun, "spawn").mockReturnValue({
+			stdout: streamText(
+				JSON.stringify({
+					ok: true,
+					dastRunId: "55555555-5555-4555-8555-555555555555",
+					scanRunId: "66666666-6666-4666-8666-666666666666",
+					status: "completed",
+					outcome: "passed",
+					artifactIds: [],
+					findingIds: [],
+					evidenceIds: [],
+					summary: "ok",
+				}),
+			),
+			stderr: streamText(""),
+			exited: Promise.resolve(0),
+		} as never);
+		const res = await app.request(`/api/projects/${project.id}/dast-runs`, {
+			method: "POST",
+			body: JSON.stringify({
+				autoTarget: true,
+				profileId: "http-baseline",
+				runner: "host",
+				dryRun: true,
+			}),
+			headers: { "content-type": "application/json" },
+		});
+		expect(res.status).toBe(200);
+		const args = spawn.mock.calls[0][0] as string[];
+		expect(args).toContain("--auto-target");
+		expect(args).toContain("true");
+		expect(args).not.toContain("--target-config-id");
+	});
 });

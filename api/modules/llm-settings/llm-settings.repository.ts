@@ -8,7 +8,6 @@ import {
 } from "../../db/schema";
 import { readCodexStatus } from "./codex-status";
 import {
-	LLM_TASKS,
 	type LlmModelTarget,
 	type LlmProviderEndpointSettings,
 	type LlmSettingsDocument,
@@ -165,22 +164,7 @@ export class LlmSettingsRepository {
 
 		providerEndpoints.push(await this.buildDefaultCodexEndpoint());
 
-		const defaultEndpoint = providerEndpoints.find(
-			(endpoint) => endpoint.enabled && endpoint.kind !== "codex",
-		);
-		const taskRoutes: LlmTaskRouteSettings[] = defaultEndpoint
-			? LLM_TASKS.map((task) => ({
-					task,
-					primaryTarget: {
-						providerEndpointId: defaultEndpoint.id,
-						model: defaultEndpoint.models[0] ?? "default",
-					},
-					fallbackTargets: [],
-					policy: {},
-				}))
-			: [];
-
-		return { providerEndpoints, taskRoutes };
+		return { providerEndpoints, taskRoutes: [] };
 	}
 
 	private async ensureSeededFromEnv(): Promise<void> {

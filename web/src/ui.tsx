@@ -38,6 +38,7 @@ export function Button({
 		<button
 			{...props}
 			className={[
+				"ds-button",
 				"demo-button",
 				buttonVariantClass[variant],
 				full ? "full" : "",
@@ -56,7 +57,7 @@ export function IconButton({
 	return (
 		<button
 			{...props}
-			className={["demo-icon-button", className ?? ""]
+			className={["ds-icon-button", "demo-icon-button", className ?? ""]
 				.filter(Boolean)
 				.join(" ")}
 		/>
@@ -70,7 +71,9 @@ export function TextInput({
 	return (
 		<input
 			{...props}
-			className={["demo-input", className ?? ""].filter(Boolean).join(" ")}
+			className={["ds-input", "demo-input", className ?? ""]
+				.filter(Boolean)
+				.join(" ")}
 		/>
 	);
 }
@@ -83,7 +86,9 @@ export function SelectInput({
 	return (
 		<select
 			{...props}
-			className={["demo-input", className ?? ""].filter(Boolean).join(" ")}
+			className={["ds-input", "demo-input", className ?? ""]
+				.filter(Boolean)
+				.join(" ")}
 		>
 			{children}
 		</select>
@@ -97,7 +102,9 @@ export function TextArea({
 	return (
 		<textarea
 			{...props}
-			className={["demo-textarea", className ?? ""].filter(Boolean).join(" ")}
+			className={["ds-textarea", "demo-textarea", className ?? ""]
+				.filter(Boolean)
+				.join(" ")}
 		/>
 	);
 }

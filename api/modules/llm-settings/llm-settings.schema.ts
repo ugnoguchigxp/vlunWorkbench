@@ -161,6 +161,7 @@ export type LlmProviderEndpointSettings = z.infer<
 export const LlmTaskRoutePolicySchema = z
 	.object({
 		allowCodex: z.boolean().optional(),
+		fallbackMode: z.enum(["disabled", "explicit"]).optional(),
 	})
 	.strict();
 

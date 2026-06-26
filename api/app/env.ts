@@ -50,6 +50,8 @@ const EnvSchema = z.object({
 	NODE_ENV: z
 		.enum(["development", "test", "production"])
 		.default(APP_CONFIG_DEFAULTS.nodeEnv),
+	HOST: optionalTrimmedString,
+	PORT: z.coerce.number().int().positive().max(65535).optional(),
 	DATABASE_URL: optionalTrimmedString,
 	CONTENT_ROOT: optionalTrimmedString,
 	WIKI_STORAGE_BACKEND: optionalWikiStorageBackend,
@@ -249,8 +251,8 @@ export function readAppEnv(env: NodeJS.ProcessEnv = process.env): AppEnv {
 
 	return {
 		nodeEnv: parsed.NODE_ENV,
-		host: APP_CONFIG_DEFAULTS.host,
-		port: APP_CONFIG_DEFAULTS.port,
+		host: parsed.HOST ?? APP_CONFIG_DEFAULTS.host,
+		port: parsed.PORT ?? APP_CONFIG_DEFAULTS.port,
 		databaseUrl,
 		contentRoot: path.resolve(
 			process.cwd(),

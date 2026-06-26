@@ -8,6 +8,7 @@ import { users, projects, scanRuns, findings, findingEvidences } from "../../db/
 import { extractSourceSnippet, buildReviewBundle } from "./finding-review-bundle";
 import { FindingReviewRunner } from "./finding-review-runner";
 import type { LlmProvider } from "../../providers/types";
+import type { LlmRouter } from "../../providers/llmRouter";
 
 describe("FindingReviewRunner", () => {
 	let tempDir: string;
@@ -298,6 +299,41 @@ describe("FindingReviewRunner", () => {
 			});
 			expect(reviewRow?.status).toBe("failed");
 			expect(reviewRow?.errorMessage).toContain("LLM provider is not configured");
+		});
+
+		it("should save route failures as failed review rows", async () => {
+			const filePath = path.join(repoPath, "src/auth.ts");
+			await fs.mkdir(path.dirname(filePath), { recursive: true });
+			await fs.writeFile(filePath, "const slack = 'token';");
+
+			const llmRouter = {
+				resolve: vi.fn().mockResolvedValue({
+					ok: false,
+					task: "finding_review",
+					failureKind: "llm_provider_adapter_unavailable",
+					message:
+						"Provider kind codex is configured but no execution adapter is available.",
+				}),
+			} as unknown as LlmRouter;
+
+			const runner = new FindingReviewRunner(connection.db, { llmRouter });
+			const result = await runner.run(findingId);
+
+			expect(result.ok).toBe(false);
+			expect(result.status).toBe("failed");
+			expect(result.error).toContain("llm_provider_adapter_unavailable");
+
+			const reviewRow = await connection.db.query.findingReviews.findFirst({
+				where: (fields, { eq }) => eq(fields.id, result.reviewId),
+			});
+			expect(reviewRow?.status).toBe("failed");
+			expect(reviewRow?.provider).toBe(
+				"route:llm_provider_adapter_unavailable",
+			);
+			expect(reviewRow?.model).toBe("unresolved");
+			expect(reviewRow?.errorMessage).toContain(
+				"llm_provider_adapter_unavailable",
+			);
 		});
 	});
 });
