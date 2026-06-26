@@ -1,3 +1,4 @@
+import type { ScanScopePolicy } from "../../../shared/schemas/scan-profile.schema";
 import type { AppDatabase } from "../../db";
 import { ArtifactStorage } from "./artifact-storage";
 import { normalizeGitleaks } from "./normalizers/gitleaks";
@@ -11,6 +12,7 @@ import {
 	FindingRepository,
 	ScanRepository,
 } from "./repositories";
+import { resolveScanScope, withMandatoryExcludes } from "./target-scope";
 import { GitleaksRunner } from "./tools/gitleaks-runner";
 import { OsvRunner } from "./tools/osv-runner";
 // Import runners
@@ -18,6 +20,7 @@ import { SemgrepRunner } from "./tools/semgrep-runner";
 import {
 	normalizeToolExecutionConfig,
 	type ToolExecutionConfig,
+	type ToolLifecycleEvent,
 } from "./tools/tool-process-runner";
 import { TrivyRunner } from "./tools/trivy-runner";
 
@@ -90,6 +93,14 @@ export async function runToolIntoExistingScan(params: {
 	const timeoutSec = params.timeoutSec;
 	const execution = normalizeToolExecutionConfig(params.execution);
 	const baseExecutionMetadata = buildBaseExecutionMetadata(execution);
+	const scope = options.scope as ScanScopePolicy | undefined;
+	const scanners = Array.isArray(options.scanners)
+		? (options.scanners as string[])
+		: undefined;
+	const dependencyMode = options.dependencyMode as
+		| "manifest"
+		| "installed_tree"
+		| undefined;
 
 	// 1. Resolve Runner & Normalizer
 	let runner: SemgrepRunner | GitleaksRunner | OsvRunner | TrivyRunner;
@@ -183,36 +194,58 @@ export async function runToolIntoExistingScan(params: {
 
 		// 4. Execute Runner
 		let runResult: any;
+		const onLifecycleEvent = async (event: ToolLifecycleEvent) => {
+			await scanRepo.createScanEvent({
+				scanRunId: params.scanRunId,
+				...event,
+			});
+		};
 		if (params.toolId === "semgrep") {
 			runResult = await (runner as SemgrepRunner).run(
 				params.scanRunId,
 				params.repoPath,
 				{
 					config: (options.config as string) ?? "auto",
+					scope,
 					timeoutSec,
 					maxTargetBytes: options.maxTargetBytes
 						? Number(options.maxTargetBytes)
 						: undefined,
-					onLifecycleEvent: async (event) => {
-						await scanRepo.createScanEvent({
-							scanRunId: params.scanRunId,
-							...event,
-						});
-					},
+					onLifecycleEvent,
+				},
+			);
+		} else if (params.toolId === "gitleaks") {
+			runResult = await (runner as GitleaksRunner).run(
+				params.scanRunId,
+				params.repoPath,
+				{
+					timeoutSec,
+					scope,
+					onLifecycleEvent,
+				},
+			);
+		} else if (params.toolId === "osv") {
+			runResult = await (runner as OsvRunner).run(
+				params.scanRunId,
+				params.repoPath,
+				{
+					timeoutSec,
+					scope,
+					dependencyMode,
+					onLifecycleEvent,
 				},
 			);
 		} else {
-			runResult = await (
-				runner as GitleaksRunner | OsvRunner | TrivyRunner
-			).run(params.scanRunId, params.repoPath, {
-				timeoutSec,
-				onLifecycleEvent: async (event) => {
-					await scanRepo.createScanEvent({
-						scanRunId: params.scanRunId,
-						...event,
-					});
+			runResult = await (runner as TrivyRunner).run(
+				params.scanRunId,
+				params.repoPath,
+				{
+					timeoutSec,
+					scope,
+					scanners,
+					onLifecycleEvent,
 				},
-			});
+			);
 		}
 
 		exitCode = runResult.exitCode;
@@ -430,6 +463,10 @@ export async function runProfileScan(params: {
 	if (!profile) {
 		throw new Error(`Profile not found: ${params.profileId}`);
 	}
+	const resolvedScope = await resolveScanScope({
+		repoPath: params.repoPath,
+		scope: profile.scope,
+	});
 
 	const continueOnToolFailure = params.continueOnToolFailure ?? true;
 
@@ -442,6 +479,7 @@ export async function runProfileScan(params: {
 		metadata: {
 			profileId: params.profileId,
 			profileVersion: 1,
+			scope: resolvedScope,
 			continueOnToolFailure,
 			runner: execution.runner,
 			toolOrder: profile.tools.map((t) => t.toolId),
@@ -493,7 +531,11 @@ export async function runProfileScan(params: {
 				projectId: params.projectId,
 				scanRunId: scanRun.id,
 				toolId: tool.toolId,
-				options: tool.options,
+				options: {
+					...(tool.options ?? {}),
+					scope: withMandatoryExcludes(profile.scope),
+					scopeSummary: resolvedScope,
+				},
 				artifactStorage,
 				timeoutSec: resolvedTimeout,
 				repoPath: params.repoPath,
@@ -557,6 +599,7 @@ export async function runProfileScan(params: {
 		metadata: {
 			profileId: params.profileId,
 			profileVersion: 1,
+			scope: resolvedScope,
 			profileOutcome,
 			continueOnToolFailure,
 			runner: execution.runner,

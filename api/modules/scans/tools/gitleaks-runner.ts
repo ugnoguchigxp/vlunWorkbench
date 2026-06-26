@@ -1,8 +1,10 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import type { ScanScopePolicy } from "../../../../shared/schemas/scan-profile.schema";
 import type { ArtifactSaveResult, ArtifactStorage } from "../artifact-storage";
 import { redactJsonSecrets, redactSecrets } from "../normalizers/redaction";
+import { createScopedWorkspace } from "../target-scope";
 import {
 	checkToolVersion,
 	runToolProcess,
@@ -26,6 +28,7 @@ export interface GitleaksRunResult {
 
 export interface GitleaksRunnerOptions {
 	timeoutSec?: number;
+	scope?: ScanScopePolicy;
 	onLifecycleEvent?: (event: ToolLifecycleEvent) => Promise<void> | void;
 }
 
@@ -60,12 +63,21 @@ export class GitleaksRunner {
 
 		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "gitleaks-run-"));
 		const tempJsonPath = path.join(tempDir, "gitleaks-output.json");
+		const scopedWorkspace =
+			options.scope?.intent && options.scope.intent !== "full_deep"
+				? await createScopedWorkspace({
+						repoPath,
+						scope: options.scope,
+						prefix: path.join(os.tmpdir(), "gitleaks-scope-"),
+					})
+				: null;
+		const scanPath = scopedWorkspace?.path ?? repoPath;
 
 		// Command: gitleaks detect --source <repoPath> --report-format json --report-path <tempJsonPath> --redact
 		const args = [
 			"detect",
 			"--source",
-			repoPath,
+			scanPath,
 			"--report-format",
 			"json",
 			"--report-path",
@@ -77,14 +89,25 @@ export class GitleaksRunner {
 		const runResult = await runToolProcess("gitleaks", args, {
 			timeoutSec: options.timeoutSec,
 			execution: this.execution,
-			repoPath,
+			repoPath: scanPath,
 			outputPath: tempJsonPath,
 			onLifecycleEvent: options.onLifecycleEvent,
 		});
 		const elapsedMs = Date.now() - startTime;
+		const executionMetadata = {
+			...(runResult.executionMetadata ?? {}),
+			scopeWorkspace: scopedWorkspace
+				? { applied: true, copiedFiles: scopedWorkspace.copiedFiles }
+				: { applied: false },
+		};
 
 		if (!runResult.ok) {
 			await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+			if (scopedWorkspace) {
+				await fs
+					.rm(scopedWorkspace.path, { recursive: true, force: true })
+					.catch(() => {});
+			}
 			return {
 				ok: false,
 				exitCode: runResult.exitCode,
@@ -92,7 +115,7 @@ export class GitleaksRunner {
 				stderr: runResult.stderr,
 				elapsedMs,
 				error: runResult.error || "Gitleaks run failed",
-				executionMetadata: runResult.executionMetadata,
+				executionMetadata,
 			};
 		}
 
@@ -110,6 +133,9 @@ export class GitleaksRunner {
 		// Clean up temporary path
 		try {
 			await fs.rm(tempDir, { recursive: true, force: true });
+			if (scopedWorkspace) {
+				await fs.rm(scopedWorkspace.path, { recursive: true, force: true });
+			}
 		} catch {
 			// ignore cleanup error
 		}
@@ -163,7 +189,7 @@ export class GitleaksRunner {
 				stdoutArtifact,
 				stderrArtifact,
 				error: `Gitleaks exited with code ${runResult.exitCode}`,
-				executionMetadata: runResult.executionMetadata,
+				executionMetadata,
 			};
 		}
 
@@ -217,7 +243,7 @@ export class GitleaksRunner {
 			rawJsonArtifact,
 			stdoutArtifact,
 			stderrArtifact,
-			executionMetadata: runResult.executionMetadata,
+			executionMetadata,
 		};
 	}
 }

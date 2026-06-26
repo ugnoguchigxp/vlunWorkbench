@@ -1,9 +1,10 @@
 import { parseArgs } from "node:util";
 import { createDbConnection } from "../db";
 import { readAppEnv } from "../app/env";
+import { LlmTaskSchema } from "../modules/llm-settings/llm-settings.schema";
+import { LlmSettingsRepository } from "../modules/llm-settings/llm-settings.repository";
 import { FindingReviewRunner } from "../modules/reviews/finding-review-runner";
-import { createAzureOpenAiProviderFromAppEnv } from "../providers/azureOpenAiProviderFactory";
-import type { LlmProvider } from "../providers/types";
+import { LlmRouter } from "../providers/llmRouter";
 
 function writeResult(payload: Record<string, unknown>): void {
 	console.log(JSON.stringify(payload));
@@ -16,7 +17,9 @@ async function main() {
 			args: process.argv.slice(2),
 			options: {
 				"finding-id": { type: "string" },
+				task: { type: "string", default: "finding_review" },
 				provider: { type: "string", default: "azure-openai" },
+				"provider-endpoint-id": { type: "string" },
 				model: { type: "string" },
 				"max-snippet-lines": { type: "string" },
 				"fixture-output": { type: "string" },
@@ -35,16 +38,20 @@ async function main() {
 
 	const findingId = argsValues["finding-id"];
 	const provider = argsValues.provider;
-	if (provider !== "azure-openai") {
+	const taskResult = LlmTaskSchema.safeParse(argsValues.task);
+	if (!taskResult.success) {
 		writeResult({
 			ok: false,
 			findingId,
 			status: "failed",
-			message: `Unsupported provider: ${provider}. Only 'azure-openai' is supported.`,
+			message: `Unsupported task: ${argsValues.task}`,
 		});
 		process.exit(1);
 	}
-
+	const task = taskResult.data;
+	const providerEndpointId =
+		argsValues["provider-endpoint-id"] ||
+		(provider && provider !== "azure-openai" ? provider : undefined);
 	const model = argsValues.model;
 	const maxSnippetLinesStr = argsValues["max-snippet-lines"];
 	const fixtureOutput = argsValues["fixture-output"];
@@ -65,18 +72,16 @@ async function main() {
 	const env = readAppEnv();
 	const dbConnection = createDbConnection(env.databaseUrl);
 
-	let llmProvider: LlmProvider | undefined;
-	try {
-		llmProvider = createAzureOpenAiProviderFromAppEnv(env);
-	} catch {
-		// Keep undefined, runner will fail cleanly if needed
-	}
+	const llmSettingsRepository = new LlmSettingsRepository(dbConnection.db, env);
+	const llmRouter = new LlmRouter(llmSettingsRepository, env);
 
 	try {
-		const runner = new FindingReviewRunner(dbConnection.db, llmProvider);
+		const runner = new FindingReviewRunner(dbConnection.db, { llmRouter });
 		const result = await runner.run(findingId, {
+			task,
+			providerEndpointId,
 			providerName: provider,
-			modelName: model ?? env.azureOpenAiDeployment,
+			modelName: model,
 			maxLines: maxSnippetLines,
 			fixtureOutput,
 		});

@@ -209,6 +209,87 @@ export const userSettings = sqliteTable("user_settings", {
 	updatedAt: timestampMs("updated_at"),
 });
 
+export const llmProviderEndpoints = sqliteTable(
+	"llm_provider_endpoints",
+	{
+		id: text("id").primaryKey(),
+		name: text("name").notNull(),
+		kind: text("kind").notNull(),
+		enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+		apiKey: text("api_key"),
+		baseUrl: text("base_url"),
+		endpoint: text("endpoint"),
+		apiVersion: text("api_version"),
+		region: text("region"),
+		models: jsonArray("models"),
+		modelDisplayNames: text("model_display_names", { mode: "json" })
+			.$type<Record<string, string>>()
+			.default(sql`'{}'`)
+			.notNull(),
+		defaultModelCapability: text("default_model_capability", { mode: "json" })
+			.$type<Record<string, unknown> | null>()
+			.default(sql`null`),
+		modelCapabilities: text("model_capabilities", { mode: "json" })
+			.$type<Record<string, Record<string, unknown>>>()
+			.default(sql`'{}'`)
+			.notNull(),
+		createdAt: timestampMs("created_at"),
+		updatedAt: timestampMs("updated_at"),
+	},
+	(table) => ({
+		kindIdx: index("llm_provider_endpoints_kind_idx").on(table.kind),
+		enabledIdx: index("llm_provider_endpoints_enabled_idx").on(table.enabled),
+	}),
+);
+
+export const llmTaskRoutes = sqliteTable("llm_task_routes", {
+	task: text("task").primaryKey(),
+	primaryProviderEndpointId: text("primary_provider_endpoint_id").references(
+		() => llmProviderEndpoints.id,
+		{ onDelete: "set null" },
+	),
+	primaryModel: text("primary_model"),
+	primaryThinkingDepth: text("primary_thinking_depth"),
+	fallbackTargets: text("fallback_targets", { mode: "json" })
+		.$type<
+			Array<{
+				providerEndpointId: string;
+				model: string;
+				thinkingDepth?: string;
+			}>
+		>()
+		.default(sql`'[]'`)
+		.notNull(),
+	policy: jsonObject("policy"),
+	createdAt: timestampMs("created_at"),
+	updatedAt: timestampMs("updated_at"),
+});
+
+export const llmProviderHealthChecks = sqliteTable(
+	"llm_provider_health_checks",
+	{
+		id: id(),
+		providerEndpointId: text("provider_endpoint_id")
+			.notNull()
+			.references(() => llmProviderEndpoints.id, { onDelete: "cascade" }),
+		ok: integer("ok", { mode: "boolean" }).notNull(),
+		reachable: integer("reachable", { mode: "boolean" }).notNull(),
+		status: text("status").notNull(),
+		url: text("url"),
+		message: text("message"),
+		durationMs: integer("duration_ms").notNull(),
+		checkedAt: timestampMs("checked_at"),
+	},
+	(table) => ({
+		providerEndpointIdIdx: index("llm_provider_health_checks_endpoint_idx").on(
+			table.providerEndpointId,
+		),
+		checkedAtIdx: index("llm_provider_health_checks_checked_at_idx").on(
+			table.checkedAt,
+		),
+	}),
+);
+
 export const projects = sqliteTable(
 	"projects",
 	{

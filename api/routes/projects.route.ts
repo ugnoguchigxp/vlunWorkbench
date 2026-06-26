@@ -21,6 +21,40 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 			const list = await repo.listProjects(authUser.userId);
 			return c.json({ projects: list });
 		})
+		.post("/folder-picker", async (c) => {
+			getAuthContextUser(c);
+			if (process.platform !== "darwin") {
+				throw new HttpError(
+					400,
+					"Folder picker is only available on macOS in this local build.",
+				);
+			}
+
+			const script =
+				'POSIX path of (choose folder with prompt "Select a project folder to scan")';
+			const proc = Bun.spawn(["osascript", "-e", script], {
+				stdout: "pipe",
+				stderr: "pipe",
+			});
+			const exitCode = await proc.exited;
+			const stdoutText = await new Response(proc.stdout).text();
+			const stderrText = await new Response(proc.stderr).text();
+
+			if (exitCode !== 0) {
+				if (stderrText.toLowerCase().includes("user canceled")) {
+					return c.json({ path: null });
+				}
+				throw new HttpError(
+					500,
+					stderrText.trim() || "Folder picker failed to open.",
+				);
+			}
+
+			const selectedPath = stdoutText.trim();
+			return c.json({
+				path: selectedPath ? path.resolve(selectedPath) : null,
+			});
+		})
 		.get("/:projectId", async (c) => {
 			const authUser = getAuthContextUser(c);
 			const projectId = c.req.param("projectId");

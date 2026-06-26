@@ -14,8 +14,8 @@ export const ScansDomainSection = (props: ScansDomainSectionProps) => {
 		<ScansProvider value={controller}>
 			<main className="scans-layout">
 				<ScansSidebar />
-				<FindingsPanel />
 				<FindingDetailPanel />
+				<FindingsPanel />
 			</main>
 		</ScansProvider>
 	);

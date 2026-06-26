@@ -10,6 +10,8 @@ import type { FindingDecisionRepository } from "../modules/decisions/finding-dec
 import { FindingReviewRunner } from "../modules/reviews/finding-review-runner";
 import type { LlmProvider } from "../providers/types";
 import type { AppEnv } from "../app/env";
+import type { LlmRouter } from "../providers/llmRouter";
+import type { AppDatabase } from "../db";
 import {
 	createFindingDecisionSchema,
 	type CreateFindingDecisionInput,
@@ -22,8 +24,9 @@ type FindingsRouteDeps = {
 	reviewRepository: FindingReviewRepository;
 	decisionRepository: FindingDecisionRepository;
 	llmProvider?: LlmProvider;
+	llmRouter?: LlmRouter;
 	env: AppEnv;
-	db: any;
+	db: AppDatabase;
 };
 
 export function createFindingsRoute(deps: FindingsRouteDeps) {
@@ -33,6 +36,7 @@ export function createFindingsRoute(deps: FindingsRouteDeps) {
 		reviewRepository,
 		decisionRepository,
 		llmProvider,
+		llmRouter,
 		env,
 		db,
 	} = deps;
@@ -96,10 +100,13 @@ export function createFindingsRoute(deps: FindingsRouteDeps) {
 			throw new HttpError(403, "Forbidden");
 		}
 
-		const runner = new FindingReviewRunner(db, llmProvider);
+		const runner = new FindingReviewRunner(
+			db,
+			llmRouter ? { llmRouter } : llmProvider,
+		);
 		const result = await runner.run(findingId, {
 			createdByUserId: authUser.userId,
-			modelName: env.azureOpenAiDeployment,
+			modelName: llmRouter ? undefined : env.azureOpenAiDeployment,
 		});
 
 		return c.json({

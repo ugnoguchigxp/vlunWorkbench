@@ -39,6 +39,78 @@ export type SystemContextResponse = {
 	updatedAt: string;
 };
 
+export type LlmProviderKind =
+	| "azure"
+	| "openai"
+	| "openai-compatible"
+	| "bedrock"
+	| "local"
+	| "codex";
+
+export type LlmTask =
+	| "finding_review"
+	| "scan_review"
+	| "evidence_context"
+	| "agentic_search"
+	| "report_summary";
+
+export type LlmThinkingDepth = "" | "low" | "medium" | "high" | "very_high";
+
+export type LlmProviderEndpoint = {
+	id: string;
+	name: string;
+	kind: LlmProviderKind;
+	enabled: boolean;
+	apiKey: string;
+	baseUrl: string;
+	endpoint: string;
+	apiVersion: string;
+	region: string;
+	models: string[];
+	modelDisplayNames: Record<string, string>;
+	defaultModelCapability?: Record<string, unknown>;
+	modelCapabilities: Record<string, Record<string, unknown>>;
+};
+
+export type LlmModelTarget = {
+	providerEndpointId: string;
+	model: string;
+	thinkingDepth?: LlmThinkingDepth;
+};
+
+export type LlmTaskRoute = {
+	task: LlmTask;
+	primaryTarget?: LlmModelTarget | null;
+	fallbackTargets: LlmModelTarget[];
+	policy: {
+		allowCodex?: boolean;
+	};
+};
+
+export type LlmSettingsResponse = {
+	providerEndpoints: LlmProviderEndpoint[];
+	taskRoutes: LlmTaskRoute[];
+	updatedAt: string | null;
+};
+
+export type LlmProviderHealthResult = {
+	ok: boolean;
+	reachable: boolean;
+	status: string;
+	url: string | null;
+	message: string;
+	durationMs: number;
+	checkedAt: string;
+};
+
+export type CodexStatusResponse = {
+	authenticated: boolean;
+	authSource: "environment" | "codex-auth-json" | "none";
+	codexHome: string;
+	modelSource: "settings" | "cache" | "fallback" | "none";
+	detectedModels: string[];
+};
+
 export type AuthUser = {
 	id: string;
 	email: string;
@@ -354,6 +426,32 @@ export async function updateSystemContext(
 		method: "PUT",
 		body: { systemContext },
 	});
+}
+
+export async function fetchLlmSettings(): Promise<LlmSettingsResponse> {
+	return requestJson("/api/settings/llm");
+}
+
+export async function updateLlmSettings(
+	settings: Pick<LlmSettingsResponse, "providerEndpoints" | "taskRoutes">,
+): Promise<LlmSettingsResponse> {
+	return requestJson("/api/settings/llm", {
+		method: "PUT",
+		body: settings,
+	});
+}
+
+export async function checkLlmProviderHealth(
+	providerEndpointId: string,
+): Promise<LlmProviderHealthResult> {
+	return requestJson(
+		`/api/settings/llm/provider-endpoints/${encodeURIComponent(providerEndpointId)}/health`,
+		{ method: "POST" },
+	);
+}
+
+export async function fetchCodexStatus(): Promise<CodexStatusResponse> {
+	return requestJson("/api/settings/llm/codex/status");
 }
 
 export async function searchSourcePages(
@@ -770,6 +868,12 @@ export async function createProject(params: {
 	return data.project;
 }
 
+export async function browseProjectFolder(): Promise<{ path: string | null }> {
+	return requestJson<{ path: string | null }>("/api/projects/folder-picker", {
+		method: "POST",
+	});
+}
+
 export async function fetchScans(projectId: string): Promise<ScanRun[]> {
 	const params = new URLSearchParams({ projectId });
 	const data = await requestJson<{ scans: ScanRun[] }>(
@@ -979,12 +1083,21 @@ export type ScanProfileTool = {
 	timeoutSec?: number;
 };
 
+export type ScanProfileScope = {
+	intent: "source" | "dependency_manifest" | "artifact" | "full_deep";
+	includeGenerated: boolean;
+	includeInstalledDependencies: boolean;
+	includeVendoredDependencies: boolean;
+	notes?: string;
+};
+
 export type ScanProfile = {
 	id: string;
 	name: string;
 	description: string;
 	enabled: boolean;
 	defaultTimeoutSec: number;
+	scope?: ScanProfileScope;
 	tools: ScanProfileTool[];
 };
 

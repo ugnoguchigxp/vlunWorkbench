@@ -5,7 +5,7 @@ import { getSeverityClass, shortPath } from "../scans-utils";
 export function FindingsPanel() {
 	const c = useScans();
 	return (
-		<section className="scans-panel">
+		<section className="scans-panel scans-findings-col">
 			<div className="scans-panel-header">
 				<h2>Findings</h2>
 				<small>

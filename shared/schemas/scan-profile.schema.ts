@@ -8,6 +8,25 @@ export type ProfileToolFailurePolicy = z.infer<
 	typeof profileToolFailurePolicySchema
 >;
 
+export const scanScopeIntentSchema = z.enum([
+	"source",
+	"dependency_manifest",
+	"artifact",
+	"full_deep",
+]);
+export type ScanScopeIntent = z.infer<typeof scanScopeIntentSchema>;
+
+export const scanScopePolicySchema = z.object({
+	intent: scanScopeIntentSchema,
+	includeGlobs: z.array(z.string()),
+	excludeGlobs: z.array(z.string()),
+	includeGenerated: z.boolean(),
+	includeInstalledDependencies: z.boolean(),
+	includeVendoredDependencies: z.boolean(),
+	notes: z.string().optional(),
+});
+export type ScanScopePolicy = z.infer<typeof scanScopePolicySchema>;
+
 export const profileToolEntrySchema = z.object({
 	toolId: z.string(),
 	displayName: z.string(),
@@ -24,6 +43,7 @@ export const scanProfileSchema = z.object({
 	description: z.string(),
 	enabled: z.boolean(),
 	defaultTimeoutSec: z.number().int().positive(),
+	scope: scanScopePolicySchema.optional(),
 	tools: z.array(profileToolEntrySchema),
 });
 export type ScanProfile = z.infer<typeof scanProfileSchema>;

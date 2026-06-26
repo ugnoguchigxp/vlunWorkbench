@@ -1,9 +1,10 @@
-import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { TrivyRunner } from "./trivy-runner";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ArtifactStorage } from "../artifact-storage";
+import { ARTIFACT_SCOPE, SOURCE_BASELINE_SCOPE } from "../profiles";
+import { TrivyRunner } from "./trivy-runner";
 
 describe("TrivyRunner", () => {
 	let tempDir: string;
@@ -284,5 +285,122 @@ describe("TrivyRunner", () => {
 		expect(result.ok).toBe(false);
 		expect(killCalled).toBe(true);
 		expect(result.error).toBe("trivy execution timed out");
+	});
+
+	it("should pass source baseline skip dirs and scanners to trivy", async () => {
+		let scanArgs: string[] = [];
+		vi.spyOn(Bun, "spawn").mockImplementation((args) => {
+			if (args[0] === "trivy" && args[1] === "--version") {
+				return {
+					exited: Promise.resolve(0),
+					stdout: new ReadableStream({
+						start(controller) {
+							controller.enqueue(new TextEncoder().encode("0.48.0\n"));
+							controller.close();
+						},
+					}),
+					stderr: new ReadableStream({
+						start(controller) {
+							controller.close();
+						},
+					}),
+				} as any;
+			}
+
+			scanArgs = [...(args as string[])];
+			const outputIdx = scanArgs.indexOf("--output");
+			const writePromise =
+				outputIdx !== -1 && scanArgs[outputIdx + 1]
+					? fs.writeFile(scanArgs[outputIdx + 1], JSON.stringify({ Results: [] }))
+					: Promise.resolve();
+			return {
+				exited: writePromise.then(() => 0),
+				stdout: new ReadableStream({
+					start(controller) {
+						controller.close();
+					},
+				}),
+				stderr: new ReadableStream({
+					start(controller) {
+						controller.close();
+					},
+				}),
+			} as any;
+		});
+
+		const runner = new TrivyRunner(storage);
+		const result = await runner.run("scan-123", tempDir, {
+			scope: SOURCE_BASELINE_SCOPE,
+			scanners: ["secret"],
+		});
+
+		expect(result.ok).toBe(true);
+		expect(scanArgs).toEqual(expect.arrayContaining(["--scanners", "secret"]));
+		expect(scanArgs).toEqual(expect.arrayContaining(["--skip-dirs", "node_modules"]));
+		expect(scanArgs).toEqual(expect.arrayContaining(["--skip-dirs", "dist"]));
+	});
+
+	it("should scan a scoped workspace for artifact scope", async () => {
+		await fs.mkdir(path.join(tempDir, "src"), { recursive: true });
+		await fs.mkdir(path.join(tempDir, "dist"), { recursive: true });
+		await fs.writeFile(path.join(tempDir, "src", "app.ts"), "export {};\n");
+		await fs.writeFile(path.join(tempDir, "dist", "bundle.js"), "bundle();\n");
+
+		let scanArgs: string[] = [];
+		vi.spyOn(Bun, "spawn").mockImplementation((args) => {
+			if (args[0] === "trivy" && args[1] === "--version") {
+				return {
+					exited: Promise.resolve(0),
+					stdout: new ReadableStream({
+						start(controller) {
+							controller.enqueue(new TextEncoder().encode("0.48.0\n"));
+							controller.close();
+						},
+					}),
+					stderr: new ReadableStream({
+						start(controller) {
+							controller.close();
+						},
+					}),
+				} as any;
+			}
+
+			scanArgs = [...(args as string[])];
+			const outputIdx = scanArgs.indexOf("--output");
+			const writePromise =
+				outputIdx !== -1 && scanArgs[outputIdx + 1]
+					? fs.writeFile(scanArgs[outputIdx + 1], JSON.stringify({ Results: [] }))
+					: Promise.resolve();
+			return {
+				exited: writePromise.then(() => 0),
+				stdout: new ReadableStream({
+					start(controller) {
+						controller.close();
+					},
+				}),
+				stderr: new ReadableStream({
+					start(controller) {
+						controller.close();
+					},
+				}),
+			} as any;
+		});
+
+		const runner = new TrivyRunner(storage);
+		const result = await runner.run("scan-123", tempDir, {
+			scope: ARTIFACT_SCOPE,
+			scanners: ["vuln", "secret"],
+		});
+
+		expect(result.ok).toBe(true);
+		expect(scanArgs).toEqual(
+			expect.arrayContaining(["--scanners", "vuln,secret"]),
+		);
+		expect(scanArgs).not.toContain("--skip-dirs");
+		expect(path.resolve(scanArgs.at(-1) ?? "")).not.toBe(path.resolve(tempDir));
+		expect(result.executionMetadata?.scopeWorkspace).toEqual({
+			applied: true,
+			copiedFiles: 1,
+		});
 	});
 });

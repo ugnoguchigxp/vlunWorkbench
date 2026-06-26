@@ -1,0 +1,10 @@
+{
+  "SchemaVersion": 2,
+  "Trivy": {
+    "Version": "0.71.2"
+  },
+  "ReportID": "019f0269-363d-7dbb-9f63-a6b4e9df403b",
+  "CreatedAt": "2026-06-26T14:31:17.437902+09:00",
+  "ArtifactName": "/var/folders/mx/jbv8qfwd52z14q0mby_273lhlp5gd2/T/trivy-scope-RaKyIT",
+  "ArtifactType": "filesystem"
+}

@@ -1,4 +1,3 @@
-import { Activity, BookOpen, Brain, Database, GitBranch } from "lucide-react";
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import {
@@ -11,7 +10,6 @@ import {
 	login,
 	logout,
 	UNAUTHORIZED_EVENT_NAME,
-	updateSystemContext,
 } from "./api";
 import { AdminUserManagementPanel } from "./admin-user-management";
 import { AppHeader } from "./app-header";
@@ -23,7 +21,7 @@ import {
 } from "./domains/knowledge/knowledge-domain";
 import { SearchDomainSection } from "./domains/search/search-domain";
 import { ScansDomainSection } from "./domains/scans/scans-domain";
-import { Button, TextArea } from "./ui";
+import { SettingsPanel } from "./settings-panel";
 
 export type AppViewId =
 	| "knowledge"
@@ -40,13 +38,6 @@ type AppProps = {
 type AppHealth = {
 	status: string;
 	service: string;
-};
-
-const formatDateTime = (value: string | null | undefined): string => {
-	if (!value) return "-";
-	const date = new Date(value);
-	if (Number.isNaN(date.getTime())) return value;
-	return date.toLocaleString();
 };
 
 const isUnauthorizedError = (error: unknown): boolean =>
@@ -182,22 +173,6 @@ export function App({ view }: AppProps) {
 		});
 	};
 
-	const handleSaveSystemContext = async () => {
-		setSystemContextSaving(true);
-		setErrorText(null);
-		try {
-			const updated = await updateSystemContext(systemContextText);
-			setSystemContextText(updated.systemContext);
-			setSystemContextUpdatedAt(updated.updatedAt);
-		} catch (error) {
-			setErrorText(
-				error instanceof Error ? error.message : "Failed to save settings.",
-			);
-		} finally {
-			setSystemContextSaving(false);
-		}
-	};
-
 	return (
 		<div className="app-root">
 			<AppHeader
@@ -248,72 +223,20 @@ export function App({ view }: AppProps) {
 						setErrorText={setErrorText}
 					/>
 					{view === "settings" ? (
-						<main className="layout columns-2">
-							<section className="panel">
-								<div className="panel-header">
-									<h2>API Health</h2>
-								</div>
-								<div className="meta-list">
-									<div>
-										<Activity />
-										<span>{appHealth?.status ?? "-"}</span>
-									</div>
-									<div>
-										<Database />
-										<span>{appHealth?.service ?? "-"}</span>
-									</div>
-								</div>
-							</section>
-							<section className="panel">
-								<div className="panel-header">
-									<h2>Knowledge Git</h2>
-								</div>
-								<div className="meta-list">
-									<div>
-										<GitBranch />
-										<span>{sourceHealth?.git?.branch ?? "-"}</span>
-									</div>
-									<div>
-										<BookOpen />
-										<span>{sourceHealth?.git?.commit ?? "-"}</span>
-									</div>
-								</div>
-							</section>
-							<section className="panel">
-								<div className="panel-header">
-									<h2>System Context</h2>
-								</div>
-								<div className="form-stack">
-									<label htmlFor="system-context-input">
-										Agentic Search Prompt
-									</label>
-									<TextArea
-										id="system-context-input"
-										value={systemContextText}
-										onChange={(event) =>
-											setSystemContextText(event.target.value)
-										}
-										placeholder="System context for this user..."
-									/>
-									<div className="actions">
-										<Button
-											type="button"
-											variant="primary"
-											className="search-btn"
-											onClick={() => void handleSaveSystemContext()}
-											disabled={systemContextSaving}
-										>
-											<Brain className="icon" />
-											<span>Save</span>
-										</Button>
-										<small>
-											updated:{" "}
-											{formatDateTime(systemContextUpdatedAt ?? undefined)}
-										</small>
-									</div>
-								</div>
-							</section>
-						</main>
+						<SettingsPanel
+							appHealth={appHealth}
+							sourceHealth={sourceHealth}
+							systemContextText={systemContextText}
+							systemContextUpdatedAt={systemContextUpdatedAt}
+							systemContextSaving={systemContextSaving}
+							onSystemContextTextChange={setSystemContextText}
+							onSystemContextSaved={(systemContext, updatedAt) => {
+								setSystemContextText(systemContext);
+								setSystemContextUpdatedAt(updatedAt);
+							}}
+							onSystemContextSavingChange={setSystemContextSaving}
+							setErrorText={setErrorText}
+						/>
 					) : null}
 					{authUser.role === "admin" && view === "admin" ? (
 						<AdminUserManagementPanel

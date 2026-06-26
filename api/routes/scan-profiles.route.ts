@@ -11,6 +11,15 @@ export function createScanProfilesRoute() {
 			description: p.description,
 			enabled: p.enabled,
 			defaultTimeoutSec: p.defaultTimeoutSec,
+			scope: p.scope
+				? {
+						intent: p.scope.intent,
+						includeGenerated: p.scope.includeGenerated,
+						includeInstalledDependencies: p.scope.includeInstalledDependencies,
+						includeVendoredDependencies: p.scope.includeVendoredDependencies,
+						notes: p.scope.notes,
+					}
+				: undefined,
 			tools: p.tools.map((t) => ({
 				toolId: t.toolId,
 				displayName: t.displayName,

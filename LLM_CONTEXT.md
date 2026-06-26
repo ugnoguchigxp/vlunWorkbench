@@ -93,6 +93,7 @@
 | `bun install` | Install dependencies |
 | `bun run dev` | Start Vite + Hono dev server |
 | `bun run db:migrate` | Apply SQL migrations |
+| `bun run db:seed` | Create or reset the local `admin@example.com` admin user |
 | `bun run import:markdown` | Import `CONTENT_ROOT/pages/**.md` into RAG source index |
 | `bun run auth:create-admin -- --email <email> --name <name>` | Create admin user |
 | `bun run typecheck` | TypeScript check |

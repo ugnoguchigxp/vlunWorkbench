@@ -76,15 +76,18 @@ CLI scan command / scan:profile
 bun install
 cp .env.example .env
 bun run db:migrate
-bun run auth:create-admin -- --email admin@example.com --name "Admin User"
+bun run db:seed
 bun run dev
 ```
 
-`auth:create-admin` は対話でpasswordを読みます。自動化する場合は標準入力から渡せます。
+`db:seed` は `admin@example.com` の管理者ユーザーを作成または初期化します。パスワード未指定時は12文字のパスワードを生成し、JSONの `password` に出力します。固定したい場合は環境変数または標準入力から渡せます。
 
 ```bash
-printf '%s\n' '<password>' | bun run auth:create-admin -- --email admin@example.com --name "Admin User" --password-stdin
+SEED_ADMIN_PASSWORD='<password>' bun run db:seed
+printf '%s\n' '<password>' | bun run db:seed -- --password-stdin
 ```
+
+既存ユーザーのパスワードを変えずに管理者属性だけ揃える場合は `bun run db:seed -- --keep-existing-password` を使います。
 
 開発サーバーは `http://localhost:5173` で起動します。Vite dev server がfrontendを配信し、`/api/*` はHonoへ渡されます。
 
@@ -184,6 +187,7 @@ bun run report:scan -- \
 | `bun run start` | Bun serverを直接起動 |
 | `bun run auth:create-admin -- --email <email> --name "<name>"` | admin user作成 |
 | `bun run db:migrate` | `drizzle/*.sql` を順番に適用 |
+| `bun run db:seed` | `admin@example.com` のローカル管理者ユーザーを作成または初期化 |
 | `bun run scan:import` | raw/fixture scan artifactを取り込みfinding/evidenceを作成 |
 | `bun run scan:semgrep` | Semgrep CLIを実行してfinding/evidenceを作成 |
 | `bun run typecheck` | TypeScript check |

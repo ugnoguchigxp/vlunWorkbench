@@ -1,18 +1,18 @@
 import { eq, inArray } from "drizzle-orm";
 import type { AppDatabase } from "../../db";
 import {
-	projects,
-	scanRuns,
-	toolRuns,
-	scanArtifacts,
-	findings,
+	dastEvidence,
+	dastRuns,
+	dynamicRuns,
+	findingDecisions,
 	findingEvidences,
 	findingReviews,
-	findingDecisions,
+	findings,
+	projects,
 	reproductionRuns,
-	dynamicRuns,
-	dastRuns,
-	dastEvidence,
+	scanArtifacts,
+	scanRuns,
+	toolRuns,
 } from "../../db/schema";
 import { getProfileById } from "./profiles";
 
@@ -40,17 +40,18 @@ const SEVERITIES = [
 ] as const;
 
 const getBucketRank = (bucket: string) => {
-	const idx = BUCKETS.findIndex((candidate) => candidate === bucket);
+	const idx = (BUCKETS as readonly string[]).indexOf(bucket);
 	return idx === -1 ? 99 : idx;
 };
 
 const getSeverityRank = (severity: string) => {
 	const normalizedSeverity = severity.toLowerCase();
-	const idx = SEVERITIES.findIndex(
-		(candidate) => candidate === normalizedSeverity,
-	);
+	const idx = (SEVERITIES as readonly string[]).indexOf(normalizedSeverity);
 	return idx === -1 ? 99 : idx;
 };
+
+const isKnownSeverity = (severity: string): boolean =>
+	(SEVERITIES as readonly string[]).includes(severity.toLowerCase());
 
 const toInlineText = (value: unknown, fallback = "N/A"): string => {
 	const text = String(value ?? fallback)
@@ -84,6 +85,78 @@ const getLocationStartLine = (location: unknown): number => {
 const formatDateTime = (value: Date | null | undefined): string => {
 	if (!value) return "N/A";
 	return value.toISOString();
+};
+
+const DECISION_LABELS: Record<string, string> = {
+	needs_fix: "修正が必要",
+	accepted: "リスク受容",
+	deferred: "対応保留",
+	false_positive: "誤検知",
+	undecided: "未判断",
+};
+
+const SEVERITY_LABELS: Record<string, string> = {
+	critical: "緊急",
+	high: "高",
+	medium: "中",
+	low: "低",
+	info: "情報",
+	unknown: "不明",
+};
+
+const EVIDENCE_STRENGTH_LABELS: Record<string, string> = {
+	strong: "強い",
+	moderate: "中程度",
+	weak: "弱い",
+	unknown: "不明",
+};
+
+const FALSE_POSITIVE_LABELS: Record<string, string> = {
+	low: "低い",
+	medium: "中程度",
+	high: "高い",
+	unknown: "不明",
+};
+
+const formatDecision = (value: string | null | undefined): string =>
+	DECISION_LABELS[value || "undecided"] ?? toInlineText(value, "未判断");
+
+const formatSeverity = (value: string | null | undefined): string =>
+	SEVERITY_LABELS[(value || "unknown").toLowerCase()] ??
+	toInlineText(value, "不明");
+
+const describeEvidenceKinds = (
+	evidences: (typeof findingEvidences.$inferSelect)[],
+): string => {
+	if (evidences.length === 0) return "証跡は記録されていません";
+	const counts = new Map<string, number>();
+	for (const evidence of evidences) {
+		counts.set(evidence.kind, (counts.get(evidence.kind) ?? 0) + 1);
+	}
+	return Array.from(counts.entries())
+		.sort(([a], [b]) => a.localeCompare(b))
+		.map(([kind, count]) => `${kind} ${count}件`)
+		.join("、");
+};
+
+const buildRemediationFallback = (params: {
+	bucket: string;
+	severity: string;
+	locationPath: string;
+}): string => {
+	const target = params.locationPath
+		? `${params.locationPath} 周辺`
+		: "該当コンポーネント";
+	if (params.bucket === "false_positive") {
+		return "誤検知として扱う場合も、根拠となるコード差分または運用上の前提を記録して再発時に再評価できるようにしてください。";
+	}
+	if (params.bucket === "deferred") {
+		return `${target} の影響範囲を明確にし、保留期限と再確認条件を決めてから backlog に残してください。`;
+	}
+	if (params.severity === "critical" || params.severity === "high") {
+		return `${target} を優先して修正し、入力検証、権限境界、秘密情報の扱いなど該当ルールが指摘している制御を追加してください。`;
+	}
+	return `${target} の実装意図と実際のデータフローを確認し、必要に応じて防御的なチェックやテストを追加してください。`;
 };
 
 export async function buildMarkdownReport(
@@ -226,6 +299,22 @@ export async function buildMarkdownReport(
 		).length,
 		undecided: processedFindings.filter((f) => f.bucket === "undecided").length,
 	};
+	const severityStats = {
+		critical: rawFindings.filter((f) => f.severity.toLowerCase() === "critical")
+			.length,
+		high: rawFindings.filter((f) => f.severity.toLowerCase() === "high").length,
+		medium: rawFindings.filter((f) => f.severity.toLowerCase() === "medium")
+			.length,
+		low: rawFindings.filter((f) => f.severity.toLowerCase() === "low").length,
+		info: rawFindings.filter((f) => f.severity.toLowerCase() === "info").length,
+		unknown: rawFindings.filter((f) => !isKnownSeverity(f.severity)).length,
+	};
+	const reviewedFindingCount = processedFindings.filter(
+		(f) => f.latestCompletedReview,
+	).length;
+	const decidedFindingCount = processedFindings.filter(
+		(f) => f.latestDecision,
+	).length;
 
 	// Sort findings using the deterministic policy
 	const deterministicSort = (
@@ -274,7 +363,7 @@ export async function buildMarkdownReport(
 		(f) => f.bucket === "undecided",
 	);
 
-	const reportTitle = toInlineText(options.title, "Security Report");
+	const reportTitle = toInlineText(options.title, "セキュリティレポート");
 
 	// Start building Markdown content
 	const lines: string[] = [];
@@ -283,24 +372,43 @@ export async function buildMarkdownReport(
 
 	// Scan Summary
 	const profileOutcome = (scanRun.metadata?.profileOutcome as string) || "N/A";
-	lines.push("## Scan Summary");
-	lines.push(`- **Project Name:** ${toInlineText(project.name)}`);
-	lines.push(`- **Scan Profile:** ${toInlineText(scanRun.profile)}`);
+	lines.push("## スキャン概要");
+	lines.push(`- **プロジェクト名:** ${toInlineText(project.name)}`);
+	lines.push(`- **スキャンプロファイル:** ${toInlineText(scanRun.profile)}`);
 	lines.push(
-		`- **Profile Outcome:** ${toInlineText(profileOutcome.toUpperCase())}`,
+		`- **プロファイル結果:** ${toInlineText(profileOutcome.toUpperCase())}`,
 	);
-	lines.push(`- **Status:** ${toInlineText(scanRun.status)}`);
-	lines.push(`- **Started At:** ${formatDateTime(scanRun.startedAt)}`);
-	lines.push(`- **Completed At:** ${formatDateTime(scanRun.completedAt)}`);
+	lines.push(`- **状態:** ${toInlineText(scanRun.status)}`);
+	lines.push(`- **開始日時:** ${formatDateTime(scanRun.startedAt)}`);
+	lines.push(`- **完了日時:** ${formatDateTime(scanRun.completedAt)}`);
+	lines.push("");
+
+	lines.push("## 全体考察");
+	if (rawFindings.length === 0) {
+		lines.push(
+			"- このスキャンでは finding は記録されていません。ツール実行結果と raw artifact は残っているため、対象範囲や除外設定が意図どおりだったかを確認する余地はあります。",
+		);
+	} else {
+		const urgentCount = severityStats.critical + severityStats.high;
+		lines.push(
+			`- 検出件数は ${rawFindings.length} 件で、このうち緊急または高 severity は ${urgentCount} 件です。まず「修正が必要」に分類された finding と未判断の高 severity finding を優先して確認してください。`,
+		);
+		lines.push(
+			`- 判断状況は、修正が必要 ${stats.needs_fix} 件、リスク受容 ${stats.accepted} 件、対応保留 ${stats.deferred} 件、誤検知 ${stats.false_positive} 件、未判断 ${stats.undecided} 件です。未判断が残る場合は、証跡の妥当性と実行時到達可能性を追加確認する必要があります。`,
+		);
+		lines.push(
+			`- LLMレビュー済みは ${reviewedFindingCount} 件、意思決定済みは ${decidedFindingCount} 件です。レビューがない finding は、静的検出と保存済み証跡だけを根拠にしているため、修正前に影響範囲の読み合わせを推奨します。`,
+		);
+	}
 	lines.push("");
 
 	// Tool Summary Table
-	lines.push("## Tool Summary");
+	lines.push("## ツール実行サマリ");
 	if (tools.length > 0) {
 		const profile = getProfileById(scanRun.profile);
 		const profileTools = profile?.tools ?? [];
 
-		lines.push("| Tool | Type | Version | Status | Exit Code |");
+		lines.push("| ツール | 種別 | バージョン | 状態 | 終了コード |");
 		lines.push("| --- | --- | --- | --- | --- |");
 		// Sort tools deterministically
 		const sortedTools = [...tools].sort((a, b) => {
@@ -315,28 +423,39 @@ export async function buildMarkdownReport(
 			const profileTool = profileTools.find((pt) => pt.toolId === t.toolName);
 			const requiredText = profileTool
 				? profileTool.required
-					? "Required"
-					: "Optional"
+					? "必須"
+					: "任意"
 				: "N/A";
 			lines.push(
 				`| ${escapeTableCell(t.toolName)} | ${escapeTableCell(requiredText)} | ${escapeTableCell(t.toolVersion || "unknown")} | ${escapeTableCell(t.status)} | ${escapeTableCell(t.exitCode ?? "-")} |`,
 			);
 		}
 	} else {
-		lines.push("No tools were run in this scan.");
+		lines.push("このスキャンで実行されたツールはありません。");
 	}
 	lines.push("");
 
 	// Decision Summary Table
-	lines.push("## Decision Summary");
-	lines.push("| Decision | Count |");
+	lines.push("## 判断サマリ");
+	lines.push("| 判断 | 件数 |");
 	lines.push("| --- | --- |");
-	lines.push(`| Needs Fix | ${stats.needs_fix} |`);
-	lines.push(`| Accepted | ${stats.accepted} |`);
-	lines.push(`| Deferred | ${stats.deferred} |`);
-	lines.push(`| False Positive | ${stats.false_positive} |`);
-	lines.push(`| Undecided | ${stats.undecided} |`);
-	lines.push(`| **Total** | ${rawFindings.length} |`);
+	lines.push(`| 修正が必要 | ${stats.needs_fix} |`);
+	lines.push(`| リスク受容 | ${stats.accepted} |`);
+	lines.push(`| 対応保留 | ${stats.deferred} |`);
+	lines.push(`| 誤検知 | ${stats.false_positive} |`);
+	lines.push(`| 未判断 | ${stats.undecided} |`);
+	lines.push(`| **合計** | ${rawFindings.length} |`);
+	lines.push("");
+
+	lines.push("## Severity サマリ");
+	lines.push("| Severity | 件数 |");
+	lines.push("| --- | --- |");
+	lines.push(`| 緊急 | ${severityStats.critical} |`);
+	lines.push(`| 高 | ${severityStats.high} |`);
+	lines.push(`| 中 | ${severityStats.medium} |`);
+	lines.push(`| 低 | ${severityStats.low} |`);
+	lines.push(`| 情報 | ${severityStats.info} |`);
+	lines.push(`| 不明 | ${severityStats.unknown} |`);
 	lines.push("");
 
 	// Render a group of findings helper
@@ -347,63 +466,109 @@ export async function buildMarkdownReport(
 	) => {
 		lines.push(`## ${groupTitle}`);
 		if (!isIncluded) {
-			lines.push("Section excluded by report options.");
+			lines.push("レポート設定により、このセクションは除外されています。");
 			lines.push("");
 			return;
 		}
 		if (list.length === 0) {
-			lines.push("No findings in this category.");
+			lines.push("この分類の finding はありません。");
 			lines.push("");
 			return;
 		}
 
 		for (const item of list) {
 			const f = item.finding;
+			const locationPath = getLocationPath(f.primaryLocation);
+			const startLine = getLocationStartLine(f.primaryLocation) || 1;
+			const locationText = locationPath
+				? `${locationPath}:${startLine}`
+				: "なし";
+			const fndRepros = allReproRuns.filter((r) => r.findingId === f.id);
+			const fndDynamics = allDynamicRuns.filter((r) => r.findingId === f.id);
+			const fndDastEv = allDastEvidence.filter((e) => e.findingId === f.id);
+			const review = item.latestCompletedReview;
+			const evidenceKinds = describeEvidenceKinds(item.evidences);
+			const remediation =
+				toInlineText(review?.remediationDirection, "") ||
+				buildRemediationFallback({
+					bucket: item.bucket,
+					severity: f.severity.toLowerCase(),
+					locationPath,
+				});
+			const impact =
+				toInlineText(review?.likelyImpact, "") ||
+				`${formatSeverity(f.severity)} severity の検出です。${toInlineText(f.description)}`;
+			const verificationNotes: string[] = [];
+			if (fndRepros.length > 0) {
+				verificationNotes.push(`sandbox reproduction ${fndRepros.length}件`);
+			}
+			if (fndDynamics.length > 0) {
+				verificationNotes.push(`dynamic verification ${fndDynamics.length}件`);
+			}
+			if (fndDastEv.length > 0) {
+				verificationNotes.push(`DAST evidence ${fndDastEv.length}件`);
+			}
+
 			lines.push(`### Finding ${f.id}`);
-			lines.push(`- **Title:** ${toInlineText(f.title)}`);
-			lines.push(`- **Description:** ${toInlineText(f.description)}`);
-			lines.push(`- **Source Tool:** ${toInlineText(f.sourceTool)}`);
-			lines.push(`- **Rule ID:** ${toInlineText(f.ruleId)}`);
-			lines.push(`- **Severity:** ${toInlineText(f.severity)}`);
+			lines.push(`- **タイトル:** ${toInlineText(f.title)}`);
+			lines.push(`- **説明:** ${toInlineText(f.description)}`);
+			lines.push(`- **検出ツール:** ${toInlineText(f.sourceTool)}`);
+			lines.push(`- **ルールID:** ${toInlineText(f.ruleId)}`);
 			lines.push(
-				`- **Decision:** ${item.latestDecision ? item.latestDecision.decision : "Undecided"}`,
+				`- **Severity:** ${formatSeverity(f.severity)} (${toInlineText(f.severity)})`,
 			);
+			lines.push(`- **判断:** ${formatDecision(item.bucket)}`);
 			lines.push(
-				`- **Decision Reason:** ${item.latestDecision ? item.latestDecision.reason : "N/A"}`,
+				`- **判断理由:** ${item.latestDecision ? toInlineText(item.latestDecision.reason) : "未判断のため未記録"}`,
 			);
 			if (item.latestDecision?.comment) {
 				lines.push(
-					`- **Decision Comment:** ${toInlineText(item.latestDecision.comment)}`,
+					`- **判断コメント:** ${toInlineText(item.latestDecision.comment)}`,
 				);
 			}
+			lines.push(`- **主な場所:** ${toInlineText(locationText)}`);
+			lines.push("");
 
-			const locationPath = getLocationPath(f.primaryLocation);
-			if (locationPath) {
-				const startLine = getLocationStartLine(f.primaryLocation) || 1;
+			lines.push("#### 考察");
+			lines.push(
+				`- **判断の読み:** ${formatDecision(item.bucket)}として扱っています。${review ? "LLMレビュー結果と保存済み証跡をあわせて確認しています。" : "LLMレビューは未完了のため、現時点では静的検出と保存済み証跡が主な根拠です。"}`,
+			);
+			lines.push(`- **想定影響:** ${impact}`);
+			lines.push(
+				`- **根拠:** ${evidenceKinds}。主な場所は ${toInlineText(locationText)} です。`,
+			);
+			if (review?.falsePositiveAssessment) {
 				lines.push(
-					`- **Primary Location:** ${toInlineText(locationPath)}:${startLine}`,
+					`- **誤検知の見立て:** ${FALSE_POSITIVE_LABELS[review.falsePositiveAssessment.level] ?? review.falsePositiveAssessment.level}。${toInlineText(review.falsePositiveAssessment.reasoning)}`,
 				);
-			} else {
-				lines.push("- **Primary Location:** None");
 			}
+			if (review?.evidenceStrength) {
+				lines.push(
+					`- **証跡の強さ:** ${EVIDENCE_STRENGTH_LABELS[review.evidenceStrength.level] ?? review.evidenceStrength.level}。${toInlineText(review.evidenceStrength.reasoning)}`,
+				);
+			}
+			lines.push(`- **対応方針:** ${remediation}`);
+			lines.push(
+				`- **検証状況:** ${verificationNotes.length > 0 ? `${verificationNotes.join("、")} が記録されています。` : "再現・動的検証・DAST証跡はまだ記録されていません。"}`,
+			);
 			lines.push("");
 
 			// Evidences
-			lines.push("#### Evidences");
+			lines.push("#### 証跡");
 			if (item.evidences.length > 0) {
 				for (const ev of item.evidences) {
-					lines.push(`##### Evidence ${ev.id}`);
-					lines.push(`- **Kind:** ${toInlineText(ev.kind)}`);
-					lines.push(`- **Title:** ${toInlineText(ev.title)}`);
+					lines.push(`##### 証跡 ${ev.id}`);
+					lines.push(`- **種別:** ${toInlineText(ev.kind)}`);
+					lines.push(`- **タイトル:** ${toInlineText(ev.title)}`);
 					if (ev.location) {
-						lines.push(`- **Location:** ${JSON.stringify(ev.location)}`);
+						lines.push(`- **場所:** ${JSON.stringify(ev.location)}`);
 					}
 					if (ev.artifactId) {
-						lines.push(`- **Artifact Reference:** ${ev.artifactId}`);
+						lines.push(`- **アーティファクト参照:** ${ev.artifactId}`);
 					}
 					if (ev.snippet) {
 						const fence = codeFenceFor(ev.snippet);
-						lines.push("- **Snippet:**");
+						lines.push("- **スニペット:**");
 						lines.push(fence);
 						lines.push(ev.snippet);
 						lines.push(fence);
@@ -411,101 +576,96 @@ export async function buildMarkdownReport(
 					lines.push("");
 				}
 			} else {
-				lines.push("No evidence recorded.");
+				lines.push("証跡は記録されていません。");
 				lines.push("");
 			}
 
 			// LLM Review
-			lines.push("#### LLM Review");
-			if (item.latestCompletedReview) {
-				const r = item.latestCompletedReview;
-				lines.push(`- **Status:** ${r.status}`);
-				lines.push(`- **Provider:** ${toInlineText(r.provider)}`);
-				lines.push(`- **Model:** ${toInlineText(r.model)}`);
-				lines.push(`- **Summary:** ${toInlineText(r.summary)}`);
-				lines.push(`- **Likely Impact:** ${toInlineText(r.likelyImpact)}`);
+			lines.push("#### LLMレビュー");
+			if (review) {
+				const r = review;
+				lines.push(`- **状態:** ${r.status}`);
+				lines.push(`- **プロバイダー:** ${toInlineText(r.provider)}`);
+				lines.push(`- **モデル:** ${toInlineText(r.model)}`);
+				lines.push(`- **要約:** ${toInlineText(r.summary)}`);
+				lines.push(`- **想定影響:** ${toInlineText(r.likelyImpact)}`);
 				if (r.falsePositiveAssessment) {
 					lines.push(
-						`- **False Positive Assessment:** Level: ${toInlineText(r.falsePositiveAssessment.level)}, Reasoning: ${toInlineText(r.falsePositiveAssessment.reasoning)}`,
+						`- **誤検知評価:** レベル: ${FALSE_POSITIVE_LABELS[r.falsePositiveAssessment.level] ?? toInlineText(r.falsePositiveAssessment.level)}, 理由: ${toInlineText(r.falsePositiveAssessment.reasoning)}`,
 					);
 				}
 				if (r.evidenceStrength) {
 					lines.push(
-						`- **Evidence Strength:** Level: ${toInlineText(r.evidenceStrength.level)}, Reasoning: ${toInlineText(r.evidenceStrength.reasoning)}`,
+						`- **証跡強度:** レベル: ${EVIDENCE_STRENGTH_LABELS[r.evidenceStrength.level] ?? toInlineText(r.evidenceStrength.level)}, 理由: ${toInlineText(r.evidenceStrength.reasoning)}`,
 					);
 				}
-				lines.push(
-					`- **Remediation Direction:** ${toInlineText(r.remediationDirection)}`,
-				);
+				lines.push(`- **修正方向:** ${toInlineText(r.remediationDirection)}`);
 				if (r.reviewerNotes && r.reviewerNotes.length > 0) {
-					lines.push("- **Reviewer Notes:**");
+					lines.push("- **レビューメモ:**");
 					for (const note of r.reviewerNotes) {
 						lines.push(`  - ${toInlineText(note)}`);
 					}
 				}
 			} else {
-				lines.push("- **Status:** No completed review");
+				lines.push("- **状態:** 完了したレビューはありません。");
 			}
 			lines.push("");
 
 			// Sandbox Reproduction
-			const fndRepros = allReproRuns.filter((r) => r.findingId === f.id);
 			lines.push("#### Sandbox Reproduction");
 			if (fndRepros.length > 0) {
 				for (const r of fndRepros) {
 					lines.push(`- **Run ID:** ${r.id}`);
-					lines.push(`  - **Profile:** ${toInlineText(r.profileId)}`);
-					lines.push(`  - **Status:** ${toInlineText(r.status)}`);
-					lines.push(`  - **Outcome:** ${toInlineText(r.outcome || "N/A")}`);
+					lines.push(`  - **プロファイル:** ${toInlineText(r.profileId)}`);
+					lines.push(`  - **状態:** ${toInlineText(r.status)}`);
+					lines.push(`  - **結果:** ${toInlineText(r.outcome || "N/A")}`);
 					if (r.summary) {
-						lines.push(`  - **Summary:** ${toInlineText(r.summary)}`);
+						lines.push(`  - **要約:** ${toInlineText(r.summary)}`);
 					}
 					if (r.errorMessage) {
-						lines.push(`  - **Error:** ${toInlineText(r.errorMessage)}`);
+						lines.push(`  - **エラー:** ${toInlineText(r.errorMessage)}`);
 					}
 				}
 			} else {
-				lines.push("No sandbox reproduction runs recorded.");
+				lines.push("sandbox reproduction は記録されていません。");
 			}
 			lines.push("");
 
 			// Dynamic Verification
-			const fndDynamics = allDynamicRuns.filter((r) => r.findingId === f.id);
 			lines.push("#### Dynamic Verification");
 			if (fndDynamics.length > 0) {
 				for (const r of fndDynamics) {
 					lines.push(`- **Run ID:** ${r.id}`);
-					lines.push(`  - **Profile:** ${toInlineText(r.profileId)}`);
-					lines.push(`  - **Kind:** ${toInlineText(r.dynamicKind)}`);
-					lines.push(`  - **Status:** ${toInlineText(r.status)}`);
-					lines.push(`  - **Outcome:** ${toInlineText(r.outcome || "N/A")}`);
+					lines.push(`  - **プロファイル:** ${toInlineText(r.profileId)}`);
+					lines.push(`  - **種別:** ${toInlineText(r.dynamicKind)}`);
+					lines.push(`  - **状態:** ${toInlineText(r.status)}`);
+					lines.push(`  - **結果:** ${toInlineText(r.outcome || "N/A")}`);
 					if (r.summary) {
-						lines.push(`  - **Summary:** ${toInlineText(r.summary)}`);
+						lines.push(`  - **要約:** ${toInlineText(r.summary)}`);
 					}
 					if (r.errorMessage) {
-						lines.push(`  - **Error:** ${toInlineText(r.errorMessage)}`);
+						lines.push(`  - **エラー:** ${toInlineText(r.errorMessage)}`);
 					}
 				}
 			} else {
-				lines.push("No dynamic verification runs recorded.");
+				lines.push("dynamic verification は記録されていません。");
 			}
 			lines.push("");
 
 			// DAST Evidence
-			const fndDastEv = allDastEvidence.filter((e) => e.findingId === f.id);
-			lines.push("#### DAST Evidence");
+			lines.push("#### DAST証跡");
 			if (fndDastEv.length > 0) {
 				for (const ev of fndDastEv) {
-					lines.push(`- **Evidence ID:** ${ev.id}`);
+					lines.push(`- **証跡ID:** ${ev.id}`);
 					lines.push(`  - **Run ID:** ${ev.dastRunId}`);
-					lines.push(`  - **Kind:** ${toInlineText(ev.kind)}`);
-					lines.push(`  - **Title:** ${toInlineText(ev.title)}`);
+					lines.push(`  - **種別:** ${toInlineText(ev.kind)}`);
+					lines.push(`  - **タイトル:** ${toInlineText(ev.title)}`);
 					if (ev.snippet) {
-						lines.push(`  - **Snippet:** ${toInlineText(ev.snippet)}`);
+						lines.push(`  - **スニペット:** ${toInlineText(ev.snippet)}`);
 					}
 				}
 			} else {
-				lines.push("No DAST evidence recorded.");
+				lines.push("DAST証跡は記録されていません。");
 			}
 			lines.push("");
 
@@ -514,7 +674,7 @@ export async function buildMarkdownReport(
 				new Set(item.evidences.map((e) => e.artifactId).filter(Boolean)),
 			) as string[];
 			if (uniqueArtifactIds.length > 0) {
-				lines.push("#### Raw Artifact References");
+				lines.push("#### Raw Artifact参照");
 				// Sort artifact references deterministically: kind, format, id
 				const fndArtifacts = allArtifacts
 					.filter((a) => uniqueArtifactIds.includes(a.id))
@@ -534,28 +694,28 @@ export async function buildMarkdownReport(
 	};
 
 	// 4. Render main sections
-	renderFindingsGroup("Accepted / Needs Fix Findings", activeFindings, true);
+	renderFindingsGroup("修正対象・リスク受容 Finding", activeFindings, true);
 	renderFindingsGroup(
-		"Deferred Findings",
+		"対応保留 Finding",
 		deferredFindings,
 		options.includeDeferred,
 	);
 	renderFindingsGroup(
-		"False Positives",
+		"誤検知 Finding",
 		falsePositiveFindings,
 		options.includeFalsePositives,
 	);
 	renderFindingsGroup(
-		"Undecided Findings",
+		"未判断 Finding",
 		undecidedFindings,
 		options.includeUndecided,
 	);
 
 	// Sandbox Reproduction Summary Section
-	lines.push("## Sandbox Reproduction Summary");
+	lines.push("## Sandbox Reproduction サマリ");
 	if (allReproRuns.length > 0) {
 		lines.push(
-			"| Run ID | Finding ID | Profile | Status | Outcome | Exit Code |",
+			"| Run ID | Finding ID | プロファイル | 状態 | 結果 | 終了コード |",
 		);
 		lines.push("| --- | --- | --- | --- | --- | --- |");
 		const sortedReproRuns = [...allReproRuns].sort((a, b) =>
@@ -567,15 +727,17 @@ export async function buildMarkdownReport(
 			);
 		}
 	} else {
-		lines.push("No sandbox reproduction runs recorded for this scan.");
+		lines.push(
+			"このスキャンには sandbox reproduction run が記録されていません。",
+		);
 	}
 	lines.push("");
 
 	// Dynamic Verification Summary Section
-	lines.push("## Dynamic Verification Summary");
+	lines.push("## Dynamic Verification サマリ");
 	if (allDynamicRuns.length > 0) {
 		lines.push(
-			"| Run ID | Finding ID | Profile | Kind | Status | Outcome | Exit Code |",
+			"| Run ID | Finding ID | プロファイル | 種別 | 状態 | 結果 | 終了コード |",
 		);
 		lines.push("| --- | --- | --- | --- | --- | --- | --- |");
 		const sortedDynRuns = [...allDynamicRuns].sort((a, b) =>
@@ -587,14 +749,16 @@ export async function buildMarkdownReport(
 			);
 		}
 	} else {
-		lines.push("No dynamic verification runs recorded for this scan.");
+		lines.push(
+			"このスキャンには dynamic verification run が記録されていません。",
+		);
 	}
 	lines.push("");
 
 	// DAST Summary Section
-	lines.push("## DAST Summary");
+	lines.push("## DAST サマリ");
 	if (allDastRuns.length > 0) {
-		lines.push("| Run ID | Target Origin | Profile | Status | Outcome |");
+		lines.push("| Run ID | 対象Origin | プロファイル | 状態 | 結果 |");
 		lines.push("| --- | --- | --- | --- | --- |");
 		const sortedDastRuns = [...allDastRuns].sort((a, b) =>
 			a.id.localeCompare(b.id),
@@ -605,21 +769,21 @@ export async function buildMarkdownReport(
 			);
 		}
 	} else {
-		lines.push("No DAST runs recorded for this scan.");
+		lines.push("このスキャンには DAST run が記録されていません。");
 	}
 	lines.push("");
 
 	// Verification Metadata Section
-	lines.push("## Verification Metadata");
+	lines.push("## 検証メタデータ");
 	lines.push(
-		`- **Report Generated At:** ${formatDateTime(scanRun.completedAt || scanRun.startedAt || scanRun.createdAt)}`,
+		`- **レポート生成基準日時:** ${formatDateTime(scanRun.completedAt || scanRun.startedAt || scanRun.createdAt)}`,
 	);
 	lines.push(`- **Scan Run ID:** ${scanRunId}`);
 	lines.push(`- **Drizzle Schema Version:** Phase 12 Hardened`);
 	lines.push("");
 
 	// Appendix: Raw Artifact References
-	lines.push("## Appendix: Raw Artifact References");
+	lines.push("## 付録: Raw Artifact参照");
 	if (allArtifacts.length > 0) {
 		const sortedArtifacts = [...allArtifacts].sort((a, b) => {
 			const kindDiff = a.kind.localeCompare(b.kind);
@@ -630,16 +794,16 @@ export async function buildMarkdownReport(
 		});
 		for (const a of sortedArtifacts) {
 			lines.push(
-				`- ID: ${a.id} (Kind: ${a.kind}, Format: ${a.format}, Path: ${a.path}, Size: ${a.sizeBytes} bytes, SHA256: ${a.sha256})`,
+				`- ID: ${a.id} (種別: ${a.kind}, 形式: ${a.format}, パス: ${a.path}, サイズ: ${a.sizeBytes} bytes, SHA256: ${a.sha256})`,
 			);
 		}
 	} else {
-		lines.push("No artifacts recorded for this scan.");
+		lines.push("このスキャンには artifact が記録されていません。");
 	}
 	lines.push("");
 
 	// Appendix: Review References
-	lines.push("## Appendix: Review References");
+	lines.push("## 付録: レビュー参照");
 	// Sort reviews deterministically: findingId, status, id
 	const sortedReviews = [...allReviews].sort((a, b) => {
 		const findingDiff = a.findingId.localeCompare(b.findingId);
@@ -655,18 +819,18 @@ export async function buildMarkdownReport(
 			);
 		}
 	} else {
-		lines.push("No LLM reviews recorded for this scan.");
+		lines.push("このスキャンには LLMレビューが記録されていません。");
 	}
 	lines.push("");
 
 	// Appendix: Finding Groups Snapshot
-	lines.push("## Appendix: Finding Groups Snapshot");
+	lines.push("## 付録: Findingグループスナップショット");
 	try {
 		const { buildGroupedFindings } = await import("./grouping-builder");
 		const grouped = await buildGroupedFindings(db, scanRunId);
 		if (grouped.groups.length > 0) {
 			lines.push(
-				"| Group Title | Strategy | Severity | Source Tools | Findings Count |",
+				"| グループタイトル | 戦略 | Severity | 検出ツール | Finding件数 |",
 			);
 			lines.push("| --- | --- | --- | --- | --- |");
 			for (const g of grouped.groups) {
@@ -675,11 +839,11 @@ export async function buildMarkdownReport(
 				);
 			}
 		} else {
-			lines.push("No finding groups recorded.");
+			lines.push("finding グループは記録されていません。");
 		}
 	} catch (err) {
 		lines.push(
-			`Failed to build finding groups: ${err instanceof Error ? err.message : String(err)}`,
+			`finding グループの生成に失敗しました: ${err instanceof Error ? err.message : String(err)}`,
 		);
 	}
 	lines.push("");

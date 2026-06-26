@@ -1,13 +1,13 @@
-import { parseArgs } from "node:util";
 import fs from "node:fs/promises";
+import { parseArgs } from "node:util";
 import { eq } from "drizzle-orm";
+import { readAppEnv } from "../app/env";
 import { createDbConnection } from "../db";
 import { scanRuns } from "../db/schema";
-import { readAppEnv } from "../app/env";
-import { ScanReportRepository } from "../modules/scans/report-repository";
-import { ArtifactRepository } from "../modules/scans/repositories";
 import { ArtifactStorage } from "../modules/scans/artifact-storage";
 import { buildMarkdownReport } from "../modules/scans/report-builder";
+import { ScanReportRepository } from "../modules/scans/report-repository";
+import { ArtifactRepository } from "../modules/scans/repositories";
 
 function writeResult(payload: Record<string, unknown>): void {
 	console.log(JSON.stringify(payload));
@@ -73,7 +73,7 @@ async function main() {
 			? true
 			: argsValues["include-undecided"] === "true";
 
-	const title = argsValues.title || "Security Report";
+	const title = argsValues.title || "セキュリティレポート";
 	const outputPath = argsValues.output;
 
 	const env = readAppEnv();

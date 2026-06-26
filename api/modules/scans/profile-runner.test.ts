@@ -1,12 +1,13 @@
-import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 import { execSync } from "node:child_process";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { eq } from "drizzle-orm";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDbConnection, type DbConnection } from "../../db";
-import { users, projects } from "../../db/schema";
-import { runProfileScan } from "./profile-runner";
+import { projects, scanRuns, users } from "../../db/schema";
 import * as profileRunnerModule from "./profile-runner";
+import { runProfileScan } from "./profile-runner";
 
 describe("Profile Runner Orchestration", () => {
 	let tempDir: string;
@@ -99,8 +100,34 @@ describe("Profile Runner Orchestration", () => {
 		expect(result.toolResults[0].status).toBe("completed");
 		expect(result.toolResults[0].findingCount).toBe(3);
 
-		expect(spy).toHaveBeenCalledTimes(4);
-	});
+			expect(spy).toHaveBeenCalledTimes(4);
+			expect(spy).toHaveBeenCalledWith(
+				expect.objectContaining({
+					toolId: "semgrep",
+					options: expect.objectContaining({
+						scope: expect.objectContaining({
+							intent: "source",
+							includeInstalledDependencies: false,
+						}),
+						scopeSummary: expect.objectContaining({
+							excludedRoots: expect.arrayContaining(["node_modules", "dist"]),
+						}),
+					}),
+				}),
+			);
+
+			const [scanRun] = await connection.db
+				.select()
+				.from(scanRuns)
+				.where(eq(scanRuns.id, result.scanRunId));
+			expect(scanRun.metadata).toEqual(
+				expect.objectContaining({
+					scope: expect.objectContaining({
+						scope: expect.objectContaining({ intent: "source" }),
+					}),
+				}),
+			);
+		});
 
 	it("should handle optional tool failure with completed_with_warnings status", async () => {
 		const mockProfile = {

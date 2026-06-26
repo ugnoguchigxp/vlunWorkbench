@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import type { ScanScopePolicy } from "../../../../shared/schemas/scan-profile.schema";
 import type { ArtifactSaveResult, ArtifactStorage } from "../artifact-storage";
 import { redactJsonSecrets, redactSecrets } from "../normalizers/redaction";
 import {
@@ -26,6 +27,8 @@ export interface OsvRunResult {
 
 export interface OsvRunnerOptions {
 	timeoutSec?: number;
+	scope?: ScanScopePolicy;
+	dependencyMode?: "manifest" | "installed_tree";
 	onLifecycleEvent?: (event: ToolLifecycleEvent) => Promise<void> | void;
 }
 

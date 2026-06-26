@@ -168,6 +168,7 @@ async function runHostToolProcess(
 	let stderr = "";
 	let proc: any;
 	let timeoutId: any;
+	let killAfterTimeoutId: any;
 	let isKilled = false;
 
 	try {
@@ -180,7 +181,10 @@ async function runHostToolProcess(
 		const timeoutSec = options.timeoutSec ?? 300;
 		timeoutId = setTimeout(() => {
 			isKilled = true;
-			proc.kill();
+			proc.kill("SIGTERM");
+			killAfterTimeoutId = setTimeout(() => {
+				proc.kill("SIGKILL");
+			}, 2_000);
 		}, timeoutSec * 1000);
 
 		const [stdoutBuf, stderrBuf, code] = await Promise.all([
@@ -206,6 +210,9 @@ async function runHostToolProcess(
 	} finally {
 		if (timeoutId) {
 			clearTimeout(timeoutId);
+		}
+		if (killAfterTimeoutId) {
+			clearTimeout(killAfterTimeoutId);
 		}
 	}
 
@@ -253,6 +260,7 @@ async function runDockerToolProcess(
 	let exitCode: number | null = null;
 	let proc: any;
 	let timeoutId: any;
+	let killAfterTimeoutId: any;
 	let isKilled = false;
 
 	const outDir = options.outputPath ? path.dirname(options.outputPath) : null;
@@ -352,7 +360,10 @@ async function runDockerToolProcess(
 		const timeoutSec = options.timeoutSec ?? 300;
 		timeoutId = setTimeout(() => {
 			isKilled = true;
-			proc.kill();
+			proc.kill("SIGTERM");
+			killAfterTimeoutId = setTimeout(() => {
+				proc.kill("SIGKILL");
+			}, 2_000);
 		}, timeoutSec * 1000);
 
 		const [stdoutBuf, stderrBuf, code] = await Promise.all([
@@ -395,6 +406,9 @@ async function runDockerToolProcess(
 	} finally {
 		if (timeoutId) {
 			clearTimeout(timeoutId);
+		}
+		if (killAfterTimeoutId) {
+			clearTimeout(killAfterTimeoutId);
 		}
 		if (isKilled) {
 			await cleanupDockerContainer(dockerBin, containerName, emit);

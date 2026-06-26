@@ -1,8 +1,10 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import type { ScanScopePolicy } from "../../../../shared/schemas/scan-profile.schema";
 import type { ArtifactSaveResult, ArtifactStorage } from "../artifact-storage";
 import { redactJsonSecrets, redactSecrets } from "../normalizers/redaction";
+import { getScopeExcludeGlobs, getScopeIncludeGlobs } from "../target-scope";
 import {
 	checkToolVersion,
 	runToolProcess,
@@ -28,6 +30,7 @@ export interface SemgrepRunnerOptions {
 	config?: string;
 	timeoutSec?: number;
 	maxTargetBytes?: number;
+	scope?: ScanScopePolicy;
 	onLifecycleEvent?: (event: ToolLifecycleEvent) => Promise<void> | void;
 }
 
@@ -80,6 +83,14 @@ export class SemgrepRunner {
 
 		if (options.maxTargetBytes !== undefined) {
 			args.push("--max-target-bytes", String(options.maxTargetBytes));
+		}
+		for (const includeGlob of getScopeIncludeGlobs(options.scope)) {
+			if (includeGlob !== "**/*") {
+				args.push("--include", includeGlob);
+			}
+		}
+		for (const excludeGlob of getScopeExcludeGlobs(options.scope)) {
+			args.push("--exclude", excludeGlob);
 		}
 
 		args.push(repoPath);

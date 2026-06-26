@@ -19,6 +19,7 @@ import type { AgenticSearchResult } from "../modules/agentic-search/types";
 import { AuthService } from "../modules/auth/auth.service";
 import { HttpError } from "../modules/auth/errors";
 import { FindingDecisionRepository } from "../modules/decisions/finding-decision-repository";
+import { LlmSettingsRepository } from "../modules/llm-settings/llm-settings.repository";
 import { SourceRetriever } from "../modules/rag/retriever";
 import { SearchEvidenceCollector } from "../modules/rag/search-evidence";
 import { FindingReviewRepository } from "../modules/reviews/finding-review-repository";
@@ -38,6 +39,7 @@ import {
 } from "../modules/sources/wiki/blob-sync";
 import { readPage } from "../modules/sources/wiki/content-repo";
 import { createAzureOpenAiProviderFromAppEnv } from "../providers/azureOpenAiProviderFactory";
+import { LlmRouter } from "../providers/llmRouter";
 import type {
 	EmbeddingProvider,
 	LlmProvider,
@@ -64,6 +66,7 @@ import { createSearchRoute } from "../routes/search.route";
 import { createSettingsRoute } from "../routes/settings.route";
 import { createSourcesRoute } from "../routes/sources.route";
 import { type AppEnv, readAppEnv } from "./env";
+import { shouldLogAppError } from "./error-logging";
 import type { FailureKind } from "../../shared/schemas/failure.schema";
 
 type AppRuntime = {
@@ -79,6 +82,8 @@ type AppRuntime = {
 	evidenceCollector: SearchEvidenceCollector;
 	authService: AuthService;
 	settingsRepository: SettingsRepository;
+	llmSettingsRepository: LlmSettingsRepository;
+	llmRouter: LlmRouter;
 	wikiBlobSyncer: WikiBlobSyncer | null;
 	agenticSearchService: {
 		run(input: {
@@ -155,6 +160,8 @@ function isRuntimeShape(value: unknown): value is AppRuntime {
 		Boolean(obj.evidenceCollector) &&
 		Boolean(obj.authService) &&
 		Boolean(obj.settingsRepository) &&
+		Boolean(obj.llmSettingsRepository) &&
+		Boolean(obj.llmRouter) &&
 		Object.hasOwn(obj, "wikiBlobSyncer") &&
 		typeof settingsRepo?.getSystemContextForUser === "function" &&
 		typeof settingsRepo?.updateSystemContext === "function" &&
@@ -195,6 +202,8 @@ async function createRuntime(): Promise<AppRuntime> {
 	});
 	const authService = new AuthService(dbConnection.db, env);
 	const settingsRepository = new SettingsRepository(dbConnection.db);
+	const llmSettingsRepository = new LlmSettingsRepository(dbConnection.db, env);
+	const llmRouter = new LlmRouter(llmSettingsRepository, env);
 
 	const agenticLogger = createAgenticLogger(env.openAiAgenticSearchDebug);
 	const agenticDisabledReason = !env.openAiApiKey
@@ -272,6 +281,8 @@ async function createRuntime(): Promise<AppRuntime> {
 		evidenceCollector,
 		authService,
 		settingsRepository,
+		llmSettingsRepository,
+		llmRouter,
 		wikiBlobSyncer,
 		agenticSearchService,
 	};
@@ -369,7 +380,9 @@ app.use(
 );
 app.use("/api/*", csrf());
 app.onError(async (error, c) => {
-	console.error(error);
+	if (shouldLogAppError(error)) {
+		console.error(error);
+	}
 	const dbError = error as { code?: string; message?: string };
 	if (
 		dbError.code === "42703" &&
@@ -724,6 +737,7 @@ app.route(
 	"/api/settings",
 	createSettingsRoute({
 		settingsRepository: runtime.settingsRepository,
+		llmSettingsRepository: runtime.llmSettingsRepository,
 	}),
 );
 app.route(
@@ -798,6 +812,7 @@ app.route(
 		reviewRepository: findingReviewRepository,
 		decisionRepository: findingDecisionRepository,
 		llmProvider: runtime.llmProvider,
+		llmRouter: runtime.llmRouter,
 		env: runtime.env,
 		db: runtime.dbConnection.db,
 	}),

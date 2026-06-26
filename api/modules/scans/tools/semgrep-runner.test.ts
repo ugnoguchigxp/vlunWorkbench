@@ -1,9 +1,10 @@
-import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { SemgrepRunner } from "./semgrep-runner";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ArtifactStorage } from "../artifact-storage";
+import { SOURCE_BASELINE_SCOPE } from "../profiles";
+import { SemgrepRunner } from "./semgrep-runner";
 
 describe("SemgrepRunner", () => {
 	let tempDir: string;
@@ -338,5 +339,57 @@ describe("SemgrepRunner", () => {
 				}
 			}
 		}
+	});
+
+	it("should pass scope include and exclude globs to semgrep", async () => {
+		let scanArgs: string[] = [];
+		vi.spyOn(Bun, "spawn").mockImplementation((args) => {
+			if (args[0] === "semgrep" && args[1] === "--version") {
+				return {
+					exited: Promise.resolve(0),
+					stdout: new ReadableStream({
+						start(controller) {
+							controller.enqueue(new TextEncoder().encode("1.2.3\n"));
+							controller.close();
+						},
+					}),
+					stderr: new ReadableStream({
+						start(controller) {
+							controller.close();
+						},
+					}),
+				} as any;
+			}
+
+			scanArgs = [...(args as string[])];
+			const outputIdx = scanArgs.indexOf("--output");
+			const writePromise =
+				outputIdx !== -1 && scanArgs[outputIdx + 1]
+					? fs.writeFile(scanArgs[outputIdx + 1], JSON.stringify({ results: [] }))
+					: Promise.resolve();
+			return {
+				exited: writePromise.then(() => 0),
+				stdout: new ReadableStream({
+					start(controller) {
+						controller.close();
+					},
+				}),
+				stderr: new ReadableStream({
+					start(controller) {
+						controller.close();
+					},
+				}),
+			} as any;
+		});
+
+		const runner = new SemgrepRunner(storage);
+		const result = await runner.run("scan-123", tempDir, {
+			scope: SOURCE_BASELINE_SCOPE,
+		});
+
+		expect(result.ok).toBe(true);
+		expect(scanArgs).toEqual(expect.arrayContaining(["--exclude", "node_modules/**"]));
+		expect(scanArgs).toEqual(expect.arrayContaining(["--exclude", "dist/**"]));
+		expect(scanArgs).not.toContain("**/*");
 	});
 });

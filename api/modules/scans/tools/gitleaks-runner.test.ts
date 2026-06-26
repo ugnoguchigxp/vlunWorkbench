@@ -1,9 +1,10 @@
-import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { GitleaksRunner } from "./gitleaks-runner";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ArtifactStorage } from "../artifact-storage";
+import { SOURCE_BASELINE_SCOPE } from "../profiles";
+import { GitleaksRunner } from "./gitleaks-runner";
 
 describe("GitleaksRunner", () => {
 	let tempDir: string;
@@ -345,5 +346,71 @@ describe("GitleaksRunner", () => {
 				}
 			}
 		}
+	});
+
+	it("should scan a scoped workspace for source baseline scope", async () => {
+		await fs.mkdir(path.join(tempDir, "src"), { recursive: true });
+		await fs.mkdir(path.join(tempDir, "node_modules", "pkg"), {
+			recursive: true,
+		});
+		await fs.writeFile(path.join(tempDir, "src", "app.ts"), "export {};\n");
+		await fs.writeFile(
+			path.join(tempDir, "node_modules", "pkg", "index.js"),
+			"module.exports = {};\n",
+		);
+
+		let scanSource = "";
+		vi.spyOn(Bun, "spawn").mockImplementation((args) => {
+			if (args[0] === "gitleaks" && args[1] === "version") {
+				return {
+					exited: Promise.resolve(0),
+					stdout: new ReadableStream({
+						start(controller) {
+							controller.enqueue(new TextEncoder().encode("8.18.0\n"));
+							controller.close();
+						},
+					}),
+					stderr: new ReadableStream({
+						start(controller) {
+							controller.close();
+						},
+					}),
+				} as any;
+			}
+
+			const sourceIdx = args.indexOf("--source");
+			scanSource = sourceIdx === -1 ? "" : (args[sourceIdx + 1] as string);
+			const outputIdx = args.indexOf("--report-path");
+			const writePromise =
+				outputIdx !== -1 && args[outputIdx + 1]
+					? fs.writeFile(args[outputIdx + 1] as string, JSON.stringify([]))
+					: Promise.resolve();
+			return {
+				exited: writePromise.then(() => 0),
+				stdout: new ReadableStream({
+					start(controller) {
+						controller.close();
+					},
+				}),
+				stderr: new ReadableStream({
+					start(controller) {
+						controller.close();
+					},
+				}),
+			} as any;
+		});
+
+		const runner = new GitleaksRunner(storage);
+		const result = await runner.run("scan-123", tempDir, {
+			scope: SOURCE_BASELINE_SCOPE,
+		});
+
+		expect(result.ok).toBe(true);
+		expect(scanSource).toBeTruthy();
+		expect(path.resolve(scanSource)).not.toBe(path.resolve(tempDir));
+		expect(result.executionMetadata?.scopeWorkspace).toEqual({
+			applied: true,
+			copiedFiles: 1,
+		});
 	});
 });

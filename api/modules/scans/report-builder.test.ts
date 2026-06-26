@@ -1,17 +1,17 @@
-import { describe, expect, it, beforeEach, afterEach } from "vitest";
-import { readFileSync, readdirSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createDbConnection, type DbConnection } from "../../db";
 import {
-	users,
-	projects,
-	scanRuns,
-	toolRuns,
-	findings,
+	findingDecisions,
 	findingEvidences,
 	findingReviews,
-	findingDecisions,
+	findings,
+	projects,
 	scanArtifacts,
+	scanRuns,
+	toolRuns,
+	users,
 } from "../../db/schema";
 import { buildMarkdownReport } from "./report-builder";
 
@@ -208,25 +208,34 @@ describe("Report Builder", () => {
 
 		// Content checks
 		expect(report1).toContain("# Custom Security Report");
-		expect(report1).toContain("## Scan Summary");
-		expect(report1).toContain("## Tool Summary");
-		expect(report1).toContain("## Decision Summary");
-		expect(report1).toContain("## Accepted / Needs Fix Findings");
+		expect(report1).toContain("## スキャン概要");
+		expect(report1).toContain("## 全体考察");
+		expect(report1).toContain("検出件数は 2 件");
+		expect(report1).toContain("## ツール実行サマリ");
+		expect(report1).toContain("## 判断サマリ");
+		expect(report1).toContain("## Severity サマリ");
+		expect(report1).toContain("## 修正対象・リスク受容 Finding");
 		expect(report1).toContain("### Finding " + findingId1);
-		expect(report1).toContain("- **Severity:** high");
+		expect(report1).toContain("- **Severity:** 高 (high)");
+		expect(report1).toContain("#### 考察");
+		expect(report1).toContain("- **判断:** 修正が必要");
+		expect(report1).toContain("- **想定影響:** Attacker can execute arbitrary JS.");
+		expect(report1).toContain("source-location 1件");
 		expect(report1).toContain("LLM confirmed XSS vulnerability.");
-		expect(report1).toContain("## Undecided Findings");
+		expect(report1).toContain("## 未判断 Finding");
 		expect(report1).toContain("### Finding " + findingId2);
-		expect(report1).toContain("- **Severity:** critical");
+		expect(report1).toContain("- **Severity:** 緊急 (critical)");
+		expect(report1).toContain("LLMレビューは未完了");
+		expect(report1).toContain("再現・動的検証・DAST証跡はまだ記録されていません。");
 
 		// Phase 12 Additions checks
-		expect(report1).toContain("## Sandbox Reproduction Summary");
-		expect(report1).toContain("## Dynamic Verification Summary");
-		expect(report1).toContain("## DAST Summary");
-		expect(report1).toContain("## Verification Metadata");
+		expect(report1).toContain("## Sandbox Reproduction サマリ");
+		expect(report1).toContain("## Dynamic Verification サマリ");
+		expect(report1).toContain("## DAST サマリ");
+		expect(report1).toContain("## 検証メタデータ");
 		expect(report1).toContain("#### Sandbox Reproduction");
 		expect(report1).toContain("#### Dynamic Verification");
-		expect(report1).toContain("#### DAST Evidence");
+		expect(report1).toContain("#### DAST証跡");
 	});
 
 	it("uses the latest completed review as report content", async () => {
@@ -258,7 +267,17 @@ describe("Report Builder", () => {
 		expect(report).toContain("LLM confirmed XSS vulnerability.");
 		expect(report).toContain("Review ID:");
 		expect(report).toContain("Status: failed");
-		expect(report).not.toContain("- **Error Message:** Provider unavailable");
+		expect(report).not.toContain("- **エラー:** Provider unavailable");
+	});
+
+	it("uses a Japanese default title when title is omitted", async () => {
+		const report = await buildMarkdownReport(connection.db, scanRunId, {
+			includeFalsePositives: true,
+			includeDeferred: true,
+			includeUndecided: true,
+		});
+
+		expect(report).toContain("# セキュリティレポート");
 	});
 
 	it("respects exclusion options", async () => {
@@ -271,11 +290,13 @@ describe("Report Builder", () => {
 
 		const report = await buildMarkdownReport(connection.db, scanRunId, options);
 
-		expect(report).toContain("## Accepted / Needs Fix Findings");
+		expect(report).toContain("## 修正対象・リスク受容 Finding");
 		expect(report).toContain("### Finding " + findingId1);
 
-		expect(report).toContain("## Undecided Findings");
-		expect(report).toContain("Section excluded by report options.");
+		expect(report).toContain("## 未判断 Finding");
+		expect(report).toContain(
+			"レポート設定により、このセクションは除外されています。",
+		);
 		expect(report).not.toContain("### Finding " + findingId2);
 	});
 });

@@ -12,23 +12,44 @@ import {
 	type FindingReviewOutput,
 } from "../../../shared/schemas/scan.schema";
 import type { LlmProvider } from "../../providers/types";
+import type { LlmRouter } from "../../providers/llmRouter";
+import type { LlmTask } from "../../providers/llmTaskTypes";
 
 export interface ReviewRunnerOptions extends ExtractSnippetOptions {
+	task?: LlmTask;
 	providerName?: string;
+	providerEndpointId?: string;
 	modelName?: string;
 	fixtureOutput?: string;
 	createdByUserId?: string | null;
 }
 
+type FindingReviewRunnerDeps = {
+	llmProvider?: LlmProvider;
+	llmRouter?: LlmRouter;
+};
+
 export class FindingReviewRunner {
 	private readonly reviewRepo: FindingReviewRepository;
 	private readonly findingRepo: FindingRepository;
 	private readonly projectRepo: ProjectRepository;
+	private readonly llmProvider?: LlmProvider;
+	private readonly llmRouter?: LlmRouter;
 
 	constructor(
 		private readonly db: AppDatabase,
-		private readonly llmProvider?: LlmProvider,
+		llmProviderOrDeps?: LlmProvider | FindingReviewRunnerDeps,
 	) {
+		if (
+			llmProviderOrDeps &&
+			typeof (llmProviderOrDeps as LlmProvider).chatCompletion === "function"
+		) {
+			this.llmProvider = llmProviderOrDeps as LlmProvider;
+		} else {
+			const deps = llmProviderOrDeps as FindingReviewRunnerDeps | undefined;
+			this.llmProvider = deps?.llmProvider;
+			this.llmRouter = deps?.llmRouter;
+		}
 		this.reviewRepo = new FindingReviewRepository(db);
 		this.findingRepo = new FindingRepository(db);
 		this.projectRepo = new ProjectRepository(db);
@@ -62,8 +83,9 @@ export class FindingReviewRunner {
 			throw new Error(`Project not found for finding: ${finding.projectId}`);
 		}
 
-		const provider = options.providerName ?? "azure-openai";
-		const model = options.modelName ?? "gpt-4";
+		let provider = options.providerName ?? "azure-openai";
+		let model = options.modelName ?? "gpt-4";
+		let resolvedProvider = this.llmProvider;
 
 		let bundle: Awaited<ReturnType<typeof buildReviewBundle>>;
 		try {
@@ -93,6 +115,44 @@ export class FindingReviewRunner {
 			};
 		}
 
+		let providerRouting: Record<string, unknown> | undefined;
+		if (!options.fixtureOutput && this.llmRouter) {
+			const resolution = await this.llmRouter.resolve(
+				options.task ?? "finding_review",
+				{
+					providerEndpointId: options.providerEndpointId,
+					model: options.modelName,
+				},
+			);
+			if (!resolution.ok) {
+				const review = await this.reviewRepo.createReview({
+					findingId,
+					provider,
+					model,
+					status: "failed",
+					inputBundle: bundle as unknown as Record<string, unknown>,
+					createdByUserId: options.createdByUserId,
+				});
+				await this.reviewRepo.updateReview(review.id, "failed", {
+					errorMessage: `${resolution.failureKind}: ${resolution.message}`,
+				});
+				return {
+					ok: false,
+					reviewId: review.id,
+					status: "failed",
+					error: `${resolution.failureKind}: ${resolution.message}`,
+				};
+			}
+			resolvedProvider = resolution.provider;
+			provider = resolution.providerName;
+			model = resolution.model;
+			providerRouting = {
+				task: resolution.task,
+				providerEndpointId: resolution.target.providerEndpointId,
+				model: resolution.model,
+			};
+		}
+
 		const review = await this.reviewRepo.createReview({
 			findingId,
 			provider,
@@ -118,14 +178,14 @@ export class FindingReviewRunner {
 					throw new Error(`Failed to parse/validate fixture output: ${msg}`);
 				}
 			} else {
-				if (!this.llmProvider) {
+				if (!resolvedProvider) {
 					throw new Error("LLM provider is not configured");
 				}
 
 				const systemPrompt = buildSystemPrompt();
 				const userMessage = buildUserMessage(bundle);
 
-				const response = await this.llmProvider.chatCompletion(
+				const response = await resolvedProvider.chatCompletion(
 					[
 						{ role: "system", content: systemPrompt },
 						{ role: "user", content: userMessage },
@@ -152,7 +212,10 @@ export class FindingReviewRunner {
 				remediationDirection: outputData.remediationDirection,
 				reviewerNotes: outputData.reviewerNotes,
 				confidenceAdjustment: outputData.confidenceAdjustment,
-				output: outputData as unknown as Record<string, unknown>,
+				output: {
+					...(outputData as unknown as Record<string, unknown>),
+					...(providerRouting ? { providerRouting } : {}),
+				},
 			});
 
 			return { ok: true, reviewId: review.id, status: "completed" };

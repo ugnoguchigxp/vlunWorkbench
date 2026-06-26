@@ -1,0 +1,5 @@
+2026-06-26T14:30:29+09:00	INFO	[secret] Secret scanning is enabled
+2026-06-26T14:30:29+09:00	INFO	[secret] Please see https://trivy.dev/docs/v0.71/guide/scanner/secret#recommendation for faster secret detection
+2026-06-26T14:30:29+09:00	INFO	[bun] Run "bun install" to collect the license information of packages	dir="node_modules"
+2026-06-26T14:30:29+09:00	INFO	Suppressing dependencies for development and testing. To display them, try the '--include-dev-deps' flag.
+2026-06-26T14:30:29+09:00	INFO	Number of language-specific files	num=1

@@ -1,7 +1,9 @@
 import type { FormEvent } from "react";
 import { useCallback, useEffect, useState } from "react";
 import {
+	browseProjectFolder,
 	createFindingDecision,
+	createProject,
 	type DynamicArtifact,
 	type DynamicEvidence,
 	type DynamicProfileConfig,
@@ -43,6 +45,13 @@ import {
 	triggerFindingReview,
 } from "../../api";
 import { useDastController } from "./use-dast-controller";
+
+const basenameFromPath = (value: string): string => {
+	const normalized = value.replace(/\/+$/, "");
+	const parts = normalized.split("/");
+	return parts.at(-1) || normalized || "Local project";
+};
+
 export type ScansDomainSectionProps = {
 	active: boolean;
 	busy: boolean;
@@ -63,6 +72,13 @@ export const useScansController = ({
 }: ScansDomainSectionProps) => {
 	const [projects, setProjects] = useState<Project[]>([]);
 	const [selectedProjectId, setSelectedProjectId] = useState("");
+	const [projectFolderPath, setProjectFolderPath] = useState("");
+	const [projectNameInput, setProjectNameInput] = useState("");
+	const [projectDefaultBranch, setProjectDefaultBranch] = useState("main");
+	const [projectCreateLoading, setProjectCreateLoading] = useState(false);
+	const [projectBrowseLoading, setProjectBrowseLoading] = useState(false);
+	const [showNewProjectModal, setShowNewProjectModal] = useState(false);
+	const [launchMode, setLaunchMode] = useState<"static" | "dast">("static");
 	const [scanRuns, setScanRuns] = useState<ScanRun[]>([]);
 	const [selectedScanRunId, setSelectedScanRunId] = useState("");
 	const [findings, setFindings] = useState<Finding[]>([]);
@@ -328,7 +344,7 @@ export const useScansController = ({
 	}, [active, selectedFindingId, selectedFindingDetails?.latestReview?.status]);
 
 	const handleStartScanProfile = async () => {
-		if (!selectedProjectId) return;
+		if (!selectedProjectId || !selectedProfileId || timeoutSec <= 0) return;
 		setIsScanning(true);
 		setErrorText(null);
 		try {
@@ -348,6 +364,60 @@ export const useScansController = ({
 			setErrorText(err instanceof Error ? err.message : "Scan failed to run.");
 		} finally {
 			setIsScanning(false);
+		}
+	};
+
+	const handleSelectProjectFolder = (path: string) => {
+		setProjectFolderPath(path);
+		if (!projectNameInput.trim()) {
+			setProjectNameInput(basenameFromPath(path));
+		}
+	};
+
+	const handleBrowseProjectFolder = async () => {
+		setProjectBrowseLoading(true);
+		setErrorText(null);
+		try {
+			const res = await browseProjectFolder();
+			if (res.path) handleSelectProjectFolder(res.path);
+		} catch (err) {
+			setErrorText(
+				err instanceof Error ? err.message : "Failed to select project folder.",
+			);
+		} finally {
+			setProjectBrowseLoading(false);
+		}
+	};
+
+	const handleCreateProjectFromFolder = async () => {
+		const repoPath = projectFolderPath.trim();
+		const name = projectNameInput.trim() || basenameFromPath(repoPath);
+		if (!repoPath || !name) return;
+
+		setProjectCreateLoading(true);
+		setErrorText(null);
+		try {
+			const created = await createProject({
+				name,
+				repoPath,
+				defaultBranch: projectDefaultBranch.trim() || "main",
+			});
+			setProjects((prev) => {
+				const others = prev.filter((item) => item.id !== created.id);
+				return [created, ...others];
+			});
+			setSelectedProjectId(created.id);
+			setProjectFolderPath(created.repoPath);
+			setProjectNameInput(created.name);
+			setShowNewProjectModal(false);
+		} catch (err) {
+			setErrorText(
+				err instanceof Error
+					? err.message
+					: "Failed to register project folder.",
+			);
+		} finally {
+			setProjectCreateLoading(false);
 		}
 	};
 
@@ -507,13 +577,31 @@ export const useScansController = ({
 						?.findingIds.includes(item.id),
 				)
 			: findings;
+	const selectedProject =
+		projects.find((project) => project.id === selectedProjectId) ?? null;
 
 	return {
 		active,
 		busy,
 		projects,
+		selectedProject,
 		selectedProjectId,
 		setSelectedProjectId,
+		projectFolderPath,
+		setProjectFolderPath,
+		projectNameInput,
+		setProjectNameInput,
+		projectDefaultBranch,
+		setProjectDefaultBranch,
+		projectCreateLoading,
+		projectBrowseLoading,
+		showNewProjectModal,
+		setShowNewProjectModal,
+		handleBrowseProjectFolder,
+		handleSelectProjectFolder,
+		handleCreateProjectFromFolder,
+		launchMode,
+		setLaunchMode,
 		scanRuns,
 		selectedScanRunId,
 		setSelectedScanRunId,
