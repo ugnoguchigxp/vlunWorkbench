@@ -197,7 +197,10 @@ function ActionIcon({ action }: { action: DashboardAction }) {
 	if (action.kind === "run_scan" || action.kind === "run_diagnostics")
 		return <Activity className="icon" />;
 	if (action.kind === "generate_report") return <FileText className="icon" />;
-	if (action.kind === "record_decisions" || action.kind === "review_findings")
+	if (
+		action.kind === "create_improvement_request" ||
+		action.kind === "review_findings"
+	)
 		return <ClipboardCheck className="icon" />;
 	return <Radar className="icon" />;
 }

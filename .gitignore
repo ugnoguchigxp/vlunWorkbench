@@ -40,5 +40,8 @@ Thumbs.db
 # coverage
 /coverage
 
+# generated scan/reproduction outputs
+/artifacts
+
 # wiki content
 /wiki-knowledge

@@ -170,6 +170,7 @@ export function createFindingsRoute(deps: FindingsRouteDeps) {
 				comment: parsed.comment,
 				linkedReviewId: parsed.linkedReviewId,
 				decidedByUserId: authUser.userId,
+				metadata: parsed.metadata,
 			});
 
 			return c.json({

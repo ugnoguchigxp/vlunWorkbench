@@ -1,17 +1,18 @@
 import fs from "node:fs/promises";
 import { z } from "zod";
-import type { AppDatabase } from "../../db";
 import {
-	LlmProviderExecutionError,
-	type LlmProvider,
-} from "../../providers/types";
+	type ScanReviewOutput,
+	scanReviewOutputSchema,
+} from "../../../shared/schemas/scan.schema";
+import type { AppDatabase } from "../../db";
 import type { LlmRouter } from "../../providers/llmRouter";
 import type { LlmTask } from "../../providers/llmTaskTypes";
-import { assertJapaneseTextFields } from "../llm-language";
 import {
-	scanReviewOutputSchema,
-	type ScanReviewOutput,
-} from "../../../shared/schemas/scan.schema";
+	type LlmProvider,
+	LlmProviderExecutionError,
+} from "../../providers/types";
+import { assertJapaneseTextFields } from "../llm-language";
+import { ScanRepository } from "./repositories";
 import {
 	buildScanReviewBundle,
 	type ScanReviewBundle,
@@ -22,7 +23,6 @@ import {
 	buildScanReviewUserMessage,
 } from "./scan-review-prompt";
 import { ScanReviewRepository } from "./scan-review-repository";
-import { ScanRepository } from "./repositories";
 
 export type ScanReviewRunnerOptions = ScanReviewBundleOptions & {
 	task?: LlmTask;
@@ -95,12 +95,31 @@ export class ScanReviewRunner {
 			const parsed = JSON.parse(jsonText);
 			const output = scanReviewOutputSchema.parse(parsed);
 			const findingIds = new Set(bundle.findings.map((finding) => finding.id));
-			const invalidFindingIds = output.findingTriageHints
-				.map((hint) => hint.findingId)
-				.filter((findingId) => !findingIds.has(findingId));
+			const referencedFindingIds = [
+				...output.findingTriageHints.map((hint) => ({
+					path: "findingTriageHints.findingId",
+					findingId: hint.findingId,
+				})),
+				...output.improvementRequest.priorityPlan.flatMap((item, index) =>
+					item.findingIds.map((findingId) => ({
+						path: `improvementRequest.priorityPlan.${index}.findingIds`,
+						findingId,
+					})),
+				),
+				...output.improvementRequest.implementationTasks.flatMap(
+					(item, index) =>
+						item.findingIds.map((findingId) => ({
+							path: `improvementRequest.implementationTasks.${index}.findingIds`,
+							findingId,
+						})),
+				),
+			];
+			const invalidFindingIds = referencedFindingIds.filter(
+				(item) => !findingIds.has(item.findingId),
+			);
 			if (invalidFindingIds.length > 0) {
 				throw new StructuredScanReviewOutputError(
-					`findingTriageHints referenced findings not in bundle: ${invalidFindingIds.join(", ")}`,
+					`scan review output referenced findings not in bundle: ${invalidFindingIds.map((item) => `${item.path}=${item.findingId}`).join(", ")}`,
 				);
 			}
 			if (options.enforceJapanese) {
@@ -112,6 +131,13 @@ export class ScanReviewRunner {
 					"falsePositiveHotspots",
 					"recommendedNextActions",
 					"confidenceNotes",
+					"improvementRequest.title",
+					"improvementRequest.objective",
+					"improvementRequest.scope",
+					"improvementRequest.acceptanceCriteria",
+					"improvementRequest.constraints",
+					"improvementRequest.nonGoals",
+					"improvementRequest.handoffPrompt",
 				]);
 				for (const [index, hint] of output.findingTriageHints.entries()) {
 					try {
@@ -126,6 +152,51 @@ export class ScanReviewRunner {
 										"note",
 										`findingTriageHints.${index}.note`,
 									)
+								: String(error),
+						);
+					}
+				}
+				for (const [
+					index,
+					item,
+				] of output.improvementRequest.priorityPlan.entries()) {
+					try {
+						assertJapaneseTextFields(
+							item as unknown as Record<string, unknown>,
+							["rationale"],
+						);
+					} catch (error) {
+						throw new Error(
+							error instanceof Error
+								? error.message.replace(
+										"rationale",
+										`improvementRequest.priorityPlan.${index}.rationale`,
+									)
+								: String(error),
+						);
+					}
+				}
+				for (const [
+					index,
+					item,
+				] of output.improvementRequest.implementationTasks.entries()) {
+					try {
+						assertJapaneseTextFields(
+							item as unknown as Record<string, unknown>,
+							["title", "body"],
+						);
+					} catch (error) {
+						throw new Error(
+							error instanceof Error
+								? error.message
+										.replace(
+											"title",
+											`improvementRequest.implementationTasks.${index}.title`,
+										)
+										.replace(
+											"body",
+											`improvementRequest.implementationTasks.${index}.body`,
+										)
 								: String(error),
 						);
 					}

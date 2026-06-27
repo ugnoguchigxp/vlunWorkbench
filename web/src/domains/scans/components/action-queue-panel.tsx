@@ -1,14 +1,13 @@
 import { ArrowRight, CheckCircle2, ListChecks } from "lucide-react";
 import { useState } from "react";
-import { actionQueueStateLabel, type ActionQueueState } from "../work-states";
 import { useScans } from "../scans-context";
 import { formatDateTime } from "../scans-utils";
+import { type ActionQueueState, actionQueueStateLabel } from "../work-states";
 
 const filters = [
 	{ value: "active", label: "未完了" },
 	{ value: "all", label: "すべて" },
 	{ value: "needs_review", label: "レビュー待ち" },
-	{ value: "needs_decision", label: "判断待ち" },
 	{ value: "needs_verification", label: "検証推奨" },
 	{ value: "ready_for_report", label: "レポート可能" },
 	{ value: "blocked_by_evidence", label: "証跡不足" },
@@ -17,7 +16,6 @@ const filters = [
 const actionLabel: Record<ActionQueueState, string> = {
 	scan_failed: "確認",
 	needs_review: "レビュー",
-	needs_decision: "判断",
 	needs_verification: "検証",
 	blocked_by_evidence: "確認",
 	ready_for_report: "作成",

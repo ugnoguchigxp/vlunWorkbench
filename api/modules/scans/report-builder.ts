@@ -1,4 +1,8 @@
 import { eq, inArray } from "drizzle-orm";
+import {
+	type ScanImprovementRequest,
+	scanImprovementRequestSchema,
+} from "../../../shared/schemas/scan.schema";
 import type { AppDatabase } from "../../db";
 import {
 	dastEvidence,
@@ -11,6 +15,7 @@ import {
 	projects,
 	reproductionRuns,
 	scanArtifacts,
+	scanReviews,
 	scanRuns,
 	toolRuns,
 } from "../../db/schema";
@@ -159,6 +164,120 @@ const buildRemediationFallback = (params: {
 	return `${target} の実装意図と実際のデータフローを確認し、必要に応じて防御的なチェックやテストを追加してください。`;
 };
 
+const readRemediationMetadata = (
+	decision: typeof findingDecisions.$inferSelect | null,
+): {
+	status?: string;
+	owner?: string | null;
+	priority?: string;
+	dueDate?: string | null;
+	recommendedFix?: string | null;
+} => {
+	const remediation = decision?.metadata?.remediation;
+	if (
+		!remediation ||
+		typeof remediation !== "object" ||
+		Array.isArray(remediation)
+	) {
+		return {};
+	}
+	const record = remediation as Record<string, unknown>;
+	return {
+		status: typeof record.status === "string" ? record.status : undefined,
+		owner: typeof record.owner === "string" ? record.owner : null,
+		priority: typeof record.priority === "string" ? record.priority : undefined,
+		dueDate: typeof record.dueDate === "string" ? record.dueDate : null,
+		recommendedFix:
+			typeof record.recommendedFix === "string" ? record.recommendedFix : null,
+	};
+};
+
+const readImprovementRequest = (
+	output: Record<string, unknown> | null | undefined,
+): ScanImprovementRequest | null => {
+	const parsed = scanImprovementRequestSchema.safeParse(
+		output?.improvementRequest,
+	);
+	return parsed.success ? parsed.data : null;
+};
+
+const renderImprovementRequest = (
+	lines: string[],
+	request: ScanImprovementRequest,
+) => {
+	lines.push("## 改善依頼書");
+	lines.push(`- **タイトル:** ${toInlineText(request.title)}`);
+	lines.push(`- **目的:** ${toInlineText(request.objective)}`);
+	if (request.scope.length > 0) {
+		lines.push("- **対象範囲:**");
+		for (const item of request.scope) {
+			lines.push(`  - ${toInlineText(item)}`);
+		}
+	}
+	if (request.priorityPlan.length > 0) {
+		lines.push("");
+		lines.push("### 優先順位");
+		lines.push("| Priority | Finding IDs | Rationale |");
+		lines.push("| --- | --- | --- |");
+		for (const item of request.priorityPlan) {
+			lines.push(
+				`| ${escapeTableCell(item.priority)} | ${escapeTableCell(item.findingIds.join(", ") || "-")} | ${escapeTableCell(item.rationale)} |`,
+			);
+		}
+	}
+	if (request.implementationTasks.length > 0) {
+		lines.push("");
+		lines.push("### 実装タスク");
+		for (const [index, task] of request.implementationTasks.entries()) {
+			lines.push(`#### ${index + 1}. ${toInlineText(task.title)}`);
+			lines.push(`- **内容:** ${toInlineText(task.body)}`);
+			lines.push(
+				`- **Finding IDs:** ${toInlineText(task.findingIds.join(", ") || "-")}`,
+			);
+			if (task.evidenceRefs.length > 0) {
+				lines.push(
+					`- **Evidence refs:** ${toInlineText(task.evidenceRefs.join(", "))}`,
+				);
+			}
+		}
+	}
+	if (request.acceptanceCriteria.length > 0) {
+		lines.push("");
+		lines.push("### 受け入れ条件");
+		for (const item of request.acceptanceCriteria) {
+			lines.push(`- ${toInlineText(item)}`);
+		}
+	}
+	if (request.verificationCommands.length > 0) {
+		lines.push("");
+		lines.push("### 検証コマンド");
+		for (const item of request.verificationCommands) {
+			lines.push(`- \`${item.replaceAll("`", "\\`")}\``);
+		}
+	}
+	if (request.constraints.length > 0) {
+		lines.push("");
+		lines.push("### 制約");
+		for (const item of request.constraints) {
+			lines.push(`- ${toInlineText(item)}`);
+		}
+	}
+	if (request.nonGoals.length > 0) {
+		lines.push("");
+		lines.push("### 非ゴール");
+		for (const item of request.nonGoals) {
+			lines.push(`- ${toInlineText(item)}`);
+		}
+	}
+	lines.push("");
+	lines.push("### Handoff Prompt");
+	const fence = codeFenceFor(request.handoffPrompt);
+	lines.push(fence);
+	lines.push(request.handoffPrompt);
+	lines.push(fence);
+	lines.push("");
+};
+
 export async function buildMarkdownReport(
 	db: AppDatabase,
 	scanRunId: string,
@@ -234,6 +353,21 @@ export async function buildMarkdownReport(
 		.select()
 		.from(dastRuns)
 		.where(eq(dastRuns.scanRunId, scanRunId));
+	const allScanReviews = await db
+		.select()
+		.from(scanReviews)
+		.where(eq(scanReviews.scanRunId, scanRunId));
+	const latestImprovementRequest =
+		allScanReviews
+			.filter((review) => review.status === "completed")
+			.sort((a, b) => {
+				const timeA = a.createdAt ? a.createdAt.getTime() : 0;
+				const timeB = b.createdAt ? b.createdAt.getTime() : 0;
+				if (timeB !== timeA) return timeB - timeA;
+				return b.id.localeCompare(a.id);
+			})
+			.map((review) => readImprovementRequest(review.output))
+			.find((request) => request !== null) ?? null;
 
 	// Helper to get latest completed review: sorted by createdAt desc, id desc
 	const getLatestCompletedReview = (findingId: string) => {
@@ -404,6 +538,111 @@ export async function buildMarkdownReport(
 		);
 	}
 	lines.push("");
+
+	if (latestImprovementRequest) {
+		renderImprovementRequest(lines, latestImprovementRequest);
+	}
+
+	lines.push("## Decision-grade Executive Summary");
+	if (rawFindings.length === 0) {
+		lines.push(
+			"- **Risk posture:** informational。finding は 0 件ですが、スキャン範囲と診断カバレッジの制約を前提に判断してください。",
+		);
+	} else {
+		const highestSeverity =
+			SEVERITIES.find((severity) => severityStats[severity] > 0) ?? "unknown";
+		const strongReviewCount = processedFindings.filter(
+			(item) =>
+				item.latestCompletedReview?.evidenceStrength?.level === "strong",
+		).length;
+		const weakOrMissingDecisionGradeEvidence = processedFindings.filter(
+			(item) =>
+				item.evidences.length === 0 ||
+				item.latestCompletedReview?.evidenceStrength?.level === "weak" ||
+				!item.latestCompletedReview,
+		).length;
+		lines.push(
+			`- **Risk posture:** ${formatSeverity(highestSeverity)}。修正対象 ${stats.needs_fix} 件、未判断 ${stats.undecided} 件、受容リスク ${stats.accepted} 件です。`,
+		);
+		lines.push(
+			`- **Evidence confidence:** strong review ${strongReviewCount} 件、weak/missing decision-grade evidence ${weakOrMissingDecisionGradeEvidence} 件です。`,
+		);
+		lines.push(
+			"- **Recommended focus:** high severity の修正対象、未判断 finding、証跡が弱い finding の順に triage を完了してください。",
+		);
+	}
+	lines.push("");
+
+	lines.push("## Evidence Quality Summary");
+	if (processedFindings.length === 0) {
+		lines.push(
+			"finding がないため、finding 単位の evidence quality はありません。",
+		);
+	} else {
+		lines.push(
+			"| Finding ID | Source/tool evidence | Review strength | Verification | Decision |",
+		);
+		lines.push("| --- | --- | --- | --- | --- |");
+		for (const item of sortedFindings) {
+			const fndRepros = allReproRuns.filter(
+				(r) => r.findingId === item.finding.id,
+			);
+			const fndDynamics = allDynamicRuns.filter(
+				(r) => r.findingId === item.finding.id,
+			);
+			const fndDastEv = allDastEvidence.filter(
+				(e) => e.findingId === item.finding.id,
+			);
+			const locationPath = getLocationPath(item.finding.primaryLocation);
+			const sourceOrTool =
+				locationPath || item.evidences.length > 0 ? "present" : "missing";
+			const verification =
+				fndRepros.length > 0 || fndDynamics.length > 0 || fndDastEv.length > 0
+					? "present"
+					: "missing";
+			lines.push(
+				`| ${item.finding.id} | ${sourceOrTool} | ${escapeTableCell(item.latestCompletedReview?.evidenceStrength?.level ?? "missing")} | ${verification} | ${escapeTableCell(item.latestDecision?.decision ?? "undecided")} |`,
+			);
+		}
+	}
+	lines.push("");
+
+	lines.push("## Remediation Plan");
+	if (processedFindings.length === 0) {
+		lines.push("修正計画が必要な finding はありません。");
+	} else {
+		lines.push(
+			"| Finding ID | Status | Priority | Owner | Due date | Recommended fix |",
+		);
+		lines.push("| --- | --- | --- | --- | --- | --- |");
+		for (const item of sortedFindings) {
+			const remediation = readRemediationMetadata(item.latestDecision);
+			const locationPath = getLocationPath(item.finding.primaryLocation);
+			const fallback = buildRemediationFallback({
+				bucket: item.bucket,
+				severity: item.finding.severity.toLowerCase(),
+				locationPath,
+			});
+			lines.push(
+				`| ${item.finding.id} | ${escapeTableCell(remediation.status ?? item.bucket)} | ${escapeTableCell(remediation.priority ?? "-")} | ${escapeTableCell(remediation.owner ?? "-")} | ${escapeTableCell(remediation.dueDate ?? "-")} | ${escapeTableCell(remediation.recommendedFix || item.latestCompletedReview?.remediationDirection || fallback)} |`,
+			);
+		}
+	}
+	lines.push("");
+
+	lines.push("## Scan Comparison Delta");
+	lines.push(
+		"この Markdown builder は単一 scan run の保存済みデータから生成されます。baseline scan が UI/API から提供されていない場合、改善・悪化の差分は partial として扱ってください。",
+	);
+	lines.push("");
+
+	if (rawFindings.length === 0) {
+		lines.push("## Zero-Finding Coverage Explanation");
+		lines.push(
+			"finding 0 件は、今回実行した tool/profile/scope で正規化 finding が出なかったことを示します。診断レポート、攻撃面 inventory、security check が不足している場合は安全性の証明ではありません。",
+		);
+		lines.push("");
+	}
 
 	// Tool Summary Table
 	lines.push("## ツール実行サマリ");

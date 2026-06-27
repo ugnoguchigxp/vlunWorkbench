@@ -50,6 +50,7 @@ describe("Findings Route", () => {
 				comment: params.comment || null,
 				linkedReviewId: params.linkedReviewId || null,
 				decidedByUserId: params.decidedByUserId || null,
+				metadata: params.metadata || {},
 				createdAt: new Date(),
 			};
 		}),
@@ -121,6 +122,12 @@ describe("Findings Route", () => {
 				decision: "accepted",
 				reason: "confirmed_by_review",
 				comment: "Looks solid.",
+				metadata: {
+					remediation: {
+						owner: "appsec",
+						priority: "p1",
+					},
+				},
 			}),
 		});
 
@@ -130,6 +137,17 @@ describe("Findings Route", () => {
 		expect(body.decision.decision).toBe("accepted");
 		expect(body.decision.reason).toBe("confirmed_by_review");
 		expect(body.decision.comment).toBe("Looks solid.");
+		expect(body.decision.metadata.remediation.owner).toBe("appsec");
+		expect(mockDecisionRepo.createDecision).toHaveBeenLastCalledWith(
+			expect.objectContaining({
+				metadata: {
+					remediation: {
+						owner: "appsec",
+						priority: "p1",
+					},
+				},
+			}),
+		);
 	});
 
 	it("POST /:findingId/decisions fails with 400 on invalid input", async () => {

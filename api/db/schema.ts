@@ -521,6 +521,7 @@ export const findingDecisions = sqliteTable(
 		decidedByUserId: text("decided_by_user_id").references(() => users.id, {
 			onDelete: "set null",
 		}),
+		metadata: jsonObject("metadata"),
 		createdAt: timestampMs("created_at"),
 		updatedAt: timestampMs("updated_at"),
 	},

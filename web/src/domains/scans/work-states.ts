@@ -12,7 +12,6 @@ import type {
 
 export type FindingWorkState =
 	| "needs_review"
-	| "needs_decision"
 	| "needs_verification"
 	| "blocked_by_evidence"
 	| "ready_for_report"
@@ -32,7 +31,6 @@ export type ActionQueuePriority = "high" | "medium" | "low";
 export type ActionQueueState =
 	| "scan_failed"
 	| "needs_review"
-	| "needs_decision"
 	| "needs_verification"
 	| "blocked_by_evidence"
 	| "ready_for_report"
@@ -66,6 +64,13 @@ export type ScanWorkStateInput = {
 	reports?: ScanReport[];
 	diagnosticReports?: DiagnosticReport[];
 	scanSummary?: ScanRunSummary | null;
+	verificationByFindingId?: Map<
+		string,
+		{
+			reproductionRuns?: ReproductionRun[];
+			dynamicRuns?: DynamicRun[];
+		}
+	>;
 };
 
 export type BuildActionQueueInput = {
@@ -75,6 +80,13 @@ export type BuildActionQueueInput = {
 	reports?: ScanReport[];
 	diagnosticReports?: DiagnosticReport[];
 	scanSummary?: ScanRunSummary | null;
+	verificationByFindingId?: Map<
+		string,
+		{
+			reproductionRuns?: ReproductionRun[];
+			dynamicRuns?: DynamicRun[];
+		}
+	>;
 };
 
 const priorityRank: Record<ActionQueuePriority, number> = {
@@ -168,7 +180,7 @@ const needsVerificationSignal = (input: FindingWorkStateInput): boolean => {
 		return true;
 	}
 	const review = getLatestReview(input);
-	if (!review || review.status !== "completed") return false;
+	if (review?.status !== "completed") return false;
 	return (
 		review.evidenceStrength?.level === "weak" ||
 		review.evidenceStrength?.level === "unknown" ||
@@ -186,8 +198,7 @@ export function deriveFindingWorkState(
 	if (!hasUsableEvidence(input)) return "blocked_by_evidence";
 
 	const review = getLatestReview(input);
-	if (!review || review.status !== "completed") return "needs_review";
-	if (!decision) return "needs_decision";
+	if (review?.status !== "completed") return "needs_review";
 	if (needsVerificationSignal(input)) return "needs_verification";
 	return "ready_for_report";
 }
@@ -214,15 +225,17 @@ export function deriveScanWorkState(input: ScanWorkStateInput): ScanWorkState {
 	);
 	if (completedReports?.length) return "report_generated";
 
-	const findingStates = input.findings.map((finding) =>
-		deriveFindingWorkState({ finding }),
-	);
+	const findingStates = input.findings.map((finding) => {
+		const verification = input.verificationByFindingId?.get(finding.id);
+		return deriveFindingWorkState({
+			finding,
+			reproductionRuns: verification?.reproductionRuns,
+			dynamicRuns: verification?.dynamicRuns,
+		});
+	});
 	if (
 		findingStates.some(
-			(state) =>
-				state === "blocked_by_evidence" ||
-				state === "needs_review" ||
-				state === "needs_decision",
+			(state) => state === "blocked_by_evidence" || state === "needs_review",
 		)
 	) {
 		return "triage_open";
@@ -231,12 +244,8 @@ export function deriveScanWorkState(input: ScanWorkStateInput): ScanWorkState {
 	return "diagnostics_open";
 }
 
-const priorityForFinding = (finding: Finding, state: FindingWorkState) => {
+const priorityForFinding = (_finding: Finding, state: FindingWorkState) => {
 	if (state === "blocked_by_evidence") return "high";
-	if (state === "needs_decision")
-		return finding.severity === "critical" || finding.severity === "high"
-			? "high"
-			: "medium";
 	if (state === "needs_review" || state === "needs_verification")
 		return "medium";
 	return "low";
@@ -247,8 +256,6 @@ const findingReason = (finding: Finding, state: FindingWorkState): string => {
 		return "利用可能な検出位置またはアーティファクト証跡が不足しています。";
 	if (state === "needs_review")
 		return "この finding には完了済みの LLM レビューが保存されていません。";
-	if (state === "needs_decision")
-		return "証跡またはレビューはありますが、人間の判断がまだ記録されていません。";
 	if (state === "needs_verification")
 		return "保存済みの判断材料から、再現確認または動的検証で信頼度を上げられます。";
 	return `${finding.severity} の finding はレポートに含められる状態です。`;
@@ -257,7 +264,6 @@ const findingReason = (finding: Finding, state: FindingWorkState): string => {
 const stateLabels: Record<ActionQueueState, string> = {
 	scan_failed: "スキャン失敗",
 	needs_review: "レビュー待ち",
-	needs_decision: "判断待ち",
 	needs_verification: "検証推奨",
 	blocked_by_evidence: "証跡不足",
 	ready_for_report: "レポート作成可能",
@@ -271,10 +277,7 @@ function findingQueueItem(
 	finding: Finding,
 	state: Extract<
 		FindingWorkState,
-		| "blocked_by_evidence"
-		| "needs_review"
-		| "needs_decision"
-		| "needs_verification"
+		"blocked_by_evidence" | "needs_review" | "needs_verification"
 	>,
 ): ActionQueueItem {
 	return {
@@ -284,13 +287,11 @@ function findingQueueItem(
 		state,
 		priority: priorityForFinding(finding, state),
 		label:
-			state === "needs_decision"
-				? `判断を記録: ${finding.title}`
-				: state === "needs_review"
-					? `レビュー未実施: ${finding.title}`
-					: state === "needs_verification"
-						? `検証を確認: ${finding.title}`
-						: `証跡不足: ${finding.title}`,
+			state === "needs_review"
+				? `レビュー未実施: ${finding.title}`
+				: state === "needs_verification"
+					? `検証を確認: ${finding.title}`
+					: `証跡不足: ${finding.title}`,
 		reason: findingReason(finding, state),
 		updatedAt: finding.updatedAt,
 		severity: finding.severity,
@@ -323,11 +324,15 @@ export function buildActionQueue(
 	}
 
 	for (const finding of input.findings) {
-		const state = deriveFindingWorkState({ finding });
+		const verification = input.verificationByFindingId?.get(finding.id);
+		const state = deriveFindingWorkState({
+			finding,
+			reproductionRuns: verification?.reproductionRuns,
+			dynamicRuns: verification?.dynamicRuns,
+		});
 		if (
 			state === "blocked_by_evidence" ||
 			state === "needs_review" ||
-			state === "needs_decision" ||
 			state === "needs_verification"
 		) {
 			items.push(findingQueueItem(finding, state));
@@ -343,6 +348,7 @@ export function buildActionQueue(
 			reports: input.reports,
 			diagnosticReports: input.diagnosticReports,
 			scanSummary: input.scanSummary,
+			verificationByFindingId: input.verificationByFindingId,
 		});
 		if (scanState === "zero_finding_needs_coverage") {
 			items.push({

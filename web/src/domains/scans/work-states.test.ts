@@ -8,10 +8,10 @@ import type {
 	ScanRun,
 } from "../../api";
 import {
+	type ActionQueueItem,
 	buildActionQueue,
 	deriveFindingWorkState,
 	sortActionQueue,
-	type ActionQueueItem,
 } from "./work-states";
 
 const now = "2026-06-27T00:00:00.000Z";
@@ -172,22 +172,22 @@ describe("work states", () => {
 		);
 	});
 
-	it("finding with review but no decision produces needs_decision", () => {
+	it("finding with review but no decision is ready for report", () => {
 		expect(
 			deriveFindingWorkState({
 				finding: finding(),
 				latestReview: review(),
 			}),
-		).toBe("needs_decision");
+		).toBe("ready_for_report");
 	});
 
-	it("high severity undecided finding sorts before low severity undecided finding", () => {
+	it("high severity review item sorts before low severity review item", () => {
 		const items: ActionQueueItem[] = [
 			{
 				id: "low",
 				targetType: "finding",
 				targetId: "low",
-				state: "needs_decision",
+				state: "needs_review",
 				priority: "medium",
 				label: "Low",
 				reason: "Low severity",
@@ -198,7 +198,7 @@ describe("work states", () => {
 				id: "high",
 				targetType: "finding",
 				targetId: "high",
-				state: "needs_decision",
+				state: "needs_review",
 				priority: "medium",
 				label: "High",
 				reason: "High severity",
@@ -264,6 +264,53 @@ describe("work states", () => {
 				state: "report_generated",
 				priority: "low",
 			}),
+		);
+	});
+
+	it("completed verification clears needs_verification queue item", () => {
+		const findingWithWeakReview = finding({
+			latestDecision: decision(),
+			latestReview: review({
+				evidenceStrength: { level: "weak", reasoning: "Needs proof." },
+			}),
+		});
+		const queue = buildActionQueue({
+			scanRuns: [scanRun()],
+			selectedScanRunId: "scan-1",
+			findings: [findingWithWeakReview],
+			verificationByFindingId: new Map([
+				[
+					findingWithWeakReview.id,
+					{
+						reproductionRuns: [
+							{
+								id: "repro-1",
+								findingId: findingWithWeakReview.id,
+									scanRunId: "scan-1",
+									projectId: "project-1",
+									profileId: "default",
+									status: "completed",
+									outcome: "not_reproduced",
+									runner: "local",
+									commandJson: null,
+									exitCode: 0,
+									startedAt: now,
+									completedAt: now,
+									summary: null,
+								errorMessage: null,
+								metadata: {},
+								createdByUserId: null,
+								createdAt: now,
+								updatedAt: now,
+							},
+						],
+					},
+				],
+			]),
+		});
+
+		expect(queue.some((item) => item.state === "needs_verification")).toBe(
+			false,
 		);
 	});
 });

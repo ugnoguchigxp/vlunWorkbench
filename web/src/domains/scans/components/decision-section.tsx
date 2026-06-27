@@ -42,10 +42,10 @@ export function DecisionSection() {
 								}
 								required
 							>
+								<option value="needs_fix">要修正</option>
 								<option value="accepted">リスク受容</option>
 								<option value="false_positive">誤検知</option>
 								<option value="deferred">保留</option>
-								<option value="needs_fix">要修正</option>
 							</select>
 						</label>
 						<label className="decision-form-field">

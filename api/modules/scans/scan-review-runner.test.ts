@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDbConnection, type DbConnection } from "../../db";
@@ -12,7 +12,7 @@ import {
 	toolRuns,
 	users,
 } from "../../db/schema";
-import { LlmProviderExecutionError, type LlmProvider } from "../../providers/types";
+import { type LlmProvider, LlmProviderExecutionError } from "../../providers/types";
 import { ScanReviewRunner } from "./scan-review-runner";
 
 function applyMigrations(connection: DbConnection) {
@@ -32,6 +32,38 @@ function providerWithContent(content: string): LlmProvider {
 			id: "test-response",
 			content,
 		})),
+	};
+}
+
+function buildImprovementRequest(findingId: string) {
+	return {
+		title: "反射型 XSS 改善依頼",
+		objective:
+			"保存済みの scan evidence に基づき、ユーザー入力の出力時エスケープ不足を修正する。",
+		scope: ["対象は scan bundle に含まれる finding と evidence に限定します。"],
+		priorityPlan: [
+			{
+				priority: "high",
+				rationale: "高 severity でユーザー入力が出力に到達しているため優先します。",
+				findingIds: [findingId],
+			},
+		],
+		implementationTasks: [
+			{
+				title: "出力エスケープを追加する",
+				body: "該当箇所でユーザー入力を HTML として解釈されない形にエスケープし、同じ経路の回帰テストを追加してください。",
+				findingIds: [findingId],
+				evidenceRefs: ["src/app.ts:10"],
+			},
+		],
+		acceptanceCriteria: [
+			"ユーザー入力が HTML として実行されないことをテストで確認できる。",
+		],
+		verificationCommands: ["bun test"],
+		constraints: ["保存済み evidence 以外の repository 状態を見た前提で書かない。"],
+		nonGoals: ["新しい scanner や DAST 実行はこの依頼に含めない。"],
+		handoffPrompt:
+			"保存済み scan context に基づき、反射型 XSS finding を修正してください。対象範囲は bundle 内の finding と evidence に限定し、出力エスケープ追加、回帰テスト、bun test による検証を行ってください。新しい scanner 実装や repository 全体の自由探索は非ゴールです。",
 	};
 }
 
@@ -158,6 +190,7 @@ describe("ScanReviewRunner", () => {
 				},
 			],
 			confidenceNotes: ["証跡は source-location に基づいています。"],
+			improvementRequest: buildImprovementRequest(findingId),
 		});
 		const provider = providerWithContent(`\`\`\`json\n${content}\n\`\`\``);
 		const runner = new ScanReviewRunner(connection.db, provider);
@@ -171,6 +204,12 @@ describe("ScanReviewRunner", () => {
 			"高リスクの finding が 1 件あり、優先確認が必要です。",
 		);
 		expect(row?.findingTriageHints).toHaveLength(1);
+		expect(row?.output).toMatchObject({
+			improvementRequest: {
+				title: "反射型 XSS 改善依頼",
+				handoffPrompt: expect.stringContaining("保存済み scan context"),
+			},
+		});
 		const messages = (
 			provider.chatCompletion as unknown as {
 				mock: { calls: Parameters<LlmProvider["chatCompletion"]>[] };
@@ -182,6 +221,8 @@ describe("ScanReviewRunner", () => {
 			}
 		).mock.calls[0][1];
 		expect(messages[0].content).toContain("必ず日本語でレビュー");
+		expect(messages[0].content).toContain("improvementRequest");
+		expect(messages[0].content).toContain("handoffPrompt");
 		expect(messages[1].content).toContain("レビュー本文は必ず日本語");
 		expect(callOptions?.outputSchema).toEqual(
 			expect.objectContaining({ type: "object" }),
@@ -204,6 +245,31 @@ describe("ScanReviewRunner", () => {
 				},
 			],
 			confidenceNotes: ["Evidence is source-location based."],
+			improvementRequest: {
+				...buildImprovementRequest(findingId),
+				title: "Reflected XSS improvement request",
+				objective: "Fix reflected XSS based on stored scan evidence.",
+				scope: ["Only bundled scan evidence."],
+				priorityPlan: [
+					{
+						priority: "high",
+						rationale: "User input reaches output.",
+						findingIds: [findingId],
+					},
+				],
+				implementationTasks: [
+					{
+						title: "Patch escaping",
+						body: "Escape user input and add regression tests.",
+						findingIds: [findingId],
+						evidenceRefs: ["src/app.ts:10"],
+					},
+				],
+				acceptanceCriteria: ["HTML is not executed."],
+				constraints: ["Use stored evidence only."],
+				nonGoals: ["No scanner changes."],
+				handoffPrompt: "Fix reflected XSS using stored scan context.",
+			},
 		});
 		const runner = new ScanReviewRunner(
 			connection.db,
@@ -253,6 +319,7 @@ describe("ScanReviewRunner", () => {
 				},
 			],
 			confidenceNotes: [],
+			improvementRequest: buildImprovementRequest(findingId),
 		});
 		const runner = new ScanReviewRunner(connection.db, providerWithContent(content));
 
@@ -260,6 +327,37 @@ describe("ScanReviewRunner", () => {
 
 		expect(result.ok).toBe(false);
 		expect(result.error).toContain("llm_structured_output_validation_failed");
+		const rows = await connection.db.select().from(scanReviews);
+		expect(rows[0].status).toBe("failed");
+	});
+
+	it("rejects improvement request finding references outside the scan bundle", async () => {
+		const content = JSON.stringify({
+			summary: "高リスクの finding が 1 件あります。",
+			riskOverview: "保存済み証跡に基づく XSS リスクがあります。",
+			priorityNotes: ["優先して確認してください。"],
+			coverageNotes: ["証跡は static scan に限定されています。"],
+			falsePositiveHotspots: ["明確な誤検知候補はありません。"],
+			recommendedNextActions: ["出力時のエスケープ処理を追加してください。"],
+			findingTriageHints: [
+				{
+					findingId,
+					note: "bundle 内 finding の triage note です。",
+					priority: "high",
+				},
+			],
+			confidenceNotes: ["証跡は source-location に基づいています。"],
+			improvementRequest: buildImprovementRequest(
+				"00000000-0000-4000-8000-000000000000",
+			),
+		});
+		const runner = new ScanReviewRunner(connection.db, providerWithContent(content));
+
+		const result = await runner.run(scanRunId);
+
+		expect(result.ok).toBe(false);
+		expect(result.error).toContain("llm_structured_output_validation_failed");
+		expect(result.error).toContain("improvementRequest");
 		const rows = await connection.db.select().from(scanReviews);
 		expect(rows[0].status).toBe("failed");
 	});

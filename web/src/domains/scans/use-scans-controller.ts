@@ -1,10 +1,10 @@
 import type { FormEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+	type AttackSurfaceItem,
 	browseProjectFolder,
 	createFindingDecision,
 	createProject,
-	type AttackSurfaceItem,
 	type DiagnosticReport,
 	type DynamicArtifact,
 	type DynamicEvidence,
@@ -37,38 +37,49 @@ import {
 	fetchScans,
 	generateDiagnosticReport,
 	generateScanReport,
-	runScanAttackSurfaceInventory,
-	runScanSecurityChecks,
-	type SecurityCheckResult,
 	type Project,
 	type ReproductionArtifact,
 	type ReproductionEvidence,
 	type ReproductionProfile,
 	type ReproductionRun,
+	runScanAttackSurfaceInventory,
+	runScanSecurityChecks,
 	type ScanProfile,
 	type ScanReport,
 	type ScanReview,
 	type ScanRun,
 	type ScanRunSummary,
+	type SecurityCheckResult,
 	startScan,
-	triggerScanReview,
 	triggerFindingDynamicRun,
 	triggerFindingReproduction,
 	triggerFindingReview,
+	triggerScanReview,
 } from "../../api";
+import { buildCoverageSummary } from "./coverage-summary";
+import { buildDecisionWorkflow } from "./decision-workflow";
 import {
 	buildProjectDiagnosticDashboard,
 	type DashboardAction,
 } from "./diagnostic-dashboard";
-import { buildCoverageSummary } from "./coverage-summary";
-import { buildDecisionWorkflow } from "./decision-workflow";
+import { buildEvidenceQuality } from "./evidence-quality";
+import {
+	buildRemediationPlanView,
+	type RemediationPriority,
+	type RemediationStatus,
+	readRemediationMetadata,
+} from "./remediation-plan";
+import { buildReportQualityPreview } from "./report-quality";
+import { buildExecutiveRiskSummary } from "./risk-summary";
+import { buildScanComparison } from "./scan-comparison";
 import { useDastController } from "./use-dast-controller";
 import {
+	type ActionQueueItem,
 	buildActionQueue,
 	deriveFindingWorkState,
-	type ActionQueueItem,
 	type FindingWorkState,
 } from "./work-states";
+import { buildWorkflowCompletion } from "./workflow-completion";
 
 const basenameFromPath = (value: string): string => {
 	const normalized = value.replace(/\/+$/, "");
@@ -93,7 +104,6 @@ type ActionQueueFilter =
 	| "active"
 	| "all"
 	| "needs_review"
-	| "needs_decision"
 	| "needs_verification"
 	| "ready_for_report"
 	| "blocked_by_evidence";
@@ -112,12 +122,11 @@ type FindingVerificationBundle = {
 };
 const workStateRank: Record<FindingWorkState, number> = {
 	blocked_by_evidence: 0,
-	needs_decision: 1,
-	needs_review: 2,
-	needs_verification: 3,
-	ready_for_report: 4,
-	false_positive_recorded: 5,
-	accepted_risk_recorded: 6,
+	needs_review: 1,
+	needs_verification: 2,
+	ready_for_report: 3,
+	false_positive_recorded: 4,
+	accepted_risk_recorded: 5,
 };
 const severityRank: Record<string, number> = {
 	critical: 0,
@@ -126,6 +135,27 @@ const severityRank: Record<string, number> = {
 	low: 3,
 	info: 4,
 	unknown: 5,
+};
+const remediationStatuses: RemediationStatus[] = [
+	"not_started",
+	"planned",
+	"in_progress",
+	"fixed",
+	"accepted",
+	"false_positive",
+	"deferred",
+];
+const remediationPriorities: RemediationPriority[] = ["p0", "p1", "p2", "p3"];
+
+const hasImprovementRequest = (review: ScanReview): boolean => {
+	const value = review.output?.improvementRequest;
+	return (
+		review.status === "completed" &&
+		Boolean(value) &&
+		typeof value === "object" &&
+		!Array.isArray(value) &&
+		typeof (value as Record<string, unknown>).handoffPrompt === "string"
+	);
 };
 export const useScansController = ({
 	active,
@@ -149,6 +179,7 @@ export const useScansController = ({
 	const [actionQueueFilter, setActionQueueFilter] =
 		useState<ActionQueueFilter>("active");
 	const [findings, setFindings] = useState<Finding[]>([]);
+	const [findingsLoading, setFindingsLoading] = useState(false);
 	const [selectedFindingId, setSelectedFindingId] = useState("");
 	const [profiles, setProfiles] = useState<ScanProfile[]>([]);
 	const [selectedProfileId, setSelectedProfileId] = useState("baseline");
@@ -169,13 +200,21 @@ export const useScansController = ({
 	const [reviewError, setReviewError] = useState<string | null>(null);
 	const [allDecisions, setAllDecisions] = useState<FindingDecision[]>([]);
 	const [decisionInput, setDecisionInput] =
-		useState<FindingDecision["decision"]>("accepted");
+		useState<FindingDecision["decision"]>("needs_fix");
 	const [reasonInput, setReasonInput] = useState<FindingDecision["reason"]>(
 		"confirmed_by_evidence",
 	);
 	const [commentInput, setCommentInput] = useState("");
 	const [linkReviewInput, setLinkReviewInput] = useState(false);
 	const [decisionSubmitLoading, setDecisionSubmitLoading] = useState(false);
+	const [remediationStatusInput, setRemediationStatusInput] =
+		useState<RemediationStatus>("not_started");
+	const [remediationOwnerInput, setRemediationOwnerInput] = useState("");
+	const [remediationPriorityInput, setRemediationPriorityInput] =
+		useState<RemediationPriority>("p2");
+	const [remediationDueDateInput, setRemediationDueDateInput] = useState("");
+	const [remediationFixInput, setRemediationFixInput] = useState("");
+	const [remediationSaveLoading, setRemediationSaveLoading] = useState(false);
 	const [reportLoading, setReportLoading] = useState(false);
 	const [reports, setReports] = useState<ScanReport[]>([]);
 	const [selectedReport, setSelectedReport] = useState<ScanReport | null>(null);
@@ -198,6 +237,12 @@ export const useScansController = ({
 		DiagnosticReport[]
 	>([]);
 	const [diagnosticLoading, setDiagnosticLoading] = useState(false);
+	const [baselineFindings, setBaselineFindings] = useState<Finding[] | null>(
+		null,
+	);
+	const [baselineScanRunId, setBaselineScanRunId] = useState<string | null>(
+		null,
+	);
 	const [reproProfiles, setReproProfiles] = useState<ReproductionProfile[]>([]);
 	const [reproRuns, setReproRuns] = useState<ReproductionRun[]>([]);
 	const [selectedReproProfile, setSelectedReproProfile] = useState("");
@@ -298,6 +343,11 @@ export const useScansController = ({
 		if (!selectedFindingId) {
 			linkReviewDefaultFindingRef.current = null;
 			setLinkReviewInput(false);
+			setRemediationStatusInput("not_started");
+			setRemediationOwnerInput("");
+			setRemediationPriorityInput("p2");
+			setRemediationDueDateInput("");
+			setRemediationFixInput("");
 			return;
 		}
 		if (
@@ -308,13 +358,35 @@ export const useScansController = ({
 			return;
 		}
 		linkReviewDefaultFindingRef.current = selectedFindingId;
-		setDecisionInput("accepted");
+		setDecisionInput("needs_fix");
 		setReasonInput(
 			selectedDecisionWorkflow?.recommendedReason ?? "confirmed_by_evidence",
 		);
 		setCommentInput("");
 		setLinkReviewInput(Boolean(selectedFindingDetails.latestReview));
 	}, [selectedFindingId, selectedFindingDetails, selectedDecisionWorkflow]);
+
+	useEffect(() => {
+		const decision = selectedFindingDetails?.latestDecision;
+		const metadata = readRemediationMetadata(decision);
+		const fallbackStatus =
+			decision?.decision === "accepted"
+				? "accepted"
+				: decision?.decision === "false_positive"
+					? "false_positive"
+					: decision?.decision === "deferred"
+						? "deferred"
+						: "not_started";
+		setRemediationStatusInput(metadata.status ?? fallbackStatus);
+		setRemediationOwnerInput(metadata.owner ?? "");
+		setRemediationPriorityInput(metadata.priority ?? "p2");
+		setRemediationDueDateInput(metadata.dueDate ?? "");
+		setRemediationFixInput(
+			metadata.recommendedFix ??
+				selectedFindingDetails?.latestReview?.remediationDirection ??
+				"",
+		);
+	}, [selectedFindingDetails]);
 
 	useEffect(() => {
 		if (!active) return;
@@ -359,7 +431,11 @@ export const useScansController = ({
 		setReviewError(null);
 		setAllDecisions([]);
 		setScanDetailTab("review");
-		if (!active || !selectedScanRunId) return;
+		if (!active || !selectedScanRunId) {
+			setFindingsLoading(false);
+			return;
+		}
+		setFindingsLoading(true);
 		void fetchScanFindings(selectedScanRunId)
 			.then((items) => {
 				setFindings(items);
@@ -374,7 +450,8 @@ export const useScansController = ({
 				setErrorText(
 					err instanceof Error ? err.message : "Failed to load findings.",
 				),
-			);
+			)
+			.finally(() => setFindingsLoading(false));
 	}, [active, selectedScanRunId, setErrorText]);
 
 	useEffect(() => {
@@ -746,13 +823,13 @@ export const useScansController = ({
 		}
 	};
 
-	const handleTriggerScanReview = async () => {
-		if (!selectedScanRunId) return;
+	const handleTriggerScanReview = async (scanRunId = selectedScanRunId) => {
+		if (!scanRunId) return;
 		setScanReviewLoading(true);
 		setErrorText(null);
 		try {
-			await triggerScanReview(selectedScanRunId);
-			setScanReviews(await fetchScanReviews(selectedScanRunId));
+			await triggerScanReview(scanRunId);
+			setScanReviews(await fetchScanReviews(scanRunId));
 			setScanDetailTab("review");
 		} catch (err) {
 			setErrorText(
@@ -864,6 +941,8 @@ export const useScansController = ({
 		try {
 			const res = await triggerFindingReview(selectedFindingId);
 			await loadFindingDetails(selectedFindingId, true, true);
+			if (selectedScanRunId)
+				setFindings(await fetchScanFindings(selectedScanRunId));
 			if (!res.ok) {
 				const message = res.error || "Failed to trigger LLM review.";
 				setReviewError(message);
@@ -906,6 +985,48 @@ export const useScansController = ({
 		}
 	};
 
+	const handleRemediationSubmit = async (event: FormEvent) => {
+		event.preventDefault();
+		if (!selectedFindingId || !selectedFindingDetails?.latestDecision) {
+			setErrorText("Remediation can be saved after a finding decision exists.");
+			return;
+		}
+		setRemediationSaveLoading(true);
+		const latestDecision = selectedFindingDetails.latestDecision;
+		try {
+			await createFindingDecision(selectedFindingId, {
+				decision: latestDecision.decision,
+				reason: latestDecision.reason,
+				comment: latestDecision.comment ?? undefined,
+				linkedReviewId: latestDecision.linkedReviewId ?? undefined,
+				metadata: {
+					...(latestDecision.metadata ?? {}),
+					remediation: {
+						status: remediationStatuses.includes(remediationStatusInput)
+							? remediationStatusInput
+							: "not_started",
+						owner: remediationOwnerInput.trim() || null,
+						priority: remediationPriorities.includes(remediationPriorityInput)
+							? remediationPriorityInput
+							: "p2",
+						dueDate: remediationDueDateInput.trim() || null,
+						recommendedFix: remediationFixInput.trim() || null,
+					},
+				},
+			});
+			await loadFindingDetails(selectedFindingId, true, true);
+			if (selectedScanRunId) {
+				setFindings(await fetchScanFindings(selectedScanRunId));
+			}
+		} catch (err) {
+			setErrorText(
+				err instanceof Error ? err.message : "Failed to save remediation plan.",
+			);
+		} finally {
+			setRemediationSaveLoading(false);
+		}
+	};
+
 	const handleTriggerReproduction = async () => {
 		if (!selectedFindingId || !selectedReproProfile) return;
 		setReproLoading(true);
@@ -918,6 +1039,8 @@ export const useScansController = ({
 			setReproRuns(
 				(await fetchFindingReproductions(selectedFindingId)).reproductions,
 			);
+			if (selectedScanRunId)
+				setFindings(await fetchScanFindings(selectedScanRunId));
 			findingSelectionCacheRef.current.delete(selectedFindingId);
 			findingVerificationCacheRef.current.delete(selectedFindingId);
 		} catch (err) {
@@ -963,6 +1086,8 @@ export const useScansController = ({
 			setDynamicRuns(
 				(await fetchFindingDynamicRuns(selectedFindingId)).dynamicRuns,
 			);
+			if (selectedScanRunId)
+				setFindings(await fetchScanFindings(selectedScanRunId));
 			findingSelectionCacheRef.current.delete(selectedFindingId);
 			findingVerificationCacheRef.current.delete(selectedFindingId);
 		} catch (err) {
@@ -987,13 +1112,104 @@ export const useScansController = ({
 		await openDynamicRun(runId).catch(console.error);
 	};
 
+	const verificationByFindingId = useMemo(() => {
+		const map = new Map<
+			string,
+			{ reproductionRuns?: ReproductionRun[]; dynamicRuns?: DynamicRun[] }
+		>();
+		if (selectedVerificationDataLoaded && selectedFindingId) {
+			map.set(selectedFindingId, {
+				reproductionRuns: reproRuns,
+				dynamicRuns,
+			});
+		}
+		return map;
+	}, [
+		selectedVerificationDataLoaded,
+		selectedFindingId,
+		reproRuns,
+		dynamicRuns,
+	]);
 	const findingWorkStatesById = useMemo(() => {
 		const states = new Map<string, FindingWorkState>();
 		for (const finding of findings) {
-			states.set(finding.id, deriveFindingWorkState({ finding }));
+			const verification = verificationByFindingId.get(finding.id);
+			states.set(
+				finding.id,
+				deriveFindingWorkState({
+					finding,
+					reproductionRuns: verification?.reproductionRuns,
+					dynamicRuns: verification?.dynamicRuns,
+				}),
+			);
 		}
 		return states;
-	}, [findings]);
+	}, [findings, verificationByFindingId]);
+	const evidenceQualityByFindingId = useMemo(() => {
+		const map = new Map<string, ReturnType<typeof buildEvidenceQuality>>();
+		for (const finding of findings) {
+			const isSelected = finding.id === selectedFindingId;
+			const verification = verificationByFindingId.get(finding.id);
+			const details =
+				isSelected && selectedFindingDetails?.finding.id === finding.id
+					? selectedFindingDetails
+					: null;
+			map.set(
+				finding.id,
+				buildEvidenceQuality({
+					finding: details?.finding ?? finding,
+					evidence: details?.evidence,
+					latestReview: details?.latestReview ?? finding.latestReview,
+					latestDecision: details?.latestDecision ?? finding.latestDecision,
+					reproductionRuns: verification?.reproductionRuns,
+					dynamicRuns: verification?.dynamicRuns,
+					dastEvidence: isSelected ? selectedFindingDastEvidence : undefined,
+					diagnosticReports,
+				}),
+			);
+		}
+		return map;
+	}, [
+		findings,
+		selectedFindingId,
+		selectedFindingDetails,
+		verificationByFindingId,
+		selectedFindingDastEvidence,
+		diagnosticReports,
+	]);
+	const remediationPlanByFindingId = useMemo(() => {
+		const map = new Map<string, ReturnType<typeof buildRemediationPlanView>>();
+		for (const finding of findings) {
+			const isSelected = finding.id === selectedFindingId;
+			const verification = verificationByFindingId.get(finding.id);
+			const details =
+				isSelected && selectedFindingDetails?.finding.id === finding.id
+					? selectedFindingDetails
+					: null;
+			map.set(
+				finding.id,
+				buildRemediationPlanView({
+					finding: details?.finding ?? finding,
+					latestDecision: details?.latestDecision ?? finding.latestDecision,
+					latestReview: details?.latestReview ?? finding.latestReview,
+					reproductionRuns: verification?.reproductionRuns,
+					dynamicRuns: verification?.dynamicRuns,
+				}),
+			);
+		}
+		return map;
+	}, [
+		findings,
+		selectedFindingId,
+		selectedFindingDetails,
+		verificationByFindingId,
+	]);
+	const selectedEvidenceQuality = selectedFindingId
+		? (evidenceQualityByFindingId.get(selectedFindingId) ?? null)
+		: null;
+	const selectedRemediationPlan = selectedFindingId
+		? (remediationPlanByFindingId.get(selectedFindingId) ?? null)
+		: null;
 	const displayedFindings = useMemo(() => {
 		const base =
 			findingsViewMode === "grouped" && selectedGroupId
@@ -1027,6 +1243,39 @@ export const useScansController = ({
 		projects.find((project) => project.id === selectedProjectId) ?? null;
 	const selectedScanRun =
 		scanRuns.find((run) => run.id === selectedScanRunId) ?? null;
+	const baselineScanRun = useMemo(() => {
+		if (!selectedScanRun) return null;
+		return (
+			scanRuns
+				.filter(
+					(run) =>
+						run.id !== selectedScanRun.id &&
+						run.profile === selectedScanRun.profile &&
+						new Date(run.createdAt).getTime() <
+							new Date(selectedScanRun.createdAt).getTime(),
+				)
+				.sort(
+					(a, b) =>
+						new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+				)[0] ?? null
+		);
+	}, [scanRuns, selectedScanRun]);
+	useEffect(() => {
+		let cancelled = false;
+		setBaselineFindings(null);
+		setBaselineScanRunId(baselineScanRun?.id ?? null);
+		if (!baselineScanRun) return;
+		void fetchScanFindings(baselineScanRun.id)
+			.then((items) => {
+				if (!cancelled) setBaselineFindings(items);
+			})
+			.catch(() => {
+				if (!cancelled) setBaselineFindings(null);
+			});
+		return () => {
+			cancelled = true;
+		};
+	}, [baselineScanRun]);
 	const selectedCoverageSummary = useMemo(
 		() =>
 			buildCoverageSummary({
@@ -1044,6 +1293,77 @@ export const useScansController = ({
 			securityCheckResults,
 			diagnosticReports,
 			scanSummary,
+		],
+	);
+	const executiveRiskSummary = useMemo(
+		() =>
+			buildExecutiveRiskSummary({
+				scanRunId: selectedScanRunId,
+				findings,
+				evidenceByFindingId: evidenceQualityByFindingId,
+				coverageSummary: selectedCoverageSummary,
+				diagnosticReports,
+			}),
+		[
+			selectedScanRunId,
+			findings,
+			evidenceQualityByFindingId,
+			selectedCoverageSummary,
+			diagnosticReports,
+		],
+	);
+	const workflowCompletion = useMemo(
+		() =>
+			buildWorkflowCompletion({
+				scanRun: selectedScanRun,
+				findings,
+				evidenceByFindingId: evidenceQualityByFindingId,
+				remediationByFindingId: remediationPlanByFindingId,
+				reports,
+				diagnosticReports,
+				coverageSummary: selectedCoverageSummary,
+				hasScanImprovementRequest: scanReviews.some(hasImprovementRequest),
+			}),
+		[
+			selectedScanRun,
+			findings,
+			evidenceQualityByFindingId,
+			remediationPlanByFindingId,
+			reports,
+			diagnosticReports,
+			selectedCoverageSummary,
+			scanReviews,
+		],
+	);
+	const scanComparison = useMemo(
+		() =>
+			buildScanComparison({
+				currentScanRunId: selectedScanRunId,
+				baselineScanRunId,
+				currentFindings: findings,
+				baselineFindings,
+			}),
+		[selectedScanRunId, baselineScanRunId, findings, baselineFindings],
+	);
+	const reportQualityPreview = useMemo(
+		() =>
+			buildReportQualityPreview({
+				scanRunId: selectedScanRunId,
+				findings,
+				evidenceByFindingId: evidenceQualityByFindingId,
+				remediationByFindingId: remediationPlanByFindingId,
+				comparison: scanComparison,
+				coverageSummary: selectedCoverageSummary,
+				hasScanImprovementRequest: scanReviews.some(hasImprovementRequest),
+			}),
+		[
+			selectedScanRunId,
+			findings,
+			evidenceQualityByFindingId,
+			remediationPlanByFindingId,
+			scanComparison,
+			selectedCoverageSummary,
+			scanReviews,
 		],
 	);
 	const diagnosticDashboard = useMemo(
@@ -1082,6 +1402,7 @@ export const useScansController = ({
 				reports,
 				diagnosticReports,
 				scanSummary,
+				verificationByFindingId,
 			}),
 		[
 			scanRuns,
@@ -1090,6 +1411,7 @@ export const useScansController = ({
 			reports,
 			diagnosticReports,
 			scanSummary,
+			verificationByFindingId,
 		],
 	);
 	const filteredActionQueueItems = useMemo(
@@ -1152,6 +1474,39 @@ export const useScansController = ({
 			setScanDetailTab("review");
 		}
 	};
+	const handleWorkflowNextAction = () => {
+		const action = workflowCompletion.nextBestAction;
+		if (!action) return;
+		if (
+			action.action === "review_findings" ||
+			action.action === "run_verification" ||
+			action.action === "create_remediation_plan"
+		) {
+			const targetFinding =
+				findings.find((finding) => finding.id === action.targetId) ??
+				findings[0];
+			if (targetFinding) {
+				setScanListTab("findings");
+				handleSelectFinding(targetFinding.id);
+				setScanDetailTab(
+					action.action === "run_verification" ? "verification" : "review",
+				);
+			}
+			return;
+		}
+		if (action.action === "create_improvement_request") {
+			void handleTriggerScanReview(action.targetId);
+			return;
+		}
+		if (action.action === "generate_report") {
+			void handleGenerateReport("deterministic", action.targetId);
+			return;
+		}
+		if (action.action === "inspect_coverage") {
+			setScanListTab("runs");
+			setScanDetailTab("review");
+		}
+	};
 	const handleCloseFinding = () => {
 		selectedFindingIdRef.current = "";
 		setSelectedFindingId("");
@@ -1166,12 +1521,9 @@ export const useScansController = ({
 			return;
 		}
 
-		if (action.kind === "record_decisions") {
-			setScanListTab("findings");
-			const targetFinding =
-				findings.find((finding) => finding.id === action.targetId) ??
-				findings.find((finding) => !finding.latestDecision);
-			if (targetFinding) handleSelectFinding(targetFinding.id);
+		if (action.kind === "create_improvement_request") {
+			if (action.targetId) handleSelectScanRun(action.targetId);
+			void handleTriggerScanReview(action.targetId);
 			return;
 		}
 
@@ -1215,6 +1567,10 @@ export const useScansController = ({
 		selectedProject,
 		selectedScanRun,
 		selectedCoverageSummary,
+		executiveRiskSummary,
+		workflowCompletion,
+		scanComparison,
+		reportQualityPreview,
 		diagnosticDashboard,
 		handleDashboardAction,
 		actionQueueFilter,
@@ -1222,7 +1578,12 @@ export const useScansController = ({
 		actionQueueItems,
 		filteredActionQueueItems,
 		findingWorkStatesById,
+		evidenceQualityByFindingId,
+		remediationPlanByFindingId,
+		selectedEvidenceQuality,
+		selectedRemediationPlan,
 		handleActionQueueItem,
+		handleWorkflowNextAction,
 		selectedProjectId,
 		setSelectedProjectId,
 		projectFolderPath,
@@ -1249,6 +1610,7 @@ export const useScansController = ({
 		scanDetailTab,
 		setScanDetailTab,
 		findings,
+		findingsLoading,
 		selectedFindingId,
 		setSelectedFindingId,
 		handleSelectFinding,
@@ -1284,6 +1646,17 @@ export const useScansController = ({
 		linkReviewInput,
 		setLinkReviewInput,
 		decisionSubmitLoading,
+		remediationStatusInput,
+		setRemediationStatusInput,
+		remediationOwnerInput,
+		setRemediationOwnerInput,
+		remediationPriorityInput,
+		setRemediationPriorityInput,
+		remediationDueDateInput,
+		setRemediationDueDateInput,
+		remediationFixInput,
+		setRemediationFixInput,
+		remediationSaveLoading,
 		viewingReport,
 		setViewingReport,
 		reportLoading,
@@ -1336,6 +1709,7 @@ export const useScansController = ({
 		handleGenerateDiagnosticReport,
 		handleTriggerReview,
 		handleDecisionSubmit,
+		handleRemediationSubmit,
 		handleTriggerReproduction,
 		handleToggleReproRun,
 		handleTriggerDynamic,

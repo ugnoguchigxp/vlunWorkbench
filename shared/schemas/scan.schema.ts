@@ -263,6 +263,7 @@ export const findingDecisionSchema = z.object({
 	comment: z.string().nullable(),
 	linkedReviewId: z.string().uuid().nullable(),
 	decidedByUserId: z.string().uuid().nullable(),
+	metadata: z.record(z.string(), z.unknown()).default({}),
 	createdAt: z.string().or(z.date()),
 	updatedAt: z.string().or(z.date()),
 });
@@ -273,12 +274,46 @@ export const createFindingDecisionSchema = z.object({
 	reason: reviewerDecisionReasonSchema,
 	comment: z.string().optional(),
 	linkedReviewId: z.string().uuid().optional(),
+	metadata: z.record(z.string(), z.unknown()).default({}).optional(),
 });
 export type CreateFindingDecisionInput = z.infer<
 	typeof createFindingDecisionSchema
 >;
 
 // --- Scan Review ---
+export const scanImprovementRequestSchema = z.object({
+	title: z.string().min(1).max(200),
+	objective: z.string().min(1).max(2000),
+	scope: z.array(z.string().min(1).max(1000)).max(20),
+	priorityPlan: z
+		.array(
+			z.object({
+				priority: z.enum(["critical", "high", "medium", "low"]),
+				rationale: z.string().min(1).max(1000),
+				findingIds: z.array(z.string().uuid()).max(50),
+			}),
+		)
+		.max(20),
+	implementationTasks: z
+		.array(
+			z.object({
+				title: z.string().min(1).max(200),
+				body: z.string().min(1).max(2000),
+				findingIds: z.array(z.string().uuid()).max(50),
+				evidenceRefs: z.array(z.string().min(1).max(200)).max(50),
+			}),
+		)
+		.max(30),
+	acceptanceCriteria: z.array(z.string().min(1).max(1000)).max(20),
+	verificationCommands: z.array(z.string().min(1).max(500)).max(20),
+	constraints: z.array(z.string().min(1).max(1000)).max(20),
+	nonGoals: z.array(z.string().min(1).max(1000)).max(20),
+	handoffPrompt: z.string().min(1).max(6000),
+});
+export type ScanImprovementRequest = z.infer<
+	typeof scanImprovementRequestSchema
+>;
+
 export const scanReviewOutputSchema = z.object({
 	summary: z.string().min(1).max(3000),
 	riskOverview: z.string().min(1).max(3000),
@@ -296,6 +331,7 @@ export const scanReviewOutputSchema = z.object({
 		)
 		.max(50),
 	confidenceNotes: z.array(z.string().min(1).max(1000)).max(20),
+	improvementRequest: scanImprovementRequestSchema,
 });
 export type ScanReviewOutput = z.infer<typeof scanReviewOutputSchema>;
 

@@ -175,8 +175,11 @@ function scanReview(overrides: Partial<ScanReview> = {}): ScanReview {
 		recommendedNextActions: [],
 		findingTriageHints: [],
 		confidenceNotes: [],
+		output: {},
 		errorMessage: null,
 		createdAt: now,
+		startedAt: now,
+		completedAt: now,
 		updatedAt: now,
 		...overrides,
 	};
@@ -228,7 +231,7 @@ describe("buildProjectDiagnosticDashboard", () => {
 		});
 	});
 
-	it("returns record_decisions for completed scans with undecided findings", () => {
+	it("returns create_improvement_request for completed scans with undecided findings", () => {
 		const dashboard = build({
 			findings: [finding({ id: "finding-undecided" })],
 			securityCheckResults: [securityCheck()],
@@ -237,9 +240,35 @@ describe("buildProjectDiagnosticDashboard", () => {
 
 		expect(dashboard.decisionProgress.undecidedFindings).toBe(1);
 		expect(dashboard.nextActions[0]).toMatchObject({
-			kind: "record_decisions",
+			kind: "create_improvement_request",
 			priority: "high",
-			targetId: "finding-undecided",
+			targetId: "scan-1",
+		});
+	});
+
+	it("ignores improvement requests from other scan runs", () => {
+		const dashboard = build({
+			findings: [finding({ id: "finding-undecided" })],
+			scanReviews: [
+				scanReview({
+					scanRunId: "scan-other",
+					output: {
+						improvementRequest: {
+							handoffPrompt: "別 scan の改善依頼書",
+						},
+					},
+				}),
+			],
+			securityCheckResults: [securityCheck()],
+			attackSurfaceItems: [attackSurfaceItem()],
+		});
+
+		expect(dashboard.reportReadiness.blockers).toContain(
+			"missing_improvement_request",
+		);
+		expect(dashboard.nextActions[0]).toMatchObject({
+			kind: "create_improvement_request",
+			targetId: "scan-1",
 		});
 	});
 

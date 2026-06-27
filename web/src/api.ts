@@ -819,6 +819,7 @@ export type FindingDecision = {
 	comment: string | null;
 	linkedReviewId: string | null;
 	decidedByUserId: string | null;
+	metadata?: Record<string, unknown>;
 	createdAt: string;
 	updatedAt: string;
 };
@@ -1016,6 +1017,7 @@ export async function createFindingDecision(
 		reason: string;
 		comment?: string;
 		linkedReviewId?: string;
+		metadata?: Record<string, unknown>;
 	},
 ): Promise<{ decision: FindingDecision }> {
 	return requestJson<{ decision: FindingDecision }>(
@@ -1095,9 +1097,34 @@ export type ScanReview = {
 	recommendedNextActions: string[];
 	findingTriageHints: Array<Record<string, unknown>>;
 	confidenceNotes: string[];
+	output?: Record<string, unknown>;
 	errorMessage: string | null;
 	createdAt: string;
+	startedAt: string | null;
+	completedAt: string | null;
 	updatedAt: string;
+};
+
+export type ScanImprovementRequest = {
+	title: string;
+	objective: string;
+	scope: string[];
+	priorityPlan: Array<{
+		priority: "critical" | "high" | "medium" | "low";
+		rationale: string;
+		findingIds: string[];
+	}>;
+	implementationTasks: Array<{
+		title: string;
+		body: string;
+		findingIds: string[];
+		evidenceRefs: string[];
+	}>;
+	acceptanceCriteria: string[];
+	verificationCommands: string[];
+	constraints: string[];
+	nonGoals: string[];
+	handoffPrompt: string;
 };
 
 export async function fetchScanReviews(

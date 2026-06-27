@@ -12,7 +12,7 @@ import type {
 export type DashboardActionKind =
 	| "run_scan"
 	| "review_findings"
-	| "record_decisions"
+	| "create_improvement_request"
 	| "run_diagnostics"
 	| "generate_report"
 	| "inspect_zero_findings";
@@ -85,13 +85,24 @@ const severityOrder = ["critical", "high", "medium", "low", "info", "unknown"];
 const gapStatuses = new Set(["manual_review", "not_checked", "warn", "fail"]);
 const actionOrder: DashboardActionKind[] = [
 	"run_scan",
-	"record_decisions",
+	"create_improvement_request",
 	"inspect_zero_findings",
 	"run_diagnostics",
 	"generate_report",
 	"review_findings",
 ];
 const priorityRank = { high: 0, medium: 1, low: 2 } as const;
+
+const hasImprovementRequest = (review: ScanReview): boolean => {
+	const value = review.output?.improvementRequest;
+	return (
+		review.status === "completed" &&
+		Boolean(value) &&
+		typeof value === "object" &&
+		!Array.isArray(value) &&
+		typeof (value as Record<string, unknown>).handoffPrompt === "string"
+	);
+};
 
 export function buildProjectDiagnosticDashboard(
 	input: BuildProjectDiagnosticDashboardInput,
@@ -157,6 +168,12 @@ export function buildProjectDiagnosticDashboard(
 	const completedDiagnosticReports = input.diagnosticReports.filter(
 		(report) => report.status === "completed",
 	);
+	const hasScanImprovementRequest = input.scanReviews.some(
+		(review) =>
+			review.scanRunId === activeRun?.id && hasImprovementRequest(review),
+	);
+	const implementationHandoffComplete =
+		hasScanImprovementRequest || decisionProgress.undecidedFindings === 0;
 	const diagnosticCoverage = {
 		attackSurfaceItems: input.attackSurfaceItems.length,
 		securityChecks: input.securityCheckResults.length,
@@ -170,8 +187,8 @@ export function buildProjectDiagnosticDashboard(
 		blockers.push("no_scan_selected");
 	} else {
 		if (activeRun.status !== "completed") blockers.push("scan_not_completed");
-		if (decisionProgress.undecidedFindings > 0)
-			blockers.push("undecided_findings");
+		if (activeFindings.length > 0 && !implementationHandoffComplete)
+			blockers.push("missing_improvement_request");
 		if (
 			activeFindings.length === 0 &&
 			completedDiagnosticReports.length === 0
@@ -185,9 +202,6 @@ export function buildProjectDiagnosticDashboard(
 		if (nextActions.some((item) => item.kind === action.kind)) return;
 		nextActions.push(action);
 	};
-	const firstUndecided = activeFindings.find(
-		(finding) => !finding.latestDecision,
-	);
 	const firstMissingReview =
 		activeFindings.find((finding) => !finding.latestReview) ??
 		(reviewMissingFindings > 0 ? activeFindings[0] : undefined);
@@ -209,12 +223,16 @@ export function buildProjectDiagnosticDashboard(
 			targetId: latestRun.id,
 		});
 	}
-	if (firstUndecided) {
+	if (
+		activeRun?.status === "completed" &&
+		activeFindings.length > 0 &&
+		!implementationHandoffComplete
+	) {
 		addAction({
-			kind: "record_decisions",
-			label: "Record finding decisions",
+			kind: "create_improvement_request",
+			label: "Generate improvement request",
 			priority: "high",
-			targetId: firstUndecided.id,
+			targetId: activeRun.id,
 		});
 	}
 	if (

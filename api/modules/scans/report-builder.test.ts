@@ -10,11 +10,44 @@ import {
 	findings,
 	projects,
 	scanArtifacts,
+	scanReviews,
 	scanRuns,
 	toolRuns,
 	users,
 } from "../../db/schema";
 import { buildMarkdownReport } from "./report-builder";
+
+function buildImprovementRequest(findingId: string) {
+	return {
+		title: "反射型 XSS 改善依頼",
+		objective:
+			"保存済みの scan evidence に基づき、ユーザー入力の出力時エスケープ不足を修正する。",
+		scope: ["対象は scan bundle に含まれる finding と evidence に限定します。"],
+		priorityPlan: [
+			{
+				priority: "high",
+				rationale: "高 severity でユーザー入力が出力に到達しているため優先します。",
+				findingIds: [findingId],
+			},
+		],
+		implementationTasks: [
+			{
+				title: "出力エスケープを追加する",
+				body: "該当箇所でユーザー入力を HTML として解釈されない形にエスケープしてください。",
+				findingIds: [findingId],
+				evidenceRefs: ["src/app.js:12"],
+			},
+		],
+		acceptanceCriteria: [
+			"ユーザー入力が HTML として実行されないことを確認できる。",
+		],
+		verificationCommands: ["bun test"],
+		constraints: ["保存済み evidence 以外を見た前提で書かない。"],
+		nonGoals: ["新しい scanner 実装は含めない。"],
+		handoffPrompt:
+			"保存済み scan context に基づき、反射型 XSS finding を修正してください。対象範囲は bundle 内の finding と evidence に限定し、出力エスケープ追加、回帰テスト、bun test による検証を行ってください。",
+	};
+}
 
 describe("Report Builder", () => {
 	let connection: DbConnection;
@@ -212,6 +245,10 @@ describe("Report Builder", () => {
 		expect(report1).toContain("## スキャン概要");
 		expect(report1).toContain("## 全体考察");
 		expect(report1).toContain("検出件数は 2 件");
+		expect(report1).toContain("## Decision-grade Executive Summary");
+		expect(report1).toContain("## Evidence Quality Summary");
+		expect(report1).toContain("## Remediation Plan");
+		expect(report1).toContain("## Scan Comparison Delta");
 		expect(report1).toContain("## ツール実行サマリ");
 		expect(report1).toContain("## 判断サマリ");
 		expect(report1).toContain("## Severity サマリ");
@@ -281,6 +318,52 @@ describe("Report Builder", () => {
 		expect(report).toContain("# セキュリティレポート");
 	});
 
+	it("includes the latest scan improvement request when scan review output has one", async () => {
+		const now = new Date("2026-06-23T12:00:00.000Z");
+		await connection.db.insert(scanReviews).values({
+			scanRunId,
+			projectId,
+			provider: "codex",
+			model: "gpt-5",
+			status: "completed",
+			summary: "改善依頼書を生成しました。",
+			riskOverview: "反射型 XSS の修正が必要です。",
+			priorityNotes: ["反射型 XSS を優先してください。"],
+			coverageNotes: ["保存済み scan evidence に限定されています。"],
+			falsePositiveHotspots: [],
+			recommendedNextActions: ["出力エスケープを追加してください。"],
+			findingTriageHints: [
+				{
+					findingId: findingId1,
+					note: "優先して修正してください。",
+					priority: "high",
+				},
+			],
+			confidenceNotes: ["source-location evidence に基づいています。"],
+			output: {
+				improvementRequest: buildImprovementRequest(findingId1),
+			},
+			startedAt: now,
+			completedAt: now,
+			createdAt: now,
+			updatedAt: now,
+		});
+
+		const report = await buildMarkdownReport(connection.db, scanRunId, {
+			includeFalsePositives: true,
+			includeDeferred: true,
+			includeUndecided: true,
+			title: "Improvement Request Report",
+		});
+
+		expect(report).toContain("## 改善依頼書");
+		expect(report).toContain("- **タイトル:** 反射型 XSS 改善依頼");
+		expect(report).toContain("### 実装タスク");
+		expect(report).toContain("出力エスケープを追加する");
+		expect(report).toContain("### Handoff Prompt");
+		expect(report).toContain("保存済み scan context に基づき");
+	});
+
 	it("states no findings as a scan-scoped conclusion", async () => {
 		await connection.db
 			.delete(findingDecisions)
@@ -305,6 +388,7 @@ describe("Report Builder", () => {
 		expect(report).toContain(
 			"完全な安全性を証明するものではありません。",
 		);
+		expect(report).toContain("## Zero-Finding Coverage Explanation");
 	});
 
 	it("respects exclusion options", async () => {

@@ -442,10 +442,20 @@ function NewProjectModal() {
 
 function ScanReportControls() {
 	const c = useScans();
+	const readinessLabel =
+		c.reportQualityPreview.readiness === "ready"
+			? "Ready"
+			: c.reportQualityPreview.readiness === "partial"
+				? "Partial"
+				: "Blocked inputs";
 	return (
 		<>
 			<ToolbarIconButton
-				label={c.reportLoading ? "Generating Report" : "Generate Report"}
+				label={
+					c.reportLoading
+						? "Generating Report"
+						: `Generate Report (${readinessLabel})`
+				}
 				onClick={() => void c.handleGenerateReport()}
 				disabled={c.reportLoading || c.busy}
 				variant="primary"

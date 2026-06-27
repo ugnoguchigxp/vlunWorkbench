@@ -12,6 +12,7 @@ export class FindingDecisionRepository {
 		comment?: string | null;
 		linkedReviewId?: string | null;
 		decidedByUserId?: string | null;
+		metadata?: Record<string, unknown>;
 	}) {
 		// Validate linked review belongs to the same finding
 		if (params.linkedReviewId) {
@@ -39,6 +40,7 @@ export class FindingDecisionRepository {
 				comment: params.comment ?? null,
 				linkedReviewId: params.linkedReviewId ?? null,
 				decidedByUserId: params.decidedByUserId ?? null,
+				metadata: params.metadata ?? {},
 				createdAt: now,
 				updatedAt: now,
 			})

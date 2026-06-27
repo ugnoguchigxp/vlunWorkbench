@@ -124,7 +124,8 @@ export async function buildGroupedFindings(
 				findings: [],
 			});
 		}
-		groupsMap.get(groupKey)!.findings.push(f);
+		const group = groupsMap.get(groupKey);
+		if (group) group.findings.push(f);
 	}
 
 	const groups: FindingGroup[] = [];

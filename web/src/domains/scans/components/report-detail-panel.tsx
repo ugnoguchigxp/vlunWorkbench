@@ -32,6 +32,7 @@ export function ReportDetailPanel({
 				</div>
 			) : null}
 			<div className="scans-detail-scroll">
+				<ReportReadinessPreview />
 				{c.selectedReport ? (
 					<ReportBody />
 				) : (
@@ -39,6 +40,40 @@ export function ReportDetailPanel({
 				)}
 			</div>
 		</>
+	);
+}
+
+function ReportReadinessPreview() {
+	const c = useScans();
+	const preview = c.reportQualityPreview;
+	return (
+		<div
+			className={`decision-grade-panel report-readiness readiness-${preview.readiness}`}
+		>
+			<div className="decision-grade-panel-head">
+				<div>
+					<span className="scan-review-context-label">Report readiness</span>
+					<h3>{preview.readiness.toUpperCase()}</h3>
+				</div>
+				<small>{preview.recommendedReportTitle}</small>
+			</div>
+			{preview.missingInputs.length > 0 ? (
+				<div className="decision-grade-warning">
+					{preview.missingInputs.join(", ")}
+				</div>
+			) : null}
+			<div className="report-readiness-sections">
+				{preview.sections.map((section) => (
+					<div
+						key={section.id}
+						className={`report-section-status status-${section.status}`}
+					>
+						<strong>{section.label}</strong>
+						<small>{section.reason ?? section.status}</small>
+					</div>
+				))}
+			</div>
+		</div>
 	);
 }
 

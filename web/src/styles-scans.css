@@ -1852,12 +1852,6 @@
 	color: var(--color-danger);
 }
 
-.work-state-badge.state-needs_decision {
-	background: #fef9c3;
-	border-color: #fde68a;
-	color: #a16207;
-}
-
 .work-state-badge.state-needs_review,
 .work-state-badge.state-needs_verification {
 	background: var(--color-brand-soft);
@@ -2490,4 +2484,344 @@
 
 .timeline-item.active-node::before {
 	background: var(--color-brand);
+}
+
+.scan-overview-stack,
+.decision-grade-grid,
+.decision-grade-panel,
+.decision-grade-list,
+.workflow-checklist,
+.comparison-delta-list,
+.evidence-quality-panel,
+.evidence-signal-list,
+.remediation-form,
+.report-readiness-sections {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	min-width: 0;
+}
+
+.decision-grade-grid {
+	display: grid;
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+	align-items: stretch;
+}
+
+@media (max-width: 1120px) {
+	.decision-grade-grid {
+		grid-template-columns: 1fr;
+	}
+}
+
+.decision-grade-panel {
+	border: 1px solid var(--color-border);
+	border-radius: 8px;
+	background: var(--color-surface);
+	padding: 12px;
+}
+
+.decision-grade-panel-head {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 10px;
+	min-width: 0;
+}
+
+.decision-grade-panel-head h3 {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	margin: 0;
+	font-size: 15px;
+	line-height: 1.3;
+	color: var(--color-ink);
+	overflow-wrap: anywhere;
+}
+
+.decision-grade-panel-head small,
+.decision-grade-panel p {
+	color: var(--color-muted);
+	font-size: 12px;
+	line-height: 1.45;
+	margin: 0;
+	overflow-wrap: anywhere;
+}
+
+.decision-grade-head-icon {
+	color: var(--color-brand);
+	width: 18px;
+	height: 18px;
+	flex: 0 0 auto;
+}
+
+.decision-grade-metrics,
+.remediation-status-grid {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 8px;
+}
+
+.decision-grade-metric {
+	border: 1px solid var(--color-border);
+	border-radius: 8px;
+	background: var(--color-surface-muted);
+	padding: 8px;
+	min-width: 0;
+}
+
+.decision-grade-metric small {
+	display: block;
+	color: var(--color-muted);
+	font-size: 10px;
+	line-height: 1.25;
+}
+
+.decision-grade-metric strong {
+	display: block;
+	color: var(--color-ink);
+	font-size: 14px;
+	line-height: 1.3;
+	overflow-wrap: anywhere;
+}
+
+.decision-grade-list button,
+.comparison-delta-list button,
+.decision-grade-command {
+	border: 1px solid var(--color-border);
+	border-radius: 8px;
+	background: var(--color-surface-muted);
+	color: var(--color-ink);
+	cursor: pointer;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	padding: 8px;
+	text-align: left;
+}
+
+.decision-grade-list button:disabled,
+.comparison-delta-list button:disabled {
+	cursor: default;
+	opacity: 0.75;
+}
+
+.decision-grade-list span,
+.comparison-delta-list span {
+	min-width: 0;
+}
+
+.decision-grade-list strong,
+.comparison-delta-list strong {
+	display: block;
+	font-size: 12px;
+	line-height: 1.3;
+	overflow-wrap: anywhere;
+}
+
+.decision-grade-list small,
+.comparison-delta-list small {
+	display: block;
+	color: var(--color-muted);
+	font-size: 11px;
+	line-height: 1.35;
+	overflow-wrap: anywhere;
+}
+
+.workflow-progress {
+	height: 8px;
+	border-radius: 999px;
+	background: var(--color-surface-muted);
+	overflow: hidden;
+}
+
+.workflow-progress span {
+	display: block;
+	height: 100%;
+	border-radius: inherit;
+	background: var(--color-brand);
+}
+
+.workflow-check {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	color: var(--color-muted-strong);
+}
+
+.workflow-check.status-complete .icon {
+	color: var(--color-success);
+}
+
+.workflow-check.status-blocked .icon {
+	color: var(--color-warning);
+}
+
+.workflow-check span {
+	min-width: 0;
+}
+
+.workflow-check strong,
+.workflow-check small {
+	display: block;
+	font-size: 11px;
+	line-height: 1.3;
+	overflow-wrap: anywhere;
+}
+
+.workflow-check small {
+	color: var(--color-muted);
+}
+
+.evidence-quality-badge {
+	border: 1px solid var(--color-border);
+	border-radius: 999px;
+	display: inline-flex;
+	align-items: center;
+	min-height: 24px;
+	padding: 3px 8px;
+	font-size: 11px;
+	font-weight: 800;
+	line-height: 1.2;
+}
+
+.evidence-strong {
+	background: var(--color-success-surface);
+	color: var(--color-success);
+}
+
+.evidence-moderate {
+	background: var(--color-info-surface);
+	color: var(--color-info);
+}
+
+.evidence-weak {
+	background: var(--color-warning-surface);
+	color: var(--color-warning);
+}
+
+.evidence-missing {
+	background: var(--color-danger-surface);
+	color: var(--color-danger);
+}
+
+.evidence-quality-score,
+.evidence-signal,
+.report-section-status {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	min-width: 0;
+}
+
+.evidence-quality-score strong {
+	color: var(--color-ink);
+	font-size: 18px;
+	line-height: 1;
+}
+
+.evidence-quality-reasons {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+}
+
+.evidence-quality-reasons small,
+.decision-grade-warning {
+	border: 1px solid var(--color-border);
+	border-radius: 999px;
+	background: var(--color-surface-muted);
+	color: var(--color-muted-strong);
+	padding: 4px 8px;
+	font-size: 11px;
+	line-height: 1.25;
+	overflow-wrap: anywhere;
+}
+
+.evidence-signal {
+	border: 1px solid var(--color-border);
+	border-radius: 8px;
+	padding: 8px;
+	background: var(--color-surface-muted);
+}
+
+.evidence-signal.signal-present .icon {
+	color: var(--color-success);
+}
+
+.evidence-signal.signal-missing .icon {
+	color: var(--color-muted);
+}
+
+.evidence-signal span {
+	min-width: 0;
+}
+
+.evidence-signal strong,
+.evidence-signal small {
+	display: block;
+	font-size: 12px;
+	line-height: 1.3;
+	overflow-wrap: anywhere;
+}
+
+.evidence-signal small {
+	color: var(--color-muted);
+}
+
+.remediation-form {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.remediation-form label {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	min-width: 0;
+	color: var(--color-muted);
+	font-size: 12px;
+	font-weight: 700;
+}
+
+.remediation-form input,
+.remediation-form select,
+.remediation-form textarea {
+	border: 1px solid var(--color-border-strong);
+	border-radius: 6px;
+	background: var(--color-surface);
+	color: var(--color-ink);
+	padding: 8px 10px;
+	font-size: 13px;
+}
+
+.remediation-form-wide {
+	grid-column: 1 / -1;
+}
+
+.report-readiness-sections {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.report-section-status {
+	align-items: flex-start;
+	flex-direction: column;
+	border: 1px solid var(--color-border);
+	border-radius: 8px;
+	background: var(--color-surface-muted);
+	padding: 8px;
+}
+
+.report-section-status strong {
+	font-size: 12px;
+	line-height: 1.3;
+}
+
+.report-section-status small {
+	color: var(--color-muted);
+	font-size: 11px;
+	line-height: 1.35;
 }

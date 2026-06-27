@@ -5,6 +5,7 @@ import { useScans } from "../scans-context";
 import { formatDateTime, getSeverityClass, shortPath } from "../scans-utils";
 import { actionQueueStateLabel, type FindingWorkState } from "../work-states";
 import { DecisionSection } from "./decision-section";
+import { RemediationPlanSection } from "./remediation-plan-section";
 import { ReportDetailPanel } from "./report-detail-panel";
 import { ReviewSection } from "./review-section";
 import { ScanResultOverview } from "./scan-result-overview";
@@ -157,6 +158,9 @@ function ScanResultsBody() {
 function FindingsTable() {
 	const c = useScans();
 	if (c.displayedFindings.length === 0) {
+		if (c.findingsLoading) {
+			return <div className="tree-info">finding を読み込んでいます...</div>;
+		}
 		if (c.selectedScanRunId && c.findings.length === 0) {
 			return <ZeroFindingDiagnosticPanel />;
 		}
@@ -177,6 +181,7 @@ function FindingsTable() {
 						<th>Finding</th>
 						<th>Tool / Rule</th>
 						<th>Location</th>
+						<th>Evidence</th>
 						<th>Decision</th>
 						<th>Updated</th>
 					</tr>
@@ -197,6 +202,9 @@ function FindingsTable() {
 						const decision = finding.latestDecision?.decision ?? "open";
 						const workState =
 							c.findingWorkStatesById.get(finding.id) ?? "ready_for_report";
+						const evidenceQuality = c.evidenceQualityByFindingId.get(
+							finding.id,
+						);
 						return (
 							<tr
 								key={finding.id}
@@ -234,6 +242,13 @@ function FindingsTable() {
 									) : (
 										<span className="scan-table-muted">No location</span>
 									)}
+								</td>
+								<td>
+									<span
+										className={`evidence-quality-badge evidence-${evidenceQuality?.level ?? "missing"}`}
+									>
+										{evidenceQuality?.label ?? "Missing"}
+									</span>
 								</td>
 								<td>
 									<div className="scan-table-badge-stack">
@@ -280,6 +295,7 @@ function FindingDetailDrawer() {
 	if (!c.selectedFindingId) return null;
 	const workflow = c.selectedDecisionWorkflow;
 	const finding = c.selectedFindingDetails?.finding;
+	const evidenceQuality = c.selectedEvidenceQuality;
 	const workState = finding
 		? (c.findingWorkStatesById.get(finding.id) ?? "ready_for_report")
 		: null;
@@ -308,6 +324,13 @@ function FindingDetailDrawer() {
 								{workState ? (
 									<span className={`work-state-badge state-${workState}`}>
 										{formatFindingWorkState(workState)}
+									</span>
+								) : null}
+								{evidenceQuality ? (
+									<span
+										className={`evidence-quality-badge evidence-${evidenceQuality.level}`}
+									>
+										証跡: {evidenceQuality.label}
 									</span>
 								) : null}
 								<span
@@ -395,7 +418,9 @@ function FindingBody() {
 				<p>{finding.description}</p>
 			</div>
 			<DecisionSection />
+			<RemediationPlanSection />
 			<DecisionCompletenessSummary />
+			<EvidenceQualityPanel />
 			<EvidenceChecklistPanel />
 			<ReviewSection />
 			<SourceEvidenceDetail />
@@ -429,6 +454,49 @@ function DecisionCompletenessSummary() {
 					<strong>{REASON_LABELS[workflow.recommendedReason]}</strong>
 				</div>
 			) : null}
+		</div>
+	);
+}
+
+function EvidenceQualityPanel() {
+	const quality = useScans().selectedEvidenceQuality;
+	if (!quality) return null;
+	return (
+		<div className="detail-section">
+			<h3 className="detail-section-title">Evidence quality</h3>
+			<div className="evidence-quality-panel">
+				<div className="evidence-quality-score">
+					<span className={`evidence-quality-badge evidence-${quality.level}`}>
+						{quality.label}
+					</span>
+					<strong>{quality.score}/100</strong>
+				</div>
+				<div className="evidence-quality-reasons">
+					{quality.reasons.slice(0, 3).map((reason) => (
+						<small key={reason}>{reason}</small>
+					))}
+				</div>
+				<div className="evidence-signal-list">
+					{[...quality.presentSignals, ...quality.missingSignals].map(
+						(signal) => (
+							<div
+								key={signal.id}
+								className={`evidence-signal signal-${signal.present ? "present" : "missing"}`}
+							>
+								{signal.present ? (
+									<CheckCircle2 className="icon" />
+								) : (
+									<Circle className="icon" />
+								)}
+								<span>
+									<strong>{signal.label}</strong>
+									<small>{signal.reference ?? signal.strength}</small>
+								</span>
+							</div>
+						),
+					)}
+				</div>
+			</div>
 		</div>
 	);
 }

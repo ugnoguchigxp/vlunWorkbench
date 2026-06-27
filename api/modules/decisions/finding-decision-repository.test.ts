@@ -104,6 +104,12 @@ describe("FindingDecisionRepository", () => {
 			reason: "confirmed_by_evidence",
 			comment: "Looks dangerous",
 			decidedByUserId: userId,
+			metadata: {
+				remediation: {
+					owner: "appsec",
+					priority: "p1",
+				},
+			},
 		});
 
 		expect(decision.id).toBeDefined();
@@ -111,10 +117,22 @@ describe("FindingDecisionRepository", () => {
 		expect(decision.reason).toBe("confirmed_by_evidence");
 		expect(decision.comment).toBe("Looks dangerous");
 		expect(decision.decidedByUserId).toBe(userId);
+		expect(decision.metadata).toEqual({
+			remediation: {
+				owner: "appsec",
+				priority: "p1",
+			},
+		});
 
 		const found = await decisionRepo.findById(decision.id);
 		expect(found).not.toBeNull();
 		expect(found?.decision).toBe("needs_fix");
+		expect(found?.metadata).toEqual({
+			remediation: {
+				owner: "appsec",
+				priority: "p1",
+			},
+		});
 	});
 
 	it("should return null for non-existent decision id", async () => {
