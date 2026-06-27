@@ -62,11 +62,11 @@ export type BuildDecisionWorkflowInput = {
 };
 
 const REPORT_LABELS: Record<ReportDecisionBucket, string> = {
-	needs_fix: "要修正",
-	accepted: "リスク受容",
-	deferred: "保留",
-	false_positive: "誤検知",
-	undecided: "未判断",
+	needs_fix: "実装改善候補",
+	accepted: "既知リスク記録",
+	deferred: "後続確認記録",
+	false_positive: "ツールノイズ記録",
+	undecided: "LLM handoff未作成",
 };
 
 const formatLocationReference = (location: unknown): string | undefined => {
@@ -253,8 +253,7 @@ export function buildDecisionWorkflow(
 	) {
 		missingInputs.push("主な証跡");
 	}
-	if (!input.latestReview) missingInputs.push("LLM レビュー");
-	if (!input.latestDecision) missingInputs.push("人間の判断");
+	if (!input.latestReview) missingInputs.push("LLM レビュー出力");
 
 	return {
 		findingId: input.finding.id,

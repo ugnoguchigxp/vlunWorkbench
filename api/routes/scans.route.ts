@@ -15,12 +15,21 @@ import { ScanReviewRepository } from "../modules/scans/scan-review-repository";
 import { ScanReviewRunner } from "../modules/scans/scan-review-runner";
 import type { ArtifactStorage } from "../modules/scans/artifact-storage";
 import type { AppDatabase } from "../db";
-import { createScanReportSchema } from "../../shared/schemas/scan.schema";
+import {
+	createScanReportSchema,
+	createScanReviewSchema,
+} from "../../shared/schemas/scan.schema";
 import { buildMarkdownReport } from "../modules/scans/report-builder";
 import { buildMarkdownReportWithLlmSummary } from "../modules/scans/report-summary-runner";
 import { buildScanRunSummary } from "../modules/scans/summary-builder";
 import { buildGroupedFindings } from "../modules/scans/grouping-builder";
 import type { LlmRouter } from "../providers/llmRouter";
+
+const FULL_REPORT_OPTIONS = {
+	includeFalsePositives: true,
+	includeDeferred: true,
+	includeUndecided: true,
+};
 
 type ScansRouteDeps = {
 	scanRepository: ScanRepository;
@@ -172,6 +181,11 @@ export function createScansRoute(deps: ScansRouteDeps) {
 			const authUser = getAuthContextUser(c);
 			const scanRunId = c.req.param("scanRunId");
 			await checkScanOwnership(scanRunId, authUser.userId);
+			const rawInput = await c.req.json().catch(() => ({}));
+			const parsedInput = createScanReviewSchema.safeParse(rawInput);
+			if (!parsedInput.success) {
+				throw new HttpError(400, "Invalid scan review request.");
+			}
 			const runner = new ScanReviewRunner(db, {
 				llmRouter,
 				reviewRepository: scanReviewRepository,
@@ -179,6 +193,7 @@ export function createScansRoute(deps: ScansRouteDeps) {
 			const result = await runner.run(scanRunId, {
 				task: "scan_review",
 				createdByUserId: authUser.userId,
+				findingFilter: parsedInput.data.findingFilter,
 			});
 			const review = await scanReviewRepository.findById(result.reviewId);
 			return c.json({ review, result });
@@ -193,9 +208,7 @@ export function createScansRoute(deps: ScansRouteDeps) {
 
 				await checkScanOwnership(scanRunId, authUser.userId);
 				const reportOptions = {
-					includeFalsePositives: input.includeFalsePositives,
-					includeDeferred: input.includeDeferred,
-					includeUndecided: input.includeUndecided,
+					...FULL_REPORT_OPTIONS,
 					summaryMode: input.summaryMode,
 				};
 
@@ -210,9 +223,7 @@ export function createScansRoute(deps: ScansRouteDeps) {
 
 				try {
 					const builderOptions = {
-						includeFalsePositives: input.includeFalsePositives,
-						includeDeferred: input.includeDeferred,
-						includeUndecided: input.includeUndecided,
+						...FULL_REPORT_OPTIONS,
 						title: input.title,
 					};
 					const reportBuild =

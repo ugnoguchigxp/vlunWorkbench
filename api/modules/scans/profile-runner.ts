@@ -1,5 +1,13 @@
-import type { ScanScopePolicy } from "../../../shared/schemas/scan-profile.schema";
+import type {
+	DastProfileStep,
+	ProfileToolEntry,
+	ScanProfileStep,
+	ScanScopePolicy,
+} from "../../../shared/schemas/scan-profile.schema";
 import type { AppDatabase } from "../../db";
+import { DastRunner } from "../dast/dast-runner";
+import { DastRepository } from "../dast/dast-repository";
+import { prepareDastTargetWorkspace } from "../dast/target-preparer";
 import { ArtifactStorage } from "./artifact-storage";
 import { normalizeGitleaks } from "./normalizers/gitleaks";
 import { normalizeOsv } from "./normalizers/osv";
@@ -36,6 +44,29 @@ export interface ToolResult {
 	error: string | null;
 }
 
+export type DastStepResult = {
+	kind: "dast";
+	profileId: string;
+	required: boolean;
+	status: "completed" | "failed" | "skipped";
+	outcome: string | null;
+	findingCount: number;
+	dastRunId: string | null;
+	targetOrigin: string | null;
+	error: string | null;
+	autoTarget?: {
+		scriptName: string;
+		command: string[];
+		port: number;
+		origin: string;
+		warnings: string[];
+	};
+};
+
+export type ScanProfileStepResult =
+	| (ToolResult & { kind: "static_tool" })
+	| DastStepResult;
+
 export interface ProfileScanResult {
 	ok: boolean;
 	scanRunId: string;
@@ -45,6 +76,7 @@ export interface ProfileScanResult {
 	runner: "host" | "docker";
 	message?: string;
 	toolResults: ToolResult[];
+	stepResults: ScanProfileStepResult[];
 	finalReport?: FinalReportResult;
 }
 
@@ -86,6 +118,19 @@ function buildBaseExecutionMetadata(execution: ToolExecutionConfig) {
 		};
 	}
 	return { runner: "host" };
+}
+
+function resolveProfileSteps(params: {
+	steps?: ScanProfileStep[];
+	tools: ProfileToolEntry[];
+}): ScanProfileStep[] {
+	return (
+		params.steps ??
+		params.tools.map((tool) => ({
+			kind: "static_tool" as const,
+			...tool,
+		}))
+	);
 }
 
 async function generateFinalReport(params: {
@@ -538,6 +583,169 @@ export async function runToolIntoExistingScan(params: {
 	}
 }
 
+export async function runDastStepIntoExistingScan(params: {
+	db: AppDatabase;
+	projectId: string;
+	scanRunId: string;
+	step: DastProfileStep;
+	repoPath: string;
+	timeoutSec?: number;
+	createdByUserId?: string | null;
+}): Promise<DastStepResult> {
+	const scanRepo = new ScanRepository(params.db);
+	const dastRepo = new DastRepository(params.db);
+	let preparedAutoTarget: Awaited<
+		ReturnType<typeof prepareDastTargetWorkspace>
+	> | null = null;
+	let targetConfigId: string | null = null;
+
+	try {
+		await scanRepo.createScanEvent({
+			scanRunId: params.scanRunId,
+			level: "info",
+			eventType: "dast.started",
+			message: `${params.step.profileId} DAST step started.`,
+			data: { profileId: params.step.profileId },
+		});
+
+		preparedAutoTarget = await prepareDastTargetWorkspace({
+			repoPath: params.repoPath,
+			readinessTimeoutMs: params.step.options?.readinessTimeoutMs,
+		});
+		const target = await dastRepo.createTargetConfig({
+			projectId: params.projectId,
+			...preparedAutoTarget.targetConfig,
+			createdByUserId: params.createdByUserId ?? null,
+			metadata: {
+				...preparedAutoTarget.targetConfig.metadata,
+				source: "scan-profile-dast-step",
+				scanRunId: params.scanRunId,
+				dastProfileId: params.step.profileId,
+			},
+		});
+		targetConfigId = target.id;
+
+		const runner = new DastRunner(params.db);
+		const result = await runner.run({
+			projectId: params.projectId,
+			targetConfigId,
+			profileId: params.step.profileId,
+			scanRunId: params.scanRunId,
+			runner: "host",
+			timeoutSec: params.timeoutSec,
+			maxRequests: params.step.options?.maxRequests,
+			createdByUserId: params.createdByUserId ?? null,
+			manageScanRunStatus: false,
+			useStoredProfileConfig: false,
+		});
+
+		const autoTarget = {
+			scriptName: preparedAutoTarget.plan.scriptName,
+			command: preparedAutoTarget.plan.command,
+			port: preparedAutoTarget.plan.port,
+			origin: preparedAutoTarget.origin,
+			warnings: preparedAutoTarget.plan.warnings,
+		};
+
+		if (!result.ok) {
+			await scanRepo.createScanEvent({
+				scanRunId: params.scanRunId,
+				level: "error",
+				eventType: "dast.failed",
+				message: `${params.step.profileId} DAST step failed: ${result.message}`,
+				data: {
+					profileId: params.step.profileId,
+					dastRunId: result.dastRunId,
+					failureKind: result.failureKind,
+					autoTarget,
+				},
+			});
+			return {
+				kind: "dast",
+				profileId: params.step.profileId,
+				required: params.step.required,
+				status: "failed",
+				outcome: result.outcome,
+				findingCount: 0,
+				dastRunId: result.dastRunId,
+				targetOrigin: preparedAutoTarget.origin,
+				error: result.message,
+				autoTarget,
+			};
+		}
+
+		await scanRepo.createScanEvent({
+			scanRunId: params.scanRunId,
+			level: "info",
+			eventType: "dast.completed",
+			message: `${params.step.profileId} DAST step completed with outcome: ${result.outcome}.`,
+			data: {
+				profileId: params.step.profileId,
+				dastRunId: result.dastRunId,
+				autoTarget,
+			},
+		});
+		return {
+			kind: "dast",
+			profileId: params.step.profileId,
+			required: params.step.required,
+			status: "completed",
+			outcome: result.outcome,
+			findingCount: result.findingIds.length,
+			dastRunId: result.dastRunId,
+			targetOrigin: preparedAutoTarget.origin,
+			error: null,
+			autoTarget,
+		};
+	} catch (error) {
+		const message =
+			error instanceof Error ? error.message : "DAST step failed.";
+		await scanRepo.createScanEvent({
+			scanRunId: params.scanRunId,
+			level: "error",
+			eventType: "dast.failed",
+			message: `${params.step.profileId} DAST step failed: ${message}`,
+			data: { profileId: params.step.profileId, targetConfigId },
+		});
+		return {
+			kind: "dast",
+			profileId: params.step.profileId,
+			required: params.step.required,
+			status: "failed",
+			outcome: "error",
+			findingCount: 0,
+			dastRunId: null,
+			targetOrigin: preparedAutoTarget?.origin ?? null,
+			error: message,
+			autoTarget: preparedAutoTarget
+				? {
+						scriptName: preparedAutoTarget.plan.scriptName,
+						command: preparedAutoTarget.plan.command,
+						port: preparedAutoTarget.plan.port,
+						origin: preparedAutoTarget.origin,
+						warnings: preparedAutoTarget.plan.warnings,
+					}
+				: undefined,
+		};
+	} finally {
+		if (targetConfigId && preparedAutoTarget) {
+			await dastRepo
+				.updateTargetConfig(targetConfigId, {
+					enabled: false,
+					metadata: {
+						...preparedAutoTarget.targetConfig.metadata,
+						source: "scan-profile-dast-step",
+						scanRunId: params.scanRunId,
+						dastProfileId: params.step.profileId,
+						autoPreparedCompletedAt: new Date().toISOString(),
+					},
+				})
+				.catch(() => undefined);
+		}
+		await preparedAutoTarget?.stop().catch(() => undefined);
+	}
+}
+
 export async function runProfileScan(params: {
 	db: AppDatabase;
 	projectId: string;
@@ -570,6 +778,13 @@ export async function runProfileScan(params: {
 		repoPath: params.repoPath,
 		scope: profile.scope,
 	});
+	const profileSteps = resolveProfileSteps({
+		steps: profile.steps,
+		tools: profile.tools,
+	});
+	const stepOrder = profileSteps.map((step) =>
+		step.kind === "static_tool" ? step.toolId : `dast:${step.profileId}`,
+	);
 
 	const continueOnToolFailure = params.continueOnToolFailure ?? true;
 
@@ -586,7 +801,9 @@ export async function runProfileScan(params: {
 			continueOnToolFailure,
 			runner: execution.runner,
 			toolOrder: profile.tools.map((t) => t.toolId),
+			stepOrder,
 			toolResults: [],
+			stepResults: [],
 		},
 	});
 
@@ -598,14 +815,18 @@ export async function runProfileScan(params: {
 	});
 
 	const toolResults: ToolResult[] = [];
+	const stepResults: ScanProfileStepResult[] = [];
 	let profileFailingToolFailed = false;
 	let optionalToolFailed = false;
 
-	for (const tool of profile.tools) {
+	for (const step of profileSteps) {
 		const resolvedTimeout =
-			tool.timeoutSec ?? params.timeoutSec ?? profile.defaultTimeoutSec;
+			step.timeoutSec ?? params.timeoutSec ?? profile.defaultTimeoutSec;
 		const failureFailsProfile =
-			tool.required || tool.failurePolicy === "fail_profile";
+			step.required || step.failurePolicy === "fail_profile";
+
+		const stepId =
+			step.kind === "static_tool" ? step.toolId : `dast:${step.profileId}`;
 
 		let toolRunId: string | null = null;
 		let findingCount = 0;
@@ -616,39 +837,79 @@ export async function runProfileScan(params: {
 		// Check if we should skip due to earlier profile-failing tool failure.
 		if (profileFailingToolFailed && !continueOnToolFailure) {
 			status = "skipped";
-			toolResults.push({
-				toolId: tool.toolId,
-				toolRunId: null,
-				required: tool.required,
-				status,
-				findingCount: 0,
-				exitCode: null,
-				error: "Skipped due to previous profile-failing tool failure",
-			});
+			if (step.kind === "static_tool") {
+				const toolResult = {
+					toolId: step.toolId,
+					toolRunId: null,
+					required: step.required,
+					status,
+					findingCount: 0,
+					exitCode: null,
+					error: "Skipped due to previous profile-failing tool failure",
+				};
+				toolResults.push(toolResult);
+				stepResults.push({ kind: "static_tool", ...toolResult });
+			} else {
+				stepResults.push({
+					kind: "dast",
+					profileId: step.profileId,
+					required: step.required,
+					status,
+					outcome: null,
+					findingCount: 0,
+					dastRunId: null,
+					targetOrigin: null,
+					error: "Skipped due to previous profile-failing step failure",
+				});
+			}
 			continue;
 		}
 
 		try {
-			const toolRes = await runToolIntoExistingScan({
-				db: params.db,
-				projectId: params.projectId,
-				scanRunId: scanRun.id,
-				toolId: tool.toolId,
-				options: {
-					...(tool.options ?? {}),
-					scope: withMandatoryExcludes(profile.scope),
-					scopeSummary: resolvedScope,
-				},
-				artifactStorage,
-				timeoutSec: resolvedTimeout,
-				repoPath: params.repoPath,
-				execution,
-			});
+			if (step.kind === "static_tool") {
+				const toolRes = await runToolIntoExistingScan({
+					db: params.db,
+					projectId: params.projectId,
+					scanRunId: scanRun.id,
+					toolId: step.toolId,
+					options: {
+						...(step.options ?? {}),
+						scope: withMandatoryExcludes(profile.scope),
+						scopeSummary: resolvedScope,
+					},
+					artifactStorage,
+					timeoutSec: resolvedTimeout,
+					repoPath: params.repoPath,
+					execution,
+				});
 
-			toolRunId = toolRes.toolRunId;
-			findingCount = toolRes.findingCount;
-			exitCode = toolRes.exitCode;
-			status = "completed";
+				toolRunId = toolRes.toolRunId;
+				findingCount = toolRes.findingCount;
+				exitCode = toolRes.exitCode;
+				status = "completed";
+			} else {
+				const dastResult = await runDastStepIntoExistingScan({
+					db: params.db,
+					projectId: params.projectId,
+					scanRunId: scanRun.id,
+					step,
+					repoPath: params.repoPath,
+					timeoutSec: resolvedTimeout,
+					createdByUserId: params.createdByUserId,
+				});
+				stepResults.push(dastResult);
+				findingCount = dastResult.findingCount;
+				status = dastResult.status;
+				error = dastResult.error;
+				if (dastResult.status === "failed") {
+					if (failureFailsProfile) {
+						profileFailingToolFailed = true;
+					} else {
+						optionalToolFailed = true;
+					}
+				}
+				continue;
+			}
 		} catch (err: any) {
 			status = "failed";
 			error = err.message;
@@ -660,15 +921,20 @@ export async function runProfileScan(params: {
 			}
 		}
 
-		toolResults.push({
-			toolId: tool.toolId,
+		if (step.kind !== "static_tool") {
+			throw new Error(`Unsupported profile step: ${stepId}`);
+		}
+		const toolResult = {
+			toolId: step.toolId,
 			toolRunId,
-			required: tool.required,
+			required: step.required,
 			status,
 			findingCount,
 			exitCode,
 			error,
-		});
+		};
+		toolResults.push(toolResult);
+		stepResults.push({ kind: "static_tool", ...toolResult });
 	}
 
 	// Determine profile outcome
@@ -691,7 +957,7 @@ export async function runProfileScan(params: {
 	}
 
 	// Update Scan Run status
-	const totalFindings = toolResults.reduce((acc, r) => acc + r.findingCount, 0);
+	const totalFindings = stepResults.reduce((acc, r) => acc + r.findingCount, 0);
 	const summaryMsg =
 		profileOutcome === "failed"
 			? `Scan profile ${params.profileId} failed due to profile-failing tool failure.`
@@ -707,7 +973,9 @@ export async function runProfileScan(params: {
 			continueOnToolFailure,
 			runner: execution.runner,
 			toolOrder: profile.tools.map((t) => t.toolId),
+			stepOrder,
 			toolResults,
+			stepResults,
 		},
 	});
 
@@ -758,6 +1026,7 @@ export async function runProfileScan(params: {
 		runner: execution.runner,
 		message,
 		toolResults,
+		stepResults,
 		finalReport,
 	};
 }

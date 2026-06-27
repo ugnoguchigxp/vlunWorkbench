@@ -314,6 +314,27 @@ export type ScanImprovementRequest = z.infer<
 	typeof scanImprovementRequestSchema
 >;
 
+export const scanReviewFindingFilterSchema = z
+	.enum([
+		"all",
+		"high_or_critical",
+		"weak_or_missing_evidence",
+		"new_or_regressed",
+	])
+	.default("all");
+export type ScanReviewFindingFilter = z.infer<
+	typeof scanReviewFindingFilterSchema
+>;
+
+const defaultScanReviewInput = { findingFilter: "all" } as const;
+
+export const createScanReviewSchema = z
+	.object({
+		findingFilter: scanReviewFindingFilterSchema.optional().default("all"),
+	})
+	.default(defaultScanReviewInput);
+export type CreateScanReviewInput = z.infer<typeof createScanReviewSchema>;
+
 export const scanReviewOutputSchema = z.object({
 	summary: z.string().min(1).max(3000),
 	riskOverview: z.string().min(1).max(3000),
@@ -404,7 +425,7 @@ export type ScanReport = z.infer<typeof scanReportSchema>;
 
 export const createScanReportSchema = z.object({
 	format: z.literal("markdown").default("markdown"),
-	title: z.string().min(1).default("Security Report"),
+	title: z.string().min(1).default("セキュリティレポート"),
 	includeFalsePositives: z.boolean().default(true),
 	includeDeferred: z.boolean().default(true),
 	includeUndecided: z.boolean().default(true),

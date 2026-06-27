@@ -1,6 +1,24 @@
 import type { Finding } from "../../api";
+import { formatFindingTitle } from "./scan-display-copy";
 
 export type FindingDeltaKind = "new" | "resolved" | "unchanged" | "regressed";
+export type ComparisonMatchConfidence =
+	| "stable"
+	| "fingerprint"
+	| "rule_location"
+	| "insufficient";
+
+export type ScanComparisonDelta = {
+	id: string;
+	kind: FindingDeltaKind;
+	title: string;
+	severity: string;
+	currentFindingId?: string;
+	baselineFindingId?: string;
+	reason: string;
+	matchConfidence: ComparisonMatchConfidence;
+	matchReason: string;
+};
 
 export type ScanComparisonView = {
 	currentScanRunId: string;
@@ -19,15 +37,7 @@ export type ScanComparisonView = {
 		low: number;
 		info: number;
 	};
-	deltas: Array<{
-		id: string;
-		kind: FindingDeltaKind;
-		title: string;
-		severity: string;
-		currentFindingId?: string;
-		baselineFindingId?: string;
-		reason: string;
-	}>;
+	deltas: ScanComparisonDelta[];
 };
 
 type BuildScanComparisonInput = {
@@ -61,27 +71,57 @@ const locationPath = (finding: Finding): string => {
 
 const metadataStableId = (finding: Finding): string => {
 	const metadata = finding.metadata ?? {};
-	for (const key of ["stableId", "normalizedId", "dedupeKey", "fingerprint"]) {
+	for (const key of ["stableId", "normalizedId", "dedupeKey"]) {
 		const value = metadata[key];
 		if (typeof value === "string" && value.trim()) return value.trim();
 	}
-	return finding.fingerprint || "";
+	return "";
 };
 
-const matchKey = (finding: Finding): string | null => {
+const metadataFingerprint = (finding: Finding): string => {
+	const value = finding.metadata?.fingerprint;
+	return typeof value === "string" && value.trim() ? value.trim() : "";
+};
+
+const comparisonMatch = (
+	finding: Finding,
+): {
+	key: string | null;
+	confidence: ComparisonMatchConfidence;
+	reason: string;
+} => {
 	const stable = metadataStableId(finding);
-	if (stable) return `stable:${stable}`;
+	if (stable) {
+		return {
+			key: `stable:${stable}`,
+			confidence: "stable",
+			reason: "安定メタデータ ID で照合しました。",
+		};
+	}
+	const fingerprint =
+		finding.fingerprint?.trim() || metadataFingerprint(finding);
+	if (fingerprint) {
+		return {
+			key: `fingerprint:${fingerprint}`,
+			confidence: "fingerprint",
+			reason: "tool fingerprint で照合しました。",
+		};
+	}
 	const location = locationPath(finding);
-	if (!finding.ruleId.trim() && !location.trim()) return null;
-	return [
-		"fallback",
-		finding.sourceTool,
-		finding.ruleId,
-		finding.title,
-		location,
-	]
-		.map((part) => part.trim().toLowerCase())
-		.join("|");
+	if (finding.sourceTool.trim() && finding.ruleId.trim() && location.trim()) {
+		return {
+			key: ["rule_location", finding.sourceTool, finding.ruleId, location]
+				.map((part) => part.trim().toLowerCase())
+				.join("|"),
+			confidence: "rule_location",
+			reason: "tool、rule、source location で照合しました。",
+		};
+	}
+	return {
+		key: null,
+		confidence: "insufficient",
+		reason: "安定 ID、fingerprint、rule/location key が利用できません。",
+	};
 };
 
 const isRegressed = (current: Finding, baseline: Finding): boolean => {
@@ -125,58 +165,81 @@ export function buildScanComparison(
 	}
 
 	const baselineByKey = new Map<string, Finding>();
+	const baselineMatchByKey = new Map<
+		string,
+		ReturnType<typeof comparisonMatch>
+	>();
 	for (const finding of input.baselineFindings) {
-		const key = matchKey(finding);
-		if (key) baselineByKey.set(key, finding);
+		const match = comparisonMatch(finding);
+		if (match.key) {
+			baselineByKey.set(match.key, finding);
+			baselineMatchByKey.set(match.key, match);
+		}
 	}
 	const currentByKey = new Map<string, Finding>();
 	for (const finding of input.currentFindings) {
-		const key = matchKey(finding);
-		if (key) currentByKey.set(key, finding);
+		const match = comparisonMatch(finding);
+		if (match.key) currentByKey.set(match.key, finding);
 	}
 	const deltas: ScanComparisonView["deltas"] = [];
 
 	for (const current of input.currentFindings) {
-		const currentKey = matchKey(current);
-		const baseline = currentKey ? baselineByKey.get(currentKey) : undefined;
+		const currentMatch = comparisonMatch(current);
+		const baseline = currentMatch.key
+			? baselineByKey.get(currentMatch.key)
+			: undefined;
 		if (!baseline) {
 			deltas.push({
 				id: `new:${current.id}`,
 				kind: "new",
-				title: current.title,
+				title: formatFindingTitle(current.title),
 				severity: current.severity,
 				currentFindingId: current.id,
-				reason: "Finding appears in the current scan only.",
+				reason: "現在の scan のみに存在する finding です。",
+				matchConfidence: currentMatch.key
+					? currentMatch.confidence
+					: "insufficient",
+				matchReason: currentMatch.reason,
 			});
 			continue;
 		}
+		const matched = currentMatch.key
+			? (baselineMatchByKey.get(currentMatch.key) ?? currentMatch)
+			: currentMatch;
 		const kind: FindingDeltaKind = isRegressed(current, baseline)
 			? "regressed"
 			: "unchanged";
 		deltas.push({
 			id: `${kind}:${current.id}:${baseline.id}`,
 			kind,
-			title: current.title,
+			title: formatFindingTitle(current.title),
 			severity: current.severity,
 			currentFindingId: current.id,
 			baselineFindingId: baseline.id,
 			reason:
 				kind === "regressed"
-					? "Severity or active decision state worsened since baseline."
-					: "Finding matches the previous scan.",
+					? "baseline 以降に severity または有効な判断状態が悪化しています。"
+					: "前回の scan と一致する finding です。",
+			matchConfidence: matched.confidence,
+			matchReason: matched.reason,
 		});
 	}
 
 	for (const baseline of input.baselineFindings) {
-		const baselineKey = matchKey(baseline);
-		if (baselineKey && currentByKey.has(baselineKey)) continue;
+		const baselineMatch = comparisonMatch(baseline);
+		if (baselineMatch.key && currentByKey.has(baselineMatch.key)) continue;
 		deltas.push({
 			id: `resolved:${baseline.id}`,
 			kind: "resolved",
-			title: baseline.title,
+			title: formatFindingTitle(baseline.title),
 			severity: baseline.severity,
 			baselineFindingId: baseline.id,
-			reason: "Finding was present in the baseline scan but not current scan.",
+			reason:
+				"baseline scan には存在し、現在の scan には存在しない finding です。",
+			matchConfidence: baselineMatch.key
+				? baselineMatch.confidence
+				: "insufficient",
+			matchReason: baselineMatch.reason,
 		});
 	}
 

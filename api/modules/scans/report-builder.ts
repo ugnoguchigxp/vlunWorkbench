@@ -3,10 +3,16 @@ import {
 	type ScanImprovementRequest,
 	scanImprovementRequestSchema,
 } from "../../../shared/schemas/scan.schema";
+import {
+	getReportSectionDefinition,
+	type ReportSectionId,
+} from "../../../shared/report-sections";
 import type { AppDatabase } from "../../db";
 import {
+	attackSurfaceItems,
 	dastEvidence,
 	dastRuns,
+	diagnosticReports,
 	dynamicRuns,
 	findingDecisions,
 	findingEvidences,
@@ -16,6 +22,7 @@ import {
 	reproductionRuns,
 	scanArtifacts,
 	scanReviews,
+	securityCheckResults,
 	scanRuns,
 	toolRuns,
 } from "../../db/schema";
@@ -73,6 +80,12 @@ const codeFenceFor = (content: string): string => {
 	return content.includes("```") ? "````" : "```";
 };
 
+const reportHeading = (id: ReportSectionId): string =>
+	getReportSectionDefinition(id).markdownHeading;
+
+const reportAlternateHeading = (id: ReportSectionId): string | undefined =>
+	getReportSectionDefinition(id).alternateMarkdownHeading;
+
 const getLocationPath = (location: unknown): string => {
 	if (!location || typeof location !== "object") return "";
 	const value = (location as Record<string, unknown>).path;
@@ -93,11 +106,11 @@ const formatDateTime = (value: Date | null | undefined): string => {
 };
 
 const DECISION_LABELS: Record<string, string> = {
-	needs_fix: "修正が必要",
-	accepted: "リスク受容",
-	deferred: "対応保留",
+	needs_fix: "実装改善候補",
+	accepted: "既知リスク記録",
+	deferred: "後続確認記録",
 	false_positive: "誤検知",
-	undecided: "未判断",
+	undecided: "LLM handoff未作成",
 };
 
 const SEVERITY_LABELS: Record<string, string> = {
@@ -124,7 +137,8 @@ const FALSE_POSITIVE_LABELS: Record<string, string> = {
 };
 
 const formatDecision = (value: string | null | undefined): string =>
-	DECISION_LABELS[value || "undecided"] ?? toInlineText(value, "未判断");
+	DECISION_LABELS[value || "undecided"] ??
+	toInlineText(value, "LLM handoff未作成");
 
 const formatSeverity = (value: string | null | undefined): string =>
 	SEVERITY_LABELS[(value || "unknown").toLowerCase()] ??
@@ -205,7 +219,7 @@ const renderImprovementRequest = (
 	lines: string[],
 	request: ScanImprovementRequest,
 ) => {
-	lines.push("## 改善依頼書");
+	lines.push("### 改善依頼書");
 	lines.push(`- **タイトル:** ${toInlineText(request.title)}`);
 	lines.push(`- **目的:** ${toInlineText(request.objective)}`);
 	if (request.scope.length > 0) {
@@ -353,6 +367,18 @@ export async function buildMarkdownReport(
 		.select()
 		.from(dastRuns)
 		.where(eq(dastRuns.scanRunId, scanRunId));
+	const allAttackSurfaceItems = await db
+		.select()
+		.from(attackSurfaceItems)
+		.where(eq(attackSurfaceItems.scanRunId, scanRunId));
+	const allSecurityCheckResults = await db
+		.select()
+		.from(securityCheckResults)
+		.where(eq(securityCheckResults.scanRunId, scanRunId));
+	const allDiagnosticReports = await db
+		.select()
+		.from(diagnosticReports)
+		.where(eq(diagnosticReports.scanRunId, scanRunId));
 	const allScanReviews = await db
 		.select()
 		.from(scanReviews)
@@ -496,6 +522,29 @@ export async function buildMarkdownReport(
 	const undecidedFindings = sortedFindings.filter(
 		(f) => f.bucket === "undecided",
 	);
+	const includedFindings = sortedFindings.filter((finding) => {
+		if (finding.bucket === "needs_fix" || finding.bucket === "accepted") {
+			return true;
+		}
+		if (finding.bucket === "deferred") return options.includeDeferred;
+		if (finding.bucket === "false_positive")
+			return options.includeFalsePositives;
+		if (finding.bucket === "undecided") return options.includeUndecided;
+		return false;
+	});
+	const profileDefinition = getProfileById(scanRun.profile);
+	const profileSteps = profileDefinition?.steps ?? [];
+	const stepResults = Array.isArray(scanRun.metadata?.stepResults)
+		? (scanRun.metadata.stepResults as Array<Record<string, unknown>>)
+		: [];
+	const expectedDastSteps = profileSteps.filter((step) => step.kind === "dast");
+	const failedOrMissingDastSteps = expectedDastSteps.filter((step) => {
+		const result = stepResults.find(
+			(item) => item.kind === "dast" && item.profileId === step.profileId,
+		);
+		if (!result) return true;
+		return result.status !== "completed";
+	});
 
 	const reportTitle = toInlineText(options.title, "セキュリティレポート");
 
@@ -515,6 +564,15 @@ export async function buildMarkdownReport(
 	lines.push(`- **状態:** ${toInlineText(scanRun.status)}`);
 	lines.push(`- **開始日時:** ${formatDateTime(scanRun.startedAt)}`);
 	lines.push(`- **完了日時:** ${formatDateTime(scanRun.completedAt)}`);
+	if (profileSteps.length > 0) {
+		lines.push(
+			`- **Profile steps:** ${profileSteps
+				.map((step) =>
+					step.kind === "dast" ? `dast:${step.profileId}` : step.toolId,
+				)
+				.join(", ")}`,
+		);
+	}
 	lines.push("");
 
 	lines.push("## 全体考察");
@@ -528,25 +586,21 @@ export async function buildMarkdownReport(
 	} else {
 		const urgentCount = severityStats.critical + severityStats.high;
 		lines.push(
-			`- 検出件数は ${rawFindings.length} 件で、このうち緊急または高 severity は ${urgentCount} 件です。まず「修正が必要」に分類された finding と未判断の高 severity finding を優先して確認してください。`,
+			`- 検出件数は ${rawFindings.length} 件で、このうち緊急または高 severity は ${urgentCount} 件です。まず high severity と証跡が弱い finding を、次の LLM が実装改善に進めるリスク文脈として渡してください。`,
 		);
 		lines.push(
-			`- 判断状況は、修正が必要 ${stats.needs_fix} 件、リスク受容 ${stats.accepted} 件、対応保留 ${stats.deferred} 件、誤検知 ${stats.false_positive} 件、未判断 ${stats.undecided} 件です。未判断が残る場合は、証跡の妥当性と実行時到達可能性を追加確認する必要があります。`,
+			`- 互換用分類は、実装改善候補 ${stats.needs_fix} 件、既知リスク記録 ${stats.accepted} 件、後続確認記録 ${stats.deferred} 件、誤検知 ${stats.false_positive} 件、LLM handoff未作成 ${stats.undecided} 件です。未作成が残る場合は、人手で仕分けず、証跡の妥当性と実行時到達可能性を LLM handoff に含めてください。`,
 		);
 		lines.push(
-			`- LLMレビュー済みは ${reviewedFindingCount} 件、意思決定済みは ${decidedFindingCount} 件です。レビューがない finding は、静的検出と保存済み証跡だけを根拠にしているため、修正前に影響範囲の読み合わせを推奨します。`,
+			`- LLMレビュー済みは ${reviewedFindingCount} 件、互換記録ありは ${decidedFindingCount} 件です。レビューがない finding は、静的検出と保存済み証跡だけを根拠にしているため、実装修正前に LLM へ不足証跡と影響範囲を明示してください。`,
 		);
 	}
 	lines.push("");
 
-	if (latestImprovementRequest) {
-		renderImprovementRequest(lines, latestImprovementRequest);
-	}
-
-	lines.push("## Decision-grade Executive Summary");
+	lines.push(reportHeading("executive-summary"));
 	if (rawFindings.length === 0) {
 		lines.push(
-			"- **Risk posture:** informational。finding は 0 件ですが、スキャン範囲と診断カバレッジの制約を前提に判断してください。",
+			"- **Risk posture:** informational。finding は 0 件ですが、スキャン範囲と診断カバレッジの制約を LLM handoff に含め、未確認領域を実装改善候補として扱ってください。",
 		);
 	} else {
 		const highestSeverity =
@@ -562,28 +616,61 @@ export async function buildMarkdownReport(
 				!item.latestCompletedReview,
 		).length;
 		lines.push(
-			`- **Risk posture:** ${formatSeverity(highestSeverity)}。修正対象 ${stats.needs_fix} 件、未判断 ${stats.undecided} 件、受容リスク ${stats.accepted} 件です。`,
+			`- **Risk posture:** ${formatSeverity(highestSeverity)}。実装改善候補 ${stats.needs_fix} 件、LLM handoff未作成 ${stats.undecided} 件、既知リスク記録 ${stats.accepted} 件です。`,
 		);
 		lines.push(
 			`- **Evidence confidence:** strong review ${strongReviewCount} 件、weak/missing decision-grade evidence ${weakOrMissingDecisionGradeEvidence} 件です。`,
 		);
 		lines.push(
-			"- **Recommended focus:** high severity の修正対象、未判断 finding、証跡が弱い finding の順に triage を完了してください。",
+			"- **Recommended focus:** high severity、証跡が弱い finding、実装改善候補の順に LLM handoff へ渡し、コード側でリスクを低減してください。",
 		);
 	}
 	lines.push("");
 
-	lines.push("## Evidence Quality Summary");
+	lines.push(reportHeading("risk-ranking"));
+	if (rawFindings.length === 0) {
+		lines.push(
+			"Active findings are 0, so there is no finding-level risk ranking. Use the zero-finding coverage section to judge residual risk and unchecked scope.",
+		);
+	} else if (includedFindings.length === 0) {
+		lines.push(
+			"All findings are excluded by report options, so no finding-level risk ranking is included in this export.",
+		);
+	} else {
+		lines.push(
+			"| Rank | Finding ID | Severity | Implementation routing | Rationale |",
+		);
+		lines.push("| --- | --- | --- | --- | --- |");
+		includedFindings.forEach((item, index) => {
+			const reviewStrength =
+				item.latestCompletedReview?.evidenceStrength?.level ?? "missing";
+			lines.push(
+				`| ${index + 1} | ${item.finding.id} | ${escapeTableCell(item.finding.severity)} | ${escapeTableCell(item.latestDecision?.decision ?? "undecided")} | ${escapeTableCell(`severity=${item.finding.severity}; evidence=${reviewStrength}`)} |`,
+			);
+		});
+		if (stats.undecided > 0) {
+			lines.push(
+				`${stats.undecided} finding(s) do not have an implementation handoff yet, so this ranking is not final submission-grade until a scan-level LLM handoff exists.`,
+			);
+		}
+	}
+	lines.push("");
+
+	lines.push(reportHeading("evidence-quality"));
 	if (processedFindings.length === 0) {
 		lines.push(
 			"finding がないため、finding 単位の evidence quality はありません。",
 		);
+	} else if (includedFindings.length === 0) {
+		lines.push(
+			"レポート設定により、finding 単位の evidence quality は除外されています。",
+		);
 	} else {
 		lines.push(
-			"| Finding ID | Source/tool evidence | Review strength | Verification | Decision |",
+			"| Finding ID | Source/tool evidence | Review strength | Verification | Implementation routing |",
 		);
 		lines.push("| --- | --- | --- | --- | --- |");
-		for (const item of sortedFindings) {
+		for (const item of includedFindings) {
 			const fndRepros = allReproRuns.filter(
 				(r) => r.findingId === item.finding.id,
 			);
@@ -607,15 +694,42 @@ export async function buildMarkdownReport(
 	}
 	lines.push("");
 
-	lines.push("## Remediation Plan");
+	if (latestImprovementRequest) {
+		lines.push(
+			reportAlternateHeading("finding-decisions") ??
+				"## LLM Implementation Handoff",
+		);
+		renderImprovementRequest(lines, latestImprovementRequest);
+	} else {
+		lines.push(reportHeading("finding-decisions"));
+		lines.push("| Implementation routing | Count |");
+		lines.push("| --- | --- |");
+		lines.push(`| implementation_fix_candidate | ${stats.needs_fix} |`);
+		lines.push(`| legacy_known_risk_record | ${stats.accepted} |`);
+		lines.push(`| legacy_follow_up_record | ${stats.deferred} |`);
+		lines.push(`| tool_noise_record | ${stats.false_positive} |`);
+		lines.push(`| missing_llm_handoff | ${stats.undecided} |`);
+		if (stats.undecided > 0) {
+			lines.push(
+				"LLM handoff は生成されていません。人手で finding を仕分けるのではなく、保存済み証跡と不足検証を次の LLM に渡す implementation handoff を生成してください。",
+			);
+		}
+	}
+	lines.push("");
+
+	lines.push(reportHeading("remediation-plan"));
 	if (processedFindings.length === 0) {
 		lines.push("修正計画が必要な finding はありません。");
+	} else if (includedFindings.length === 0) {
+		lines.push(
+			"レポート設定により、finding 単位の remediation plan は除外されています。",
+		);
 	} else {
 		lines.push(
 			"| Finding ID | Status | Priority | Owner | Due date | Recommended fix |",
 		);
 		lines.push("| --- | --- | --- | --- | --- | --- |");
-		for (const item of sortedFindings) {
+		for (const item of includedFindings) {
 			const remediation = readRemediationMetadata(item.latestDecision);
 			const locationPath = getLocationPath(item.finding.primaryLocation);
 			const fallback = buildRemediationFallback({
@@ -630,25 +744,73 @@ export async function buildMarkdownReport(
 	}
 	lines.push("");
 
-	lines.push("## Scan Comparison Delta");
+	lines.push(reportHeading("verification-status"));
+	const verificationEvidenceCount =
+		allReproRuns.length + allDynamicRuns.length + allDastEvidence.length;
+	if (processedFindings.length === 0) {
+		lines.push(
+			"finding がないため finding 単位の verification はありません。zero-finding coverage と diagnostic status を確認してください。",
+		);
+	} else {
+		lines.push(
+			`- **Verification evidence:** sandbox reproduction ${allReproRuns.length} 件、dynamic verification ${allDynamicRuns.length} 件、DAST evidence ${allDastEvidence.length} 件です。`,
+		);
+		lines.push(
+			`- **Review coverage:** LLMレビュー済み ${reviewedFindingCount} 件、互換記録あり ${decidedFindingCount} 件、verification evidence あり ${verificationEvidenceCount} 件です。`,
+		);
+		if (verificationEvidenceCount === 0) {
+			lines.push(
+				"- **Partial reason:** 再現・動的検証・DAST 証跡がないため、実行時到達可能性の確認は partial です。",
+			);
+		}
+	}
+	lines.push("");
+
+	lines.push(reportHeading("scan-comparison"));
 	lines.push(
 		"この Markdown builder は単一 scan run の保存済みデータから生成されます。baseline scan が UI/API から提供されていない場合、改善・悪化の差分は partial として扱ってください。",
 	);
 	lines.push("");
 
+	lines.push(reportHeading("zero-finding-coverage"));
 	if (rawFindings.length === 0) {
-		lines.push("## Zero-Finding Coverage Explanation");
 		lines.push(
-			"finding 0 件は、今回実行した tool/profile/scope で正規化 finding が出なかったことを示します。診断レポート、攻撃面 inventory、security check が不足している場合は安全性の証明ではありません。",
+			"finding 0 is not a proof of safety; it means no normalized findings were produced by the executed tools, profile, and scope.",
 		);
-		lines.push("");
+		lines.push(
+			"unexecuted checks and missing diagnostics remain residual risk, and this report describes what was checked and what was not checked.",
+		);
+		lines.push(
+			`- **Scan scope:** project=${toInlineText(project.name)}, profile=${toInlineText(scanRun.profile)}, scanRun=${scanRunId}`,
+		);
+		lines.push(
+			`- **Tool execution summary:** ${tools.length} tool run(s), ${tools.filter((tool) => tool.status === "completed").length} completed.`,
+		);
+		lines.push(
+			`- **Diagnostic report status:** ${allDiagnosticReports.length > 0 ? allDiagnosticReports.map((report) => `${report.reportKind}:${report.status}`).join(", ") : "missing"}`,
+		);
+		lines.push(
+			`- **Attack surface inventory:** ${allAttackSurfaceItems.length} item(s).`,
+		);
+		lines.push(
+			`- **Security checks:** ${allSecurityCheckResults.length} result(s); ${allSecurityCheckResults.filter((result) => result.status !== "pass").length} non-passing or incomplete.`,
+		);
+		if (allDiagnosticReports.length === 0) {
+			lines.push(
+				"- **Coverage limitation:** diagnostic report data is missing, so this report must not be read as a safety attestation.",
+			);
+		}
+	} else {
+		lines.push(
+			"Findings are present, so zero-finding coverage is not the primary conclusion for this report. Residual risk is represented by the finding decisions, evidence quality, remediation, and verification sections.",
+		);
 	}
+	lines.push("");
 
 	// Tool Summary Table
 	lines.push("## ツール実行サマリ");
 	if (tools.length > 0) {
-		const profile = getProfileById(scanRun.profile);
-		const profileTools = profile?.tools ?? [];
+		const profileTools = profileDefinition?.tools ?? [];
 
 		lines.push("| ツール | 種別 | バージョン | 状態 | 終了コード |");
 		lines.push("| --- | --- | --- | --- | --- |");
@@ -677,15 +839,50 @@ export async function buildMarkdownReport(
 	}
 	lines.push("");
 
-	// Decision Summary Table
-	lines.push("## 判断サマリ");
-	lines.push("| 判断 | 件数 |");
+	if (profileSteps.length > 0) {
+		lines.push("## ScanProfile Step サマリ");
+		lines.push("| Step | 種別 | 必須 | 状態 | 検出 | 補足 |");
+		lines.push("| --- | --- | --- | --- | --- | --- |");
+		for (const step of profileSteps) {
+			const stepId =
+				step.kind === "dast" ? `dast:${step.profileId}` : step.toolId;
+			const result = stepResults.find((item) => {
+				if (step.kind === "dast") {
+					return item.kind === "dast" && item.profileId === step.profileId;
+				}
+				return item.kind === "static_tool" && item.toolId === step.toolId;
+			});
+			const status = (result?.status as string | undefined) ?? "skipped";
+			const findingCount = (result?.findingCount as number | undefined) ?? 0;
+			const note =
+				step.kind === "dast"
+					? ((result?.targetOrigin as string | undefined) ??
+						(result?.error as string | undefined) ??
+						"auto target")
+					: ((result?.error as string | undefined) ?? "-");
+			lines.push(
+				`| ${escapeTableCell(stepId)} | ${escapeTableCell(step.kind)} | ${step.required ? "yes" : "no"} | ${escapeTableCell(status)} | ${findingCount} | ${escapeTableCell(note)} |`,
+			);
+		}
+		if (failedOrMissingDastSteps.length > 0) {
+			lines.push(
+				`Runtime coverage gap: expected DAST step(s) did not complete: ${failedOrMissingDastSteps
+					.map((step) => `dast:${step.profileId}`)
+					.join(", ")}.`,
+			);
+		}
+		lines.push("");
+	}
+
+	// Legacy compatibility summary
+	lines.push("## 実装改善ルーティングサマリ");
+	lines.push("| ルーティング | 件数 |");
 	lines.push("| --- | --- |");
-	lines.push(`| 修正が必要 | ${stats.needs_fix} |`);
-	lines.push(`| リスク受容 | ${stats.accepted} |`);
-	lines.push(`| 対応保留 | ${stats.deferred} |`);
+	lines.push(`| 実装改善候補 | ${stats.needs_fix} |`);
+	lines.push(`| 既知リスク記録 | ${stats.accepted} |`);
+	lines.push(`| 後続確認記録 | ${stats.deferred} |`);
 	lines.push(`| 誤検知 | ${stats.false_positive} |`);
-	lines.push(`| 未判断 | ${stats.undecided} |`);
+	lines.push(`| LLM handoff未作成 | ${stats.undecided} |`);
 	lines.push(`| **合計** | ${rawFindings.length} |`);
 	lines.push("");
 
@@ -759,13 +956,13 @@ export async function buildMarkdownReport(
 			lines.push(
 				`- **Severity:** ${formatSeverity(f.severity)} (${toInlineText(f.severity)})`,
 			);
-			lines.push(`- **判断:** ${formatDecision(item.bucket)}`);
+			lines.push(`- **実装改善ルーティング:** ${formatDecision(item.bucket)}`);
 			lines.push(
-				`- **判断理由:** ${item.latestDecision ? toInlineText(item.latestDecision.reason) : "未判断のため未記録"}`,
+				`- **補足理由:** ${item.latestDecision ? toInlineText(item.latestDecision.reason) : "LLM handoff未作成のため未記録"}`,
 			);
 			if (item.latestDecision?.comment) {
 				lines.push(
-					`- **判断コメント:** ${toInlineText(item.latestDecision.comment)}`,
+					`- **互換記録コメント:** ${toInlineText(item.latestDecision.comment)}`,
 				);
 			}
 			lines.push(`- **主な場所:** ${toInlineText(locationText)}`);
@@ -773,7 +970,7 @@ export async function buildMarkdownReport(
 
 			lines.push("#### 考察");
 			lines.push(
-				`- **判断の読み:** ${formatDecision(item.bucket)}として扱っています。${review ? "LLMレビュー結果と保存済み証跡をあわせて確認しています。" : "LLMレビューは未完了のため、現時点では静的検出と保存済み証跡が主な根拠です。"}`,
+				`- **実装リスクの読み:** ${formatDecision(item.bucket)}として扱っています。${review ? "LLMレビュー結果と保存済み証跡をあわせて、実装改善に渡すリスク文脈を確認しています。" : "LLMレビューは未完了のため、現時点では静的検出と保存済み証跡が主な根拠です。"}`,
 			);
 			lines.push(`- **想定影響:** ${impact}`);
 			lines.push(
@@ -936,9 +1133,9 @@ export async function buildMarkdownReport(
 	};
 
 	// 4. Render main sections
-	renderFindingsGroup("修正対象・リスク受容 Finding", activeFindings, true);
+	renderFindingsGroup("実装改善候補・既知リスク Finding", activeFindings, true);
 	renderFindingsGroup(
-		"対応保留 Finding",
+		"後続確認記録 Finding",
 		deferredFindings,
 		options.includeDeferred,
 	);
@@ -948,7 +1145,7 @@ export async function buildMarkdownReport(
 		options.includeFalsePositives,
 	);
 	renderFindingsGroup(
-		"未判断 Finding",
+		"LLM handoff未作成 Finding",
 		undecidedFindings,
 		options.includeUndecided,
 	);
@@ -1012,6 +1209,11 @@ export async function buildMarkdownReport(
 		}
 	} else {
 		lines.push("このスキャンには DAST run が記録されていません。");
+		if (expectedDastSteps.length > 0) {
+			lines.push(
+				"Runtime coverage gap: この ScanProfile は DAST を含みますが、DAST run は記録されていません。",
+			);
+		}
 	}
 	lines.push("");
 
@@ -1024,8 +1226,14 @@ export async function buildMarkdownReport(
 	lines.push(`- **Drizzle Schema Version:** Phase 12 Hardened`);
 	lines.push("");
 
+	lines.push(reportHeading("appendix"));
+	lines.push(
+		"Report artifacts, LLM review references, and grouping snapshots.",
+	);
+	lines.push("");
+
 	// Appendix: Raw Artifact References
-	lines.push("## 付録: Raw Artifact参照");
+	lines.push("### Raw Artifact References");
 	if (allArtifacts.length > 0) {
 		const sortedArtifacts = [...allArtifacts].sort((a, b) => {
 			const kindDiff = a.kind.localeCompare(b.kind);
@@ -1045,7 +1253,7 @@ export async function buildMarkdownReport(
 	lines.push("");
 
 	// Appendix: Review References
-	lines.push("## 付録: レビュー参照");
+	lines.push("### Review References");
 	// Sort reviews deterministically: findingId, status, id
 	const sortedReviews = [...allReviews].sort((a, b) => {
 		const findingDiff = a.findingId.localeCompare(b.findingId);
@@ -1066,7 +1274,7 @@ export async function buildMarkdownReport(
 	lines.push("");
 
 	// Appendix: Finding Groups Snapshot
-	lines.push("## 付録: Findingグループスナップショット");
+	lines.push("### Finding Group Snapshot");
 	try {
 		const { buildGroupedFindings } = await import("./grouping-builder");
 		const grouped = await buildGroupedFindings(db, scanRunId);

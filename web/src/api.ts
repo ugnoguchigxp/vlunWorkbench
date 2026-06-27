@@ -1127,6 +1127,12 @@ export type ScanImprovementRequest = {
 	handoffPrompt: string;
 };
 
+export type ScanReviewFindingFilter =
+	| "all"
+	| "high_or_critical"
+	| "weak_or_missing_evidence"
+	| "new_or_regressed";
+
 export async function fetchScanReviews(
 	scanRunId: string,
 ): Promise<ScanReview[]> {
@@ -1140,11 +1146,12 @@ export async function fetchScanReviews(
 
 export async function triggerScanReview(
 	scanRunId: string,
+	input: { findingFilter?: ScanReviewFindingFilter } = {},
 ): Promise<{ review: ScanReview | null; result: Record<string, unknown> }> {
 	return requestJson<{
 		review: ScanReview | null;
 		result: Record<string, unknown>;
-	}>(`/api/scans/${scanRunId}/reviews`, { method: "POST" });
+	}>(`/api/scans/${scanRunId}/reviews`, { method: "POST", body: input });
 }
 
 export async function fetchScanReports(
@@ -1171,6 +1178,25 @@ export type ScanProfileTool = {
 	timeoutSec?: number;
 };
 
+export type ScanProfileStep =
+	| {
+			kind: "static_tool";
+			toolId: string;
+			displayName: string;
+			required: boolean;
+			timeoutSec?: number;
+			failurePolicy: "fail_profile" | "warn_and_continue";
+	  }
+	| {
+			kind: "dast";
+			profileId: "http-baseline";
+			displayName: string;
+			required: boolean;
+			timeoutSec?: number;
+			failurePolicy: "fail_profile" | "warn_and_continue";
+			target: { mode: "auto_project_start" };
+	  };
+
 export type ScanProfileScope = {
 	intent: "source" | "dependency_manifest" | "artifact" | "full_deep";
 	includeGenerated: boolean;
@@ -1187,6 +1213,7 @@ export type ScanProfile = {
 	defaultTimeoutSec: number;
 	scope?: ScanProfileScope;
 	tools: ScanProfileTool[];
+	steps?: ScanProfileStep[];
 };
 
 export type ToolSummary = {
@@ -1208,11 +1235,58 @@ export type ToolSummary = {
 	error: string | null;
 };
 
+export type StepSummary = {
+	kind: "static_tool" | "dast";
+	id: string;
+	displayName: string;
+	status: string;
+	required: boolean;
+	findingCount: number;
+	artifactCount: number;
+	error: string | null;
+	outcome?: string | null;
+	targetOrigin?: string | null;
+};
+
+export type ScanStartToolResult = {
+	toolId: string;
+	toolRunId: string | null;
+	status: string;
+	exitCode: number | null;
+	findingCount: number;
+	error: string | null;
+};
+
+export type ScanStartStepResult =
+	| (ScanStartToolResult & {
+			kind: "static_tool";
+			required: boolean;
+	  })
+	| {
+			kind: "dast";
+			profileId: string;
+			required: boolean;
+			status: string;
+			outcome: string | null;
+			findingCount: number;
+			dastRunId: string | null;
+			targetOrigin: string | null;
+			error: string | null;
+			autoTarget?: {
+				scriptName: string;
+				command: string[];
+				port: number;
+				origin: string;
+				warnings: string[];
+			};
+	  };
+
 export type ScanRunSummary = {
 	scanRunId: string;
 	profileId: string;
 	profileOutcome: string;
 	tools: ToolSummary[];
+	steps?: StepSummary[];
 	totals: {
 		findingCount: number;
 		artifactCount: number;
@@ -1321,14 +1395,16 @@ export async function startScan(
 	runner?: "host" | "docker";
 	profileOutcome: string;
 	message?: string;
-	toolResults: any[];
+	toolResults: ScanStartToolResult[];
+	stepResults?: ScanStartStepResult[];
 }> {
 	return requestJson<{
 		scan: { id: string; status: string; profile: string };
 		runner?: "host" | "docker";
 		profileOutcome: string;
 		message?: string;
-		toolResults: any[];
+		toolResults: ScanStartToolResult[];
+		stepResults?: ScanStartStepResult[];
 	}>(`/api/projects/${projectId}/scans`, {
 		method: "POST",
 		body: params,

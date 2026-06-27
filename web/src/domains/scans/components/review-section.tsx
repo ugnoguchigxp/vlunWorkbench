@@ -2,17 +2,19 @@ import {
 	AlertTriangle,
 	Brain,
 	Code,
-	Copy,
 	Info,
 	RefreshCw,
 	Sparkles,
 } from "lucide-react";
-import type { ScanImprovementRequest, ScanReview } from "../../../api";
 import { Button } from "../../../ui";
 import { formatScanOutcome } from "../scan-profile-display";
+import {
+	buildScanImprovementRequestView,
+	classifyScanReviewFailure,
+} from "../scan-improvement-request";
 import { useScans } from "../scans-context";
 import { formatDateTime, StatusIcon } from "../scans-utils";
-import { ScanResultOverview } from "./scan-result-overview";
+import { ScanImprovementRequestPanel } from "./scan-improvement-request-panel";
 
 export function ReviewSection() {
 	const c = useScans();
@@ -20,22 +22,24 @@ export function ReviewSection() {
 	const latestScanReview = c.scanReviews.find(
 		(item) => item.status === "completed",
 	);
-	const improvementRequest = getImprovementRequest(latestScanReview);
+	const handoffView = buildScanImprovementRequestView(c.scanReviews);
 	return (
 		<div className="detail-section">
-			<ScanResultOverview headingLevel="h3" />
-			{improvementRequest ? (
-				<ImprovementRequestSection
-					request={improvementRequest}
-					review={latestScanReview}
-				/>
-			) : null}
+			<ScanImprovementRequestPanel
+				view={handoffView}
+				completedAt={latestScanReview?.completedAt}
+				providerLabel={
+					latestScanReview
+						? `${latestScanReview.provider} / ${latestScanReview.model}`
+						: null
+				}
+			/>
 			<div className="finding-meta-row">
 				<div>
 					<h3 className="detail-section-title">LLM レビュー</h3>
 					<p className="scan-tool-purpose">
 						選択した finding
-						について、誤検知の可能性、証跡の強さ、影響、修正方針を確認します。
+						について、保存済み証跡から誤検知の可能性、証跡の強さ、影響、修正方針を自動レビューします。
 					</p>
 				</div>
 				<Button
@@ -76,7 +80,7 @@ export function ReviewSection() {
 						</span>
 					</div>
 					{review.status === "failed" && review.errorMessage ? (
-						<p className="badge-failed">{review.errorMessage}</p>
+						<ScanReviewFailureMessage error={review.errorMessage} />
 					) : null}
 					{review.status === "completed" ? <CompletedReview /> : null}
 				</div>
@@ -86,7 +90,9 @@ export function ReviewSection() {
 					レビューはまだ実行されていません。
 				</p>
 			)}
-			{c.reviewError ? <p className="badge-failed">{c.reviewError}</p> : null}
+			{c.reviewError ? (
+				<ScanReviewFailureMessage error={c.reviewError} />
+			) : null}
 			{c.allReviews.length > 1 ? (
 				<div className="detail-section">
 					<h4 className="detail-section-title">
@@ -109,126 +115,14 @@ export function ReviewSection() {
 	);
 }
 
-function getImprovementRequest(
-	review: ScanReview | undefined,
-): ScanImprovementRequest | null {
-	const value = review?.output?.improvementRequest;
-	if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-	const candidate = value as Partial<ScanImprovementRequest>;
-	return typeof candidate.title === "string" &&
-		typeof candidate.objective === "string" &&
-		typeof candidate.handoffPrompt === "string" &&
-		Array.isArray(candidate.scope) &&
-		Array.isArray(candidate.priorityPlan) &&
-		Array.isArray(candidate.implementationTasks) &&
-		Array.isArray(candidate.acceptanceCriteria) &&
-		Array.isArray(candidate.verificationCommands) &&
-		Array.isArray(candidate.constraints) &&
-		Array.isArray(candidate.nonGoals)
-		? (candidate as ScanImprovementRequest)
-		: null;
-}
-
-function ImprovementRequestSection({
-	request,
-	review,
-}: {
-	request: ScanImprovementRequest;
-	review?: ScanReview;
-}) {
-	const copyHandoffPrompt = () => {
-		if (typeof navigator === "undefined" || !navigator.clipboard) return;
-		void navigator.clipboard.writeText(request.handoffPrompt);
-	};
+function ScanReviewFailureMessage({ error }: { error: string }) {
+	const failure = classifyScanReviewFailure(error);
+	if (!failure) return null;
 	return (
-		<div className="detail-section">
-			<div className="finding-meta-row">
-				<div>
-					<h3 className="detail-section-title">
-						<Code className="icon text-teal-700" /> 改善依頼書
-					</h3>
-					<p className="scan-tool-purpose">{request.objective}</p>
-				</div>
-				<Button type="button" variant="secondary" onClick={copyHandoffPrompt}>
-					<Copy className="icon" />
-					Handoff をコピー
-				</Button>
-			</div>
-			<div className="review-header-panel">
-				<div className="review-meta">
-					<span>
-						<strong>Title:</strong> {request.title}
-					</span>
-					{review ? (
-						<span>
-							<strong>Scan Review:</strong> {review.provider} / {review.model}
-						</span>
-					) : null}
-					{review?.completedAt ? (
-						<span>
-							<strong>完了:</strong> {formatDateTime(review.completedAt)}
-						</span>
-					) : null}
-				</div>
-			</div>
-			{request.priorityPlan.length > 0 ? (
-				<div className="assessment-grid">
-					{request.priorityPlan.map((item) => (
-						<div
-							className="assessment-card"
-							key={`${item.priority}-${item.findingIds.join("-")}`}
-						>
-							<div className="assessment-card-header">
-								<span className="assessment-card-title">優先度</span>
-								<span className="assessment-card-value">{item.priority}</span>
-							</div>
-							<p className="assessment-card-reasoning">{item.rationale}</p>
-							<small>{item.findingIds.join(", ")}</small>
-						</div>
-					))}
-				</div>
-			) : null}
-			{request.implementationTasks.length > 0 ? (
-				<div className="detail-section">
-					<strong>実装タスク</strong>
-					<ul className="notes-list">
-						{request.implementationTasks.map((task) => (
-							<li key={`${task.title}-${task.findingIds.join("-")}`}>
-								<strong>{task.title}</strong>
-								<br />
-								{task.body}
-								<br />
-								<small>{task.findingIds.join(", ")}</small>
-							</li>
-						))}
-					</ul>
-				</div>
-			) : null}
-			{request.acceptanceCriteria.length > 0 ? (
-				<div className="detail-section">
-					<strong>受け入れ条件</strong>
-					<ul className="notes-list">
-						{request.acceptanceCriteria.map((item) => (
-							<li key={item}>{item}</li>
-						))}
-					</ul>
-				</div>
-			) : null}
-			{request.verificationCommands.length > 0 ? (
-				<div className="detail-section">
-					<strong>検証コマンド</strong>
-					<ul className="notes-list">
-						{request.verificationCommands.map((item) => (
-							<li key={item}>
-								<code>{item}</code>
-							</li>
-						))}
-					</ul>
-				</div>
-			) : null}
-			<pre className="remediation-box">
-				<code>{request.handoffPrompt}</code>
-			</pre>
+		<div className="scan-review-failure">
+			<strong>{failure.label}</strong>
+			<span>{failure.nextAction}</span>
+			<code>{failure.rawError}</code>
 		</div>
 	);
 }

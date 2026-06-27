@@ -248,6 +248,109 @@ describe("Profile Runner Orchestration", () => {
 		getProfileSpy.mockRestore();
 	});
 
+	it("should orchestrate static and DAST steps in one profile scan", async () => {
+		const mockProfile = {
+			id: "web-test",
+			name: "Web Test Profile",
+			description: "Profile for testing unified static and DAST steps",
+			enabled: true,
+			defaultTimeoutSec: 100,
+			tools: [
+				{
+					toolId: "semgrep",
+					displayName: "Semgrep",
+					required: true,
+					failurePolicy: "fail_profile" as const,
+				},
+			],
+			steps: [
+				{
+					kind: "static_tool" as const,
+					toolId: "semgrep",
+					displayName: "Semgrep",
+					required: true,
+					failurePolicy: "fail_profile" as const,
+				},
+				{
+					kind: "dast" as const,
+					profileId: "http-baseline" as const,
+					displayName: "Auto DAST HTTP Baseline",
+					required: false,
+					failurePolicy: "warn_and_continue" as const,
+					target: { mode: "auto_project_start" as const },
+				},
+			],
+		};
+
+		const profilesModule = require("./profiles");
+		const getProfileSpy = vi
+			.spyOn(profilesModule, "getProfileById")
+			.mockReturnValue(mockProfile);
+
+		const staticSpy = vi
+			.spyOn(profileRunnerModule, "runToolIntoExistingScan")
+			.mockImplementation(async () => ({
+				toolRunId: "tool-run-semgrep",
+				findingCount: 1,
+				exitCode: 0,
+				elapsedMs: 50,
+				artifactIds: [],
+			}));
+		const dastSpy = vi
+			.spyOn(profileRunnerModule, "runDastStepIntoExistingScan")
+			.mockImplementation(async () => ({
+				kind: "dast",
+				profileId: "http-baseline",
+				required: false,
+				status: "completed",
+				outcome: "passed",
+				findingCount: 0,
+				dastRunId: "dast-run-1",
+				targetOrigin: "http://127.0.0.1:3000",
+				error: null,
+			}));
+
+		const result = await runProfileScan({
+			db: connection.db,
+			projectId,
+			profileId: "web-test",
+			repoPath,
+			continueOnToolFailure: true,
+		});
+
+		expect(result.ok).toBe(true);
+		expect(result.profileOutcome).toBe("completed");
+		expect(result.toolResults).toHaveLength(1);
+		expect(result.stepResults).toHaveLength(2);
+		expect(result.stepResults[0]).toEqual(
+			expect.objectContaining({ kind: "static_tool", toolId: "semgrep" }),
+		);
+		expect(result.stepResults[1]).toEqual(
+			expect.objectContaining({
+				kind: "dast",
+				profileId: "http-baseline",
+				dastRunId: "dast-run-1",
+			}),
+		);
+		expect(staticSpy).toHaveBeenCalledTimes(1);
+		expect(dastSpy).toHaveBeenCalledTimes(1);
+
+		const [scanRun] = await connection.db
+			.select()
+			.from(scanRuns)
+			.where(eq(scanRuns.id, result.scanRunId));
+		expect(scanRun.metadata).toEqual(
+			expect.objectContaining({
+				stepOrder: ["semgrep", "dast:http-baseline"],
+				stepResults: expect.arrayContaining([
+					expect.objectContaining({ kind: "dast", dastRunId: "dast-run-1" }),
+				]),
+			}),
+		);
+
+		getProfileSpy.mockRestore();
+	});
+
 	it("should fail profile when a fail_profile tool is marked optional", async () => {
 		const mockProfile = {
 			id: "test-fail-policy",

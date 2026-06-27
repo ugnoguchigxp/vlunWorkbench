@@ -21,6 +21,12 @@ type ScanReportsRouteDeps = {
 	buildMarkdownReport?: typeof defaultBuildMarkdownReport;
 };
 
+const FULL_REPORT_OPTIONS = {
+	includeFalsePositives: true,
+	includeDeferred: true,
+	includeUndecided: true,
+};
+
 export function createScanReportsRoute(deps: ScanReportsRouteDeps) {
 	const {
 		scanReportRepository,
@@ -38,15 +44,6 @@ export function createScanReportsRoute(deps: ScanReportsRouteDeps) {
 		err !== null &&
 		"code" in err &&
 		(err as { code?: unknown }).code === "ENOENT";
-
-	const getBooleanOption = (
-		options: unknown,
-		key: "includeFalsePositives" | "includeDeferred" | "includeUndecided",
-	) => {
-		if (!options || typeof options !== "object") return true;
-		const value = (options as Record<string, unknown>)[key];
-		return typeof value === "boolean" ? value : true;
-	};
 
 	const getSummaryMode = (options: unknown): string => {
 		if (!options || typeof options !== "object") return "deterministic";
@@ -67,12 +64,7 @@ export function createScanReportsRoute(deps: ScanReportsRouteDeps) {
 			);
 		}
 		const markdown = await buildMarkdownReport(db, report.scanRunId, {
-			includeFalsePositives: getBooleanOption(
-				report.options,
-				"includeFalsePositives",
-			),
-			includeDeferred: getBooleanOption(report.options, "includeDeferred"),
-			includeUndecided: getBooleanOption(report.options, "includeUndecided"),
+			...FULL_REPORT_OPTIONS,
 			title: report.title,
 		});
 		const saveResult = await artifactStorage.saveTextArtifact(

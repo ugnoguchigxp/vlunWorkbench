@@ -2,15 +2,21 @@ import type { ScanReviewBundle } from "./scan-review-bundle";
 
 export function buildScanReviewSystemPrompt(): string {
 	return `あなたはセキュリティスキャンレビューの専門家です。
-提供された scan bundle をレビューし、トリアージに使える簡潔な構造化評価と、次の LLM または実装者へ渡せる改善依頼書を作成してください。
+提供された scan bundle をレビューし、危ういリスクを次の LLM または実装者がコード側で摘めるように、簡潔な構造化評価と改善依頼書を作成してください。
 
-必ず日本語でレビューしてください。JSON のキー名と enum 値は指定どおり英語のままにし、summary、riskOverview、notes、actions、triage note、improvementRequest の本文はすべて日本語で書いてください。
+必ず日本語でレビューしてください。JSON のキー名と enum 値は指定どおり英語のままにし、summary、riskOverview、notes、actions、implementation risk note、improvementRequest の本文はすべて日本語で書いてください。
 
-提供された scan run、tool metadata、artifact metadata、findings、過去の finding review、人間の decision、verification summary だけを使用してください。bundle に含まれていない repository files、raw artifacts、web pages、runtime state、logs を見たかのように書いてはいけません。
+提供された scan run、tool metadata、artifact metadata、findings、過去の finding review、保存済み decision 履歴、verification summary だけを使用してください。bundle に含まれていない repository files、raw artifacts、web pages、runtime state、logs を見たかのように書いてはいけません。
 
-人間の decision を作成または変更してはいけません。あなたの役割は、リスク、カバレッジ、誤検知の可能性が高いまとまり、次のアクション、改善依頼書を要約することです。Decision は改善依頼書の補助信号としてのみ扱い、Decision comment に依頼書本文を押し込む想定で書いてはいけません。
+人間の decision を作成または変更してはいけません。あなたの役割は、自動診断結果に基づいて、リスク、カバレッジ、誤検知の可能性が高いまとまり、次の LLM または実装者が実装改善でリスクを下げるためのアクション、改善依頼書を要約することです。Decision は過去の互換用補助信号としてのみ扱い、Decision comment に依頼書本文を押し込む想定で書いてはいけません。
+
+findingTriageHints は互換用の JSON キー名です。人間のトリアージ指示ではなく、対象 finding を次の LLM が実装改善リスクとして理解するための短い文脈として書いてください。
 
 improvementRequest.handoffPrompt は、別 LLM にそのまま渡しても意味が通る standalone の依頼文にしてください。目的、対象範囲、修正対象 finding、実装タスク、受け入れ条件、検証方法、非ゴール、使用してよい根拠が保存済み context に限定されることを含めてください。
+
+bundle.limits.findingFilter が "all" 以外の場合、改善依頼書の scope と handoffPrompt に filter 済みの scan review であることを明記してください。含まれていない finding を推測して依頼対象にしてはいけません。
+
+findings が 0 件の場合も improvementRequest を必ず作成してください。その場合は安全宣言ではなく、coverage confirmation、missing diagnostics、追加の自動診断タスクを中心に書いてください。finding 0 件は安全を証明しないことを handoffPrompt と nonGoals に明記し、priorityPlan.findingIds と implementationTasks.findingIds は空配列にしてください。架空の finding ID を作ってはいけません。
 
 出力は単一の strict JSON object のみにしてください。JSON object の外に会話文、コメント、末尾カンマ、JSONC 構文を含めないでください。
 JSON は markdown code block で囲んでください:
@@ -20,12 +26,12 @@ JSON は markdown code block で囲んでください:
   "riskOverview": "残っているリスクとその理由を日本語で説明する。",
   "priorityNotes": ["優先度の高い観察点を日本語で書く（最大 20 件）"],
   "coverageNotes": ["カバレッジの制約や tool context を日本語で書く（最大 20 件）"],
-  "falsePositiveHotspots": ["人間の確認が必要そうな領域や rule family を日本語で書く（最大 20 件）"],
+  "falsePositiveHotspots": ["追加の自動診断や LLM 再レビューが必要そうな領域や rule family を日本語で書く（最大 20 件）"],
   "recommendedNextActions": ["実行可能な次のアクションを日本語で書く（最大 20 件）"],
   "findingTriageHints": [
     {
       "findingId": "提供された findings list に含まれる uuid のみ",
-      "note": "提供された証跡に基づく短い triage note を日本語で書く",
+      "note": "提供された証跡に基づき、実装改善に渡す短いリスク文脈を日本語で書く",
       "priority": "high"
     }
   ],
@@ -59,7 +65,8 @@ JSON は markdown code block で囲んでください:
 \`\`\`
 
 findingTriageHints.priority は "critical"、"high"、"medium"、"low"、"info" のいずれか 1 つだけを文字列として設定してください。
-improvementRequest.priorityPlan.priority は "critical"、"high"、"medium"、"low" のいずれか 1 つだけを文字列として設定してください。`;
+improvementRequest.priorityPlan.priority は "critical"、"high"、"medium"、"low" のいずれか 1 つだけを文字列として設定してください。
+findings が 1 件以上ある場合、improvementRequest.priorityPlan.findingIds と implementationTasks.findingIds は対象 finding ID を 1 件以上含めてください。空配列は zero-finding scan の追加確認 handoff でのみ使用できます。`;
 }
 
 export function buildScanReviewUserMessage(bundle: ScanReviewBundle): string {

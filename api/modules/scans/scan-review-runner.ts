@@ -122,6 +122,26 @@ export class ScanReviewRunner {
 					`scan review output referenced findings not in bundle: ${invalidFindingIds.map((item) => `${item.path}=${item.findingId}`).join(", ")}`,
 				);
 			}
+			if (bundle.findings.length > 0) {
+				const emptyFindingReferences = [
+					...output.improvementRequest.priorityPlan.flatMap((item, index) =>
+						item.findingIds.length === 0
+							? [`improvementRequest.priorityPlan.${index}.findingIds`]
+							: [],
+					),
+					...output.improvementRequest.implementationTasks.flatMap(
+						(item, index) =>
+							item.findingIds.length === 0
+								? [`improvementRequest.implementationTasks.${index}.findingIds`]
+								: [],
+					),
+				];
+				if (emptyFindingReferences.length > 0) {
+					throw new StructuredScanReviewOutputError(
+						`scan review output omitted finding references for non-empty bundle: ${emptyFindingReferences.join(", ")}`,
+					);
+				}
+			}
 			if (options.enforceJapanese) {
 				assertJapaneseTextFields(output as unknown as Record<string, unknown>, [
 					"summary",

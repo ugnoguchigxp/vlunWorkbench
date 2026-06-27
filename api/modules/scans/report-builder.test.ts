@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createDbConnection, type DbConnection } from "../../db";
 import {
+	diagnosticReports,
 	findingDecisions,
 	findingEvidences,
 	findingReviews,
@@ -12,9 +13,11 @@ import {
 	scanArtifacts,
 	scanReviews,
 	scanRuns,
+	securityCheckResults,
 	toolRuns,
 	users,
 } from "../../db/schema";
+import { REPORT_SECTION_DEFINITIONS } from "../../../shared/report-sections";
 import { buildMarkdownReport } from "./report-builder";
 
 function buildImprovementRequest(findingId: string) {
@@ -47,6 +50,13 @@ function buildImprovementRequest(findingId: string) {
 		handoffPrompt:
 			"保存済み scan context に基づき、反射型 XSS finding を修正してください。対象範囲は bundle 内の finding と evidence に限定し、出力エスケープ追加、回帰テスト、bun test による検証を行ってください。",
 	};
+}
+
+function sectionBody(markdown: string, heading: string): string {
+	const start = markdown.indexOf(heading);
+	if (start === -1) return "";
+	const next = markdown.indexOf("\n## ", start + heading.length);
+	return markdown.slice(start, next === -1 ? undefined : next);
 }
 
 describe("Report Builder", () => {
@@ -246,21 +256,26 @@ describe("Report Builder", () => {
 		expect(report1).toContain("## 全体考察");
 		expect(report1).toContain("検出件数は 2 件");
 		expect(report1).toContain("## Decision-grade Executive Summary");
+		expect(report1).toContain("## Risk Ranking");
 		expect(report1).toContain("## Evidence Quality Summary");
+		expect(report1).toContain("## LLM Implementation Handoff");
 		expect(report1).toContain("## Remediation Plan");
+		expect(report1).toContain("## Verification Status");
 		expect(report1).toContain("## Scan Comparison Delta");
+		expect(report1).toContain("## Zero-Finding Coverage Explanation");
+		expect(report1).toContain("## Appendix");
 		expect(report1).toContain("## ツール実行サマリ");
-		expect(report1).toContain("## 判断サマリ");
+		expect(report1).toContain("## 実装改善ルーティングサマリ");
 		expect(report1).toContain("## Severity サマリ");
-		expect(report1).toContain("## 修正対象・リスク受容 Finding");
+		expect(report1).toContain("## 実装改善候補・既知リスク Finding");
 		expect(report1).toContain("### Finding " + findingId1);
 		expect(report1).toContain("- **Severity:** 高 (high)");
 		expect(report1).toContain("#### 考察");
-		expect(report1).toContain("- **判断:** 修正が必要");
+		expect(report1).toContain("- **実装改善ルーティング:** 実装改善候補");
 		expect(report1).toContain("- **想定影響:** Attacker can execute arbitrary JS.");
 		expect(report1).toContain("source-location 1件");
 		expect(report1).toContain("LLM confirmed XSS vulnerability.");
-		expect(report1).toContain("## 未判断 Finding");
+		expect(report1).toContain("## LLM handoff未作成 Finding");
 		expect(report1).toContain("### Finding " + findingId2);
 		expect(report1).toContain("- **Severity:** 緊急 (critical)");
 		expect(report1).toContain("LLMレビューは未完了");
@@ -274,6 +289,23 @@ describe("Report Builder", () => {
 		expect(report1).toContain("#### Sandbox Reproduction");
 		expect(report1).toContain("#### Dynamic Verification");
 		expect(report1).toContain("#### DAST証跡");
+	});
+
+	it("keeps preview section headings aligned with generated markdown", async () => {
+		const report = await buildMarkdownReport(connection.db, scanRunId, {
+			includeFalsePositives: true,
+			includeDeferred: true,
+			includeUndecided: true,
+			title: "Section Contract Report",
+		});
+
+		for (const section of REPORT_SECTION_DEFINITIONS) {
+			const hasPrimary = report.includes(section.markdownHeading);
+			const hasAlternate = section.alternateMarkdownHeading
+				? report.includes(section.alternateMarkdownHeading)
+				: false;
+			expect(hasPrimary || hasAlternate, section.id).toBe(true);
+		}
 	});
 
 	it("uses the latest completed review as report content", async () => {
@@ -356,7 +388,8 @@ describe("Report Builder", () => {
 			title: "Improvement Request Report",
 		});
 
-		expect(report).toContain("## 改善依頼書");
+		expect(report).toContain("## LLM Implementation Handoff");
+		expect(report).toContain("### 改善依頼書");
 		expect(report).toContain("- **タイトル:** 反射型 XSS 改善依頼");
 		expect(report).toContain("### 実装タスク");
 		expect(report).toContain("出力エスケープを追加する");
@@ -389,6 +422,84 @@ describe("Report Builder", () => {
 			"完全な安全性を証明するものではありません。",
 		);
 		expect(report).toContain("## Zero-Finding Coverage Explanation");
+		expect(report).toContain("finding 0 is not a proof of safety");
+		expect(report).toContain(
+			"unexecuted checks and missing diagnostics remain residual risk",
+		);
+		expect(report).toContain("Diagnostic report status:** missing");
+		expect(report).toContain("must not be read as a safety attestation");
+	});
+
+	it("includes diagnostic status in zero-finding reports when available", async () => {
+		const now = new Date("2026-06-23T12:00:00.000Z");
+		await connection.db
+			.delete(findingDecisions)
+			.where(eq(findingDecisions.findingId, findingId1));
+		await connection.db
+			.delete(findingReviews)
+			.where(eq(findingReviews.findingId, findingId1));
+		await connection.db
+			.delete(findingEvidences)
+			.where(eq(findingEvidences.findingId, findingId1));
+		await connection.db.delete(findings);
+		await connection.db.insert(diagnosticReports).values({
+			projectId,
+			scanRunId,
+			reportKind: "zero-finding",
+			status: "completed",
+			summary: "Coverage reviewed.",
+			checkedCategoriesJson: [],
+			coverageGapsJson: [],
+			residualRisksJson: [],
+			recommendedNextActionsJson: [],
+			createdAt: now,
+			updatedAt: now,
+		});
+
+		const report = await buildMarkdownReport(connection.db, scanRunId, {
+			includeFalsePositives: true,
+			includeDeferred: true,
+			includeUndecided: true,
+		});
+
+		expect(report).toContain(
+			"**Diagnostic report status:** zero-finding:completed",
+		);
+		expect(report).not.toContain("diagnostic report data is missing");
+	});
+
+	it("does not count passing security checks as non-passing in zero-finding coverage", async () => {
+		const now = new Date("2026-06-23T12:00:00.000Z");
+		await connection.db
+			.delete(findingDecisions)
+			.where(eq(findingDecisions.findingId, findingId1));
+		await connection.db
+			.delete(findingReviews)
+			.where(eq(findingReviews.findingId, findingId1));
+		await connection.db
+			.delete(findingEvidences)
+			.where(eq(findingEvidences.findingId, findingId1));
+		await connection.db.delete(findings);
+		await connection.db.insert(securityCheckResults).values({
+			projectId,
+			scanRunId,
+			checkId: "scan.zero_finding_has_coverage_context",
+			status: "pass",
+			outcome: "coverage reviewed",
+			title: "Zero finding coverage context",
+			summary: "Coverage context is available.",
+			evidenceRefsJson: [],
+			createdAt: now,
+			updatedAt: now,
+		});
+
+		const report = await buildMarkdownReport(connection.db, scanRunId, {
+			includeFalsePositives: true,
+			includeDeferred: true,
+			includeUndecided: true,
+		});
+
+		expect(report).toContain("**Security checks:** 1 result(s); 0 non-passing or incomplete.");
 	});
 
 	it("respects exclusion options", async () => {
@@ -401,13 +512,20 @@ describe("Report Builder", () => {
 
 		const report = await buildMarkdownReport(connection.db, scanRunId, options);
 
-		expect(report).toContain("## 修正対象・リスク受容 Finding");
+		expect(report).toContain("## 実装改善候補・既知リスク Finding");
 		expect(report).toContain("### Finding " + findingId1);
 
-		expect(report).toContain("## 未判断 Finding");
+		expect(report).toContain("## LLM handoff未作成 Finding");
 		expect(report).toContain(
 			"レポート設定により、このセクションは除外されています。",
 		);
 		expect(report).not.toContain("### Finding " + findingId2);
+		expect(sectionBody(report, "## Risk Ranking")).not.toContain(findingId2);
+		expect(sectionBody(report, "## Evidence Quality Summary")).not.toContain(
+			findingId2,
+		);
+		expect(sectionBody(report, "## Remediation Plan")).not.toContain(
+			findingId2,
+		);
 	});
 });

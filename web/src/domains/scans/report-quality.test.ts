@@ -43,6 +43,8 @@ const decided = (): Finding => ({
 const evidence = (level: EvidenceQualityView["level"]): EvidenceQualityView => ({
 	findingId: "finding-1",
 	level,
+	dataCompleteness: "complete",
+	dataCompletenessLabel: "完全評価",
 	score: 90,
 	label: level,
 	reasons: [],
@@ -96,18 +98,26 @@ describe("buildReportQualityPreview", () => {
 				severityTrend: { critical: 0, high: 0, medium: 0, low: 0, info: 0 },
 				deltas: [],
 			},
+			hasScanImprovementRequest: true,
 		});
 		expect(result.readiness).toBe("ready");
+		expect(result.submissionLevel).toBe("submission_ready");
+		expect(result.primaryActionLabel).toBe("提出用レポートを生成");
+		expect(result.generationWarning).toBeNull();
 		expect(result.sections.find((item) => item.id === "risk-ranking")?.reason).toBeUndefined();
 	});
 
-	it("missing implementation handoff returns blocked", () => {
+	it("missing LLM implementation handoff returns blocked", () => {
 		const result = buildReportQualityPreview({
 			scanRunId: "scan-1",
 			findings: [finding()],
 		});
 		expect(result.readiness).toBe("blocked");
-		expect(result.missingInputs).toContain("implementation handoff");
+		expect(result.submissionLevel).toBe("incomplete");
+			expect(
+				result.missingInputs.some((item) => item.includes("実装引き継ぎ")),
+			).toBe(true);
+		expect(result.generationWarning).toBeNull();
 	});
 
 	it("scan improvement handoff clears the handoff blocker", () => {
@@ -119,9 +129,15 @@ describe("buildReportQualityPreview", () => {
 			hasScanImprovementRequest: true,
 		});
 		expect(result.readiness).toBe("partial");
-		expect(result.missingInputs).not.toContain("implementation handoff");
-		expect(result.sections.find((item) => item.id === "implementation-handoff")).toMatchObject({
-			label: "Implementation handoff",
+		expect(result.submissionLevel).toBe("internal_review");
+		expect(result.primaryActionLabel).toBe("内部レビュー用ドラフトを生成");
+		expect(result.generationWarning).toBeNull();
+			expect(
+				result.missingInputs.some((item) => item.includes("実装引き継ぎ")),
+			).toBe(false);
+		expect(
+			result.sections.find((item) => item.id === "finding-decisions"),
+		).toMatchObject({
 			status: "ready",
 		});
 	});
@@ -134,6 +150,7 @@ describe("buildReportQualityPreview", () => {
 			remediationByFindingId: new Map([["finding-1", remediation(["owner_required"])]]),
 		});
 		expect(result.readiness).toBe("blocked");
+		expect(result.generationWarning).toBeNull();
 	});
 
 	it("missing baseline comparison only marks comparison section partial", () => {
@@ -150,8 +167,10 @@ describe("buildReportQualityPreview", () => {
 				severityTrend: { critical: 0, high: 0, medium: 0, low: 0, info: 0 },
 				deltas: [],
 			},
+			hasScanImprovementRequest: true,
 		});
 		expect(result.readiness).toBe("partial");
+		expect(result.secondaryStatusLabel).toBe("内部レビュー用ドラフト");
 		expect(result.sections.find((item) => item.id === "scan-comparison")?.status).toBe("partial");
 	});
 
@@ -171,7 +190,9 @@ describe("buildReportQualityPreview", () => {
 			},
 		});
 		expect(result.readiness).toBe("blocked");
-		expect(result.missingInputs).toContain("zero-finding coverage explanation");
+			expect(result.missingInputs).toContain(
+				"finding 0 件のカバレッジ説明が不足",
+			);
 	});
 
 	it("zero-finding report with coverage explanation can be ready", () => {

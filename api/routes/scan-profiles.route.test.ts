@@ -20,6 +20,10 @@ describe("Scan Profiles Route", () => {
 				"artifact",
 				"full-deep",
 				"detailed-security",
+				"web-app-baseline",
+				"runtime-http-check",
+				"full-security-scan",
+				"secrets-dependencies-runtime",
 			]),
 		);
 
@@ -34,6 +38,12 @@ describe("Scan Profiles Route", () => {
 			}),
 		);
 		expect(sourceProfile.tools[0].options).toBeUndefined();
+		expect(sourceProfile.steps[0]).toEqual(
+			expect.objectContaining({
+				kind: "static_tool",
+				toolId: "semgrep",
+			}),
+		);
 
 		const basicProfile = body.profiles.find(
 			(profile: any) => profile.id === "basic-security",
@@ -64,5 +74,26 @@ describe("Scan Profiles Route", () => {
 		);
 		expect(detailedProfile.category).toBe("detailed");
 		expect(detailedProfile.scope.intent).toBe("full_deep");
+
+		const webAppProfile = body.profiles.find(
+			(profile: any) => profile.id === "web-app-baseline",
+		);
+		expect(webAppProfile.steps.map((step: any) => step.kind)).toEqual([
+			"static_tool",
+			"static_tool",
+			"static_tool",
+			"dast",
+		]);
+		const dastStep = webAppProfile.steps.find(
+			(step: any) => step.kind === "dast",
+		);
+		expect(dastStep).toEqual(
+			expect.objectContaining({
+				profileId: "http-baseline",
+				target: { mode: "auto_project_start" },
+				failurePolicy: "warn_and_continue",
+			}),
+		);
+		expect(dastStep.options).toBeUndefined();
 	});
 });

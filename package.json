@@ -17,6 +17,8 @@
 		"dev": "bunx --bun vite",
 		"dev:vite": "vite",
 		"start": "bun run api/app/server.ts",
+		"bootstrap": "bun run scripts/bootstrap.ts",
+		"bootstrap:check": "bun run scripts/bootstrap-check.ts",
 		"auth:create-admin": "bun run api/cli/auth-create-admin.ts",
 		"import:markdown": "bun run api/cli/import-markdown.ts",
 		"db:generate": "drizzle-kit generate",

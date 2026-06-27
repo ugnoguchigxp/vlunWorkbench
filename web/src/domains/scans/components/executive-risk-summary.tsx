@@ -1,4 +1,5 @@
 import { AlertTriangle, ArrowRight, ShieldCheck } from "lucide-react";
+import { formatSeverityLabel } from "../scan-display-copy";
 import { useScans } from "../scans-context";
 
 export function ExecutiveRiskSummary() {
@@ -8,23 +9,23 @@ export function ExecutiveRiskSummary() {
 		<section className={`decision-grade-panel risk-${summary.riskBand}`}>
 			<div className="decision-grade-panel-head">
 				<div>
-					<span className="scan-review-context-label">Risk summary</span>
+					<span className="scan-review-context-label">リスク概要</span>
 					<h3>
 						<AlertTriangle className="icon" />
-						{summary.riskBand.toUpperCase()} / {summary.score}
+						{formatSeverityLabel(summary.riskBand)} / {summary.score}
 					</h3>
 				</div>
 				<ShieldCheck className="decision-grade-head-icon" />
 			</div>
 			<p>{summary.headline}</p>
 			<div className="decision-grade-metrics">
-				<Metric label="Strong evidence" value={summary.counts.strongEvidence} />
+				<Metric label="強い証跡" value={summary.counts.strongEvidence} />
 				<Metric
-					label="Weak/missing"
+					label="弱い/不足"
 					value={summary.counts.weakOrMissingEvidence}
 				/>
-				<Metric label="Needs fix" value={summary.counts.needsFix} />
-				<Metric label="Accepted" value={summary.counts.acceptedRisk} />
+				<Metric label="修正必要" value={summary.counts.needsFix} />
+				<Metric label="許容済み" value={summary.counts.acceptedRisk} />
 			</div>
 			{summary.recommendedFocus.length > 0 ? (
 				<div className="decision-grade-list">

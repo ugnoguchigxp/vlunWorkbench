@@ -1,18 +1,38 @@
 import type { Finding } from "../../api";
+import {
+	getReportSectionDefinition,
+	type ReportSectionId,
+} from "../../../../shared/report-sections";
 import type { CoverageSummary } from "./coverage-summary";
 import type { EvidenceQualityView } from "./evidence-quality";
 import type { RemediationPlanView } from "./remediation-plan";
+import {
+	buildGenerationWarning,
+	getReportReadinessCopy,
+	getReportSubmissionLevel,
+} from "./report-readiness-copy";
 import type { ScanComparisonView } from "./scan-comparison";
+
+export type ReportReadiness = "ready" | "partial" | "blocked";
+export type ReportSubmissionLevel =
+	| "submission_ready"
+	| "internal_review"
+	| "incomplete";
 
 export type ReportQualityPreview = {
 	scanRunId: string;
 	sections: Array<{
-		id: string;
+		id: ReportSectionId;
 		label: string;
 		status: "ready" | "missing" | "partial";
 		reason?: string;
 	}>;
-	readiness: "ready" | "partial" | "blocked";
+	readiness: ReportReadiness;
+	submissionLevel: ReportSubmissionLevel;
+	generationWarning: string | null;
+	primaryActionLabel: string;
+	secondaryStatusLabel: string;
+	toolbarActionLabel: string;
 	missingInputs: string[];
 	recommendedReportTitle: string;
 };
@@ -28,19 +48,20 @@ type BuildReportQualityPreviewInput = {
 };
 
 const section = (
-	id: string,
-	label: string,
+	id: ReportSectionId,
 	status: "ready" | "missing" | "partial",
 	reason?: string,
-) => ({ id, label, status, reason });
+) => ({ id, label: getReportSectionDefinition(id).label, status, reason });
 
 export function buildReportQualityPreview(
 	input: BuildReportQualityPreviewInput,
 ): ReportQualityPreview {
 	const missingInputs: string[] = [];
-	const undecided = input.findings.filter((finding) => !finding.latestDecision);
-	const handoffComplete =
-		Boolean(input.hasScanImprovementRequest) || undecided.length === 0;
+	const findingsWithoutLegacyDecision = input.findings.filter(
+		(finding) => !finding.latestDecision,
+	);
+	const hasImplementationHandoff =
+		input.findings.length === 0 || Boolean(input.hasScanImprovementRequest);
 	const weakEvidence = input.findings.filter((finding) => {
 		const evidence = input.evidenceByFindingId?.get(finding.id);
 		return (
@@ -49,92 +70,107 @@ export function buildReportQualityPreview(
 	});
 	const remediationBlocked = input.findings.filter((finding) => {
 		const plan = input.remediationByFindingId?.get(finding.id);
-		return plan ? plan.blockingReasons.length > 0 : false;
+		if (!plan) return false;
+		const blockingReasons = input.hasScanImprovementRequest
+			? plan.blockingReasons.filter((reason) => reason !== "decision_required")
+			: plan.blockingReasons;
+		return blockingReasons.length > 0;
 	});
 	const zeroFindingNeedsCoverage =
 		input.findings.length === 0 &&
 		!input.coverageSummary?.latestDiagnosticReport &&
 		(input.coverageSummary?.missingActions.length ?? 1) > 0;
 
-	if (input.findings.length > 0 && !handoffComplete) {
-		missingInputs.push("implementation handoff");
+	if (input.findings.length > 0 && !hasImplementationHandoff) {
+		missingInputs.push("LLM 実装引き継ぎが不足");
 	}
-	if (weakEvidence.length > 0) missingInputs.push("evidence confidence");
-	if (remediationBlocked.length > 0) missingInputs.push("remediation plan");
+	if (weakEvidence.length > 0) missingInputs.push("証跡が弱いまたは不足");
+	if (remediationBlocked.length > 0) missingInputs.push("修正計画が不足");
 	if (zeroFindingNeedsCoverage)
-		missingInputs.push("zero-finding coverage explanation");
+		missingInputs.push("finding 0 件のカバレッジ説明が不足");
 
 	const hasFindings = input.findings.length > 0;
 	const sections = [
-		section("executive-summary", "Executive summary", "ready"),
+		section("executive-summary", "ready"),
 		section(
 			"risk-ranking",
-			"Risk ranking",
 			"ready",
 			hasFindings
 				? undefined
-				: "No active findings to rank; coverage explanation is used instead.",
+				: "順位付け対象の有効な finding がないため、代わりにカバレッジ説明を使います。",
 		),
 		section(
 			"evidence-quality",
-			"Evidence quality summary",
 			weakEvidence.length === 0 ? "ready" : "partial",
 			weakEvidence.length > 0
-				? `${weakEvidence.length} finding(s) have weak or missing evidence.`
+				? `${weakEvidence.length} 件の finding は証跡が弱いか不足しています。`
 				: undefined,
 		),
 		section(
-			"implementation-handoff",
-			"Implementation handoff",
-			handoffComplete
-				? "ready"
-				: input.hasScanImprovementRequest
-					? "partial"
-					: "missing",
-			undecided.length > 0
-				? input.hasScanImprovementRequest
-					? `${undecided.length} finding(s) are undecided, but a scan-level LLM handoff is available.`
-					: "Generate a scan-level improvement request before reporting."
-				: undefined,
+			"finding-decisions",
+			hasImplementationHandoff ? "ready" : "missing",
+			!hasFindings
+				? "実装引き継ぎが必要な finding はありません。"
+				: findingsWithoutLegacyDecision.length > 0
+					? input.hasScanImprovementRequest
+						? `${findingsWithoutLegacyDecision.length} 件の finding に互換 Decision はありませんが、scan 単位の LLM 実装引き継ぎがあります。`
+						: "レポート生成前に scan 単位の LLM 実装引き継ぎを生成してください。"
+					: undefined,
 		),
 		section(
 			"remediation-plan",
-			"Remediation plan",
 			remediationBlocked.length === 0 ? "ready" : "missing",
 			remediationBlocked.length > 0
-				? `${remediationBlocked.length} finding(s) are blocked.`
+				? `${remediationBlocked.length} 件の finding がブロック中です。`
 				: undefined,
 		),
 		section(
 			"verification-status",
-			"Verification status",
 			weakEvidence.length === 0 ? "ready" : "partial",
+			weakEvidence.length > 0
+				? "証跡が弱いか不足しているため、提出用の検証品質ではありません。"
+				: undefined,
 		),
 		section(
 			"scan-comparison",
-			"Scan comparison delta",
 			input.comparison?.status === "available" ? "ready" : "partial",
 			input.comparison?.status !== "available"
-				? "Baseline comparison is not available."
+				? "baseline 比較を利用できません。"
 				: undefined,
 		),
 		section(
 			"zero-finding-coverage",
-			"Zero-finding coverage explanation",
 			hasFindings ? "ready" : zeroFindingNeedsCoverage ? "missing" : "ready",
-			zeroFindingNeedsCoverage
-				? "Coverage diagnostics are missing."
-				: undefined,
+			zeroFindingNeedsCoverage ? "カバレッジ診断が不足しています。" : undefined,
 		),
-		section("appendix", "Appendix with evidence references", "ready"),
+		section("appendix", "ready"),
 	];
 	const hasMissing = sections.some((item) => item.status === "missing");
 	const hasPartial = sections.some((item) => item.status === "partial");
+	const readiness: ReportReadiness = hasMissing
+		? "blocked"
+		: hasPartial
+			? "partial"
+			: "ready";
+	const submissionLevel = getReportSubmissionLevel(readiness);
+	const copy = getReportReadinessCopy(submissionLevel);
+	const generationWarning = buildGenerationWarning({
+		readiness,
+		missingInputs,
+		partialReasons: sections
+			.filter((item) => item.status === "partial" && item.reason)
+			.map((item) => item.reason ?? ""),
+	});
 	return {
 		scanRunId: input.scanRunId,
 		sections,
-		readiness: hasMissing ? "blocked" : hasPartial ? "partial" : "ready",
+		readiness,
+		submissionLevel,
+		generationWarning,
+		primaryActionLabel: copy.primaryActionLabel,
+		secondaryStatusLabel: copy.secondaryStatusLabel,
+		toolbarActionLabel: copy.toolbarActionLabel,
 		missingInputs,
-		recommendedReportTitle: `Security Report - ${input.scanRunId.slice(0, 8)}`,
+		recommendedReportTitle: `セキュリティレポート - ${input.scanRunId.slice(0, 8)}`,
 	};
 }

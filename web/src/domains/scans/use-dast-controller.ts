@@ -25,9 +25,9 @@ function isVisibleDastTarget(target: DastTargetConfig): boolean {
 
 function manualDastTargetName(origin: string): string {
 	try {
-		return `Manual target ${new URL(origin).origin}`;
+		return `手動 target ${new URL(origin).origin}`;
 	} catch {
-		return "Manual DAST target";
+		return "手動 DAST target";
 	}
 }
 
@@ -95,7 +95,9 @@ export function useDastController({
 			})
 			.catch((err) => {
 				setDastError(
-					err instanceof Error ? err.message : "Failed to load DAST state.",
+					err instanceof Error
+						? err.message
+						: "DAST 状態の読み込みに失敗しました。",
 				);
 				setDastTargets([]);
 				setDastProfiles([]);
@@ -140,7 +142,9 @@ export function useDastController({
 			await saveManualDastTarget();
 		} catch (err) {
 			setDastError(
-				err instanceof Error ? err.message : "Failed to save DAST target.",
+				err instanceof Error
+					? err.message
+					: "DAST target の保存に失敗しました。",
 			);
 		} finally {
 			setDastLoading(false);
@@ -208,7 +212,9 @@ export function useDastController({
 			await applyDastRunResult(res);
 		} catch (err) {
 			setDastError(
-				err instanceof Error ? err.message : "Failed to run DAST profile.",
+				err instanceof Error
+					? err.message
+					: "DAST profile の実行に失敗しました。",
 			);
 		} finally {
 			setDastLoading(false);
@@ -233,7 +239,7 @@ export function useDastController({
 			await applyDastRunResult(res);
 		} catch (err) {
 			setDastError(
-				err instanceof Error ? err.message : "Failed to run auto DAST.",
+				err instanceof Error ? err.message : "自動 DAST の実行に失敗しました。",
 			);
 		} finally {
 			setDastLoading(false);
@@ -245,7 +251,9 @@ export function useDastController({
 		if (dastRunArtifacts[runId]) return setExpandedDastRunId(runId);
 		await openDastRun(runId).catch((err) =>
 			setDastError(
-				err instanceof Error ? err.message : "Failed to load DAST artifacts.",
+				err instanceof Error
+					? err.message
+					: "DAST artifact の読み込みに失敗しました。",
 			),
 		);
 	};

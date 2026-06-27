@@ -37,6 +37,8 @@ export type RunDastOptions = {
 	maxRequests?: number;
 	dryRun?: boolean;
 	createdByUserId?: string | null;
+	manageScanRunStatus?: boolean;
+	useStoredProfileConfig?: boolean;
 };
 
 export type DastCliResult =
@@ -129,10 +131,12 @@ export class DastRunner {
 		}
 		const profileConfig = params.profileConfigId
 			? await this.dastRepo.getProfileConfig(params.profileConfigId)
-			: await this.dastRepo.getProfileConfigByProfileId(
-					params.projectId,
-					params.profileId,
-				);
+			: params.useStoredProfileConfig === false
+				? null
+				: await this.dastRepo.getProfileConfigByProfileId(
+						params.projectId,
+						params.profileId,
+					);
 		if (profileConfig && profileConfig.projectId !== params.projectId) {
 			return {
 				ok: false,
@@ -300,6 +304,7 @@ export class DastRunner {
 	}
 
 	async run(params: RunDastOptions): Promise<DastCliResult> {
+		const manageScanRunStatus = params.manageScanRunStatus !== false;
 		const prepared = await this.prepare(params);
 		if (!prepared.ok) {
 			return {
@@ -470,13 +475,15 @@ export class DastRunner {
 				outcome: normalized.outcome,
 				summary: normalized.summary,
 			});
-			await this.scanRepo.updateScanRunStatus(scanRun.id, "completed", {
-				summary: normalized.summary,
-				metadata: {
-					dastRunId: dastRun.id,
-					dastOutcome: normalized.outcome,
-				},
-			});
+			if (manageScanRunStatus) {
+				await this.scanRepo.updateScanRunStatus(scanRun.id, "completed", {
+					summary: normalized.summary,
+					metadata: {
+						dastRunId: dastRun.id,
+						dastOutcome: normalized.outcome,
+					},
+				});
+			}
 			return {
 				ok: true,
 				dastRunId: dastRun.id,
@@ -498,10 +505,12 @@ export class DastRunner {
 				errorMessage: message,
 				summary: "DAST run failed.",
 			});
-			await this.scanRepo.updateScanRunStatus(scanRun.id, "failed", {
-				summary: message,
-				metadata: { dastRunId: dastRun.id, dastOutcome: "error" },
-			});
+			if (manageScanRunStatus) {
+				await this.scanRepo.updateScanRunStatus(scanRun.id, "failed", {
+					summary: message,
+					metadata: { dastRunId: dastRun.id, dastOutcome: "error" },
+				});
+			}
 			return {
 				ok: false,
 				dastRunId: dastRun.id,

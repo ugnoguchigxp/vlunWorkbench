@@ -1,5 +1,7 @@
 import type {
+	DastProfileStep,
 	ScanProfile,
+	ScanProfileStep,
 	ScanScopePolicy,
 } from "../../../shared/schemas/scan-profile.schema";
 
@@ -64,6 +66,26 @@ export const FULL_DEEP_SCOPE: ScanScopePolicy = {
 	includeVendoredDependencies: true,
 	notes:
 		"Broad audit profile for generated output, vendored code, and installed dependency trees.",
+};
+
+function staticSteps(profile: Pick<ScanProfile, "tools">): ScanProfileStep[] {
+	return profile.tools.map((tool) => ({ kind: "static_tool", ...tool }));
+}
+
+const AUTO_HTTP_DAST_STEP: DastProfileStep = {
+	kind: "dast",
+	profileId: "http-baseline",
+	displayName: "自動起動HTTP DAST診断",
+	required: false,
+	failurePolicy: "warn_and_continue",
+	target: { mode: "auto_project_start" },
+	options: { maxRequests: 20 },
+};
+
+const REQUIRED_AUTO_HTTP_DAST_STEP: DastProfileStep = {
+	...AUTO_HTTP_DAST_STEP,
+	required: true,
+	failurePolicy: "fail_profile",
 };
 
 export const SCAN_PROFILES: ScanProfile[] = [
@@ -299,11 +321,217 @@ export const SCAN_PROFILES: ScanProfile[] = [
 			},
 		],
 	},
+	{
+		id: "web-app-baseline",
+		name: "Webアプリ標準診断",
+		description:
+			"Semgrep、Gitleaks、OSV による静的診断と、自動起動したローカル対象への HTTP DAST 診断をまとめて実行します。",
+		category: "basic",
+		enabled: true,
+		defaultTimeoutSec: 900,
+		scope: SOURCE_BASELINE_SCOPE,
+		tools: [
+			{
+				toolId: "semgrep",
+				displayName: "Semgrep Static Analysis",
+				required: true,
+				failurePolicy: "fail_profile",
+				options: { config: "auto", scanners: ["vuln", "secret", "config"] },
+			},
+			{
+				toolId: "gitleaks",
+				displayName: "Gitleaks Secret Detection",
+				required: true,
+				failurePolicy: "fail_profile",
+			},
+			{
+				toolId: "osv",
+				displayName: "OSV Dependency Scanner",
+				required: true,
+				failurePolicy: "fail_profile",
+				options: { dependencyMode: "manifest" },
+			},
+		],
+		steps: [
+			{
+				kind: "static_tool",
+				toolId: "semgrep",
+				displayName: "Semgrep Static Analysis",
+				required: true,
+				failurePolicy: "fail_profile",
+				options: { config: "auto", scanners: ["vuln", "secret", "config"] },
+			},
+			{
+				kind: "static_tool",
+				toolId: "gitleaks",
+				displayName: "Gitleaks Secret Detection",
+				required: true,
+				failurePolicy: "fail_profile",
+			},
+			{
+				kind: "static_tool",
+				toolId: "osv",
+				displayName: "OSV Dependency Scanner",
+				required: true,
+				failurePolicy: "fail_profile",
+				options: { dependencyMode: "manifest" },
+			},
+			AUTO_HTTP_DAST_STEP,
+		],
+	},
+	{
+		id: "runtime-http-check",
+		name: "実行時HTTP診断",
+		description:
+			"選択したプロジェクトを自動起動し、HTTP応答、セキュリティヘッダー、Cookie、CORS を範囲限定の DAST で確認します。",
+		category: "focused",
+		enabled: true,
+		defaultTimeoutSec: 180,
+		tools: [],
+		steps: [REQUIRED_AUTO_HTTP_DAST_STEP],
+	},
+	{
+		id: "full-security-scan",
+		name: "総合セキュリティ診断",
+		description:
+			"詳細な静的診断と自動起動 HTTP DAST 診断を合わせて、Webアプリの広めの診断証跡を収集します。",
+		category: "detailed",
+		enabled: true,
+		defaultTimeoutSec: 1200,
+		scope: FULL_DEEP_SCOPE,
+		tools: [
+			{
+				toolId: "semgrep",
+				displayName: "Semgrep Deep Static Analysis",
+				required: true,
+				failurePolicy: "fail_profile",
+				options: { config: "auto", maxTargetBytes: 2000000 },
+			},
+			{
+				toolId: "gitleaks",
+				displayName: "Gitleaks Deep Secret Detection",
+				required: true,
+				failurePolicy: "fail_profile",
+			},
+			{
+				toolId: "osv",
+				displayName: "OSV Installed Tree Dependency Scanner",
+				required: true,
+				failurePolicy: "fail_profile",
+				options: { dependencyMode: "installed_tree" },
+			},
+			{
+				toolId: "trivy",
+				displayName: "Trivy Deep Filesystem Scanner",
+				required: true,
+				failurePolicy: "fail_profile",
+				options: { scanners: ["vuln", "secret", "misconfig"] },
+			},
+		],
+		steps: [
+			{
+				kind: "static_tool",
+				toolId: "semgrep",
+				displayName: "Semgrep Deep Static Analysis",
+				required: true,
+				failurePolicy: "fail_profile",
+				options: { config: "auto", maxTargetBytes: 2000000 },
+			},
+			{
+				kind: "static_tool",
+				toolId: "gitleaks",
+				displayName: "Gitleaks Deep Secret Detection",
+				required: true,
+				failurePolicy: "fail_profile",
+			},
+			{
+				kind: "static_tool",
+				toolId: "osv",
+				displayName: "OSV Installed Tree Dependency Scanner",
+				required: true,
+				failurePolicy: "fail_profile",
+				options: { dependencyMode: "installed_tree" },
+			},
+			{
+				kind: "static_tool",
+				toolId: "trivy",
+				displayName: "Trivy Deep Filesystem Scanner",
+				required: true,
+				failurePolicy: "fail_profile",
+				options: { scanners: ["vuln", "secret", "misconfig"] },
+			},
+			AUTO_HTTP_DAST_STEP,
+		],
+	},
+	{
+		id: "secrets-dependencies-runtime",
+		name: "漏えい・依存関係・公開面診断",
+		description:
+			"Gitleaks、OSV、Trivy と自動起動 HTTP DAST 診断で、シークレット漏えい、依存関係、公開面の証跡を確認します。",
+		category: "focused",
+		enabled: true,
+		defaultTimeoutSec: 900,
+		scope: SOURCE_BASELINE_SCOPE,
+		tools: [
+			{
+				toolId: "gitleaks",
+				displayName: "Gitleaks Secret Detection",
+				required: true,
+				failurePolicy: "fail_profile",
+			},
+			{
+				toolId: "osv",
+				displayName: "OSV Dependency Scanner",
+				required: true,
+				failurePolicy: "fail_profile",
+				options: { dependencyMode: "manifest" },
+			},
+			{
+				toolId: "trivy",
+				displayName: "Trivy Filesystem Scanner",
+				required: false,
+				failurePolicy: "warn_and_continue",
+				options: { scanners: ["vuln", "secret", "misconfig"] },
+			},
+		],
+		steps: [
+			{
+				kind: "static_tool",
+				toolId: "gitleaks",
+				displayName: "Gitleaks Secret Detection",
+				required: true,
+				failurePolicy: "fail_profile",
+			},
+			{
+				kind: "static_tool",
+				toolId: "osv",
+				displayName: "OSV Dependency Scanner",
+				required: true,
+				failurePolicy: "fail_profile",
+				options: { dependencyMode: "manifest" },
+			},
+			{
+				kind: "static_tool",
+				toolId: "trivy",
+				displayName: "Trivy Filesystem Scanner",
+				required: false,
+				failurePolicy: "warn_and_continue",
+				options: { scanners: ["vuln", "secret", "misconfig"] },
+			},
+			AUTO_HTTP_DAST_STEP,
+		],
+	},
 ];
 
 export function getProfileById(id: string): ScanProfile | undefined {
-	return SCAN_PROFILES.find((p) => p.id === id && p.enabled);
+	const profile = SCAN_PROFILES.find((p) => p.id === id && p.enabled);
+	return profile
+		? { ...profile, steps: profile.steps ?? staticSteps(profile) }
+		: undefined;
 }
 export function listProfiles(): ScanProfile[] {
-	return SCAN_PROFILES.filter((p) => p.enabled);
+	return SCAN_PROFILES.filter((p) => p.enabled).map((profile) => ({
+		...profile,
+		steps: profile.steps ?? staticSteps(profile),
+	}));
 }

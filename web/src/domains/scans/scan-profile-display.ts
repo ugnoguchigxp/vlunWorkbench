@@ -49,6 +49,25 @@ export const PROFILE_DISPLAY: Record<
 		name: "詳細スキャン",
 		subtitle: "Semgrep、Gitleaks、OSV、Trivy で Static 全検査を実行します。",
 	},
+	"web-app-baseline": {
+		name: "Webアプリ標準診断",
+		subtitle:
+			"静的基本診断と自動起動 HTTP DAST 診断を同じ scan run で実行します。",
+	},
+	"runtime-http-check": {
+		name: "実行時HTTP診断",
+		subtitle:
+			"プロジェクトの起動スクリプトから対象を自動判別し、HTTP実行時証跡を確認します。",
+	},
+	"full-security-scan": {
+		name: "総合セキュリティ診断",
+		subtitle: "詳細な静的診断と自動起動 HTTP DAST 診断をまとめて実行します。",
+	},
+	"secrets-dependencies-runtime": {
+		name: "漏えい・依存関係・公開面診断",
+		subtitle:
+			"シークレット漏えい、依存関係、公開面を静的診断と HTTP 実行時証跡で確認します。",
+	},
 };
 
 export const TOOL_DISPLAY: Record<string, { name: string; purpose: string }> = {

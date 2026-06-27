@@ -71,6 +71,8 @@ describe("ScanReviewRunner", () => {
 	let connection: DbConnection;
 	let scanRunId: string;
 	let findingId: string;
+	let projectId: string;
+	let userId: string;
 
 	beforeEach(async () => {
 		connection = createDbConnection(":memory:");
@@ -89,6 +91,7 @@ describe("ScanReviewRunner", () => {
 				updatedAt: now,
 			})
 			.returning();
+		userId = user.id;
 		const [project] = await connection.db
 			.insert(projects)
 			.values({
@@ -100,6 +103,7 @@ describe("ScanReviewRunner", () => {
 				updatedAt: now,
 			})
 			.returning();
+		projectId = project.id;
 		const [scanRun] = await connection.db
 			.insert(scanRuns)
 			.values({
@@ -360,5 +364,110 @@ describe("ScanReviewRunner", () => {
 		expect(result.error).toContain("improvementRequest");
 		const rows = await connection.db.select().from(scanReviews);
 		expect(rows[0].status).toBe("failed");
+	});
+
+	it("rejects empty improvement request finding references when findings exist", async () => {
+		const content = JSON.stringify({
+			summary: "高リスクの finding が 1 件あります。",
+			riskOverview: "保存済み証跡に基づく XSS リスクがあります。",
+			priorityNotes: ["優先して確認してください。"],
+			coverageNotes: ["証跡は static scan に限定されています。"],
+			falsePositiveHotspots: ["明確な誤検知候補はありません。"],
+			recommendedNextActions: ["出力時のエスケープ処理を追加してください。"],
+			findingTriageHints: [
+				{
+					findingId,
+					note: "bundle 内 finding の triage note です。",
+					priority: "high",
+				},
+			],
+			confidenceNotes: ["証跡は source-location に基づいています。"],
+			improvementRequest: buildImprovementRequest(findingId),
+		});
+		const parsed = JSON.parse(content);
+		parsed.improvementRequest.priorityPlan[0].findingIds = [];
+		const runner = new ScanReviewRunner(
+			connection.db,
+			providerWithContent(JSON.stringify(parsed)),
+		);
+
+		const result = await runner.run(scanRunId);
+
+		expect(result.ok).toBe(false);
+		expect(result.error).toContain("omitted finding references");
+	});
+
+	it("allows zero-finding handoff without fake finding IDs", async () => {
+		const now = new Date("2026-06-26T01:00:00.000Z");
+		const [zeroScan] = await connection.db
+			.insert(scanRuns)
+			.values({
+				projectId,
+				profile: "baseline",
+				status: "completed",
+				startedAt: now,
+				completedAt: now,
+				createdByUserId: userId,
+				summary: "completed with zero findings",
+				createdAt: now,
+				updatedAt: now,
+			})
+			.returning();
+		await connection.db.insert(toolRuns).values({
+			scanRunId: zeroScan.id,
+			toolName: "semgrep",
+			toolVersion: "1.0.0",
+			command: "semgrep scan",
+			status: "completed",
+			exitCode: 0,
+			startedAt: now,
+			completedAt: now,
+			createdAt: now,
+			updatedAt: now,
+		});
+		const content = JSON.stringify({
+			summary: "finding 0 件ですが、追加確認が必要です。",
+			riskOverview: "finding 0 件は安全を証明しないため、カバレッジ確認が必要です。",
+			priorityNotes: ["未検査領域の確認を優先してください。"],
+			coverageNotes: ["保存済み scan bundle の範囲に限定されています。"],
+			falsePositiveHotspots: [],
+			recommendedNextActions: ["追加の自動診断対象を確認してください。"],
+			findingTriageHints: [],
+			confidenceNotes: ["証跡は scan metadata に限定されています。"],
+			improvementRequest: {
+				title: "Zero finding 追加確認依頼",
+				objective:
+					"finding 0 件の scan に対して、保存済み context に基づく追加確認を行う。",
+				scope: ["finding 0 件のため、カバレッジ確認と不足診断を対象にします。"],
+				priorityPlan: [
+					{
+						priority: "medium",
+						rationale: "安全証明ではないため確認を継続します。",
+						findingIds: [],
+					},
+				],
+				implementationTasks: [
+					{
+						title: "未検査領域を確認する",
+						body: "scan profile と tool metadata から不足している確認項目を洗い出してください。",
+						findingIds: [],
+						evidenceRefs: [],
+					},
+				],
+				acceptanceCriteria: ["追加確認項目が明示されている。"],
+				verificationCommands: ["bun test"],
+				constraints: ["保存済み scan bundle の範囲だけを根拠にする。"],
+				nonGoals: ["finding 0 件を安全証明として扱わない。"],
+				handoffPrompt:
+					"finding 0 件は安全を証明しません。保存済み scan bundle に基づき、カバレッジ確認、missing diagnostics、automated diagnostics follow-up を整理してください。",
+			},
+		});
+		const runner = new ScanReviewRunner(connection.db, providerWithContent(content));
+
+		const result = await runner.run(zeroScan.id);
+
+		expect(result.ok).toBe(true);
+		const rows = await connection.db.select().from(scanReviews);
+		expect(rows.at(-1)?.status).toBe("completed");
 	});
 });

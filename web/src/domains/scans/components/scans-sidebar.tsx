@@ -5,14 +5,16 @@ import {
 	Play,
 	Plus,
 	ScrollText,
-	Shield,
 	Sparkles,
-	TerminalSquare,
 	X,
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { Button, SelectInput, TextInput } from "../../../ui";
-import { getProfileDisplay } from "../scan-profile-display";
+import {
+	formatScanOutcome,
+	getProfileDisplay,
+	getToolDisplay,
+} from "../scan-profile-display";
 import { useScans } from "../scans-context";
 import { formatDateTime } from "../scans-utils";
 import { ActionQueuePanel } from "./action-queue-panel";
@@ -29,25 +31,25 @@ export function ScansToolbar() {
 				selectedProfile.description,
 			)
 		: null;
-	const dastProfiles = c.dastProfiles.filter(
-		(item) =>
-			item.enabled &&
-			(item.id === "http-baseline" ||
-				c.dastProfileConfigs.some(
-					(config) =>
-						config.profileId === item.id &&
-						config.targetConfigId === c.selectedDastTargetId &&
-						config.enabled,
-				)),
+	const selectedProfileSteps =
+		selectedProfile?.steps ??
+		selectedProfile?.tools.map((tool) => ({
+			kind: "static_tool" as const,
+			toolId: tool.toolId,
+			displayName: tool.displayName,
+			required: tool.required,
+		})) ??
+		[];
+	const selectedProfileHasDast = selectedProfileSteps.some(
+		(step) => step.kind === "dast",
 	);
-	const canStartStatic =
+	const selectedProfileStepLabels = selectedProfileSteps.map((step) =>
+		step.kind === "dast" ? "HTTP DAST診断" : getToolDisplay(step.toolId).name,
+	);
+	const canStartScan =
 		Boolean(c.selectedProjectId && c.selectedProfileId) &&
 		c.timeoutSec > 0 &&
 		!c.isScanning;
-	const canSaveDastTarget =
-		Boolean(c.selectedProjectId && c.dastTargetOrigin.trim()) && !c.dastLoading;
-	const canStartDast =
-		Boolean(c.selectedProjectId && c.selectedDastProfileId) && !c.dastLoading;
 
 	return (
 		<section className="scans-toolbar">
@@ -55,13 +57,13 @@ export function ScansToolbar() {
 				<div className="scan-toolbar-section scan-toolbar-project-section">
 					<div className="scan-project-select-row">
 						<label htmlFor="scans-project-select">
-							<span>Registered Project</span>
+							<span>登録済みプロジェクト</span>
 							<SelectInput
 								id="scans-project-select"
 								value={c.selectedProjectId}
 								onChange={(event) => c.setSelectedProjectId(event.target.value)}
 							>
-								<option value="">-- Select Project --</option>
+								<option value="">-- プロジェクトを選択 --</option>
 								{c.projects.map((project) => (
 									<option key={project.id} value={project.id}>
 										{project.name}
@@ -70,7 +72,7 @@ export function ScansToolbar() {
 							</SelectInput>
 						</label>
 						<ToolbarIconButton
-							label="New Project"
+							label="新規プロジェクト"
 							onClick={() => c.setShowNewProjectModal(true)}
 						>
 							<Plus className="icon" />
@@ -79,176 +81,63 @@ export function ScansToolbar() {
 				</div>
 
 				<div className="scan-toolbar-section">
-					<div className="scan-mode-tabs" role="tablist" aria-label="Scan type">
-						<button
-							type="button"
-							className={c.launchMode === "static" ? "active" : ""}
-							onClick={() => c.setLaunchMode("static")}
+					<div className="scan-launch-config scan-static-profile-row">
+						<label
+							className="scan-static-profile-field"
+							htmlFor="scans-profile-select"
 						>
-							<TerminalSquare className="icon" />
-							Static tools
-						</button>
-						<button
-							type="button"
-							className={c.launchMode === "dast" ? "active" : ""}
-							onClick={() => c.setLaunchMode("dast")}
-						>
-							<Shield className="icon" />
-							DAST
-						</button>
-					</div>
-
-					{c.launchMode === "static" ? (
-						<div className="scan-launch-config scan-static-profile-row">
-							<label
-								className="scan-static-profile-field"
-								htmlFor="scans-profile-select"
+							<span>スキャンプロファイル</span>
+							<SelectInput
+								id="scans-profile-select"
+								value={c.selectedProfileId}
+								onChange={(event) => c.setSelectedProfileId(event.target.value)}
+								disabled={!c.selectedProjectId}
 							>
-								<span>Scan Profile</span>
-								<SelectInput
-									id="scans-profile-select"
-									value={c.selectedProfileId}
-									onChange={(event) =>
-										c.setSelectedProfileId(event.target.value)
-									}
-									disabled={!c.selectedProjectId}
-								>
-									{c.profiles.map((item) => {
-										const display = getProfileDisplay(
-											item.id,
-											item.name,
-											item.description,
-										);
-										return (
-											<option key={item.id} value={item.id}>
-												{display.name}
-											</option>
-										);
-									})}
-								</SelectInput>
-							</label>
-							<div className="scan-static-profile-description">
-								<strong>
-									{selectedProfileDisplay?.name ?? "プロファイル未選択"}
-								</strong>
-								<p>
-									{selectedProfileDisplay?.subtitle ??
-										"Project を選択すると利用可能な Static scan profile が表示されます。"}
-								</p>
-							</div>
-						</div>
-					) : (
-						<div className="scan-launch-config">
-							{c.dastError ? (
-								<p className="scan-inline-error">{c.dastError}</p>
-							) : null}
-							<div className="scan-dast-auto-target">
-								<strong>Auto target</strong>
-								<p>
-									{c.lastAutoDastTargetOrigin
-										? `前回の自動判別: ${c.lastAutoDastTargetOrigin}`
-										: "Auto DAST は選択中 Project の package scripts から起動先 origin を判別して実行します。"}
-								</p>
-							</div>
-							<label htmlFor="scan-dast-target-origin">
-								<span>Manual Target Origin</span>
-								<TextInput
-									id="scan-dast-target-origin"
-									value={c.dastTargetOrigin}
-									onChange={(event) =>
-										c.setDastTargetOrigin(event.target.value)
-									}
-									placeholder="Optional override, for example http://127.0.0.1:5173"
-									disabled={!c.selectedProjectId}
-								/>
-							</label>
-							<label htmlFor="dast-target-select">
-								<span>Saved Target</span>
-								<SelectInput
-									id="dast-target-select"
-									value={c.selectedDastTargetId}
-									onChange={(event) =>
-										c.setSelectedDastTargetId(event.target.value)
-									}
-									disabled={!c.selectedProjectId}
-								>
-									<option value="">-- Select Target --</option>
-									{c.dastTargets.map((target) => (
-										<option
-											key={target.id}
-											value={target.id}
-											disabled={!target.enabled}
-										>
-											{target.name} ({target.normalizedOrigin})
-										</option>
-									))}
-								</SelectInput>
-							</label>
-							<label htmlFor="dast-profile-select">
-								<span>DAST Profile</span>
-								<SelectInput
-									id="dast-profile-select"
-									value={c.selectedDastProfileId}
-									onChange={(event) =>
-										c.setSelectedDastProfileId(event.target.value)
-									}
-									disabled={!c.selectedProjectId}
-								>
-									{dastProfiles.map((item) => (
+								{c.profiles.map((item) => {
+									const display = getProfileDisplay(
+										item.id,
+										item.name,
+										item.description,
+									);
+									return (
 										<option key={item.id} value={item.id}>
-											{item.displayName}
+											{display.name}
 										</option>
-									))}
-								</SelectInput>
-							</label>
+									);
+								})}
+							</SelectInput>
+						</label>
+						<div className="scan-static-profile-description">
+							<strong>
+								{selectedProfileDisplay?.name ?? "プロファイル未選択"}
+							</strong>
+							<p>
+								{selectedProfileDisplay?.subtitle ??
+									"プロジェクトを選択すると利用可能なスキャンプロファイルが表示されます。"}
+							</p>
+							{selectedProfileStepLabels.length > 0 ? (
+								<small>{selectedProfileStepLabels.join(" / ")}</small>
+							) : null}
+							{selectedProfileHasDast ? (
+								<p>
+									実行対象はプロジェクトの起動スクリプトから自動判別され、HTTP
+									DAST 証跡は同じスキャン結果に保存されます。
+								</p>
+							) : null}
 						</div>
-					)}
+					</div>
 				</div>
 
 				<div className="scan-toolbar-section scan-toolbar-actions-section">
 					<div className="scan-toolbar-actions">
-						{c.launchMode === "static" ? (
-							<ToolbarIconButton
-								label={
-									c.isScanning ? "Running Static Scan" : "Start Static Scan"
-								}
-								onClick={() => void c.handleStartScanProfile()}
-								disabled={!canStartStatic}
-								variant="primary"
-							>
-								<Play className="icon" />
-							</ToolbarIconButton>
-						) : (
-							<>
-								<ToolbarIconButton
-									label={
-										c.dastLoading
-											? "Preparing Auto DAST"
-											: "Auto DAST HTTP Baseline (auto-detect target)"
-									}
-									onClick={() => void c.handleAutoDastRun()}
-									disabled={!c.selectedProjectId || c.dastLoading}
-									variant="primary"
-								>
-									<Play className="icon" />
-								</ToolbarIconButton>
-								<ToolbarIconButton
-									label={c.dastLoading ? "Saving Target" : "Save Target"}
-									onClick={() => void c.handleCreateDastTarget()}
-									disabled={!canSaveDastTarget}
-								>
-									<Plus className="icon" />
-								</ToolbarIconButton>
-								<ToolbarIconButton
-									label={c.dastLoading ? "Running DAST" : "Start DAST"}
-									onClick={() => void c.handleTriggerDastRun()}
-									disabled={!canStartDast}
-									variant="primary"
-								>
-									<Shield className="icon" />
-								</ToolbarIconButton>
-							</>
-						)}
+						<ToolbarIconButton
+							label={c.isScanning ? "スキャン実行中" : "スキャンを開始"}
+							onClick={() => void c.handleStartScanProfile()}
+							disabled={!canStartScan}
+							variant="primary"
+						>
+							<Play className="icon" />
+						</ToolbarIconButton>
 						{c.selectedScanRunId ? <ScanReportControls /> : null}
 					</div>
 				</div>
@@ -293,9 +182,9 @@ export function ScansSidebar() {
 			<ActionQueuePanel />
 			<div className="scans-panel-header scans-history-head">
 				<div>
-					<h2>Recent Runs</h2>
+					<h2>最近の実行</h2>
 					<small className="scans-runs-count">
-						{c.scanRuns.length} runs in selected project
+						選択中のプロジェクトに {c.scanRuns.length} 件
 					</small>
 				</div>
 				{c.selectedProjectId ? (
@@ -305,7 +194,7 @@ export function ScansSidebar() {
 						onClick={() => c.handleSelectScanRun(c.scanRuns[0]?.id ?? "")}
 						disabled={!c.scanRuns[0]}
 					>
-						Latest
+						最新
 					</Button>
 				) : null}
 			</div>
@@ -323,7 +212,7 @@ export function ScansSidebar() {
 								<span
 									className={`scan-status-badge badge-${run.status || "queued"}`}
 								>
-									{run.status || "queued"}
+									{formatScanOutcome(run.status || "queued")}
 								</span>
 							</div>
 							<small>{formatDateTime(run.createdAt)}</small>
@@ -332,8 +221,8 @@ export function ScansSidebar() {
 				) : (
 					<div className="tree-info">
 						{c.selectedProjectId
-							? "No scans found for this project."
-							: "Register or select a project folder to start scanning."}
+							? "このプロジェクトの scan はまだありません。"
+							: "scan を開始するには、プロジェクトフォルダを登録または選択してください。"}
 					</div>
 				)}
 			</div>
@@ -352,12 +241,12 @@ function NewProjectModal() {
 				aria-labelledby="scan-new-project-title"
 			>
 				<div className="scan-modal-header">
-					<h2 id="scan-new-project-title">New Project</h2>
+					<h2 id="scan-new-project-title">新規プロジェクト</h2>
 					<button
 						type="button"
 						className="scan-modal-close"
 						onClick={() => c.setShowNewProjectModal(false)}
-						aria-label="Close new project dialog"
+						aria-label="新規プロジェクト dialog を閉じる"
 					>
 						<X className="icon" />
 					</button>
@@ -366,7 +255,7 @@ function NewProjectModal() {
 					<div className="scan-folder-path-row">
 						<TextInput
 							id="scan-project-folder-path"
-							aria-label="Project folder path"
+							aria-label="プロジェクトフォルダ path"
 							value={c.projectFolderPath}
 							onChange={(event) => c.setProjectFolderPath(event.target.value)}
 							placeholder="/Users/name/Code/project"
@@ -376,33 +265,33 @@ function NewProjectModal() {
 							variant="secondary"
 							onClick={() => void c.handleBrowseProjectFolder()}
 							disabled={c.projectBrowseLoading}
-							title="Browse for a project folder"
+							title="プロジェクトフォルダを選択"
 						>
 							<FolderOpen className="icon" />
-							{c.projectBrowseLoading ? "Opening..." : "Browse"}
+							{c.projectBrowseLoading ? "開いています..." : "選択"}
 						</Button>
 					</div>
 					{c.projectFolderPath ? (
 						<div className="scan-project-summary">
-							<strong>Selected folder</strong>
+							<strong>選択中のフォルダ</strong>
 							<code>{c.projectFolderPath}</code>
 						</div>
 					) : (
 						<div className="tree-info">
-							No folder selected. Use Browse to choose the project folder.
+							フォルダが未選択です。「選択」からプロジェクトフォルダを指定してください。
 						</div>
 					)}
 					<label htmlFor="scan-project-name">
-						<span>Project Name</span>
+						<span>プロジェクト名</span>
 						<TextInput
 							id="scan-project-name"
 							value={c.projectNameInput}
 							onChange={(event) => c.setProjectNameInput(event.target.value)}
-							placeholder="Project name"
+							placeholder="プロジェクト名"
 						/>
 					</label>
 					<label htmlFor="scan-project-default-branch">
-						<span>Default Branch</span>
+						<span>既定ブランチ</span>
 						<TextInput
 							id="scan-project-default-branch"
 							value={c.projectDefaultBranch}
@@ -419,7 +308,7 @@ function NewProjectModal() {
 						variant="secondary"
 						onClick={() => c.setShowNewProjectModal(false)}
 					>
-						Cancel
+						キャンセル
 					</Button>
 					<Button
 						type="button"
@@ -432,7 +321,7 @@ function NewProjectModal() {
 						}
 					>
 						<Plus className="icon" />
-						{c.projectCreateLoading ? "Registering..." : "Register Project"}
+						{c.projectCreateLoading ? "登録中..." : "プロジェクトを登録"}
 					</Button>
 				</div>
 			</div>
@@ -442,53 +331,74 @@ function NewProjectModal() {
 
 function ScanReportControls() {
 	const c = useScans();
-	const readinessLabel =
-		c.reportQualityPreview.readiness === "ready"
-			? "Ready"
-			: c.reportQualityPreview.readiness === "partial"
-				? "Partial"
-				: "Blocked inputs";
+	const preview = c.reportQualityPreview;
 	return (
-		<>
-			<ToolbarIconButton
-				label={
-					c.reportLoading
-						? "Generating Report"
-						: `Generate Report (${readinessLabel})`
-				}
-				onClick={() => void c.handleGenerateReport()}
-				disabled={c.reportLoading || c.busy}
-				variant="primary"
-			>
-				<FileText className="icon" />
-			</ToolbarIconButton>
-			<ToolbarIconButton
-				label="Generate LLM Summary Report"
-				onClick={() =>
-					void c.handleGenerateReport("deterministic_with_llm_summary")
-				}
-				disabled={c.reportLoading || c.busy}
-			>
-				<Sparkles className="icon" />
-			</ToolbarIconButton>
-			<ToolbarIconButton
-				label={c.scanReviewLoading ? "Reviewing Scan" : "Run Scan Review"}
-				onClick={() => void c.handleTriggerScanReview()}
-				disabled={c.scanReviewLoading || c.busy}
-			>
-				<ScrollText className="icon" />
-			</ToolbarIconButton>
-			{c.reports[0] ? (
-				<ToolbarIconButton
-					label="View Latest Report"
-					onClick={() => {
-						c.setSelectedReport(c.reports[0]);
-						c.setViewingReport(true);
-					}}
+		<div className="scan-report-controls">
+			<label className="scan-review-filter">
+				<span>handoff 対象</span>
+				<select
+					value={c.scanReviewFindingFilter}
+					onChange={(event) =>
+						c.setScanReviewFindingFilter(
+							event.target.value as typeof c.scanReviewFindingFilter,
+						)
+					}
+					disabled={c.scanReviewLoading || c.busy}
 				>
-					<Eye className="icon" />
+					<option value="all">すべての finding</option>
+					<option value="high_or_critical">高 / 緊急</option>
+					<option value="weak_or_missing_evidence">証跡が弱い / 不足</option>
+					<option
+						value="new_or_regressed"
+						disabled={c.scanComparison.status !== "available"}
+					>
+						新規 / 悪化
+					</option>
+				</select>
+			</label>
+			<div className="scan-report-actions">
+				<ToolbarIconButton
+					label={
+						c.reportLoading ? "レポート生成中" : preview.toolbarActionLabel
+					}
+					onClick={() => void c.handleGenerateReport()}
+					disabled={c.reportLoading || c.busy}
+					variant="primary"
+				>
+					<FileText className="icon" />
 				</ToolbarIconButton>
-			) : null}
-		</>
+				<ToolbarIconButton
+					label={`${preview.toolbarActionLabel}（LLM要約付き）`}
+					onClick={() =>
+						void c.handleGenerateReport("deterministic_with_llm_summary")
+					}
+					disabled={c.reportLoading || c.busy}
+				>
+					<Sparkles className="icon" />
+				</ToolbarIconButton>
+				<ToolbarIconButton
+					label={
+						c.scanReviewLoading
+							? "スキャンレビュー中"
+							: "スキャンレビューを実行"
+					}
+					onClick={() => void c.handleTriggerScanReview()}
+					disabled={c.scanReviewLoading || c.busy}
+				>
+					<ScrollText className="icon" />
+				</ToolbarIconButton>
+				{c.reports[0] ? (
+					<ToolbarIconButton
+						label="最新レポートを表示"
+						onClick={() => {
+							c.setSelectedReport(c.reports[0]);
+							c.setViewingReport(true);
+						}}
+					>
+						<Eye className="icon" />
+					</ToolbarIconButton>
+				) : null}
+			</div>
+		</div>
 	);
 }

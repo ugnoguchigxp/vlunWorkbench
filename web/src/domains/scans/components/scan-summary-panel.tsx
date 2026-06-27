@@ -1,5 +1,6 @@
 import { useScans } from "../scans-context";
 import { formatScanOutcome, getToolDisplay } from "../scan-profile-display";
+import { formatSeverityLabel } from "../scan-display-copy";
 import { getSeverityClass } from "../scans-utils";
 import { ScanResultOverview } from "./scan-result-overview";
 
@@ -24,7 +25,47 @@ export function ScanSummaryPanel() {
 				<h2>スキャン別の詳細結果</h2>
 			</div>
 			<div className="detail-section">
-				<h3 className="detail-section-title">実行した scan tool</h3>
+				<h3 className="detail-section-title">実行した ScanProfile step</h3>
+				{summary.steps?.length ? (
+					<div className="assessment-grid">
+						{summary.steps.map((step) => (
+							<div className="assessment-card" key={step.id}>
+								<div className="finding-meta-row">
+									<div>
+										<strong>{step.displayName}</strong>
+										<p className="scan-tool-purpose">
+											{step.kind === "dast"
+												? step.targetOrigin
+													? `HTTP実行対象: ${step.targetOrigin}`
+													: "HTTP実行対象: 自動判別"
+												: getToolDisplay(step.id).purpose}
+										</p>
+									</div>
+									<span className={`scan-status-badge badge-${step.status}`}>
+										{formatScanOutcome(step.status)}
+									</span>
+								</div>
+								<div className="finding-meta-row">
+									<span>検出数: {step.findingCount}</span>
+									<span>証跡: {step.artifactCount}</span>
+								</div>
+								{step.kind === "dast" && step.outcome ? (
+									<p>DAST outcome: {formatScanOutcome(step.outcome)}</p>
+								) : null}
+								{step.error ? (
+									<p className="badge-failed">
+										{step.kind === "dast"
+											? `実行時診断の未確認項目: ${step.error}`
+											: step.error}
+									</p>
+								) : null}
+							</div>
+						))}
+					</div>
+				) : null}
+			</div>
+			<div className="detail-section">
+				<h3 className="detail-section-title">静的 tool 詳細</h3>
 				{summary.tools.map((tool) => {
 					const display = getToolDisplay(tool.toolId);
 					return (
@@ -53,7 +94,7 @@ export function ScanSummaryPanel() {
 											key={severity}
 											className={`severity-badge ${getSeverityClass(severity)}`}
 										>
-											{severity}: {count}
+											{formatSeverityLabel(severity)}: {count}
 										</span>
 									))}
 							</div>
@@ -67,7 +108,8 @@ export function ScanSummaryPanel() {
 				{summary.totals.findingCount === 0 ? (
 					<p>
 						正規化された finding
-						はありません。低リスクと判断する前に、診断カバレッジと証跡を確認してください。
+						はありません。低リスクと扱う前に、診断カバレッジと証跡を LLM handoff
+						に含めてください。
 					</p>
 				) : null}
 				<div className="assessment-grid">
@@ -77,7 +119,7 @@ export function ScanSummaryPanel() {
 						value={c.securityCheckResults.length}
 					/>
 					<Metric
-						label="手動確認"
+						label="追加確認"
 						value={checkStatusCounts.manual_review ?? 0}
 					/>
 					<Metric label="未確認" value={checkStatusCounts.not_checked ?? 0} />

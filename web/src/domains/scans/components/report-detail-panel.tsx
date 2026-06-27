@@ -2,6 +2,7 @@ import { Download, RefreshCw } from "lucide-react";
 import { MarkdownEditor } from "markdown-wysiwyg-editor";
 import mermaid from "mermaid";
 import { Button } from "../../../ui";
+import { formatScanOutcome } from "../scan-profile-display";
 import { useScans } from "../scans-context";
 import { formatDateTime } from "../scans-utils";
 
@@ -18,15 +19,15 @@ export function ReportDetailPanel({
 					<div className="finding-meta-row">
 						<h2>
 							{c.selectedReport
-								? `Report: ${c.selectedReport.title}`
-								: "Scan Report"}
+								? `レポート: ${c.selectedReport.title}`
+								: "scan レポート"}
 						</h2>
 						<Button
 							type="button"
 							variant="secondary"
 							onClick={() => c.setViewingReport(false)}
 						>
-							Back to Findings
+							finding に戻る
 						</Button>
 					</div>
 				</div>
@@ -36,7 +37,7 @@ export function ReportDetailPanel({
 				{c.selectedReport ? (
 					<ReportBody />
 				) : (
-					<div className="tree-info">No report selected.</div>
+					<div className="tree-info">レポートが選択されていません。</div>
 				)}
 			</div>
 		</>
@@ -52,16 +53,12 @@ function ReportReadinessPreview() {
 		>
 			<div className="decision-grade-panel-head">
 				<div>
-					<span className="scan-review-context-label">Report readiness</span>
-					<h3>{preview.readiness.toUpperCase()}</h3>
+					<span className="scan-review-context-label">レポート準備状況</span>
+					<h3>{formatReportReadiness(preview.readiness)}</h3>
+					<small>{preview.secondaryStatusLabel}</small>
 				</div>
 				<small>{preview.recommendedReportTitle}</small>
 			</div>
-			{preview.missingInputs.length > 0 ? (
-				<div className="decision-grade-warning">
-					{preview.missingInputs.join(", ")}
-				</div>
-			) : null}
 			<div className="report-readiness-sections">
 				{preview.sections.map((section) => (
 					<div
@@ -85,23 +82,23 @@ function ReportBody() {
 		<div className="detail-section">
 			<div className="finding-meta-row">
 				<span className={`scan-status-badge badge-${report.status}`}>
-					Status: {report.status}
+					状態: {formatScanOutcome(report.status)}
 				</span>
-				<small>Created: {formatDateTime(report.createdAt)}</small>
+				<small>作成: {formatDateTime(report.createdAt)}</small>
 				{report.status === "completed" ? (
 					<a href={`/api/scan-reports/${report.id}/download`} download>
-						<Download size={14} /> Download Report
+						<Download size={14} /> レポートをダウンロード
 					</a>
 				) : null}
 			</div>
 			{report.status === "running" ? (
 				<div className="tree-info">
-					<RefreshCw className="icon animate-spin" /> Generating report...
+					<RefreshCw className="icon animate-spin" /> レポートを生成中...
 				</div>
 			) : null}
 			{report.status === "failed" ? (
 				<div className="assessment-card">
-					<strong>Generation Failed</strong>
+					<strong>生成に失敗</strong>
 					<p>{report.errorMessage}</p>
 				</div>
 			) : null}
@@ -118,8 +115,14 @@ function ReportBody() {
 					/>
 				</div>
 			) : report.status === "completed" ? (
-				<div className="tree-info">Loading report preview...</div>
+				<div className="tree-info">レポート preview を読み込んでいます...</div>
 			) : null}
 		</div>
 	);
+}
+
+function formatReportReadiness(readiness: string): string {
+	if (readiness === "ready") return "準備完了";
+	if (readiness === "partial") return "一部準備済み";
+	return "未完了";
 }

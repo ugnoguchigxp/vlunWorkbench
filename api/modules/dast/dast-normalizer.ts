@@ -91,7 +91,7 @@ function normalizeHttp(params: {
 	for (const response of params.result.responses) {
 		evidence.push({
 			kind: "http-response",
-			title: `HTTP ${response.status ?? "error"} for ${response.path}`,
+			title: `${response.path} の HTTP ${response.status ?? "error"}`,
 			artifactId: params.rawArtifactId,
 			location: { path: response.path, url: response.url },
 			snippet: response.error ?? `status=${response.status}`,
@@ -108,9 +108,9 @@ function normalizeHttp(params: {
 					ruleId: "unexpected-server-error",
 					path: response.path,
 					evidenceKey: String(response.status),
-					title: "Unexpected server error response",
+					title: "予期しないサーバーエラー応答",
 					description:
-						"The configured DAST route returned a 5xx response during the bounded HTTP baseline run.",
+						"設定済み DAST route が、範囲限定の HTTP baseline 実行中に 5xx 応答を返しました。",
 					severity: "low",
 					snippet: `HTTP ${response.status} at ${response.path}`,
 					artifactId: params.rawArtifactId,
@@ -131,10 +131,10 @@ function normalizeHttp(params: {
 					ruleId: "missing-security-header",
 					path: response.path,
 					evidenceKey: missing.join(","),
-					title: "Missing common security header",
-					description: `The response is missing common hardening headers: ${missing.join(", ")}.`,
+					title: "一般的なセキュリティヘッダーが不足",
+					description: `レスポンスに一般的な hardening header が不足しています: ${missing.join(", ")}.`,
 					severity: "info",
-					snippet: `Missing headers: ${missing.join(", ")}`,
+					snippet: `不足 header: ${missing.join(", ")}`,
 					artifactId: params.rawArtifactId,
 					metadata: { missingHeaders: missing },
 				}),
@@ -152,9 +152,9 @@ function normalizeHttp(params: {
 						ruleId: "weak-cookie-flags",
 						path: response.path,
 						evidenceKey: cookie.name,
-						title: "Cookie is missing recommended security attributes",
+						title: "Cookie の推奨セキュリティ属性が不足",
 						description:
-							"A Set-Cookie header was observed without all recommended Secure, HttpOnly, and SameSite attributes.",
+							"推奨される Secure、HttpOnly、SameSite 属性の一部が不足した Set-Cookie header を検出しました。",
 						severity: "low",
 						snippet: `${cookie.name}: secure=${cookie.secure}, httpOnly=${cookie.httpOnly}, sameSite=${cookie.sameSite}`,
 						artifactId: params.rawArtifactId,
@@ -174,9 +174,9 @@ function normalizeHttp(params: {
 					ruleId: "cors-wildcard",
 					path: response.path,
 					evidenceKey: "access-control-allow-origin:*",
-					title: "Wildcard CORS policy observed",
+					title: "ワイルドカード CORS ポリシーを検出",
 					description:
-						"The response sets Access-Control-Allow-Origin to *, which may expose browser-readable responses depending on the endpoint.",
+						"レスポンスが Access-Control-Allow-Origin を * に設定しています。endpoint によってはブラウザから読み取り可能な応答を公開する可能性があります。",
 					severity: "low",
 					snippet: "access-control-allow-origin: *",
 					artifactId: params.rawArtifactId,
@@ -199,9 +199,9 @@ function normalizeHttp(params: {
 					ruleId: "sensitive-common-path-exposed",
 					path: response.path,
 					evidenceKey: String(response.status),
-					title: "Sensitive common path is reachable",
+					title: "機微な共通パスに到達可能",
 					description:
-						"A bounded common-path probe returned a successful response for a path that is often sensitive.",
+						"範囲限定の common-path probe が、機微になりやすい path で成功応答を返しました。",
 					severity: "low",
 					snippet: `${response.path} returned HTTP ${response.status}`,
 					artifactId: params.rawArtifactId,
@@ -215,7 +215,7 @@ function normalizeHttp(params: {
 		findings,
 		evidence,
 		outcome,
-		summary: `HTTP DAST baseline completed with ${findings.length} finding(s) across ${params.result.requestCount} request(s).`,
+		summary: `HTTP DAST baseline は ${params.result.requestCount} 件の request で完了し、${findings.length} 件の finding を検出しました。`,
 	};
 }
 
@@ -232,7 +232,7 @@ function normalizeBrowser(params: {
 		for (const message of route.consoleErrors) {
 			evidence.push({
 				kind: "browser-console",
-				title: `Browser console error on ${route.path}`,
+				title: `${route.path} の browser console error`,
 				artifactId: params.rawArtifactId,
 				location: { path: route.path, url: route.url },
 				snippet: message,
@@ -242,7 +242,7 @@ function normalizeBrowser(params: {
 		for (const request of route.failedRequests) {
 			evidence.push({
 				kind: "browser-network",
-				title: `Failed browser request on ${route.path}`,
+				title: `${route.path} の失敗した browser request`,
 				artifactId: params.rawArtifactId,
 				location: { path: route.path, url: request.url },
 				snippet: `${request.method} ${request.url}: ${request.failure}`,
@@ -252,7 +252,7 @@ function normalizeBrowser(params: {
 		if (route.error) {
 			evidence.push({
 				kind: "dast-result",
-				title: `Browser route error on ${route.path}`,
+				title: `${route.path} の browser route error`,
 				artifactId: params.rawArtifactId,
 				location: { path: route.path, url: route.url },
 				snippet: route.error,
@@ -264,7 +264,7 @@ function normalizeBrowser(params: {
 		findings,
 		evidence,
 		outcome: "passed",
-		summary: `Browser smoke completed for ${params.result.routes.length} configured route(s).`,
+		summary: `Browser smoke は ${params.result.routes.length} 件の設定済み route で完了しました。`,
 	};
 }
 

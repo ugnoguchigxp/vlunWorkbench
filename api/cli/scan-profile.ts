@@ -133,6 +133,9 @@ async function main() {
 	if (dryRun) {
 		// Output dry-run details and exit
 		const toolOrder = profile.tools.map((t) => t.toolId);
+		const stepOrder = (profile.steps ?? []).map((step) =>
+			step.kind === "static_tool" ? step.toolId : `dast:${step.profileId}`,
+		);
 		const resolvedTools = profile.tools.map((t) => ({
 			toolId: t.toolId,
 			displayName: t.displayName,
@@ -140,13 +143,24 @@ async function main() {
 			timeoutSec: t.timeoutSec ?? timeoutSec ?? profile.defaultTimeoutSec,
 			options: t.options ?? {},
 		}));
+		const resolvedSteps = (profile.steps ?? []).map((step) => ({
+			kind: step.kind,
+			id: step.kind === "static_tool" ? step.toolId : `dast:${step.profileId}`,
+			displayName: step.displayName,
+			required: step.required,
+			timeoutSec: step.timeoutSec ?? timeoutSec ?? profile.defaultTimeoutSec,
+			failurePolicy: step.failurePolicy,
+			target: step.kind === "dast" ? step.target : undefined,
+		}));
 		writeResult({
 			dryRun: true,
 			profileId,
 			runner: execution.runner,
 			finalReport: finalReportEnabled,
 			toolOrder,
+			stepOrder,
 			resolvedTools,
+			resolvedSteps,
 		});
 		process.exit(0);
 	}
@@ -216,6 +230,7 @@ async function main() {
 				findingCount: r.findingCount,
 				error: r.error,
 			})),
+			stepResults: result.stepResults,
 		};
 
 		if (outputSummaryPath) {

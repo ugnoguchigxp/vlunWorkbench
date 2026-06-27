@@ -1,6 +1,7 @@
 import { CheckCircle2, Circle, Download, FileText, X } from "lucide-react";
 import { useEffect, useRef } from "react";
 import { SelectInput } from "../../../ui";
+import { formatFindingTitle, formatSeverityLabel } from "../scan-display-copy";
 import { useScans } from "../scans-context";
 import { formatDateTime, getSeverityClass, shortPath } from "../scans-utils";
 import { actionQueueStateLabel, type FindingWorkState } from "../work-states";
@@ -14,17 +15,17 @@ import { VerificationSections } from "./verification-sections";
 import { ZeroFindingDiagnosticPanel } from "./zero-finding-diagnostic-panel";
 
 const DECISION_STATE_LABELS = {
-	missing: "判断未記録",
-	complete: "判断記録済み",
-	needs_context: "追加情報が必要",
+	missing: "handoff優先",
+	complete: "互換記録あり",
+	needs_context: "追加証跡が必要",
 } as const;
 
 const DECISION_LABELS = {
-	accepted: "リスク受容",
-	false_positive: "誤検知",
-	deferred: "保留",
-	needs_fix: "要修正",
-	open: "未判断",
+	accepted: "既知リスク記録",
+	false_positive: "ツールノイズ記録",
+	deferred: "後続確認記録",
+	needs_fix: "実装改善候補",
+	open: "handoff未作成",
 } as const;
 
 const REASON_LABELS = {
@@ -34,7 +35,7 @@ const REASON_LABELS = {
 	environment_specific: "環境依存",
 	tool_noise: "ツールのノイズ",
 	not_exploitable: "悪用困難",
-	accepted_risk: "リスク受容",
+	accepted_risk: "既知リスク",
 	other: "その他",
 } as const;
 
@@ -44,14 +45,14 @@ export function FindingDetailPanel() {
 		<section className="scans-panel scans-detail-col">
 			<div className="scans-panel-header scan-detail-header">
 				<div className="scan-detail-heading-copy">
-					<h2>Finding 分析と LLM レビュー</h2>
+					<h2>finding 分析と LLM レビュー</h2>
 					<p>
 						選択中のスキャンが何を確認したものか、その結果として出た
 						finding、LLM レビュー、検証、レポートを確認します。
 					</p>
 					{c.selectedScanRunId ? (
 						<small>
-							finding {c.displayedFindings.length} 件 / report{" "}
+							finding {c.displayedFindings.length} 件 / レポート{" "}
 							{c.reports.length} 件
 						</small>
 					) : null}
@@ -120,26 +121,26 @@ function ScanResultsBody() {
 								c.setSelectedGroupId("");
 							}}
 						>
-							List ({c.findings.length})
+							一覧 ({c.findings.length})
 						</button>
 						<button
 							type="button"
 							className={`demo-button secondary ${c.findingsViewMode === "grouped" ? "active" : ""}`}
 							onClick={() => c.setFindingsViewMode("grouped")}
 						>
-							Grouped ({c.scanGroups.length})
+							グループ ({c.scanGroups.length})
 						</button>
 					</div>
 				</div>
 				{c.findingsViewMode === "grouped" && c.scanGroups.length > 0 ? (
 					<label htmlFor="findings-group-select" className="scan-table-filter">
-						<span>Select Group</span>
+						<span>グループ選択</span>
 						<SelectInput
 							id="findings-group-select"
 							value={c.selectedGroupId}
 							onChange={(event) => c.setSelectedGroupId(event.target.value)}
 						>
-							<option value="">-- All Groups --</option>
+							<option value="">-- すべてのグループ --</option>
 							{c.scanGroups.map((group) => (
 								<option key={group.id} value={group.id}>
 									[{group.severity.toUpperCase()}] {group.title} (
@@ -177,13 +178,13 @@ function FindingsTable() {
 			<table className="scan-findings-table">
 				<thead>
 					<tr>
-						<th>Severity</th>
-						<th>Finding</th>
-						<th>Tool / Rule</th>
-						<th>Location</th>
-						<th>Evidence</th>
-						<th>Decision</th>
-						<th>Updated</th>
+						<th>重大度</th>
+						<th>finding</th>
+						<th>tool / rule</th>
+						<th>位置</th>
+						<th>証跡</th>
+						<th>自動化</th>
+						<th>更新</th>
 					</tr>
 				</thead>
 				<tbody>
@@ -222,11 +223,11 @@ function FindingsTable() {
 									<span
 										className={`severity-badge ${getSeverityClass(finding.severity)}`}
 									>
-										{finding.severity}
+										{formatSeverityLabel(finding.severity)}
 									</span>
 								</td>
 								<td>
-									<strong>{finding.title}</strong>
+									<strong>{formatFindingTitle(finding.title)}</strong>
 									<small>{finding.description}</small>
 								</td>
 								<td>
@@ -240,20 +241,27 @@ function FindingsTable() {
 											{startLine ? `:${startLine}` : ""}
 										</code>
 									) : (
-										<span className="scan-table-muted">No location</span>
+										<span className="scan-table-muted">位置なし</span>
 									)}
 								</td>
 								<td>
 									<span
 										className={`evidence-quality-badge evidence-${evidenceQuality?.level ?? "missing"}`}
 									>
-										{evidenceQuality?.label ?? "Missing"}
+										{evidenceQuality?.label ?? "不足"}
 									</span>
+									{evidenceQuality ? (
+										<small className="scan-table-muted">
+											{evidenceQuality.dataCompletenessLabel}
+										</small>
+									) : null}
 								</td>
 								<td>
 									<div className="scan-table-badge-stack">
 										<span className={`decision-badge badge-${decision}`}>
-											{decision.replace("_", " ")}
+											{DECISION_LABELS[
+												decision as keyof typeof DECISION_LABELS
+											] ?? decision.replace("_", " ")}
 										</span>
 										<span className={`work-state-badge state-${workState}`}>
 											{formatFindingWorkState(workState)}
@@ -310,15 +318,18 @@ function FindingDetailDrawer() {
 			>
 				<header className="scan-drawer-header">
 					<div>
-						<h2 id="scan-finding-drawer-title">Finding 詳細</h2>
-						<p>検出内容、LLM レビュー、判断、検証結果を確認します。</p>
+						<h2 id="scan-finding-drawer-title">finding 詳細</h2>
+						<p>
+							検出内容、保存済み証跡、LLM レビュー、検証結果、handoff を使って、
+							次の LLM に渡す実装改善リスクを確認します。
+						</p>
 						{workflow ? (
 							<div className="drawer-decision-summary">
 								{finding ? (
 									<span
 										className={`severity-badge ${getSeverityClass(finding.severity)}`}
 									>
-										{finding.severity}
+										{formatSeverityLabel(finding.severity)}
 									</span>
 								) : null}
 								{workState ? (
@@ -341,7 +352,7 @@ function FindingDetailDrawer() {
 								<span
 									className={`decision-badge badge-${workflow.latestDecision?.decision ?? "open"}`}
 								>
-									判断:{" "}
+									互換:{" "}
 									{DECISION_LABELS[workflow.latestDecision?.decision ?? "open"]}
 								</span>
 								<span
@@ -409,20 +420,20 @@ function FindingBody() {
 					<span
 						className={`severity-badge ${getSeverityClass(finding.severity)}`}
 					>
-						{finding.severity}
+						{formatSeverityLabel(finding.severity)}
 					</span>
 					<strong>検査ツール: {finding.sourceTool}</strong>
 					<code>ルール: {finding.ruleId}</code>
 				</div>
-				<h1>{finding.title}</h1>
+				<h1>{formatFindingTitle(finding.title)}</h1>
 				<p>{finding.description}</p>
 			</div>
-			<DecisionSection />
 			<RemediationPlanSection />
 			<DecisionCompletenessSummary />
 			<EvidenceQualityPanel />
 			<EvidenceChecklistPanel />
 			<ReviewSection />
+			<DecisionSection />
 			<SourceEvidenceDetail />
 			<ReportImpactPreview />
 		</>
@@ -435,12 +446,12 @@ function DecisionCompletenessSummary() {
 	return (
 		<div className="decision-summary-panel">
 			<div>
-				<span className="scan-review-context-label">判断状態</span>
+				<span className="scan-review-context-label">実装改善handoff</span>
 				<strong>{DECISION_STATE_LABELS[workflow.decisionState]}</strong>
 			</div>
 			<div>
 				<span className="scan-review-context-label">
-					トリアージ前に不足している情報
+					LLM にリスクを渡す前に不足している自動診断情報
 				</span>
 				<strong>
 					{workflow.missingInputs.length > 0
@@ -450,7 +461,7 @@ function DecisionCompletenessSummary() {
 			</div>
 			{workflow.recommendedReason ? (
 				<div>
-					<span className="scan-review-context-label">推奨される理由</span>
+					<span className="scan-review-context-label">補足理由</span>
 					<strong>{REASON_LABELS[workflow.recommendedReason]}</strong>
 				</div>
 			) : null}
@@ -463,11 +474,16 @@ function EvidenceQualityPanel() {
 	if (!quality) return null;
 	return (
 		<div className="detail-section">
-			<h3 className="detail-section-title">Evidence quality</h3>
+			<h3 className="detail-section-title">証跡品質</h3>
 			<div className="evidence-quality-panel">
 				<div className="evidence-quality-score">
 					<span className={`evidence-quality-badge evidence-${quality.level}`}>
 						{quality.label}
+					</span>
+					<span
+						className={`evidence-quality-badge evidence-completeness-${quality.dataCompleteness}`}
+					>
+						{quality.dataCompletenessLabel}
 					</span>
 					<strong>{quality.score}/100</strong>
 				</div>
@@ -506,7 +522,7 @@ function EvidenceChecklistPanel() {
 	if (!workflow) return null;
 	return (
 		<div className="detail-section">
-			<h3 className="detail-section-title">判断材料チェックリスト</h3>
+			<h3 className="detail-section-title">自動診断材料チェックリスト</h3>
 			<div className="evidence-checklist">
 				{workflow.evidenceChecklist.map((item) => (
 					<div
@@ -585,7 +601,7 @@ function SourceEvidenceDetail() {
 									rel="noreferrer"
 								>
 									<Download size={12} />
-									{item.title || `Artifact ${item.artifactId?.slice(0, 8)}`}
+									{item.title || `artifact ${item.artifactId?.slice(0, 8)}`}
 								</a>
 							))}
 					</div>
@@ -605,7 +621,9 @@ function ReportImpactPreview() {
 			</h3>
 			<div className="report-impact-panel">
 				<div>
-					<span className="scan-review-context-label">分類</span>
+					<span className="scan-review-context-label">
+						レポート上の互換分類
+					</span>
 					<span
 						className={`decision-badge badge-${workflow.reportImpact.bucket}`}
 					>
@@ -621,11 +639,13 @@ function ReportImpactPreview() {
 					</strong>
 				</div>
 				<div>
-					<span className="scan-review-context-label">人間の判断</span>
+					<span className="scan-review-context-label">
+						互換用 Decision 記録
+					</span>
 					<strong>
 						{workflow.latestDecision
 							? REASON_LABELS[workflow.latestDecision.reason]
-							: "判断はまだ記録されていません"}
+							: "通常フローでは入力不要です。LLM handoff を生成してください"}
 					</strong>
 				</div>
 			</div>

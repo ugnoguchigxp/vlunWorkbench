@@ -27,6 +27,8 @@ const finding = (overrides: Partial<Finding> = {}): Finding => ({
 const evidence = (level: EvidenceQualityView["level"]): EvidenceQualityView => ({
 	findingId: "finding-1",
 	level,
+	dataCompleteness: "complete",
+	dataCompletenessLabel: "完全評価",
 	score: level === "strong" ? 90 : 40,
 	label: level,
 	reasons: [],
@@ -82,7 +84,9 @@ describe("buildExecutiveRiskSummary", () => {
 		});
 		const result = buildExecutiveRiskSummary({ scanRunId: "scan-1", findings: [item] });
 		expect(result.counts.acceptedRisk).toBe(1);
-		expect(result.recommendedFocus[0]?.reason).toContain("Accepted exposure");
+		expect(result.recommendedFocus[0]?.reason).toContain(
+			"許容済みの露出",
+		);
 	});
 
 	it("weak evidence reduces confidence but does not remove finding", () => {
@@ -112,6 +116,13 @@ describe("buildExecutiveRiskSummary", () => {
 			},
 		});
 		expect(result.riskBand).toBe("low");
-		expect(result.headline).toContain("coverage");
+		expect(result.headline).toContain("カバレッジ");
+	});
+
+	it("localizes known default DAST finding titles for display", () => {
+		const item = finding({ title: "Sensitive common path is reachable" });
+		const result = buildExecutiveRiskSummary({ scanRunId: "scan-1", findings: [item] });
+
+		expect(result.recommendedFocus[0]?.title).toBe("機微な共通パスに到達可能");
 	});
 });

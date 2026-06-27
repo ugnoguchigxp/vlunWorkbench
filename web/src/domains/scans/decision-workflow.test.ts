@@ -113,7 +113,7 @@ describe("decision workflow", () => {
 			),
 		).toMatchObject({
 			bucket: "false_positive",
-			label: "誤検知",
+			label: "ツールノイズ記録",
 		});
 	});
 

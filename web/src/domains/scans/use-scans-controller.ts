@@ -42,6 +42,7 @@ import {
 	type ReproductionEvidence,
 	type ReproductionProfile,
 	type ReproductionRun,
+	type ScanReviewFindingFilter,
 	runScanAttackSurfaceInventory,
 	runScanSecurityChecks,
 	type ScanProfile,
@@ -57,6 +58,7 @@ import {
 	triggerScanReview,
 } from "../../api";
 import { buildCoverageSummary } from "./coverage-summary";
+import { buildDecisionGradeView } from "./decision-grade-view";
 import { buildDecisionWorkflow } from "./decision-workflow";
 import {
 	buildProjectDiagnosticDashboard,
@@ -69,9 +71,6 @@ import {
 	type RemediationStatus,
 	readRemediationMetadata,
 } from "./remediation-plan";
-import { buildReportQualityPreview } from "./report-quality";
-import { buildExecutiveRiskSummary } from "./risk-summary";
-import { buildScanComparison } from "./scan-comparison";
 import { useDastController } from "./use-dast-controller";
 import {
 	type ActionQueueItem,
@@ -79,12 +78,17 @@ import {
 	deriveFindingWorkState,
 	type FindingWorkState,
 } from "./work-states";
-import { buildWorkflowCompletion } from "./workflow-completion";
+
+const DEFAULT_REPORT_OPTIONS = {
+	includeFalsePositives: true,
+	includeDeferred: true,
+	includeUndecided: true,
+};
 
 const basenameFromPath = (value: string): string => {
 	const normalized = value.replace(/\/+$/, "");
 	const parts = normalized.split("/");
-	return parts.at(-1) || normalized || "Local project";
+	return parts.at(-1) || normalized || "ローカルプロジェクト";
 };
 
 export type ScansDomainSectionProps = {
@@ -147,16 +151,6 @@ const remediationStatuses: RemediationStatus[] = [
 ];
 const remediationPriorities: RemediationPriority[] = ["p0", "p1", "p2", "p3"];
 
-const hasImprovementRequest = (review: ScanReview): boolean => {
-	const value = review.output?.improvementRequest;
-	return (
-		review.status === "completed" &&
-		Boolean(value) &&
-		typeof value === "object" &&
-		!Array.isArray(value) &&
-		typeof (value as Record<string, unknown>).handoffPrompt === "string"
-	);
-};
 export const useScansController = ({
 	active,
 	busy,
@@ -171,7 +165,6 @@ export const useScansController = ({
 	const [projectCreateLoading, setProjectCreateLoading] = useState(false);
 	const [projectBrowseLoading, setProjectBrowseLoading] = useState(false);
 	const [showNewProjectModal, setShowNewProjectModal] = useState(false);
-	const [launchMode, setLaunchMode] = useState<"static" | "dast">("static");
 	const [scanRuns, setScanRuns] = useState<ScanRun[]>([]);
 	const [selectedScanRunId, setSelectedScanRunId] = useState("");
 	const [scanListTab, setScanListTab] = useState<"runs" | "findings">("runs");
@@ -219,14 +212,12 @@ export const useScansController = ({
 	const [reports, setReports] = useState<ScanReport[]>([]);
 	const [selectedReport, setSelectedReport] = useState<ScanReport | null>(null);
 	const [scanReviewLoading, setScanReviewLoading] = useState(false);
+	const [scanReviewFindingFilter, setScanReviewFindingFilter] =
+		useState<ScanReviewFindingFilter>("all");
 	const [scanReviews, setScanReviews] = useState<ScanReview[]>([]);
 	const [reportPreviewContent, setReportPreviewContent] = useState<
 		string | null
 	>(null);
-	const [reportTitle, setReportTitle] = useState("Security Report");
-	const [includeFalsePositives, setIncludeFalsePositives] = useState(true);
-	const [includeDeferred, setIncludeDeferred] = useState(true);
-	const [includeUndecided, setIncludeUndecided] = useState(true);
 	const [attackSurfaceItems, setAttackSurfaceItems] = useState<
 		AttackSurfaceItem[]
 	>([]);
@@ -318,11 +309,7 @@ export const useScansController = ({
 			reproductions: selectedVerificationDataLoaded ? reproRuns : undefined,
 			dynamicRuns: selectedVerificationDataLoaded ? dynamicRuns : undefined,
 			dastEvidence: selectedFindingDastEvidence,
-			reportOptions: {
-				includeFalsePositives,
-				includeDeferred,
-				includeUndecided,
-			},
+			reportOptions: DEFAULT_REPORT_OPTIONS,
 		});
 	}, [
 		selectedFindingDetails,
@@ -330,9 +317,6 @@ export const useScansController = ({
 		reproRuns,
 		dynamicRuns,
 		selectedFindingDastEvidence,
-		includeFalsePositives,
-		includeDeferred,
-		includeUndecided,
 	]);
 
 	useEffect(() => {
@@ -397,7 +381,9 @@ export const useScansController = ({
 			})
 			.catch((err) =>
 				setErrorText(
-					err instanceof Error ? err.message : "Failed to load projects.",
+					err instanceof Error
+						? err.message
+						: "プロジェクトの読み込みに失敗しました。",
 				),
 			);
 	}, [active, selectedProjectId, setErrorText]);
@@ -419,7 +405,9 @@ export const useScansController = ({
 			})
 			.catch((err) =>
 				setErrorText(
-					err instanceof Error ? err.message : "Failed to load scans.",
+					err instanceof Error
+						? err.message
+						: "scan の読み込みに失敗しました。",
 				),
 			);
 	}, [active, selectedProjectId, setErrorText]);
@@ -448,7 +436,9 @@ export const useScansController = ({
 			})
 			.catch((err) =>
 				setErrorText(
-					err instanceof Error ? err.message : "Failed to load findings.",
+					err instanceof Error
+						? err.message
+						: "finding の読み込みに失敗しました。",
 				),
 			)
 			.finally(() => setFindingsLoading(false));
@@ -730,7 +720,9 @@ export const useScansController = ({
 			}
 			setShowRunScanForm(false);
 		} catch (err) {
-			setErrorText(err instanceof Error ? err.message : "Scan failed to run.");
+			setErrorText(
+				err instanceof Error ? err.message : "scan の実行に失敗しました。",
+			);
 		} finally {
 			setIsScanning(false);
 		}
@@ -751,7 +743,9 @@ export const useScansController = ({
 			if (res.path) handleSelectProjectFolder(res.path);
 		} catch (err) {
 			setErrorText(
-				err instanceof Error ? err.message : "Failed to select project folder.",
+				err instanceof Error
+					? err.message
+					: "プロジェクトフォルダの選択に失敗しました。",
 			);
 		} finally {
 			setProjectBrowseLoading(false);
@@ -783,7 +777,7 @@ export const useScansController = ({
 			setErrorText(
 				err instanceof Error
 					? err.message
-					: "Failed to register project folder.",
+					: "プロジェクトフォルダの登録に失敗しました。",
 			);
 		} finally {
 			setProjectCreateLoading(false);
@@ -800,12 +794,14 @@ export const useScansController = ({
 		setReportLoading(true);
 		setErrorText(null);
 		try {
+			const defaultTitle =
+				scanRunId === selectedScanRunId
+					? reportQualityPreview.recommendedReportTitle
+					: `セキュリティレポート - ${scanRunId.slice(0, 8)}`;
 			const res = await generateScanReport(scanRunId, {
 				format: "markdown",
-				title: "Report",
-				includeFalsePositives: true,
-				includeDeferred: true,
-				includeUndecided: true,
+				title: defaultTitle,
+				...DEFAULT_REPORT_OPTIONS,
 				summaryMode,
 			});
 			const list = await fetchScanReports(scanRunId);
@@ -816,7 +812,7 @@ export const useScansController = ({
 			setScanDetailTab("report");
 		} catch (err) {
 			setErrorText(
-				err instanceof Error ? err.message : "Failed to generate report.",
+				err instanceof Error ? err.message : "レポート生成に失敗しました。",
 			);
 		} finally {
 			setReportLoading(false);
@@ -828,12 +824,16 @@ export const useScansController = ({
 		setScanReviewLoading(true);
 		setErrorText(null);
 		try {
-			await triggerScanReview(scanRunId);
+			await triggerScanReview(scanRunId, {
+				findingFilter: scanReviewFindingFilter,
+			});
 			setScanReviews(await fetchScanReviews(scanRunId));
 			setScanDetailTab("review");
 		} catch (err) {
 			setErrorText(
-				err instanceof Error ? err.message : "Failed to run scan review.",
+				err instanceof Error
+					? err.message
+					: "scan レビューの実行に失敗しました。",
 			);
 		} finally {
 			setScanReviewLoading(false);
@@ -864,7 +864,7 @@ export const useScansController = ({
 			await reloadDiagnostics(scanRunId);
 		} catch (err) {
 			setErrorText(
-				err instanceof Error ? err.message : "Failed to run diagnostics.",
+				err instanceof Error ? err.message : "診断の実行に失敗しました。",
 			);
 		} finally {
 			setDiagnosticLoading(false);
@@ -887,7 +887,7 @@ export const useScansController = ({
 			setErrorText(
 				err instanceof Error
 					? err.message
-					: "Failed to generate diagnostic report.",
+					: "診断レポートの生成に失敗しました。",
 			);
 		} finally {
 			setDiagnosticLoading(false);
@@ -910,7 +910,7 @@ export const useScansController = ({
 			setErrorText(
 				err instanceof Error
 					? err.message
-					: "Failed to run attack surface inventory.",
+					: "攻撃面 inventory の実行に失敗しました。",
 			);
 		} finally {
 			setDiagnosticLoading(false);
@@ -926,7 +926,9 @@ export const useScansController = ({
 			await reloadDiagnostics(selectedScanRunId);
 		} catch (err) {
 			setErrorText(
-				err instanceof Error ? err.message : "Failed to run security checks.",
+				err instanceof Error
+					? err.message
+					: "セキュリティ検査の実行に失敗しました。",
 			);
 		} finally {
 			setDiagnosticLoading(false);
@@ -944,13 +946,15 @@ export const useScansController = ({
 			if (selectedScanRunId)
 				setFindings(await fetchScanFindings(selectedScanRunId));
 			if (!res.ok) {
-				const message = res.error || "Failed to trigger LLM review.";
+				const message = res.error || "LLM レビューの起動に失敗しました。";
 				setReviewError(message);
 				setErrorText(message);
 			}
 		} catch (err) {
 			const message =
-				err instanceof Error ? err.message : "Failed to trigger LLM review.";
+				err instanceof Error
+					? err.message
+					: "LLM レビューの起動に失敗しました。";
 			setReviewError(message);
 			setErrorText(message);
 		} finally {
@@ -978,7 +982,7 @@ export const useScansController = ({
 			setCommentInput("");
 		} catch (err) {
 			setErrorText(
-				err instanceof Error ? err.message : "Failed to record decision.",
+				err instanceof Error ? err.message : "Decision 記録に失敗しました。",
 			);
 		} finally {
 			setDecisionSubmitLoading(false);
@@ -988,7 +992,7 @@ export const useScansController = ({
 	const handleRemediationSubmit = async (event: FormEvent) => {
 		event.preventDefault();
 		if (!selectedFindingId || !selectedFindingDetails?.latestDecision) {
-			setErrorText("Remediation can be saved after a finding decision exists.");
+			setErrorText("修正計画は finding の Decision 記録後に保存できます。");
 			return;
 		}
 		setRemediationSaveLoading(true);
@@ -1020,7 +1024,7 @@ export const useScansController = ({
 			}
 		} catch (err) {
 			setErrorText(
-				err instanceof Error ? err.message : "Failed to save remediation plan.",
+				err instanceof Error ? err.message : "修正計画の保存に失敗しました。",
 			);
 		} finally {
 			setRemediationSaveLoading(false);
@@ -1045,7 +1049,7 @@ export const useScansController = ({
 			findingVerificationCacheRef.current.delete(selectedFindingId);
 		} catch (err) {
 			setReproError(
-				err instanceof Error ? err.message : "Failed to trigger reproduction.",
+				err instanceof Error ? err.message : "再現確認の起動に失敗しました。",
 			);
 		} finally {
 			setReproLoading(false);
@@ -1072,7 +1076,7 @@ export const useScansController = ({
 		);
 		if (profile?.allowProjectScripts && !allowProjectScriptsConsent) {
 			setDynamicError(
-				"You must give explicit consent to run project scripts inside the Docker sandbox.",
+				"Docker sandbox 内でプロジェクトスクリプトを実行するには明示的な同意が必要です。",
 			);
 			return;
 		}
@@ -1092,7 +1096,7 @@ export const useScansController = ({
 			findingVerificationCacheRef.current.delete(selectedFindingId);
 		} catch (err) {
 			setDynamicError(
-				err instanceof Error ? err.message : "Failed to trigger dynamic check.",
+				err instanceof Error ? err.message : "動的検証の起動に失敗しました。",
 			);
 		} finally {
 			setDynamicLoading(false);
@@ -1165,6 +1169,15 @@ export const useScansController = ({
 					dynamicRuns: verification?.dynamicRuns,
 					dastEvidence: isSelected ? selectedFindingDastEvidence : undefined,
 					diagnosticReports,
+					dataCompleteness: {
+						hasFindingDetails: Boolean(details),
+						hasVerificationData: Boolean(
+							verification?.reproductionRuns?.length ||
+								verification?.dynamicRuns?.length,
+						),
+						hasDastEvidenceLoaded:
+							isSelected && (selectedFindingDastEvidence?.length ?? 0) > 0,
+					},
 				}),
 			);
 		}
@@ -1295,77 +1308,41 @@ export const useScansController = ({
 			scanSummary,
 		],
 	);
-	const executiveRiskSummary = useMemo(
+	const decisionGradeView = useMemo(
 		() =>
-			buildExecutiveRiskSummary({
-				scanRunId: selectedScanRunId,
+			buildDecisionGradeView({
+				selectedScanRunId,
+				selectedScanRun,
 				findings,
-				evidenceByFindingId: evidenceQualityByFindingId,
-				coverageSummary: selectedCoverageSummary,
+				scanReviews,
+				evidenceQualityByFindingId,
+				remediationPlanByFindingId,
+				reports,
 				diagnosticReports,
+				selectedCoverageSummary,
+				baselineScanRunId,
+				baselineFindings,
 			}),
 		[
 			selectedScanRunId,
-			findings,
-			evidenceQualityByFindingId,
-			selectedCoverageSummary,
-			diagnosticReports,
-		],
-	);
-	const workflowCompletion = useMemo(
-		() =>
-			buildWorkflowCompletion({
-				scanRun: selectedScanRun,
-				findings,
-				evidenceByFindingId: evidenceQualityByFindingId,
-				remediationByFindingId: remediationPlanByFindingId,
-				reports,
-				diagnosticReports,
-				coverageSummary: selectedCoverageSummary,
-				hasScanImprovementRequest: scanReviews.some(hasImprovementRequest),
-			}),
-		[
 			selectedScanRun,
 			findings,
+			scanReviews,
 			evidenceQualityByFindingId,
 			remediationPlanByFindingId,
 			reports,
 			diagnosticReports,
 			selectedCoverageSummary,
-			scanReviews,
+			baselineScanRunId,
+			baselineFindings,
 		],
 	);
-	const scanComparison = useMemo(
-		() =>
-			buildScanComparison({
-				currentScanRunId: selectedScanRunId,
-				baselineScanRunId,
-				currentFindings: findings,
-				baselineFindings,
-			}),
-		[selectedScanRunId, baselineScanRunId, findings, baselineFindings],
-	);
-	const reportQualityPreview = useMemo(
-		() =>
-			buildReportQualityPreview({
-				scanRunId: selectedScanRunId,
-				findings,
-				evidenceByFindingId: evidenceQualityByFindingId,
-				remediationByFindingId: remediationPlanByFindingId,
-				comparison: scanComparison,
-				coverageSummary: selectedCoverageSummary,
-				hasScanImprovementRequest: scanReviews.some(hasImprovementRequest),
-			}),
-		[
-			selectedScanRunId,
-			findings,
-			evidenceQualityByFindingId,
-			remediationPlanByFindingId,
-			scanComparison,
-			selectedCoverageSummary,
-			scanReviews,
-		],
-	);
+	const {
+		executiveRiskSummary,
+		workflowCompletion,
+		scanComparison,
+		reportQualityPreview,
+	} = decisionGradeView;
 	const diagnosticDashboard = useMemo(
 		() =>
 			buildProjectDiagnosticDashboard({
@@ -1516,7 +1493,6 @@ export const useScansController = ({
 	};
 	const handleDashboardAction = (action: DashboardAction) => {
 		if (action.kind === "run_scan") {
-			setLaunchMode("static");
 			setScanListTab("runs");
 			return;
 		}
@@ -1599,8 +1575,6 @@ export const useScansController = ({
 		handleBrowseProjectFolder,
 		handleSelectProjectFolder,
 		handleCreateProjectFromFolder,
-		launchMode,
-		setLaunchMode,
 		scanRuns,
 		selectedScanRunId,
 		setSelectedScanRunId,
@@ -1660,20 +1634,15 @@ export const useScansController = ({
 		viewingReport,
 		setViewingReport,
 		reportLoading,
+		reportOptions: DEFAULT_REPORT_OPTIONS,
 		reports,
 		selectedReport,
 		setSelectedReport,
 		scanReviewLoading,
+		scanReviewFindingFilter,
+		setScanReviewFindingFilter,
 		scanReviews,
 		reportPreviewContent,
-		reportTitle,
-		setReportTitle,
-		includeFalsePositives,
-		setIncludeFalsePositives,
-		includeDeferred,
-		setIncludeDeferred,
-		includeUndecided,
-		setIncludeUndecided,
 		attackSurfaceItems,
 		securityCheckResults,
 		diagnosticReports,

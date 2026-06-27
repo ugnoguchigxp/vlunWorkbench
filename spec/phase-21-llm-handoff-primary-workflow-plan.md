@@ -196,7 +196,7 @@ Acceptance:
 5. Keep the panel hidden when no completed scan review has improvementRequest.
 6. Markdown export format:
 
-```md
+````md
 # <title>
 
 ## Objective
@@ -228,7 +228,7 @@ Acceptance:
 
 ## Handoff Prompt
 <handoffPrompt>
-```
+````
 
 Acceptance:
 
@@ -238,9 +238,9 @@ Acceptance:
 
 ### Slice 3: Decision UI Repositioning
 
-1. Rename the section from primary "レビュアー判断" to audit-oriented wording.
+1. Rename the section from primary "レビュアー判断" to compatibility-record wording.
 2. Move Decision form below LLM handoff / evidence / remediation guidance inside drawer.
-3. Add short text that Decision is optional for audit/report classification when scan-level handoff is available.
+3. Add short text that Decision is optional legacy metadata and the primary output is scan-level implementation handoff.
 4. Keep existing save behavior and history.
 5. Do not remove Decision support.
 6. Exact UI policy:
@@ -251,7 +251,7 @@ Acceptance:
 
 Acceptance:
 
-- Human Decision no longer reads as mandatory main workflow when handoff exists.
+- Human Decision no longer reads as triage work or mandatory main workflow when handoff exists.
 - Existing decision tests and report behavior remain valid.
 
 ### Slice 4: Failure Reason UX

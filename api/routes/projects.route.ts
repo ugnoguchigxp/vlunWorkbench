@@ -196,6 +196,7 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 							message: result.message,
 							finalReport: result.finalReport,
 							toolResults: result.toolResults,
+							stepResults: result.stepResults,
 						});
 					}
 				} catch (_err) {

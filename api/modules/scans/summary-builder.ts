@@ -7,6 +7,7 @@ import {
 	findings,
 	findingReviews,
 	findingDecisions,
+	dastRuns,
 } from "../../db/schema";
 import { getProfileById } from "./profiles";
 
@@ -29,11 +30,25 @@ export interface ToolSummary {
 	error: string | null;
 }
 
+export interface StepSummary {
+	kind: "static_tool" | "dast";
+	id: string;
+	displayName: string;
+	status: string;
+	required: boolean;
+	findingCount: number;
+	artifactCount: number;
+	error: string | null;
+	outcome?: string | null;
+	targetOrigin?: string | null;
+}
+
 export interface ScanRunSummary {
 	scanRunId: string;
 	profileId: string;
 	profileOutcome: string;
 	tools: ToolSummary[];
+	steps?: StepSummary[];
 	totals: {
 		findingCount: number;
 		artifactCount: number;
@@ -74,6 +89,10 @@ export async function buildScanRunSummary(
 		.select()
 		.from(findings)
 		.where(eq(findings.scanRunId, scanRunId));
+	const dbDastRuns = await db
+		.select()
+		.from(dastRuns)
+		.where(eq(dastRuns.scanRunId, scanRunId));
 
 	// 5. Fetch reviews and decisions for totals
 	let reviewedFindingCount = 0;
@@ -109,6 +128,10 @@ export async function buildScanRunSummary(
 	// 6. Map tools using the profile definition
 	const profile = getProfileById(scanRun.profile);
 	const profileTools = profile?.tools ?? [];
+	const profileSteps = profile?.steps ?? [];
+	const metadataStepResults = Array.isArray(scanRun.metadata?.stepResults)
+		? (scanRun.metadata.stepResults as Array<Record<string, unknown>>)
+		: [];
 
 	const tools: ToolSummary[] = [];
 
@@ -196,12 +219,76 @@ export async function buildScanRunSummary(
 	const profileOutcome =
 		(scanRun.metadata?.profileOutcome as string) ||
 		(scanRun.status === "failed" ? "failed" : "completed");
+	const steps: StepSummary[] =
+		profileSteps.length > 0
+			? profileSteps.map((step) => {
+					if (step.kind === "dast") {
+						const id = `dast:${step.profileId}`;
+						const metadataResult = metadataStepResults.find(
+							(item) =>
+								item.kind === "dast" && item.profileId === step.profileId,
+						);
+						const dastRun = dbDastRuns.find(
+							(run) => run.profileId === step.profileId,
+						);
+						return {
+							kind: "dast",
+							id,
+							displayName: step.displayName,
+							status:
+								(metadataResult?.status as string | undefined) ??
+								dastRun?.status ??
+								"skipped",
+							required: step.required,
+							findingCount:
+								(metadataResult?.findingCount as number | undefined) ??
+								dbFindings.filter((finding) =>
+									finding.sourceTool.startsWith("dast"),
+								).length,
+							artifactCount: 0,
+							error:
+								(metadataResult?.error as string | null | undefined) ??
+								dastRun?.errorMessage ??
+								null,
+							outcome:
+								(metadataResult?.outcome as string | null | undefined) ??
+								dastRun?.outcome ??
+								null,
+							targetOrigin:
+								(metadataResult?.targetOrigin as string | null | undefined) ??
+								dastRun?.targetOrigin ??
+								null,
+						};
+					}
+					const tool = tools.find((item) => item.toolId === step.toolId);
+					return {
+						kind: "static_tool",
+						id: step.toolId,
+						displayName: step.displayName,
+						status: tool?.status ?? "skipped",
+						required: step.required,
+						findingCount: tool?.findingCount ?? 0,
+						artifactCount: tool?.artifactCount ?? 0,
+						error: tool?.error ?? null,
+					};
+				})
+			: tools.map((tool) => ({
+					kind: "static_tool",
+					id: tool.toolId,
+					displayName: tool.toolId,
+					status: tool.status,
+					required: tool.required,
+					findingCount: tool.findingCount,
+					artifactCount: tool.artifactCount,
+					error: tool.error,
+				}));
 
 	return {
 		scanRunId,
 		profileId: scanRun.profile,
 		profileOutcome,
 		tools,
+		steps,
 		totals: {
 			findingCount: dbFindings.length,
 			artifactCount: dbArtifacts.length,

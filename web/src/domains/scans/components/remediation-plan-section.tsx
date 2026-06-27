@@ -1,5 +1,6 @@
 import { Save } from "lucide-react";
 import { Button } from "../../../ui";
+import { buildScanImprovementRequestView } from "../scan-improvement-request";
 import { useScans } from "../scans-context";
 
 const statusLabels = {
@@ -32,9 +33,39 @@ export function RemediationPlanSection() {
 	const plan = c.selectedRemediationPlan;
 	if (!plan) return null;
 	const hasDecision = Boolean(c.selectedFindingDetails?.latestDecision);
+	const handoffView = buildScanImprovementRequestView(c.scanReviews);
+	const findingId = c.selectedFindingId;
+	const handoffTasks =
+		handoffView.request?.implementationTasks.filter(
+			(task) =>
+				task.findingIds.length === 0 || task.findingIds.includes(findingId),
+		) ?? [];
 	return (
 		<div className="detail-section">
-			<h3 className="detail-section-title">Remediation plan</h3>
+			<h3 className="detail-section-title">修正計画</h3>
+			{!hasDecision && handoffTasks.length > 0 ? (
+				<div className="decision-grade-panel remediation-handoff-panel">
+					<div className="decision-grade-panel-head">
+						<div>
+							<span className="scan-review-context-label">LLM 実装タスク</span>
+							<h3>{handoffView.title}</h3>
+						</div>
+					</div>
+					<div className="decision-grade-list">
+						{handoffTasks.map((task) => (
+							<div
+								className="decision-grade-command"
+								key={`${task.title}-${task.findingIds.join("-")}`}
+							>
+								<span>
+									<strong>{task.title}</strong>
+									<small>{task.body}</small>
+								</span>
+							</div>
+						))}
+					</div>
+				</div>
+			) : null}
 			<div className="remediation-status-grid">
 				<Metric label="状態" value={statusLabels[plan.status]} />
 				<Metric label="優先度" value={priorityLabels[plan.priority]} />
@@ -49,7 +80,16 @@ export function RemediationPlanSection() {
 					{plan.blockingReasons.join(", ")}
 				</div>
 			) : null}
-			<form className="remediation-form" onSubmit={c.handleRemediationSubmit}>
+			{!hasDecision ? (
+				<p className="scan-tool-purpose">
+					保存済み metadata の更新は互換用 Decision 記録に紐づきます。通常は上の
+					LLM 引き継ぎタスクを実装修正へ渡してください。
+				</p>
+			) : null}
+			<form
+				className={`remediation-form ${!hasDecision ? "is-secondary" : ""}`}
+				onSubmit={c.handleRemediationSubmit}
+			>
 				<label>
 					<span>状態</span>
 					<select

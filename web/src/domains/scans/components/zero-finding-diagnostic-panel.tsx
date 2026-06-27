@@ -20,7 +20,7 @@ const CHECK_STATUS_LABELS: Record<string, string> = {
 	fail: "問題あり",
 	warn: "注意",
 	not_applicable: "対象外",
-	manual_review: "手動確認",
+	manual_review: "追加確認",
 	not_checked: "未確認",
 };
 
@@ -120,7 +120,7 @@ export function ZeroFindingDiagnosticPanel() {
 					<div className="zero-finding-metrics">
 						<Metric label="確認済みチェック" value={passCount} />
 						<Metric label="カテゴリ" value={categories.length} />
-						<Metric label="手動確認・注意" value={reviewCount} />
+						<Metric label="追加確認・注意" value={reviewCount} />
 					</div>
 					{categories.length > 0 ? (
 						<div className="coverage-chip-list">

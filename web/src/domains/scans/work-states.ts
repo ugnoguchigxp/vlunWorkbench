@@ -255,15 +255,15 @@ const findingReason = (finding: Finding, state: FindingWorkState): string => {
 	if (state === "blocked_by_evidence")
 		return "利用可能な検出位置またはアーティファクト証跡が不足しています。";
 	if (state === "needs_review")
-		return "この finding には完了済みの LLM レビューが保存されていません。";
+		return "この finding は、次の LLM に渡すリスク文脈がまだ生成されていません。";
 	if (state === "needs_verification")
-		return "保存済みの判断材料から、再現確認または動的検証で信頼度を上げられます。";
+		return "保存済み証跡を LLM handoff に渡す前に、再現確認または動的検証で信頼度を上げられます。";
 	return `${finding.severity} の finding はレポートに含められる状態です。`;
 };
 
 const stateLabels: Record<ActionQueueState, string> = {
 	scan_failed: "スキャン失敗",
-	needs_review: "レビュー待ち",
+	needs_review: "LLMリスク文脈待ち",
 	needs_verification: "検証推奨",
 	blocked_by_evidence: "証跡不足",
 	ready_for_report: "レポート作成可能",
@@ -288,7 +288,7 @@ function findingQueueItem(
 		priority: priorityForFinding(finding, state),
 		label:
 			state === "needs_review"
-				? `レビュー未実施: ${finding.title}`
+				? `LLMリスク文脈未生成: ${finding.title}`
 				: state === "needs_verification"
 					? `検証を確認: ${finding.title}`
 					: `証跡不足: ${finding.title}`,
@@ -372,7 +372,7 @@ export function buildActionQueue(
 				priority: "low",
 				label: `レポートを作成: ${selectedScanRun.profile}`,
 				reason:
-					"トリアージは十分ですが、完了済みレポートがまだ保存されていません。",
+					"LLM handoff、証跡、カバレッジの文脈が揃っていますが、完了済みレポートがまだ保存されていません。",
 				updatedAt: selectedScanRun.updatedAt,
 				targetSummary: selectedScanRun.profile,
 			});

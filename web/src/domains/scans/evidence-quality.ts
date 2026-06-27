@@ -10,6 +10,7 @@ import type {
 } from "../../api";
 
 export type EvidenceQualityLevel = "strong" | "moderate" | "weak" | "missing";
+export type EvidenceDataCompleteness = "complete" | "partial" | "summary_only";
 
 export type EvidenceSignal = {
 	id: string;
@@ -31,6 +32,8 @@ export type EvidenceSignal = {
 export type EvidenceQualityView = {
 	findingId: string;
 	level: EvidenceQualityLevel;
+	dataCompleteness: EvidenceDataCompleteness;
+	dataCompletenessLabel: string;
 	score: number;
 	label: string;
 	reasons: string[];
@@ -40,8 +43,14 @@ export type EvidenceQualityView = {
 		| "run_review"
 		| "run_reproduction"
 		| "run_dynamic"
-		| "record_decision"
+		| "create_handoff"
 		| "ready_for_report";
+};
+
+export type EvidenceDataCompletenessInput = {
+	hasFindingDetails: boolean;
+	hasVerificationData: boolean;
+	hasDastEvidenceLoaded: boolean;
 };
 
 export type BuildEvidenceQualityInput = {
@@ -53,13 +62,20 @@ export type BuildEvidenceQualityInput = {
 	dynamicRuns?: DynamicRun[];
 	dastEvidence?: DastEvidence[];
 	diagnosticReports?: DiagnosticReport[];
+	dataCompleteness?: EvidenceDataCompletenessInput;
 };
 
 const labels: Record<EvidenceQualityLevel, string> = {
-	strong: "Strong",
-	moderate: "Moderate",
-	weak: "Weak",
-	missing: "Missing",
+	strong: "強い",
+	moderate: "中程度",
+	weak: "弱い",
+	missing: "不足",
+};
+
+const completenessLabels: Record<EvidenceDataCompleteness, string> = {
+	complete: "完全評価",
+	partial: "詳細のみ",
+	summary_only: "一覧データのみ",
 };
 
 const hasText = (value: unknown): boolean =>
@@ -150,6 +166,15 @@ const completedDynamic = (
 			(run.outcome === "passed" || run.outcome === "failed"),
 	);
 
+export function deriveEvidenceDataCompleteness(
+	input: EvidenceDataCompletenessInput,
+): EvidenceDataCompleteness {
+	if (!input.hasFindingDetails) return "summary_only";
+	if (input.hasVerificationData || input.hasDastEvidenceLoaded)
+		return "complete";
+	return "partial";
+}
+
 export function buildEvidenceQuality(
 	input: BuildEvidenceQualityInput,
 ): EvidenceQualityView {
@@ -179,7 +204,7 @@ export function buildEvidenceQuality(
 	const signals: EvidenceSignal[] = [
 		{
 			id: "source-location",
-			label: "Source location",
+			label: "ソース位置",
 			kind: "source_location",
 			present: Boolean(sourceRef),
 			strength: sourceRef ? "medium" : "low",
@@ -187,7 +212,7 @@ export function buildEvidenceQuality(
 		},
 		{
 			id: "tool-output",
-			label: "Tool output",
+			label: "tool 出力",
 			kind: "tool_output",
 			present: hasArtifact,
 			strength: hasArtifact ? "medium" : "low",
@@ -195,7 +220,7 @@ export function buildEvidenceQuality(
 		},
 		{
 			id: "llm-review",
-			label: "LLM review",
+			label: "LLM レビュー",
 			kind: "llm_review",
 			present: Boolean(completedReview),
 			strength: reviewStrength,
@@ -205,7 +230,7 @@ export function buildEvidenceQuality(
 		},
 		{
 			id: "reproduction",
-			label: "Reproduction",
+			label: "再現確認",
 			kind: "reproduction",
 			present: Boolean(reproduction),
 			strength: "high",
@@ -213,7 +238,7 @@ export function buildEvidenceQuality(
 		},
 		{
 			id: "dynamic",
-			label: "Dynamic verification",
+			label: "動的検証",
 			kind: "dynamic",
 			present: Boolean(dynamic),
 			strength: "high",
@@ -221,7 +246,7 @@ export function buildEvidenceQuality(
 		},
 		{
 			id: "dast",
-			label: "DAST evidence",
+			label: "DAST 証跡",
 			kind: "dast",
 			present: Boolean(dast),
 			strength: "high",
@@ -229,7 +254,7 @@ export function buildEvidenceQuality(
 		},
 		{
 			id: "diagnostic",
-			label: "Diagnostic report",
+			label: "診断レポート",
 			kind: "diagnostic",
 			present: Boolean(diagnostic),
 			strength: "medium",
@@ -237,7 +262,7 @@ export function buildEvidenceQuality(
 		},
 		{
 			id: "decision",
-			label: "Human decision",
+			label: "監査判断履歴",
 			kind: "decision",
 			present: Boolean(decision),
 			strength: decision ? "medium" : "low",
@@ -255,12 +280,19 @@ export function buildEvidenceQuality(
 		completedReview.evidenceStrength?.level !== "unknown";
 	const hasDecision = Boolean(decision);
 	const hasAnyEvidence = hasSourceOrTool || presentSignals.length > 0;
+	const hasVerificationData = Boolean(
+		input.reproductionRuns?.length || input.dynamicRuns?.length,
+	);
+	const dataCompleteness = deriveEvidenceDataCompleteness(
+		input.dataCompleteness ?? {
+			hasFindingDetails: Boolean(input.evidence),
+			hasVerificationData,
+			hasDastEvidenceLoaded: Boolean(input.dastEvidence?.length),
+		},
+	);
 
 	let level: EvidenceQualityLevel = "missing";
-	if (
-		hasSourceOrTool &&
-		(hasTechnicalVerification || hasDecision || hasModerateReview)
-	) {
+	if (hasSourceOrTool && (hasTechnicalVerification || hasModerateReview)) {
 		level = hasTechnicalVerification ? "strong" : "moderate";
 	} else if (hasAnyEvidence) {
 		level = "weak";
@@ -292,30 +324,35 @@ export function buildEvidenceQuality(
 	);
 
 	const reasons: string[] = [];
-	if (hasSourceOrTool) reasons.push("Usable source or tool evidence exists.");
-	if (hasTechnicalVerification)
-		reasons.push("Completed verification evidence exists.");
-	if (completedReview) reasons.push("Completed LLM review is available.");
-	if (hasDecision) reasons.push("Human decision is recorded.");
+	if (hasSourceOrTool)
+		reasons.push("利用可能なソースまたは tool 証跡があります。");
+	if (hasTechnicalVerification) reasons.push("完了済みの検証証跡があります。");
+	if (completedReview) reasons.push("完了済みの LLM レビューがあります。");
+	if (hasDecision) reasons.push("監査判断履歴があります。");
+	if (dataCompleteness === "summary_only")
+		reasons.push("一覧行データのみ読み込み済みのため、詳細証跡は暫定です。");
+	if (dataCompleteness === "partial")
+		reasons.push("finding 詳細は読み込み済みですが、検証データが未完了です。");
 	if (!hasSourceOrTool)
-		reasons.push("Source location or tool artifact is missing.");
+		reasons.push("ソース位置または tool artifact が不足しています。");
 	if (level === "weak")
-		reasons.push("Evidence is not strong enough for final confidence.");
-	if (level === "missing")
-		reasons.push("No usable evidence signal is available.");
+		reasons.push("最終判断に使うには証跡の信頼度が不足しています。");
+	if (level === "missing") reasons.push("利用可能な証跡シグナルがありません。");
 
 	const recommendedNextAction: EvidenceQualityView["recommendedNextAction"] =
 		!completedReview
 			? "run_review"
 			: !hasTechnicalVerification && level !== "strong"
 				? "run_reproduction"
-				: !hasDecision
-					? "record_decision"
+				: level === "weak" || level === "missing"
+					? "create_handoff"
 					: "ready_for_report";
 
 	return {
 		findingId: input.finding.id,
 		level,
+		dataCompleteness,
+		dataCompletenessLabel: completenessLabels[dataCompleteness],
 		score,
 		label: labels[level],
 		reasons,

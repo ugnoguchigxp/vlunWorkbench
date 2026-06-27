@@ -42,6 +42,8 @@ const finding = (overrides: Partial<Finding> = {}): Finding => ({
 const evidence = (level: EvidenceQualityView["level"]): EvidenceQualityView => ({
 	findingId: "finding-1",
 	level,
+	dataCompleteness: "complete",
+	dataCompletenessLabel: "完全評価",
 	score: 80,
 	label: level,
 	reasons: [],
@@ -70,9 +72,13 @@ const report = (): ScanReport => ({
 });
 
 describe("buildWorkflowCompletion", () => {
-	it("no reviews returns needs_review", () => {
+	it("no LLM reviews returns needs_review with LLM action copy", () => {
 		const result = buildWorkflowCompletion({ scanRun: scanRun(), findings: [finding()] });
 		expect(result.stage).toBe("needs_review");
+		expect(result.nextBestAction).toMatchObject({
+			action: "review_findings",
+		});
+		expect(result.nextBestAction?.label).toContain("LLM");
 	});
 
 	it("completed reviews without handoff returns needs_handoff", () => {
@@ -83,16 +89,16 @@ describe("buildWorkflowCompletion", () => {
 		expect(result.stage).toBe("needs_handoff");
 		expect(result.nextBestAction).toMatchObject({
 			action: "create_improvement_request",
-			label: "Generate improvement request",
+			label: "改善依頼を生成",
 		});
-		expect(result.checklist.find((entry) => entry.id === "handoff")).toMatchObject({
-			status: "incomplete",
-			label: "Implementation handoff",
-			count: "missing",
+			expect(result.checklist.find((entry) => entry.id === "handoff")).toMatchObject({
+				status: "incomplete",
+				label: "LLM 修正依頼",
+				count: "不足",
+			});
 		});
-	});
 
-	it("scan improvement handoff can replace manual decisions as the next gate", () => {
+	it("scan improvement handoff is the next gate instead of legacy decisions", () => {
 		const item = finding({ latestReview: { status: "completed" } });
 		const result = buildWorkflowCompletion({
 			scanRun: scanRun(),
@@ -100,14 +106,14 @@ describe("buildWorkflowCompletion", () => {
 			evidenceByFindingId: new Map([[item.id, evidence("strong")]]),
 			hasScanImprovementRequest: true,
 		});
-		expect(result.stage).toBe("report_ready");
-		expect(result.checklist.find((entry) => entry.id === "handoff")).toMatchObject({
-			status: "complete",
-			label: "Implementation handoff",
+			expect(result.stage).toBe("report_ready");
+			expect(result.checklist.find((entry) => entry.id === "handoff")).toMatchObject({
+				status: "complete",
+				label: "LLM 修正依頼",
+			});
 		});
-	});
 
-	it("weak evidence returns needs_verification", () => {
+	it("weak evidence returns needs_verification after handoff exists", () => {
 		const item = finding({
 			latestReview: { status: "completed" },
 			latestDecision: {
@@ -126,11 +132,12 @@ describe("buildWorkflowCompletion", () => {
 			scanRun: scanRun(),
 			findings: [item],
 			evidenceByFindingId: new Map([[item.id, evidence("weak")]]),
+			hasScanImprovementRequest: true,
 		});
 		expect(result.stage).toBe("needs_verification");
 	});
 
-	it("decisions and verification complete returns report_ready", () => {
+	it("decisions without scan handoff still need LLM handoff", () => {
 		const item = finding({
 			latestReview: { status: "completed" },
 			latestDecision: {
@@ -149,6 +156,18 @@ describe("buildWorkflowCompletion", () => {
 			scanRun: scanRun(),
 			findings: [item],
 			evidenceByFindingId: new Map([[item.id, evidence("strong")]]),
+		});
+		expect(result.stage).toBe("needs_handoff");
+		expect(result.nextBestAction?.action).toBe("create_improvement_request");
+	});
+
+	it("handoff and verification complete returns report_ready", () => {
+		const item = finding({ latestReview: { status: "completed" } });
+		const result = buildWorkflowCompletion({
+			scanRun: scanRun(),
+			findings: [item],
+			evidenceByFindingId: new Map([[item.id, evidence("strong")]]),
+			hasScanImprovementRequest: true,
 		});
 		expect(result.stage).toBe("report_ready");
 	});

@@ -6,7 +6,7 @@
 
 到達点は、ユーザーが report を生成する前に次を判断できる状態である。
 
-- この report は提出用か、内部レビュー用か、未完成か。
+- この report は LLM/実装者にリスクと改善依頼を渡せる状態か、内部レビュー用か、未完成か。
 - `blocked` または `partial` でも生成してよい理由は何か。
 - preview で ready と表示された section が、実際の Markdown に十分な内容として出るか。
 - LLM handoff、evidence quality、remediation、comparison、zero-finding coverage が report にどう入るか。
@@ -143,7 +143,7 @@ Acceptance:
 3. Keep generation allowed unless user enables strict mode.
 4. Do not introduce modal confirmation unless the inline warning is insufficient.
 5. If readiness is `blocked`, render warning text near the button:
-   - missing decisions
+   - missing LLM implementation handoff
    - missing remediation plan
    - missing zero-finding coverage
    - weak/missing evidence
@@ -191,7 +191,7 @@ Acceptance:
    - Executive summary
    - Risk ranking
    - Evidence quality
-   - Finding decisions or LLM handoff
+   - LLM implementation handoff
    - Remediation plan
    - Verification status
    - Scan comparison
@@ -218,7 +218,7 @@ type ReportSectionId =
    - `executive-summary` -> `## Decision-grade Executive Summary`
    - `risk-ranking` -> `## Risk Ranking`
    - `evidence-quality` -> `## Evidence Quality Summary`
-   - `finding-decisions` -> `## Finding Decisions` or `## LLM Implementation Handoff`
+   - `finding-decisions` -> `## LLM Implementation Handoff`
    - `remediation-plan` -> `## Remediation Plan`
    - `verification-status` -> `## Verification Status`
    - `scan-comparison` -> `## Scan Comparison Delta`

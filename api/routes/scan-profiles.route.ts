@@ -27,6 +27,27 @@ export function createScanProfilesRoute() {
 				required: t.required,
 				timeoutSec: t.timeoutSec,
 			})),
+			steps: p.steps?.map((step) => {
+				if (step.kind === "dast") {
+					return {
+						kind: step.kind,
+						profileId: step.profileId,
+						displayName: step.displayName,
+						required: step.required,
+						timeoutSec: step.timeoutSec,
+						failurePolicy: step.failurePolicy,
+						target: step.target,
+					};
+				}
+				return {
+					kind: step.kind,
+					toolId: step.toolId,
+					displayName: step.displayName,
+					required: step.required,
+					timeoutSec: step.timeoutSec,
+					failurePolicy: step.failurePolicy,
+				};
+			}),
 		}));
 		return c.json({ profiles: sanitizedProfiles });
 	});

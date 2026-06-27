@@ -42,6 +42,22 @@ describe("Scans Route", () => {
 			.fn()
 			.mockResolvedValue({ id: "r-1", status: "completed" }),
 	};
+	const mockScanReportRepo = {
+		listReportsForScan: vi.fn().mockResolvedValue([]),
+		createReport: vi.fn().mockResolvedValue({
+			id: "report-1",
+			scanRunId: "s-1",
+			format: "markdown",
+			title: "Filtered Report",
+			status: "running",
+			artifactId: null,
+		}),
+		updateReportStatus: vi.fn().mockResolvedValue({
+			id: "report-1",
+			status: "failed",
+			artifactId: null,
+		}),
+	};
 
 	const app = new Hono();
 	app.use("*", async (c, next) => {
@@ -63,7 +79,7 @@ describe("Scans Route", () => {
 			findingRepository: mockFindingRepo as any,
 			decisionRepository: mockDecisionRepo as any,
 			findingReviewRepository: mockFindingReviewRepo as any,
-			scanReportRepository: {} as any,
+			scanReportRepository: mockScanReportRepo as any,
 			artifactStorage: {} as any,
 			db: {} as any,
 		}),
@@ -138,5 +154,42 @@ describe("Scans Route", () => {
 		expect(res.status).toBe(200);
 		const body = await res.json();
 		expect(body.groups).toHaveLength(0);
+	});
+
+	it("POST /:scanRunId/reports normalizes report generation to the full set", async () => {
+		mockScanReportRepo.createReport.mockClear();
+		mockScanReportRepo.updateReportStatus.mockClear();
+
+		const res = await app.request("/s-1/reports", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				format: "markdown",
+				title: "Filtered Report",
+				includeFalsePositives: false,
+				includeDeferred: false,
+				includeUndecided: false,
+				summaryMode: "deterministic",
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		expect(mockScanReportRepo.createReport).toHaveBeenCalledWith(
+			expect.objectContaining({
+				options: {
+					includeFalsePositives: true,
+					includeDeferred: true,
+					includeUndecided: true,
+					summaryMode: "deterministic",
+				},
+			}),
+		);
+		expect(mockScanReportRepo.updateReportStatus).toHaveBeenCalledWith(
+			"report-1",
+			"failed",
+			expect.objectContaining({
+				errorMessage: expect.any(String),
+			}),
+		);
 	});
 });

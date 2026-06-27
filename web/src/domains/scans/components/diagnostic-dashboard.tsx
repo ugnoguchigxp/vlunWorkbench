@@ -7,52 +7,31 @@ import {
 } from "lucide-react";
 import type { ReactNode } from "react";
 import type { DashboardAction } from "../diagnostic-dashboard";
-import { formatScanOutcome } from "../scan-profile-display";
+import { formatSeverityLabel } from "../scan-display-copy";
 import { useScans } from "../scans-context";
-import { formatDateTime, getSeverityClass } from "../scans-utils";
+import { getSeverityClass } from "../scans-utils";
 
 const severityLabels = ["critical", "high", "medium", "low", "info", "unknown"];
+
+const blockerLabels: Record<string, string> = {
+	no_scan_selected: "scan が選択されていません",
+	scan_not_completed: "scan が未完了",
+	missing_improvement_request: "改善依頼が不足",
+	missing_diagnostic_summary_for_zero_findings:
+		"finding 0 件の診断 summary が不足",
+};
 
 export function DiagnosticDashboard() {
 	const c = useScans();
 	const dashboard = c.diagnosticDashboard;
-	const latest = dashboard.latestScanRun;
-	const decisions = dashboard.decisionProgress;
+	const implementationRouting = dashboard.decisionProgress;
 	const reports = dashboard.reportReadiness;
 	const diagnostics = dashboard.diagnosticCoverage;
 
 	return (
-		<section className="diagnostic-dashboard" aria-label="Diagnostic dashboard">
-			<DashboardGroup title="Latest Scan" icon={<Activity className="icon" />}>
-				<div className="diagnostic-primary-row">
-					<strong>{latest?.profile ?? "No scan"}</strong>
-					<span
-						className={`scan-status-badge badge-${latest?.status ?? "unknown"}`}
-					>
-						{formatScanOutcome(latest?.status)}
-					</span>
-				</div>
-				<div className="diagnostic-metric-grid two">
-					<Metric
-						label="Findings"
-						value={
-							latest?.findingCountKnown ? String(latest.findingCount) : "-"
-						}
-					/>
-					<Metric
-						label="Completed"
-						value={formatDateTime(latest?.completedAt)}
-					/>
-				</div>
-				<small>
-					{latest
-						? formatDateTime(latest.createdAt)
-						: "Project has no saved scan."}
-				</small>
-			</DashboardGroup>
-
+		<section className="diagnostic-dashboard" aria-label="診断ダッシュボード">
 			<DashboardGroup
-				title="Findings"
+				title="検出結果"
 				icon={<AlertTriangle className="icon" />}
 			>
 				<div className="diagnostic-severity-list">
@@ -61,58 +40,64 @@ export function DiagnosticDashboard() {
 							key={severity}
 							className={`diagnostic-severity-chip ${getSeverityClass(severity)}`}
 						>
-							{severity}
+							{formatSeverityLabel(severity)}
 							<strong>{dashboard.severityCounts[severity] ?? 0}</strong>
 						</span>
 					))}
 				</div>
 				<Metric
-					label="Open work"
-					value={`${decisions.undecidedFindings} undecided`}
+					label="handoff 必要"
+					value={`${implementationRouting.undecidedFindings} 件`}
 				/>
 			</DashboardGroup>
 
 			<DashboardGroup
-				title="Decisions"
+				title="実装ルーティング"
 				icon={<ClipboardCheck className="icon" />}
 			>
 				<div className="diagnostic-progress-line">
 					<span
 						style={{
 							width: progressWidth(
-								decisions.decidedFindings,
-								decisions.totalFindings,
+								implementationRouting.decidedFindings,
+								implementationRouting.totalFindings,
 							),
 						}}
 					/>
 				</div>
 				<div className="diagnostic-metric-grid">
 					<Metric
-						label="Decided"
-						value={`${decisions.decidedFindings}/${decisions.totalFindings}`}
+						label="既存記録"
+						value={`${implementationRouting.decidedFindings}/${implementationRouting.totalFindings}`}
 					/>
-					<Metric label="Needs fix" value={String(decisions.needsFix)} />
 					<Metric
-						label="False positive"
-						value={String(decisions.falsePositive)}
+						label="修正候補"
+						value={String(implementationRouting.needsFix)}
 					/>
-					<Metric label="Deferred" value={String(decisions.deferred)} />
+					<Metric
+						label="tool noise 記録"
+						value={String(implementationRouting.falsePositive)}
+					/>
+					<Metric
+						label="保留記録"
+						value={String(implementationRouting.deferred)}
+					/>
 				</div>
 			</DashboardGroup>
 
-			<DashboardGroup title="Diagnostics" icon={<Radar className="icon" />}>
+			<DashboardGroup title="診断" icon={<Radar className="icon" />}>
 				<div className="diagnostic-metric-grid">
 					<Metric
-						label="Attack surface"
+						label="攻撃面"
 						value={String(diagnostics.attackSurfaceItems)}
 					/>
-					<Metric label="Checks" value={String(diagnostics.securityChecks)} />
+					<Metric label="チェック" value={String(diagnostics.securityChecks)} />
 					<Metric
-						label="Coverage gaps"
+						label="カバレッジギャップ"
 						value={String(diagnostics.coverageGaps)}
 					/>
 					<Metric
-						label="Scan reviews"
+						label="scan レビュー"
 						value={String(dashboard.reviewCoverage.scanReviews)}
 					/>
 				</div>
@@ -125,13 +110,18 @@ export function DiagnosticDashboard() {
 				{reports.blockers.length ? (
 					<div className="diagnostic-blockers">
 						{reports.blockers.map((blocker) => (
-							<span key={blocker}>{blocker.replace(/_/g, " ")}</span>
+							<span key={blocker}>
+								{blockerLabels[blocker] ?? blocker.replace(/_/g, " ")}
+							</span>
 						))}
 					</div>
 				) : null}
 			</DashboardGroup>
 
-			<DashboardGroup title="Next Actions" icon={<FileText className="icon" />}>
+			<DashboardGroup
+				title="次のアクション"
+				icon={<FileText className="icon" />}
+			>
 				<div className="diagnostic-action-list">
 					{dashboard.nextActions.length ? (
 						dashboard.nextActions.map((action) => (
@@ -146,7 +136,9 @@ export function DiagnosticDashboard() {
 							</button>
 						))
 					) : (
-						<div className="diagnostic-empty-action">No immediate action</div>
+						<div className="diagnostic-empty-action">
+							すぐに必要な操作はありません
+						</div>
 					)}
 				</div>
 			</DashboardGroup>
@@ -189,8 +181,8 @@ function progressWidth(done: number, total: number): string {
 }
 
 function reportReadinessLabel(ready: boolean, scanReports: number): string {
-	if (scanReports > 0) return ready ? "Report ready" : "Report present";
-	return ready ? "Ready to generate" : "Report blocked";
+	if (scanReports > 0) return ready ? "レポート準備完了" : "レポートあり";
+	return ready ? "生成可能" : "レポート生成ブロック中";
 }
 
 function ActionIcon({ action }: { action: DashboardAction }) {

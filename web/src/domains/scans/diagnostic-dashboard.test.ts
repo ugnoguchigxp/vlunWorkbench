@@ -185,6 +185,41 @@ function scanReview(overrides: Partial<ScanReview> = {}): ScanReview {
 	};
 }
 
+function scanReviewWithImprovementRequest(
+	overrides: Partial<ScanReview> = {},
+): ScanReview {
+	return scanReview({
+		output: {
+			improvementRequest: {
+				title: "Fix high risk finding",
+				objective: "Pass stored scan risk to the next LLM.",
+				scope: ["Stored scan bundle only."],
+				priorityPlan: [
+					{
+						priority: "high",
+						rationale: "High severity finding.",
+						findingIds: ["finding-1"],
+					},
+				],
+				implementationTasks: [
+					{
+						title: "Reduce implementation risk",
+						body: "Use stored evidence to patch the risky code path.",
+						findingIds: ["finding-1"],
+						evidenceRefs: [],
+					},
+				],
+				acceptanceCriteria: ["Risk is reduced in implementation."],
+				verificationCommands: ["bun test"],
+				constraints: ["Use stored evidence only."],
+				nonGoals: ["No new scanner."],
+				handoffPrompt: "Use stored evidence to reduce implementation risk.",
+			},
+		},
+		...overrides,
+	});
+}
+
 function build(
 	overrides: Partial<Parameters<typeof buildProjectDiagnosticDashboard>[0]> = {},
 ) {
@@ -288,7 +323,7 @@ describe("buildProjectDiagnosticDashboard", () => {
 		});
 	});
 
-	it("returns generate_report when all findings are decided and no report exists", () => {
+	it("returns generate_report when an implementation handoff exists and no report exists", () => {
 		const dashboard = build({
 			findings: [
 				finding({
@@ -296,7 +331,7 @@ describe("buildProjectDiagnosticDashboard", () => {
 					latestReview: { id: "review-1" },
 				}),
 			],
-			scanReviews: [scanReview()],
+			scanReviews: [scanReviewWithImprovementRequest()],
 			diagnosticReports: [diagnosticReport()],
 			securityCheckResults: [securityCheck()],
 			attackSurfaceItems: [attackSurfaceItem()],

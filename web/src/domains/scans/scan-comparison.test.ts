@@ -33,7 +33,32 @@ describe("buildScanComparison", () => {
 		).toBe("missing_baseline");
 	});
 
-	it("matching rule/location returns unchanged", () => {
+	it("matching stable metadata returns unchanged with stable confidence", () => {
+		const result = buildScanComparison({
+			currentScanRunId: "scan-2",
+			baselineScanRunId: "scan-1",
+			currentFindings: [
+				finding({
+					id: "current",
+					scanRunId: "scan-2",
+					metadata: { stableId: "stable-1" },
+					fingerprint: "current-fp",
+				}),
+			],
+			baselineFindings: [
+				finding({
+					id: "base",
+					scanRunId: "scan-1",
+					metadata: { stableId: "stable-1" },
+					fingerprint: "base-fp",
+				}),
+			],
+		});
+		expect(result.counts.unchanged).toBe(1);
+		expect(result.deltas[0]?.matchConfidence).toBe("stable");
+	});
+
+	it("matching fingerprint returns unchanged with fingerprint confidence", () => {
 		const result = buildScanComparison({
 			currentScanRunId: "scan-2",
 			baselineScanRunId: "scan-1",
@@ -41,6 +66,47 @@ describe("buildScanComparison", () => {
 			baselineFindings: [finding({ id: "base", scanRunId: "scan-1" })],
 		});
 		expect(result.counts.unchanged).toBe(1);
+		expect(result.deltas[0]?.matchConfidence).toBe("fingerprint");
+	});
+
+	it("matches metadata fingerprint when the top-level fingerprint is empty", () => {
+		const result = buildScanComparison({
+			currentScanRunId: "scan-2",
+			baselineScanRunId: "scan-1",
+			currentFindings: [
+				finding({
+					id: "current",
+					scanRunId: "scan-2",
+					fingerprint: "",
+					metadata: { fingerprint: "metadata-fp" },
+				}),
+			],
+			baselineFindings: [
+				finding({
+					id: "base",
+					scanRunId: "scan-1",
+					fingerprint: "",
+					metadata: { fingerprint: "metadata-fp" },
+				}),
+			],
+		});
+		expect(result.counts.unchanged).toBe(1);
+		expect(result.deltas[0]?.matchConfidence).toBe("fingerprint");
+	});
+
+	it("matching rule/location returns unchanged with heuristic confidence", () => {
+		const result = buildScanComparison({
+			currentScanRunId: "scan-2",
+			baselineScanRunId: "scan-1",
+			currentFindings: [
+				finding({ id: "current", scanRunId: "scan-2", fingerprint: "" }),
+			],
+			baselineFindings: [
+				finding({ id: "base", scanRunId: "scan-1", fingerprint: "" }),
+			],
+		});
+		expect(result.counts.unchanged).toBe(1);
+		expect(result.deltas[0]?.matchConfidence).toBe("rule_location");
 	});
 
 	it("current-only returns new", () => {
@@ -51,6 +117,23 @@ describe("buildScanComparison", () => {
 			baselineFindings: [],
 		});
 		expect(result.counts.new).toBe(1);
+	});
+
+	it("localizes known default DAST finding titles in deltas", () => {
+		const result = buildScanComparison({
+			currentScanRunId: "scan-2",
+			baselineScanRunId: "scan-1",
+			currentFindings: [
+				finding({
+					id: "current",
+					ruleId: "rule.new",
+					title: "Missing common security header",
+				}),
+			],
+			baselineFindings: [],
+		});
+
+		expect(result.deltas[0]?.title).toBe("一般的なセキュリティヘッダーが不足");
 	});
 
 	it("baseline-only returns resolved", () => {
@@ -127,5 +210,9 @@ describe("buildScanComparison", () => {
 		expect(result.counts.new).toBe(1);
 		expect(result.counts.resolved).toBe(1);
 		expect(result.counts.unchanged).toBe(0);
+		expect(result.deltas.map((delta) => delta.matchConfidence)).toEqual([
+			"insufficient",
+			"insufficient",
+		]);
 	});
 });

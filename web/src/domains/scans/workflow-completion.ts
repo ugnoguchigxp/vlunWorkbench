@@ -18,6 +18,8 @@ export type WorkflowCompletion = {
 		id: string;
 		label: string;
 		status: "complete" | "incomplete" | "blocked" | "not_applicable";
+		weight: number;
+		explanation: string;
 		count?: string;
 		blockingReason?: string;
 	}>;
@@ -53,16 +55,65 @@ const completeReport = (
 const incomplete = (
 	id: string,
 	label: string,
+	weight: number,
+	explanation: string,
 	count?: string,
 	blockingReason?: string,
-) => ({ id, label, status: "incomplete" as const, count, blockingReason });
+) => ({
+	id,
+	label,
+	status: "incomplete" as const,
+	weight,
+	explanation,
+	count,
+	blockingReason,
+});
 
-const complete = (id: string, label: string, count?: string) => ({
+const complete = (
+	id: string,
+	label: string,
+	weight: number,
+	explanation: string,
+	count?: string,
+) => ({
 	id,
 	label,
 	status: "complete" as const,
+	weight,
+	explanation,
 	count,
 });
+
+const blocked = (
+	id: string,
+	label: string,
+	weight: number,
+	explanation: string,
+	count?: string,
+	blockingReason?: string,
+) => ({
+	id,
+	label,
+	status: "blocked" as const,
+	weight,
+	explanation,
+	count,
+	blockingReason,
+});
+
+const weightedPercent = (
+	checklist: WorkflowCompletion["checklist"],
+): number => {
+	const applicable = checklist.filter(
+		(item) => item.status !== "not_applicable",
+	);
+	const total = applicable.reduce((sum, item) => sum + item.weight, 0);
+	if (total === 0) return 0;
+	const completed = applicable
+		.filter((item) => item.status === "complete")
+		.reduce((sum, item) => sum + item.weight, 0);
+	return Math.round((completed / total) * 100);
+};
 
 export function buildWorkflowCompletion(
 	input: BuildWorkflowCompletionInput,
@@ -78,7 +129,14 @@ export function buildWorkflowCompletion(
 			scanRunId,
 			stage: "scan_running",
 			percent: 10,
-			checklist: [incomplete("scan", "Scan completed")],
+			checklist: [
+				incomplete(
+					"scan",
+					"スキャン完了",
+					10,
+					"自動診断シグナルを作成するには、先にスキャン完了が必要です。",
+				),
+			],
 			nextBestAction: null,
 		};
 	}
@@ -92,13 +150,40 @@ export function buildWorkflowCompletion(
 				),
 			);
 		const checklist = [
-			complete("scan", "Scan completed"),
+			complete(
+				"scan",
+				"スキャン完了",
+				10,
+				"スキャン runner が完了し、結果を保存しました。",
+			),
 			hasDiagnostics
-				? complete("coverage", "Coverage explanation", "ready")
-				: incomplete("coverage", "Coverage explanation", "missing"),
+				? complete(
+						"coverage",
+						"カバレッジ説明",
+						35,
+						"finding 0 件のリスク確認に使える自動カバレッジ診断があります。",
+						"準備完了",
+					)
+				: incomplete(
+						"coverage",
+						"カバレッジ説明",
+						35,
+						"finding 0 件の scan は、LLM へ渡す前に自動カバレッジ診断が必要です。",
+						"不足",
+					),
 			generatedReport
-				? complete("report", "Report generated")
-				: incomplete("report", "Report generated"),
+				? complete(
+						"report",
+						"レポート生成",
+						15,
+						"保存済みレポートに自動診断の出力が反映されています。",
+					)
+				: incomplete(
+						"report",
+						"レポート生成",
+						15,
+						"カバレッジ診断が利用可能になった後でレポートを生成してください。",
+					),
 		];
 		return {
 			scanRunId,
@@ -113,12 +198,12 @@ export function buildWorkflowCompletion(
 				? null
 				: hasDiagnostics
 					? {
-							label: "Generate report",
+							label: "レポートを生成",
 							action: "generate_report",
 							targetId: scanRunId,
 						}
 					: {
-							label: "Inspect coverage",
+							label: "カバレッジを確認",
 							action: "inspect_coverage",
 							targetId: scanRunId,
 						},
@@ -128,10 +213,7 @@ export function buildWorkflowCompletion(
 	const reviewed = input.findings.filter(
 		(finding) => finding.latestReview?.status === "completed",
 	);
-	const decided = input.findings.filter((finding) => finding.latestDecision);
-	const handoffComplete =
-		decided.length === input.findings.length ||
-		Boolean(input.hasScanImprovementRequest);
+	const handoffComplete = Boolean(input.hasScanImprovementRequest);
 	const weakEvidence = input.findings.filter((finding) => {
 		const evidence = input.evidenceByFindingId?.get(finding.id);
 		return (
@@ -140,54 +222,97 @@ export function buildWorkflowCompletion(
 	});
 	const remediationBlocked = input.findings.filter((finding) => {
 		const remediation = input.remediationByFindingId?.get(finding.id);
-		return remediation ? remediation.blockingReasons.length > 0 : false;
+		if (!remediation) return false;
+		const blockingReasons = handoffComplete
+			? remediation.blockingReasons.filter(
+					(reason) => reason !== "decision_required",
+				)
+			: remediation.blockingReasons;
+		return blockingReasons.length > 0;
 	});
 
 	const checklist: WorkflowCompletion["checklist"] = [
-		complete("scan", "Scan completed"),
+		complete(
+			"scan",
+			"スキャン完了",
+			10,
+			"スキャン runner が完了し、正規化済み finding を保存しました。",
+		),
 		reviewed.length === input.findings.length
 			? complete(
 					"reviews",
-					"Finding reviews",
+					"LLM finding レビュー出力",
+					20,
+					"すべての finding に完了済みの LLM レビュー出力があります。",
 					`${reviewed.length}/${input.findings.length}`,
 				)
 			: incomplete(
 					"reviews",
-					"Finding reviews",
+					"LLM finding レビュー出力",
+					20,
+					`${input.findings.length - reviewed.length} 件の finding は自動 LLM レビュー出力がまだ必要です。`,
 					`${reviewed.length}/${input.findings.length}`,
 				),
 		handoffComplete
 			? complete(
 					"handoff",
-					"Implementation handoff",
-					input.hasScanImprovementRequest ? "ready" : "legacy decisions",
+					"LLM 修正依頼",
+					20,
+					"次の LLM または実装担当へ渡せる scan 単位の改善依頼があります。",
+					"準備完了",
 				)
-			: incomplete("handoff", "Implementation handoff", "missing"),
+			: incomplete(
+					"handoff",
+					"LLM 修正依頼",
+					20,
+					"次の LLM にコード上のリスク低減方法を伝える scan 単位の実装 handoff を生成してください。",
+					"不足",
+				),
 		weakEvidence.length === 0
-			? complete("verification", "Evidence confidence")
+			? complete(
+					"verification",
+					"証跡の信頼度",
+					20,
+					"自動 handoff に十分な証跡品質があります。",
+				)
 			: incomplete(
 					"verification",
-					"Evidence confidence",
-					`${weakEvidence.length} weak/missing`,
+					"証跡の信頼度",
+					20,
+					`${weakEvidence.length} 件の finding は証跡シグナルが弱いか不足しています。`,
+					`${weakEvidence.length} 件 弱い/不足`,
 				),
 		remediationBlocked.length === 0
-			? complete("remediation", "Remediation plan")
-			: {
-					id: "remediation",
-					label: "Remediation plan",
-					status: "blocked",
-					count: `${remediationBlocked.length} blocked`,
-					blockingReason: remediationBlocked[0]?.id,
-				},
+			? complete(
+					"remediation",
+					"修正または handoff の準備",
+					15,
+					"修正ガイダンスまたは scan 単位の handoff で後続作業を進められます。",
+				)
+			: blocked(
+					"remediation",
+					"修正または handoff の準備",
+					15,
+					`${remediationBlocked.length} 件の finding は修正メタデータがまだブロックされています。`,
+					`${remediationBlocked.length} 件 ブロック中`,
+					remediationBlocked[0]?.id,
+				),
 		generatedReport
-			? complete("report", "Report generated")
-			: incomplete("report", "Report generated"),
+			? complete(
+					"report",
+					"レポート生成",
+					15,
+					"保存済みレポートに自動診断の出力が反映されています。",
+				)
+			: incomplete(
+					"report",
+					"レポート生成",
+					15,
+					"LLM handoff と証跡シグナルが準備できた後でレポートを生成してください。",
+				),
 	];
 
-	const completedCount = checklist.filter(
-		(item) => item.status === "complete",
-	).length;
-	const percent = Math.round((completedCount / checklist.length) * 100);
+	const percent = weightedPercent(checklist);
 	const firstUnreviewed = input.findings.find(
 		(finding) => finding.latestReview?.status !== "completed",
 	);
@@ -210,7 +335,7 @@ export function buildWorkflowCompletion(
 			percent,
 			checklist,
 			nextBestAction: {
-				label: "Review findings",
+				label: "LLM リスク文脈を生成",
 				action: "review_findings",
 				targetId: firstUnreviewed.id,
 			},
@@ -223,7 +348,7 @@ export function buildWorkflowCompletion(
 			percent,
 			checklist,
 			nextBestAction: {
-				label: "Generate improvement request",
+				label: "改善依頼を生成",
 				action: "create_improvement_request",
 				targetId: scanRunId,
 			},
@@ -236,7 +361,7 @@ export function buildWorkflowCompletion(
 			percent,
 			checklist,
 			nextBestAction: {
-				label: "Run verification",
+				label: "検証を実行",
 				action: "run_verification",
 				targetId: firstWeakEvidence.id,
 			},
@@ -249,7 +374,7 @@ export function buildWorkflowCompletion(
 			percent,
 			checklist,
 			nextBestAction: {
-				label: "Complete remediation plan",
+				label: "修正計画を完了",
 				action: "create_remediation_plan",
 				targetId: firstRemediationBlocked.id,
 			},
@@ -261,7 +386,7 @@ export function buildWorkflowCompletion(
 		percent: Math.max(percent, 90),
 		checklist,
 		nextBestAction: {
-			label: "Generate report",
+			label: "レポートを生成",
 			action: "generate_report",
 			targetId: scanRunId,
 		},

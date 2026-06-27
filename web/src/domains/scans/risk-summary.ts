@@ -4,6 +4,7 @@ import type {
 	EvidenceQualityLevel,
 	EvidenceQualityView,
 } from "./evidence-quality";
+import { formatFindingTitle } from "./scan-display-copy";
 
 export type RiskBand = "critical" | "high" | "medium" | "low" | "informational";
 
@@ -136,14 +137,14 @@ export function buildExecutiveRiskSummary(
 			riskBand: blockers > 0 ? "low" : "informational",
 			score: blockers > 0 ? 20 : 5,
 			headline: completedDiagnostic
-				? "No findings, with diagnostic coverage context available."
-				: "No findings, but coverage still needs explicit confirmation.",
+				? "finding はありません。診断カバレッジの文脈を確認済みです。"
+				: "finding はありませんが、カバレッジの明示確認がまだ必要です。",
 			keyDrivers: [
 				{
 					id: "zero-findings",
 					label: completedDiagnostic
-						? "Zero-finding scan has diagnostic context"
-						: "Zero-finding scan is missing coverage explanation",
+						? "finding 0 件の scan に診断文脈があります"
+						: "finding 0 件の scan にカバレッジ説明が不足しています",
 				},
 			],
 			counts,
@@ -152,9 +153,8 @@ export function buildExecutiveRiskSummary(
 					? [
 							{
 								findingId: "",
-								title: "Confirm zero-finding coverage",
-								reason:
-									"Generate diagnostics before treating this as low risk.",
+								title: "finding 0 件のカバレッジを確認",
+								reason: "低リスクとして扱う前に診断を生成してください。",
 							},
 						]
 					: [],
@@ -190,15 +190,15 @@ export function buildExecutiveRiskSummary(
 		score,
 		headline:
 			riskBand === "critical"
-				? "Critical risk requires immediate triage."
+				? "緊急リスクです。即時の実装修正に向けて次の LLM へ渡してください。"
 				: riskBand === "high"
-					? "High risk findings should be prioritized before report release."
+					? "高リスクの finding は、レポート公開前に実装修正へ変換してください。"
 					: riskBand === "medium"
-						? "Moderate risk remains; complete triage and evidence checks."
-						: "Risk is currently low, subject to evidence and coverage limits.",
+						? "中程度のリスクが残っています。証跡を強化し、実装ガイダンスを生成してください。"
+						: "現在のリスクは低めですが、証跡とカバレッジの制約があります。",
 		keyDrivers: scored.slice(0, 3).map(({ finding, evidence }) => ({
 			id: `driver:${finding.id}`,
-			label: finding.title,
+			label: formatFindingTitle(finding.title),
 			severity: finding.severity,
 			findingId: finding.id,
 			evidenceLevel: evidence?.level,
@@ -211,13 +211,13 @@ export function buildExecutiveRiskSummary(
 			.slice(0, 3)
 			.map(({ finding, evidence }) => ({
 				findingId: finding.id,
-				title: finding.title,
+				title: formatFindingTitle(finding.title),
 				reason:
 					finding.latestDecision?.decision === "accepted"
-						? "Accepted exposure remains visible for reporting."
+						? "許容済みの露出として残っていますが、実装での低減も検討してください。"
 						: evidence?.level === "weak" || evidence?.level === "missing"
-							? "Evidence confidence is not yet decision-grade."
-							: "High-priority active risk item.",
+							? "証跡の信頼度が弱いため、リスク文脈と検証作業として LLM に渡してください。"
+							: "優先度の高い実装リスク項目です。",
 			})),
 	};
 }

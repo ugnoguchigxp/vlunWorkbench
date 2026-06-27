@@ -8,6 +8,7 @@ import type {
 	ScanRunSummary,
 	SecurityCheckResult,
 } from "../../api";
+import { hasScanImprovementRequest as hasCompletedScanImprovementRequest } from "./scan-improvement-request";
 
 export type DashboardActionKind =
 	| "run_scan"
@@ -93,17 +94,6 @@ const actionOrder: DashboardActionKind[] = [
 ];
 const priorityRank = { high: 0, medium: 1, low: 2 } as const;
 
-const hasImprovementRequest = (review: ScanReview): boolean => {
-	const value = review.output?.improvementRequest;
-	return (
-		review.status === "completed" &&
-		Boolean(value) &&
-		typeof value === "object" &&
-		!Array.isArray(value) &&
-		typeof (value as Record<string, unknown>).handoffPrompt === "string"
-	);
-};
-
 export function buildProjectDiagnosticDashboard(
 	input: BuildProjectDiagnosticDashboardInput,
 ): ProjectDiagnosticDashboard {
@@ -170,10 +160,10 @@ export function buildProjectDiagnosticDashboard(
 	);
 	const hasScanImprovementRequest = input.scanReviews.some(
 		(review) =>
-			review.scanRunId === activeRun?.id && hasImprovementRequest(review),
+			review.scanRunId === activeRun?.id &&
+			hasCompletedScanImprovementRequest(review),
 	);
-	const implementationHandoffComplete =
-		hasScanImprovementRequest || decisionProgress.undecidedFindings === 0;
+	const implementationHandoffComplete = hasScanImprovementRequest;
 	const diagnosticCoverage = {
 		attackSurfaceItems: input.attackSurfaceItems.length,
 		securityChecks: input.securityCheckResults.length,
@@ -209,7 +199,7 @@ export function buildProjectDiagnosticDashboard(
 	if (!input.projectId || !activeRun) {
 		addAction({
 			kind: "run_scan",
-			label: "Run the first scan",
+			label: "最初の scan を実行",
 			priority: "high",
 		});
 	} else if (
@@ -218,7 +208,7 @@ export function buildProjectDiagnosticDashboard(
 	) {
 		addAction({
 			kind: "run_scan",
-			label: "Run a fresh scan",
+			label: "新しい scan を実行",
 			priority: "high",
 			targetId: latestRun.id,
 		});
@@ -230,7 +220,7 @@ export function buildProjectDiagnosticDashboard(
 	) {
 		addAction({
 			kind: "create_improvement_request",
-			label: "Generate improvement request",
+			label: "改善依頼を生成",
 			priority: "high",
 			targetId: activeRun.id,
 		});
@@ -242,7 +232,7 @@ export function buildProjectDiagnosticDashboard(
 	) {
 		addAction({
 			kind: "inspect_zero_findings",
-			label: "Inspect zero-finding coverage",
+			label: "finding 0 件のカバレッジを確認",
 			priority: "high",
 			targetId: activeRun.id,
 		});
@@ -255,7 +245,7 @@ export function buildProjectDiagnosticDashboard(
 	) {
 		addAction({
 			kind: "run_diagnostics",
-			label: "Run diagnostics",
+			label: "診断を実行",
 			priority: "medium",
 			targetId: activeRun.id,
 		});
@@ -267,7 +257,7 @@ export function buildProjectDiagnosticDashboard(
 	) {
 		addAction({
 			kind: "generate_report",
-			label: "Generate report",
+			label: "レポートを生成",
 			priority: "medium",
 			targetId: activeRun.id,
 		});
@@ -275,7 +265,7 @@ export function buildProjectDiagnosticDashboard(
 	if (firstMissingReview) {
 		addAction({
 			kind: "review_findings",
-			label: "Review findings",
+			label: "LLM リスク文脈を生成",
 			priority: "low",
 			targetId: firstMissingReview.id,
 		});

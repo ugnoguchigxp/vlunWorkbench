@@ -192,7 +192,7 @@ describe("Scan Reports Route", () => {
 			expect.anything(),
 			"s-1",
 			expect.objectContaining({
-				includeFalsePositives: false,
+				includeFalsePositives: true,
 				includeDeferred: true,
 				includeUndecided: true,
 				title: "Missing File Report",

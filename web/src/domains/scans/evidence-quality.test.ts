@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
-import type { Finding, FindingDecision, FindingReview, ReproductionRun } from "../../api";
-import { buildEvidenceQuality } from "./evidence-quality";
+import type {
+	Finding,
+	FindingDecision,
+	FindingReview,
+	ReproductionRun,
+} from "../../api";
+import {
+	buildEvidenceQuality,
+	deriveEvidenceDataCompleteness,
+} from "./evidence-quality";
 
 const now = "2026-06-27T00:00:00.000Z";
 
@@ -112,5 +120,45 @@ describe("buildEvidenceQuality", () => {
 				latestDecision: decision("accepted"),
 			}).level,
 		).not.toBe("strong");
+	});
+
+	it("does not require a human decision after LLM review and verification", () => {
+		const result = buildEvidenceQuality({
+			finding: finding(),
+			latestReview: review("strong"),
+			reproductionRuns: [reproduction()],
+			});
+			expect(result.recommendedNextAction).toBe("ready_for_report");
+			expect(result.reasons).not.toContain("監査判断履歴があります。");
+		});
+
+	it("marks list-only data as summary_only", () => {
+		expect(
+			deriveEvidenceDataCompleteness({
+				hasFindingDetails: false,
+				hasVerificationData: false,
+				hasDastEvidenceLoaded: false,
+			}),
+		).toBe("summary_only");
+	});
+
+	it("marks details without verification as partial", () => {
+		expect(
+			deriveEvidenceDataCompleteness({
+				hasFindingDetails: true,
+				hasVerificationData: false,
+				hasDastEvidenceLoaded: false,
+			}),
+		).toBe("partial");
+	});
+
+	it("marks loaded details with verification as complete", () => {
+		expect(
+			deriveEvidenceDataCompleteness({
+				hasFindingDetails: true,
+				hasVerificationData: true,
+				hasDastEvidenceLoaded: false,
+			}),
+		).toBe("complete");
 	});
 });

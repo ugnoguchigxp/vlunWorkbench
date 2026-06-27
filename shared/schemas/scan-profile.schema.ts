@@ -37,6 +37,36 @@ export const profileToolEntrySchema = z.object({
 });
 export type ProfileToolEntry = z.infer<typeof profileToolEntrySchema>;
 
+export const staticToolProfileStepSchema = profileToolEntrySchema.extend({
+	kind: z.literal("static_tool"),
+});
+export type StaticToolProfileStep = z.infer<typeof staticToolProfileStepSchema>;
+
+export const dastProfileStepSchema = z.object({
+	kind: z.literal("dast"),
+	profileId: z.literal("http-baseline"),
+	displayName: z.string(),
+	required: z.boolean(),
+	timeoutSec: z.number().int().positive().optional(),
+	failurePolicy: profileToolFailurePolicySchema,
+	target: z.object({
+		mode: z.literal("auto_project_start"),
+	}),
+	options: z
+		.object({
+			maxRequests: z.number().int().positive().optional(),
+			readinessTimeoutMs: z.number().int().positive().optional(),
+		})
+		.optional(),
+});
+export type DastProfileStep = z.infer<typeof dastProfileStepSchema>;
+
+export const scanProfileStepSchema = z.discriminatedUnion("kind", [
+	staticToolProfileStepSchema,
+	dastProfileStepSchema,
+]);
+export type ScanProfileStep = z.infer<typeof scanProfileStepSchema>;
+
 export const scanProfileSchema = z.object({
 	id: z.string(),
 	name: z.string(),
@@ -46,5 +76,6 @@ export const scanProfileSchema = z.object({
 	defaultTimeoutSec: z.number().int().positive(),
 	scope: scanScopePolicySchema.optional(),
 	tools: z.array(profileToolEntrySchema),
+	steps: z.array(scanProfileStepSchema).optional(),
 });
 export type ScanProfile = z.infer<typeof scanProfileSchema>;

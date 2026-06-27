@@ -1,11 +1,26 @@
 import { ArrowRightLeft } from "lucide-react";
+import { formatSeverityLabel } from "../scan-display-copy";
 import { useScans } from "../scans-context";
 import { getSeverityClass } from "../scans-utils";
 
 const statusLabels = {
-	available: "Baseline available",
-	missing_baseline: "No baseline",
-	insufficient_data: "Baseline loading",
+	available: "baseline あり",
+	missing_baseline: "baseline なし",
+	insufficient_data: "baseline 読み込み中",
+} as const;
+
+const confidenceLabels = {
+	stable: "安定 ID",
+	fingerprint: "fingerprint",
+	rule_location: "rule/location",
+	insufficient: "照合キー不足",
+} as const;
+
+const deltaKindLabels = {
+	new: "新規",
+	resolved: "解消",
+	unchanged: "変化なし",
+	regressed: "悪化",
 } as const;
 
 export function ScanComparisonPanel() {
@@ -15,7 +30,7 @@ export function ScanComparisonPanel() {
 		<section className="decision-grade-panel comparison-panel">
 			<div className="decision-grade-panel-head">
 				<div>
-					<span className="scan-review-context-label">Scan comparison</span>
+					<span className="scan-review-context-label">スキャン比較</span>
 					<h3>
 						<ArrowRightLeft className="icon" />
 						{statusLabels[comparison.status]}
@@ -26,10 +41,10 @@ export function ScanComparisonPanel() {
 				) : null}
 			</div>
 			<div className="decision-grade-metrics">
-				<Metric label="New" value={comparison.counts.new} />
-				<Metric label="Resolved" value={comparison.counts.resolved} />
-				<Metric label="Unchanged" value={comparison.counts.unchanged} />
-				<Metric label="Regressed" value={comparison.counts.regressed} />
+				<Metric label="新規" value={comparison.counts.new} />
+				<Metric label="解消" value={comparison.counts.resolved} />
+				<Metric label="変化なし" value={comparison.counts.unchanged} />
+				<Metric label="悪化" value={comparison.counts.regressed} />
 			</div>
 			{comparison.deltas.length > 0 ? (
 				<div className="comparison-delta-list">
@@ -47,13 +62,17 @@ export function ScanComparisonPanel() {
 							<span
 								className={`severity-badge ${getSeverityClass(delta.severity)}`}
 							>
-								{delta.severity}
+								{formatSeverityLabel(delta.severity)}
 							</span>
 							<span>
 								<strong>
-									{delta.kind}: {delta.title}
+									{deltaKindLabels[delta.kind]}: {delta.title}
 								</strong>
 								<small>{delta.reason}</small>
+								<small>
+									照合: {confidenceLabels[delta.matchConfidence]} -{" "}
+									{delta.matchReason}
+								</small>
 							</span>
 						</button>
 					))}

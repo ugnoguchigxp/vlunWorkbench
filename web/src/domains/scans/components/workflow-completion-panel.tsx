@@ -2,13 +2,13 @@ import { ArrowRight, CheckCircle2, Circle, OctagonAlert } from "lucide-react";
 import { useScans } from "../scans-context";
 
 const stageLabels = {
-	scan_running: "Scan running",
-	needs_review: "Needs review",
-	needs_handoff: "Needs implementation handoff",
-	needs_verification: "Needs verification",
-	needs_remediation_plan: "Needs remediation plan",
-	report_ready: "Report ready",
-	report_generated: "Report generated",
+	scan_running: "スキャン実行中",
+	needs_review: "LLM レビューが必要",
+	needs_handoff: "LLM handoff が必要",
+	needs_verification: "検証が必要",
+	needs_remediation_plan: "修正計画が必要",
+	report_ready: "レポート生成可能",
+	report_generated: "レポート生成済み",
 } as const;
 
 export function WorkflowCompletionPanel() {
@@ -18,7 +18,7 @@ export function WorkflowCompletionPanel() {
 		<section className="decision-grade-panel workflow-panel">
 			<div className="decision-grade-panel-head">
 				<div>
-					<span className="scan-review-context-label">Workflow completion</span>
+					<span className="scan-review-context-label">ワークフロー完了</span>
 					<h3>{stageLabels[completion.stage]}</h3>
 				</div>
 				<strong>{completion.percent}%</strong>
@@ -26,7 +26,7 @@ export function WorkflowCompletionPanel() {
 			<div
 				className="workflow-progress"
 				role="progressbar"
-				aria-label="workflow progress"
+				aria-label="ワークフロー進捗"
 				aria-valuemin={0}
 				aria-valuemax={100}
 				aria-valuenow={completion.percent}
@@ -45,7 +45,10 @@ export function WorkflowCompletionPanel() {
 						)}
 						<span>
 							<strong>{item.label}</strong>
-							<small>{item.count ?? item.blockingReason ?? ""}</small>
+							<small>{item.explanation}</small>
+							{item.count || item.blockingReason ? (
+								<small>{item.count ?? item.blockingReason}</small>
+							) : null}
 						</span>
 					</div>
 				))}
