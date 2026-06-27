@@ -8,6 +8,7 @@ import {
 	verifyAccessToken,
 	consumeRefreshToken,
 	revokeRefreshToken,
+	validateRefreshToken,
 } from "./token.service";
 
 describe("token.service", () => {
@@ -27,6 +28,11 @@ describe("token.service", () => {
 		} as unknown as AppEnv;
 
 		mockDb = {
+			query: {
+				refreshTokens: {
+					findFirst: vi.fn(),
+				},
+			},
 			insert: vi.fn().mockReturnThis(),
 			values: vi.fn().mockResolvedValue(undefined),
 			delete: vi.fn().mockReturnThis(),
@@ -107,6 +113,50 @@ describe("token.service", () => {
 			expect(payload.userId).toBe(testPayload.userId);
 			expect(payload.type).toBe("refresh");
 			expect(mockDb.delete).toHaveBeenCalled();
+		});
+
+		it("should validate a refresh token without consuming it", async () => {
+			const token = await generateRefreshToken(
+				testPayload,
+				mockDb as unknown as AppDatabase,
+				mockEnv,
+			);
+
+			mockDb.query.refreshTokens.findFirst.mockResolvedValue({
+				userId: testPayload.userId,
+				expiresAt: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000),
+			});
+
+			const session = await validateRefreshToken(
+				token,
+				mockDb as unknown as AppDatabase,
+				mockEnv,
+			);
+
+			expect(session.payload.userId).toBe(testPayload.userId);
+			expect(session.shouldRotate).toBe(false);
+			expect(mockDb.delete).not.toHaveBeenCalled();
+		});
+
+		it("should mark a valid refresh token for rotation near expiration", async () => {
+			const token = await generateRefreshToken(
+				testPayload,
+				mockDb as unknown as AppDatabase,
+				mockEnv,
+			);
+
+			mockDb.query.refreshTokens.findFirst.mockResolvedValue({
+				userId: testPayload.userId,
+				expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+			});
+
+			const session = await validateRefreshToken(
+				token,
+				mockDb as unknown as AppDatabase,
+				mockEnv,
+			);
+
+			expect(session.shouldRotate).toBe(true);
 		});
 
 		it("should throw HttpError 401 when refresh token is missing in database", async () => {

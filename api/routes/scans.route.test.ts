@@ -33,7 +33,14 @@ describe("Scans Route", () => {
 	};
 
 	const mockDecisionRepo = {
-		findLatestDecisionForFinding: vi.fn().mockResolvedValue(null),
+		findLatestDecisionForFinding: vi
+			.fn()
+			.mockResolvedValue({ id: "d-1", decision: "needs_fix" }),
+	};
+	const mockFindingReviewRepo = {
+		findLatestReview: vi
+			.fn()
+			.mockResolvedValue({ id: "r-1", status: "completed" }),
 	};
 
 	const app = new Hono();
@@ -55,6 +62,7 @@ describe("Scans Route", () => {
 			artifactRepository: mockArtifactRepo as any,
 			findingRepository: mockFindingRepo as any,
 			decisionRepository: mockDecisionRepo as any,
+			findingReviewRepository: mockFindingReviewRepo as any,
 			scanReportRepository: {} as any,
 			artifactStorage: {} as any,
 			db: {} as any,
@@ -94,6 +102,12 @@ describe("Scans Route", () => {
 		expect(res.status).toBe(200);
 		const body = await res.json();
 		expect(body.findings.length).toBe(1);
+		expect(body.findings[0].latestDecision).toMatchObject({ id: "d-1" });
+		expect(body.findings[0].latestReview).toMatchObject({ id: "r-1" });
+		expect(mockDecisionRepo.findLatestDecisionForFinding).toHaveBeenCalledWith(
+			"f-1",
+		);
+		expect(mockFindingReviewRepo.findLatestReview).toHaveBeenCalledWith("f-1");
 	});
 
 	it("GET /:scanRunId/summary returns scan summary", async () => {

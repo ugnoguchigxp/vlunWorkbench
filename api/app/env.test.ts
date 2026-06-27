@@ -12,12 +12,16 @@ describe("readAppEnv", () => {
 		expect(env.appUrl).toBe(APP_CONFIG_DEFAULTS.appUrl);
 		expect(env.corsOrigins).toEqual(APP_CONFIG_DEFAULTS.corsOrigins);
 		expect(env.cookieSameSite).toBe(APP_CONFIG_DEFAULTS.cookieSameSite);
+		expect(env.jwtAccessExpiresIn).toBe("1d");
+		expect(env.jwtRefreshExpiresIn).toBe("7d");
 	});
 
 	it("accepts database and auth runtime overrides", () => {
 		const env = readAppEnv({
 			DATABASE_URL: "file:./data/example.sqlite",
 			JWT_SECRET: "x".repeat(32),
+			JWT_ACCESS_EXPIRES_IN: "12h",
+			JWT_REFRESH_EXPIRES_IN: "7d",
 			APP_URL: "https://showcase.example.com",
 			CORS_ORIGINS: "https://showcase.example.com,http://localhost:29831",
 			AUTH_COOKIE_SECURE: "true",
@@ -27,6 +31,8 @@ describe("readAppEnv", () => {
 
 		expect(env.databaseUrl).toBe("file:./data/example.sqlite");
 		expect(env.jwtSecret).toBe("x".repeat(32));
+		expect(env.jwtAccessExpiresIn).toBe("12h");
+		expect(env.jwtRefreshExpiresIn).toBe("7d");
 		expect(env.appUrl).toBe("https://showcase.example.com");
 		expect(env.corsOrigins).toEqual([
 			"https://showcase.example.com",

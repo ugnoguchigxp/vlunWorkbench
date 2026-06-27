@@ -3,18 +3,36 @@ import { Button } from "../../../ui";
 import { useScans } from "../scans-context";
 import { formatDateTime } from "../scans-utils";
 
+const DECISION_LABELS = {
+	accepted: "リスク受容",
+	false_positive: "誤検知",
+	deferred: "保留",
+	needs_fix: "要修正",
+} as const;
+
+const REASON_LABELS = {
+	confirmed_by_evidence: "証跡で確認済み",
+	confirmed_by_review: "レビューで確認済み",
+	insufficient_evidence: "証跡不足",
+	environment_specific: "環境依存",
+	tool_noise: "ツールのノイズ",
+	not_exploitable: "悪用困難",
+	accepted_risk: "リスク受容",
+	other: "その他",
+} as const;
+
 export function DecisionSection() {
 	const c = useScans();
 	return (
 		<div className="detail-section">
 			<h3 className="detail-section-title">
-				<Shield className="icon text-teal-700" /> Reviewer Decision
+				<Shield className="icon text-teal-700" /> レビュアー判断
 			</h3>
 			<div className="decision-panel">
 				<form onSubmit={c.handleDecisionSubmit} className="detail-section">
 					<div className="decision-form-row">
 						<label className="decision-form-field">
-							<span>Decision State</span>
+							<span>判断</span>
 							<select
 								value={c.decisionInput}
 								onChange={(event) =>
@@ -24,14 +42,14 @@ export function DecisionSection() {
 								}
 								required
 							>
-								<option value="accepted">Accepted</option>
-								<option value="false_positive">False Positive</option>
-								<option value="deferred">Deferred</option>
-								<option value="needs_fix">Needs Fix</option>
+								<option value="accepted">リスク受容</option>
+								<option value="false_positive">誤検知</option>
+								<option value="deferred">保留</option>
+								<option value="needs_fix">要修正</option>
 							</select>
 						</label>
 						<label className="decision-form-field">
-							<span>Reason</span>
+							<span>理由</span>
 							<select
 								value={c.reasonInput}
 								onChange={(event) =>
@@ -39,25 +57,19 @@ export function DecisionSection() {
 								}
 								required
 							>
-								<option value="confirmed_by_evidence">
-									Confirmed by Evidence
-								</option>
-								<option value="confirmed_by_review">Confirmed by Review</option>
-								<option value="insufficient_evidence">
-									Insufficient Evidence
-								</option>
-								<option value="environment_specific">
-									Environment Specific
-								</option>
-								<option value="tool_noise">Tool Noise</option>
-								<option value="not_exploitable">Not Exploitable</option>
-								<option value="accepted_risk">Accepted Risk</option>
-								<option value="other">Other</option>
+								<option value="confirmed_by_evidence">証跡で確認済み</option>
+								<option value="confirmed_by_review">レビューで確認済み</option>
+								<option value="insufficient_evidence">証跡不足</option>
+								<option value="environment_specific">環境依存</option>
+								<option value="tool_noise">ツールのノイズ</option>
+								<option value="not_exploitable">悪用困難</option>
+								<option value="accepted_risk">リスク受容</option>
+								<option value="other">その他</option>
 							</select>
 						</label>
 					</div>
 					<label className="decision-form-field">
-						<span>Comment / Rationale</span>
+						<span>コメント / 判断根拠</span>
 						<textarea
 							rows={3}
 							value={c.commentInput}
@@ -71,7 +83,7 @@ export function DecisionSection() {
 								checked={c.linkReviewInput}
 								onChange={(event) => c.setLinkReviewInput(event.target.checked)}
 							/>{" "}
-							Link to latest LLM Review (
+							最新の LLM レビューに紐づける (
 							{c.selectedFindingDetails.latestReview.model})
 						</label>
 					) : null}
@@ -80,13 +92,13 @@ export function DecisionSection() {
 						variant="primary"
 						disabled={c.busy || c.decisionSubmitLoading}
 					>
-						{c.decisionSubmitLoading ? "Submitting..." : "Record Decision"}
+						{c.decisionSubmitLoading ? "送信中..." : "判断を記録"}
 					</Button>
 				</form>
 			</div>
 			{c.allDecisions.length > 0 ? (
 				<div className="detail-section">
-					<h4 className="detail-section-title">Decision History</h4>
+					<h4 className="detail-section-title">判断履歴</h4>
 					{c.allDecisions.map((decision, index) => (
 						<div
 							key={decision.id}
@@ -95,15 +107,15 @@ export function DecisionSection() {
 							<div className="detail-section">
 								<div className="finding-meta-row">
 									<span className={`decision-badge badge-${decision.decision}`}>
-										{decision.decision.replace("_", " ")}
+										{DECISION_LABELS[decision.decision]}
 									</span>
-									<small>Reason: {decision.reason.replace(/_/g, " ")}</small>
+									<small>理由: {REASON_LABELS[decision.reason]}</small>
 									<small>{formatDateTime(decision.createdAt)}</small>
 								</div>
 								{decision.comment ? <p>"{decision.comment}"</p> : null}
 								{decision.linkedReviewId ? (
 									<small>
-										<Brain size={12} /> Linked to LLM Review
+										<Brain size={12} /> LLM レビューに紐づけ済み
 									</small>
 								) : null}
 							</div>

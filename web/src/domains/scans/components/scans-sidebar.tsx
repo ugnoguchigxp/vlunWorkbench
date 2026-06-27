@@ -15,6 +15,7 @@ import { Button, SelectInput, TextInput } from "../../../ui";
 import { getProfileDisplay } from "../scan-profile-display";
 import { useScans } from "../scans-context";
 import { formatDateTime } from "../scans-utils";
+import { ActionQueuePanel } from "./action-queue-panel";
 
 export function ScansToolbar() {
 	const c = useScans();
@@ -289,6 +290,7 @@ export function ScansSidebar() {
 	const c = useScans();
 	return (
 		<aside className="scans-panel scans-runs-sidebar">
+			<ActionQueuePanel />
 			<div className="scans-panel-header scans-history-head">
 				<div>
 					<h2>Recent Runs</h2>

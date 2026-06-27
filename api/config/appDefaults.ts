@@ -15,7 +15,7 @@ export const APP_CONFIG_DEFAULTS = {
 	azureOpenAiEmbeddingsDeployment: "text-embedding-3-small",
 	openAiApiVersion: undefined as string | undefined,
 	jwtSecret: "vuln-workbench-dev-jwt-secret-change-this-for-production",
-	jwtAccessExpiresIn: "15m",
+	jwtAccessExpiresIn: "1d",
 	jwtRefreshExpiresIn: "7d",
 	appUrl: "http://localhost:29831",
 	corsOrigins: ["http://localhost:29831"],

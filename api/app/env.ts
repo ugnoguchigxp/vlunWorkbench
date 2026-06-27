@@ -31,6 +31,18 @@ const optionalCookieSameSite = z.preprocess((value) => {
 	return normalized.length > 0 ? normalized : undefined;
 }, z.enum(["lax", "strict", "none"]).optional());
 
+const optionalJwtDuration = z.preprocess(
+	(value) => {
+		if (typeof value !== "string") return value;
+		const normalized = value.trim().toLowerCase();
+		return normalized.length > 0 ? normalized : undefined;
+	},
+	z
+		.string()
+		.regex(/^\d+[smhd]$/)
+		.optional(),
+);
+
 const optionalSecurityHeadersMode = z.preprocess(
 	(value) => {
 		if (typeof value !== "string") return value;
@@ -70,6 +82,8 @@ const EnvSchema = z.object({
 	CORS_ORIGINS: optionalTrimmedString,
 	AUTH_COOKIE_SECURE: optionalBoolean,
 	AUTH_COOKIE_SAME_SITE: optionalCookieSameSite,
+	JWT_ACCESS_EXPIRES_IN: optionalJwtDuration,
+	JWT_REFRESH_EXPIRES_IN: optionalJwtDuration,
 	SECURITY_HEADERS_MODE: optionalSecurityHeadersMode,
 	JWT_SECRET: z.preprocess((value) => {
 		if (typeof value !== "string") return value;
@@ -290,8 +304,10 @@ export function readAppEnv(env: NodeJS.ProcessEnv = process.env): AppEnv {
 			APP_CONFIG_DEFAULTS.azureOpenAiEmbeddingsDeployment,
 		azureOpenAiApiVersion: APP_CONFIG_DEFAULTS.azureOpenAiApiVersion,
 		jwtSecret: parsed.JWT_SECRET ?? APP_CONFIG_DEFAULTS.jwtSecret,
-		jwtAccessExpiresIn: APP_CONFIG_DEFAULTS.jwtAccessExpiresIn,
-		jwtRefreshExpiresIn: APP_CONFIG_DEFAULTS.jwtRefreshExpiresIn,
+		jwtAccessExpiresIn:
+			parsed.JWT_ACCESS_EXPIRES_IN ?? APP_CONFIG_DEFAULTS.jwtAccessExpiresIn,
+		jwtRefreshExpiresIn:
+			parsed.JWT_REFRESH_EXPIRES_IN ?? APP_CONFIG_DEFAULTS.jwtRefreshExpiresIn,
 		appUrl,
 		corsOrigins,
 		trustProxy: APP_CONFIG_DEFAULTS.trustProxy,

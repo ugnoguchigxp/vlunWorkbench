@@ -17,14 +17,14 @@ function ReproductionSection() {
 	return (
 		<div className="detail-section">
 			<h3 className="detail-section-title">
-				<Shield className="icon text-teal-700" /> Sandbox Reproduction
+				<Shield className="icon text-teal-700" /> サンドボックス再現確認
 			</h3>
-			<p>Run verification checks in an isolated Docker container.</p>
+			<p>隔離された Docker コンテナ内で検証チェックを実行します。</p>
 			{c.reproError ? <p className="badge-failed">{c.reproError}</p> : null}
 			{c.reproProfiles.length > 0 ? (
 				<div className="decision-panel">
 					<label htmlFor="reproduction-profile-select">
-						<span>Bounded Verification Profile</span>
+						<span>制限付き検証プロファイル</span>
 						<SelectInput
 							id="reproduction-profile-select"
 							value={c.selectedReproProfile}
@@ -39,7 +39,7 @@ function ReproductionSection() {
 									disabled={!profile.isApplicable}
 								>
 									{profile.displayName}
-									{profile.isApplicable ? "" : " (Not Applicable)"}
+									{profile.isApplicable ? "" : " (適用不可)"}
 								</option>
 							))}
 						</SelectInput>
@@ -55,14 +55,14 @@ function ReproductionSection() {
 						) : (
 							<Shield className="icon" />
 						)}
-						Trigger Sandbox Run
+						サンドボックス実行
 					</Button>
 				</div>
 			) : (
-				<p>No reproduction profiles available.</p>
+				<p>利用可能な再現確認プロファイルはありません。</p>
 			)}
 			<RunCardList
-				title="Sandbox Run History"
+				title="サンドボックス実行履歴"
 				runs={c.reproRuns}
 				expandedRunId={c.expandedReproRunId}
 				artifactsByRun={c.reproRunArtifacts}
@@ -75,7 +75,7 @@ function ReproductionSection() {
 				artifactHref={(runId, artifactId) =>
 					`/api/reproduction-runs/${runId}/artifacts/${artifactId}`
 				}
-				emptyText="No reproduction runs recorded for this finding."
+				emptyText="この finding には再現確認の実行履歴がありません。"
 			/>
 		</div>
 	);
@@ -89,16 +89,17 @@ function DynamicSection() {
 	return (
 		<div className="detail-section">
 			<h3 className="detail-section-title">
-				<Shield className="icon text-teal-700" /> Dynamic Sandbox Verification
+				<Shield className="icon text-teal-700" /> 動的サンドボックス検証
 			</h3>
 			<p>
-				Run project-defined verification checks in a bounded Docker sandbox.
+				プロジェクト定義の検証チェックを制限付き Docker
+				サンドボックスで実行します。
 			</p>
 			{c.dynamicError ? <p className="badge-failed">{c.dynamicError}</p> : null}
 			{c.dynamicProfiles.length > 0 ? (
 				<div className="decision-panel">
 					<label htmlFor="dynamic-profile-select">
-						<span>Dynamic Verification Profile</span>
+						<span>動的検証プロファイル</span>
 						<SelectInput
 							id="dynamic-profile-select"
 							value={c.selectedDynamicProfile}
@@ -128,7 +129,8 @@ function DynamicSection() {
 									c.setAllowProjectScriptsConsent(event.target.checked)
 								}
 							/>{" "}
-							I consent to executing project scripts in the Docker sandbox.
+							Docker
+							サンドボックス内でプロジェクトスクリプトを実行することに同意します。
 						</label>
 					) : null}
 					<Button
@@ -147,14 +149,14 @@ function DynamicSection() {
 						) : (
 							<Shield className="icon" />
 						)}
-						Trigger Sandbox Run
+						サンドボックス実行
 					</Button>
 				</div>
 			) : (
-				<p>No dynamic verification profiles configured.</p>
+				<p>動的検証プロファイルは設定されていません。</p>
 			)}
 			<RunCardList
-				title="Dynamic Sandbox Run History"
+				title="動的サンドボックス実行履歴"
 				runs={c.dynamicRuns}
 				expandedRunId={c.expandedDynamicRunId}
 				artifactsByRun={c.dynamicRunArtifacts}
@@ -167,7 +169,7 @@ function DynamicSection() {
 				artifactHref={(runId, artifactId) =>
 					`/api/dynamic-runs/${runId}/artifacts/${artifactId}`
 				}
-				emptyText="No dynamic verification runs recorded for this finding."
+				emptyText="この finding には動的検証の実行履歴がありません。"
 			/>
 		</div>
 	);

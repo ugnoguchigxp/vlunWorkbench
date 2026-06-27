@@ -1,13 +1,41 @@
-import { Download, X } from "lucide-react";
+import { CheckCircle2, Circle, Download, FileText, X } from "lucide-react";
+import { useEffect, useRef } from "react";
 import { SelectInput } from "../../../ui";
 import { useScans } from "../scans-context";
 import { formatDateTime, getSeverityClass, shortPath } from "../scans-utils";
+import { actionQueueStateLabel, type FindingWorkState } from "../work-states";
 import { DecisionSection } from "./decision-section";
 import { ReportDetailPanel } from "./report-detail-panel";
 import { ReviewSection } from "./review-section";
 import { ScanResultOverview } from "./scan-result-overview";
 import { ScanSummaryPanel } from "./scan-summary-panel";
 import { VerificationSections } from "./verification-sections";
+import { ZeroFindingDiagnosticPanel } from "./zero-finding-diagnostic-panel";
+
+const DECISION_STATE_LABELS = {
+	missing: "判断未記録",
+	complete: "判断記録済み",
+	needs_context: "追加情報が必要",
+} as const;
+
+const DECISION_LABELS = {
+	accepted: "リスク受容",
+	false_positive: "誤検知",
+	deferred: "保留",
+	needs_fix: "要修正",
+	open: "未判断",
+} as const;
+
+const REASON_LABELS = {
+	confirmed_by_evidence: "証跡で確認済み",
+	confirmed_by_review: "レビューで確認済み",
+	insufficient_evidence: "証跡不足",
+	environment_specific: "環境依存",
+	tool_noise: "ツールのノイズ",
+	not_exploitable: "悪用困難",
+	accepted_risk: "リスク受容",
+	other: "その他",
+} as const;
 
 export function FindingDetailPanel() {
 	const c = useScans();
@@ -129,6 +157,9 @@ function ScanResultsBody() {
 function FindingsTable() {
 	const c = useScans();
 	if (c.displayedFindings.length === 0) {
+		if (c.selectedScanRunId && c.findings.length === 0) {
+			return <ZeroFindingDiagnosticPanel />;
+		}
 		return (
 			<div className="tree-info">
 				{c.findings.length === 0
@@ -164,6 +195,8 @@ function FindingsTable() {
 								? String(location.startLine)
 								: "";
 						const decision = finding.latestDecision?.decision ?? "open";
+						const workState =
+							c.findingWorkStatesById.get(finding.id) ?? "ready_for_report";
 						return (
 							<tr
 								key={finding.id}
@@ -203,9 +236,14 @@ function FindingsTable() {
 									)}
 								</td>
 								<td>
-									<span className={`decision-badge badge-${decision}`}>
-										{decision.replace("_", " ")}
-									</span>
+									<div className="scan-table-badge-stack">
+										<span className={`decision-badge badge-${decision}`}>
+											{decision.replace("_", " ")}
+										</span>
+										<span className={`work-state-badge state-${workState}`}>
+											{formatFindingWorkState(workState)}
+										</span>
+									</div>
 								</td>
 								<td>
 									<small>{formatDateTime(finding.updatedAt)}</small>
@@ -219,12 +257,36 @@ function FindingsTable() {
 	);
 }
 
+function formatFindingWorkState(state: FindingWorkState): string {
+	if (state === "false_positive_recorded") return "誤検知記録済み";
+	if (state === "accepted_risk_recorded") return "リスク受容済み";
+	if (state === "ready_for_report") return "レポート作成可能";
+	return actionQueueStateLabel(state);
+}
+
 function FindingDetailDrawer() {
 	const c = useScans();
+	const panelRef = useRef<HTMLElement | null>(null);
+	useEffect(() => {
+		if (!c.selectedFindingId) return;
+		const handlePointerDown = (event: PointerEvent) => {
+			const panel = panelRef.current;
+			if (!panel || !(event.target instanceof Node)) return;
+			if (!panel.contains(event.target)) c.handleCloseFinding();
+		};
+		document.addEventListener("pointerdown", handlePointerDown);
+		return () => document.removeEventListener("pointerdown", handlePointerDown);
+	}, [c.selectedFindingId, c.handleCloseFinding]);
 	if (!c.selectedFindingId) return null;
+	const workflow = c.selectedDecisionWorkflow;
+	const finding = c.selectedFindingDetails?.finding;
+	const workState = finding
+		? (c.findingWorkStatesById.get(finding.id) ?? "ready_for_report")
+		: null;
 	return (
 		<div className="scan-drawer-backdrop" role="presentation">
 			<aside
+				ref={panelRef}
 				className="scan-drawer-panel"
 				role="dialog"
 				aria-modal="true"
@@ -232,14 +294,46 @@ function FindingDetailDrawer() {
 			>
 				<header className="scan-drawer-header">
 					<div>
-						<h2 id="scan-finding-drawer-title">Finding Detail</h2>
+						<h2 id="scan-finding-drawer-title">Finding 詳細</h2>
 						<p>検出内容、LLM レビュー、判断、検証結果を確認します。</p>
+						{workflow ? (
+							<div className="drawer-decision-summary">
+								{finding ? (
+									<span
+										className={`severity-badge ${getSeverityClass(finding.severity)}`}
+									>
+										{finding.severity}
+									</span>
+								) : null}
+								{workState ? (
+									<span className={`work-state-badge state-${workState}`}>
+										{formatFindingWorkState(workState)}
+									</span>
+								) : null}
+								<span
+									className={`decision-workflow-state state-${workflow.decisionState}`}
+								>
+									{DECISION_STATE_LABELS[workflow.decisionState]}
+								</span>
+								<span
+									className={`decision-badge badge-${workflow.latestDecision?.decision ?? "open"}`}
+								>
+									判断:{" "}
+									{DECISION_LABELS[workflow.latestDecision?.decision ?? "open"]}
+								</span>
+								<span
+									className={`decision-badge badge-${workflow.reportImpact.bucket}`}
+								>
+									レポート: {workflow.reportImpact.label}
+								</span>
+							</div>
+						) : null}
 					</div>
 					<button
 						type="button"
 						className="scan-modal-close"
 						onClick={c.handleCloseFinding}
-						aria-label="Close finding detail"
+						aria-label="finding 詳細を閉じる"
 					>
 						<X className="icon" />
 					</button>
@@ -247,7 +341,7 @@ function FindingDetailDrawer() {
 				<div
 					className="scan-detail-tabs scan-drawer-tabs"
 					role="tablist"
-					aria-label="Finding detail views"
+					aria-label="finding 詳細ビュー"
 				>
 					<button
 						type="button"
@@ -272,7 +366,7 @@ function FindingDetailDrawer() {
 							<FindingBody />
 						)
 					) : (
-						<div className="tree-info">Loading finding detail...</div>
+						<div className="tree-info">finding 詳細を読み込んでいます...</div>
 					)}
 				</div>
 			</aside>
@@ -285,15 +379,6 @@ function FindingBody() {
 	const details = c.selectedFindingDetails;
 	if (!details) return null;
 	const finding = details.finding;
-	const location = finding.primaryLocation;
-	const sourceSnippet =
-		details.evidence.find(
-			(item) => item.kind === "source-location" && item.snippet,
-		)?.snippet ||
-		(typeof finding.metadata?.snippet === "string"
-			? finding.metadata.snippet
-			: "") ||
-		"// Snippet not available";
 	return (
 		<>
 			<div className="detail-section">
@@ -309,18 +394,111 @@ function FindingBody() {
 				<h1>{finding.title}</h1>
 				<p>{finding.description}</p>
 			</div>
-			{location ? (
+			<DecisionSection />
+			<DecisionCompletenessSummary />
+			<EvidenceChecklistPanel />
+			<ReviewSection />
+			<SourceEvidenceDetail />
+			<ReportImpactPreview />
+		</>
+	);
+}
+
+function DecisionCompletenessSummary() {
+	const workflow = useScans().selectedDecisionWorkflow;
+	if (!workflow) return null;
+	return (
+		<div className="decision-summary-panel">
+			<div>
+				<span className="scan-review-context-label">判断状態</span>
+				<strong>{DECISION_STATE_LABELS[workflow.decisionState]}</strong>
+			</div>
+			<div>
+				<span className="scan-review-context-label">
+					トリアージ前に不足している情報
+				</span>
+				<strong>
+					{workflow.missingInputs.length > 0
+						? workflow.missingInputs.join(", ")
+						: "なし"}
+				</strong>
+			</div>
+			{workflow.recommendedReason ? (
+				<div>
+					<span className="scan-review-context-label">推奨される理由</span>
+					<strong>{REASON_LABELS[workflow.recommendedReason]}</strong>
+				</div>
+			) : null}
+		</div>
+	);
+}
+
+function EvidenceChecklistPanel() {
+	const workflow = useScans().selectedDecisionWorkflow;
+	if (!workflow) return null;
+	return (
+		<div className="detail-section">
+			<h3 className="detail-section-title">判断材料チェックリスト</h3>
+			<div className="evidence-checklist">
+				{workflow.evidenceChecklist.map((item) => (
+					<div
+						key={item.id}
+						className={`evidence-checklist-item ${item.available ? "available" : "missing"}`}
+					>
+						{item.available ? (
+							<CheckCircle2 className="icon" />
+						) : (
+							<Circle className="icon" />
+						)}
+						<div>
+							<strong>{item.label}</strong>
+							<small>{item.reference ?? "未読み込みまたは未記録"}</small>
+						</div>
+					</div>
+				))}
+			</div>
+		</div>
+	);
+}
+
+function SourceEvidenceDetail() {
+	const c = useScans();
+	const details = c.selectedFindingDetails;
+	if (!details) return null;
+	const finding = details.finding;
+	const sourceEvidence = details.evidence.find(
+		(item) => item.kind === "source-location",
+	);
+	const location = finding.primaryLocation ?? sourceEvidence?.location;
+	const sourceSnippet =
+		sourceEvidence?.snippet ||
+		(typeof finding.metadata?.snippet === "string"
+			? finding.metadata.snippet
+			: "") ||
+		"";
+	const locationPath =
+		location && typeof location.path === "string" ? location.path : "";
+	const locationLine =
+		location &&
+		(typeof location.startLine === "number" ||
+			typeof location.startLine === "string")
+			? String(location.startLine)
+			: "";
+	return (
+		<>
+			{locationPath || sourceSnippet ? (
 				<div className="detail-section">
 					<h3 className="detail-section-title">主な検出位置</h3>
 					<div className="code-snippet-box">
 						<div className="code-snippet-header">
 							<div className="code-snippet-title">
-								{shortPath(location.path)}
-								{location.startLine ? `#L${location.startLine}` : ""}
+								{locationPath
+									? `${shortPath(locationPath)}${locationLine ? `#L${locationLine}` : ""}`
+									: sourceEvidence?.title || "記録済みのソーススニペット"}
 							</div>
 						</div>
 						<pre className="code-snippet-body">
-							<code>{sourceSnippet}</code>
+							<code>{sourceSnippet || "// スニペットは利用できません"}</code>
 						</pre>
 					</div>
 				</div>
@@ -345,8 +523,44 @@ function FindingBody() {
 					</div>
 				</div>
 			) : null}
-			<ReviewSection />
-			<DecisionSection />
 		</>
+	);
+}
+
+function ReportImpactPreview() {
+	const workflow = useScans().selectedDecisionWorkflow;
+	if (!workflow) return null;
+	return (
+		<div className="detail-section">
+			<h3 className="detail-section-title">
+				<FileText className="icon" /> レポートへの反映
+			</h3>
+			<div className="report-impact-panel">
+				<div>
+					<span className="scan-review-context-label">分類</span>
+					<span
+						className={`decision-badge badge-${workflow.reportImpact.bucket}`}
+					>
+						{workflow.reportImpact.label}
+					</span>
+				</div>
+				<div>
+					<span className="scan-review-context-label">既定の出力対象</span>
+					<strong>
+						{workflow.reportImpact.includedByDefault
+							? "生成される Markdown に含まれます"
+							: "現在のレポート設定では除外されます"}
+					</strong>
+				</div>
+				<div>
+					<span className="scan-review-context-label">人間の判断</span>
+					<strong>
+						{workflow.latestDecision
+							? REASON_LABELS[workflow.latestDecision.reason]
+							: "判断はまだ記録されていません"}
+					</strong>
+				</div>
+			</div>
+		</div>
 	);
 }

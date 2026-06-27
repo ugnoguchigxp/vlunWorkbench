@@ -284,6 +284,7 @@ type RequestInitJson = Omit<RequestInit, "body"> & {
 export const UNAUTHORIZED_EVENT_NAME = "vuln-workbench:unauthorized";
 
 let lastUnauthorizedEventAt = 0;
+let refreshRequest: Promise<boolean> | null = null;
 
 const notifyUnauthorized = () => {
 	if (typeof window === "undefined") return;
@@ -314,6 +315,21 @@ const parseErrorMessage = async (response: Response): Promise<string> => {
 	return message;
 };
 
+const refreshAuthSession = async (): Promise<boolean> => {
+	if (!refreshRequest) {
+		refreshRequest = fetch("/api/auth/refresh", {
+			method: "POST",
+			credentials: "include",
+		})
+			.then((response) => response.ok)
+			.catch(() => false)
+			.finally(() => {
+				refreshRequest = null;
+			});
+	}
+	return refreshRequest;
+};
+
 async function requestJson<T>(
 	path: string,
 	init?: RequestInitJson,
@@ -335,11 +351,8 @@ async function requestJson<T>(
 
 	let response = await execute();
 	if (response.status === 401 && canRetryWithRefresh(path)) {
-		const refreshResponse = await fetch("/api/auth/refresh", {
-			method: "POST",
-			credentials: "include",
-		});
-		if (refreshResponse.ok) {
+		const refreshed = await refreshAuthSession();
+		if (refreshed) {
 			response = await execute();
 		}
 	}
@@ -376,11 +389,8 @@ async function requestVoid(
 
 	let response = await execute();
 	if (response.status === 401 && canRetryWithRefresh(path)) {
-		const refreshResponse = await fetch("/api/auth/refresh", {
-			method: "POST",
-			credentials: "include",
-		});
-		if (refreshResponse.ok) {
+		const refreshed = await refreshAuthSession();
+		if (refreshed) {
 			response = await execute();
 		}
 	}
@@ -830,6 +840,7 @@ export type Finding = {
 	createdAt: string;
 	updatedAt: string;
 	latestDecision?: FindingDecision | null;
+	latestReview?: Partial<FindingReview> | null;
 };
 
 export type FindingEvidence = {

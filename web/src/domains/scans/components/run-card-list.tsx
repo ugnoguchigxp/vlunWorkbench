@@ -70,9 +70,9 @@ export function RunCardList({
 						{expanded ? (
 							<div className="detail-section">
 								<div className="review-meta">
-									<span>Runner: {run.runner}</span>
+									<span>実行環境: {run.runner}</span>
 									{run.exitCode !== null ? (
-										<span>Exit: {run.exitCode}</span>
+										<span>終了コード: {run.exitCode}</span>
 									) : null}
 									{durationSeconds(
 										run.startedAt,
@@ -80,7 +80,7 @@ export function RunCardList({
 										run.completedAt,
 									) ? (
 										<span>
-											Duration:{" "}
+											所要時間:{" "}
 											{durationSeconds(
 												run.startedAt,
 												run.createdAt,
@@ -96,7 +96,7 @@ export function RunCardList({
 									</pre>
 								) : null}
 								{run.errorMessage ? (
-									<p className="badge-failed">Error: {run.errorMessage}</p>
+									<p className="badge-failed">エラー: {run.errorMessage}</p>
 								) : null}
 								{evidence.map((item) => (
 									<div className="assessment-card" key={item.id}>

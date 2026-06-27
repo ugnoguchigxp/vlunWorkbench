@@ -34,6 +34,9 @@ describe("AuthService", () => {
 				users: {
 					findFirst: vi.fn(),
 				},
+				refreshTokens: {
+					findFirst: vi.fn(),
+				},
 			},
 			update: vi.fn().mockReturnThis(),
 			set: vi.fn().mockReturnThis(),
@@ -167,20 +170,48 @@ describe("AuthService", () => {
 				mockEnv,
 			);
 
-			// Mock consumeRefreshToken db delete
-			mockDb.returning.mockResolvedValueOnce([
-				{
-					userId: testUserRow.id,
-					expiresAt: new Date(Date.now() + 60 * 60 * 1000),
-				},
-			]);
+			mockDb.query.refreshTokens.findFirst.mockResolvedValue({
+				userId: testUserRow.id,
+				expiresAt: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000),
+			});
 
 			// Mock findUserById
 			mockDb.query.users.findFirst.mockResolvedValue(testUserRow);
 
 			const result = await authService.refresh(token);
 			expect(result.accessToken).toBeDefined();
-			expect(result.refreshToken).toBeDefined();
+			expect(result.refreshToken).toBe(token);
+			expect(result.refreshTokenRotated).toBe(false);
+		});
+
+		it("should rotate refresh token only when it is close to expiration", async () => {
+			const { generateRefreshToken } = await import("./token.service");
+			const token = await generateRefreshToken(
+				{
+					userId: testUserRow.id,
+					email: testUserRow.email,
+					role: "member",
+				},
+				{
+					insert: vi.fn().mockReturnThis(),
+					values: vi.fn().mockResolvedValue(undefined),
+				} as any,
+				mockEnv,
+			);
+
+			mockDb.query.refreshTokens.findFirst.mockResolvedValue({
+				userId: testUserRow.id,
+				expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+			});
+			mockDb.query.users.findFirst.mockResolvedValue(testUserRow);
+			mockDb.values.mockResolvedValue(undefined);
+
+			const result = await authService.refresh(token);
+			expect(result.accessToken).toBeDefined();
+			expect(result.refreshToken).not.toBe(token);
+			expect(result.refreshTokenRotated).toBe(true);
+			expect(mockDb.insert).toHaveBeenCalled();
+			expect(mockDb.delete).toHaveBeenCalled();
 		});
 
 		it("should throw HttpError 401 when refreshed user is inactive", async () => {
@@ -198,12 +229,10 @@ describe("AuthService", () => {
 				mockEnv,
 			);
 
-			mockDb.returning.mockResolvedValueOnce([
-				{
-					userId: testUserRow.id,
-					expiresAt: new Date(Date.now() + 60 * 60 * 1000),
-				},
-			]);
+			mockDb.query.refreshTokens.findFirst.mockResolvedValue({
+				userId: testUserRow.id,
+				expiresAt: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000),
+			});
 
 			// Inactive user
 			const inactiveUser = { ...testUserRow, isActive: false };

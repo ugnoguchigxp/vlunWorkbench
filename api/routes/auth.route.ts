@@ -7,6 +7,7 @@ import type { AuthService } from "../modules/auth/auth.service";
 import {
 	REFRESH_TOKEN_COOKIE_NAME,
 	clearAuthCookies,
+	setAccessTokenCookie,
 	setAuthCookies,
 } from "../modules/auth/auth-cookies";
 import { getAuthContextUser } from "../modules/auth/context";
@@ -31,10 +32,22 @@ export function createAuthRoute(deps: AuthRouteDeps) {
 		.post("/refresh", async (c) => {
 			const refreshToken = getCookie(c, REFRESH_TOKEN_COOKIE_NAME);
 			if (!refreshToken) {
+				clearAuthCookies(c);
 				throw new HttpError(401, "Unauthorized");
 			}
-			const result = await deps.authService.refresh(refreshToken);
-			setAuthCookies(c, deps.env, result);
+			const result = await deps.authService
+				.refresh(refreshToken)
+				.catch((error) => {
+					if (error instanceof HttpError && error.status === 401) {
+						clearAuthCookies(c);
+					}
+					throw error;
+				});
+			if (result.refreshTokenRotated) {
+				setAuthCookies(c, deps.env, result);
+			} else {
+				setAccessTokenCookie(c, deps.env, result.accessToken);
+			}
 			return c.json({ user: result.user });
 		})
 		.post("/logout", async (c) => {

@@ -5,11 +5,11 @@ import { users } from "../../db/schema";
 import { HttpError } from "./errors";
 import { hashPassword, verifyPassword } from "./password";
 import {
-	consumeRefreshToken,
 	generateAccessToken,
 	generateRefreshToken,
 	revokeAllRefreshTokensForUser,
 	revokeRefreshToken,
+	validateRefreshToken,
 } from "./token.service";
 import {
 	userRoleSchema,
@@ -21,6 +21,7 @@ import {
 type AuthTokensResult = {
 	accessToken: string;
 	refreshToken: string;
+	refreshTokenRotated: boolean;
 	user: AuthSessionUser;
 };
 
@@ -96,6 +97,7 @@ export class AuthService {
 		return {
 			accessToken,
 			refreshToken,
+			refreshTokenRotated: true,
 			user: toSessionUser(user),
 		};
 	}
@@ -153,12 +155,43 @@ export class AuthService {
 	}
 
 	async refresh(refreshToken: string): Promise<AuthTokensResult> {
-		const payload = await consumeRefreshToken(refreshToken, this.db, this.env);
-		const user = await this.findUserById(payload.userId);
+		const session = await validateRefreshToken(refreshToken, this.db, this.env);
+		const user = await this.findUserById(session.payload.userId);
 		if (!user?.isActive) {
 			throw new HttpError(401, "User account is inactive or deleted.");
 		}
-		return this.issueTokens(user);
+		const accessToken = await generateAccessToken(
+			{
+				userId: user.id,
+				email: user.email,
+				role: user.role,
+			},
+			this.env,
+		);
+		if (!session.shouldRotate) {
+			return {
+				accessToken,
+				refreshToken,
+				refreshTokenRotated: false,
+				user: toSessionUser(user),
+			};
+		}
+		const nextRefreshToken = await generateRefreshToken(
+			{
+				userId: user.id,
+				email: user.email,
+				role: user.role,
+			},
+			this.db,
+			this.env,
+		);
+		await revokeRefreshToken(refreshToken, this.db);
+		return {
+			accessToken,
+			refreshToken: nextRefreshToken,
+			refreshTokenRotated: true,
+			user: toSessionUser(user),
+		};
 	}
 
 	async logout(refreshToken?: string): Promise<void> {

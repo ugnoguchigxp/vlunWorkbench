@@ -9,6 +9,7 @@ import type {
 	FindingRepository,
 } from "../modules/scans/repositories";
 import type { FindingDecisionRepository } from "../modules/decisions/finding-decision-repository";
+import { FindingReviewRepository } from "../modules/reviews/finding-review-repository";
 import type { ScanReportRepository } from "../modules/scans/report-repository";
 import { ScanReviewRepository } from "../modules/scans/scan-review-repository";
 import { ScanReviewRunner } from "../modules/scans/scan-review-runner";
@@ -27,6 +28,7 @@ type ScansRouteDeps = {
 	artifactRepository: ArtifactRepository;
 	findingRepository: FindingRepository;
 	decisionRepository: FindingDecisionRepository;
+	findingReviewRepository?: FindingReviewRepository;
 	scanReportRepository: ScanReportRepository;
 	scanReviewRepository?: ScanReviewRepository;
 	artifactStorage: ArtifactStorage;
@@ -46,6 +48,8 @@ export function createScansRoute(deps: ScansRouteDeps) {
 		db,
 		llmRouter,
 	} = deps;
+	const findingReviewRepository =
+		deps.findingReviewRepository ?? new FindingReviewRepository(db);
 	const scanReviewRepository =
 		deps.scanReviewRepository ?? new ScanReviewRepository(db);
 
@@ -122,11 +126,14 @@ export function createScansRoute(deps: ScansRouteDeps) {
 
 			const findingsWithDecisions = await Promise.all(
 				list.map(async (f) => {
-					const latestDecision =
-						await decisionRepository.findLatestDecisionForFinding(f.id);
+					const [latestDecision, latestReview] = await Promise.all([
+						decisionRepository.findLatestDecisionForFinding(f.id),
+						findingReviewRepository.findLatestReview(f.id),
+					]);
 					return {
 						...f,
 						latestDecision,
+						latestReview,
 					};
 				}),
 			);

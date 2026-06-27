@@ -30,21 +30,34 @@ export const setAuthCookies = (
 	env: AppEnv,
 	tokens: { accessToken: string; refreshToken: string },
 ) => {
-	const secure = env.secureCookie;
-	const accessMaxAge = parseDurationToSeconds(env.jwtAccessExpiresIn);
-	const refreshMaxAge = parseDurationToSeconds(env.jwtRefreshExpiresIn);
+	setAccessTokenCookie(c, env, tokens.accessToken);
+	setRefreshTokenCookie(c, env, tokens.refreshToken);
+};
 
-	setCookie(c, ACCESS_TOKEN_COOKIE_NAME, tokens.accessToken, {
+export const setAccessTokenCookie = (
+	c: Context,
+	env: AppEnv,
+	accessToken: string,
+) => {
+	const accessMaxAge = parseDurationToSeconds(env.jwtAccessExpiresIn);
+	setCookie(c, ACCESS_TOKEN_COOKIE_NAME, accessToken, {
 		httpOnly: true,
-		secure,
+		secure: env.secureCookie,
 		sameSite: env.cookieSameSite,
 		path: "/",
 		...(accessMaxAge ? { maxAge: accessMaxAge } : {}),
 	});
+};
 
-	setCookie(c, REFRESH_TOKEN_COOKIE_NAME, tokens.refreshToken, {
+export const setRefreshTokenCookie = (
+	c: Context,
+	env: AppEnv,
+	refreshToken: string,
+) => {
+	const refreshMaxAge = parseDurationToSeconds(env.jwtRefreshExpiresIn);
+	setCookie(c, REFRESH_TOKEN_COOKIE_NAME, refreshToken, {
 		httpOnly: true,
-		secure,
+		secure: env.secureCookie,
 		sameSite: env.cookieSameSite,
 		path: "/api/auth",
 		...(refreshMaxAge ? { maxAge: refreshMaxAge } : {}),

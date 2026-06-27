@@ -1,5 +1,5 @@
 import type { FormEvent } from "react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
 	browseProjectFolder,
 	createFindingDecision,
@@ -56,7 +56,19 @@ import {
 	triggerFindingReproduction,
 	triggerFindingReview,
 } from "../../api";
+import {
+	buildProjectDiagnosticDashboard,
+	type DashboardAction,
+} from "./diagnostic-dashboard";
+import { buildCoverageSummary } from "./coverage-summary";
+import { buildDecisionWorkflow } from "./decision-workflow";
 import { useDastController } from "./use-dast-controller";
+import {
+	buildActionQueue,
+	deriveFindingWorkState,
+	type ActionQueueItem,
+	type FindingWorkState,
+} from "./work-states";
 
 const basenameFromPath = (value: string): string => {
 	const normalized = value.replace(/\/+$/, "");
@@ -77,6 +89,14 @@ type FindingDetails = {
 	latestDecision: FindingDecision | null;
 };
 type ScanDetailTab = "review" | "verification" | "report";
+type ActionQueueFilter =
+	| "active"
+	| "all"
+	| "needs_review"
+	| "needs_decision"
+	| "needs_verification"
+	| "ready_for_report"
+	| "blocked_by_evidence";
 type FindingSelectionBundle = {
 	details: FindingDetails;
 	reviews: FindingReview[];
@@ -89,6 +109,23 @@ type FindingVerificationBundle = {
 	dynamicProfiles: DynamicProfileConfig[];
 	selectedDynamicProfile: string;
 	dynamicRuns: DynamicRun[];
+};
+const workStateRank: Record<FindingWorkState, number> = {
+	blocked_by_evidence: 0,
+	needs_decision: 1,
+	needs_review: 2,
+	needs_verification: 3,
+	ready_for_report: 4,
+	false_positive_recorded: 5,
+	accepted_risk_recorded: 6,
+};
+const severityRank: Record<string, number> = {
+	critical: 0,
+	high: 1,
+	medium: 2,
+	low: 3,
+	info: 4,
+	unknown: 5,
 };
 export const useScansController = ({
 	active,
@@ -109,6 +146,8 @@ export const useScansController = ({
 	const [selectedScanRunId, setSelectedScanRunId] = useState("");
 	const [scanListTab, setScanListTab] = useState<"runs" | "findings">("runs");
 	const [scanDetailTab, setScanDetailTab] = useState<ScanDetailTab>("review");
+	const [actionQueueFilter, setActionQueueFilter] =
+		useState<ActionQueueFilter>("active");
 	const [findings, setFindings] = useState<Finding[]>([]);
 	const [selectedFindingId, setSelectedFindingId] = useState("");
 	const [profiles, setProfiles] = useState<ScanProfile[]>([]);
@@ -192,6 +231,9 @@ export const useScansController = ({
 	const [allowProjectScriptsConsent, setAllowProjectScriptsConsent] =
 		useState(false);
 	const selectedFindingIdRef = useRef(selectedFindingId);
+	const linkReviewDefaultFindingRef = useRef<string | null>(null);
+	const [verificationDataLoadedFindingId, setVerificationDataLoadedFindingId] =
+		useState<string | null>(null);
 	const findingSelectionCacheRef = useRef(
 		new Map<string, FindingSelectionBundle>(),
 	);
@@ -212,10 +254,67 @@ export const useScansController = ({
 		setScanRuns,
 		setSelectedScanRunId,
 	});
+	const selectedFindingDastEvidence = useMemo(() => {
+		if (!selectedFindingId) return undefined;
+		const loadedEvidence = Object.values(dast.dastRunEvidence)
+			.flat()
+			.filter((item) => item.findingId === selectedFindingId);
+		return loadedEvidence.length > 0 ? loadedEvidence : undefined;
+	}, [dast.dastRunEvidence, selectedFindingId]);
+	const selectedVerificationDataLoaded =
+		verificationDataLoadedFindingId === selectedFindingId;
+	const selectedDecisionWorkflow = useMemo(() => {
+		if (!selectedFindingDetails) return null;
+		return buildDecisionWorkflow({
+			finding: selectedFindingDetails.finding,
+			evidence: selectedFindingDetails.evidence,
+			latestDecision: selectedFindingDetails.latestDecision,
+			latestReview: selectedFindingDetails.latestReview,
+			reproductions: selectedVerificationDataLoaded ? reproRuns : undefined,
+			dynamicRuns: selectedVerificationDataLoaded ? dynamicRuns : undefined,
+			dastEvidence: selectedFindingDastEvidence,
+			reportOptions: {
+				includeFalsePositives,
+				includeDeferred,
+				includeUndecided,
+			},
+		});
+	}, [
+		selectedFindingDetails,
+		selectedVerificationDataLoaded,
+		reproRuns,
+		dynamicRuns,
+		selectedFindingDastEvidence,
+		includeFalsePositives,
+		includeDeferred,
+		includeUndecided,
+	]);
 
 	useEffect(() => {
 		selectedFindingIdRef.current = selectedFindingId;
 	}, [selectedFindingId]);
+
+	useEffect(() => {
+		if (!selectedFindingId) {
+			linkReviewDefaultFindingRef.current = null;
+			setLinkReviewInput(false);
+			return;
+		}
+		if (
+			!selectedFindingDetails ||
+			selectedFindingDetails.finding.id !== selectedFindingId ||
+			linkReviewDefaultFindingRef.current === selectedFindingId
+		) {
+			return;
+		}
+		linkReviewDefaultFindingRef.current = selectedFindingId;
+		setDecisionInput("accepted");
+		setReasonInput(
+			selectedDecisionWorkflow?.recommendedReason ?? "confirmed_by_evidence",
+		);
+		setCommentInput("");
+		setLinkReviewInput(Boolean(selectedFindingDetails.latestReview));
+	}, [selectedFindingId, selectedFindingDetails, selectedDecisionWorkflow]);
 
 	useEffect(() => {
 		if (!active) return;
@@ -365,6 +464,7 @@ export const useScansController = ({
 			setDynamicProfiles(bundle.dynamicProfiles);
 			setSelectedDynamicProfile(bundle.selectedDynamicProfile);
 			setDynamicRuns(bundle.dynamicRuns);
+			setVerificationDataLoadedFindingId(findingId);
 		},
 		[],
 	);
@@ -491,6 +591,7 @@ export const useScansController = ({
 			setDynamicProfiles([]);
 			setSelectedDynamicProfile("");
 			setDynamicRuns([]);
+			setVerificationDataLoadedFindingId(null);
 			return;
 		}
 		void loadFindingDetails(selectedFindingId);
@@ -503,13 +604,6 @@ export const useScansController = ({
 			console.error("Failed to load finding verification data:", err),
 		);
 	}, [active, scanDetailTab, selectedFindingId, loadFindingVerification]);
-
-	useEffect(() => {
-		setDecisionInput("accepted");
-		setReasonInput("confirmed_by_evidence");
-		setCommentInput("");
-		setLinkReviewInput(false);
-	}, []);
 
 	useEffect(() => {
 		if (
@@ -623,12 +717,13 @@ export const useScansController = ({
 		summaryMode:
 			| "deterministic"
 			| "deterministic_with_llm_summary" = "deterministic",
+		scanRunId = selectedScanRunId,
 	) => {
-		if (!selectedScanRunId) return;
+		if (!scanRunId) return;
 		setReportLoading(true);
 		setErrorText(null);
 		try {
-			const res = await generateScanReport(selectedScanRunId, {
+			const res = await generateScanReport(scanRunId, {
 				format: "markdown",
 				title: "Report",
 				includeFalsePositives: true,
@@ -636,7 +731,7 @@ export const useScansController = ({
 				includeUndecided: true,
 				summaryMode,
 			});
-			const list = await fetchScanReports(selectedScanRunId);
+			const list = await fetchScanReports(scanRunId);
 			setReports(list);
 			setSelectedReport(
 				list.find((item) => item.id === res.report.id) ?? res.report,
@@ -668,12 +763,12 @@ export const useScansController = ({
 		}
 	};
 
-	const reloadDiagnostics = async () => {
-		if (!selectedScanRunId) return;
+	const reloadDiagnostics = async (scanRunId = selectedScanRunId) => {
+		if (!scanRunId) return;
 		const [inventory, checks, diagnostic] = await Promise.all([
-			fetchScanAttackSurface(selectedScanRunId).catch(() => ({ items: [] })),
-			fetchScanSecurityChecks(selectedScanRunId).catch(() => ({ results: [] })),
-			fetchScanDiagnosticReports(selectedScanRunId).catch(() => ({
+			fetchScanAttackSurface(scanRunId).catch(() => ({ items: [] })),
+			fetchScanSecurityChecks(scanRunId).catch(() => ({ results: [] })),
+			fetchScanDiagnosticReports(scanRunId).catch(() => ({
 				reports: [],
 			})),
 		]);
@@ -682,14 +777,14 @@ export const useScansController = ({
 		setDiagnosticReports(diagnostic.reports);
 	};
 
-	const handleRunDiagnostics = async () => {
-		if (!selectedScanRunId) return;
+	const runDiagnosticsForScan = async (scanRunId: string) => {
+		if (!scanRunId) return;
 		setDiagnosticLoading(true);
 		setErrorText(null);
 		try {
-			await runScanAttackSurfaceInventory(selectedScanRunId);
-			await runScanSecurityChecks(selectedScanRunId);
-			await reloadDiagnostics();
+			await runScanAttackSurfaceInventory(scanRunId);
+			await runScanSecurityChecks(scanRunId);
+			await reloadDiagnostics(scanRunId);
 		} catch (err) {
 			setErrorText(
 				err instanceof Error ? err.message : "Failed to run diagnostics.",
@@ -699,18 +794,62 @@ export const useScansController = ({
 		}
 	};
 
-	const handleGenerateDiagnosticReport = async () => {
+	const handleRunDiagnostics = async () => {
 		if (!selectedScanRunId) return;
+		await runDiagnosticsForScan(selectedScanRunId);
+	};
+
+	const generateDiagnosticReportForScan = async (scanRunId: string) => {
+		if (!scanRunId) return;
 		setDiagnosticLoading(true);
 		setErrorText(null);
 		try {
-			await generateDiagnosticReport(selectedScanRunId);
-			await reloadDiagnostics();
+			await generateDiagnosticReport(scanRunId);
+			await reloadDiagnostics(scanRunId);
 		} catch (err) {
 			setErrorText(
 				err instanceof Error
 					? err.message
 					: "Failed to generate diagnostic report.",
+			);
+		} finally {
+			setDiagnosticLoading(false);
+		}
+	};
+
+	const handleGenerateDiagnosticReport = async () => {
+		if (!selectedScanRunId) return;
+		await generateDiagnosticReportForScan(selectedScanRunId);
+	};
+
+	const handleRunAttackSurfaceInventory = async () => {
+		if (!selectedScanRunId) return;
+		setDiagnosticLoading(true);
+		setErrorText(null);
+		try {
+			await runScanAttackSurfaceInventory(selectedScanRunId);
+			await reloadDiagnostics(selectedScanRunId);
+		} catch (err) {
+			setErrorText(
+				err instanceof Error
+					? err.message
+					: "Failed to run attack surface inventory.",
+			);
+		} finally {
+			setDiagnosticLoading(false);
+		}
+	};
+
+	const handleRunSecurityChecks = async () => {
+		if (!selectedScanRunId) return;
+		setDiagnosticLoading(true);
+		setErrorText(null);
+		try {
+			await runScanSecurityChecks(selectedScanRunId);
+			await reloadDiagnostics(selectedScanRunId);
+		} catch (err) {
+			setErrorText(
+				err instanceof Error ? err.message : "Failed to run security checks.",
 			);
 		} finally {
 			setDiagnosticLoading(false);
@@ -848,16 +987,121 @@ export const useScansController = ({
 		await openDynamicRun(runId).catch(console.error);
 	};
 
-	const displayedFindings =
-		findingsViewMode === "grouped" && selectedGroupId
-			? findings.filter((item) =>
-					scanGroups
-						.find((group) => group.id === selectedGroupId)
-						?.findingIds.includes(item.id),
-				)
-			: findings;
+	const findingWorkStatesById = useMemo(() => {
+		const states = new Map<string, FindingWorkState>();
+		for (const finding of findings) {
+			states.set(finding.id, deriveFindingWorkState({ finding }));
+		}
+		return states;
+	}, [findings]);
+	const displayedFindings = useMemo(() => {
+		const base =
+			findingsViewMode === "grouped" && selectedGroupId
+				? findings.filter((item) =>
+						scanGroups
+							.find((group) => group.id === selectedGroupId)
+							?.findingIds.includes(item.id),
+					)
+				: findings;
+		if (findingsViewMode === "grouped") return base;
+		return [...base].sort((a, b) => {
+			const stateDelta =
+				workStateRank[findingWorkStatesById.get(a.id) ?? "ready_for_report"] -
+				workStateRank[findingWorkStatesById.get(b.id) ?? "ready_for_report"];
+			if (stateDelta !== 0) return stateDelta;
+			const severityDelta = severityRank[a.severity] - severityRank[b.severity];
+			if (severityDelta !== 0) return severityDelta;
+			const aTime = new Date(a.updatedAt).getTime();
+			const bTime = new Date(b.updatedAt).getTime();
+			if (aTime !== bTime) return bTime - aTime;
+			return a.title.localeCompare(b.title);
+		});
+	}, [
+		findings,
+		findingsViewMode,
+		findingWorkStatesById,
+		scanGroups,
+		selectedGroupId,
+	]);
 	const selectedProject =
 		projects.find((project) => project.id === selectedProjectId) ?? null;
+	const selectedScanRun =
+		scanRuns.find((run) => run.id === selectedScanRunId) ?? null;
+	const selectedCoverageSummary = useMemo(
+		() =>
+			buildCoverageSummary({
+				scanRun: selectedScanRun,
+				findings,
+				attackSurfaceItems,
+				securityCheckResults,
+				diagnosticReports,
+				scanSummary,
+			}),
+		[
+			selectedScanRun,
+			findings,
+			attackSurfaceItems,
+			securityCheckResults,
+			diagnosticReports,
+			scanSummary,
+		],
+	);
+	const diagnosticDashboard = useMemo(
+		() =>
+			buildProjectDiagnosticDashboard({
+				projectId: selectedProjectId,
+				scanRuns,
+				selectedScanRunId,
+				findings,
+				reports,
+				scanReviews,
+				diagnosticReports,
+				securityCheckResults,
+				attackSurfaceItems,
+				scanSummary,
+			}),
+		[
+			selectedProjectId,
+			scanRuns,
+			selectedScanRunId,
+			findings,
+			reports,
+			scanReviews,
+			diagnosticReports,
+			securityCheckResults,
+			attackSurfaceItems,
+			scanSummary,
+		],
+	);
+	const actionQueueItems = useMemo(
+		() =>
+			buildActionQueue({
+				scanRuns,
+				selectedScanRunId,
+				findings,
+				reports,
+				diagnosticReports,
+				scanSummary,
+			}),
+		[
+			scanRuns,
+			selectedScanRunId,
+			findings,
+			reports,
+			diagnosticReports,
+			scanSummary,
+		],
+	);
+	const filteredActionQueueItems = useMemo(
+		() =>
+			actionQueueItems.filter((item) => {
+				if (actionQueueFilter === "all") return true;
+				if (actionQueueFilter === "active")
+					return item.state !== "report_generated";
+				return item.state === actionQueueFilter;
+			}),
+		[actionQueueFilter, actionQueueItems],
+	);
 	const handleSelectScanRun = (scanRunId: string) => {
 		setSelectedScanRunId(scanRunId);
 		selectedFindingIdRef.current = "";
@@ -872,6 +1116,42 @@ export const useScansController = ({
 		setReviewError(null);
 		setScanDetailTab("review");
 	};
+	const handleActionQueueItem = (item: ActionQueueItem) => {
+		if (item.targetType === "finding") {
+			const targetFinding = findings.find(
+				(finding) => finding.id === item.targetId,
+			);
+			if (targetFinding && targetFinding.scanRunId !== selectedScanRunId) {
+				handleSelectScanRun(targetFinding.scanRunId);
+			}
+			setScanListTab("findings");
+			handleSelectFinding(item.targetId);
+			setScanDetailTab(
+				item.state === "needs_verification" ? "verification" : "review",
+			);
+			return;
+		}
+
+		if (item.targetType === "scan") {
+			handleSelectScanRun(item.targetId);
+			setScanListTab("runs");
+			return;
+		}
+
+		if (item.targetType === "report") {
+			if (item.targetId !== selectedScanRunId)
+				handleSelectScanRun(item.targetId);
+			setScanDetailTab("report");
+			return;
+		}
+
+		if (item.targetType === "diagnostic") {
+			if (item.targetId !== selectedScanRunId)
+				handleSelectScanRun(item.targetId);
+			setScanListTab("runs");
+			setScanDetailTab("review");
+		}
+	};
 	const handleCloseFinding = () => {
 		selectedFindingIdRef.current = "";
 		setSelectedFindingId("");
@@ -879,12 +1159,70 @@ export const useScansController = ({
 		setReviewError(null);
 		setScanDetailTab("review");
 	};
+	const handleDashboardAction = (action: DashboardAction) => {
+		if (action.kind === "run_scan") {
+			setLaunchMode("static");
+			setScanListTab("runs");
+			return;
+		}
+
+		if (action.kind === "record_decisions") {
+			setScanListTab("findings");
+			const targetFinding =
+				findings.find((finding) => finding.id === action.targetId) ??
+				findings.find((finding) => !finding.latestDecision);
+			if (targetFinding) handleSelectFinding(targetFinding.id);
+			return;
+		}
+
+		if (action.kind === "review_findings") {
+			setScanListTab("findings");
+			const targetFinding =
+				findings.find((finding) => finding.id === action.targetId) ??
+				findings[0];
+			if (targetFinding) handleSelectFinding(targetFinding.id);
+			return;
+		}
+
+		if (action.kind === "inspect_zero_findings") {
+			if (action.targetId) handleSelectScanRun(action.targetId);
+			setScanDetailTab("review");
+			return;
+		}
+
+		if (action.kind === "run_diagnostics") {
+			const targetScanRunId = action.targetId ?? selectedScanRunId;
+			if (targetScanRunId && targetScanRunId !== selectedScanRunId) {
+				handleSelectScanRun(targetScanRunId);
+			}
+			if (targetScanRunId) void runDiagnosticsForScan(targetScanRunId);
+			return;
+		}
+
+		if (action.kind === "generate_report") {
+			const targetScanRunId = action.targetId ?? selectedScanRunId;
+			if (targetScanRunId && targetScanRunId !== selectedScanRunId) {
+				handleSelectScanRun(targetScanRunId);
+			}
+			void handleGenerateReport("deterministic", targetScanRunId);
+		}
+	};
 
 	return {
 		active,
 		busy,
 		projects,
 		selectedProject,
+		selectedScanRun,
+		selectedCoverageSummary,
+		diagnosticDashboard,
+		handleDashboardAction,
+		actionQueueFilter,
+		setActionQueueFilter,
+		actionQueueItems,
+		filteredActionQueueItems,
+		findingWorkStatesById,
+		handleActionQueueItem,
 		selectedProjectId,
 		setSelectedProjectId,
 		projectFolderPath,
@@ -932,6 +1270,7 @@ export const useScansController = ({
 		findingsViewMode,
 		setFindingsViewMode,
 		selectedFindingDetails,
+		selectedDecisionWorkflow,
 		allReviews,
 		reviewLoading,
 		reviewError,
@@ -992,6 +1331,8 @@ export const useScansController = ({
 		handleGenerateReport,
 		handleTriggerScanReview,
 		handleRunDiagnostics,
+		handleRunAttackSurfaceInventory,
+		handleRunSecurityChecks,
 		handleGenerateDiagnosticReport,
 		handleTriggerReview,
 		handleDecisionSubmit,
