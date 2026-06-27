@@ -1,6 +1,5 @@
 import { FindingDetailPanel } from "./components/finding-detail-panel";
-import { FindingsPanel } from "./components/findings-panel";
-import { ScansSidebar } from "./components/scans-sidebar";
+import { ScansSidebar, ScansToolbar } from "./components/scans-sidebar";
 import { ScansProvider } from "./scans-context";
 import {
 	type ScansDomainSectionProps,
@@ -13,9 +12,11 @@ export const ScansDomainSection = (props: ScansDomainSectionProps) => {
 	return (
 		<ScansProvider value={controller}>
 			<main className="scans-layout">
-				<ScansSidebar />
-				<FindingDetailPanel />
-				<FindingsPanel />
+				<ScansToolbar />
+				<div className="scans-workspace">
+					<ScansSidebar />
+					<FindingDetailPanel />
+				</div>
 			</main>
 		</ScansProvider>
 	);

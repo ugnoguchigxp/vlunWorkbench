@@ -93,6 +93,38 @@ describe("CodexSdkProvider", () => {
 		);
 	});
 
+	it("passes structured output schema to Codex turns", async () => {
+		const outputSchema = {
+			type: "object",
+			properties: { summary: { type: "string" } },
+			required: ["summary"],
+		};
+		const run = vi.fn().mockResolvedValue({
+			finalResponse: `{"summary":"done"}`,
+			usage: null,
+		});
+		const startThread = vi.fn().mockReturnValue({
+			id: "thread-schema",
+			run,
+		});
+		const provider = new CodexSdkProvider({
+			model: "gpt-5.4-mini",
+			tmpRoot,
+			codexConstructor: vi.fn(function () {
+				return { startThread };
+			}) as any,
+		});
+
+		await provider.chatCompletion([{ role: "user", content: "hello" }], {
+			outputSchema,
+		});
+
+		expect(run).toHaveBeenCalledWith(
+			expect.any(String),
+			expect.objectContaining({ outputSchema }),
+		);
+	});
+
 	it("maps OPENAI_API_KEY from the environment to Codex's API key without leaking the original name", async () => {
 		const startThread = vi.fn().mockReturnValue({
 			id: "thread-env",

@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import { z } from "zod";
 import type { AppDatabase } from "../../db";
 import {
 	LlmProviderExecutionError,
@@ -6,6 +7,7 @@ import {
 } from "../../providers/types";
 import type { LlmRouter } from "../../providers/llmRouter";
 import type { LlmTask } from "../../providers/llmTaskTypes";
+import { assertJapaneseTextFields } from "../llm-language";
 import {
 	scanReviewOutputSchema,
 	type ScanReviewOutput,
@@ -81,6 +83,7 @@ export class ScanReviewRunner {
 	private parseOutput(
 		responseContent: string,
 		bundle: ScanReviewBundle,
+		options: { enforceJapanese: boolean } = { enforceJapanese: true },
 	): ScanReviewOutput {
 		const jsonText = this.extractJsonObject(responseContent);
 		if (!jsonText) {
@@ -99,6 +102,34 @@ export class ScanReviewRunner {
 				throw new StructuredScanReviewOutputError(
 					`findingTriageHints referenced findings not in bundle: ${invalidFindingIds.join(", ")}`,
 				);
+			}
+			if (options.enforceJapanese) {
+				assertJapaneseTextFields(output as unknown as Record<string, unknown>, [
+					"summary",
+					"riskOverview",
+					"priorityNotes",
+					"coverageNotes",
+					"falsePositiveHotspots",
+					"recommendedNextActions",
+					"confidenceNotes",
+				]);
+				for (const [index, hint] of output.findingTriageHints.entries()) {
+					try {
+						assertJapaneseTextFields(
+							hint as unknown as Record<string, unknown>,
+							["note"],
+						);
+					} catch (error) {
+						throw new Error(
+							error instanceof Error
+								? error.message.replace(
+										"note",
+										`findingTriageHints.${index}.note`,
+									)
+								: String(error),
+						);
+					}
+				}
 			}
 			return output;
 		} catch (error) {
@@ -214,7 +245,9 @@ export class ScanReviewRunner {
 			let outputData: ScanReviewOutput;
 			if (options.fixtureOutput) {
 				const fixtureContent = await fs.readFile(options.fixtureOutput, "utf8");
-				outputData = this.parseOutput(fixtureContent, bundle);
+				outputData = this.parseOutput(fixtureContent, bundle, {
+					enforceJapanese: false,
+				});
 			} else {
 				if (!resolvedProvider) {
 					throw new Error("LLM provider is not configured");
@@ -224,7 +257,10 @@ export class ScanReviewRunner {
 						{ role: "system", content: buildScanReviewSystemPrompt() },
 						{ role: "user", content: buildScanReviewUserMessage(bundle) },
 					],
-					{ temperature: 0.1 },
+					{
+						temperature: 0.1,
+						outputSchema: z.toJSONSchema(scanReviewOutputSchema),
+					},
 				);
 				outputData = this.parseOutput(response.content, bundle);
 			}

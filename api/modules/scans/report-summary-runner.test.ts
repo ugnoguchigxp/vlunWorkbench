@@ -106,11 +106,13 @@ describe("buildMarkdownReportWithLlmSummary", () => {
 
 	it("inserts structured LLM summary into deterministic markdown", async () => {
 		const output = JSON.stringify({
-			executiveSummary: "LLM says the scan has one high risk finding.",
-			keyFindings: ["Reflected XSS is the highest priority."],
-			riskNarrative: "Residual risk is tied to unescaped user input.",
-			recommendedNextActions: ["Fix escaping."],
-			confidenceNotes: ["Static evidence only."],
+			executiveSummary:
+				"このスキャンでは高リスクの finding が 1 件確認されています。",
+			keyFindings: ["反射型 XSS が最優先の確認対象です。"],
+			riskNarrative:
+				"ユーザー入力がエスケープされずに出力される点に残存リスクがあります。",
+			recommendedNextActions: ["出力時のエスケープ処理を修正してください。"],
+			confidenceNotes: ["証跡は static scan に限定されています。"],
 		});
 		const provider: LlmProvider = {
 			chatCompletion: vi.fn(async () => ({
@@ -129,11 +131,44 @@ describe("buildMarkdownReportWithLlmSummary", () => {
 
 		expect(result.markdown).toContain("## LLMサマリ");
 		expect(result.markdown).toContain(
-			"LLM says the scan has one high risk finding.",
+			"このスキャンでは高リスクの finding が 1 件確認されています。",
 		);
 		expect(result.markdown.indexOf("## LLMサマリ")).toBeLessThan(
 			result.markdown.indexOf("## スキャン概要"),
 		);
+		const messages = (
+			provider.chatCompletion as unknown as {
+				mock: { calls: Parameters<LlmProvider["chatCompletion"]>[] };
+			}
+		).mock.calls[0][0];
+		expect(messages[0].content).toContain("必ず日本語で書いてください");
+		expect(messages[1].content).toContain("本文は必ず日本語");
+	});
+
+	it("rejects English-only LLM report summary text", async () => {
+		const output = JSON.stringify({
+			executiveSummary: "LLM says the scan has one high risk finding.",
+			keyFindings: ["Reflected XSS is the highest priority."],
+			riskNarrative: "Residual risk is tied to unescaped user input.",
+			recommendedNextActions: ["Fix escaping."],
+			confidenceNotes: ["Static evidence only."],
+		});
+		const provider: LlmProvider = {
+			chatCompletion: vi.fn(async () => ({
+				id: "summary-response",
+				content: `\`\`\`json\n${output}\n\`\`\``,
+			})),
+		};
+
+		await expect(
+			buildMarkdownReportWithLlmSummary(connection.db, scanRunId, {
+				includeFalsePositives: true,
+				includeDeferred: true,
+				includeUndecided: true,
+				title: "Security Report",
+				llmProvider: provider,
+			}),
+		).rejects.toThrow("Japanese review text is required");
 	});
 
 	it("classifies provider execution failures for report generation", async () => {

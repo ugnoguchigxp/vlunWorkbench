@@ -14,6 +14,7 @@ export interface LlmProvider {
 export interface LlmCompletionOptions {
 	temperature?: number;
 	maxTokens?: number;
+	outputSchema?: unknown;
 }
 
 export interface LlmResponse {

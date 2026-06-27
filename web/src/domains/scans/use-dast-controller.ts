@@ -23,6 +23,14 @@ function isVisibleDastTarget(target: DastTargetConfig): boolean {
 	);
 }
 
+function manualDastTargetName(origin: string): string {
+	try {
+		return `Manual target ${new URL(origin).origin}`;
+	} catch {
+		return "Manual DAST target";
+	}
+}
+
 export function useDastController({
 	active,
 	selectedProjectId,
@@ -43,7 +51,6 @@ export function useDastController({
 	const [selectedDastTargetId, setSelectedDastTargetId] = useState("");
 	const [selectedDastProfileId, setSelectedDastProfileId] =
 		useState("http-baseline");
-	const [dastTargetName, setDastTargetName] = useState("Manual local app");
 	const [dastTargetOrigin, setDastTargetOrigin] = useState("");
 	const [lastAutoDastTargetOrigin, setLastAutoDastTargetOrigin] = useState<
 		string | null
@@ -103,26 +110,34 @@ export function useDastController({
 		}
 	};
 
+	const saveManualDastTarget = async () => {
+		const origin = dastTargetOrigin.trim();
+		if (!selectedProjectId || !origin) {
+			return null;
+		}
+		const res = await saveProjectDastTarget(selectedProjectId, {
+			name: manualDastTargetName(origin),
+			origin,
+			allowedPathsJson: ["/"],
+			maxDepth: 0,
+			maxRequests: 20,
+			rateLimitPerSec: 2,
+			timeoutSec: 120,
+		});
+		const visibleTargets = (
+			await fetchProjectDastTargets(selectedProjectId)
+		).targets.filter(isVisibleDastTarget);
+		setDastTargets(visibleTargets);
+		setSelectedDastTargetId(res.target.id);
+		return res.target;
+	};
+
 	const handleCreateDastTarget = async () => {
 		if (!selectedProjectId) return;
 		setDastLoading(true);
 		setDastError(null);
 		try {
-			const res = await saveProjectDastTarget(selectedProjectId, {
-				name: dastTargetName,
-				origin: dastTargetOrigin,
-				allowedPathsJson: ["/"],
-				maxDepth: 0,
-				maxRequests: 20,
-				rateLimitPerSec: 2,
-				timeoutSec: 120,
-			});
-			setDastTargets(
-				(await fetchProjectDastTargets(selectedProjectId)).targets.filter(
-					isVisibleDastTarget,
-				),
-			);
-			setSelectedDastTargetId(res.target.id);
+			await saveManualDastTarget();
 		} catch (err) {
 			setDastError(
 				err instanceof Error ? err.message : "Failed to save DAST target.",
@@ -139,31 +154,58 @@ export function useDastController({
 		setDastRunEvidence((prev) => ({ ...prev, [runId]: res.evidence }));
 	};
 
+	const applyDastRunResult = async (res: {
+		dastRunId: string | null;
+		scanRunId: string | null;
+		plan?: { autoTarget?: { origin?: string } };
+	}) => {
+		const autoOrigin = res.plan?.autoTarget?.origin;
+		if (autoOrigin) {
+			setLastAutoDastTargetOrigin(autoOrigin);
+			setDastTargetOrigin("");
+		}
+		await refreshDastRuns();
+		if (res.dastRunId) await openDastRun(res.dastRunId);
+		if (res.scanRunId) {
+			setScanRuns(await fetchScans(selectedProjectId));
+			setSelectedScanRunId(res.scanRunId);
+		}
+	};
+
 	const handleTriggerDastRun = async () => {
-		if (!selectedProjectId || !selectedDastTargetId || !selectedDastProfileId) {
+		if (!selectedProjectId || !selectedDastProfileId) {
 			return;
 		}
 		setDastLoading(true);
 		setDastError(null);
 		try {
+			const target = dastTargetOrigin.trim()
+				? await saveManualDastTarget()
+				: null;
+			const targetConfigId = target?.id ?? selectedDastTargetId;
+			if (!targetConfigId) {
+				await applyDastRunResult(
+					await triggerProjectDastRun(selectedProjectId, {
+						autoTarget: true,
+						profileId: selectedDastProfileId,
+						runner: "host",
+					}),
+				);
+				return;
+			}
 			const profileConfig = dastProfileConfigs.find(
 				(item) =>
 					item.profileId === selectedDastProfileId &&
-					item.targetConfigId === selectedDastTargetId &&
+					item.targetConfigId === targetConfigId &&
 					item.enabled,
 			);
 			const res = await triggerProjectDastRun(selectedProjectId, {
-				targetConfigId: selectedDastTargetId,
+				targetConfigId,
 				profileId: selectedDastProfileId,
 				profileConfigId: profileConfig?.id,
 				runner: "host",
 			});
-			await refreshDastRuns();
-			if (res.dastRunId) await openDastRun(res.dastRunId);
-			if (res.scanRunId) {
-				setScanRuns(await fetchScans(selectedProjectId));
-				setSelectedScanRunId(res.scanRunId);
-			}
+			await applyDastRunResult(res);
 		} catch (err) {
 			setDastError(
 				err instanceof Error ? err.message : "Failed to run DAST profile.",
@@ -183,22 +225,12 @@ export function useDastController({
 				profileId: "http-baseline",
 				runner: "host",
 			});
-			const autoOrigin = res.plan?.autoTarget?.origin;
-			if (autoOrigin) {
-				setLastAutoDastTargetOrigin(autoOrigin);
-				setDastTargetOrigin("");
-			}
 			setDastTargets(
 				(await fetchProjectDastTargets(selectedProjectId)).targets.filter(
 					isVisibleDastTarget,
 				),
 			);
-			await refreshDastRuns();
-			if (res.dastRunId) await openDastRun(res.dastRunId);
-			if (res.scanRunId) {
-				setScanRuns(await fetchScans(selectedProjectId));
-				setSelectedScanRunId(res.scanRunId);
-			}
+			await applyDastRunResult(res);
 		} catch (err) {
 			setDastError(
 				err instanceof Error ? err.message : "Failed to run auto DAST.",
@@ -227,8 +259,6 @@ export function useDastController({
 		setSelectedDastTargetId,
 		selectedDastProfileId,
 		setSelectedDastProfileId,
-		dastTargetName,
-		setDastTargetName,
 		dastTargetOrigin,
 		setDastTargetOrigin,
 		lastAutoDastTargetOrigin,

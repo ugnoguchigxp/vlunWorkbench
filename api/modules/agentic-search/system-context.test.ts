@@ -13,7 +13,7 @@ describe("buildAgenticSystemContext", () => {
 		expect(context).toContain("vector search");
 		expect(context).toContain("web search");
 		expect(context).toContain("Answer with strict citations.");
-		expect(context).toContain("Category scope is tech.");
+		expect(context).toContain("Category scope は tech です。");
 	});
 
 	it("works without user context", () => {
@@ -22,6 +22,6 @@ describe("buildAgenticSystemContext", () => {
 			topK: 4,
 		});
 		expect(context).not.toContain("[User SystemContext]");
-		expect(context).toContain("Default retrieval topK is 4.");
+		expect(context).toContain("既定の retrieval topK は 4 です。");
 	});
 });

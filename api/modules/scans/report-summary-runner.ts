@@ -5,6 +5,7 @@ import {
 	LlmProviderExecutionError,
 	type LlmProvider,
 } from "../../providers/types";
+import { assertJapaneseTextFields } from "../llm-language";
 import {
 	scanReportLlmSummaryOutputSchema,
 	type ScanReportLlmSummaryOutput,
@@ -55,7 +56,15 @@ function parseSummaryOutput(input: string): ScanReportLlmSummaryOutput {
 		);
 	}
 	try {
-		return scanReportLlmSummaryOutputSchema.parse(JSON.parse(jsonText));
+		const output = scanReportLlmSummaryOutputSchema.parse(JSON.parse(jsonText));
+		assertJapaneseTextFields(output as unknown as Record<string, unknown>, [
+			"executiveSummary",
+			"keyFindings",
+			"riskNarrative",
+			"recommendedNextActions",
+			"confidenceNotes",
+		]);
+		return output;
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
 		throw new StructuredReportSummaryOutputError(message);

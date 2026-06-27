@@ -1,5 +1,7 @@
 import { useScans } from "../scans-context";
+import { formatScanOutcome, getToolDisplay } from "../scan-profile-display";
 import { getSeverityClass } from "../scans-utils";
+import { ScanResultOverview } from "./scan-result-overview";
 
 export function ScanSummaryPanel() {
 	const c = useScans();
@@ -14,80 +16,71 @@ export function ScanSummaryPanel() {
 	}, {});
 	return (
 		<div className="scans-detail-scroll">
+			<ScanResultOverview />
 			<div className="detail-section">
 				<span className={`scan-status-badge badge-${summary.profileOutcome}`}>
-					Outcome: {summary.profileOutcome.replace(/_/g, " ").toUpperCase()}
+					総合結果: {formatScanOutcome(summary.profileOutcome)}
 				</span>
-				<h2>Scan Profile Summary</h2>
-				<p>Profile: {summary.profileId}</p>
+				<h2>スキャン別の詳細結果</h2>
 			</div>
 			<div className="detail-section">
-				<h3 className="detail-section-title">Tool Results</h3>
-				{summary.tools.map((tool) => (
-					<div className="assessment-card" key={tool.toolId}>
-						<div className="finding-meta-row">
-							<strong>{tool.toolId}</strong>
-							<span className={`scan-status-badge badge-${tool.status}`}>
-								{tool.status}
-							</span>
-						</div>
-						{tool.status === "completed" ? (
-							<div className="assessment-grid">
-								<Metric label="Findings" value={tool.findingCount} />
-								<Metric label="Artifacts" value={tool.artifactCount} />
-								<Metric label="Exit Code" value={tool.exitCode ?? 0} />
+				<h3 className="detail-section-title">実行した scan tool</h3>
+				{summary.tools.map((tool) => {
+					const display = getToolDisplay(tool.toolId);
+					return (
+						<div className="assessment-card" key={tool.toolId}>
+							<div className="finding-meta-row">
+								<div>
+									<strong>{display.name}</strong>
+									<p className="scan-tool-purpose">{display.purpose}</p>
+								</div>
+								<span className={`scan-status-badge badge-${tool.status}`}>
+									{formatScanOutcome(tool.status)}
+								</span>
 							</div>
-						) : null}
-						<div className="finding-meta-row">
-							{Object.entries(tool.severityCounts || {})
-								.filter(([, count]) => count > 0)
-								.map(([severity, count]) => (
-									<span
-										key={severity}
-										className={`severity-badge ${getSeverityClass(severity)}`}
-									>
-										{severity}: {count}
-									</span>
-								))}
+							{tool.status === "completed" ? (
+								<div className="assessment-grid">
+									<Metric label="検出数" value={tool.findingCount} />
+									<Metric label="証跡" value={tool.artifactCount} />
+									<Metric label="終了コード" value={tool.exitCode ?? 0} />
+								</div>
+							) : null}
+							<div className="finding-meta-row">
+								{Object.entries(tool.severityCounts || {})
+									.filter(([, count]) => count > 0)
+									.map(([severity, count]) => (
+										<span
+											key={severity}
+											className={`severity-badge ${getSeverityClass(severity)}`}
+										>
+											{severity}: {count}
+										</span>
+									))}
+							</div>
+							{tool.error ? <p className="badge-failed">{tool.error}</p> : null}
 						</div>
-						{tool.error ? <p className="badge-failed">{tool.error}</p> : null}
-					</div>
-				))}
-			</div>
-			<div className="assessment-grid">
-				<Metric label="Total Findings" value={summary.totals.findingCount} />
-				<Metric label="Total Artifacts" value={summary.totals.artifactCount} />
-				<Metric
-					label="Reviewed Findings"
-					value={summary.totals.reviewedFindingCount}
-				/>
-				<Metric
-					label="Decided Findings"
-					value={summary.totals.decidedFindingCount}
-				/>
+					);
+				})}
 			</div>
 			<div className="detail-section">
-				<h3 className="detail-section-title">Diagnostic Coverage</h3>
+				<h3 className="detail-section-title">診断カバレッジ</h3>
 				{summary.totals.findingCount === 0 ? (
 					<p>
-						No normalized findings were produced. Review diagnostic coverage
-						before treating this scan as low risk.
+						正規化された finding
+						はありません。低リスクと判断する前に、診断カバレッジと証跡を確認してください。
 					</p>
 				) : null}
 				<div className="assessment-grid">
-					<Metric label="Attack Surface" value={c.attackSurfaceItems.length} />
+					<Metric label="攻撃面" value={c.attackSurfaceItems.length} />
 					<Metric
-						label="Security Checks"
+						label="セキュリティ検査"
 						value={c.securityCheckResults.length}
 					/>
 					<Metric
-						label="Manual Review"
+						label="手動確認"
 						value={checkStatusCounts.manual_review ?? 0}
 					/>
-					<Metric
-						label="Not Checked"
-						value={checkStatusCounts.not_checked ?? 0}
-					/>
+					<Metric label="未確認" value={checkStatusCounts.not_checked ?? 0} />
 				</div>
 				<div className="finding-meta-row">
 					<button
@@ -96,7 +89,7 @@ export function ScanSummaryPanel() {
 						disabled={c.diagnosticLoading}
 						onClick={c.handleRunDiagnostics}
 					>
-						{c.diagnosticLoading ? "Running..." : "Run Diagnostics"}
+						{c.diagnosticLoading ? "診断中..." : "診断を実行"}
 					</button>
 					<button
 						type="button"
@@ -104,21 +97,22 @@ export function ScanSummaryPanel() {
 						disabled={c.diagnosticLoading}
 						onClick={c.handleGenerateDiagnosticReport}
 					>
-						Generate Diagnostic Report
+						診断レポートを生成
 					</button>
 					{latestDiagnosticReport?.status === "completed" ? (
 						<a
 							href={`/api/diagnostic-reports/${latestDiagnosticReport.id}/download`}
 							download
 						>
-							Download Diagnostic Report
+							診断レポートをダウンロード
 						</a>
 					) : null}
 				</div>
 				{latestDiagnosticReport ? (
 					<div className="assessment-card">
 						<strong>
-							Latest diagnostic report: {latestDiagnosticReport.status}
+							最新の診断レポート:{" "}
+							{formatScanOutcome(latestDiagnosticReport.status)}
 						</strong>
 						<p>{latestDiagnosticReport.summary}</p>
 					</div>

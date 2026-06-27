@@ -546,7 +546,7 @@ export const useScansController = ({
 		try {
 			const res = await startScan(selectedProjectId, {
 				profile: selectedProfileId,
-				continueOnToolFailure,
+				continueOnToolFailure: true,
 				timeoutSec,
 			});
 			setScanRuns(await fetchScans(selectedProjectId));
@@ -630,10 +630,10 @@ export const useScansController = ({
 		try {
 			const res = await generateScanReport(selectedScanRunId, {
 				format: "markdown",
-				title: reportTitle,
-				includeFalsePositives,
-				includeDeferred,
-				includeUndecided,
+				title: "Report",
+				includeFalsePositives: true,
+				includeDeferred: true,
+				includeUndecided: true,
 				summaryMode,
 			});
 			const list = await fetchScanReports(selectedScanRunId);
@@ -860,13 +860,22 @@ export const useScansController = ({
 		projects.find((project) => project.id === selectedProjectId) ?? null;
 	const handleSelectScanRun = (scanRunId: string) => {
 		setSelectedScanRunId(scanRunId);
+		selectedFindingIdRef.current = "";
 		setSelectedFindingId("");
 		setSelectedFindingDetails(null);
 		setReviewError(null);
 		setScanDetailTab("review");
 	};
 	const handleSelectFinding = (findingId: string) => {
+		selectedFindingIdRef.current = findingId;
 		setSelectedFindingId(findingId);
+		setReviewError(null);
+		setScanDetailTab("review");
+	};
+	const handleCloseFinding = () => {
+		selectedFindingIdRef.current = "";
+		setSelectedFindingId("");
+		setSelectedFindingDetails(null);
 		setReviewError(null);
 		setScanDetailTab("review");
 	};
@@ -905,6 +914,7 @@ export const useScansController = ({
 		selectedFindingId,
 		setSelectedFindingId,
 		handleSelectFinding,
+		handleCloseFinding,
 		profiles,
 		selectedProfileId,
 		setSelectedProfileId,

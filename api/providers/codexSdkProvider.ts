@@ -170,7 +170,7 @@ export class CodexSdkProvider implements LlmProvider {
 
 	async chatCompletion(
 		messages: ChatMessage[],
-		_options?: LlmCompletionOptions,
+		options?: LlmCompletionOptions,
 	): Promise<LlmResponse> {
 		const workingDirectory = await fs.mkdtemp(
 			path.join(this.tmpRoot, "vuln-workbench-codex-"),
@@ -196,6 +196,9 @@ export class CodexSdkProvider implements LlmProvider {
 			};
 			const thread = codex.startThread(threadOptions);
 			const result = await thread.run(formatMessages(messages), {
+				...(options?.outputSchema
+					? { outputSchema: options.outputSchema }
+					: {}),
 				signal: controller.signal,
 			});
 			const content = result.finalResponse?.trim();

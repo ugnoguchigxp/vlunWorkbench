@@ -96,37 +96,37 @@ describe("Profile Runner Orchestration", () => {
 		expect(result.ok).toBe(true);
 		expect(result.status).toBe("completed");
 		expect(result.profileOutcome).toBe("completed");
-		expect(result.toolResults).toHaveLength(4); // semgrep, gitleaks, osv, trivy
+		expect(result.toolResults).toHaveLength(3); // semgrep, gitleaks, osv
 		expect(result.toolResults[0].status).toBe("completed");
 		expect(result.toolResults[0].findingCount).toBe(3);
 
-			expect(spy).toHaveBeenCalledTimes(4);
-			expect(spy).toHaveBeenCalledWith(
-				expect.objectContaining({
-					toolId: "semgrep",
-					options: expect.objectContaining({
-						scope: expect.objectContaining({
-							intent: "source",
-							includeInstalledDependencies: false,
-						}),
-						scopeSummary: expect.objectContaining({
-							excludedRoots: expect.arrayContaining(["node_modules", "dist"]),
-						}),
-					}),
-				}),
-			);
-
-			const [scanRun] = await connection.db
-				.select()
-				.from(scanRuns)
-				.where(eq(scanRuns.id, result.scanRunId));
-			expect(scanRun.metadata).toEqual(
-				expect.objectContaining({
+		expect(spy).toHaveBeenCalledTimes(3);
+		expect(spy).toHaveBeenCalledWith(
+			expect.objectContaining({
+				toolId: "semgrep",
+				options: expect.objectContaining({
 					scope: expect.objectContaining({
-						scope: expect.objectContaining({ intent: "source" }),
+						intent: "source",
+						includeInstalledDependencies: false,
+					}),
+					scopeSummary: expect.objectContaining({
+						excludedRoots: expect.arrayContaining(["node_modules", "dist"]),
 					}),
 				}),
-			);
+			}),
+		);
+
+		const [scanRun] = await connection.db
+			.select()
+			.from(scanRuns)
+			.where(eq(scanRuns.id, result.scanRunId));
+		expect(scanRun.metadata).toEqual(
+			expect.objectContaining({
+				scope: expect.objectContaining({
+					scope: expect.objectContaining({ intent: "source" }),
+				}),
+			}),
+		);
 	});
 
 	it("should generate a final report when requested", async () => {
@@ -145,7 +145,7 @@ describe("Profile Runner Orchestration", () => {
 		const result = await runProfileScan({
 			db: connection.db,
 			projectId,
-			profileId: "basic-security",
+			profileId: "baseline",
 			repoPath,
 			continueOnToolFailure: true,
 			finalReport: {

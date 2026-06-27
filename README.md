@@ -97,12 +97,12 @@ printf '%s\n' '<password>' | bun run db:seed -- --password-stdin
 ```bash
 bun run scan:profile -- \
   --project-id <project-id> \
-  --profile basic-security \
+  --profile baseline \
   --timeout-sec 600 \
   --report-output report.md
 ```
 
-`basic-security` は静的解析、シークレット、依存関係、設定ミスの基本観点を1回で確認します。より広い対象を確認したい場合は `detailed-security` を使います。
+`baseline` は Semgrep、Gitleaks、OSV-Scanner でコード実装、シークレット、依存関係の基本観点を確認します。Static 全検査を実行したい場合は `detailed-security` を使います。
 
 ```bash
 bun run scan:profile -- \

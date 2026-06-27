@@ -243,18 +243,18 @@ describe("FindingReviewRunner", () => {
 				content: `Some conversational preamble...
 \`\`\`json
 {
-  "summary": "Detected credentials.",
-  "likelyImpact": "Vulnerability exposure.",
+  "summary": "認証情報らしき値がコード内に検出されています。",
+  "likelyImpact": "有効なトークンであれば、外部サービスへの不正アクセスにつながる可能性があります。",
   "falsePositiveAssessment": {
     "level": "low",
-    "reasoning": "Standard pattern."
+    "reasoning": "標準的なトークン形式に一致しており、誤検知の可能性は低いです。"
   },
   "evidenceStrength": {
     "level": "strong",
-    "reasoning": "Direct match."
+    "reasoning": "証跡の snippet が検出ルールに直接一致しています。"
   },
-  "remediationDirection": "Remove key.",
-  "reviewerNotes": ["Point 1"],
+  "remediationDirection": "該当キーを失効し、secret manager など安全な保管先へ移してください。",
+  "reviewerNotes": ["hardcoded variable assignment として確認できます。"],
   "confidenceAdjustment": "unchanged"
 }
 \`\`\``,
@@ -279,7 +279,55 @@ describe("FindingReviewRunner", () => {
 				where: (fields, { eq }) => eq(fields.id, result.reviewId),
 			});
 			expect(reviewRow?.status).toBe("completed");
-			expect(reviewRow?.summary).toBe("Detected credentials.");
+			expect(reviewRow?.summary).toBe(
+				"認証情報らしき値がコード内に検出されています。",
+			);
+			const messages = (
+				mockLlm.chatCompletion as unknown as {
+					mock: { calls: Parameters<LlmProvider["chatCompletion"]>[] };
+				}
+			).mock.calls[0][0];
+			expect(messages[0].content).toContain("必ず日本語でレビュー");
+			expect(messages[1].content).toContain("レビュー本文は必ず日本語");
+		});
+
+		it("should reject English-only LLM review text", async () => {
+			const filePath = path.join(repoPath, "src/auth.ts");
+			await fs.mkdir(path.dirname(filePath), { recursive: true });
+			await fs.writeFile(filePath, "const slack = 'token';");
+
+			const mockLlm: LlmProvider = {
+				chatCompletion: vi.fn().mockResolvedValue({
+					id: "resp-english",
+					content: `\`\`\`json
+{
+  "summary": "Detected credentials.",
+  "likelyImpact": "Credential exposure.",
+  "falsePositiveAssessment": {
+    "level": "low",
+    "reasoning": "Direct match."
+  },
+  "evidenceStrength": {
+    "level": "strong",
+    "reasoning": "Snippet matches."
+  },
+  "remediationDirection": "Remove key.",
+  "reviewerNotes": ["Point 1"],
+  "confidenceAdjustment": "unchanged"
+}
+\`\`\``,
+				}),
+			};
+
+			const runner = new FindingReviewRunner(connection.db, mockLlm);
+			const result = await runner.run(findingId);
+
+			expect(result.ok).toBe(false);
+			expect(result.error).toContain("Japanese review text is required");
+			const reviewRow = await connection.db.query.findingReviews.findFirst({
+				where: (fields, { eq }) => eq(fields.id, result.reviewId),
+			});
+			expect(reviewRow?.status).toBe("failed");
 		});
 
 		it("should save failed review on validation error or unconfigured provider", async () => {

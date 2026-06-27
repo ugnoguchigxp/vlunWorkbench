@@ -143,6 +143,53 @@ describe("ScanReviewRunner", () => {
 
 	it("persists a completed structured scan review", async () => {
 		const content = JSON.stringify({
+			summary: "高リスクの finding が 1 件あり、優先確認が必要です。",
+			riskOverview:
+				"ユーザー入力がエスケープされずに出力されるため、XSS リスクが残っています。",
+			priorityNotes: ["反射型 XSS の修正を最優先にしてください。"],
+			coverageNotes: ["現時点の証跡は static scan に限定されています。"],
+			falsePositiveHotspots: ["明確な誤検知候補はありません。"],
+			recommendedNextActions: ["出力時のエスケープ処理を追加してください。"],
+			findingTriageHints: [
+				{
+					findingId,
+					note: "ユーザー入力が出力に到達しているため、優先度は高いです。",
+					priority: "high",
+				},
+			],
+			confidenceNotes: ["証跡は source-location に基づいています。"],
+		});
+		const provider = providerWithContent(`\`\`\`json\n${content}\n\`\`\``);
+		const runner = new ScanReviewRunner(connection.db, provider);
+
+		const result = await runner.run(scanRunId);
+
+		expect(result.ok).toBe(true);
+		const row = await connection.db.query.scanReviews.findFirst();
+		expect(row?.status).toBe("completed");
+		expect(row?.summary).toBe(
+			"高リスクの finding が 1 件あり、優先確認が必要です。",
+		);
+		expect(row?.findingTriageHints).toHaveLength(1);
+		const messages = (
+			provider.chatCompletion as unknown as {
+				mock: { calls: Parameters<LlmProvider["chatCompletion"]>[] };
+			}
+		).mock.calls[0][0];
+		const callOptions = (
+			provider.chatCompletion as unknown as {
+				mock: { calls: Parameters<LlmProvider["chatCompletion"]>[] };
+			}
+		).mock.calls[0][1];
+		expect(messages[0].content).toContain("必ず日本語でレビュー");
+		expect(messages[1].content).toContain("レビュー本文は必ず日本語");
+		expect(callOptions?.outputSchema).toEqual(
+			expect.objectContaining({ type: "object" }),
+		);
+	});
+
+	it("rejects English-only scan review text", async () => {
+		const content = JSON.stringify({
 			summary: "One high risk finding needs review.",
 			riskOverview: "The scan has a likely XSS issue.",
 			priorityNotes: ["Fix reflected XSS first."],
@@ -165,11 +212,10 @@ describe("ScanReviewRunner", () => {
 
 		const result = await runner.run(scanRunId);
 
-		expect(result.ok).toBe(true);
+		expect(result.ok).toBe(false);
+		expect(result.error).toContain("Japanese review text is required");
 		const row = await connection.db.query.scanReviews.findFirst();
-		expect(row?.status).toBe("completed");
-		expect(row?.summary).toBe("One high risk finding needs review.");
-		expect(row?.findingTriageHints).toHaveLength(1);
+		expect(row?.status).toBe("failed");
 	});
 
 	it("classifies provider execution failures", async () => {

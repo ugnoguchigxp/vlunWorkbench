@@ -1,0 +1,81 @@
+{
+  "kind": "http",
+  "profileId": "http-baseline",
+  "targetOrigin": "http://127.0.0.1:50974",
+  "startedAt": "2026-06-27T03:03:02.838Z",
+  "completedAt": "2026-06-27T03:03:04.880Z",
+  "requestCount": 5,
+  "responses": [
+    {
+      "path": "/",
+      "url": "http://127.0.0.1:50974/",
+      "finalUrl": "http://127.0.0.1:50974/",
+      "status": 200,
+      "ok": true,
+      "redirectChain": [],
+      "headers": {
+        "content-type": "text/html"
+      },
+      "setCookies": [],
+      "durationMs": 12,
+      "error": null
+    },
+    {
+      "path": "/.env",
+      "url": "http://127.0.0.1:50974/.env",
+      "finalUrl": "http://127.0.0.1:50974/.env",
+      "status": 200,
+      "ok": true,
+      "redirectChain": [],
+      "headers": {
+        "content-type": "text/html"
+      },
+      "setCookies": [],
+      "durationMs": 8,
+      "error": null
+    },
+    {
+      "path": "/openapi.json",
+      "url": "http://127.0.0.1:50974/openapi.json",
+      "finalUrl": "http://127.0.0.1:50974/openapi.json",
+      "status": 200,
+      "ok": true,
+      "redirectChain": [],
+      "headers": {
+        "content-type": "text/html"
+      },
+      "setCookies": [],
+      "durationMs": 5,
+      "error": null
+    },
+    {
+      "path": "/swagger.json",
+      "url": "http://127.0.0.1:50974/swagger.json",
+      "finalUrl": "http://127.0.0.1:50974/swagger.json",
+      "status": 200,
+      "ok": true,
+      "redirectChain": [],
+      "headers": {
+        "content-type": "text/html"
+      },
+      "setCookies": [],
+      "durationMs": 4,
+      "error": null
+    },
+    {
+      "path": "/debug",
+      "url": "http://127.0.0.1:50974/debug",
+      "finalUrl": "http://127.0.0.1:50974/debug",
+      "status": 200,
+      "ok": true,
+      "redirectChain": [],
+      "headers": {
+        "content-type": "text/html"
+      },
+      "setCookies": [],
+      "durationMs": 7,
+      "error": null
+    }
+  ],
+  "warnings": []
+}

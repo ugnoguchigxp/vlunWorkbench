@@ -166,10 +166,18 @@ select {
 	letter-spacing: 0;
 }
 
+svg.lucide {
+	display: inline-block;
+	flex: 0 0 auto;
+	vertical-align: -0.125em;
+}
+
 .icon {
+	display: inline-block;
 	width: 16px;
 	height: 16px;
 	flex: 0 0 auto;
+	vertical-align: -0.125em;
 }
 
 .brand .icon {
@@ -249,6 +257,23 @@ select {
 	align-items: center;
 	justify-content: center;
 	cursor: pointer;
+}
+
+.ds-button {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 8px;
+}
+
+.ds-button.full {
+	width: 100%;
+}
+
+.ds-icon-button {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
 }
 
 .icon-button .icon,

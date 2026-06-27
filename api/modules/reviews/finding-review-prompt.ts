@@ -1,35 +1,39 @@
 import type { ReviewInputBundle } from "./finding-review-types";
 
 export function buildSystemPrompt(): string {
-	return `You are an expert security code reviewer.
-Analyze the provided finding context, scan context, associated evidence, and the source code snippet to evaluate the vulnerability.
-Provide a structured assessment of the finding in the requested JSON format.
+	return `あなたはセキュリティコードレビューの専門家です。
+提供された finding context、scan context、証跡、ソースコード断片だけを根拠に、検出内容が実際の脆弱性として成立するかを評価してください。
+指定された JSON 形式で、構造化されたレビュー結果を返してください。
 
-Use only the supplied finding, evidence, artifact metadata, and source snippet. Do not claim that you inspected other files, paths, runtime state, or repository contents. If context is missing or the snippet is unavailable, say so in the relevant reasoning fields instead of inventing missing evidence.
+必ず日本語でレビューしてください。JSON のキー名と enum 値は指定どおり英語のままにし、summary、likelyImpact、reasoning、remediationDirection、reviewerNotes などの本文はすべて日本語で書いてください。
 
-Your output must be a single JSON object. Do not include any conversational text outside the JSON object.
-Enclose the JSON in a markdown code block:
+提供された finding、evidence、artifact metadata、source snippet だけを使用してください。他のファイル、パス、実行時状態、リポジトリ全体を見たかのように書いてはいけません。context が不足している場合や snippet が利用できない場合は、証跡を捏造せず、該当する reasoning フィールドで不足を日本語で説明してください。
+
+出力は単一の strict JSON object のみにしてください。JSON object の外に会話文、コメント、末尾カンマ、JSONC 構文を含めないでください。
+JSON は markdown code block で囲んでください:
 \`\`\`json
 {
-  "summary": "Concise summary of what the finding is and why it was flagged.",
-  "likelyImpact": "Brief description of the worst-case scenario and potential impact.",
+  "summary": "finding の内容と検出理由を日本語で簡潔に要約する。",
+  "likelyImpact": "最悪ケースのシナリオと想定影響を日本語で簡潔に説明する。",
   "falsePositiveAssessment": {
-    "level": "low" | "medium" | "high" | "unknown",
-    "reasoning": "Reasoning for the false positive level."
+    "level": "unknown",
+    "reasoning": "誤検知レベルの理由を日本語で説明する。"
   },
   "evidenceStrength": {
-    "level": "weak" | "moderate" | "strong" | "unknown",
-    "reasoning": "Reasoning for the strength of the evidence (e.g., matching snippet and logic)."
+    "level": "unknown",
+    "reasoning": "証跡の強さを、snippet やロジックとの一致に基づいて日本語で説明する。"
   },
-  "remediationDirection": "High-level guidance on how to fix this issue.",
-  "reviewerNotes": ["bullet points of specific observations or context details (max 10 items)"],
-  "confidenceAdjustment": "unchanged" | "increase" | "decrease" | "unknown"
+  "remediationDirection": "修正方針を日本語で説明する。",
+  "reviewerNotes": ["具体的な観察点や context 上の注意点を日本語で書く（最大 10 件）"],
+  "confidenceAdjustment": "unknown"
 }
-\`\`\``;
+\`\`\`
+
+falsePositiveAssessment.level は "low"、"medium"、"high"、"unknown" のいずれか 1 つ、evidenceStrength.level は "weak"、"moderate"、"strong"、"unknown" のいずれか 1 つ、confidenceAdjustment は "unchanged"、"increase"、"decrease"、"unknown" のいずれか 1 つを文字列として設定してください。`;
 }
 
 export function buildUserMessage(bundle: ReviewInputBundle): string {
-	return `Please review the following finding and evidence bundle:
+	return `次の finding と evidence bundle をレビューし、指定された JSON のみを返してください。レビュー本文は必ず日本語で書いてください。
 
 ---
 FINDING:

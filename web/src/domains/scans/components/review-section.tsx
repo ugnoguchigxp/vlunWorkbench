@@ -7,16 +7,25 @@ import {
 	Sparkles,
 } from "lucide-react";
 import { Button } from "../../../ui";
+import { formatScanOutcome } from "../scan-profile-display";
 import { useScans } from "../scans-context";
 import { formatDateTime, StatusIcon } from "../scans-utils";
+import { ScanResultOverview } from "./scan-result-overview";
 
 export function ReviewSection() {
 	const c = useScans();
 	const review = c.selectedFindingDetails?.latestReview ?? null;
 	return (
 		<div className="detail-section">
+			<ScanResultOverview headingLevel="h3" />
 			<div className="finding-meta-row">
-				<h3 className="detail-section-title">LLM Finding Review</h3>
+				<div>
+					<h3 className="detail-section-title">LLM レビュー</h3>
+					<p className="scan-tool-purpose">
+						選択した finding
+						について、誤検知の可能性、証跡の強さ、影響、修正方針を確認します。
+					</p>
+				</div>
 				<Button
 					type="button"
 					variant="primary"
@@ -28,7 +37,7 @@ export function ReviewSection() {
 					) : (
 						<Sparkles className="icon" />
 					)}
-					Run LLM Review
+					LLM レビューを実行
 				</Button>
 			</div>
 			{review ? (
@@ -36,22 +45,22 @@ export function ReviewSection() {
 					<div className="review-header-panel">
 						<div className="review-meta">
 							<span>
-								<strong>LLM Service:</strong> {review.provider} / {review.model}
+								<strong>LLM:</strong> {review.provider} / {review.model}
 							</span>
 							<span>
-								<strong>Started:</strong> {formatDateTime(review.startedAt)}
+								<strong>開始:</strong> {formatDateTime(review.startedAt)}
 							</span>
 							{review.completedAt ? (
 								<span>
-									<strong>Completed:</strong>{" "}
-									{formatDateTime(review.completedAt)}
+									<strong>完了:</strong> {formatDateTime(review.completedAt)}
 								</span>
 							) : null}
 						</div>
 						<span
 							className={`reviewer-header-badge reviewer-badge-${review.status}`}
 						>
-							<StatusIcon status={review.status} /> {review.status}
+							<StatusIcon status={review.status} />{" "}
+							{formatScanOutcome(review.status)}
 						</span>
 					</div>
 					{review.status === "failed" && review.errorMessage ? (
@@ -61,14 +70,15 @@ export function ReviewSection() {
 				</div>
 			) : (
 				<p>
-					<Brain className="icon text-teal-700" /> No reviews conducted yet.
+					<Brain className="icon text-teal-700" /> LLM
+					レビューはまだ実行されていません。
 				</p>
 			)}
 			{c.reviewError ? <p className="badge-failed">{c.reviewError}</p> : null}
 			{c.allReviews.length > 1 ? (
 				<div className="detail-section">
 					<h4 className="detail-section-title">
-						Prior Reviews ({c.allReviews.length})
+						過去のレビュー ({c.allReviews.length})
 					</h4>
 					{c.allReviews.map((item) => (
 						<div className="finding-meta-row" key={item.id}>
@@ -77,7 +87,7 @@ export function ReviewSection() {
 								{formatDateTime(item.completedAt || item.createdAt)}
 							</small>
 							<span className={`scan-status-badge badge-${item.status}`}>
-								{item.status}
+								{formatScanOutcome(item.status)}
 							</span>
 						</div>
 					))}
@@ -96,7 +106,7 @@ function CompletedReview() {
 				{review.falsePositiveAssessment ? (
 					<div className="assessment-card">
 						<div className="assessment-card-header">
-							<span className="assessment-card-title">False Positive</span>
+							<span className="assessment-card-title">誤検知の可能性</span>
 							<span
 								className={`assessment-card-value val-fp-${review.falsePositiveAssessment.level}`}
 							>
@@ -111,7 +121,7 @@ function CompletedReview() {
 				{review.evidenceStrength ? (
 					<div className="assessment-card">
 						<div className="assessment-card-header">
-							<span className="assessment-card-title">Evidence Strength</span>
+							<span className="assessment-card-title">証跡の強さ</span>
 							<span
 								className={`assessment-card-value val-strength-${review.evidenceStrength.level}`}
 							>
@@ -126,7 +136,7 @@ function CompletedReview() {
 				{review.confidenceAdjustment ? (
 					<div className="assessment-card">
 						<div className="assessment-card-header">
-							<span className="assessment-card-title">Confidence Adj.</span>
+							<span className="assessment-card-title">信頼度補正</span>
 							<span
 								className={`assessment-card-value val-adj-${review.confidenceAdjustment}`}
 							>
@@ -139,7 +149,7 @@ function CompletedReview() {
 			{review.likelyImpact ? (
 				<div className="detail-section">
 					<strong>
-						<AlertTriangle className="icon" /> Likely Impact
+						<AlertTriangle className="icon" /> 想定される影響
 					</strong>
 					<p>{review.likelyImpact}</p>
 				</div>
@@ -147,7 +157,7 @@ function CompletedReview() {
 			{review.remediationDirection ? (
 				<div className="detail-section">
 					<strong>
-						<Code className="icon" /> Remediation Direction
+						<Code className="icon" /> 修正方針
 					</strong>
 					<pre className="remediation-box">
 						<code>{review.remediationDirection}</code>
@@ -157,7 +167,7 @@ function CompletedReview() {
 			{review.reviewerNotes?.length ? (
 				<div className="detail-section">
 					<strong>
-						<Info className="icon" /> Additional Notes
+						<Info className="icon" /> 補足メモ
 					</strong>
 					<ul className="notes-list">
 						{review.reviewerNotes.map((note) => (

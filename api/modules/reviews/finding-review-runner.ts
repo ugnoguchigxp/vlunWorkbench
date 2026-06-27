@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import { z } from "zod";
 import type { AppDatabase } from "../../db";
 import { FindingReviewRepository } from "./finding-review-repository";
 import { FindingRepository, ProjectRepository } from "../scans/repositories";
@@ -15,6 +16,7 @@ import type { LlmProvider } from "../../providers/types";
 import { LlmProviderExecutionError } from "../../providers/types";
 import type { LlmRouter } from "../../providers/llmRouter";
 import type { LlmTask } from "../../providers/llmTaskTypes";
+import { assertJapaneseTextFields } from "../llm-language";
 
 export interface ReviewRunnerOptions extends ExtractSnippetOptions {
 	task?: LlmTask;
@@ -72,7 +74,10 @@ export class FindingReviewRunner {
 		return candidate.slice(start, end + 1);
 	}
 
-	private parseReviewOutput(responseContent: string): FindingReviewOutput {
+	private parseReviewOutput(
+		responseContent: string,
+		options: { enforceJapanese: boolean } = { enforceJapanese: true },
+	): FindingReviewOutput {
 		const jsonText = this.extractJsonObject(responseContent);
 		if (!jsonText) {
 			throw new StructuredReviewOutputError(
@@ -81,7 +86,18 @@ export class FindingReviewRunner {
 		}
 		try {
 			const parsed = JSON.parse(jsonText);
-			return findingReviewOutputSchema.parse(parsed);
+			const output = findingReviewOutputSchema.parse(parsed);
+			if (options.enforceJapanese) {
+				assertJapaneseTextFields(output as unknown as Record<string, unknown>, [
+					"summary",
+					"likelyImpact",
+					"falsePositiveAssessment.reasoning",
+					"evidenceStrength.reasoning",
+					"remediationDirection",
+					"reviewerNotes",
+				]);
+			}
+			return output;
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
 			throw new StructuredReviewOutputError(message);
@@ -227,6 +243,7 @@ export class FindingReviewRunner {
 					],
 					{
 						temperature: 0.1,
+						outputSchema: z.toJSONSchema(findingReviewOutputSchema),
 					},
 				);
 

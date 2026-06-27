@@ -36,13 +36,6 @@ export function DastPanel() {
 				<small>Last auto target: {c.lastAutoDastTargetOrigin}</small>
 			) : null}
 			<label>
-				<span>Target Name</span>
-				<input
-					value={c.dastTargetName}
-					onChange={(event) => c.setDastTargetName(event.target.value)}
-				/>
-			</label>
-			<label>
 				<span>Local Target Origin</span>
 				<input
 					value={c.dastTargetOrigin}
@@ -54,7 +47,7 @@ export function DastPanel() {
 				type="button"
 				variant="secondary"
 				onClick={() => void c.handleCreateDastTarget()}
-				disabled={c.dastLoading || !c.dastTargetName || !c.dastTargetOrigin}
+				disabled={c.dastLoading || !c.dastTargetOrigin}
 				full
 			>
 				Save DAST Target
