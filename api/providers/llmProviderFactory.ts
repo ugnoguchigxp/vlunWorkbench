@@ -96,6 +96,7 @@ export function createLlmProviderForEndpoint(
 		return new CodexSdkProvider({
 			model,
 			apiKey,
+			timeoutMs: env?.codexSdkTimeoutMs,
 		});
 	}
 

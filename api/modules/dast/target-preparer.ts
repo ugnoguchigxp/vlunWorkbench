@@ -82,7 +82,7 @@ async function detectPackageManager(
 function extractScriptPort(script: string): number | null {
 	const matches = [
 		/\bPORT=(\d{2,5})\b/,
-		/\b--port(?:=|\s+)(\d{2,5})\b/,
+		/(?:^|\s)--port(?:=|\s+)(\d{2,5})\b/,
 		/\s-p\s+(\d{2,5})\b/,
 	];
 	for (const regex of matches) {

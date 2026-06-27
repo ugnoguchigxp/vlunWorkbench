@@ -443,4 +443,76 @@ describe("Profile Runner Orchestration", () => {
 		expect(result.toolResults[0].status).toBe("failed");
 		expect(result.toolResults[1].status).toBe("skipped"); // gitleaks skipped
 	});
+
+	it("should run runToolIntoExistingScan directly with mocked Bun.spawn for Gitleaks", async () => {
+		const { ArtifactStorage } = require("./artifact-storage");
+		const storage = new ArtifactStorage(tempDir);
+
+		const spawnSpy = vi.spyOn(Bun, "spawn").mockImplementation((args: any) => {
+			const binary = args[0];
+			if (binary === "gitleaks") {
+				if (args.includes("version")) {
+					return {
+						exited: Promise.resolve(0),
+						stdout: new Response("8.18.0\n"),
+						stderr: new Response(""),
+					} as any;
+				}
+				// Mock detect run
+				const repIdx = args.indexOf("--report-path");
+				if (repIdx !== -1 && args[repIdx + 1]) {
+					const repPath = args[repIdx + 1];
+					const mockResult = [
+						{
+							RuleID: "generic-api-key",
+							Description: "Generic API Key Leak",
+							File: "src/keys.txt",
+							StartLine: 5,
+							EndLine: 5,
+							Secret: "x".repeat(32),
+						}
+					];
+					require("node:fs").writeFileSync(repPath, JSON.stringify(mockResult, null, 2), "utf8");
+				}
+				return {
+					exited: Promise.resolve(1),
+					stdout: new Response(""),
+					stderr: new Response(""),
+				} as any;
+			}
+			return {
+				exited: Promise.resolve(0),
+				stdout: new Response(""),
+				stderr: new Response(""),
+			} as any;
+		});
+
+		const now = new Date();
+		const [scanRun] = await connection.db
+			.insert(scanRuns)
+			.values({
+				projectId,
+				profile: "baseline",
+				status: "running",
+				createdAt: now,
+				updatedAt: now,
+			})
+			.returning();
+
+		const result = await profileRunnerModule.runToolIntoExistingScan({
+			db: connection.db,
+			projectId,
+			scanRunId: scanRun.id,
+			toolId: "gitleaks",
+			artifactStorage: storage,
+			repoPath,
+		});
+
+		expect(result.toolRunId).toBeTruthy();
+		expect(result.exitCode).toBe(1);
+		expect(result.findingCount).toBe(1);
+		expect(result.artifactIds.length).toBeGreaterThanOrEqual(1);
+
+		spawnSpy.mockRestore();
+	});
 });

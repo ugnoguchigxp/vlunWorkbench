@@ -23,6 +23,7 @@ export type CodexSdkProviderDiagnostics = {
 	codexHome: string;
 	authSource: "api-key" | "codex-home" | "environment" | "none";
 	model: string;
+	timeoutMs: number;
 };
 
 export type CodexSdkProviderConfig = {
@@ -35,7 +36,7 @@ export type CodexSdkProviderConfig = {
 	env?: NodeJS.ProcessEnv;
 };
 
-const DEFAULT_TIMEOUT_MS = 120_000;
+const DEFAULT_TIMEOUT_MS = 600_000;
 
 function safeEnv(
 	env: NodeJS.ProcessEnv,
@@ -165,6 +166,7 @@ export class CodexSdkProvider implements LlmProvider {
 				env: this.env,
 			}),
 			model: this.model,
+			timeoutMs: this.timeoutMs,
 		};
 	}
 
@@ -176,7 +178,11 @@ export class CodexSdkProvider implements LlmProvider {
 			path.join(this.tmpRoot, "vuln-workbench-codex-"),
 		);
 		const controller = new AbortController();
-		const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
+		let didTimeout = false;
+		const timeout = setTimeout(() => {
+			didTimeout = true;
+			controller.abort();
+		}, this.timeoutMs);
 		try {
 			const codex = new this.codexConstructor({
 				apiKey: this.apiKey,
@@ -215,6 +221,15 @@ export class CodexSdkProvider implements LlmProvider {
 			};
 		} catch (error) {
 			if (error instanceof LlmProviderExecutionError) throw error;
+			if (didTimeout) {
+				throw new LlmProviderExecutionError(
+					`Codex SDK timed out after ${this.timeoutMs}ms.`,
+					{
+						model: this.model,
+						runtimeMode: "bun-direct",
+					},
+				);
+			}
 			const message =
 				error instanceof Error
 					? error.message

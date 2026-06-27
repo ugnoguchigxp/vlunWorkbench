@@ -159,6 +159,7 @@ bun run api/cli/llm-route-repair.ts -- \
 | `AZURE_OPENAI_DEPLOYMENT` | 既定の Azure chat deployment。 |
 | `OPENAI_API_KEY` | OpenAI-compatible provider key。 |
 | `OPENAI_BASE_URL` | OpenAI-compatible provider base URL。 |
+| `CODEX_SDK_TIMEOUT_MS` | Codex SDK review/report timeout。単位はミリ秒で、既定は `600000`。 |
 
 LLM API key は host 側に置きます。scanner container や scan 対象 project に LLM credential を渡してはいけません。
 

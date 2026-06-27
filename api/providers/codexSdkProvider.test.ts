@@ -199,4 +199,33 @@ describe("CodexSdkProvider", () => {
 			message: "codex failed",
 		});
 	});
+
+	it("reports provider timeouts explicitly", async () => {
+		const startThread = vi.fn().mockReturnValue({
+			id: "thread-timeout",
+			run: vi.fn(
+				(_prompt: string, options: { signal?: AbortSignal }) =>
+					new Promise((_resolve, reject) => {
+						options.signal?.addEventListener("abort", () => {
+							reject(new Error("The operation was aborted."));
+						});
+					}),
+			),
+		});
+		const provider = new CodexSdkProvider({
+			model: "gpt-5.4-mini",
+			tmpRoot,
+			timeoutMs: 1,
+			codexConstructor: vi.fn(function () {
+				return { startThread };
+			}) as any,
+		});
+
+		await expect(
+			provider.chatCompletion([{ role: "user", content: "hello" }]),
+		).rejects.toMatchObject({
+			name: "LlmProviderExecutionError",
+			message: "Codex SDK timed out after 1ms.",
+		});
+	});
 });

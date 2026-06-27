@@ -37,6 +37,7 @@ function appEnv(overrides: Partial<AppEnv> = {}): AppEnv {
 		openAiAgenticSearchMaxToolCalls: 4,
 		openAiAgenticSearchMaxFetchCalls: 4,
 		openAiAgenticSearchMaxContextChars: 12_000,
+		codexSdkTimeoutMs: 600_000,
 		azureOpenAiDeployment: "gpt-4.1",
 		azureOpenAiEmbeddingsDeployment: "text-embedding-3-small",
 		azureOpenAiApiVersion: "2024-10-21",

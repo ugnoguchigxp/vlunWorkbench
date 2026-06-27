@@ -14,6 +14,7 @@ export const APP_CONFIG_DEFAULTS = {
 	azureOpenAiDeployment: "gpt-4o-mini",
 	azureOpenAiEmbeddingsDeployment: "text-embedding-3-small",
 	openAiApiVersion: undefined as string | undefined,
+	codexSdkTimeoutMs: 600_000,
 	jwtSecret: "vuln-workbench-dev-jwt-secret-change-this-for-production",
 	jwtAccessExpiresIn: "1d",
 	jwtRefreshExpiresIn: "7d",

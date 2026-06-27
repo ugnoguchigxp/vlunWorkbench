@@ -159,6 +159,7 @@ Common environment variables:
 | `AZURE_OPENAI_DEPLOYMENT` | Default Azure chat deployment. |
 | `OPENAI_API_KEY` | OpenAI-compatible provider key. |
 | `OPENAI_BASE_URL` | OpenAI-compatible provider base URL. |
+| `CODEX_SDK_TIMEOUT_MS` | Codex SDK review/report timeout in milliseconds. Defaults to `600000`. |
 
 LLM API keys stay on the host side. Scanner containers and target projects should not receive LLM credentials.
 

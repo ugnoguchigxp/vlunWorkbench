@@ -12,6 +12,7 @@ describe("readAppEnv", () => {
 		expect(env.appUrl).toBe(APP_CONFIG_DEFAULTS.appUrl);
 		expect(env.corsOrigins).toEqual(APP_CONFIG_DEFAULTS.corsOrigins);
 		expect(env.cookieSameSite).toBe(APP_CONFIG_DEFAULTS.cookieSameSite);
+		expect(env.codexSdkTimeoutMs).toBe(APP_CONFIG_DEFAULTS.codexSdkTimeoutMs);
 		expect(env.jwtAccessExpiresIn).toBe("1d");
 		expect(env.jwtRefreshExpiresIn).toBe("7d");
 	});
@@ -27,6 +28,7 @@ describe("readAppEnv", () => {
 			AUTH_COOKIE_SECURE: "true",
 			AUTH_COOKIE_SAME_SITE: "none",
 			SECURITY_HEADERS_MODE: "https",
+			CODEX_SDK_TIMEOUT_MS: "900000",
 		});
 
 		expect(env.databaseUrl).toBe("file:./data/example.sqlite");
@@ -41,6 +43,7 @@ describe("readAppEnv", () => {
 		expect(env.secureCookie).toBe(true);
 		expect(env.cookieSameSite).toBe("none");
 		expect(env.securityHeadersMode).toBe("https");
+		expect(env.codexSdkTimeoutMs).toBe(900_000);
 	});
 
 	it("rejects SameSite none without secure cookies", () => {

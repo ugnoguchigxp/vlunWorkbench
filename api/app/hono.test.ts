@@ -38,12 +38,14 @@ vi.mock("./env", () => ({
 	}),
 }));
 
-// Mock Bun global variable before importing hono/bun dependent code
-(globalThis as any).Bun = {
-	file: (path: string) => ({
-		exists: () => Promise.resolve(true),
-	}),
-};
+// Mock Bun global variable before importing hono/bun dependent code if not already in Bun runtime
+if (!("Bun" in globalThis)) {
+	(globalThis as any).Bun = {
+		file: (path: string) => ({
+			exists: () => Promise.resolve(true),
+		}),
+	};
+}
 
 // Dynamically import app so globalThis.Bun is defined first
 const { default: app } = await import("./hono");

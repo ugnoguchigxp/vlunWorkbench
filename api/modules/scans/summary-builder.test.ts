@@ -4,7 +4,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { createDbConnection, type DbConnection } from "../../db";
-import { users, projects, scanRuns, toolRuns, findings } from "../../db/schema";
+import { users, projects, scanRuns, toolRuns, findings, dastRuns, dastTargetConfigs } from "../../db/schema";
 import { buildScanRunSummary } from "./summary-builder";
 
 describe("Summary Builder", () => {
@@ -167,5 +167,168 @@ describe("Summary Builder", () => {
 		expect(gitleaksSummary?.severityCounts.critical).toBe(1);
 		expect(gitleaksSummary?.status).toBe("failed");
 		expect(gitleaksSummary?.error).toBe("Failed to scan");
+	});
+
+	it("should throw error if scanRun is missing", async () => {
+		await expect(
+			buildScanRunSummary(connection.db, "non-existent-id")
+		).rejects.toThrow("Scan run not found: non-existent-id");
+	});
+
+	it("should include info and unknown severity counts", async () => {
+		const now = new Date();
+		const [scanRun] = await connection.db
+			.insert(scanRuns)
+			.values({
+				projectId,
+				profile: "baseline",
+				status: "completed",
+				createdAt: now,
+				updatedAt: now,
+			})
+			.returning();
+
+		await connection.db.insert(findings).values([
+			{
+				scanRunId: scanRun.id,
+				projectId,
+				sourceTool: "semgrep",
+				ruleId: "rules-1",
+				title: "Vuln 1",
+				description: "Desc 1",
+				severity: "info",
+				confidence: "static",
+				status: "open",
+				fingerprint: "fp1",
+				createdAt: now,
+				updatedAt: now,
+			},
+			{
+				scanRunId: scanRun.id,
+				projectId,
+				sourceTool: "semgrep",
+				ruleId: "rules-2",
+				title: "Vuln 2",
+				description: "Desc 2",
+				severity: "unknown-severity-label",
+				confidence: "static",
+				status: "open",
+				fingerprint: "fp2",
+				createdAt: now,
+				updatedAt: now,
+			},
+		]);
+
+		const summary = await buildScanRunSummary(connection.db, scanRun.id);
+		const semgrepSummary = summary.tools.find((t) => t.toolId === "semgrep");
+		expect(semgrepSummary?.severityCounts.info).toBe(1);
+		expect(semgrepSummary?.severityCounts.unknown).toBe(1);
+	});
+
+	it("should handle ad-hoc tool runs not defined in the profile", async () => {
+		const now = new Date();
+		const [scanRun] = await connection.db
+			.insert(scanRuns)
+			.values({
+				projectId,
+				profile: "custom-empty-profile",
+				status: "completed",
+				createdAt: now,
+				updatedAt: now,
+			})
+			.returning();
+
+		await connection.db.insert(toolRuns).values({
+			scanRunId: scanRun.id,
+			toolName: "ad-hoc-scanner",
+			status: "completed",
+			exitCode: 0,
+			createdAt: now,
+			updatedAt: now,
+		});
+
+		await connection.db.insert(findings).values({
+			scanRunId: scanRun.id,
+			projectId,
+			sourceTool: "ad-hoc-scanner",
+			ruleId: "rules-adhoc",
+			title: "Adhoc Vuln",
+			description: "Adhoc Desc",
+			severity: "low",
+			confidence: "static",
+			status: "open",
+			fingerprint: "fp-adhoc",
+			createdAt: now,
+			updatedAt: now,
+		});
+
+		const summary = await buildScanRunSummary(connection.db, scanRun.id);
+		const adhocSummary = summary.tools.find((t) => t.toolId === "ad-hoc-scanner");
+		expect(adhocSummary).toBeDefined();
+		expect(adhocSummary?.findingCount).toBe(1);
+		expect(adhocSummary?.required).toBe(false);
+	});
+
+	it("should map DAST steps and dastRuns successfully", async () => {
+		const now = new Date();
+		const [scanRun] = await connection.db
+			.insert(scanRuns)
+			.values({
+				projectId,
+				profile: "web-app-baseline",
+				status: "completed",
+				metadata: {
+					stepResults: [
+						{
+							kind: "dast",
+							profileId: "auto-http",
+							status: "completed",
+							findingCount: 2,
+							error: "Dast warning",
+							outcome: "completed_with_warnings",
+							targetOrigin: "http://127.0.0.1:4000",
+						},
+					],
+				},
+				createdAt: now,
+				updatedAt: now,
+			})
+			.returning();
+
+		const [targetConfig] = await connection.db
+			.insert(dastTargetConfigs)
+			.values({
+				projectId,
+				name: "Test Target",
+				origin: "http://127.0.0.1:4000",
+				normalizedOrigin: "http://127.0.0.1:4000",
+				createdAt: now,
+				updatedAt: now,
+			})
+			.returning();
+
+		await connection.db.insert(dastRuns).values({
+			scanRunId: scanRun.id,
+			projectId,
+			targetConfigId: targetConfig.id,
+			profileId: "http-baseline",
+			dastKind: "http",
+			targetOrigin: "http://127.0.0.1:4000",
+			runnerOrigin: "http://127.0.0.1:4000",
+			status: "completed",
+			errorMessage: "Dast warning",
+			outcome: "completed_with_warnings",
+			createdAt: now,
+			updatedAt: now,
+		});
+
+		const summary = await buildScanRunSummary(connection.db, scanRun.id);
+		expect(summary.steps).toBeDefined();
+		const dastStep = summary.steps?.find((s) => s.id === "dast:http-baseline");
+		expect(dastStep).toBeDefined();
+		expect(dastStep?.status).toBe("completed");
+		expect(dastStep?.error).toBe("Dast warning");
+		expect(dastStep?.outcome).toBe("completed_with_warnings");
+		expect(dastStep?.targetOrigin).toBe("http://127.0.0.1:4000");
 	});
 });

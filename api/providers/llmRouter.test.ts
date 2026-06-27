@@ -38,6 +38,7 @@ const env = {
 	openAiAgenticSearchMaxToolCalls: 4,
 	openAiAgenticSearchMaxFetchCalls: 4,
 	openAiAgenticSearchMaxContextChars: 12_000,
+	codexSdkTimeoutMs: 600_000,
 	azureOpenAiDeployment: "gpt-4.1",
 	azureOpenAiEmbeddingsDeployment: "text-embedding-3-small",
 	azureOpenAiApiVersion: "2024-10-21",
@@ -314,6 +315,9 @@ describe("LlmRouter", () => {
 		if (resolution.ok) {
 			expect(resolution.providerName).toBe("codex:codex-default");
 			expect(resolution.provider).toBeInstanceOf(CodexSdkProvider);
+			expect(
+				(resolution.provider as CodexSdkProvider).getDiagnostics().timeoutMs,
+			).toBe(600_000);
 		}
 	});
 

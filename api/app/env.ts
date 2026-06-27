@@ -43,6 +43,12 @@ const optionalJwtDuration = z.preprocess(
 		.optional(),
 );
 
+const optionalPositiveInteger = z.preprocess((value) => {
+	if (typeof value !== "string") return value;
+	const trimmed = value.trim();
+	return trimmed.length > 0 ? trimmed : undefined;
+}, z.coerce.number().int().positive().optional());
+
 const optionalSecurityHeadersMode = z.preprocess(
 	(value) => {
 		if (typeof value !== "string") return value;
@@ -74,6 +80,7 @@ const EnvSchema = z.object({
 	BRAVE_SEARCH_API_KEY: optionalTrimmedString,
 	OPENAI_API_KEY: optionalTrimmedString,
 	OPENAI_BASE_URL: optionalUrl,
+	CODEX_SDK_TIMEOUT_MS: optionalPositiveInteger,
 	AZURE_OPENAI_ENDPOINT: optionalUrl,
 	AZURE_OPENAI_API_KEY: optionalTrimmedString,
 	AZURE_OPENAI_DEPLOYMENT: optionalTrimmedString,
@@ -116,6 +123,7 @@ export type AppEnv = {
 	openAiAgenticSearchMaxToolCalls: number;
 	openAiAgenticSearchMaxFetchCalls: number;
 	openAiAgenticSearchMaxContextChars: number;
+	codexSdkTimeoutMs: number;
 	azureOpenAiEndpoint?: string;
 	azureOpenAiApiKey?: string;
 	azureOpenAiDeployment: string;
@@ -294,6 +302,8 @@ export function readAppEnv(env: NodeJS.ProcessEnv = process.env): AppEnv {
 		openAiAgenticSearchMaxToolCalls: AGENTIC_SEARCH_DEFAULTS.maxToolCalls,
 		openAiAgenticSearchMaxFetchCalls: AGENTIC_SEARCH_DEFAULTS.maxFetchCalls,
 		openAiAgenticSearchMaxContextChars: AGENTIC_SEARCH_DEFAULTS.maxContextChars,
+		codexSdkTimeoutMs:
+			parsed.CODEX_SDK_TIMEOUT_MS ?? APP_CONFIG_DEFAULTS.codexSdkTimeoutMs,
 		azureOpenAiEndpoint: parsed.AZURE_OPENAI_ENDPOINT,
 		azureOpenAiApiKey: parsed.AZURE_OPENAI_API_KEY,
 		azureOpenAiDeployment:

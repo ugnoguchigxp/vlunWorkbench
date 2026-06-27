@@ -2,12 +2,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { OpenAiResponsesAdapter } from "./openai-responses-adapter";
 
 describe("OpenAiResponsesAdapter", () => {
+	let originalFetch: typeof fetch;
+
 	beforeEach(() => {
 		vi.restoreAllMocks();
+		originalFetch = globalThis.fetch;
 	});
 
 	afterEach(() => {
-		vi.unstubAllGlobals();
+		globalThis.fetch = originalFetch;
 	});
 
 	it("builds responses endpoint with api-version when provided", () => {
@@ -28,23 +31,20 @@ describe("OpenAiResponsesAdapter", () => {
 	});
 
 	it("returns deployment hint for DeploymentNotFound", async () => {
-		vi.stubGlobal(
-			"fetch",
-			vi.fn().mockResolvedValue(
-				new Response(
-					JSON.stringify({
-						error: {
-							code: "DeploymentNotFound",
-							message: "The API deployment for this resource does not exist.",
-						},
-					}),
-					{
-						status: 404,
-						headers: { "x-ms-request-id": "req-123" },
+		globalThis.fetch = vi.fn().mockResolvedValue(
+			new Response(
+				JSON.stringify({
+					error: {
+						code: "DeploymentNotFound",
+						message: "The API deployment for this resource does not exist.",
 					},
-				),
+				}),
+				{
+					status: 404,
+					headers: { "x-ms-request-id": "req-123" },
+				},
 			),
-		);
+		) as any;
 
 		const adapter = new OpenAiResponsesAdapter({
 			apiKey: "test-key",
@@ -72,34 +72,31 @@ describe("OpenAiResponsesAdapter", () => {
 	});
 
 	it("extracts assistant text from nested response output content", async () => {
-		vi.stubGlobal(
-			"fetch",
-			vi.fn().mockResolvedValue(
-				new Response(
-					JSON.stringify({
-						id: "resp_1",
-						output: [
-							{
-								type: "message",
-								role: "assistant",
-								content: [
-									{
-										type: "output_text",
-										text: "OK",
-									},
-								],
-							},
-						],
-						usage: {
-							input_tokens: 2,
-							output_tokens: 1,
-							total_tokens: 3,
+		globalThis.fetch = vi.fn().mockResolvedValue(
+			new Response(
+				JSON.stringify({
+					id: "resp_1",
+					output: [
+						{
+							type: "message",
+							role: "assistant",
+							content: [
+								{
+									type: "output_text",
+									text: "OK",
+								},
+							],
 						},
-					}),
-					{ status: 200 },
-				),
+					],
+					usage: {
+						input_tokens: 2,
+						output_tokens: 1,
+						total_tokens: 3,
+					},
+				}),
+				{ status: 200 },
 			),
-		);
+		) as any;
 
 		const adapter = new OpenAiResponsesAdapter({
 			apiKey: "test-key",
