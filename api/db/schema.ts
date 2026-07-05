@@ -623,6 +623,46 @@ export const scanReviews = sqliteTable(
 	}),
 );
 
+export const staticIntelligenceEmbeddings = sqliteTable(
+	"static_intelligence_embeddings",
+	{
+		id: id(),
+		projectId: text("project_id")
+			.notNull()
+			.references(() => projects.id, { onDelete: "cascade" }),
+		scanRunId: text("scan_run_id")
+			.notNull()
+			.references(() => scanRuns.id, { onDelete: "cascade" }),
+		sourceKind: text("source_kind").notNull(),
+		sourceId: text("source_id").notNull(),
+		sourceRef: text("source_ref").notNull(),
+		title: text("title").notNull(),
+		content: text("content").notNull(),
+		contentHash: text("content_hash").notNull(),
+		embedding: blob("embedding", { mode: "buffer" }),
+		embeddingModel: text("embedding_model").notNull(),
+		embeddingDim: integer("embedding_dim").notNull(),
+		metadata: jsonObject("metadata"),
+		indexedAt: timestampMs("indexed_at"),
+		createdAt: timestampMs("created_at"),
+		updatedAt: timestampMs("updated_at"),
+	},
+	(table) => ({
+		scanRunIdx: index("static_intel_embed_scan_run_idx").on(table.scanRunId),
+		projectIdx: index("static_intel_embed_project_idx").on(table.projectId),
+		sourceIdx: index("static_intel_embed_source_idx").on(
+			table.sourceKind,
+			table.sourceId,
+		),
+		contentHashIdx: index("static_intel_embed_hash_idx").on(table.contentHash),
+		uniqueSourceIdx: uniqueIndex("static_intel_embed_source_unique_idx").on(
+			table.scanRunId,
+			table.sourceKind,
+			table.sourceId,
+		),
+	}),
+);
+
 export const attackSurfaceItems = sqliteTable(
 	"attack_surface_items",
 	{
