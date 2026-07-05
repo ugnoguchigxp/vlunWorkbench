@@ -121,6 +121,27 @@ describe("Static Intelligence export builder", () => {
 		);
 	});
 
+	it("reports a newer failed review even when an older completed review exists", async () => {
+		const scanRunId = await seedFindingBackedScan();
+		await seedCompletedScanReview(scanRunId);
+		await seedFailedScanReview(scanRunId);
+
+		const exportPayload = await buildStaticIntelligenceExport(
+			connection.db,
+			scanRunId,
+			{ generatedAt: GENERATED_AT },
+		);
+
+		expect(exportPayload.scan.reviewStatus).toBe("failed");
+		expect(exportPayload.handoff?.title).toBe("Fix reflected XSS");
+		expect(exportPayload.scanSummary.degradedReasons).toContain(
+			"latest scan review failed",
+		);
+		expect(exportPayload.scanSummary.degradedReasons).not.toContain(
+			"completed scan review missing",
+		);
+	});
+
 	it("does not include evidence snippets or raw artifact metadata", async () => {
 		const scanRunId = await seedFindingBackedScan({
 			snippet: "const token = 'SECRET_TOKEN_SHOULD_NOT_LEAK';",
@@ -296,6 +317,32 @@ describe("Static Intelligence export builder", () => {
 			completedAt: new Date(NOW.getTime() + 1000),
 			createdAt: NOW,
 			updatedAt: NOW,
+		});
+	}
+
+	async function seedFailedScanReview(scanRunId: string) {
+		const failedAt = new Date(NOW.getTime() + 2000);
+		await connection.db.insert(scanReviews).values({
+			scanRunId,
+			projectId,
+			provider: "openai",
+			model: "gpt-4o-mini",
+			status: "failed",
+			summary: null,
+			riskOverview: null,
+			priorityNotes: [],
+			coverageNotes: [],
+			falsePositiveHotspots: [],
+			recommendedNextActions: [],
+			findingTriageHints: [],
+			confidenceNotes: [],
+			inputBundle: {},
+			output: {},
+			errorMessage: "review generation failed",
+			startedAt: failedAt,
+			completedAt: new Date(failedAt.getTime() + 1000),
+			createdAt: failedAt,
+			updatedAt: failedAt,
 		});
 	}
 });

@@ -1,5 +1,6 @@
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createDbConnection, type DbConnection } from "../../db";
 import {
@@ -13,6 +14,7 @@ import {
 	users,
 } from "../../db/schema";
 import type { EmbeddingProvider } from "../../providers/types";
+import type { StaticIntelligenceEmbeddingSource } from "../../../shared/schemas/static-intelligence-search.schema";
 import { buildStaticIntelligenceExport } from "./export-builder";
 import { buildStaticIntelligenceEmbeddingSources } from "./embedding-source-builder";
 import {
@@ -31,6 +33,7 @@ describe("Static Intelligence semantic search", () => {
 	let userId: string;
 	let projectId: string;
 	let scanRunId: string;
+	let seededFindingId: string;
 
 	beforeEach(async () => {
 		connection = createDbConnection(":memory:");
@@ -60,7 +63,9 @@ describe("Static Intelligence semantic search", () => {
 			})
 			.returning();
 		projectId = project.id;
-		scanRunId = await seedFindingBackedScan();
+		const seeded = await seedFindingBackedScan();
+		scanRunId = seeded.scanRunId;
+		seededFindingId = seeded.findingId;
 	});
 
 	afterEach(() => {
@@ -108,7 +113,7 @@ describe("Static Intelligence semantic search", () => {
 		await connection.db
 			.update(findings)
 			.set({ title: "Updated Auth Boundary Finding", updatedAt: NOW })
-			.where(undefined);
+			.where(eq(findings.id, seededFindingId));
 		const changedContent = await indexStaticIntelligenceEmbeddings({
 			db: connection.db,
 			scanRunId,
@@ -209,6 +214,54 @@ describe("Static Intelligence semantic search", () => {
 		expect(rows[0]?.vectorScore).toBeGreaterThan(rows[1]?.vectorScore ?? 0);
 	});
 
+	it("keeps the previous embedding row if stale replacement insert fails", async () => {
+		const repository = new StaticIntelligenceEmbeddingRepository(connection.db);
+		const source: StaticIntelligenceEmbeddingSource = {
+			projectId,
+			scanRunId,
+			sourceKind: "file_risk_summary" as const,
+			sourceId: "src/auth.ts",
+			sourceRef: "file:src/auth.ts",
+			title: "Auth risk",
+			content: "authorization boundary input validation",
+			contentHash: "hash-auth",
+			metadata: {
+				filePath: "src/auth.ts",
+				findingIds: ["finding-auth"],
+				candidateOnly: true,
+			},
+		};
+		await repository.replaceEmbeddingRow({
+			source,
+			embedding: vectorWithAxis(0),
+			embeddingModel: "fake",
+		});
+
+		await expect(
+			repository.replaceEmbeddingRow({
+				source: {
+					...source,
+					projectId: "00000000-0000-4000-8000-000000000099",
+					contentHash: "hash-auth-updated",
+					content: "updated content",
+				},
+				embedding: vectorWithAxis(1),
+				embeddingModel: "fake",
+			}),
+		).rejects.toThrow();
+
+		const rows = await repository.vectorSearch({
+			scanRunId,
+			embedding: vectorWithAxis(0),
+			limit: 1,
+		});
+		expect(rows[0]).toMatchObject({
+			sourceRef: "file:src/auth.ts",
+			contentHash: "hash-auth",
+			content: "authorization boundary input validation",
+		});
+	});
+
 	it("applies hybrid filters and keeps candidate-only results", async () => {
 		const repository = new StaticIntelligenceEmbeddingRepository(connection.db);
 		await repository.replaceEmbeddingRow({
@@ -290,6 +343,27 @@ describe("Static Intelligence semantic search", () => {
 		expect(result.results).toEqual([]);
 		expect(result.degradedReasons).toContain(
 			"static intelligence embedding index is empty",
+		);
+	});
+
+	it("returns a distinct degraded reason when filters match no indexed rows", async () => {
+		await indexStaticIntelligenceEmbeddings({
+			db: connection.db,
+			scanRunId,
+			embeddingProvider: new FakeEmbeddingProvider(),
+			options: { embeddingModel: "model-a" },
+		});
+
+		const result = await runStaticIntelligenceSemanticQuery({
+			db: connection.db,
+			scanRunId,
+			query: "auth risk",
+			options: { topK: 3, filters: { file: "src/missing.ts" } },
+		});
+
+		expect(result.results).toEqual([]);
+		expect(result.degradedReasons).toContain(
+			"no static intelligence embedding rows matched the provided filters",
 		);
 	});
 
@@ -403,9 +477,9 @@ describe("Static Intelligence semantic search", () => {
 			createdAt: NOW,
 			updatedAt: NOW,
 		});
-		return id;
-	}
-});
+			return { scanRunId: id, findingId: finding.id };
+		}
+	});
 
 class FakeEmbeddingProvider implements EmbeddingProvider {
 	constructor(private readonly dimensions = 1536) {}

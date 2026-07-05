@@ -87,10 +87,12 @@ function extractHandoff(
 	bundle: StaticIntelligenceSourceBundle,
 	degradedReasons: string[],
 ): StaticIntelligenceHandoff | null {
+	if (bundle.latestReview?.status === "failed") {
+		degradedReasons.push("latest scan review failed");
+	}
+
 	if (!bundle.latestCompletedReview) {
-		if (bundle.latestReview?.status === "failed") {
-			degradedReasons.push("latest scan review failed");
-		} else {
+		if (bundle.latestReview?.status !== "failed") {
 			degradedReasons.push("completed scan review missing");
 		}
 		return null;
@@ -120,8 +122,8 @@ function extractHandoff(
 function scanReviewStatus(
 	bundle: StaticIntelligenceSourceBundle,
 ): "completed" | "failed" | "missing" {
-	if (bundle.latestCompletedReview) return "completed";
 	if (bundle.latestReview?.status === "failed") return "failed";
+	if (bundle.latestCompletedReview) return "completed";
 	return "missing";
 }
 

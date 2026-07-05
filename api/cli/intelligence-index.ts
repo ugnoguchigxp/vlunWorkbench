@@ -63,8 +63,20 @@ async function main(): Promise<number> {
 		return fail(2, errorMessage(error));
 	}
 
-	const env = readAppEnv();
-	const dbConnection = createDbConnection(env.databaseUrl);
+	let env: ReturnType<typeof readAppEnv>;
+	try {
+		env = readAppEnv();
+	} catch (error) {
+		return fail(2, errorMessage(error));
+	}
+
+	let dbConnection: ReturnType<typeof createDbConnection>;
+	try {
+		dbConnection = createDbConnection(env.databaseUrl);
+	} catch (error) {
+		return fail(1, errorMessage(error));
+	}
+
 	try {
 		const embeddingRepository = new StaticIntelligenceEmbeddingRepository(
 			dbConnection.db,

@@ -73,7 +73,10 @@ export class StaticIntelligenceEmbeddingRepository {
 		scanRunId: string,
 		filters: StaticIntelligenceEmbeddingFilters = {},
 	): Promise<number> {
-		const conditions = this.buildConditions(scanRunId, filters);
+		const conditions = [
+			...this.buildConditions(scanRunId, filters),
+			sql`${staticIntelligenceEmbeddings.embedding} IS NOT NULL`,
+		];
 		const [row] = await this.db
 			.select({ count: sql<number>`cast(count(*) as integer)` })
 			.from(staticIntelligenceEmbeddings)
@@ -92,31 +95,44 @@ export class StaticIntelligenceEmbeddingRepository {
 		ensureEmbeddingShape(params.embedding, embeddingDim);
 		const now = new Date();
 		await this.db
-			.delete(staticIntelligenceEmbeddings)
-			.where(
-				and(
-					eq(staticIntelligenceEmbeddings.scanRunId, params.source.scanRunId),
-					eq(staticIntelligenceEmbeddings.sourceKind, params.source.sourceKind),
-					eq(staticIntelligenceEmbeddings.sourceId, params.source.sourceId),
-				),
-			);
-		await this.db.insert(staticIntelligenceEmbeddings).values({
-			projectId: params.source.projectId,
-			scanRunId: params.source.scanRunId,
-			sourceKind: params.source.sourceKind,
-			sourceId: params.source.sourceId,
-			sourceRef: params.source.sourceRef,
-			title: params.source.title,
-			content: params.source.content,
-			contentHash: params.source.contentHash,
-			embedding: embeddingToBlob(params.embedding),
-			embeddingModel: params.embeddingModel,
-			embeddingDim,
-			metadata: params.source.metadata,
-			indexedAt: now,
-			createdAt: now,
-			updatedAt: now,
-		});
+			.insert(staticIntelligenceEmbeddings)
+			.values({
+				projectId: params.source.projectId,
+				scanRunId: params.source.scanRunId,
+				sourceKind: params.source.sourceKind,
+				sourceId: params.source.sourceId,
+				sourceRef: params.source.sourceRef,
+				title: params.source.title,
+				content: params.source.content,
+				contentHash: params.source.contentHash,
+				embedding: embeddingToBlob(params.embedding),
+				embeddingModel: params.embeddingModel,
+				embeddingDim,
+				metadata: params.source.metadata,
+				indexedAt: now,
+				createdAt: now,
+				updatedAt: now,
+			})
+			.onConflictDoUpdate({
+				target: [
+					staticIntelligenceEmbeddings.scanRunId,
+					staticIntelligenceEmbeddings.sourceKind,
+					staticIntelligenceEmbeddings.sourceId,
+				],
+				set: {
+					projectId: params.source.projectId,
+					sourceRef: params.source.sourceRef,
+					title: params.source.title,
+					content: params.source.content,
+					contentHash: params.source.contentHash,
+					embedding: embeddingToBlob(params.embedding),
+					embeddingModel: params.embeddingModel,
+					embeddingDim,
+					metadata: params.source.metadata,
+					indexedAt: now,
+					updatedAt: now,
+				},
+			});
 	}
 
 	async deleteMissingSources(params: {

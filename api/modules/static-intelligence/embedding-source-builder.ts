@@ -168,6 +168,7 @@ function buildScanReviewSource(
 		sourceRef: `scan_review:${review.id}`,
 		title: review.summary ?? "Scan review",
 		contentLines: [
+			`Title: ${review.summary ?? "Scan review"}`,
 			...(review.summary ? [`Summary: ${review.summary}`] : []),
 			...(review.riskOverview ? [`Risk overview: ${review.riskOverview}`] : []),
 			...review.coverageNotes.map((note) => `Coverage note: ${note}`),

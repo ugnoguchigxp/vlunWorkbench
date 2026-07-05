@@ -37,6 +37,9 @@ export async function runStaticIntelligenceSemanticQuery(params: {
 		params.options?.filters ?? {},
 	);
 	if (indexedCount === 0) {
+		const totalIndexedCount = await repository.countIndexedRows(
+			params.scanRunId,
+		);
 		return staticIntelligenceSemanticQueryResultSchema.parse({
 			ok: true,
 			status: "completed",
@@ -44,7 +47,11 @@ export async function runStaticIntelligenceSemanticQuery(params: {
 			query: trimmedQuery,
 			topK,
 			results: [],
-			degradedReasons: ["static intelligence embedding index is empty"],
+			degradedReasons: [
+				totalIndexedCount === 0
+					? "static intelligence embedding index is empty"
+					: "no static intelligence embedding rows matched the provided filters",
+			],
 		});
 	}
 	if (!params.embeddingProvider) {
@@ -77,7 +84,10 @@ export async function runStaticIntelligenceSemanticQuery(params: {
 		query: trimmedQuery,
 		topK,
 		results,
-		degradedReasons: [],
+		degradedReasons:
+			results.length === 0
+				? ["no searchable static intelligence embeddings matched the query"]
+				: [],
 	});
 }
 
