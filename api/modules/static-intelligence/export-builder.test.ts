@@ -95,6 +95,7 @@ describe("Static Intelligence export builder", () => {
 			evidenceQuality: "strong",
 			scanners: ["semgrep"],
 			ruleIds: ["typescript.express.xss"],
+			verificationRefs: [],
 		});
 		expect(exportPayload.scan.reviewStatus).toBe("completed");
 		expect(exportPayload.handoff?.title).toBe("Fix reflected XSS");
@@ -103,6 +104,14 @@ describe("Static Intelligence export builder", () => {
 		expect(graphEdges).toContain("evidenced_by");
 		expect(graphEdges).toContain("stored_as");
 		expect(graphEdges).toContain("located_in");
+		expect(graphEdges).toContain("verified_by");
+		expect(
+			exportPayload.graph.nodes.some(
+				(node) =>
+					node.kind === "verification" &&
+					node.sourceId === "verification_command:1",
+			),
+		).toBe(true);
 	});
 
 	it("degrades cleanly when scan review is missing", async () => {

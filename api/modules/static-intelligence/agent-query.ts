@@ -22,6 +22,7 @@ import type { EmbeddingProvider } from "../../providers/types";
 import { buildRiskCommunities } from "./community-builder";
 import { buildStaticIntelligenceExport } from "./export-builder";
 import { buildSecurityLandscape } from "./landscape-builder";
+import { buildSemanticCommunityCandidates } from "./semantic-community-integration";
 import { runStaticIntelligenceSemanticQuery } from "./semantic-query";
 
 export async function runStaticIntelligenceAgentQuery(params: {
@@ -46,6 +47,8 @@ export async function runStaticIntelligenceAgentQuery(params: {
 		input.includeLandscape ?? shouldDefaultLandscape(input.queryKind);
 
 	let semantic: StaticIntelligenceAgentQueryResult["bundles"]["semantic"];
+	let semanticCommunityCandidates: Parameters<typeof buildRiskCommunities>[1] =
+		{};
 	if (input.includeSemantic) {
 		const semanticQuery = input.query ?? semanticQueryFromExactFilters(input);
 		if (!semanticQuery) {
@@ -67,6 +70,16 @@ export async function runStaticIntelligenceAgentQuery(params: {
 					},
 				});
 				degradedReasons.push(...semantic.degradedReasons);
+				if (semantic.results.length > 0) {
+					const semanticIntegration = buildSemanticCommunityCandidates({
+						exportPayload,
+						semantic,
+					});
+					semanticCommunityCandidates = {
+						semanticCandidates: semanticIntegration.semanticCandidates,
+					};
+					degradedReasons.push(...semanticIntegration.degradedReasons);
+				}
 			} catch (error) {
 				degradedReasons.push(
 					`semantic enrichment unavailable: ${message(error)}`,
@@ -77,7 +90,10 @@ export async function runStaticIntelligenceAgentQuery(params: {
 
 	let communities: RiskCommunity[] | undefined;
 	if (includeCommunities || includeLandscape) {
-		communities = buildRiskCommunities(exportPayload);
+		communities = buildRiskCommunities(
+			exportPayload,
+			semanticCommunityCandidates,
+		);
 	}
 
 	let landscape: SecurityLandscape | undefined;
@@ -226,6 +242,18 @@ function riskContext(context: QueryContext): RoutedQuery {
 	for (const community of intersectingCommunities(context, findingIds)) {
 		results.push(communityItem(community));
 	}
+	if (context.input.query) {
+		const existingCommunityIds = new Set(
+			results
+				.filter((item) => item.kind === "community")
+				.map((item) => item.id),
+		);
+		for (const community of semanticCommunities(context)) {
+			if (!existingCommunityIds.has(community.id)) {
+				results.push(communityItem(community));
+			}
+		}
+	}
 	results.push(...semanticItems(context));
 
 	const hasOnlyQuery =
@@ -278,6 +306,11 @@ function relatedFindings(context: QueryContext): RoutedQuery {
 	for (const community of intersectingCommunities(context, matched)) {
 		for (const findingId of community.findingIds) related.add(findingId);
 	}
+	if (context.input.query) {
+		for (const community of semanticCommunities(context)) {
+			for (const findingId of community.findingIds) related.add(findingId);
+		}
+	}
 
 	const results = [...related]
 		.filter((findingId) => !seedId || findingId !== seedId)
@@ -287,10 +320,24 @@ function relatedFindings(context: QueryContext): RoutedQuery {
 			}),
 		);
 	results.push(
-		...semanticItems(context).filter((item) => item.findingIds[0] !== seedId),
+		...semanticItems(context).filter(
+			(item) => !seedId || !item.findingIds.includes(seedId),
+		),
 	);
 	for (const community of intersectingCommunities(context, matched)) {
 		results.push(communityItem(community));
+	}
+	if (context.input.query) {
+		const existingCommunityIds = new Set(
+			results
+				.filter((item) => item.kind === "community")
+				.map((item) => item.id),
+		);
+		for (const community of semanticCommunities(context)) {
+			if (!existingCommunityIds.has(community.id)) {
+				results.push(communityItem(community));
+			}
+		}
 	}
 
 	const hasOnlyQuery =
@@ -386,33 +433,17 @@ function verificationCommands(context: QueryContext): RoutedQuery {
 		);
 	}
 	const commands = context.exportPayload.handoff?.verificationCommands ?? [];
-	const findingIds = context.input.findingId ? [context.input.findingId] : [];
-	const fileRefs = sortedUnique(
-		findingIds.flatMap((id) => context.graph.fileRefsByFinding.get(id) ?? []),
-	);
 	const results = commands.map((command, index) => ({
 		id: `verification_command:${index + 1}`,
 		kind: "verification_command" as const,
 		title: command,
 		candidateOnly: true as const,
-		findingIds,
-		evidenceRefs: sortedUnique(
-			findingIds.flatMap(
-				(id) => context.graph.evidenceRefsByFinding.get(id) ?? [],
-			),
-		),
-		artifactRefs: sortedUnique(
-			findingIds.flatMap(
-				(id) => context.graph.artifactRefsByFinding.get(id) ?? [],
-			),
-		),
-		fileRefs,
-		sourceRefs: [
-			`handoff:${context.exportPayload.scan.id}`,
-			...(findingIds.length > 0 ? findingIds.map((id) => `finding:${id}`) : []),
-			...fileRefs.map((fileRef) => `file:${fileRef}`),
-		],
-		metadata: { command, ordinal: index + 1 },
+		findingIds: [],
+		evidenceRefs: [],
+		artifactRefs: [],
+		fileRefs: [],
+		sourceRefs: [`handoff:${context.exportPayload.scan.id}`],
+		metadata: { command, ordinal: index + 1, scope: "scan" },
 	}));
 	return {
 		summary: {
@@ -424,8 +455,16 @@ function verificationCommands(context: QueryContext): RoutedQuery {
 			candidateOnly: true,
 		},
 		results,
-		degradedReasons:
-			commands.length === 0 ? ["handoff verification commands missing"] : [],
+		degradedReasons: [
+			...(commands.length === 0
+				? ["handoff verification commands missing"]
+				: []),
+			...(context.input.findingId && commands.length > 0
+				? [
+						"verification commands are scan-level and were not attributed to the requested finding",
+					]
+				: []),
+		],
 	};
 }
 
@@ -686,6 +725,12 @@ function intersectingCommunities(
 	const findingSet = new Set(findingIds);
 	return (context.communities ?? []).filter((community) =>
 		community.findingIds.some((findingId) => findingSet.has(findingId)),
+	);
+}
+
+function semanticCommunities(context: QueryContext): RiskCommunity[] {
+	return (context.communities ?? []).filter((community) =>
+		community.basis.includes("semantic"),
 	);
 }
 

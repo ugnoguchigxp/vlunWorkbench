@@ -115,7 +115,7 @@ function toResultItem(
 		...(typeof metadata.filePath === "string"
 			? { filePath: metadata.filePath }
 			: {}),
-		metadata,
+		metadata: safeSemanticMetadata(metadata),
 	};
 }
 
@@ -155,4 +155,28 @@ function arrayMetadata(value: unknown): string[] {
 	return value
 		.filter((item): item is string => typeof item === "string")
 		.sort();
+}
+
+function safeSemanticMetadata(
+	metadata: ReturnType<typeof normalizeEmbeddingMetadata>,
+): Record<string, unknown> {
+	return {
+		candidateOnly: true,
+		findingIds: arrayMetadata(metadata.findingIds),
+		evidenceRefs: arrayMetadata(metadata.evidenceRefs),
+		artifactRefs: arrayMetadata(metadata.artifactRefs),
+		...(typeof metadata.filePath === "string"
+			? { filePath: metadata.filePath }
+			: {}),
+		...(typeof metadata.severity === "string"
+			? { severity: metadata.severity }
+			: {}),
+		...(typeof metadata.ruleId === "string" ? { ruleId: metadata.ruleId } : {}),
+		...(typeof metadata.scanner === "string"
+			? { scanner: metadata.scanner }
+			: {}),
+		...(Array.isArray(metadata.degradedReasons)
+			? { degradedReasons: arrayMetadata(metadata.degradedReasons) }
+			: {}),
+	};
 }

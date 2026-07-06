@@ -3,6 +3,7 @@ import type {
 	DiagnosticEvidenceEdgeKind,
 	DiagnosticEvidenceGraph,
 	DiagnosticEvidenceNode,
+	StaticIntelligenceHandoff,
 } from "../../../shared/schemas/static-intelligence.schema";
 import {
 	extractFindingPath,
@@ -17,6 +18,7 @@ import type {
 
 export function buildDiagnosticEvidenceGraph(
 	bundle: StaticIntelligenceSourceBundle,
+	options: { handoff?: StaticIntelligenceHandoff | null } = {},
 ): DiagnosticEvidenceGraph {
 	const nodes = new Map<string, DiagnosticEvidenceNode>();
 	const edges = new Map<string, DiagnosticEvidenceEdge>();
@@ -148,8 +150,9 @@ export function buildDiagnosticEvidenceGraph(
 	}
 
 	if (bundle.latestCompletedReview) {
+		const reviewNode = reviewNodeId(bundle.latestCompletedReview.id);
 		addNode(nodes, {
-			id: reviewNodeId(bundle.latestCompletedReview.id),
+			id: reviewNode,
 			kind: "review",
 			label: bundle.latestCompletedReview.summary ?? "Completed scan review",
 			sourceId: bundle.latestCompletedReview.id,
@@ -162,10 +165,40 @@ export function buildDiagnosticEvidenceGraph(
 		addEdge(edges, {
 			kind: "reviewed_by",
 			from: scanRunNodeId(bundle.scanRun.id),
-			to: reviewNodeId(bundle.latestCompletedReview.id),
+			to: reviewNode,
 			confidence: 1,
 			evidenceRefs: [],
 		});
+		for (const [index, command] of (
+			options.handoff?.verificationCommands ?? []
+		).entries()) {
+			const verificationNode = verificationNodeId(bundle.scanRun.id, index);
+			addNode(nodes, {
+				id: verificationNode,
+				kind: "verification",
+				label: command,
+				sourceId: verificationRef(index),
+				metadata: {
+					command,
+					ordinal: index + 1,
+					reviewId: bundle.latestCompletedReview.id,
+				},
+			});
+			addEdge(edges, {
+				kind: "verified_by",
+				from: scanRunNodeId(bundle.scanRun.id),
+				to: verificationNode,
+				confidence: 1,
+				evidenceRefs: [],
+			});
+			addEdge(edges, {
+				kind: "related_to",
+				from: reviewNode,
+				to: verificationNode,
+				confidence: 1,
+				evidenceRefs: [],
+			});
+		}
 	}
 
 	return {
@@ -271,6 +304,14 @@ function fileNodeId(path: string): string {
 
 function reviewNodeId(reviewId: string): string {
 	return `review:${reviewId}`;
+}
+
+function verificationNodeId(scanRunId: string, index: number): string {
+	return `verification:${scanRunId}:${index + 1}`;
+}
+
+function verificationRef(index: number): string {
+	return `verification_command:${index + 1}`;
 }
 
 function edgeId(

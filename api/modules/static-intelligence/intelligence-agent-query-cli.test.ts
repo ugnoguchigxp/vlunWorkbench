@@ -133,6 +133,34 @@ describe("Static Intelligence agent query CLI", () => {
 		expect(result.stdout.trim().endsWith("}")).toBe(true);
 	});
 
+	it("returns degraded JSON for semantic community requests with an empty index", () => {
+		const result = runCli([
+			"--scan-run-id",
+			scanRunId,
+			"--kind",
+			"risk_context",
+			"--query",
+			"auth validation risk",
+			"--include-semantic",
+			"true",
+			"--include-communities",
+			"true",
+		]);
+
+		expect(result.status).toBe(0);
+		expect(result.stderr).toBe("");
+		const stdoutPayload = JSON.parse(result.stdout);
+		expect(stdoutPayload).toMatchObject({
+			ok: true,
+			status: "completed",
+			scanRunId,
+			queryKind: "risk_context",
+		});
+		expect(stdoutPayload.degradedReasons).toContain(
+			"static intelligence embedding index is empty",
+		);
+	});
+
 	function runCli(args: string[]) {
 		return spawnSync(
 			process.execPath,

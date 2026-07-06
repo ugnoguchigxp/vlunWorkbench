@@ -1,0 +1,520 @@
+import { readdirSync, readFileSync } from "node:fs";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { createDbConnection, type DbConnection } from "../../db";
+import {
+	findingEvidences,
+	findings,
+	projects,
+	scanArtifacts,
+	scanReviews,
+	scanRuns,
+	toolRuns,
+	users,
+} from "../../db/schema";
+import { runStaticIntelligenceAgentQuery } from "./agent-query";
+import { buildStaticIntelligenceGuardrailMaterialForScan } from "./guardrail-material";
+import { buildStaticIntelligenceKnowledgeSourceManifestForScan } from "./knowledge-source-manifest";
+import {
+	getStaticIntelligenceEvidenceBundleTool,
+	getStaticIntelligenceGuardrailMaterialTool,
+	getStaticIntelligenceKnowledgeSourceManifestTool,
+	getStaticIntelligenceVerificationCommandsTool,
+	listStaticIntelligenceKnowledgeSources,
+	staticIntelligenceMcpToolRegistry,
+} from "./mcp-tools";
+
+const NOW = new Date("2026-07-06T10:00:00.000Z");
+const GENERATED_AT = new Date("2026-07-06T10:30:00.000Z");
+const RAW_SNIPPET_MARKER = "SECRET_RAW_SNIPPET_SHOULD_NOT_LEAK";
+const RAW_ARTIFACT_MARKER = "SECRET_RAW_ARTIFACT_SHOULD_NOT_LEAK";
+const SECRET_MARKER = "SECRET_TOKEN_SHOULD_NOT_LEAK";
+const REPO_PATH_MARKER = "/tmp/vuln-workbench-private-repo";
+
+describe("Static Intelligence MCP tools", () => {
+	let connection: DbConnection;
+	let userId: string;
+	let projectId: string;
+
+	beforeEach(async () => {
+		connection = createDbConnection(":memory:");
+		applyMigrations(connection);
+
+		const [user] = await connection.db
+			.insert(users)
+			.values({
+				email: "static-intel-mcp@example.com",
+				passwordHash: "password",
+				displayName: "Static Intel MCP User",
+				role: "member",
+				isActive: true,
+				createdAt: NOW,
+				updatedAt: NOW,
+			})
+			.returning();
+		userId = user.id;
+
+		const [project] = await connection.db
+			.insert(projects)
+			.values({
+				ownerUserId: userId,
+				name: "Target Project",
+				repoPath: REPO_PATH_MARKER,
+				defaultBranch: "main",
+				createdAt: NOW,
+				updatedAt: NOW,
+			})
+			.returning();
+		projectId = project.id;
+	});
+
+	afterEach(() => {
+		connection.sqlite.close();
+	});
+
+	it("registers the expected read-only tool surface", () => {
+		expect(staticIntelligenceMcpToolRegistry.map((tool) => tool.name)).toEqual([
+			"vuln_list_knowledge_sources",
+			"vuln_get_knowledge_source_manifest",
+			"vuln_get_guardrail_material",
+			"vuln_get_evidence_bundle",
+			"vuln_get_verification_commands",
+		]);
+		expect(
+			staticIntelligenceMcpToolRegistry.every((tool) =>
+				tool.description.toLowerCase().includes("read-only"),
+			),
+		).toBe(true);
+	});
+
+	it("returns failure JSON for invalid input and missing scans", async () => {
+		await expect(
+			listStaticIntelligenceKnowledgeSources({
+				db: connection.db,
+				input: { limit: 101 },
+			}),
+		).resolves.toMatchObject({ ok: false, status: "failed" });
+
+		await expect(
+			getStaticIntelligenceKnowledgeSourceManifestTool({
+				db: connection.db,
+				input: { scanRunId: "missing-scan" },
+			}),
+		).resolves.toMatchObject({
+			ok: false,
+			status: "failed",
+			message: "Scan run not found: missing-scan",
+		});
+
+		const { scanRunId } = await seedFindingBackedScan();
+		await expect(
+			getStaticIntelligenceEvidenceBundleTool({
+				db: connection.db,
+				input: { scanRunId, findingId: "missing-finding" },
+			}),
+		).resolves.toMatchObject({
+			ok: false,
+			status: "failed",
+			message: "Finding not found: missing-finding",
+		});
+	});
+
+	it("lists recent knowledge sources newest first with bounded filtering", async () => {
+		const olderScanRunId = await seedScanRun({
+			updatedAt: new Date("2026-07-06T09:00:00.000Z"),
+		});
+		const { scanRunId: newerScanRunId } = await seedFindingBackedScan({
+			updatedAt: new Date("2026-07-06T11:00:00.000Z"),
+		});
+		const otherProjectId = await seedProject("Other Project", "/tmp/other");
+		const otherScanRunId = await seedScanRun({
+			projectId: otherProjectId,
+			updatedAt: new Date("2026-07-06T12:00:00.000Z"),
+		});
+
+		const allResult = await listStaticIntelligenceKnowledgeSources({
+			db: connection.db,
+			input: { limit: 2 },
+			generatedAt: GENERATED_AT,
+		});
+		expect(allResult).toMatchObject({ ok: true, status: "completed" });
+		if (!allResult.ok) throw new Error(allResult.message);
+		expect(allResult.sources.map((source) => source.scanRunId)).toEqual([
+			otherScanRunId,
+			newerScanRunId,
+		]);
+		expect(allResult.sources[0].command).toEqual([
+			"bun",
+			"run",
+			"intelligence:knowledge-source",
+			"--",
+			"--scan-run-id",
+			otherScanRunId,
+		]);
+		expect(JSON.stringify(allResult)).not.toContain(REPO_PATH_MARKER);
+
+		const filteredResult = await listStaticIntelligenceKnowledgeSources({
+			db: connection.db,
+			input: { projectId, limit: 10 },
+			generatedAt: GENERATED_AT,
+		});
+		expect(filteredResult).toMatchObject({ ok: true });
+		if (!filteredResult.ok) throw new Error(filteredResult.message);
+		expect(filteredResult.sources.map((source) => source.scanRunId)).toEqual([
+			newerScanRunId,
+			olderScanRunId,
+		]);
+	});
+
+	it("matches service output for manifest, guardrail material, evidence bundle, and verification commands", async () => {
+		const { scanRunId, findingId } = await seedFindingBackedScan();
+		await seedCompletedScanReview(scanRunId);
+
+		const serviceManifest =
+			await buildStaticIntelligenceKnowledgeSourceManifestForScan(
+				connection.db,
+				scanRunId,
+				{ generatedAt: GENERATED_AT },
+			);
+		const manifestResult =
+			await getStaticIntelligenceKnowledgeSourceManifestTool({
+				db: connection.db,
+				input: { scanRunId },
+			});
+		expect(manifestResult).toMatchObject({ ok: true });
+		if (!manifestResult.ok) throw new Error(manifestResult.message);
+		expect(manifestResult.manifest.source.contentHash).toBe(
+			serviceManifest.source.contentHash,
+		);
+		expect(manifestResult.manifest.source.exportHash).toBe(
+			serviceManifest.source.exportHash,
+		);
+		expect(manifestResult.manifest.availableBundles).toEqual(
+			serviceManifest.availableBundles,
+		);
+
+		const serviceMaterial =
+			await buildStaticIntelligenceGuardrailMaterialForScan(
+				connection.db,
+				scanRunId,
+				{ generatedAt: GENERATED_AT },
+			);
+		const materialResult = await getStaticIntelligenceGuardrailMaterialTool({
+			db: connection.db,
+			input: { scanRunId },
+		});
+		expect(materialResult).toMatchObject({ ok: true });
+		if (!materialResult.ok) throw new Error(materialResult.message);
+		expect(materialResult.sourceManifest).toEqual(serviceMaterial.sourceManifest);
+		expect(materialResult.materials.map((material) => material.id)).toEqual(
+			serviceMaterial.materials.map((material) => material.id),
+		);
+
+		const serviceEvidence = await runStaticIntelligenceAgentQuery({
+			db: connection.db,
+			input: {
+				scanRunId,
+				queryKind: "evidence_bundle",
+				findingId,
+				includeSemantic: false,
+				includeCommunities: false,
+				includeLandscape: false,
+			},
+			generatedAt: GENERATED_AT,
+		});
+		const evidenceResult = await getStaticIntelligenceEvidenceBundleTool({
+			db: connection.db,
+			input: { scanRunId, findingId },
+		});
+		expect(evidenceResult).toMatchObject({ ok: true });
+		if (!evidenceResult.ok) throw new Error(evidenceResult.message);
+		expect(evidenceResult.queryKind).toBe("evidence_bundle");
+		expect(evidenceResult.refs).toEqual(serviceEvidence.refs);
+		expect(evidenceResult.results.map((item) => item.id)).toEqual(
+			serviceEvidence.results.map((item) => item.id),
+		);
+
+		const serviceCommands = await runStaticIntelligenceAgentQuery({
+			db: connection.db,
+			input: {
+				scanRunId,
+				queryKind: "verification_commands",
+				includeSemantic: false,
+				includeCommunities: false,
+				includeLandscape: false,
+			},
+			generatedAt: GENERATED_AT,
+		});
+		const commandsResult =
+			await getStaticIntelligenceVerificationCommandsTool({
+				db: connection.db,
+				input: { scanRunId },
+			});
+		expect(commandsResult).toMatchObject({ ok: true });
+		if (!commandsResult.ok) throw new Error(commandsResult.message);
+		expect(commandsResult.queryKind).toBe("verification_commands");
+		expect(commandsResult.results).toEqual(serviceCommands.results);
+		expect(
+			commandsResult.results.every(
+				(item) =>
+					item.kind === "verification_command" &&
+					item.candidateOnly &&
+					item.findingIds.length === 0 &&
+					item.evidenceRefs.length === 0 &&
+					item.fileRefs.length === 0,
+			),
+		).toBe(true);
+	});
+
+	it("does not mutate storage while serving read-only tool calls", async () => {
+		const { scanRunId, findingId } = await seedFindingBackedScan();
+		await seedCompletedScanReview(scanRunId);
+		const before = rowCounts();
+
+		await listStaticIntelligenceKnowledgeSources({
+			db: connection.db,
+			input: { limit: 10 },
+			generatedAt: GENERATED_AT,
+		});
+		await getStaticIntelligenceKnowledgeSourceManifestTool({
+			db: connection.db,
+			input: { scanRunId },
+		});
+		await getStaticIntelligenceGuardrailMaterialTool({
+			db: connection.db,
+			input: { scanRunId },
+		});
+		await getStaticIntelligenceEvidenceBundleTool({
+			db: connection.db,
+			input: { scanRunId, findingId },
+		});
+		await getStaticIntelligenceVerificationCommandsTool({
+			db: connection.db,
+			input: { scanRunId, findingId },
+		});
+
+		expect(rowCounts()).toEqual(before);
+	});
+
+	it("preserves redaction boundaries across all MCP outputs", async () => {
+		const { scanRunId, findingId } = await seedFindingBackedScan({
+			snippet: `${RAW_SNIPPET_MARKER} ${SECRET_MARKER}`,
+			artifactMetadata: { rawContent: RAW_ARTIFACT_MARKER },
+		});
+		await seedCompletedScanReview(scanRunId);
+
+		const outputs = [
+			await listStaticIntelligenceKnowledgeSources({
+				db: connection.db,
+				input: { limit: 10 },
+				generatedAt: GENERATED_AT,
+			}),
+			await getStaticIntelligenceKnowledgeSourceManifestTool({
+				db: connection.db,
+				input: { scanRunId },
+			}),
+			await getStaticIntelligenceGuardrailMaterialTool({
+				db: connection.db,
+				input: { scanRunId },
+			}),
+			await getStaticIntelligenceEvidenceBundleTool({
+				db: connection.db,
+				input: { scanRunId, findingId },
+			}),
+			await getStaticIntelligenceVerificationCommandsTool({
+				db: connection.db,
+				input: { scanRunId, findingId },
+			}),
+		];
+		const serialized = JSON.stringify(outputs);
+
+		expect(serialized).not.toContain(RAW_SNIPPET_MARKER);
+		expect(serialized).not.toContain(RAW_ARTIFACT_MARKER);
+		expect(serialized).not.toContain(SECRET_MARKER);
+		expect(serialized).not.toContain(REPO_PATH_MARKER);
+	});
+
+	async function seedProject(name: string, repoPath: string) {
+		const [project] = await connection.db
+			.insert(projects)
+			.values({
+				ownerUserId: userId,
+				name,
+				repoPath,
+				defaultBranch: "main",
+				createdAt: NOW,
+				updatedAt: NOW,
+			})
+			.returning();
+		return project.id;
+	}
+
+	async function seedScanRun(
+		options: {
+			projectId?: string;
+			updatedAt?: Date;
+		} = {},
+	) {
+		const [scanRun] = await connection.db
+			.insert(scanRuns)
+			.values({
+				projectId: options.projectId ?? projectId,
+				profile: "baseline",
+				status: "completed",
+				startedAt: NOW,
+				completedAt: new Date(NOW.getTime() + 5000),
+				createdByUserId: userId,
+				createdAt: NOW,
+				updatedAt: options.updatedAt ?? NOW,
+			})
+			.returning();
+		return scanRun.id;
+	}
+
+	async function seedFindingBackedScan(
+		options: {
+			updatedAt?: Date;
+			snippet?: string;
+			artifactMetadata?: Record<string, unknown>;
+		} = {},
+	) {
+		const scanRunId = await seedScanRun({ updatedAt: options.updatedAt });
+		const [toolRun] = await connection.db
+			.insert(toolRuns)
+			.values({
+				scanRunId,
+				toolName: "semgrep",
+				toolVersion: "1.100.0",
+				command: "semgrep scan",
+				status: "completed",
+				exitCode: 0,
+				startedAt: NOW,
+				completedAt: new Date(NOW.getTime() + 4000),
+				createdAt: NOW,
+				updatedAt: NOW,
+			})
+			.returning();
+		const [artifact] = await connection.db
+			.insert(scanArtifacts)
+			.values({
+				scanRunId,
+				toolRunId: toolRun.id,
+				kind: "raw_result",
+				format: "json",
+				path: "artifacts/semgrep.json",
+				sha256: "fake-sha",
+				sizeBytes: 200,
+				metadata: options.artifactMetadata ?? {},
+				createdAt: NOW,
+			})
+			.returning();
+		const [finding] = await connection.db
+			.insert(findings)
+			.values({
+				scanRunId,
+				projectId,
+				sourceTool: "semgrep",
+				ruleId: "typescript.express.xss",
+				title: "Reflected XSS",
+				description: "User-controlled value reaches a dangerous sink.",
+				severity: "high",
+				confidence: "static",
+				status: "open",
+				primaryLocation: { path: "src/app.ts", startLine: 12 },
+				fingerprint: `fp-${scanRunId}`,
+				metadata: {},
+				createdAt: NOW,
+				updatedAt: NOW,
+			})
+			.returning();
+		await connection.db.insert(findingEvidences).values({
+			findingId: finding.id,
+			kind: "source-location",
+			title: "Source location",
+			artifactId: artifact.id,
+			location: { path: "src/app.ts", startLine: 12 },
+			snippet: options.snippet ?? "res.send(req.query.name);",
+			metadata: {},
+			createdAt: NOW,
+		});
+		return { scanRunId, findingId: finding.id };
+	}
+
+	async function seedCompletedScanReview(scanRunId: string) {
+		await connection.db.insert(scanReviews).values({
+			scanRunId,
+			projectId,
+			provider: "openai",
+			model: "gpt-4o-mini",
+			status: "completed",
+			summary: "Review completed.",
+			riskOverview: "High risk XSS finding.",
+			priorityNotes: ["Fix the XSS first."],
+			coverageNotes: [],
+			falsePositiveHotspots: [],
+			recommendedNextActions: ["Patch and test."],
+			findingTriageHints: [],
+			confidenceNotes: [],
+			inputBundle: {},
+			output: buildScanReviewOutput(),
+			startedAt: NOW,
+			completedAt: new Date(NOW.getTime() + 1000),
+			createdAt: NOW,
+			updatedAt: NOW,
+		});
+	}
+
+	function rowCounts() {
+		return {
+			scanRuns: tableCount("scan_runs"),
+			findings: tableCount("findings"),
+			findingEvidences: tableCount("finding_evidence"),
+			scanArtifacts: tableCount("scan_artifacts"),
+			scanReviews: tableCount("scan_reviews"),
+			toolRuns: tableCount("tool_runs"),
+		};
+	}
+
+	function tableCount(tableName: string): number {
+		const row = connection.sqlite
+			.query(`select count(*) as count from ${tableName}`)
+			.get() as { count: number };
+		return row.count;
+	}
+});
+
+function buildScanReviewOutput() {
+	return {
+		summary: "Review completed.",
+		riskOverview: "High risk XSS finding.",
+		priorityNotes: ["Fix the XSS first."],
+		coverageNotes: [],
+		falsePositiveHotspots: [],
+		recommendedNextActions: ["Patch and test."],
+		findingTriageHints: [],
+		confidenceNotes: [],
+		improvementRequest: {
+			title: "Fix reflected XSS",
+			objective: "Escape user-controlled output before rendering.",
+			scope: ["Stored scan evidence only."],
+			priorityPlan: [],
+			implementationTasks: [],
+			acceptanceCriteria: ["Injected HTML is escaped."],
+			verificationCommands: ["bun test --filter xss"],
+			constraints: ["Do not add a new scanner."],
+			nonGoals: ["Do not redesign the app."],
+			handoffPrompt: "Fix the reflected XSS based on stored evidence.",
+		},
+	};
+}
+
+function applyMigrations(connection: DbConnection) {
+	const migrationsDir = path.resolve(process.cwd(), "drizzle");
+	const sqlFiles = readdirSync(migrationsDir)
+		.filter((file) => file.endsWith(".sql"))
+		.sort((a, b) => a.localeCompare(b));
+	for (const filename of sqlFiles) {
+		const sqlPath = path.resolve(migrationsDir, filename);
+		connection.sqlite.exec(readFileSync(sqlPath, "utf8"));
+	}
+}

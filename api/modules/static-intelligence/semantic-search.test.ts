@@ -331,6 +331,57 @@ describe("Static Intelligence semantic search", () => {
 		expect(JSON.stringify(result.results)).not.toContain("confirmed");
 	});
 
+	it("redacts unsafe semantic result metadata", async () => {
+		const repository = new StaticIntelligenceEmbeddingRepository(connection.db);
+		await repository.replaceEmbeddingRow({
+			source: {
+				projectId,
+				scanRunId,
+				sourceKind: "finding",
+				sourceId: "finding-secret",
+				sourceRef: "finding:finding-secret",
+				title: "Secret-bearing metadata",
+				content: "authorization token handling",
+				contentHash: "hash-secret-finding",
+				metadata: {
+					filePath: "src/secret.ts",
+					ruleId: "secret.rule",
+					scanner: "semgrep",
+					findingIds: ["finding-secret"],
+					evidenceRefs: ["evidence-secret"],
+					artifactRefs: ["artifact-secret"],
+					snippet: "SECRET_SNIPPET_SHOULD_NOT_LEAK",
+					rawContent: "SECRET_ARTIFACT_SHOULD_NOT_LEAK",
+					content: "SECRET_CONTENT_SHOULD_NOT_LEAK",
+					candidateOnly: true,
+				},
+			},
+			embedding: vectorWithAxis(0),
+			embeddingModel: "fake",
+		});
+
+		const result = await runStaticIntelligenceSemanticQuery({
+			db: connection.db,
+			scanRunId,
+			query: "authorization token",
+			embeddingProvider: new FixedEmbeddingProvider(vectorWithAxis(0)),
+		});
+
+		expect(result.results[0]?.metadata).toEqual({
+			candidateOnly: true,
+			findingIds: ["finding-secret"],
+			evidenceRefs: ["evidence-secret"],
+			artifactRefs: ["artifact-secret"],
+			filePath: "src/secret.ts",
+			ruleId: "secret.rule",
+			scanner: "semgrep",
+		});
+		const serialized = JSON.stringify(result);
+		expect(serialized).not.toContain("SECRET_SNIPPET_SHOULD_NOT_LEAK");
+		expect(serialized).not.toContain("SECRET_ARTIFACT_SHOULD_NOT_LEAK");
+		expect(serialized).not.toContain("SECRET_CONTENT_SHOULD_NOT_LEAK");
+	});
+
 	it("returns a degraded empty result without auto-indexing", async () => {
 		const emptyScanRunId = await seedScanRun();
 		const result = await runStaticIntelligenceSemanticQuery({

@@ -52,6 +52,7 @@
 		"intelligence:agent-query": "bun run api/cli/intelligence-agent-query.ts",
 		"intelligence:knowledge-source": "bun run api/cli/intelligence-knowledge-source.ts",
 		"intelligence:guardrail-material": "bun run api/cli/intelligence-guardrail-material.ts",
+		"mcp:static-intelligence": "bun run api/cli/static-intelligence-mcp-server.ts",
 		"inventory:attack-surface": "bun run api/cli/inventory-attack-surface.ts",
 		"check:security": "bun run api/cli/check-security.ts",
 		"report:diagnostic": "bun run api/cli/report-diagnostic.ts",
@@ -71,6 +72,7 @@
 	"dependencies": {
 		"@azure/storage-blob": "^12.31.0",
 		"@hono/zod-validator": "0.8.0",
+		"@modelcontextprotocol/sdk": "^1.29.0",
 		"@openai/codex-sdk": "^0.142.2",
 		"@tanstack/react-query": "5.101.0",
 		"@tanstack/react-router": "1.170.15",

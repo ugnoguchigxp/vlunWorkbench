@@ -108,6 +108,7 @@ export function buildFileRiskIndex(
 				findingIds,
 				evidenceRefs,
 				artifactRefs,
+				verificationRefs: [],
 				latestScanRunId: bundle.scanRun.id,
 				latestSeenAt: latestDate(
 					group.findings.map((finding) => finding.updatedAt),

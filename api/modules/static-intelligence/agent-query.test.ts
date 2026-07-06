@@ -13,7 +13,9 @@ import {
 	toolRuns,
 	users,
 } from "../../db/schema";
+import type { EmbeddingProvider } from "../../providers/types";
 import { runStaticIntelligenceAgentQuery } from "./agent-query";
+import { StaticIntelligenceEmbeddingRepository } from "./embedding-repository";
 
 const NOW = new Date("2026-07-05T12:00:00.000Z");
 const GENERATED_AT = new Date("2026-07-05T12:30:00.000Z");
@@ -249,14 +251,17 @@ describe("Static Intelligence agent query service", () => {
 		expect(result.results).toEqual([
 			expect.objectContaining({
 				kind: "verification_command",
-				sourceRefs: [
-					`handoff:${scanRunId}`,
-					`finding:${xssFindingId}`,
-					"file:src/app.ts",
-				],
-				metadata: { command: "bun test", ordinal: 1 },
+				findingIds: [],
+				evidenceRefs: [],
+				artifactRefs: [],
+				fileRefs: [],
+				sourceRefs: [`handoff:${scanRunId}`],
+				metadata: { command: "bun test", ordinal: 1, scope: "scan" },
 			}),
 		]);
+		expect(result.degradedReasons).toContain(
+			"verification commands are scan-level and were not attributed to the requested finding",
+		);
 	});
 
 	it("wraps the Phase 29 export payload", async () => {
@@ -295,6 +300,274 @@ describe("Static Intelligence agent query service", () => {
 		expect(result.degradedReasons).toContain(
 			"query-only risk context has no semantic enrichment available",
 		);
+	});
+
+	it("includes semantic communities in query-only risk context", async () => {
+		const { scanRunId, xssFindingId } = await seedFindingBackedScan();
+		const authFindingId = await seedFinding({
+			scanRunId,
+			path: "src/auth.ts",
+			ruleId: "typescript.auth.validation",
+			severity: "medium",
+			fingerprint: "fp-auth-validation",
+			title: "Missing auth validation",
+			sourceTool: "eslint-security",
+		});
+		await seedSemanticRows(scanRunId, [
+			{
+				sourceId: "semantic-xss",
+				title: "Auth-adjacent XSS",
+				findingIds: [xssFindingId],
+				filePath: "src/app.ts",
+			},
+			{
+				sourceId: "semantic-auth",
+				title: "Auth validation risk",
+				findingIds: [authFindingId],
+				filePath: "src/auth.ts",
+			},
+		]);
+
+		const result = await runStaticIntelligenceAgentQuery({
+			db: connection.db,
+			input: {
+				scanRunId,
+				queryKind: "risk_context",
+				query: "auth validation risk",
+				includeSemantic: true,
+				includeCommunities: true,
+				includeLandscape: false,
+			},
+			semanticProvider: new FixedEmbeddingProvider(vectorWithAxis(0)),
+			generatedAt: GENERATED_AT,
+		});
+
+		const semanticCommunity = result.bundles.communities?.find((community) =>
+			community.basis.includes("semantic"),
+		);
+		expect(result.bundles.semantic?.results).toHaveLength(2);
+		expect(semanticCommunity).toMatchObject({
+			candidateOnly: true,
+			confidence: "low",
+			findingIds: [xssFindingId, authFindingId].sort((a, b) =>
+				a.localeCompare(b),
+			),
+		});
+		expect(result.results).toContainEqual(
+			expect.objectContaining({
+				kind: "community",
+				id: semanticCommunity?.id,
+				metadata: expect.objectContaining({
+					basis: expect.arrayContaining(["semantic"]),
+					confidence: "low",
+				}),
+			}),
+		);
+	});
+
+	it("uses semantic communities for query-only related findings", async () => {
+		const { scanRunId, xssFindingId } = await seedFindingBackedScan();
+		const sessionFindingId = await seedFinding({
+			scanRunId,
+			path: "src/session.ts",
+			ruleId: "typescript.session.validation",
+			severity: "medium",
+			fingerprint: "fp-session-validation",
+			title: "Weak session validation",
+		});
+		await seedSemanticRows(scanRunId, [
+			{
+				sourceId: "semantic-xss",
+				title: "Session-adjacent XSS",
+				findingIds: [xssFindingId],
+				filePath: "src/app.ts",
+			},
+			{
+				sourceId: "semantic-session",
+				title: "Session validation risk",
+				findingIds: [sessionFindingId],
+				filePath: "src/session.ts",
+			},
+		]);
+
+		const result = await runStaticIntelligenceAgentQuery({
+			db: connection.db,
+			input: {
+				scanRunId,
+				queryKind: "related_findings",
+				query: "session validation risk",
+				includeSemantic: true,
+				includeCommunities: true,
+				includeLandscape: false,
+			},
+			semanticProvider: new FixedEmbeddingProvider(vectorWithAxis(0)),
+			generatedAt: GENERATED_AT,
+		});
+
+		const findingItems = result.results.filter((item) => item.kind === "finding");
+		expect(findingItems.map((item) => item.findingIds[0]).sort()).toEqual(
+			[xssFindingId, sessionFindingId].sort(),
+		);
+		expect(
+			new Set(findingItems.map((item) => item.findingIds[0])).size,
+		).toBe(findingItems.length);
+		expect(result.results).toContainEqual(
+			expect.objectContaining({
+				kind: "community",
+				metadata: expect.objectContaining({
+					basis: expect.arrayContaining(["semantic"]),
+				}),
+			}),
+		);
+	});
+
+	it("includes semantic communities when risk context also has exact filters", async () => {
+		const { scanRunId, xssFindingId } = await seedFindingBackedScan();
+		const sessionFindingId = await seedFinding({
+			scanRunId,
+			path: "src/session.ts",
+			ruleId: "typescript.session.validation",
+			severity: "medium",
+			fingerprint: "fp-session-validation-exact-query",
+			title: "Weak session validation",
+			sourceTool: "eslint-security",
+		});
+		const tokenFindingId = await seedFinding({
+			scanRunId,
+			path: "src/token.ts",
+			ruleId: "typescript.token.validation",
+			severity: "medium",
+			fingerprint: "fp-token-validation",
+			title: "Weak token validation",
+			sourceTool: "custom-static",
+		});
+		await seedSemanticRows(scanRunId, [
+			{
+				sourceId: "semantic-session",
+				title: "Session validation risk",
+				findingIds: [sessionFindingId],
+				filePath: "src/session.ts",
+			},
+			{
+				sourceId: "semantic-token",
+				title: "Token validation risk",
+				findingIds: [tokenFindingId],
+				filePath: "src/token.ts",
+			},
+		]);
+
+		const result = await runStaticIntelligenceAgentQuery({
+			db: connection.db,
+			input: {
+				scanRunId,
+				queryKind: "risk_context",
+				query: "session token validation",
+				findingId: xssFindingId,
+				includeSemantic: true,
+				includeCommunities: true,
+				includeLandscape: false,
+			},
+			semanticProvider: new FixedEmbeddingProvider(vectorWithAxis(0)),
+			generatedAt: GENERATED_AT,
+		});
+
+		expect(result.results).toContainEqual(
+			expect.objectContaining({
+				kind: "finding",
+				findingIds: [xssFindingId],
+			}),
+		);
+		expect(result.results).toContainEqual(
+			expect.objectContaining({
+				kind: "community",
+				findingIds: [sessionFindingId, tokenFindingId].sort(),
+				metadata: expect.objectContaining({
+					basis: expect.arrayContaining(["semantic"]),
+				}),
+			}),
+		);
+	});
+
+	it("preserves exact communities when semantic enrichment is unavailable", async () => {
+		const { scanRunId } = await seedFindingBackedScan();
+		await seedFinding({
+			scanRunId,
+			path: "src/app.ts",
+			ruleId: "typescript.sql.injection",
+			severity: "medium",
+			fingerprint: "fp-sqli",
+			title: "SQL injection",
+		});
+
+		const result = await runStaticIntelligenceAgentQuery({
+			db: connection.db,
+			input: {
+				scanRunId,
+				queryKind: "risk_context",
+				query: "database injection",
+				includeSemantic: true,
+				includeCommunities: true,
+				includeLandscape: false,
+			},
+			generatedAt: GENERATED_AT,
+		});
+
+		expect(result.bundles.communities).toContainEqual(
+			expect.objectContaining({
+				basis: expect.arrayContaining(["same_file"]),
+				findingIds: expect.arrayContaining(result.refs.findingIds),
+			}),
+		);
+		expect(result.degradedReasons).toContain(
+			"static intelligence embedding index is empty",
+		);
+	});
+
+	it("does not alter landscape risk band from semantic communities", async () => {
+		const { scanRunId, xssFindingId } = await seedFindingBackedScan();
+		const lowFindingId = await seedFinding({
+			scanRunId,
+			path: "src/logging.ts",
+			ruleId: "typescript.logging.info",
+			severity: "low",
+			fingerprint: "fp-logging-info",
+			title: "Verbose logging",
+		});
+		await seedSemanticRows(scanRunId, [
+			{
+				sourceId: "semantic-xss",
+				title: "High risk context",
+				findingIds: [xssFindingId],
+				filePath: "src/app.ts",
+			},
+			{
+				sourceId: "semantic-logging",
+				title: "Low risk context",
+				findingIds: [lowFindingId],
+				filePath: "src/logging.ts",
+			},
+		]);
+
+		const result = await runStaticIntelligenceAgentQuery({
+			db: connection.db,
+			input: {
+				scanRunId,
+				queryKind: "risk_context",
+				query: "shared validation risk",
+				includeSemantic: true,
+				includeCommunities: true,
+				includeLandscape: true,
+			},
+			semanticProvider: new FixedEmbeddingProvider(vectorWithAxis(0)),
+			generatedAt: GENERATED_AT,
+		});
+
+		expect(result.bundles.landscape?.risk.band).toBe("high");
+		expect(
+			result.bundles.communities
+				?.filter((community) => community.basis.includes("semantic"))
+				.every((community) => community.candidateOnly),
+		).toBe(true);
 	});
 
 	it("rejects invalid input combinations", async () => {
@@ -411,13 +684,14 @@ describe("Static Intelligence agent query service", () => {
 		severity: string;
 		fingerprint: string;
 		title: string;
+		sourceTool?: string;
 	}) {
 		const [finding] = await connection.db
 			.insert(findings)
 			.values({
 				scanRunId: params.scanRunId,
 				projectId,
-				sourceTool: "semgrep",
+				sourceTool: params.sourceTool ?? "semgrep",
 				ruleId: params.ruleId,
 				title: params.title,
 				description: "User-controlled value reaches a dangerous sink.",
@@ -457,7 +731,54 @@ describe("Static Intelligence agent query service", () => {
 			updatedAt: NOW,
 		});
 	}
+
+	async function seedSemanticRows(
+		scanRunId: string,
+		rows: {
+			sourceId: string;
+			title: string;
+			findingIds: string[];
+			filePath: string;
+		}[],
+	) {
+		const repository = new StaticIntelligenceEmbeddingRepository(connection.db);
+		for (const row of rows) {
+			await repository.replaceEmbeddingRow({
+				source: {
+					projectId,
+					scanRunId,
+					sourceKind: "finding",
+					sourceId: row.sourceId,
+					sourceRef: `finding:${row.sourceId}`,
+					title: row.title,
+					content: `${row.title} auth validation session`,
+					contentHash: `hash-${row.sourceId}`,
+					metadata: {
+						filePath: row.filePath,
+						findingIds: row.findingIds,
+						candidateOnly: true,
+					},
+				},
+				embedding: vectorWithAxis(0),
+				embeddingModel: "fake",
+			});
+		}
+	}
 });
+
+class FixedEmbeddingProvider implements EmbeddingProvider {
+	constructor(private readonly embedding: number[]) {}
+
+	async createEmbedding(): Promise<number[]> {
+		return this.embedding;
+	}
+}
+
+function vectorWithAxis(axis: number): number[] {
+	const vector = new Array(1536).fill(0);
+	vector[axis] = 1;
+	return vector;
+}
 
 function buildScanReviewOutput() {
 	return {

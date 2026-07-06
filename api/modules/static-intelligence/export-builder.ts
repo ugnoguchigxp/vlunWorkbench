@@ -44,9 +44,9 @@ export function buildStaticIntelligenceExportFromBundle(
 	options: StaticIntelligenceExportOptions = {},
 ): StaticIntelligenceExportV1 {
 	const degradedReasons: string[] = [];
-	const fileRiskIndex = buildFileRiskIndex(bundle);
-	const graph = buildDiagnosticEvidenceGraph(bundle);
 	const handoff = extractHandoff(bundle, degradedReasons);
+	const fileRiskIndex = buildFileRiskIndex(bundle);
+	const graph = buildDiagnosticEvidenceGraph(bundle, { handoff });
 
 	const exportPayload: StaticIntelligenceExportV1 = {
 		version: "v1",

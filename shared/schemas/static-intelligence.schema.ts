@@ -45,6 +45,7 @@ export const fileRiskIndexEntrySchema = z.object({
 	findingIds: z.array(z.string()),
 	evidenceRefs: z.array(z.string()),
 	artifactRefs: z.array(z.string()),
+	verificationRefs: z.array(z.string()),
 	latestScanRunId: z.string(),
 	latestSeenAt: z.string().optional(),
 });
@@ -59,6 +60,7 @@ export const diagnosticEvidenceNodeKindSchema = z.enum([
 	"artifact",
 	"file",
 	"review",
+	"verification",
 ]);
 export type DiagnosticEvidenceNodeKind = z.infer<
 	typeof diagnosticEvidenceNodeKindSchema
@@ -71,6 +73,7 @@ export const diagnosticEvidenceEdgeKindSchema = z.enum([
 	"located_in",
 	"stored_as",
 	"reviewed_by",
+	"verified_by",
 	"related_to",
 ]);
 export type DiagnosticEvidenceEdgeKind = z.infer<
