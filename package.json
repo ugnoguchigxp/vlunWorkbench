@@ -50,6 +50,8 @@
 		"intelligence:communities": "bun run api/cli/intelligence-communities.ts",
 		"intelligence:landscape": "bun run api/cli/intelligence-landscape.ts",
 		"intelligence:agent-query": "bun run api/cli/intelligence-agent-query.ts",
+		"intelligence:knowledge-source": "bun run api/cli/intelligence-knowledge-source.ts",
+		"intelligence:guardrail-material": "bun run api/cli/intelligence-guardrail-material.ts",
 		"inventory:attack-surface": "bun run api/cli/inventory-attack-surface.ts",
 		"check:security": "bun run api/cli/check-security.ts",
 		"report:diagnostic": "bun run api/cli/report-diagnostic.ts",
