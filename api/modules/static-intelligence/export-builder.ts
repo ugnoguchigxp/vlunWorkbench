@@ -6,8 +6,10 @@ import type {
 	StaticIntelligenceSeverity,
 } from "../../../shared/schemas/static-intelligence.schema";
 import { staticIntelligenceExportV1Schema } from "../../../shared/schemas/static-intelligence.schema";
+import type { CodeStructureSnapshot } from "../../../shared/schemas/static-intelligence-code-structure.schema";
 import { scanReviewOutputSchema } from "../../../shared/schemas/scan.schema";
 import type { AppDatabase } from "../../db";
+import { buildCodeStructureExportEnrichment } from "./code-structure/export-enrichment";
 import { buildDiagnosticEvidenceGraph } from "./evidence-graph";
 import {
 	buildFileRiskIndex,
@@ -26,6 +28,7 @@ export class StaticIntelligenceScanRunNotFoundError extends Error {
 
 export type StaticIntelligenceExportOptions = {
 	generatedAt?: Date;
+	codeStructureSnapshot?: CodeStructureSnapshot;
 };
 
 export async function buildStaticIntelligenceExport(
@@ -54,7 +57,6 @@ export function buildStaticIntelligenceExportFromBundle(
 		project: {
 			id: bundle.project.id,
 			name: bundle.project.name,
-			rootPath: bundle.project.repoPath,
 		},
 		scan: {
 			id: bundle.scanRun.id,
@@ -78,6 +80,13 @@ export function buildStaticIntelligenceExportFromBundle(
 		fileRiskIndex,
 		graph,
 		...(handoff ? { handoff } : {}),
+		...(options.codeStructureSnapshot
+			? {
+					codeStructure: buildCodeStructureExportEnrichment(
+						options.codeStructureSnapshot,
+					),
+				}
+			: {}),
 	};
 
 	return staticIntelligenceExportV1Schema.parse(exportPayload);
@@ -110,13 +119,32 @@ function extractHandoff(
 
 	const request = parsed.data.improvementRequest;
 	return {
-		title: request.title,
-		objective: request.objective,
-		acceptanceCriteria: request.acceptanceCriteria,
-		verificationCommands: request.verificationCommands,
-		constraints: request.constraints,
-		nonGoals: request.nonGoals,
+		title: sanitizeHandoffText(request.title, bundle.project.repoPath),
+		objective: sanitizeHandoffText(request.objective, bundle.project.repoPath),
+		acceptanceCriteria: request.acceptanceCriteria.map((item) =>
+			sanitizeHandoffText(item, bundle.project.repoPath),
+		),
+		verificationCommands: request.verificationCommands.map((item) =>
+			sanitizeHandoffText(item, bundle.project.repoPath),
+		),
+		constraints: request.constraints.map((item) =>
+			sanitizeHandoffText(item, bundle.project.repoPath),
+		),
+		nonGoals: request.nonGoals.map((item) =>
+			sanitizeHandoffText(item, bundle.project.repoPath),
+		),
 	};
+}
+
+function sanitizeHandoffText(text: string, projectRoot: string): string {
+	return redactHomePaths(text.split(projectRoot).join("<project-root>"));
+}
+
+function redactHomePaths(text: string): string {
+	return text
+		.replaceAll(/\/Users\/[^\s"'`)]+/g, "<redacted-path>")
+		.replaceAll(/\/home\/[^\s"'`)]+/g, "<redacted-path>")
+		.replaceAll(/[A-Za-z]:\\Users\\[^\s"'`)]+/g, "<redacted-path>");
 }
 
 function scanReviewStatus(

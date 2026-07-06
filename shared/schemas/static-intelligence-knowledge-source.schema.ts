@@ -6,6 +6,7 @@ import {
 
 export const staticIntelligenceKnowledgeSourceBundleKindSchema = z.enum([
 	"static_intelligence_export",
+	"code_structure_snapshot",
 	"agent_query",
 	"evidence_bundle",
 	"verification_commands",
@@ -71,6 +72,7 @@ export const staticIntelligenceKnowledgeSourceManifestSchema = z
 					requires: z
 						.object({
 							findingId: z.boolean().optional(),
+							projectPath: z.boolean().optional(),
 							query: z.boolean().optional(),
 						})
 						.strict()

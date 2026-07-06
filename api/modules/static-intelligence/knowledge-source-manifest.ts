@@ -169,6 +169,20 @@ function buildAvailableBundles(scanRunId: string) {
 			description: "Fetch the full Static Intelligence export payload.",
 		},
 		{
+			kind: "code_structure_snapshot" as const,
+			command: [
+				"bun",
+				"run",
+				"intelligence:code-structure",
+				"--",
+				"--project-path",
+				"<project-path>",
+			],
+			description:
+				"Extract a redacted lightweight code structure snapshot for the project.",
+			requires: { projectPath: true },
+		},
+		{
 			kind: "agent_query" as const,
 			command: [
 				"bun",

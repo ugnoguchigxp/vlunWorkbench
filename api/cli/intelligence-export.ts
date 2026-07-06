@@ -2,11 +2,12 @@ import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import { parseArgs } from "node:util";
 import { readAppEnv } from "../app/env";
-import { createDbConnection } from "../db";
+import { createDbConnection, type DbConnection } from "../db";
 import {
 	buildStaticIntelligenceExport,
 	StaticIntelligenceScanRunNotFoundError,
 } from "../modules/static-intelligence/export-builder";
+import { codeStructureSnapshotSchema } from "../../shared/schemas/static-intelligence-code-structure.schema";
 
 function writeResult(payload: Record<string, unknown>, pretty = false): void {
 	console.log(JSON.stringify(payload, null, pretty ? 2 : undefined));
@@ -26,6 +27,7 @@ async function main(): Promise<number> {
 				"scan-run-id": { type: "string" },
 				output: { type: "string" },
 				pretty: { type: "string" },
+				"code-structure-snapshot": { type: "string" },
 			},
 			strict: true,
 		});
@@ -42,6 +44,7 @@ async function main(): Promise<number> {
 
 	const scanRunId = argsValues["scan-run-id"];
 	const outputPath = argsValues.output;
+	const codeStructureSnapshotPath = argsValues["code-structure-snapshot"];
 	const pretty = parsePretty(argsValues.pretty);
 	if (!scanRunId) {
 		writeResult({
@@ -65,13 +68,17 @@ async function main(): Promise<number> {
 		return 2;
 	}
 
-	const env = readAppEnv();
-	const dbConnection = createDbConnection(env.databaseUrl);
-
+	let dbConnection: DbConnection | undefined;
 	try {
+		const codeStructureSnapshot = codeStructureSnapshotPath
+			? await readCodeStructureSnapshot(codeStructureSnapshotPath)
+			: undefined;
+		const env = readAppEnv();
+		dbConnection = createDbConnection(env.databaseUrl);
 		const exportPayload = await buildStaticIntelligenceExport(
 			dbConnection.db,
 			scanRunId,
+			{ codeStructureSnapshot },
 		);
 		const outputMetadata = outputPath
 			? await writeOutputFile(outputPath, exportPayload, pretty)
@@ -90,7 +97,10 @@ async function main(): Promise<number> {
 		return 0;
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
-		if (error instanceof StaticIntelligenceScanRunNotFoundError) {
+		if (
+			error instanceof StaticIntelligenceScanRunNotFoundError ||
+			message.startsWith("Invalid code structure snapshot:")
+		) {
 			writeResult({
 				ok: false,
 				status: "failed",
@@ -107,8 +117,35 @@ async function main(): Promise<number> {
 		});
 		return 1;
 	} finally {
-		dbConnection.sqlite.close();
+		dbConnection?.sqlite.close();
 	}
+}
+
+async function readCodeStructureSnapshot(snapshotPath: string) {
+	const content = await fs.readFile(snapshotPath, "utf8").catch((error) => {
+		const code =
+			error && typeof error === "object" && "code" in error
+				? String(error.code)
+				: "unknown";
+		throw new Error(
+			`Invalid code structure snapshot: failed to read snapshot file (${code}).`,
+		);
+	});
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(content);
+	} catch (error) {
+		throw new Error(
+			`Invalid code structure snapshot: failed to parse JSON: ${message(error)}`,
+		);
+	}
+	const result = codeStructureSnapshotSchema.safeParse(parsed);
+	if (!result.success) {
+		throw new Error(
+			`Invalid code structure snapshot: ${result.error.issues[0]?.message ?? "schema validation failed"}`,
+		);
+	}
+	return result.data;
 }
 
 async function writeOutputFile(
@@ -122,6 +159,10 @@ async function writeOutputFile(
 		path: outputPath,
 		sha256: createHash("sha256").update(content).digest("hex"),
 	};
+}
+
+function message(error: unknown): string {
+	return error instanceof Error ? error.message : String(error);
 }
 
 process.exitCode = await main();

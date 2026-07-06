@@ -12,11 +12,13 @@ import {
 	toolRuns,
 	users,
 } from "../../db/schema";
+import type { CodeStructureSnapshot } from "../../../shared/schemas/static-intelligence-code-structure.schema";
 import { staticIntelligenceExportV1Schema } from "../../../shared/schemas/static-intelligence.schema";
 import { buildStaticIntelligenceExport } from "./export-builder";
 
 const NOW = new Date("2026-07-05T12:00:00.000Z");
 const GENERATED_AT = new Date("2026-07-05T12:30:00.000Z");
+const RAW_REVIEW_MARKER = "SECRET_REVIEW_BODY_SHOULD_NOT_LEAK";
 
 describe("Static Intelligence export builder", () => {
 	let connection: DbConnection;
@@ -71,10 +73,35 @@ describe("Static Intelligence export builder", () => {
 		expect(() => staticIntelligenceExportV1Schema.parse(exportPayload)).not.toThrow();
 		expect(exportPayload.fileRiskIndex).toEqual([]);
 		expect(exportPayload.scanSummary.riskBand).toBe("none");
+		expect(exportPayload.codeStructure).toBeUndefined();
 		expect(exportPayload.graph.nodes.map((node) => node.kind)).toEqual([
 			"project",
 			"scan_run",
 		]);
+	});
+
+	it("includes code structure enrichment only when a snapshot option is provided", async () => {
+		const scanRunId = await seedScanRun();
+
+		const exportPayload = await buildStaticIntelligenceExport(
+			connection.db,
+			scanRunId,
+			{
+				generatedAt: GENERATED_AT,
+				codeStructureSnapshot: codeStructureSnapshotFixture(),
+			},
+		);
+
+		expect(() => staticIntelligenceExportV1Schema.parse(exportPayload)).not.toThrow();
+		expect(exportPayload.codeStructure).toMatchObject({
+			status: "available",
+			fileTagsByPath: {
+				"src/app.ts": ["route", "handler", "source"],
+			},
+		});
+		const serialized = JSON.stringify(exportPayload.codeStructure);
+		expect(serialized).not.toContain("SECRET_CODE_STRUCTURE_SOURCE");
+		expect(serialized).not.toContain("App");
 	});
 
 	it("indexes finding risk and links finding evidence to artifacts", async () => {
@@ -169,6 +196,30 @@ describe("Static Intelligence export builder", () => {
 		expect(serialized).not.toContain("SECRET_TOKEN_SHOULD_NOT_LEAK");
 		expect(serialized).not.toContain("SECRET_ARTIFACT_CONTENT_SHOULD_NOT_LEAK");
 		expect(serialized).toContain("artifacts/semgrep.json");
+	});
+
+	it("redacts project roots and ignores raw review-only fields", async () => {
+		const scanRunId = await seedFindingBackedScan();
+		await seedCompletedScanReview(scanRunId, {
+			rawReviewMarker: RAW_REVIEW_MARKER,
+			acceptanceCriteria: [
+				"Injected HTML is escaped.",
+				"/workspace/target/src/app.ts is covered by a targeted test.",
+			],
+		});
+
+		const exportPayload = await buildStaticIntelligenceExport(
+			connection.db,
+			scanRunId,
+			{ generatedAt: GENERATED_AT },
+		);
+		const serialized = JSON.stringify(exportPayload);
+
+		expect(serialized).not.toContain("/workspace/target");
+		expect(serialized).not.toContain(RAW_REVIEW_MARKER);
+		expect(exportPayload.handoff?.acceptanceCriteria).toContain(
+			"<project-root>/src/app.ts is covered by a targeted test.",
+		);
 	});
 
 	it("produces deterministic sorted output", async () => {
@@ -305,14 +356,22 @@ describe("Static Intelligence export builder", () => {
 		return finding.id;
 	}
 
-	async function seedCompletedScanReview(scanRunId: string) {
+	async function seedCompletedScanReview(
+		scanRunId: string,
+		options: {
+			rawReviewMarker?: string;
+			acceptanceCriteria?: string[];
+		} = {},
+	) {
 		await connection.db.insert(scanReviews).values({
 			scanRunId,
 			projectId,
 			provider: "openai",
 			model: "gpt-4o-mini",
 			status: "completed",
-			summary: "Review completed.",
+			summary: options.rawReviewMarker
+				? `Review completed. ${options.rawReviewMarker}`
+				: "Review completed.",
 			riskOverview: "High risk XSS finding.",
 			priorityNotes: ["Fix the XSS first."],
 			coverageNotes: [],
@@ -320,8 +379,10 @@ describe("Static Intelligence export builder", () => {
 			recommendedNextActions: ["Patch and test."],
 			findingTriageHints: [],
 			confidenceNotes: [],
-			inputBundle: {},
-			output: buildScanReviewOutput(),
+			inputBundle: options.rawReviewMarker
+				? { rawReviewMarker: options.rawReviewMarker }
+				: {},
+			output: buildScanReviewOutput(options),
 			startedAt: NOW,
 			completedAt: new Date(NOW.getTime() + 1000),
 			createdAt: NOW,
@@ -356,7 +417,12 @@ describe("Static Intelligence export builder", () => {
 	}
 });
 
-function buildScanReviewOutput() {
+function buildScanReviewOutput(
+	options: {
+		rawReviewMarker?: string;
+		acceptanceCriteria?: string[];
+	} = {},
+) {
 	return {
 		summary: "Review completed.",
 		riskOverview: "High risk XSS finding.",
@@ -369,14 +435,66 @@ function buildScanReviewOutput() {
 		improvementRequest: {
 			title: "Fix reflected XSS",
 			objective: "Escape user-controlled output before rendering.",
-			scope: ["Stored scan evidence only."],
+			scope: [
+				"Stored scan evidence only.",
+				...(options.rawReviewMarker ? [options.rawReviewMarker] : []),
+			],
 			priorityPlan: [],
 			implementationTasks: [],
-			acceptanceCriteria: ["Injected HTML is escaped."],
+			acceptanceCriteria: options.acceptanceCriteria ?? [
+				"Injected HTML is escaped.",
+			],
 			verificationCommands: ["bun test"],
 			constraints: ["Do not add a new scanner."],
 			nonGoals: ["Do not redesign the app."],
-			handoffPrompt: "Fix the reflected XSS based on stored evidence.",
+			handoffPrompt:
+				options.rawReviewMarker ??
+				"Fix the reflected XSS based on stored evidence.",
+		},
+	};
+}
+
+function codeStructureSnapshotFixture(): CodeStructureSnapshot {
+	return {
+		version: "v1",
+		generatedAt: "2026-07-06T12:00:00.000Z",
+		project: {
+			rootRef:
+				"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+			rootPathIncluded: false,
+		},
+		status: "completed",
+		degradedReasons: [],
+		files: [
+			{
+				path: "src/app.ts",
+				language: "typescript",
+				moduleKind: "esm",
+				tags: ["route", "handler", "source"],
+				exportedSymbols: ["App"],
+				imports: ["./secret", "hono"],
+				packageImports: ["hono"],
+				contentHash:
+					"abcdef0000000000000000000000000000000000000000000000000000000000",
+				parseStatus: "parsed",
+				degradedReasons: ["SECRET_CODE_STRUCTURE_SOURCE"],
+			},
+		],
+		edges: [],
+		packages: [{ name: "hono", importedBy: ["src/app.ts"] }],
+		summary: {
+			fileCount: 1,
+			parsedFileCount: 1,
+			skippedFileCount: 0,
+			importEdgeCount: 0,
+			packageDependencyCount: 1,
+			exportedSymbolCount: 1,
+			routeFileCount: 1,
+			handlerFileCount: 1,
+			schemaFileCount: 0,
+			workerFileCount: 0,
+			testFileCount: 0,
+			configFileCount: 0,
 		},
 	};
 }

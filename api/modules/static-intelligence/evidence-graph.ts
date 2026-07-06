@@ -32,7 +32,6 @@ export function buildDiagnosticEvidenceGraph(
 		kind: "project",
 		label: bundle.project.name,
 		sourceId: bundle.project.id,
-		metadata: { rootPath: bundle.project.repoPath },
 	});
 	addNode(nodes, {
 		id: scanRunNodeId(bundle.scanRun.id),
@@ -154,7 +153,7 @@ export function buildDiagnosticEvidenceGraph(
 		addNode(nodes, {
 			id: reviewNode,
 			kind: "review",
-			label: bundle.latestCompletedReview.summary ?? "Completed scan review",
+			label: "Completed scan review",
 			sourceId: bundle.latestCompletedReview.id,
 			metadata: {
 				provider: bundle.latestCompletedReview.provider,

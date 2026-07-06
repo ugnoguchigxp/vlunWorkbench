@@ -189,6 +189,7 @@ describe("Static Intelligence knowledge source manifest", () => {
 
 		expect(manifest.availableBundles.map((bundle) => bundle.kind)).toEqual([
 			"static_intelligence_export",
+			"code_structure_snapshot",
 			"agent_query",
 			"evidence_bundle",
 			"verification_commands",
@@ -202,11 +203,26 @@ describe("Static Intelligence knowledge source manifest", () => {
 			"--scan-run-id",
 			"scan-1",
 		]);
-		expect(manifest.availableBundles[2]).toMatchObject({
+		expect(manifest.availableBundles[1]).toMatchObject({
+			kind: "code_structure_snapshot",
+			command: [
+				"bun",
+				"run",
+				"intelligence:code-structure",
+				"--",
+				"--project-path",
+				"<project-path>",
+			],
+			requires: { projectPath: true },
+		});
+		expect(JSON.stringify(manifest.availableBundles[1])).not.toContain(
+			"/Users/example/private-repo",
+		);
+		expect(manifest.availableBundles[3]).toMatchObject({
 			kind: "evidence_bundle",
 			requires: { findingId: true },
 		});
-		expect(manifest.availableBundles[4].command).toEqual([
+		expect(manifest.availableBundles[5].command).toEqual([
 			"bun",
 			"run",
 			"intelligence:guardrail-material",

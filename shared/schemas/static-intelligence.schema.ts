@@ -1,4 +1,8 @@
 import { z } from "zod";
+import {
+	codeStructureFileTagSchema,
+	codeStructureSummarySchema,
+} from "./static-intelligence-code-structure.schema";
 
 export const staticIntelligenceSeveritySchema = z.enum([
 	"info",
@@ -125,6 +129,21 @@ export type StaticIntelligenceHandoff = z.infer<
 	typeof staticIntelligenceHandoffSchema
 >;
 
+export const staticIntelligenceCodeStructureEnrichmentSchema = z
+	.object({
+		status: z.enum(["available", "missing", "degraded"]),
+		snapshotRef: z.string().optional(),
+		summary: codeStructureSummarySchema.optional(),
+		fileTagsByPath: z
+			.record(z.string(), z.array(codeStructureFileTagSchema))
+			.optional(),
+		degradedReasons: z.array(z.string()),
+	})
+	.strict();
+export type StaticIntelligenceCodeStructureEnrichment = z.infer<
+	typeof staticIntelligenceCodeStructureEnrichmentSchema
+>;
+
 export const staticIntelligenceExportV1Schema = z.object({
 	version: z.literal("v1"),
 	generatedAt: z.string(),
@@ -152,6 +171,7 @@ export const staticIntelligenceExportV1Schema = z.object({
 	fileRiskIndex: z.array(fileRiskIndexEntrySchema),
 	graph: diagnosticEvidenceGraphSchema,
 	handoff: staticIntelligenceHandoffSchema.optional(),
+	codeStructure: staticIntelligenceCodeStructureEnrichmentSchema.optional(),
 });
 export type StaticIntelligenceExportV1 = z.infer<
 	typeof staticIntelligenceExportV1Schema

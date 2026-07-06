@@ -84,6 +84,13 @@ describe("Static Intelligence knowledge source CLI", () => {
 		});
 		expect(stdoutPayload.manifest.source.scanRunId).toBe(scanRunId);
 		expect(stdoutPayload.manifest.source.contentHash).toMatch(/^[a-f0-9]{64}$/);
+		expect(
+			stdoutPayload.manifest.availableBundles.some(
+				(bundle: { kind: string; command: string[] }) =>
+					bundle.kind === "code_structure_snapshot" &&
+					bundle.command.includes("<project-path>"),
+			),
+		).toBe(true);
 	});
 
 	it("pretty true still writes one JSON object", () => {

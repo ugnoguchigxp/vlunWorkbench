@@ -313,7 +313,10 @@ Failure handling:
 The fixture must run these commands against the temp DB:
 
 ```bash
+bun run intelligence:code-structure -- --project-path <repoPath>
+bun run intelligence:code-structure -- --project-path <repoPath>
 bun run intelligence:export -- --scan-run-id <scanRunId>
+bun run intelligence:export -- --scan-run-id <scanRunId> --code-structure-snapshot <snapshotPath>
 bun run intelligence:agent-query -- --scan-run-id <scanRunId> --kind project_overview
 bun run intelligence:agent-query -- --scan-run-id <scanRunId> --kind evidence_bundle --finding-id <findingId>
 bun run intelligence:agent-query -- --scan-run-id <scanRunId> --kind verification_commands --finding-id <findingId>
@@ -323,7 +326,7 @@ bun run intelligence:guardrail-material -- --scan-run-id <scanRunId> --include-m
 bun run intelligence:guardrail-material -- --scan-run-id <scanRunId> --include-markdown true
 ```
 
-The repeated manifest/material calls are required for hash/id stability checks.
+The repeated code structure, manifest, and material calls are required for snapshot/hash/id stability checks. The fixture may write the parsed first code structure snapshot to `<snapshotPath>` before running the export enrichment command.
 
 Also run failure checks:
 
@@ -391,6 +394,8 @@ Required checks:
 - guardrail material ids are stable across two runs.
 - guardrail material `metadata.materialHash` values are stable across two runs.
 - export hash from manifest matches the fixture-recorded export hash.
+- code structure snapshots are stable across repeated runs except `generatedAt`.
+- export can consume a generated code structure snapshot through `--code-structure-snapshot`.
 
 Failure handling:
 
@@ -402,12 +407,21 @@ Failure handling:
 Serialize and inspect outputs from:
 
 - export.
+- code structure snapshot.
+- export with code structure enrichment.
 - project overview.
 - evidence bundle.
 - verification commands.
 - manifest.
 - guardrail material.
 - MCP list-tools / smoke output.
+
+Additional Phase 38 checks:
+
+- code structure snapshot stdout is one JSON object.
+- code structure snapshot omits raw file content, secret markers, `.env` content, and root path by default.
+- code structure snapshot includes files, import/package edges, exported symbols, tags, and summary.
+- manifest advertises `code_structure_snapshot` with `<project-path>` placeholder, not the actual fixture repo path.
 - final fixture result.
 
 Required absence:
