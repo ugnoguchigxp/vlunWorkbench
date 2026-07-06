@@ -8,6 +8,7 @@ import "./styles-content.css";
 import "./styles-admin.css";
 import "./styles-knowledge.css";
 import "./styles-scans.css";
+import "./styles-projects.css";
 import "./showcase.css";
 
 const root = document.getElementById("root");

@@ -128,6 +128,7 @@ vuln_get_knowledge_source_manifest
 vuln_get_guardrail_material
 vuln_get_evidence_bundle
 vuln_get_verification_commands
+vuln_get_code_structure_snapshot
 ```
 
 Do not add mutation tools in this phase.
@@ -907,10 +908,12 @@ Concrete completion evidence:
   - `vuln_get_guardrail_material`
   - `vuln_get_evidence_bundle`
   - `vuln_get_verification_commands`
+  - `vuln_get_code_structure_snapshot`
 - `bun run mcp:static-intelligence -- --smoke` exits 0.
 - MCP handler output for manifest matches Phase 34 service output.
 - MCP handler output for guardrail material matches Phase 35 service output.
 - MCP handler output for evidence bundle and verification commands matches agent-query service output.
+- MCP handler output for code structure snapshot uses the stored scan project path, returns redacted snapshot JSON, and does not accept arbitrary filesystem paths.
 - all handler calls preserve DB row counts.
 - serialized outputs do not include raw snippet, raw artifact body, secret marker, or project root path.
 - no contextStill mutation occurs.

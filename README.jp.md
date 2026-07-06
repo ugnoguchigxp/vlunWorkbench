@@ -25,6 +25,8 @@ local project
   -> Markdown report / next implementation task
 ```
 
+vulnWorkbench は、隣接する coding-agent system 向けの Static Intelligence source でもあります。scanner-backed diagnostic evidence、軽量な code structure facts、file risk、semantic candidates、risk communities、guardrail material、read-only MCP tools を公開します。ただし、これは source layer です。NightWorkers は ontology、task compilation、queue admission、implementation、verification orchestration を担当し、contextStill は generalized knowledge、reusable procedure、retrieval を担当します。
+
 ## できること
 
 - ローカルリポジトリを project として登録します。
@@ -35,6 +37,9 @@ local project
 - scan-level の `improvementRequest` / handoff prompt を生成し、実装作業へ渡せる形にします。
 - executive risk summary、workflow completion、evidence quality、scan comparison、report readiness、zero-finding coverage、action queue などの decision-grade signal を表示します。
 - deterministic section と任意の LLM summary を含む Markdown report を出力します。
+- 保存済み診断証跡から Static Intelligence export、agent-query bundle、semantic search index、risk community、security landscape summary、guardrail material を生成します。
+- TypeScript / JavaScript project から redacted lightweight code structure snapshot を抽出します。対象は file、import、export、package edge、route / handler / schema / worker / test / config tag です。
+- discovery、manifest、evidence bundle、verification command candidate、guardrail material、code structure snapshot の read-only Static Intelligence MCP surface を提供します。
 
 ## プロダクト境界
 
@@ -46,6 +51,8 @@ vulnWorkbench は、証跡生成と LLM による解釈を明確に分離しま�
 | Normalizers | tool output を安定した finding / evidence record に変換する。 |
 | Reproduction / dynamic / DAST | bounded な runtime confirmation signal を追加する。 |
 | LLM review | 保存済み context を要約し、implementation handoff instruction を作る。 |
+| Static Intelligence | scanner-backed evidence、code structure facts、semantic candidate、community、landscape、guardrail material を read model として公開する。 |
+| Read-only MCP | DB table access、scanner execution、verification execution、contextStill mutation なしで、外部 agent が Static Intelligence bundle を発見・取得できるようにする。 |
 | Reports | risk、evidence quality、handoff status、verification、coverage を Markdown にまとめる。 |
 | Human Decision | 任意の互換・監査 record。必須の triage gate ではない。 |
 
@@ -56,6 +63,8 @@ vulnWorkbench は、証跡生成と LLM による解釈を明確に分離しま�
 - 外部承認 workflow。
 - finding 0 件を安全証明として扱うこと。
 - scan-level LLM handoff が存在するのに、human `Decision` 未入力を通常 blocker として扱うこと。
+- scanner、artifact、reproduction、verification の裏付けなしに、code structure facts、semantic similarity、LLM review text を confirmed vulnerability evidence として扱うこと。
+- MCP を contextStill registration、NightWorkers task creation、scanner execution、verification command execution の write path として使うこと。
 
 ## 主な UI ワークフロー
 
@@ -275,6 +284,75 @@ Report include control:
 --include-undecided true|false
 ```
 
+### Static Intelligence
+
+Static Intelligence command は、coding agent と sibling system 向けの CLI-first source contract です。
+
+scanner-backed evidence と file risk を export します。
+
+```bash
+bun run intelligence:export -- --scan-run-id <scan-run-id>
+```
+
+redacted code structure snapshot を抽出します。
+
+```bash
+bun run intelligence:code-structure -- \
+  --project-path <project-path> \
+  --project-id <project-id> \
+  --output code-structure.json
+```
+
+snapshot を export に付与します。export は、snapshot が scan project に属していることを検証してから含めます。
+
+```bash
+bun run intelligence:export -- \
+  --scan-run-id <scan-run-id> \
+  --code-structure-snapshot code-structure.json
+```
+
+agent-facing query bundle を取得します。
+
+```bash
+bun run intelligence:agent-query -- \
+  --scan-run-id <scan-run-id> \
+  --kind project_overview
+
+bun run intelligence:agent-query -- \
+  --scan-run-id <scan-run-id> \
+  --kind evidence_bundle \
+  --finding-id <finding-id>
+
+bun run intelligence:agent-query -- \
+  --scan-run-id <scan-run-id> \
+  --kind verification_commands
+```
+
+candidate knowledge source と guardrail material を発見・取得します。
+
+```bash
+bun run intelligence:knowledge-source -- --scan-run-id <scan-run-id>
+bun run intelligence:guardrail-material -- --scan-run-id <scan-run-id>
+```
+
+read-only MCP wrapper を確認します。
+
+```bash
+bun run mcp:static-intelligence -- --list-tools
+bun run mcp:static-intelligence -- --smoke
+```
+
+MCP tool は read-only です。
+
+- `vuln_list_knowledge_sources`
+- `vuln_get_knowledge_source_manifest`
+- `vuln_get_guardrail_material`
+- `vuln_get_evidence_bundle`
+- `vuln_get_verification_commands`
+- `vuln_get_code_structure_snapshot`
+
+これらは candidate-only JSON を返します。contextStill knowledge 登録、NightWorkers task 作成、scanner 実行、verification command 実行、raw artifact body / evidence snippet の公開は行いません。
+
 ## API Surface
 
 | Method | Path | 目的 |
@@ -326,6 +404,7 @@ Protected endpoint には auth cookie が必要です。frontend は 401 を受�
 | `api/modules/reproductions/` | sandboxed reproduction profile と execution。 |
 | `api/modules/dynamic/` | dynamic verification profile と execution。 |
 | `api/modules/llm-settings/` | provider endpoint と task route persistence。 |
+| `api/modules/static-intelligence/` | Static Intelligence export、semantic search、agent query、risk community、security landscape、guardrail material、MCP tool、code structure extraction。 |
 | `api/providers/` | Azure / OpenAI-compatible / Codex provider adapter と router。 |
 | `shared/schemas/` | 共有 Zod schema。 |
 | `shared/report-sections.ts` | UI と builder で共有する report section contract。 |
@@ -334,7 +413,7 @@ Protected endpoint には auth cookie が必要です。frontend は 401 を受�
 | `spec/` | product concept と実装計画。 |
 | `scripts/verify.ts` | repository verification pipeline。 |
 
-legacy の knowledge / search / chat file も残っていますが、現在の product center は scan evidence、LLM handoff、report readiness です。
+legacy の knowledge / search / chat file も残っていますが、現在の product center は scan evidence、LLM handoff、report readiness です。Static Intelligence はその上に agent-facing source layer を追加するものであり、scanner evidence を置き換えたり、vulnWorkbench を implementation executor にしたりするものではありません。
 
 ## Decision-Grade Models
 
@@ -363,6 +442,8 @@ frontend では、可能な限り pure derivation logic を React state から�
 - DAST は local target または明示的に設定した target に限定します。
 - dynamic / reproduction / fuzzing-style check は profile、timeout、artifact policy によって bounded にします。
 - LLM review は保存済み scan / finding / evidence context を使います。bundle に含まれない raw repository file、web page、log、runtime state を見たかのように書いてはいけません。
+- Static Intelligence export と MCP output は candidate-only read model です。raw artifact body、evidence snippet、private root path、secret value を agent-facing payload に含めてはいけません。
+- Code structure snapshot は file path、import/export facts、content hash、package name、tag を含みます。source code body や任意の string literal は含めず、snapshot enrichment は scan project と一致する場合だけ受け入れます。
 
 ## Development
 
@@ -378,6 +459,14 @@ bun run verify
 ```
 
 `bun run verify` が closeout gate です。typecheck、lint、format check、test、build を実行します。
+
+Static Intelligence source contract については、fixture gate も使います。
+
+```bash
+bun run fixture:static-intelligence-source
+```
+
+期待結果は、stdout に `ok: true` の JSON object が1件だけ出ること、MCP tool name が揃っていること、redaction check が通ること、hash / material id が安定していること、final output に temp path や unsafe marker string が含まれないことです。失敗した場合は、MCP / knowledge-source surface に依存する前に failed check 名を確認します。
 
 ### Test Runner Split
 
@@ -433,5 +522,11 @@ git diff --cached --name-only -- artifacts
 - `spec/phase-23-decision-grade-signal-accuracy-plan.md`
 - `spec/phase-24-maintainability-and-operational-readiness-plan.md`
 - `spec/phase-25-unified-scan-profile-dast-plan.md`
+- `spec/static-intelligence-layer-concept.md`
+- `spec/contextstill-static-intelligence-bridge-concept.md`
+- `spec/phase-32-static-intelligence-agent-query-plan.md`
+- `spec/phase-36-static-intelligence-readonly-mcp-wrapper-plan.md`
+- `spec/phase-37-static-intelligence-knowledge-source-e2e-fixture-plan.md`
+- `spec/phase-38-static-intelligence-code-structure-layer-mvp-plan.md`
 
-古い phase document も履歴として有用ですが、現在の product direction は保存済み診断証跡から LLM implementation handoff を作ることです。
+古い phase document も履歴として有用ですが、現在の product direction は保存済み診断証跡から LLM implementation handoff と Static Intelligence source bundle を作ることです。

@@ -444,6 +444,9 @@ CLI enrichment:
 ```
 
 - The option reads a snapshot JSON file, validates it, and passes it to export builder.
+- Export builder verifies that the snapshot belongs to the scan project before enrichment:
+  - `snapshot.project.id`, when present, must match the scan project id.
+  - `snapshot.project.rootRef` must match the scan project's canonical repo path.
 - Invalid snapshot:
   - exit code 2 for malformed user input.
   - failure JSON.
@@ -461,11 +464,13 @@ Knowledge source manifest update:
   "intelligence:code-structure",
   "--",
   "--project-path",
-  "<project-path>"
+  "<project-path>",
+  "--project-id",
+  "<project-id>"
 ]
 ```
 
-Because manifest must not leak root path, use placeholder `<project-path>` rather than the actual project root.
+Because manifest must not leak root path, use placeholder `<project-path>` rather than the actual project root. The project id is stable provenance and helps downstream consumers produce snapshots that can pass export-time verification.
 
 Phase 34 manifest `contentHash` will change because available bundle contract changes. This is acceptable in Phase 38 and must be reflected in tests.
 
@@ -816,6 +821,7 @@ Implementation:
 - Export builder includes code structure enrichment only if option provided.
 - Add `--code-structure-snapshot <path>` to `intelligence:export`.
 - CLI reads and validates snapshot file.
+- Export rejects snapshots from a different project or root.
 - Invalid file/path/schema returns exit code 2 with JSON failure.
 - Do not make export CLI run extractor.
 - Do not make export fail when no snapshot is provided.
@@ -824,6 +830,7 @@ Tests:
 
 - export without snapshot is unchanged except schema optional support.
 - export with valid snapshot includes `codeStructure`.
+- mismatched snapshot returns JSON failure and does not enrich the export.
 - invalid snapshot file returns exit code 2.
 - output does not include root path or raw file content.
 
@@ -866,7 +873,9 @@ Implementation:
     "intelligence:code-structure",
     "--",
     "--project-path",
-    "<project-path>"
+    "<project-path>",
+    "--project-id",
+    "<project-id>"
   ],
   description: "Extract a redacted lightweight code structure snapshot for the project.",
   requires: { projectPath: true }
@@ -1033,5 +1042,7 @@ Concrete completion evidence:
 - output excludes raw file contents, secret markers, `.env` contents, and root path by default.
 - snapshot includes files, import/package edges, exported symbols, tags, and summary.
 - `intelligence:export -- --code-structure-snapshot <snapshot>` includes optional `codeStructure` summary/tags.
-- `intelligence:knowledge-source` advertises `code_structure_snapshot` with placeholder project path.
+- mismatched code structure snapshots are rejected before export enrichment.
+- `intelligence:knowledge-source` advertises `code_structure_snapshot` with placeholder project path and project id.
+- `vuln_get_code_structure_snapshot` exposes a read-only MCP fetch path that uses the scan project's stored repo path and does not accept arbitrary filesystem paths.
 - targeted tests and `bun run verify` pass.

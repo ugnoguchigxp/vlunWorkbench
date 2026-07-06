@@ -58,6 +58,28 @@ const scansRoute = createRoute({
 	component: renderAppView("scans"),
 });
 
+const projectsRoute = createRoute({
+	getParentRoute: () => rootRoute,
+	path: "/projects",
+	component: renderAppView("projects"),
+});
+
+const projectDetailRoute = createRoute({
+	getParentRoute: () => rootRoute,
+	path: "/projects/$projectId",
+	component: renderAppView("projects"),
+});
+
+const projectIntelligenceRoute = createRoute({
+	getParentRoute: () => rootRoute,
+	path: "/projects/$projectId/intelligence",
+	validateSearch: (search: Record<string, unknown>) => ({
+		scanRunId:
+			typeof search.scanRunId === "string" ? search.scanRunId : undefined,
+	}),
+	component: renderAppView("projects"),
+});
+
 const adminRoute = createRoute({
 	getParentRoute: () => rootRoute,
 	path: "/admin",
@@ -129,6 +151,9 @@ const routeTree = rootRoute.addChildren([
 	chatRoute,
 	knowledgeRoute,
 	searchRoute,
+	projectsRoute,
+	projectDetailRoute,
+	projectIntelligenceRoute,
 	scansRoute,
 	settingsRoute,
 	adminRoute,

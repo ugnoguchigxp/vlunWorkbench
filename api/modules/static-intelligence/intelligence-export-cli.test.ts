@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { readdirSync, readFileSync } from "node:fs";
 import fs from "node:fs/promises";
@@ -13,6 +14,7 @@ describe("Static Intelligence export CLI", () => {
 	let tempDir: string;
 	let dbUrl: string;
 	let connection: DbConnection;
+	let projectId: string;
 	let scanRunId: string;
 
 	beforeEach(async () => {
@@ -46,6 +48,7 @@ describe("Static Intelligence export CLI", () => {
 				updatedAt: NOW,
 			})
 			.returning();
+		projectId = project.id;
 		const [scanRun] = await connection.db
 			.insert(scanRuns)
 			.values({
@@ -96,7 +99,13 @@ describe("Static Intelligence export CLI", () => {
 
 	it("includes optional code structure enrichment from snapshot file", async () => {
 		const snapshotPath = path.join(tempDir, "code-structure.json");
-		await fs.writeFile(snapshotPath, JSON.stringify(codeStructureSnapshotFixture()), "utf8");
+		await fs.writeFile(
+			snapshotPath,
+			JSON.stringify(
+				await codeStructureSnapshotFixture({ projectId, projectPath: tempDir }),
+			),
+			"utf8",
+		);
 
 		const result = runCli([
 			"--scan-run-id",
@@ -122,9 +131,15 @@ describe("Static Intelligence export CLI", () => {
 		await fs.writeFile(
 			snapshotPath,
 			JSON.stringify({
-				...codeStructureSnapshotFixture(),
+				...(await codeStructureSnapshotFixture({
+					projectId,
+					projectPath: tempDir,
+				})),
 				project: {
-					...codeStructureSnapshotFixture().project,
+					...(await codeStructureSnapshotFixture({
+						projectId,
+						projectPath: tempDir,
+					})).project,
 					rootPathIncluded: false,
 					rootPath: tempDir,
 				},
@@ -204,13 +219,18 @@ function applyMigrations(connection: DbConnection) {
 	}
 }
 
-function codeStructureSnapshotFixture() {
+async function codeStructureSnapshotFixture(options: {
+	projectId?: string;
+	projectPath: string;
+}) {
 	return {
 		version: "v1",
 		generatedAt: "2026-07-06T12:00:00.000Z",
 		project: {
-			rootRef:
-				"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+			...(options.projectId ? { id: options.projectId } : {}),
+			rootRef: createHash("sha256")
+				.update(await fs.realpath(options.projectPath))
+				.digest("hex"),
 			rootPathIncluded: false,
 		},
 		status: "completed",

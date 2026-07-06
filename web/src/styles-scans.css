@@ -219,6 +219,39 @@
 	flex-direction: column;
 }
 
+.scans-history-actions {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	flex-wrap: wrap;
+}
+
+.scan-history-link {
+	border: 1px solid var(--color-border);
+	border-radius: 8px;
+	background: var(--color-surface);
+	color: var(--color-muted-strong);
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	min-height: 34px;
+	padding: 7px 10px;
+	font-size: 12px;
+	font-weight: 700;
+	line-height: 1.2;
+	text-decoration: none;
+}
+
+.scan-history-link:hover {
+	border-color: var(--color-brand);
+	color: var(--color-brand);
+}
+
+.scan-history-link .icon {
+	width: 15px;
+	height: 15px;
+}
+
 .diagnostic-action-button {
 	border: 1px solid var(--color-border-strong);
 	border-radius: 8px;

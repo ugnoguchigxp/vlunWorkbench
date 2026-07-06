@@ -1,4 +1,7 @@
+import { createHash } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
+import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createDbConnection, type DbConnection } from "../../db";
@@ -22,10 +25,12 @@ const RAW_REVIEW_MARKER = "SECRET_REVIEW_BODY_SHOULD_NOT_LEAK";
 
 describe("Static Intelligence export builder", () => {
 	let connection: DbConnection;
+	let tempDir: string;
 	let userId: string;
 	let projectId: string;
 
 	beforeEach(async () => {
+		tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "static-intel-export-"));
 		connection = createDbConnection(":memory:");
 		applyMigrations(connection);
 
@@ -48,7 +53,7 @@ describe("Static Intelligence export builder", () => {
 			.values({
 				ownerUserId: userId,
 				name: "Target Project",
-				repoPath: "/workspace/target",
+				repoPath: tempDir,
 				defaultBranch: "main",
 				createdAt: NOW,
 				updatedAt: NOW,
@@ -57,8 +62,9 @@ describe("Static Intelligence export builder", () => {
 		projectId = project.id;
 	});
 
-	afterEach(() => {
+	afterEach(async () => {
 		connection.sqlite.close();
+		await fs.rm(tempDir, { recursive: true, force: true });
 	});
 
 	it("builds a valid zero-finding export", async () => {
@@ -88,7 +94,10 @@ describe("Static Intelligence export builder", () => {
 			scanRunId,
 			{
 				generatedAt: GENERATED_AT,
-				codeStructureSnapshot: codeStructureSnapshotFixture(),
+				codeStructureSnapshot: codeStructureSnapshotFixture({
+					projectId,
+					rootRef: await rootRefForPath(tempDir),
+				}),
 			},
 		);
 
@@ -102,6 +111,31 @@ describe("Static Intelligence export builder", () => {
 		const serialized = JSON.stringify(exportPayload.codeStructure);
 		expect(serialized).not.toContain("SECRET_CODE_STRUCTURE_SOURCE");
 		expect(serialized).not.toContain("App");
+	});
+
+	it("rejects code structure snapshots from a different project", async () => {
+		const scanRunId = await seedScanRun();
+
+		await expect(
+			buildStaticIntelligenceExport(connection.db, scanRunId, {
+				generatedAt: GENERATED_AT,
+				codeStructureSnapshot: codeStructureSnapshotFixture({
+					projectId,
+					rootRef:
+						"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+				}),
+			}),
+		).rejects.toThrow("rootRef does not match scan project");
+
+		await expect(
+			buildStaticIntelligenceExport(connection.db, scanRunId, {
+				generatedAt: GENERATED_AT,
+				codeStructureSnapshot: codeStructureSnapshotFixture({
+					projectId: "other-project",
+					rootRef: await rootRefForPath(tempDir),
+				}),
+			}),
+		).rejects.toThrow("project id does not match scan project");
 	});
 
 	it("indexes finding risk and links finding evidence to artifacts", async () => {
@@ -204,7 +238,7 @@ describe("Static Intelligence export builder", () => {
 			rawReviewMarker: RAW_REVIEW_MARKER,
 			acceptanceCriteria: [
 				"Injected HTML is escaped.",
-				"/workspace/target/src/app.ts is covered by a targeted test.",
+				`${tempDir}/src/app.ts is covered by a targeted test.`,
 			],
 		});
 
@@ -215,7 +249,7 @@ describe("Static Intelligence export builder", () => {
 		);
 		const serialized = JSON.stringify(exportPayload);
 
-		expect(serialized).not.toContain("/workspace/target");
+		expect(serialized).not.toContain(tempDir);
 		expect(serialized).not.toContain(RAW_REVIEW_MARKER);
 		expect(exportPayload.handoff?.acceptanceCriteria).toContain(
 			"<project-root>/src/app.ts is covered by a targeted test.",
@@ -454,13 +488,15 @@ function buildScanReviewOutput(
 	};
 }
 
-function codeStructureSnapshotFixture(): CodeStructureSnapshot {
+function codeStructureSnapshotFixture(
+	options: { projectId?: string; rootRef: string },
+): CodeStructureSnapshot {
 	return {
 		version: "v1",
 		generatedAt: "2026-07-06T12:00:00.000Z",
 		project: {
-			rootRef:
-				"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+			...(options.projectId ? { id: options.projectId } : {}),
+			rootRef: options.rootRef,
 			rootPathIncluded: false,
 		},
 		status: "completed",
@@ -497,6 +533,12 @@ function codeStructureSnapshotFixture(): CodeStructureSnapshot {
 			configFileCount: 0,
 		},
 	};
+}
+
+async function rootRefForPath(projectPath: string): Promise<string> {
+	return createHash("sha256")
+		.update(await fs.realpath(projectPath))
+		.digest("hex");
 }
 
 function applyMigrations(connection: DbConnection) {

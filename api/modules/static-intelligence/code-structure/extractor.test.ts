@@ -208,6 +208,28 @@ describe("Code Structure extractor", () => {
 		);
 	});
 
+	it("returns partial output when a directory cannot be traversed", async () => {
+		await writeProjectFile("src/app.ts", "export const app = true;\n");
+		const blockedDir = path.join(tempDir, "blocked");
+		await fs.mkdir(blockedDir);
+		await fs.chmod(blockedDir, 0);
+
+		try {
+			const snapshot = await buildCodeStructureSnapshot({
+				projectPath: tempDir,
+				generatedAt: GENERATED_AT,
+			});
+
+			expect(snapshot.status).toBe("partial");
+			expect(snapshot.files.map((file) => file.path)).toEqual(["src/app.ts"]);
+			expect(snapshot.degradedReasons.join("\n")).toContain(
+				"failed to read directory: blocked",
+			);
+		} finally {
+			await fs.chmod(blockedDir, 0o700).catch(() => undefined);
+		}
+	});
+
 	it("is deterministic when generatedAt is fixed and content hashes change with bytes", async () => {
 		await writeProjectFile("src/app.ts", "export const value = 1;\n");
 		const first = await buildCodeStructureSnapshot({

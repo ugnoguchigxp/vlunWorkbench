@@ -165,9 +165,15 @@ async function discoverFiles(
 
 	async function walk(directory: string): Promise<void> {
 		if (hitMaxFiles) return;
-		const entries = (await fs.readdir(directory, { withFileTypes: true })).sort(
-			(a, b) => a.name.localeCompare(b.name),
-		);
+		const entries = await fs
+			.readdir(directory, { withFileTypes: true })
+			.catch((error) => {
+				degradedReasons.push(
+					`failed to read directory: ${relativePosix(rootPath, directory)} (${errorCode(error)})`,
+				);
+				return [];
+			});
+		entries.sort((a, b) => a.name.localeCompare(b.name));
 		for (const entry of entries) {
 			if (hitMaxFiles) return;
 			const absolutePath = path.join(directory, entry.name);
@@ -717,6 +723,13 @@ function isPathInside(rootPath: string, childPath: string): boolean {
 
 function relativePosix(rootPath: string, absolutePath: string): string {
 	return path.relative(rootPath, absolutePath).split(path.sep).join("/");
+}
+
+function errorCode(error: unknown): string {
+	if (error && typeof error === "object" && "code" in error) {
+		return String(error.code);
+	}
+	return "unknown";
 }
 
 function uniqueSorted(values: string[]): string[] {

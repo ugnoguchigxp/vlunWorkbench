@@ -1,4 +1,6 @@
 import { readdirSync, readFileSync } from "node:fs";
+import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createDbConnection, type DbConnection } from "../../db";
@@ -17,6 +19,7 @@ import { buildStaticIntelligenceGuardrailMaterialForScan } from "./guardrail-mat
 import { buildStaticIntelligenceKnowledgeSourceManifestForScan } from "./knowledge-source-manifest";
 import {
 	getStaticIntelligenceEvidenceBundleTool,
+	getStaticIntelligenceCodeStructureSnapshotTool,
 	getStaticIntelligenceGuardrailMaterialTool,
 	getStaticIntelligenceKnowledgeSourceManifestTool,
 	getStaticIntelligenceVerificationCommandsTool,
@@ -33,10 +36,12 @@ const REPO_PATH_MARKER = "/tmp/vuln-workbench-private-repo";
 
 describe("Static Intelligence MCP tools", () => {
 	let connection: DbConnection;
+	let tempDir: string;
 	let userId: string;
 	let projectId: string;
 
 	beforeEach(async () => {
+		tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "static-intel-mcp-"));
 		connection = createDbConnection(":memory:");
 		applyMigrations(connection);
 
@@ -68,8 +73,9 @@ describe("Static Intelligence MCP tools", () => {
 		projectId = project.id;
 	});
 
-	afterEach(() => {
+	afterEach(async () => {
 		connection.sqlite.close();
+		await fs.rm(tempDir, { recursive: true, force: true });
 	});
 
 	it("registers the expected read-only tool surface", () => {
@@ -79,12 +85,38 @@ describe("Static Intelligence MCP tools", () => {
 			"vuln_get_guardrail_material",
 			"vuln_get_evidence_bundle",
 			"vuln_get_verification_commands",
+			"vuln_get_code_structure_snapshot",
 		]);
 		expect(
 			staticIntelligenceMcpToolRegistry.every((tool) =>
 				tool.description.toLowerCase().includes("read-only"),
 			),
 		).toBe(true);
+	});
+
+	it("fetches code structure snapshots through MCP without arbitrary path input", async () => {
+		const repoPath = path.join(tempDir, "code-project");
+		await fs.mkdir(path.join(repoPath, "src"), { recursive: true });
+		await fs.writeFile(
+			path.join(repoPath, "src", "app.ts"),
+			"export const app = true;\n",
+			"utf8",
+		);
+		const codeProjectId = await seedProject("Code Project", repoPath);
+		const scanRunId = await seedScanRun({ projectId: codeProjectId });
+
+		const result = await getStaticIntelligenceCodeStructureSnapshotTool({
+			db: connection.db,
+			input: { scanRunId },
+		});
+
+		expect(result).toMatchObject({ ok: true, status: "completed" });
+		if (!result.ok) throw new Error(result.message);
+		expect(result.snapshot.project.id).toBe(codeProjectId);
+		expect(result.snapshot.project.rootPath).toBeUndefined();
+		expect(result.snapshot.files.map((file) => file.path)).toEqual([
+			"src/app.ts",
+		]);
 	});
 
 	it("returns failure JSON for invalid input and missing scans", async () => {

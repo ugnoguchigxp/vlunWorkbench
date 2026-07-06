@@ -25,6 +25,8 @@ local project
   -> Markdown report / next implementation task
 ```
 
+vulnWorkbench also acts as a Static Intelligence source for adjacent coding-agent systems. It exposes scanner-backed diagnostic evidence, lightweight code structure facts, file risk, semantic candidates, risk communities, guardrail material, and read-only MCP tools. This is still a source layer: NightWorkers owns ontology, task compilation, queue admission, implementation, and verification orchestration; contextStill owns generalized knowledge, reusable procedures, and retrieval.
+
 ## What It Does
 
 - Registers local repositories as projects.
@@ -35,6 +37,9 @@ local project
 - Produces a scan-level `improvementRequest` / handoff prompt for implementation work.
 - Shows decision-grade signals: executive risk summary, workflow completion, evidence quality, scan comparison, report readiness, zero-finding coverage, and action queue.
 - Exports Markdown reports with deterministic sections and optional LLM summary.
+- Builds Static Intelligence exports, agent-query bundles, semantic search indexes, risk communities, security landscape summaries, and guardrail material from saved diagnostic evidence.
+- Extracts redacted lightweight code structure snapshots for TypeScript/JavaScript projects: files, imports, exports, package edges, and route/handler/schema/worker/test/config tags.
+- Serves a read-only Static Intelligence MCP surface for discovery, manifests, evidence bundles, verification command candidates, guardrail material, and code structure snapshots.
 
 ## Product Boundary
 
@@ -46,6 +51,8 @@ vulnWorkbench intentionally separates evidence generation from LLM interpretatio
 | Normalizers | Convert tool output into stable findings and evidence records. |
 | Reproduction / dynamic / DAST | Add bounded runtime confirmation signals. |
 | LLM review | Summarize saved context and create implementation handoff instructions. |
+| Static Intelligence | Expose scanner-backed evidence, code structure facts, semantic candidates, communities, landscape, and guardrail material as read models. |
+| Read-only MCP | Let external agents discover and fetch Static Intelligence bundles without DB table access, scanner execution, verification execution, or contextStill mutation. |
 | Reports | Package risk, evidence quality, handoff status, verification, and coverage into Markdown. |
 | Human Decision | Optional compatibility/audit record, not a required triage gate. |
 
@@ -56,6 +63,8 @@ Non-goals:
 - External approval workflows.
 - Treating zero findings as proof of safety.
 - Treating missing human `Decision` records as the normal blocker when a scan-level LLM handoff exists.
+- Treating code structure facts, semantic similarity, or LLM review text as confirmed vulnerability evidence without scanner, artifact, reproduction, or verification support.
+- Using MCP as a write path for contextStill registration, NightWorkers task creation, scanner execution, or verification command execution.
 
 ## Main UI Workflow
 
@@ -275,6 +284,75 @@ Report inclusion controls:
 --include-undecided true|false
 ```
 
+### Static Intelligence
+
+Static Intelligence commands are the CLI-first source contract for coding agents and sibling systems.
+
+Export scanner-backed evidence and file risk:
+
+```bash
+bun run intelligence:export -- --scan-run-id <scan-run-id>
+```
+
+Extract a redacted code structure snapshot:
+
+```bash
+bun run intelligence:code-structure -- \
+  --project-path <project-path> \
+  --project-id <project-id> \
+  --output code-structure.json
+```
+
+Attach that snapshot to an export. The export verifies the snapshot belongs to the scan project before including it.
+
+```bash
+bun run intelligence:export -- \
+  --scan-run-id <scan-run-id> \
+  --code-structure-snapshot code-structure.json
+```
+
+Use agent-facing query bundles:
+
+```bash
+bun run intelligence:agent-query -- \
+  --scan-run-id <scan-run-id> \
+  --kind project_overview
+
+bun run intelligence:agent-query -- \
+  --scan-run-id <scan-run-id> \
+  --kind evidence_bundle \
+  --finding-id <finding-id>
+
+bun run intelligence:agent-query -- \
+  --scan-run-id <scan-run-id> \
+  --kind verification_commands
+```
+
+Discover candidate knowledge sources and guardrail material:
+
+```bash
+bun run intelligence:knowledge-source -- --scan-run-id <scan-run-id>
+bun run intelligence:guardrail-material -- --scan-run-id <scan-run-id>
+```
+
+Run the read-only MCP wrapper:
+
+```bash
+bun run mcp:static-intelligence -- --list-tools
+bun run mcp:static-intelligence -- --smoke
+```
+
+The MCP tools are read-only:
+
+- `vuln_list_knowledge_sources`
+- `vuln_get_knowledge_source_manifest`
+- `vuln_get_guardrail_material`
+- `vuln_get_evidence_bundle`
+- `vuln_get_verification_commands`
+- `vuln_get_code_structure_snapshot`
+
+They return candidate-only JSON and do not register contextStill knowledge, create NightWorkers tasks, execute scanners, execute verification commands, or expose raw artifact bodies / evidence snippets.
+
 ## API Surface
 
 | Method | Path | Purpose |
@@ -326,6 +404,7 @@ Protected endpoints require auth cookies. The frontend retries once through `/ap
 | `api/modules/reproductions/` | Sandboxed reproduction profiles and execution. |
 | `api/modules/dynamic/` | Dynamic verification profiles and execution. |
 | `api/modules/llm-settings/` | Provider endpoint and task route persistence. |
+| `api/modules/static-intelligence/` | Static Intelligence export, semantic search, agent query, risk communities, security landscape, guardrail material, MCP tools, and code structure extraction. |
 | `api/providers/` | Azure/OpenAI-compatible/Codex provider adapters and router. |
 | `shared/schemas/` | Shared Zod schemas. |
 | `shared/report-sections.ts` | Report section contract shared by UI and builder. |
@@ -334,7 +413,7 @@ Protected endpoints require auth cookies. The frontend retries once through `/ap
 | `spec/` | Product concept and executable implementation plans. |
 | `scripts/verify.ts` | Repository verification pipeline. |
 
-Legacy knowledge/search/chat files still exist, but the active product center is scan evidence, LLM handoff, and report readiness.
+Legacy knowledge/search/chat files still exist, but the active product center is scan evidence, LLM handoff, and report readiness. Static Intelligence adds an agent-facing source layer on top of that center; it does not replace scanner evidence or turn vulnWorkbench into an implementation executor.
 
 ## Decision-Grade Models
 
@@ -363,6 +442,8 @@ This split is deliberate: components should render derived models, not parse raw
 - DAST is limited to local or explicitly configured targets.
 - Dynamic/reproduction/fuzzing-style checks are bounded by profiles, timeout, and artifact policy.
 - LLM review must use saved scan/finding/evidence context. It must not claim access to raw repository files, web pages, logs, or runtime state that are not in the bundle.
+- Static Intelligence exports and MCP outputs are candidate-only read models. They must keep raw artifact bodies, evidence snippets, private root paths, and secret values out of agent-facing payloads.
+- Code structure snapshots contain file paths, import/export facts, content hashes, package names, and tags. They do not include source code bodies or arbitrary string literals, and snapshot enrichment is accepted only when it matches the scan project.
 
 ## Development
 
@@ -378,6 +459,14 @@ bun run verify
 ```
 
 `bun run verify` is the closeout gate. It runs typecheck, lint, format check, tests, and build.
+
+For the Static Intelligence source contract, use the fixture gate as well:
+
+```bash
+bun run fixture:static-intelligence-source
+```
+
+Expected result: one JSON object on stdout with `ok: true`, MCP tool names present, redaction checks passing, stable hashes/material ids, and no temp paths or unsafe marker strings in final output. If it fails, inspect the named failed check before relying on the MCP or knowledge-source surface.
 
 ### Test Runner Split
 
@@ -433,5 +522,11 @@ The most relevant current plans are:
 - `spec/phase-23-decision-grade-signal-accuracy-plan.md`
 - `spec/phase-24-maintainability-and-operational-readiness-plan.md`
 - `spec/phase-25-unified-scan-profile-dast-plan.md`
+- `spec/static-intelligence-layer-concept.md`
+- `spec/contextstill-static-intelligence-bridge-concept.md`
+- `spec/phase-32-static-intelligence-agent-query-plan.md`
+- `spec/phase-36-static-intelligence-readonly-mcp-wrapper-plan.md`
+- `spec/phase-37-static-intelligence-knowledge-source-e2e-fixture-plan.md`
+- `spec/phase-38-static-intelligence-code-structure-layer-mvp-plan.md`
 
-Older phase documents remain useful history, but the current product direction is LLM implementation handoff from saved diagnostic evidence.
+Older phase documents remain useful history, but the current product direction is LLM implementation handoff plus Static Intelligence source bundles from saved diagnostic evidence.

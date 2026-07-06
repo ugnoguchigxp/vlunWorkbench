@@ -6,6 +6,14 @@ import type {
 } from "../../../shared/schemas/static-intelligence-agent-query.schema";
 import { staticIntelligenceAgentQueryResultSchema } from "../../../shared/schemas/static-intelligence-agent-query.schema";
 import type {
+	CodeStructureSnapshotFailure,
+	CodeStructureSnapshotResult,
+} from "../../../shared/schemas/static-intelligence-code-structure.schema";
+import {
+	codeStructureSnapshotFailureSchema,
+	codeStructureSnapshotResultSchema,
+} from "../../../shared/schemas/static-intelligence-code-structure.schema";
+import type {
 	StaticIntelligenceGuardrailMaterialFailure,
 	StaticIntelligenceGuardrailMaterialResult,
 } from "../../../shared/schemas/static-intelligence-guardrail-material.schema";
@@ -32,6 +40,7 @@ import {
 	type ListKnowledgeSourcesInput,
 	type StaticIntelligenceKnowledgeSourceListResult,
 	type StaticIntelligenceMcpToolFailure,
+	getCodeStructureSnapshotInputSchema,
 	getEvidenceBundleInputSchema,
 	getGuardrailMaterialInputSchema,
 	getKnowledgeSourceManifestInputSchema,
@@ -40,10 +49,13 @@ import {
 	staticIntelligenceKnowledgeSourceListResultSchema,
 	staticIntelligenceMcpToolFailureSchema,
 } from "./mcp-tool-schemas";
+import { buildCodeStructureSnapshot } from "./code-structure/extractor";
 
 export type StaticIntelligenceMcpToolResult =
 	| StaticIntelligenceKnowledgeSourceListResult
 	| StaticIntelligenceMcpToolFailure
+	| CodeStructureSnapshotResult
+	| CodeStructureSnapshotFailure
 	| StaticIntelligenceKnowledgeSourceManifestResult
 	| StaticIntelligenceKnowledgeSourceManifestFailure
 	| StaticIntelligenceGuardrailMaterialResult
@@ -219,6 +231,43 @@ export async function getStaticIntelligenceVerificationCommandsTool(params: {
 	});
 }
 
+export async function getStaticIntelligenceCodeStructureSnapshotTool(params: {
+	db: AppDatabase;
+	input: unknown;
+}): Promise<CodeStructureSnapshotResult | CodeStructureSnapshotFailure> {
+	const parsed = parseToolInput(
+		getCodeStructureSnapshotInputSchema,
+		params.input,
+	);
+	if (!parsed.ok) return parsed.failure;
+
+	const project = await projectForScan(params.db, parsed.input.scanRunId);
+	if (!project) {
+		return codeStructureFailure(
+			`Scan run not found: ${parsed.input.scanRunId}`,
+		);
+	}
+
+	try {
+		const snapshot = await buildCodeStructureSnapshot({
+			projectPath: project.repoPath,
+			projectId: project.id,
+			maxFiles: parsed.input.maxFiles,
+		});
+		return codeStructureSnapshotResultSchema.parse({
+			ok: true,
+			status: "completed",
+			version: "v1",
+			generatedAt: snapshot.generatedAt,
+			snapshot,
+		});
+	} catch {
+		return codeStructureFailure(
+			"Code structure snapshot unavailable for scan project.",
+		);
+	}
+}
+
 export const staticIntelligenceMcpToolRegistry: StaticIntelligenceMcpToolDefinition[] =
 	[
 		{
@@ -256,12 +305,35 @@ export const staticIntelligenceMcpToolRegistry: StaticIntelligenceMcpToolDefinit
 			inputSchema: getVerificationCommandsInputSchema,
 			handler: getStaticIntelligenceVerificationCommandsTool,
 		},
+		{
+			name: "vuln_get_code_structure_snapshot",
+			description:
+				"Read-only fetch for a redacted code structure snapshot for the scan project. Uses the stored scan project path and does not accept arbitrary filesystem paths.",
+			inputSchema: getCodeStructureSnapshotInputSchema,
+			handler: getStaticIntelligenceCodeStructureSnapshotTool,
+		},
 	];
 
 function projectFilter(input: ListKnowledgeSourcesInput) {
 	return input.projectId
 		? and(eq(scanRuns.projectId, input.projectId))
 		: undefined;
+}
+
+async function projectForScan(
+	db: AppDatabase,
+	scanRunId: string,
+): Promise<{ id: string; repoPath: string } | null> {
+	const [row] = await db
+		.select({
+			id: projects.id,
+			repoPath: projects.repoPath,
+		})
+		.from(scanRuns)
+		.innerJoin(projects, eq(scanRuns.projectId, projects.id))
+		.where(eq(scanRuns.id, scanRunId))
+		.limit(1);
+	return row ?? null;
 }
 
 async function runAgentQueryTool(
@@ -320,6 +392,14 @@ function message(error: unknown): string {
 		return error.message;
 	}
 	return error instanceof Error ? error.message : String(error);
+}
+
+function codeStructureFailure(message: string): CodeStructureSnapshotFailure {
+	return codeStructureSnapshotFailureSchema.parse({
+		ok: false,
+		status: "failed",
+		message,
+	});
 }
 
 function sortedUnique(values: string[]): string[] {

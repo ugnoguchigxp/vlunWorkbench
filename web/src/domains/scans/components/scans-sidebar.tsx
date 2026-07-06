@@ -2,12 +2,14 @@ import {
 	Eye,
 	FileText,
 	FolderOpen,
+	Network,
 	Play,
 	Plus,
 	ScrollText,
 	Sparkles,
 	X,
 } from "lucide-react";
+import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { Button, SelectInput, TextInput } from "../../../ui";
 import {
@@ -188,14 +190,27 @@ export function ScansSidebar() {
 					</small>
 				</div>
 				{c.selectedProjectId ? (
-					<Button
-						type="button"
-						variant="secondary"
-						onClick={() => c.handleSelectScanRun(c.scanRuns[0]?.id ?? "")}
-						disabled={!c.scanRuns[0]}
-					>
-						最新
-					</Button>
+					<div className="scans-history-actions">
+						{c.selectedScanRunId ? (
+							<Link
+								to="/projects/$projectId/intelligence"
+								params={{ projectId: c.selectedProjectId }}
+								search={{ scanRunId: c.selectedScanRunId } as never}
+								className="scan-history-link"
+							>
+								<Network className="icon" />
+								Intelligence
+							</Link>
+						) : null}
+						<Button
+							type="button"
+							variant="secondary"
+							onClick={() => c.handleSelectScanRun(c.scanRuns[0]?.id ?? "")}
+							disabled={!c.scanRuns[0]}
+						>
+							最新
+						</Button>
+					</div>
 				) : null}
 			</div>
 			<div className="scans-list runs-list">

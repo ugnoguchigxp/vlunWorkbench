@@ -69,7 +69,10 @@ export function buildStaticIntelligenceKnowledgeSourceManifest(
 				rawEvidenceSnippetIncluded: false,
 				rawSecretIncluded: false,
 			},
-			availableBundles: buildAvailableBundles(scanRunId),
+			availableBundles: buildAvailableBundles(
+				scanRunId,
+				exportPayload.project.id,
+			),
 		};
 
 	const contentHash = sha256Hex(
@@ -154,7 +157,7 @@ function uniqueSorted(values: string[]): string[] {
 	return [...new Set(values)].sort((a, b) => a.localeCompare(b));
 }
 
-function buildAvailableBundles(scanRunId: string) {
+function buildAvailableBundles(scanRunId: string, projectId: string) {
 	return [
 		{
 			kind: "static_intelligence_export" as const,
@@ -177,6 +180,8 @@ function buildAvailableBundles(scanRunId: string) {
 				"--",
 				"--project-path",
 				"<project-path>",
+				"--project-id",
+				projectId,
 			],
 			description:
 				"Extract a redacted lightweight code structure snapshot for the project.",

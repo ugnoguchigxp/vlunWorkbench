@@ -70,6 +70,7 @@ vulnWorkbench は「何が検出され、どの証跡に支えられ、どこに
 - acceptance criteria
 - verification commands
 - non-goals
+- optional code structure summary / file tags / snapshot refs
 
 補助 input:
 
@@ -92,6 +93,7 @@ NightWorkers や coding agent が実装計画を作るための context。
 含めるもの:
 
 - affected files / modules / endpoints
+- code structure tags and import/package context when available
 - risk community summary
 - evidence strength
 - scanner coverage / coverage gap
@@ -139,6 +141,7 @@ contextStill に登録できる再利用可能 candidate。
 
 ```text
 scan / review / static intelligence export completed
+  -> optionally extract and verify code structure snapshot
   -> select security context needed by agent
   -> build Agent Planning Context
   -> NightWorkers connects it to Project Ontology / Task Compiler
@@ -171,6 +174,17 @@ contextStill active knowledge
   -> rerun result
   -> candidate confidence / frequency update
 ```
+
+MCP access flow:
+
+```text
+vuln_list_knowledge_sources
+  -> vuln_get_knowledge_source_manifest
+  -> vuln_get_evidence_bundle / vuln_get_verification_commands / vuln_get_code_structure_snapshot
+  -> consumer builds planning context or candidate material
+```
+
+MCP は read-only discovery / fetch surface であり、contextStill への登録、NightWorkers task 作成、scanner 実行、verification command 実行は行わない。
 
 ## Distillation Rules
 
@@ -361,12 +375,26 @@ contextStill が返す knowledge は、次の場面で使う。
 vulnWorkbench 側:
 
 ```text
-vuln_export_static_intelligence
-vuln_project_overview
-vuln_find_risk_context
-vuln_find_related_findings
+intelligence:export
+intelligence:agent-query project_overview
+intelligence:agent-query risk_context
+intelligence:agent-query related_findings
+intelligence:agent-query evidence_bundle
+intelligence:agent-query verification_commands
+intelligence:code-structure
+intelligence:knowledge-source
+intelligence:guardrail-material
+```
+
+vulnWorkbench read-only MCP:
+
+```text
+vuln_list_knowledge_sources
+vuln_get_knowledge_source_manifest
+vuln_get_guardrail_material
 vuln_get_evidence_bundle
 vuln_get_verification_commands
+vuln_get_code_structure_snapshot
 ```
 
 contextStill 側:
@@ -396,6 +424,7 @@ primary automation path は CLI と stable JSON output に置く。MCP は optio
 - affected surface、risk summary、acceptance criteria、verification commands、non-goals が JSON と Markdown で取得できる。
 - raw artifact と secret は含まれない。
 - degraded output reason が残る。
+- code structure snapshot は scan project と照合済みである。
 
 ### Phase B: Guardrail Candidate Distillation
 
@@ -456,6 +485,8 @@ primary automation path は CLI と stable JSON output に置く。MCP は optio
 - contextStill に渡す情報は、project-specific fact ではなく汎用化可能な candidate に限定されている。
 - raw secret と private token は embedding / LLM review / candidate body に入らない。
 - LSP は optional enrichment であり、失敗しても scan result と export は残る。
+- code structure facts は source code body ではなく redacted read model として扱われる。
+- MCP tools は read-only であり、arbitrary filesystem path や write operation を受け付けない。
 - downstream mutation が確認されるまで、candidate registration や finding conversion を完了扱いしない。
 - verification commands、expected result、failure handling が計画本文に含まれている。
 
@@ -468,8 +499,10 @@ primary automation path は CLI と stable JSON output に置く。MCP は optio
 - NightWorkers が vulnWorkbench SQLite schema を直接読む adapter を作らない。
 - scanner output なしの LLM 仮説を confirmed finding にしない。
 - vector similarity だけで脆弱性の有無や severity を決めない。
+- code structure facts だけで finding の真偽を決めない。
 - raw artifact や secret を NightWorkers / contextStill に無制限に渡さない。
 - MCP を primary scanner execution path にしない。
+- MCP を contextStill registration や NightWorkers task creation の write path にしない。
 - 実装順序を飛ばして ontology や queue admission から作り始めない。
 
 ## Completion Definition

@@ -212,6 +212,8 @@ describe("Static Intelligence knowledge source manifest", () => {
 				"--",
 				"--project-path",
 				"<project-path>",
+				"--project-id",
+				"project-1",
 			],
 			requires: { projectPath: true },
 		});

@@ -66,6 +66,7 @@ import { createScanReportsRoute } from "../routes/scan-reports.route";
 import { createScansRoute } from "../routes/scans.route";
 import { createSearchRoute } from "../routes/search.route";
 import { createSettingsRoute } from "../routes/settings.route";
+import { createStaticIntelligenceRoute } from "../routes/static-intelligence.route";
 import { createSourcesRoute } from "../routes/sources.route";
 import { type AppEnv, readAppEnv } from "./env";
 import { shouldLogAppError } from "./error-logging";
@@ -793,6 +794,14 @@ app.route(
 	"/api/projects",
 	createProjectsRoute({
 		projectRepository,
+	}),
+);
+app.route(
+	"/api",
+	createStaticIntelligenceRoute({
+		db: runtime.dbConnection.db,
+		projectRepository,
+		scanRepository,
 	}),
 );
 app.route("/api/scan-profiles", createScanProfilesRoute());

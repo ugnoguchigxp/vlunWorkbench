@@ -30,6 +30,7 @@ const REQUIRED_MCP_TOOLS = [
 	"vuln_get_guardrail_material",
 	"vuln_get_evidence_bundle",
 	"vuln_get_verification_commands",
+	"vuln_get_code_structure_snapshot",
 ] as const;
 
 type FixtureCheck = {

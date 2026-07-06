@@ -3,6 +3,7 @@ import {
 	BookOpen,
 	Bot,
 	Database,
+	FolderKanban,
 	Grid2X2,
 	LogOut,
 	Search,
@@ -19,6 +20,7 @@ export type HeaderActiveItem =
 	| "settings"
 	| "admin"
 	| "showcase"
+	| "projects"
 	| "scans";
 
 type AppHeaderProps = {
@@ -56,6 +58,10 @@ export function AppHeader({
 					<Link to="/search" className={menuClass(active === "search")}>
 						<Search className="icon" />
 						Search
+					</Link>
+					<Link to="/projects" className={menuClass(active === "projects")}>
+						<FolderKanban className="icon" />
+						Projects
 					</Link>
 					<Link to="/scans" className={menuClass(active === "scans")}>
 						<Shield className="icon" />

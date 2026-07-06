@@ -49,6 +49,7 @@ Required Phase 36:
   - `vuln_get_guardrail_material`
   - `vuln_get_evidence_bundle`
   - `vuln_get_verification_commands`
+  - `vuln_get_code_structure_snapshot`
 
 If Phase 36 is not complete, do not mark Phase 37 complete. A CLI-only fixture mode may exist for debugging, but completion evidence must include MCP smoke/list-tools.
 
@@ -360,6 +361,7 @@ Expected:
   - `vuln_get_guardrail_material`
   - `vuln_get_evidence_bundle`
   - `vuln_get_verification_commands`
+  - `vuln_get_code_structure_snapshot`
 
 If Phase 36 adds a stable non-interactive handler smoke command for a real scan run, add it here:
 
@@ -421,7 +423,8 @@ Additional Phase 38 checks:
 - code structure snapshot stdout is one JSON object.
 - code structure snapshot omits raw file content, secret markers, `.env` content, and root path by default.
 - code structure snapshot includes files, import/package edges, exported symbols, tags, and summary.
-- manifest advertises `code_structure_snapshot` with `<project-path>` placeholder, not the actual fixture repo path.
+- manifest advertises `code_structure_snapshot` with `<project-path>` placeholder and project id, not the actual fixture repo path.
+- MCP list-tools includes `vuln_get_code_structure_snapshot`.
 - final fixture result.
 
 Required absence:

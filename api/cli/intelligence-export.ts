@@ -5,6 +5,7 @@ import { readAppEnv } from "../app/env";
 import { createDbConnection, type DbConnection } from "../db";
 import {
 	buildStaticIntelligenceExport,
+	StaticIntelligenceCodeStructureSnapshotMismatchError,
 	StaticIntelligenceScanRunNotFoundError,
 } from "../modules/static-intelligence/export-builder";
 import { codeStructureSnapshotSchema } from "../../shared/schemas/static-intelligence-code-structure.schema";
@@ -99,6 +100,7 @@ async function main(): Promise<number> {
 		const message = error instanceof Error ? error.message : String(error);
 		if (
 			error instanceof StaticIntelligenceScanRunNotFoundError ||
+			error instanceof StaticIntelligenceCodeStructureSnapshotMismatchError ||
 			message.startsWith("Invalid code structure snapshot:")
 		) {
 			writeResult({

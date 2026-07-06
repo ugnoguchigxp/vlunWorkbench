@@ -62,6 +62,8 @@ Code Structure Layer は、対象リポジトリの軽量な構造事実を作�
 - route / handler / schema / worker / test / config tags
 - dependency edges
 - change surface estimation
+- redacted deterministic snapshot
+- Static Intelligence Export への optional enrichment
 
 担当しないこと:
 
@@ -69,8 +71,21 @@ Code Structure Layer は、対象リポジトリの軽量な構造事実を作�
 - Project Ontology を管理すること
 - task graph を生成すること
 - patch を適用すること
+- source code body を export すること
+- raw string literal や secret を agent-facing payload に含めること
 
-最初は LSP を前提にしない。Tree-sitter、TypeScript Compiler API、ts-morph、dependency-cruiser のような CLI / library based extraction を優先する。
+現在の MVP は LSP を前提にせず、TypeScript Compiler API を syntax parser として使う。出力は `CodeStructureSnapshot` であり、`project.rootRef`、relative file path、import/export facts、package dependency、content hash、surface tags、degraded reasons を持つ。
+
+CLI 主経路:
+
+```bash
+bun run intelligence:code-structure -- \
+  --project-path <project-path> \
+  --project-id <project-id> \
+  --output code-structure.json
+```
+
+`project.rootPath` は既定で出力しない。`Static Intelligence Export` に snapshot を付与する場合、export builder は snapshot の `project.id` / `rootRef` が scan project と一致することを検証する。
 
 ### Diagnostic Evidence Layer
 
@@ -292,6 +307,7 @@ Export は、単なる scanner output ではなく、修正タスクを作るた
 - acceptance criteria
 - verification commands
 - non-goals
+- optional code structure summary / file tags
 
 NightWorkers はこの export を Project Ontology と Task Compiler に接続する。
 
@@ -313,15 +329,31 @@ vulnWorkbench は task の採用、削除、統合、順序付け、queue admiss
 候補:
 
 ```text
-vuln_project_overview
-vuln_find_risk_context
-vuln_find_related_findings
+intelligence:agent-query project_overview
+intelligence:agent-query risk_context
+intelligence:agent-query related_findings
+intelligence:agent-query evidence_bundle
+intelligence:agent-query verification_commands
+intelligence:export
+intelligence:code-structure
+intelligence:knowledge-source
+intelligence:guardrail-material
+```
+
+read-only MCP tools:
+
+```text
+vuln_list_knowledge_sources
+vuln_get_knowledge_source_manifest
+vuln_get_guardrail_material
 vuln_get_evidence_bundle
 vuln_get_verification_commands
-vuln_export_static_intelligence
+vuln_get_code_structure_snapshot
 ```
 
 Primary automation path は CLI と stable JSON output にする。MCP は optional discovery / interactive access / thin wrapper として扱う。
+
+MCP は scanner execution、verification command execution、NightWorkers task creation、contextStill registration を行わない。
 
 ## Non-Goals
 
@@ -337,6 +369,8 @@ Primary automation path は CLI と stable JSON output にする。MCP は optio
 - vector similarity だけで脆弱性の有無や severity を決めること
 - raw secret や private token を embedding / LLM review に渡すこと
 - external target scan をこの layer の前提にすること
+- code structure snapshot を scanner evidence の代替として扱うこと
+- MCP を write path や mutation path として扱うこと
 
 ## Implementation Direction
 
@@ -350,9 +384,10 @@ Primary automation path は CLI と stable JSON output にする。MCP は optio
 5. Risk Community snapshot
 6. Security Landscape summary
 7. Static Intelligence Export
-8. Optional LSP enrichment
-9. Optional MCP tools
-10. NightWorkers import adapter
+8. Read-only MCP wrapper
+9. Code Structure Layer MVP
+10. Optional LSP enrichment
+11. NightWorkers import adapter
 ```
 
 各段階は、前段の scanner evidence と artifact storage を壊さずに追加する。
@@ -369,6 +404,8 @@ Primary automation path は CLI と stable JSON output にする。MCP は optio
 - NightWorkers の Ontology / Task Compiler / Execution Controller と責務が衝突していない。
 - contextStill に渡す情報は、project-specific fact ではなく、汎用化可能な candidate に限定されている。
 - secret redaction と artifact provenance が保たれている。
+- `bun run fixture:static-intelligence-source` が `ok: true` を返し、CLI / MCP source contract、redaction、hash stability、candidate-only 保証を確認できる。
+- code structure snapshot が scan project と照合され、別 project の snapshot が export に混入しない。
 
 ## Avoid
 
@@ -382,3 +419,5 @@ Primary automation path は CLI と stable JSON output にする。MCP は optio
 - Embedding 類似度を security evidence と同等に扱う。
 - NightWorkers に渡す export へ raw artifact や secret を無制限に詰め込む。
 - 実装順序を飛ばして、MCP や ontology から作り始める。
+- code structure facts を vulnerability proof として扱う。
+- MCP tool に arbitrary filesystem path や write operation を持ち込む。

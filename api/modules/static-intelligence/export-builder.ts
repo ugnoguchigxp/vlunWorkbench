@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import fs from "node:fs";
 import type {
 	StaticIntelligenceEvidenceQuality,
 	StaticIntelligenceExportV1,
@@ -26,6 +28,13 @@ export class StaticIntelligenceScanRunNotFoundError extends Error {
 	}
 }
 
+export class StaticIntelligenceCodeStructureSnapshotMismatchError extends Error {
+	constructor(message: string) {
+		super(message);
+		this.name = "StaticIntelligenceCodeStructureSnapshotMismatchError";
+	}
+}
+
 export type StaticIntelligenceExportOptions = {
 	generatedAt?: Date;
 	codeStructureSnapshot?: CodeStructureSnapshot;
@@ -46,6 +55,10 @@ export function buildStaticIntelligenceExportFromBundle(
 	bundle: StaticIntelligenceSourceBundle,
 	options: StaticIntelligenceExportOptions = {},
 ): StaticIntelligenceExportV1 {
+	validateCodeStructureSnapshotForProject(
+		options.codeStructureSnapshot,
+		bundle,
+	);
 	const degradedReasons: string[] = [];
 	const handoff = extractHandoff(bundle, degradedReasons);
 	const fileRiskIndex = buildFileRiskIndex(bundle);
@@ -90,6 +103,34 @@ export function buildStaticIntelligenceExportFromBundle(
 	};
 
 	return staticIntelligenceExportV1Schema.parse(exportPayload);
+}
+
+function validateCodeStructureSnapshotForProject(
+	snapshot: CodeStructureSnapshot | undefined,
+	bundle: StaticIntelligenceSourceBundle,
+): void {
+	if (!snapshot) return;
+	if (snapshot.project.id && snapshot.project.id !== bundle.project.id) {
+		throw new StaticIntelligenceCodeStructureSnapshotMismatchError(
+			"Code structure snapshot project id does not match scan project.",
+		);
+	}
+	let realProjectPath: string;
+	try {
+		realProjectPath = fs.realpathSync(bundle.project.repoPath);
+	} catch {
+		throw new StaticIntelligenceCodeStructureSnapshotMismatchError(
+			"Code structure snapshot project root could not be verified.",
+		);
+	}
+	const expectedRootRef = createHash("sha256")
+		.update(realProjectPath)
+		.digest("hex");
+	if (snapshot.project.rootRef !== expectedRootRef) {
+		throw new StaticIntelligenceCodeStructureSnapshotMismatchError(
+			"Code structure snapshot rootRef does not match scan project.",
+		);
+	}
 }
 
 function extractHandoff(

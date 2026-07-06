@@ -55,6 +55,16 @@ export type GetVerificationCommandsInput = z.output<
 	typeof getVerificationCommandsInputSchema
 >;
 
+export const getCodeStructureSnapshotInputSchema = z
+	.object({
+		scanRunId: z.string().trim().min(1),
+		maxFiles: z.number().int().min(1).max(20000).optional(),
+	})
+	.strict();
+export type GetCodeStructureSnapshotInput = z.output<
+	typeof getCodeStructureSnapshotInputSchema
+>;
+
 export const staticIntelligenceMcpToolFailureSchema = z
 	.object({
 		ok: z.literal(false),

@@ -1,3 +1,12 @@
+import type {
+	StaticIntelligenceAgentQueryKind,
+	StaticIntelligenceAgentQueryResult,
+} from "../../shared/schemas/static-intelligence-agent-query.schema";
+import type {
+	StaticIntelligenceCodeStructureEnrichment,
+	StaticIntelligenceExportV1,
+} from "../../shared/schemas/static-intelligence.schema";
+
 export type SourceTreePage = {
 	slug: string;
 	title: string;
@@ -925,6 +934,108 @@ export async function fetchScanFindings(scanRunId: string): Promise<Finding[]> {
 		`/api/scans/${scanRunId}/findings`,
 	);
 	return data.findings;
+}
+
+export type StaticIntelligenceAvailability = {
+	export: "available" | "missing" | "failed";
+	fileRiskIndex: "available" | "missing";
+	evidenceGraph: "available" | "missing";
+	codeStructure: "available" | "missing" | "degraded";
+	agentBundle: "available" | "missing" | "degraded";
+};
+
+export type ProjectIntelligenceOverview = {
+	project: Project;
+	latestScan: ScanRun | null;
+	latestExport: StaticIntelligenceExportV1 | null;
+	availability: StaticIntelligenceAvailability;
+	degradedReasons: string[];
+};
+
+export type ScanIntelligenceExportResponse = {
+	export: StaticIntelligenceExportV1;
+};
+
+export type ScanIntelligenceAgentMode =
+	| "overview"
+	| "risk"
+	| "evidence"
+	| "verification"
+	| "export";
+
+export type ScanIntelligenceAgentQueryResponse = {
+	result: StaticIntelligenceAgentQueryResult;
+};
+
+export type ScanCodeStructureResponse = {
+	scanRunId: string;
+	status: "available" | "missing" | "degraded";
+	codeStructure: StaticIntelligenceCodeStructureEnrichment | null;
+	degradedReasons: string[];
+};
+
+export const agentModeToQueryKind: Record<
+	ScanIntelligenceAgentMode,
+	StaticIntelligenceAgentQueryKind
+> = {
+	overview: "project_overview",
+	risk: "risk_context",
+	evidence: "evidence_bundle",
+	verification: "verification_commands",
+	export: "export_static_intelligence",
+};
+
+export async function fetchProjectIntelligenceOverview(
+	projectId: string,
+): Promise<ProjectIntelligenceOverview> {
+	return requestJson<ProjectIntelligenceOverview>(
+		`/api/projects/${projectId}/intelligence`,
+	);
+}
+
+export async function fetchScanIntelligenceExport(
+	scanRunId: string,
+): Promise<StaticIntelligenceExportV1> {
+	const data = await requestJson<ScanIntelligenceExportResponse>(
+		`/api/scans/${scanRunId}/intelligence/export`,
+	);
+	return data.export;
+}
+
+export async function fetchScanIntelligenceAgentQuery(
+	scanRunId: string,
+	params: {
+		mode: ScanIntelligenceAgentMode;
+		query?: string;
+		findingId?: string;
+		file?: string;
+		ruleId?: string;
+		scanner?: string;
+	},
+): Promise<StaticIntelligenceAgentQueryResult> {
+	const search = new URLSearchParams({ mode: params.mode });
+	for (const key of [
+		"query",
+		"findingId",
+		"file",
+		"ruleId",
+		"scanner",
+	] as const) {
+		const value = params[key];
+		if (value) search.set(key, value);
+	}
+	const data = await requestJson<ScanIntelligenceAgentQueryResponse>(
+		`/api/scans/${scanRunId}/intelligence/agent-query?${search.toString()}`,
+	);
+	return data.result;
+}
+
+export async function fetchScanCodeStructure(
+	scanRunId: string,
+): Promise<ScanCodeStructureResponse> {
+	return requestJson<ScanCodeStructureResponse>(
+		`/api/scans/${scanRunId}/intelligence/code-structure`,
+	);
 }
 
 export type FindingReview = {

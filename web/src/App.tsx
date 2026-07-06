@@ -19,6 +19,7 @@ import {
 	KnowledgeDomainSection,
 	KnowledgeNavigationProvider,
 } from "./domains/knowledge/knowledge-domain";
+import { ProjectsDomainSection } from "./domains/projects/projects-domain";
 import { SearchDomainSection } from "./domains/search/search-domain";
 import { ScansDomainSection } from "./domains/scans/scans-domain";
 import { SettingsPanel } from "./settings-panel";
@@ -29,6 +30,7 @@ export type AppViewId =
 	| "search"
 	| "settings"
 	| "admin"
+	| "projects"
 	| "scans";
 
 type AppProps = {
@@ -215,6 +217,12 @@ export function App({ view }: AppProps) {
 						busy={busy}
 						runWithBusy={withBusy}
 						availableCategories={availableCategories}
+					/>
+					<ProjectsDomainSection
+						active={view === "projects"}
+						busy={busy}
+						runWithBusy={withBusy}
+						setErrorText={setErrorText}
 					/>
 					<ScansDomainSection
 						active={view === "scans"}
