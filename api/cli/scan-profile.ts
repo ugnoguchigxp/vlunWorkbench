@@ -190,10 +190,13 @@ async function main() {
 		process.exit(2);
 	}
 
-	const env = readAppEnv();
-	const dbConnection = createDbConnection(env.databaseUrl);
+	let dbConnection: ReturnType<typeof createDbConnection> | null = null;
+	let startupComplete = false;
 
 	try {
+		const env = readAppEnv();
+		dbConnection = createDbConnection(env.databaseUrl);
+		startupComplete = true;
 		const projectRepo = new ProjectRepository(dbConnection.db);
 		const projectResolution = projectPath
 			? await resolveProjectByPath(dbConnection.db, projectPath, {
@@ -279,14 +282,18 @@ async function main() {
 			process.exit(1);
 		}
 	} catch (err) {
-		if (err instanceof ProjectResolutionError) {
+		if (err instanceof ProjectResolutionError || !startupComplete) {
+			const message = err instanceof Error ? err.message : String(err);
 			writeResult({
 				ok: false,
 				status: "config_error",
-				message: err.message,
+				message,
 				error: {
-					code: err.code,
-					message: err.message,
+					code:
+						err instanceof ProjectResolutionError
+							? err.code
+							: "APP_CONFIG_ERROR",
+					message,
 				},
 			});
 			process.exit(2);
@@ -300,7 +307,7 @@ async function main() {
 		});
 		process.exit(1);
 	} finally {
-		dbConnection.sqlite.close(false);
+		dbConnection?.sqlite.close(false);
 	}
 }
 

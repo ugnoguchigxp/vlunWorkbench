@@ -123,16 +123,17 @@ describe("Security oracle CLI contract", () => {
 		await fs.rm(tempDir, { recursive: true, force: true });
 	});
 
-	function runCli(args: string[]) {
+	function runCli(args: string[], envOverrides: Record<string, string> = {}) {
 		return Bun.spawnSync([process.execPath, "run", ...args], {
 			env: {
 				...process.env,
 				DATABASE_URL: dbUrl,
 				SCAN_ARTIFACT_ROOT: artifactRoot,
-				PATH: mockBinDir,
+				PATH: `${mockBinDir}:${process.env.PATH ?? ""}`,
 				OPENAI_API_KEY: "",
 				AZURE_OPENAI_API_KEY: "",
 				AZURE_OPENAI_ENDPOINT: "",
+				...envOverrides,
 			},
 			stderr: "pipe",
 			stdout: "pipe",
@@ -186,6 +187,27 @@ describe("Security oracle CLI contract", () => {
 		expect(second.exitCode).toBe(0);
 		expect(secondPayload.project.created).toBe(false);
 		expect(projects).toHaveLength(1);
+	});
+
+	it("keeps stdout JSON-only through the package script entrypoint", async () => {
+		const proc = runCli([
+			"oracle:security",
+			"--",
+			"--project-path",
+			repoPath,
+			"--profile",
+			"agent-output",
+			"--review",
+			"false",
+			"--format",
+			"json",
+		]);
+		const stdout = proc.stdout.toString().trim();
+		const payload = JSON.parse(stdout);
+
+		expect(proc.exitCode).toBe(0);
+		expect(stdout.split("\n")).toHaveLength(1);
+		expect(payload.status).toBe("completed");
 	});
 
 	it("lets scan:profile create a project from project path", async () => {
@@ -262,5 +284,60 @@ describe("Security oracle CLI contract", () => {
 		});
 		expect(payload.scan.scanRunId).toBeTruthy();
 		expect(payload.review.reviewId).toBeTruthy();
+	});
+
+	it("returns JSON config failure when oracle startup config is invalid", async () => {
+		const proc = runCli(
+			[
+				"api/cli/oracle-security.ts",
+				"--project-path",
+				repoPath,
+				"--profile",
+				"agent-output",
+				"--review",
+				"false",
+				"--format",
+				"json",
+			],
+			{ DATABASE_URL: "postgres://localhost/vuln_workbench" },
+		);
+		const stdout = proc.stdout.toString().trim();
+		const payload = JSON.parse(stdout);
+
+		expect(proc.exitCode).toBe(2);
+		expect(stdout.split("\n")).toHaveLength(1);
+		expect(proc.stderr.toString()).toBe("");
+		expect(payload).toMatchObject({
+			ok: false,
+			status: "config_error",
+			error: { code: "APP_CONFIG_ERROR" },
+		});
+	});
+
+	it("returns JSON config failure when scan:profile startup config is invalid", async () => {
+		const proc = runCli(
+			[
+				"api/cli/scan-profile.ts",
+				"--project-path",
+				repoPath,
+				"--create-project",
+				"true",
+				"--profile",
+				"agent-output",
+				"--json",
+			],
+			{ DATABASE_URL: "postgres://localhost/vuln_workbench" },
+		);
+		const stdout = proc.stdout.toString().trim();
+		const payload = JSON.parse(stdout);
+
+		expect(proc.exitCode).toBe(2);
+		expect(stdout.split("\n")).toHaveLength(1);
+		expect(proc.stderr.toString()).toBe("");
+		expect(payload).toMatchObject({
+			ok: false,
+			status: "config_error",
+			error: { code: "APP_CONFIG_ERROR" },
+		});
 	});
 });

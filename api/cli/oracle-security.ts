@@ -234,9 +234,12 @@ async function main() {
 				: undefined,
 	});
 
-	const env = readAppEnv();
-	const dbConnection = createDbConnection(env.databaseUrl);
+	let dbConnection: ReturnType<typeof createDbConnection> | null = null;
+	let startupComplete = false;
 	try {
+		const env = readAppEnv();
+		dbConnection = createDbConnection(env.databaseUrl);
+		startupComplete = true;
 		const resolvedProject = await resolveProjectByPath(
 			dbConnection.db,
 			projectPath,
@@ -366,22 +369,23 @@ async function main() {
 		process.exit(exitCodeFor(result));
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
+		const configError =
+			error instanceof ProjectResolutionError || !startupComplete;
 		const result = failureResult({
-			status:
-				error instanceof ProjectResolutionError
-					? "config_error"
-					: "runtime_error",
+			status: configError ? "config_error" : "runtime_error",
 			code:
 				error instanceof ProjectResolutionError
 					? error.code
-					: "ORACLE_RUNTIME_ERROR",
+					: !startupComplete
+						? "APP_CONFIG_ERROR"
+						: "ORACLE_RUNTIME_ERROR",
 			message,
 			nextAction: "inspect_diagnostic_failure",
 		});
 		writeResult(result);
 		process.exit(exitCodeFor(result));
 	} finally {
-		dbConnection.sqlite.close(false);
+		dbConnection?.sqlite.close(false);
 	}
 }
 
