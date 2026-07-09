@@ -31,21 +31,25 @@ NightWorkers repositoryId
 
 外部呼び出し元は repo path を渡す。
 vulnWorkbench CLI は repo path から project を解決し、必要なら作成してから scan を実行する。
+呼び出し元から渡してよいのは対象 repository path だけにする。
+profile、review policy、format、timeout、provider 設定、DB 接続情報、外部 project id などは NightWorkers primary flow の入力にしない。
 
 ```text
 NightWorkers / external agent
   -> vulnWorkbench CLI with --project-path /path/to/repo
   -> vulnWorkbench resolves or creates project
   -> scan profile runs
-  -> optional scan review runs
+  -> vulnWorkbench-owned reporting/review policy runs if enabled internally
   -> stable JSON result is returned
 ```
 
 必須原則:
 
 - `--project-path` を primary input にする。
+- `oracle:security` の外部入力は `--project-path` だけにする。
 - `--project-id` は内部利用・既存互換用に残してよいが、NightWorkers 向け primary flow の必須入力にしない。
 - 外部DBの内部IDを必須入力にしない。
+- `DATABASE_URL`、API key、provider 設定、profile/review/format/timeout tuning を呼び出し元から受け取る contract にしない。
 - project resolve / create は vulnWorkbench 側の責務にする。
 - stdout は JSON object 1 件だけにする。
 - progress、warning、stack trace、human-readable log は stderr または artifact に出す。
@@ -58,12 +62,11 @@ NightWorkers / external agent
 最終的には 1 command で NightWorkers が使える形を持つ。
 
 ```bash
-bun run oracle:security -- \
-  --project-path /path/to/repo \
-  --profile agent-output \
-  --review true \
-  --format json
+bun run oracle:security -- --project-path /path/to/repo
 ```
+
+`oracle:security` は外部 orchestrator からの profile/review/format/timeout 指定を受け付けない。
+それらは vulnWorkbench 側の内部 policy として管理する。
 
 互換的な分割 flow を残す場合も、最初の scan command は repo path を受けられる必要がある。
 
@@ -171,29 +174,31 @@ NightWorkers は JSON を読んで修正依頼へ進む。
   - path normalization と create policy を集約する。
 - `api/cli/oracle-security.ts`
   - `--project-path` primary input。
-  - scan -> optional review -> JSON output をまとめる。
+  - 外部引数は `--project-path` だけにする。
+  - scan -> vulnWorkbench-owned reporting/review policy -> JSON output をまとめる。
 - `api/cli/scan-profile.ts`
   - 互換維持しつつ `--project-path` と `--create-project` を受ける。
 - tests
   - 別DB内部IDなしで repo path だけから scan まで到達する fixture。
   - project 未存在 + create enabled で project 作成される fixture。
   - project 未存在 + create disabled で exit code 2 + JSON failure。
-  - review provider failure でも scan result が JSON に残る fixture。
+  - `oracle:security` に profile/review/format/timeout を渡すと exit code 2 + JSON failure になる fixture。
 
 実装時にやらないこと:
 
 - NightWorkers DB を読まない。
 - NightWorkers repository id を受け取らない。
 - `NIGHTWORKERS_*_PROJECTS` のような外部DB id map を vulnWorkbench 側の contract にしない。
+- `DATABASE_URL` や provider secret を NightWorkers から受け取る integration にしない。
+- `oracle:security` の primary flow で profile/review/format/timeout を外部入力にしない。
 - MCP を primary path にしない。
 - LLM に repository を自由探索させて finding を作らせない。
 
 ## Verification Checklist
 
-- `bun run oracle:security -- --project-path <repo> --profile agent-output --review false --format json` が stdout JSON only で返る。
+- `bun run oracle:security -- --project-path <repo>` が stdout JSON only で返る。
+- `bun run oracle:security -- --project-path <repo> --profile agent-output` が exit code 2 + JSON failure で拒否される。
 - project が未登録でも auto-create policy により scan へ進める。
 - 同じ repo path の2回目実行で project が重複作成されない。
 - `bun run scan:profile -- --project-path <repo> --create-project true --profile agent-output --json` が `scanRunId` を返す。
-- `review:scan` provider failure が起きても scan result を失わない。
 - 外部DBの内部IDを要求するテスト・ドキュメント・README 例が NightWorkers primary flow に残っていない。
-

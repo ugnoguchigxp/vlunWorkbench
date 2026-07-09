@@ -179,13 +179,12 @@ LLM API keys stay on the host side. Scanner containers and target projects shoul
 External orchestrators should pass a repository path, not a foreign database ID.
 The CLI resolves or creates the vulnWorkbench project and returns one JSON object
 on stdout.
+The external contract is intentionally path-only: scan profile, review policy,
+output format, and timeout are chosen by vulnWorkbench, not supplied by the
+caller.
 
 ```bash
-bun run oracle:security -- \
-  --project-path /path/to/repo \
-  --profile agent-output \
-  --review true \
-  --format json
+bun run oracle:security -- --project-path /path/to/repo
 ```
 
 ### Profile Scan

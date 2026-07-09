@@ -145,12 +145,6 @@ describe("Security oracle CLI contract", () => {
 			"api/cli/oracle-security.ts",
 			"--project-path",
 			repoPath,
-			"--profile",
-			"agent-output",
-			"--review",
-			"false",
-			"--format",
-			"json",
 		]);
 		const firstPayload = JSON.parse(first.stdout.toString());
 
@@ -174,12 +168,6 @@ describe("Security oracle CLI contract", () => {
 			"api/cli/oracle-security.ts",
 			"--project-path",
 			path.join(repoPath, "."),
-			"--profile",
-			"agent-output",
-			"--review",
-			"false",
-			"--format",
-			"json",
 		]);
 		const secondPayload = JSON.parse(second.stdout.toString());
 		const projects = await connection.db.query.projects.findMany();
@@ -195,12 +183,6 @@ describe("Security oracle CLI contract", () => {
 			"--",
 			"--project-path",
 			repoPath,
-			"--profile",
-			"agent-output",
-			"--review",
-			"false",
-			"--format",
-			"json",
 		]);
 		const stdout = proc.stdout.toString().trim();
 		const payload = JSON.parse(stdout);
@@ -254,17 +236,13 @@ describe("Security oracle CLI contract", () => {
 		expect(payload.scanRunId).toBeUndefined();
 	});
 
-	it("keeps scan result when requested review fails", async () => {
+	it("rejects orchestrator-supplied scan tuning arguments", async () => {
 		const proc = runCli([
 			"api/cli/oracle-security.ts",
 			"--project-path",
 			repoPath,
 			"--profile",
 			"agent-output",
-			"--review",
-			"true",
-			"--format",
-			"json",
 		]);
 		const payload = JSON.parse(proc.stdout.toString());
 
@@ -272,18 +250,13 @@ describe("Security oracle CLI contract", () => {
 		expect(payload).toMatchObject({
 			ok: false,
 			status: "config_error",
-			project: { repoPath },
-			scan: {
-				profile: "agent-output",
-				findingCount: 0,
-				highOrCriticalCount: 0,
-			},
-			review: { status: "failed" },
-			nextAction: "configure_provider",
-			error: { code: "SCAN_REVIEW_FAILED" },
+			project: null,
+			scan: null,
+			review: { status: "skipped" },
+			nextAction: "inspect_diagnostic_failure",
+			error: { code: "ARGUMENT_PARSE_FAILED" },
 		});
-		expect(payload.scan.scanRunId).toBeTruthy();
-		expect(payload.review.reviewId).toBeTruthy();
+		expect(proc.stderr.toString()).toBe("");
 	});
 
 	it("returns JSON config failure when oracle startup config is invalid", async () => {
@@ -292,12 +265,6 @@ describe("Security oracle CLI contract", () => {
 				"api/cli/oracle-security.ts",
 				"--project-path",
 				repoPath,
-				"--profile",
-				"agent-output",
-				"--review",
-				"false",
-				"--format",
-				"json",
 			],
 			{ DATABASE_URL: "postgres://localhost/vuln_workbench" },
 		);

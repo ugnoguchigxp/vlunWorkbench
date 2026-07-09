@@ -179,13 +179,11 @@ LLM API key は host 側に置きます。scanner container や scan 対象 proj
 外部 orchestrator は、別 DB の内部 ID ではなく repository path を渡します。
 CLI は vulnWorkbench 側の project を解決または作成し、stdout に JSON object
 を 1 件だけ返します。
+外部 contract は意図的に path-only です。scan profile、review policy、output
+format、timeout は呼び出し元から渡さず、vulnWorkbench 側が決めます。
 
 ```bash
-bun run oracle:security -- \
-  --project-path /path/to/repo \
-  --profile agent-output \
-  --review true \
-  --format json
+bun run oracle:security -- --project-path /path/to/repo
 ```
 
 ### Profile Scan
