@@ -42,10 +42,24 @@ if (args.includes("--version")) {
 const outIdx = args.indexOf("--output");
 if (outIdx >= 0) {
 	const outPath = args[outIdx + 1];
+	const results = process.env.MOCK_SEMGREP_FINDING === "missing-user"
+		? [{
+			check_id: "dockerfile.security.missing-user.missing-user",
+			path: path.join(process.env.MOCK_REPO_PATH ?? process.cwd(), "Dockerfile"),
+			start: { line: 18, col: 1 },
+			end: { line: 18, col: 56 },
+			extra: {
+				message: "By not specifying a USER, a program in the container may run as root.",
+				severity: "ERROR",
+				metadata: { category: "security" },
+				lines: "CMD [\\"bun\\", \\"run\\", \\"start\\"]"
+			}
+		}]
+		: [];
 	await fs.mkdir(path.dirname(outPath), { recursive: true });
-	await fs.writeFile(outPath, JSON.stringify({ results: [] }));
+	await fs.writeFile(outPath, JSON.stringify({ results }));
 }
-process.exit(0);
+process.exit(Number.parseInt(process.env.MOCK_SEMGREP_EXIT_CODE ?? "0", 10));
 `,
 	);
 	await writeMockTool(
@@ -190,6 +204,89 @@ describe("Security oracle CLI contract", () => {
 		expect(proc.exitCode).toBe(0);
 		expect(stdout.split("\n")).toHaveLength(1);
 		expect(payload.status).toBe("completed");
+	});
+
+	it("returns actionable top findings in oracle JSON", async () => {
+		await fs.writeFile(
+			path.join(repoPath, "Dockerfile"),
+			"FROM oven/bun:1.3.14\nCMD [\"bun\", \"run\", \"start\"]\n",
+		);
+		const proc = runCli(
+			[
+				"api/cli/oracle-security.ts",
+				"--project-path",
+				repoPath,
+			],
+			{
+				MOCK_REPO_PATH: repoPath,
+				MOCK_SEMGREP_FINDING: "missing-user",
+			},
+		);
+		const payload = JSON.parse(proc.stdout.toString());
+
+		expect(proc.exitCode).toBe(3);
+		expect(payload).toMatchObject({
+			ok: false,
+			status: "security_action_required",
+			scan: {
+				findingCount: 1,
+				highOrCriticalCount: 1,
+				findings: [
+					{
+						severity: "high",
+						tool: "semgrep",
+						ruleId: "dockerfile.security.missing-user.missing-user",
+						location: {
+							path: path.join(repoPath, "Dockerfile"),
+							line: 18,
+						},
+						recommendation:
+							"Dockerfile に non-root の user/group 作成を追加し、最後に USER でそのユーザーへ切り替えてください。",
+					},
+				],
+			},
+			nextAction: "apply_security_fix",
+		});
+		expect(payload.scan.findings[0].title).toContain("USER");
+		expect(proc.stderr.toString()).toBe("");
+	});
+
+	it("treats scanner findings as actionable even when the tool exits nonzero", async () => {
+		await fs.writeFile(
+			path.join(repoPath, "Dockerfile"),
+			"FROM oven/bun:1.3.14\nCMD [\"bun\", \"run\", \"start\"]\n",
+		);
+		const proc = runCli(
+			[
+				"api/cli/oracle-security.ts",
+				"--project-path",
+				repoPath,
+			],
+			{
+				MOCK_REPO_PATH: repoPath,
+				MOCK_SEMGREP_EXIT_CODE: "1",
+				MOCK_SEMGREP_FINDING: "missing-user",
+			},
+		);
+		const payload = JSON.parse(proc.stdout.toString());
+
+		expect(proc.exitCode).toBe(3);
+		expect(payload).toMatchObject({
+			ok: false,
+			status: "security_action_required",
+			scan: {
+				findingCount: 1,
+				highOrCriticalCount: 1,
+				findings: [
+					{
+						ruleId: "dockerfile.security.missing-user.missing-user",
+						recommendation:
+							"Dockerfile に non-root の user/group 作成を追加し、最後に USER でそのユーザーへ切り替えてください。",
+					},
+				],
+			},
+			nextAction: "apply_security_fix",
+		});
 	});
 
 	it("lets scan:profile create a project from project path", async () => {

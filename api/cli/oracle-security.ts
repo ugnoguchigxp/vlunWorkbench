@@ -32,6 +32,18 @@ type OracleResult = {
 		findingCount: number;
 		highOrCriticalCount: number;
 		reportPath?: string;
+		findings: Array<{
+			id: string;
+			severity: string;
+			tool: string;
+			ruleId: string;
+			title: string;
+			location: {
+				path: string;
+				line: number | null;
+			} | null;
+			recommendation: string;
+		}>;
 	} | null;
 	review: {
 		status: "not_requested" | "completed" | "failed" | "skipped";
@@ -173,12 +185,36 @@ async function main() {
 			profile: ORACLE_PROFILE,
 			findingCount: findings.length,
 			highOrCriticalCount,
+			findings: summarizeFindings(findings),
 			...(scanResult.finalReport?.artifactPath
 				? { reportPath: scanResult.finalReport.artifactPath }
 				: {}),
 		};
 
 		if (!scanResult.ok) {
+			if (findings.length > 0) {
+				const degradedStatus: OracleStatus =
+					highOrCriticalCount > 0 ? "security_action_required" : "inconclusive";
+				const result: OracleResult = {
+					ok: false,
+					status: degradedStatus,
+					project: projectPayload,
+					scan: scanPayload,
+					review: { status: "not_requested" },
+					nextAction:
+						degradedStatus === "security_action_required"
+							? "apply_security_fix"
+							: "run_scan_review",
+					error: {
+						code: "SCAN_COMPLETED_WITH_TOOL_FAILURE",
+						message:
+							scanResult.message ??
+							"Scan returned findings but one or more tools reported failure.",
+					},
+				};
+				writeResult(result);
+				process.exit(exitCodeFor(result));
+			}
 			const result = failureResult({
 				status: "runtime_error",
 				code: "SCAN_FAILED",
@@ -235,6 +271,92 @@ async function main() {
 	} finally {
 		dbConnection?.sqlite.close(false);
 	}
+}
+
+function summarizeFindings(
+	findings: Awaited<ReturnType<FindingRepository["listFindings"]>>,
+) {
+	return [...findings]
+		.sort((a, b) => {
+			const severityDiff = severityRank(a.severity) - severityRank(b.severity);
+			if (severityDiff !== 0) return severityDiff;
+			return a.ruleId.localeCompare(b.ruleId);
+		})
+		.slice(0, 10)
+		.map((finding) => {
+			const location = locationSummary(finding.primaryLocation);
+			return {
+				id: finding.id,
+				severity: finding.severity,
+				tool: finding.sourceTool,
+				ruleId: finding.ruleId,
+				title: compactText(finding.title, 180),
+				location,
+				recommendation: recommendationForFinding({
+					ruleId: finding.ruleId,
+					title: finding.title,
+					location,
+				}),
+			};
+		});
+}
+
+function severityRank(severity: string) {
+	switch (severity.toLowerCase()) {
+		case "critical":
+			return 0;
+		case "high":
+			return 1;
+		case "medium":
+			return 2;
+		case "low":
+			return 3;
+		case "info":
+			return 4;
+		default:
+			return 5;
+	}
+}
+
+function locationSummary(location: unknown) {
+	if (!location || typeof location !== "object") return null;
+	const record = location as Record<string, unknown>;
+	const path = typeof record.path === "string" ? record.path : null;
+	if (!path) return null;
+	const line =
+		typeof record.startLine === "number"
+			? record.startLine
+			: typeof record.line === "number"
+				? record.line
+				: null;
+	return { path, line };
+}
+
+function recommendationForFinding(params: {
+	ruleId: string;
+	title: string;
+	location: { path: string; line: number | null } | null;
+}) {
+	const ruleId = params.ruleId.toLowerCase();
+	if (ruleId.includes("dockerfile.security.missing-user")) {
+		return "Dockerfile に non-root の user/group 作成を追加し、最後に USER でそのユーザーへ切り替えてください。";
+	}
+	if (ruleId.includes("github-actions-mutable-action-tag")) {
+		return "uses: の action 参照を tag/branch ではなく full 40-character commit SHA に固定してください。";
+	}
+	if (ruleId.includes("bun-missing-minimum-release-age")) {
+		return "bunfig.toml の [install] に minimumReleaseAge = 604800 を追加し、新規公開直後の package を避けてください。";
+	}
+	const target = params.location
+		? `${params.location.path}${params.location.line ? `:${params.location.line}` : ""}`
+		: "検出箇所";
+	return `${target} で ${compactText(params.title, 120)} に対応する制御を追加してください。`;
+}
+
+function compactText(value: string, maxLength: number) {
+	const compacted = value.replace(/\s+/g, " ").trim();
+	if (compacted.length <= maxLength) return compacted;
+	return `${compacted.slice(0, Math.max(0, maxLength - 1))}…`;
 }
 
 await main();
