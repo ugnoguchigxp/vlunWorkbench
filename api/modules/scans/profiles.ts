@@ -90,6 +90,38 @@ const REQUIRED_AUTO_HTTP_DAST_STEP: DastProfileStep = {
 
 export const SCAN_PROFILES: ScanProfile[] = [
 	{
+		id: "agent-output",
+		name: "Agent Output Security Oracle",
+		description:
+			"External orchestration agents can run this source-focused static profile through the stable security oracle CLI contract.",
+		category: "focused",
+		enabled: true,
+		defaultTimeoutSec: 600,
+		scope: SOURCE_BASELINE_SCOPE,
+		tools: [
+			{
+				toolId: "semgrep",
+				displayName: "Semgrep Source Analysis",
+				required: true,
+				failurePolicy: "fail_profile",
+				options: { config: "auto", scanners: ["vuln", "secret", "config"] },
+			},
+			{
+				toolId: "gitleaks",
+				displayName: "Gitleaks Secret Detection",
+				required: true,
+				failurePolicy: "fail_profile",
+			},
+			{
+				toolId: "osv",
+				displayName: "OSV Manifest Dependency Scanner",
+				required: true,
+				failurePolicy: "fail_profile",
+				options: { dependencyMode: "manifest" },
+			},
+		],
+	},
+	{
 		id: "baseline",
 		name: "標準スキャン",
 		description:

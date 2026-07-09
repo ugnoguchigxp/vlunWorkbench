@@ -4,6 +4,10 @@ import { readAppEnv } from "../app/env";
 import { createDbConnection } from "../db";
 import { ArtifactStorage } from "../modules/scans/artifact-storage";
 import { runProfileScan } from "../modules/scans/profile-runner";
+import {
+	ProjectResolutionError,
+	resolveProjectByPath,
+} from "../modules/scans/project-resolver";
 import { getProfileById } from "../modules/scans/profiles";
 import { ProjectRepository } from "../modules/scans/repositories";
 import {
@@ -29,6 +33,8 @@ async function main() {
 			args: process.argv.slice(2),
 			options: {
 				"project-id": { type: "string" },
+				"project-path": { type: "string" },
+				"create-project": { type: "string", default: "false" },
 				profile: { type: "string", default: "baseline" },
 				"timeout-sec": { type: "string" },
 				"continue-on-tool-failure": { type: "string", default: "true" },
@@ -44,20 +50,24 @@ async function main() {
 				memory: { type: "string" },
 				cpus: { type: "string" },
 				"tool-cache-dir": { type: "string" },
+				json: { type: "boolean", default: false },
 			},
 			strict: true,
 		});
 		argsValues = parsed.values;
-	} catch (err: any) {
+	} catch (err) {
+		const message = err instanceof Error ? err.message : String(err);
 		writeResult({
 			ok: false,
 			status: "failed",
-			message: `Failed to parse arguments: ${err.message}`,
+			message: `Failed to parse arguments: ${message}`,
 		});
 		process.exit(1);
 	}
 
 	const projectId = argsValues["project-id"];
+	const projectPath = argsValues["project-path"];
+	const createProject = parseBooleanFlag(argsValues["create-project"], false);
 	const profileId = argsValues.profile;
 	const timeoutSecStr = argsValues["timeout-sec"];
 	const continueOnToolFailure =
@@ -165,13 +175,19 @@ async function main() {
 		process.exit(0);
 	}
 
-	if (!projectId) {
+	if (!projectId && !projectPath) {
 		writeResult({
 			ok: false,
-			status: "failed",
-			message: "Missing required argument: --project-id is required.",
+			status: "config_error",
+			message:
+				"Missing required argument: --project-path is required unless --project-id is provided.",
+			error: {
+				code: "PROJECT_INPUT_REQUIRED",
+				message:
+					"Missing required argument: --project-path is required unless --project-id is provided.",
+			},
 		});
-		process.exit(1);
+		process.exit(2);
 	}
 
 	const env = readAppEnv();
@@ -179,21 +195,32 @@ async function main() {
 
 	try {
 		const projectRepo = new ProjectRepository(dbConnection.db);
-		const project = await projectRepo.findById(projectId);
+		const projectResolution = projectPath
+			? await resolveProjectByPath(dbConnection.db, projectPath, {
+					createProject,
+				})
+			: null;
+		const project = projectResolution
+			? projectResolution.project
+			: await projectRepo.findById(projectId);
 		if (!project) {
 			writeResult({
 				ok: false,
-				status: "failed",
+				status: "config_error",
 				message: `Project not found with id: ${projectId}`,
+				error: {
+					code: "PROJECT_NOT_FOUND",
+					message: `Project not found with id: ${projectId}`,
+				},
 			});
-			process.exit(1);
+			process.exit(2);
 		}
 
 		const result = await runProfileScan({
 			db: dbConnection.db,
-			projectId,
+			projectId: project.id,
 			profileId,
-			repoPath: project.repoPath,
+			repoPath: projectResolution?.repoPath ?? project.repoPath,
 			continueOnToolFailure,
 			timeoutSec,
 			execution,
@@ -215,6 +242,11 @@ async function main() {
 
 		const outputPayload = {
 			ok: result.ok,
+			project: {
+				id: project.id,
+				repoPath: projectResolution?.repoPath ?? project.repoPath,
+				created: projectResolution?.created ?? false,
+			},
 			scanRunId: result.scanRunId,
 			profileId: result.profileId,
 			runner: result.runner,
@@ -246,12 +278,24 @@ async function main() {
 		if (!result.ok) {
 			process.exit(1);
 		}
-	} catch (err: any) {
+	} catch (err) {
+		if (err instanceof ProjectResolutionError) {
+			writeResult({
+				ok: false,
+				status: "config_error",
+				message: err.message,
+				error: {
+					code: err.code,
+					message: err.message,
+				},
+			});
+			process.exit(2);
+		}
 		writeResult({
 			ok: false,
 			runner: execution.runner,
 			status: "failed",
-			message: err.message,
+			message: err instanceof Error ? err.message : String(err),
 			toolResults: [],
 		});
 		process.exit(1);

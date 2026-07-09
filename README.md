@@ -174,6 +174,20 @@ LLM API keys stay on the host side. Scanner containers and target projects shoul
 
 ## CLI Workflows
 
+### Security Oracle for External Agents
+
+External orchestrators should pass a repository path, not a foreign database ID.
+The CLI resolves or creates the vulnWorkbench project and returns one JSON object
+on stdout.
+
+```bash
+bun run oracle:security -- \
+  --project-path /path/to/repo \
+  --profile agent-output \
+  --review true \
+  --format json
+```
+
 ### Profile Scan
 
 ```bash

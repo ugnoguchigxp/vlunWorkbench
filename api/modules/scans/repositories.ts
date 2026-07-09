@@ -55,6 +55,14 @@ export class ProjectRepository {
 		);
 	}
 
+	async findAnyByRepoPath(repoPath: string) {
+		return (
+			(await this.db.query.projects.findFirst({
+				where: eq(projects.repoPath, repoPath),
+			})) ?? null
+		);
+	}
+
 	async listProjects(ownerUserId: string) {
 		return await this.db.query.projects.findMany({
 			where: eq(projects.ownerUserId, ownerUserId),

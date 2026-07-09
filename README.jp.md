@@ -174,6 +174,20 @@ LLM API key は host 側に置きます。scanner container や scan 対象 proj
 
 ## CLI Workflows
 
+### 外部 agent 向け Security Oracle
+
+外部 orchestrator は、別 DB の内部 ID ではなく repository path を渡します。
+CLI は vulnWorkbench 側の project を解決または作成し、stdout に JSON object
+を 1 件だけ返します。
+
+```bash
+bun run oracle:security -- \
+  --project-path /path/to/repo \
+  --profile agent-output \
+  --review true \
+  --format json
+```
+
 ### Profile Scan
 
 ```bash

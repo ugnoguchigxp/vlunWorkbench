@@ -39,6 +39,7 @@
 		"scan:osv": "bun run api/cli/scan-osv.ts",
 		"scan:trivy": "bun run api/cli/scan-trivy.ts",
 		"scan:profile": "bun run api/cli/scan-profile.ts",
+		"oracle:security": "bun run api/cli/oracle-security.ts",
 		"scan:dast": "bun run api/cli/scan-dast.ts",
 		"review:finding": "bun run api/cli/review-finding.ts",
 		"review:scan": "bun run api/cli/review-scan.ts",
