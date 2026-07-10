@@ -9,6 +9,7 @@ import {
 	scanRuns,
 	toolRuns,
 } from "../../db/schema";
+import { isStaticIntelligenceDerivedArtifact } from "./generation-types";
 import type { StaticIntelligenceSourceBundle } from "./types";
 
 export class StaticIntelligenceRepository {
@@ -65,11 +66,15 @@ export class StaticIntelligenceRepository {
 			reviewsByNewest.find((review) => review.status === "completed") ?? null;
 		const latestReview = reviewsByNewest[0] ?? null;
 
+		const diagnosticArtifacts = artifactRows.filter(
+			(artifact) => !isStaticIntelligenceDerivedArtifact(artifact.kind),
+		);
+
 		return {
 			project,
 			scanRun,
 			toolRuns: sortById(toolRunRows),
-			artifacts: sortById(artifactRows),
+			artifacts: sortById(diagnosticArtifacts),
 			findings: sortById(findingRows),
 			evidences: sortById(evidenceRows),
 			latestReview,

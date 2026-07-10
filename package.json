@@ -46,6 +46,7 @@
 		"decision:finding": "bun run api/cli/decision-finding.ts",
 		"report:scan": "bun run api/cli/report-scan.ts",
 		"intelligence:export": "bun run api/cli/intelligence-export.ts",
+		"intelligence:build": "bun run api/cli/intelligence-build.ts",
 		"intelligence:index": "bun run api/cli/intelligence-index.ts",
 		"intelligence:query": "bun run api/cli/intelligence-query.ts",
 		"intelligence:communities": "bun run api/cli/intelligence-communities.ts",

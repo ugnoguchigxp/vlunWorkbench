@@ -45,7 +45,7 @@ if (outIdx >= 0) {
 	const results = process.env.MOCK_SEMGREP_FINDING === "missing-user"
 		? [{
 			check_id: "dockerfile.security.missing-user.missing-user",
-			path: path.join(process.env.MOCK_REPO_PATH ?? process.cwd(), "Dockerfile"),
+			path: process.env.MOCK_SEMGREP_PATH ?? path.join(process.env.MOCK_REPO_PATH ?? process.cwd(), "Dockerfile"),
 			start: { line: 18, col: 1 },
 			end: { line: 18, col: 56 },
 			extra: {
@@ -176,6 +176,7 @@ describe("Security oracle CLI contract", () => {
 			nextAction: "none",
 		});
 		expect(firstPayload.scan.scanRunId).toBeTruthy();
+		expect(firstPayload.scan).not.toHaveProperty("reportPath");
 		expect(first.stdout.toString().trim().split("\n")).toHaveLength(1);
 
 		const second = runCli([
@@ -236,8 +237,8 @@ describe("Security oracle CLI contract", () => {
 						severity: "high",
 						tool: "semgrep",
 						ruleId: "dockerfile.security.missing-user.missing-user",
-						location: {
-							path: path.join(repoPath, "Dockerfile"),
+					location: {
+							path: "Dockerfile",
 							line: 18,
 						},
 						recommendation:
@@ -249,6 +250,29 @@ describe("Security oracle CLI contract", () => {
 		});
 		expect(payload.scan.findings[0].title).toContain("USER");
 		expect(proc.stderr.toString()).toBe("");
+	});
+
+	it("does not expose finding paths outside the requested repository", async () => {
+		const outsidePath = path.join(tempDir, "other-project", "Dockerfile");
+		const proc = runCli(
+			[
+				"api/cli/oracle-security.ts",
+				"--project-path",
+				repoPath,
+			],
+			{
+				MOCK_REPO_PATH: repoPath,
+				MOCK_SEMGREP_PATH: outsidePath,
+				MOCK_SEMGREP_FINDING: "missing-user",
+			},
+		);
+		const stdout = proc.stdout.toString();
+		const payload = JSON.parse(stdout);
+
+		expect(proc.exitCode).toBe(3);
+		expect(payload.scan.findings[0].location).toBeNull();
+		expect(stdout).not.toContain(outsidePath);
+		expect(payload.scan).not.toHaveProperty("reportPath");
 	});
 
 	it("treats scanner findings as actionable even when the tool exits nonzero", async () => {

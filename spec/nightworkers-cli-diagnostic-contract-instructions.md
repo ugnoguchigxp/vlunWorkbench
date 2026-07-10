@@ -56,6 +56,9 @@ NightWorkers / external agent
 - scan が実行された場合は `scanRunId` を必ず返す。
 - review を実行した場合は `reviewId` または review status を返す。
 - provider 未設定や review 失敗時も、scan result を捨てずに JSON 内で degraded state として返す。
+- finding 本文は stdout JSON の `scan.findings[]` に含め、呼び出し元に report artifact を読ませない。
+- `reportPath` は外部 contract に含めない。
+- finding の location は `--project-path` で指定された repository 内の相対 path だけを返す。repository 外を指す location は `null` にする。
 
 ## Target CLI Shape
 
@@ -121,9 +124,17 @@ type SecurityOracleResult = {
   scan: {
     scanRunId: string;
     profile: string;
-    findingCount: number;
-    highOrCriticalCount: number;
-    reportPath?: string;
+		findingCount: number;
+		highOrCriticalCount: number;
+		findings: Array<{
+			id: string;
+			severity: string;
+			tool: string;
+			ruleId: string;
+			title: string;
+			location: { path: string; line: number | null } | null;
+			recommendation: string;
+		}>;
   } | null;
   review: {
     status: "not_requested" | "completed" | "failed" | "skipped";
@@ -149,6 +160,8 @@ Notes:
 - `project.id` は返してよいが、呼び出し元が次回の primary key として保存する前提にしない。
 - 次回も `--project-path` で呼べることを contract にする。
 - `ok=false` でも `scan` が存在する場合がある。scan success と review/provider failure を分ける。
+- 警告内容は `scan.findings[]` だけで判断できる。呼び出し元は vulnWorkbench の artifact path や report file を開かない。
+- `scan.findings[].location.path` は対象 repository からの相対 path であり、対象外 path は公開しない。
 
 ## Exit Codes
 
@@ -197,6 +210,8 @@ NightWorkers は JSON を読んで修正依頼へ進む。
 ## Verification Checklist
 
 - `bun run oracle:security -- --project-path <repo>` が stdout JSON only で返る。
+- stdout JSON に `reportPath` がなく、finding 本文・根拠・対応が `scan.findings[]` に含まれる。
+- stdout JSON の finding location が対象 repository 内の相対 pathだけで、対象外 path を公開しない。
 - `bun run oracle:security -- --project-path <repo> --profile agent-output` が exit code 2 + JSON failure で拒否される。
 - project が未登録でも auto-create policy により scan へ進める。
 - 同じ repo path の2回目実行で project が重複作成されない。

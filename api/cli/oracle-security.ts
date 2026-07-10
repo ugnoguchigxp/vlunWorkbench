@@ -1,4 +1,5 @@
 import { parseArgs } from "node:util";
+import path from "node:path";
 import { readAppEnv } from "../app/env";
 import { createDbConnection } from "../db";
 import { runProfileScan } from "../modules/scans/profile-runner";
@@ -31,7 +32,6 @@ type OracleResult = {
 		profile: string;
 		findingCount: number;
 		highOrCriticalCount: number;
-		reportPath?: string;
 		findings: Array<{
 			id: string;
 			severity: string;
@@ -185,10 +185,7 @@ async function main() {
 			profile: ORACLE_PROFILE,
 			findingCount: findings.length,
 			highOrCriticalCount,
-			findings: summarizeFindings(findings),
-			...(scanResult.finalReport?.artifactPath
-				? { reportPath: scanResult.finalReport.artifactPath }
-				: {}),
+			findings: summarizeFindings(findings, resolvedProject.repoPath),
 		};
 
 		if (!scanResult.ok) {
@@ -275,6 +272,7 @@ async function main() {
 
 function summarizeFindings(
 	findings: Awaited<ReturnType<FindingRepository["listFindings"]>>,
+	repoRoot: string,
 ) {
 	return [...findings]
 		.sort((a, b) => {
@@ -284,7 +282,7 @@ function summarizeFindings(
 		})
 		.slice(0, 10)
 		.map((finding) => {
-			const location = locationSummary(finding.primaryLocation);
+			const location = locationSummary(finding.primaryLocation, repoRoot);
 			return {
 				id: finding.id,
 				severity: finding.severity,
@@ -318,18 +316,31 @@ function severityRank(severity: string) {
 	}
 }
 
-function locationSummary(location: unknown) {
+function locationSummary(location: unknown, repoRoot: string) {
 	if (!location || typeof location !== "object") return null;
 	const record = location as Record<string, unknown>;
-	const path = typeof record.path === "string" ? record.path : null;
-	if (!path) return null;
+	const locationPath = typeof record.path === "string" ? record.path : null;
+	if (!locationPath) return null;
+	const normalizedRoot = path.resolve(repoRoot);
+	const absoluteLocation = path.isAbsolute(locationPath)
+		? path.resolve(locationPath)
+		: path.resolve(normalizedRoot, locationPath);
+	const relativeLocation = path.relative(normalizedRoot, absoluteLocation);
+	if (
+		!relativeLocation ||
+		relativeLocation === ".." ||
+		relativeLocation.startsWith(`..${path.sep}`) ||
+		path.isAbsolute(relativeLocation)
+	) {
+		return null;
+	}
 	const line =
 		typeof record.startLine === "number"
 			? record.startLine
 			: typeof record.line === "number"
 				? record.line
 				: null;
-	return { path, line };
+	return { path: relativeLocation.split(path.sep).join("/"), line };
 }
 
 function recommendationForFinding(params: {
