@@ -301,6 +301,23 @@ Report inclusion controls:
 
 Static Intelligence commands are the CLI-first source contract for coding agents and sibling systems.
 
+Build the primary persisted generation for a registered scan. This creates a
+versioned code-structure snapshot and Static Intelligence export under one
+`generationId`; Project Intelligence, manifest, and MCP reads resolve that same
+generation.
+
+```bash
+bun run intelligence:build -- \
+  --scan-run-id <scan-run-id> \
+  --include-semantic false \
+  --pretty true
+```
+
+The Project Intelligence view can refresh this derived generation for the
+selected scan. Refresh does not run scanners, reviews, verification commands,
+reports, context registration, or task creation. Existing export and
+code-structure commands below remain low-level compatibility paths.
+
 Export scanner-backed evidence and file risk:
 
 ```bash
@@ -364,7 +381,7 @@ The MCP tools are read-only:
 - `vuln_get_verification_commands`
 - `vuln_get_code_structure_snapshot`
 
-They return candidate-only JSON and do not register contextStill knowledge, create NightWorkers tasks, execute scanners, execute verification commands, or expose raw artifact bodies / evidence snippets.
+They read persisted generations, accept optional generation pinning where supported, and return candidate-only JSON. They do not refresh analysis, register contextStill knowledge, create NightWorkers tasks, execute scanners, execute verification commands, or expose raw artifact bodies / evidence snippets. Ontology Handoff is evidence-backed material for NightWorkers; vulnWorkbench does not own canonical ontology or task compilation.
 
 ## API Surface
 

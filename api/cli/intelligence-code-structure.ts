@@ -2,15 +2,21 @@ import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { parseArgs } from "node:util";
+import { readAppEnv } from "../app/env";
+import { createDbConnection } from "../db";
 import {
 	codeStructureSnapshotFailureSchema,
 	codeStructureSnapshotResultSchema,
 } from "../../shared/schemas/static-intelligence-code-structure.schema";
 import { buildCodeStructureSnapshot } from "../modules/static-intelligence/code-structure/extractor";
+import { StaticIntelligenceGenerationRepository } from "../modules/static-intelligence/generation-repository";
 
 type CliArgs = {
-	projectPath: string;
+	mode: "extract" | "persisted";
+	projectPath?: string;
 	projectId?: string;
+	scanRunId?: string;
+	generationId?: string;
 	output?: string;
 	pretty: boolean;
 	includeRootPath: boolean;
@@ -40,12 +46,16 @@ async function main(): Promise<number> {
 
 	try {
 		if (args.output) await assertOutputParentExists(args.output);
-		const snapshot = await buildCodeStructureSnapshot({
-			projectPath: args.projectPath,
-			projectId: args.projectId,
-			includeRootPath: args.includeRootPath,
-			maxFiles: args.maxFiles,
-		});
+		const persisted =
+			args.mode === "persisted" ? await loadPersistedSnapshot(args) : null;
+		const snapshot =
+			persisted?.snapshot ??
+			(await buildCodeStructureSnapshot({
+				projectPath: args.projectPath as string,
+				projectId: args.projectId,
+				includeRootPath: args.includeRootPath,
+				maxFiles: args.maxFiles,
+			}));
 		const output = args.output
 			? await writeSnapshotOutput(args.output, snapshot, args.pretty)
 			: undefined;
@@ -56,6 +66,7 @@ async function main(): Promise<number> {
 				version: "v1",
 				generatedAt: snapshot.generatedAt,
 				snapshot,
+				...(persisted ? { generation: persisted.generation } : {}),
 				...(output ? { output } : {}),
 			}),
 			args.pretty,
@@ -80,6 +91,8 @@ function parseCliArgs(): CliArgs {
 		options: {
 			"project-path": { type: "string" },
 			"project-id": { type: "string" },
+			"scan-run-id": { type: "string" },
+			"generation-id": { type: "string" },
 			output: { type: "string" },
 			pretty: { type: "string" },
 			"include-root-path": { type: "string" },
@@ -90,12 +103,31 @@ function parseCliArgs(): CliArgs {
 	});
 	const values = parsed.values as Record<string, string | undefined>;
 	const projectPath = values["project-path"];
-	if (!projectPath) {
-		throw new Error("Missing required argument: --project-path is required.");
+	const scanRunId = values["scan-run-id"];
+	if (Boolean(projectPath) === Boolean(scanRunId)) {
+		throw new Error(
+			"Specify exactly one source: --project-path or --scan-run-id.",
+		);
+	}
+	if (values["generation-id"] && !scanRunId) {
+		throw new Error("--generation-id requires --scan-run-id.");
+	}
+	if (
+		scanRunId &&
+		(values["project-id"] ||
+			values["include-root-path"] !== undefined ||
+			values["max-files"] !== undefined)
+	) {
+		throw new Error(
+			"--project-id, --include-root-path, and --max-files are only valid with --project-path.",
+		);
 	}
 	return {
+		mode: scanRunId ? "persisted" : "extract",
 		projectPath,
 		projectId: values["project-id"],
+		scanRunId,
+		generationId: values["generation-id"],
 		output: values.output,
 		pretty: parseBooleanOption(values.pretty, "--pretty") ?? false,
 		includeRootPath:
@@ -103,6 +135,35 @@ function parseCliArgs(): CliArgs {
 			false,
 		maxFiles: parseMaxFiles(values["max-files"]),
 	};
+}
+
+async function loadPersistedSnapshot(args: CliArgs) {
+	const env = readAppEnv();
+	const connection = createDbConnection(env.databaseUrl);
+	try {
+		const repository = new StaticIntelligenceGenerationRepository(
+			connection.db,
+		);
+		const generation = args.generationId
+			? await repository.loadGeneration(
+					args.scanRunId as string,
+					args.generationId,
+				)
+			: await repository.loadLatestValidGeneration(args.scanRunId as string);
+		if (!generation) throw new Error("Static Intelligence generation missing.");
+		const snapshotRef = generation.structure.metadata.snapshotRef;
+		if (!snapshotRef) throw new Error("Persisted snapshot provenance missing.");
+		return {
+			snapshot: generation.structure.snapshot,
+			generation: {
+				generationId: generation.generationId,
+				snapshotRef,
+				sourceTreeHash: generation.structure.metadata.sourceTreeHash,
+			},
+		};
+	} finally {
+		connection.sqlite.close();
+	}
 }
 
 function parseBooleanOption(
@@ -150,6 +211,11 @@ function isUserInputError(value: string): boolean {
 		value.includes("Project path not found") ||
 		value.includes("Project path is not a directory") ||
 		value.includes("Output parent directory not found") ||
+		value.includes("Specify exactly one source") ||
+		value.includes("generation missing") ||
+		value.includes("Generation is incomplete or invalid") ||
+		value.includes("generation-id") ||
+		value.includes("only valid with --project-path") ||
 		value.includes("--max-files")
 	);
 }

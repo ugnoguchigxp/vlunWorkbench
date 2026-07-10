@@ -79,13 +79,27 @@ describe("Static Intelligence build CLI", () => {
 		expect(result.status).toBe(0);
 		expect(result.stderr).toBe("");
 		const payload = JSON.parse(result.stdout);
+		const generationId = payload.generation.generationId as string;
 		expect(payload).toMatchObject({
 			ok: true,
 			status: "partial",
 			scanRunId,
 			generation: { generationId: expect.any(String) },
 		});
-		expect(payload.stages).toHaveLength(4);
+		expect(payload.stages).toHaveLength(7);
+
+		const structure = runScript("api/cli/intelligence-code-structure.ts", [
+			"--scan-run-id",
+			scanRunId,
+			"--generation-id",
+			generationId,
+		]);
+		expect(structure.status).toBe(0);
+		expect(JSON.parse(structure.stdout)).toMatchObject({
+			ok: true,
+			generation: { generationId },
+			snapshot: { project: { rootPathIncluded: false } },
+		});
 	});
 
 	it("returns exit code 2 for a missing scan", () => {
@@ -119,14 +133,22 @@ describe("Static Intelligence build CLI", () => {
 
 		expect(result.status).toBe(0);
 		expect(JSON.parse(result.stdout).stages.at(-1)).toMatchObject({
-			name: "semantic_index",
+			name: "optional_semantic_index",
 			status: "skipped",
 			reasonCodes: ["semantic_index_provider_unavailable"],
 		});
 	});
 
 	function runCli(args: string[], envOverrides: Record<string, string> = {}) {
-		return spawnSync(process.execPath, ["api/cli/intelligence-build.ts", ...args], {
+		return runScript("api/cli/intelligence-build.ts", args, envOverrides);
+	}
+
+	function runScript(
+		script: string,
+		args: string[],
+		envOverrides: Record<string, string> = {},
+	) {
+		return spawnSync(process.execPath, [script, ...args], {
 			cwd: process.cwd(),
 			env: {
 				...process.env,

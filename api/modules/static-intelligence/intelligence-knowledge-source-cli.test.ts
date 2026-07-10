@@ -6,6 +6,8 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createDbConnection, type DbConnection } from "../../db";
 import { projects, scanReviews, scanRuns, users } from "../../db/schema";
+import { buildStaticIntelligenceGeneration } from "./build-service";
+import { ArtifactStorage } from "../scans/artifact-storage";
 
 const NOW = new Date("2026-07-05T12:00:00.000Z");
 const RAW_MARKER = "SECRET_REVIEW_BODY_SHOULD_NOT_LEAK";
@@ -64,6 +66,7 @@ describe("Static Intelligence knowledge source CLI", () => {
 			.returning();
 		scanRunId = scanRun.id;
 		await seedCompletedScanReview(scanRunId);
+		await buildStaticIntelligenceGeneration({ db: connection.db, scanRunId, artifactStorage: new ArtifactStorage(path.join(tempDir, "artifacts")) });
 		connection.sqlite.close();
 	});
 
@@ -88,7 +91,8 @@ describe("Static Intelligence knowledge source CLI", () => {
 			stdoutPayload.manifest.availableBundles.some(
 				(bundle: { kind: string; command: string[] }) =>
 					bundle.kind === "code_structure_snapshot" &&
-					bundle.command.includes("<project-path>"),
+					bundle.command.includes(scanRunId) &&
+					bundle.command.includes(stdoutPayload.manifest.generation.generationId),
 			),
 		).toBe(true);
 	});
@@ -121,7 +125,7 @@ describe("Static Intelligence knowledge source CLI", () => {
 			ok: false,
 			status: "failed",
 		});
-		expect(stdoutPayload.message).toContain("Scan run not found");
+		expect(stdoutPayload.message).toContain("generation missing");
 	});
 
 	it("returns exit code 2 for invalid pretty", () => {
@@ -188,7 +192,7 @@ describe("Static Intelligence knowledge source CLI", () => {
 			["api/cli/intelligence-knowledge-source.ts", ...args],
 			{
 				cwd: process.cwd(),
-				env: { ...process.env, ...env },
+				env: { ...process.env, SCAN_ARTIFACT_ROOT: path.join(tempDir, "artifacts"), ...env },
 				encoding: "utf8",
 			},
 		);

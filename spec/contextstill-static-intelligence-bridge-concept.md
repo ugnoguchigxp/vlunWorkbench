@@ -375,6 +375,7 @@ contextStill が返す knowledge は、次の場面で使う。
 vulnWorkbench 側:
 
 ```text
+intelligence:build
 intelligence:export
 intelligence:agent-query project_overview
 intelligence:agent-query risk_context
@@ -385,6 +386,8 @@ intelligence:code-structure
 intelligence:knowledge-source
 intelligence:guardrail-material
 ```
+
+consumer は planning 時に `generationId` を pin し、同一 run の manifest / evidence / verification / code structure read で同じ generation を指定する。vulnWorkbench の refresh 後も既存 run は自動で latest generation へ切り替えない。MCP は persisted generation を読むだけで、generation 作成や refresh を行わない。
 
 vulnWorkbench read-only MCP:
 

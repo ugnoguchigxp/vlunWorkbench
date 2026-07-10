@@ -8,6 +8,10 @@ import type {
 	StaticIntelligenceFindingRow,
 	StaticIntelligenceSourceBundle,
 } from "./types";
+import {
+	toProjectRelativePath,
+	type RelativePathResult,
+} from "./path-boundary";
 
 const SEVERITY_RANK: Record<StaticIntelligenceSeverity, number> = {
 	unknown: 0,
@@ -29,18 +33,26 @@ export function extractFindingPath(
 	finding: StaticIntelligenceFindingRow,
 	evidences: StaticIntelligenceEvidenceRow[],
 ): string {
+	return extractFindingPathResult(finding, evidences, "").path;
+}
+
+export function extractFindingPathResult(
+	finding: StaticIntelligenceFindingRow,
+	evidences: StaticIntelligenceEvidenceRow[],
+	projectRoot: string,
+): RelativePathResult {
 	const primaryPath = pathFromRecord(finding.primaryLocation, ["path", "file"]);
-	if (primaryPath) return primaryPath;
+	if (primaryPath) return normalizeFindingPath(projectRoot, primaryPath);
 
 	const metadataPath = pathFromRecord(finding.metadata, ["path", "file"]);
-	if (metadataPath) return metadataPath;
+	if (metadataPath) return normalizeFindingPath(projectRoot, metadataPath);
 
 	for (const evidence of evidences) {
 		const evidencePath = pathFromRecord(evidence.location, ["path", "file"]);
-		if (evidencePath) return evidencePath;
+		if (evidencePath) return normalizeFindingPath(projectRoot, evidencePath);
 	}
 
-	return "unknown";
+	return { ok: false, path: "unknown", reason: "empty_path" };
 }
 
 export function normalizeSeverity(value: string): StaticIntelligenceSeverity {
@@ -68,7 +80,11 @@ export function buildFileRiskIndex(
 
 	for (const finding of bundle.findings) {
 		const evidenceRows = evidenceByFindingId.get(finding.id) ?? [];
-		const path = extractFindingPath(finding, evidenceRows);
+		const path = extractFindingPathResult(
+			finding,
+			evidenceRows,
+			bundle.project.repoPath,
+		).path;
 		const group = groups.get(path) ?? { findings: [], evidences: [] };
 		group.findings.push(finding);
 		group.evidences.push(...evidenceRows);
@@ -116,6 +132,16 @@ export function buildFileRiskIndex(
 			};
 		})
 		.sort((a, b) => a.path.localeCompare(b.path));
+}
+
+function normalizeFindingPath(
+	projectRoot: string,
+	candidate: string,
+): RelativePathResult {
+	// Preserve compatibility for pure builders whose fixture project root is
+	// intentionally absent while still applying the boundary in real bundles.
+	if (!projectRoot) return { ok: true, path: candidate.replaceAll("\\", "/") };
+	return toProjectRelativePath(projectRoot, candidate);
 }
 
 export function groupEvidenceByFindingId(

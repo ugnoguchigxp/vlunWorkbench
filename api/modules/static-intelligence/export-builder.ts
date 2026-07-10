@@ -16,10 +16,13 @@ import { buildDiagnosticEvidenceGraph } from "./evidence-graph";
 import {
 	buildFileRiskIndex,
 	compareSeverity,
+	extractFindingPathResult,
+	groupEvidenceByFindingId,
 	normalizeSeverity,
 } from "./file-risk-index";
 import { StaticIntelligenceRepository } from "./repository";
 import type { StaticIntelligenceSourceBundle } from "./types";
+import { toProjectRelativePath } from "./path-boundary";
 
 export class StaticIntelligenceScanRunNotFoundError extends Error {
 	constructor(scanRunId: string) {
@@ -61,6 +64,25 @@ export function buildStaticIntelligenceExportFromBundle(
 	);
 	const degradedReasons: string[] = [];
 	const handoff = extractHandoff(bundle, degradedReasons);
+	const evidenceByFindingId = groupEvidenceByFindingId(bundle.evidences);
+	const findingPathRedacted = bundle.findings.some((finding) => {
+		const result = extractFindingPathResult(
+			finding,
+			evidenceByFindingId.get(finding.id) ?? [],
+			bundle.project.repoPath,
+		);
+		return !result.ok && result.reason !== "empty_path";
+	});
+	const evidencePathRedacted = bundle.evidences.some((evidence) => {
+		const candidate = evidence.location?.path ?? evidence.location?.file;
+		if (candidate === undefined || candidate === null || candidate === "")
+			return false;
+		const result = toProjectRelativePath(bundle.project.repoPath, candidate);
+		return !result.ok;
+	});
+	if (findingPathRedacted || evidencePathRedacted) {
+		degradedReasons.push("external_path_redacted");
+	}
 	const fileRiskIndex = buildFileRiskIndex(bundle);
 	const graph = buildDiagnosticEvidenceGraph(bundle, { handoff });
 

@@ -6,6 +6,8 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createDbConnection, type DbConnection } from "../../db";
 import { projects, scanRuns, users } from "../../db/schema";
+import { buildStaticIntelligenceGeneration } from "./build-service";
+import { ArtifactStorage } from "../scans/artifact-storage";
 
 const NOW = new Date("2026-07-05T12:00:00.000Z");
 
@@ -58,6 +60,7 @@ describe("Static Intelligence agent query CLI", () => {
 			})
 			.returning();
 		scanRunId = scanRun.id;
+		await buildStaticIntelligenceGeneration({ db: connection.db, scanRunId, artifactStorage: new ArtifactStorage(path.join(tempDir, "artifacts")) });
 		connection.sqlite.close();
 	});
 
@@ -112,9 +115,7 @@ describe("Static Intelligence agent query CLI", () => {
 
 		expect(result.status).toBe(2);
 		const stdoutPayload = JSON.parse(result.stdout);
-		expect(stdoutPayload.message).toBe(
-			"Scan run not found: 00000000-0000-4000-8000-000000000001",
-		);
+		expect(stdoutPayload.message).toBe("Static Intelligence generation missing.");
 	});
 
 	it("pretty true still writes one JSON object", () => {
@@ -167,7 +168,7 @@ describe("Static Intelligence agent query CLI", () => {
 			["api/cli/intelligence-agent-query.ts", ...args],
 			{
 				cwd: process.cwd(),
-				env: { ...process.env, DATABASE_URL: dbUrl },
+				env: { ...process.env, DATABASE_URL: dbUrl, SCAN_ARTIFACT_ROOT: path.join(tempDir, "artifacts") },
 				encoding: "utf8",
 			},
 		);

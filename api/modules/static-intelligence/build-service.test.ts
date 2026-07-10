@@ -94,11 +94,23 @@ describe("Static Intelligence build service", () => {
 			generation: { status: "degraded" },
 		});
 		expect(result.stages.map((stage) => stage.name)).toEqual([
-			"code_structure",
-			"export",
-			"persist",
-			"semantic_index",
+			"validate_source",
+			"build_code_structure",
+			"normalize_paths",
+			"build_export",
+			"persist_generation",
+			"build_manifest",
+			"optional_semantic_index",
 		]);
+		expect(result).toMatchObject({
+			projectId: expect.any(String),
+			generationId: result.generation.generationId,
+			artifacts: {
+				structure: { snapshotRef: expect.any(String) },
+				export: { exportHash: expect.any(String) },
+			},
+			readiness: { export: { status: "degraded" } },
+		});
 		expect(result.stages.at(-1)).toMatchObject({
 			status: "skipped",
 			reasonCodes: ["semantic_index_not_requested"],

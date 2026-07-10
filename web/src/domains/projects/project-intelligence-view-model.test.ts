@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { DiagnosticEvidenceGraph } from "../../../../shared/schemas/static-intelligence.schema";
-import type { ProjectIntelligenceOverview } from "../../api";
+import type { ProjectIntelligenceSummary } from "../../api";
 import {
 	buildProjectCardSummary,
 	countGraphKinds,
@@ -20,17 +20,17 @@ describe("project intelligence view model", () => {
 
 	it("builds project card values from the latest export", () => {
 		const overview = {
-			latestScan: { status: "completed" },
-			latestExport: {
-				scan: { findingCount: 2 },
-				scanSummary: {
-					riskBand: "high",
-					evidenceQuality: "strong",
-				},
-			},
-			availability: { codeStructure: "degraded" },
-			degradedReasons: ["code structure partial"],
-		} as ProjectIntelligenceOverview;
+			projectId: "project-1",
+			selectedScanRunId: "scan-1",
+			scanStatus: "completed",
+			riskBand: "high",
+			evidenceQuality: "strong",
+			findingCount: 2,
+			codeStructureStatus: "degraded",
+			generationStatus: "degraded",
+			generatedAt: "2026-07-10T00:00:00.000Z",
+			degradedReasonCount: 1,
+		} as ProjectIntelligenceSummary;
 
 		expect(buildProjectCardSummary(overview)).toMatchObject({
 			riskBand: "high",

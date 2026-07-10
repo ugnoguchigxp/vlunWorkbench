@@ -2,8 +2,9 @@ import { parseArgs } from "node:util";
 import { ZodError } from "zod";
 import { readAppEnv } from "../app/env";
 import { createDbConnection } from "../db";
-import { StaticIntelligenceScanRunNotFoundError } from "../modules/static-intelligence/export-builder";
-import { buildStaticIntelligenceGuardrailMaterialForScan } from "../modules/static-intelligence/guardrail-material";
+import { buildStaticIntelligenceGuardrailMaterial } from "../modules/static-intelligence/guardrail-material";
+import { StaticIntelligenceGenerationRepository } from "../modules/static-intelligence/generation-repository";
+import { buildStaticIntelligenceKnowledgeSourceManifest } from "../modules/static-intelligence/knowledge-source-manifest";
 import {
 	type StaticIntelligenceGuardrailMaterialType,
 	staticIntelligenceGuardrailMaterialCliTypeSchema,
@@ -22,6 +23,7 @@ async function main(): Promise<number> {
 			args: process.argv.slice(2),
 			options: {
 				"scan-run-id": { type: "string" },
+				"generation-id": { type: "string" },
 				type: { type: "string" },
 				"include-markdown": { type: "string" },
 				pretty: { type: "string" },
@@ -77,21 +79,31 @@ async function main(): Promise<number> {
 	}
 
 	try {
-		const result = await buildStaticIntelligenceGuardrailMaterialForScan(
+		const repository = new StaticIntelligenceGenerationRepository(
 			dbConnection.db,
-			input.scanRunId,
-			{
-				type: input.type,
-				includeMarkdown: input.includeMarkdown,
-			},
 		);
+		const generation = argsValues["generation-id"]
+			? await repository.loadGeneration(
+					input.scanRunId,
+					argsValues["generation-id"],
+				)
+			: await repository.loadLatestValidGeneration(input.scanRunId);
+		if (!generation)
+			return fail(2, "Static Intelligence generation missing.", pretty);
+		const sourceManifest = buildStaticIntelligenceKnowledgeSourceManifest(
+			generation.export.payload,
+			{ generation },
+		);
+		const result = buildStaticIntelligenceGuardrailMaterial({
+			exportPayload: generation.export.payload,
+			sourceManifest,
+			type: input.type,
+			includeMarkdown: input.includeMarkdown,
+		});
 		writeResult(result, pretty);
 		return 0;
 	} catch (error) {
-		if (
-			error instanceof StaticIntelligenceScanRunNotFoundError ||
-			error instanceof ZodError
-		) {
+		if (error instanceof ZodError || message(error).includes("Generation")) {
 			return fail(2, message(error), pretty);
 		}
 		return fail(1, message(error), pretty);

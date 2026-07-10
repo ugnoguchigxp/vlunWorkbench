@@ -7,6 +7,8 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createDbConnection, type DbConnection } from "../../db";
 import { projects, scanRuns, users } from "../../db/schema";
+import { buildStaticIntelligenceGeneration } from "./build-service";
+import { ArtifactStorage } from "../scans/artifact-storage";
 
 const NOW = new Date("2026-07-05T12:00:00.000Z");
 
@@ -63,6 +65,7 @@ describe("Static Intelligence export CLI", () => {
 			})
 			.returning();
 		scanRunId = scanRun.id;
+		await buildStaticIntelligenceGeneration({ db: connection.db, scanRunId, artifactStorage: new ArtifactStorage(path.join(tempDir, "artifacts")) });
 		connection.sqlite.close();
 	});
 
@@ -195,14 +198,14 @@ describe("Static Intelligence export CLI", () => {
 		expect(stdoutPayload).toMatchObject({
 			ok: false,
 			status: "failed",
-			message: "Scan run not found: 00000000-0000-4000-8000-000000000001",
+			message: "Static Intelligence generation missing.",
 		});
 	});
 
 	function runCli(args: string[]) {
 		return spawnSync(process.execPath, ["api/cli/intelligence-export.ts", ...args], {
 			cwd: process.cwd(),
-			env: { ...process.env, DATABASE_URL: dbUrl },
+			env: { ...process.env, DATABASE_URL: dbUrl, SCAN_ARTIFACT_ROOT: path.join(tempDir, "artifacts") },
 			encoding: "utf8",
 		});
 	}

@@ -15,6 +15,8 @@ import {
 	toolRuns,
 	users,
 } from "../../db/schema";
+import { buildStaticIntelligenceGeneration } from "./build-service";
+import { ArtifactStorage } from "../scans/artifact-storage";
 
 const NOW = new Date("2026-07-06T12:00:00.000Z");
 const RAW_SNIPPET_MARKER = "RAW_SNIPPET_SHOULD_NOT_LEAK";
@@ -34,6 +36,7 @@ describe("Static Intelligence guardrail material CLI", () => {
 		connection = createDbConnection(dbUrl);
 		applyMigrations(connection);
 		scanRunId = await seedScan(connection, tempDir);
+		await buildStaticIntelligenceGeneration({ db: connection.db, scanRunId, artifactStorage: new ArtifactStorage(path.join(tempDir, "artifacts")) });
 		connection.sqlite.close();
 	});
 
@@ -110,7 +113,7 @@ describe("Static Intelligence guardrail material CLI", () => {
 		expect(result.stderr).toBe("");
 		const payload = JSON.parse(result.stdout);
 		expect(payload).toMatchObject({ ok: false, status: "failed" });
-		expect(payload.message).toContain("Scan run not found");
+		expect(payload.message).toContain("generation missing");
 	});
 
 	it("returns exit code 2 for invalid type", () => {
@@ -157,7 +160,7 @@ describe("Static Intelligence guardrail material CLI", () => {
 			["api/cli/intelligence-guardrail-material.ts", ...args],
 			{
 				cwd: process.cwd(),
-				env: { ...process.env, DATABASE_URL: dbUrl },
+				env: { ...process.env, DATABASE_URL: dbUrl, SCAN_ARTIFACT_ROOT: path.join(tempDir, "artifacts") },
 				encoding: "utf8",
 			},
 		);

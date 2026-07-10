@@ -18,6 +18,7 @@ export type ListKnowledgeSourcesInput = z.output<
 export const getKnowledgeSourceManifestInputSchema = z
 	.object({
 		scanRunId: z.string().trim().min(1),
+		generationId: z.string().uuid().optional(),
 	})
 	.strict();
 export type GetKnowledgeSourceManifestInput = z.output<
@@ -27,6 +28,7 @@ export type GetKnowledgeSourceManifestInput = z.output<
 export const getGuardrailMaterialInputSchema = z
 	.object({
 		scanRunId: z.string().trim().min(1),
+		generationId: z.string().uuid().optional(),
 		type: staticIntelligenceGuardrailMaterialTypeSchema.optional(),
 		includeMarkdown: z.boolean().optional(),
 	})
@@ -38,6 +40,7 @@ export type GetGuardrailMaterialInput = z.output<
 export const getEvidenceBundleInputSchema = z
 	.object({
 		scanRunId: z.string().trim().min(1),
+		generationId: z.string().uuid().optional(),
 		findingId: z.string().trim().min(1),
 	})
 	.strict();
@@ -48,6 +51,7 @@ export type GetEvidenceBundleInput = z.output<
 export const getVerificationCommandsInputSchema = z
 	.object({
 		scanRunId: z.string().trim().min(1),
+		generationId: z.string().uuid().optional(),
 		findingId: z.string().trim().min(1).optional(),
 	})
 	.strict();
@@ -58,7 +62,7 @@ export type GetVerificationCommandsInput = z.output<
 export const getCodeStructureSnapshotInputSchema = z
 	.object({
 		scanRunId: z.string().trim().min(1),
-		maxFiles: z.number().int().min(1).max(20000).optional(),
+		generationId: z.string().uuid().optional(),
 	})
 	.strict();
 export type GetCodeStructureSnapshotInput = z.output<
@@ -89,6 +93,7 @@ export const staticIntelligenceKnowledgeSourceListResultSchema = z
 					projectId: z.string().min(1),
 					projectName: z.string(),
 					scanRunId: z.string().min(1),
+					generationId: z.string().min(1),
 					scanProfile: z.string(),
 					scanStatus: z.string(),
 					findingCount: z.number().int().nonnegative(),

@@ -281,6 +281,22 @@ export class StaticIntelligenceGenerationRepository {
 		return loaded;
 	}
 
+	async hasDerivedArtifacts(scanRunId: string): Promise<boolean> {
+		const [row] = await this.db
+			.select({ id: scanArtifacts.id })
+			.from(scanArtifacts)
+			.where(
+				and(
+					eq(scanArtifacts.scanRunId, scanRunId),
+					inArray(scanArtifacts.kind, [
+						...STATIC_INTELLIGENCE_DERIVED_ARTIFACT_KINDS,
+					]),
+				),
+			)
+			.limit(1);
+		return Boolean(row);
+	}
+
 	private async generationCandidates(scanRunId: string, generationId?: string) {
 		const rows = await this.db
 			.select()

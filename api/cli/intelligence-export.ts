@@ -9,6 +9,10 @@ import {
 	StaticIntelligenceScanRunNotFoundError,
 } from "../modules/static-intelligence/export-builder";
 import { codeStructureSnapshotSchema } from "../../shared/schemas/static-intelligence-code-structure.schema";
+import {
+	StaticIntelligenceGenerationRepository,
+	StaticIntelligenceGenerationValidationError,
+} from "../modules/static-intelligence/generation-repository";
 
 function writeResult(payload: Record<string, unknown>, pretty = false): void {
 	console.log(JSON.stringify(payload, null, pretty ? 2 : undefined));
@@ -26,6 +30,7 @@ async function main(): Promise<number> {
 			args: process.argv.slice(2),
 			options: {
 				"scan-run-id": { type: "string" },
+				"generation-id": { type: "string" },
 				output: { type: "string" },
 				pretty: { type: "string" },
 				"code-structure-snapshot": { type: "string" },
@@ -46,6 +51,7 @@ async function main(): Promise<number> {
 	const scanRunId = argsValues["scan-run-id"];
 	const outputPath = argsValues.output;
 	const codeStructureSnapshotPath = argsValues["code-structure-snapshot"];
+	const generationId = argsValues["generation-id"];
 	const pretty = parsePretty(argsValues.pretty);
 	if (!scanRunId) {
 		writeResult({
@@ -68,6 +74,15 @@ async function main(): Promise<number> {
 		});
 		return 2;
 	}
+	if (generationId && codeStructureSnapshotPath) {
+		writeResult({
+			ok: false,
+			status: "failed",
+			message:
+				"--generation-id cannot be combined with --code-structure-snapshot.",
+		});
+		return 2;
+	}
 
 	let dbConnection: DbConnection | undefined;
 	try {
@@ -76,11 +91,31 @@ async function main(): Promise<number> {
 			: undefined;
 		const env = readAppEnv();
 		dbConnection = createDbConnection(env.databaseUrl);
-		const exportPayload = await buildStaticIntelligenceExport(
-			dbConnection.db,
-			scanRunId,
-			{ codeStructureSnapshot },
-		);
+		const generation = codeStructureSnapshot
+			? null
+			: generationId
+				? await new StaticIntelligenceGenerationRepository(
+						dbConnection.db,
+					).loadGeneration(scanRunId, generationId)
+				: await new StaticIntelligenceGenerationRepository(
+						dbConnection.db,
+					).loadLatestValidGeneration(scanRunId);
+		if (!codeStructureSnapshot && !generation) {
+			writeResult(
+				{
+					ok: false,
+					status: "failed",
+					message: "Static Intelligence generation missing.",
+				},
+				pretty,
+			);
+			return 2;
+		}
+		const exportPayload =
+			generation?.export.payload ??
+			(await buildStaticIntelligenceExport(dbConnection.db, scanRunId, {
+				codeStructureSnapshot,
+			}));
 		const outputMetadata = outputPath
 			? await writeOutputFile(outputPath, exportPayload, pretty)
 			: undefined;
@@ -91,6 +126,7 @@ async function main(): Promise<number> {
 				status: "completed",
 				scanRunId,
 				...(outputMetadata ? { output: outputMetadata } : {}),
+				...(generation ? { generationId: generation.generationId } : {}),
 				export: exportPayload,
 			},
 			pretty,
@@ -101,6 +137,7 @@ async function main(): Promise<number> {
 		if (
 			error instanceof StaticIntelligenceScanRunNotFoundError ||
 			error instanceof StaticIntelligenceCodeStructureSnapshotMismatchError ||
+			error instanceof StaticIntelligenceGenerationValidationError ||
 			message.startsWith("Invalid code structure snapshot:")
 		) {
 			writeResult({

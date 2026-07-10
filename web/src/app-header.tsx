@@ -63,7 +63,11 @@ export function AppHeader({
 						<FolderKanban className="icon" />
 						Projects
 					</Link>
-					<Link to="/scans" className={menuClass(active === "scans")}>
+					<Link
+						to="/scans"
+						search={{ projectId: undefined, scanRunId: undefined }}
+						className={menuClass(active === "scans")}
+					>
 						<Shield className="icon" />
 						Scans
 					</Link>

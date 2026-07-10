@@ -2,8 +2,8 @@ import { parseArgs } from "node:util";
 import { ZodError } from "zod";
 import { readAppEnv } from "../app/env";
 import { createDbConnection } from "../db";
-import { StaticIntelligenceScanRunNotFoundError } from "../modules/static-intelligence/export-builder";
-import { buildStaticIntelligenceKnowledgeSourceManifestForScan } from "../modules/static-intelligence/knowledge-source-manifest";
+import { StaticIntelligenceGenerationRepository } from "../modules/static-intelligence/generation-repository";
+import { buildStaticIntelligenceKnowledgeSourceManifest } from "../modules/static-intelligence/knowledge-source-manifest";
 
 type CliValues = Record<string, string | undefined>;
 
@@ -18,6 +18,7 @@ async function main(): Promise<number> {
 			args: process.argv.slice(2),
 			options: {
 				"scan-run-id": { type: "string" },
+				"generation-id": { type: "string" },
 				pretty: { type: "string" },
 			},
 			strict: true,
@@ -53,11 +54,18 @@ async function main(): Promise<number> {
 	}
 
 	try {
-		const manifest =
-			await buildStaticIntelligenceKnowledgeSourceManifestForScan(
-				dbConnection.db,
-				scanRunId,
-			);
+		const repository = new StaticIntelligenceGenerationRepository(
+			dbConnection.db,
+		);
+		const generation = argsValues["generation-id"]
+			? await repository.loadGeneration(scanRunId, argsValues["generation-id"])
+			: await repository.loadLatestValidGeneration(scanRunId);
+		if (!generation)
+			return fail(2, "Static Intelligence generation missing.", pretty);
+		const manifest = buildStaticIntelligenceKnowledgeSourceManifest(
+			generation.export.payload,
+			{ generation },
+		);
 		writeResult(
 			{
 				ok: true,
@@ -70,10 +78,11 @@ async function main(): Promise<number> {
 		);
 		return 0;
 	} catch (error) {
-		if (error instanceof StaticIntelligenceScanRunNotFoundError) {
-			return fail(2, message(error), pretty);
-		}
-		return fail(1, message(error), pretty);
+		return fail(
+			message(error).includes("Generation") ? 2 : 1,
+			message(error),
+			pretty,
+		);
 	} finally {
 		dbConnection.sqlite.close();
 	}

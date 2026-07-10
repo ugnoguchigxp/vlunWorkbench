@@ -55,6 +55,12 @@ const settingsRoute = createRoute({
 const scansRoute = createRoute({
 	getParentRoute: () => rootRoute,
 	path: "/scans",
+	validateSearch: (search: Record<string, unknown>) => ({
+		projectId:
+			typeof search.projectId === "string" ? search.projectId : undefined,
+		scanRunId:
+			typeof search.scanRunId === "string" ? search.scanRunId : undefined,
+	}),
 	component: renderAppView("scans"),
 });
 

@@ -1,5 +1,5 @@
 import { useNavigate } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
 	type AuthUser,
 	type SourceHealth,
@@ -129,26 +129,29 @@ export function App({ view }: AppProps) {
 		};
 	}, []);
 
-	const withBusy = async (task: () => Promise<void>): Promise<boolean> => {
-		setBusy(true);
-		setErrorText(null);
-		try {
-			await task();
-			return true;
-		} catch (error) {
-			if (isUnauthorizedError(error)) {
-				setAuthUser(null);
-				setErrorText("Session expired. Please login again.");
-			} else {
-				setErrorText(
-					error instanceof Error ? error.message : "Operation failed.",
-				);
+	const withBusy = useCallback(
+		async (task: () => Promise<void>): Promise<boolean> => {
+			setBusy(true);
+			setErrorText(null);
+			try {
+				await task();
+				return true;
+			} catch (error) {
+				if (isUnauthorizedError(error)) {
+					setAuthUser(null);
+					setErrorText("Session expired. Please login again.");
+				} else {
+					setErrorText(
+						error instanceof Error ? error.message : "Operation failed.",
+					);
+				}
+				return false;
+			} finally {
+				setBusy(false);
 			}
-			return false;
-		} finally {
-			setBusy(false);
-		}
-	};
+		},
+		[],
+	);
 
 	const handleLogin = async ({
 		email,

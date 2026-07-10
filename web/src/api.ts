@@ -3,9 +3,17 @@ import type {
 	StaticIntelligenceAgentQueryResult,
 } from "../../shared/schemas/static-intelligence-agent-query.schema";
 import type {
-	StaticIntelligenceCodeStructureEnrichment,
+	FileRiskIndexEntry,
 	StaticIntelligenceExportV1,
 } from "../../shared/schemas/static-intelligence.schema";
+import type { CodeStructureSnapshot } from "../../shared/schemas/static-intelligence-code-structure.schema";
+import type {
+	StaticIntelligenceModuleCandidate,
+	StaticIntelligenceOntologyHandoff,
+	StaticIntelligenceReadiness,
+	IntelligenceReadinessStatus,
+} from "../../shared/schemas/static-intelligence-module.schema";
+import type { StaticIntelligenceKnowledgeSourceManifest } from "../../shared/schemas/static-intelligence-knowledge-source.schema";
 
 export type SourceTreePage = {
 	slug: string;
@@ -936,20 +944,75 @@ export async function fetchScanFindings(scanRunId: string): Promise<Finding[]> {
 	return data.findings;
 }
 
-export type StaticIntelligenceAvailability = {
-	export: "available" | "missing" | "failed";
-	fileRiskIndex: "available" | "missing";
-	evidenceGraph: "available" | "missing";
-	codeStructure: "available" | "missing" | "degraded";
-	agentBundle: "available" | "missing" | "degraded";
+export type ProjectIntelligenceView = {
+	project: ProjectIntelligenceProject;
+	latestUsableScan: ScanRun | null;
+	selectedScan: ScanRun | null;
+	selection: {
+		requestedScanRunId: string | null;
+		selectedScanRunId: string | null;
+		isLatest: boolean;
+		selectionReason:
+			| "requested"
+			| "latest_completed"
+			| "latest_terminal_degraded"
+			| "none";
+	};
+	generation: {
+		generationId: string;
+		generatedAt: string;
+		sourceTreeHash: string;
+		sourceStateHash: string;
+		snapshotRef?: string;
+		exportHash: string;
+		status: IntelligenceReadinessStatus;
+	} | null;
+	export: StaticIntelligenceExportV1 | null;
+	manifest: StaticIntelligenceKnowledgeSourceManifest | null;
+	readiness: StaticIntelligenceReadiness;
+	degradedReasons: string[];
 };
 
-export type ProjectIntelligenceOverview = {
-	project: Project;
-	latestScan: ScanRun | null;
-	latestExport: StaticIntelligenceExportV1 | null;
-	availability: StaticIntelligenceAvailability;
-	degradedReasons: string[];
+export type ProjectIntelligenceSummary = {
+	project: ProjectIntelligenceProject;
+	projectId: string;
+	selectedScanRunId: string | null;
+	scanStatus: string | null;
+	riskBand: string;
+	evidenceQuality: string;
+	findingCount: number;
+	codeStructureStatus: IntelligenceReadinessStatus;
+	generationStatus: IntelligenceReadinessStatus;
+	generatedAt: string | null;
+	degradedReasonCount: number;
+};
+
+export type ProjectIntelligenceProject = {
+	id: string;
+	name: string;
+	repositoryName: string;
+	defaultBranch: string;
+	createdAt: string;
+	updatedAt: string;
+};
+
+export type ProjectStructureListResponse = {
+	status: IntelligenceReadinessStatus | "available" | "degraded";
+	generationId?: string;
+	items: Array<{
+		path: string;
+		language: string;
+		moduleKind: string;
+		tags: string[];
+		parseStatus: string;
+		importCount: number;
+		exportCount: number;
+		packageCount: number;
+		risk: FileRiskIndexEntry | null;
+	}>;
+	modules: StaticIntelligenceModuleCandidate[];
+	nextCursor: number | null;
+	total?: number;
 };
 
 export type ScanIntelligenceExportResponse = {
@@ -969,8 +1032,9 @@ export type ScanIntelligenceAgentQueryResponse = {
 
 export type ScanCodeStructureResponse = {
 	scanRunId: string;
+	generationId?: string;
 	status: "available" | "missing" | "degraded";
-	codeStructure: StaticIntelligenceCodeStructureEnrichment | null;
+	snapshot: CodeStructureSnapshot | null;
 	degradedReasons: string[];
 };
 
@@ -985,19 +1049,84 @@ export const agentModeToQueryKind: Record<
 	export: "export_static_intelligence",
 };
 
-export async function fetchProjectIntelligenceOverview(
+export async function fetchProjectIntelligenceView(
 	projectId: string,
-): Promise<ProjectIntelligenceOverview> {
-	return requestJson<ProjectIntelligenceOverview>(
-		`/api/projects/${projectId}/intelligence`,
+	scanRunId?: string | null,
+): Promise<ProjectIntelligenceView> {
+	const search = new URLSearchParams();
+	if (scanRunId) search.set("scanRunId", scanRunId);
+	return requestJson<ProjectIntelligenceView>(
+		`/api/projects/${projectId}/intelligence${search.size ? `?${search.toString()}` : ""}`,
 	);
+}
+
+export async function fetchProjectIntelligenceSummaries(): Promise<
+	ProjectIntelligenceSummary[]
+> {
+	const data = await requestJson<{ summaries: ProjectIntelligenceSummary[] }>(
+		"/api/projects/intelligence-summaries",
+	);
+	return data.summaries;
+}
+
+export async function fetchProjectIntelligenceStructure(
+	projectId: string,
+	scanRunId: string,
+	params: {
+		generationId?: string;
+		query?: string;
+		tag?: string;
+		status?: string;
+		cursor?: number;
+		limit?: number;
+	} = {},
+): Promise<ProjectStructureListResponse> {
+	const search = new URLSearchParams({ scanRunId });
+	for (const [key, value] of Object.entries(params))
+		if (value !== undefined && value !== "") search.set(key, String(value));
+	return requestJson<ProjectStructureListResponse>(
+		`/api/projects/${projectId}/intelligence/structure?${search.toString()}`,
+	);
+}
+
+export async function fetchProjectOntologyHandoff(
+	projectId: string,
+	scanRunId: string,
+	generationId?: string,
+): Promise<StaticIntelligenceOntologyHandoff | null> {
+	const data = await requestJson<{
+		handoff: StaticIntelligenceOntologyHandoff | null;
+	}>(
+		`/api/projects/${projectId}/intelligence/ontology-handoff?${new URLSearchParams(
+			{
+				scanRunId,
+				...(generationId ? { generationId } : {}),
+			},
+		).toString()}`,
+	);
+	return data.handoff;
+}
+
+export async function refreshProjectIntelligence(
+	projectId: string,
+	scanRunId: string,
+	includeSemantic = false,
+): Promise<{ ok: true; status: "completed" | "partial" }> {
+	return requestJson(`/api/projects/${projectId}/intelligence/refresh`, {
+		method: "POST",
+		body: { scanRunId, includeSemantic },
+	});
 }
 
 export async function fetchScanIntelligenceExport(
 	scanRunId: string,
+	generationId?: string,
 ): Promise<StaticIntelligenceExportV1> {
+	const search = generationId
+		? `?${new URLSearchParams({ generationId }).toString()}`
+		: "";
 	const data = await requestJson<ScanIntelligenceExportResponse>(
-		`/api/scans/${scanRunId}/intelligence/export`,
+		`/api/scans/${scanRunId}/intelligence/export${search}`,
 	);
 	return data.export;
 }
@@ -1006,6 +1135,7 @@ export async function fetchScanIntelligenceAgentQuery(
 	scanRunId: string,
 	params: {
 		mode: ScanIntelligenceAgentMode;
+		generationId?: string;
 		query?: string;
 		findingId?: string;
 		file?: string;
@@ -1015,6 +1145,7 @@ export async function fetchScanIntelligenceAgentQuery(
 ): Promise<StaticIntelligenceAgentQueryResult> {
 	const search = new URLSearchParams({ mode: params.mode });
 	for (const key of [
+		"generationId",
 		"query",
 		"findingId",
 		"file",
@@ -1032,9 +1163,13 @@ export async function fetchScanIntelligenceAgentQuery(
 
 export async function fetchScanCodeStructure(
 	scanRunId: string,
+	generationId?: string,
 ): Promise<ScanCodeStructureResponse> {
+	const search = generationId
+		? `?${new URLSearchParams({ generationId }).toString()}`
+		: "";
 	return requestJson<ScanCodeStructureResponse>(
-		`/api/scans/${scanRunId}/intelligence/code-structure`,
+		`/api/scans/${scanRunId}/intelligence/code-structure${search}`,
 	);
 }
 

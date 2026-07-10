@@ -229,7 +229,23 @@ describe("Static Intelligence export builder", () => {
 
 		expect(serialized).not.toContain("SECRET_TOKEN_SHOULD_NOT_LEAK");
 		expect(serialized).not.toContain("SECRET_ARTIFACT_CONTENT_SHOULD_NOT_LEAK");
-		expect(serialized).toContain("artifacts/semgrep.json");
+		expect(serialized).not.toContain("artifacts/semgrep.json");
+		expect(serialized).toContain("raw_result artifact");
+	});
+
+	it("reports redaction when an evidence-only path is outside the project", async () => {
+		const scanRunId = await seedFindingBackedScan({
+			evidencePath: "/Users/alice/private/evidence.ts",
+		});
+		const exportPayload = await buildStaticIntelligenceExport(
+			connection.db,
+			scanRunId,
+			{ generatedAt: GENERATED_AT },
+		);
+		expect(exportPayload.scanSummary.degradedReasons).toContain(
+			"external_path_redacted",
+		);
+		expect(JSON.stringify(exportPayload)).not.toContain("/Users/alice");
 	});
 
 	it("redacts project roots and ignores raw review-only fields", async () => {
@@ -307,6 +323,7 @@ describe("Static Intelligence export builder", () => {
 		options: {
 			snippet?: string;
 			artifactMetadata?: Record<string, unknown>;
+			evidencePath?: string;
 		} = {},
 	) {
 		const scanRunId = await seedScanRun();
@@ -352,7 +369,7 @@ describe("Static Intelligence export builder", () => {
 			kind: "source-location",
 			title: "Source location",
 			artifactId: artifact.id,
-			location: { path: "src/app.ts", startLine: 12 },
+			location: { path: options.evidencePath ?? "src/app.ts", startLine: 12 },
 			snippet: options.snippet ?? "res.send(req.query.name);",
 			metadata: {},
 			createdAt: NOW,

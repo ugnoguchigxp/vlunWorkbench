@@ -5,10 +5,14 @@ import {
 	staticIntelligenceKnowledgeSourceManifestSchema,
 } from "../../../shared/schemas/static-intelligence-knowledge-source.schema";
 import type { AppDatabase } from "../../db";
+import type { StaticIntelligenceReadiness } from "../../../shared/schemas/static-intelligence-module.schema";
+import type { PersistedStaticIntelligenceGeneration } from "./generation-repository";
 import { buildStaticIntelligenceExport } from "./export-builder";
 
 export type StaticIntelligenceKnowledgeSourceManifestOptions = {
 	generatedAt?: Date;
+	generation?: PersistedStaticIntelligenceGeneration;
+	readiness?: StaticIntelligenceReadiness;
 };
 
 type JsonScalar = null | boolean | number | string;
@@ -72,7 +76,14 @@ export function buildStaticIntelligenceKnowledgeSourceManifest(
 			availableBundles: buildAvailableBundles(
 				scanRunId,
 				exportPayload.project.id,
+				options.generation?.generationId,
 			),
+			...(options.generation
+				? {
+						generation: manifestGeneration(options.generation),
+					}
+				: {}),
+			...(options.readiness ? { readiness: options.readiness } : {}),
 		};
 
 	const contentHash = sha256Hex(
@@ -86,6 +97,22 @@ export function buildStaticIntelligenceKnowledgeSourceManifest(
 			contentHash,
 		},
 	});
+}
+
+function manifestGeneration(generation: PersistedStaticIntelligenceGeneration) {
+	const snapshotRef = generation.structure.metadata.snapshotRef;
+	const exportHash = generation.export.metadata.exportHash;
+	if (!snapshotRef || !exportHash)
+		throw new Error("Generation provenance missing.");
+	return {
+		generationId: generation.generationId,
+		generatedAt: generation.structure.metadata.generatedAt,
+		sourceTreeHash: generation.structure.metadata.sourceTreeHash,
+		sourceStateHash: generation.structure.metadata.sourceStateHash,
+		snapshotRef,
+		exportHash,
+		status: generation.status,
+	} as const;
 }
 
 export async function buildStaticIntelligenceKnowledgeSourceManifestForScan(
@@ -140,7 +167,12 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 function contentHashInput(
 	manifest: StaticIntelligenceKnowledgeSourceManifest,
 ): unknown {
-	const { generatedAt: _generatedAt, source, ...rest } = manifest;
+	const {
+		generatedAt: _generatedAt,
+		readiness: _readiness,
+		source,
+		...rest
+	} = manifest;
 	const { contentHash: _contentHash, ...sourceWithoutContentHash } = source;
 	return {
 		...rest,
@@ -157,7 +189,12 @@ function uniqueSorted(values: string[]): string[] {
 	return [...new Set(values)].sort((a, b) => a.localeCompare(b));
 }
 
-function buildAvailableBundles(scanRunId: string, projectId: string) {
+function buildAvailableBundles(
+	scanRunId: string,
+	projectId: string,
+	generationId?: string,
+) {
+	const generationArgs = generationId ? ["--generation-id", generationId] : [];
 	return [
 		{
 			kind: "static_intelligence_export" as const,
@@ -168,6 +205,7 @@ function buildAvailableBundles(scanRunId: string, projectId: string) {
 				"--",
 				"--scan-run-id",
 				scanRunId,
+				...generationArgs,
 			],
 			description: "Fetch the full Static Intelligence export payload.",
 		},
@@ -178,14 +216,14 @@ function buildAvailableBundles(scanRunId: string, projectId: string) {
 				"run",
 				"intelligence:code-structure",
 				"--",
-				"--project-path",
-				"<project-path>",
-				"--project-id",
-				projectId,
+				...(generationId
+					? ["--scan-run-id", scanRunId, ...generationArgs]
+					: ["--project-path", "<project-path>", "--project-id", projectId]),
 			],
-			description:
-				"Extract a redacted lightweight code structure snapshot for the project.",
-			requires: { projectPath: true },
+			description: generationId
+				? "Fetch the persisted redacted code structure snapshot for this generation."
+				: "Extract a redacted lightweight code structure snapshot for the project.",
+			...(generationId ? {} : { requires: { projectPath: true } }),
 		},
 		{
 			kind: "agent_query" as const,
@@ -196,6 +234,7 @@ function buildAvailableBundles(scanRunId: string, projectId: string) {
 				"--",
 				"--scan-run-id",
 				scanRunId,
+				...generationArgs,
 				"--kind",
 				"project_overview",
 			],
@@ -210,6 +249,7 @@ function buildAvailableBundles(scanRunId: string, projectId: string) {
 				"--",
 				"--scan-run-id",
 				scanRunId,
+				...generationArgs,
 				"--kind",
 				"evidence_bundle",
 				"--finding-id",
@@ -227,6 +267,7 @@ function buildAvailableBundles(scanRunId: string, projectId: string) {
 				"--",
 				"--scan-run-id",
 				scanRunId,
+				...generationArgs,
 				"--kind",
 				"verification_commands",
 			],
@@ -241,6 +282,7 @@ function buildAvailableBundles(scanRunId: string, projectId: string) {
 				"--",
 				"--scan-run-id",
 				scanRunId,
+				...generationArgs,
 			],
 			description:
 				"Fetch reusable guardrail material when Phase 35 is available.",

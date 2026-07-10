@@ -324,6 +324,10 @@ vulnWorkbench は task の採用、削除、統合、順序付け、queue admiss
 
 ## Agent Tool Surface
 
+Phase 40 以降の primary generation path は `intelligence:build` である。scan の registered project path から bounded structure extraction を行い、structure / export を一つの `generationId` で `scan_artifacts` に永続化する。UI / CLI / manifest / MCP の read path は latest valid generation または明示的に pin された generation を読み、GET / MCP から暗黙 refresh しない。
+
+Project Intelligence の Ontology Handoff は module candidate、structure fact、risk/evidence ref、freshness を公開する read model である。canonical domain / capability / invariant / task を生成せず、それらの採用と task compilation は NightWorkers が所有する。
+
 外部エージェント向けには、低レベルすぎる table access ではなく、意味単位の query を提供する。
 
 候補:
@@ -336,6 +340,7 @@ intelligence:agent-query evidence_bundle
 intelligence:agent-query verification_commands
 intelligence:export
 intelligence:code-structure
+intelligence:build
 intelligence:knowledge-source
 intelligence:guardrail-material
 ```

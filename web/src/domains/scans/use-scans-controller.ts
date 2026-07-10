@@ -1,5 +1,6 @@
 import type { FormEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouterState } from "@tanstack/react-router";
 import {
 	type AttackSurfaceItem,
 	browseProjectFolder,
@@ -157,8 +158,16 @@ export const useScansController = ({
 	runWithBusy,
 	setErrorText,
 }: ScansDomainSectionProps) => {
+	const location = useRouterState({ select: (state) => state.location });
+	const requestedSearch = useMemo(
+		() => new URLSearchParams(location.searchStr),
+		[location.searchStr],
+	);
+	const requestedProjectId = requestedSearch.get("projectId") ?? "";
+	const requestedScanRunId = requestedSearch.get("scanRunId") ?? "";
 	const [projects, setProjects] = useState<Project[]>([]);
-	const [selectedProjectId, setSelectedProjectId] = useState("");
+	const [selectedProjectId, setSelectedProjectId] =
+		useState(requestedProjectId);
 	const [projectFolderPath, setProjectFolderPath] = useState("");
 	const [projectNameInput, setProjectNameInput] = useState("");
 	const [projectDefaultBranch, setProjectDefaultBranch] = useState("main");
@@ -166,7 +175,8 @@ export const useScansController = ({
 	const [projectBrowseLoading, setProjectBrowseLoading] = useState(false);
 	const [showNewProjectModal, setShowNewProjectModal] = useState(false);
 	const [scanRuns, setScanRuns] = useState<ScanRun[]>([]);
-	const [selectedScanRunId, setSelectedScanRunId] = useState("");
+	const [selectedScanRunId, setSelectedScanRunId] =
+		useState(requestedScanRunId);
 	const [scanListTab, setScanListTab] = useState<"runs" | "findings">("runs");
 	const [scanDetailTab, setScanDetailTab] = useState<ScanDetailTab>("review");
 	const [actionQueueFilter, setActionQueueFilter] =
@@ -377,7 +387,12 @@ export const useScansController = ({
 		void fetchProjects()
 			.then((items) => {
 				setProjects(items);
-				if (items[0] && !selectedProjectId) setSelectedProjectId(items[0].id);
+				setSelectedProjectId((current) => {
+					const preferred = requestedProjectId || current;
+					return items.some((item) => item.id === preferred)
+						? preferred
+						: (items[0]?.id ?? "");
+				});
 			})
 			.catch((err) =>
 				setErrorText(
@@ -386,7 +401,7 @@ export const useScansController = ({
 						: "プロジェクトの読み込みに失敗しました。",
 				),
 			);
-	}, [active, selectedProjectId, setErrorText]);
+	}, [active, requestedProjectId, setErrorText]);
 
 	useEffect(() => {
 		if (!active || !selectedProjectId) return;
@@ -396,7 +411,11 @@ export const useScansController = ({
 		void fetchScans(selectedProjectId)
 			.then((runs) => {
 				setScanRuns(runs);
-				setSelectedScanRunId(runs[0]?.id ?? "");
+				setSelectedScanRunId(
+					runs.some((run) => run.id === requestedScanRunId)
+						? requestedScanRunId
+						: (runs[0]?.id ?? ""),
+				);
 				if (!runs[0]) {
 					setFindings([]);
 					setSelectedFindingId("");
@@ -410,7 +429,7 @@ export const useScansController = ({
 						: "scan の読み込みに失敗しました。",
 				),
 			);
-	}, [active, selectedProjectId, setErrorText]);
+	}, [active, requestedScanRunId, selectedProjectId, setErrorText]);
 
 	useEffect(() => {
 		setSelectedFindingId("");

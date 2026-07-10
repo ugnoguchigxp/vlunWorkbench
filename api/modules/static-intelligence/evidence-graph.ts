@@ -6,7 +6,7 @@ import type {
 	StaticIntelligenceHandoff,
 } from "../../../shared/schemas/static-intelligence.schema";
 import {
-	extractFindingPath,
+	extractFindingPathResult,
 	groupEvidenceByFindingId,
 	normalizeStaticIntelligencePath,
 } from "./file-risk-index";
@@ -15,6 +15,7 @@ import type {
 	StaticIntelligenceEvidenceRow,
 	StaticIntelligenceSourceBundle,
 } from "./types";
+import { toProjectRelativePath } from "./path-boundary";
 
 export function buildDiagnosticEvidenceGraph(
 	bundle: StaticIntelligenceSourceBundle,
@@ -72,7 +73,11 @@ export function buildDiagnosticEvidenceGraph(
 
 	for (const finding of bundle.findings) {
 		const findingEvidences = evidenceByFindingId.get(finding.id) ?? [];
-		const path = extractFindingPath(finding, findingEvidences);
+		const path = extractFindingPathResult(
+			finding,
+			findingEvidences,
+			bundle.project.repoPath,
+		).path;
 		const fileNode = fileNodeId(path);
 
 		addNode(nodes, {
@@ -123,7 +128,10 @@ export function buildDiagnosticEvidenceGraph(
 				sourceId: evidence.id,
 				metadata: {
 					kind: evidence.kind,
-					location: safeLocationMetadata(evidence.location),
+					location: safeLocationMetadata(
+						evidence.location,
+						bundle.project.repoPath,
+					),
 				},
 			});
 			addEdge(edges, {
@@ -218,12 +226,11 @@ function addArtifactNode(
 	addNode(nodes, {
 		id: artifactNodeId(artifact.id),
 		kind: "artifact",
-		label: artifact.path,
+		label: `${artifact.kind} artifact`,
 		sourceId: artifact.id,
 		metadata: {
 			kind: artifact.kind,
 			format: artifact.format,
-			path: artifact.path,
 			sha256: artifact.sha256,
 			sizeBytes: artifact.sizeBytes,
 		},
@@ -263,9 +270,15 @@ function addEdge(
 
 function safeLocationMetadata(
 	location: StaticIntelligenceEvidenceRow["location"],
+	projectRoot: string,
 ): Record<string, unknown> | undefined {
 	if (!location) return undefined;
-	const path = normalizeStaticIntelligencePath(location.path ?? location.file);
+	const candidate = normalizeStaticIntelligencePath(
+		location.path ?? location.file,
+	);
+	const path = candidate
+		? toProjectRelativePath(projectRoot, candidate).path
+		: "unknown";
 	const startLine =
 		typeof location.startLine === "number" ? location.startLine : undefined;
 	const endLine =

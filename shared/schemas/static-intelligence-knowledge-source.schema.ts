@@ -3,6 +3,7 @@ import {
 	staticIntelligenceEvidenceQualitySchema,
 	staticIntelligenceRiskBandSchema,
 } from "./static-intelligence.schema";
+import { staticIntelligenceReadinessSchema } from "./static-intelligence-module.schema";
 
 export const staticIntelligenceKnowledgeSourceBundleKindSchema = z.enum([
 	"static_intelligence_export",
@@ -80,6 +81,19 @@ export const staticIntelligenceKnowledgeSourceManifestSchema = z
 				})
 				.strict(),
 		),
+		generation: z
+			.object({
+				generationId: z.string().min(1),
+				generatedAt: z.string(),
+				sourceTreeHash: sha256HexSchema,
+				sourceStateHash: sha256HexSchema,
+				snapshotRef: z.string().min(1),
+				exportHash: sha256HexSchema,
+				status: z.enum(["available", "degraded", "stale"]),
+			})
+			.strict()
+			.optional(),
+		readiness: staticIntelligenceReadinessSchema.optional(),
 	})
 	.strict();
 export type StaticIntelligenceKnowledgeSourceManifest = z.infer<

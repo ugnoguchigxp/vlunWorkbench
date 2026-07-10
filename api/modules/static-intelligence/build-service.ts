@@ -15,9 +15,18 @@ import {
 	sha256Text,
 } from "./generation-types";
 import { StaticIntelligenceRepository } from "./repository";
+import { buildStaticIntelligenceKnowledgeSourceManifest } from "./knowledge-source-manifest";
+import type { StaticIntelligenceReadiness } from "../../../shared/schemas/static-intelligence-module.schema";
 
 export type StaticIntelligenceBuildStage = {
-	name: "code_structure" | "export" | "persist" | "semantic_index";
+	name:
+		| "validate_source"
+		| "build_code_structure"
+		| "normalize_paths"
+		| "build_export"
+		| "persist_generation"
+		| "build_manifest"
+		| "optional_semantic_index";
 	status: "completed" | "degraded" | "skipped";
 	reasonCodes: string[];
 	durationMs: number;
@@ -26,7 +35,10 @@ export type StaticIntelligenceBuildStage = {
 export type StaticIntelligenceBuildResult = {
 	ok: true;
 	status: "completed" | "partial";
+	projectId: string;
 	scanRunId: string;
+	generationId: string;
+	generatedAt: string;
 	generation: {
 		generationId: string;
 		status: "available" | "degraded";
@@ -37,6 +49,12 @@ export type StaticIntelligenceBuildResult = {
 		exportHash: string;
 		degradedReasons: string[];
 	};
+	artifacts: {
+		structure: { id: string; sha256: string; snapshotRef: string };
+		export: { id: string; sha256: string; exportHash: string };
+	};
+	readiness: StaticIntelligenceReadiness;
+	degradedReasons: string[];
 	stages: StaticIntelligenceBuildStage[];
 };
 
@@ -69,7 +87,14 @@ export async function buildStaticIntelligenceGeneration(params: {
 		);
 	}
 
-	const stages: StaticIntelligenceBuildStage[] = [];
+	const stages: StaticIntelligenceBuildStage[] = [
+		{
+			name: "validate_source",
+			status: "completed",
+			reasonCodes: [],
+			durationMs: 0,
+		},
+	];
 	const codeStructureStartedAt = Date.now();
 	const snapshot = await buildCodeStructureSnapshot({
 		projectPath: bundle.project.repoPath,
@@ -77,7 +102,7 @@ export async function buildStaticIntelligenceGeneration(params: {
 		maxFiles: params.maxFiles ?? 5000,
 	});
 	stages.push({
-		name: "code_structure",
+		name: "build_code_structure",
 		status: snapshot.status === "partial" ? "degraded" : "completed",
 		reasonCodes: snapshot.degradedReasons,
 		durationMs: Date.now() - codeStructureStartedAt,
@@ -88,8 +113,17 @@ export async function buildStaticIntelligenceGeneration(params: {
 		generatedAt: params.generatedAt,
 		codeStructureSnapshot: snapshot,
 	});
+	const pathReasonCodes = exportPayload.scanSummary.degradedReasons.filter(
+		(reason) => reason === "external_path_redacted",
+	);
 	stages.push({
-		name: "export",
+		name: "normalize_paths",
+		status: pathReasonCodes.length > 0 ? "degraded" : "completed",
+		reasonCodes: pathReasonCodes,
+		durationMs: 0,
+	});
+	stages.push({
+		name: "build_export",
 		status:
 			exportPayload.scanSummary.degradedReasons.length > 0
 				? "degraded"
@@ -106,30 +140,41 @@ export async function buildStaticIntelligenceGeneration(params: {
 		scanRunId: params.scanRunId,
 		snapshot,
 		exportPayload,
-		sourceRevision: resolveSourceRevision(
+		sourceRevision: probeSourceRevision(
 			bundle.project.repoPath,
 			buildSourceTreeHash(snapshot),
 		),
 		expectedSourceStateHash: buildSourceStateHash(bundle),
 	});
 	stages.push({
-		name: "persist",
+		name: "persist_generation",
 		status: generation.status === "degraded" ? "degraded" : "completed",
 		reasonCodes: generation.structure.metadata.degradedReasons,
 		durationMs: Date.now() - persistStartedAt,
 	});
 
+	const manifestStartedAt = Date.now();
+	buildStaticIntelligenceKnowledgeSourceManifest(generation.export.payload, {
+		generation,
+	});
+	stages.push({
+		name: "build_manifest",
+		status: generation.status === "degraded" ? "degraded" : "completed",
+		reasonCodes: generation.structure.metadata.degradedReasons,
+		durationMs: Date.now() - manifestStartedAt,
+	});
+
 	const semanticStartedAt = Date.now();
 	if (!params.includeSemantic) {
 		stages.push({
-			name: "semantic_index",
+			name: "optional_semantic_index",
 			status: "skipped",
 			reasonCodes: ["semantic_index_not_requested"],
 			durationMs: 0,
 		});
 	} else if (!params.semanticIndexer) {
 		stages.push({
-			name: "semantic_index",
+			name: "optional_semantic_index",
 			status: "skipped",
 			reasonCodes: ["semantic_index_provider_unavailable"],
 			durationMs: 0,
@@ -138,14 +183,14 @@ export async function buildStaticIntelligenceGeneration(params: {
 		try {
 			await params.semanticIndexer(params.scanRunId);
 			stages.push({
-				name: "semantic_index",
+				name: "optional_semantic_index",
 				status: "completed",
 				reasonCodes: [],
 				durationMs: Date.now() - semanticStartedAt,
 			});
 		} catch {
 			stages.push({
-				name: "semantic_index",
+				name: "optional_semantic_index",
 				status: "degraded",
 				reasonCodes: ["semantic_index_failed"],
 				durationMs: Date.now() - semanticStartedAt,
@@ -168,6 +213,16 @@ function buildResult(
 	if (!snapshotRef || !exportHash) {
 		throw new Error("Persisted generation metadata is incomplete.");
 	}
+	const semanticStage = stages.find(
+		(stage) => stage.name === "optional_semantic_index",
+	);
+	const readiness = buildReadiness(generation, semanticStage);
+	const degradedReasons = uniqueReasons([
+		...generation.structure.metadata.degradedReasons,
+		...stages.flatMap((stage) =>
+			stage.status === "degraded" ? stage.reasonCodes : [],
+		),
+	]);
 	return {
 		ok: true,
 		status:
@@ -175,7 +230,10 @@ function buildResult(
 			stages.some((stage) => stage.status === "degraded")
 				? "partial"
 				: "completed",
+		projectId: generation.projectId,
 		scanRunId,
+		generationId: generation.generationId,
+		generatedAt: structureMetadata.generatedAt,
 		generation: {
 			generationId: generation.generationId,
 			status: generation.status,
@@ -186,8 +244,69 @@ function buildResult(
 			exportHash,
 			degradedReasons: structureMetadata.degradedReasons,
 		},
+		artifacts: {
+			structure: {
+				id: generation.structure.artifact.id,
+				sha256: generation.structure.artifact.sha256,
+				snapshotRef,
+			},
+			export: {
+				id: generation.export.artifact.id,
+				sha256: generation.export.artifact.sha256,
+				exportHash,
+			},
+		},
+		readiness,
+		degradedReasons,
 		stages,
 	};
+}
+
+function buildReadiness(
+	generation: PersistedStaticIntelligenceGeneration,
+	semanticStage: StaticIntelligenceBuildStage | undefined,
+): StaticIntelligenceReadiness {
+	const status = generation.status;
+	const base = {
+		status,
+		reasonCodes: generation.structure.metadata.degradedReasons,
+		generatedAt: generation.structure.metadata.generatedAt,
+		generationId: generation.generationId,
+		sourceRef: `scan:${generation.scanRunId}`,
+	};
+	const semantic =
+		semanticStage?.status === "completed"
+			? base
+			: {
+					...base,
+					status:
+						semanticStage?.status === "degraded"
+							? ("degraded" as const)
+							: ("missing" as const),
+					reasonCodes: semanticStage?.reasonCodes ?? ["semantic_index_missing"],
+				};
+	return {
+		export: base,
+		fileRiskIndex: base,
+		evidenceGraph: base,
+		codeStructure: base,
+		semanticIndex: semantic,
+		agentBundle: base,
+		ontologyHandoff:
+			generation.structure.snapshot.files.length > 0
+				? base
+				: {
+						...base,
+						status: "degraded",
+						reasonCodes: ["module_candidates_missing"],
+					},
+	};
+}
+
+function uniqueReasons(values: string[]): string[] {
+	return [...new Set(values.filter(Boolean))].sort((a, b) =>
+		a.localeCompare(b),
+	);
 }
 
 function isReadableDirectory(projectPath: string): boolean {
@@ -198,7 +317,7 @@ function isReadableDirectory(projectPath: string): boolean {
 	}
 }
 
-function resolveSourceRevision(
+export function probeSourceRevision(
 	projectPath: string,
 	sourceTreeHash: string,
 ): StaticIntelligenceSourceRevision {
@@ -215,7 +334,7 @@ function resolveSourceRevision(
 			stdio: ["ignore", "pipe", "ignore"],
 		}).trim();
 		const dirtyHash = dirty
-			? sha256Text(`${dirty}\n${sourceTreeHash}`)
+			? buildDirtyStateHash(projectPath, dirty, sourceTreeHash)
 			: undefined;
 		return {
 			kind: "git",
@@ -229,4 +348,54 @@ function resolveSourceRevision(
 			value: sourceTreeHash,
 		};
 	}
+}
+
+function buildDirtyStateHash(
+	projectPath: string,
+	status: string,
+	sourceTreeHash: string,
+): string {
+	const diff = execFileSync(
+		"git",
+		["diff", "--binary", "--no-ext-diff", "HEAD", "--"],
+		{
+			cwd: projectPath,
+			encoding: "utf8",
+			stdio: ["ignore", "pipe", "ignore"],
+			maxBuffer: 4 * 1024 * 1024,
+		},
+	);
+	const untrackedOutput = execFileSync(
+		"git",
+		["ls-files", "--others", "--exclude-standard", "-z"],
+		{
+			cwd: projectPath,
+			encoding: "utf8",
+			stdio: ["ignore", "pipe", "ignore"],
+			maxBuffer: 1024 * 1024,
+		},
+	);
+	const untracked = untrackedOutput
+		.split("\0")
+		.filter(Boolean)
+		.sort((left, right) => left.localeCompare(right))
+		.slice(0, 200)
+		.map((relativePath) => {
+			const absolutePath = `${projectPath}/${relativePath}`;
+			try {
+				const stat = fs.statSync(absolutePath);
+				if (!stat.isFile()) return `${relativePath}:non_file`;
+				if (stat.size > 1024 * 1024) {
+					return `${relativePath}:${stat.size}:${stat.mtimeMs}`;
+				}
+				return `${relativePath}:${sha256Text(
+					fs.readFileSync(absolutePath).toString("base64"),
+				)}`;
+			} catch {
+				return `${relativePath}:unavailable`;
+			}
+		});
+	return sha256Text(
+		JSON.stringify({ status, diff, untracked, sourceTreeHash }),
+	);
 }

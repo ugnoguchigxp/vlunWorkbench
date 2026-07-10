@@ -8,6 +8,10 @@ import {
 } from "../modules/static-intelligence/agent-query";
 import { StaticIntelligenceScanRunNotFoundError } from "../modules/static-intelligence/export-builder";
 import { StaticIntelligenceEmbeddingRepository } from "../modules/static-intelligence/embedding-repository";
+import {
+	StaticIntelligenceGenerationRepository,
+	StaticIntelligenceGenerationValidationError,
+} from "../modules/static-intelligence/generation-repository";
 import { createAzureOpenAiProviderFromAppEnv } from "../providers/azureOpenAiProviderFactory";
 import type { EmbeddingProvider } from "../providers/types";
 import { staticIntelligenceAgentQueryInputSchema } from "../../shared/schemas/static-intelligence-agent-query.schema";
@@ -25,6 +29,7 @@ async function main(): Promise<number> {
 			args: process.argv.slice(2),
 			options: {
 				"scan-run-id": { type: "string" },
+				"generation-id": { type: "string" },
 				kind: { type: "string" },
 				query: { type: "string" },
 				"finding-id": { type: "string" },
@@ -102,6 +107,17 @@ async function main(): Promise<number> {
 	}
 
 	try {
+		const generationRepository = new StaticIntelligenceGenerationRepository(
+			dbConnection.db,
+		);
+		const generation = argsValues["generation-id"]
+			? await generationRepository.loadGeneration(
+					input.scanRunId,
+					argsValues["generation-id"],
+				)
+			: await generationRepository.loadLatestValidGeneration(input.scanRunId);
+		if (!generation)
+			return fail(2, "Static Intelligence generation missing.", pretty);
 		const result = await runStaticIntelligenceAgentQuery({
 			db: dbConnection.db,
 			input,
@@ -111,6 +127,7 @@ async function main(): Promise<number> {
 				includeSemantic: Boolean(input.includeSemantic),
 				env,
 			}),
+			exportPayload: generation.export.payload,
 		});
 		writeResult(result, pretty);
 		return 0;
@@ -118,6 +135,7 @@ async function main(): Promise<number> {
 		if (
 			error instanceof StaticIntelligenceScanRunNotFoundError ||
 			error instanceof StaticIntelligenceAgentQueryInvalidRequestError ||
+			error instanceof StaticIntelligenceGenerationValidationError ||
 			error instanceof ZodError
 		) {
 			return fail(2, message(error), pretty);

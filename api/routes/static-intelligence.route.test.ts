@@ -128,12 +128,29 @@ function agentResult(): StaticIntelligenceAgentQueryResult {
 	};
 }
 
+function readiness(item: Record<string, unknown>) {
+	return {
+		export: item,
+		fileRiskIndex: item,
+		evidenceGraph: item,
+		codeStructure: item,
+		semanticIndex: item,
+		agentBundle: item,
+		ontologyHandoff: item,
+	};
+}
+
 function buildApp(options: {
 	projects?: Record<string, any>;
 	scans?: Record<string, any>;
 	scansForProject?: any[];
-	buildExport?: ReturnType<typeof vi.fn>;
+	buildExport?: (
+		db: unknown,
+		scanRunId: string,
+	) => Promise<StaticIntelligenceExportV1>;
 	runAgentQuery?: ReturnType<typeof vi.fn>;
+	readResolver?: any;
+	buildGeneration?: ReturnType<typeof vi.fn>;
 }) {
 	const projectRepository = {
 		findById: vi.fn(async (id: string) => options.projects?.[id] ?? null),
@@ -141,6 +158,48 @@ function buildApp(options: {
 	const scanRepository = {
 		findById: vi.fn(async (id: string) => options.scans?.[id] ?? null),
 		listScanRunsByProject: vi.fn(async () => options.scansForProject ?? []),
+	};
+	const available = {
+		status: "available",
+		reasonCodes: [],
+		generationId: "00000000-0000-4000-8000-000000000010",
+	};
+	const missing = { status: "missing", reasonCodes: ["generation_missing"] };
+	const defaultResolver = {
+		listSummaries: vi.fn(async () => []),
+		resolveView: vi.fn(async ({ project: selectedProject }: any) => {
+			const selectedScan = options.scansForProject?.at(-1) ?? null;
+			const payload =
+				selectedScan && options.buildExport
+					? await options.buildExport({}, selectedScan.id)
+					: null;
+			return {
+				project: selectedProject,
+				latestUsableScan: selectedScan,
+				selectedScan,
+				selection: {
+					requestedScanRunId: null,
+					selectedScanRunId: selectedScan?.id ?? null,
+					isLatest: true,
+					selectionReason: selectedScan ? "latest_completed" : "none",
+				},
+				generation: payload
+					? { generationId: available.generationId, status: "available" }
+					: null,
+				export: payload,
+				readiness: readiness(payload ? available : missing),
+				degradedReasons: payload ? [] : ["generation_missing"],
+			};
+		}),
+		resolveGeneration: vi.fn(async () => {
+			const payload = options.buildExport
+				? await options.buildExport({}, "s-1")
+				: exportPayload();
+			return {
+				generationId: available.generationId,
+				export: { payload },
+			};
+		}),
 	};
 	const app = new Hono();
 	app.use("*", async (c, next) => {
@@ -163,8 +222,9 @@ function buildApp(options: {
 			db: {} as any,
 			projectRepository: projectRepository as any,
 			scanRepository: scanRepository as any,
-			buildExport: options.buildExport as any,
 			runAgentQuery: options.runAgentQuery as any,
+			readResolver: (options.readResolver ?? defaultResolver) as any,
+			buildGeneration: options.buildGeneration as any,
 		}),
 	);
 	return { app, projectRepository, scanRepository };
@@ -185,14 +245,12 @@ describe("Static Intelligence Route", () => {
 		const res = await app.request("/api/projects/p-1/intelligence");
 		expect(res.status).toBe(200);
 		const body = await res.json();
-		expect(body.latestScan.id).toBe("s-1");
-		expect(body.latestExport.scan.id).toBe("s-1");
-		expect(body.availability).toMatchObject({
-			export: "available",
-			fileRiskIndex: "available",
-			evidenceGraph: "available",
-			codeStructure: "missing",
-			agentBundle: "available",
+		expect(body.selectedScan.id).toBe("s-1");
+		expect(body.export.scan.id).toBe("s-1");
+		expect(body.readiness).toMatchObject({
+			export: { status: "available" },
+			fileRiskIndex: { status: "available" },
+			evidenceGraph: { status: "available" },
 		});
 		expect(buildExport).toHaveBeenCalledWith({}, "s-1");
 	});
@@ -208,10 +266,10 @@ describe("Static Intelligence Route", () => {
 		const res = await app.request("/api/projects/p-1/intelligence");
 		expect(res.status).toBe(200);
 		const body = await res.json();
-		expect(body.latestScan).toBeNull();
-		expect(body.latestExport).toBeNull();
-		expect(body.availability.export).toBe("missing");
-		expect(body.degradedReasons).toContain("project has no scan runs");
+		expect(body.selectedScan).toBeNull();
+		expect(body.export).toBeNull();
+		expect(body.readiness.export.status).toBe("missing");
+		expect(body.degradedReasons).toContain("generation_missing");
 		expect(buildExport).not.toHaveBeenCalled();
 	});
 
@@ -253,7 +311,32 @@ describe("Static Intelligence Route", () => {
 		expect(runAgentQuery).toHaveBeenCalledWith({
 			db: {},
 			input: { scanRunId: "s-1", queryKind: "verification_commands" },
+			exportPayload: expect.objectContaining({ version: "v1" }),
 		});
+	});
+
+	it("pins agent reads to the requested persisted generation", async () => {
+		const generationId = "00000000-0000-4000-8000-000000000020";
+		const resolveGeneration = vi.fn(async () => ({
+			generationId,
+			export: { payload: exportPayload() },
+		}));
+		const runAgentQuery = vi.fn(async () => agentResult());
+		const { app } = buildApp({
+			projects: { "p-1": project() },
+			scans: { "s-1": scan() },
+			runAgentQuery,
+			readResolver: {
+				listSummaries: vi.fn(async () => []),
+				resolveGeneration,
+			},
+		});
+
+		const res = await app.request(
+			`/api/scans/s-1/intelligence/agent-query?mode=overview&generationId=${generationId}`,
+		);
+		expect(res.status).toBe(200);
+		expect(resolveGeneration).toHaveBeenCalledWith("s-1", generationId);
 	});
 
 	it("requires findingId for evidence bundle previews", async () => {
@@ -269,5 +352,43 @@ describe("Static Intelligence Route", () => {
 		);
 		expect(res.status).toBe(400);
 		expect(runAgentQuery).not.toHaveBeenCalled();
+	});
+
+	it("returns one selected persisted view for the requested scan", async () => {
+		const resolveView = vi.fn(async () => ({
+			project: project(),
+			latestUsableScan: scan(),
+			selectedScan: scan(),
+			selection: { requestedScanRunId: "s-1", selectedScanRunId: "s-1", isLatest: true, selectionReason: "requested" },
+			generation: null,
+			export: null,
+			readiness: {},
+			degradedReasons: [],
+		}));
+		const { app } = buildApp({
+			projects: { "p-1": project() },
+			readResolver: { resolveView, listSummaries: vi.fn() },
+		});
+		const res = await app.request("/api/projects/p-1/intelligence?scanRunId=s-1");
+		expect(res.status).toBe(200);
+		expect(resolveView).toHaveBeenCalledTimes(1);
+		expect(resolveView).toHaveBeenCalledWith(expect.objectContaining({ requestedScanRunId: "s-1" }));
+	});
+
+	it("rejects refresh when the scan does not belong to the route project", async () => {
+		const buildGeneration = vi.fn();
+		const { app } = buildApp({
+			projects: { "p-1": project() },
+			scans: { "s-2": scan({ id: "s-2", projectId: "p-2" }) },
+			readResolver: { listSummaries: vi.fn(), resolveView: vi.fn() },
+			buildGeneration,
+		});
+		const res = await app.request("/api/projects/p-1/intelligence/refresh", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ scanRunId: "s-2" }),
+		});
+		expect(res.status).toBe(404);
+		expect(buildGeneration).not.toHaveBeenCalled();
 	});
 });

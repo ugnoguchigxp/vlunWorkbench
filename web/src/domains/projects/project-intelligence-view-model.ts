@@ -1,5 +1,5 @@
 import type { DiagnosticEvidenceGraph } from "../../../../shared/schemas/static-intelligence.schema";
-import type { ProjectIntelligenceOverview } from "../../api";
+import type { ProjectIntelligenceSummary } from "../../api";
 
 export type ProjectCardSummary = {
 	riskBand: string;
@@ -11,16 +11,15 @@ export type ProjectCardSummary = {
 };
 
 export function buildProjectCardSummary(
-	overview: ProjectIntelligenceOverview | null | undefined,
+	overview: ProjectIntelligenceSummary | null | undefined,
 ): ProjectCardSummary {
 	return {
-		riskBand: overview?.latestExport?.scanSummary.riskBand ?? "none",
-		evidenceQuality:
-			overview?.latestExport?.scanSummary.evidenceQuality ?? "missing",
-		findingCount: overview?.latestExport?.scan.findingCount ?? 0,
-		codeStructureStatus: overview?.availability.codeStructure ?? "missing",
-		scanStatus: overview?.latestScan?.status ?? "none",
-		hasDegradedReasons: (overview?.degradedReasons.length ?? 0) > 0,
+		riskBand: overview?.riskBand ?? "none",
+		evidenceQuality: overview?.evidenceQuality ?? "missing",
+		findingCount: overview?.findingCount ?? 0,
+		codeStructureStatus: overview?.codeStructureStatus ?? "missing",
+		scanStatus: overview?.scanStatus ?? "none",
+		hasDegradedReasons: (overview?.degradedReasonCount ?? 0) > 0,
 	};
 }
 

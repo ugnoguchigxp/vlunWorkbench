@@ -1,38 +1,61 @@
 import { zValidator } from "@hono/zod-validator";
 import { Hono } from "hono";
 import { z } from "zod";
-import type {
-	StaticIntelligenceCodeStructureEnrichment,
-	StaticIntelligenceExportV1,
-} from "../../shared/schemas/static-intelligence.schema";
 import type { AppDatabase } from "../db";
+import { buildStaticIntelligenceGeneration } from "../modules/static-intelligence/build-service";
+import { codeStructureFileTagSchema } from "../../shared/schemas/static-intelligence-code-structure.schema";
+import { buildStaticIntelligenceModuleCandidates } from "../modules/static-intelligence/module-candidates";
+import { toProjectRelativePath } from "../modules/static-intelligence/path-boundary";
+import {
+	StaticIntelligenceReadModelResolver,
+	StaticIntelligenceSelectionNotFoundError,
+} from "../modules/static-intelligence/read-model-resolver";
 import { getAuthContextUser } from "../modules/auth/context";
 import { HttpError } from "../modules/auth/errors";
 import { runStaticIntelligenceAgentQuery } from "../modules/static-intelligence/agent-query";
-import {
-	buildStaticIntelligenceExport,
-	StaticIntelligenceScanRunNotFoundError,
-} from "../modules/static-intelligence/export-builder";
 import type {
 	ProjectRepository,
 	ScanRepository,
 } from "../modules/scans/repositories";
 
-type IntelligenceAvailability = {
-	export: "available" | "missing" | "failed";
-	fileRiskIndex: "available" | "missing";
-	evidenceGraph: "available" | "missing";
-	codeStructure: "available" | "missing" | "degraded";
-	agentBundle: "available" | "missing" | "degraded";
-};
-
 type StaticIntelligenceRouteDeps = {
 	db: AppDatabase;
 	projectRepository: ProjectRepository;
 	scanRepository: ScanRepository;
-	buildExport?: typeof buildStaticIntelligenceExport;
 	runAgentQuery?: typeof runStaticIntelligenceAgentQuery;
+	readResolver?: StaticIntelligenceReadModelResolver;
+	buildGeneration?: typeof buildStaticIntelligenceGeneration;
 };
+
+const viewQuerySchema = z.object({
+	scanRunId: z.string().trim().min(1).optional(),
+});
+
+const structureQuerySchema = z.object({
+	scanRunId: z.string().trim().min(1),
+	generationId: z.string().uuid().optional(),
+	query: z.string().trim().optional(),
+	tag: codeStructureFileTagSchema.optional(),
+	status: z.enum(["parsed", "degraded", "skipped"]).optional(),
+	cursor: z.coerce.number().int().nonnegative().default(0),
+	limit: z.coerce.number().int().min(1).max(500).default(100),
+});
+
+const structureFileQuerySchema = z.object({
+	scanRunId: z.string().trim().min(1),
+	generationId: z.string().uuid().optional(),
+	path: z.string().trim().min(1),
+});
+
+const ontologyHandoffQuerySchema = z.object({
+	scanRunId: z.string().trim().min(1),
+	generationId: z.string().uuid().optional(),
+});
+
+const refreshBodySchema = z.object({
+	scanRunId: z.string().trim().min(1),
+	includeSemantic: z.boolean().optional(),
+});
 
 const agentModeSchema = z.object({
 	mode: z
@@ -43,13 +66,23 @@ const agentModeSchema = z.object({
 	file: z.string().trim().min(1).optional(),
 	ruleId: z.string().trim().min(1).optional(),
 	scanner: z.string().trim().min(1).optional(),
+	generationId: z.string().uuid().optional(),
 });
 
 export function createStaticIntelligenceRoute(
 	deps: StaticIntelligenceRouteDeps,
 ) {
-	const buildExport = deps.buildExport ?? buildStaticIntelligenceExport;
 	const runAgentQuery = deps.runAgentQuery ?? runStaticIntelligenceAgentQuery;
+	const resolver =
+		deps.readResolver ??
+		new StaticIntelligenceReadModelResolver(
+			deps.db,
+			deps.projectRepository,
+			deps.scanRepository,
+		);
+	const buildGeneration =
+		deps.buildGeneration ?? buildStaticIntelligenceGeneration;
+	const activeRefreshes = new Set<string>();
 
 	async function assertProjectOwner(projectId: string, userId: string) {
 		const project = await deps.projectRepository.findById(projectId);
@@ -68,65 +101,219 @@ export function createStaticIntelligenceRoute(
 		return { scan, project };
 	}
 
-	async function latestScanForProject(projectId: string) {
-		const scans = await deps.scanRepository.listScanRunsByProject(projectId);
-		return [...scans].sort(compareScansNewestFirst)[0] ?? null;
-	}
-
 	return new Hono()
-		.get("/projects/:projectId/intelligence", async (c) => {
+		.get("/projects/intelligence-summaries", async (c) => {
 			const authUser = getAuthContextUser(c);
-			const projectId = c.req.param("projectId");
-			const project = await assertProjectOwner(projectId, authUser.userId);
-			const latestScan = await latestScanForProject(projectId);
-			const degradedReasons: string[] = [];
-
-			if (!latestScan) {
-				degradedReasons.push("project has no scan runs");
-				return c.json({
-					project,
-					latestScan: null,
-					latestExport: null,
-					availability: missingAvailability(),
-					degradedReasons,
-				});
-			}
-
-			const exportResult = await safeBuildExport(
-				buildExport,
-				deps.db,
-				latestScan.id,
-			);
-			if (!exportResult.ok) {
-				degradedReasons.push(exportResult.message);
-				return c.json({
-					project,
-					latestScan,
-					latestExport: null,
-					availability: {
-						...missingAvailability(),
-						export: "failed" as const,
-					},
-					degradedReasons,
-				});
-			}
-
-			const latestExport = exportResult.exportPayload;
-			degradedReasons.push(...latestExport.scanSummary.degradedReasons);
 			return c.json({
-				project,
-				latestScan,
-				latestExport,
-				availability: availabilityForExport(latestExport),
-				degradedReasons: sortedUnique(degradedReasons),
+				summaries: await resolver.listSummaries(authUser.userId),
 			});
 		})
+		.get(
+			"/projects/:projectId/intelligence",
+			zValidator("query", viewQuerySchema),
+			async (c) => {
+				const authUser = getAuthContextUser(c);
+				const projectId = c.req.param("projectId");
+				const project = await assertProjectOwner(projectId, authUser.userId);
+				try {
+					return c.json(
+						await resolver.resolveView({
+							project,
+							requestedScanRunId: c.req.valid("query").scanRunId,
+						}),
+					);
+				} catch (error) {
+					if (error instanceof StaticIntelligenceSelectionNotFoundError) {
+						throw new HttpError(404, "Scan run not found");
+					}
+					throw error;
+				}
+			},
+		)
+		.get(
+			"/projects/:projectId/intelligence/structure",
+			zValidator("query", structureQuerySchema),
+			async (c) => {
+				const authUser = getAuthContextUser(c);
+				const project = await assertProjectOwner(
+					c.req.param("projectId"),
+					authUser.userId,
+				);
+				const query = c.req.valid("query");
+				const scan = await deps.scanRepository.findById(query.scanRunId);
+				if (!scan || scan.projectId !== project.id)
+					throw new HttpError(404, "Scan run not found");
+				const generation = await resolver.resolveGeneration(
+					scan.id,
+					query.generationId,
+				);
+				if (!generation) {
+					return c.json({
+						status: "missing",
+						items: [],
+						modules: [],
+						nextCursor: null,
+					});
+				}
+				const risks = new Map(
+					generation.export.payload.fileRiskIndex.map((entry) => [
+						entry.path,
+						entry,
+					]),
+				);
+				const filtered = generation.structure.snapshot.files.filter((file) => {
+					if (
+						query.query &&
+						!file.path.toLowerCase().includes(query.query.toLowerCase())
+					)
+						return false;
+					if (query.tag && !file.tags.includes(query.tag)) return false;
+					if (query.status && file.parseStatus !== query.status) return false;
+					return true;
+				});
+				const items = filtered
+					.slice(query.cursor, query.cursor + query.limit)
+					.map((file) => ({
+						path: file.path,
+						language: file.language,
+						moduleKind: file.moduleKind,
+						tags: file.tags,
+						parseStatus: file.parseStatus,
+						importCount: file.imports.length,
+						exportCount: file.exportedSymbols.length,
+						packageCount: file.packageImports.length,
+						risk: risks.get(file.path) ?? null,
+					}));
+				const readiness = await resolver.resolveReadiness(project, generation);
+				return c.json({
+					status: readiness.codeStructure.status,
+					generationId: generation.generationId,
+					items,
+					modules: buildStaticIntelligenceModuleCandidates({
+						snapshot: generation.structure.snapshot,
+						exportPayload: generation.export.payload,
+					}),
+					nextCursor:
+						query.cursor + items.length < filtered.length
+							? query.cursor + items.length
+							: null,
+					total: filtered.length,
+				});
+			},
+		)
+		.get(
+			"/projects/:projectId/intelligence/structure/file",
+			zValidator("query", structureFileQuerySchema),
+			async (c) => {
+				const authUser = getAuthContextUser(c);
+				const project = await assertProjectOwner(
+					c.req.param("projectId"),
+					authUser.userId,
+				);
+				const query = c.req.valid("query");
+				const scan = await deps.scanRepository.findById(query.scanRunId);
+				if (!scan || scan.projectId !== project.id)
+					throw new HttpError(404, "Scan run not found");
+				const relative = toProjectRelativePath(project.repoPath, query.path);
+				if (!relative.ok) throw new HttpError(404, "Structure file not found");
+				const generation = await resolver.resolveGeneration(
+					scan.id,
+					query.generationId,
+				);
+				const file = generation?.structure.snapshot.files.find(
+					(item) => item.path === relative.path,
+				);
+				if (!generation || !file)
+					throw new HttpError(404, "Structure file not found");
+				const importedBy = generation.structure.snapshot.edges
+					.filter((edge) => edge.kind === "imports" && edge.to === file.path)
+					.map((edge) => edge.from)
+					.sort();
+				return c.json({
+					generationId: generation.generationId,
+					file: {
+						...file,
+						contentHash: undefined,
+						importedBy,
+						risk:
+							generation.export.payload.fileRiskIndex.find(
+								(entry) => entry.path === file.path,
+							) ?? null,
+					},
+				});
+			},
+		)
+		.get(
+			"/projects/:projectId/intelligence/ontology-handoff",
+			zValidator("query", ontologyHandoffQuerySchema),
+			async (c) => {
+				const authUser = getAuthContextUser(c);
+				const project = await assertProjectOwner(
+					c.req.param("projectId"),
+					authUser.userId,
+				);
+				const query = c.req.valid("query");
+				const scanRunId = query.scanRunId;
+				const scan = await deps.scanRepository.findById(scanRunId);
+				if (!scan || scan.projectId !== project.id)
+					throw new HttpError(404, "Scan run not found");
+				const generation = await resolver.resolveGeneration(
+					scanRunId,
+					query.generationId,
+				);
+				if (!generation) return c.json({ handoff: null, status: "missing" });
+				const readiness = await resolver.resolveReadiness(project, generation);
+				const handoff = await resolver.ontologyHandoff({
+					scanRunId,
+					generationId: generation.generationId,
+					status: readiness.ontologyHandoff.status,
+				});
+				return handoff
+					? c.json({ handoff })
+					: c.json({ handoff: null, status: "missing" });
+			},
+		)
+		.post(
+			"/projects/:projectId/intelligence/refresh",
+			zValidator("json", refreshBodySchema),
+			async (c) => {
+				const authUser = getAuthContextUser(c);
+				const project = await assertProjectOwner(
+					c.req.param("projectId"),
+					authUser.userId,
+				);
+				const input = c.req.valid("json");
+				const scan = await deps.scanRepository.findById(input.scanRunId);
+				if (!scan || scan.projectId !== project.id)
+					throw new HttpError(404, "Scan run not found");
+				if (activeRefreshes.has(scan.id))
+					throw new HttpError(409, "analysis_refresh_in_progress");
+				activeRefreshes.add(scan.id);
+				try {
+					return c.json(
+						await buildGeneration({
+							db: deps.db,
+							scanRunId: scan.id,
+							includeSemantic: input.includeSemantic,
+						}),
+					);
+				} finally {
+					activeRefreshes.delete(scan.id);
+				}
+			},
+		)
 		.get("/scans/:scanRunId/intelligence/export", async (c) => {
 			const authUser = getAuthContextUser(c);
 			const scanRunId = c.req.param("scanRunId");
 			await assertScanOwner(scanRunId, authUser.userId);
-			const exportPayload = await buildExport(deps.db, scanRunId);
-			return c.json({ export: exportPayload });
+			const persisted = await resolver.resolveGeneration(
+				scanRunId,
+				c.req.query("generationId"),
+			);
+			if (!persisted) {
+				throw new HttpError(404, "Static Intelligence generation not found");
+			}
+			return c.json({ export: persisted.export.payload });
 		})
 		.get(
 			"/scans/:scanRunId/intelligence/agent-query",
@@ -137,7 +324,18 @@ export function createStaticIntelligenceRoute(
 				await assertScanOwner(scanRunId, authUser.userId);
 				const query = c.req.valid("query");
 				const input = agentInputForMode(scanRunId, query);
-				const result = await runAgentQuery({ db: deps.db, input });
+				const persisted = await resolver.resolveGeneration(
+					scanRunId,
+					query.generationId,
+				);
+				if (!persisted) {
+					throw new HttpError(404, "Static Intelligence generation not found");
+				}
+				const result = await runAgentQuery({
+					db: deps.db,
+					input,
+					exportPayload: persisted.export.payload,
+				});
 				return c.json({ result });
 			},
 		)
@@ -145,89 +343,26 @@ export function createStaticIntelligenceRoute(
 			const authUser = getAuthContextUser(c);
 			const scanRunId = c.req.param("scanRunId");
 			await assertScanOwner(scanRunId, authUser.userId);
-			const exportPayload = await buildExport(deps.db, scanRunId);
-			const codeStructure = exportPayload.codeStructure ?? null;
-			const degradedReasons =
-				codeStructure && codeStructure.degradedReasons.length > 0
-					? codeStructure.degradedReasons
-					: codeStructure
-						? []
-						: [
-								"code structure snapshot missing from static intelligence export",
-							];
+			const persisted = await resolver.resolveGeneration(
+				scanRunId,
+				c.req.query("generationId"),
+			);
+			if (persisted) {
+				return c.json({
+					scanRunId,
+					generationId: persisted.generationId,
+					status: persisted.status,
+					snapshot: persisted.structure.snapshot,
+					degradedReasons: persisted.structure.metadata.degradedReasons,
+				});
+			}
 			return c.json({
 				scanRunId,
-				status: codeStructureStatus(codeStructure),
-				codeStructure,
-				degradedReasons,
+				status: "missing",
+				snapshot: null,
+				degradedReasons: ["generation_missing"],
 			});
 		});
-}
-
-function missingAvailability(): IntelligenceAvailability {
-	return {
-		export: "missing",
-		fileRiskIndex: "missing",
-		evidenceGraph: "missing",
-		codeStructure: "missing",
-		agentBundle: "missing",
-	};
-}
-
-function availabilityForExport(
-	exportPayload: StaticIntelligenceExportV1,
-): IntelligenceAvailability {
-	const codeStructure = codeStructureStatus(exportPayload.codeStructure);
-	return {
-		export: "available",
-		fileRiskIndex:
-			exportPayload.fileRiskIndex.length > 0 ? "available" : "missing",
-		evidenceGraph:
-			exportPayload.graph.nodes.length > 0 ||
-			exportPayload.graph.edges.length > 0
-				? "available"
-				: "missing",
-		codeStructure,
-		agentBundle:
-			exportPayload.scanSummary.degradedReasons.length > 0
-				? "degraded"
-				: "available",
-	};
-}
-
-function codeStructureStatus(
-	codeStructure: StaticIntelligenceCodeStructureEnrichment | null | undefined,
-): "available" | "missing" | "degraded" {
-	if (!codeStructure) return "missing";
-	if (codeStructure.status === "degraded") return "degraded";
-	return "available";
-}
-
-async function safeBuildExport(
-	buildExport: typeof buildStaticIntelligenceExport,
-	db: AppDatabase,
-	scanRunId: string,
-): Promise<
-	| { ok: true; exportPayload: StaticIntelligenceExportV1 }
-	| { ok: false; message: string }
-> {
-	try {
-		return {
-			ok: true,
-			exportPayload: await buildExport(db, scanRunId),
-		};
-	} catch (error) {
-		if (error instanceof StaticIntelligenceScanRunNotFoundError) {
-			return { ok: false, message: "static intelligence scan source missing" };
-		}
-		return {
-			ok: false,
-			message:
-				error instanceof Error
-					? `static intelligence export failed: ${error.message}`
-					: "static intelligence export failed",
-		};
-	}
 }
 
 function agentInputForMode(
@@ -264,26 +399,4 @@ function agentInputForMode(
 		case "export":
 			return { scanRunId, queryKind: "export_static_intelligence" };
 	}
-}
-
-function compareScansNewestFirst(
-	a: { completedAt?: Date | string | null; createdAt?: Date | string | null },
-	b: { completedAt?: Date | string | null; createdAt?: Date | string | null },
-): number {
-	return scanTime(b) - scanTime(a);
-}
-
-function scanTime(scan: {
-	completedAt?: Date | string | null;
-	createdAt?: Date | string | null;
-}): number {
-	const value = scan.completedAt ?? scan.createdAt;
-	if (!value) return 0;
-	return value instanceof Date ? value.getTime() : new Date(value).getTime();
-}
-
-function sortedUnique(values: string[]): string[] {
-	return [...new Set(values.filter(Boolean))].sort((a, b) =>
-		a.localeCompare(b),
-	);
 }

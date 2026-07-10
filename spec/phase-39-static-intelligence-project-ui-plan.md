@@ -1,5 +1,7 @@
 # Phase 39: Static Intelligence Project UI Plan
 
+> Follow-up: Phase 40 keeps this Projects route and replaces live export rebuilds with persisted generation resolution, batch summaries, selected-scan consistency, readiness, Structure Explorer, and read-only Ontology Handoff.
+
 ## Purpose
 
 この計画は、Static Intelligence の成果物を CLI / MCP だけでなく、登録済みプロジェクト単位で確認できる読み取り専用 UI として公開する。

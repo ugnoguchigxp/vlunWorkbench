@@ -15,8 +15,10 @@ import {
 	users,
 } from "../../db/schema";
 import { runStaticIntelligenceAgentQuery } from "./agent-query";
-import { buildStaticIntelligenceGuardrailMaterialForScan } from "./guardrail-material";
-import { buildStaticIntelligenceKnowledgeSourceManifestForScan } from "./knowledge-source-manifest";
+import { buildStaticIntelligenceGuardrailMaterial } from "./guardrail-material";
+import { buildStaticIntelligenceKnowledgeSourceManifest } from "./knowledge-source-manifest";
+import { buildStaticIntelligenceGeneration } from "./build-service";
+import { StaticIntelligenceGenerationRepository } from "./generation-repository";
 import {
 	getStaticIntelligenceEvidenceBundleTool,
 	getStaticIntelligenceCodeStructureSnapshotTool,
@@ -32,7 +34,7 @@ const GENERATED_AT = new Date("2026-07-06T10:30:00.000Z");
 const RAW_SNIPPET_MARKER = "SECRET_RAW_SNIPPET_SHOULD_NOT_LEAK";
 const RAW_ARTIFACT_MARKER = "SECRET_RAW_ARTIFACT_SHOULD_NOT_LEAK";
 const SECRET_MARKER = "SECRET_TOKEN_SHOULD_NOT_LEAK";
-const REPO_PATH_MARKER = "/tmp/vuln-workbench-private-repo";
+let REPO_PATH_MARKER = "";
 
 describe("Static Intelligence MCP tools", () => {
 	let connection: DbConnection;
@@ -42,6 +44,10 @@ describe("Static Intelligence MCP tools", () => {
 
 	beforeEach(async () => {
 		tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "static-intel-mcp-"));
+		process.env.SCAN_ARTIFACT_ROOT = path.join(tempDir, "artifacts");
+		REPO_PATH_MARKER = path.join(tempDir, "private-repo");
+		await fs.mkdir(path.join(REPO_PATH_MARKER, "src"), { recursive: true });
+		await fs.writeFile(path.join(REPO_PATH_MARKER, "src", "app.ts"), "export const app = true;\n");
 		connection = createDbConnection(":memory:");
 		applyMigrations(connection);
 
@@ -75,6 +81,7 @@ describe("Static Intelligence MCP tools", () => {
 
 	afterEach(async () => {
 		connection.sqlite.close();
+		delete process.env.SCAN_ARTIFACT_ROOT;
 		await fs.rm(tempDir, { recursive: true, force: true });
 	});
 
@@ -104,6 +111,7 @@ describe("Static Intelligence MCP tools", () => {
 		);
 		const codeProjectId = await seedProject("Code Project", repoPath);
 		const scanRunId = await seedScanRun({ projectId: codeProjectId });
+		await persistGeneration(scanRunId);
 
 		const result = await getStaticIntelligenceCodeStructureSnapshotTool({
 			db: connection.db,
@@ -117,6 +125,13 @@ describe("Static Intelligence MCP tools", () => {
 		expect(result.snapshot.files.map((file) => file.path)).toEqual([
 			"src/app.ts",
 		]);
+		expect(result.generation?.generationId).toMatch(/^[0-9a-f-]{36}$/);
+		await expect(
+			getStaticIntelligenceCodeStructureSnapshotTool({
+				db: connection.db,
+				input: { scanRunId, generationId: "00000000-0000-4000-8000-000000000001" },
+			}),
+		).resolves.toMatchObject({ ok: false, status: "failed" });
 	});
 
 	it("returns failure JSON for invalid input and missing scans", async () => {
@@ -135,10 +150,11 @@ describe("Static Intelligence MCP tools", () => {
 		).resolves.toMatchObject({
 			ok: false,
 			status: "failed",
-			message: "Scan run not found: missing-scan",
+			message: "Static Intelligence generation missing.",
 		});
 
 		const { scanRunId } = await seedFindingBackedScan();
+		await persistGeneration(scanRunId);
 		await expect(
 			getStaticIntelligenceEvidenceBundleTool({
 				db: connection.db,
@@ -158,11 +174,12 @@ describe("Static Intelligence MCP tools", () => {
 		const { scanRunId: newerScanRunId } = await seedFindingBackedScan({
 			updatedAt: new Date("2026-07-06T11:00:00.000Z"),
 		});
-		const otherProjectId = await seedProject("Other Project", "/tmp/other");
+		const otherProjectId = await seedProject("Other Project", path.join(tempDir, "other"));
 		const otherScanRunId = await seedScanRun({
 			projectId: otherProjectId,
 			updatedAt: new Date("2026-07-06T12:00:00.000Z"),
 		});
+		await Promise.all([persistGeneration(olderScanRunId), persistGeneration(newerScanRunId), persistGeneration(otherScanRunId)]);
 
 		const allResult = await listStaticIntelligenceKnowledgeSources({
 			db: connection.db,
@@ -182,6 +199,8 @@ describe("Static Intelligence MCP tools", () => {
 			"--",
 			"--scan-run-id",
 			otherScanRunId,
+			"--generation-id",
+			allResult.sources[0].generationId,
 		]);
 		expect(JSON.stringify(allResult)).not.toContain(REPO_PATH_MARKER);
 
@@ -201,13 +220,14 @@ describe("Static Intelligence MCP tools", () => {
 	it("matches service output for manifest, guardrail material, evidence bundle, and verification commands", async () => {
 		const { scanRunId, findingId } = await seedFindingBackedScan();
 		await seedCompletedScanReview(scanRunId);
+		await persistGeneration(scanRunId);
 
-		const serviceManifest =
-			await buildStaticIntelligenceKnowledgeSourceManifestForScan(
-				connection.db,
-				scanRunId,
-				{ generatedAt: GENERATED_AT },
-			);
+		const generation = await new StaticIntelligenceGenerationRepository(connection.db).loadLatestValidGeneration(scanRunId);
+		if (!generation) throw new Error("expected persisted generation");
+		const serviceManifest = buildStaticIntelligenceKnowledgeSourceManifest(
+			generation.export.payload,
+			{ generatedAt: GENERATED_AT, generation },
+		);
 		const manifestResult =
 			await getStaticIntelligenceKnowledgeSourceManifestTool({
 				db: connection.db,
@@ -218,6 +238,9 @@ describe("Static Intelligence MCP tools", () => {
 		expect(manifestResult.manifest.source.contentHash).toBe(
 			serviceManifest.source.contentHash,
 		);
+		expect(manifestResult.manifest.generation?.generationId).toBe(
+			generation.generationId,
+		);
 		expect(manifestResult.manifest.source.exportHash).toBe(
 			serviceManifest.source.exportHash,
 		);
@@ -225,12 +248,11 @@ describe("Static Intelligence MCP tools", () => {
 			serviceManifest.availableBundles,
 		);
 
-		const serviceMaterial =
-			await buildStaticIntelligenceGuardrailMaterialForScan(
-				connection.db,
-				scanRunId,
-				{ generatedAt: GENERATED_AT },
-			);
+		const serviceMaterial = buildStaticIntelligenceGuardrailMaterial({
+			exportPayload: generation.export.payload,
+			sourceManifest: manifestResult.manifest,
+			generatedAt: GENERATED_AT,
+		});
 		const materialResult = await getStaticIntelligenceGuardrailMaterialTool({
 			db: connection.db,
 			input: { scanRunId },
@@ -301,6 +323,7 @@ describe("Static Intelligence MCP tools", () => {
 	it("does not mutate storage while serving read-only tool calls", async () => {
 		const { scanRunId, findingId } = await seedFindingBackedScan();
 		await seedCompletedScanReview(scanRunId);
+		await persistGeneration(scanRunId);
 		const before = rowCounts();
 
 		await listStaticIntelligenceKnowledgeSources({
@@ -334,6 +357,7 @@ describe("Static Intelligence MCP tools", () => {
 			artifactMetadata: { rawContent: RAW_ARTIFACT_MARKER },
 		});
 		await seedCompletedScanReview(scanRunId);
+		await persistGeneration(scanRunId);
 
 		const outputs = [
 			await listStaticIntelligenceKnowledgeSources({
@@ -367,6 +391,8 @@ describe("Static Intelligence MCP tools", () => {
 	});
 
 	async function seedProject(name: string, repoPath: string) {
+		await fs.mkdir(path.join(repoPath, "src"), { recursive: true });
+		await fs.writeFile(path.join(repoPath, "src", "app.ts"), "export const app = true;\n");
 		const [project] = await connection.db
 			.insert(projects)
 			.values({
@@ -493,6 +519,14 @@ describe("Static Intelligence MCP tools", () => {
 			completedAt: new Date(NOW.getTime() + 1000),
 			createdAt: NOW,
 			updatedAt: NOW,
+		});
+	}
+
+	async function persistGeneration(scanRunId: string) {
+		return await buildStaticIntelligenceGeneration({
+			db: connection.db,
+			scanRunId,
+			generatedAt: GENERATED_AT,
 		});
 	}
 

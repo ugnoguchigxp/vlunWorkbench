@@ -25,17 +25,18 @@ import type {
 import { staticIntelligenceKnowledgeSourceManifestResultSchema } from "../../../shared/schemas/static-intelligence-knowledge-source.schema";
 import type { AppDatabase } from "../../db";
 import { projects, scanRuns } from "../../db/schema";
+import { ProjectRepository, ScanRepository } from "../scans/repositories";
 import {
 	StaticIntelligenceAgentQueryInvalidRequestError,
 	runStaticIntelligenceAgentQuery,
 } from "./agent-query";
 import { StaticIntelligenceScanRunNotFoundError } from "./export-builder";
-import { buildStaticIntelligenceGuardrailMaterialForScan } from "./guardrail-material";
-import { buildStaticIntelligenceKnowledgeSourceManifestForScan } from "./knowledge-source-manifest";
+import { buildStaticIntelligenceGuardrailMaterial } from "./guardrail-material";
+import { buildStaticIntelligenceKnowledgeSourceManifest } from "./knowledge-source-manifest";
+import { StaticIntelligenceGenerationRepository } from "./generation-repository";
+import { StaticIntelligenceReadModelResolver } from "./read-model-resolver";
 import {
 	type GetEvidenceBundleInput,
-	type GetGuardrailMaterialInput,
-	type GetKnowledgeSourceManifestInput,
 	type GetVerificationCommandsInput,
 	type ListKnowledgeSourcesInput,
 	type StaticIntelligenceKnowledgeSourceListResult,
@@ -49,7 +50,6 @@ import {
 	staticIntelligenceKnowledgeSourceListResultSchema,
 	staticIntelligenceMcpToolFailureSchema,
 } from "./mcp-tool-schemas";
-import { buildCodeStructureSnapshot } from "./code-structure/extractor";
 
 export type StaticIntelligenceMcpToolResult =
 	| StaticIntelligenceKnowledgeSourceListResult
@@ -86,6 +86,7 @@ export async function listStaticIntelligenceKnowledgeSources(params: {
 	if (!parsed.ok) return parsed.failure;
 
 	const generatedAt = params.generatedAt ?? new Date();
+	const sourceLimit = parsed.input.limit ?? 20;
 	const rows = await params.db
 		.select({
 			scanRunId: scanRuns.id,
@@ -94,23 +95,37 @@ export async function listStaticIntelligenceKnowledgeSources(params: {
 		.innerJoin(projects, eq(scanRuns.projectId, projects.id))
 		.where(projectFilter(parsed.input))
 		.orderBy(desc(scanRuns.updatedAt), desc(scanRuns.id))
-		.limit(parsed.input.limit ?? 20);
+		.limit(100);
 
 	const degradedReasons: string[] = [];
 	const sources: StaticIntelligenceKnowledgeSourceListResult["sources"] = [];
 	for (const row of rows) {
+		if (sources.length >= sourceLimit) break;
 		try {
-			const manifest =
-				await buildStaticIntelligenceKnowledgeSourceManifestForScan(
-					params.db,
-					row.scanRunId,
-					{ generatedAt },
+			const generation = await loadPersistedGeneration(
+				params.db,
+				row.scanRunId,
+			);
+			if (!generation) {
+				degradedReasons.push(
+					`scan ${row.scanRunId} skipped: generation_missing`,
 				);
+				continue;
+			}
+			const manifest = buildStaticIntelligenceKnowledgeSourceManifest(
+				generation.export.payload,
+				{
+					generatedAt,
+					generation,
+					readiness: await readinessForGeneration(params.db, generation),
+				},
+			);
 			sources.push({
 				sourceId: manifest.source.sourceId,
 				projectId: manifest.project.id,
 				projectName: manifest.project.name,
 				scanRunId: manifest.scan.id,
+				generationId: generation.generationId,
 				scanProfile: manifest.scan.profile,
 				scanStatus: manifest.scan.status,
 				findingCount: manifest.scan.findingCount,
@@ -127,6 +142,8 @@ export async function listStaticIntelligenceKnowledgeSources(params: {
 					"--",
 					"--scan-run-id",
 					manifest.scan.id,
+					"--generation-id",
+					generation.generationId,
 				],
 			});
 		} catch (error) {
@@ -158,11 +175,18 @@ export async function getStaticIntelligenceKnowledgeSourceManifestTool(params: {
 	if (!parsed.ok) return parsed.failure;
 
 	try {
-		const manifest =
-			await buildStaticIntelligenceKnowledgeSourceManifestForScan(
-				params.db,
-				parsed.input.scanRunId,
-			);
+		const generation = await requirePersistedGeneration(
+			params.db,
+			parsed.input.scanRunId,
+			parsed.input.generationId,
+		);
+		const manifest = buildStaticIntelligenceKnowledgeSourceManifest(
+			generation.export.payload,
+			{
+				generation,
+				readiness: await readinessForGeneration(params.db, generation),
+			},
+		);
 		return staticIntelligenceKnowledgeSourceManifestResultSchema.parse({
 			ok: true,
 			status: "completed",
@@ -186,14 +210,24 @@ export async function getStaticIntelligenceGuardrailMaterialTool(params: {
 	if (!parsed.ok) return parsed.failure;
 
 	try {
-		const result = await buildStaticIntelligenceGuardrailMaterialForScan(
+		const generation = await requirePersistedGeneration(
 			params.db,
 			parsed.input.scanRunId,
+			parsed.input.generationId,
+		);
+		const sourceManifest = buildStaticIntelligenceKnowledgeSourceManifest(
+			generation.export.payload,
 			{
-				type: parsed.input.type,
-				includeMarkdown: parsed.input.includeMarkdown ?? false,
+				generation,
+				readiness: await readinessForGeneration(params.db, generation),
 			},
 		);
+		const result = buildStaticIntelligenceGuardrailMaterial({
+			exportPayload: generation.export.payload,
+			sourceManifest,
+			type: parsed.input.type,
+			includeMarkdown: parsed.input.includeMarkdown ?? false,
+		});
 		return staticIntelligenceGuardrailMaterialResultSchema.parse(result);
 	} catch (error) {
 		return toolFailure(error);
@@ -241,29 +275,28 @@ export async function getStaticIntelligenceCodeStructureSnapshotTool(params: {
 	);
 	if (!parsed.ok) return parsed.failure;
 
-	const project = await projectForScan(params.db, parsed.input.scanRunId);
-	if (!project) {
-		return codeStructureFailure(
-			`Scan run not found: ${parsed.input.scanRunId}`,
-		);
-	}
-
 	try {
-		const snapshot = await buildCodeStructureSnapshot({
-			projectPath: project.repoPath,
-			projectId: project.id,
-			maxFiles: parsed.input.maxFiles,
-		});
+		const generation = await requirePersistedGeneration(
+			params.db,
+			parsed.input.scanRunId,
+			parsed.input.generationId,
+		);
+		const snapshot = generation.structure.snapshot;
 		return codeStructureSnapshotResultSchema.parse({
 			ok: true,
 			status: "completed",
 			version: "v1",
 			generatedAt: snapshot.generatedAt,
 			snapshot,
+			generation: {
+				generationId: generation.generationId,
+				snapshotRef: generation.structure.metadata.snapshotRef,
+				sourceTreeHash: generation.structure.metadata.sourceTreeHash,
+			},
 		});
 	} catch {
 		return codeStructureFailure(
-			"Code structure snapshot unavailable for scan project.",
+			"Persisted code structure generation unavailable.",
 		);
 	}
 }
@@ -308,7 +341,7 @@ export const staticIntelligenceMcpToolRegistry: StaticIntelligenceMcpToolDefinit
 		{
 			name: "vuln_get_code_structure_snapshot",
 			description:
-				"Read-only fetch for a redacted code structure snapshot for the scan project. Uses the stored scan project path and does not accept arbitrary filesystem paths.",
+				"Read-only fetch for a persisted redacted code structure snapshot. It never scans the repository or accepts arbitrary filesystem paths.",
 			inputSchema: getCodeStructureSnapshotInputSchema,
 			handler: getStaticIntelligenceCodeStructureSnapshotTool,
 		},
@@ -320,22 +353,6 @@ function projectFilter(input: ListKnowledgeSourcesInput) {
 		: undefined;
 }
 
-async function projectForScan(
-	db: AppDatabase,
-	scanRunId: string,
-): Promise<{ id: string; repoPath: string } | null> {
-	const [row] = await db
-		.select({
-			id: projects.id,
-			repoPath: projects.repoPath,
-		})
-		.from(scanRuns)
-		.innerJoin(projects, eq(scanRuns.projectId, projects.id))
-		.where(eq(scanRuns.id, scanRunId))
-		.limit(1);
-	return row ?? null;
-}
-
 async function runAgentQueryTool(
 	db: AppDatabase,
 	input: GetEvidenceBundleInput | GetVerificationCommandsInput,
@@ -344,6 +361,11 @@ async function runAgentQueryTool(
 	StaticIntelligenceAgentQueryResult | StaticIntelligenceAgentQueryFailure
 > {
 	try {
+		const generation = await requirePersistedGeneration(
+			db,
+			input.scanRunId,
+			input.generationId,
+		);
 		const result = await runStaticIntelligenceAgentQuery({
 			db,
 			input: {
@@ -354,11 +376,47 @@ async function runAgentQueryTool(
 				includeCommunities: false,
 				includeLandscape: false,
 			},
+			exportPayload: generation.export.payload,
 		});
 		return staticIntelligenceAgentQueryResultSchema.parse(result);
 	} catch (error) {
 		return toolFailure(error);
 	}
+}
+
+async function loadPersistedGeneration(
+	db: AppDatabase,
+	scanRunId: string,
+	generationId?: string,
+) {
+	const repository = new StaticIntelligenceGenerationRepository(db);
+	return generationId
+		? await repository.loadGeneration(scanRunId, generationId)
+		: await repository.loadLatestValidGeneration(scanRunId);
+}
+
+async function requirePersistedGeneration(
+	db: AppDatabase,
+	scanRunId: string,
+	generationId?: string,
+) {
+	const generation = await loadPersistedGeneration(db, scanRunId, generationId);
+	if (!generation) throw new Error("Static Intelligence generation missing.");
+	return generation;
+}
+
+async function readinessForGeneration(
+	db: AppDatabase,
+	generation: NonNullable<Awaited<ReturnType<typeof loadPersistedGeneration>>>,
+) {
+	const projectRepository = new ProjectRepository(db);
+	const project = await projectRepository.findById(generation.projectId);
+	if (!project) throw new Error("Static Intelligence project missing.");
+	return await new StaticIntelligenceReadModelResolver(
+		db,
+		projectRepository,
+		new ScanRepository(db),
+	).resolveReadiness(project, generation, false);
 }
 
 function parseToolInput<T extends z.ZodType>(

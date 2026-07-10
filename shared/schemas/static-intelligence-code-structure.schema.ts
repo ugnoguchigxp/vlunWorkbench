@@ -132,6 +132,14 @@ export const codeStructureSnapshotResultSchema = z
 			})
 			.strict()
 			.optional(),
+		generation: z
+			.object({
+				generationId: z.string().min(1),
+				snapshotRef: z.string().min(1),
+				sourceTreeHash: z.string().regex(/^[a-f0-9]{64}$/),
+			})
+			.strict()
+			.optional(),
 	})
 	.strict();
 export type CodeStructureSnapshotResult = z.infer<

@@ -475,6 +475,19 @@ async function runFixture(params: {
 		JSON.stringify(firstCodeStructure.payload.snapshot),
 		"utf8",
 	);
+	const generationBuild = runCommand(
+		"intelligence:build",
+		[
+			"run",
+			"intelligence:build",
+			"--",
+			"--scan-run-id",
+			scanRunId,
+			"--include-semantic",
+			"false",
+		],
+		env,
+	);
 	const exportResult = runCommand(
 		"intelligence:export",
 		["run", "intelligence:export", "--", "--scan-run-id", scanRunId],
@@ -600,6 +613,7 @@ async function runFixture(params: {
 		firstCodeStructure,
 		secondCodeStructure,
 		exportResult,
+		generationBuild,
 		codeStructureExport,
 		projectOverview,
 		evidenceBundle,
@@ -750,8 +764,13 @@ async function runFixture(params: {
 		if (!codeStructureBundle) {
 			throw new Error("manifest is missing code_structure_snapshot bundle");
 		}
-		if (!codeStructureBundle.command.includes("<project-path>")) {
-			throw new Error("code structure bundle command does not use placeholder");
+		if (
+			!codeStructureBundle.command.includes(manifest.source.scanRunId) ||
+			!codeStructureBundle.command.includes(manifest.generation.generationId)
+		) {
+			throw new Error(
+				"code structure bundle command is not pinned to the source generation",
+			);
 		}
 		if (codeStructureBundle.command.includes(paths.repoPath)) {
 			throw new Error("code structure bundle command leaked fixture repo path");
@@ -1036,6 +1055,7 @@ function manifestPayload(payload: Record<string, unknown>) {
 			contentHash: string;
 			exportHash: string;
 		};
+		generation: { generationId: string };
 		availableBundles: Array<{ kind: string; command: string[] }>;
 	};
 }

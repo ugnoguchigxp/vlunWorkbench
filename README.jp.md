@@ -300,6 +300,17 @@ Report include control:
 
 Static Intelligence command は、coding agent と sibling system 向けの CLI-first source contract です。
 
+登録済み scan の primary persisted generation を生成します。code structure snapshot と Static Intelligence export は同じ `generationId` で versioning され、Project Intelligence、manifest、MCP は同じ世代を読みます。
+
+```bash
+bun run intelligence:build -- \
+  --scan-run-id <scan-run-id> \
+  --include-semantic false \
+  --pretty true
+```
+
+Project Intelligence の Refresh Analysis は selected scan の derived generation だけを更新します。scanner、review、verification command、report、context registration、task creation は実行しません。以下の export / code-structure command は low-level compatibility path として残ります。
+
 scanner-backed evidence と file risk を export します。
 
 ```bash
@@ -363,7 +374,7 @@ MCP tool は read-only です。
 - `vuln_get_verification_commands`
 - `vuln_get_code_structure_snapshot`
 
-これらは candidate-only JSON を返します。contextStill knowledge 登録、NightWorkers task 作成、scanner 実行、verification command 実行、raw artifact body / evidence snippet の公開は行いません。
+これらは persisted generation を読み、対応する tool では optional generation pinning を受け付け、candidate-only JSON を返します。analysis refresh、contextStill knowledge 登録、NightWorkers task 作成、scanner 実行、verification command 実行、raw artifact body / evidence snippet の公開は行いません。Ontology Handoff は NightWorkers 向け evidence-backed material であり、vulnWorkbench は canonical Ontology / Task Compiler を所有しません。
 
 ## API Surface
 

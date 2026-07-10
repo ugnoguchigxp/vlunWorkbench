@@ -30,14 +30,15 @@ export async function runStaticIntelligenceAgentQuery(params: {
 	input: StaticIntelligenceAgentQueryInput;
 	semanticProvider?: EmbeddingProvider;
 	generatedAt?: Date;
+	exportPayload?: StaticIntelligenceExportV1;
 }): Promise<StaticIntelligenceAgentQueryResult> {
 	const input = staticIntelligenceAgentQueryInputSchema.parse(params.input);
 	const generatedAt = (params.generatedAt ?? new Date()).toISOString();
-	const exportPayload = await buildStaticIntelligenceExport(
-		params.db,
-		input.scanRunId,
-		{ generatedAt: params.generatedAt },
-	);
+	const exportPayload =
+		params.exportPayload ??
+		(await buildStaticIntelligenceExport(params.db, input.scanRunId, {
+			generatedAt: params.generatedAt,
+		}));
 	const graph = buildQueryGraph(exportPayload);
 	const degradedReasons = [...exportPayload.scanSummary.degradedReasons];
 

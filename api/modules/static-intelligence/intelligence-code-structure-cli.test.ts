@@ -97,6 +97,17 @@ describe("Code Structure CLI", () => {
 		expect(JSON.parse(invalidBoolean.stdout).message).toContain(
 			"--include-root-path must be true or false",
 		);
+
+		const incompatiblePersistedOption = runCli([
+			"--scan-run-id",
+			"scan-1",
+			"--max-files",
+			"10",
+		]);
+		expect(incompatiblePersistedOption.status).toBe(2);
+		expect(JSON.parse(incompatiblePersistedOption.stdout).message).toContain(
+			"only valid with --project-path",
+		);
 	});
 
 	it("includes root path only when requested", async () => {
