@@ -1,5 +1,9 @@
-import { parseArgs } from "node:util";
 import path from "node:path";
+import { parseArgs } from "node:util";
+import {
+	type SecurityOracleResult as OracleResult,
+	securityOracleResultSchema,
+} from "../../shared/schemas/security-oracle.schema";
 import { readAppEnv } from "../app/env";
 import { createDbConnection } from "../db";
 import { runProfileScan } from "../modules/scans/profile-runner";
@@ -19,52 +23,8 @@ type OracleStatus =
 	| "config_error"
 	| "runtime_error";
 
-type OracleResult = {
-	ok: boolean;
-	status: OracleStatus;
-	project: {
-		id: string;
-		repoPath: string;
-		created: boolean;
-	} | null;
-	scan: {
-		scanRunId: string;
-		profile: string;
-		findingCount: number;
-		highOrCriticalCount: number;
-		findings: Array<{
-			id: string;
-			severity: string;
-			tool: string;
-			ruleId: string;
-			title: string;
-			location: {
-				path: string;
-				line: number | null;
-			} | null;
-			recommendation: string;
-		}>;
-	} | null;
-	review: {
-		status: "not_requested" | "completed" | "failed" | "skipped";
-		reviewId?: string;
-		improvementRequest?: string;
-		error?: string;
-	};
-	nextAction:
-		| "none"
-		| "apply_security_fix"
-		| "run_scan_review"
-		| "configure_provider"
-		| "inspect_diagnostic_failure";
-	error?: {
-		code: string;
-		message: string;
-	};
-};
-
 function writeResult(payload: OracleResult): void {
-	console.log(JSON.stringify(payload));
+	console.log(JSON.stringify(securityOracleResultSchema.parse(payload)));
 }
 
 function failureResult(params: {
@@ -185,6 +145,14 @@ async function main() {
 			profile: ORACLE_PROFILE,
 			findingCount: findings.length,
 			highOrCriticalCount,
+			findingsTruncated: findings.length > 10,
+			blockingFingerprints: findings
+				.filter((finding) => {
+					const severity = finding.severity.toLowerCase();
+					return severity === "high" || severity === "critical";
+				})
+				.map((finding) => finding.fingerprint)
+				.sort((a, b) => a.localeCompare(b)),
 			findings: summarizeFindings(findings, resolvedProject.repoPath),
 		};
 
@@ -285,6 +253,7 @@ function summarizeFindings(
 			const location = locationSummary(finding.primaryLocation, repoRoot);
 			return {
 				id: finding.id,
+				fingerprint: finding.fingerprint,
 				severity: finding.severity,
 				tool: finding.sourceTool,
 				ruleId: finding.ruleId,
