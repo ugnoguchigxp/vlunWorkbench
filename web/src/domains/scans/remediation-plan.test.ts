@@ -114,4 +114,31 @@ describe("buildRemediationPlanView", () => {
 		expect(result.blockingReasons).toContain("owner_required");
 		expect(result.blockingReasons).toContain("due_date_required");
 	});
+
+	it("uses persisted remediation metadata and classifies running and failed verification", () => {
+		const result = buildRemediationPlanView({
+			finding: finding(),
+			latestDecision: decision("needs_fix", {
+				remediation: {
+					owner: "security",
+					priority: "p1",
+					dueDate: "2026-07-20",
+					status: "planned",
+					recommendedFix: "Sanitize output",
+				},
+			}),
+			reproductionRuns: [{ status: "running" } as never],
+		});
+		expect(result.owner).toBe("security");
+		expect(result.priority).toBe("p1");
+		expect(result.verificationStatus).toBe("running");
+
+		expect(
+			buildRemediationPlanView({
+				finding: finding(),
+				latestDecision: decision("needs_fix"),
+				dynamicRuns: [{ ...dynamicRun(), outcome: "failed" }],
+			}).verificationStatus,
+		).toBe("failed");
+	});
 });

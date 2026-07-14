@@ -31,7 +31,13 @@ export interface ToolSummary {
 }
 
 export interface StepSummary {
-	kind: "static_tool" | "dast";
+	kind:
+		| "static_tool"
+		| "dast"
+		| "runtime_scanner"
+		| "sbom_export"
+		| "api_schema_scan"
+		| "container_image_scan";
 	id: string;
 	displayName: string;
 	status: string;
@@ -258,6 +264,26 @@ export async function buildScanRunSummary(
 								(metadataResult?.targetOrigin as string | null | undefined) ??
 								dastRun?.targetOrigin ??
 								null,
+						};
+					}
+					if (step.kind !== "static_tool") {
+						const metadataResult = metadataStepResults.find(
+							(item) =>
+								item.kind === step.kind &&
+								item.stepId === `${step.kind}:${step.adapter}`,
+						);
+						return {
+							kind: step.kind,
+							id: `${step.kind}:${step.adapter}`,
+							displayName: step.displayName,
+							status:
+								(metadataResult?.status as string | undefined) ?? "skipped",
+							required: step.required,
+							findingCount:
+								(metadataResult?.findingCount as number | undefined) ?? 0,
+							artifactCount: 0,
+							error:
+								(metadataResult?.error as string | null | undefined) ?? null,
 						};
 					}
 					const tool = tools.find((item) => item.toolId === step.toolId);

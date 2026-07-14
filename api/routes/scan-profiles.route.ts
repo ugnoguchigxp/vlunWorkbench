@@ -41,7 +41,7 @@ export function createScanProfilesRoute() {
 				}
 				return {
 					kind: step.kind,
-					toolId: step.toolId,
+					toolId: step.kind === "static_tool" ? step.toolId : step.adapter,
 					displayName: step.displayName,
 					required: step.required,
 					timeoutSec: step.timeoutSec,

@@ -129,7 +129,7 @@ function StepResultRow({ step }: { step: StepSummary }) {
 	const detail =
 		step.kind === "dast" && step.outcome
 			? `${step.findingCount} 件 / ${step.outcome}`
-			: `${step.findingCount} 件`;
+			: `${step.findingCount} 件${step.coverageEffect === "gap" ? " / coverage gap" : ""}`;
 	return (
 		<div className="scan-result-tool-row">
 			<div className="scan-result-tool-copy">
@@ -145,6 +145,7 @@ function StepResultRow({ step }: { step: StepSummary }) {
 					<span>{step.artifactCount} 証跡</span>
 				) : null}
 				{step.error ? <small>{step.error}</small> : null}
+				{step.reasonCode ? <small>理由: {step.reasonCode}</small> : null}
 			</div>
 		</div>
 	);

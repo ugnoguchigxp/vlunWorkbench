@@ -1482,7 +1482,13 @@ export type ToolSummary = {
 };
 
 export type StepSummary = {
-	kind: "static_tool" | "dast";
+	kind:
+		| "static_tool"
+		| "dast"
+		| "runtime_scanner"
+		| "sbom_export"
+		| "api_schema_scan"
+		| "container_image_scan";
 	id: string;
 	displayName: string;
 	status: string;
@@ -1492,6 +1498,9 @@ export type StepSummary = {
 	error: string | null;
 	outcome?: string | null;
 	targetOrigin?: string | null;
+	applicability?: "applicable" | "not_applicable";
+	reasonCode?: string | null;
+	coverageEffect?: "covered" | "partial" | "gap";
 };
 
 export type ScanStartToolResult = {
@@ -1501,6 +1510,24 @@ export type ScanStartToolResult = {
 	exitCode: number | null;
 	findingCount: number;
 	error: string | null;
+};
+
+export type ScanStartCoverageStepResult = {
+	kind:
+		| "runtime_scanner"
+		| "sbom_export"
+		| "api_schema_scan"
+		| "container_image_scan";
+	stepId: string;
+	adapter: string;
+	required: boolean;
+	status: string;
+	applicability: "applicable" | "not_applicable";
+	reasonCode: string | null;
+	coverageEffect: "covered" | "partial" | "gap";
+	findingCount: number;
+	error: string | null;
+	artifactIds?: string[];
 };
 
 export type ScanStartStepResult =
@@ -1525,7 +1552,8 @@ export type ScanStartStepResult =
 				origin: string;
 				warnings: string[];
 			};
-	  };
+	  }
+	| ScanStartCoverageStepResult;
 
 export type ScanRunSummary = {
 	scanRunId: string;
@@ -1635,6 +1663,8 @@ export async function startScan(
 		memory?: string;
 		cpus?: string;
 		toolCacheDir?: string;
+		imageRef?: string;
+		imageTar?: string;
 	},
 ): Promise<{
 	scan: { id: string; status: string; profile: string };

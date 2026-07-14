@@ -54,7 +54,13 @@ const DOCKER_TOOL_ALLOWLIST: Record<string, Set<string>> = {
 	semgrep: new Set(["--version", "scan"]),
 	gitleaks: new Set(["version", "detect"]),
 	"osv-scanner": new Set(["--version", "--format"]),
-	trivy: new Set(["--version", "fs"]),
+	trivy: new Set(["--version", "fs", "image"]),
+	nuclei: new Set(["--version", "-version", "-u"]),
+	"zap-baseline.py": new Set(["zap-baseline.py", "-h"]),
+	st: new Set(["run", "--version"]),
+};
+const DOCKER_ENTRYPOINTS: Record<string, string> = {
+	"zap-baseline.py": "/zap/zap-baseline.py",
 };
 
 export function normalizeToolExecutionConfig(
@@ -308,10 +314,15 @@ async function runDockerToolProcess(
 		repoPath: options.repoPath,
 		outputDir: outDir,
 		binaryName,
-		toolArgs: rewriteToolArgs(args, {
-			repoPath: options.repoPath,
-			outputPath: options.outputPath,
-		}),
+		toolArgs: rewriteToolArgs(
+			binaryName === "zap-baseline.py" && args[0] === "zap-baseline.py"
+				? args.slice(1)
+				: args,
+			{
+				repoPath: options.repoPath,
+				outputPath: options.outputPath,
+			},
+		),
 	});
 	const dockerMetadata = {
 		image,
@@ -466,6 +477,9 @@ function rewriteToolArgs(
 		if (paths.repoPath && path.resolve(arg) === path.resolve(paths.repoPath)) {
 			return CONTAINER_REPO_PATH;
 		}
+		if (paths.repoPath && isPathInside(arg, paths.repoPath)) {
+			return `${CONTAINER_REPO_PATH}/${path.relative(paths.repoPath, arg)}`;
+		}
 		if (
 			paths.outputPath &&
 			rewrittenOutputPath &&
@@ -512,7 +526,8 @@ function buildDockerRunArgs(params: {
 		"--env",
 		"PATH=/usr/local/bin:/usr/bin:/bin",
 		"--entrypoint",
-		`/usr/local/bin/${params.binaryName}`,
+		DOCKER_ENTRYPOINTS[params.binaryName] ??
+			`/usr/local/bin/${params.binaryName}`,
 	];
 
 	if (params.memory) {

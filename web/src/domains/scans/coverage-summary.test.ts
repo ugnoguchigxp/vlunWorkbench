@@ -210,4 +210,35 @@ describe("buildCoverageSummary", () => {
 		expect(summary.checkStatusCounts.pass).toBe(1);
 		expect(summary.coverageGaps).toEqual([]);
 	});
+
+	it("maps matching tool coverage and resolves metadata and attack-surface categories", () => {
+		const summary = build({
+			attackSurfaceItems: [attackSurfaceItem({ id: "surface-1", category: "api" })],
+			securityCheckResults: [
+				securityCheck({
+					id: "gap-1",
+					attackSurfaceItemId: "surface-1",
+					status: "warn",
+				}),
+				securityCheck({
+					id: "gap-2",
+					checkId: "unknown-check",
+					status: "manual_review",
+					metadata: { category: "custom" },
+				}),
+			],
+			scanSummary: {
+				scanRunId: "scan-1",
+				tools: [{ toolId: "semgrep", status: "completed", findingCount: 1 }],
+			} as never,
+		});
+
+		expect(summary.toolCoverage).toEqual([
+			{ toolName: "semgrep", status: "completed", findingCount: 1 },
+		]);
+		expect(summary.coverageGaps).toMatchObject([
+			{ id: "gap-1", category: "api" },
+			{ id: "gap-2", category: "custom" },
+		]);
+	});
 });

@@ -4,6 +4,8 @@ import type { AgenticSearchCitation } from "./api";
 import {
 	dedupeAgenticSourceCitations,
 	normalizeAgenticAnswerMarkdown,
+	toAgenticSourceKey,
+	toAgenticSourceLabel,
 } from "./agentic-markdown";
 
 describe("normalizeAgenticAnswerMarkdown", () => {
@@ -39,6 +41,40 @@ describe("normalizeAgenticAnswerMarkdown", () => {
 			].join("\n"),
 		);
 	});
+
+	it("unwraps inline code nested in strikethrough and italic text", () => {
+		expect(
+			normalizeAgenticAnswerMarkdown("~~`removed`~~ and *`emphasis`*"),
+		).toBe("~~removed~~ and *emphasis*");
+	});
+});
+
+describe("agentic source helpers", () => {
+	it("prefers wiki, URL, URI, then a stable title key", () => {
+		expect(
+			toAgenticSourceKey({
+				kind: "wiki_page",
+				title: "Wiki",
+				wikiSlug: "guide/start",
+			}),
+		).toBe("wiki:guide/start");
+		expect(
+			toAgenticSourceKey({ kind: "web_page", title: "Web", url: "https://example.com" }),
+		).toBe("url:https://example.com");
+		expect(
+			toAgenticSourceKey({ kind: "wiki_fragment", title: "Fragment", uri: "guide#part" }),
+		).toBe("uri:guide#part");
+		expect(
+			toAgenticSourceKey({ kind: "web_search_result", title: "Search" }),
+		).toBe("title:web_search_result:Search");
+	});
+
+	it("uses the first available source label", () => {
+		expect(toAgenticSourceLabel({ kind: "web_page", title: "Title", url: "url" })).toBe("Title");
+		expect(toAgenticSourceLabel({ kind: "web_page", title: "", url: "url" })).toBe("url");
+		expect(toAgenticSourceLabel({ kind: "web_page", title: "", uri: "uri" })).toBe("uri");
+		expect(toAgenticSourceLabel({ kind: "web_page", title: "" })).toBe("Source");
+	});
 });
 
 describe("dedupeAgenticSourceCitations", () => {
@@ -61,5 +97,21 @@ describe("dedupeAgenticSourceCitations", () => {
 		expect(dedupeAgenticSourceCitations(citations)).toEqual([
 			citations[1],
 		]);
+	});
+
+	it("replaces a lower-ranked citation with a page citation", () => {
+		const fragment: AgenticSearchCitation = {
+			kind: "wiki_fragment",
+			title: "Chunk",
+			uri: "guide.md#chunk",
+			wikiSlug: "guide",
+		};
+		const page: AgenticSearchCitation = {
+			kind: "wiki_page",
+			title: "Guide",
+			uri: "guide.md",
+			wikiSlug: "guide",
+		};
+		expect(dedupeAgenticSourceCitations([fragment, page])).toEqual([page]);
 	});
 });

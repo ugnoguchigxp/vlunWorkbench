@@ -39,7 +39,10 @@ async function main() {
 		// 1. Findings have at least one finding_evidence
 		const allFindings = await db.select().from(findings);
 		for (const f of allFindings) {
-			const evs = await db.select().from(findingEvidences).where(eq(findingEvidences.findingId, f.id));
+			const evs = await db
+				.select()
+				.from(findingEvidences)
+				.where(eq(findingEvidences.findingId, f.id));
 			if (evs.length === 0) {
 				failures.push(`finding:${f.id} has no finding_evidence`);
 			}
@@ -49,9 +52,14 @@ async function main() {
 		const allEvidences = await db.select().from(findingEvidences);
 		for (const ev of allEvidences) {
 			if (ev.artifactId) {
-				const art = await db.select().from(scanArtifacts).where(eq(scanArtifacts.id, ev.artifactId));
+				const art = await db
+					.select()
+					.from(scanArtifacts)
+					.where(eq(scanArtifacts.id, ev.artifactId));
 				if (art.length === 0) {
-					failures.push(`finding_evidence:${ev.id} references non-existent scan_artifact:${ev.artifactId}`);
+					failures.push(
+						`finding_evidence:${ev.id} references non-existent scan_artifact:${ev.artifactId}`,
+					);
 				}
 			}
 		}
@@ -59,30 +67,50 @@ async function main() {
 		// 3. finding_reviews.finding_id references existing finding
 		const allReviews = await db.select().from(findingReviews);
 		for (const r of allReviews) {
-			const f = await db.select().from(findings).where(eq(findings.id, r.findingId));
+			const f = await db
+				.select()
+				.from(findings)
+				.where(eq(findings.id, r.findingId));
 			if (f.length === 0) {
-				failures.push(`finding_review:${r.id} references non-existent finding:${r.findingId}`);
+				failures.push(
+					`finding_review:${r.id} references non-existent finding:${r.findingId}`,
+				);
 			}
 
 			// 4. finding_reviews.input_bundle contains finding/evidence references
-			const bundle = typeof r.inputBundle === "string" ? JSON.parse(r.inputBundle) : r.inputBundle;
+			const bundle =
+				typeof r.inputBundle === "string"
+					? JSON.parse(r.inputBundle)
+					: r.inputBundle;
 			if (!bundle || (!bundle.finding && !bundle.findingId)) {
-				failures.push(`finding_review:${r.id} input_bundle is missing finding/evidence references`);
+				failures.push(
+					`finding_review:${r.id} input_bundle is missing finding/evidence references`,
+				);
 			}
 		}
 
 		// 5. finding_decisions.linked_review_id, if present, belongs to the same finding
 		const allDecisions = await db.select().from(findingDecisions);
 		for (const d of allDecisions) {
-			const f = await db.select().from(findings).where(eq(findings.id, d.findingId));
+			const f = await db
+				.select()
+				.from(findings)
+				.where(eq(findings.id, d.findingId));
 			if (f.length === 0) {
-				failures.push(`finding_decision:${d.id} references non-existent finding:${d.findingId}`);
+				failures.push(
+					`finding_decision:${d.id} references non-existent finding:${d.findingId}`,
+				);
 			}
 
 			if (d.linkedReviewId) {
-				const r = await db.select().from(findingReviews).where(eq(findingReviews.id, d.linkedReviewId));
+				const r = await db
+					.select()
+					.from(findingReviews)
+					.where(eq(findingReviews.id, d.linkedReviewId));
 				if (r.length === 0) {
-					failures.push(`finding_decision:${d.id} references non-existent finding_review:${d.linkedReviewId}`);
+					failures.push(
+						`finding_decision:${d.id} references non-existent finding_review:${d.linkedReviewId}`,
+					);
 				} else {
 					const review = r[0];
 					if (review.findingId !== d.findingId) {
@@ -98,9 +126,14 @@ async function main() {
 		const allReports = await db.select().from(scanReports);
 		for (const rep of allReports) {
 			if (rep.artifactId) {
-				const art = await db.select().from(scanArtifacts).where(eq(scanArtifacts.id, rep.artifactId));
+				const art = await db
+					.select()
+					.from(scanArtifacts)
+					.where(eq(scanArtifacts.id, rep.artifactId));
 				if (art.length === 0) {
-					failures.push(`scan_report:${rep.id} references non-existent scan_artifact:${rep.artifactId}`);
+					failures.push(
+						`scan_report:${rep.id} references non-existent scan_artifact:${rep.artifactId}`,
+					);
 				}
 			}
 		}
@@ -108,25 +141,40 @@ async function main() {
 		// 7. reproduction / dynamic / DAST run artifacts reference their owning run
 		const allReproArtifacts = await db.select().from(reproductionArtifacts);
 		for (const ra of allReproArtifacts) {
-			const run = await db.select().from(reproductionRuns).where(eq(reproductionRuns.id, ra.reproductionRunId));
+			const run = await db
+				.select()
+				.from(reproductionRuns)
+				.where(eq(reproductionRuns.id, ra.reproductionRunId));
 			if (run.length === 0) {
-				failures.push(`reproduction_artifact:${ra.id} references non-existent run:${ra.reproductionRunId}`);
+				failures.push(
+					`reproduction_artifact:${ra.id} references non-existent run:${ra.reproductionRunId}`,
+				);
 			}
 		}
 
 		const allDynArtifacts = await db.select().from(dynamicArtifacts);
 		for (const da of allDynArtifacts) {
-			const run = await db.select().from(dynamicRuns).where(eq(dynamicRuns.id, da.dynamicRunId));
+			const run = await db
+				.select()
+				.from(dynamicRuns)
+				.where(eq(dynamicRuns.id, da.dynamicRunId));
 			if (run.length === 0) {
-				failures.push(`dynamic_artifact:${da.id} references non-existent run:${da.dynamicRunId}`);
+				failures.push(
+					`dynamic_artifact:${da.id} references non-existent run:${da.dynamicRunId}`,
+				);
 			}
 		}
 
 		const allDastArtifacts = await db.select().from(dastArtifacts);
 		for (const darta of allDastArtifacts) {
-			const run = await db.select().from(dastRuns).where(eq(dastRuns.id, darta.dastRunId));
+			const run = await db
+				.select()
+				.from(dastRuns)
+				.where(eq(dastRuns.id, darta.dastRunId));
 			if (run.length === 0) {
-				failures.push(`dast_artifact:${darta.id} references non-existent run:${darta.dastRunId}`);
+				failures.push(
+					`dast_artifact:${darta.id} references non-existent run:${darta.dastRunId}`,
+				);
 			}
 		}
 
@@ -134,7 +182,9 @@ async function main() {
 		for (const f of allFindings) {
 			if (f.sourceTool.startsWith("dast")) {
 				if (f.sourceTool !== "dast-http" && f.sourceTool !== "dast-browser") {
-					failures.push(`finding:${f.id} has invalid DAST sourceTool:${f.sourceTool}`);
+					failures.push(
+						`finding:${f.id} has invalid DAST sourceTool:${f.sourceTool}`,
+					);
 				}
 			}
 		}

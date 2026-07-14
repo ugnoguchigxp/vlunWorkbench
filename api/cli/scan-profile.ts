@@ -4,11 +4,11 @@ import { readAppEnv } from "../app/env";
 import { createDbConnection } from "../db";
 import { ArtifactStorage } from "../modules/scans/artifact-storage";
 import { runProfileScan } from "../modules/scans/profile-runner";
+import { getProfileById } from "../modules/scans/profiles";
 import {
 	ProjectResolutionError,
 	resolveProjectByPath,
 } from "../modules/scans/project-resolver";
-import { getProfileById } from "../modules/scans/profiles";
 import { ProjectRepository } from "../modules/scans/repositories";
 import {
 	type DockerNetworkMode,
@@ -36,6 +36,7 @@ async function main() {
 				"project-path": { type: "string" },
 				"create-project": { type: "string", default: "false" },
 				profile: { type: "string", default: "baseline" },
+				step: { type: "string" },
 				"timeout-sec": { type: "string" },
 				"continue-on-tool-failure": { type: "string", default: "true" },
 				"output-summary": { type: "string" },
@@ -50,6 +51,8 @@ async function main() {
 				memory: { type: "string" },
 				cpus: { type: "string" },
 				"tool-cache-dir": { type: "string" },
+				"image-ref": { type: "string" },
+				"image-tar": { type: "string" },
 				json: { type: "boolean", default: false },
 			},
 			strict: true,
@@ -69,6 +72,7 @@ async function main() {
 	const projectPath = argsValues["project-path"];
 	const createProject = parseBooleanFlag(argsValues["create-project"], false);
 	const profileId = argsValues.profile;
+	const stepId = argsValues.step;
 	const timeoutSecStr = argsValues["timeout-sec"];
 	const continueOnToolFailure =
 		argsValues["continue-on-tool-failure"] !== "false";
@@ -77,6 +81,16 @@ async function main() {
 	const finalReportEnabled = parseBooleanFlag(argsValues["final-report"], true);
 	const reportTitle = argsValues["report-title"];
 	const reportOutputPath = argsValues["report-output"];
+	const imageRef = argsValues["image-ref"];
+	const imageTar = argsValues["image-tar"];
+	if (imageRef && imageTar) {
+		writeResult({
+			ok: false,
+			status: "failed",
+			message: "Use only one of --image-ref or --image-tar.",
+		});
+		process.exit(2);
+	}
 	const runner = argsValues.runner as ToolRunnerKind;
 	const networkMode = argsValues.network as DockerNetworkMode;
 
@@ -143,8 +157,32 @@ async function main() {
 	if (dryRun) {
 		// Output dry-run details and exit
 		const toolOrder = profile.tools.map((t) => t.toolId);
-		const stepOrder = (profile.steps ?? []).map((step) =>
-			step.kind === "static_tool" ? step.toolId : `dast:${step.profileId}`,
+		const allSteps = profile.steps ?? [];
+		const selectedSteps = stepId
+			? allSteps.filter((step) => {
+					const id =
+						step.kind === "static_tool"
+							? step.toolId
+							: step.kind === "dast"
+								? `dast:${step.profileId}`
+								: `${step.kind}:${step.adapter}`;
+					return id === stepId;
+				})
+			: allSteps;
+		if (stepId && selectedSteps.length === 0) {
+			writeResult({
+				ok: false,
+				status: "failed",
+				message: `Invalid profile step: ${stepId}`,
+			});
+			process.exit(1);
+		}
+		const stepOrder = selectedSteps.map((step) =>
+			step.kind === "static_tool"
+				? step.toolId
+				: step.kind === "dast"
+					? `dast:${step.profileId}`
+					: `${step.kind}:${step.adapter}`,
 		);
 		const resolvedTools = profile.tools.map((t) => ({
 			toolId: t.toolId,
@@ -153,20 +191,34 @@ async function main() {
 			timeoutSec: t.timeoutSec ?? timeoutSec ?? profile.defaultTimeoutSec,
 			options: t.options ?? {},
 		}));
-		const resolvedSteps = (profile.steps ?? []).map((step) => ({
+		const resolvedSteps = selectedSteps.map((step) => ({
 			kind: step.kind,
-			id: step.kind === "static_tool" ? step.toolId : `dast:${step.profileId}`,
+			id:
+				step.kind === "static_tool"
+					? step.toolId
+					: step.kind === "dast"
+						? `dast:${step.profileId}`
+						: `${step.kind}:${step.adapter}`,
 			displayName: step.displayName,
 			required: step.required,
 			timeoutSec: step.timeoutSec ?? timeoutSec ?? profile.defaultTimeoutSec,
 			failurePolicy: step.failurePolicy,
-			target: step.kind === "dast" ? step.target : undefined,
+			target: "target" in step ? step.target : undefined,
+			applicabilityInput:
+				step.kind === "container_image_scan"
+					? imageRef
+						? "image-ref"
+						: imageTar
+							? "image-tar"
+							: "missing"
+					: undefined,
 		}));
 		writeResult({
 			dryRun: true,
 			profileId,
 			runner: execution.runner,
 			finalReport: finalReportEnabled,
+			stepId: stepId ?? null,
 			toolOrder,
 			stepOrder,
 			resolvedTools,
@@ -223,10 +275,13 @@ async function main() {
 			db: dbConnection.db,
 			projectId: project.id,
 			profileId,
+			stepId,
 			repoPath: projectResolution?.repoPath ?? project.repoPath,
 			continueOnToolFailure,
 			timeoutSec,
 			execution,
+			imageRef,
+			imageTar,
 			finalReport: {
 				enabled: finalReportEnabled,
 				title: reportTitle,

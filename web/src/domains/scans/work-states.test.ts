@@ -11,6 +11,7 @@ import {
 	type ActionQueueItem,
 	buildActionQueue,
 	deriveFindingWorkState,
+	deriveScanWorkState,
 	sortActionQueue,
 } from "./work-states";
 
@@ -312,5 +313,95 @@ describe("work states", () => {
 		expect(queue.some((item) => item.state === "needs_verification")).toBe(
 			false,
 		);
+	});
+
+	it("records explicit false-positive and accepted-risk decisions", () => {
+		expect(
+			deriveFindingWorkState({
+				finding: finding({ latestDecision: decision({ decision: "false_positive" }) }),
+			}),
+		).toBe("false_positive_recorded");
+		expect(
+			deriveFindingWorkState({
+				finding: finding({ latestDecision: decision({ decision: "accepted" }) }),
+			}),
+		).toBe("accepted_risk_recorded");
+	});
+
+	it("requires verification for weak review and clears it after dynamic completion", () => {
+		const weak = finding({
+			latestReview: review({
+				evidenceStrength: { level: "weak", reasoning: "Weak" },
+			}),
+		});
+		expect(deriveFindingWorkState({ finding: weak })).toBe("needs_verification");
+		expect(
+			deriveFindingWorkState({
+				finding: weak,
+				dynamicRuns: [
+					{
+						status: "completed",
+						outcome: "failed",
+					} as never,
+				],
+			}),
+		).toBe("ready_for_report");
+	});
+
+	it("accepts evidence from artifacts, snippets, and metadata", () => {
+		for (const input of [
+			{ evidence: [{ artifactId: "artifact-1" }] },
+			{ evidence: [{ location: { path: "src/app.ts" } }] },
+			{ evidence: [{ snippet: "const value = 1" }] },
+			{ finding: finding({ metadata: { evidenceRefs: ["ref-1"] } }) },
+		]) {
+			expect(
+				deriveFindingWorkState({
+					finding: input.finding ?? finding({ primaryLocation: null }),
+					evidence: input.evidence as never,
+					latestReview: review(),
+				}),
+			).toBe("ready_for_report");
+		}
+	});
+
+	it("derives scan states for cancelled, diagnostic, ready, and triage scans", () => {
+		const base = { scanRun: scanRun(), findings: [] };
+		expect(deriveScanWorkState({ ...base, scanRun: scanRun({ status: "cancelled" }) })).toBe(
+			"scan_failed",
+		);
+		expect(
+			deriveScanWorkState({ ...base, diagnosticReports: [diagnosticReport()] }),
+		).toBe("report_ready");
+		expect(
+			deriveScanWorkState({
+				...base,
+				findings: [finding({ latestDecision: decision(), latestReview: review() })],
+				reports: [report()],
+			}),
+		).toBe("report_generated");
+		expect(
+			deriveScanWorkState({
+				...base,
+				findings: [finding()],
+			}),
+		).toBe("triage_open");
+	});
+
+	it("builds report-ready items and includes cancelled scans", () => {
+		const queue = buildActionQueue({
+			scanRuns: [scanRun({ status: "cancelled" })],
+			selectedScanRunId: "scan-1",
+			findings: [],
+		});
+		expect(queue).toContainEqual(expect.objectContaining({ state: "scan_failed" }));
+
+		const ready = buildActionQueue({
+			scanRuns: [scanRun()],
+			selectedScanRunId: "scan-1",
+			findings: [finding({ latestDecision: decision(), latestReview: review() })],
+			diagnosticReports: [diagnosticReport()],
+		});
+		expect(ready).toContainEqual(expect.objectContaining({ state: "ready_for_report" }));
 	});
 });

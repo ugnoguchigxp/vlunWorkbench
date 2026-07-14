@@ -1,3 +1,4 @@
+import fs from "node:fs/promises";
 import type {
 	DastProfileStep,
 	ProfileToolEntry,
@@ -5,10 +6,21 @@ import type {
 	ScanScopePolicy,
 } from "../../../shared/schemas/scan-profile.schema";
 import type { AppDatabase } from "../../db";
-import { DastRunner } from "../dast/dast-runner";
+import { discoverApiSchema } from "../api-schema-fuzz/schema-discovery";
+import { runSchemathesisReadonly } from "../api-schema-fuzz/schemathesis-runner";
 import { DastRepository } from "../dast/dast-repository";
+import { DastRunner } from "../dast/dast-runner";
 import { prepareDastTargetWorkspace } from "../dast/target-preparer";
+import {
+	NUCLEI_SAFE_POLICY_HASH,
+	NUCLEI_SAFE_POLICY_ID,
+} from "../runtime-scans/command-contracts";
+import {
+	RuntimeScannerRunner,
+	ZAP_STABLE_IMAGE,
+} from "../runtime-scans/runtime-scanner-runner";
 import { ArtifactStorage } from "./artifact-storage";
+import type { NormalizedFinding } from "./normalizers/fixture";
 import { normalizeGitleaks } from "./normalizers/gitleaks";
 import { normalizeOsv } from "./normalizers/osv";
 // Import normalizers
@@ -63,9 +75,28 @@ export type DastStepResult = {
 	};
 };
 
+export type CoverageStepResult = {
+	kind:
+		| "runtime_scanner"
+		| "sbom_export"
+		| "api_schema_scan"
+		| "container_image_scan";
+	stepId: string;
+	adapter: string;
+	required: boolean;
+	status: "completed" | "failed" | "skipped";
+	applicability: "applicable" | "not_applicable";
+	reasonCode: string | null;
+	coverageEffect: "covered" | "partial" | "gap";
+	findingCount: number;
+	error: string | null;
+	artifactIds?: string[];
+};
+
 export type ScanProfileStepResult =
 	| (ToolResult & { kind: "static_tool" })
-	| DastStepResult;
+	| DastStepResult
+	| CoverageStepResult;
 
 export interface ProfileScanResult {
 	ok: boolean;
@@ -97,6 +128,24 @@ export interface FinalReportResult {
 	error: string | null;
 }
 
+type CommonToolRunResult = {
+	ok: boolean;
+	exitCode: number | null;
+	stdout: string;
+	stderr: string;
+	elapsedMs: number;
+	rawJson?: unknown;
+	rawJsonArtifact?: {
+		path: string;
+		sha256: string;
+		sizeBytes: number;
+	};
+	stdoutArtifact?: { path: string; sha256: string; sizeBytes: number };
+	stderrArtifact?: { path: string; sha256: string; sizeBytes: number };
+	error?: string;
+	executionMetadata?: Record<string, unknown>;
+};
+
 function buildBaseExecutionMetadata(execution: ToolExecutionConfig) {
 	if (execution.runner === "docker") {
 		const docker = execution.docker ?? {};
@@ -123,14 +172,27 @@ function buildBaseExecutionMetadata(execution: ToolExecutionConfig) {
 function resolveProfileSteps(params: {
 	steps?: ScanProfileStep[];
 	tools: ProfileToolEntry[];
+	stepId?: string;
 }): ScanProfileStep[] {
-	return (
+	const steps =
 		params.steps ??
 		params.tools.map((tool) => ({
 			kind: "static_tool" as const,
 			...tool,
-		}))
-	);
+		}));
+	if (!params.stepId) return steps;
+	const selected = steps.filter((step) => {
+		const id =
+			step.kind === "static_tool"
+				? step.toolId
+				: step.kind === "dast"
+					? `dast:${step.profileId}`
+					: `${step.kind}:${step.adapter}`;
+		return id === params.stepId;
+	});
+	if (selected.length === 0)
+		throw new Error(`Profile step not found: ${params.stepId}`);
+	return selected;
 }
 
 async function generateFinalReport(params: {
@@ -228,6 +290,14 @@ export async function runToolIntoExistingScan(params: {
 	const findingRepo = new FindingRepository(params.db);
 
 	const options = params.options ?? {};
+	if (
+		params.toolId === "trivy" &&
+		options.mode === "image" &&
+		!options.imageRef &&
+		!options.imageTar
+	) {
+		throw new Error("image_input_not_provided");
+	}
 	const timeoutSec = params.timeoutSec;
 	const execution = normalizeToolExecutionConfig(params.execution);
 	const baseExecutionMetadata = buildBaseExecutionMetadata(execution);
@@ -242,7 +312,10 @@ export async function runToolIntoExistingScan(params: {
 
 	// 1. Resolve Runner & Normalizer
 	let runner: SemgrepRunner | GitleaksRunner | OsvRunner | TrivyRunner;
-	let normalizer: (rawJson: unknown, opts?: { stderr?: string }) => any[];
+	let normalizer: (
+		rawJson: unknown,
+		opts?: { stderr?: string },
+	) => NormalizedFinding[];
 	let toolName: string;
 	let defaultCommand: string;
 
@@ -319,7 +392,7 @@ export async function runToolIntoExistingScan(params: {
 	let findingCount = 0;
 	let evidenceCount = 0;
 	const artifactIds: string[] = [];
-	let executionMetadata = baseExecutionMetadata;
+	let executionMetadata: Record<string, unknown> = baseExecutionMetadata;
 
 	try {
 		await scanRepo.createScanEvent({
@@ -331,7 +404,7 @@ export async function runToolIntoExistingScan(params: {
 		});
 
 		// 4. Execute Runner
-		let runResult: any;
+		let runResult: CommonToolRunResult;
 		const onLifecycleEvent = async (event: ToolLifecycleEvent) => {
 			await scanRepo.createScanEvent({
 				scanRunId: params.scanRunId,
@@ -381,6 +454,13 @@ export async function runToolIntoExistingScan(params: {
 					timeoutSec,
 					scope,
 					scanners,
+					mode: options.mode as
+						| "fs-vulnerability"
+						| "fs-sbom"
+						| "image"
+						| undefined,
+					imageRef: options.imageRef as string | undefined,
+					imageTar: options.imageTar as string | undefined,
 					onLifecycleEvent,
 				},
 			);
@@ -397,11 +477,15 @@ export async function runToolIntoExistingScan(params: {
 			const rawRecord = await artifactRepo.createArtifact({
 				scanRunId: params.scanRunId,
 				toolRunId,
-				kind: "raw_result",
-				format: "json",
+				kind: options.mode === "fs-sbom" ? "sbom" : "raw_result",
+				format: options.mode === "fs-sbom" ? "cyclonedx-json" : "json",
 				path: runResult.rawJsonArtifact.path,
 				sha256: runResult.rawJsonArtifact.sha256,
 				sizeBytes: runResult.rawJsonArtifact.sizeBytes,
+				metadata:
+					options.mode === "fs-sbom"
+						? { inventory: true, findingConversion: "disabled" }
+						: undefined,
 			});
 			rawArtifactId = rawRecord.id;
 			artifactIds.push(rawRecord.id);
@@ -458,9 +542,10 @@ export async function runToolIntoExistingScan(params: {
 			message: `Parsing ${toolName} raw output.`,
 		});
 
-		const normalizedFindings = normalizer(runResult.rawJson, {
-			stderr: runResult.stderr,
-		});
+		const normalizedFindings =
+			options.mode === "fs-sbom"
+				? []
+				: normalizer(runResult.rawJson, { stderr: runResult.stderr });
 
 		await scanRepo.createScanEvent({
 			scanRunId: params.scanRunId,
@@ -490,7 +575,7 @@ export async function runToolIntoExistingScan(params: {
 				status: nf.status,
 				primaryLocation: nf.primaryLocation,
 				fingerprint: nf.fingerprint,
-				metadata: (nf as any).metadata,
+				metadata: nf.metadata,
 			});
 			findingCount++;
 
@@ -549,14 +634,15 @@ export async function runToolIntoExistingScan(params: {
 			elapsedMs: runResult.elapsedMs,
 			artifactIds,
 		};
-	} catch (err: any) {
+	} catch (err: unknown) {
+		const errorMessage = err instanceof Error ? err.message : String(err);
 		// Log error event
 		try {
 			await scanRepo.createScanEvent({
 				scanRunId: params.scanRunId,
 				level: "error",
 				eventType: "tool.failed",
-				message: `${params.toolId} failed: ${err.message}`,
+				message: `${params.toolId} failed: ${errorMessage}`,
 				data: { toolRunId },
 			});
 			await scanRepo.updateToolRunStatus(toolRunId, "failed", {
@@ -570,7 +656,7 @@ export async function runToolIntoExistingScan(params: {
 					options,
 					timeoutSec: timeoutSec ?? null,
 					toolVersion,
-					error: err.message,
+					error: errorMessage,
 				},
 			});
 		} catch (innerErr) {
@@ -583,6 +669,347 @@ export async function runToolIntoExistingScan(params: {
 	}
 }
 
+async function runRuntimeScannerIntoExistingScan(params: {
+	db: AppDatabase;
+	projectId: string;
+	scanRunId: string;
+	adapter: "nuclei-safe" | "zap-baseline";
+	targetOrigin: string;
+	artifactStorage: ArtifactStorage;
+	timeoutSec?: number;
+	execution?: ToolExecutionConfig;
+}): Promise<{
+	toolRunId: string;
+	findingCount: number;
+	artifactIds: string[];
+	exitCode: number | null;
+	error?: string;
+	reasonCode?: string;
+}> {
+	const scanRepo = new ScanRepository(params.db);
+	const artifactRepo = new ArtifactRepository(params.db);
+	const findingRepo = new FindingRepository(params.db);
+	const runner = new RuntimeScannerRunner(
+		params.adapter,
+		params.artifactStorage,
+		params.execution,
+	);
+	const toolVersion = await runner.checkVersion();
+	const toolRun = await scanRepo.createToolRun({
+		scanRunId: params.scanRunId,
+		toolName: params.adapter,
+		toolVersion,
+		status: "running",
+		command: params.adapter,
+		metadata: {
+			adapter: params.adapter,
+			targetOrigin: params.targetOrigin,
+			policyId:
+				params.adapter === "nuclei-safe"
+					? NUCLEI_SAFE_POLICY_ID
+					: "zap-baseline-passive-v1",
+			policyHash:
+				params.adapter === "nuclei-safe" ? NUCLEI_SAFE_POLICY_HASH : null,
+			image: params.adapter === "zap-baseline" ? ZAP_STABLE_IMAGE : null,
+		},
+	});
+	if (!toolVersion) {
+		await scanRepo.updateToolRunStatus(toolRun.id, "failed", {
+			exitCode: 127,
+			metadata: { reasonCode: "tool_unavailable" },
+		});
+		return {
+			toolRunId: toolRun.id,
+			findingCount: 0,
+			artifactIds: [],
+			exitCode: 127,
+			error: `${params.adapter} executable not found`,
+			reasonCode: "tool_unavailable",
+		};
+	}
+	const result = await runner.run({
+		scanRunId: params.scanRunId,
+		targetOrigin: params.targetOrigin,
+		timeoutSec: params.timeoutSec,
+	});
+	const artifactIds: string[] = [];
+	const rawArtifactId = result.rawArtifact
+		? (
+				await artifactRepo.createArtifact({
+					scanRunId: params.scanRunId,
+					toolRunId: toolRun.id,
+					kind: "raw_result",
+					format: params.adapter === "nuclei-safe" ? "jsonl" : "json",
+					path: result.rawArtifact.path,
+					sha256: result.rawArtifact.sha256,
+					sizeBytes: result.rawArtifact.sizeBytes,
+				})
+			).id
+		: null;
+	if (rawArtifactId) artifactIds.push(rawArtifactId);
+	const stderrArtifactId = result.stderrArtifact
+		? (
+				await artifactRepo.createArtifact({
+					scanRunId: params.scanRunId,
+					toolRunId: toolRun.id,
+					kind: "stderr",
+					format: "text",
+					path: result.stderrArtifact.path,
+					sha256: result.stderrArtifact.sha256,
+					sizeBytes: result.stderrArtifact.sizeBytes,
+				})
+			).id
+		: null;
+	if (stderrArtifactId) artifactIds.push(stderrArtifactId);
+	if (result.stdoutArtifact)
+		artifactIds.push(
+			(
+				await artifactRepo.createArtifact({
+					scanRunId: params.scanRunId,
+					toolRunId: toolRun.id,
+					kind: "stdout",
+					format: "text",
+					path: result.stdoutArtifact.path,
+					sha256: result.stdoutArtifact.sha256,
+					sizeBytes: result.stdoutArtifact.sizeBytes,
+				})
+			).id,
+		);
+	if (!result.ok) {
+		await scanRepo.updateToolRunStatus(toolRun.id, "failed", {
+			exitCode: result.exitCode ?? 1,
+			metadata: {
+				reasonCode: result.reasonCode,
+				error: result.error,
+				artifactIds,
+			},
+		});
+		return {
+			toolRunId: toolRun.id,
+			findingCount: 0,
+			artifactIds,
+			exitCode: result.exitCode,
+			error: result.error,
+			reasonCode: result.reasonCode,
+		};
+	}
+	let findingCount = 0;
+	for (const finding of result.findings) {
+		const created = await findingRepo.createFinding({
+			scanRunId: params.scanRunId,
+			projectId: params.projectId,
+			sourceTool: params.adapter,
+			ruleId: finding.ruleId,
+			title: finding.title,
+			description: finding.description,
+			severity: finding.severity,
+			confidence: finding.confidence,
+			status: finding.status,
+			primaryLocation: finding.primaryLocation,
+			fingerprint: finding.fingerprint,
+		});
+		findingCount++;
+		for (const evidence of finding.evidences)
+			await findingRepo.createEvidence({
+				findingId: created.id,
+				kind: evidence.kind,
+				title: evidence.title,
+				artifactId:
+					evidence.kind === "scan-log" ? stderrArtifactId : rawArtifactId,
+				location: evidence.location,
+				snippet: evidence.snippet,
+			});
+	}
+	await scanRepo.updateToolRunStatus(toolRun.id, "completed", {
+		exitCode: result.exitCode,
+		metadata: {
+			adapter: params.adapter,
+			targetOrigin: params.targetOrigin,
+			findingCount,
+			artifactIds,
+			elapsedMs: result.elapsedMs,
+		},
+	});
+	return {
+		toolRunId: toolRun.id,
+		findingCount,
+		artifactIds,
+		exitCode: result.exitCode,
+	};
+}
+
+async function runSchemaScannerIntoExistingScan(params: {
+	db: AppDatabase;
+	projectId: string;
+	scanRunId: string;
+	repoPath: string;
+	targetOrigin: string;
+	artifactStorage: ArtifactStorage;
+	timeoutSec?: number;
+	execution?: ToolExecutionConfig;
+}): Promise<{
+	applicable: boolean;
+	reasonCode?: string;
+	toolRunId: string | null;
+	findingCount: number;
+	artifactIds: string[];
+	error?: string;
+}> {
+	const discovery = await discoverApiSchema({
+		repoPath: params.repoPath,
+		targetOrigin: params.targetOrigin,
+	});
+	if (!discovery.applicable || !discovery.schemaPath)
+		return {
+			applicable: false,
+			reasonCode: discovery.reasonCode ?? "schema_not_found",
+			toolRunId: null,
+			findingCount: 0,
+			artifactIds: [],
+		};
+	const scanRepo = new ScanRepository(params.db);
+	const artifactRepo = new ArtifactRepository(params.db);
+	const findingRepo = new FindingRepository(params.db);
+	const toolRun = await scanRepo.createToolRun({
+		scanRunId: params.scanRunId,
+		toolName: "schemathesis",
+		toolVersion: null,
+		status: "running",
+		command: "st run (readonly)",
+		metadata: {
+			schemaSource: discovery.source,
+			schemaPath: discovery.schemaPath,
+		},
+	});
+	let result: Awaited<ReturnType<typeof runSchemathesisReadonly>>;
+	try {
+		result = await runSchemathesisReadonly({
+			scanRunId: params.scanRunId,
+			schemaPath: discovery.schemaPath,
+			repoPath: discovery.source === "repository" ? params.repoPath : undefined,
+			targetOrigin: params.targetOrigin,
+			storage: params.artifactStorage,
+			execution: params.execution,
+			timeoutSec: params.timeoutSec,
+		});
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		await scanRepo.updateToolRunStatus(toolRun.id, "failed", {
+			exitCode: 1,
+			metadata: { error: message, reasonCode: "execution_failed" },
+		});
+		return {
+			applicable: true,
+			toolRunId: toolRun.id,
+			findingCount: 0,
+			artifactIds: [],
+			error: message,
+		};
+	} finally {
+		if (discovery.cleanupPath)
+			await fs.rm(discovery.cleanupPath, { recursive: true, force: true });
+	}
+	const artifactIds: string[] = [];
+	const rawArtifactId = result.rawArtifact
+		? (
+				await artifactRepo.createArtifact({
+					scanRunId: params.scanRunId,
+					toolRunId: toolRun.id,
+					kind: "raw_result",
+					format: "ndjson",
+					path: result.rawArtifact.path,
+					sha256: result.rawArtifact.sha256,
+					sizeBytes: result.rawArtifact.sizeBytes,
+				})
+			).id
+		: null;
+	if (rawArtifactId) artifactIds.push(rawArtifactId);
+	if (result.stdoutArtifact)
+		artifactIds.push(
+			(
+				await artifactRepo.createArtifact({
+					scanRunId: params.scanRunId,
+					toolRunId: toolRun.id,
+					kind: "stdout",
+					format: "text",
+					path: result.stdoutArtifact.path,
+					sha256: result.stdoutArtifact.sha256,
+					sizeBytes: result.stdoutArtifact.sizeBytes,
+				})
+			).id,
+		);
+	if (result.stderrArtifact)
+		artifactIds.push(
+			(
+				await artifactRepo.createArtifact({
+					scanRunId: params.scanRunId,
+					toolRunId: toolRun.id,
+					kind: "stderr",
+					format: "text",
+					path: result.stderrArtifact.path,
+					sha256: result.stderrArtifact.sha256,
+					sizeBytes: result.stderrArtifact.sizeBytes,
+				})
+			).id,
+		);
+	if (!result.ok) {
+		await scanRepo.updateToolRunStatus(toolRun.id, "failed", {
+			exitCode: result.exitCode ?? 1,
+			metadata: {
+				toolVersion: result.toolVersion,
+				error: result.error,
+				artifactIds,
+			},
+		});
+		return {
+			applicable: true,
+			toolRunId: toolRun.id,
+			findingCount: 0,
+			artifactIds,
+			error: result.error ?? "execution_failed",
+		};
+	}
+	for (const finding of result.findings) {
+		const created = await findingRepo.createFinding({
+			scanRunId: params.scanRunId,
+			projectId: params.projectId,
+			sourceTool: "schemathesis",
+			ruleId: finding.ruleId,
+			title: finding.title,
+			description: finding.description,
+			severity: finding.severity,
+			confidence: finding.confidence,
+			status: finding.status,
+			primaryLocation: finding.primaryLocation,
+			fingerprint: finding.fingerprint,
+		});
+		for (const evidence of finding.evidences)
+			await findingRepo.createEvidence({
+				findingId: created.id,
+				kind: evidence.kind,
+				title: evidence.title,
+				artifactId: rawArtifactId,
+				location: evidence.location,
+				snippet: evidence.snippet,
+			});
+	}
+	await scanRepo.updateToolRunStatus(toolRun.id, "completed", {
+		exitCode: result.exitCode,
+		metadata: {
+			toolVersion: result.toolVersion,
+			artifactIds,
+			findingCount: result.findings.length,
+			schemaSource: discovery.source,
+		},
+	});
+	return {
+		applicable: true,
+		toolRunId: toolRun.id,
+		findingCount: result.findings.length,
+		artifactIds,
+	};
+}
+
 export async function runDastStepIntoExistingScan(params: {
 	db: AppDatabase;
 	projectId: string;
@@ -591,12 +1018,12 @@ export async function runDastStepIntoExistingScan(params: {
 	repoPath: string;
 	timeoutSec?: number;
 	createdByUserId?: string | null;
+	preparedAutoTarget?: Awaited<ReturnType<typeof prepareDastTargetWorkspace>>;
 }): Promise<DastStepResult> {
 	const scanRepo = new ScanRepository(params.db);
 	const dastRepo = new DastRepository(params.db);
-	let preparedAutoTarget: Awaited<
-		ReturnType<typeof prepareDastTargetWorkspace>
-	> | null = null;
+	let preparedAutoTarget = params.preparedAutoTarget ?? null;
+	const ownsPreparedTarget = !params.preparedAutoTarget;
 	let targetConfigId: string | null = null;
 
 	try {
@@ -608,10 +1035,12 @@ export async function runDastStepIntoExistingScan(params: {
 			data: { profileId: params.step.profileId },
 		});
 
-		preparedAutoTarget = await prepareDastTargetWorkspace({
-			repoPath: params.repoPath,
-			readinessTimeoutMs: params.step.options?.readinessTimeoutMs,
-		});
+		if (!preparedAutoTarget) {
+			preparedAutoTarget = await prepareDastTargetWorkspace({
+				repoPath: params.repoPath,
+				readinessTimeoutMs: params.step.options?.readinessTimeoutMs,
+			});
+		}
 		const target = await dastRepo.createTargetConfig({
 			projectId: params.projectId,
 			...preparedAutoTarget.targetConfig,
@@ -742,7 +1171,9 @@ export async function runDastStepIntoExistingScan(params: {
 				})
 				.catch(() => undefined);
 		}
-		await preparedAutoTarget?.stop().catch(() => undefined);
+		if (ownsPreparedTarget) {
+			await preparedAutoTarget?.stop().catch(() => undefined);
+		}
 	}
 }
 
@@ -750,12 +1181,15 @@ export async function runProfileScan(params: {
 	db: AppDatabase;
 	projectId: string;
 	profileId: string;
+	stepId?: string;
 	repoPath: string;
 	continueOnToolFailure?: boolean;
 	timeoutSec?: number;
 	createdByUserId?: string | null;
 	execution?: ToolExecutionConfig;
 	finalReport?: FinalReportOptions;
+	imageRef?: string;
+	imageTar?: string;
 }): Promise<ProfileScanResult> {
 	const scanRepo = new ScanRepository(params.db);
 	const artifactStorage = new ArtifactStorage();
@@ -781,9 +1215,18 @@ export async function runProfileScan(params: {
 	const profileSteps = resolveProfileSteps({
 		steps: profile.steps,
 		tools: profile.tools,
+		stepId: params.stepId,
 	});
+	const sharesRuntimeTarget = profileSteps.some(
+		(step) =>
+			step.kind === "runtime_scanner" || step.kind === "api_schema_scan",
+	);
 	const stepOrder = profileSteps.map((step) =>
-		step.kind === "static_tool" ? step.toolId : `dast:${step.profileId}`,
+		step.kind === "static_tool"
+			? step.toolId
+			: step.kind === "dast"
+				? `dast:${step.profileId}`
+				: `${step.kind}:${"adapter" in step ? step.adapter : "unknown"}`,
 	);
 
 	const continueOnToolFailure = params.continueOnToolFailure ?? true;
@@ -816,125 +1259,302 @@ export async function runProfileScan(params: {
 
 	const toolResults: ToolResult[] = [];
 	const stepResults: ScanProfileStepResult[] = [];
+	let sharedRuntimeTarget: Awaited<
+		ReturnType<typeof prepareDastTargetWorkspace>
+	> | null = null;
+	const ensureSharedRuntimeTarget = async () => {
+		if (!sharedRuntimeTarget) {
+			sharedRuntimeTarget = await prepareDastTargetWorkspace({
+				repoPath: params.repoPath,
+			});
+		}
+		return sharedRuntimeTarget;
+	};
 	let profileFailingToolFailed = false;
 	let optionalToolFailed = false;
 
-	for (const step of profileSteps) {
-		const resolvedTimeout =
-			step.timeoutSec ?? params.timeoutSec ?? profile.defaultTimeoutSec;
-		const failureFailsProfile =
-			step.required || step.failurePolicy === "fail_profile";
+	try {
+		for (const step of profileSteps) {
+			const resolvedTimeout =
+				step.timeoutSec ?? params.timeoutSec ?? profile.defaultTimeoutSec;
+			const failureFailsProfile =
+				step.required || step.failurePolicy === "fail_profile";
 
-		const stepId =
-			step.kind === "static_tool" ? step.toolId : `dast:${step.profileId}`;
+			const stepId =
+				step.kind === "static_tool"
+					? step.toolId
+					: step.kind === "dast"
+						? `dast:${step.profileId}`
+						: `${step.kind}:${step.adapter}`;
 
-		let toolRunId: string | null = null;
-		let findingCount = 0;
-		let exitCode: number | null = null;
-		let status: "completed" | "failed" | "skipped" = "completed";
-		let error: string | null = null;
+			let toolRunId: string | null = null;
+			let findingCount = 0;
+			let stepArtifactIds: string[] = [];
+			let exitCode: number | null = null;
+			let status: "completed" | "failed" | "skipped" = "completed";
+			let error: string | null = null;
 
-		// Check if we should skip due to earlier profile-failing tool failure.
-		if (profileFailingToolFailed && !continueOnToolFailure) {
-			status = "skipped";
-			if (step.kind === "static_tool") {
-				const toolResult = {
-					toolId: step.toolId,
-					toolRunId: null,
-					required: step.required,
-					status,
-					findingCount: 0,
-					exitCode: null,
-					error: "Skipped due to previous profile-failing tool failure",
-				};
-				toolResults.push(toolResult);
-				stepResults.push({ kind: "static_tool", ...toolResult });
-			} else {
-				stepResults.push({
-					kind: "dast",
-					profileId: step.profileId,
-					required: step.required,
-					status,
-					outcome: null,
-					findingCount: 0,
-					dastRunId: null,
-					targetOrigin: null,
-					error: "Skipped due to previous profile-failing step failure",
-				});
-			}
-			continue;
-		}
-
-		try {
-			if (step.kind === "static_tool") {
-				const toolRes = await runToolIntoExistingScan({
-					db: params.db,
-					projectId: params.projectId,
-					scanRunId: scanRun.id,
-					toolId: step.toolId,
-					options: {
-						...(step.options ?? {}),
-						scope: withMandatoryExcludes(profile.scope),
-						scopeSummary: resolvedScope,
-					},
-					artifactStorage,
-					timeoutSec: resolvedTimeout,
-					repoPath: params.repoPath,
-					execution,
-				});
-
-				toolRunId = toolRes.toolRunId;
-				findingCount = toolRes.findingCount;
-				exitCode = toolRes.exitCode;
-				status = "completed";
-			} else {
-				const dastResult = await runDastStepIntoExistingScan({
-					db: params.db,
-					projectId: params.projectId,
-					scanRunId: scanRun.id,
-					step,
-					repoPath: params.repoPath,
-					timeoutSec: resolvedTimeout,
-					createdByUserId: params.createdByUserId,
-				});
-				stepResults.push(dastResult);
-				findingCount = dastResult.findingCount;
-				status = dastResult.status;
-				error = dastResult.error;
-				if (dastResult.status === "failed") {
-					if (failureFailsProfile) {
-						profileFailingToolFailed = true;
-					} else {
-						optionalToolFailed = true;
-					}
+			// Check if we should skip due to earlier profile-failing tool failure.
+			if (profileFailingToolFailed && !continueOnToolFailure) {
+				status = "skipped";
+				if (step.kind === "static_tool") {
+					const toolResult = {
+						toolId: step.toolId,
+						toolRunId: null,
+						required: step.required,
+						status,
+						findingCount: 0,
+						exitCode: null,
+						error: "Skipped due to previous profile-failing tool failure",
+					};
+					toolResults.push(toolResult);
+					stepResults.push({ kind: "static_tool", ...toolResult });
+				} else if (step.kind === "dast") {
+					stepResults.push({
+						kind: "dast",
+						profileId: step.profileId,
+						required: step.required,
+						status,
+						outcome: null,
+						findingCount: 0,
+						dastRunId: null,
+						targetOrigin: null,
+						error: "Skipped due to previous profile-failing step failure",
+					});
+				} else {
+					stepResults.push({
+						kind: step.kind,
+						stepId,
+						adapter: "adapter" in step ? step.adapter : "unknown",
+						required: step.required,
+						status,
+						applicability: "not_applicable",
+						reasonCode: "execution_failed",
+						coverageEffect: "gap",
+						findingCount: 0,
+						error: "Skipped due to previous profile-failing step failure",
+					});
 				}
 				continue;
 			}
-		} catch (err: any) {
-			status = "failed";
-			error = err.message;
 
-			if (failureFailsProfile) {
-				profileFailingToolFailed = true;
-			} else {
-				optionalToolFailed = true;
+			try {
+				if (
+					step.kind === "static_tool" ||
+					step.kind === "sbom_export" ||
+					step.kind === "container_image_scan"
+				) {
+					const toolId = step.kind === "static_tool" ? step.toolId : "trivy";
+					const toolRes = await runToolIntoExistingScan({
+						db: params.db,
+						projectId: params.projectId,
+						scanRunId: scanRun.id,
+						toolId,
+						options: {
+							...(("options" in step ? step.options : undefined) ?? {}),
+							...(step.kind === "sbom_export" ? { mode: "fs-sbom" } : {}),
+							...(step.kind === "container_image_scan"
+								? {
+										mode: "image",
+										imageRef: params.imageRef,
+										imageTar: params.imageTar,
+									}
+								: {}),
+							scope: withMandatoryExcludes(profile.scope),
+							scopeSummary: resolvedScope,
+						},
+						artifactStorage,
+						timeoutSec: resolvedTimeout,
+						repoPath: params.repoPath,
+						execution,
+					});
+
+					toolRunId = toolRes.toolRunId;
+					findingCount = toolRes.findingCount;
+					exitCode = toolRes.exitCode;
+					stepArtifactIds = toolRes.artifactIds;
+					status = "completed";
+				} else if (step.kind === "dast") {
+					const target = sharesRuntimeTarget
+						? await ensureSharedRuntimeTarget()
+						: undefined;
+					const dastResult = await runDastStepIntoExistingScan({
+						db: params.db,
+						projectId: params.projectId,
+						scanRunId: scanRun.id,
+						step,
+						repoPath: params.repoPath,
+						timeoutSec: resolvedTimeout,
+						createdByUserId: params.createdByUserId,
+						preparedAutoTarget: target,
+					});
+					stepResults.push(dastResult);
+					findingCount = dastResult.findingCount;
+					status = dastResult.status;
+					error = dastResult.error;
+					if (dastResult.status === "failed") {
+						if (failureFailsProfile) {
+							profileFailingToolFailed = true;
+						} else {
+							optionalToolFailed = true;
+						}
+					}
+					continue;
+				} else if (step.kind === "runtime_scanner") {
+					const target = await ensureSharedRuntimeTarget();
+					const runtimeResult = await runRuntimeScannerIntoExistingScan({
+						db: params.db,
+						projectId: params.projectId,
+						scanRunId: scanRun.id,
+						adapter: step.adapter,
+						targetOrigin: target.origin,
+						artifactStorage,
+						timeoutSec: resolvedTimeout,
+						execution,
+					});
+					const runtimeFailed = Boolean(runtimeResult.error);
+					stepResults.push({
+						kind: step.kind,
+						stepId,
+						adapter: step.adapter,
+						required: step.required,
+						status: runtimeFailed ? "failed" : "completed",
+						applicability: "applicable",
+						reasonCode: runtimeResult.reasonCode ?? null,
+						coverageEffect: runtimeFailed ? "gap" : "covered",
+						findingCount: runtimeResult.findingCount,
+						error: runtimeResult.error ?? null,
+						artifactIds: runtimeResult.artifactIds,
+					});
+					if (runtimeFailed) {
+						if (failureFailsProfile) profileFailingToolFailed = true;
+						else optionalToolFailed = true;
+					}
+					continue;
+				} else if (step.kind === "api_schema_scan") {
+					const target = await ensureSharedRuntimeTarget();
+					const schemaResult = await runSchemaScannerIntoExistingScan({
+						db: params.db,
+						projectId: params.projectId,
+						scanRunId: scanRun.id,
+						repoPath: params.repoPath,
+						targetOrigin: target.origin,
+						artifactStorage,
+						timeoutSec: resolvedTimeout,
+						execution,
+					});
+					const notApplicable = !schemaResult.applicable;
+					const schemaFailed = Boolean(schemaResult.error);
+					stepResults.push({
+						kind: step.kind,
+						stepId,
+						adapter: step.adapter,
+						required: step.required,
+						status: notApplicable
+							? "skipped"
+							: schemaFailed
+								? "failed"
+								: "completed",
+						applicability: notApplicable ? "not_applicable" : "applicable",
+						reasonCode: schemaResult.reasonCode ?? null,
+						coverageEffect: notApplicable || schemaFailed ? "gap" : "covered",
+						findingCount: schemaResult.findingCount,
+						error: schemaResult.error ?? null,
+						artifactIds: schemaResult.artifactIds,
+					});
+					if (schemaFailed && failureFailsProfile)
+						profileFailingToolFailed = true;
+					else if (schemaFailed || notApplicable) optionalToolFailed = true;
+					continue;
+				}
+			} catch (err: unknown) {
+				status = "failed";
+				error = err instanceof Error ? err.message : String(err);
+
+				if (failureFailsProfile) {
+					profileFailingToolFailed = true;
+				} else {
+					optionalToolFailed = true;
+				}
+				if (
+					step.kind === "runtime_scanner" ||
+					step.kind === "api_schema_scan"
+				) {
+					stepResults.push({
+						kind: step.kind,
+						stepId,
+						adapter: step.adapter,
+						required: step.required,
+						status: "failed",
+						applicability: "applicable",
+						reasonCode: "execution_failed",
+						coverageEffect: "gap",
+						findingCount: 0,
+						error,
+					});
+					continue;
+				}
+				if (step.kind === "dast") {
+					stepResults.push({
+						kind: "dast",
+						profileId: step.profileId,
+						required: step.required,
+						status: "failed",
+						outcome: "error",
+						findingCount: 0,
+						dastRunId: null,
+						targetOrigin: null,
+						error,
+					});
+					continue;
+				}
 			}
-		}
 
-		if (step.kind !== "static_tool") {
-			throw new Error(`Unsupported profile step: ${stepId}`);
+			if (
+				step.kind !== "static_tool" &&
+				step.kind !== "sbom_export" &&
+				step.kind !== "container_image_scan"
+			)
+				throw new Error(`Unsupported profile step: ${stepId}`);
+			const toolResult = {
+				toolId: step.kind === "static_tool" ? step.toolId : "trivy",
+				toolRunId,
+				required: step.required,
+				status,
+				findingCount,
+				exitCode,
+				error,
+			};
+			toolResults.push(toolResult);
+			stepResults.push(
+				step.kind === "static_tool"
+					? { kind: "static_tool", ...toolResult }
+					: {
+							kind: step.kind,
+							stepId,
+							adapter: step.adapter,
+							required: step.required,
+							status,
+							applicability:
+								status === "completed" ? "applicable" : "not_applicable",
+							reasonCode:
+								status === "completed"
+									? null
+									: error?.includes("image_input_not_provided")
+										? "image_input_not_provided"
+										: "execution_failed",
+							coverageEffect: status === "completed" ? "covered" : "gap",
+							findingCount,
+							error,
+							artifactIds: stepArtifactIds,
+						},
+			);
 		}
-		const toolResult = {
-			toolId: step.toolId,
-			toolRunId,
-			required: step.required,
-			status,
-			findingCount,
-			exitCode,
-			error,
-		};
-		toolResults.push(toolResult);
-		stepResults.push({ kind: "static_tool", ...toolResult });
+	} finally {
+		const targetToStop = sharedRuntimeTarget as Awaited<
+			ReturnType<typeof prepareDastTargetWorkspace>
+		> | null;
+		await targetToStop?.stop().catch(() => undefined);
 	}
 
 	// Determine profile outcome

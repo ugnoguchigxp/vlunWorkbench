@@ -59,6 +59,24 @@ export const PROFILE_DISPLAY: Record<
 		subtitle:
 			"プロジェクトの起動スクリプトから対象を自動判別し、HTTP実行時証跡を確認します。",
 	},
+	"runtime-web-safe": {
+		name: "安全なWeb実行時診断",
+		subtitle:
+			"HTTP baseline、Nuclei safe、ZAP baseline を同じ自動起動対象で確認します。",
+	},
+	"sbom-inventory": {
+		name: "CycloneDXソフトウェアインベントリ",
+		subtitle: "検査対象のソフトウェア構成を SBOM artifact として保存します。",
+	},
+	"api-schema-readonly": {
+		name: "APIスキーマ読み取り専用診断",
+		subtitle:
+			"検出できた API schema の read-only operation だけを bounded に確認します。",
+	},
+	"container-image-security": {
+		name: "既存コンテナイメージ診断",
+		subtitle: "明示された既存 image ref または tar だけを Trivy で確認します。",
+	},
 	"full-security-scan": {
 		name: "総合セキュリティ診断",
 		subtitle: "詳細な静的診断と自動起動 HTTP DAST 診断をまとめて実行します。",
@@ -89,6 +107,19 @@ export const TOOL_DISPLAY: Record<string, { name: string; purpose: string }> = {
 		name: "Trivy",
 		purpose:
 			"ファイルシステム視点で依存脆弱性、シークレット、IaC/設定ミスを確認します。",
+	},
+	"nuclei-safe": {
+		name: "Nuclei Safe",
+		purpose: "固定された安全な HTTP template set だけで公開状態を確認します。",
+	},
+	"zap-baseline": {
+		name: "ZAP Baseline",
+		purpose: "公式 ZAP baseline の passive alert を確認します。",
+	},
+	schemathesis: {
+		name: "Schemathesis",
+		purpose:
+			"認証情報を渡さず read-only API operation を bounded に確認します。",
 	},
 };
 

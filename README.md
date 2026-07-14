@@ -207,6 +207,17 @@ bun run scan:profile -- \
   --report-output detailed-report.md
 ```
 
+Phase 41 focused profiles add bounded coverage without changing the target repository:
+
+```bash
+bun run scan:profile -- --project-path /path/to/repo --profile runtime-web-safe --json
+bun run scan:profile -- --project-path /path/to/repo --profile sbom-inventory --json
+bun run scan:profile -- --project-path /path/to/repo --profile api-schema-readonly --json
+bun run scan:profile -- --project-path /path/to/repo --profile container-image-security --image-ref local/app:tag --json
+```
+
+`full-security-scan` runs the existing static tools, CycloneDX SBOM, HTTP baseline, Nuclei safe, ZAP baseline, and Schemathesis only when a schema is discovered. Nuclei uses the pinned safe template set; ZAP is passive baseline only; Schemathesis sends no credentials and limits methods to GET/HEAD/OPTIONS. Missing schema or image input is reported as a coverage gap, not as “no vulnerabilities.”
+
 ### Individual Scanners
 
 ```bash
@@ -214,6 +225,8 @@ bun run scan:semgrep -- --project-id <project-id>
 bun run scan:gitleaks -- --project-id <project-id>
 bun run scan:osv -- --project-id <project-id>
 bun run scan:trivy -- --project-id <project-id>
+bun run scan:sbom -- --project-id <project-id>
+bun run scan:trivy-image -- --project-id <project-id> --image-ref local/app:tag
 ```
 
 ### Scan Review / Handoff

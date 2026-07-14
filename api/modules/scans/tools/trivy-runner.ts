@@ -30,6 +30,9 @@ export interface TrivyRunnerOptions {
 	timeoutSec?: number;
 	scope?: ScanScopePolicy;
 	scanners?: string[];
+	mode?: "fs-vulnerability" | "fs-sbom" | "image";
+	imageRef?: string;
+	imageTar?: string;
 	onLifecycleEvent?: (event: ToolLifecycleEvent) => Promise<void> | void;
 }
 
@@ -61,9 +64,23 @@ export class TrivyRunner {
 				error: "Trivy executable not found",
 			};
 		}
+		const mode = options.mode ?? "fs-vulnerability";
+		if (mode === "image" && !options.imageRef && !options.imageTar) {
+			return {
+				ok: false,
+				exitCode: null,
+				stdout: "",
+				stderr: "",
+				elapsedMs: 0,
+				error: "image_input_not_provided",
+			};
+		}
 
 		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "trivy-run-"));
-		const tempJsonPath = path.join(tempDir, "trivy-output.json");
+		const tempJsonPath = path.join(
+			tempDir,
+			options.mode === "fs-sbom" ? "sbom.cdx.json" : "trivy-output.json",
+		);
 		const scopedWorkspace =
 			options.scope?.intent === "artifact" ||
 			options.scope?.intent === "dependency_manifest"
@@ -75,17 +92,30 @@ export class TrivyRunner {
 				: null;
 		const scanPath = scopedWorkspace?.path ?? repoPath;
 
-		// Command: trivy fs --format json --output <tempJsonPath> <repoPath>
-		const args = ["fs", "--format", "json", "--output", tempJsonPath];
+		const args =
+			mode === "fs-sbom"
+				? ["fs", "--format", "cyclonedx", "--output", tempJsonPath]
+				: mode === "image"
+					? [
+							"image",
+							"--format",
+							"json",
+							"--output",
+							tempJsonPath,
+							...(options.imageRef
+								? [options.imageRef]
+								: ["--input", options.imageTar as string]),
+						]
+					: ["fs", "--format", "json", "--output", tempJsonPath];
 		if (options.scanners?.length) {
 			args.push("--scanners", options.scanners.join(","));
 		}
-		if (!scopedWorkspace) {
+		if (mode === "fs-vulnerability" && !scopedWorkspace) {
 			for (const skipDir of getScopeSkipDirs(options.scope)) {
 				args.push("--skip-dirs", skipDir);
 			}
 		}
-		args.push(scanPath);
+		if (mode !== "image") args.push(scanPath);
 
 		const startTime = Date.now();
 		const runResult = await runToolProcess("trivy", args, {
@@ -96,7 +126,7 @@ export class TrivyRunner {
 			onLifecycleEvent: options.onLifecycleEvent,
 		});
 		const elapsedMs = Date.now() - startTime;
-		const executionMetadata = {
+		const executionMetadata: Record<string, unknown> = {
 			...(runResult.executionMetadata ?? {}),
 			scopeWorkspace: scopedWorkspace
 				? { applied: true, copiedFiles: scopedWorkspace.copiedFiles }
@@ -121,13 +151,24 @@ export class TrivyRunner {
 			};
 		}
 
-		let rawJson: any = null;
+		let rawJson: unknown = null;
 		let rawJsonText: string | null = null;
 		let jsonValid = false;
 		try {
 			rawJsonText = await fs.readFile(tempJsonPath, "utf8");
 			rawJson = JSON.parse(rawJsonText);
 			jsonValid = true;
+			if (mode === "fs-sbom" && rawJson && typeof rawJson === "object") {
+				const sbom = rawJson as {
+					components?: unknown[];
+					dependencies?: unknown[];
+				};
+				executionMetadata.sbom = {
+					format: "cyclonedx-json",
+					componentCount: sbom.components?.length ?? 0,
+					dependencyRelationshipCount: sbom.dependencies?.length ?? 0,
+				};
+			}
 		} catch {
 			// output was invalid or not found
 		}

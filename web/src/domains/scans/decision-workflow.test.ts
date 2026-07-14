@@ -232,4 +232,28 @@ describe("decision workflow", () => {
 			expect.objectContaining({ kind: "dast", available: false }),
 		);
 	});
+
+	it("recommends evidence or review and maps accepted decisions", () => {
+		expect(
+			buildDecisionWorkflow({
+				finding: finding(),
+				evidence: [evidence({ kind: "tool-output" })],
+				latestDecision: null,
+				latestReview: null,
+				reportOptions: defaultReportOptions,
+			}).recommendedReason,
+		).toBe("confirmed_by_evidence");
+		expect(
+			buildDecisionWorkflow({
+				finding: finding(),
+				evidence: [],
+				latestDecision: null,
+				latestReview: review(),
+				reportOptions: defaultReportOptions,
+			}).recommendedReason,
+		).toBe("confirmed_by_review");
+		expect(
+			mapDecisionToReportBucket(decision({ decision: "accepted" }), defaultReportOptions),
+		).toMatchObject({ bucket: "accepted", includedByDefault: true });
+	});
 });

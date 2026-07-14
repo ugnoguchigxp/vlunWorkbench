@@ -568,7 +568,11 @@ export async function buildMarkdownReport(
 		lines.push(
 			`- **Profile steps:** ${profileSteps
 				.map((step) =>
-					step.kind === "dast" ? `dast:${step.profileId}` : step.toolId,
+					step.kind === "dast"
+						? `dast:${step.profileId}`
+						: step.kind === "static_tool"
+							? step.toolId
+							: `${step.kind}:${step.adapter}`,
 				)
 				.join(", ")}`,
 		);
@@ -845,12 +849,19 @@ export async function buildMarkdownReport(
 		lines.push("| --- | --- | --- | --- | --- | --- |");
 		for (const step of profileSteps) {
 			const stepId =
-				step.kind === "dast" ? `dast:${step.profileId}` : step.toolId;
+				step.kind === "dast"
+					? `dast:${step.profileId}`
+					: step.kind === "static_tool"
+						? step.toolId
+						: `${step.kind}:${step.adapter}`;
 			const result = stepResults.find((item) => {
 				if (step.kind === "dast") {
 					return item.kind === "dast" && item.profileId === step.profileId;
 				}
-				return item.kind === "static_tool" && item.toolId === step.toolId;
+				if (step.kind === "static_tool") {
+					return item.kind === "static_tool" && item.toolId === step.toolId;
+				}
+				return item.kind === step.kind && item.stepId === stepId;
 			});
 			const status = (result?.status as string | undefined) ?? "skipped";
 			const findingCount = (result?.findingCount as number | undefined) ?? 0;
@@ -859,7 +870,16 @@ export async function buildMarkdownReport(
 					? ((result?.targetOrigin as string | undefined) ??
 						(result?.error as string | undefined) ??
 						"auto target")
-					: ((result?.error as string | undefined) ?? "-");
+					: step.kind === "api_schema_scan"
+						? ((result?.reasonCode as string | undefined) ??
+							(result?.error as string | undefined) ??
+							"read-only operations; write_operations_not_scanned")
+						: step.kind === "sbom_export"
+							? ((result?.error as string | undefined) ??
+								"inventory artifact; components are not findings")
+							: ((result?.reasonCode as string | undefined) ??
+								(result?.error as string | undefined) ??
+								"-");
 			lines.push(
 				`| ${escapeTableCell(stepId)} | ${escapeTableCell(step.kind)} | ${step.required ? "yes" : "no"} | ${escapeTableCell(status)} | ${findingCount} | ${escapeTableCell(note)} |`,
 			);
@@ -869,6 +889,22 @@ export async function buildMarkdownReport(
 				`Runtime coverage gap: expected DAST step(s) did not complete: ${failedOrMissingDastSteps
 					.map((step) => `dast:${step.profileId}`)
 					.join(", ")}.`,
+			);
+		}
+		const coverageGaps = stepResults.filter(
+			(item) =>
+				item.coverageEffect === "gap" ||
+				item.applicability === "not_applicable",
+		);
+		if (coverageGaps.length > 0) {
+			lines.push("### Coverage gaps");
+			for (const gap of coverageGaps) {
+				lines.push(
+					`- ${escapeTableCell(String(gap.stepId ?? gap.toolId ?? gap.kind))}: ${escapeTableCell(String(gap.reasonCode ?? gap.error ?? "coverage gap"))}`,
+				);
+			}
+			lines.push(
+				"Finding 0 件は、未実行・適用不能・認証要求を含む coverage gap と分けて解釈してください。",
 			);
 		}
 		lines.push("");

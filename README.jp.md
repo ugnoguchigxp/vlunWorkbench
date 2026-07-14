@@ -206,6 +206,17 @@ bun run scan:profile -- \
   --report-output detailed-report.md
 ```
 
+Phase 41 の focused profile は、対象 repository に dependency・設定・script を追加せず、bounded な CLI / Docker 実行だけで追加証跡を生成します。
+
+```bash
+bun run scan:profile -- --project-path /path/to/repo --profile runtime-web-safe --json
+bun run scan:profile -- --project-path /path/to/repo --profile sbom-inventory --json
+bun run scan:profile -- --project-path /path/to/repo --profile api-schema-readonly --json
+bun run scan:profile -- --project-path /path/to/repo --profile container-image-security --image-ref local/app:tag --json
+```
+
+`full-security-scan` は既存 static tool、CycloneDX SBOM、HTTP baseline、Nuclei safe、ZAP baseline、schema が検出できた場合の Schemathesis を順に実行します。Nuclei は固定 safe template set、ZAP は passive baseline、Schemathesis は credential を渡さず GET/HEAD/OPTIONS に限定します。schema 不在や image input 不在は「脆弱性なし」ではなく coverage gap として出力します。
+
 ### Individual Scanners
 
 ```bash
@@ -213,6 +224,8 @@ bun run scan:semgrep -- --project-id <project-id>
 bun run scan:gitleaks -- --project-id <project-id>
 bun run scan:osv -- --project-id <project-id>
 bun run scan:trivy -- --project-id <project-id>
+bun run scan:sbom -- --project-id <project-id>
+bun run scan:trivy-image -- --project-id <project-id> --image-ref local/app:tag
 ```
 
 ### Scan Review / Handoff

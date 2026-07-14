@@ -1,0 +1,17 @@
+id: exposed-env-file
+
+info:
+  name: Exposed environment file
+  author: vuln-workbench
+  severity: high
+  description: An environment file is publicly readable by the local auto-started target.
+  tags: exposure,misconfiguration,safe
+
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}/.env"
+    matchers:
+      - type: status
+        status:
+          - 200

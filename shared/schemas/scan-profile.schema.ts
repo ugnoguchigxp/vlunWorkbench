@@ -61,9 +61,81 @@ export const dastProfileStepSchema = z.object({
 });
 export type DastProfileStep = z.infer<typeof dastProfileStepSchema>;
 
+export const scanStepApplicabilitySchema = z.enum([
+	"applicable",
+	"not_applicable",
+]);
+export type ScanStepApplicability = z.infer<typeof scanStepApplicabilitySchema>;
+
+export const scanStepReasonCodeSchema = z.enum([
+	"schema_not_found",
+	"authentication_required",
+	"image_input_not_provided",
+	"image_source_unreachable",
+	"target_start_not_supported",
+	"target_unreachable_from_container",
+	"tool_unavailable",
+	"policy_rejected",
+	"invalid_structured_output",
+	"timed_out",
+	"execution_failed",
+]);
+export type ScanStepReasonCode = z.infer<typeof scanStepReasonCodeSchema>;
+
+export const coverageEffectSchema = z.enum(["covered", "partial", "gap"]);
+export type CoverageEffect = z.infer<typeof coverageEffectSchema>;
+
+const scannerStepBaseSchema = profileToolEntrySchema.pick({
+	displayName: true,
+	required: true,
+	timeoutSec: true,
+	failurePolicy: true,
+});
+
+export const runtimeScannerStepSchema = scannerStepBaseSchema.extend({
+	kind: z.literal("runtime_scanner"),
+	adapter: z.enum(["nuclei-safe", "zap-baseline"]),
+	target: z.object({ mode: z.literal("auto_project_start") }),
+	options: z.record(z.string(), z.unknown()).optional(),
+});
+export type RuntimeScannerStep = z.infer<typeof runtimeScannerStepSchema>;
+
+export const sbomExportStepSchema = scannerStepBaseSchema.extend({
+	kind: z.literal("sbom_export"),
+	adapter: z.literal("trivy"),
+	target: z.object({ mode: z.literal("project_filesystem") }),
+	format: z.literal("cyclonedx"),
+});
+export type SbomExportStep = z.infer<typeof sbomExportStepSchema>;
+
+export const apiSchemaScanStepSchema = scannerStepBaseSchema.extend({
+	kind: z.literal("api_schema_scan"),
+	adapter: z.literal("schemathesis"),
+	target: z.object({ mode: z.literal("auto_project_start") }),
+	schema: z.object({
+		mode: z.literal("auto_discover"),
+		kind: z.enum(["openapi", "graphql", "auto"]),
+	}),
+	options: z.record(z.string(), z.unknown()).optional(),
+});
+export type ApiSchemaScanStep = z.infer<typeof apiSchemaScanStepSchema>;
+
+export const containerImageScanStepSchema = scannerStepBaseSchema.extend({
+	kind: z.literal("container_image_scan"),
+	adapter: z.literal("trivy"),
+	target: z.object({ mode: z.literal("explicit_existing_image") }),
+});
+export type ContainerImageScanStep = z.infer<
+	typeof containerImageScanStepSchema
+>;
+
 export const scanProfileStepSchema = z.discriminatedUnion("kind", [
 	staticToolProfileStepSchema,
 	dastProfileStepSchema,
+	runtimeScannerStepSchema,
+	sbomExportStepSchema,
+	apiSchemaScanStepSchema,
+	containerImageScanStepSchema,
 ]);
 export type ScanProfileStep = z.infer<typeof scanProfileStepSchema>;
 

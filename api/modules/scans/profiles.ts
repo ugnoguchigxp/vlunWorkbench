@@ -88,6 +88,41 @@ const REQUIRED_AUTO_HTTP_DAST_STEP: DastProfileStep = {
 	failurePolicy: "fail_profile",
 };
 
+const NUCLEI_SAFE_STEP: ScanProfileStep = {
+	kind: "runtime_scanner",
+	adapter: "nuclei-safe",
+	displayName: "Nuclei Safe Web Scan",
+	required: false,
+	failurePolicy: "warn_and_continue",
+	target: { mode: "auto_project_start" },
+};
+const ZAP_BASELINE_STEP: ScanProfileStep = {
+	kind: "runtime_scanner",
+	adapter: "zap-baseline",
+	displayName: "ZAP Baseline Passive Scan",
+	required: false,
+	failurePolicy: "warn_and_continue",
+	target: { mode: "auto_project_start" },
+};
+const SBOM_STEP: ScanProfileStep = {
+	kind: "sbom_export",
+	adapter: "trivy",
+	displayName: "Trivy CycloneDX SBOM",
+	required: true,
+	failurePolicy: "fail_profile",
+	target: { mode: "project_filesystem" },
+	format: "cyclonedx",
+};
+const SCHEMATHESIS_STEP: ScanProfileStep = {
+	kind: "api_schema_scan",
+	adapter: "schemathesis",
+	displayName: "Schemathesis Read-only API Scan",
+	required: false,
+	failurePolicy: "warn_and_continue",
+	target: { mode: "auto_project_start" },
+	schema: { mode: "auto_discover", kind: "auto" },
+};
+
 export const SCAN_PROFILES: ScanProfile[] = [
 	{
 		id: "agent-output",
@@ -412,6 +447,63 @@ export const SCAN_PROFILES: ScanProfile[] = [
 		],
 	},
 	{
+		id: "runtime-web-safe",
+		name: "安全なWeb実行時診断",
+		description:
+			"自動起動したローカル対象に HTTP baseline、Nuclei safe、ZAP baseline を実行します。",
+		category: "focused",
+		enabled: true,
+		defaultTimeoutSec: 900,
+		scope: SOURCE_BASELINE_SCOPE,
+		tools: [],
+		steps: [AUTO_HTTP_DAST_STEP, NUCLEI_SAFE_STEP, ZAP_BASELINE_STEP],
+	},
+	{
+		id: "sbom-inventory",
+		name: "CycloneDXソフトウェアインベントリ",
+		description:
+			"対象 filesystem から CycloneDX JSON SBOM を生成します。SBOM component は finding に変換しません。",
+		category: "focused",
+		enabled: true,
+		defaultTimeoutSec: 600,
+		scope: SOURCE_BASELINE_SCOPE,
+		tools: [],
+		steps: [SBOM_STEP],
+	},
+	{
+		id: "api-schema-readonly",
+		name: "APIスキーマ読み取り専用診断",
+		description:
+			"自動起動したローカル対象の OpenAPI/GraphQL を検出し、読み取り専用 operation に限定して確認します。",
+		category: "focused",
+		enabled: true,
+		defaultTimeoutSec: 600,
+		scope: SOURCE_BASELINE_SCOPE,
+		tools: [],
+		steps: [SCHEMATHESIS_STEP],
+	},
+	{
+		id: "container-image-security",
+		name: "既存コンテナイメージ診断",
+		description:
+			"明示された既存 image ref または image tar だけを Trivy で診断します。自動 build は行いません。",
+		category: "focused",
+		enabled: true,
+		defaultTimeoutSec: 600,
+		scope: SOURCE_BASELINE_SCOPE,
+		tools: [],
+		steps: [
+			{
+				kind: "container_image_scan",
+				adapter: "trivy",
+				displayName: "Trivy Existing Image Scan",
+				required: false,
+				failurePolicy: "warn_and_continue",
+				target: { mode: "explicit_existing_image" },
+			},
+		],
+	},
+	{
 		id: "runtime-http-check",
 		name: "実行時HTTP診断",
 		description:
@@ -492,7 +584,11 @@ export const SCAN_PROFILES: ScanProfile[] = [
 				failurePolicy: "fail_profile",
 				options: { scanners: ["vuln", "secret", "misconfig"] },
 			},
+			SBOM_STEP,
 			AUTO_HTTP_DAST_STEP,
+			NUCLEI_SAFE_STEP,
+			ZAP_BASELINE_STEP,
+			SCHEMATHESIS_STEP,
 		],
 	},
 	{

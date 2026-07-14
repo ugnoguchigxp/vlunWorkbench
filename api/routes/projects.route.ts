@@ -116,6 +116,8 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 					memory: z.string().optional(),
 					cpus: z.string().optional(),
 					toolCacheDir: z.string().optional(),
+					imageRef: z.string().optional(),
+					imageTar: z.string().optional(),
 					finalReport: z.boolean().default(true).optional(),
 					reportTitle: z.string().optional(),
 				}),
@@ -169,6 +171,8 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 				if (body.toolCacheDir) {
 					args.push("--tool-cache-dir", body.toolCacheDir);
 				}
+				if (body.imageRef) args.push("--image-ref", body.imageRef);
+				if (body.imageTar) args.push("--image-tar", body.imageTar);
 				if (body.reportTitle) {
 					args.push("--report-title", body.reportTitle);
 				}
