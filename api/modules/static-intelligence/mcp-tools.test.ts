@@ -4,6 +4,11 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import {
+	projectExplorationCatalogInputSchema,
+	projectExplorationCatalogResultSchema,
+	projectExplorationSourceRevisionSchema,
+} from "../../../shared/schemas/static-intelligence-exploration-catalog.schema";
 import { createDbConnection, type DbConnection } from "../../db";
 import {
 	findingEvidences,
@@ -16,21 +21,17 @@ import {
 	users,
 } from "../../db/schema";
 import { runStaticIntelligenceAgentQuery } from "./agent-query";
-import { buildStaticIntelligenceGuardrailMaterial } from "./guardrail-material";
-import { buildStaticIntelligenceKnowledgeSourceManifest } from "./knowledge-source-manifest";
 import { buildStaticIntelligenceGeneration } from "./build-service";
 import { StaticIntelligenceGenerationRepository } from "./generation-repository";
+import { buildStaticIntelligenceGuardrailMaterial } from "./guardrail-material";
+import { buildStaticIntelligenceKnowledgeSourceManifest } from "./knowledge-source-manifest";
 import {
-	projectExplorationCatalogInputSchema,
-	projectExplorationCatalogResultSchema,
-} from "../../../shared/schemas/static-intelligence-exploration-catalog.schema";
-import {
-	getStaticIntelligenceEvidenceBundleTool,
+	getProjectExplorationCatalogTool,
 	getStaticIntelligenceCodeStructureSnapshotTool,
+	getStaticIntelligenceEvidenceBundleTool,
 	getStaticIntelligenceGuardrailMaterialTool,
 	getStaticIntelligenceKnowledgeSourceManifestTool,
 	getStaticIntelligenceVerificationCommandsTool,
-	getProjectExplorationCatalogTool,
 	listStaticIntelligenceKnowledgeSources,
 	staticIntelligenceMcpToolRegistry,
 } from "./mcp-tools";
@@ -118,6 +119,15 @@ describe("Static Intelligence MCP tools", () => {
 				}).success,
 			).toBe(false);
 		}
+		for (const invalidInput of [
+			{ ...base, scanRunId: "s".repeat(257), focus: { terms: ["api"] } },
+			{ ...base, focus: { paths: ["p".repeat(1025)] } },
+			{ ...base, focus: { moduleIds: ["m".repeat(257)] } },
+		]) {
+			expect(projectExplorationCatalogInputSchema.safeParse(invalidInput).success).toBe(
+				false,
+			);
+		}
 		for (const limits of [
 			{ files: 21 },
 			{ tests: 11 },
@@ -137,6 +147,18 @@ describe("Static Intelligence MCP tools", () => {
 				focus: { terms: ["api"], unknown: true },
 			}).success,
 		).toBe(false);
+		expect(
+			projectExplorationSourceRevisionSchema.safeParse({
+				kind: "git",
+				value: "abc123",
+			}).success,
+		).toBe(false);
+		expect(
+			projectExplorationSourceRevisionSchema.safeParse({
+				kind: "tree_hash_only",
+				value: "a".repeat(64),
+			}).success,
+		).toBe(true);
 
 		const topLevelKeys = Object.keys(projectExplorationCatalogResultSchema.shape);
 		for (const forbidden of ["content", "body", "snippet", "rootPath", "repoPath"]) {
@@ -245,6 +267,33 @@ describe("Static Intelligence MCP tools", () => {
 			status: "failed",
 			message: "Static Intelligence generation missing.",
 		});
+
+		const damagedScanRunId = await seedScanRun();
+		const damagedBuild = await persistGeneration(damagedScanRunId);
+		const damaged = await new StaticIntelligenceGenerationRepository(
+			connection.db,
+		).loadGeneration(damagedScanRunId, damagedBuild.generationId);
+		if (!damaged) throw new Error("expected damaged generation fixture");
+		await fs.rm(
+			path.resolve(
+				process.env.SCAN_ARTIFACT_ROOT ?? "",
+				damaged.structure.artifact.path,
+			),
+		);
+		const damagedResult = await getProjectExplorationCatalogTool({
+			db: connection.db,
+			input: {
+				scanRunId: damagedScanRunId,
+				generationId: damaged.generationId,
+				focus: { terms: ["source"] },
+			},
+		});
+		expect(damagedResult).toMatchObject({
+			ok: false,
+			reasonCode: "catalog_unavailable",
+			message: "Project exploration catalog unavailable.",
+		});
+		expect(JSON.stringify(damagedResult)).not.toContain(tempDir);
 
 		const { scanRunId } = await seedFindingBackedScan();
 		await persistGeneration(scanRunId);

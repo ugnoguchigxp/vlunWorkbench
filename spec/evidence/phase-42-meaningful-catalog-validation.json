@@ -6,7 +6,7 @@
 		"repository": "DiffGuard",
 		"origin": "https://github.com/ugnoguchigxp/DiffGuard.git",
 		"revision": "2fc8bb271fa0dcb5168500d10972f5dddda23785",
-		"projectPathAtScan": "/tmp/phase42-pair-1-catalog"
+		"projectPathAtScan": "<temporary-worktree>"
 	},
 	"scanCoverage": {
 		"scanRunId": "ad468d97-b5d7-436f-abc4-ba1d05d89e48",

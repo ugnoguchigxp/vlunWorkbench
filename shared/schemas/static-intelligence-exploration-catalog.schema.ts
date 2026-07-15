@@ -20,16 +20,17 @@ export const projectExplorationPathSchema = z
 	.string()
 	.trim()
 	.min(1)
+	.max(1024)
 	.refine(isProjectRelativePath, "project_relative_path_required");
 
 export const projectExplorationCatalogInputSchema = z
 	.object({
-		scanRunId: z.string().trim().min(1),
+		scanRunId: z.string().trim().min(1).max(256),
 		generationId: z.string().uuid(),
 		focus: z
 			.object({
 				paths: z.array(projectExplorationPathSchema).max(10).optional(),
-				moduleIds: z.array(z.string().trim().min(1)).max(5).optional(),
+				moduleIds: z.array(z.string().trim().min(1).max(256)).max(5).optional(),
 				terms: z.array(z.string().trim().min(2).max(80)).max(10).optional(),
 			})
 			.strict(),
@@ -92,6 +93,7 @@ export const explorationTestClueSchema = z
 		reasonCodes: z
 			.array(
 				z.enum([
+					"focus_path_exact",
 					"test_path_term_match",
 					"direct_test_importer",
 					"same_module_test",
@@ -115,21 +117,30 @@ export type ExplorationVerificationClue = z.infer<
 	typeof explorationVerificationClueSchema
 >;
 
-const sourceRevisionSchema = z
+export const projectExplorationSourceRevisionSchema = z
 	.object({
 		kind: z.enum(["git", "tree_hash_only"]),
 		head: z.string().min(1).optional(),
 		dirtyHash: sha256HexSchema.optional(),
 		value: z.string().min(1),
 	})
-	.strict();
+	.strict()
+	.superRefine((revision, ctx) => {
+		if (revision.kind === "git" && !revision.head) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["head"],
+				message: "git_source_revision_requires_head",
+			});
+		}
+	});
 
 export const projectExplorationCatalogResultSchema = z
 	.object({
 		ok: z.literal(true),
 		status: z.enum(["completed", "degraded"]),
 		version: z.literal("v1"),
-		generatedAt: z.string(),
+		generatedAt: z.string().datetime(),
 		generation: z
 			.object({
 				projectId: z.string().min(1),
@@ -138,7 +149,7 @@ export const projectExplorationCatalogResultSchema = z
 				snapshotRef: z.string().min(1),
 				sourceTreeHash: sha256HexSchema,
 				sourceStateHash: sha256HexSchema,
-				sourceRevision: sourceRevisionSchema,
+				sourceRevision: projectExplorationSourceRevisionSchema,
 				readiness: z.enum(["available", "stale", "degraded"]),
 			})
 			.strict(),

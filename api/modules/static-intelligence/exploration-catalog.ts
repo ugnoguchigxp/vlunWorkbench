@@ -10,6 +10,7 @@ import {
 	type ProjectExplorationCatalogResult,
 	projectExplorationCatalogResultSchema,
 } from "../../../shared/schemas/static-intelligence-exploration-catalog.schema";
+import { redactSecrets } from "../scans/normalizers/redaction";
 import type { StaticIntelligenceArtifactMetadata } from "./generation-types";
 import { buildStaticIntelligenceModuleCandidates } from "./module-candidates";
 
@@ -309,6 +310,9 @@ function collectTestCandidates(input: {
 		}
 		tests.set(path, current);
 	};
+	for (const path of input.resolution.matchedPaths) {
+		add(path, 0, "focus_path_exact", `file:${path}`);
+	}
 	for (const file of input.snapshot.files) {
 		if (!file.tags.includes("test")) continue;
 		for (const term of input.resolution.matchedTerms) {
@@ -346,13 +350,28 @@ function collectVerificationCandidates(
 ): Array<Omit<ExplorationVerificationClue, "rank">> {
 	return uniqueSorted(
 		(exportPayload.handoff?.verificationCommands ?? [])
-			.map((command) => command.trim())
+			.map((command) =>
+				sanitizeVerificationCommand(command, exportPayload.project.rootPath),
+			)
 			.filter(Boolean),
 	).map((command, index) => ({
 		command,
 		candidateOnly: true,
 		sourceRefs: [`verification_command:${index + 1}`],
 	}));
+}
+
+function sanitizeVerificationCommand(
+	command: string,
+	projectRoot: string | undefined,
+): string {
+	const withoutProjectRoot = projectRoot
+		? command.split(projectRoot).join("<project-root>")
+		: command;
+	return redactSecrets(withoutProjectRoot.trim())
+		.replaceAll(/\/Users\/[^\s"'`)]+/g, "<redacted-path>")
+		.replaceAll(/\/home\/[^\s"'`)]+/g, "<redacted-path>")
+		.replaceAll(/[A-Za-z]:\\Users\\[^\s"'`)]+/g, "<redacted-path>");
 }
 
 function sortAndRankCandidates(
@@ -624,11 +643,11 @@ function compare(left: string, right: string): number {
 	return left < right ? -1 : left > right ? 1 : 0;
 }
 
-function catalogUnavailable(error: unknown): ProjectExplorationCatalogFailure {
+function catalogUnavailable(_error: unknown): ProjectExplorationCatalogFailure {
 	return {
 		ok: false,
 		status: "failed",
-		message: error instanceof Error ? error.message : String(error),
+		message: "Project exploration catalog unavailable.",
 		reasonCode: "catalog_unavailable",
 	};
 }

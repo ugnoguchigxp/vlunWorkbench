@@ -8,7 +8,11 @@ import {
 } from "../api/modules/static-intelligence/exploration-catalog";
 import { staticIntelligenceExportV1Schema } from "../shared/schemas/static-intelligence.schema";
 import { codeStructureSnapshotSchema } from "../shared/schemas/static-intelligence-code-structure.schema";
-import { projectExplorationCatalogInputSchema } from "../shared/schemas/static-intelligence-exploration-catalog.schema";
+import {
+	projectExplorationCatalogInputSchema,
+	projectExplorationPathSchema,
+	projectExplorationSourceRevisionSchema,
+} from "../shared/schemas/static-intelligence-exploration-catalog.schema";
 
 const hashSchema = z.string().regex(/^[a-f0-9]{64}$/);
 const generationViewSchema: z.ZodType<ProjectExplorationGenerationView> = z
@@ -21,19 +25,12 @@ const generationViewSchema: z.ZodType<ProjectExplorationGenerationView> = z
 			.object({
 				metadata: z
 					.object({
-						generatedAt: z.string(),
+						generatedAt: z.string().datetime(),
 						rootRef: hashSchema,
 						snapshotRef: z.string().min(1),
 						sourceTreeHash: hashSchema,
 						sourceStateHash: hashSchema,
-						sourceRevision: z
-							.object({
-								kind: z.enum(["git", "tree_hash_only"]),
-								head: z.string().min(1).optional(),
-								dirtyHash: hashSchema.optional(),
-								value: z.string().min(1),
-							})
-							.strict(),
+						sourceRevision: projectExplorationSourceRevisionSchema,
 					})
 					.strict(),
 				snapshot: codeStructureSnapshotSchema,
@@ -49,13 +46,29 @@ const evaluationCaseSchema = z
 		generation: generationViewSchema,
 		readiness: z.enum(["available", "stale", "degraded"]),
 		focus: projectExplorationCatalogInputSchema.shape.focus,
-		actualChangedFiles: z.array(z.string()),
-		actualChangedTests: z.array(z.string()),
+		actualChangedFiles: z.array(projectExplorationPathSchema),
+		actualChangedTests: z.array(projectExplorationPathSchema),
 	})
 	.strict();
+const evaluationCasesSchema = z
+	.array(evaluationCaseSchema)
+	.min(1)
+	.superRefine((cases, ctx) => {
+		const seen = new Set<string>();
+		for (const [index, item] of cases.entries()) {
+			if (seen.has(item.caseId)) {
+				ctx.addIssue({
+					code: "custom",
+					path: [index, "caseId"],
+					message: "duplicate_case_id",
+				});
+			}
+			seen.add(item.caseId);
+		}
+	});
 const fixtureSchema = z.union([
-	z.array(evaluationCaseSchema),
-	z.object({ cases: z.array(evaluationCaseSchema) }).strict(),
+	evaluationCasesSchema,
+	z.object({ cases: evaluationCasesSchema }).strict(),
 ]);
 
 type Metric = number | null;

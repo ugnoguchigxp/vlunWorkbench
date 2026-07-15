@@ -14,6 +14,10 @@ import {
 	codeStructureSnapshotResultSchema,
 } from "../../../shared/schemas/static-intelligence-code-structure.schema";
 import type {
+	ProjectExplorationCatalogFailure,
+	ProjectExplorationCatalogResult,
+} from "../../../shared/schemas/static-intelligence-exploration-catalog.schema";
+import type {
 	StaticIntelligenceGuardrailMaterialFailure,
 	StaticIntelligenceGuardrailMaterialResult,
 } from "../../../shared/schemas/static-intelligence-guardrail-material.schema";
@@ -23,42 +27,38 @@ import type {
 	StaticIntelligenceKnowledgeSourceManifestResult,
 } from "../../../shared/schemas/static-intelligence-knowledge-source.schema";
 import { staticIntelligenceKnowledgeSourceManifestResultSchema } from "../../../shared/schemas/static-intelligence-knowledge-source.schema";
-import type {
-	ProjectExplorationCatalogFailure,
-	ProjectExplorationCatalogResult,
-} from "../../../shared/schemas/static-intelligence-exploration-catalog.schema";
 import type { AppDatabase } from "../../db";
 import { projects, scanRuns } from "../../db/schema";
 import { ProjectRepository, ScanRepository } from "../scans/repositories";
 import {
-	StaticIntelligenceAgentQueryInvalidRequestError,
 	runStaticIntelligenceAgentQuery,
+	StaticIntelligenceAgentQueryInvalidRequestError,
 } from "./agent-query";
-import { StaticIntelligenceScanRunNotFoundError } from "./export-builder";
-import { buildStaticIntelligenceGuardrailMaterial } from "./guardrail-material";
-import { buildStaticIntelligenceKnowledgeSourceManifest } from "./knowledge-source-manifest";
-import { StaticIntelligenceGenerationRepository } from "./generation-repository";
 import {
 	buildProjectExplorationCatalog,
 	type ProjectExplorationGenerationView,
 } from "./exploration-catalog";
-import { StaticIntelligenceReadModelResolver } from "./read-model-resolver";
+import { StaticIntelligenceScanRunNotFoundError } from "./export-builder";
+import { StaticIntelligenceGenerationRepository } from "./generation-repository";
+import { buildStaticIntelligenceGuardrailMaterial } from "./guardrail-material";
+import { buildStaticIntelligenceKnowledgeSourceManifest } from "./knowledge-source-manifest";
 import {
 	type GetEvidenceBundleInput,
 	type GetVerificationCommandsInput,
-	type ListKnowledgeSourcesInput,
-	type StaticIntelligenceKnowledgeSourceListResult,
-	type StaticIntelligenceMcpToolFailure,
 	getCodeStructureSnapshotInputSchema,
 	getEvidenceBundleInputSchema,
 	getGuardrailMaterialInputSchema,
 	getKnowledgeSourceManifestInputSchema,
 	getVerificationCommandsInputSchema,
+	type ListKnowledgeSourcesInput,
 	listKnowledgeSourcesInputSchema,
 	projectExplorationCatalogInputSchema,
+	type StaticIntelligenceKnowledgeSourceListResult,
+	type StaticIntelligenceMcpToolFailure,
 	staticIntelligenceKnowledgeSourceListResultSchema,
 	staticIntelligenceMcpToolFailureSchema,
 } from "./mcp-tool-schemas";
+import { StaticIntelligenceReadModelResolver } from "./read-model-resolver";
 
 export type StaticIntelligenceMcpToolResult =
 	| StaticIntelligenceKnowledgeSourceListResult
@@ -246,8 +246,11 @@ export async function getProjectExplorationCatalogTool(params: {
 			limits: parsed.data.limits,
 			generatedAt: generation.structure.metadata.generatedAt,
 		});
-	} catch (error) {
-		return catalogFailure("catalog_unavailable", message(error));
+	} catch {
+		return catalogFailure(
+			"catalog_unavailable",
+			"Project exploration catalog unavailable.",
+		);
 	}
 }
 

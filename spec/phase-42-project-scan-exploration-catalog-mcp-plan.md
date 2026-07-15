@@ -379,7 +379,7 @@ type ExplorationFileClue = {
 type ExplorationTestClue = {
   rank: number;
   path: string;
-  reasonCodes: Array<"direct_test_importer" | "same_module_test">;
+  reasonCodes: Array<"focus_path_exact" | "test_path_term_match" | "direct_test_importer" | "same_module_test">;
   sourceRefs: string[];
 };
 

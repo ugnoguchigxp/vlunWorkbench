@@ -301,7 +301,14 @@ export class StaticIntelligenceGenerationRepository {
 			.select()
 			.from(scanArtifacts)
 			.where(and(...predicates));
-		const candidateKeys = new Set<string>();
+		const candidateGroups = new Map<
+			string,
+			{
+				scanRunId: string;
+				generationId: string;
+				artifacts: Array<typeof scanArtifacts.$inferSelect>;
+			}
+		>();
 		for (const row of rows) {
 			const parsed = staticIntelligenceArtifactMetadataSchema.safeParse(
 				row.metadata,
@@ -315,31 +322,30 @@ export class StaticIntelligenceGenerationRepository {
 			) {
 				continue;
 			}
-			candidateKeys.add(`${row.scanRunId}:${parsed.data.generationId}`);
+			const key = JSON.stringify([row.scanRunId, parsed.data.generationId]);
+			const group = candidateGroups.get(key) ?? {
+				scanRunId: row.scanRunId,
+				generationId: parsed.data.generationId,
+				artifacts: [],
+			};
+			group.artifacts.push(row);
+			candidateGroups.set(key, group);
 		}
-		const generations = (
-			await Promise.all(
-				[...candidateKeys].map(async (key) => {
-					const separator = key.indexOf(":");
-					const scanRunId = key.slice(0, separator);
-					const generationId = key.slice(separator + 1);
-					try {
-						return await this.loadGeneration(scanRunId, generationId);
-					} catch (error) {
-						if (error instanceof StaticIntelligenceGenerationValidationError) {
-							return null;
-						}
-						throw error;
-					}
-				}),
-			)
-		).filter(
-			(generation): generation is PersistedStaticIntelligenceGeneration =>
-				generation !== null &&
+		const generations: PersistedStaticIntelligenceGeneration[] = [];
+		for (const candidate of candidateGroups.values()) {
+			const generation = await this.loadCandidate(
+				candidate.scanRunId,
+				candidate,
+			);
+			if (
+				generation &&
 				generation.structure.metadata.rootRef === input.rootRef &&
 				(input.projectId === undefined ||
-					generation.projectId === input.projectId),
-		);
+					generation.projectId === input.projectId)
+			) {
+				generations.push(generation);
+			}
+		}
 		return generations
 			.sort(
 				(left, right) =>
@@ -395,7 +401,11 @@ export class StaticIntelligenceGenerationRepository {
 				artifacts,
 				generatedAt: this.latestGeneratedAt(artifacts),
 			}))
-			.sort((left, right) => right.generatedAt.localeCompare(left.generatedAt));
+			.sort(
+				(left, right) =>
+					right.generatedAt.localeCompare(left.generatedAt) ||
+					left.generationId.localeCompare(right.generationId),
+			);
 	}
 
 	private latestGeneratedAt(
@@ -431,7 +441,12 @@ export class StaticIntelligenceGenerationRepository {
 		);
 		const [structureArtifact] = structureArtifacts;
 		const [exportArtifact] = exportArtifacts;
-		if (!structureArtifact || !exportArtifact) {
+		if (
+			structureArtifacts.length !== 1 ||
+			exportArtifacts.length !== 1 ||
+			!structureArtifact ||
+			!exportArtifact
+		) {
 			return null;
 		}
 		const structureMetadata =

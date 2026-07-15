@@ -37,14 +37,28 @@ consumer's rollout evaluation.
 bun test ./api/modules/static-intelligence/intelligence-exploration-catalog-cli.test.ts \
   ./api/modules/static-intelligence/static-intelligence-mcp-server-cli.test.ts \
   ./api/modules/static-intelligence/exploration-catalog.test.ts \
-  ./api/modules/static-intelligence/mcp-tools.test.ts
+  ./api/modules/static-intelligence/mcp-tools.test.ts \
+  ./api/modules/static-intelligence/generation-repository.test.ts \
+  ./api/modules/static-intelligence/evaluate-exploration-catalog-cli.test.ts
 bun run verify
 ```
 
-Focused result: **PASS — 23 tests, 0 failures**
+Focused result: **PASS — 37 tests, 0 failures**
 
 Final repository verification result: **PASS — typecheck, lint, format, test,
-build, and verify complete**
+build, and verify complete after review closeout**
+
+## Review closeout improvements
+
+- Bounded scan, path, and module focus string lengths at the public schema.
+- Redacted secret-shaped values and project roots from verification candidates.
+- Returned an exact test-path focus first while following its implementation import.
+- Made rootRef discovery linear in generation count, deterministic on timestamp
+  ties, sequential for artifact reads, and rejecting duplicate artifact roles.
+- Kept CLI and MCP handler failure reason codes aligned without exposing storage
+  paths through Catalog-unavailable messages.
+- Rejected empty, duplicate-ID, and non-project-relative evaluator fixtures.
+- Removed the temporary absolute worktree path from committed validation evidence.
 
 ## Related evidence
 

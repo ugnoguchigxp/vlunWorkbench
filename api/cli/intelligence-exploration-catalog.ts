@@ -1,4 +1,5 @@
 import { parseArgs } from "node:util";
+import { ZodError } from "zod";
 import {
 	type ProjectExplorationCatalogInput,
 	projectExplorationCatalogFailureSchema,
@@ -21,7 +22,7 @@ async function main(): Promise<number> {
 			projectExplorationCatalogFailureSchema.parse({
 				ok: false,
 				status: "failed",
-				reasonCode: "invalid_input",
+				reasonCode: inputFailureReason(error),
 				message: message(error),
 			}),
 		);
@@ -52,6 +53,15 @@ async function main(): Promise<number> {
 	} finally {
 		connection?.sqlite.close();
 	}
+}
+
+function inputFailureReason(
+	error: unknown,
+): "focus_required" | "invalid_input" {
+	return error instanceof ZodError &&
+		error.issues.some((issue) => issue.message === "focus_required")
+		? "focus_required"
+		: "invalid_input";
 }
 
 function parseInput(): ProjectExplorationCatalogInput {

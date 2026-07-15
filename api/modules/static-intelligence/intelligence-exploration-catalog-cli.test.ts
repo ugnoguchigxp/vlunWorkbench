@@ -129,7 +129,7 @@ describe("Project exploration catalog CLI and MCP smoke", () => {
 		expect(JSON.parse(result.stdout)).toMatchObject({
 			ok: false,
 			status: "failed",
-			reasonCode: "invalid_input",
+			reasonCode: "focus_required",
 		});
 	});
 
@@ -179,6 +179,27 @@ describe("Project exploration catalog CLI and MCP smoke", () => {
 			expect(cliResult.status).toBe(0);
 			expect(payload).toEqual(JSON.parse(cliResult.stdout));
 			expect(paths(payload.likelyFiles)).toContain("shared/http/http-client.ts");
+
+			const failedCall = await client.callTool({
+				name: "vuln_get_project_exploration_catalog",
+				arguments: {
+					scanRunId: "missing-scan",
+					generationId,
+					focus: { terms: ["missing"] },
+				},
+			});
+			const failedCli = runCatalogCli([
+				"--scan-run-id",
+				"missing-scan",
+				"--generation-id",
+				generationId,
+				"--term",
+				"missing",
+			]);
+			expect(failedCli.status).toBe(2);
+			expect(JSON.parse(readMcpText(failedCall))).toEqual(
+				JSON.parse(failedCli.stdout),
+			);
 		} finally {
 			await client.close();
 		}

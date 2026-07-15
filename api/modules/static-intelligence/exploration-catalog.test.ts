@@ -183,6 +183,50 @@ describe("Project exploration catalog", () => {
 		});
 	});
 
+	it("prioritizes an exact test path and follows its implementation import", () => {
+		const result = buildProjectExplorationCatalog({
+			generation: generation(),
+			readiness: "available",
+			focus: { paths: ["api/users/users.test.ts"] },
+			generatedAt: GENERATED_AT,
+		});
+
+		expect(result.ok).toBe(true);
+		if (!result.ok) throw new Error(result.message);
+		expect(result.relatedTests[0]).toMatchObject({
+			path: "api/users/users.test.ts",
+			reasonCodes: expect.arrayContaining(["focus_path_exact"]),
+		});
+		expect(result.likelyFiles.map((candidate) => candidate.path)).toContain(
+			"api/users/service.ts",
+		);
+	});
+
+	it("redacts secrets and project roots from verification candidates", () => {
+		const fixture = generation();
+		fixture.export.payload.project.rootPath = "/private/catalog-project";
+		if (!fixture.export.payload.handoff) throw new Error("handoff missing");
+		fixture.export.payload.handoff.verificationCommands = [
+			"bun test token=abcdefghijklmnop",
+			"bun test /private/catalog-project/tests/catalog.test.ts",
+		];
+
+		const result = buildProjectExplorationCatalog({
+			generation: fixture,
+			readiness: "available",
+			focus: { paths: ["api/users/service.ts"] },
+			generatedAt: GENERATED_AT,
+		});
+
+		expect(result.ok).toBe(true);
+		if (!result.ok) throw new Error(result.message);
+		const serialized = JSON.stringify(result.verificationCandidates);
+		expect(serialized).toContain("[REDACTED]");
+		expect(serialized).toContain("<project-root>");
+		expect(serialized).not.toContain("abcdefghijklmnop");
+		expect(serialized).not.toContain("/private/catalog-project");
+	});
+
 	it("reports distinct degraded conditions and unmatched focus", () => {
 		const fixture = generation();
 		fixture.status = "degraded";
@@ -257,6 +301,7 @@ describe("Project exploration catalog", () => {
 			ok: false,
 			status: "failed",
 			reasonCode: "catalog_unavailable",
+			message: "Project exploration catalog unavailable.",
 		});
 		expect(() => JSON.parse(JSON.stringify(failure))).not.toThrow();
 	});

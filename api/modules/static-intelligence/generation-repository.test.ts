@@ -11,12 +11,12 @@ import { projects, scanArtifacts, scanRuns, users } from "../../db/schema";
 import { ArtifactStorage } from "../scans/artifact-storage";
 import { buildStaticIntelligenceExport } from "./export-builder";
 import {
-	buildSourceStateHash,
-} from "./generation-types";
-import {
 	StaticIntelligenceGenerationRepository,
 	StaticIntelligenceGenerationValidationError,
 } from "./generation-repository";
+import {
+	buildSourceStateHash,
+} from "./generation-types";
 import { StaticIntelligenceRepository } from "./repository";
 
 const NOW = new Date("2026-07-10T10:00:00.000Z");
@@ -215,6 +215,47 @@ describe("Static Intelligence generation repository", () => {
 		).rejects.toThrow("Generation is incomplete or invalid");
 	});
 
+	it("rejects duplicate artifacts for one generation deterministically", async () => {
+		const repository = new StaticIntelligenceGenerationRepository(
+			connection.db,
+			new ArtifactStorage(artifactDir),
+		);
+		const snapshot = await snapshotFixture();
+		const exportPayload = await buildStaticIntelligenceExport(
+			connection.db,
+			scanRunId,
+			{ generatedAt: new Date(GENERATED_AT), codeStructureSnapshot: snapshot },
+		);
+		const persisted = await repository.persistGeneration({
+			scanRunId,
+			snapshot,
+			exportPayload,
+		});
+		const artifact = persisted.export.artifact;
+		await connection.db.insert(scanArtifacts).values({
+			id: randomUUID(),
+			scanRunId: artifact.scanRunId,
+			toolRunId: artifact.toolRunId,
+			kind: artifact.kind,
+			format: artifact.format,
+			path: artifact.path,
+			sha256: artifact.sha256,
+			sizeBytes: artifact.sizeBytes,
+			metadata: artifact.metadata,
+			createdAt: artifact.createdAt,
+		});
+
+		await expect(
+			repository.loadGeneration(scanRunId, persisted.generationId),
+		).rejects.toThrow("Generation is incomplete or invalid");
+		expect(
+			await repository.listLatestValidGenerationsByRootRef({
+				rootRef: snapshot.project.rootRef,
+				limit: 10,
+			}),
+		).toEqual([]);
+	});
+
 	it("rejects duplicate generation ids and source-state races before writing files", async () => {
 		const repository = new StaticIntelligenceGenerationRepository(
 			connection.db,
@@ -368,6 +409,9 @@ describe("Static Intelligence generation repository", () => {
 		const expectedFirst = await persistPrimary(
 			"00000000-0000-4000-8000-000000000002",
 			"2026-07-10T11:00:00.000Z",
+		);
+		expect((await repository.loadLatestValidGeneration(scanRunId))?.generationId).toBe(
+			expectedFirst.generationId,
 		);
 
 		const [owner] = await connection.db.select().from(users).limit(1);
