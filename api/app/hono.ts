@@ -799,20 +799,23 @@ const scanReportRepository = new ScanReportRepository(runtime.dbConnection.db);
 const artifactStorage = new ArtifactStorage();
 
 app.route(
+	"/api",
+	createStaticIntelligenceRoute({
+		db: runtime.dbConnection.db,
+		projectRepository,
+		scanRepository,
+	}),
+);
+// Register the static intelligence routes before /api/projects/:projectId.
+// Hono resolves matching routes in registration order, and otherwise treats
+// "intelligence-summaries" as a project ID.
+app.route(
 	"/api/projects",
 	createProjectsRoute({
 		projectRepository,
 		scanRepository,
 		scanSupervisor: runtime.scanSupervisor,
 		env: runtime.env,
-	}),
-);
-app.route(
-	"/api",
-	createStaticIntelligenceRoute({
-		db: runtime.dbConnection.db,
-		projectRepository,
-		scanRepository,
 	}),
 );
 app.route("/api/scan-profiles", createScanProfilesRoute());

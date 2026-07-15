@@ -20,9 +20,11 @@ Project creation is also server-controlled. The default `registered_only` policy
 1. Call `vuln_prepare_project_intelligence({ projectPath: registeredProject.repoPath })`.
 2. Poll `vuln_get_project_intelligence_status({ projectPath })` using `retryAfterMs` until `ready`, `stale`, or `failed`.
 3. On `ready`, expose a NightWorkers-owned catalog adapter whose model input is `focus` only. The adapter injects the registered `projectPath` and fixed MCP server ID.
-4. Check `freshness.status` on every read and retain returned provenance only as diagnostic evidence.
-5. On `not_prepared`, call the explicit prepare action. Read tools never prepare implicitly.
-6. On MCP failure, fail open to the existing NightWorkers exploration path.
+4. NightWorkers may apply project-relative catalog clues to an assigned Git worktree only when both the registered root and worktree are clean and resolve to the same Git `HEAD`. MCP requests still use the registered canonical `projectPath`; ephemeral worktree paths are not registered as vulnWorkbench projects.
+5. Recheck the execution worktree before and after the catalog read. If the worktree changes during or after preparation, discard the catalog result and continue with normal workspace exploration.
+6. Check `freshness.status` on every read and retain returned provenance only as diagnostic evidence.
+7. On `not_prepared`, call the explicit prepare action. Read tools never prepare implicitly.
+8. On MCP failure, fail open to the existing NightWorkers exploration path.
 
 Finding-specific reads use `findingFingerprint`. If the response is `AMBIGUOUS_FINDING`, do not select a candidate by internal ID; surface the sanitized candidates for review.
 
@@ -37,6 +39,7 @@ Finding-specific reads use `findingFingerprint`. If the response is `AMBIGUOUS_F
 - Keep the full MCP provenance in audit evidence, but remove absolute paths and internal IDs from the model projection.
 - The prepare worker is structure-only and does not replace a separately requested security scan.
 - Source state is checked before and after generation build; a concurrent repository change fails the job with `SOURCE_CHANGED` instead of publishing it as ready.
+- Worktree equivalence is a NightWorkers consumer responsibility. vulnWorkbench continues to resolve and scan only the registered canonical project root.
 - Preserve existing behavior when MCP is unavailable or preparation fails.
 
 ## Acceptance checks
