@@ -58,6 +58,9 @@ describe("Scans Route", () => {
 			artifactId: null,
 		}),
 	};
+	const mockScanSupervisor = {
+		cancel: vi.fn().mockResolvedValue({ cancelled: true }),
+	};
 
 	const app = new Hono();
 	app.use("*", async (c, next) => {
@@ -82,6 +85,7 @@ describe("Scans Route", () => {
 			scanReportRepository: mockScanReportRepo as any,
 			artifactStorage: {} as any,
 			db: {} as any,
+			scanSupervisor: mockScanSupervisor as any,
 		}),
 	);
 
@@ -104,6 +108,12 @@ describe("Scans Route", () => {
 		expect(res.status).toBe(200);
 		const body = await res.json();
 		expect(body.events.length).toBe(1);
+	});
+
+	it("POST /:scanRunId/cancel delegates only after ownership succeeds", async () => {
+		const res = await app.request("/s-1/cancel", { method: "POST" });
+		expect(res.status).toBe(200);
+		expect(mockScanSupervisor.cancel).toHaveBeenCalledWith("s-1");
 	});
 
 	it("GET /:scanRunId/artifacts returns artifacts list", async () => {

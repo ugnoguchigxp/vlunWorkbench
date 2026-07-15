@@ -19,6 +19,7 @@ const shutdown = async (signal: string) => {
 
 	try {
 		const runtime = await getAppRuntime();
+		await runtime.scanSupervisor.shutdown();
 		if (runtime?.dbConnection?.ownsConnection) {
 			console.log("Closing SQLite database connection...");
 			runtime.dbConnection.sqlite.close(false);

@@ -1,16 +1,20 @@
+import { spawn } from "node:child_process";
 import { parseArgs } from "node:util";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { readAppEnv } from "../app/env";
 import { createDbConnection, type DbConnection } from "../db";
+import { staticIntelligenceMcpToolFailureSchema } from "../modules/static-intelligence/mcp-tool-schemas";
 import {
 	type StaticIntelligenceMcpToolDefinition,
+	type StaticIntelligenceMcpToolResult,
 	staticIntelligenceMcpToolRegistry,
 } from "../modules/static-intelligence/mcp-tools";
-import { staticIntelligenceMcpToolFailureSchema } from "../modules/static-intelligence/mcp-tool-schemas";
 
 const EXPECTED_TOOL_NAMES = [
+	"vuln_prepare_project_intelligence",
+	"vuln_get_project_intelligence_status",
 	"vuln_list_knowledge_sources",
 	"vuln_get_knowledge_source_manifest",
 	"vuln_get_guardrail_material",
@@ -29,7 +33,8 @@ function writeJson(payload: Record<string, unknown>): void {
 function writeHelp(): void {
 	console.log(`Usage: bun run mcp:static-intelligence [--help|--list-tools|--smoke]
 
-Runs the read-only Static Intelligence MCP stdio server.
+Runs the Static Intelligence MCP stdio server. Query tools are read-only; the
+explicit prepare action queues persisted background work.
 
 Options:
   --help        Print this usage and exit.
@@ -66,7 +71,11 @@ export function createStaticIntelligenceMcpServer(): McpServer {
 			{
 				description: tool.description,
 				inputSchema: tool.inputSchema,
-				annotations: { readOnlyHint: true },
+				annotations: {
+					readOnlyHint: tool.readOnlyHint,
+					destructiveHint: tool.destructiveHint ?? false,
+					idempotentHint: tool.idempotentHint ?? true,
+				},
 			},
 			async (input) => executeStaticIntelligenceMcpTool(tool, input),
 		);
@@ -87,7 +96,11 @@ export async function executeStaticIntelligenceMcpTool(
 		const result = await tool.handler({
 			db: dbConnection.db,
 			input,
+			allowedProjectRoots: env.staticIntelligenceAllowedProjectRoots ?? [],
+			projectCreationPolicy:
+				env.staticIntelligenceProjectCreationPolicy ?? "registered_only",
 		});
+		if (!tool.readOnlyHint) launchPrepareWorker(result, options.env);
 		return jsonToolContent(result);
 	} catch (error) {
 		return jsonToolContent(
@@ -100,6 +113,47 @@ export async function executeStaticIntelligenceMcpTool(
 	} finally {
 		dbConnection?.sqlite.close();
 	}
+}
+
+function launchPrepareWorker(
+	result: StaticIntelligenceMcpToolResult,
+	envOverrides?: NodeJS.ProcessEnv,
+): void {
+	if (
+		!result ||
+		typeof result !== "object" ||
+		(result.status !== "queued" && result.status !== "running")
+	)
+		return;
+	const provenance = result.provenance;
+	if (!provenance || typeof provenance !== "object") return;
+	const jobId = (provenance as { prepareJobId?: unknown }).prepareJobId;
+	if (typeof jobId !== "string" || !jobId) return;
+	const child = spawn(
+		process.execPath,
+		["api/cli/static-intelligence-prepare-worker.ts", "--job-id", jobId],
+		{
+			cwd: process.cwd(),
+			detached: true,
+			stdio: "ignore",
+			env: { ...process.env, ...envOverrides },
+		},
+	);
+	child.unref();
+}
+
+function launchRecoveryWorker(): void {
+	const child = spawn(
+		process.execPath,
+		["api/cli/static-intelligence-prepare-worker.ts", "--recover"],
+		{
+			cwd: process.cwd(),
+			detached: true,
+			stdio: "ignore",
+			env: process.env,
+		},
+	);
+	child.unref();
 }
 
 function jsonToolContent(payload: unknown) {
@@ -121,6 +175,11 @@ function listToolsPayload() {
 			name: tool.name,
 			description: tool.description,
 			inputSchema: z.toJSONSchema(tool.inputSchema),
+			annotations: {
+				readOnlyHint: tool.readOnlyHint,
+				destructiveHint: tool.destructiveHint ?? false,
+				idempotentHint: tool.idempotentHint ?? true,
+			},
 		})),
 	};
 }
@@ -168,6 +227,7 @@ async function main(): Promise<number> {
 	}
 
 	try {
+		launchRecoveryWorker();
 		const server = createStaticIntelligenceMcpServer();
 		const transport = new StdioServerTransport();
 		await server.connect(transport);

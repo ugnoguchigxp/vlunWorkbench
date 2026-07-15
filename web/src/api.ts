@@ -928,6 +928,14 @@ export async function fetchScanEvents(scanRunId: string): Promise<ScanEvent[]> {
 	return data.events;
 }
 
+export async function cancelScan(scanRunId: string): Promise<ScanRun> {
+	const data = await requestJson<{ scan: ScanRun }>(
+		`/api/scans/${scanRunId}/cancel`,
+		{ method: "POST" },
+	);
+	return data.scan;
+}
+
 export async function fetchScanArtifacts(
 	scanRunId: string,
 ): Promise<ScanArtifact[]> {

@@ -47,18 +47,6 @@ export function AppHeader({
 			</Link>
 			<div className="topbar-actions">
 				<nav className="menu-nav" aria-label="Primary">
-					<Link to="/knowledge" className={menuClass(active === "knowledge")}>
-						<BookOpen className="icon" />
-						Knowledge
-					</Link>
-					<Link to="/chat" className={menuClass(active === "chat")}>
-						<Bot className="icon" />
-						Chat
-					</Link>
-					<Link to="/search" className={menuClass(active === "search")}>
-						<Search className="icon" />
-						Search
-					</Link>
 					<Link to="/projects" className={menuClass(active === "projects")}>
 						<FolderKanban className="icon" />
 						Projects
@@ -71,18 +59,32 @@ export function AppHeader({
 						<Shield className="icon" />
 						Scans
 					</Link>
+					<Link to="/knowledge" className={menuClass(active === "knowledge")}>
+						<BookOpen className="icon" />
+						Knowledge
+					</Link>
+					<Link to="/chat" className={menuClass(active === "chat")}>
+						<Bot className="icon" />
+						Chat
+					</Link>
+					<Link to="/search" className={menuClass(active === "search")}>
+						<Search className="icon" />
+						Search
+					</Link>
 					<Link to="/settings" className={menuClass(active === "settings")}>
 						<Settings className="icon" />
 						Settings
 					</Link>
-					<Link
-						to="/showcase"
-						search={defaultShowcaseTableSearch}
-						className={menuClass(active === "showcase")}
-					>
-						<Grid2X2 className="icon" />
-						Showcase
-					</Link>
+					{import.meta.env.DEV ? (
+						<Link
+							to="/showcase"
+							search={defaultShowcaseTableSearch}
+							className={menuClass(active === "showcase")}
+						>
+							<Grid2X2 className="icon" />
+							Showcase
+						</Link>
+					) : null}
 				</nav>
 				{authUser ? (
 					<>

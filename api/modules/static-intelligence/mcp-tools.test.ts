@@ -172,8 +172,10 @@ describe("Static Intelligence MCP tools", () => {
 		await fs.rm(tempDir, { recursive: true, force: true });
 	});
 
-	it("registers the expected read-only tool surface", () => {
+	it("registers the expected action and read-only tool surface", () => {
 		expect(staticIntelligenceMcpToolRegistry.map((tool) => tool.name)).toEqual([
+			"vuln_prepare_project_intelligence",
+			"vuln_get_project_intelligence_status",
 			"vuln_list_knowledge_sources",
 			"vuln_get_knowledge_source_manifest",
 			"vuln_get_guardrail_material",
@@ -183,10 +185,45 @@ describe("Static Intelligence MCP tools", () => {
 			"vuln_get_project_exploration_catalog",
 		]);
 		expect(
-			staticIntelligenceMcpToolRegistry.every((tool) =>
+			staticIntelligenceMcpToolRegistry.map((tool) => ({
+				name: tool.name,
+				readOnlyHint: tool.readOnlyHint,
+			})),
+		).toEqual([
+			{ name: "vuln_prepare_project_intelligence", readOnlyHint: false },
+			...staticIntelligenceMcpToolRegistry.slice(1).map((tool) => ({
+				name: tool.name,
+				readOnlyHint: true,
+			})),
+		]);
+		expect(
+			staticIntelligenceMcpToolRegistry.slice(1).every((tool) =>
 				tool.description.toLowerCase().includes("read-only"),
 			),
 		).toBe(true);
+		const pathInputs: Record<string, Record<string, unknown>> = {
+			vuln_prepare_project_intelligence: { projectPath: "/repo" },
+			vuln_get_project_intelligence_status: { projectPath: "/repo" },
+			vuln_get_knowledge_source_manifest: { projectPath: "/repo" },
+			vuln_get_guardrail_material: { projectPath: "/repo" },
+			vuln_get_evidence_bundle: {
+				projectPath: "/repo",
+				findingFingerprint: "fingerprint",
+			},
+			vuln_get_verification_commands: { projectPath: "/repo" },
+			vuln_get_code_structure_snapshot: { projectPath: "/repo" },
+			vuln_get_project_exploration_catalog: { projectPath: "/repo" },
+		};
+		for (const [name, input] of Object.entries(pathInputs)) {
+			const definition = staticIntelligenceMcpToolRegistry.find(
+				(tool) => tool.name === name,
+			);
+			expect(definition?.inputSchema.safeParse(input).success).toBe(true);
+			expect(
+				definition?.inputSchema.safeParse({ ...input, projectId: "internal" })
+					.success,
+			).toBe(false);
+		}
 	});
 
 	it("fetches code structure snapshots through MCP without arbitrary path input", async () => {

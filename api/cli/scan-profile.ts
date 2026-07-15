@@ -11,6 +11,11 @@ import {
 } from "../modules/scans/project-resolver";
 import { ProjectRepository } from "../modules/scans/repositories";
 import {
+	executionConfigFromPolicy,
+	resolveScanExecutionPolicy,
+	scanExecutionPolicyMetadata,
+} from "../modules/scans/scan-execution-policy";
+import {
 	type DockerNetworkMode,
 	normalizeToolExecutionConfig,
 	type ToolRunnerKind,
@@ -33,6 +38,8 @@ async function main() {
 			args: process.argv.slice(2),
 			options: {
 				"project-id": { type: "string" },
+				"scan-run-id": { type: "string" },
+				"execution-surface": { type: "string" },
 				"project-path": { type: "string" },
 				"create-project": { type: "string", default: "false" },
 				profile: { type: "string", default: "baseline" },
@@ -44,7 +51,7 @@ async function main() {
 				"final-report": { type: "string", default: "true" },
 				"report-title": { type: "string" },
 				"report-output": { type: "string" },
-				runner: { type: "string", default: "host" },
+				runner: { type: "string" },
 				"docker-bin": { type: "string" },
 				"docker-image": { type: "string" },
 				network: { type: "string", default: "none" },
@@ -69,6 +76,8 @@ async function main() {
 	}
 
 	const projectId = argsValues["project-id"];
+	const scanRunId = argsValues["scan-run-id"];
+	const executionSurface = argsValues["execution-surface"] ?? "cli";
 	const projectPath = argsValues["project-path"];
 	const createProject = parseBooleanFlag(argsValues["create-project"], false);
 	const profileId = argsValues.profile;
@@ -91,10 +100,10 @@ async function main() {
 		});
 		process.exit(2);
 	}
-	const runner = argsValues.runner as ToolRunnerKind;
+	const runner = argsValues.runner as ToolRunnerKind | undefined;
 	const networkMode = argsValues.network as DockerNetworkMode;
 
-	if (runner !== "host" && runner !== "docker") {
+	if (runner !== undefined && runner !== "host" && runner !== "docker") {
 		writeResult({
 			ok: false,
 			status: "failed",
@@ -111,20 +120,14 @@ async function main() {
 		process.exit(1);
 	}
 
-	const execution = normalizeToolExecutionConfig({
-		runner,
-		docker:
-			runner === "docker"
-				? {
-						dockerBin: argsValues["docker-bin"],
-						image: argsValues["docker-image"],
-						networkMode,
-						memory: argsValues.memory,
-						cpus: argsValues.cpus,
-						toolCacheDir: argsValues["tool-cache-dir"],
-					}
-				: undefined,
-	});
+	if (executionSurface !== "cli" && executionSurface !== "web") {
+		writeResult({
+			ok: false,
+			status: "failed",
+			message: "--execution-surface must be cli or web.",
+		});
+		process.exit(2);
+	}
 
 	// Validate profile exists
 	const profile = getProfileById(profileId);
@@ -216,7 +219,7 @@ async function main() {
 		writeResult({
 			dryRun: true,
 			profileId,
-			runner: execution.runner,
+			runner: runner ?? "host",
 			finalReport: finalReportEnabled,
 			stepId: stepId ?? null,
 			toolOrder,
@@ -247,6 +250,24 @@ async function main() {
 
 	try {
 		const env = readAppEnv();
+		const executionPolicy = resolveScanExecutionPolicy({
+			env,
+			surface: executionSurface,
+			requestedRunner: runner,
+		});
+		const execution = normalizeToolExecutionConfig({
+			...executionConfigFromPolicy(executionPolicy),
+			docker:
+				executionPolicy.runner === "docker"
+					? {
+							...executionConfigFromPolicy(executionPolicy).docker,
+							dockerBin: argsValues["docker-bin"],
+							memory: argsValues.memory,
+							cpus: argsValues.cpus,
+							toolCacheDir: argsValues["tool-cache-dir"],
+						}
+					: undefined,
+		});
 		dbConnection = createDbConnection(env.databaseUrl);
 		startupComplete = true;
 		const projectRepo = new ProjectRepository(dbConnection.db);
@@ -273,6 +294,7 @@ async function main() {
 
 		const result = await runProfileScan({
 			db: dbConnection.db,
+			scanRunId,
 			projectId: project.id,
 			profileId,
 			stepId,
@@ -280,6 +302,7 @@ async function main() {
 			continueOnToolFailure,
 			timeoutSec,
 			execution,
+			executionPolicyMetadata: scanExecutionPolicyMetadata(executionPolicy),
 			imageRef,
 			imageTar,
 			finalReport: {
@@ -355,7 +378,7 @@ async function main() {
 		}
 		writeResult({
 			ok: false,
-			runner: execution.runner,
+			runner: runner ?? "host",
 			status: "failed",
 			message: err instanceof Error ? err.message : String(err),
 			toolResults: [],

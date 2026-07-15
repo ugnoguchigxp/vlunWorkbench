@@ -97,6 +97,24 @@ describe("Scan Domain Repositories", () => {
 
 		expect(scanRun.id).toBeDefined();
 		expect(scanRun.status).toBe("queued");
+		expect(scanRun.startedAt).toBeNull();
+
+		const claimed = await scanRepo.claimQueuedScanRun({
+			id: scanRun.id,
+			projectId: project.id,
+			profile: "baseline",
+			metadata: { launchSource: "web" },
+		});
+		expect(claimed?.status).toBe("running");
+		expect(claimed?.startedAt).toBeInstanceOf(Date);
+		expect(claimed?.metadata).toMatchObject({ launchSource: "web" });
+		expect(
+			await scanRepo.claimQueuedScanRun({
+				id: scanRun.id,
+				projectId: project.id,
+				profile: "baseline",
+			}),
+		).toBeNull();
 
 		const updated = await scanRepo.updateScanRunStatus(scanRun.id, "running");
 		expect(updated?.status).toBe("running");

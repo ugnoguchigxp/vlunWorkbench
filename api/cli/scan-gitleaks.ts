@@ -10,6 +10,11 @@ import {
 import { ArtifactStorage } from "../modules/scans/artifact-storage";
 import { GitleaksRunner } from "../modules/scans/tools/gitleaks-runner";
 import { normalizeGitleaks } from "../modules/scans/normalizers/gitleaks";
+import {
+	executionConfigFromPolicy,
+	resolveScanExecutionPolicy,
+	scanExecutionPolicyMetadata,
+} from "../modules/scans/scan-execution-policy";
 
 function writeResult(payload: Record<string, unknown>): void {
 	console.log(JSON.stringify(payload));
@@ -57,6 +62,8 @@ async function main() {
 		: undefined;
 
 	const env = readAppEnv();
+	const executionPolicy = resolveScanExecutionPolicy({ env, surface: "cli" });
+	const execution = executionConfigFromPolicy(executionPolicy);
 	const dbConnection = createDbConnection(env.databaseUrl);
 
 	const projectRepo = new ProjectRepository(dbConnection.db);
@@ -78,7 +85,7 @@ async function main() {
 	}
 
 	// 2. Check Gitleaks availability before creating scan records
-	const runner = new GitleaksRunner(storage);
+	const runner = new GitleaksRunner(storage, execution);
 	const gitleaksVersion = await runner.checkVersion();
 	if (!gitleaksVersion) {
 		writeResult({
@@ -98,6 +105,9 @@ async function main() {
 			projectId,
 			profile,
 			status: "running",
+			metadata: {
+				executionPolicy: scanExecutionPolicyMetadata(executionPolicy),
+			},
 		});
 		// biome-ignore lint/suspicious/noExplicitAny: error
 	} catch (err: any) {

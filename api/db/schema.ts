@@ -299,6 +299,7 @@ export const projects = sqliteTable(
 			.references(() => users.id, { onDelete: "cascade" }),
 		name: text("name").notNull(),
 		repoPath: text("repo_path").notNull(),
+		canonicalRepoPath: text("canonical_repo_path"),
 		defaultBranch: text("default_branch").notNull().default("main"),
 		metadata: jsonObject("metadata"),
 		createdAt: timestampMs("created_at"),
@@ -309,6 +310,9 @@ export const projects = sqliteTable(
 		ownerRepoPathUniqueIdx: uniqueIndex(
 			"projects_owner_repo_path_unique_idx",
 		).on(table.ownerUserId, table.repoPath),
+		canonicalRepoPathUniqueIdx: uniqueIndex(
+			"projects_canonical_repo_path_unique_idx",
+		).on(table.canonicalRepoPath),
 	}),
 );
 
@@ -334,6 +338,41 @@ export const scanRuns = sqliteTable(
 	(table) => ({
 		projectIdIdx: index("scan_runs_project_id_idx").on(table.projectId),
 		statusIdx: index("scan_runs_status_idx").on(table.status),
+	}),
+);
+
+export const staticIntelligencePrepareJobs = sqliteTable(
+	"static_intelligence_prepare_jobs",
+	{
+		id: id(),
+		projectId: text("project_id")
+			.notNull()
+			.references(() => projects.id, { onDelete: "cascade" }),
+		canonicalProjectPath: text("canonical_project_path").notNull(),
+		sourceFingerprint: text("source_fingerprint").notNull(),
+		status: text("status").notNull(),
+		stage: text("stage").notNull(),
+		scanRunId: text("scan_run_id").references(() => scanRuns.id, {
+			onDelete: "set null",
+		}),
+		generationId: text("generation_id"),
+		attemptCount: integer("attempt_count").notNull().default(0),
+		errorCode: text("error_code"),
+		errorMessageRedacted: text("error_message_redacted"),
+		retryable: integer("retryable", { mode: "boolean" }),
+		leaseExpiresAt: integer("lease_expires_at", { mode: "timestamp_ms" }),
+		createdAt: timestampMs("created_at"),
+		updatedAt: timestampMs("updated_at"),
+		startedAt: integer("started_at", { mode: "timestamp_ms" }),
+		completedAt: integer("completed_at", { mode: "timestamp_ms" }),
+	},
+	(table) => ({
+		projectIdIdx: index("static_intel_prepare_project_idx").on(table.projectId),
+		sourceFingerprintIdx: index("static_intel_prepare_source_idx").on(
+			table.projectId,
+			table.sourceFingerprint,
+		),
+		statusIdx: index("static_intel_prepare_status_idx").on(table.status),
 	}),
 );
 

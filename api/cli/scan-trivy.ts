@@ -10,6 +10,11 @@ import {
 import { ArtifactStorage } from "../modules/scans/artifact-storage";
 import { TrivyRunner } from "../modules/scans/tools/trivy-runner";
 import { normalizeTrivy } from "../modules/scans/normalizers/trivy";
+import {
+	executionConfigFromPolicy,
+	resolveScanExecutionPolicy,
+	scanExecutionPolicyMetadata,
+} from "../modules/scans/scan-execution-policy";
 
 function writeResult(payload: Record<string, unknown>): void {
 	console.log(JSON.stringify(payload));
@@ -57,6 +62,8 @@ async function main() {
 		: undefined;
 
 	const env = readAppEnv();
+	const executionPolicy = resolveScanExecutionPolicy({ env, surface: "cli" });
+	const execution = executionConfigFromPolicy(executionPolicy);
 	const dbConnection = createDbConnection(env.databaseUrl);
 
 	const projectRepo = new ProjectRepository(dbConnection.db);
@@ -78,7 +85,7 @@ async function main() {
 	}
 
 	// 2. Check Trivy availability before creating scan records
-	const runner = new TrivyRunner(storage);
+	const runner = new TrivyRunner(storage, execution);
 	const trivyVersion = await runner.checkVersion();
 	if (!trivyVersion) {
 		writeResult({
@@ -98,6 +105,9 @@ async function main() {
 			projectId,
 			profile,
 			status: "running",
+			metadata: {
+				executionPolicy: scanExecutionPolicyMetadata(executionPolicy),
+			},
 		});
 		// biome-ignore lint/suspicious/noExplicitAny: error
 	} catch (err: any) {

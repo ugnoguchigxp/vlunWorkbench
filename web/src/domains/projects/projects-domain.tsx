@@ -1120,10 +1120,10 @@ function OntologyHandoffSection({
 			<section className="projects-band">
 				<div className="projects-section-head">
 					<div>
-						<h2>Ontology Handoff</h2>
+						<h2>External Agent Readiness</h2>
 						<p>
-							Persisted generation is required before NightWorkers can pull
-							module candidates.
+							Persisted generation is missing. vulnWorkbench cannot determine
+							whether any external consumer is connected.
 						</p>
 					</div>
 					<StatusBadge status="missing" />
@@ -1146,7 +1146,7 @@ function OntologyHandoffSection({
 		<section className="projects-band">
 			<div className="projects-section-head">
 				<div>
-					<h2>Ontology Handoff</h2>
+					<h2>External Agent Readiness</h2>
 					<p>
 						Evidence-backed module candidates for downstream mapping. These are
 						not canonical Ontology nodes.
@@ -1162,7 +1162,8 @@ function OntologyHandoffSection({
 			</div>
 			<p className="consumer-boundary">
 				vulnWorkbench does not own canonical ontology or task compilation.
-				Consumer: {handoff.consumerBoundary.consumer}.
+				Consumer boundary: {handoff.consumerBoundary.consumer}. Persisted data
+				is ready to pull; external connection and adoption are unknown.
 			</p>
 			<div className="module-handoff-list">
 				{handoff.modules.map((module) => (

@@ -1,5 +1,5 @@
 import { useNavigate } from "@tanstack/react-router";
-import { useCallback, useEffect, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import {
 	type AuthUser,
 	type SourceHealth,
@@ -11,18 +11,35 @@ import {
 	logout,
 	UNAUTHORIZED_EVENT_NAME,
 } from "./api";
-import { AdminUserManagementPanel } from "./admin-user-management";
 import { AppHeader } from "./app-header";
 import { LoginDomainSection } from "./domains/auth/login-domain";
-import { ChatDomainSection } from "./domains/chat/chat-domain";
 import {
 	KnowledgeDomainSection,
 	KnowledgeNavigationProvider,
 } from "./domains/knowledge/knowledge-domain";
 import { ProjectsDomainSection } from "./domains/projects/projects-domain";
-import { SearchDomainSection } from "./domains/search/search-domain";
 import { ScansDomainSection } from "./domains/scans/scans-domain";
-import { SettingsPanel } from "./settings-panel";
+
+const ChatDomainSection = lazy(() =>
+	import("./domains/chat/chat-domain").then((module) => ({
+		default: module.ChatDomainSection,
+	})),
+);
+const SearchDomainSection = lazy(() =>
+	import("./domains/search/search-domain").then((module) => ({
+		default: module.SearchDomainSection,
+	})),
+);
+const SettingsPanel = lazy(() =>
+	import("./settings-panel").then((module) => ({
+		default: module.SettingsPanel,
+	})),
+);
+const AdminUserManagementPanel = lazy(() =>
+	import("./admin-user-management").then((module) => ({
+		default: module.AdminUserManagementPanel,
+	})),
+);
 
 export type AppViewId =
 	| "knowledge"
@@ -208,54 +225,66 @@ export function App({ view }: AppProps) {
 					onOpenKnowledge={() => void navigate({ to: "/knowledge" })}
 				>
 					<KnowledgeDomainSection active={view === "knowledge"} />
-					<ChatDomainSection
-						active={view === "chat"}
-						busy={busy}
-						runWithBusy={withBusy}
-						availableCategories={availableCategories}
-						setErrorText={setErrorText}
-					/>
-					<SearchDomainSection
-						active={view === "search"}
-						busy={busy}
-						runWithBusy={withBusy}
-						availableCategories={availableCategories}
-					/>
-					<ProjectsDomainSection
-						active={view === "projects"}
-						busy={busy}
-						runWithBusy={withBusy}
-						setErrorText={setErrorText}
-					/>
-					<ScansDomainSection
-						active={view === "scans"}
-						busy={busy}
-						runWithBusy={withBusy}
-						setErrorText={setErrorText}
-					/>
-					{view === "settings" ? (
-						<SettingsPanel
-							appHealth={appHealth}
-							sourceHealth={sourceHealth}
-							systemContextText={systemContextText}
-							systemContextUpdatedAt={systemContextUpdatedAt}
-							systemContextSaving={systemContextSaving}
-							onSystemContextTextChange={setSystemContextText}
-							onSystemContextSaved={(systemContext, updatedAt) => {
-								setSystemContextText(systemContext);
-								setSystemContextUpdatedAt(updatedAt);
-							}}
-							onSystemContextSavingChange={setSystemContextSaving}
-							setErrorText={setErrorText}
-						/>
-					) : null}
-					{authUser.role === "admin" && view === "admin" ? (
-						<AdminUserManagementPanel
+					<Suspense
+						fallback={
+							<main className="layout columns-1">
+								<section className="panel">Loading view...</section>
+							</main>
+						}
+					>
+						{view === "chat" ? (
+							<ChatDomainSection
+								active
+								busy={busy}
+								runWithBusy={withBusy}
+								availableCategories={availableCategories}
+								setErrorText={setErrorText}
+							/>
+						) : null}
+						{view === "search" ? (
+							<SearchDomainSection
+								active
+								busy={busy}
+								runWithBusy={withBusy}
+								availableCategories={availableCategories}
+							/>
+						) : null}
+						<ProjectsDomainSection
+							active={view === "projects"}
 							busy={busy}
 							runWithBusy={withBusy}
 							setErrorText={setErrorText}
 						/>
-					) : null}
+						<ScansDomainSection
+							active={view === "scans"}
+							busy={busy}
+							runWithBusy={withBusy}
+							setErrorText={setErrorText}
+						/>
+						{view === "settings" ? (
+							<SettingsPanel
+								appHealth={appHealth}
+								sourceHealth={sourceHealth}
+								systemContextText={systemContextText}
+								systemContextUpdatedAt={systemContextUpdatedAt}
+								systemContextSaving={systemContextSaving}
+								onSystemContextTextChange={setSystemContextText}
+								onSystemContextSaved={(systemContext, updatedAt) => {
+									setSystemContextText(systemContext);
+									setSystemContextUpdatedAt(updatedAt);
+								}}
+								onSystemContextSavingChange={setSystemContextSaving}
+								setErrorText={setErrorText}
+							/>
+						) : null}
+						{authUser.role === "admin" && view === "admin" ? (
+							<AdminUserManagementPanel
+								busy={busy}
+								runWithBusy={withBusy}
+								setErrorText={setErrorText}
+							/>
+						) : null}
+					</Suspense>
 				</KnowledgeNavigationProvider>
 			) : null}
 		</div>

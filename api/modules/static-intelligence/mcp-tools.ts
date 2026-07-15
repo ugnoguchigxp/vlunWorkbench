@@ -28,7 +28,7 @@ import type {
 } from "../../../shared/schemas/static-intelligence-knowledge-source.schema";
 import { staticIntelligenceKnowledgeSourceManifestResultSchema } from "../../../shared/schemas/static-intelligence-knowledge-source.schema";
 import type { AppDatabase } from "../../db";
-import { projects, scanRuns } from "../../db/schema";
+import { findings, projects, scanRuns } from "../../db/schema";
 import { ProjectRepository, ScanRepository } from "../scans/repositories";
 import {
 	runStaticIntelligenceAgentQuery,
@@ -43,21 +43,37 @@ import { StaticIntelligenceGenerationRepository } from "./generation-repository"
 import { buildStaticIntelligenceGuardrailMaterial } from "./guardrail-material";
 import { buildStaticIntelligenceKnowledgeSourceManifest } from "./knowledge-source-manifest";
 import {
-	type GetEvidenceBundleInput,
-	type GetVerificationCommandsInput,
 	getCodeStructureSnapshotInputSchema,
 	getEvidenceBundleInputSchema,
 	getGuardrailMaterialInputSchema,
 	getKnowledgeSourceManifestInputSchema,
+	getProjectIntelligenceStatusInputSchema,
 	getVerificationCommandsInputSchema,
 	type ListKnowledgeSourcesInput,
+	legacyGetCodeStructureSnapshotInputSchema,
+	legacyGetEvidenceBundleInputSchema,
+	legacyGetGuardrailMaterialInputSchema,
+	legacyGetKnowledgeSourceManifestInputSchema,
+	legacyGetVerificationCommandsInputSchema,
+	legacyProjectExplorationCatalogInputSchema,
 	listKnowledgeSourcesInputSchema,
+	pathFirstProjectExplorationCatalogInputSchema,
+	prepareProjectIntelligenceInputSchema,
 	projectExplorationCatalogInputSchema,
 	type StaticIntelligenceKnowledgeSourceListResult,
 	type StaticIntelligenceMcpToolFailure,
 	staticIntelligenceKnowledgeSourceListResultSchema,
 	staticIntelligenceMcpToolFailureSchema,
 } from "./mcp-tool-schemas";
+import {
+	getProjectIntelligenceStatus,
+	loadLatestPublishedGeneration,
+	prepareProjectIntelligence,
+} from "./prepare-service";
+import {
+	ProjectPathResolutionError,
+	resolveStaticIntelligenceProjectByPath,
+} from "./project-path-resolver";
 import { StaticIntelligenceReadModelResolver } from "./read-model-resolver";
 
 export type StaticIntelligenceMcpToolResult =
@@ -72,17 +88,23 @@ export type StaticIntelligenceMcpToolResult =
 	| StaticIntelligenceAgentQueryResult
 	| StaticIntelligenceAgentQueryFailure
 	| ProjectExplorationCatalogResult
-	| ProjectExplorationCatalogFailure;
+	| ProjectExplorationCatalogFailure
+	| Record<string, unknown>;
 
 export type StaticIntelligenceMcpToolHandler = (params: {
 	db: AppDatabase;
 	input: unknown;
+	allowedProjectRoots?: string[];
+	projectCreationPolicy?: "registered_only" | "create_within_allowed_roots";
 }) => Promise<StaticIntelligenceMcpToolResult>;
 
 export type StaticIntelligenceMcpToolDefinition = {
 	name: string;
 	description: string;
 	inputSchema: z.ZodType;
+	readOnlyHint: boolean;
+	destructiveHint?: boolean;
+	idempotentHint?: boolean;
 	handler: StaticIntelligenceMcpToolHandler;
 };
 
@@ -197,7 +219,9 @@ export async function getProjectExplorationCatalogTool(params: {
 }): Promise<
 	ProjectExplorationCatalogResult | ProjectExplorationCatalogFailure
 > {
-	const parsed = projectExplorationCatalogInputSchema.safeParse(params.input);
+	const parsed = legacyProjectExplorationCatalogInputSchema.safeParse(
+		params.input,
+	);
 	if (!parsed.success) {
 		return catalogFailure(
 			parsed.error.issues.some((issue) => issue.message === "focus_required")
@@ -262,7 +286,7 @@ export async function getStaticIntelligenceKnowledgeSourceManifestTool(params: {
 	| StaticIntelligenceKnowledgeSourceManifestFailure
 > {
 	const parsed = parseToolInput(
-		getKnowledgeSourceManifestInputSchema,
+		legacyGetKnowledgeSourceManifestInputSchema,
 		params.input,
 	);
 	if (!parsed.ok) return parsed.failure;
@@ -299,7 +323,10 @@ export async function getStaticIntelligenceGuardrailMaterialTool(params: {
 	| StaticIntelligenceGuardrailMaterialResult
 	| StaticIntelligenceGuardrailMaterialFailure
 > {
-	const parsed = parseToolInput(getGuardrailMaterialInputSchema, params.input);
+	const parsed = parseToolInput(
+		legacyGetGuardrailMaterialInputSchema,
+		params.input,
+	);
 	if (!parsed.ok) return parsed.failure;
 
 	try {
@@ -333,7 +360,10 @@ export async function getStaticIntelligenceEvidenceBundleTool(params: {
 }): Promise<
 	StaticIntelligenceAgentQueryResult | StaticIntelligenceAgentQueryFailure
 > {
-	const parsed = parseToolInput(getEvidenceBundleInputSchema, params.input);
+	const parsed = parseToolInput(
+		legacyGetEvidenceBundleInputSchema,
+		params.input,
+	);
 	if (!parsed.ok) return parsed.failure;
 
 	return runAgentQueryTool(params.db, parsed.input, {
@@ -348,7 +378,7 @@ export async function getStaticIntelligenceVerificationCommandsTool(params: {
 	StaticIntelligenceAgentQueryResult | StaticIntelligenceAgentQueryFailure
 > {
 	const parsed = parseToolInput(
-		getVerificationCommandsInputSchema,
+		legacyGetVerificationCommandsInputSchema,
 		params.input,
 	);
 	if (!parsed.ok) return parsed.failure;
@@ -363,7 +393,7 @@ export async function getStaticIntelligenceCodeStructureSnapshotTool(params: {
 	input: unknown;
 }): Promise<CodeStructureSnapshotResult | CodeStructureSnapshotFailure> {
 	const parsed = parseToolInput(
-		getCodeStructureSnapshotInputSchema,
+		legacyGetCodeStructureSnapshotInputSchema,
 		params.input,
 	);
 	if (!parsed.ok) return parsed.failure;
@@ -394,13 +424,278 @@ export async function getStaticIntelligenceCodeStructureSnapshotTool(params: {
 	}
 }
 
+export async function prepareProjectIntelligenceTool(params: {
+	db: AppDatabase;
+	input: unknown;
+	allowedProjectRoots?: string[];
+	projectCreationPolicy?: "registered_only" | "create_within_allowed_roots";
+}): Promise<Record<string, unknown>> {
+	const parsed = prepareProjectIntelligenceInputSchema.safeParse(params.input);
+	if (!parsed.success) return pathInputFailure(parsed.error);
+	return await prepareProjectIntelligence({
+		db: params.db,
+		projectPath: parsed.data.projectPath,
+		allowedProjectRoots: params.allowedProjectRoots ?? [],
+		createProject:
+			params.projectCreationPolicy === "create_within_allowed_roots",
+	});
+}
+
+export async function getProjectIntelligenceStatusTool(params: {
+	db: AppDatabase;
+	input: unknown;
+	allowedProjectRoots?: string[];
+}): Promise<Record<string, unknown>> {
+	const parsed = getProjectIntelligenceStatusInputSchema.safeParse(
+		params.input,
+	);
+	if (!parsed.success) return pathInputFailure(parsed.error);
+	return await getProjectIntelligenceStatus({
+		db: params.db,
+		projectPath: parsed.data.projectPath,
+		allowedProjectRoots: params.allowedProjectRoots ?? [],
+	});
+}
+
+async function getCodeStructureSnapshotFacade(
+	params: Parameters<StaticIntelligenceMcpToolHandler>[0],
+): Promise<StaticIntelligenceMcpToolResult> {
+	if (!hasProjectPath(params.input)) {
+		return await getStaticIntelligenceCodeStructureSnapshotTool(params);
+	}
+	const parsed = getCodeStructureSnapshotInputSchema.safeParse(params.input);
+	if (!parsed.success || !("projectPath" in parsed.data)) {
+		return pathInputFailure(parsed.success ? undefined : parsed.error);
+	}
+	const context = await resolvePathReadContext(
+		params.db,
+		parsed.data.projectPath,
+		params.allowedProjectRoots ?? [],
+	);
+	if (!context.ok) return context.failure;
+	const result = await getStaticIntelligenceCodeStructureSnapshotTool({
+		db: params.db,
+		input: {
+			scanRunId: context.generation.scanRunId,
+			generationId: context.generation.generationId,
+		},
+	});
+	return withPathMetadata(result, context);
+}
+
+async function getExplorationCatalogFacade(
+	params: Parameters<StaticIntelligenceMcpToolHandler>[0],
+): Promise<StaticIntelligenceMcpToolResult> {
+	if (!hasProjectPath(params.input)) {
+		return await getProjectExplorationCatalogTool(params);
+	}
+	const parsed = pathFirstProjectExplorationCatalogInputSchema.safeParse(
+		params.input,
+	);
+	if (!parsed.success) return pathInputFailure(parsed.error);
+	const context = await resolvePathReadContext(
+		params.db,
+		parsed.data.projectPath,
+		params.allowedProjectRoots ?? [],
+	);
+	if (!context.ok) return context.failure;
+	const defaultPaths = context.generation.structure.snapshot.files
+		.slice(0, 10)
+		.map((file) => file.path);
+	const focus = parsed.data.focus
+		? {
+				paths: parsed.data.focus.paths,
+				moduleIds: parsed.data.focus.modules,
+				terms: parsed.data.focus.terms,
+			}
+		: {
+				paths: defaultPaths.length > 0 ? defaultPaths : undefined,
+				terms: ["project"],
+			};
+	const readiness = await readinessForGeneration(params.db, context.generation);
+	const result = buildProjectExplorationCatalog({
+		generation: {
+			projectId: context.generation.projectId,
+			scanRunId: context.generation.scanRunId,
+			generationId: context.generation.generationId,
+			status: context.generation.status,
+			structure: {
+				metadata: context.generation.structure.metadata,
+				snapshot: context.generation.structure.snapshot,
+			},
+			export: { payload: context.generation.export.payload },
+		},
+		readiness: summarizeGenerationReadiness(
+			readiness,
+			context.generation.status,
+		),
+		focus,
+		limits: parsed.data.limits,
+		generatedAt: context.generation.structure.metadata.generatedAt,
+	});
+	return withPathMetadata(result, context);
+}
+
+async function getManifestFacade(
+	params: Parameters<StaticIntelligenceMcpToolHandler>[0],
+): Promise<StaticIntelligenceMcpToolResult> {
+	if (!hasProjectPath(params.input)) {
+		return await getStaticIntelligenceKnowledgeSourceManifestTool(params);
+	}
+	const parsed = getKnowledgeSourceManifestInputSchema.safeParse(params.input);
+	if (!parsed.success || !("projectPath" in parsed.data)) {
+		return pathInputFailure(parsed.success ? undefined : parsed.error);
+	}
+	const context = await resolvePathReadContext(
+		params.db,
+		parsed.data.projectPath,
+		params.allowedProjectRoots ?? [],
+	);
+	if (!context.ok) return context.failure;
+	const result = await getStaticIntelligenceKnowledgeSourceManifestTool({
+		db: params.db,
+		input: {
+			scanRunId: context.generation.scanRunId,
+			generationId: context.generation.generationId,
+		},
+	});
+	return withPathMetadata(result, context);
+}
+
+async function getGuardrailFacade(
+	params: Parameters<StaticIntelligenceMcpToolHandler>[0],
+): Promise<StaticIntelligenceMcpToolResult> {
+	if (!hasProjectPath(params.input)) {
+		return await getStaticIntelligenceGuardrailMaterialTool(params);
+	}
+	const parsed = getGuardrailMaterialInputSchema.safeParse(params.input);
+	if (!parsed.success || !("projectPath" in parsed.data)) {
+		return pathInputFailure(parsed.success ? undefined : parsed.error);
+	}
+	const context = await resolvePathReadContext(
+		params.db,
+		parsed.data.projectPath,
+		params.allowedProjectRoots ?? [],
+	);
+	if (!context.ok) return context.failure;
+	const result = await getStaticIntelligenceGuardrailMaterialTool({
+		db: params.db,
+		input: {
+			scanRunId: context.generation.scanRunId,
+			generationId: context.generation.generationId,
+			type: parsed.data.type,
+			includeMarkdown: parsed.data.includeMarkdown,
+		},
+	});
+	return withPathMetadata(result, context);
+}
+
+async function getEvidenceFacade(
+	params: Parameters<StaticIntelligenceMcpToolHandler>[0],
+): Promise<StaticIntelligenceMcpToolResult> {
+	if (!hasProjectPath(params.input)) {
+		return await getStaticIntelligenceEvidenceBundleTool(params);
+	}
+	const parsed = getEvidenceBundleInputSchema.safeParse(params.input);
+	if (!parsed.success || !("projectPath" in parsed.data)) {
+		return pathInputFailure(parsed.success ? undefined : parsed.error);
+	}
+	const context = await resolvePathReadContext(
+		params.db,
+		parsed.data.projectPath,
+		params.allowedProjectRoots ?? [],
+	);
+	if (!context.ok) return context.failure;
+	const finding = await resolveFindingByFingerprint({
+		db: params.db,
+		projectId: context.generation.projectId,
+		scanRunId: context.generation.scanRunId,
+		fingerprint: parsed.data.findingFingerprint,
+	});
+	if (!finding.ok) return finding.failure;
+	const result = await getStaticIntelligenceEvidenceBundleTool({
+		db: params.db,
+		input: {
+			scanRunId: context.generation.scanRunId,
+			generationId: context.generation.generationId,
+			findingId: finding.id,
+		},
+	});
+	return {
+		...withPathMetadata(result, context, [finding.id]),
+		findingFingerprint: parsed.data.findingFingerprint,
+	};
+}
+
+async function getVerificationFacade(
+	params: Parameters<StaticIntelligenceMcpToolHandler>[0],
+): Promise<StaticIntelligenceMcpToolResult> {
+	if (!hasProjectPath(params.input)) {
+		return await getStaticIntelligenceVerificationCommandsTool(params);
+	}
+	const parsed = getVerificationCommandsInputSchema.safeParse(params.input);
+	if (!parsed.success || !("projectPath" in parsed.data)) {
+		return pathInputFailure(parsed.success ? undefined : parsed.error);
+	}
+	const context = await resolvePathReadContext(
+		params.db,
+		parsed.data.projectPath,
+		params.allowedProjectRoots ?? [],
+	);
+	if (!context.ok) return context.failure;
+	let findingId: string | undefined;
+	if (parsed.data.findingFingerprint) {
+		const finding = await resolveFindingByFingerprint({
+			db: params.db,
+			projectId: context.generation.projectId,
+			scanRunId: context.generation.scanRunId,
+			fingerprint: parsed.data.findingFingerprint,
+		});
+		if (!finding.ok) return finding.failure;
+		findingId = finding.id;
+	}
+	const result = await getStaticIntelligenceVerificationCommandsTool({
+		db: params.db,
+		input: {
+			scanRunId: context.generation.scanRunId,
+			generationId: context.generation.generationId,
+			...(findingId ? { findingId } : {}),
+		},
+	});
+	return {
+		...withPathMetadata(result, context, findingId ? [findingId] : []),
+		...(parsed.data.findingFingerprint
+			? { findingFingerprint: parsed.data.findingFingerprint }
+			: {}),
+	};
+}
+
 export const staticIntelligenceMcpToolRegistry: StaticIntelligenceMcpToolDefinition[] =
 	[
+		{
+			name: "vuln_prepare_project_intelligence",
+			description:
+				"Queues persisted structure-only preparation and Static Intelligence generation for an allowed canonical project path. External security scanners are not started. This is the only path-first tool with side effects.",
+			inputSchema: prepareProjectIntelligenceInputSchema,
+			readOnlyHint: false,
+			destructiveHint: false,
+			idempotentHint: true,
+			handler: prepareProjectIntelligenceTool,
+		},
+		{
+			name: "vuln_get_project_intelligence_status",
+			description:
+				"Read-only status and freshness lookup for a project path. It never creates a project, scan, prepare job, or generation.",
+			inputSchema: getProjectIntelligenceStatusInputSchema,
+			readOnlyHint: true,
+			handler: getProjectIntelligenceStatusTool,
+		},
 		{
 			name: "vuln_list_knowledge_sources",
 			description:
 				"Read-only Static Intelligence knowledge source discovery. Returns candidate-only manifest summaries without project root paths, raw artifact bodies, or evidence snippets.",
 			inputSchema: listKnowledgeSourcesInputSchema,
+			readOnlyHint: true,
 			handler: listStaticIntelligenceKnowledgeSources,
 		},
 		{
@@ -408,44 +703,326 @@ export const staticIntelligenceMcpToolRegistry: StaticIntelligenceMcpToolDefinit
 			description:
 				"Read-only fetch for one Static Intelligence knowledge source manifest. Uses the CLI-compatible Phase 34 manifest contract and does not return raw artifact bodies or evidence snippets.",
 			inputSchema: getKnowledgeSourceManifestInputSchema,
-			handler: getStaticIntelligenceKnowledgeSourceManifestTool,
+			readOnlyHint: true,
+			handler: getManifestFacade,
 		},
 		{
 			name: "vuln_get_guardrail_material",
 			description:
 				"Read-only fetch for candidate-only Static Intelligence guardrail material. Does not register contextStill candidates or infer active/rejected/deprecated state.",
 			inputSchema: getGuardrailMaterialInputSchema,
-			handler: getStaticIntelligenceGuardrailMaterialTool,
+			readOnlyHint: true,
+			handler: getGuardrailFacade,
 		},
 		{
 			name: "vuln_get_evidence_bundle",
 			description:
 				"Read-only fetch for a candidate-only evidence bundle for one finding. Returns refs and sanitized metadata only, not raw artifact bodies or evidence snippets.",
 			inputSchema: getEvidenceBundleInputSchema,
-			handler: getStaticIntelligenceEvidenceBundleTool,
+			readOnlyHint: true,
+			handler: getEvidenceFacade,
 		},
 		{
 			name: "vuln_get_verification_commands",
 			description:
 				"Read-only fetch for candidate-only verification commands. Commands are returned as stored candidates and are not executed.",
 			inputSchema: getVerificationCommandsInputSchema,
-			handler: getStaticIntelligenceVerificationCommandsTool,
+			readOnlyHint: true,
+			handler: getVerificationFacade,
 		},
 		{
 			name: "vuln_get_code_structure_snapshot",
 			description:
-				"Read-only fetch for a persisted redacted code structure snapshot. It never scans the repository or accepts arbitrary filesystem paths.",
+				"Read-only fetch for a persisted redacted code structure snapshot by an allowlisted projectPath or legacy generation identity. It never starts a scan or generation build.",
 			inputSchema: getCodeStructureSnapshotInputSchema,
-			handler: getStaticIntelligenceCodeStructureSnapshotTool,
+			readOnlyHint: true,
+			handler: getCodeStructureSnapshotFacade,
 		},
 		{
 			name: "vuln_get_project_exploration_catalog",
 			description:
-				"Read-only bounded exploration clues for one pinned Static Intelligence generation. Returns ranked project-relative file, test, and verification candidates without source bodies, raw evidence, repository scanning, command execution, or mutation.",
+				"Read-only bounded exploration clues for the latest projectPath generation or one legacy pinned generation. Returns ranked project-relative candidates without source bodies, command execution, or mutation.",
 			inputSchema: projectExplorationCatalogInputSchema,
-			handler: getProjectExplorationCatalogTool,
+			readOnlyHint: true,
+			handler: getExplorationCatalogFacade,
 		},
 	];
+
+type PathReadContext = {
+	ok: true;
+	projectPath: string;
+	generation: NonNullable<
+		Awaited<ReturnType<typeof loadLatestPublishedGeneration>>
+	>;
+	freshness: "fresh" | "stale";
+};
+
+async function resolvePathReadContext(
+	db: AppDatabase,
+	projectPath: string,
+	allowedProjectRoots: string[],
+): Promise<PathReadContext | { ok: false; failure: Record<string, unknown> }> {
+	try {
+		const resolved = await resolveStaticIntelligenceProjectByPath({
+			db,
+			projectPath,
+			allowedProjectRoots,
+			createProject: false,
+		});
+		if (!resolved.project) {
+			return {
+				ok: false,
+				failure: notPreparedFailure(resolved.projectPath),
+			};
+		}
+		const status = await getProjectIntelligenceStatus({
+			db,
+			projectPath: resolved.projectPath,
+			allowedProjectRoots,
+		});
+		if (
+			status.ok &&
+			status.status === "ready" &&
+			status.provenance?.scanRunId &&
+			status.provenance.generationId
+		) {
+			const generation = await new StaticIntelligenceGenerationRepository(
+				db,
+			).loadGeneration(
+				status.provenance.scanRunId,
+				status.provenance.generationId,
+			);
+			if (!generation) {
+				return {
+					ok: false,
+					failure: notPreparedFailure(resolved.projectPath),
+				};
+			}
+			return {
+				ok: true,
+				projectPath: resolved.projectPath,
+				generation,
+				freshness: "fresh",
+			};
+		}
+		const generation = await loadLatestPublishedGeneration(
+			db,
+			resolved.project.id,
+		);
+		if (!generation) {
+			return {
+				ok: false,
+				failure: notPreparedFailure(resolved.projectPath),
+			};
+		}
+		return {
+			ok: true,
+			projectPath: resolved.projectPath,
+			generation,
+			freshness: "stale",
+		};
+	} catch (error) {
+		if (error instanceof ProjectPathResolutionError) {
+			return {
+				ok: false,
+				failure: {
+					ok: false,
+					status: "failed",
+					projectPath,
+					errorCode: error.code,
+					message: error.message,
+					retryable: error.retryable,
+				},
+			};
+		}
+		return {
+			ok: false,
+			failure: {
+				ok: false,
+				status: "failed",
+				projectPath,
+				errorCode: "INTERNAL_ERROR",
+				message: "Static Intelligence is temporarily unavailable.",
+				retryable: true,
+			},
+		};
+	}
+}
+
+async function resolveFindingByFingerprint(params: {
+	db: AppDatabase;
+	projectId: string;
+	scanRunId: string;
+	fingerprint: string;
+}): Promise<
+	{ ok: true; id: string } | { ok: false; failure: Record<string, unknown> }
+> {
+	const rows = await params.db
+		.select({
+			id: findings.id,
+			fingerprint: findings.fingerprint,
+			sourceTool: findings.sourceTool,
+			ruleId: findings.ruleId,
+		})
+		.from(findings)
+		.where(
+			and(
+				eq(findings.projectId, params.projectId),
+				eq(findings.scanRunId, params.scanRunId),
+				eq(findings.fingerprint, params.fingerprint),
+			),
+		)
+		.orderBy(findings.sourceTool, findings.ruleId)
+		.limit(20);
+	if (rows.length === 1 && rows[0]) return { ok: true, id: rows[0].id };
+	if (rows.length > 1) {
+		return {
+			ok: false,
+			failure: {
+				ok: false,
+				status: "failed",
+				errorCode: "AMBIGUOUS_FINDING",
+				message:
+					"The finding fingerprint is not unique in the selected generation.",
+				retryable: false,
+				candidates: rows.map(({ fingerprint, sourceTool, ruleId }) => ({
+					fingerprint,
+					sourceTool,
+					ruleId,
+				})),
+			},
+		};
+	}
+	return {
+		ok: false,
+		failure: {
+			ok: false,
+			status: "failed",
+			errorCode: "FINDING_NOT_FOUND",
+			message:
+				"The finding fingerprint was not found in the selected generation.",
+			retryable: false,
+		},
+	};
+}
+
+function withPathMetadata(
+	result: StaticIntelligenceMcpToolResult,
+	context: PathReadContext,
+	additionalInternalIds: string[] = [],
+): StaticIntelligenceMcpToolResult {
+	if (!result || typeof result !== "object") return result;
+	const internalIds = new Set([
+		context.generation.projectId,
+		context.generation.scanRunId,
+		context.generation.generationId,
+		...additionalInternalIds,
+	]);
+	const sanitized = stripInternalIdentifiers(
+		result,
+		"",
+		internalIds,
+		context.generation.export.metadata.exportHash ??
+			context.generation.structure.metadata.sourceTreeHash,
+	) as Record<string, unknown>;
+	return {
+		...sanitized,
+		projectPath: context.projectPath,
+		freshness: { status: context.freshness },
+		provenance: {
+			projectId: context.generation.projectId,
+			scanRunId: context.generation.scanRunId,
+			generationId: context.generation.generationId,
+		},
+	};
+}
+
+const INTERNAL_IDENTIFIER_KEYS = new Set([
+	"projectId",
+	"scanRunId",
+	"generationId",
+	"findingId",
+	"findingIds",
+]);
+
+function stripInternalIdentifiers(
+	value: unknown,
+	parentKey: string,
+	internalIds: Set<string>,
+	replacement: string,
+): unknown {
+	if (Array.isArray(value)) {
+		return value.map((item) =>
+			stripInternalIdentifiers(item, parentKey, internalIds, replacement),
+		);
+	}
+	if (typeof value === "string") {
+		let sanitized = value;
+		for (const internalId of internalIds) {
+			sanitized = sanitized.replaceAll(internalId, replacement);
+		}
+		return sanitized;
+	}
+	if (!value || typeof value !== "object") return value;
+	const sanitized: Record<string, unknown> = {};
+	for (const [key, child] of Object.entries(value)) {
+		if (INTERNAL_IDENTIFIER_KEYS.has(key)) {
+			if (key === "findingId" && parentKey === "requires") {
+				sanitized.findingFingerprint = child;
+			}
+			continue;
+		}
+		if (key === "id" && ["project", "scan", "finding"].includes(parentKey)) {
+			continue;
+		}
+		if (
+			key === "command" &&
+			Array.isArray(child) &&
+			child.some(
+				(item) => item === "--scan-run-id" || item === "--generation-id",
+			)
+		) {
+			continue;
+		}
+		sanitized[key] = stripInternalIdentifiers(
+			child,
+			key,
+			internalIds,
+			replacement,
+		);
+	}
+	return sanitized;
+}
+
+function notPreparedFailure(projectPath: string): Record<string, unknown> {
+	return {
+		ok: false,
+		status: "not_prepared",
+		projectPath,
+		errorCode: "PROJECT_NOT_PREPARED",
+		message: "Static Intelligence has not been prepared for this project.",
+		retryable: true,
+		nextAction: "vuln_prepare_project_intelligence",
+	};
+}
+
+function pathInputFailure(error?: ZodError): Record<string, unknown> {
+	return {
+		ok: false,
+		status: "failed",
+		errorCode: "PROJECT_PATH_REQUIRED",
+		message: error ? message(error) : "Invalid path-first request.",
+		retryable: false,
+	};
+}
+
+function hasProjectPath(input: unknown): input is { projectPath: unknown } {
+	return (
+		typeof input === "object" &&
+		input !== null &&
+		Object.hasOwn(input, "projectPath")
+	);
+}
 
 function projectFilter(input: ListKnowledgeSourcesInput) {
 	return input.projectId
@@ -455,7 +1032,11 @@ function projectFilter(input: ListKnowledgeSourcesInput) {
 
 async function runAgentQueryTool(
 	db: AppDatabase,
-	input: GetEvidenceBundleInput | GetVerificationCommandsInput,
+	input: {
+		scanRunId: string;
+		generationId?: string;
+		findingId?: string;
+	},
 	options: { queryKind: "evidence_bundle" | "verification_commands" },
 ): Promise<
 	StaticIntelligenceAgentQueryResult | StaticIntelligenceAgentQueryFailure

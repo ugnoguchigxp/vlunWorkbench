@@ -4,12 +4,24 @@ import { zValidator } from "@hono/zod-validator";
 import { Hono } from "hono";
 import { z } from "zod";
 import { createProjectSchema } from "../../shared/schemas/scan.schema";
+import type { AppEnv } from "../app/env";
 import { getAuthContextUser } from "../modules/auth/context";
 import { HttpError } from "../modules/auth/errors";
-import type { ProjectRepository } from "../modules/scans/repositories";
+import type {
+	ProjectRepository,
+	ScanRepository,
+} from "../modules/scans/repositories";
+import {
+	resolveScanExecutionPolicy,
+	scanExecutionPolicyMetadata,
+} from "../modules/scans/scan-execution-policy";
+import type { ScanProcessSupervisor } from "../modules/scans/scan-process-supervisor";
 
 type ProjectsRouteDeps = {
 	projectRepository: ProjectRepository;
+	scanRepository?: ScanRepository;
+	scanSupervisor?: ScanProcessSupervisor;
+	env?: AppEnv;
 };
 
 export function createProjectsRoute(deps: ProjectsRouteDeps) {
@@ -72,9 +84,11 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 			const body = c.req.valid("json");
 
 			// Check repo path exists on disk
-			const resolvedPath = path.resolve(body.repoPath);
+			const requestedPath = path.resolve(body.repoPath);
+			let resolvedPath: string;
 			try {
-				await fs.access(resolvedPath);
+				await fs.access(requestedPath);
+				resolvedPath = await fs.realpath(requestedPath);
 			} catch {
 				throw new HttpError(
 					400,
@@ -82,8 +96,10 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 				);
 			}
 
-			// Check duplicate repo path for this user
-			const existing = await repo.findByRepoPath(authUser.userId, resolvedPath);
+			// canonical path is globally unique so path aliases resolve to one project.
+			const existing =
+				(await repo.findByCanonicalRepoPath(resolvedPath)) ??
+				(await repo.findByRepoPath(authUser.userId, resolvedPath));
 			if (existing) {
 				throw new HttpError(
 					400,
@@ -95,6 +111,7 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 				ownerUserId: authUser.userId,
 				name: body.name,
 				repoPath: resolvedPath,
+				canonicalRepoPath: resolvedPath,
 				defaultBranch: body.defaultBranch,
 				metadata: body.metadata,
 			});
@@ -135,9 +152,40 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 					throw new HttpError(403, "Forbidden");
 				}
 
-				// Run CLI scan:profile synchronously as a bridge
+				if (!deps.scanRepository || !deps.scanSupervisor || !deps.env) {
+					throw new HttpError(500, "Scan runtime is not configured.");
+				}
+				const policy = resolveScanExecutionPolicy({
+					env: deps.env,
+					surface: "web",
+					requestedRunner: body.runner,
+				});
+				const queued = await deps.scanRepository.createScanRun({
+					projectId,
+					profile: body.profile,
+					status: "queued",
+					createdByUserId: authUser.userId,
+					metadata: {
+						launchSource: "web",
+						executionPolicy: scanExecutionPolicyMetadata(policy),
+					},
+				});
+				await deps.scanRepository.createScanEvent({
+					scanRunId: queued.id,
+					level: "info",
+					eventType: "scan.queued",
+					message: `Scan profile ${body.profile} queued.`,
+					data: { executionPolicy: scanExecutionPolicyMetadata(policy) },
+				});
+
 				const args = [
+					"bun",
+					"run",
 					"api/cli/scan-profile.ts",
+					"--scan-run-id",
+					queued.id,
+					"--execution-surface",
+					"web",
 					"--project-id",
 					projectId,
 					"--profile",
@@ -145,7 +193,7 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 					"--continue-on-tool-failure",
 					String(body.continueOnToolFailure ?? true),
 					"--runner",
-					body.runner ?? "host",
+					policy.runner,
 					"--final-report",
 					String(body.finalReport ?? true),
 				];
@@ -153,63 +201,22 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 				if (body.timeoutSec !== undefined) {
 					args.push("--timeout-sec", String(body.timeoutSec));
 				}
-				if (body.dockerBin) {
-					args.push("--docker-bin", body.dockerBin);
-				}
-				if (body.dockerImage) {
-					args.push("--docker-image", body.dockerImage);
-				}
-				if (body.network) {
-					args.push("--network", body.network);
-				}
-				if (body.memory) {
-					args.push("--memory", body.memory);
-				}
-				if (body.cpus) {
-					args.push("--cpus", body.cpus);
-				}
-				if (body.toolCacheDir) {
-					args.push("--tool-cache-dir", body.toolCacheDir);
-				}
 				if (body.imageRef) args.push("--image-ref", body.imageRef);
 				if (body.imageTar) args.push("--image-tar", body.imageTar);
 				if (body.reportTitle) {
 					args.push("--report-title", body.reportTitle);
 				}
 
-				const proc = Bun.spawn(["bun", "run", ...args], {
-					stdout: "pipe",
-					stderr: "pipe",
-				});
-
-				const exitCode = await proc.exited;
-				const stdoutText = await new Response(proc.stdout).text();
-				const stderrText = await new Response(proc.stderr).text();
-
-				try {
-					const result = JSON.parse(stdoutText.trim());
-					if (result && typeof result.scanRunId === "string") {
-						return c.json({
-							scan: {
-								id: result.scanRunId,
-								status: result.status,
-								profile: result.profileId,
-							},
-							runner: result.runner,
-							profileOutcome: result.profileOutcome,
-							message: result.message,
-							finalReport: result.finalReport,
-							toolResults: result.toolResults,
-							stepResults: result.stepResults,
-						});
-					}
-				} catch (_err) {
-					// Fallback on JSON parse error
-				}
-
-				throw new HttpError(
-					500,
-					`Scan execution failed (Exit code: ${exitCode}). Error: ${stderrText.trim() || stdoutText.trim() || "Unknown error"}`,
+				await deps.scanSupervisor.launch(queued.id, args);
+				return c.json(
+					{
+						scan: { id: queued.id, status: "queued", profile: body.profile },
+						runner: policy.runner,
+						profileOutcome: "pending",
+						toolResults: [],
+						stepResults: [],
+					},
+					202,
 				);
 			},
 		);

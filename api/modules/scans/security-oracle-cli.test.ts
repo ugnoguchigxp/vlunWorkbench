@@ -111,6 +111,7 @@ describe("Security oracle CLI contract", () => {
 	let artifactRoot: string;
 	let repoPath: string;
 	let mockBinDir: string;
+	let reviewFixturePath: string;
 	let connection: DbConnection;
 
 	beforeEach(async () => {
@@ -127,6 +128,32 @@ describe("Security oracle CLI contract", () => {
 		await fs.writeFile(path.join(repoPath, "package.json"), "{}\n");
 		repoPath = await fs.realpath(repoPath);
 		await writeMockScanners(mockBinDir);
+		reviewFixturePath = path.join(tempDir, "scan-review.json");
+		await fs.writeFile(
+			reviewFixturePath,
+			JSON.stringify({
+				summary: "検出事項はありません。",
+				riskOverview: "保存済み証跡の範囲では高リスク事項はありません。",
+				priorityNotes: ["追加の変更は不要です。"],
+				coverageNotes: ["agent-output プロファイルの保存済み結果です。"],
+				falsePositiveHotspots: [],
+				recommendedNextActions: ["通常の回帰テストを継続してください。"],
+				findingTriageHints: [],
+				confidenceNotes: ["判断は保存済み scan context に限定されます。"],
+				improvementRequest: {
+					title: "セキュリティ回帰維持依頼",
+					objective: "現在のゼロ件状態を回帰テストで維持する。",
+					scope: ["vulnWorkbench が保存した scan context の範囲。"],
+					priorityPlan: [],
+					implementationTasks: [],
+					acceptanceCriteria: ["既存テストが成功すること。"],
+					verificationCommands: ["bun test"],
+					constraints: ["vulnWorkbench 外の状態を変更しない。"],
+					nonGoals: ["外部 orchestrator の変更。"],
+					handoffPrompt: "保存済み scan context に基づき、現在のゼロ件状態を回帰テストで維持してください。",
+				},
+			}),
+		);
 
 		connection = createDbConnection(dbUrl);
 		applyMigrations(connection);
@@ -139,14 +166,16 @@ describe("Security oracle CLI contract", () => {
 
 	function runCli(args: string[], envOverrides: Record<string, string> = {}) {
 		return Bun.spawnSync([process.execPath, "run", ...args], {
-			env: {
-				...process.env,
-				DATABASE_URL: dbUrl,
+				env: {
+					...process.env,
+					NODE_ENV: "test",
+					DATABASE_URL: dbUrl,
 				SCAN_ARTIFACT_ROOT: artifactRoot,
 				PATH: `${mockBinDir}:${process.env.PATH ?? ""}`,
 				OPENAI_API_KEY: "",
 				AZURE_OPENAI_API_KEY: "",
 				AZURE_OPENAI_ENDPOINT: "",
+				VULN_WORKBENCH_SCAN_REVIEW_FIXTURE: reviewFixturePath,
 				...envOverrides,
 			},
 			stderr: "pipe",
@@ -172,7 +201,10 @@ describe("Security oracle CLI contract", () => {
 				findingCount: 0,
 				highOrCriticalCount: 0,
 			},
-			review: { status: "not_requested" },
+			review: {
+				status: "completed",
+				improvementRequest: expect.stringContaining("保存済み scan context"),
+			},
 			nextAction: "none",
 		});
 		expect(firstPayload.scan.scanRunId).toBeTruthy();

@@ -169,6 +169,9 @@ bun run api/cli/llm-route-repair.ts -- \
 | `OPENAI_API_KEY` | OpenAI-compatible provider key。 |
 | `OPENAI_BASE_URL` | OpenAI-compatible provider base URL。 |
 | `CODEX_SDK_TIMEOUT_MS` | Codex SDK review/report timeout。単位はミリ秒で、既定は `600000`。 |
+| `SCAN_EXECUTION_MODE` | scanner runner の一元ポリシー。`host` または `docker`。development は host、production は Docker が既定。 |
+| `ALLOW_HOST_SCANNER_EXECUTION` | host scanner 実行を明示的に許可する。production の既定は `false`。 |
+| `SCAN_DOCKER_IMAGE` | Docker scanner policy が使う toolbox image。 |
 
 LLM API key は host 側に置きます。scanner container や scan 対象 project に LLM credential を渡してはいけません。
 
@@ -182,11 +185,21 @@ CLI は vulnWorkbench 側の project を解決または作成し、stdout に JS
 外部 contract は意図的に path-only です。scan profile、review policy、output
 format、timeout は呼び出し元から渡さず、vulnWorkbench 側が決めます。
 
+利用可能な scan が得られた後、Oracle は設定済みの `scan_review` route を実行し、
+保存された handoff prompt を `review.improvementRequest` として返します。review route
+未設定または失敗は成功に見せず `inconclusive` になり、high / critical finding が
+ある場合は `security_action_required` が優先されます。
+
 ```bash
 bun run oracle:security -- --project-path /path/to/repo
 ```
 
 ### Profile Scan
+
+Web UI から開始した scan は `queued` として受理され、HTTP 202 を返します。UI は
+保存済み scan state を poll し、取消もできます。終端状態は `scan_runs` が正です。
+server 再起動時は古い Web-owned queued/running scan だけを failed に回復し、独立した
+CLI scan は書き換えません。
 
 ```bash
 bun run scan:profile -- \
@@ -386,15 +399,25 @@ bun run intelligence:exploration-catalog -- \
 focus を複数指定する場合は `--path`、`--module-id`、`--term` を繰り返します。
 stdout には machine-readable JSON を一件だけ出力し、repository の scan や mutation は行いません。
 
-read-only MCP wrapper を確認します。
+Static Intelligence MCP wrapper を確認します。
 
 ```bash
 bun run mcp:static-intelligence -- --list-tools
 bun run mcp:static-intelligence -- --smoke
 ```
 
-MCP tool は read-only です。
+`STATIC_INTELLIGENCE_ALLOWED_PROJECT_ROOTS` に、MCPから参照可能なrepository rootの親ディレクトリをカンマ区切りの絶対パスで設定してください。未設定時はfail-closedです。
+`STATIC_INTELLIGENCE_PROJECT_CREATION_POLICY`の既定値は`registered_only`です。明示的に管理されたfixtureまたはonboarding環境だけ`create_within_allowed_roots`を使用します。MCP requestからこのpolicyを上書きすることはできません。
 
+副作用を持つ明示的なActionは次の1つだけです。
+
+- `vuln_prepare_project_intelligence({ projectPath })`
+
+このActionは永続prepare jobをqueueへ追加し、background workerがstructure-only source recordとStatic Intelligence generationをpublishします。Semgrep、Gitleaks、OSV、Trivyなどの外部security scannerは起動しません。同じcanonical path・同じsource fingerprintの同時要求は1jobへ集約され、fresh generationは再利用されます。
+
+以下はすべてread-only Queryです。
+
+- `vuln_get_project_intelligence_status`
 - `vuln_list_knowledge_sources`
 - `vuln_get_knowledge_source_manifest`
 - `vuln_get_guardrail_material`
@@ -403,9 +426,9 @@ MCP tool は read-only です。
 - `vuln_get_code_structure_snapshot`
 - `vuln_get_project_exploration_catalog`
 
-これらは persisted generation を読み、対応する tool では optional generation pinning を受け付け、candidate-only JSON を返します。analysis refresh、contextStill knowledge 登録、NightWorkers task 作成、scanner 実行、verification command 実行、raw artifact body / evidence snippet の公開は行いません。Ontology Handoff は NightWorkers 向け evidence-backed material であり、vulnWorkbench は canonical Ontology / Task Compiler を所有しません。
+path-first Queryはcanonicalな `{ projectPath }` をstrictに要求し、symlink aliasを拒否します。current sourceのreadではready prepare jobに記録されたexact generationを選択し、過去のlatest generationは`stale`としてのみ公開します。未準備なら `not_prepared` と次のActionを返し、Query自身はproject、scan、prepare job、generationを作りません。manifest、guardrail、evidence、verification、snapshot、catalogのlegacy ID入力は互換性のため維持しますが、NightWorkersは内部IDを送信しません。finding指定は `projectPath + findingFingerprint` を使用し、曖昧なfingerprintは `AMBIGUOUS_FINDING` になります。raw artifact body / evidence snippetは公開しません。
 
-`vuln_get_project_exploration_catalog` は exact `scanRunId` / `generationId` pin と、path・module・term のいずれか一つ以上の focus を必須とします。likely file、related test、candidate-only verification command の deterministic かつ bounded な projection だけを返し、source body を返したり repository scan を実行したりしません。設計は [Project Scan Exploration Reduction MCP Concept](spec/project-scan-exploration-reduction-mcp-concept.md) と [Phase 42](spec/phase-42-project-scan-exploration-catalog-mcp-plan.md) に記載し、vulnWorkbench component の判定と再現可能な確認手順は [Phase 42 Catalog MCP GO evidence](spec/evidence/phase-42-vulnworkbench-catalog-mcp-go.md) に記録しています。controlled NightWorkers proof を含む consumer 固有の activation・価値計測は、別の rollout 判断として扱います。より広い [coding-agent consumer companion plan](spec/static-intelligence-coding-agent-consumer-companion-plan.md) と異なり、Phase 42 は default-off の native/API implementation lane pilot だけを有効化し、Codex SDK や一般的な agent integration は有効化しません。
+`vuln_get_project_exploration_catalog` のpath-first入力では `focus.paths`、`focus.modules`、`focus.terms` は任意です。legacy入力のexact `scanRunId` / `generationId` pinと必須focusも引き続き利用できます。どちらもdeterministicかつboundedなcandidateだけを返し、source bodyを公開しません。運用とNightWorkers側の受け入れ条件は [NightWorkers path-first MCP handoff](docs/nightworkers-static-intelligence-mcp.md) を参照してください。
 
 ## API Surface
 

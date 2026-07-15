@@ -169,6 +169,9 @@ Common environment variables:
 | `OPENAI_API_KEY` | OpenAI-compatible provider key. |
 | `OPENAI_BASE_URL` | OpenAI-compatible provider base URL. |
 | `CODEX_SDK_TIMEOUT_MS` | Codex SDK review/report timeout in milliseconds. Defaults to `600000`. |
+| `SCAN_EXECUTION_MODE` | Central scanner runner policy: `host` or `docker`. Development defaults to host; production defaults to Docker. |
+| `ALLOW_HOST_SCANNER_EXECUTION` | Explicitly permits host scanner execution. Production defaults to `false`. |
+| `SCAN_DOCKER_IMAGE` | Toolbox image used by the Docker scanner policy. |
 
 LLM API keys stay on the host side. Scanner containers and target projects should not receive LLM credentials.
 
@@ -183,11 +186,21 @@ The external contract is intentionally path-only: scan profile, review policy,
 output format, and timeout are chosen by vulnWorkbench, not supplied by the
 caller.
 
+After a usable scan, the Oracle attempts the configured `scan_review` route and
+returns its persisted handoff prompt as `review.improvementRequest`. Missing or
+failed review routing produces `inconclusive` rather than a false success. High
+or critical findings still take precedence as `security_action_required`.
+
 ```bash
 bun run oracle:security -- --project-path /path/to/repo
 ```
 
 ### Profile Scan
+
+Scans started from the Web UI are admitted as `queued` and return HTTP 202.
+The UI polls the persisted scan state and supports cancellation; terminal state
+in `scan_runs` is authoritative. Server restart recovery marks stale Web-owned
+queued/running scans failed and does not rewrite independently launched CLI scans.
 
 ```bash
 bun run scan:profile -- \
@@ -394,15 +407,25 @@ Repeat `--path`, `--module-id`, or `--term` to add focus values. The command
 writes one machine-readable JSON result to stdout and does not scan or mutate
 the repository.
 
-Run the read-only MCP wrapper:
+Run the Static Intelligence MCP wrapper:
 
 ```bash
 bun run mcp:static-intelligence -- --list-tools
 bun run mcp:static-intelligence -- --smoke
 ```
 
-The MCP tools are read-only:
+Set `STATIC_INTELLIGENCE_ALLOWED_PROJECT_ROOTS` to a comma-separated list of absolute parent directories that MCP may access. An empty value is fail-closed.
+`STATIC_INTELLIGENCE_PROJECT_CREATION_POLICY` defaults to `registered_only`; use `create_within_allowed_roots` only in an explicitly controlled fixture or onboarding environment. MCP requests cannot override this policy.
 
+The only side-effecting action is:
+
+- `vuln_prepare_project_intelligence({ projectPath })`
+
+It queues a durable prepare job; a background worker publishes a structure-only source record and Static Intelligence generation without starting Semgrep, Gitleaks, OSV, Trivy, or other external security scanners. Concurrent requests for the same canonical path and source fingerprint share one job, and fresh generations are reused.
+
+All remaining tools are read-only queries:
+
+- `vuln_get_project_intelligence_status`
 - `vuln_list_knowledge_sources`
 - `vuln_get_knowledge_source_manifest`
 - `vuln_get_guardrail_material`
@@ -411,9 +434,9 @@ The MCP tools are read-only:
 - `vuln_get_code_structure_snapshot`
 - `vuln_get_project_exploration_catalog`
 
-They read persisted generations, accept optional generation pinning where supported, and return candidate-only JSON. They do not refresh analysis, register contextStill knowledge, create NightWorkers tasks, execute scanners, execute verification commands, or expose raw artifact bodies / evidence snippets. Ontology Handoff is evidence-backed material for NightWorkers; vulnWorkbench does not own canonical ontology or task compilation.
+Path-first queries start from a strict canonical `{ projectPath }` input; symlink aliases are rejected. A current-source read selects the exact generation recorded by the ready prepare job, while an older latest generation is exposed only as `stale`. When no generation exists the query returns `not_prepared` and the next action without creating projects, scans, jobs, or generations. Legacy ID inputs remain supported for compatibility, but NightWorkers does not send internal IDs. Finding reads use `projectPath + findingFingerprint`; duplicate fingerprints return `AMBIGUOUS_FINDING`.
 
-`vuln_get_project_exploration_catalog` requires an exact `scanRunId` / `generationId` pin and at least one path, module, or term focus. It returns a deterministic, bounded projection of likely files, related tests, and candidate-only verification commands; it never returns source bodies or scans the repository. The design is documented in [Project Scan Exploration Reduction MCP Concept](spec/project-scan-exploration-reduction-mcp-concept.md) and [Phase 42](spec/phase-42-project-scan-exploration-catalog-mcp-plan.md); the vulnWorkbench component decision and reproducible checks are recorded in [Phase 42 Catalog MCP GO evidence](spec/evidence/phase-42-vulnworkbench-catalog-mcp-go.md). Consumer-specific activation and value measurements, including the controlled NightWorkers proof, are separate rollout decisions. Unlike the broader [coding-agent consumer companion plan](spec/static-intelligence-coding-agent-consumer-companion-plan.md), Phase 42 activates only a default-off native/API implementation-lane pilot and does not enable Codex SDK or general agent integration.
+The path-first catalog accepts optional `focus.paths`, `focus.modules`, and `focus.terms`. The legacy exact-generation input and required focus remain available. Both variants return deterministic bounded candidates without source bodies. See the [NightWorkers path-first MCP handoff](docs/nightworkers-static-intelligence-mcp.md) for rollout and acceptance requirements.
 
 ## API Surface
 

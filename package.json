@@ -64,6 +64,7 @@
 		"intelligence:guardrail-material": "bun run api/cli/intelligence-guardrail-material.ts",
 		"mcp:static-intelligence": "bun run api/cli/static-intelligence-mcp-server.ts",
 		"fixture:static-intelligence-source": "bun run scripts/static-intelligence-knowledge-source-fixture.ts",
+		"fixture:static-intelligence-path-first": "bun test api/modules/static-intelligence/project-path-mcp.test.ts",
 		"inventory:attack-surface": "bun run api/cli/inventory-attack-surface.ts",
 		"check:security": "bun run api/cli/check-security.ts",
 		"report:diagnostic": "bun run api/cli/report-diagnostic.ts",

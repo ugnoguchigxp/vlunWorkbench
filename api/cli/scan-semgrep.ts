@@ -10,6 +10,11 @@ import {
 import { ArtifactStorage } from "../modules/scans/artifact-storage";
 import { SemgrepRunner } from "../modules/scans/tools/semgrep-runner";
 import { normalizeSemgrep } from "../modules/scans/normalizers/semgrep";
+import {
+	executionConfigFromPolicy,
+	resolveScanExecutionPolicy,
+	scanExecutionPolicyMetadata,
+} from "../modules/scans/scan-execution-policy";
 
 function writeResult(payload: Record<string, unknown>): void {
 	console.log(JSON.stringify(payload));
@@ -64,6 +69,8 @@ async function main() {
 		: undefined;
 
 	const env = readAppEnv();
+	const executionPolicy = resolveScanExecutionPolicy({ env, surface: "cli" });
+	const execution = executionConfigFromPolicy(executionPolicy);
 	const dbConnection = createDbConnection(env.databaseUrl);
 
 	const projectRepo = new ProjectRepository(dbConnection.db);
@@ -85,7 +92,7 @@ async function main() {
 	}
 
 	// 2. Check Semgrep availability before creating scan records (Exit Handling spec)
-	const runner = new SemgrepRunner(storage);
+	const runner = new SemgrepRunner(storage, execution);
 	const semgrepVersion = await runner.checkVersion();
 	if (!semgrepVersion) {
 		writeResult({
@@ -105,6 +112,9 @@ async function main() {
 			projectId,
 			profile,
 			status: "running",
+			metadata: {
+				executionPolicy: scanExecutionPolicyMetadata(executionPolicy),
+			},
 		});
 		// biome-ignore lint/suspicious/noExplicitAny: error
 	} catch (err: any) {

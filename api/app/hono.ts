@@ -26,6 +26,7 @@ import { SearchEvidenceCollector } from "../modules/rag/search-evidence";
 import { FindingReviewRepository } from "../modules/reviews/finding-review-repository";
 import { ArtifactStorage } from "../modules/scans/artifact-storage";
 import { ScanReportRepository } from "../modules/scans/report-repository";
+import { ScanProcessSupervisor } from "../modules/scans/scan-process-supervisor";
 import {
 	ArtifactRepository,
 	FindingRepository,
@@ -87,6 +88,7 @@ type AppRuntime = {
 	llmSettingsRepository: LlmSettingsRepository;
 	llmRouter: LlmRouter;
 	wikiBlobSyncer: WikiBlobSyncer | null;
+	scanSupervisor: ScanProcessSupervisor;
 	agenticSearchService: {
 		run(input: {
 			query: string;
@@ -165,6 +167,7 @@ function isRuntimeShape(value: unknown): value is AppRuntime {
 		Boolean(obj.llmSettingsRepository) &&
 		Boolean(obj.llmRouter) &&
 		Object.hasOwn(obj, "wikiBlobSyncer") &&
+		Boolean(obj.scanSupervisor) &&
 		typeof settingsRepo?.getSystemContextForUser === "function" &&
 		typeof settingsRepo?.updateSystemContext === "function" &&
 		Boolean(obj.agenticSearchService) &&
@@ -206,6 +209,10 @@ async function createRuntime(): Promise<AppRuntime> {
 	const settingsRepository = new SettingsRepository(dbConnection.db);
 	const llmSettingsRepository = new LlmSettingsRepository(dbConnection.db, env);
 	const llmRouter = new LlmRouter(llmSettingsRepository, env);
+	const scanSupervisor = new ScanProcessSupervisor(
+		new ScanRepository(dbConnection.db),
+	);
+	await scanSupervisor.recoverStaleWebScans();
 
 	const agenticLogger = createAgenticLogger(env.openAiAgenticSearchDebug);
 	const agenticDisabledReason = !env.openAiApiKey
@@ -286,6 +293,7 @@ async function createRuntime(): Promise<AppRuntime> {
 		llmSettingsRepository,
 		llmRouter,
 		wikiBlobSyncer,
+		scanSupervisor,
 		agenticSearchService,
 	};
 }
@@ -794,6 +802,9 @@ app.route(
 	"/api/projects",
 	createProjectsRoute({
 		projectRepository,
+		scanRepository,
+		scanSupervisor: runtime.scanSupervisor,
+		env: runtime.env,
 	}),
 );
 app.route(
@@ -817,6 +828,7 @@ app.route(
 		artifactStorage,
 		db: runtime.dbConnection.db,
 		llmRouter: runtime.llmRouter,
+		scanSupervisor: runtime.scanSupervisor,
 	}),
 );
 app.route(

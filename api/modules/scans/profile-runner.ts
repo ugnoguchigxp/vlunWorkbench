@@ -1179,6 +1179,7 @@ export async function runDastStepIntoExistingScan(params: {
 
 export async function runProfileScan(params: {
 	db: AppDatabase;
+	scanRunId?: string;
 	projectId: string;
 	profileId: string;
 	stepId?: string;
@@ -1190,6 +1191,7 @@ export async function runProfileScan(params: {
 	finalReport?: FinalReportOptions;
 	imageRef?: string;
 	imageTar?: string;
+	executionPolicyMetadata?: Record<string, unknown>;
 }): Promise<ProfileScanResult> {
 	const scanRepo = new ScanRepository(params.db);
 	const artifactStorage = new ArtifactStorage();
@@ -1231,24 +1233,39 @@ export async function runProfileScan(params: {
 
 	const continueOnToolFailure = params.continueOnToolFailure ?? true;
 
-	// 1. Create Scan Run in running state
-	const scanRun = await scanRepo.createScanRun({
-		projectId: params.projectId,
-		profile: params.profileId,
-		status: "running",
-		createdByUserId: params.createdByUserId,
-		metadata: {
-			profileId: params.profileId,
-			profileVersion: 1,
-			scope: resolvedScope,
-			continueOnToolFailure,
-			runner: execution.runner,
-			toolOrder: profile.tools.map((t) => t.toolId),
-			stepOrder,
-			toolResults: [],
-			stepResults: [],
-		},
-	});
+	const initialMetadata = {
+		profileId: params.profileId,
+		profileVersion: 1,
+		scope: resolvedScope,
+		continueOnToolFailure,
+		runner: execution.runner,
+		toolOrder: profile.tools.map((t) => t.toolId),
+		stepOrder,
+		toolResults: [],
+		stepResults: [],
+		...(params.executionPolicyMetadata
+			? { executionPolicy: params.executionPolicyMetadata }
+			: {}),
+	};
+
+	// CLI/oracle callers create a running row; Web jobs atomically claim a queued row.
+	const scanRun = params.scanRunId
+		? await scanRepo.claimQueuedScanRun({
+				id: params.scanRunId,
+				projectId: params.projectId,
+				profile: params.profileId,
+				metadata: initialMetadata,
+			})
+		: await scanRepo.createScanRun({
+				projectId: params.projectId,
+				profile: params.profileId,
+				status: "running",
+				createdByUserId: params.createdByUserId,
+				metadata: initialMetadata,
+			});
+	if (!scanRun) {
+		throw new Error(`Queued scan could not be claimed: ${params.scanRunId}`);
+	}
 
 	await scanRepo.createScanEvent({
 		scanRunId: scanRun.id,
@@ -1586,6 +1603,7 @@ export async function runProfileScan(params: {
 	await scanRepo.updateScanRunStatus(scanRun.id, finalScanStatus, {
 		summary: summaryMsg,
 		metadata: {
+			...scanRun.metadata,
 			profileId: params.profileId,
 			profileVersion: 1,
 			scope: resolvedScope,

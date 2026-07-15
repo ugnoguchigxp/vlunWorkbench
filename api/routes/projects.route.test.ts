@@ -1,7 +1,8 @@
-import { describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
-import { createProjectsRoute } from "./projects.route";
+import { describe, expect, it, vi } from "vitest";
+import { readAppEnv } from "../app/env";
 import { HttpError } from "../modules/auth/errors";
+import { createProjectsRoute } from "./projects.route";
 
 vi.mock("node:fs/promises", () => {
 	const mockAccess = vi.fn().mockImplementation(async (path: string) => {
@@ -13,8 +14,10 @@ vi.mock("node:fs/promises", () => {
 	return {
 		default: {
 			access: mockAccess,
+			realpath: vi.fn(async (value: string) => value),
 		},
 		access: mockAccess,
+		realpath: vi.fn(async (value: string) => value),
 	};
 });
 
@@ -34,6 +37,10 @@ describe("Projects Route", () => {
 			if (repoPath === "/duplicate/path") {
 				return { id: "p-dup" };
 			}
+			return null;
+		}),
+		findByCanonicalRepoPath: vi.fn().mockImplementation(async (repoPath: string) => {
+			if (repoPath === "/duplicate/path") return { id: "p-dup" };
 			return null;
 		}),
 		createProject: vi.fn().mockResolvedValue({ id: "p-new", name: "New Project" }),
@@ -117,5 +124,50 @@ describe("Projects Route", () => {
 		expect(res.status).toBe(400);
 		const body = await res.json();
 		expect(body.message).toContain("already registered");
+	});
+
+	it("POST /:projectId/scans admits a queued scan and returns 202 without waiting", async () => {
+		const scanRepository = {
+			createScanRun: vi.fn().mockResolvedValue({ id: "s-queued" }),
+			createScanEvent: vi.fn().mockResolvedValue({ id: "e-queued" }),
+		};
+		let releaseLaunch: (() => void) | undefined;
+		const launchStarted = new Promise<void>((resolve) => {
+			releaseLaunch = resolve;
+		});
+		const scanSupervisor = {
+			launch: vi.fn(async () => releaseLaunch?.()),
+		};
+		const scanApp = new Hono();
+		scanApp.use("*", async (c, next) => {
+			c.set("authUser", { userId: "user-123", email: "user@example.com", role: "member" });
+			await next();
+		});
+		scanApp.route(
+			"/",
+			createProjectsRoute({
+				projectRepository: mockProjectRepo as any,
+				scanRepository: scanRepository as any,
+				scanSupervisor: scanSupervisor as any,
+				env: readAppEnv({ NODE_ENV: "test" }),
+			}),
+		);
+
+		const res = await scanApp.request("/p-1/scans", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ profile: "baseline" }),
+		});
+		await launchStarted;
+		expect(res.status).toBe(202);
+		expect(await res.json()).toMatchObject({
+			scan: { id: "s-queued", status: "queued", profile: "baseline" },
+			profileOutcome: "pending",
+		});
+		expect(scanRepository.createScanRun).toHaveBeenCalledTimes(1);
+		expect(scanSupervisor.launch).toHaveBeenCalledWith(
+			"s-queued",
+			expect.arrayContaining(["--scan-run-id", "s-queued"]),
+		);
 	});
 });

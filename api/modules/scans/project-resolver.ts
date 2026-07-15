@@ -119,6 +119,7 @@ export async function resolveProjectByPath(
 		ownerUserId: cliUser.id,
 		name: path.basename(repoPath) || "repository",
 		repoPath,
+		canonicalRepoPath: repoPath,
 		defaultBranch,
 		metadata: {
 			source: "cli-project-path-resolver",

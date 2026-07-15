@@ -24,6 +24,7 @@ import { buildMarkdownReportWithLlmSummary } from "../modules/scans/report-summa
 import { buildScanRunSummary } from "../modules/scans/summary-builder";
 import { buildGroupedFindings } from "../modules/scans/grouping-builder";
 import type { LlmRouter } from "../providers/llmRouter";
+import type { ScanProcessSupervisor } from "../modules/scans/scan-process-supervisor";
 
 const FULL_REPORT_OPTIONS = {
 	includeFalsePositives: true,
@@ -43,6 +44,7 @@ type ScansRouteDeps = {
 	artifactStorage: ArtifactStorage;
 	db: AppDatabase;
 	llmRouter?: LlmRouter;
+	scanSupervisor?: ScanProcessSupervisor;
 };
 
 export function createScansRoute(deps: ScansRouteDeps) {
@@ -100,6 +102,23 @@ export function createScansRoute(deps: ScansRouteDeps) {
 			await checkScanOwnership(scanRunId, authUser.userId);
 			const events = await scanRepository.listScanEvents(scanRunId);
 			return c.json({ events });
+		})
+		.post("/:scanRunId/cancel", async (c) => {
+			const authUser = getAuthContextUser(c);
+			const scanRunId = c.req.param("scanRunId");
+			await checkScanOwnership(scanRunId, authUser.userId);
+			if (!deps.scanSupervisor) {
+				throw new HttpError(409, "Scan process is not owned by this runtime.");
+			}
+			const result = await deps.scanSupervisor.cancel(scanRunId);
+			if (!result.cancelled) {
+				throw new HttpError(
+					409,
+					`Scan could not be cancelled: ${result.reason}`,
+				);
+			}
+			const scan = await scanRepository.findById(scanRunId);
+			return c.json({ scan });
 		})
 		.get("/:scanRunId/artifacts", async (c) => {
 			const authUser = getAuthContextUser(c);

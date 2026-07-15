@@ -6,13 +6,22 @@ import {
 } from "../../shared/schemas/security-oracle.schema";
 import { readAppEnv } from "../app/env";
 import { createDbConnection } from "../db";
+import { scanImprovementRequestSchema } from "../../shared/schemas/scan.schema";
+import { LlmSettingsRepository } from "../modules/llm-settings/llm-settings.repository";
 import { runProfileScan } from "../modules/scans/profile-runner";
 import {
 	ProjectResolutionError,
 	resolveProjectByPath,
 } from "../modules/scans/project-resolver";
 import { FindingRepository } from "../modules/scans/repositories";
-import { normalizeToolExecutionConfig } from "../modules/scans/tools/tool-process-runner";
+import { ScanReviewRepository } from "../modules/scans/scan-review-repository";
+import { ScanReviewRunner } from "../modules/scans/scan-review-runner";
+import { LlmRouter } from "../providers/llmRouter";
+import {
+	executionConfigFromPolicy,
+	resolveScanExecutionPolicy,
+	scanExecutionPolicyMetadata,
+} from "../modules/scans/scan-execution-policy";
 
 const ORACLE_PROFILE = "agent-output";
 
@@ -97,14 +106,15 @@ async function main() {
 		process.exit(exitCodeFor(result));
 	}
 
-	const execution = normalizeToolExecutionConfig({
-		runner: "host",
-	});
-
 	let dbConnection: ReturnType<typeof createDbConnection> | null = null;
 	let startupComplete = false;
 	try {
 		const env = readAppEnv();
+		const executionPolicy = resolveScanExecutionPolicy({
+			env,
+			surface: "security_oracle",
+		});
+		const execution = executionConfigFromPolicy(executionPolicy);
 		dbConnection = createDbConnection(env.databaseUrl);
 		startupComplete = true;
 		const resolvedProject = await resolveProjectByPath(
@@ -126,6 +136,7 @@ async function main() {
 			repoPath: resolvedProject.repoPath,
 			continueOnToolFailure: true,
 			execution,
+			executionPolicyMetadata: scanExecutionPolicyMetadata(executionPolicy),
 			finalReport: {
 				enabled: true,
 				includeFalsePositives: true,
@@ -156,30 +167,7 @@ async function main() {
 			findings: summarizeFindings(findings, resolvedProject.repoPath),
 		};
 
-		if (!scanResult.ok) {
-			if (findings.length > 0) {
-				const degradedStatus: OracleStatus =
-					highOrCriticalCount > 0 ? "security_action_required" : "inconclusive";
-				const result: OracleResult = {
-					ok: false,
-					status: degradedStatus,
-					project: projectPayload,
-					scan: scanPayload,
-					review: { status: "not_requested" },
-					nextAction:
-						degradedStatus === "security_action_required"
-							? "apply_security_fix"
-							: "run_scan_review",
-					error: {
-						code: "SCAN_COMPLETED_WITH_TOOL_FAILURE",
-						message:
-							scanResult.message ??
-							"Scan returned findings but one or more tools reported failure.",
-					},
-				};
-				writeResult(result);
-				process.exit(exitCodeFor(result));
-			}
+		if (!scanResult.ok && findings.length === 0) {
 			const result = failureResult({
 				status: "runtime_error",
 				code: "SCAN_FAILED",
@@ -193,14 +181,55 @@ async function main() {
 			process.exit(exitCodeFor(result));
 		}
 
-		const reviewPayload: OracleResult["review"] = { status: "not_requested" };
+		const reviewRepository = new ScanReviewRepository(dbConnection.db);
+		const reviewRunner = new ScanReviewRunner(dbConnection.db, {
+			llmRouter: new LlmRouter(
+				new LlmSettingsRepository(dbConnection.db, env),
+				env,
+			),
+			reviewRepository,
+		});
+		const reviewResult = await reviewRunner.run(scanResult.scanRunId, {
+			task: "scan_review",
+			fixtureOutput:
+				env.nodeEnv === "test"
+					? process.env.VULN_WORKBENCH_SCAN_REVIEW_FIXTURE
+					: undefined,
+		});
+		const persistedReview = await reviewRepository.findById(
+			reviewResult.reviewId,
+		);
+		const improvementRequest = scanImprovementRequestSchema.safeParse(
+			(persistedReview?.output as Record<string, unknown> | null | undefined)
+				?.improvementRequest,
+		);
+		const reviewPayload: OracleResult["review"] = reviewResult.ok
+			? {
+					status: "completed",
+					reviewId: reviewResult.reviewId,
+					...(improvementRequest.success
+						? { improvementRequest: improvementRequest.data.handoffPrompt }
+						: {}),
+				}
+			: {
+					status: "failed",
+					reviewId: reviewResult.reviewId,
+					error: reviewResult.error ?? "Scan review failed.",
+				};
 
 		const status: OracleStatus =
-			scanResult.profileOutcome === "completed_with_warnings"
-				? "inconclusive"
-				: highOrCriticalCount > 0
-					? "security_action_required"
+			highOrCriticalCount > 0
+				? "security_action_required"
+				: scanResult.profileOutcome === "completed_with_warnings" ||
+						!scanResult.ok ||
+						!reviewResult.ok
+					? "inconclusive"
 					: "completed";
+		const providerConfigurationFailure =
+			!reviewResult.ok &&
+			/llm_route_|provider.*(?:missing|disabled|not found)|not configured/i.test(
+				reviewResult.error ?? "",
+			);
 		const result: OracleResult = {
 			ok: status === "completed",
 			status,
@@ -211,8 +240,20 @@ async function main() {
 				status === "security_action_required"
 					? "apply_security_fix"
 					: status === "inconclusive"
-						? "run_scan_review"
+						? providerConfigurationFailure
+							? "configure_provider"
+							: "run_scan_review"
 						: "none",
+			...(scanResult.ok
+				? {}
+				: {
+						error: {
+							code: "SCAN_COMPLETED_WITH_TOOL_FAILURE",
+							message:
+								scanResult.message ??
+								"Scan returned findings but one or more tools reported failure.",
+						},
+					}),
 		};
 		writeResult(result);
 		process.exit(exitCodeFor(result));

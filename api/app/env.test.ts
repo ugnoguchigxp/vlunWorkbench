@@ -1,3 +1,4 @@
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { APP_CONFIG_DEFAULTS } from "../config/appDefaults";
 import { readAppEnv } from "./env";
@@ -15,6 +16,42 @@ describe("readAppEnv", () => {
 		expect(env.codexSdkTimeoutMs).toBe(APP_CONFIG_DEFAULTS.codexSdkTimeoutMs);
 		expect(env.jwtAccessExpiresIn).toBe("1d");
 		expect(env.jwtRefreshExpiresIn).toBe("7d");
+		expect(env.scanExecutionMode).toBeUndefined();
+		expect(env.allowHostScannerExecution).toBe(true);
+		expect(env.staticIntelligenceAllowedProjectRoots).toEqual([]);
+		expect(env.staticIntelligenceProjectCreationPolicy).toBe("registered_only");
+	});
+
+	it("accepts an explicit Static Intelligence project creation policy", () => {
+		const env = readAppEnv({
+			STATIC_INTELLIGENCE_PROJECT_CREATION_POLICY:
+				"create_within_allowed_roots",
+		});
+		expect(env.staticIntelligenceProjectCreationPolicy).toBe(
+			"create_within_allowed_roots",
+		);
+	});
+
+	it("normalizes and deduplicates Static Intelligence allowed roots", () => {
+		const env = readAppEnv({
+			STATIC_INTELLIGENCE_ALLOWED_PROJECT_ROOTS: "./workspace, /tmp/repos,./workspace",
+		});
+		expect(env.staticIntelligenceAllowedProjectRoots).toEqual([
+			path.resolve("./workspace"),
+			path.resolve("/tmp/repos"),
+		]);
+	});
+
+	it("defaults production scanners to host-disabled and accepts Docker settings", () => {
+		const env = readAppEnv({
+			NODE_ENV: "production",
+			JWT_SECRET: "x".repeat(32),
+			SCAN_EXECUTION_MODE: "docker",
+			SCAN_DOCKER_IMAGE: "scanner:test",
+		});
+		expect(env.scanExecutionMode).toBe("docker");
+		expect(env.allowHostScannerExecution).toBe(false);
+		expect(env.scanDockerImage).toBe("scanner:test");
 	});
 
 	it("accepts database and auth runtime overrides", () => {

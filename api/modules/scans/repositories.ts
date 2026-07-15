@@ -1,13 +1,13 @@
-import { eq, and } from "drizzle-orm";
+import { and, eq, or } from "drizzle-orm";
 import type { AppDatabase } from "../../db";
 import {
-	projects,
-	scanRuns,
-	scanEvents,
-	toolRuns,
-	scanArtifacts,
-	findings,
 	findingEvidences,
+	findings,
+	projects,
+	scanArtifacts,
+	scanEvents,
+	scanRuns,
+	toolRuns,
 } from "../../db/schema";
 
 export class ProjectRepository {
@@ -19,6 +19,7 @@ export class ProjectRepository {
 		repoPath: string;
 		defaultBranch?: string;
 		metadata?: Record<string, unknown>;
+		canonicalRepoPath?: string;
 	}) {
 		const now = new Date();
 		const [created] = await this.db
@@ -27,6 +28,7 @@ export class ProjectRepository {
 				ownerUserId: params.ownerUserId,
 				name: params.name,
 				repoPath: params.repoPath,
+				canonicalRepoPath: params.canonicalRepoPath ?? params.repoPath,
 				defaultBranch: params.defaultBranch ?? "main",
 				metadata: params.metadata ?? {},
 				createdAt: now,
@@ -63,6 +65,27 @@ export class ProjectRepository {
 		);
 	}
 
+	async findByCanonicalRepoPath(canonicalRepoPath: string) {
+		return (
+			(await this.db.query.projects.findFirst({
+				where: eq(projects.canonicalRepoPath, canonicalRepoPath),
+			})) ?? null
+		);
+	}
+
+	async setCanonicalRepoPath(id: string, canonicalRepoPath: string) {
+		const [updated] = await this.db
+			.update(projects)
+			.set({
+				canonicalRepoPath,
+				repoPath: canonicalRepoPath,
+				updatedAt: new Date(),
+			})
+			.where(eq(projects.id, id))
+			.returning();
+		return updated ?? null;
+	}
+
 	async listProjects(ownerUserId: string) {
 		return await this.db.query.projects.findMany({
 			where: eq(projects.ownerUserId, ownerUserId),
@@ -88,13 +111,61 @@ export class ScanRepository {
 				profile: params.profile,
 				status: params.status,
 				createdByUserId: params.createdByUserId ?? null,
-				startedAt: now,
+				startedAt: params.status === "queued" ? null : now,
 				metadata: params.metadata ?? {},
 				createdAt: now,
 				updatedAt: now,
 			})
 			.returning();
 		return created;
+	}
+
+	async claimQueuedScanRun(params: {
+		id: string;
+		projectId: string;
+		profile: string;
+		metadata?: Record<string, unknown>;
+	}) {
+		const existing = await this.findById(params.id);
+		if (!existing) return null;
+		if (
+			existing.projectId !== params.projectId ||
+			existing.profile !== params.profile
+		) {
+			throw new Error("Queued scan identity does not match project/profile.");
+		}
+		const now = new Date();
+		const [claimed] = await this.db
+			.update(scanRuns)
+			.set({
+				status: "running",
+				startedAt: now,
+				updatedAt: now,
+				metadata: { ...existing.metadata, ...(params.metadata ?? {}) },
+			})
+			.where(and(eq(scanRuns.id, params.id), eq(scanRuns.status, "queued")))
+			.returning();
+		return claimed ?? null;
+	}
+
+	async mergeScanRunMetadata(id: string, metadata: Record<string, unknown>) {
+		const existing = await this.findById(id);
+		if (!existing) return null;
+		const [updated] = await this.db
+			.update(scanRuns)
+			.set({
+				metadata: { ...existing.metadata, ...metadata },
+				updatedAt: new Date(),
+			})
+			.where(eq(scanRuns.id, id))
+			.returning();
+		return updated ?? null;
+	}
+
+	async listActiveScanRuns() {
+		return await this.db.query.scanRuns.findMany({
+			where: or(eq(scanRuns.status, "queued"), eq(scanRuns.status, "running")),
+		});
 	}
 
 	async updateScanRunStatus(

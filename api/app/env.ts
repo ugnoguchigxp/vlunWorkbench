@@ -64,6 +64,12 @@ const optionalWikiStorageBackend = z.preprocess((value) => {
 	return normalized.length > 0 ? normalized : undefined;
 }, z.enum(["local", "azure-blob"]).optional());
 
+const optionalScanExecutionMode = z.preprocess((value) => {
+	if (typeof value !== "string") return value;
+	const normalized = value.trim().toLowerCase();
+	return normalized.length > 0 ? normalized : undefined;
+}, z.enum(["host", "docker"]).optional());
+
 const EnvSchema = z.object({
 	NODE_ENV: z
 		.enum(["development", "test", "production"])
@@ -92,6 +98,13 @@ const EnvSchema = z.object({
 	JWT_ACCESS_EXPIRES_IN: optionalJwtDuration,
 	JWT_REFRESH_EXPIRES_IN: optionalJwtDuration,
 	SECURITY_HEADERS_MODE: optionalSecurityHeadersMode,
+	SCAN_EXECUTION_MODE: optionalScanExecutionMode,
+	ALLOW_HOST_SCANNER_EXECUTION: optionalBoolean,
+	SCAN_DOCKER_IMAGE: optionalTrimmedString,
+	STATIC_INTELLIGENCE_ALLOWED_PROJECT_ROOTS: optionalTrimmedString,
+	STATIC_INTELLIGENCE_PROJECT_CREATION_POLICY: z
+		.enum(["registered_only", "create_within_allowed_roots"])
+		.default("registered_only"),
 	JWT_SECRET: z.preprocess((value) => {
 		if (typeof value !== "string") return value;
 		const trimmed = value.trim();
@@ -138,7 +151,26 @@ export type AppEnv = {
 	secureCookie: boolean;
 	cookieSameSite: "lax" | "strict" | "none";
 	securityHeadersMode: "auto" | "http" | "https";
+	scanExecutionMode?: "host" | "docker";
+	allowHostScannerExecution?: boolean;
+	scanDockerImage?: string;
+	staticIntelligenceAllowedProjectRoots?: string[];
+	staticIntelligenceProjectCreationPolicy?:
+		| "registered_only"
+		| "create_within_allowed_roots";
 };
+
+function parseAllowedProjectRoots(value?: string): string[] {
+	if (!value) return [];
+	return [
+		...new Set(
+			value
+				.split(",")
+				.map((item) => item.trim())
+				.filter(Boolean),
+		),
+	].map((item) => path.resolve(item));
+}
 
 function parseCorsOrigins(value?: string): string[] | undefined {
 	const origins = value
@@ -324,5 +356,14 @@ export function readAppEnv(env: NodeJS.ProcessEnv = process.env): AppEnv {
 		secureCookie,
 		cookieSameSite,
 		securityHeadersMode: parsed.SECURITY_HEADERS_MODE,
+		scanExecutionMode: parsed.SCAN_EXECUTION_MODE,
+		allowHostScannerExecution:
+			parsed.ALLOW_HOST_SCANNER_EXECUTION ?? parsed.NODE_ENV !== "production",
+		scanDockerImage: parsed.SCAN_DOCKER_IMAGE,
+		staticIntelligenceAllowedProjectRoots: parseAllowedProjectRoots(
+			parsed.STATIC_INTELLIGENCE_ALLOWED_PROJECT_ROOTS,
+		),
+		staticIntelligenceProjectCreationPolicy:
+			parsed.STATIC_INTELLIGENCE_PROJECT_CREATION_POLICY,
 	};
 }

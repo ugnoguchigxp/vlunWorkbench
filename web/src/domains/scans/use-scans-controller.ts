@@ -4,6 +4,7 @@ import { useRouterState } from "@tanstack/react-router";
 import {
 	type AttackSurfaceItem,
 	browseProjectFolder,
+	cancelScan,
 	createFindingDecision,
 	createProject,
 	type DiagnosticReport,
@@ -27,7 +28,9 @@ import {
 	fetchReproductionProfiles,
 	fetchReproductionRunArtifacts,
 	fetchScanAttackSurface,
+	fetchScan,
 	fetchScanDiagnosticReports,
+	fetchScanEvents,
 	fetchScanFindings,
 	fetchScanGroups,
 	fetchScanProfiles,
@@ -49,6 +52,7 @@ import {
 	type ScanProfile,
 	type ScanReport,
 	type ScanReview,
+	type ScanEvent,
 	type ScanRun,
 	type ScanRunSummary,
 	type SecurityCheckResult,
@@ -175,6 +179,7 @@ export const useScansController = ({
 	const [projectBrowseLoading, setProjectBrowseLoading] = useState(false);
 	const [showNewProjectModal, setShowNewProjectModal] = useState(false);
 	const [scanRuns, setScanRuns] = useState<ScanRun[]>([]);
+	const [scanEvents, setScanEvents] = useState<ScanEvent[]>([]);
 	const [selectedScanRunId, setSelectedScanRunId] =
 		useState(requestedScanRunId);
 	const [scanListTab, setScanListTab] = useState<"runs" | "findings">("runs");
@@ -329,6 +334,10 @@ export const useScansController = ({
 		selectedFindingDastEvidence,
 	]);
 
+	const selectedPollingStatus = scanRuns.find(
+		(run) => run.id === selectedScanRunId,
+	)?.status;
+
 	useEffect(() => {
 		selectedFindingIdRef.current = selectedFindingId;
 	}, [selectedFindingId]);
@@ -430,6 +439,66 @@ export const useScansController = ({
 				),
 			);
 	}, [active, requestedScanRunId, selectedProjectId, setErrorText]);
+
+	useEffect(() => {
+		if (!active || !selectedScanRunId) {
+			setScanEvents([]);
+			return;
+		}
+		if (
+			selectedPollingStatus !== "queued" &&
+			selectedPollingStatus !== "running"
+		) {
+			void fetchScanEvents(selectedScanRunId)
+				.then(setScanEvents)
+				.catch(() => {});
+			return;
+		}
+		let mounted = true;
+		let polling = false;
+		const poll = async () => {
+			if (polling) return;
+			polling = true;
+			try {
+				const [scan, events] = await Promise.all([
+					fetchScan(selectedScanRunId),
+					fetchScanEvents(selectedScanRunId),
+				]);
+				if (!mounted) return;
+				setScanEvents(events);
+				setScanRuns((runs) =>
+					runs.map((item) => (item.id === scan.id ? scan : item)),
+				);
+				if (scan.status !== "queued" && scan.status !== "running") {
+					const [runs, nextFindings, nextSummary, nextReviews, nextReports] =
+						await Promise.all([
+							fetchScans(scan.projectId),
+							fetchScanFindings(scan.id),
+							fetchScanSummary(scan.id).catch(() => null),
+							fetchScanReviews(scan.id),
+							fetchScanReports(scan.id),
+						]);
+					if (!mounted) return;
+					setScanRuns(runs);
+					setFindings(nextFindings);
+					setScanSummary(nextSummary);
+					setScanReviews(nextReviews);
+					setReports(nextReports);
+				}
+			} catch (error) {
+				if (mounted)
+					setErrorText(error instanceof Error ? error.message : String(error));
+			} finally {
+				polling = false;
+			}
+		};
+		void poll();
+		const timer = setInterval(() => void poll(), 1_500);
+		return () => {
+			mounted = false;
+			clearInterval(timer);
+		};
+	}, [active, selectedPollingStatus, selectedScanRunId, setErrorText]);
 
 	useEffect(() => {
 		setSelectedFindingId("");
@@ -744,6 +813,21 @@ export const useScansController = ({
 			);
 		} finally {
 			setIsScanning(false);
+		}
+	};
+
+	const handleCancelScan = async () => {
+		if (!selectedScanRunId) return;
+		setErrorText(null);
+		try {
+			const scan = await cancelScan(selectedScanRunId);
+			setScanRuns((runs) =>
+				runs.map((item) => (item.id === scan.id ? scan : item)),
+			);
+		} catch (error) {
+			setErrorText(
+				error instanceof Error ? error.message : "scan の取消に失敗しました。",
+			);
 		}
 	};
 
@@ -1595,6 +1679,7 @@ export const useScansController = ({
 		handleSelectProjectFolder,
 		handleCreateProjectFromFolder,
 		scanRuns,
+		scanEvents,
 		selectedScanRunId,
 		setSelectedScanRunId,
 		handleSelectScanRun,
@@ -1689,6 +1774,7 @@ export const useScansController = ({
 		...dast,
 		displayedFindings,
 		handleStartScanProfile,
+		handleCancelScan,
 		handleGenerateReport,
 		handleTriggerScanReview,
 		handleRunDiagnostics,

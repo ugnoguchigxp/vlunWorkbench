@@ -3,6 +3,7 @@ import { createServer } from "node:net";
 import path from "node:path";
 import { readAppEnv } from "../api/app/env";
 import { createDbConnection } from "../api/db";
+import { resolveScanExecutionPolicy } from "../api/modules/scans/scan-execution-policy";
 
 type CheckResult = {
 	label: string;
@@ -154,6 +155,28 @@ async function main() {
 	}
 
 	if (env) {
+		try {
+			const policy = resolveScanExecutionPolicy({ env, surface: "cli" });
+			const dockerAvailable =
+				policy.runner !== "docker" ||
+				(await commandExists(
+					process.env.VULN_WORKBENCH_DOCKER_BIN ?? "docker",
+				));
+			results.push({
+				label: "scanner execution policy",
+				status: dockerAvailable ? "ok" : "fail",
+				message: dockerAvailable
+					? `${policy.runner} (${policy.source}, network=${policy.networkMode})`
+					: "Docker policy is active but the Docker executable is missing.",
+			});
+		} catch (error) {
+			results.push({
+				label: "scanner execution policy",
+				status: "fail",
+				message: error instanceof Error ? error.message : String(error),
+			});
+		}
+
 		try {
 			const connection = createDbConnection(env.databaseUrl);
 			const table = connection.sqlite

@@ -51,7 +51,14 @@ export function ScansToolbar() {
 	const canStartScan =
 		Boolean(c.selectedProjectId && c.selectedProfileId) &&
 		c.timeoutSec > 0 &&
-		!c.isScanning;
+		!c.isScanning &&
+		!c.scanRuns.some(
+			(run) => run.status === "queued" || run.status === "running",
+		);
+	const selectedScanActive =
+		c.selectedScanRun?.status === "queued" ||
+		c.selectedScanRun?.status === "running";
+	const latestEvent = c.scanEvents.at(-1);
 
 	return (
 		<section className="scans-toolbar">
@@ -145,6 +152,22 @@ export function ScansToolbar() {
 				</div>
 			</div>
 			{c.showNewProjectModal ? <NewProjectModal /> : null}
+			{selectedScanActive ? (
+				<div className="scan-project-summary" role="status">
+					<strong>
+						{formatScanOutcome(c.selectedScanRun?.status ?? "queued")}
+					</strong>
+					<span>{latestEvent?.message ?? "スキャンを開始しています。"}</span>
+					<Button
+						type="button"
+						variant="secondary"
+						onClick={() => void c.handleCancelScan()}
+					>
+						<X className="icon" />
+						取消
+					</Button>
+				</div>
+			) : null}
 		</section>
 	);
 }

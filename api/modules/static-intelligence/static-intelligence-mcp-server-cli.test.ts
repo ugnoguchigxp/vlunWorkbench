@@ -4,6 +4,8 @@ import { executeStaticIntelligenceMcpTool } from "../../cli/static-intelligence-
 import { staticIntelligenceMcpToolRegistry } from "./mcp-tools";
 
 const EXPECTED_TOOL_NAMES = [
+	"vuln_prepare_project_intelligence",
+	"vuln_get_project_intelligence_status",
 	"vuln_list_knowledge_sources",
 	"vuln_get_knowledge_source_manifest",
 	"vuln_get_guardrail_material",

@@ -4,13 +4,18 @@ import {
 	createRouter,
 	Outlet,
 } from "@tanstack/react-router";
-import { useCallback, useEffect, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { type AuthUser, fetchMe, logout, UNAUTHORIZED_EVENT_NAME } from "./api";
 import { App, type AppViewId } from "./App";
 import { AppHeader } from "./app-header";
 import { DesignSystemProvider } from "./showcase-settings-context";
 import { parseShowcaseTableSearch } from "./showcase-table-search";
-import { ShowcaseView } from "./views/showcase-view";
+
+const ShowcaseView = lazy(() =>
+	import("./views/showcase-view").then((module) => ({
+		default: module.ShowcaseView,
+	})),
+);
 
 const rootRoute = createRootRoute({
 	component: () => (
@@ -140,7 +145,15 @@ function ShowcasePage() {
 				busy={busy}
 				onLogout={handleLogout}
 			/>
-			<ShowcaseView />
+			<Suspense
+				fallback={
+					<main className="layout columns-1">
+						<section className="panel">Loading showcase...</section>
+					</main>
+				}
+			>
+				<ShowcaseView />
+			</Suspense>
 		</div>
 	);
 }
