@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import {
 	type StaticIntelligenceExportV1,
 	staticIntelligenceExportV1Schema,
@@ -279,6 +279,75 @@ export class StaticIntelligenceGenerationRepository {
 			);
 		}
 		return loaded;
+	}
+
+	async listLatestValidGenerationsByRootRef(input: {
+		rootRef: string;
+		projectId?: string;
+		limit: number;
+	}): Promise<PersistedStaticIntelligenceGeneration[]> {
+		const predicates = [
+			inArray(scanArtifacts.kind, [
+				...STATIC_INTELLIGENCE_DERIVED_ARTIFACT_KINDS,
+			]),
+			sql`json_extract(${scanArtifacts.metadata}, '$.rootRef') = ${input.rootRef}`,
+		];
+		if (input.projectId) {
+			predicates.push(
+				sql`json_extract(${scanArtifacts.metadata}, '$.projectId') = ${input.projectId}`,
+			);
+		}
+		const rows = await this.db
+			.select()
+			.from(scanArtifacts)
+			.where(and(...predicates));
+		const candidateKeys = new Set<string>();
+		for (const row of rows) {
+			const parsed = staticIntelligenceArtifactMetadataSchema.safeParse(
+				row.metadata,
+			);
+			if (
+				!parsed.success ||
+				parsed.data.rootRef !== input.rootRef ||
+				(input.projectId !== undefined &&
+					parsed.data.projectId !== input.projectId) ||
+				parsed.data.scanRunId !== row.scanRunId
+			) {
+				continue;
+			}
+			candidateKeys.add(`${row.scanRunId}:${parsed.data.generationId}`);
+		}
+		const generations = (
+			await Promise.all(
+				[...candidateKeys].map(async (key) => {
+					const separator = key.indexOf(":");
+					const scanRunId = key.slice(0, separator);
+					const generationId = key.slice(separator + 1);
+					try {
+						return await this.loadGeneration(scanRunId, generationId);
+					} catch (error) {
+						if (error instanceof StaticIntelligenceGenerationValidationError) {
+							return null;
+						}
+						throw error;
+					}
+				}),
+			)
+		).filter(
+			(generation): generation is PersistedStaticIntelligenceGeneration =>
+				generation !== null &&
+				generation.structure.metadata.rootRef === input.rootRef &&
+				(input.projectId === undefined ||
+					generation.projectId === input.projectId),
+		);
+		return generations
+			.sort(
+				(left, right) =>
+					right.structure.metadata.generatedAt.localeCompare(
+						left.structure.metadata.generatedAt,
+					) || left.generationId.localeCompare(right.generationId),
+			)
+			.slice(0, input.limit);
 	}
 
 	async hasDerivedArtifacts(scanRunId: string): Promise<boolean> {

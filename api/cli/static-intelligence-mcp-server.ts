@@ -17,6 +17,7 @@ const EXPECTED_TOOL_NAMES = [
 	"vuln_get_evidence_bundle",
 	"vuln_get_verification_commands",
 	"vuln_get_code_structure_snapshot",
+	"vuln_get_project_exploration_catalog",
 ] as const;
 
 type CliMode = "normal" | "help" | "list-tools" | "smoke";

@@ -1,0 +1,1311 @@
+{
+	"version": 1,
+	"validatedAt": "2026-07-15",
+	"method": "LLM-free sequential CLI calls against exact persisted generations; expected seams fixed from repository paths before execution",
+	"targets": {
+		"diffguard": {
+			"scan": "ad468d97-b5d7-436f-abc4-ba1d05d89e48",
+			"gen": "0c8221f7-4bf8-4924-806e-be0f17c2e4b5",
+			"repository": "DiffGuard",
+			"revision": "2fc8bb271fa0dcb5168500d10972f5dddda23785",
+			"snapshotStatus": "completed"
+		},
+		"vulnworkbench": {
+			"scan": "989a1107-a486-4db2-a4b0-c8b0bbf7bd81",
+			"gen": "68b59e30-e91a-4782-b384-3c0ad96c345e",
+			"repository": "vulnWorkbench historical worktree",
+			"generationStatus": "degraded",
+			"degradedReasons": [
+				"completed scan review missing",
+				"unresolved CSS imports in web/src/main.tsx"
+			]
+		}
+	},
+	"interpretation": {
+		"useful": "Expected implementation and, when specified, expected test are within the bounded top-10 result.",
+		"correct_negative": "A project-absent or source-literal-only term remains unmatched with no guessed file.",
+		"invalid_module_rejected": "An arbitrary directory that is not a generated module candidate is explicitly unmatched.",
+		"known_module_granularity_limitation": "The valid module candidate is too coarse for feature-specific exploration; terms or exact paths are required."
+	},
+	"aggregate": {
+		"scenarioCount": 41,
+		"useful": 36,
+		"correctNegative": 3,
+		"invalidModuleRejected": 1,
+		"knownLimitations": 1,
+		"unexpectedFailures": 0,
+		"byProject": {
+			"diffguard": {
+				"count": 25,
+				"useful": 23
+			},
+			"vulnworkbench": {
+				"count": 16,
+				"useful": 13
+			}
+		}
+	},
+	"results": [
+		{
+			"id": "dg-exact-cache",
+			"project": "diffguard",
+			"input": {
+				"paths": [
+					"src/engine/cache.ts"
+				]
+			},
+			"status": "completed",
+			"matchedTerms": [],
+			"matchedModuleIds": [],
+			"unmatched": [],
+			"fileHitRank": 1,
+			"testHitRank": 1,
+			"topFiles": [
+				"src/engine/cache.ts",
+				"src/engine/reviewEngine.ts"
+			],
+			"topTests": [
+				"tests/engine/cache.test.ts"
+			],
+			"verdict": "useful"
+		},
+		{
+			"id": "dg-cache-lru",
+			"project": "diffguard",
+			"input": {
+				"terms": [
+					"cache",
+					"lru"
+				]
+			},
+			"status": "completed",
+			"matchedTerms": [
+				"cache",
+				"lru"
+			],
+			"matchedModuleIds": [],
+			"unmatched": [],
+			"fileHitRank": 1,
+			"testHitRank": 1,
+			"topFiles": [
+				"src/engine/cache.ts",
+				"src/constants/review.ts",
+				"src/cli.ts",
+				"src/engine/reviewEngine.ts",
+				"src/mcp/service.ts"
+			],
+			"topTests": [
+				"tests/engine/cache.test.ts",
+				"tests/cli/cli.test.ts",
+				"tests/engine/reviewEngine.test.ts",
+				"tests/mcp/service.test.ts",
+				"tests/rules/rules.test.ts"
+			],
+			"verdict": "useful"
+		},
+		{
+			"id": "dg-plugin-loader",
+			"project": "diffguard",
+			"input": {
+				"terms": [
+					"plugin",
+					"loader"
+				]
+			},
+			"status": "completed",
+			"matchedTerms": [
+				"loader",
+				"plugin"
+			],
+			"matchedModuleIds": [],
+			"unmatched": [],
+			"fileHitRank": 1,
+			"testHitRank": 1,
+			"topFiles": [
+				"src/plugins/loader.ts",
+				"src/config/loader.ts",
+				"src/cli.ts",
+				"src/engine/reviewEngine.ts",
+				"src/mcp/service.ts"
+			],
+			"topTests": [
+				"tests/plugins/loader.test.ts",
+				"tests/config/loader.test.ts",
+				"tests/cli/cli.test.ts",
+				"tests/engine/reviewEngine.test.ts",
+				"tests/mcp/service.test.ts"
+			],
+			"verdict": "useful"
+		},
+		{
+			"id": "dg-semantic-checker",
+			"project": "diffguard",
+			"input": {
+				"terms": [
+					"semantic",
+					"checker"
+				]
+			},
+			"status": "completed",
+			"matchedTerms": [
+				"checker",
+				"semantic"
+			],
+			"matchedModuleIds": [],
+			"unmatched": [],
+			"fileHitRank": 1,
+			"testHitRank": 1,
+			"topFiles": [
+				"src/semantic/semanticChecker.ts",
+				"src/rules/semanticRule.ts",
+				"src/index.ts",
+				"src/types.ts",
+				"src/context/contextBuilder.ts"
+			],
+			"topTests": [
+				"tests/semantic/semanticChecker.test.ts",
+				"tests/context/contextBuilder.test.ts",
+				"tests/engine/reviewEngine.test.ts",
+				"tests/rules/rules.test.ts",
+				"tests/schema/review.schema.test.ts"
+			],
+			"verdict": "useful"
+		},
+		{
+			"id": "dg-related-code-selector",
+			"project": "diffguard",
+			"input": {
+				"terms": [
+					"related",
+					"code",
+					"selector"
+				]
+			},
+			"status": "completed",
+			"matchedTerms": [
+				"code",
+				"related",
+				"selector"
+			],
+			"matchedModuleIds": [],
+			"unmatched": [],
+			"fileHitRank": 1,
+			"testHitRank": 1,
+			"topFiles": [
+				"src/embedding/relatedCodeSelector.ts",
+				"src/constants/embedding.ts",
+				"src/cli.ts",
+				"src/analyzer/diffAnalyzer.ts",
+				"src/config/dotenv.ts"
+			],
+			"topTests": [
+				"tests/embedding/relatedCodeSelector.test.ts",
+				"tests/cli/cli.test.ts"
+			],
+			"verdict": "useful"
+		},
+		{
+			"id": "dg-risk-blocking",
+			"project": "diffguard",
+			"input": {
+				"terms": [
+					"risk",
+					"blocking"
+				]
+			},
+			"status": "completed",
+			"matchedTerms": [
+				"blocking",
+				"risk"
+			],
+			"matchedModuleIds": [],
+			"unmatched": [],
+			"fileHitRank": 1,
+			"testHitRank": 1,
+			"topFiles": [
+				"src/engine/risk.ts",
+				"src/types.ts",
+				"src/engine/reviewEngine.ts",
+				"src/schema/review.schema.ts",
+				"src/rules/diRule.ts"
+			],
+			"topTests": [
+				"tests/engine/risk.test.ts",
+				"tests/engine/reviewEngine.test.ts",
+				"tests/rules/rules.test.ts",
+				"tests/schema/review.schema.test.ts"
+			],
+			"verdict": "useful"
+		},
+		{
+			"id": "dg-request-contexts-plural",
+			"project": "diffguard",
+			"input": {
+				"terms": [
+					"requestContexts"
+				]
+			},
+			"status": "completed",
+			"matchedTerms": [
+				"request-contexts"
+			],
+			"matchedModuleIds": [],
+			"unmatched": [],
+			"fileHitRank": 1,
+			"testHitRank": 1,
+			"topFiles": [
+				"src/context/requestContext.ts",
+				"src/index.ts",
+				"src/schema/review.schema.ts",
+				"src/types.ts",
+				"src/cli.ts"
+			],
+			"topTests": [
+				"tests/context/requestContext.test.ts",
+				"tests/cli/cli.test.ts",
+				"tests/context/contextBuilder.test.ts",
+				"tests/engine/reviewEngine.test.ts",
+				"tests/rules/rules.test.ts"
+			],
+			"verdict": "useful"
+		},
+		{
+			"id": "dg-review-schemas-plural",
+			"project": "diffguard",
+			"input": {
+				"terms": [
+					"review",
+					"schemas"
+				]
+			},
+			"status": "completed",
+			"matchedTerms": [
+				"review",
+				"schemas"
+			],
+			"matchedModuleIds": [],
+			"unmatched": [],
+			"fileHitRank": 1,
+			"testHitRank": 1,
+			"topFiles": [
+				"src/schema/review.schema.ts",
+				"src/constants/review.ts",
+				"src/engine/reviewEngine.ts",
+				"src/mcp/service.ts",
+				"src/context/requestContext.ts"
+			],
+			"topTests": [
+				"tests/schema/review.schema.test.ts",
+				"tests/engine/reviewEngine.test.ts",
+				"tests/cli/cli.test.ts",
+				"tests/context/requestContext.test.ts",
+				"tests/mcp/server.test.ts"
+			],
+			"verdict": "useful"
+		},
+		{
+			"id": "dg-interface-rules",
+			"project": "diffguard",
+			"input": {
+				"terms": [
+					"interface",
+					"rules"
+				]
+			},
+			"status": "completed",
+			"matchedTerms": [
+				"interface",
+				"rules"
+			],
+			"matchedModuleIds": [],
+			"unmatched": [],
+			"fileHitRank": 1,
+			"testHitRank": 1,
+			"topFiles": [
+				"src/rules/interfaceRule.ts",
+				"src/rules/diRule.ts",
+				"src/rules/frameworkRules.ts",
+				"src/rules/functionRule.ts",
+				"src/rules/importRule.ts"
+			],
+			"topTests": [
+				"tests/rules/rules.test.ts",
+				"tests/analyzer/diffAnalyzer.test.ts",
+				"tests/cli/cli.test.ts",
+				"tests/context/contextBuilder.test.ts",
+				"tests/engine/reviewEngine.test.ts"
+			],
+			"verdict": "useful"
+		},
+		{
+			"id": "dg-function-rules",
+			"project": "diffguard",
+			"input": {
+				"terms": [
+					"function",
+					"rules"
+				]
+			},
+			"status": "completed",
+			"matchedTerms": [
+				"function",
+				"rules"
+			],
+			"matchedModuleIds": [],
+			"unmatched": [],
+			"fileHitRank": 1,
+			"testHitRank": 1,
+			"topFiles": [
+				"src/rules/functionRule.ts",
+				"src/rules/diRule.ts",
+				"src/rules/frameworkRules.ts",
+				"src/rules/importRule.ts",
+				"src/rules/index.ts"
+			],
+			"topTests": [
+				"tests/rules/rules.test.ts",
+				"tests/analyzer/diffAnalyzer.test.ts",
+				"tests/cli/cli.test.ts",
+				"tests/context/contextBuilder.test.ts",
+				"tests/engine/reviewEngine.test.ts"
+			],
+			"verdict": "useful"
+		},
+		{
+			"id": "dg-import-rules",
+			"project": "diffguard",
+			"input": {
+				"terms": [
+					"import",
+					"rules"
+				]
+			},
+			"status": "completed",
+			"matchedTerms": [
+				"import",
+				"rules"
+			],
+			"matchedModuleIds": [],
+			"unmatched": [],
+			"fileHitRank": 1,
+			"testHitRank": 1,
+			"topFiles": [
+				"src/rules/importRule.ts",
+				"scripts/fix-esm-imports.mjs",
+				"src/rules/diRule.ts",
+				"src/rules/frameworkRules.ts",
+				"src/rules/functionRule.ts"
+			],
+			"topTests": [
+				"tests/rules/rules.test.ts",
+				"tests/analyzer/diffAnalyzer.test.ts",
+				"tests/cli/cli.test.ts",
+				"tests/context/contextBuilder.test.ts",
+				"tests/engine/reviewEngine.test.ts"
+			],
+			"verdict": "useful"
+		},
+		{
+			"id": "dg-framework-rules",
+			"project": "diffguard",
+			"input": {
+				"terms": [
+					"framework",
+					"rules"
+				]
+			},
+			"status": "completed",
+			"matchedTerms": [
+				"framework",
+				"rules"
+			],
+			"matchedModuleIds": [],
+			"unmatched": [],
+			"fileHitRank": 1,
+			"testHitRank": 1,
+			"topFiles": [
+				"src/rules/frameworkRules.ts",
+				"src/rules/diRule.ts",
+				"src/rules/functionRule.ts",
+				"src/rules/importRule.ts",
+				"src/rules/index.ts"
+			],
+			"topTests": [
+				"tests/rules/rules.test.ts",
+				"tests/cli/cli.test.ts",
+				"tests/engine/reviewEngine.test.ts",
+				"tests/mcp/service.test.ts",
+				"tests/output/sarif.test.ts"
+			],
+			"verdict": "useful"
+		},
+		{
+			"id": "dg-dotenv",
+			"project": "diffguard",
+			"input": {
+				"terms": [
+					"dotenv"
+				]
+			},
+			"status": "completed",
+			"matchedTerms": [
+				"dotenv"
+			],
+			"matchedModuleIds": [],
+			"unmatched": [],
+			"fileHitRank": 1,
+			"testHitRank": 1,
+			"topFiles": [
+				"src/config/dotenv.ts",
+				"src/cli.ts"
+			],
+			"topTests": [
+				"tests/config/dotenv.test.ts"
+			],
+			"verdict": "useful"
+		},
+		{
+			"id": "dg-mcp-servers-plural",
+			"project": "diffguard",
+			"input": {
+				"terms": [
+					"mcpServers"
+				]
+			},
+			"status": "completed",
+			"matchedTerms": [
+				"mcp-servers"
+			],
+			"matchedModuleIds": [],
+			"unmatched": [],
+			"fileHitRank": 1,
+			"testHitRank": 1,
+			"topFiles": [
+				"src/mcp/server.ts",
+				"src/mcp/service.ts"
+			],
+			"topTests": [
+				"tests/mcp/server.test.ts"
+			],
+			"verdict": "useful"
+		},
+		{
+			"id": "dg-sarif-output",
+			"project": "diffguard",
+			"input": {
+				"terms": [
+					"sarif",
+					"output"
+				]
+			},
+			"status": "completed",
+			"matchedTerms": [
+				"output",
+				"sarif"
+			],
+			"matchedModuleIds": [],
+			"unmatched": [],
+			"fileHitRank": 1,
+			"testHitRank": 1,
+			"topFiles": [
+				"src/output/sarif.ts",
+				"src/constants/review.ts",
+				"src/cli.ts",
+				"src/mcp/service.ts",
+				"src/schema/review.schema.ts"
+			],
+			"topTests": [
+				"tests/output/sarif.test.ts",
+				"tests/cli/cli.test.ts",
+				"tests/engine/reviewEngine.test.ts",
+				"tests/mcp/service.test.ts",
+				"tests/rules/rules.test.ts"
+			],
+			"verdict": "useful"
+		},
+		{
+			"id": "dg-cli-arguments",
+			"project": "diffguard",
+			"input": {
+				"terms": [
+					"cli",
+					"arguments"
+				]
+			},
+			"status": "degraded",
+			"matchedTerms": [
+				"cli"
+			],
+			"matchedModuleIds": [],
+			"unmatched": [
+				"arguments"
+			],
+			"fileHitRank": 1,
+			"testHitRank": 1,
+			"topFiles": [
+				"src/cli.ts",
+				"src/analyzer/diffAnalyzer.ts",
+				"src/config/dotenv.ts",
+				"src/config/loader.ts",
+				"src/constants/review.ts"
+			],
+			"topTests": [
+				"tests/cli/cli.test.ts"
+			],
+			"verdict": "useful"
+		},
+		{
+			"id": "dg-config-suppressions",
+			"project": "diffguard",
+			"input": {
+				"terms": [
+					"config",
+					"suppressions"
+				]
+			},
+			"status": "completed",
+			"matchedTerms": [
+				"config",
+				"suppressions"
+			],
+			"matchedModuleIds": [],
+			"unmatched": [],
+			"fileHitRank": 2,
+			"testHitRank": 2,
+			"topFiles": [
+				"src/config/dotenv.ts",
+				"src/config/loader.ts",
+				"src/config/pattern.ts",
+				"vitest.config.ts",
+				"src/schema/review.schema.ts"
+			],
+			"topTests": [
+				"tests/config/dotenv.test.ts",
+				"tests/config/loader.test.ts",
+				"tests/config/pattern.test.ts",
+				"tests/cli/cli.test.ts",
+				"tests/context/contextBuilder.test.ts"
+			],
+			"verdict": "useful"
+		},
+		{
+			"id": "dg-exact-plugin-path",
+			"project": "diffguard",
+			"input": {
+				"paths": [
+					"src/plugins/loader.ts"
+				]
+			},
+			"status": "completed",
+			"matchedTerms": [],
+			"matchedModuleIds": [],
+			"unmatched": [],
+			"fileHitRank": 1,
+			"testHitRank": 1,
+			"topFiles": [
+				"src/plugins/loader.ts",
+				"src/types.ts",
+				"src/cli.ts",
+				"src/mcp/service.ts"
+			],
+			"topTests": [
+				"tests/plugins/loader.test.ts"
+			],
+			"verdict": "useful"
+		},
+		{
+			"id": "dg-engine-module",
+			"project": "diffguard",
+			"input": {
+				"moduleIds": [
+					"src/engine"
+				]
+			},
+			"status": "completed",
+			"matchedTerms": [],
+			"matchedModuleIds": [
+				"src/engine"
+			],
+			"unmatched": [],
+			"fileHitRank": 1,
+			"testHitRank": 1,
+			"topFiles": [
+				"src/engine/cache.ts",
+				"src/engine/reviewEngine.ts",
+				"src/engine/risk.ts",
+				"src/analyzer/diffAnalyzer.ts",
+				"src/config/pattern.ts"
+			],
+			"topTests": [
+				"tests/engine/cache.test.ts",
+				"tests/engine/reviewEngine.test.ts",
+				"tests/engine/risk.test.ts"
+			],
+			"verdict": "useful"
+		},
+		{
+			"id": "dg-fizzbuzz-absent",
+			"project": "diffguard",
+			"input": {
+				"terms": [
+					"fizzbuzz"
+				]
+			},
+			"status": "degraded",
+			"matchedTerms": [],
+			"matchedModuleIds": [],
+			"unmatched": [
+				"fizzbuzz"
+			],
+			"fileHitRank": null,
+			"testHitRank": null,
+			"topFiles": [],
+			"topTests": [],
+			"verdict": "correct_negative"
+		},
+		{
+			"id": "dg-cache-redis-mixed",
+			"project": "diffguard",
+			"input": {
+				"terms": [
+					"cache",
+					"redis"
+				]
+			},
+			"status": "degraded",
+			"matchedTerms": [
+				"cache"
+			],
+			"matchedModuleIds": [],
+			"unmatched": [
+				"redis"
+			],
+			"fileHitRank": 1,
+			"testHitRank": 1,
+			"topFiles": [
+				"src/engine/cache.ts",
+				"src/constants/review.ts",
+				"src/cli.ts",
+				"src/engine/reviewEngine.ts",
+				"src/mcp/service.ts"
+			],
+			"topTests": [
+				"tests/engine/cache.test.ts",
+				"tests/cli/cli.test.ts",
+				"tests/engine/reviewEngine.test.ts",
+				"tests/mcp/service.test.ts",
+				"tests/rules/rules.test.ts"
+			],
+			"verdict": "useful"
+		},
+		{
+			"id": "dg-lru-caches-camel-plural",
+			"project": "diffguard",
+			"input": {
+				"terms": [
+					"LruCaches"
+				]
+			},
+			"status": "completed",
+			"matchedTerms": [
+				"lru-caches"
+			],
+			"matchedModuleIds": [],
+			"unmatched": [],
+			"fileHitRank": 1,
+			"testHitRank": 1,
+			"topFiles": [
+				"src/engine/cache.ts",
+				"src/engine/reviewEngine.ts"
+			],
+			"topTests": [
+				"tests/engine/cache.test.ts"
+			],
+			"verdict": "useful"
+		},
+		{
+			"id": "dg-semantic-impacts-camel",
+			"project": "diffguard",
+			"input": {
+				"terms": [
+					"semanticImpacts"
+				]
+			},
+			"status": "completed",
+			"matchedTerms": [
+				"semantic-impacts"
+			],
+			"matchedModuleIds": [],
+			"unmatched": [],
+			"fileHitRank": 2,
+			"testHitRank": 3,
+			"topFiles": [
+				"src/index.ts",
+				"src/semantic/semanticChecker.ts",
+				"src/types.ts",
+				"src/context/contextBuilder.ts",
+				"src/engine/reviewEngine.ts"
+			],
+			"topTests": [
+				"tests/context/contextBuilder.test.ts",
+				"tests/engine/reviewEngine.test.ts",
+				"tests/rules/rules.test.ts",
+				"tests/semantic/semanticChecker.test.ts"
+			],
+			"verdict": "useful"
+		},
+		{
+			"id": "dg-plugin-rules-camel",
+			"project": "diffguard",
+			"input": {
+				"terms": [
+					"pluginRules"
+				]
+			},
+			"status": "completed",
+			"matchedTerms": [
+				"plugin-rules"
+			],
+			"matchedModuleIds": [],
+			"unmatched": [],
+			"fileHitRank": 1,
+			"testHitRank": 4,
+			"topFiles": [
+				"src/plugins/loader.ts",
+				"src/cli.ts",
+				"src/engine/reviewEngine.ts",
+				"src/mcp/service.ts",
+				"src/analyzer/diffAnalyzer.ts"
+			],
+			"topTests": [
+				"tests/cli/cli.test.ts",
+				"tests/engine/reviewEngine.test.ts",
+				"tests/mcp/service.test.ts",
+				"tests/plugins/loader.test.ts"
+			],
+			"verdict": "useful"
+		},
+		{
+			"id": "dg-source-literal-not-indexed",
+			"project": "diffguard",
+			"input": {
+				"terms": [
+					"constructor",
+					"injection"
+				]
+			},
+			"status": "degraded",
+			"matchedTerms": [],
+			"matchedModuleIds": [],
+			"unmatched": [
+				"constructor",
+				"injection"
+			],
+			"fileHitRank": null,
+			"testHitRank": null,
+			"topFiles": [],
+			"topTests": [],
+			"verdict": "correct_negative"
+		},
+		{
+			"id": "vw-static-intelligence-generation",
+			"project": "vulnworkbench",
+			"input": {
+				"terms": [
+					"static",
+					"intelligence",
+					"generation"
+				]
+			},
+			"status": "degraded",
+			"matchedTerms": [
+				"generation",
+				"intelligence",
+				"static"
+			],
+			"matchedModuleIds": [],
+			"unmatched": [],
+			"fileHitRank": 1,
+			"testHitRank": null,
+			"topFiles": [
+				"api/modules/static-intelligence/generation-repository.ts",
+				"api/modules/static-intelligence/generation-types.ts",
+				"api/modules/static-intelligence/build-service.ts",
+				"api/modules/static-intelligence/knowledge-source-manifest.ts",
+				"api/modules/static-intelligence/mcp-tool-schemas.ts"
+			],
+			"topTests": [],
+			"verdict": "useful"
+		},
+		{
+			"id": "vw-security-oracle",
+			"project": "vulnworkbench",
+			"input": {
+				"terms": [
+					"security",
+					"oracle"
+				]
+			},
+			"status": "degraded",
+			"matchedTerms": [
+				"oracle",
+				"security"
+			],
+			"matchedModuleIds": [],
+			"unmatched": [],
+			"fileHitRank": 1,
+			"testHitRank": 1,
+			"topFiles": [
+				"api/cli/oracle-security.ts",
+				"shared/schemas/security-oracle.schema.ts",
+				"api/cli/check-security.ts",
+				"api/db/schema.ts",
+				"api/modules/diagnostics/checks/check-registry.ts"
+			],
+			"topTests": [
+				"api/modules/scans/security-oracle-cli.test.ts",
+				"api/app/env.test.ts",
+				"api/app/hono.test.ts",
+				"api/middleware/auth.test.ts",
+				"api/modules/auth/auth-cookies.test.ts"
+			],
+			"verdict": "useful"
+		},
+		{
+			"id": "vw-scan-profiles",
+			"project": "vulnworkbench",
+			"input": {
+				"terms": [
+					"scan",
+					"profiles"
+				]
+			},
+			"status": "degraded",
+			"matchedTerms": [
+				"profiles",
+				"scan"
+			],
+			"matchedModuleIds": [],
+			"unmatched": [],
+			"fileHitRank": 3,
+			"testHitRank": 2,
+			"topFiles": [
+				"api/cli/scan-profile.ts",
+				"api/modules/scans/profile-runner.ts",
+				"api/modules/scans/profiles.ts",
+				"api/routes/scan-profiles.route.ts",
+				"shared/schemas/scan-profile.schema.ts"
+			],
+			"topTests": [
+				"api/modules/scans/profile-runner.test.ts",
+				"api/routes/scan-profiles.route.test.ts",
+				"api/modules/dynamic/dynamic-profiles.test.ts",
+				"api/modules/reproductions/profiles.test.ts",
+				"api/modules/scans/artifact-storage.test.ts"
+			],
+			"verdict": "useful"
+		},
+		{
+			"id": "vw-finding-decisions",
+			"project": "vulnworkbench",
+			"input": {
+				"terms": [
+					"finding",
+					"decisions"
+				]
+			},
+			"status": "degraded",
+			"matchedTerms": [
+				"decisions",
+				"finding"
+			],
+			"matchedModuleIds": [],
+			"unmatched": [],
+			"fileHitRank": 2,
+			"testHitRank": 1,
+			"topFiles": [
+				"api/cli/decision-finding.ts",
+				"api/modules/decisions/finding-decision-repository.ts",
+				"api/routes/finding-decisions.route.ts",
+				"api/routes/findings.route.ts",
+				"web/src/domains/scans/components/finding-detail-panel.tsx"
+			],
+			"topTests": [
+				"api/modules/decisions/decision-finding.cli.test.ts",
+				"api/modules/decisions/finding-decision-repository.test.ts",
+				"api/routes/finding-decisions.route.test.ts",
+				"api/modules/reviews/finding-review-runner.test.ts",
+				"api/routes/findings.route.test.ts"
+			],
+			"verdict": "useful"
+		},
+		{
+			"id": "vw-semgrep-runner",
+			"project": "vulnworkbench",
+			"input": {
+				"terms": [
+					"semgrep",
+					"runner"
+				]
+			},
+			"status": "degraded",
+			"matchedTerms": [
+				"runner",
+				"semgrep"
+			],
+			"matchedModuleIds": [],
+			"unmatched": [],
+			"fileHitRank": 1,
+			"testHitRank": 1,
+			"topFiles": [
+				"api/modules/scans/tools/semgrep-runner.ts",
+				"api/cli/scan-semgrep.ts",
+				"api/modules/scans/tools/tool-process-runner.ts",
+				"api/modules/agentic-search/runner.ts",
+				"api/modules/dast/browser-runner.ts"
+			],
+			"topTests": [
+				"api/modules/scans/tools/semgrep-runner.test.ts",
+				"api/modules/agentic-search/runner.test.ts",
+				"api/modules/dast/browser-runner.test.ts",
+				"api/modules/dast/dast-runner.test.ts",
+				"api/modules/dast/http-runner.test.ts"
+			],
+			"verdict": "useful"
+		},
+		{
+			"id": "vw-trivy-normalizer",
+			"project": "vulnworkbench",
+			"input": {
+				"terms": [
+					"trivy",
+					"normalizer"
+				]
+			},
+			"status": "degraded",
+			"matchedTerms": [
+				"normalizer",
+				"trivy"
+			],
+			"matchedModuleIds": [],
+			"unmatched": [],
+			"fileHitRank": 1,
+			"testHitRank": 1,
+			"topFiles": [
+				"api/modules/scans/normalizers/trivy.ts",
+				"api/cli/scan-trivy.ts",
+				"api/modules/dast/dast-normalizer.ts",
+				"api/modules/scans/normalizers/fixture.ts",
+				"api/modules/scans/normalizers/gitleaks.ts"
+			],
+			"topTests": [
+				"api/modules/scans/normalizers/trivy.test.ts",
+				"api/modules/scans/normalizers/fixture.test.ts",
+				"api/modules/scans/normalizers/gitleaks.test.ts",
+				"api/modules/scans/normalizers/osv.test.ts",
+				"api/modules/scans/normalizers/semgrep.test.ts"
+			],
+			"verdict": "useful"
+		},
+		{
+			"id": "vw-project-resolver",
+			"project": "vulnworkbench",
+			"input": {
+				"terms": [
+					"project",
+					"resolver"
+				]
+			},
+			"status": "degraded",
+			"matchedTerms": [
+				"project",
+				"resolver"
+			],
+			"matchedModuleIds": [],
+			"unmatched": [],
+			"fileHitRank": 1,
+			"testHitRank": null,
+			"topFiles": [
+				"api/modules/scans/project-resolver.ts",
+				"api/modules/static-intelligence/read-model-resolver.ts",
+				"api/routes/projects.route.ts",
+				"web/src/domains/projects/project-intelligence-readiness.ts",
+				"web/src/domains/projects/project-intelligence-view-model.ts"
+			],
+			"topTests": [],
+			"verdict": "useful"
+		},
+		{
+			"id": "vw-code-structure-extractor",
+			"project": "vulnworkbench",
+			"input": {
+				"terms": [
+					"codeStructure",
+					"extractor"
+				]
+			},
+			"status": "degraded",
+			"matchedTerms": [
+				"code-structure",
+				"extractor"
+			],
+			"matchedModuleIds": [],
+			"unmatched": [],
+			"fileHitRank": 1,
+			"testHitRank": 1,
+			"topFiles": [
+				"api/modules/static-intelligence/code-structure/extractor.ts",
+				"api/cli/intelligence-code-structure.ts",
+				"api/modules/static-intelligence/code-structure/export-enrichment.ts",
+				"shared/schemas/static-intelligence-code-structure.schema.ts",
+				"api/modules/static-intelligence/export-builder.ts"
+			],
+			"topTests": [
+				"api/modules/static-intelligence/code-structure/extractor.test.ts",
+				"api/modules/static-intelligence/code-structure/export-enrichment.test.ts",
+				"api/modules/static-intelligence/intelligence-code-structure-cli.test.ts",
+				"api/modules/static-intelligence/build-service.test.ts",
+				"api/modules/static-intelligence/community-landscape.test.ts"
+			],
+			"verdict": "useful"
+		},
+		{
+			"id": "vw-mcp-tools",
+			"project": "vulnworkbench",
+			"input": {
+				"terms": [
+					"mcp",
+					"tools"
+				]
+			},
+			"status": "degraded",
+			"matchedTerms": [
+				"mcp",
+				"tools"
+			],
+			"matchedModuleIds": [],
+			"unmatched": [],
+			"fileHitRank": 2,
+			"testHitRank": 1,
+			"topFiles": [
+				"api/modules/static-intelligence/mcp-tool-schemas.ts",
+				"api/modules/static-intelligence/mcp-tools.ts",
+				"api/cli/static-intelligence-mcp-server.ts",
+				"api/modules/agentic-search/tools/fetch.tool.ts",
+				"api/modules/agentic-search/tools/full-text-search.tool.ts"
+			],
+			"topTests": [
+				"api/modules/static-intelligence/mcp-tools.test.ts",
+				"api/modules/agentic-search/tools/search-tools.test.ts",
+				"api/modules/scans/tools/gitleaks-runner.test.ts",
+				"api/modules/scans/tools/osv-runner.test.ts",
+				"api/modules/scans/tools/semgrep-runner.test.ts"
+			],
+			"verdict": "useful"
+		},
+		{
+			"id": "vw-scan-review-prompt",
+			"project": "vulnworkbench",
+			"input": {
+				"terms": [
+					"scan",
+					"review",
+					"prompt"
+				]
+			},
+			"status": "degraded",
+			"matchedTerms": [
+				"prompt",
+				"review",
+				"scan"
+			],
+			"matchedModuleIds": [],
+			"unmatched": [],
+			"fileHitRank": 1,
+			"testHitRank": 2,
+			"topFiles": [
+				"api/modules/scans/scan-review-prompt.ts",
+				"api/cli/review-scan.ts",
+				"api/modules/reviews/finding-review-prompt.ts",
+				"api/modules/scans/report-summary-prompt.ts",
+				"api/modules/scans/scan-review-bundle.ts"
+			],
+			"topTests": [
+				"api/modules/scans/scan-review-bundle.test.ts",
+				"api/modules/scans/scan-review-runner.test.ts",
+				"api/modules/reviews/finding-review-runner.test.ts",
+				"api/modules/scans/artifact-storage.test.ts",
+				"api/modules/scans/grouping-builder.test.ts"
+			],
+			"verdict": "useful"
+		},
+		{
+			"id": "vw-exact-build-service",
+			"project": "vulnworkbench",
+			"input": {
+				"paths": [
+					"api/modules/static-intelligence/build-service.ts"
+				]
+			},
+			"status": "degraded",
+			"matchedTerms": [],
+			"matchedModuleIds": [],
+			"unmatched": [],
+			"fileHitRank": 1,
+			"testHitRank": 1,
+			"topFiles": [
+				"api/modules/static-intelligence/build-service.ts",
+				"api/db/index.ts",
+				"api/modules/scans/artifact-storage.ts",
+				"api/modules/static-intelligence/code-structure/extractor.ts",
+				"api/modules/static-intelligence/export-builder.ts"
+			],
+			"topTests": [
+				"api/modules/static-intelligence/build-service.test.ts",
+				"api/modules/static-intelligence/intelligence-agent-query-cli.test.ts",
+				"api/modules/static-intelligence/intelligence-export-cli.test.ts",
+				"api/modules/static-intelligence/intelligence-guardrail-material-cli.test.ts",
+				"api/modules/static-intelligence/intelligence-knowledge-source-cli.test.ts"
+			],
+			"verdict": "useful"
+		},
+		{
+			"id": "vw-invalid-deep-module",
+			"project": "vulnworkbench",
+			"input": {
+				"moduleIds": [
+					"api/modules/static-intelligence"
+				]
+			},
+			"status": "degraded",
+			"matchedTerms": [],
+			"matchedModuleIds": [],
+			"unmatched": [
+				"api/modules/static-intelligence"
+			],
+			"fileHitRank": null,
+			"testHitRank": null,
+			"topFiles": [],
+			"topTests": [],
+			"verdict": "invalid_module_rejected"
+		},
+		{
+			"id": "vw-fizzbuzz-absent",
+			"project": "vulnworkbench",
+			"input": {
+				"terms": [
+					"fizzbuzz"
+				]
+			},
+			"status": "degraded",
+			"matchedTerms": [],
+			"matchedModuleIds": [],
+			"unmatched": [
+				"fizzbuzz"
+			],
+			"fileHitRank": null,
+			"testHitRank": null,
+			"topFiles": [],
+			"topTests": [],
+			"verdict": "correct_negative"
+		},
+		{
+			"id": "vw-knowledge-sources-camel",
+			"project": "vulnworkbench",
+			"input": {
+				"terms": [
+					"knowledgeSources"
+				]
+			},
+			"status": "degraded",
+			"matchedTerms": [
+				"knowledge-sources"
+			],
+			"matchedModuleIds": [],
+			"unmatched": [],
+			"fileHitRank": 2,
+			"testHitRank": 2,
+			"topFiles": [
+				"api/cli/intelligence-knowledge-source.ts",
+				"api/modules/static-intelligence/knowledge-source-manifest.ts",
+				"scripts/static-intelligence-knowledge-source-fixture.ts",
+				"shared/schemas/static-intelligence-knowledge-source.schema.ts",
+				"api/modules/static-intelligence/mcp-tool-schemas.ts"
+			],
+			"topTests": [
+				"api/modules/static-intelligence/intelligence-knowledge-source-cli.test.ts",
+				"api/modules/static-intelligence/knowledge-source-manifest.test.ts",
+				"api/modules/static-intelligence/static-intelligence-knowledge-source-fixture.test.ts",
+				"api/modules/static-intelligence/guardrail-material.test.ts",
+				"api/modules/static-intelligence/mcp-tools.test.ts"
+			],
+			"verdict": "useful"
+		},
+		{
+			"id": "vw-ui-scan-remediation",
+			"project": "vulnworkbench",
+			"input": {
+				"terms": [
+					"scan",
+					"remediation"
+				]
+			},
+			"status": "degraded",
+			"matchedTerms": [
+				"remediation",
+				"scan"
+			],
+			"matchedModuleIds": [],
+			"unmatched": [],
+			"fileHitRank": 1,
+			"testHitRank": 1,
+			"topFiles": [
+				"web/src/domains/scans/components/remediation-plan-section.tsx",
+				"web/src/domains/scans/remediation-plan.ts",
+				"api/modules/scans/report-builder.ts",
+				"shared/schemas/scan.schema.ts",
+				"web/src/domains/scans/components/workflow-completion-panel.tsx"
+			],
+			"topTests": [
+				"web/src/domains/scans/remediation-plan.test.ts",
+				"api/modules/scans/artifact-storage.test.ts",
+				"api/modules/scans/grouping-builder.test.ts",
+				"api/modules/scans/normalizers/fixture.test.ts",
+				"api/modules/scans/normalizers/gitleaks.test.ts"
+			],
+			"verdict": "useful"
+		},
+		{
+			"id": "vw-coarse-module-limitation",
+			"project": "vulnworkbench",
+			"input": {
+				"moduleIds": [
+					"api/modules"
+				]
+			},
+			"status": "degraded",
+			"matchedTerms": [],
+			"matchedModuleIds": [
+				"api/modules"
+			],
+			"unmatched": [],
+			"fileHitRank": null,
+			"testHitRank": null,
+			"topFiles": [
+				"api/modules/auth/auth-cookies.ts",
+				"api/modules/auth/context.ts",
+				"api/modules/static-intelligence/mcp-tools.ts",
+				"api/modules/agentic-search/agentic-search.service.ts",
+				"api/modules/agentic-search/constants.ts"
+			],
+			"topTests": [
+				"api/app/error-logging.test.ts",
+				"api/app/hono.test.ts",
+				"api/middleware/auth.test.ts",
+				"api/modules/agentic-search/llm/openai-responses-adapter.test.ts",
+				"api/modules/agentic-search/runner.test.ts"
+			],
+			"verdict": "known_module_granularity_limitation"
+		}
+	]
+}

@@ -4,10 +4,21 @@ import {
 	staticIntelligenceRiskBandSchema,
 } from "../../../shared/schemas/static-intelligence.schema";
 import { staticIntelligenceGuardrailMaterialTypeSchema } from "../../../shared/schemas/static-intelligence-guardrail-material.schema";
+import {
+	projectExplorationCatalogFailureReasonSchema,
+	projectExplorationCatalogInputSchema,
+} from "../../../shared/schemas/static-intelligence-exploration-catalog.schema";
+
+export { projectExplorationCatalogInputSchema };
+export type { ProjectExplorationCatalogInput } from "../../../shared/schemas/static-intelligence-exploration-catalog.schema";
 
 export const listKnowledgeSourcesInputSchema = z
 	.object({
 		projectId: z.string().trim().min(1).optional(),
+		rootRef: z
+			.string()
+			.regex(/^[a-f0-9]{64}$/)
+			.optional(),
 		limit: z.number().int().min(1).max(100).optional(),
 	})
 	.strict();
@@ -74,6 +85,7 @@ export const staticIntelligenceMcpToolFailureSchema = z
 		ok: z.literal(false),
 		status: z.literal("failed"),
 		message: z.string(),
+		reasonCode: projectExplorationCatalogFailureReasonSchema.optional(),
 	})
 	.strict();
 export type StaticIntelligenceMcpToolFailure = z.infer<
@@ -91,9 +103,23 @@ export const staticIntelligenceKnowledgeSourceListResultSchema = z
 				.object({
 					sourceId: z.string().min(1),
 					projectId: z.string().min(1),
+					rootRef: z.string().regex(/^[a-f0-9]{64}$/),
 					projectName: z.string(),
 					scanRunId: z.string().min(1),
 					generationId: z.string().min(1),
+					generationGeneratedAt: z.string(),
+					sourceRevision: z
+						.object({
+							kind: z.enum(["git", "tree_hash_only"]),
+							head: z.string().min(1).optional(),
+							dirtyHash: z
+								.string()
+								.regex(/^[a-f0-9]{64}$/)
+								.optional(),
+							value: z.string().min(1),
+						})
+						.strict(),
+					readiness: z.enum(["available", "stale", "degraded"]),
 					scanProfile: z.string(),
 					scanStatus: z.string(),
 					findingCount: z.number().int().nonnegative(),

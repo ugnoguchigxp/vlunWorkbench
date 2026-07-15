@@ -371,6 +371,21 @@ bun run intelligence:knowledge-source -- --scan-run-id <scan-run-id>
 bun run intelligence:guardrail-material -- --scan-run-id <scan-run-id>
 ```
 
+LLM や MCP client を介さず、MCP と同じ persisted project-exploration
+catalog contract を CLI から取得します。
+
+```bash
+bun run intelligence:exploration-catalog -- \
+  --scan-run-id <scan-run-id> \
+  --generation-id <generation-id> \
+  --path api/routes/example.ts \
+  --term routing \
+  --term schema
+```
+
+focus を複数指定する場合は `--path`、`--module-id`、`--term` を繰り返します。
+stdout には machine-readable JSON を一件だけ出力し、repository の scan や mutation は行いません。
+
 read-only MCP wrapper を確認します。
 
 ```bash
@@ -386,8 +401,11 @@ MCP tool は read-only です。
 - `vuln_get_evidence_bundle`
 - `vuln_get_verification_commands`
 - `vuln_get_code_structure_snapshot`
+- `vuln_get_project_exploration_catalog`
 
 これらは persisted generation を読み、対応する tool では optional generation pinning を受け付け、candidate-only JSON を返します。analysis refresh、contextStill knowledge 登録、NightWorkers task 作成、scanner 実行、verification command 実行、raw artifact body / evidence snippet の公開は行いません。Ontology Handoff は NightWorkers 向け evidence-backed material であり、vulnWorkbench は canonical Ontology / Task Compiler を所有しません。
+
+`vuln_get_project_exploration_catalog` は exact `scanRunId` / `generationId` pin と、path・module・term のいずれか一つ以上の focus を必須とします。likely file、related test、candidate-only verification command の deterministic かつ bounded な projection だけを返し、source body を返したり repository scan を実行したりしません。設計は [Project Scan Exploration Reduction MCP Concept](spec/project-scan-exploration-reduction-mcp-concept.md) と [Phase 42](spec/phase-42-project-scan-exploration-catalog-mcp-plan.md) に記載し、vulnWorkbench component の判定と再現可能な確認手順は [Phase 42 Catalog MCP GO evidence](spec/evidence/phase-42-vulnworkbench-catalog-mcp-go.md) に記録しています。controlled NightWorkers proof を含む consumer 固有の activation・価値計測は、別の rollout 判断として扱います。より広い [coding-agent consumer companion plan](spec/static-intelligence-coding-agent-consumer-companion-plan.md) と異なり、Phase 42 は default-off の native/API implementation lane pilot だけを有効化し、Codex SDK や一般的な agent integration は有効化しません。
 
 ## API Surface
 

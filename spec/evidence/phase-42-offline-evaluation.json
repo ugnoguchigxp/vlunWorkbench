@@ -1,0 +1,158 @@
+{
+	"ok": true,
+	"interpretation": {
+		"recallAtK": "Diagnostic share of all actual changed files present in the first k catalog results; not scan coverage or a production gate.",
+		"productionGate": false
+	},
+	"caseCount": 10,
+	"cases": [
+		{
+			"caseId": "dg-1",
+			"actualChangedFileCount": 15,
+			"snapshotCoverage": 0.8,
+			"top5HitCount": 5,
+			"top10HitCount": 10,
+			"recallAt5": 0.3333333333333333,
+			"recallAt10": 0.6666666666666666,
+			"maxPossibleRecallAt10": 0.6666666666666666,
+			"precisionAt10": 1,
+			"testHit": true,
+			"generationId": "d6d368d6-e473-445b-9956-4df2f81fb7b7"
+		},
+		{
+			"caseId": "dg-2",
+			"actualChangedFileCount": 5,
+			"snapshotCoverage": 0.6,
+			"top5HitCount": 1,
+			"top10HitCount": 1,
+			"recallAt5": 0.2,
+			"recallAt10": 0.2,
+			"maxPossibleRecallAt10": 1,
+			"precisionAt10": 0.1,
+			"testHit": false,
+			"generationId": "e62db793-b64c-420c-a803-b97a2f819c4f"
+		},
+		{
+			"caseId": "dg-3",
+			"actualChangedFileCount": 14,
+			"snapshotCoverage": 0.5714285714285714,
+			"top5HitCount": 4,
+			"top10HitCount": 7,
+			"recallAt5": 0.2857142857142857,
+			"recallAt10": 0.5,
+			"maxPossibleRecallAt10": 0.7142857142857143,
+			"precisionAt10": 0.7,
+			"testHit": true,
+			"generationId": "ad911b2d-e0a4-4cd8-8671-825ea4fb73e8"
+		},
+		{
+			"caseId": "dg-4",
+			"actualChangedFileCount": 9,
+			"snapshotCoverage": 0.3333333333333333,
+			"top5HitCount": 3,
+			"top10HitCount": 3,
+			"recallAt5": 0.3333333333333333,
+			"recallAt10": 0.3333333333333333,
+			"maxPossibleRecallAt10": 1,
+			"precisionAt10": 0.3,
+			"testHit": false,
+			"generationId": "f2a3663b-3025-4db1-9b53-7c1c4e8e6f1c"
+		},
+		{
+			"caseId": "dg-5",
+			"actualChangedFileCount": 8,
+			"snapshotCoverage": 0.875,
+			"top5HitCount": 4,
+			"top10HitCount": 7,
+			"recallAt5": 0.5,
+			"recallAt10": 0.875,
+			"maxPossibleRecallAt10": 1,
+			"precisionAt10": 0.7,
+			"testHit": true,
+			"generationId": "2c7696b8-79ae-4629-b2de-7cfb9e92b3ab"
+		},
+		{
+			"caseId": "vw-1",
+			"actualChangedFileCount": 30,
+			"snapshotCoverage": 0.5666666666666667,
+			"top5HitCount": 1,
+			"top10HitCount": 1,
+			"recallAt5": 0.03333333333333333,
+			"recallAt10": 0.03333333333333333,
+			"maxPossibleRecallAt10": 0.3333333333333333,
+			"precisionAt10": 0.1,
+			"testHit": false,
+			"generationId": "68b59e30-e91a-4782-b384-3c0ad96c345e"
+		},
+		{
+			"caseId": "vw-2",
+			"actualChangedFileCount": 2,
+			"snapshotCoverage": 0.5,
+			"top5HitCount": 1,
+			"top10HitCount": 1,
+			"recallAt5": 0.5,
+			"recallAt10": 0.5,
+			"maxPossibleRecallAt10": 1,
+			"precisionAt10": 0.1,
+			"testHit": false,
+			"generationId": "03fdaee4-ba9d-436b-bed2-a96d9f35b51a"
+		},
+		{
+			"caseId": "vw-3",
+			"actualChangedFileCount": 35,
+			"snapshotCoverage": 0.7142857142857143,
+			"top5HitCount": 2,
+			"top10HitCount": 3,
+			"recallAt5": 0.05714285714285714,
+			"recallAt10": 0.08571428571428572,
+			"maxPossibleRecallAt10": 0.2857142857142857,
+			"precisionAt10": 0.3,
+			"testHit": false,
+			"generationId": "78875357-2832-4509-a5e1-1ef9e8a50dad"
+		},
+		{
+			"caseId": "vw-4",
+			"actualChangedFileCount": 8,
+			"snapshotCoverage": 0.375,
+			"top5HitCount": 0,
+			"top10HitCount": 0,
+			"recallAt5": 0,
+			"recallAt10": 0,
+			"maxPossibleRecallAt10": 1,
+			"precisionAt10": 0,
+			"testHit": false,
+			"generationId": "ec67e7f6-483b-4d6c-a2e6-c5c9b8783ba5"
+		},
+		{
+			"caseId": "vw-5",
+			"actualChangedFileCount": 1,
+			"snapshotCoverage": 1,
+			"top5HitCount": 1,
+			"top10HitCount": 1,
+			"recallAt5": 1,
+			"recallAt10": 1,
+			"maxPossibleRecallAt10": 1,
+			"precisionAt10": 0.1,
+			"testHit": true,
+			"generationId": "7995f496-4675-485e-8ed0-f93726ebe463"
+		}
+	],
+	"aggregate": {
+		"meanSnapshotCoverage": 0.6335714285714286,
+		"meanRecallAt5": 0.3242857142857143,
+		"meanRecallAt10": 0.41940476190476195,
+		"meanPrecisionAt10": 0.33999999999999997,
+		"testHitRate": 0.4
+	},
+	"comparisonToPreviousRanking": {
+		"previousMeanRecallAt5": 0.05555555555555556,
+		"currentMeanRecallAt5": 0.3242857142857143,
+		"previousMeanRecallAt10": 0.09714285714285714,
+		"currentMeanRecallAt10": 0.41940476190476195,
+		"previousMeanPrecisionAt10": 0.1638888888888889,
+		"currentMeanPrecisionAt10": 0.33999999999999997,
+		"previousTestHitRate": 0.3,
+		"currentTestHitRate": 0.4,
+		"note": "Diagnostic only. The increase is not a production threshold or scan coverage claim."
+	}
+}

@@ -23,6 +23,10 @@ import type {
 	StaticIntelligenceKnowledgeSourceManifestResult,
 } from "../../../shared/schemas/static-intelligence-knowledge-source.schema";
 import { staticIntelligenceKnowledgeSourceManifestResultSchema } from "../../../shared/schemas/static-intelligence-knowledge-source.schema";
+import type {
+	ProjectExplorationCatalogFailure,
+	ProjectExplorationCatalogResult,
+} from "../../../shared/schemas/static-intelligence-exploration-catalog.schema";
 import type { AppDatabase } from "../../db";
 import { projects, scanRuns } from "../../db/schema";
 import { ProjectRepository, ScanRepository } from "../scans/repositories";
@@ -34,6 +38,10 @@ import { StaticIntelligenceScanRunNotFoundError } from "./export-builder";
 import { buildStaticIntelligenceGuardrailMaterial } from "./guardrail-material";
 import { buildStaticIntelligenceKnowledgeSourceManifest } from "./knowledge-source-manifest";
 import { StaticIntelligenceGenerationRepository } from "./generation-repository";
+import {
+	buildProjectExplorationCatalog,
+	type ProjectExplorationGenerationView,
+} from "./exploration-catalog";
 import { StaticIntelligenceReadModelResolver } from "./read-model-resolver";
 import {
 	type GetEvidenceBundleInput,
@@ -47,6 +55,7 @@ import {
 	getKnowledgeSourceManifestInputSchema,
 	getVerificationCommandsInputSchema,
 	listKnowledgeSourcesInputSchema,
+	projectExplorationCatalogInputSchema,
 	staticIntelligenceKnowledgeSourceListResultSchema,
 	staticIntelligenceMcpToolFailureSchema,
 } from "./mcp-tool-schemas";
@@ -61,7 +70,9 @@ export type StaticIntelligenceMcpToolResult =
 	| StaticIntelligenceGuardrailMaterialResult
 	| StaticIntelligenceGuardrailMaterialFailure
 	| StaticIntelligenceAgentQueryResult
-	| StaticIntelligenceAgentQueryFailure;
+	| StaticIntelligenceAgentQueryFailure
+	| ProjectExplorationCatalogResult
+	| ProjectExplorationCatalogFailure;
 
 export type StaticIntelligenceMcpToolHandler = (params: {
 	db: AppDatabase;
@@ -87,45 +98,64 @@ export async function listStaticIntelligenceKnowledgeSources(params: {
 
 	const generatedAt = params.generatedAt ?? new Date();
 	const sourceLimit = parsed.input.limit ?? 20;
-	const rows = await params.db
-		.select({
-			scanRunId: scanRuns.id,
-		})
-		.from(scanRuns)
-		.innerJoin(projects, eq(scanRuns.projectId, projects.id))
-		.where(projectFilter(parsed.input))
-		.orderBy(desc(scanRuns.updatedAt), desc(scanRuns.id))
-		.limit(100);
+	const generationRepository = new StaticIntelligenceGenerationRepository(
+		params.db,
+	);
+	const rootRefGenerations = parsed.input.rootRef
+		? await generationRepository.listLatestValidGenerationsByRootRef({
+				rootRef: parsed.input.rootRef,
+				projectId: parsed.input.projectId,
+				limit: sourceLimit,
+			})
+		: null;
+	const rows = rootRefGenerations
+		? rootRefGenerations.map((generation) => ({
+				scanRunId: generation.scanRunId,
+				generation,
+			}))
+		: (
+				await params.db
+					.select({ scanRunId: scanRuns.id })
+					.from(scanRuns)
+					.innerJoin(projects, eq(scanRuns.projectId, projects.id))
+					.where(projectFilter(parsed.input))
+					.orderBy(desc(scanRuns.updatedAt), desc(scanRuns.id))
+					.limit(100)
+			).map((row) => ({ ...row, generation: null }));
 
 	const degradedReasons: string[] = [];
 	const sources: StaticIntelligenceKnowledgeSourceListResult["sources"] = [];
 	for (const row of rows) {
 		if (sources.length >= sourceLimit) break;
 		try {
-			const generation = await loadPersistedGeneration(
-				params.db,
-				row.scanRunId,
-			);
+			const generation =
+				row.generation ??
+				(await loadPersistedGeneration(params.db, row.scanRunId));
 			if (!generation) {
 				degradedReasons.push(
 					`scan ${row.scanRunId} skipped: generation_missing`,
 				);
 				continue;
 			}
+			const readiness = await readinessForGeneration(params.db, generation);
 			const manifest = buildStaticIntelligenceKnowledgeSourceManifest(
 				generation.export.payload,
 				{
 					generatedAt,
 					generation,
-					readiness: await readinessForGeneration(params.db, generation),
+					readiness,
 				},
 			);
 			sources.push({
 				sourceId: manifest.source.sourceId,
 				projectId: manifest.project.id,
+				rootRef: generation.structure.metadata.rootRef,
 				projectName: manifest.project.name,
 				scanRunId: manifest.scan.id,
 				generationId: generation.generationId,
+				generationGeneratedAt: generation.structure.metadata.generatedAt,
+				sourceRevision: generation.structure.metadata.sourceRevision,
+				readiness: summarizeGenerationReadiness(readiness, generation.status),
 				scanProfile: manifest.scan.profile,
 				scanStatus: manifest.scan.status,
 				findingCount: manifest.scan.findingCount,
@@ -159,6 +189,66 @@ export async function listStaticIntelligenceKnowledgeSources(params: {
 		sources,
 		degradedReasons: sortedUnique(degradedReasons),
 	});
+}
+
+export async function getProjectExplorationCatalogTool(params: {
+	db: AppDatabase;
+	input: unknown;
+}): Promise<
+	ProjectExplorationCatalogResult | ProjectExplorationCatalogFailure
+> {
+	const parsed = projectExplorationCatalogInputSchema.safeParse(params.input);
+	if (!parsed.success) {
+		return catalogFailure(
+			parsed.error.issues.some((issue) => issue.message === "focus_required")
+				? "focus_required"
+				: "invalid_input",
+			message(parsed.error),
+		);
+	}
+	try {
+		const repository = new StaticIntelligenceGenerationRepository(params.db);
+		const generation = await repository.loadGeneration(
+			parsed.data.scanRunId,
+			parsed.data.generationId,
+		);
+		if (!generation) {
+			return catalogFailure(
+				"generation_missing",
+				"Static Intelligence generation missing.",
+			);
+		}
+		if (
+			generation.scanRunId !== parsed.data.scanRunId ||
+			generation.generationId !== parsed.data.generationId
+		) {
+			return catalogFailure(
+				"generation_mismatch",
+				"Static Intelligence generation identity mismatch.",
+			);
+		}
+		const readiness = await readinessForGeneration(params.db, generation);
+		const view: ProjectExplorationGenerationView = {
+			projectId: generation.projectId,
+			scanRunId: generation.scanRunId,
+			generationId: generation.generationId,
+			status: generation.status,
+			structure: {
+				metadata: generation.structure.metadata,
+				snapshot: generation.structure.snapshot,
+			},
+			export: { payload: generation.export.payload },
+		};
+		return buildProjectExplorationCatalog({
+			generation: view,
+			readiness: summarizeGenerationReadiness(readiness, generation.status),
+			focus: parsed.data.focus,
+			limits: parsed.data.limits,
+			generatedAt: generation.structure.metadata.generatedAt,
+		});
+	} catch (error) {
+		return catalogFailure("catalog_unavailable", message(error));
+	}
 }
 
 export async function getStaticIntelligenceKnowledgeSourceManifestTool(params: {
@@ -345,6 +435,13 @@ export const staticIntelligenceMcpToolRegistry: StaticIntelligenceMcpToolDefinit
 			inputSchema: getCodeStructureSnapshotInputSchema,
 			handler: getStaticIntelligenceCodeStructureSnapshotTool,
 		},
+		{
+			name: "vuln_get_project_exploration_catalog",
+			description:
+				"Read-only bounded exploration clues for one pinned Static Intelligence generation. Returns ranked project-relative file, test, and verification candidates without source bodies, raw evidence, repository scanning, command execution, or mutation.",
+			inputSchema: projectExplorationCatalogInputSchema,
+			handler: getProjectExplorationCatalogTool,
+		},
 	];
 
 function projectFilter(input: ListKnowledgeSourcesInput) {
@@ -419,6 +516,28 @@ async function readinessForGeneration(
 	).resolveReadiness(project, generation, false);
 }
 
+function summarizeGenerationReadiness(
+	readiness: Awaited<ReturnType<typeof readinessForGeneration>>,
+	generationStatus: "available" | "degraded",
+): "available" | "stale" | "degraded" {
+	if (
+		readiness.codeStructure.status === "stale" ||
+		readiness.ontologyHandoff.status === "stale"
+	) {
+		return "stale";
+	}
+	const statuses = Object.values(readiness).map((item) => item.status);
+	if (
+		generationStatus === "degraded" ||
+		statuses.some((status) =>
+			["failed", "missing", "degraded"].includes(status),
+		)
+	) {
+		return "degraded";
+	}
+	return "available";
+}
+
 function parseToolInput<T extends z.ZodType>(
 	schema: T,
 	input: unknown,
@@ -438,6 +557,18 @@ function toolFailure(error: unknown): StaticIntelligenceMcpToolFailure {
 		status: "failed",
 		message: message(error),
 	});
+}
+
+function catalogFailure(
+	reasonCode: NonNullable<ProjectExplorationCatalogFailure["reasonCode"]>,
+	failureMessage: string,
+): ProjectExplorationCatalogFailure {
+	return {
+		ok: false,
+		status: "failed",
+		message: failureMessage,
+		reasonCode,
+	};
 }
 
 function message(error: unknown): string {

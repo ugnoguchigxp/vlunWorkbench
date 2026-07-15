@@ -35,6 +35,7 @@ export const codeStructureFileSchema = z
 		moduleKind: codeStructureModuleKindSchema,
 		tags: z.array(codeStructureFileTagSchema),
 		exportedSymbols: z.array(z.string()),
+		identifiers: z.array(z.string()).max(256).optional(),
 		imports: z.array(z.string()),
 		packageImports: z.array(z.string()),
 		contentHash: z.string().regex(/^[a-f0-9]{64}$/),

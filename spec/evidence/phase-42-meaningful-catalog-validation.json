@@ -1,0 +1,220 @@
+{
+	"version": 2,
+	"validatedAt": "2026-07-15",
+	"method": "LLM-free CLI calls against one newly persisted Static Intelligence generation, followed by manual starting-point validation against the scanned repository structure",
+	"target": {
+		"repository": "DiffGuard",
+		"origin": "https://github.com/ugnoguchigxp/DiffGuard.git",
+		"revision": "2fc8bb271fa0dcb5168500d10972f5dddda23785",
+		"projectPathAtScan": "/tmp/phase42-pair-1-catalog"
+	},
+	"scanCoverage": {
+		"scanRunId": "ad468d97-b5d7-436f-abc4-ba1d05d89e48",
+		"generationId": "0c8221f7-4bf8-4924-806e-be0f17c2e4b5",
+		"status": "completed",
+		"degradedReasons": [],
+		"trackedSourceAndTestFiles": 48,
+		"missingTrackedSourceAndTestFiles": [],
+		"snapshotFiles": 50,
+		"parsedFiles": 50,
+		"skippedFiles": 0,
+		"importEdges": 92,
+		"exportedSymbols": 142,
+		"indexedIdentifiers": 1453,
+		"filesWithIdentifiers": 48,
+		"rootPathIncluded": false,
+		"additionalSnapshotFiles": [
+			"scripts/fix-esm-imports.mjs",
+			"vitest.config.ts"
+		]
+	},
+	"rankingChanges": [
+		"path and direct symbol matches rank before one-hop import neighbors",
+		"multi-term matches break equal-priority ties",
+		"camelCase, separator, and simple plural variants normalize deterministically",
+		"declaration and identifier-property names are indexed with a 256-name-per-file cap",
+		"source bodies, literal values, and string-literal property names are not retained",
+		"test files do not become production exploration seeds"
+	],
+	"cases": [
+		{
+			"id": "config-suppressions",
+			"terms": [
+				"config",
+				"suppressions"
+			],
+			"matchedTerms": [
+				"config",
+				"suppressions"
+			],
+			"unmatchedTerms": [],
+			"topFiles": [
+				"src/config/dotenv.ts",
+				"src/config/loader.ts",
+				"src/config/pattern.ts",
+				"vitest.config.ts",
+				"src/schema/review.schema.ts",
+				"src/types.ts"
+			],
+			"topTests": [
+				"tests/cli/cli.test.ts",
+				"tests/config/dotenv.test.ts",
+				"tests/config/loader.test.ts",
+				"tests/config/pattern.test.ts",
+				"tests/context/contextBuilder.test.ts"
+			],
+			"returnedUsefulSeams": [
+				"src/config/loader.ts",
+				"src/schema/review.schema.ts",
+				"src/types.ts",
+				"tests/config/loader.test.ts"
+			],
+			"verdict": "useful"
+		},
+		{
+			"id": "diff-rename",
+			"terms": [
+				"diff",
+				"rename"
+			],
+			"matchedTerms": [
+				"diff"
+			],
+			"unmatchedTerms": [
+				"rename"
+			],
+			"topFiles": [
+				"src/analyzer/diffAnalyzer.ts",
+				"src/config/loader.ts",
+				"src/constants/analysis.ts",
+				"src/engine/reviewEngine.ts"
+			],
+			"topTests": [
+				"tests/analyzer/diffAnalyzer.test.ts",
+				"tests/cli/cli.test.ts"
+			],
+			"returnedUsefulSeams": [
+				"src/analyzer/diffAnalyzer.ts",
+				"tests/analyzer/diffAnalyzer.test.ts"
+			],
+			"verdict": "useful_with_unmatched_term"
+		},
+		{
+			"id": "mcp-validation",
+			"terms": [
+				"mcp",
+				"validation"
+			],
+			"matchedTerms": [
+				"mcp"
+			],
+			"unmatchedTerms": [
+				"validation"
+			],
+			"topFiles": [
+				"src/mcp/server.ts",
+				"src/mcp/service.ts",
+				"src/index.ts",
+				"src/analyzer/diffAnalyzer.ts"
+			],
+			"topTests": [
+				"tests/mcp/server.test.ts",
+				"tests/mcp/service.test.ts"
+			],
+			"returnedUsefulSeams": [
+				"src/mcp/server.ts",
+				"src/mcp/service.ts",
+				"tests/mcp/server.test.ts",
+				"tests/mcp/service.test.ts"
+			],
+			"verdict": "useful_with_unmatched_term"
+		},
+		{
+			"id": "review-context",
+			"terms": [
+				"review",
+				"context"
+			],
+			"matchedTerms": [
+				"context",
+				"review"
+			],
+			"unmatchedTerms": [],
+			"topFiles": [
+				"src/context/requestContext.ts",
+				"src/engine/reviewEngine.ts",
+				"src/schema/review.schema.ts",
+				"src/constants/review.ts",
+				"src/context/contextBuilder.ts"
+			],
+			"topTests": [
+				"tests/cli/cli.test.ts",
+				"tests/context/contextBuilder.test.ts",
+				"tests/context/requestContext.test.ts",
+				"tests/engine/reviewEngine.test.ts",
+				"tests/mcp/service.test.ts"
+			],
+			"returnedUsefulSeams": [
+				"src/context/requestContext.ts",
+				"src/engine/reviewEngine.ts",
+				"src/schema/review.schema.ts",
+				"src/context/contextBuilder.ts"
+			],
+			"verdict": "useful"
+		},
+		{
+			"id": "sarif-remediation",
+			"terms": [
+				"sarif",
+				"remediation"
+			],
+			"matchedTerms": [
+				"remediation",
+				"sarif"
+			],
+			"unmatchedTerms": [],
+			"topFiles": [
+				"src/output/sarif.ts",
+				"src/cli.ts",
+				"src/engine/reviewEngine.ts",
+				"src/mcp/service.ts",
+				"src/rules/diRule.ts"
+			],
+			"topTests": [
+				"tests/cli/cli.test.ts",
+				"tests/engine/reviewEngine.test.ts",
+				"tests/mcp/service.test.ts",
+				"tests/output/sarif.test.ts",
+				"tests/rules/rules.test.ts"
+			],
+			"returnedUsefulSeams": [
+				"src/output/sarif.ts",
+				"src/engine/reviewEngine.ts",
+				"tests/output/sarif.test.ts"
+			],
+			"verdict": "useful"
+		}
+	],
+	"aggregate": {
+		"usefulCases": 5,
+		"notUsefulCases": 0,
+		"fullyMatchedFocusCases": 3,
+		"usefulCasesWithUnmatchedTerm": 2,
+		"conclusion": "All five requests returned a useful implementation or test starting point. Terms absent from declaration names and paths remain explicitly unmatched instead of being guessed."
+	},
+	"comparisonToPreviousValidation": {
+		"configSuppressions": "improved from partial to useful; schema and types moved into the first six files",
+		"sarifRemediation": "remediation now matches and the SARIF implementation remains rank 1",
+		"mcpValidation": "MCP server and service moved to ranks 1 and 2; validation remains unmatched",
+		"diffRename": "diff analyzer remains rank 1; rename remains unmatched"
+	},
+	"expandedValidation": {
+		"evidenceRef": "spec/evidence/phase-42-expanded-scenario-validation.json",
+		"scenarioCount": 41,
+		"useful": 36,
+		"correctNegative": 3,
+		"invalidModuleRejected": 1,
+		"knownLimitations": 1,
+		"unexpectedFailures": 0
+	}
+}

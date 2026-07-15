@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
@@ -20,11 +21,16 @@ import { buildStaticIntelligenceKnowledgeSourceManifest } from "./knowledge-sour
 import { buildStaticIntelligenceGeneration } from "./build-service";
 import { StaticIntelligenceGenerationRepository } from "./generation-repository";
 import {
+	projectExplorationCatalogInputSchema,
+	projectExplorationCatalogResultSchema,
+} from "../../../shared/schemas/static-intelligence-exploration-catalog.schema";
+import {
 	getStaticIntelligenceEvidenceBundleTool,
 	getStaticIntelligenceCodeStructureSnapshotTool,
 	getStaticIntelligenceGuardrailMaterialTool,
 	getStaticIntelligenceKnowledgeSourceManifestTool,
 	getStaticIntelligenceVerificationCommandsTool,
+	getProjectExplorationCatalogTool,
 	listStaticIntelligenceKnowledgeSources,
 	staticIntelligenceMcpToolRegistry,
 } from "./mcp-tools";
@@ -79,6 +85,65 @@ describe("Static Intelligence MCP tools", () => {
 		projectId = project.id;
 	});
 
+	it("validates bounded project exploration catalog schemas", () => {
+		const base = {
+			scanRunId: "scan-1",
+			generationId: "00000000-0000-4000-8000-000000000001",
+		};
+		for (const focus of [
+			{ paths: ["api/routes/app.ts"] },
+			{ moduleIds: ["module:abc"] },
+			{ terms: ["routes"] },
+		]) {
+			expect(
+				projectExplorationCatalogInputSchema.safeParse({ ...base, focus }).success,
+			).toBe(true);
+		}
+		expect(
+			projectExplorationCatalogInputSchema.safeParse({ ...base, focus: {} })
+				.success,
+		).toBe(false);
+		for (const invalidPath of [
+			"/tmp/x",
+			"C:\\x",
+			"../x",
+			"a/../x",
+			"a\\b",
+			"a\0b",
+		]) {
+			expect(
+				projectExplorationCatalogInputSchema.safeParse({
+					...base,
+					focus: { paths: [invalidPath] },
+				}).success,
+			).toBe(false);
+		}
+		for (const limits of [
+			{ files: 21 },
+			{ tests: 11 },
+			{ verificationCommands: 7 },
+		]) {
+			expect(
+				projectExplorationCatalogInputSchema.safeParse({
+					...base,
+					focus: { terms: ["api"] },
+					limits,
+				}).success,
+			).toBe(false);
+		}
+		expect(
+			projectExplorationCatalogInputSchema.safeParse({
+				...base,
+				focus: { terms: ["api"], unknown: true },
+			}).success,
+		).toBe(false);
+
+		const topLevelKeys = Object.keys(projectExplorationCatalogResultSchema.shape);
+		for (const forbidden of ["content", "body", "snippet", "rootPath", "repoPath"]) {
+			expect(topLevelKeys).not.toContain(forbidden);
+		}
+	});
+
 	afterEach(async () => {
 		connection.sqlite.close();
 		delete process.env.SCAN_ARTIFACT_ROOT;
@@ -93,6 +158,7 @@ describe("Static Intelligence MCP tools", () => {
 			"vuln_get_evidence_bundle",
 			"vuln_get_verification_commands",
 			"vuln_get_code_structure_snapshot",
+			"vuln_get_project_exploration_catalog",
 		]);
 		expect(
 			staticIntelligenceMcpToolRegistry.every((tool) =>
@@ -141,6 +207,33 @@ describe("Static Intelligence MCP tools", () => {
 				input: { limit: 101 },
 			}),
 		).resolves.toMatchObject({ ok: false, status: "failed" });
+
+		await expect(
+			getProjectExplorationCatalogTool({
+				db: connection.db,
+				input: {
+					scanRunId: "missing-scan",
+					generationId: "00000000-0000-4000-8000-000000000001",
+					focus: { terms: ["source"] },
+				},
+			}),
+		).resolves.toMatchObject({
+			ok: false,
+			reasonCode: "generation_missing",
+		});
+		await expect(
+			getProjectExplorationCatalogTool({
+				db: connection.db,
+				input: {
+					scanRunId: "missing-scan",
+					generationId: "00000000-0000-4000-8000-000000000001",
+					focus: {},
+				},
+			}),
+		).resolves.toMatchObject({
+			ok: false,
+			reasonCode: "focus_required",
+		});
 
 		await expect(
 			getStaticIntelligenceKnowledgeSourceManifestTool({
@@ -203,6 +296,12 @@ describe("Static Intelligence MCP tools", () => {
 			allResult.sources[0].generationId,
 		]);
 		expect(JSON.stringify(allResult)).not.toContain(REPO_PATH_MARKER);
+		expect(allResult.sources[0]).toMatchObject({
+			rootRef: expect.stringMatching(/^[a-f0-9]{64}$/),
+			generationGeneratedAt: expect.any(String),
+			sourceRevision: { kind: "tree_hash_only" },
+			readiness: expect.stringMatching(/^(available|stale|degraded)$/),
+		});
 
 		const filteredResult = await listStaticIntelligenceKnowledgeSources({
 			db: connection.db,
@@ -215,6 +314,73 @@ describe("Static Intelligence MCP tools", () => {
 			newerScanRunId,
 			olderScanRunId,
 		]);
+		const rootRef = createHash("sha256")
+			.update(await fs.realpath(REPO_PATH_MARKER))
+			.digest("hex");
+		const rootFiltered = await listStaticIntelligenceKnowledgeSources({
+			db: connection.db,
+			input: { rootRef, limit: 10 },
+			generatedAt: GENERATED_AT,
+		});
+		expect(rootFiltered).toMatchObject({ ok: true });
+		if (!rootFiltered.ok) throw new Error(rootFiltered.message);
+		expect(
+			rootFiltered.sources.map((source) => source.scanRunId).sort(),
+		).toEqual([newerScanRunId, olderScanRunId].sort());
+		expect(
+			await listStaticIntelligenceKnowledgeSources({
+				db: connection.db,
+				input: { rootRef, projectId: otherProjectId, limit: 10 },
+				generatedAt: GENERATED_AT,
+			}),
+		).toMatchObject({ ok: true, sources: [] });
+		expect(
+			await listStaticIntelligenceKnowledgeSources({
+				db: connection.db,
+				input: { rootRef: "f".repeat(64), limit: 10 },
+				generatedAt: GENERATED_AT,
+			}),
+		).toMatchObject({ ok: true, sources: [] });
+	});
+
+	it("returns a bounded catalog from one exact persisted generation", async () => {
+		const repoPath = path.join(tempDir, "catalog-project");
+		const catalogProjectId = await seedProject("Catalog Project", repoPath);
+		const catalogScanRunId = await seedScanRun({ projectId: catalogProjectId });
+		await persistGeneration(catalogScanRunId);
+		const generation = await new StaticIntelligenceGenerationRepository(
+			connection.db,
+		).loadLatestValidGeneration(catalogScanRunId);
+		if (!generation) throw new Error("expected catalog generation");
+		const beforeCount = tableCount("scan_artifacts");
+		const sourcePath = path.join(repoPath, "src", "app.ts");
+		const beforeMtime = (await fs.stat(sourcePath)).mtimeMs;
+
+		const result = await getProjectExplorationCatalogTool({
+			db: connection.db,
+			input: {
+				scanRunId: catalogScanRunId,
+				generationId: generation.generationId,
+				focus: { paths: ["src/app.ts"] },
+			},
+		});
+		expect(result).toMatchObject({
+			ok: true,
+			version: "v1",
+			generation: {
+				projectId: catalogProjectId,
+				scanRunId: catalogScanRunId,
+				generationId: generation.generationId,
+				snapshotRef: generation.structure.metadata.snapshotRef,
+				sourceTreeHash: generation.structure.metadata.sourceTreeHash,
+				sourceStateHash: generation.structure.metadata.sourceStateHash,
+			},
+			likelyFiles: [{ rank: 1, path: "src/app.ts" }],
+		});
+		expect(JSON.stringify(result)).not.toContain(repoPath);
+		expect(JSON.stringify(result)).not.toContain("export const app = true");
+		expect(tableCount("scan_artifacts")).toBe(beforeCount);
+		expect((await fs.stat(sourcePath)).mtimeMs).toBe(beforeMtime);
 	});
 
 	it("matches service output for manifest, guardrail material, evidence bundle, and verification commands", async () => {
@@ -347,6 +513,18 @@ describe("Static Intelligence MCP tools", () => {
 			db: connection.db,
 			input: { scanRunId, findingId },
 		});
+		const generation = await new StaticIntelligenceGenerationRepository(
+			connection.db,
+		).loadLatestValidGeneration(scanRunId);
+		if (!generation) throw new Error("expected persisted generation");
+		await getProjectExplorationCatalogTool({
+			db: connection.db,
+			input: {
+				scanRunId,
+				generationId: generation.generationId,
+				focus: { paths: ["src/app.ts"] },
+			},
+		});
 
 		expect(rowCounts()).toEqual(before);
 	});
@@ -358,6 +536,10 @@ describe("Static Intelligence MCP tools", () => {
 		});
 		await seedCompletedScanReview(scanRunId);
 		await persistGeneration(scanRunId);
+		const generation = await new StaticIntelligenceGenerationRepository(
+			connection.db,
+		).loadLatestValidGeneration(scanRunId);
+		if (!generation) throw new Error("expected persisted generation");
 
 		const outputs = [
 			await listStaticIntelligenceKnowledgeSources({
@@ -380,6 +562,14 @@ describe("Static Intelligence MCP tools", () => {
 			await getStaticIntelligenceVerificationCommandsTool({
 				db: connection.db,
 				input: { scanRunId, findingId },
+			}),
+			await getProjectExplorationCatalogTool({
+				db: connection.db,
+				input: {
+					scanRunId,
+					generationId: generation.generationId,
+					focus: { paths: ["src/app.ts"] },
+				},
 			}),
 		];
 		const serialized = JSON.stringify(outputs);

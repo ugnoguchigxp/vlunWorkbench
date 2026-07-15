@@ -378,6 +378,22 @@ bun run intelligence:knowledge-source -- --scan-run-id <scan-run-id>
 bun run intelligence:guardrail-material -- --scan-run-id <scan-run-id>
 ```
 
+Query the same persisted project-exploration catalog contract used by MCP,
+without an LLM or MCP client:
+
+```bash
+bun run intelligence:exploration-catalog -- \
+  --scan-run-id <scan-run-id> \
+  --generation-id <generation-id> \
+  --path api/routes/example.ts \
+  --term routing \
+  --term schema
+```
+
+Repeat `--path`, `--module-id`, or `--term` to add focus values. The command
+writes one machine-readable JSON result to stdout and does not scan or mutate
+the repository.
+
 Run the read-only MCP wrapper:
 
 ```bash
@@ -393,8 +409,11 @@ The MCP tools are read-only:
 - `vuln_get_evidence_bundle`
 - `vuln_get_verification_commands`
 - `vuln_get_code_structure_snapshot`
+- `vuln_get_project_exploration_catalog`
 
 They read persisted generations, accept optional generation pinning where supported, and return candidate-only JSON. They do not refresh analysis, register contextStill knowledge, create NightWorkers tasks, execute scanners, execute verification commands, or expose raw artifact bodies / evidence snippets. Ontology Handoff is evidence-backed material for NightWorkers; vulnWorkbench does not own canonical ontology or task compilation.
+
+`vuln_get_project_exploration_catalog` requires an exact `scanRunId` / `generationId` pin and at least one path, module, or term focus. It returns a deterministic, bounded projection of likely files, related tests, and candidate-only verification commands; it never returns source bodies or scans the repository. The design is documented in [Project Scan Exploration Reduction MCP Concept](spec/project-scan-exploration-reduction-mcp-concept.md) and [Phase 42](spec/phase-42-project-scan-exploration-catalog-mcp-plan.md); the vulnWorkbench component decision and reproducible checks are recorded in [Phase 42 Catalog MCP GO evidence](spec/evidence/phase-42-vulnworkbench-catalog-mcp-go.md). Consumer-specific activation and value measurements, including the controlled NightWorkers proof, are separate rollout decisions. Unlike the broader [coding-agent consumer companion plan](spec/static-intelligence-coding-agent-consumer-companion-plan.md), Phase 42 activates only a default-off native/API implementation-lane pilot and does not enable Codex SDK or general agent integration.
 
 ## API Surface
 

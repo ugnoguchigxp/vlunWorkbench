@@ -122,6 +122,9 @@ describe("Code Structure extractor", () => {
 		]);
 		expect(routeFile?.packageImports).toEqual(["@scope/pkg", "hono", "zod"]);
 		expect(routeFile?.exportedSymbols).toContain("routeHandler");
+		expect(routeFile?.identifiers).toEqual(
+			expect.arrayContaining(["routeHandler", "secret"]),
+		);
 		expect(libFile?.moduleKind).toBe("mixed");
 		expect(snapshot.edges).toEqual(
 			expect.arrayContaining([
@@ -154,6 +157,36 @@ describe("Code Structure extractor", () => {
 			testFileCount: 1,
 			configFileCount: 1,
 		});
+		expect(JSON.stringify(snapshot)).not.toContain(SECRET_MARKER);
+	});
+
+	it("indexes declaration and property identifiers without retaining literal values", async () => {
+		await writeProjectFile(
+			"src/review.ts",
+			[
+				"interface ReviewResult { remediation?: string; suppressions: string[] }",
+				"const internalValidationState = { remediation: 'safe', suppressions: [] };",
+				`const literalValue = "${SECRET_MARKER}";`,
+				`const literalKey = { "${SECRET_MARKER}": true };`,
+			].join("\n"),
+		);
+
+		const snapshot = await buildCodeStructureSnapshot({
+			projectPath: tempDir,
+			generatedAt: GENERATED_AT,
+		});
+
+		expect(snapshot.files[0].identifiers).toEqual(
+			expect.arrayContaining([
+				"ReviewResult",
+				"internalValidationState",
+				"literalKey",
+				"literalValue",
+				"remediation",
+				"suppressions",
+			]),
+		);
+		expect(snapshot.files[0].identifiers).not.toContain(SECRET_MARKER);
 		expect(JSON.stringify(snapshot)).not.toContain(SECRET_MARKER);
 	});
 

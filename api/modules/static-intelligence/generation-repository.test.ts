@@ -335,6 +335,144 @@ describe("Static Intelligence generation repository", () => {
 		).rejects.toThrow();
 	});
 
+	it("discovers exact rootRef generations before applying limit", async () => {
+		const repository = new StaticIntelligenceGenerationRepository(
+			connection.db,
+			new ArtifactStorage(artifactDir),
+		);
+		const rootRef = createHash("sha256")
+			.update(await fs.realpath(projectDir))
+			.digest("hex");
+		const persistPrimary = async (generationId: string, generatedAt: string) => {
+			const snapshot = await snapshotFixture();
+			const exportPayload = await buildStaticIntelligenceExport(
+				connection.db,
+				scanRunId,
+				{ generatedAt: new Date(generatedAt), codeStructureSnapshot: snapshot },
+			);
+			return repository.persistGeneration({
+				scanRunId,
+				snapshot,
+				exportPayload,
+				generationId,
+			});
+		};
+		const older = await persistPrimary(
+			"00000000-0000-4000-8000-000000000001",
+			"2026-07-10T10:30:00.000Z",
+		);
+		await persistPrimary(
+			"00000000-0000-4000-8000-000000000003",
+			"2026-07-10T11:00:00.000Z",
+		);
+		const expectedFirst = await persistPrimary(
+			"00000000-0000-4000-8000-000000000002",
+			"2026-07-10T11:00:00.000Z",
+		);
+
+		const [owner] = await connection.db.select().from(users).limit(1);
+		if (!owner) throw new Error("Missing fixture owner");
+		const otherDir = path.join(tempDir, "other-project");
+		await fs.mkdir(otherDir, { recursive: true });
+		const [otherProject] = await connection.db
+			.insert(projects)
+			.values({
+				ownerUserId: owner.id,
+				name: "Other Generation Target",
+				repoPath: otherDir,
+				defaultBranch: "main",
+				createdAt: NOW,
+				updatedAt: NOW,
+			})
+			.returning();
+		const [otherScan] = await connection.db
+			.insert(scanRuns)
+			.values({
+				projectId: otherProject!.id,
+				profile: "baseline",
+				status: "completed",
+				startedAt: NOW,
+				completedAt: NOW,
+				createdByUserId: owner.id,
+				createdAt: NOW,
+				updatedAt: NOW,
+			})
+			.returning();
+		const otherSnapshot = await snapshotFixture();
+		otherSnapshot.project = {
+			id: otherProject!.id,
+			rootRef: createHash("sha256")
+				.update(await fs.realpath(otherDir))
+				.digest("hex"),
+			rootPathIncluded: false,
+		};
+		const otherExport = await buildStaticIntelligenceExport(
+			connection.db,
+			otherScan!.id,
+			{
+				generatedAt: new Date("2026-07-10T12:00:00.000Z"),
+				codeStructureSnapshot: otherSnapshot,
+			},
+		);
+		await repository.persistGeneration({
+			scanRunId: otherScan!.id,
+			snapshot: otherSnapshot,
+			exportPayload: otherExport,
+			generationId: "00000000-0000-4000-8000-000000000099",
+		});
+
+		await connection.db.insert(scanArtifacts).values([
+			{
+				scanRunId,
+				kind: "code_structure_snapshot",
+				format: "json",
+				path: "malformed.json",
+				sha256: "0".repeat(64),
+				sizeBytes: 0,
+				metadata: { rootRef },
+				createdAt: new Date("2026-07-10T13:00:00.000Z"),
+			},
+			{
+				scanRunId,
+				kind: "code_structure_snapshot",
+				format: "json",
+				path: "incomplete.json",
+				sha256: "0".repeat(64),
+				sizeBytes: 0,
+				metadata: {
+					...older.structure.metadata,
+					generationId: "00000000-0000-4000-8000-000000000004",
+					generatedAt: "2026-07-10T13:00:00.000Z",
+				},
+				createdAt: new Date("2026-07-10T13:00:00.000Z"),
+			},
+		]);
+
+		const limited = await repository.listLatestValidGenerationsByRootRef({
+			rootRef,
+			limit: 1,
+		});
+		expect(limited).toHaveLength(1);
+		expect(limited[0]).toEqual(expectedFirst);
+		const all = await repository.listLatestValidGenerationsByRootRef({
+			rootRef,
+			projectId,
+			limit: 10,
+		});
+		expect(all.map((generation) => generation.generationId)).toEqual([
+			"00000000-0000-4000-8000-000000000002",
+			"00000000-0000-4000-8000-000000000003",
+			"00000000-0000-4000-8000-000000000001",
+		]);
+		expect(
+			await repository.listLatestValidGenerationsByRootRef({
+				rootRef,
+				projectId: otherProject!.id,
+				limit: 10,
+			}),
+		).toEqual([]);
+	});
+
 	async function snapshotFixture(
 		overrides: { rootRef?: string } = {},
 	): Promise<CodeStructureSnapshot> {

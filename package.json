@@ -59,6 +59,7 @@
 		"intelligence:landscape": "bun run api/cli/intelligence-landscape.ts",
 		"intelligence:agent-query": "bun run api/cli/intelligence-agent-query.ts",
 		"intelligence:code-structure": "bun run api/cli/intelligence-code-structure.ts",
+		"intelligence:exploration-catalog": "bun run api/cli/intelligence-exploration-catalog.ts",
 		"intelligence:knowledge-source": "bun run api/cli/intelligence-knowledge-source.ts",
 		"intelligence:guardrail-material": "bun run api/cli/intelligence-guardrail-material.ts",
 		"mcp:static-intelligence": "bun run api/cli/static-intelligence-mcp-server.ts",

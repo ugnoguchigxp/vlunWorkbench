@@ -82,6 +82,7 @@ type BuildCodeStructureSnapshotInput = {
 type ExtractedSyntax = {
 	imports: string[];
 	exportedSymbols: string[];
+	identifiers: string[];
 	moduleKind: CodeStructureModuleKind;
 	hasParseDiagnostics: boolean;
 };
@@ -234,6 +235,7 @@ async function buildFileFacts(
 			moduleKind: "unknown",
 			tags: ["source"],
 			exportedSymbols: [],
+			identifiers: [],
 			imports: [],
 			packageImports: [],
 			contentHash: sha256Hex(""),
@@ -257,6 +259,7 @@ async function buildFileFacts(
 		moduleKind: syntax.moduleKind,
 		tags: [],
 		exportedSymbols: uniqueSorted(syntax.exportedSymbols),
+		identifiers: uniqueSorted(syntax.identifiers).slice(0, 256),
 		imports,
 		packageImports,
 		contentHash: createHash("sha256").update(content).digest("hex"),
@@ -280,6 +283,7 @@ function extractSyntax(filePath: string, sourceText: string): ExtractedSyntax {
 	);
 	const imports: string[] = [];
 	const exportedSymbols: string[] = [];
+	const identifiers: string[] = [];
 	let hasEsm = false;
 	let hasCommonjs = false;
 
@@ -297,7 +301,44 @@ function extractSyntax(filePath: string, sourceText: string): ExtractedSyntax {
 		}
 	}
 
+	function addIdentifierName(
+		name: ts.BindingName | ts.PropertyName | undefined,
+	) {
+		if (!name) return;
+		if (ts.isIdentifier(name)) {
+			identifiers.push(name.text);
+			return;
+		}
+		if (ts.isObjectBindingPattern(name) || ts.isArrayBindingPattern(name)) {
+			for (const element of name.elements) {
+				if (ts.isBindingElement(element)) addIdentifierName(element.name);
+			}
+		}
+	}
+
 	function visit(node: ts.Node): void {
+		if (
+			(ts.isFunctionDeclaration(node) ||
+				ts.isClassDeclaration(node) ||
+				ts.isInterfaceDeclaration(node) ||
+				ts.isTypeAliasDeclaration(node) ||
+				ts.isEnumDeclaration(node)) &&
+			node.name
+		) {
+			addIdentifierName(node.name);
+		} else if (ts.isVariableDeclaration(node)) {
+			addIdentifierName(node.name);
+		} else if (
+			ts.isPropertyDeclaration(node) ||
+			ts.isPropertySignature(node) ||
+			ts.isMethodDeclaration(node) ||
+			ts.isMethodSignature(node) ||
+			ts.isPropertyAssignment(node) ||
+			ts.isShorthandPropertyAssignment(node)
+		) {
+			addIdentifierName(node.name);
+		}
+
 		if (ts.isImportDeclaration(node)) {
 			hasEsm = true;
 			addImportSpecifier(node.moduleSpecifier);
@@ -372,6 +413,7 @@ function extractSyntax(filePath: string, sourceText: string): ExtractedSyntax {
 	return {
 		imports,
 		exportedSymbols,
+		identifiers,
 		moduleKind: moduleKind(hasEsm, hasCommonjs),
 		hasParseDiagnostics: parseDiagnosticCount(sourceFile) > 0,
 	};
