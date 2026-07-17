@@ -11,6 +11,7 @@ import type {
 	ProjectRepository,
 	ScanRepository,
 } from "../modules/scans/repositories";
+import { isTemporaryProjectPath } from "../modules/scans/project-visibility";
 import {
 	resolveScanExecutionPolicy,
 	scanExecutionPolicyMetadata,
@@ -31,7 +32,11 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 		.get("/", async (c) => {
 			const authUser = getAuthContextUser(c);
 			const list = await repo.listProjects(authUser.userId);
-			return c.json({ projects: list });
+			return c.json({
+				projects: list.filter(
+					(project) => !isTemporaryProjectPath(project.repoPath),
+				),
+			});
 		})
 		.post("/folder-picker", async (c) => {
 			getAuthContextUser(c);
@@ -109,7 +114,7 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 
 			const created = await repo.createProject({
 				ownerUserId: authUser.userId,
-				name: body.name,
+				name: path.basename(resolvedPath) || "repository",
 				repoPath: resolvedPath,
 				canonicalRepoPath: resolvedPath,
 				defaultBranch: body.defaultBranch,

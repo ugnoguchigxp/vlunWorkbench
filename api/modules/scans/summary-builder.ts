@@ -17,6 +17,7 @@ export interface ToolSummary {
 	status: string;
 	required: boolean;
 	exitCode: number | null;
+	toolVersion: string | null;
 	findingCount: number;
 	severityCounts: {
 		critical: number;
@@ -28,6 +29,7 @@ export interface ToolSummary {
 	};
 	artifactCount: number;
 	error: string | null;
+	metadata?: Record<string, unknown>;
 }
 
 export interface StepSummary {
@@ -47,6 +49,9 @@ export interface StepSummary {
 	error: string | null;
 	outcome?: string | null;
 	targetOrigin?: string | null;
+	reasonCode?: string | null;
+	coverageEffect?: "covered" | "partial" | "gap";
+	metadata?: Record<string, unknown>;
 }
 
 export interface ScanRunSummary {
@@ -174,10 +179,12 @@ export async function buildScanRunSummary(
 			status: tr?.status ?? "skipped",
 			required: pt.required,
 			exitCode: tr?.exitCode ?? null,
+			toolVersion: tr?.toolVersion ?? null,
 			findingCount: toolFindings.length,
 			severityCounts,
 			artifactCount: toolArtifacts.length,
 			error: (tr?.metadata?.error as string) ?? null,
+			metadata: tr?.metadata ?? {},
 		});
 	}
 
@@ -214,10 +221,12 @@ export async function buildScanRunSummary(
 				status: tr.status,
 				required: false,
 				exitCode: tr.exitCode,
+				toolVersion: tr.toolVersion,
 				findingCount: toolFindings.length,
 				severityCounts,
 				artifactCount: toolArtifacts.length,
 				error: (tr.metadata?.error as string) ?? null,
+				metadata: tr.metadata ?? {},
 			});
 		}
 	}
@@ -281,9 +290,24 @@ export async function buildScanRunSummary(
 							required: step.required,
 							findingCount:
 								(metadataResult?.findingCount as number | undefined) ?? 0,
-							artifactCount: 0,
+							artifactCount: Array.isArray(metadataResult?.artifactIds)
+								? metadataResult.artifactIds.length
+								: 0,
 							error:
 								(metadataResult?.error as string | null | undefined) ?? null,
+							metadata:
+								(metadataResult?.metadata as
+									| Record<string, unknown>
+									| undefined) ?? {},
+							reasonCode:
+								(metadataResult?.reasonCode as string | null | undefined) ??
+								null,
+							coverageEffect:
+								(metadataResult?.coverageEffect as
+									| "covered"
+									| "partial"
+									| "gap"
+									| undefined) ?? undefined,
 						};
 					}
 					const tool = tools.find((item) => item.toolId === step.toolId);

@@ -50,7 +50,7 @@ export function buildZapBaselineCommand(
 	outputPath: string,
 ): string[] {
 	if (
-		!/^https?:\/\/(?:127\.0\.0\.1|host\.docker\.internal)(?::\d+)?$/.test(
+		!/^https?:\/\/(?:127\.0\.0\.1|localhost|host\.docker\.internal|172\.(?:1[6-9]|2\d|3[01])\.\d+\.\d+)(?::\d+)?$/.test(
 			targetOrigin,
 		)
 	) {

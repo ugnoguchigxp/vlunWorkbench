@@ -1,0 +1,41 @@
+{
+	"@programName": "ZAP",
+	"@version": "2.17.0",
+	"site": [
+		{
+			"@name": "http://host.docker.internal:3000",
+			"@host": "host.docker.internal",
+			"@port": "3000",
+			"@ssl": "false",
+			"alerts": [
+				{
+					"pluginid": "10021",
+					"name": "X-Content-Type-Options Header Missing",
+					"riskcode": "1",
+					"confidence": "2",
+					"desc": "The Anti-MIME-Sniffing header is not set.",
+					"solution": "Ensure that the application sets the X-Content-Type-Options header.",
+					"reference": "https://developer.mozilla.org/docs/Web/HTTP/Headers/X-Content-Type-Options",
+					"cweid": "693",
+					"wascid": "15",
+					"instances": [
+						{
+							"uri": "http://host.docker.internal:3000/",
+							"method": "GET",
+							"param": "",
+							"evidence": "content-type: text/html",
+							"attack": ""
+						},
+						{
+							"uri": "http://host.docker.internal:3000/health#fragment",
+							"method": "HEAD",
+							"param": "",
+							"evidence": "",
+							"attack": ""
+						}
+					]
+				}
+			]
+		}
+	]
+}

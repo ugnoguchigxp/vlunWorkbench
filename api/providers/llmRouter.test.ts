@@ -297,7 +297,7 @@ describe("LlmRouter", () => {
 			],
 			taskRoutes: [
 				{
-					task: "finding_review",
+					task: "scan_review",
 					primaryTarget: {
 						providerEndpointId: "codex-default",
 						model: "gpt-5.4-mini",
@@ -309,15 +309,19 @@ describe("LlmRouter", () => {
 		});
 		const router = new LlmRouter(repo, env);
 
-		const resolution = await router.resolve("finding_review");
+		const resolution = await router.resolve("scan_review");
 
 		expect(resolution.ok).toBe(true);
 		if (resolution.ok) {
 			expect(resolution.providerName).toBe("codex:codex-default");
+			expect(resolution.target.thinkingDepth).toBe("low");
 			expect(resolution.provider).toBeInstanceOf(CodexSdkProvider);
 			expect(
-				(resolution.provider as CodexSdkProvider).getDiagnostics().timeoutMs,
-			).toBe(600_000);
+				(resolution.provider as CodexSdkProvider).getDiagnostics(),
+			).toMatchObject({
+				timeoutMs: 600_000,
+				reasoningEffort: "low",
+			});
 		}
 	});
 

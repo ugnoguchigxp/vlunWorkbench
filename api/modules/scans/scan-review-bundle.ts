@@ -20,6 +20,7 @@ export type ScanReviewBundleOptions = {
 	maxFindings?: number;
 	maxEvidencePerFinding?: number;
 	maxSnippetChars?: number;
+	maxDescriptionChars?: number;
 	findingFilter?: ScanReviewFindingFilter;
 };
 
@@ -28,8 +29,9 @@ export type ScanReviewBundle = Awaited<
 >;
 
 const DEFAULT_MAX_FINDINGS = 50;
-const DEFAULT_MAX_EVIDENCE_PER_FINDING = 5;
-const DEFAULT_MAX_SNIPPET_CHARS = 1200;
+const DEFAULT_MAX_EVIDENCE_PER_FINDING = 2;
+const DEFAULT_MAX_SNIPPET_CHARS = 300;
+const DEFAULT_MAX_DESCRIPTION_CHARS = 400;
 
 function truncateText(value: string | null | undefined, maxChars: number) {
 	if (!value) return null;
@@ -59,6 +61,24 @@ function metadataDeltaKind(metadata: unknown): string | null {
 	const value =
 		record.deltaKind ?? record.comparisonKind ?? record.scanComparisonKind;
 	return typeof value === "string" ? value : null;
+}
+
+function compactScanRunMetadata(metadata: unknown): Record<string, unknown> {
+	if (!metadata || typeof metadata !== "object") return {};
+	const source = metadata as Record<string, unknown>;
+	const compact: Record<string, unknown> = {};
+	for (const key of [
+		"profileId",
+		"profileVersion",
+		"scope",
+		"continueOnToolFailure",
+		"runner",
+		"executionPolicy",
+		"profileOutcome",
+	]) {
+		if (source[key] !== undefined) compact[key] = source[key];
+	}
+	return compact;
 }
 
 type FindingRow = typeof findings.$inferSelect;
@@ -166,6 +186,8 @@ export async function buildScanReviewBundle(
 	const maxEvidencePerFinding =
 		options.maxEvidencePerFinding ?? DEFAULT_MAX_EVIDENCE_PER_FINDING;
 	const maxSnippetChars = options.maxSnippetChars ?? DEFAULT_MAX_SNIPPET_CHARS;
+	const maxDescriptionChars =
+		options.maxDescriptionChars ?? DEFAULT_MAX_DESCRIPTION_CHARS;
 	const findingFilter = options.findingFilter ?? "all";
 	const [scanRun] = await db
 		.select()
@@ -294,6 +316,20 @@ export async function buildScanReviewBundle(
 			.filter((decision) => decision.findingId === findingId)
 			.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0] ?? null;
 
+	const compactSummary = {
+		...summary,
+		tools: summary.tools.map((tool) => {
+			const compact = { ...tool } as Record<string, unknown>;
+			delete compact.metadata;
+			return compact;
+		}),
+		steps: (summary.steps ?? []).map((step) => {
+			const compact = { ...step } as Record<string, unknown>;
+			delete compact.metadata;
+			return compact;
+		}),
+	};
+
 	return {
 		scanRun: {
 			id: scanRun.id,
@@ -301,7 +337,7 @@ export async function buildScanReviewBundle(
 			profile: scanRun.profile,
 			status: scanRun.status,
 			summary: scanRun.summary,
-			metadata: scanRun.metadata,
+			metadata: compactScanRunMetadata(scanRun.metadata),
 			startedAt: scanRun.startedAt,
 			completedAt: scanRun.completedAt,
 		},
@@ -310,7 +346,7 @@ export async function buildScanReviewBundle(
 			name: project.name,
 			defaultBranch: project.defaultBranch,
 		},
-		summary,
+		summary: compactSummary,
 		tools: toolRows.map((tool) => ({
 			id: tool.id,
 			toolName: tool.toolName,
@@ -335,7 +371,7 @@ export async function buildScanReviewBundle(
 				sourceTool: finding.sourceTool,
 				ruleId: finding.ruleId,
 				title: finding.title,
-				description: finding.description,
+				description: truncateText(finding.description, maxDescriptionChars),
 				severity: finding.severity,
 				confidence: finding.confidence,
 				status: finding.status,
@@ -402,6 +438,7 @@ export async function buildScanReviewBundle(
 			maxFindings,
 			maxEvidencePerFinding,
 			maxSnippetChars,
+			maxDescriptionChars,
 			findingFilter,
 		},
 	};

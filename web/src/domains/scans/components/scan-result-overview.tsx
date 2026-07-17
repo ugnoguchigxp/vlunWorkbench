@@ -1,6 +1,7 @@
 import type { StepSummary, ToolSummary } from "../../../api";
 import {
 	formatScanOutcome,
+	formatScanReason,
 	getProfileDisplay,
 	getToolDisplay,
 } from "../scan-profile-display";
@@ -33,10 +34,11 @@ export function ScanResultOverview({
 			"過去の scan run です。保存済み結果から内容を確認します。",
 	);
 	const outcome = c.scanSummary?.profileOutcome ?? scanRun?.status ?? null;
+	const latestScanReview = c.scanReviews[0] ?? null;
 	const latestCompletedScanReview =
 		c.scanReviews.find((item) => item.status === "completed") ?? null;
 	const latestFailedScanReview =
-		c.scanReviews.find((item) => item.status === "failed") ?? null;
+		latestScanReview?.status === "failed" ? latestScanReview : null;
 	const handoffView = buildScanImprovementRequestView(c.scanReviews);
 	const scanReviewFailure = classifyScanReviewFailure(
 		latestFailedScanReview?.errorMessage,
@@ -145,7 +147,16 @@ function StepResultRow({ step }: { step: StepSummary }) {
 					<span>{step.artifactCount} 証跡</span>
 				) : null}
 				{step.error ? <small>{step.error}</small> : null}
-				{step.reasonCode ? <small>理由: {step.reasonCode}</small> : null}
+				{step.reasonCode ? (
+					<small>理由: {formatScanReason(step.reasonCode)}</small>
+				) : null}
+				{step.coverageEffect ? (
+					<small>カバレッジ: {step.coverageEffect}</small>
+				) : null}
+				{step.metadata?.imageDigest ? (
+					<small>image: {String(step.metadata.imageDigest)}</small>
+				) : null}
+				{formatGatewayMetrics(step.metadata)}
 			</div>
 		</div>
 	);
@@ -165,9 +176,26 @@ function ToolResultRow({ tool }: { tool: ToolSummary }) {
 				</span>
 				<span>{tool.findingCount} 件</span>
 				<span>{tool.artifactCount} 証跡</span>
+				{tool.toolVersion ? <small>version {tool.toolVersion}</small> : null}
+				{tool.metadata?.imageDigest ? (
+					<small>image: {String(tool.metadata.imageDigest)}</small>
+				) : null}
+				{formatGatewayMetrics(tool.metadata)}
 				{tool.error ? <small>{tool.error}</small> : null}
 			</div>
 		</div>
+	);
+}
+
+function formatGatewayMetrics(metadata?: Record<string, unknown>) {
+	const metrics = metadata?.gatewayMetrics;
+	if (!metrics || typeof metrics !== "object") return null;
+	const values = metrics as Record<string, unknown>;
+	return (
+		<small>
+			対象転送: {String(values.forwardedRequests ?? 0)} / 予算超過:{" "}
+			{String(values.budgetBlockedRequests ?? 0)}
+		</small>
 	);
 }
 

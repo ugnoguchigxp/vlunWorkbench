@@ -95,7 +95,12 @@ describe("Static Intelligence build service", () => {
 		});
 		expect(result.stages.map((stage) => stage.name)).toEqual([
 			"validate_source",
-			"build_code_structure",
+			"build_inventory",
+			"analyze_files",
+			"resolve_references",
+			"infer_modules",
+			"build_v2_snapshot",
+			"project_v1_compatibility",
 			"normalize_paths",
 			"build_export",
 			"persist_generation",
@@ -124,6 +129,12 @@ describe("Static Intelligence build service", () => {
 		expect(persisted?.structure.snapshot.files.map((file) => file.path)).toEqual([
 			"src/app.ts",
 		]);
+		expect(persisted?.projectStructure?.snapshot).toMatchObject({
+			version: "v2",
+			inventory: {
+				entries: [expect.objectContaining({ path: "src/app.ts" })],
+			},
+		});
 	});
 
 	it("returns an input error for an unknown scan", async () => {

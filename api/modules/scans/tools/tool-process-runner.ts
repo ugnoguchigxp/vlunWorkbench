@@ -56,12 +56,9 @@ const DOCKER_TOOL_ALLOWLIST: Record<string, Set<string>> = {
 	"osv-scanner": new Set(["--version", "--format"]),
 	trivy: new Set(["--version", "fs", "image"]),
 	nuclei: new Set(["--version", "-version", "-u"]),
-	"zap-baseline.py": new Set(["zap-baseline.py", "-h"]),
 	st: new Set(["run", "--version"]),
 };
-const DOCKER_ENTRYPOINTS: Record<string, string> = {
-	"zap-baseline.py": "/zap/zap-baseline.py",
-};
+const DOCKER_ENTRYPOINTS: Record<string, string> = {};
 
 export function normalizeToolExecutionConfig(
 	execution?: Partial<ToolExecutionConfig>,
@@ -125,7 +122,7 @@ export async function checkToolVersion(
 		}
 		return null;
 	}
-	return result.stdout.trim();
+	return result.stdout.trim() || result.stderr.trim();
 }
 
 export function getCleanEnv(): Record<string, string> {
@@ -314,15 +311,12 @@ async function runDockerToolProcess(
 		repoPath: options.repoPath,
 		outputDir: outDir,
 		binaryName,
-		toolArgs: rewriteToolArgs(
-			binaryName === "zap-baseline.py" && args[0] === "zap-baseline.py"
-				? args.slice(1)
-				: args,
-			{
-				repoPath: options.repoPath,
-				outputPath: options.outputPath,
-			},
-		),
+		toolArgs: rewriteToolArgs(args, {
+			repoPath: options.repoPath,
+			outputPath: options.outputPath,
+			binaryName,
+			networkMode,
+		}),
 	});
 	const dockerMetadata = {
 		image,
@@ -468,7 +462,12 @@ function assertAllowedDockerInvocation(
 
 function rewriteToolArgs(
 	args: string[],
-	paths: { repoPath?: string; outputPath?: string },
+	paths: {
+		repoPath?: string;
+		outputPath?: string;
+		binaryName: string;
+		networkMode: DockerNetworkMode;
+	},
 ): string[] {
 	const rewrittenOutputPath = paths.outputPath
 		? `${CONTAINER_OUT_PATH}/${path.basename(paths.outputPath)}`
@@ -486,6 +485,20 @@ function rewriteToolArgs(
 			path.resolve(arg) === path.resolve(paths.outputPath)
 		) {
 			return rewrittenOutputPath;
+		}
+		if (
+			paths.networkMode === "default" &&
+			(paths.binaryName === "nuclei" || paths.binaryName === "st")
+		) {
+			try {
+				const url = new URL(arg);
+				if (url.hostname === "localhost" || url.hostname === "127.0.0.1") {
+					url.hostname = "host.docker.internal";
+					return url.toString().replace(/\/$/, "");
+				}
+			} catch {
+				// Non-URL arguments are returned unchanged.
+			}
 		}
 		return arg;
 	});
@@ -520,7 +533,7 @@ function buildDockerRunArgs(params: {
 		"no-new-privileges",
 		"--read-only",
 		"--tmpfs",
-		"/tmp:rw,nosuid,nodev,size=256m",
+		"/tmp:rw,nosuid,nodev,size=2g",
 		"--env",
 		"HOME=/tmp",
 		"--env",
@@ -529,6 +542,9 @@ function buildDockerRunArgs(params: {
 		DOCKER_ENTRYPOINTS[params.binaryName] ??
 			`/usr/local/bin/${params.binaryName}`,
 	];
+	if (process.platform === "linux" && params.networkMode === "default") {
+		args.push("--add-host", "host.docker.internal:host-gateway");
+	}
 
 	if (params.memory) {
 		args.push("--memory", params.memory);

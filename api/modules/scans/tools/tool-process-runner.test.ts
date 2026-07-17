@@ -132,6 +132,32 @@ describe("Tool process runner Docker backend", () => {
 		).rejects.toThrow("Docker runner does not allow tool");
 	});
 
+	it("maps loopback runtime targets to Docker Desktop host access", async () => {
+		let capturedArgs: string[] = [];
+		vi.spyOn(Bun, "spawn").mockImplementation((args) => {
+			capturedArgs = [...args];
+			return {
+				exited: Promise.resolve(0),
+				stdout: streamText(""),
+				stderr: streamText(""),
+			} as any;
+		});
+
+		await runToolProcess(
+			"nuclei",
+			["-u", "http://127.0.0.1:4173", "-silent"],
+			{
+				execution: {
+					runner: "docker",
+					docker: { networkMode: "default" },
+				},
+			},
+		);
+
+		expect(capturedArgs).toContain("http://host.docker.internal:4173");
+		expect(capturedArgs).not.toContain("http://127.0.0.1:4173");
+	});
+
 	it("fails docker version checks clearly when docker is unavailable", async () => {
 		vi.spyOn(Bun, "spawn").mockImplementation(() => {
 			throw new Error("ENOENT");
@@ -145,5 +171,16 @@ describe("Tool process runner Docker backend", () => {
 				},
 			}),
 		).rejects.toThrow("Docker process error: ENOENT");
+	});
+
+	it("accepts version output written to stderr", async () => {
+		vi.spyOn(Bun, "spawn").mockImplementation(() => ({
+			stdout: streamText(""),
+			stderr: streamText("nuclei version 3.8.0"),
+			exited: Promise.resolve(0),
+		}) as any);
+		expect(await checkToolVersion("nuclei", ["-version"])).toBe(
+			"nuclei version 3.8.0",
+		);
 	});
 });

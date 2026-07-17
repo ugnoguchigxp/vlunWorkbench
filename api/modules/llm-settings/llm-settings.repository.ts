@@ -167,24 +167,16 @@ export class LlmSettingsRepository {
 		return { providerEndpoints, taskRoutes: [] };
 	}
 
-	private async ensureSeededFromEnv(): Promise<void> {
-		const existing = await this.db.query.llmProviderEndpoints.findFirst();
-		if (existing) return;
-		const seed = await this.buildEnvSeed();
-		await this.replaceSettings(seed);
-	}
-
 	async getSettings(
 		options: GetSettingsOptions = {},
 	): Promise<LlmSettingsResponse> {
-		const shouldSeed = options.seedFromEnv ?? true;
-		if (shouldSeed) {
-			await this.ensureSeededFromEnv();
-		}
 		const endpoints = await this.db.query.llmProviderEndpoints.findMany();
 		const routes = await this.db.query.llmTaskRoutes.findMany();
 		const maskSecrets = options.maskSecrets ?? true;
-		const providerEndpoints = endpoints.map(endpointRowToSettings);
+		const envSeed = endpoints.length === 0 ? await this.buildEnvSeed() : null;
+		const providerEndpoints = envSeed
+			? envSeed.providerEndpoints
+			: endpoints.map(endpointRowToSettings);
 		if (!providerEndpoints.some((endpoint) => endpoint.kind === "codex")) {
 			providerEndpoints.push(await this.buildDefaultCodexEndpoint());
 		}
@@ -196,7 +188,10 @@ export class LlmSettingsRepository {
 					apiKey: maskSecrets ? maskSecret(endpoint.apiKey) : endpoint.apiKey,
 				};
 			}),
-			taskRoutes: routes.map(routeRowToSettings),
+			taskRoutes:
+				routes.length > 0
+					? routes.map(routeRowToSettings)
+					: (envSeed?.taskRoutes ?? []),
 			updatedAt: latestUpdatedAt(endpoints, routes)?.toISOString() ?? null,
 		};
 	}
@@ -282,12 +277,15 @@ export class LlmSettingsRepository {
 		id: string,
 		options: { maskSecrets?: boolean } = {},
 	): Promise<LlmProviderEndpointSettings | null> {
-		await this.ensureSeededFromEnv();
 		const row = await this.db.query.llmProviderEndpoints.findFirst({
 			where: eq(llmProviderEndpoints.id, id),
 		});
-		if (!row) return null;
-		const endpoint = endpointRowToSettings(row);
+		const endpoint = row
+			? endpointRowToSettings(row)
+			: ((await this.buildEnvSeed()).providerEndpoints.find(
+					(candidate) => candidate.id === id,
+				) ?? null);
+		if (!endpoint) return null;
 		return {
 			...endpoint,
 			apiKey:

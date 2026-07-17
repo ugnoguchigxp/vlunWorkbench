@@ -262,6 +262,10 @@ async function main() {
 					? {
 							...executionConfigFromPolicy(executionPolicy).docker,
 							dockerBin: argsValues["docker-bin"],
+							image:
+								argsValues["docker-image"] ??
+								executionConfigFromPolicy(executionPolicy).docker?.image,
+							networkMode,
 							memory: argsValues.memory,
 							cpus: argsValues.cpus,
 							toolCacheDir: argsValues["tool-cache-dir"],

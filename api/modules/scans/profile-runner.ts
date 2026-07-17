@@ -15,10 +15,9 @@ import {
 	NUCLEI_SAFE_POLICY_HASH,
 	NUCLEI_SAFE_POLICY_ID,
 } from "../runtime-scans/command-contracts";
-import {
-	RuntimeScannerRunner,
-	ZAP_STABLE_IMAGE,
-} from "../runtime-scans/runtime-scanner-runner";
+import { ZapBaselineRunner } from "../runtime-scans/zap-baseline-runner";
+import { ZAP_STABLE_IMAGE } from "../runtime-scans/zap-image-policy";
+import { RuntimeScannerRunner } from "../runtime-scans/runtime-scanner-runner";
 import { ArtifactStorage } from "./artifact-storage";
 import type { NormalizedFinding } from "./normalizers/fixture";
 import { normalizeGitleaks } from "./normalizers/gitleaks";
@@ -91,6 +90,7 @@ export type CoverageStepResult = {
 	findingCount: number;
 	error: string | null;
 	artifactIds?: string[];
+	metadata?: Record<string, unknown>;
 };
 
 export type ScanProfileStepResult =
@@ -364,26 +364,19 @@ export async function runToolIntoExistingScan(params: {
 
 	if (!toolVersion) {
 		const errMsg = `${toolName} executable not found on host system`;
-		await params.db.transaction(async (tx) => {
-			const txScanRepo = new ScanRepository(tx);
-			await txScanRepo.createScanEvent({
-				scanRunId: params.scanRunId,
-				level: "error",
-				eventType: "tool.failed",
-				message: `${toolName} failed: ${errMsg}`,
-				data: { toolRunId },
-			});
-			await txScanRepo.updateToolRunStatus(toolRunId, "failed", {
-				exitCode: 127,
-				metadata: {
-					adapter: toolName,
-					...baseExecutionMetadata,
-					error: errMsg,
-					options,
-					timeoutSec: timeoutSec ?? null,
-					toolVersion,
-				},
-			});
+		await scanRepo.recordToolUnavailable({
+			scanRunId: params.scanRunId,
+			toolRunId,
+			toolName,
+			message: errMsg,
+			metadata: {
+				adapter: toolName,
+				...baseExecutionMetadata,
+				error: errMsg,
+				options,
+				timeoutSec: timeoutSec ?? null,
+				toolVersion,
+			},
 		});
 		throw new Error(errMsg);
 	}
@@ -678,6 +671,10 @@ async function runRuntimeScannerIntoExistingScan(params: {
 	artifactStorage: ArtifactStorage;
 	timeoutSec?: number;
 	execution?: ToolExecutionConfig;
+	allowedPaths?: string[];
+	excludedPaths?: string[];
+	maxRequests?: number;
+	rateLimitPerSec?: number;
 }): Promise<{
 	toolRunId: string;
 	findingCount: number;
@@ -685,16 +682,23 @@ async function runRuntimeScannerIntoExistingScan(params: {
 	exitCode: number | null;
 	error?: string;
 	reasonCode?: string;
+	metadata?: Record<string, unknown>;
 }> {
 	const scanRepo = new ScanRepository(params.db);
 	const artifactRepo = new ArtifactRepository(params.db);
 	const findingRepo = new FindingRepository(params.db);
-	const runner = new RuntimeScannerRunner(
-		params.adapter,
-		params.artifactStorage,
-		params.execution,
-	);
-	const toolVersion = await runner.checkVersion();
+	const runner =
+		params.adapter === "zap-baseline"
+			? new ZapBaselineRunner(params.artifactStorage, params.execution)
+			: new RuntimeScannerRunner(
+					"nuclei-safe",
+					params.artifactStorage,
+					params.execution,
+				);
+	const toolVersion =
+		params.adapter === "nuclei-safe"
+			? await (runner as RuntimeScannerRunner).checkVersion()
+			: null;
 	const toolRun = await scanRepo.createToolRun({
 		scanRunId: params.scanRunId,
 		toolName: params.adapter,
@@ -713,7 +717,7 @@ async function runRuntimeScannerIntoExistingScan(params: {
 			image: params.adapter === "zap-baseline" ? ZAP_STABLE_IMAGE : null,
 		},
 	});
-	if (!toolVersion) {
+	if (params.adapter === "nuclei-safe" && !toolVersion) {
 		await scanRepo.updateToolRunStatus(toolRun.id, "failed", {
 			exitCode: 127,
 			metadata: { reasonCode: "tool_unavailable" },
@@ -723,15 +727,26 @@ async function runRuntimeScannerIntoExistingScan(params: {
 			findingCount: 0,
 			artifactIds: [],
 			exitCode: 127,
-			error: `${params.adapter} executable not found`,
+			error: "nuclei executable not found",
 			reasonCode: "tool_unavailable",
 		};
 	}
-	const result = await runner.run({
-		scanRunId: params.scanRunId,
-		targetOrigin: params.targetOrigin,
-		timeoutSec: params.timeoutSec,
-	});
+	const result =
+		params.adapter === "zap-baseline"
+			? await (runner as ZapBaselineRunner).run({
+					scanRunId: params.scanRunId,
+					upstreamOrigin: params.targetOrigin,
+					allowedPaths: params.allowedPaths ?? ["/"],
+					excludedPaths: params.excludedPaths ?? [],
+					maxRequests: params.maxRequests ?? 20,
+					rateLimitPerSec: params.rateLimitPerSec ?? 2,
+					timeoutSec: params.timeoutSec,
+				})
+			: await (runner as RuntimeScannerRunner).run({
+					scanRunId: params.scanRunId,
+					targetOrigin: params.targetOrigin,
+					timeoutSec: params.timeoutSec,
+				});
 	const artifactIds: string[] = [];
 	const rawArtifactId = result.rawArtifact
 		? (
@@ -779,6 +794,7 @@ async function runRuntimeScannerIntoExistingScan(params: {
 		await scanRepo.updateToolRunStatus(toolRun.id, "failed", {
 			exitCode: result.exitCode ?? 1,
 			metadata: {
+				...result.executionMetadata,
 				reasonCode: result.reasonCode,
 				error: result.error,
 				artifactIds,
@@ -791,6 +807,7 @@ async function runRuntimeScannerIntoExistingScan(params: {
 			exitCode: result.exitCode,
 			error: result.error,
 			reasonCode: result.reasonCode,
+			metadata: result.executionMetadata,
 		};
 	}
 	let findingCount = 0;
@@ -807,6 +824,7 @@ async function runRuntimeScannerIntoExistingScan(params: {
 			status: finding.status,
 			primaryLocation: finding.primaryLocation,
 			fingerprint: finding.fingerprint,
+			metadata: finding.metadata,
 		});
 		findingCount++;
 		for (const evidence of finding.evidences)
@@ -822,7 +840,12 @@ async function runRuntimeScannerIntoExistingScan(params: {
 	}
 	await scanRepo.updateToolRunStatus(toolRun.id, "completed", {
 		exitCode: result.exitCode,
+		toolVersion:
+			typeof result.executionMetadata?.reportVersion === "string"
+				? result.executionMetadata.reportVersion
+				: null,
 		metadata: {
+			...result.executionMetadata,
 			adapter: params.adapter,
 			targetOrigin: params.targetOrigin,
 			findingCount,
@@ -835,6 +858,7 @@ async function runRuntimeScannerIntoExistingScan(params: {
 		findingCount,
 		artifactIds,
 		exitCode: result.exitCode,
+		metadata: result.executionMetadata,
 	};
 }
 
@@ -1419,6 +1443,12 @@ export async function runProfileScan(params: {
 					continue;
 				} else if (step.kind === "runtime_scanner") {
 					const target = await ensureSharedRuntimeTarget();
+					const zapOptions =
+						step.adapter === "zap-baseline"
+							? (step.options as
+									| { maxRequests?: number; rateLimitPerSec?: number }
+									| undefined)
+							: undefined;
 					const runtimeResult = await runRuntimeScannerIntoExistingScan({
 						db: params.db,
 						projectId: params.projectId,
@@ -1428,6 +1458,10 @@ export async function runProfileScan(params: {
 						artifactStorage,
 						timeoutSec: resolvedTimeout,
 						execution,
+						allowedPaths: target.targetConfig.allowedPathsJson,
+						excludedPaths: target.targetConfig.excludedPathsJson,
+						maxRequests: zapOptions?.maxRequests,
+						rateLimitPerSec: zapOptions?.rateLimitPerSec,
 					});
 					const runtimeFailed = Boolean(runtimeResult.error);
 					stepResults.push({
@@ -1442,6 +1476,7 @@ export async function runProfileScan(params: {
 						findingCount: runtimeResult.findingCount,
 						error: runtimeResult.error ?? null,
 						artifactIds: runtimeResult.artifactIds,
+						metadata: runtimeResult.metadata,
 					});
 					if (runtimeFailed) {
 						if (failureFailsProfile) profileFailingToolFailed = true;
@@ -1504,7 +1539,9 @@ export async function runProfileScan(params: {
 						required: step.required,
 						status: "failed",
 						applicability: "applicable",
-						reasonCode: "execution_failed",
+						reasonCode: error.includes("policy_rejected")
+							? "policy_rejected"
+							: "execution_failed",
 						coverageEffect: "gap",
 						findingCount: 0,
 						error,

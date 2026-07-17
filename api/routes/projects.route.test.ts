@@ -23,7 +23,10 @@ vi.mock("node:fs/promises", () => {
 
 describe("Projects Route", () => {
 	const mockProjectRepo = {
-		listProjects: vi.fn().mockResolvedValue([{ id: "p-1", name: "Project 1" }]),
+		listProjects: vi.fn().mockResolvedValue([
+			{ id: "p-1", name: "Project 1", repoPath: "/Users/test/project-1" },
+			{ id: "p-tmp", name: "Temporary", repoPath: "/tmp/phase42-case" },
+		]),
 		findById: vi.fn().mockImplementation(async (id: string) => {
 			if (id === "p-1") {
 				return { id: "p-1", name: "Project 1", ownerUserId: "user-123" };
@@ -63,7 +66,9 @@ describe("Projects Route", () => {
 		const res = await app.request("/");
 		expect(res.status).toBe(200);
 		const body = await res.json();
-		expect(body.projects).toEqual([{ id: "p-1", name: "Project 1" }]);
+		expect(body.projects).toEqual([
+			{ id: "p-1", name: "Project 1", repoPath: "/Users/test/project-1" },
+		]);
 	});
 
 	it("GET /:projectId returns project details if owned by user", async () => {
@@ -96,6 +101,24 @@ describe("Projects Route", () => {
 		expect(res.status).toBe(201);
 		const body = await res.json();
 		expect(body.project.id).toBe("p-new");
+		expect(mockProjectRepo.createProject).toHaveBeenCalledWith(
+			expect.objectContaining({ name: "path", repoPath: "/valid/path" }),
+		);
+	});
+
+	it("POST / derives the project name when name is omitted", async () => {
+		const res = await app.request("/", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({
+				repoPath: "/valid/path",
+				defaultBranch: "main",
+			}),
+		});
+		expect(res.status).toBe(201);
+		expect(mockProjectRepo.createProject).toHaveBeenCalledWith(
+			expect.objectContaining({ name: "path", repoPath: "/valid/path" }),
+		);
 	});
 
 	it("POST / fails if repo path does not exist on disk", async () => {

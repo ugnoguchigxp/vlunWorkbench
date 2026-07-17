@@ -117,15 +117,25 @@ export class LlmRouter {
 				continue;
 			}
 			try {
+				const policy = LLM_TASK_POLICIES[task];
+				const effectiveThinkingDepth =
+					target.thinkingDepth || policy.defaultThinkingDepth;
+				const effectiveTarget = {
+					...target,
+					...(effectiveThinkingDepth
+						? { thinkingDepth: effectiveThinkingDepth }
+						: {}),
+				};
 				const provider = createLlmProviderForEndpoint({
 					endpoint,
 					model: target.model,
+					thinkingDepth: effectiveThinkingDepth,
 					env: this.env,
 				});
 				return {
 					ok: true,
 					task,
-					target,
+					target: effectiveTarget,
 					provider,
 					providerName: `${endpoint.kind}:${endpoint.id}`,
 					model: target.model,

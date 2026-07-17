@@ -58,6 +58,21 @@ describe("Scans Route", () => {
 			artifactId: null,
 		}),
 	};
+	const mockScanReviewRepo = {
+		listReviews: vi.fn().mockResolvedValue([]),
+		findById: vi.fn().mockResolvedValue({
+			id: "scan-review-1",
+			scanRunId: "s-1",
+			status: "running",
+		}),
+	};
+	const mockScanReviewRunner = {
+		start: vi.fn().mockResolvedValue({
+			reviewId: "scan-review-1",
+			status: "running",
+			completion: new Promise(() => {}),
+		}),
+	};
 	const mockScanSupervisor = {
 		cancel: vi.fn().mockResolvedValue({ cancelled: true }),
 	};
@@ -83,6 +98,8 @@ describe("Scans Route", () => {
 			decisionRepository: mockDecisionRepo as any,
 			findingReviewRepository: mockFindingReviewRepo as any,
 			scanReportRepository: mockScanReportRepo as any,
+			scanReviewRepository: mockScanReviewRepo as any,
+			scanReviewRunner: mockScanReviewRunner as any,
 			artifactStorage: {} as any,
 			db: {} as any,
 			scanSupervisor: mockScanSupervisor as any,
@@ -164,6 +181,33 @@ describe("Scans Route", () => {
 		expect(res.status).toBe(200);
 		const body = await res.json();
 		expect(body.groups).toHaveLength(0);
+	});
+
+	it("POST /:scanRunId/reviews returns 202 without waiting for LLM completion", async () => {
+		mockScanReviewRunner.start.mockClear();
+		const res = await app.request("/s-1/reviews", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ findingFilter: "all" }),
+		});
+
+		expect(res.status).toBe(202);
+		expect(mockScanReviewRunner.start).toHaveBeenCalledWith(
+			"s-1",
+			expect.objectContaining({
+				task: "scan_review",
+				createdByUserId: "user-123",
+				findingFilter: "all",
+			}),
+		);
+		expect(await res.json()).toMatchObject({
+			review: { id: "scan-review-1", status: "running" },
+			result: {
+				ok: true,
+				reviewId: "scan-review-1",
+				status: "running",
+			},
+		});
 	});
 
 	it("POST /:scanRunId/reports normalizes report generation to the full set", async () => {

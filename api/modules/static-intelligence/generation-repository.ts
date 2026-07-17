@@ -9,6 +9,10 @@ import {
 	type CodeStructureSnapshot,
 	codeStructureSnapshotSchema,
 } from "../../../shared/schemas/static-intelligence-code-structure.schema";
+import {
+	type ProjectStructureSnapshotV2,
+	projectStructureSnapshotV2Schema,
+} from "../../../shared/schemas/project-structure.schema";
 import type { AppDatabase } from "../../db";
 import { scanArtifacts, scanRuns } from "../../db/schema";
 import {
@@ -17,6 +21,7 @@ import {
 } from "../scans/artifact-storage";
 import {
 	buildSnapshotRef,
+	buildProjectStructureSnapshotRef,
 	buildSourceStateHash,
 	buildSourceTreeHash,
 	buildStaticIntelligenceExportHash,
@@ -32,6 +37,7 @@ import { StaticIntelligenceRepository } from "./repository";
 import type { StaticIntelligenceSourceBundle } from "./types";
 
 const STRUCTURE_KIND = "code_structure_snapshot";
+const PROJECT_STRUCTURE_KIND = "project_structure_snapshot";
 const EXPORT_KIND = "static_intelligence_export";
 
 export class StaticIntelligenceGenerationValidationError extends Error {
@@ -44,6 +50,7 @@ export class StaticIntelligenceGenerationValidationError extends Error {
 export type PersistStaticIntelligenceGenerationInput = {
 	scanRunId: string;
 	snapshot: CodeStructureSnapshot;
+	projectStructureSnapshot?: ProjectStructureSnapshotV2;
 	exportPayload: StaticIntelligenceExportV1;
 	generationId?: string;
 	sourceRevision?: StaticIntelligenceSourceRevision;
@@ -59,6 +66,11 @@ export type PersistedStaticIntelligenceGeneration = {
 		artifact: typeof scanArtifacts.$inferSelect;
 		metadata: StaticIntelligenceArtifactMetadata;
 		snapshot: CodeStructureSnapshot;
+	};
+	projectStructure?: {
+		artifact: typeof scanArtifacts.$inferSelect;
+		metadata: StaticIntelligenceArtifactMetadata;
+		snapshot: ProjectStructureSnapshotV2;
 	};
 	export: {
 		artifact: typeof scanArtifacts.$inferSelect;
@@ -85,10 +97,18 @@ export class StaticIntelligenceGenerationRepository {
 		}
 
 		const snapshot = codeStructureSnapshotSchema.parse(input.snapshot);
+		const projectStructureSnapshot = input.projectStructureSnapshot
+			? projectStructureSnapshotV2Schema.parse(input.projectStructureSnapshot)
+			: undefined;
 		const exportPayload = staticIntelligenceExportV1Schema.parse(
 			input.exportPayload,
 		);
-		this.assertPayloadOwnership({ bundle, snapshot, exportPayload });
+		this.assertPayloadOwnership({
+			bundle,
+			snapshot,
+			projectStructureSnapshot,
+			exportPayload,
+		});
 
 		const generationId = input.generationId ?? randomUUID();
 		if (!isUuid(generationId)) {
@@ -110,13 +130,26 @@ export class StaticIntelligenceGenerationRepository {
 			rootRef: snapshot.project.rootRef,
 			sourceTreeHash,
 		});
+		const projectStructureSnapshotRef = projectStructureSnapshot
+			? buildProjectStructureSnapshotRef({
+					rootRef: projectStructureSnapshot.project.rootRef,
+					structureInputHash: projectStructureSnapshot.structureInputHash,
+				})
+			: undefined;
 		const exportHash = buildStaticIntelligenceExportHash(exportPayload);
 		const degradedReasons = uniqueSorted([
 			...snapshot.degradedReasons,
+			...(projectStructureSnapshot
+				? projectStructureSnapshot.diagnostics
+						.filter((diagnostic) => diagnostic.impact !== "none")
+						.map((diagnostic) => diagnostic.code)
+				: []),
 			...exportPayload.scanSummary.degradedReasons,
 		]);
 		const status =
-			snapshot.status === "partial" || degradedReasons.length > 0
+			snapshot.status === "partial" ||
+			projectStructureSnapshot?.status === "partial" ||
+			degradedReasons.length > 0
 				? "degraded"
 				: "available";
 		const generatedAt = exportPayload.generatedAt;
@@ -135,9 +168,21 @@ export class StaticIntelligenceGenerationRepository {
 		}
 		const directory = `derived/static-intelligence/${generationId}`;
 		const structureContent = JSON.stringify(snapshot);
+		const projectStructureContent = projectStructureSnapshot
+			? JSON.stringify(projectStructureSnapshot)
+			: undefined;
 		const exportContent = JSON.stringify(exportPayload);
 		const savedArtifacts =
 			await this.artifactStorage.saveTextArtifactsAtomically(input.scanRunId, [
+				...(projectStructureContent
+					? [
+							{
+								subDir: directory,
+								filename: "project-structure.json",
+								content: projectStructureContent,
+							},
+						]
+					: []),
 				{
 					subDir: directory,
 					filename: "code-structure.json",
@@ -150,22 +195,60 @@ export class StaticIntelligenceGenerationRepository {
 				},
 			]);
 
-		const [structureSaved, exportSaved] = savedArtifacts;
-		if (!structureSaved || !exportSaved) {
+		const [projectStructureSaved, structureSaved, exportSaved] =
+			projectStructureSnapshot
+				? savedArtifacts
+				: [undefined, ...savedArtifacts];
+		if (
+			!structureSaved ||
+			!exportSaved ||
+			(projectStructureSnapshot !== undefined && !projectStructureSaved)
+		) {
 			await this.artifactStorage.removeArtifacts(
 				savedArtifacts.map((artifact) => artifact.path),
 			);
 			throw new StaticIntelligenceGenerationValidationError(
-				"Generation persistence did not produce both artifact files.",
+				"Generation persistence did not produce the complete artifact set.",
 			);
 		}
 
 		try {
+			const projectStructureMetadata =
+				projectStructureSnapshot &&
+				projectStructureSaved &&
+				projectStructureSnapshotRef
+					? this.buildMetadata({
+							generationId,
+							projectId: bundle.project.id,
+							scanRunId: input.scanRunId,
+							artifactRole: "project_structure",
+							generationFormat: "project_structure_v2",
+							schemaVersion: "project-structure-v2",
+							status,
+							generatedAt,
+							sourceTreeHash,
+							sourceStateHash,
+							sourceRevision,
+							rootRef: projectStructureSnapshot.project.rootRef,
+							structureInputHash: projectStructureSnapshot.structureInputHash,
+							snapshotRef: projectStructureSnapshotRef,
+							contentHash: projectStructureSaved.sha256,
+							degradedReasons,
+							summary: {
+								fileCount: projectStructureSnapshot.summary.fileCount,
+								resolvedReferenceCount:
+									projectStructureSnapshot.summary.resolvedReferenceCount,
+							},
+						})
+					: undefined;
 			const structureMetadata = this.buildMetadata({
 				generationId,
 				projectId: bundle.project.id,
 				scanRunId: input.scanRunId,
 				artifactRole: "structure",
+				generationFormat: projectStructureSnapshot
+					? "project_structure_v2"
+					: "legacy_v1",
 				schemaVersion: "code-structure-v1",
 				status,
 				generatedAt,
@@ -186,6 +269,9 @@ export class StaticIntelligenceGenerationRepository {
 				projectId: bundle.project.id,
 				scanRunId: input.scanRunId,
 				artifactRole: "export",
+				generationFormat: projectStructureSnapshot
+					? "project_structure_v2"
+					: "legacy_v1",
 				schemaVersion: "static-intelligence-export-v1",
 				status,
 				generatedAt,
@@ -203,28 +289,45 @@ export class StaticIntelligenceGenerationRepository {
 			});
 
 			const createdAt = new Date();
-			const rows = await this.db.transaction(async (tx) =>
-				tx
-					.insert(scanArtifacts)
-					.values([
-						this.artifactRow({
-							scanRunId: input.scanRunId,
-							kind: STRUCTURE_KIND,
-							saved: structureSaved,
-							metadata: structureMetadata,
-							createdAt,
-						}),
-						this.artifactRow({
-							scanRunId: input.scanRunId,
-							kind: EXPORT_KIND,
-							saved: exportSaved,
-							metadata: exportMetadata,
-							createdAt,
-						}),
-					])
-					.returning(),
+			const rows = await this.db
+				.insert(scanArtifacts)
+				.values([
+					...(projectStructureMetadata && projectStructureSaved
+						? [
+								this.artifactRow({
+									scanRunId: input.scanRunId,
+									kind: PROJECT_STRUCTURE_KIND,
+									saved: projectStructureSaved,
+									metadata: projectStructureMetadata,
+									createdAt,
+								}),
+							]
+						: []),
+					this.artifactRow({
+						scanRunId: input.scanRunId,
+						kind: STRUCTURE_KIND,
+						saved: structureSaved,
+						metadata: structureMetadata,
+						createdAt,
+					}),
+					this.artifactRow({
+						scanRunId: input.scanRunId,
+						kind: EXPORT_KIND,
+						saved: exportSaved,
+						metadata: exportMetadata,
+						createdAt,
+					}),
+				])
+				.returning();
+			const projectStructureArtifact = rows.find(
+				(artifact) => artifact.kind === PROJECT_STRUCTURE_KIND,
 			);
-			const [structureArtifact, exportArtifact] = rows;
+			const structureArtifact = rows.find(
+				(artifact) => artifact.kind === STRUCTURE_KIND,
+			);
+			const exportArtifact = rows.find(
+				(artifact) => artifact.kind === EXPORT_KIND,
+			);
 			if (!structureArtifact || !exportArtifact) {
 				throw new StaticIntelligenceGenerationValidationError(
 					"Generation persistence did not create both artifact rows.",
@@ -240,6 +343,17 @@ export class StaticIntelligenceGenerationRepository {
 					metadata: structureMetadata,
 					snapshot,
 				},
+				...(projectStructureArtifact &&
+				projectStructureMetadata &&
+				projectStructureSnapshot
+					? {
+							projectStructure: {
+								artifact: projectStructureArtifact,
+								metadata: projectStructureMetadata,
+								snapshot: projectStructureSnapshot,
+							},
+						}
+					: {}),
 				export: {
 					artifact: exportArtifact,
 					metadata: exportMetadata,
@@ -436,6 +550,9 @@ export class StaticIntelligenceGenerationRepository {
 		const structureArtifacts = candidate.artifacts.filter(
 			(artifact) => artifact.kind === STRUCTURE_KIND,
 		);
+		const projectStructureArtifacts = candidate.artifacts.filter(
+			(artifact) => artifact.kind === PROJECT_STRUCTURE_KIND,
+		);
 		const exportArtifacts = candidate.artifacts.filter(
 			(artifact) => artifact.kind === EXPORT_KIND,
 		);
@@ -443,6 +560,7 @@ export class StaticIntelligenceGenerationRepository {
 		const [exportArtifact] = exportArtifacts;
 		if (
 			structureArtifacts.length !== 1 ||
+			projectStructureArtifacts.length > 1 ||
 			exportArtifacts.length !== 1 ||
 			!structureArtifact ||
 			!exportArtifact
@@ -456,26 +574,62 @@ export class StaticIntelligenceGenerationRepository {
 		const exportMetadata = staticIntelligenceArtifactMetadataSchema.safeParse(
 			exportArtifact.metadata,
 		);
-		if (!structureMetadata.success || !exportMetadata.success) return null;
+		const [projectStructureArtifact] = projectStructureArtifacts;
+		const projectStructureMetadata = projectStructureArtifact
+			? staticIntelligenceArtifactMetadataSchema.safeParse(
+					projectStructureArtifact.metadata,
+				)
+			: null;
+		if (
+			!structureMetadata.success ||
+			!exportMetadata.success ||
+			(projectStructureMetadata !== null && !projectStructureMetadata.success)
+		)
+			return null;
+		const declaredV2 =
+			structureMetadata.data.generationFormat === "project_structure_v2" ||
+			exportMetadata.data.generationFormat === "project_structure_v2";
+		if (declaredV2 && projectStructureArtifacts.length !== 1) return null;
+		if (
+			structureMetadata.data.generationFormat !==
+			exportMetadata.data.generationFormat
+		) {
+			return null;
+		}
 		const projectId = await this.projectIdForScan(scanRunId);
 		if (
 			!projectId ||
 			structureMetadata.data.projectId !== projectId ||
-			exportMetadata.data.projectId !== projectId
+			exportMetadata.data.projectId !== projectId ||
+			(projectStructureMetadata?.success &&
+				projectStructureMetadata.data.projectId !== projectId)
 		) {
 			return null;
 		}
 
 		try {
-			const [structureContent, exportContent] = await Promise.all([
-				this.artifactStorage.readTextArtifact(structureArtifact.path),
-				this.artifactStorage.readTextArtifact(exportArtifact.path),
-			]);
+			const [structureContent, exportContent, projectStructureContent] =
+				await Promise.all([
+					this.artifactStorage.readTextArtifact(structureArtifact.path),
+					this.artifactStorage.readTextArtifact(exportArtifact.path),
+					projectStructureArtifact
+						? this.artifactStorage.readTextArtifact(
+								projectStructureArtifact.path,
+							)
+						: Promise.resolve(undefined),
+				]);
 			if (
 				sha256Text(structureContent) !== structureArtifact.sha256 ||
 				sha256Text(exportContent) !== exportArtifact.sha256 ||
 				sha256Text(structureContent) !== structureMetadata.data.contentHash ||
-				sha256Text(exportContent) !== exportMetadata.data.contentHash
+				sha256Text(exportContent) !== exportMetadata.data.contentHash ||
+				(projectStructureArtifact &&
+					projectStructureMetadata?.success &&
+					(!projectStructureContent ||
+						sha256Text(projectStructureContent) !==
+							projectStructureArtifact.sha256 ||
+						sha256Text(projectStructureContent) !==
+							projectStructureMetadata.data.contentHash))
 			) {
 				return null;
 			}
@@ -485,6 +639,12 @@ export class StaticIntelligenceGenerationRepository {
 			const payload = staticIntelligenceExportV1Schema.parse(
 				JSON.parse(exportContent),
 			);
+			const projectStructureSnapshot =
+				projectStructureContent && projectStructureMetadata?.success
+					? projectStructureSnapshotV2Schema.parse(
+							JSON.parse(projectStructureContent),
+						)
+					: undefined;
 			this.assertLoadedPair({
 				scanRunId,
 				generationId: candidate.generationId,
@@ -495,6 +655,21 @@ export class StaticIntelligenceGenerationRepository {
 				snapshot,
 				payload,
 			});
+			if (
+				projectStructureArtifact &&
+				projectStructureMetadata?.success &&
+				projectStructureSnapshot &&
+				(projectStructureMetadata.data.artifactRole !== "project_structure" ||
+					projectStructureMetadata.data.schemaVersion !==
+						"project-structure-v2" ||
+					projectStructureMetadata.data.generationId !==
+						candidate.generationId ||
+					projectStructureMetadata.data.scanRunId !== scanRunId ||
+					projectStructureSnapshot.project.rootRef !==
+						structureMetadata.data.rootRef)
+			) {
+				return null;
+			}
 			return {
 				generationId: candidate.generationId,
 				projectId: structureMetadata.data.projectId,
@@ -509,6 +684,17 @@ export class StaticIntelligenceGenerationRepository {
 					metadata: structureMetadata.data,
 					snapshot,
 				},
+				...(projectStructureArtifact &&
+				projectStructureMetadata?.success &&
+				projectStructureSnapshot
+					? {
+							projectStructure: {
+								artifact: projectStructureArtifact,
+								metadata: projectStructureMetadata.data,
+								snapshot: projectStructureSnapshot,
+							},
+						}
+					: {}),
 				export: {
 					artifact: exportArtifact,
 					metadata: exportMetadata.data,
@@ -528,7 +714,10 @@ export class StaticIntelligenceGenerationRepository {
 
 	private artifactRow(params: {
 		scanRunId: string;
-		kind: typeof STRUCTURE_KIND | typeof EXPORT_KIND;
+		kind:
+			| typeof PROJECT_STRUCTURE_KIND
+			| typeof STRUCTURE_KIND
+			| typeof EXPORT_KIND;
 		saved: ArtifactSaveResult;
 		metadata: StaticIntelligenceArtifactMetadata;
 		createdAt: Date;
@@ -548,9 +737,11 @@ export class StaticIntelligenceGenerationRepository {
 	private assertPayloadOwnership(params: {
 		bundle: StaticIntelligenceSourceBundle;
 		snapshot: CodeStructureSnapshot;
+		projectStructureSnapshot?: ProjectStructureSnapshotV2;
 		exportPayload: StaticIntelligenceExportV1;
 	}) {
-		const { bundle, snapshot, exportPayload } = params;
+		const { bundle, snapshot, projectStructureSnapshot, exportPayload } =
+			params;
 		if (!bundle) {
 			throw new StaticIntelligenceGenerationValidationError(
 				"Static Intelligence source bundle is required.",
@@ -575,6 +766,22 @@ export class StaticIntelligenceGenerationRepository {
 		if (snapshot.project.rootRef !== expectedRootRef) {
 			throw new StaticIntelligenceGenerationValidationError(
 				"Code structure snapshot rootRef does not match scan project.",
+			);
+		}
+		if (
+			projectStructureSnapshot?.project.id &&
+			projectStructureSnapshot.project.id !== bundle.project.id
+		) {
+			throw new StaticIntelligenceGenerationValidationError(
+				"Project structure snapshot project id does not match scan project.",
+			);
+		}
+		if (
+			projectStructureSnapshot &&
+			projectStructureSnapshot.project.rootRef !== expectedRootRef
+		) {
+			throw new StaticIntelligenceGenerationValidationError(
+				"Project structure snapshot rootRef does not match scan project.",
 			);
 		}
 		if (
@@ -616,6 +823,7 @@ export class StaticIntelligenceGenerationRepository {
 			exportMetadata.generationId !== generationId ||
 			structureMetadata.artifactRole !== "structure" ||
 			exportMetadata.artifactRole !== "export" ||
+			structureMetadata.generationFormat !== exportMetadata.generationFormat ||
 			structureMetadata.projectId !== exportMetadata.projectId ||
 			structureMetadata.scanRunId !== exportMetadata.scanRunId ||
 			structureMetadata.scanRunId !== scanRunId ||

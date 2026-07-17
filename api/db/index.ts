@@ -1,12 +1,17 @@
 import { Database } from "bun:sqlite";
-import { existsSync, mkdirSync } from "node:fs";
-import path from "node:path";
+import { existsSync } from "node:fs";
 import { type BunSQLiteDatabase, drizzle } from "drizzle-orm/bun-sqlite";
 import * as sqliteVec from "sqlite-vec";
 
 import * as schema from "./schema";
+import { canonicalDatabasePath } from "./database-url";
+import {
+	getSqliteWriterClient,
+	type SqliteWriterClient,
+} from "./writer/client";
 
 export type AppDatabase = BunSQLiteDatabase<typeof schema>;
+const WRITER_CLIENT = Symbol.for("vulnWorkbench.sqliteWriterClient");
 
 declare global {
 	var __vulnWorkbenchCustomSqliteConfigured__: boolean | undefined;
@@ -15,20 +20,15 @@ declare global {
 export type DbConnection = {
 	sqlite: Database;
 	db: AppDatabase;
+	writerClient?: SqliteWriterClient;
 	/** このパッケージが接続を所有しているか（close責任があるか） */
 	ownsConnection: boolean;
 };
 
-function sqlitePathFromDatabaseUrl(databaseUrl: string): string {
-	if (databaseUrl === ":memory:") return databaseUrl;
-	if (databaseUrl.startsWith("file:")) {
-		return databaseUrl.slice("file:".length);
-	}
-	if (databaseUrl.startsWith("sqlite://")) {
-		return databaseUrl.slice("sqlite://".length);
-	}
-	return databaseUrl;
-}
+export type DbConnectionOptions = {
+	/** Test/process harnesses may stop a Writer they started when the read handle closes. */
+	shutdownWriterOnClose?: boolean;
+};
 
 function isSqliteAlreadyLoadedError(error: unknown): boolean {
 	return (
@@ -61,25 +61,69 @@ function configureSqliteExtensionLoading(): void {
 	globalThis.__vulnWorkbenchCustomSqliteConfigured__ = true;
 }
 
-export function createDbConnection(databaseUrl: string): DbConnection {
+export function createDbConnection(
+	databaseUrl: string,
+	options: DbConnectionOptions = {},
+): DbConnection {
 	configureSqliteExtensionLoading();
-	const sqlitePath = sqlitePathFromDatabaseUrl(databaseUrl);
-	if (sqlitePath !== ":memory:") {
-		mkdirSync(path.dirname(path.resolve(sqlitePath)), { recursive: true });
+	const sqlitePath = canonicalDatabasePath(databaseUrl);
+	if (sqlitePath === ":memory:") {
+		const sqlite = new Database(sqlitePath, { create: true, strict: true });
+		sqlite.run("PRAGMA foreign_keys = ON");
+		sqliteVec.load(sqlite);
+		const db = drizzle(sqlite, { schema });
+		return { sqlite, db, ownsConnection: true };
 	}
-	const sqlite = new Database(sqlitePath, { create: true, strict: true });
+
+	if (!existsSync(sqlitePath)) {
+		throw new Error(
+			`SQLite database does not exist: ${sqlitePath}. Run bun run db:migrate first.`,
+		);
+	}
+	const sqlite = new Database(sqlitePath, { readonly: true, strict: true });
 	sqlite.run("PRAGMA foreign_keys = ON");
-	sqlite.run("PRAGMA journal_mode = WAL");
+	sqlite.run("PRAGMA query_only = ON");
 	sqliteVec.load(sqlite);
-	const db = drizzle(sqlite, { schema });
-	return { sqlite, db, ownsConnection: true };
+	const readDb = drizzle(sqlite, { schema });
+	const writerClient = getSqliteWriterClient(databaseUrl);
+	const writeDb = writerClient.db;
+	const shutdownWriterOnClose =
+		options.shutdownWriterOnClose ?? process.env.NODE_ENV === "test";
+	if (shutdownWriterOnClose) {
+		const closeReadConnection = sqlite.close.bind(sqlite);
+		sqlite.close = ((throwOnError?: boolean) => {
+			writerClient.shutdownIfOwned();
+			return closeReadConnection(throwOnError);
+		}) as Database["close"];
+	}
+	const mutationProperties = new Set<PropertyKey>([
+		"insert",
+		"update",
+		"delete",
+		"run",
+	]);
+	const db = new Proxy(readDb, {
+		get(target, property) {
+			if (property === WRITER_CLIENT) return writerClient;
+			if (property === "transaction") {
+				return () => {
+					throw new Error(
+						"Cross-process transaction callbacks are not supported. Use an atomic Writer batch.",
+					);
+				};
+			}
+			const source = mutationProperties.has(property) ? writeDb : target;
+			const value = Reflect.get(source, property, source);
+			return typeof value === "function" ? value.bind(source) : value;
+		},
+	}) as AppDatabase;
+	return { sqlite, db, writerClient, ownsConnection: true };
 }
 
-export function wrapExternalDatabase(sqlite: Database): DbConnection {
-	sqlite.run("PRAGMA foreign_keys = ON");
-	sqliteVec.load(sqlite);
-	const db = drizzle(sqlite, { schema });
-	return { sqlite, db, ownsConnection: false };
+export function writerClientForDatabase(
+	db: AppDatabase,
+): SqliteWriterClient | undefined {
+	return Reflect.get(db, WRITER_CLIENT) as SqliteWriterClient | undefined;
 }
 
 export async function connectDb(sqlite: Database) {

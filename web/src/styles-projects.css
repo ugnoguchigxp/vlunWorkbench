@@ -218,10 +218,7 @@
 
 .project-register-grid {
 	display: grid;
-	grid-template-columns: minmax(180px, 1fr) minmax(280px, 2fr) minmax(
-			150px,
-			0.7fr
-		) auto;
+	grid-template-columns: minmax(280px, 2fr) minmax(150px, 0.7fr) auto;
 	gap: 12px;
 	align-items: end;
 }
@@ -492,6 +489,17 @@
 	display: grid;
 	grid-template-columns: minmax(190px, 0.32fr) minmax(0, 1fr);
 	gap: 12px;
+}
+
+.project-structure-coverage {
+	margin: -4px 0 12px;
+	color: var(--color-muted);
+	font-size: 0.86rem;
+}
+
+.project-structure-legacy {
+	color: var(--color-muted);
+	font-size: 0.82rem;
 }
 
 .module-list,

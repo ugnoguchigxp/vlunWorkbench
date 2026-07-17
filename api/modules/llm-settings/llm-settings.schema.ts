@@ -37,6 +37,7 @@ export const LLM_TASK_POLICIES: Record<
 		allowProviderKinds: LlmProviderKind[];
 		defaultAllowCodex: boolean;
 		requiresStructuredJson: boolean;
+		defaultThinkingDepth?: LlmThinkingDepth;
 	}
 > = {
 	finding_review: {
@@ -60,6 +61,7 @@ export const LLM_TASK_POLICIES: Record<
 		],
 		defaultAllowCodex: true,
 		requiresStructuredJson: true,
+		defaultThinkingDepth: "low",
 	},
 	evidence_context: {
 		allowProviderKinds: [

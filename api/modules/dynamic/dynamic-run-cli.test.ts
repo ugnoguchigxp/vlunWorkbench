@@ -1,10 +1,10 @@
-import { readdirSync, readFileSync } from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDbConnection, type DbConnection } from "../../db";
 import { projects, users } from "../../db/schema";
+import { migrateTestDatabase } from "../../db/testing/migrate";
 import { DynamicRepository } from "./dynamic-repository";
 
 describe("Dynamic Run CLI", () => {
@@ -16,19 +16,8 @@ describe("Dynamic Run CLI", () => {
 
 	beforeEach(async () => {
 		dbFile = path.join(os.tmpdir(), `dynamic-cli-test-${Date.now()}-${crypto.randomUUID().slice(0, 8)}.sqlite`);
+		await migrateTestDatabase(`file:${dbFile}`);
 		connection = createDbConnection(`file:${dbFile}`);
-
-		// Apply migrations
-		const migrationsDir = path.resolve(process.cwd(), "drizzle");
-		const sqlFiles = readdirSync(migrationsDir)
-			.filter((file) => file.endsWith(".sql"))
-			.sort((a, b) => a.localeCompare(b));
-
-		for (const filename of sqlFiles) {
-			const sqlPath = path.resolve(migrationsDir, filename);
-			const sqlText = readFileSync(sqlPath, "utf8");
-			connection.sqlite.exec(sqlText);
-		}
 
 		repo = new DynamicRepository(connection.db);
 

@@ -18,6 +18,8 @@ import {
 	buildSourceStateHash,
 } from "./generation-types";
 import { StaticIntelligenceRepository } from "./repository";
+import { buildProjectStructureSnapshot } from "./project-structure/builder";
+import { projectStructureV2ToCodeStructureV1 } from "./project-structure/v1-projector";
 
 const NOW = new Date("2026-07-10T10:00:00.000Z");
 const GENERATED_AT = "2026-07-10T10:30:00.000Z";
@@ -212,6 +214,37 @@ describe("Static Intelligence generation repository", () => {
 		expect(latest?.generationId).toBe(valid.generationId);
 		await expect(
 			repository.loadGeneration(scanRunId, invalidGenerationId),
+		).rejects.toThrow("Generation is incomplete or invalid");
+	});
+
+	it("rejects a declared v2 generation when its canonical artifact row is missing", async () => {
+		await fs.writeFile(path.join(projectDir, "app.ts"), "export const app = true;\n");
+		const projectStructureSnapshot = await buildProjectStructureSnapshot({
+			projectPath: projectDir,
+			projectId,
+			generatedAt: new Date(GENERATED_AT),
+		});
+		const snapshot = projectStructureV2ToCodeStructureV1(projectStructureSnapshot);
+		const exportPayload = await buildStaticIntelligenceExport(connection.db, scanRunId, {
+			generatedAt: new Date(GENERATED_AT),
+			codeStructureSnapshot: snapshot,
+		});
+		const repository = new StaticIntelligenceGenerationRepository(
+			connection.db,
+			new ArtifactStorage(artifactDir),
+		);
+		const persisted = await repository.persistGeneration({
+			scanRunId,
+			snapshot,
+			projectStructureSnapshot,
+			exportPayload,
+		});
+		expect(persisted.projectStructure).toBeDefined();
+		await connection.db
+			.delete(scanArtifacts)
+			.where(eq(scanArtifacts.id, persisted.projectStructure!.artifact.id));
+		await expect(
+			repository.loadGeneration(scanRunId, persisted.generationId),
 		).rejects.toThrow("Generation is incomplete or invalid");
 	});
 

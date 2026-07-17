@@ -136,6 +136,16 @@ printf '%s\n' '<password>' | bun run db:seed -- --password-stdin
 bun run db:seed -- --keep-existing-password
 ```
 
+### SQLite Writer プロセス
+
+ファイル DB への SQLite 書込みは、DB ごとに1つの Writer プロセスが直列化します。Web server、CLI、worker はそれぞれ読取り専用接続を持ちますが、Drizzle の `insert`、`update`、`delete` はすべて Unix socket 上の Writer Client を経由します。Client は最初の更新時に Writer を遅延起動します。`bun run db:writer` で明示起動することもでき、migration も同じ Writer 境界を使います。
+
+DB ファイルはプロセスロックで保護されるため、2つ目の Writer は別の書込み接続を開かず失敗します。通常の Writer request は更新文だけを受け付け、読取りは各プロセス内、migration DDL は migration 操作だけに限定されます。稼働中の instance は `bun run db:writer:health`、production code に別の SQLite 書込み経路が増えていないかは `bun run db:boundary` で検査できます。
+
+Writer に接続できない場合、mutation は直接接続へ fallback せず失敗します。Client は記録された process が存在しない stale lock を除去し、owner 情報のない lock も5秒経過後に回復します。`<database-path>.writer-lock` を手動削除する前に、health command と OS の process 確認で Writer が動いていないことを確認してください。
+
+Writer protocol versionをまたぐupgradeではWriterを再起動してください。Clientは互換性を推測せず、古いWriterとの接続を拒否します。Migration履歴にはSHA-256 checksumを記録し、適用済みmigration fileの後からの変更を拒否します。
+
 ## LLM Routing
 
 LLM work は task route によって実行先が決まります。重要な task は次の通りです。

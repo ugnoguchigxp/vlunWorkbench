@@ -1,11 +1,11 @@
 import { spawnSync } from "node:child_process";
-import { readdirSync, readFileSync } from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createDbConnection, type DbConnection } from "../../db";
 import { projects, scanRuns, users } from "../../db/schema";
+import { migrateTestDatabase } from "../../db/testing/migrate";
 
 const NOW = new Date("2026-07-10T13:00:00.000Z");
 
@@ -27,8 +27,8 @@ describe("Static Intelligence build CLI", () => {
 			"utf8",
 		);
 		databaseUrl = `file:${path.join(tempDir, "test.sqlite")}`;
+		await migrateTestDatabase(databaseUrl);
 		connection = createDbConnection(databaseUrl);
-		applyMigrations(connection);
 		const [user] = await connection.db
 			.insert(users)
 			.values({
@@ -86,7 +86,20 @@ describe("Static Intelligence build CLI", () => {
 			scanRunId,
 			generation: { generationId: expect.any(String) },
 		});
-		expect(payload.stages).toHaveLength(7);
+		expect(payload.stages.map((stage: { name: string }) => stage.name)).toEqual([
+			"validate_source",
+			"build_inventory",
+			"analyze_files",
+			"resolve_references",
+			"infer_modules",
+			"build_v2_snapshot",
+			"project_v1_compatibility",
+			"normalize_paths",
+			"build_export",
+			"persist_generation",
+			"build_manifest",
+			"optional_semantic_index",
+		]);
 
 		const structure = runScript("api/cli/intelligence-code-structure.ts", [
 			"--scan-run-id",
@@ -160,12 +173,3 @@ describe("Static Intelligence build CLI", () => {
 		});
 	}
 });
-
-function applyMigrations(connection: DbConnection) {
-	const migrationsDir = path.resolve(process.cwd(), "drizzle");
-	for (const filename of readdirSync(migrationsDir)
-		.filter((file) => file.endsWith(".sql"))
-		.sort((left, right) => left.localeCompare(right))) {
-		connection.sqlite.exec(readFileSync(path.join(migrationsDir, filename), "utf8"));
-	}
-}

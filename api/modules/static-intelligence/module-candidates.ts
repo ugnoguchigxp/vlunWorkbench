@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import type { StaticIntelligenceExportV1 } from "../../../shared/schemas/static-intelligence.schema";
 import type { CodeStructureSnapshot } from "../../../shared/schemas/static-intelligence-code-structure.schema";
+import type { ProjectStructureSnapshotV2 } from "../../../shared/schemas/project-structure.schema";
 import {
 	staticIntelligenceModuleCandidateSchema,
 	type StaticIntelligenceModuleCandidate,
@@ -10,7 +11,11 @@ import { compareSeverity } from "./file-risk-index";
 export function buildStaticIntelligenceModuleCandidates(params: {
 	snapshot: CodeStructureSnapshot;
 	exportPayload: StaticIntelligenceExportV1;
+	projectStructureSnapshot?: ProjectStructureSnapshotV2;
 }): StaticIntelligenceModuleCandidate[] {
+	if (params.projectStructureSnapshot) {
+		return buildV2ModuleCandidates(params.projectStructureSnapshot, params.exportPayload);
+	}
 	const groups = new Map<string, typeof params.snapshot.files>();
 	for (const file of params.snapshot.files) {
 		const prefix = modulePrefix(file.path);
@@ -84,6 +89,40 @@ export function buildStaticIntelligenceModuleCandidates(params: {
 				b.risk.findingCount - a.risk.findingCount ||
 				a.pathPrefix.localeCompare(b.pathPrefix),
 		);
+}
+
+function buildV2ModuleCandidates(
+	snapshot: ProjectStructureSnapshotV2,
+	exportPayload: StaticIntelligenceExportV1,
+): StaticIntelligenceModuleCandidate[] {
+	return snapshot.modules
+		.map((module) => {
+			const risks = exportPayload.fileRiskIndex.filter((entry) =>
+				module.files.includes(entry.path),
+			);
+			const maxSeverity = risks.map((risk) => risk.maxSeverity).sort((a, b) => compareSeverity(b, a))[0] ?? "unknown";
+			return staticIntelligenceModuleCandidateSchema.parse({
+				id: module.id,
+				pathPrefix: module.pathPrefix,
+				label: module.label,
+				fileCount: module.files.length,
+				entrypointFiles: module.entrypoints,
+				roleTags: uniqueSorted(snapshot.files.filter((file) => module.files.includes(file.path)).flatMap((file) => file.tags)),
+				exportedSymbols: uniqueSorted(snapshot.files.filter((file) => module.files.includes(file.path)).flatMap((file) => file.exportedSymbols)),
+				internalDependencies: module.internalDependencies,
+				packageDependencies: module.externalDependencies,
+				risk: {
+					findingCount: risks.reduce((count, risk) => count + risk.findingCount, 0),
+					maxSeverity,
+					evidenceQuality: aggregateEvidenceQuality(risks.map((risk) => risk.evidenceQuality)),
+					fileRefs: uniqueSorted(risks.map((risk) => risk.path)),
+					findingIds: uniqueSorted(risks.flatMap((risk) => risk.findingIds)),
+				},
+				confidence: module.confidence,
+				reasons: module.confidenceReasons,
+			});
+		})
+		.sort((a, b) => compareSeverity(b.risk.maxSeverity, a.risk.maxSeverity) || b.risk.findingCount - a.risk.findingCount || a.pathPrefix.localeCompare(b.pathPrefix));
 }
 
 function modulePrefix(filePath: string): string {

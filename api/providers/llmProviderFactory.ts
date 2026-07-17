@@ -1,5 +1,8 @@
 import type { AppEnv } from "../app/env";
-import type { LlmProviderEndpointSettings } from "../modules/llm-settings/llm-settings.schema";
+import type {
+	LlmProviderEndpointSettings,
+	LlmThinkingDepth,
+} from "../modules/llm-settings/llm-settings.schema";
 import { AzureOpenAiProvider } from "./AzureOpenAiProvider";
 import { CodexSdkProvider } from "./codexSdkProvider";
 import { OpenAiCompatibleProvider } from "./openAiCompatibleProvider";
@@ -9,6 +12,7 @@ import type { LlmProvider } from "./types";
 export type CreateLlmProviderInput = {
 	endpoint: LlmProviderEndpointSettings;
 	model: string;
+	thinkingDepth?: LlmThinkingDepth;
 	env?: AppEnv;
 };
 
@@ -40,7 +44,7 @@ function secretForEndpoint(
 export function createLlmProviderForEndpoint(
 	input: CreateLlmProviderInput,
 ): LlmProvider {
-	const { endpoint, model, env } = input;
+	const { endpoint, model, thinkingDepth, env } = input;
 	const apiKey = secretForEndpoint(endpoint, env);
 
 	if (endpoint.kind === "azure") {
@@ -97,6 +101,12 @@ export function createLlmProviderForEndpoint(
 			model,
 			apiKey,
 			timeoutMs: env?.codexSdkTimeoutMs,
+			reasoningEffort:
+				thinkingDepth === "very_high"
+					? "xhigh"
+					: thinkingDepth === ""
+						? undefined
+						: thinkingDepth,
 		});
 	}
 

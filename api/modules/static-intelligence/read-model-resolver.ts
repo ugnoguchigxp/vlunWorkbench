@@ -1,6 +1,7 @@
 import path from "node:path";
 import type { AppDatabase } from "../../db";
 import type { ProjectRepository, ScanRepository } from "../scans/repositories";
+import { isTemporaryProjectPath } from "../scans/project-visibility";
 import { StaticIntelligenceEmbeddingRepository } from "./embedding-repository";
 import { buildStaticIntelligenceEmbeddingSources } from "./embedding-source-builder";
 import {
@@ -12,6 +13,10 @@ import { buildSourceStateHash } from "./generation-types";
 import { buildStaticIntelligenceOntologyHandoff } from "./ontology-handoff";
 import { buildStaticIntelligenceKnowledgeSourceManifest } from "./knowledge-source-manifest";
 import { probeSourceRevision } from "./build-service";
+import {
+	projectStructureRolloutMode,
+	shouldPreferProjectStructureV2,
+} from "./project-structure/rollout";
 import { StaticIntelligenceRepository } from "./repository";
 import type { StaticIntelligenceSourceBundle } from "./types";
 import type {
@@ -191,7 +196,9 @@ export class StaticIntelligenceReadModelResolver {
 	async listSummaries(
 		ownerUserId: string,
 	): Promise<ProjectIntelligenceSummary[]> {
-		const projects = await this.projectRepository.listProjects(ownerUserId);
+		const projects = (
+			await this.projectRepository.listProjects(ownerUserId)
+		).filter((project) => !isTemporaryProjectPath(project.repoPath));
 		return await Promise.all(
 			projects.map(async (project) => {
 				const view = await this.resolveView({
@@ -309,12 +316,7 @@ export class StaticIntelligenceReadModelResolver {
 			return { status: "stale", reasons: ["source_state_changed"] };
 		}
 		if (!probeFilesystem) {
-			return generation.status === "degraded"
-				? {
-						status: "degraded",
-						reasons: generation.export.metadata.degradedReasons,
-					}
-				: { status: "available", reasons: [] };
+			return { status: "available", reasons: [] };
 		}
 		const persistedRevision = generation.structure.metadata.sourceRevision;
 		if (persistedRevision.kind !== "git") {
@@ -330,12 +332,7 @@ export class StaticIntelligenceReadModelResolver {
 		if (current.value !== persistedRevision.value) {
 			return { status: "stale", reasons: ["source_revision_changed"] };
 		}
-		return generation.status === "degraded"
-			? {
-					status: "degraded",
-					reasons: generation.export.metadata.degradedReasons,
-				}
-			: { status: "available", reasons: [] };
+		return { status: "available", reasons: [] };
 	}
 
 	private async resolveSemanticReadiness(
@@ -400,27 +397,118 @@ function readinessForGeneration(
 	freshness: { status: IntelligenceReadinessStatus; reasons: string[] },
 	semantic: { status: IntelligenceReadinessStatus; reasons: string[] },
 ): StaticIntelligenceReadiness {
-	const base = capability(generation, freshness.status, freshness.reasons);
 	const payload = generation.export.payload;
+	const structure = structureReadiness(generation);
+	const evidenceReasons = payload.scanSummary.degradedReasons.filter(
+		(reason) => reason === "external_path_redacted",
+	);
+	const reviewReasons = payload.scanSummary.degradedReasons.filter((reason) =>
+		reason.includes("review"),
+	);
+	const exportReadiness = mergeReadiness(freshness, {
+		status:
+			payload.scanSummary.degradedReasons.length > 0 ? "degraded" : "available",
+		reasons: payload.scanSummary.degradedReasons,
+	});
+	const fileRiskIndex = mergeReadiness(freshness, {
+		status: evidenceReasons.length > 0 ? "degraded" : "available",
+		reasons: evidenceReasons,
+	});
+	const codeStructure = mergeReadiness(freshness, structure);
+	const agentBundle = mergeReadiness(freshness, {
+		status:
+			reviewReasons.length > 0 || codeStructure.status === "degraded"
+				? "degraded"
+				: "available",
+		reasons: uniqueSorted([...reviewReasons, ...codeStructure.reasons]),
+	});
+	const ontology = mergeReadiness(freshness, {
+		status:
+			reviewReasons.length > 0 || codeStructure.status === "degraded"
+				? "degraded"
+				: "available",
+		reasons: uniqueSorted([...reviewReasons, ...codeStructure.reasons]),
+	});
 	return {
-		export: base,
-		fileRiskIndex: base,
+		export: capability(
+			generation,
+			exportReadiness.status,
+			exportReadiness.reasons,
+		),
+		fileRiskIndex: capability(
+			generation,
+			fileRiskIndex.status,
+			fileRiskIndex.reasons,
+		),
 		evidenceGraph:
 			payload.graph.nodes.length > 0
-				? base
+				? capability(generation, fileRiskIndex.status, fileRiskIndex.reasons)
 				: capability(generation, "missing", ["evidence_graph_empty"]),
-		codeStructure: base,
+		codeStructure: capability(
+			generation,
+			codeStructure.status,
+			codeStructure.reasons,
+		),
 		semanticIndex: capability(
 			generation,
 			freshness.status === "stale" ? "stale" : semantic.status,
 			freshness.status === "stale" ? freshness.reasons : semantic.reasons,
 		),
-		agentBundle: base,
+		agentBundle: capability(
+			generation,
+			agentBundle.status,
+			agentBundle.reasons,
+		),
 		ontologyHandoff:
 			generation.structure.snapshot.files.length > 0
-				? base
+				? capability(generation, ontology.status, ontology.reasons)
 				: capability(generation, "degraded", ["module_candidates_missing"]),
 	};
+}
+
+function structureReadiness(
+	generation: PersistedStaticIntelligenceGeneration,
+): {
+	status: IntelligenceReadinessStatus;
+	reasons: string[];
+} {
+	const v2 = shouldPreferProjectStructureV2(projectStructureRolloutMode())
+		? generation.projectStructure?.snapshot
+		: undefined;
+	if (v2) {
+		const reasons = v2.diagnostics
+			.filter((diagnostic) => diagnostic.impact !== "none")
+			.map((diagnostic) => diagnostic.code);
+		return {
+			status:
+				v2.readiness.inventory.status === "failed" ||
+				v2.readiness.analysis.status === "failed" ||
+				v2.readiness.resolution.status === "failed"
+					? "failed"
+					: reasons.length > 0
+						? "degraded"
+						: "available",
+			reasons: uniqueSorted(reasons),
+		};
+	}
+	return {
+		status:
+			generation.structure.snapshot.status === "partial"
+				? "degraded"
+				: "available",
+		reasons: generation.structure.snapshot.degradedReasons,
+	};
+}
+
+function mergeReadiness(
+	freshness: { status: IntelligenceReadinessStatus; reasons: string[] },
+	local: { status: IntelligenceReadinessStatus; reasons: string[] },
+): { status: IntelligenceReadinessStatus; reasons: string[] } {
+	if (freshness.status === "failed" || freshness.status === "stale") {
+		return freshness;
+	}
+	if (freshness.status === "degraded") return freshness;
+	return local;
 }
 
 function capability(

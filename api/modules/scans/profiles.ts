@@ -103,6 +103,17 @@ const ZAP_BASELINE_STEP: ScanProfileStep = {
 	required: false,
 	failurePolicy: "warn_and_continue",
 	target: { mode: "auto_project_start" },
+	options: {
+		maxRequests: 20,
+		rateLimitPerSec: 2,
+		spiderMinutes: 1,
+		passiveWaitMinutes: 3,
+	},
+};
+const REQUIRED_ZAP_BASELINE_STEP: ScanProfileStep = {
+	...ZAP_BASELINE_STEP,
+	required: true,
+	failurePolicy: "fail_profile",
 };
 const SBOM_STEP: ScanProfileStep = {
 	kind: "sbom_export",
@@ -502,6 +513,18 @@ export const SCAN_PROFILES: ScanProfile[] = [
 				target: { mode: "explicit_existing_image" },
 			},
 		],
+	},
+	{
+		id: "runtime-zap-baseline",
+		name: "ZAP Baseline Passive Scan",
+		description:
+			"公式 ZAP image を Docker で実行し、bounded gateway 経由で自動起動したローカル対象を passive scan します。",
+		category: "detailed",
+		enabled: true,
+		defaultTimeoutSec: 600,
+		scope: SOURCE_BASELINE_SCOPE,
+		tools: [],
+		steps: [REQUIRED_ZAP_BASELINE_STEP],
 	},
 	{
 		id: "runtime-http-check",

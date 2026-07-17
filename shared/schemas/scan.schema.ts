@@ -14,7 +14,7 @@ export const projectSchema = z.object({
 export type Project = z.infer<typeof projectSchema>;
 
 export const createProjectSchema = z.object({
-	name: z.string().min(1),
+	name: z.string().min(1).optional(),
 	repoPath: z.string().min(1),
 	defaultBranch: z.string().default("main").optional(),
 	metadata: z.record(z.string(), z.unknown()).default({}).optional(),

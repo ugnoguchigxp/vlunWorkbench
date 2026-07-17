@@ -12,6 +12,8 @@ export function buildScanReviewSystemPrompt(): string {
 
 findingTriageHints は互換用の JSON キー名です。人間のトリアージ指示ではなく、対象 finding を次の LLM が実装改善リスクとして理解するための短い文脈として書いてください。
 
+同じ rule family、同じ修正方針、同じ endpoint/header 系統の finding はまとめてください。finding ごとに個別の priorityPlan や implementationTask を作る必要はありません。1 つの項目の findingIds に複数 ID を入れ、findingTriageHints は代表的かつ優先度の高い対象に限定してください。priorityPlan は最大 8 件、implementationTasks は最大 12 件を目安に、重複を避けて簡潔にしてください。
+
 improvementRequest.handoffPrompt は、別 LLM にそのまま渡しても意味が通る standalone の依頼文にしてください。目的、対象範囲、修正対象 finding、実装タスク、受け入れ条件、検証方法、非ゴール、使用してよい根拠が保存済み context に限定されることを含めてください。
 
 bundle.limits.findingFilter が "all" 以外の場合、改善依頼書の scope と handoffPrompt に filter 済みの scan review であることを明記してください。含まれていない finding を推測して依頼対象にしてはいけません。

@@ -33,6 +33,20 @@ export type ScanReviewRunnerOptions = ScanReviewBundleOptions & {
 	createdByUserId?: string | null;
 };
 
+export type ScanReviewRunResult = {
+	ok: boolean;
+	reviewId: string;
+	status: "completed" | "failed";
+	error?: string;
+};
+
+export type ScanReviewStartResult = {
+	reviewId: string;
+	status: "running" | "failed";
+	error?: string;
+	completion: Promise<ScanReviewRunResult>;
+};
+
 type ScanReviewRunnerDeps = {
 	llmProvider?: LlmProvider;
 	llmRouter?: LlmRouter;
@@ -93,20 +107,20 @@ export class ScanReviewRunner {
 		}
 		try {
 			const parsed = JSON.parse(jsonText);
-			const output = scanReviewOutputSchema.parse(parsed);
+			const parsedOutput = scanReviewOutputSchema.parse(parsed);
 			const findingIds = new Set(bundle.findings.map((finding) => finding.id));
 			const referencedFindingIds = [
-				...output.findingTriageHints.map((hint) => ({
+				...parsedOutput.findingTriageHints.map((hint) => ({
 					path: "findingTriageHints.findingId",
 					findingId: hint.findingId,
 				})),
-				...output.improvementRequest.priorityPlan.flatMap((item, index) =>
+				...parsedOutput.improvementRequest.priorityPlan.flatMap((item, index) =>
 					item.findingIds.map((findingId) => ({
 						path: `improvementRequest.priorityPlan.${index}.findingIds`,
 						findingId,
 					})),
 				),
-				...output.improvementRequest.implementationTasks.flatMap(
+				...parsedOutput.improvementRequest.implementationTasks.flatMap(
 					(item, index) =>
 						item.findingIds.map((findingId) => ({
 							path: `improvementRequest.implementationTasks.${index}.findingIds`,
@@ -117,18 +131,58 @@ export class ScanReviewRunner {
 			const invalidFindingIds = referencedFindingIds.filter(
 				(item) => !findingIds.has(item.findingId),
 			);
-			if (invalidFindingIds.length > 0) {
-				throw new StructuredScanReviewOutputError(
-					`scan review output referenced findings not in bundle: ${invalidFindingIds.map((item) => `${item.path}=${item.findingId}`).join(", ")}`,
-				);
-			}
+			const normalizationNote =
+				"LLM 出力に bundle 外の finding ID が含まれていたため、安全のため参照から除外しました。";
+			const output: ScanReviewOutput = {
+				...parsedOutput,
+				findingTriageHints: parsedOutput.findingTriageHints.filter((hint) =>
+					findingIds.has(hint.findingId),
+				),
+				confidenceNotes:
+					invalidFindingIds.length > 0 &&
+					parsedOutput.confidenceNotes.length < 20
+						? [...parsedOutput.confidenceNotes, normalizationNote]
+						: parsedOutput.confidenceNotes,
+				improvementRequest: {
+					...parsedOutput.improvementRequest,
+					priorityPlan: parsedOutput.improvementRequest.priorityPlan
+						.map((item) => ({
+							...item,
+							findingIds: item.findingIds.filter((findingId) =>
+								findingIds.has(findingId),
+							),
+						}))
+						.filter(
+							(item) =>
+								bundle.findings.length === 0 || item.findingIds.length > 0,
+						),
+					implementationTasks:
+						parsedOutput.improvementRequest.implementationTasks
+							.map((item) => ({
+								...item,
+								findingIds: item.findingIds.filter((findingId) =>
+									findingIds.has(findingId),
+								),
+							}))
+							.filter(
+								(item) =>
+									bundle.findings.length === 0 || item.findingIds.length > 0,
+							),
+				},
+			};
 			if (bundle.findings.length > 0) {
 				const emptyFindingReferences = [
+					...(output.improvementRequest.priorityPlan.length === 0
+						? ["improvementRequest.priorityPlan"]
+						: []),
 					...output.improvementRequest.priorityPlan.flatMap((item, index) =>
 						item.findingIds.length === 0
 							? [`improvementRequest.priorityPlan.${index}.findingIds`]
 							: [],
 					),
+					...(output.improvementRequest.implementationTasks.length === 0
+						? ["improvementRequest.implementationTasks"]
+						: []),
 					...output.improvementRequest.implementationTasks.flatMap(
 						(item, index) =>
 							item.findingIds.length === 0
@@ -240,15 +294,10 @@ export class ScanReviewRunner {
 		return error instanceof Error ? error.message : String(error);
 	}
 
-	async run(
+	async start(
 		scanRunId: string,
 		options: ScanReviewRunnerOptions = {},
-	): Promise<{
-		ok: boolean;
-		reviewId: string;
-		status: "completed" | "failed";
-		error?: string;
-	}> {
+	): Promise<ScanReviewStartResult> {
 		const scan = await this.scanRepo.findById(scanRunId);
 		if (!scan) {
 			throw new Error(`Scan run not found: ${scanRunId}`);
@@ -274,11 +323,17 @@ export class ScanReviewRunner {
 			await this.reviewRepo.updateReview(review.id, "failed", {
 				errorMessage: `Bundle creation failed: ${errorMessage}`,
 			});
-			return {
+			const result: ScanReviewRunResult = {
 				ok: false,
 				reviewId: review.id,
 				status: "failed",
 				error: errorMessage,
+			};
+			return {
+				reviewId: review.id,
+				status: "failed",
+				error: errorMessage,
+				completion: Promise.resolve(result),
 			};
 		}
 
@@ -305,11 +360,17 @@ export class ScanReviewRunner {
 				await this.reviewRepo.updateReview(review.id, "failed", {
 					errorMessage,
 				});
-				return {
+				const result: ScanReviewRunResult = {
 					ok: false,
 					reviewId: review.id,
 					status: "failed",
 					error: errorMessage,
+				};
+				return {
+					reviewId: review.id,
+					status: "failed",
+					error: errorMessage,
+					completion: Promise.resolve(result),
 				};
 			}
 			resolvedProvider = resolution.provider;
@@ -319,6 +380,7 @@ export class ScanReviewRunner {
 				task: resolution.task,
 				providerEndpointId: resolution.target.providerEndpointId,
 				model: resolution.model,
+				thinkingDepth: resolution.target.thinkingDepth ?? null,
 			};
 		}
 
@@ -332,6 +394,37 @@ export class ScanReviewRunner {
 			createdByUserId: options.createdByUserId,
 		});
 
+		const completion = this.completeReview({
+			reviewId: review.id,
+			bundle,
+			options,
+			resolvedProvider,
+			providerRouting,
+		});
+		return {
+			reviewId: review.id,
+			status: "running",
+			completion,
+		};
+	}
+
+	async run(
+		scanRunId: string,
+		options: ScanReviewRunnerOptions = {},
+	): Promise<ScanReviewRunResult> {
+		const started = await this.start(scanRunId, options);
+		return await started.completion;
+	}
+
+	private async completeReview(params: {
+		reviewId: string;
+		bundle: ScanReviewBundle;
+		options: ScanReviewRunnerOptions;
+		resolvedProvider?: LlmProvider;
+		providerRouting?: Record<string, unknown>;
+	}): Promise<ScanReviewRunResult> {
+		const { reviewId, bundle, options, resolvedProvider, providerRouting } =
+			params;
 		try {
 			let outputData: ScanReviewOutput;
 			if (options.fixtureOutput) {
@@ -356,7 +449,7 @@ export class ScanReviewRunner {
 				outputData = this.parseOutput(response.content, bundle);
 			}
 
-			await this.reviewRepo.updateReview(review.id, "completed", {
+			await this.reviewRepo.updateReview(reviewId, "completed", {
 				summary: outputData.summary,
 				riskOverview: outputData.riskOverview,
 				priorityNotes: outputData.priorityNotes,
@@ -371,15 +464,15 @@ export class ScanReviewRunner {
 				},
 			});
 
-			return { ok: true, reviewId: review.id, status: "completed" };
+			return { ok: true, reviewId, status: "completed" };
 		} catch (err) {
 			const errorMessage = this.formatRunError(err);
-			await this.reviewRepo.updateReview(review.id, "failed", {
+			await this.reviewRepo.updateReview(reviewId, "failed", {
 				errorMessage,
 			});
 			return {
 				ok: false,
-				reviewId: review.id,
+				reviewId,
 				status: "failed",
 				error: errorMessage,
 			};

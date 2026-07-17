@@ -45,6 +45,7 @@ type ScansRouteDeps = {
 	db: AppDatabase;
 	llmRouter?: LlmRouter;
 	scanSupervisor?: ScanProcessSupervisor;
+	scanReviewRunner?: Pick<ScanReviewRunner, "start">;
 };
 
 export function createScansRoute(deps: ScansRouteDeps) {
@@ -63,6 +64,12 @@ export function createScansRoute(deps: ScansRouteDeps) {
 		deps.findingReviewRepository ?? new FindingReviewRepository(db);
 	const scanReviewRepository =
 		deps.scanReviewRepository ?? new ScanReviewRepository(db);
+	const scanReviewRunner =
+		deps.scanReviewRunner ??
+		new ScanReviewRunner(db, {
+			llmRouter,
+			reviewRepository: scanReviewRepository,
+		});
 
 	async function checkScanOwnership(scanRunId: string, userId: string) {
 		const scan = await scanRepository.findById(scanRunId);
@@ -205,17 +212,32 @@ export function createScansRoute(deps: ScansRouteDeps) {
 			if (!parsedInput.success) {
 				throw new HttpError(400, "Invalid scan review request.");
 			}
-			const runner = new ScanReviewRunner(db, {
-				llmRouter,
-				reviewRepository: scanReviewRepository,
-			});
-			const result = await runner.run(scanRunId, {
+			const started = await scanReviewRunner.start(scanRunId, {
 				task: "scan_review",
 				createdByUserId: authUser.userId,
 				findingFilter: parsedInput.data.findingFilter,
 			});
-			const review = await scanReviewRepository.findById(result.reviewId);
-			return c.json({ review, result });
+			if (started.status === "running") {
+				void started.completion.catch((error) => {
+					console.error(
+						`Scan review ${started.reviewId} background execution failed:`,
+						error,
+					);
+				});
+			}
+			const review = await scanReviewRepository.findById(started.reviewId);
+			return c.json(
+				{
+					review,
+					result: {
+						ok: started.status === "running",
+						reviewId: started.reviewId,
+						status: started.status,
+						error: started.error,
+					},
+				},
+				started.status === "running" ? 202 : 200,
+			);
 		})
 		.post(
 			"/:scanRunId/reports",

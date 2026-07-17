@@ -84,6 +84,7 @@ export class GitleaksRunner {
 			tempJsonPath,
 			"--redact",
 		];
+		if (scopedWorkspace) args.push("--no-git");
 
 		const startTime = Date.now();
 		const runResult = await runToolProcess("gitleaks", args, {

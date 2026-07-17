@@ -89,12 +89,11 @@ const DEFAULT_REPORT_OPTIONS = {
 	includeDeferred: true,
 	includeUndecided: true,
 };
+const SCAN_REVIEW_POLL_INTERVAL_MS = 1_500;
+const SCAN_REVIEW_WAIT_TIMEOUT_MS = 630_000;
 
-const basenameFromPath = (value: string): string => {
-	const normalized = value.replace(/\/+$/, "");
-	const parts = normalized.split("/");
-	return parts.at(-1) || normalized || "ローカルプロジェクト";
-};
+const wait = (durationMs: number) =>
+	new Promise<void>((resolve) => globalThis.setTimeout(resolve, durationMs));
 
 export type ScansDomainSectionProps = {
 	active: boolean;
@@ -173,7 +172,6 @@ export const useScansController = ({
 	const [selectedProjectId, setSelectedProjectId] =
 		useState(requestedProjectId);
 	const [projectFolderPath, setProjectFolderPath] = useState("");
-	const [projectNameInput, setProjectNameInput] = useState("");
 	const [projectDefaultBranch, setProjectDefaultBranch] = useState("main");
 	const [projectCreateLoading, setProjectCreateLoading] = useState(false);
 	const [projectBrowseLoading, setProjectBrowseLoading] = useState(false);
@@ -833,9 +831,6 @@ export const useScansController = ({
 
 	const handleSelectProjectFolder = (path: string) => {
 		setProjectFolderPath(path);
-		if (!projectNameInput.trim()) {
-			setProjectNameInput(basenameFromPath(path));
-		}
 	};
 
 	const handleBrowseProjectFolder = async () => {
@@ -857,14 +852,12 @@ export const useScansController = ({
 
 	const handleCreateProjectFromFolder = async () => {
 		const repoPath = projectFolderPath.trim();
-		const name = projectNameInput.trim() || basenameFromPath(repoPath);
-		if (!repoPath || !name) return;
+		if (!repoPath) return;
 
 		setProjectCreateLoading(true);
 		setErrorText(null);
 		try {
 			const created = await createProject({
-				name,
 				repoPath,
 				defaultBranch: projectDefaultBranch.trim() || "main",
 			});
@@ -874,7 +867,6 @@ export const useScansController = ({
 			});
 			setSelectedProjectId(created.id);
 			setProjectFolderPath(created.repoPath);
-			setProjectNameInput(created.name);
 			setShowNewProjectModal(false);
 		} catch (err) {
 			setErrorText(
@@ -927,11 +919,36 @@ export const useScansController = ({
 		setScanReviewLoading(true);
 		setErrorText(null);
 		try {
-			await triggerScanReview(scanRunId, {
+			const started = await triggerScanReview(scanRunId, {
 				findingFilter: scanReviewFindingFilter,
 			});
-			setScanReviews(await fetchScanReviews(scanRunId));
 			setScanDetailTab("review");
+			if (!started.result.ok) {
+				throw new Error(
+					started.result.error ?? "scan review を開始できませんでした。",
+				);
+			}
+
+			const deadline = Date.now() + SCAN_REVIEW_WAIT_TIMEOUT_MS;
+			while (true) {
+				const reviews = await fetchScanReviews(scanRunId);
+				setScanReviews(reviews);
+				const review = reviews.find(
+					(item) => item.id === started.result.reviewId,
+				);
+				if (review?.status === "completed") break;
+				if (review?.status === "failed") {
+					throw new Error(
+						review.errorMessage ?? "scan review の生成に失敗しました。",
+					);
+				}
+				if (Date.now() >= deadline) {
+					throw new Error(
+						"scan review の完了待機がタイムアウトしました。レビュー一覧から実行状態を確認してください。",
+					);
+				}
+				await wait(SCAN_REVIEW_POLL_INTERVAL_MS);
+			}
 		} catch (err) {
 			setErrorText(
 				err instanceof Error
@@ -1667,8 +1684,6 @@ export const useScansController = ({
 		setSelectedProjectId,
 		projectFolderPath,
 		setProjectFolderPath,
-		projectNameInput,
-		setProjectNameInput,
 		projectDefaultBranch,
 		setProjectDefaultBranch,
 		projectCreateLoading,

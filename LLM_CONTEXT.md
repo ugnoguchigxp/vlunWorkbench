@@ -5,7 +5,7 @@
 ## Repository Snapshot
 
 - Bun + Hono backend と React + Vite frontend を同一 origin で動かす。
-- DB は SQLite + sqlite-vec。Drizzle schema は `api/db/schema.ts`、migration は `drizzle/`。
+- DB は SQLite + sqlite-vec。Drizzle schema は `api/db/schema.ts`、migration は `drizzle/`。ファイル DB の読取りは各プロセスの read-only connection、書込みは DB ごとに1つの SQLite Writer process を経由する。
 - Backend app composition は `api/app/hono.ts`、server bootstrap は `api/app/server.ts`。
 - Frontend entry は `web/src/App.tsx`、router は `web/src/router.tsx`、API client は `web/src/api.ts`。
 - Auth 実装は `api/modules/auth/`、route は `api/routes/auth.route.ts`、login UI は `web/src/domains/auth/login-domain.tsx`。
@@ -23,6 +23,7 @@
 | `api/app/env.ts` | environment parsing and defaults |
 | `api/config/appDefaults.ts` | non-secret app defaults |
 | `api/db/` | SQLite connection and Drizzle schema |
+| `api/db/writer/` | Unix socket Writer client/server、FIFO write queue、single-writer lock |
 | `api/routes/` | auth、projects、scans、findings、reviews、decisions、reports、reproductions、dynamic、DAST routes |
 | `api/cli/` | scan/review/decision/report/reproduction/dynamic/DAST CLI entrypoints |
 | `api/modules/scans/` | scan profiles、tool runners、artifact storage、normalizers、report builder |
@@ -54,6 +55,7 @@
 ## Implementation Contracts
 
 - Keep backend routes on Hono; do not introduce a parallel API framework.
+- File-backed SQLite mutation must go through `SqliteWriterClient`; do not add writable `bun:sqlite` connections outside `api/db/writer/internal/connection.ts`.
 - Keep `/api/*` on Hono and non-API paths on Vite/static frontend.
 - Treat CLI tools as evidence producers. Do not make LLMs freely inspect source to discover vulnerabilities.
 - Store raw artifacts where useful, but redact or minimize before LLM review and report output.
@@ -83,6 +85,9 @@
 | `bun install` | Install dependencies |
 | `bun run dev` | Start Vite + Hono dev server |
 | `bun run db:migrate` | Apply SQL migrations |
+| `bun run db:writer` | Run the single SQLite Writer in the foreground |
+| `bun run db:writer:health` | Inspect the active SQLite Writer without starting one |
+| `bun run db:boundary` | Reject direct production SQLite write paths |
 | `bun run db:seed` | Create or reset the local `admin@example.com` admin user |
 | `bun run auth:create-admin -- --email <email> --name <name>` | Create admin user |
 | `bun run scan:profile` | Run a configured scan profile and optionally write a report |

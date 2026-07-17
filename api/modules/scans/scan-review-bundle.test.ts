@@ -67,6 +67,12 @@ describe("buildScanReviewBundle filters", () => {
 				completedAt: now,
 				createdByUserId: user.id,
 				summary: "completed",
+				metadata: {
+					profileId: "baseline",
+					scope: { intent: "source_baseline" },
+					toolResults: [{ toolId: "semgrep", status: "completed" }],
+					stepResults: [{ kind: "static_tool", status: "completed" }],
+				},
 				createdAt: now,
 				updatedAt: now,
 			})
@@ -97,6 +103,8 @@ describe("buildScanReviewBundle filters", () => {
 		targetScanRunId?: string;
 		metadata?: Record<string, unknown>;
 		withEvidence?: boolean;
+		description?: string;
+		evidenceSnippet?: string;
 	}) {
 		const [finding] = await connection.db
 			.insert(findings)
@@ -106,7 +114,7 @@ describe("buildScanReviewBundle filters", () => {
 				sourceTool: "semgrep",
 				ruleId: input.fingerprint,
 				title: input.title,
-				description: input.title,
+				description: input.description ?? input.title,
 				severity: input.severity,
 				confidence: "static",
 				status: "open",
@@ -124,7 +132,7 @@ describe("buildScanReviewBundle filters", () => {
 				title: "source",
 				artifactId: null,
 				location: { path: `${input.fingerprint}.ts`, startLine: 1 },
-				snippet: "code",
+				snippet: input.evidenceSnippet ?? "code",
 				createdAt: now,
 			});
 		}
@@ -215,6 +223,34 @@ describe("buildScanReviewBundle filters", () => {
 			"Has evidence",
 			"Missing evidence",
 		]);
+	});
+
+	it("compacts duplicated metadata and long finding text for LLM input", async () => {
+		await addFinding({
+			title: "Long finding",
+			severity: "high",
+			fingerprint: "long-finding",
+			withEvidence: true,
+			description: "d".repeat(200),
+			evidenceSnippet: "s".repeat(200),
+		});
+
+		const bundle = await buildScanReviewBundle(connection.db, scanRunId, {
+			maxDescriptionChars: 20,
+			maxSnippetChars: 15,
+		});
+
+		expect(bundle.scanRun.metadata).toEqual({
+			profileId: "baseline",
+			scope: { intent: "source_baseline" },
+		});
+		expect(bundle.summary.tools[0]).not.toHaveProperty("metadata");
+		expect(bundle.findings[0]?.description).toBe(
+			`${"d".repeat(20)}\n[truncated]`,
+		);
+		expect(bundle.findings[0]?.evidence[0]?.snippet).toBe(
+			`${"s".repeat(15)}\n[truncated]`,
+		);
 	});
 
 	it("derives new_or_regressed from the previous same-profile scan", async () => {

@@ -35,6 +35,7 @@ import {
 	createProject,
 	fetchProjectIntelligenceSummaries,
 	fetchProjectIntelligenceStructure,
+	fetchProjectStructureSummary,
 	fetchProjectIntelligenceView,
 	fetchProjectOntologyHandoff,
 	fetchScanIntelligenceAgentQuery,
@@ -44,6 +45,7 @@ import {
 	type ProjectIntelligenceSummary,
 	type ProjectIntelligenceView,
 	type ProjectStructureListResponse,
+	type ProjectStructureSummaryResponse,
 	type ScanIntelligenceAgentMode,
 	type ScanRun,
 } from "../../api";
@@ -102,6 +104,8 @@ export function ProjectsDomainSection({
 		useState<ProjectIntelligenceView | null>(null);
 	const [structure, setStructure] =
 		useState<ProjectStructureListResponse | null>(null);
+	const [projectStructureSummary, setProjectStructureSummary] =
+		useState<ProjectStructureSummaryResponse | null>(null);
 	const [ontologyHandoff, setOntologyHandoff] =
 		useState<StaticIntelligenceOntologyHandoff | null>(null);
 	const [scanRuns, setScanRuns] = useState<ScanRun[]>([]);
@@ -113,7 +117,6 @@ export function ProjectsDomainSection({
 	const routeStateRef = useRef(routeState);
 	routeStateRef.current = routeState;
 	const [registerOpen, setRegisterOpen] = useState(false);
-	const [projectName, setProjectName] = useState("");
 	const [projectPath, setProjectPath] = useState("");
 	const [defaultBranch, setDefaultBranch] = useState("main");
 	const [browseLoading, setBrowseLoading] = useState(false);
@@ -195,25 +198,35 @@ export function ProjectsDomainSection({
 			]);
 			const scanRunId = view.selection.selectedScanRunId;
 			let nextStructure: ProjectStructureListResponse | null = null;
+			let nextProjectStructureSummary: ProjectStructureSummaryResponse | null =
+				null;
 			let nextHandoff: StaticIntelligenceOntologyHandoff | null = null;
 			if (routeState.tab === "intelligence" && scanRunId && view.generation) {
-				const [structureResult, handoffResult] = await Promise.all([
-					fetchProjectIntelligenceStructure(routeState.projectId, scanRunId, {
-						generationId: view.generation.generationId,
-					}),
-					fetchProjectOntologyHandoff(
-						routeState.projectId,
-						scanRunId,
-						view.generation.generationId,
-					),
-				]);
+				const [structureResult, projectStructureResult, handoffResult] =
+					await Promise.all([
+						fetchProjectIntelligenceStructure(routeState.projectId, scanRunId, {
+							generationId: view.generation.generationId,
+						}),
+						fetchProjectStructureSummary(
+							routeState.projectId,
+							scanRunId,
+							view.generation.generationId,
+						),
+						fetchProjectOntologyHandoff(
+							routeState.projectId,
+							scanRunId,
+							view.generation.generationId,
+						),
+					]);
 				nextStructure = structureResult;
+				nextProjectStructureSummary = projectStructureResult;
 				nextHandoff = handoffResult;
 			}
 			if (requestId !== detailRequestId.current) return;
 			setSelectedView(view);
 			setScanRuns(scans);
 			setStructure(nextStructure);
+			setProjectStructureSummary(nextProjectStructureSummary);
 			setOntologyHandoff(nextHandoff);
 		} catch (error) {
 			if (requestId === detailRequestId.current)
@@ -283,12 +296,10 @@ export function ProjectsDomainSection({
 		event.preventDefault();
 		await runWithBusy(async () => {
 			const created = await createProject({
-				name: projectName.trim(),
 				repoPath: projectPath.trim(),
 				defaultBranch: defaultBranch.trim() || "main",
 			});
 			setRegisterOpen(false);
-			setProjectName("");
 			setProjectPath("");
 			setDefaultBranch("main");
 			await navigate({
@@ -304,7 +315,6 @@ export function ProjectsDomainSection({
 			const result = await browseProjectFolder();
 			if (result.path) {
 				setProjectPath(result.path);
-				if (!projectName.trim()) setProjectName(basename(result.path));
 			}
 		} catch (error) {
 			setErrorText(
@@ -376,11 +386,9 @@ export function ProjectsDomainSection({
 
 			{registerOpen ? (
 				<ProjectRegistrationPanel
-					projectName={projectName}
 					projectPath={projectPath}
 					defaultBranch={defaultBranch}
 					browseLoading={browseLoading}
-					onProjectNameChange={setProjectName}
 					onProjectPathChange={setProjectPath}
 					onDefaultBranchChange={setDefaultBranch}
 					onBrowse={() => void handleBrowse()}
@@ -397,6 +405,7 @@ export function ProjectsDomainSection({
 					selectedScanRunId={selectedScanRunId}
 					selectedExport={selectedExport}
 					structure={structure}
+					projectStructureSummary={projectStructureSummary}
 					ontologyHandoff={ontologyHandoff}
 					refreshing={refreshing}
 					onRefreshAnalysis={() => void handleRefreshAnalysis()}
@@ -425,21 +434,17 @@ export function ProjectsDomainSection({
 }
 
 function ProjectRegistrationPanel({
-	projectName,
 	projectPath,
 	defaultBranch,
 	browseLoading,
-	onProjectNameChange,
 	onProjectPathChange,
 	onDefaultBranchChange,
 	onBrowse,
 	onSubmit,
 }: {
-	projectName: string;
 	projectPath: string;
 	defaultBranch: string;
 	browseLoading: boolean;
-	onProjectNameChange: (value: string) => void;
 	onProjectPathChange: (value: string) => void;
 	onDefaultBranchChange: (value: string) => void;
 	onBrowse: () => void;
@@ -454,15 +459,6 @@ function ProjectRegistrationPanel({
 				</div>
 			</div>
 			<form className="project-register-grid" onSubmit={onSubmit}>
-				<label htmlFor="project-register-name">
-					<span>Name</span>
-					<TextInput
-						id="project-register-name"
-						value={projectName}
-						onChange={(event) => onProjectNameChange(event.target.value)}
-						required
-					/>
-				</label>
 				<label className="project-path-field" htmlFor="project-register-path">
 					<span>Repository Path</span>
 					<div className="project-path-input-row">
@@ -531,8 +527,7 @@ function ProjectsList({
 					<article className="project-card" key={project.id}>
 						<div className="project-card-head">
 							<div>
-								<h2>{project.name}</h2>
-								<p>{project.repositoryName}</p>
+								<h2>{project.repositoryName}</h2>
 							</div>
 							<StatusBadge status={overview?.generationStatus ?? "missing"} />
 						</div>
@@ -579,6 +574,7 @@ function ProjectDetail({
 	selectedScanRunId,
 	selectedExport,
 	structure,
+	projectStructureSummary,
 	ontologyHandoff,
 	refreshing,
 	onRefreshAnalysis,
@@ -596,6 +592,7 @@ function ProjectDetail({
 	selectedScanRunId: string | null;
 	selectedExport: StaticIntelligenceExportV1 | null;
 	structure: ProjectStructureListResponse | null;
+	projectStructureSummary: ProjectStructureSummaryResponse | null;
 	ontologyHandoff: StaticIntelligenceOntologyHandoff | null;
 	refreshing: boolean;
 	onRefreshAnalysis: () => void;
@@ -615,8 +612,7 @@ function ProjectDetail({
 		<>
 			<section className="projects-band project-detail-head">
 				<div>
-					<h2>{project.name}</h2>
-					<p>{project.repositoryName}</p>
+					<h2>{project.repositoryName}</h2>
 				</div>
 				{activeTab === "intelligence" ? (
 					<label
@@ -676,6 +672,7 @@ function ProjectDetail({
 					selectedScanRunId={selectedScanRunId}
 					selectedExport={selectedExport}
 					structure={structure}
+					projectStructureSummary={projectStructureSummary}
 					ontologyHandoff={ontologyHandoff}
 					refreshing={refreshing}
 					onRefreshAnalysis={onRefreshAnalysis}
@@ -774,6 +771,7 @@ function IntelligenceView({
 	selectedScanRunId,
 	selectedExport,
 	structure,
+	projectStructureSummary,
 	ontologyHandoff,
 	refreshing,
 	onRefreshAnalysis,
@@ -789,6 +787,7 @@ function IntelligenceView({
 	selectedScanRunId: string | null;
 	selectedExport: StaticIntelligenceExportV1 | null;
 	structure: ProjectStructureListResponse | null;
+	projectStructureSummary: ProjectStructureSummaryResponse | null;
 	ontologyHandoff: StaticIntelligenceOntologyHandoff | null;
 	refreshing: boolean;
 	onRefreshAnalysis: () => void;
@@ -918,6 +917,7 @@ function IntelligenceView({
 			<div id="structure">
 				<StructureExplorer
 					structure={structure}
+					projectStructureSummary={projectStructureSummary}
 					exportPayload={selectedExport}
 				/>
 			</div>
@@ -992,9 +992,11 @@ function ReadinessStrip({
 
 function StructureExplorer({
 	structure,
+	projectStructureSummary,
 	exportPayload,
 }: {
 	structure: ProjectStructureListResponse | null;
+	projectStructureSummary: ProjectStructureSummaryResponse | null;
 	exportPayload: StaticIntelligenceExportV1;
 }) {
 	const [selectedModuleId, setSelectedModuleId] = useState<string | null>(null);
@@ -1020,9 +1022,27 @@ function StructureExplorer({
 						{structure.total ?? structure.items.length} persisted files ·
 						generation {structure.generationId}
 					</p>
+					{projectStructureSummary?.status === "missing" ? (
+						<p className="project-structure-legacy">
+							Legacy structure snapshot (v1 compatibility view)
+						</p>
+					) : null}
 				</div>
 				<StatusBadge status={structure.status} />
 			</div>
+			{projectStructureSummary?.summary && projectStructureSummary.coverage ? (
+				<p className="project-structure-coverage">
+					v2 coverage: {projectStructureSummary.summary.analyzedFileCount}/
+					{projectStructureSummary.coverage.includedFileCount} analyzed ·{" "}
+					{projectStructureSummary.summary.resolvedReferenceCount} references
+					resolved · {projectStructureSummary.coverage.unsupportedFileCount}{" "}
+					unsupported (inventory only) ·{" "}
+					{projectStructureSummary.summary.resourceFileCount} resources
+					{projectStructureSummary.readiness?.resolution.status === "degraded"
+						? ` · resolver: ${projectStructureSummary.readiness.resolution.reasonCodes.join(", ")}`
+						: " · resolver ready"}
+				</p>
+			) : null}
 			<div className="structure-explorer">
 				<aside className="module-list">
 					{structure.modules.map((module) => (
@@ -1664,8 +1684,4 @@ function useProjectRouteState(): ProjectRouteState {
 	const scanRunId =
 		new URLSearchParams(location.searchStr).get("scanRunId") ?? null;
 	return { projectId, tab, scanRunId };
-}
-
-function basename(path: string): string {
-	return path.replace(/\/+$/, "").split("/").at(-1) || "Project";
 }

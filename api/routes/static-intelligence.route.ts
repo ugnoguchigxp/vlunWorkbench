@@ -4,7 +4,12 @@ import { z } from "zod";
 import type { AppDatabase } from "../db";
 import { buildStaticIntelligenceGeneration } from "../modules/static-intelligence/build-service";
 import { codeStructureFileTagSchema } from "../../shared/schemas/static-intelligence-code-structure.schema";
+import { projectStructureInventoryKindSchema } from "../../shared/schemas/project-structure.schema";
 import { buildStaticIntelligenceModuleCandidates } from "../modules/static-intelligence/module-candidates";
+import {
+	projectStructureRolloutMode,
+	shouldPreferProjectStructureV2,
+} from "../modules/static-intelligence/project-structure/rollout";
 import { toProjectRelativePath } from "../modules/static-intelligence/path-boundary";
 import {
 	StaticIntelligenceReadModelResolver,
@@ -45,6 +50,18 @@ const structureFileQuerySchema = z.object({
 	scanRunId: z.string().trim().min(1),
 	generationId: z.string().uuid().optional(),
 	path: z.string().trim().min(1),
+});
+
+const projectStructureQuerySchema = z.object({
+	scanRunId: z.string().trim().min(1),
+	generationId: z.string().uuid().optional(),
+	view: z.enum(["summary", "files", "references"]).default("summary"),
+	query: z.string().trim().max(1024).optional(),
+	kind: projectStructureInventoryKindSchema.optional(),
+	analyzerId: z.string().trim().min(1).max(128).optional(),
+	status: z.enum(["resolved", "unresolved", "external", "ignored"]).optional(),
+	cursor: z.coerce.number().int().nonnegative().default(0),
+	limit: z.coerce.number().int().min(1).max(500).default(100),
 });
 
 const ontologyHandoffQuerySchema = z.object({
@@ -192,7 +209,90 @@ export function createStaticIntelligenceRoute(
 					modules: buildStaticIntelligenceModuleCandidates({
 						snapshot: generation.structure.snapshot,
 						exportPayload: generation.export.payload,
+						projectStructureSnapshot: shouldPreferProjectStructureV2(
+							projectStructureRolloutMode(),
+						)
+							? generation.projectStructure?.snapshot
+							: undefined,
 					}),
+					nextCursor:
+						query.cursor + items.length < filtered.length
+							? query.cursor + items.length
+							: null,
+					total: filtered.length,
+				});
+			},
+		)
+		.get(
+			"/projects/:projectId/intelligence/project-structure",
+			zValidator("query", projectStructureQuerySchema),
+			async (c) => {
+				const authUser = getAuthContextUser(c);
+				const project = await assertProjectOwner(
+					c.req.param("projectId"),
+					authUser.userId,
+				);
+				const query = c.req.valid("query");
+				const scan = await deps.scanRepository.findById(query.scanRunId);
+				if (!scan || scan.projectId !== project.id)
+					throw new HttpError(404, "Scan run not found");
+				const generation = await resolver.resolveGeneration(
+					scan.id,
+					query.generationId,
+				);
+				const snapshot = generation?.projectStructure?.snapshot;
+				if (!generation || !snapshot) {
+					return c.json({
+						status: "missing",
+						generationId: generation?.generationId,
+						items: [],
+						nextCursor: null,
+					});
+				}
+				if (query.view === "summary") {
+					return c.json({
+						status: snapshot.readiness.analysis.status,
+						generationId: generation.generationId,
+						summary: snapshot.summary,
+						coverage: snapshot.inventory.coverage,
+						readiness: snapshot.readiness,
+						diagnostics: snapshot.diagnostics,
+						modules: snapshot.modules,
+					});
+				}
+				const normalizedQuery = query.query?.toLowerCase();
+				const filtered =
+					query.view === "files"
+						? snapshot.files.filter((item) => {
+								if (
+									normalizedQuery &&
+									!JSON.stringify(item).toLowerCase().includes(normalizedQuery)
+								)
+									return false;
+								if (query.analyzerId && item.analyzerId !== query.analyzerId)
+									return false;
+								if (query.kind) {
+									const inventoryEntry = snapshot.inventory.entries.find(
+										(entry) => entry.path === item.path,
+									);
+									if (inventoryEntry?.kind !== query.kind) return false;
+								}
+								return true;
+							})
+						: snapshot.references.filter((item) => {
+								if (
+									normalizedQuery &&
+									!JSON.stringify(item).toLowerCase().includes(normalizedQuery)
+								)
+									return false;
+								if (query.status && item.status !== query.status) return false;
+								return true;
+							});
+				const items = filtered.slice(query.cursor, query.cursor + query.limit);
+				return c.json({
+					status: snapshot.readiness.analysis.status,
+					generationId: generation.generationId,
+					items,
 					nextCursor:
 						query.cursor + items.length < filtered.length
 							? query.cursor + items.length
@@ -295,6 +395,7 @@ export function createStaticIntelligenceRoute(
 							db: deps.db,
 							scanRunId: scan.id,
 							includeSemantic: input.includeSemantic,
+							emitTelemetry: true,
 						}),
 					);
 				} finally {

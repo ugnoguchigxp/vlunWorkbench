@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { parseArgs } from "node:util";
 import { createDbConnection, type DbConnection } from "../api/db";
+import { getSqliteWriterClient } from "../api/db/writer/client";
 import {
 	findingEvidences,
 	findings,
@@ -211,24 +212,30 @@ async function setupDatabase(paths: FixturePaths): Promise<{
 	findingIds: string[];
 }> {
 	log("applying migrations and seeding fixture rows");
+	await applyMigrations(`file:${paths.dbPath}`);
 	const connection = createDbConnection(`file:${paths.dbPath}`);
 	try {
-		applyMigrations(connection);
 		return await seedFixtureRows(connection, paths);
 	} finally {
 		connection.sqlite.close();
 	}
 }
 
-function applyMigrations(connection: DbConnection): void {
+async function applyMigrations(databaseUrl: string): Promise<void> {
 	const migrationsDir = path.resolve(process.cwd(), "drizzle");
 	const sqlFiles = readdirSync(migrationsDir)
 		.filter((file) => file.endsWith(".sql"))
 		.sort((a, b) => a.localeCompare(b));
-	for (const filename of sqlFiles) {
-		connection.sqlite.exec(
-			readFileSync(path.resolve(migrationsDir, filename), "utf8"),
-		);
+	const writer = getSqliteWriterClient(databaseUrl);
+	try {
+		for (const filename of sqlFiles) {
+			await writer.applyMigration(
+				filename,
+				readFileSync(path.resolve(migrationsDir, filename), "utf8"),
+			);
+		}
+	} finally {
+		await writer.close({ shutdownIfOwned: true });
 	}
 }
 

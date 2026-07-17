@@ -12,7 +12,11 @@ import {
 	toolRuns,
 	users,
 } from "../../db/schema";
-import { type LlmProvider, LlmProviderExecutionError } from "../../providers/types";
+import {
+	type LlmProvider,
+	LlmProviderExecutionError,
+	type LlmResponse,
+} from "../../providers/types";
 import { ScanReviewRunner } from "./scan-review-runner";
 
 function applyMigrations(connection: DbConnection) {
@@ -64,6 +68,27 @@ function buildImprovementRequest(findingId: string) {
 		nonGoals: ["新しい scanner や DAST 実行はこの依頼に含めない。"],
 		handoffPrompt:
 			"保存済み scan context に基づき、反射型 XSS finding を修正してください。対象範囲は bundle 内の finding と evidence に限定し、出力エスケープ追加、回帰テスト、bun test による検証を行ってください。新しい scanner 実装や repository 全体の自由探索は非ゴールです。",
+	};
+}
+
+function buildValidReviewOutput(findingId: string) {
+	return {
+		summary: "高リスクの finding が 1 件あり、優先確認が必要です。",
+		riskOverview:
+			"ユーザー入力がエスケープされずに出力されるため、XSS リスクが残っています。",
+		priorityNotes: ["反射型 XSS の修正を最優先にしてください。"],
+		coverageNotes: ["現時点の証跡は static scan に限定されています。"],
+		falsePositiveHotspots: ["明確な誤検知候補はありません。"],
+		recommendedNextActions: ["出力時のエスケープ処理を追加してください。"],
+		findingTriageHints: [
+			{
+				findingId,
+				note: "ユーザー入力が出力に到達しているため、優先度は高いです。",
+				priority: "high",
+			},
+		],
+		confidenceNotes: ["証跡は source-location に基づいています。"],
+		improvementRequest: buildImprovementRequest(findingId),
 	};
 }
 
@@ -178,24 +203,7 @@ describe("ScanReviewRunner", () => {
 	});
 
 	it("persists a completed structured scan review", async () => {
-		const content = JSON.stringify({
-			summary: "高リスクの finding が 1 件あり、優先確認が必要です。",
-			riskOverview:
-				"ユーザー入力がエスケープされずに出力されるため、XSS リスクが残っています。",
-			priorityNotes: ["反射型 XSS の修正を最優先にしてください。"],
-			coverageNotes: ["現時点の証跡は static scan に限定されています。"],
-			falsePositiveHotspots: ["明確な誤検知候補はありません。"],
-			recommendedNextActions: ["出力時のエスケープ処理を追加してください。"],
-			findingTriageHints: [
-				{
-					findingId,
-					note: "ユーザー入力が出力に到達しているため、優先度は高いです。",
-					priority: "high",
-				},
-			],
-			confidenceNotes: ["証跡は source-location に基づいています。"],
-			improvementRequest: buildImprovementRequest(findingId),
-		});
+		const content = JSON.stringify(buildValidReviewOutput(findingId));
 		const provider = providerWithContent(`\`\`\`json\n${content}\n\`\`\``);
 		const runner = new ScanReviewRunner(connection.db, provider);
 
@@ -231,6 +239,39 @@ describe("ScanReviewRunner", () => {
 		expect(callOptions?.outputSchema).toEqual(
 			expect.objectContaining({ type: "object" }),
 		);
+	});
+
+	it("starts a review without waiting for the provider to complete", async () => {
+		let resolveProvider: ((response: LlmResponse) => void) | undefined;
+		const provider: LlmProvider = {
+			chatCompletion: vi.fn(
+				() =>
+					new Promise<LlmResponse>((resolve) => {
+						resolveProvider = resolve;
+					}),
+			),
+		};
+		const runner = new ScanReviewRunner(connection.db, provider);
+
+		const started = await runner.start(scanRunId);
+
+		expect(started.status).toBe("running");
+		const runningRow = await connection.db.query.scanReviews.findFirst();
+		expect(runningRow?.status).toBe("running");
+
+		resolveProvider?.({
+			id: "deferred-response",
+			content: JSON.stringify(buildValidReviewOutput(findingId)),
+		});
+		const result = await started.completion;
+
+		expect(result).toMatchObject({
+			ok: true,
+			reviewId: started.reviewId,
+			status: "completed",
+		});
+		const completedRow = await connection.db.query.scanReviews.findFirst();
+		expect(completedRow?.status).toBe("completed");
 	});
 
 	it("rejects English-only scan review text", async () => {
@@ -307,10 +348,10 @@ describe("ScanReviewRunner", () => {
 		);
 	});
 
-	it("rejects triage hints for findings outside the scan bundle", async () => {
+	it("drops triage hints for findings outside the scan bundle", async () => {
 		const content = JSON.stringify({
-			summary: "Invalid reference.",
-			riskOverview: "Invalid reference.",
+			summary: "高リスクの finding が 1 件あります。",
+			riskOverview: "保存済み証跡に基づく XSS リスクがあります。",
 			priorityNotes: [],
 			coverageNotes: [],
 			falsePositiveHotspots: [],
@@ -329,13 +370,20 @@ describe("ScanReviewRunner", () => {
 
 		const result = await runner.run(scanRunId);
 
-		expect(result.ok).toBe(false);
-		expect(result.error).toContain("llm_structured_output_validation_failed");
+		expect(result.ok).toBe(true);
 		const rows = await connection.db.select().from(scanReviews);
-		expect(rows[0].status).toBe("failed");
+		expect(rows[0].status).toBe("completed");
+		expect(rows[0].findingTriageHints).toEqual([]);
+		expect(rows[0].confidenceNotes).toContain(
+			"LLM 出力に bundle 外の finding ID が含まれていたため、安全のため参照から除外しました。",
+		);
 	});
 
-	it("rejects improvement request finding references outside the scan bundle", async () => {
+	it("removes invalid improvement request finding references when valid references remain", async () => {
+		const invalidFindingId = "00000000-0000-4000-8000-000000000000";
+		const improvementRequest = buildImprovementRequest(findingId);
+		improvementRequest.priorityPlan[0].findingIds.push(invalidFindingId);
+		improvementRequest.implementationTasks[0].findingIds.push(invalidFindingId);
 		const content = JSON.stringify({
 			summary: "高リスクの finding が 1 件あります。",
 			riskOverview: "保存済み証跡に基づく XSS リスクがあります。",
@@ -351,19 +399,31 @@ describe("ScanReviewRunner", () => {
 				},
 			],
 			confidenceNotes: ["証跡は source-location に基づいています。"],
-			improvementRequest: buildImprovementRequest(
-				"00000000-0000-4000-8000-000000000000",
-			),
+			improvementRequest,
 		});
 		const runner = new ScanReviewRunner(connection.db, providerWithContent(content));
 
 		const result = await runner.run(scanRunId);
 
-		expect(result.ok).toBe(false);
-		expect(result.error).toContain("llm_structured_output_validation_failed");
-		expect(result.error).toContain("improvementRequest");
+		expect(result.ok).toBe(true);
 		const rows = await connection.db.select().from(scanReviews);
-		expect(rows[0].status).toBe("failed");
+		expect(rows[0].status).toBe("completed");
+		expect(
+			(
+				rows[0].output.improvementRequest as {
+					priorityPlan: Array<{ findingIds: string[] }>;
+					implementationTasks: Array<{ findingIds: string[] }>;
+				}
+			).priorityPlan[0].findingIds,
+		).toEqual([findingId]);
+		expect(
+			(
+				rows[0].output.improvementRequest as {
+					priorityPlan: Array<{ findingIds: string[] }>;
+					implementationTasks: Array<{ findingIds: string[] }>;
+				}
+			).implementationTasks[0].findingIds,
+		).toEqual([findingId]);
 	});
 
 	it("rejects empty improvement request finding references when findings exist", async () => {

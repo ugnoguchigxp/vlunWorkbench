@@ -28,6 +28,7 @@ import { buildStaticIntelligenceKnowledgeSourceManifest } from "./knowledge-sour
 import {
 	getProjectExplorationCatalogTool,
 	getStaticIntelligenceCodeStructureSnapshotTool,
+	getStaticIntelligenceProjectStructureSnapshotTool,
 	getStaticIntelligenceEvidenceBundleTool,
 	getStaticIntelligenceGuardrailMaterialTool,
 	getStaticIntelligenceKnowledgeSourceManifestTool,
@@ -182,6 +183,7 @@ describe("Static Intelligence MCP tools", () => {
 			"vuln_get_evidence_bundle",
 			"vuln_get_verification_commands",
 			"vuln_get_code_structure_snapshot",
+			"vuln_get_project_structure_snapshot",
 			"vuln_get_project_exploration_catalog",
 		]);
 		expect(
@@ -212,6 +214,7 @@ describe("Static Intelligence MCP tools", () => {
 			},
 			vuln_get_verification_commands: { projectPath: "/repo" },
 			vuln_get_code_structure_snapshot: { projectPath: "/repo" },
+			vuln_get_project_structure_snapshot: { projectPath: "/repo" },
 			vuln_get_project_exploration_catalog: { projectPath: "/repo" },
 		};
 		for (const [name, input] of Object.entries(pathInputs)) {
@@ -257,6 +260,36 @@ describe("Static Intelligence MCP tools", () => {
 				input: { scanRunId, generationId: "00000000-0000-4000-8000-000000000001" },
 			}),
 		).resolves.toMatchObject({ ok: false, status: "failed" });
+	});
+
+	it("fetches persisted Project Structure v2 through MCP", async () => {
+		const repoPath = path.join(tempDir, "project-structure-project");
+		await fs.mkdir(path.join(repoPath, "src"), { recursive: true });
+		await fs.writeFile(path.join(repoPath, "src", "app.ts"), 'import "./styles.css";\nexport const app = true;\n');
+		await fs.writeFile(path.join(repoPath, "src", "styles.css"), ".app { color: red; }\n");
+		const projectId = await seedProject("Project Structure Project", repoPath);
+		await fs.writeFile(path.join(repoPath, "src", "app.ts"), 'import "./styles.css";\nexport const app = true;\n');
+		await fs.writeFile(path.join(repoPath, "src", "styles.css"), ".app { color: red; }\n");
+		const scanRunId = await seedScanRun({ projectId });
+		await persistGeneration(scanRunId);
+
+		const result = await getStaticIntelligenceProjectStructureSnapshotTool({
+			db: connection.db,
+			input: { scanRunId },
+		});
+
+		expect(result).toMatchObject({ ok: true, status: "completed", version: "v2", view: "summary" });
+		if (!result.ok) throw new Error(result.message);
+		expect(result.generation).toMatchObject({ generationId: expect.any(String) });
+		const references = await getStaticIntelligenceProjectStructureSnapshotTool({
+			db: connection.db,
+			input: { scanRunId, view: "references", limit: 1 },
+		});
+		expect(references).toMatchObject({ ok: true, view: "references", total: expect.any(Number) });
+		if (!references.ok) throw new Error(references.message);
+		expect(references.items).toEqual(expect.arrayContaining([
+			expect.objectContaining({ specifier: "./styles.css", status: "resolved", target: "src/styles.css" }),
+		]));
 	});
 
 	it("returns failure JSON for invalid input and missing scans", async () => {

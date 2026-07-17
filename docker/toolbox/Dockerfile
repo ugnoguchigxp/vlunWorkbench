@@ -2,9 +2,9 @@ FROM python:3.12-slim-bookworm
 
 ARG TARGETARCH
 ARG SEMGREP_VERSION=1.99.0
-ARG GITLEAKS_VERSION=8.21.2
-ARG OSV_SCANNER_VERSION=1.9.0
-ARG TRIVY_VERSION=0.56.2
+ARG GITLEAKS_VERSION=8.30.1
+ARG OSV_SCANNER_VERSION=2.4.0
+ARG TRIVY_VERSION=0.71.2
 ARG NUCLEI_VERSION=3.8.0
 ARG SCHEMATHESIS_VERSION=4.22.4
 
@@ -13,10 +13,13 @@ LABEL org.opencontainers.image.description="Toolbox image for Semgrep, Gitleaks,
 LABEL vuln-workbench.toolbox.version="2"
 
 RUN apt-get update \
-	&& apt-get install -y --no-install-recommends ca-certificates curl tar gzip unzip \
+	&& apt-get install -y --no-install-recommends ca-certificates curl git tar gzip unzip \
 	&& rm -rf /var/lib/apt/lists/*
 
-RUN pip install --no-cache-dir "semgrep==${SEMGREP_VERSION}"
+RUN python -m venv /opt/semgrep \
+	&& /opt/semgrep/bin/pip install --no-cache-dir "setuptools<81" "semgrep==${SEMGREP_VERSION}" \
+	&& ln -s /opt/semgrep/bin/semgrep /usr/local/bin/semgrep \
+	&& ln -s /opt/semgrep/bin/pysemgrep /usr/local/bin/pysemgrep
 
 RUN set -eux; \
 	target_arch="${TARGETARCH:-$(dpkg --print-architecture)}"; \
@@ -63,10 +66,12 @@ RUN set -eux; \
 	chmod +x /usr/local/bin/nuclei; \
 	rm -f /tmp/nuclei.zip
 
-RUN pip install --no-cache-dir "schemathesis==${SCHEMATHESIS_VERSION}" \
+RUN python -m venv /opt/schemathesis \
+	&& /opt/schemathesis/bin/pip install --no-cache-dir "schemathesis==${SCHEMATHESIS_VERSION}" \
+	&& ln -s /opt/schemathesis/bin/st /usr/local/bin/st \
 	&& command -v st
 
-COPY nuclei-safe-templates /opt/vuln-workbench/nuclei-safe-templates
+COPY docker/toolbox/nuclei-safe-templates /opt/vuln-workbench/nuclei-safe-templates
 
 RUN mkdir -p /workspace/repo /workspace/out /workspace/cache \
 	&& chown -R 65532:65532 /workspace

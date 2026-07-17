@@ -64,6 +64,11 @@ export const PROFILE_DISPLAY: Record<
 		subtitle:
 			"HTTP baseline、Nuclei safe、ZAP baseline を同じ自動起動対象で確認します。",
 	},
+	"runtime-zap-baseline": {
+		name: "ZAP Baseline Passive Scan",
+		subtitle:
+			"固定Docker imageとbounded gatewayでローカル対象をpassive scanします。",
+	},
 	"sbom-inventory": {
 		name: "CycloneDXソフトウェアインベントリ",
 		subtitle: "検査対象のソフトウェア構成を SBOM artifact として保存します。",
@@ -160,6 +165,15 @@ export function formatScanOutcome(value: string | null | undefined): string {
 		cancelled: "キャンセル済み",
 		timed_out: "タイムアウト",
 		skipped: "スキップ",
+		target_unreachable_from_container: "コンテナから対象に到達不能",
+		authentication_required: "認証が必要",
+		policy_rejected: "ポリシーで拒否",
+		invalid_structured_output: "構造化出力が不正",
+		execution_failed: "実行失敗",
 	};
 	return labels[value] ?? value.replace(/_/g, " ").toUpperCase();
+}
+
+export function formatScanReason(value: string | null | undefined): string {
+	return formatScanOutcome(value);
 }

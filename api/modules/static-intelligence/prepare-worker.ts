@@ -155,6 +155,7 @@ export async function processStaticIntelligencePrepareJob(params: {
 		)({
 			db: params.db,
 			scanRunId: job.scanRunId,
+			emitTelemetry: true,
 		});
 		const sourceAfterBuild = await computeProjectSourceFingerprint(
 			job.canonicalProjectPath,

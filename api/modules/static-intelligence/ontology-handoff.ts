@@ -2,6 +2,10 @@ import type { StaticIntelligenceOntologyHandoff } from "../../../shared/schemas/
 import { staticIntelligenceOntologyHandoffSchema } from "../../../shared/schemas/static-intelligence-module.schema";
 import type { PersistedStaticIntelligenceGeneration } from "./generation-repository";
 import { buildStaticIntelligenceModuleCandidates } from "./module-candidates";
+import {
+	projectStructureRolloutMode,
+	shouldPreferProjectStructureV2,
+} from "./project-structure/rollout";
 
 export function buildStaticIntelligenceOntologyHandoff(params: {
 	generation: PersistedStaticIntelligenceGeneration;
@@ -17,6 +21,11 @@ export function buildStaticIntelligenceOntologyHandoff(params: {
 	const modules = buildStaticIntelligenceModuleCandidates({
 		snapshot: generation.structure.snapshot,
 		exportPayload: generation.export.payload,
+		projectStructureSnapshot: shouldPreferProjectStructureV2(
+			projectStructureRolloutMode(),
+		)
+			? generation.projectStructure?.snapshot
+			: undefined,
 	});
 	const degradedReasons = uniqueSorted([
 		...generation.structure.metadata.degradedReasons,

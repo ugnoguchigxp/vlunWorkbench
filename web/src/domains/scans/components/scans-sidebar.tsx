@@ -21,6 +21,11 @@ import { useScans } from "../scans-context";
 import { formatDateTime } from "../scans-utils";
 import { ActionQueuePanel } from "./action-queue-panel";
 
+const folderNameFromPath = (value: string): string => {
+	const normalized = value.replaceAll("\\", "/").replace(/\/+$/, "");
+	return normalized.split("/").at(-1) || normalized || "repository";
+};
+
 export function ScansToolbar() {
 	const c = useScans();
 	const selectedProfile = c.profiles.find(
@@ -75,7 +80,7 @@ export function ScansToolbar() {
 								<option value="">-- プロジェクトを選択 --</option>
 								{c.projects.map((project) => (
 									<option key={project.id} value={project.id}>
-										{project.name}
+										{folderNameFromPath(project.repoPath)}
 									</option>
 								))}
 							</SelectInput>
@@ -319,15 +324,6 @@ function NewProjectModal() {
 							フォルダが未選択です。「選択」からプロジェクトフォルダを指定してください。
 						</div>
 					)}
-					<label htmlFor="scan-project-name">
-						<span>プロジェクト名</span>
-						<TextInput
-							id="scan-project-name"
-							value={c.projectNameInput}
-							onChange={(event) => c.setProjectNameInput(event.target.value)}
-							placeholder="プロジェクト名"
-						/>
-					</label>
 					<label htmlFor="scan-project-default-branch">
 						<span>既定ブランチ</span>
 						<TextInput
@@ -352,11 +348,7 @@ function NewProjectModal() {
 						type="button"
 						variant="primary"
 						onClick={() => void c.handleCreateProjectFromFolder()}
-						disabled={
-							c.projectCreateLoading ||
-							!c.projectFolderPath.trim() ||
-							!c.projectNameInput.trim()
-						}
+						disabled={c.projectCreateLoading || !c.projectFolderPath.trim()}
 					>
 						<Plus className="icon" />
 						{c.projectCreateLoading ? "登録中..." : "プロジェクトを登録"}

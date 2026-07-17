@@ -4,6 +4,10 @@ type VerifyStep = {
 };
 
 const steps: VerifyStep[] = [
+	{
+		label: "sqlite-write-boundary",
+		command: ["bun", "run", "scripts/check-sqlite-write-boundary.ts"],
+	},
 	{ label: "typecheck", command: ["bun", "run", "typecheck"] },
 	{ label: "lint", command: ["bun", "run", "lint"] },
 	{ label: "format", command: ["bun", "run", "format:check"] },

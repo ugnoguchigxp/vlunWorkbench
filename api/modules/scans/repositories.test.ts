@@ -81,6 +81,38 @@ describe("Scan Domain Repositories", () => {
 		expect(list[0].id).toBe(project.id);
 	});
 
+	it("should reject duplicate canonical repository paths across users", async () => {
+		const now = new Date();
+		const [otherUser] = await connection.db
+			.insert(users)
+			.values({
+				email: "other@example.com",
+				passwordHash: "hash",
+				displayName: "Other User",
+				role: "member",
+				isActive: true,
+				createdAt: now,
+				updatedAt: now,
+			})
+			.returning();
+
+		await projectRepo.createProject({
+			ownerUserId: userId,
+			name: "repo",
+			repoPath: "/path/to/repo",
+			canonicalRepoPath: "/path/to/repo",
+		});
+
+		await expect(
+			projectRepo.createProject({
+				ownerUserId: otherUser.id,
+				name: "alias",
+				repoPath: "/alias/to/repo",
+				canonicalRepoPath: "/path/to/repo",
+			}),
+		).rejects.toThrow();
+	});
+
 	it("should run scans, generate events, and tools", async () => {
 		const project = await projectRepo.createProject({
 			ownerUserId: userId,
@@ -150,8 +182,12 @@ describe("Scan Domain Repositories", () => {
 
 		const updatedTool = await scanRepo.updateToolRunStatus(tool.id, "completed", {
 			exitCode: 0,
+			toolVersion: "2.17.0",
+			metadata: { image: "zaproxy/zap-stable@sha256:example" },
 		});
 		expect(updatedTool?.exitCode).toBe(0);
+		expect(updatedTool?.toolVersion).toBe("2.17.0");
+		expect(updatedTool?.metadata).toMatchObject({ image: "zaproxy/zap-stable@sha256:example" });
 	});
 
 	it("should store scan artifacts, findings, and evidence", async () => {

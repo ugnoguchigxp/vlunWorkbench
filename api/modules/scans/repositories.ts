@@ -1,5 +1,5 @@
 import { and, eq, or } from "drizzle-orm";
-import type { AppDatabase } from "../../db";
+import { type AppDatabase, writerClientForDatabase } from "../../db";
 import {
 	findingEvidences,
 	findings,
@@ -287,6 +287,7 @@ export class ScanRepository {
 		status: string,
 		options?: {
 			exitCode?: number | null;
+			toolVersion?: string | null;
 			metadata?: Record<string, unknown>;
 			completedAt?: Date | null;
 		},
@@ -298,6 +299,9 @@ export class ScanRepository {
 		};
 		if (options?.exitCode !== undefined) {
 			updateValues.exitCode = options.exitCode;
+		}
+		if (options?.toolVersion !== undefined) {
+			updateValues.toolVersion = options.toolVersion;
 		}
 		if (options?.metadata !== undefined) {
 			updateValues.metadata = options.metadata;
@@ -314,6 +318,41 @@ export class ScanRepository {
 			.where(eq(toolRuns.id, id))
 			.returning();
 		return updated || null;
+	}
+
+	async recordToolUnavailable(params: {
+		scanRunId: string;
+		toolRunId: string;
+		toolName: string;
+		message: string;
+		metadata: Record<string, unknown>;
+	}): Promise<void> {
+		const now = new Date();
+		const eventQuery = this.db.insert(scanEvents).values({
+			scanRunId: params.scanRunId,
+			level: "error",
+			eventType: "tool.failed",
+			message: `${params.toolName} failed: ${params.message}`,
+			data: { toolRunId: params.toolRunId },
+			createdAt: now,
+		});
+		const toolRunQuery = this.db
+			.update(toolRuns)
+			.set({
+				status: "failed",
+				exitCode: 127,
+				metadata: params.metadata,
+				completedAt: now,
+				updatedAt: now,
+			})
+			.where(eq(toolRuns.id, params.toolRunId));
+		const writer = writerClientForDatabase(this.db);
+		if (writer) {
+			await writer.atomicDrizzleBatch([eventQuery, toolRunQuery]);
+			return;
+		}
+		await eventQuery;
+		await toolRunQuery;
 	}
 }
 

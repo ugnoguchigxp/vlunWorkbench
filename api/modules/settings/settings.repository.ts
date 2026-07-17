@@ -15,7 +15,7 @@ export type SystemContextRecord = {
 export class SettingsRepository {
 	constructor(private readonly db: AppDatabase) {}
 
-	private async ensureGlobalRecord(): Promise<SystemContextRecord> {
+	private async readGlobalRecord(): Promise<SystemContextRecord> {
 		const existingGlobal = await this.db.query.userSettings.findFirst({
 			where: eq(userSettings.userId, GLOBAL_SYSTEM_CONTEXT_KEY),
 		});
@@ -28,50 +28,29 @@ export class SettingsRepository {
 				where: eq(userSettings.userId, legacyKey),
 			});
 			if (!legacy) continue;
-			const now = new Date();
-			const [migrated] = await this.db
-				.insert(userSettings)
-				.values({
-					userId: GLOBAL_SYSTEM_CONTEXT_KEY,
-					systemContext: legacy.systemContext,
-					createdAt: now,
-					updatedAt: now,
-				})
-				.onConflictDoNothing()
-				.returning();
-			if (migrated) {
-				return migrated;
-			}
-			const retry = await this.db.query.userSettings.findFirst({
-				where: eq(userSettings.userId, GLOBAL_SYSTEM_CONTEXT_KEY),
-			});
-			if (retry) return retry;
+			return { ...legacy, userId: GLOBAL_SYSTEM_CONTEXT_KEY };
 		}
 
-		const now = new Date();
-		const [created] = await this.db
-			.insert(userSettings)
-			.values({
-				userId: GLOBAL_SYSTEM_CONTEXT_KEY,
-				systemContext: "",
-				createdAt: now,
-				updatedAt: now,
-			})
-			.returning();
-		return created;
+		const epoch = new Date(0);
+		return {
+			userId: GLOBAL_SYSTEM_CONTEXT_KEY,
+			systemContext: "",
+			createdAt: epoch,
+			updatedAt: epoch,
+		};
 	}
 
 	async getSystemContext(): Promise<SystemContextRecord> {
-		return await this.ensureGlobalRecord();
+		return await this.readGlobalRecord();
 	}
 
 	async getSystemContextForUser(userId: string): Promise<SystemContextRecord> {
 		const normalizedUserId = userId.trim();
 		if (!normalizedUserId) {
-			return this.ensureGlobalRecord();
+			return this.readGlobalRecord();
 		}
 		if (normalizedUserId === GLOBAL_SYSTEM_CONTEXT_KEY) {
-			return this.ensureGlobalRecord();
+			return this.readGlobalRecord();
 		}
 		const userRecord = await this.db.query.userSettings.findFirst({
 			where: eq(userSettings.userId, normalizedUserId),
@@ -79,7 +58,7 @@ export class SettingsRepository {
 		if (userRecord) {
 			return userRecord;
 		}
-		return this.ensureGlobalRecord();
+		return this.readGlobalRecord();
 	}
 
 	async updateSystemContext(
@@ -91,9 +70,6 @@ export class SettingsRepository {
 			normalizedUserId && normalizedUserId !== GLOBAL_SYSTEM_CONTEXT_KEY
 				? normalizedUserId
 				: GLOBAL_SYSTEM_CONTEXT_KEY;
-		if (targetUserId === GLOBAL_SYSTEM_CONTEXT_KEY) {
-			await this.ensureGlobalRecord();
-		}
 		const now = new Date();
 		const [updated] = await this.db
 			.insert(userSettings)

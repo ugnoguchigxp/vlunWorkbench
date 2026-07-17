@@ -14,6 +14,14 @@ import {
 	codeStructureSnapshotResultSchema,
 } from "../../../shared/schemas/static-intelligence-code-structure.schema";
 import type {
+	ProjectStructureSnapshotFailure,
+	ProjectStructureSnapshotResult,
+} from "../../../shared/schemas/project-structure.schema";
+import {
+	projectStructureSnapshotFailureSchema,
+	projectStructureSnapshotResultSchema,
+} from "../../../shared/schemas/project-structure.schema";
+import type {
 	ProjectExplorationCatalogFailure,
 	ProjectExplorationCatalogResult,
 } from "../../../shared/schemas/static-intelligence-exploration-catalog.schema";
@@ -44,6 +52,7 @@ import { buildStaticIntelligenceGuardrailMaterial } from "./guardrail-material";
 import { buildStaticIntelligenceKnowledgeSourceManifest } from "./knowledge-source-manifest";
 import {
 	getCodeStructureSnapshotInputSchema,
+	getProjectStructureSnapshotInputSchema,
 	getEvidenceBundleInputSchema,
 	getGuardrailMaterialInputSchema,
 	getKnowledgeSourceManifestInputSchema,
@@ -51,6 +60,7 @@ import {
 	getVerificationCommandsInputSchema,
 	type ListKnowledgeSourcesInput,
 	legacyGetCodeStructureSnapshotInputSchema,
+	legacyGetProjectStructureSnapshotInputSchema,
 	legacyGetEvidenceBundleInputSchema,
 	legacyGetGuardrailMaterialInputSchema,
 	legacyGetKnowledgeSourceManifestInputSchema,
@@ -81,6 +91,8 @@ export type StaticIntelligenceMcpToolResult =
 	| StaticIntelligenceMcpToolFailure
 	| CodeStructureSnapshotResult
 	| CodeStructureSnapshotFailure
+	| ProjectStructureSnapshotResult
+	| ProjectStructureSnapshotFailure
 	| StaticIntelligenceKnowledgeSourceManifestResult
 	| StaticIntelligenceKnowledgeSourceManifestFailure
 	| StaticIntelligenceGuardrailMaterialResult
@@ -90,6 +102,23 @@ export type StaticIntelligenceMcpToolResult =
 	| ProjectExplorationCatalogResult
 	| ProjectExplorationCatalogFailure
 	| Record<string, unknown>;
+
+type ProjectStructureMcpSuccess = {
+	ok: true;
+	status: "completed";
+	version: "v2";
+	generatedAt: string;
+	view: "summary" | "files" | "references";
+	generation: { generationId: string };
+	summary?: unknown;
+	coverage?: unknown;
+	readiness?: unknown;
+	diagnostics?: unknown[];
+	modules?: unknown[];
+	items?: unknown[];
+	nextCursor?: number | null;
+	total?: number;
+};
 
 export type StaticIntelligenceMcpToolHandler = (params: {
 	db: AppDatabase;
@@ -424,6 +453,75 @@ export async function getStaticIntelligenceCodeStructureSnapshotTool(params: {
 	}
 }
 
+export async function getStaticIntelligenceProjectStructureSnapshotTool(params: {
+	db: AppDatabase;
+	input: unknown;
+}): Promise<ProjectStructureMcpSuccess | ProjectStructureSnapshotFailure> {
+	const parsed = parseToolInput(
+		legacyGetProjectStructureSnapshotInputSchema,
+		params.input,
+	);
+	if (!parsed.ok) {
+		return projectStructureSnapshotFailureSchema.parse({
+			ok: false,
+			status: "failed",
+			message: parsed.failure.message,
+		});
+	}
+	try {
+		const generation = await requirePersistedGeneration(
+			params.db,
+			parsed.input.scanRunId,
+			parsed.input.generationId,
+		);
+		if (!generation.projectStructure) {
+			return projectStructureSnapshotFailureSchema.parse({
+				ok: false,
+				status: "failed",
+				message: "Persisted project structure v2 is unavailable for this generation.",
+			});
+		}
+		const snapshot = generation.projectStructure.snapshot;
+		const view = parsed.input.view;
+		const cursor = parsed.input.cursor;
+		const limit = parsed.input.limit;
+		if (view === "summary") {
+			return {
+				ok: true,
+				status: "completed",
+				version: "v2",
+				generatedAt: snapshot.generatedAt,
+				view,
+				generation: { generationId: generation.generationId },
+				summary: snapshot.summary,
+				coverage: snapshot.inventory.coverage,
+				readiness: snapshot.readiness,
+				diagnostics: snapshot.diagnostics.slice(0, 200),
+				modules: snapshot.modules,
+			};
+		}
+		const source = view === "files" ? snapshot.files : snapshot.references;
+		const items = source.slice(cursor, cursor + limit);
+		return {
+			ok: true,
+			status: "completed",
+			version: "v2",
+			generatedAt: snapshot.generatedAt,
+			view,
+			generation: { generationId: generation.generationId },
+			items,
+			nextCursor: cursor + items.length < source.length ? cursor + items.length : null,
+			total: source.length,
+		};
+	} catch {
+		return projectStructureSnapshotFailureSchema.parse({
+			ok: false,
+			status: "failed",
+			message: "Persisted project structure generation unavailable.",
+		});
+	}
+}
+
 export async function prepareProjectIntelligenceTool(params: {
 	db: AppDatabase;
 	input: unknown;
@@ -478,6 +576,41 @@ async function getCodeStructureSnapshotFacade(
 		input: {
 			scanRunId: context.generation.scanRunId,
 			generationId: context.generation.generationId,
+		},
+	});
+	return withPathMetadata(result, context);
+}
+
+async function getProjectStructureSnapshotFacade(
+	params: Parameters<StaticIntelligenceMcpToolHandler>[0],
+): Promise<StaticIntelligenceMcpToolResult> {
+	if (!hasProjectPath(params.input)) {
+		return await getStaticIntelligenceProjectStructureSnapshotTool(params);
+	}
+	const parsed = getProjectStructureSnapshotInputSchema.safeParse(params.input);
+	if (!parsed.success || !("projectPath" in parsed.data)) {
+		return pathInputFailure(parsed.success ? undefined : parsed.error);
+	}
+	const context = await resolvePathReadContext(
+		params.db,
+		parsed.data.projectPath,
+		params.allowedProjectRoots ?? [],
+	);
+	if (!context.ok) return context.failure;
+	const pathInput = parsed.data as {
+		projectPath: string;
+		view: "summary" | "files" | "references";
+		cursor: number;
+		limit: number;
+	};
+	const result = await getStaticIntelligenceProjectStructureSnapshotTool({
+		db: params.db,
+		input: {
+			scanRunId: context.generation.scanRunId,
+			generationId: context.generation.generationId,
+			view: pathInput.view,
+			cursor: pathInput.cursor,
+			limit: pathInput.limit,
 		},
 	});
 	return withPathMetadata(result, context);
@@ -737,6 +870,14 @@ export const staticIntelligenceMcpToolRegistry: StaticIntelligenceMcpToolDefinit
 			inputSchema: getCodeStructureSnapshotInputSchema,
 			readOnlyHint: true,
 			handler: getCodeStructureSnapshotFacade,
+		},
+		{
+			name: "vuln_get_project_structure_snapshot",
+			description:
+				"Read-only fetch for the persisted Project Structure Scanner v2 snapshot. It includes safe inventory coverage and typed references, and never starts a scan or generation build.",
+			inputSchema: getProjectStructureSnapshotInputSchema,
+			readOnlyHint: true,
+			handler: getProjectStructureSnapshotFacade,
 		},
 		{
 			name: "vuln_get_project_exploration_catalog",

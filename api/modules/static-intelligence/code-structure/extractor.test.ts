@@ -222,6 +222,35 @@ describe("Code Structure extractor", () => {
 		expect(file.tags).toEqual(["handler", "source"]);
 	});
 
+	it("accepts existing non-code relative import targets without degrading code structure", async () => {
+		await writeProjectFile(
+			"web/src/main.tsx",
+			[
+				'import "./styles.css";',
+				'import iconPath from "./icon.svg";',
+				'import config from "./config.json";',
+				"export const App = () => ({ iconPath, config });",
+			].join("\n"),
+		);
+		await writeProjectFile("web/src/styles.css", ".root { color: teal; }\n");
+		await writeProjectFile("web/src/icon.svg", "<svg></svg>\n");
+		await writeProjectFile("web/src/config.json", '{"enabled":true}\n');
+
+		const snapshot = await buildCodeStructureSnapshot({
+			projectPath: tempDir,
+			generatedAt: GENERATED_AT,
+		});
+
+		expect(snapshot.status).toBe("completed");
+		expect(snapshot.degradedReasons).toEqual([]);
+		expect(snapshot.files).toHaveLength(1);
+		expect(snapshot.files[0]?.imports).toEqual([
+			"./config.json",
+			"./icon.svg",
+			"./styles.css",
+		]);
+	});
+
 	it("returns partial output for parser diagnostics and max file limits", async () => {
 		await writeProjectFile("a.ts", 'import "./missing";\nexport function broken( {\n');
 		await writeProjectFile("b.ts", "export const b = true;\n");

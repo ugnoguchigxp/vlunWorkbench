@@ -123,6 +123,30 @@ export type GetCodeStructureSnapshotInput = z.output<
 	typeof getCodeStructureSnapshotInputSchema
 >;
 
+const projectStructureViewSchema = z.enum(["summary", "files", "references"]);
+const projectStructureSnapshotOptionsSchema = z.object({
+	view: projectStructureViewSchema.default("summary"),
+	cursor: z.number().int().nonnegative().default(0),
+	limit: z.number().int().min(1).max(200).default(100),
+});
+export const legacyGetProjectStructureSnapshotInputSchema = z
+	.object({
+		scanRunId: z.string().trim().min(1),
+		generationId: z.string().uuid().optional(),
+	})
+	.strict()
+	.merge(projectStructureSnapshotOptionsSchema)
+	.strict();
+export const pathFirstProjectStructureSnapshotInputSchema =
+	projectPathInputSchema.merge(projectStructureSnapshotOptionsSchema).strict();
+export const getProjectStructureSnapshotInputSchema = z.union([
+	pathFirstProjectStructureSnapshotInputSchema,
+	legacyGetProjectStructureSnapshotInputSchema,
+]);
+export type GetProjectStructureSnapshotInput = z.output<
+	typeof getProjectStructureSnapshotInputSchema
+>;
+
 export const pathFirstProjectExplorationCatalogInputSchema =
 	projectPathInputSchema.extend({
 		focus: z

@@ -4,6 +4,7 @@ import path from "node:path";
 import {
 	Codex,
 	type CodexOptions,
+	type ModelReasoningEffort,
 	type ThreadOptions,
 } from "@openai/codex-sdk";
 import type { ChatMessage } from "../types/llm";
@@ -24,6 +25,7 @@ export type CodexSdkProviderDiagnostics = {
 	authSource: "api-key" | "codex-home" | "environment" | "none";
 	model: string;
 	timeoutMs: number;
+	reasoningEffort: ModelReasoningEffort | null;
 };
 
 export type CodexSdkProviderConfig = {
@@ -31,6 +33,7 @@ export type CodexSdkProviderConfig = {
 	apiKey?: string;
 	codexHome?: string;
 	timeoutMs?: number;
+	reasoningEffort?: ModelReasoningEffort;
 	codexConstructor?: CodexConstructor;
 	tmpRoot?: string;
 	env?: NodeJS.ProcessEnv;
@@ -141,10 +144,12 @@ export class CodexSdkProvider implements LlmProvider {
 	private readonly env: NodeJS.ProcessEnv;
 	private readonly model: string;
 	private readonly apiKey?: string;
+	private readonly reasoningEffort?: ModelReasoningEffort;
 
 	constructor(config: CodexSdkProviderConfig) {
 		this.model = config.model;
 		this.apiKey = config.apiKey;
+		this.reasoningEffort = config.reasoningEffort;
 		this.codexHome =
 			config.codexHome ??
 			config.env?.CODEX_HOME ??
@@ -167,6 +172,7 @@ export class CodexSdkProvider implements LlmProvider {
 			}),
 			model: this.model,
 			timeoutMs: this.timeoutMs,
+			reasoningEffort: this.reasoningEffort ?? null,
 		};
 	}
 
@@ -193,6 +199,9 @@ export class CodexSdkProvider implements LlmProvider {
 			});
 			const threadOptions: ThreadOptions = {
 				model: this.model,
+				...(this.reasoningEffort
+					? { modelReasoningEffort: this.reasoningEffort }
+					: {}),
 				sandboxMode: "read-only",
 				approvalPolicy: "never",
 				webSearchMode: "disabled",

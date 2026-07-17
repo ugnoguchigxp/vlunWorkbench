@@ -10,6 +10,35 @@ const project = { id: "p-1", ownerUserId: "u-1", repoPath: "/tmp/project", name:
 const scan = (id: string, status: string, projectId = "p-1", offset = 0) => ({ id, projectId, profile: "baseline", status, startedAt: now, completedAt: new Date(now.getTime() + offset), createdByUserId: "u-1", summary: null, metadata: {}, createdAt: new Date(now.getTime() + offset), updatedAt: now });
 
 describe("Static Intelligence read model resolver", () => {
+	it("excludes temporary projects from UI summaries", async () => {
+		const normalProject = {
+			...project,
+			id: "p-normal",
+			name: "todolist",
+			repoPath: "/Users/test/todolist",
+		};
+		const resolver = new StaticIntelligenceReadModelResolver(
+			{} as any,
+			{
+				listProjects: vi.fn(async () => [
+					normalProject,
+					project,
+					{ ...project, id: "p-private-tmp", repoPath: "/private/tmp/case" },
+				]),
+				findById: vi.fn(),
+			} as any,
+			{
+				listScanRunsByProject: vi.fn(async () => []),
+				findById: vi.fn(),
+			} as any,
+		);
+
+		const summaries = await resolver.listSummaries("u-1");
+
+		expect(summaries).toHaveLength(1);
+		expect(summaries[0]?.project.repositoryName).toBe("todolist");
+	});
+
 	it("distinguishes missing, stale, partial, and current semantic indexes", () => {
 		const sources = [
 			{ sourceKind: "finding", sourceId: "one", contentHash: "new-one" },

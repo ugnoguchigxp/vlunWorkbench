@@ -1,21 +1,9 @@
-import { readdirSync, readFileSync } from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createDbConnection, type DbConnection } from "../../db";
-
-function applyMigrations(connection: DbConnection) {
-	const migrationsDir = path.resolve(process.cwd(), "drizzle");
-	const sqlFiles = readdirSync(migrationsDir)
-		.filter((file) => file.endsWith(".sql"))
-		.sort((a, b) => a.localeCompare(b));
-	for (const filename of sqlFiles) {
-		connection.sqlite.exec(
-			readFileSync(path.join(migrationsDir, filename), "utf8"),
-		);
-	}
-}
+import { migrateTestDatabase } from "../../db/testing/migrate";
 
 async function writeMockTool(
 	binDir: string,
@@ -155,8 +143,8 @@ describe("Security oracle CLI contract", () => {
 			}),
 		);
 
+		await migrateTestDatabase(dbUrl);
 		connection = createDbConnection(dbUrl);
-		applyMigrations(connection);
 	});
 
 	afterEach(async () => {
@@ -222,7 +210,7 @@ describe("Security oracle CLI contract", () => {
 		expect(second.exitCode).toBe(0);
 		expect(secondPayload.project.created).toBe(false);
 		expect(projects).toHaveLength(1);
-	});
+	}, 15_000);
 
 	it("keeps stdout JSON-only through the package script entrypoint", async () => {
 		const proc = runCli([

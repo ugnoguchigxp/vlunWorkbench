@@ -2,7 +2,13 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import type { AppDatabase } from "../../db";
 import type { ArtifactStorage } from "../scans/artifact-storage";
-import { buildCodeStructureSnapshot } from "./code-structure/extractor";
+import { buildProjectStructureSnapshot } from "./project-structure/builder";
+import { projectStructureV2ToCodeStructureV1 } from "./project-structure/v1-projector";
+import {
+	emitProjectStructureComparisonTelemetry,
+	projectStructureRolloutMode,
+	shouldPersistProjectStructure,
+} from "./project-structure/rollout";
 import { buildStaticIntelligenceExportFromBundle } from "./export-builder";
 import {
 	type PersistedStaticIntelligenceGeneration,
@@ -21,7 +27,12 @@ import type { StaticIntelligenceReadiness } from "../../../shared/schemas/static
 export type StaticIntelligenceBuildStage = {
 	name:
 		| "validate_source"
-		| "build_code_structure"
+		| "build_inventory"
+		| "analyze_files"
+		| "resolve_references"
+		| "infer_modules"
+		| "build_v2_snapshot"
+		| "project_v1_compatibility"
 		| "normalize_paths"
 		| "build_export"
 		| "persist_generation"
@@ -50,6 +61,7 @@ export type StaticIntelligenceBuildResult = {
 		degradedReasons: string[];
 	};
 	artifacts: {
+		projectStructure?: { id: string; sha256: string; snapshotRef: string };
 		structure: { id: string; sha256: string; snapshotRef: string };
 		export: { id: string; sha256: string; exportHash: string };
 	};
@@ -73,6 +85,7 @@ export async function buildStaticIntelligenceGeneration(params: {
 	maxFiles?: number;
 	includeSemantic?: boolean;
 	semanticIndexer?: (scanRunId: string) => Promise<void>;
+	emitTelemetry?: boolean;
 }): Promise<StaticIntelligenceBuildResult> {
 	const sourceRepository = new StaticIntelligenceRepository(params.db);
 	const bundle = await sourceRepository.loadSourceBundle(params.scanRunId);
@@ -96,16 +109,55 @@ export async function buildStaticIntelligenceGeneration(params: {
 		},
 	];
 	const codeStructureStartedAt = Date.now();
-	const snapshot = await buildCodeStructureSnapshot({
+	const projectStructureSnapshot = await buildProjectStructureSnapshot({
 		projectPath: bundle.project.repoPath,
 		projectId: bundle.project.id,
 		maxFiles: params.maxFiles ?? 5000,
 	});
+	const snapshot = projectStructureV2ToCodeStructureV1(
+		projectStructureSnapshot,
+	);
+	const rolloutMode = projectStructureRolloutMode();
+	if (params.emitTelemetry)
+		emitProjectStructureComparisonTelemetry({
+			mode: rolloutMode,
+			durationMs: Date.now() - codeStructureStartedAt,
+			v1FileCount: snapshot.summary.fileCount,
+			v2FileCount: projectStructureSnapshot.summary.fileCount,
+			v2ResolvedCount: projectStructureSnapshot.summary.resolvedReferenceCount,
+			v2UnresolvedCount:
+				projectStructureSnapshot.summary.unresolvedReferenceCount,
+			diagnosticCodes: projectStructureSnapshot.diagnostics.map(
+				(diagnostic) => diagnostic.code,
+			),
+		});
+	for (const [name, readiness] of [
+		["build_inventory", projectStructureSnapshot.readiness.inventory],
+		["analyze_files", projectStructureSnapshot.readiness.analysis],
+		["resolve_references", projectStructureSnapshot.readiness.resolution],
+		["infer_modules", projectStructureSnapshot.readiness.moduleInference],
+	] as const) {
+		stages.push({
+			name,
+			status: readiness.status === "available" ? "completed" : "degraded",
+			reasonCodes: readiness.reasonCodes,
+			durationMs: 0,
+		});
+	}
 	stages.push({
-		name: "build_code_structure",
+		name: "build_v2_snapshot",
+		status:
+			projectStructureSnapshot.status === "partial" ? "degraded" : "completed",
+		reasonCodes: projectStructureSnapshot.diagnostics.map(
+			(diagnostic) => diagnostic.code,
+		),
+		durationMs: Date.now() - codeStructureStartedAt,
+	});
+	stages.push({
+		name: "project_v1_compatibility",
 		status: snapshot.status === "partial" ? "degraded" : "completed",
 		reasonCodes: snapshot.degradedReasons,
-		durationMs: Date.now() - codeStructureStartedAt,
+		durationMs: 0,
 	});
 
 	const exportStartedAt = Date.now();
@@ -139,6 +191,9 @@ export async function buildStaticIntelligenceGeneration(params: {
 	).persistGeneration({
 		scanRunId: params.scanRunId,
 		snapshot,
+		...(shouldPersistProjectStructure(rolloutMode)
+			? { projectStructureSnapshot }
+			: {}),
 		exportPayload,
 		sourceRevision: probeSourceRevision(
 			bundle.project.repoPath,
@@ -245,6 +300,16 @@ function buildResult(
 			degradedReasons: structureMetadata.degradedReasons,
 		},
 		artifacts: {
+			...(generation.projectStructure
+				? {
+						projectStructure: {
+							id: generation.projectStructure.artifact.id,
+							sha256: generation.projectStructure.artifact.sha256,
+							snapshotRef:
+								generation.projectStructure.metadata.snapshotRef ?? "",
+						},
+					}
+				: {}),
 			structure: {
 				id: generation.structure.artifact.id,
 				sha256: generation.structure.artifact.sha256,
@@ -266,10 +331,25 @@ function buildReadiness(
 	generation: PersistedStaticIntelligenceGeneration,
 	semanticStage: StaticIntelligenceBuildStage | undefined,
 ): StaticIntelligenceReadiness {
-	const status = generation.status;
+	const codeStructureReasons = generation.projectStructure
+		? generation.projectStructure.snapshot.diagnostics
+				.filter((diagnostic) => diagnostic.impact !== "none")
+				.map((diagnostic) => diagnostic.code)
+		: generation.structure.snapshot.degradedReasons;
+	const codeStructureStatus = generation.projectStructure
+		? codeStructureReasons.length > 0
+			? ("degraded" as const)
+			: ("available" as const)
+		: generation.structure.snapshot.status === "partial"
+			? ("degraded" as const)
+			: ("available" as const);
+	const exportReasons = generation.export.payload.scanSummary.degradedReasons;
+	const reviewReasons = exportReasons.filter((reason) =>
+		reason.includes("review"),
+	);
 	const base = {
-		status,
-		reasonCodes: generation.structure.metadata.degradedReasons,
+		status: "available" as const,
+		reasonCodes: [],
 		generatedAt: generation.structure.metadata.generatedAt,
 		generationId: generation.generationId,
 		sourceRef: `scan:${generation.scanRunId}`,
@@ -286,15 +366,37 @@ function buildReadiness(
 					reasonCodes: semanticStage?.reasonCodes ?? ["semantic_index_missing"],
 				};
 	return {
-		export: base,
+		export: {
+			...base,
+			status: exportReasons.length > 0 ? "degraded" : "available",
+			reasonCodes: exportReasons,
+		},
 		fileRiskIndex: base,
 		evidenceGraph: base,
-		codeStructure: base,
+		codeStructure: {
+			...base,
+			status: codeStructureStatus,
+			reasonCodes: codeStructureReasons,
+		},
 		semanticIndex: semantic,
-		agentBundle: base,
+		agentBundle: {
+			...base,
+			status:
+				reviewReasons.length > 0 || codeStructureStatus !== "available"
+					? "degraded"
+					: "available",
+			reasonCodes: [...reviewReasons, ...codeStructureReasons],
+		},
 		ontologyHandoff:
 			generation.structure.snapshot.files.length > 0
-				? base
+				? {
+						...base,
+						status:
+							reviewReasons.length > 0 || codeStructureStatus !== "available"
+								? "degraded"
+								: "available",
+						reasonCodes: [...reviewReasons, ...codeStructureReasons],
+					}
 				: {
 						...base,
 						status: "degraded",

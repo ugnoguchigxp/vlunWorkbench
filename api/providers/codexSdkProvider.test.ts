@@ -43,6 +43,7 @@ describe("CodexSdkProvider", () => {
 				PATH: "/usr/bin",
 				OPENAI_API_KEY: "must-not-leak",
 			},
+			reasoningEffort: "low",
 			codexConstructor: CodexMock as any,
 		});
 
@@ -78,6 +79,7 @@ describe("CodexSdkProvider", () => {
 		expect(startThread).toHaveBeenCalledWith(
 			expect.objectContaining({
 				model: "gpt-5.4-mini",
+				modelReasoningEffort: "low",
 				sandboxMode: "read-only",
 				approvalPolicy: "never",
 				webSearchMode: "disabled",

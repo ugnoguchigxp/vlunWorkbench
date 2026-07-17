@@ -8,6 +8,12 @@ import type {
 } from "../../shared/schemas/static-intelligence.schema";
 import type { CodeStructureSnapshot } from "../../shared/schemas/static-intelligence-code-structure.schema";
 import type {
+	ProjectStructureCoverage,
+	ProjectStructureDiagnostic,
+	ProjectStructureModule,
+	ProjectStructureSnapshotV2,
+} from "../../shared/schemas/project-structure.schema";
+import type {
 	StaticIntelligenceModuleCandidate,
 	StaticIntelligenceOntologyHandoff,
 	StaticIntelligenceReadiness,
@@ -888,7 +894,7 @@ export async function fetchProject(projectId: string): Promise<Project> {
 }
 
 export async function createProject(params: {
-	name: string;
+	name?: string;
 	repoPath: string;
 	defaultBranch?: string;
 	metadata?: Record<string, unknown>;
@@ -1027,6 +1033,16 @@ export type ScanIntelligenceExportResponse = {
 	export: StaticIntelligenceExportV1;
 };
 
+export type ProjectStructureSummaryResponse = {
+	status: "available" | "degraded" | "failed" | "missing";
+	generationId?: string;
+	summary?: ProjectStructureSnapshotV2["summary"];
+	coverage?: ProjectStructureCoverage;
+	readiness?: ProjectStructureSnapshotV2["readiness"];
+	diagnostics?: ProjectStructureDiagnostic[];
+	modules?: ProjectStructureModule[];
+};
+
 export type ScanIntelligenceAgentMode =
 	| "overview"
 	| "risk"
@@ -1094,6 +1110,21 @@ export async function fetchProjectIntelligenceStructure(
 		if (value !== undefined && value !== "") search.set(key, String(value));
 	return requestJson<ProjectStructureListResponse>(
 		`/api/projects/${projectId}/intelligence/structure?${search.toString()}`,
+	);
+}
+
+export async function fetchProjectStructureSummary(
+	projectId: string,
+	scanRunId: string,
+	generationId?: string,
+): Promise<ProjectStructureSummaryResponse> {
+	const search = new URLSearchParams({
+		scanRunId,
+		view: "summary",
+		...(generationId ? { generationId } : {}),
+	});
+	return requestJson<ProjectStructureSummaryResponse>(
+		`/api/projects/${projectId}/intelligence/project-structure?${search.toString()}`,
 	);
 }
 
@@ -1401,10 +1432,23 @@ export async function fetchScanReviews(
 export async function triggerScanReview(
 	scanRunId: string,
 	input: { findingFilter?: ScanReviewFindingFilter } = {},
-): Promise<{ review: ScanReview | null; result: Record<string, unknown> }> {
+): Promise<{
+	review: ScanReview | null;
+	result: {
+		ok: boolean;
+		reviewId: string;
+		status: "running" | "failed";
+		error?: string;
+	};
+}> {
 	return requestJson<{
 		review: ScanReview | null;
-		result: Record<string, unknown>;
+		result: {
+			ok: boolean;
+			reviewId: string;
+			status: "running" | "failed";
+			error?: string;
+		};
 	}>(`/api/scans/${scanRunId}/reviews`, { method: "POST", body: input });
 }
 
@@ -1476,6 +1520,7 @@ export type ToolSummary = {
 	status: string;
 	required: boolean;
 	exitCode: number | null;
+	toolVersion: string | null;
 	findingCount: number;
 	severityCounts: {
 		critical: number;
@@ -1487,6 +1532,7 @@ export type ToolSummary = {
 	};
 	artifactCount: number;
 	error: string | null;
+	metadata?: Record<string, unknown>;
 };
 
 export type StepSummary = {
@@ -1509,6 +1555,7 @@ export type StepSummary = {
 	applicability?: "applicable" | "not_applicable";
 	reasonCode?: string | null;
 	coverageEffect?: "covered" | "partial" | "gap";
+	metadata?: Record<string, unknown>;
 };
 
 export type ScanStartToolResult = {
@@ -1536,6 +1583,7 @@ export type ScanStartCoverageStepResult = {
 	findingCount: number;
 	error: string | null;
 	artifactIds?: string[];
+	metadata?: Record<string, unknown>;
 };
 
 export type ScanStartStepResult =

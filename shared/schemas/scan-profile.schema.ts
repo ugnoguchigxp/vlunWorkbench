@@ -92,12 +92,28 @@ const scannerStepBaseSchema = profileToolEntrySchema.pick({
 	failurePolicy: true,
 });
 
-export const runtimeScannerStepSchema = scannerStepBaseSchema.extend({
-	kind: z.literal("runtime_scanner"),
-	adapter: z.enum(["nuclei-safe", "zap-baseline"]),
-	target: z.object({ mode: z.literal("auto_project_start") }),
-	options: z.record(z.string(), z.unknown()).optional(),
+export const zapBaselineOptionsSchema = z.object({
+	maxRequests: z.number().int().min(1).max(100).default(20),
+	rateLimitPerSec: z.number().positive().max(10).default(2),
+	spiderMinutes: z.literal(1).default(1),
+	passiveWaitMinutes: z.literal(3).default(3),
 });
+export type ZapBaselineOptions = z.infer<typeof zapBaselineOptionsSchema>;
+
+export const runtimeScannerStepSchema = z.discriminatedUnion("adapter", [
+	scannerStepBaseSchema.extend({
+		kind: z.literal("runtime_scanner"),
+		adapter: z.literal("nuclei-safe"),
+		target: z.object({ mode: z.literal("auto_project_start") }),
+		options: z.record(z.string(), z.unknown()).optional(),
+	}),
+	scannerStepBaseSchema.extend({
+		kind: z.literal("runtime_scanner"),
+		adapter: z.literal("zap-baseline"),
+		target: z.object({ mode: z.literal("auto_project_start") }),
+		options: zapBaselineOptionsSchema.optional(),
+	}),
+]);
 export type RuntimeScannerStep = z.infer<typeof runtimeScannerStepSchema>;
 
 export const sbomExportStepSchema = scannerStepBaseSchema.extend({

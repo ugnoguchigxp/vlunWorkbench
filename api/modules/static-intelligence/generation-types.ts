@@ -2,9 +2,11 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 import type { StaticIntelligenceExportV1 } from "../../../shared/schemas/static-intelligence.schema";
 import type { CodeStructureSnapshot } from "../../../shared/schemas/static-intelligence-code-structure.schema";
+import type { ProjectStructureSnapshotV2 } from "../../../shared/schemas/project-structure.schema";
 import type { StaticIntelligenceSourceBundle } from "./types";
 
 export const STATIC_INTELLIGENCE_DERIVED_ARTIFACT_KINDS = [
+	"project_structure_snapshot",
 	"code_structure_snapshot",
 	"static_intelligence_export",
 ] as const;
@@ -33,8 +35,10 @@ export const staticIntelligenceArtifactMetadataSchema = z
 		generationId: z.string().uuid(),
 		projectId: z.string().min(1),
 		scanRunId: z.string().min(1),
-		artifactRole: z.enum(["structure", "export"]),
+		artifactRole: z.enum(["project_structure", "structure", "export"]),
+		generationFormat: z.enum(["legacy_v1", "project_structure_v2"]).optional(),
 		schemaVersion: z.enum([
+			"project-structure-v2",
 			"code-structure-v1",
 			"static-intelligence-export-v1",
 		]),
@@ -51,6 +55,7 @@ export const staticIntelligenceArtifactMetadataSchema = z
 			})
 			.strict(),
 		rootRef: hashSchema,
+		structureInputHash: hashSchema.optional(),
 		snapshotRef: z.string().min(1).optional(),
 		exportHash: hashSchema.optional(),
 		contentHash: hashSchema,
@@ -68,6 +73,23 @@ export const staticIntelligenceArtifactMetadataSchema = z
 				message: "Git source revision requires head.",
 				path: ["sourceRevision", "head"],
 			});
+		}
+		if (metadata.artifactRole === "project_structure") {
+			if (metadata.schemaVersion !== "project-structure-v2") {
+				ctx.addIssue({
+					code: "custom",
+					message: "Project structure metadata must use project-structure-v2.",
+					path: ["schemaVersion"],
+				});
+			}
+			if (!metadata.snapshotRef || !metadata.structureInputHash) {
+				ctx.addIssue({
+					code: "custom",
+					message:
+						"Project structure metadata requires snapshotRef and structureInputHash.",
+					path: ["snapshotRef"],
+				});
+			}
 		}
 		if (metadata.artifactRole === "structure") {
 			if (metadata.schemaVersion !== "code-structure-v1") {
@@ -124,6 +146,19 @@ export function buildSnapshotRef(params: {
 	sourceTreeHash: string;
 }): string {
 	return `code_structure:${params.rootRef}:${params.sourceTreeHash.slice(0, 16)}`;
+}
+
+export function buildProjectStructureSnapshotRef(params: {
+	rootRef: string;
+	structureInputHash: string;
+}): string {
+	return `project_structure:v2:${params.rootRef}:${params.structureInputHash.slice(0, 16)}`;
+}
+
+export function buildProjectStructureHash(
+	snapshot: ProjectStructureSnapshotV2,
+): string {
+	return sha256Hex(canonicalJson(snapshot));
 }
 
 export function buildStaticIntelligenceExportHash(

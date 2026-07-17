@@ -136,6 +136,16 @@ printf '%s\n' '<password>' | bun run db:seed -- --password-stdin
 bun run db:seed -- --keep-existing-password
 ```
 
+### SQLite Writer process
+
+File-backed SQLite writes are serialized by one Writer process per database. The Web server, CLI commands, and worker processes keep their own read-only connections, but every Drizzle `insert`, `update`, and `delete` goes through the Writer client over a local Unix socket. The client starts the Writer lazily on the first mutation; it is also possible to run it explicitly with `bun run db:writer`. Migrations use the same Writer boundary.
+
+The database file is guarded by a process lock, so a second Writer fails instead of opening another writable connection. Normal Writer requests accept mutation statements only; reads remain local and migration DDL is limited to the migration operation. Use `bun run db:writer:health` to inspect the active instance and `bun run db:boundary` to check that production code has not introduced another SQLite write path.
+
+If the Writer is unavailable, mutations fail without falling back to a direct connection. A client removes a stale lock when the recorded process no longer exists; it also recovers an ownerless lock after five seconds. Before manually removing `<database-path>.writer-lock`, use the health command and OS process inspection to confirm that no Writer is alive.
+
+Restart the Writer when upgrading across a Writer protocol version; clients reject an older live Writer instead of guessing compatibility. Migration history records a SHA-256 checksum and rejects later changes to an already-applied migration file.
+
 ## LLM Routing
 
 LLM work is task-routed. The important tasks are:
@@ -229,7 +239,9 @@ bun run scan:profile -- --project-path /path/to/repo --profile api-schema-readon
 bun run scan:profile -- --project-path /path/to/repo --profile container-image-security --image-ref local/app:tag --json
 ```
 
-`full-security-scan` runs the existing static tools, CycloneDX SBOM, HTTP baseline, Nuclei safe, ZAP baseline, and Schemathesis only when a schema is discovered. Nuclei uses the pinned safe template set; ZAP is passive baseline only; Schemathesis sends no credentials and limits methods to GET/HEAD/OPTIONS. Missing schema or image input is reported as a coverage gap, not as “no vulnerabilities.”
+`full-security-scan` runs the existing static tools, CycloneDX SBOM, HTTP baseline, Nuclei safe, ZAP baseline, and Schemathesis only when a schema is discovered. Nuclei uses the pinned safe template set; ZAP is Docker-only passive baseline through a bounded local gateway; Schemathesis sends no credentials and limits methods to GET/HEAD/OPTIONS. Missing schema or image input is reported as a coverage gap, not as “no vulnerabilities.”
+
+For a standalone ZAP run, use `bun run scan:zap-baseline -- --project-path /path/to/local-project --create-project true --json`. It uses the pinned `zaproxy/zap-stable@sha256:8d387b1a63e3425beef4846e39719f5af2a787753af2d8b6558c6257d7a577a2` image (ZAP `2.17.0`), sends at most 20 target requests at 2 requests/second by default, and returns a non-zero CLI status when the ZAP execution or target preflight fails. ZAP Baseline spiders passive GET/HEAD resources; it does not run active attacks or authenticated scans.
 
 ### Individual Scanners
 

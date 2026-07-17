@@ -74,6 +74,7 @@ export class ArtifactStorage {
 		logType: "stdout" | "stderr" | "log",
 		content: string,
 		suggestedFilename?: string,
+		options?: { mode?: number },
 	): Promise<ArtifactSaveResult> {
 		const scanDir = this.getScanDir(scanRunId);
 		const logDir = path.join(scanDir, "logs");
@@ -87,7 +88,8 @@ export class ArtifactStorage {
 		const sizeBytes = buffer.length;
 		const sha256 = crypto.createHash("sha256").update(buffer).digest("hex");
 
-		await fs.writeFile(targetPath, buffer);
+		await fs.writeFile(targetPath, buffer, { mode: options?.mode });
+		if (options?.mode !== undefined) await fs.chmod(targetPath, options.mode);
 
 		const relativePath = path.relative(this.baseDir, targetPath);
 
@@ -103,6 +105,7 @@ export class ArtifactStorage {
 		subDir: string,
 		content: string,
 		filename: string,
+		options?: { mode?: number },
 	): Promise<ArtifactSaveResult> {
 		const scanDir = this.getScanDir(scanRunId);
 		const targetDir = path.join(scanDir, subDir);
@@ -115,7 +118,8 @@ export class ArtifactStorage {
 		const sizeBytes = buffer.length;
 		const sha256 = crypto.createHash("sha256").update(buffer).digest("hex");
 
-		await fs.writeFile(targetPath, buffer);
+		await fs.writeFile(targetPath, buffer, { mode: options?.mode });
+		if (options?.mode !== undefined) await fs.chmod(targetPath, options.mode);
 
 		const relativePath = path.relative(this.baseDir, targetPath);
 
