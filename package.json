@@ -101,7 +101,7 @@
 		"@azure/storage-blob": "^12.31.0",
 		"@hono/zod-validator": "0.8.0",
 		"@modelcontextprotocol/sdk": "^1.29.0",
-		"@openai/codex-sdk": "^0.142.2",
+		"@openai/codex-sdk": "^0.145.0",
 		"@tanstack/react-query": "5.101.0",
 		"@tanstack/react-router": "1.170.15",
 		"@tanstack/react-table": "8.21.3",
