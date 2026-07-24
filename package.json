@@ -125,7 +125,7 @@
 		"zod": "4.4.3"
 	},
 	"devDependencies": {
-		"@axe-core/playwright": "4.10.2",
+		"@axe-core/playwright": "4.12.1",
 		"@biomejs/biome": "2.5.0",
 		"@hono/vite-dev-server": "0.26.0",
 		"@playwright/test": "1.55.1",
