@@ -1,7 +1,7 @@
 {
   "format": "s11tnext.catalog",
   "artifactVersion": 2,
-  "compilerVersion": "0.1.1",
+  "compilerVersion": "0.1.2",
   "releaseProfile": "production",
   "policyDigest": "sha256:483295daa89c0db3fb28cddab0a3f358917afd16f6881bc6801bd358e4e7aa5d",
   "createdFrom": {
@@ -184,7 +184,7 @@
         }
       },
       "definitionHash": "sha256:2e0bc5da4eb40b44c6ac1fb227ad44e0464bd086a08a18c7351d98d7159a872f",
-      "releaseDigest": "sha256:1765874e6a9542527442cfa718133d0f2fab10e4042662c3048efcb1663b2793"
+      "releaseDigest": "sha256:3fc7091c9816a25047f4d3dcc2d44c64fc716f234fb5f7d9071d7cb5b34e9045"
     },
     "chat.directAnswer": {
       "key": "chat.directAnswer",
@@ -340,7 +340,7 @@
         }
       },
       "definitionHash": "sha256:5bcc5949fbff03b0c2cdbaa9f07ba5de5dc05ad80292499a86cd552b212a8bdd",
-      "releaseDigest": "sha256:479359bc5550cae988dbd9343a77f84605f77ccc8aa370fc423a954b22006633"
+      "releaseDigest": "sha256:e0eb1e4306165ff6658a8a4657ef24c52d8a60e413fd98ad67aabeaf28435531"
     },
     "chat.groundedAnswer": {
       "key": "chat.groundedAnswer",
@@ -538,7 +538,7 @@
         }
       },
       "definitionHash": "sha256:d6f1012394d535fafaac0763e176693560c501b52c1a079d43dfc076867cb035",
-      "releaseDigest": "sha256:325fcae201fa684116208acd46398bcc6c8e6f7732b998ff4f2d41b37536ae3b"
+      "releaseDigest": "sha256:a67698947d742985fcefef053156596eeef701a7922645a3640fb2cc49e759c9"
     },
     "chat.searchDecision": {
       "key": "chat.searchDecision",
@@ -694,7 +694,7 @@
         }
       },
       "definitionHash": "sha256:e4b76d0870373db9acbf647facc7262e271e1434520bd3086d4c576df994d4be",
-      "releaseDigest": "sha256:ed4874e424419fc54f9ef2aaa7e8ec72f37ceda4820d8fa42dd8aa7211121dc1"
+      "releaseDigest": "sha256:860637a1da9f71c38d84e81a37d1cdf117978a7eb1927d802fc949c7c5e0d644"
     },
     "reviews.findingReview": {
       "key": "reviews.findingReview",
@@ -792,7 +792,7 @@
         }
       },
       "definitionHash": "sha256:d58fce189d92e67647e710862af28a7d01fe8a6878112c0dd30640a8b04fb04f",
-      "releaseDigest": "sha256:f52f392f8fb70d35ebd5049eb5c2fb724c79359215c744e9af021eed6e114227"
+      "releaseDigest": "sha256:43b948e9a1f310cbe5b059a50fc186aec18b0c907f979616ccc59d5c8ad37837"
     },
     "reviews.findingReviewInput": {
       "key": "reviews.findingReviewInput",
@@ -874,7 +874,7 @@
         }
       },
       "definitionHash": "sha256:4b8686630d0cea355b96f60741574f63a8166f1362d9ca7b8924aff34e92371d",
-      "releaseDigest": "sha256:95205152f0b3d59a4d7f2a3403818a72f3faa74ed920dcd2973941dd078e13eb"
+      "releaseDigest": "sha256:52e66f0b03206c54cf04d0717b177a5691b0ec0bd4852c9777db7d5ffb8a13a7"
     },
     "scans.reportSummary": {
       "key": "scans.reportSummary",
@@ -959,7 +959,7 @@
         }
       },
       "definitionHash": "sha256:42e2b1db7280aaec5b82bcdb2434f3b5624a37619e15df3d094db24e632a3f01",
-      "releaseDigest": "sha256:20f2994c2ba4acabbb851b15ae00c961d04096952e0f501ca4aa61113b4c5f12"
+      "releaseDigest": "sha256:4fbf486fe0225234bd8e248377c1dc23427b0a8946caa185126db51d6524762f"
     },
     "scans.reportSummaryInput": {
       "key": "scans.reportSummaryInput",
@@ -1017,7 +1017,7 @@
         }
       },
       "definitionHash": "sha256:8a397bb0ba51d7e51af4798a1eb0f6da339023b690041e71d83691c55a3741e8",
-      "releaseDigest": "sha256:a3ccc4ab997c03671ae6e0d3887089c509f26dde5fb0a38caf0bb7e18fbc5321"
+      "releaseDigest": "sha256:a44de6b05e9a8fed3bba7543222589761b9420e912a3b0e114f9698647e3d681"
     },
     "scans.scanReview": {
       "key": "scans.scanReview",
@@ -1180,7 +1180,7 @@
         }
       },
       "definitionHash": "sha256:8d2761bb2cf98865b8a859e108a7d11b9a147842250b01bbfd151ccf798355dc",
-      "releaseDigest": "sha256:bf2dfdf3b22e2f17601a3b63eef9a8afcb606c54027bd028572ea03d6fcea3e9"
+      "releaseDigest": "sha256:0c59b84ab031d44c871f02d079e5626e92a28b96c27642f728f6b9e316b4c286"
     },
     "scans.scanReviewInput": {
       "key": "scans.scanReviewInput",
@@ -1238,8 +1238,8 @@
         }
       },
       "definitionHash": "sha256:cabbf4a85255516481b0fc04a7790d105aa28c50607b0260e3b7aac71ebc190f",
-      "releaseDigest": "sha256:1cdbd4b14958db8399e8b6807820c1be8d7be6e47d1dd0c927abce6bfa4d15a4"
+      "releaseDigest": "sha256:7c47ef1b8f5ae3e49e80c825fcc6eaaa93d801423b119dc395f6952979880a6e"
     }
   },
-  "catalogDigest": "sha256:05767ea133c66d1dadf678785a9af813cc416e9a46613d06d8c51406d7c639f2"
+  "catalogDigest": "sha256:06e69e654b036a257780facead959498ce969de33a991780034548c329616ed0"
 }

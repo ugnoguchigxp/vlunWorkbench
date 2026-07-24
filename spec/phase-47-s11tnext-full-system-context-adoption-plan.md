@@ -9,12 +9,13 @@ planning: complete
 implementation: complete
 verification: bun run verify passed
 vulnWorkbench baseline: 40a7676 feat: complete phase 46 release readiness
-s11tnext baseline: 0.1.0 / f2cfc11
+s11tnext initial baseline: 0.1.0 / f2cfc11
+s11tnext current: 0.1.2
 ```
 
-実装では7 context、生成Catalog pair、型付きbinding、共通provider境界、
-manifestの保存/返却、client `system` role拒否、runtime size gate、
-CI stale-artifact gateまでを導入した。
+実装では7 system contextと3 user prompt context、生成Catalog pair、
+role付きbinding、共通provider境界、manifestの保存/返却、
+client `system` role拒否、runtime size gate、CI stale-artifact gateまでを導入した。
 
 このPhaseは、vulnWorkbenchからLLM向けの固定SystemContextをすべて除去し、
 `s11tnext`でauthoring、型生成、locale解決、安全なruntime値補間、内容識別、
@@ -697,12 +698,17 @@ rg -n 'build[A-Za-z]*SystemPrompt|buildAgenticSystemContext' api/modules api/rou
   そのversionでgenerated pairを再生成する。
 - manifest field追加は既存JSON metadata内で行い、rollbackのためのDB migrationを不要にする。
 
-## 13. S11tnext Product Feedback
+## 13. Historical S11tnext 0.1.0 Product Feedback
 
 以下は実採用の観点からの率直な評価である。
 0.1.0は「小さな静的Catalogを安全にrenderする」用途にはよくできているが、
 全面採用のauthoring、composition、policy、operationsまでを
 一貫して快適にするには不足がある。
+
+0.1.2では、message role、artifact v2、message hash、optional/conditional
+authoring、`delimited-text`、keyspace-scoped locale、section profile、
+composition receipt、README/release hygieneが実装され、以下の主要指摘は解消した。
+このsectionは0.1.0採用時の検証記録として残す。
 
 ### 13.1 High priority
 
@@ -770,13 +776,18 @@ s11tnext 0.1.x
   - Bun consumer verification
   - documentation clarification
 
-s11tnext 0.1.2 release
-  - runtime constraints
+s11tnext 0.1.2 adopted
+  - role-aware PromptInvocation
+  - artifact v2 and message hash
   - optional/conditional authoring
+  - delimited-text
   - scoped locale requirements
+  - section profiles
   - enforcement semantics correction
+  - composition receipts
 
 later minor
+  - runtime size/range constraints
   - provenance-aware composition
   - semantic diff/watch/loader ergonomics
 ```
@@ -789,11 +800,11 @@ vulnWorkbenchで先行実験する場合も、main branchへlocal package path�
 
 Phase 47は次をすべて満たしたときだけ完了とする。
 
-1. 7つの本番SystemContextが`.context.toml`に存在する。
+1. 7つのsystem contextと3つのuser prompt contextが`.context.toml`に存在する。
 2. 生成型以外のstring keyでCatalogを呼んでいない。
-3. 本番TypeScriptに固定SystemContext本文が残っていない。
-4. providerへ送るSystemContextはすべて`SystemContextInvocation`由来である。
-5. provider callごとのmanifestが保存、response、またはstructured logへ到達する。
+3. 本番TypeScriptに固定system/user prompt本文が残っていない。
+4. providerへ送るauthored messageはすべて`PromptInvocation`由来である。
+5. provider callごとのprompt manifestが保存、response、またはstructured logへ到達する。
 6. external Chat APIはsystem roleを受理しない。
 7. untrusted runtime値にdelimiter/raw bypassがない。
 8. runtime値とrendered textのbudget gateがある。
