@@ -180,7 +180,7 @@ MCP access flow:
 ```text
 vuln_list_knowledge_sources
   -> vuln_get_knowledge_source_manifest
-  -> vuln_get_evidence_bundle / vuln_get_verification_commands / vuln_get_code_structure_snapshot
+  -> vuln_get_evidence_bundle / vuln_get_verification_commands / vuln_get_project_structure_snapshot
   -> consumer builds planning context or candidate material
 ```
 
@@ -382,12 +382,12 @@ intelligence:agent-query risk_context
 intelligence:agent-query related_findings
 intelligence:agent-query evidence_bundle
 intelligence:agent-query verification_commands
-intelligence:code-structure
+intelligence:project-structure
 intelligence:knowledge-source
 intelligence:guardrail-material
 ```
 
-consumer は planning 時に `generationId` を pin し、同一 run の manifest / evidence / verification / code structure read で同じ generation を指定する。vulnWorkbench の refresh 後も既存 run は自動で latest generation へ切り替えない。MCP は persisted generation を読むだけで、generation 作成や refresh を行わない。
+consumer は canonical `projectPath` を指定し、ready prepare job が選択した generation を manifest / evidence / verification / project structure read で一貫して使う。MCP query は persisted generation を読むだけで、generation 作成や refresh を行わない。
 
 vulnWorkbench read-only MCP:
 
@@ -397,7 +397,7 @@ vuln_get_knowledge_source_manifest
 vuln_get_guardrail_material
 vuln_get_evidence_bundle
 vuln_get_verification_commands
-vuln_get_code_structure_snapshot
+vuln_get_project_structure_snapshot
 ```
 
 contextStill 側:

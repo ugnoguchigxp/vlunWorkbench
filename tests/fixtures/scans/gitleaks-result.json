@@ -1,15 +1,15 @@
 [
-  {
-    "Description": "Generic API Key",
-    "StartLine": 12,
-    "EndLine": 12,
-    "StartColumn": 10,
-    "EndColumn": 45,
-    "Match": "const api_key = \"AIzaSyFakeKey-12345678901234567890123\"",
-    "Secret": "AIzaSyFakeKey-12345678901234567890123",
-    "File": "src/config.ts",
-    "Commit": "0000000000000000000000000000000000000000",
-    "RuleID": "generic-api-key",
-    "Fingerprint": "fake-fingerprint-12345"
-  }
+	{
+		"Description": "Generic API Key",
+		"StartLine": 12,
+		"EndLine": 12,
+		"StartColumn": 10,
+		"EndColumn": 45,
+		"Match": "const api_key = \"AIzaSyFakeKey-12345678901234567890123\"",
+		"Secret": "AIzaSyFakeKey-12345678901234567890123",
+		"File": "src/config.ts",
+		"Commit": "0000000000000000000000000000000000000000",
+		"RuleID": "generic-api-key",
+		"Fingerprint": "fake-fingerprint-12345"
+	}
 ]

@@ -13,6 +13,12 @@ const steps: VerifyStep[] = [
 	{ label: "format", command: ["bun", "run", "format:check"] },
 	{ label: "test", command: ["bun", "run", "test"] },
 	{ label: "build", command: ["bun", "run", "build"] },
+	{ label: "bundle-budget", command: ["bun", "run", "check:bundle"] },
+	{ label: "dependency-audit", command: ["bun", "run", "check:audit"] },
+	{
+		label: "artifact-tracking",
+		command: ["bun", "run", "check:artifact-tracking"],
+	},
 ];
 
 const decoder = new TextDecoder();

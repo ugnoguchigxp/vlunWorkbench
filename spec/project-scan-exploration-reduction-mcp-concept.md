@@ -193,7 +193,7 @@ vuln_get_project_exploration_catalog
 
 - `vuln_list_knowledge_sources`
 - `vuln_get_knowledge_source_manifest`
-- `vuln_get_code_structure_snapshot`
+- `vuln_get_project_structure_snapshot`
 - `vuln_get_verification_commands`
 - `vuln_get_evidence_bundle`
 
@@ -493,8 +493,6 @@ MCP toolが存在するだけ、またはlikely fileを表示できるだけで�
 ## Relationship to Existing Documents
 
 - `spec/static-intelligence-layer-concept.md`: vulnWorkbench全体のStatic Intelligence責務境界
-- `spec/phase-36-static-intelligence-readonly-mcp-wrapper-plan.md`: existing read-only MCP transport / safety contract
-- `spec/phase-38-static-intelligence-code-structure-layer-mvp-plan.md`: current file/import/tag facts
-- `spec/phase-40-static-intelligence-usability-and-ontology-handoff-plan.md`: persisted generation / exact read / pinning contract
 - `spec/static-intelligence-coding-agent-consumer-companion-plan.md`: broader Ontology / Task / runtime / closeout consumer adoption
 - `spec/phase-42-project-scan-exploration-catalog-mcp-plan.md`: 本構想の最初のconsumer proof実装計画
+- `spec/evidence/phase-42-vulnworkbench-catalog-mcp-go.md`: vulnWorkbench側Catalog MCP componentの完了根拠

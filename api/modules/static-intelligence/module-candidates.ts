@@ -14,7 +14,10 @@ export function buildStaticIntelligenceModuleCandidates(params: {
 	projectStructureSnapshot?: ProjectStructureSnapshotV2;
 }): StaticIntelligenceModuleCandidate[] {
 	if (params.projectStructureSnapshot) {
-		return buildV2ModuleCandidates(params.projectStructureSnapshot, params.exportPayload);
+		return buildV2ModuleCandidates(
+			params.projectStructureSnapshot,
+			params.exportPayload,
+		);
 	}
 	const groups = new Map<string, typeof params.snapshot.files>();
 	for (const file of params.snapshot.files) {
@@ -100,21 +103,37 @@ function buildV2ModuleCandidates(
 			const risks = exportPayload.fileRiskIndex.filter((entry) =>
 				module.files.includes(entry.path),
 			);
-			const maxSeverity = risks.map((risk) => risk.maxSeverity).sort((a, b) => compareSeverity(b, a))[0] ?? "unknown";
+			const maxSeverity =
+				risks
+					.map((risk) => risk.maxSeverity)
+					.sort((a, b) => compareSeverity(b, a))[0] ?? "unknown";
 			return staticIntelligenceModuleCandidateSchema.parse({
 				id: module.id,
 				pathPrefix: module.pathPrefix,
 				label: module.label,
 				fileCount: module.files.length,
 				entrypointFiles: module.entrypoints,
-				roleTags: uniqueSorted(snapshot.files.filter((file) => module.files.includes(file.path)).flatMap((file) => file.tags)),
-				exportedSymbols: uniqueSorted(snapshot.files.filter((file) => module.files.includes(file.path)).flatMap((file) => file.exportedSymbols)),
+				roleTags: uniqueSorted(
+					snapshot.files
+						.filter((file) => module.files.includes(file.path))
+						.flatMap((file) => file.tags),
+				),
+				exportedSymbols: uniqueSorted(
+					snapshot.files
+						.filter((file) => module.files.includes(file.path))
+						.flatMap((file) => file.exportedSymbols),
+				),
 				internalDependencies: module.internalDependencies,
 				packageDependencies: module.externalDependencies,
 				risk: {
-					findingCount: risks.reduce((count, risk) => count + risk.findingCount, 0),
+					findingCount: risks.reduce(
+						(count, risk) => count + risk.findingCount,
+						0,
+					),
 					maxSeverity,
-					evidenceQuality: aggregateEvidenceQuality(risks.map((risk) => risk.evidenceQuality)),
+					evidenceQuality: aggregateEvidenceQuality(
+						risks.map((risk) => risk.evidenceQuality),
+					),
 					fileRefs: uniqueSorted(risks.map((risk) => risk.path)),
 					findingIds: uniqueSorted(risks.flatMap((risk) => risk.findingIds)),
 				},
@@ -122,7 +141,12 @@ function buildV2ModuleCandidates(
 				reasons: module.confidenceReasons,
 			});
 		})
-		.sort((a, b) => compareSeverity(b.risk.maxSeverity, a.risk.maxSeverity) || b.risk.findingCount - a.risk.findingCount || a.pathPrefix.localeCompare(b.pathPrefix));
+		.sort(
+			(a, b) =>
+				compareSeverity(b.risk.maxSeverity, a.risk.maxSeverity) ||
+				b.risk.findingCount - a.risk.findingCount ||
+				a.pathPrefix.localeCompare(b.pathPrefix),
+		);
 }
 
 function modulePrefix(filePath: string): string {

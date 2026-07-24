@@ -1,244 +1,280 @@
 {
-  "cases": [
-    {
-      "caseId": "api-users-change",
-      "generation": {
-        "projectId": "project-users",
-        "scanRunId": "scan-users",
-        "generationId": "00000000-0000-4000-8000-000000000101",
-        "status": "available",
-        "structure": {
-          "metadata": {
-            "generatedAt": "2026-07-14T12:00:00.000Z",
-            "rootRef": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            "snapshotRef": "code_structure:users",
-            "sourceTreeHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-            "sourceStateHash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
-            "sourceRevision": { "kind": "git", "head": "abc123", "value": "abc123" }
-          },
-          "snapshot": {
-            "version": "v1",
-            "generatedAt": "2026-07-14T12:00:00.000Z",
-            "project": {
-              "id": "project-users",
-              "rootRef": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-              "rootPathIncluded": false
-            },
-            "status": "completed",
-            "degradedReasons": [],
-            "files": [
-              {
-                "path": "api/users/service.ts",
-                "language": "typescript",
-                "moduleKind": "esm",
-                "tags": ["source"],
-                "exportedSymbols": ["getUser"],
-                "imports": ["./schema"],
-                "packageImports": [],
-                "contentHash": "1111111111111111111111111111111111111111111111111111111111111111",
-                "parseStatus": "parsed",
-                "degradedReasons": []
-              },
-              {
-                "path": "api/users/schema.ts",
-                "language": "typescript",
-                "moduleKind": "esm",
-                "tags": ["schema"],
-                "exportedSymbols": ["userSchema"],
-                "imports": [],
-                "packageImports": [],
-                "contentHash": "2222222222222222222222222222222222222222222222222222222222222222",
-                "parseStatus": "parsed",
-                "degradedReasons": []
-              },
-              {
-                "path": "api/users/service.test.ts",
-                "language": "typescript",
-                "moduleKind": "esm",
-                "tags": ["test"],
-                "exportedSymbols": [],
-                "imports": ["./service"],
-                "packageImports": [],
-                "contentHash": "3333333333333333333333333333333333333333333333333333333333333333",
-                "parseStatus": "parsed",
-                "degradedReasons": []
-              }
-            ],
-            "edges": [
-              { "from": "api/users/service.ts", "to": "api/users/schema.ts", "kind": "imports", "confidence": 1 },
-              { "from": "api/users/service.test.ts", "to": "api/users/service.ts", "kind": "imports", "confidence": 1 }
-            ],
-            "packages": [],
-            "summary": {
-              "fileCount": 3,
-              "parsedFileCount": 3,
-              "skippedFileCount": 0,
-              "importEdgeCount": 2,
-              "packageDependencyCount": 0,
-              "exportedSymbolCount": 2,
-              "routeFileCount": 0,
-              "handlerFileCount": 0,
-              "schemaFileCount": 1,
-              "workerFileCount": 0,
-              "testFileCount": 1,
-              "configFileCount": 0
-            }
-          }
-        },
-        "export": {
-          "payload": {
-            "version": "v1",
-            "generatedAt": "2026-07-14T12:00:00.000Z",
-            "project": { "id": "project-users", "name": "Users" },
-            "scan": {
-              "id": "scan-users",
-              "profile": "baseline",
-              "status": "completed",
-              "startedAt": "2026-07-14T11:00:00.000Z",
-              "completedAt": "2026-07-14T11:05:00.000Z",
-              "findingCount": 0,
-              "toolRunCount": 0,
-              "artifactCount": 0,
-              "reviewStatus": "completed"
-            },
-            "scanSummary": { "riskBand": "none", "evidenceQuality": "none", "degradedReasons": [] },
-            "fileRiskIndex": [],
-            "graph": { "nodes": [], "edges": [] },
-            "handoff": {
-              "title": "Users change",
-              "objective": "Update users",
-              "acceptanceCriteria": [],
-              "verificationCommands": ["bun test api/users"],
-              "constraints": [],
-              "nonGoals": []
-            }
-          }
-        }
-      },
-      "readiness": "available",
-      "focus": { "paths": ["api/users/service.ts"] },
-      "actualChangedFiles": ["api/users/service.ts", "api/users/schema.ts"],
-      "actualChangedTests": ["api/users/service.test.ts"]
-    },
-    {
-      "caseId": "web-orders-change",
-      "generation": {
-        "projectId": "project-orders",
-        "scanRunId": "scan-orders",
-        "generationId": "00000000-0000-4000-8000-000000000102",
-        "status": "available",
-        "structure": {
-          "metadata": {
-            "generatedAt": "2026-07-14T12:30:00.000Z",
-            "rootRef": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
-            "snapshotRef": "code_structure:orders",
-            "sourceTreeHash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
-            "sourceStateHash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
-            "sourceRevision": { "kind": "git", "head": "def456", "value": "def456" }
-          },
-          "snapshot": {
-            "version": "v1",
-            "generatedAt": "2026-07-14T12:30:00.000Z",
-            "project": {
-              "id": "project-orders",
-              "rootRef": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
-              "rootPathIncluded": false
-            },
-            "status": "completed",
-            "degradedReasons": [],
-            "files": [
-              {
-                "path": "web/orders/page.ts",
-                "language": "typescript",
-                "moduleKind": "esm",
-                "tags": ["route", "source"],
-                "exportedSymbols": ["OrdersPage"],
-                "imports": ["./api"],
-                "packageImports": [],
-                "contentHash": "4444444444444444444444444444444444444444444444444444444444444444",
-                "parseStatus": "parsed",
-                "degradedReasons": []
-              },
-              {
-                "path": "web/orders/api.ts",
-                "language": "typescript",
-                "moduleKind": "esm",
-                "tags": ["source"],
-                "exportedSymbols": ["loadOrders"],
-                "imports": [],
-                "packageImports": [],
-                "contentHash": "5555555555555555555555555555555555555555555555555555555555555555",
-                "parseStatus": "parsed",
-                "degradedReasons": []
-              },
-              {
-                "path": "web/orders/page.test.ts",
-                "language": "typescript",
-                "moduleKind": "esm",
-                "tags": ["test"],
-                "exportedSymbols": [],
-                "imports": ["./page"],
-                "packageImports": [],
-                "contentHash": "6666666666666666666666666666666666666666666666666666666666666666",
-                "parseStatus": "parsed",
-                "degradedReasons": []
-              }
-            ],
-            "edges": [
-              { "from": "web/orders/page.ts", "to": "web/orders/api.ts", "kind": "imports", "confidence": 1 },
-              { "from": "web/orders/page.test.ts", "to": "web/orders/page.ts", "kind": "imports", "confidence": 1 }
-            ],
-            "packages": [],
-            "summary": {
-              "fileCount": 3,
-              "parsedFileCount": 3,
-              "skippedFileCount": 0,
-              "importEdgeCount": 2,
-              "packageDependencyCount": 0,
-              "exportedSymbolCount": 2,
-              "routeFileCount": 1,
-              "handlerFileCount": 0,
-              "schemaFileCount": 0,
-              "workerFileCount": 0,
-              "testFileCount": 1,
-              "configFileCount": 0
-            }
-          }
-        },
-        "export": {
-          "payload": {
-            "version": "v1",
-            "generatedAt": "2026-07-14T12:30:00.000Z",
-            "project": { "id": "project-orders", "name": "Orders" },
-            "scan": {
-              "id": "scan-orders",
-              "profile": "baseline",
-              "status": "completed",
-              "startedAt": "2026-07-14T11:30:00.000Z",
-              "completedAt": "2026-07-14T11:35:00.000Z",
-              "findingCount": 0,
-              "toolRunCount": 0,
-              "artifactCount": 0,
-              "reviewStatus": "completed"
-            },
-            "scanSummary": { "riskBand": "none", "evidenceQuality": "none", "degradedReasons": [] },
-            "fileRiskIndex": [],
-            "graph": { "nodes": [], "edges": [] },
-            "handoff": {
-              "title": "Orders change",
-              "objective": "Update orders",
-              "acceptanceCriteria": [],
-              "verificationCommands": ["bun test web/orders"],
-              "constraints": [],
-              "nonGoals": []
-            }
-          }
-        }
-      },
-      "readiness": "available",
-      "focus": { "terms": ["orders"] },
-      "actualChangedFiles": ["web/orders/page.ts", "web/orders/api.ts"],
-      "actualChangedTests": ["web/orders/page.test.ts"]
-    }
-  ]
+	"cases": [
+		{
+			"caseId": "api-users-change",
+			"generation": {
+				"projectId": "project-users",
+				"scanRunId": "scan-users",
+				"generationId": "00000000-0000-4000-8000-000000000101",
+				"status": "available",
+				"structure": {
+					"metadata": {
+						"generatedAt": "2026-07-14T12:00:00.000Z",
+						"rootRef": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+						"snapshotRef": "code_structure:users",
+						"sourceTreeHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+						"sourceStateHash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+						"sourceRevision": {
+							"kind": "git",
+							"head": "abc123",
+							"value": "abc123"
+						}
+					},
+					"snapshot": {
+						"version": "v1",
+						"generatedAt": "2026-07-14T12:00:00.000Z",
+						"project": {
+							"id": "project-users",
+							"rootRef": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+							"rootPathIncluded": false
+						},
+						"status": "completed",
+						"degradedReasons": [],
+						"files": [
+							{
+								"path": "api/users/service.ts",
+								"language": "typescript",
+								"moduleKind": "esm",
+								"tags": ["source"],
+								"exportedSymbols": ["getUser"],
+								"imports": ["./schema"],
+								"packageImports": [],
+								"contentHash": "1111111111111111111111111111111111111111111111111111111111111111",
+								"parseStatus": "parsed",
+								"degradedReasons": []
+							},
+							{
+								"path": "api/users/schema.ts",
+								"language": "typescript",
+								"moduleKind": "esm",
+								"tags": ["schema"],
+								"exportedSymbols": ["userSchema"],
+								"imports": [],
+								"packageImports": [],
+								"contentHash": "2222222222222222222222222222222222222222222222222222222222222222",
+								"parseStatus": "parsed",
+								"degradedReasons": []
+							},
+							{
+								"path": "api/users/service.test.ts",
+								"language": "typescript",
+								"moduleKind": "esm",
+								"tags": ["test"],
+								"exportedSymbols": [],
+								"imports": ["./service"],
+								"packageImports": [],
+								"contentHash": "3333333333333333333333333333333333333333333333333333333333333333",
+								"parseStatus": "parsed",
+								"degradedReasons": []
+							}
+						],
+						"edges": [
+							{
+								"from": "api/users/service.ts",
+								"to": "api/users/schema.ts",
+								"kind": "imports",
+								"confidence": 1
+							},
+							{
+								"from": "api/users/service.test.ts",
+								"to": "api/users/service.ts",
+								"kind": "imports",
+								"confidence": 1
+							}
+						],
+						"packages": [],
+						"summary": {
+							"fileCount": 3,
+							"parsedFileCount": 3,
+							"skippedFileCount": 0,
+							"importEdgeCount": 2,
+							"packageDependencyCount": 0,
+							"exportedSymbolCount": 2,
+							"routeFileCount": 0,
+							"handlerFileCount": 0,
+							"schemaFileCount": 1,
+							"workerFileCount": 0,
+							"testFileCount": 1,
+							"configFileCount": 0
+						}
+					}
+				},
+				"export": {
+					"payload": {
+						"version": "v1",
+						"generatedAt": "2026-07-14T12:00:00.000Z",
+						"project": { "id": "project-users", "name": "Users" },
+						"scan": {
+							"id": "scan-users",
+							"profile": "baseline",
+							"status": "completed",
+							"startedAt": "2026-07-14T11:00:00.000Z",
+							"completedAt": "2026-07-14T11:05:00.000Z",
+							"findingCount": 0,
+							"toolRunCount": 0,
+							"artifactCount": 0,
+							"reviewStatus": "completed"
+						},
+						"scanSummary": {
+							"riskBand": "none",
+							"evidenceQuality": "none",
+							"degradedReasons": []
+						},
+						"fileRiskIndex": [],
+						"graph": { "nodes": [], "edges": [] },
+						"handoff": {
+							"title": "Users change",
+							"objective": "Update users",
+							"acceptanceCriteria": [],
+							"verificationCommands": ["bun test api/users"],
+							"constraints": [],
+							"nonGoals": []
+						}
+					}
+				}
+			},
+			"readiness": "available",
+			"focus": { "paths": ["api/users/service.ts"] },
+			"actualChangedFiles": ["api/users/service.ts", "api/users/schema.ts"],
+			"actualChangedTests": ["api/users/service.test.ts"]
+		},
+		{
+			"caseId": "web-orders-change",
+			"generation": {
+				"projectId": "project-orders",
+				"scanRunId": "scan-orders",
+				"generationId": "00000000-0000-4000-8000-000000000102",
+				"status": "available",
+				"structure": {
+					"metadata": {
+						"generatedAt": "2026-07-14T12:30:00.000Z",
+						"rootRef": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+						"snapshotRef": "code_structure:orders",
+						"sourceTreeHash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+						"sourceStateHash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+						"sourceRevision": {
+							"kind": "git",
+							"head": "def456",
+							"value": "def456"
+						}
+					},
+					"snapshot": {
+						"version": "v1",
+						"generatedAt": "2026-07-14T12:30:00.000Z",
+						"project": {
+							"id": "project-orders",
+							"rootRef": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+							"rootPathIncluded": false
+						},
+						"status": "completed",
+						"degradedReasons": [],
+						"files": [
+							{
+								"path": "web/orders/page.ts",
+								"language": "typescript",
+								"moduleKind": "esm",
+								"tags": ["route", "source"],
+								"exportedSymbols": ["OrdersPage"],
+								"imports": ["./api"],
+								"packageImports": [],
+								"contentHash": "4444444444444444444444444444444444444444444444444444444444444444",
+								"parseStatus": "parsed",
+								"degradedReasons": []
+							},
+							{
+								"path": "web/orders/api.ts",
+								"language": "typescript",
+								"moduleKind": "esm",
+								"tags": ["source"],
+								"exportedSymbols": ["loadOrders"],
+								"imports": [],
+								"packageImports": [],
+								"contentHash": "5555555555555555555555555555555555555555555555555555555555555555",
+								"parseStatus": "parsed",
+								"degradedReasons": []
+							},
+							{
+								"path": "web/orders/page.test.ts",
+								"language": "typescript",
+								"moduleKind": "esm",
+								"tags": ["test"],
+								"exportedSymbols": [],
+								"imports": ["./page"],
+								"packageImports": [],
+								"contentHash": "6666666666666666666666666666666666666666666666666666666666666666",
+								"parseStatus": "parsed",
+								"degradedReasons": []
+							}
+						],
+						"edges": [
+							{
+								"from": "web/orders/page.ts",
+								"to": "web/orders/api.ts",
+								"kind": "imports",
+								"confidence": 1
+							},
+							{
+								"from": "web/orders/page.test.ts",
+								"to": "web/orders/page.ts",
+								"kind": "imports",
+								"confidence": 1
+							}
+						],
+						"packages": [],
+						"summary": {
+							"fileCount": 3,
+							"parsedFileCount": 3,
+							"skippedFileCount": 0,
+							"importEdgeCount": 2,
+							"packageDependencyCount": 0,
+							"exportedSymbolCount": 2,
+							"routeFileCount": 1,
+							"handlerFileCount": 0,
+							"schemaFileCount": 0,
+							"workerFileCount": 0,
+							"testFileCount": 1,
+							"configFileCount": 0
+						}
+					}
+				},
+				"export": {
+					"payload": {
+						"version": "v1",
+						"generatedAt": "2026-07-14T12:30:00.000Z",
+						"project": { "id": "project-orders", "name": "Orders" },
+						"scan": {
+							"id": "scan-orders",
+							"profile": "baseline",
+							"status": "completed",
+							"startedAt": "2026-07-14T11:30:00.000Z",
+							"completedAt": "2026-07-14T11:35:00.000Z",
+							"findingCount": 0,
+							"toolRunCount": 0,
+							"artifactCount": 0,
+							"reviewStatus": "completed"
+						},
+						"scanSummary": {
+							"riskBand": "none",
+							"evidenceQuality": "none",
+							"degradedReasons": []
+						},
+						"fileRiskIndex": [],
+						"graph": { "nodes": [], "edges": [] },
+						"handoff": {
+							"title": "Orders change",
+							"objective": "Update orders",
+							"acceptanceCriteria": [],
+							"verificationCommands": ["bun test web/orders"],
+							"constraints": [],
+							"nonGoals": []
+						}
+					}
+				}
+			},
+			"readiness": "available",
+			"focus": { "terms": ["orders"] },
+			"actualChangedFiles": ["web/orders/page.ts", "web/orders/api.ts"],
+			"actualChangedTests": ["web/orders/page.test.ts"]
+		}
+	]
 }

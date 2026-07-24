@@ -1,10 +1,10 @@
-import fs from "node:fs/promises";
 import path from "node:path";
 import { zValidator } from "@hono/zod-validator";
 import { Hono } from "hono";
 import { z } from "zod";
 import { createProjectSchema } from "../../shared/schemas/scan.schema";
 import type { AppEnv } from "../app/env";
+import { requireAdmin } from "../middleware/auth";
 import { getAuthContextUser } from "../modules/auth/context";
 import { HttpError } from "../modules/auth/errors";
 import type {
@@ -17,6 +17,10 @@ import {
 	scanExecutionPolicyMetadata,
 } from "../modules/scans/scan-execution-policy";
 import type { ScanProcessSupervisor } from "../modules/scans/scan-process-supervisor";
+import {
+	authorizeProjectPath,
+	ProjectPathPolicyError,
+} from "../security/project-path-policy";
 
 type ProjectsRouteDeps = {
 	projectRepository: ProjectRepository;
@@ -27,18 +31,62 @@ type ProjectsRouteDeps = {
 
 export function createProjectsRoute(deps: ProjectsRouteDeps) {
 	const repo = deps.projectRepository;
+	const projectPathPolicyStatus = async (projectPath: string) => {
+		try {
+			await authorizeProjectPath({
+				projectPath,
+				allowedRoots: deps.env?.projectAllowedRoots ?? [],
+			});
+			return { status: "allowed" as const, reasonCode: null };
+		} catch (error) {
+			const reasonCode =
+				error instanceof ProjectPathPolicyError
+					? error.code
+					: "PROJECT_PATH_POLICY_FAILED";
+			return {
+				status:
+					reasonCode === "PROJECT_PATH_NOT_FOUND"
+						? ("missing" as const)
+						: ("blocked" as const),
+				reasonCode,
+			};
+		}
+	};
+	const authorizeWebProjectPath = async (projectPath: string) => {
+		try {
+			return await authorizeProjectPath({
+				projectPath,
+				allowedRoots: deps.env?.projectAllowedRoots ?? [],
+			});
+		} catch (error) {
+			if (!(error instanceof ProjectPathPolicyError)) throw error;
+			if (error.code === "PROJECT_PATH_NOT_ALLOWED") {
+				throw new HttpError(403, error.message);
+			}
+			if (error.code === "PROJECT_ALLOWED_ROOT_INVALID") {
+				throw new HttpError(500, error.message);
+			}
+			throw new HttpError(400, error.message);
+		}
+	};
 
 	return new Hono()
 		.get("/", async (c) => {
 			const authUser = getAuthContextUser(c);
 			const list = await repo.listProjects(authUser.userId);
+			const visibleProjects = list.filter(
+				(project) => !isTemporaryProjectPath(project.repoPath),
+			);
 			return c.json({
-				projects: list.filter(
-					(project) => !isTemporaryProjectPath(project.repoPath),
+				projects: await Promise.all(
+					visibleProjects.map(async (project) => ({
+						...project,
+						pathPolicy: await projectPathPolicyStatus(project.repoPath),
+					})),
 				),
 			});
 		})
-		.post("/folder-picker", async (c) => {
+		.post("/folder-picker", requireAdmin(), async (c) => {
 			getAuthContextUser(c);
 			if (process.platform !== "darwin") {
 				throw new HttpError(
@@ -68,8 +116,10 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 			}
 
 			const selectedPath = stdoutText.trim();
+			if (!selectedPath) return c.json({ path: null });
+			const authorized = await authorizeWebProjectPath(selectedPath);
 			return c.json({
-				path: selectedPath ? path.resolve(selectedPath) : null,
+				path: authorized.canonicalPath,
 			});
 		})
 		.get("/:projectId", async (c) => {
@@ -82,24 +132,20 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 			if (project.ownerUserId !== authUser.userId) {
 				throw new HttpError(403, "Forbidden");
 			}
-			return c.json({ project });
+			return c.json({
+				project: {
+					...project,
+					pathPolicy: await projectPathPolicyStatus(project.repoPath),
+				},
+			});
 		})
 		.post("/", zValidator("json", createProjectSchema), async (c) => {
 			const authUser = getAuthContextUser(c);
 			const body = c.req.valid("json");
 
-			// Check repo path exists on disk
-			const requestedPath = path.resolve(body.repoPath);
-			let resolvedPath: string;
-			try {
-				await fs.access(requestedPath);
-				resolvedPath = await fs.realpath(requestedPath);
-			} catch {
-				throw new HttpError(
-					400,
-					`Repository path does not exist on disk: ${body.repoPath}`,
-				);
-			}
+			const { canonicalPath: resolvedPath } = await authorizeWebProjectPath(
+				body.repoPath,
+			);
 
 			// canonical path is globally unique so path aliases resolve to one project.
 			const existing =
@@ -160,6 +206,7 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 				if (!deps.scanRepository || !deps.scanSupervisor || !deps.env) {
 					throw new HttpError(500, "Scan runtime is not configured.");
 				}
+				await authorizeWebProjectPath(project.repoPath);
 				const policy = resolveScanExecutionPolicy({
 					env: deps.env,
 					surface: "web",

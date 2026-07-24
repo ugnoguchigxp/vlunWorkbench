@@ -64,6 +64,30 @@ describe("Static Intelligence module candidates", () => {
 			scanRunId: "scan-1",
 			status: "available",
 			structure: { metadata: { snapshotRef: "snapshot-1", sourceTreeHash: "b".repeat(64), degradedReasons: [] }, snapshot },
+			projectStructure: {
+				snapshot: {
+					files: [
+						{
+							path: "src/app.ts",
+							tags: ["source"],
+							exportedSymbols: ["app"],
+						},
+					],
+					modules: [
+						{
+							id: "module:src",
+							pathPrefix: "src",
+							label: "src",
+							files: ["src/app.ts"],
+							entrypoints: [],
+							internalDependencies: [],
+							externalDependencies: [],
+							confidence: 1,
+							confidenceReasons: ["fixture"],
+						},
+					],
+				},
+			},
 			export: { metadata: { exportHash: "c".repeat(64) }, payload },
 		} as unknown as PersistedStaticIntelligenceGeneration;
 

@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createDbConnection, type DbConnection } from "../../db";
+import { createWritableTestDbConnection } from "../../db/testing/connection";
 import { projects, scanRuns, users } from "../../db/schema";
 import { buildStaticIntelligenceGeneration } from "./build-service";
 import { ArtifactStorage } from "../scans/artifact-storage";
@@ -20,7 +21,7 @@ describe("Static Intelligence agent query CLI", () => {
 	beforeEach(async () => {
 		tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "agent-query-cli-"));
 		dbUrl = `file:${path.join(tempDir, "test.sqlite")}`;
-		connection = createDbConnection(dbUrl);
+		connection = createWritableTestDbConnection(dbUrl);
 		applyMigrations(connection);
 
 		const [user] = await connection.db

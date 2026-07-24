@@ -64,14 +64,18 @@ export function FindingDetailPanel() {
 				>
 					<button
 						type="button"
+						role="tab"
 						className={c.scanDetailTab === "review" ? "active" : ""}
+						aria-selected={c.scanDetailTab === "review"}
 						onClick={() => c.setScanDetailTab("review")}
 					>
 						スキャン結果
 					</button>
 					<button
 						type="button"
+						role="tab"
 						className={c.scanDetailTab === "report" ? "active" : ""}
+						aria-selected={c.scanDetailTab === "report"}
 						onClick={() => c.setScanDetailTab("report")}
 					>
 						レポート MD
@@ -379,14 +383,18 @@ function FindingDetailDrawer() {
 				>
 					<button
 						type="button"
+						role="tab"
 						className={c.scanDetailTab === "review" ? "active" : ""}
+						aria-selected={c.scanDetailTab === "review"}
 						onClick={() => c.setScanDetailTab("review")}
 					>
 						レビュー結果
 					</button>
 					<button
 						type="button"
+						role="tab"
 						className={c.scanDetailTab === "verification" ? "active" : ""}
+						aria-selected={c.scanDetailTab === "verification"}
 						onClick={() => c.setScanDetailTab("verification")}
 					>
 						検証

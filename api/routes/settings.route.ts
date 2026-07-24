@@ -2,10 +2,13 @@ import { zValidator } from "@hono/zod-validator";
 import { Hono } from "hono";
 import { z } from "zod";
 import { readAppEnv } from "../app/env";
+import { requireAdmin } from "../middleware/auth";
 import { getAuthContextUser } from "../modules/auth/context";
 import { readCodexStatus } from "../modules/llm-settings/codex-status";
 import type { LlmSettingsRepository } from "../modules/llm-settings/llm-settings.repository";
+import { LlmSettingsDocumentSchema } from "../modules/llm-settings/llm-settings.schema";
 import { checkLlmProviderHealth } from "../modules/llm-settings/provider-health";
+import { resolveProviderCredential } from "../providers/provider-credential-resolver";
 import type { SettingsRepository } from "../modules/settings/settings.repository";
 
 const UpdateSystemContextSchema = z.object({
@@ -25,6 +28,8 @@ export function createSettingsRoute(deps: SettingsRouteDeps) {
 	const llmRepo = deps.llmSettingsRepository;
 
 	return new Hono()
+		.use("/llm", requireAdmin())
+		.use("/llm/*", requireAdmin())
 		.get("/system-context", async (c) => {
 			const authUser = getAuthContextUser(c);
 			const record = await repo.getSystemContextForUser(authUser.userId);
@@ -59,16 +64,15 @@ export function createSettingsRoute(deps: SettingsRouteDeps) {
 			}
 			return c.json(await llmRepo.getSettings({ maskSecrets: true }));
 		})
-		.put("/llm", async (c) => {
+		.put("/llm", zValidator("json", LlmSettingsDocumentSchema), async (c) => {
 			if (!llmRepo) {
 				return c.json(
 					{ ok: false, message: "LLM settings are not configured." },
 					500,
 				);
 			}
-			const payload = await c.req.json();
 			try {
-				return c.json(await llmRepo.updateSettings(payload));
+				return c.json(await llmRepo.updateSettings(c.req.valid("json")));
 			} catch (error) {
 				return c.json(
 					{
@@ -112,14 +116,28 @@ export function createSettingsRoute(deps: SettingsRouteDeps) {
 				);
 			}
 			const env = readAppEnv();
-			const apiKey =
-				endpoint.apiKey ||
-				(endpoint.kind === "azure"
-					? env.azureOpenAiApiKey
-					: endpoint.kind === "openai"
-						? env.openAiApiKey
-						: undefined);
-			const result = await checkLlmProviderHealth(endpoint, { apiKey });
+			const apiKey = resolveProviderCredential(endpoint, env).apiKey;
+			const urlPolicyKind =
+				endpoint.kind === "azure" ||
+				endpoint.kind === "openai" ||
+				endpoint.kind === "openai-compatible" ||
+				endpoint.kind === "local"
+					? endpoint.kind
+					: null;
+			const allowedHosts = [...(env.llmProviderAllowedHosts ?? [])];
+			if (endpoint.kind === "azure" && env.azureOpenAiEndpoint) {
+				allowedHosts.push(new URL(env.azureOpenAiEndpoint).hostname);
+			}
+			const result = await checkLlmProviderHealth(endpoint, {
+				apiKey,
+				outboundPolicy: urlPolicyKind
+					? {
+							kind: urlPolicyKind,
+							nodeEnv: env.nodeEnv,
+							allowedHosts,
+						}
+					: undefined,
+			});
 			await llmRepo.recordHealthCheck(endpoint.id, result);
 			return c.json(result);
 		});

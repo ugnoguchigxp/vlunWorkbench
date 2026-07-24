@@ -1,0 +1,63 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-07-23T23:55:00+09:00",
+  "baselineCommit": "f681bb616fe1f1d022f87c3b8f6ea2393b2bf0b4",
+  "scope": "phase-46-pre-security-hardening",
+  "workingTreeNote": "The four formatter-only source changes and Phase 46 planning documents are not included in baselineCommit.",
+  "verification": {
+    "sqliteWriteBoundary": {
+      "status": "pass"
+    },
+    "typecheck": {
+      "status": "pass"
+    },
+    "lint": {
+      "status": "pass",
+      "warnings": 47
+    },
+    "formatBeforeRepair": {
+      "status": "fail",
+      "files": 4
+    },
+    "formatAfterRepair": {
+      "status": "pass"
+    },
+    "defaultTestCommand": {
+      "status": "pass",
+      "tests": 389,
+      "vitestTests": 129,
+      "bunTests": 260,
+      "executedTestFiles": 63,
+      "repositoryTestFiles": 151,
+      "knownLimitation": "The default command does not execute every repository test file."
+    },
+    "coverageCommand": {
+      "status": "pass",
+      "includedLines": 764,
+      "lineCoveragePercent": 93.97,
+      "branchCoveragePercent": 81.15,
+      "knownLimitation": "Coverage is limited to a narrow frontend-oriented subset and is not repository-wide."
+    },
+    "webBuild": {
+      "status": "pass",
+      "initialJavaScriptBytes": 1646650,
+      "initialJavaScriptGzipBytes": 474220,
+      "largeChunkWarning": true
+    },
+    "dependencyAudit": {
+      "status": "fail",
+      "total": 15,
+      "high": 5,
+      "moderate": 7,
+      "low": 3
+    }
+  },
+  "repository": {
+    "trackedArtifactFiles": 739,
+    "testFiles": 151
+  },
+  "redaction": {
+    "containsSecrets": false,
+    "containsAbsoluteUserPaths": false
+  }
+}

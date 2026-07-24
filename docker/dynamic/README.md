@@ -26,3 +26,14 @@ You can build the image using:
 ```bash
 bun run docker:dynamic:build
 ```
+The image pins its base digest and installs explicit, checksum-verified Node,
+Bun, Go, and Rust versions for `linux/amd64` and `linux/arm64`.
+
+Run the sandbox with the minimum capabilities and only the network mode required
+by the selected profile:
+
+```bash
+docker run --rm --network none --read-only --cap-drop ALL \
+  --tmpfs /tmp:rw,noexec,nosuid,size=512m \
+  vuln-workbench-dynamic:local
+```

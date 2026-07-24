@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { readdirSync, readFileSync } from "node:fs";
 import fs from "node:fs/promises";
@@ -6,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createDbConnection, type DbConnection } from "../../db";
+import { createWritableTestDbConnection } from "../../db/testing/connection";
 import { projects, scanRuns, users } from "../../db/schema";
 import { buildStaticIntelligenceGeneration } from "./build-service";
 import { ArtifactStorage } from "../scans/artifact-storage";
@@ -16,7 +16,6 @@ describe("Static Intelligence export CLI", () => {
 	let tempDir: string;
 	let dbUrl: string;
 	let connection: DbConnection;
-	let projectId: string;
 	let scanRunId: string;
 
 	beforeEach(async () => {
@@ -24,7 +23,7 @@ describe("Static Intelligence export CLI", () => {
 			path.join(os.tmpdir(), "static-intelligence-cli-"),
 		);
 		dbUrl = `file:${path.join(tempDir, "test.sqlite")}`;
-		connection = createDbConnection(dbUrl);
+		connection = createWritableTestDbConnection(dbUrl);
 		applyMigrations(connection);
 
 		const [user] = await connection.db
@@ -50,7 +49,6 @@ describe("Static Intelligence export CLI", () => {
 				updatedAt: NOW,
 			})
 			.returning();
-		projectId = project.id;
 		const [scanRun] = await connection.db
 			.insert(scanRuns)
 			.values({
@@ -100,92 +98,6 @@ describe("Static Intelligence export CLI", () => {
 		expect(filePayload.scan.id).toBe(scanRunId);
 	});
 
-	it("includes optional code structure enrichment from snapshot file", async () => {
-		const snapshotPath = path.join(tempDir, "code-structure.json");
-		await fs.writeFile(
-			snapshotPath,
-			JSON.stringify(
-				await codeStructureSnapshotFixture({ projectId, projectPath: tempDir }),
-			),
-			"utf8",
-		);
-
-		const result = runCli([
-			"--scan-run-id",
-			scanRunId,
-			"--code-structure-snapshot",
-			snapshotPath,
-		]);
-
-		expect(result.status).toBe(0);
-		expect(result.stderr).toBe("");
-		const stdoutPayload = JSON.parse(result.stdout);
-		expect(stdoutPayload.export.codeStructure).toMatchObject({
-			status: "available",
-			fileTagsByPath: { "src/app.ts": ["route", "handler", "source"] },
-		});
-		expect(JSON.stringify(stdoutPayload.export.codeStructure)).not.toContain(
-			"SECRET_CODE_STRUCTURE_SOURCE",
-		);
-	});
-
-	it("returns exit code 2 for invalid code structure snapshot", async () => {
-		const snapshotPath = path.join(tempDir, "invalid-code-structure.json");
-		await fs.writeFile(
-			snapshotPath,
-			JSON.stringify({
-				...(await codeStructureSnapshotFixture({
-					projectId,
-					projectPath: tempDir,
-				})),
-				project: {
-					...(await codeStructureSnapshotFixture({
-						projectId,
-						projectPath: tempDir,
-					})).project,
-					rootPathIncluded: false,
-					rootPath: tempDir,
-				},
-			}),
-			"utf8",
-		);
-
-		const result = runCli([
-			"--scan-run-id",
-			scanRunId,
-			"--code-structure-snapshot",
-			snapshotPath,
-		]);
-
-		expect(result.status).toBe(2);
-		expect(result.stderr).toBe("");
-		const stdoutPayload = JSON.parse(result.stdout);
-		expect(stdoutPayload).toMatchObject({
-			ok: false,
-			status: "failed",
-		});
-		expect(stdoutPayload.message).toContain("Invalid code structure snapshot");
-		expect(stdoutPayload.message).toContain("rootPath must be omitted");
-		expect(stdoutPayload.message).not.toContain(tempDir);
-	});
-
-	it("does not leak snapshot file paths when snapshot read fails", () => {
-		const missingSnapshotPath = path.join(tempDir, "missing-snapshot.json");
-		const result = runCli([
-			"--scan-run-id",
-			scanRunId,
-			"--code-structure-snapshot",
-			missingSnapshotPath,
-		]);
-
-		expect(result.status).toBe(2);
-		expect(result.stderr).toBe("");
-		const stdoutPayload = JSON.parse(result.stdout);
-		expect(stdoutPayload.message).toContain("failed to read snapshot file");
-		expect(stdoutPayload.message).not.toContain(missingSnapshotPath);
-		expect(stdoutPayload.message).not.toContain(tempDir);
-	});
-
 	it("returns exit code 2 and JSON failure when scan run is missing", () => {
 		const result = runCli([
 			"--scan-run-id",
@@ -220,54 +132,4 @@ function applyMigrations(connection: DbConnection) {
 		const sqlPath = path.resolve(migrationsDir, filename);
 		connection.sqlite.exec(readFileSync(sqlPath, "utf8"));
 	}
-}
-
-async function codeStructureSnapshotFixture(options: {
-	projectId?: string;
-	projectPath: string;
-}) {
-	return {
-		version: "v1",
-		generatedAt: "2026-07-06T12:00:00.000Z",
-		project: {
-			...(options.projectId ? { id: options.projectId } : {}),
-			rootRef: createHash("sha256")
-				.update(await fs.realpath(options.projectPath))
-				.digest("hex"),
-			rootPathIncluded: false,
-		},
-		status: "completed",
-		degradedReasons: [],
-		files: [
-			{
-				path: "src/app.ts",
-				language: "typescript",
-				moduleKind: "esm",
-				tags: ["route", "handler", "source"],
-				exportedSymbols: ["App"],
-				imports: ["hono"],
-				packageImports: ["hono"],
-				contentHash:
-					"abcdef0000000000000000000000000000000000000000000000000000000000",
-				parseStatus: "parsed",
-				degradedReasons: ["SECRET_CODE_STRUCTURE_SOURCE"],
-			},
-		],
-		edges: [],
-		packages: [{ name: "hono", importedBy: ["src/app.ts"] }],
-		summary: {
-			fileCount: 1,
-			parsedFileCount: 1,
-			skippedFileCount: 0,
-			importEdgeCount: 0,
-			packageDependencyCount: 1,
-			exportedSymbolCount: 1,
-			routeFileCount: 1,
-			handlerFileCount: 1,
-			schemaFileCount: 0,
-			workerFileCount: 0,
-			testFileCount: 0,
-			configFileCount: 0,
-		},
-	};
 }

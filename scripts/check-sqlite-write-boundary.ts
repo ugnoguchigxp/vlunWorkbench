@@ -12,15 +12,23 @@ const sqliteModules = new Set([
 ]);
 const allowedBunSqliteImports = new Set([
 	"api/db/index.ts",
+	"api/db/testing/connection.ts",
 	"api/db/writer/internal/connection.ts",
+	// Backup verification opens an operator-selected snapshot read-only.
+	"api/operations/database-backup.ts",
 ]);
 const allowedDatabaseConstructors = new Set([
 	"api/db/index.ts",
+	"api/db/testing/connection.ts",
 	"api/db/writer/internal/connection.ts",
+	"api/operations/database-backup.ts",
 ]);
 const allowedRawMutationFiles = new Set([
+	"api/db/testing/connection.ts",
 	"api/db/writer/internal/connection.ts",
 	"api/db/writer/server.ts",
+	// Only a connection-local query_only PRAGMA is executed in this file.
+	"api/operations/database-backup.ts",
 ]);
 const failures: string[] = [];
 
@@ -89,7 +97,11 @@ for (const file of sourceRoots.flatMap(filesUnder)) {
 		) {
 			const method = node.expression.name.text;
 			const receiver = node.expression.expression.getText(source);
-			if (method === "transaction" && !file.startsWith("api/db/writer/")) {
+			if (
+				method === "transaction" &&
+				file !== "api/db/index.ts" &&
+				!file.startsWith("api/db/writer/")
+			) {
 				report(
 					file,
 					node,

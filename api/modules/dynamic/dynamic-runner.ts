@@ -627,7 +627,7 @@ exit $EXIT_CODE
 			"--env",
 			"HOME=/tmp",
 			"--env",
-			"PATH=/usr/local/bin:/usr/bin:/bin",
+			"PATH=/usr/local/cargo/bin:/usr/local/go/bin:/usr/local/bin:/usr/bin:/bin",
 			"--env",
 			`DYNAMIC_WORKING_DIRECTORY=${params.workingDirectory}`,
 			"--env",

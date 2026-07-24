@@ -1,5 +1,9 @@
 import { z } from "zod";
 import type { ChatMessage } from "../types/llm";
+import {
+	fetchWithOutboundPolicy,
+	type OutboundUrlPolicy,
+} from "../security/outbound-url-policy";
 import type { LlmCompletionOptions, LlmProvider, LlmResponse } from "./types";
 
 export type OpenAiCompatibleProviderConfig = {
@@ -8,6 +12,7 @@ export type OpenAiCompatibleProviderConfig = {
 	model: string;
 	apiVersion?: string;
 	fetchImpl?: typeof fetch;
+	outboundPolicy?: OutboundUrlPolicy;
 };
 
 const ChatCompletionResponseSchema = z.object({
@@ -38,14 +43,16 @@ export class OpenAiCompatibleProvider implements LlmProvider {
 	private readonly apiKey?: string;
 	private readonly model: string;
 	private readonly apiVersion?: string;
-	private readonly fetchImpl: typeof fetch;
+	private readonly fetchImpl?: typeof fetch;
+	private readonly outboundPolicy?: OutboundUrlPolicy;
 
 	constructor(config: OpenAiCompatibleProviderConfig) {
 		this.baseUrl = normalizeBaseUrl(config.baseUrl);
 		this.apiKey = config.apiKey?.trim() || undefined;
 		this.model = config.model.trim();
 		this.apiVersion = config.apiVersion?.trim() || undefined;
-		this.fetchImpl = config.fetchImpl ?? fetch;
+		this.fetchImpl = config.fetchImpl;
+		this.outboundPolicy = config.outboundPolicy;
 	}
 
 	getDiagnostics(): { endpoint: string; model: string; hasApiKey: boolean } {
@@ -78,15 +85,23 @@ export class OpenAiCompatibleProvider implements LlmProvider {
 			headers.Authorization = `Bearer ${this.apiKey}`;
 		}
 
-		const response = await this.fetchImpl(this.buildUrl("chat/completions"), {
+		const requestUrl = this.buildUrl("chat/completions");
+		const requestInit = {
 			method: "POST",
 			headers,
 			body: JSON.stringify(body),
-		});
+		};
+		const response = this.outboundPolicy
+			? await fetchWithOutboundPolicy({
+					url: requestUrl,
+					init: requestInit,
+					policy: this.outboundPolicy,
+					fetchImpl: this.fetchImpl,
+				})
+			: await (this.fetchImpl ?? fetch)(requestUrl, requestInit);
 		if (!response.ok) {
-			const message = await response.text();
 			throw new Error(
-				`OpenAI-compatible provider error (${response.status}): ${message}`,
+				`OpenAI-compatible provider error (${response.status}): ${response.statusText || "request failed"}`,
 			);
 		}
 

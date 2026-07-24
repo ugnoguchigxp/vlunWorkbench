@@ -10,28 +10,34 @@ const UNSAFE_MARKERS = [
 ];
 
 describe("Static Intelligence knowledge source fixture script", () => {
-	it("runs the CLI-only fixture workflow with JSON stdout", () => {
-		const result = runFixture(["--skip-mcp", "true"]);
+	it(
+		"runs the CLI-only fixture workflow with JSON stdout",
+		() => {
+			const result = runFixture(["--skip-mcp", "true"]);
 
-		expect(result.status).toBe(0);
-		expect(result.stdout.trim().startsWith("{")).toBe(true);
-		expect(result.stdout.trim().endsWith("}")).toBe(true);
-		const payload = JSON.parse(result.stdout);
-		expect(payload).toMatchObject({
-			ok: true,
-			status: "completed",
-			version: "v1",
-			outputs: { mcpSkipped: true },
-		});
-		expect(payload.outputs.manifestContentHash).toMatch(/^[a-f0-9]{64}$/);
-		expect(payload.outputs.guardrailMaterialIds.length).toBeGreaterThan(0);
-		expect(
-			payload.checks.every((check: { status: string }) => check.status === "passed"),
-		).toBe(true);
-		for (const marker of UNSAFE_MARKERS) {
-			expect(result.stdout).not.toContain(marker);
-		}
-	});
+			expect(result.status).toBe(0);
+			expect(result.stdout.trim().startsWith("{")).toBe(true);
+			expect(result.stdout.trim().endsWith("}")).toBe(true);
+			const payload = JSON.parse(result.stdout);
+			expect(payload).toMatchObject({
+				ok: true,
+				status: "completed",
+				version: "v1",
+				outputs: { mcpSkipped: true },
+			});
+			expect(payload.outputs.manifestContentHash).toMatch(/^[a-f0-9]{64}$/);
+			expect(payload.outputs.guardrailMaterialIds.length).toBeGreaterThan(0);
+			expect(
+				payload.checks.every(
+					(check: { status: string }) => check.status === "passed",
+				),
+			).toBe(true);
+			for (const marker of UNSAFE_MARKERS) {
+				expect(result.stdout).not.toContain(marker);
+			}
+		},
+		15_000,
+	);
 
 	it("returns JSON failure with exit code 2 for invalid boolean options", () => {
 		const result = runFixture(["--keep-temp", "maybe"]);

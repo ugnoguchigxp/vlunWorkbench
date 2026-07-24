@@ -244,11 +244,13 @@ const folderAncestors = (folderPath: string): string[] => {
 };
 
 type KnowledgeWorkspaceProps = {
+	canManage?: boolean;
 	requestedSlug?: string | null;
 	requestedAt?: number;
 };
 
 export function KnowledgeWorkspace({
+	canManage = false,
 	requestedSlug = null,
 	requestedAt = 0,
 }: KnowledgeWorkspaceProps) {
@@ -822,7 +824,7 @@ export function KnowledgeWorkspace({
 						role="treeitem"
 						tabIndex={0}
 						aria-expanded={isExpanded}
-						draggable
+						draggable={canManage}
 						onDragStart={(event) =>
 							handleDragStart(event, { kind: "folder", path: node.path })
 						}
@@ -857,44 +859,46 @@ export function KnowledgeWorkspace({
 							)}
 							<span>{node.name}</span>
 						</button>
-						<div className="explorer-inline-actions">
-							<IconButton
-								type="button"
-								className="icon-btn inline"
-								title="New page"
-								onClick={() => startCreate(node.path)}
-								disabled={busy}
-							>
-								<FilePlus2 className="icon" />
-							</IconButton>
-							<IconButton
-								type="button"
-								className="icon-btn inline"
-								title="New folder"
-								onClick={() => void promptCreateFolder(node.path)}
-								disabled={busy}
-							>
-								<FolderPlus className="icon" />
-							</IconButton>
-							<IconButton
-								type="button"
-								className="icon-btn inline"
-								title="Rename folder"
-								onClick={() => void promptRenameFolder(node.path)}
-								disabled={busy}
-							>
-								<Pencil className="icon" />
-							</IconButton>
-							<IconButton
-								type="button"
-								className="icon-btn inline danger"
-								title="Delete folder"
-								onClick={() => void deleteFolderByPath(node.path)}
-								disabled={busy}
-							>
-								<Trash2 className="icon" />
-							</IconButton>
-						</div>
+						{canManage ? (
+							<div className="explorer-inline-actions">
+								<IconButton
+									type="button"
+									className="icon-btn inline"
+									title="New page"
+									onClick={() => startCreate(node.path)}
+									disabled={busy}
+								>
+									<FilePlus2 className="icon" />
+								</IconButton>
+								<IconButton
+									type="button"
+									className="icon-btn inline"
+									title="New folder"
+									onClick={() => void promptCreateFolder(node.path)}
+									disabled={busy}
+								>
+									<FolderPlus className="icon" />
+								</IconButton>
+								<IconButton
+									type="button"
+									className="icon-btn inline"
+									title="Rename folder"
+									onClick={() => void promptRenameFolder(node.path)}
+									disabled={busy}
+								>
+									<Pencil className="icon" />
+								</IconButton>
+								<IconButton
+									type="button"
+									className="icon-btn inline danger"
+									title="Delete folder"
+									onClick={() => void deleteFolderByPath(node.path)}
+									disabled={busy}
+								>
+									<Trash2 className="icon" />
+								</IconButton>
+							</div>
+						) : null}
 					</div>
 					{isExpanded
 						? node.children.map((child) => renderExplorerNode(child, depth + 1))
@@ -909,7 +913,7 @@ export function KnowledgeWorkspace({
 				role="treeitem"
 				tabIndex={0}
 				key={node.id}
-				draggable
+				draggable={canManage}
 				onDragStart={(event) =>
 					handleDragStart(event, {
 						kind: "page",
@@ -933,26 +937,28 @@ export function KnowledgeWorkspace({
 					)}
 					<span>{node.name}</span>
 				</button>
-				<div className="explorer-inline-actions">
-					<IconButton
-						type="button"
-						className="icon-btn inline"
-						title="Rename page"
-						onClick={() => void promptRenamePage(node.slug)}
-						disabled={busy}
-					>
-						<Pencil className="icon" />
-					</IconButton>
-					<IconButton
-						type="button"
-						className="icon-btn inline danger"
-						title="Delete page"
-						onClick={() => void deletePageBySlug(node.slug)}
-						disabled={busy}
-					>
-						<Trash2 className="icon" />
-					</IconButton>
-				</div>
+				{canManage ? (
+					<div className="explorer-inline-actions">
+						<IconButton
+							type="button"
+							className="icon-btn inline"
+							title="Rename page"
+							onClick={() => void promptRenamePage(node.slug)}
+							disabled={busy}
+						>
+							<Pencil className="icon" />
+						</IconButton>
+						<IconButton
+							type="button"
+							className="icon-btn inline danger"
+							title="Delete page"
+							onClick={() => void deletePageBySlug(node.slug)}
+							disabled={busy}
+						>
+							<Trash2 className="icon" />
+						</IconButton>
+					</div>
+				) : null}
 			</div>
 		);
 	};
@@ -962,24 +968,26 @@ export function KnowledgeWorkspace({
 			<section className="panel">
 				<div className="panel-header">
 					<h2>Explorer</h2>
-					<div className="actions">
-						<IconButton
-							type="button"
-							title="New page"
-							onClick={() => startCreate()}
-							disabled={busy}
-						>
-							<FilePlus2 className="icon" />
-						</IconButton>
-						<IconButton
-							type="button"
-							title="New folder"
-							onClick={() => void promptCreateFolder()}
-							disabled={busy}
-						>
-							<FolderPlus className="icon" />
-						</IconButton>
-					</div>
+					{canManage ? (
+						<div className="actions">
+							<IconButton
+								type="button"
+								title="New page"
+								onClick={() => startCreate()}
+								disabled={busy}
+							>
+								<FilePlus2 className="icon" />
+							</IconButton>
+							<IconButton
+								type="button"
+								title="New folder"
+								onClick={() => void promptCreateFolder()}
+								disabled={busy}
+							>
+								<FolderPlus className="icon" />
+							</IconButton>
+						</div>
+					) : null}
 				</div>
 				<div className="search-row">
 					<TextInput
@@ -1038,54 +1046,64 @@ export function KnowledgeWorkspace({
 				<div className="panel-header">
 					<h2>{mode === "edit" ? "Edit" : "View"} Page</h2>
 					<div className="actions">
-						<IconButton
-							type="button"
-							title="Edit"
-							onClick={() => setMode("edit")}
-							disabled={mode === "edit"}
-						>
-							<Edit2 className="icon" />
-						</IconButton>
-						<IconButton
-							type="button"
-							title="View"
-							onClick={() => setMode("view")}
-							disabled={mode === "view"}
-						>
-							<Eye className="icon" />
-						</IconButton>
-						<IconButton
-							type="button"
-							title="Save"
-							onClick={handleSave}
-							disabled={busy}
-						>
-							<Save className="icon" />
-						</IconButton>
-						<IconButton
-							type="button"
-							title="Delete selected"
-							onClick={() => void handleDelete()}
-							disabled={busy}
-						>
-							<Trash2 className="icon" />
-						</IconButton>
-						<IconButton
-							type="button"
-							title="Reindex"
-							onClick={() =>
-								void withMutating(async () => {
-									const result = await runSourceReindex();
-									await refreshTree();
-									setStatusText(
-										`Reindex completed: imported=${result.importedFiles}, skipped=${result.skippedFiles}, removed=${result.removedSources}`,
-									);
-								})
-							}
-							disabled={busy}
-						>
-							<RefreshCw className="icon" />
-						</IconButton>
+						{canManage ? (
+							<IconButton
+								type="button"
+								title="Edit"
+								onClick={() => setMode("edit")}
+								disabled={mode === "edit"}
+							>
+								<Edit2 className="icon" />
+							</IconButton>
+						) : null}
+						{canManage ? (
+							<IconButton
+								type="button"
+								title="View"
+								onClick={() => setMode("view")}
+								disabled={mode === "view"}
+							>
+								<Eye className="icon" />
+							</IconButton>
+						) : null}
+						{canManage ? (
+							<IconButton
+								type="button"
+								title="Save"
+								onClick={handleSave}
+								disabled={busy}
+							>
+								<Save className="icon" />
+							</IconButton>
+						) : null}
+						{canManage ? (
+							<IconButton
+								type="button"
+								title="Delete selected"
+								onClick={() => void handleDelete()}
+								disabled={busy}
+							>
+								<Trash2 className="icon" />
+							</IconButton>
+						) : null}
+						{canManage ? (
+							<IconButton
+								type="button"
+								title="Reindex"
+								onClick={() =>
+									void withMutating(async () => {
+										const result = await runSourceReindex();
+										await refreshTree();
+										setStatusText(
+											`Reindex completed: imported=${result.importedFiles}, skipped=${result.skippedFiles}, removed=${result.removedSources}`,
+										);
+									})
+								}
+								disabled={busy}
+							>
+								<RefreshCw className="icon" />
+							</IconButton>
+						) : null}
 					</div>
 				</div>
 
@@ -1094,6 +1112,7 @@ export function KnowledgeWorkspace({
 						Slug
 						<TextInput
 							id="knowledge-slug"
+							disabled={!canManage || mode !== "edit"}
 							value={draftSlug}
 							onChange={(event) => setDraftSlug(event.target.value)}
 						/>
@@ -1102,6 +1121,7 @@ export function KnowledgeWorkspace({
 						Title
 						<TextInput
 							id="knowledge-title"
+							disabled={!canManage || mode !== "edit"}
 							value={draftTitle}
 							onChange={(event) => setDraftTitle(event.target.value)}
 						/>
@@ -1110,6 +1130,7 @@ export function KnowledgeWorkspace({
 						Tags (comma separated)
 						<TextInput
 							id="knowledge-tags"
+							disabled={!canManage || mode !== "edit"}
 							value={draftTags}
 							onChange={(event) => {
 								const value = event.target.value;
@@ -1130,7 +1151,7 @@ export function KnowledgeWorkspace({
 					<MarkdownEditor
 						value={draftBody}
 						onChange={setDraftBody}
-						editable={mode === "edit"}
+						editable={canManage && mode === "edit"}
 						enableMermaid={true}
 						mermaidLib={mermaid}
 						toolbarMode={mode === "edit" ? "fixed" : "hidden"}

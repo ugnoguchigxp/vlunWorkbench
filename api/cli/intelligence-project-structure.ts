@@ -93,7 +93,10 @@ function parseCliArgs(): CliArgs {
 	};
 }
 
-function parseBoolean(value: string | undefined, flag: string): boolean | undefined {
+function parseBoolean(
+	value: string | undefined,
+	flag: string,
+): boolean | undefined {
 	if (value === undefined) return undefined;
 	if (value === "true") return true;
 	if (value === "false") return false;
@@ -111,7 +114,8 @@ function parseMaxFiles(value: string | undefined): number {
 
 async function assertOutputParentExists(outputPath: string): Promise<void> {
 	const stat = await fs.stat(path.dirname(outputPath)).catch(() => null);
-	if (!stat?.isDirectory()) throw new Error("Output parent directory not found.");
+	if (!stat?.isDirectory())
+		throw new Error("Output parent directory not found.");
 }
 
 async function writeSnapshotOutput(
@@ -128,7 +132,9 @@ async function writeSnapshotOutput(
 }
 
 function writeResult(payload: Record<string, unknown>, pretty = false) {
-	process.stdout.write(`${JSON.stringify(payload, null, pretty ? 2 : undefined)}\n`);
+	process.stdout.write(
+		`${JSON.stringify(payload, null, pretty ? 2 : undefined)}\n`,
+	);
 }
 
 function message(error: unknown): string {

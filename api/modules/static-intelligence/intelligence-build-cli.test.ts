@@ -15,6 +15,7 @@ describe("Static Intelligence build CLI", () => {
 	let databaseUrl: string;
 	let artifactDir: string;
 	let scanRunId: string;
+	let projectId: string;
 
 	beforeEach(async () => {
 		tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "static-intel-build-cli-"));
@@ -52,6 +53,7 @@ describe("Static Intelligence build CLI", () => {
 				updatedAt: NOW,
 			})
 			.returning();
+		projectId = project!.id;
 		const [scanRun] = await connection.db
 			.insert(scanRuns)
 			.values({
@@ -93,7 +95,7 @@ describe("Static Intelligence build CLI", () => {
 			"resolve_references",
 			"infer_modules",
 			"build_v2_snapshot",
-			"project_v1_compatibility",
+			"project_export_projection",
 			"normalize_paths",
 			"build_export",
 			"persist_generation",
@@ -101,17 +103,17 @@ describe("Static Intelligence build CLI", () => {
 			"optional_semantic_index",
 		]);
 
-		const structure = runScript("api/cli/intelligence-code-structure.ts", [
+		const persistedExport = runScript("api/cli/intelligence-export.ts", [
 			"--scan-run-id",
 			scanRunId,
 			"--generation-id",
 			generationId,
 		]);
-		expect(structure.status).toBe(0);
-		expect(JSON.parse(structure.stdout)).toMatchObject({
+		expect(persistedExport.status).toBe(0);
+		expect(JSON.parse(persistedExport.stdout)).toMatchObject({
 			ok: true,
-			generation: { generationId },
-			snapshot: { project: { rootPathIncluded: false } },
+			generationId,
+			export: { scan: { id: scanRunId } },
 		});
 	});
 

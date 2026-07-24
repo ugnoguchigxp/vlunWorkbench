@@ -20,6 +20,6 @@ export const APP_CONFIG_DEFAULTS = {
 	jwtRefreshExpiresIn: "7d",
 	appUrl: "http://localhost:29831",
 	corsOrigins: ["http://localhost:29831"],
-	trustProxy: true,
+	trustProxy: false,
 	cookieSameSite: "lax",
 } as const;

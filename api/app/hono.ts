@@ -1,11 +1,11 @@
 import fs from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { Hono } from "hono";
-import { serveStatic } from "hono/bun";
+import { getConnInfo, serveStatic } from "hono/bun";
 import { cors } from "hono/cors";
 import { csrf } from "hono/csrf";
 import { HTTPException } from "hono/http-exception";
-import { logger } from "hono/logger";
 import { secureHeaders } from "hono/secure-headers";
 import type { FailureKind } from "../../shared/schemas/failure.schema";
 import type { DbConnection } from "../db";
@@ -340,16 +340,63 @@ const distWebIndex = path.resolve(distWebRoot, "index.html");
 const useHttpsSecurityHeaders =
 	runtime.env.securityHeadersMode === "https" ||
 	(runtime.env.securityHeadersMode === "auto" && runtime.env.secureCookie);
+const contentSecurityPolicy = {
+	defaultSrc: ["'self'"],
+	baseUri: ["'self'"],
+	connectSrc: ["'self'"],
+	fontSrc: ["'self'", "data:"],
+	frameAncestors: ["'none'"],
+	imgSrc: ["'self'", "data:", "blob:"],
+	objectSrc: ["'none'"],
+	scriptSrc: ["'self'"],
+	styleSrc: ["'self'", "'unsafe-inline'"],
+	workerSrc: ["'self'", "blob:"],
+};
 const secureHeaderOptions = useHttpsSecurityHeaders
-	? { contentSecurityPolicy: undefined }
+	? runtime.env.cspMode === "enforce"
+		? { contentSecurityPolicy }
+		: { contentSecurityPolicyReportOnly: contentSecurityPolicy }
 	: {
-			contentSecurityPolicy: undefined,
+			...(runtime.env.cspMode === "enforce"
+				? { contentSecurityPolicy }
+				: { contentSecurityPolicyReportOnly: contentSecurityPolicy }),
 			crossOriginOpenerPolicy: false,
 			originAgentCluster: false,
 			strictTransportSecurity: false,
 		};
+const remoteAddressResolver = (c: Parameters<typeof getConnInfo>[0]) => {
+	try {
+		return getConnInfo(c).remote.address ?? null;
+	} catch {
+		return null;
+	}
+};
 
-app.use("*", logger());
+app.use("*", async (c, next) => {
+	const suppliedRequestId = c.req.header("x-request-id");
+	const requestId =
+		suppliedRequestId && /^[A-Za-z0-9._:-]{1,64}$/.test(suppliedRequestId)
+			? suppliedRequestId
+			: randomUUID();
+	const startedAt = performance.now();
+	c.header("X-Request-Id", requestId);
+	try {
+		await next();
+	} finally {
+		console.log(
+			JSON.stringify({
+				version: 1,
+				level: "info",
+				event: "http_request",
+				requestId,
+				method: c.req.method,
+				path: new URL(c.req.url).pathname,
+				status: c.res.status,
+				durationMs: Math.round((performance.now() - startedAt) * 100) / 100,
+			}),
+		);
+	}
+});
 app.use("*", secureHeaders(secureHeaderOptions));
 app.use(
 	"/api/*",
@@ -370,6 +417,8 @@ app.use(
 		windowMs: 60 * 1000,
 		limit: 200,
 		trustProxy: runtime.env.trustProxy,
+		trustedProxyCidrs: runtime.env.trustedProxyCidrs,
+		remoteAddressResolver,
 	}),
 );
 app.use(
@@ -378,6 +427,26 @@ app.use(
 		windowMs: 60 * 1000,
 		limit: 10,
 		trustProxy: runtime.env.trustProxy,
+		trustedProxyCidrs: runtime.env.trustedProxyCidrs,
+		remoteAddressResolver,
+	}),
+);
+app.use(
+	"/api/auth/login",
+	rateLimiter({
+		windowMs: 5 * 60 * 1000,
+		limit: 20,
+		keyGenerator: async (c) => {
+			const body = await c.req.json().catch(() => null);
+			const email =
+				body &&
+				typeof body === "object" &&
+				"email" in body &&
+				typeof body.email === "string"
+					? body.email.trim().toLowerCase()
+					: "invalid";
+			return `login-email:${email}`;
+		},
 	}),
 );
 app.use(
@@ -386,6 +455,8 @@ app.use(
 		windowMs: 60 * 1000,
 		limit: 20,
 		trustProxy: runtime.env.trustProxy,
+		trustedProxyCidrs: runtime.env.trustedProxyCidrs,
+		remoteAddressResolver,
 	}),
 );
 app.use("/api/*", csrf());
@@ -480,7 +551,13 @@ app.onError(async (error, c) => {
 	);
 });
 
-app.route("/api/health", createHealthRoute());
+app.route(
+	"/api/health",
+	createHealthRoute({
+		env: runtime.env,
+		dbConnection: runtime.dbConnection,
+	}),
+);
 app.use(
 	"/api/auth/me",
 	requireAuth({
@@ -880,6 +957,7 @@ app.route(
 		db: runtime.dbConnection.db,
 		findingRepository,
 		projectRepository,
+		env: runtime.env,
 	}),
 );
 app.route(
@@ -888,6 +966,7 @@ app.route(
 		db: runtime.dbConnection.db,
 		findingRepository,
 		projectRepository,
+		env: runtime.env,
 	}),
 );
 app.route(
@@ -895,6 +974,7 @@ app.route(
 	createDastRoute({
 		db: runtime.dbConnection.db,
 		projectRepository,
+		env: runtime.env,
 	}),
 );
 app.route(

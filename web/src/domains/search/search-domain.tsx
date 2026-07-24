@@ -17,7 +17,7 @@ import {
 	toAgenticSourceLabel,
 } from "../../agentic-markdown";
 import { Button, SelectInput, TextInput } from "../../ui";
-import { useKnowledgeNavigation } from "../knowledge/knowledge-domain";
+import { useKnowledgeNavigation } from "../knowledge/knowledge-navigation";
 
 type SearchResultsState = {
 	strategy: "merged" | "text_fallback" | "legacy_retrieve";

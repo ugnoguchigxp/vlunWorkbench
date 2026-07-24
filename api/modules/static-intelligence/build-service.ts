@@ -4,11 +4,7 @@ import type { AppDatabase } from "../../db";
 import type { ArtifactStorage } from "../scans/artifact-storage";
 import { buildProjectStructureSnapshot } from "./project-structure/builder";
 import { projectStructureV2ToCodeStructureV1 } from "./project-structure/v1-projector";
-import {
-	emitProjectStructureComparisonTelemetry,
-	projectStructureRolloutMode,
-	shouldPersistProjectStructure,
-} from "./project-structure/rollout";
+import { emitProjectStructureComparisonTelemetry } from "./project-structure/rollout";
 import { buildStaticIntelligenceExportFromBundle } from "./export-builder";
 import {
 	type PersistedStaticIntelligenceGeneration,
@@ -32,7 +28,7 @@ export type StaticIntelligenceBuildStage = {
 		| "resolve_references"
 		| "infer_modules"
 		| "build_v2_snapshot"
-		| "project_v1_compatibility"
+		| "project_export_projection"
 		| "normalize_paths"
 		| "build_export"
 		| "persist_generation"
@@ -117,10 +113,8 @@ export async function buildStaticIntelligenceGeneration(params: {
 	const snapshot = projectStructureV2ToCodeStructureV1(
 		projectStructureSnapshot,
 	);
-	const rolloutMode = projectStructureRolloutMode();
 	if (params.emitTelemetry)
 		emitProjectStructureComparisonTelemetry({
-			mode: rolloutMode,
 			durationMs: Date.now() - codeStructureStartedAt,
 			v1FileCount: snapshot.summary.fileCount,
 			v2FileCount: projectStructureSnapshot.summary.fileCount,
@@ -154,7 +148,7 @@ export async function buildStaticIntelligenceGeneration(params: {
 		durationMs: Date.now() - codeStructureStartedAt,
 	});
 	stages.push({
-		name: "project_v1_compatibility",
+		name: "project_export_projection",
 		status: snapshot.status === "partial" ? "degraded" : "completed",
 		reasonCodes: snapshot.degradedReasons,
 		durationMs: 0,
@@ -191,9 +185,7 @@ export async function buildStaticIntelligenceGeneration(params: {
 	).persistGeneration({
 		scanRunId: params.scanRunId,
 		snapshot,
-		...(shouldPersistProjectStructure(rolloutMode)
-			? { projectStructureSnapshot }
-			: {}),
+		projectStructureSnapshot,
 		exportPayload,
 		sourceRevision: probeSourceRevision(
 			bundle.project.repoPath,

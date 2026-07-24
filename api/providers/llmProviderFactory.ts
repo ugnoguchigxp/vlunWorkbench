@@ -8,6 +8,7 @@ import { CodexSdkProvider } from "./codexSdkProvider";
 import { OpenAiCompatibleProvider } from "./openAiCompatibleProvider";
 import type { LlmRouteFailureKind } from "./llmTaskTypes";
 import type { LlmProvider } from "./types";
+import { resolveProviderCredential } from "./provider-credential-resolver";
 
 export type CreateLlmProviderInput = {
 	endpoint: LlmProviderEndpointSettings;
@@ -31,21 +32,23 @@ export class LlmProviderFactoryError extends Error {
 	}
 }
 
-function secretForEndpoint(
+function allowedHostsForEndpoint(
 	endpoint: LlmProviderEndpointSettings,
 	env?: AppEnv,
-): string | undefined {
-	if (endpoint.apiKey) return endpoint.apiKey;
-	if (endpoint.kind === "azure") return env?.azureOpenAiApiKey;
-	if (endpoint.kind === "openai") return env?.openAiApiKey;
-	return undefined;
+): string[] {
+	const hosts = [...(env?.llmProviderAllowedHosts ?? [])];
+	if (endpoint.kind === "azure" && env?.azureOpenAiEndpoint) {
+		hosts.push(new URL(env.azureOpenAiEndpoint).hostname);
+	}
+	return [...new Set(hosts.map((host) => host.toLowerCase()))];
 }
 
 export function createLlmProviderForEndpoint(
 	input: CreateLlmProviderInput,
 ): LlmProvider {
 	const { endpoint, model, thinkingDepth, env } = input;
-	const apiKey = secretForEndpoint(endpoint, env);
+	const apiKey = resolveProviderCredential(endpoint, env).apiKey;
+	const nodeEnv = env?.nodeEnv ?? "production";
 
 	if (endpoint.kind === "azure") {
 		if (!endpoint.endpoint) {
@@ -65,6 +68,11 @@ export function createLlmProviderForEndpoint(
 			apiKey,
 			deployment: model,
 			apiVersion: endpoint.apiVersion ?? env?.azureOpenAiApiVersion,
+			outboundPolicy: {
+				kind: "azure",
+				nodeEnv,
+				allowedHosts: allowedHostsForEndpoint(endpoint, env),
+			},
 		});
 	}
 
@@ -93,6 +101,11 @@ export function createLlmProviderForEndpoint(
 			apiKey,
 			model,
 			apiVersion: endpoint.apiVersion,
+			outboundPolicy: {
+				kind: endpoint.kind,
+				nodeEnv,
+				allowedHosts: allowedHostsForEndpoint(endpoint, env),
+			},
 		});
 	}
 

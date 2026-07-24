@@ -3,13 +3,8 @@ import {
 	staticIntelligenceEvidenceQualitySchema,
 	staticIntelligenceRiskBandSchema,
 } from "../../../shared/schemas/static-intelligence.schema";
-import {
-	projectExplorationCatalogInputSchema as legacyProjectExplorationCatalogInputSchema,
-	projectExplorationCatalogFailureReasonSchema,
-} from "../../../shared/schemas/static-intelligence-exploration-catalog.schema";
+import { projectExplorationCatalogFailureReasonSchema } from "../../../shared/schemas/static-intelligence-exploration-catalog.schema";
 import { staticIntelligenceGuardrailMaterialTypeSchema } from "../../../shared/schemas/static-intelligence-guardrail-material.schema";
-
-export { legacyProjectExplorationCatalogInputSchema };
 
 export const projectPathInputSchema = z
 	.object({
@@ -35,92 +30,33 @@ export type ListKnowledgeSourcesInput = z.output<
 	typeof listKnowledgeSourcesInputSchema
 >;
 
-export const legacyGetKnowledgeSourceManifestInputSchema = z
-	.object({
-		scanRunId: z.string().trim().min(1),
-		generationId: z.string().uuid().optional(),
-	})
-	.strict();
-export const getKnowledgeSourceManifestInputSchema = z.union([
-	projectPathInputSchema,
-	legacyGetKnowledgeSourceManifestInputSchema,
-]);
+export const getKnowledgeSourceManifestInputSchema = projectPathInputSchema;
 export type GetKnowledgeSourceManifestInput = z.output<
 	typeof getKnowledgeSourceManifestInputSchema
 >;
 
-export const legacyGetGuardrailMaterialInputSchema = z
-	.object({
-		scanRunId: z.string().trim().min(1),
-		generationId: z.string().uuid().optional(),
-		type: staticIntelligenceGuardrailMaterialTypeSchema.optional(),
-		includeMarkdown: z.boolean().optional(),
-	})
-	.strict();
-export const pathFirstGuardrailMaterialInputSchema =
-	projectPathInputSchema.extend({
-		type: staticIntelligenceGuardrailMaterialTypeSchema.optional(),
-		includeMarkdown: z.boolean().optional(),
-	});
-export const getGuardrailMaterialInputSchema = z.union([
-	pathFirstGuardrailMaterialInputSchema,
-	legacyGetGuardrailMaterialInputSchema,
-]);
+export const getGuardrailMaterialInputSchema = projectPathInputSchema.extend({
+	type: staticIntelligenceGuardrailMaterialTypeSchema.optional(),
+	includeMarkdown: z.boolean().optional(),
+});
 export type GetGuardrailMaterialInput = z.output<
 	typeof getGuardrailMaterialInputSchema
 >;
 
-export const legacyGetEvidenceBundleInputSchema = z
-	.object({
-		scanRunId: z.string().trim().min(1),
-		generationId: z.string().uuid().optional(),
-		findingId: z.string().trim().min(1),
-	})
-	.strict();
-export const pathFirstEvidenceBundleInputSchema = projectPathInputSchema.extend(
-	{
-		findingFingerprint: z.string().trim().min(1).max(512),
-	},
-);
-export const getEvidenceBundleInputSchema = z.union([
-	pathFirstEvidenceBundleInputSchema,
-	legacyGetEvidenceBundleInputSchema,
-]);
+export const getEvidenceBundleInputSchema = projectPathInputSchema.extend({
+	findingFingerprint: z.string().trim().min(1).max(512),
+});
 export type GetEvidenceBundleInput = z.output<
 	typeof getEvidenceBundleInputSchema
 >;
 
-export const legacyGetVerificationCommandsInputSchema = z
-	.object({
-		scanRunId: z.string().trim().min(1),
-		generationId: z.string().uuid().optional(),
-		findingId: z.string().trim().min(1).optional(),
-	})
-	.strict();
-export const pathFirstVerificationCommandsInputSchema =
-	projectPathInputSchema.extend({
+export const getVerificationCommandsInputSchema = projectPathInputSchema.extend(
+	{
 		findingFingerprint: z.string().trim().min(1).max(512).optional(),
-	});
-export const getVerificationCommandsInputSchema = z.union([
-	pathFirstVerificationCommandsInputSchema,
-	legacyGetVerificationCommandsInputSchema,
-]);
+	},
+);
 export type GetVerificationCommandsInput = z.output<
 	typeof getVerificationCommandsInputSchema
->;
-
-export const legacyGetCodeStructureSnapshotInputSchema = z
-	.object({
-		scanRunId: z.string().trim().min(1),
-		generationId: z.string().uuid().optional(),
-	})
-	.strict();
-export const getCodeStructureSnapshotInputSchema = z.union([
-	projectPathInputSchema,
-	legacyGetCodeStructureSnapshotInputSchema,
-]);
-export type GetCodeStructureSnapshotInput = z.output<
-	typeof getCodeStructureSnapshotInputSchema
 >;
 
 const projectStructureViewSchema = z.enum(["summary", "files", "references"]);
@@ -129,25 +65,14 @@ const projectStructureSnapshotOptionsSchema = z.object({
 	cursor: z.number().int().nonnegative().default(0),
 	limit: z.number().int().min(1).max(200).default(100),
 });
-export const legacyGetProjectStructureSnapshotInputSchema = z
-	.object({
-		scanRunId: z.string().trim().min(1),
-		generationId: z.string().uuid().optional(),
-	})
-	.strict()
+export const getProjectStructureSnapshotInputSchema = projectPathInputSchema
 	.merge(projectStructureSnapshotOptionsSchema)
 	.strict();
-export const pathFirstProjectStructureSnapshotInputSchema =
-	projectPathInputSchema.merge(projectStructureSnapshotOptionsSchema).strict();
-export const getProjectStructureSnapshotInputSchema = z.union([
-	pathFirstProjectStructureSnapshotInputSchema,
-	legacyGetProjectStructureSnapshotInputSchema,
-]);
 export type GetProjectStructureSnapshotInput = z.output<
 	typeof getProjectStructureSnapshotInputSchema
 >;
 
-export const pathFirstProjectExplorationCatalogInputSchema =
+export const projectExplorationCatalogInputSchema =
 	projectPathInputSchema.extend({
 		focus: z
 			.object({
@@ -166,10 +91,6 @@ export const pathFirstProjectExplorationCatalogInputSchema =
 			.strict()
 			.optional(),
 	});
-export const projectExplorationCatalogInputSchema = z.union([
-	pathFirstProjectExplorationCatalogInputSchema,
-	legacyProjectExplorationCatalogInputSchema,
-]);
 export type ProjectExplorationCatalogInput = z.output<
 	typeof projectExplorationCatalogInputSchema
 >;

@@ -4,6 +4,8 @@
 !.env.example
 
 node_modules
+artifacts
+data
 
 dist
 dist-api

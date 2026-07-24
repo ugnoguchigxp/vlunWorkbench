@@ -129,6 +129,22 @@ describe("Profile Runner Orchestration", () => {
 		);
 	});
 
+	it("revalidates a Web project path before executing a profile", async () => {
+		const allowedRoot = path.join(tempDir, "allowed");
+		await fs.mkdir(allowedRoot);
+
+		await expect(
+			runProfileScan({
+				db: connection.db,
+				projectId,
+				profileId: "baseline",
+				repoPath,
+				executionSurface: "web",
+				projectAllowedRoots: [allowedRoot],
+			}),
+		).rejects.toMatchObject({ code: "PROJECT_PATH_NOT_ALLOWED" });
+	});
+
 	it("should generate a final report when requested", async () => {
 		vi.spyOn(profileRunnerModule, "runToolIntoExistingScan").mockImplementation(
 			async () => {

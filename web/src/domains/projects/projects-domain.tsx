@@ -1,7 +1,6 @@
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import {
 	Activity,
-	AlertTriangle,
 	BarChart3,
 	Braces,
 	CheckCircle2,
@@ -10,55 +9,46 @@ import {
 	FileCode2,
 	FolderOpen,
 	GitBranch,
-	Network,
 	Plus,
 	RefreshCw,
 	Shield,
 } from "lucide-react";
 import {
 	type FormEvent,
-	type ReactNode,
 	useCallback,
 	useEffect,
 	useMemo,
 	useRef,
 	useState,
 } from "react";
+import { formatCommandTokens } from "../../../../shared/format-command";
 import type {
-	DiagnosticEvidenceGraph,
 	FileRiskIndexEntry,
 	StaticIntelligenceExportV1,
 } from "../../../../shared/schemas/static-intelligence.schema";
+import type { StaticIntelligenceOntologyHandoff } from "../../../../shared/schemas/static-intelligence-module.schema";
 import {
-	agentModeToQueryKind,
 	browseProjectFolder,
 	createProject,
 	fetchProjectIntelligenceSummaries,
-	fetchProjectIntelligenceStructure,
-	fetchProjectStructureSummary,
 	fetchProjectIntelligenceView,
 	fetchProjectOntologyHandoff,
+	fetchProjectStructure,
 	fetchScanIntelligenceAgentQuery,
 	fetchScans,
-	refreshProjectIntelligence,
 	type ProjectIntelligenceProject,
 	type ProjectIntelligenceSummary,
 	type ProjectIntelligenceView,
 	type ProjectStructureListResponse,
-	type ProjectStructureSummaryResponse,
+	refreshProjectIntelligence,
 	type ScanIntelligenceAgentMode,
 	type ScanRun,
 } from "../../api";
-import type { StaticIntelligenceOntologyHandoff } from "../../../../shared/schemas/static-intelligence-module.schema";
-import { formatCommandTokens } from "../../../../shared/format-command";
 import { Button, SelectInput, TextInput } from "../../ui";
-import {
-	buildProjectCardSummary,
-	countGraphKinds,
-} from "./project-intelligence-view-model";
 import { formatScanOutcome } from "../scans/scan-profile-display";
 import { formatDateTime } from "../scans/scans-utils";
 import { readinessPresentation } from "./project-intelligence-readiness";
+import { buildProjectCardSummary } from "./project-intelligence-view-model";
 
 type ProjectsDomainSectionProps = {
 	active: boolean;
@@ -72,13 +62,6 @@ type ProjectRouteState = {
 	tab: "list" | "overview" | "intelligence";
 	scanRunId: string | null;
 };
-
-const agentModes: Array<{ id: ScanIntelligenceAgentMode; label: string }> = [
-	{ id: "overview", label: "Overview" },
-	{ id: "risk", label: "Risk" },
-	{ id: "verification", label: "Verification" },
-	{ id: "export", label: "Export" },
-];
 
 const severityOrder = {
 	critical: 0,
@@ -104,8 +87,6 @@ export function ProjectsDomainSection({
 		useState<ProjectIntelligenceView | null>(null);
 	const [structure, setStructure] =
 		useState<ProjectStructureListResponse | null>(null);
-	const [projectStructureSummary, setProjectStructureSummary] =
-		useState<ProjectStructureSummaryResponse | null>(null);
 	const [ontologyHandoff, setOntologyHandoff] =
 		useState<StaticIntelligenceOntologyHandoff | null>(null);
 	const [scanRuns, setScanRuns] = useState<ScanRun[]>([]);
@@ -198,35 +179,25 @@ export function ProjectsDomainSection({
 			]);
 			const scanRunId = view.selection.selectedScanRunId;
 			let nextStructure: ProjectStructureListResponse | null = null;
-			let nextProjectStructureSummary: ProjectStructureSummaryResponse | null =
-				null;
 			let nextHandoff: StaticIntelligenceOntologyHandoff | null = null;
 			if (routeState.tab === "intelligence" && scanRunId && view.generation) {
-				const [structureResult, projectStructureResult, handoffResult] =
-					await Promise.all([
-						fetchProjectIntelligenceStructure(routeState.projectId, scanRunId, {
-							generationId: view.generation.generationId,
-						}),
-						fetchProjectStructureSummary(
-							routeState.projectId,
-							scanRunId,
-							view.generation.generationId,
-						),
-						fetchProjectOntologyHandoff(
-							routeState.projectId,
-							scanRunId,
-							view.generation.generationId,
-						),
-					]);
+				const [structureResult, handoffResult] = await Promise.all([
+					fetchProjectStructure(routeState.projectId, scanRunId, {
+						generationId: view.generation.generationId,
+					}),
+					fetchProjectOntologyHandoff(
+						routeState.projectId,
+						scanRunId,
+						view.generation.generationId,
+					),
+				]);
 				nextStructure = structureResult;
-				nextProjectStructureSummary = projectStructureResult;
 				nextHandoff = handoffResult;
 			}
 			if (requestId !== detailRequestId.current) return;
 			setSelectedView(view);
 			setScanRuns(scans);
 			setStructure(nextStructure);
-			setProjectStructureSummary(nextProjectStructureSummary);
 			setOntologyHandoff(nextHandoff);
 		} catch (error) {
 			if (requestId === detailRequestId.current)
@@ -405,7 +376,6 @@ export function ProjectsDomainSection({
 					selectedScanRunId={selectedScanRunId}
 					selectedExport={selectedExport}
 					structure={structure}
-					projectStructureSummary={projectStructureSummary}
 					ontologyHandoff={ontologyHandoff}
 					refreshing={refreshing}
 					onRefreshAnalysis={() => void handleRefreshAnalysis()}
@@ -574,7 +544,6 @@ function ProjectDetail({
 	selectedScanRunId,
 	selectedExport,
 	structure,
-	projectStructureSummary,
 	ontologyHandoff,
 	refreshing,
 	onRefreshAnalysis,
@@ -592,7 +561,6 @@ function ProjectDetail({
 	selectedScanRunId: string | null;
 	selectedExport: StaticIntelligenceExportV1 | null;
 	structure: ProjectStructureListResponse | null;
-	projectStructureSummary: ProjectStructureSummaryResponse | null;
 	ontologyHandoff: StaticIntelligenceOntologyHandoff | null;
 	refreshing: boolean;
 	onRefreshAnalysis: () => void;
@@ -672,7 +640,6 @@ function ProjectDetail({
 					selectedScanRunId={selectedScanRunId}
 					selectedExport={selectedExport}
 					structure={structure}
-					projectStructureSummary={projectStructureSummary}
 					ontologyHandoff={ontologyHandoff}
 					refreshing={refreshing}
 					onRefreshAnalysis={onRefreshAnalysis}
@@ -771,7 +738,6 @@ function IntelligenceView({
 	selectedScanRunId,
 	selectedExport,
 	structure,
-	projectStructureSummary,
 	ontologyHandoff,
 	refreshing,
 	onRefreshAnalysis,
@@ -787,7 +753,6 @@ function IntelligenceView({
 	selectedScanRunId: string | null;
 	selectedExport: StaticIntelligenceExportV1 | null;
 	structure: ProjectStructureListResponse | null;
-	projectStructureSummary: ProjectStructureSummaryResponse | null;
 	ontologyHandoff: StaticIntelligenceOntologyHandoff | null;
 	refreshing: boolean;
 	onRefreshAnalysis: () => void;
@@ -917,7 +882,6 @@ function IntelligenceView({
 			<div id="structure">
 				<StructureExplorer
 					structure={structure}
-					projectStructureSummary={projectStructureSummary}
 					exportPayload={selectedExport}
 				/>
 			</div>
@@ -992,11 +956,9 @@ function ReadinessStrip({
 
 function StructureExplorer({
 	structure,
-	projectStructureSummary,
 	exportPayload,
 }: {
 	structure: ProjectStructureListResponse | null;
-	projectStructureSummary: ProjectStructureSummaryResponse | null;
 	exportPayload: StaticIntelligenceExportV1;
 }) {
 	const [selectedModuleId, setSelectedModuleId] = useState<string | null>(null);
@@ -1022,24 +984,18 @@ function StructureExplorer({
 						{structure.total ?? structure.items.length} persisted files ·
 						generation {structure.generationId}
 					</p>
-					{projectStructureSummary?.status === "missing" ? (
-						<p className="project-structure-legacy">
-							Legacy structure snapshot (v1 compatibility view)
-						</p>
-					) : null}
 				</div>
 				<StatusBadge status={structure.status} />
 			</div>
-			{projectStructureSummary?.summary && projectStructureSummary.coverage ? (
+			{structure.summary && structure.coverage ? (
 				<p className="project-structure-coverage">
-					v2 coverage: {projectStructureSummary.summary.analyzedFileCount}/
-					{projectStructureSummary.coverage.includedFileCount} analyzed ·{" "}
-					{projectStructureSummary.summary.resolvedReferenceCount} references
-					resolved · {projectStructureSummary.coverage.unsupportedFileCount}{" "}
-					unsupported (inventory only) ·{" "}
-					{projectStructureSummary.summary.resourceFileCount} resources
-					{projectStructureSummary.readiness?.resolution.status === "degraded"
-						? ` · resolver: ${projectStructureSummary.readiness.resolution.reasonCodes.join(", ")}`
+					coverage: {structure.summary.analyzedFileCount}/
+					{structure.coverage.includedFileCount} analyzed ·{" "}
+					{structure.summary.resolvedReferenceCount} references resolved ·{" "}
+					{structure.coverage.unsupportedFileCount} unsupported (inventory only)
+					· {structure.summary.resourceFileCount} resources
+					{structure.readiness?.resolution.status === "degraded"
+						? ` · resolver: ${structure.readiness.resolution.reasonCodes.join(", ")}`
 						: " · resolver ready"}
 				</p>
 			) : null}
@@ -1102,8 +1058,8 @@ function StructureExplorer({
 								<tr>
 									<th>File</th>
 									<th>Tags</th>
-									<th>Parse</th>
-									<th>Imports</th>
+									<th>Analysis</th>
+									<th>References</th>
 									<th>Exports</th>
 									<th>Risk</th>
 								</tr>
@@ -1113,8 +1069,8 @@ function StructureExplorer({
 									<tr key={file.path}>
 										<td>{file.path}</td>
 										<td>{file.tags.join(", ")}</td>
-										<td>{file.parseStatus}</td>
-										<td>{file.importCount}</td>
+										<td>{file.analysisStatus}</td>
+										<td>{file.referenceCount}</td>
 										<td>{file.exportCount}</td>
 										<td>{file.risk?.maxSeverity ?? "none"}</td>
 									</tr>
@@ -1155,7 +1111,7 @@ function OntologyHandoffSection({
 			.filter((bundle) =>
 				[
 					"static_intelligence_export",
-					"code_structure_snapshot",
+					"project_structure_snapshot",
 					"agent_query",
 				].includes(bundle.kind),
 			)
@@ -1277,397 +1233,18 @@ function FileRiskSection({ entries }: { entries: FileRiskIndexEntry[] }) {
 	);
 }
 
-function RiskDetail({ entry }: { entry: FileRiskIndexEntry | null }) {
-	if (!entry) return null;
-	return (
-		<aside className="project-detail-panel">
-			<h3>{entry.path}</h3>
-			<dl>
-				<dt>Rules</dt>
-				<dd>{entry.ruleIds.join(", ") || "none"}</dd>
-				<dt>Findings</dt>
-				<dd>{entry.findingIds.join(", ") || "none"}</dd>
-				<dt>Evidence</dt>
-				<dd>{entry.evidenceRefs.join(", ") || "none"}</dd>
-				<dt>Artifacts</dt>
-				<dd>{entry.artifactRefs.join(", ") || "none"}</dd>
-				<dt>Verification</dt>
-				<dd>{entry.verificationRefs.join(", ") || "none"}</dd>
-			</dl>
-		</aside>
-	);
-}
-
-function EvidenceGraphSection({ graph }: { graph: DiagnosticEvidenceGraph }) {
-	const { nodeCounts, edgeCounts } = countGraphKinds(graph);
-	const [selectedNodeId, setSelectedNodeId] = useState(
-		graph.nodes[0]?.id ?? "",
-	);
-	useEffect(() => {
-		if (!graph.nodes.some((node) => node.id === selectedNodeId)) {
-			setSelectedNodeId(graph.nodes[0]?.id ?? "");
-		}
-	}, [graph.nodes, selectedNodeId]);
-	const selectedNode = graph.nodes.find((node) => node.id === selectedNodeId);
-	const incoming = graph.edges.filter((edge) => edge.to === selectedNodeId);
-	const outgoing = graph.edges.filter((edge) => edge.from === selectedNodeId);
-	return (
-		<section className="projects-band">
-			<div className="projects-section-head">
-				<div>
-					<h2>Evidence Graph</h2>
-					<p>
-						{graph.nodes.length} nodes / {graph.edges.length} edges
-					</p>
-				</div>
-			</div>
-			<div className="project-chip-cloud">
-				{Object.entries(nodeCounts).map(([kind, count]) => (
-					<span key={kind} className="project-chip">
-						{kind}: {count}
-					</span>
-				))}
-				{Object.entries(edgeCounts).map(([kind, count]) => (
-					<span key={kind} className="project-chip">
-						{kind}: {count}
-					</span>
-				))}
-			</div>
-			<div className="evidence-adjacency">
-				<SelectInput
-					value={selectedNodeId}
-					onChange={(event) => setSelectedNodeId(event.target.value)}
-				>
-					{graph.nodes.map((node) => (
-						<option value={node.id} key={node.id}>
-							{node.kind}: {node.label}
-						</option>
-					))}
-				</SelectInput>
-				{selectedNode ? (
-					<p>
-						<strong>{selectedNode.label}</strong> · {selectedNode.kind}
-					</p>
-				) : null}
-				<div className="project-metric-grid compact">
-					<Metric label="Incoming" value={incoming.length} />
-					<Metric label="Outgoing" value={outgoing.length} />
-				</div>
-				<ul>
-					{[...incoming, ...outgoing].map((edge) => (
-						<li key={edge.id}>
-							<code>{edge.kind}</code> {edge.from} → {edge.to}
-						</li>
-					))}
-				</ul>
-			</div>
-		</section>
-	);
-}
-
-function CodeStructureSection({
-	exportPayload,
-}: {
-	exportPayload: StaticIntelligenceExportV1;
-}) {
-	const code = exportPayload.codeStructure;
-	return (
-		<section className="projects-band">
-			<div className="projects-section-head">
-				<div>
-					<h2>Code Structure</h2>
-					<p>
-						{code
-							? `snapshot ${code.snapshotRef ?? "without snapshotRef"}`
-							: "No code structure snapshot is attached to this export."}
-					</p>
-				</div>
-				<StatusBadge status={code?.status ?? "missing"} />
-			</div>
-			{code?.summary ? (
-				<div className="project-metric-grid compact">
-					<Metric label="Files" value={code.summary.fileCount} />
-					<Metric label="Parsed" value={code.summary.parsedFileCount} />
-					<Metric label="Imports" value={code.summary.importEdgeCount} />
-					<Metric
-						label="Packages"
-						value={code.summary.packageDependencyCount}
-					/>
-				</div>
-			) : null}
-			<DegradedReasons
-				reasons={
-					code?.degradedReasons.length
-						? code.degradedReasons
-						: code
-							? []
-							: [
-									"code structure snapshot missing from static intelligence export",
-								]
-				}
-			/>
-		</section>
-	);
-}
-
-function AgentBundleSection({
-	scanRunId,
-	agentMode,
-	agentPreview,
-	agentLoading,
-	onAgentModeChange,
-	onLoadAgentPreview,
-}: {
-	scanRunId: string | null;
-	agentMode: ScanIntelligenceAgentMode;
-	agentPreview: Awaited<
-		ReturnType<typeof fetchScanIntelligenceAgentQuery>
-	> | null;
-	agentLoading: boolean;
-	onAgentModeChange: (mode: ScanIntelligenceAgentMode) => void;
-	onLoadAgentPreview: () => void;
-}) {
-	return (
-		<section className="projects-band">
-			<div className="projects-section-head">
-				<div>
-					<h2>Agent Bundle</h2>
-					<p>外部エージェントが読む候補コンテキストのプレビューです。</p>
-				</div>
-				<div className="project-section-actions">
-					<SelectInput
-						value={agentMode}
-						onChange={(event) =>
-							onAgentModeChange(event.target.value as ScanIntelligenceAgentMode)
-						}
-						disabled={!scanRunId}
-					>
-						{agentModes.map((mode) => (
-							<option key={mode.id} value={mode.id}>
-								{mode.label}
-							</option>
-						))}
-					</SelectInput>
-					<Button
-						type="button"
-						variant="secondary"
-						onClick={onLoadAgentPreview}
-						disabled={!scanRunId || agentLoading}
-					>
-						<Network className="icon" />
-						Preview
-					</Button>
-				</div>
-			</div>
-			<div className="agent-preview">
-				{agentPreview ? (
-					<>
-						<strong>{agentPreview.summary.title}</strong>
-						<p>{agentPreview.summary.body}</p>
-						<div className="project-metric-grid compact">
-							<Metric
-								label="Query Kind"
-								value={agentModeToQueryKind[agentMode]}
-							/>
-							<Metric label="Items" value={agentPreview.results.length} />
-							<Metric
-								label="Source Refs"
-								value={agentPreview.refs.sourceRefs.length}
-							/>
-						</div>
-						<div className="agent-result-list">
-							{agentPreview.results.map((item) => (
-								<article key={item.id}>
-									<strong>{item.title}</strong>
-									<p>{item.kind} · candidate only</p>
-									<small>
-										{[
-											...item.findingIds,
-											...item.evidenceRefs,
-											...item.fileRefs,
-										].join(" · ") || "No related refs"}
-									</small>
-								</article>
-							))}
-						</div>
-						<div className="project-chip-cloud">
-							{agentPreview.refs.sourceRefs.map((ref) => (
-								<span className="project-chip" key={ref}>
-									{ref}
-								</span>
-							))}
-						</div>
-						<DegradedReasons reasons={agentPreview.degradedReasons} />
-					</>
-				) : (
-					<p>Select a mode and preview the read-only agent bundle.</p>
-				)}
-			</div>
-		</section>
-	);
-}
-
-function SourceHealthSection({
-	project,
-	exportPayload,
-	view,
-}: {
-	project: ProjectIntelligenceProject;
-	exportPayload: StaticIntelligenceExportV1;
-	view: ProjectIntelligenceView;
-}) {
-	const commands =
-		view.manifest?.availableBundles.map((bundle) => ({
-			kind: bundle.kind,
-			command: formatCommandTokens(bundle.command),
-		})) ?? [];
-	return (
-		<section className="projects-band">
-			<div className="projects-section-head">
-				<div>
-					<h2>Source Health</h2>
-					<p>
-						projectId {project.id} / scanRunId {exportPayload.scan.id}
-					</p>
-				</div>
-			</div>
-			{view.generation ? (
-				<div className="project-metric-grid compact">
-					<Metric label="Status" value={view.generation.status} />
-					<Metric label="Generation" value={view.generation.generationId} />
-					<Metric
-						label="Generated"
-						value={formatDateTime(view.generation.generatedAt)}
-					/>
-					<Metric
-						label="Source Tree"
-						value={view.generation.sourceTreeHash.slice(0, 16)}
-					/>
-					<Metric
-						label="Source State"
-						value={view.generation.sourceStateHash.slice(0, 16)}
-					/>
-					<Metric
-						label="Snapshot"
-						value={view.generation.snapshotRef ?? "missing"}
-					/>
-					<Metric
-						label="Export"
-						value={view.generation.exportHash.slice(0, 16)}
-					/>
-					<Metric label="Schema" value="static-intelligence-export-v1" />
-					<Metric
-						label="Semantic Index"
-						value={view.readiness.semanticIndex.status}
-					/>
-					<Metric
-						label="Manifest Schema"
-						value={view.manifest ? "validated" : "missing"}
-					/>
-					<Metric
-						label="Manifest"
-						value={view.manifest?.source.contentHash.slice(0, 16) ?? "missing"}
-					/>
-				</div>
-			) : null}
-			<div className="command-list">
-				{commands.map(({ kind, command }) => (
-					<button
-						type="button"
-						key={kind}
-						onClick={() => void navigator.clipboard?.writeText(command)}
-					>
-						<Copy className="icon" />
-						<code>
-							{kind}: {command}
-						</code>
-					</button>
-				))}
-			</div>
-		</section>
-	);
-}
-
-function ScanRunList({
-	projectId,
-	scanRuns,
-}: {
-	projectId: string;
-	scanRuns: ScanRun[];
-}) {
-	if (scanRuns.length === 0) {
-		return (
-			<div className="projects-empty compact">
-				No scan runs for this project.
-			</div>
-		);
-	}
-	return (
-		<div className="scan-run-strip">
-			{scanRuns.slice(0, 8).map((run) => (
-				<Link
-					to="/projects/$projectId/intelligence"
-					search={{ scanRunId: run.id }}
-					params={{ projectId }}
-					key={run.id}
-					className="scan-run-chip"
-				>
-					<span>{run.profile}</span>
-					<strong>{formatScanOutcome(run.status)}</strong>
-					<small>{formatDateTime(run.createdAt)}</small>
-				</Link>
-			))}
-		</div>
-	);
-}
-
-function SummaryTile({
-	icon,
-	label,
-	value,
-}: {
-	icon: ReactNode;
-	label: string;
-	value: string | number;
-}) {
-	return (
-		<div className="project-summary-tile">
-			{icon}
-			<span>{label}</span>
-			<strong>{value}</strong>
-		</div>
-	);
-}
-
-function Metric({ label, value }: { label: string; value: string | number }) {
-	return (
-		<div className="project-metric">
-			<span>{label}</span>
-			<strong>{value}</strong>
-		</div>
-	);
-}
-
-function StatusBadge({ status }: { status: string }) {
-	return <span className={`project-status status-${status}`}>{status}</span>;
-}
-
-function DegradedReasons({ reasons }: { reasons: string[] }) {
-	if (reasons.length === 0) return null;
-	return (
-		<div className="project-degraded">
-			<AlertTriangle className="icon" />
-			<div>
-				<strong>Degraded reasons</strong>
-				<ul>
-					{reasons.map((reason) => (
-						<li key={reason}>{reason}</li>
-					))}
-				</ul>
-			</div>
-		</div>
-	);
-}
+import {
+	AgentBundleSection,
+	CodeStructureSection,
+	DegradedReasons,
+	EvidenceGraphSection,
+	Metric,
+	RiskDetail,
+	ScanRunList,
+	SourceHealthSection,
+	StatusBadge,
+	SummaryTile,
+} from "./project-detail-sections";
 
 function useProjectRouteState(): ProjectRouteState {
 	const location = useRouterState({ select: (state) => state.location });

@@ -1,6 +1,10 @@
 import { z } from "zod";
 
 import { APP_CONFIG_DEFAULTS } from "../config/appDefaults";
+import {
+	fetchWithOutboundPolicy,
+	type OutboundUrlPolicy,
+} from "../security/outbound-url-policy";
 import { AzureChatResponseSchema, type ChatMessage } from "../types/llm";
 
 import type {
@@ -16,6 +20,8 @@ export interface AzureOpenAiConfig {
 	deployment: string;
 	embeddingsDeployment?: string;
 	apiVersion?: string;
+	fetchImpl?: typeof fetch;
+	outboundPolicy?: OutboundUrlPolicy;
 }
 
 /**
@@ -29,6 +35,8 @@ export class AzureOpenAiProvider implements LlmProvider, EmbeddingProvider {
 	private readonly deployment: string;
 	private readonly embeddingsDeployment: string;
 	private readonly apiVersion: string;
+	private readonly fetchImpl?: typeof fetch;
+	private readonly outboundPolicy?: OutboundUrlPolicy;
 
 	constructor(config: AzureOpenAiConfig) {
 		this.endpoint = config.endpoint.replace(/\/+$/, "");
@@ -38,6 +46,8 @@ export class AzureOpenAiProvider implements LlmProvider, EmbeddingProvider {
 			config.embeddingsDeployment ?? config.deployment;
 		this.apiVersion =
 			config.apiVersion ?? APP_CONFIG_DEFAULTS.azureOpenAiApiVersion;
+		this.fetchImpl = config.fetchImpl;
+		this.outboundPolicy = config.outboundPolicy;
 	}
 
 	/**
@@ -64,6 +74,14 @@ export class AzureOpenAiProvider implements LlmProvider, EmbeddingProvider {
 				env.AZURE_OPENAI_EMBEDDINGS_DEPLOYMENT ||
 				APP_CONFIG_DEFAULTS.azureOpenAiEmbeddingsDeployment,
 			apiVersion: APP_CONFIG_DEFAULTS.azureOpenAiApiVersion,
+			outboundPolicy: {
+				kind: "azure",
+				nodeEnv:
+					env.NODE_ENV === "development" || env.NODE_ENV === "test"
+						? env.NODE_ENV
+						: "production",
+				allowedHosts: [new URL(endpoint).hostname],
+			},
 		});
 	}
 
@@ -88,8 +106,9 @@ export class AzureOpenAiProvider implements LlmProvider, EmbeddingProvider {
 		});
 
 		if (!response.ok) {
-			const message = await response.text();
-			throw new Error(`Azure OpenAI error (${response.status}): ${message}`);
+			throw new Error(
+				`Azure OpenAI error (${response.status}): ${response.statusText || "request failed"}`,
+			);
 		}
 
 		const data = AzureChatResponseSchema.parse(await response.json());
@@ -121,9 +140,8 @@ export class AzureOpenAiProvider implements LlmProvider, EmbeddingProvider {
 		});
 
 		if (!response.ok) {
-			const message = await response.text();
 			throw new Error(
-				`Azure OpenAI Embedding error (${response.status}): ${message}`,
+				`Azure OpenAI Embedding error (${response.status}): ${response.statusText || "request failed"}`,
 			);
 		}
 
@@ -159,10 +177,15 @@ export class AzureOpenAiProvider implements LlmProvider, EmbeddingProvider {
 			);
 
 			try {
-				const response = await fetch(url, {
-					...init,
-					signal: controller.signal,
-				});
+				const requestInit = { ...init, signal: controller.signal };
+				const response = this.outboundPolicy
+					? await fetchWithOutboundPolicy({
+							url,
+							init: requestInit,
+							policy: this.outboundPolicy,
+							fetchImpl: this.fetchImpl,
+						})
+					: await (this.fetchImpl ?? fetch)(url, requestInit);
 
 				if (response.ok) {
 					clearTimeout(timeout);

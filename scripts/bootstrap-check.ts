@@ -4,6 +4,7 @@ import path from "node:path";
 import { readAppEnv } from "../api/app/env";
 import { createDbConnection } from "../api/db";
 import { resolveScanExecutionPolicy } from "../api/modules/scans/scan-execution-policy";
+import { canonicalizeProjectAllowedRoots } from "../api/security/project-path-policy";
 
 type CheckResult = {
 	label: string;
@@ -155,6 +156,26 @@ async function main() {
 	}
 
 	if (env) {
+		try {
+			const roots = await canonicalizeProjectAllowedRoots(
+				env.projectAllowedRoots ?? [],
+			);
+			const hasRequiredRoots = env.nodeEnv !== "production" || roots.length > 0;
+			results.push({
+				label: "Web project path policy",
+				status: hasRequiredRoots ? "ok" : "fail",
+				message: hasRequiredRoots
+					? `${roots.length} canonical allowed root(s)`
+					: "PROJECT_ALLOWED_ROOTS must contain at least one valid directory in production.",
+			});
+		} catch (error) {
+			results.push({
+				label: "Web project path policy",
+				status: "fail",
+				message: error instanceof Error ? error.message : String(error),
+			});
+		}
+
 		try {
 			const policy = resolveScanExecutionPolicy({ env, surface: "cli" });
 			const dockerAvailable =

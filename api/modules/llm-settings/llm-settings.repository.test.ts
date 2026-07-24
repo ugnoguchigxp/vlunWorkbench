@@ -3,8 +3,10 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { AppEnv } from "../../app/env";
 import { createDbConnection, type DbConnection } from "../../db";
+import { llmProviderEndpoints } from "../../db/schema";
 import { LlmSettingsRepository } from "./llm-settings.repository";
 import { SECRET_MASK } from "./secret-mask";
+import { Buffer } from "node:buffer";
 
 function migrate(connection: DbConnection): void {
 	const migrationsDir = path.resolve(process.cwd(), "drizzle");
@@ -50,6 +52,8 @@ function appEnv(overrides: Partial<AppEnv> = {}): AppEnv {
 		secureCookie: false,
 		cookieSameSite: "lax",
 		securityHeadersMode: "auto",
+		llmSettingsEncryptionKey: Buffer.alloc(32, 7).toString("base64"),
+		llmSettingsPreviousEncryptionKeys: [],
 		...overrides,
 	};
 }
@@ -122,6 +126,10 @@ describe("LlmSettingsRepository", () => {
 
 		const masked = await repo.getSettings({ maskSecrets: true, seedFromEnv: false });
 		expect(masked.providerEndpoints[0].apiKey).toBe(SECRET_MASK);
+		const stored = await connection.db.query.llmProviderEndpoints.findFirst();
+		expect(stored?.apiKey).toBeNull();
+		expect(stored?.apiKeyCiphertext).toBeTruthy();
+		expect(stored?.apiKeyCiphertext).not.toContain("stored-secret");
 
 		await repo.updateSettings({
 			providerEndpoints: [
@@ -136,6 +144,30 @@ describe("LlmSettingsRepository", () => {
 		const raw = await repo.getSettings({ maskSecrets: false, seedFromEnv: false });
 		expect(raw.providerEndpoints[0].apiKey).toBe("stored-secret");
 		expect(raw.providerEndpoints[0].name).toBe("OpenAI Updated");
+	});
+
+	it("fails closed on legacy plaintext secrets in production", async () => {
+		await connection.db.insert(llmProviderEndpoints).values({
+			id: "legacy-openai",
+			name: "Legacy OpenAI",
+			kind: "openai",
+			enabled: true,
+			apiKey: "legacy-plaintext-secret",
+			baseUrl: "https://api.openai.com/v1",
+			models: ["gpt-4.1-mini"],
+			modelDisplayNames: {},
+			modelCapabilities: {},
+			createdAt: new Date(),
+			updatedAt: new Date(),
+		});
+		const repo = new LlmSettingsRepository(
+			connection.db,
+			appEnv({ nodeEnv: "production" }),
+		);
+
+		await expect(
+			repo.getSettings({ maskSecrets: false, seedFromEnv: false }),
+		).rejects.toThrow("requires explicit migration");
 	});
 
 	it("rejects unknown provider kinds and missing route models", async () => {

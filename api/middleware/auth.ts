@@ -59,3 +59,18 @@ export const requireAdmin = () =>
 		}
 		await next();
 	});
+
+export const requireAdminForMutation = () =>
+	createMiddleware(async (c, next) => {
+		if (c.req.method === "GET" || c.req.method === "HEAD") {
+			await next();
+			return;
+		}
+		const authUser = c.get("authUser") as
+			| { userId: string; email: string; role: "admin" | "member" }
+			| undefined;
+		if (authUser?.role !== "admin") {
+			throw new HttpError(403, "Forbidden");
+		}
+		await next();
+	});

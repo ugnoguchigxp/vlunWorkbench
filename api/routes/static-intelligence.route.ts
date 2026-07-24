@@ -3,14 +3,8 @@ import { Hono } from "hono";
 import { z } from "zod";
 import type { AppDatabase } from "../db";
 import { buildStaticIntelligenceGeneration } from "../modules/static-intelligence/build-service";
-import { codeStructureFileTagSchema } from "../../shared/schemas/static-intelligence-code-structure.schema";
 import { projectStructureInventoryKindSchema } from "../../shared/schemas/project-structure.schema";
 import { buildStaticIntelligenceModuleCandidates } from "../modules/static-intelligence/module-candidates";
-import {
-	projectStructureRolloutMode,
-	shouldPreferProjectStructureV2,
-} from "../modules/static-intelligence/project-structure/rollout";
-import { toProjectRelativePath } from "../modules/static-intelligence/path-boundary";
 import {
 	StaticIntelligenceReadModelResolver,
 	StaticIntelligenceSelectionNotFoundError,
@@ -34,22 +28,6 @@ type StaticIntelligenceRouteDeps = {
 
 const viewQuerySchema = z.object({
 	scanRunId: z.string().trim().min(1).optional(),
-});
-
-const structureQuerySchema = z.object({
-	scanRunId: z.string().trim().min(1),
-	generationId: z.string().uuid().optional(),
-	query: z.string().trim().optional(),
-	tag: codeStructureFileTagSchema.optional(),
-	status: z.enum(["parsed", "degraded", "skipped"]).optional(),
-	cursor: z.coerce.number().int().nonnegative().default(0),
-	limit: z.coerce.number().int().min(1).max(500).default(100),
-});
-
-const structureFileQuerySchema = z.object({
-	scanRunId: z.string().trim().min(1),
-	generationId: z.string().uuid().optional(),
-	path: z.string().trim().min(1),
 });
 
 const projectStructureQuerySchema = z.object({
@@ -148,82 +126,6 @@ export function createStaticIntelligenceRoute(
 			},
 		)
 		.get(
-			"/projects/:projectId/intelligence/structure",
-			zValidator("query", structureQuerySchema),
-			async (c) => {
-				const authUser = getAuthContextUser(c);
-				const project = await assertProjectOwner(
-					c.req.param("projectId"),
-					authUser.userId,
-				);
-				const query = c.req.valid("query");
-				const scan = await deps.scanRepository.findById(query.scanRunId);
-				if (!scan || scan.projectId !== project.id)
-					throw new HttpError(404, "Scan run not found");
-				const generation = await resolver.resolveGeneration(
-					scan.id,
-					query.generationId,
-				);
-				if (!generation) {
-					return c.json({
-						status: "missing",
-						items: [],
-						modules: [],
-						nextCursor: null,
-					});
-				}
-				const risks = new Map(
-					generation.export.payload.fileRiskIndex.map((entry) => [
-						entry.path,
-						entry,
-					]),
-				);
-				const filtered = generation.structure.snapshot.files.filter((file) => {
-					if (
-						query.query &&
-						!file.path.toLowerCase().includes(query.query.toLowerCase())
-					)
-						return false;
-					if (query.tag && !file.tags.includes(query.tag)) return false;
-					if (query.status && file.parseStatus !== query.status) return false;
-					return true;
-				});
-				const items = filtered
-					.slice(query.cursor, query.cursor + query.limit)
-					.map((file) => ({
-						path: file.path,
-						language: file.language,
-						moduleKind: file.moduleKind,
-						tags: file.tags,
-						parseStatus: file.parseStatus,
-						importCount: file.imports.length,
-						exportCount: file.exportedSymbols.length,
-						packageCount: file.packageImports.length,
-						risk: risks.get(file.path) ?? null,
-					}));
-				const readiness = await resolver.resolveReadiness(project, generation);
-				return c.json({
-					status: readiness.codeStructure.status,
-					generationId: generation.generationId,
-					items,
-					modules: buildStaticIntelligenceModuleCandidates({
-						snapshot: generation.structure.snapshot,
-						exportPayload: generation.export.payload,
-						projectStructureSnapshot: shouldPreferProjectStructureV2(
-							projectStructureRolloutMode(),
-						)
-							? generation.projectStructure?.snapshot
-							: undefined,
-					}),
-					nextCursor:
-						query.cursor + items.length < filtered.length
-							? query.cursor + items.length
-							: null,
-					total: filtered.length,
-				});
-			},
-		)
-		.get(
 			"/projects/:projectId/intelligence/project-structure",
 			zValidator("query", projectStructureQuerySchema),
 			async (c) => {
@@ -240,7 +142,7 @@ export function createStaticIntelligenceRoute(
 					scan.id,
 					query.generationId,
 				);
-				const snapshot = generation?.projectStructure?.snapshot;
+				const snapshot = generation?.projectStructure.snapshot;
 				if (!generation || !snapshot) {
 					return c.json({
 						status: "missing",
@@ -257,7 +159,11 @@ export function createStaticIntelligenceRoute(
 						coverage: snapshot.inventory.coverage,
 						readiness: snapshot.readiness,
 						diagnostics: snapshot.diagnostics,
-						modules: snapshot.modules,
+						modules: buildStaticIntelligenceModuleCandidates({
+							snapshot: generation.structure.snapshot,
+							projectStructureSnapshot: snapshot,
+							exportPayload: generation.export.payload,
+						}),
 					});
 				}
 				const normalizedQuery = query.query?.toLowerCase();
@@ -288,58 +194,55 @@ export function createStaticIntelligenceRoute(
 								if (query.status && item.status !== query.status) return false;
 								return true;
 							});
-				const items = filtered.slice(query.cursor, query.cursor + query.limit);
+				const page = filtered.slice(query.cursor, query.cursor + query.limit);
+				const risks = new Map(
+					generation.export.payload.fileRiskIndex.map((entry) => [
+						entry.path,
+						entry,
+					]),
+				);
+				const items =
+					query.view === "files"
+						? page.map((item) => {
+								const file = item as (typeof snapshot.files)[number];
+								const references = snapshot.references.filter(
+									(reference) => reference.from === file.path,
+								);
+								return {
+									path: file.path,
+									language: file.language,
+									moduleKind: file.moduleKind,
+									tags: file.tags,
+									analysisStatus: file.status,
+									referenceCount: references.length,
+									exportCount: file.exportedSymbols.length,
+									externalDependencyCount: references.filter(
+										(reference) =>
+											reference.kind === "external_package" ||
+											reference.kind === "runtime_builtin",
+									).length,
+									risk: risks.get(file.path) ?? null,
+								};
+							})
+						: page;
 				return c.json({
 					status: snapshot.readiness.analysis.status,
 					generationId: generation.generationId,
 					items,
+					summary: snapshot.summary,
+					coverage: snapshot.inventory.coverage,
+					readiness: snapshot.readiness,
+					diagnostics: snapshot.diagnostics,
+					modules: buildStaticIntelligenceModuleCandidates({
+						snapshot: generation.structure.snapshot,
+						projectStructureSnapshot: snapshot,
+						exportPayload: generation.export.payload,
+					}),
 					nextCursor:
 						query.cursor + items.length < filtered.length
 							? query.cursor + items.length
 							: null,
 					total: filtered.length,
-				});
-			},
-		)
-		.get(
-			"/projects/:projectId/intelligence/structure/file",
-			zValidator("query", structureFileQuerySchema),
-			async (c) => {
-				const authUser = getAuthContextUser(c);
-				const project = await assertProjectOwner(
-					c.req.param("projectId"),
-					authUser.userId,
-				);
-				const query = c.req.valid("query");
-				const scan = await deps.scanRepository.findById(query.scanRunId);
-				if (!scan || scan.projectId !== project.id)
-					throw new HttpError(404, "Scan run not found");
-				const relative = toProjectRelativePath(project.repoPath, query.path);
-				if (!relative.ok) throw new HttpError(404, "Structure file not found");
-				const generation = await resolver.resolveGeneration(
-					scan.id,
-					query.generationId,
-				);
-				const file = generation?.structure.snapshot.files.find(
-					(item) => item.path === relative.path,
-				);
-				if (!generation || !file)
-					throw new HttpError(404, "Structure file not found");
-				const importedBy = generation.structure.snapshot.edges
-					.filter((edge) => edge.kind === "imports" && edge.to === file.path)
-					.map((edge) => edge.from)
-					.sort();
-				return c.json({
-					generationId: generation.generationId,
-					file: {
-						...file,
-						contentHash: undefined,
-						importedBy,
-						risk:
-							generation.export.payload.fileRiskIndex.find(
-								(entry) => entry.path === file.path,
-							) ?? null,
-					},
 				});
 			},
 		)
@@ -439,31 +342,7 @@ export function createStaticIntelligenceRoute(
 				});
 				return c.json({ result });
 			},
-		)
-		.get("/scans/:scanRunId/intelligence/code-structure", async (c) => {
-			const authUser = getAuthContextUser(c);
-			const scanRunId = c.req.param("scanRunId");
-			await assertScanOwner(scanRunId, authUser.userId);
-			const persisted = await resolver.resolveGeneration(
-				scanRunId,
-				c.req.query("generationId"),
-			);
-			if (persisted) {
-				return c.json({
-					scanRunId,
-					generationId: persisted.generationId,
-					status: persisted.status,
-					snapshot: persisted.structure.snapshot,
-					degradedReasons: persisted.structure.metadata.degradedReasons,
-				});
-			}
-			return c.json({
-				scanRunId,
-				status: "missing",
-				snapshot: null,
-				degradedReasons: ["generation_missing"],
-			});
-		});
+		);
 }
 
 function agentInputForMode(

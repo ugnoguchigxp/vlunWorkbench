@@ -1,0 +1,139 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-07-24T02:08:18Z",
+  "sourceCommit": "f681bb616fe1f1d022f87c3b8f6ea2393b2bf0b4",
+  "scope": "phase-46-release-readiness-worktree",
+  "workingTreeNote": "This report applies to the current worktree. The implementation has not been committed.",
+  "releaseDecision": {
+    "status": "ready",
+    "releaseBlockers": 0,
+    "reviewFindings": {
+      "p0": 0,
+      "p1": 0,
+      "p2": 1
+    }
+  },
+  "verification": {
+    "verify": {
+      "status": "pass",
+      "checks": [
+        "sqlite-write-boundary",
+        "typecheck",
+        "lint",
+        "format",
+        "test",
+        "build",
+        "bundle-budget",
+        "dependency-audit",
+        "artifact-tracking"
+      ]
+    },
+    "coverage": {
+      "status": "pass",
+      "statementsPercent": 91.9,
+      "branchesPercent": 81.15,
+      "functionsPercent": 91.26,
+      "linesPercent": 93.97,
+      "criticalModules": {
+        "authPercent": 100,
+        "rateLimiterPercent": 78.888,
+        "outboundPolicyPercent": 99.459,
+        "projectPathPolicyPercent": 100,
+        "secretEncryptionPercent": 100
+      }
+    },
+    "testInventory": {
+      "status": "pass",
+      "totalFiles": 156,
+      "vitestFiles": 20,
+      "bunFiles": 136,
+      "duplicates": 0,
+      "strategy": "automatic-discovery-exactly-once"
+    },
+    "browserE2e": {
+      "status": "pass",
+      "tests": 3,
+      "includesAccessibilityScan": true,
+      "includesContentSecurityPolicyCheck": true
+    },
+    "dependencyAudit": {
+      "status": "pass",
+      "highOrCritical": 0
+    },
+    "secretHistoryScan": {
+      "status": "pass",
+      "findings": 0
+    },
+    "backupRestoreRehearsal": {
+      "status": "pass",
+      "migrationsAppliedAndChecksummed": 15,
+      "integrityCheck": "ok"
+    }
+  },
+  "frontendBundle": {
+    "status": "pass",
+    "initialJavaScriptGzipBytes": 21124,
+    "initialCssGzipBytes": 27557,
+    "largestJavaScriptChunk": {
+      "file": "dist-pjxedaFS.js",
+      "bytes": 800711
+    },
+    "enforcedLargestChunkBudgetBytes": 820000,
+    "targetLargestChunkBytes": 500000,
+    "targetMet": false
+  },
+  "containerImages": {
+    "toolbox": {
+      "digest": "sha256:ffee4146a2969bf3775579fa03a05f83487787df9c01d051b11f8dd3d9bd70c2",
+      "sbomComponents": 1277,
+      "gatedHighOrCritical": 0,
+      "unfixedHighOrCritical": 76,
+      "acceptedRiskExceptions": 4
+    },
+    "dynamic": {
+      "digest": "sha256:020a5bd32fc313bbd586d2033f5d37d06f136c5c423d0ab31e4351e8d40ed4e3",
+      "sbomComponents": 364,
+      "gatedHighOrCritical": 0,
+      "unfixedHighOrCritical": 222,
+      "acceptedRiskExceptions": 0
+    },
+    "gatePolicy": {
+      "severity": [
+        "HIGH",
+        "CRITICAL"
+      ],
+      "ignoreUnfixed": true,
+      "exceptionFile": ".trivyignore.yaml",
+      "exceptionExpiry": "2026-10-24"
+    },
+    "offlineRuntimeSmoke": {
+      "status": "pass",
+      "network": "none",
+      "toolboxTools": [
+        "semgrep",
+        "gitleaks",
+        "osv-scanner",
+        "trivy",
+        "nuclei",
+        "schemathesis"
+      ],
+      "dynamicRuntimes": [
+        "node",
+        "npm",
+        "bun",
+        "python3",
+        "pytest",
+        "go",
+        "rustc"
+      ]
+    }
+  },
+  "repository": {
+    "trackedArtifactFiles": 0,
+    "stagedArtifactDeletions": 739
+  },
+  "redaction": {
+    "containsSecrets": false,
+    "containsAbsoluteUserPaths": false
+  }
+}

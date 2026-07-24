@@ -189,7 +189,7 @@ describe("Static Intelligence knowledge source manifest", () => {
 
 		expect(manifest.availableBundles.map((bundle) => bundle.kind)).toEqual([
 			"static_intelligence_export",
-			"code_structure_snapshot",
+			"project_structure_snapshot",
 			"agent_query",
 			"evidence_bundle",
 			"verification_commands",
@@ -204,16 +204,14 @@ describe("Static Intelligence knowledge source manifest", () => {
 			"scan-1",
 		]);
 		expect(manifest.availableBundles[1]).toMatchObject({
-			kind: "code_structure_snapshot",
+			kind: "project_structure_snapshot",
 			command: [
 				"bun",
 				"run",
-				"intelligence:code-structure",
+				"intelligence:project-structure",
 				"--",
 				"--project-path",
 				"<project-path>",
-				"--project-id",
-				"project-1",
 			],
 			requires: { projectPath: true },
 		});

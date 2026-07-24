@@ -1,35 +1,28 @@
 import { and, desc, eq } from "drizzle-orm";
-import { ZodError, type z } from "zod";
+import { ZodError, z } from "zod";
+import type {
+	ProjectStructureSnapshotFailure,
+	ProjectStructureSnapshotResult,
+} from "../../../shared/schemas/project-structure.schema";
+import { projectStructureSnapshotFailureSchema } from "../../../shared/schemas/project-structure.schema";
 import type {
 	StaticIntelligenceAgentQueryFailure,
 	StaticIntelligenceAgentQueryResult,
 } from "../../../shared/schemas/static-intelligence-agent-query.schema";
 import { staticIntelligenceAgentQueryResultSchema } from "../../../shared/schemas/static-intelligence-agent-query.schema";
 import type {
-	CodeStructureSnapshotFailure,
-	CodeStructureSnapshotResult,
-} from "../../../shared/schemas/static-intelligence-code-structure.schema";
-import {
-	codeStructureSnapshotFailureSchema,
-	codeStructureSnapshotResultSchema,
-} from "../../../shared/schemas/static-intelligence-code-structure.schema";
-import type {
-	ProjectStructureSnapshotFailure,
-	ProjectStructureSnapshotResult,
-} from "../../../shared/schemas/project-structure.schema";
-import {
-	projectStructureSnapshotFailureSchema,
-	projectStructureSnapshotResultSchema,
-} from "../../../shared/schemas/project-structure.schema";
-import type {
 	ProjectExplorationCatalogFailure,
 	ProjectExplorationCatalogResult,
 } from "../../../shared/schemas/static-intelligence-exploration-catalog.schema";
+import { projectExplorationCatalogInputSchema as generationProjectExplorationCatalogInputSchema } from "../../../shared/schemas/static-intelligence-exploration-catalog.schema";
 import type {
 	StaticIntelligenceGuardrailMaterialFailure,
 	StaticIntelligenceGuardrailMaterialResult,
 } from "../../../shared/schemas/static-intelligence-guardrail-material.schema";
-import { staticIntelligenceGuardrailMaterialResultSchema } from "../../../shared/schemas/static-intelligence-guardrail-material.schema";
+import {
+	staticIntelligenceGuardrailMaterialResultSchema,
+	staticIntelligenceGuardrailMaterialTypeSchema,
+} from "../../../shared/schemas/static-intelligence-guardrail-material.schema";
 import type {
 	StaticIntelligenceKnowledgeSourceManifestFailure,
 	StaticIntelligenceKnowledgeSourceManifestResult,
@@ -51,23 +44,14 @@ import { StaticIntelligenceGenerationRepository } from "./generation-repository"
 import { buildStaticIntelligenceGuardrailMaterial } from "./guardrail-material";
 import { buildStaticIntelligenceKnowledgeSourceManifest } from "./knowledge-source-manifest";
 import {
-	getCodeStructureSnapshotInputSchema,
-	getProjectStructureSnapshotInputSchema,
 	getEvidenceBundleInputSchema,
 	getGuardrailMaterialInputSchema,
 	getKnowledgeSourceManifestInputSchema,
 	getProjectIntelligenceStatusInputSchema,
+	getProjectStructureSnapshotInputSchema,
 	getVerificationCommandsInputSchema,
 	type ListKnowledgeSourcesInput,
-	legacyGetCodeStructureSnapshotInputSchema,
-	legacyGetProjectStructureSnapshotInputSchema,
-	legacyGetEvidenceBundleInputSchema,
-	legacyGetGuardrailMaterialInputSchema,
-	legacyGetKnowledgeSourceManifestInputSchema,
-	legacyGetVerificationCommandsInputSchema,
-	legacyProjectExplorationCatalogInputSchema,
 	listKnowledgeSourcesInputSchema,
-	pathFirstProjectExplorationCatalogInputSchema,
 	prepareProjectIntelligenceInputSchema,
 	projectExplorationCatalogInputSchema,
 	type StaticIntelligenceKnowledgeSourceListResult,
@@ -89,8 +73,6 @@ import { StaticIntelligenceReadModelResolver } from "./read-model-resolver";
 export type StaticIntelligenceMcpToolResult =
 	| StaticIntelligenceKnowledgeSourceListResult
 	| StaticIntelligenceMcpToolFailure
-	| CodeStructureSnapshotResult
-	| CodeStructureSnapshotFailure
 	| ProjectStructureSnapshotResult
 	| ProjectStructureSnapshotFailure
 	| StaticIntelligenceKnowledgeSourceManifestResult
@@ -119,6 +101,28 @@ type ProjectStructureMcpSuccess = {
 	nextCursor?: number | null;
 	total?: number;
 };
+
+const generationInputSchema = z
+	.object({
+		scanRunId: z.string().trim().min(1),
+		generationId: z.string().uuid().optional(),
+	})
+	.strict();
+const generationGuardrailInputSchema = generationInputSchema.extend({
+	type: staticIntelligenceGuardrailMaterialTypeSchema.optional(),
+	includeMarkdown: z.boolean().optional(),
+});
+const generationEvidenceInputSchema = generationInputSchema.extend({
+	findingId: z.string().trim().min(1),
+});
+const generationVerificationInputSchema = generationInputSchema.extend({
+	findingId: z.string().trim().min(1).optional(),
+});
+const generationProjectStructureInputSchema = generationInputSchema.extend({
+	view: z.enum(["summary", "files", "references"]).default("summary"),
+	cursor: z.number().int().nonnegative().default(0),
+	limit: z.number().int().min(1).max(200).default(100),
+});
 
 export type StaticIntelligenceMcpToolHandler = (params: {
 	db: AppDatabase;
@@ -248,7 +252,7 @@ export async function getProjectExplorationCatalogTool(params: {
 }): Promise<
 	ProjectExplorationCatalogResult | ProjectExplorationCatalogFailure
 > {
-	const parsed = legacyProjectExplorationCatalogInputSchema.safeParse(
+	const parsed = generationProjectExplorationCatalogInputSchema.safeParse(
 		params.input,
 	);
 	if (!parsed.success) {
@@ -314,10 +318,7 @@ export async function getStaticIntelligenceKnowledgeSourceManifestTool(params: {
 	| StaticIntelligenceKnowledgeSourceManifestResult
 	| StaticIntelligenceKnowledgeSourceManifestFailure
 > {
-	const parsed = parseToolInput(
-		legacyGetKnowledgeSourceManifestInputSchema,
-		params.input,
-	);
+	const parsed = parseToolInput(generationInputSchema, params.input);
 	if (!parsed.ok) return parsed.failure;
 
 	try {
@@ -352,10 +353,7 @@ export async function getStaticIntelligenceGuardrailMaterialTool(params: {
 	| StaticIntelligenceGuardrailMaterialResult
 	| StaticIntelligenceGuardrailMaterialFailure
 > {
-	const parsed = parseToolInput(
-		legacyGetGuardrailMaterialInputSchema,
-		params.input,
-	);
+	const parsed = parseToolInput(generationGuardrailInputSchema, params.input);
 	if (!parsed.ok) return parsed.failure;
 
 	try {
@@ -389,10 +387,7 @@ export async function getStaticIntelligenceEvidenceBundleTool(params: {
 }): Promise<
 	StaticIntelligenceAgentQueryResult | StaticIntelligenceAgentQueryFailure
 > {
-	const parsed = parseToolInput(
-		legacyGetEvidenceBundleInputSchema,
-		params.input,
-	);
+	const parsed = parseToolInput(generationEvidenceInputSchema, params.input);
 	if (!parsed.ok) return parsed.failure;
 
 	return runAgentQueryTool(params.db, parsed.input, {
@@ -407,7 +402,7 @@ export async function getStaticIntelligenceVerificationCommandsTool(params: {
 	StaticIntelligenceAgentQueryResult | StaticIntelligenceAgentQueryFailure
 > {
 	const parsed = parseToolInput(
-		legacyGetVerificationCommandsInputSchema,
+		generationVerificationInputSchema,
 		params.input,
 	);
 	if (!parsed.ok) return parsed.failure;
@@ -417,48 +412,12 @@ export async function getStaticIntelligenceVerificationCommandsTool(params: {
 	});
 }
 
-export async function getStaticIntelligenceCodeStructureSnapshotTool(params: {
-	db: AppDatabase;
-	input: unknown;
-}): Promise<CodeStructureSnapshotResult | CodeStructureSnapshotFailure> {
-	const parsed = parseToolInput(
-		legacyGetCodeStructureSnapshotInputSchema,
-		params.input,
-	);
-	if (!parsed.ok) return parsed.failure;
-
-	try {
-		const generation = await requirePersistedGeneration(
-			params.db,
-			parsed.input.scanRunId,
-			parsed.input.generationId,
-		);
-		const snapshot = generation.structure.snapshot;
-		return codeStructureSnapshotResultSchema.parse({
-			ok: true,
-			status: "completed",
-			version: "v1",
-			generatedAt: snapshot.generatedAt,
-			snapshot,
-			generation: {
-				generationId: generation.generationId,
-				snapshotRef: generation.structure.metadata.snapshotRef,
-				sourceTreeHash: generation.structure.metadata.sourceTreeHash,
-			},
-		});
-	} catch {
-		return codeStructureFailure(
-			"Persisted code structure generation unavailable.",
-		);
-	}
-}
-
 export async function getStaticIntelligenceProjectStructureSnapshotTool(params: {
 	db: AppDatabase;
 	input: unknown;
 }): Promise<ProjectStructureMcpSuccess | ProjectStructureSnapshotFailure> {
 	const parsed = parseToolInput(
-		legacyGetProjectStructureSnapshotInputSchema,
+		generationProjectStructureInputSchema,
 		params.input,
 	);
 	if (!parsed.ok) {
@@ -474,13 +433,6 @@ export async function getStaticIntelligenceProjectStructureSnapshotTool(params: 
 			parsed.input.scanRunId,
 			parsed.input.generationId,
 		);
-		if (!generation.projectStructure) {
-			return projectStructureSnapshotFailureSchema.parse({
-				ok: false,
-				status: "failed",
-				message: "Persisted project structure v2 is unavailable for this generation.",
-			});
-		}
 		const snapshot = generation.projectStructure.snapshot;
 		const view = parsed.input.view;
 		const cursor = parsed.input.cursor;
@@ -510,7 +462,8 @@ export async function getStaticIntelligenceProjectStructureSnapshotTool(params: 
 			view,
 			generation: { generationId: generation.generationId },
 			items,
-			nextCursor: cursor + items.length < source.length ? cursor + items.length : null,
+			nextCursor:
+				cursor + items.length < source.length ? cursor + items.length : null,
 			total: source.length,
 		};
 	} catch {
@@ -555,62 +508,25 @@ export async function getProjectIntelligenceStatusTool(params: {
 	});
 }
 
-async function getCodeStructureSnapshotFacade(
-	params: Parameters<StaticIntelligenceMcpToolHandler>[0],
-): Promise<StaticIntelligenceMcpToolResult> {
-	if (!hasProjectPath(params.input)) {
-		return await getStaticIntelligenceCodeStructureSnapshotTool(params);
-	}
-	const parsed = getCodeStructureSnapshotInputSchema.safeParse(params.input);
-	if (!parsed.success || !("projectPath" in parsed.data)) {
-		return pathInputFailure(parsed.success ? undefined : parsed.error);
-	}
-	const context = await resolvePathReadContext(
-		params.db,
-		parsed.data.projectPath,
-		params.allowedProjectRoots ?? [],
-	);
-	if (!context.ok) return context.failure;
-	const result = await getStaticIntelligenceCodeStructureSnapshotTool({
-		db: params.db,
-		input: {
-			scanRunId: context.generation.scanRunId,
-			generationId: context.generation.generationId,
-		},
-	});
-	return withPathMetadata(result, context);
-}
-
 async function getProjectStructureSnapshotFacade(
 	params: Parameters<StaticIntelligenceMcpToolHandler>[0],
 ): Promise<StaticIntelligenceMcpToolResult> {
-	if (!hasProjectPath(params.input)) {
-		return await getStaticIntelligenceProjectStructureSnapshotTool(params);
-	}
 	const parsed = getProjectStructureSnapshotInputSchema.safeParse(params.input);
-	if (!parsed.success || !("projectPath" in parsed.data)) {
-		return pathInputFailure(parsed.success ? undefined : parsed.error);
-	}
+	if (!parsed.success) return pathInputFailure(parsed.error);
 	const context = await resolvePathReadContext(
 		params.db,
 		parsed.data.projectPath,
 		params.allowedProjectRoots ?? [],
 	);
 	if (!context.ok) return context.failure;
-	const pathInput = parsed.data as {
-		projectPath: string;
-		view: "summary" | "files" | "references";
-		cursor: number;
-		limit: number;
-	};
 	const result = await getStaticIntelligenceProjectStructureSnapshotTool({
 		db: params.db,
 		input: {
 			scanRunId: context.generation.scanRunId,
 			generationId: context.generation.generationId,
-			view: pathInput.view,
-			cursor: pathInput.cursor,
-			limit: pathInput.limit,
+			view: parsed.data.view,
+			cursor: parsed.data.cursor,
+			limit: parsed.data.limit,
 		},
 	});
 	return withPathMetadata(result, context);
@@ -619,12 +535,7 @@ async function getProjectStructureSnapshotFacade(
 async function getExplorationCatalogFacade(
 	params: Parameters<StaticIntelligenceMcpToolHandler>[0],
 ): Promise<StaticIntelligenceMcpToolResult> {
-	if (!hasProjectPath(params.input)) {
-		return await getProjectExplorationCatalogTool(params);
-	}
-	const parsed = pathFirstProjectExplorationCatalogInputSchema.safeParse(
-		params.input,
-	);
+	const parsed = projectExplorationCatalogInputSchema.safeParse(params.input);
 	if (!parsed.success) return pathInputFailure(parsed.error);
 	const context = await resolvePathReadContext(
 		params.db,
@@ -672,13 +583,8 @@ async function getExplorationCatalogFacade(
 async function getManifestFacade(
 	params: Parameters<StaticIntelligenceMcpToolHandler>[0],
 ): Promise<StaticIntelligenceMcpToolResult> {
-	if (!hasProjectPath(params.input)) {
-		return await getStaticIntelligenceKnowledgeSourceManifestTool(params);
-	}
 	const parsed = getKnowledgeSourceManifestInputSchema.safeParse(params.input);
-	if (!parsed.success || !("projectPath" in parsed.data)) {
-		return pathInputFailure(parsed.success ? undefined : parsed.error);
-	}
+	if (!parsed.success) return pathInputFailure(parsed.error);
 	const context = await resolvePathReadContext(
 		params.db,
 		parsed.data.projectPath,
@@ -698,13 +604,8 @@ async function getManifestFacade(
 async function getGuardrailFacade(
 	params: Parameters<StaticIntelligenceMcpToolHandler>[0],
 ): Promise<StaticIntelligenceMcpToolResult> {
-	if (!hasProjectPath(params.input)) {
-		return await getStaticIntelligenceGuardrailMaterialTool(params);
-	}
 	const parsed = getGuardrailMaterialInputSchema.safeParse(params.input);
-	if (!parsed.success || !("projectPath" in parsed.data)) {
-		return pathInputFailure(parsed.success ? undefined : parsed.error);
-	}
+	if (!parsed.success) return pathInputFailure(parsed.error);
 	const context = await resolvePathReadContext(
 		params.db,
 		parsed.data.projectPath,
@@ -726,13 +627,8 @@ async function getGuardrailFacade(
 async function getEvidenceFacade(
 	params: Parameters<StaticIntelligenceMcpToolHandler>[0],
 ): Promise<StaticIntelligenceMcpToolResult> {
-	if (!hasProjectPath(params.input)) {
-		return await getStaticIntelligenceEvidenceBundleTool(params);
-	}
 	const parsed = getEvidenceBundleInputSchema.safeParse(params.input);
-	if (!parsed.success || !("projectPath" in parsed.data)) {
-		return pathInputFailure(parsed.success ? undefined : parsed.error);
-	}
+	if (!parsed.success) return pathInputFailure(parsed.error);
 	const context = await resolvePathReadContext(
 		params.db,
 		parsed.data.projectPath,
@@ -763,13 +659,8 @@ async function getEvidenceFacade(
 async function getVerificationFacade(
 	params: Parameters<StaticIntelligenceMcpToolHandler>[0],
 ): Promise<StaticIntelligenceMcpToolResult> {
-	if (!hasProjectPath(params.input)) {
-		return await getStaticIntelligenceVerificationCommandsTool(params);
-	}
 	const parsed = getVerificationCommandsInputSchema.safeParse(params.input);
-	if (!parsed.success || !("projectPath" in parsed.data)) {
-		return pathInputFailure(parsed.success ? undefined : parsed.error);
-	}
+	if (!parsed.success) return pathInputFailure(parsed.error);
 	const context = await resolvePathReadContext(
 		params.db,
 		parsed.data.projectPath,
@@ -864,14 +755,6 @@ export const staticIntelligenceMcpToolRegistry: StaticIntelligenceMcpToolDefinit
 			handler: getVerificationFacade,
 		},
 		{
-			name: "vuln_get_code_structure_snapshot",
-			description:
-				"Read-only fetch for a persisted redacted code structure snapshot by an allowlisted projectPath or legacy generation identity. It never starts a scan or generation build.",
-			inputSchema: getCodeStructureSnapshotInputSchema,
-			readOnlyHint: true,
-			handler: getCodeStructureSnapshotFacade,
-		},
-		{
 			name: "vuln_get_project_structure_snapshot",
 			description:
 				"Read-only fetch for the persisted Project Structure Scanner v2 snapshot. It includes safe inventory coverage and typed references, and never starts a scan or generation build.",
@@ -882,7 +765,7 @@ export const staticIntelligenceMcpToolRegistry: StaticIntelligenceMcpToolDefinit
 		{
 			name: "vuln_get_project_exploration_catalog",
 			description:
-				"Read-only bounded exploration clues for the latest projectPath generation or one legacy pinned generation. Returns ranked project-relative candidates without source bodies, command execution, or mutation.",
+				"Read-only bounded exploration clues for the latest projectPath generation. Returns ranked project-relative candidates without source bodies, command execution, or mutation.",
 			inputSchema: projectExplorationCatalogInputSchema,
 			readOnlyHint: true,
 			handler: getExplorationCatalogFacade,
@@ -1157,14 +1040,6 @@ function pathInputFailure(error?: ZodError): Record<string, unknown> {
 	};
 }
 
-function hasProjectPath(input: unknown): input is { projectPath: unknown } {
-	return (
-		typeof input === "object" &&
-		input !== null &&
-		Object.hasOwn(input, "projectPath")
-	);
-}
-
 function projectFilter(input: ListKnowledgeSourcesInput) {
 	return input.projectId
 		? and(eq(scanRuns.projectId, input.projectId))
@@ -1306,14 +1181,6 @@ function message(error: unknown): string {
 		return error.message;
 	}
 	return error instanceof Error ? error.message : String(error);
-}
-
-function codeStructureFailure(message: string): CodeStructureSnapshotFailure {
-	return codeStructureSnapshotFailureSchema.parse({
-		ok: false,
-		status: "failed",
-		message,
-	});
 }
 
 function sortedUnique(values: string[]): string[] {

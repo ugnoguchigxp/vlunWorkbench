@@ -31,7 +31,7 @@ const REQUIRED_MCP_TOOLS = [
 	"vuln_get_guardrail_material",
 	"vuln_get_evidence_bundle",
 	"vuln_get_verification_commands",
-	"vuln_get_code_structure_snapshot",
+	"vuln_get_project_structure_snapshot",
 ] as const;
 
 type FixtureCheck = {
@@ -451,36 +451,27 @@ async function runFixture(params: {
 	});
 
 	log("running Static Intelligence CLI chain");
-	const codeStructureSnapshotPath = path.join(
-		paths.tempRoot,
-		"code-structure-snapshot.json",
-	);
-	const firstCodeStructure = runCommand(
-		"intelligence:code-structure first",
+	const firstProjectStructure = runCommand(
+		"intelligence:project-structure first",
 		[
 			"run",
-			"intelligence:code-structure",
+			"intelligence:project-structure",
 			"--",
 			"--project-path",
 			paths.repoPath,
 		],
 		env,
 	);
-	const secondCodeStructure = runCommand(
-		"intelligence:code-structure second",
+	const secondProjectStructure = runCommand(
+		"intelligence:project-structure second",
 		[
 			"run",
-			"intelligence:code-structure",
+			"intelligence:project-structure",
 			"--",
 			"--project-path",
 			paths.repoPath,
 		],
 		env,
-	);
-	await fs.writeFile(
-		codeStructureSnapshotPath,
-		JSON.stringify(firstCodeStructure.payload.snapshot),
-		"utf8",
 	);
 	const generationBuild = runCommand(
 		"intelligence:build",
@@ -498,19 +489,6 @@ async function runFixture(params: {
 	const exportResult = runCommand(
 		"intelligence:export",
 		["run", "intelligence:export", "--", "--scan-run-id", scanRunId],
-		env,
-	);
-	const codeStructureExport = runCommand(
-		"intelligence:export with code structure",
-		[
-			"run",
-			"intelligence:export",
-			"--",
-			"--scan-run-id",
-			scanRunId,
-			"--code-structure-snapshot",
-			codeStructureSnapshotPath,
-		],
 		env,
 	);
 	const projectOverview = runCommand(
@@ -617,11 +595,10 @@ async function runFixture(params: {
 		2,
 	);
 	const commandResults = [
-		firstCodeStructure,
-		secondCodeStructure,
+		firstProjectStructure,
+		secondProjectStructure,
 		exportResult,
 		generationBuild,
-		codeStructureExport,
 		projectOverview,
 		evidenceBundle,
 		verificationCommands,
@@ -690,24 +667,27 @@ async function runFixture(params: {
 	});
 	await assertCheck(
 		checks,
-		"code structure snapshot is redacted and stable",
+		"project structure snapshot is redacted and stable",
 		() => {
 			const firstSnapshot = objectRecord(
-				firstCodeStructure.payload.snapshot,
-				"first code structure snapshot",
+				firstProjectStructure.payload.snapshot,
+				"first project structure snapshot",
 			);
 			const secondSnapshot = objectRecord(
-				secondCodeStructure.payload.snapshot,
-				"second code structure snapshot",
+				secondProjectStructure.payload.snapshot,
+				"second project structure snapshot",
 			);
 			if (
-				objectRecord(firstSnapshot.project, "code structure project").rootPath
+				objectRecord(firstSnapshot.project, "project structure project")
+					.rootPath
 			) {
-				throw new Error("code structure snapshot included rootPath by default");
+				throw new Error(
+					"project structure snapshot included rootPath by default",
+				);
 			}
 			if (String(firstSnapshot.status) !== "completed") {
 				throw new Error(
-					"code structure snapshot did not complete for fixture repo",
+					"project structure snapshot did not complete for fixture repo",
 				);
 			}
 			const normalizedFirst = normalizeGeneratedAt(firstSnapshot);
@@ -715,13 +695,13 @@ async function runFixture(params: {
 			if (
 				JSON.stringify(normalizedFirst) !== JSON.stringify(normalizedSecond)
 			) {
-				throw new Error("code structure snapshot changed across repeated runs");
+				throw new Error(
+					"project structure snapshot changed across repeated runs",
+				);
 			}
 			const enrichedExport = objectRecord(
-				objectRecord(
-					codeStructureExport.payload.export,
-					"code structure export",
-				).codeStructure,
+				objectRecord(exportResult.payload.export, "static intelligence export")
+					.codeStructure,
 				"code structure enrichment",
 			);
 			if (enrichedExport.status !== "available") {
@@ -765,22 +745,21 @@ async function runFixture(params: {
 				);
 			}
 		}
-		const codeStructureBundle = manifest.availableBundles.find(
-			(bundle) => bundle.kind === "code_structure_snapshot",
+		const projectStructureBundle = manifest.availableBundles.find(
+			(bundle) => bundle.kind === "project_structure_snapshot",
 		);
-		if (!codeStructureBundle) {
-			throw new Error("manifest is missing code_structure_snapshot bundle");
+		if (!projectStructureBundle) {
+			throw new Error("manifest is missing project_structure_snapshot bundle");
 		}
-		if (
-			!codeStructureBundle.command.includes(manifest.source.scanRunId) ||
-			!codeStructureBundle.command.includes(manifest.generation.generationId)
-		) {
+		if (!projectStructureBundle.command.includes("<project-path>")) {
 			throw new Error(
-				"code structure bundle command is not pinned to the source generation",
+				"project structure bundle command does not require projectPath",
 			);
 		}
-		if (codeStructureBundle.command.includes(paths.repoPath)) {
-			throw new Error("code structure bundle command leaked fixture repo path");
+		if (projectStructureBundle.command.includes(paths.repoPath)) {
+			throw new Error(
+				"project structure bundle command leaked fixture repo path",
+			);
 		}
 	});
 	await assertCheck(checks, "guardrail material provenance is complete", () => {
@@ -887,8 +866,8 @@ async function runFixture(params: {
 			codeStructureSnapshotRef: String(
 				objectRecord(
 					objectRecord(
-						codeStructureExport.payload.export,
-						"code structure export",
+						exportResult.payload.export,
+						"static intelligence export",
 					).codeStructure,
 					"code structure enrichment",
 				).snapshotRef,

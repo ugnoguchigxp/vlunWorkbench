@@ -182,6 +182,7 @@ Common environment variables:
 | `SCAN_EXECUTION_MODE` | Central scanner runner policy: `host` or `docker`. Development defaults to host; production defaults to Docker. |
 | `ALLOW_HOST_SCANNER_EXECUTION` | Explicitly permits host scanner execution. Production defaults to `false`. |
 | `SCAN_DOCKER_IMAGE` | Toolbox image used by the Docker scanner policy. |
+| `PROJECT_ALLOWED_ROOTS` | Comma-separated roots available to Web/API project registration and scans. Development defaults to the current working directory; production is fail-closed when unset. |
 
 LLM API keys stay on the host side. Scanner containers and target projects should not receive LLM credentials.
 
@@ -353,8 +354,7 @@ bun run intelligence:build -- \
 
 The Project Intelligence view can refresh this derived generation for the
 selected scan. Refresh does not run scanners, reviews, verification commands,
-reports, context registration, or task creation. Existing export and
-code-structure commands below remain low-level compatibility paths.
+reports, context registration, or task creation.
 
 Export scanner-backed evidence and file risk:
 
@@ -362,21 +362,12 @@ Export scanner-backed evidence and file risk:
 bun run intelligence:export -- --scan-run-id <scan-run-id>
 ```
 
-Extract a redacted code structure snapshot:
+Extract the current Project Structure snapshot:
 
 ```bash
-bun run intelligence:code-structure -- \
+bun run intelligence:project-structure -- \
   --project-path <project-path> \
-  --project-id <project-id> \
-  --output code-structure.json
-```
-
-Attach that snapshot to an export. The export verifies the snapshot belongs to the scan project before including it.
-
-```bash
-bun run intelligence:export -- \
-  --scan-run-id <scan-run-id> \
-  --code-structure-snapshot code-structure.json
+  --output project-structure.json
 ```
 
 Use agent-facing query bundles:
@@ -443,12 +434,12 @@ All remaining tools are read-only queries:
 - `vuln_get_guardrail_material`
 - `vuln_get_evidence_bundle`
 - `vuln_get_verification_commands`
-- `vuln_get_code_structure_snapshot`
+- `vuln_get_project_structure_snapshot`
 - `vuln_get_project_exploration_catalog`
 
-Path-first queries start from a strict canonical `{ projectPath }` input; symlink aliases are rejected. A current-source read selects the exact generation recorded by the ready prepare job, while an older latest generation is exposed only as `stale`. When no generation exists the query returns `not_prepared` and the next action without creating projects, scans, jobs, or generations. Legacy ID inputs remain supported for compatibility, but NightWorkers does not send internal IDs. NightWorkers may use the returned project-relative clues in a separate Git worktree only after verifying that the registered root and worktree are clean at the same `HEAD`; MCP requests always keep the registered canonical `projectPath`. Finding reads use `projectPath + findingFingerprint`; duplicate fingerprints return `AMBIGUOUS_FINDING`.
+Path-first queries require a strict canonical `{ projectPath }` input; symlink aliases and internal ID selectors are rejected. A current-source read selects the exact generation recorded by the ready prepare job, while an older latest generation is exposed only as `stale`. When no generation exists the query returns `not_prepared` and the next action without creating projects, scans, jobs, or generations. NightWorkers may use the returned project-relative clues in a separate Git worktree only after verifying that the registered root and worktree are clean at the same `HEAD`; MCP requests always keep the registered canonical `projectPath`. Finding reads use `projectPath + findingFingerprint`; duplicate fingerprints return `AMBIGUOUS_FINDING`.
 
-The path-first catalog accepts optional `focus.paths`, `focus.modules`, and `focus.terms`. The legacy exact-generation input and required focus remain available. Both variants return deterministic bounded candidates without source bodies. See the [NightWorkers path-first MCP handoff](docs/nightworkers-static-intelligence-mcp.md) for rollout and acceptance requirements.
+The catalog accepts optional `focus.paths`, `focus.modules`, and `focus.terms` and returns deterministic bounded candidates without source bodies. See the [NightWorkers path-first MCP handoff](docs/nightworkers-static-intelligence-mcp.md) for operational requirements.
 
 ## API Surface
 
@@ -609,21 +600,16 @@ git ls-files artifacts
 git diff --cached --name-only -- artifacts
 ```
 
-## Planning Documents
+## Concept and Active Planning Documents
 
-The most relevant current plans are:
+Product boundaries and active, incomplete plans are:
 
 - `spec/vuln-workbench-concept.md`
-- `spec/phase-21-llm-handoff-primary-workflow-plan.md`
-- `spec/phase-22-report-readiness-and-export-quality-plan.md`
-- `spec/phase-23-decision-grade-signal-accuracy-plan.md`
-- `spec/phase-24-maintainability-and-operational-readiness-plan.md`
-- `spec/phase-25-unified-scan-profile-dast-plan.md`
 - `spec/static-intelligence-layer-concept.md`
 - `spec/contextstill-static-intelligence-bridge-concept.md`
-- `spec/phase-32-static-intelligence-agent-query-plan.md`
-- `spec/phase-36-static-intelligence-readonly-mcp-wrapper-plan.md`
-- `spec/phase-37-static-intelligence-knowledge-source-e2e-fixture-plan.md`
-- `spec/phase-38-static-intelligence-code-structure-layer-mvp-plan.md`
+- `spec/project-scan-exploration-reduction-mcp-concept.md`
+- `spec/phase-42-project-scan-exploration-catalog-mcp-plan.md`
+- `spec/static-intelligence-coding-agent-consumer-companion-plan.md`
+- `spec/phase-46-security-release-readiness-plan.md`
 
-Older phase documents remain useful history, but the current product direction is LLM implementation handoff plus Static Intelligence source bundles from saved diagnostic evidence.
+Completed implementation plans are removed from the working tree and remain available in Git history.

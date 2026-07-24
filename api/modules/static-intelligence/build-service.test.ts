@@ -100,7 +100,7 @@ describe("Static Intelligence build service", () => {
 			"resolve_references",
 			"infer_modules",
 			"build_v2_snapshot",
-			"project_v1_compatibility",
+			"project_export_projection",
 			"normalize_paths",
 			"build_export",
 			"persist_generation",

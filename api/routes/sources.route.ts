@@ -1,6 +1,7 @@
 import { zValidator } from "@hono/zod-validator";
 import { Hono } from "hono";
 import { z } from "zod";
+import { requireAdminForMutation } from "../middleware/auth";
 import {
 	categoryFromPageRelativePath,
 	DEFAULT_WIKI_CATEGORY,
@@ -173,6 +174,7 @@ export function createSourcesRoute(deps: SourcesRouteDeps) {
 	};
 
 	return new Hono()
+		.use("*", requireAdminForMutation())
 		.get("/health", async (c) => {
 			await ensureSourceRuntime();
 			const git = await getGitSummary(deps.contentRoot);

@@ -123,7 +123,9 @@ describe("Dynamic Runner", () => {
 	});
 
 	it("should run dynamic verification successfully and collect stdout/stderr", async () => {
+		let dockerArgs: string[] = [];
 		vi.spyOn(Bun, "spawn").mockImplementation((args: any) => {
+			dockerArgs = args;
 			return {
 				exited: Promise.resolve(0),
 				stdout: streamText("test suite passed"),
@@ -142,6 +144,9 @@ describe("Dynamic Runner", () => {
 		expect(result.status).toBe("completed");
 		expect(result.outcome).toBe("passed");
 		expect(result.artifactIds).toHaveLength(2); // stdout, stderr
+		expect(dockerArgs).toContain(
+			"PATH=/usr/local/cargo/bin:/usr/local/go/bin:/usr/local/bin:/usr/bin:/bin",
+		);
 
 		// Verify DB Run state
 		const dbRun = await repo.getRun(result.dynamicRunId!);

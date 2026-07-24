@@ -75,7 +75,6 @@ export function buildStaticIntelligenceKnowledgeSourceManifest(
 			},
 			availableBundles: buildAvailableBundles(
 				scanRunId,
-				exportPayload.project.id,
 				options.generation?.generationId,
 			),
 			...(options.generation
@@ -189,11 +188,7 @@ function uniqueSorted(values: string[]): string[] {
 	return [...new Set(values)].sort((a, b) => a.localeCompare(b));
 }
 
-function buildAvailableBundles(
-	scanRunId: string,
-	projectId: string,
-	generationId?: string,
-) {
+function buildAvailableBundles(scanRunId: string, generationId?: string) {
 	const generationArgs = generationId ? ["--generation-id", generationId] : [];
 	return [
 		{
@@ -210,20 +205,18 @@ function buildAvailableBundles(
 			description: "Fetch the full Static Intelligence export payload.",
 		},
 		{
-			kind: "code_structure_snapshot" as const,
+			kind: "project_structure_snapshot" as const,
 			command: [
 				"bun",
 				"run",
-				"intelligence:code-structure",
+				"intelligence:project-structure",
 				"--",
-				...(generationId
-					? ["--scan-run-id", scanRunId, ...generationArgs]
-					: ["--project-path", "<project-path>", "--project-id", projectId]),
+				"--project-path",
+				"<project-path>",
 			],
-			description: generationId
-				? "Fetch the persisted redacted code structure snapshot for this generation."
-				: "Extract a redacted lightweight code structure snapshot for the project.",
-			...(generationId ? {} : { requires: { projectPath: true } }),
+			description:
+				"Extract the current redacted Project Structure snapshot for the project.",
+			requires: { projectPath: true },
 		},
 		{
 			kind: "agent_query" as const,

@@ -2,6 +2,7 @@ import path from "node:path";
 import { Hono } from "hono";
 import { runReproductionRequestSchema } from "../../shared/schemas/reproduction.schema";
 import type { AppDatabase } from "../db";
+import type { AppEnv } from "../app/env";
 import { getAuthContextUser } from "../modules/auth/context";
 import { HttpError } from "../modules/auth/errors";
 import {
@@ -14,17 +15,33 @@ import type {
 	FindingRepository,
 	ProjectRepository,
 } from "../modules/scans/repositories";
+import { authorizeProjectPath } from "../security/project-path-policy";
 
 type ReproductionsRouteDeps = {
 	db: AppDatabase;
 	findingRepository: FindingRepository;
 	projectRepository: ProjectRepository;
+	env?: AppEnv;
 };
 
 export function createReproductionsRoute(deps: ReproductionsRouteDeps) {
 	const { db, findingRepository, projectRepository } = deps;
 	const repo = new ReproductionRepository(db);
 	const route = new Hono();
+	const assertExecutionPath = async (repoPath: string) => {
+		if (!deps.env) return;
+		try {
+			await authorizeProjectPath({
+				projectPath: repoPath,
+				allowedRoots: deps.env.projectAllowedRoots ?? [],
+			});
+		} catch {
+			throw new HttpError(
+				403,
+				"Project path is not authorized for Web execution.",
+			);
+		}
+	};
 
 	// Finding-specific reproduction profiles
 	route.get("/findings/:findingId/reproduction-profiles", async (c) => {
@@ -40,7 +57,6 @@ export function createReproductionsRoute(deps: ReproductionsRouteDeps) {
 		if (!project || project.ownerUserId !== authUser.userId) {
 			throw new HttpError(403, "Forbidden");
 		}
-
 		const allProfiles = listReproductionProfiles();
 		const resolvedProfiles = allProfiles.map((p) => {
 			const appCheck = p.isApplicable({ finding });
@@ -92,8 +108,9 @@ export function createReproductionsRoute(deps: ReproductionsRouteDeps) {
 		if (!project || project.ownerUserId !== authUser.userId) {
 			throw new HttpError(403, "Forbidden");
 		}
+		await assertExecutionPath(project.repoPath);
 
-		let body: any;
+		let body: unknown;
 		try {
 			body = await c.req.json();
 		} catch {

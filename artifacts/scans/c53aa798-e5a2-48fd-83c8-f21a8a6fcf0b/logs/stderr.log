@@ -1,5 +1,0 @@
-Warning: --output has been deprecated in favor of --output-file
-Scanning dir /Users/y.noguchi/Code/todolist
-Starting filesystem walk for root: /
-Scanned /Users/y.noguchi/Code/todolist/bun.lock file and found 189 packages
-End status: 111 dirs visited, 298 inodes visited, 1 Extract calls, 16.896542ms elapsed, 16.897ms wall time

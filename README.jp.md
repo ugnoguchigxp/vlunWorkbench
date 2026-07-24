@@ -182,6 +182,7 @@ bun run api/cli/llm-route-repair.ts -- \
 | `SCAN_EXECUTION_MODE` | scanner runner の一元ポリシー。`host` または `docker`。development は host、production は Docker が既定。 |
 | `ALLOW_HOST_SCANNER_EXECUTION` | host scanner 実行を明示的に許可する。production の既定は `false`。 |
 | `SCAN_DOCKER_IMAGE` | Docker scanner policy が使う toolbox image。 |
+| `PROJECT_ALLOWED_ROOTS` | Web/APIから登録・scanできるproject rootのカンマ区切り一覧。developmentの未設定時はcurrent working directory、productionの未設定時はfail-closed。 |
 
 LLM API key は host 側に置きます。scanner container や scan 対象 project に LLM credential を渡してはいけません。
 
@@ -345,7 +346,7 @@ bun run intelligence:build -- \
   --pretty true
 ```
 
-Project Intelligence の Refresh Analysis は selected scan の derived generation だけを更新します。scanner、review、verification command、report、context registration、task creation は実行しません。以下の export / code-structure command は low-level compatibility path として残ります。
+Project Intelligence の Refresh Analysis は selected scan の derived generation だけを更新します。scanner、review、verification command、report、context registration、task creation は実行しません。
 
 scanner-backed evidence と file risk を export します。
 
@@ -353,21 +354,12 @@ scanner-backed evidence と file risk を export します。
 bun run intelligence:export -- --scan-run-id <scan-run-id>
 ```
 
-redacted code structure snapshot を抽出します。
+現行の Project Structure snapshot を抽出します。
 
 ```bash
-bun run intelligence:code-structure -- \
+bun run intelligence:project-structure -- \
   --project-path <project-path> \
-  --project-id <project-id> \
-  --output code-structure.json
-```
-
-snapshot を export に付与します。export は、snapshot が scan project に属していることを検証してから含めます。
-
-```bash
-bun run intelligence:export -- \
-  --scan-run-id <scan-run-id> \
-  --code-structure-snapshot code-structure.json
+  --output project-structure.json
 ```
 
 agent-facing query bundle を取得します。
@@ -433,12 +425,12 @@ bun run mcp:static-intelligence -- --smoke
 - `vuln_get_guardrail_material`
 - `vuln_get_evidence_bundle`
 - `vuln_get_verification_commands`
-- `vuln_get_code_structure_snapshot`
+- `vuln_get_project_structure_snapshot`
 - `vuln_get_project_exploration_catalog`
 
-path-first Queryはcanonicalな `{ projectPath }` をstrictに要求し、symlink aliasを拒否します。current sourceのreadではready prepare jobに記録されたexact generationを選択し、過去のlatest generationは`stale`としてのみ公開します。未準備なら `not_prepared` と次のActionを返し、Query自身はproject、scan、prepare job、generationを作りません。manifest、guardrail、evidence、verification、snapshot、catalogのlegacy ID入力は互換性のため維持しますが、NightWorkersは内部IDを送信しません。finding指定は `projectPath + findingFingerprint` を使用し、曖昧なfingerprintは `AMBIGUOUS_FINDING` になります。raw artifact body / evidence snippetは公開しません。
+path-first Queryはcanonicalな `{ projectPath }` をstrictに要求し、symlink aliasと内部ID selectorを拒否します。current sourceのreadではready prepare jobに記録されたexact generationを選択し、過去のlatest generationは`stale`としてのみ公開します。未準備なら `not_prepared` と次のActionを返し、Query自身はproject、scan、prepare job、generationを作りません。finding指定は `projectPath + findingFingerprint` を使用し、曖昧なfingerprintは `AMBIGUOUS_FINDING` になります。raw artifact body / evidence snippetは公開しません。
 
-`vuln_get_project_exploration_catalog` のpath-first入力では `focus.paths`、`focus.modules`、`focus.terms` は任意です。legacy入力のexact `scanRunId` / `generationId` pinと必須focusも引き続き利用できます。どちらもdeterministicかつboundedなcandidateだけを返し、source bodyを公開しません。運用とNightWorkers側の受け入れ条件は [NightWorkers path-first MCP handoff](docs/nightworkers-static-intelligence-mcp.md) を参照してください。
+`vuln_get_project_exploration_catalog` の `focus.paths`、`focus.modules`、`focus.terms` は任意です。deterministicかつboundedなcandidateだけを返し、source bodyを公開しません。運用とNightWorkers側の受け入れ条件は [NightWorkers path-first MCP handoff](docs/nightworkers-static-intelligence-mcp.md) を参照してください。
 
 ## API Surface
 
@@ -599,21 +591,16 @@ git ls-files artifacts
 git diff --cached --name-only -- artifacts
 ```
 
-## Planning Documents
+## Concept と進行中の計画書
 
-現在特に重要な計画書:
+プロダクト境界と、未完了の計画書:
 
 - `spec/vuln-workbench-concept.md`
-- `spec/phase-21-llm-handoff-primary-workflow-plan.md`
-- `spec/phase-22-report-readiness-and-export-quality-plan.md`
-- `spec/phase-23-decision-grade-signal-accuracy-plan.md`
-- `spec/phase-24-maintainability-and-operational-readiness-plan.md`
-- `spec/phase-25-unified-scan-profile-dast-plan.md`
 - `spec/static-intelligence-layer-concept.md`
 - `spec/contextstill-static-intelligence-bridge-concept.md`
-- `spec/phase-32-static-intelligence-agent-query-plan.md`
-- `spec/phase-36-static-intelligence-readonly-mcp-wrapper-plan.md`
-- `spec/phase-37-static-intelligence-knowledge-source-e2e-fixture-plan.md`
-- `spec/phase-38-static-intelligence-code-structure-layer-mvp-plan.md`
+- `spec/project-scan-exploration-reduction-mcp-concept.md`
+- `spec/phase-42-project-scan-exploration-catalog-mcp-plan.md`
+- `spec/static-intelligence-coding-agent-consumer-companion-plan.md`
+- `spec/phase-46-security-release-readiness-plan.md`
 
-古い phase document も履歴として有用ですが、現在の product direction は保存済み診断証跡から LLM implementation handoff と Static Intelligence source bundle を作ることです。
+実装済みの計画書は working tree から削除し、Git history で参照します。

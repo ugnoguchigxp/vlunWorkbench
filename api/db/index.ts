@@ -36,7 +36,7 @@ function isSqliteAlreadyLoadedError(error: unknown): boolean {
 	);
 }
 
-function configureSqliteExtensionLoading(): void {
+export function configureSqliteExtensionLoading(): void {
 	if (globalThis.__vulnWorkbenchCustomSqliteConfigured__) return;
 	const candidates = [
 		process.env.SQLITE_DYLIB_PATH,
@@ -124,6 +124,20 @@ export function writerClientForDatabase(
 	db: AppDatabase,
 ): SqliteWriterClient | undefined {
 	return Reflect.get(db, WRITER_CLIENT) as SqliteWriterClient | undefined;
+}
+
+type DbTransactionCallback = Parameters<AppDatabase["transaction"]>[0];
+
+export function runInProcessDbTransaction(
+	db: AppDatabase,
+	callback: DbTransactionCallback,
+): ReturnType<AppDatabase["transaction"]> {
+	if (writerClientForDatabase(db)) {
+		throw new Error(
+			"File-backed databases must use an atomic Writer batch instead of an in-process transaction.",
+		);
+	}
+	return db.transaction(callback);
 }
 
 export async function connectDb(sqlite: Database) {

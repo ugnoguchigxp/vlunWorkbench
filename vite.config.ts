@@ -23,6 +23,14 @@ export default defineConfig(({ mode }) => {
 		],
 		resolve: {
 			alias: {
+				"@mermaid-js/parser": path.resolve(
+					__dirname,
+					"node_modules/@mermaid-js/parser/dist/mermaid-parser.esm.min.mjs",
+				),
+				mermaid: path.resolve(
+					__dirname,
+					"node_modules/mermaid/dist/mermaid.esm.min.mjs",
+				),
 				"@": path.resolve(__dirname, "./web/src"),
 				"@web": path.resolve(__dirname, "./web/src"),
 				"@api": path.resolve(__dirname, "./api"),
@@ -36,6 +44,27 @@ export default defineConfig(({ mode }) => {
 		build: {
 			outDir: "../dist-web",
 			emptyOutDir: true,
+			rolldownOptions: {
+				output: {
+					manualChunks(id) {
+						const moduleId = id.replaceAll("\\", "/");
+						if (
+							/node_modules\/(?:react|react-dom|scheduler)\//.test(moduleId)
+						) {
+							return "react-runtime";
+						}
+						if (moduleId.includes("/node_modules/@tanstack/react-router/")) {
+							return "tanstack-router";
+						}
+						if (moduleId.includes("/node_modules/@tanstack/react-query/")) {
+							return "tanstack-query";
+						}
+						if (moduleId.includes("/node_modules/@tanstack/react-table/")) {
+							return "tanstack-table";
+						}
+					},
+				},
+			},
 		},
 	};
 });

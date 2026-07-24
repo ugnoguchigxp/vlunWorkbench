@@ -20,6 +20,7 @@ import {
 	normalizeToolExecutionConfig,
 	type ToolRunnerKind,
 } from "../modules/scans/tools/tool-process-runner";
+import { ProjectPathPolicyError } from "../security/project-path-policy";
 
 function writeResult(payload: Record<string, unknown>): void {
 	console.log(JSON.stringify(payload));
@@ -309,6 +310,8 @@ async function main() {
 			executionPolicyMetadata: scanExecutionPolicyMetadata(executionPolicy),
 			imageRef,
 			imageTar,
+			executionSurface,
+			projectAllowedRoots: env.projectAllowedRoots,
 			finalReport: {
 				enabled: finalReportEnabled,
 				title: reportTitle,
@@ -364,7 +367,11 @@ async function main() {
 			process.exit(1);
 		}
 	} catch (err) {
-		if (err instanceof ProjectResolutionError || !startupComplete) {
+		if (
+			err instanceof ProjectResolutionError ||
+			err instanceof ProjectPathPolicyError ||
+			!startupComplete
+		) {
 			const message = err instanceof Error ? err.message : String(err);
 			writeResult({
 				ok: false,
@@ -374,7 +381,9 @@ async function main() {
 					code:
 						err instanceof ProjectResolutionError
 							? err.code
-							: "APP_CONFIG_ERROR",
+							: err instanceof ProjectPathPolicyError
+								? err.code
+								: "APP_CONFIG_ERROR",
 					message,
 				},
 			});

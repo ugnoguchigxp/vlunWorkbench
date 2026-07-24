@@ -11,6 +11,7 @@ import {
 } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createDbConnection, type DbConnection } from "../../db";
+import { createWritableTestDbConnection } from "../../db/testing/connection";
 import { projects, scanRuns, users } from "../../db/schema";
 import { buildStaticIntelligenceGeneration } from "./build-service";
 
@@ -31,9 +32,11 @@ describe("Project exploration catalog CLI and MCP smoke", () => {
 		artifactDir = path.join(tempDir, "artifacts");
 		databaseUrl = `file:${path.join(tempDir, "catalog.sqlite")}`;
 		await writeProjectFixture(projectDir);
+		tempDir = await fs.realpath(tempDir);
+		projectDir = await fs.realpath(projectDir);
 		process.env.SCAN_ARTIFACT_ROOT = artifactDir;
 
-		const connection = createDbConnection(databaseUrl);
+		const connection = createWritableTestDbConnection(databaseUrl);
 		try {
 			applyMigrations(connection);
 			const [user] = await connection.db
@@ -142,6 +145,7 @@ describe("Project exploration catalog CLI and MCP smoke", () => {
 				...getDefaultEnvironment(),
 				DATABASE_URL: databaseUrl,
 				SCAN_ARTIFACT_ROOT: artifactDir,
+				STATIC_INTELLIGENCE_ALLOWED_PROJECT_ROOTS: tempDir,
 			},
 			stderr: "pipe",
 		});
@@ -162,44 +166,30 @@ describe("Project exploration catalog CLI and MCP smoke", () => {
 			const called = await client.callTool({
 				name: "vuln_get_project_exploration_catalog",
 				arguments: {
-					scanRunId,
-					generationId,
+					projectPath: projectDir,
 					focus: { paths: ["api/routes/fizzbuzz.ts"] },
 				},
 			});
 			const payload = JSON.parse(readMcpText(called));
-			const cliResult = runCatalogCli([
-				"--scan-run-id",
-				scanRunId,
-				"--generation-id",
-				generationId,
-				"--path",
-				"api/routes/fizzbuzz.ts",
-			]);
-			expect(cliResult.status).toBe(0);
-			expect(payload).toEqual(JSON.parse(cliResult.stdout));
-			expect(paths(payload.likelyFiles)).toContain("shared/http/http-client.ts");
+			expect(payload).toMatchObject({
+				ok: true,
+				projectPath: projectDir,
+			});
+			expect(paths(payload.likelyFiles)).toContain(
+				"shared/http/http-client.ts",
+			);
 
 			const failedCall = await client.callTool({
 				name: "vuln_get_project_exploration_catalog",
 				arguments: {
-					scanRunId: "missing-scan",
-					generationId,
+					projectPath: path.join(tempDir, "missing-project"),
 					focus: { terms: ["missing"] },
 				},
 			});
-			const failedCli = runCatalogCli([
-				"--scan-run-id",
-				"missing-scan",
-				"--generation-id",
-				generationId,
-				"--term",
-				"missing",
-			]);
-			expect(failedCli.status).toBe(2);
-			expect(JSON.parse(readMcpText(failedCall))).toEqual(
-				JSON.parse(failedCli.stdout),
-			);
+			expect(JSON.parse(readMcpText(failedCall))).toMatchObject({
+				ok: false,
+				status: "failed",
+			});
 		} finally {
 			await client.close();
 		}
@@ -223,6 +213,7 @@ describe("Project exploration catalog CLI and MCP smoke", () => {
 });
 
 async function writeProjectFixture(projectDir: string) {
+	await fs.mkdir(path.join(projectDir, ".git"), { recursive: true });
 	await fs.mkdir(path.join(projectDir, "api", "routes"), { recursive: true });
 	await fs.mkdir(path.join(projectDir, "shared", "http"), { recursive: true });
 	await fs.mkdir(path.join(projectDir, "shared", "schemas"), { recursive: true });

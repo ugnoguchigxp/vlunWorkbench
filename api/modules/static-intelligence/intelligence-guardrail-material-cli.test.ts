@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createDbConnection, type DbConnection } from "../../db";
+import { createWritableTestDbConnection } from "../../db/testing/connection";
 import {
 	findingEvidences,
 	findings,
@@ -33,7 +34,7 @@ describe("Static Intelligence guardrail material CLI", () => {
 			path.join(os.tmpdir(), "guardrail-material-cli-"),
 		);
 		dbUrl = `file:${path.join(tempDir, "test.sqlite")}`;
-		connection = createDbConnection(dbUrl);
+		connection = createWritableTestDbConnection(dbUrl);
 		applyMigrations(connection);
 		scanRunId = await seedScan(connection, tempDir);
 		await buildStaticIntelligenceGeneration({ db: connection.db, scanRunId, artifactStorage: new ArtifactStorage(path.join(tempDir, "artifacts")) });

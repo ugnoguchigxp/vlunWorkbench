@@ -5,6 +5,7 @@ import {
 	saveDynamicProfileRequestSchema,
 } from "../../shared/schemas/dynamic.schema";
 import type { AppDatabase } from "../db";
+import type { AppEnv } from "../app/env";
 import { getAuthContextUser } from "../modules/auth/context";
 import { HttpError } from "../modules/auth/errors";
 import { DynamicArtifactStorage } from "../modules/dynamic/dynamic-artifact-storage";
@@ -14,11 +15,13 @@ import type {
 	FindingRepository,
 	ProjectRepository,
 } from "../modules/scans/repositories";
+import { authorizeProjectPath } from "../security/project-path-policy";
 
 type DynamicRouteDeps = {
 	db: AppDatabase;
 	findingRepository: FindingRepository;
 	projectRepository: ProjectRepository;
+	env?: AppEnv;
 };
 
 type DynamicCliBridgeResult = Record<string, unknown> & {
@@ -31,6 +34,20 @@ export function createDynamicRoute(deps: DynamicRouteDeps) {
 	const { db, findingRepository, projectRepository } = deps;
 	const repo = new DynamicRepository(db);
 	const route = new Hono();
+	const assertExecutionPath = async (repoPath: string) => {
+		if (!deps.env) return;
+		try {
+			await authorizeProjectPath({
+				projectPath: repoPath,
+				allowedRoots: deps.env.projectAllowedRoots ?? [],
+			});
+		} catch {
+			throw new HttpError(
+				403,
+				"Project path is not authorized for Web execution.",
+			);
+		}
+	};
 
 	// --- Profile Configs ---
 
@@ -43,7 +60,6 @@ export function createDynamicRoute(deps: DynamicRouteDeps) {
 		if (!project || project.ownerUserId !== authUser.userId) {
 			throw new HttpError(403, "Forbidden");
 		}
-
 		const configs = await repo.listConfigsForProject(projectId);
 		return c.json({ configs });
 	});
@@ -57,7 +73,6 @@ export function createDynamicRoute(deps: DynamicRouteDeps) {
 		if (!project || project.ownerUserId !== authUser.userId) {
 			throw new HttpError(403, "Forbidden");
 		}
-
 		let body: unknown;
 		try {
 			body = await c.req.json();
@@ -113,7 +128,6 @@ export function createDynamicRoute(deps: DynamicRouteDeps) {
 		if (!project || project.ownerUserId !== authUser.userId) {
 			throw new HttpError(403, "Forbidden");
 		}
-
 		let body: unknown;
 		try {
 			body = await c.req.json();
@@ -181,6 +195,7 @@ export function createDynamicRoute(deps: DynamicRouteDeps) {
 		if (!project || project.ownerUserId !== authUser.userId) {
 			throw new HttpError(403, "Forbidden");
 		}
+		await assertExecutionPath(project.repoPath);
 
 		let body: unknown;
 		try {
@@ -244,6 +259,7 @@ export function createDynamicRoute(deps: DynamicRouteDeps) {
 		if (!project || project.ownerUserId !== authUser.userId) {
 			throw new HttpError(403, "Forbidden");
 		}
+		await assertExecutionPath(project.repoPath);
 
 		let body: unknown;
 		try {

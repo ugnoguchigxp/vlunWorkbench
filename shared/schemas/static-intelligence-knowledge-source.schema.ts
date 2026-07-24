@@ -7,7 +7,7 @@ import { staticIntelligenceReadinessSchema } from "./static-intelligence-module.
 
 export const staticIntelligenceKnowledgeSourceBundleKindSchema = z.enum([
 	"static_intelligence_export",
-	"code_structure_snapshot",
+	"project_structure_snapshot",
 	"agent_query",
 	"evidence_bundle",
 	"verification_commands",

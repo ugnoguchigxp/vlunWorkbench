@@ -13,12 +13,23 @@ import {
 } from "./api";
 import { AppHeader } from "./app-header";
 import { LoginDomainSection } from "./domains/auth/login-domain";
-import {
-	KnowledgeDomainSection,
-	KnowledgeNavigationProvider,
-} from "./domains/knowledge/knowledge-domain";
-import { ProjectsDomainSection } from "./domains/projects/projects-domain";
-import { ScansDomainSection } from "./domains/scans/scans-domain";
+import { KnowledgeNavigationProvider } from "./domains/knowledge/knowledge-navigation";
+
+const KnowledgeDomainSection = lazy(() =>
+	import("./domains/knowledge/knowledge-domain").then((module) => ({
+		default: module.KnowledgeDomainSection,
+	})),
+);
+const ProjectsDomainSection = lazy(() =>
+	import("./domains/projects/projects-domain").then((module) => ({
+		default: module.ProjectsDomainSection,
+	})),
+);
+const ScansDomainSection = lazy(() =>
+	import("./domains/scans/scans-domain").then((module) => ({
+		default: module.ScansDomainSection,
+	})),
+);
 
 const ChatDomainSection = lazy(() =>
 	import("./domains/chat/chat-domain").then((module) => ({
@@ -224,7 +235,6 @@ export function App({ view }: AppProps) {
 				<KnowledgeNavigationProvider
 					onOpenKnowledge={() => void navigate({ to: "/knowledge" })}
 				>
-					<KnowledgeDomainSection active={view === "knowledge"} />
 					<Suspense
 						fallback={
 							<main className="layout columns-1">
@@ -232,6 +242,12 @@ export function App({ view }: AppProps) {
 							</main>
 						}
 					>
+						{view === "knowledge" ? (
+							<KnowledgeDomainSection
+								active
+								isAdmin={authUser.role === "admin"}
+							/>
+						) : null}
 						{view === "chat" ? (
 							<ChatDomainSection
 								active
@@ -249,20 +265,25 @@ export function App({ view }: AppProps) {
 								availableCategories={availableCategories}
 							/>
 						) : null}
-						<ProjectsDomainSection
-							active={view === "projects"}
-							busy={busy}
-							runWithBusy={withBusy}
-							setErrorText={setErrorText}
-						/>
-						<ScansDomainSection
-							active={view === "scans"}
-							busy={busy}
-							runWithBusy={withBusy}
-							setErrorText={setErrorText}
-						/>
+						{view === "projects" ? (
+							<ProjectsDomainSection
+								active
+								busy={busy}
+								runWithBusy={withBusy}
+								setErrorText={setErrorText}
+							/>
+						) : null}
+						{view === "scans" ? (
+							<ScansDomainSection
+								active
+								busy={busy}
+								runWithBusy={withBusy}
+								setErrorText={setErrorText}
+							/>
+						) : null}
 						{view === "settings" ? (
 							<SettingsPanel
+								isAdmin={authUser.role === "admin"}
 								appHealth={appHealth}
 								sourceHealth={sourceHealth}
 								systemContextText={systemContextText}

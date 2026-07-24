@@ -67,8 +67,10 @@ export function ActionQueuePanel() {
 				{filters.map((filter) => (
 					<button
 						type="button"
+						role="tab"
 						key={filter.value}
 						className={c.actionQueueFilter === filter.value ? "active" : ""}
+						aria-selected={c.actionQueueFilter === filter.value}
 						onClick={() => {
 							c.setActionQueueFilter(filter.value);
 							setVisibleCount(8);

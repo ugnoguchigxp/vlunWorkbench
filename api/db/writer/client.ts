@@ -204,6 +204,22 @@ export class SqliteWriterClient {
 		});
 	}
 
+	async createBackup(outputPath: string): Promise<{ outputPath: string }> {
+		return await this.withConnectionState(async () => {
+			await this.ensureStarted();
+			const response = await this.sendRaw({
+				protocolVersion: WRITER_PROTOCOL_VERSION,
+				requestId: randomUUID(),
+				databaseId: this.databaseId,
+				kind: "admin_backup",
+				outputPath,
+			});
+			return decodeWriterValue(response.result ?? null) as {
+				outputPath: string;
+			};
+		});
+	}
+
 	private async withConnectionState<T>(
 		operation: () => Promise<T>,
 	): Promise<T> {

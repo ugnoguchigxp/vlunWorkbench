@@ -302,7 +302,7 @@ describe("projectPath-first Static Intelligence MCP", () => {
 		]);
 
 		const before = tableCounts(connection);
-		const snapshot = await tool("vuln_get_code_structure_snapshot").handler({
+		const snapshot = await tool("vuln_get_project_structure_snapshot").handler({
 			db: connection.db,
 			input: { projectPath: projectDir },
 			allowedProjectRoots: [tempDir],
@@ -357,7 +357,9 @@ describe("projectPath-first Static Intelligence MCP", () => {
 			allowedProjectRoots: [tempDir],
 		});
 		expect(staleStatus).toMatchObject({ ok: true, status: "stale" });
-		const staleSnapshot = await tool("vuln_get_code_structure_snapshot").handler({
+		const staleSnapshot = await tool(
+			"vuln_get_project_structure_snapshot",
+		).handler({
 			db: connection.db,
 			input: { projectPath: projectDir },
 			allowedProjectRoots: [tempDir],
@@ -367,7 +369,9 @@ describe("projectPath-first Static Intelligence MCP", () => {
 			freshness: { status: "stale" },
 		});
 
-		const rejected = await tool("vuln_get_code_structure_snapshot").handler({
+		const rejected = await tool(
+			"vuln_get_project_structure_snapshot",
+		).handler({
 			db: connection.db,
 			input: { projectPath: projectDir, projectId: "internal-id" },
 			allowedProjectRoots: [tempDir],

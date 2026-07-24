@@ -55,6 +55,7 @@ export function ScansToolbar() {
 	);
 	const canStartScan =
 		Boolean(c.selectedProjectId && c.selectedProfileId) &&
+		c.selectedProject?.pathPolicy?.status === "allowed" &&
 		c.timeoutSec > 0 &&
 		!c.isScanning &&
 		!c.scanRuns.some(
@@ -81,9 +82,18 @@ export function ScansToolbar() {
 								{c.projects.map((project) => (
 									<option key={project.id} value={project.id}>
 										{folderNameFromPath(project.repoPath)}
+										{project.pathPolicy?.status === "allowed"
+											? ""
+											: "（実行不可）"}
 									</option>
 								))}
 							</SelectInput>
+							{c.selectedProject &&
+							c.selectedProject.pathPolicy?.status !== "allowed" ? (
+								<small role="alert">
+									保存済みパスが存在しないか、PROJECT_ALLOWED_ROOTSの範囲外です。
+								</small>
+							) : null}
 						</label>
 						<ToolbarIconButton
 							label="新規プロジェクト"

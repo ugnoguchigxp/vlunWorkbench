@@ -91,6 +91,9 @@ const EnvSchema = z.object({
 	AZURE_OPENAI_API_KEY: optionalTrimmedString,
 	AZURE_OPENAI_DEPLOYMENT: optionalTrimmedString,
 	AZURE_OPENAI_EMBEDDINGS_DEPLOYMENT: optionalTrimmedString,
+	LLM_PROVIDER_ALLOWED_HOSTS: optionalTrimmedString,
+	LLM_SETTINGS_ENCRYPTION_KEY: optionalTrimmedString,
+	LLM_SETTINGS_PREVIOUS_ENCRYPTION_KEYS: optionalTrimmedString,
 	APP_URL: optionalUrl,
 	CORS_ORIGINS: optionalTrimmedString,
 	AUTH_COOKIE_SECURE: optionalBoolean,
@@ -98,9 +101,13 @@ const EnvSchema = z.object({
 	JWT_ACCESS_EXPIRES_IN: optionalJwtDuration,
 	JWT_REFRESH_EXPIRES_IN: optionalJwtDuration,
 	SECURITY_HEADERS_MODE: optionalSecurityHeadersMode,
+	TRUST_PROXY: optionalBoolean,
+	TRUSTED_PROXY_CIDRS: optionalTrimmedString,
+	CSP_MODE: z.enum(["report-only", "enforce"]).optional(),
 	SCAN_EXECUTION_MODE: optionalScanExecutionMode,
 	ALLOW_HOST_SCANNER_EXECUTION: optionalBoolean,
 	SCAN_DOCKER_IMAGE: optionalTrimmedString,
+	PROJECT_ALLOWED_ROOTS: optionalTrimmedString,
 	STATIC_INTELLIGENCE_ALLOWED_PROJECT_ROOTS: optionalTrimmedString,
 	STATIC_INTELLIGENCE_PROJECT_CREATION_POLICY: z
 		.enum(["registered_only", "create_within_allowed_roots"])
@@ -142,18 +149,24 @@ export type AppEnv = {
 	azureOpenAiDeployment: string;
 	azureOpenAiEmbeddingsDeployment: string;
 	azureOpenAiApiVersion: string;
+	llmProviderAllowedHosts?: string[];
+	llmSettingsEncryptionKey?: string;
+	llmSettingsPreviousEncryptionKeys?: string[];
 	jwtSecret: string;
 	jwtAccessExpiresIn: string;
 	jwtRefreshExpiresIn: string;
 	appUrl: string;
 	corsOrigins: string[];
 	trustProxy: boolean;
+	trustedProxyCidrs?: string[];
+	cspMode?: "report-only" | "enforce";
 	secureCookie: boolean;
 	cookieSameSite: "lax" | "strict" | "none";
 	securityHeadersMode: "auto" | "http" | "https";
 	scanExecutionMode?: "host" | "docker";
 	allowHostScannerExecution?: boolean;
 	scanDockerImage?: string;
+	projectAllowedRoots?: string[];
 	staticIntelligenceAllowedProjectRoots?: string[];
 	staticIntelligenceProjectCreationPolicy?:
 		| "registered_only"
@@ -272,6 +285,20 @@ export function readAppEnv(env: NodeJS.ProcessEnv = process.env): AppEnv {
 			"AUTH_COOKIE_SAME_SITE=none requires secure cookies. Use HTTPS APP_URL or AUTH_COOKIE_SECURE=true.",
 		);
 	}
+	const trustProxy = parsed.TRUST_PROXY ?? APP_CONFIG_DEFAULTS.trustProxy;
+	const trustedProxyCidrs =
+		parsed.TRUSTED_PROXY_CIDRS?.split(",")
+			.map((value) => value.trim())
+			.filter(Boolean) ?? [];
+	if (
+		parsed.NODE_ENV === "production" &&
+		trustProxy &&
+		trustedProxyCidrs.length === 0
+	) {
+		throw new Error(
+			"TRUST_PROXY=true requires TRUSTED_PROXY_CIDRS in production.",
+		);
+	}
 
 	const configuredCorsOrigins = parseCorsOrigins(parsed.CORS_ORIGINS);
 	const corsOrigins = configuredCorsOrigins ?? [
@@ -302,6 +329,15 @@ export function readAppEnv(env: NodeJS.ProcessEnv = process.env): AppEnv {
 	const databaseUrl = normalizeSqliteDatabaseUrl(
 		parsed.DATABASE_URL ?? APP_CONFIG_DEFAULTS.databaseUrl,
 	);
+	const configuredProjectAllowedRoots = parseAllowedProjectRoots(
+		parsed.PROJECT_ALLOWED_ROOTS,
+	);
+	const projectAllowedRoots =
+		configuredProjectAllowedRoots.length > 0
+			? configuredProjectAllowedRoots
+			: parsed.NODE_ENV === "production"
+				? []
+				: [path.resolve(process.cwd())];
 
 	return {
 		nodeEnv: parsed.NODE_ENV,
@@ -345,6 +381,15 @@ export function readAppEnv(env: NodeJS.ProcessEnv = process.env): AppEnv {
 			parsed.AZURE_OPENAI_EMBEDDINGS_DEPLOYMENT ??
 			APP_CONFIG_DEFAULTS.azureOpenAiEmbeddingsDeployment,
 		azureOpenAiApiVersion: APP_CONFIG_DEFAULTS.azureOpenAiApiVersion,
+		llmProviderAllowedHosts:
+			parsed.LLM_PROVIDER_ALLOWED_HOSTS?.split(",")
+				.map((host) => host.trim().toLowerCase())
+				.filter(Boolean) ?? [],
+		llmSettingsEncryptionKey: parsed.LLM_SETTINGS_ENCRYPTION_KEY,
+		llmSettingsPreviousEncryptionKeys:
+			parsed.LLM_SETTINGS_PREVIOUS_ENCRYPTION_KEYS?.split(",")
+				.map((key) => key.trim())
+				.filter(Boolean) ?? [],
 		jwtSecret: parsed.JWT_SECRET ?? APP_CONFIG_DEFAULTS.jwtSecret,
 		jwtAccessExpiresIn:
 			parsed.JWT_ACCESS_EXPIRES_IN ?? APP_CONFIG_DEFAULTS.jwtAccessExpiresIn,
@@ -352,7 +397,11 @@ export function readAppEnv(env: NodeJS.ProcessEnv = process.env): AppEnv {
 			parsed.JWT_REFRESH_EXPIRES_IN ?? APP_CONFIG_DEFAULTS.jwtRefreshExpiresIn,
 		appUrl,
 		corsOrigins,
-		trustProxy: APP_CONFIG_DEFAULTS.trustProxy,
+		trustProxy,
+		trustedProxyCidrs,
+		cspMode:
+			parsed.CSP_MODE ??
+			(parsed.NODE_ENV === "production" ? "enforce" : "report-only"),
 		secureCookie,
 		cookieSameSite,
 		securityHeadersMode: parsed.SECURITY_HEADERS_MODE,
@@ -360,6 +409,7 @@ export function readAppEnv(env: NodeJS.ProcessEnv = process.env): AppEnv {
 		allowHostScannerExecution:
 			parsed.ALLOW_HOST_SCANNER_EXECUTION ?? parsed.NODE_ENV !== "production",
 		scanDockerImage: parsed.SCAN_DOCKER_IMAGE,
+		projectAllowedRoots,
 		staticIntelligenceAllowedProjectRoots: parseAllowedProjectRoots(
 			parsed.STATIC_INTELLIGENCE_ALLOWED_PROJECT_ROOTS,
 		),

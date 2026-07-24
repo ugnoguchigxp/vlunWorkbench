@@ -74,15 +74,14 @@ Code Structure Layer は、対象リポジトリの軽量な構造事実を作�
 - source code body を export すること
 - raw string literal や secret を agent-facing payload に含めること
 
-現在の MVP は LSP を前提にせず、TypeScript Compiler API を syntax parser として使う。出力は `CodeStructureSnapshot` であり、`project.rootRef`、relative file path、import/export facts、package dependency、content hash、surface tags、degraded reasons を持つ。
+現在の実装は LSP を前提にせず、analyzer registry と TypeScript Compiler API を使う。出力は `ProjectStructureSnapshot` であり、safe inventory、typed references、module boundary、structured diagnostics、capability readiness を持つ。
 
 CLI 主経路:
 
 ```bash
-bun run intelligence:code-structure -- \
+bun run intelligence:project-structure -- \
   --project-path <project-path> \
-  --project-id <project-id> \
-  --output code-structure.json
+  --output project-structure.json
 ```
 
 `project.rootPath` は既定で出力しない。`Static Intelligence Export` に snapshot を付与する場合、export builder は snapshot の `project.id` / `rootRef` が scan project と一致することを検証する。
@@ -339,7 +338,7 @@ intelligence:agent-query related_findings
 intelligence:agent-query evidence_bundle
 intelligence:agent-query verification_commands
 intelligence:export
-intelligence:code-structure
+intelligence:project-structure
 intelligence:build
 intelligence:knowledge-source
 intelligence:guardrail-material
@@ -353,7 +352,7 @@ vuln_get_knowledge_source_manifest
 vuln_get_guardrail_material
 vuln_get_evidence_bundle
 vuln_get_verification_commands
-vuln_get_code_structure_snapshot
+vuln_get_project_structure_snapshot
 ```
 
 Primary automation path は CLI と stable JSON output にする。MCP は optional discovery / interactive access / thin wrapper として扱う。

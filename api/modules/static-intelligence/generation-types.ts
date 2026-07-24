@@ -36,7 +36,7 @@ export const staticIntelligenceArtifactMetadataSchema = z
 		projectId: z.string().min(1),
 		scanRunId: z.string().min(1),
 		artifactRole: z.enum(["project_structure", "structure", "export"]),
-		generationFormat: z.enum(["legacy_v1", "project_structure_v2"]).optional(),
+		generationFormat: z.literal("project_structure_v2"),
 		schemaVersion: z.enum([
 			"project-structure-v2",
 			"code-structure-v1",

@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { CodeStructureSnapshot } from "../../../shared/schemas/static-intelligence-code-structure.schema";
 import { createDbConnection, type DbConnection } from "../../db";
 import { projects, scanArtifacts, scanRuns, users } from "../../db/schema";
+import { createWritableTestDbConnection } from "../../db/testing/connection";
 import { ArtifactStorage } from "../scans/artifact-storage";
 import { buildStaticIntelligenceExport } from "./export-builder";
 import {
@@ -17,9 +18,9 @@ import {
 import {
 	buildSourceStateHash,
 } from "./generation-types";
-import { StaticIntelligenceRepository } from "./repository";
 import { buildProjectStructureSnapshot } from "./project-structure/builder";
 import { projectStructureV2ToCodeStructureV1 } from "./project-structure/v1-projector";
+import { StaticIntelligenceRepository } from "./repository";
 
 const NOW = new Date("2026-07-10T10:00:00.000Z");
 const GENERATED_AT = "2026-07-10T10:30:00.000Z";
@@ -39,7 +40,7 @@ describe("Static Intelligence generation repository", () => {
 		artifactDir = path.join(tempDir, "artifacts");
 		await fs.mkdir(projectDir, { recursive: true });
 		databaseUrl = `file:${path.join(tempDir, "test.sqlite")}`;
-		connection = createDbConnection(databaseUrl);
+		connection = createWritableTestDbConnection(databaseUrl);
 		applyMigrations(connection);
 
 		const [user] = await connection.db
@@ -102,6 +103,7 @@ describe("Static Intelligence generation repository", () => {
 		const persisted = await repository.persistGeneration({
 			scanRunId,
 			snapshot,
+			projectStructureSnapshot: await projectStructureFixture(snapshot.project.rootRef),
 			exportPayload,
 		});
 		expect(persisted.status).toBe("degraded");
@@ -141,7 +143,8 @@ describe("Static Intelligence generation repository", () => {
 		await new StaticIntelligenceGenerationRepository(
 			connection.db,
 			new ArtifactStorage(artifactDir),
-		).persistGeneration({ scanRunId, snapshot, exportPayload });
+		).persistGeneration({ scanRunId, snapshot,
+			projectStructureSnapshot: await projectStructureFixture(snapshot.project.rootRef), exportPayload });
 
 		const afterBundle = await sourceRepository.loadSourceBundle(scanRunId);
 		if (!afterBundle) throw new Error("Missing source bundle");
@@ -174,7 +177,8 @@ describe("Static Intelligence generation repository", () => {
 			new StaticIntelligenceGenerationRepository(
 				connection.db,
 				new ArtifactStorage(artifactDir),
-			).persistGeneration({ scanRunId, snapshot, exportPayload }),
+			).persistGeneration({ scanRunId, snapshot,
+			projectStructureSnapshot: await projectStructureFixture(snapshot.project.rootRef), exportPayload }),
 		).rejects.toBeInstanceOf(StaticIntelligenceGenerationValidationError);
 	});
 
@@ -192,6 +196,7 @@ describe("Static Intelligence generation repository", () => {
 		const valid = await repository.persistGeneration({
 			scanRunId,
 			snapshot,
+			projectStructureSnapshot: await projectStructureFixture(snapshot.project.rootRef),
 			exportPayload,
 		});
 		const invalidGenerationId = randomUUID();
@@ -262,6 +267,7 @@ describe("Static Intelligence generation repository", () => {
 		const persisted = await repository.persistGeneration({
 			scanRunId,
 			snapshot,
+			projectStructureSnapshot: await projectStructureFixture(snapshot.project.rootRef),
 			exportPayload,
 		});
 		const artifact = persisted.export.artifact;
@@ -303,6 +309,7 @@ describe("Static Intelligence generation repository", () => {
 		const persisted = await repository.persistGeneration({
 			scanRunId,
 			snapshot,
+			projectStructureSnapshot: await projectStructureFixture(snapshot.project.rootRef),
 			exportPayload,
 		});
 
@@ -310,6 +317,7 @@ describe("Static Intelligence generation repository", () => {
 			repository.persistGeneration({
 				scanRunId,
 				snapshot,
+			projectStructureSnapshot: await projectStructureFixture(snapshot.project.rootRef),
 				exportPayload,
 				generationId: persisted.generationId,
 			}),
@@ -318,6 +326,7 @@ describe("Static Intelligence generation repository", () => {
 			repository.persistGeneration({
 				scanRunId,
 				snapshot,
+			projectStructureSnapshot: await projectStructureFixture(snapshot.project.rootRef),
 				exportPayload,
 				expectedSourceStateHash: "0".repeat(64),
 			}),
@@ -338,6 +347,7 @@ describe("Static Intelligence generation repository", () => {
 		const persisted = await repository.persistGeneration({
 			scanRunId,
 			snapshot,
+			projectStructureSnapshot: await projectStructureFixture(snapshot.project.rootRef),
 			exportPayload,
 		});
 		for (const entry of [persisted.structure, persisted.export]) {
@@ -384,6 +394,7 @@ describe("Static Intelligence generation repository", () => {
 			repository.persistGeneration({
 				scanRunId,
 				snapshot,
+			projectStructureSnapshot: await projectStructureFixture(snapshot.project.rootRef),
 				exportPayload,
 				generationId,
 				sourceRevision: { kind: "git", value: "invalid-without-head" },
@@ -427,6 +438,7 @@ describe("Static Intelligence generation repository", () => {
 			return repository.persistGeneration({
 				scanRunId,
 				snapshot,
+			projectStructureSnapshot: await projectStructureFixture(snapshot.project.rootRef),
 				exportPayload,
 				generationId,
 			});
@@ -494,6 +506,11 @@ describe("Static Intelligence generation repository", () => {
 		await repository.persistGeneration({
 			scanRunId: otherScan!.id,
 			snapshot: otherSnapshot,
+			projectStructureSnapshot: await buildProjectStructureSnapshot({
+				projectPath: otherDir,
+				projectId: otherProject!.id,
+				generatedAt: new Date("2026-07-10T12:00:00.000Z"),
+			}),
 			exportPayload: otherExport,
 			generationId: "00000000-0000-4000-8000-000000000099",
 		});
@@ -549,6 +566,22 @@ describe("Static Intelligence generation repository", () => {
 			}),
 		).toEqual([]);
 	});
+
+	async function projectStructureFixture(rootRef: string) {
+		await fs.writeFile(
+			path.join(projectDir, "app.ts"),
+			"export const app = true;\n",
+		);
+		const snapshot = await buildProjectStructureSnapshot({
+			projectPath: projectDir,
+			projectId,
+			generatedAt: new Date(GENERATED_AT),
+		});
+		return {
+			...snapshot,
+			project: { ...snapshot.project, rootRef },
+		};
+	}
 
 	async function snapshotFixture(
 		overrides: { rootRef?: string } = {},

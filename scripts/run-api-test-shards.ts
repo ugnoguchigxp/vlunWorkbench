@@ -1,0 +1,38 @@
+import { discoverTestFiles, isVitestFile } from "./test-files";
+
+const concurrency = Math.max(
+	1,
+	Number.parseInt(process.env.TEST_SHARD_CONCURRENCY ?? "4", 10) || 4,
+);
+const files = (await discoverTestFiles()).filter((file) => !isVitestFile(file));
+let nextIndex = 0;
+const failures: Array<{ file: string; exitCode: number }> = [];
+
+async function worker(): Promise<void> {
+	while (true) {
+		const index = nextIndex++;
+		const file = files[index];
+		if (!file) return;
+		const proc = Bun.spawn(["bun", "test", file], {
+			stdout: "inherit",
+			stderr: "inherit",
+			env: process.env,
+		});
+		const exitCode = await proc.exited;
+		if (exitCode !== 0) failures.push({ file, exitCode });
+	}
+}
+
+await Promise.all(
+	Array.from({ length: Math.min(concurrency, files.length) }, () => worker()),
+);
+
+process.stdout.write(
+	`${JSON.stringify({
+		ok: failures.length === 0,
+		files: files.length,
+		concurrency,
+		failures,
+	})}\n`,
+);
+if (failures.length > 0) process.exitCode = 1;

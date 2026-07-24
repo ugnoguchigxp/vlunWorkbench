@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import {
 	chmodSync,
+	existsSync,
 	mkdirSync,
 	readFileSync,
 	rmSync,
@@ -103,6 +104,27 @@ function executeAtomicBatch(
 		sqlite.run("ROLLBACK");
 		throw error;
 	}
+}
+
+function createConsistentBackup(
+	sqlite: Database,
+	databaseUrl: string,
+	outputPath: string,
+): { outputPath: string } {
+	if (!path.isAbsolute(outputPath)) {
+		throw new Error("Backup output path must be absolute.");
+	}
+	const resolvedOutput = path.resolve(outputPath);
+	if (resolvedOutput === canonicalDatabasePath(databaseUrl)) {
+		throw new Error("Backup output must differ from the live database.");
+	}
+	if (existsSync(resolvedOutput)) {
+		throw new Error("Backup output already exists.");
+	}
+	mkdirSync(path.dirname(resolvedOutput), { recursive: true, mode: 0o700 });
+	sqlite.run("VACUUM INTO ?", [resolvedOutput]);
+	chmodSync(resolvedOutput, 0o600);
+	return { outputPath: resolvedOutput };
 }
 
 function ensureMigrationsTable(sqlite: Database): void {
@@ -371,6 +393,15 @@ export function startSqliteWriterServer(options: {
 								),
 							});
 						}
+						if (writerRequest.kind === "admin_backup") {
+							return respond(writerRequest.requestId, true, {
+								result: createConsistentBackup(
+									connection.sqlite,
+									options.databaseUrl,
+									writerRequest.outputPath,
+								),
+							});
+						}
 						if (!migrationsInitialized) {
 							ensureMigrationsTable(connection.sqlite);
 							migrationsInitialized = true;
@@ -390,7 +421,8 @@ export function startSqliteWriterServer(options: {
 							...respond(writerRequest.requestId, false, {
 								code:
 									writerRequest.kind === "atomic_batch" ||
-									writerRequest.kind === "admin_migrate"
+									writerRequest.kind === "admin_migrate" ||
+									writerRequest.kind === "admin_backup"
 										? "WRITER_TRANSACTION_FAILED"
 										: "WRITER_STATEMENT_FAILED",
 								message: safeErrorMessage(error),

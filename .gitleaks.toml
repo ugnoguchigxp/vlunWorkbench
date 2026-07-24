@@ -1,0 +1,8 @@
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Synthetic API-key assignment used by the redaction unit test"
+paths = ['''^api/modules/scans/normalizers/fixture\.test\.ts$''']
+regexTarget = "match"
+regexes = ['''api_key\s*=\s*"sensitiveKeyStrHere"''']

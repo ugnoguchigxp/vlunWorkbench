@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createDbConnection, type DbConnection } from "../../db";
+import { createWritableTestDbConnection } from "../../db/testing/connection";
 import { projects, scanRuns, users } from "../../db/schema";
 
 const NOW = new Date("2026-07-05T12:00:00.000Z");
@@ -20,7 +21,7 @@ describe("Static Intelligence semantic CLIs", () => {
 			path.join(os.tmpdir(), "static-intelligence-semantic-cli-"),
 		);
 		dbUrl = `file:${path.join(tempDir, "test.sqlite")}`;
-		connection = createDbConnection(dbUrl);
+		connection = createWritableTestDbConnection(dbUrl);
 		applyMigrations(connection);
 		const [user] = await connection.db
 			.insert(users)

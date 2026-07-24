@@ -27,11 +27,10 @@ import { buildStaticIntelligenceGuardrailMaterial } from "./guardrail-material";
 import { buildStaticIntelligenceKnowledgeSourceManifest } from "./knowledge-source-manifest";
 import {
 	getProjectExplorationCatalogTool,
-	getStaticIntelligenceCodeStructureSnapshotTool,
-	getStaticIntelligenceProjectStructureSnapshotTool,
 	getStaticIntelligenceEvidenceBundleTool,
 	getStaticIntelligenceGuardrailMaterialTool,
 	getStaticIntelligenceKnowledgeSourceManifestTool,
+	getStaticIntelligenceProjectStructureSnapshotTool,
 	getStaticIntelligenceVerificationCommandsTool,
 	listStaticIntelligenceKnowledgeSources,
 	staticIntelligenceMcpToolRegistry,
@@ -182,7 +181,6 @@ describe("Static Intelligence MCP tools", () => {
 			"vuln_get_guardrail_material",
 			"vuln_get_evidence_bundle",
 			"vuln_get_verification_commands",
-			"vuln_get_code_structure_snapshot",
 			"vuln_get_project_structure_snapshot",
 			"vuln_get_project_exploration_catalog",
 		]);
@@ -213,7 +211,6 @@ describe("Static Intelligence MCP tools", () => {
 				findingFingerprint: "fingerprint",
 			},
 			vuln_get_verification_commands: { projectPath: "/repo" },
-			vuln_get_code_structure_snapshot: { projectPath: "/repo" },
 			vuln_get_project_structure_snapshot: { projectPath: "/repo" },
 			vuln_get_project_exploration_catalog: { projectPath: "/repo" },
 		};
@@ -227,39 +224,6 @@ describe("Static Intelligence MCP tools", () => {
 					.success,
 			).toBe(false);
 		}
-	});
-
-	it("fetches code structure snapshots through MCP without arbitrary path input", async () => {
-		const repoPath = path.join(tempDir, "code-project");
-		await fs.mkdir(path.join(repoPath, "src"), { recursive: true });
-		await fs.writeFile(
-			path.join(repoPath, "src", "app.ts"),
-			"export const app = true;\n",
-			"utf8",
-		);
-		const codeProjectId = await seedProject("Code Project", repoPath);
-		const scanRunId = await seedScanRun({ projectId: codeProjectId });
-		await persistGeneration(scanRunId);
-
-		const result = await getStaticIntelligenceCodeStructureSnapshotTool({
-			db: connection.db,
-			input: { scanRunId },
-		});
-
-		expect(result).toMatchObject({ ok: true, status: "completed" });
-		if (!result.ok) throw new Error(result.message);
-		expect(result.snapshot.project.id).toBe(codeProjectId);
-		expect(result.snapshot.project.rootPath).toBeUndefined();
-		expect(result.snapshot.files.map((file) => file.path)).toEqual([
-			"src/app.ts",
-		]);
-		expect(result.generation?.generationId).toMatch(/^[0-9a-f-]{36}$/);
-		await expect(
-			getStaticIntelligenceCodeStructureSnapshotTool({
-				db: connection.db,
-				input: { scanRunId, generationId: "00000000-0000-4000-8000-000000000001" },
-			}),
-		).resolves.toMatchObject({ ok: false, status: "failed" });
 	});
 
 	it("fetches persisted Project Structure v2 through MCP", async () => {

@@ -39,6 +39,9 @@ Thumbs.db
 
 # coverage
 /coverage
+/playwright-report
+/test-results
+/.tmp
 
 # generated scan/reproduction outputs
 /artifacts

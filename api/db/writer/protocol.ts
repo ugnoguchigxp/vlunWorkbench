@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const WRITER_PROTOCOL_VERSION = 2 as const;
+export const WRITER_PROTOCOL_VERSION = 3 as const;
 
 export const writerMethodSchema = z.enum(["run", "all", "values", "get"]);
 export type WriterMethod = z.infer<typeof writerMethodSchema>;
@@ -78,6 +78,10 @@ export const writerRequestSchema = z.discriminatedUnion("kind", [
 		kind: z.literal("admin_migrate"),
 		filename: z.string().min(1),
 		sql: z.string().min(1),
+	}),
+	requestBaseSchema.extend({
+		kind: z.literal("admin_backup"),
+		outputPath: z.string().min(1),
 	}),
 ]);
 

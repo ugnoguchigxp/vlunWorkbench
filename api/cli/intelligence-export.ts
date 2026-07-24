@@ -4,12 +4,6 @@ import { parseArgs } from "node:util";
 import { readAppEnv } from "../app/env";
 import { createDbConnection, type DbConnection } from "../db";
 import {
-	buildStaticIntelligenceExport,
-	StaticIntelligenceCodeStructureSnapshotMismatchError,
-	StaticIntelligenceScanRunNotFoundError,
-} from "../modules/static-intelligence/export-builder";
-import { codeStructureSnapshotSchema } from "../../shared/schemas/static-intelligence-code-structure.schema";
-import {
 	StaticIntelligenceGenerationRepository,
 	StaticIntelligenceGenerationValidationError,
 } from "../modules/static-intelligence/generation-repository";
@@ -33,7 +27,6 @@ async function main(): Promise<number> {
 				"generation-id": { type: "string" },
 				output: { type: "string" },
 				pretty: { type: "string" },
-				"code-structure-snapshot": { type: "string" },
 			},
 			strict: true,
 		});
@@ -50,7 +43,6 @@ async function main(): Promise<number> {
 
 	const scanRunId = argsValues["scan-run-id"];
 	const outputPath = argsValues.output;
-	const codeStructureSnapshotPath = argsValues["code-structure-snapshot"];
 	const generationId = argsValues["generation-id"];
 	const pretty = parsePretty(argsValues.pretty);
 	if (!scanRunId) {
@@ -74,33 +66,17 @@ async function main(): Promise<number> {
 		});
 		return 2;
 	}
-	if (generationId && codeStructureSnapshotPath) {
-		writeResult({
-			ok: false,
-			status: "failed",
-			message:
-				"--generation-id cannot be combined with --code-structure-snapshot.",
-		});
-		return 2;
-	}
-
 	let dbConnection: DbConnection | undefined;
 	try {
-		const codeStructureSnapshot = codeStructureSnapshotPath
-			? await readCodeStructureSnapshot(codeStructureSnapshotPath)
-			: undefined;
 		const env = readAppEnv();
 		dbConnection = createDbConnection(env.databaseUrl);
-		const generation = codeStructureSnapshot
-			? null
-			: generationId
-				? await new StaticIntelligenceGenerationRepository(
-						dbConnection.db,
-					).loadGeneration(scanRunId, generationId)
-				: await new StaticIntelligenceGenerationRepository(
-						dbConnection.db,
-					).loadLatestValidGeneration(scanRunId);
-		if (!codeStructureSnapshot && !generation) {
+		const repository = new StaticIntelligenceGenerationRepository(
+			dbConnection.db,
+		);
+		const generation = generationId
+			? await repository.loadGeneration(scanRunId, generationId)
+			: await repository.loadLatestValidGeneration(scanRunId);
+		if (!generation) {
 			writeResult(
 				{
 					ok: false,
@@ -111,11 +87,7 @@ async function main(): Promise<number> {
 			);
 			return 2;
 		}
-		const exportPayload =
-			generation?.export.payload ??
-			(await buildStaticIntelligenceExport(dbConnection.db, scanRunId, {
-				codeStructureSnapshot,
-			}));
+		const exportPayload = generation.export.payload;
 		const outputMetadata = outputPath
 			? await writeOutputFile(outputPath, exportPayload, pretty)
 			: undefined;
@@ -126,7 +98,7 @@ async function main(): Promise<number> {
 				status: "completed",
 				scanRunId,
 				...(outputMetadata ? { output: outputMetadata } : {}),
-				...(generation ? { generationId: generation.generationId } : {}),
+				generationId: generation.generationId,
 				export: exportPayload,
 			},
 			pretty,
@@ -135,10 +107,8 @@ async function main(): Promise<number> {
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
 		if (
-			error instanceof StaticIntelligenceScanRunNotFoundError ||
-			error instanceof StaticIntelligenceCodeStructureSnapshotMismatchError ||
 			error instanceof StaticIntelligenceGenerationValidationError ||
-			message.startsWith("Invalid code structure snapshot:")
+			message.startsWith("Static Intelligence generation")
 		) {
 			writeResult({
 				ok: false,
@@ -160,33 +130,6 @@ async function main(): Promise<number> {
 	}
 }
 
-async function readCodeStructureSnapshot(snapshotPath: string) {
-	const content = await fs.readFile(snapshotPath, "utf8").catch((error) => {
-		const code =
-			error && typeof error === "object" && "code" in error
-				? String(error.code)
-				: "unknown";
-		throw new Error(
-			`Invalid code structure snapshot: failed to read snapshot file (${code}).`,
-		);
-	});
-	let parsed: unknown;
-	try {
-		parsed = JSON.parse(content);
-	} catch (error) {
-		throw new Error(
-			`Invalid code structure snapshot: failed to parse JSON: ${message(error)}`,
-		);
-	}
-	const result = codeStructureSnapshotSchema.safeParse(parsed);
-	if (!result.success) {
-		throw new Error(
-			`Invalid code structure snapshot: ${result.error.issues[0]?.message ?? "schema validation failed"}`,
-		);
-	}
-	return result.data;
-}
-
 async function writeOutputFile(
 	outputPath: string,
 	exportPayload: unknown,
@@ -198,10 +141,6 @@ async function writeOutputFile(
 		path: outputPath,
 		sha256: createHash("sha256").update(content).digest("hex"),
 	};
-}
-
-function message(error: unknown): string {
-	return error instanceof Error ? error.message : String(error);
 }
 
 process.exitCode = await main();

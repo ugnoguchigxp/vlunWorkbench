@@ -9,6 +9,7 @@ import {
 	saveDastTargetRequestSchema,
 } from "../../shared/schemas/dast.schema";
 import type { AppDatabase } from "../db";
+import type { AppEnv } from "../app/env";
 import { getAuthContextUser } from "../modules/auth/context";
 import { HttpError } from "../modules/auth/errors";
 import { DastArtifactStorage } from "../modules/dast/dast-artifact-storage";
@@ -19,10 +20,12 @@ import {
 	validateDastTargetConfig,
 } from "../modules/dast/target-validator";
 import type { ProjectRepository } from "../modules/scans/repositories";
+import { authorizeProjectPath } from "../security/project-path-policy";
 
 type DastRouteDeps = {
 	db: AppDatabase;
 	projectRepository: ProjectRepository;
+	env?: AppEnv;
 };
 
 export function createDastRoute(deps: DastRouteDeps) {
@@ -35,6 +38,21 @@ export function createDastRoute(deps: DastRouteDeps) {
 			throw new HttpError(403, "Forbidden");
 		}
 		return project;
+	}
+
+	async function assertExecutionPath(repoPath: string) {
+		if (!deps.env) return;
+		try {
+			await authorizeProjectPath({
+				projectPath: repoPath,
+				allowedRoots: deps.env.projectAllowedRoots ?? [],
+			});
+		} catch {
+			throw new HttpError(
+				403,
+				"Project path is not authorized for Web execution.",
+			);
+		}
 	}
 
 	route.get("/projects/:projectId/dast-targets", async (c) => {
@@ -176,7 +194,8 @@ export function createDastRoute(deps: DastRouteDeps) {
 	route.post("/projects/:projectId/dast-runs", async (c) => {
 		const authUser = getAuthContextUser(c);
 		const projectId = c.req.param("projectId");
-		await assertProjectOwner(projectId, authUser.userId);
+		const project = await assertProjectOwner(projectId, authUser.userId);
+		await assertExecutionPath(project.repoPath);
 		const body = await readJson(c.req);
 		const parsed = runDastRequestSchema.safeParse(body);
 		if (!parsed.success) {

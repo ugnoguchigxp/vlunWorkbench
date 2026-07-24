@@ -29,7 +29,7 @@ describe("SQLite Writer protocol validation", () => {
 	it("rejects ambiguous responses and unknown request fields", () => {
 		expect(() =>
 			writerResponseSchema.parse({
-				protocolVersion: 2,
+				protocolVersion: 3,
 				requestId: "request",
 				writerInstanceId: "writer",
 				sequence: 1,
@@ -38,7 +38,7 @@ describe("SQLite Writer protocol validation", () => {
 		).toThrow();
 		expect(() =>
 			writerRequestSchema.parse({
-				protocolVersion: 2,
+				protocolVersion: 3,
 				requestId: "request",
 				databaseId: "a".repeat(64),
 				kind: "health",

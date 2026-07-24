@@ -1,5 +1,9 @@
 import type { LlmProviderEndpointSettings } from "./llm-settings.schema";
 import { readCodexStatus } from "./codex-status";
+import {
+	fetchWithOutboundPolicy,
+	type OutboundUrlPolicy,
+} from "../../security/outbound-url-policy";
 
 export type LlmProviderHealthResult = {
 	ok: boolean;
@@ -15,6 +19,7 @@ type HealthOptions = {
 	fetchImpl?: typeof fetch;
 	timeoutMs?: number;
 	apiKey?: string;
+	outboundPolicy?: OutboundUrlPolicy;
 };
 
 function normalizeBaseUrl(
@@ -91,7 +96,7 @@ export async function checkLlmProviderHealth(
 		};
 	}
 
-	const fetchImpl = options.fetchImpl ?? fetch;
+	const fetchImpl = options.fetchImpl;
 	const controller = new AbortController();
 	const timeout = setTimeout(
 		() => controller.abort(),
@@ -105,11 +110,19 @@ export async function checkLlmProviderHealth(
 	}
 
 	try {
-		const response = await fetchImpl(url, {
+		const requestInit = {
 			method: "GET",
 			headers,
 			signal: controller.signal,
-		});
+		};
+		const response = options.outboundPolicy
+			? await fetchWithOutboundPolicy({
+					url,
+					init: requestInit,
+					policy: options.outboundPolicy,
+					fetchImpl,
+				})
+			: await (fetchImpl ?? fetch)(url, requestInit);
 		clearTimeout(timeout);
 		return {
 			ok: response.ok,
@@ -127,7 +140,10 @@ export async function checkLlmProviderHealth(
 			reachable: false,
 			status: "request_failed",
 			url,
-			message: error instanceof Error ? error.message : String(error),
+			message:
+				error instanceof Error
+					? error.message.slice(0, 240)
+					: "Provider request failed.",
 			durationMs: Date.now() - started,
 			checkedAt,
 		};

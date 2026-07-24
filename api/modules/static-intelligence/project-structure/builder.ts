@@ -8,7 +8,6 @@ import type {
 	ProjectStructureSnapshotV2,
 	ProjectStructureStageReadiness,
 } from "../../../../shared/schemas/project-structure.schema";
-import type { BuildCodeStructureSnapshotInput } from "../code-structure/extractor";
 import {
 	analyzerFor,
 	type AnalyzerOutput,
@@ -23,8 +22,15 @@ import {
 import { inferProjectStructureModules } from "./modules/infer-modules";
 import { resolveStructureReferences } from "./resolution/resolver";
 
-export type BuildProjectStructureSnapshotInput =
-	BuildCodeStructureSnapshotInput;
+export type BuildProjectStructureSnapshotInput = {
+	projectPath: string;
+	projectId?: string;
+	generatedAt?: Date;
+	includeRootPath?: boolean;
+	maxFiles?: number;
+	maxParsedFileBytes?: number;
+	maxTotalParsedBytes?: number;
+};
 
 const MAX_PARSED_FILE_BYTES = 2 * 1024 * 1024;
 const MAX_TOTAL_PARSED_BYTES = 128 * 1024 * 1024;

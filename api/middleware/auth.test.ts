@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { getCookie } from "hono/cookie";
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { requireAuth } from "./auth";
+import { requireAdmin, requireAdminForMutation, requireAuth } from "./auth";
 import type { AppEnv } from "../app/env";
 import type { AuthService } from "../modules/auth/auth.service";
 import { generateAccessToken } from "../modules/auth/token.service";
@@ -146,5 +146,50 @@ describe("requireAuth middleware", () => {
 			},
 		});
 		expect(res2.status).toBe(401);
+	});
+});
+
+describe("role middleware", () => {
+	const createRoleApp = (role: "admin" | "member") => {
+		const app = new Hono();
+		app.use("*", async (c, next) => {
+			c.set("authUser", {
+				userId: "a1a1a1a1-a1a1-41a1-a1a1-a1a1a1a1a1a1",
+				email: `${role}@example.com`,
+				role,
+			});
+			await next();
+		});
+		app.get("/admin", requireAdmin(), (c) => c.json({ ok: true }));
+		app.use("/shared/*", requireAdminForMutation());
+		app.get("/shared/value", (c) => c.json({ ok: true }));
+		app.post("/shared/value", (c) => c.json({ ok: true }));
+		app.onError((error, c) =>
+			c.json(
+				{ message: error.message },
+				("status" in error ? error.status : 500) as 403 | 500,
+			),
+		);
+		return app;
+	};
+
+	it("allows only administrators through admin middleware", async () => {
+		expect((await createRoleApp("member").request("/admin")).status).toBe(403);
+		expect((await createRoleApp("admin").request("/admin")).status).toBe(200);
+	});
+
+	it("keeps shared reads available but protects shared mutations", async () => {
+		const memberApp = createRoleApp("member");
+		expect((await memberApp.request("/shared/value")).status).toBe(200);
+		expect(
+			(await memberApp.request("/shared/value", { method: "POST" })).status,
+		).toBe(403);
+		expect(
+			(
+				await createRoleApp("admin").request("/shared/value", {
+					method: "POST",
+				})
+			).status,
+		).toBe(200);
 	});
 });

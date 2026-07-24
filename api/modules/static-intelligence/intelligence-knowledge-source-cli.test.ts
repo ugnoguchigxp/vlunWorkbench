@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createDbConnection, type DbConnection } from "../../db";
+import { createWritableTestDbConnection } from "../../db/testing/connection";
 import { projects, scanReviews, scanRuns, users } from "../../db/schema";
 import { buildStaticIntelligenceGeneration } from "./build-service";
 import { ArtifactStorage } from "../scans/artifact-storage";
@@ -24,7 +25,7 @@ describe("Static Intelligence knowledge source CLI", () => {
 			path.join(os.tmpdir(), "knowledge-source-cli-"),
 		);
 		dbUrl = `file:${path.join(tempDir, "test.sqlite")}`;
-		connection = createDbConnection(dbUrl);
+		connection = createWritableTestDbConnection(dbUrl);
 		applyMigrations(connection);
 
 		const [user] = await connection.db
@@ -90,9 +91,8 @@ describe("Static Intelligence knowledge source CLI", () => {
 		expect(
 			stdoutPayload.manifest.availableBundles.some(
 				(bundle: { kind: string; command: string[] }) =>
-					bundle.kind === "code_structure_snapshot" &&
-					bundle.command.includes(scanRunId) &&
-					bundle.command.includes(stdoutPayload.manifest.generation.generationId),
+					bundle.kind === "project_structure_snapshot" &&
+					bundle.command.includes("<project-path>"),
 			),
 		).toBe(true);
 	});

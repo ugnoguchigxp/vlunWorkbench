@@ -15,7 +15,10 @@ export type ProjectSourceFingerprint = {
 export async function computeProjectSourceFingerprint(
 	projectPath: string,
 ): Promise<ProjectSourceFingerprint> {
-	const inventory = await buildProjectInventory({ projectPath, maxFiles: 20_000 });
+	const inventory = await buildProjectInventory({
+		projectPath,
+		maxFiles: 20_000,
+	});
 	const hash = createHash("sha256");
 	hash.update(
 		JSON.stringify({

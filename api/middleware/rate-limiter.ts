@@ -1,15 +1,33 @@
 import type { Context } from "hono";
+import { BlockList, isIP } from "node:net";
 
 type RateLimiterOptions = {
 	windowMs: number;
 	limit: number;
 	message?: string;
-	keyGenerator?: (c: Context) => string;
+	keyGenerator?: (c: Context) => string | Promise<string>;
 	trustProxy?: boolean;
+	trustedProxyCidrs?: readonly string[];
+	remoteAddressResolver?: (c: Context) => string | null;
 };
 
 export const rateLimiter = (options: RateLimiterOptions) => {
 	const store = new Map<string, { count: number; resetAt: number }>();
+	const trustedProxies = new BlockList();
+	for (const cidr of options.trustedProxyCidrs ?? []) {
+		const [address, prefixValue] = cidr.split("/");
+		const family = isIP(address);
+		const prefix = Number(prefixValue);
+		if (
+			!family ||
+			!Number.isInteger(prefix) ||
+			prefix < 0 ||
+			prefix > (family === 4 ? 32 : 128)
+		) {
+			throw new Error(`Invalid trusted proxy CIDR: ${cidr}`);
+		}
+		trustedProxies.addSubnet(address, prefix, family === 4 ? "ipv4" : "ipv6");
+	}
 
 	setInterval(
 		() => {
@@ -24,6 +42,8 @@ export const rateLimiter = (options: RateLimiterOptions) => {
 	).unref?.();
 
 	const readDirectRemoteIp = (c: Context): string | null => {
+		const resolved = options.remoteAddressResolver?.(c);
+		if (resolved) return resolved;
 		const env = c as {
 			env?: { incoming?: { socket?: { remoteAddress?: string } } };
 		};
@@ -35,8 +55,16 @@ export const rateLimiter = (options: RateLimiterOptions) => {
 	};
 
 	const readClientIp = (c: Context): string | null => {
-		if (!options.trustProxy) {
-			return readDirectRemoteIp(c);
+		const directIp = readDirectRemoteIp(c);
+		const directFamily = directIp ? isIP(directIp) : 0;
+		const directIsTrusted = Boolean(
+			options.trustProxy &&
+				directIp &&
+				directFamily &&
+				trustedProxies.check(directIp, directFamily === 4 ? "ipv4" : "ipv6"),
+		);
+		if (!directIsTrusted) {
+			return directIp;
 		}
 		const cfConnectingIp = c.req.header("cf-connecting-ip");
 		if (cfConnectingIp) return cfConnectingIp.trim();
@@ -47,12 +75,12 @@ export const rateLimiter = (options: RateLimiterOptions) => {
 		}
 		const realIp = c.req.header("x-real-ip");
 		if (realIp) return realIp.trim();
-		return readDirectRemoteIp(c);
+		return directIp;
 	};
 
-	const keyFromContext = (c: Context): string => {
+	const keyFromContext = async (c: Context): Promise<string> => {
 		if (options.keyGenerator) {
-			return options.keyGenerator(c);
+			return await options.keyGenerator(c);
 		}
 		const ip = readClientIp(c);
 		if (ip) return `ip:${ip}`;
@@ -60,7 +88,7 @@ export const rateLimiter = (options: RateLimiterOptions) => {
 	};
 
 	return async (c: Context, next: () => Promise<void>) => {
-		const key = keyFromContext(c);
+		const key = await keyFromContext(c);
 		const now = Date.now();
 		const existing = store.get(key);
 
@@ -71,6 +99,11 @@ export const rateLimiter = (options: RateLimiterOptions) => {
 		}
 
 		if (existing.count >= options.limit) {
+			const retryAfterSeconds = Math.max(
+				1,
+				Math.ceil((existing.resetAt - now) / 1000),
+			);
+			c.header("Retry-After", String(retryAfterSeconds));
 			return c.json(
 				{
 					message: options.message ?? "Too many requests",

@@ -6,6 +6,7 @@ import path from "node:path";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createDbConnection, type DbConnection } from "../../db";
+import { createWritableTestDbConnection } from "../../db/testing/connection";
 import {
 	findingEvidences,
 	findings,
@@ -483,7 +484,7 @@ describe("Static Intelligence phase 31 CLIs", () => {
 			path.join(os.tmpdir(), "static-intelligence-phase31-cli-"),
 		);
 		dbUrl = `file:${path.join(tempDir, "test.sqlite")}`;
-		connection = createDbConnection(dbUrl);
+		connection = createWritableTestDbConnection(dbUrl);
 		applyMigrations(connection);
 
 		const [user] = await connection.db

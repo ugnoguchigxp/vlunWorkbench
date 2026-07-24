@@ -1,6 +1,10 @@
 import { eq, inArray } from "drizzle-orm";
 import type { AppEnv } from "../../app/env";
-import type { AppDatabase } from "../../db";
+import {
+	type AppDatabase,
+	runInProcessDbTransaction,
+	writerClientForDatabase,
+} from "../../db";
 import {
 	llmProviderEndpoints,
 	llmProviderHealthChecks,
@@ -19,6 +23,8 @@ import {
 } from "./llm-settings.schema";
 import type { LlmProviderHealthResult } from "./provider-health";
 import { isMaskedSecret, maskSecret } from "./secret-mask";
+import { validateOutboundUrlSyntax } from "../../security/outbound-url-policy";
+import { SecretCrypto } from "../../security/secret-crypto";
 
 type GetSettingsOptions = {
 	maskSecrets?: boolean;
@@ -27,13 +33,55 @@ type GetSettingsOptions = {
 
 function endpointRowToSettings(
 	row: typeof llmProviderEndpoints.$inferSelect,
+	secretCrypto?: SecretCrypto,
+	allowLegacyPlaintext = true,
 ): LlmProviderEndpointSettings {
+	const encryptedValues = [
+		row.apiKeyCiphertext,
+		row.apiKeyNonce,
+		row.apiKeyAuthTag,
+		row.apiKeyKeyId,
+	];
+	const hasEncryptedSecret = encryptedValues.some(Boolean);
+	if (hasEncryptedSecret && !encryptedValues.every(Boolean)) {
+		throw new Error(`Stored LLM secret is incomplete for endpoint ${row.id}.`);
+	}
+	if (!hasEncryptedSecret && row.apiKey && !allowLegacyPlaintext) {
+		throw new Error(
+			`Legacy plaintext LLM secret requires explicit migration for endpoint ${row.id}.`,
+		);
+	}
+	const encryptedSecret =
+		row.apiKeyCiphertext &&
+		row.apiKeyNonce &&
+		row.apiKeyAuthTag &&
+		row.apiKeyKeyId
+			? {
+					ciphertext: row.apiKeyCiphertext,
+					nonce: row.apiKeyNonce,
+					authTag: row.apiKeyAuthTag,
+					keyId: row.apiKeyKeyId,
+				}
+			: undefined;
+	const decryptedApiKey = hasEncryptedSecret
+		? encryptedSecret &&
+			secretCrypto?.decrypt(encryptedSecret, {
+				endpointId: row.id,
+				providerKind: row.kind,
+			})
+		: (row.apiKey ?? "");
+	if (hasEncryptedSecret && decryptedApiKey === undefined) {
+		throw new Error(
+			`LLM_SETTINGS_ENCRYPTION_KEY is required for endpoint ${row.id}.`,
+		);
+	}
+	const apiKey = decryptedApiKey ?? "";
 	return {
 		id: row.id,
 		name: row.name,
 		kind: row.kind as LlmProviderEndpointSettings["kind"],
 		enabled: row.enabled,
-		apiKey: row.apiKey ?? "",
+		apiKey,
 		baseUrl: row.baseUrl ?? "",
 		endpoint: row.endpoint ?? "",
 		apiVersion: row.apiVersion ?? "",
@@ -84,10 +132,19 @@ function latestUpdatedAt(
 }
 
 export class LlmSettingsRepository {
+	private readonly secretCrypto?: SecretCrypto;
+
 	constructor(
 		private readonly db: AppDatabase,
 		private readonly env?: AppEnv,
-	) {}
+	) {
+		this.secretCrypto = env?.llmSettingsEncryptionKey
+			? new SecretCrypto(
+					env.llmSettingsEncryptionKey,
+					env.llmSettingsPreviousEncryptionKeys ?? [],
+				)
+			: undefined;
+	}
 
 	private async buildDefaultCodexEndpoint(): Promise<LlmProviderEndpointSettings> {
 		const status = await readCodexStatus();
@@ -176,7 +233,13 @@ export class LlmSettingsRepository {
 		const envSeed = endpoints.length === 0 ? await this.buildEnvSeed() : null;
 		const providerEndpoints = envSeed
 			? envSeed.providerEndpoints
-			: endpoints.map(endpointRowToSettings);
+			: endpoints.map((endpoint) =>
+					endpointRowToSettings(
+						endpoint,
+						this.secretCrypto,
+						this.env?.nodeEnv !== "production",
+					),
+				);
 		if (!providerEndpoints.some((endpoint) => endpoint.kind === "codex")) {
 			providerEndpoints.push(await this.buildDefaultCodexEndpoint());
 		}
@@ -216,46 +279,80 @@ export class LlmSettingsRepository {
 	private async replaceSettings(settings: LlmSettingsDocument): Promise<void> {
 		validateLlmRouteTargets(settings);
 		const now = new Date();
-		await this.db.delete(llmTaskRoutes);
-		await this.db.delete(llmProviderEndpoints);
-
-		if (settings.providerEndpoints.length > 0) {
-			await this.db.insert(llmProviderEndpoints).values(
-				settings.providerEndpoints.map((endpoint) => ({
-					id: endpoint.id,
-					name: endpoint.name,
-					kind: endpoint.kind,
-					enabled: endpoint.enabled,
-					apiKey: endpoint.apiKey || null,
-					baseUrl: endpoint.baseUrl,
-					endpoint: endpoint.endpoint,
-					apiVersion: endpoint.apiVersion,
-					region: endpoint.region,
-					models: endpoint.models,
-					modelDisplayNames: endpoint.modelDisplayNames,
-					defaultModelCapability: endpoint.defaultModelCapability ?? null,
-					modelCapabilities: endpoint.modelCapabilities,
-					createdAt: now,
-					updatedAt: now,
-				})),
-			);
+		const endpointValues = settings.providerEndpoints.map((endpoint) => {
+			if (endpoint.apiKey && !this.secretCrypto) {
+				throw new Error(
+					"LLM_SETTINGS_ENCRYPTION_KEY is required before storing provider credentials.",
+				);
+			}
+			const encrypted = endpoint.apiKey
+				? this.secretCrypto?.encrypt(endpoint.apiKey, {
+						endpointId: endpoint.id,
+						providerKind: endpoint.kind,
+					})
+				: undefined;
+			return {
+				id: endpoint.id,
+				name: endpoint.name,
+				kind: endpoint.kind,
+				enabled: endpoint.enabled,
+				apiKey: null,
+				apiKeyCiphertext: encrypted?.ciphertext ?? null,
+				apiKeyNonce: encrypted?.nonce ?? null,
+				apiKeyAuthTag: encrypted?.authTag ?? null,
+				apiKeyKeyId: encrypted?.keyId ?? null,
+				baseUrl: endpoint.baseUrl,
+				endpoint: endpoint.endpoint,
+				apiVersion: endpoint.apiVersion,
+				region: endpoint.region,
+				models: endpoint.models,
+				modelDisplayNames: endpoint.modelDisplayNames,
+				defaultModelCapability: endpoint.defaultModelCapability ?? null,
+				modelCapabilities: endpoint.modelCapabilities,
+				createdAt: now,
+				updatedAt: now,
+			};
+		});
+		const routeValues = settings.taskRoutes.map((route) => ({
+			task: route.task,
+			primaryProviderEndpointId:
+				route.primaryTarget?.providerEndpointId ?? null,
+			primaryModel: route.primaryTarget?.model ?? null,
+			primaryThinkingDepth: route.primaryTarget?.thinkingDepth ?? null,
+			fallbackTargets: route.fallbackTargets,
+			policy: route.policy,
+			createdAt: now,
+			updatedAt: now,
+		}));
+		const writer = writerClientForDatabase(this.db);
+		if (writer) {
+			const queries: Array<{
+				toSQL(): { sql: string; params: unknown[] };
+			}> = [
+				this.db.delete(llmTaskRoutes),
+				this.db.delete(llmProviderEndpoints),
+			];
+			if (endpointValues.length > 0) {
+				queries.push(
+					this.db.insert(llmProviderEndpoints).values(endpointValues),
+				);
+			}
+			if (routeValues.length > 0) {
+				queries.push(this.db.insert(llmTaskRoutes).values(routeValues));
+			}
+			await writer.atomicDrizzleBatch(queries);
+			return;
 		}
-
-		if (settings.taskRoutes.length > 0) {
-			await this.db.insert(llmTaskRoutes).values(
-				settings.taskRoutes.map((route) => ({
-					task: route.task,
-					primaryProviderEndpointId:
-						route.primaryTarget?.providerEndpointId ?? null,
-					primaryModel: route.primaryTarget?.model ?? null,
-					primaryThinkingDepth: route.primaryTarget?.thinkingDepth ?? null,
-					fallbackTargets: route.fallbackTargets,
-					policy: route.policy,
-					createdAt: now,
-					updatedAt: now,
-				})),
-			);
-		}
+		runInProcessDbTransaction(this.db, (tx) => {
+			tx.delete(llmTaskRoutes).run();
+			tx.delete(llmProviderEndpoints).run();
+			if (endpointValues.length > 0) {
+				tx.insert(llmProviderEndpoints).values(endpointValues).run();
+			}
+			if (routeValues.length > 0) {
+				tx.insert(llmTaskRoutes).values(routeValues).run();
+			}
+		});
 	}
 
 	async updateSettings(input: unknown): Promise<LlmSettingsResponse> {
@@ -268,6 +365,29 @@ export class LlmSettingsRepository {
 			existing.providerEndpoints.map((endpoint) => [endpoint.id, endpoint]),
 		);
 		const merged = this.mergeMaskedSecrets(parsed, existingById);
+		if (this.env) {
+			for (const endpoint of merged.providerEndpoints) {
+				const kind =
+					endpoint.kind === "azure" ||
+					endpoint.kind === "openai" ||
+					endpoint.kind === "openai-compatible" ||
+					endpoint.kind === "local"
+						? endpoint.kind
+						: null;
+				if (!kind) continue;
+				const rawUrl = kind === "azure" ? endpoint.endpoint : endpoint.baseUrl;
+				if (!rawUrl) continue;
+				const allowedHosts = [...(this.env.llmProviderAllowedHosts ?? [])];
+				if (kind === "azure" && this.env.azureOpenAiEndpoint) {
+					allowedHosts.push(new URL(this.env.azureOpenAiEndpoint).hostname);
+				}
+				validateOutboundUrlSyntax(rawUrl, {
+					kind,
+					nodeEnv: this.env.nodeEnv,
+					allowedHosts,
+				});
+			}
+		}
 		validateLlmRouteTargets(merged);
 		await this.replaceSettings(merged);
 		return this.getSettings({ maskSecrets: true, seedFromEnv: false });
@@ -281,7 +401,11 @@ export class LlmSettingsRepository {
 			where: eq(llmProviderEndpoints.id, id),
 		});
 		const endpoint = row
-			? endpointRowToSettings(row)
+			? endpointRowToSettings(
+					row,
+					this.secretCrypto,
+					this.env?.nodeEnv !== "production",
+				)
 			: ((await this.buildEnvSeed()).providerEndpoints.find(
 					(candidate) => candidate.id === id,
 				) ?? null);
@@ -302,7 +426,13 @@ export class LlmSettingsRepository {
 		const rows = await this.db.query.llmProviderEndpoints.findMany({
 			where: inArray(llmProviderEndpoints.id, ids),
 		});
-		return rows.map(endpointRowToSettings);
+		return rows.map((row) =>
+			endpointRowToSettings(
+				row,
+				this.secretCrypto,
+				this.env?.nodeEnv !== "production",
+			),
+		);
 	}
 
 	async recordHealthCheck(

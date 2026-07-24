@@ -13,10 +13,6 @@ import { buildSourceStateHash } from "./generation-types";
 import { buildStaticIntelligenceOntologyHandoff } from "./ontology-handoff";
 import { buildStaticIntelligenceKnowledgeSourceManifest } from "./knowledge-source-manifest";
 import { probeSourceRevision } from "./build-service";
-import {
-	projectStructureRolloutMode,
-	shouldPreferProjectStructureV2,
-} from "./project-structure/rollout";
 import { StaticIntelligenceRepository } from "./repository";
 import type { StaticIntelligenceSourceBundle } from "./types";
 import type {
@@ -472,31 +468,20 @@ function structureReadiness(
 	status: IntelligenceReadinessStatus;
 	reasons: string[];
 } {
-	const v2 = shouldPreferProjectStructureV2(projectStructureRolloutMode())
-		? generation.projectStructure?.snapshot
-		: undefined;
-	if (v2) {
-		const reasons = v2.diagnostics
-			.filter((diagnostic) => diagnostic.impact !== "none")
-			.map((diagnostic) => diagnostic.code);
-		return {
-			status:
-				v2.readiness.inventory.status === "failed" ||
-				v2.readiness.analysis.status === "failed" ||
-				v2.readiness.resolution.status === "failed"
-					? "failed"
-					: reasons.length > 0
-						? "degraded"
-						: "available",
-			reasons: uniqueSorted(reasons),
-		};
-	}
+	const snapshot = generation.projectStructure.snapshot;
+	const reasons = snapshot.diagnostics
+		.filter((diagnostic) => diagnostic.impact !== "none")
+		.map((diagnostic) => diagnostic.code);
 	return {
 		status:
-			generation.structure.snapshot.status === "partial"
-				? "degraded"
-				: "available",
-		reasons: generation.structure.snapshot.degradedReasons,
+			snapshot.readiness.inventory.status === "failed" ||
+			snapshot.readiness.analysis.status === "failed" ||
+			snapshot.readiness.resolution.status === "failed"
+				? "failed"
+				: reasons.length > 0
+					? "degraded"
+					: "available",
+		reasons: uniqueSorted(reasons),
 	};
 }
 

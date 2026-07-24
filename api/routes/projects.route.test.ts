@@ -15,9 +15,17 @@ vi.mock("node:fs/promises", () => {
 		default: {
 			access: mockAccess,
 			realpath: vi.fn(async (value: string) => value),
+			stat: vi.fn(async (value: string) => {
+				if (value === "/invalid/path") throw new Error("ENOENT");
+				return { isDirectory: () => true };
+			}),
 		},
 		access: mockAccess,
 		realpath: vi.fn(async (value: string) => value),
+		stat: vi.fn(async (value: string) => {
+			if (value === "/invalid/path") throw new Error("ENOENT");
+			return { isDirectory: () => true };
+		}),
 	};
 });
 
@@ -29,7 +37,12 @@ describe("Projects Route", () => {
 		]),
 		findById: vi.fn().mockImplementation(async (id: string) => {
 			if (id === "p-1") {
-				return { id: "p-1", name: "Project 1", ownerUserId: "user-123" };
+				return {
+					id: "p-1",
+					name: "Project 1",
+					ownerUserId: "user-123",
+					repoPath: "/valid/path",
+				};
 			}
 			if (id === "p-other-user") {
 				return { id: "p-other-user", name: "Project Other", ownerUserId: "other-user" };
@@ -60,14 +73,28 @@ describe("Projects Route", () => {
 		}
 		return c.json({ message: err.message }, 500);
 	});
-	app.route("/", createProjectsRoute({ projectRepository: mockProjectRepo as any }));
+	app.route(
+		"/",
+		createProjectsRoute({
+			projectRepository: mockProjectRepo as any,
+			env: readAppEnv({
+				NODE_ENV: "test",
+				PROJECT_ALLOWED_ROOTS: "/",
+			}),
+		}),
+	);
 
 	it("GET / returns project list", async () => {
 		const res = await app.request("/");
 		expect(res.status).toBe(200);
 		const body = await res.json();
 		expect(body.projects).toEqual([
-			{ id: "p-1", name: "Project 1", repoPath: "/Users/test/project-1" },
+			{
+				id: "p-1",
+				name: "Project 1",
+				repoPath: "/Users/test/project-1",
+				pathPolicy: { status: "allowed", reasonCode: null },
+			},
 		]);
 	});
 
@@ -132,7 +159,47 @@ describe("Projects Route", () => {
 		});
 		expect(res.status).toBe(400);
 		const body = await res.json();
-		expect(body.message).toContain("does not exist on disk");
+		expect(body.message).toContain("does not exist");
+	});
+
+	it("POST / rejects a repository outside configured roots", async () => {
+		const restrictedApp = new Hono();
+		restrictedApp.use("*", async (c, next) => {
+			c.set("authUser", {
+				userId: "user-123",
+				email: "user@example.com",
+				role: "member",
+			});
+			await next();
+		});
+		restrictedApp.onError((err, c) => {
+			if (err instanceof HttpError) {
+				return c.json({ message: err.message }, err.status as any);
+			}
+			return c.json({ message: err.message }, 500);
+		});
+		restrictedApp.route(
+			"/",
+			createProjectsRoute({
+				projectRepository: mockProjectRepo as any,
+				env: readAppEnv({
+					NODE_ENV: "test",
+					PROJECT_ALLOWED_ROOTS: "/allowed",
+				}),
+			}),
+		);
+
+		const res = await restrictedApp.request("/", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ repoPath: "/outside/project" }),
+		});
+		expect(res.status).toBe(403);
+	});
+
+	it("POST /folder-picker requires an admin role", async () => {
+		const res = await app.request("/folder-picker", { method: "POST" });
+		expect(res.status).toBe(403);
 	});
 
 	it("POST / fails if path already registered", async () => {
@@ -172,7 +239,10 @@ describe("Projects Route", () => {
 				projectRepository: mockProjectRepo as any,
 				scanRepository: scanRepository as any,
 				scanSupervisor: scanSupervisor as any,
-				env: readAppEnv({ NODE_ENV: "test" }),
+				env: readAppEnv({
+					NODE_ENV: "test",
+					PROJECT_ALLOWED_ROOTS: "/",
+				}),
 			}),
 		);
 
