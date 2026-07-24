@@ -7,11 +7,23 @@ import {
 	messages as messageTable,
 	retrievalLogs,
 } from "../../db/schema";
-import { HttpError } from "../auth/errors";
 import type { LlmProvider } from "../../providers/types";
-import type { ChatMessage } from "../../types/llm";
+import type {
+	PromptMessageManifest,
+	SystemContextManifest,
+} from "../../system-context/audit";
+import {
+	bindChatDirectAnswerSystemContext,
+	bindChatGroundedAnswerSystemContext,
+	bindChatSearchDecisionSystemContext,
+} from "../../system-context/bindings";
+import {
+	type ApplicationChatMessage,
+	executeLlmCompletion,
+} from "../../system-context/llm-execution";
 import { extractArtifactsFromText } from "../artifacts/extract";
 import type { Artifact } from "../artifacts/types";
+import { HttpError } from "../auth/errors";
 import type {
 	SearchEvidence,
 	SearchEvidenceCollector,
@@ -25,6 +37,9 @@ export type ChatResult = {
 	citations: Citation[];
 	artifacts: Artifact[];
 	retrieved: RetrievedFragment[];
+	systemContexts: SystemContextManifest[];
+	promptMessages: PromptMessageManifest[];
+	promptSequenceHashes: string[];
 	usage?: {
 		promptTokens: number;
 		completionTokens: number;
@@ -39,23 +54,12 @@ type ChatServiceDeps = {
 };
 
 type ChatRequest = {
-	messages: ChatMessage[];
+	messages: ApplicationChatMessage[];
 	userId: string;
 	conversationId?: string;
 	topK?: number;
 	category?: string;
 };
-
-function buildSystemPrompt(localContext: string): string {
-	return [
-		"You are a helpful assistant.",
-		"Use the provided local markdown context when it is relevant.",
-		"Cite uncertain points conservatively.",
-		'If you generate structured output, use <artifact type="..."> blocks.',
-		"Avoid overusing Markdown headings (like #, ##, ###). Instead, use a balanced mix of paragraphs, bullet points, and bold text to make the answer clear and readable.",
-		`Local markdown context:\n${localContext}`,
-	].join("\n\n");
-}
 
 type ChatSearchDecision = {
 	shouldSearch: boolean;
@@ -86,27 +90,6 @@ function parseSearchDecision(input: string): ChatSearchDecision | null {
 	} catch {
 		return null;
 	}
-}
-
-function buildSearchDecisionPrompt(): string {
-	return [
-		"You decide whether search is required before answering.",
-		"Do not search by default.",
-		"If you can answer sufficiently from your own general knowledge, return JSON with shouldSearch=false and a complete Markdown answer.",
-		"Search is required for local workspace/wiki/project-specific facts, current or time-sensitive facts, explicit search requests, citations, or when you are uncertain.",
-		"If search is required, choose one concise searchQuery. The same query will be used for full-text search and vector search.",
-		'Return only JSON: {"shouldSearch":false,"answer":"..."} or {"shouldSearch":true,"searchQuery":"..."}',
-	].join("\n");
-}
-
-function buildDirectAnswerPrompt(): string {
-	return [
-		"You are a helpful assistant.",
-		"Answer directly in Markdown without using retrieved context.",
-		"If the user asks for current, local workspace, or source-grounded facts that require search, say that search is required instead of guessing.",
-		'If you generate structured output, use <artifact type="..."> blocks.',
-		"Avoid overusing Markdown headings (like #, ##, ###). Instead, use a balanced mix of paragraphs, bullet points, and bold text to make the answer clear and readable.",
-	].join("\n");
 }
 
 function conversationTitleFromQuery(query: string): string {
@@ -149,26 +132,45 @@ export class ChatService {
 		return inserted.id;
 	}
 
-	private async decideSearch(
-		messages: ChatMessage[],
-	): Promise<ChatSearchDecision> {
-		const response = await this.deps.llmProvider.chatCompletion(
-			[{ role: "system", content: buildSearchDecisionPrompt() }, ...messages],
-			{ temperature: 0 },
-		);
+	private async decideSearch(messages: ApplicationChatMessage[]): Promise<{
+		decision: ChatSearchDecision;
+		systemContextManifest: SystemContextManifest;
+		promptMessageManifests: readonly PromptMessageManifest[];
+		promptSequenceHash: string;
+	}> {
+		const execution = await executeLlmCompletion({
+			provider: this.deps.llmProvider,
+			systemContext: bindChatSearchDecisionSystemContext(),
+			messages,
+			options: { temperature: 0 },
+		});
+		const response = execution.response;
 		const decision = parseSearchDecision(response.content);
-		if (decision) return decision;
+		if (decision) {
+			return {
+				decision,
+				systemContextManifest: execution.systemContextManifest,
+				promptMessageManifests: execution.promptMessageManifests,
+				promptSequenceHash: execution.promptSequenceHash,
+			};
+		}
 		return {
-			shouldSearch: false,
-			answer: response.content,
+			decision: {
+				shouldSearch: false,
+				answer: response.content,
+			},
+			systemContextManifest: execution.systemContextManifest,
+			promptMessageManifests: execution.promptMessageManifests,
+			promptSequenceHash: execution.promptSequenceHash,
 		};
 	}
 
-	private async directAnswer(messages: ChatMessage[]) {
-		return await this.deps.llmProvider.chatCompletion([
-			{ role: "system", content: buildDirectAnswerPrompt() },
-			...messages,
-		]);
+	private async directAnswer(messages: ApplicationChatMessage[]) {
+		return await executeLlmCompletion({
+			provider: this.deps.llmProvider,
+			systemContext: bindChatDirectAnswerSystemContext(),
+			messages,
+		});
 	}
 
 	async run(request: ChatRequest): Promise<ChatResult> {
@@ -186,7 +188,15 @@ export class ChatService {
 		}
 		const topK = request.topK ?? 8;
 		const category = request.category?.trim() || undefined;
-		const decision = await this.decideSearch(request.messages);
+		const decisionExecution = await this.decideSearch(request.messages);
+		const decision = decisionExecution.decision;
+		const systemContexts: SystemContextManifest[] = [
+			decisionExecution.systemContextManifest,
+		];
+		const promptMessages: PromptMessageManifest[] = [
+			...decisionExecution.promptMessageManifests,
+		];
+		const promptSequenceHashes = [decisionExecution.promptSequenceHash];
 		let evidence: SearchEvidence | undefined;
 		let llmResponse: Awaited<ReturnType<LlmProvider["chatCompletion"]>>;
 		if (decision.shouldSearch) {
@@ -196,18 +206,28 @@ export class ChatService {
 				topK,
 				category,
 			});
-			const systemPrompt = buildSystemPrompt(evidence.localContext);
-			llmResponse = await this.deps.llmProvider.chatCompletion([
-				{ role: "system", content: systemPrompt },
-				...request.messages,
-			]);
+			const execution = await executeLlmCompletion({
+				provider: this.deps.llmProvider,
+				systemContext: bindChatGroundedAnswerSystemContext(
+					evidence.localContext,
+				),
+				messages: request.messages,
+			});
+			llmResponse = execution.response;
+			systemContexts.push(execution.systemContextManifest);
+			promptMessages.push(...execution.promptMessageManifests);
+			promptSequenceHashes.push(execution.promptSequenceHash);
 		} else if (decision.answer?.trim()) {
 			llmResponse = {
 				id: randomUUID(),
 				content: decision.answer,
 			};
 		} else {
-			llmResponse = await this.directAnswer(request.messages);
+			const execution = await this.directAnswer(request.messages);
+			llmResponse = execution.response;
+			systemContexts.push(execution.systemContextManifest);
+			promptMessages.push(...execution.promptMessageManifests);
+			promptSequenceHashes.push(execution.promptSequenceHash);
 		}
 		const extracted = extractArtifactsFromText(llmResponse.content);
 		const retrieved = evidence?.retrieved ?? [];
@@ -239,7 +259,12 @@ export class ChatService {
 				conversationId,
 				role: "assistant",
 				content: extracted.cleanText,
-				metadata: { citations },
+				metadata: {
+					citations,
+					systemContexts,
+					promptMessages,
+					promptSequenceHashes,
+				},
 			})
 			.returning({ id: messageTable.id });
 
@@ -296,6 +321,9 @@ export class ChatService {
 				vectorCount: evidence?.evaluation.vectorResults.length ?? 0,
 				textCount: evidence?.evaluation.textResults.length ?? 0,
 				mergedCount: evidence?.evaluation.mergedResults.length ?? 0,
+				systemContexts,
+				promptMessages,
+				promptSequenceHashes,
 			},
 		});
 
@@ -311,6 +339,9 @@ export class ChatService {
 			citations,
 			artifacts: extracted.artifacts,
 			retrieved,
+			systemContexts,
+			promptMessages,
+			promptSequenceHashes,
 			usage: llmResponse.usage,
 		};
 	}

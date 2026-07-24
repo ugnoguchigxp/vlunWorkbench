@@ -1,14 +1,16 @@
-import type { AgenticSearchCitation, AgenticSearchResult } from "./types";
+import { assertSystemContextInvocation } from "../../system-context/llm-execution";
+import type { EvidenceWebResult } from "../rag/search-evidence";
+import type { RetrievedFragment } from "../rag/types";
 import type { OpenAiResponsesAdapter } from "./llm/openai-responses-adapter";
+import type { AgenticToolRegistry } from "./tools/registry";
 import type {
+	AgenticSearchCitation,
 	AgenticSearchRequest,
+	AgenticSearchResult,
 	AgenticSearchRunOptions,
 	AgenticToolTrace,
 	AgenticUsage,
 } from "./types";
-import type { AgenticToolRegistry } from "./tools/registry";
-import type { EvidenceWebResult } from "../rag/search-evidence";
-import type { RetrievedFragment } from "../rag/types";
 
 type AgenticSearchRunnerDeps = {
 	llmAdapter: OpenAiResponsesAdapter;
@@ -109,6 +111,7 @@ export class AgenticSearchRunner {
 
 	async run(request: AgenticSearchRequest): Promise<AgenticSearchResult> {
 		const startedAt = Date.now();
+		assertSystemContextInvocation(request.systemContext);
 		let previousResponseId: string | undefined;
 		let pendingInput: unknown[] = [
 			{
@@ -141,7 +144,7 @@ export class AgenticSearchRunner {
 				inputItems: pendingInput.length,
 			});
 			const turn = await this.llmAdapter.createTurn({
-				instructions: request.systemContext,
+				instructions: request.systemContext.content.text,
 				input: pendingInput,
 				tools: this.toolRegistry.listSpecs(),
 				previousResponseId,
@@ -173,6 +176,7 @@ export class AgenticSearchRunner {
 					retrieved: retrieved.length > 0 ? retrieved : undefined,
 					webResults: webResults.length > 0 ? webResults : undefined,
 					usage,
+					systemContext: request.systemContext.manifest,
 				};
 			}
 
@@ -328,6 +332,7 @@ export class AgenticSearchRunner {
 			retrieved: retrieved.length > 0 ? retrieved : undefined,
 			webResults: webResults.length > 0 ? webResults : undefined,
 			usage,
+			systemContext: request.systemContext.manifest,
 		};
 	}
 }

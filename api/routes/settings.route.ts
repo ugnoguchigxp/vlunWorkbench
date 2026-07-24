@@ -8,11 +8,11 @@ import { readCodexStatus } from "../modules/llm-settings/codex-status";
 import type { LlmSettingsRepository } from "../modules/llm-settings/llm-settings.repository";
 import { LlmSettingsDocumentSchema } from "../modules/llm-settings/llm-settings.schema";
 import { checkLlmProviderHealth } from "../modules/llm-settings/provider-health";
-import { resolveProviderCredential } from "../providers/provider-credential-resolver";
 import type { SettingsRepository } from "../modules/settings/settings.repository";
+import { resolveProviderCredential } from "../providers/provider-credential-resolver";
 
 const UpdateSystemContextSchema = z.object({
-	systemContext: z.string(),
+	systemContext: z.string().max(16_000),
 });
 
 type SettingsRouteDeps = {

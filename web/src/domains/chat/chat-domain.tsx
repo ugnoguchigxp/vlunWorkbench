@@ -1,7 +1,8 @@
 import { Eye, EyeOff, RefreshCw, Send, Trash2 } from "lucide-react";
-import mermaid from "mermaid";
 import { MarkdownEditor } from "markdown-wysiwyg-editor";
+import mermaid from "mermaid";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { normalizeAgenticAnswerMarkdown } from "../../agentic-markdown";
 import {
 	type Artifact,
 	type ChatCompletionResult,
@@ -12,7 +13,6 @@ import {
 	fetchConversations,
 	sendChat,
 } from "../../api";
-import { normalizeAgenticAnswerMarkdown } from "../../agentic-markdown";
 import { Button, IconButton, SelectInput, TextArea } from "../../ui";
 
 type ChatDomainSectionProps = {
@@ -26,11 +26,19 @@ type ChatDomainSectionProps = {
 const toChatMessages = (
 	messages: ConversationMessage[],
 	nextUserMessage: string,
-): Array<{ role: "system" | "user" | "assistant"; content: string }> => [
-	...messages.map((message) => ({
-		role: message.role,
-		content: message.content,
-	})),
+): Array<{ role: "user" | "assistant"; content: string }> => [
+	...messages
+		.filter(
+			(
+				message,
+			): message is ConversationMessage & {
+				role: "user" | "assistant";
+			} => message.role !== "system",
+		)
+		.map((message) => ({
+			role: message.role,
+			content: message.content,
+		})),
 	{ role: "user", content: nextUserMessage },
 ];
 

@@ -19,6 +19,7 @@ jobs:
           bun-version: 1.3.14
       - run: bun install --frozen-lockfile
       - run: bun run db:boundary
+      - run: bun run s11tnext:check
       - run: bun run typecheck
       - run: bun run lint
       - run: bun run format:check

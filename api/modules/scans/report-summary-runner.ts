@@ -1,24 +1,30 @@
+import { z } from "zod";
+import {
+	type ScanReportLlmSummaryOutput,
+	scanReportLlmSummaryOutputSchema,
+} from "../../../shared/schemas/scan.schema";
 import type { AppDatabase } from "../../db";
 import type { LlmRouter } from "../../providers/llmRouter";
 import type { LlmTask } from "../../providers/llmTaskTypes";
 import {
-	LlmProviderExecutionError,
 	type LlmProvider,
+	LlmProviderExecutionError,
 } from "../../providers/types";
-import { assertJapaneseTextFields } from "../llm-language";
+import type {
+	PromptMessageAudit,
+	SystemContextManifest,
+} from "../../system-context/audit";
 import {
-	scanReportLlmSummaryOutputSchema,
-	type ScanReportLlmSummaryOutput,
-} from "../../../shared/schemas/scan.schema";
+	bindReportSummarySystemContext,
+	bindReportSummaryUserMessage,
+} from "../../system-context/bindings";
+import { executePromptCompletion } from "../../system-context/llm-execution";
+import { assertJapaneseTextFields } from "../llm-language";
 import {
 	buildMarkdownReport,
 	type ReportBuilderOptions,
 } from "./report-builder";
 import { buildScanReviewBundle } from "./scan-review-bundle";
-import {
-	buildReportSummarySystemPrompt,
-	buildReportSummaryUserMessage,
-} from "./report-summary-prompt";
 
 export type LlmReportSummaryOptions = ReportBuilderOptions & {
 	task?: LlmTask;
@@ -30,6 +36,9 @@ export type LlmReportSummaryResult = {
 	markdown: string;
 	output: ScanReportLlmSummaryOutput;
 	providerRouting?: Record<string, unknown>;
+	systemContext: SystemContextManifest;
+	promptMessages: PromptMessageAudit["promptMessages"];
+	promptSequenceHash: string;
 };
 
 class StructuredReportSummaryOutputError extends Error {
@@ -146,19 +155,30 @@ export async function buildMarkdownReportWithLlmSummary(
 	}
 
 	try {
-		const response = await provider.chatCompletion(
-			[
-				{ role: "system", content: buildReportSummarySystemPrompt() },
-				{ role: "user", content: buildReportSummaryUserMessage(bundle) },
-			],
-			{ temperature: 0.1 },
-		);
+		const systemMessage = bindReportSummarySystemContext();
+		const userMessage = bindReportSummaryUserMessage(bundle);
+		const execution = await executePromptCompletion({
+			provider,
+			promptMessages: [systemMessage, userMessage],
+			options: {
+				temperature: 0.1,
+				outputSchema: z.toJSONSchema(scanReportLlmSummaryOutputSchema),
+			},
+		});
+		const response = execution.response;
 		const output = parseSummaryOutput(response.content);
 		const markdown = insertSummarySection(
 			baseMarkdown,
 			formatSummarySection(output),
 		);
-		return { markdown, output, providerRouting };
+		return {
+			markdown,
+			output,
+			providerRouting,
+			systemContext: systemMessage.manifest,
+			promptMessages: execution.promptMessageManifests,
+			promptSequenceHash: execution.promptSequenceHash,
+		};
 	} catch (error) {
 		throw formatError(error);
 	}

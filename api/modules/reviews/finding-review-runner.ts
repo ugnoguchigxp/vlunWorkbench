@@ -1,22 +1,27 @@
 import fs from "node:fs/promises";
 import { z } from "zod";
+import {
+	type FindingReviewOutput,
+	findingReviewOutputSchema,
+} from "../../../shared/schemas/scan.schema";
 import type { AppDatabase } from "../../db";
-import { FindingReviewRepository } from "./finding-review-repository";
+import type { LlmRouter } from "../../providers/llmRouter";
+import type { LlmTask } from "../../providers/llmTaskTypes";
+import type { LlmProvider } from "../../providers/types";
+import { LlmProviderExecutionError } from "../../providers/types";
+import type { PromptMessageAudit } from "../../system-context/audit";
+import {
+	bindFindingReviewSystemContext,
+	bindFindingReviewUserMessage,
+} from "../../system-context/bindings";
+import { executePromptCompletion } from "../../system-context/llm-execution";
+import { assertJapaneseTextFields } from "../llm-language";
 import { FindingRepository, ProjectRepository } from "../scans/repositories";
 import {
 	buildReviewBundle,
 	type ExtractSnippetOptions,
 } from "./finding-review-bundle";
-import { buildSystemPrompt, buildUserMessage } from "./finding-review-prompt";
-import {
-	findingReviewOutputSchema,
-	type FindingReviewOutput,
-} from "../../../shared/schemas/scan.schema";
-import type { LlmProvider } from "../../providers/types";
-import { LlmProviderExecutionError } from "../../providers/types";
-import type { LlmRouter } from "../../providers/llmRouter";
-import type { LlmTask } from "../../providers/llmTaskTypes";
-import { assertJapaneseTextFields } from "../llm-language";
+import { FindingReviewRepository } from "./finding-review-repository";
 
 export interface ReviewRunnerOptions extends ExtractSnippetOptions {
 	task?: LlmTask;
@@ -215,6 +220,7 @@ export class FindingReviewRunner {
 
 		try {
 			let outputData: FindingReviewOutput;
+			let promptAudit: PromptMessageAudit | undefined;
 
 			if (options.fixtureOutput) {
 				try {
@@ -233,19 +239,21 @@ export class FindingReviewRunner {
 					throw new Error("LLM provider is not configured");
 				}
 
-				const systemPrompt = buildSystemPrompt();
-				const userMessage = buildUserMessage(bundle);
-
-				const response = await resolvedProvider.chatCompletion(
-					[
-						{ role: "system", content: systemPrompt },
-						{ role: "user", content: userMessage },
-					],
-					{
+				const systemMessage = bindFindingReviewSystemContext();
+				const userMessage = bindFindingReviewUserMessage(bundle);
+				const execution = await executePromptCompletion({
+					provider: resolvedProvider,
+					promptMessages: [systemMessage, userMessage],
+					options: {
 						temperature: 0.1,
 						outputSchema: z.toJSONSchema(findingReviewOutputSchema),
 					},
-				);
+				});
+				const response = execution.response;
+				promptAudit = {
+					promptMessages: execution.promptMessageManifests,
+					promptSequenceHash: execution.promptSequenceHash,
+				};
 
 				outputData = this.parseReviewOutput(response.content);
 			}
@@ -261,6 +269,13 @@ export class FindingReviewRunner {
 				output: {
 					...(outputData as unknown as Record<string, unknown>),
 					...(providerRouting ? { providerRouting } : {}),
+					...(promptAudit
+						? {
+								systemContext: promptAudit.promptMessages[0],
+								promptMessages: promptAudit.promptMessages,
+								promptSequenceHash: promptAudit.promptSequenceHash,
+							}
+						: {}),
 				},
 			});
 

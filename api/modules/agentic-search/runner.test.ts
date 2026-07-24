@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { bindAgenticSearchSystemContext } from "../../system-context/bindings";
 import type { OpenAiResponsesAdapter } from "./llm/openai-responses-adapter";
 import { AgenticSearchRunner } from "./runner";
-import type { AgenticFunctionToolSpec } from "./types";
 import type { AgenticToolRegistry } from "./tools/registry";
+import type { AgenticFunctionToolSpec } from "./types";
 
 type StubTurn = {
 	responseId: string;
@@ -112,13 +113,22 @@ describe("AgenticSearchRunner", () => {
 		const result = await runner.run({
 			query: "what is rag",
 			topK: 8,
-			systemContext: "context",
+			systemContext: bindAgenticSearchSystemContext({
+				topK: 8,
+				userSystemContext: "context",
+			}),
 		});
 
 		expect(result.answer).toBe("final answer");
 		expect(result.toolTrace.length).toBe(0);
 		expect(result.usage?.totalTokens).toBe(15);
+		expect(result.systemContext).toEqual(
+			expect.objectContaining({ key: "agenticSearch.system" }),
+		);
 		expect(adapter.calls.length).toBe(1);
+		expect(adapter.calls[0]?.instructions).toContain(
+			"vulnWorkbench knowledge workspace",
+		);
 	});
 
 	it("executes tool calls and continues with previous_response_id", async () => {
@@ -155,7 +165,10 @@ describe("AgenticSearchRunner", () => {
 		const result = await runner.run({
 			query: "what is rag",
 			topK: 8,
-			systemContext: "context",
+			systemContext: bindAgenticSearchSystemContext({
+				topK: 8,
+				userSystemContext: "context",
+			}),
 		});
 
 		expect(result.answer).toBe("done");

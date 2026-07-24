@@ -1,0 +1,15 @@
+message_role = "user"
+
+[variables.bundle]
+profile = "untrusted.json"
+
+[[sections]]
+id = "review.request"
+profile = "instruction.must"
+text = "この scan bundle をレビューし、指定された JSON のみを返してください。レビュー本文は必ず日本語で書いてください。"
+
+[[sections]]
+id = "review.bundle"
+profile = "runtime-fact.must"
+text = '''SCAN BUNDLE:
+[[bundle]]'''

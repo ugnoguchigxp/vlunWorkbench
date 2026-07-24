@@ -1,15 +1,15 @@
-import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 import { execSync } from "node:child_process";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDbConnection, type DbConnection } from "../../db";
-import { users, projects, scanRuns, findings, findingEvidences } from "../../db/schema";
-import { extractSourceSnippet, buildReviewBundle } from "./finding-review-bundle";
-import { FindingReviewRunner } from "./finding-review-runner";
+import { findingEvidences, findings, projects, scanRuns, users } from "../../db/schema";
+import type { LlmRouter } from "../../providers/llmRouter";
 import type { LlmProvider } from "../../providers/types";
 import { LlmProviderExecutionError } from "../../providers/types";
-import type { LlmRouter } from "../../providers/llmRouter";
+import { buildReviewBundle, extractSourceSnippet } from "./finding-review-bundle";
+import { FindingReviewRunner } from "./finding-review-runner";
 
 describe("FindingReviewRunner", () => {
 	let tempDir: string;
@@ -282,11 +282,38 @@ describe("FindingReviewRunner", () => {
 			expect(reviewRow?.summary).toBe(
 				"認証情報らしき値がコード内に検出されています。",
 			);
+			expect(
+				(reviewRow?.output as Record<string, unknown>)?.systemContext,
+			).toEqual(
+				expect.objectContaining({
+					key: "reviews.findingReview",
+					renderedHash: expect.stringMatching(/^sha256:/),
+				}),
+			);
+			expect(
+				(reviewRow?.output as Record<string, unknown>)?.promptMessages,
+			).toEqual([
+				expect.objectContaining({
+					key: "reviews.findingReview",
+					messageRole: "system",
+				}),
+				expect.objectContaining({
+					key: "reviews.findingReviewInput",
+					messageRole: "user",
+				}),
+			]);
+			expect(
+				(reviewRow?.output as Record<string, unknown>)?.promptSequenceHash,
+			).toMatch(/^sha256:[a-f0-9]{64}$/);
 			const messages = (
 				mockLlm.chatCompletion as unknown as {
 					mock: { calls: Parameters<LlmProvider["chatCompletion"]>[] };
 				}
 			).mock.calls[0][0];
+			expect(messages.map((message) => message.role)).toEqual([
+				"system",
+				"user",
+			]);
 			expect(messages[0].content).toContain("必ず日本語でレビュー");
 			expect(messages[1].content).toContain("レビュー本文は必ず日本語");
 		});

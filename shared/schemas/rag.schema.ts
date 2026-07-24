@@ -7,13 +7,14 @@ export const searchRequestSchema = z.object({
 		.string()
 		.trim()
 		.min(1)
+		.max(128)
 		.regex(/^[^/]+$/, "Invalid category")
 		.optional(),
 });
 
 export const chatMessageSchema = z.object({
-	role: z.enum(["system", "user", "assistant"]),
-	content: z.string(),
+	role: z.enum(["user", "assistant"]),
+	content: z.string().max(50_000),
 });
 
 export const chatRequestSchema = z.object({
@@ -24,6 +25,7 @@ export const chatRequestSchema = z.object({
 		.string()
 		.trim()
 		.min(1)
+		.max(128)
 		.regex(/^[^/]+$/, "Invalid category")
 		.optional(),
 });

@@ -478,7 +478,9 @@ Protected endpoint には auth cookie が必要です。frontend は 401 を受�
 | `api/routes/` | HTTP route layer。 |
 | `api/cli/` | scan、review、report、diagnostic、migration、seed、auth の CLI entrypoint。 |
 | `api/modules/scans/` | scan runner、normalizer、bundle、report、repository、artifact storage。 |
-| `api/modules/reviews/` | finding review bundle / prompt / runner。 |
+| `api/modules/reviews/` | finding review bundle / runner。 |
+| `api/system-context/` | 型付き S11tnext prompt catalog binding、provider execution、prompt-message audit identity。 |
+| `contexts/` | `system` / `user` provider message の authoring source。 |
 | `api/modules/dast/` | DAST target preparation、runner、repository、normalization。 |
 | `api/modules/reproductions/` | sandboxed reproduction profile と execution。 |
 | `api/modules/dynamic/` | dynamic verification profile と execution。 |
@@ -529,6 +531,7 @@ frontend では、可能な限り pure derivation logic を React state から�
 ```bash
 bun run bootstrap
 bun run bootstrap:check
+bun run s11tnext:check
 bun run typecheck
 bun run lint
 bun run format
@@ -537,7 +540,14 @@ bun run build
 bun run verify
 ```
 
-`bun run verify` が closeout gate です。typecheck、lint、format check、test、build を実行します。
+`bun run verify` が closeout gate です。commit済みのS11tnext catalog pairを確認してから、
+typecheck、lint、format check、test、buildを実行します。
+
+LLMへ送る固定のsystem/userメッセージは`contexts/**/*.context.toml`で管理します。変更時は
+`bun run s11tnext:lint`、`bun run s11tnext:build`を実行し、
+`.s11tnext/catalog.json`と`.s11tnext/catalog.generated.ts`を同時にcommitしてください。
+provider経路では生成された`invocation.role`を使用し、監査には本文を複製せず
+`messageHash`と`promptSequenceHash`を保存します。
 
 Static Intelligence source contract については、fixture gate も使います。
 

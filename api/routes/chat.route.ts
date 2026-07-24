@@ -15,7 +15,6 @@ import { getAuthContextUser } from "../modules/auth/context";
 import { ChatService } from "../modules/chat/chat.service";
 import type { SearchEvidenceCollector } from "../modules/rag/search-evidence";
 import type { LlmProvider } from "../providers/types";
-import type { ChatMessage } from "../types/llm";
 
 const ConversationsQuerySchema = z.object({
 	limit: z.coerce.number().int().min(1).max(100).default(20),
@@ -197,7 +196,7 @@ export function createChatRoute(deps: ChatRouteDeps) {
 			const authUser = getAuthContextUser(c);
 			const body = c.req.valid("json");
 			const result = await service.run({
-				messages: body.messages as ChatMessage[],
+				messages: body.messages,
 				userId: authUser.userId,
 				conversationId: body.conversationId,
 				topK: body.topK,
@@ -212,7 +211,7 @@ export function createChatRoute(deps: ChatRouteDeps) {
 			return streamSSE(c, async (stream) => {
 				try {
 					const result = await service.run({
-						messages: body.messages as ChatMessage[],
+						messages: body.messages,
 						userId: authUser.userId,
 						conversationId: body.conversationId,
 						topK: body.topK,

@@ -73,6 +73,38 @@ describe("ChatService", () => {
 			},
 		});
 		expect(inserted.some((entry) => entry.table === retrievalLogs)).toBe(true);
+		expect(result.systemContexts).toEqual([
+			expect.objectContaining({
+				key: "chat.searchDecision",
+				renderedHash: expect.stringMatching(/^sha256:/),
+			}),
+		]);
+		expect(result.promptMessages).toEqual([
+			expect.objectContaining({
+				key: "chat.searchDecision",
+				messageRole: "system",
+			}),
+		]);
+		expect(result.promptSequenceHashes).toEqual([
+			expect.stringMatching(/^sha256:/),
+		]);
+		expect(
+			inserted.find(
+				(entry) =>
+					entry.table === messages &&
+					(entry.values as { role?: string }).role === "assistant",
+			)?.values,
+		).toMatchObject({
+			metadata: {
+				systemContexts: [
+					expect.objectContaining({ key: "chat.searchDecision" }),
+				],
+				promptMessages: [
+					expect.objectContaining({ key: "chat.searchDecision" }),
+				],
+				promptSequenceHashes: [expect.stringMatching(/^sha256:/)],
+			},
+		});
 	});
 
 	it("rejects an existing conversation id outside the authenticated user's scope", async () => {

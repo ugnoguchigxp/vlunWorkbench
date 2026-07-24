@@ -217,6 +217,15 @@ describe("ScanReviewRunner", () => {
 		);
 		expect(row?.findingTriageHints).toHaveLength(1);
 		expect(row?.output).toMatchObject({
+			systemContext: {
+				key: "scans.scanReview",
+				renderedHash: expect.stringMatching(/^sha256:/),
+			},
+			promptMessages: [
+				{ key: "scans.scanReview", messageRole: "system" },
+				{ key: "scans.scanReviewInput", messageRole: "user" },
+			],
+			promptSequenceHash: expect.stringMatching(/^sha256:/),
 			improvementRequest: {
 				title: "反射型 XSS 改善依頼",
 				handoffPrompt: expect.stringContaining("保存済み scan context"),
@@ -232,6 +241,10 @@ describe("ScanReviewRunner", () => {
 				mock: { calls: Parameters<LlmProvider["chatCompletion"]>[] };
 			}
 		).mock.calls[0][1];
+		expect(messages.map((message) => message.role)).toEqual([
+			"system",
+			"user",
+		]);
 		expect(messages[0].content).toContain("必ず日本語でレビュー");
 		expect(messages[0].content).toContain("improvementRequest");
 		expect(messages[0].content).toContain("handoffPrompt");

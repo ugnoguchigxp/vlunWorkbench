@@ -1,7 +1,7 @@
-import { buildAgenticSystemContext } from "./system-context";
+import { bindAgenticSearchSystemContext } from "../../system-context/bindings";
+import type { SettingsRepository } from "../settings/settings.repository";
 import type { AgenticSearchRunner } from "./runner";
 import type { AgenticSearchResult } from "./types";
-import type { SettingsRepository } from "../settings/settings.repository";
 
 type RunAgenticSearchInput = {
 	query: string;
@@ -63,14 +63,16 @@ export class AgenticSearchService {
 		const settings = await this.settingsRepository.getSystemContextForUser(
 			input.userId,
 		);
-		const systemContext = buildAgenticSystemContext({
+		const systemContext = bindAgenticSearchSystemContext({
 			userSystemContext: settings.systemContext,
 			category: input.category,
 			topK: input.topK,
 		});
 		this.log("debug", "request.system_context", {
-			defaultContextLength: systemContext.length,
+			defaultContextLength: systemContext.content.text.length,
 			userContextLength: settings.systemContext.length,
+			key: systemContext.manifest.key,
+			renderedHash: systemContext.manifest.renderedHash,
 		});
 
 		const result = await this.runner.run({
@@ -85,6 +87,12 @@ export class AgenticSearchService {
 			toolCalls: result.toolTrace.filter((item) => item.status === "ok").length,
 			answerLength: result.answer.length,
 			hasUsage: Boolean(result.usage),
+			systemContext: {
+				key: result.systemContext.key,
+				catalogDigest: result.systemContext.catalogDigest,
+				renderedHash: result.systemContext.renderedHash,
+				resolvedLocale: result.systemContext.resolvedLocale,
+			},
 		});
 		return result;
 	}

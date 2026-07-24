@@ -1,3 +1,4 @@
+import type { SystemContextInvocation } from "s11tnext";
 import type { EvidenceWebResult } from "../rag/search-evidence";
 import type { RetrievedFragment } from "../rag/types";
 
@@ -42,13 +43,14 @@ export type AgenticSearchResult = {
 	retrieved?: RetrievedFragment[];
 	webResults?: EvidenceWebResult[];
 	usage?: AgenticUsage;
+	systemContext: SystemContextInvocation["manifest"];
 };
 
 export type AgenticSearchRequest = {
 	query: string;
 	category?: string;
 	topK: number;
-	systemContext: string;
+	systemContext: SystemContextInvocation<"agenticSearch.system">;
 };
 
 export type AgenticSearchRunOptions = {

@@ -1,30 +1,30 @@
-import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
-import { getAuthContextUser } from "../modules/auth/context";
-import { HttpError } from "../modules/auth/errors";
-import type {
-	ScanRepository,
-	ProjectRepository,
-	ArtifactRepository,
-	FindingRepository,
-} from "../modules/scans/repositories";
-import type { FindingDecisionRepository } from "../modules/decisions/finding-decision-repository";
-import { FindingReviewRepository } from "../modules/reviews/finding-review-repository";
-import type { ScanReportRepository } from "../modules/scans/report-repository";
-import { ScanReviewRepository } from "../modules/scans/scan-review-repository";
-import { ScanReviewRunner } from "../modules/scans/scan-review-runner";
-import type { ArtifactStorage } from "../modules/scans/artifact-storage";
-import type { AppDatabase } from "../db";
+import { Hono } from "hono";
 import {
 	createScanReportSchema,
 	createScanReviewSchema,
 } from "../../shared/schemas/scan.schema";
-import { buildMarkdownReport } from "../modules/scans/report-builder";
-import { buildMarkdownReportWithLlmSummary } from "../modules/scans/report-summary-runner";
-import { buildScanRunSummary } from "../modules/scans/summary-builder";
+import type { AppDatabase } from "../db";
+import { getAuthContextUser } from "../modules/auth/context";
+import { HttpError } from "../modules/auth/errors";
+import type { FindingDecisionRepository } from "../modules/decisions/finding-decision-repository";
+import { FindingReviewRepository } from "../modules/reviews/finding-review-repository";
+import type { ArtifactStorage } from "../modules/scans/artifact-storage";
 import { buildGroupedFindings } from "../modules/scans/grouping-builder";
-import type { LlmRouter } from "../providers/llmRouter";
+import { buildMarkdownReport } from "../modules/scans/report-builder";
+import type { ScanReportRepository } from "../modules/scans/report-repository";
+import { buildMarkdownReportWithLlmSummary } from "../modules/scans/report-summary-runner";
+import type {
+	ArtifactRepository,
+	FindingRepository,
+	ProjectRepository,
+	ScanRepository,
+} from "../modules/scans/repositories";
 import type { ScanProcessSupervisor } from "../modules/scans/scan-process-supervisor";
+import { ScanReviewRepository } from "../modules/scans/scan-review-repository";
+import { ScanReviewRunner } from "../modules/scans/scan-review-runner";
+import { buildScanRunSummary } from "../modules/scans/summary-builder";
+import type { LlmRouter } from "../providers/llmRouter";
 
 const FULL_REPORT_OPTIONS = {
 	includeFalsePositives: true,
@@ -281,6 +281,9 @@ export function createScansRoute(deps: ScansRouteDeps) {
 									),
 									providerRouting: undefined,
 									output: undefined,
+									systemContext: undefined,
+									promptMessages: undefined,
+									promptSequenceHash: undefined,
 								};
 					const markdown = reportBuild.markdown;
 
@@ -306,6 +309,15 @@ export function createScansRoute(deps: ScansRouteDeps) {
 							...(reportBuild.providerRouting
 								? { providerRouting: reportBuild.providerRouting }
 								: {}),
+							...(reportBuild.systemContext
+								? { systemContext: reportBuild.systemContext }
+								: {}),
+							...(reportBuild.promptMessages
+								? {
+										promptMessages: reportBuild.promptMessages,
+										promptSequenceHash: reportBuild.promptSequenceHash,
+									}
+								: {}),
 						},
 					});
 
@@ -319,6 +331,15 @@ export function createScansRoute(deps: ScansRouteDeps) {
 								...reportOptions,
 								...(reportBuild.providerRouting
 									? { providerRouting: reportBuild.providerRouting }
+									: {}),
+								...(reportBuild.systemContext
+									? { systemContext: reportBuild.systemContext }
+									: {}),
+								...(reportBuild.promptMessages
+									? {
+											promptMessages: reportBuild.promptMessages,
+											promptSequenceHash: reportBuild.promptSequenceHash,
+										}
 									: {}),
 							},
 						},

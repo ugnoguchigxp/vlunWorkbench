@@ -4,12 +4,12 @@ import { eq } from "drizzle-orm";
 import { readAppEnv } from "../app/env";
 import { createDbConnection } from "../db";
 import { scanRuns } from "../db/schema";
+import { LlmSettingsRepository } from "../modules/llm-settings/llm-settings.repository";
 import { ArtifactStorage } from "../modules/scans/artifact-storage";
 import { buildMarkdownReport } from "../modules/scans/report-builder";
-import { buildMarkdownReportWithLlmSummary } from "../modules/scans/report-summary-runner";
 import { ScanReportRepository } from "../modules/scans/report-repository";
+import { buildMarkdownReportWithLlmSummary } from "../modules/scans/report-summary-runner";
 import { ArtifactRepository } from "../modules/scans/repositories";
-import { LlmSettingsRepository } from "../modules/llm-settings/llm-settings.repository";
 import { LlmRouter } from "../providers/llmRouter";
 
 function writeResult(payload: Record<string, unknown>): void {
@@ -152,6 +152,9 @@ async function main() {
 				: {
 						markdown: await buildMarkdownReport(db, scanRunId, builderOptions),
 						providerRouting: undefined,
+						systemContext: undefined,
+						promptMessages: undefined,
+						promptSequenceHash: undefined,
 					};
 		const markdown = buildResult.markdown;
 
@@ -179,6 +182,15 @@ async function main() {
 				...(buildResult.providerRouting
 					? { providerRouting: buildResult.providerRouting }
 					: {}),
+				...(buildResult.systemContext
+					? { systemContext: buildResult.systemContext }
+					: {}),
+				...(buildResult.promptMessages
+					? {
+							promptMessages: buildResult.promptMessages,
+							promptSequenceHash: buildResult.promptSequenceHash,
+						}
+					: {}),
 			},
 		});
 
@@ -198,6 +210,15 @@ async function main() {
 				summaryMode,
 				...(buildResult.providerRouting
 					? { providerRouting: buildResult.providerRouting }
+					: {}),
+				...(buildResult.systemContext
+					? { systemContext: buildResult.systemContext }
+					: {}),
+				...(buildResult.promptMessages
+					? {
+							promptMessages: buildResult.promptMessages,
+							promptSequenceHash: buildResult.promptSequenceHash,
+						}
 					: {}),
 			},
 		});

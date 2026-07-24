@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDbConnection, type DbConnection } from "../../db";
@@ -10,8 +10,8 @@ import {
 	users,
 } from "../../db/schema";
 import {
-	LlmProviderExecutionError,
 	type LlmProvider,
+	LlmProviderExecutionError,
 } from "../../providers/types";
 import { buildMarkdownReportWithLlmSummary } from "./report-summary-runner";
 
@@ -136,13 +136,42 @@ describe("buildMarkdownReportWithLlmSummary", () => {
 		expect(result.markdown.indexOf("## LLMサマリ")).toBeLessThan(
 			result.markdown.indexOf("## スキャン概要"),
 		);
+		expect(result.systemContext).toEqual(
+			expect.objectContaining({
+				key: "scans.reportSummary",
+				renderedHash: expect.stringMatching(/^sha256:/),
+			}),
+		);
+		expect(result.promptMessages).toEqual([
+			expect.objectContaining({
+				key: "scans.reportSummary",
+				messageRole: "system",
+			}),
+			expect.objectContaining({
+				key: "scans.reportSummaryInput",
+				messageRole: "user",
+			}),
+		]);
+		expect(result.promptSequenceHash).toMatch(/^sha256:[a-f0-9]{64}$/);
 		const messages = (
 			provider.chatCompletion as unknown as {
 				mock: { calls: Parameters<LlmProvider["chatCompletion"]>[] };
 			}
 		).mock.calls[0][0];
+		expect(messages.map((message) => message.role)).toEqual([
+			"system",
+			"user",
+		]);
 		expect(messages[0].content).toContain("必ず日本語で書いてください");
 		expect(messages[1].content).toContain("本文は必ず日本語");
+		const options = (
+			provider.chatCompletion as unknown as {
+				mock: { calls: Parameters<LlmProvider["chatCompletion"]>[] };
+			}
+		).mock.calls[0][1];
+		expect(options?.outputSchema).toEqual(
+			expect.objectContaining({ type: "object" }),
+		);
 	});
 
 	it("rejects English-only LLM report summary text", async () => {

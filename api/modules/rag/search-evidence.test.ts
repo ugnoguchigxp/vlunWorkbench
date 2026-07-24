@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { SearchEvidenceCollector } from "./search-evidence";
+import { buildLocalContext, SearchEvidenceCollector } from "./search-evidence";
 
 const fragment = {
 	id: "fragment-1",
@@ -14,6 +14,24 @@ const fragment = {
 };
 
 describe("SearchEvidenceCollector", () => {
+	it("keeps local context within the limit without cutting a fragment", () => {
+		const context = buildLocalContext(
+			[
+				fragment,
+				{
+					...fragment,
+					id: "fragment-2",
+					content: "second fragment content",
+				},
+			],
+			100,
+		);
+
+		expect(context).toContain("Biome content");
+		expect(context).not.toContain("second fragment content");
+		expect(context.length).toBeLessThanOrEqual(100);
+	});
+
 	it("uses the same query for full-text/vector retrieval and web search", async () => {
 		const originalFetch = globalThis.fetch;
 		globalThis.fetch = vi

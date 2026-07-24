@@ -1,0 +1,24 @@
+message_role = "user"
+
+[variables.bundle]
+profile = "untrusted.json"
+
+[variables.sourceSnippet]
+profile = "untrusted.multiline"
+
+[[sections]]
+id = "review.request"
+profile = "instruction.must"
+text = "次の finding と evidence bundle をレビューし、指定された JSON のみを返してください。レビュー本文は必ず日本語で書いてください。"
+
+[[sections]]
+id = "review.bundle"
+profile = "runtime-fact.must"
+text = '''FINDING AND EVIDENCE BUNDLE:
+[[bundle]]'''
+
+[[sections]]
+id = "review.source-snippet"
+profile = "runtime-fact.must"
+text = '''SOURCE CODE SNIPPET (redacted):
+[[sourceSnippet]]'''

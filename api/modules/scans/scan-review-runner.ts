@@ -11,6 +11,12 @@ import {
 	type LlmProvider,
 	LlmProviderExecutionError,
 } from "../../providers/types";
+import type { PromptMessageAudit } from "../../system-context/audit";
+import {
+	bindScanReviewSystemContext,
+	bindScanReviewUserMessage,
+} from "../../system-context/bindings";
+import { executePromptCompletion } from "../../system-context/llm-execution";
 import { assertJapaneseTextFields } from "../llm-language";
 import { ScanRepository } from "./repositories";
 import {
@@ -18,10 +24,6 @@ import {
 	type ScanReviewBundle,
 	type ScanReviewBundleOptions,
 } from "./scan-review-bundle";
-import {
-	buildScanReviewSystemPrompt,
-	buildScanReviewUserMessage,
-} from "./scan-review-prompt";
 import { ScanReviewRepository } from "./scan-review-repository";
 
 export type ScanReviewRunnerOptions = ScanReviewBundleOptions & {
@@ -427,6 +429,7 @@ export class ScanReviewRunner {
 			params;
 		try {
 			let outputData: ScanReviewOutput;
+			let promptAudit: PromptMessageAudit | undefined;
 			if (options.fixtureOutput) {
 				const fixtureContent = await fs.readFile(options.fixtureOutput, "utf8");
 				outputData = this.parseOutput(fixtureContent, bundle, {
@@ -436,16 +439,21 @@ export class ScanReviewRunner {
 				if (!resolvedProvider) {
 					throw new Error("LLM provider is not configured");
 				}
-				const response = await resolvedProvider.chatCompletion(
-					[
-						{ role: "system", content: buildScanReviewSystemPrompt() },
-						{ role: "user", content: buildScanReviewUserMessage(bundle) },
-					],
-					{
+				const systemMessage = bindScanReviewSystemContext();
+				const userMessage = bindScanReviewUserMessage(bundle);
+				const execution = await executePromptCompletion({
+					provider: resolvedProvider,
+					promptMessages: [systemMessage, userMessage],
+					options: {
 						temperature: 0.1,
 						outputSchema: z.toJSONSchema(scanReviewOutputSchema),
 					},
-				);
+				});
+				const response = execution.response;
+				promptAudit = {
+					promptMessages: execution.promptMessageManifests,
+					promptSequenceHash: execution.promptSequenceHash,
+				};
 				outputData = this.parseOutput(response.content, bundle);
 			}
 
@@ -461,6 +469,13 @@ export class ScanReviewRunner {
 				output: {
 					...(outputData as unknown as Record<string, unknown>),
 					...(providerRouting ? { providerRouting } : {}),
+					...(promptAudit
+						? {
+								systemContext: promptAudit.promptMessages[0],
+								promptMessages: promptAudit.promptMessages,
+								promptSequenceHash: promptAudit.promptSequenceHash,
+							}
+						: {}),
 				},
 			});
 

@@ -487,7 +487,9 @@ Protected endpoints require auth cookies. The frontend retries once through `/ap
 | `api/routes/` | HTTP route layer. |
 | `api/cli/` | CLI entrypoints for scans, review, reports, diagnostics, migrations, seed, and auth. |
 | `api/modules/scans/` | Scan runners, normalizers, bundles, reports, repositories, artifact storage. |
-| `api/modules/reviews/` | Finding review bundle/prompt/runner. |
+| `api/modules/reviews/` | Finding review bundle and runner. |
+| `api/system-context/` | Typed S11tnext prompt catalog bindings, provider execution, and prompt-message audit identity. |
+| `contexts/` | Authored `system` and `user` provider-message contexts. |
 | `api/modules/dast/` | DAST target prep, runner, repository, normalization. |
 | `api/modules/reproductions/` | Sandboxed reproduction profiles and execution. |
 | `api/modules/dynamic/` | Dynamic verification profiles and execution. |
@@ -538,6 +540,7 @@ This split is deliberate: components should render derived models, not parse raw
 ```bash
 bun run bootstrap
 bun run bootstrap:check
+bun run s11tnext:check
 bun run typecheck
 bun run lint
 bun run format
@@ -546,7 +549,15 @@ bun run build
 bun run verify
 ```
 
-`bun run verify` is the closeout gate. It runs typecheck, lint, format check, tests, and build.
+`bun run verify` is the closeout gate. It checks the committed S11tnext
+catalog pair, then runs typecheck, lint, format check, tests, and build.
+
+LLMへ送る固定のsystem/userメッセージは`contexts/**/*.context.toml`で管理します。変更時は
+`bun run s11tnext:lint`、`bun run s11tnext:build`を実行し、
+`.s11tnext/catalog.json`と`.s11tnext/catalog.generated.ts`を同時にcommit
+してください。生成物は直接編集しません。provider経路では生成された
+`invocation.role`を使用し、監査には本文を複製せず`messageHash`と
+`promptSequenceHash`を保存します。
 
 For the Static Intelligence source contract, use the fixture gate as well:
 

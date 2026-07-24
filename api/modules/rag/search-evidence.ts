@@ -47,16 +47,29 @@ export function toCitations(retrieved: RetrievedFragment[]): Citation[] {
 	}));
 }
 
-export function buildLocalContext(retrieved: RetrievedFragment[]): string {
+export const MAX_LOCAL_CONTEXT_CHARS = 50_000;
+
+export function buildLocalContext(
+	retrieved: RetrievedFragment[],
+	maxChars = MAX_LOCAL_CONTEXT_CHARS,
+): string {
 	if (retrieved.length === 0) {
 		return "(no local markdown context found)";
 	}
-	return retrieved
-		.map(
-			(item, index) =>
-				`[${index + 1}] uri=${item.sourceUri} locator=${item.locator} heading=${item.heading ?? "(none)"}\n${item.content}`,
-		)
-		.join("\n\n");
+	const blocks: string[] = [];
+	let usedChars = 0;
+	for (const [index, item] of retrieved.entries()) {
+		const block = `[${index + 1}] uri=${item.sourceUri} locator=${item.locator} heading=${item.heading ?? "(none)"}\n${item.content}`;
+		const separatorLength = blocks.length === 0 ? 0 : 2;
+		if (usedChars + separatorLength + block.length > maxChars) {
+			break;
+		}
+		blocks.push(block);
+		usedChars += separatorLength + block.length;
+	}
+	return blocks.length > 0
+		? blocks.join("\n\n")
+		: "(local markdown context exceeded the configured size limit)";
 }
 
 export function buildWebContext(webResults: EvidenceWebResult[]): string {

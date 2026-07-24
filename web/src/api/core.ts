@@ -614,7 +614,7 @@ export async function fetchRetrievalLogs(
 
 export async function sendChat(params: {
 	conversationId?: string;
-	messages: Array<{ role: "system" | "user" | "assistant"; content: string }>;
+	messages: Array<{ role: "user" | "assistant"; content: string }>;
 	topK?: number;
 	category?: string;
 }): Promise<ChatCompletionResult> {

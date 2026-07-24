@@ -1,0 +1,89 @@
+source_dir = "contexts"
+out_dir = ".s11tnext"
+
+[authoring]
+source_locale = "ja-JP"
+
+[governance]
+require_owner = true
+
+[keyspaces.agenticSearch]
+owner = "knowledge-platform"
+
+[keyspaces.chat]
+owner = "knowledge-platform"
+
+[keyspaces.reviews]
+owner = "security-review"
+
+[keyspaces.scans]
+owner = "security-review"
+
+[release_profiles.production]
+required_locales = ["$source"]
+
+[release_profiles.production.required_locales_by_keyspace]
+chat = ["$source", "en-US"]
+reviews = ["ja-JP"]
+
+[variable_profiles."untrusted.text"]
+type = "string"
+trust = "untrusted"
+placement = "delimited-context"
+encoding = "json-string"
+
+[variable_profiles."untrusted.multiline"]
+type = "string"
+trust = "untrusted"
+placement = "delimited-context"
+encoding = "delimited-text"
+
+[variable_profiles."untrusted.number"]
+type = "number"
+trust = "untrusted"
+placement = "delimited-context"
+encoding = "json-value"
+
+[variable_profiles."untrusted.json"]
+type = "json"
+trust = "untrusted"
+placement = "delimited-context"
+encoding = "json-value"
+
+[section_profiles."instruction.must"]
+kind = "instruction"
+severity = "must"
+optimizable = false
+
+[section_profiles."instruction.should"]
+kind = "instruction"
+severity = "should"
+optimizable = true
+
+[section_profiles."tool-contract.must"]
+kind = "tool-contract"
+severity = "must"
+optimizable = false
+
+[section_profiles."output-contract.must"]
+kind = "output-contract"
+severity = "must"
+optimizable = false
+
+[section_profiles."runtime-fact.must"]
+kind = "runtime-fact"
+severity = "must"
+optimizable = false
+
+[section_profiles."runtime-fact.should"]
+kind = "runtime-fact"
+severity = "should"
+optimizable = false
+
+[section_profiles."overlay.should"]
+kind = "overlay"
+severity = "should"
+optimizable = false
+
+[generation]
+typescript_indent = 2
