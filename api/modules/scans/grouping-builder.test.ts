@@ -1,10 +1,11 @@
-import { describe, expect, it, beforeEach, afterEach } from "vitest";
 import { execSync } from "node:child_process";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createDbConnection, type DbConnection } from "../../db";
-import { users, projects, scanRuns, findings } from "../../db/schema";
+import { findings, projects, scanRuns, users } from "../../db/schema";
+import { closeTestDbConnection } from "../../db/testing/connection";
 import { buildGroupedFindings } from "./grouping-builder";
 
 describe("Grouping Builder", () => {
@@ -57,7 +58,7 @@ describe("Grouping Builder", () => {
 
 	afterEach(async () => {
 		if (connection) {
-			connection.sqlite.close();
+			await closeTestDbConnection(connection);
 		}
 		await fs.rm(tempDir, { recursive: true, force: true });
 	});

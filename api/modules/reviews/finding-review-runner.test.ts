@@ -5,6 +5,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDbConnection, type DbConnection } from "../../db";
 import { findingEvidences, findings, projects, scanRuns, users } from "../../db/schema";
+import { closeTestDbConnection } from "../../db/testing/connection";
 import type { LlmRouter } from "../../providers/llmRouter";
 import type { LlmProvider } from "../../providers/types";
 import { LlmProviderExecutionError } from "../../providers/types";
@@ -125,7 +126,7 @@ describe("FindingReviewRunner", () => {
 
 	afterEach(async () => {
 		if (connection) {
-			connection.sqlite.close();
+			await closeTestDbConnection(connection);
 		}
 		await fs.rm(tempDir, { recursive: true, force: true });
 	});

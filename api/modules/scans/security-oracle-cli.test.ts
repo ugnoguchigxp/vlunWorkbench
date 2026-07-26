@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createDbConnection, type DbConnection } from "../../db";
+import { closeTestDbConnection } from "../../db/testing/connection";
 import { migrateTestDatabase } from "../../db/testing/migrate";
 
 async function writeMockTool(
@@ -148,7 +149,7 @@ describe("Security oracle CLI contract", () => {
 	});
 
 	afterEach(async () => {
-		connection.sqlite.close(false);
+		await closeTestDbConnection(connection);
 		await fs.rm(tempDir, { recursive: true, force: true });
 	});
 

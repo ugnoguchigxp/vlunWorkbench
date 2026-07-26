@@ -1,12 +1,12 @@
 import path from "node:path";
 import { parseArgs } from "node:util";
+import { scanImprovementRequestSchema } from "../../shared/schemas/scan.schema";
 import {
 	type SecurityOracleResult as OracleResult,
 	securityOracleResultSchema,
 } from "../../shared/schemas/security-oracle.schema";
 import { readAppEnv } from "../app/env";
 import { createDbConnection } from "../db";
-import { scanImprovementRequestSchema } from "../../shared/schemas/scan.schema";
 import { LlmSettingsRepository } from "../modules/llm-settings/llm-settings.repository";
 import { runProfileScan } from "../modules/scans/profile-runner";
 import {
@@ -14,14 +14,14 @@ import {
 	resolveProjectByPath,
 } from "../modules/scans/project-resolver";
 import { FindingRepository } from "../modules/scans/repositories";
-import { ScanReviewRepository } from "../modules/scans/scan-review-repository";
-import { ScanReviewRunner } from "../modules/scans/scan-review-runner";
-import { LlmRouter } from "../providers/llmRouter";
 import {
 	executionConfigFromPolicy,
 	resolveScanExecutionPolicy,
 	scanExecutionPolicyMetadata,
 } from "../modules/scans/scan-execution-policy";
+import { ScanReviewRepository } from "../modules/scans/scan-review-repository";
+import { ScanReviewRunner } from "../modules/scans/scan-review-runner";
+import { LlmRouter } from "../providers/llmRouter";
 
 const ORACLE_PROFILE = "agent-output";
 
@@ -71,7 +71,7 @@ function exitCodeFor(result: OracleResult): number {
 	return 1;
 }
 
-async function main() {
+async function main(): Promise<number> {
 	let argsValues: Record<string, string | boolean | undefined>;
 	try {
 		const parsed = parseArgs({
@@ -91,7 +91,7 @@ async function main() {
 			nextAction: "inspect_diagnostic_failure",
 		});
 		writeResult(result);
-		process.exit(exitCodeFor(result));
+		return exitCodeFor(result);
 	}
 
 	const projectPath = argsValues["project-path"] as string | undefined;
@@ -103,7 +103,7 @@ async function main() {
 			nextAction: "inspect_diagnostic_failure",
 		});
 		writeResult(result);
-		process.exit(exitCodeFor(result));
+		return exitCodeFor(result);
 	}
 
 	let dbConnection: ReturnType<typeof createDbConnection> | null = null;
@@ -178,7 +178,7 @@ async function main() {
 				review: { status: "skipped" },
 			});
 			writeResult(result);
-			process.exit(exitCodeFor(result));
+			return exitCodeFor(result);
 		}
 
 		const reviewRepository = new ScanReviewRepository(dbConnection.db);
@@ -256,7 +256,7 @@ async function main() {
 					}),
 		};
 		writeResult(result);
-		process.exit(exitCodeFor(result));
+		return exitCodeFor(result);
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
 		const configError =
@@ -273,9 +273,15 @@ async function main() {
 			nextAction: "inspect_diagnostic_failure",
 		});
 		writeResult(result);
-		process.exit(exitCodeFor(result));
+		return exitCodeFor(result);
 	} finally {
-		dbConnection?.sqlite.close(false);
+		if (dbConnection) {
+			try {
+				await dbConnection.writerClient?.close({ shutdownIfOwned: true });
+			} finally {
+				dbConnection.sqlite.close(false);
+			}
+		}
 	}
 }
 
@@ -380,4 +386,4 @@ function compactText(value: string, maxLength: number) {
 	return `${compacted.slice(0, Math.max(0, maxLength - 1))}…`;
 }
 
-await main();
+process.exitCode = await main();

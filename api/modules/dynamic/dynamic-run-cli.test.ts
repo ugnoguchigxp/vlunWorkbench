@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDbConnection, type DbConnection } from "../../db";
 import { projects, users } from "../../db/schema";
+import { closeTestDbConnection } from "../../db/testing/connection";
 import { migrateTestDatabase } from "../../db/testing/migrate";
 import { DynamicRepository } from "./dynamic-repository";
 
@@ -61,7 +62,7 @@ describe("Dynamic Run CLI", () => {
 	});
 
 	afterEach(async () => {
-		connection.sqlite.close(false);
+		await closeTestDbConnection(connection);
 		await fs.unlink(dbFile).catch(() => {});
 		vi.restoreAllMocks();
 	});

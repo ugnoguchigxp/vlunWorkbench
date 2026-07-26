@@ -5,6 +5,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createDbConnection, type DbConnection } from "../../db";
 import { projects, scanRuns, users } from "../../db/schema";
+import { closeTestDbConnection } from "../../db/testing/connection";
 import { migrateTestDatabase } from "../../db/testing/migrate";
 
 const NOW = new Date("2026-07-10T13:00:00.000Z");
@@ -68,7 +69,7 @@ describe("Static Intelligence build CLI", () => {
 			})
 			.returning();
 		scanRunId = scanRun!.id;
-		connection.sqlite.close();
+		await closeTestDbConnection(connection);
 	});
 
 	afterEach(async () => {

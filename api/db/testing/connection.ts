@@ -32,3 +32,13 @@ export function createWritableTestDbConnection(
 		ownsConnection: true,
 	};
 }
+
+export async function closeTestDbConnection(
+	connection: DbConnection,
+): Promise<void> {
+	try {
+		await connection.writerClient?.close({ shutdownIfOwned: true });
+	} finally {
+		if (connection.ownsConnection) connection.sqlite.close(false);
+	}
+}

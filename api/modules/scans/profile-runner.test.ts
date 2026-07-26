@@ -6,6 +6,7 @@ import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDbConnection, type DbConnection } from "../../db";
 import { projects, scanArtifacts, scanReports, scanRuns, users } from "../../db/schema";
+import { closeTestDbConnection } from "../../db/testing/connection";
 import * as profileRunnerModule from "./profile-runner";
 import { runProfileScan } from "./profile-runner";
 
@@ -66,7 +67,7 @@ describe("Profile Runner Orchestration", () => {
 
 	afterEach(async () => {
 		if (connection) {
-			connection.sqlite.close();
+			await closeTestDbConnection(connection);
 		}
 		await fs.rm(tempDir, { recursive: true, force: true });
 		vi.restoreAllMocks();

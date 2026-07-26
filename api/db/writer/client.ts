@@ -2,17 +2,17 @@ import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync, rmSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { drizzle } from "drizzle-orm/sqlite-proxy";
-import * as schema from "../schema";
 import {
 	databaseIdFromUrl,
 	defaultWriterSocketPath,
 	writerLockPath,
 } from "../database-url";
+import * as schema from "../schema";
 import { decodeWriterValue, encodeWriterValue } from "./codec";
 import {
 	WRITER_PROTOCOL_VERSION,
-	type WriterHealth,
 	type WriterErrorCode,
+	type WriterHealth,
 	type WriterMethod,
 	type WriterRequest,
 	type WriterResponse,
@@ -26,6 +26,7 @@ const DEFAULT_CONNECT_TIMEOUT_MS = 15_000;
 const DEFAULT_HEALTH_TIMEOUT_MS = 2_000;
 const DEFAULT_REQUEST_TIMEOUT_MS = 60_000;
 const WRITER_SHUTDOWN_TIMEOUT_MS = 5_000;
+const ownedWriterClients = new Set<SqliteWriterClient>();
 
 export class SqliteWriterClientError extends Error {
 	constructor(
@@ -65,6 +66,7 @@ export class SqliteWriterClient {
 	private startPromise?: Promise<WriterHealth>;
 	private lastHealth?: WriterHealth;
 	private spawnedPid?: number;
+	private spawnedExit?: Promise<number>;
 
 	constructor(
 		readonly databaseUrl: string,
@@ -266,6 +268,8 @@ export class SqliteWriterClient {
 		this.startPromise = undefined;
 		this.lastHealth = undefined;
 		this.spawnedPid = undefined;
+		this.spawnedExit = undefined;
+		ownedWriterClients.delete(this);
 	}
 
 	shutdownIfOwned(): number | undefined {
@@ -338,7 +342,9 @@ export class SqliteWriterClient {
 			let lastError: unknown = firstError;
 			while (Date.now() < deadline) {
 				try {
-					return await this.health();
+					const health = await this.health();
+					await this.waitForRedundantSpawnToExit(health, deadline);
+					return health;
 				} catch (error) {
 					lastError = error;
 					await delay(25);
@@ -349,6 +355,28 @@ export class SqliteWriterClient {
 				"WRITER_START_TIMEOUT",
 			);
 		}
+	}
+
+	private async waitForRedundantSpawnToExit(
+		health: WriterHealth,
+		deadline: number,
+	): Promise<void> {
+		const spawnedPid = this.spawnedPid;
+		const spawnedExit = this.spawnedExit;
+		if (!spawnedPid || spawnedPid === health.pid || !spawnedExit) return;
+
+		while (processExists(spawnedPid) && Date.now() < deadline) {
+			await Promise.race([spawnedExit, delay(20)]);
+		}
+		if (processExists(spawnedPid)) {
+			throw new SqliteWriterClientError(
+				`Redundant SQLite Writer ${spawnedPid} did not exit after Writer ${health.pid} became ready.`,
+				"WRITER_START_TIMEOUT",
+			);
+		}
+		this.spawnedPid = undefined;
+		this.spawnedExit = undefined;
+		ownedWriterClients.delete(this);
 	}
 
 	private async recoverStaleWriterArtifacts(): Promise<void> {
@@ -401,6 +429,8 @@ export class SqliteWriterClient {
 			},
 		);
 		this.spawnedPid = child.pid;
+		this.spawnedExit = child.exited;
+		ownedWriterClients.add(this);
 		child.unref();
 	}
 
@@ -478,4 +508,20 @@ export function getSqliteWriterClient(
 	options?: ConstructorParameters<typeof SqliteWriterClient>[1],
 ): SqliteWriterClient {
 	return new SqliteWriterClient(databaseUrl, options);
+}
+
+export async function closeOwnedSqliteWriterClients(): Promise<void> {
+	const results = await Promise.allSettled(
+		[...ownedWriterClients].map((client) =>
+			client.close({ shutdownIfOwned: true }),
+		),
+	);
+	const errors = results
+		.filter(
+			(result): result is PromiseRejectedResult => result.status === "rejected",
+		)
+		.map((result) => result.reason);
+	if (errors.length > 0) {
+		throw new AggregateError(errors, "Failed to stop owned SQLite Writers.");
+	}
 }

@@ -1,10 +1,11 @@
-import { describe, expect, it, beforeEach, afterEach } from "vitest";
 import { execSync } from "node:child_process";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createDbConnection, type DbConnection } from "../../db";
-import { users, projects } from "../../db/schema";
+import { projects, users } from "../../db/schema";
+import { closeTestDbConnection } from "../../db/testing/connection";
 
 describe("Semgrep CLI Scan E2E", () => {
 	let tempDir: string;
@@ -68,7 +69,7 @@ describe("Semgrep CLI Scan E2E", () => {
 
 	afterEach(async () => {
 		if (connection) {
-			connection.sqlite.close();
+			await closeTestDbConnection(connection);
 		}
 		await fs.rm(tempDir, { recursive: true, force: true });
 	});

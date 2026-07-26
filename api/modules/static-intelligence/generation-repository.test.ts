@@ -8,7 +8,10 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { CodeStructureSnapshot } from "../../../shared/schemas/static-intelligence-code-structure.schema";
 import { createDbConnection, type DbConnection } from "../../db";
 import { projects, scanArtifacts, scanRuns, users } from "../../db/schema";
-import { createWritableTestDbConnection } from "../../db/testing/connection";
+import {
+	closeTestDbConnection,
+	createWritableTestDbConnection,
+} from "../../db/testing/connection";
 import { ArtifactStorage } from "../scans/artifact-storage";
 import { buildStaticIntelligenceExport } from "./export-builder";
 import {
@@ -84,7 +87,7 @@ describe("Static Intelligence generation repository", () => {
 	});
 
 	afterEach(async () => {
-		connection.sqlite.close();
+		await closeTestDbConnection(connection);
 		await fs.rm(tempDir, { recursive: true, force: true });
 	});
 
@@ -115,7 +118,7 @@ describe("Static Intelligence generation repository", () => {
 		);
 		expect(persisted.export.metadata.exportHash).toMatch(/^[a-f0-9]{64}$/);
 
-		connection.sqlite.close();
+		await closeTestDbConnection(connection);
 		connection = createDbConnection(databaseUrl);
 		const reloaded = await new StaticIntelligenceGenerationRepository(
 			connection.db,

@@ -1,3 +1,8 @@
+import {
+	listSqliteWriterProcesses,
+	waitForNewSqliteWriterProcessesToExit,
+} from "./sqlite-writer-processes";
+
 type VerifyStep = {
 	label: string;
 	command: string[];
@@ -23,6 +28,10 @@ const steps: VerifyStep[] = [
 ];
 
 const decoder = new TextDecoder();
+const initialWriterPids = new Set(
+	(await listSqliteWriterProcesses()).map((process) => process.pid),
+);
+let failedExitCode: number | undefined;
 
 for (const step of steps) {
 	const proc = Bun.spawn(step.command, {
@@ -50,7 +59,22 @@ for (const step of steps) {
 	if (stdoutText.length > 0) console.error(stdoutText.trimEnd());
 	if (stderrText.length > 0) console.error(stderrText.trimEnd());
 
-	process.exit(exitCode);
+	failedExitCode = exitCode;
+	break;
+}
+
+const writerLeaks =
+	await waitForNewSqliteWriterProcessesToExit(initialWriterPids);
+if (writerLeaks.length > 0) {
+	console.error("FAIL sqlite-writer-cleanup");
+	for (const writer of writerLeaks) {
+		console.error(`PID ${writer.pid}: ${writer.command}`);
+	}
+	failedExitCode = failedExitCode ?? 1;
+}
+
+if (failedExitCode !== undefined) {
+	process.exit(failedExitCode);
 }
 
 console.log("OK verify complete");

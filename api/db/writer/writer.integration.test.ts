@@ -8,17 +8,31 @@ import path from "node:path";
 import { createDbConnection } from "..";
 import { writerLockPath } from "../database-url";
 import { users } from "../schema";
+import { closeTestDbConnection } from "../testing/connection";
 import { migrateTestDatabase } from "../testing/migrate";
-import { encodeWriterValue } from "./codec";
 import { SqliteWriterClient, SqliteWriterClientError } from "./client";
+import { encodeWriterValue } from "./codec";
 import {
-	startSqliteWriterServer,
 	type SqliteWriterServer,
+	startSqliteWriterServer,
 } from "./server";
 
 const roots: string[] = [];
 const servers: SqliteWriterServer[] = [];
 const writerPids = new Set<number>();
+
+async function waitForProcessExit(pid: number, timeoutMs = 5_000): Promise<void> {
+	const deadline = Date.now() + timeoutMs;
+	while (Date.now() < deadline) {
+		try {
+			process.kill(pid, 0);
+		} catch {
+			return;
+		}
+		await Bun.sleep(20);
+	}
+	throw new Error(`SQLite Writer ${pid} did not stop within ${timeoutMs}ms.`);
+}
 
 afterEach(async () => {
 	for (const pid of writerPids) {
@@ -28,6 +42,7 @@ afterEach(async () => {
 			// The writer may already have stopped.
 		}
 	}
+	await Promise.all([...writerPids].map((pid) => waitForProcessExit(pid)));
 	writerPids.clear();
 	await Promise.all(servers.splice(0).map((server) => server.stop()));
 	await Promise.all(
@@ -138,7 +153,7 @@ describe("SQLite Writer", () => {
 			expect(existsSync(writerLockPath(databaseUrl))).toBe(true);
 			expect(await connection.db.$count(users)).toBe(1);
 		} finally {
-			connection.sqlite.close();
+			await closeTestDbConnection(connection);
 		}
 	}, 15_000);
 
@@ -508,6 +523,11 @@ describe("SQLite Writer", () => {
 		} finally {
 			readOnly.close();
 		}
+		const writerPid = outputs[0]?.pid;
+		if (!writerPid) throw new Error("Autostarted Writer PID is unavailable.");
+		process.kill(writerPid, "SIGTERM");
+		await waitForProcessExit(writerPid);
+		writerPids.delete(writerPid);
 	}, 15_000);
 
 	it("rejects hard-linked database aliases that cannot share WAL sidecars", async () => {
