@@ -18,6 +18,11 @@ import type {
 	StaticIntelligenceOntologyHandoff,
 	StaticIntelligenceReadiness,
 } from "../../../shared/schemas/static-intelligence-module.schema";
+import type {
+	DiffScanPreview,
+	ScanTarget,
+	ScanTargetKind,
+} from "../../../shared/schemas/scan-target.schema";
 import { requestJson } from "./core";
 
 // --- Phase 1: CLI Scan Foundation Types ---
@@ -71,7 +76,9 @@ export type ScanArtifact = {
 		| "stderr"
 		| "log"
 		| "normalized_result"
-		| "source_snippet";
+		| "source_snippet"
+		| "report"
+		| "diff_manifest";
 	format: string;
 	path: string;
 	sha256: string;
@@ -723,6 +730,7 @@ export type ScanProfile = {
 	description: string;
 	enabled: boolean;
 	defaultTimeoutSec: number;
+	supportedTargets?: ScanTargetKind[];
 	scope?: ScanProfileScope;
 	tools: ScanProfileTool[];
 	steps?: ScanProfileStep[];
@@ -779,6 +787,11 @@ export type ScanStartToolResult = {
 	exitCode: number | null;
 	findingCount: number;
 	error: string | null;
+	applicability?: "applicable" | "not_applicable";
+	reasonCode?: string | null;
+	coverageEffect?: "covered" | "partial" | "gap";
+	artifactIds?: string[];
+	metadata?: Record<string, unknown>;
 };
 
 export type ScanStartCoverageStepResult = {
@@ -935,6 +948,8 @@ export async function startScan(
 		toolCacheDir?: string;
 		imageRef?: string;
 		imageTar?: string;
+		target?: ScanTarget;
+		expectedTargetDigest?: string;
 	},
 ): Promise<{
 	scan: { id: string; status: string; profile: string };
@@ -956,6 +971,24 @@ export async function startScan(
 		body: params,
 	});
 }
+
+export async function previewScan(
+	projectId: string,
+	params: {
+		profile: string;
+		target: Exclude<ScanTarget, { kind: "full" }>;
+	},
+): Promise<DiffScanPreview> {
+	return requestJson<DiffScanPreview>(
+		`/api/projects/${projectId}/scans/preview`,
+		{
+			method: "POST",
+			body: params,
+		},
+	);
+}
+
+export type { DiffScanPreview, ScanTarget, ScanTargetKind };
 
 export async function fetchScanSummary(
 	scanRunId: string,

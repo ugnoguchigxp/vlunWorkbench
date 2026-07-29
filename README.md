@@ -584,6 +584,33 @@ bun test api/modules/scans/report-builder.test.ts
 
 The package `test` script and `scripts/verify.ts` already apply this split.
 
+## Git Diff Target Scans
+
+Use the `diff-source-baseline` profile to scan files changed by a commit,
+merge-base range, or the current working tree. Resolve a preview first when
+scanning mutable working-tree content:
+
+```bash
+bun run scan:profile -- \
+  --project-path . \
+  --profile diff-source-baseline \
+  --target working-tree \
+  --base HEAD \
+  --include-untracked true \
+  --preview true
+```
+
+Commit and branch-like range targets use `--target commit --head <ref>` and
+`--target range --base <ref> --head <ref>`. The Scans UI exposes the same
+target selector, coverage preview, and target digest.
+
+V1 scans the whole content of each changed file in the resolved target
+snapshot. A finding is therefore related to a changed file or the target
+dependency state; it does not prove that the selected commit introduced the
+finding. Deleted, excluded, binary, unsupported, and oversized paths remain
+visible as coverage records. Diff scans do not automatically invoke an LLM
+review.
+
 ## Operational Checks
 
 Apply migrations:

@@ -5,6 +5,12 @@ import type { ScanScopePolicy } from "../../../../shared/schemas/scan-profile.sc
 import type { ArtifactSaveResult, ArtifactStorage } from "../artifact-storage";
 import { redactJsonSecrets, redactSecrets } from "../normalizers/redaction";
 import {
+	normalizeScannerOutputText,
+	normalizeStructuredOutputPaths,
+} from "../diff-output-paths";
+import { DEPENDENCY_MANIFEST_SCOPE } from "../profiles";
+import { createScopedWorkspace } from "../target-scope";
+import {
 	checkToolVersion,
 	runToolProcess,
 	type ToolExecutionConfig,
@@ -29,6 +35,7 @@ export interface OsvRunnerOptions {
 	timeoutSec?: number;
 	scope?: ScanScopePolicy;
 	dependencyMode?: "manifest" | "installed_tree";
+	normalizePathsRelativeTo?: string;
 	onLifecycleEvent?: (event: ToolLifecycleEvent) => Promise<void> | void;
 }
 
@@ -63,57 +70,104 @@ export class OsvRunner {
 
 		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "osv-run-"));
 		const tempJsonPath = path.join(tempDir, "osv-output.json");
+		let scopedWorkspace: Awaited<
+			ReturnType<typeof createScopedWorkspace>
+		> | null = null;
+		try {
+			if (options.dependencyMode === "manifest") {
+				const createdWorkspace = await createScopedWorkspace({
+					repoPath,
+					scope: DEPENDENCY_MANIFEST_SCOPE,
+					additionalScope: options.scope,
+					prefix: path.join(os.tmpdir(), "osv-manifest-scope-"),
+				});
+				scopedWorkspace = {
+					...createdWorkspace,
+					path: await fs.realpath(createdWorkspace.path),
+				};
+			}
+		} catch (error) {
+			await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+			throw error;
+		}
+		const scanPath = scopedWorkspace?.path ?? repoPath;
+		const executionMetadata = {
+			scopeWorkspace: scopedWorkspace
+				? {
+						applied: true,
+						kind: "dependency_manifest",
+						copiedFiles: scopedWorkspace.copiedFiles,
+					}
+				: { applied: false },
+		};
 
-		// Command: osv-scanner --format json --output <tempJsonPath> --recursive <repoPath>
+		// Command: osv-scanner --format json --output <tempJsonPath> --recursive <scanPath>
 		const args = [
 			"--format",
 			"json",
 			"--output",
 			tempJsonPath,
 			"--recursive",
-			repoPath,
+			scanPath,
 		];
 
 		const startTime = Date.now();
 		const runResult = await runToolProcess("osv-scanner", args, {
 			timeoutSec: options.timeoutSec,
 			execution: this.execution,
-			repoPath,
+			repoPath: scanPath,
 			outputPath: tempJsonPath,
 			onLifecycleEvent: options.onLifecycleEvent,
 		});
 		const elapsedMs = Date.now() - startTime;
+		const outputNormalizationRoot =
+			scopedWorkspace?.path ?? options.normalizePathsRelativeTo;
+		const stdout = outputNormalizationRoot
+			? normalizeScannerOutputText(runResult.stdout, outputNormalizationRoot)
+			: runResult.stdout;
+		const stderr = outputNormalizationRoot
+			? normalizeScannerOutputText(runResult.stderr, outputNormalizationRoot)
+			: runResult.stderr;
 
 		if (!runResult.ok) {
 			await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+			await cleanupScopedWorkspace(scopedWorkspace?.path);
 			return {
 				ok: false,
 				exitCode: runResult.exitCode,
-				stdout: runResult.stdout,
-				stderr: runResult.stderr,
+				stdout,
+				stderr,
 				elapsedMs,
 				error: runResult.error || "OSV-Scanner run failed",
-				executionMetadata: runResult.executionMetadata,
+				executionMetadata: {
+					...executionMetadata,
+					...(runResult.executionMetadata ?? {}),
+				},
 			};
 		}
 
-		let rawJson: any = null;
+		let rawJson: unknown = null;
 		let rawJsonText: string | null = null;
 		let jsonValid = false;
 		try {
 			rawJsonText = await fs.readFile(tempJsonPath, "utf8");
 			rawJson = JSON.parse(rawJsonText);
+			const normalizationRoot =
+				scopedWorkspace?.path ?? options.normalizePathsRelativeTo;
+			if (normalizationRoot) {
+				rawJson = normalizeStructuredOutputPaths(rawJson, normalizationRoot);
+				rawJsonText = JSON.stringify(rawJson);
+			}
 			jsonValid = true;
 		} catch {
 			// output was invalid or not found
 		}
 
 		// Clean up temporary path
-		try {
-			await fs.rm(tempDir, { recursive: true, force: true });
-		} catch {
-			// ignore cleanup
-		}
+		await Promise.all([
+			fs.rm(tempDir, { recursive: true, force: true }).catch(() => {}),
+			cleanupScopedWorkspace(scopedWorkspace?.path),
+		]);
 
 		// OSV-Scanner exits with 1 when vulnerabilities are found, and 0 when none are found.
 		const isCompleted =
@@ -138,18 +192,18 @@ export class OsvRunner {
 					);
 					await fs.rm(tempOutDir, { recursive: true, force: true });
 				}
-				if (runResult.stdout) {
+				if (stdout) {
 					stdoutArtifact = await this.storage.saveLog(
 						scanRunId,
 						"stdout",
-						redactSecrets(runResult.stdout),
+						redactSecrets(stdout),
 					);
 				}
-				if (runResult.stderr) {
+				if (stderr) {
 					stderrArtifact = await this.storage.saveLog(
 						scanRunId,
 						"stderr",
-						redactSecrets(runResult.stderr),
+						redactSecrets(stderr),
 					);
 				}
 			}
@@ -157,14 +211,17 @@ export class OsvRunner {
 			return {
 				ok: false,
 				exitCode: runResult.exitCode,
-				stdout: runResult.stdout,
-				stderr: runResult.stderr,
+				stdout,
+				stderr,
 				elapsedMs,
 				rawJsonArtifact,
 				stdoutArtifact,
 				stderrArtifact,
 				error: `OSV-Scanner exited with code ${runResult.exitCode}`,
-				executionMetadata: runResult.executionMetadata,
+				executionMetadata: {
+					...executionMetadata,
+					...(runResult.executionMetadata ?? {}),
+				},
 			};
 		}
 
@@ -190,18 +247,18 @@ export class OsvRunner {
 
 			await fs.rm(tempOutDir, { recursive: true, force: true });
 
-			if (runResult.stdout) {
+			if (stdout) {
 				stdoutArtifact = await this.storage.saveLog(
 					scanRunId,
 					"stdout",
-					redactSecrets(runResult.stdout),
+					redactSecrets(stdout),
 				);
 			}
-			if (runResult.stderr) {
+			if (stderr) {
 				stderrArtifact = await this.storage.saveLog(
 					scanRunId,
 					"stderr",
-					redactSecrets(runResult.stderr),
+					redactSecrets(stderr),
 				);
 			}
 		}
@@ -209,14 +266,22 @@ export class OsvRunner {
 		return {
 			ok: true,
 			exitCode: runResult.exitCode,
-			stdout: runResult.stdout,
-			stderr: runResult.stderr,
+			stdout,
+			stderr,
 			elapsedMs,
 			rawJson: redactedRawJson,
 			rawJsonArtifact,
 			stdoutArtifact,
 			stderrArtifact,
-			executionMetadata: runResult.executionMetadata,
+			executionMetadata: {
+				...executionMetadata,
+				...(runResult.executionMetadata ?? {}),
+			},
 		};
 	}
+}
+
+async function cleanupScopedWorkspace(workspacePath?: string): Promise<void> {
+	if (!workspacePath) return;
+	await fs.rm(workspacePath, { recursive: true, force: true }).catch(() => {});
 }

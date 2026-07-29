@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { scanTargetKindSchema } from "./scan-target.schema";
 
 export const profileToolFailurePolicySchema = z.enum([
 	"fail_profile",
@@ -79,6 +80,10 @@ export const scanStepReasonCodeSchema = z.enum([
 	"invalid_structured_output",
 	"timed_out",
 	"execution_failed",
+	"no_changed_files",
+	"no_relevant_files",
+	"no_dependency_manifest_changed",
+	"diff_target_not_supported",
 ]);
 export type ScanStepReasonCode = z.infer<typeof scanStepReasonCodeSchema>;
 
@@ -163,6 +168,7 @@ export const scanProfileSchema = z.object({
 	enabled: z.boolean(),
 	defaultTimeoutSec: z.number().int().positive(),
 	scope: scanScopePolicySchema.optional(),
+	supportedTargets: z.array(scanTargetKindSchema).optional(),
 	tools: z.array(profileToolEntrySchema),
 	steps: z.array(scanProfileStepSchema).optional(),
 });

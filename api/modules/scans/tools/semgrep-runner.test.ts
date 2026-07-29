@@ -392,4 +392,52 @@ describe("SemgrepRunner", () => {
 		expect(scanArgs).toEqual(expect.arrayContaining(["--exclude", "dist/**"]));
 		expect(scanArgs).not.toContain("**/*");
 	});
+
+	it("scans only requested diff paths and normalizes raw result paths", async () => {
+		await fs.mkdir(path.join(tempDir, "src"), { recursive: true });
+		await fs.writeFile(path.join(tempDir, "src", "app.ts"), "export {};\n");
+		await fs.mkdir(path.join(tempDir, "..config"), { recursive: true });
+		await fs.writeFile(path.join(tempDir, "..config", "rule.ts"), "export {};\n");
+		let scanArgs: string[] = [];
+		vi.spyOn(Bun, "spawn").mockImplementation((args) => {
+			if (args[0] === "semgrep" && args[1] === "--version") {
+				return {
+					exited: Promise.resolve(0),
+					stdout: new Response("1.2.3\n").body,
+					stderr: new Response("").body,
+				} as any;
+			}
+			scanArgs = [...(args as string[])];
+			const outputIdx = scanArgs.indexOf("--output");
+			const writePromise = fs.writeFile(
+				scanArgs[outputIdx + 1],
+				JSON.stringify({
+					results: [{ path: path.join(tempDir, "src", "app.ts") }],
+				}),
+			);
+			return {
+				exited: writePromise.then(() => 0),
+				stdout: new Response("").body,
+				stderr: new Response("").body,
+			} as any;
+		});
+
+		const result = await new SemgrepRunner(storage).run("scan-123", tempDir, {
+			targetPaths: ["src/app.ts", "..config/rule.ts"],
+			normalizePathsRelativeTo: tempDir,
+		});
+
+		expect(result.ok).toBe(true);
+		expect(scanArgs).toContain(path.join(tempDir, "src", "app.ts"));
+		expect(scanArgs).toContain(path.join(tempDir, "..config", "rule.ts"));
+		expect(scanArgs.at(-1)).not.toBe(tempDir);
+		expect(result.rawJson).toEqual({
+			results: [{ path: "src/app.ts" }],
+		});
+		const rawArtifact = await fs.readFile(
+			path.join(artifactRoot, result.rawJsonArtifact?.path ?? ""),
+			"utf8",
+		);
+		expect(rawArtifact).not.toContain(tempDir);
+	});
 });

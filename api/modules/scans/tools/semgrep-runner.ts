@@ -4,6 +4,10 @@ import path from "node:path";
 import type { ScanScopePolicy } from "../../../../shared/schemas/scan-profile.schema";
 import type { ArtifactSaveResult, ArtifactStorage } from "../artifact-storage";
 import { redactJsonSecrets, redactSecrets } from "../normalizers/redaction";
+import {
+	normalizeScannerOutputText,
+	normalizeStructuredOutputPaths,
+} from "../diff-output-paths";
 import { getScopeExcludeGlobs, getScopeIncludeGlobs } from "../target-scope";
 import {
 	checkToolVersion,
@@ -31,6 +35,8 @@ export interface SemgrepRunnerOptions {
 	timeoutSec?: number;
 	maxTargetBytes?: number;
 	scope?: ScanScopePolicy;
+	targetPaths?: string[];
+	normalizePathsRelativeTo?: string;
 	onLifecycleEvent?: (event: ToolLifecycleEvent) => Promise<void> | void;
 }
 
@@ -93,7 +99,21 @@ export class SemgrepRunner {
 			args.push("--exclude", excludeGlob);
 		}
 
-		args.push(repoPath);
+		const targetPaths = options.targetPaths?.length
+			? options.targetPaths.map((relativePath) => {
+					const absolutePath = path.resolve(repoPath, relativePath);
+					const relative = path.relative(repoPath, absolutePath);
+					if (
+						relative === ".." ||
+						relative.startsWith(`..${path.sep}`) ||
+						path.isAbsolute(relative)
+					) {
+						throw new Error("Semgrep target path escaped the repository root.");
+					}
+					return absolutePath;
+				})
+			: [repoPath];
+		args.push(...targetPaths);
 
 		const runResult = await runToolProcess("semgrep", args, {
 			timeoutSec: options.timeoutSec,
@@ -102,8 +122,19 @@ export class SemgrepRunner {
 			outputPath: tempJsonPath,
 			onLifecycleEvent: options.onLifecycleEvent,
 		});
-		const { exitCode, stdout, stderr, elapsedMs, executionMetadata } =
-			runResult;
+		const {
+			exitCode,
+			stdout: rawStdout,
+			stderr: rawStderr,
+			elapsedMs,
+			executionMetadata,
+		} = runResult;
+		const stdout = options.normalizePathsRelativeTo
+			? normalizeScannerOutputText(rawStdout, options.normalizePathsRelativeTo)
+			: rawStdout;
+		const stderr = options.normalizePathsRelativeTo
+			? normalizeScannerOutputText(rawStderr, options.normalizePathsRelativeTo)
+			: rawStderr;
 
 		if (!runResult.ok) {
 			await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
@@ -121,12 +152,19 @@ export class SemgrepRunner {
 			};
 		}
 
-		let rawJson: any = null;
+		let rawJson: unknown = null;
 		let rawJsonText: string | null = null;
 		let jsonValid = false;
 		try {
 			rawJsonText = await fs.readFile(tempJsonPath, "utf8");
 			rawJson = JSON.parse(rawJsonText);
+			if (options.normalizePathsRelativeTo) {
+				rawJson = normalizeStructuredOutputPaths(
+					rawJson,
+					options.normalizePathsRelativeTo,
+				);
+				rawJsonText = JSON.stringify(rawJson);
+			}
 			jsonValid = true;
 		} catch {
 			// output was invalid or not found

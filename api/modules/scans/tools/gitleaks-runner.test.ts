@@ -413,4 +413,60 @@ describe("GitleaksRunner", () => {
 			copiedFiles: 1,
 		});
 	});
+
+	it("uses no-git for a pre-scoped diff workspace and normalizes paths", async () => {
+		await fs.mkdir(path.join(tempDir, "src"), { recursive: true });
+		await fs.writeFile(path.join(tempDir, "src", "secret.ts"), "secret\n");
+		let scanArgs: string[] = [];
+		vi.spyOn(Bun, "spawn").mockImplementation((args) => {
+			if (args[0] === "gitleaks" && args[1] === "version") {
+				return {
+					exited: Promise.resolve(0),
+					stdout: new Response("8.18.0\n").body,
+					stderr: new Response("").body,
+				} as any;
+			}
+			scanArgs = [...(args as string[])];
+			const outputIdx = scanArgs.indexOf("--report-path");
+			const writePromise = fs.writeFile(
+				scanArgs[outputIdx + 1],
+				JSON.stringify([
+					{
+						Description: "Secret",
+						File: path.join(tempDir, "src", "secret.ts"),
+						Secret: "redact-me",
+						RuleID: "secret",
+					},
+				]),
+			);
+			return {
+				exited: writePromise.then(() => 1),
+				stdout: new Response("").body,
+				stderr: new Response("").body,
+			} as any;
+		});
+
+		const result = await new GitleaksRunner(storage).run(
+			"scan-123",
+			tempDir,
+			{
+				preScoped: true,
+				normalizePathsRelativeTo: tempDir,
+			},
+		);
+
+		expect(result.ok).toBe(true);
+		expect(scanArgs).toContain("--no-git");
+		expect(result.rawJson).toEqual([
+			expect.objectContaining({
+				File: "src/secret.ts",
+				Secret: "[REDACTED]",
+			}),
+		]);
+		const rawArtifact = await fs.readFile(
+			path.join(artifactRoot, result.rawJsonArtifact?.path ?? ""),
+			"utf8",
+		);
+		expect(rawArtifact).not.toContain(tempDir);
+	});
 });

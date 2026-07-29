@@ -1,6 +1,7 @@
 import { CheckCircle2, Circle, Download, FileText, X } from "lucide-react";
 import { useEffect, useRef } from "react";
 import { SelectInput } from "../../../ui";
+import { readDiffFindingRelationDisplay } from "../diff-target-display";
 import { formatFindingTitle, formatSeverityLabel } from "../scan-display-copy";
 import { useScans } from "../scans-context";
 import { formatDateTime, getSeverityClass, shortPath } from "../scans-utils";
@@ -193,6 +194,9 @@ function FindingsTable() {
 				</thead>
 				<tbody>
 					{c.displayedFindings.map((finding) => {
+						const diffRelation = readDiffFindingRelationDisplay(
+							finding.metadata,
+						);
 						const location = finding.primaryLocation;
 						const path =
 							location && typeof location.path === "string"
@@ -233,6 +237,13 @@ function FindingsTable() {
 								<td>
 									<strong>{formatFindingTitle(finding.title)}</strong>
 									<small>{finding.description}</small>
+									{diffRelation ? (
+										<small
+											className={`diff-relation-badge relation-${diffRelation.kind}`}
+										>
+											{diffRelation.label}
+										</small>
+									) : null}
 								</td>
 								<td>
 									<span>{finding.sourceTool}</span>
@@ -308,6 +319,9 @@ function FindingDetailDrawer() {
 	const workflow = c.selectedDecisionWorkflow;
 	const finding = c.selectedFindingDetails?.finding;
 	const evidenceQuality = c.selectedEvidenceQuality;
+	const diffRelation = finding
+		? readDiffFindingRelationDisplay(finding.metadata)
+		: null;
 	const workState = finding
 		? (c.findingWorkStatesById.get(finding.id) ?? "ready_for_report")
 		: null;
@@ -346,6 +360,13 @@ function FindingDetailDrawer() {
 										className={`evidence-quality-badge evidence-${evidenceQuality.level}`}
 									>
 										証跡: {evidenceQuality.label}
+									</span>
+								) : null}
+								{diffRelation ? (
+									<span
+										className={`diff-relation-badge relation-${diffRelation.kind}`}
+									>
+										{diffRelation.label}
 									</span>
 								) : null}
 								<span

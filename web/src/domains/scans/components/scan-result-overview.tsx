@@ -9,6 +9,7 @@ import {
 	buildScanImprovementRequestView,
 	classifyScanReviewFailure,
 } from "../scan-improvement-request";
+import { readDiffTargetDisplay } from "../diff-target-display";
 import { useScans } from "../scans-context";
 import { ExecutiveRiskSummary } from "./executive-risk-summary";
 import { ScanComparisonPanel } from "./scan-comparison-panel";
@@ -34,6 +35,7 @@ export function ScanResultOverview({
 			"過去の scan run です。保存済み結果から内容を確認します。",
 	);
 	const outcome = c.scanSummary?.profileOutcome ?? scanRun?.status ?? null;
+	const diffTarget = readDiffTargetDisplay(scanRun?.metadata);
 	const latestScanReview = c.scanReviews[0] ?? null;
 	const latestCompletedScanReview =
 		c.scanReviews.find((item) => item.status === "completed") ?? null;
@@ -91,6 +93,20 @@ export function ScanResultOverview({
 							c.scanSummary?.totals.findingCount ?? c.findings.length,
 						)}
 					/>
+					{diffTarget ? (
+						<>
+							<ContextMetric label="差分対象" value={diffTarget.label} />
+							<ContextMetric
+								label="差分coverage"
+								value={
+									diffTarget.coverage
+										? `${diffTarget.coverage.scannable}/${diffTarget.coverage.changed} files`
+										: "不明"
+								}
+							/>
+							<ContextMetric label="Target digest" value={diffTarget.digest} />
+						</>
+					) : null}
 					<ContextMetric
 						label="レビュー済み"
 						value={String(c.scanSummary?.totals.reviewedFindingCount ?? 0)}

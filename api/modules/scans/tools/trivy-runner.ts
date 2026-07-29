@@ -4,6 +4,10 @@ import path from "node:path";
 import type { ScanScopePolicy } from "../../../../shared/schemas/scan-profile.schema";
 import type { ArtifactSaveResult, ArtifactStorage } from "../artifact-storage";
 import { redactJsonSecrets, redactSecrets } from "../normalizers/redaction";
+import {
+	normalizeScannerOutputText,
+	normalizeStructuredOutputPaths,
+} from "../diff-output-paths";
 import { createScopedWorkspace, getScopeSkipDirs } from "../target-scope";
 import {
 	checkToolVersion,
@@ -33,6 +37,7 @@ export interface TrivyRunnerOptions {
 	mode?: "fs-vulnerability" | "fs-sbom" | "image";
 	imageRef?: string;
 	imageTar?: string;
+	normalizePathsRelativeTo?: string;
 	onLifecycleEvent?: (event: ToolLifecycleEvent) => Promise<void> | void;
 }
 
@@ -126,6 +131,18 @@ export class TrivyRunner {
 			onLifecycleEvent: options.onLifecycleEvent,
 		});
 		const elapsedMs = Date.now() - startTime;
+		const stdout = options.normalizePathsRelativeTo
+			? normalizeScannerOutputText(
+					runResult.stdout,
+					options.normalizePathsRelativeTo,
+				)
+			: runResult.stdout;
+		const stderr = options.normalizePathsRelativeTo
+			? normalizeScannerOutputText(
+					runResult.stderr,
+					options.normalizePathsRelativeTo,
+				)
+			: runResult.stderr;
 		const executionMetadata: Record<string, unknown> = {
 			...(runResult.executionMetadata ?? {}),
 			scopeWorkspace: scopedWorkspace
@@ -143,8 +160,8 @@ export class TrivyRunner {
 			return {
 				ok: false,
 				exitCode: runResult.exitCode,
-				stdout: runResult.stdout,
-				stderr: runResult.stderr,
+				stdout,
+				stderr,
 				elapsedMs,
 				error: runResult.error || "Trivy run failed",
 				executionMetadata,
@@ -157,6 +174,13 @@ export class TrivyRunner {
 		try {
 			rawJsonText = await fs.readFile(tempJsonPath, "utf8");
 			rawJson = JSON.parse(rawJsonText);
+			if (options.normalizePathsRelativeTo && mode !== "fs-sbom") {
+				rawJson = normalizeStructuredOutputPaths(
+					rawJson,
+					options.normalizePathsRelativeTo,
+				);
+				rawJsonText = JSON.stringify(rawJson);
+			}
 			jsonValid = true;
 			if (mode === "fs-sbom" && rawJson && typeof rawJson === "object") {
 				const sbom = rawJson as {
@@ -205,18 +229,18 @@ export class TrivyRunner {
 					);
 					await fs.rm(tempOutDir, { recursive: true, force: true });
 				}
-				if (runResult.stdout) {
+				if (stdout) {
 					stdoutArtifact = await this.storage.saveLog(
 						scanRunId,
 						"stdout",
-						redactSecrets(runResult.stdout),
+						redactSecrets(stdout),
 					);
 				}
-				if (runResult.stderr) {
+				if (stderr) {
 					stderrArtifact = await this.storage.saveLog(
 						scanRunId,
 						"stderr",
-						redactSecrets(runResult.stderr),
+						redactSecrets(stderr),
 					);
 				}
 			}
@@ -224,8 +248,8 @@ export class TrivyRunner {
 			return {
 				ok: false,
 				exitCode: runResult.exitCode,
-				stdout: runResult.stdout,
-				stderr: runResult.stderr,
+				stdout,
+				stderr,
 				elapsedMs,
 				rawJsonArtifact,
 				stdoutArtifact,
@@ -259,18 +283,18 @@ export class TrivyRunner {
 
 			await fs.rm(tempOutDir, { recursive: true, force: true });
 
-			if (runResult.stdout) {
+			if (stdout) {
 				stdoutArtifact = await this.storage.saveLog(
 					scanRunId,
 					"stdout",
-					redactSecrets(runResult.stdout),
+					redactSecrets(stdout),
 				);
 			}
-			if (runResult.stderr) {
+			if (stderr) {
 				stderrArtifact = await this.storage.saveLog(
 					scanRunId,
 					"stderr",
-					redactSecrets(runResult.stderr),
+					redactSecrets(stderr),
 				);
 			}
 		}
@@ -278,8 +302,8 @@ export class TrivyRunner {
 		return {
 			ok: true,
 			exitCode: runResult.exitCode,
-			stdout: runResult.stdout,
-			stderr: runResult.stderr,
+			stdout,
+			stderr,
 			elapsedMs,
 			rawJson: redactedRawJson,
 			rawJsonArtifact,

@@ -5,6 +5,10 @@ import type {
 	ScanProfileStep,
 	ScanScopePolicy,
 } from "../../../shared/schemas/scan-profile.schema";
+import type {
+	DiffManifestEntry,
+	ResolvedScanTarget,
+} from "../../../shared/schemas/scan-target.schema";
 import type { AppDatabase } from "../../db";
 import { discoverApiSchema } from "../api-schema-fuzz/schema-discovery";
 import { runSchemathesisReadonly } from "../api-schema-fuzz/schemathesis-runner";
@@ -51,7 +55,20 @@ export interface ToolResult {
 	findingCount: number;
 	exitCode: number | null;
 	error: string | null;
+	applicability?: "applicable" | "not_applicable";
+	reasonCode?: string | null;
+	coverageEffect?: "covered" | "partial" | "gap";
+	artifactIds?: string[];
+	metadata?: Record<string, unknown>;
 }
+
+export type DiffToolExecutionContext = {
+	target: ResolvedScanTarget;
+	entries: DiffManifestEntry[];
+	targetPaths?: string[];
+	inputKind: "full_snapshot" | "changed_workspace";
+	contextFileCount?: number;
+};
 
 export type DastStepResult = {
 	kind: "dast";
@@ -276,12 +293,14 @@ export async function runToolIntoExistingScan(params: {
 	timeoutSec?: number;
 	repoPath: string;
 	execution?: ToolExecutionConfig;
+	diffContext?: DiffToolExecutionContext;
 }): Promise<{
 	toolRunId: string;
 	findingCount: number;
 	exitCode: number | null;
 	elapsedMs: number;
 	artifactIds: string[];
+	diffUnmappedFindingCount: number;
 }> {
 	const scanRepo = new ScanRepository(params.db);
 	const artifactRepo = new ArtifactRepository(params.db);
@@ -299,6 +318,16 @@ export async function runToolIntoExistingScan(params: {
 	const timeoutSec = params.timeoutSec;
 	const execution = normalizeToolExecutionConfig(params.execution);
 	const baseExecutionMetadata = buildBaseExecutionMetadata(execution);
+	const diffExecutionMetadata = params.diffContext
+		? {
+				scanTarget: persistedTargetMetadata(params.diffContext.target),
+				diffInputKind: params.diffContext.inputKind,
+				diffChangedFileCount: params.diffContext.entries.filter(
+					(entry) => entry.disposition === "scan",
+				).length,
+				diffContextFileCount: params.diffContext.contextFileCount ?? 0,
+			}
+		: {};
 	const scope = options.scope as ScanScopePolicy | undefined;
 	const scanners = Array.isArray(options.scanners)
 		? (options.scanners as string[])
@@ -356,7 +385,7 @@ export async function runToolIntoExistingScan(params: {
 		toolVersion,
 		status: "running",
 		command: defaultCommand,
-		metadata: baseExecutionMetadata,
+		metadata: { ...baseExecutionMetadata, ...diffExecutionMetadata },
 	});
 	const toolRunId = toolRun.id;
 
@@ -370,6 +399,7 @@ export async function runToolIntoExistingScan(params: {
 			metadata: {
 				adapter: toolName,
 				...baseExecutionMetadata,
+				...diffExecutionMetadata,
 				error: errMsg,
 				options,
 				timeoutSec: timeoutSec ?? null,
@@ -382,8 +412,12 @@ export async function runToolIntoExistingScan(params: {
 	let exitCode: number | null = null;
 	let findingCount = 0;
 	let evidenceCount = 0;
+	let diffUnmappedFindingCount = 0;
 	const artifactIds: string[] = [];
-	let executionMetadata: Record<string, unknown> = baseExecutionMetadata;
+	let executionMetadata: Record<string, unknown> = {
+		...baseExecutionMetadata,
+		...diffExecutionMetadata,
+	};
 
 	try {
 		await scanRepo.createScanEvent({
@@ -413,6 +447,10 @@ export async function runToolIntoExistingScan(params: {
 					maxTargetBytes: options.maxTargetBytes
 						? Number(options.maxTargetBytes)
 						: undefined,
+					targetPaths: params.diffContext?.targetPaths,
+					normalizePathsRelativeTo: params.diffContext
+						? params.repoPath
+						: undefined,
 					onLifecycleEvent,
 				},
 			);
@@ -423,6 +461,10 @@ export async function runToolIntoExistingScan(params: {
 				{
 					timeoutSec,
 					scope,
+					preScoped: params.diffContext?.inputKind === "changed_workspace",
+					normalizePathsRelativeTo: params.diffContext
+						? params.repoPath
+						: undefined,
 					onLifecycleEvent,
 				},
 			);
@@ -434,6 +476,9 @@ export async function runToolIntoExistingScan(params: {
 					timeoutSec,
 					scope,
 					dependencyMode,
+					normalizePathsRelativeTo: params.diffContext
+						? params.repoPath
+						: undefined,
 					onLifecycleEvent,
 				},
 			);
@@ -452,13 +497,20 @@ export async function runToolIntoExistingScan(params: {
 						| undefined,
 					imageRef: options.imageRef as string | undefined,
 					imageTar: options.imageTar as string | undefined,
+					normalizePathsRelativeTo: params.diffContext
+						? params.repoPath
+						: undefined,
 					onLifecycleEvent,
 				},
 			);
 		}
 
 		exitCode = runResult.exitCode;
-		executionMetadata = runResult.executionMetadata ?? baseExecutionMetadata;
+		executionMetadata = {
+			...baseExecutionMetadata,
+			...diffExecutionMetadata,
+			...(runResult.executionMetadata ?? {}),
+		};
 
 		// 5. Register Artifacts
 		let rawArtifactId: string | null = null;
@@ -553,6 +605,13 @@ export async function runToolIntoExistingScan(params: {
 				continue;
 			}
 			processedFingerprints.add(nf.fingerprint);
+			const diffRelation = params.diffContext
+				? buildDiffFindingRelation(
+						nf,
+						params.toolId,
+						params.diffContext.entries,
+					)
+				: null;
 
 			const finding = await findingRepo.createFinding({
 				scanRunId: params.scanRunId,
@@ -566,7 +625,15 @@ export async function runToolIntoExistingScan(params: {
 				status: nf.status,
 				primaryLocation: nf.primaryLocation,
 				fingerprint: nf.fingerprint,
-				metadata: nf.metadata,
+				metadata: {
+					...(nf.metadata ?? {}),
+					...(params.diffContext
+						? {
+								scanTarget: persistedTargetMetadata(params.diffContext.target),
+								diffRelation,
+							}
+						: {}),
+				},
 			});
 			findingCount++;
 
@@ -577,6 +644,21 @@ export async function runToolIntoExistingScan(params: {
 				message: `Finding created: ${nf.title} (${nf.ruleId})`,
 				data: { findingId: finding.id },
 			});
+			if (diffRelation?.kind === "unmapped") {
+				diffUnmappedFindingCount++;
+				await scanRepo.createScanEvent({
+					scanRunId: params.scanRunId,
+					level: "warn",
+					eventType: "finding.diff_unmapped",
+					message: `Finding path could not be mapped to the diff manifest: ${nf.primaryLocation.path}`,
+					data: {
+						findingId: finding.id,
+						toolId: params.toolId,
+						path: nf.primaryLocation.path,
+						targetDigest: params.diffContext?.target.targetDigest,
+					},
+				});
+			}
 
 			for (const ev of nf.evidences) {
 				const associatedArtifactId =
@@ -604,6 +686,7 @@ export async function runToolIntoExistingScan(params: {
 				artifactIds,
 				findingCount,
 				evidenceCount,
+				diffUnmappedFindingCount,
 				options,
 				timeoutSec: timeoutSec ?? null,
 				toolVersion,
@@ -624,6 +707,7 @@ export async function runToolIntoExistingScan(params: {
 			exitCode: runResult.exitCode,
 			elapsedMs: runResult.elapsedMs,
 			artifactIds,
+			diffUnmappedFindingCount,
 		};
 	} catch (err: unknown) {
 		const errorMessage = err instanceof Error ? err.message : String(err);
@@ -644,6 +728,7 @@ export async function runToolIntoExistingScan(params: {
 					artifactIds,
 					findingCount,
 					evidenceCount,
+					diffUnmappedFindingCount,
 					options,
 					timeoutSec: timeoutSec ?? null,
 					toolVersion,
@@ -1197,6 +1282,58 @@ export async function runDastStepIntoExistingScan(params: {
 			await preparedAutoTarget?.stop().catch(() => undefined);
 		}
 	}
+}
+
+function persistedTargetMetadata(target: ResolvedScanTarget) {
+	return {
+		schemaVersion: target.schemaVersion,
+		kind: target.kind,
+		projectPrefix: target.projectPrefix,
+		baseSha: target.baseSha,
+		headSha: target.headSha,
+		mergeBaseSha: target.mergeBaseSha,
+		includeUntracked: target.includeUntracked,
+		targetDigest: target.targetDigest,
+		snapshotDigest: target.snapshotDigest,
+	};
+}
+
+function buildDiffFindingRelation(
+	finding: NormalizedFinding,
+	toolId: string,
+	entries: DiffManifestEntry[],
+): Record<string, unknown> {
+	const metadata = finding.metadata ?? {};
+	const dependencyFinding =
+		toolId === "osv" ||
+		(toolId === "trivy" &&
+			("vulnerabilityId" in metadata || "packageName" in metadata));
+	const locationPath = normalizeFindingPath(finding.primaryLocation.path);
+	if (dependencyFinding) {
+		return {
+			kind: "target_state_dependency",
+			path: locationPath,
+		};
+	}
+	const entry = entries.find(
+		(candidate) => normalizeFindingPath(candidate.path) === locationPath,
+	);
+	if (entry) {
+		return {
+			kind: "changed_file",
+			path: entry.path,
+			pathStatus: entry.status,
+		};
+	}
+	return {
+		kind: "unmapped",
+		path: locationPath,
+		reasonCode: "finding_path_not_in_diff_manifest",
+	};
+}
+
+function normalizeFindingPath(value: string): string {
+	return value.replaceAll("\\", "/").replace(/^\.\//, "");
 }
 
 export { runProfileScan } from "./profile-orchestrator";

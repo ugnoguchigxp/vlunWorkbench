@@ -105,6 +105,108 @@ const formatDateTime = (value: Date | null | undefined): string => {
 	return value.toISOString();
 };
 
+type DiffReportContext = {
+	kind: "commit" | "range" | "working_tree";
+	baseSha: string;
+	headSha: string | null;
+	mergeBaseSha: string | null;
+	targetDigest: string;
+	coverage: {
+		changed: number;
+		scannable: number;
+		deleted: number;
+		excluded: number;
+		unsupported: number;
+		tooLarge: number;
+	};
+	tools: Array<{
+		toolId: string;
+		applicability: string;
+		reasonCode: string | null;
+		coverageEffect: string;
+		status: string | null;
+	}>;
+};
+
+const asRecord = (value: unknown): Record<string, unknown> | null =>
+	value && typeof value === "object"
+		? (value as Record<string, unknown>)
+		: null;
+
+const readDiffReportContext = (
+	metadata: Record<string, unknown> | null | undefined,
+): DiffReportContext | null => {
+	const target = asRecord(metadata?.target);
+	const coverage = asRecord(metadata?.diffCoverage);
+	if (!target || !coverage) return null;
+	const kind = target.kind;
+	if (kind !== "commit" && kind !== "range" && kind !== "working_tree") {
+		return null;
+	}
+	const coverageFields = [
+		"changed",
+		"scannable",
+		"deleted",
+		"excluded",
+		"unsupported",
+		"tooLarge",
+	] as const;
+	if (coverageFields.some((field) => typeof coverage[field] !== "number")) {
+		return null;
+	}
+	const runtimeTools = new Map(
+		Array.isArray(metadata?.stepResults)
+			? metadata.stepResults.flatMap((value) => {
+					const result = asRecord(value);
+					return result?.kind === "static_tool" &&
+						typeof result.toolId === "string"
+						? [[result.toolId, result] as const]
+						: [];
+				})
+			: [],
+	);
+	const tools = Array.isArray(metadata?.diffToolApplicability)
+		? metadata.diffToolApplicability.flatMap((value) => {
+				const tool = asRecord(value);
+				const runtime =
+					typeof tool?.toolId === "string"
+						? runtimeTools.get(tool.toolId)
+						: undefined;
+				return tool &&
+					typeof tool.toolId === "string" &&
+					typeof tool.applicability === "string" &&
+					typeof tool.coverageEffect === "string"
+					? [
+							{
+								toolId: tool.toolId,
+								applicability: tool.applicability,
+								reasonCode:
+									typeof tool.reasonCode === "string" ? tool.reasonCode : null,
+								coverageEffect:
+									typeof runtime?.coverageEffect === "string"
+										? runtime.coverageEffect
+										: tool.coverageEffect,
+								status:
+									typeof runtime?.status === "string" ? runtime.status : null,
+							},
+						]
+					: [];
+			})
+		: [];
+	return {
+		kind,
+		baseSha: toInlineText(target.baseSha),
+		headSha: typeof target.headSha === "string" ? target.headSha : null,
+		mergeBaseSha:
+			typeof target.mergeBaseSha === "string" ? target.mergeBaseSha : null,
+		targetDigest: toInlineText(target.targetDigest),
+		coverage: Object.fromEntries(
+			coverageFields.map((field) => [field, coverage[field] as number]),
+		) as DiffReportContext["coverage"],
+		tools,
+	};
+};
+
 const DECISION_LABELS: Record<string, string> = {
 	needs_fix: "実装改善候補",
 	accepted: "既知リスク記録",
@@ -555,6 +657,7 @@ export async function buildMarkdownReport(
 
 	// Scan Summary
 	const profileOutcome = (scanRun.metadata?.profileOutcome as string) || "N/A";
+	const diffContext = readDiffReportContext(scanRun.metadata);
 	lines.push("## スキャン概要");
 	lines.push(`- **プロジェクト名:** ${toInlineText(project.name)}`);
 	lines.push(`- **スキャンプロファイル:** ${toInlineText(scanRun.profile)}`);
@@ -579,14 +682,73 @@ export async function buildMarkdownReport(
 	}
 	lines.push("");
 
+	if (diffContext) {
+		lines.push("## Diff Target and Coverage");
+		lines.push(`- **Target kind:** ${diffContext.kind}`);
+		lines.push(`- **Base SHA:** ${diffContext.baseSha}`);
+		lines.push(`- **Head SHA:** ${diffContext.headSha ?? "working tree"}`);
+		lines.push(`- **Merge base SHA:** ${diffContext.mergeBaseSha ?? "N/A"}`);
+		lines.push(`- **Target digest:** ${diffContext.targetDigest}`);
+		lines.push(
+			`- **Path coverage:** changed=${diffContext.coverage.changed}, scannable=${diffContext.coverage.scannable}, deleted=${diffContext.coverage.deleted}, excluded=${diffContext.coverage.excluded}, unsupported=${diffContext.coverage.unsupported}, too_large=${diffContext.coverage.tooLarge}`,
+		);
+		lines.push(
+			"- **V1 semantics:** changed path に関連するスキャンです。対象ファイルは whole-file で評価されるため、finding が変更行で新規に導入されたことを意味しません。",
+		);
+		if (diffContext.tools.length > 0) {
+			lines.push(
+				"| Tool | Applicability | Execution status | Reason | Coverage effect |",
+			);
+			lines.push("| --- | --- | --- | --- | --- |");
+			for (const tool of diffContext.tools) {
+				lines.push(
+					`| ${escapeTableCell(tool.toolId)} | ${escapeTableCell(tool.applicability)} | ${escapeTableCell(tool.status ?? "-")} | ${escapeTableCell(tool.reasonCode ?? "-")} | ${escapeTableCell(tool.coverageEffect)} |`,
+				);
+			}
+		}
+		lines.push("");
+	}
+
 	lines.push("## 全体考察");
 	if (rawFindings.length === 0) {
-		lines.push(
-			"- **結論:** 今回のスキャン範囲では、対応が必要な指摘事項は発見されませんでした。",
-		);
+		if (diffContext?.coverage.changed === 0) {
+			lines.push(
+				"- **結論:** 差分対象に変更パスがなく、finding は生成されませんでした。これは脆弱性がないことを示す結果ではありません。",
+			);
+		} else if (diffContext?.coverage.scannable === 0) {
+			lines.push(
+				"- **結論:** 差分対象にスキャン可能なファイルがなく、finding は生成されませんでした。除外・削除・未対応ファイルを安全と判断した結果ではありません。",
+			);
+		} else if (
+			diffContext?.tools.some(
+				(tool) =>
+					tool.applicability === "applicable" &&
+					(tool.status === "failed" ||
+						tool.status === "skipped" ||
+						tool.coverageEffect === "gap"),
+			)
+		) {
+			lines.push(
+				"- **結論:** 差分対象のscanner実行が完了していないため、finding 0件を安全性の判断には使用できません。失敗または未実行のtoolを確認してください。",
+			);
+		} else {
+			lines.push(
+				"- **結論:** 今回のスキャン範囲では、対応が必要な指摘事項は発見されませんでした。",
+			);
+		}
 		lines.push(
 			"- この結論は、実行したプロファイル、対象範囲、ツール設定、取得済み artifact に基づくものです。未実行の観点やスキャン対象外のコードまで含めた完全な安全性を証明するものではありません。",
 		);
+		if (
+			diffContext &&
+			(diffContext.coverage.excluded > 0 ||
+				diffContext.coverage.unsupported > 0 ||
+				diffContext.coverage.tooLarge > 0)
+		) {
+			lines.push(
+				`- **Diff coverage gaps:** excluded=${diffContext.coverage.excluded}, unsupported=${diffContext.coverage.unsupported}, too_large=${diffContext.coverage.tooLarge}。これらは未確認領域として残ります。`,
+			);
+		}
 	} else {
 		const urgentCount = severityStats.critical + severityStats.high;
 		lines.push(
@@ -787,6 +949,11 @@ export async function buildMarkdownReport(
 		lines.push(
 			`- **Scan scope:** project=${toInlineText(project.name)}, profile=${toInlineText(scanRun.profile)}, scanRun=${scanRunId}`,
 		);
+		if (diffContext) {
+			lines.push(
+				`- **Diff scope:** kind=${diffContext.kind}, changed=${diffContext.coverage.changed}, scannable=${diffContext.coverage.scannable}; whole-file V1 semantics apply.`,
+			);
+		}
 		lines.push(
 			`- **Tool execution summary:** ${tools.length} tool run(s), ${tools.filter((tool) => tool.status === "completed").length} completed.`,
 		);

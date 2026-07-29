@@ -311,6 +311,10 @@ export async function buildScanRunSummary(
 						};
 					}
 					const tool = tools.find((item) => item.toolId === step.toolId);
+					const metadataResult = metadataStepResults.find(
+						(item) =>
+							item.kind === "static_tool" && item.toolId === step.toolId,
+					);
 					return {
 						kind: "static_tool",
 						id: step.toolId,
@@ -320,6 +324,21 @@ export async function buildScanRunSummary(
 						findingCount: tool?.findingCount ?? 0,
 						artifactCount: tool?.artifactCount ?? 0,
 						error: tool?.error ?? null,
+						metadata: {
+							...(tool?.metadata ?? {}),
+							...((metadataResult?.metadata as
+								| Record<string, unknown>
+								| undefined) ?? {}),
+						},
+						reasonCode:
+							typeof metadataResult?.reasonCode === "string"
+								? metadataResult.reasonCode
+								: null,
+						...(metadataResult?.coverageEffect === "covered" ||
+						metadataResult?.coverageEffect === "partial" ||
+						metadataResult?.coverageEffect === "gap"
+							? { coverageEffect: metadataResult.coverageEffect }
+							: {}),
 					};
 				})
 			: tools.map((tool) => ({
@@ -331,6 +350,16 @@ export async function buildScanRunSummary(
 					findingCount: tool.findingCount,
 					artifactCount: tool.artifactCount,
 					error: tool.error,
+					metadata: tool.metadata ?? {},
+					reasonCode:
+						typeof tool.metadata?.reasonCode === "string"
+							? tool.metadata.reasonCode
+							: null,
+					...(tool.metadata?.coverageEffect === "covered" ||
+					tool.metadata?.coverageEffect === "partial" ||
+					tool.metadata?.coverageEffect === "gap"
+						? { coverageEffect: tool.metadata.coverageEffect }
+						: {}),
 				}));
 
 	return {

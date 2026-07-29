@@ -3,6 +3,7 @@ import { zValidator } from "@hono/zod-validator";
 import { Hono } from "hono";
 import { z } from "zod";
 import { createProjectSchema } from "../../shared/schemas/scan.schema";
+import { scanTargetSchema } from "../../shared/schemas/scan-target.schema";
 import type { AppEnv } from "../app/env";
 import { requireAdmin } from "../middleware/auth";
 import { getAuthContextUser } from "../modules/auth/context";
@@ -11,6 +12,15 @@ import type {
 	ProjectRepository,
 	ScanRepository,
 } from "../modules/scans/repositories";
+import {
+	buildDiffScanPlan,
+	toDiffScanPreview,
+} from "../modules/scans/diff-scan-plan";
+import {
+	GitDiffResolutionError,
+	resolveGitDiff,
+} from "../modules/scans/git-diff-resolver";
+import { getProfileById } from "../modules/scans/profiles";
 import { isTemporaryProjectPath } from "../modules/scans/project-visibility";
 import {
 	resolveScanExecutionPolicy,
@@ -170,11 +180,71 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 			return c.json({ project: created }, 201);
 		})
 		.post(
+			"/:projectId/scans/preview",
+			zValidator(
+				"json",
+				z.object({
+					profile: z.string().default("diff-source-baseline"),
+					target: scanTargetSchema,
+				}),
+			),
+			async (c) => {
+				const authUser = getAuthContextUser(c);
+				const projectId = c.req.param("projectId");
+				const body = c.req.valid("json");
+				const project = await repo.findById(projectId);
+				if (!project) throw new HttpError(404, "Project not found");
+				if (project.ownerUserId !== authUser.userId) {
+					throw new HttpError(403, "Forbidden");
+				}
+				const authorized = await authorizeWebProjectPath(project.repoPath);
+				const profile = getProfileById(body.profile);
+				if (!profile) {
+					throw new HttpError(400, `Profile not found: ${body.profile}`);
+				}
+				if (body.target.kind === "full") {
+					throw new HttpError(
+						400,
+						"diff_target_not_supported: preview requires a non-full target.",
+					);
+				}
+				if (
+					!(profile.supportedTargets ?? ["full"]).includes(body.target.kind)
+				) {
+					throw new HttpError(
+						400,
+						`diff_target_not_supported: profile ${profile.id} does not support ${body.target.kind}.`,
+					);
+				}
+				try {
+					const plan = buildDiffScanPlan({
+						resolved: await resolveGitDiff({
+							projectPath: authorized.canonicalPath,
+							target: body.target,
+							scope: profile.scope,
+						}),
+						tools: profile.tools,
+					});
+					return c.json(toDiffScanPreview(plan));
+				} catch (error) {
+					if (error instanceof GitDiffResolutionError) {
+						throw new HttpError(400, `${error.code}: ${error.message}`);
+					}
+					throw error;
+				}
+			},
+		)
+		.post(
 			"/:projectId/scans",
 			zValidator(
 				"json",
 				z.object({
 					profile: z.string().default("baseline"),
+					target: scanTargetSchema.default({ kind: "full" }),
+					expectedTargetDigest: z
+						.string()
+						.regex(/^[0-9a-f]{64}$/i)
+						.optional(),
 					continueOnToolFailure: z.boolean().default(true).optional(),
 					timeoutSec: z.number().int().positive().optional(),
 					runner: z.enum(["host", "docker"]).default("host").optional(),
@@ -207,6 +277,30 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 					throw new HttpError(500, "Scan runtime is not configured.");
 				}
 				await authorizeWebProjectPath(project.repoPath);
+				const profile = getProfileById(body.profile);
+				if (!profile) {
+					throw new HttpError(400, `Profile not found: ${body.profile}`);
+				}
+				if (
+					!(profile.supportedTargets ?? ["full"]).includes(body.target.kind)
+				) {
+					throw new HttpError(
+						400,
+						`diff_target_not_supported: profile ${profile.id} does not support ${body.target.kind}.`,
+					);
+				}
+				if (body.target.kind === "working_tree" && !body.expectedTargetDigest) {
+					throw new HttpError(
+						400,
+						"expectedTargetDigest is required for a working_tree scan.",
+					);
+				}
+				if (body.target.kind === "full" && body.expectedTargetDigest) {
+					throw new HttpError(
+						400,
+						"expectedTargetDigest is not valid for a full scan.",
+					);
+				}
 				const policy = resolveScanExecutionPolicy({
 					env: deps.env,
 					surface: "web",
@@ -220,6 +314,8 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 					metadata: {
 						launchSource: "web",
 						executionPolicy: scanExecutionPolicyMetadata(policy),
+						requestedTarget: body.target,
+						expectedTargetDigest: body.expectedTargetDigest ?? null,
 					},
 				});
 				await deps.scanRepository.createScanEvent({
@@ -258,6 +354,10 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 				if (body.reportTitle) {
 					args.push("--report-title", body.reportTitle);
 				}
+				appendScanTargetArgs(args, body.target);
+				if (body.expectedTargetDigest) {
+					args.push("--expected-target-digest", body.expectedTargetDigest);
+				}
 
 				await deps.scanSupervisor.launch(queued.id, args);
 				return c.json(
@@ -272,4 +372,19 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 				);
 			},
 		);
+}
+
+function appendScanTargetArgs(
+	args: string[],
+	target: z.infer<typeof scanTargetSchema>,
+): void {
+	args.push(
+		"--target",
+		target.kind === "working_tree" ? "working-tree" : target.kind,
+	);
+	if ("base" in target && target.base) args.push("--base", target.base);
+	if ("head" in target && target.head) args.push("--head", target.head);
+	if (target.kind === "working_tree") {
+		args.push("--include-untracked", String(target.includeUntracked));
+	}
 }

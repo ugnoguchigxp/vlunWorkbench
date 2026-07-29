@@ -58,8 +58,10 @@ export async function resolveScanScope(params: {
 	for (const entry of topLevelEntries) {
 		const relativePath = toPosixPath(entry.name);
 		if (entry.isSymbolicLink()) {
-			const realPath = await fs.realpath(path.join(repoRoot, entry.name));
-			if (!isPathInside(realPath, repoRoot)) {
+			const realPath = await fs
+				.realpath(path.join(repoRoot, entry.name))
+				.catch(() => null);
+			if (!realPath || !isPathInside(realPath, repoRoot)) {
 				excludedRoots.add(relativePath);
 				symlinkEscapes.push(relativePath);
 				continue;
@@ -134,6 +136,7 @@ export function matchesScopePath(
 export async function createScopedWorkspace(params: {
 	repoPath: string;
 	scope?: ScanScopePolicy;
+	additionalScope?: ScanScopePolicy;
 	prefix: string;
 }): Promise<{ path: string; copiedFiles: number }> {
 	const workspaceRoot = await fs.mkdtemp(params.prefix);
@@ -145,6 +148,9 @@ export async function createScopedWorkspace(params: {
 		currentPath: repoRoot,
 		destinationRoot: workspaceRoot,
 		scope: withMandatoryExcludes(params.scope),
+		additionalScope: params.additionalScope
+			? withMandatoryExcludes(params.additionalScope)
+			: undefined,
 		onFileCopied: () => {
 			copiedFiles++;
 		},
@@ -171,6 +177,7 @@ async function copyScopedEntries(params: {
 	currentPath: string;
 	destinationRoot: string;
 	scope: ScanScopePolicy;
+	additionalScope?: ScanScopePolicy;
 	onFileCopied: () => void;
 }): Promise<void> {
 	const entries = await fs
@@ -185,7 +192,11 @@ async function copyScopedEntries(params: {
 		if (!relativePath) {
 			continue;
 		}
-		if (matchesAnyGlob(relativePath, params.scope.excludeGlobs)) {
+		if (
+			matchesAnyGlob(relativePath, params.scope.excludeGlobs) ||
+			(params.additionalScope &&
+				matchesAnyGlob(relativePath, params.additionalScope.excludeGlobs))
+		) {
 			continue;
 		}
 		if (entry.isSymbolicLink()) {
@@ -201,7 +212,12 @@ async function copyScopedEntries(params: {
 			});
 			continue;
 		}
-		if (!entry.isFile() || !matchesScopePath(relativePath, params.scope)) {
+		if (
+			!entry.isFile() ||
+			!matchesScopePath(relativePath, params.scope) ||
+			(params.additionalScope &&
+				!matchesScopePath(relativePath, params.additionalScope))
+		) {
 			continue;
 		}
 

@@ -1,7 +1,16 @@
 import type { AppDatabase } from "../../db";
+import type { ScanTarget } from "../../../shared/schemas/scan-target.schema";
 import { authorizeProjectPath } from "../../security/project-path-policy";
 import { prepareDastTargetWorkspace } from "../dast/target-preparer";
 import { ArtifactStorage } from "./artifact-storage";
+import {
+	buildDiffScanPlan,
+	canonicalJson,
+	type DiffScanPlan,
+	shouldUseChangedWorkspaceForSemgrep,
+} from "./diff-scan-plan";
+import { materializeDiffSnapshot, type DiffSnapshot } from "./diff-snapshot";
+import { resolveGitDiff } from "./git-diff-resolver";
 import {
 	type FinalReportOptions,
 	type FinalReportResult,
@@ -16,7 +25,7 @@ import {
 	type ToolResult,
 } from "./profile-runner";
 import { getProfileById } from "./profiles";
-import { ScanRepository } from "./repositories";
+import { ArtifactRepository, ScanRepository } from "./repositories";
 import { resolveScanScope, withMandatoryExcludes } from "./target-scope";
 import {
 	normalizeToolExecutionConfig,
@@ -40,8 +49,11 @@ export async function runProfileScan(params: {
 	executionPolicyMetadata?: Record<string, unknown>;
 	executionSurface?: "cli" | "web";
 	projectAllowedRoots?: readonly string[];
+	target?: ScanTarget;
+	expectedTargetDigest?: string;
 }): Promise<ProfileScanResult> {
 	const scanRepo = new ScanRepository(params.db);
+	const artifactRepo = new ArtifactRepository(params.db);
 	const artifactStorage = new ArtifactStorage();
 	const execution = normalizeToolExecutionConfig(params.execution);
 	if (params.executionSurface === "web") {
@@ -55,6 +67,13 @@ export async function runProfileScan(params: {
 	const profile = getProfileById(params.profileId);
 	if (!profile) {
 		throw new Error(`Profile not found: ${params.profileId}`);
+	}
+	const requestedTarget: ScanTarget = params.target ?? { kind: "full" };
+	const supportedTargets = profile.supportedTargets ?? ["full"];
+	if (!supportedTargets.includes(requestedTarget.kind)) {
+		throw new Error(
+			`diff_target_not_supported: profile ${profile.id} does not support target ${requestedTarget.kind}`,
+		);
 	}
 	const finalReportOptions: Required<FinalReportOptions> = {
 		enabled: params.finalReport?.enabled ?? false,
@@ -74,6 +93,19 @@ export async function runProfileScan(params: {
 		tools: profile.tools,
 		stepId: params.stepId,
 	});
+	const diffPlan: DiffScanPlan | null =
+		requestedTarget.kind === "full"
+			? null
+			: buildDiffScanPlan({
+					resolved: await resolveGitDiff({
+						projectPath: params.repoPath,
+						target: requestedTarget,
+						scope: profile.scope,
+					}),
+					tools: profileSteps.flatMap((step) =>
+						step.kind === "static_tool" ? [step] : [],
+					),
+				});
 	const sharesRuntimeTarget = profileSteps.some(
 		(step) =>
 			step.kind === "runtime_scanner" || step.kind === "api_schema_scan",
@@ -98,6 +130,13 @@ export async function runProfileScan(params: {
 		stepOrder,
 		toolResults: [],
 		stepResults: [],
+		...(diffPlan
+			? {
+					target: diffPlan.target,
+					diffCoverage: diffPlan.manifest.coverage,
+					diffToolApplicability: diffPlan.tools,
+				}
+			: {}),
 		...(params.executionPolicyMetadata
 			? { executionPolicy: params.executionPolicyMetadata }
 			: {}),
@@ -129,6 +168,113 @@ export async function runProfileScan(params: {
 		message: `Scan profile ${params.profileId} started.`,
 	});
 
+	let diffSnapshot: DiffSnapshot | null = null;
+	let diffManifestArtifactId: string | null = null;
+	if (diffPlan) {
+		try {
+			const hasApplicableTool = diffPlan.tools.some(
+				(tool) => tool.applicability === "applicable",
+			);
+			if (hasApplicableTool) {
+				diffSnapshot = await materializeDiffSnapshot({
+					plan: diffPlan,
+					expectedTargetDigest: params.expectedTargetDigest,
+				});
+				const trivyApplicability = diffPlan.tools.find(
+					(tool) => tool.toolId === "trivy",
+				);
+				if (trivyApplicability) {
+					trivyApplicability.contextFileCount =
+						diffSnapshot.trivyContextFileCount;
+				}
+			} else if (
+				params.expectedTargetDigest &&
+				params.expectedTargetDigest !== diffPlan.target.targetDigest
+			) {
+				throw new Error("target_changed: diff target changed after preview");
+			}
+			diffPlan.target.snapshotDigest =
+				diffSnapshot?.snapshotDigest ?? diffPlan.target.targetDigest;
+			diffPlan.manifest.target.snapshotDigest = diffPlan.target.snapshotDigest;
+			const savedManifest = await artifactStorage.saveTextArtifact(
+				scanRun.id,
+				"manifests",
+				`${canonicalJson(diffPlan.manifest)}\n`,
+				"diff-manifest.json",
+			);
+			const artifact = await artifactRepo
+				.createArtifact({
+					scanRunId: scanRun.id,
+					toolRunId: null,
+					kind: "diff_manifest",
+					format: "json",
+					path: savedManifest.path,
+					sha256: savedManifest.sha256,
+					sizeBytes: savedManifest.sizeBytes,
+					metadata: {
+						schemaVersion: 1,
+						targetDigest: diffPlan.target.targetDigest,
+					},
+				})
+				.catch(async (error) => {
+					await artifactStorage
+						.removeArtifacts([savedManifest.path])
+						.catch(() => undefined);
+					throw error;
+				});
+			diffManifestArtifactId = artifact.id;
+			await scanRepo.mergeScanRunMetadata(scanRun.id, {
+				target: diffPlan.target,
+				diffCoverage: diffPlan.manifest.coverage,
+				diffToolApplicability: diffPlan.tools,
+				diffManifestArtifactId,
+			});
+			await scanRepo.createScanEvent({
+				scanRunId: scanRun.id,
+				level: "info",
+				eventType: "diff.target_resolved",
+				message: `Resolved ${diffPlan.target.kind} target with ${diffPlan.manifest.coverage.changed} changed paths.`,
+				data: {
+					targetDigest: diffPlan.target.targetDigest,
+					coverage: diffPlan.manifest.coverage,
+					artifactId: diffManifestArtifactId,
+				},
+			});
+		} catch (error) {
+			await diffSnapshot?.cleanup().catch(async (cleanupError) => {
+				await scanRepo.createScanEvent({
+					scanRunId: scanRun.id,
+					level: "warn",
+					eventType: "diff.cleanup_failed",
+					message: "Temporary diff snapshot cleanup failed.",
+					data: {
+						errorType:
+							cleanupError instanceof Error
+								? cleanupError.name
+								: "UnknownCleanupError",
+					},
+				});
+			});
+			const message = error instanceof Error ? error.message : String(error);
+			await scanRepo.updateScanRunStatus(scanRun.id, "failed", {
+				summary: message,
+				metadata: {
+					...scanRun.metadata,
+					target: diffPlan.target,
+					diffCoverage: diffPlan.manifest.coverage,
+					terminationReason: "diff_target_resolution_failed",
+				},
+			});
+			await scanRepo.createScanEvent({
+				scanRunId: scanRun.id,
+				level: "error",
+				eventType: "diff.target_failed",
+				message,
+			});
+			throw error;
+		}
+	}
+
 	const toolResults: ToolResult[] = [];
 	const stepResults: ScanProfileStepResult[] = [];
 	let sharedRuntimeTarget: Awaited<
@@ -143,7 +289,11 @@ export async function runProfileScan(params: {
 		return sharedRuntimeTarget;
 	};
 	let profileFailingToolFailed = false;
-	let optionalToolFailed = false;
+	let optionalToolFailed = Boolean(
+		diffPlan &&
+			(diffPlan.manifest.coverage.unsupported > 0 ||
+				diffPlan.manifest.coverage.tooLarge > 0),
+	);
 
 	try {
 		for (const step of profileSteps) {
@@ -162,6 +312,7 @@ export async function runProfileScan(params: {
 			let toolRunId: string | null = null;
 			let findingCount = 0;
 			let stepArtifactIds: string[] = [];
+			let diffUnmappedFindingCount = 0;
 			let exitCode: number | null = null;
 			let status: "completed" | "failed" | "skipped" = "completed";
 			let error: string | null = null;
@@ -178,6 +329,10 @@ export async function runProfileScan(params: {
 						findingCount: 0,
 						exitCode: null,
 						error: "Skipped due to previous profile-failing tool failure",
+						applicability: "applicable" as const,
+						reasonCode: "execution_failed",
+						coverageEffect: "gap" as const,
+						artifactIds: [],
 					};
 					toolResults.push(toolResult);
 					stepResults.push({ kind: "static_tool", ...toolResult });
@@ -210,6 +365,47 @@ export async function runProfileScan(params: {
 				continue;
 			}
 
+			const diffApplicability =
+				step.kind === "static_tool" && diffPlan
+					? diffPlan.tools.find((tool) => tool.toolId === step.toolId)
+					: null;
+			if (
+				step.kind === "static_tool" &&
+				diffPlan &&
+				diffApplicability?.applicability === "not_applicable"
+			) {
+				const toolResult: ToolResult = {
+					toolId: step.toolId,
+					toolRunId: null,
+					required: step.required,
+					status: "skipped",
+					findingCount: 0,
+					exitCode: null,
+					error: null,
+					applicability: "not_applicable",
+					reasonCode: diffApplicability.reasonCode,
+					coverageEffect: diffApplicability.coverageEffect,
+					artifactIds: [],
+					metadata: {
+						targetDigest: diffPlan.target.targetDigest,
+					},
+				};
+				toolResults.push(toolResult);
+				stepResults.push({ kind: "static_tool", ...toolResult });
+				await scanRepo.createScanEvent({
+					scanRunId: scanRun.id,
+					level: "info",
+					eventType: "tool.not_applicable",
+					message: `${step.toolId} is not applicable to this diff target.`,
+					data: {
+						toolId: step.toolId,
+						reasonCode: diffApplicability.reasonCode,
+						targetDigest: diffPlan.target.targetDigest,
+					},
+				});
+				continue;
+			}
+
 			try {
 				if (
 					step.kind === "static_tool" ||
@@ -217,6 +413,30 @@ export async function runProfileScan(params: {
 					step.kind === "container_image_scan"
 				) {
 					const toolId = step.kind === "static_tool" ? step.toolId : "trivy";
+					const semgrepUsesChangedWorkspace =
+						toolId === "semgrep" &&
+						Boolean(
+							diffPlan &&
+								shouldUseChangedWorkspaceForSemgrep(diffPlan.scanPaths),
+						);
+					const diffInputKind =
+						(toolId === "semgrep" && !semgrepUsesChangedWorkspace) ||
+						toolId === "osv"
+							? "full_snapshot"
+							: "changed_workspace";
+					const toolRepoPath =
+						diffPlan && step.kind === "static_tool"
+							? diffInputKind === "full_snapshot"
+								? diffSnapshot?.projectPath
+								: toolId === "trivy"
+									? diffSnapshot?.trivyWorkspacePath
+									: diffSnapshot?.changedWorkspacePath
+							: params.repoPath;
+					if (!toolRepoPath) {
+						throw new Error(
+							"snapshot_materialization_failed: scanner input is unavailable",
+						);
+					}
 					const toolRes = await runToolIntoExistingScan({
 						db: params.db,
 						projectId: params.projectId,
@@ -237,14 +457,34 @@ export async function runProfileScan(params: {
 						},
 						artifactStorage,
 						timeoutSec: resolvedTimeout,
-						repoPath: params.repoPath,
+						repoPath: toolRepoPath,
 						execution,
+						diffContext:
+							diffPlan && step.kind === "static_tool"
+								? {
+										target: diffPlan.target,
+										entries: diffPlan.manifest.entries,
+										targetPaths:
+											toolId === "semgrep" && !semgrepUsesChangedWorkspace
+												? diffPlan.scanPaths
+												: undefined,
+										inputKind: diffInputKind,
+										contextFileCount:
+											toolId === "trivy"
+												? diffSnapshot?.trivyContextFileCount
+												: 0,
+									}
+								: undefined,
 					});
 
 					toolRunId = toolRes.toolRunId;
 					findingCount = toolRes.findingCount;
 					exitCode = toolRes.exitCode;
 					stepArtifactIds = toolRes.artifactIds;
+					diffUnmappedFindingCount = toolRes.diffUnmappedFindingCount;
+					if (diffUnmappedFindingCount > 0) {
+						optionalToolFailed = true;
+					}
 					status = "completed";
 				} else if (step.kind === "dast") {
 					const target = sharesRuntimeTarget
@@ -409,6 +649,21 @@ export async function runProfileScan(params: {
 				findingCount,
 				exitCode,
 				error,
+				applicability: "applicable" as const,
+				reasonCode: status === "failed" ? "execution_failed" : null,
+				coverageEffect:
+					status === "failed"
+						? ("gap" as const)
+						: diffUnmappedFindingCount > 0
+							? ("partial" as const)
+							: (diffApplicability?.coverageEffect ?? ("covered" as const)),
+				artifactIds: stepArtifactIds,
+				metadata: diffPlan
+					? {
+							targetDigest: diffPlan.target.targetDigest,
+							diffUnmappedFindingCount,
+						}
+					: undefined,
 			};
 			toolResults.push(toolResult);
 			stepResults.push(
@@ -440,6 +695,20 @@ export async function runProfileScan(params: {
 			ReturnType<typeof prepareDastTargetWorkspace>
 		> | null;
 		await targetToStop?.stop().catch(() => undefined);
+		await diffSnapshot?.cleanup().catch(async (cleanupError) => {
+			await scanRepo.createScanEvent({
+				scanRunId: scanRun.id,
+				level: "warn",
+				eventType: "diff.cleanup_failed",
+				message: "Temporary diff snapshot cleanup failed.",
+				data: {
+					errorType:
+						cleanupError instanceof Error
+							? cleanupError.name
+							: "UnknownCleanupError",
+				},
+			});
+		});
 	}
 
 	// Determine profile outcome
@@ -482,6 +751,14 @@ export async function runProfileScan(params: {
 			stepOrder,
 			toolResults,
 			stepResults,
+			...(diffPlan
+				? {
+						target: diffPlan.target,
+						diffCoverage: diffPlan.manifest.coverage,
+						diffToolApplicability: diffPlan.tools,
+						diffManifestArtifactId,
+					}
+				: {}),
 		},
 	});
 

@@ -157,6 +157,90 @@ describe("OsvRunner", () => {
 		});
 	});
 
+	it("uses a manifest-only workspace for manifest dependency scans", async () => {
+		await fs.writeFile(path.join(tempDir, "package.json"), "{}\n");
+		await fs.mkdir(path.join(tempDir, "src"));
+		await fs.writeFile(path.join(tempDir, "src/app.ts"), "export {};\n");
+		let observedScanPath = "";
+		vi.spyOn(Bun, "spawn").mockImplementation((args) => {
+			if (args[0] === "osv-scanner" && args[1] === "--version") {
+				return {
+					exited: Promise.resolve(0),
+					stdout: new Response("1.5.0\n").body,
+					stderr: new Response("").body,
+				} as any;
+			}
+
+			observedScanPath = args.at(-1) as string;
+			const outputPath = args[args.indexOf("--output") + 1] as string;
+			const complete = (async () => {
+				expect(observedScanPath).not.toBe(tempDir);
+				expect(
+					await fs
+						.access(path.join(observedScanPath, "package.json"))
+						.then(() => true)
+						.catch(() => false),
+				).toBe(true);
+				expect(
+					await fs
+						.access(path.join(observedScanPath, "src/app.ts"))
+						.then(() => true)
+						.catch(() => false),
+				).toBe(false);
+				await fs.writeFile(
+					outputPath,
+					JSON.stringify({
+						results: [
+							{
+								source: {
+									path: path.join(observedScanPath, "package.json"),
+									type: "lockfile",
+								},
+								packages: [],
+							},
+						],
+					}),
+				);
+			})();
+			return {
+				exited: complete.then(() => 0),
+				stdout: new Response("").body,
+				stderr: new Response("").body,
+			} as any;
+		});
+
+		const runner = new OsvRunner(storage);
+		const result = await runner.run("scan-123", tempDir, {
+			dependencyMode: "manifest",
+			normalizePathsRelativeTo: tempDir,
+		});
+
+		expect(result.ok).toBe(true);
+		expect(result.rawJson).toEqual({
+			results: [
+				{
+					source: { path: "package.json", type: "lockfile" },
+					packages: [],
+				},
+			],
+		});
+		expect(result.executionMetadata).toEqual(
+			expect.objectContaining({
+				scopeWorkspace: expect.objectContaining({
+					applied: true,
+					kind: "dependency_manifest",
+					copiedFiles: 1,
+				}),
+			}),
+		);
+		expect(
+			await fs
+				.access(observedScanPath)
+				.then(() => true)
+				.catch(() => false),
+		).toBe(false);
+	});
+
 	it("should fail when exitCode is non-0/1 without valid JSON output", async () => {
 		vi.spyOn(Bun, "spawn").mockImplementation((args) => {
 			if (args[0] === "osv-scanner" && args[1] === "--version") {

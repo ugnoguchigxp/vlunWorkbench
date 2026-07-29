@@ -116,6 +116,18 @@ describe("scan target scope", () => {
 		expect(resolved.excludedRoots).toContain("outside-link");
 	});
 
+	it("excludes broken symlinks without aborting scope resolution", async () => {
+		await fs.symlink("missing-target", path.join(repoPath, "broken-link"));
+
+		const resolved = await resolveScanScope({
+			repoPath,
+			scope: SOURCE_BASELINE_SCOPE,
+		});
+
+		expect(resolved.symlinkEscapes).toContain("broken-link");
+		expect(resolved.excludedRoots).toContain("broken-link");
+	});
+
 	it("creates scoped workspaces without excluded directories", async () => {
 		const workspace = await createScopedWorkspace({
 			repoPath,
@@ -133,6 +145,37 @@ describe("scan target scope", () => {
 			).rejects.toThrow();
 			await expect(
 				fs.stat(path.join(workspace.path, "node_modules")),
+			).rejects.toThrow();
+		} finally {
+			await fs.rm(workspace.path, { recursive: true, force: true });
+		}
+	});
+
+	it("intersects primary and additional workspace scopes", async () => {
+		await fs.mkdir(path.join(repoPath, "packages", "a"), { recursive: true });
+		await fs.mkdir(path.join(repoPath, "packages", "b"), { recursive: true });
+		await fs.writeFile(path.join(repoPath, "packages", "a", "package.json"), "{}");
+		await fs.writeFile(path.join(repoPath, "packages", "b", "package.json"), "{}");
+		const workspace = await createScopedWorkspace({
+			repoPath,
+			scope: DEPENDENCY_MANIFEST_SCOPE,
+			additionalScope: {
+				...SOURCE_BASELINE_SCOPE,
+				includeGlobs: ["packages/a/**"],
+			},
+			prefix: path.join(os.tmpdir(), "target-scope-intersection-"),
+		});
+
+		try {
+			expect(workspace.copiedFiles).toBe(1);
+			await expect(
+				fs.stat(path.join(workspace.path, "packages", "a", "package.json")),
+			).resolves.toBeDefined();
+			await expect(
+				fs.stat(path.join(workspace.path, "package.json")),
+			).rejects.toThrow();
+			await expect(
+				fs.stat(path.join(workspace.path, "packages", "b", "package.json")),
 			).rejects.toThrow();
 		} finally {
 			await fs.rm(workspace.path, { recursive: true, force: true });

@@ -4,6 +4,10 @@ import path from "node:path";
 import type { ScanScopePolicy } from "../../../../shared/schemas/scan-profile.schema";
 import type { ArtifactSaveResult, ArtifactStorage } from "../artifact-storage";
 import { redactJsonSecrets, redactSecrets } from "../normalizers/redaction";
+import {
+	normalizeScannerOutputText,
+	normalizeStructuredOutputPaths,
+} from "../diff-output-paths";
 import { createScopedWorkspace } from "../target-scope";
 import {
 	checkToolVersion,
@@ -29,6 +33,8 @@ export interface GitleaksRunResult {
 export interface GitleaksRunnerOptions {
 	timeoutSec?: number;
 	scope?: ScanScopePolicy;
+	preScoped?: boolean;
+	normalizePathsRelativeTo?: string;
 	onLifecycleEvent?: (event: ToolLifecycleEvent) => Promise<void> | void;
 }
 
@@ -64,7 +70,9 @@ export class GitleaksRunner {
 		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "gitleaks-run-"));
 		const tempJsonPath = path.join(tempDir, "gitleaks-output.json");
 		const scopedWorkspace =
-			options.scope?.intent && options.scope.intent !== "full_deep"
+			!options.preScoped &&
+			options.scope?.intent &&
+			options.scope.intent !== "full_deep"
 				? await createScopedWorkspace({
 						repoPath,
 						scope: options.scope,
@@ -84,7 +92,7 @@ export class GitleaksRunner {
 			tempJsonPath,
 			"--redact",
 		];
-		if (scopedWorkspace) args.push("--no-git");
+		if (scopedWorkspace || options.preScoped) args.push("--no-git");
 
 		const startTime = Date.now();
 		const runResult = await runToolProcess("gitleaks", args, {
@@ -94,6 +102,18 @@ export class GitleaksRunner {
 			outputPath: tempJsonPath,
 			onLifecycleEvent: options.onLifecycleEvent,
 		});
+		const stdout = options.normalizePathsRelativeTo
+			? normalizeScannerOutputText(
+					runResult.stdout,
+					options.normalizePathsRelativeTo,
+				)
+			: runResult.stdout;
+		const stderr = options.normalizePathsRelativeTo
+			? normalizeScannerOutputText(
+					runResult.stderr,
+					options.normalizePathsRelativeTo,
+				)
+			: runResult.stderr;
 		const elapsedMs = Date.now() - startTime;
 		const executionMetadata = {
 			...(runResult.executionMetadata ?? {}),
@@ -112,20 +132,27 @@ export class GitleaksRunner {
 			return {
 				ok: false,
 				exitCode: runResult.exitCode,
-				stdout: runResult.stdout,
-				stderr: runResult.stderr,
+				stdout,
+				stderr,
 				elapsedMs,
 				error: runResult.error || "Gitleaks run failed",
 				executionMetadata,
 			};
 		}
 
-		let rawJson: any = null;
+		let rawJson: unknown = null;
 		let rawJsonText: string | null = null;
 		let jsonValid = false;
 		try {
 			rawJsonText = await fs.readFile(tempJsonPath, "utf8");
 			rawJson = JSON.parse(rawJsonText);
+			if (options.normalizePathsRelativeTo) {
+				rawJson = normalizeStructuredOutputPaths(
+					rawJson,
+					options.normalizePathsRelativeTo,
+				);
+				rawJsonText = JSON.stringify(rawJson);
+			}
 			jsonValid = true;
 		} catch {
 			// output was invalid or not found
@@ -164,18 +191,18 @@ export class GitleaksRunner {
 					);
 					await fs.rm(tempOutDir, { recursive: true, force: true });
 				}
-				if (runResult.stdout) {
+				if (stdout) {
 					stdoutArtifact = await this.storage.saveLog(
 						scanRunId,
 						"stdout",
-						redactSecrets(runResult.stdout),
+						redactSecrets(stdout),
 					);
 				}
-				if (runResult.stderr) {
+				if (stderr) {
 					stderrArtifact = await this.storage.saveLog(
 						scanRunId,
 						"stderr",
-						redactSecrets(runResult.stderr),
+						redactSecrets(stderr),
 					);
 				}
 			}
@@ -183,8 +210,8 @@ export class GitleaksRunner {
 			return {
 				ok: false,
 				exitCode: runResult.exitCode,
-				stdout: runResult.stdout,
-				stderr: runResult.stderr,
+				stdout,
+				stderr,
 				elapsedMs,
 				rawJsonArtifact,
 				stdoutArtifact,
@@ -218,18 +245,18 @@ export class GitleaksRunner {
 
 			await fs.rm(tempOutDir, { recursive: true, force: true });
 
-			if (runResult.stdout) {
+			if (stdout) {
 				stdoutArtifact = await this.storage.saveLog(
 					scanRunId,
 					"stdout",
-					redactSecrets(runResult.stdout),
+					redactSecrets(stdout),
 				);
 			}
-			if (runResult.stderr) {
+			if (stderr) {
 				stderrArtifact = await this.storage.saveLog(
 					scanRunId,
 					"stderr",
-					redactSecrets(runResult.stderr),
+					redactSecrets(stderr),
 				);
 			}
 		}
@@ -237,8 +264,8 @@ export class GitleaksRunner {
 		return {
 			ok: true,
 			exitCode: runResult.exitCode,
-			stdout: runResult.stdout,
-			stderr: runResult.stderr,
+			stdout,
+			stderr,
 			elapsedMs,
 			rawJson: redactedRawJson,
 			rawJsonArtifact,

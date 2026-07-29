@@ -430,6 +430,149 @@ describe("Report Builder", () => {
 		expect(report).toContain("must not be read as a safety attestation");
 	});
 
+	it("reports diff provenance, whole-file semantics, and coverage gaps", async () => {
+		await connection.db.delete(findings);
+		await connection.db
+			.update(scanRuns)
+			.set({
+				metadata: {
+					profileOutcome: "partial",
+					target: {
+						kind: "working_tree",
+						baseSha: "a".repeat(40),
+						headSha: null,
+						mergeBaseSha: null,
+						targetDigest: "b".repeat(64),
+					},
+					diffCoverage: {
+						changed: 3,
+						scannable: 1,
+						deleted: 1,
+						excluded: 1,
+						unsupported: 0,
+						tooLarge: 0,
+					},
+					diffToolApplicability: [
+						{
+							toolId: "osv",
+							applicability: "not_applicable",
+							reasonCode: "no_dependency_manifest_changed",
+							coverageEffect: "covered",
+						},
+					],
+				},
+			})
+			.where(eq(scanRuns.id, scanRunId));
+
+		const report = await buildMarkdownReport(connection.db, scanRunId, {
+			includeFalsePositives: true,
+			includeDeferred: true,
+			includeUndecided: true,
+		});
+
+		expect(report).toContain("## Diff Target and Coverage");
+		expect(report).toContain("**Target kind:** working_tree");
+		expect(report).toContain("whole-file");
+		expect(report).toContain(
+			"finding が変更行で新規に導入されたことを意味しません",
+		);
+		expect(report).toContain("no_dependency_manifest_changed");
+		expect(report).toContain(
+			"**Diff coverage gaps:** excluded=1, unsupported=0, too_large=0",
+		);
+		expect(report).toContain(
+			"**Diff scope:** kind=working_tree, changed=3, scannable=1",
+		);
+	});
+
+	it("does not treat an empty diff as a security conclusion", async () => {
+		await connection.db.delete(findings);
+		await connection.db
+			.update(scanRuns)
+			.set({
+				metadata: {
+					target: {
+						kind: "range",
+						baseSha: "a".repeat(40),
+						headSha: "c".repeat(40),
+						mergeBaseSha: "a".repeat(40),
+						targetDigest: "b".repeat(64),
+					},
+					diffCoverage: {
+						changed: 0,
+						scannable: 0,
+						deleted: 0,
+						excluded: 0,
+						unsupported: 0,
+						tooLarge: 0,
+					},
+				},
+			})
+			.where(eq(scanRuns.id, scanRunId));
+
+		const report = await buildMarkdownReport(connection.db, scanRunId, {
+			includeFalsePositives: true,
+			includeDeferred: true,
+			includeUndecided: true,
+		});
+
+		expect(report).toContain("差分対象に変更パスがなく");
+		expect(report).toContain("脆弱性がないことを示す結果ではありません");
+	});
+
+	it("does not treat zero findings as meaningful when a diff scanner failed", async () => {
+		await connection.db.delete(findings);
+		await connection.db
+			.update(scanRuns)
+			.set({
+				metadata: {
+					target: {
+						kind: "working_tree",
+						baseSha: "a".repeat(40),
+						headSha: null,
+						mergeBaseSha: null,
+						targetDigest: "b".repeat(64),
+					},
+					diffCoverage: {
+						changed: 1,
+						scannable: 1,
+						deleted: 0,
+						excluded: 0,
+						unsupported: 0,
+						tooLarge: 0,
+					},
+					diffToolApplicability: [
+						{
+							toolId: "semgrep",
+							applicability: "applicable",
+							reasonCode: null,
+							coverageEffect: "covered",
+						},
+					],
+					stepResults: [
+						{
+							kind: "static_tool",
+							toolId: "semgrep",
+							status: "failed",
+							coverageEffect: "gap",
+						},
+					],
+				},
+			})
+			.where(eq(scanRuns.id, scanRunId));
+
+		const report = await buildMarkdownReport(connection.db, scanRunId, {
+			includeFalsePositives: true,
+			includeDeferred: true,
+			includeUndecided: true,
+		});
+
+		expect(report).toContain(
+			"差分対象のscanner実行が完了していないため、finding 0件を安全性の判断には使用できません",
+		);
+		expect(report).toContain("| semgrep | applicable | failed | - | gap |");
+	});
+
 	it("includes diagnostic status in zero-finding reports when available", async () => {
 		const now = new Date("2026-06-23T12:00:00.000Z");
 		await connection.db

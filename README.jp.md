@@ -574,6 +574,32 @@ bun test api/modules/scans/report-builder.test.ts
 
 package の `test` script と `scripts/verify.ts` はこの分離を反映しています。
 
+## Git 差分ターゲットスキャン
+
+`diff-source-baseline` profileでは、commit、merge-baseを使うrange、現在の
+working treeで変更されたファイルを対象にできます。変更可能なworking treeは、
+実行前にpreviewで対象digestを固定します。
+
+```bash
+bun run scan:profile -- \
+  --project-path . \
+  --profile diff-source-baseline \
+  --target working-tree \
+  --base HEAD \
+  --include-untracked true \
+  --preview true
+```
+
+commitは`--target commit --head <ref>`、branch相当のrangeは
+`--target range --base <ref> --head <ref>`を使用します。Scans UIにも同じ
+target選択、coverage preview、target digest表示があります。
+
+V1はresolved target snapshotにある変更ファイルをwhole-fileで検査します。
+そのためfindingは変更ファイルまたは変更後の依存状態に関連しますが、選択した
+commitがfindingを新規導入したことは証明しません。削除、除外、binary、未対応、
+size上限超過のpathはcoverage recordとして残ります。diff scanを理由にLLM
+reviewが自動実行されることはありません。
+
 ## Operational Checks
 
 migration の適用:

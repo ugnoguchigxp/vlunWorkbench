@@ -87,6 +87,7 @@ export const scanArtifactKindSchema = z.enum([
 	"normalized_result",
 	"source_snippet",
 	"report",
+	"diff_manifest",
 ]);
 export type ScanArtifactKind = z.infer<typeof scanArtifactKindSchema>;
 

@@ -12,6 +12,7 @@ export function createScanProfilesRoute() {
 			category: p.category,
 			enabled: p.enabled,
 			defaultTimeoutSec: p.defaultTimeoutSec,
+			supportedTargets: p.supportedTargets ?? ["full"],
 			scope: p.scope
 				? {
 						intent: p.scope.intent,

@@ -1,11 +1,21 @@
-import { execSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDbConnection, type DbConnection } from "../../db";
-import { projects, scanArtifacts, scanReports, scanRuns, users } from "../../db/schema";
+import {
+	findings,
+	projects,
+	scanArtifacts,
+	scanEvents,
+	scanReports,
+	scanRuns,
+	toolRuns,
+	users,
+} from "../../db/schema";
 import { closeTestDbConnection } from "../../db/testing/connection";
 import * as profileRunnerModule from "./profile-runner";
 import { runProfileScan } from "./profile-runner";
@@ -82,6 +92,7 @@ describe("Profile Runner Orchestration", () => {
 					exitCode: 0,
 					elapsedMs: 120,
 					artifactIds: ["art-1"],
+					diffUnmappedFindingCount: 0,
 				};
 			}
 		);
@@ -130,6 +141,100 @@ describe("Profile Runner Orchestration", () => {
 		);
 	});
 
+	it("runs a working-tree diff profile with immutable scanner inputs", async () => {
+		execFileSync("git", ["init", "-b", "main"], { cwd: repoPath });
+		execFileSync("git", ["config", "user.email", "test@example.com"], {
+			cwd: repoPath,
+		});
+		execFileSync("git", ["config", "user.name", "Test User"], {
+			cwd: repoPath,
+		});
+		await fs.mkdir(path.join(repoPath, "src"), { recursive: true });
+		await fs.writeFile(path.join(repoPath, "src/app.ts"), "export const a = 1;\n");
+		execFileSync("git", ["add", "-A"], { cwd: repoPath });
+		execFileSync("git", ["commit", "-m", "base"], { cwd: repoPath });
+		await fs.writeFile(path.join(repoPath, "src/app.ts"), "export const a = 2;\n");
+
+		const spy = vi
+			.spyOn(profileRunnerModule, "runToolIntoExistingScan")
+			.mockImplementation(async () => ({
+				toolRunId: randomUUID(),
+				findingCount: 0,
+				exitCode: 0,
+				elapsedMs: 10,
+				artifactIds: [],
+				diffUnmappedFindingCount: 0,
+			}));
+
+		const result = await runProfileScan({
+			db: connection.db,
+			projectId,
+			profileId: "diff-source-baseline",
+			repoPath,
+			target: {
+				kind: "working_tree",
+				base: "HEAD",
+				includeUntracked: true,
+			},
+			continueOnToolFailure: true,
+		});
+
+		expect(result.ok).toBe(true);
+		expect(result.profileOutcome).toBe("completed");
+		expect(result.toolResults).toHaveLength(4);
+		expect(
+			result.toolResults.find((tool) => tool.toolId === "osv"),
+		).toMatchObject({
+			status: "skipped",
+			applicability: "not_applicable",
+			reasonCode: "no_dependency_manifest_changed",
+		});
+		expect(spy).toHaveBeenCalledTimes(3);
+		const semgrepCall = spy.mock.calls.find(
+			([params]) => params.toolId === "semgrep",
+		)?.[0];
+		expect(semgrepCall?.repoPath).not.toBe(repoPath);
+		expect(semgrepCall?.diffContext).toMatchObject({
+			inputKind: "full_snapshot",
+			targetPaths: ["src/app.ts"],
+		});
+		const gitleaksCall = spy.mock.calls.find(
+			([params]) => params.toolId === "gitleaks",
+		)?.[0];
+		expect(gitleaksCall?.diffContext?.inputKind).toBe("changed_workspace");
+
+		const [scanRun] = await connection.db
+			.select()
+			.from(scanRuns)
+			.where(eq(scanRuns.id, result.scanRunId));
+		expect(scanRun.metadata).toEqual(
+			expect.objectContaining({
+				target: expect.objectContaining({
+					kind: "working_tree",
+					targetDigest: expect.stringMatching(/^[0-9a-f]{64}$/),
+					snapshotDigest: expect.stringMatching(/^[0-9a-f]{64}$/),
+				}),
+				diffCoverage: expect.objectContaining({
+					changed: 1,
+					scannable: 1,
+				}),
+				diffManifestArtifactId: expect.any(String),
+			}),
+		);
+		const manifests = await connection.db
+			.select()
+			.from(scanArtifacts)
+			.where(eq(scanArtifacts.scanRunId, result.scanRunId));
+		expect(manifests).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ kind: "diff_manifest", toolRunId: null }),
+			]),
+		);
+		expect(execFileSync("git", ["status", "--short"], { cwd: repoPath }).toString()).toContain(
+			"src/app.ts",
+		);
+	});
+
 	it("revalidates a Web project path before executing a profile", async () => {
 		const allowedRoot = path.join(tempDir, "allowed");
 		await fs.mkdir(allowedRoot);
@@ -155,6 +260,7 @@ describe("Profile Runner Orchestration", () => {
 					exitCode: 0,
 					elapsedMs: 120,
 					artifactIds: [],
+					diffUnmappedFindingCount: 0,
 				};
 			},
 		);
@@ -242,6 +348,7 @@ describe("Profile Runner Orchestration", () => {
 					exitCode: 0,
 					elapsedMs: 50,
 					artifactIds: [],
+					diffUnmappedFindingCount: 0,
 				};
 			},
 		);
@@ -312,6 +419,7 @@ describe("Profile Runner Orchestration", () => {
 				exitCode: 0,
 				elapsedMs: 50,
 				artifactIds: [],
+				diffUnmappedFindingCount: 0,
 			}));
 		const dastSpy = vi
 			.spyOn(profileRunnerModule, "runDastStepIntoExistingScan")
@@ -407,6 +515,7 @@ describe("Profile Runner Orchestration", () => {
 					exitCode: 0,
 					elapsedMs: 50,
 					artifactIds: [],
+					diffUnmappedFindingCount: 0,
 				};
 			},
 		);
@@ -442,6 +551,7 @@ describe("Profile Runner Orchestration", () => {
 					exitCode: 0,
 					elapsedMs: 50,
 					artifactIds: [],
+					diffUnmappedFindingCount: 0,
 				};
 			}
 		);
@@ -523,12 +633,77 @@ describe("Profile Runner Orchestration", () => {
 			toolId: "gitleaks",
 			artifactStorage: storage,
 			repoPath,
+			diffContext: {
+				target: {
+					schemaVersion: 1,
+					kind: "working_tree",
+					requested: {
+						kind: "working_tree",
+						base: "HEAD",
+						includeUntracked: true,
+					},
+					projectPrefix: "",
+					baseSha: "a".repeat(40),
+					headSha: null,
+					mergeBaseSha: null,
+					includeUntracked: true,
+					targetDigest: "b".repeat(64),
+					snapshotDigest: "b".repeat(64),
+					changedFileCount: 1,
+					scannableFileCount: 1,
+				},
+				entries: [
+					{
+						status: "modified",
+						path: "src/other.ts",
+						contentSha256: "c".repeat(64),
+						sizeBytes: 1,
+						binary: false,
+						inProfileScope: true,
+						disposition: "scan",
+						reasonCode: null,
+					},
+				],
+				inputKind: "changed_workspace",
+			},
 		});
 
 		expect(result.toolRunId).toBeTruthy();
 		expect(result.exitCode).toBe(1);
 		expect(result.findingCount).toBe(1);
+		expect(result.diffUnmappedFindingCount).toBe(1);
 		expect(result.artifactIds.length).toBeGreaterThanOrEqual(1);
+		const [persistedFinding] = await connection.db
+			.select()
+			.from(findings)
+			.where(eq(findings.scanRunId, scanRun.id));
+		expect(persistedFinding.metadata).toEqual(
+			expect.objectContaining({
+				diffRelation: expect.objectContaining({
+					kind: "unmapped",
+					reasonCode: "finding_path_not_in_diff_manifest",
+				}),
+			}),
+		);
+		const events = await connection.db
+			.select()
+			.from(scanEvents)
+			.where(eq(scanEvents.scanRunId, scanRun.id));
+		expect(events).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					level: "warn",
+					eventType: "finding.diff_unmapped",
+				}),
+			]),
+		);
+		const [persistedToolRun] = await connection.db
+			.select()
+			.from(toolRuns)
+			.where(eq(toolRuns.id, result.toolRunId));
+		expect(persistedToolRun.metadata).toEqual(
+			expect.objectContaining({ diffUnmappedFindingCount: 1 }),
+		);
 
 		spawnSpy.mockRestore();
 	});

@@ -18,6 +18,7 @@ import {
 	getToolDisplay,
 } from "../scan-profile-display";
 import { useScans } from "../scans-context";
+import { readDiffTargetDisplay } from "../diff-target-display";
 import { formatDateTime } from "../scans-utils";
 import { ActionQueuePanel } from "./action-queue-panel";
 
@@ -53,10 +54,16 @@ export function ScansToolbar() {
 	const selectedProfileStepLabels = selectedProfileSteps.map((step) =>
 		step.kind === "dast" ? "HTTP DAST診断" : getToolDisplay(step.toolId).name,
 	);
+	const supportedTargets = selectedProfile?.supportedTargets ?? ["full"];
+	const selectedTargetSupported = supportedTargets.includes(c.scanTargetKind);
+	const diffTargetSelected = c.scanTargetKind !== "full";
+	const targetReady = !diffTargetSelected || c.diffPreviewCurrent;
 	const canStartScan =
 		Boolean(c.selectedProjectId && c.selectedProfileId) &&
 		c.selectedProject?.pathPolicy?.status === "allowed" &&
 		c.timeoutSec > 0 &&
+		selectedTargetSupported &&
+		targetReady &&
 		!c.isScanning &&
 		!c.scanRuns.some(
 			(run) => run.status === "queued" || run.status === "running",
@@ -150,6 +157,119 @@ export function ScansToolbar() {
 							) : null}
 						</div>
 					</div>
+					<div className="scan-diff-target-config">
+						<label htmlFor="scans-target-select">
+							<span>Scan target</span>
+							<SelectInput
+								id="scans-target-select"
+								value={c.scanTargetKind}
+								onChange={(event) =>
+									c.handleScanTargetKindChange(
+										event.target.value as typeof c.scanTargetKind,
+									)
+								}
+								disabled={!selectedProfile}
+							>
+								{supportedTargets.map((target) => (
+									<option key={target} value={target}>
+										{target === "full"
+											? "リポジトリ全体"
+											: target === "working_tree"
+												? "作業ツリー"
+												: target === "commit"
+													? "コミット"
+													: "ブランチ差分"}
+									</option>
+								))}
+							</SelectInput>
+						</label>
+						{diffTargetSelected ? (
+							<>
+								<label htmlFor="scans-diff-base">
+									<span>
+										{c.scanTargetKind === "commit"
+											? "Base（任意）"
+											: "Base ref"}
+									</span>
+									<TextInput
+										id="scans-diff-base"
+										value={c.diffBaseRef}
+										onChange={(event) => c.setDiffBaseRef(event.target.value)}
+										placeholder={
+											c.scanTargetKind === "commit"
+												? "親commitを自動選択"
+												: c.scanTargetKind === "range"
+													? "main"
+													: "HEAD"
+										}
+									/>
+								</label>
+								{c.scanTargetKind !== "working_tree" ? (
+									<label htmlFor="scans-diff-head">
+										<span>Head ref</span>
+										<TextInput
+											id="scans-diff-head"
+											value={c.diffHeadRef}
+											onChange={(event) => c.setDiffHeadRef(event.target.value)}
+											placeholder="HEAD"
+										/>
+									</label>
+								) : (
+									<label className="scan-diff-untracked">
+										<input
+											type="checkbox"
+											checked={c.diffIncludeUntracked}
+											onChange={(event) =>
+												c.setDiffIncludeUntracked(event.target.checked)
+											}
+										/>
+										未追跡ファイルを含める
+									</label>
+								)}
+								<Button
+									type="button"
+									variant="secondary"
+									onClick={() => void c.handlePreviewDiffTarget()}
+									disabled={c.diffPreviewLoading || !c.selectedProjectId}
+								>
+									<Eye className="icon" />
+									{c.diffPreviewLoading ? "確認中..." : "差分を確認"}
+								</Button>
+							</>
+						) : null}
+					</div>
+					{c.diffPreviewError ? (
+						<p role="alert" className="badge-failed">
+							{c.diffPreviewError}
+						</p>
+					) : null}
+					{c.diffPreview ? (
+						<div className="scan-diff-preview" role="status">
+							<strong>
+								変更 {c.diffPreview.coverage.changed}件 / scan対象{" "}
+								{c.diffPreview.coverage.scannable}件
+							</strong>
+							<small>
+								削除 {c.diffPreview.coverage.deleted} / 除外{" "}
+								{c.diffPreview.coverage.excluded} / 未対応{" "}
+								{c.diffPreview.coverage.unsupported +
+									c.diffPreview.coverage.tooLarge}
+							</small>
+							<ul>
+								{c.diffPreview.entries.slice(0, 100).map((entry) => (
+									<li key={`${entry.status}:${entry.path}`}>
+										<code>{entry.path}</code> — {entry.status}
+										{entry.disposition !== "scan"
+											? ` (${entry.reasonCode ?? entry.disposition})`
+											: ""}
+									</li>
+								))}
+							</ul>
+							{c.diffPreview.entries.length > 100 ? (
+								<small>ほか {c.diffPreview.entries.length - 100}件</small>
+							) : null}
+						</div>
+					) : null}
 				</div>
 
 				<div className="scan-toolbar-section scan-toolbar-actions-section">
@@ -269,6 +389,9 @@ export function ScansSidebar() {
 								</span>
 							</div>
 							<small>{formatDateTime(run.createdAt)}</small>
+							{readDiffTargetDisplay(run.metadata) ? (
+								<small>{readDiffTargetDisplay(run.metadata)?.label}</small>
+							) : null}
 						</button>
 					))
 				) : (

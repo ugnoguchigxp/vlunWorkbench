@@ -42,6 +42,7 @@ import {
 	generateDiagnosticReport,
 	generateScanReport,
 	type Project,
+	previewScan,
 	type ReproductionArtifact,
 	type ReproductionEvidence,
 	type ReproductionProfile,
@@ -55,6 +56,9 @@ import {
 	type ScanReviewFindingFilter,
 	type ScanRun,
 	type ScanRunSummary,
+	type DiffScanPreview,
+	type ScanTarget,
+	type ScanTargetKind,
 	type SecurityCheckResult,
 	startScan,
 	triggerFindingDynamicRun,
@@ -163,6 +167,16 @@ export const useScansController = ({
 	const [selectedFindingId, setSelectedFindingId] = useState("");
 	const [profiles, setProfiles] = useState<ScanProfile[]>([]);
 	const [selectedProfileId, setSelectedProfileId] = useState("baseline");
+	const [scanTargetKind, setScanTargetKind] = useState<ScanTargetKind>("full");
+	const [diffBaseRef, setDiffBaseRef] = useState("HEAD");
+	const [diffHeadRef, setDiffHeadRef] = useState("HEAD");
+	const [diffIncludeUntracked, setDiffIncludeUntracked] = useState(true);
+	const [diffPreview, setDiffPreview] = useState<DiffScanPreview | null>(null);
+	const [diffPreviewResolvedInputKey, setDiffPreviewResolvedInputKey] =
+		useState<string | null>(null);
+	const [diffPreviewLoading, setDiffPreviewLoading] = useState(false);
+	const [diffPreviewError, setDiffPreviewError] = useState<string | null>(null);
+	const diffPreviewRequestIdRef = useRef(0);
 	const [continueOnToolFailure, setContinueOnToolFailure] = useState(true);
 	const [timeoutSec, setTimeoutSec] = useState(600);
 	const [showRunScanForm, setShowRunScanForm] = useState(false);
@@ -504,6 +518,40 @@ export const useScansController = ({
 	}, [active]);
 
 	useEffect(() => {
+		const profile = profiles.find((item) => item.id === selectedProfileId);
+		if (!profile) return;
+		const supported = profile.supportedTargets ?? ["full"];
+		if (supported.includes(scanTargetKind)) return;
+		const nextKind = supported.includes("full")
+			? "full"
+			: supported.includes("working_tree")
+				? "working_tree"
+				: supported[0];
+		if (nextKind) setScanTargetKind(nextKind);
+	}, [profiles, scanTargetKind, selectedProfileId]);
+
+	const diffPreviewInputKey = JSON.stringify([
+		selectedProjectId,
+		selectedProfileId,
+		scanTargetKind,
+		diffBaseRef,
+		diffHeadRef,
+		diffIncludeUntracked,
+	]);
+	const diffPreviewCurrent =
+		diffPreview !== null && diffPreviewResolvedInputKey === diffPreviewInputKey;
+	const previousDiffPreviewInputKey = useRef(diffPreviewInputKey);
+	useEffect(() => {
+		if (previousDiffPreviewInputKey.current === diffPreviewInputKey) return;
+		previousDiffPreviewInputKey.current = diffPreviewInputKey;
+		diffPreviewRequestIdRef.current++;
+		setDiffPreview(null);
+		setDiffPreviewResolvedInputKey(null);
+		setDiffPreviewLoading(false);
+		setDiffPreviewError(null);
+	}, [diffPreviewInputKey]);
+
+	useEffect(() => {
 		if (!active || !selectedScanRunId) {
 			setScanSummary(null);
 			setScanGroups([]);
@@ -754,6 +802,83 @@ export const useScansController = ({
 		};
 	}, [active, selectedFindingId, selectedFindingDetails?.latestReview?.status]);
 
+	const buildSelectedScanTarget = (): ScanTarget => {
+		if (scanTargetKind === "full") return { kind: "full" };
+		if (scanTargetKind === "commit") {
+			return {
+				kind: "commit",
+				head: diffHeadRef.trim(),
+				...(diffBaseRef.trim() ? { base: diffBaseRef.trim() } : {}),
+			};
+		}
+		if (scanTargetKind === "range") {
+			return {
+				kind: "range",
+				base: diffBaseRef.trim(),
+				head: diffHeadRef.trim(),
+			};
+		}
+		return {
+			kind: "working_tree",
+			...(diffBaseRef.trim() ? { base: diffBaseRef.trim() } : {}),
+			includeUntracked: diffIncludeUntracked,
+		};
+	};
+
+	const handleScanTargetKindChange = (kind: ScanTargetKind) => {
+		setScanTargetKind(kind);
+		const project = projects.find((item) => item.id === selectedProjectId);
+		setDiffBaseRef(
+			kind === "range"
+				? (project?.defaultBranch ?? "main")
+				: kind === "working_tree"
+					? "HEAD"
+					: "",
+		);
+		setDiffHeadRef("HEAD");
+	};
+
+	const handlePreviewDiffTarget = async () => {
+		if (!selectedProjectId || !selectedProfileId || scanTargetKind === "full")
+			return;
+		const target = buildSelectedScanTarget();
+		if (target.kind === "full") return;
+		if (
+			("head" in target && !target.head) ||
+			(target.kind === "range" && !target.base)
+		) {
+			setDiffPreviewError("base/head refを入力してください。");
+			return;
+		}
+		const requestId = ++diffPreviewRequestIdRef.current;
+		setDiffPreviewLoading(true);
+		setDiffPreviewError(null);
+		try {
+			const preview = await previewScan(selectedProjectId, {
+				profile: selectedProfileId,
+				target,
+			});
+			if (diffPreviewRequestIdRef.current === requestId) {
+				setDiffPreview(preview);
+				setDiffPreviewResolvedInputKey(diffPreviewInputKey);
+			}
+		} catch (error) {
+			if (diffPreviewRequestIdRef.current === requestId) {
+				setDiffPreview(null);
+				setDiffPreviewResolvedInputKey(null);
+				setDiffPreviewError(
+					error instanceof Error
+						? error.message
+						: "差分previewに失敗しました。",
+				);
+			}
+		} finally {
+			if (diffPreviewRequestIdRef.current === requestId) {
+				setDiffPreviewLoading(false);
+			}
+		}
+	};
+
 	const handleStartScanProfile = async () => {
 		if (!selectedProjectId || !selectedProfileId || timeoutSec <= 0) return;
 		const project = projects.find((item) => item.id === selectedProjectId);
@@ -766,10 +891,18 @@ export const useScansController = ({
 		setIsScanning(true);
 		setErrorText(null);
 		try {
+			const target = buildSelectedScanTarget();
+			if (target.kind !== "full" && !diffPreviewCurrent) {
+				throw new Error("差分を確認してからscanを開始してください。");
+			}
 			const res = await startScan(selectedProjectId, {
 				profile: selectedProfileId,
-				continueOnToolFailure: true,
+				continueOnToolFailure,
 				timeoutSec,
+				target,
+				...(target.kind !== "full" && diffPreviewCurrent && diffPreview
+					? { expectedTargetDigest: diffPreview.target.targetDigest }
+					: {}),
 			});
 			setScanRuns(await fetchScans(selectedProjectId));
 			if (res.scan?.id) {
@@ -779,6 +912,8 @@ export const useScansController = ({
 				setScanListTab("runs");
 				setScanDetailTab("review");
 			}
+			setDiffPreview(null);
+			setDiffPreviewResolvedInputKey(null);
 			setShowRunScanForm(false);
 		} catch (err) {
 			setErrorText(
@@ -1342,6 +1477,19 @@ export const useScansController = ({
 		profiles,
 		selectedProfileId,
 		setSelectedProfileId,
+		scanTargetKind,
+		handleScanTargetKindChange,
+		diffBaseRef,
+		setDiffBaseRef,
+		diffHeadRef,
+		setDiffHeadRef,
+		diffIncludeUntracked,
+		setDiffIncludeUntracked,
+		diffPreview,
+		diffPreviewCurrent,
+		diffPreviewLoading,
+		diffPreviewError,
+		handlePreviewDiffTarget,
 		continueOnToolFailure,
 		setContinueOnToolFailure,
 		timeoutSec,

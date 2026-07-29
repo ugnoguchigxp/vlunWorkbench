@@ -1,10 +1,19 @@
 import fs from "node:fs/promises";
 import { parseArgs } from "node:util";
+import type { ScanTarget } from "../../shared/schemas/scan-target.schema";
 import { readAppEnv } from "../app/env";
 import { createDbConnection } from "../db";
 import { ArtifactStorage } from "../modules/scans/artifact-storage";
 import { runProfileScan } from "../modules/scans/profile-runner";
 import { getProfileById } from "../modules/scans/profiles";
+import {
+	buildDiffScanPlan,
+	toDiffScanPreview,
+} from "../modules/scans/diff-scan-plan";
+import {
+	GitDiffResolutionError,
+	resolveGitDiff,
+} from "../modules/scans/git-diff-resolver";
 import {
 	ProjectResolutionError,
 	resolveProjectByPath,
@@ -21,6 +30,7 @@ import {
 	type ToolRunnerKind,
 } from "../modules/scans/tools/tool-process-runner";
 import { ProjectPathPolicyError } from "../security/project-path-policy";
+import { parseScanTargetOption } from "./scan-profile-options";
 
 function writeResult(payload: Record<string, unknown>): void {
 	console.log(JSON.stringify(payload));
@@ -44,6 +54,12 @@ async function main() {
 				"project-path": { type: "string" },
 				"create-project": { type: "string", default: "false" },
 				profile: { type: "string", default: "baseline" },
+				target: { type: "string", default: "full" },
+				base: { type: "string" },
+				head: { type: "string" },
+				"include-untracked": { type: "string" },
+				"expected-target-digest": { type: "string" },
+				preview: { type: "string", default: "false" },
 				step: { type: "string" },
 				"timeout-sec": { type: "string" },
 				"continue-on-tool-failure": { type: "string", default: "true" },
@@ -82,6 +98,29 @@ async function main() {
 	const projectPath = argsValues["project-path"];
 	const createProject = parseBooleanFlag(argsValues["create-project"], false);
 	const profileId = argsValues.profile;
+	let scanTarget: ScanTarget;
+	try {
+		scanTarget = parseScanTargetOption(argsValues);
+	} catch (error) {
+		writeResult({
+			ok: false,
+			status: "config_error",
+			message: error instanceof Error ? error.message : String(error),
+		});
+		process.exit(2);
+	}
+	const expectedTargetDigest = argsValues["expected-target-digest"] as
+		| string
+		| undefined;
+	if (expectedTargetDigest && !/^[0-9a-f]{64}$/i.test(expectedTargetDigest)) {
+		writeResult({
+			ok: false,
+			status: "config_error",
+			message: "--expected-target-digest must be a 64-character SHA-256.",
+		});
+		process.exit(2);
+	}
+	const preview = argsValues.preview === "true";
 	const stepId = argsValues.step;
 	const timeoutSecStr = argsValues["timeout-sec"];
 	const continueOnToolFailure =
@@ -220,6 +259,7 @@ async function main() {
 		writeResult({
 			dryRun: true,
 			profileId,
+			target: scanTarget,
 			runner: runner ?? "host",
 			finalReport: finalReportEnabled,
 			stepId: stepId ?? null,
@@ -294,7 +334,44 @@ async function main() {
 					message: `Project not found with id: ${projectId}`,
 				},
 			});
-			process.exit(2);
+			process.exitCode = 2;
+			return;
+		}
+		const effectiveRepoPath = projectResolution?.repoPath ?? project.repoPath;
+		if (preview) {
+			if (scanTarget.kind === "full") {
+				writeResult({
+					ok: false,
+					status: "config_error",
+					message: "--preview requires a non-full --target.",
+				});
+				process.exitCode = 2;
+				return;
+			}
+			if (!(profile.supportedTargets ?? ["full"]).includes(scanTarget.kind)) {
+				writeResult({
+					ok: false,
+					status: "config_error",
+					message: `diff_target_not_supported: profile ${profile.id} does not support ${scanTarget.kind}.`,
+				});
+				process.exitCode = 2;
+				return;
+			}
+			const plan = buildDiffScanPlan({
+				resolved: await resolveGitDiff({
+					projectPath: effectiveRepoPath,
+					target: scanTarget,
+					scope: profile.scope,
+				}),
+				tools: profile.tools,
+			});
+			writeResult({
+				ok: true,
+				preview: true,
+				profileId,
+				...toDiffScanPreview(plan),
+			});
+			return;
 		}
 
 		const result = await runProfileScan({
@@ -303,7 +380,7 @@ async function main() {
 			projectId: project.id,
 			profileId,
 			stepId,
-			repoPath: projectResolution?.repoPath ?? project.repoPath,
+			repoPath: effectiveRepoPath,
 			continueOnToolFailure,
 			timeoutSec,
 			execution,
@@ -312,6 +389,8 @@ async function main() {
 			imageTar,
 			executionSurface,
 			projectAllowedRoots: env.projectAllowedRoots,
+			target: scanTarget,
+			expectedTargetDigest,
 			finalReport: {
 				enabled: finalReportEnabled,
 				title: reportTitle,
@@ -364,12 +443,14 @@ async function main() {
 		writeResult(outputPayload);
 
 		if (!result.ok) {
-			process.exit(1);
+			process.exitCode = 1;
+			return;
 		}
 	} catch (err) {
 		if (
 			err instanceof ProjectResolutionError ||
 			err instanceof ProjectPathPolicyError ||
+			err instanceof GitDiffResolutionError ||
 			!startupComplete
 		) {
 			const message = err instanceof Error ? err.message : String(err);
@@ -383,11 +464,14 @@ async function main() {
 							? err.code
 							: err instanceof ProjectPathPolicyError
 								? err.code
-								: "APP_CONFIG_ERROR",
+								: err instanceof GitDiffResolutionError
+									? err.code
+									: "APP_CONFIG_ERROR",
 					message,
 				},
 			});
-			process.exit(2);
+			process.exitCode = 2;
+			return;
 		}
 		writeResult({
 			ok: false,
@@ -396,7 +480,8 @@ async function main() {
 			message: err instanceof Error ? err.message : String(err),
 			toolResults: [],
 		});
-		process.exit(1);
+		process.exitCode = 1;
+		return;
 	} finally {
 		dbConnection?.sqlite.close(false);
 	}
