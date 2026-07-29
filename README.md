@@ -646,7 +646,6 @@ Product boundaries and active, incomplete plans are:
 - `spec/static-intelligence-layer-concept.md`
 - `spec/contextstill-static-intelligence-bridge-concept.md`
 - `spec/project-scan-exploration-reduction-mcp-concept.md`
-- `spec/phase-42-project-scan-exploration-catalog-mcp-plan.md`
 - `spec/static-intelligence-coding-agent-consumer-companion-plan.md`
 - `spec/phase-46-security-release-readiness-plan.md`
 

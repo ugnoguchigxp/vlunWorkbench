@@ -490,9 +490,11 @@ Graph canvasと専用Graph DBは、探索削減の価値に直接必要になる
 
 MCP toolが存在するだけ、またはlikely fileを表示できるだけでは完了ではない。MCPなしのbaselineと比較してnet token / tool-call valueが確認できることを必須とする。
 
+Phase 42はvulnWorkbench側Catalog MCP componentの完成をもって完了済みとする。NightWorkersでの効果測定とrollout判断は後続の独立した評価として扱い、Phase 42の完了条件には含めない。
+
 ## Relationship to Existing Documents
 
 - `spec/static-intelligence-layer-concept.md`: vulnWorkbench全体のStatic Intelligence責務境界
 - `spec/static-intelligence-coding-agent-consumer-companion-plan.md`: broader Ontology / Task / runtime / closeout consumer adoption
-- `spec/phase-42-project-scan-exploration-catalog-mcp-plan.md`: 本構想の最初のconsumer proof実装計画
+- Phase 42実装計画: 完了済み。Git historyで参照する
 - `spec/evidence/phase-42-vulnworkbench-catalog-mcp-go.md`: vulnWorkbench側Catalog MCP componentの完了根拠
