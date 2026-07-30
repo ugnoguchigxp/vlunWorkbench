@@ -1,6 +1,5 @@
 import { Download, RefreshCw } from "lucide-react";
-import { MarkdownEditor } from "markdown-wysiwyg-editor";
-import mermaid from "mermaid";
+import { MarkdownEditor } from "../../../components/markdown-editor";
 import { Button } from "../../../ui";
 import { formatScanOutcome } from "../scan-profile-display";
 import { useScans } from "../scans-context";
@@ -107,8 +106,6 @@ function ReportBody() {
 					<MarkdownEditor
 						value={c.reportPreviewContent}
 						editable={false}
-						enableMermaid
-						mermaidLib={mermaid}
 						toolbarMode="hidden"
 						autoHeight
 						className="wysiwyg-viewer"

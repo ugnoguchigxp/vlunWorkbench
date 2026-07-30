@@ -14,6 +14,13 @@ export interface ArtifactSaveResult {
 	sizeBytes: number;
 }
 
+export class ArtifactSizeLimitError extends Error {
+	constructor(readonly maxBytes: number) {
+		super("Artifact exceeds the configured read limit.");
+		this.name = "ArtifactSizeLimitError";
+	}
+}
+
 export class ArtifactStorage {
 	private readonly baseDir: string;
 
@@ -199,7 +206,10 @@ export class ArtifactStorage {
 		);
 	}
 
-	async readTextArtifact(relativePath: string): Promise<string> {
+	async readTextArtifact(
+		relativePath: string,
+		options: { maxBytes?: number } = {},
+	): Promise<string> {
 		const targetPath = path.resolve(this.baseDir, relativePath);
 		const relative = path.relative(this.baseDir, targetPath);
 		if (relative.startsWith("..") || path.isAbsolute(relative)) {
@@ -207,6 +217,56 @@ export class ArtifactStorage {
 				"Path traversal detected: target path is outside of artifact root.",
 			);
 		}
-		return await fs.readFile(targetPath, "utf8");
+		const [canonicalBase, canonicalTarget] = await Promise.all([
+			fs.realpath(this.baseDir),
+			fs.realpath(targetPath),
+		]);
+		const canonicalRelative = path.relative(canonicalBase, canonicalTarget);
+		if (
+			canonicalRelative.startsWith("..") ||
+			path.isAbsolute(canonicalRelative)
+		) {
+			throw new Error(
+				"Path traversal detected: artifact symlink resolves outside of artifact root.",
+			);
+		}
+		if (options.maxBytes === undefined) {
+			return await fs.readFile(canonicalTarget, "utf8");
+		}
+		if (!Number.isSafeInteger(options.maxBytes) || options.maxBytes < 0) {
+			throw new RangeError(
+				"Artifact read limit must be a non-negative safe integer.",
+			);
+		}
+
+		const handle = await fs.open(canonicalTarget, "r");
+		try {
+			const stat = await handle.stat();
+			if (stat.size > options.maxBytes) {
+				throw new ArtifactSizeLimitError(options.maxBytes);
+			}
+			const chunks: Buffer[] = [];
+			let total = 0;
+			while (total <= options.maxBytes) {
+				const buffer = Buffer.allocUnsafe(
+					Math.min(64 * 1024, options.maxBytes + 1 - total),
+				);
+				const { bytesRead } = await handle.read(
+					buffer,
+					0,
+					buffer.length,
+					total,
+				);
+				if (bytesRead === 0) break;
+				chunks.push(buffer.subarray(0, bytesRead));
+				total += bytesRead;
+			}
+			if (total > options.maxBytes) {
+				throw new ArtifactSizeLimitError(options.maxBytes);
+			}
+			return Buffer.concat(chunks, total).toString("utf8");
+		} finally {
+			await handle.close();
+		}
 	}
 }

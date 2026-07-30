@@ -1,0 +1,16 @@
+{
+	"recordedAt": "2026-07-30T12:36:00+09:00",
+	"result": "pass",
+	"initialJavaScriptGzipBytes": 20967,
+	"initialCssGzipBytes": 21020,
+	"largestJavaScriptChunk": {
+		"entry": "markdown-editor-CJKGuML8.js",
+		"bytes": 205555
+	},
+	"budgets": {
+		"initialJavaScriptGzipBytes": 256000,
+		"initialCssGzipBytes": 35000,
+		"largestJavaScriptChunkBytes": 500000
+	},
+	"forbiddenJavaScriptChunks": []
+}

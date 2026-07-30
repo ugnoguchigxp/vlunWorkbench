@@ -1,0 +1,284 @@
+import {
+	escapeTableCell,
+	formatDateTime,
+	formatSeverity,
+	getLocationPath,
+	readDiffReportContext,
+	renderImprovementRequest,
+	reportAlternateHeading,
+	reportHeading,
+	SEVERITIES,
+	toInlineText,
+} from "./report-builder-helpers";
+import type { buildReportQuery } from "./report-builder-query";
+
+export function renderReportOverview(
+	scope: Awaited<ReturnType<typeof buildReportQuery>>,
+) {
+	const {
+		activeFindings,
+		allArtifacts,
+		allAttackSurfaceItems,
+		allDastEvidence,
+		allDastRuns,
+		allDiagnosticReports,
+		allDynamicRuns,
+		allReproRuns,
+		allReviews,
+		allSecurityCheckResults,
+		decidedFindingCount,
+		deferredFindings,
+		expectedDastSteps,
+		failedOrMissingDastSteps,
+		falsePositiveFindings,
+		includedFindings,
+		latestImprovementRequest,
+		processedFindings,
+		profileDefinition,
+		profileSteps,
+		project,
+		rawFindings,
+		reportTitle,
+		reviewedFindingCount,
+		scanRun,
+		severityStats,
+		sortedFindings,
+		stats,
+		stepResults,
+		tools,
+		undecidedFindings,
+	} = scope;
+
+	// Start building Markdown content
+	const lines: string[] = [];
+	lines.push(`# ${reportTitle}`);
+	lines.push("");
+
+	// Scan Summary
+	const profileOutcome = (scanRun.metadata?.profileOutcome as string) || "N/A";
+	const diffContext = readDiffReportContext(scanRun.metadata);
+	lines.push("## スキャン概要");
+	lines.push(`- **プロジェクト名:** ${toInlineText(project.name)}`);
+	lines.push(`- **スキャンプロファイル:** ${toInlineText(scanRun.profile)}`);
+	lines.push(
+		`- **プロファイル結果:** ${toInlineText(profileOutcome.toUpperCase())}`,
+	);
+	lines.push(`- **状態:** ${toInlineText(scanRun.status)}`);
+	lines.push(`- **開始日時:** ${formatDateTime(scanRun.startedAt)}`);
+	lines.push(`- **完了日時:** ${formatDateTime(scanRun.completedAt)}`);
+	if (profileSteps.length > 0) {
+		lines.push(
+			`- **Profile steps:** ${profileSteps
+				.map((step) =>
+					step.kind === "dast"
+						? `dast:${step.profileId}`
+						: step.kind === "static_tool"
+							? step.toolId
+							: `${step.kind}:${step.adapter}`,
+				)
+				.join(", ")}`,
+		);
+	}
+	lines.push("");
+
+	if (diffContext) {
+		lines.push("## Diff Target and Coverage");
+		lines.push(`- **Target kind:** ${diffContext.kind}`);
+		lines.push(`- **Base SHA:** ${diffContext.baseSha}`);
+		lines.push(`- **Head SHA:** ${diffContext.headSha ?? "working tree"}`);
+		lines.push(`- **Merge base SHA:** ${diffContext.mergeBaseSha ?? "N/A"}`);
+		lines.push(`- **Target digest:** ${diffContext.targetDigest}`);
+		lines.push(
+			`- **Path coverage:** changed=${diffContext.coverage.changed}, scannable=${diffContext.coverage.scannable}, deleted=${diffContext.coverage.deleted}, excluded=${diffContext.coverage.excluded}, unsupported=${diffContext.coverage.unsupported}, too_large=${diffContext.coverage.tooLarge}`,
+		);
+		lines.push(
+			"- **V1 semantics:** changed path に関連するスキャンです。対象ファイルは whole-file で評価されるため、finding が変更行で新規に導入されたことを意味しません。",
+		);
+		if (diffContext.tools.length > 0) {
+			lines.push(
+				"| Tool | Applicability | Execution status | Reason | Coverage effect |",
+			);
+			lines.push("| --- | --- | --- | --- | --- |");
+			for (const tool of diffContext.tools) {
+				lines.push(
+					`| ${escapeTableCell(tool.toolId)} | ${escapeTableCell(tool.applicability)} | ${escapeTableCell(tool.status ?? "-")} | ${escapeTableCell(tool.reasonCode ?? "-")} | ${escapeTableCell(tool.coverageEffect)} |`,
+				);
+			}
+		}
+		lines.push("");
+	}
+
+	lines.push("## 全体考察");
+	if (rawFindings.length === 0) {
+		if (diffContext?.coverage.changed === 0) {
+			lines.push(
+				"- **結論:** 差分対象に変更パスがなく、finding は生成されませんでした。これは脆弱性がないことを示す結果ではありません。",
+			);
+		} else if (diffContext?.coverage.scannable === 0) {
+			lines.push(
+				"- **結論:** 差分対象にスキャン可能なファイルがなく、finding は生成されませんでした。除外・削除・未対応ファイルを安全と判断した結果ではありません。",
+			);
+		} else if (
+			diffContext?.tools.some(
+				(tool) =>
+					tool.applicability === "applicable" &&
+					(tool.status === "failed" ||
+						tool.status === "skipped" ||
+						tool.coverageEffect === "gap"),
+			)
+		) {
+			lines.push(
+				"- **結論:** 差分対象のscanner実行が完了していないため、finding 0件を安全性の判断には使用できません。失敗または未実行のtoolを確認してください。",
+			);
+		} else {
+			lines.push(
+				"- **結論:** 今回のスキャン範囲では、対応が必要な指摘事項は発見されませんでした。",
+			);
+		}
+		lines.push(
+			"- この結論は、実行したプロファイル、対象範囲、ツール設定、取得済み artifact に基づくものです。未実行の観点やスキャン対象外のコードまで含めた完全な安全性を証明するものではありません。",
+		);
+		if (
+			diffContext &&
+			(diffContext.coverage.excluded > 0 ||
+				diffContext.coverage.unsupported > 0 ||
+				diffContext.coverage.tooLarge > 0)
+		) {
+			lines.push(
+				`- **Diff coverage gaps:** excluded=${diffContext.coverage.excluded}, unsupported=${diffContext.coverage.unsupported}, too_large=${diffContext.coverage.tooLarge}。これらは未確認領域として残ります。`,
+			);
+		}
+	} else {
+		const urgentCount = severityStats.critical + severityStats.high;
+		lines.push(
+			`- 検出件数は ${rawFindings.length} 件で、このうち緊急または高 severity は ${urgentCount} 件です。まず high severity と証跡が弱い finding を、次の LLM が実装改善に進めるリスク文脈として渡してください。`,
+		);
+		lines.push(
+			`- 互換用分類は、実装改善候補 ${stats.needs_fix} 件、既知リスク記録 ${stats.accepted} 件、後続確認記録 ${stats.deferred} 件、誤検知 ${stats.false_positive} 件、LLM handoff未作成 ${stats.undecided} 件です。未作成が残る場合は、人手で仕分けず、証跡の妥当性と実行時到達可能性を LLM handoff に含めてください。`,
+		);
+		lines.push(
+			`- LLMレビュー済みは ${reviewedFindingCount} 件、互換記録ありは ${decidedFindingCount} 件です。レビューがない finding は、静的検出と保存済み証跡だけを根拠にしているため、実装修正前に LLM へ不足証跡と影響範囲を明示してください。`,
+		);
+	}
+	lines.push("");
+
+	lines.push(reportHeading("executive-summary"));
+	if (rawFindings.length === 0) {
+		lines.push(
+			"- **Risk posture:** informational。finding は 0 件ですが、スキャン範囲と診断カバレッジの制約を LLM handoff に含め、未確認領域を実装改善候補として扱ってください。",
+		);
+	} else {
+		const highestSeverity =
+			SEVERITIES.find((severity) => severityStats[severity] > 0) ?? "unknown";
+		const strongReviewCount = processedFindings.filter(
+			(item) =>
+				item.latestCompletedReview?.evidenceStrength?.level === "strong",
+		).length;
+		const weakOrMissingDecisionGradeEvidence = processedFindings.filter(
+			(item) =>
+				item.evidences.length === 0 ||
+				item.latestCompletedReview?.evidenceStrength?.level === "weak" ||
+				!item.latestCompletedReview,
+		).length;
+		lines.push(
+			`- **Risk posture:** ${formatSeverity(highestSeverity)}。実装改善候補 ${stats.needs_fix} 件、LLM handoff未作成 ${stats.undecided} 件、既知リスク記録 ${stats.accepted} 件です。`,
+		);
+		lines.push(
+			`- **Evidence confidence:** strong review ${strongReviewCount} 件、weak/missing decision-grade evidence ${weakOrMissingDecisionGradeEvidence} 件です。`,
+		);
+		lines.push(
+			"- **Recommended focus:** high severity、証跡が弱い finding、実装改善候補の順に LLM handoff へ渡し、コード側でリスクを低減してください。",
+		);
+	}
+	lines.push("");
+
+	lines.push(reportHeading("risk-ranking"));
+	if (rawFindings.length === 0) {
+		lines.push(
+			"Active findings are 0, so there is no finding-level risk ranking. Use the zero-finding coverage section to judge residual risk and unchecked scope.",
+		);
+	} else if (includedFindings.length === 0) {
+		lines.push(
+			"All findings are excluded by report options, so no finding-level risk ranking is included in this export.",
+		);
+	} else {
+		lines.push(
+			"| Rank | Finding ID | Severity | Implementation routing | Rationale |",
+		);
+		lines.push("| --- | --- | --- | --- | --- |");
+		includedFindings.forEach((item, index) => {
+			const reviewStrength =
+				item.latestCompletedReview?.evidenceStrength?.level ?? "missing";
+			lines.push(
+				`| ${index + 1} | ${item.finding.id} | ${escapeTableCell(item.finding.severity)} | ${escapeTableCell(item.latestDecision?.decision ?? "undecided")} | ${escapeTableCell(`severity=${item.finding.severity}; evidence=${reviewStrength}`)} |`,
+			);
+		});
+		if (stats.undecided > 0) {
+			lines.push(
+				`${stats.undecided} finding(s) do not have an implementation handoff yet, so this ranking is not final submission-grade until a scan-level LLM handoff exists.`,
+			);
+		}
+	}
+	lines.push("");
+
+	lines.push(reportHeading("evidence-quality"));
+	if (processedFindings.length === 0) {
+		lines.push(
+			"finding がないため、finding 単位の evidence quality はありません。",
+		);
+	} else if (includedFindings.length === 0) {
+		lines.push(
+			"レポート設定により、finding 単位の evidence quality は除外されています。",
+		);
+	} else {
+		lines.push(
+			"| Finding ID | Source/tool evidence | Review strength | Verification | Implementation routing |",
+		);
+		lines.push("| --- | --- | --- | --- | --- |");
+		for (const item of includedFindings) {
+			const fndRepros = allReproRuns.filter(
+				(r) => r.findingId === item.finding.id,
+			);
+			const fndDynamics = allDynamicRuns.filter(
+				(r) => r.findingId === item.finding.id,
+			);
+			const fndDastEv = allDastEvidence.filter(
+				(e) => e.findingId === item.finding.id,
+			);
+			const locationPath = getLocationPath(item.finding.primaryLocation);
+			const sourceOrTool =
+				locationPath || item.evidences.length > 0 ? "present" : "missing";
+			const verification =
+				fndRepros.length > 0 || fndDynamics.length > 0 || fndDastEv.length > 0
+					? "present"
+					: "missing";
+			lines.push(
+				`| ${item.finding.id} | ${sourceOrTool} | ${escapeTableCell(item.latestCompletedReview?.evidenceStrength?.level ?? "missing")} | ${verification} | ${escapeTableCell(item.latestDecision?.decision ?? "undecided")} |`,
+			);
+		}
+	}
+	lines.push("");
+
+	if (latestImprovementRequest) {
+		lines.push(
+			reportAlternateHeading("finding-decisions") ??
+				"## LLM Implementation Handoff",
+		);
+		renderImprovementRequest(lines, latestImprovementRequest);
+	} else {
+		lines.push(reportHeading("finding-decisions"));
+		lines.push("| Implementation routing | Count |");
+		lines.push("| --- | --- |");
+		lines.push(`| implementation_fix_candidate | ${stats.needs_fix} |`);
+		lines.push(`| legacy_known_risk_record | ${stats.accepted} |`);
+		lines.push(`| legacy_follow_up_record | ${stats.deferred} |`);
+		lines.push(`| tool_noise_record | ${stats.false_positive} |`);
+		lines.push(`| missing_llm_handoff | ${stats.undecided} |`);
+		if (stats.undecided > 0) {
+			lines.push(
+				"LLM handoff は生成されていません。人手で finding を仕分けるのではなく、保存済み証跡と不足検証を次の LLM に渡す implementation handoff を生成してください。",
+			);
+		}
+	}
+	return { lines, diffContext };
+}

@@ -1,0 +1,17 @@
+#!/usr/bin/env bun
+
+const args = process.argv.slice(2);
+
+if (args.includes("version")) {
+	console.log("gitleaks 1.0.0-e2e");
+	process.exit(0);
+}
+
+const outputFlagIndex = args.indexOf("--report-path");
+const outputPath = outputFlagIndex >= 0 ? args[outputFlagIndex + 1] : undefined;
+if (!outputPath) {
+	console.error("E2E gitleaks fixture requires --report-path.");
+	process.exit(2);
+}
+
+await Bun.write(outputPath, "[]");

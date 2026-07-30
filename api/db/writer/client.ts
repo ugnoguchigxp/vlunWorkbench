@@ -418,7 +418,7 @@ export class SqliteWriterClient {
 			],
 			{
 				cwd: process.cwd(),
-				detached: true,
+				detached: process.env.SQLITE_WRITER_DETACHED !== "0",
 				stdio: ["ignore", "ignore", "ignore"],
 				env: {
 					...process.env,
@@ -431,7 +431,7 @@ export class SqliteWriterClient {
 		this.spawnedPid = child.pid;
 		this.spawnedExit = child.exited;
 		ownedWriterClients.add(this);
-		child.unref();
+		if (process.env.SQLITE_WRITER_DETACHED !== "0") child.unref();
 	}
 
 	private async sendRaw(

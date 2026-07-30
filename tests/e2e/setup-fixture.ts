@@ -1,4 +1,4 @@
-import { mkdir, rm } from "node:fs/promises";
+import { chmod, cp, mkdir, rm } from "node:fs/promises";
 import path from "node:path";
 
 const databasePath = path.resolve(
@@ -10,6 +10,12 @@ const contentRoot = path.resolve(
 const projectRoot = path.resolve(
 	process.env.PROJECT_ALLOWED_ROOTS ?? ".tmp/e2e/projects",
 );
+const artifactRoot = path.resolve(
+	process.env.SCAN_ARTIFACT_ROOT ?? ".tmp/e2e/artifacts",
+);
+const fixtureProjectRoot = path.resolve("tests/e2e/fixtures/project");
+const allowedProjectRoot = path.join(projectRoot, "allowed-project");
+const fixtureBinRoot = path.resolve("tests/e2e/fixtures/bin");
 
 for (const filename of [
 	databasePath,
@@ -19,15 +25,29 @@ for (const filename of [
 	await rm(filename, { force: true });
 }
 await Promise.all([
+	rm(artifactRoot, { recursive: true, force: true }),
+	rm(allowedProjectRoot, { recursive: true, force: true }),
+]);
+await Promise.all([
 	mkdir(path.dirname(databasePath), { recursive: true }),
 	mkdir(contentRoot, { recursive: true }),
-	mkdir(path.join(projectRoot, "allowed-project"), { recursive: true }),
+	mkdir(projectRoot, { recursive: true }),
+	mkdir(artifactRoot, { recursive: true }),
 ]);
+await cp(fixtureProjectRoot, allowedProjectRoot, { recursive: true });
+await Promise.all(
+	["semgrep", "gitleaks", "osv-scanner"].map((filename) =>
+		chmod(path.join(fixtureBinRoot, filename), 0o755),
+	),
+);
 
 async function run(command: string[]): Promise<void> {
 	const child = Bun.spawn(command, {
 		cwd: path.resolve("."),
-		env: globalThis.process.env,
+		env: {
+			...globalThis.process.env,
+			NODE_ENV: "test",
+		},
 		stdout: "pipe",
 		stderr: "pipe",
 	});

@@ -177,7 +177,15 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 				metadata: body.metadata,
 			});
 
-			return c.json({ project: created }, 201);
+			return c.json(
+				{
+					project: {
+						...created,
+						pathPolicy: await projectPathPolicyStatus(resolvedPath),
+					},
+				},
+				201,
+			);
 		})
 		.post(
 			"/:projectId/scans/preview",
@@ -251,8 +259,6 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 					dockerBin: z.string().optional(),
 					dockerImage: z.string().optional(),
 					network: z.enum(["none", "default"]).default("none").optional(),
-					memory: z.string().optional(),
-					cpus: z.string().optional(),
 					toolCacheDir: z.string().optional(),
 					imageRef: z.string().optional(),
 					imageTar: z.string().optional(),

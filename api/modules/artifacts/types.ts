@@ -1,7 +1,6 @@
 export type ArtifactType =
 	| "markdown"
 	| "table"
-	| "mermaid"
 	| "chart"
 	| "json"
 	| "code"

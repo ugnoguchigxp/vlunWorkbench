@@ -1,6 +1,4 @@
 import { Eye, EyeOff, RefreshCw, Send, Trash2 } from "lucide-react";
-import { MarkdownEditor } from "markdown-wysiwyg-editor";
-import mermaid from "mermaid";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { normalizeAgenticAnswerMarkdown } from "../../agentic-markdown";
 import {
@@ -14,6 +12,7 @@ import {
 	sendChat,
 } from "../../api";
 import { Button, IconButton, SelectInput, TextArea } from "../../ui";
+import { MarkdownEditor } from "../../components/markdown-editor";
 
 type ChatDomainSectionProps = {
 	active: boolean;
@@ -326,24 +325,6 @@ const ArtifactPreview = ({ artifact }: { artifact: Artifact }) => {
 				<MarkdownEditor
 					value={normalizeAgenticAnswerMarkdown(textContent)}
 					editable={false}
-					enableMermaid={true}
-					mermaidLib={mermaid}
-					toolbarMode="hidden"
-					autoHeight={true}
-					className="wysiwyg-viewer"
-				/>
-			</div>
-		);
-	}
-
-	if (artifact.type === "mermaid") {
-		return (
-			<div className="artifact-renderer">
-				<MarkdownEditor
-					value={`\`\`\`mermaid\n${textContent}\n\`\`\``}
-					editable={false}
-					enableMermaid={true}
-					mermaidLib={mermaid}
 					toolbarMode="hidden"
 					autoHeight={true}
 					className="wysiwyg-viewer"
@@ -567,8 +548,6 @@ export const ChatDomainSection = ({
 									<MarkdownEditor
 										value={normalizeAgenticAnswerMarkdown(message.content)}
 										editable={false}
-										enableMermaid={true}
-										mermaidLib={mermaid}
 										toolbarMode="hidden"
 										autoHeight={true}
 										className="wysiwyg-viewer"

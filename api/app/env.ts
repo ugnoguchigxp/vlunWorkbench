@@ -112,6 +112,17 @@ const EnvSchema = z.object({
 	STATIC_INTELLIGENCE_PROJECT_CREATION_POLICY: z
 		.enum(["registered_only", "create_within_allowed_roots"])
 		.default("registered_only"),
+	NIGHTWORKERS_INTEGRATION_ENABLED: optionalBoolean,
+	NIGHTWORKERS_INTEGRATION_AUTO_CREATE_PROJECTS: optionalBoolean,
+	NIGHTWORKERS_INTEGRATION_ALLOWED_PROFILES: optionalTrimmedString,
+	NIGHTWORKERS_INTEGRATION_PREVIEW_TTL_SECONDS: optionalPositiveInteger,
+	NIGHTWORKERS_INTEGRATION_IDEMPOTENCY_TTL_HOURS: optionalPositiveInteger,
+	NIGHTWORKERS_INTEGRATION_MAX_CONCURRENT_SCANS: optionalPositiveInteger,
+	NIGHTWORKERS_INTEGRATION_MAX_FINDING_PAGE_SIZE: optionalPositiveInteger,
+	NIGHTWORKERS_INTEGRATION_MAX_EVENT_PAGE_SIZE: optionalPositiveInteger,
+	NIGHTWORKERS_INTEGRATION_MAX_REPORT_BYTES: optionalPositiveInteger,
+	NIGHTWORKERS_INTEGRATION_MAX_REQUEST_BYTES: optionalPositiveInteger,
+	NIGHTWORKERS_REPORT_RUNNER_CONCURRENCY: optionalPositiveInteger,
 	JWT_SECRET: z.preprocess((value) => {
 		if (typeof value !== "string") return value;
 		const trimmed = value.trim();
@@ -171,6 +182,17 @@ export type AppEnv = {
 	staticIntelligenceProjectCreationPolicy?:
 		| "registered_only"
 		| "create_within_allowed_roots";
+	nightworkersIntegrationEnabled: boolean;
+	nightworkersIntegrationAutoCreateProjects: boolean;
+	nightworkersIntegrationAllowedProfiles: string[];
+	nightworkersIntegrationPreviewTtlSeconds: number;
+	nightworkersIntegrationIdempotencyTtlHours: number;
+	nightworkersIntegrationMaxConcurrentScans: number;
+	nightworkersIntegrationMaxFindingPageSize: number;
+	nightworkersIntegrationMaxEventPageSize: number;
+	nightworkersIntegrationMaxReportBytes: number;
+	nightworkersIntegrationMaxRequestBytes: number;
+	nightworkersReportRunnerConcurrency: number;
 };
 
 function parseAllowedProjectRoots(value?: string): string[] {
@@ -415,5 +437,36 @@ export function readAppEnv(env: NodeJS.ProcessEnv = process.env): AppEnv {
 		),
 		staticIntelligenceProjectCreationPolicy:
 			parsed.STATIC_INTELLIGENCE_PROJECT_CREATION_POLICY,
+		nightworkersIntegrationEnabled:
+			parsed.NIGHTWORKERS_INTEGRATION_ENABLED ?? false,
+		nightworkersIntegrationAutoCreateProjects:
+			parsed.NIGHTWORKERS_INTEGRATION_AUTO_CREATE_PROJECTS ?? false,
+		nightworkersIntegrationAllowedProfiles: [
+			...new Set(
+				(
+					parsed.NIGHTWORKERS_INTEGRATION_ALLOWED_PROFILES ??
+					"source-baseline,diff-source-baseline,diff-basic-security,basic-security,detailed-security"
+				)
+					.split(",")
+					.map((profile) => profile.trim())
+					.filter(Boolean),
+			),
+		],
+		nightworkersIntegrationPreviewTtlSeconds:
+			parsed.NIGHTWORKERS_INTEGRATION_PREVIEW_TTL_SECONDS ?? 300,
+		nightworkersIntegrationIdempotencyTtlHours:
+			parsed.NIGHTWORKERS_INTEGRATION_IDEMPOTENCY_TTL_HOURS ?? 168,
+		nightworkersIntegrationMaxConcurrentScans:
+			parsed.NIGHTWORKERS_INTEGRATION_MAX_CONCURRENT_SCANS ?? 2,
+		nightworkersIntegrationMaxFindingPageSize:
+			parsed.NIGHTWORKERS_INTEGRATION_MAX_FINDING_PAGE_SIZE ?? 100,
+		nightworkersIntegrationMaxEventPageSize:
+			parsed.NIGHTWORKERS_INTEGRATION_MAX_EVENT_PAGE_SIZE ?? 200,
+		nightworkersIntegrationMaxReportBytes:
+			parsed.NIGHTWORKERS_INTEGRATION_MAX_REPORT_BYTES ?? 5 * 1024 * 1024,
+		nightworkersIntegrationMaxRequestBytes:
+			parsed.NIGHTWORKERS_INTEGRATION_MAX_REQUEST_BYTES ?? 64 * 1024,
+		nightworkersReportRunnerConcurrency:
+			parsed.NIGHTWORKERS_REPORT_RUNNER_CONCURRENCY ?? 2,
 	};
 }

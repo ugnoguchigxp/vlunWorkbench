@@ -1,3 +1,5 @@
+export {};
+
 const proc = Bun.spawn(["bun", "audit", "--json"], {
 	stdout: "pipe",
 	stderr: "pipe",

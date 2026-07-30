@@ -1,0 +1,50 @@
+{
+	"phase": "48",
+	"recordedAt": "2026-07-30T12:36:00+09:00",
+	"result": "pass",
+	"commands": {
+		"frozenInstall": {
+			"command": "bun install --frozen-lockfile",
+			"result": "pass",
+			"changes": 0
+		},
+		"strictVerification": {
+			"command": "bun run verify:strict",
+			"result": "pass",
+			"includes": [
+				"typecheck",
+				"lint",
+				"format",
+				"source-size-budget",
+				"dependency-override-docs",
+				"unit-and-api-tests",
+				"build",
+				"bundle-budget",
+				"dependency-audit",
+				"artifact-tracking",
+				"web-and-critical-coverage",
+				"browser-e2e"
+			]
+		}
+	},
+	"tests": {
+		"inventoryFiles": 185,
+		"vitestFiles": 25,
+		"vitestTests": 145,
+		"bunTestFiles": 160,
+		"browserE2eTests": 4,
+		"realDatabaseFlow": "project registration -> scan -> finding display -> asynchronous report generation"
+	},
+	"coverage": {
+		"statements": 91.36,
+		"branches": 80.75,
+		"functions": 91.58,
+		"lines": 93.71,
+		"threshold": 80,
+		"criticalTargets": "pass"
+	},
+	"notes": [
+		"React controller orchestration extracted from the previously excluded controller remains protected by Playwright rather than unit coverage.",
+		"All thresholds were retained; no coverage threshold was lowered."
+	]
+}

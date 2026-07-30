@@ -9,13 +9,12 @@ bun install --frozen-lockfile
 Before submitting a change, run:
 
 ```bash
-bun run verify
-bun run test:inventory -- --assert-complete
-bun run check:audit
-bun run check:artifact-tracking
-bun run check:bundle
+bun run verify:strict
 git diff --check
 ```
+
+`bun run verify` is the fast local gate. `bun run verify:strict` is the
+closeout gate and additionally runs Web/critical coverage and browser E2E.
 
 All `*.test.ts` and `*.test.tsx` files are discovered automatically and must
 execute exactly once. API/Bun tests run in isolated processes to prevent module

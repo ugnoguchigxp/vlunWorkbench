@@ -21,6 +21,14 @@ describe("readAppEnv", () => {
 		expect(env.projectAllowedRoots).toEqual([path.resolve(process.cwd())]);
 		expect(env.staticIntelligenceAllowedProjectRoots).toEqual([]);
 		expect(env.staticIntelligenceProjectCreationPolicy).toBe("registered_only");
+		expect(env.nightworkersIntegrationEnabled).toBe(false);
+		expect(env.nightworkersIntegrationAutoCreateProjects).toBe(false);
+		expect(env.nightworkersIntegrationMaxConcurrentScans).toBe(2);
+		expect(env.nightworkersIntegrationMaxFindingPageSize).toBe(100);
+		expect(env.nightworkersIntegrationMaxEventPageSize).toBe(200);
+		expect(env.nightworkersIntegrationMaxReportBytes).toBe(5 * 1024 * 1024);
+		expect(env.nightworkersIntegrationMaxRequestBytes).toBe(64 * 1024);
+		expect(env.nightworkersReportRunnerConcurrency).toBe(2);
 	});
 
 	it("normalizes project roots and fails closed by default in production", () => {
@@ -57,6 +65,38 @@ describe("readAppEnv", () => {
 		expect(env.staticIntelligenceProjectCreationPolicy).toBe(
 			"create_within_allowed_roots",
 		);
+	});
+
+	it("parses bounded NightWorkers integration configuration", () => {
+		const env = readAppEnv({
+			NIGHTWORKERS_INTEGRATION_ENABLED: "true",
+			NIGHTWORKERS_INTEGRATION_AUTO_CREATE_PROJECTS: "true",
+			NIGHTWORKERS_INTEGRATION_ALLOWED_PROFILES:
+				"source-baseline,diff-basic-security,source-baseline",
+			NIGHTWORKERS_INTEGRATION_PREVIEW_TTL_SECONDS: "120",
+			NIGHTWORKERS_INTEGRATION_IDEMPOTENCY_TTL_HOURS: "24",
+			NIGHTWORKERS_INTEGRATION_MAX_CONCURRENT_SCANS: "4",
+			NIGHTWORKERS_INTEGRATION_MAX_FINDING_PAGE_SIZE: "50",
+			NIGHTWORKERS_INTEGRATION_MAX_EVENT_PAGE_SIZE: "75",
+			NIGHTWORKERS_INTEGRATION_MAX_REPORT_BYTES: "1048576",
+			NIGHTWORKERS_INTEGRATION_MAX_REQUEST_BYTES: "32768",
+			NIGHTWORKERS_REPORT_RUNNER_CONCURRENCY: "3",
+		});
+
+		expect(env.nightworkersIntegrationEnabled).toBe(true);
+		expect(env.nightworkersIntegrationAutoCreateProjects).toBe(true);
+		expect(env.nightworkersIntegrationAllowedProfiles).toEqual([
+			"source-baseline",
+			"diff-basic-security",
+		]);
+		expect(env.nightworkersIntegrationPreviewTtlSeconds).toBe(120);
+		expect(env.nightworkersIntegrationIdempotencyTtlHours).toBe(24);
+		expect(env.nightworkersIntegrationMaxConcurrentScans).toBe(4);
+		expect(env.nightworkersIntegrationMaxFindingPageSize).toBe(50);
+		expect(env.nightworkersIntegrationMaxEventPageSize).toBe(75);
+		expect(env.nightworkersIntegrationMaxReportBytes).toBe(1_048_576);
+		expect(env.nightworkersIntegrationMaxRequestBytes).toBe(32_768);
+		expect(env.nightworkersReportRunnerConcurrency).toBe(3);
 	});
 
 	it("normalizes and deduplicates Static Intelligence allowed roots", () => {

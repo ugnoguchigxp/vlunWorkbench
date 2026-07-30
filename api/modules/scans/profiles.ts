@@ -272,6 +272,46 @@ export const SCAN_PROFILES: ScanProfile[] = [
 		],
 	},
 	{
+		id: "diff-basic-security",
+		name: "Git差分基本セキュリティスキャン",
+		description:
+			"commit、branch range、working tree の変更範囲を Semgrep、Gitleaks、OSV、Trivy の必須検査で確認します。",
+		category: "basic",
+		enabled: true,
+		defaultTimeoutSec: 900,
+		scope: SOURCE_BASELINE_SCOPE,
+		supportedTargets: ["commit", "range", "working_tree"],
+		tools: [
+			{
+				toolId: "semgrep",
+				displayName: "Semgrep Changed Source Analysis",
+				required: true,
+				failurePolicy: "fail_profile",
+				options: { config: "auto", scanners: ["vuln", "secret", "config"] },
+			},
+			{
+				toolId: "gitleaks",
+				displayName: "Gitleaks Changed File Detection",
+				required: true,
+				failurePolicy: "fail_profile",
+			},
+			{
+				toolId: "osv",
+				displayName: "OSV Changed Dependency State",
+				required: true,
+				failurePolicy: "fail_profile",
+				options: { dependencyMode: "manifest" },
+			},
+			{
+				toolId: "trivy",
+				displayName: "Trivy Changed Filesystem Scan",
+				required: true,
+				failurePolicy: "fail_profile",
+				options: { scanners: ["vuln", "secret", "misconfig"] },
+			},
+		],
+	},
+	{
 		id: "basic-security",
 		name: "基本セキュリティスキャン",
 		description:

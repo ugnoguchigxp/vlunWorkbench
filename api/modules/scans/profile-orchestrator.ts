@@ -10,6 +10,7 @@ import {
 	shouldUseChangedWorkspaceForSemgrep,
 } from "./diff-scan-plan";
 import { materializeDiffSnapshot, type DiffSnapshot } from "./diff-snapshot";
+import { resolveFullScanTarget } from "./full-scan-target";
 import { resolveGitDiff } from "./git-diff-resolver";
 import {
 	type FinalReportOptions,
@@ -74,6 +75,15 @@ export async function runProfileScan(params: {
 		throw new Error(
 			`diff_target_not_supported: profile ${profile.id} does not support target ${requestedTarget.kind}`,
 		);
+	}
+	if (requestedTarget.kind === "full" && params.expectedTargetDigest) {
+		const currentTarget = await resolveFullScanTarget(
+			params.repoPath,
+			profile.scope,
+		);
+		if (currentTarget.digest !== params.expectedTargetDigest) {
+			throw new Error("target_changed: full target changed after preview");
+		}
 	}
 	const finalReportOptions: Required<FinalReportOptions> = {
 		enabled: params.finalReport?.enabled ?? false,

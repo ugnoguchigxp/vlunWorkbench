@@ -182,9 +182,14 @@ Common environment variables:
 | `SCAN_EXECUTION_MODE` | Central scanner runner policy: `host` or `docker`. Development defaults to host; production defaults to Docker. |
 | `ALLOW_HOST_SCANNER_EXECUTION` | Explicitly permits host scanner execution. Production defaults to `false`. |
 | `SCAN_DOCKER_IMAGE` | Toolbox image used by the Docker scanner policy. |
+| `VULN_WORKBENCH_DOCKER_MEMORY` | Per-scanner container memory limit. Defaults to `4g`; accepted range is 512 MiB–8 GiB. |
+| `VULN_WORKBENCH_DOCKER_CPUS` | Per-scanner container CPU limit. Defaults to `2`; accepted range is 0.25–4. |
+| `VULN_WORKBENCH_DOCKER_PIDS_LIMIT` | Per-scanner container PID limit. Defaults to `512`; accepted range is 64–1024. |
+| `VULN_WORKBENCH_SCANNER_STDOUT_LIMIT_BYTES` | Scanner stdout and structured-output limit. Defaults to 64 MiB; hard maximum is 256 MiB. |
+| `VULN_WORKBENCH_SCANNER_STDERR_LIMIT_BYTES` | Scanner stderr limit. Defaults to 8 MiB; hard maximum is 32 MiB. |
 | `PROJECT_ALLOWED_ROOTS` | Comma-separated roots available to Web/API project registration and scans. Development defaults to the current working directory; production is fail-closed when unset. |
 
-LLM API keys stay on the host side. Scanner containers and target projects should not receive LLM credentials.
+LLM API keys stay on the host side. Scanner containers and target projects should not receive LLM credentials. Docker scans always apply memory, CPU, memory-swap, and PID limits; stdout, stderr, and structured result files are rejected when their configured byte limit is exceeded.
 
 ## CLI Workflows
 
@@ -547,10 +552,13 @@ bun run format
 bun run test
 bun run build
 bun run verify
+bun run verify:strict
 ```
 
-`bun run verify` is the closeout gate. It checks the committed S11tnext
-catalog pair, then runs typecheck, lint, format check, tests, and build.
+`bun run verify` is the fast local gate. It checks the committed S11tnext
+catalog pair, then runs typecheck, lint, format check, tests, build, bundle,
+audit, and artifact tracking. `bun run verify:strict` is the closeout gate and
+additionally runs Web/critical coverage and browser E2E.
 
 LLMへ送る固定のsystem/userメッセージは`contexts/**/*.context.toml`で管理します。変更時は
 `bun run s11tnext:lint`、`bun run s11tnext:build`を実行し、
@@ -611,6 +619,17 @@ finding. Deleted, excluded, binary, unsupported, and oversized paths remain
 visible as coverage records. Diff scans do not automatically invoke an LLM
 review.
 
+## NightWorkers Security Scan Provider
+
+The feature-flagged `/api/integrations/nightworkers/v1` API exposes scoped
+project security scans, resumable events, redacted findings, and asynchronous
+Markdown reports to NightWorkers. It uses dedicated hashed bearer credentials;
+browser cookies are not accepted as integration authorization.
+
+For migration order, credential creation/rotation/revocation, canary checks,
+monitoring, and rollback, follow the
+[NightWorkers security scan provider runbook](docs/nightworkers-security-scan-provider-runbook.md).
+
 ## Operational Checks
 
 Apply migrations:
@@ -648,5 +667,6 @@ Product boundaries and active, incomplete plans are:
 - `spec/project-scan-exploration-reduction-mcp-concept.md`
 - `spec/static-intelligence-coding-agent-consumer-companion-plan.md`
 - `spec/phase-46-security-release-readiness-plan.md`
+- `spec/phase-48-quality-reliability-hardening-plan.md`
 
 Completed implementation plans are removed from the working tree and remain available in Git history.

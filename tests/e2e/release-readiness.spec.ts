@@ -1,5 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, type Page, test } from "@playwright/test";
+import path from "node:path";
 
 const adminCredentials = {
 	email: "admin-e2e@example.com",
@@ -94,7 +95,7 @@ test("project path and member/admin boundaries hold through a browser session", 
 	await expectNoSeriousAccessibilityViolations(page);
 });
 
-test("completed scan results and Markdown report preview render", async ({
+test("mocked completed scan results and Markdown report preview render", async ({
 	page,
 }) => {
 	const timestamp = "2026-07-24T00:00:00.000Z";
@@ -226,5 +227,153 @@ test("completed scan results and Markdown report preview render", async ({
 	await page.getByRole("tab", { name: "レポート MD" }).click();
 	await expect(page.getByText("E2E Security Report", { exact: false })).toBeVisible();
 	await expect(page.getByText("Rendered report preview.")).toBeVisible();
+	await expectNoSeriousAccessibilityViolations(page);
+});
+
+test("real DB flow registers a project, scans, shows a finding, and generates a report", async ({
+	page,
+}) => {
+	test.setTimeout(60_000);
+	await login(page, adminCredentials);
+	await page.goto("/scans");
+
+	const fixtureProjectPath = path.resolve(
+		".tmp/e2e/projects/allowed-project",
+	);
+	await page.getByRole("button", { name: "新規プロジェクト" }).click();
+	await page
+		.getByLabel("プロジェクトフォルダ path")
+		.fill(fixtureProjectPath);
+	await page.getByLabel("既定ブランチ").fill("main");
+
+	const projectResponsePromise = page.waitForResponse(
+		(response) =>
+			response.request().method() === "POST" &&
+			new URL(response.url()).pathname === "/api/projects",
+	);
+	await page.getByRole("button", { name: "プロジェクトを登録" }).click();
+	const projectResponse = await projectResponsePromise;
+	expect(projectResponse.status()).toBe(201);
+	const project = (await projectResponse.json()).project as {
+		id: string;
+		repoPath: string;
+	};
+	expect(project.repoPath).toBe(fixtureProjectPath);
+
+	await page.getByLabel("スキャンプロファイル").selectOption("baseline");
+	const scanResponsePromise = page.waitForResponse(
+		(response) =>
+			response.request().method() === "POST" &&
+			new URL(response.url()).pathname ===
+				`/api/projects/${project.id}/scans`,
+	);
+	await page.getByRole("button", { name: "スキャンを開始" }).click();
+	const scanResponse = await scanResponsePromise;
+	expect(scanResponse.status()).toBe(202);
+	const scan = (await scanResponse.json()).scan as { id: string };
+
+	await expect
+		.poll(
+			async () => {
+				const response = await page.request.get(`/api/scans/${scan.id}`);
+				if (!response.ok()) return `http-${response.status()}`;
+				return ((await response.json()).scan as { status: string }).status;
+			},
+			{ timeout: 30_000 },
+			)
+			.toBe("completed");
+
+	await page.goto(`/scans?projectId=${project.id}&scanRunId=${scan.id}`);
+	await expect(
+		page.getByText("E2E unsafe eval finding", { exact: true }).first(),
+	).toBeVisible({ timeout: 15_000 });
+	await expect(
+		page.getByText("src/example.ts", { exact: false }).first(),
+	).toBeVisible();
+
+	const reportButton = page.getByRole("button", {
+		name: /^(提出用レポート|内部レビュー用ドラフト|レビュー用ドラフト)を生成$/,
+	});
+	const reportResponsePromise = page.waitForResponse(
+		(response) =>
+			response.request().method() === "POST" &&
+			new URL(response.url()).pathname === `/api/scans/${scan.id}/reports`,
+	);
+	await reportButton.click();
+	const reportResponse = await reportResponsePromise;
+	expect(reportResponse.status()).toBe(202);
+	const generatedReport = (await reportResponse.json()).report as { id: string };
+
+	await expect
+		.poll(async () => {
+			const response = await page.request.get(
+				`/api/scans/${scan.id}/reports`,
+			);
+			if (!response.ok()) return `http-${response.status()}`;
+			const reports = (await response.json()).reports as Array<{
+				id: string;
+				status: string;
+			}>;
+			return reports.find((report) => report.id === generatedReport.id)?.status;
+		})
+		.toBe("completed");
+	await page.goto(`/scans?projectId=${project.id}&scanRunId=${scan.id}`);
+	await page.getByRole("tab", { name: "レポート MD" }).click();
+	await expect(
+		page.getByText("E2E unsafe eval finding", { exact: false }).first(),
+	).toBeVisible();
+
+	const [projectsResponse, scansResponse, findingsResponse, reportsResponse] =
+		await Promise.all([
+			page.request.get("/api/projects"),
+			page.request.get(`/api/scans?projectId=${project.id}`),
+			page.request.get(`/api/scans/${scan.id}/findings`),
+			page.request.get(`/api/scans/${scan.id}/reports`),
+		]);
+	for (const response of [
+		projectsResponse,
+		scansResponse,
+		findingsResponse,
+		reportsResponse,
+	]) {
+		expect(response.ok()).toBe(true);
+	}
+	const projects = (await projectsResponse.json()).projects as Array<{
+		id: string;
+	}>;
+	const scans = (await scansResponse.json()).scans as Array<{
+		id: string;
+		projectId: string;
+	}>;
+	const findings = (await findingsResponse.json()).findings as Array<{
+		scanRunId: string;
+		projectId: string;
+		title: string;
+	}>;
+	const reports = (await reportsResponse.json()).reports as Array<{
+		id: string;
+		scanRunId: string;
+	}>;
+
+	expect(projects.some((item) => item.id === project.id)).toBe(true);
+	expect(
+		scans.some(
+			(item) => item.id === scan.id && item.projectId === project.id,
+		),
+	).toBe(true);
+	expect(
+		findings.some(
+			(item) =>
+				item.scanRunId === scan.id &&
+				item.projectId === project.id &&
+				item.title === "E2E unsafe eval finding",
+		),
+	).toBe(true);
+	expect(
+		reports.some(
+			(item) =>
+				item.id === generatedReport.id && item.scanRunId === scan.id,
+		),
+	).toBe(true);
 	await expectNoSeriousAccessibilityViolations(page);
 });

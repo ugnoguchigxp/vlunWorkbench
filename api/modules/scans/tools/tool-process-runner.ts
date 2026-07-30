@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { readBoundedProcessText } from "./bounded-process-output";
+import { emitLifecycleEvent } from "./tool-lifecycle";
 
 export type ToolRunnerKind = "host" | "docker";
 export type DockerNetworkMode = "none" | "default";
@@ -11,6 +13,7 @@ export interface DockerRunnerConfig {
 	networkMode?: DockerNetworkMode;
 	memory?: string;
 	cpus?: string;
+	pidsLimit?: number;
 	toolCacheDir?: string;
 }
 
@@ -32,7 +35,13 @@ export interface ProcessRunnerOptions {
 	execution?: ToolExecutionConfig;
 	repoPath?: string;
 	outputPath?: string;
+	outputLimits?: Partial<ProcessOutputLimits>;
 	onLifecycleEvent?: (event: ToolLifecycleEvent) => Promise<void> | void;
+}
+
+export interface ProcessOutputLimits {
+	stdoutBytes: number;
+	stderrBytes: number;
 }
 
 export interface ProcessRunnerResult {
@@ -46,6 +55,23 @@ export interface ProcessRunnerResult {
 }
 
 const DEFAULT_DOCKER_IMAGE = "vuln-workbench-toolbox:local";
+const DEFAULT_DOCKER_MEMORY = "4g";
+const DEFAULT_DOCKER_CPUS = "2";
+const DEFAULT_DOCKER_PIDS_LIMIT = 512;
+const MIN_DOCKER_MEMORY_BYTES = 512 * 1024 * 1024;
+const MAX_DOCKER_MEMORY_BYTES = 8 * 1024 * 1024 * 1024;
+const MIN_DOCKER_CPUS = 0.25;
+const MAX_DOCKER_CPUS = 4;
+const MIN_DOCKER_PIDS = 64;
+const MAX_DOCKER_PIDS = 1_024;
+export const DEFAULT_PROCESS_OUTPUT_LIMITS: ProcessOutputLimits = {
+	stdoutBytes: 64 * 1024 * 1024,
+	stderrBytes: 8 * 1024 * 1024,
+};
+const HARD_PROCESS_OUTPUT_LIMITS: ProcessOutputLimits = {
+	stdoutBytes: 256 * 1024 * 1024,
+	stderrBytes: 32 * 1024 * 1024,
+};
 const CONTAINER_REPO_PATH = "/workspace/repo";
 const CONTAINER_OUT_PATH = "/workspace/out";
 const CONTAINER_CACHE_PATH = "/workspace/cache";
@@ -59,6 +85,92 @@ const DOCKER_TOOL_ALLOWLIST: Record<string, Set<string>> = {
 	st: new Set(["run", "--version"]),
 };
 const DOCKER_ENTRYPOINTS: Record<string, string> = {};
+
+function parsePositiveInteger(
+	value: string | number | undefined,
+	label: string,
+	fallback: number,
+	maximum: number,
+): number {
+	const parsed =
+		typeof value === "number" ? value : value ? Number(value) : fallback;
+	if (!Number.isSafeInteger(parsed) || parsed <= 0 || parsed > maximum) {
+		throw new Error(
+			`${label} must be a positive integer no greater than ${maximum}.`,
+		);
+	}
+	return parsed;
+}
+
+export function resolveProcessOutputLimits(
+	limits?: Partial<ProcessOutputLimits>,
+): ProcessOutputLimits {
+	return {
+		stdoutBytes: parsePositiveInteger(
+			limits?.stdoutBytes ??
+				process.env.VULN_WORKBENCH_SCANNER_STDOUT_LIMIT_BYTES,
+			"Scanner stdout limit",
+			DEFAULT_PROCESS_OUTPUT_LIMITS.stdoutBytes,
+			HARD_PROCESS_OUTPUT_LIMITS.stdoutBytes,
+		),
+		stderrBytes: parsePositiveInteger(
+			limits?.stderrBytes ??
+				process.env.VULN_WORKBENCH_SCANNER_STDERR_LIMIT_BYTES,
+			"Scanner stderr limit",
+			DEFAULT_PROCESS_OUTPUT_LIMITS.stderrBytes,
+			HARD_PROCESS_OUTPUT_LIMITS.stderrBytes,
+		),
+	};
+}
+
+function parseDockerMemoryBytes(value: string): number {
+	const match = value.trim().match(/^(\d+(?:\.\d+)?)([kmgt])(?:i?b)?$/i);
+	if (!match) {
+		throw new Error("Docker memory must use a numeric k, m, g, or t suffix.");
+	}
+	const amount = Number(match[1]);
+	const power = { k: 1, m: 2, g: 3, t: 4 }[
+		match[2]?.toLowerCase() as "k" | "m" | "g" | "t"
+	];
+	return amount * 1024 ** power;
+}
+
+function normalizeDockerMemory(value?: string): string {
+	const memory =
+		value ?? process.env.VULN_WORKBENCH_DOCKER_MEMORY ?? DEFAULT_DOCKER_MEMORY;
+	const bytes = parseDockerMemoryBytes(memory);
+	if (bytes < MIN_DOCKER_MEMORY_BYTES || bytes > MAX_DOCKER_MEMORY_BYTES) {
+		throw new Error("Docker memory must be between 512 MiB and 8 GiB.");
+	}
+	return memory;
+}
+
+function normalizeDockerCpus(value?: string): string {
+	const cpus =
+		value ?? process.env.VULN_WORKBENCH_DOCKER_CPUS ?? DEFAULT_DOCKER_CPUS;
+	const parsed = Number(cpus);
+	if (
+		!Number.isFinite(parsed) ||
+		parsed < MIN_DOCKER_CPUS ||
+		parsed > MAX_DOCKER_CPUS
+	) {
+		throw new Error("Docker CPUs must be between 0.25 and 4.");
+	}
+	return String(parsed);
+}
+
+function normalizeDockerPidsLimit(value?: number): number {
+	const parsed = parsePositiveInteger(
+		value ?? process.env.VULN_WORKBENCH_DOCKER_PIDS_LIMIT,
+		"Docker PIDs limit",
+		DEFAULT_DOCKER_PIDS_LIMIT,
+		MAX_DOCKER_PIDS,
+	);
+	if (parsed < MIN_DOCKER_PIDS) {
+		throw new Error("Docker PIDs limit must be between 64 and 1024.");
+	}
+	return parsed;
+}
 
 export function normalizeToolExecutionConfig(
 	execution?: Partial<ToolExecutionConfig>,
@@ -84,8 +196,9 @@ export function normalizeToolExecutionConfig(
 				"docker",
 			image: dockerConfig.image ?? DEFAULT_DOCKER_IMAGE,
 			networkMode,
-			memory: dockerConfig.memory,
-			cpus: dockerConfig.cpus,
+			memory: normalizeDockerMemory(dockerConfig.memory),
+			cpus: normalizeDockerCpus(dockerConfig.cpus),
+			pidsLimit: normalizeDockerPidsLimit(dockerConfig.pidsLimit),
 			toolCacheDir: dockerConfig.toolCacheDir,
 		},
 	};
@@ -153,10 +266,44 @@ export async function runToolProcess(
 	options: ProcessRunnerOptions = {},
 ): Promise<ProcessRunnerResult> {
 	const execution = normalizeToolExecutionConfig(options.execution);
-	if (execution.runner === "docker") {
-		return await runDockerToolProcess(binaryName, args, options, execution);
+	const result =
+		execution.runner === "docker"
+			? await runDockerToolProcess(binaryName, args, options, execution)
+			: await runHostToolProcess(binaryName, args, options);
+	if (!result.ok || !options.outputPath) {
+		return result;
 	}
-	return await runHostToolProcess(binaryName, args, options);
+	const outputLimits = resolveProcessOutputLimits(options.outputLimits);
+	const outputStat = await fs.stat(options.outputPath).catch(() => null);
+	if (!outputStat || outputStat.size <= outputLimits.stdoutBytes) {
+		return result;
+	}
+	await emitLifecycleEvent(options.onLifecycleEvent, {
+		level: "error",
+		eventType: "tool.output_file.limit_exceeded",
+		message: `${binaryName} structured output exceeded its byte limit.`,
+		data: {
+			outputBytes: outputStat.size,
+			limitBytes: outputLimits.stdoutBytes,
+		},
+	});
+	return {
+		...result,
+		ok: false,
+		error: `tool_output_limit_exceeded: ${binaryName} output file exceeded ${outputLimits.stdoutBytes} bytes`,
+		executionMetadata: {
+			...result.executionMetadata,
+			outputCapture: {
+				...((result.executionMetadata?.outputCapture as Record<
+					string,
+					unknown
+				>) ?? {}),
+				outputFileBytes: outputStat.size,
+				outputFileLimitBytes: outputLimits.stdoutBytes,
+				terminationReason: "output_file_limit",
+			},
+		},
+	};
 }
 
 async function runHostToolProcess(
@@ -166,13 +313,26 @@ async function runHostToolProcess(
 ): Promise<ProcessRunnerResult> {
 	const startTime = Date.now();
 	const cleanEnv = options.env ?? getCleanEnv();
+	const outputLimits = resolveProcessOutputLimits(options.outputLimits);
 	let exitCode: number | null = null;
 	let stdout = "";
 	let stderr = "";
+	let stdoutBytes = 0;
+	let stderrBytes = 0;
 	let proc: any;
 	let timeoutId: any;
-	let killAfterTimeoutId: any;
-	let isKilled = false;
+	let killAfterTerminationId: any;
+	let terminationReason: "timeout" | "stdout_limit" | "stderr_limit" | null =
+		null;
+
+	const terminate = (reason: "timeout" | "stdout_limit" | "stderr_limit") => {
+		if (terminationReason) return;
+		terminationReason = reason;
+		proc?.kill("SIGTERM");
+		killAfterTerminationId = setTimeout(() => {
+			proc?.kill("SIGKILL");
+		}, 2_000);
+	};
 
 	try {
 		proc = Bun.spawn([binaryName, ...args], {
@@ -183,52 +343,85 @@ async function runHostToolProcess(
 
 		const timeoutSec = options.timeoutSec ?? 300;
 		timeoutId = setTimeout(() => {
-			isKilled = true;
-			proc.kill("SIGTERM");
-			killAfterTimeoutId = setTimeout(() => {
-				proc.kill("SIGKILL");
-			}, 2_000);
+			terminate("timeout");
 		}, timeoutSec * 1000);
 
-		const [stdoutBuf, stderrBuf, code] = await Promise.all([
-			new Response(proc.stdout).arrayBuffer(),
-			new Response(proc.stderr).arrayBuffer(),
+		const [stdoutResult, stderrResult, code] = await Promise.all([
+			readBoundedProcessText(proc.stdout, outputLimits.stdoutBytes, () =>
+				terminate("stdout_limit"),
+			),
+			readBoundedProcessText(proc.stderr, outputLimits.stderrBytes, () =>
+				terminate("stderr_limit"),
+			),
 			proc.exited,
 		]);
 
 		exitCode = code;
-		stdout = new TextDecoder().decode(stdoutBuf);
-		stderr = new TextDecoder().decode(stderrBuf);
+		stdout = stdoutResult.text;
+		stderr = stderrResult.text;
+		stdoutBytes = stdoutResult.bytesRead;
+		stderrBytes = stderrResult.bytesRead;
 	} catch (err: any) {
+		const terminationError =
+			terminationReason === "stdout_limit"
+				? `tool_output_limit_exceeded: ${binaryName} stdout exceeded ${outputLimits.stdoutBytes} bytes`
+				: terminationReason === "stderr_limit"
+					? `tool_stderr_limit_exceeded: ${binaryName} stderr exceeded ${outputLimits.stderrBytes} bytes`
+					: terminationReason === "timeout"
+						? `${binaryName} execution timed out`
+						: null;
 		return {
 			ok: false,
 			exitCode: null,
 			stdout,
 			stderr: stderr || err.message,
 			elapsedMs: Date.now() - startTime,
-			error: isKilled
-				? `${binaryName} execution timed out`
-				: `Process error: ${err.message}`,
+			error: terminationError ?? `Process error: ${err.message}`,
+			executionMetadata: {
+				runner: "host",
+				outputCapture: {
+					limits: outputLimits,
+					stdoutBytes,
+					stderrBytes,
+					terminationReason,
+				},
+			},
 		};
 	} finally {
 		if (timeoutId) {
 			clearTimeout(timeoutId);
 		}
-		if (killAfterTimeoutId) {
-			clearTimeout(killAfterTimeoutId);
+		if (killAfterTerminationId) {
+			clearTimeout(killAfterTerminationId);
 		}
+		if (proc && exitCode === null && !terminationReason) proc.kill("SIGKILL");
 	}
 
 	const elapsedMs = Date.now() - startTime;
 
-	if (isKilled) {
+	if (terminationReason) {
+		const error =
+			terminationReason === "stdout_limit"
+				? `tool_output_limit_exceeded: ${binaryName} stdout exceeded ${outputLimits.stdoutBytes} bytes`
+				: terminationReason === "stderr_limit"
+					? `tool_stderr_limit_exceeded: ${binaryName} stderr exceeded ${outputLimits.stderrBytes} bytes`
+					: `${binaryName} execution timed out`;
 		return {
 			ok: false,
 			exitCode: null,
 			stdout,
 			stderr,
 			elapsedMs,
-			error: `${binaryName} execution timed out`,
+			error,
+			executionMetadata: {
+				runner: "host",
+				outputCapture: {
+					limits: outputLimits,
+					stdoutBytes,
+					stderrBytes,
+					terminationReason,
+				},
+			},
 		};
 	}
 
@@ -240,6 +433,12 @@ async function runHostToolProcess(
 		elapsedMs,
 		executionMetadata: {
 			runner: "host",
+			outputCapture: {
+				limits: outputLimits,
+				stdoutBytes,
+				stderrBytes,
+				terminationReason: null,
+			},
 		},
 	};
 }
@@ -258,13 +457,26 @@ async function runDockerToolProcess(
 	const networkMode = docker.networkMode ?? "none";
 	const startTime = Date.now();
 	const containerName = makeContainerName(binaryName);
+	const outputLimits = resolveProcessOutputLimits(options.outputLimits);
 	let stdout = "";
 	let stderr = "";
+	let stdoutBytes = 0;
+	let stderrBytes = 0;
 	let exitCode: number | null = null;
 	let proc: any;
 	let timeoutId: any;
-	let killAfterTimeoutId: any;
-	let isKilled = false;
+	let killAfterTerminationId: any;
+	let terminationReason: "timeout" | "stdout_limit" | "stderr_limit" | null =
+		null;
+
+	const terminate = (reason: "timeout" | "stdout_limit" | "stderr_limit") => {
+		if (terminationReason) return;
+		terminationReason = reason;
+		proc?.kill("SIGTERM");
+		killAfterTerminationId = setTimeout(() => {
+			proc?.kill("SIGKILL");
+		}, 2_000);
+	};
 
 	const outDir = options.outputPath ? path.dirname(options.outputPath) : null;
 	const cacheDir = docker.toolCacheDir
@@ -307,6 +519,7 @@ async function runDockerToolProcess(
 		networkMode,
 		memory: docker.memory,
 		cpus: docker.cpus,
+		pidsLimit: docker.pidsLimit,
 		toolCacheDir: cacheDir,
 		repoPath: options.repoPath,
 		outputDir: outDir,
@@ -328,8 +541,10 @@ async function runDockerToolProcess(
 			cache: cacheDir ? "read-write" : "none",
 		},
 		resourceLimits: {
-			memory: docker.memory ?? null,
-			cpus: docker.cpus ?? null,
+			memory: docker.memory,
+			memorySwap: docker.memory,
+			cpus: docker.cpus,
+			pidsLimit: docker.pidsLimit,
 		},
 	};
 	const executionMetadata = {
@@ -337,9 +552,8 @@ async function runDockerToolProcess(
 		docker: dockerMetadata,
 	};
 
-	const emit = async (event: ToolLifecycleEvent) => {
-		await options.onLifecycleEvent?.(event);
-	};
+	const emit = (event: ToolLifecycleEvent) =>
+		emitLifecycleEvent(options.onLifecycleEvent, event);
 
 	try {
 		await emit({
@@ -364,22 +578,24 @@ async function runDockerToolProcess(
 
 		const timeoutSec = options.timeoutSec ?? 300;
 		timeoutId = setTimeout(() => {
-			isKilled = true;
-			proc.kill("SIGTERM");
-			killAfterTimeoutId = setTimeout(() => {
-				proc.kill("SIGKILL");
-			}, 2_000);
+			terminate("timeout");
 		}, timeoutSec * 1000);
 
-		const [stdoutBuf, stderrBuf, code] = await Promise.all([
-			new Response(proc.stdout).arrayBuffer(),
-			new Response(proc.stderr).arrayBuffer(),
+		const [stdoutResult, stderrResult, code] = await Promise.all([
+			readBoundedProcessText(proc.stdout, outputLimits.stdoutBytes, () =>
+				terminate("stdout_limit"),
+			),
+			readBoundedProcessText(proc.stderr, outputLimits.stderrBytes, () =>
+				terminate("stderr_limit"),
+			),
 			proc.exited,
 		]);
 
 		exitCode = code;
-		stdout = new TextDecoder().decode(stdoutBuf);
-		stderr = new TextDecoder().decode(stderrBuf);
+		stdout = stdoutResult.text;
+		stderr = stderrResult.text;
+		stdoutBytes = stdoutResult.bytesRead;
+		stderrBytes = stderrResult.bytesRead;
 
 		await emit({
 			level: exitCode === 0 ? "info" : "warn",
@@ -388,15 +604,26 @@ async function runDockerToolProcess(
 			data: { ...dockerMetadata, exitCode },
 		});
 	} catch (err: any) {
-		const error = isKilled
-			? `${binaryName} Docker execution timed out`
-			: `Docker process error: ${err.message}`;
-		if (isKilled) {
+		const error =
+			terminationReason === "stdout_limit"
+				? `tool_output_limit_exceeded: ${binaryName} Docker stdout exceeded ${outputLimits.stdoutBytes} bytes`
+				: terminationReason === "stderr_limit"
+					? `tool_stderr_limit_exceeded: ${binaryName} Docker stderr exceeded ${outputLimits.stderrBytes} bytes`
+					: terminationReason === "timeout"
+						? `${binaryName} Docker execution timed out`
+						: `Docker process error: ${err.message}`;
+		if (terminationReason) {
 			await emit({
 				level: "error",
-				eventType: "docker.container.timeout",
-				message: `Docker toolbox container ${containerName} timed out.`,
-				data: dockerMetadata,
+				eventType:
+					terminationReason === "timeout"
+						? "docker.container.timeout"
+						: "docker.container.output_limit",
+				message:
+					terminationReason === "timeout"
+						? `Docker toolbox container ${containerName} timed out.`
+						: `Docker toolbox container ${containerName} exceeded its output limit.`,
+				data: { ...dockerMetadata, terminationReason, outputLimits },
 			});
 		}
 		return {
@@ -406,31 +633,52 @@ async function runDockerToolProcess(
 			stderr: stderr || err.message,
 			elapsedMs: Date.now() - startTime,
 			error,
-			executionMetadata,
+			executionMetadata: {
+				...executionMetadata,
+				outputCapture: {
+					limits: outputLimits,
+					stdoutBytes,
+					stderrBytes,
+					terminationReason,
+				},
+			},
 		};
 	} finally {
 		if (timeoutId) {
 			clearTimeout(timeoutId);
 		}
-		if (killAfterTimeoutId) {
-			clearTimeout(killAfterTimeoutId);
+		if (killAfterTerminationId) {
+			clearTimeout(killAfterTerminationId);
 		}
-		if (isKilled) {
+		if (proc && (terminationReason || exitCode === null))
 			await cleanupDockerContainer(dockerBin, containerName, emit);
-		}
 	}
 
 	const elapsedMs = Date.now() - startTime;
 
-	if (isKilled) {
+	if (terminationReason) {
+		const error =
+			terminationReason === "stdout_limit"
+				? `tool_output_limit_exceeded: ${binaryName} Docker stdout exceeded ${outputLimits.stdoutBytes} bytes`
+				: terminationReason === "stderr_limit"
+					? `tool_stderr_limit_exceeded: ${binaryName} Docker stderr exceeded ${outputLimits.stderrBytes} bytes`
+					: `${binaryName} Docker execution timed out`;
 		return {
 			ok: false,
 			exitCode: null,
 			stdout,
 			stderr,
 			elapsedMs,
-			error: `${binaryName} Docker execution timed out`,
-			executionMetadata,
+			error,
+			executionMetadata: {
+				...executionMetadata,
+				outputCapture: {
+					limits: outputLimits,
+					stdoutBytes,
+					stderrBytes,
+					terminationReason,
+				},
+			},
 		};
 	}
 
@@ -440,7 +688,15 @@ async function runDockerToolProcess(
 		stdout,
 		stderr,
 		elapsedMs,
-		executionMetadata,
+		executionMetadata: {
+			...executionMetadata,
+			outputCapture: {
+				limits: outputLimits,
+				stdoutBytes,
+				stderrBytes,
+				terminationReason: null,
+			},
+		},
 	};
 }
 
@@ -511,6 +767,7 @@ function buildDockerRunArgs(params: {
 	networkMode: DockerNetworkMode;
 	memory?: string;
 	cpus?: string;
+	pidsLimit?: number;
 	toolCacheDir?: string;
 	repoPath?: string;
 	outputDir: string | null;
@@ -534,6 +791,14 @@ function buildDockerRunArgs(params: {
 		"--read-only",
 		"--tmpfs",
 		"/tmp:rw,nosuid,nodev,size=2g",
+		"--memory",
+		params.memory ?? DEFAULT_DOCKER_MEMORY,
+		"--memory-swap",
+		params.memory ?? DEFAULT_DOCKER_MEMORY,
+		"--cpus",
+		params.cpus ?? DEFAULT_DOCKER_CPUS,
+		"--pids-limit",
+		String(params.pidsLimit ?? DEFAULT_DOCKER_PIDS_LIMIT),
 		"--env",
 		"HOME=/tmp",
 		"--env",
@@ -546,12 +811,6 @@ function buildDockerRunArgs(params: {
 		args.push("--add-host", "host.docker.internal:host-gateway");
 	}
 
-	if (params.memory) {
-		args.push("--memory", params.memory);
-	}
-	if (params.cpus) {
-		args.push("--cpus", params.cpus);
-	}
 	if (params.repoPath) {
 		args.push(
 			"-v",
@@ -604,13 +863,13 @@ async function cleanupDockerContainer(
 			stderr: "pipe",
 			env: getCleanEnv(),
 		});
-		const [stderrBuf, _stdoutBuf, exitCode] = await Promise.all([
-			new Response(proc.stderr).arrayBuffer(),
-			new Response(proc.stdout).arrayBuffer(),
+		const [stderrResult, _stdoutResult, exitCode] = await Promise.all([
+			readBoundedProcessText(proc.stderr, 64 * 1024),
+			readBoundedProcessText(proc.stdout, 64 * 1024),
 			proc.exited,
 		]);
 		if (exitCode !== 0) {
-			const stderr = new TextDecoder().decode(stderrBuf).trim();
+			const stderr = stderrResult.text.trim();
 			await emit({
 				level: "warn",
 				eventType: "docker.container.cleanup_failed",

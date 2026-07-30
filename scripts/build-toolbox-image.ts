@@ -1,12 +1,5 @@
 import { createHash } from "node:crypto";
-import {
-	access,
-	mkdir,
-	mkdtemp,
-	readFile,
-	rename,
-	rm,
-} from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, rename, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -151,11 +144,7 @@ try {
 		cacheRoot,
 		`trivy-${trivySourceCommit}.tar.gz`,
 	);
-	await downloadVerified(
-		`https://go.dev/dl/${goAsset}`,
-		goArchive,
-		goChecksum,
-	);
+	await downloadVerified(`https://go.dev/dl/${goAsset}`, goArchive, goChecksum);
 	await downloadVerified(
 		`https://codeload.github.com/aquasecurity/trivy/tar.gz/${trivySourceCommit}`,
 		trivyArchive,

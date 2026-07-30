@@ -4,6 +4,7 @@ import { defineConfig, devices } from "@playwright/test";
 const port = 32_983;
 const baseURL = `http://127.0.0.1:${port}`;
 const e2eRoot = path.resolve(".tmp/e2e");
+const fixtureBinRoot = path.resolve("tests/e2e/fixtures/bin");
 
 export default defineConfig({
 	testDir: "tests/e2e",
@@ -39,7 +40,9 @@ export default defineConfig({
 			CORS_ORIGINS: baseURL,
 			DATABASE_URL: path.join(e2eRoot, `vuln-workbench-${process.pid}.sqlite`),
 			SQLITE_WRITER_SOCKET: path.join(e2eRoot, `writer-${process.pid}.sock`),
+			SQLITE_WRITER_DETACHED: "0",
 			CONTENT_ROOT: path.join(e2eRoot, "content"),
+			SCAN_ARTIFACT_ROOT: path.join(e2eRoot, "artifacts"),
 			PROJECT_ALLOWED_ROOTS: path.join(e2eRoot, "projects"),
 			JWT_SECRET: "e2e-only-jwt-secret-that-is-at-least-32-characters",
 			LLM_SETTINGS_ENCRYPTION_KEY: Buffer.alloc(32, 17).toString("base64"),
@@ -48,7 +51,9 @@ export default defineConfig({
 			SECURITY_HEADERS_MODE: "http",
 			CSP_MODE: "enforce",
 			TRUST_PROXY: "false",
-			ALLOW_HOST_SCANNER_EXECUTION: "false",
+			SCAN_EXECUTION_MODE: "host",
+			ALLOW_HOST_SCANNER_EXECUTION: "true",
+			PATH: `${fixtureBinRoot}${path.delimiter}${process.env.PATH ?? ""}`,
 		},
 	},
 });

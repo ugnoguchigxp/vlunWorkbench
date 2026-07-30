@@ -1,4 +1,4 @@
-import { and, eq, or } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, or } from "drizzle-orm";
 import { type AppDatabase, writerClientForDatabase } from "../../db";
 import {
 	findingEvidences,
@@ -198,12 +198,24 @@ export class ScanRepository {
 			updateValues.metadata = options.metadata;
 		}
 
+		const terminalStatuses = ["completed", "failed", "cancelled"];
+		const transitionGuard = terminalStatuses.includes(status)
+			? and(
+					eq(scanRuns.id, id),
+					inArray(scanRuns.status, ["queued", "running"]),
+				)
+			: status === "running" || status === "queued"
+				? and(
+						eq(scanRuns.id, id),
+						inArray(scanRuns.status, ["queued", "running"]),
+					)
+				: eq(scanRuns.id, id);
 		const [updated] = await this.db
 			.update(scanRuns)
 			.set(updateValues)
-			.where(eq(scanRuns.id, id))
+			.where(transitionGuard)
 			.returning();
-		return updated || null;
+		return updated ?? (await this.findById(id));
 	}
 
 	async findById(id: string) {
@@ -245,12 +257,33 @@ export class ScanRepository {
 				createdAt: now,
 			})
 			.returning();
-		return created;
+		if (!created) return created;
+		return (
+			(await this.db.query.scanEvents.findFirst({
+				where: eq(scanEvents.id, created.id),
+			})) ?? created
+		);
 	}
 
 	async listScanEvents(scanRunId: string) {
 		return await this.db.query.scanEvents.findMany({
 			where: eq(scanEvents.scanRunId, scanRunId),
+			orderBy: [asc(scanEvents.seq)],
+		});
+	}
+
+	async listScanEventsAfter(
+		scanRunId: string,
+		afterSeq: number,
+		limit: number,
+	) {
+		return await this.db.query.scanEvents.findMany({
+			where: and(
+				eq(scanEvents.scanRunId, scanRunId),
+				gt(scanEvents.seq, afterSeq),
+			),
+			orderBy: [asc(scanEvents.seq)],
+			limit,
 		});
 	}
 

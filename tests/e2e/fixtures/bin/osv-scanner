@@ -1,0 +1,17 @@
+#!/usr/bin/env bun
+
+const args = process.argv.slice(2);
+
+if (args.includes("--version")) {
+	console.log("osv-scanner 1.0.0-e2e");
+	process.exit(0);
+}
+
+const outputFlagIndex = args.indexOf("--output");
+const outputPath = outputFlagIndex >= 0 ? args[outputFlagIndex + 1] : undefined;
+if (!outputPath) {
+	console.error("E2E osv-scanner fixture requires --output.");
+	process.exit(2);
+}
+
+await Bun.write(outputPath, JSON.stringify({ results: [] }));

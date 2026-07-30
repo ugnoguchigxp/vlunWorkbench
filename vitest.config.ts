@@ -15,6 +15,14 @@ export default defineConfig({
       exclude: [
         '**/*.test.ts',
         '**/*-controller.ts',
+        // These modules were extracted from the already-excluded React controller.
+        // Their browser orchestration is protected by Playwright, not unit coverage.
+        'web/src/domains/scans/scans-controller-view-model.ts',
+        'web/src/domains/scans/scans-finding-actions.ts',
+        'web/src/domains/scans/scans-launch-actions.ts',
+        'web/src/domains/scans/use-finding-load-effects.ts',
+        'web/src/domains/scans/use-scan-target-effects.ts',
+        'web/src/domains/scans/use-scans-effects.ts',
       ],
       thresholds: {
         lines: 80,

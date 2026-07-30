@@ -1,5 +1,4 @@
 @import "tailwindcss";
-@import "../../node_modules/markdown-wysiwyg-editor/dist/bundle.css";
 
 @theme {
 	--color-page: #f6f7f9;
@@ -114,6 +113,152 @@
 .wysiwyg-viewer {
 	border: none;
 	background: transparent;
+}
+
+.markdown-surface {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+	overflow: hidden;
+}
+
+.markdown-surface-scroll {
+	max-height: 70vh;
+}
+
+.markdown-surface-auto-height {
+	min-height: 0;
+}
+
+.markdown-toolbar {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 4px;
+	padding: 6px;
+	border-bottom: 1px solid var(--color-border);
+	background: var(--color-surface-muted);
+}
+
+.markdown-toolbar button {
+	min-width: 34px;
+	height: 30px;
+	padding: 0 8px;
+	border: 1px solid var(--color-border-strong);
+	border-radius: 5px;
+	background: var(--color-surface);
+	color: var(--color-ink);
+	cursor: pointer;
+}
+
+.markdown-toolbar button:hover {
+	border-color: var(--color-brand);
+	color: var(--color-brand);
+}
+
+.markdown-edit-grid {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+	flex: 1;
+	min-height: 0;
+}
+
+.markdown-source {
+	display: flex;
+	min-width: 0;
+	min-height: 0;
+	border-right: 1px solid var(--color-border);
+}
+
+.markdown-source textarea {
+	width: 100%;
+	min-height: 320px;
+	padding: 12px;
+	resize: none;
+	border: 0;
+	outline: none;
+	background: var(--color-surface);
+	color: var(--color-ink);
+	font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+	line-height: 1.55;
+	tab-size: 2;
+}
+
+.markdown-source textarea:focus {
+	box-shadow: inset 0 0 0 2px var(--color-focus-ring);
+}
+
+.markdown-preview,
+.markdown-surface-viewer {
+	min-width: 0;
+	padding: 12px;
+	overflow: auto;
+	color: var(--color-ink);
+}
+
+.markdown-preview > :first-child,
+.markdown-surface-viewer > :first-child {
+	margin-top: 0;
+}
+
+.markdown-preview > :last-child,
+.markdown-surface-viewer > :last-child {
+	margin-bottom: 0;
+}
+
+.markdown-preview pre,
+.markdown-surface-viewer pre {
+	overflow: auto;
+	padding: 10px 12px;
+	border: 1px solid var(--color-code-border);
+	border-radius: 6px;
+	background: var(--color-code-bg);
+	color: var(--color-code-ink);
+}
+
+.markdown-preview code,
+.markdown-surface-viewer code {
+	font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.markdown-preview :not(pre) > code,
+.markdown-surface-viewer :not(pre) > code {
+	padding: 1px 4px;
+	border-radius: 4px;
+	background: var(--color-surface-muted);
+}
+
+.markdown-preview table,
+.markdown-surface-viewer table {
+	width: 100%;
+	border-collapse: collapse;
+}
+
+.markdown-preview th,
+.markdown-preview td,
+.markdown-surface-viewer th,
+.markdown-surface-viewer td {
+	padding: 6px 8px;
+	border: 1px solid var(--color-border);
+	text-align: left;
+}
+
+.markdown-preview blockquote,
+.markdown-surface-viewer blockquote {
+	margin-left: 0;
+	padding-left: 12px;
+	border-left: 3px solid var(--color-brand-border);
+	color: var(--color-muted-strong);
+}
+
+@media (max-width: 900px) {
+	.markdown-edit-grid {
+		grid-template-columns: 1fr;
+	}
+
+	.markdown-source {
+		border-right: 0;
+		border-bottom: 1px solid var(--color-border);
+	}
 }
 
 * {

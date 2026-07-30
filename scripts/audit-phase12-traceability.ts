@@ -29,7 +29,10 @@ async function main() {
 	});
 
 	const env = readAppEnv();
-	const databaseUrl = parsed.values["database-url"] || env.databaseUrl;
+	const databaseUrl =
+		typeof parsed.values["database-url"] === "string"
+			? parsed.values["database-url"]
+			: env.databaseUrl;
 	const dbConnection = createDbConnection(databaseUrl);
 	const db = dbConnection.db;
 

@@ -1,6 +1,4 @@
 import { Search, Sparkles } from "lucide-react";
-import mermaid from "mermaid";
-import { MarkdownEditor } from "markdown-wysiwyg-editor";
 import { useEffect, useMemo, useState } from "react";
 import {
 	agenticSearch,
@@ -17,6 +15,7 @@ import {
 	toAgenticSourceLabel,
 } from "../../agentic-markdown";
 import { Button, SelectInput, TextInput } from "../../ui";
+import { MarkdownEditor } from "../../components/markdown-editor";
 import { useKnowledgeNavigation } from "../knowledge/knowledge-navigation";
 
 type SearchResultsState = {
@@ -366,8 +365,6 @@ export const SearchDomainSection = ({
 								<MarkdownEditor
 									value={agenticAnswerMarkdown}
 									editable={false}
-									enableMermaid={true}
-									mermaidLib={mermaid}
 									toolbarMode="hidden"
 									autoHeight={true}
 									className="wysiwyg-viewer"

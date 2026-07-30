@@ -44,6 +44,14 @@ describe("Scans Route", () => {
 	};
 	const mockScanReportRepo = {
 		listReportsForScan: vi.fn().mockResolvedValue([]),
+		findById: vi.fn().mockResolvedValue({
+			id: "report-1",
+			scanRunId: "s-1",
+			format: "markdown",
+			title: "Filtered Report",
+			status: "queued",
+			artifactId: null,
+		}),
 		createReport: vi.fn().mockResolvedValue({
 			id: "report-1",
 			scanRunId: "s-1",
@@ -70,6 +78,13 @@ describe("Scans Route", () => {
 		start: vi.fn().mockResolvedValue({
 			reviewId: "scan-review-1",
 			status: "running",
+			completion: new Promise(() => {}),
+		}),
+	};
+	const mockScanReportRunner = {
+		start: vi.fn().mockResolvedValue({
+			reportId: "report-1",
+			status: "queued",
 			completion: new Promise(() => {}),
 		}),
 	};
@@ -100,6 +115,7 @@ describe("Scans Route", () => {
 			scanReportRepository: mockScanReportRepo as any,
 			scanReviewRepository: mockScanReviewRepo as any,
 			scanReviewRunner: mockScanReviewRunner as any,
+			scanReportRunner: mockScanReportRunner as any,
 			artifactStorage: {} as any,
 			db: {} as any,
 			scanSupervisor: mockScanSupervisor as any,
@@ -211,8 +227,7 @@ describe("Scans Route", () => {
 	});
 
 	it("POST /:scanRunId/reports normalizes report generation to the full set", async () => {
-		mockScanReportRepo.createReport.mockClear();
-		mockScanReportRepo.updateReportStatus.mockClear();
+		mockScanReportRunner.start.mockClear();
 
 		const res = await app.request("/s-1/reports", {
 			method: "POST",
@@ -227,23 +242,15 @@ describe("Scans Route", () => {
 			}),
 		});
 
-		expect(res.status).toBe(200);
-		expect(mockScanReportRepo.createReport).toHaveBeenCalledWith(
-			expect.objectContaining({
-				options: {
-					includeFalsePositives: true,
-					includeDeferred: true,
-					includeUndecided: true,
-					summaryMode: "deterministic",
-				},
-			}),
-		);
-		expect(mockScanReportRepo.updateReportStatus).toHaveBeenCalledWith(
-			"report-1",
-			"failed",
-			expect.objectContaining({
-				errorMessage: expect.any(String),
-			}),
-		);
+		expect(res.status).toBe(202);
+		expect(mockScanReportRunner.start).toHaveBeenCalledWith({
+			scanRunId: "s-1",
+			title: "Filtered Report",
+			summaryMode: "deterministic",
+			generatedByUserId: "user-123",
+		});
+		expect(await res.json()).toMatchObject({
+			report: { id: "report-1", status: "queued" },
+		});
 	});
 });

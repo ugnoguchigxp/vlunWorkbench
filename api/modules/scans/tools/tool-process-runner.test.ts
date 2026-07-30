@@ -2,7 +2,11 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { checkToolVersion, runToolProcess } from "./tool-process-runner";
+import {
+	checkToolVersion,
+	normalizeToolExecutionConfig,
+	runToolProcess,
+} from "./tool-process-runner";
 
 function streamText(text: string) {
 	return new ReadableStream({
@@ -71,6 +75,12 @@ describe("Tool process runner Docker backend", () => {
 		expect(capturedArgs).toContain("--cap-drop");
 		expect(capturedArgs).toContain("ALL");
 		expect(capturedArgs).toContain("--read-only");
+		expect(capturedArgs).toContain("--memory");
+		expect(capturedArgs).toContain("--memory-swap");
+		expect(capturedArgs).toContain("2g");
+		expect(capturedArgs).toContain("--cpus");
+		expect(capturedArgs).toContain("--pids-limit");
+		expect(capturedArgs).toContain("512");
 		expect(capturedArgs).toContain("--entrypoint");
 		expect(capturedArgs).toContain("/usr/local/bin/semgrep");
 		expect(capturedArgs).not.toContain("--privileged");
@@ -90,6 +100,27 @@ describe("Tool process runner Docker backend", () => {
 		]);
 
 		await fs.rm(tempDir, { recursive: true, force: true });
+	});
+
+	it("does not let lifecycle observer failures interrupt a Docker tool", async () => {
+		vi.spyOn(console, "error").mockImplementation(() => undefined);
+		vi.spyOn(Bun, "spawn").mockImplementation(
+			() =>
+				({
+					exited: Promise.resolve(0),
+					stdout: streamText("ok"),
+					stderr: streamText(""),
+				}) as any,
+		);
+
+		const result = await runToolProcess("semgrep", ["--version"], {
+			execution: { runner: "docker" },
+			onLifecycleEvent: () => {
+				throw new Error("observer unavailable");
+			},
+		});
+
+		expect(result).toMatchObject({ ok: true, exitCode: 0, stdout: "ok" });
 	});
 
 	it("rejects docker cache directories inside the target repository", async () => {
@@ -182,5 +213,95 @@ describe("Tool process runner Docker backend", () => {
 		expect(await checkToolVersion("nuclei", ["-version"])).toBe(
 			"nuclei version 3.8.0",
 		);
+	});
+
+	it("applies bounded default Docker resources", () => {
+		expect(normalizeToolExecutionConfig({ runner: "docker" })).toMatchObject({
+			docker: {
+				memory: "4g",
+				cpus: "2",
+				pidsLimit: 512,
+			},
+		});
+	});
+
+	it("rejects Docker resource limits outside the supported safety range", () => {
+		expect(() =>
+			normalizeToolExecutionConfig({
+				runner: "docker",
+				docker: { memory: "16g" },
+			}),
+		).toThrow("between 512 MiB and 8 GiB");
+		expect(() =>
+			normalizeToolExecutionConfig({
+				runner: "docker",
+				docker: { cpus: "8" },
+			}),
+		).toThrow("between 0.25 and 4");
+		expect(() =>
+			normalizeToolExecutionConfig({
+				runner: "docker",
+				docker: { pidsLimit: 32 },
+			}),
+		).toThrow("between 64 and 1024");
+	});
+
+	it("terminates host tools when stdout exceeds the configured limit", async () => {
+		const kill = vi.fn();
+		vi.spyOn(Bun, "spawn").mockImplementation(
+			() =>
+				({
+					stdout: streamText("12345"),
+					stderr: streamText(""),
+					exited: Promise.resolve(143),
+					kill,
+				}) as any,
+		);
+
+		const result = await runToolProcess("semgrep", ["--version"], {
+			outputLimits: { stdoutBytes: 4, stderrBytes: 4 },
+		});
+
+		expect(result.ok).toBe(false);
+		expect(result.error).toContain("tool_output_limit_exceeded");
+		expect(result.stdout).toBe("1234");
+		expect(kill).toHaveBeenCalledWith("SIGTERM");
+		expect(result.executionMetadata?.outputCapture).toMatchObject({
+			stdoutBytes: 5,
+			terminationReason: "stdout_limit",
+		});
+	});
+
+	it("rejects oversized structured output before a scanner parses it", async () => {
+		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "tool-output-"));
+		const outputPath = path.join(tempDir, "result.json");
+		await fs.writeFile(outputPath, "12345");
+		vi.spyOn(Bun, "spawn").mockImplementation(
+			() =>
+				({
+					stdout: streamText(""),
+					stderr: streamText(""),
+					exited: Promise.resolve(0),
+				}) as any,
+		);
+		const events: string[] = [];
+
+		const result = await runToolProcess("semgrep", ["--version"], {
+			outputPath,
+			outputLimits: { stdoutBytes: 4, stderrBytes: 4 },
+			onLifecycleEvent: (event) => {
+				events.push(event.eventType);
+			},
+		});
+
+		expect(result.ok).toBe(false);
+		expect(result.error).toContain("tool_output_limit_exceeded");
+		expect(result.executionMetadata?.outputCapture).toMatchObject({
+			outputFileBytes: 5,
+			outputFileLimitBytes: 4,
+			terminationReason: "output_file_limit",
+		});
+		expect(events).toEqual(["tool.output_file.limit_exceeded"]);
+		await fs.rm(tempDir, { recursive: true, force: true });
 	});
 });

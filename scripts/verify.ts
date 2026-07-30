@@ -2,38 +2,14 @@ import {
 	listSqliteWriterProcesses,
 	waitForNewSqliteWriterProcessesToExit,
 } from "./sqlite-writer-processes";
-
-type VerifyStep = {
-	label: string;
-	command: string[];
-};
-
-const steps: VerifyStep[] = [
-	{
-		label: "sqlite-write-boundary",
-		command: ["bun", "run", "scripts/check-sqlite-write-boundary.ts"],
-	},
-	{ label: "s11tnext", command: ["bun", "run", "s11tnext:check"] },
-	{ label: "typecheck", command: ["bun", "run", "typecheck"] },
-	{ label: "lint", command: ["bun", "run", "lint"] },
-	{ label: "format", command: ["bun", "run", "format:check"] },
-	{ label: "test", command: ["bun", "run", "test"] },
-	{ label: "build", command: ["bun", "run", "build"] },
-	{ label: "bundle-budget", command: ["bun", "run", "check:bundle"] },
-	{ label: "dependency-audit", command: ["bun", "run", "check:audit"] },
-	{
-		label: "artifact-tracking",
-		command: ["bun", "run", "check:artifact-tracking"],
-	},
-];
-
-const decoder = new TextDecoder();
+import { readBoundedDiagnostic } from "./process-diagnostics";
+import { VERIFY_STEPS } from "./verify-steps";
 const initialWriterPids = new Set(
 	(await listSqliteWriterProcesses()).map((process) => process.pid),
 );
 let failedExitCode: number | undefined;
 
-for (const step of steps) {
+for (const step of VERIFY_STEPS) {
 	const proc = Bun.spawn(step.command, {
 		stdout: "pipe",
 		stderr: "pipe",
@@ -41,8 +17,8 @@ for (const step of steps) {
 	});
 
 	const [stdout, stderr, exitCode] = await Promise.all([
-		new Response(proc.stdout).arrayBuffer(),
-		new Response(proc.stderr).arrayBuffer(),
+		readBoundedDiagnostic(proc.stdout),
+		readBoundedDiagnostic(proc.stderr),
 		proc.exited,
 	]);
 
@@ -54,10 +30,13 @@ for (const step of steps) {
 	console.error(`FAIL ${step.label}`);
 	console.error(`$ ${step.command.join(" ")}`);
 
-	const stdoutText = decoder.decode(stdout);
-	const stderrText = decoder.decode(stderr);
+	const stdoutText = stdout.text;
+	const stderrText = stderr.text;
 	if (stdoutText.length > 0) console.error(stdoutText.trimEnd());
 	if (stderrText.length > 0) console.error(stderrText.trimEnd());
+	if (stdout.truncated || stderr.truncated) {
+		console.error("Diagnostic output truncated at 1 MiB per stream.");
+	}
 
 	failedExitCode = exitCode;
 	break;

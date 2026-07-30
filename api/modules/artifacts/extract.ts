@@ -8,16 +8,24 @@ const artifactBlockPattern =
 const allowedTypes: Set<ArtifactType> = new Set([
 	"markdown",
 	"table",
-	"mermaid",
 	"chart",
 	"json",
 	"code",
 	"diagram-dsl",
 ]);
 
-function normalizeType(rawType: string): ArtifactType | null {
-	const normalized = rawType.trim().toLowerCase() as ArtifactType;
-	return allowedTypes.has(normalized) ? normalized : null;
+function normalizeType(rawType: string): {
+	type: ArtifactType;
+	metadata: Record<string, unknown>;
+} {
+	const normalized = rawType.trim().toLowerCase();
+	if (allowedTypes.has(normalized as ArtifactType)) {
+		return { type: normalized as ArtifactType, metadata: {} };
+	}
+	return {
+		type: "code",
+		metadata: { legacyArtifactType: normalized || "unknown" },
+	};
 }
 
 function normalizeContent(type: ArtifactType, raw: string): unknown {
@@ -40,17 +48,15 @@ export function extractArtifactsFromText(text: string): {
 			rawTitle: string | undefined,
 			rawContent: string,
 		) => {
-			const type = normalizeType(rawType);
-			if (!type) {
-				return "";
-			}
+			const normalizedType = normalizeType(rawType);
+			const type = normalizedType.type;
 			artifacts.push({
 				id: randomUUID(),
 				type,
 				title: rawTitle?.trim() || undefined,
 				content: normalizeContent(type, rawContent),
 				version: 1,
-				metadata: {},
+				metadata: normalizedType.metadata,
 			});
 			return "";
 		},

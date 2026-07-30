@@ -943,8 +943,6 @@ export async function startScan(
 		dockerBin?: string;
 		dockerImage?: string;
 		network?: "none" | "default";
-		memory?: string;
-		cpus?: string;
 		toolCacheDir?: string;
 		imageRef?: string;
 		imageTar?: string;

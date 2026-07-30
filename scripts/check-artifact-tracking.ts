@@ -1,3 +1,5 @@
+export {};
+
 const proc = Bun.spawn(["git", "ls-files", "artifacts"], {
 	stdout: "pipe",
 	stderr: "inherit",

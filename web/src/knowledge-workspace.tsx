@@ -17,8 +17,6 @@ import {
 	Search,
 	Trash2,
 } from "lucide-react";
-import mermaid from "mermaid";
-import { MarkdownEditor } from "markdown-wysiwyg-editor";
 import type { DragEvent, ReactElement } from "react";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -39,9 +37,8 @@ import {
 	type SourceTreeResponse,
 	updateSourcePage,
 } from "./api";
+import { MarkdownEditor } from "./components/markdown-editor";
 import { IconButton, SelectInput, TextInput } from "./ui";
-
-mermaid.initialize({ startOnLoad: false });
 
 const dragMimeType = "application/x-vuln-workbench-knowledge-node";
 const initialBody = "# New Page\n\nWrite your documentation here.\n";
@@ -1152,8 +1149,6 @@ export function KnowledgeWorkspace({
 						value={draftBody}
 						onChange={setDraftBody}
 						editable={canManage && mode === "edit"}
-						enableMermaid={true}
-						mermaidLib={mermaid}
 						toolbarMode={mode === "edit" ? "fixed" : "hidden"}
 						enableVerticalScroll
 						className="wysiwyg-editor"

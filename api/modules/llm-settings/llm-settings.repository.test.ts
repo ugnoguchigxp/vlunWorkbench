@@ -54,6 +54,17 @@ function appEnv(overrides: Partial<AppEnv> = {}): AppEnv {
 		securityHeadersMode: "auto",
 		llmSettingsEncryptionKey: Buffer.alloc(32, 7).toString("base64"),
 		llmSettingsPreviousEncryptionKeys: [],
+		nightworkersIntegrationEnabled: false,
+		nightworkersIntegrationAutoCreateProjects: false,
+		nightworkersIntegrationAllowedProfiles: [],
+		nightworkersIntegrationPreviewTtlSeconds: 300,
+		nightworkersIntegrationIdempotencyTtlHours: 168,
+		nightworkersIntegrationMaxConcurrentScans: 2,
+		nightworkersIntegrationMaxFindingPageSize: 100,
+		nightworkersIntegrationMaxEventPageSize: 200,
+		nightworkersIntegrationMaxReportBytes: 5 * 1024 * 1024,
+		nightworkersIntegrationMaxRequestBytes: 64 * 1024,
+		nightworkersReportRunnerConcurrency: 2,
 		...overrides,
 	};
 }

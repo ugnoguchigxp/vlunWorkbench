@@ -1,0 +1,13 @@
+{
+	"extends": "./tsconfig.json",
+	"compilerOptions": {
+		"noEmit": true
+	},
+	"include": [
+		"scripts/**/*.ts",
+		"vite.config.ts",
+		"vitest.config.ts",
+		"drizzle.config.ts"
+	],
+	"exclude": ["node_modules", "dist", "dist-web"]
+}

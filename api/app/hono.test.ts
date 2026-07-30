@@ -1,7 +1,7 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
 import fs from "node:fs/promises";
-import { HttpError } from "../modules/auth/errors";
 import { HTTPException } from "hono/http-exception";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { HttpError } from "../modules/auth/errors";
 
 // Mock environment and DB connection before importing app
 vi.mock("../db", () => ({
@@ -13,10 +13,13 @@ vi.mock("../db", () => ({
 				users: {
 					findFirst: vi.fn(),
 				},
-				scanRuns: {
-					findMany: vi.fn().mockResolvedValue([]),
+					scanRuns: {
+						findMany: vi.fn().mockResolvedValue([]),
+					},
+					scanReports: {
+						findMany: vi.fn().mockResolvedValue([]),
+					},
 				},
-			},
 		},
 		sqlite: {
 			close: vi.fn(),

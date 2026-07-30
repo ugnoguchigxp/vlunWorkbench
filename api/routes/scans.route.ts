@@ -9,11 +9,10 @@ import { getAuthContextUser } from "../modules/auth/context";
 import { HttpError } from "../modules/auth/errors";
 import type { FindingDecisionRepository } from "../modules/decisions/finding-decision-repository";
 import { FindingReviewRepository } from "../modules/reviews/finding-review-repository";
+import { ScanReportRunner } from "../modules/reports/scan-report-runner";
 import type { ArtifactStorage } from "../modules/scans/artifact-storage";
 import { buildGroupedFindings } from "../modules/scans/grouping-builder";
-import { buildMarkdownReport } from "../modules/scans/report-builder";
 import type { ScanReportRepository } from "../modules/scans/report-repository";
-import { buildMarkdownReportWithLlmSummary } from "../modules/scans/report-summary-runner";
 import type {
 	ArtifactRepository,
 	FindingRepository,
@@ -25,12 +24,6 @@ import { ScanReviewRepository } from "../modules/scans/scan-review-repository";
 import { ScanReviewRunner } from "../modules/scans/scan-review-runner";
 import { buildScanRunSummary } from "../modules/scans/summary-builder";
 import type { LlmRouter } from "../providers/llmRouter";
-
-const FULL_REPORT_OPTIONS = {
-	includeFalsePositives: true,
-	includeDeferred: true,
-	includeUndecided: true,
-};
 
 type ScansRouteDeps = {
 	scanRepository: ScanRepository;
@@ -46,6 +39,7 @@ type ScansRouteDeps = {
 	llmRouter?: LlmRouter;
 	scanSupervisor?: ScanProcessSupervisor;
 	scanReviewRunner?: Pick<ScanReviewRunner, "start">;
+	scanReportRunner?: Pick<ScanReportRunner, "start">;
 };
 
 export function createScansRoute(deps: ScansRouteDeps) {
@@ -69,6 +63,14 @@ export function createScansRoute(deps: ScansRouteDeps) {
 		new ScanReviewRunner(db, {
 			llmRouter,
 			reviewRepository: scanReviewRepository,
+		});
+	const scanReportRunner =
+		deps.scanReportRunner ??
+		new ScanReportRunner(db, {
+			reportRepository: scanReportRepository,
+			artifactRepository,
+			artifactStorage,
+			llmRouter,
 		});
 
 	async function checkScanOwnership(scanRunId: string, userId: string) {
@@ -248,114 +250,20 @@ export function createScansRoute(deps: ScansRouteDeps) {
 				const input = c.req.valid("json");
 
 				await checkScanOwnership(scanRunId, authUser.userId);
-				const reportOptions = {
-					...FULL_REPORT_OPTIONS,
-					summaryMode: input.summaryMode,
-				};
-
-				const report = await scanReportRepository.createReport({
+				const started = await scanReportRunner.start({
 					scanRunId,
-					format: input.format,
 					title: input.title,
-					options: reportOptions,
-					status: "running",
+					summaryMode: input.summaryMode,
 					generatedByUserId: authUser.userId,
 				});
-
-				try {
-					const builderOptions = {
-						...FULL_REPORT_OPTIONS,
-						title: input.title,
-					};
-					const reportBuild =
-						input.summaryMode === "deterministic_with_llm_summary"
-							? await buildMarkdownReportWithLlmSummary(db, scanRunId, {
-									...builderOptions,
-									llmRouter,
-								})
-							: {
-									markdown: await buildMarkdownReport(
-										db,
-										scanRunId,
-										builderOptions,
-									),
-									providerRouting: undefined,
-									output: undefined,
-									systemContext: undefined,
-									promptMessages: undefined,
-									promptSequenceHash: undefined,
-								};
-					const markdown = reportBuild.markdown;
-
-					const filename = `report-${report.id}.md`;
-					const saveResult = await artifactStorage.saveTextArtifact(
-						scanRunId,
-						"reports",
-						markdown,
-						filename,
+				void started.completion.catch((error) => {
+					console.error(
+						`Scan report ${started.reportId} background execution failed:`,
+						error,
 					);
-
-					const artifact = await artifactRepository.createArtifact({
-						scanRunId,
-						toolRunId: null,
-						kind: "report",
-						format: "markdown",
-						path: saveResult.path,
-						sha256: saveResult.sha256,
-						sizeBytes: saveResult.sizeBytes,
-						metadata: {
-							reportId: report.id,
-							summaryMode: input.summaryMode,
-							...(reportBuild.providerRouting
-								? { providerRouting: reportBuild.providerRouting }
-								: {}),
-							...(reportBuild.systemContext
-								? { systemContext: reportBuild.systemContext }
-								: {}),
-							...(reportBuild.promptMessages
-								? {
-										promptMessages: reportBuild.promptMessages,
-										promptSequenceHash: reportBuild.promptSequenceHash,
-									}
-								: {}),
-						},
-					});
-
-					const updated = await scanReportRepository.updateReportStatus(
-						report.id,
-						"completed",
-						{
-							artifactId: artifact.id,
-							summary: markdown.slice(0, 500),
-							options: {
-								...reportOptions,
-								...(reportBuild.providerRouting
-									? { providerRouting: reportBuild.providerRouting }
-									: {}),
-								...(reportBuild.systemContext
-									? { systemContext: reportBuild.systemContext }
-									: {}),
-								...(reportBuild.promptMessages
-									? {
-											promptMessages: reportBuild.promptMessages,
-											promptSequenceHash: reportBuild.promptSequenceHash,
-										}
-									: {}),
-							},
-						},
-					);
-
-					return c.json({ report: updated });
-				} catch (err) {
-					const failed = await scanReportRepository.updateReportStatus(
-						report.id,
-						"failed",
-						{
-							errorMessage: err instanceof Error ? err.message : String(err),
-						},
-					);
-					return c.json({ report: failed });
-				}
+				});
+				const report = await scanReportRepository.findById(started.reportId);
+				return c.json({ report }, 202);
 			},
 		);
 }

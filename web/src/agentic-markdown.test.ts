@@ -1,4 +1,3 @@
-import { MarkdownTipTapConverter } from "markdown-wysiwyg-editor";
 import { describe, expect, it } from "vitest";
 import type { AgenticSearchCitation } from "./api";
 import {
@@ -9,19 +8,13 @@ import {
 } from "./agentic-markdown";
 
 describe("normalizeAgenticAnswerMarkdown", () => {
-	it("prevents markdown-wysiwyg inline code placeholders from leaking inside bold text", async () => {
+	it("normalizes inline code nested inside bold text", () => {
 		const markdown =
 			"- **`biome.jsonc` から始める**\n- CI では `biome ci .` を使う";
 
 		const normalized = normalizeAgenticAnswerMarkdown(markdown);
-		const json =
-			await MarkdownTipTapConverter.markdownToTipTapJson(normalized);
-		const serialized = JSON.stringify(json);
-
-		expect(serialized).not.toContain("§CODE§");
-		expect(serialized).toContain("biome.jsonc");
-		expect(serialized).toContain("biome ci .");
-		expect(serialized).toContain('"type":"code"');
+		expect(normalized).toContain("**biome.jsonc から始める**");
+		expect(normalized).toContain("`biome ci .`");
 	});
 
 	it("does not rewrite fenced code blocks", () => {

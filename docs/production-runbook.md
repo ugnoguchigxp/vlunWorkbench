@@ -3,9 +3,10 @@
 ## Pre-deploy
 
 1. Run `bun install --frozen-lockfile`, `bun run bootstrap:check -- --skip-port`,
-   and `bun run verify`.
-2. Confirm `bun run check:audit`, `bun run check:artifact-tracking`, and
-   `bun run check:bundle` pass.
+   and `bun run verify:strict`.
+2. `verify:strict` includes the fast verification pipeline, Web/critical
+   coverage, browser E2E, dependency audit, artifact tracking, and the bundle
+   budget.
 3. Set explicit `PROJECT_ALLOWED_ROOTS`, trusted proxy CIDRs (when applicable),
    the LLM host allowlist, and the LLM settings encryption key.
 4. Create and verify a backup:
@@ -27,6 +28,19 @@ bun run llm-secrets:migrate -- --backup-output /secure/backups/pre-secret-migrat
 
 The command verifies encryption for every row, creates and verifies the backup,
 then updates every legacy row in one Writer transaction.
+
+## Scanner resource boundaries
+
+Production Docker scans always include `--memory`, equal `--memory-swap`,
+`--cpus`, and `--pids-limit` values. Defaults are 4 GiB, 2 CPUs, and 512 PIDs.
+Override them only within the validated ranges documented in the README.
+
+Scanner stdout, stderr, and structured result files are bounded before parsing.
+An overflow fails the tool run with `tool_output_limit_exceeded` (or
+`tool_stderr_limit_exceeded`), records the termination reason in execution
+metadata, and force-cleans a Docker container when necessary. Do not raise the
+hard limits to make a noisy or adversarial target pass; investigate the tool
+configuration and target scope first.
 
 ## Upgrade
 

@@ -28,15 +28,18 @@ const javascriptSizes = await Promise.all(
 const largestJavaScriptChunk = javascriptSizes.sort(
 	(left, right) => right.bytes - left.bytes,
 )[0];
+const forbiddenJavaScriptChunks = javascriptEntries.filter((entry) =>
+	/mermaid/i.test(entry),
+);
 const result = {
 	initialJavaScriptGzipBytes: gzipSync(scriptBytes).length,
 	initialCssGzipBytes: gzipSync(cssBytes).length,
 	largestJavaScriptChunk,
+	forbiddenJavaScriptChunks,
 	budgets: {
 		initialJavaScriptGzipBytes: 256_000,
 		initialCssGzipBytes: 35_000,
-		largestJavaScriptChunkBytes: 820_000,
-		targetLargestJavaScriptChunkBytes: 500_000,
+		largestJavaScriptChunkBytes: 500_000,
 	},
 };
 const ok =
@@ -44,6 +47,7 @@ const ok =
 		result.budgets.initialJavaScriptGzipBytes &&
 	result.initialCssGzipBytes <= result.budgets.initialCssGzipBytes &&
 	(largestJavaScriptChunk?.bytes ?? 0) <=
-		result.budgets.largestJavaScriptChunkBytes;
+		result.budgets.largestJavaScriptChunkBytes &&
+	forbiddenJavaScriptChunks.length === 0;
 process.stdout.write(`${JSON.stringify({ ok, ...result })}\n`);
 if (!ok) process.exitCode = 1;

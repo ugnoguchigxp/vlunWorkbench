@@ -182,9 +182,14 @@ bun run api/cli/llm-route-repair.ts -- \
 | `SCAN_EXECUTION_MODE` | scanner runner の一元ポリシー。`host` または `docker`。development は host、production は Docker が既定。 |
 | `ALLOW_HOST_SCANNER_EXECUTION` | host scanner 実行を明示的に許可する。production の既定は `false`。 |
 | `SCAN_DOCKER_IMAGE` | Docker scanner policy が使う toolbox image。 |
+| `VULN_WORKBENCH_DOCKER_MEMORY` | scanner containerごとのmemory上限。既定は`4g`、許容範囲は512 MiB–8 GiB。 |
+| `VULN_WORKBENCH_DOCKER_CPUS` | scanner containerごとのCPU上限。既定は`2`、許容範囲は0.25–4。 |
+| `VULN_WORKBENCH_DOCKER_PIDS_LIMIT` | scanner containerごとのPID上限。既定は`512`、許容範囲は64–1024。 |
+| `VULN_WORKBENCH_SCANNER_STDOUT_LIMIT_BYTES` | scanner stdoutおよび構造化結果fileの上限。既定は64 MiB、hard maximumは256 MiB。 |
+| `VULN_WORKBENCH_SCANNER_STDERR_LIMIT_BYTES` | scanner stderr上限。既定は8 MiB、hard maximumは32 MiB。 |
 | `PROJECT_ALLOWED_ROOTS` | Web/APIから登録・scanできるproject rootのカンマ区切り一覧。developmentの未設定時はcurrent working directory、productionの未設定時はfail-closed。 |
 
-LLM API key は host 側に置きます。scanner container や scan 対象 project に LLM credential を渡してはいけません。
+LLM API key は host 側に置きます。scanner container や scan 対象 project に LLM credential を渡してはいけません。Docker scanではmemory、CPU、memory-swap、PID上限を常に適用し、stdout、stderr、構造化結果fileが設定byte上限を超えた場合は失敗として扱います。
 
 ## CLI Workflows
 
@@ -538,10 +543,12 @@ bun run format
 bun run test
 bun run build
 bun run verify
+bun run verify:strict
 ```
 
-`bun run verify` が closeout gate です。commit済みのS11tnext catalog pairを確認してから、
-typecheck、lint、format check、test、buildを実行します。
+`bun run verify` は高速なlocal gateです。commit済みのS11tnext catalog pairを確認してから、
+typecheck、lint、format check、test、build、bundle、audit、artifact trackingを実行します。
+`bun run verify:strict` はcloseout gateで、さらにWeb/critical coverageとbrowser E2Eを実行します。
 
 LLMへ送る固定のsystem/userメッセージは`contexts/**/*.context.toml`で管理します。変更時は
 `bun run s11tnext:lint`、`bun run s11tnext:build`を実行し、
@@ -600,6 +607,18 @@ commitがfindingを新規導入したことは証明しません。削除、除�
 size上限超過のpathはcoverage recordとして残ります。diff scanを理由にLLM
 reviewが自動実行されることはありません。
 
+## NightWorkers Security Scan Provider
+
+feature flag配下の`/api/integrations/nightworkers/v1` APIで、NightWorkersから
+scope付きproject security scan、再開可能なevent、redaction済みfinding、
+非同期Markdown reportを利用できます。integration認証には専用のhash保存
+bearer credentialを使用し、browser cookieは受け付けません。
+
+migration順序、credentialの作成・rotation・revoke、canary、monitoring、
+rollbackは
+[NightWorkers security scan provider runbook](docs/nightworkers-security-scan-provider-runbook.md)
+に従ってください。
+
 ## Operational Checks
 
 migration の適用:
@@ -637,5 +656,6 @@ git diff --cached --name-only -- artifacts
 - `spec/project-scan-exploration-reduction-mcp-concept.md`
 - `spec/static-intelligence-coding-agent-consumer-companion-plan.md`
 - `spec/phase-46-security-release-readiness-plan.md`
+- `spec/phase-48-quality-reliability-hardening-plan.md`
 
 実装済みの計画書は working tree から削除し、Git history で参照します。

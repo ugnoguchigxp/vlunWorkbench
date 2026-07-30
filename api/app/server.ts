@@ -20,6 +20,11 @@ const shutdown = async (signal: string) => {
 	try {
 		const runtime = await getAppRuntime();
 		await runtime.scanSupervisor.shutdown();
+		await runtime.scanReportRunner.shutdown();
+		if (runtime.dbConnection.writerClient) {
+			console.log("Stopping owned SQLite Writer...");
+			await runtime.dbConnection.writerClient.close({ shutdownIfOwned: true });
+		}
 		if (runtime?.dbConnection?.ownsConnection) {
 			console.log("Closing SQLite database connection...");
 			runtime.dbConnection.sqlite.close(false);

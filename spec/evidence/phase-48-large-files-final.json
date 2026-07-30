@@ -1,0 +1,45 @@
+{
+	"recordedAt": "2026-07-30T12:36:00+09:00",
+	"result": "pass",
+	"productionFiles": 410,
+	"largeFileThreshold": 500,
+	"grandfatheredLargeFiles": 33,
+	"completedTargets": [
+		{
+			"path": "web/src/domains/scans/use-scans-controller.ts",
+			"before": 1587,
+			"after": 492
+		},
+		{
+			"path": "web/src/domains/projects/projects-domain.tsx",
+			"before": 1264,
+			"after": 426
+		},
+		{
+			"path": "web/src/settings-panel.tsx",
+			"before": 1236,
+			"after": 427
+		},
+		{
+			"path": "api/modules/scans/report-builder.ts",
+			"before": 1505,
+			"after": 22
+		},
+		{
+			"path": "api/modules/scans/profile-runner.ts",
+			"before": 1339,
+			"after": 309
+		},
+		{
+			"path": "api/db/schema.ts",
+			"before": 1275,
+			"after": 8
+		},
+		{
+			"path": "api/app/hono.ts",
+			"before": 1073,
+			"after": 16
+		}
+	],
+	"policy": "Existing files over 500 lines are explicitly listed with an owner, reason, review date, and non-increasing maximum."
+}

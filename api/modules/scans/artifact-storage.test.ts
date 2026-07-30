@@ -1,7 +1,7 @@
-import { describe, expect, it, beforeEach, afterEach } from "vitest";
+import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
-import crypto from "node:crypto";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ArtifactStorage } from "./artifact-storage";
 
 describe("ArtifactStorage", () => {
@@ -71,5 +71,32 @@ describe("ArtifactStorage", () => {
 		await expect(
 			storage.saveLog(scanRunId, "stdout", "content", "../../../outside.log"),
 		).rejects.toThrow("Path traversal detected");
+	});
+
+	it("bounds reads and rejects symlinks that escape the artifact root", async () => {
+		const saved = await storage.saveTextArtifact(
+			"scan-123",
+			"reports",
+			"bounded report",
+			"report.md",
+		);
+		await expect(
+			storage.readTextArtifact(saved.path, { maxBytes: 5 }),
+		).rejects.toThrow("configured read limit");
+		expect(
+			await storage.readTextArtifact(saved.path, { maxBytes: 64 }),
+		).toBe("bounded report");
+
+		const outside = path.resolve(tempDir, "..", "outside-artifact.txt");
+		const link = path.resolve(tempDir, "scan-123", "reports", "escape.md");
+		await fs.writeFile(outside, "outside");
+		await fs.symlink(outside, link);
+		try {
+			await expect(storage.readTextArtifact("scan-123/reports/escape.md")).rejects.toThrow(
+				"symlink resolves outside",
+			);
+		} finally {
+			await fs.rm(outside, { force: true });
+		}
 	});
 });

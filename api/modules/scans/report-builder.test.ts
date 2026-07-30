@@ -2,6 +2,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { REPORT_SECTION_DEFINITIONS } from "../../../shared/report-sections";
 import { createDbConnection, type DbConnection } from "../../db";
 import {
 	diagnosticReports,
@@ -17,7 +18,6 @@ import {
 	toolRuns,
 	users,
 } from "../../db/schema";
-import { REPORT_SECTION_DEFINITIONS } from "../../../shared/report-sections";
 import { buildMarkdownReport } from "./report-builder";
 
 function buildImprovementRequest(findingId: string) {

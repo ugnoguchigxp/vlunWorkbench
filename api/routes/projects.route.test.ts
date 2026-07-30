@@ -128,6 +128,10 @@ describe("Projects Route", () => {
 		expect(res.status).toBe(201);
 		const body = await res.json();
 		expect(body.project.id).toBe("p-new");
+		expect(body.project.pathPolicy).toEqual({
+			status: "allowed",
+			reasonCode: null,
+		});
 		expect(mockProjectRepo.createProject).toHaveBeenCalledWith(
 			expect.objectContaining({ name: "path", repoPath: "/valid/path" }),
 		);

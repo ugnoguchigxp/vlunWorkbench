@@ -646,8 +646,12 @@ async function runFixture(params: {
 		) {
 			throw new Error("manifest exportHash changed across repeated runs");
 		}
+		const materialSourceManifest = objectRecord(
+			firstMaterial.payload.sourceManifest,
+			"material sourceManifest",
+		);
 		if (
-			firstMaterial.payload.sourceManifest?.exportHash !==
+			materialSourceManifest.exportHash !==
 			firstManifestPayload.source.exportHash
 		) {
 			throw new Error(
