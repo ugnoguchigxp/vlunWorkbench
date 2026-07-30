@@ -54,10 +54,12 @@ export type DastValidationFailure = {
 		| "private_network_target_not_allowed"
 		| "metadata_service_target_rejected"
 		| "localhost_alias_not_allowed"
+		| "invalid_path_config"
 		| "path_out_of_scope"
 		| "target_disabled"
 		| "profile_disabled"
 		| "secret_header_rejected"
+		| "unsafe_header_rejected"
 		| "target_resolution_failed";
 	message: string;
 	warnings: string[];

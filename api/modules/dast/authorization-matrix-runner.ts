@@ -31,10 +31,12 @@ export async function runAuthorizationMatrix(params: {
 	findings: AuthorizationMatrixFinding[];
 	requestCount: number;
 	evidenceRefs: string[];
+	inconclusiveCount: number;
 }> {
 	const findings: AuthorizationMatrixFinding[] = [];
 	const evidenceRefs: string[] = [];
 	let requestCount = 0;
+	let inconclusiveCount = 0;
 	for (const operation of params.matrix.operations) {
 		for (const object of params.matrix.objects) {
 			for (const actor of params.matrix.actors) {
@@ -59,7 +61,11 @@ export async function runAuthorizationMatrix(params: {
 						? "allowed"
 						: "denied";
 				const observed = observedAuthorization(result.status);
-				if (observed === "inconclusive" || observed === expected) continue;
+				if (observed === "inconclusive") {
+					inconclusiveCount++;
+					continue;
+				}
+				if (observed === expected) continue;
 				findings.push({
 					ruleId:
 						expected === "allowed"
@@ -82,13 +88,13 @@ export async function runAuthorizationMatrix(params: {
 			}
 		}
 	}
-	return { findings, requestCount, evidenceRefs };
+	return { findings, requestCount, evidenceRefs, inconclusiveCount };
 }
 
 function observedAuthorization(
 	status: number,
 ): "allowed" | "denied" | "inconclusive" {
-	if (status >= 200 && status < 400) return "allowed";
+	if (status >= 200 && status < 300) return "allowed";
 	if ([401, 403, 404].includes(status)) return "denied";
 	return "inconclusive";
 }

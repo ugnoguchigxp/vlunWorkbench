@@ -87,4 +87,30 @@ describe("coverage builder", () => {
 			},
 		);
 	});
+
+	it("preserves inconclusive and failed-cleanup active evidence", () => {
+		for (const [status, reasonCode] of [
+			["inconclusive", "active_assessment_inconclusive"],
+			["failed_cleanup", "cleanup_failed"],
+		] as const) {
+			const results = buildCoverageResults(
+				{ tools: [] },
+				[
+					{
+						key: "api-authorization-matrix",
+						status,
+						findingCount: 0,
+						reasonCode,
+						evidenceRefs: [
+							{ kind: "active_assessment", id: `active-${status}` },
+						],
+					},
+				],
+			);
+			expect(results.find((row) => row.controlId === "API1:2023")).toMatchObject({
+				status: "inconclusive",
+				reasonCode,
+			});
+		}
+	});
 });

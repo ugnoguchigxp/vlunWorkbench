@@ -1,8 +1,9 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import type { AppDatabase } from "../../db";
 import {
 	activeAssessmentEvidences,
 	activeAssessmentRuns,
+	scanRuns,
 } from "../../db/schema";
 
 export class ActiveAssessmentRepository {
@@ -51,6 +52,65 @@ export class ActiveAssessmentRepository {
 			.where(eq(activeAssessmentRuns.id, id))
 			.returning();
 		return updated ?? null;
+	}
+
+	async sumEngagementRequestCount(engagementId: string): Promise<number> {
+		const [row] = await this.db
+			.select({
+				total: sql<number>`coalesce(sum(${activeAssessmentRuns.requestCount}), 0)`,
+			})
+			.from(activeAssessmentRuns)
+			.where(eq(activeAssessmentRuns.engagementId, engagementId));
+		return Number(row?.total ?? 0);
+	}
+
+	async failInterruptedRuns(): Promise<number> {
+		const interrupted = await this.db.query.activeAssessmentRuns.findMany({
+			where: eq(activeAssessmentRuns.status, "running"),
+		});
+		for (const run of interrupted) {
+			const [evidenceCount] = await this.db
+				.select({
+					count: sql<number>`count(*)`,
+				})
+				.from(activeAssessmentEvidences)
+				.where(eq(activeAssessmentEvidences.activeAssessmentRunId, run.id));
+			const now = new Date();
+			const interruptedStatus =
+				run.kind === "transaction" ? "failed_cleanup" : "inconclusive";
+			const limitationCode =
+				run.kind === "transaction"
+					? "interrupted_cleanup_state_unknown"
+					: "interrupted_readonly_matrix";
+			await this.db
+				.update(activeAssessmentRuns)
+				.set({
+					status: interruptedStatus,
+					requestCount: Number(evidenceCount?.count ?? run.requestCount),
+					summary:
+						run.kind === "transaction"
+							? "Active assessment was interrupted; cleanup state is unknown."
+							: "Read-only authorization matrix was interrupted.",
+					result: {
+						limitationCodes: [limitationCode],
+					},
+					errorMessage: limitationCode,
+					completedAt: now,
+					updatedAt: now,
+				})
+				.where(eq(activeAssessmentRuns.id, run.id));
+			await this.db
+				.update(scanRuns)
+				.set({
+					status: "failed",
+					summary:
+						"Active assessment interrupted; cleanup state requires investigation.",
+					completedAt: now,
+					updatedAt: now,
+				})
+				.where(eq(scanRuns.id, run.scanRunId));
+		}
+		return interrupted.length;
 	}
 
 	async createEvidence(input: {

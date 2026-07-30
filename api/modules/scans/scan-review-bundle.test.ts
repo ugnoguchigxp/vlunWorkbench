@@ -6,6 +6,7 @@ import {
 	findingEvidences,
 	findings,
 	projects,
+	scanArtifacts,
 	scanRuns,
 	toolRuns,
 	users,
@@ -28,6 +29,7 @@ describe("buildScanReviewBundle filters", () => {
 	let connection: DbConnection;
 	let scanRunId: string;
 	let projectId: string;
+	let toolRunId: string;
 	const now = new Date("2026-06-27T00:00:00.000Z");
 
 	beforeEach(async () => {
@@ -78,7 +80,7 @@ describe("buildScanReviewBundle filters", () => {
 			})
 			.returning();
 		scanRunId = scanRun.id;
-		await connection.db.insert(toolRuns).values({
+		const [toolRun] = await connection.db.insert(toolRuns).values({
 			scanRunId,
 			toolName: "semgrep",
 			toolVersion: "1.0.0",
@@ -89,7 +91,8 @@ describe("buildScanReviewBundle filters", () => {
 			completedAt: now,
 			createdAt: now,
 			updatedAt: now,
-		});
+		}).returning();
+		toolRunId = toolRun.id;
 	});
 
 	afterEach(() => {
@@ -295,6 +298,27 @@ describe("buildScanReviewBundle filters", () => {
 			statusCode: 200,
 		});
 		expect(JSON.stringify(bundle)).not.toContain("must-not-enter-the-bundle");
+	});
+
+	it("never forwards arbitrary artifact metadata to the LLM bundle", async () => {
+		await connection.db.insert(scanArtifacts).values({
+			scanRunId,
+			toolRunId,
+			kind: "raw_result",
+			format: "json",
+			path: "/tmp/result.json",
+			sha256: "a".repeat(64),
+			sizeBytes: 10,
+			metadata: {
+				authorization: "artifact-secret-canary",
+				arbitraryPayload: { nested: true },
+			},
+			createdAt: now,
+		});
+		const bundle = await buildScanReviewBundle(connection.db, scanRunId);
+		expect(bundle.artifacts).toHaveLength(1);
+		expect(bundle.artifacts[0]).not.toHaveProperty("metadata");
+		expect(JSON.stringify(bundle)).not.toContain("artifact-secret-canary");
 	});
 
 	it("derives new_or_regressed from the previous same-profile scan", async () => {

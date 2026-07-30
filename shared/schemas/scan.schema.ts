@@ -116,7 +116,7 @@ export const findingSeveritySchema = z.enum([
 ]);
 export type FindingSeverity = z.infer<typeof findingSeveritySchema>;
 
-export const findingConfidenceSchema = z.enum(["static"]);
+export const findingConfidenceSchema = z.enum(["static", "runtime"]);
 export type FindingConfidence = z.infer<typeof findingConfidenceSchema>;
 
 export const findingStatusSchema = z.enum(["open"]);

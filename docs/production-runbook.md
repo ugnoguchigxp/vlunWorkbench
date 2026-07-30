@@ -7,10 +7,13 @@
 2. `verify:strict` includes the fast verification pipeline, Web/critical
    coverage, browser E2E, dependency audit, artifact tracking, and the bundle
    budget.
-3. Set explicit `PROJECT_ALLOWED_ROOTS`, trusted proxy CIDRs (when applicable),
+3. After the release commit exists, run `bun run verify:clean-checkout -- HEAD`
+   to repeat frozen installation and the strict gate from a detached temporary
+   worktree.
+4. Set explicit `PROJECT_ALLOWED_ROOTS`, trusted proxy CIDRs (when applicable),
    the LLM host allowlist, the LLM settings encryption key, and
    `DAST_AUTH_ENCRYPTION_KEY` when authenticated DAST is enabled.
-4. For a scanner-capability release, build the toolbox and run the actual
+5. For a scanner-capability release, build the toolbox and run the actual
    network-disabled matrix:
 
    ```bash
@@ -22,7 +25,7 @@
    The gate must show Semgrep, OSV-Scanner, and Trivy JSON output, the image
    digest, scanner-data manifest hash, `networkMode=none`, and the enforced
    memory/CPU/PID limits.
-5. Create and verify a backup:
+6. Create and verify a backup:
 
    ```bash
    bun run backup:create -- --output /secure/backups/pre-deploy.sqlite
@@ -105,14 +108,19 @@ unexpired engagement for the same project, a `local`, `ephemeral`, or
 rate, and cleanup contracts. Production and public targets fail closed. LLM
 output cannot create or broaden this authorization.
 
-Before an active-lab run:
+The service enforces the active-lab preconditions rather than relying on a
+review checklist. Activation is one-way and requires a complete, time-bounded
+Rules of Engagement record. Every request must be inside the engagement scope,
+Rules of Engagement, and target scope. Transaction plans reserve enough
+cumulative engagement and target request budget for seed, operation, and all
+cleanup requests before the first request is sent. Auth contexts are encrypted
+and bound to the same project, target, identity role, and target cookie/storage
+origin. Same-project active runs are serialized.
 
-1. Confirm the target is disposable and restoreable.
-2. Activate a time-bounded Rules of Engagement record.
-3. Verify each state-changing transaction has declarative seed and cleanup
-   requests and remains inside the server request budget.
-4. Confirm all required test identities are dedicated, least-privileged, and
-   represented by encrypted auth contexts.
+Authorization matrices are read-only (`GET`, `HEAD`, or `OPTIONS`) until a
+matrix-level seed and cleanup contract exists. Only 2xx responses count as
+allowed; 401, 403, and 404 count as denied; redirects and all other responses
+are persisted as `inconclusive`.
 
 Cleanup runs even if seed or test requests fail. A cleanup error must leave the
 run as `failed_cleanup`; an operation error with successful cleanup is
@@ -120,6 +128,11 @@ run as `failed_cleanup`; an operation error with successful cleanup is
 reconcile seeded object IDs, run the documented cleanup/restore procedure, and
 record the residual target state. Never relabel the run `completed` merely
 because the diagnostic report was generated.
+
+On startup, an interrupted state-changing transaction is persisted as
+`failed_cleanup` with `interrupted_cleanup_state_unknown`; an interrupted
+read-only matrix is persisted as `inconclusive`. The related scan is failed in
+both cases so automated reports cannot present an interrupted run as complete.
 
 ## Automated diagnostic recovery
 

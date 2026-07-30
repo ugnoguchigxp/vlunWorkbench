@@ -107,11 +107,71 @@ describe("assessments route", () => {
 		expect(
 			(await app.request(`/api/projects/${project.id}/assessments`)).status,
 		).toBe(200);
+		const created = (await create.json()) as { engagement: { id: string } };
+		expect(
+			(
+				await app.request(
+					`/api/assessments/${created.engagement.id}/status`,
+					{
+						method: "PATCH",
+						headers: { "content-type": "application/json" },
+						body: JSON.stringify({ status: "active" }),
+					},
+				)
+			).status,
+		).toBe(409);
 
 		currentUserId = otherUserId;
 		expect(
 			(await app.request(`/api/projects/${project.id}/assessments`)).status,
 		).toBe(403);
+	});
+
+	it("enforces one-way engagement lifecycle transitions", async () => {
+		const project = await projectRepository.createProject({
+			ownerUserId,
+			name: "Lifecycle fixture",
+			repoPath: "/tmp/assessment-lifecycle",
+		});
+		const create = await app.request(
+			`/api/projects/${project.id}/assessments`,
+			{
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({
+					projectId: project.id,
+					purpose: "internal",
+					environment: "ephemeral",
+					scope: {
+						origins: ["http://127.0.0.1:3000"],
+						paths: ["/api"],
+						methods: ["POST", "DELETE"],
+					},
+					rulesOfEngagement: {
+						reference: "ticket",
+						allowedPaths: ["/api"],
+						allowedMethods: ["POST", "DELETE"],
+						requestBudget: 10,
+						rateLimitPerSec: 1,
+						cleanupContract: "Delete fixtures.",
+						expiresAt: "2099-01-01T00:00:00.000Z",
+						attestation: "Owned disposable target.",
+					},
+					startsAt: "2020-01-01T00:00:00.000Z",
+					expiresAt: "2099-01-01T00:00:00.000Z",
+				}),
+			},
+		);
+		const created = (await create.json()) as { engagement: { id: string } };
+		const setStatus = (status: string) =>
+			app.request(`/api/assessments/${created.engagement.id}/status`, {
+				method: "PATCH",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ status }),
+			});
+		expect((await setStatus("active")).status).toBe(200);
+		expect((await setStatus("revoked")).status).toBe(200);
+		expect((await setStatus("active")).status).toBe(409);
 	});
 
 	it("publishes versioned controls with explicit partial-automation limits", async () => {

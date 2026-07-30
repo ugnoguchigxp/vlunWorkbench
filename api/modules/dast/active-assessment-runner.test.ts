@@ -1,7 +1,10 @@
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import type { AuthorizationMatrix } from "../../../shared/schemas/active-assessment.schema";
+import type {
+	AuthorizationMatrix,
+	RunActiveAssessmentRequest,
+} from "../../../shared/schemas/active-assessment.schema";
 import { createDbConnection, type DbConnection } from "../../db";
 import {
 	activeAssessmentEvidences,
@@ -11,7 +14,8 @@ import {
 } from "../../db/schema";
 import { AssessmentRepository } from "../assessments/assessment-repository";
 import { ensureScanCoverageResults } from "../assessments/coverage-builder";
-import { ProjectRepository } from "../scans/repositories";
+import { ProjectRepository, ScanRepository } from "../scans/repositories";
+import { ActiveAssessmentRepository } from "./active-assessment-repository";
 import { ActiveAssessmentRunner } from "./active-assessment-runner";
 import { DastAuthContextCrypto } from "./auth-context-crypto";
 import { DastAuthContextRepository } from "./auth-context-repository";
@@ -25,6 +29,7 @@ describe("ActiveAssessmentRunner", () => {
 	let userId: string;
 	let authRepository: DastAuthContextRepository;
 	let vulnerable = true;
+	let matrixStatusOverride: number | null = null;
 	let transactionObjectExists = false;
 
 	beforeEach(async () => {
@@ -46,6 +51,11 @@ describe("ActiveAssessmentRunner", () => {
 			fetch(request) {
 				const url = new URL(request.url);
 				if (url.pathname.startsWith("/objects/")) {
+					if (matrixStatusOverride !== null) {
+						return new Response(null, {
+							status: matrixStatusOverride,
+						});
+					}
 					const objectId = url.pathname.split("/").at(-1);
 					const role = roleBySecret.get(
 						request.headers.get("x-fixture-auth") ?? "",
@@ -144,6 +154,7 @@ describe("ActiveAssessmentRunner", () => {
 			userId,
 			methods: ["GET"],
 			paths: ["/objects"],
+			origin: `http://127.0.0.1:${server.port}`,
 		});
 		const matrix: AuthorizationMatrix = {
 			actors: ["user-a", "user-b", "admin"].map((identityRole) => ({
@@ -226,7 +237,9 @@ describe("ActiveAssessmentRunner", () => {
 			status: "inconclusive",
 			reasonCode: "partial_automation_without_finding",
 		});
-		expect(await connection.db.select().from(findings)).toHaveLength(1);
+		expect(await connection.db.select().from(findings)).toMatchObject([
+			{ confidence: "runtime" },
+		]);
 		expect(
 			await connection.db.select().from(activeAssessmentEvidences),
 		).toHaveLength(12);
@@ -235,6 +248,25 @@ describe("ActiveAssessmentRunner", () => {
 			evidence: await connection.db.select().from(activeAssessmentEvidences),
 		});
 		expect(persisted).not.toContain("fixture-secret-");
+
+		matrixStatusOverride = 302;
+		const inconclusiveResult = await runner.run({
+			projectId,
+			createdByUserId: userId,
+			request: {
+				kind: "authorization_matrix",
+				engagementId,
+				targetConfigId,
+				matrix,
+				maxRequests: 20,
+			},
+		});
+		expect(inconclusiveResult).toMatchObject({
+			status: "inconclusive",
+			requestCount: 6,
+			findingCount: 0,
+			errorMessage: "authorization_response_inconclusive",
+		});
 	});
 
 	it("persists an inconclusive transaction only after cleanup succeeds", async () => {
@@ -244,48 +276,191 @@ describe("ActiveAssessmentRunner", () => {
 			userId,
 			methods: ["POST", "PATCH", "DELETE"],
 			paths: ["/fixtures"],
+			origin: `http://127.0.0.1:${server.port}`,
+			requestBudget: 3,
 		});
-		const result = await new ActiveAssessmentRunner(connection.db).run({
-			projectId,
-			createdByUserId: userId,
-			request: {
-				kind: "transaction",
-				engagementId,
-				targetConfigId,
-				transaction: {
-					id: "cleanup-fixture",
-					seed: [
-						{
-							method: "POST",
-							path: "/fixtures",
-							headers: {},
-							body: null,
-							expectedStatus: [201],
-						},
-					],
-					request: {
-						method: "PATCH",
+		const request = {
+			kind: "transaction",
+			engagementId,
+			targetConfigId,
+			transaction: {
+				id: "cleanup-fixture",
+				seed: [
+					{
+						method: "POST",
+						path: "/fixtures",
+						headers: {},
+						body: null,
+						expectedStatus: [201],
+					},
+				],
+				request: {
+					method: "PATCH",
+					path: "/fixtures/a",
+					headers: {},
+					body: null,
+					expectedStatus: [200],
+				},
+				cleanup: [
+					{
+						method: "DELETE",
 						path: "/fixtures/a",
 						headers: {},
 						body: null,
-						expectedStatus: [200],
+						expectedStatus: [204],
 					},
-					cleanup: [
-						{
-							method: "DELETE",
-							path: "/fixtures/a",
-							headers: {},
-							body: null,
-							expectedStatus: [204],
-						},
-					],
-					maxRequests: 3,
-				},
+				],
+				maxRequests: 3,
 			},
+		} satisfies RunActiveAssessmentRequest;
+		const runner = new ActiveAssessmentRunner(connection.db);
+		const result = await runner.run({
+			projectId,
+			createdByUserId: userId,
+			request,
 		});
 		expect(result.status).toBe("inconclusive");
 		expect(result.requestCount).toBe(3);
 		expect(transactionObjectExists).toBe(false);
+		await expect(
+			runner.run({
+				projectId,
+				createdByUserId: userId,
+				request,
+			}),
+		).rejects.toThrow("roe_request_budget_insufficient_for_plan");
+	});
+
+	it("serializes active work per project", async () => {
+		const engagementId = await createActiveEngagement({
+			connection,
+			projectId,
+			userId,
+			methods: ["POST", "PATCH", "DELETE"],
+			paths: ["/fixtures"],
+			origin: `http://127.0.0.1:${server.port}`,
+		});
+		let releaseFirstRequest: () => void = () => undefined;
+		const firstRequestGate = new Promise<void>((resolve) => {
+			releaseFirstRequest = resolve;
+		});
+		let signalRequestStarted: () => void = () => undefined;
+		const requestStarted = new Promise<void>((resolve) => {
+			signalRequestStarted = resolve;
+		});
+		let first = true;
+		const runner = new ActiveAssessmentRunner(connection.db, {
+			fetchImpl: async (_input, init) => {
+				if (first) {
+					first = false;
+					signalRequestStarted();
+					await firstRequestGate;
+				}
+				const status =
+					init?.method === "POST" ? 201 : init?.method === "DELETE" ? 204 : 200;
+				return new Response(null, { status });
+			},
+		});
+		const request = {
+			kind: "transaction",
+			engagementId,
+			targetConfigId,
+			transaction: {
+				id: "serialized",
+				seed: [
+					{
+						method: "POST",
+						path: "/fixtures",
+						headers: {},
+						body: null,
+						expectedStatus: [201],
+					},
+				],
+				request: {
+					method: "PATCH",
+					path: "/fixtures/a",
+					headers: {},
+					body: null,
+					expectedStatus: [200],
+				},
+				cleanup: [
+					{
+						method: "DELETE",
+						path: "/fixtures/a",
+						headers: {},
+						body: null,
+						expectedStatus: [204],
+					},
+				],
+				maxRequests: 3,
+			},
+		} satisfies RunActiveAssessmentRequest;
+		const running = runner.run({
+			projectId,
+			createdByUserId: userId,
+			request,
+		});
+		await requestStarted;
+		await expect(
+			runner.run({
+				projectId,
+				createdByUserId: userId,
+				request,
+			}),
+		).rejects.toThrow("active_assessment_project_busy");
+		releaseFirstRequest();
+		await expect(running).resolves.toMatchObject({ status: "completed" });
+	});
+
+	it("fails interrupted active runs closed with unknown cleanup state", async () => {
+		const engagementId = await createActiveEngagement({
+			connection,
+			projectId,
+			userId,
+			methods: ["POST", "PATCH", "DELETE"],
+			paths: ["/fixtures"],
+			origin: `http://127.0.0.1:${server.port}`,
+		});
+		const scan = await new ScanRepository(connection.db).createScanRun({
+			projectId,
+			profile: "active-lab:transaction",
+			status: "running",
+			createdByUserId: userId,
+		});
+		const repository = new ActiveAssessmentRepository(connection.db);
+		const activeRun = await repository.createRun({
+			projectId,
+			scanRunId: scan.id,
+			engagementId,
+			targetConfigId,
+			kind: "transaction",
+			createdByUserId: userId,
+		});
+		await repository.createEvidence({
+			activeAssessmentRunId: activeRun.id,
+			method: "POST",
+			path: "/fixtures",
+			statusCode: 201,
+			identityRole: null,
+			stage: "seed:0",
+			requestSha256: "a".repeat(64),
+			durationMs: 1,
+		});
+		expect(
+			await new ActiveAssessmentRunner(connection.db).recover(),
+		).toBe(1);
+		expect(
+			await connection.db.query.activeAssessmentRuns.findFirst({
+				where: (fields, { eq }) => eq(fields.id, activeRun.id),
+			}),
+		).toMatchObject({
+			status: "failed_cleanup",
+			requestCount: 1,
+			errorMessage: "interrupted_cleanup_state_unknown",
+		});
+		expect(await new ScanRepository(connection.db).findById(scan.id)).toMatchObject({
+			status: "failed",
+		});
 	});
 });
 
@@ -297,6 +472,8 @@ async function createActiveEngagement(params: {
 		"GET" | "HEAD" | "OPTIONS" | "POST" | "PUT" | "PATCH" | "DELETE"
 	>;
 	paths: string[];
+	origin: string;
+	requestBudget?: number;
 }) {
 	const repository = new AssessmentRepository(params.connection.db);
 	const engagement = await repository.createEngagement({
@@ -304,7 +481,7 @@ async function createActiveEngagement(params: {
 		purpose: "internal",
 		environment: "ephemeral",
 		scope: {
-			origins: [],
+			origins: [params.origin],
 			paths: params.paths,
 			methods: params.methods,
 		},
@@ -312,7 +489,7 @@ async function createActiveEngagement(params: {
 			reference: "active-fixture",
 			allowedPaths: params.paths,
 			allowedMethods: params.methods,
-			requestBudget: 100,
+			requestBudget: params.requestBudget ?? 100,
 			rateLimitPerSec: 100,
 			cleanupContract: "Delete all seeded fixture records.",
 			expiresAt: "2099-01-01T00:00:00.000Z",

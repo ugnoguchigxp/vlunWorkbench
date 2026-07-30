@@ -3,6 +3,10 @@ import type {
 	CreateAssessmentEngagementInput,
 	ScanCoverageResult,
 } from "../../../shared/schemas/assessment.schema";
+import {
+	assessmentScopeSchema,
+	rulesOfEngagementSchema,
+} from "../../../shared/schemas/assessment.schema";
 import type { AppDatabase } from "../../db";
 import { assessmentEngagements, scanCoverageResults } from "../../db/schema";
 
@@ -55,17 +59,59 @@ export class AssessmentRepository {
 		ownerUserId: string,
 		status: "draft" | "active" | "completed" | "expired" | "revoked",
 	) {
+		const current = await this.db.query.assessmentEngagements.findFirst({
+			where: and(
+				eq(assessmentEngagements.id, id),
+				eq(assessmentEngagements.ownerUserId, ownerUserId),
+			),
+		});
+		if (!current) return null;
+		if (current.status === status) return current;
+		const transitions: Record<string, Set<string>> = {
+			draft: new Set(["active", "revoked"]),
+			active: new Set(["completed", "expired", "revoked"]),
+			completed: new Set(),
+			expired: new Set(),
+			revoked: new Set(),
+		};
+		if (!transitions[current.status]?.has(status)) {
+			throw new Error("assessment_status_transition_rejected");
+		}
+		const now = new Date();
+		if (status === "active") {
+			const scope = assessmentScopeSchema.parse(current.scope);
+			const roe = rulesOfEngagementSchema.parse(current.rulesOfEngagement);
+			if (current.environment === "production") {
+				throw new Error("active_assessment_production_rejected");
+			}
+			if (scope.origins.length === 0 || scope.paths.length === 0) {
+				throw new Error("active_assessment_scope_incomplete");
+			}
+			if (
+				current.startsAt.getTime() > now.getTime() ||
+				current.expiresAt.getTime() <= now.getTime() ||
+				Date.parse(roe.expiresAt) <= now.getTime() ||
+				Date.parse(roe.expiresAt) > current.expiresAt.getTime()
+			) {
+				throw new Error("active_assessment_authorization_expired");
+			}
+		}
+		if (status === "expired" && current.expiresAt.getTime() > now.getTime()) {
+			throw new Error("assessment_not_yet_expired");
+		}
 		const [updated] = await this.db
 			.update(assessmentEngagements)
-			.set({ status, updatedAt: new Date() })
+			.set({ status, updatedAt: now })
 			.where(
 				and(
 					eq(assessmentEngagements.id, id),
 					eq(assessmentEngagements.ownerUserId, ownerUserId),
+					eq(assessmentEngagements.status, current.status),
 				),
 			)
 			.returning();
-		return updated ?? null;
+		if (!updated) throw new Error("assessment_status_transition_conflict");
+		return updated;
 	}
 
 	async upsertCoverageResults(params: {

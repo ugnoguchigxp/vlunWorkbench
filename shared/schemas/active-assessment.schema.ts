@@ -1,4 +1,9 @@
 import { z } from "zod";
+import {
+	objectPathTemplateSchema,
+	relativeHttpPathSchema,
+	relativePathMatchesPrefix,
+} from "./http-target.schema";
 
 export const activeHttpMethodSchema = z.enum([
 	"POST",
@@ -7,40 +12,94 @@ export const activeHttpMethodSchema = z.enum([
 	"DELETE",
 ]);
 
-export const activeRequestSchema = z.object({
-	method: activeHttpMethodSchema,
-	path: z.string().startsWith("/").max(2000),
-	headers: z
-		.record(z.string(), z.string())
-		.refine(
-			(headers) =>
-				Object.keys(headers).every(
-					(name) =>
-						!["authorization", "cookie", "proxy-authorization"].includes(
-							name.toLowerCase(),
-						),
-				),
-			"Secret-bearing headers must come from an encrypted auth context",
-		)
-		.default({}),
-	body: z
-		.union([
-			z.record(z.string(), z.unknown()),
-			z.array(z.unknown()),
-			z.string().max(64_000),
-			z.null(),
-		])
-		.default(null),
-	expectedStatus: z.array(z.number().int().min(100).max(599)).min(1).max(20),
-});
+const SECRET_HEADER_NAMES = new Set([
+	"authorization",
+	"cookie",
+	"proxy-authorization",
+	"x-api-key",
+	"x-auth-token",
+	"x-csrf-token",
+	"host",
+	"content-length",
+	"transfer-encoding",
+	"connection",
+	"upgrade",
+	"te",
+	"trailer",
+]);
+const headerRecordSchema = z
+	.record(
+		z.string().regex(/^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/),
+		z.string().max(16_384),
+	)
+	.refine((headers) => Object.keys(headers).length <= 50, {
+		message: "At most 50 request headers are allowed",
+	})
+	.refine(
+		(headers) =>
+			Object.keys(headers).every(
+				(name) => !SECRET_HEADER_NAMES.has(name.toLowerCase()),
+			),
+		"Secret-bearing and transport-controlled headers are not allowed",
+	);
 
-export const activeTransactionSchema = z.object({
-	id: z.string().regex(/^[a-z0-9][a-z0-9._-]{0,99}$/),
-	seed: z.array(activeRequestSchema).min(1).max(20),
-	request: activeRequestSchema,
-	cleanup: z.array(activeRequestSchema).min(1).max(20),
-	maxRequests: z.number().int().min(3).max(100),
-});
+export const activeRequestSchema = z
+	.object({
+		method: activeHttpMethodSchema,
+		path: relativeHttpPathSchema,
+		headers: headerRecordSchema.default({}),
+		body: z
+			.union([
+				z.record(z.string(), z.unknown()),
+				z.array(z.unknown()),
+				z.string().max(64_000),
+				z.null(),
+			])
+			.default(null),
+		expectedStatus: z.array(z.number().int().min(100).max(599)).min(1).max(20),
+	})
+	.superRefine((value, ctx) => {
+		let serialized: string;
+		try {
+			serialized =
+				typeof value.body === "string"
+					? value.body
+					: JSON.stringify(value.body);
+		} catch {
+			ctx.addIssue({
+				code: "custom",
+				path: ["body"],
+				message: "Request body must be JSON serializable",
+			});
+			return;
+		}
+		if (new TextEncoder().encode(serialized).byteLength > 64_000) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["body"],
+				message: "Serialized request body must not exceed 64000 bytes",
+			});
+		}
+	});
+
+export const activeTransactionSchema = z
+	.object({
+		id: z.string().regex(/^[a-z0-9][a-z0-9._-]{0,99}$/),
+		seed: z.array(activeRequestSchema).min(1).max(20),
+		request: activeRequestSchema,
+		cleanup: z.array(activeRequestSchema).min(1).max(20),
+		maxRequests: z.number().int().min(3).max(100),
+	})
+	.superRefine((value, ctx) => {
+		const required = value.seed.length + 1 + value.cleanup.length;
+		if (value.maxRequests < required) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["maxRequests"],
+				message: `maxRequests must be at least ${required} so cleanup can always run`,
+			});
+		}
+	});
 
 const matrixActorSchema = z.object({
 	identityRole: z.string().min(1).max(100),
@@ -49,12 +108,12 @@ const matrixActorSchema = z.object({
 const matrixObjectSchema = z.object({
 	id: z.string().min(1).max(100),
 	ownerRole: z.string().min(1).max(100),
-	path: z.string().startsWith("/").max(2000),
+	path: relativeHttpPathSchema,
 });
 const matrixOperationSchema = z.object({
 	id: z.string().min(1).max(100),
-	method: z.enum(["GET", "HEAD", "OPTIONS", "POST", "PUT", "PATCH", "DELETE"]),
-	pathTemplate: z.string().startsWith("/").includes("{objectId}").max(2000),
+	method: z.enum(["GET", "HEAD", "OPTIONS"]),
+	pathTemplate: objectPathTemplateSchema,
 	allowedRoles: z.array(z.string().min(1).max(100)).max(20),
 	ownerAllowed: z.boolean(),
 });
@@ -74,6 +133,26 @@ export const authorizationMatrixSchema = z
 				message: "Actor roles must be unique",
 			});
 		}
+		if (
+			new Set(value.objects.map((object) => object.id)).size !==
+			value.objects.length
+		) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["objects"],
+				message: "Object IDs must be unique",
+			});
+		}
+		if (
+			new Set(value.operations.map((operation) => operation.id)).size !==
+			value.operations.length
+		) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["operations"],
+				message: "Operation IDs must be unique",
+			});
+		}
 		for (const [index, object] of value.objects.entries()) {
 			if (!roles.has(object.ownerRole)) {
 				ctx.addIssue({
@@ -81,6 +160,38 @@ export const authorizationMatrixSchema = z
 					path: ["objects", index, "ownerRole"],
 					message: "Object owner role must reference an actor",
 				});
+			}
+		}
+		for (const [operationIndex, operation] of value.operations.entries()) {
+			const allowedRoles = new Set(operation.allowedRoles);
+			if (allowedRoles.size !== operation.allowedRoles.length) {
+				ctx.addIssue({
+					code: "custom",
+					path: ["operations", operationIndex, "allowedRoles"],
+					message: "Allowed roles must be unique",
+				});
+			}
+			for (const [roleIndex, role] of operation.allowedRoles.entries()) {
+				if (!roles.has(role)) {
+					ctx.addIssue({
+						code: "custom",
+						path: ["operations", operationIndex, "allowedRoles", roleIndex],
+						message: "Allowed roles must reference configured actors",
+					});
+				}
+			}
+			for (const [objectIndex, object] of value.objects.entries()) {
+				const resolvedPath = operation.pathTemplate.replace(
+					"{objectId}",
+					encodeURIComponent(object.id),
+				);
+				if (!relativePathMatchesPrefix(resolvedPath, object.path)) {
+					ctx.addIssue({
+						code: "custom",
+						path: ["operations", operationIndex, "pathTemplate"],
+						message: `Resolved path for object ${objectIndex} must remain under its declared object path`,
+					});
+				}
 			}
 		}
 	});
@@ -110,11 +221,25 @@ const activeTransactionRunRequestSchema = activeRunBaseSchema
 		}
 	});
 
-const authorizationMatrixRunRequestSchema = activeRunBaseSchema.extend({
-	kind: z.literal("authorization_matrix"),
-	matrix: authorizationMatrixSchema,
-	maxRequests: z.number().int().min(1).max(100),
-});
+const authorizationMatrixRunRequestSchema = activeRunBaseSchema
+	.extend({
+		kind: z.literal("authorization_matrix"),
+		matrix: authorizationMatrixSchema,
+		maxRequests: z.number().int().min(1).max(100),
+	})
+	.superRefine((value, ctx) => {
+		const required =
+			value.matrix.actors.length *
+			value.matrix.objects.length *
+			value.matrix.operations.length;
+		if (value.maxRequests < required) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["maxRequests"],
+				message: `maxRequests must cover the complete matrix (${required} requests)`,
+			});
+		}
+	});
 
 export const runActiveAssessmentRequestSchema = z.union([
 	activeTransactionRunRequestSchema,

@@ -22,6 +22,9 @@ vi.mock("../db", () => ({
 					scanDiagnosticRuns: {
 						findMany: vi.fn().mockResolvedValue([]),
 					},
+					activeAssessmentRuns: {
+						findMany: vi.fn().mockResolvedValue([]),
+					},
 				},
 		},
 		sqlite: {

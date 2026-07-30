@@ -14,11 +14,11 @@ import {
 	scanRuns,
 	toolRuns,
 } from "../../db/schema";
-import { compactToolProvenance } from "./scan-review-provenance";
 import {
 	compactReviewEvidenceMetadata,
 	compactReviewFindingMetadata,
 } from "./scan-review-metadata";
+import { compactToolProvenance } from "./scan-review-provenance";
 import { buildScanRunSummary } from "./summary-builder";
 
 export type ScanReviewBundleOptions = {
@@ -391,7 +391,6 @@ export async function buildScanReviewBundle(
 			format: artifact.format,
 			sha256: artifact.sha256,
 			sizeBytes: artifact.sizeBytes,
-			metadata: artifact.metadata,
 		})),
 		findings: sortedFindings.map((finding) => {
 			const review = latestCompletedReview(finding.id);

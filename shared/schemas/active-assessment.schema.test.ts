@@ -62,6 +62,66 @@ describe("active assessment schemas", () => {
 		expect(parsed.success).toBe(false);
 	});
 
+	it("rejects ambiguous paths, secret aliases, and oversized JSON bodies", () => {
+		const request = {
+			method: "POST" as const,
+			path: "/fixtures",
+			expectedStatus: [201],
+		};
+		for (const path of [
+			"//evil.example/path",
+			"/../admin",
+			"/%2e%2e/admin",
+			"/safe?admin=true",
+			"/safe\\admin",
+		]) {
+			expect(
+				activeTransactionSchema.safeParse({
+					id: "unsafe-path",
+					seed: [{ ...request, path }],
+					request: { ...request, method: "PATCH" },
+					cleanup: [{ ...request, method: "DELETE" }],
+					maxRequests: 3,
+				}).success,
+			).toBe(false);
+		}
+		expect(
+			activeTransactionSchema.safeParse({
+				id: "unsafe-header",
+				seed: [{ ...request, headers: { "X-Api-Key": "canary" } }],
+				request: { ...request, method: "PATCH" },
+				cleanup: [{ ...request, method: "DELETE" }],
+				maxRequests: 3,
+			}).success,
+		).toBe(false);
+		expect(
+			activeTransactionSchema.safeParse({
+				id: "oversized-body",
+				seed: [{ ...request, body: { value: "x".repeat(64_001) } }],
+				request: { ...request, method: "PATCH" },
+				cleanup: [{ ...request, method: "DELETE" }],
+				maxRequests: 3,
+			}).success,
+		).toBe(false);
+	});
+
+	it("reserves enough transaction budget to execute every cleanup step", () => {
+		const step = {
+			method: "POST" as const,
+			path: "/fixtures",
+			expectedStatus: [201],
+		};
+		expect(
+			activeTransactionSchema.safeParse({
+				id: "insufficient-cleanup-budget",
+				seed: [step, step],
+				request: { ...step, method: "PATCH" },
+				cleanup: [{ ...step, method: "DELETE" }, { ...step, method: "DELETE" }],
+				maxRequests: 4,
+			}).success,
+		).toBe(false);
+	});
+
 	it("requires matrix object owners to reference configured actors", () => {
 		const parsed = authorizationMatrixSchema.safeParse({
 			actors: [
@@ -89,6 +149,76 @@ describe("active assessment schemas", () => {
 			],
 		});
 		expect(parsed.success).toBe(false);
+	});
+
+	it("requires a complete, read-only matrix with declared unique roles", () => {
+		const base = {
+			engagementId: "11111111-1111-4111-8111-111111111111",
+			targetConfigId: "22222222-2222-4222-8222-222222222222",
+			kind: "authorization_matrix" as const,
+			matrix: {
+				actors: [
+					{
+						identityRole: "user-a",
+						authContextId: "33333333-3333-4333-8333-333333333333",
+					},
+					{
+						identityRole: "admin",
+						authContextId: "44444444-4444-4444-8444-444444444444",
+					},
+				],
+				objects: [
+					{ id: "a", ownerRole: "user-a", path: "/objects/a" },
+					{ id: "b", ownerRole: "user-a", path: "/objects/b" },
+				],
+				operations: [
+					{
+						id: "read",
+						method: "GET" as const,
+						pathTemplate: "/objects/{objectId}",
+						allowedRoles: ["admin"],
+						ownerAllowed: true,
+					},
+				],
+			},
+			maxRequests: 4,
+		};
+		expect(runActiveAssessmentRequestSchema.safeParse(base).success).toBe(true);
+		expect(
+			runActiveAssessmentRequestSchema.safeParse({
+				...base,
+				maxRequests: 3,
+			}).success,
+		).toBe(false);
+		expect(
+			runActiveAssessmentRequestSchema.safeParse({
+				...base,
+				matrix: {
+					...base.matrix,
+					operations: [
+						{
+							...base.matrix.operations[0],
+							method: "POST",
+						},
+					],
+				},
+			}).success,
+		).toBe(false);
+		expect(
+			runActiveAssessmentRequestSchema.safeParse({
+				...base,
+				matrix: {
+					...base.matrix,
+					operations: [
+						{
+							...base.matrix.operations[0],
+							pathTemplate: "/objects/{objectId}/{objectId}",
+							allowedRoles: ["missing-role"],
+						},
+					],
+				},
+			}).success,
+		).toBe(false);
 	});
 
 	it("requires transaction auth context and identity role as a pair", () => {

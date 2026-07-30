@@ -2,11 +2,13 @@ import crypto from "node:crypto";
 import type { ActiveRequest } from "../../../shared/schemas/active-assessment.schema";
 import type { DastAuthSecretPayload } from "../../../shared/schemas/dast-auth.schema";
 import { canonicalJson } from "../scans/diff-scan-plan";
-import { authHeadersFor } from "./auth-material";
 import type { ActiveAssessmentRepository } from "./active-assessment-repository";
+import { authHeadersFor } from "./auth-material";
+import type { DastFetch } from "./http-runner";
+import { pinnedDastFetch } from "./pinned-fetch";
 import {
-	authorizeRulesOfEngagement,
 	type ActiveAuthorization,
+	authorizeRulesOfEngagement,
 } from "./rules-of-engagement";
 import { isUrlInDastScope } from "./target-validator";
 import type { ValidatedDastTarget } from "./types";
@@ -16,7 +18,7 @@ export type ActiveRequestRuntime = {
 	engagement: ActiveAuthorization;
 	target: ValidatedDastTarget;
 	repository: ActiveAssessmentRepository;
-	fetchImpl?: typeof fetch;
+	fetchImpl?: DastFetch;
 	requestCount: number;
 	lastRequestAt: number;
 };
@@ -68,7 +70,10 @@ export async function executeActiveRequest(params: {
 			params.runtime.target.runnerOrigin,
 		).toString();
 		const body = requestBody(params.request);
-		const response = await (params.runtime.fetchImpl ?? fetch)(url, {
+		const response = await (
+			params.runtime.fetchImpl ??
+			((input, init) => pinnedDastFetch(params.runtime.target, input, init))
+		)(url, {
 			method: params.request.method,
 			headers: {
 				...params.runtime.target.defaultHeaders,

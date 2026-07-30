@@ -16,7 +16,7 @@ beforeAll(() => {
 			);
 		},
 	});
-	const origin = `http://127.0.0.1:${server.port}`;
+	const origin = `http://dast-pinned.invalid:${server.port}`;
 	target = {
 		ok: true,
 		targetConfigId: "target",
@@ -60,5 +60,5 @@ describe("PlaywrightBrowserAdapter", () => {
 				await adapter.close();
 			}
 		}
-	}, 15_000);
+	}, 30_000);
 });

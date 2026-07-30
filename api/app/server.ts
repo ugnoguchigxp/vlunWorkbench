@@ -1,5 +1,5 @@
-import app, { getAppRuntime } from "./hono";
 import { readAppEnv } from "./env";
+import app, { getAppRuntime } from "./hono";
 
 const env = readAppEnv();
 
@@ -20,6 +20,7 @@ const shutdown = async (signal: string) => {
 	try {
 		const runtime = await getAppRuntime();
 		await runtime.scanSupervisor.shutdown();
+		await runtime.activeAssessmentRunner.shutdown();
 		await runtime.scanDiagnosticRunner.shutdown();
 		await runtime.scanReportRunner.shutdown();
 		if (runtime.dbConnection.writerClient) {

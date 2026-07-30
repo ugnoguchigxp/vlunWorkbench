@@ -9,7 +9,9 @@ import { getAuthContextUser } from "../modules/auth/context";
 import { HttpError } from "../modules/auth/errors";
 import { DastAuthContextCrypto } from "../modules/dast/auth-context-crypto";
 import { DastAuthContextRepository } from "../modules/dast/auth-context-repository";
+import { assertAuthSecretTargetsOrigin } from "../modules/dast/auth-target-policy";
 import { DastRepository } from "../modules/dast/dast-repository";
+import { normalizeDastOrigin } from "../modules/dast/target-validator";
 import type { ProjectRepository } from "../modules/scans/repositories";
 
 export function createDastAuthRoute(deps: {
@@ -45,6 +47,7 @@ export function createDastAuthRoute(deps: {
 		if (!target || target.projectId !== projectId) {
 			throw new HttpError(404, "DAST target config not found");
 		}
+		return target;
 	};
 
 	route.get("/projects/:projectId/dast-auth-contexts", async (c) => {
@@ -64,7 +67,18 @@ export function createDastAuthRoute(deps: {
 				parsed.error.issues.map((issue) => issue.message).join("; "),
 			);
 		}
-		await assertTarget(projectId, parsed.data.targetConfigId);
+		const target = await assertTarget(projectId, parsed.data.targetConfigId);
+		try {
+			assertAuthSecretTargetsOrigin(
+				parsed.data.secret,
+				normalizeDastOrigin(target.origin),
+			);
+		} catch (error) {
+			throw new HttpError(
+				400,
+				error instanceof Error ? error.message : String(error),
+			);
+		}
 		const authContext = await repository().create({
 			...parsed.data,
 			projectId,
@@ -85,7 +99,25 @@ export function createDastAuthRoute(deps: {
 					parsed.error.issues.map((issue) => issue.message).join("; "),
 				);
 			}
-			const authContext = await repository()
+			const authRepository = repository();
+			const existing = await authRepository.get(
+				c.req.param("authContextId"),
+				projectId,
+			);
+			if (!existing) throw new HttpError(404, "DAST auth context not found");
+			const target = await assertTarget(projectId, existing.targetConfigId);
+			try {
+				assertAuthSecretTargetsOrigin(
+					parsed.data.secret,
+					normalizeDastOrigin(target.origin),
+				);
+			} catch (error) {
+				throw new HttpError(
+					400,
+					error instanceof Error ? error.message : String(error),
+				);
+			}
+			const authContext = await authRepository
 				.rotate({
 					id: c.req.param("authContextId"),
 					projectId,

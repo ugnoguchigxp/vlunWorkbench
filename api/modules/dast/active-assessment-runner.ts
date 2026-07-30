@@ -1,18 +1,20 @@
 import crypto from "node:crypto";
 import type { RunActiveAssessmentRequest } from "../../../shared/schemas/active-assessment.schema";
+import { rulesOfEngagementSchema } from "../../../shared/schemas/assessment.schema";
 import type { AppDatabase } from "../../db";
 import { AssessmentRepository } from "../assessments/assessment-repository";
 import { FindingRepository, ScanRepository } from "../scans/repositories";
 import { ActiveAssessmentRepository } from "./active-assessment-repository";
 import {
-	executeActiveRequest,
 	type ActiveRequestRuntime,
+	executeActiveRequest,
 } from "./active-request-executor";
-import { runAuthorizationMatrix } from "./authorization-matrix-runner";
 import type { DastAuthContextRepository } from "./auth-context-repository";
+import { runAuthorizationMatrix } from "./authorization-matrix-runner";
 import { DastRepository } from "./dast-repository";
-import { runActiveTransaction } from "./transaction-runner";
+import type { DastFetch } from "./http-runner";
 import { validateDastTargetConfig } from "./target-validator";
+import { runActiveTransaction } from "./transaction-runner";
 
 export class ActiveAssessmentRunner {
 	private readonly assessmentRepository: AssessmentRepository;
@@ -20,12 +22,15 @@ export class ActiveAssessmentRunner {
 	private readonly dastRepository: DastRepository;
 	private readonly scanRepository: ScanRepository;
 	private readonly findingRepository: FindingRepository;
+	private readonly activeProjects = new Set<string>();
+	private readonly inFlight = new Set<Promise<unknown>>();
+	private shuttingDown = false;
 
 	constructor(
 		db: AppDatabase,
 		private readonly deps: {
 			authContextRepository?: DastAuthContextRepository;
-			fetchImpl?: typeof fetch;
+			fetchImpl?: DastFetch;
 		} = {},
 	) {
 		this.assessmentRepository = new AssessmentRepository(db);
@@ -36,6 +41,37 @@ export class ActiveAssessmentRunner {
 	}
 
 	async run(params: {
+		projectId: string;
+		createdByUserId: string;
+		request: RunActiveAssessmentRequest;
+	}) {
+		if (this.shuttingDown) {
+			throw new Error("active_assessment_runner_shutting_down");
+		}
+		if (this.activeProjects.has(params.projectId)) {
+			throw new Error("active_assessment_project_busy");
+		}
+		this.activeProjects.add(params.projectId);
+		const completion = this.runClaimed(params);
+		this.inFlight.add(completion);
+		try {
+			return await completion;
+		} finally {
+			this.inFlight.delete(completion);
+			this.activeProjects.delete(params.projectId);
+		}
+	}
+
+	async recover(): Promise<number> {
+		return await this.activeRepository.failInterruptedRuns();
+	}
+
+	async shutdown(): Promise<void> {
+		this.shuttingDown = true;
+		await Promise.allSettled([...this.inFlight]);
+	}
+
+	private async runClaimed(params: {
 		projectId: string;
 		createdByUserId: string;
 		request: RunActiveAssessmentRequest;
@@ -60,6 +96,23 @@ export class ActiveAssessmentRunner {
 			runner: "host",
 		});
 		if (!validatedTarget.ok) throw new Error(validatedTarget.message);
+		const initialRequestCount =
+			await this.activeRepository.sumEngagementRequestCount(engagement.id);
+		const plannedRequestCount =
+			params.request.kind === "transaction"
+				? params.request.transaction.seed.length +
+					1 +
+					params.request.transaction.cleanup.length
+				: params.request.matrix.actors.length *
+					params.request.matrix.objects.length *
+					params.request.matrix.operations.length;
+		const roe = rulesOfEngagementSchema.parse(engagement.rulesOfEngagement);
+		if (initialRequestCount + plannedRequestCount > roe.requestBudget) {
+			throw new Error("roe_request_budget_insufficient_for_plan");
+		}
+		if (plannedRequestCount > validatedTarget.maxRequests) {
+			throw new Error("target_request_budget_insufficient_for_plan");
+		}
 		const scanRun = await this.scanRepository.createScanRun({
 			projectId: params.projectId,
 			profile: `active-lab:${params.request.kind}`,
@@ -89,12 +142,13 @@ export class ActiveAssessmentRunner {
 				environment: engagement.environment as never,
 				startsAt: engagement.startsAt,
 				expiresAt: engagement.expiresAt,
+				scope: engagement.scope,
 				rulesOfEngagement: engagement.rulesOfEngagement,
 			},
 			target: validatedTarget,
 			repository: this.activeRepository,
 			fetchImpl: this.deps.fetchImpl,
-			requestCount: 0,
+			requestCount: initialRequestCount,
 			lastRequestAt: 0,
 		};
 		try {
@@ -103,6 +157,7 @@ export class ActiveAssessmentRunner {
 					? await this.runTransaction({
 							params: { ...params, request: params.request },
 							runtime,
+							initialRequestCount,
 						})
 					: await this.runMatrix({
 							params: { ...params, request: params.request },
@@ -133,7 +188,7 @@ export class ActiveAssessmentRunner {
 				error instanceof Error ? error.message : "active_assessment_failed";
 			await this.activeRepository.completeRun(activeRun.id, {
 				status: "failed",
-				requestCount: runtime.requestCount,
+				requestCount: runtime.requestCount - initialRequestCount,
 				findingCount: 0,
 				summary: "Active assessment failed.",
 				result: { limitationCodes: [message] },
@@ -157,6 +212,7 @@ export class ActiveAssessmentRunner {
 			request: Extract<RunActiveAssessmentRequest, { kind: "transaction" }>;
 		};
 		runtime: ActiveRequestRuntime;
+		initialRequestCount: number;
 	}) {
 		const authMaterial = input.params.request.authContextId
 			? await this.decryptAuth({
@@ -181,7 +237,7 @@ export class ActiveAssessmentRunner {
 		return {
 			run: {
 				status: result.status,
-				requestCount: input.runtime.requestCount,
+				requestCount: input.runtime.requestCount - input.initialRequestCount,
 				findingCount: 0,
 				summary: `Bounded active transaction ${result.status}.`,
 				result: {
@@ -257,7 +313,7 @@ export class ActiveAssessmentRunner {
 						: "A declaratively authorized identity was denied.",
 				severity:
 					finding.ruleId === "AUTHORIZATION_FALSE_DENY" ? "medium" : "high",
-				confidence: "static",
+				confidence: "runtime",
 				status: "open",
 				primaryLocation: { path: finding.operationId },
 				fingerprint: matrixFingerprint(input.params.projectId, finding),
@@ -286,16 +342,31 @@ export class ActiveAssessmentRunner {
 		}
 		return {
 			run: {
-				status: "completed" as const,
+				status:
+					result.inconclusiveCount > 0
+						? ("inconclusive" as const)
+						: ("completed" as const),
 				requestCount: result.requestCount,
 				findingCount: result.findings.length,
-				summary: `Authorization matrix completed with ${result.findings.length} finding(s).`,
+				summary:
+					result.inconclusiveCount > 0
+						? `Authorization matrix was inconclusive for ${result.inconclusiveCount} response(s).`
+						: `Authorization matrix completed with ${result.findings.length} finding(s).`,
 				result: {
 					evidenceRefs: result.evidenceRefs,
 					findingSummaries: result.findings,
-					limitationCodes: ["configured_actor_object_operation_matrix_only"],
+					inconclusiveCount: result.inconclusiveCount,
+					limitationCodes: [
+						"configured_actor_object_operation_matrix_only",
+						...(result.inconclusiveCount > 0
+							? ["authorization_response_inconclusive"]
+							: []),
+					],
 				},
-				errorMessage: null,
+				errorMessage:
+					result.inconclusiveCount > 0
+						? "authorization_response_inconclusive"
+						: null,
 			},
 		};
 	}

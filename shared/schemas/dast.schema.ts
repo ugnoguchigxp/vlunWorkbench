@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { relativeHttpPathSchema } from "./http-target.schema";
 
 export const dastKindSchema = z.enum(["http", "browser", "form"]);
 export type DastKind = z.infer<typeof dastKindSchema>;
@@ -25,6 +26,14 @@ export type DastOutcome = z.infer<typeof dastOutcomeSchema>;
 
 const dateLikeSchema = z.string().or(z.date());
 const jsonRecordSchema = z.record(z.string(), z.unknown()).default({});
+const dastDefaultHeadersSchema = z
+	.record(
+		z.string().regex(/^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/),
+		z.string().max(16_384),
+	)
+	.refine((headers) => Object.keys(headers).length <= 50, {
+		message: "At most 50 default headers are allowed",
+	});
 
 export const dastTargetConfigSchema = z.object({
 	id: z.string().uuid(),
@@ -37,7 +46,7 @@ export const dastTargetConfigSchema = z.object({
 	allowPrivateNetwork: z.boolean(),
 	allowedPathsJson: z.array(z.string()),
 	excludedPathsJson: z.array(z.string()),
-	defaultHeadersJson: z.record(z.string(), z.string()),
+	defaultHeadersJson: dastDefaultHeadersSchema,
 	maxDepth: z.number().int().min(0),
 	maxRequests: z.number().int().positive(),
 	rateLimitPerSec: z.number().int().positive(),
@@ -146,17 +155,15 @@ export const dastEvidenceSchema = z.object({
 });
 export type DastEvidence = z.infer<typeof dastEvidenceSchema>;
 
-const pathPrefixSchema = z.string().regex(/^\//, "Path must start with /");
-
 export const saveDastTargetRequestSchema = z.object({
 	name: z.string().min(1),
 	origin: z.string().min(1),
 	enabled: z.boolean().optional().default(true),
 	allowLoopback: z.boolean().optional().default(true),
 	allowPrivateNetwork: z.boolean().optional().default(false),
-	allowedPathsJson: z.array(pathPrefixSchema).optional().default(["/"]),
-	excludedPathsJson: z.array(pathPrefixSchema).optional().default([]),
-	defaultHeadersJson: z.record(z.string(), z.string()).optional().default({}),
+	allowedPathsJson: z.array(relativeHttpPathSchema).optional().default(["/"]),
+	excludedPathsJson: z.array(relativeHttpPathSchema).optional().default([]),
+	defaultHeadersJson: dastDefaultHeadersSchema.optional().default({}),
 	maxDepth: z.number().int().min(0).max(3).optional().default(0),
 	maxRequests: z.number().int().positive().max(100).optional().default(20),
 	rateLimitPerSec: z.number().int().positive().max(10).optional().default(2),
@@ -172,7 +179,7 @@ export const saveDastProfileRequestSchema = z.object({
 	profileId: z.string().min(1),
 	displayName: z.string().min(1),
 	enabled: z.boolean().optional().default(true),
-	routePathsJson: z.array(pathPrefixSchema).optional().default([]),
+	routePathsJson: z.array(relativeHttpPathSchema).optional().default([]),
 	formSelectorsJson: z.array(z.string().min(1)).optional().default([]),
 	checkOptionsJson: z.record(z.string(), z.unknown()).optional().default({}),
 	timeoutSec: z.number().int().positive().max(120).nullable().optional(),

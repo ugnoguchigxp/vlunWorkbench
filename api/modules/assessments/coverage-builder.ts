@@ -109,6 +109,23 @@ function combineSourceCoverage(
 	automationLevel: "full" | "partial",
 ): ScanCoverageResult {
 	const evidenceRefs = sources.flatMap(sourceEvidenceRefs);
+	const incompleteActive = sources.find((source) =>
+		["inconclusive", "failed_cleanup"].includes(source.status),
+	);
+	if (incompleteActive) {
+		return {
+			controlId,
+			status: "inconclusive",
+			method: "automated",
+			reasonCode:
+				"reasonCode" in incompleteActive && incompleteActive.reasonCode
+					? incompleteActive.reasonCode
+					: incompleteActive.status === "failed_cleanup"
+						? "cleanup_failed"
+						: "active_assessment_inconclusive",
+			evidenceRefs,
+		};
+	}
 	if (sources.some((source) => source.status === "failed")) {
 		return {
 			controlId,

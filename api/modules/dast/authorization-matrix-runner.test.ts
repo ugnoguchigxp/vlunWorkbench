@@ -66,4 +66,18 @@ describe("runAuthorizationMatrix", () => {
 		});
 		expect(result.findings).toHaveLength(0);
 	});
+
+	it("treats redirects and server errors as inconclusive, not authorized", async () => {
+		let request = 0;
+		const result = await runAuthorizationMatrix({
+			matrix,
+			maxRequests: 20,
+			execute: async ({ actor, object }) => ({
+				status: ++request % 2 === 0 ? 302 : 500,
+				evidenceRef: `${actor.identityRole}:${object.id}`,
+			}),
+		});
+		expect(result.findings).toHaveLength(0);
+		expect(result.inconclusiveCount).toBe(6);
+	});
 });

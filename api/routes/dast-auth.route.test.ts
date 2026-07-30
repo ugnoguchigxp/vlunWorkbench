@@ -126,4 +126,59 @@ describe("DAST auth route", () => {
 			).status,
 		).toBe(403);
 	});
+
+	it("rejects cookies and storage state for another target", async () => {
+		const project = await projectRepository.createProject({
+			ownerUserId,
+			name: "DAST auth scope fixture",
+			repoPath: "/tmp/dast-auth-scope-fixture",
+		});
+		const target = await dastRepository.createTargetConfig({
+			projectId: project.id,
+			name: "local",
+			origin: "http://127.0.0.1:3000",
+		});
+		for (const secret of [
+			{
+				kind: "cookie_set",
+				cookies: [
+					{
+						name: "sid",
+						value: "secret",
+						domain: "other.internal",
+						path: "/",
+					},
+				],
+			},
+			{
+				kind: "playwright_storage_state",
+				storageState: {
+					cookies: [],
+					origins: [
+						{
+							origin: "http://other.internal",
+							localStorage: [{ name: "token", value: "secret" }],
+						},
+					],
+				},
+			},
+		]) {
+			const response = await app.request(
+				`/api/projects/${project.id}/dast-auth-contexts`,
+				{
+					method: "POST",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify({
+						targetConfigId: target.id,
+						identityRole: "user-a",
+						label: "User A",
+						secret,
+						loginFlow: [],
+						expiresAt: "2099-01-01T00:00:00.000Z",
+					}),
+				},
+			);
+			expect(response.status).toBe(400);
+		}
+	});
 });

@@ -1,4 +1,9 @@
 import { z } from "zod";
+import {
+	httpOriginSchema,
+	relativeHttpPathSchema,
+	relativePathMatchesPrefix,
+} from "./http-target.schema";
 
 export const assessmentPurposeSchema = z.enum(["internal", "external"]);
 export const assessmentEnvironmentSchema = z.enum([
@@ -17,8 +22,8 @@ export const assessmentEngagementStatusSchema = z.enum([
 ]);
 
 export const assessmentScopeSchema = z.object({
-	origins: z.array(z.string().url()).max(50).default([]),
-	paths: z.array(z.string().startsWith("/")).max(200).default([]),
+	origins: z.array(httpOriginSchema).max(50).default([]),
+	paths: z.array(relativeHttpPathSchema).max(200).default([]),
 	methods: z
 		.array(z.enum(["GET", "HEAD", "OPTIONS", "POST", "PUT", "PATCH", "DELETE"]))
 		.max(7)
@@ -27,7 +32,7 @@ export const assessmentScopeSchema = z.object({
 
 export const rulesOfEngagementSchema = z.object({
 	reference: z.string().min(1).max(500),
-	allowedPaths: z.array(z.string().startsWith("/")).min(1).max(200),
+	allowedPaths: z.array(relativeHttpPathSchema).min(1).max(200),
 	allowedMethods: z
 		.array(z.enum(["GET", "HEAD", "OPTIONS", "POST", "PUT", "PATCH", "DELETE"]))
 		.min(1)
@@ -68,6 +73,37 @@ export const createAssessmentEngagementSchema = z
 				path: ["rulesOfEngagement", "allowedMethods"],
 				message: "Production engagements cannot authorize active methods",
 			});
+		}
+		const roe = value.rulesOfEngagement;
+		if (!roe) return;
+		if (Date.parse(roe.expiresAt) > Date.parse(value.expiresAt)) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["rulesOfEngagement", "expiresAt"],
+				message: "Rules of engagement cannot outlive the engagement",
+			});
+		}
+		for (const [index, method] of roe.allowedMethods.entries()) {
+			if (!value.scope.methods.includes(method)) {
+				ctx.addIssue({
+					code: "custom",
+					path: ["rulesOfEngagement", "allowedMethods", index],
+					message: "Rules of engagement methods must be within scope",
+				});
+			}
+		}
+		for (const [index, allowedPath] of roe.allowedPaths.entries()) {
+			if (
+				!value.scope.paths.some((scopePath) =>
+					relativePathMatchesPrefix(allowedPath, scopePath),
+				)
+			) {
+				ctx.addIssue({
+					code: "custom",
+					path: ["rulesOfEngagement", "allowedPaths", index],
+					message: "Rules of engagement paths must be within scope",
+				});
+			}
 		}
 	});
 

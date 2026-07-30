@@ -9,9 +9,6 @@ import {
 } from "../modules/integrations/nightworkers";
 import { NightworkersIntegrationRepository } from "../modules/integrations/nightworkers/nightworkers-integration.repository";
 import { FindingReviewRepository } from "../modules/reviews/finding-review-repository";
-import { DastAuthContextCrypto } from "../modules/dast/auth-context-crypto";
-import { DastAuthContextRepository } from "../modules/dast/auth-context-repository";
-import { ActiveAssessmentRunner } from "../modules/dast/active-assessment-runner";
 import { ArtifactStorage } from "../modules/scans/artifact-storage";
 import { ScanReportRepository } from "../modules/scans/report-repository";
 import {
@@ -20,9 +17,9 @@ import {
 	ProjectRepository,
 	ScanRepository,
 } from "../modules/scans/repositories";
+import { createAssessmentsRoute } from "../routes/assessments.route";
 import { createDastRoute } from "../routes/dast.route";
 import { createDastAuthRoute } from "../routes/dast-auth.route";
-import { createAssessmentsRoute } from "../routes/assessments.route";
 import { createDiagnosticsRoute } from "../routes/diagnostics.route";
 import { createDynamicRoute } from "../routes/dynamic.route";
 import { createFindingDecisionsRoute } from "../routes/finding-decisions.route";
@@ -53,19 +50,6 @@ export function registerScanRoutes(app: Hono, runtime: AppRuntime): void {
 		runtime.dbConnection.db,
 	);
 	const artifactStorage = new ArtifactStorage();
-	const dastAuthContextRepository = runtime.env.dastAuthEncryptionKey
-		? new DastAuthContextRepository(
-				runtime.dbConnection.db,
-				new DastAuthContextCrypto(
-					runtime.env.dastAuthEncryptionKey,
-					runtime.env.dastAuthPreviousEncryptionKeys,
-				),
-			)
-		: undefined;
-	const activeAssessmentRunner = new ActiveAssessmentRunner(
-		runtime.dbConnection.db,
-		{ authContextRepository: dastAuthContextRepository },
-	);
 	if (runtime.env.nightworkersIntegrationEnabled) {
 		const nightworkersRepository = new NightworkersIntegrationRepository(
 			runtime.dbConnection.db,
@@ -196,7 +180,7 @@ export function registerScanRoutes(app: Hono, runtime: AppRuntime): void {
 			db: runtime.dbConnection.db,
 			projectRepository,
 			scanRepository,
-			activeAssessmentRunner,
+			activeAssessmentRunner: runtime.activeAssessmentRunner,
 			scanDiagnosticRunner: runtime.scanDiagnosticRunner,
 		}),
 	);

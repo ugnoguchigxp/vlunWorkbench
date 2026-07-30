@@ -26,6 +26,11 @@ function engagement(overrides: Record<string, unknown> = {}) {
 		environment: "ephemeral" as const,
 		startsAt: "2026-07-30T00:00:00.000Z",
 		expiresAt: "2026-08-01T00:00:00.000Z",
+		scope: {
+			origins: [target.normalizedOrigin],
+			paths: ["/api"],
+			methods: ["POST", "DELETE"],
+		},
 		rulesOfEngagement: {
 			reference: "ticket-1",
 			allowedPaths: ["/api/fixtures"],
@@ -95,5 +100,58 @@ describe("authorizeRulesOfEngagement", () => {
 				engagement: engagement(),
 			}),
 		).toThrow("roe_method_not_allowed");
+	});
+
+	it("requires target origin, path, and method to remain inside engagement scope", () => {
+		const common = {
+			target,
+			method: "POST",
+			path: "/api/fixtures",
+			requestCount: 0,
+			now: new Date("2026-07-30T12:00:00.000Z"),
+		};
+		expect(() =>
+			authorizeRulesOfEngagement({
+				...common,
+				engagement: engagement({
+					scope: {
+						origins: ["http://127.0.0.1:4000"],
+						paths: ["/api"],
+						methods: ["POST"],
+					},
+				}),
+			}),
+		).toThrow("engagement_scope_origin_not_allowed");
+		expect(() =>
+			authorizeRulesOfEngagement({
+				...common,
+				engagement: engagement({
+					scope: {
+						origins: [target.normalizedOrigin],
+						paths: ["/api/public"],
+						methods: ["POST"],
+					},
+				}),
+			}),
+		).toThrow("engagement_scope_path_not_allowed");
+		expect(() =>
+			authorizeRulesOfEngagement({
+				...common,
+				engagement: engagement({
+					scope: {
+						origins: [target.normalizedOrigin],
+						paths: ["/api"],
+						methods: ["DELETE"],
+					},
+				}),
+			}),
+		).toThrow("engagement_scope_method_not_allowed");
+		expect(() =>
+			authorizeRulesOfEngagement({
+				...common,
+				path: "//evil.example",
+				engagement: engagement(),
+			}),
+		).toThrow("engagement_scope_path_not_allowed");
 	});
 });

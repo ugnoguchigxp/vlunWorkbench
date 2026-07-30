@@ -1,4 +1,4 @@
-import { chromium, type Browser, type BrowserContext } from "playwright";
+import { type Browser, type BrowserContext, chromium } from "playwright";
 import type {
 	DastAuthSecretPayload,
 	DastLoginAction,
@@ -66,7 +66,15 @@ export class PlaywrightBrowserAdapter implements DastBrowserAdapter {
 
 	private async ensureContext(): Promise<BrowserContext> {
 		if (this.context) return this.context;
-		this.browser = await chromium.launch({ headless: true });
+		const runnerHost = new URL(this.options.target.runnerOrigin).hostname;
+		const pinnedAddress = this.options.target.resolvedAddresses[0];
+		if (!pinnedAddress) throw new Error("browser_pinned_address_unavailable");
+		this.browser = await chromium.launch({
+			headless: true,
+			args: [
+				`--host-resolver-rules=MAP ${runnerHost} ${pinnedAddress},EXCLUDE localhost`,
+			],
+		});
 		const secret = this.options.authSecret;
 		this.context = await this.browser.newContext({
 			extraHTTPHeaders: authHeadersFor(secret),

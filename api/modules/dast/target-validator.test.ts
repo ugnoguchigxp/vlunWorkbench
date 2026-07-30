@@ -151,5 +151,30 @@ describe("DAST target validator", () => {
 				excludedPaths: ["/admin"],
 			}),
 		).toBe(true);
+		for (const unsafePath of [
+			"//evil.example",
+			"/../admin",
+			"/%2e%2e/admin",
+			"/safe?x=1",
+			"/safe\\admin",
+		]) {
+			expect(
+				isPathAllowed({
+					path: unsafePath,
+					allowedPaths: ["/"],
+					excludedPaths: [],
+				}),
+			).toBe(false);
+		}
+	});
+
+	it("rejects non-canonical persisted path configuration defensively", async () => {
+		const result = await validateDastTargetConfig(
+			target({ allowedPathsJson: ["//evil.example"] }),
+		);
+		expect(result).toMatchObject({
+			ok: false,
+			reason: "invalid_path_config",
+		});
 	});
 });

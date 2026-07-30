@@ -39,6 +39,65 @@ describe("assessment schemas", () => {
 		expect(result.success).toBe(false);
 	});
 
+	it("keeps rules of engagement within canonical scope and lifetime", () => {
+		const roe = {
+			reference: "approved-ticket",
+			allowedPaths: ["/api"],
+			allowedMethods: ["POST"],
+			requestBudget: 10,
+			rateLimitPerSec: 1,
+			cleanupContract: "Delete seeded records.",
+			expiresAt: base.expiresAt,
+			attestation: "Owned disposable fixture.",
+		};
+		expect(
+			createAssessmentEngagementSchema.safeParse({
+				...base,
+				scope: {
+					origins: ["http://127.0.0.1:3000"],
+					paths: ["/api"],
+					methods: ["POST"],
+				},
+				rulesOfEngagement: roe,
+			}).success,
+		).toBe(true);
+		expect(
+			createAssessmentEngagementSchema.safeParse({
+				...base,
+				scope: {
+					origins: ["http://127.0.0.1:3000/path"],
+					paths: ["//evil.example"],
+					methods: ["GET"],
+				},
+			}).success,
+		).toBe(false);
+		expect(
+			createAssessmentEngagementSchema.safeParse({
+				...base,
+				scope: {
+					origins: ["http://127.0.0.1:3000"],
+					paths: ["/api"],
+					methods: ["GET"],
+				},
+				rulesOfEngagement: roe,
+			}).success,
+		).toBe(false);
+		expect(
+			createAssessmentEngagementSchema.safeParse({
+				...base,
+				scope: {
+					origins: ["http://127.0.0.1:3000"],
+					paths: ["/api"],
+					methods: ["POST"],
+				},
+				rulesOfEngagement: {
+					...roe,
+					expiresAt: "2026-08-01T00:00:00.000Z",
+				},
+			}).success,
+		).toBe(false);
+	});
+
 	it("does not allow tested coverage without evidence", () => {
 		const result = scanCoverageResultSchema.safeParse({
 			controlId: "API1:2023",

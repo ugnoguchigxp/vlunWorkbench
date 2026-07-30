@@ -2,20 +2,22 @@ import { randomUUID } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import {
 	type CreateDastAuthContextInput,
-	dastLoginActionSchema,
-	dastAuthSecretPayloadSchema,
 	type DastAuthSecretPayload,
+	dastAuthSecretPayloadSchema,
+	dastLoginActionSchema,
 } from "../../../shared/schemas/dast-auth.schema";
 import type { AppDatabase } from "../../db";
 import {
 	dastAuthAuditEvents,
 	dastAuthContexts,
+	dastTargetConfigs,
 	dastTestIdentities,
 } from "../../db/schema";
 import type {
 	DastAuthContextCrypto,
 	DastAuthIdentity,
 } from "./auth-context-crypto";
+import { assertAuthSecretTargetsOrigin } from "./auth-target-policy";
 
 export class DastAuthContextRepository {
 	constructor(
@@ -29,6 +31,14 @@ export class DastAuthContextRepository {
 			createdByUserId: string;
 		},
 	) {
+		await this.assertSecretTarget(
+			input.projectId,
+			input.targetConfigId,
+			input.secret,
+		);
+		if (Date.parse(input.expiresAt) <= Date.now()) {
+			throw new Error("DAST auth context expiry must be in the future.");
+		}
 		const contextId = randomUUID();
 		const testIdentity = await this.findOrCreateIdentity({
 			projectId: input.projectId,
@@ -80,6 +90,11 @@ export class DastAuthContextRepository {
 		return rows.map(sanitizeContext);
 	}
 
+	async get(id: string, projectId: string) {
+		const row = await this.findOwned(id, projectId);
+		return row ? sanitizeContext(row) : null;
+	}
+
 	async rotate(params: {
 		id: string;
 		projectId: string;
@@ -94,6 +109,14 @@ export class DastAuthContextRepository {
 		}
 		if (params.secret.kind !== current.authKind) {
 			throw new Error("Auth kind cannot change during rotation.");
+		}
+		await this.assertSecretTarget(
+			params.projectId,
+			current.targetConfigId,
+			params.secret,
+		);
+		if (Date.parse(params.expiresAt) <= Date.now()) {
+			throw new Error("DAST auth context expiry must be in the future.");
 		}
 		const encrypted = this.crypto.encrypt(params.secret, identityFor(current));
 		const now = new Date();
@@ -180,6 +203,21 @@ export class DastAuthContextRepository {
 				),
 			})) ?? null
 		);
+	}
+
+	private async assertSecretTarget(
+		projectId: string,
+		targetConfigId: string,
+		secret: DastAuthSecretPayload,
+	) {
+		const target = await this.db.query.dastTargetConfigs.findFirst({
+			where: and(
+				eq(dastTargetConfigs.id, targetConfigId),
+				eq(dastTargetConfigs.projectId, projectId),
+			),
+		});
+		if (!target) throw new Error("DAST target config not found.");
+		assertAuthSecretTargetsOrigin(secret, target.normalizedOrigin);
 	}
 
 	private async findOrCreateIdentity(params: {

@@ -6,15 +6,20 @@ import { AgenticSearchRunner } from "../modules/agentic-search/runner";
 import { AgenticToolRegistry } from "../modules/agentic-search/tools/registry";
 import type { AgenticSearchResult } from "../modules/agentic-search/types";
 import { AuthService } from "../modules/auth/auth.service";
+import { ActiveAssessmentRunner } from "../modules/dast/active-assessment-runner";
+import { DastAuthContextCrypto } from "../modules/dast/auth-context-crypto";
+import { DastAuthContextRepository } from "../modules/dast/auth-context-repository";
 import { IntegrationClientService } from "../modules/integrationClients/integration-client.service";
 import { LlmSettingsRepository } from "../modules/llm-settings/llm-settings.repository";
 import { SourceRetriever } from "../modules/rag/retriever";
-import { ScanReportRunner } from "../modules/reports/scan-report-runner";
 import { SearchEvidenceCollector } from "../modules/rag/search-evidence";
+import { ScanReportRunner } from "../modules/reports/scan-report-runner";
 import { ArtifactStorage } from "../modules/scans/artifact-storage";
 import { ScanReportRepository } from "../modules/scans/report-repository";
-import { ScanRepository } from "../modules/scans/repositories";
-import { ArtifactRepository } from "../modules/scans/repositories";
+import {
+	ArtifactRepository,
+	ScanRepository,
+} from "../modules/scans/repositories";
 import { ScanDiagnosticRunner } from "../modules/scans/scan-diagnostic-runner";
 import { ScanProcessSupervisor } from "../modules/scans/scan-process-supervisor";
 import { ScanReviewRepository } from "../modules/scans/scan-review-repository";
@@ -55,6 +60,7 @@ export type AppRuntime = {
 	scanSupervisor: ScanProcessSupervisor;
 	scanReportRunner: ScanReportRunner;
 	scanDiagnosticRunner: ScanDiagnosticRunner;
+	activeAssessmentRunner: ActiveAssessmentRunner;
 	integrationClientService: IntegrationClientService;
 	agenticSearchService: {
 		run(input: {
@@ -137,6 +143,7 @@ function isRuntimeShape(value: unknown): value is AppRuntime {
 		Boolean(obj.scanSupervisor) &&
 		Boolean(obj.scanReportRunner) &&
 		Boolean(obj.scanDiagnosticRunner) &&
+		Boolean(obj.activeAssessmentRunner) &&
 		Boolean(obj.integrationClientService) &&
 		typeof settingsRepo?.getSystemContextForUser === "function" &&
 		typeof settingsRepo?.updateSystemContext === "function" &&
@@ -202,6 +209,18 @@ async function createRuntime(): Promise<AppRuntime> {
 		reviewRunner: scanReviewRunner,
 		reportRunner: scanReportRunner,
 	});
+	const dastAuthContextRepository = env.dastAuthEncryptionKey
+		? new DastAuthContextRepository(
+				dbConnection.db,
+				new DastAuthContextCrypto(
+					env.dastAuthEncryptionKey,
+					env.dastAuthPreviousEncryptionKeys,
+				),
+			)
+		: undefined;
+	const activeAssessmentRunner = new ActiveAssessmentRunner(dbConnection.db, {
+		authContextRepository: dastAuthContextRepository,
+	});
 	const scanSupervisor = new ScanProcessSupervisor(scanRepository, {
 		onCompletedScan: async (scanRunId) => {
 			const started = await scanDiagnosticRunner.start(scanRunId);
@@ -215,6 +234,7 @@ async function createRuntime(): Promise<AppRuntime> {
 	});
 	await scanSupervisor.recoverStaleWebScans();
 	await scanDiagnosticRunner.recover();
+	await activeAssessmentRunner.recover();
 	const integrationClientService = new IntegrationClientService(
 		dbConnection.db,
 	);
@@ -301,6 +321,7 @@ async function createRuntime(): Promise<AppRuntime> {
 		scanSupervisor,
 		scanReportRunner,
 		scanDiagnosticRunner,
+		activeAssessmentRunner,
 		integrationClientService,
 		agenticSearchService,
 	};

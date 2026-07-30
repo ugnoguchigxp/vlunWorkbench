@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { httpOriginSchema, relativeHttpPathSchema } from "./http-target.schema";
 
 export const dastAuthKindSchema = z.enum([
 	"bearer_token",
@@ -19,7 +20,16 @@ const headerPayloadSchema = z.object({
 		.regex(/^[A-Za-z0-9-]+$/)
 		.refine(
 			(value) =>
-				!["host", "content-length", "cookie"].includes(value.toLowerCase()),
+				![
+					"host",
+					"content-length",
+					"cookie",
+					"transfer-encoding",
+					"connection",
+					"upgrade",
+					"te",
+					"trailer",
+				].includes(value.toLowerCase()),
 		),
 	value: z.string().min(1).max(16_384),
 });
@@ -36,7 +46,7 @@ const cookiePayloadSchema = z.object({
 				name: z.string().min(1).max(500),
 				value: z.string().min(1).max(16_384),
 				domain: z.string().max(500).optional(),
-				path: z.string().startsWith("/").optional(),
+				path: relativeHttpPathSchema.optional(),
 				secure: z.boolean().optional(),
 				httpOnly: z.boolean().optional(),
 				sameSite: z.enum(["Strict", "Lax", "None"]).optional(),
@@ -54,7 +64,7 @@ const storageStatePayloadSchema = z.object({
 					name: z.string().min(1).max(500),
 					value: z.string().max(16_384),
 					domain: z.string().min(1).max(500),
-					path: z.string().startsWith("/"),
+					path: relativeHttpPathSchema,
 					expires: z.number(),
 					httpOnly: z.boolean(),
 					secure: z.boolean(),
@@ -66,7 +76,7 @@ const storageStatePayloadSchema = z.object({
 		origins: z
 			.array(
 				z.object({
-					origin: z.string().url(),
+					origin: httpOriginSchema,
 					localStorage: z
 						.array(
 							z.object({
@@ -94,7 +104,7 @@ const selectorSchema = z.string().min(1).max(500);
 export const dastLoginActionSchema = z.discriminatedUnion("action", [
 	z.object({
 		action: z.literal("navigate"),
-		path: z.string().startsWith("/").max(1000),
+		path: relativeHttpPathSchema,
 	}),
 	z.object({
 		action: z.literal("fill_secret"),
@@ -104,7 +114,7 @@ export const dastLoginActionSchema = z.discriminatedUnion("action", [
 	z.object({ action: z.literal("click"), selector: selectorSchema }),
 	z.object({
 		action: z.literal("wait_for_url"),
-		pathPattern: z.string().startsWith("/").max(1000),
+		pathPattern: relativeHttpPathSchema,
 	}),
 	z.object({
 		action: z.literal("wait_for_selector"),

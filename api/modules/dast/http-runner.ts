@@ -1,6 +1,7 @@
-import type { DastProfileDefinition } from "./profiles";
-import { authHeadersFor } from "./auth-material";
 import type { DastAuthSecretPayload } from "../../../shared/schemas/dast-auth.schema";
+import { authHeadersFor } from "./auth-material";
+import { pinnedDastFetch } from "./pinned-fetch";
+import type { DastProfileDefinition } from "./profiles";
 import { isPathAllowed, isUrlInDastScope } from "./target-validator";
 import type {
 	DastHttpRawResult,
@@ -109,7 +110,9 @@ export async function runHttpBaseline(params: {
 	authSecret?: DastAuthSecretPayload;
 }): Promise<DastHttpRawResult> {
 	const startedAt = new Date();
-	const fetchImpl = params.fetchImpl ?? fetch;
+	const fetchImpl =
+		params.fetchImpl ??
+		((input, init) => pinnedDastFetch(params.target, input, init));
 	const maxRequests = Math.min(
 		params.maxRequests ?? params.target.maxRequests,
 		params.target.maxRequests,
@@ -135,8 +138,9 @@ export async function runHttpBaseline(params: {
 		const requestStarted = performance.now();
 		const controller = new AbortController();
 		const timer = setTimeout(() => controller.abort(), timeoutMs);
+		let response: Response | null = null;
 		try {
-			const response = await fetchImpl(url, {
+			response = await fetchImpl(url, {
 				method: "GET",
 				headers: {
 					...params.target.defaultHeaders,
@@ -190,6 +194,7 @@ export async function runHttpBaseline(params: {
 							: "target_unreachable",
 			});
 		} finally {
+			await response?.body?.cancel().catch(() => undefined);
 			clearTimeout(timer);
 		}
 	}

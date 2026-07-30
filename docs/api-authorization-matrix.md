@@ -17,6 +17,7 @@ checks always apply in addition to the authentication level shown here.
 | `/api/projects/:projectId/**` | Project member | Project member | Project ownership lookup; the canonical path is revalidated before execution. |
 | `/api/scans/**`, `/api/findings/**`, `/api/scan-reports/**` | Project member | Project member | Access follows the owning project through scan/finding/report relations. |
 | `/api/reproduction-runs/**`, `/api/dynamic-runs/**`, `/api/dast-runs/**` | Project member | Project member | Bounded profiles only; project path is revalidated immediately before execution. |
+| `/api/projects/:projectId/assessments/**`, `/api/projects/:projectId/active-assessment-runs/**` | Project owner | Project owner | Same-project engagement, target, encrypted auth contexts, cumulative RoE budget, and canonical origin/path/method scope are enforced before execution. |
 | `/api/diagnostic-reports/**`, `/api/finding-reviews/**`, `/api/finding-decisions/**` | Project member | Project member | Access follows the related scan or finding. |
 | `/api/static-intelligence/**` | Project member | Project member | Read/build access follows the related project or scan. |
 | `/api/artifacts/**` | Authenticated owner | Authenticated owner | Artifact path is resolved from persisted metadata, never a caller path. |

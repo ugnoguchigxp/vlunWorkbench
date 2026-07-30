@@ -1,5 +1,6 @@
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createDbConnection, type DbConnection } from "../../db";
 import { dastAuthAuditEvents, dastAuthContexts, dastTargetConfigs, projects, users } from "../../db/schema";
@@ -94,9 +95,13 @@ describe("DastAuthContextRepository", () => {
 			label: "Expired",
 			secret: { kind: "bearer_token", token: "expired-canary" },
 			loginFlow: [],
-			expiresAt: new Date(Date.now() - 1_000).toISOString(),
+			expiresAt: new Date(Date.now() + 60_000).toISOString(),
 			createdByUserId: userId,
 		});
+		await connection.db
+			.update(dastAuthContexts)
+			.set({ expiresAt: new Date(Date.now() - 1_000) })
+			.where(eq(dastAuthContexts.id, expired.id));
 		await expect(
 			repository.decryptForUse({
 				id: expired.id,

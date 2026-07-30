@@ -45,4 +45,26 @@ describe("runHttpBaseline", () => {
 		expect(result.responses[0].headers["set-cookie"]).toBe("[redacted-cookie-value]");
 		expect(result.responses[0].setCookies[0].name).toBe("sid");
 	});
+
+	it("cancels response bodies after collecting bounded metadata", async () => {
+		const profile = getDastProfile("http-baseline");
+		if (!profile) throw new Error("missing profile");
+		let cancelled = false;
+		await runHttpBaseline({
+			target: target(),
+			profile,
+			profileConfigRoutes: ["/health"],
+			checkOptions: { commonPathProbes: false },
+			fetchImpl: async () =>
+				new Response(
+					new ReadableStream({
+						cancel() {
+							cancelled = true;
+						},
+					}),
+					{ status: 200 },
+				),
+		});
+		expect(cancelled).toBe(true);
+	});
 });

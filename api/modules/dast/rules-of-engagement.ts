@@ -1,8 +1,10 @@
 import { isIP } from "node:net";
 import {
-	rulesOfEngagementSchema,
 	type AssessmentEnvironment,
+	assessmentScopeSchema,
+	rulesOfEngagementSchema,
 } from "../../../shared/schemas/assessment.schema";
+import { relativePathMatchesPrefix } from "../../../shared/schemas/http-target.schema";
 import type { ValidatedDastTarget } from "./types";
 
 const READ_ONLY_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
@@ -14,6 +16,7 @@ export type ActiveAuthorization = {
 	environment: AssessmentEnvironment;
 	startsAt: Date | string;
 	expiresAt: Date | string;
+	scope: unknown;
 	rulesOfEngagement: unknown;
 };
 
@@ -51,14 +54,24 @@ export function authorizeRulesOfEngagement(params: {
 		throw new Error("active_scan_public_target_rejected");
 	}
 	const roe = rulesOfEngagementSchema.parse(engagement.rulesOfEngagement);
+	const scope = assessmentScopeSchema.parse(engagement.scope);
 	if (Date.parse(roe.expiresAt) <= now.getTime())
 		throw new Error("roe_expired");
+	if (!scope.origins.includes(params.target.normalizedOrigin)) {
+		throw new Error("engagement_scope_origin_not_allowed");
+	}
 	const method = params.method.toUpperCase();
 	if (params.requireStateChanging !== false && READ_ONLY_METHODS.has(method)) {
 		throw new Error("active_policy_requires_state_changing_method");
 	}
 	if (!roe.allowedMethods.includes(method as never)) {
 		throw new Error("roe_method_not_allowed");
+	}
+	if (!scope.methods.includes(method as never)) {
+		throw new Error("engagement_scope_method_not_allowed");
+	}
+	if (!pathAllowed(params.path, scope.paths)) {
+		throw new Error("engagement_scope_path_not_allowed");
 	}
 	if (!pathAllowed(params.path, roe.allowedPaths)) {
 		throw new Error("roe_path_not_allowed");
@@ -76,14 +89,9 @@ export function authorizeRulesOfEngagement(params: {
 }
 
 function pathAllowed(path: string, allowedPaths: string[]): boolean {
-	const normalized = new URL(path, "http://scope.invalid").pathname;
-	return allowedPaths.some((allowed) => {
-		const prefix = new URL(allowed, "http://scope.invalid").pathname;
-		return (
-			normalized === prefix ||
-			normalized.startsWith(`${prefix.replace(/\/$/, "")}/`)
-		);
-	});
+	return allowedPaths.some((allowed) =>
+		relativePathMatchesPrefix(path, allowed),
+	);
 }
 
 function isPublicAddress(address: string): boolean {

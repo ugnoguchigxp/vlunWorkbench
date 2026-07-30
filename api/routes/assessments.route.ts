@@ -1,22 +1,22 @@
 import { Hono } from "hono";
 import { z } from "zod";
+import { runActiveAssessmentRequestSchema } from "../../shared/schemas/active-assessment.schema";
 import {
 	assessmentEngagementStatusSchema,
 	createAssessmentEngagementSchema,
 } from "../../shared/schemas/assessment.schema";
-import { runActiveAssessmentRequestSchema } from "../../shared/schemas/active-assessment.schema";
 import type { AppDatabase } from "../db";
-import { getAuthContextUser } from "../modules/auth/context";
-import { HttpError } from "../modules/auth/errors";
 import { AssessmentRepository } from "../modules/assessments/assessment-repository";
 import { COVERAGE_CATALOG } from "../modules/assessments/coverage-catalog";
+import { getAuthContextUser } from "../modules/auth/context";
+import { HttpError } from "../modules/auth/errors";
 import { ActiveAssessmentRepository } from "../modules/dast/active-assessment-repository";
 import type { ActiveAssessmentRunner } from "../modules/dast/active-assessment-runner";
-import type { ScanDiagnosticRunner } from "../modules/scans/scan-diagnostic-runner";
 import type {
 	ProjectRepository,
 	ScanRepository,
 } from "../modules/scans/repositories";
+import type { ScanDiagnosticRunner } from "../modules/scans/scan-diagnostic-runner";
 
 export function createAssessmentsRoute(deps: {
 	db: AppDatabase;
@@ -74,11 +74,18 @@ export function createAssessmentsRoute(deps: {
 			.object({ status: assessmentEngagementStatusSchema })
 			.safeParse(await c.req.json());
 		if (!parsed.success) throw new HttpError(400, "Invalid assessment status");
-		const engagement = await repository.setEngagementStatus(
-			c.req.param("assessmentId"),
-			user.userId,
-			parsed.data.status,
-		);
+		const engagement = await repository
+			.setEngagementStatus(
+				c.req.param("assessmentId"),
+				user.userId,
+				parsed.data.status,
+			)
+			.catch((error) => {
+				throw new HttpError(
+					409,
+					error instanceof Error ? error.message : String(error),
+				);
+			});
 		if (!engagement) throw new HttpError(404, "Assessment not found");
 		return c.json({ engagement });
 	});

@@ -1,5 +1,9 @@
 import dns from "node:dns/promises";
 import type { DastTargetConfig } from "../../../shared/schemas/dast.schema";
+import {
+	normalizeRelativeHttpPath,
+	relativePathMatchesPrefix,
+} from "../../../shared/schemas/http-target.schema";
 import type { DastTargetValidationResult, ValidatedDastTarget } from "./types";
 
 type AddressFamily = 4 | 6;
@@ -21,6 +25,15 @@ const SECRET_HEADER_NAMES = new Set([
 	"x-api-key",
 	"x-auth-token",
 	"x-csrf-token",
+]);
+const TRANSPORT_CONTROLLED_HEADER_NAMES = new Set([
+	"host",
+	"content-length",
+	"transfer-encoding",
+	"connection",
+	"upgrade",
+	"te",
+	"trailer",
 ]);
 
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
@@ -59,16 +72,14 @@ export function normalizeDastOrigin(origin: string): string {
 	return parsed.origin;
 }
 
-function normalizePathList(paths: string[], fallback: string[]): string[] {
-	const normalized = paths.length > 0 ? paths : fallback;
-	return Array.from(
-		new Set(
-			normalized.map((path) => {
-				if (!path.startsWith("/")) return `/${path}`;
-				return path;
-			}),
-		),
-	);
+function normalizePathList(
+	paths: string[],
+	fallback: string[],
+): string[] | null {
+	const source = paths.length > 0 ? paths : fallback;
+	const normalized = source.map((path) => normalizeRelativeHttpPath(path));
+	if (normalized.some((path) => path === null)) return null;
+	return Array.from(new Set(normalized as string[]));
 }
 
 export function isPathAllowed(params: {
@@ -76,27 +87,15 @@ export function isPathAllowed(params: {
 	allowedPaths: string[];
 	excludedPaths: string[];
 }): boolean {
-	const path = params.path.startsWith("/") ? params.path : `/${params.path}`;
+	const path = normalizeRelativeHttpPath(params.path);
+	if (!path) return false;
 	const allowed = params.allowedPaths.some((prefix) =>
-		matchesPathPrefix(path, prefix),
+		relativePathMatchesPrefix(path, prefix),
 	);
 	const excluded = params.excludedPaths.some((prefix) =>
-		matchesPathPrefix(path, prefix),
+		relativePathMatchesPrefix(path, prefix),
 	);
 	return allowed && !excluded;
-}
-
-function matchesPathPrefix(path: string, prefix: string): boolean {
-	const normalizedPrefix = prefix.startsWith("/") ? prefix : `/${prefix}`;
-	if (normalizedPrefix === "/") return true;
-	return (
-		path === normalizedPrefix ||
-		path.startsWith(
-			normalizedPrefix.endsWith("/")
-				? normalizedPrefix
-				: `${normalizedPrefix}/`,
-		)
-	);
 }
 
 function ipv4ToNumber(ip: string): number | null {
@@ -219,6 +218,12 @@ export async function validateDastTargetConfig(
 
 	const allowedPaths = normalizePathList(target.allowedPathsJson, ["/"]);
 	const excludedPaths = normalizePathList(target.excludedPathsJson, []);
+	if (!allowedPaths || !excludedPaths) {
+		return fail(
+			"invalid_path_config",
+			"DAST target paths must be canonical single-origin HTTP paths.",
+		);
+	}
 	if (
 		options.requestedPath &&
 		!isPathAllowed({
@@ -231,10 +236,17 @@ export async function validateDastTargetConfig(
 	}
 
 	for (const headerName of Object.keys(target.defaultHeadersJson ?? {})) {
-		if (SECRET_HEADER_NAMES.has(headerName.toLowerCase())) {
+		const normalizedHeaderName = headerName.toLowerCase();
+		if (SECRET_HEADER_NAMES.has(normalizedHeaderName)) {
 			return fail(
 				"secret_header_rejected",
 				"Secret-bearing default headers are not allowed for Phase 11 DAST.",
+			);
+		}
+		if (TRANSPORT_CONTROLLED_HEADER_NAMES.has(normalizedHeaderName)) {
+			return fail(
+				"unsafe_header_rejected",
+				"Transport-controlled default headers are not allowed for DAST.",
 			);
 		}
 	}
