@@ -10,6 +10,7 @@ function repositoryWithClient(overrides?: {
 	active?: boolean;
 	expiresAt?: Date | null;
 	tokenHash?: string;
+	ownerActive?: boolean;
 }) {
 	const generated = generateIntegrationToken();
 	let touched = false;
@@ -35,6 +36,10 @@ function repositoryWithClient(overrides?: {
 	repository.touchLastUsed = async () => {
 		touched = true;
 	};
+	repository.findOwnerUser = async () => ({
+		id: "user-1",
+		isActive: overrides?.ownerActive ?? true,
+	}) as never;
 	return {
 		generated,
 		repository,
@@ -72,6 +77,16 @@ describe("IntegrationClientService authentication", () => {
 			);
 			expect(fixture.wasTouched()).toBe(false);
 		}
+	});
+
+	it("rejects a credential whose owner has been deactivated", async () => {
+		const fixture = repositoryWithClient({ ownerActive: false });
+		const service = new IntegrationClientService(fixture.repository);
+
+		await expect(service.authenticate(fixture.generated.token)).rejects.toMatchObject(
+			{ code: "inactive" },
+		);
+		expect(fixture.wasTouched()).toBe(false);
 	});
 
 	it("rejects a token whose stored hash does not match", async () => {

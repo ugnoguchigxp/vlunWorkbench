@@ -161,6 +161,13 @@ export class IntegrationClientService {
 				"Integration credential is expired.",
 			);
 		}
+		const owner = await this.repository.findOwnerUser(client.ownerUserId);
+		if (!owner?.isActive) {
+			throw new IntegrationClientAuthenticationError(
+				"inactive",
+				"Integration credential owner is inactive.",
+			);
+		}
 		if (options.updateLastUsed !== false) {
 			await this.repository.touchLastUsed(client.id);
 		}

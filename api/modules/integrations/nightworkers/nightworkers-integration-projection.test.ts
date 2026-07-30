@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { integrationReportDetailSchema } from "../../../../shared/schemas/nightworkers-security-scan-integration.schema";
-import { projectIntegrationReport } from "./nightworkers-integration-projection";
+import {
+	projectIntegrationFinding,
+	projectIntegrationReport,
+} from "./nightworkers-integration-projection";
 
 function completedReport() {
 	return {
@@ -59,6 +62,15 @@ describe("NightWorkers report projection", () => {
 		});
 
 		expect(projected.content).toBeNull();
+
+		const invalidIntegrity = projectIntegrationReport(completedReport(), {
+			sizeBytes: -1,
+			sha256: "invalid",
+			kind: "report",
+			format: "markdown",
+			metadata: { reportId: "report-1" },
+		});
+		expect(invalidIntegrity.content).toBeNull();
 	});
 
 	it("does not expose persisted provider errors in a failed report", () => {
@@ -73,11 +85,53 @@ describe("NightWorkers report projection", () => {
 
 		expect(integrationReportDetailSchema.parse(projected)).toEqual(projected);
 		expect(projected.error).toEqual({
-			code: "provider_failed_at_private_tmp_report.sql",
+			code: "report_generation_failed",
 			message: "Report generation failed.",
 			retryable: false,
 		});
 		expect(JSON.stringify(projected)).not.toContain("/private/tmp");
 		expect(JSON.stringify(projected)).not.toContain("vwi_");
+	});
+});
+
+describe("NightWorkers finding projection", () => {
+	it("recognizes secret scanners case-insensitively and sanitizes other titles", () => {
+		const credential = `vwi_0123456789abcdef_${"A".repeat(43)}`;
+		const finding = {
+			id: "finding-1",
+			scanRunId: "scan-1",
+			projectId: "project-1",
+			sourceTool: "GITLEAKS",
+			ruleId: "secret",
+			title: `Leaked ${credential}`,
+			description: `access_token=${credential}`,
+			severity: "high",
+			confidence: "static",
+			status: "open",
+			primaryLocation: { path: "src/index.ts", line: 1 },
+			fingerprint: "fingerprint",
+			metadata: { category: "Secret" },
+			createdAt: new Date(),
+			updatedAt: new Date(),
+		};
+
+		const secret = projectIntegrationFinding(
+			finding,
+			[{ snippet: credential }],
+			"/workspace/project",
+		);
+		expect(secret).toMatchObject({
+			title: "Potential secret detected",
+			category: "secret",
+			evidence: "[REDACTED: secret finding evidence]",
+		});
+		expect(JSON.stringify(secret)).not.toContain(credential);
+
+		const ordinary = projectIntegrationFinding(
+			{ ...finding, sourceTool: "semgrep", metadata: {}, title: credential },
+			[],
+			"/workspace/project",
+		);
+		expect(ordinary.title).toBe("[REDACTED]");
 	});
 });

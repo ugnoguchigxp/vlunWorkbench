@@ -279,7 +279,7 @@ describe("NightworkersIntegrationService", () => {
 						kind: "static_tool",
 						toolId: "osv",
 						coverageEffect: "gap",
-						reasonCode: "tool_unavailable",
+						reasonCode: "runtime_not_configured",
 					},
 				],
 			},
@@ -296,9 +296,9 @@ describe("NightworkersIntegrationService", () => {
 			},
 		});
 		expect(completedDetail.summary?.coverage.gaps).toEqual(
-			expect.arrayContaining([
-				expect.objectContaining({ code: "tool_unavailable" }),
-			]),
+				expect.arrayContaining([
+					expect.objectContaining({ code: "runtime_not_configured" }),
+				]),
 		);
 
 		await scanRepository.createScanEvent({

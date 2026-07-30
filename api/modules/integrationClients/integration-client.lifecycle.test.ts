@@ -2,6 +2,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createDbConnection, type DbConnection } from "../../db";
 import { users } from "../../db/schema";
@@ -128,5 +129,13 @@ describe("IntegrationClientService lifecycle", () => {
 			allowedRoots: [path.join(allowedRoot, ".")],
 		});
 		expect(created.client.allowedRoots).toEqual([await fs.realpath(allowedRoot)]);
+
+		await connection.db
+			.update(users)
+			.set({ isActive: false })
+			.where(eq(users.id, ownerUserId));
+		await expect(service.authenticate(created.token)).rejects.toMatchObject({
+			code: "inactive",
+		});
 	});
 });

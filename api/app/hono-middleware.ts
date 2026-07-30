@@ -163,10 +163,7 @@ export function configureHttpMiddleware(app: Hono, runtime: AppRuntime): void {
 				});
 			} catch (error) {
 				if (!(error instanceof IntegrationClientAuthenticationError)) {
-					const requestId =
-						c.req.header("x-request-id") ??
-						c.res.headers.get("x-request-id") ??
-						"unknown";
+					const requestId = integrationRequestId(c);
 					console.error(
 						JSON.stringify({
 							version: 1,
@@ -193,13 +190,11 @@ export function configureHttpMiddleware(app: Hono, runtime: AppRuntime): void {
 			}
 		}
 		if (!client) {
+			const requestId = integrationRequestId(c);
 			return c.json(
 				{
 					contractVersion: 1,
-					requestId:
-						c.req.header("x-request-id") ??
-						c.res.headers.get("x-request-id") ??
-						"unknown",
+					requestId,
 					error: {
 						code: "integration_unauthorized",
 						message: "Valid integration bearer authentication is required.",
@@ -301,4 +296,16 @@ export function configureHttpMiddleware(app: Hono, runtime: AppRuntime): void {
 			500,
 		);
 	});
+}
+
+function integrationRequestId(c: {
+	req: { header(name: string): string | undefined };
+	res: { headers: Headers };
+}): string {
+	const supplied = c.req.header("x-request-id");
+	if (supplied && /^[A-Za-z0-9._:-]{1,64}$/.test(supplied)) return supplied;
+	const generated = c.res.headers.get("x-request-id");
+	return generated && /^[A-Za-z0-9._:-]{1,64}$/.test(generated)
+		? generated
+		: randomUUID();
 }

@@ -25,7 +25,7 @@ export type NightworkersHonoEnv = {
 	};
 };
 
-type RateWindow = { startedAt: number; count: number };
+type RateWindow = { startedAt: number; count: number; windowMs: number };
 
 export function createNightworkersAuthenticationMiddleware(
 	service: IntegrationClientService,
@@ -62,19 +62,30 @@ export function createNightworkersAuthenticationMiddleware(
 		}
 
 		const now = Date.now();
+		if (rateWindows.size >= 1_024) {
+			for (const [clientId, candidate] of rateWindows) {
+				if (now - candidate.startedAt >= candidate.windowMs) {
+					rateWindows.delete(clientId);
+				}
+			}
+		}
 		const current = rateWindows.get(client.id);
 		const window =
-			!current || now - current.startedAt >= client.rateLimitPolicy.windowMs
-				? { startedAt: now, count: 0 }
+			!current ||
+			current.windowMs !== client.rateLimitPolicy.windowMs ||
+			now - current.startedAt >= current.windowMs
+				? {
+						startedAt: now,
+						count: 0,
+						windowMs: client.rateLimitPolicy.windowMs,
+					}
 				: current;
 		window.count += 1;
 		rateWindows.set(client.id, window);
 		if (window.count > client.rateLimitPolicy.limit) {
 			const retryAfterSeconds = Math.max(
 				1,
-				Math.ceil(
-					(client.rateLimitPolicy.windowMs - (now - window.startedAt)) / 1_000,
-				),
+				Math.ceil((window.windowMs - (now - window.startedAt)) / 1_000),
 			);
 			c.header("Retry-After", String(retryAfterSeconds));
 			return integrationErrorResponse(

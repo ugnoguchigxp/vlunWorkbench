@@ -106,7 +106,7 @@ export async function projectIntegrationScanRun(
 				? {
 						code:
 							typeof metadata.terminationReason === "string"
-								? safeCode(metadata.terminationReason)
+								? stableCode(metadata.terminationReason, "scan_failed")
 								: "scan_failed",
 						message: "Scan execution failed.",
 						retryable: false,
@@ -141,7 +141,7 @@ export function projectIntegrationScanEvent(
 					: ("info" as const),
 		type: safeCode(event.eventType),
 		message: safeEventMessage(event.eventType),
-		stepRef: rawStepRef?.slice(0, 128) ?? null,
+		stepRef: boundedText(rawStepRef, 128),
 		createdAt: event.createdAt.toISOString(),
 	};
 }
@@ -163,16 +163,25 @@ export function projectIntegrationFinding(
 		.map((row) => row.snippet)
 		.filter((snippet): snippet is string => Boolean(snippet))
 		.join("\n\n");
+	const normalizedTool = finding.sourceTool.toLowerCase();
+	const normalizedCategory =
+		typeof metadata.category === "string"
+			? metadata.category.toLowerCase()
+			: null;
+	const normalizedScanner =
+		typeof metadata.scanner === "string"
+			? metadata.scanner.toLowerCase()
+			: null;
 	const secretFinding =
-		finding.sourceTool === "gitleaks" ||
-		metadata.category === "secret" ||
-		metadata.scanner === "secret";
+		normalizedTool === "gitleaks" ||
+		normalizedCategory === "secret" ||
+		normalizedScanner === "secret";
 	return {
 		ref: finding.id,
 		severity: normalizeSeverity(finding.severity),
 		title: secretFinding
 			? "Potential secret detected"
-			: finding.title.slice(0, 1_024),
+			: (boundedText(finding.title, 1_024) ?? "Security finding"),
 		category: secretFinding
 			? "secret"
 			: boundedText(metadata.category ?? metadata.cwe, 256),
@@ -228,7 +237,10 @@ export function projectIntegrationReport(
 	const validArtifact =
 		artifact?.kind === "report" &&
 		artifact.format === "markdown" &&
-		artifactMetadata?.reportId === report.id
+		artifactMetadata?.reportId === report.id &&
+		Number.isSafeInteger(artifact.sizeBytes) &&
+		artifact.sizeBytes >= 0 &&
+		/^[0-9a-f]{64}$/.test(artifact.sha256)
 			? artifact
 			: null;
 	return {
@@ -255,7 +267,10 @@ export function projectIntegrationReport(
 		error:
 			report.status === "failed"
 				? {
-						code: safeCode(report.errorCode ?? "report_generation_failed"),
+						code: stableCode(
+							report.errorCode ?? "report_generation_failed",
+							"report_generation_failed",
+						),
 						message: "Report generation failed.",
 						retryable: report.retryable ?? false,
 					}
@@ -306,13 +321,15 @@ function coverageForSummary(
 			`${step.error ?? ""} ${"reasonCode" in step ? (step.reasonCode ?? "") : ""}`.toLowerCase();
 		const code = text.includes("timeout")
 			? ("tool_timed_out" as const)
-			: text.includes("unavailable")
-				? ("tool_unavailable" as const)
-				: text.includes("target") || text.includes("not_applicable")
-					? ("target_unsupported" as const)
-					: step.status === "failed"
-						? ("tool_failed" as const)
-						: ("result_incomplete" as const);
+			: text.includes("runtime")
+				? ("runtime_not_configured" as const)
+				: text.includes("unavailable")
+					? ("tool_unavailable" as const)
+					: text.includes("target") || text.includes("not_applicable")
+						? ("target_unsupported" as const)
+						: step.status === "failed"
+							? ("tool_failed" as const)
+							: ("result_incomplete" as const);
 		gaps.push({
 			code,
 			message: `Required scan step ${"displayName" in step ? step.displayName : step.toolId} did not complete.`,
@@ -430,7 +447,8 @@ export function safeIntegrationReferences(value: unknown): string[] {
 				!url.username &&
 				!url.password
 			) {
-				result.push(url.toString().slice(0, 2_048));
+				const serialized = url.toString();
+				if (serialized.length <= 2_048) result.push(serialized);
 			}
 		} catch {
 			// Ignore non-URL references at the integration boundary.
@@ -448,9 +466,10 @@ function boundedText(value: unknown, limit = 2_000): string | null {
 	if (typeof value !== "string" || !value) return null;
 	return value
 		.replace(
-			/(api[_-]?key|token|password|secret)\s*[:=]\s*[^\s,;]+/gi,
+			/(api[_-]?key|access[_-]?token|token|password|secret)\s*[:=]\s*[^\s,;]+/gi,
 			"$1=[REDACTED]",
 		)
+		.replace(/\bvwi_[0-9a-f]{16}_[A-Za-z0-9_-]{43}\b/g, "[REDACTED]")
 		.slice(0, limit);
 }
 
@@ -467,4 +486,11 @@ function safeCode(value: string): string {
 			.replace(/[^a-z0-9._-]+/g, "_")
 			.slice(0, 128) || "unknown"
 	);
+}
+
+function stableCode(value: string, fallback: string): string {
+	return /^[a-z][a-z0-9._-]{0,127}$/.test(value) &&
+		!/\bvwi_[0-9a-f]{16}_[A-Za-z0-9_-]{43}\b/.test(value)
+		? value
+		: fallback;
 }

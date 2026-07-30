@@ -92,11 +92,18 @@ describe("NightWorkers CSRF boundary", () => {
 
 		const response = await app.request(
 			"/api/integrations/nightworkers/v1/probe",
-			{ method: "POST", headers: integrationHeaders },
+			{
+				method: "POST",
+				headers: {
+					...integrationHeaders,
+					"X-Request-Id": "../../invalid reflected request id",
+				},
+			},
 		);
 
 		expect(response.status).toBe(503);
-		expect(await response.json()).toEqual({
+		const body = await response.json();
+		expect(body).toEqual({
 			contractVersion: 1,
 			requestId: expect.any(String),
 			error: {
@@ -105,6 +112,7 @@ describe("NightWorkers CSRF boundary", () => {
 				retryable: true,
 			},
 		});
+		expect(body.requestId).toMatch(/^[0-9a-f-]{36}$/);
 	});
 
 	it("does not weaken CSRF for ordinary, prefix-collision, or feature-disabled routes", async () => {
