@@ -6,6 +6,9 @@ Implementation baseline commit: `628b4120002dabc5b14a86bdde2f844cc681ca9d`
 
 Reviewed release commit: `85c341cfc8238ae6e35731f8b6fd1674d3ec7f38`
 
+Successor plan:
+`spec/phase-50-automated-professional-web-api-gap-closure-plan.md`
+
 Baseline date: 2026-07-30
 
 Owner: vulnWorkbench maintainers
@@ -1175,10 +1178,12 @@ Phase 49 の成功は scanner 数では測らない。
 
 ## 25. 完了後の残課題
 
-Phase 49 完了後も、次は別計画とする。
+Phase 49で残したSemgrep、OSV、ZAP active、external benchmark、
+business-logic assessment、threat modelingは、後続の
+`phase-50-automated-professional-web-api-gap-closure-plan.md`で扱う。
 
-- manual threat modeling workspace
-- full business-logic scenario authoring
+Phase 50の対象外として、次は別計画とする。
+
 - GraphQL subscription / WebSocket 専用診断
 - mobile client と native API testing
 - cloud / Kubernetes runtime posture
