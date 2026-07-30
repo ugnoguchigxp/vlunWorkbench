@@ -1,8 +1,10 @@
 # Phase 49: Professional Web/API Assessment Capability Plan
 
-Status: Verified limited release candidate; clean-checkout and external benchmark pending
+Status: Verified limited release candidate; external benchmark pending
 
 Implementation baseline commit: `628b4120002dabc5b14a86bdde2f844cc681ca9d`
+
+Reviewed release commit: `85c341cfc8238ae6e35731f8b6fd1674d3ec7f38`
 
 Baseline date: 2026-07-30
 
@@ -21,6 +23,8 @@ Implementation snapshot: 2026-07-30
 - fail-closed Rules of Engagement、実 HTTP BOLA/BFLA 行列、bounded transaction、always-cleanup
 - scanner provenance、offline OSV npm DB / Trivy DB、minimal owned Semgrep rules、offline toolbox gate
 - verification terminology migration、risk metadata、stable Semgrep fingerprint v2
+- canonical request boundary、validated-IP-pinned transport、累積 request budget、active-run recovery
+- release commit の detached clean checkout から frozen install と strict gate を再現
 
 既知の未完了・非対応:
 
@@ -28,7 +32,6 @@ Implementation snapshot: 2026-07-30
 - owned Semgrep ruleset は3ルールの smoke layerであり、広範な professional SAST ではない。
 - OSV offline database は npm ecosystem のみ。
 - OWASP Benchmark / Juice Shop は heavy corpus に未同梱で、recall / precision の外部比較値は未取得。
-- implementation は user review 前の uncommitted worktree であり、release commit からの clean-checkout 再現確認は未実施。
 - endpoint discovery、複雑な business logic、脅威モデリング、network/cloud/mobile/AD は対象外。
 - LLM は保存証跡を解釈するだけで、未生成の診断証跡を補完しない。
 
@@ -991,7 +994,7 @@ bun run verify:security-capability
 
 ### 18.3 Definition of Done
 
-- [ ] clean checkout から `bun install --frozen-lockfile` が成功する。current worktree の frozen install は成功済みだが、release commit は未作成。
+- [x] release commit の detached clean checkout から `bun install --frozen-lockfile` が成功する。
 - [x] migration `0017` から最新まで適用できる。
 - [x] backup verification が成功する。
 - [x] `bun run verify:strict` が成功する。

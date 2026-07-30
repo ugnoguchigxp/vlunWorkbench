@@ -1,47 +1,58 @@
 {
-  "schemaVersion": 1,
-  "capturedAt": "2026-07-30T07:17:04.000Z",
-  "baselineCommit": "628b4120002dabc5b14a86bdde2f844cc681ca9d",
-  "result": "pass_with_declared_limitations",
-  "fastSuite": {
-    "command": "bun run test:security-capability",
-    "result": "pass",
-    "tests": 36,
-    "failures": 0,
-    "coveredScenarios": [
-      "owned Nuclei vulnerable/generic-200 pair",
-      "read-only API method contract",
-      "encrypted credential canary and ownership",
-      "real authenticated Playwright identities",
-      "BOLA/BFLA vulnerable/fixed real HTTP matrix",
-      "active transaction cleanup success/failure",
-      "automatic no-human diagnostic and LLM fallback",
-      "scanner provenance tamper and reproducibility",
-      "versioned partial control coverage"
-    ]
-  },
-  "offlineToolbox": {
-    "result": "pass",
-    "imageDigest": "sha256:6c1047dd244ed59d30bb03fdf73facdc981568337fc26c4b2bc82e45ce07e1cc",
-    "manifestHash": "sha256:30eebbaa99a4383a6d66d63848d4dda206ee770eb2eebc848f2a8646e16fad67",
-    "networkMode": "none",
-    "resourceLimits": {
-      "memory": "4g",
-      "cpus": 2,
-      "pids": 512
-    },
-    "scanners": {
-      "semgrep": "pass",
-      "osv": "pass",
-      "trivy": "pass"
-    }
-  },
-  "limitations": [
-    "The reproducible owned Semgrep configuration contains only three smoke-level rules.",
-    "OSV offline coverage is npm-only.",
-    "ZAP active/API attack scanning is not implemented; ZAP coverage is passive baseline only.",
-    "External OWASP Benchmark and Juice Shop metrics were not collected.",
-    "Authorization coverage is limited to declaratively configured actors, objects, operations, and paths.",
-    "Network, cloud, AD, mobile, wireless, social engineering, and unrestricted fuzzing are outside scope."
-  ]
+	"schemaVersion": 1,
+	"capturedAt": "2026-07-30T08:01:17.000Z",
+	"baselineCommit": "628b4120002dabc5b14a86bdde2f844cc681ca9d",
+	"releaseCommit": "85c341cfc8238ae6e35731f8b6fd1674d3ec7f38",
+	"result": "pass_with_declared_limitations",
+	"fastSuite": {
+		"command": "bun run test:security-capability",
+		"result": "pass",
+		"tests": 64,
+		"failures": 0,
+		"coveredScenarios": [
+			"owned Nuclei vulnerable/generic-200 pair",
+			"read-only API method contract",
+			"encrypted credential canary and ownership",
+			"real authenticated Playwright identities",
+			"BOLA/BFLA vulnerable/fixed real HTTP matrix",
+			"active transaction cleanup success/failure",
+			"canonical request path and secret/transport header rejection",
+			"validated-IP-pinned HTTP and browser transports",
+			"cumulative engagement request budget and serialized active runs",
+			"one-way engagement lifecycle and interrupted-run recovery",
+			"automatic no-human diagnostic and LLM fallback",
+			"LLM bundle arbitrary-metadata canary exclusion",
+			"scanner provenance tamper and reproducibility",
+			"versioned partial control coverage"
+		]
+	},
+	"cleanCheckout": {
+		"command": "bun run verify:clean-checkout -- 85c341cfc8238ae6e35731f8b6fd1674d3ec7f38",
+		"result": "pass",
+		"checks": ["frozen_install", "verify_strict"]
+	},
+	"offlineToolbox": {
+		"result": "pass",
+		"imageDigest": "sha256:6c1047dd244ed59d30bb03fdf73facdc981568337fc26c4b2bc82e45ce07e1cc",
+		"manifestHash": "sha256:30eebbaa99a4383a6d66d63848d4dda206ee770eb2eebc848f2a8646e16fad67",
+		"networkMode": "none",
+		"resourceLimits": {
+			"memory": "4g",
+			"cpus": 2,
+			"pids": 512
+		},
+		"scanners": {
+			"semgrep": "pass",
+			"osv": "pass",
+			"trivy": "pass"
+		}
+	},
+	"limitations": [
+		"The reproducible owned Semgrep configuration contains only three smoke-level rules.",
+		"OSV offline coverage is npm-only.",
+		"ZAP active/API attack scanning is not implemented; ZAP coverage is passive baseline only.",
+		"External OWASP Benchmark and Juice Shop metrics were not collected.",
+		"Authorization coverage is limited to declaratively configured actors, objects, operations, and paths.",
+		"Network, cloud, AD, mobile, wireless, social engineering, and unrestricted fuzzing are outside scope."
+	]
 }
