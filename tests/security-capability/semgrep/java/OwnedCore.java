@@ -6,35 +6,43 @@ import java.security.SecureRandom;
 import java.sql.PreparedStatement;
 import java.sql.Statement;
 import java.util.Random;
+import javax.crypto.Cipher;
+import javax.naming.directory.DirContext;
+import javax.servlet.http.Cookie;
+import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+import javax.servlet.http.HttpSession;
+import javax.xml.xpath.XPath;
 
 class OwnedCore {
   void vulnerable(
       String input,
       Statement statement,
       ObjectInputStream stream,
+      HttpServletRequest request,
       HttpServletResponse response
   ) throws Exception {
+    String tainted = request.getParameter("q");
     // ruleid: vuln-workbench.java.command-injection
-    Runtime.getRuntime().exec(input);
+    Runtime.getRuntime().exec(tainted);
     // ruleid: vuln-workbench.java.command-injection
-    Runtime.getRuntime().exec(new String(input));
+    Runtime.getRuntime().exec(new String(tainted));
     // ruleid: vuln-workbench.java.sql-injection
-    statement.execute(input);
+    statement.execute(tainted);
     // ruleid: vuln-workbench.java.sql-injection
-    statement.executeQuery(input);
+    statement.executeQuery(tainted);
     // ruleid: vuln-workbench.java.xss-response-writer
-    response.getWriter().write(input);
+    response.getWriter().write(tainted);
     // ruleid: vuln-workbench.java.xss-response-writer
-    response.getWriter().write(input + "!");
+    response.getWriter().write(tainted + "!");
     // ruleid: vuln-workbench.java.ssrf-url-connection
     new URL(input).openConnection();
     // ruleid: vuln-workbench.java.ssrf-url-connection
     new URL(new String(input)).openConnection();
     // ruleid: vuln-workbench.java.path-traversal-file
-    new File(input);
+    new File(tainted);
     // ruleid: vuln-workbench.java.path-traversal-file
-    new File(input + ".txt");
+    new File(tainted + ".txt");
     // ruleid: vuln-workbench.java.unsafe-deserialization
     stream.readObject();
     // ruleid: vuln-workbench.java.unsafe-deserialization
@@ -47,6 +55,30 @@ class OwnedCore {
     new Random();
     // ruleid: vuln-workbench.java.weak-random
     new Random(1);
+    // ruleid: vuln-workbench.java.weak-cipher
+    Cipher.getInstance("DES/CBC/PKCS5Padding");
+    // ruleid: vuln-workbench.java.weak-cipher
+    Cipher.getInstance("DES");
+    DirContext context = null;
+    // ruleid: vuln-workbench.java.ldap-injection
+    context.search("ou=users", "(uid=" + tainted + ")", null);
+    // ruleid: vuln-workbench.java.ldap-injection
+    context.search("ou=users", tainted, null);
+    XPath xpath = null;
+    // ruleid: vuln-workbench.java.xpath-injection
+    xpath.evaluate("/users/" + tainted, new Object());
+    // ruleid: vuln-workbench.java.xpath-injection
+    xpath.compile(tainted);
+    Cookie cookie = new Cookie("id", tainted);
+    // ruleid: vuln-workbench.java.insecure-cookie
+    cookie.setSecure(false);
+    // ruleid: vuln-workbench.java.insecure-cookie
+    cookie.setHttpOnly(false);
+    HttpSession session = request.getSession();
+    // ruleid: vuln-workbench.java.trust-boundary
+    session.setAttribute("first", tainted);
+    // ruleid: vuln-workbench.java.trust-boundary
+    session.setAttribute(tainted, "value");
   }
 
   void fixed(PreparedStatement statement, HttpServletResponse response)
@@ -83,5 +115,26 @@ class OwnedCore {
     new SecureRandom();
     // ok: vuln-workbench.java.weak-random
     SecureRandom.getInstanceStrong();
+    // ok: vuln-workbench.java.weak-cipher
+    Cipher.getInstance("AES/GCM/NoPadding");
+    // ok: vuln-workbench.java.weak-cipher
+    Cipher.getInstance("ChaCha20-Poly1305");
+    // ok: vuln-workbench.java.ldap-injection
+    String safeLdapFilter = "(uid=service)";
+    // ok: vuln-workbench.java.ldap-injection
+    String safeBase = "ou=users";
+    // ok: vuln-workbench.java.xpath-injection
+    String safeXPath = "/users/user";
+    // ok: vuln-workbench.java.xpath-injection
+    String safeNode = "user";
+    Cookie secureCookie = new Cookie("id", "value");
+    // ok: vuln-workbench.java.insecure-cookie
+    secureCookie.setSecure(true);
+    // ok: vuln-workbench.java.insecure-cookie
+    secureCookie.setHttpOnly(true);
+    // ok: vuln-workbench.java.trust-boundary
+    String safeSessionKey = "userId";
+    // ok: vuln-workbench.java.trust-boundary
+    String safeSessionValue = "system";
   }
 }

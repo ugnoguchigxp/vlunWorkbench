@@ -29,7 +29,7 @@ describe("scanner provenance", () => {
 				"javascript:8-rules",
 				"typescript:8-rules",
 				"python:8-rules",
-				"java:8-rules",
+				"java:13-rules",
 				"go:8-rules",
 				"source-and-license-lock",
 			],

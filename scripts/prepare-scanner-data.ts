@@ -60,6 +60,11 @@ try {
 		path.join(stagedOutput, "semgrep-rules"),
 		{ recursive: true },
 	);
+	await cp(
+		path.join(sourceRoot, "..", "nuclei-safe-templates"),
+		path.join(stagedOutput, "nuclei-safe-templates"),
+		{ recursive: true },
+	);
 	const generatedAt = new Date().toISOString();
 	const osvRoot = path.join(stagedOutput, "osv", "osv-scanner");
 	await mkdir(osvRoot, { recursive: true });
@@ -148,7 +153,7 @@ try {
 					"javascript:8-rules",
 					"typescript:8-rules",
 					"python:8-rules",
-					"java:8-rules",
+					"java:13-rules",
 					"go:8-rules",
 				],
 				path: "semgrep-rules",
@@ -168,6 +173,24 @@ try {
 			},
 		],
 	};
+	const nucleiSafe = tools["nuclei-safe"];
+	if (nucleiSafe) {
+		const nucleiSafeDigest = await hashTree(
+			path.join(stagedOutput, "nuclei-safe-templates"),
+		);
+		tools["nuclei-safe"] = {
+			...nucleiSafe,
+			dataBundles: nucleiSafe.dataBundles.map((bundle) =>
+				bundle.id === "nuclei-safe-owned-v1"
+					? {
+							...bundle,
+							digest: nucleiSafeDigest,
+							path: "nuclei-safe-templates",
+						}
+					: bundle,
+			),
+		};
+	}
 	tools.osv = {
 		...tools.osv,
 		state: "ready",

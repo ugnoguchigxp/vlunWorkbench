@@ -27,12 +27,12 @@ local project
 If the LLM route is unavailable or its structured output is rejected, the deterministic report still completes with explicit limitation codes. Authorization, active-scan permission, credentials, network policy, and resource limits remain server-enforced safety controls; they are not delegated to the LLM.
 
 This is not a complete replacement for a professional penetration test. The
-versioned Phase 50 baseline contains 40 offline Semgrep rules across five
+versioned Phase 50 baseline contains 45 offline Semgrep rules across five
 languages, prepared OSV databases for eight ecosystems, explicit disposable
 target ZAP active profiles, deterministic application/threat models, and
 bounded business-logic scenarios. The current measured capability claim is
-still `not_met`: the pinned OWASP Benchmark run measured recall `0.0516`,
-precision `0.1563`, and false-positive rate `0.2385`, while the pinned Juice
+still `not_met`: the pinned OWASP Benchmark run measured recall `0.7088`,
+precision `0.6946`, and false-positive rate `0.3121`, while the pinned Juice
 Shop catalog has 20 eligible scenarios but no executable observations yet.
 Authenticated checks cover only configured routes, identities, objects, and
 operations. Network, cloud, AD, mobile, wireless, social engineering, browser
@@ -291,8 +291,8 @@ bun run scan:trivy-image -- --project-id <project-id> --image-ref local/app:tag
 ```
 
 Semgrep uses the repository-owned, tree-hashed `curated-sast-v1` catalog by
-default: 40 rules, five languages, and at least six security families per
-language. Its release fixtures contain 80 positive and 80 negative annotations.
+default: 45 rules, five languages, and at least six security families per
+language. Its release fixtures contain 90 positive and 90 negative annotations.
 Pass `--config auto` only for an exploratory registry run; that run is recorded
 as non-reproducible and the automatic report remains ready with limitations.
 

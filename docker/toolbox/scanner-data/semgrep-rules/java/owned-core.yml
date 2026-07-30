@@ -1,31 +1,103 @@
 rules:
   - id: vuln-workbench.java.command-injection
-    message: Dynamic data reaches Runtime.exec.
+    message: Servlet-controlled data reaches a process execution API.
     severity: ERROR
     languages: [java]
-    metadata: { cwe: CWE-78, owasp: ["A03:2021"], security-family: command-injection, confidence: high, source-kind: owned-core, source-ref: "repo:java/owned-core.yml", license: MIT, rule-version: "1", supported-frameworks: [generic], remediation: "Use ProcessBuilder with fixed executable and validated arguments." }
-    patterns:
-      - pattern: Runtime.getRuntime().exec($X)
-      - pattern-not: Runtime.getRuntime().exec("...")
-  - id: vuln-workbench.java.sql-injection
-    message: A dynamic SQL string is executed.
-    severity: ERROR
-    languages: [java]
-    metadata: { cwe: CWE-89, owasp: ["A03:2021"], security-family: sql-nosql-ldap-xpath-injection, confidence: high, source-kind: owned-core, source-ref: "repo:java/owned-core.yml", license: MIT, rule-version: "1", supported-frameworks: [jdbc], remediation: "Use PreparedStatement parameters." }
-    patterns:
+    metadata: { cwe: CWE-78, owasp: ["A03:2021"], security-family: command-injection, confidence: high, source-kind: owned-core, source-ref: "repo:java/owned-core.yml", license: MIT, rule-version: "2", supported-frameworks: [servlet], remediation: "Use a fixed executable and validated argument allowlists." }
+    mode: taint
+    pattern-sources: &servlet-input-sources
       - pattern-either:
-          - pattern: $STMT.execute($SQL)
-          - pattern: $STMT.executeQuery($SQL)
-          - pattern: $STMT.executeUpdate($SQL)
-      - pattern-not: $STMT.execute("...")
-      - pattern-not: $STMT.executeQuery("...")
-      - pattern-not: $STMT.executeUpdate("...")
+          - pattern: $REQ.getParameter(...)
+          - pattern: $REQ.getParameterValues(...)
+          - pattern: $REQ.getParameterMap()
+          - pattern: $REQ.getQueryString()
+          - pattern: $REQ.getHeader(...)
+          - pattern: $REQ.getHeaders(...)
+          - pattern: $REQ.getHeaderNames()
+          - pattern: $REQ.getCookies()
+          - pattern: $REQ.getInputStream()
+          - pattern: $REQ.getReader()
+          - pattern: $REQ.getPart(...)
+          - pattern: $REQ.getParts()
+          - pattern: $REQ.getSession().getAttribute(...)
+    pattern-sinks:
+      - pattern-either:
+          - pattern: Runtime.getRuntime().exec(...)
+          - pattern: $RUNTIME.exec(...)
+          - pattern: new ProcessBuilder(...)
+          - pattern: $BUILDER.command(...)
+  - id: vuln-workbench.java.sql-injection
+    message: Servlet-controlled data reaches a dynamic SQL API.
+    severity: ERROR
+    languages: [java]
+    metadata: { cwe: CWE-89, owasp: ["A03:2021"], security-family: sql-nosql-ldap-xpath-injection, confidence: high, source-kind: owned-core, source-ref: "repo:java/owned-core.yml", license: MIT, rule-version: "2", supported-frameworks: [jdbc], remediation: "Use a fixed prepared statement and bind every value." }
+    mode: taint
+    pattern-sources:
+      - pattern-either:
+          - pattern: $REQ.getParameter(...)
+          - pattern: $REQ.getParameterValues(...)
+          - pattern: $REQ.getParameterMap()
+          - pattern: $REQ.getQueryString()
+          - pattern: $REQ.getHeader(...)
+          - pattern: $REQ.getHeaders(...)
+          - pattern: $REQ.getHeaderNames()
+          - pattern: $REQ.getCookies()
+          - pattern: $REQ.getInputStream()
+          - pattern: $REQ.getReader()
+          - pattern: $REQ.getPart(...)
+          - pattern: $REQ.getParts()
+          - pattern: $REQ.getSession().getAttribute(...)
+    pattern-sinks:
+      - pattern-either:
+          - pattern: $CONNECTION.prepareStatement(...)
+          - pattern: $CONNECTION.prepareCall(...)
+          - pattern: $STMT.execute(...)
+          - pattern: $STMT.executeQuery(...)
+          - pattern: $STMT.executeUpdate(...)
+          - pattern: $ENTITY.createNativeQuery(...)
+          - pattern: $SESSION.createQuery(...)
   - id: vuln-workbench.java.xss-response-writer
-    message: Dynamic data is written directly to an HTTP response.
+    message: Servlet-controlled data is written directly to an HTTP response.
     severity: WARNING
     languages: [java]
-    metadata: { cwe: CWE-79, owasp: ["A03:2021"], security-family: xss-template-injection, confidence: medium, source-kind: owned-core, source-ref: "repo:java/owned-core.yml", license: MIT, rule-version: "1", supported-frameworks: [servlet], remediation: "Apply context-aware HTML encoding." }
-    pattern: $RESP.getWriter().write($X)
+    metadata: { cwe: CWE-79, owasp: ["A03:2021"], security-family: xss-template-injection, confidence: high, source-kind: owned-core, source-ref: "repo:java/owned-core.yml", license: MIT, rule-version: "2", supported-frameworks: [servlet], remediation: "Apply context-aware output encoding." }
+    mode: taint
+    pattern-sources:
+      - pattern-either:
+          - pattern: $REQ.getParameter(...)
+          - pattern: $REQ.getParameterValues(...)
+          - pattern: $REQ.getParameterMap()
+          - pattern: $REQ.getQueryString()
+          - pattern: $REQ.getHeader(...)
+          - pattern: $REQ.getHeaders(...)
+          - pattern: $REQ.getHeaderNames()
+          - pattern: $REQ.getCookies()
+          - pattern: $REQ.getInputStream()
+          - pattern: $REQ.getReader()
+          - pattern: $REQ.getPart(...)
+          - pattern: $REQ.getParts()
+          - pattern: $REQ.getSession().getAttribute(...)
+    pattern-sinks:
+      - pattern-either:
+          - pattern: $RESP.getWriter().write(...)
+          - pattern: $RESP.getWriter().print(...)
+          - pattern: $RESP.getWriter().println(...)
+          - pattern: $RESP.getWriter().printf(...)
+          - pattern: $RESP.getWriter().format(...)
+          - pattern: $RESP.getWriter().append(...)
+    pattern-sanitizers:
+      - pattern-either:
+          - pattern: $ENCODER.encodeForHTML(...)
+          - pattern: $ENCODER.encodeForHTMLAttribute(...)
+          - pattern: $ENCODER.encodeForJavaScript(...)
+          - pattern: $ESCAPER.escapeHtml(...)
+          - pattern: $ESCAPER.escapeHtml4(...)
+          - pattern: $CONTEXT.search(...)
+          - pattern: $STATEMENT.executeQuery(...)
+          - pattern: $CIPHER.doFinal(...)
+          - pattern: $DIGEST.digest(...)
+          - pattern: $XPATH.evaluate(...)
+          - pattern: $XPATH.compile(...)
   - id: vuln-workbench.java.ssrf-url-connection
     message: A non-literal URL opens a connection.
     severity: WARNING
@@ -35,13 +107,42 @@ rules:
       - pattern: new URL($URL).openConnection(...)
       - pattern-not: new URL("...").openConnection(...)
   - id: vuln-workbench.java.path-traversal-file
-    message: A non-literal path creates a File.
+    message: Servlet-controlled data reaches a filesystem path.
     severity: WARNING
     languages: [java]
-    metadata: { cwe: CWE-22, owasp: ["A01:2021"], security-family: path-traversal-file-access, confidence: medium, source-kind: owned-core, source-ref: "repo:java/owned-core.yml", license: MIT, rule-version: "1", supported-frameworks: [generic], remediation: "Resolve the canonical path under an allowlisted root." }
-    patterns:
-      - pattern: new File($PATH)
-      - pattern-not: new File("...")
+    metadata: { cwe: CWE-22, owasp: ["A01:2021"], security-family: path-traversal-file-access, confidence: high, source-kind: owned-core, source-ref: "repo:java/owned-core.yml", license: MIT, rule-version: "2", supported-frameworks: [servlet], remediation: "Resolve and verify the canonical path under an allowlisted root." }
+    mode: taint
+    pattern-sources:
+      - pattern-either:
+          - pattern: $REQ.getParameter(...)
+          - pattern: $REQ.getParameterValues(...)
+          - pattern: $REQ.getParameterMap()
+          - pattern: $REQ.getQueryString()
+          - pattern: $REQ.getHeader(...)
+          - pattern: $REQ.getHeaders(...)
+          - pattern: $REQ.getHeaderNames()
+          - pattern: $REQ.getCookies()
+          - pattern: $REQ.getInputStream()
+          - pattern: $REQ.getReader()
+          - pattern: $REQ.getPart(...)
+          - pattern: $REQ.getParts()
+          - pattern: $REQ.getSession().getAttribute(...)
+    pattern-sinks:
+      - pattern-either:
+          - pattern: new File(...)
+          - pattern: new java.io.File(...)
+          - pattern: new FileInputStream(...)
+          - pattern: new java.io.FileInputStream(...)
+          - pattern: new FileOutputStream(...)
+          - pattern: new java.io.FileOutputStream(...)
+          - pattern: new RandomAccessFile(...)
+          - pattern: new java.io.RandomAccessFile(...)
+          - pattern: Paths.get(...)
+          - pattern: java.nio.file.Paths.get(...)
+    pattern-sanitizers:
+      - pattern-either:
+          - pattern: $FILE.getCanonicalPath()
+          - pattern: $FILE.toRealPath(...)
   - id: vuln-workbench.java.unsafe-deserialization
     message: Java native object deserialization is used.
     severity: ERROR
@@ -52,13 +153,119 @@ rules:
     message: MD5 or SHA-1 is selected.
     severity: WARNING
     languages: [java]
-    metadata: { cwe: CWE-328, owasp: ["A02:2021"], security-family: weak-cryptography-hash-randomness, confidence: high, source-kind: owned-core, source-ref: "repo:java/owned-core.yml", license: MIT, rule-version: "1", supported-frameworks: [generic], remediation: "Use SHA-256 or a password hashing function." }
-    pattern-either:
-      - pattern: MessageDigest.getInstance("MD5")
-      - pattern: MessageDigest.getInstance("SHA-1")
+    metadata: { cwe: CWE-328, owasp: ["A02:2021"], security-family: weak-cryptography-hash-randomness, confidence: high, source-kind: owned-core, source-ref: "repo:java/owned-core.yml", license: MIT, rule-version: "2", supported-frameworks: [generic], remediation: "Use SHA-256 or a password hashing function." }
+    patterns:
+      - pattern-either:
+          - pattern: $DIGEST.getInstance($ALGORITHM)
+          - pattern: $DIGEST.getInstance($ALGORITHM, ...)
+          - pattern: $ALGORITHM = "MD5"
+          - pattern: $ALGORITHM = "SHA1"
+          - pattern: $ALGORITHM = "SHA-1"
+      - metavariable-regex:
+          metavariable: $ALGORITHM
+          regex: (?i)"(?:MD5|SHA-?1)"
   - id: vuln-workbench.java.weak-random
     message: java.util.Random is not suitable for secrets.
     severity: WARNING
     languages: [java]
-    metadata: { cwe: CWE-338, owasp: ["A02:2021"], security-family: weak-cryptography-hash-randomness, confidence: high, source-kind: owned-core, source-ref: "repo:java/owned-core.yml", license: MIT, rule-version: "1", supported-frameworks: [generic], remediation: "Use SecureRandom." }
-    pattern: new Random(...)
+    metadata: { cwe: CWE-330, owasp: ["A02:2021"], security-family: weak-cryptography-hash-randomness, confidence: high, source-kind: owned-core, source-ref: "repo:java/owned-core.yml", license: MIT, rule-version: "2", supported-frameworks: [generic], remediation: "Use SecureRandom." }
+    pattern-either:
+      - pattern: new Random(...)
+      - pattern: new java.util.Random(...)
+      - pattern: Math.random()
+      - pattern: java.lang.Math.random()
+  - id: vuln-workbench.java.weak-cipher
+    message: A weak DES cipher is selected.
+    severity: ERROR
+    languages: [java]
+    metadata: { cwe: CWE-327, owasp: ["A02:2021"], security-family: weak-cryptography-hash-randomness, confidence: high, source-kind: owned-core, source-ref: "repo:java/owned-core.yml", license: MIT, rule-version: "1", supported-frameworks: [generic], remediation: "Use AES-GCM or another authenticated modern cipher." }
+    patterns:
+      - pattern-either:
+          - pattern: $CIPHER.getInstance($ALGORITHM)
+          - pattern: $CIPHER.getInstance($ALGORITHM, ...)
+      - metavariable-regex:
+          metavariable: $ALGORITHM
+          regex: (?i)"DES(?:/[^"]*)?"
+  - id: vuln-workbench.java.ldap-injection
+    message: Servlet-controlled data reaches an LDAP search.
+    severity: ERROR
+    languages: [java]
+    metadata: { cwe: CWE-90, owasp: ["A03:2021"], security-family: sql-nosql-ldap-xpath-injection, confidence: high, source-kind: owned-core, source-ref: "repo:java/owned-core.yml", license: MIT, rule-version: "1", supported-frameworks: [servlet], remediation: "Use a parameterized LDAP filter or RFC 4515 escaping." }
+    mode: taint
+    pattern-sources:
+      - pattern-either:
+          - pattern: $REQ.getParameter(...)
+          - pattern: $REQ.getParameterValues(...)
+          - pattern: $REQ.getParameterMap()
+          - pattern: $REQ.getQueryString()
+          - pattern: $REQ.getHeader(...)
+          - pattern: $REQ.getHeaders(...)
+          - pattern: $REQ.getHeaderNames()
+          - pattern: $REQ.getCookies()
+          - pattern: $REQ.getInputStream()
+          - pattern: $REQ.getReader()
+          - pattern: $REQ.getPart(...)
+          - pattern: $REQ.getParts()
+          - pattern: $REQ.getSession().getAttribute(...)
+    pattern-sinks:
+      - pattern: $CONTEXT.search($BASE, $FILTER, ...)
+    pattern-sanitizers:
+      - pattern-either:
+          - pattern: $ENCODER.encodeForLDAP(...)
+          - pattern: $ESCAPER.escapeLDAPSearchFilter(...)
+  - id: vuln-workbench.java.xpath-injection
+    message: Servlet-controlled data reaches an XPath expression.
+    severity: ERROR
+    languages: [java]
+    metadata: { cwe: CWE-643, owasp: ["A03:2021"], security-family: sql-nosql-ldap-xpath-injection, confidence: high, source-kind: owned-core, source-ref: "repo:java/owned-core.yml", license: MIT, rule-version: "1", supported-frameworks: [servlet], remediation: "Keep the XPath expression fixed and bind validated values." }
+    mode: taint
+    pattern-sources:
+      - pattern-either:
+          - pattern: $REQ.getParameter(...)
+          - pattern: $REQ.getParameterValues(...)
+          - pattern: $REQ.getParameterMap()
+          - pattern: $REQ.getQueryString()
+          - pattern: $REQ.getHeader(...)
+          - pattern: $REQ.getHeaders(...)
+          - pattern: $REQ.getHeaderNames()
+          - pattern: $REQ.getCookies()
+          - pattern: $REQ.getInputStream()
+          - pattern: $REQ.getReader()
+          - pattern: $REQ.getPart(...)
+          - pattern: $REQ.getParts()
+          - pattern: $REQ.getSession().getAttribute(...)
+    pattern-sinks:
+      - pattern-either:
+          - pattern: $XPATH.evaluate($EXPRESSION, ...)
+          - pattern: $XPATH.compile($EXPRESSION)
+  - id: vuln-workbench.java.insecure-cookie
+    message: A cookie is explicitly transmitted without a security attribute.
+    severity: WARNING
+    languages: [java]
+    metadata: { cwe: CWE-614, owasp: ["A05:2021"], security-family: authentication-session-misuse, confidence: high, source-kind: owned-core, source-ref: "repo:java/owned-core.yml", license: MIT, rule-version: "1", supported-frameworks: [servlet], remediation: "Set Secure, HttpOnly, and an appropriate SameSite attribute." }
+    pattern-either:
+      - pattern: $COOKIE.setSecure(false)
+      - pattern: $COOKIE.setHttpOnly(false)
+  - id: vuln-workbench.java.trust-boundary
+    message: Servlet-controlled data is stored in an HTTP session.
+    severity: WARNING
+    languages: [java]
+    metadata: { cwe: CWE-501, owasp: ["A04:2021"], security-family: authentication-session-misuse, confidence: medium, source-kind: owned-core, source-ref: "repo:java/owned-core.yml", license: MIT, rule-version: "1", supported-frameworks: [servlet], remediation: "Validate and normalize data before storing it across a trust boundary." }
+    mode: taint
+    pattern-sources:
+      - pattern-either:
+          - pattern: $REQ.getParameter(...)
+          - pattern: $REQ.getParameterValues(...)
+          - pattern: $REQ.getParameterMap()
+          - pattern: $REQ.getQueryString()
+          - pattern: $REQ.getHeader(...)
+          - pattern: $REQ.getHeaders(...)
+          - pattern: $REQ.getHeaderNames()
+          - pattern: $REQ.getCookies()
+          - pattern: $REQ.getInputStream()
+          - pattern: $REQ.getReader()
+          - pattern: $REQ.getPart(...)
+          - pattern: $REQ.getParts()
+          - pattern: $REQ.getSession().getAttribute(...)
+    pattern-sinks:
+      - pattern: $SESSION.setAttribute(...)

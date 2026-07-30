@@ -27,12 +27,12 @@ local project
 LLM route が利用不能、または構造化出力が拒否された場合も、deterministic report は明示的な limitation code 付きで完了します。認可、active scan の許可、credential、network policy、resource limit は引き続き server 側の安全契約であり、LLM へ委譲しません。
 
 これはプロによるペネトレーションテストの完全代替ではありません。Phase 50の
-versioned baselineには、5言語40本のoffline Semgrep rule、8 ecosystemの
+versioned baselineには、5言語45本のoffline Semgrep rule、8 ecosystemの
 prepared OSV database、明示選択式のdisposable target向けZAP active profile、
 deterministic application/threat model、bounded business-logic scenarioが
 含まれます。一方、現在のmeasured capability claimは`not_met`です。固定済み
-OWASP Benchmarkの実測値はrecall `0.0516`、precision `0.1563`、false-positive
-rate `0.2385`であり、固定済みJuice Shop catalogはeligible 20 scenarioに対して
+OWASP Benchmarkの実測値はrecall `0.7088`、precision `0.6946`、false-positive
+rate `0.3121`であり、固定済みJuice Shop catalogはeligible 20 scenarioに対して
 実行証跡がまだありません。認証付き検査は設定済みroute、identity、object、
 operationだけを対象とします。network、cloud、AD、mobile、wireless、social
 engineering、browser authentication、production active attack、無制限fuzzingは
@@ -282,8 +282,8 @@ bun run scan:trivy-image -- --project-id <project-id> --image-ref local/app:tag
 ```
 
 Semgrep は既定で、リポジトリ所有・tree hash 済みの`curated-sast-v1`を
-使用します。内訳は5言語40 rule、各言語6 security family以上で、release
-fixtureはpositive 80件、negative 80件です。registryを使う探索実行は
+使用します。内訳は5言語45 rule、各言語6 security family以上で、release
+fixtureはpositive 90件、negative 90件です。registryを使う探索実行は
 `--config auto`を明示し、その実行は再現不能として記録され、自動レポートも
 制限付きreadyになります。
 

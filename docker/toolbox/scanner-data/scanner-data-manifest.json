@@ -1,7 +1,7 @@
 {
   "version": 2,
   "generatedAt": "2026-07-30T09:34:30.708Z",
-  "manifestHash": "sha256:af88aee2a57b855e1d45ff3d102ba328317ffdeeeb37c0f90fa2ea67c5bf29a4",
+  "manifestHash": "sha256:7a2f6285f326022cc36d18919c81a5c1b9cd245a3dcaedf4b16f38718e5b25fc",
   "tools": {
     "semgrep": {
       "version": "1.171.0",
@@ -17,12 +17,12 @@
           "license": "MIT",
           "generatedAt": "2026-07-30T00:00:00.000Z",
           "maxAgeHours": 8760,
-          "digest": "sha256:7c9d61570632354dd12e5bcfab04b362f2a47624fa782230abdefda8fea2e3f3",
+          "digest": "sha256:e0e0887cad72c686723a6b1b53b67fd1495ff42466eea5a889d5811fe67f5ca5",
           "coverage": [
             "javascript:8-rules",
             "typescript:8-rules",
             "python:8-rules",
-            "java:8-rules",
+            "java:13-rules",
             "go:8-rules"
           ],
           "path": "semgrep-rules"
