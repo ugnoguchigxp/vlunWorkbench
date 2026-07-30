@@ -1,5 +1,7 @@
 import { eq, inArray } from "drizzle-orm";
+import { automatedScanReviewOutputSchema } from "../../../shared/schemas/automated-diagnostic.schema";
 import type { AppDatabase } from "../../db";
+import { ensureScanCoverageResults } from "../assessments/coverage-builder";
 import {
 	attackSurfaceItems,
 	dastEvidence,
@@ -43,6 +45,7 @@ export async function buildReportQuery(
 	if (!scanRun) {
 		throw new Error(`Scan run not found: ${scanRunId}`);
 	}
+	const coverageResults = await ensureScanCoverageResults(db, scanRunId);
 
 	const [project] = await db
 		.select()
@@ -121,15 +124,23 @@ export async function buildReportQuery(
 		.select()
 		.from(scanReviews)
 		.where(eq(scanReviews.scanRunId, scanRunId));
-	const latestImprovementRequest =
-		allScanReviews
-			.filter((review) => review.status === "completed")
-			.sort((a, b) => {
-				const timeA = a.createdAt ? a.createdAt.getTime() : 0;
-				const timeB = b.createdAt ? b.createdAt.getTime() : 0;
-				if (timeB !== timeA) return timeB - timeA;
-				return b.id.localeCompare(a.id);
+	const completedScanReviews = allScanReviews
+		.filter((review) => review.status === "completed")
+		.sort((a, b) => {
+			const timeA = a.createdAt ? a.createdAt.getTime() : 0;
+			const timeB = b.createdAt ? b.createdAt.getTime() : 0;
+			if (timeB !== timeA) return timeB - timeA;
+			return b.id.localeCompare(a.id);
+		});
+	const latestAutomatedReview =
+		completedScanReviews
+			.map((review) => {
+				const parsed = automatedScanReviewOutputSchema.safeParse(review.output);
+				return parsed.success ? { review, output: parsed.data } : null;
 			})
+			.find((review) => review !== null) ?? null;
+	const latestImprovementRequest =
+		completedScanReviews
 			.map((review) => readImprovementRequest(review.output))
 			.find((request) => request !== null) ?? null;
 
@@ -296,12 +307,14 @@ export async function buildReportQuery(
 		allReproRuns,
 		allReviews,
 		allSecurityCheckResults,
+		coverageResults,
 		decidedFindingCount,
 		deferredFindings,
 		expectedDastSteps,
 		failedOrMissingDastSteps,
 		falsePositiveFindings,
 		includedFindings,
+		latestAutomatedReview,
 		latestImprovementRequest,
 		processedFindings,
 		profileDefinition,

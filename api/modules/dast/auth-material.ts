@@ -1,0 +1,82 @@
+import type {
+	DastAuthSecretPayload,
+	DastLoginAction,
+} from "../../../shared/schemas/dast-auth.schema";
+
+export type DastAuthMaterial = {
+	secret: DastAuthSecretPayload;
+	loginFlow: DastLoginAction[];
+	identityRole: string;
+};
+
+export function authHeadersFor(
+	secret: DastAuthSecretPayload | undefined,
+): Record<string, string> {
+	if (!secret) return {};
+	switch (secret.kind) {
+		case "bearer_token":
+			return { Authorization: `Bearer ${secret.token}` };
+		case "named_header":
+			return { [secret.name]: secret.value };
+		case "basic_auth":
+			return {
+				Authorization: `Basic ${Buffer.from(
+					`${secret.username}:${secret.password}`,
+				).toString("base64")}`,
+			};
+		case "cookie_set":
+			return {
+				Cookie: secret.cookies
+					.map((cookie) => `${cookie.name}=${cookie.value}`)
+					.join("; "),
+			};
+		case "playwright_storage_state":
+			return {};
+	}
+}
+
+export function secretFieldValue(
+	secret: DastAuthSecretPayload,
+	field: "token" | "username" | "password",
+): string {
+	if (field === "token") {
+		if (secret.kind === "bearer_token") return secret.token;
+		if (secret.kind === "named_header") return secret.value;
+	}
+	if (secret.kind === "basic_auth") {
+		if (field === "username") return secret.username;
+		if (field === "password") return secret.password;
+	}
+	throw new Error("login_flow_secret_field_unavailable");
+}
+
+export function redactSecretText(
+	value: string,
+	secret: DastAuthSecretPayload | undefined,
+): string {
+	if (!secret) return value;
+	let redacted = value;
+	for (const candidate of secretValues(secret)) {
+		if (candidate.length > 0)
+			redacted = redacted.split(candidate).join("[REDACTED]");
+	}
+	return redacted;
+}
+
+function secretValues(secret: DastAuthSecretPayload): string[] {
+	switch (secret.kind) {
+		case "bearer_token":
+			return [secret.token];
+		case "named_header":
+			return [secret.value];
+		case "basic_auth":
+			return [secret.username, secret.password];
+		case "cookie_set":
+			return secret.cookies.map((cookie) => cookie.value);
+		case "playwright_storage_state":
+			return secret.storageState.cookies.flatMap((cookie) => {
+				const value = cookie.value;
+				return typeof value === "string" ? [value] : [];
+			});
+	}
+}

@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import type { Finding, ScanReport, ScanRun } from "../../api";
+import type {
+	AutomatedDiagnosticRun,
+	Finding,
+	ScanReport,
+	ScanRun,
+} from "../../api";
 import type { EvidenceQualityView } from "./evidence-quality";
 import { buildWorkflowCompletion } from "./workflow-completion";
 
@@ -71,75 +76,103 @@ const report = (): ScanReport => ({
 	updatedAt: now,
 });
 
+const diagnostic = (
+	overrides: Partial<AutomatedDiagnosticRun> = {},
+): AutomatedDiagnosticRun => ({
+	id: "diagnostic-1",
+	scanRunId: "scan-1",
+	inputSnapshotHash: "a".repeat(64),
+	scannerProvenanceHash: "b".repeat(64),
+	pipelineVersion: "automated-scan-diagnostic-v1",
+	status: "completed",
+	readiness: "ready",
+	scanReviewId: "review-1",
+	scanReportId: "report-1",
+	limitationCodes: [],
+	errorMessage: null,
+	attemptCount: 1,
+	startedAt: now,
+	completedAt: now,
+	createdAt: now,
+	updatedAt: now,
+	...overrides,
+});
+
 describe("buildWorkflowCompletion", () => {
-	it("no LLM reviews returns needs_review with LLM action copy", () => {
+	it("legacy scans do not require per-finding reviews or decisions", () => {
 		const result = buildWorkflowCompletion({ scanRun: scanRun(), findings: [finding()] });
-		expect(result.stage).toBe("needs_review");
+		expect(result.stage).toBe("report_ready");
 		expect(result.nextBestAction).toMatchObject({
-			action: "review_findings",
+			action: "generate_report",
 		});
-		expect(result.nextBestAction?.label).toContain("LLM");
 	});
 
-	it("completed reviews without handoff returns needs_handoff", () => {
+	it("waits automatically when an automated diagnostic was requested", () => {
 		const result = buildWorkflowCompletion({
-			scanRun: scanRun(),
-			findings: [finding({ latestReview: { status: "completed" } })],
+			scanRun: scanRun({
+				metadata: { automaticDiagnosticRequested: true },
+			}),
+			findings: [finding()],
 		});
-		expect(result.stage).toBe("needs_handoff");
-		expect(result.nextBestAction).toMatchObject({
-			action: "create_improvement_request",
-			label: "改善依頼を生成",
+		expect(result.stage).toBe("diagnostic_running");
+		expect(result.nextBestAction).toBeNull();
+		expect(result.checklist.find((entry) => entry.id === "llm")).toMatchObject({
+			status: "incomplete",
+			count: "実行中",
 		});
-			expect(result.checklist.find((entry) => entry.id === "handoff")).toMatchObject({
-				status: "incomplete",
-				label: "LLM 修正依頼",
-				count: "不足",
-			});
-		});
-
-	it("scan improvement handoff is the next gate instead of legacy decisions", () => {
-		const item = finding({ latestReview: { status: "completed" } });
-		const result = buildWorkflowCompletion({
-			scanRun: scanRun(),
-			findings: [item],
-			evidenceByFindingId: new Map([[item.id, evidence("strong")]]),
-			hasScanImprovementRequest: true,
-		});
-			expect(result.stage).toBe("report_ready");
-			expect(result.checklist.find((entry) => entry.id === "handoff")).toMatchObject({
-				status: "complete",
-				label: "LLM 修正依頼",
-			});
-		});
-
-	it("weak evidence returns needs_verification after handoff exists", () => {
-		const item = finding({
-			latestReview: { status: "completed" },
-			latestDecision: {
-				id: "d1",
-				findingId: "finding-1",
-				decision: "needs_fix",
-				reason: "confirmed_by_evidence",
-				comment: null,
-				linkedReviewId: null,
-				decidedByUserId: null,
-				createdAt: now,
-				updatedAt: now,
-			},
-		});
-		const result = buildWorkflowCompletion({
-			scanRun: scanRun(),
-			findings: [item],
-			evidenceByFindingId: new Map([[item.id, evidence("weak")]]),
-			hasScanImprovementRequest: true,
-		});
-		expect(result.stage).toBe("needs_verification");
 	});
 
-	it("decisions without scan handoff still need LLM handoff", () => {
+	it("completed automated diagnosis makes the report the next output", () => {
+		const result = buildWorkflowCompletion({
+			scanRun: scanRun({ metadata: { automaticDiagnosticRequested: true } }),
+			findings: [finding()],
+			automatedDiagnostics: [diagnostic({ scanReportId: null })],
+		});
+		expect(result.stage).toBe("report_ready");
+		expect(result.checklist.find((entry) => entry.id === "llm")).toMatchObject({
+			status: "complete",
+			label: "証跡制約付き LLM 診断",
+		});
+	});
+
+	it("completed-with-limitations remains usable without human approval", () => {
+		const result = buildWorkflowCompletion({
+			scanRun: scanRun({ metadata: { automaticDiagnosticRequested: true } }),
+			findings: [finding()],
+			automatedDiagnostics: [
+				diagnostic({
+					status: "completed_with_limitations",
+					readiness: "ready_with_limitations",
+					limitationCodes: ["llm_unavailable"],
+				}),
+			],
+		});
+		expect(result.stage).toBe("report_ready");
+		expect(
+			result.checklist.find((entry) => entry.id === "llm")?.explanation,
+		).toContain("llm_unavailable");
+	});
+
+	it("failed diagnostics expose a retry instead of an approval gate", () => {
+		const result = buildWorkflowCompletion({
+			scanRun: scanRun({ metadata: { automaticDiagnosticRequested: true } }),
+			findings: [finding()],
+			automatedDiagnostics: [
+				diagnostic({
+					status: "failed",
+					readiness: "failed",
+					errorMessage: "provider timeout",
+				}),
+			],
+		});
+		expect(result.stage).toBe("diagnostic_retry");
+		expect(result.nextBestAction).toMatchObject({
+			action: "retry_diagnostic",
+		});
+	});
+
+	it("manual decision annotations do not change automatic completion", () => {
 		const item = finding({
-			latestReview: { status: "completed" },
 			latestDecision: {
 				id: "d1",
 				findingId: "finding-1",
@@ -157,26 +190,15 @@ describe("buildWorkflowCompletion", () => {
 			findings: [item],
 			evidenceByFindingId: new Map([[item.id, evidence("strong")]]),
 		});
-		expect(result.stage).toBe("needs_handoff");
-		expect(result.nextBestAction?.action).toBe("create_improvement_request");
-	});
-
-	it("handoff and verification complete returns report_ready", () => {
-		const item = finding({ latestReview: { status: "completed" } });
-		const result = buildWorkflowCompletion({
-			scanRun: scanRun(),
-			findings: [item],
-			evidenceByFindingId: new Map([[item.id, evidence("strong")]]),
-			hasScanImprovementRequest: true,
-		});
 		expect(result.stage).toBe("report_ready");
 	});
 
-	it("completed report returns report_generated", () => {
+	it("completed report and automated diagnosis return report_generated", () => {
 		const result = buildWorkflowCompletion({
-			scanRun: scanRun(),
+			scanRun: scanRun({ metadata: { automaticDiagnosticRequested: true } }),
 			findings: [],
 			reports: [report()],
+			automatedDiagnostics: [diagnostic()],
 			coverageSummary: {
 				scanRunId: "scan-1",
 				hasFindings: false,
@@ -191,9 +213,9 @@ describe("buildWorkflowCompletion", () => {
 		expect(result.stage).toBe("report_generated");
 	});
 
-	it("zero finding with missing diagnostics returns inspect_coverage", () => {
+	it("zero-finding scans use the same automatic pipeline", () => {
 		const result = buildWorkflowCompletion({
-			scanRun: scanRun(),
+			scanRun: scanRun({ metadata: { automaticDiagnosticRequested: true } }),
 			findings: [],
 			coverageSummary: {
 				scanRunId: "scan-1",
@@ -206,6 +228,7 @@ describe("buildWorkflowCompletion", () => {
 				missingActions: ["generate_diagnostic_report"],
 			},
 		});
-		expect(result.nextBestAction?.action).toBe("inspect_coverage");
+		expect(result.stage).toBe("diagnostic_running");
+		expect(result.nextBestAction).toBeNull();
 	});
 });

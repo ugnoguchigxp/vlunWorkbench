@@ -1,0 +1,339 @@
+import crypto from "node:crypto";
+import type { RunActiveAssessmentRequest } from "../../../shared/schemas/active-assessment.schema";
+import type { AppDatabase } from "../../db";
+import { AssessmentRepository } from "../assessments/assessment-repository";
+import { FindingRepository, ScanRepository } from "../scans/repositories";
+import { ActiveAssessmentRepository } from "./active-assessment-repository";
+import {
+	executeActiveRequest,
+	type ActiveRequestRuntime,
+} from "./active-request-executor";
+import { runAuthorizationMatrix } from "./authorization-matrix-runner";
+import type { DastAuthContextRepository } from "./auth-context-repository";
+import { DastRepository } from "./dast-repository";
+import { runActiveTransaction } from "./transaction-runner";
+import { validateDastTargetConfig } from "./target-validator";
+
+export class ActiveAssessmentRunner {
+	private readonly assessmentRepository: AssessmentRepository;
+	private readonly activeRepository: ActiveAssessmentRepository;
+	private readonly dastRepository: DastRepository;
+	private readonly scanRepository: ScanRepository;
+	private readonly findingRepository: FindingRepository;
+
+	constructor(
+		db: AppDatabase,
+		private readonly deps: {
+			authContextRepository?: DastAuthContextRepository;
+			fetchImpl?: typeof fetch;
+		} = {},
+	) {
+		this.assessmentRepository = new AssessmentRepository(db);
+		this.activeRepository = new ActiveAssessmentRepository(db);
+		this.dastRepository = new DastRepository(db);
+		this.scanRepository = new ScanRepository(db);
+		this.findingRepository = new FindingRepository(db);
+	}
+
+	async run(params: {
+		projectId: string;
+		createdByUserId: string;
+		request: RunActiveAssessmentRequest;
+	}) {
+		const engagement = await this.assessmentRepository.findEngagement(
+			params.request.engagementId,
+		);
+		if (
+			!engagement ||
+			engagement.projectId !== params.projectId ||
+			engagement.ownerUserId !== params.createdByUserId
+		) {
+			throw new Error("active_assessment_engagement_not_found");
+		}
+		const target = await this.dastRepository.getTargetConfig(
+			params.request.targetConfigId,
+		);
+		if (!target || target.projectId !== params.projectId) {
+			throw new Error("active_assessment_target_not_found");
+		}
+		const validatedTarget = await validateDastTargetConfig(target, {
+			runner: "host",
+		});
+		if (!validatedTarget.ok) throw new Error(validatedTarget.message);
+		const scanRun = await this.scanRepository.createScanRun({
+			projectId: params.projectId,
+			profile: `active-lab:${params.request.kind}`,
+			status: "running",
+			createdByUserId: params.createdByUserId,
+			metadata: {
+				engagementId: engagement.id,
+				targetConfigId: target.id,
+				activeAssessmentKind: params.request.kind,
+				automaticDiagnosticRequested: true,
+			},
+		});
+		const activeRun = await this.activeRepository.createRun({
+			projectId: params.projectId,
+			scanRunId: scanRun.id,
+			engagementId: engagement.id,
+			targetConfigId: target.id,
+			kind: params.request.kind,
+			createdByUserId: params.createdByUserId,
+		});
+		const runtime: ActiveRequestRuntime = {
+			activeAssessmentRunId: activeRun.id,
+			engagement: {
+				engagementId: engagement.id,
+				projectId: engagement.projectId,
+				status: engagement.status,
+				environment: engagement.environment as never,
+				startsAt: engagement.startsAt,
+				expiresAt: engagement.expiresAt,
+				rulesOfEngagement: engagement.rulesOfEngagement,
+			},
+			target: validatedTarget,
+			repository: this.activeRepository,
+			fetchImpl: this.deps.fetchImpl,
+			requestCount: 0,
+			lastRequestAt: 0,
+		};
+		try {
+			const result =
+				params.request.kind === "transaction"
+					? await this.runTransaction({
+							params: { ...params, request: params.request },
+							runtime,
+						})
+					: await this.runMatrix({
+							params: { ...params, request: params.request },
+							runtime,
+							scanRunId: scanRun.id,
+						});
+			await this.activeRepository.completeRun(activeRun.id, result.run);
+			await this.scanRepository.updateScanRunStatus(
+				scanRun.id,
+				result.run.status === "failed_cleanup" ? "failed" : "completed",
+				{
+					summary: result.run.summary,
+					metadata: {
+						activeAssessmentRunId: activeRun.id,
+						activeAssessmentStatus: result.run.status,
+						requestCount: result.run.requestCount,
+						findingCount: result.run.findingCount,
+					},
+				},
+			);
+			return {
+				activeAssessmentRunId: activeRun.id,
+				scanRunId: scanRun.id,
+				...result.run,
+			};
+		} catch (error) {
+			const message =
+				error instanceof Error ? error.message : "active_assessment_failed";
+			await this.activeRepository.completeRun(activeRun.id, {
+				status: "failed",
+				requestCount: runtime.requestCount,
+				findingCount: 0,
+				summary: "Active assessment failed.",
+				result: { limitationCodes: [message] },
+				errorMessage: message,
+			});
+			await this.scanRepository.updateScanRunStatus(scanRun.id, "failed", {
+				summary: message,
+				metadata: {
+					activeAssessmentRunId: activeRun.id,
+					activeAssessmentStatus: "failed",
+				},
+			});
+			throw error;
+		}
+	}
+
+	private async runTransaction(input: {
+		params: {
+			projectId: string;
+			createdByUserId: string;
+			request: Extract<RunActiveAssessmentRequest, { kind: "transaction" }>;
+		};
+		runtime: ActiveRequestRuntime;
+	}) {
+		const authMaterial = input.params.request.authContextId
+			? await this.decryptAuth({
+					id: input.params.request.authContextId,
+					projectId: input.params.projectId,
+					targetConfigId: input.params.request.targetConfigId,
+					identityRole: input.params.request.identityRole as string,
+					actorUserId: input.params.createdByUserId,
+				})
+			: undefined;
+		const result = await runActiveTransaction({
+			transaction: input.params.request.transaction,
+			execute: async (request, context) =>
+				await executeActiveRequest({
+					runtime: input.runtime,
+					request,
+					stage: `${context.stage}:${context.index}`,
+					identityRole: input.params.request.identityRole ?? null,
+					authSecret: authMaterial?.secret,
+				}),
+		});
+		return {
+			run: {
+				status: result.status,
+				requestCount: input.runtime.requestCount,
+				findingCount: 0,
+				summary: `Bounded active transaction ${result.status}.`,
+				result: {
+					transactionId: input.params.request.transaction.id,
+					seedEvidenceRefs: result.seedEvidenceRefs,
+					requestEvidenceRef: result.requestEvidenceRef,
+					cleanupEvidenceRefs: result.cleanupEvidenceRefs,
+					limitationCodes: result.errors,
+				},
+				errorMessage:
+					result.errors.length > 0 ? result.errors.join("; ") : null,
+			},
+		};
+	}
+
+	private async runMatrix(input: {
+		params: {
+			projectId: string;
+			createdByUserId: string;
+			request: Extract<
+				RunActiveAssessmentRequest,
+				{ kind: "authorization_matrix" }
+			>;
+		};
+		runtime: ActiveRequestRuntime;
+		scanRunId: string;
+	}) {
+		const authByRole = new Map<
+			string,
+			Awaited<ReturnType<typeof this.decryptAuth>>
+		>();
+		for (const actor of input.params.request.matrix.actors) {
+			authByRole.set(
+				actor.identityRole,
+				await this.decryptAuth({
+					id: actor.authContextId,
+					projectId: input.params.projectId,
+					targetConfigId: input.params.request.targetConfigId,
+					identityRole: actor.identityRole,
+					actorUserId: input.params.createdByUserId,
+				}),
+			);
+		}
+		const result = await runAuthorizationMatrix({
+			matrix: input.params.request.matrix,
+			maxRequests: input.params.request.maxRequests,
+			execute: async ({ actor, operation, path }) =>
+				await executeActiveRequest({
+					runtime: input.runtime,
+					request: {
+						method: operation.method,
+						path,
+						headers: {},
+						body: null,
+						expectedStatus: [200, 201, 202, 204, 401, 403, 404],
+					},
+					stage: `authorization_matrix:${operation.id}`,
+					identityRole: actor.identityRole,
+					authSecret: authByRole.get(actor.identityRole)?.secret,
+					requireStateChanging: false,
+				}),
+		});
+		for (const finding of result.findings) {
+			const created = await this.findingRepository.createFinding({
+				scanRunId: input.scanRunId,
+				projectId: input.params.projectId,
+				sourceTool: "authorization-matrix",
+				ruleId: finding.ruleId,
+				title: finding.title,
+				description:
+					finding.expected === "denied"
+						? "A declaratively unauthorized identity received a successful response."
+						: "A declaratively authorized identity was denied.",
+				severity:
+					finding.ruleId === "AUTHORIZATION_FALSE_DENY" ? "medium" : "high",
+				confidence: "static",
+				status: "open",
+				primaryLocation: { path: finding.operationId },
+				fingerprint: matrixFingerprint(input.params.projectId, finding),
+				metadata: {
+					evidenceStrength: "runtime_observed",
+					actorRole: finding.actorRole,
+					objectId: finding.objectId,
+					operationId: finding.operationId,
+					expected: finding.expected,
+					observed: finding.observed,
+					statusCode: finding.status,
+					activeEvidenceId: finding.evidenceRef,
+				},
+			});
+			await this.findingRepository.createEvidence({
+				findingId: created.id,
+				kind: "tool-output",
+				title: "Authorization matrix HTTP observation",
+				artifactId: null,
+				location: { operationId: finding.operationId },
+				metadata: {
+					activeAssessmentEvidenceId: finding.evidenceRef,
+					statusCode: finding.status,
+				},
+			});
+		}
+		return {
+			run: {
+				status: "completed" as const,
+				requestCount: result.requestCount,
+				findingCount: result.findings.length,
+				summary: `Authorization matrix completed with ${result.findings.length} finding(s).`,
+				result: {
+					evidenceRefs: result.evidenceRefs,
+					findingSummaries: result.findings,
+					limitationCodes: ["configured_actor_object_operation_matrix_only"],
+				},
+				errorMessage: null,
+			},
+		};
+	}
+
+	private async decryptAuth(params: {
+		id: string;
+		projectId: string;
+		targetConfigId: string;
+		identityRole: string;
+		actorUserId: string;
+	}) {
+		if (!this.deps.authContextRepository) {
+			throw new Error("dast_auth_context_repository_unavailable");
+		}
+		return await this.deps.authContextRepository.decryptForUse(params);
+	}
+}
+
+function matrixFingerprint(
+	projectId: string,
+	finding: {
+		ruleId: string;
+		actorRole: string;
+		objectId: string;
+		operationId: string;
+	},
+) {
+	return crypto
+		.createHash("sha256")
+		.update(
+			[
+				"authorization-matrix-v1",
+				projectId,
+				finding.ruleId,
+				finding.actorRole,
+				finding.objectId,
+				finding.operationId,
+			].join("\0"),
+		)
+		.digest("hex");
+}

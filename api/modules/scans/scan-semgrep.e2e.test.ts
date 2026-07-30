@@ -164,6 +164,10 @@ process.exit(0);
 		expect(result.findingCount).toBe(1);
 		expect(result.evidenceCount).toBe(2);
 		expect(result.toolRunId).toBeTruthy();
+		expect(result.diagnostic).toMatchObject({
+			status: "completed_with_limitations",
+			readiness: "ready_with_limitations",
+		});
 
 		// Verify database rows directly
 		const scanRunRow = await connection.db.query.scanRuns.findFirst({

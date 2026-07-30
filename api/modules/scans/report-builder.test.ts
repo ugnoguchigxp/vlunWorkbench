@@ -275,7 +275,7 @@ describe("Report Builder", () => {
 		expect(report1).toContain("- **想定影響:** Attacker can execute arbitrary JS.");
 		expect(report1).toContain("source-location 1件");
 		expect(report1).toContain("LLM confirmed XSS vulnerability.");
-		expect(report1).toContain("## LLM handoff未作成 Finding");
+		expect(report1).toContain("## 任意注釈なし Finding");
 		expect(report1).toContain("### Finding " + findingId2);
 		expect(report1).toContain("- **Severity:** 緊急 (critical)");
 		expect(report1).toContain("LLMレビューは未完了");
@@ -658,7 +658,7 @@ describe("Report Builder", () => {
 		expect(report).toContain("## 実装改善候補・既知リスク Finding");
 		expect(report).toContain("### Finding " + findingId1);
 
-		expect(report).toContain("## LLM handoff未作成 Finding");
+		expect(report).toContain("## 任意注釈なし Finding");
 		expect(report).toContain(
 			"レポート設定により、このセクションは除外されています。",
 		);

@@ -8,6 +8,7 @@ import {
 	type FindingDecision,
 	type FindingEvidence,
 	type FindingReview,
+	fetchAutomatedScanDiagnostics,
 	fetchScanAttackSurface,
 	fetchScanDiagnosticReports,
 	fetchScanReports,
@@ -16,6 +17,7 @@ import {
 	fetchScans,
 	generateScanReport,
 	previewScan,
+	retryAutomatedScanDiagnostic,
 	type ReproductionProfile,
 	type ReproductionRun,
 	type ScanTargetKind,
@@ -100,6 +102,8 @@ export function buildScanLaunchActions(scope: Record<string, any>) {
 		selectedProjectId,
 		selectedScanRunId,
 		setAttackSurfaceItems,
+		setAutomatedDiagnosticLoading,
+		setAutomatedDiagnostics,
 		setDiagnosticReports,
 		setDiffBaseRef,
 		setDiffHeadRef,
@@ -398,11 +402,63 @@ export function buildScanLaunchActions(scope: Record<string, any>) {
 		setDiagnosticReports(diagnostic.reports);
 	};
 
+	const handleRetryAutomatedDiagnostic = async (
+		scanRunId = selectedScanRunId,
+	) => {
+		if (!scanRunId) return;
+		setAutomatedDiagnosticLoading(true);
+		setErrorText(null);
+		try {
+			const started = await retryAutomatedScanDiagnostic(scanRunId);
+			setAutomatedDiagnostics([started.diagnostic]);
+			const deadline = Date.now() + SCAN_REVIEW_WAIT_TIMEOUT_MS;
+			while (true) {
+				const diagnostics = await fetchAutomatedScanDiagnostics(scanRunId);
+				setAutomatedDiagnostics(diagnostics);
+				const latest = diagnostics[0];
+				if (
+					latest?.status === "completed" ||
+					latest?.status === "completed_with_limitations"
+				) {
+					const [nextReports, nextReviews] = await Promise.all([
+						fetchScanReports(scanRunId),
+						fetchScanReviews(scanRunId),
+					]);
+					setReports(nextReports);
+					setSelectedReport(nextReports[0] ?? null);
+					setScanReviews(nextReviews);
+					setScanDetailTab(nextReports[0] ? "report" : "review");
+					break;
+				}
+				if (latest?.status === "failed") {
+					throw new Error(
+						latest.errorMessage ?? "自動診断の再実行に失敗しました。",
+					);
+				}
+				if (Date.now() >= deadline) {
+					throw new Error(
+						"自動診断の完了待機がタイムアウトしました。診断状態から進行状況を確認してください。",
+					);
+				}
+				await wait(SCAN_REVIEW_POLL_INTERVAL_MS);
+			}
+		} catch (error) {
+			setErrorText(
+				error instanceof Error
+					? error.message
+					: "自動診断の再実行に失敗しました。",
+			);
+		} finally {
+			setAutomatedDiagnosticLoading(false);
+		}
+	};
+
 	return {
 		handleBrowseProjectFolder,
 		handleCancelScan,
 		handleCreateProjectFromFolder,
 		handleGenerateReport,
+		handleRetryAutomatedDiagnostic,
 		handlePreviewDiffTarget,
 		handleScanTargetKindChange,
 		handleSelectProjectFolder,

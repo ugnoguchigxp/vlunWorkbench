@@ -16,6 +16,12 @@ export const reproductionRuns = sqliteTable(
 			.notNull()
 			.references(() => findings.id, { onDelete: "cascade" }),
 		profileId: text("profile_id").notNull(),
+		verificationKind: text("verification_kind")
+			.notNull()
+			.default("scanner_recheck"),
+		evidenceStrength: text("evidence_strength")
+			.notNull()
+			.default("scanner_signal"),
 		status: text("status").notNull(), // queued, running, completed, failed, timed_out, cancelled
 		outcome: text("outcome"), // reproduced, not_reproduced, inconclusive, error
 		runner: text("runner").notNull(), // docker
@@ -40,6 +46,9 @@ export const reproductionRuns = sqliteTable(
 		findingIdIdx: index("reproduction_runs_finding_id_idx").on(table.findingId),
 		statusIdx: index("reproduction_runs_status_idx").on(table.status),
 		outcomeIdx: index("reproduction_runs_outcome_idx").on(table.outcome),
+		verificationKindIdx: index("reproduction_runs_verification_kind_idx").on(
+			table.verificationKind,
+		),
 	}),
 );
 

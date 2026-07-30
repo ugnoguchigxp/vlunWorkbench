@@ -6,6 +6,7 @@ import {
 	type FindingDecision,
 	type FindingEvidence,
 	type FindingReview,
+	fetchAutomatedScanDiagnostics,
 	fetchScanAttackSurface,
 	fetchScanDiagnosticReports,
 	fetchScanGroups,
@@ -94,11 +95,13 @@ export function useScanTargetEffects(scope: Record<string, any>) {
 		linkReviewDefaultFindingRef,
 		profiles,
 		reports,
+		automatedDiagnostics,
 		requestedProjectId,
 		requestedScanRunId,
 		runWithBusy,
 		scanDetailTab,
 		scanTargetKind,
+		scanRuns,
 		selectedDecisionWorkflow,
 		selectedFindingDetails,
 		selectedFindingId,
@@ -111,6 +114,7 @@ export function useScanTargetEffects(scope: Record<string, any>) {
 		setAllDecisions,
 		setAllReviews,
 		setAttackSurfaceItems,
+		setAutomatedDiagnostics,
 		setCommentInput,
 		setDecisionInput,
 		setDiagnosticReports,
@@ -230,6 +234,7 @@ export function useScanTargetEffects(scope: Record<string, any>) {
 			setReports([]);
 			setSelectedReport(null);
 			setScanReviews([]);
+			setAutomatedDiagnostics([]);
 			setReportPreviewContent(null);
 			setAttackSurfaceItems([]);
 			setSecurityCheckResults([]);
@@ -244,6 +249,9 @@ export function useScanTargetEffects(scope: Record<string, any>) {
 		void fetchScanReviews(selectedScanRunId)
 			.then(setScanReviews)
 			.catch(() => setScanReviews([]));
+		void fetchAutomatedScanDiagnostics(selectedScanRunId)
+			.then(setAutomatedDiagnostics)
+			.catch(() => setAutomatedDiagnostics([]));
 		void fetchScanAttackSurface(selectedScanRunId)
 			.then(({ items }) => setAttackSurfaceItems(items))
 			.catch(() => setAttackSurfaceItems([]));
@@ -259,10 +267,79 @@ export function useScanTargetEffects(scope: Record<string, any>) {
 		setSelectedReport,
 		setReportPreviewContent,
 		setScanReviews,
+		setAutomatedDiagnostics,
 		setAttackSurfaceItems,
 		setReports,
 		setDiagnosticReports,
 		setSecurityCheckResults,
+	]);
+
+	const selectedScan = scanRuns.find(
+		(scan: { id: string }) => scan.id === selectedScanRunId,
+	);
+	const automatedDiagnosticStatus = automatedDiagnostics[0]?.status;
+	const automatedDiagnosticTerminal =
+		automatedDiagnosticStatus === "completed" ||
+		automatedDiagnosticStatus === "completed_with_limitations" ||
+		automatedDiagnosticStatus === "failed";
+	const automaticDiagnosticExpected =
+		selectedScan?.status === "completed" &&
+		selectedScan.metadata?.automaticDiagnosticRequested === true;
+	useEffect(() => {
+		if (
+			!active ||
+			!selectedScanRunId ||
+			!automaticDiagnosticExpected ||
+			automatedDiagnosticTerminal
+		) {
+			return;
+		}
+		let mounted = true;
+		let polling = false;
+		const poll = async () => {
+			if (polling) return;
+			polling = true;
+			try {
+				const diagnostics =
+					await fetchAutomatedScanDiagnostics(selectedScanRunId);
+				if (!mounted) return;
+				setAutomatedDiagnostics(diagnostics);
+				const terminal =
+					diagnostics[0]?.status === "completed" ||
+					diagnostics[0]?.status === "completed_with_limitations" ||
+					diagnostics[0]?.status === "failed";
+				if (terminal) {
+					const [nextReports, nextReviews] = await Promise.all([
+						fetchScanReports(selectedScanRunId),
+						fetchScanReviews(selectedScanRunId),
+					]);
+					if (!mounted) return;
+					setReports(nextReports);
+					setSelectedReport(nextReports[0] ?? null);
+					setScanReviews(nextReviews);
+				}
+			} finally {
+				polling = false;
+			}
+		};
+		void poll().catch(() => undefined);
+		const timer = globalThis.setInterval(
+			() => void poll().catch(() => undefined),
+			1_500,
+		);
+		return () => {
+			mounted = false;
+			globalThis.clearInterval(timer);
+		};
+	}, [
+		active,
+		automaticDiagnosticExpected,
+		automatedDiagnosticTerminal,
+		selectedScanRunId,
+		setAutomatedDiagnostics,
+		setReports,
+		setScanReviews,
+		setSelectedReport,
 	]);
 
 	useEffect(() => {

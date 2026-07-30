@@ -66,7 +66,7 @@ const REPORT_LABELS: Record<ReportDecisionBucket, string> = {
 	accepted: "既知リスク記録",
 	deferred: "後続確認記録",
 	false_positive: "ツールノイズ記録",
-	undecided: "LLM handoff未作成",
+	undecided: "任意注釈なし",
 };
 
 const formatLocationReference = (location: unknown): string | undefined => {

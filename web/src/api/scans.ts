@@ -25,8 +25,6 @@ import type {
 } from "../../../shared/schemas/scan-target.schema";
 import { requestJson } from "./core";
 
-// --- Phase 1: CLI Scan Foundation Types ---
-
 export type Project = {
 	id: string;
 	ownerUserId: string;
@@ -559,7 +557,7 @@ export type ScanReport = {
 		summaryMode?: "deterministic" | "deterministic_with_llm_summary";
 		providerRouting?: Record<string, unknown>;
 	};
-	status: "running" | "completed" | "failed";
+	status: "queued" | "running" | "completed" | "failed";
 	errorMessage: string | null;
 	generatedByUserId: string | null;
 	createdAt: string;
@@ -850,6 +848,7 @@ export type ScanRunSummary = {
 		reviewedFindingCount: number;
 		decidedFindingCount: number;
 	};
+	coverageResults?: import("./assessments").ScanCoverageResultView[];
 };
 
 export type FindingGroup = {

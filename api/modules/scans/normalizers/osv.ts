@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import { z } from "zod";
 import type { NormalizedFinding } from "./fixture";
+import { deriveFindingPriority, purlFor } from "./finding-risk";
 import { redactSecrets } from "./redaction";
 
 export const osvVulnerabilitySchema = z.object({
@@ -21,6 +22,9 @@ export const osvVulnerabilitySchema = z.object({
 		})
 		.optional(),
 	aliases: z.array(z.string()).optional(),
+	references: z
+		.array(z.object({ type: z.string().optional(), url: z.string().url() }))
+		.optional(),
 	affected: z
 		.array(
 			z.object({
@@ -172,6 +176,33 @@ export function normalizeOsv(
 					fixedVersions,
 					ecosystem,
 					manifestPath,
+					risk: {
+						cweIds: [],
+						advisoryAliases: vuln.aliases || [],
+						cvss: (vuln.severity ?? []).map((entry) => ({
+							version: entry.type,
+							vector: entry.score,
+							baseScore: numericScore(entry.score),
+							source: "OSV",
+						})),
+						references: (vuln.references ?? []).map(
+							(reference) => reference.url,
+						),
+						package: {
+							ecosystem,
+							name: pkgName,
+							version: pkgVersion,
+							purl: purlFor(ecosystem, pkgName, pkgVersion),
+						},
+						fixedVersions,
+						rule: { source: "OSV", version: null },
+						reachability: "unknown",
+						reachabilityEvidenceRefs: [],
+						vex: null,
+						kev: null,
+						epss: null,
+						...deriveFindingPriority({ severity }),
+					},
 				};
 
 				const primaryLocation = {
@@ -225,4 +256,9 @@ export function normalizeOsv(
 	}
 
 	return findings;
+}
+
+function numericScore(value: string): number | null {
+	const parsed = Number.parseFloat(value);
+	return Number.isFinite(parsed) && parsed >= 0 && parsed <= 10 ? parsed : null;
 }

@@ -2,9 +2,12 @@ import { parseArgs } from "node:util";
 import { readAppEnv } from "../app/env";
 import { createDbConnection } from "../db";
 import { DastRunner } from "../modules/dast/dast-runner";
+import { DastAuthContextCrypto } from "../modules/dast/auth-context-crypto";
+import { DastAuthContextRepository } from "../modules/dast/auth-context-repository";
 import { DastRepository } from "../modules/dast/dast-repository";
 import { prepareDastTargetWorkspace } from "../modules/dast/target-preparer";
 import { ProjectRepository } from "../modules/scans/repositories";
+import { runCliAutomatedDiagnostic } from "./scan-profile-diagnostic";
 
 type DastCliArgs = {
 	"project-id"?: string;
@@ -18,6 +21,8 @@ type DastCliArgs = {
 	"timeout-sec"?: string;
 	"max-requests"?: string;
 	"dry-run"?: string;
+	"auth-context-id"?: string;
+	"identity-role"?: string;
 };
 
 function writeResult(payload: Record<string, unknown>): void {
@@ -53,6 +58,8 @@ async function main() {
 				"timeout-sec": { type: "string" },
 				"max-requests": { type: "string" },
 				"dry-run": { type: "string", default: "false" },
+				"auth-context-id": { type: "string" },
+				"identity-role": { type: "string" },
 			},
 			strict: true,
 		});
@@ -156,7 +163,16 @@ async function main() {
 			});
 			targetConfigId = target.id;
 		}
-		const runner = new DastRunner(connection.db);
+		const authContextRepository = env.dastAuthEncryptionKey
+			? new DastAuthContextRepository(
+					connection.db,
+					new DastAuthContextCrypto(
+						env.dastAuthEncryptionKey,
+						env.dastAuthPreviousEncryptionKeys,
+					),
+				)
+			: undefined;
+		const runner = new DastRunner(connection.db, { authContextRepository });
 		const runOptions = {
 			projectId,
 			targetConfigId: targetConfigId as string,
@@ -168,10 +184,27 @@ async function main() {
 			timeoutSec,
 			maxRequests,
 			dryRun: values["dry-run"] === "true",
+			authContextId: values["auth-context-id"] ?? null,
+			identityRole: values["identity-role"] ?? null,
 		};
 		const result = runOptions.dryRun
 			? await runner.dryRun(runOptions)
 			: await runner.run(runOptions);
+		const diagnostic =
+			result.ok && result.scanRunId && !runOptions.dryRun
+				? await runCliAutomatedDiagnostic({
+						db: connection.db,
+						env,
+						scanRunId: result.scanRunId,
+					}).catch((error) => ({
+						status: "failed" as const,
+						readiness: "failed" as const,
+						error:
+							error instanceof Error
+								? error.message
+								: "Automated diagnostic failed.",
+					}))
+				: null;
 		if (preparedAutoTarget) {
 			await dastRepo.updateTargetConfig(targetConfigId as string, {
 				enabled: false,
@@ -185,6 +218,7 @@ async function main() {
 			preparedAutoTarget && result.ok
 				? {
 						...result,
+						diagnostic,
 						plan: {
 							...(result.plan ?? {}),
 							autoTarget: {
@@ -196,7 +230,7 @@ async function main() {
 							},
 						},
 					}
-				: result,
+				: { ...result, diagnostic },
 		);
 		process.exitCode = result.ok || result.dastRunId ? 0 : 1;
 		return;

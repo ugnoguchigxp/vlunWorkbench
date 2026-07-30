@@ -7,6 +7,10 @@ on:
       - ".dockerignore"
       - ".trivyignore.yaml"
       - "scripts/build-*-image.ts"
+      - "scripts/prepare-scanner-data.ts"
+      - "scripts/verify-offline-toolbox.ts"
+      - "package.json"
+      - "bun.lock"
       - ".github/workflows/container-security.yml"
   push:
     branches: [main]
@@ -15,6 +19,10 @@ on:
       - ".dockerignore"
       - ".trivyignore.yaml"
       - "scripts/build-*-image.ts"
+      - "scripts/prepare-scanner-data.ts"
+      - "scripts/verify-offline-toolbox.ts"
+      - "package.json"
+      - "bun.lock"
 
 permissions:
   contents: read
@@ -34,7 +42,23 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
-      - name: Build image
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        if: matrix.name == 'toolbox'
+        with:
+          bun-version: 1.3.14
+      - name: Install pinned workspace dependencies
+        if: matrix.name == 'toolbox'
+        run: bun install --frozen-lockfile
+      - name: Build toolbox with pinned scanner data
+        if: matrix.name == 'toolbox'
+        run: bun run docker:toolbox:build vuln-workbench-toolbox:ci
+      - name: Verify toolbox without network access
+        if: matrix.name == 'toolbox'
+        env:
+          VULN_WORKBENCH_TOOLBOX_IMAGE: vuln-workbench-toolbox:ci
+        run: bun run verify:toolbox-offline
+      - name: Build dynamic image
+        if: matrix.name == 'dynamic'
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .

@@ -183,7 +183,8 @@ describe("Reproduction Runner", () => {
 		const dbRun = await repo.getRun(result.reproductionRunId!);
 		expect(dbRun).not.toBeNull();
 		expect(dbRun!.status).toBe("completed");
-		expect(dbRun!.outcome).toBe("reproduced");
+		expect(dbRun!.verificationKind).toBe("scanner_recheck");
+		expect(dbRun!.outcome).toBe("observed");
 
 		const artifacts = await repo.listArtifacts(result.reproductionRunId!);
 		expect(artifacts).toHaveLength(3);

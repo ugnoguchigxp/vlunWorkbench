@@ -16,7 +16,7 @@ import { VerificationSections } from "./verification-sections";
 import { ZeroFindingDiagnosticPanel } from "./zero-finding-diagnostic-panel";
 
 const DECISION_STATE_LABELS = {
-	missing: "handoff優先",
+	missing: "任意注釈なし",
 	complete: "互換記録あり",
 	needs_context: "追加証跡が必要",
 } as const;
@@ -26,7 +26,7 @@ const DECISION_LABELS = {
 	false_positive: "ツールノイズ記録",
 	deferred: "後続確認記録",
 	needs_fix: "実装改善候補",
-	open: "handoff未作成",
+	open: "任意注釈なし",
 } as const;
 
 const REASON_LABELS = {

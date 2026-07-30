@@ -154,9 +154,11 @@ try {
 	const toolchainRoot = path.join(workRoot, "toolchain");
 	const sourceRoot = path.join(workRoot, "source");
 	const binaryRoot = path.join(workRoot, "binary");
+	const scannerDataRoot = path.join(workRoot, "scanner-data");
 	await mkdir(toolchainRoot);
 	await mkdir(sourceRoot);
 	await mkdir(binaryRoot);
+	await run(["bun", "run", "scripts/prepare-scanner-data.ts", scannerDataRoot]);
 	await run(["tar", "-xzf", goArchive, "-C", toolchainRoot]);
 	await run([
 		"tar",
@@ -210,6 +212,8 @@ try {
 		`linux/${targetArch}`,
 		"--build-context",
 		`trivy-binary=${binaryRoot}`,
+		"--build-context",
+		`scanner-data=${scannerDataRoot}`,
 		"-t",
 		image,
 		"-f",

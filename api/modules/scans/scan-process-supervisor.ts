@@ -15,7 +15,12 @@ export class ScanProcessSupervisor {
 	readonly runtimeInstanceId = randomUUID();
 	private readonly owned = new Map<string, OwnedScanProcess>();
 
-	constructor(private readonly scanRepository: ScanRepository) {}
+	constructor(
+		private readonly scanRepository: ScanRepository,
+		private readonly deps: {
+			onCompletedScan?: (scanRunId: string) => Promise<void>;
+		} = {},
+	) {}
 
 	async recoverStaleWebScans(): Promise<number> {
 		const active = await this.scanRepository.listActiveScanRuns();
@@ -55,6 +60,7 @@ export class ScanProcessSupervisor {
 			launchSource: "web",
 			launchToken,
 			runtimeInstanceId: this.runtimeInstanceId,
+			automaticDiagnosticRequested: true,
 		});
 
 		let proc: ReturnType<typeof Bun.spawn>;
@@ -148,7 +154,24 @@ export class ScanProcessSupervisor {
 		]);
 		this.owned.delete(job.scanRunId);
 		const scan = await this.scanRepository.findById(job.scanRunId);
-		if (!scan || !isActiveStatus(scan.status)) return;
+		if (!scan) return;
+		if (!isActiveStatus(scan.status)) {
+			if (scan.status === "completed" && this.deps.onCompletedScan) {
+				await this.deps.onCompletedScan(job.scanRunId).catch(async (error) => {
+					await this.scanRepository.createScanEvent({
+						scanRunId: job.scanRunId,
+						level: "error",
+						eventType: "diagnostic.dispatch_failed",
+						message:
+							"Completed scan could not be dispatched to the automated diagnostic pipeline.",
+						data: {
+							error: error instanceof Error ? error.message : String(error),
+						},
+					});
+				});
+			}
+			return;
+		}
 		const detail = stderr.trim() || stdout.trim();
 		const message =
 			exitCode === 0

@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import { z } from "zod";
 import { redactSecrets } from "./redaction";
+import { cweList, deriveFindingPriority, stringList } from "./finding-risk";
 
 export const semgrepResultSchema = z.object({
 	check_id: z.string().min(1),
@@ -51,6 +52,7 @@ export interface NormalizedFinding {
 		location: Record<string, unknown> | null;
 		snippet: string | null;
 	}>;
+	metadata?: Record<string, unknown>;
 }
 
 export function mapSemgrepSeverity(
@@ -79,6 +81,20 @@ export function generateSemgrepFingerprint(
 	return crypto.createHash("sha256").update(input).digest("hex");
 }
 
+export function generateSemgrepFingerprintV2(
+	checkId: string,
+	pathStr: string,
+	snippet: string | undefined,
+	startLine: number,
+	startCol: number,
+): string {
+	const identity = snippet?.replace(/\s+/g, " ").trim();
+	const input = identity
+		? `semgrep:v2:${checkId}:${pathStr}:${identity}`
+		: `semgrep:v2:${checkId}:${pathStr}:${startLine}:${startCol}`;
+	return crypto.createHash("sha256").update(input).digest("hex");
+}
+
 export function normalizeSemgrep(
 	input: unknown,
 	options?: { stderr?: string },
@@ -96,12 +112,21 @@ export function normalizeSemgrep(
 				lines: snippet ?? result.extra.lines,
 			},
 		};
-		const fingerprint = generateSemgrepFingerprint(
+		const legacyFingerprint = generateSemgrepFingerprint(
 			result.check_id,
 			result.path,
 			result.start.line,
 			result.start.col,
 		);
+		const fingerprint = generateSemgrepFingerprintV2(
+			result.check_id,
+			result.path,
+			snippet,
+			result.start.line,
+			result.start.col,
+		);
+		const severity = mapSemgrepSeverity(result.extra.severity);
+		const priority = deriveFindingPriority({ severity });
 
 		const primaryLocation = {
 			path: result.path,
@@ -143,12 +168,43 @@ export function normalizeSemgrep(
 			ruleId: result.check_id,
 			title: result.extra.message || result.check_id,
 			description: result.extra.message || result.check_id,
-			severity: mapSemgrepSeverity(result.extra.severity),
+			severity,
 			confidence: "static",
 			status: "open",
 			primaryLocation,
 			fingerprint,
 			evidences,
+			metadata: {
+				risk: {
+					cweIds: cweList(result.extra.metadata.cwe),
+					advisoryAliases: [],
+					cvss: [],
+					references: stringList(
+						result.extra.metadata.references ?? result.extra.metadata.reference,
+					).filter((value) => URL.canParse(value)),
+					package: null,
+					fixedVersions: [],
+					rule: {
+						source:
+							typeof result.extra.metadata.source === "string"
+								? result.extra.metadata.source
+								: "semgrep",
+						version:
+							typeof result.extra.metadata.version === "string"
+								? result.extra.metadata.version
+								: null,
+					},
+					reachability: "unknown",
+					reachabilityEvidenceRefs: [],
+					vex: null,
+					kev: null,
+					epss: null,
+					...priority,
+				},
+				fingerprintVersion: 2,
+				fingerprintAliases: [legacyFingerprint],
+				semgrepMetadata: result.extra.metadata,
+			},
 		};
 	});
 }

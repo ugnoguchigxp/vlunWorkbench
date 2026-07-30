@@ -154,10 +154,10 @@ export function renderReportOverview(
 			`- 検出件数は ${rawFindings.length} 件で、このうち緊急または高 severity は ${urgentCount} 件です。まず high severity と証跡が弱い finding を、次の LLM が実装改善に進めるリスク文脈として渡してください。`,
 		);
 		lines.push(
-			`- 互換用分類は、実装改善候補 ${stats.needs_fix} 件、既知リスク記録 ${stats.accepted} 件、後続確認記録 ${stats.deferred} 件、誤検知 ${stats.false_positive} 件、LLM handoff未作成 ${stats.undecided} 件です。未作成が残る場合は、人手で仕分けず、証跡の妥当性と実行時到達可能性を LLM handoff に含めてください。`,
+			`- 任意の互換注釈は、実装改善候補 ${stats.needs_fix} 件、既知リスク記録 ${stats.accepted} 件、後続確認記録 ${stats.deferred} 件、誤検知 ${stats.false_positive} 件、注釈なし ${stats.undecided} 件です。この注釈の有無は自動診断やレポート生成を妨げません。`,
 		);
 		lines.push(
-			`- LLMレビュー済みは ${reviewedFindingCount} 件、互換記録ありは ${decidedFindingCount} 件です。レビューがない finding は、静的検出と保存済み証跡だけを根拠にしているため、実装修正前に LLM へ不足証跡と影響範囲を明示してください。`,
+			`- finding 単位の追加レビュー済みは ${reviewedFindingCount} 件、任意注釈ありは ${decidedFindingCount} 件です。scan-level の自動 LLM 診断は、保存済み証跡と不足情報を明示して別節へ出力します。`,
 		);
 	}
 	lines.push("");
@@ -165,7 +165,7 @@ export function renderReportOverview(
 	lines.push(reportHeading("executive-summary"));
 	if (rawFindings.length === 0) {
 		lines.push(
-			"- **Risk posture:** informational。finding は 0 件ですが、スキャン範囲と診断カバレッジの制約を LLM handoff に含め、未確認領域を実装改善候補として扱ってください。",
+			"- **Risk posture:** informational。finding は 0 件ですが、自動診断ではスキャン範囲と診断カバレッジの制約を limitations として扱います。",
 		);
 	} else {
 		const highestSeverity =
@@ -181,13 +181,13 @@ export function renderReportOverview(
 				!item.latestCompletedReview,
 		).length;
 		lines.push(
-			`- **Risk posture:** ${formatSeverity(highestSeverity)}。実装改善候補 ${stats.needs_fix} 件、LLM handoff未作成 ${stats.undecided} 件、既知リスク記録 ${stats.accepted} 件です。`,
+			`- **Risk posture:** ${formatSeverity(highestSeverity)}。scanner finding ${rawFindings.length} 件、任意注釈なし ${stats.undecided} 件、既知リスク注釈 ${stats.accepted} 件です。`,
 		);
 		lines.push(
 			`- **Evidence confidence:** strong review ${strongReviewCount} 件、weak/missing decision-grade evidence ${weakOrMissingDecisionGradeEvidence} 件です。`,
 		);
 		lines.push(
-			"- **Recommended focus:** high severity、証跡が弱い finding、実装改善候補の順に LLM handoff へ渡し、コード側でリスクを低減してください。",
+			"- **Recommended focus:** high severity、証跡が弱い finding の順に、自動 LLM 診断の criticality・影響・修正案を確認してください。",
 		);
 	}
 	lines.push("");
@@ -215,7 +215,7 @@ export function renderReportOverview(
 		});
 		if (stats.undecided > 0) {
 			lines.push(
-				`${stats.undecided} finding(s) do not have an implementation handoff yet, so this ranking is not final submission-grade until a scan-level LLM handoff exists.`,
+				`${stats.undecided} finding(s) have no optional compatibility annotation. This does not block the automated diagnosis or report.`,
 			);
 		}
 	}
@@ -273,10 +273,10 @@ export function renderReportOverview(
 		lines.push(`| legacy_known_risk_record | ${stats.accepted} |`);
 		lines.push(`| legacy_follow_up_record | ${stats.deferred} |`);
 		lines.push(`| tool_noise_record | ${stats.false_positive} |`);
-		lines.push(`| missing_llm_handoff | ${stats.undecided} |`);
+		lines.push(`| no_optional_annotation | ${stats.undecided} |`);
 		if (stats.undecided > 0) {
 			lines.push(
-				"LLM handoff は生成されていません。人手で finding を仕分けるのではなく、保存済み証跡と不足検証を次の LLM に渡す implementation handoff を生成してください。",
+				"finding 単位の互換注釈は任意です。未入力でも、保存済み証跡に基づく自動 LLM 診断と統合レポートは生成されます。",
 			);
 		}
 	}

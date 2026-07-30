@@ -194,7 +194,7 @@ export const DECISION_LABELS: Record<string, string> = {
 	accepted: "既知リスク記録",
 	deferred: "後続確認記録",
 	false_positive: "誤検知",
-	undecided: "LLM handoff未作成",
+	undecided: "任意注釈なし",
 };
 
 export const SEVERITY_LABELS: Record<string, string> = {
@@ -221,8 +221,7 @@ export const FALSE_POSITIVE_LABELS: Record<string, string> = {
 };
 
 export const formatDecision = (value: string | null | undefined): string =>
-	DECISION_LABELS[value || "undecided"] ??
-	toInlineText(value, "LLM handoff未作成");
+	DECISION_LABELS[value || "undecided"] ?? toInlineText(value, "任意注釈なし");
 
 export const formatSeverity = (value: string | null | undefined): string =>
 	SEVERITY_LABELS[(value || "unknown").toLowerCase()] ??

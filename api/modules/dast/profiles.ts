@@ -1,7 +1,11 @@
 import type { DastKind } from "./types";
 
 export type DastProfileDefinition = {
-	id: "http-baseline" | "browser-smoke" | "form-baseline";
+	id:
+		| "http-baseline"
+		| "browser-smoke"
+		| "authenticated-readonly"
+		| "form-baseline";
 	displayName: string;
 	description: string;
 	kind: DastKind;
@@ -10,6 +14,7 @@ export type DastProfileDefinition = {
 	crawlerEnabled: false;
 	requiresRoutes: boolean;
 	requiresForms: boolean;
+	requiresAuth: boolean;
 };
 
 export const DAST_PROFILES: DastProfileDefinition[] = [
@@ -30,24 +35,45 @@ export const DAST_PROFILES: DastProfileDefinition[] = [
 		crawlerEnabled: false,
 		requiresRoutes: false,
 		requiresForms: false,
+		requiresAuth: false,
 	},
 	{
 		id: "browser-smoke",
 		displayName: "Browser Smoke",
 		description:
-			"Load configured routes and capture browser console, network, and screenshot evidence. Disabled until a real browser adapter is available.",
+			"Load configured routes with a real browser and capture redacted console and network evidence.",
 		kind: "browser",
-		enabled: false,
+		enabled: true,
 		checks: [
 			"configured-route-load",
 			"console-errors",
 			"failed-network-requests",
-			"screenshot",
 			"final-url-scope",
 		],
 		crawlerEnabled: false,
 		requiresRoutes: true,
 		requiresForms: false,
+		requiresAuth: false,
+	},
+	{
+		id: "authenticated-readonly",
+		displayName: "Authenticated Read-only",
+		description:
+			"Use an encrypted test identity for read-only browser routes without storing response bodies or credentials.",
+		kind: "browser",
+		enabled: true,
+		checks: [
+			"declarative-login",
+			"configured-route-load",
+			"console-errors",
+			"failed-network-requests",
+			"final-url-scope",
+			"single-session-refresh",
+		],
+		crawlerEnabled: false,
+		requiresRoutes: true,
+		requiresForms: false,
+		requiresAuth: true,
 	},
 	{
 		id: "form-baseline",
@@ -63,6 +89,7 @@ export const DAST_PROFILES: DastProfileDefinition[] = [
 		crawlerEnabled: false,
 		requiresRoutes: true,
 		requiresForms: true,
+		requiresAuth: false,
 	},
 ];
 
@@ -81,6 +108,7 @@ export function assertDastProfileRunnable(params: {
 	profileEnabled?: boolean;
 	routePaths?: string[];
 	formSelectors?: string[];
+	authContextId?: string | null;
 }): DastProfileDefinition {
 	const profile = getDastProfile(params.profileId);
 	if (!profile) {
@@ -98,6 +126,9 @@ export function assertDastProfileRunnable(params: {
 		throw new Error(
 			`DAST profile requires configured form selectors: ${profile.id}`,
 		);
+	}
+	if (profile.requiresAuth && !params.authContextId) {
+		throw new Error(`DAST profile requires an auth context: ${profile.id}`);
 	}
 	return profile;
 }

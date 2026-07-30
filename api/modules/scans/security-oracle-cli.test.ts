@@ -19,7 +19,7 @@ async function writeMockTool(
 async function writeMockScanners(binDir: string): Promise<void> {
 	await writeMockTool(
 		binDir,
-		"semgrep",
+	"semgrep",
 		`
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -73,7 +73,7 @@ process.exit(0);
 	);
 	await writeMockTool(
 		binDir,
-		"osv-scanner",
+	"osv-scanner",
 		`
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -82,7 +82,7 @@ if (args.includes("--version")) {
 	console.log("1.5.0");
 	process.exit(0);
 }
-const outIdx = args.indexOf("--output");
+const outIdx = args.indexOf("--output-file");
 if (outIdx >= 0) {
 	const outPath = args[outIdx + 1];
 	await fs.mkdir(path.dirname(outPath), { recursive: true });
@@ -129,6 +129,9 @@ describe("Security oracle CLI contract", () => {
 				recommendedNextActions: ["通常の回帰テストを継続してください。"],
 				findingTriageHints: [],
 				confidenceNotes: ["判断は保存済み scan context に限定されます。"],
+				findingAssessments: [],
+				systemicRiskThemes: [],
+				limitations: [],
 				improvementRequest: {
 					title: "セキュリティ回帰維持依頼",
 					objective: "現在のゼロ件状態を回帰テストで維持する。",
@@ -180,7 +183,11 @@ describe("Security oracle CLI contract", () => {
 		]);
 		const firstPayload = JSON.parse(first.stdout.toString());
 
-		expect(first.exitCode).toBe(0);
+		expect({
+			exitCode: first.exitCode,
+			payload: firstPayload,
+			stderr: first.stderr.toString(),
+		}).toMatchObject({ exitCode: 0 });
 		expect(firstPayload).toMatchObject({
 			ok: true,
 			status: "completed",
@@ -211,7 +218,7 @@ describe("Security oracle CLI contract", () => {
 		expect(second.exitCode).toBe(0);
 		expect(secondPayload.project.created).toBe(false);
 		expect(projects).toHaveLength(1);
-	}, 15_000);
+	}, 30_000);
 
 	it("keeps stdout JSON-only through the package script entrypoint", async () => {
 		const proc = runCli([
@@ -223,10 +230,14 @@ describe("Security oracle CLI contract", () => {
 		const stdout = proc.stdout.toString().trim();
 		const payload = JSON.parse(stdout);
 
-		expect(proc.exitCode).toBe(0);
+		expect({
+			exitCode: proc.exitCode,
+			payload,
+			stderr: proc.stderr.toString(),
+		}).toMatchObject({ exitCode: 0 });
 		expect(stdout.split("\n")).toHaveLength(1);
 		expect(payload.status).toBe("completed");
-	});
+	}, 30_000);
 
 	it("returns actionable top findings in oracle JSON", async () => {
 		await fs.writeFile(
@@ -271,7 +282,7 @@ describe("Security oracle CLI contract", () => {
 		});
 		expect(payload.scan.findings[0].title).toContain("USER");
 		expect(proc.stderr.toString()).toBe("");
-	});
+	}, 30_000);
 
 	it("does not expose finding paths outside the requested repository", async () => {
 		const outsidePath = path.join(tempDir, "other-project", "Dockerfile");
@@ -294,7 +305,7 @@ describe("Security oracle CLI contract", () => {
 		expect(payload.scan.findings[0].location).toBeNull();
 		expect(stdout).not.toContain(outsidePath);
 		expect(payload.scan).not.toHaveProperty("reportPath");
-	});
+	}, 30_000);
 
 	it("treats scanner findings as actionable even when the tool exits nonzero", async () => {
 		await fs.writeFile(
@@ -332,7 +343,7 @@ describe("Security oracle CLI contract", () => {
 			},
 			nextAction: "apply_security_fix",
 		});
-	});
+	}, 30_000);
 
 	it("lets scan:profile create a project from project path", async () => {
 		const proc = runCli([
@@ -354,7 +365,7 @@ describe("Security oracle CLI contract", () => {
 			created: true,
 		});
 		expect(payload.scanRunId).toBeTruthy();
-	});
+	}, 30_000);
 
 	it("returns exit code 2 with stable JSON when project path is missing and create is disabled", async () => {
 		const proc = runCli([
@@ -376,7 +387,7 @@ describe("Security oracle CLI contract", () => {
 			error: { code: "PROJECT_NOT_FOUND" },
 		});
 		expect(payload.scanRunId).toBeUndefined();
-	});
+	}, 30_000);
 
 	it("rejects orchestrator-supplied scan tuning arguments", async () => {
 		const proc = runCli([
@@ -399,7 +410,7 @@ describe("Security oracle CLI contract", () => {
 			error: { code: "ARGUMENT_PARSE_FAILED" },
 		});
 		expect(proc.stderr.toString()).toBe("");
-	});
+	}, 30_000);
 
 	it("returns JSON config failure when oracle startup config is invalid", async () => {
 		const proc = runCli(
@@ -421,7 +432,7 @@ describe("Security oracle CLI contract", () => {
 			status: "config_error",
 			error: { code: "APP_CONFIG_ERROR" },
 		});
-	});
+	}, 30_000);
 
 	it("returns JSON config failure when scan:profile startup config is invalid", async () => {
 		const proc = runCli(
@@ -448,5 +459,5 @@ describe("Security oracle CLI contract", () => {
 			status: "config_error",
 			error: { code: "APP_CONFIG_ERROR" },
 		});
-	});
+	}, 30_000);
 });

@@ -14,6 +14,11 @@ import {
 	scanRuns,
 	toolRuns,
 } from "../../db/schema";
+import { compactToolProvenance } from "./scan-review-provenance";
+import {
+	compactReviewEvidenceMetadata,
+	compactReviewFindingMetadata,
+} from "./scan-review-metadata";
 import { buildScanRunSummary } from "./summary-builder";
 
 export type ScanReviewBundleOptions = {
@@ -316,16 +321,38 @@ export async function buildScanReviewBundle(
 			.filter((decision) => decision.findingId === findingId)
 			.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0] ?? null;
 
+	const scannerArtifactRows = artifactRows.filter(
+		(artifact) => artifact.kind !== "report",
+	);
+	const compactSummaryTools = summary.tools.map((tool) => {
+		const compact = { ...tool } as Record<string, unknown>;
+		delete compact.metadata;
+		compact.artifactCount = tool.toolRunId
+			? scannerArtifactRows.filter(
+					(artifact) => artifact.toolRunId === tool.toolRunId,
+				).length
+			: 0;
+		return compact;
+	});
+	const artifactCountByToolId = new Map(
+		compactSummaryTools.map((tool) => [
+			typeof tool.toolId === "string" ? tool.toolId : "",
+			typeof tool.artifactCount === "number" ? tool.artifactCount : 0,
+		]),
+	);
 	const compactSummary = {
 		...summary,
-		tools: summary.tools.map((tool) => {
-			const compact = { ...tool } as Record<string, unknown>;
-			delete compact.metadata;
-			return compact;
-		}),
+		totals: {
+			...summary.totals,
+			artifactCount: scannerArtifactRows.length,
+		},
+		tools: compactSummaryTools,
 		steps: (summary.steps ?? []).map((step) => {
 			const compact = { ...step } as Record<string, unknown>;
 			delete compact.metadata;
+			if (step.kind === "static_tool") {
+				compact.artifactCount = artifactCountByToolId.get(step.id) ?? 0;
+			}
 			return compact;
 		}),
 	};
@@ -353,13 +380,16 @@ export async function buildScanReviewBundle(
 			toolVersion: tool.toolVersion,
 			status: tool.status,
 			exitCode: tool.exitCode,
+			provenance: compactToolProvenance(tool.metadata),
 			startedAt: tool.startedAt,
 			completedAt: tool.completedAt,
 		})),
-		artifacts: artifactRows.map((artifact) => ({
+		artifacts: scannerArtifactRows.map((artifact) => ({
 			id: artifact.id,
+			toolRunId: artifact.toolRunId,
 			kind: artifact.kind,
 			format: artifact.format,
+			sha256: artifact.sha256,
 			sizeBytes: artifact.sizeBytes,
 			metadata: artifact.metadata,
 		})),
@@ -376,6 +406,7 @@ export async function buildScanReviewBundle(
 				confidence: finding.confidence,
 				status: finding.status,
 				primaryLocation: finding.primaryLocation,
+				metadata: compactReviewFindingMetadata(finding.metadata),
 				evidence: evidenceRows
 					.filter((evidence) => evidence.findingId === finding.id)
 					.slice(0, maxEvidencePerFinding)
@@ -386,6 +417,7 @@ export async function buildScanReviewBundle(
 						location: evidence.location,
 						snippet: truncateText(evidence.snippet, maxSnippetChars),
 						artifactId: evidence.artifactId,
+						metadata: compactReviewEvidenceMetadata(evidence.metadata),
 					})),
 				latestReview: review
 					? {

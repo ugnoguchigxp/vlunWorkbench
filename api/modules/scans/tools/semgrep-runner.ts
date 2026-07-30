@@ -81,7 +81,7 @@ export class SemgrepRunner {
 
 		const args = ["scan"];
 
-		const config = options.config ?? "auto";
+		const config = resolveSemgrepConfig(options.config, this.execution);
 		args.push("--config", config);
 
 		args.push("--json");
@@ -280,4 +280,18 @@ export class SemgrepRunner {
 			executionMetadata,
 		};
 	}
+}
+
+function resolveSemgrepConfig(
+	config: string | undefined,
+	execution: ToolExecutionConfig | undefined,
+): string {
+	if (config !== undefined && config !== "owned") return config;
+	if (execution?.runner === "docker") {
+		return "/opt/vuln-workbench/scanner-data/semgrep-rules";
+	}
+	return path.resolve(
+		process.cwd(),
+		"docker/toolbox/scanner-data/semgrep-rules",
+	);
 }

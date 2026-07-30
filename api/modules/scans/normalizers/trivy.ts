@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import { z } from "zod";
 import type { NormalizedFinding } from "./fixture";
+import { deriveFindingPriority, purlFor } from "./finding-risk";
 import { redactSecrets } from "./redaction";
 
 export const trivyVulnerabilitySchema = z.object({
@@ -12,6 +13,26 @@ export const trivyVulnerabilitySchema = z.object({
 	Title: z.string().optional(),
 	Description: z.string().optional(),
 	PrimaryURL: z.string().optional(),
+	References: z.array(z.string().url()).optional(),
+	PkgIdentifier: z.object({ PURL: z.string().optional() }).optional(),
+	CVSS: z
+		.record(
+			z.string(),
+			z.object({
+				V2Vector: z.string().optional(),
+				V2Score: z.number().optional(),
+				V3Vector: z.string().optional(),
+				V3Score: z.number().optional(),
+			}),
+		)
+		.optional(),
+	DataSource: z
+		.object({
+			ID: z.string().optional(),
+			Name: z.string().optional(),
+			URL: z.string().optional(),
+		})
+		.optional(),
 });
 
 export const trivyMisconfigurationSchema = z.object({
@@ -127,6 +148,39 @@ export function normalizeTrivy(
 				fixedVersion: vuln.FixedVersion,
 				class: rClass,
 				type: rType,
+				risk: {
+					cweIds: [],
+					advisoryAliases: [vuln.VulnerabilityID],
+					cvss: trivyCvss(vuln.CVSS),
+					references: Array.from(
+						new Set(
+							[vuln.PrimaryURL, ...(vuln.References ?? [])].filter(
+								(value): value is string => Boolean(value),
+							),
+						),
+					),
+					package: {
+						ecosystem: rType,
+						name: vuln.PkgName,
+						version: vuln.InstalledVersion,
+						purl:
+							vuln.PkgIdentifier?.PURL ??
+							purlFor(rType, vuln.PkgName, vuln.InstalledVersion),
+					},
+					fixedVersions: vuln.FixedVersion.split(",")
+						.map((value) => value.trim())
+						.filter(Boolean),
+					rule: {
+						source: vuln.DataSource?.ID ?? vuln.DataSource?.Name ?? "trivy",
+						version: null,
+					},
+					reachability: "unknown",
+					reachabilityEvidenceRefs: [],
+					vex: null,
+					kev: null,
+					epss: null,
+					...deriveFindingPriority({ severity }),
+				},
 			};
 
 			const primaryLocation = {
@@ -324,4 +378,39 @@ export function normalizeTrivy(
 	}
 
 	return findings;
+}
+
+function trivyCvss(
+	input:
+		| Record<
+				string,
+				{
+					V2Vector?: string;
+					V2Score?: number;
+					V3Vector?: string;
+					V3Score?: number;
+				}
+		  >
+		| undefined,
+) {
+	return Object.entries(input ?? {}).flatMap(([source, value]) => {
+		const entries = [];
+		if (value.V2Vector) {
+			entries.push({
+				version: "2",
+				vector: value.V2Vector,
+				baseScore: value.V2Score ?? null,
+				source,
+			});
+		}
+		if (value.V3Vector) {
+			entries.push({
+				version: value.V3Vector.startsWith("CVSS:3.1") ? "3.1" : "3.0",
+				vector: value.V3Vector,
+				baseScore: value.V3Score ?? null,
+				source,
+			});
+		}
+		return entries;
+	});
 }

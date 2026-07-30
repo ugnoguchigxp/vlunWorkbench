@@ -1,0 +1,60 @@
+{
+  "version": 1,
+  "snapshotDate": "2026-07-30",
+  "manifestHash": "sha256:47868a738b508de62a26c5c0763e796d611a49c06b7bd4be3d7f7ee858d9d94c",
+  "tools": {
+    "semgrep": {
+      "version": "1.171.0",
+      "dataKind": "minimal-owned-ruleset",
+      "state": "ready",
+      "path": "semgrep-rules",
+      "runtimePath": "/opt/vuln-workbench/scanner-data/semgrep-rules",
+      "digest": "sha256:8c72b7c70f46646667c60cb9baa09ab358f46889df7d7ae632f323f9428dba41",
+      "coverage": [
+        "javascript:2-rules",
+        "typescript:2-rules",
+        "python:1-rule"
+      ]
+    },
+    "gitleaks": {
+      "version": "8.30.1",
+      "dataKind": "binary-rules",
+      "state": "ready",
+      "path": null,
+      "runtimePath": null,
+      "digest": "sha256:83d9cd684c87d95d656c1458ef04895a7f1cbd8e"
+    },
+    "osv": {
+      "version": "2.4.0",
+      "dataKind": "offline-database",
+      "state": "missing",
+      "path": "osv",
+      "runtimePath": "/opt/vuln-workbench/scanner-data/osv",
+      "digest": null
+    },
+    "trivy": {
+      "version": "0.72.0",
+      "dataKind": "vulnerability-database",
+      "state": "missing",
+      "path": "trivy",
+      "runtimePath": "/opt/vuln-workbench/scanner-data/trivy",
+      "digest": null
+    },
+    "nuclei-safe": {
+      "version": "3.11.0",
+      "dataKind": "owned-template-tree",
+      "state": "ready",
+      "path": "../nuclei-safe-templates",
+      "runtimePath": "/opt/vuln-workbench/nuclei-safe-templates",
+      "digest": "sha256:c6291031618bdcf3313e32f5db4ef0abcabd5e11ac3c7e2821e6ff5039fd633a"
+    },
+    "zap-baseline": {
+      "version": "2.17.0",
+      "dataKind": "pinned-image",
+      "state": "ready",
+      "path": null,
+      "runtimePath": null,
+      "digest": "sha256:a52ff0038e723b8709fe62a3fbac94a96bd47b9c8d3b7f9f47f7ad5061473239"
+    }
+  }
+}

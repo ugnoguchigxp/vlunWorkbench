@@ -5,7 +5,7 @@
 ## 目的
 
 - `package.json`、README、画面タイトル、API service 名を `vulnWorkbench` / `vuln-workbench` に統一する。
-- README と `LLM_CONTEXT.md` に、現在の主 workflow である scan / finding / evidence / review / decision / report を記載する。
+- README と `LLM_CONTEXT.md` に、現在の主 workflow である scan / finding / evidence / automated diagnostic / report を記載する。
 - 元テンプレート由来の knowledge / search / chat / showcase 機能は、主機能ではなく補助・legacy surface として扱う。
 - 実装済みでない機能、または現状の安全境界を超える機能をドキュメントに書かない。
 
@@ -26,8 +26,10 @@
 README に書く内容は、次の実態に合わせる。
 
 - CLI security tools が診断と raw evidence 生成を担当する。
-- vulnWorkbench は実行制御、artifact 保存、正規化、LLM review、人間の decision、Markdown report を担当する。
+- vulnWorkbench は実行制御、artifact 保存、正規化、deterministic report、証跡制約付き LLM review、Markdown report を担当する。
+- 人間の decision / review は任意の互換・監査注釈であり、通常 workflow の完了 gate にしない。
 - LLM は自由探索で脆弱性を探す主体ではなく、保存済み finding / evidence をレビューする後段処理として扱う。
+- 認可、credential、active scan 許可、network policy、resource limit は LLM で代替せず、server policy で fail-closed にする。
 - Reproduction / dynamic / DAST は bounded profile と Docker 隔離を前提に扱う。
 - DAST はローカル対象または明示的に保存した target config に限定する。
 - patch 自動適用は対象外として扱う。

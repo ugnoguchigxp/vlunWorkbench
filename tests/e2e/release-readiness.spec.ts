@@ -230,7 +230,7 @@ test("mocked completed scan results and Markdown report preview render", async (
 	await expectNoSeriousAccessibilityViolations(page);
 });
 
-test("real DB flow registers a project, scans, shows a finding, and generates a report", async ({
+test("real DB flow registers a project, scans, shows a finding, and automatically generates a report", async ({
 	page,
 }) => {
 	test.setTimeout(60_000);
@@ -291,19 +291,31 @@ test("real DB flow registers a project, scans, shows a finding, and generates a 
 		page.getByText("src/example.ts", { exact: false }).first(),
 	).toBeVisible();
 
-	const reportButton = page.getByRole("button", {
-		name: /^(提出用レポート|内部レビュー用ドラフト|レビュー用ドラフト)を生成$/,
-	});
-	const reportResponsePromise = page.waitForResponse(
-		(response) =>
-			response.request().method() === "POST" &&
-			new URL(response.url()).pathname === `/api/scans/${scan.id}/reports`,
-	);
-	await reportButton.click();
-	const reportResponse = await reportResponsePromise;
-	expect(reportResponse.status()).toBe(202);
-	const generatedReport = (await reportResponse.json()).report as { id: string };
-
+	let automaticReportId: string | null = null;
+	await expect
+		.poll(
+			async () => {
+				const response = await page.request.get(
+					`/api/scans/${scan.id}/diagnostics`,
+				);
+				if (!response.ok()) return `http-${response.status()}`;
+				const diagnostics = (await response.json()).diagnostics as Array<{
+					status: string;
+					readiness: string | null;
+					scanReportId: string | null;
+				}>;
+				const diagnostic = diagnostics[0];
+				automaticReportId = diagnostic?.scanReportId ?? null;
+				return diagnostic
+					? `${diagnostic.status}:${diagnostic.readiness}:${Boolean(
+							diagnostic.scanReportId,
+						)}`
+					: "missing";
+			},
+			{ timeout: 30_000 },
+		)
+		.toBe("completed_with_limitations:ready_with_limitations:true");
+	expect(automaticReportId).not.toBeNull();
 	await expect
 		.poll(async () => {
 			const response = await page.request.get(
@@ -314,7 +326,7 @@ test("real DB flow registers a project, scans, shows a finding, and generates a 
 				id: string;
 				status: string;
 			}>;
-			return reports.find((report) => report.id === generatedReport.id)?.status;
+			return reports.find((report) => report.id === automaticReportId)?.status;
 		})
 		.toBe("completed");
 	await page.goto(`/scans?projectId=${project.id}&scanRunId=${scan.id}`);
@@ -372,7 +384,7 @@ test("real DB flow registers a project, scans, shows a finding, and generates a 
 	expect(
 		reports.some(
 			(item) =>
-				item.id === generatedReport.id && item.scanRunId === scan.id,
+				item.id === automaticReportId && item.scanRunId === scan.id,
 		),
 	).toBe(true);
 	await expectNoSeriousAccessibilityViolations(page);

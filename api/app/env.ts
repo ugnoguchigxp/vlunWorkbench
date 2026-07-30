@@ -94,6 +94,8 @@ const EnvSchema = z.object({
 	LLM_PROVIDER_ALLOWED_HOSTS: optionalTrimmedString,
 	LLM_SETTINGS_ENCRYPTION_KEY: optionalTrimmedString,
 	LLM_SETTINGS_PREVIOUS_ENCRYPTION_KEYS: optionalTrimmedString,
+	DAST_AUTH_ENCRYPTION_KEY: optionalTrimmedString,
+	DAST_AUTH_PREVIOUS_ENCRYPTION_KEYS: optionalTrimmedString,
 	APP_URL: optionalUrl,
 	CORS_ORIGINS: optionalTrimmedString,
 	AUTH_COOKIE_SECURE: optionalBoolean,
@@ -163,6 +165,8 @@ export type AppEnv = {
 	llmProviderAllowedHosts?: string[];
 	llmSettingsEncryptionKey?: string;
 	llmSettingsPreviousEncryptionKeys?: string[];
+	dastAuthEncryptionKey?: string;
+	dastAuthPreviousEncryptionKeys?: string[];
 	jwtSecret: string;
 	jwtAccessExpiresIn: string;
 	jwtRefreshExpiresIn: string;
@@ -410,6 +414,11 @@ export function readAppEnv(env: NodeJS.ProcessEnv = process.env): AppEnv {
 		llmSettingsEncryptionKey: parsed.LLM_SETTINGS_ENCRYPTION_KEY,
 		llmSettingsPreviousEncryptionKeys:
 			parsed.LLM_SETTINGS_PREVIOUS_ENCRYPTION_KEYS?.split(",")
+				.map((key) => key.trim())
+				.filter(Boolean) ?? [],
+		dastAuthEncryptionKey: parsed.DAST_AUTH_ENCRYPTION_KEY,
+		dastAuthPreviousEncryptionKeys:
+			parsed.DAST_AUTH_PREVIOUS_ENCRYPTION_KEYS?.split(",")
 				.map((key) => key.trim())
 				.filter(Boolean) ?? [],
 		jwtSecret: parsed.JWT_SECRET ?? APP_CONFIG_DEFAULTS.jwtSecret,

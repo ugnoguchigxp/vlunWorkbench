@@ -17,6 +17,7 @@ export interface DastBrowserAdapter {
 		path: string;
 		timeoutMs: number;
 	}): Promise<BrowserRouteResult>;
+	close?(): Promise<void>;
 }
 
 export class UnavailableBrowserAdapter implements DastBrowserAdapter {
@@ -94,34 +95,38 @@ export async function runBrowserSmoke(params: {
 	const routes: DastBrowserRouteObservation[] = [];
 	const warnings = [...params.target.warnings];
 
-	for (const path of paths) {
-		const url = new URL(path, params.target.runnerOrigin).toString();
-		const started = performance.now();
-		try {
-			const route = await params.adapter.loadRoute({ url, path, timeoutMs });
-			if (!isUrlInDastScope(route.finalUrl, params.target)) {
-				warnings.push(`browser final URL out of scope: ${route.finalUrl}`);
-				route.error = route.error ?? "target_redirect_out_of_scope";
+	try {
+		for (const path of paths) {
+			const url = new URL(path, params.target.runnerOrigin).toString();
+			const started = performance.now();
+			try {
+				const route = await params.adapter.loadRoute({ url, path, timeoutMs });
+				if (!isUrlInDastScope(route.finalUrl, params.target)) {
+					warnings.push(`browser final URL out of scope: ${route.finalUrl}`);
+					route.error = route.error ?? "target_redirect_out_of_scope";
+				}
+				routes.push({
+					...route,
+					path,
+					url,
+					durationMs: Math.round(performance.now() - started),
+				});
+			} catch (error) {
+				routes.push({
+					path,
+					url,
+					finalUrl: url,
+					status: null,
+					consoleErrors: [],
+					pageErrors: [],
+					failedRequests: [],
+					durationMs: Math.round(performance.now() - started),
+					error: error instanceof Error ? error.message : "browser_unavailable",
+				});
 			}
-			routes.push({
-				...route,
-				path,
-				url,
-				durationMs: Math.round(performance.now() - started),
-			});
-		} catch (error) {
-			routes.push({
-				path,
-				url,
-				finalUrl: url,
-				status: null,
-				consoleErrors: [],
-				pageErrors: [],
-				failedRequests: [],
-				durationMs: Math.round(performance.now() - started),
-				error: error instanceof Error ? error.message : "browser_unavailable",
-			});
 		}
+	} finally {
+		await params.adapter.close?.();
 	}
 
 	return {

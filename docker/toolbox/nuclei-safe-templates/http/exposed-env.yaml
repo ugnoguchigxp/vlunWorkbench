@@ -12,6 +12,10 @@ http:
     path:
       - "{{BaseURL}}/.env"
     matchers:
-      - type: status
-        status:
-          - 200
+      - type: dsl
+        condition: and
+        dsl:
+          - "status_code == 200"
+          - "len(body) < 131072"
+          - "regex('(?mi)^(?:[A-Z][A-Z0-9_]{2,})\\s*=\\s*[^\\r\\n]+$', body)"
+          - "contains_any(to_lower(body), 'database_url=', 'db_password=', 'secret_key=', 'api_key=', 'aws_access_key_id=')"

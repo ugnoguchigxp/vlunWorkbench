@@ -150,7 +150,7 @@ export const SCAN_PROFILES: ScanProfile[] = [
 				displayName: "Semgrep Source Analysis",
 				required: true,
 				failurePolicy: "fail_profile",
-				options: { config: "auto", scanners: ["vuln", "secret", "config"] },
+				options: { config: "owned", scanners: ["vuln", "secret", "config"] },
 			},
 			{
 				toolId: "gitleaks",
@@ -182,7 +182,7 @@ export const SCAN_PROFILES: ScanProfile[] = [
 				displayName: "Semgrep Static Analysis",
 				required: true,
 				failurePolicy: "fail_profile",
-				options: { config: "auto", scanners: ["vuln", "secret", "config"] },
+				options: { config: "owned", scanners: ["vuln", "secret", "config"] },
 			},
 			{
 				toolId: "gitleaks",
@@ -214,7 +214,7 @@ export const SCAN_PROFILES: ScanProfile[] = [
 				displayName: "Semgrep Source Analysis",
 				required: true,
 				failurePolicy: "fail_profile",
-				options: { config: "auto", scanners: ["vuln", "secret", "config"] },
+				options: { config: "owned", scanners: ["vuln", "secret", "config"] },
 			},
 			{
 				toolId: "gitleaks",
@@ -247,7 +247,7 @@ export const SCAN_PROFILES: ScanProfile[] = [
 				displayName: "Semgrep Changed Source Analysis",
 				required: true,
 				failurePolicy: "fail_profile",
-				options: { config: "auto" },
+				options: { config: "owned" },
 			},
 			{
 				toolId: "gitleaks",
@@ -287,7 +287,7 @@ export const SCAN_PROFILES: ScanProfile[] = [
 				displayName: "Semgrep Changed Source Analysis",
 				required: true,
 				failurePolicy: "fail_profile",
-				options: { config: "auto", scanners: ["vuln", "secret", "config"] },
+				options: { config: "owned", scanners: ["vuln", "secret", "config"] },
 			},
 			{
 				toolId: "gitleaks",
@@ -326,7 +326,7 @@ export const SCAN_PROFILES: ScanProfile[] = [
 				displayName: "Semgrep Static Analysis",
 				required: true,
 				failurePolicy: "fail_profile",
-				options: { config: "auto", scanners: ["vuln", "secret", "config"] },
+				options: { config: "owned", scanners: ["vuln", "secret", "config"] },
 			},
 			{
 				toolId: "gitleaks",
@@ -416,7 +416,7 @@ export const SCAN_PROFILES: ScanProfile[] = [
 				displayName: "Semgrep Deep Static Analysis",
 				required: true,
 				failurePolicy: "fail_profile",
-				options: { config: "auto", maxTargetBytes: 2000000 },
+				options: { config: "owned", maxTargetBytes: 2000000 },
 			},
 			{
 				toolId: "gitleaks",
@@ -455,7 +455,7 @@ export const SCAN_PROFILES: ScanProfile[] = [
 				displayName: "Semgrep Deep Static Analysis",
 				required: true,
 				failurePolicy: "fail_profile",
-				options: { config: "auto", maxTargetBytes: 2000000 },
+				options: { config: "owned", maxTargetBytes: 2000000 },
 			},
 			{
 				toolId: "gitleaks",
@@ -494,7 +494,7 @@ export const SCAN_PROFILES: ScanProfile[] = [
 				displayName: "Semgrep Static Analysis",
 				required: true,
 				failurePolicy: "fail_profile",
-				options: { config: "auto", scanners: ["vuln", "secret", "config"] },
+				options: { config: "owned", scanners: ["vuln", "secret", "config"] },
 			},
 			{
 				toolId: "gitleaks",
@@ -517,7 +517,7 @@ export const SCAN_PROFILES: ScanProfile[] = [
 				displayName: "Semgrep Static Analysis",
 				required: true,
 				failurePolicy: "fail_profile",
-				options: { config: "auto", scanners: ["vuln", "secret", "config"] },
+				options: { config: "owned", scanners: ["vuln", "secret", "config"] },
 			},
 			{
 				kind: "static_tool",
@@ -632,7 +632,7 @@ export const SCAN_PROFILES: ScanProfile[] = [
 				displayName: "Semgrep Deep Static Analysis",
 				required: true,
 				failurePolicy: "fail_profile",
-				options: { config: "auto", maxTargetBytes: 2000000 },
+				options: { config: "owned", maxTargetBytes: 2000000 },
 			},
 			{
 				toolId: "gitleaks",
@@ -662,7 +662,7 @@ export const SCAN_PROFILES: ScanProfile[] = [
 				displayName: "Semgrep Deep Static Analysis",
 				required: true,
 				failurePolicy: "fail_profile",
-				options: { config: "auto", maxTargetBytes: 2000000 },
+				options: { config: "owned", maxTargetBytes: 2000000 },
 			},
 			{
 				kind: "static_tool",

@@ -1,7 +1,7 @@
 {
 	"name": "vuln-workbench",
 	"version": "1.0.0",
-	"description": "Local vulnerability diagnostic workbench for CLI scan evidence, LLM review, and human decisions.",
+	"description": "Local AppSec evidence workbench with automated scanner aggregation and evidence-constrained LLM review.",
 	"type": "module",
 	"author": "",
 	"license": "MIT",
@@ -95,6 +95,13 @@
 		"repro:finding": "bun run api/cli/repro-finding.ts",
 		"dynamic:run": "bun run api/cli/dynamic-run.ts",
 		"docker:toolbox:build": "bun run scripts/build-toolbox-image.ts",
+		"verify:toolbox-provenance": "bun run scripts/verify-toolbox-provenance.ts",
+		"verify:toolbox-offline": "bun run scripts/verify-offline-toolbox.ts",
+		"scanner-data:prepare": "bun run scripts/prepare-scanner-data.ts",
+		"security:capability:inventory": "bun run scripts/security-capability-inventory.ts",
+		"test:security-capability": "bun test tests/security-capability shared/schemas/active-assessment.schema.test.ts shared/schemas/automated-diagnostic.schema.test.ts api/modules/assessments/coverage-builder.test.ts api/modules/dast/active-assessment-runner.test.ts api/modules/dast/authorization-matrix-runner.test.ts api/modules/dast/transaction-runner.test.ts api/modules/dast/rules-of-engagement.test.ts api/modules/dast/auth-context-repository.test.ts api/modules/dast/playwright-browser-adapter.test.ts api/modules/scans/scan-diagnostic-runner.test.ts api/modules/scans/tools/scanner-provenance.test.ts api/routes/assessments.route.test.ts api/routes/dast-auth.route.test.ts",
+		"test:security-capability:heavy": "bun run scripts/security-capability-heavy.ts",
+		"verify:security-capability": "bun run test:security-capability && bun run verify:toolbox-provenance && bun run verify:toolbox-offline",
 		"docker:dynamic:build": "bun run scripts/build-dynamic-image.ts",
 		"verify": "bun scripts/verify.ts",
 		"verify:strict": "bun run scripts/verify-strict.ts"

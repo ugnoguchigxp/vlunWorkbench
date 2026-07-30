@@ -1,16 +1,13 @@
 import type { AppDatabase } from "../../db";
 import { projects } from "../../db/schema";
 import { FindingRepository, ScanRepository } from "../scans/repositories";
-import {
-	type DastBrowserAdapter,
-	MockBrowserAdapter,
-	UnavailableBrowserAdapter,
-	runBrowserSmoke,
-} from "./browser-runner";
+import type { DastBrowserAdapter } from "./browser-runner";
+import type { DastAuthContextRepository } from "./auth-context-repository";
 import { DastArtifactStorage } from "./dast-artifact-storage";
 import { normalizeDastResult } from "./dast-normalizer";
+import { executeDastProfile } from "./dast-profile-executor";
 import { DastRepository } from "./dast-repository";
-import { runHttpBaseline, type DastFetch } from "./http-runner";
+import type { DastFetch } from "./http-runner";
 import {
 	assertDastProfileRunnable,
 	getDastProfile,
@@ -39,6 +36,8 @@ export type RunDastOptions = {
 	createdByUserId?: string | null;
 	manageScanRunStatus?: boolean;
 	useStoredProfileConfig?: boolean;
+	authContextId?: string | null;
+	identityRole?: string | null;
 };
 
 export type DastCliResult =
@@ -79,6 +78,7 @@ export class DastRunner {
 			storage?: DastArtifactStorage;
 			fetchImpl?: DastFetch;
 			browserAdapter?: DastBrowserAdapter;
+			authContextRepository?: DastAuthContextRepository;
 		} = {},
 	) {
 		this.dastRepo = new DastRepository(db);
@@ -165,6 +165,7 @@ export class DastRunner {
 				profileEnabled: profileConfig?.enabled ?? true,
 				routePaths: profileConfig?.routePathsJson ?? [],
 				formSelectors: profileConfig?.formSelectorsJson ?? [],
+				authContextId: params.authContextId,
 			});
 		} catch (error) {
 			return {
@@ -327,7 +328,10 @@ export class DastRunner {
 					profile: `dast:${prepared.profile.id}`,
 					status: "running",
 					createdByUserId: params.createdByUserId ?? null,
-					metadata: { dastProfileId: prepared.profile.id },
+					metadata: {
+						dastProfileId: prepared.profile.id,
+						automaticDiagnosticRequested: true,
+					},
 				});
 		if (!scanRun || scanRun.projectId !== params.projectId) {
 			return {
@@ -365,46 +369,20 @@ export class DastRunner {
 		});
 
 		try {
-			let result: DastRawResult;
-			if (prepared.profile.kind === "http") {
-				result = await runHttpBaseline({
-					target: prepared.validation,
-					profile: prepared.profile,
-					profileConfigRoutes: prepared.profileConfig?.routePathsJson,
-					checkOptions: prepared.profileConfig?.checkOptionsJson,
-					timeoutSec:
-						params.timeoutSec ??
-						prepared.profileConfig?.timeoutSec ??
-						undefined,
-					maxRequests:
-						params.maxRequests ??
-						prepared.profileConfig?.maxRequests ??
-						undefined,
-					fetchImpl: this.deps.fetchImpl,
-				});
-			} else if (prepared.profile.kind === "browser") {
-				const adapter =
-					this.deps.browserAdapter ??
-					(params.runner === "mock"
-						? new MockBrowserAdapter()
-						: new UnavailableBrowserAdapter());
-				result = await runBrowserSmoke({
-					target: prepared.validation,
-					profile: prepared.profile,
-					profileConfigRoutes: prepared.profileConfig?.routePathsJson ?? [],
-					timeoutSec:
-						params.timeoutSec ??
-						prepared.profileConfig?.timeoutSec ??
-						undefined,
-					maxRequests:
-						params.maxRequests ??
-						prepared.profileConfig?.maxRequests ??
-						undefined,
-					adapter,
-				});
-			} else {
-				throw new Error("form-baseline runner is not enabled in Phase 11.");
-			}
+			const authMaterial = params.authContextId
+				? await this.requireAuthContext(params)
+				: undefined;
+			const result = await executeDastProfile({
+				profile: prepared.profile,
+				target: prepared.validation,
+				profileConfig: prepared.profileConfig,
+				timeoutSec: params.timeoutSec,
+				maxRequests: params.maxRequests,
+				runner: params.runner,
+				fetchImpl: this.deps.fetchImpl,
+				browserAdapter: this.deps.browserAdapter,
+				authMaterial,
+			});
 
 			const { rawArtifactId, artifactIds } = await this.saveRawArtifacts({
 				dastRunId: dastRun.id,
@@ -525,5 +503,19 @@ export class DastRunner {
 				profileId: prepared.profile.id,
 			};
 		}
+	}
+
+	private async requireAuthContext(params: RunDastOptions) {
+		if (!this.deps.authContextRepository) {
+			throw new Error("dast_auth_context_repository_unavailable");
+		}
+		if (!params.identityRole) throw new Error("dast_identity_role_required");
+		return await this.deps.authContextRepository.decryptForUse({
+			id: params.authContextId as string,
+			projectId: params.projectId,
+			targetConfigId: params.targetConfigId,
+			identityRole: params.identityRole,
+			actorUserId: params.createdByUserId ?? undefined,
+		});
 	}
 }

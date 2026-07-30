@@ -101,11 +101,17 @@ export class OsvRunner {
 				: { applied: false },
 		};
 
-		// Command: osv-scanner --format json --output <tempJsonPath> --recursive <scanPath>
+		const dockerOfflineArgs =
+			this.execution?.runner === "docker"
+				? ["--offline", "--offline-vulnerabilities", "--no-resolve"]
+				: [];
 		const args = [
+			"scan",
+			"source",
+			...dockerOfflineArgs,
 			"--format",
 			"json",
-			"--output",
+			"--output-file",
 			tempJsonPath,
 			"--recursive",
 			scanPath,
@@ -129,7 +135,7 @@ export class OsvRunner {
 			? normalizeScannerOutputText(runResult.stderr, outputNormalizationRoot)
 			: runResult.stderr;
 
-		if (!runResult.ok) {
+		if (!runResult.ok && runResult.exitCode !== 1) {
 			await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
 			await cleanupScopedWorkspace(scopedWorkspace?.path);
 			return {

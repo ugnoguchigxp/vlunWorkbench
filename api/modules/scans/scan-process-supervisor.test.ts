@@ -12,6 +12,9 @@ function createRepository(initial: {
 		get scan() {
 			return scan;
 		},
+		setStatus(status: string) {
+			scan = { ...scan, status };
+		},
 		events,
 		findById: vi.fn(async (id: string) => (id === scan.id ? scan : null)),
 		listActiveScanRuns: vi.fn(async () => [scan]),
@@ -97,5 +100,34 @@ describe("ScanProcessSupervisor", () => {
 		expect(repository.scan.metadata.terminationReason).toBe(
 			"stale_runtime_recovery",
 		);
+	});
+
+	it("dispatches a completed owned scan to automated diagnosis", async () => {
+		const repository = createRepository({
+			id: "scan-4",
+			status: "queued",
+			metadata: {},
+		});
+		let resolveCompleted!: () => void;
+		const completed = new Promise<void>((resolve) => {
+			resolveCompleted = resolve;
+		});
+		const onCompletedScan = vi.fn(async () => {
+			resolveCompleted();
+		});
+		const supervisor = new ScanProcessSupervisor(repository as never, {
+			onCompletedScan,
+		});
+
+		await supervisor.launch("scan-4", [
+			process.execPath,
+			"-e",
+			"setTimeout(() => process.exit(0), 20)",
+		]);
+		repository.setStatus("completed");
+
+		await completed;
+		expect(onCompletedScan).toHaveBeenCalledWith("scan-4");
+		expect(repository.scan.metadata.automaticDiagnosticRequested).toBe(true);
 	});
 });

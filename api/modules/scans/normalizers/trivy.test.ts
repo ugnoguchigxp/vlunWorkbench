@@ -83,7 +83,7 @@ describe("Trivy Normalizer", () => {
 		expect(vulnFinding.fingerprint).toBe(
 			generateTrivyFingerprint("CVE-2023-12345", "package.json", "axios:0.21.1"),
 		);
-		expect((vulnFinding as any).metadata).toEqual({
+		expect((vulnFinding as any).metadata).toEqual(expect.objectContaining({
 			target: "package.json",
 			vulnerabilityId: "CVE-2023-12345",
 			packageName: "axios",
@@ -91,7 +91,11 @@ describe("Trivy Normalizer", () => {
 			fixedVersion: "0.21.2",
 			class: "lang-pkgs",
 			type: "npm",
-		});
+		}));
+		expect((vulnFinding as any).metadata.risk.package.purl).toBe(
+			"pkg:npm/axios@0.21.1",
+		);
+		expect((vulnFinding as any).metadata.risk.derivedPriority).toBe("p1");
 
 		// 2. Check misconfig finding
 		const misconfigFinding = normalized.find((f) => f.ruleId === "AVD-AWS-0001")!;

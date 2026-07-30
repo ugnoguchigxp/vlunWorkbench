@@ -6,6 +6,7 @@ import {
 	reportHeading,
 	toInlineText,
 } from "./report-builder-helpers";
+import { coverageControlById } from "../assessments/coverage-catalog";
 import type { renderReportOverview } from "./report-builder-overview";
 import type { buildReportQuery } from "./report-builder-query";
 
@@ -13,42 +14,76 @@ type Scope = Awaited<ReturnType<typeof buildReportQuery>> &
 	ReturnType<typeof renderReportOverview> & { scanRunId: string };
 export function renderReportCoverage(scope: Scope): void {
 	const {
-		activeFindings,
-		allArtifacts,
 		allAttackSurfaceItems,
 		allDastEvidence,
-		allDastRuns,
 		allDiagnosticReports,
 		allDynamicRuns,
 		allReproRuns,
-		allReviews,
 		allSecurityCheckResults,
+		coverageResults,
 		decidedFindingCount,
-		deferredFindings,
-		expectedDastSteps,
 		failedOrMissingDastSteps,
-		falsePositiveFindings,
 		includedFindings,
-		latestImprovementRequest,
 		processedFindings,
 		profileDefinition,
 		profileSteps,
 		project,
 		rawFindings,
-		reportTitle,
 		reviewedFindingCount,
 		scanRun,
 		severityStats,
-		sortedFindings,
 		stats,
 		stepResults,
 		tools,
-		undecidedFindings,
 		lines,
 		diffContext,
 		scanRunId,
 	} = scope;
 
+	lines.push("");
+
+	lines.push("## Coverage and Limitations");
+	lines.push(
+		"finding 件数とは独立した control 単位の実行結果です。`not_tested`、`blocked`、`inconclusive` は成功として扱いません。",
+	);
+	lines.push(
+		"| Control | Framework | Category | Claim | Status | Method | Reason | Evidence |",
+	);
+	lines.push("| --- | --- | --- | --- | --- | --- | --- | --- |");
+	for (const result of coverageResults) {
+		const control = coverageControlById(result.controlId);
+		lines.push(
+			`| ${escapeTableCell(result.controlId)} | ${escapeTableCell(control ? `${control.framework} ${control.version}` : "unknown")} | ${escapeTableCell(control?.category ?? "unknown")} | ${escapeTableCell(control?.automationLevel ?? "unknown")} | ${escapeTableCell(result.status)} | ${escapeTableCell(result.method)} | ${escapeTableCell(result.reasonCode)} | ${result.evidenceRefs.length} |`,
+		);
+	}
+	const partialControls = coverageResults
+		.map((result) => coverageControlById(result.controlId))
+		.filter(
+			(control): control is NonNullable<typeof control> =>
+				control?.automationLevel === "partial",
+		);
+	if (partialControls.length > 0) {
+		lines.push(
+			"- **Automation claim:** `partial` controls can prove a detected violation, but a zero-finding run remains `inconclusive` and is never promoted to full control assurance.",
+		);
+		for (const control of partialControls) {
+			lines.push(
+				`  - ${control.id}: ${control.limitations.map((limitation) => toInlineText(limitation)).join(" ")}`,
+			);
+		}
+	}
+	const untested = coverageResults.filter(
+		(result) =>
+			result.status === "not_tested" ||
+			result.status === "blocked" ||
+			result.status === "inconclusive" ||
+			result.status === "unsupported",
+	);
+	if (untested.length > 0) {
+		lines.push(
+			`- **Residual coverage gaps:** ${untested.map((result) => `${result.controlId}:${result.status}`).join(", ")}`,
+		);
+	}
 	lines.push("");
 
 	lines.push(reportHeading("remediation-plan"));
@@ -151,8 +186,10 @@ export function renderReportCoverage(scope: Scope): void {
 	if (tools.length > 0) {
 		const profileTools = profileDefinition?.tools ?? [];
 
-		lines.push("| ツール | 種別 | バージョン | 状態 | 終了コード |");
-		lines.push("| --- | --- | --- | --- | --- |");
+		lines.push(
+			"| ツール | 種別 | バージョン | 状態 | 終了コード | Scanner data | Reproducible |",
+		);
+		lines.push("| --- | --- | --- | --- | --- | --- | --- |");
 		// Sort tools deterministically
 		const sortedTools = [...tools].sort((a, b) => {
 			const nameDiff = a.toolName.localeCompare(b.toolName);
@@ -169,8 +206,14 @@ export function renderReportCoverage(scope: Scope): void {
 					? "必須"
 					: "任意"
 				: "N/A";
+			const provenance =
+				t.metadata?.provenance &&
+				typeof t.metadata.provenance === "object" &&
+				!Array.isArray(t.metadata.provenance)
+					? (t.metadata.provenance as Record<string, unknown>)
+					: {};
 			lines.push(
-				`| ${escapeTableCell(t.toolName)} | ${escapeTableCell(requiredText)} | ${escapeTableCell(t.toolVersion || "unknown")} | ${escapeTableCell(t.status)} | ${escapeTableCell(t.exitCode ?? "-")} |`,
+				`| ${escapeTableCell(t.toolName)} | ${escapeTableCell(requiredText)} | ${escapeTableCell(t.toolVersion || "unknown")} | ${escapeTableCell(t.status)} | ${escapeTableCell(t.exitCode ?? "-")} | ${escapeTableCell(String(provenance.dataState ?? "unrecorded"))} / ${escapeTableCell(String(provenance.dataDigest ?? "-"))} | ${provenance.reproducible === true ? "yes" : "no"} |`,
 			);
 		}
 	} else {
@@ -253,7 +296,7 @@ export function renderReportCoverage(scope: Scope): void {
 	lines.push(`| 既知リスク記録 | ${stats.accepted} |`);
 	lines.push(`| 後続確認記録 | ${stats.deferred} |`);
 	lines.push(`| 誤検知 | ${stats.false_positive} |`);
-	lines.push(`| LLM handoff未作成 | ${stats.undecided} |`);
+	lines.push(`| 任意注釈なし | ${stats.undecided} |`);
 	lines.push(`| **合計** | ${rawFindings.length} |`);
 	lines.push("");
 

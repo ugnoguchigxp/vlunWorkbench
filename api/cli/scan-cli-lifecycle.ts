@@ -16,6 +16,7 @@ import {
 	ScanRepository,
 } from "../modules/scans/repositories";
 import type { ToolExecutionConfig } from "../modules/scans/tools/tool-process-runner";
+import { runCliAutomatedDiagnostic } from "./scan-profile-diagnostic";
 
 export interface ScannerCliRunResult {
 	ok: boolean;
@@ -156,6 +157,7 @@ export async function executeScannerCli<
 				status: "running",
 				metadata: {
 					executionPolicy: scanExecutionPolicyMetadata(executionPolicy),
+					automaticDiagnosticRequested: true,
 				},
 			});
 		} catch (error) {
@@ -318,6 +320,11 @@ export async function executeScannerCli<
 				eventType: "scan.completed",
 				message: "Scan run completed successfully.",
 			});
+			const diagnostic = await runDiagnosticSafely({
+				db: connection.db,
+				env,
+				scanRunId: scanRun.id,
+			});
 			writeResult({
 				ok: true,
 				scanRunId: scanRun.id,
@@ -326,6 +333,7 @@ export async function executeScannerCli<
 				findingCount,
 				evidenceCount,
 				status: "completed",
+				diagnostic,
 			});
 		} catch (error) {
 			const message = errorMessage(error);
@@ -373,5 +381,20 @@ export async function executeScannerCli<
 		process.exitCode = 1;
 	} finally {
 		connection.sqlite.close(false);
+	}
+}
+
+async function runDiagnosticSafely(
+	params: Parameters<typeof runCliAutomatedDiagnostic>[0],
+) {
+	try {
+		return await runCliAutomatedDiagnostic(params);
+	} catch (error) {
+		return {
+			status: "failed",
+			readiness: "failed",
+			error:
+				error instanceof Error ? error.message : "Automated diagnostic failed.",
+		};
 	}
 }

@@ -1,4 +1,9 @@
 import { z } from "zod";
+import {
+	evidenceStrengthSchema,
+	scannerObservationOutcomeSchema,
+	verificationKindSchema,
+} from "./verification.schema";
 
 export const reproductionRunStatusSchema = z.enum([
 	"queued",
@@ -25,7 +30,11 @@ export const reproductionRunSchema = z.object({
 	findingId: z.string().uuid(),
 	profileId: z.string().min(1),
 	status: reproductionRunStatusSchema,
-	outcome: reproductionOutcomeSchema.nullable(),
+	outcome: scannerObservationOutcomeSchema
+		.or(reproductionOutcomeSchema)
+		.nullable(),
+	verificationKind: verificationKindSchema.default("scanner_recheck"),
+	evidenceStrength: evidenceStrengthSchema.default("scanner_signal"),
 	runner: z.string(),
 	commandJson: z.array(z.string()).nullable(),
 	exitCode: z.number().nullable(),

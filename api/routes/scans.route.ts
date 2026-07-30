@@ -19,10 +19,15 @@ import type {
 	ProjectRepository,
 	ScanRepository,
 } from "../modules/scans/repositories";
+import { ScanDiagnosticRepository } from "../modules/scans/scan-diagnostic-repository";
+import type { ScanDiagnosticRunner } from "../modules/scans/scan-diagnostic-runner";
 import type { ScanProcessSupervisor } from "../modules/scans/scan-process-supervisor";
 import { ScanReviewRepository } from "../modules/scans/scan-review-repository";
 import { ScanReviewRunner } from "../modules/scans/scan-review-runner";
 import { buildScanRunSummary } from "../modules/scans/summary-builder";
+import { AssessmentRepository } from "../modules/assessments/assessment-repository";
+import { buildCoverageResults } from "../modules/assessments/coverage-builder";
+import { coverageControlById } from "../modules/assessments/coverage-catalog";
 import type { LlmRouter } from "../providers/llmRouter";
 
 type ScansRouteDeps = {
@@ -34,12 +39,15 @@ type ScansRouteDeps = {
 	findingReviewRepository?: FindingReviewRepository;
 	scanReportRepository: ScanReportRepository;
 	scanReviewRepository?: ScanReviewRepository;
+	scanDiagnosticRepository?: ScanDiagnosticRepository;
+	assessmentRepository?: AssessmentRepository;
 	artifactStorage: ArtifactStorage;
 	db: AppDatabase;
 	llmRouter?: LlmRouter;
 	scanSupervisor?: ScanProcessSupervisor;
 	scanReviewRunner?: Pick<ScanReviewRunner, "start">;
 	scanReportRunner?: Pick<ScanReportRunner, "start">;
+	scanDiagnosticRunner?: Pick<ScanDiagnosticRunner, "retry">;
 };
 
 export function createScansRoute(deps: ScansRouteDeps) {
@@ -58,6 +66,10 @@ export function createScansRoute(deps: ScansRouteDeps) {
 		deps.findingReviewRepository ?? new FindingReviewRepository(db);
 	const scanReviewRepository =
 		deps.scanReviewRepository ?? new ScanReviewRepository(db);
+	const scanDiagnosticRepository =
+		deps.scanDiagnosticRepository ?? new ScanDiagnosticRepository(db);
+	const assessmentRepository =
+		deps.assessmentRepository ?? new AssessmentRepository(db);
 	const scanReviewRunner =
 		deps.scanReviewRunner ??
 		new ScanReviewRunner(db, {
@@ -182,7 +194,17 @@ export function createScansRoute(deps: ScansRouteDeps) {
 			const scanRunId = c.req.param("scanRunId");
 			await checkScanOwnership(scanRunId, authUser.userId);
 			const summary = await buildScanRunSummary(db, scanRunId);
-			return c.json({ summary });
+			const persistedCoverage =
+				await assessmentRepository.listCoverageResults(scanRunId);
+			const coverageResults = (
+				persistedCoverage.length > 0
+					? persistedCoverage
+					: buildCoverageResults(summary)
+			).map((result) => ({
+				...result,
+				control: coverageControlById(result.controlId),
+			}));
+			return c.json({ summary: { ...summary, coverageResults } });
 		})
 		.get("/:scanRunId/groups", async (c) => {
 			const authUser = getAuthContextUser(c);
@@ -204,6 +226,37 @@ export function createScansRoute(deps: ScansRouteDeps) {
 			await checkScanOwnership(scanRunId, authUser.userId);
 			const reviews = await scanReviewRepository.listReviews(scanRunId);
 			return c.json({ reviews });
+		})
+		.get("/:scanRunId/diagnostics", async (c) => {
+			const authUser = getAuthContextUser(c);
+			const scanRunId = c.req.param("scanRunId");
+			await checkScanOwnership(scanRunId, authUser.userId);
+			const diagnostics = await scanDiagnosticRepository.listForScan(scanRunId);
+			return c.json({ diagnostics });
+		})
+		.post("/:scanRunId/diagnostics/retry", async (c) => {
+			const authUser = getAuthContextUser(c);
+			const scanRunId = c.req.param("scanRunId");
+			await checkScanOwnership(scanRunId, authUser.userId);
+			if (!deps.scanDiagnosticRunner) {
+				throw new HttpError(
+					409,
+					"Automated diagnostic runner is not available.",
+				);
+			}
+			const started = await deps.scanDiagnosticRunner.retry(scanRunId);
+			void started.completion.catch((error) => {
+				console.error(
+					`Automated diagnostic ${started.diagnosticRunId} retry failed:`,
+					error,
+				);
+			});
+			const diagnostic = await scanDiagnosticRepository.findById(
+				started.diagnosticRunId,
+			);
+			const status =
+				started.status === "queued" || started.status === "running" ? 202 : 200;
+			return c.json({ diagnostic }, status);
 		})
 		.post("/:scanRunId/reviews", async (c) => {
 			const authUser = getAuthContextUser(c);

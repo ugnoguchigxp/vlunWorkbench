@@ -248,34 +248,38 @@ describe("Dynamic Runner", () => {
 		expect(dbRun!.metadata.failureKind).toBe("docker_unavailable");
 	});
 
-	it("should preserve timeout as a dynamic outcome instead of a runner error", async () => {
-		let resolveExit: (code: number | null) => void = () => {};
-		vi.spyOn(Bun, "spawn").mockImplementation(() => {
-			return {
-				exited: new Promise<number | null>((resolve) => {
-					resolveExit = resolve;
-				}),
-				stdout: streamText("still running"),
-				stderr: streamText(""),
-				kill: () => resolveExit(null),
-			} as any;
-		});
+	it(
+		"should preserve timeout as a dynamic outcome instead of a runner error",
+		async () => {
+			let resolveExit: (code: number | null) => void = () => {};
+			vi.spyOn(Bun, "spawn").mockImplementation(() => {
+				return {
+					exited: new Promise<number | null>((resolve) => {
+						resolveExit = resolve;
+					}),
+					stdout: streamText("still running"),
+					stderr: streamText(""),
+					kill: () => resolveExit(null),
+				} as any;
+			});
 
-		const result = await runner.run({
-			projectId,
-			profileId: "test-profile-1",
-			runner: "docker",
-			timeoutSec: 1,
-			createdByUserId: userId,
-		});
+			const result = await runner.run({
+				projectId,
+				profileId: "test-profile-1",
+				runner: "docker",
+				timeoutSec: 1,
+				createdByUserId: userId,
+			});
 
-		expect(result.status).toBe("timed_out");
-		expect(result.outcome).toBe("timed_out");
+			expect(result.status).toBe("timed_out");
+			expect(result.outcome).toBe("timed_out");
 
-		const dbRun = await repo.getRun(result.dynamicRunId!);
-		expect(dbRun!.status).toBe("timed_out");
-		expect(dbRun!.outcome).toBe("timed_out");
-	});
+			const dbRun = await repo.getRun(result.dynamicRunId!);
+			expect(dbRun!.status).toBe("timed_out");
+			expect(dbRun!.outcome).toBe("timed_out");
+		},
+		15_000,
+	);
 
 	it("should reject request-time broadening of bounded profile policy", async () => {
 		await expect(

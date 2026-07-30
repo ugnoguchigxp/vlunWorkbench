@@ -1,12 +1,6 @@
 import type { ScanScopePolicy } from "../../../shared/schemas/scan-profile.schema";
 import type { AppDatabase } from "../../db";
 import type { ArtifactStorage } from "./artifact-storage";
-import type { NormalizedFinding } from "./normalizers/fixture";
-import { normalizeGitleaks } from "./normalizers/gitleaks";
-import { normalizeOsv } from "./normalizers/osv";
-// Import normalizers
-import { normalizeSemgrep } from "./normalizers/semgrep";
-import { normalizeTrivy } from "./normalizers/trivy";
 import {
 	buildBaseExecutionMetadata,
 	buildDiffFindingRelation,
@@ -14,21 +8,22 @@ import {
 	type DiffToolExecutionContext,
 	persistedTargetMetadata,
 } from "./profile-runner";
+import { selectStaticTool } from "./profile-static-tool-selection";
+import { prepareToolProvenance } from "./profile-tool-provenance";
 import {
 	ArtifactRepository,
 	FindingRepository,
 	ScanRepository,
 } from "./repositories";
-import { GitleaksRunner } from "./tools/gitleaks-runner";
-import { OsvRunner } from "./tools/osv-runner";
-// Import runners
-import { SemgrepRunner } from "./tools/semgrep-runner";
+import type { GitleaksRunner } from "./tools/gitleaks-runner";
+import type { OsvRunner } from "./tools/osv-runner";
+import type { SemgrepRunner } from "./tools/semgrep-runner";
 import {
 	normalizeToolExecutionConfig,
 	type ToolExecutionConfig,
 	type ToolLifecycleEvent,
 } from "./tools/tool-process-runner";
-import { TrivyRunner } from "./tools/trivy-runner";
+import type { TrivyRunner } from "./tools/trivy-runner";
 
 export async function runToolIntoExistingScan(params: {
 	db: AppDatabase;
@@ -53,7 +48,7 @@ export async function runToolIntoExistingScan(params: {
 	const artifactRepo = new ArtifactRepository(params.db);
 	const findingRepo = new FindingRepository(params.db);
 
-	const options = params.options ?? {};
+	let options = { ...(params.options ?? {}) };
 	if (
 		params.toolId === "trivy" &&
 		options.mode === "image" &&
@@ -64,6 +59,13 @@ export async function runToolIntoExistingScan(params: {
 	}
 	const timeoutSec = params.timeoutSec;
 	const execution = normalizeToolExecutionConfig(params.execution);
+	const preparedProvenance = await prepareToolProvenance({
+		toolId: params.toolId,
+		execution,
+		options,
+	});
+	options = preparedProvenance.options;
+	const scannerProvenance = preparedProvenance.provenance;
 	const baseExecutionMetadata = buildBaseExecutionMetadata(execution);
 	const diffExecutionMetadata = params.diffContext
 		? {
@@ -84,43 +86,12 @@ export async function runToolIntoExistingScan(params: {
 		| "installed_tree"
 		| undefined;
 
-	// 1. Resolve Runner & Normalizer
-	let runner: SemgrepRunner | GitleaksRunner | OsvRunner | TrivyRunner;
-	let normalizer: (
-		rawJson: unknown,
-		opts?: { stderr?: string },
-	) => NormalizedFinding[];
-	let toolName: string;
-	let defaultCommand: string;
-
-	switch (params.toolId) {
-		case "semgrep":
-			runner = new SemgrepRunner(params.artifactStorage, execution);
-			normalizer = normalizeSemgrep;
-			toolName = "semgrep";
-			defaultCommand = `semgrep scan --config ${options.config ?? "auto"}`;
-			break;
-		case "gitleaks":
-			runner = new GitleaksRunner(params.artifactStorage, execution);
-			normalizer = normalizeGitleaks;
-			toolName = "gitleaks";
-			defaultCommand = "gitleaks detect";
-			break;
-		case "osv":
-			runner = new OsvRunner(params.artifactStorage, execution);
-			normalizer = normalizeOsv;
-			toolName = "osv";
-			defaultCommand = "osv-scanner";
-			break;
-		case "trivy":
-			runner = new TrivyRunner(params.artifactStorage, execution);
-			normalizer = normalizeTrivy;
-			toolName = "trivy";
-			defaultCommand = "trivy fs";
-			break;
-		default:
-			throw new Error(`Unsupported tool ID: ${params.toolId}`);
-	}
+	const { runner, normalizer, toolName, defaultCommand } = selectStaticTool({
+		toolId: params.toolId,
+		artifactStorage: params.artifactStorage,
+		execution,
+		options,
+	});
 
 	// 2. Check Version
 	const toolVersion = await runner.checkVersion();
@@ -132,7 +103,11 @@ export async function runToolIntoExistingScan(params: {
 		toolVersion,
 		status: "running",
 		command: defaultCommand,
-		metadata: { ...baseExecutionMetadata, ...diffExecutionMetadata },
+		metadata: {
+			...baseExecutionMetadata,
+			...diffExecutionMetadata,
+			provenance: scannerProvenance,
+		},
 	});
 	const toolRunId = toolRun.id;
 
@@ -164,6 +139,7 @@ export async function runToolIntoExistingScan(params: {
 	let executionMetadata: Record<string, unknown> = {
 		...baseExecutionMetadata,
 		...diffExecutionMetadata,
+		provenance: scannerProvenance,
 	};
 
 	try {
@@ -256,6 +232,7 @@ export async function runToolIntoExistingScan(params: {
 		executionMetadata = {
 			...baseExecutionMetadata,
 			...diffExecutionMetadata,
+			provenance: scannerProvenance,
 			...(runResult.executionMetadata ?? {}),
 		};
 

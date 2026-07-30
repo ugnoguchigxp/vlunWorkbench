@@ -1,4 +1,10 @@
-import type { DiagnosticReport, Finding, ScanReport, ScanRun } from "../../api";
+import type {
+	AutomatedDiagnosticRun,
+	DiagnosticReport,
+	Finding,
+	ScanReport,
+	ScanRun,
+} from "../../api";
 import type { CoverageSummary } from "./coverage-summary";
 import type { EvidenceQualityView } from "./evidence-quality";
 import type { RemediationPlanView } from "./remediation-plan";
@@ -7,6 +13,8 @@ export type WorkflowCompletion = {
 	scanRunId: string;
 	stage:
 		| "scan_running"
+		| "diagnostic_running"
+		| "diagnostic_retry"
 		| "needs_review"
 		| "needs_handoff"
 		| "needs_verification"
@@ -31,7 +39,8 @@ export type WorkflowCompletion = {
 			| "run_verification"
 			| "create_remediation_plan"
 			| "generate_report"
-			| "inspect_coverage";
+			| "inspect_coverage"
+			| "retry_diagnostic";
 		targetId?: string;
 	} | null;
 };
@@ -45,6 +54,7 @@ type BuildWorkflowCompletionInput = {
 	diagnosticReports?: DiagnosticReport[];
 	coverageSummary?: CoverageSummary | null;
 	hasScanImprovementRequest?: boolean;
+	automatedDiagnostics?: AutomatedDiagnosticRun[];
 };
 
 const completeReport = (
@@ -101,6 +111,19 @@ const blocked = (
 	blockingReason,
 });
 
+const notApplicable = (
+	id: string,
+	label: string,
+	weight: number,
+	explanation: string,
+) => ({
+	id,
+	label,
+	status: "not_applicable" as const,
+	weight,
+	explanation,
+});
+
 const weightedPercent = (
 	checklist: WorkflowCompletion["checklist"],
 ): number => {
@@ -141,184 +164,100 @@ export function buildWorkflowCompletion(
 		};
 	}
 
-	if (input.findings.length === 0) {
-		const hasDiagnostics =
-			Boolean(input.coverageSummary?.latestDiagnosticReport) ||
-			Boolean(
-				input.diagnosticReports?.some(
-					(report) => report.status === "completed",
-				),
-			);
-		const checklist = [
-			complete(
-				"scan",
-				"スキャン完了",
-				10,
-				"スキャン runner が完了し、結果を保存しました。",
-			),
-			hasDiagnostics
-				? complete(
-						"coverage",
-						"カバレッジ説明",
-						35,
-						"finding 0 件のリスク確認に使える自動カバレッジ診断があります。",
-						"準備完了",
-					)
-				: incomplete(
-						"coverage",
-						"カバレッジ説明",
-						35,
-						"finding 0 件の scan は、LLM へ渡す前に自動カバレッジ診断が必要です。",
-						"不足",
-					),
-			generatedReport
-				? complete(
-						"report",
-						"レポート生成",
-						15,
-						"保存済みレポートに自動診断の出力が反映されています。",
-					)
-				: incomplete(
-						"report",
-						"レポート生成",
-						15,
-						"カバレッジ診断が利用可能になった後でレポートを生成してください。",
-					),
-		];
-		return {
-			scanRunId,
-			stage: generatedReport
-				? "report_generated"
-				: hasDiagnostics
-					? "report_ready"
-					: "needs_verification",
-			percent: generatedReport ? 100 : hasDiagnostics ? 85 : 45,
-			checklist,
-			nextBestAction: generatedReport
-				? null
-				: hasDiagnostics
-					? {
-							label: "レポートを生成",
-							action: "generate_report",
-							targetId: scanRunId,
-						}
-					: {
-							label: "カバレッジを確認",
-							action: "inspect_coverage",
-							targetId: scanRunId,
-						},
-		};
-	}
-
-	const reviewed = input.findings.filter(
-		(finding) => finding.latestReview?.status === "completed",
-	);
-	const handoffComplete = Boolean(input.hasScanImprovementRequest);
-	const weakEvidence = input.findings.filter((finding) => {
-		const evidence = input.evidenceByFindingId?.get(finding.id);
-		return (
-			!evidence || evidence.level === "weak" || evidence.level === "missing"
-		);
-	});
-	const remediationBlocked = input.findings.filter((finding) => {
-		const remediation = input.remediationByFindingId?.get(finding.id);
-		if (!remediation) return false;
-		const blockingReasons = handoffComplete
-			? remediation.blockingReasons.filter(
-					(reason) => reason !== "decision_required",
-				)
-			: remediation.blockingReasons;
-		return blockingReasons.length > 0;
-	});
-
+	const latestDiagnostic = input.automatedDiagnostics?.[0] ?? null;
+	const automaticRequested =
+		input.scanRun.metadata?.automaticDiagnosticRequested === true ||
+		Boolean(latestDiagnostic);
+	const diagnosticCompleted =
+		latestDiagnostic?.status === "completed" ||
+		latestDiagnostic?.status === "completed_with_limitations";
+	const diagnosticFailed = latestDiagnostic?.status === "failed";
 	const checklist: WorkflowCompletion["checklist"] = [
 		complete(
 			"scan",
-			"スキャン完了",
-			10,
-			"スキャン runner が完了し、正規化済み finding を保存しました。",
+			"scanner 実行完了",
+			20,
+			`scanner 出力と ${input.findings.length} 件の正規化 finding を保存しました。`,
 		),
-		reviewed.length === input.findings.length
+		complete(
+			"aggregate",
+			"決定論的診断",
+			20,
+			"scanner の severity、evidence、coverage を変更せず統合しました。",
+		),
+		diagnosticCompleted
 			? complete(
-					"reviews",
-					"LLM finding レビュー出力",
-					20,
-					"すべての finding に完了済みの LLM レビュー出力があります。",
-					`${reviewed.length}/${input.findings.length}`,
+					"llm",
+					"証跡制約付き LLM 診断",
+					35,
+					latestDiagnostic.status === "completed_with_limitations"
+						? `LLM 診断は制約付きで完了しました: ${latestDiagnostic.limitationCodes.join(", ")}`
+						: "保存済み証跡だけを使った criticality と remediation の評価が完了しました。",
 				)
-			: incomplete(
-					"reviews",
-					"LLM finding レビュー出力",
-					20,
-					`${input.findings.length - reviewed.length} 件の finding は自動 LLM レビュー出力がまだ必要です。`,
-					`${reviewed.length}/${input.findings.length}`,
-				),
-		handoffComplete
-			? complete(
-					"handoff",
-					"LLM 修正依頼",
-					20,
-					"次の LLM または実装担当へ渡せる scan 単位の改善依頼があります。",
-					"準備完了",
-				)
-			: incomplete(
-					"handoff",
-					"LLM 修正依頼",
-					20,
-					"次の LLM にコード上のリスク低減方法を伝える scan 単位の実装 handoff を生成してください。",
-					"不足",
-				),
-		weakEvidence.length === 0
-			? complete(
-					"verification",
-					"証跡の信頼度",
-					20,
-					"自動 handoff に十分な証跡品質があります。",
-				)
-			: incomplete(
-					"verification",
-					"証跡の信頼度",
-					20,
-					`${weakEvidence.length} 件の finding は証跡シグナルが弱いか不足しています。`,
-					`${weakEvidence.length} 件 弱い/不足`,
-				),
-		remediationBlocked.length === 0
-			? complete(
-					"remediation",
-					"修正または handoff の準備",
-					15,
-					"修正ガイダンスまたは scan 単位の handoff で後続作業を進められます。",
-				)
-			: blocked(
-					"remediation",
-					"修正または handoff の準備",
-					15,
-					`${remediationBlocked.length} 件の finding は修正メタデータがまだブロックされています。`,
-					`${remediationBlocked.length} 件 ブロック中`,
-					remediationBlocked[0]?.id,
-				),
+			: diagnosticFailed
+				? blocked(
+						"llm",
+						"証跡制約付き LLM 診断",
+						35,
+						latestDiagnostic.errorMessage ??
+							"LLM 診断が失敗しました。deterministic 結果は保持されています。",
+						"再実行可能",
+						latestDiagnostic.id,
+					)
+				: automaticRequested
+					? incomplete(
+							"llm",
+							"証跡制約付き LLM 診断",
+							35,
+							"LLM criticality 診断を自動実行しています。人手の承認は不要です。",
+							"実行中",
+						)
+					: notApplicable(
+							"llm",
+							"証跡制約付き LLM 診断",
+							35,
+							"この既存 scan では自動診断が要求されていません。",
+						),
 		generatedReport
 			? complete(
 					"report",
-					"レポート生成",
-					15,
-					"保存済みレポートに自動診断の出力が反映されています。",
+					"統合レポート",
+					25,
+					"scanner 結果と利用可能な LLM 診断を含むレポートを保存しました。",
 				)
 			: incomplete(
 					"report",
-					"レポート生成",
-					15,
-					"LLM handoff と証跡シグナルが準備できた後でレポートを生成してください。",
+					"統合レポート",
+					25,
+					automaticRequested
+						? "自動診断 pipeline がレポートを生成しています。"
+						: "既存 scan のレポートを生成できます。",
 				),
 	];
-
 	const percent = weightedPercent(checklist);
-	const firstUnreviewed = input.findings.find(
-		(finding) => finding.latestReview?.status !== "completed",
-	);
-	const firstWeakEvidence = weakEvidence[0];
-	const firstRemediationBlocked = remediationBlocked[0];
 
+	if (diagnosticFailed) {
+		return {
+			scanRunId,
+			stage: "diagnostic_retry",
+			percent,
+			checklist,
+			nextBestAction: {
+				label: "自動診断を再実行",
+				action: "retry_diagnostic",
+				targetId: scanRunId,
+			},
+		};
+	}
+	if (automaticRequested && !diagnosticCompleted) {
+		return {
+			scanRunId,
+			stage: "diagnostic_running",
+			percent,
+			checklist,
+			nextBestAction: null,
+		};
+	}
 	if (generatedReport) {
 		return {
 			scanRunId,
@@ -328,62 +267,10 @@ export function buildWorkflowCompletion(
 			nextBestAction: null,
 		};
 	}
-	if (firstUnreviewed) {
-		return {
-			scanRunId,
-			stage: "needs_review",
-			percent,
-			checklist,
-			nextBestAction: {
-				label: "LLM リスク文脈を生成",
-				action: "review_findings",
-				targetId: firstUnreviewed.id,
-			},
-		};
-	}
-	if (!handoffComplete) {
-		return {
-			scanRunId,
-			stage: "needs_handoff",
-			percent,
-			checklist,
-			nextBestAction: {
-				label: "改善依頼を生成",
-				action: "create_improvement_request",
-				targetId: scanRunId,
-			},
-		};
-	}
-	if (firstWeakEvidence) {
-		return {
-			scanRunId,
-			stage: "needs_verification",
-			percent,
-			checklist,
-			nextBestAction: {
-				label: "検証を実行",
-				action: "run_verification",
-				targetId: firstWeakEvidence.id,
-			},
-		};
-	}
-	if (firstRemediationBlocked) {
-		return {
-			scanRunId,
-			stage: "needs_remediation_plan",
-			percent,
-			checklist,
-			nextBestAction: {
-				label: "修正計画を完了",
-				action: "create_remediation_plan",
-				targetId: firstRemediationBlocked.id,
-			},
-		};
-	}
 	return {
 		scanRunId,
 		stage: "report_ready",
-		percent: Math.max(percent, 90),
+		percent: Math.max(percent, 75),
 		checklist,
 		nextBestAction: {
 			label: "レポートを生成",

@@ -55,7 +55,7 @@ describe("OsvRunner", () => {
 			}
 
 			let writePromise = Promise.resolve();
-			const outputIdx = args.indexOf("--output");
+			const outputIdx = args.indexOf("--output-file");
 			if (outputIdx !== -1 && args[outputIdx + 1]) {
 				const outPath = args[outputIdx + 1];
 				writePromise = fs.writeFile(outPath, JSON.stringify({ results: [] }));
@@ -111,7 +111,7 @@ describe("OsvRunner", () => {
 			}
 
 			let writePromise = Promise.resolve();
-			const outputIdx = args.indexOf("--output");
+			const outputIdx = args.indexOf("--output-file");
 			if (outputIdx !== -1 && args[outputIdx + 1]) {
 				const outPath = args[outputIdx + 1];
 				writePromise = fs.writeFile(
@@ -172,7 +172,7 @@ describe("OsvRunner", () => {
 			}
 
 			observedScanPath = args.at(-1) as string;
-			const outputPath = args[args.indexOf("--output") + 1] as string;
+			const outputPath = args[args.indexOf("--output-file") + 1] as string;
 			const complete = (async () => {
 				expect(observedScanPath).not.toBe(tempDir);
 				expect(
@@ -262,7 +262,7 @@ describe("OsvRunner", () => {
 
 			const githubToken = `ghp_${"abcdefghijklmnopqrstuvwxyz0123456789"}`;
 			let writePromise = Promise.resolve();
-			const outputIdx = args.indexOf("--output");
+			const outputIdx = args.indexOf("--output-file");
 			if (outputIdx !== -1 && args[outputIdx + 1]) {
 				writePromise = fs.writeFile(
 					args[outputIdx + 1],

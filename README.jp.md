@@ -9,21 +9,30 @@
 
 [English](README.md) | 日本語
 
-vulnWorkbench は、スキャナー出力を実装に渡せるリスク handoff へ変換するためのローカル脆弱性ワークベンチです。
+vulnWorkbench は、スキャナー出力を証跡付き診断結果と実装可能なレポートへ自動変換するローカル脆弱性ワークベンチです。
 
-このプロダクトは、LLM がリポジトリを自由に探索して finding を発明する前提ではありません。重い証跡生成は CLI スキャナー、sandbox reproduction、dynamic check、DAST が担当します。LLM 層は保存済みの scan context をレビューし、scan-level の implementation handoff を作ります。handoff には、対象範囲、優先リスク、実装タスク、受け入れ条件、検証コマンド、非ゴール、次の LLM または実装者へそのまま渡せる prompt が含まれます。
+このプロダクトは、LLM がリポジトリを自由に探索して finding を発明する前提ではありません。重い証跡生成は CLI スキャナー、sandbox reproduction、dynamic check、DAST が担当します。scan 完了後、自動パイプラインが scanner の決定論的な事実を保持したまま、保存済み finding を証跡制約付き LLM で評価し、統合 Markdown report を出力します。LLM 出力には criticality、誤検知可能性、exploitability、業務影響、優先度、修正案、証跡参照、仮定、不明点、implementation handoff が含まれます。
 
-Human `Decision` record は互換性と監査 metadata のために残っていますが、主ワークフローではありません。現在の主経路は次の通りです。
+Human `Decision` record は任意の互換・監査注釈として残っています。診断、review、report 生成、retry、export の完了条件にはなりません。現在の主経路は次の通りです。
 
 ```text
 local project
   -> CLI scanners / reproduction / dynamic / DAST
   -> normalized findings, evidence, artifacts, events
-  -> scan review
-  -> LLM implementation handoff
-  -> report readiness preview
-  -> Markdown report / next implementation task
+  -> deterministic consolidated report
+  -> automatic evidence-constrained LLM criticality assessment
+  -> final Markdown report / implementation handoff
 ```
+
+LLM route が利用不能、または構造化出力が拒否された場合も、deterministic report は明示的な limitation code 付きで完了します。認可、active scan の許可、credential、network policy、resource limit は引き続き server 側の安全契約であり、LLM へ委譲しません。
+
+これはプロによるペネトレーションテストの完全代替ではありません。再現可能な
+Semgrep既定ルールは現在3本のsmoke set、OSVのoffline dataはnpmのみ、
+ZAPはpassiveのみであり、OWASP Benchmark/Juice Shopによる性能値も未取得です。
+認証付きread-only検査と宣言的BOLA/BFLA行列は、設定済みroute、identity、
+object、operationだけを対象とし、未発見のbusiness flowは検査しません。
+network、cloud、AD、mobile、wireless、social engineering、無制限fuzzingは
+プロダクト境界外です。
 
 vulnWorkbench は、隣接する coding-agent system 向けの Static Intelligence source でもあります。scanner-backed diagnostic evidence、軽量な code structure facts、file risk、semantic candidates、risk communities、guardrail material、read-only MCP tools を公開します。ただし、これは source layer です。NightWorkers は ontology、task compilation、queue admission、implementation、verification orchestration を担当し、contextStill は generalized knowledge、reusable procedure、retrieval を担当します。
 
@@ -34,6 +43,7 @@ vulnWorkbench は、隣接する coding-agent system 向けの Static Intelligen
 - raw artifact、正規化済み finding、evidence、scan event、review、report、diagnostic をローカル SQLite に保存します。
 - 保存済みデータだけから scan review bundle を作ります。
 - finding review、scan review、report summary を LLM task route に基づいて実行します。
+- scan 成功後に scan-level criticality 診断と最終 report 生成を自動実行します。
 - scan-level の `improvementRequest` / handoff prompt を生成し、実装作業へ渡せる形にします。
 - executive risk summary、workflow completion、evidence quality、scan comparison、report readiness、zero-finding coverage、action queue などの decision-grade signal を表示します。
 - deterministic section と任意の LLM summary を含む Markdown report を出力します。
@@ -50,7 +60,7 @@ vulnWorkbench は、証跡生成と LLM による解釈を明確に分離しま�
 | CLI tools | scanner output、log、artifact、deterministic evidence を生成する。 |
 | Normalizers | tool output を安定した finding / evidence record に変換する。 |
 | Reproduction / dynamic / DAST | bounded な runtime confirmation signal を追加する。 |
-| LLM review | 保存済み context を要約し、implementation handoff instruction を作る。 |
+| LLM review | 保存済み証跡から criticality と remediation を自動評価し、implementation handoff instruction を作る。 |
 | Static Intelligence | scanner-backed evidence、code structure facts、semantic candidate、community、landscape、guardrail material を read model として公開する。 |
 | Read-only MCP | DB table access、scanner execution、verification execution、contextStill mutation なしで、外部 agent が Static Intelligence bundle を発見・取得できるようにする。 |
 | Reports | risk、evidence quality、handoff status、verification、coverage を Markdown にまとめる。 |
@@ -65,14 +75,16 @@ vulnWorkbench は、証跡生成と LLM による解釈を明確に分離しま�
 - scan-level LLM handoff が存在するのに、human `Decision` 未入力を通常 blocker として扱うこと。
 - scanner、artifact、reproduction、verification の裏付けなしに、code structure facts、semantic similarity、LLM review text を confirmed vulnerability evidence として扱うこと。
 - MCP を contextStill registration、NightWorkers task creation、scanner execution、verification command execution の write path として使うこと。
+- 外部corpusの性能値と対象固有business workflowのcoverageなしに、プロ診断と
+  同等だと主張すること。
 
 ## 主な UI ワークフロー
 
 1. ローカル project を登録します。
 2. static scan profile または個別 scanner を実行します。
-3. finding、evidence、tool artifact、scan diagnostic を確認します。
-4. Scan Review を実行して scan-level LLM handoff を生成します。
-5. handoff quality check を確認します。
+3. deterministic report と証跡制約付き LLM 診断の自動完了を待ちます。
+4. finding、evidence、scanner artifact、criticality、業務影響、修正案、仮定、不明点、limitation code を確認します。
+5. 自動生成された handoff quality check を確認します。
    - objective
    - scope
    - finding reference または zero-finding coverage scope
@@ -81,14 +93,17 @@ vulnWorkbench は、証跡生成と LLM による解釈を明確に分離しま�
    - verification commands
    - non-goals
    - saved-context limitation
-6. handoff prompt を直接使うか、Markdown として export します。
-7. report readiness を確認します。
+6. handoff prompt を直接使うか、統合 Markdown report を export します。
+7. 自動診断 readiness を確認します。
+   - `ready`
+   - `ready_with_limitations`
+   - `failed`
+8. 必要な場合だけ、失敗または limitation 付きの LLM / report stage を retry します。
+9. legacy report readiness view では次の状態も表示されます。
    - `submission_ready`
    - `internal_review`
    - `incomplete`
-8. deterministic Markdown report または LLM-summary report を生成します。
-
-Report controls では、handoff scope と、false positive / deferred / LLM handoff 未作成 finding の include toggle を設定できます。
+manual finding review と `Decision` record は任意注釈であり、この workflow を block しません。Report controls には、これらの注釈に対する互換 filter が残る場合があります。
 
 ## Quick Start
 
@@ -225,6 +240,11 @@ bun run scan:profile -- \
   --report-output report.md
 ```
 
+直接 CLI から実行した scan でも、自動診断は既定で有効です。LLM が成功した場合、
+`--report-output` には LLM 評価を含む report が出力され、失敗時は limitation を記録した
+deterministic report が出力されます。scanner のみを意図する場合に限り
+`--automated-diagnostic false` を指定してください。
+
 `baseline` は基本的な static profile です。より広い static coverage が必要な場合:
 
 ```bash
@@ -256,6 +276,10 @@ bun run scan:trivy -- --project-id <project-id>
 bun run scan:sbom -- --project-id <project-id>
 bun run scan:trivy-image -- --project-id <project-id> --image-ref local/app:tag
 ```
+
+Semgrep は既定で、リポジトリ所有・tree hash 済みの3ルールからなる
+smoke setを使います。registryを使う探索実行は `--config auto` を明示し、
+その実行は再現不能として記録され、自動レポートも制限付きreadyになります。
 
 ### Scan Review / Handoff
 
@@ -454,6 +478,8 @@ path-first Queryはcanonicalな `{ projectPath }` をstrictに要求し、symlin
 | `GET` | `/api/scans/:scanRunId/artifacts` | scan artifact。 |
 | `GET` | `/api/scans/:scanRunId/reviews` | scan-level review と handoff output。 |
 | `POST` | `/api/scans/:scanRunId/reviews` | scan-level LLM review を実行する。 |
+| `GET` | `/api/scans/:scanRunId/diagnostics` | 自動診断の status、readiness、provenance hash、limitation。 |
+| `POST` | `/api/scans/:scanRunId/diagnostics/retry` | retry 可能な失敗または limitation 付き自動診断を再実行する。 |
 | `POST` | `/api/scans/:scanRunId/reports` | Markdown report を生成する。 |
 | `GET` | `/api/scan-reports/:reportId` | report metadata。 |
 | `GET` | `/api/scan-reports/:reportId/download` | 生成済み Markdown report を download する。 |

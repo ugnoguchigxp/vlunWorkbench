@@ -1,0 +1,133 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-30T07:17:04.000Z",
+  "baselineCommit": "628b4120002dabc5b14a86bdde2f844cc681ca9d",
+  "implementationState": "uncommitted_worktree",
+  "releaseCommit": null,
+  "result": "pass_with_declared_limitations",
+  "releaseDecision": "limited_release_candidate",
+  "phaseCompletion": "incomplete_until_clean_checkout_and_external_benchmark",
+  "releaseTier": "source_available_appsec_evidence_workbench",
+  "professionalAssessmentEquivalent": false,
+  "humanApprovalRequired": false,
+  "pipeline": [
+    "scanner_outputs_and_evidence",
+    "deterministic_aggregate",
+    "evidence_constrained_llm_criticality_review",
+    "automatic_report_revision_and_export"
+  ],
+  "verification": {
+    "frozenInstall": {
+      "command": "bun install --frozen-lockfile",
+      "result": "pass",
+      "scope": "current_worktree"
+    },
+    "strictGate": {
+      "command": "bun run verify:strict",
+      "result": "pass"
+    },
+    "securityCapability": {
+      "command": "bun run verify:security-capability",
+      "result": "pass",
+      "tests": 36,
+      "failures": 0
+    },
+    "webCoverage": {
+      "command": "bun run test:coverage:web",
+      "result": "pass",
+      "testFiles": 32,
+      "tests": 169,
+      "statementsPercent": 92.43,
+      "branchesPercent": 80.9,
+      "functionsPercent": 93.05,
+      "linesPercent": 94.61
+    },
+    "criticalCoverage": {
+      "command": "bun run test:coverage:critical",
+      "result": "pass",
+      "tests": 33
+    },
+    "browserE2e": {
+      "command": "bun run test:e2e",
+      "result": "pass",
+      "tests": 4,
+      "realDatabaseFlow": true,
+      "flow": "project_register_to_scan_to_finding_to_automatic_diagnostic_to_report"
+    },
+    "migration": {
+      "result": "pass",
+      "migrationCount": 22,
+      "latestMigration": "0022_active_assessment_runs"
+    },
+    "backupVerification": {
+      "result": "pass",
+      "integrity": "ok",
+      "checksummedMigrations": 22
+    },
+    "cleanCheckout": {
+      "result": "not_executed",
+      "reason": "The implementation is intentionally retained as an uncommitted worktree for user review."
+    }
+  },
+  "scannerData": {
+    "sourceManifest": {
+      "hash": "sha256:47868a738b508de62a26c5c0763e796d611a49c06b7bd4be3d7f7ee858d9d94c",
+      "offlineOsvDatabase": "not_committed",
+      "offlineTrivyDatabase": "not_committed"
+    },
+    "builtToolbox": {
+      "result": "pass",
+      "image": "vuln-workbench-toolbox:local",
+      "imageDigest": "sha256:6c1047dd244ed59d30bb03fdf73facdc981568337fc26c4b2bc82e45ce07e1cc",
+      "manifestHash": "sha256:30eebbaa99a4383a6d66d63848d4dda206ee770eb2eebc848f2a8646e16fad67",
+      "networkMode": "none",
+      "resourceLimits": {
+        "memory": "4g",
+        "cpus": 2,
+        "pids": 512
+      },
+      "semgrep": "pass",
+      "osv": "pass",
+      "trivy": "pass"
+    }
+  },
+  "heavyBenchmark": {
+    "command": "bun run test:security-capability:heavy",
+    "commandResult": "pass_with_no_bundled_corpora",
+    "status": "benchmark_not_executed",
+    "owaspBenchmarkMetrics": null,
+    "juiceShopMetrics": null
+  },
+  "declaredLimitations": [
+    {
+      "id": "professional-equivalence-unmeasured",
+      "owner": "security-capability",
+      "residualRisk": "Recall and precision against external OWASP Benchmark and Juice Shop corpora are unquantified."
+    },
+    {
+      "id": "minimal-owned-sast-rules",
+      "owner": "scanner-data",
+      "residualRisk": "The reproducible owned Semgrep pack has three smoke-level rules and is not broad professional SAST coverage."
+    },
+    {
+      "id": "npm-only-osv-offline-data",
+      "owner": "scanner-data",
+      "residualRisk": "The built offline OSV database covers npm only."
+    },
+    {
+      "id": "passive-only-zap",
+      "owner": "dast",
+      "residualRisk": "ZAP active/API attack scanning is not implemented; ZAP execution is passive baseline only."
+    },
+    {
+      "id": "declarative-active-scope",
+      "owner": "dast",
+      "residualRisk": "BOLA, BFLA, and transaction coverage is limited to explicitly configured actors, objects, operations, methods, and paths."
+    },
+    {
+      "id": "out-of-scope-domains",
+      "owner": "product-scope",
+      "residualRisk": "Network, cloud, Kubernetes runtime, AD, mobile, wireless, social engineering, and unrestricted fuzzing are outside scope."
+    }
+  ]
+}

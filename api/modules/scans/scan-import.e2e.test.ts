@@ -106,10 +106,19 @@ describe("Scan Import E2E", () => {
 		const artifacts = await connection.db.query.scanArtifacts.findMany({
 			where: (fields, { eq }) => eq(fields.scanRunId, result.scanRunId),
 		});
-		expect(artifacts).toHaveLength(1);
-		expect(artifacts[0].toolRunId).toBe(result.toolRunId);
-		expect(artifacts[0].path).toContain(path.join("raw", "fixture-finding.json"));
-		await fs.access(path.resolve(artifactRoot, artifacts[0].path));
+		expect(artifacts.length).toBeGreaterThanOrEqual(2);
+		const rawArtifact = artifacts.find(
+			(artifact) => artifact.kind === "raw_result",
+		);
+		expect(rawArtifact?.toolRunId).toBe(result.toolRunId);
+		expect(rawArtifact?.path).toContain(
+			path.join("raw", "fixture-finding.json"),
+		);
+		await fs.access(path.resolve(artifactRoot, rawArtifact?.path ?? ""));
+		expect(result.diagnostic).toMatchObject({
+			status: "completed_with_limitations",
+			readiness: "ready_with_limitations",
+		});
 
 		const hardcodedKeyFinding = findingsList.find(
 			(f) => f.ruleId === "fixture.rule.1",

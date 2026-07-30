@@ -167,9 +167,9 @@ describe("work states", () => {
 		).toBe("blocked_by_evidence");
 	});
 
-	it("finding without review produces needs_review", () => {
+	it("finding without review is reportable when scanner evidence exists", () => {
 		expect(deriveFindingWorkState({ finding: finding() })).toBe(
-			"needs_review",
+			"ready_for_report",
 		);
 	});
 
@@ -229,7 +229,7 @@ describe("work states", () => {
 		});
 	});
 
-	it("zero-finding scan still needs coverage even when a report already exists", () => {
+	it("a completed report finishes a zero-finding scan without human review", () => {
 		const queue = buildActionQueue({
 			scanRuns: [scanRun()],
 			selectedScanRunId: "scan-1",
@@ -239,10 +239,10 @@ describe("work states", () => {
 		});
 
 		expect(queue[0]).toMatchObject({
-			targetType: "diagnostic",
-			state: "zero_finding_needs_coverage",
+			targetType: "report",
+			state: "report_generated",
 		});
-		expect(queue.some((item) => item.state === "report_generated")).toBe(false);
+		expect(queue.some((item) => item.state === "report_generated")).toBe(true);
 	});
 
 	it("report-generated items are low priority", () => {
@@ -385,7 +385,7 @@ describe("work states", () => {
 				...base,
 				findings: [finding()],
 			}),
-		).toBe("triage_open");
+		).toBe("report_ready");
 	});
 
 	it("builds report-ready items and includes cancelled scans", () => {

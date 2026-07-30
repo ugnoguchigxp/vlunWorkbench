@@ -402,6 +402,8 @@ async function executeDastCli(params: {
 	dockerImage?: string;
 	timeoutSec?: number;
 	maxRequests?: number;
+	authContextId?: string;
+	identityRole?: string;
 	dryRun?: boolean;
 }) {
 	const args = [
@@ -426,6 +428,9 @@ async function executeDastCli(params: {
 		args.push("--timeout-sec", String(params.timeoutSec));
 	if (params.maxRequests !== undefined)
 		args.push("--max-requests", String(params.maxRequests));
+	if (params.authContextId)
+		args.push("--auth-context-id", params.authContextId);
+	if (params.identityRole) args.push("--identity-role", params.identityRole);
 	if (params.dryRun) args.push("--dry-run", "true");
 
 	const proc = Bun.spawn(["bun", ...args], {

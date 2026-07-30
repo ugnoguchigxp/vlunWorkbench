@@ -5,6 +5,7 @@ import {
 	escapeTableCell,
 	formatDateTime,
 	reportHeading,
+	toInlineText,
 } from "./report-builder-helpers";
 import type { renderReportOverview } from "./report-builder-overview";
 import type { buildReportQuery } from "./report-builder-query";
@@ -20,37 +21,18 @@ export async function finalizeMarkdownReport(scope: Scope): Promise<string> {
 	const {
 		activeFindings,
 		allArtifacts,
-		allAttackSurfaceItems,
-		allDastEvidence,
 		allDastRuns,
-		allDiagnosticReports,
 		allDynamicRuns,
 		allReproRuns,
 		allReviews,
-		allSecurityCheckResults,
-		decidedFindingCount,
 		deferredFindings,
 		expectedDastSteps,
-		failedOrMissingDastSteps,
 		falsePositiveFindings,
-		includedFindings,
-		latestImprovementRequest,
-		processedFindings,
-		profileDefinition,
-		profileSteps,
-		project,
+		latestAutomatedReview,
 		rawFindings,
-		reportTitle,
-		reviewedFindingCount,
 		scanRun,
-		severityStats,
-		sortedFindings,
-		stats,
-		stepResults,
-		tools,
 		undecidedFindings,
 		lines,
-		diffContext,
 		renderFindingsGroup,
 		db,
 		scanRunId,
@@ -70,10 +52,75 @@ export async function finalizeMarkdownReport(scope: Scope): Promise<string> {
 		options.includeFalsePositives,
 	);
 	renderFindingsGroup(
-		"LLM handoff未作成 Finding",
+		"任意注釈なし Finding",
 		undecidedFindings,
 		options.includeUndecided,
 	);
+
+	lines.push("## LLM Criticality Assessment");
+	lines.push(
+		"この節は保存済み scanner finding、artifact-backed evidence、coverage、verification だけを入力にした自動評価です。scanner の事実、severity、status を変更するものではありません。",
+	);
+	if (latestAutomatedReview) {
+		const { review, output } = latestAutomatedReview;
+		lines.push(
+			`- **Review ID:** ${review.id}`,
+			`- **Provider / Model:** ${escapeTableCell(review.provider)} / ${escapeTableCell(review.model)}`,
+			`- **Summary:** ${toInlineText(output.summary)}`,
+			`- **Risk overview:** ${toInlineText(output.riskOverview)}`,
+		);
+		if (output.systemicRiskThemes.length > 0) {
+			lines.push("- **Systemic risk themes:**");
+			for (const theme of output.systemicRiskThemes) {
+				lines.push(`  - ${toInlineText(theme)}`);
+			}
+		}
+		if (output.limitations.length > 0) {
+			lines.push("- **LLM assessment limitations:**");
+			for (const limitation of output.limitations) {
+				lines.push(`  - ${toInlineText(limitation)}`);
+			}
+		}
+		lines.push("");
+		lines.push(
+			"| Finding ID | Criticality | Scanner severity | False-positive likelihood | Exploitability | Priority |",
+		);
+		lines.push("| --- | --- | --- | --- | --- | --- |");
+		const findingById = new Map(
+			rawFindings.map((finding) => [finding.id, finding]),
+		);
+		for (const assessment of output.findingAssessments) {
+			lines.push(
+				`| ${assessment.findingId} | ${assessment.criticality} | ${escapeTableCell(findingById.get(assessment.findingId)?.severity ?? "unknown")} | ${assessment.falsePositiveLikelihood} | ${assessment.exploitability} | ${assessment.priority} |`,
+			);
+		}
+		lines.push("");
+		for (const assessment of output.findingAssessments) {
+			lines.push(`### LLM assessment: ${assessment.findingId}`);
+			lines.push(
+				`- **Criticality rationale:** ${toInlineText(assessment.criticalityRationale)}`,
+				`- **Business impact:** ${toInlineText(assessment.businessImpact)}`,
+				`- **Remediation:** ${toInlineText(assessment.remediation)}`,
+				`- **Evidence refs:** ${assessment.evidenceRefs.map((ref) => `${ref.kind}:${ref.id}`).join(", ")}`,
+			);
+			if (assessment.assumptions.length > 0) {
+				lines.push(
+					`- **Assumptions:** ${assessment.assumptions.map((item) => toInlineText(item)).join(" / ")}`,
+				);
+			}
+			if (assessment.unknowns.length > 0) {
+				lines.push(
+					`- **Unknowns:** ${assessment.unknowns.map((item) => toInlineText(item)).join(" / ")}`,
+				);
+			}
+			lines.push("");
+		}
+	} else {
+		lines.push(
+			"LLM assessment は利用できません。deterministic section と保存済み scanner 証跡は引き続き有効ですが、readiness では limitation として扱います。",
+		);
+		lines.push("");
+	}
 
 	// Sandbox Reproduction Summary Section
 	lines.push("## Sandbox Reproduction サマリ");

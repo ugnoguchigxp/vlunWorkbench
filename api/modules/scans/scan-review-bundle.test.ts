@@ -105,6 +105,7 @@ describe("buildScanReviewBundle filters", () => {
 		withEvidence?: boolean;
 		description?: string;
 		evidenceSnippet?: string;
+		evidenceMetadata?: Record<string, unknown>;
 	}) {
 		const [finding] = await connection.db
 			.insert(findings)
@@ -133,6 +134,7 @@ describe("buildScanReviewBundle filters", () => {
 				artifactId: null,
 				location: { path: `${input.fingerprint}.ts`, startLine: 1 },
 				snippet: input.evidenceSnippet ?? "code",
+				metadata: input.evidenceMetadata ?? {},
 				createdAt: now,
 			});
 		}
@@ -251,6 +253,48 @@ describe("buildScanReviewBundle filters", () => {
 		expect(bundle.findings[0]?.evidence[0]?.snippet).toBe(
 			`${"s".repeat(15)}\n[truncated]`,
 		);
+	});
+
+	it("includes allowlisted authorization observations without secret metadata", async () => {
+		await addFinding({
+			title: "Cross-owner access",
+			severity: "high",
+			fingerprint: "authorization-matrix",
+			withEvidence: true,
+			metadata: {
+				evidenceStrength: "runtime_observed",
+				actorRole: "user-a",
+				objectId: "object-b",
+				operationId: "read-object",
+				expected: "denied",
+				observed: "allowed",
+				statusCode: 200,
+				activeEvidenceId: "active-evidence-1",
+				authorization: "must-not-enter-the-bundle",
+			},
+			evidenceMetadata: {
+				activeAssessmentEvidenceId: "active-evidence-1",
+				statusCode: 200,
+				responseBody: "must-not-enter-the-bundle",
+			},
+		});
+
+		const bundle = await buildScanReviewBundle(connection.db, scanRunId);
+		expect(bundle.findings[0]?.metadata).toEqual({
+			evidenceStrength: "runtime_observed",
+			actorRole: "user-a",
+			objectId: "object-b",
+			operationId: "read-object",
+			expected: "denied",
+			observed: "allowed",
+			statusCode: 200,
+			activeEvidenceId: "active-evidence-1",
+		});
+		expect(bundle.findings[0]?.evidence[0]?.metadata).toEqual({
+			activeAssessmentEvidenceId: "active-evidence-1",
+			statusCode: 200,
+		});
+		expect(JSON.stringify(bundle)).not.toContain("must-not-enter-the-bundle");
 	});
 
 	it("derives new_or_regressed from the previous same-profile scan", async () => {

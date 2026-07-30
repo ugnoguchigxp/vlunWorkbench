@@ -89,8 +89,12 @@ RUN python -m venv /opt/schemathesis \
 	&& command -v st
 
 COPY docker/toolbox/nuclei-safe-templates /opt/vuln-workbench/nuclei-safe-templates
+COPY --from=scanner-data / /opt/vuln-workbench/scanner-data
 
 RUN mkdir -p /workspace/repo /workspace/out /workspace/cache \
+	&& mkdir -p /workspace/cache/.cache \
+	&& ln -s /opt/vuln-workbench/scanner-data/osv/osv-scanner /workspace/cache/.cache/osv-scanner \
+	&& chmod -R a+rX /opt/vuln-workbench/scanner-data \
 	&& chown -R 65532:65532 /workspace
 
 ENV HOME=/workspace/cache \

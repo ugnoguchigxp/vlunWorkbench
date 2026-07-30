@@ -45,6 +45,7 @@ Thumbs.db
 
 # generated scan/reproduction outputs
 /artifacts
+/.artifacts
 
 # wiki content
 /wiki-knowledge

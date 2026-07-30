@@ -1085,6 +1085,19 @@
               ]
             },
             {
+              "id": "review.automated-assessment-boundary",
+              "kind": "instruction",
+              "severity": "must",
+              "optimizable": false,
+              "omitIfEmpty": false,
+              "segments": [
+                {
+                  "type": "literal",
+                  "value": "findings の各要素について findingAssessments を必ず 1 件ずつ作成してください。criticality、falsePositiveLikelihood、exploitability、businessImpact、priority、remediation は保存済み scanner finding と evidence だけから判断し、scanner severity や finding status を書き換えてはいけません。断定できない場合は unknown と unknowns を使い、事実を補完または発明してはいけません。\n\n各 evidenceRefs は bundle 内に存在する ID だけを、kind と id の組で参照してください。finding は finding ID、evidence は finding.evidence ID、artifact は artifacts ID、verification は reproduction/dynamic/DAST run ID を指定します。location text、URL、架空 ID は evidenceRefs に入れてはいけません。"
+                }
+              ]
+            },
+            {
               "id": "review.grouping-policy",
               "kind": "instruction",
               "severity": "should",
@@ -1158,7 +1171,7 @@
               "segments": [
                 {
                   "type": "literal",
-                  "value": "```json\n{\n  \"summary\": \"スキャン全体の評価を日本語で簡潔に書く。\",\n  \"riskOverview\": \"残っているリスクとその理由を日本語で説明する。\",\n  \"priorityNotes\": [\"優先度の高い観察点を日本語で書く（最大 20 件）\"],\n  \"coverageNotes\": [\"カバレッジの制約や tool context を日本語で書く（最大 20 件）\"],\n  \"falsePositiveHotspots\": [\"追加の自動診断や LLM 再レビューが必要そうな領域や rule family を日本語で書く（最大 20 件）\"],\n  \"recommendedNextActions\": [\"実行可能な次のアクションを日本語で書く（最大 20 件）\"],\n  \"findingTriageHints\": [\n    {\n      \"findingId\": \"提供された findings list に含まれる uuid のみ\",\n      \"note\": \"提供された証跡に基づき、実装改善に渡す短いリスク文脈を日本語で書く\",\n      \"priority\": \"high\"\n    }\n  ],\n  \"confidenceNotes\": [\"確信度や不足証跡に関する note を日本語で書く（最大 20 件）\"],\n  \"improvementRequest\": {\n    \"title\": \"改善依頼書の短いタイトルを日本語で書く。\",\n    \"objective\": \"今回の scan review から実装者または次の LLM に依頼したい目的を日本語で書く。\",\n    \"scope\": [\"対象範囲を日本語で書く。bundle に含まれる scan/finding/evidence の範囲に限定する。\"],\n    \"priorityPlan\": [\n      {\n        \"priority\": \"high\",\n        \"rationale\": \"優先度の理由を日本語で書く。\",\n        \"findingIds\": [\"提供された findings list に含まれる uuid のみ\"]\n      }\n    ],\n    \"implementationTasks\": [\n      {\n        \"title\": \"実装タスクの短いタイトルを日本語で書く。\",\n        \"body\": \"保存済み context に基づく具体的な改善作業を日本語で書く。\",\n        \"findingIds\": [\"提供された findings list に含まれる uuid のみ\"],\n        \"evidenceRefs\": [\"evidence id、artifact id、または location text\"]\n      }\n    ],\n    \"acceptanceCriteria\": [\"完了判定を日本語で書く。\"],\n    \"verificationCommands\": [\"bun test など、実行候補の検証コマンドを書く。根拠がない場合は一般的な候補に留める。\"],\n    \"constraints\": [\"制約や不足情報を日本語で書く。\"],\n    \"nonGoals\": [\"今回やらないことを日本語で書く。\"],\n    \"handoffPrompt\": \"別 LLM に渡せる改善依頼文を日本語で書く。目的、対象範囲、finding、実装タスク、受け入れ条件、検証方法、非ゴール、保存済み context 限定の制約を含める。\"\n  }\n}\n```"
+                  "value": "```json\n{\n  \"summary\": \"スキャン全体の評価を日本語で簡潔に書く。\",\n  \"riskOverview\": \"残っているリスクとその理由を日本語で説明する。\",\n  \"priorityNotes\": [\"優先度の高い観察点を日本語で書く（最大 20 件）\"],\n  \"coverageNotes\": [\"カバレッジの制約や tool context を日本語で書く（最大 20 件）\"],\n  \"falsePositiveHotspots\": [\"追加の自動診断や LLM 再レビューが必要そうな領域や rule family を日本語で書く（最大 20 件）\"],\n  \"recommendedNextActions\": [\"実行可能な次のアクションを日本語で書く（最大 20 件）\"],\n  \"findingTriageHints\": [\n    {\n      \"findingId\": \"提供された findings list に含まれる uuid のみ\",\n      \"note\": \"提供された証跡に基づき、実装改善に渡す短いリスク文脈を日本語で書く\",\n      \"priority\": \"high\"\n    }\n  ],\n  \"findingAssessments\": [\n    {\n      \"findingId\": \"提供された findings list に含まれる uuid のみ\",\n      \"criticality\": \"high\",\n      \"criticalityRationale\": \"保存済み証跡に基づく criticality の理由を日本語で書く。\",\n      \"falsePositiveLikelihood\": \"low\",\n      \"exploitability\": \"possible\",\n      \"businessImpact\": \"保存済み証跡から説明できる業務影響を日本語で書く。\",\n      \"priority\": \"high\",\n      \"remediation\": \"具体的な改善方針を日本語で書く。\",\n      \"evidenceRefs\": [\n        {\n          \"kind\": \"finding\",\n          \"id\": \"この assessment の finding ID\"\n        }\n      ],\n      \"assumptions\": [\"判断に用いた仮定を日本語で書く。なければ空配列。\"],\n      \"unknowns\": [\"不足情報を日本語で書く。なければ空配列。\"]\n    }\n  ],\n  \"systemicRiskThemes\": [\"複数 finding に共通するリスク傾向を日本語で書く（最大 20 件）\"],\n  \"limitations\": [\"保存済み証跡と coverage に基づく診断上の制約を日本語で書く（最大 20 件）\"],\n  \"confidenceNotes\": [\"確信度や不足証跡に関する note を日本語で書く（最大 20 件）\"],\n  \"improvementRequest\": {\n    \"title\": \"改善依頼書の短いタイトルを日本語で書く。\",\n    \"objective\": \"今回の scan review から実装者または次の LLM に依頼したい目的を日本語で書く。\",\n    \"scope\": [\"対象範囲を日本語で書く。bundle に含まれる scan/finding/evidence の範囲に限定する。\"],\n    \"priorityPlan\": [\n      {\n        \"priority\": \"high\",\n        \"rationale\": \"優先度の理由を日本語で書く。\",\n        \"findingIds\": [\"提供された findings list に含まれる uuid のみ\"]\n      }\n    ],\n    \"implementationTasks\": [\n      {\n        \"title\": \"実装タスクの短いタイトルを日本語で書く。\",\n        \"body\": \"保存済み context に基づく具体的な改善作業を日本語で書く。\",\n        \"findingIds\": [\"提供された findings list に含まれる uuid のみ\"],\n        \"evidenceRefs\": [\"evidence id、artifact id、または location text\"]\n      }\n    ],\n    \"acceptanceCriteria\": [\"完了判定を日本語で書く。\"],\n    \"verificationCommands\": [\"bun test など、実行候補の検証コマンドを書く。根拠がない場合は一般的な候補に留める。\"],\n    \"constraints\": [\"制約や不足情報を日本語で書く。\"],\n    \"nonGoals\": [\"今回やらないことを日本語で書く。\"],\n    \"handoffPrompt\": \"別 LLM に渡せる改善依頼文を日本語で書く。目的、対象範囲、finding、実装タスク、受け入れ条件、検証方法、非ゴール、保存済み context 限定の制約を含める。\"\n  }\n}\n```"
                 }
               ]
             },
@@ -1171,16 +1184,16 @@
               "segments": [
                 {
                   "type": "literal",
-                  "value": "findingTriageHints.priority は \"critical\"、\"high\"、\"medium\"、\"low\"、\"info\" のいずれか 1 つだけを文字列として設定してください。\nimprovementRequest.priorityPlan.priority は \"critical\"、\"high\"、\"medium\"、\"low\" のいずれか 1 つだけを文字列として設定してください。\nfindings が 1 件以上ある場合、improvementRequest.priorityPlan.findingIds と implementationTasks.findingIds は対象 finding ID を 1 件以上含めてください。空配列は zero-finding scan の追加確認 handoff でのみ使用できます。"
+                  "value": "findingTriageHints.priority は \"critical\"、\"high\"、\"medium\"、\"low\"、\"info\" のいずれか 1 つだけを文字列として設定してください。\nfindingAssessments.criticality は \"critical\"、\"high\"、\"medium\"、\"low\"、\"informational\"、\"unknown\" のいずれか 1 つだけを設定してください。\nfindingAssessments.falsePositiveLikelihood は \"very_low\"、\"low\"、\"medium\"、\"high\"、\"very_high\"、\"unknown\" のいずれか 1 つだけを設定してください。\nfindingAssessments.exploitability は \"demonstrated\"、\"likely\"、\"possible\"、\"unlikely\"、\"unknown\" のいずれか 1 つだけを設定してください。\nfindingAssessments.priority は \"critical\"、\"high\"、\"medium\"、\"low\"、\"info\" のいずれか 1 つだけを設定してください。\nimprovementRequest.priorityPlan.priority は \"critical\"、\"high\"、\"medium\"、\"low\" のいずれか 1 つだけを文字列として設定してください。\nfindings が 1 件以上ある場合、findingAssessments は全 finding ID を重複なく 1 回ずつ含め、improvementRequest.priorityPlan.findingIds と implementationTasks.findingIds は対象 finding ID を 1 件以上含めてください。findings が 0 件の場合だけ findingAssessments と各 findingIds を空配列にしてください。"
                 }
               ]
             }
           ],
-          "artifactHash": "sha256:a16715f88fa084cdfb34c548acd9849aefa9508d51c640e49ad60cca69a374ab"
+          "artifactHash": "sha256:249509778910bbb9cda51055d276dbe1010f2c9d1cd613d294333516a2a0b9b8"
         }
       },
-      "definitionHash": "sha256:8d2761bb2cf98865b8a859e108a7d11b9a147842250b01bbfd151ccf798355dc",
-      "releaseDigest": "sha256:0c59b84ab031d44c871f02d079e5626e92a28b96c27642f728f6b9e316b4c286"
+      "definitionHash": "sha256:76836148f86541f1ca6c5b539a8ba266b3d2095246a7714ce8a4e07985952e6f",
+      "releaseDigest": "sha256:fa85c5636c839456a9fb8b34621d89f1dc7d5938909d4add7bf0c6adddf19cda"
     },
     "scans.scanReviewInput": {
       "key": "scans.scanReviewInput",
@@ -1241,5 +1254,5 @@
       "releaseDigest": "sha256:7c47ef1b8f5ae3e49e80c825fcc6eaaa93d801423b119dc395f6952979880a6e"
     }
   },
-  "catalogDigest": "sha256:06e69e654b036a257780facead959498ce969de33a991780034548c329616ed0"
+  "catalogDigest": "sha256:8f9dd667715eceea4f66dc590a15bde689a50d49968e6f36414fb425eb111ead"
 }

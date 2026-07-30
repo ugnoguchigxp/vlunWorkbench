@@ -10,6 +10,7 @@ import {
 } from "../modules/scans/repositories";
 import { ArtifactStorage } from "../modules/scans/artifact-storage";
 import { normalizeFixture } from "../modules/scans/normalizers/fixture";
+import { runCliAutomatedDiagnostic } from "./scan-profile-diagnostic";
 
 function writeResult(payload: Record<string, unknown>): void {
 	console.log(JSON.stringify(payload));
@@ -96,6 +97,7 @@ async function main() {
 			projectId,
 			profile,
 			status: "running",
+			metadata: { automaticDiagnosticRequested: true },
 		});
 		// biome-ignore lint/suspicious/noExplicitAny: CLI error
 	} catch (err: any) {
@@ -249,6 +251,16 @@ async function main() {
 			message: "Scan run completed successfully.",
 		});
 
+		const diagnostic = await runCliAutomatedDiagnostic({
+			db: dbConnection.db,
+			env,
+			scanRunId: scanRun.id,
+		}).catch((error) => ({
+			status: "failed" as const,
+			readiness: "failed" as const,
+			error:
+				error instanceof Error ? error.message : "Automated diagnostic failed.",
+		}));
 		writeResult({
 			ok: true,
 			scanRunId: scanRun.id,
@@ -257,6 +269,7 @@ async function main() {
 			findingCount,
 			evidenceCount,
 			status: "completed",
+			diagnostic,
 		});
 		// biome-ignore lint/suspicious/noExplicitAny: final catch
 	} catch (err: any) {

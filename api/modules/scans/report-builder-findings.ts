@@ -113,7 +113,7 @@ export function createFindingGroupRenderer(scope: Scope) {
 			);
 			lines.push(`- **実装改善ルーティング:** ${formatDecision(item.bucket)}`);
 			lines.push(
-				`- **補足理由:** ${item.latestDecision ? toInlineText(item.latestDecision.reason) : "LLM handoff未作成のため未記録"}`,
+				`- **任意注釈の理由:** ${item.latestDecision ? toInlineText(item.latestDecision.reason) : "注釈なし"}`,
 			);
 			if (item.latestDecision?.comment) {
 				lines.push(

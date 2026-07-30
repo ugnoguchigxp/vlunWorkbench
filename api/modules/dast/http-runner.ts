@@ -1,4 +1,6 @@
 import type { DastProfileDefinition } from "./profiles";
+import { authHeadersFor } from "./auth-material";
+import type { DastAuthSecretPayload } from "../../../shared/schemas/dast-auth.schema";
 import { isPathAllowed, isUrlInDastScope } from "./target-validator";
 import type {
 	DastHttpRawResult,
@@ -104,6 +106,7 @@ export async function runHttpBaseline(params: {
 	timeoutSec?: number;
 	maxRequests?: number;
 	fetchImpl?: DastFetch;
+	authSecret?: DastAuthSecretPayload;
 }): Promise<DastHttpRawResult> {
 	const startedAt = new Date();
 	const fetchImpl = params.fetchImpl ?? fetch;
@@ -135,7 +138,10 @@ export async function runHttpBaseline(params: {
 		try {
 			const response = await fetchImpl(url, {
 				method: "GET",
-				headers: params.target.defaultHeaders,
+				headers: {
+					...params.target.defaultHeaders,
+					...authHeadersFor(params.authSecret),
+				},
 				redirect: "manual",
 				signal: controller.signal,
 			});

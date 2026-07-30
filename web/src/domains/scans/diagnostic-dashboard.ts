@@ -1,5 +1,6 @@
 import type {
 	AttackSurfaceItem,
+	AutomatedDiagnosticRun,
 	DiagnosticReport,
 	Finding,
 	ScanReport,
@@ -8,7 +9,6 @@ import type {
 	ScanRunSummary,
 	SecurityCheckResult,
 } from "../../api";
-import { hasScanImprovementRequest as hasCompletedScanImprovementRequest } from "./scan-improvement-request";
 
 export type DashboardActionKind =
 	| "run_scan"
@@ -16,6 +16,7 @@ export type DashboardActionKind =
 	| "create_improvement_request"
 	| "run_diagnostics"
 	| "generate_report"
+	| "retry_diagnostic"
 	| "inspect_zero_findings";
 
 export type DashboardAction = {
@@ -79,6 +80,7 @@ type BuildProjectDiagnosticDashboardInput = {
 	diagnosticReports: DiagnosticReport[];
 	securityCheckResults: SecurityCheckResult[];
 	attackSurfaceItems: AttackSurfaceItem[];
+	automatedDiagnostics?: AutomatedDiagnosticRun[];
 	scanSummary?: ScanRunSummary | null;
 };
 
@@ -86,11 +88,10 @@ const severityOrder = ["critical", "high", "medium", "low", "info", "unknown"];
 const gapStatuses = new Set(["manual_review", "not_checked", "warn", "fail"]);
 const actionOrder: DashboardActionKind[] = [
 	"run_scan",
-	"create_improvement_request",
+	"retry_diagnostic",
 	"inspect_zero_findings",
 	"run_diagnostics",
 	"generate_report",
-	"review_findings",
 ];
 const priorityRank = { high: 0, medium: 1, low: 2 } as const;
 
@@ -155,15 +156,19 @@ export function buildProjectDiagnosticDashboard(
 		0,
 		activeFindings.length - findingReviews,
 	);
-	const completedDiagnosticReports = input.diagnosticReports.filter(
-		(report) => report.status === "completed",
+	const activeAutomatedDiagnostic = input.automatedDiagnostics?.find(
+		(diagnostic) => diagnostic.scanRunId === activeRun?.id,
 	);
-	const hasScanImprovementRequest = input.scanReviews.some(
-		(review) =>
-			review.scanRunId === activeRun?.id &&
-			hasCompletedScanImprovementRequest(review),
+	const automaticDiagnosticExpected =
+		activeRun?.metadata?.automaticDiagnosticRequested === true ||
+		Boolean(activeAutomatedDiagnostic);
+	const automatedDiagnosticCompleted =
+		activeAutomatedDiagnostic?.status === "completed" ||
+		activeAutomatedDiagnostic?.status === "completed_with_limitations";
+	const completedScanReport = input.reports.some(
+		(report) =>
+			report.scanRunId === activeRun?.id && report.status === "completed",
 	);
-	const implementationHandoffComplete = hasScanImprovementRequest;
 	const diagnosticCoverage = {
 		attackSurfaceItems: input.attackSurfaceItems.length,
 		securityChecks: input.securityCheckResults.length,
@@ -177,13 +182,14 @@ export function buildProjectDiagnosticDashboard(
 		blockers.push("no_scan_selected");
 	} else {
 		if (activeRun.status !== "completed") blockers.push("scan_not_completed");
-		if (activeFindings.length > 0 && !implementationHandoffComplete)
-			blockers.push("missing_improvement_request");
-		if (
-			activeFindings.length === 0 &&
-			completedDiagnosticReports.length === 0
+		if (activeAutomatedDiagnostic?.status === "failed") {
+			blockers.push("diagnostic_failed");
+		} else if (
+			activeRun.status === "completed" &&
+			automaticDiagnosticExpected &&
+			!automatedDiagnosticCompleted
 		) {
-			blockers.push("missing_diagnostic_summary_for_zero_findings");
+			blockers.push("diagnostic_running");
 		}
 	}
 
@@ -192,10 +198,6 @@ export function buildProjectDiagnosticDashboard(
 		if (nextActions.some((item) => item.kind === action.kind)) return;
 		nextActions.push(action);
 	};
-	const firstMissingReview =
-		activeFindings.find((finding) => !finding.latestReview) ??
-		(reviewMissingFindings > 0 ? activeFindings[0] : undefined);
-
 	if (!input.projectId || !activeRun) {
 		addAction({
 			kind: "run_scan",
@@ -213,28 +215,12 @@ export function buildProjectDiagnosticDashboard(
 			targetId: latestRun.id,
 		});
 	}
-	if (
-		activeRun?.status === "completed" &&
-		activeFindings.length > 0 &&
-		!implementationHandoffComplete
-	) {
+	if (activeAutomatedDiagnostic?.status === "failed") {
 		addAction({
-			kind: "create_improvement_request",
-			label: "改善依頼を生成",
+			kind: "retry_diagnostic",
+			label: "自動診断を再実行",
 			priority: "high",
-			targetId: activeRun.id,
-		});
-	}
-	if (
-		activeRun?.status === "completed" &&
-		activeFindings.length === 0 &&
-		completedDiagnosticReports.length === 0
-	) {
-		addAction({
-			kind: "inspect_zero_findings",
-			label: "finding 0 件のカバレッジを確認",
-			priority: "high",
-			targetId: activeRun.id,
+			targetId: activeRun?.id,
 		});
 	}
 	if (
@@ -252,8 +238,8 @@ export function buildProjectDiagnosticDashboard(
 	}
 	if (
 		activeRun?.status === "completed" &&
-		blockers.length === 0 &&
-		!input.reports[0]
+		!automaticDiagnosticExpected &&
+		!completedScanReport
 	) {
 		addAction({
 			kind: "generate_report",
@@ -262,15 +248,6 @@ export function buildProjectDiagnosticDashboard(
 			targetId: activeRun.id,
 		});
 	}
-	if (firstMissingReview) {
-		addAction({
-			kind: "review_findings",
-			label: "LLM リスク文脈を生成",
-			priority: "low",
-			targetId: firstMissingReview.id,
-		});
-	}
-
 	nextActions.sort((a, b) => {
 		const priorityDelta = priorityRank[a.priority] - priorityRank[b.priority];
 		if (priorityDelta !== 0) return priorityDelta;
@@ -300,7 +277,10 @@ export function buildProjectDiagnosticDashboard(
 		reportReadiness: {
 			scanReports: input.reports.length,
 			diagnosticReports: input.diagnosticReports.length,
-			ready: blockers.length === 0,
+			ready:
+				activeRun?.status === "completed" &&
+				blockers.length === 0 &&
+				(!automaticDiagnosticExpected || automatedDiagnosticCompleted),
 			blockers,
 		},
 		diagnosticCoverage,

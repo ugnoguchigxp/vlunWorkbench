@@ -85,6 +85,7 @@ export function buildScansControllerViewModel<
 		setSelectedScanRunId,
 		handleTriggerScanReview,
 		handleGenerateReport,
+		handleRetryAutomatedDiagnostic,
 		runDiagnosticsForScan,
 	} = scope as Record<string, any>;
 	const handleSelectScanRun = (scanRunId: string) => {
@@ -115,6 +116,7 @@ export function buildScansControllerViewModel<
 		handleSelectFinding,
 		handleTriggerScanReview,
 		handleGenerateReport,
+		handleRetryAutomatedDiagnostic,
 		runDiagnosticsForScan,
 	});
 	return {

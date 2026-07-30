@@ -87,6 +87,26 @@ function buildValidReviewOutput(findingId: string) {
 				priority: "high",
 			},
 		],
+		findingAssessments: [
+			{
+				findingId,
+				criticality: "high",
+				criticalityRationale:
+					"保存済み証跡ではユーザー入力がエスケープされずに出力へ到達しています。",
+				falsePositiveLikelihood: "low",
+				exploitability: "possible",
+				businessImpact:
+					"利用者のブラウザで意図しないスクリプトが実行される可能性があります。",
+				priority: "high",
+				remediation:
+					"出力時エスケープを追加し、同じ入力経路の回帰テストを実施してください。",
+				evidenceRefs: [{ kind: "finding", id: findingId }],
+				assumptions: ["保存済み finding のデータフロー記述が正しいと仮定します。"],
+				unknowns: ["実行時に到達可能かは未確認です。"],
+			},
+		],
+		systemicRiskThemes: ["出力エンコード境界の一貫性を確認する必要があります。"],
+		limitations: ["保存済み static scan 証跡だけに基づく評価です。"],
 		confidenceNotes: ["証跡は source-location に基づいています。"],
 		improvementRequest: buildImprovementRequest(findingId),
 	};
@@ -302,6 +322,23 @@ describe("ScanReviewRunner", () => {
 					priority: "high",
 				},
 			],
+			findingAssessments: [
+				{
+					findingId,
+					criticality: "high",
+					criticalityRationale: "Stored evidence indicates unescaped output.",
+					falsePositiveLikelihood: "low",
+					exploitability: "possible",
+					businessImpact: "A browser may execute unintended script.",
+					priority: "high",
+					remediation: "Escape output and add regression tests.",
+					evidenceRefs: [{ kind: "finding", id: findingId }],
+					assumptions: ["The stored data-flow description is correct."],
+					unknowns: ["Runtime reachability is unknown."],
+				},
+			],
+			systemicRiskThemes: ["Output encoding consistency."],
+			limitations: ["Stored static evidence only."],
 			confidenceNotes: ["Evidence is source-location based."],
 			improvementRequest: {
 				...buildImprovementRequest(findingId),
@@ -361,102 +398,76 @@ describe("ScanReviewRunner", () => {
 		);
 	});
 
-	it("drops triage hints for findings outside the scan bundle", async () => {
-		const content = JSON.stringify({
-			summary: "高リスクの finding が 1 件あります。",
-			riskOverview: "保存済み証跡に基づく XSS リスクがあります。",
-			priorityNotes: [],
-			coverageNotes: [],
-			falsePositiveHotspots: [],
-			recommendedNextActions: [],
-			findingTriageHints: [
-				{
-					findingId: "00000000-0000-4000-8000-000000000000",
-					note: "Not in bundle.",
-					priority: "high",
-				},
-			],
-			confidenceNotes: [],
-			improvementRequest: buildImprovementRequest(findingId),
-		});
+	it("rejects triage hints for findings outside the scan bundle", async () => {
+		const output = buildValidReviewOutput(findingId);
+		output.findingTriageHints[0].findingId =
+			"00000000-0000-4000-8000-000000000000";
+		const content = JSON.stringify(output);
 		const runner = new ScanReviewRunner(connection.db, providerWithContent(content));
 
 		const result = await runner.run(scanRunId);
 
-		expect(result.ok).toBe(true);
+		expect(result.ok).toBe(false);
+		expect(result.error).toContain("outside the saved bundle");
 		const rows = await connection.db.select().from(scanReviews);
-		expect(rows[0].status).toBe("completed");
-		expect(rows[0].findingTriageHints).toEqual([]);
-		expect(rows[0].confidenceNotes).toContain(
-			"LLM 出力に bundle 外の finding ID が含まれていたため、安全のため参照から除外しました。",
+		expect(rows[0].status).toBe("failed");
+	});
+
+	it("rejects invalid improvement request finding references", async () => {
+		const invalidFindingId = "00000000-0000-4000-8000-000000000000";
+		const output = buildValidReviewOutput(findingId);
+		output.improvementRequest.priorityPlan[0].findingIds.push(invalidFindingId);
+		output.improvementRequest.implementationTasks[0].findingIds.push(
+			invalidFindingId,
+		);
+		const content = JSON.stringify(output);
+		const runner = new ScanReviewRunner(connection.db, providerWithContent(content));
+
+		const result = await runner.run(scanRunId);
+
+		expect(result.ok).toBe(false);
+		expect(result.error).toContain("outside the saved bundle");
+		const rows = await connection.db.select().from(scanReviews);
+		expect(rows[0].status).toBe("failed");
+	});
+
+	it("rejects assessment evidence references outside the saved bundle", async () => {
+		const output = buildValidReviewOutput(findingId);
+		output.findingAssessments[0].evidenceRefs = [
+			{
+				kind: "artifact",
+				id: "00000000-0000-4000-8000-000000000000",
+			},
+		];
+		const runner = new ScanReviewRunner(
+			connection.db,
+			providerWithContent(JSON.stringify(output)),
+		);
+
+		const result = await runner.run(scanRunId);
+
+		expect(result.ok).toBe(false);
+		expect(result.error).toContain("evidence outside the saved bundle");
+	});
+
+	it("requires exactly one automated assessment for every bundled finding", async () => {
+		const output = buildValidReviewOutput(findingId);
+		output.findingAssessments.push({ ...output.findingAssessments[0] });
+		const runner = new ScanReviewRunner(
+			connection.db,
+			providerWithContent(JSON.stringify(output)),
+		);
+
+		const result = await runner.run(scanRunId);
+
+		expect(result.ok).toBe(false);
+		expect(result.error).toContain(
+			"exactly one assessment for every finding",
 		);
 	});
 
-	it("removes invalid improvement request finding references when valid references remain", async () => {
-		const invalidFindingId = "00000000-0000-4000-8000-000000000000";
-		const improvementRequest = buildImprovementRequest(findingId);
-		improvementRequest.priorityPlan[0].findingIds.push(invalidFindingId);
-		improvementRequest.implementationTasks[0].findingIds.push(invalidFindingId);
-		const content = JSON.stringify({
-			summary: "高リスクの finding が 1 件あります。",
-			riskOverview: "保存済み証跡に基づく XSS リスクがあります。",
-			priorityNotes: ["優先して確認してください。"],
-			coverageNotes: ["証跡は static scan に限定されています。"],
-			falsePositiveHotspots: ["明確な誤検知候補はありません。"],
-			recommendedNextActions: ["出力時のエスケープ処理を追加してください。"],
-			findingTriageHints: [
-				{
-					findingId,
-					note: "bundle 内 finding の triage note です。",
-					priority: "high",
-				},
-			],
-			confidenceNotes: ["証跡は source-location に基づいています。"],
-			improvementRequest,
-		});
-		const runner = new ScanReviewRunner(connection.db, providerWithContent(content));
-
-		const result = await runner.run(scanRunId);
-
-		expect(result.ok).toBe(true);
-		const rows = await connection.db.select().from(scanReviews);
-		expect(rows[0].status).toBe("completed");
-		expect(
-			(
-				rows[0].output.improvementRequest as {
-					priorityPlan: Array<{ findingIds: string[] }>;
-					implementationTasks: Array<{ findingIds: string[] }>;
-				}
-			).priorityPlan[0].findingIds,
-		).toEqual([findingId]);
-		expect(
-			(
-				rows[0].output.improvementRequest as {
-					priorityPlan: Array<{ findingIds: string[] }>;
-					implementationTasks: Array<{ findingIds: string[] }>;
-				}
-			).implementationTasks[0].findingIds,
-		).toEqual([findingId]);
-	});
-
 	it("rejects empty improvement request finding references when findings exist", async () => {
-		const content = JSON.stringify({
-			summary: "高リスクの finding が 1 件あります。",
-			riskOverview: "保存済み証跡に基づく XSS リスクがあります。",
-			priorityNotes: ["優先して確認してください。"],
-			coverageNotes: ["証跡は static scan に限定されています。"],
-			falsePositiveHotspots: ["明確な誤検知候補はありません。"],
-			recommendedNextActions: ["出力時のエスケープ処理を追加してください。"],
-			findingTriageHints: [
-				{
-					findingId,
-					note: "bundle 内 finding の triage note です。",
-					priority: "high",
-				},
-			],
-			confidenceNotes: ["証跡は source-location に基づいています。"],
-			improvementRequest: buildImprovementRequest(findingId),
-		});
+		const content = JSON.stringify(buildValidReviewOutput(findingId));
 		const parsed = JSON.parse(content);
 		parsed.improvementRequest.priorityPlan[0].findingIds = [];
 		const runner = new ScanReviewRunner(
@@ -506,6 +517,11 @@ describe("ScanReviewRunner", () => {
 			falsePositiveHotspots: [],
 			recommendedNextActions: ["追加の自動診断対象を確認してください。"],
 			findingTriageHints: [],
+			findingAssessments: [],
+			systemicRiskThemes: [],
+			limitations: [
+				"finding がないため、保存済み coverage だけでは安全性を断定できません。",
+			],
 			confidenceNotes: ["証跡は scan metadata に限定されています。"],
 			improvementRequest: {
 				title: "Zero finding 追加確認依頼",

@@ -69,7 +69,7 @@ describe("OSV Normalizer", () => {
 
 		// Verify metadata is attached
 		const metadata = (finding as any).metadata;
-		expect(metadata).toEqual({
+		expect(metadata).toEqual(expect.objectContaining({
 			packageName: "express",
 			packageVersion: "4.16.0",
 			advisoryId: "GHSA-fake-advisory",
@@ -77,7 +77,9 @@ describe("OSV Normalizer", () => {
 			fixedVersions: ["4.17.0"],
 			ecosystem: "npm",
 			manifestPath: "yarn.lock",
-		});
+		}));
+		expect(metadata.risk.package.purl).toBe("pkg:npm/express@4.16.0");
+		expect(metadata.risk.derivedPriority).toBe("p2");
 
 		expect(finding.evidences.length).toBe(3);
 		expect(finding.evidences[0].kind).toBe("source-location");

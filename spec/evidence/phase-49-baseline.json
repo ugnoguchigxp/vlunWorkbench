@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "baselineCommit": "628b4120002dabc5b14a86bdde2f844cc681ca9d",
+  "capturedAt": "2026-07-30T00:00:00.000Z",
+  "commands": {
+    "strictVerification": "bun run verify:strict",
+    "toolboxBuild": "bun run docker:toolbox:build",
+    "capabilityInventory": "bun run security:capability:inventory",
+    "capabilityTests": "bun run test:security-capability"
+  },
+  "results": {
+    "strictVerification": "passed_before_phase_49_changes",
+    "toolboxBuild": "not_run_in_baseline_capture",
+    "webCoverageGate": "passed",
+    "automaticDiagnostic": "missing_before_phase_49",
+    "humanDecisionGate": "present_in_legacy_views_only"
+  },
+  "knownGaps": [
+    {
+      "id": "offline-osv-db",
+      "classification": "expected_failure",
+      "status": "open",
+      "reason": "The committed scanner-data manifest records the offline OSV database as missing."
+    },
+    {
+      "id": "offline-trivy-db",
+      "classification": "expected_failure",
+      "status": "open",
+      "reason": "The committed scanner-data manifest records the Trivy vulnerability database as missing."
+    },
+    {
+      "id": "authenticated-browser",
+      "classification": "expected_failure",
+      "status": "open",
+      "reason": "The real authenticated Playwright adapter is not present in the baseline."
+    },
+    {
+      "id": "active-authorization-matrix",
+      "classification": "expected_failure",
+      "status": "open",
+      "reason": "BOLA/BFLA active-lab checks are not present in the baseline."
+    }
+  ]
+}

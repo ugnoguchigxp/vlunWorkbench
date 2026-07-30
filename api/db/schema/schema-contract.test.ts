@@ -32,6 +32,11 @@ const tableExports = [
 	"findingDecisions",
 	"scanReports",
 	"scanReviews",
+	"scanDiagnosticRuns",
+	"assessmentEngagements",
+	"scanCoverageResults",
+	"activeAssessmentRuns",
+	"activeAssessmentEvidences",
 	"staticIntelligenceEmbeddings",
 	"attackSurfaceItems",
 	"securityChecks",
@@ -49,6 +54,9 @@ const tableExports = [
 	"dastRuns",
 	"dastArtifacts",
 	"dastEvidence",
+	"dastTestIdentities",
+	"dastAuthContexts",
+	"dastAuthAuditEvents",
 ] as const;
 
 describe("database schema module contract", () => {
@@ -85,6 +93,11 @@ describe("database schema module contract", () => {
 			"finding_decisions",
 			"scan_reports",
 			"scan_reviews",
+			"scan_diagnostic_runs",
+			"assessment_engagements",
+			"scan_coverage_results",
+			"active_assessment_runs",
+			"active_assessment_evidences",
 			"static_intelligence_embeddings",
 			"attack_surface_items",
 			"security_checks",
@@ -102,6 +115,9 @@ describe("database schema module contract", () => {
 			"dast_runs",
 			"dast_artifacts",
 			"dast_evidence",
+			"dast_test_identities",
+			"dast_auth_contexts",
+			"dast_auth_audit_events",
 		]);
 	});
 });

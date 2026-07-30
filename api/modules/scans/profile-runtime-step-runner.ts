@@ -13,6 +13,8 @@ import {
 	ScanRepository,
 } from "./repositories";
 import type { ToolExecutionConfig } from "./tools/tool-process-runner";
+import { normalizeToolExecutionConfig } from "./tools/tool-process-runner";
+import { resolveScannerProvenance } from "./tools/scanner-provenance";
 
 export async function runRuntimeScannerIntoExistingScan(params: {
 	db: AppDatabase;
@@ -39,6 +41,10 @@ export async function runRuntimeScannerIntoExistingScan(params: {
 	const scanRepo = new ScanRepository(params.db);
 	const artifactRepo = new ArtifactRepository(params.db);
 	const findingRepo = new FindingRepository(params.db);
+	const provenance = await resolveScannerProvenance({
+		toolId: params.adapter,
+		execution: normalizeToolExecutionConfig(params.execution),
+	});
 	const runner =
 		params.adapter === "zap-baseline"
 			? new ZapBaselineRunner(params.artifactStorage, params.execution)
@@ -67,12 +73,13 @@ export async function runRuntimeScannerIntoExistingScan(params: {
 			policyHash:
 				params.adapter === "nuclei-safe" ? NUCLEI_SAFE_POLICY_HASH : null,
 			image: params.adapter === "zap-baseline" ? ZAP_STABLE_IMAGE : null,
+			provenance,
 		},
 	});
 	if (params.adapter === "nuclei-safe" && !toolVersion) {
 		await scanRepo.updateToolRunStatus(toolRun.id, "failed", {
 			exitCode: 127,
-			metadata: { reasonCode: "tool_unavailable" },
+			metadata: { reasonCode: "tool_unavailable", provenance },
 		});
 		return {
 			toolRunId: toolRun.id,
@@ -147,6 +154,7 @@ export async function runRuntimeScannerIntoExistingScan(params: {
 			exitCode: result.exitCode ?? 1,
 			metadata: {
 				...result.executionMetadata,
+				provenance,
 				reasonCode: result.reasonCode,
 				error: result.error,
 				artifactIds,
@@ -198,6 +206,7 @@ export async function runRuntimeScannerIntoExistingScan(params: {
 				: null,
 		metadata: {
 			...result.executionMetadata,
+			provenance,
 			adapter: params.adapter,
 			targetOrigin: params.targetOrigin,
 			findingCount,

@@ -194,6 +194,8 @@ export const runDastRequestSchema = z
 		dockerImage: z.string().optional(),
 		timeoutSec: z.number().int().positive().max(120).optional(),
 		maxRequests: z.number().int().positive().max(100).optional(),
+		authContextId: z.string().uuid().optional(),
+		identityRole: z.string().min(1).max(100).optional(),
 		dryRun: z.boolean().optional().default(false),
 	})
 	.superRefine((value, ctx) => {
@@ -202,6 +204,16 @@ export const runDastRequestSchema = z
 				code: "custom",
 				path: ["targetConfigId"],
 				message: "targetConfigId is required unless autoTarget is true",
+			});
+		}
+		if (
+			(value.authContextId && !value.identityRole) ||
+			(!value.authContextId && value.identityRole)
+		) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["authContextId"],
+				message: "authContextId and identityRole must be provided together",
 			});
 		}
 	});

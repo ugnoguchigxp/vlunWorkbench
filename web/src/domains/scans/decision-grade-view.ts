@@ -1,4 +1,5 @@
 import type {
+	AutomatedDiagnosticRun,
 	DiagnosticReport,
 	Finding,
 	ScanReport,
@@ -35,6 +36,7 @@ export type BuildDecisionGradeViewInput = {
 	remediationPlanByFindingId: Map<string, RemediationPlanView>;
 	reports: ScanReport[];
 	diagnosticReports: DiagnosticReport[];
+	automatedDiagnostics?: AutomatedDiagnosticRun[];
 	selectedCoverageSummary: CoverageSummary;
 	baselineScanRunId: string | null;
 	baselineFindings: Finding[] | null;
@@ -78,6 +80,7 @@ export function buildDecisionGradeView(
 			diagnosticReports: input.diagnosticReports,
 			coverageSummary: input.selectedCoverageSummary,
 			hasScanImprovementRequest: hasImprovementRequest,
+			automatedDiagnostics: input.automatedDiagnostics ?? [],
 		}),
 		scanComparison,
 		reportQualityPreview: buildReportQualityPreview({

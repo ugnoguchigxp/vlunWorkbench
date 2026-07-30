@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type {
 	AttackSurfaceItem,
+	AutomatedDiagnosticRun,
 	DiagnosticReport,
 	Finding,
 	FindingDecision,
@@ -109,6 +110,30 @@ function diagnosticReport(
 		artifactId: null,
 		metadata: {},
 		errorMessage: null,
+		createdAt: now,
+		updatedAt: now,
+		...overrides,
+	};
+}
+
+function automatedDiagnostic(
+	overrides: Partial<AutomatedDiagnosticRun> = {},
+): AutomatedDiagnosticRun {
+	return {
+		id: "automated-diagnostic-1",
+		scanRunId: "scan-1",
+		inputSnapshotHash: "a".repeat(64),
+		scannerProvenanceHash: "b".repeat(64),
+		pipelineVersion: "automated-scan-diagnostic-v1",
+		status: "completed",
+		readiness: "ready",
+		scanReviewId: "scan-review-1",
+		scanReportId: "report-1",
+		limitationCodes: [],
+		errorMessage: null,
+		attemptCount: 1,
+		startedAt: now,
+		completedAt: now,
 		createdAt: now,
 		updatedAt: now,
 		...overrides,
@@ -266,7 +291,7 @@ describe("buildProjectDiagnosticDashboard", () => {
 		});
 	});
 
-	it("returns create_improvement_request for completed scans with undecided findings", () => {
+	it("does not require a manual decision for completed findings", () => {
 		const dashboard = build({
 			findings: [finding({ id: "finding-undecided" })],
 			securityCheckResults: [securityCheck()],
@@ -275,13 +300,13 @@ describe("buildProjectDiagnosticDashboard", () => {
 
 		expect(dashboard.decisionProgress.undecidedFindings).toBe(1);
 		expect(dashboard.nextActions[0]).toMatchObject({
-			kind: "create_improvement_request",
-			priority: "high",
+			kind: "generate_report",
+			priority: "medium",
 			targetId: "scan-1",
 		});
 	});
 
-	it("ignores improvement requests from other scan runs", () => {
+	it("does not treat scan improvement requests as a readiness gate", () => {
 		const dashboard = build({
 			findings: [finding({ id: "finding-undecided" })],
 			scanReviews: [
@@ -298,28 +323,28 @@ describe("buildProjectDiagnosticDashboard", () => {
 			attackSurfaceItems: [attackSurfaceItem()],
 		});
 
-		expect(dashboard.reportReadiness.blockers).toContain(
+		expect(dashboard.reportReadiness.blockers).not.toContain(
 			"missing_improvement_request",
 		);
 		expect(dashboard.nextActions[0]).toMatchObject({
-			kind: "create_improvement_request",
+			kind: "generate_report",
 			targetId: "scan-1",
 		});
 	});
 
-	it("returns inspect_zero_findings for zero-finding scans without a diagnostic report", () => {
+	it("allows deterministic report generation for legacy zero-finding scans", () => {
 		const dashboard = build({
 			findings: [],
 			securityCheckResults: [securityCheck()],
 			attackSurfaceItems: [attackSurfaceItem()],
 		});
 
-		expect(dashboard.reportReadiness.blockers).toContain(
+		expect(dashboard.reportReadiness.blockers).not.toContain(
 			"missing_diagnostic_summary_for_zero_findings",
 		);
 		expect(dashboard.nextActions[0]).toMatchObject({
-			kind: "inspect_zero_findings",
-			priority: "high",
+			kind: "generate_report",
+			priority: "medium",
 		});
 	});
 
@@ -342,6 +367,40 @@ describe("buildProjectDiagnosticDashboard", () => {
 		expect(dashboard.nextActions.map((action) => action.kind)).toContain(
 			"generate_report",
 		);
+	});
+
+	it("shows automatic progress without asking for human action", () => {
+		const dashboard = build({
+			scanRuns: [
+				scanRun({ metadata: { automaticDiagnosticRequested: true } }),
+			],
+			findings: [finding()],
+			automatedDiagnostics: [
+				automatedDiagnostic({ status: "running", readiness: null }),
+			],
+		});
+
+		expect(dashboard.reportReadiness.blockers).toEqual(["diagnostic_running"]);
+		expect(dashboard.nextActions.map((action) => action.kind)).not.toContain(
+			"create_improvement_request",
+		);
+	});
+
+	it("offers retry for a failed automated diagnostic", () => {
+		const dashboard = build({
+			scanRuns: [
+				scanRun({ metadata: { automaticDiagnosticRequested: true } }),
+			],
+			automatedDiagnostics: [
+				automatedDiagnostic({ status: "failed", readiness: "failed" }),
+			],
+		});
+
+		expect(dashboard.reportReadiness.blockers).toContain("diagnostic_failed");
+		expect(dashboard.nextActions[0]).toMatchObject({
+			kind: "retry_diagnostic",
+			priority: "high",
+		});
 	});
 
 	it("counts severity only for the active scan run", () => {

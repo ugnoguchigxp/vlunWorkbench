@@ -79,7 +79,7 @@ const CONTAINER_CACHE_PATH = "/workspace/cache";
 const DOCKER_TOOL_ALLOWLIST: Record<string, Set<string>> = {
 	semgrep: new Set(["--version", "scan"]),
 	gitleaks: new Set(["version", "detect"]),
-	"osv-scanner": new Set(["--version", "--format"]),
+	"osv-scanner": new Set(["--version", "--format", "scan"]),
 	trivy: new Set(["--version", "fs", "image"]),
 	nuclei: new Set(["--version", "-version", "-u"]),
 	st: new Set(["run", "--version"]),

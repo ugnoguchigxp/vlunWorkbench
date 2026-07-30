@@ -7,10 +7,10 @@ if (args.includes("--version")) {
 	process.exit(0);
 }
 
-const outputFlagIndex = args.indexOf("--output");
+const outputFlagIndex = args.indexOf("--output-file");
 const outputPath = outputFlagIndex >= 0 ? args[outputFlagIndex + 1] : undefined;
 if (!outputPath) {
-	console.error("E2E osv-scanner fixture requires --output.");
+	console.error("E2E osv-scanner fixture requires --output-file.");
 	process.exit(2);
 }
 

@@ -1,6 +1,11 @@
 import { eq } from "drizzle-orm";
 import type { AppDatabase } from "../../db";
 import {
+	legacyOutcomeToObservation,
+	type VerificationKind,
+	verificationResultSchema,
+} from "../../../shared/schemas/verification.schema";
+import {
 	reproductionArtifacts,
 	reproductionEvidence,
 	reproductionRuns,
@@ -19,6 +24,7 @@ export class ReproductionRepository {
 		commandJson?: string[] | null;
 		createdByUserId?: string | null;
 		metadata?: Record<string, unknown>;
+		verificationKind?: VerificationKind;
 	}) {
 		const now = new Date();
 		const [created] = await this.db
@@ -28,6 +34,13 @@ export class ReproductionRepository {
 				scanRunId: params.scanRunId,
 				findingId: params.findingId,
 				profileId: params.profileId,
+				verificationKind: params.verificationKind ?? "scanner_recheck",
+				evidenceStrength:
+					params.verificationKind === "exploit_reproduction"
+						? "impact_demonstrated"
+						: params.verificationKind === "runtime_observation"
+							? "runtime_observation"
+							: "scanner_signal",
 				status: params.status,
 				runner: params.runner,
 				commandJson: params.commandJson ?? null,
@@ -59,7 +72,27 @@ export class ReproductionRepository {
 			updatedAt: now,
 		};
 		if (options?.outcome !== undefined) {
-			updateValues.outcome = options.outcome;
+			const current = await this.getRun(id);
+			const kind = (current?.verificationKind ??
+				"scanner_recheck") as VerificationKind;
+			const outcome =
+				kind === "scanner_recheck"
+					? legacyOutcomeToObservation(options.outcome)
+					: options.outcome;
+			if (outcome !== null) {
+				verificationResultSchema.parse({
+					kind,
+					outcome,
+					evidenceStrength:
+						kind === "exploit_reproduction"
+							? "impact_demonstrated"
+							: kind === "runtime_observation"
+								? "runtime_observation"
+								: "scanner_signal",
+					evidenceRefs: ["pending:persisted-run-evidence"],
+				});
+			}
+			updateValues.outcome = outcome;
 		}
 		if (options?.exitCode !== undefined) {
 			updateValues.exitCode = options.exitCode;

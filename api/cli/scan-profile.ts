@@ -30,6 +30,8 @@ import {
 	type ToolRunnerKind,
 } from "../modules/scans/tools/tool-process-runner";
 import { ProjectPathPolicyError } from "../security/project-path-policy";
+import { runCliAutomatedDiagnostic } from "./scan-profile-diagnostic";
+import { buildScanProfileDryRun } from "./scan-profile-dry-run";
 import { parseScanTargetOption } from "./scan-profile-options";
 
 function writeResult(payload: Record<string, unknown>): void {
@@ -66,6 +68,7 @@ async function main() {
 				"output-summary": { type: "string" },
 				"dry-run": { type: "string", default: "false" },
 				"final-report": { type: "string", default: "true" },
+				"automated-diagnostic": { type: "string", default: "true" },
 				"report-title": { type: "string" },
 				"report-output": { type: "string" },
 				runner: { type: "string" },
@@ -128,6 +131,10 @@ async function main() {
 	const outputSummaryPath = argsValues["output-summary"];
 	const dryRun = argsValues["dry-run"] === "true";
 	const finalReportEnabled = parseBooleanFlag(argsValues["final-report"], true);
+	const automatedDiagnosticEnabled = parseBooleanFlag(
+		argsValues["automated-diagnostic"],
+		true,
+	);
 	const reportTitle = argsValues["report-title"];
 	const reportOutputPath = argsValues["report-output"];
 	const imageRef = argsValues["image-ref"];
@@ -198,77 +205,19 @@ async function main() {
 	}
 
 	if (dryRun) {
-		// Output dry-run details and exit
-		const toolOrder = profile.tools.map((t) => t.toolId);
-		const allSteps = profile.steps ?? [];
-		const selectedSteps = stepId
-			? allSteps.filter((step) => {
-					const id =
-						step.kind === "static_tool"
-							? step.toolId
-							: step.kind === "dast"
-								? `dast:${step.profileId}`
-								: `${step.kind}:${step.adapter}`;
-					return id === stepId;
-				})
-			: allSteps;
-		if (stepId && selectedSteps.length === 0) {
-			writeResult({
-				ok: false,
-				status: "failed",
-				message: `Invalid profile step: ${stepId}`,
-			});
-			process.exit(1);
-		}
-		const stepOrder = selectedSteps.map((step) =>
-			step.kind === "static_tool"
-				? step.toolId
-				: step.kind === "dast"
-					? `dast:${step.profileId}`
-					: `${step.kind}:${step.adapter}`,
-		);
-		const resolvedTools = profile.tools.map((t) => ({
-			toolId: t.toolId,
-			displayName: t.displayName,
-			required: t.required,
-			timeoutSec: t.timeoutSec ?? timeoutSec ?? profile.defaultTimeoutSec,
-			options: t.options ?? {},
-		}));
-		const resolvedSteps = selectedSteps.map((step) => ({
-			kind: step.kind,
-			id:
-				step.kind === "static_tool"
-					? step.toolId
-					: step.kind === "dast"
-						? `dast:${step.profileId}`
-						: `${step.kind}:${step.adapter}`,
-			displayName: step.displayName,
-			required: step.required,
-			timeoutSec: step.timeoutSec ?? timeoutSec ?? profile.defaultTimeoutSec,
-			failurePolicy: step.failurePolicy,
-			target: "target" in step ? step.target : undefined,
-			applicabilityInput:
-				step.kind === "container_image_scan"
-					? imageRef
-						? "image-ref"
-						: imageTar
-							? "image-tar"
-							: "missing"
-					: undefined,
-		}));
-		writeResult({
-			dryRun: true,
-			profileId,
-			target: scanTarget,
-			runner: runner ?? "host",
-			finalReport: finalReportEnabled,
-			stepId: stepId ?? null,
-			toolOrder,
-			stepOrder,
-			resolvedTools,
-			resolvedSteps,
+		const dryRunResult = buildScanProfileDryRun({
+			profile,
+			scanTarget,
+			stepId,
+			timeoutSec,
+			runner,
+			finalReportEnabled,
+			automatedDiagnosticEnabled,
+			imageRef,
+			imageTar,
 		});
-		process.exit(0);
+		writeResult(dryRunResult);
+		process.exit(dryRunResult.ok === false ? 1 : 0);
 	}
 
 	if (!projectId && !projectPath) {
@@ -400,9 +349,23 @@ async function main() {
 			},
 		});
 
-		if (reportOutputPath && result.finalReport?.artifactPath) {
+		const automatedDiagnostic =
+			automatedDiagnosticEnabled &&
+			executionSurface === "cli" &&
+			result.status === "completed"
+				? await runCliAutomatedDiagnostic({
+						db: dbConnection.db,
+						env,
+						scanRunId: result.scanRunId,
+					})
+				: null;
+		const reportArtifactPath =
+			automatedDiagnostic?.reportArtifactPath ??
+			result.finalReport?.artifactPath ??
+			null;
+		if (reportOutputPath && reportArtifactPath) {
 			const reportMarkdown = await new ArtifactStorage().readTextArtifact(
-				result.finalReport.artifactPath,
+				reportArtifactPath,
 			);
 			await fs.writeFile(reportOutputPath, reportMarkdown, "utf8");
 		}
@@ -421,6 +384,7 @@ async function main() {
 			profileOutcome: result.profileOutcome,
 			message: result.message,
 			finalReport: result.finalReport,
+			automatedDiagnostic,
 			toolResults: result.toolResults.map((r) => ({
 				toolId: r.toolId,
 				toolRunId: r.toolRunId,

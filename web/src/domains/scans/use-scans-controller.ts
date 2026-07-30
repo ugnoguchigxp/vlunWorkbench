@@ -29,6 +29,7 @@ import type {
 	SecurityCheckResult,
 } from "../../api";
 import { buildDecisionWorkflow } from "./decision-workflow";
+import { useAutomatedDiagnosticState } from "./use-automated-diagnostic-state";
 import type {
 	RemediationPriority,
 	RemediationStatus,
@@ -179,6 +180,7 @@ export const useScansController = ({
 	const [scanReviewFindingFilter, setScanReviewFindingFilter] =
 		useState<ScanReviewFindingFilter>("all");
 	const [scanReviews, setScanReviews] = useState<ScanReview[]>([]);
+	const automatedDiagnosticState = useAutomatedDiagnosticState();
 	const [reportPreviewContent, setReportPreviewContent] = useState<
 		string | null
 	>(null);
@@ -288,6 +290,7 @@ export const useScansController = ({
 		allReviews,
 		allowProjectScriptsConsent,
 		attackSurfaceItems,
+		...automatedDiagnosticState,
 		busy,
 		commentInput,
 		continueOnToolFailure,

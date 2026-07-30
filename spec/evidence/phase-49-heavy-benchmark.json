@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-30T06:38:07.476Z",
+  "baselineCommit": "628b4120002dabc5b14a86bdde2f844cc681ca9d",
+  "status": "not_executed",
+  "releaseGate": "limited",
+  "toolbox": {
+    "status": "available",
+    "imageDigest": "sha256:6c1047dd244ed59d30bb03fdf73facdc981568337fc26c4b2bc82e45ce07e1cc",
+    "manifestHash": "sha256:30eebbaa99a4383a6d66d63848d4dda206ee770eb2eebc848f2a8646e16fad67",
+    "networkMode": "none"
+  },
+  "corpora": {
+    "owaspBenchmark": {
+      "status": "not_bundled",
+      "metrics": null
+    },
+    "juiceShop": {
+      "status": "not_bundled",
+      "metrics": null
+    }
+  },
+  "residualRisk": "Professional SAST/DAST recall and precision are unquantified. This evidence is not a benchmark pass and blocks claims of professional-assessment equivalence."
+}

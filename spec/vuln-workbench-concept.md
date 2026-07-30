@@ -2,7 +2,7 @@
 
 ## Purpose
 
-vulnWorkbench は、既存のセキュリティCLIツールが生成した診断結果を、LLMがレビューし、人間が判断できる形に整理するローカル脆弱性診断ワークベンチである。
+vulnWorkbench は、既存のセキュリティCLIツールが生成した診断結果を、証跡制約付きLLMが評価し、統合診断結果と実装可能なレポートへ自動変換するローカル脆弱性診断ワークベンチである。
 
 このプロジェクトの中心は、LLMにソースコードを逐次探索させて脆弱性を探させることではない。重い診断、網羅的な探索、証拠生成はCLIコマンドとその実行環境が担当する。LLMは、その結果を読み、誤検知の可能性、影響、修正方針、レビュー観点を整理する。
 
@@ -17,8 +17,9 @@ CLI scan command
   -> raw artifacts / logs / SARIF / JSON
   -> deterministic parser / normalizer
   -> findings / evidence store
-  -> LLM review
-  -> human review / report
+  -> deterministic consolidated report
+  -> evidence-constrained LLM criticality review
+  -> final report / implementation handoff
 ```
 
 LLMは診断の実行主体ではなく、レビュー主体である。
@@ -26,8 +27,8 @@ LLMは診断の実行主体ではなく、レビュー主体である。
 ```text
 CLI tools = evidence generation
 Normalizer = deterministic interpretation
-LLM = review, explanation, prioritization
-Human = final decision
+LLM = evidence-constrained review, explanation, prioritization
+Server policy = authorization, credentials, network and resource boundaries
 ```
 
 この分離により、診断結果の根拠をLLMの推測ではなく、再実行可能なCLI出力に置く。
@@ -42,10 +43,10 @@ MVPのユーザー体験は、次の一連の流れとして成立させる。
 3. vulnWorkbenchがCLI scanを実行する
 4. raw artifactとログを保存する
 5. deterministic normalizerがfindingとevidenceを作る
-6. LLMがfinding単位またはscan単位でレビューする
-7. UIがfinding、evidence、LLM review、raw artifactを表示する
-8. ユーザーが採用、保留、誤検知、修正対象を判断する
-9. Markdown reportを出力できる
+6. deterministic reportを自動生成する
+7. LLMが保存済み証跡だけからfinding単位・scan単位のcriticalityを評価する
+8. UIがfinding、evidence、LLM review、raw artifact、limitationを表示する
+9. 統合Markdown reportとimplementation handoffを自動出力する
 ```
 
 Web UIは、診断を始めるための操作面であり、結果をレビューするための画面である。診断の重い処理をWeb UIやLLMの逐次対話に閉じ込めない。
@@ -60,7 +61,7 @@ MVPで扱うCLI scanは、次の性質を持つ。
 - 出力はraw artifact、ログ、tool metadata、終了状態である。
 - 実行結果は再読込できる形で永続化する。
 - CLIの終了コードだけでなく、toolごとの結果とartifactを保存する。
-- LLM reviewが失敗しても、CLI scan結果とnormalized findingは残る。
+- LLM reviewが失敗しても、CLI scan結果、normalized finding、deterministic reportは残り、`ready_with_limitations`として完了する。
 
 MVPでは、CLI scanをWeb APIから起動してもよい。ただし、概念上の主語はAPIではなくCLI scan commandである。将来的にCIや手動CLIから同じscanを実行できる形にできることを前提にする。
 
@@ -75,7 +76,7 @@ MVPの証拠生成は、既存OSSツールに任せる。
 - OSV-Scanner: lockfile / manifest ベースの依存脆弱性
 - Trivy: filesystem、dependency、IaC、secret補助
 
-これらのツールは、vulnWorkbenchの内部ロジックで置き換えない。vulnWorkbenchが実装するのは、実行制御、artifact保存、正規化、レビュー、表示である。
+これらのツールは、vulnWorkbenchの内部ロジックで置き換えない。vulnWorkbenchが実装するのは、実行制御、artifact保存、正規化、自動診断、レポート、表示である。
 
 ## LLM Review Model
 
@@ -103,9 +104,15 @@ LLM reviewの出力は、schema validation可能な構造化データにする�
 - remediationDirection
 - reviewerNotes
 - confidenceAdjustment
+- evidenceRefs
+- assumptions
+- unknowns
+- implementationHandoff
 ```
 
 LLMに許可しない役割は、repoを自由に巡回して脆弱性を探索することである。LLMは任意pathを読みながら「怪しい箇所探し」をしない。必要なsource snippetは、finding locationやscan artifactからdeterministicに抽出されたものだけを渡す。
+
+LLMはactive scanの許可、認証情報の選択・復号、target scopeの拡張、network policy、request budget、container resource limitを判断しない。これらはserver側のfail-closedな契約で決定する。
 
 ## Evidence Model
 
@@ -130,7 +137,7 @@ severity = 影響の大きさ
 confidence = 証拠の強さ
 ```
 
-MVPでは、confidenceは次の範囲に限定する。
+confidenceは一次証拠と検証種別から導出し、scanner severityやLLM criticalityと分ける。
 
 ```text
 static:
@@ -139,14 +146,14 @@ static:
 reviewed:
   static findingをLLMがレビューし、説明と注意点が付いた状態
 
-accepted:
-  人間がレビューして採用した状態
+observed:
+  scanner recheckまたは安全なruntime observationで現象を確認した状態
 
-false_positive:
-  人間が誤検知として退けた状態
+reproduced:
+  明示的に許可されたlabで影響を再現した状態
 ```
 
-将来のsandbox再現、DAST、patch確認はMVPのconfidence modelには含めない。
+人間のDecision recordは任意の互換・監査注釈であり、診断・review・report・retry・exportの完了条件に含めない。
 
 ## RAG Position
 
@@ -168,7 +175,9 @@ vulnWorkbenchは未信頼コードを扱うため、MVPでも次の境界を守�
 - Docker socketをtool containerへ渡さない。
 - raw artifactは保存するが、LLMへ送る前に必要最小限へ絞る。
 - secret findingの値は原則redactして表示、保存、LLM reviewする。
-- external target scanはMVP対象外にする。
+- DAST credentialはencrypted auth contextとして保存し、送信直前にだけ復号する。
+- public / production targetへのactive scanはfail-closedにする。
+- state-changing scanはlocal / ephemeral / staging、Rules of Engagement、method/path/request budget、seed/cleanup contractをすべて満たす場合に限る。
 - 対象repoを変更する処理はMVP対象外にする。
 
 ## MVP Scope
@@ -179,8 +188,8 @@ MVPで成立させる最小のプロダクト価値は次の通り。
 ローカルrepoに対してCLI scanを実行し、
 再実行可能なartifactを保存し、
 deterministicにfindingへ正規化し、
-LLMがそのfindingをレビューし、
-人間がUIで根拠付きに判断できる。
+deterministic reportと証跡制約付きLLM評価を自動生成し、
+統合診断結果とimplementation handoffを出力できる。
 ```
 
 MVPに含めるもの。
@@ -192,9 +201,10 @@ MVPに含めるもの。
 - normalized finding model
 - evidence model
 - finding list and detail UI
-- LLM review for existing findings
-- reviewer decision state
-- Markdown report generation
+- automatic LLM review for existing findings
+- automatic deterministic and assessed report generation
+- optional compatibility decision annotations
+- authenticated read-only DAST
 
 MVPに含めないもの。
 
@@ -203,10 +213,9 @@ MVPに含めないもの。
 - exploit生成
 - patch自動適用
 - sandboxでの再現確認
-- DAST
-- fuzzing
-- sanitizer実行
-- browser automation
+- public / production active DAST
+- unrestricted fuzzing
+- user supplied browser / shell scripts
 - CI統合
 - multi-tenant SaaS
 - 外部target scan
@@ -222,15 +231,15 @@ MVPに含めないもの。
 4. deterministic parser / normalizer
 5. findings and evidence API
 6. Web UI review surfaces
-7. LLM review schema and runner
-8. reviewer decision workflow
-9. report generation
+7. deterministic report runner
+8. evidence-constrained LLM review schema and runner
+9. automatic diagnostic orchestration and retry
 10. end-to-end fixture scan
 ```
 
 各ステップは、LLM reviewより前にCLI outputとnormalized findingが独立して確認できることを完了条件にする。
 
-LLMが未設定でも、scan、artifact保存、normalization、finding表示は動く必要がある。LLM reviewは価値を追加する後段処理であり、診断基盤の必須依存にしない。
+LLMが未設定でも、scan、artifact保存、normalization、finding表示、deterministic report生成は動く必要がある。LLM reviewは価値を追加する後段処理であり、失敗時は明示的なlimitationを保存する。
 
 ## Verification
 
@@ -241,8 +250,10 @@ LLMが未設定でも、scan、artifact保存、normalization、finding表示は
 - raw artifactが保存され、後から再確認できる。
 - normalized findingがLLMなしで生成される。
 - LLM reviewが失敗しても一次証拠とfindingが失われない。
+- scan完了後に人間のDecisionなしでdeterministic reportとLLM reviewが開始される。
+- LLMが失敗してもdeterministic reportが`ready_with_limitations`で完了する。
 - Web UIがLLM出力だけでなく、tool outputとsource locationを表示する。
-- MVP外のsandbox、DAST、fuzzing、patch自動化を混ぜていない。
+- LLMに認可、credential、active scan許可、network/resource limitを委譲していない。
 - secretとLLM API keyの境界が崩れていない。
 
 ## Avoid
@@ -255,5 +266,7 @@ LLMが未設定でも、scan、artifact保存、normalization、finding表示は
 - scan結果とchat artifactを同じ意味で扱う。
 - Web UIから直接重い診断ロジックを逐次実行する。
 - LLM未設定時にscan基盤まで使えなくする。
-- MVPにsandbox、DAST、fuzzing、patch自動化を混ぜる。
+- 人間のDecision、peer approval、manual finding reviewを通常完了のgateにする。
+- LLM出力だけでactive scanの許可やtarget scopeを拡張する。
+- unrestricted fuzzingやpatch自動化を暗黙に有効化する。
 - raw artifactを残さず、正規化結果だけを保存する。

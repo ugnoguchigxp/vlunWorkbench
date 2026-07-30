@@ -1,3 +1,4 @@
+export * from "./schema/schema-assessment";
 export * from "./schema/schema-core";
 export * from "./schema/schema-dast";
 export * from "./schema/schema-dynamic";

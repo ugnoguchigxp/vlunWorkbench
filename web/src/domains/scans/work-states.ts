@@ -197,8 +197,6 @@ export function deriveFindingWorkState(
 	if (decision?.decision === "accepted") return "accepted_risk_recorded";
 	if (!hasUsableEvidence(input)) return "blocked_by_evidence";
 
-	const review = getLatestReview(input);
-	if (review?.status !== "completed") return "needs_review";
 	if (needsVerificationSignal(input)) return "needs_verification";
 	return "ready_for_report";
 }
@@ -209,21 +207,22 @@ export function deriveScanWorkState(input: ScanWorkStateInput): ScanWorkState {
 
 	const findingCount =
 		input.scanSummary?.totals.findingCount ?? input.findings.length;
+	const completedReports = input.reports?.filter(
+		(report) => report.status === "completed",
+	);
+	if (completedReports?.length) return "report_generated";
+
 	const completedDiagnosticReports = input.diagnosticReports?.filter(
 		(report) => report.status === "completed",
 	);
 	if (
 		input.scanRun.status === "completed" &&
 		findingCount === 0 &&
+		input.scanRun.metadata?.automaticDiagnosticRequested !== true &&
 		!completedDiagnosticReports?.length
 	) {
 		return "zero_finding_needs_coverage";
 	}
-
-	const completedReports = input.reports?.filter(
-		(report) => report.status === "completed",
-	);
-	if (completedReports?.length) return "report_generated";
 
 	const findingStates = input.findings.map((finding) => {
 		const verification = input.verificationByFindingId?.get(finding.id);

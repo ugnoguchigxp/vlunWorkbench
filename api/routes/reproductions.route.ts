@@ -1,6 +1,7 @@
 import path from "node:path";
 import { Hono } from "hono";
 import { runReproductionRequestSchema } from "../../shared/schemas/reproduction.schema";
+import { observationOutcomeToLegacy } from "../../shared/schemas/verification.schema";
 import type { AppDatabase } from "../db";
 import type { AppEnv } from "../app/env";
 import { getAuthContextUser } from "../modules/auth/context";
@@ -76,184 +77,223 @@ export function createReproductionsRoute(deps: ReproductionsRouteDeps) {
 	});
 
 	// Finding-specific reproduction runs list
-	route.get("/findings/:findingId/reproductions", async (c) => {
-		const authUser = getAuthContextUser(c);
-		const findingId = c.req.param("findingId");
+	route.on(
+		["GET"],
+		[
+			"/findings/:findingId/reproductions",
+			"/findings/:findingId/verifications",
+		],
+		async (c) => {
+			const authUser = getAuthContextUser(c);
+			const findingId = c.req.param("findingId");
 
-		const finding = await findingRepository.findById(findingId);
-		if (!finding) {
-			throw new HttpError(404, "Finding not found");
-		}
+			const finding = await findingRepository.findById(findingId);
+			if (!finding) {
+				throw new HttpError(404, "Finding not found");
+			}
 
-		const project = await projectRepository.findById(finding.projectId);
-		if (!project || project.ownerUserId !== authUser.userId) {
-			throw new HttpError(403, "Forbidden");
-		}
+			const project = await projectRepository.findById(finding.projectId);
+			if (!project || project.ownerUserId !== authUser.userId) {
+				throw new HttpError(403, "Forbidden");
+			}
 
-		const runs = await repo.listRunsForFinding(findingId);
-		return c.json({ reproductions: runs });
-	});
+			const runs = await repo.listRunsForFinding(findingId);
+			const verifications = runs;
+			const reproductions = runs.map((run) => ({
+				...run,
+				outcome: observationOutcomeToLegacy(run.outcome),
+			}));
+			return c.json({ reproductions, verifications });
+		},
+	);
 
 	// Trigger a finding reproduction via CLI bridge
-	route.post("/findings/:findingId/reproductions", async (c) => {
-		const authUser = getAuthContextUser(c);
-		const findingId = c.req.param("findingId");
+	route.on(
+		["POST"],
+		[
+			"/findings/:findingId/reproductions",
+			"/findings/:findingId/verifications",
+		],
+		async (c) => {
+			const authUser = getAuthContextUser(c);
+			const findingId = c.req.param("findingId");
 
-		const finding = await findingRepository.findById(findingId);
-		if (!finding) {
-			throw new HttpError(404, "Finding not found");
-		}
+			const finding = await findingRepository.findById(findingId);
+			if (!finding) {
+				throw new HttpError(404, "Finding not found");
+			}
 
-		const project = await projectRepository.findById(finding.projectId);
-		if (!project || project.ownerUserId !== authUser.userId) {
-			throw new HttpError(403, "Forbidden");
-		}
-		await assertExecutionPath(project.repoPath);
+			const project = await projectRepository.findById(finding.projectId);
+			if (!project || project.ownerUserId !== authUser.userId) {
+				throw new HttpError(403, "Forbidden");
+			}
+			await assertExecutionPath(project.repoPath);
 
-		let body: unknown;
-		try {
-			body = await c.req.json();
-		} catch {
-			throw new HttpError(400, "Invalid JSON body");
-		}
+			let body: unknown;
+			try {
+				body = await c.req.json();
+			} catch {
+				throw new HttpError(400, "Invalid JSON body");
+			}
 
-		const parseResult = runReproductionRequestSchema.safeParse(body);
-		if (!parseResult.success) {
-			const message = parseResult.error.issues
-				.map((issue) => `${issue.path.join(".")}: ${issue.message}`)
-				.join("; ");
-			throw new HttpError(400, `Validation failed: ${message}`);
-		}
+			const parseResult = runReproductionRequestSchema.safeParse(body);
+			if (!parseResult.success) {
+				const message = parseResult.error.issues
+					.map((issue) => `${issue.path.join(".")}: ${issue.message}`)
+					.join("; ");
+				throw new HttpError(400, `Validation failed: ${message}`);
+			}
 
-		const {
-			profileId,
-			runner,
-			dockerImage,
-			network,
-			timeoutSec,
-			memory,
-			cpus,
-		} = parseResult.data;
+			const {
+				profileId,
+				runner,
+				dockerImage,
+				network,
+				timeoutSec,
+				memory,
+				cpus,
+			} = parseResult.data;
 
-		// Validate profile exists and is applicable before launching CLI
-		const profile = getReproductionProfileById(profileId);
-		if (!profile) {
-			throw new HttpError(400, `Profile not found: ${profileId}`);
-		}
+			// Validate profile exists and is applicable before launching CLI
+			const profile = getReproductionProfileById(profileId);
+			if (!profile) {
+				throw new HttpError(400, `Profile not found: ${profileId}`);
+			}
 
-		const appCheck = profile.isApplicable({ finding });
-		if (!appCheck.applicable) {
-			throw new HttpError(
-				400,
-				`Profile ${profileId} is not applicable: ${appCheck.reason}`,
-			);
-		}
+			const appCheck = profile.isApplicable({ finding });
+			if (!appCheck.applicable) {
+				throw new HttpError(
+					400,
+					`Profile ${profileId} is not applicable: ${appCheck.reason}`,
+				);
+			}
 
-		// Construct CLI arguments
-		const args = [
-			"run",
-			"api/cli/repro-finding.ts",
-			"--",
-			"--finding-id",
-			findingId,
-			"--profile",
-			profileId,
-			"--runner",
-			runner,
-		];
+			// Construct CLI arguments
+			const args = [
+				"run",
+				"api/cli/repro-finding.ts",
+				"--",
+				"--finding-id",
+				findingId,
+				"--profile",
+				profileId,
+				"--runner",
+				runner,
+			];
 
-		if (dockerImage) {
-			args.push("--docker-image", dockerImage);
-		}
-		if (network) {
-			args.push("--network", network);
-		}
-		if (timeoutSec !== undefined) {
-			args.push("--timeout-sec", String(timeoutSec));
-		}
-		if (memory) {
-			args.push("--memory", memory);
-		}
-		if (cpus) {
-			args.push("--cpus", cpus);
-		}
+			if (dockerImage) {
+				args.push("--docker-image", dockerImage);
+			}
+			if (network) {
+				args.push("--network", network);
+			}
+			if (timeoutSec !== undefined) {
+				args.push("--timeout-sec", String(timeoutSec));
+			}
+			if (memory) {
+				args.push("--memory", memory);
+			}
+			if (cpus) {
+				args.push("--cpus", cpus);
+			}
 
-		// Run reproduction via CLI processes to ensure process safety boundary
-		const proc = Bun.spawn(["bun", ...args], {
-			stdout: "pipe",
-			stderr: "pipe",
-		});
+			// Run reproduction via CLI processes to ensure process safety boundary
+			const proc = Bun.spawn(["bun", ...args], {
+				stdout: "pipe",
+				stderr: "pipe",
+			});
 
-		const [stdoutBuf, stderrBuf] = await Promise.all([
-			new Response(proc.stdout).arrayBuffer(),
-			new Response(proc.stderr).arrayBuffer(),
-		]);
+			const [stdoutBuf, stderrBuf] = await Promise.all([
+				new Response(proc.stdout).arrayBuffer(),
+				new Response(proc.stderr).arrayBuffer(),
+			]);
 
-		const stdout = new TextDecoder().decode(stdoutBuf);
-		const stderr = new TextDecoder().decode(stderrBuf);
-		await proc.exited;
+			const stdout = new TextDecoder().decode(stdoutBuf);
+			const stderr = new TextDecoder().decode(stderrBuf);
+			await proc.exited;
 
-		let cliResult: any;
-		try {
-			cliResult = JSON.parse(stdout.trim());
-		} catch (err: any) {
-			console.error(`CLI execution failed: ${stderr}`);
-			throw new HttpError(
-				500,
-				`CLI bridge parse failure: ${stderr || err.message}`,
-			);
-		}
+			let cliResult: any;
+			try {
+				cliResult = JSON.parse(stdout.trim());
+			} catch (err: any) {
+				console.error(`CLI execution failed: ${stderr}`);
+				throw new HttpError(
+					500,
+					`CLI bridge parse failure: ${stderr || err.message}`,
+				);
+			}
 
-		// If CLI failed before creating run
-		if (!cliResult.ok && !cliResult.reproductionRunId) {
-			throw new HttpError(
-				400,
-				cliResult.message || "Failed to start reproduction",
-			);
-		}
+			// If CLI failed before creating run
+			if (!cliResult.ok && !cliResult.reproductionRunId) {
+				throw new HttpError(
+					400,
+					cliResult.message || "Failed to start reproduction",
+				);
+			}
 
-		// Return 200 even for failed execution run, as long as it has reproductionRunId
-		return c.json(cliResult);
-	});
+			// Return 200 even for failed execution run, as long as it has reproductionRunId
+			return c.json(cliResult);
+		},
+	);
 
 	// Get specific reproduction run details
-	route.get("/reproduction-runs/:reproductionRunId", async (c) => {
-		const authUser = getAuthContextUser(c);
-		const runId = c.req.param("reproductionRunId");
+	route.on(
+		["GET"],
+		[
+			"/reproduction-runs/:reproductionRunId",
+			"/verification-runs/:reproductionRunId",
+		],
+		async (c) => {
+			const authUser = getAuthContextUser(c);
+			const runId = c.req.param("reproductionRunId");
 
-		const run = await repo.getRun(runId);
-		if (!run) {
-			throw new HttpError(404, "Reproduction run not found");
-		}
+			const run = await repo.getRun(runId);
+			if (!run) {
+				throw new HttpError(404, "Reproduction run not found");
+			}
 
-		const project = await projectRepository.findById(run.projectId);
-		if (!project || project.ownerUserId !== authUser.userId) {
-			throw new HttpError(403, "Forbidden");
-		}
+			const project = await projectRepository.findById(run.projectId);
+			if (!project || project.ownerUserId !== authUser.userId) {
+				throw new HttpError(403, "Forbidden");
+			}
 
-		return c.json({ reproductionRun: run });
-	});
+			return c.json({
+				reproductionRun: {
+					...run,
+					outcome: observationOutcomeToLegacy(run.outcome),
+				},
+				verificationRun: run,
+			});
+		},
+	);
 
 	// Get artifacts and evidence list for reproduction run
-	route.get("/reproduction-runs/:reproductionRunId/artifacts", async (c) => {
-		const authUser = getAuthContextUser(c);
-		const runId = c.req.param("reproductionRunId");
+	route.on(
+		["GET"],
+		[
+			"/reproduction-runs/:reproductionRunId/artifacts",
+			"/verification-runs/:reproductionRunId/artifacts",
+		],
+		async (c) => {
+			const authUser = getAuthContextUser(c);
+			const runId = c.req.param("reproductionRunId");
 
-		const run = await repo.getRun(runId);
-		if (!run) {
-			throw new HttpError(404, "Reproduction run not found");
-		}
+			const run = await repo.getRun(runId);
+			if (!run) {
+				throw new HttpError(404, "Reproduction run not found");
+			}
 
-		const project = await projectRepository.findById(run.projectId);
-		if (!project || project.ownerUserId !== authUser.userId) {
-			throw new HttpError(403, "Forbidden");
-		}
+			const project = await projectRepository.findById(run.projectId);
+			if (!project || project.ownerUserId !== authUser.userId) {
+				throw new HttpError(403, "Forbidden");
+			}
 
-		const artifacts = await repo.listArtifacts(runId);
-		const evidence = await repo.listEvidence(runId);
+			const artifacts = await repo.listArtifacts(runId);
+			const evidence = await repo.listEvidence(runId);
 
-		return c.json({ artifacts, evidence });
-	});
+			return c.json({ artifacts, evidence });
+		},
+	);
 
 	// Get specific reproduction artifact file content
 	route.get(

@@ -1,0 +1,4 @@
+{
+  "status": 200,
+  "body": "DATABASE_URL=postgres://db.local/app\nSECRET_KEY=fixture-only-secret\n"
+}

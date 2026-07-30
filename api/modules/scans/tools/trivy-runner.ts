@@ -115,6 +115,15 @@ export class TrivyRunner {
 		if (options.scanners?.length) {
 			args.push("--scanners", options.scanners.join(","));
 		}
+		if (this.execution?.runner === "docker" && mode !== "fs-sbom") {
+			args.push(
+				"--cache-dir",
+				"/opt/vuln-workbench/scanner-data/trivy",
+				"--skip-db-update",
+				"--skip-java-db-update",
+				"--offline-scan",
+			);
+		}
 		if (mode === "fs-vulnerability" && !scopedWorkspace) {
 			for (const skipDir of getScopeSkipDirs(options.scope)) {
 				args.push("--skip-dirs", skipDir);

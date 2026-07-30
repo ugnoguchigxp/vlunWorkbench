@@ -15,7 +15,10 @@ import { ArtifactStorage } from "../modules/scans/artifact-storage";
 import { ScanReportRepository } from "../modules/scans/report-repository";
 import { ScanRepository } from "../modules/scans/repositories";
 import { ArtifactRepository } from "../modules/scans/repositories";
+import { ScanDiagnosticRunner } from "../modules/scans/scan-diagnostic-runner";
 import { ScanProcessSupervisor } from "../modules/scans/scan-process-supervisor";
+import { ScanReviewRepository } from "../modules/scans/scan-review-repository";
+import { ScanReviewRunner } from "../modules/scans/scan-review-runner";
 import { SettingsRepository } from "../modules/settings/settings.repository";
 import { SourceRepository } from "../modules/sources/source.repository";
 import {
@@ -51,6 +54,7 @@ export type AppRuntime = {
 	wikiBlobSyncer: WikiBlobSyncer | null;
 	scanSupervisor: ScanProcessSupervisor;
 	scanReportRunner: ScanReportRunner;
+	scanDiagnosticRunner: ScanDiagnosticRunner;
 	integrationClientService: IntegrationClientService;
 	agenticSearchService: {
 		run(input: {
@@ -132,6 +136,7 @@ function isRuntimeShape(value: unknown): value is AppRuntime {
 		Object.hasOwn(obj, "wikiBlobSyncer") &&
 		Boolean(obj.scanSupervisor) &&
 		Boolean(obj.scanReportRunner) &&
+		Boolean(obj.scanDiagnosticRunner) &&
 		Boolean(obj.integrationClientService) &&
 		typeof settingsRepo?.getSystemContextForUser === "function" &&
 		typeof settingsRepo?.updateSystemContext === "function" &&
@@ -174,12 +179,10 @@ async function createRuntime(): Promise<AppRuntime> {
 	const settingsRepository = new SettingsRepository(dbConnection.db);
 	const llmSettingsRepository = new LlmSettingsRepository(dbConnection.db, env);
 	const llmRouter = new LlmRouter(llmSettingsRepository, env);
-	const scanSupervisor = new ScanProcessSupervisor(
-		new ScanRepository(dbConnection.db),
-	);
-	await scanSupervisor.recoverStaleWebScans();
+	const scanRepository = new ScanRepository(dbConnection.db);
+	const scanReportRepository = new ScanReportRepository(dbConnection.db);
 	const scanReportRunner = new ScanReportRunner(dbConnection.db, {
-		reportRepository: new ScanReportRepository(dbConnection.db),
+		reportRepository: scanReportRepository,
 		artifactRepository: new ArtifactRepository(dbConnection.db),
 		artifactStorage: new ArtifactStorage(),
 		llmRouter,
@@ -187,6 +190,31 @@ async function createRuntime(): Promise<AppRuntime> {
 		maxReportBytes: env.nightworkersIntegrationMaxReportBytes,
 	});
 	await scanReportRunner.recover();
+	const scanReviewRepository = new ScanReviewRepository(dbConnection.db);
+	const scanReviewRunner = new ScanReviewRunner(dbConnection.db, {
+		llmRouter,
+		reviewRepository: scanReviewRepository,
+	});
+	const scanDiagnosticRunner = new ScanDiagnosticRunner(dbConnection.db, {
+		scanRepository,
+		reviewRepository: scanReviewRepository,
+		reportRepository: scanReportRepository,
+		reviewRunner: scanReviewRunner,
+		reportRunner: scanReportRunner,
+	});
+	const scanSupervisor = new ScanProcessSupervisor(scanRepository, {
+		onCompletedScan: async (scanRunId) => {
+			const started = await scanDiagnosticRunner.start(scanRunId);
+			void started.completion.catch((error) => {
+				console.error(
+					`Automated diagnostic ${started.diagnosticRunId} failed:`,
+					error,
+				);
+			});
+		},
+	});
+	await scanSupervisor.recoverStaleWebScans();
+	await scanDiagnosticRunner.recover();
 	const integrationClientService = new IntegrationClientService(
 		dbConnection.db,
 	);
@@ -272,6 +300,7 @@ async function createRuntime(): Promise<AppRuntime> {
 		wikiBlobSyncer,
 		scanSupervisor,
 		scanReportRunner,
+		scanDiagnosticRunner,
 		integrationClientService,
 		agenticSearchService,
 	};

@@ -9,7 +9,7 @@ try {
 		options: {
 			"project-id": { type: "string" },
 			profile: { type: "string", default: "semgrep-baseline" },
-			config: { type: "string", default: "auto" },
+			config: { type: "string", default: "owned" },
 			"timeout-sec": { type: "string" },
 			"max-target-bytes": { type: "string" },
 		},

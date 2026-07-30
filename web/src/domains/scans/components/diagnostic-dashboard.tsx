@@ -4,6 +4,7 @@ import {
 	ClipboardCheck,
 	FileText,
 	Radar,
+	RefreshCw,
 } from "lucide-react";
 import type { ReactNode } from "react";
 import type { DashboardAction } from "../diagnostic-dashboard";
@@ -19,6 +20,8 @@ const blockerLabels: Record<string, string> = {
 	missing_improvement_request: "改善依頼が不足",
 	missing_diagnostic_summary_for_zero_findings:
 		"finding 0 件の診断 summary が不足",
+	diagnostic_running: "自動診断を実行中",
+	diagnostic_failed: "自動診断の再実行が必要",
 };
 
 export function DiagnosticDashboard() {
@@ -46,13 +49,13 @@ export function DiagnosticDashboard() {
 					))}
 				</div>
 				<Metric
-					label="handoff 必要"
-					value={`${implementationRouting.undecidedFindings} 件`}
+					label="scanner finding"
+					value={`${implementationRouting.totalFindings} 件`}
 				/>
 			</DashboardGroup>
 
 			<DashboardGroup
-				title="実装ルーティング"
+				title="任意の注釈"
 				icon={<ClipboardCheck className="icon" />}
 			>
 				<div className="diagnostic-progress-line">
@@ -67,25 +70,26 @@ export function DiagnosticDashboard() {
 				</div>
 				<div className="diagnostic-metric-grid">
 					<Metric
-						label="既存記録"
+						label="decision 記録"
 						value={`${implementationRouting.decidedFindings}/${implementationRouting.totalFindings}`}
 					/>
 					<Metric
-						label="修正候補"
+						label="needs-fix 注釈"
 						value={String(implementationRouting.needsFix)}
 					/>
 					<Metric
-						label="tool noise 記録"
+						label="tool-noise 注釈"
 						value={String(implementationRouting.falsePositive)}
 					/>
 					<Metric
-						label="保留記録"
+						label="deferred 注釈"
 						value={String(implementationRouting.deferred)}
 					/>
 				</div>
 			</DashboardGroup>
 
 			<DashboardGroup title="診断" icon={<Radar className="icon" />}>
+				<AutomatedDiagnosticStatus />
 				<div className="diagnostic-metric-grid">
 					<Metric
 						label="攻撃面"
@@ -182,12 +186,13 @@ function progressWidth(done: number, total: number): string {
 
 function reportReadinessLabel(ready: boolean, scanReports: number): string {
 	if (scanReports > 0) return ready ? "レポート準備完了" : "レポートあり";
-	return ready ? "生成可能" : "レポート生成ブロック中";
+	return ready ? "生成可能" : "自動レポート生成待ち";
 }
 
 function ActionIcon({ action }: { action: DashboardAction }) {
 	if (action.kind === "run_scan" || action.kind === "run_diagnostics")
 		return <Activity className="icon" />;
+	if (action.kind === "retry_diagnostic") return <RefreshCw className="icon" />;
 	if (action.kind === "generate_report") return <FileText className="icon" />;
 	if (
 		action.kind === "create_improvement_request" ||
@@ -195,4 +200,59 @@ function ActionIcon({ action }: { action: DashboardAction }) {
 	)
 		return <ClipboardCheck className="icon" />;
 	return <Radar className="icon" />;
+}
+
+function AutomatedDiagnosticStatus() {
+	const c = useScans();
+	const diagnostic = c.automatedDiagnostics.find(
+		(item) => item.scanRunId === c.selectedScanRunId,
+	);
+	const selectedScan = c.scanRuns.find(
+		(scan) => scan.id === c.selectedScanRunId,
+	);
+	const expected =
+		selectedScan?.metadata?.automaticDiagnosticRequested === true;
+	const label = diagnostic
+		? diagnosticStatusLabel(diagnostic.status)
+		: expected
+			? "自動診断の開始待ち"
+			: "自動診断記録なし";
+	const retryable = Boolean(
+		diagnostic &&
+			(diagnostic.status === "failed" ||
+				(diagnostic.status === "completed_with_limitations" &&
+					diagnostic.limitationCodes.some((code) => code.startsWith("llm_")))),
+	);
+
+	return (
+		<div className="diagnostic-readiness">
+			<Radar className="icon" />
+			<span>
+				<strong>{label}</strong>
+				{diagnostic?.limitationCodes.length
+					? ` — ${diagnostic.limitationCodes.join(", ")}`
+					: ""}
+			</span>
+			{retryable ? (
+				<button
+					type="button"
+					className="diagnostic-action-button priority-medium"
+					disabled={c.automatedDiagnosticLoading}
+					onClick={() => void c.handleRetryAutomatedDiagnostic()}
+				>
+					<RefreshCw className="icon" />
+					{c.automatedDiagnosticLoading ? "再実行中" : "LLM診断を再実行"}
+				</button>
+			) : null}
+		</div>
+	);
+}
+
+function diagnosticStatusLabel(status: string): string {
+	if (status === "queued") return "自動診断を待機中";
+	if (status === "running") return "LLM診断とレポートを生成中";
+	if (status === "completed") return "自動診断完了";
+	if (status === "completed_with_limitations")
+		return "自動診断完了（制約あり）";
+	return "自動診断失敗";
 }

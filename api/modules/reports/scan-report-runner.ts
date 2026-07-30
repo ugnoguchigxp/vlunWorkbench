@@ -56,6 +56,7 @@ export class ScanReportRunner {
 		title: string;
 		summaryMode: "deterministic" | "deterministic_with_llm_summary";
 		generatedByUserId?: string | null;
+		options?: Record<string, unknown>;
 	}) {
 		if (this.shuttingDown) {
 			throw new Error("Report runner is shutting down.");
@@ -67,6 +68,7 @@ export class ScanReportRunner {
 			options: {
 				...FULL_REPORT_OPTIONS,
 				summaryMode: params.summaryMode,
+				...(params.options ?? {}),
 			},
 			status: "queued",
 			generatedByUserId: params.generatedByUserId,

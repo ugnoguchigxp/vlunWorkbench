@@ -81,6 +81,32 @@ describe("Scans Route", () => {
 			completion: new Promise(() => {}),
 		}),
 	};
+	const mockScanDiagnosticRepo = {
+		listForScan: vi.fn().mockResolvedValue([
+			{
+				id: "diagnostic-1",
+				scanRunId: "s-1",
+				status: "completed",
+				readiness: "ready",
+			},
+		]),
+		findById: vi.fn().mockResolvedValue({
+			id: "diagnostic-1",
+			scanRunId: "s-1",
+			status: "queued",
+			readiness: null,
+		}),
+	};
+	const mockScanDiagnosticRunner = {
+		retry: vi.fn().mockResolvedValue({
+			diagnosticRunId: "diagnostic-1",
+			status: "queued",
+			completion: new Promise(() => {}),
+		}),
+	};
+	const mockAssessmentRepository = {
+		listCoverageResults: vi.fn().mockResolvedValue([]),
+	};
 	const mockScanReportRunner = {
 		start: vi.fn().mockResolvedValue({
 			reportId: "report-1",
@@ -114,8 +140,11 @@ describe("Scans Route", () => {
 			findingReviewRepository: mockFindingReviewRepo as any,
 			scanReportRepository: mockScanReportRepo as any,
 			scanReviewRepository: mockScanReviewRepo as any,
+			scanDiagnosticRepository: mockScanDiagnosticRepo as any,
+			assessmentRepository: mockAssessmentRepository as any,
 			scanReviewRunner: mockScanReviewRunner as any,
 			scanReportRunner: mockScanReportRunner as any,
+			scanDiagnosticRunner: mockScanDiagnosticRunner as any,
 			artifactStorage: {} as any,
 			db: {} as any,
 			scanSupervisor: mockScanSupervisor as any,
@@ -223,6 +252,28 @@ describe("Scans Route", () => {
 				reviewId: "scan-review-1",
 				status: "running",
 			},
+		});
+	});
+
+	it("GET /:scanRunId/diagnostics returns automated pipeline state", async () => {
+		const res = await app.request("/s-1/diagnostics");
+
+		expect(res.status).toBe(200);
+		expect(await res.json()).toMatchObject({
+			diagnostics: [{ id: "diagnostic-1", readiness: "ready" }],
+		});
+	});
+
+	it("POST /:scanRunId/diagnostics/retry schedules the failed stage", async () => {
+		mockScanDiagnosticRunner.retry.mockClear();
+		const res = await app.request("/s-1/diagnostics/retry", {
+			method: "POST",
+		});
+
+		expect(res.status).toBe(202);
+		expect(mockScanDiagnosticRunner.retry).toHaveBeenCalledWith("s-1");
+		expect(await res.json()).toMatchObject({
+			diagnostic: { id: "diagnostic-1", status: "queued" },
 		});
 	});
 

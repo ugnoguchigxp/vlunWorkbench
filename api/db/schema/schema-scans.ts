@@ -390,3 +390,43 @@ export const scanReviews = sqliteTable(
 		statusIdx: index("scan_reviews_status_idx").on(table.status),
 	}),
 );
+
+export const scanDiagnosticRuns = sqliteTable(
+	"scan_diagnostic_runs",
+	{
+		id: id(),
+		scanRunId: text("scan_run_id")
+			.notNull()
+			.references(() => scanRuns.id, { onDelete: "cascade" }),
+		inputSnapshotHash: text("input_snapshot_hash").notNull(),
+		scannerProvenanceHash: text("scanner_provenance_hash").notNull(),
+		pipelineVersion: text("pipeline_version").notNull(),
+		status: text("status").notNull(),
+		readiness: text("readiness"),
+		scanReviewId: text("scan_review_id").references(() => scanReviews.id, {
+			onDelete: "set null",
+		}),
+		scanReportId: text("scan_report_id").references(() => scanReports.id, {
+			onDelete: "set null",
+		}),
+		limitationCodes: text("limitation_codes_json", { mode: "json" })
+			.$type<string[]>()
+			.default(sql`'[]'`)
+			.notNull(),
+		errorMessage: text("error_message"),
+		attemptCount: integer("attempt_count").notNull().default(0),
+		startedAt: integer("started_at", { mode: "timestamp_ms" }),
+		completedAt: integer("completed_at", { mode: "timestamp_ms" }),
+		createdAt: timestampMs("created_at"),
+		updatedAt: timestampMs("updated_at"),
+	},
+	(table) => ({
+		scanRunIdIdx: index("scan_diagnostic_runs_scan_run_id_idx").on(
+			table.scanRunId,
+		),
+		statusIdx: index("scan_diagnostic_runs_status_idx").on(table.status),
+		snapshotUniqueIdx: uniqueIndex(
+			"scan_diagnostic_runs_snapshot_unique_idx",
+		).on(table.scanRunId, table.inputSnapshotHash, table.pipelineVersion),
+	}),
+);

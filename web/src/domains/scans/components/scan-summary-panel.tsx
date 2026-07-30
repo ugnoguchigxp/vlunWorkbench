@@ -1,3 +1,4 @@
+import type { ScanCoverageResultView } from "../../../api";
 import { useScans } from "../scans-context";
 import { formatScanOutcome, getToolDisplay } from "../scan-profile-display";
 import { formatSeverityLabel } from "../scan-display-copy";
@@ -124,6 +125,26 @@ export function ScanSummaryPanel() {
 					/>
 					<Metric label="未確認" value={checkStatusCounts.not_checked ?? 0} />
 				</div>
+				{summary.coverageResults?.length ? (
+					<div className="assessment-grid">
+						{groupCoverage(summary.coverageResults).map((group) => (
+							<div className="assessment-card" key={group.category}>
+								<strong>{group.category}</strong>
+								<p>
+									tested {group.tested} / gap {group.gaps}
+								</p>
+								<small>
+									{group.controls
+										.map(
+											(result) =>
+												`${result.controlId}: ${result.status} (${result.control?.automationLevel ?? "unknown"} automation)`,
+										)
+										.join(" / ")}
+								</small>
+							</div>
+						))}
+					</div>
+				) : null}
 				<div className="finding-meta-row">
 					<button
 						type="button"
@@ -162,6 +183,32 @@ export function ScanSummaryPanel() {
 			</div>
 		</div>
 	);
+}
+
+function groupCoverage(results: ScanCoverageResultView[]) {
+	const groups = new Map<
+		string,
+		{
+			category: string;
+			tested: number;
+			gaps: number;
+			controls: ScanCoverageResultView[];
+		}
+	>();
+	for (const result of results ?? []) {
+		const category = result.control?.category ?? "other";
+		const group = groups.get(category) ?? {
+			category,
+			tested: 0,
+			gaps: 0,
+			controls: [],
+		};
+		if (result.status.startsWith("tested_")) group.tested += 1;
+		else group.gaps += 1;
+		group.controls.push(result);
+		groups.set(category, group);
+	}
+	return [...groups.values()];
 }
 
 function Metric({ label, value }: { label: string; value: number }) {

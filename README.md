@@ -9,21 +9,30 @@
 
 English | [日本語](README.jp.md)
 
-vulnWorkbench is a local vulnerability workbench for turning scanner output into implementation-ready risk handoffs.
+vulnWorkbench is a local vulnerability workbench that automatically turns scanner output into evidence-backed diagnostic results and implementation-ready reports.
 
-The product is not designed around an LLM freely browsing a repository and inventing findings. Heavy evidence generation stays in CLI scanners, sandboxed reproduction, dynamic checks, and DAST. The LLM layer reviews saved scan context and produces a scan-level implementation handoff: scope, prioritized risks, implementation tasks, acceptance criteria, verification commands, non-goals, and a prompt that can be passed to the next LLM or engineer.
+The product is not designed around an LLM freely browsing a repository and inventing findings. Heavy evidence generation stays in CLI scanners, sandboxed reproduction, dynamic checks, and DAST. When a scan completes, an automatic pipeline preserves the deterministic scanner facts, evaluates each saved finding with an evidence-constrained LLM, and emits a consolidated Markdown report. The LLM output includes criticality, false-positive likelihood, exploitability, business impact, priority, remediation, evidence references, assumptions, unknowns, and an implementation handoff.
 
-Human `Decision` records still exist for compatibility and audit metadata, but they are not the primary workflow. The main path is:
+Human `Decision` records still exist as optional compatibility and audit annotations. They are never required to complete diagnosis, review, report generation, retry, or export. The main path is:
 
 ```text
 local project
   -> CLI scanners / reproduction / dynamic / DAST
   -> normalized findings, evidence, artifacts, events
-  -> scan review
-  -> LLM implementation handoff
-  -> report readiness preview
-  -> Markdown report / next implementation task
+  -> deterministic consolidated report
+  -> automatic evidence-constrained LLM criticality assessment
+  -> final Markdown report / implementation handoff
 ```
+
+If the LLM route is unavailable or its structured output is rejected, the deterministic report still completes with explicit limitation codes. Authorization, active-scan permission, credentials, network policy, and resource limits remain server-enforced safety controls; they are not delegated to the LLM.
+
+This is not a complete replacement for a professional penetration test. The
+reproducible Semgrep default is currently a three-rule smoke set; OSV offline
+data is npm-only; ZAP is passive-only; and OWASP Benchmark/Juice Shop metrics
+have not yet been collected. Authenticated read-only checks and declarative
+BOLA/BFLA matrices cover configured routes, identities, objects, and operations,
+not undiscovered business flows. Network, cloud, AD, mobile, wireless, social
+engineering, and unrestricted fuzzing are outside the product boundary.
 
 vulnWorkbench also acts as a Static Intelligence source for adjacent coding-agent systems. It exposes scanner-backed diagnostic evidence, lightweight code structure facts, file risk, semantic candidates, risk communities, guardrail material, and read-only MCP tools. This is still a source layer: NightWorkers owns ontology, task compilation, queue admission, implementation, and verification orchestration; contextStill owns generalized knowledge, reusable procedures, and retrieval.
 
@@ -34,6 +43,7 @@ vulnWorkbench also acts as a Static Intelligence source for adjacent coding-agen
 - Stores raw artifacts, normalized findings, evidence, scan events, reviews, reports, and diagnostics in local SQLite.
 - Builds scan review bundles from saved data only.
 - Uses configured LLM task routes for finding review, scan review, and report summaries.
+- Automatically runs scan-level criticality assessment and final report generation after a successful scan.
 - Produces a scan-level `improvementRequest` / handoff prompt for implementation work.
 - Shows decision-grade signals: executive risk summary, workflow completion, evidence quality, scan comparison, report readiness, zero-finding coverage, and action queue.
 - Exports Markdown reports with deterministic sections and optional LLM summary.
@@ -50,7 +60,7 @@ vulnWorkbench intentionally separates evidence generation from LLM interpretatio
 | CLI tools | Generate scanner output, logs, artifacts, and deterministic evidence. |
 | Normalizers | Convert tool output into stable findings and evidence records. |
 | Reproduction / dynamic / DAST | Add bounded runtime confirmation signals. |
-| LLM review | Summarize saved context and create implementation handoff instructions. |
+| LLM review | Automatically assess criticality and remediation from saved evidence, and create implementation handoff instructions. |
 | Static Intelligence | Expose scanner-backed evidence, code structure facts, semantic candidates, communities, landscape, and guardrail material as read models. |
 | Read-only MCP | Let external agents discover and fetch Static Intelligence bundles without DB table access, scanner execution, verification execution, or contextStill mutation. |
 | Reports | Package risk, evidence quality, handoff status, verification, and coverage into Markdown. |
@@ -65,14 +75,16 @@ Non-goals:
 - Treating missing human `Decision` records as the normal blocker when a scan-level LLM handoff exists.
 - Treating code structure facts, semantic similarity, or LLM review text as confirmed vulnerability evidence without scanner, artifact, reproduction, or verification support.
 - Using MCP as a write path for contextStill registration, NightWorkers task creation, scanner execution, or verification command execution.
+- Claiming professional-assessment equivalence without external corpus metrics
+  and explicit coverage of the target's business workflows.
 
 ## Main UI Workflow
 
 1. Register a local project.
 2. Run a static scan profile or individual scanner.
-3. Review findings, evidence, tool artifacts, and scan diagnostics.
-4. Run Scan Review to generate the scan-level LLM handoff.
-5. Inspect the handoff quality checks:
+3. Wait for the automatic deterministic report and evidence-constrained LLM diagnosis.
+4. Inspect findings, evidence, scanner artifacts, criticality, business impact, remediation, assumptions, unknowns, and limitation codes.
+5. Inspect the generated handoff quality checks:
    - objective
    - scope
    - finding references or zero-finding coverage scope
@@ -81,14 +93,17 @@ Non-goals:
    - verification commands
    - non-goals
    - saved-context limitation
-6. Use the handoff prompt directly, or export it as Markdown.
-7. Check report readiness:
+6. Use the handoff prompt directly, or export the consolidated Markdown report.
+7. Check automatic diagnostic readiness:
+   - `ready`
+   - `ready_with_limitations`
+   - `failed`
+8. Retry only failed or limited LLM/report stages when necessary.
+9. The legacy report readiness view may also show:
    - `submission_ready`
    - `internal_review`
    - `incomplete`
-8. Generate a deterministic Markdown report or an LLM-summary report.
-
-The report controls include handoff scope and inclusion toggles for false positives, deferred items, and findings without an LLM handoff.
+Manual finding review and `Decision` records are optional annotations and do not block this workflow. Report controls may still include compatibility filters for those annotations.
 
 ## Quick Start
 
@@ -226,6 +241,11 @@ bun run scan:profile -- \
   --report-output report.md
 ```
 
+Direct CLI scans run the automatic diagnostic by default. `--report-output`
+therefore receives the LLM-enriched report when the LLM succeeds, or the
+deterministic report with recorded limitations when it does not. Use
+`--automated-diagnostic false` only for a deliberately scanner-only run.
+
 `baseline` runs the basic static profile. For broader static coverage:
 
 ```bash
@@ -259,6 +279,10 @@ bun run scan:trivy -- --project-id <project-id>
 bun run scan:sbom -- --project-id <project-id>
 bun run scan:trivy-image -- --project-id <project-id> --image-ref local/app:tag
 ```
+
+Semgrep uses the repository-owned, tree-hashed three-rule smoke set by default.
+Pass `--config auto` only for an exploratory registry run; that run is recorded
+as non-reproducible and the automatic report remains ready with limitations.
 
 ### Scan Review / Handoff
 
@@ -463,6 +487,8 @@ The catalog accepts optional `focus.paths`, `focus.modules`, and `focus.terms` a
 | `GET` | `/api/scans/:scanRunId/artifacts` | Scan artifacts. |
 | `GET` | `/api/scans/:scanRunId/reviews` | Scan-level reviews and handoff output. |
 | `POST` | `/api/scans/:scanRunId/reviews` | Run scan-level LLM review. |
+| `GET` | `/api/scans/:scanRunId/diagnostics` | Automatic diagnostic status, readiness, provenance hashes, and limitations. |
+| `POST` | `/api/scans/:scanRunId/diagnostics/retry` | Retry an eligible failed or limited automatic diagnostic. |
 | `POST` | `/api/scans/:scanRunId/reports` | Generate Markdown report. |
 | `GET` | `/api/scan-reports/:reportId` | Report metadata. |
 | `GET` | `/api/scan-reports/:reportId/download` | Download generated Markdown report. |

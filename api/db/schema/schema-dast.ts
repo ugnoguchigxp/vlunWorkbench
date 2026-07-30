@@ -205,3 +205,101 @@ export const dastEvidence = sqliteTable(
 		findingIdIdx: index("dast_evidence_finding_id_idx").on(table.findingId),
 	}),
 );
+
+export const dastTestIdentities = sqliteTable(
+	"dast_test_identities",
+	{
+		id: id(),
+		projectId: text("project_id")
+			.notNull()
+			.references(() => projects.id, { onDelete: "cascade" }),
+		targetConfigId: text("target_config_id")
+			.notNull()
+			.references(() => dastTargetConfigs.id, { onDelete: "cascade" }),
+		role: text("role").notNull(),
+		label: text("label").notNull(),
+		enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+		createdByUserId: text("created_by_user_id").references(() => users.id, {
+			onDelete: "set null",
+		}),
+		createdAt: timestampMs("created_at"),
+		updatedAt: timestampMs("updated_at"),
+	},
+	(table) => ({
+		projectRoleUniqueIdx: uniqueIndex("dast_test_identities_role_idx").on(
+			table.projectId,
+			table.targetConfigId,
+			table.role,
+		),
+	}),
+);
+
+export const dastAuthContexts = sqliteTable(
+	"dast_auth_contexts",
+	{
+		id: id(),
+		projectId: text("project_id")
+			.notNull()
+			.references(() => projects.id, { onDelete: "cascade" }),
+		targetConfigId: text("target_config_id")
+			.notNull()
+			.references(() => dastTargetConfigs.id, { onDelete: "cascade" }),
+		testIdentityId: text("test_identity_id")
+			.notNull()
+			.references(() => dastTestIdentities.id, { onDelete: "cascade" }),
+		identityRole: text("identity_role").notNull(),
+		label: text("label").notNull(),
+		authKind: text("auth_kind").notNull(),
+		secretCiphertext: text("secret_ciphertext").notNull(),
+		secretNonce: text("secret_nonce").notNull(),
+		secretAuthTag: text("secret_auth_tag").notNull(),
+		secretKeyId: text("secret_key_id").notNull(),
+		loginFlow: text("login_flow_json", { mode: "json" })
+			.$type<Array<Record<string, unknown>>>()
+			.default(sql`'[]'`)
+			.notNull(),
+		status: text("status").notNull().default("active"),
+		expiresAt: integer("expires_at", { mode: "timestamp_ms" }).notNull(),
+		rotatedAt: integer("rotated_at", { mode: "timestamp_ms" }),
+		revokedAt: integer("revoked_at", { mode: "timestamp_ms" }),
+		createdByUserId: text("created_by_user_id").references(() => users.id, {
+			onDelete: "set null",
+		}),
+		createdAt: timestampMs("created_at"),
+		updatedAt: timestampMs("updated_at"),
+	},
+	(table) => ({
+		projectIdx: index("dast_auth_contexts_project_idx").on(table.projectId),
+		targetIdx: index("dast_auth_contexts_target_idx").on(table.targetConfigId),
+		identityIdx: index("dast_auth_contexts_identity_idx").on(
+			table.testIdentityId,
+		),
+		statusIdx: index("dast_auth_contexts_status_idx").on(table.status),
+	}),
+);
+
+export const dastAuthAuditEvents = sqliteTable(
+	"dast_auth_audit_events",
+	{
+		id: id(),
+		projectId: text("project_id")
+			.notNull()
+			.references(() => projects.id, { onDelete: "cascade" }),
+		authContextId: text("auth_context_id").references(
+			() => dastAuthContexts.id,
+			{ onDelete: "set null" },
+		),
+		eventType: text("event_type").notNull(),
+		actorUserId: text("actor_user_id").references(() => users.id, {
+			onDelete: "set null",
+		}),
+		metadata: jsonObject("metadata"),
+		createdAt: timestampMs("created_at"),
+	},
+	(table) => ({
+		projectIdx: index("dast_auth_audit_events_project_idx").on(table.projectId),
+		contextIdx: index("dast_auth_audit_events_context_idx").on(
+			table.authContextId,
+		),
+	}),
+);

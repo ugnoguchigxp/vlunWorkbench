@@ -20,12 +20,13 @@ describe("verification command graph", () => {
 		]);
 	});
 
-	test("strict verification includes coverage and browser E2E", () => {
+	test("strict verification includes capability, coverage, and browser E2E", () => {
 		expect(packageManifest.scripts["verify:strict"]).toBe(
 			"bun run scripts/verify-strict.ts",
 		);
 		expect(STRICT_VERIFY_COMMANDS).toEqual([
 			["bun", "run", "verify"],
+			["bun", "run", "test:security-capability"],
 			["bun", "run", "test:coverage"],
 			["bun", "run", "test:e2e"],
 		]);

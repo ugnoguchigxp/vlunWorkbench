@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "baselineCommit": "628b4120002dabc5b14a86bdde2f844cc681ca9d",
+  "capabilities": [
+    { "id": "static-semgrep", "mode": "automated", "baseline": "available", "evidence": "tool_run+artifact+finding" },
+    { "id": "secret-gitleaks", "mode": "automated", "baseline": "available", "evidence": "tool_run+artifact+finding" },
+    { "id": "dependency-osv", "mode": "automated", "baseline": "network_dependent", "evidence": "tool_run+artifact+finding" },
+    { "id": "dependency-trivy", "mode": "automated", "baseline": "network_dependent", "evidence": "tool_run+artifact+finding" },
+    { "id": "runtime-nuclei-safe", "mode": "automated", "baseline": "available", "evidence": "tool_run+artifact+finding" },
+    { "id": "runtime-zap-passive", "mode": "automated", "baseline": "available", "evidence": "tool_run+artifact+finding" },
+    { "id": "api-schemathesis-readonly", "mode": "automated", "baseline": "available_when_schema_exists", "evidence": "step_result+artifact" },
+    { "id": "browser-authenticated-readonly", "mode": "automated", "baseline": "missing", "evidence": "none" },
+    { "id": "api-authorization-matrix", "mode": "automated_active_lab", "baseline": "missing", "evidence": "none" },
+    { "id": "deterministic-report", "mode": "automated", "baseline": "available_separate_operation", "evidence": "scan_report+artifact" },
+    { "id": "llm-criticality", "mode": "automated", "baseline": "manual_separate_operation", "evidence": "scan_review" }
+  ]
+}

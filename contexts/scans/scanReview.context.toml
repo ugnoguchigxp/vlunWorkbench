@@ -24,6 +24,13 @@ text = '''人間の decision を作成または変更してはいけません。
 findingTriageHints は互換用の JSON キー名です。人間のトリアージ指示ではなく、対象 finding を次の LLM が実装改善リスクとして理解するための短い文脈として書いてください。'''
 
 [[sections]]
+id = "review.automated-assessment-boundary"
+profile = "instruction.must"
+text = '''findings の各要素について findingAssessments を必ず 1 件ずつ作成してください。criticality、falsePositiveLikelihood、exploitability、businessImpact、priority、remediation は保存済み scanner finding と evidence だけから判断し、scanner severity や finding status を書き換えてはいけません。断定できない場合は unknown と unknowns を使い、事実を補完または発明してはいけません。
+
+各 evidenceRefs は bundle 内に存在する ID だけを、kind と id の組で参照してください。finding は finding ID、evidence は finding.evidence ID、artifact は artifacts ID、verification は reproduction/dynamic/DAST run ID を指定します。location text、URL、架空 ID は evidenceRefs に入れてはいけません。'''
+
+[[sections]]
 id = "review.grouping-policy"
 profile = "instruction.should"
 text = "同じ rule family、同じ修正方針、同じ endpoint/header 系統の finding はまとめてください。finding ごとに個別の priorityPlan や implementationTask を作る必要はありません。1 つの項目の findingIds に複数 ID を入れ、findingTriageHints は代表的かつ優先度の高い対象に限定してください。priorityPlan は最大 8 件、implementationTasks は最大 12 件を目安に、重複を避けて簡潔にしてください。"
@@ -67,6 +74,28 @@ text = '''```json
       "priority": "high"
     }
   ],
+  "findingAssessments": [
+    {
+      "findingId": "提供された findings list に含まれる uuid のみ",
+      "criticality": "high",
+      "criticalityRationale": "保存済み証跡に基づく criticality の理由を日本語で書く。",
+      "falsePositiveLikelihood": "low",
+      "exploitability": "possible",
+      "businessImpact": "保存済み証跡から説明できる業務影響を日本語で書く。",
+      "priority": "high",
+      "remediation": "具体的な改善方針を日本語で書く。",
+      "evidenceRefs": [
+        {
+          "kind": "finding",
+          "id": "この assessment の finding ID"
+        }
+      ],
+      "assumptions": ["判断に用いた仮定を日本語で書く。なければ空配列。"],
+      "unknowns": ["不足情報を日本語で書く。なければ空配列。"]
+    }
+  ],
+  "systemicRiskThemes": ["複数 finding に共通するリスク傾向を日本語で書く（最大 20 件）"],
+  "limitations": ["保存済み証跡と coverage に基づく診断上の制約を日本語で書く（最大 20 件）"],
   "confidenceNotes": ["確信度や不足証跡に関する note を日本語で書く（最大 20 件）"],
   "improvementRequest": {
     "title": "改善依頼書の短いタイトルを日本語で書く。",
@@ -100,5 +129,9 @@ text = '''```json
 id = "review.enum-contract"
 profile = "output-contract.must"
 text = '''findingTriageHints.priority は "critical"、"high"、"medium"、"low"、"info" のいずれか 1 つだけを文字列として設定してください。
+findingAssessments.criticality は "critical"、"high"、"medium"、"low"、"informational"、"unknown" のいずれか 1 つだけを設定してください。
+findingAssessments.falsePositiveLikelihood は "very_low"、"low"、"medium"、"high"、"very_high"、"unknown" のいずれか 1 つだけを設定してください。
+findingAssessments.exploitability は "demonstrated"、"likely"、"possible"、"unlikely"、"unknown" のいずれか 1 つだけを設定してください。
+findingAssessments.priority は "critical"、"high"、"medium"、"low"、"info" のいずれか 1 つだけを設定してください。
 improvementRequest.priorityPlan.priority は "critical"、"high"、"medium"、"low" のいずれか 1 つだけを文字列として設定してください。
-findings が 1 件以上ある場合、improvementRequest.priorityPlan.findingIds と implementationTasks.findingIds は対象 finding ID を 1 件以上含めてください。空配列は zero-finding scan の追加確認 handoff でのみ使用できます。'''
+findings が 1 件以上ある場合、findingAssessments は全 finding ID を重複なく 1 回ずつ含め、improvementRequest.priorityPlan.findingIds と implementationTasks.findingIds は対象 finding ID を 1 件以上含めてください。findings が 0 件の場合だけ findingAssessments と各 findingIds を空配列にしてください。'''

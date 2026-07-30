@@ -117,7 +117,7 @@ if (args.includes("--version")) {
 	process.exit(0);
 }
 
-const outIdx = args.indexOf("--output");
+const outIdx = args.indexOf("--output-file");
 if (outIdx !== -1 && args[outIdx + 1]) {
 	const outPath = args[outIdx + 1];
 	const mockResult = {

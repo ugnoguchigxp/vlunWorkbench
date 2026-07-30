@@ -1,14 +1,39 @@
 # Phase 49: Professional Web/API Assessment Capability Plan
 
-Status: Proposed
+Status: Verified limited release candidate; clean-checkout and external benchmark pending
 
-Baseline commit: `21ac65967644543900d77312ccdd33e3f55a3bdc`
+Implementation baseline commit: `628b4120002dabc5b14a86bdde2f844cc681ca9d`
 
 Baseline date: 2026-07-30
 
 Owner: vulnWorkbench maintainers
 
-Target: プロの Web/API 診断を置き換えるのではなく、診断担当者が再現可能な自動検査、証跡、手動判断、再診断を一つのワークベンチで管理できる状態にする
+Target: scanner 証跡、統合診断結果、証跡制約付き LLM review、再診断を、人手の承認待ちなしで一つのワークベンチから自動出力できる状態にする
+
+Implementation snapshot: 2026-07-30
+
+実装済みの中核:
+
+- completed scan からの deterministic report と証跡制約付き LLM 診断の自動実行
+- LLM 未構成・失敗時の deterministic fallback と limitation code
+- WSTG v4.2、ASVS v5.0.0、OWASP API Security Top 10 2023 の evidence-linked partial coverage
+- encrypted DAST auth context と real authenticated read-only Playwright check
+- fail-closed Rules of Engagement、実 HTTP BOLA/BFLA 行列、bounded transaction、always-cleanup
+- scanner provenance、offline OSV npm DB / Trivy DB、minimal owned Semgrep rules、offline toolbox gate
+- verification terminology migration、risk metadata、stable Semgrep fingerprint v2
+
+既知の未完了・非対応:
+
+- ZAP active/API attack profile は未実装。ZAP は passive baseline のみ。
+- owned Semgrep ruleset は3ルールの smoke layerであり、広範な professional SAST ではない。
+- OSV offline database は npm ecosystem のみ。
+- OWASP Benchmark / Juice Shop は heavy corpus に未同梱で、recall / precision の外部比較値は未取得。
+- implementation は user review 前の uncommitted worktree であり、release commit からの clean-checkout 再現確認は未実施。
+- endpoint discovery、複雑な business logic、脅威モデリング、network/cloud/mobile/AD は対象外。
+- LLM は保存証跡を解釈するだけで、未生成の診断証跡を補完しない。
+
+したがって、本 snapshot は「人手レビュー不要の自動 AppSec 証跡・診断
+workbench」として評価し、一般的なプロ診断の完全代替とは評価しない。
 
 ## 1. 結論
 
@@ -22,31 +47,31 @@ Phase 49 は、scanner の種類を無差別に増やす計画ではない。
 4. 認証付き read-only browser/API 検査を追加する。
 5. 明示的に許可された disposable environment に限り、active scan と複数 role の認可検査を追加する。
 6. scanner の再実行と exploit reproduction を別の意味・状態として管理する。
-7. 外部提出用 report に、記名 human review と peer approval を要求する。
+7. 保存証跡だけを入力に、LLM が criticality、false-positive likelihood、business impact、priority、remediation、coverage review を自動生成する。
 8. CWE、CVSS、VEX、KEV、EPSS、reachability 等の判断材料を欠落させず保存する。
 9. vulnerable / fixed fixture を使い、検出率と誤検知率を継続測定する。
 
 Phase 49 完了時の製品表現は、引き続き次とする。
 
-> vulnWorkbench は、source-available な Web/API に対する AppSec 証跡ワークベンチであり、認証付き自動検査と人間の診断判断を支援する。ネットワーク、クラウド、AD、モバイル、無線、ソーシャルエンジニアリングを含む総合診断や、専門家による手動診断を置き換えない。
+> vulnWorkbench は、source-available な Web/API に対する AppSec 証跡ワークベンチであり、認証付き自動検査、決定論的な統合診断、保存証跡に制約された LLM criticality review を自動出力する。ネットワーク、クラウド、AD、モバイル、無線、ソーシャルエンジニアリングを含む総合診断を対象にしない。
 
 ## 2. 開始条件
 
-現在の working tree には Phase 48 と NightWorkers provider の未コミット変更が含まれる。
-Phase 49 の実装は、それらと同じ working tree で開始しない。
+Phase 48 と NightWorkers provider は implementation baseline より前の commit に統合済みである。
+Phase 49 は、この baseline から独立した変更として実装する。
 
 開始条件は次のすべてである。
 
-1. Phase 48 の変更が review 可能な commit に整理されている。
-2. NightWorkers provider の変更が merge、別 branch、または明示的な保留状態に分離されている。
+1. Phase 48 の変更が commit に整理されている。
+2. NightWorkers provider の変更が merge 済みである。
 3. `git status --short` が clean である。
 4. `bun install --frozen-lockfile` が成功する。
 5. `bun run verify:strict` が成功する。
 6. migration `0017` までの適用と backup verification が成功する。
 7. Phase 49 用の次の migration 番号が予約されている。
 
-開始条件を満たさない場合、Phase 49 の production code や DB migration を作らない。
-この計画書の追加だけを、既存変更と独立した planning change として扱う。
+implementation baseline 時点で 1、2、3、6 は満たされている。
+4、5 は Slice 49.0 の最初の verification で再確認し、失敗した場合は新機能を有効化しない。
 
 ## 3. 現行能力と不足
 
@@ -61,7 +86,7 @@ Phase 49 の実装は、それらと同じ working tree で開始しない。
 - DAST target の path、rate、request、timeout、network scope
 - scan / tool / artifact / finding / evidence の永続化
 - artifact と log の SHA-256
-- finding review、finding decision、scan review、report
+- finding review、finding decision、scan review、report。manual decision は optional annotation としてのみ扱う
 - reproduction runner、dynamic runner
 - scanner stdout/stderr 上限
 - Docker memory、CPU、PIDs 上限
@@ -78,9 +103,9 @@ Phase 49 の実装は、それらと同じ working tree で開始しない。
 | Browser | mock adapter、profile disabled | real Playwright adapter、認証付き read-only smoke |
 | API | GET / HEAD / OPTIONS のみ | read-only auth と disposable environment の bounded write |
 | 認可 | single identity | user A、user B、admin の access matrix |
-| Active DAST | ZAP baseline のみ | explicit lab profile で ZAP active/API scan |
+| Active DAST | ZAP baseline のみ | bounded HTTP authorization matrix / transaction を追加。ZAP active は延期 |
 | Reproduction | scanner re-run も `reproduced` | recheck、runtime observation、exploit reproduction を分離 |
-| Report governance | 生成後すぐ参照可能 | external report は human QA と approval 必須 |
+| Diagnostic output | report と LLM review が別操作 | deterministic report と evidence-linked LLM review を自動生成 |
 | Finding metadata | tool metadata の一部を破棄 | CWE、CVSS vector、reference、risk context を保持 |
 | 品質測定 | contract / fixture test 中心 | vulnerable / fixed corpus による recall / false-positive 測定 |
 
@@ -153,31 +178,34 @@ scan は manifest hash を `tool_runs.metadata` と report に保存する。
 | Nuclei owned templates | 720 hours |
 | ZAP image / add-on inventory | 720 hours |
 
-期限切れ override を許す場合も `stale_override` を記録し、external report を approval-ready にしない。
+期限切れ override を許す場合も `stale_override` を記録し、report readiness を `ready_with_limitations` にする。
 
 ### 4.5 Coverage
 
 coverage status は次の列挙値だけを使う。
 
 - `tested_passed`
-- `tested_findings`
-- `not_tested`
-- `not_applicable`
+- `tested_failed`
 - `inconclusive`
+- `not_tested`
 - `blocked`
+- `unsupported`
 
 tool が成功して finding がゼロだった場合と、tool を実行できなかった場合を同じ表示にしない。
 profile が control を含むだけでは `tested_*` にしない。
 実行済み step と evidence が存在する場合だけ `tested_*` にする。
 
-### 4.6 Human QA
+### 4.6 Automated diagnostic report and LLM review
 
-- deterministic / LLM report の初期状態は `draft` とする。
-- `external` purpose の report は作成者以外の user が approve する。
-- approve 時に report artifact hash、coverage snapshot hash、finding decision snapshot hash を固定する。
-- approved report は上書きしない。変更時は新 revision を作る。
-- LLM review は human approval の代わりにしない。
-- `internal` purpose の report は従来どおり draft のまま利用できる。
+- completed scan から deterministic report を自動生成する。
+- LLM provider が構成済みなら、同じ pipeline で scan-level LLM review を自動開始する。
+- LLM provider が未構成または失敗した場合も deterministic report は生成し、`llm_unavailable` または `llm_failed` を limitation として残す。
+- LLM input は保存済み scanner finding、artifact-backed evidence、coverage result、verification result、scanner provenance に限定する。
+- LLM は finding の追加・削除、scanner severity の上書き、active scan の許可、credential や resource への追加アクセスを行わない。
+- LLM output の各判断は `evidenceRefs`、`assumptions`、`unknowns` を持つ。
+- manual finding decision と manual review は optional annotation とし、report 生成、LLM review、export の前提条件にしない。
+- report readiness は `ready`、`ready_with_limitations`、`failed` とし、人手待ち状態を持たない。
+- 同じ scan snapshot から再生成した report は input hash と output revision を保存し、manual approval state を持たない。
 
 ### 4.7 Verification terminology
 
@@ -207,7 +235,7 @@ profile が control を含むだけでは `tested_*` にしない。
 - `api/routes/`
 - `web/src/api/`
 - `web/src/domains/scans/`
-- project / scan UI の coverage、auth、approval surface
+- project / scan UI の coverage、auth、automated diagnostic surface
 - `docker/toolbox/`
 - `scripts/build-toolbox-image.ts`
 - `scripts/verify-steps.ts`
@@ -227,7 +255,7 @@ profile が control を含むだけでは `tested_*` にしない。
 - ネットワーク、クラウド、Kubernetes runtime、AD、mobile、wireless 診断
 - social engineering
 - external pentest の完全自動化
-- scanner finding を human review なしで confirmed vulnerability と断定すること
+- scanner evidence に存在しない脆弱性や影響を LLM が新規事実として断定すること
 - 商用 scanner の再実装
 - Phase 49 内で全 ASVS control を自動化すること
 
@@ -242,11 +270,10 @@ Assessment engagement
   -> safe / authenticated-readonly / active-lab execution
   -> findings + evidence + per-control coverage result
   -> scanner recheck / runtime observation / exploit reproduction
-  -> finding decisions
-  -> draft report
-  -> named human review
-  -> peer approval
-  -> immutable external report revision
+  -> deterministic aggregate
+  -> evidence-constrained LLM criticality review
+  -> automatic report revision + readiness
+  -> report / review export
 ```
 
 scan 実行時に保存する provenance は次の形を最低契約とする。
@@ -282,14 +309,14 @@ type ScannerProvenance = {
 | 49.4 | P1 | authenticated read-only browser/API scan | 49.2、49.3 | 8–12 人日 |
 | 49.5 | P1 | active lab、BOLA/BFLA、bounded write、ZAP active | 49.4 | 15–20 人日 |
 | 49.6 | P2 | verification terminology と migration | 49.1 | 6–8 人日 |
-| 49.7 | P1 | human QA、report revision、approval gate | 49.1、49.6 | 8–12 人日 |
+| 49.7 | P1 | automated LLM diagnosis、report revision、readiness | 49.1、49.6 | 8–12 人日 |
 | 49.8 | P2 | finding taxonomy、risk context、stable fingerprint | 49.2 | 8–12 人日 |
 | 49.9 | P1 | vulnerable/fixed benchmark と capability gate | 49.4–49.8 | 10–15 人日 |
 | 49.10 | P0 | clean-checkout closeout と文書同期 | 全 slice | 3–5 人日 |
 
 49.1 と 49.2 は、同じ schema / profile file を同時変更しない範囲で並行できる。
 49.6 と 49.8 は、49.3–49.5 と並行できる。
-49.7 は report schema と reproduction migration が安定してから開始する。
+49.7 は report schema と verification migration が安定してから開始する。
 
 ## 8. Slice 49.0: Baseline と capability contract
 
@@ -301,7 +328,7 @@ type ScannerProvenance = {
 4. network disabled の fresh toolbox で各 static scanner が実行可能か記録する。
 5. Nuclei の true case と HTTP 200 catch-all false-positive case を fixture 化する。
 6. Schemathesis の read-only method contract を fixture 化する。
-7. current report が human approval を要求しないことを baseline として記録する。
+7. current report と scan review が別操作であることを baseline として記録する。
 8. baseline result と既知 gap を `spec/evidence/phase-49-baseline.json` に保存する。
 
 ### 8.2 成果物
@@ -417,7 +444,7 @@ bun run verify
 12. update と scan を別 command / lifecycle にする。
 
 developer host の `--config auto` は明示的な exploratory flag の場合だけ残してよい。
-その run は `reproducible=false` とし、external report の approval 対象外にする。
+その run は `reproducible=false` とし、report readiness を `ready_with_limitations` にする。
 
 ### 10.2 主な変更先
 
@@ -606,6 +633,11 @@ bun run verify
 - `runtime-zap-active-lab`
 - `web-active-lab`
 
+Implementation note: BOLA/BFLA authorization matrix と declarative bounded
+transaction は専用 active-assessment API として実装した。ZAP active/API
+attack profile、Schemathesis write mode、上記3つの汎用 active profile は、
+安全性と外部 corpus による性能評価が未完了のため有効化していない。
+
 ### 13.2 主な変更先
 
 - `shared/schemas/active-assessment.schema.ts`
@@ -706,60 +738,88 @@ bun run verify
 
 - old route を削除せず、migration と compatibility adapter を修正する。
 
-## 15. Slice 49.7: Human QA と report approval
+## 15. Slice 49.7: Automated LLM diagnosis と report pipeline
 
 ### 15.1 実装
 
-1. report purpose と lifecycle status を追加する。
-2. status は `draft`、`awaiting_review`、`approved`、`rejected`、`superseded` とする。
-3. `report_revisions` と `report_approvals` を追加する。
-4. submit 時に finding decisions、coverage、verification、artifact の snapshot hash を計算する。
-5. external report は undecided high / critical finding、blocked critical coverage、stale scanner data がある場合 submit を拒否する。
-6. reviewer は generator と別 user であることを要求する。
-7. approve / reject に comment と user ID を必須化する。
-8. approved artifact を immutable とし、再生成時は revision を増やす。
-9. export API は external report の approved revision だけを返す。
-10. internal report は current workflow を維持する。
-11. UI に readiness checklist、review queue、approval history を追加する。
-12. audit event に submit、approve、reject、supersede、export を保存する。
+1. completed scan を契機に deterministic report を idempotent に自動生成する。
+2. LLM provider が構成済みなら、保存済み scan review bundle だけを入力として LLM diagnosis を自動開始する。
+3. pipeline key は `scanRunId + inputSnapshotHash + pipelineVersion` とし、同じ key の再要求は保存済み結果を返す。
+4. finding-level LLM output を次の固定 schema にする。
+   - finding ID
+   - criticality
+   - criticality rationale
+   - false-positive likelihood
+   - exploitability assessment
+   - business impact
+   - priority
+   - remediation
+   - evidence refs
+   - assumptions
+   - unknowns
+5. scan-level LLM output を次の固定 schema にする。
+   - executive summary
+   - critical findings
+   - systemic risk themes
+   - coverage review
+   - recommended next actions
+   - confidence notes
+   - limitations
+6. bundle 外 finding ID、artifact ID、evidence ref を semantic validation で拒否する。
+7. scanner の severity、status、evidence、verification outcome を LLM が書き換えないよう、LLM output を独立 namespace に保存する。
+8. final Markdown report は deterministic section と LLM assessment section を明確に分離して自動生成する。
+9. LLM provider 未構成、timeout、invalid output の場合も deterministic report を完成させ、readiness を `ready_with_limitations` にする。
+10. manual finding decision、manual review、peer approval の有無を pipeline condition に含めない。
+11. report revision に input snapshot hash、scanner provenance hash、prompt version、provider、model、LLM raw artifact hash を保存する。
+12. scan status / summary API と UI に diagnostic pipeline status、readiness、LLM limitation を表示する。
+13. 手動操作は failed LLM stage の retry と過去 revision の再表示だけにし、通常完了に必要としない。
 
 ### 15.2 主な変更先
 
-- `shared/schemas/report-governance.schema.ts`
-- `api/db/schema/schema-reports.ts`
-- 次の migration
+- `shared/schemas/automated-diagnostic.schema.ts`
+- scan review output schema
+- scan report schema
+- `api/modules/scans/scan-diagnostic-runner.ts`
+- `api/modules/scans/scan-review-bundle.ts`
+- `api/modules/scans/scan-review-runner.ts`
 - `api/modules/reports/report-readiness.ts`
-- `api/modules/reports/report-approval-repository.ts`
-- `api/routes/scan-reports.route.ts`
-- report detail / action UI
-- audit log
+- `api/modules/reports/scan-report-runner.ts`
+- `api/modules/scans/report-builder.ts`
+- scan / report routes
+- diagnostic status / report detail UI
 
 ### 15.3 受入条件
 
-- LLM completion だけでは report が approved にならない。
-- generator と同じ user は external report を approve できない。
-- approved artifact hash の file を変更すると export が拒否される。
-- blocked coverage、stale provenance、undecided high finding が readiness に表示される。
-- reject 後の修正は既存 revision を上書きせず new revision になる。
-- internal report の既存生成経路は壊れない。
+- manual finding decision、human review、peer approval が0件でも pipeline が完了する。
+- completed scan は deterministic report を必ず1件以上持つ。
+- LLM構成済みの場合、全findingに対する structured assessmentとscan-level reviewが保存される。
+- 同じ input snapshot の再実行は重複 report / review を作らず、保存済み revision を返す。
+- bundle 外 finding / evidence reference を含む LLM output は完成扱いにならない。
+- LLMはscanner findingを追加・削除・更新しない。
+- LLM failure は deterministic report を失敗させず、readiness と limitation に明示される。
+- report export は人手承認を要求しない。
+- report から各LLM判断の evidence ref を追跡できる。
 
 ### 15.4 検証
 
 ```bash
-bun test shared/schemas/report-governance.schema.test.ts
+bun test shared/schemas/automated-diagnostic.schema.test.ts
+bun test api/modules/scans/scan-diagnostic-runner.test.ts
+bun test api/modules/scans/scan-review-runner.test.ts
 bun test api/modules/reports
 bun test api/routes/scan-reports.route.test.ts
-bun run test:e2e -- --grep "report approval"
+bun run test:e2e -- --grep "automatic diagnostic"
 bun run verify
 ```
 
 期待結果:
 
-- ownership、separation of duties、snapshot integrity、revision、export gate が pass。
+- no-human completion、idempotency、semantic validation、LLM failure fallback、evidence traceability が pass。
 
 失敗時:
 
-- external export を disabled のままにし、internal report path だけを維持する。
+- deterministic report を維持し、LLM stage を `failed` として再試行可能にする。
+- 不正な LLM output を部分採用せず、raw artifact と validation error だけを保存する。
 
 ## 16. Slice 49.8: Finding taxonomy と risk context
 
@@ -838,7 +898,8 @@ Fast suite:
 - authenticated browser success / session expiry / redirect scope
 - BOLA / BFLA vulnerable and fixed variants
 - active write cleanup success / failure
-- report approval allowed / denied
+- no-human diagnostic completion / LLM failure fallback
+- LLM evidence reference valid / invalid
 - credential canary leakage search
 - provenance missing / stale / tampered cases
 
@@ -915,7 +976,7 @@ bun run verify:security-capability
 3. fast capability suite と heavy benchmark を実行する。
 4. backup create / verify と migration rollback strategy を確認する。
 5. README の product claim、profile説明、active safety boundary を更新する。
-6. production runbook に scanner data update、credential rotation、RoE、cleanup incident、report approval を追加する。
+6. production runbook に scanner data update、credential rotation、RoE、cleanup incident、automated diagnostic retry を追加する。
 7. third-party scanner record を binary / data bundle / license inventory と一致させる。
 8. known unsupported WSTG / ASVS controls を公開する。
 9. final evidence JSON と release report を保存する。
@@ -930,23 +991,23 @@ bun run verify:security-capability
 
 ### 18.3 Definition of Done
 
-- [ ] clean checkout から `bun install --frozen-lockfile` が成功する。
-- [ ] migration `0017` から最新まで適用できる。
-- [ ] backup verification が成功する。
-- [ ] `bun run verify:strict` が成功する。
-- [ ] `bun run verify:security-capability` が成功する。
-- [ ] offline toolbox scanner matrix が成功する。
-- [ ] scan ごとに rule / DB / template provenance を取得できる。
-- [ ] unauthenticated safe mode が従来どおり既定である。
-- [ ] authenticated read-only profile が real browser/API fixture で成功する。
-- [ ] active profile が public / production target で fail-closed する。
-- [ ] BOLA / BFLA vulnerable / fixed fixture を区別できる。
-- [ ] active write 後の cleanup が検証される。
-- [ ] legacy reproduction が exploit reproduced と表示されない。
-- [ ] external report は peer approval なしで export できない。
-- [ ] approved report と coverage snapshot の hash integrity が確認される。
-- [ ] credential canary leakage count が 0 である。
-- [ ] README と UI がプロ診断の完全代替を主張しない。
+- [ ] clean checkout から `bun install --frozen-lockfile` が成功する。current worktree の frozen install は成功済みだが、release commit は未作成。
+- [x] migration `0017` から最新まで適用できる。
+- [x] backup verification が成功する。
+- [x] `bun run verify:strict` が成功する。
+- [x] `bun run verify:security-capability` が成功する。
+- [x] offline toolbox scanner matrix が成功する。
+- [x] scan ごとに rule / DB / template provenance を取得できる。
+- [x] unauthenticated safe mode が従来どおり既定である。
+- [x] authenticated read-only profile が real browser/API fixture で成功する。
+- [x] active profile が public / production target で fail-closed する。
+- [x] BOLA / BFLA vulnerable / fixed fixture を区別できる。
+- [x] active write 後の cleanup が検証される。
+- [x] legacy reproduction が exploit reproduced と表示されない。
+- [x] report と LLM review が human decision なしで自動生成される。
+- [x] report、LLM input、coverage snapshot の hash integrity が確認される。
+- [x] credential canary leakage count が 0 である。
+- [x] README と UI がプロ診断の完全代替を主張しない。
 
 ### 18.4 検証
 
@@ -994,7 +1055,7 @@ bun run test:security-capability:heavy
 
 目安: 16–24 人日
 
-### Milestone C: Bounded active assessment and accountable reports
+### Milestone C: Bounded active assessment and automated diagnosis
 
 対象: 49.5–49.7
 
@@ -1002,7 +1063,7 @@ bun run test:security-capability:heavy
 
 - disposable environment で BOLA / BFLA と bounded write を検査できる。
 - scanner recheck と exploit reproduction が区別される。
-- 外部提出 report に human QA と peer approval が必要になる。
+- deterministic report と evidence-constrained LLM diagnosis が人手待ちなしで自動生成される。
 
 目安: 29–40 人日
 
@@ -1023,14 +1084,14 @@ bun run test:security-capability:heavy
 合計見積りは 79–115 人日である。
 
 - 1人の senior engineer が実装と一次検証を行う場合: 約16–23週
-- 2人の engineer と独立 reviewer で並行する場合: 約10–15週
+- 2人の engineer で並行する場合: 約10–15週
 
 短縮する場合も、49.0、49.2、49.3、49.5 の safety boundary、49.7、49.9 を省略しない。
 
 最小の実用リリースは Milestone B である。
 この時点で「認証付き read-only AppSec assessment support」と表現できる。
 
-プロ向け external report workflow を名乗る条件は Milestone C 完了後である。
+自動診断 report workflow を名乗る条件は Milestone C 完了後である。
 
 ## 21. PR 分割規則
 
@@ -1060,7 +1121,7 @@ bun run verify
 bun run verify:strict
 ```
 
-scanner data、auth、active DAST、report approval を変更した PR では、追加で fast capability suite を実行する。
+scanner data、auth、active DAST、automated diagnostic pipeline を変更した PR では、追加で fast capability suite を実行する。
 
 ```bash
 bun run test:security-capability
@@ -1078,13 +1139,13 @@ bun run test:security-capability:heavy
 | --- | --- | --- | --- |
 | Credential leakage | encrypted ref、late decryption、central redaction | canary search | profile disabled、artifact quarantine、credential revoke |
 | Active scan が target を壊す | non-production、RoE、allowlist、budget、cleanup | before/after state hash | run inconclusive、incident record、active flag disabled |
-| Coverage が false assurance を生む | evidence-linked status、not tested 表示 | missing evidence test | report approval blocked |
+| Coverage が false assurance を生む | evidence-linked status、not tested 表示 | missing evidence test | readiness を `ready_with_limitations` にする |
 | Rule / DB が mutable | offline bundle、digest、no update during scan | manifest verification | scan fail-closed |
-| Stale vulnerability data | freshness policy | readiness / report gate | external approval blocked |
+| Stale vulnerability data | freshness policy | readiness / report gate | limitation を付け、priority confidence を下げる |
 | Authorization fixture 依存 | declarative seed/object matrix | vulnerable/fixed pair | profile remains experimental |
 | False positive 増加 | positive/negative fixture pair | precision / FP ratchet | rule update rejected |
 | Fingerprint collision | v1 alias + v2 advisory rollout | collision fixtures | v2 matching disabled |
-| Approved report 改ざん | artifact/snapshot hash | export-time verification | export denied |
+| Automatic report 改ざん | artifact/snapshot hash | export-time verification | export denied |
 | Heavy benchmark flaky | pinned corpus、separate fast suite | failure classification | release gate waits; fast CI remains deterministic |
 | Toolbox image肥大化 | separate data layer、size budget | image inventory | bundle split、data artifact retained |
 | Third-party license drift | manifest + NOTICE inventory | build verification | distribution blocked |
@@ -1098,7 +1159,8 @@ Phase 49 の成功は scanner 数では測らない。
 | Metric | Baseline | Target |
 | --- | --- | --- |
 | Scanner runs with complete data provenance | 49.0で測定 | 100% |
-| External reports with named peer approval | 0% | 100% |
+| Completed scans with automatic deterministic report | 未測定 | 100% |
+| LLM assessments with valid evidence refs | 未測定 | 100% |
 | Credential canary leaks | 未測定 | 0 |
 | Active runs against production/public target | 0 | 0 |
 | Active cleanup success in deterministic suite | 未測定 | 100% |
@@ -1118,7 +1180,7 @@ Phase 49 完了後も、次は別計画とする。
 - mobile client と native API testing
 - cloud / Kubernetes runtime posture
 - network service discovery
-- enterprise approval workflow、電子署名、PDF delivery
+- optional enterprise governance integration、電子署名、PDF delivery
 - commercial scanner import / orchestration
 - multi-tenant remote scanner fleet
 - external object storage と大規模 streaming parser

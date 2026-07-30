@@ -3,6 +3,7 @@ import {
 	normalizeSemgrep,
 	mapSemgrepSeverity,
 	generateSemgrepFingerprint,
+	generateSemgrepFingerprintV2,
 } from "./semgrep";
 
 describe("Semgrep Normalizer", () => {
@@ -49,9 +50,24 @@ describe("Semgrep Normalizer", () => {
 			startCol: 12,
 			endCol: 60,
 		});
-		expect(finding.fingerprint).toBe(
-			generateSemgrepFingerprint("rules.security.detect-slack-token", "src/auth.ts", 4, 12),
+	expect(finding.fingerprint).toBe(
+			generateSemgrepFingerprintV2(
+				"rules.security.detect-slack-token",
+				"src/auth.ts",
+				`const slack_token = "[REDACTED]";`,
+				4,
+				12,
+			),
 		);
+		expect((finding.metadata?.fingerprintAliases as string[])[0]).toBe(
+			generateSemgrepFingerprint(
+				"rules.security.detect-slack-token",
+				"src/auth.ts",
+				4,
+				12,
+			),
+		);
+		expect((finding.metadata?.risk as any).cweIds).toEqual(["CWE-798"]);
 
 		expect(finding.evidences.length).toBe(3);
 		
@@ -70,6 +86,32 @@ describe("Semgrep Normalizer", () => {
 		expect(finding.evidences[2].kind).toBe("scan-log");
 		expect(finding.evidences[2].title).toBe("Semgrep run stderr log");
 		expect(finding.evidences[2].snippet).toBe("some-warning-log");
+	});
+
+	it("uses a line-shift-stable v2 identity while retaining the legacy alias", () => {
+		const result = (line: number) =>
+			normalizeSemgrep({
+				results: [
+					{
+						check_id: "owned.sql-injection",
+						path: "src/db.ts",
+						start: { line, col: 1 },
+						end: { line, col: 20 },
+						extra: {
+							message: "SQL injection",
+							severity: "ERROR",
+							lines: "db.query(userInput)",
+							metadata: {},
+						},
+					},
+				],
+			})[0];
+		const before = result(10);
+		const after = result(18);
+		expect(before.fingerprint).toBe(after.fingerprint);
+		expect(before.metadata?.fingerprintAliases).not.toEqual(
+			after.metadata?.fingerprintAliases,
+		);
 	});
 
 	it("should map severity correctly", () => {
