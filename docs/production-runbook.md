@@ -25,6 +25,20 @@
    The gate must show Semgrep, OSV-Scanner, and Trivy JSON output, the image
    digest, scanner-data manifest hash, `networkMode=none`, and the enforced
    memory/CPU/PID limits.
+   Then run the pinned external capability gates:
+
+   ```bash
+   bun run security-corpora:verify
+   OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY=.cache/scanner-data/phase-50/osv \
+     bun run benchmark:all
+   OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY=.cache/scanner-data/phase-50/osv \
+     bun run verify:professional-capability
+   ```
+
+   Do not publish a `met` claim unless the generated report has every gate set
+   to true and references a persisted passing benchmark run from the same
+   release inputs. A successful command with below-threshold metrics is a
+   completed measurement, not a passing capability.
 6. Create and verify a backup:
 
    ```bash
@@ -69,12 +83,14 @@ bun run docker:toolbox:build
 bun run verify:security-capability
 ```
 
-The preparation job downloads the OSV npm offline database and Trivy
-vulnerability database, copies the owned Semgrep rules, hashes each tree, and
-emits `scanner-data-manifest.json` with source references, generation times,
-freshness limits, and coverage. Review all manifest and capability-result diffs
-before replacing a release image. OSV coverage is currently npm-only; report
-other ecosystems as `not_tested`, not as passed.
+The preparation job downloads the official OSV archives for npm, PyPI, Go,
+Maven, crates.io, NuGet, Packagist, and RubyGems plus the Trivy vulnerability
+database. It validates bounded archive paths and sampled ecosystem records,
+copies the owned Semgrep rules, hashes each bundle, and atomically emits
+`scanner-data-manifest.json` with source references, record counts, generation
+times, freshness limits, and coverage. Review all manifest and capability-result
+diffs before replacing a release image. A missing, stale, or digest-mismatched
+ecosystem is `not_tested`; never fall back to an online OSV update during a scan.
 
 Do not copy an unverified host cache into a release image. If data is stale or
 missing, keep the affected scanner unavailable or mark report readiness
@@ -117,6 +133,15 @@ cleanup requests before the first request is sent. Auth contexts are encrypted
 and bound to the same project, target, identity role, and target cookie/storage
 origin. Same-project active runs are serialized.
 
+ZAP active is additionally limited to `local` or `ephemeral` internal targets,
+an explicit `runtime-zap-active-lab` or `api-zap-active-lab` request, and
+`VULN_WORKBENCH_ZAP_ACTIVE_ENABLED=true`. It runs only on a Linux Docker host
+where an internal bridge can isolate the ZAP container from every destination
+except the bounded gateway. The active policy starts with every rule disabled
+and enables only the versioned nine-rule catalog at low strength/medium
+threshold. Browser login, CSRF/token refresh, public targets, shared staging,
+and production targets fail closed.
+
 Authorization matrices are read-only (`GET`, `HEAD`, or `OPTIONS`) until a
 matrix-level seed and cleanup contract exists. Only 2xx responses count as
 allowed; 401, 403, and 404 count as denied; redirects and all other responses
@@ -133,6 +158,11 @@ On startup, an interrupted state-changing transaction is persisted as
 `failed_cleanup` with `interrupted_cleanup_state_unknown`; an interrupted
 read-only matrix is persisted as `inconclusive`. The related scan is failed in
 both cases so automated reports cannot present an interrupted run as complete.
+Interrupted business-logic runs are likewise closed as `failed_cleanup`; the
+project remains blocked from new business-logic execution until the target
+state is reconciled. Automatically generated state-changing scenarios require
+an explicit cleanup method and path, and irreversible external side effects
+must be represented as `not_tested`.
 
 ## Automated diagnostic recovery
 

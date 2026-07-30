@@ -4,6 +4,7 @@ import type {
 	ScanProfileStep,
 	ScanScopePolicy,
 } from "../../../shared/schemas/scan-profile.schema";
+import { ZAP_ACTIVE_DEDICATED_PROFILES } from "./zap-active-profiles";
 
 export const SOURCE_BASELINE_SCOPE: ScanScopePolicy = {
 	intent: "source",
@@ -150,7 +151,10 @@ export const SCAN_PROFILES: ScanProfile[] = [
 				displayName: "Semgrep Source Analysis",
 				required: true,
 				failurePolicy: "fail_profile",
-				options: { config: "owned", scanners: ["vuln", "secret", "config"] },
+				options: {
+					config: "curated-sast-v1",
+					scanners: ["vuln", "secret", "config"],
+				},
 			},
 			{
 				toolId: "gitleaks",
@@ -182,7 +186,10 @@ export const SCAN_PROFILES: ScanProfile[] = [
 				displayName: "Semgrep Static Analysis",
 				required: true,
 				failurePolicy: "fail_profile",
-				options: { config: "owned", scanners: ["vuln", "secret", "config"] },
+				options: {
+					config: "curated-sast-v1",
+					scanners: ["vuln", "secret", "config"],
+				},
 			},
 			{
 				toolId: "gitleaks",
@@ -214,7 +221,10 @@ export const SCAN_PROFILES: ScanProfile[] = [
 				displayName: "Semgrep Source Analysis",
 				required: true,
 				failurePolicy: "fail_profile",
-				options: { config: "owned", scanners: ["vuln", "secret", "config"] },
+				options: {
+					config: "curated-sast-v1",
+					scanners: ["vuln", "secret", "config"],
+				},
 			},
 			{
 				toolId: "gitleaks",
@@ -247,7 +257,7 @@ export const SCAN_PROFILES: ScanProfile[] = [
 				displayName: "Semgrep Changed Source Analysis",
 				required: true,
 				failurePolicy: "fail_profile",
-				options: { config: "owned" },
+				options: { config: "curated-sast-v1" },
 			},
 			{
 				toolId: "gitleaks",
@@ -287,7 +297,10 @@ export const SCAN_PROFILES: ScanProfile[] = [
 				displayName: "Semgrep Changed Source Analysis",
 				required: true,
 				failurePolicy: "fail_profile",
-				options: { config: "owned", scanners: ["vuln", "secret", "config"] },
+				options: {
+					config: "curated-sast-v1",
+					scanners: ["vuln", "secret", "config"],
+				},
 			},
 			{
 				toolId: "gitleaks",
@@ -326,7 +339,10 @@ export const SCAN_PROFILES: ScanProfile[] = [
 				displayName: "Semgrep Static Analysis",
 				required: true,
 				failurePolicy: "fail_profile",
-				options: { config: "owned", scanners: ["vuln", "secret", "config"] },
+				options: {
+					config: "curated-sast-v1",
+					scanners: ["vuln", "secret", "config"],
+				},
 			},
 			{
 				toolId: "gitleaks",
@@ -416,7 +432,7 @@ export const SCAN_PROFILES: ScanProfile[] = [
 				displayName: "Semgrep Deep Static Analysis",
 				required: true,
 				failurePolicy: "fail_profile",
-				options: { config: "owned", maxTargetBytes: 2000000 },
+				options: { config: "curated-sast-v1", maxTargetBytes: 2000000 },
 			},
 			{
 				toolId: "gitleaks",
@@ -455,7 +471,7 @@ export const SCAN_PROFILES: ScanProfile[] = [
 				displayName: "Semgrep Deep Static Analysis",
 				required: true,
 				failurePolicy: "fail_profile",
-				options: { config: "owned", maxTargetBytes: 2000000 },
+				options: { config: "curated-sast-v1", maxTargetBytes: 2000000 },
 			},
 			{
 				toolId: "gitleaks",
@@ -494,7 +510,10 @@ export const SCAN_PROFILES: ScanProfile[] = [
 				displayName: "Semgrep Static Analysis",
 				required: true,
 				failurePolicy: "fail_profile",
-				options: { config: "owned", scanners: ["vuln", "secret", "config"] },
+				options: {
+					config: "curated-sast-v1",
+					scanners: ["vuln", "secret", "config"],
+				},
 			},
 			{
 				toolId: "gitleaks",
@@ -517,7 +536,10 @@ export const SCAN_PROFILES: ScanProfile[] = [
 				displayName: "Semgrep Static Analysis",
 				required: true,
 				failurePolicy: "fail_profile",
-				options: { config: "owned", scanners: ["vuln", "secret", "config"] },
+				options: {
+					config: "curated-sast-v1",
+					scanners: ["vuln", "secret", "config"],
+				},
 			},
 			{
 				kind: "static_tool",
@@ -632,7 +654,7 @@ export const SCAN_PROFILES: ScanProfile[] = [
 				displayName: "Semgrep Deep Static Analysis",
 				required: true,
 				failurePolicy: "fail_profile",
-				options: { config: "owned", maxTargetBytes: 2000000 },
+				options: { config: "curated-sast-v1", maxTargetBytes: 2000000 },
 			},
 			{
 				toolId: "gitleaks",
@@ -662,7 +684,7 @@ export const SCAN_PROFILES: ScanProfile[] = [
 				displayName: "Semgrep Deep Static Analysis",
 				required: true,
 				failurePolicy: "fail_profile",
-				options: { config: "owned", maxTargetBytes: 2000000 },
+				options: { config: "curated-sast-v1", maxTargetBytes: 2000000 },
 			},
 			{
 				kind: "static_tool",
@@ -752,6 +774,7 @@ export const SCAN_PROFILES: ScanProfile[] = [
 			AUTO_HTTP_DAST_STEP,
 		],
 	},
+	...ZAP_ACTIVE_DEDICATED_PROFILES,
 ];
 
 export function getProfileById(id: string): ScanProfile | undefined {

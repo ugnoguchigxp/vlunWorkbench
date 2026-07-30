@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "catalogVersion": "1.0.0",
+  "policyId": "zap-active-disposable-v1",
+  "rules": [
+    { "id": 40003, "name": "CRLF Injection", "cwe": "CWE-93", "enabled": true },
+    { "id": 40012, "name": "Cross Site Scripting (Reflected)", "cwe": "CWE-79", "enabled": true },
+    { "id": 40014, "name": "Cross Site Scripting (Persistent)", "cwe": "CWE-79", "enabled": true },
+    { "id": 40018, "name": "SQL Injection", "cwe": "CWE-89", "enabled": true },
+    { "id": 40019, "name": "SQL Injection - MySQL", "cwe": "CWE-89", "enabled": true },
+    { "id": 40021, "name": "XPath Injection", "cwe": "CWE-643", "enabled": true },
+    { "id": 40023, "name": "XML External Entity Attack", "cwe": "CWE-611", "enabled": true },
+    { "id": 90019, "name": "Server Side Code Injection", "cwe": "CWE-94", "enabled": true },
+    { "id": 90020, "name": "Remote OS Command Injection", "cwe": "CWE-78", "enabled": true }
+  ]
+}

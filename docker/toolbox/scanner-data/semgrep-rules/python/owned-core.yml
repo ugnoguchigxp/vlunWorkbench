@@ -1,0 +1,63 @@
+rules:
+  - id: vuln-workbench.python.command-injection
+    message: subprocess uses a shell.
+    severity: ERROR
+    languages: [python]
+    metadata: { cwe: CWE-78, owasp: ["A03:2021"], security-family: command-injection, confidence: high, source-kind: owned-core, source-ref: "repo:python/owned-core.yml", license: MIT, rule-version: "1", supported-frameworks: [generic], remediation: "Pass a fixed executable and argument list with shell=False." }
+    pattern: subprocess.$F(..., shell=True, ...)
+  - id: vuln-workbench.python.sql-injection
+    message: A formatted SQL query is executed.
+    severity: ERROR
+    languages: [python]
+    metadata: { cwe: CWE-89, owasp: ["A03:2021"], security-family: sql-nosql-ldap-xpath-injection, confidence: high, source-kind: owned-core, source-ref: "repo:python/owned-core.yml", license: MIT, rule-version: "1", supported-frameworks: [generic], remediation: "Use driver parameter binding." }
+    pattern-either:
+      - pattern: $CURSOR.execute(f"...{$X}...", ...)
+      - pattern: $CURSOR.execute("..." % $X, ...)
+  - id: vuln-workbench.python.template-xss
+    message: Markup marks dynamic content as safe.
+    severity: ERROR
+    languages: [python]
+    metadata: { cwe: CWE-79, owasp: ["A03:2021"], security-family: xss-template-injection, confidence: high, source-kind: owned-core, source-ref: "repo:python/owned-core.yml", license: MIT, rule-version: "1", supported-frameworks: [django, flask], remediation: "Retain automatic escaping and sanitize explicit HTML." }
+    pattern-either:
+      - pattern: mark_safe($X)
+      - pattern: Markup($X)
+  - id: vuln-workbench.python.ssrf-requests
+    message: A non-literal URL is requested.
+    severity: WARNING
+    languages: [python]
+    metadata: { cwe: CWE-918, owasp: ["A10:2021"], security-family: ssrf, confidence: medium, source-kind: owned-core, source-ref: "repo:python/owned-core.yml", license: MIT, rule-version: "1", supported-frameworks: [generic], remediation: "Resolve URLs through an origin allowlist and pinned address policy." }
+    patterns:
+      - pattern: requests.$METHOD($URL, ...)
+      - pattern-not: requests.$METHOD("...", ...)
+  - id: vuln-workbench.python.path-traversal-open
+    message: A non-literal path is opened.
+    severity: WARNING
+    languages: [python]
+    metadata: { cwe: CWE-22, owasp: ["A01:2021"], security-family: path-traversal-file-access, confidence: medium, source-kind: owned-core, source-ref: "repo:python/owned-core.yml", license: MIT, rule-version: "1", supported-frameworks: [generic], remediation: "Resolve under an allowlisted root and reject traversal." }
+    patterns:
+      - pattern: open($PATH, ...)
+      - pattern-not: open("...", ...)
+  - id: vuln-workbench.python.unsafe-pickle
+    message: Pickle deserializes attacker-controlled objects.
+    severity: ERROR
+    languages: [python]
+    metadata: { cwe: CWE-502, owasp: ["A08:2021"], security-family: unsafe-deserialization, confidence: high, source-kind: owned-core, source-ref: "repo:python/owned-core.yml", license: MIT, rule-version: "1", supported-frameworks: [generic], remediation: "Use JSON with strict schema validation." }
+    pattern-either:
+      - pattern: pickle.loads($X)
+      - pattern: pickle.load($X)
+  - id: vuln-workbench.python.weak-hash
+    message: MD5 or SHA-1 is used.
+    severity: WARNING
+    languages: [python]
+    metadata: { cwe: CWE-328, owasp: ["A02:2021"], security-family: weak-cryptography-hash-randomness, confidence: high, source-kind: owned-core, source-ref: "repo:python/owned-core.yml", license: MIT, rule-version: "1", supported-frameworks: [generic], remediation: "Use SHA-256 or a password hashing function." }
+    pattern-either:
+      - pattern: hashlib.md5(...)
+      - pattern: hashlib.sha1(...)
+  - id: vuln-workbench.python.weak-random
+    message: The random module is not suitable for secrets.
+    severity: WARNING
+    languages: [python]
+    metadata: { cwe: CWE-338, owasp: ["A02:2021"], security-family: weak-cryptography-hash-randomness, confidence: high, source-kind: owned-core, source-ref: "repo:python/owned-core.yml", license: MIT, rule-version: "1", supported-frameworks: [generic], remediation: "Use the secrets module." }
+    pattern-either:
+      - pattern: random.random()
+      - pattern: random.randint(...)

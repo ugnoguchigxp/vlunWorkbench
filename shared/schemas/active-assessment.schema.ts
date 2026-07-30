@@ -82,6 +82,32 @@ export const activeRequestSchema = z
 		}
 	});
 
+export const activeResetStrategySchema = z.discriminatedUnion("kind", [
+	z.object({
+		kind: z.literal("container_recreate"),
+		fixtureId: z.string().regex(/^[a-z0-9][a-z0-9._-]{0,99}$/),
+		expectedBaselineHash: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+	}),
+	z.object({
+		kind: z.literal("http_transaction"),
+		seedRequests: z.array(activeRequestSchema).min(1).max(20),
+		cleanupRequests: z.array(activeRequestSchema).min(1).max(20),
+		baselineAssertions: z
+			.array(
+				z.object({
+					path: relativeHttpPathSchema,
+					expectedStatus: z.number().int().min(100).max(599),
+					expectedBodySha256: z
+						.string()
+						.regex(/^sha256:[a-f0-9]{64}$/)
+						.optional(),
+				}),
+			)
+			.min(1)
+			.max(20),
+	}),
+]);
+
 export const activeTransactionSchema = z
 	.object({
 		id: z.string().regex(/^[a-z0-9][a-z0-9._-]{0,99}$/),
@@ -241,9 +267,47 @@ const authorizationMatrixRunRequestSchema = activeRunBaseSchema
 		}
 	});
 
+export const zapActiveRunRequestSchema = activeRunBaseSchema
+	.extend({
+		kind: z.literal("zap_active"),
+		profileId: z.enum(["runtime-zap-active-lab", "api-zap-active-lab"]),
+		allowedMethods: z
+			.array(
+				z.enum(["GET", "HEAD", "OPTIONS", "POST", "PUT", "PATCH", "DELETE"]),
+			)
+			.min(1)
+			.max(7),
+		allowedPaths: z.array(relativeHttpPathSchema).min(1).max(200),
+		requestBudget: z.number().int().min(1).max(2_000),
+		durationSec: z.number().int().min(60).max(1_200),
+		ruleIds: z.array(z.number().int().positive()).min(1).max(100),
+		resetStrategy: activeResetStrategySchema,
+		authContextId: z.string().uuid().optional(),
+		identityRole: z.string().min(1).max(100).optional(),
+		openApiPath: relativeHttpPathSchema.optional(),
+	})
+	.superRefine((value, ctx) => {
+		if (
+			(value.authContextId && !value.identityRole) ||
+			(!value.authContextId && value.identityRole)
+		)
+			ctx.addIssue({
+				code: "custom",
+				path: ["authContextId"],
+				message: "authContextId and identityRole must be provided together",
+			});
+		if (new Set(value.ruleIds).size !== value.ruleIds.length)
+			ctx.addIssue({
+				code: "custom",
+				path: ["ruleIds"],
+				message: "ZAP active rule IDs must be unique",
+			});
+	});
+
 export const runActiveAssessmentRequestSchema = z.union([
 	activeTransactionRunRequestSchema,
 	authorizationMatrixRunRequestSchema,
+	zapActiveRunRequestSchema,
 ]);
 
 export const activeAssessmentRunStatusSchema = z.enum([
@@ -260,7 +324,7 @@ export const activeAssessmentRunSchema = z.object({
 	scanRunId: z.string().uuid(),
 	engagementId: z.string().uuid(),
 	targetConfigId: z.string().uuid(),
-	kind: z.enum(["transaction", "authorization_matrix"]),
+	kind: z.enum(["transaction", "authorization_matrix", "zap_active"]),
 	status: activeAssessmentRunStatusSchema,
 	requestCount: z.number().int().min(0),
 	findingCount: z.number().int().min(0),
@@ -275,8 +339,10 @@ export const activeAssessmentRunSchema = z.object({
 });
 
 export type ActiveRequest = z.infer<typeof activeRequestSchema>;
+export type ActiveResetStrategy = z.infer<typeof activeResetStrategySchema>;
 export type ActiveTransaction = z.infer<typeof activeTransactionSchema>;
 export type AuthorizationMatrix = z.infer<typeof authorizationMatrixSchema>;
+export type ZapActiveRunRequest = z.infer<typeof zapActiveRunRequestSchema>;
 export type RunActiveAssessmentRequest = z.infer<
 	typeof runActiveAssessmentRequestSchema
 >;

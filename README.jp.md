@@ -26,13 +26,17 @@ local project
 
 LLM route が利用不能、または構造化出力が拒否された場合も、deterministic report は明示的な limitation code 付きで完了します。認可、active scan の許可、credential、network policy、resource limit は引き続き server 側の安全契約であり、LLM へ委譲しません。
 
-これはプロによるペネトレーションテストの完全代替ではありません。再現可能な
-Semgrep既定ルールは現在3本のsmoke set、OSVのoffline dataはnpmのみ、
-ZAPはpassiveのみであり、OWASP Benchmark/Juice Shopによる性能値も未取得です。
-認証付きread-only検査と宣言的BOLA/BFLA行列は、設定済みroute、identity、
-object、operationだけを対象とし、未発見のbusiness flowは検査しません。
-network、cloud、AD、mobile、wireless、social engineering、無制限fuzzingは
-プロダクト境界外です。
+これはプロによるペネトレーションテストの完全代替ではありません。Phase 50の
+versioned baselineには、5言語40本のoffline Semgrep rule、8 ecosystemの
+prepared OSV database、明示選択式のdisposable target向けZAP active profile、
+deterministic application/threat model、bounded business-logic scenarioが
+含まれます。一方、現在のmeasured capability claimは`not_met`です。固定済み
+OWASP Benchmarkの実測値はrecall `0.0516`、precision `0.1563`、false-positive
+rate `0.2385`であり、固定済みJuice Shop catalogはeligible 20 scenarioに対して
+実行証跡がまだありません。認証付き検査は設定済みroute、identity、object、
+operationだけを対象とします。network、cloud、AD、mobile、wireless、social
+engineering、browser authentication、production active attack、無制限fuzzingは
+experimentalまたはプロダクト境界外です。
 
 vulnWorkbench は、隣接する coding-agent system 向けの Static Intelligence source でもあります。scanner-backed diagnostic evidence、軽量な code structure facts、file risk、semantic candidates、risk communities、guardrail material、read-only MCP tools を公開します。ただし、これは source layer です。NightWorkers は ontology、task compilation、queue admission、implementation、verification orchestration を担当し、contextStill は generalized knowledge、reusable procedure、retrieval を担当します。
 
@@ -277,9 +281,31 @@ bun run scan:sbom -- --project-id <project-id>
 bun run scan:trivy-image -- --project-id <project-id> --image-ref local/app:tag
 ```
 
-Semgrep は既定で、リポジトリ所有・tree hash 済みの3ルールからなる
-smoke setを使います。registryを使う探索実行は `--config auto` を明示し、
-その実行は再現不能として記録され、自動レポートも制限付きreadyになります。
+Semgrep は既定で、リポジトリ所有・tree hash 済みの`curated-sast-v1`を
+使用します。内訳は5言語40 rule、各言語6 security family以上で、release
+fixtureはpositive 80件、negative 80件です。registryを使う探索実行は
+`--config auto`を明示し、その実行は再現不能として記録され、自動レポートも
+制限付きreadyになります。
+
+### 実測security capability
+
+固定済みcorpusとoffline scanner dataを準備・検証してから外部gateを実行します。
+
+```bash
+bun run scanner-data:prepare -- .cache/scanner-data/phase-50
+bun run security-corpora:prepare
+bun run security-corpora:verify
+OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY=.cache/scanner-data/phase-50/osv \
+  bun run benchmark:all
+OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY=.cache/scanner-data/phase-50/osv \
+  bun run verify:professional-capability
+```
+
+結果は`.artifacts/professional-capability-release-report.json`へ保存されます。
+全gateの合格に加え、`VULN_WORKBENCH_PASSING_BENCHMARK_RUN_ID`が永続化済みpassing
+run UUIDを参照する場合だけclaimを`met`にできます。観測不足、null denominator、
+stale/tampered data、cleanup失敗、passing run未指定のいずれかがあれば
+`not_met`のままです。
 
 ### Scan Review / Handoff
 

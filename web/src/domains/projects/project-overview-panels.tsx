@@ -2,7 +2,6 @@ import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import {
 	Activity,
 	BarChart3,
-	Braces,
 	CheckCircle2,
 	ChevronRight,
 	Copy,
@@ -13,14 +12,7 @@ import {
 	RefreshCw,
 	Shield,
 } from "lucide-react";
-import {
-	type FormEvent,
-	useCallback,
-	useEffect,
-	useMemo,
-	useRef,
-	useState,
-} from "react";
+import type { FormEvent } from "react";
 import { formatCommandTokens } from "../../../../shared/format-command";
 import type {
 	FileRiskIndexEntry,
@@ -49,6 +41,7 @@ import { formatScanOutcome } from "../scans/scan-profile-display";
 import { formatDateTime } from "../scans/scans-utils";
 import { readinessPresentation } from "./project-intelligence-readiness";
 import { buildProjectCardSummary } from "./project-intelligence-view-model";
+import { SecurityCapabilityPanel } from "./project-security-capability-panel";
 
 import { IntelligenceView } from "./project-intelligence-panels";
 import {
@@ -383,6 +376,7 @@ export function ProjectOverview({
 				<DegradedReasons reasons={view?.degradedReasons ?? []} />
 				<ScanRunList projectId={project.id} scanRuns={scanRuns} />
 			</section>
+			<SecurityCapabilityPanel projectId={project.id} />
 		</>
 	);
 }

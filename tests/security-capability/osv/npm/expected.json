@@ -1,0 +1,7 @@
+{
+	"ecosystem": "npm",
+	"package": "lodash",
+	"vulnerableVersion": "4.17.20",
+	"fixedVersion": "4.18.0",
+	"expectedId": "GHSA-35jh-r3h4-6jhm"
+}

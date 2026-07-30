@@ -1,0 +1,7 @@
+{
+	"ecosystem": "crates.io",
+	"package": "time",
+	"vulnerableVersion": "0.1.43",
+	"fixedVersion": "0.3.44",
+	"expectedId": "RUSTSEC-2020-0071"
+}

@@ -14,7 +14,9 @@ export async function prepareToolProvenance(params: {
 	});
 	if (
 		params.toolId === "semgrep" &&
-		(options.config === undefined || options.config === "owned")
+		(options.config === undefined ||
+			options.config === "owned" ||
+			options.config === "curated-sast-v1")
 	) {
 		options.config =
 			params.execution.runner === "docker"

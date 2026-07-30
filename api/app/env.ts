@@ -125,6 +125,11 @@ const EnvSchema = z.object({
 	NIGHTWORKERS_INTEGRATION_MAX_REPORT_BYTES: optionalPositiveInteger,
 	NIGHTWORKERS_INTEGRATION_MAX_REQUEST_BYTES: optionalPositiveInteger,
 	NIGHTWORKERS_REPORT_RUNNER_CONCURRENCY: optionalPositiveInteger,
+	VULN_WORKBENCH_CURATED_SAST_ENABLED: optionalBoolean,
+	VULN_WORKBENCH_MULTI_ECOSYSTEM_OSV_ENABLED: optionalBoolean,
+	VULN_WORKBENCH_ZAP_ACTIVE_ENABLED: optionalBoolean,
+	VULN_WORKBENCH_THREAT_MODEL_ENABLED: optionalBoolean,
+	VULN_WORKBENCH_BUSINESS_LOGIC_ENABLED: optionalBoolean,
 	JWT_SECRET: z.preprocess((value) => {
 		if (typeof value !== "string") return value;
 		const trimmed = value.trim();
@@ -197,6 +202,11 @@ export type AppEnv = {
 	nightworkersIntegrationMaxReportBytes: number;
 	nightworkersIntegrationMaxRequestBytes: number;
 	nightworkersReportRunnerConcurrency: number;
+	curatedSastEnabled?: boolean;
+	multiEcosystemOsvEnabled?: boolean;
+	zapActiveEnabled?: boolean;
+	threatModelEnabled?: boolean;
+	businessLogicEnabled?: boolean;
 };
 
 function parseAllowedProjectRoots(value?: string): string[] {
@@ -477,5 +487,11 @@ export function readAppEnv(env: NodeJS.ProcessEnv = process.env): AppEnv {
 			parsed.NIGHTWORKERS_INTEGRATION_MAX_REQUEST_BYTES ?? 64 * 1024,
 		nightworkersReportRunnerConcurrency:
 			parsed.NIGHTWORKERS_REPORT_RUNNER_CONCURRENCY ?? 2,
+		curatedSastEnabled: parsed.VULN_WORKBENCH_CURATED_SAST_ENABLED ?? false,
+		multiEcosystemOsvEnabled:
+			parsed.VULN_WORKBENCH_MULTI_ECOSYSTEM_OSV_ENABLED ?? false,
+		zapActiveEnabled: parsed.VULN_WORKBENCH_ZAP_ACTIVE_ENABLED ?? false,
+		threatModelEnabled: parsed.VULN_WORKBENCH_THREAT_MODEL_ENABLED ?? false,
+		businessLogicEnabled: parsed.VULN_WORKBENCH_BUSINESS_LOGIC_ENABLED ?? false,
 	};
 }

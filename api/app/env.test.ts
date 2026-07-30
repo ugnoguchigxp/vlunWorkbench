@@ -29,6 +29,11 @@ describe("readAppEnv", () => {
 		expect(env.nightworkersIntegrationMaxReportBytes).toBe(5 * 1024 * 1024);
 		expect(env.nightworkersIntegrationMaxRequestBytes).toBe(64 * 1024);
 		expect(env.nightworkersReportRunnerConcurrency).toBe(2);
+		expect(env.curatedSastEnabled).toBe(false);
+		expect(env.multiEcosystemOsvEnabled).toBe(false);
+		expect(env.zapActiveEnabled).toBe(false);
+		expect(env.threatModelEnabled).toBe(false);
+		expect(env.businessLogicEnabled).toBe(false);
 	});
 
 	it("normalizes project roots and fails closed by default in production", () => {
@@ -119,6 +124,30 @@ describe("readAppEnv", () => {
 		expect(env.scanExecutionMode).toBe("docker");
 		expect(env.allowHostScannerExecution).toBe(false);
 		expect(env.scanDockerImage).toBe("scanner:test");
+		expect(env.zapActiveEnabled).toBe(false);
+	});
+
+	it("enables Phase 50 capabilities only through explicit flags", () => {
+		const env = readAppEnv({
+			VULN_WORKBENCH_CURATED_SAST_ENABLED: "true",
+			VULN_WORKBENCH_MULTI_ECOSYSTEM_OSV_ENABLED: "true",
+			VULN_WORKBENCH_ZAP_ACTIVE_ENABLED: "true",
+			VULN_WORKBENCH_THREAT_MODEL_ENABLED: "true",
+			VULN_WORKBENCH_BUSINESS_LOGIC_ENABLED: "true",
+		});
+		expect({
+			curatedSastEnabled: env.curatedSastEnabled,
+			multiEcosystemOsvEnabled: env.multiEcosystemOsvEnabled,
+			zapActiveEnabled: env.zapActiveEnabled,
+			threatModelEnabled: env.threatModelEnabled,
+			businessLogicEnabled: env.businessLogicEnabled,
+		}).toEqual({
+			curatedSastEnabled: true,
+			multiEcosystemOsvEnabled: true,
+			zapActiveEnabled: true,
+			threatModelEnabled: true,
+			businessLogicEnabled: true,
+		});
 	});
 
 	it("accepts database and auth runtime overrides", () => {

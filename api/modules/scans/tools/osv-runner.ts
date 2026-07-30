@@ -101,14 +101,18 @@ export class OsvRunner {
 				: { applied: false },
 		};
 
-		const dockerOfflineArgs =
-			this.execution?.runner === "docker"
-				? ["--offline", "--offline-vulnerabilities", "--no-resolve"]
-				: [];
+		const offline =
+			this.execution?.runner === "docker" ||
+			["1", "true", "yes", "on"].includes(
+				(
+					process.env.VULN_WORKBENCH_MULTI_ECOSYSTEM_OSV_ENABLED ?? ""
+				).toLowerCase(),
+			);
+		const offlineArgs = offline ? ["--offline", "--no-resolve"] : [];
 		const args = [
 			"scan",
 			"source",
-			...dockerOfflineArgs,
+			...offlineArgs,
 			"--format",
 			"json",
 			"--output-file",
@@ -123,6 +127,14 @@ export class OsvRunner {
 			execution: this.execution,
 			repoPath: scanPath,
 			outputPath: tempJsonPath,
+			env: offline
+				? {
+						...process.env,
+						OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY:
+							process.env.OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY ??
+							path.resolve(".cache/scanner-data/osv"),
+					}
+				: undefined,
 			onLifecycleEvent: options.onLifecycleEvent,
 		});
 		const elapsedMs = Date.now() - startTime;

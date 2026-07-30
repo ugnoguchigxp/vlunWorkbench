@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "catalogVersion": "1.0.0",
+  "controls": [
+    { "id": "owner-isolation", "validationKind": "metamorphic" },
+    { "id": "role-operation-separation", "validationKind": "authorization_matrix" },
+    { "id": "state-transition-bypass", "validationKind": "state_transition" },
+    { "id": "replay-idempotency", "validationKind": "bounded_transaction" },
+    { "id": "duplicate-submission", "validationKind": "bounded_transaction" },
+    { "id": "numeric-boundary", "validationKind": "bounded_transaction" },
+    { "id": "negative-zero-value", "validationKind": "bounded_transaction" },
+    { "id": "calculated-value-tampering", "validationKind": "metamorphic" },
+    { "id": "sequence-order-bypass", "validationKind": "state_transition" },
+    { "id": "one-time-token-reuse", "validationKind": "bounded_transaction" },
+    { "id": "rate-quota-bypass", "validationKind": "bounded_transaction" },
+    { "id": "cross-tenant-reference-substitution", "validationKind": "metamorphic" }
+  ]
+}

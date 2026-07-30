@@ -249,4 +249,35 @@ describe("active assessment schemas", () => {
 		});
 		expect(parsed.success).toBe(false);
 	});
+
+	it("validates an explicit bounded ZAP active profile and reset contract", () => {
+		const parsed = runActiveAssessmentRequestSchema.safeParse({
+			kind: "zap_active",
+			profileId: "api-zap-active-lab",
+			engagementId: "11111111-1111-4111-8111-111111111111",
+			targetConfigId: "22222222-2222-4222-8222-222222222222",
+			allowedMethods: ["GET", "POST"],
+			allowedPaths: ["/api"],
+			requestBudget: 100,
+			durationSec: 600,
+			ruleIds: [40012, 40018],
+			resetStrategy: {
+				kind: "http_transaction",
+				seedRequests: [
+					{ method: "POST", path: "/api/reset", expectedStatus: [204] },
+				],
+				cleanupRequests: [
+					{ method: "DELETE", path: "/api/reset", expectedStatus: [204] },
+				],
+				baselineAssertions: [{ path: "/api/health", expectedStatus: 200 }],
+			},
+		});
+		expect(parsed.success).toBe(true);
+		expect(
+			runActiveAssessmentRequestSchema.safeParse({
+				...(parsed.success ? parsed.data : {}),
+				ruleIds: [40012, 40012],
+			}).success,
+		).toBe(false);
+	});
 });

@@ -14,7 +14,7 @@ export class ActiveAssessmentRepository {
 		scanRunId: string;
 		engagementId: string;
 		targetConfigId: string;
-		kind: "transaction" | "authorization_matrix";
+		kind: "transaction" | "authorization_matrix" | "zap_active";
 		createdByUserId: string | null;
 	}) {
 		const now = new Date();
@@ -77,20 +77,20 @@ export class ActiveAssessmentRepository {
 				.where(eq(activeAssessmentEvidences.activeAssessmentRunId, run.id));
 			const now = new Date();
 			const interruptedStatus =
-				run.kind === "transaction" ? "failed_cleanup" : "inconclusive";
+				run.kind === "authorization_matrix" ? "inconclusive" : "failed_cleanup";
 			const limitationCode =
-				run.kind === "transaction"
-					? "interrupted_cleanup_state_unknown"
-					: "interrupted_readonly_matrix";
+				run.kind === "authorization_matrix"
+					? "interrupted_readonly_matrix"
+					: "interrupted_cleanup_state_unknown";
 			await this.db
 				.update(activeAssessmentRuns)
 				.set({
 					status: interruptedStatus,
 					requestCount: Number(evidenceCount?.count ?? run.requestCount),
 					summary:
-						run.kind === "transaction"
-							? "Active assessment was interrupted; cleanup state is unknown."
-							: "Read-only authorization matrix was interrupted.",
+						run.kind === "authorization_matrix"
+							? "Read-only authorization matrix was interrupted."
+							: "Active assessment was interrupted; cleanup state is unknown.",
 					result: {
 						limitationCodes: [limitationCode],
 					},

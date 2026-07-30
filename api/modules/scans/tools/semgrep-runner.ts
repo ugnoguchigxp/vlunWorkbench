@@ -286,7 +286,12 @@ function resolveSemgrepConfig(
 	config: string | undefined,
 	execution: ToolExecutionConfig | undefined,
 ): string {
-	if (config !== undefined && config !== "owned") return config;
+	if (
+		config !== undefined &&
+		config !== "owned" &&
+		config !== "curated-sast-v1"
+	)
+		return config;
 	if (execution?.runner === "docker") {
 		return "/opt/vuln-workbench/scanner-data/semgrep-rules";
 	}

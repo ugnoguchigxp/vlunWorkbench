@@ -50,7 +50,6 @@ try {
 		"scan",
 		"source",
 		"--offline",
-		"--offline-vulnerabilities",
 		"--no-resolve",
 		"--format",
 		"json",

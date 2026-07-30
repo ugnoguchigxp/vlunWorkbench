@@ -1,0 +1,7 @@
+{
+	"ecosystem": "NuGet",
+	"package": "Newtonsoft.Json",
+	"vulnerableVersion": "12.0.1",
+	"fixedVersion": "13.0.3",
+	"expectedId": "GHSA-5crp-9r3c-p9vr"
+}

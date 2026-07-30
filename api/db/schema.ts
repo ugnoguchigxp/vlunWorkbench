@@ -7,3 +7,4 @@ export * from "./schema/schema-intelligence";
 export * from "./schema/schema-integrations";
 export * from "./schema/schema-reproduction";
 export * from "./schema/schema-scans";
+export * from "./schema/schema-security-capability";

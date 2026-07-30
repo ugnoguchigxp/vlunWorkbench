@@ -1,0 +1,69 @@
+rules:
+  - id: vuln-workbench.javascript.command-injection
+    message: Dynamic data reaches a shell command.
+    severity: ERROR
+    languages: [javascript]
+    metadata: { cwe: CWE-78, owasp: ["A03:2021"], security-family: command-injection, confidence: high, source-kind: owned-core, source-ref: "repo:javascript/owned-core.yml", license: MIT, rule-version: "1", supported-frameworks: [generic], remediation: "Use execFile with a fixed executable and validated arguments." }
+    patterns:
+      - pattern-either:
+          - pattern: child_process.exec($X, ...)
+          - pattern: child_process.execSync($X, ...)
+      - pattern-not: child_process.exec("...", ...)
+      - pattern-not: child_process.execSync("...", ...)
+  - id: vuln-workbench.javascript.code-injection
+    message: Dynamic data is evaluated as JavaScript.
+    severity: ERROR
+    languages: [javascript]
+    metadata: { cwe: CWE-95, owasp: ["A03:2021"], security-family: dangerous-process-execution, confidence: high, source-kind: owned-core, source-ref: "repo:javascript/owned-core.yml", license: MIT, rule-version: "1", supported-frameworks: [generic], remediation: "Do not evaluate dynamic source text." }
+    pattern-either:
+      - pattern: eval($X)
+      - pattern: new Function($X)
+  - id: vuln-workbench.javascript.dom-xss
+    message: Dynamic data is assigned to innerHTML.
+    severity: ERROR
+    languages: [javascript]
+    metadata: { cwe: CWE-79, owasp: ["A03:2021"], security-family: xss-template-injection, confidence: high, source-kind: owned-core, source-ref: "repo:javascript/owned-core.yml", license: MIT, rule-version: "1", supported-frameworks: [browser], remediation: "Use textContent or a context-aware sanitizer." }
+    patterns:
+      - pattern: $EL.innerHTML = $X
+      - pattern-not: $EL.innerHTML = "..."
+  - id: vuln-workbench.javascript.ssrf-fetch
+    message: A non-literal URL is passed to fetch.
+    severity: WARNING
+    languages: [javascript]
+    metadata: { cwe: CWE-918, owasp: ["A10:2021"], security-family: ssrf, confidence: medium, source-kind: owned-core, source-ref: "repo:javascript/owned-core.yml", license: MIT, rule-version: "1", supported-frameworks: [generic], remediation: "Resolve URLs through an origin allowlist and pinned DNS policy." }
+    patterns:
+      - pattern: fetch($URL, ...)
+      - pattern-not: fetch("...", ...)
+  - id: vuln-workbench.javascript.path-traversal-read
+    message: A non-literal path is read from the filesystem.
+    severity: WARNING
+    languages: [javascript]
+    metadata: { cwe: CWE-22, owasp: ["A01:2021"], security-family: path-traversal-file-access, confidence: medium, source-kind: owned-core, source-ref: "repo:javascript/owned-core.yml", license: MIT, rule-version: "1", supported-frameworks: [node], remediation: "Resolve the path under an allowlisted root and reject escapes." }
+    patterns:
+      - pattern-either:
+          - pattern: fs.readFile($PATH, ...)
+          - pattern: fs.readFileSync($PATH, ...)
+      - pattern-not: fs.readFile("...", ...)
+      - pattern-not: fs.readFileSync("...", ...)
+  - id: vuln-workbench.javascript.weak-hash
+    message: MD5 or SHA-1 is used for a security-sensitive digest.
+    severity: WARNING
+    languages: [javascript]
+    metadata: { cwe: CWE-328, owasp: ["A02:2021"], security-family: weak-cryptography-hash-randomness, confidence: high, source-kind: owned-core, source-ref: "repo:javascript/owned-core.yml", license: MIT, rule-version: "1", supported-frameworks: [node], remediation: "Use SHA-256 or a purpose-built password hashing function." }
+    pattern-either:
+      - pattern: crypto.createHash("md5")
+      - pattern: crypto.createHash("sha1")
+  - id: vuln-workbench.javascript.weak-random
+    message: Math.random is not suitable for secrets.
+    severity: WARNING
+    languages: [javascript]
+    metadata: { cwe: CWE-338, owasp: ["A02:2021"], security-family: weak-cryptography-hash-randomness, confidence: high, source-kind: owned-core, source-ref: "repo:javascript/owned-core.yml", license: MIT, rule-version: "1", supported-frameworks: [generic], remediation: "Use crypto.randomBytes or crypto.randomUUID." }
+    pattern: Math.random()
+  - id: vuln-workbench.javascript.unsafe-deserialization
+    message: Serialized JavaScript is deserialized with an unsafe library.
+    severity: ERROR
+    languages: [javascript]
+    metadata: { cwe: CWE-502, owasp: ["A08:2021"], security-family: unsafe-deserialization, confidence: high, source-kind: owned-core, source-ref: "repo:javascript/owned-core.yml", license: MIT, rule-version: "1", supported-frameworks: [node], remediation: "Use JSON with schema validation and reject executable object formats." }
+    pattern-either:
+      - pattern: serialize.unserialize($X)
+      - pattern: nodeSerialize.unserialize($X)

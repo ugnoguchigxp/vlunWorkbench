@@ -1,0 +1,22 @@
+schemaVersion: 1
+policyId: zap-active-disposable-v1
+defaultThreshold: Off
+strength: Low
+threshold: Medium
+environments:
+  - local
+  - ephemeral
+purpose: internal
+resourceLimits:
+  memory: 2g
+  cpus: "1.5"
+  pids: 256
+  threadsPerHost: 1
+  gatewayConcurrency: 2
+  requestsPerSecond: 2
+  defaultRequestBudget: 500
+  absoluteRequestBudget: 2000
+  defaultDurationSec: 600
+  absoluteDurationSec: 1200
+  responseBodyBytes: 1048576
+  reportBytes: 67108864

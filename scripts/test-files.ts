@@ -3,12 +3,18 @@ import path from "node:path";
 
 const ignoredDirectories = new Set([
 	".git",
+	".artifacts",
+	".cache",
+	".tmp",
 	"artifacts",
+	"build",
 	"coverage",
 	"data",
 	"dist",
 	"dist-web",
 	"node_modules",
+	"playwright-report",
+	"test-results",
 ]);
 
 async function walk(directory: string, root: string): Promise<string[]> {

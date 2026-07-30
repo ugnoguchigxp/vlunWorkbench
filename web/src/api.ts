@@ -3,3 +3,4 @@ export * from "./api/automated-diagnostics";
 export * from "./api/assessments";
 export * from "./api/runtime-scans";
 export * from "./api/scans";
+export * from "./api/security-capability";

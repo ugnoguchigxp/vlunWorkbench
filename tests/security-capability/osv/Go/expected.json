@@ -1,0 +1,7 @@
+{
+	"ecosystem": "Go",
+	"package": "golang.org/x/text",
+	"vulnerableVersion": "v0.3.6",
+	"fixedVersion": "v0.29.0",
+	"expectedId": "GO-2022-1059"
+}

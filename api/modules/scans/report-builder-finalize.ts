@@ -29,8 +29,14 @@ export async function finalizeMarkdownReport(scope: Scope): Promise<string> {
 		expectedDastSteps,
 		falsePositiveFindings,
 		latestAutomatedReview,
+		latestApplicationModel,
+		latestBenchmarkMetrics,
+		latestBenchmarkRun,
+		latestThreatHypotheses,
+		latestThreatModelRun,
 		rawFindings,
 		scanRun,
+		scanBusinessLogicRuns,
 		undecidedFindings,
 		lines,
 		renderFindingsGroup,
@@ -186,6 +192,94 @@ export async function finalizeMarkdownReport(scope: Scope): Promise<string> {
 				"Runtime coverage gap: この ScanProfile は DAST を含みますが、DAST run は記録されていません。",
 			);
 		}
+	}
+	lines.push("");
+
+	lines.push("## Measured Web/API Capability");
+	lines.push(
+		"- **Claim:** measured-automated-web-api-assessment-v1 = not_met unless a release evidence artifact references passing runs for every required corpus and the same release digests.",
+	);
+	lines.push(
+		"- **Declared SAST languages:** JavaScript, TypeScript, Python, Java, Go.",
+	);
+	lines.push(
+		"- **Declared offline SCA ecosystems:** npm, PyPI, Go, Maven, crates.io, NuGet, Packagist, RubyGems.",
+	);
+	lines.push(
+		"- **Unsupported/not tested:** WebSocket, GraphQL subscription, gRPC, SOAP, production active attack, arbitrary scanner scripts, network/cloud/AD/mobile/wireless/social-engineering.",
+	);
+	if (latestBenchmarkRun) {
+		const overall = latestBenchmarkMetrics.find(
+			(metric) => metric.category === "overall",
+		);
+		lines.push(
+			`- **Latest benchmark:** ${latestBenchmarkRun.id} (${escapeTableCell(latestBenchmarkRun.corpusId)} ${escapeTableCell(latestBenchmarkRun.status)}), recall=${overall?.recall ?? "N/A"}, precision=${overall?.precision ?? "N/A"}, FPR=${overall?.falsePositiveRate ?? "N/A"}.`,
+		);
+	} else {
+		lines.push(
+			"- **Benchmark limitation:** no persisted external benchmark run is available.",
+		);
+	}
+	lines.push("");
+
+	lines.push("## Application Model and Threat Hypotheses");
+	if (latestApplicationModel) {
+		lines.push(
+			`- **Application model snapshot:** ${latestApplicationModel.snapshotHash}`,
+		);
+	} else {
+		lines.push("- **Application model:** not tested for this project.");
+	}
+	if (latestThreatModelRun) {
+		const statusCounts = Object.fromEntries(
+			[
+				"hypothesis",
+				"planned",
+				"observed",
+				"not_observed",
+				"inconclusive",
+				"not_tested",
+			].map((status) => [
+				status,
+				latestThreatHypotheses.filter((item) => item.status === status).length,
+			]),
+		);
+		lines.push(
+			`- **Threat model run:** ${latestThreatModelRun.id} (${escapeTableCell(latestThreatModelRun.status)}; LLM available=${latestThreatModelRun.llmAvailable}).`,
+			`- **Hypothesis status:** ${Object.entries(statusCounts)
+				.map(([status, count]) => `${status}=${count}`)
+				.join(", ")}.`,
+		);
+		if (latestThreatModelRun.limitations.length > 0)
+			lines.push(
+				`- **Threat-model limitations:** ${latestThreatModelRun.limitations.map((item) => toInlineText(item)).join(" / ")}`,
+			);
+	} else {
+		lines.push(
+			"- **Threat hypotheses:** not tested. Hypotheses are never counted as findings.",
+		);
+	}
+	lines.push("");
+
+	lines.push("## Business-Logic Control Coverage");
+	if (scanBusinessLogicRuns.length > 0) {
+		for (const status of [
+			"observed",
+			"inconclusive",
+			"failed_cleanup",
+			"not_observed",
+			"not_tested",
+		]) {
+			const count = scanBusinessLogicRuns.filter(
+				(run) => run.status === status,
+			).length;
+			if (count > 0) lines.push(`- **${status}:** ${count}`);
+		}
+		lines.push(
+			"- Only `observed` runs with executable evidence can create a confirmed finding; inconclusive, failed cleanup, no-observation, and not-tested results are reported separately.",
+		);
+	} else {
+		lines.push("- No business-logic scenario was executed for this scan.");
 	}
 	lines.push("");
 

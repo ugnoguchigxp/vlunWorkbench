@@ -17,6 +17,7 @@ import type {
 	ScanRepository,
 } from "../modules/scans/repositories";
 import type { ScanDiagnosticRunner } from "../modules/scans/scan-diagnostic-runner";
+import { listContainerFixtures } from "../modules/runtime-scans/container-fixture-reset";
 
 export function createAssessmentsRoute(deps: {
 	db: AppDatabase;
@@ -38,6 +39,9 @@ export function createAssessmentsRoute(deps: {
 
 	route.get("/assessment-controls", (c) =>
 		c.json({ controls: COVERAGE_CATALOG }),
+	);
+	route.get("/active-assessment-container-fixtures", (c) =>
+		c.json({ fixtures: listContainerFixtures() }),
 	);
 	route.get("/projects/:projectId/assessments", async (c) => {
 		const user = getAuthContextUser(c);

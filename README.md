@@ -27,12 +27,17 @@ local project
 If the LLM route is unavailable or its structured output is rejected, the deterministic report still completes with explicit limitation codes. Authorization, active-scan permission, credentials, network policy, and resource limits remain server-enforced safety controls; they are not delegated to the LLM.
 
 This is not a complete replacement for a professional penetration test. The
-reproducible Semgrep default is currently a three-rule smoke set; OSV offline
-data is npm-only; ZAP is passive-only; and OWASP Benchmark/Juice Shop metrics
-have not yet been collected. Authenticated read-only checks and declarative
-BOLA/BFLA matrices cover configured routes, identities, objects, and operations,
-not undiscovered business flows. Network, cloud, AD, mobile, wireless, social
-engineering, and unrestricted fuzzing are outside the product boundary.
+versioned Phase 50 baseline contains 40 offline Semgrep rules across five
+languages, prepared OSV databases for eight ecosystems, explicit disposable
+target ZAP active profiles, deterministic application/threat models, and
+bounded business-logic scenarios. The current measured capability claim is
+still `not_met`: the pinned OWASP Benchmark run measured recall `0.0516`,
+precision `0.1563`, and false-positive rate `0.2385`, while the pinned Juice
+Shop catalog has 20 eligible scenarios but no executable observations yet.
+Authenticated checks cover only configured routes, identities, objects, and
+operations. Network, cloud, AD, mobile, wireless, social engineering, browser
+authentication, production active attacks, and unrestricted fuzzing remain
+experimental or outside the product boundary.
 
 vulnWorkbench also acts as a Static Intelligence source for adjacent coding-agent systems. It exposes scanner-backed diagnostic evidence, lightweight code structure facts, file risk, semantic candidates, risk communities, guardrail material, and read-only MCP tools. This is still a source layer: NightWorkers owns ontology, task compilation, queue admission, implementation, and verification orchestration; contextStill owns generalized knowledge, reusable procedures, and retrieval.
 
@@ -203,6 +208,11 @@ Common environment variables:
 | `VULN_WORKBENCH_SCANNER_STDOUT_LIMIT_BYTES` | Scanner stdout and structured-output limit. Defaults to 64 MiB; hard maximum is 256 MiB. |
 | `VULN_WORKBENCH_SCANNER_STDERR_LIMIT_BYTES` | Scanner stderr limit. Defaults to 8 MiB; hard maximum is 32 MiB. |
 | `PROJECT_ALLOWED_ROOTS` | Comma-separated roots available to Web/API project registration and scans. Development defaults to the current working directory; production is fail-closed when unset. |
+| `VULN_WORKBENCH_CURATED_SAST_ENABLED` | Enables the curated SAST capability. Defaults to `false`. |
+| `VULN_WORKBENCH_MULTI_ECOSYSTEM_OSV_ENABLED` | Enables the prepared eight-ecosystem OSV capability. Defaults to `false`. |
+| `VULN_WORKBENCH_ZAP_ACTIVE_ENABLED` | Enables explicit disposable-target ZAP active runs. Defaults to `false`. |
+| `VULN_WORKBENCH_THREAT_MODEL_ENABLED` | Enables application-model and threat-hypothesis generation. Defaults to `false`. |
+| `VULN_WORKBENCH_BUSINESS_LOGIC_ENABLED` | Enables bounded business-logic scenario generation and execution. Defaults to `false`. |
 
 LLM API keys stay on the host side. Scanner containers and target projects should not receive LLM credentials. Docker scans always apply memory, CPU, memory-swap, and PID limits; stdout, stderr, and structured result files are rejected when their configured byte limit is exceeded.
 
@@ -280,9 +290,41 @@ bun run scan:sbom -- --project-id <project-id>
 bun run scan:trivy-image -- --project-id <project-id> --image-ref local/app:tag
 ```
 
-Semgrep uses the repository-owned, tree-hashed three-rule smoke set by default.
+Semgrep uses the repository-owned, tree-hashed `curated-sast-v1` catalog by
+default: 40 rules, five languages, and at least six security families per
+language. Its release fixtures contain 80 positive and 80 negative annotations.
 Pass `--config auto` only for an exploratory registry run; that run is recorded
 as non-reproducible and the automatic report remains ready with limitations.
+
+### Measured security capability
+
+Prepare and verify the pinned corpora and offline scanner data before running
+the external gates:
+
+```bash
+bun run scanner-data:prepare -- .cache/scanner-data/phase-50
+bun run security-corpora:prepare
+bun run security-corpora:verify
+OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY=.cache/scanner-data/phase-50/osv \
+  bun run benchmark:all
+OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY=.cache/scanner-data/phase-50/osv \
+  bun run verify:professional-capability
+```
+
+`verify:professional-capability` writes
+`.artifacts/professional-capability-release-report.json`. A claim can become
+`met` only when every gate passes and
+`VULN_WORKBENCH_PASSING_BENCHMARK_RUN_ID` contains a persisted passing run UUID.
+Missing observations, a null denominator, stale/tampered data, cleanup failure,
+or a missing passing run keeps the claim `not_met`.
+
+ZAP active runs are never added to default profiles. They require the explicit
+`runtime-zap-active-lab` or `api-zap-active-lab` profile, the feature flag, an
+active internal Rules of Engagement record, a local/ephemeral private target,
+exact method/path budgets, and a reset contract. The runner uses a Linux Docker
+internal network and a gateway that injects credentials without returning them
+to ZAP. Browser login/token-refresh flows and production targets are not
+supported.
 
 ### Scan Review / Handoff
 

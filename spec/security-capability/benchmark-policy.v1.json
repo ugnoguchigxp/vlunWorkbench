@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 1,
+  "policyVersion": "1.0.0",
+  "minimums": {
+    "semgrepRuleCount": 40,
+    "semgrepPositiveRecall": 1,
+    "semgrepNegativeFalsePositive": 0,
+    "supportedLanguageSecurityFamilies": 6,
+    "osvSupportedEcosystems": 8,
+    "offlineNetworkRequests": 0,
+    "owaspOverallRecall": 0.7,
+    "owaspOverallPrecision": 0.8,
+    "owaspOverallFalsePositiveRate": 0.1,
+    "owaspScore": 0.6,
+    "owaspCategoryRecall": 0.5,
+    "owaspCategoryGroundTruthMinimum": 20,
+    "juiceShopEligibleScenarios": 20,
+    "juiceShopCategories": 8,
+    "juiceShopRecall": 0.6,
+    "juiceShopPrecision": 0.8,
+    "activeCleanupSuccess": 1,
+    "credentialCanaryLeakage": 0,
+    "publicProductionActiveRequests": 0,
+    "businessLogicRecall": 0.7,
+    "businessLogicPrecision": 0.8,
+    "endpointDiscoveryRecall": 0.9,
+    "endpointDiscoveryPrecision": 0.9,
+    "confirmedFindingWithoutExecutableEvidence": 0
+  },
+  "applicability": {
+    "semgrep": [
+      "cmdi",
+      "crypto",
+      "hash",
+      "ldapi",
+      "pathtraver",
+      "securecookie",
+      "sqli",
+      "trustbound",
+      "weakrand",
+      "xpathi",
+      "xss"
+    ],
+    "zap": [
+      "cmdi",
+      "headerinj",
+      "ldapi",
+      "pathtraver",
+      "sqli",
+      "xpathi",
+      "xss"
+    ]
+  },
+  "zeroDenominatorBehavior": "null",
+  "thresholdChangeRequiresMajorVersion": true
+}

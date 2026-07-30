@@ -1,0 +1,61 @@
+rules:
+  - id: vuln-workbench.go.command-injection
+    message: A non-literal executable is passed to exec.Command.
+    severity: ERROR
+    languages: [go]
+    metadata: { cwe: CWE-78, owasp: ["A03:2021"], security-family: command-injection, confidence: high, source-kind: owned-core, source-ref: "repo:go/owned-core.yml", license: MIT, rule-version: "1", supported-frameworks: [generic], remediation: "Use a fixed executable and validated arguments." }
+    patterns:
+      - pattern: exec.Command($CMD, ...)
+      - pattern-not: exec.Command("...", ...)
+  - id: vuln-workbench.go.sql-injection
+    message: A formatted SQL query is executed.
+    severity: ERROR
+    languages: [go]
+    metadata: { cwe: CWE-89, owasp: ["A03:2021"], security-family: sql-nosql-ldap-xpath-injection, confidence: high, source-kind: owned-core, source-ref: "repo:go/owned-core.yml", license: MIT, rule-version: "1", supported-frameworks: [database-sql], remediation: "Use query placeholders and bound parameters." }
+    pattern-either:
+      - pattern: $DB.Query(fmt.Sprintf($FORMAT, ...), ...)
+      - pattern: $DB.Exec(fmt.Sprintf($FORMAT, ...), ...)
+  - id: vuln-workbench.go.template-html
+    message: Dynamic content is converted to trusted template HTML.
+    severity: ERROR
+    languages: [go]
+    metadata: { cwe: CWE-79, owasp: ["A03:2021"], security-family: xss-template-injection, confidence: high, source-kind: owned-core, source-ref: "repo:go/owned-core.yml", license: MIT, rule-version: "1", supported-frameworks: [html-template], remediation: "Pass untrusted values as normal template data." }
+    pattern: template.HTML($X)
+  - id: vuln-workbench.go.ssrf-http-get
+    message: A non-literal URL is requested.
+    severity: WARNING
+    languages: [go]
+    metadata: { cwe: CWE-918, owasp: ["A10:2021"], security-family: ssrf, confidence: medium, source-kind: owned-core, source-ref: "repo:go/owned-core.yml", license: MIT, rule-version: "1", supported-frameworks: [net-http], remediation: "Allowlist origins and validate resolved addresses." }
+    patterns:
+      - pattern: http.Get($URL)
+      - pattern-not: http.Get("...")
+  - id: vuln-workbench.go.path-traversal-open
+    message: A non-literal path is opened.
+    severity: WARNING
+    languages: [go]
+    metadata: { cwe: CWE-22, owasp: ["A01:2021"], security-family: path-traversal-file-access, confidence: medium, source-kind: owned-core, source-ref: "repo:go/owned-core.yml", license: MIT, rule-version: "1", supported-frameworks: [generic], remediation: "Clean and resolve the path under an allowlisted root." }
+    patterns:
+      - pattern: os.Open($PATH)
+      - pattern-not: os.Open("...")
+  - id: vuln-workbench.go.unsafe-gob-decode
+    message: Gob decoding accepts executable application object graphs.
+    severity: WARNING
+    languages: [go]
+    metadata: { cwe: CWE-502, owasp: ["A08:2021"], security-family: unsafe-deserialization, confidence: medium, source-kind: owned-core, source-ref: "repo:go/owned-core.yml", license: MIT, rule-version: "1", supported-frameworks: [generic], remediation: "Decode a constrained data-transfer schema and validate it." }
+    pattern: gob.NewDecoder($R).Decode($X)
+  - id: vuln-workbench.go.weak-hash
+    message: MD5 or SHA-1 is used.
+    severity: WARNING
+    languages: [go]
+    metadata: { cwe: CWE-328, owasp: ["A02:2021"], security-family: weak-cryptography-hash-randomness, confidence: high, source-kind: owned-core, source-ref: "repo:go/owned-core.yml", license: MIT, rule-version: "1", supported-frameworks: [generic], remediation: "Use SHA-256 or a password hashing function." }
+    pattern-either:
+      - pattern: md5.New()
+      - pattern: sha1.New()
+  - id: vuln-workbench.go.weak-random
+    message: math/rand is not suitable for secrets.
+    severity: WARNING
+    languages: [go]
+    metadata: { cwe: CWE-338, owasp: ["A02:2021"], security-family: weak-cryptography-hash-randomness, confidence: high, source-kind: owned-core, source-ref: "repo:go/owned-core.yml", license: MIT, rule-version: "1", supported-frameworks: [generic], remediation: "Use crypto/rand." }
+    pattern-either:
+      - pattern: rand.Intn(...)
+      - pattern: rand.Read(...)

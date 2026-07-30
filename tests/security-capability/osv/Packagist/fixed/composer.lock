@@ -1,0 +1,1 @@
+{ "packages": [{ "name": "symfony/http-foundation", "version": "v5.4.48" }], "packages-dev": [], "plugin-api-version": "2.6.0" }

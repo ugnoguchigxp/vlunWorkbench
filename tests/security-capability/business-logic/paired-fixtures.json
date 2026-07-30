@@ -1,0 +1,87 @@
+{
+	"schemaVersion": 1,
+	"fixtures": [
+		{
+			"id": "cross-tenant-order",
+			"controlId": "owner-isolation",
+			"category": "authorization",
+			"invariant": {
+				"kind": "status_class",
+				"requestIndex": 0,
+				"expectedClass": 4
+			}
+		},
+		{
+			"id": "admin-only-refund",
+			"controlId": "role-operation-separation",
+			"category": "authorization",
+			"invariant": {
+				"kind": "status_class",
+				"requestIndex": 0,
+				"expectedClass": 4
+			}
+		},
+		{
+			"id": "order-status-skip",
+			"controlId": "state-transition-bypass",
+			"category": "workflow",
+			"invariant": {
+				"kind": "status_class",
+				"requestIndex": 0,
+				"expectedClass": 4
+			}
+		},
+		{
+			"id": "duplicate-coupon",
+			"controlId": "duplicate-submission",
+			"category": "integrity",
+			"invariant": {
+				"kind": "duplicate_side_effect_count",
+				"subject": "coupon-redemption",
+				"max": 1
+			}
+		},
+		{
+			"id": "negative-quantity",
+			"controlId": "negative-zero-value",
+			"category": "input-boundary",
+			"invariant": {
+				"kind": "status_class",
+				"requestIndex": 0,
+				"expectedClass": 4
+			}
+		},
+		{
+			"id": "client-total-price",
+			"controlId": "calculated-value-tampering",
+			"category": "integrity",
+			"invariant": {
+				"kind": "numeric_delta",
+				"subject": "server-total",
+				"min": 0,
+				"max": 0
+			}
+		},
+		{
+			"id": "reset-token-replay",
+			"controlId": "one-time-token-reuse",
+			"category": "authentication",
+			"invariant": {
+				"kind": "duplicate_side_effect_count",
+				"subject": "password-reset",
+				"max": 1
+			}
+		},
+		{
+			"id": "quota-reset-bounded",
+			"controlId": "rate-quota-bypass",
+			"category": "abuse",
+			"invariant": {
+				"kind": "count_delta",
+				"subject": "quota-consumed",
+				"min": 1,
+				"max": 1
+			}
+		}
+	]
+}

@@ -1,0 +1,7 @@
+{
+	"ecosystem": "Packagist",
+	"package": "symfony/http-foundation",
+	"vulnerableVersion": "5.4.20",
+	"fixedVersion": "5.4.48",
+	"expectedId": "GHSA-mrqx-rp3w-jpjp"
+}

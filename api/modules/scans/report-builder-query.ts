@@ -1,9 +1,11 @@
-import { eq, inArray } from "drizzle-orm";
+import { desc, eq, inArray } from "drizzle-orm";
 import { automatedScanReviewOutputSchema } from "../../../shared/schemas/automated-diagnostic.schema";
 import type { AppDatabase } from "../../db";
 import { ensureScanCoverageResults } from "../assessments/coverage-builder";
 import {
 	attackSurfaceItems,
+	applicationModelSnapshots,
+	businessLogicRuns,
 	dastEvidence,
 	dastRuns,
 	diagnosticReports,
@@ -18,6 +20,10 @@ import {
 	scanReviews,
 	scanRuns,
 	securityCheckResults,
+	securityCapabilityBenchmarkMetrics,
+	securityCapabilityBenchmarkRuns,
+	threatHypotheses,
+	threatModelRuns,
 	toolRuns,
 } from "../../db/schema";
 import { getProfileById } from "./profiles";
@@ -120,6 +126,41 @@ export async function buildReportQuery(
 		.select()
 		.from(diagnosticReports)
 		.where(eq(diagnosticReports.scanRunId, scanRunId));
+	const scanBusinessLogicRuns = await db
+		.select()
+		.from(businessLogicRuns)
+		.where(eq(businessLogicRuns.scanRunId, scanRunId));
+	const [latestApplicationModel] = await db
+		.select()
+		.from(applicationModelSnapshots)
+		.where(eq(applicationModelSnapshots.projectId, scanRun.projectId))
+		.orderBy(desc(applicationModelSnapshots.createdAt))
+		.limit(1);
+	const [latestThreatModelRun] = await db
+		.select()
+		.from(threatModelRuns)
+		.where(eq(threatModelRuns.projectId, scanRun.projectId))
+		.orderBy(desc(threatModelRuns.createdAt))
+		.limit(1);
+	const latestThreatHypotheses = latestThreatModelRun
+		? await db
+				.select()
+				.from(threatHypotheses)
+				.where(eq(threatHypotheses.runId, latestThreatModelRun.id))
+		: [];
+	const [latestBenchmarkRun] = await db
+		.select()
+		.from(securityCapabilityBenchmarkRuns)
+		.orderBy(desc(securityCapabilityBenchmarkRuns.createdAt))
+		.limit(1);
+	const latestBenchmarkMetrics = latestBenchmarkRun
+		? await db
+				.select()
+				.from(securityCapabilityBenchmarkMetrics)
+				.where(
+					eq(securityCapabilityBenchmarkMetrics.runId, latestBenchmarkRun.id),
+				)
+		: [];
 	const allScanReviews = await db
 		.select()
 		.from(scanReviews)
@@ -315,7 +356,12 @@ export async function buildReportQuery(
 		falsePositiveFindings,
 		includedFindings,
 		latestAutomatedReview,
+		latestApplicationModel: latestApplicationModel ?? null,
+		latestBenchmarkMetrics,
+		latestBenchmarkRun: latestBenchmarkRun ?? null,
 		latestImprovementRequest,
+		latestThreatHypotheses,
+		latestThreatModelRun: latestThreatModelRun ?? null,
 		processedFindings,
 		profileDefinition,
 		profileSteps,
@@ -324,6 +370,7 @@ export async function buildReportQuery(
 		reportTitle,
 		reviewedFindingCount,
 		scanRun,
+		scanBusinessLogicRuns,
 		severityStats,
 		sortedFindings,
 		stats,

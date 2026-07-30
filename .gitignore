@@ -42,6 +42,7 @@ Thumbs.db
 /playwright-report
 /test-results
 /.tmp
+/.cache
 
 # generated scan/reproduction outputs
 /artifacts

@@ -30,7 +30,7 @@ export function selectStaticTool(params: {
 				runner: new SemgrepRunner(params.artifactStorage, params.execution),
 				normalizer: normalizeSemgrep,
 				toolName: "semgrep",
-				defaultCommand: `semgrep scan --config ${params.options.config ?? "owned"}`,
+				defaultCommand: `semgrep scan --config ${params.options.config ?? "curated-sast-v1"}`,
 			};
 		case "gitleaks":
 			return {

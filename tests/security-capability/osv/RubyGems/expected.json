@@ -1,0 +1,7 @@
+{
+	"ecosystem": "RubyGems",
+	"package": "rack",
+	"vulnerableVersion": "2.2.3",
+	"fixedVersion": "2.2.14",
+	"expectedId": "GHSA-22f2-v57c-j9cx"
+}

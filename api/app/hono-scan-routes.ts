@@ -18,6 +18,7 @@ import {
 	ScanRepository,
 } from "../modules/scans/repositories";
 import { createAssessmentsRoute } from "../routes/assessments.route";
+import { createBusinessLogicRoute } from "../routes/business-logic.route";
 import { createDastRoute } from "../routes/dast.route";
 import { createDastAuthRoute } from "../routes/dast-auth.route";
 import { createDiagnosticsRoute } from "../routes/diagnostics.route";
@@ -31,6 +32,7 @@ import { createScanProfilesRoute } from "../routes/scan-profiles.route";
 import { createScanReportsRoute } from "../routes/scan-reports.route";
 import { createScansRoute } from "../routes/scans.route";
 import { createStaticIntelligenceRoute } from "../routes/static-intelligence.route";
+import { createThreatModelsRoute } from "../routes/threat-models.route";
 
 import type { AppRuntime } from "./hono-runtime";
 
@@ -186,6 +188,15 @@ export function registerScanRoutes(app: Hono, runtime: AppRuntime): void {
 	);
 	app.route(
 		"/api",
+		createBusinessLogicRoute({
+			db: runtime.dbConnection.db,
+			env: runtime.env,
+			projectRepository,
+			runner: runtime.businessLogicRunner,
+		}),
+	);
+	app.route(
+		"/api",
 		createDastAuthRoute({
 			db: runtime.dbConnection.db,
 			env: runtime.env,
@@ -208,6 +219,14 @@ export function registerScanRoutes(app: Hono, runtime: AppRuntime): void {
 			scanRepository,
 			artifactRepository,
 			artifactStorage,
+		}),
+	);
+	app.route(
+		"/api",
+		createThreatModelsRoute({
+			db: runtime.dbConnection.db,
+			env: runtime.env,
+			projectRepository,
 		}),
 	);
 

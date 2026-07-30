@@ -25,6 +25,9 @@ vi.mock("../db", () => ({
 					activeAssessmentRuns: {
 						findMany: vi.fn().mockResolvedValue([]),
 					},
+					businessLogicRuns: {
+						findMany: vi.fn().mockResolvedValue([]),
+					},
 				},
 		},
 		sqlite: {

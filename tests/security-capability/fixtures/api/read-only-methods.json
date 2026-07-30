@@ -1,4 +1,4 @@
 {
-  "allowed": ["GET", "HEAD", "OPTIONS"],
-  "rejected": ["POST", "PUT", "PATCH", "DELETE"]
+	"allowed": ["GET", "HEAD", "OPTIONS"],
+	"rejected": ["POST", "PUT", "PATCH", "DELETE"]
 }

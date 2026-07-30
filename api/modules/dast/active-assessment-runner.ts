@@ -15,6 +15,8 @@ import { DastRepository } from "./dast-repository";
 import type { DastFetch } from "./http-runner";
 import { validateDastTargetConfig } from "./target-validator";
 import { runActiveTransaction } from "./transaction-runner";
+import type { ArtifactStorage } from "../scans/artifact-storage";
+import { ZapActiveAssessmentCoordinator } from "../runtime-scans/zap-active-assessment-coordinator";
 
 export class ActiveAssessmentRunner {
 	private readonly assessmentRepository: AssessmentRepository;
@@ -22,6 +24,7 @@ export class ActiveAssessmentRunner {
 	private readonly dastRepository: DastRepository;
 	private readonly scanRepository: ScanRepository;
 	private readonly findingRepository: FindingRepository;
+	private readonly zapActiveCoordinator: ZapActiveAssessmentCoordinator;
 	private readonly activeProjects = new Set<string>();
 	private readonly inFlight = new Set<Promise<unknown>>();
 	private shuttingDown = false;
@@ -31,6 +34,8 @@ export class ActiveAssessmentRunner {
 		private readonly deps: {
 			authContextRepository?: DastAuthContextRepository;
 			fetchImpl?: DastFetch;
+			zapActiveEnabled?: boolean;
+			artifactStorage?: ArtifactStorage;
 		} = {},
 	) {
 		this.assessmentRepository = new AssessmentRepository(db);
@@ -38,6 +43,12 @@ export class ActiveAssessmentRunner {
 		this.dastRepository = new DastRepository(db);
 		this.scanRepository = new ScanRepository(db);
 		this.findingRepository = new FindingRepository(db);
+		this.zapActiveCoordinator = new ZapActiveAssessmentCoordinator(db, {
+			featureEnabled: deps.zapActiveEnabled === true,
+			authContextRepository: deps.authContextRepository,
+			fetchImpl: deps.fetchImpl,
+			artifactStorage: deps.artifactStorage,
+		});
 	}
 
 	async run(params: {
@@ -103,9 +114,11 @@ export class ActiveAssessmentRunner {
 				? params.request.transaction.seed.length +
 					1 +
 					params.request.transaction.cleanup.length
-				: params.request.matrix.actors.length *
-					params.request.matrix.objects.length *
-					params.request.matrix.operations.length;
+				: params.request.kind === "authorization_matrix"
+					? params.request.matrix.actors.length *
+						params.request.matrix.objects.length *
+						params.request.matrix.operations.length
+					: zapActivePlannedRequests(params.request);
 		const roe = rulesOfEngagementSchema.parse(engagement.rulesOfEngagement);
 		if (initialRequestCount + plannedRequestCount > roe.requestBudget) {
 			throw new Error("roe_request_budget_insufficient_for_plan");
@@ -115,7 +128,10 @@ export class ActiveAssessmentRunner {
 		}
 		const scanRun = await this.scanRepository.createScanRun({
 			projectId: params.projectId,
-			profile: `active-lab:${params.request.kind}`,
+			profile:
+				params.request.kind === "zap_active"
+					? params.request.profileId
+					: `active-lab:${params.request.kind}`,
 			status: "running",
 			createdByUserId: params.createdByUserId,
 			metadata: {
@@ -159,11 +175,28 @@ export class ActiveAssessmentRunner {
 							runtime,
 							initialRequestCount,
 						})
-					: await this.runMatrix({
-							params: { ...params, request: params.request },
-							runtime,
-							scanRunId: scanRun.id,
-						});
+					: params.request.kind === "authorization_matrix"
+						? await this.runMatrix({
+								params: { ...params, request: params.request },
+								runtime,
+								scanRunId: scanRun.id,
+							})
+						: {
+								run: await this.zapActiveCoordinator.run({
+									projectId: params.projectId,
+									createdByUserId: params.createdByUserId,
+									scanRunId: scanRun.id,
+									activeAssessmentRunId: activeRun.id,
+									request: params.request,
+									engagement: {
+										...runtime.engagement,
+										purpose: engagement.purpose,
+									},
+									target: validatedTarget,
+									initialRequestCount,
+									plannedRequestCount,
+								}),
+							};
 			await this.activeRepository.completeRun(activeRun.id, result.run);
 			await this.scanRepository.updateScanRunStatus(
 				scanRun.id,
@@ -383,6 +416,20 @@ export class ActiveAssessmentRunner {
 		}
 		return await this.deps.authContextRepository.decryptForUse(params);
 	}
+}
+
+function zapActivePlannedRequests(
+	request: Extract<RunActiveAssessmentRequest, { kind: "zap_active" }>,
+): number {
+	const reset = request.resetStrategy;
+	return (
+		request.requestBudget +
+		(reset.kind === "http_transaction"
+			? reset.seedRequests.length +
+				reset.cleanupRequests.length +
+				reset.baselineAssertions.length * 2
+			: 2)
+	);
 }
 
 function matrixFingerprint(

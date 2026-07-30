@@ -24,13 +24,17 @@ describe("scanner provenance", () => {
 		const manifest = await loadScannerDataManifest();
 		expect(manifest.tools.semgrep).toMatchObject({
 			state: "ready",
-			dataKind: "minimal-owned-ruleset",
+			dataKind: "ruleset",
 			coverage: [
-				"javascript:2-rules",
-				"typescript:2-rules",
-				"python:1-rule",
+				"javascript:8-rules",
+				"typescript:8-rules",
+				"python:8-rules",
+				"java:8-rules",
+				"go:8-rules",
+				"source-and-license-lock",
 			],
 		});
+		expect(manifest).toMatchObject({ version: 2, legacyManifest: false });
 	});
 
 	it("separates the owned reproducible rules from exploratory registry auto", async () => {
@@ -48,6 +52,16 @@ describe("scanner provenance", () => {
 			resolveScannerProvenance({
 				toolId: "semgrep",
 				execution: { runner: "host" },
+				config: "curated-sast-v1",
+			}),
+		).resolves.toMatchObject({
+			reproducible: true,
+			configSource: "curated-manifest",
+		});
+		await expect(
+			resolveScannerProvenance({
+				toolId: "semgrep",
+				execution: { runner: "host" },
 				config: "auto",
 			}),
 		).resolves.toMatchObject({
@@ -57,10 +71,35 @@ describe("scanner provenance", () => {
 	});
 
 	it("fails closed for missing offline data in Docker", async () => {
+		const root = await fs.mkdtemp(path.join(os.tmpdir(), "scanner-data-missing-"));
+		tempRoots.push(root);
+		const input = {
+			version: 1 as const,
+			snapshotDate: "2026-07-30",
+			tools: {
+				osv: {
+					version: "2.4.0",
+					dataKind: "vulnerability-db",
+					state: "missing" as const,
+					path: null,
+					runtimePath: "/scanner-data/osv",
+					digest: null,
+				},
+			},
+		};
+		const manifestPath = path.join(root, "scanner-data-manifest.json");
+		await fs.writeFile(
+			manifestPath,
+			JSON.stringify({
+				...input,
+				manifestHash: computeScannerManifestHash(input),
+			}),
+		);
 		await expect(
 			resolveScannerProvenance({
 				toolId: "osv",
 				execution: { runner: "docker" },
+				manifestPath,
 			}),
 		).rejects.toThrow("Offline scanner data is missing");
 	});
@@ -98,5 +137,47 @@ describe("scanner provenance", () => {
 		await expect(loadScannerDataManifest(manifestPath)).rejects.toThrow(
 			"digest mismatch",
 		);
+	});
+
+	it("reads v1 for one release cycle with reproducibility limitations", async () => {
+		const root = await fs.mkdtemp(path.join(os.tmpdir(), "scanner-data-v1-"));
+		tempRoots.push(root);
+		const input = {
+			version: 1 as const,
+			snapshotDate: "2026-07-30",
+			tools: {
+				semgrep: {
+					version: "1",
+					dataKind: "owned-ruleset",
+					state: "ready" as const,
+					path: null,
+					runtimePath: "/rules",
+					digest: null,
+				},
+			},
+		};
+		const manifestPath = path.join(root, "scanner-data-manifest.json");
+		await fs.writeFile(
+			manifestPath,
+			JSON.stringify({
+				...input,
+				manifestHash: computeScannerManifestHash(input),
+			}),
+		);
+		await expect(loadScannerDataManifest(manifestPath)).resolves.toMatchObject({
+			version: 1,
+			legacyManifest: true,
+		});
+		await expect(
+			resolveScannerProvenance({
+				toolId: "semgrep",
+				execution: { runner: "host" },
+				config: "owned",
+				manifestPath,
+			}),
+		).resolves.toMatchObject({
+			legacyManifest: true,
+			reproducible: false,
+		});
 	});
 });

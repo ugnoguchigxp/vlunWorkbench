@@ -6,6 +6,7 @@ import { AgenticSearchRunner } from "../modules/agentic-search/runner";
 import { AgenticToolRegistry } from "../modules/agentic-search/tools/registry";
 import type { AgenticSearchResult } from "../modules/agentic-search/types";
 import { AuthService } from "../modules/auth/auth.service";
+import { BusinessLogicRunner } from "../modules/business-logic/business-logic-runner";
 import { ActiveAssessmentRunner } from "../modules/dast/active-assessment-runner";
 import { DastAuthContextCrypto } from "../modules/dast/auth-context-crypto";
 import { DastAuthContextRepository } from "../modules/dast/auth-context-repository";
@@ -61,6 +62,7 @@ export type AppRuntime = {
 	scanReportRunner: ScanReportRunner;
 	scanDiagnosticRunner: ScanDiagnosticRunner;
 	activeAssessmentRunner: ActiveAssessmentRunner;
+	businessLogicRunner: BusinessLogicRunner;
 	integrationClientService: IntegrationClientService;
 	agenticSearchService: {
 		run(input: {
@@ -144,6 +146,7 @@ function isRuntimeShape(value: unknown): value is AppRuntime {
 		Boolean(obj.scanReportRunner) &&
 		Boolean(obj.scanDiagnosticRunner) &&
 		Boolean(obj.activeAssessmentRunner) &&
+		Boolean(obj.businessLogicRunner) &&
 		Boolean(obj.integrationClientService) &&
 		typeof settingsRepo?.getSystemContextForUser === "function" &&
 		typeof settingsRepo?.updateSystemContext === "function" &&
@@ -220,6 +223,11 @@ async function createRuntime(): Promise<AppRuntime> {
 		: undefined;
 	const activeAssessmentRunner = new ActiveAssessmentRunner(dbConnection.db, {
 		authContextRepository: dastAuthContextRepository,
+		zapActiveEnabled: env.zapActiveEnabled,
+		artifactStorage: new ArtifactStorage(),
+	});
+	const businessLogicRunner = new BusinessLogicRunner(dbConnection.db, {
+		authContextRepository: dastAuthContextRepository,
 	});
 	const scanSupervisor = new ScanProcessSupervisor(scanRepository, {
 		onCompletedScan: async (scanRunId) => {
@@ -235,6 +243,7 @@ async function createRuntime(): Promise<AppRuntime> {
 	await scanSupervisor.recoverStaleWebScans();
 	await scanDiagnosticRunner.recover();
 	await activeAssessmentRunner.recover();
+	await businessLogicRunner.recover();
 	const integrationClientService = new IntegrationClientService(
 		dbConnection.db,
 	);
@@ -322,6 +331,7 @@ async function createRuntime(): Promise<AppRuntime> {
 		scanReportRunner,
 		scanDiagnosticRunner,
 		activeAssessmentRunner,
+		businessLogicRunner,
 		integrationClientService,
 		agenticSearchService,
 	};

@@ -34,7 +34,11 @@ export async function executeActiveRequest(params: {
 	identityRole: string | null;
 	authSecret?: DastAuthSecretPayload;
 	requireStateChanging?: boolean;
-}): Promise<{ status: number; evidenceRef: string }> {
+}): Promise<{
+	status: number;
+	evidenceRef: string;
+	responseBodySha256: string | null;
+}> {
 	const authorization = authorizeRulesOfEngagement({
 		engagement: params.runtime.engagement,
 		target: params.runtime.target,
@@ -64,6 +68,7 @@ export async function executeActiveRequest(params: {
 	);
 	let statusCode: number | null = null;
 	let errorCode: string | null = null;
+	let responseBodySha256: string | null = null;
 	try {
 		const url = new URL(
 			params.request.path,
@@ -98,7 +103,7 @@ export async function executeActiveRequest(params: {
 		) {
 			errorCode = "active_redirect_out_of_scope";
 		}
-		await response.body?.cancel().catch(() => undefined);
+		responseBodySha256 = await hashBoundedResponse(response, 1024 * 1024);
 	} catch (error) {
 		errorCode =
 			error instanceof Error && error.name === "AbortError"
@@ -121,7 +126,36 @@ export async function executeActiveRequest(params: {
 	});
 	if (errorCode) throw new Error(errorCode);
 	if (statusCode === null) throw new Error("active_request_no_status");
-	return { status: statusCode, evidenceRef: evidence.id };
+	return {
+		status: statusCode,
+		evidenceRef: evidence.id,
+		responseBodySha256,
+	};
+}
+
+async function hashBoundedResponse(
+	response: Response,
+	maxBytes: number,
+): Promise<string> {
+	const declared = Number(response.headers.get("content-length") ?? 0);
+	if (!Number.isFinite(declared) || declared < 0 || declared > maxBytes)
+		throw new Error("active_response_too_large");
+	const hash = crypto.createHash("sha256");
+	let total = 0;
+	if (response.body) {
+		const reader = response.body.getReader();
+		for (;;) {
+			const { value, done } = await reader.read();
+			if (done) break;
+			total += value.byteLength;
+			if (total > maxBytes) {
+				await reader.cancel();
+				throw new Error("active_response_too_large");
+			}
+			hash.update(value);
+		}
+	}
+	return `sha256:${hash.digest("hex")}`;
 }
 
 function requestBody(request: ExecutableAssessmentRequest): {

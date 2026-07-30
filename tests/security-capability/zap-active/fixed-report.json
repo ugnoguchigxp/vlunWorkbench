@@ -1,0 +1,10 @@
+{
+  "@programName": "OWASP ZAP",
+  "@version": "2.17.0",
+  "site": [
+    {
+      "@name": "http://127.0.0.1",
+      "alerts": []
+    }
+  ]
+}

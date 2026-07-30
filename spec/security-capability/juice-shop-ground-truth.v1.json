@@ -1,0 +1,227 @@
+{
+  "schemaVersion": 1,
+  "catalogVersion": "1.0.0",
+  "corpusVersion": "20.1.1",
+  "scenarios": [
+    {
+      "id": "juice-admin-section",
+      "challengeKey": "Admin Section",
+      "category": "authorization",
+      "cwe": ["CWE-284"],
+      "actors": ["customer"],
+      "entrypoints": ["/administration"],
+      "expectedEvidenceKind": "authorization_matrix",
+      "scannerFamilies": ["authorization"],
+      "pairedFixedFixture": "authorization/admin-section"
+    },
+    {
+      "id": "juice-view-basket",
+      "challengeKey": "View Basket",
+      "category": "authorization",
+      "cwe": ["CWE-639"],
+      "actors": ["customer-a", "customer-b"],
+      "entrypoints": ["/rest/basket/{id}"],
+      "expectedEvidenceKind": "cross_actor_status_and_object",
+      "scannerFamilies": ["authorization", "business_logic"],
+      "pairedFixedFixture": "authorization/view-basket"
+    },
+    {
+      "id": "juice-forged-review",
+      "challengeKey": "Forged Review",
+      "category": "authorization",
+      "cwe": ["CWE-639"],
+      "actors": ["customer-a", "customer-b"],
+      "entrypoints": ["/rest/products/{id}/reviews"],
+      "expectedEvidenceKind": "owner_isolation",
+      "scannerFamilies": ["authorization", "business_logic"],
+      "pairedFixedFixture": "authorization/forged-review"
+    },
+    {
+      "id": "juice-forged-feedback",
+      "challengeKey": "Forged Feedback",
+      "category": "authorization",
+      "cwe": ["CWE-862"],
+      "actors": ["customer"],
+      "entrypoints": ["/api/Feedbacks"],
+      "expectedEvidenceKind": "actor_identity_mismatch",
+      "scannerFamilies": ["authorization"],
+      "pairedFixedFixture": "authorization/forged-feedback"
+    },
+    {
+      "id": "juice-login-admin",
+      "challengeKey": "Login Admin",
+      "category": "injection",
+      "cwe": ["CWE-89"],
+      "actors": ["anonymous"],
+      "entrypoints": ["/rest/user/login"],
+      "expectedEvidenceKind": "bounded_sql_injection",
+      "scannerFamilies": ["zap"],
+      "pairedFixedFixture": "injection/login-admin"
+    },
+    {
+      "id": "juice-login-bender",
+      "challengeKey": "Login Bender",
+      "category": "injection",
+      "cwe": ["CWE-89"],
+      "actors": ["anonymous"],
+      "entrypoints": ["/rest/user/login"],
+      "expectedEvidenceKind": "bounded_sql_injection",
+      "scannerFamilies": ["zap"],
+      "pairedFixedFixture": "injection/login-bender"
+    },
+    {
+      "id": "juice-user-credentials",
+      "challengeKey": "User Credentials",
+      "category": "injection",
+      "cwe": ["CWE-89"],
+      "actors": ["anonymous"],
+      "entrypoints": ["/rest/products/search"],
+      "expectedEvidenceKind": "bounded_sql_injection",
+      "scannerFamilies": ["zap"],
+      "pairedFixedFixture": "injection/user-credentials"
+    },
+    {
+      "id": "juice-dom-xss",
+      "challengeKey": "DOM XSS",
+      "category": "xss",
+      "cwe": ["CWE-79"],
+      "actors": ["anonymous"],
+      "entrypoints": ["/#/search"],
+      "expectedEvidenceKind": "browser_dom_sink",
+      "scannerFamilies": ["zap"],
+      "pairedFixedFixture": "xss/dom-xss"
+    },
+    {
+      "id": "juice-reflected-xss",
+      "challengeKey": "Reflected XSS",
+      "category": "xss",
+      "cwe": ["CWE-79"],
+      "actors": ["customer"],
+      "entrypoints": ["/track-result"],
+      "expectedEvidenceKind": "reflected_payload",
+      "scannerFamilies": ["zap"],
+      "pairedFixedFixture": "xss/reflected-xss"
+    },
+    {
+      "id": "juice-api-only-xss",
+      "challengeKey": "API-only XSS",
+      "category": "xss",
+      "cwe": ["CWE-79"],
+      "actors": ["customer"],
+      "entrypoints": ["/api/Products"],
+      "expectedEvidenceKind": "stored_payload",
+      "scannerFamilies": ["zap"],
+      "pairedFixedFixture": "xss/api-only-xss"
+    },
+    {
+      "id": "juice-weak-password",
+      "challengeKey": "Password Strength",
+      "category": "authentication",
+      "cwe": ["CWE-521"],
+      "actors": ["customer"],
+      "entrypoints": ["/rest/user/login"],
+      "expectedEvidenceKind": "credential_policy",
+      "scannerFamilies": ["business_logic"],
+      "pairedFixedFixture": "authentication/weak-password"
+    },
+    {
+      "id": "juice-reset-token",
+      "challengeKey": "Reset Jim's Password",
+      "category": "authentication",
+      "cwe": ["CWE-640"],
+      "actors": ["anonymous"],
+      "entrypoints": ["/rest/user/reset-password"],
+      "expectedEvidenceKind": "one_time_token_reuse",
+      "scannerFamilies": ["business_logic"],
+      "pairedFixedFixture": "authentication/reset-token"
+    },
+    {
+      "id": "juice-captcha-bypass",
+      "challengeKey": "CAPTCHA Bypass",
+      "category": "anti_automation",
+      "cwe": ["CWE-799"],
+      "actors": ["anonymous"],
+      "entrypoints": ["/api/Feedbacks"],
+      "expectedEvidenceKind": "replay_sequence",
+      "scannerFamilies": ["business_logic"],
+      "pairedFixedFixture": "anti-automation/captcha-bypass"
+    },
+    {
+      "id": "juice-extra-language",
+      "challengeKey": "Extra Language",
+      "category": "input_validation",
+      "cwe": ["CWE-20"],
+      "actors": ["anonymous"],
+      "entrypoints": ["/assets/i18n/{locale}.json"],
+      "expectedEvidenceKind": "path_allowlist",
+      "scannerFamilies": ["zap"],
+      "pairedFixedFixture": "input-validation/extra-language"
+    },
+    {
+      "id": "juice-local-file-read",
+      "challengeKey": "Local File Read",
+      "category": "file_access",
+      "cwe": ["CWE-22"],
+      "actors": ["anonymous"],
+      "entrypoints": ["/ftp/{file}"],
+      "expectedEvidenceKind": "path_traversal",
+      "scannerFamilies": ["zap"],
+      "pairedFixedFixture": "file-access/local-file-read"
+    },
+    {
+      "id": "juice-forgotten-developer-backup",
+      "challengeKey": "Forgotten Developer Backup",
+      "category": "file_access",
+      "cwe": ["CWE-552"],
+      "actors": ["anonymous"],
+      "entrypoints": ["/ftp/{file}"],
+      "expectedEvidenceKind": "sensitive_file_exposure",
+      "scannerFamilies": ["zap"],
+      "pairedFixedFixture": "file-access/developer-backup"
+    },
+    {
+      "id": "juice-negative-order",
+      "challengeKey": "Payback Time",
+      "category": "business_logic",
+      "cwe": ["CWE-20"],
+      "actors": ["customer"],
+      "entrypoints": ["/api/BasketItems/{id}"],
+      "expectedEvidenceKind": "bounded_numeric_delta",
+      "scannerFamilies": ["business_logic"],
+      "pairedFixedFixture": "business-logic/negative-order"
+    },
+    {
+      "id": "juice-zero-stars",
+      "challengeKey": "Zero Stars",
+      "category": "business_logic",
+      "cwe": ["CWE-20"],
+      "actors": ["customer"],
+      "entrypoints": ["/api/Feedbacks"],
+      "expectedEvidenceKind": "numeric_boundary",
+      "scannerFamilies": ["business_logic"],
+      "pairedFixedFixture": "business-logic/zero-stars"
+    },
+    {
+      "id": "juice-deluxe-fraud",
+      "challengeKey": "Deluxe Fraud",
+      "category": "business_logic",
+      "cwe": ["CWE-841"],
+      "actors": ["customer"],
+      "entrypoints": ["/rest/deluxe-membership"],
+      "expectedEvidenceKind": "state_transition",
+      "scannerFamilies": ["business_logic"],
+      "pairedFixedFixture": "business-logic/deluxe-fraud"
+    },
+    {
+      "id": "juice-blockchain-hype",
+      "challengeKey": "Blockchain Hype",
+      "category": "ssrf",
+      "cwe": ["CWE-918"],
+      "actors": ["customer"],
+      "entrypoints": ["/api/Products"],
+      "expectedEvidenceKind": "outbound_request_canary",
+      "scannerFamilies": ["zap"],
+      "pairedFixedFixture": "ssrf/blockchain-hype"
+    }
+  ]
+}

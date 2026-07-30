@@ -1,0 +1,64 @@
+rules:
+  - id: vuln-workbench.java.command-injection
+    message: Dynamic data reaches Runtime.exec.
+    severity: ERROR
+    languages: [java]
+    metadata: { cwe: CWE-78, owasp: ["A03:2021"], security-family: command-injection, confidence: high, source-kind: owned-core, source-ref: "repo:java/owned-core.yml", license: MIT, rule-version: "1", supported-frameworks: [generic], remediation: "Use ProcessBuilder with fixed executable and validated arguments." }
+    patterns:
+      - pattern: Runtime.getRuntime().exec($X)
+      - pattern-not: Runtime.getRuntime().exec("...")
+  - id: vuln-workbench.java.sql-injection
+    message: A dynamic SQL string is executed.
+    severity: ERROR
+    languages: [java]
+    metadata: { cwe: CWE-89, owasp: ["A03:2021"], security-family: sql-nosql-ldap-xpath-injection, confidence: high, source-kind: owned-core, source-ref: "repo:java/owned-core.yml", license: MIT, rule-version: "1", supported-frameworks: [jdbc], remediation: "Use PreparedStatement parameters." }
+    patterns:
+      - pattern-either:
+          - pattern: $STMT.execute($SQL)
+          - pattern: $STMT.executeQuery($SQL)
+          - pattern: $STMT.executeUpdate($SQL)
+      - pattern-not: $STMT.execute("...")
+      - pattern-not: $STMT.executeQuery("...")
+      - pattern-not: $STMT.executeUpdate("...")
+  - id: vuln-workbench.java.xss-response-writer
+    message: Dynamic data is written directly to an HTTP response.
+    severity: WARNING
+    languages: [java]
+    metadata: { cwe: CWE-79, owasp: ["A03:2021"], security-family: xss-template-injection, confidence: medium, source-kind: owned-core, source-ref: "repo:java/owned-core.yml", license: MIT, rule-version: "1", supported-frameworks: [servlet], remediation: "Apply context-aware HTML encoding." }
+    pattern: $RESP.getWriter().write($X)
+  - id: vuln-workbench.java.ssrf-url-connection
+    message: A non-literal URL opens a connection.
+    severity: WARNING
+    languages: [java]
+    metadata: { cwe: CWE-918, owasp: ["A10:2021"], security-family: ssrf, confidence: medium, source-kind: owned-core, source-ref: "repo:java/owned-core.yml", license: MIT, rule-version: "1", supported-frameworks: [generic], remediation: "Allowlist origins and pin validated addresses." }
+    patterns:
+      - pattern: new URL($URL).openConnection(...)
+      - pattern-not: new URL("...").openConnection(...)
+  - id: vuln-workbench.java.path-traversal-file
+    message: A non-literal path creates a File.
+    severity: WARNING
+    languages: [java]
+    metadata: { cwe: CWE-22, owasp: ["A01:2021"], security-family: path-traversal-file-access, confidence: medium, source-kind: owned-core, source-ref: "repo:java/owned-core.yml", license: MIT, rule-version: "1", supported-frameworks: [generic], remediation: "Resolve the canonical path under an allowlisted root." }
+    patterns:
+      - pattern: new File($PATH)
+      - pattern-not: new File("...")
+  - id: vuln-workbench.java.unsafe-deserialization
+    message: Java native object deserialization is used.
+    severity: ERROR
+    languages: [java]
+    metadata: { cwe: CWE-502, owasp: ["A08:2021"], security-family: unsafe-deserialization, confidence: high, source-kind: owned-core, source-ref: "repo:java/owned-core.yml", license: MIT, rule-version: "1", supported-frameworks: [generic], remediation: "Use a non-executable format with a strict schema." }
+    pattern: $STREAM.readObject()
+  - id: vuln-workbench.java.weak-hash
+    message: MD5 or SHA-1 is selected.
+    severity: WARNING
+    languages: [java]
+    metadata: { cwe: CWE-328, owasp: ["A02:2021"], security-family: weak-cryptography-hash-randomness, confidence: high, source-kind: owned-core, source-ref: "repo:java/owned-core.yml", license: MIT, rule-version: "1", supported-frameworks: [generic], remediation: "Use SHA-256 or a password hashing function." }
+    pattern-either:
+      - pattern: MessageDigest.getInstance("MD5")
+      - pattern: MessageDigest.getInstance("SHA-1")
+  - id: vuln-workbench.java.weak-random
+    message: java.util.Random is not suitable for secrets.
+    severity: WARNING
+    languages: [java]
+    metadata: { cwe: CWE-338, owasp: ["A02:2021"], security-family: weak-cryptography-hash-randomness, confidence: high, source-kind: owned-core, source-ref: "repo:java/owned-core.yml", license: MIT, rule-version: "1", supported-frameworks: [generic], remediation: "Use SecureRandom." }
+    pattern: new Random(...)

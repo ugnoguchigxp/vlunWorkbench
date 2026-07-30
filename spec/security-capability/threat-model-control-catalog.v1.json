@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "catalogVersion": "1.0.0",
+  "categories": [
+    "spoofing",
+    "tampering",
+    "repudiation",
+    "information_disclosure",
+    "denial_of_service",
+    "elevation_of_privilege",
+    "business_logic"
+  ],
+  "fourQuestions": [
+    "what_are_we_working_on",
+    "what_can_go_wrong",
+    "what_are_we_going_to_do",
+    "did_we_do_a_good_enough_job"
+  ]
+}

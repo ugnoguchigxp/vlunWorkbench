@@ -99,6 +99,7 @@ RUN mkdir -p /workspace/repo /workspace/out /workspace/cache \
 
 ENV HOME=/workspace/cache \
 	XDG_CACHE_HOME=/workspace/cache/.cache \
+	OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY=/opt/vuln-workbench/scanner-data/osv \
 	SEMGREP_ENABLE_VERSION_CHECK=0 \
 	SEMGREP_SEND_METRICS=off
 

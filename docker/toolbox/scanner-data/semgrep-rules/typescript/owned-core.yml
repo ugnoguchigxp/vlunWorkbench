@@ -1,0 +1,71 @@
+rules:
+  - id: vuln-workbench.typescript.command-injection
+    message: Dynamic data reaches a shell command.
+    severity: ERROR
+    languages: [typescript]
+    metadata: { cwe: CWE-78, owasp: ["A03:2021"], security-family: command-injection, confidence: high, source-kind: owned-core, source-ref: "repo:typescript/owned-core.yml", license: MIT, rule-version: "1", supported-frameworks: [generic], remediation: "Use execFile with validated arguments." }
+    patterns:
+      - pattern-either:
+          - pattern: child_process.exec($X, ...)
+          - pattern: child_process.execSync($X, ...)
+      - pattern-not: child_process.exec("...", ...)
+      - pattern-not: child_process.execSync("...", ...)
+  - id: vuln-workbench.typescript.sql-injection
+    message: A dynamic template is used as a SQL query.
+    severity: ERROR
+    languages: [typescript]
+    metadata: { cwe: CWE-89, owasp: ["A03:2021"], security-family: sql-nosql-ldap-xpath-injection, confidence: high, source-kind: owned-core, source-ref: "repo:typescript/owned-core.yml", license: MIT, rule-version: "1", supported-frameworks: [generic], remediation: "Use a parameterized query." }
+    pattern-either:
+      - pattern: $DB.query(`...${$X}...`, ...)
+      - pattern: $DB.execute(`...${$X}...`, ...)
+  - id: vuln-workbench.typescript.dom-xss
+    message: Dynamic data is assigned to innerHTML.
+    severity: ERROR
+    languages: [typescript]
+    metadata: { cwe: CWE-79, owasp: ["A03:2021"], security-family: xss-template-injection, confidence: high, source-kind: owned-core, source-ref: "repo:typescript/owned-core.yml", license: MIT, rule-version: "1", supported-frameworks: [browser], remediation: "Use textContent or a context-aware sanitizer." }
+    patterns:
+      - pattern: $EL.innerHTML = $X
+      - pattern-not: $EL.innerHTML = "..."
+  - id: vuln-workbench.typescript.ssrf-axios
+    message: A non-literal URL is passed to axios.
+    severity: WARNING
+    languages: [typescript]
+    metadata: { cwe: CWE-918, owasp: ["A10:2021"], security-family: ssrf, confidence: medium, source-kind: owned-core, source-ref: "repo:typescript/owned-core.yml", license: MIT, rule-version: "1", supported-frameworks: [generic], remediation: "Resolve URLs through an origin allowlist." }
+    patterns:
+      - pattern-either:
+          - pattern: axios.get($URL, ...)
+          - pattern: axios.post($URL, ...)
+      - pattern-not: axios.get("...", ...)
+      - pattern-not: axios.post("...", ...)
+  - id: vuln-workbench.typescript.path-traversal-sendfile
+    message: A non-literal path is sent as a file.
+    severity: WARNING
+    languages: [typescript]
+    metadata: { cwe: CWE-22, owasp: ["A01:2021"], security-family: path-traversal-file-access, confidence: medium, source-kind: owned-core, source-ref: "repo:typescript/owned-core.yml", license: MIT, rule-version: "1", supported-frameworks: [express], remediation: "Use a fixed root and a normalized allowlisted relative path." }
+    patterns:
+      - pattern: $RES.sendFile($PATH, ...)
+      - pattern-not: $RES.sendFile("...", ...)
+  - id: vuln-workbench.typescript.weak-hash
+    message: MD5 or SHA-1 is used.
+    severity: WARNING
+    languages: [typescript]
+    metadata: { cwe: CWE-328, owasp: ["A02:2021"], security-family: weak-cryptography-hash-randomness, confidence: high, source-kind: owned-core, source-ref: "repo:typescript/owned-core.yml", license: MIT, rule-version: "1", supported-frameworks: [node], remediation: "Use SHA-256 or a purpose-built password hashing function." }
+    pattern-either:
+      - pattern: crypto.createHash("md5")
+      - pattern: crypto.createHash("sha1")
+  - id: vuln-workbench.typescript.jwt-decode-auth
+    message: JWT payload is decoded without signature verification.
+    severity: ERROR
+    languages: [typescript]
+    metadata: { cwe: CWE-345, owasp: ["A07:2021"], security-family: authentication-session-misuse, confidence: high, source-kind: owned-core, source-ref: "repo:typescript/owned-core.yml", license: MIT, rule-version: "1", supported-frameworks: [generic], remediation: "Verify the JWT signature, issuer, audience, and time claims." }
+    pattern: jwt.decode($TOKEN, ...)
+  - id: vuln-workbench.typescript.sensitive-console-log
+    message: A value named as a secret is written to the console.
+    severity: WARNING
+    languages: [typescript]
+    metadata: { cwe: CWE-532, owasp: ["A09:2021"], security-family: security-logging-sensitive-data-exposure, confidence: medium, source-kind: owned-core, source-ref: "repo:typescript/owned-core.yml", license: MIT, rule-version: "1", supported-frameworks: [generic], remediation: "Log an opaque identifier and redact secret material." }
+    patterns:
+      - pattern: console.log(..., $SECRET, ...)
+      - metavariable-regex:
+          metavariable: $SECRET
+          regex: (?i).*(secret|password|token|apiKey).*

@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "corpora": [
+    {
+      "id": "owasp-benchmark-java",
+      "version": "1.2beta",
+      "sourceUrl": "https://github.com/OWASP-Benchmark/BenchmarkJava/archive/2734ae486356765ea4e45393a28e20bcb5047f8c.tar.gz",
+      "sourceCommit": "2734ae486356765ea4e45393a28e20bcb5047f8c",
+      "archiveSha256": "sha256:1220eda11513b2f388b069d624509d2039398c75c3fbe36219dc6bc3bb0a39ff",
+      "image": null,
+      "imageDigest": null,
+      "license": "GPL-2.0-only",
+      "groundTruthSha256": "sha256:ae8e9386b13ec0164500f1a6fa3d0fa981495911a0f29e88a611e9a9df1b4567"
+    },
+    {
+      "id": "owasp-juice-shop",
+      "version": "20.1.1",
+      "sourceUrl": "https://github.com/juice-shop/juice-shop/archive/f915bddd82790d0f3018902d36ae9b4241a5f51f.tar.gz",
+      "sourceCommit": "f915bddd82790d0f3018902d36ae9b4241a5f51f",
+      "archiveSha256": "sha256:855fc3af17c3f04261c1e3668742b731e00e80394e8004fbb80d82c5abd0e513",
+      "image": "docker.io/bkimminich/juice-shop:v20.1.1",
+      "imageDigest": "sha256:cd58d79c5cb4d82f22fbaf616f9ff43bbd04ba630cd6b448a9ed99cf652fcebf",
+      "license": "MIT",
+      "groundTruthSha256": "sha256:77caf993c794fad890a5e962dd9022e88fc39fb6c1e540010b6c47c042e6fcda"
+    }
+  ]
+}

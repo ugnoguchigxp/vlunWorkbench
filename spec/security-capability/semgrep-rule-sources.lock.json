@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "rulesetId": "curated-sast-v1",
+  "sources": [
+    {
+      "id": "owned-core",
+      "sourceRef": "repo:docker/toolbox/scanner-data/semgrep-rules",
+      "sourceCommit": null,
+      "license": "MIT"
+    }
+  ],
+  "allowedLicenses": ["MIT", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause", "LicenseRef-Semgrep-Rules-1.0"],
+  "deniedLicenses": ["UNKNOWN", "NOASSERTION"]
+}

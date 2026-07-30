@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 1,
+  "catalogVersion": "1.0.0",
+  "claimId": "measured-automated-web-api-assessment-v1",
+  "languages": [
+    { "id": "javascript", "tier": "supported" },
+    { "id": "typescript", "tier": "supported" },
+    { "id": "python", "tier": "supported" },
+    { "id": "java", "tier": "supported" },
+    { "id": "go", "tier": "supported" },
+    { "id": "csharp", "tier": "experimental" },
+    { "id": "php", "tier": "experimental" },
+    { "id": "ruby", "tier": "experimental" },
+    { "id": "kotlin", "tier": "experimental" },
+    { "id": "rust", "tier": "experimental" },
+    { "id": "terraform", "tier": "experimental" }
+  ],
+  "ecosystems": [
+    { "id": "npm", "tier": "supported" },
+    { "id": "PyPI", "tier": "supported" },
+    { "id": "Go", "tier": "supported" },
+    { "id": "Maven", "tier": "supported" },
+    { "id": "crates.io", "tier": "supported" },
+    { "id": "NuGet", "tier": "supported" },
+    { "id": "Packagist", "tier": "supported" },
+    { "id": "RubyGems", "tier": "supported" }
+  ],
+  "protocols": [
+    { "id": "http", "tier": "supported" },
+    { "id": "https", "tier": "supported" },
+    { "id": "html-form", "tier": "supported" },
+    { "id": "rest-openapi-3", "tier": "supported" },
+    { "id": "graphql-query-mutation", "tier": "experimental" },
+    { "id": "websocket", "tier": "unsupported" },
+    { "id": "graphql-subscription", "tier": "unsupported" },
+    { "id": "grpc", "tier": "unsupported" },
+    { "id": "soap", "tier": "unsupported" }
+  ],
+  "capabilities": [
+    { "id": "sast-curated-offline", "tier": "supported" },
+    { "id": "sca-offline-eight-ecosystems", "tier": "supported" },
+    { "id": "zap-active-disposable-target", "tier": "supported" },
+    { "id": "authorization-matrix", "tier": "supported" },
+    { "id": "business-logic-bounded-scenarios", "tier": "supported" },
+    { "id": "deterministic-application-model", "tier": "supported" },
+    { "id": "evidence-constrained-threat-model", "tier": "supported" },
+    { "id": "browser-authenticated-zap-active", "tier": "experimental" },
+    { "id": "production-active-attack", "tier": "unsupported" },
+    { "id": "arbitrary-scanner-script", "tier": "unsupported" },
+    { "id": "network-cloud-ad-mobile-wireless-social-engineering", "tier": "unsupported" }
+  ]
+}
