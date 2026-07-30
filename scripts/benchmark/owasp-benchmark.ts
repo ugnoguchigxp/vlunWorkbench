@@ -1,13 +1,16 @@
 import crypto from "node:crypto";
 import { mkdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
+import { createDbConnection } from "../../api/db";
+import { BenchmarkRepository } from "../../api/modules/benchmarks/benchmark-repository";
+import { scoreBenchmark } from "../../api/modules/benchmarks/metric-scorer";
 import {
 	mapSemgrepFindingToObservation,
 	parseOwaspExpectedResults,
 } from "../../api/modules/benchmarks/owasp-benchmark-adapter";
-import { scoreBenchmark } from "../../api/modules/benchmarks/metric-scorer";
 import { canonicalJson } from "../../api/modules/scans/diff-scan-plan";
 import { loadScannerDataManifest } from "../../api/modules/scans/tools/scanner-provenance";
+import { benchmarkRunInputSchema } from "../../shared/schemas/benchmark.schema";
 import { verifyPreparedCorpora } from "../security-corpora-lib";
 
 type FindingInput = {
@@ -62,31 +65,32 @@ const rawScannerArtifactHash =
 	!suppliedFindingsPath && (await stat(rawArtifactPath).catch(() => null))
 		? await sha256File(rawArtifactPath)
 		: null;
-await Bun.write(
-	outputPath,
-	`${JSON.stringify(
-		{
-			schemaVersion: 1,
-			corpusId: "owasp-benchmark-java",
-			corpusVersion: verifiedCorpora[0]?.version,
-			corpusDigest: verifiedCorpora[0]?.archiveSha256,
-			expectedResultsHash,
-			scannerManifestHash: manifest.manifestHash,
-			findingsPath,
-			findingsHash,
-			rawScannerArtifactHash,
-			normalizedFindingSnapshotHash: sha256(canonicalJson(observations)),
-			durationMs: Math.round(performance.now() - startedAt),
-			peakMemoryKb: process.resourceUsage().maxRSS,
-			requestCount: 0,
-			networkRequests: 0,
-			resetSucceeded: true,
-			...score,
-		},
-		null,
-		2,
-	)}\n`,
-);
+const metricArtifact = {
+	schemaVersion: 1,
+	corpusId: "owasp-benchmark-java",
+	corpusVersion: verifiedCorpora[0]?.version,
+	corpusDigest: verifiedCorpora[0]?.archiveSha256,
+	expectedResultsHash,
+	scannerManifestHash: manifest.manifestHash,
+	findingsPath,
+	findingsHash,
+	rawScannerArtifactHash,
+	normalizedFindingSnapshotHash: sha256(canonicalJson(observations)),
+	durationMs: Math.round(performance.now() - startedAt),
+	peakMemoryKb: process.resourceUsage().maxRSS,
+	requestCount: 0,
+	networkRequests: 0,
+	resetSucceeded: true,
+	...score,
+};
+await Bun.write(outputPath, `${JSON.stringify(metricArtifact, null, 2)}\n`);
+const benchmarkRunId = await persistBenchmarkRunIfConfigured({
+	metricArtifact,
+	metrics: score.metrics,
+	outputHash: score.outputHash,
+	manifestHash: manifest.manifestHash,
+	freshScannerRun: suppliedFindingsPath === undefined,
+});
 
 async function runSemgrepBenchmark(
 	outputPath: string,
@@ -150,6 +154,7 @@ console.log(
 		ok: true,
 		outputPath,
 		outputHash: score.outputHash,
+		benchmarkRunId,
 		overall: score.metrics.find((metric) => metric.category === "overall"),
 	}),
 );
@@ -160,4 +165,93 @@ async function sha256File(filePath: string): Promise<string> {
 
 function sha256(value: string | Uint8Array): string {
 	return `sha256:${crypto.createHash("sha256").update(value).digest("hex")}`;
+}
+
+async function persistBenchmarkRunIfConfigured(params: {
+	metricArtifact: typeof metricArtifact;
+	metrics: typeof score.metrics;
+	outputHash: string;
+	manifestHash: string;
+	freshScannerRun: boolean;
+}): Promise<string | null> {
+	const databaseUrl = process.env.VULN_WORKBENCH_BENCHMARK_DATABASE_URL;
+	if (!databaseUrl) return null;
+	if (!params.freshScannerRun)
+		throw new Error("benchmark_persistence_requires_fresh_scanner_run");
+	const toolboxImageDigest = process.env.VULN_WORKBENCH_TOOLBOX_IMAGE_DIGEST;
+	if (!toolboxImageDigest)
+		throw new Error("benchmark_toolbox_image_digest_required");
+	const policy = JSON.parse(
+		await readFile("spec/security-capability/benchmark-policy.v1.json", "utf8"),
+	) as { policyVersion: string };
+	const input = benchmarkRunInputSchema.parse({
+		corpusId: "owasp-benchmark-java",
+		corpusVersion: params.metricArtifact.corpusVersion,
+		corpusDigest: params.metricArtifact.corpusDigest,
+		gitCommit: await gitCommit(),
+		toolboxImageDigest,
+		scannerManifestHash: params.manifestHash,
+		benchmarkPolicyVersion: policy.policyVersion,
+		inputHash: sha256(
+			canonicalJson({
+				corpusDigest: params.metricArtifact.corpusDigest,
+				expectedResultsHash: params.metricArtifact.expectedResultsHash,
+				findingsHash: params.metricArtifact.findingsHash,
+				rawScannerArtifactHash: params.metricArtifact.rawScannerArtifactHash,
+				scannerManifestHash: params.manifestHash,
+			}),
+		),
+	});
+	const connection = createDbConnection(databaseUrl, {
+		shutdownWriterOnClose: true,
+	});
+	const repository = new BenchmarkRepository(connection.db);
+	let runId: string | null = null;
+	try {
+		const run = await repository.create(input);
+		runId = run.id;
+		await repository.start(run.id);
+		await repository.complete({
+			runId: run.id,
+			metrics: params.metrics,
+			outputHash: params.outputHash,
+		});
+		await Bun.write(
+			path.resolve(".artifacts/benchmark/owasp-run.json"),
+			`${JSON.stringify(
+				{
+					schemaVersion: 1,
+					runId: run.id,
+					gitCommit: input.gitCommit,
+					inputHash: input.inputHash,
+					outputHash: params.outputHash,
+				},
+				null,
+				2,
+			)}\n`,
+		);
+		return run.id;
+	} catch (error) {
+		if (runId)
+			await repository
+				.fail(
+					runId,
+					error instanceof Error
+						? error.message
+						: "benchmark_persistence_failed",
+				)
+				.catch(() => undefined);
+		throw error;
+	} finally {
+		connection.sqlite.close();
+	}
+}
+
+async function gitCommit(): Promise<string> {
+	const child = Bun.spawn(["git", "rev-parse", "HEAD"], {
+		stdout: "pipe",
+		stderr: "pipe",
+	});
+	if ((await child.exited) !== 0) throw new Error("git_commit_unavailable");
+	return (await new Response(child.stdout).text()).trim();
 }

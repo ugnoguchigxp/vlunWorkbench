@@ -1,10 +1,10 @@
 import crypto from "node:crypto";
-import type { ScenarioRequest } from "../../../shared/schemas/business-logic.schema";
 import { rulesOfEngagementSchema } from "../../../shared/schemas/assessment.schema";
+import type { ScenarioRequest } from "../../../shared/schemas/business-logic.schema";
 import type { AppDatabase } from "../../db";
 import { AssessmentRepository } from "../assessments/assessment-repository";
-import { authHeadersFor } from "../dast/auth-material";
 import type { DastAuthContextRepository } from "../dast/auth-context-repository";
+import { authHeadersFor } from "../dast/auth-material";
 import { DastRepository } from "../dast/dast-repository";
 import type { DastFetch } from "../dast/http-runner";
 import { pinnedDastFetch } from "../dast/pinned-fetch";
@@ -15,11 +15,11 @@ import {
 } from "../dast/target-validator";
 import { canonicalJson } from "../scans/diff-scan-plan";
 import { FindingRepository, ScanRepository } from "../scans/repositories";
+import { BusinessLogicRepository } from "./business-logic-repository";
 import {
 	executeBusinessLogicScenario,
 	type ScenarioStateObserver,
 } from "./business-logic-scenario-executor";
-import { BusinessLogicRepository } from "./business-logic-repository";
 
 export class BusinessLogicRunner {
 	private readonly assessments: AssessmentRepository;
@@ -239,7 +239,7 @@ export class BusinessLogicRunner {
 						method: request.method,
 						path: new URL(request.path, "http://scope.invalid").pathname,
 						statusCode,
-						requestSha256: requestHash(request),
+						requestSha256: requestEvidenceHash(request),
 						durationMs: Math.round(performance.now() - startedAt),
 						errorCode,
 					});
@@ -372,7 +372,7 @@ function bodyFor(request: ScenarioRequest): BodyInit | null {
 		: JSON.stringify(request.body);
 }
 
-function requestHash(request: ScenarioRequest): string {
+export function requestEvidenceHash(request: ScenarioRequest): string {
 	return crypto
 		.createHash("sha256")
 		.update(
@@ -380,7 +380,15 @@ function requestHash(request: ScenarioRequest): string {
 				actorId: request.actorId,
 				method: request.method,
 				path: request.path,
-				headers: Object.keys(request.headers).sort(),
+				headers: Object.entries(request.headers)
+					.map(([name, value]) => ({
+						name: name.toLowerCase(),
+						valueSha256: crypto
+							.createHash("sha256")
+							.update(value)
+							.digest("hex"),
+					}))
+					.sort((left, right) => left.name.localeCompare(right.name)),
 				body: request.body,
 			}),
 		)

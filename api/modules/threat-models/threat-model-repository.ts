@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import type { ApplicationModel } from "../../../shared/schemas/application-model.schema";
 import type { ThreatHypothesis } from "../../../shared/schemas/threat-model.schema";
@@ -9,7 +10,6 @@ import {
 	threatModelRuns,
 } from "../../db/schema";
 import { canonicalJson } from "../scans/diff-scan-plan";
-import crypto from "node:crypto";
 
 export class ThreatModelRepository {
 	constructor(private readonly db: AppDatabase) {}
@@ -69,39 +69,45 @@ export class ThreatModelRepository {
 		llmAvailable: boolean;
 		limitations: string[];
 	}) {
-		for (const hypothesis of params.hypotheses) {
-			const [created] = await this.db
-				.insert(threatHypotheses)
-				.values({
-					runId: params.runId,
-					modelSnapshotId: params.modelSnapshotId,
-					externalId: hypothesis.id,
-					category: hypothesis.category,
-					status: hypothesis.status,
-					validationKind: hypothesis.validationKind,
-					hypothesis,
+		await this.deleteRunOutput(params.runId);
+		try {
+			for (const hypothesis of params.hypotheses) {
+				const [created] = await this.db
+					.insert(threatHypotheses)
+					.values({
+						runId: params.runId,
+						modelSnapshotId: params.modelSnapshotId,
+						externalId: hypothesis.id,
+						category: hypothesis.category,
+						status: hypothesis.status,
+						validationKind: hypothesis.validationKind,
+						hypothesis,
+					})
+					.returning();
+				for (const evidence of hypothesis.evidenceRefs)
+					await this.db.insert(threatModelEvidences).values({
+						runId: params.runId,
+						hypothesisId: created.id,
+						kind: evidence.kind,
+						reference: evidence.ref,
+						evidenceHash: hash(canonicalJson(evidence)),
+					});
+			}
+			await this.db
+				.update(threatModelRuns)
+				.set({
+					status: params.status,
+					llmAvailable: params.llmAvailable,
+					limitations: params.limitations,
+					completedAt: new Date(),
+					updatedAt: new Date(),
 				})
-				.returning();
-			for (const evidence of hypothesis.evidenceRefs)
-				await this.db.insert(threatModelEvidences).values({
-					runId: params.runId,
-					hypothesisId: created.id,
-					kind: evidence.kind,
-					reference: evidence.ref,
-					evidenceHash: hash(canonicalJson(evidence)),
-				});
+				.where(eq(threatModelRuns.id, params.runId));
+		} catch (error) {
+			await this.deleteRunOutput(params.runId);
+			throw error;
 		}
-		await this.db
-			.update(threatModelRuns)
-			.set({
-				status: params.status,
-				llmAvailable: params.llmAvailable,
-				limitations: params.limitations,
-				completedAt: new Date(),
-				updatedAt: new Date(),
-			})
-			.where(eq(threatModelRuns.id, params.runId));
-		return await this.findOwnedRun(params.runId);
+		return await this.findRun(params.runId);
 	}
 
 	async failRun(runId: string, errorCode: string) {
@@ -126,7 +132,11 @@ export class ThreatModelRepository {
 		});
 	}
 
-	async findOwnedRun(runId: string, ownerUserId?: string) {
+	async findOwnedRun(runId: string, ownerUserId: string) {
+		return await this.findRun(runId, ownerUserId);
+	}
+
+	private async findRun(runId: string, ownerUserId?: string) {
 		const run = await this.db.query.threatModelRuns.findFirst({
 			where: ownerUserId
 				? and(
@@ -149,6 +159,15 @@ export class ThreatModelRepository {
 			}),
 		]);
 		return { run, snapshot, hypotheses, evidence };
+	}
+
+	private async deleteRunOutput(runId: string): Promise<void> {
+		await this.db
+			.delete(threatModelEvidences)
+			.where(eq(threatModelEvidences.runId, runId));
+		await this.db
+			.delete(threatHypotheses)
+			.where(eq(threatHypotheses.runId, runId));
 	}
 }
 

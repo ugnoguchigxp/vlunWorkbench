@@ -1,17 +1,17 @@
 import crypto from "node:crypto";
 import { Hono } from "hono";
 import { z } from "zod";
-import { businessLogicScenarioSchema } from "../../shared/schemas/business-logic.schema";
 import { rulesOfEngagementSchema } from "../../shared/schemas/assessment.schema";
+import { businessLogicScenarioSchema } from "../../shared/schemas/business-logic.schema";
 import type { AppEnv } from "../app/env";
 import type { AppDatabase } from "../db";
 import { AssessmentRepository } from "../modules/assessments/assessment-repository";
+import { getAuthContextUser } from "../modules/auth/context";
+import { HttpError } from "../modules/auth/errors";
 import { BusinessLogicRepository } from "../modules/business-logic/business-logic-repository";
 import type { BusinessLogicRunner } from "../modules/business-logic/business-logic-runner";
 import { generateCatalogBusinessLogicScenario } from "../modules/business-logic/business-logic-scenario-generator";
 import { validateBusinessLogicScenario } from "../modules/business-logic/scenario-semantic-validator";
-import { getAuthContextUser } from "../modules/auth/context";
-import { HttpError } from "../modules/auth/errors";
 import { DastRepository } from "../modules/dast/dast-repository";
 import { canonicalJson } from "../modules/scans/diff-scan-plan";
 import type { ProjectRepository } from "../modules/scans/repositories";
@@ -210,16 +210,33 @@ export function createBusinessLogicRoute(deps: {
 			allowedPaths: roe.allowedPaths,
 			maxRequests: Math.min(roe.requestBudget, target.maxRequests),
 		});
-		const planHash = `sha256:${crypto
-			.createHash("sha256")
-			.update(canonicalJson(validated))
-			.digest("hex")}`;
-		return await repository.saveScenario({
+		const planHash = businessLogicPlanHash({
+			projectId: params.projectId,
+			ownerUserId: params.ownerUserId,
+			hypothesisRecordId: params.hypothesisRecordId,
+			scenario: validated,
+		});
+		const saved = await repository.saveScenario({
 			projectId: params.projectId,
 			ownerUserId: params.ownerUserId,
 			hypothesisRecordId: params.hypothesisRecordId,
 			scenario: validated,
 			planHash,
 		});
+		if (!saved)
+			throw new HttpError(500, "Business logic scenario was not saved");
+		return saved;
 	}
+}
+
+export function businessLogicPlanHash(params: {
+	projectId: string;
+	ownerUserId: string;
+	hypothesisRecordId: string;
+	scenario: z.infer<typeof businessLogicScenarioSchema>;
+}): `sha256:${string}` {
+	return `sha256:${crypto
+		.createHash("sha256")
+		.update(canonicalJson(params))
+		.digest("hex")}`;
 }

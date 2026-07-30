@@ -112,6 +112,7 @@
 		"benchmark:business-logic": "bun run scripts/benchmark/business-logic.ts",
 		"benchmark:all": "bun run scripts/benchmark/all.ts",
 		"verify:phase-50-evidence": "bun run scripts/verify-phase-50-release-evidence.ts",
+		"verify:professional-capability:report": "bun run scripts/verify-professional-capability.ts --report-only",
 		"verify:professional-capability": "bun run scripts/verify-professional-capability.ts && bun run verify:phase-50-evidence",
 		"test:security-capability:heavy": "bun run benchmark:all",
 		"verify:security-capability": "bun run test:security-capability && bun run verify:toolbox-provenance && bun run verify:toolbox-offline",

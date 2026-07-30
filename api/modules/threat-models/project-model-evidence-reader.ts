@@ -1,4 +1,4 @@
-import { readFile, readdir, realpath, stat } from "node:fs/promises";
+import { readdir, readFile, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import type { ApplicationModelInput } from "./application-model-builder";
 
@@ -34,7 +34,8 @@ export async function readProjectSupplementalModelEvidence(
 		[];
 	let files = 0;
 	let bytes = 0;
-	await walk(root);
+	let entries = 0;
+	await walk(root, 0);
 	return {
 		openApiOperations: openApiOperations.sort((left, right) =>
 			left.ref.localeCompare(right.ref),
@@ -44,12 +45,15 @@ export async function readProjectSupplementalModelEvidence(
 		),
 	};
 
-	async function walk(directory: string): Promise<void> {
+	async function walk(directory: string, depth: number): Promise<void> {
+		if (depth > 64) throw new Error("application_model_evidence_depth_limit");
 		for (const entry of await readdir(directory, { withFileTypes: true })) {
+			if (++entries > 100_000)
+				throw new Error("application_model_evidence_entry_limit");
 			if (entry.isSymbolicLink()) continue;
 			const absolute = path.join(directory, entry.name);
 			if (entry.isDirectory()) {
-				if (!EXCLUDED.has(entry.name)) await walk(absolute);
+				if (!EXCLUDED.has(entry.name)) await walk(absolute, depth + 1);
 				continue;
 			}
 			const extension = path.extname(entry.name).toLowerCase();
@@ -68,7 +72,7 @@ export async function readProjectSupplementalModelEvidence(
 			const content = await readFile(absolute, "utf8");
 			if (extension === ".sql") {
 				for (const match of content.matchAll(
-					/\bCREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?["'`\[]?([A-Za-z_][\w.-]*)/gi,
+					/\bCREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?["'`[]?([A-Za-z_][\w.-]*)/gi,
 				))
 					databaseTables.push({
 						name: match[1],

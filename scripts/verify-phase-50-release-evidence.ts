@@ -1,8 +1,8 @@
 import crypto from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { z } from "zod";
-import { measuredCapabilityClaimSchema } from "../shared/schemas/security-capability.schema";
 import { loadScannerDataManifest } from "../api/modules/scans/tools/scanner-provenance";
+import { measuredCapabilityClaimSchema } from "../shared/schemas/security-capability.schema";
 
 const evidenceFiles = [
 	"spec/evidence/phase-50-baseline.json",
@@ -42,11 +42,12 @@ if (releaseCommits.size !== 1)
 	throw new Error("phase_50_evidence_release_commit_mismatch");
 const releaseCommit = [...releaseCommits][0];
 if (!releaseCommit) throw new Error("phase_50_release_commit_missing");
-await assertCommitIsAncestor(releaseCommit);
+await assertEvidenceOnlyReleaseDescendant(releaseCommit);
 
-const [manifest, scope, corpusLockBytes] = await Promise.all([
+const [manifest, scope, policy, corpusLockBytes] = await Promise.all([
 	loadScannerDataManifest(),
 	readJson("spec/security-capability/scope-catalog.v1.json"),
+	readJson("spec/security-capability/benchmark-policy.v1.json"),
 	readFile("spec/security-capability/corpora.lock.json"),
 ]);
 const corpusLockHash = sha256(corpusLockBytes);
@@ -132,6 +133,76 @@ if (external.corpusLockHash !== corpusLockHash)
 	throw new Error("phase_50_corpus_lock_hash_mismatch");
 if (external.scannerManifestHash !== manifest.manifestHash)
 	throw new Error("phase_50_external_manifest_hash_mismatch");
+const minimums = policy.minimums as Record<string, number>;
+const owaspBenchmark = external.owaspBenchmark as Record<string, unknown>;
+const owaspMetrics = owaspBenchmark.metrics as Record<string, unknown>;
+const owaspOverallPassed =
+	Number(owaspMetrics.recall ?? -1) >= minimums.owaspOverallRecall &&
+	Number(owaspMetrics.precision ?? -1) >= minimums.owaspOverallPrecision &&
+	Number(owaspMetrics.falsePositiveRate ?? 2) <=
+		minimums.owaspOverallFalsePositiveRate &&
+	Number(owaspMetrics.score ?? -2) >= minimums.owaspScore;
+if (Boolean(owaspBenchmark.gatePassed) !== owaspOverallPassed)
+	throw new Error("phase_50_owasp_gate_metric_mismatch");
+const juiceShop = external.juiceShop as Record<string, unknown>;
+const juiceMetrics = juiceShop.metrics as Record<string, unknown>;
+const juiceGate =
+	Number(juiceShop.eligibleScenarioCount ?? 0) >=
+		minimums.juiceShopEligibleScenarios &&
+	Number(juiceShop.categoryCount ?? 0) >= minimums.juiceShopCategories &&
+	Number(juiceShop.executedScenarioCount ?? 0) >=
+		minimums.juiceShopEligibleScenarios &&
+	Number(juiceMetrics.recall ?? -1) >= minimums.juiceShopRecall &&
+	Number(juiceMetrics.precision ?? -1) >= minimums.juiceShopPrecision;
+if (Boolean(juiceShop.gatePassed) !== juiceGate)
+	throw new Error("phase_50_juice_shop_gate_metric_mismatch");
+const semgrepGates = semgrep.gates as Record<string, unknown>;
+const semgrepMetrics = semgrep.metrics as Record<string, unknown>;
+const semgrepEvidencePassed =
+	Object.values(semgrepGates).every((value) => value === true) &&
+	semgrepMetrics.positiveRecall === minimums.semgrepPositiveRecall &&
+	semgrepMetrics.negativeFalsePositive ===
+		minimums.semgrepNegativeFalsePositive &&
+	semgrepMetrics.networkRequests === minimums.offlineNetworkRequests;
+const osvEvidencePassed =
+	osv.databaseSupplied === true &&
+	osv.networkRequests === 0 &&
+	Array.isArray(osv.matrix) &&
+	osv.matrix.length === minimums.osvSupportedEcosystems &&
+	osv.matrix.every(
+		(item) =>
+			Boolean(item) &&
+			typeof item === "object" &&
+			(item as Record<string, unknown>).vulnerableDetected === true &&
+			(item as Record<string, unknown>).fixedDetected === false,
+	);
+const zapPassed = zap.gatePassed === true;
+const threatBusinessGates = threatBusiness.gates as Record<string, unknown>;
+if (
+	report.gates.semgrep !== semgrepEvidencePassed ||
+	report.gates.osv !== osvEvidencePassed ||
+	report.gates.zapActiveContract !== zapPassed ||
+	report.gates.threatModel !==
+		(threatBusinessGates.threatModelContracts === true) ||
+	report.gates.businessLogic !== (threatBusinessGates.businessLogic === true) ||
+	report.gates.endpointDiscovery !==
+		(threatBusinessGates.endpointDiscovery === true) ||
+	report.gates.owasp !== Boolean(owaspBenchmark.gatePassed) ||
+	report.gates.juiceShop !== Boolean(juiceShop.gatePassed)
+)
+	throw new Error("phase_50_release_gate_evidence_mismatch");
+if (
+	report.gates.contracts !==
+	[
+		semgrepEvidencePassed,
+		osvEvidencePassed,
+		zapPassed,
+		threatBusinessGates.threatModelContracts === true,
+		threatBusinessGates.businessLogic === true,
+		threatBusinessGates.endpointDiscovery === true,
+	].every(Boolean)
+)
+	throw new Error("phase_50_contract_gate_evidence_mismatch");
 
 if (report.claim.status === "met") {
 	if (!Object.values(report.gates).every(Boolean))
@@ -160,7 +231,9 @@ function sha256(value: Uint8Array): `sha256:${string}` {
 	return `sha256:${crypto.createHash("sha256").update(value).digest("hex")}`;
 }
 
-async function assertCommitIsAncestor(commit: string): Promise<void> {
+async function assertEvidenceOnlyReleaseDescendant(
+	commit: string,
+): Promise<void> {
 	const child = Bun.spawn(
 		["git", "merge-base", "--is-ancestor", commit, "HEAD"],
 		{
@@ -170,4 +243,21 @@ async function assertCommitIsAncestor(commit: string): Promise<void> {
 	);
 	if ((await child.exited) !== 0)
 		throw new Error("phase_50_release_commit_is_not_ancestor");
+	const diff = Bun.spawn(["git", "diff", "--name-only", `${commit}..HEAD`], {
+		stdout: "pipe",
+		stderr: "pipe",
+	});
+	const [exitCode, output] = await Promise.all([
+		diff.exited,
+		new Response(diff.stdout).text(),
+	]);
+	if (exitCode !== 0) throw new Error("phase_50_release_diff_unavailable");
+	const changedFiles = output
+		.split("\n")
+		.map((value) => value.trim())
+		.filter(Boolean)
+		.sort();
+	const expectedFiles = [...evidenceFiles].sort();
+	if (JSON.stringify(changedFiles) !== JSON.stringify(expectedFiles))
+		throw new Error("phase_50_release_commit_has_non_evidence_descendants");
 }

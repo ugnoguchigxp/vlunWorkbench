@@ -1,5 +1,5 @@
-import { Hono } from "hono";
 import { and, desc, eq } from "drizzle-orm";
+import { Hono } from "hono";
 import type { AppEnv } from "../app/env";
 import type { AppDatabase } from "../db";
 import { attackSurfaceItems } from "../db/schema";
@@ -7,8 +7,8 @@ import { getAuthContextUser } from "../modules/auth/context";
 import { HttpError } from "../modules/auth/errors";
 import type { ProjectRepository } from "../modules/scans/repositories";
 import { buildApplicationModel } from "../modules/threat-models/application-model-builder";
-import { readProjectModelSources } from "../modules/threat-models/project-source-reader";
 import { readProjectSupplementalModelEvidence } from "../modules/threat-models/project-model-evidence-reader";
+import { readProjectModelSources } from "../modules/threat-models/project-source-reader";
 import { generateThreatHypotheses } from "../modules/threat-models/threat-hypothesis-runner";
 import { ThreatModelRepository } from "../modules/threat-models/threat-model-repository";
 
@@ -82,8 +82,14 @@ export function createThreatModelsRoute(deps: {
 		const user = getAuthContextUser(c);
 		const projectId = c.req.param("projectId");
 		const project = await ownedProject(projectId, user.userId);
-		const currentSourceFingerprint = (await buildCurrentModel(project))
-			.sourceFingerprint;
+		let currentSourceFingerprint: string | null = null;
+		let refreshLimitationCode: string | null = null;
+		try {
+			currentSourceFingerprint = (await buildCurrentModel(project))
+				.sourceFingerprint;
+		} catch (error) {
+			refreshLimitationCode = safeModelRefreshLimitation(error);
+		}
 		const runs = await repository.listOwnedRuns(projectId, user.userId);
 		const details = await Promise.all(
 			runs.map((run) => repository.findOwnedRun(run.id, user.userId)),
@@ -92,10 +98,12 @@ export function createThreatModelsRoute(deps: {
 			runs: runs.map((run, index) => ({
 				...run,
 				current:
+					currentSourceFingerprint !== null &&
 					details[index]?.snapshot?.sourceFingerprint ===
-					currentSourceFingerprint,
+						currentSourceFingerprint,
 			})),
 			currentSourceFingerprint,
+			refreshLimitationCode,
 		});
 	});
 	route.get("/threat-model-runs/:runId", async (c) => {
@@ -141,4 +149,24 @@ export function createThreatModelsRoute(deps: {
 		}
 	});
 	return route;
+}
+
+function safeModelRefreshLimitation(error: unknown): string {
+	const code = error instanceof Error ? error.message : "";
+	if (
+		[
+			"application_model_file_limit",
+			"application_model_total_size_limit",
+			"application_model_entry_limit",
+			"application_model_depth_limit",
+			"application_model_evidence_file_limit",
+			"application_model_evidence_size_limit",
+			"application_model_evidence_entry_limit",
+			"application_model_evidence_depth_limit",
+		].includes(code)
+	)
+		return code;
+	if (error instanceof HttpError && error.status === 409)
+		return "application_model_sources_unavailable";
+	return "application_model_refresh_failed";
 }

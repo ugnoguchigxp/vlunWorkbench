@@ -17,6 +17,8 @@ const HOP_BY_HOP_HEADERS = new Set([
 	"content-length",
 	"transfer-encoding",
 	"connection",
+	"keep-alive",
+	"proxy-authenticate",
 	"upgrade",
 	"te",
 	"trailer",
@@ -60,6 +62,7 @@ export type PreparedActiveContainerTargetGateway = {
 		secretHeaderBlockedRequests: number;
 		oversizeBlockedRequests: number;
 		redirectBlockedResponses: number;
+		evidencePersistenceFailures: number;
 	};
 	stop: () => Promise<void>;
 };
@@ -82,15 +85,25 @@ export async function prepareActiveContainerTargetGateway(
 	const rateLimitPerSec = Math.min(options.rateLimitPerSec, 2);
 	if (!Number.isFinite(rateLimitPerSec) || rateLimitPerSec <= 0)
 		throw new Error("active_gateway_rate_invalid");
-	const maxConcurrency = Math.min(options.maxConcurrency ?? 2, 2);
-	const maxQueryBytes = Math.min(options.maxQueryBytes ?? 8_192, 8_192);
-	const maxRequestBodyBytes = Math.min(
+	const maxConcurrency = boundedPositiveInteger(
+		options.maxConcurrency ?? 2,
+		2,
+		"active_gateway_concurrency_invalid",
+	);
+	const maxQueryBytes = boundedPositiveInteger(
+		options.maxQueryBytes ?? 8_192,
+		8_192,
+		"active_gateway_query_limit_invalid",
+	);
+	const maxRequestBodyBytes = boundedPositiveInteger(
 		options.maxRequestBodyBytes ?? 64_000,
 		64_000,
+		"active_gateway_request_body_limit_invalid",
 	);
-	const maxResponseBodyBytes = Math.min(
+	const maxResponseBodyBytes = boundedPositiveInteger(
 		options.maxResponseBodyBytes ?? 1024 * 1024,
 		1024 * 1024,
+		"active_gateway_response_body_limit_invalid",
 	);
 	const metrics = {
 		forwardedRequests: 0,
@@ -101,6 +114,7 @@ export async function prepareActiveContainerTargetGateway(
 		secretHeaderBlockedRequests: 0,
 		oversizeBlockedRequests: 0,
 		redirectBlockedResponses: 0,
+		evidencePersistenceFailures: 0,
 	};
 	let reservedRequests = 0;
 	let concurrentRequests = 0;
@@ -108,10 +122,12 @@ export async function prepareActiveContainerTargetGateway(
 	let rateQueue = Promise.resolve();
 	let closed = false;
 	const controllers = new Set<AbortController>();
+	const evidenceTasks = new Set<Promise<void>>();
 
 	const server = http.createServer(async (request, response) => {
 		const startedAt = Date.now();
 		let evidence: ActiveGatewayEvidence | null = null;
+		let concurrencyAcquired = false;
 		try {
 			if (closed) return send(response, 503);
 			const method = (request.method ?? "GET").toUpperCase();
@@ -158,6 +174,7 @@ export async function prepareActiveContainerTargetGateway(
 			}
 			reservedRequests++;
 			concurrentRequests++;
+			concurrencyAcquired = true;
 			const body = await readRequestBody(request, maxRequestBodyBytes);
 			const requestSha256 = hashRequest(method, incoming, body);
 			evidence = {
@@ -199,27 +216,13 @@ export async function prepareActiveContainerTargetGateway(
 					redirect: "manual",
 					signal: controller.signal,
 				});
-				if (
-					Number(upstream.headers.get("content-length") ?? 0) >
-					maxResponseBodyBytes
-				) {
-					metrics.oversizeBlockedRequests++;
-					evidence.errorCode = "response_too_large";
-					return send(response, 502);
-				}
 				const responseBody =
 					method === "HEAD"
 						? Buffer.alloc(0)
-						: Buffer.from(await upstream.arrayBuffer());
-				if (responseBody.byteLength > maxResponseBodyBytes) {
-					metrics.oversizeBlockedRequests++;
-					evidence.errorCode = "response_too_large";
-					return send(response, 502);
-				}
+						: await readResponseBody(upstream, maxResponseBodyBytes);
 				const responseHeaders = safeResponseHeaders(
 					upstream.headers,
 					upstreamOrigin,
-					request.headers.host ?? "gateway",
 					metrics,
 				);
 				evidence.statusCode = upstream.status;
@@ -231,21 +234,37 @@ export async function prepareActiveContainerTargetGateway(
 				controllers.delete(controller);
 			}
 		} catch (error) {
+			const errorMessage =
+				error instanceof Error ? error.message : "gateway_error";
 			if (evidence)
 				evidence.errorCode =
-					error instanceof Error && error.message === "request_body_too_large"
-						? "request_body_too_large"
-						: "gateway_error";
-			if (error instanceof Error && error.message === "request_body_too_large")
+					errorMessage === "response_body_too_large"
+						? "response_too_large"
+						: errorMessage === "request_body_too_large"
+							? "request_body_too_large"
+							: "gateway_error";
+			if (
+				errorMessage === "request_body_too_large" ||
+				errorMessage === "response_body_too_large"
+			)
 				metrics.oversizeBlockedRequests++;
-			if (!response.headersSent) send(response, 502);
+			if (!response.headersSent)
+				send(response, errorMessage === "request_body_too_large" ? 413 : 502);
 			else response.end();
 		} finally {
-			if (evidence) {
-				evidence.durationMs = Date.now() - startedAt;
-				await options.onEvidence?.(evidence);
-				concurrentRequests--;
+			const completedEvidence = evidence;
+			if (completedEvidence) {
+				completedEvidence.durationMs = Date.now() - startedAt;
+				const task = Promise.resolve()
+					.then(() => options.onEvidence?.(completedEvidence))
+					.then(() => undefined)
+					.catch(() => {
+						metrics.evidencePersistenceFailures++;
+					});
+				evidenceTasks.add(task);
+				await task.finally(() => evidenceTasks.delete(task));
 			}
+			if (concurrencyAcquired) concurrentRequests--;
 		}
 	});
 
@@ -267,8 +286,18 @@ export async function prepareActiveContainerTargetGateway(
 			closed = true;
 			for (const controller of controllers) controller.abort();
 			await new Promise<void>((resolve) => server.close(() => resolve()));
+			await Promise.allSettled([...evidenceTasks]);
 		},
 	};
+}
+
+function boundedPositiveInteger(
+	value: number,
+	maximum: number,
+	errorCode: string,
+): number {
+	if (!Number.isInteger(value) || value < 1) throw new Error(errorCode);
+	return Math.min(value, maximum);
 }
 
 function requestHeaders(
@@ -276,9 +305,11 @@ function requestHeaders(
 	upstreamOrigin: string,
 ): Headers {
 	const headers = new Headers();
+	const connectionHeaders = headerTokens(request.headers.connection);
 	for (const [name, value] of Object.entries(request.headers)) {
 		if (
 			HOP_BY_HOP_HEADERS.has(name.toLowerCase()) ||
+			connectionHeaders.has(name.toLowerCase()) ||
 			SECRET_HEADERS.has(name.toLowerCase())
 		)
 			continue;
@@ -292,11 +323,12 @@ function requestHeaders(
 function safeResponseHeaders(
 	input: Headers,
 	upstreamOrigin: string,
-	gatewayHost: string,
 	metrics: { redirectBlockedResponses: number },
 ): Record<string, string> {
 	const headers = new Headers(input);
+	const connectionHeaders = headerTokens(headers.get("connection"));
 	for (const name of HOP_BY_HOP_HEADERS) headers.delete(name);
+	for (const name of connectionHeaders) headers.delete(name);
 	headers.delete("set-cookie");
 	const location = headers.get("location");
 	if (location) {
@@ -307,7 +339,7 @@ function safeResponseHeaders(
 		} else {
 			headers.set(
 				"location",
-				`http://${gatewayHost}${redirect.pathname}${redirect.search}`,
+				`${redirect.pathname}${redirect.search}${redirect.hash}`,
 			);
 		}
 	}
@@ -334,6 +366,48 @@ async function readRequestBody(
 		chunks.push(bytes);
 	}
 	return Buffer.concat(chunks);
+}
+
+async function readResponseBody(
+	response: Response,
+	maxBytes: number,
+): Promise<Buffer> {
+	const declaredLength = Number(response.headers.get("content-length") ?? 0);
+	if (
+		!Number.isFinite(declaredLength) ||
+		declaredLength < 0 ||
+		declaredLength > maxBytes
+	) {
+		await response.body?.cancel().catch(() => undefined);
+		throw new Error("response_body_too_large");
+	}
+	if (!response.body) return Buffer.alloc(0);
+	const reader = response.body.getReader();
+	const chunks: Uint8Array[] = [];
+	let total = 0;
+	for (;;) {
+		const { value, done } = await reader.read();
+		if (done) break;
+		total += value.byteLength;
+		if (total > maxBytes) {
+			await reader.cancel();
+			throw new Error("response_body_too_large");
+		}
+		chunks.push(value);
+	}
+	return Buffer.concat(chunks);
+}
+
+function headerTokens(
+	value: string | string[] | undefined | null,
+): Set<string> {
+	const values = Array.isArray(value) ? value : [value ?? ""];
+	return new Set(
+		values
+			.flatMap((item) => item.split(","))
+			.map((item) => item.trim().toLowerCase())
+			.filter((item) => /^[!#$%&'*+\-.^_`|~0-9a-z]+$/.test(item)),
+	);
 }
 
 function hashRequest(method: string, url: URL, body: Buffer): string {

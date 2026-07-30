@@ -18,10 +18,10 @@ import {
 	FindingRepository,
 	ScanRepository,
 } from "../scans/repositories";
-import { buildZapAutomationPlan } from "./zap-automation-plan";
+import { createContainerFixtureResetExecutor } from "./container-fixture-reset";
 import { authorizeZapActivePlan } from "./zap-active-policy";
 import { type ActiveResetExecutor, ZapActiveRunner } from "./zap-active-runner";
-import { createContainerFixtureResetExecutor } from "./container-fixture-reset";
+import { buildZapAutomationPlan } from "./zap-automation-plan";
 
 type Engagement = ActiveAuthorization & { purpose: string };
 
@@ -107,98 +107,111 @@ export class ZapActiveAssessmentCoordinator {
 			},
 		});
 		const runner = new ZapActiveRunner(storage, resetExecutor);
-		const result = await runner.run({
-			scanRunId: params.scanRunId,
-			upstreamOrigin: params.target.runnerOrigin,
-			allowedMethods: params.request.allowedMethods,
-			allowedPaths: params.request.allowedPaths,
-			excludedPaths: params.target.excludedPaths,
-			requestBudget: params.request.requestBudget,
-			rateLimitPerSec: authorization.rateLimitPerSec,
-			durationSec: params.request.durationSec,
-			rules: params.request.ruleIds.map((id) => ({ id })),
-			resetStrategy: params.request.resetStrategy,
-			authSecret,
-			openApiPath: params.request.openApiPath,
-			onGatewayEvidence: async (evidence) => {
-				runtime.requestCount++;
-				await this.active.createEvidence({
-					activeAssessmentRunId: params.activeAssessmentRunId,
-					method: evidence.method,
-					path: evidence.path,
-					statusCode: evidence.statusCode,
-					identityRole: params.request.identityRole ?? null,
-					stage: "zap-active",
-					requestSha256: evidence.requestSha256,
-					durationMs: evidence.durationMs,
-					errorCode: evidence.errorCode,
-				});
-			},
-		});
-		const artifactIds = await this.registerArtifacts(
-			params.scanRunId,
-			toolRun.id,
-			result,
-		);
-		let findingCount = 0;
-		if (result.status === "completed") {
-			for (const finding of result.findings) {
-				const created = await this.findings.createFinding({
-					scanRunId: params.scanRunId,
-					projectId: params.projectId,
-					sourceTool: "zap-active",
-					ruleId: finding.ruleId,
-					title: finding.title,
-					description: finding.description,
-					severity: finding.severity,
-					confidence: finding.confidence,
-					status: finding.status,
-					primaryLocation: finding.primaryLocation,
-					fingerprint: finding.fingerprint,
-					metadata: {
-						...finding.metadata,
+		try {
+			const result = await runner.run({
+				scanRunId: params.scanRunId,
+				upstreamOrigin: params.target.runnerOrigin,
+				allowedMethods: params.request.allowedMethods,
+				allowedPaths: params.request.allowedPaths,
+				excludedPaths: params.target.excludedPaths,
+				requestBudget: params.request.requestBudget,
+				rateLimitPerSec: authorization.rateLimitPerSec,
+				durationSec: params.request.durationSec,
+				rules: params.request.ruleIds.map((id) => ({ id })),
+				resetStrategy: params.request.resetStrategy,
+				authSecret,
+				openApiPath: params.request.openApiPath,
+				onGatewayEvidence: async (evidence) => {
+					runtime.requestCount++;
+					await this.active.createEvidence({
 						activeAssessmentRunId: params.activeAssessmentRunId,
-						executableEvidence: true,
-					},
-				});
-				for (const evidence of finding.evidences)
-					await this.findings.createEvidence({
-						findingId: created.id,
-						kind: evidence.kind,
-						title: evidence.title,
-						artifactId: artifactIds[0] ?? null,
-						location: evidence.location,
-						snippet: evidence.snippet,
+						method: evidence.method,
+						path: evidence.path,
+						statusCode: evidence.statusCode,
+						identityRole: params.request.identityRole ?? null,
+						stage: "zap-active",
+						requestSha256: evidence.requestSha256,
+						durationMs: evidence.durationMs,
+						errorCode: evidence.errorCode,
 					});
-				findingCount++;
+				},
+			});
+			const artifactIds = await this.registerArtifacts(
+				params.scanRunId,
+				toolRun.id,
+				result,
+			);
+			let findingCount = 0;
+			if (result.status === "completed") {
+				for (const finding of result.findings) {
+					const created = await this.findings.createFinding({
+						scanRunId: params.scanRunId,
+						projectId: params.projectId,
+						sourceTool: "zap-active",
+						ruleId: finding.ruleId,
+						title: finding.title,
+						description: finding.description,
+						severity: finding.severity,
+						confidence: finding.confidence,
+						status: finding.status,
+						primaryLocation: finding.primaryLocation,
+						fingerprint: finding.fingerprint,
+						metadata: {
+							...finding.metadata,
+							activeAssessmentRunId: params.activeAssessmentRunId,
+							executableEvidence: true,
+						},
+					});
+					for (const evidence of finding.evidences)
+						await this.findings.createEvidence({
+							findingId: created.id,
+							kind: evidence.kind,
+							title: evidence.title,
+							artifactId: artifactIds[0] ?? null,
+							location: evidence.location,
+							snippet: evidence.snippet,
+						});
+					findingCount++;
+				}
 			}
-		}
-		await this.scans.updateToolRunStatus(
-			toolRun.id,
-			result.status === "completed" ? "completed" : "failed",
-			{
-				exitCode: result.exitCode,
-				metadata: {
+			await this.scans.updateToolRunStatus(
+				toolRun.id,
+				result.status === "completed" ? "completed" : "failed",
+				{
+					exitCode: result.exitCode,
+					metadata: {
+						...result.metadata,
+						artifactIds,
+						errorCode: result.errorCode,
+					},
+				},
+			);
+			return {
+				status: result.status,
+				requestCount: runtime.requestCount - params.initialRequestCount,
+				findingCount,
+				summary: `ZAP active assessment ${result.status}.`,
+				result: {
 					...result.metadata,
 					artifactIds,
-					errorCode: result.errorCode,
+					cleanupSucceeded: result.cleanupSucceeded,
+					credentialLeakage: result.credentialLeakage,
+					limitationCodes: result.errorCode ? [result.errorCode] : [],
 				},
-			},
-		);
-		return {
-			status: result.status,
-			requestCount: runtime.requestCount - params.initialRequestCount,
-			findingCount,
-			summary: `ZAP active assessment ${result.status}.`,
-			result: {
-				...result.metadata,
-				artifactIds,
-				cleanupSucceeded: result.cleanupSucceeded,
-				credentialLeakage: result.credentialLeakage,
-				limitationCodes: result.errorCode ? [result.errorCode] : [],
-			},
-			errorMessage: result.errorCode ?? null,
-		};
+				errorMessage: result.errorCode ?? null,
+			};
+		} catch (error) {
+			const errorCode =
+				error instanceof Error
+					? error.message
+					: "zap_active_coordinator_failed";
+			await this.scans
+				.updateToolRunStatus(toolRun.id, "failed", {
+					metadata: { errorCode },
+				})
+				.catch(() => undefined);
+			throw error;
+		}
 	}
 
 	private async decryptAuth(params: {

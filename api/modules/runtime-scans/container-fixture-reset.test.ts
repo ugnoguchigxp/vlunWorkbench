@@ -45,6 +45,61 @@ describe("container fixture reset", () => {
 		})).toEqual({ ok: true, baselineHash: fixture.expectedBaselineHash });
 		expect(commands).toHaveLength(4);
 		expect(commands[1]).toContain(fixture.image);
+		expect(commands[1]).toContain("--pull");
+		expect(commands[1]).toContain("never");
+	});
+
+	test("serializes recreation of a shared container fixture", async () => {
+		const fixture = listContainerFixtures()[0];
+		let signalHealthCheck: () => void = () => undefined;
+		const healthCheckStarted = new Promise<void>((resolve) => {
+			signalHealthCheck = resolve;
+		});
+		let releaseHealthCheck: () => void = () => undefined;
+		const healthCheckGate = new Promise<void>((resolve) => {
+			releaseHealthCheck = resolve;
+		});
+		const strategy = {
+			kind: "container_recreate" as const,
+			fixtureId: fixture.fixtureId,
+			expectedBaselineHash: fixture.expectedBaselineHash,
+		};
+		const spawn = async () => ({
+			exitCode: 0,
+			stdout: "",
+			stderr: "",
+			timedOut: false,
+		});
+		const first = createContainerFixtureResetExecutor({
+			strategy,
+			targetOrigin: "http://127.0.0.1:3000",
+			spawn,
+			fetchImpl: async () => {
+				signalHealthCheck();
+				await healthCheckGate;
+				return new Response("ready", { status: 200 });
+			},
+		});
+		const second = createContainerFixtureResetExecutor({
+			strategy,
+			targetOrigin: "http://127.0.0.1:3000",
+			spawn,
+			fetchImpl: async () => new Response("ready", { status: 200 }),
+		});
+		const firstPreparation = first.prepare(strategy);
+		await healthCheckStarted;
+		await expect(second.prepare(strategy)).rejects.toThrow(
+			"zap_active_container_fixture_busy",
+		);
+		releaseHealthCheck();
+		await expect(firstPreparation).resolves.toEqual({
+			baselineHash: fixture.expectedBaselineHash,
+		});
+		await expect(first.reset(strategy)).resolves.toMatchObject({ ok: true });
+		await expect(second.prepare(strategy)).resolves.toEqual({
+			baselineHash: fixture.expectedBaselineHash,
+		});
+		await expect(second.reset(strategy)).resolves.toMatchObject({ ok: true });
 	});
 
 	test("rejects unknown fixtures, mismatched baselines, and non-fixture targets", () => {

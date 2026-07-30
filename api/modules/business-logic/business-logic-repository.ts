@@ -67,7 +67,9 @@ export class BusinessLogicRepository {
 		return await this.db.query.businessLogicScenarios.findFirst({
 			where: and(
 				eq(businessLogicScenarios.planHash, params.planHash),
+				eq(businessLogicScenarios.projectId, params.projectId),
 				eq(businessLogicScenarios.ownerUserId, params.ownerUserId),
+				eq(businessLogicScenarios.hypothesisId, params.hypothesisRecordId),
 			),
 		});
 	}
@@ -210,17 +212,5 @@ export class BusinessLogicRepository {
 			)
 			.where(eq(businessLogicScenarios.engagementId, engagementId));
 		return Number(row?.total ?? 0);
-	}
-
-	async findRun(id: string) {
-		const run = await this.db.query.businessLogicRuns.findFirst({
-			where: eq(businessLogicRuns.id, id),
-		});
-		if (!run) return null;
-		const evidence = await this.db.query.businessLogicEvidences.findMany({
-			where: eq(businessLogicEvidences.runId, id),
-			orderBy: (fields, { asc }) => [asc(fields.createdAt)],
-		});
-		return { run, evidence };
 	}
 }

@@ -8,8 +8,14 @@ import {
 } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import type { DastAuthSecretPayload } from "../../../shared/schemas/dast-auth.schema";
 import type { ActiveResetStrategy } from "../../../shared/schemas/active-assessment.schema";
+import type { DastAuthSecretPayload } from "../../../shared/schemas/dast-auth.schema";
+import {
+	type ActiveGatewayEvidence,
+	type PreparedActiveContainerTargetGateway,
+	prepareActiveContainerTargetGateway,
+} from "../dast/active-container-target-gateway";
+import { redactSecretText } from "../dast/auth-material";
 import type {
 	ArtifactSaveResult,
 	ArtifactStorage,
@@ -19,16 +25,10 @@ import {
 	redactSecrets,
 } from "../scans/normalizers/redaction";
 import {
-	prepareActiveContainerTargetGateway,
-	type ActiveGatewayEvidence,
-	type PreparedActiveContainerTargetGateway,
-} from "../dast/active-container-target-gateway";
-import { redactSecretText } from "../dast/auth-material";
-import { buildZapAutomationPlan } from "./zap-automation-plan";
-import {
 	ZAP_ACTIVE_MAX_REPORT_BYTES,
 	ZAP_ACTIVE_POLICY_ID,
 } from "./zap-active-policy";
+import { buildZapAutomationPlan } from "./zap-automation-plan";
 import { isPinnedZapImage, ZAP_STABLE_IMAGE } from "./zap-image-policy";
 import { normalizeZap } from "./zap-normalizer";
 import { parseZapReport, type ZapReport } from "./zap-report-schema";
@@ -245,11 +245,14 @@ export class ZapActiveRunner {
 			params.authSecret,
 		);
 		if (credentialLeakage) errorCode = "credential_canary_leaked";
+		const gatewayMetrics = gateway?.metrics() ?? null;
+		if ((gatewayMetrics?.evidencePersistenceFailures ?? 0) > 0)
+			errorCode = "gateway_evidence_persistence_failed";
 		const resetExpected =
 			params.resetStrategy.kind === "container_recreate"
 				? params.resetStrategy.expectedBaselineHash
 				: prepareBaselineHash;
-		const cleanupSucceeded =
+		let cleanupSucceeded =
 			cleanup.ok &&
 			isolationCleanupSucceeded &&
 			(resetExpected === null || cleanup.baselineHash === resetExpected);
@@ -261,40 +264,53 @@ export class ZapActiveRunner {
 					),
 				) as ZapReport)
 			: null;
-		const rawArtifact = redactedReport
-			? await this.storage.saveTextArtifact(
-					params.scanRunId,
-					"raw",
-					JSON.stringify(redactedReport, null, 2),
-					reportFilename,
-					{ mode: 0o600 },
-				)
-			: undefined;
-		const stdoutArtifact = processResult.stdout
-			? await this.storage.saveLog(
-					params.scanRunId,
-					"stdout",
-					redactSecretText(
-						redactSecrets(processResult.stdout),
-						params.authSecret,
-					),
-					"zap-active-stdout.log",
-					{ mode: 0o600 },
-				)
-			: undefined;
-		const stderrArtifact = processResult.stderr
-			? await this.storage.saveLog(
-					params.scanRunId,
-					"stderr",
-					redactSecretText(
-						redactSecrets(processResult.stderr),
-						params.authSecret,
-					),
-					"zap-active-stderr.log",
-					{ mode: 0o600 },
-				)
-			: undefined;
-		await rm(tempDir, { recursive: true, force: true });
+		let rawArtifact: ArtifactSaveResult | undefined;
+		let stdoutArtifact: ArtifactSaveResult | undefined;
+		let stderrArtifact: ArtifactSaveResult | undefined;
+		let tempCleanupSucceeded = true;
+		try {
+			rawArtifact = redactedReport
+				? await this.storage.saveTextArtifact(
+						params.scanRunId,
+						"raw",
+						JSON.stringify(redactedReport, null, 2),
+						reportFilename,
+						{ mode: 0o600 },
+					)
+				: undefined;
+			stdoutArtifact = processResult.stdout
+				? await this.storage.saveLog(
+						params.scanRunId,
+						"stdout",
+						redactSecretText(
+							redactSecrets(processResult.stdout),
+							params.authSecret,
+						),
+						"zap-active-stdout.log",
+						{ mode: 0o600 },
+					)
+				: undefined;
+			stderrArtifact = processResult.stderr
+				? await this.storage.saveLog(
+						params.scanRunId,
+						"stderr",
+						redactSecretText(
+							redactSecrets(processResult.stderr),
+							params.authSecret,
+						),
+						"zap-active-stderr.log",
+						{ mode: 0o600 },
+					)
+				: undefined;
+		} finally {
+			await rm(tempDir, { recursive: true, force: true }).catch(() => {
+				tempCleanupSucceeded = false;
+			});
+		}
+		if (!tempCleanupSucceeded) {
+			cleanupSucceeded = false;
+			errorCode = "zap_active_temp_cleanup_failed";
+		}
 		const status = !cleanupSucceeded
 			? "failed_cleanup"
 			: errorCode
@@ -312,7 +328,7 @@ export class ZapActiveRunner {
 						})
 					: [],
 			exitCode: processResult.exitCode,
-			requestCount: gateway?.metrics().forwardedRequests ?? 0,
+			requestCount: gatewayMetrics?.forwardedRequests ?? 0,
 			cleanupSucceeded,
 			credentialLeakage,
 			rawArtifact,
@@ -324,10 +340,11 @@ export class ZapActiveRunner {
 				planPolicyId: plan.policyId,
 				enabledRuleIds: plan.enabledRuleIds,
 				networkMode: "internal",
-				gatewayMetrics: gateway?.metrics() ?? null,
+				gatewayMetrics,
 				prepareBaselineHash,
 				cleanupBaselineHash: cleanup.baselineHash,
 				isolationCleanupSucceeded,
+				tempCleanupSucceeded,
 			},
 		};
 	}

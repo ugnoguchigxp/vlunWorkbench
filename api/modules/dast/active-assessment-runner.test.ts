@@ -16,12 +16,22 @@ import { AssessmentRepository } from "../assessments/assessment-repository";
 import { ensureScanCoverageResults } from "../assessments/coverage-builder";
 import { ProjectRepository, ScanRepository } from "../scans/repositories";
 import { ActiveAssessmentRepository } from "./active-assessment-repository";
-import { ActiveAssessmentRunner } from "./active-assessment-runner";
+import {
+	ActiveAssessmentRunner,
+	activeScanStatus,
+} from "./active-assessment-runner";
 import { DastAuthContextCrypto } from "./auth-context-crypto";
 import { DastAuthContextRepository } from "./auth-context-repository";
 import { DastRepository } from "./dast-repository";
 
 describe("ActiveAssessmentRunner", () => {
+	it("maps execution and cleanup failures to a failed scan", () => {
+		expect(activeScanStatus("failed")).toBe("failed");
+		expect(activeScanStatus("failed_cleanup")).toBe("failed");
+		expect(activeScanStatus("inconclusive")).toBe("completed");
+		expect(activeScanStatus("completed")).toBe("completed");
+	});
+
 	let connection: DbConnection;
 	let server: ReturnType<typeof Bun.serve>;
 	let projectId: string;

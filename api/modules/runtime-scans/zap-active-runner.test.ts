@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { ArtifactStorage } from "../scans/artifact-storage";
 import {
-	buildZapActiveDockerCommand,
 	type ActiveResetExecutor,
+	buildZapActiveDockerCommand,
 	ZapActiveRunner,
 } from "./zap-active-runner";
 
@@ -179,6 +179,55 @@ describe("ZAP active runner", () => {
 			expect(result.status).toBe("completed");
 			expect(result.findings).toHaveLength(fixture.expectedFindings);
 		}
+	});
+
+	test("removes the secret-bearing work directory when artifact storage fails", async () => {
+		tempRoot = await mkdtemp(path.join(os.tmpdir(), "zap-active-test-"));
+		let workDir = "";
+		class FailingArtifactStorage extends ArtifactStorage {
+			override async saveTextArtifact(): Promise<never> {
+				throw new Error("artifact write failed");
+			}
+		}
+		const runner = new ZapActiveRunner(
+			new FailingArtifactStorage(tempRoot),
+			resetExecutor(true),
+			{
+				networkFactory: async () => ({
+					name: "fixture-network",
+					gatewayAddress: "127.0.0.1",
+					stop: async () => undefined,
+				}),
+				spawn: async (args) => {
+					workDir = args[args.indexOf("-v") + 1].split(":", 1)[0];
+					await writeFile(
+						path.join(workDir, "zap-active-report.json"),
+						JSON.stringify(report("http://127.0.0.1/api")),
+					);
+					return {
+						exitCode: 0,
+						stdout: "",
+						stderr: "",
+						timedOut: false,
+					};
+				},
+			},
+		);
+		await expect(
+			runner.run({
+				scanRunId: "00000000-0000-4000-8000-000000000005",
+				upstreamOrigin: "http://127.0.0.1:9",
+				allowedMethods: ["GET"],
+				allowedPaths: ["/"],
+				requestBudget: 10,
+				rateLimitPerSec: 2,
+				durationSec: 60,
+				rules: [{ id: 40012 }],
+				resetStrategy,
+			}),
+		).rejects.toThrow("artifact write failed");
+		expect(workDir).not.toBe("");
+		expect(await stat(workDir).catch(() => null)).toBeNull();
 	});
 });
 

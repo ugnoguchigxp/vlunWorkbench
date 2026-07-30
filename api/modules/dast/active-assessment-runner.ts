@@ -3,6 +3,8 @@ import type { RunActiveAssessmentRequest } from "../../../shared/schemas/active-
 import { rulesOfEngagementSchema } from "../../../shared/schemas/assessment.schema";
 import type { AppDatabase } from "../../db";
 import { AssessmentRepository } from "../assessments/assessment-repository";
+import { ZapActiveAssessmentCoordinator } from "../runtime-scans/zap-active-assessment-coordinator";
+import type { ArtifactStorage } from "../scans/artifact-storage";
 import { FindingRepository, ScanRepository } from "../scans/repositories";
 import { ActiveAssessmentRepository } from "./active-assessment-repository";
 import {
@@ -15,8 +17,6 @@ import { DastRepository } from "./dast-repository";
 import type { DastFetch } from "./http-runner";
 import { validateDastTargetConfig } from "./target-validator";
 import { runActiveTransaction } from "./transaction-runner";
-import type { ArtifactStorage } from "../scans/artifact-storage";
-import { ZapActiveAssessmentCoordinator } from "../runtime-scans/zap-active-assessment-coordinator";
 
 export class ActiveAssessmentRunner {
 	private readonly assessmentRepository: AssessmentRepository;
@@ -200,7 +200,7 @@ export class ActiveAssessmentRunner {
 			await this.activeRepository.completeRun(activeRun.id, result.run);
 			await this.scanRepository.updateScanRunStatus(
 				scanRun.id,
-				result.run.status === "failed_cleanup" ? "failed" : "completed",
+				activeScanStatus(result.run.status),
 				{
 					summary: result.run.summary,
 					metadata: {
@@ -416,6 +416,12 @@ export class ActiveAssessmentRunner {
 		}
 		return await this.deps.authContextRepository.decryptForUse(params);
 	}
+}
+
+export function activeScanStatus(status: string): "completed" | "failed" {
+	return status === "failed" || status === "failed_cleanup"
+		? "failed"
+		: "completed";
 }
 
 function zapActivePlannedRequests(

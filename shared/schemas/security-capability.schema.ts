@@ -49,6 +49,14 @@ export const measuredCapabilityClaimSchema = z
 					"A met capability claim must reference a passing benchmark run",
 			});
 		}
+		if (value.status === "not_met" && value.passingBenchmarkRunId !== null) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["passingBenchmarkRunId"],
+				message:
+					"A not_met capability claim cannot reference a passing benchmark run",
+			});
+		}
 	});
 
 export const capabilityRolloutSchema = z.enum([

@@ -2,26 +2,21 @@ import crypto from "node:crypto";
 import { mkdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
-import { measuredCapabilityClaimSchema } from "../shared/schemas/security-capability.schema";
+import { verifyPersistedBenchmarkRun } from "../api/db/benchmark-run-verifier";
 import { loadScannerDataManifest } from "../api/modules/scans/tools/scanner-provenance";
+import { measuredCapabilityClaimSchema } from "../shared/schemas/security-capability.schema";
+import {
+	assertMetricArtifactIntegrity,
+	overall,
+	readMetricArtifact,
+	verifyJuiceShopArtifactIntegrity,
+	verifyOwaspArtifactIntegrity,
+} from "./professional-capability-artifact-verifier";
 
-type Metric = {
-	category: string;
-	truePositive: number;
-	falseNegative: number;
-	trueNegative: number;
-	falsePositive: number;
-	recall: number | null;
-	precision: number | null;
-	falsePositiveRate: number | null;
-	score: number | null;
-};
-type MetricArtifact = {
-	metrics: Metric[];
-	eligibleScenarioCount?: number;
-	categoryCount?: number;
-	executedScenarioCount?: number;
-};
+const cliArguments = process.argv.slice(2);
+if (cliArguments.some((argument) => argument !== "--report-only"))
+	throw new Error("professional_capability_argument_invalid");
+const reportOnly = cliArguments.includes("--report-only");
 
 const contracts = [
 	["bun", "run", "test:semgrep:catalog"],
@@ -101,6 +96,20 @@ const endpoint = await readJsonIfExists(
 const osvEvidence = await readJsonIfExists(
 	".artifacts/benchmark/osv-offline-fixtures.json",
 );
+for (const artifact of [owasp, juice, business])
+	if (artifact) assertMetricArtifactIntegrity(artifact);
+if (owasp)
+	await verifyOwaspArtifactIntegrity({
+		artifact: owasp,
+		manifestHash: manifest.manifestHash,
+		corpusLock,
+	});
+if (juice)
+	await verifyJuiceShopArtifactIntegrity({
+		artifact: juice,
+		manifestHash: manifest.manifestHash,
+		corpusLock,
+	});
 const osvGate =
 	manifest.tools.osv?.state === "ready" &&
 	osvBundles.filter((item) => item.kind === "vulnerability-db").length ===
@@ -160,25 +169,36 @@ const externalGates = {
 		Number(endpoint?.recall ?? -1) >= minimums.endpointDiscoveryRecall &&
 		Number(endpoint?.precision ?? -1) >= minimums.endpointDiscoveryPrecision,
 };
+const releaseCommit = await gitCommit();
 const unsupportedCapabilities = (
 	scope.capabilities as Array<{ id: string; tier: string }>
 )
 	.filter((item) => item.tier !== "supported")
 	.map((item) => item.id)
 	.sort();
-const passingBenchmarkRunId =
-	z
-		.string()
-		.uuid()
-		.safeParse(process.env.VULN_WORKBENCH_PASSING_BENCHMARK_RUN_ID).data ??
-	null;
+const passingRunInput = process.env.VULN_WORKBENCH_PASSING_BENCHMARK_RUN_ID;
+const passingRunResult = z.string().uuid().safeParse(passingRunInput);
+if (passingRunInput && !passingRunResult.success)
+	throw new Error("passing_benchmark_run_id_invalid");
+const verifiedBenchmarkRunId = passingRunResult.data ?? null;
+if (verifiedBenchmarkRunId)
+	await verifyPersistedBenchmarkRun({
+		runId: verifiedBenchmarkRunId,
+		databaseUrl: process.env.VULN_WORKBENCH_BENCHMARK_DATABASE_URL,
+		releaseCommit,
+		manifestHash: manifest.manifestHash,
+		policyVersion: String(policy.policyVersion),
+		toolboxImageDigest: process.env.VULN_WORKBENCH_TOOLBOX_IMAGE_DIGEST,
+		artifact: owasp,
+	});
 const status =
-	passingBenchmarkRunId &&
+	verifiedBenchmarkRunId &&
 	semgrepGate &&
 	osvGate &&
 	Object.values(externalGates).every(Boolean)
 		? "met"
 		: "not_met";
+const passingBenchmarkRunId = status === "met" ? verifiedBenchmarkRunId : null;
 const claim = measuredCapabilityClaimSchema.parse({
 	claimId: "measured-automated-web-api-assessment-v1",
 	status,
@@ -194,7 +214,7 @@ await mkdir(path.dirname(outputPath), { recursive: true });
 const report = {
 	schemaVersion: 1,
 	generatedAt: new Date().toISOString(),
-	releaseCommit: await gitCommit(),
+	releaseCommit,
 	claim,
 	hashes: {
 		corpusLock: sha256(
@@ -223,6 +243,7 @@ await Bun.write(outputPath, `${JSON.stringify(report, null, 2)}\n`);
 console.log(
 	JSON.stringify({ ok: true, outputPath, claim, gates: report.gates }),
 );
+if (status !== "met" && !reportOnly) process.exitCode = 1;
 
 async function readJson(filePath: string): Promise<Record<string, unknown>> {
 	return JSON.parse(await readFile(filePath, "utf8")) as Record<
@@ -237,18 +258,6 @@ async function readJsonIfExists(
 	return (await stat(filePath).catch(() => null))
 		? await readJson(filePath)
 		: null;
-}
-
-async function readMetricArtifact(
-	filePath: string,
-): Promise<MetricArtifact | null> {
-	return (await stat(filePath).catch(() => null))
-		? (JSON.parse(await readFile(filePath, "utf8")) as MetricArtifact)
-		: null;
-}
-
-function overall(artifact: MetricArtifact | null): Metric | null {
-	return artifact?.metrics.find((item) => item.category === "overall") ?? null;
 }
 
 function sha256(value: Uint8Array): string {

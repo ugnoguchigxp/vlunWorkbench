@@ -24,6 +24,7 @@ const FIXTURES = {
 		healthPath: "/",
 	},
 } as const;
+const activeFixtureIds = new Set<string>();
 
 export function listContainerFixtures() {
 	return Object.entries(FIXTURES).map(([fixtureId, fixture]) => ({
@@ -53,6 +54,18 @@ export function createContainerFixtureResetExecutor(params: {
 	)
 		throw new Error("zap_active_container_fixture_target_mismatch");
 	const spawn = params.spawn ?? spawnBounded;
+	let ownsFixtureClaim = false;
+	const acquireFixture = () => {
+		if (ownsFixtureClaim || activeFixtureIds.has(params.strategy.fixtureId))
+			throw new Error("zap_active_container_fixture_busy");
+		activeFixtureIds.add(params.strategy.fixtureId);
+		ownsFixtureClaim = true;
+	};
+	const releaseFixture = () => {
+		if (!ownsFixtureClaim) return;
+		activeFixtureIds.delete(params.strategy.fixtureId);
+		ownsFixtureClaim = false;
+	};
 	const recreate = async () => {
 		const removed = await spawn(
 			[params.dockerBin ?? "docker", "rm", "-f", fixture.containerName],
@@ -71,6 +84,8 @@ export function createContainerFixtureResetExecutor(params: {
 				"-d",
 				"--name",
 				fixture.containerName,
+				"--pull",
+				"never",
 				"--network",
 				"host",
 				"--memory",
@@ -98,8 +113,22 @@ export function createContainerFixtureResetExecutor(params: {
 		return baselineHash;
 	};
 	return {
-		prepare: async () => ({ baselineHash: await recreate() }),
+		prepare: async () => {
+			acquireFixture();
+			try {
+				return { baselineHash: await recreate() };
+			} catch (error) {
+				releaseFixture();
+				throw error;
+			}
+		},
 		reset: async () => {
+			if (!ownsFixtureClaim)
+				return {
+					ok: false,
+					baselineHash: null,
+					errorCode: "zap_active_container_fixture_not_prepared",
+				};
 			try {
 				return { ok: true, baselineHash: await recreate() };
 			} catch (error) {
@@ -111,6 +140,8 @@ export function createContainerFixtureResetExecutor(params: {
 							? error.message
 							: "zap_active_container_fixture_reset_failed",
 				};
+			} finally {
+				releaseFixture();
 			}
 		},
 	};
@@ -146,7 +177,7 @@ async function waitUntilHealthy(
 				redirect: "manual",
 				signal: controller.signal,
 			});
-			if (response.status >= 200 && response.status < 500) return;
+			if (response.status >= 200 && response.status < 400) return;
 			lastError = `status_${response.status}`;
 		} catch (error) {
 			lastError = error instanceof Error ? error.message : "unreachable";

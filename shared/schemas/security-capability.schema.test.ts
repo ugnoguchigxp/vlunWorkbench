@@ -34,5 +34,12 @@ describe("measured capability claim", () => {
 				passingBenchmarkRunId: null,
 			}).status,
 		).toBe("not_met");
+		expect(() =>
+			measuredCapabilityClaimSchema.parse({
+				...baseClaim,
+				status: "not_met",
+				passingBenchmarkRunId: "00000000-0000-4000-8000-000000000001",
+			}),
+		).toThrow();
 	});
 });

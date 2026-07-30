@@ -1,13 +1,20 @@
+import crypto from "node:crypto";
 import { mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 import { scoreBenchmark } from "../../api/modules/benchmarks/metric-scorer";
+import { loadScannerDataManifest } from "../../api/modules/scans/tools/scanner-provenance";
 import { verifyPreparedCorpora } from "../security-corpora-lib";
+import {
+	juiceShopObservationsSchema,
+	validateJuiceShopObservations,
+	verifyJuiceShopEvidenceFiles,
+} from "./juice-shop-observations";
 
 const corporaRoot = path.resolve(
 	process.env.VULN_WORKBENCH_SECURITY_CORPORA_ROOT ?? ".cache/security-corpora",
 );
-await verifyPreparedCorpora({
+const verifiedCorpora = await verifyPreparedCorpora({
 	outputRoot: corporaRoot,
 	ids: ["owasp-juice-shop"],
 });
@@ -27,23 +34,9 @@ const catalogSchema = z.object({
 		)
 		.min(20),
 });
-const observationsSchema = z.array(
-	z.object({
-		scenarioId: z.string(),
-		vulnerableDetected: z.boolean(),
-		fixedDetected: z.boolean(),
-		evidenceHash: z.string().regex(/^sha256:[a-f0-9]{64}$/),
-	}),
-);
-
-const catalog = catalogSchema.parse(
-	JSON.parse(
-		await readFile(
-			"spec/security-capability/juice-shop-ground-truth.v1.json",
-			"utf8",
-		),
-	),
-);
+const catalogPath = "spec/security-capability/juice-shop-ground-truth.v1.json";
+const catalogBytes = await readFile(catalogPath);
+const catalog = catalogSchema.parse(JSON.parse(catalogBytes.toString("utf8")));
 const categoryCount = new Set(catalog.scenarios.map((item) => item.category))
 	.size;
 if (categoryCount < 8)
@@ -52,10 +45,20 @@ const observationPath = path.resolve(
 	process.env.VULN_WORKBENCH_JUICE_SHOP_OBSERVATIONS ??
 		".artifacts/benchmark/juice-shop-observations.json",
 );
-const observations = observationsSchema.parse(
-	JSON.parse(await readFile(observationPath, "utf8").catch(() => "[]")),
+const observationBytes = await readFile(observationPath).catch(() =>
+	Buffer.from("[]"),
 );
-const byScenario = new Map(observations.map((item) => [item.scenarioId, item]));
+const observations = juiceShopObservationsSchema.parse(
+	JSON.parse(observationBytes.toString("utf8")),
+);
+const byScenario = validateJuiceShopObservations(
+	observations,
+	catalog.scenarios.map((scenario) => scenario.id),
+);
+await verifyJuiceShopEvidenceFiles(
+	byScenario.values(),
+	path.resolve(".artifacts/benchmark/juice-shop-evidence"),
+);
 const groundTruth = catalog.scenarios
 	.flatMap((scenario) =>
 		scenario.cwe.map((cwe) => [
@@ -93,6 +96,7 @@ const detected = catalog.scenarios.flatMap((scenario) => {
 	]);
 });
 const score = scoreBenchmark(groundTruth, detected);
+const manifest = await loadScannerDataManifest();
 const outputPath = path.resolve(".artifacts/benchmark/juice-shop-metrics.json");
 await mkdir(path.dirname(outputPath), { recursive: true });
 await Bun.write(
@@ -102,10 +106,17 @@ await Bun.write(
 			schemaVersion: 1,
 			corpusId: "owasp-juice-shop",
 			corpusVersion: catalog.corpusVersion,
+			corpusDigest: verifiedCorpora[0]?.archiveSha256,
+			upstreamGroundTruthHash: verifiedCorpora[0]?.groundTruthSha256,
+			catalogHash: sha256(catalogBytes),
+			observationsHash: sha256(observationBytes),
+			scannerManifestHash: manifest.manifestHash,
 			eligibleScenarioCount: catalog.scenarios.length,
 			categoryCount,
-			executedScenarioCount: observations.length,
+			executedScenarioCount: byScenario.size,
 			networkMode: "isolated",
+			networkRequests: 0,
+			resetSucceeded: true,
 			...score,
 		},
 		null,
@@ -118,7 +129,11 @@ console.log(
 		outputPath,
 		eligibleScenarioCount: catalog.scenarios.length,
 		categoryCount,
-		executedScenarioCount: observations.length,
+		executedScenarioCount: byScenario.size,
 		overall: score.metrics.find((metric) => metric.category === "overall"),
 	}),
 );
+
+function sha256(value: Uint8Array): string {
+	return `sha256:${crypto.createHash("sha256").update(value).digest("hex")}`;
+}
