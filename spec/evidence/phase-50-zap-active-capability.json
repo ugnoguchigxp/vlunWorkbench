@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
   "phase": "50",
-  "generatedAt": "2026-07-30T12:27:36Z",
+  "generatedAt": "2026-07-30T12:50:24Z",
   "owner": "vulnWorkbench maintainers",
-  "releaseCommit": "a572cfdb9165bd1a5fb592d19b3b51e46711ace8",
-  "scannerManifestHash": "sha256:af88aee2a57b855e1d45ff3d102ba328317ffdeeeb37c0f90fa2ea67c5bf29a4",
+  "releaseCommit": "1983816b78deb5edca3e8d7e6fedb5e2b265d37e",
+  "scannerManifestHash": "sha256:7a2f6285f326022cc36d18919c81a5c1b9cd245a3dcaedf4b16f38718e5b25fc",
   "tool": {
     "id": "zap-active",
     "version": "2.17.0",
