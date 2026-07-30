@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "phase": "50",
+  "generatedAt": "2026-07-30T12:27:36Z",
+  "owner": "vulnWorkbench maintainers",
+  "releaseCommit": "a572cfdb9165bd1a5fb592d19b3b51e46711ace8",
+  "planCommit": "25ae5f7730beb66d1117fb37272f12a74eb551fc",
+  "verification": {
+    "frozenInstall": true,
+    "strictVerification": true,
+    "migrations0023Through0025": true,
+    "foreignKeyCheck": true,
+    "humanApprovalRequiredForCompletion": false
+  },
+  "hashes": {
+    "corpusLock": "sha256:fa37583cb2fc95e0236748a584b02c399624a95e5e2a76c6eaeecbe3637a6859",
+    "scannerManifest": "sha256:af88aee2a57b855e1d45ff3d102ba328317ffdeeeb37c0f90fa2ea67c5bf29a4"
+  },
+  "residualRisk": "External benchmark gates are reported separately and do not inherit a passing result from the baseline verification."
+}

@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "phase": "50",
+  "generatedAt": "2026-07-30T12:27:36Z",
+  "owner": "vulnWorkbench maintainers",
+  "releaseCommit": "a572cfdb9165bd1a5fb592d19b3b51e46711ace8",
+  "scannerManifestHash": "sha256:af88aee2a57b855e1d45ff3d102ba328317ffdeeeb37c0f90fa2ea67c5bf29a4",
+  "tool": {
+    "id": "zap-active",
+    "version": "2.17.0",
+    "imageDigest": "sha256:8d387b1a63e3425beef4846e39719f5af2a787753af2d8b6558c6257d7a577a2",
+    "policyId": "zap-active-disposable-v1",
+    "enabledRuleCount": 9
+  },
+  "verification": {
+    "contractTestsPassed": 12,
+    "contractTestsFailed": 0,
+    "pairedVulnerableFixedReportsPassed": true,
+    "exactOriginMethodPathEnforced": true,
+    "resourceAndRequestBudgetsEnforced": true,
+    "containerRecreateResetVerified": true,
+    "credentialCanaryLeakage": 0,
+    "publicProductionActiveRequests": 0,
+    "fullExternalTargetAttackExecuted": false
+  },
+  "tier": "experimental",
+  "gatePassed": true,
+  "residualRisk": "The Docker and gateway execution contract is verified with paired reports; browser-authenticated and public or production active scanning are explicitly unsupported."
+}

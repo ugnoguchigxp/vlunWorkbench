@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "phase": "50",
+  "generatedAt": "2026-07-30T12:27:36Z",
+  "owner": "vulnWorkbench maintainers",
+  "releaseCommit": "a572cfdb9165bd1a5fb592d19b3b51e46711ace8",
+  "scannerManifestHash": "sha256:af88aee2a57b855e1d45ff3d102ba328317ffdeeeb37c0f90fa2ea67c5bf29a4",
+  "ruleset": {
+    "id": "curated-sast-v1",
+    "version": "1.0.0",
+    "ruleCount": 40,
+    "languageCount": 5,
+    "minimumSecurityFamiliesPerLanguage": 6,
+    "positiveFixtureCount": 80,
+    "negativeFixtureCount": 80
+  },
+  "metrics": {
+    "positiveRecall": 1,
+    "negativeFalsePositive": 0,
+    "networkRequests": 0
+  },
+  "gates": {
+    "configurationValid": true,
+    "ruleTestsPassed": true,
+    "catalogPolicyPassed": true
+  },
+  "residualRisk": "Owned fixtures cover the declared catalog; external OWASP Benchmark performance remains a separate failing gate."
+}

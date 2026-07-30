@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "phase": "50",
+  "generatedAt": "2026-07-30T12:27:36Z",
+  "owner": "vulnWorkbench maintainers",
+  "releaseCommit": "a572cfdb9165bd1a5fb592d19b3b51e46711ace8",
+  "claim": {
+    "claimId": "measured-automated-web-api-assessment-v1",
+    "status": "not_met",
+    "scopeCatalogVersion": "1.0.0",
+    "benchmarkPolicyVersion": "1.0.0",
+    "passingBenchmarkRunId": null,
+    "unsupportedCapabilities": [
+      "arbitrary-scanner-script",
+      "browser-authenticated-zap-active",
+      "network-cloud-ad-mobile-wireless-social-engineering",
+      "production-active-attack"
+    ]
+  },
+  "hashes": {
+    "corpusLock": "sha256:fa37583cb2fc95e0236748a584b02c399624a95e5e2a76c6eaeecbe3637a6859",
+    "scannerManifest": "sha256:af88aee2a57b855e1d45ff3d102ba328317ffdeeeb37c0f90fa2ea67c5bf29a4"
+  },
+  "gates": {
+    "contracts": true,
+    "semgrep": true,
+    "osv": true,
+    "zapActiveContract": true,
+    "threatModel": true,
+    "owasp": false,
+    "juiceShop": false,
+    "businessLogic": true,
+    "endpointDiscovery": true
+  },
+  "invariants": {
+    "requiredOwnerPresent": true,
+    "unsupportedCapabilitiesDisclosed": true,
+    "humanApprovalRequiredForCompletion": false,
+    "llmOnlyHypothesisPromotedToConfirmedFinding": 0,
+    "supportedCapabilityHasFixtureOrMetric": true,
+    "allEvidenceReferencesSameReleaseCommit": true
+  },
+  "residualRisk": "The implementation and safety contracts are complete, but the measured professional capability claim remains not_met until both OWASP Benchmark and Juice Shop external gates pass on a versioned benchmark run."
+}

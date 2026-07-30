@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "phase": "50",
+  "generatedAt": "2026-07-30T12:27:36Z",
+  "owner": "vulnWorkbench maintainers",
+  "releaseCommit": "a572cfdb9165bd1a5fb592d19b3b51e46711ace8",
+  "scannerManifestHash": "sha256:af88aee2a57b855e1d45ff3d102ba328317ffdeeeb37c0f90fa2ea67c5bf29a4",
+  "databaseSupplied": true,
+  "networkRequests": 0,
+  "matrix": [
+    {
+      "ecosystem": "Go",
+      "expectedId": "GO-2022-1059",
+      "vulnerableDetected": true,
+      "fixedDetected": false
+    },
+    {
+      "ecosystem": "Maven",
+      "expectedId": "GHSA-jfh8-c2jp-5v3q",
+      "vulnerableDetected": true,
+      "fixedDetected": false
+    },
+    {
+      "ecosystem": "NuGet",
+      "expectedId": "GHSA-5crp-9r3c-p9vr",
+      "vulnerableDetected": true,
+      "fixedDetected": false
+    },
+    {
+      "ecosystem": "Packagist",
+      "expectedId": "GHSA-mrqx-rp3w-jpjp",
+      "vulnerableDetected": true,
+      "fixedDetected": false
+    },
+    {
+      "ecosystem": "PyPI",
+      "expectedId": "GHSA-9hjg-9r4m-mvj7",
+      "vulnerableDetected": true,
+      "fixedDetected": false
+    },
+    {
+      "ecosystem": "RubyGems",
+      "expectedId": "GHSA-22f2-v57c-j9cx",
+      "vulnerableDetected": true,
+      "fixedDetected": false
+    },
+    {
+      "ecosystem": "crates.io",
+      "expectedId": "RUSTSEC-2020-0071",
+      "vulnerableDetected": true,
+      "fixedDetected": false
+    },
+    {
+      "ecosystem": "npm",
+      "expectedId": "GHSA-35jh-r3h4-6jhm",
+      "vulnerableDetected": true,
+      "fixedDetected": false
+    }
+  ],
+  "gatePassed": true,
+  "residualRisk": "The result is bounded to the pinned OSV database snapshots and fixture manifests recorded by the scanner manifest."
+}

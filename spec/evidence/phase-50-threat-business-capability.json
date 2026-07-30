@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "phase": "50",
+  "generatedAt": "2026-07-30T12:27:36Z",
+  "owner": "vulnWorkbench maintainers",
+  "releaseCommit": "a572cfdb9165bd1a5fb592d19b3b51e46711ace8",
+  "applicationModel": {
+    "supportedFrameworkCount": 11,
+    "truePositive": 11,
+    "falsePositive": 1,
+    "falseNegative": 0,
+    "recall": 1,
+    "precision": 0.9166666666666666,
+    "sourceOpenApiRuntimeEvidenceRequired": true
+  },
+  "threatModel": {
+    "contractTestsPassed": 5,
+    "deterministicFallbackPassed": true,
+    "evidenceRefRequired": true,
+    "llmOnlyHypothesisPromotedToConfirmedFinding": 0
+  },
+  "businessLogic": {
+    "pairedScenarioCount": 8,
+    "truePositive": 8,
+    "falseNegative": 0,
+    "trueNegative": 8,
+    "falsePositive": 0,
+    "recall": 1,
+    "precision": 1,
+    "cleanupFailureCanPass": false,
+    "startupRecoveryEnabled": true
+  },
+  "gates": {
+    "endpointDiscovery": true,
+    "threatModelContracts": true,
+    "businessLogic": true,
+    "confirmedFindingWithoutExecutableEvidence": 0
+  },
+  "residualRisk": "Hypotheses remain distinct from findings until scanner or bounded executable evidence exists; unresolved cleanup failures block subsequent business-logic runs."
+}

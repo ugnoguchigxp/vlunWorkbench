@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 1,
+  "phase": "50",
+  "generatedAt": "2026-07-30T12:27:36Z",
+  "owner": "vulnWorkbench maintainers",
+  "releaseCommit": "a572cfdb9165bd1a5fb592d19b3b51e46711ace8",
+  "corpusLockHash": "sha256:fa37583cb2fc95e0236748a584b02c399624a95e5e2a76c6eaeecbe3637a6859",
+  "scannerManifestHash": "sha256:af88aee2a57b855e1d45ff3d102ba328317ffdeeeb37c0f90fa2ea67c5bf29a4",
+  "owaspBenchmark": {
+    "corpusVersion": "1.2beta",
+    "corpusDigest": "sha256:1220eda11513b2f388b069d624509d2039398c75c3fbe36219dc6bc3bb0a39ff",
+    "expectedResultsHash": "sha256:ae8e9386b13ec0164500f1a6fa3d0fa981495911a0f29e88a611e9a9df1b4567",
+    "rawScannerArtifactHash": "sha256:39863f6abf03b6a79b7f28167ef80619b73ab47a2c076bb31c8f79391af8e3e6",
+    "normalizedFindingSnapshotHash": "sha256:87b8e39f8748a678a6c473b81a65f8ba22ab6f4b2f565a07395471ac064b9b9f",
+    "metricOutputHash": "sha256:b175f80f0e4aaf3b1a84e9e8e0c767e988626913a9769e475bb896d4d9380ac5",
+    "networkRequests": 0,
+    "resetSucceeded": true,
+    "metrics": {
+      "truePositive": 73,
+      "falseNegative": 1342,
+      "trueNegative": 1258,
+      "falsePositive": 394,
+      "recall": 0.051590106007067135,
+      "precision": 0.15631691648822268,
+      "falsePositiveRate": 0.23849878934624696,
+      "score": -0.18690868333917982
+    },
+    "gatePassed": false
+  },
+  "juiceShop": {
+    "corpusVersion": "20.1.1",
+    "corpusDigest": "sha256:855fc3af17c3f04261c1e3668742b731e00e80394e8004fbb80d82c5abd0e513",
+    "groundTruthHash": "sha256:77caf993c794fad890a5e962dd9022e88fc39fb6c1e540010b6c47c042e6fcda",
+    "eligibleScenarioCount": 20,
+    "categoryCount": 9,
+    "executedScenarioCount": 0,
+    "metrics": {
+      "truePositive": 0,
+      "falseNegative": 20,
+      "trueNegative": 20,
+      "falsePositive": 0,
+      "recall": 0,
+      "precision": null,
+      "falsePositiveRate": 0,
+      "score": 0
+    },
+    "gatePassed": false
+  },
+  "residualRisk": "OWASP Benchmark recall and precision are below policy thresholds, and Juice Shop has no executed external observations; neither gate is represented as passing."
+}
