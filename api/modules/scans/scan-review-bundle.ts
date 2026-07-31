@@ -80,6 +80,7 @@ function compactScanRunMetadata(metadata: unknown): Record<string, unknown> {
 		"runner",
 		"executionPolicy",
 		"profileOutcome",
+		"runtimeAssessmentCoverage",
 	]) {
 		if (source[key] !== undefined) compact[key] = source[key];
 	}

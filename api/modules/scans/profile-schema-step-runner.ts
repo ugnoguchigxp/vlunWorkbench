@@ -2,6 +2,10 @@ import fs from "node:fs/promises";
 import type { AppDatabase } from "../../db";
 import { discoverApiSchema } from "../api-schema-fuzz/schema-discovery";
 import { runSchemathesisReadonly } from "../api-schema-fuzz/schemathesis-runner";
+import {
+	prepareContainerTargetGateway,
+	type PreparedContainerTargetGateway,
+} from "../dast/container-target-gateway";
 import type { ArtifactStorage } from "./artifact-storage";
 import {
 	ArtifactRepository,
@@ -19,6 +23,10 @@ export async function runSchemaScannerIntoExistingScan(params: {
 	artifactStorage: ArtifactStorage;
 	timeoutSec?: number;
 	execution?: ToolExecutionConfig;
+	allowedPaths?: string[];
+	excludedPaths?: string[];
+	maxRequests?: number;
+	rateLimitPerSec?: number;
 }): Promise<{
 	applicable: boolean;
 	reasonCode?: string;
@@ -26,6 +34,7 @@ export async function runSchemaScannerIntoExistingScan(params: {
 	findingCount: number;
 	artifactIds: string[];
 	error?: string;
+	metadata?: Record<string, unknown>;
 }> {
 	const discovery = await discoverApiSchema({
 		repoPath: params.repoPath,
@@ -54,12 +63,25 @@ export async function runSchemaScannerIntoExistingScan(params: {
 		},
 	});
 	let result: Awaited<ReturnType<typeof runSchemathesisReadonly>>;
+	let gateway: PreparedContainerTargetGateway | null = null;
 	try {
+		gateway = await prepareContainerTargetGateway({
+			upstreamOrigin: params.targetOrigin,
+			allowedPaths: params.allowedPaths ?? ["/"],
+			excludedPaths: params.excludedPaths ?? [],
+			maxRequests: params.maxRequests ?? 30,
+			rateLimitPerSec: params.rateLimitPerSec ?? 2,
+			dockerBin: params.execution?.docker?.dockerBin,
+			containerAccess: params.execution?.runner === "docker",
+		});
 		result = await runSchemathesisReadonly({
 			scanRunId: params.scanRunId,
 			schemaPath: discovery.schemaPath,
 			repoPath: discovery.source === "repository" ? params.repoPath : undefined,
-			targetOrigin: params.targetOrigin,
+			targetOrigin:
+				params.execution?.runner === "docker"
+					? gateway.containerOrigin
+					: gateway.hostOrigin,
 			storage: params.artifactStorage,
 			execution: params.execution,
 			timeoutSec: params.timeoutSec,
@@ -78,6 +100,7 @@ export async function runSchemaScannerIntoExistingScan(params: {
 			error: message,
 		};
 	} finally {
+		await gateway?.stop().catch(() => undefined);
 		if (discovery.cleanupPath)
 			await fs.rm(discovery.cleanupPath, { recursive: true, force: true });
 	}
@@ -139,6 +162,7 @@ export async function runSchemaScannerIntoExistingScan(params: {
 			findingCount: 0,
 			artifactIds,
 			error: result.error ?? "execution_failed",
+			metadata: { gatewayMetrics: gateway?.metrics() ?? null },
 		};
 	}
 	for (const finding of result.findings) {
@@ -179,5 +203,6 @@ export async function runSchemaScannerIntoExistingScan(params: {
 		toolRunId: toolRun.id,
 		findingCount: result.findings.length,
 		artifactIds,
+		metadata: { gatewayMetrics: gateway?.metrics() ?? null },
 	};
 }

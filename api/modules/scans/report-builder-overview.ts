@@ -16,10 +16,12 @@ export function renderReportOverview(
 	scope: Awaited<ReturnType<typeof buildReportQuery>>,
 ) {
 	const {
+		allDastRuns,
 		allDastEvidence,
 		allDynamicRuns,
 		allReproRuns,
 		decidedFindingCount,
+		expectedDastSteps,
 		includedFindings,
 		latestImprovementRequest,
 		processedFindings,
@@ -41,6 +43,16 @@ export function renderReportOverview(
 	// Scan Summary
 	const profileOutcome = (scanRun.metadata?.profileOutcome as string) || "N/A";
 	const diffContext = readDiffReportContext(scanRun.metadata);
+	const limitedDast =
+		expectedDastSteps.length > 0 &&
+		(allDastRuns.length === 0 ||
+			allDastRuns.some(
+				(run) =>
+					run.coverageStatus !== "covered" ||
+					!["findings", "no_findings_observed"].includes(
+						run.verdict ?? "unknown_legacy",
+					),
+			));
 	lines.push("## スキャン概要");
 	lines.push(`- **プロジェクト名:** ${toInlineText(project.name)}`);
 	lines.push(`- **スキャンプロファイル:** ${toInlineText(scanRun.profile)}`);
@@ -113,6 +125,10 @@ export function renderReportOverview(
 		) {
 			lines.push(
 				"- **結論:** 差分対象のscanner実行が完了していないため、finding 0件を安全性の判断には使用できません。失敗または未実行のtoolを確認してください。",
+			);
+		} else if (limitedDast) {
+			lines.push(
+				"- **結論:** DASTに未走査・通信失敗・認証失敗またはcoverage不明の領域があるため、finding 0件を合格や脆弱性不存在として扱えません。",
 			);
 		} else {
 			lines.push(

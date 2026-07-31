@@ -30,6 +30,10 @@ describe("DastArtifactStorage", () => {
 		expect(text.sizeBytes).toBeGreaterThan(0);
 		expect(png.sizeBytes).toBe(3);
 		expect(await storage.readTextArtifact(json.path)).toContain('"ok": true');
+		if (process.platform !== "win32") {
+			const stat = await fs.stat(path.join(tempDir, json.path));
+			expect(stat.mode & 0o777).toBe(0o600);
+		}
 	});
 
 	it("redacts DAST auth headers and cookies before persistence", async () => {

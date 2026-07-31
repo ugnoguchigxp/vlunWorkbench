@@ -67,11 +67,71 @@ describe("container target gateway", () => {
 		const same = await fetch(`${gateway.hostOrigin}/same`, { redirect: "manual" });
 		expect(same.status).toBe(302);
 		expect(same.headers.get("location")).toBe(`${gateway.hostOrigin}/next`);
+		const spoofedHost = await fetch(`${gateway.hostOrigin}/same`, {
+			headers: { host: "evil.example" },
+			redirect: "manual",
+		});
+		expect(spoofedHost.headers.get("location")).toBe(
+			`${gateway.hostOrigin}/next`,
+		);
 		const external = await fetch(`${gateway.hostOrigin}/external`, { redirect: "manual" });
 		expect(external.status).toBe(302);
 		expect(external.headers.get("location")).toBeNull();
 		expect(gateway.metrics().redirectBlockedResponses).toBe(1);
 		await gateway.stop();
+		await gateway.stop();
+	});
+
+	it("bounds scanner response bodies and reports truncation", async () => {
+		const upstream = http.createServer((_req, res) => {
+			res.writeHead(200, { "content-type": "text/plain" });
+			res.end("0123456789abcdef");
+		});
+		const port = await listen(upstream);
+		const gateway = await prepareContainerTargetGateway({
+			upstreamOrigin: `http://127.0.0.1:${port}`,
+			allowedPaths: ["/"],
+			excludedPaths: [],
+			maxRequests: 10,
+			rateLimitPerSec: 100,
+			maxResponseBytes: 8,
+			maxTotalResponseBytes: 16,
+			containerAccess: false,
+		});
+
+		const response = await fetch(`${gateway.hostOrigin}/`);
+		expect(await response.text()).toBe("01234567");
+		expect(response.headers.get("x-vuln-workbench-gateway-body")).toBe(
+			"truncated",
+		);
+		expect(gateway.metrics()).toMatchObject({
+			responseBytesRead: 8,
+			responseBodyTruncatedResponses: 1,
+		});
+		await gateway.stop();
+	});
+
+	it("strips connection-declared response headers", async () => {
+		const upstream = http.createServer((_req, res) => {
+			res.writeHead(200, {
+				Connection: "X-Upstream-Hop",
+				"X-Upstream-Hop": "must-not-forward",
+			});
+			res.end("ok");
+		});
+		const port = await listen(upstream);
+		const gateway = await prepareContainerTargetGateway({
+			upstreamOrigin: `http://127.0.0.1:${port}`,
+			allowedPaths: ["/"],
+			excludedPaths: [],
+			maxRequests: 1,
+			rateLimitPerSec: 100,
+			containerAccess: false,
+		});
+
+		const response = await fetch(`${gateway.hostOrigin}/`);
+		expect(response.status).toBe(200);
+		expect(response.headers.get("x-upstream-hop")).toBeNull();
 		await gateway.stop();
 	});
 });

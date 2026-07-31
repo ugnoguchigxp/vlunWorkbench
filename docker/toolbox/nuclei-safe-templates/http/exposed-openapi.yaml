@@ -1,0 +1,23 @@
+id: exposed-openapi-document
+
+info:
+  name: Public OpenAPI document
+  author: vuln-workbench
+  severity: info
+  description: An OpenAPI document is publicly readable and should be reviewed for intended exposure.
+  tags: exposure,api,safe
+
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}/openapi.json"
+      - "{{BaseURL}}/swagger.json"
+    stop-at-first-match: true
+    matchers:
+      - type: dsl
+        condition: and
+        dsl:
+          - "status_code == 200"
+          - "len(body) < 1048576"
+          - "contains_any(to_lower(body), '\"openapi\"', '\"swagger\"')"
+          - "contains(to_lower(body), '\"paths\"')"

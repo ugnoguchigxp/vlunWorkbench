@@ -1,16 +1,23 @@
 import { useEffect, useState } from "react";
 import {
 	type DastArtifact,
+	type DastAuthContext,
 	type DastEvidence,
 	type DastProfile,
 	type DastProfileConfig,
 	type DastRun,
+	type DastRouteInventoryEntry,
 	type DastTargetConfig,
 	fetchDastRunArtifacts,
+	fetchProjectDastAuthContexts,
 	fetchProjectDastProfiles,
 	fetchProjectDastRuns,
 	fetchProjectDastTargets,
 	fetchScans,
+	createProjectDastAuthContext,
+	revokeProjectDastAuthContext,
+	rotateProjectDastAuthContext,
+	saveProjectDastProfile,
 	saveProjectDastTarget,
 	type ScanRun,
 	triggerProjectDastRun,
@@ -48,9 +55,19 @@ export function useDastController({
 		DastProfileConfig[]
 	>([]);
 	const [dastRuns, setDastRuns] = useState<DastRun[]>([]);
+	const [dastAuthContexts, setDastAuthContexts] = useState<DastAuthContext[]>(
+		[],
+	);
 	const [selectedDastTargetId, setSelectedDastTargetId] = useState("");
-	const [selectedDastProfileId, setSelectedDastProfileId] =
-		useState("http-baseline");
+	const [selectedDastProfileId, setSelectedDastProfileId] = useState(
+		"web-passive-standard",
+	);
+	const [selectedDastAuthContextId, setSelectedDastAuthContextId] =
+		useState("");
+	const [dastIdentityRole, setDastIdentityRole] = useState("test-user");
+	const [dastAuthLabel, setDastAuthLabel] = useState("DAST test identity");
+	const [dastBearerToken, setDastBearerToken] = useState("");
+	const [dastAuthStatusPath, setDastAuthStatusPath] = useState("/");
 	const [dastTargetOrigin, setDastTargetOrigin] = useState("");
 	const [lastAutoDastTargetOrigin, setLastAutoDastTargetOrigin] = useState<
 		string | null
@@ -66,6 +83,9 @@ export function useDastController({
 	const [dastRunEvidence, setDastRunEvidence] = useState<
 		Record<string, DastEvidence[]>
 	>({});
+	const [dastRunRoutes, setDastRunRoutes] = useState<
+		Record<string, DastRouteInventoryEntry[]>
+	>({});
 
 	useEffect(() => {
 		setDastTargetOrigin("");
@@ -76,21 +96,29 @@ export function useDastController({
 			setDastProfiles([]);
 			setDastProfileConfigs([]);
 			setDastRuns([]);
+			setDastAuthContexts([]);
 			return;
 		}
 		void Promise.all([
 			fetchProjectDastTargets(selectedProjectId),
 			fetchProjectDastProfiles(selectedProjectId),
 			fetchProjectDastRuns(selectedProjectId),
+			fetchProjectDastAuthContexts(selectedProjectId),
 		])
-			.then(([targets, profilesRes, runs]) => {
+			.then(([targets, profilesRes, runs, authContexts]) => {
 				const visibleTargets = targets.targets.filter(isVisibleDastTarget);
 				setDastTargets(visibleTargets);
 				setDastProfiles(profilesRes.profiles);
 				setDastProfileConfigs(profilesRes.configs);
 				setDastRuns(runs.dastRuns);
+				setDastAuthContexts(authContexts.authContexts);
 				setSelectedDastTargetId(
 					visibleTargets.find((target) => target.enabled)?.id ?? "",
+				);
+				setSelectedDastAuthContextId(
+					authContexts.authContexts.find(
+						(context) => context.status === "active",
+					)?.id ?? "",
 				);
 			})
 			.catch((err) => {
@@ -103,8 +131,30 @@ export function useDastController({
 				setDastProfiles([]);
 				setDastProfileConfigs([]);
 				setDastRuns([]);
+				setDastAuthContexts([]);
 			});
 	}, [active, selectedProjectId]);
+
+	useEffect(() => {
+		if (!selectedDastTargetId) {
+			setSelectedDastAuthContextId("");
+			return;
+		}
+		const current = dastAuthContexts.find(
+			(context) =>
+				context.id === selectedDastAuthContextId &&
+				context.targetConfigId === selectedDastTargetId &&
+				context.status === "active",
+		);
+		if (current) return;
+		const next = dastAuthContexts.find(
+			(context) =>
+				context.targetConfigId === selectedDastTargetId &&
+				context.status === "active",
+		);
+		setSelectedDastAuthContextId(next?.id ?? "");
+		if (next) setDastIdentityRole(next.identityRole);
+	}, [dastAuthContexts, selectedDastAuthContextId, selectedDastTargetId]);
 
 	const refreshDastRuns = async () => {
 		if (selectedProjectId) {
@@ -121,8 +171,8 @@ export function useDastController({
 			name: manualDastTargetName(origin),
 			origin,
 			allowedPathsJson: ["/"],
-			maxDepth: 0,
-			maxRequests: 20,
+			maxDepth: 2,
+			maxRequests: 100,
 			rateLimitPerSec: 2,
 			timeoutSec: 120,
 		});
@@ -156,6 +206,10 @@ export function useDastController({
 		const res = await fetchDastRunArtifacts(runId);
 		setDastRunArtifacts((prev) => ({ ...prev, [runId]: res.artifacts }));
 		setDastRunEvidence((prev) => ({ ...prev, [runId]: res.evidence }));
+		setDastRunRoutes((prev) => ({
+			...prev,
+			[runId]: res.routeInventory,
+		}));
 	};
 
 	const applyDastRunResult = async (res: {
@@ -197,17 +251,40 @@ export function useDastController({
 				);
 				return;
 			}
-			const profileConfig = dastProfileConfigs.find(
+			let profileConfig = dastProfileConfigs.find(
 				(item) =>
 					item.profileId === selectedDastProfileId &&
 					item.targetConfigId === targetConfigId &&
 					item.enabled,
 			);
+			const selectedProfile = dastProfiles.find(
+				(profile) => profile.id === selectedDastProfileId,
+			);
+			if (!profileConfig && selectedProfile?.requiresRoutes) {
+				const createdProfileConfig = (
+					await saveProjectDastProfile(selectedProjectId, {
+						targetConfigId,
+						profileId: selectedDastProfileId,
+						displayName: `${selectedProfile.displayName} UI profile`,
+						routePathsJson: [dastAuthStatusPath.trim() || "/"],
+						checkOptionsJson: { screenshotEnabled: false },
+					})
+				).config;
+				profileConfig = createdProfileConfig;
+				setDastProfileConfigs((current) => [...current, createdProfileConfig]);
+			}
 			const res = await triggerProjectDastRun(selectedProjectId, {
 				targetConfigId,
 				profileId: selectedDastProfileId,
 				profileConfigId: profileConfig?.id,
 				runner: "host",
+				...(selectedDastProfileId === "authenticated-readonly-standard" ||
+				selectedDastProfileId === "authenticated-readonly"
+					? {
+							authContextId: selectedDastAuthContextId,
+							identityRole: dastIdentityRole,
+						}
+					: {}),
 			});
 			await applyDastRunResult(res);
 		} catch (err) {
@@ -228,7 +305,7 @@ export function useDastController({
 		try {
 			const res = await triggerProjectDastRun(selectedProjectId, {
 				autoTarget: true,
-				profileId: "http-baseline",
+				profileId: "web-passive-standard",
 				runner: "host",
 			});
 			setDastTargets(
@@ -240,6 +317,115 @@ export function useDastController({
 		} catch (err) {
 			setDastError(
 				err instanceof Error ? err.message : "自動 DAST の実行に失敗しました。",
+			);
+		} finally {
+			setDastLoading(false);
+		}
+	};
+
+	const refreshAuthContexts = async () => {
+		if (!selectedProjectId) return;
+		const contexts = (await fetchProjectDastAuthContexts(selectedProjectId))
+			.authContexts;
+		setDastAuthContexts(contexts);
+		setSelectedDastAuthContextId((current) =>
+			contexts.some((context) => context.id === current)
+				? current
+				: (contexts.find((context) => context.status === "active")?.id ?? ""),
+		);
+	};
+
+	const handleCreateDastAuthContext = async () => {
+		if (
+			!selectedProjectId ||
+			!selectedDastTargetId ||
+			!dastBearerToken.trim() ||
+			!dastIdentityRole.trim()
+		) {
+			return;
+		}
+		setDastLoading(true);
+		setDastError(null);
+		try {
+			const created = await createProjectDastAuthContext(selectedProjectId, {
+				targetConfigId: selectedDastTargetId,
+				identityRole: dastIdentityRole.trim(),
+				label: dastAuthLabel.trim() || "DAST test identity",
+				secret: { kind: "bearer_token", token: dastBearerToken },
+				loginFlow: [],
+				successAssertions: [
+					{
+						kind: "status",
+						path: dastAuthStatusPath.trim() || "/",
+						expected: [200, 204],
+					},
+				],
+				expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+			});
+			setDastBearerToken("");
+			await refreshAuthContexts();
+			setSelectedDastAuthContextId(created.authContext.id);
+		} catch (error) {
+			setDastError(
+				error instanceof Error
+					? error.message
+					: "認証コンテキストの作成に失敗しました。",
+			);
+		} finally {
+			setDastLoading(false);
+		}
+	};
+
+	const handleRotateDastAuthContext = async () => {
+		const selectedContext = dastAuthContexts.find(
+			(context) => context.id === selectedDastAuthContextId,
+		);
+		if (
+			!selectedProjectId ||
+			!selectedDastAuthContextId ||
+			selectedContext?.authKind !== "bearer_token" ||
+			!dastBearerToken.trim()
+		)
+			return;
+		setDastLoading(true);
+		setDastError(null);
+		try {
+			await rotateProjectDastAuthContext(
+				selectedProjectId,
+				selectedDastAuthContextId,
+				{
+					secret: { kind: "bearer_token", token: dastBearerToken },
+					expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+				},
+			);
+			setDastBearerToken("");
+			await refreshAuthContexts();
+		} catch (error) {
+			setDastError(
+				error instanceof Error
+					? error.message
+					: "認証コンテキストのローテーションに失敗しました。",
+			);
+		} finally {
+			setDastLoading(false);
+		}
+	};
+
+	const handleRevokeDastAuthContext = async () => {
+		if (!selectedProjectId || !selectedDastAuthContextId) return;
+		setDastLoading(true);
+		setDastError(null);
+		try {
+			await revokeProjectDastAuthContext(
+				selectedProjectId,
+				selectedDastAuthContextId,
+			);
+			await refreshAuthContexts();
+		} catch (error) {
+			setDastError(
+				error instanceof Error
+					? error.message
+					: "認証コンテキストの失効に失敗しました。",
 			);
 		} finally {
 			setDastLoading(false);
@@ -263,10 +449,21 @@ export function useDastController({
 		dastProfiles,
 		dastProfileConfigs,
 		dastRuns,
+		dastAuthContexts,
 		selectedDastTargetId,
 		setSelectedDastTargetId,
 		selectedDastProfileId,
 		setSelectedDastProfileId,
+		selectedDastAuthContextId,
+		setSelectedDastAuthContextId,
+		dastIdentityRole,
+		setDastIdentityRole,
+		dastAuthLabel,
+		setDastAuthLabel,
+		dastBearerToken,
+		setDastBearerToken,
+		dastAuthStatusPath,
+		setDastAuthStatusPath,
 		dastTargetOrigin,
 		setDastTargetOrigin,
 		lastAutoDastTargetOrigin,
@@ -275,9 +472,13 @@ export function useDastController({
 		expandedDastRunId,
 		dastRunArtifacts,
 		dastRunEvidence,
+		dastRunRoutes,
 		handleCreateDastTarget,
 		handleTriggerDastRun,
 		handleAutoDastRun,
 		handleToggleDastRun,
+		handleCreateDastAuthContext,
+		handleRotateDastAuthContext,
+		handleRevokeDastAuthContext,
 	};
 }

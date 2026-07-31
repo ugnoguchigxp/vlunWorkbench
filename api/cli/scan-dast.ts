@@ -23,6 +23,7 @@ type DastCliArgs = {
 	"dry-run"?: string;
 	"auth-context-id"?: string;
 	"identity-role"?: string;
+	"created-by-user-id"?: string;
 };
 
 function writeResult(payload: Record<string, unknown>): void {
@@ -60,6 +61,7 @@ async function main() {
 				"dry-run": { type: "string", default: "false" },
 				"auth-context-id": { type: "string" },
 				"identity-role": { type: "string" },
+				"created-by-user-id": { type: "string" },
 			},
 			strict: true,
 		});
@@ -97,8 +99,7 @@ async function main() {
 	if (
 		values.runner !== undefined &&
 		values.runner !== "host" &&
-		values.runner !== "docker" &&
-		values.runner !== "mock"
+		values.runner !== "docker"
 	) {
 		writeResult({
 			ok: false,
@@ -107,7 +108,7 @@ async function main() {
 			status: "failed",
 			outcome: "error",
 			failureKind: "dast_target_rejected",
-			message: "--runner must be host, docker, or mock.",
+			message: "--runner must be host or docker.",
 		});
 		process.exit(1);
 	}
@@ -131,6 +132,20 @@ async function main() {
 	}
 
 	const env = readAppEnv();
+	if (!env.dastStandardV2Enabled && profileId.includes("standard")) {
+		writeResult({
+			ok: false,
+			dastRunId: null,
+			scanRunId: values["scan-run-id"] ?? null,
+			status: "failed",
+			outcome: "error",
+			verdict: "not_tested",
+			coverageStatus: "gap",
+			failureKind: "dast_target_rejected",
+			message: "DAST standard v2 is disabled.",
+		});
+		process.exit(1);
+	}
 	const connection = createDbConnection(env.databaseUrl);
 	let preparedAutoTarget: Awaited<
 		ReturnType<typeof prepareDastTargetWorkspace>
@@ -160,6 +175,7 @@ async function main() {
 			const target = await dastRepo.createTargetConfig({
 				projectId,
 				...preparedAutoTarget.targetConfig,
+				createdByUserId: values["created-by-user-id"] ?? null,
 			});
 			targetConfigId = target.id;
 		}
@@ -179,13 +195,14 @@ async function main() {
 			profileId,
 			profileConfigId: values["profile-config-id"] ?? null,
 			scanRunId: values["scan-run-id"] ?? null,
-			runner: values.runner as "host" | "docker" | "mock",
+			runner: values.runner as "host" | "docker",
 			dockerImage: values["docker-image"],
 			timeoutSec,
 			maxRequests,
 			dryRun: values["dry-run"] === "true",
 			authContextId: values["auth-context-id"] ?? null,
 			identityRole: values["identity-role"] ?? null,
+			createdByUserId: values["created-by-user-id"] ?? null,
 		};
 		const result = runOptions.dryRun
 			? await runner.dryRun(runOptions)
@@ -205,15 +222,6 @@ async function main() {
 								: "Automated diagnostic failed.",
 					}))
 				: null;
-		if (preparedAutoTarget) {
-			await dastRepo.updateTargetConfig(targetConfigId as string, {
-				enabled: false,
-				metadata: {
-					...preparedAutoTarget.targetConfig.metadata,
-					autoPreparedCompletedAt: new Date().toISOString(),
-				},
-			});
-		}
 		writeResult(
 			preparedAutoTarget && result.ok
 				? {
@@ -248,6 +256,17 @@ async function main() {
 		process.exitCode = 1;
 		return;
 	} finally {
+		if (preparedAutoTarget && targetConfigId) {
+			await dastRepo
+				.updateTargetConfig(targetConfigId, {
+					enabled: false,
+					metadata: {
+						...preparedAutoTarget.targetConfig.metadata,
+						autoPreparedCompletedAt: new Date().toISOString(),
+					},
+				})
+				.catch(() => undefined);
+		}
 		await preparedAutoTarget?.stop().catch(() => undefined);
 		connection.sqlite.close(false);
 	}

@@ -20,6 +20,8 @@ describe("ZapBaselineRunner", () => {
 				methodBlockedRequests: 0,
 				pathBlockedRequests: 0,
 				redirectBlockedResponses: 0,
+				responseBytesRead: 0,
+				responseBodyTruncatedResponses: 0,
 			}),
 			stop: async () => undefined,
 		};
@@ -82,7 +84,7 @@ describe("ZapBaselineRunner", () => {
 		const root = await fs.mkdtemp(path.join(os.tmpdir(), "zap-runner-test-"));
 		const storage = new ArtifactStorage(path.join(root, "artifacts"));
 		const stop = vi.fn(async () => undefined);
-		const gateway = { hostOrigin: "http://127.0.0.1:4567", containerOrigin: "http://host.docker.internal:4567", metrics: () => ({ forwardedRequests: 2, budgetBlockedRequests: 1, methodBlockedRequests: 0, pathBlockedRequests: 0, redirectBlockedResponses: 0 }), stop };
+		const gateway = { hostOrigin: "http://127.0.0.1:4567", containerOrigin: "http://host.docker.internal:4567", metrics: () => ({ forwardedRequests: 2, budgetBlockedRequests: 1, methodBlockedRequests: 0, pathBlockedRequests: 0, redirectBlockedResponses: 0, responseBytesRead: 100, responseBodyTruncatedResponses: 0 }), stop };
 		const spawn = (args: string[]) => {
 			if (args.includes("python3")) return { exited: Promise.resolve(0), stdout: stream("200"), stderr: stream("") };
 			const mount = args[args.indexOf("-v") + 1] ?? "";
@@ -120,5 +122,57 @@ describe("ZapBaselineRunner", () => {
 		const invalid = await runWithExitCode(0, "{}")();
 		expect(invalid.ok).toBe(false);
 		expect(invalid.reasonCode).toBe("invalid_structured_output");
+	});
+
+	it("rejects a ZAP report larger than the bounded input limit", async () => {
+		const result = await runWithExitCode(
+			0,
+			" ".repeat(20 * 1024 * 1024 + 1),
+		)();
+
+		expect(result.ok).toBe(false);
+		expect(result.reasonCode).toBe("invalid_structured_output");
+		expect(result.stderr).toContain("ZAP report exceeds");
+	});
+
+	it("bounds output collection when a timed-out Docker stream never closes", async () => {
+		const root = await fs.mkdtemp(path.join(os.tmpdir(), "zap-timeout-test-"));
+		const storage = new ArtifactStorage(path.join(root, "artifacts"));
+		const stop = vi.fn(async () => undefined);
+		const neverClosing = () =>
+			new ReadableStream<Uint8Array>({
+				start(controller) {
+					controller.enqueue(new TextEncoder().encode("pulling image"));
+				},
+			});
+		const runner = new ZapBaselineRunner(
+			storage,
+			{ runner: "docker", docker: { dockerBin: "docker" } },
+			{
+				spawn: (() => ({
+					exited: new Promise<number>(() => {}),
+					stdout: neverClosing(),
+					stderr: neverClosing(),
+					kill: () => undefined,
+				})) as any,
+			},
+		);
+		const startedAt = performance.now();
+		const result = await runner.run({
+			scanRunId: "scan-timeout",
+			upstreamOrigin: "http://127.0.0.1:3000",
+			allowedPaths: ["/"],
+			excludedPaths: [],
+			maxRequests: 20,
+			rateLimitPerSec: 2,
+			timeoutSec: 0.01,
+			gateway: { ...fakeGateway(), stop },
+		});
+
+		expect(result.ok).toBe(false);
+		expect(result.reasonCode).toBe("target_unreachable_from_container");
+		expect(performance.now() - startedAt).toBeLessThan(2_500);
+		expect(stop).toHaveBeenCalledOnce();
+		await fs.rm(root, { recursive: true, force: true });
 	});
 });

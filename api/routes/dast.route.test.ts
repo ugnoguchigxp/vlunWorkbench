@@ -6,7 +6,10 @@ import { createDbConnection, type DbConnection } from "../db";
 import { users } from "../db/schema";
 import { HttpError } from "../modules/auth/errors";
 import { DastRepository } from "../modules/dast/dast-repository";
-import { ProjectRepository } from "../modules/scans/repositories";
+import {
+	ProjectRepository,
+	ScanRepository,
+} from "../modules/scans/repositories";
 import { createDastRoute } from "./dast.route";
 
 function streamText(text: string): ReadableStream<Uint8Array> {
@@ -159,6 +162,34 @@ describe("DAST route", () => {
 		expect(res.status).toBe(400);
 	});
 
+	it("rejects mock runners on the external DAST API", async () => {
+		const project = await projectRepo.createProject({
+			ownerUserId: userId,
+			name: "No Mock DAST Project",
+			repoPath: "/tmp/no-mock-dast",
+		});
+		const target = await dastRepo.createTargetConfig({
+			projectId: project.id,
+			name: "local",
+			origin: "http://127.0.0.1:3000",
+		});
+		const spawn = vi.spyOn(Bun, "spawn").mockImplementation(() => {
+			throw new Error("mock runner reached the CLI bridge");
+		});
+		const res = await app.request(`/api/projects/${project.id}/dast-runs`, {
+			method: "POST",
+			body: JSON.stringify({
+				targetConfigId: target.id,
+				profileId: "browser-smoke",
+				runner: "mock",
+			}),
+			headers: { "content-type": "application/json" },
+		});
+		expect(res.status).toBe(400);
+		expect(spawn).not.toHaveBeenCalled();
+		expect((await res.json()).message).toContain("runner");
+	});
+
 	it("launches scan-dast through an argv array", async () => {
 		const project = await projectRepo.createProject({
 			ownerUserId: userId,
@@ -202,6 +233,8 @@ describe("DAST route", () => {
 		const args = spawn.mock.calls[0][0] as string[];
 		expect(args.slice(0, 4)).toEqual(["bun", "run", "api/cli/scan-dast.ts", "--"]);
 		expect(args).toContain("--target-config-id");
+		expect(args).toContain("--created-by-user-id");
+		expect(args).toContain(userId);
 		expect(args).not.toContain("http://127.0.0.1:3000");
 	});
 
@@ -243,5 +276,84 @@ describe("DAST route", () => {
 		expect(args).toContain("--auto-target");
 		expect(args).toContain("true");
 		expect(args).not.toContain("--target-config-id");
+	});
+
+	it("bounds DAST CLI output captured by the Web bridge", async () => {
+		const project = await projectRepo.createProject({
+			ownerUserId: userId,
+			name: "Bounded Bridge Project",
+			repoPath: "/tmp/bounded-bridge",
+		});
+		const target = await dastRepo.createTargetConfig({
+			projectId: project.id,
+			name: "local",
+			origin: "http://127.0.0.1:3000",
+		});
+		const kill = vi.fn();
+		vi.spyOn(Bun, "spawn").mockReturnValue({
+			stdout: streamText("x".repeat(1024 * 1024 + 1)),
+			stderr: streamText(""),
+			exited: Promise.resolve(1),
+			kill,
+		} as never);
+
+		const res = await app.request(`/api/projects/${project.id}/dast-runs`, {
+			method: "POST",
+			body: JSON.stringify({
+				targetConfigId: target.id,
+				profileId: "http-baseline",
+				runner: "host",
+				dryRun: true,
+			}),
+			headers: { "content-type": "application/json" },
+		});
+
+		expect(res.status).toBe(500);
+		expect(kill).toHaveBeenCalledWith("SIGTERM");
+		expect((await res.json()).message).toContain("stdout");
+	});
+
+	it("maps a terminal legacy passed row to unknown coverage", async () => {
+		const project = await projectRepo.createProject({
+			ownerUserId: userId,
+			name: "Legacy DAST Project",
+			repoPath: "/tmp/legacy-dast",
+		});
+		const scanRun = await new ScanRepository(connection.db).createScanRun({
+			projectId: project.id,
+			profile: "dast:http-baseline",
+			status: "completed",
+			createdByUserId: userId,
+		});
+		const target = await dastRepo.createTargetConfig({
+			projectId: project.id,
+			name: "legacy",
+			origin: "http://127.0.0.1:3000",
+		});
+		await dastRepo.createRun({
+			projectId: project.id,
+			scanRunId: scanRun.id,
+			targetConfigId: target.id,
+			profileId: "http-baseline",
+			dastKind: "http",
+			targetOrigin: target.normalizedOrigin,
+			runnerOrigin: target.normalizedOrigin,
+			status: "completed",
+			outcome: "passed",
+		});
+
+		const response = await app.request(
+			`/api/projects/${project.id}/dast-runs`,
+		);
+		const body = await response.json();
+		expect(response.status).toBe(200);
+		expect(body.dastRuns[0]).toEqual(
+			expect.objectContaining({
+				outcome: "passed",
+				verdict: "unknown_legacy",
+				coverageStatus: "gap",
+				limitationCodes: ["unknown_legacy_coverage"],
+			}),
+		);
 	});
 });

@@ -1,4 +1,5 @@
 import { sql } from "drizzle-orm";
+import type { DastCoverageSummary } from "../../../shared/schemas/dast-coverage.schema";
 import {
 	index,
 	integer,
@@ -86,9 +87,9 @@ export const dastProfileConfigs = sqliteTable(
 		targetConfigIdIdx: index("dast_profile_configs_target_config_id_idx").on(
 			table.targetConfigId,
 		),
-		projectProfileUniqueIdx: uniqueIndex(
-			"dast_profile_configs_project_profile_idx",
-		).on(table.projectId, table.profileId),
+		projectTargetProfileUniqueIdx: uniqueIndex(
+			"dast_profile_configs_project_target_profile_idx",
+		).on(table.projectId, table.targetConfigId, table.profileId),
 		enabledIdx: index("dast_profile_configs_enabled_idx").on(table.enabled),
 	}),
 );
@@ -116,6 +117,15 @@ export const dastRuns = sqliteTable(
 		runnerOrigin: text("runner_origin").notNull(),
 		status: text("status").notNull(),
 		outcome: text("outcome"),
+		verdict: text("verdict"),
+		coverageStatus: text("coverage_status"),
+		coverageSummary: text("coverage_summary_json", { mode: "json" })
+			.$type<DastCoverageSummary | Record<string, never>>()
+			.default(sql`'{}'`)
+			.notNull(),
+		limitationCodes: jsonArray("limitation_codes_json"),
+		policyId: text("policy_id"),
+		policyHash: text("policy_hash"),
 		startedAt: integer("started_at", { mode: "timestamp_ms" }),
 		completedAt: integer("completed_at", { mode: "timestamp_ms" }),
 		summary: text("summary"),
@@ -139,6 +149,57 @@ export const dastRuns = sqliteTable(
 		statusIdx: index("dast_runs_status_idx").on(table.status),
 		outcomeIdx: index("dast_runs_outcome_idx").on(table.outcome),
 		dastKindIdx: index("dast_runs_dast_kind_idx").on(table.dastKind),
+	}),
+);
+
+export const dastRouteInventory = sqliteTable(
+	"dast_route_inventory",
+	{
+		id: id(),
+		dastRunId: text("dast_run_id")
+			.notNull()
+			.references(() => dastRuns.id, { onDelete: "cascade" }),
+		projectId: text("project_id")
+			.notNull()
+			.references(() => projects.id, { onDelete: "cascade" }),
+		scanRunId: text("scan_run_id")
+			.notNull()
+			.references(() => scanRuns.id, { onDelete: "cascade" }),
+		method: text("method").notNull(),
+		path: text("path").notNull(),
+		queryKeys: jsonArray("query_keys_json"),
+		queryShapeHash: text("query_shape_hash").notNull(),
+		sources: jsonArray("sources_json"),
+		depth: integer("depth").notNull(),
+		required: integer("required", { mode: "boolean" }).notNull().default(false),
+		authMode: text("auth_mode").notNull(),
+		state: text("state").notNull(),
+		statusCode: integer("status_code"),
+		limitationCode: text("limitation_code"),
+		metadata: jsonObject("metadata"),
+		createdAt: timestampMs("created_at"),
+		updatedAt: timestampMs("updated_at"),
+	},
+	(table) => ({
+		runStateIdx: index("dast_route_inventory_run_state_idx").on(
+			table.dastRunId,
+			table.state,
+		),
+		runSourceIdx: index("dast_route_inventory_run_source_idx").on(
+			table.dastRunId,
+			table.sources,
+		),
+		projectCreatedIdx: index("dast_route_inventory_project_created_idx").on(
+			table.projectId,
+			table.createdAt,
+		),
+		identityIdx: uniqueIndex("dast_route_inventory_identity_idx").on(
+			table.dastRunId,
+			table.method,
+			table.path,
+			table.queryShapeHash,
+			table.authMode,
+		),
 	}),
 );
 
@@ -255,6 +316,10 @@ export const dastAuthContexts = sqliteTable(
 		secretAuthTag: text("secret_auth_tag").notNull(),
 		secretKeyId: text("secret_key_id").notNull(),
 		loginFlow: text("login_flow_json", { mode: "json" })
+			.$type<Array<Record<string, unknown>>>()
+			.default(sql`'[]'`)
+			.notNull(),
+		successAssertions: text("success_assertions_json", { mode: "json" })
 			.$type<Array<Record<string, unknown>>>()
 			.default(sql`'[]'`)
 			.notNull(),

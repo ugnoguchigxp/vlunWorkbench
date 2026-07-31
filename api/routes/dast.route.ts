@@ -8,6 +8,7 @@ import {
 	saveDastProfileRequestSchema,
 	saveDastTargetRequestSchema,
 } from "../../shared/schemas/dast.schema";
+import { EMPTY_DAST_COVERAGE_SUMMARY } from "../../shared/schemas/dast-coverage.schema";
 import type { AppDatabase } from "../db";
 import type { AppEnv } from "../app/env";
 import { getAuthContextUser } from "../modules/auth/context";
@@ -21,6 +22,7 @@ import {
 } from "../modules/dast/target-validator";
 import type { ProjectRepository } from "../modules/scans/repositories";
 import { authorizeProjectPath } from "../security/project-path-policy";
+import { executeDastCli } from "./dast-cli-bridge";
 
 type DastRouteDeps = {
 	db: AppDatabase;
@@ -126,6 +128,12 @@ export function createDastRoute(deps: DastRouteDeps) {
 		if (!parsed.success) {
 			throw new HttpError(400, validationMessage(parsed.error));
 		}
+		if (
+			deps.env?.dastStandardV2Enabled === false &&
+			parsed.data.profileId.includes("standard")
+		) {
+			throw new HttpError(409, "DAST standard v2 is disabled.");
+		}
 		const target = await repo.getTargetConfig(parsed.data.targetConfigId);
 		if (!target || target.projectId !== projectId) {
 			throw new HttpError(404, "DAST target config not found");
@@ -188,7 +196,7 @@ export function createDastRoute(deps: DastRouteDeps) {
 		const projectId = c.req.param("projectId");
 		await assertProjectOwner(projectId, authUser.userId);
 		const runs = await repo.listRunsForProject(projectId);
-		return c.json({ dastRuns: runs });
+		return c.json({ dastRuns: runs.map(presentDastRun) });
 	});
 
 	route.post("/projects/:projectId/dast-runs", async (c) => {
@@ -200,6 +208,12 @@ export function createDastRoute(deps: DastRouteDeps) {
 		const parsed = runDastRequestSchema.safeParse(body);
 		if (!parsed.success) {
 			throw new HttpError(400, validationMessage(parsed.error));
+		}
+		if (
+			deps.env?.dastStandardV2Enabled === false &&
+			parsed.data.profileId.includes("standard")
+		) {
+			throw new HttpError(409, "DAST standard v2 is disabled.");
 		}
 		if (parsed.data.targetConfigId) {
 			const target = await repo.getTargetConfig(parsed.data.targetConfigId);
@@ -216,6 +230,7 @@ export function createDastRoute(deps: DastRouteDeps) {
 		const cliResult = await executeDastCli({
 			projectId,
 			...parsed.data,
+			createdByUserId: authUser.userId,
 		});
 		return c.json(cliResult);
 	});
@@ -225,7 +240,7 @@ export function createDastRoute(deps: DastRouteDeps) {
 		const run = await repo.getRun(c.req.param("dastRunId"));
 		if (!run) throw new HttpError(404, "DAST run not found");
 		await assertProjectOwner(run.projectId, authUser.userId);
-		return c.json({ dastRun: run });
+		return c.json({ dastRun: presentDastRun(run) });
 	});
 
 	route.get("/dast-runs/:dastRunId/artifacts", async (c) => {
@@ -235,7 +250,8 @@ export function createDastRoute(deps: DastRouteDeps) {
 		await assertProjectOwner(run.projectId, authUser.userId);
 		const artifacts = await repo.listArtifacts(run.id);
 		const evidence = await repo.listEvidence(run.id);
-		return c.json({ artifacts, evidence });
+		const routeInventory = await repo.listRouteInventory(run.id);
+		return c.json({ artifacts, evidence, routeInventory });
 	});
 
 	route.get("/dast-runs/:dastRunId/artifacts/:artifactId", async (c) => {
@@ -391,76 +407,29 @@ function validationMessage(error: {
 		.join("; ")}`;
 }
 
-async function executeDastCli(params: {
-	projectId: string;
-	targetConfigId?: string;
-	autoTarget?: boolean;
-	profileId: string;
-	profileConfigId?: string;
-	scanRunId?: string;
-	runner?: "host" | "docker" | "mock";
-	dockerImage?: string;
-	timeoutSec?: number;
-	maxRequests?: number;
-	authContextId?: string;
-	identityRole?: string;
-	dryRun?: boolean;
-}) {
-	const args = [
-		"run",
-		"api/cli/scan-dast.ts",
-		"--",
-		"--project-id",
-		params.projectId,
-		"--profile",
-		params.profileId,
-	];
-	if (params.targetConfigId) {
-		args.push("--target-config-id", params.targetConfigId);
-	}
-	if (params.autoTarget) args.push("--auto-target", "true");
-	if (params.profileConfigId)
-		args.push("--profile-config-id", params.profileConfigId);
-	if (params.scanRunId) args.push("--scan-run-id", params.scanRunId);
-	if (params.runner) args.push("--runner", params.runner);
-	if (params.dockerImage) args.push("--docker-image", params.dockerImage);
-	if (params.timeoutSec !== undefined)
-		args.push("--timeout-sec", String(params.timeoutSec));
-	if (params.maxRequests !== undefined)
-		args.push("--max-requests", String(params.maxRequests));
-	if (params.authContextId)
-		args.push("--auth-context-id", params.authContextId);
-	if (params.identityRole) args.push("--identity-role", params.identityRole);
-	if (params.dryRun) args.push("--dry-run", "true");
-
-	const proc = Bun.spawn(["bun", ...args], {
-		stdout: "pipe",
-		stderr: "pipe",
-	});
-	const [stdoutBuf, stderrBuf] = await Promise.all([
-		new Response(proc.stdout).arrayBuffer(),
-		new Response(proc.stderr).arrayBuffer(),
-	]);
-	const stdout = new TextDecoder().decode(stdoutBuf);
-	const stderr = new TextDecoder().decode(stderrBuf);
-	await proc.exited;
-
-	let cliResult: {
-		ok?: boolean;
-		dastRunId?: string;
-		message?: string;
+function presentDastRun<
+	T extends {
+		status: string;
+		verdict: string | null;
+		coverageStatus: string | null;
+		coverageSummary: Record<string, unknown>;
+		limitationCodes: string[];
+	},
+>(run: T) {
+	const terminal = ["completed", "failed", "timed_out", "cancelled"].includes(
+		run.status,
+	);
+	if (!terminal || run.verdict !== null) return run;
+	return {
+		...run,
+		verdict: "unknown_legacy" as const,
+		coverageStatus: "gap" as const,
+		coverageSummary:
+			Object.keys(run.coverageSummary).length > 0
+				? run.coverageSummary
+				: EMPTY_DAST_COVERAGE_SUMMARY,
+		limitationCodes: [
+			...new Set([...run.limitationCodes, "unknown_legacy_coverage"]),
+		],
 	};
-	try {
-		cliResult = JSON.parse(stdout.trim()) as typeof cliResult;
-	} catch (error) {
-		console.error(`DAST CLI bridge failed: ${stderr}`);
-		throw new HttpError(
-			500,
-			`CLI bridge parse failure: ${stderr || (error as Error).message}`,
-		);
-	}
-	if (!cliResult.ok && !cliResult.dastRunId) {
-		throw new HttpError(400, cliResult.message || "Failed to start DAST run");
-	}
-	return cliResult;
 }

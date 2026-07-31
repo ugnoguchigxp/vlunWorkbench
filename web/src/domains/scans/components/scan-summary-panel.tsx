@@ -51,7 +51,18 @@ export function ScanSummaryPanel() {
 									<span>証跡: {step.artifactCount}</span>
 								</div>
 								{step.kind === "dast" && step.outcome ? (
-									<p>DAST outcome: {formatScanOutcome(step.outcome)}</p>
+									<>
+										<p>
+											DAST verdict:{" "}
+											{formatScanOutcome(step.verdict ?? "unknown_legacy")}
+										</p>
+										<p>
+											Coverage: {step.coverageStatus ?? "gap"}
+											{step.limitationCodes?.length
+												? ` — ${step.limitationCodes.join(", ")}`
+												: ""}
+										</p>
+									</>
 								) : null}
 								{step.error ? (
 									<p className="badge-failed">

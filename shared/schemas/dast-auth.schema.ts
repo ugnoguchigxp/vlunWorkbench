@@ -122,6 +122,22 @@ export const dastLoginActionSchema = z.discriminatedUnion("action", [
 	}),
 ]);
 
+export const dastAuthSuccessAssertionSchema = z.discriminatedUnion("kind", [
+	z.object({
+		kind: z.literal("url"),
+		pathPattern: relativeHttpPathSchema,
+	}),
+	z.object({
+		kind: z.literal("selector"),
+		selector: selectorSchema,
+	}),
+	z.object({
+		kind: z.literal("status"),
+		path: relativeHttpPathSchema,
+		expected: z.array(z.number().int().min(200).max(399)).min(1).max(20),
+	}),
+]);
+
 export const createDastAuthContextSchema = z
 	.object({
 		targetConfigId: z.string().uuid(),
@@ -129,6 +145,10 @@ export const createDastAuthContextSchema = z
 		label: z.string().min(1).max(200),
 		secret: dastAuthSecretPayloadSchema,
 		loginFlow: z.array(dastLoginActionSchema).max(20).default([]),
+		successAssertions: z
+			.array(dastAuthSuccessAssertionSchema)
+			.max(10)
+			.default([]),
 		expiresAt: z.string().datetime(),
 	})
 	.superRefine((value, ctx) => {
@@ -163,6 +183,9 @@ export const rotateDastAuthContextSchema = z.object({
 
 export type DastAuthSecretPayload = z.infer<typeof dastAuthSecretPayloadSchema>;
 export type DastLoginAction = z.infer<typeof dastLoginActionSchema>;
+export type DastAuthSuccessAssertion = z.infer<
+	typeof dastAuthSuccessAssertionSchema
+>;
 export type CreateDastAuthContextInput = z.infer<
 	typeof createDastAuthContextSchema
 >;

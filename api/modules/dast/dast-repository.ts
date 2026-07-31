@@ -4,11 +4,20 @@ import {
 	dastArtifacts,
 	dastEvidence,
 	dastProfileConfigs,
+	dastRouteInventory,
 	dastRuns,
 	dastTargetConfigs,
 } from "../../db/schema";
 import { normalizeDastOrigin } from "./target-validator";
-import type { DastArtifactKind, DastEvidenceKind, DastKind } from "./types";
+import type {
+	DastArtifactKind,
+	DastCoverageStatus,
+	DastCoverageSummary,
+	DastEvidenceKind,
+	DastKind,
+	DastRouteInventoryEntry,
+	DastVerdict,
+} from "./types";
 
 export class DastRepository {
 	constructor(private readonly db: AppDatabase) {}
@@ -177,11 +186,16 @@ export class DastRepository {
 		);
 	}
 
-	async getProfileConfigByProfileId(projectId: string, profileId: string) {
+	async getProfileConfigForTarget(
+		projectId: string,
+		targetConfigId: string,
+		profileId: string,
+	) {
 		return (
 			(await this.db.query.dastProfileConfigs.findFirst({
 				where: and(
 					eq(dastProfileConfigs.projectId, projectId),
+					eq(dastProfileConfigs.targetConfigId, targetConfigId),
 					eq(dastProfileConfigs.profileId, profileId),
 				),
 			})) ?? null
@@ -206,6 +220,12 @@ export class DastRepository {
 		runnerOrigin: string;
 		status: string;
 		outcome?: string | null;
+		verdict?: DastVerdict | null;
+		coverageStatus?: DastCoverageStatus | null;
+		coverageSummary?: DastCoverageSummary;
+		limitationCodes?: string[];
+		policyId?: string | null;
+		policyHash?: string | null;
 		summary?: string | null;
 		errorMessage?: string | null;
 		metadata?: Record<string, unknown>;
@@ -225,6 +245,12 @@ export class DastRepository {
 				runnerOrigin: params.runnerOrigin,
 				status: params.status,
 				outcome: params.outcome ?? null,
+				verdict: params.verdict ?? null,
+				coverageStatus: params.coverageStatus ?? null,
+				coverageSummary: params.coverageSummary ?? {},
+				limitationCodes: params.limitationCodes ?? [],
+				policyId: params.policyId ?? null,
+				policyHash: params.policyHash ?? null,
 				startedAt: now,
 				summary: params.summary ?? null,
 				errorMessage: params.errorMessage ?? null,
@@ -242,6 +268,12 @@ export class DastRepository {
 		status: string,
 		options?: {
 			outcome?: string | null;
+			verdict?: DastVerdict | null;
+			coverageStatus?: DastCoverageStatus | null;
+			coverageSummary?: DastCoverageSummary;
+			limitationCodes?: string[];
+			policyId?: string | null;
+			policyHash?: string | null;
 			completedAt?: Date | null;
 			summary?: string | null;
 			errorMessage?: string | null;
@@ -253,6 +285,17 @@ export class DastRepository {
 			updatedAt: new Date(),
 		};
 		if (options?.outcome !== undefined) updateValues.outcome = options.outcome;
+		if (options?.verdict !== undefined) updateValues.verdict = options.verdict;
+		if (options?.coverageStatus !== undefined)
+			updateValues.coverageStatus = options.coverageStatus;
+		if (options?.coverageSummary !== undefined)
+			updateValues.coverageSummary = options.coverageSummary;
+		if (options?.limitationCodes !== undefined)
+			updateValues.limitationCodes = options.limitationCodes;
+		if (options?.policyId !== undefined)
+			updateValues.policyId = options.policyId;
+		if (options?.policyHash !== undefined)
+			updateValues.policyHash = options.policyHash;
 		if (options?.summary !== undefined) updateValues.summary = options.summary;
 		if (options?.errorMessage !== undefined)
 			updateValues.errorMessage = options.errorMessage;
@@ -288,6 +331,54 @@ export class DastRepository {
 		return await this.db.query.dastRuns.findMany({
 			where: eq(dastRuns.projectId, projectId),
 			orderBy: (runs, { desc }) => [desc(runs.createdAt)],
+		});
+	}
+
+	async replaceRouteInventory(params: {
+		dastRunId: string;
+		projectId: string;
+		scanRunId: string;
+		entries: DastRouteInventoryEntry[];
+	}) {
+		await this.db
+			.delete(dastRouteInventory)
+			.where(eq(dastRouteInventory.dastRunId, params.dastRunId));
+		if (params.entries.length === 0) return [];
+		const now = new Date();
+		return await this.db
+			.insert(dastRouteInventory)
+			.values(
+				params.entries.map((entry) => ({
+					dastRunId: params.dastRunId,
+					projectId: params.projectId,
+					scanRunId: params.scanRunId,
+					method: entry.method,
+					path: entry.path,
+					queryKeys: entry.queryKeys,
+					queryShapeHash: entry.queryShapeHash,
+					sources: entry.sources,
+					depth: entry.depth,
+					required: entry.required,
+					authMode: entry.authMode,
+					state: entry.state,
+					statusCode: entry.statusCode,
+					limitationCode: entry.limitationCode,
+					metadata: {},
+					createdAt: now,
+					updatedAt: now,
+				})),
+			)
+			.returning();
+	}
+
+	async listRouteInventory(dastRunId: string) {
+		return await this.db.query.dastRouteInventory.findMany({
+			where: eq(dastRouteInventory.dastRunId, dastRunId),
+			orderBy: (entries, { asc }) => [
+				asc(entries.depth),
+				asc(entries.path),
+				asc(entries.method),
+			],
 		});
 	}
 

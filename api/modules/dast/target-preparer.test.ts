@@ -9,12 +9,20 @@ import {
 
 describe("Dast Target Preparer", () => {
 	let tempDir: string;
+	let previousOpenAiApiKey: string | undefined;
+	let previousDatabaseUrl: string | undefined;
 
 	beforeEach(async () => {
 		tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "dast-target-plan-"));
+		previousOpenAiApiKey = process.env.OPENAI_API_KEY;
+		previousDatabaseUrl = process.env.DATABASE_URL;
 	});
 
 	afterEach(async () => {
+		if (previousOpenAiApiKey === undefined) delete process.env.OPENAI_API_KEY;
+		else process.env.OPENAI_API_KEY = previousOpenAiApiKey;
+		if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+		else process.env.DATABASE_URL = previousDatabaseUrl;
 		await fs.rm(tempDir, { recursive: true, force: true });
 	});
 
@@ -171,6 +179,8 @@ describe("Dast Target Preparer", () => {
 
 	describe("prepareDastTargetWorkspace", () => {
 		it("spawns the startup process, polls for readiness, and returns the workspace config", async () => {
+			process.env.OPENAI_API_KEY = "must-not-reach-target";
+			process.env.DATABASE_URL = "must-not-reach-target";
 			await fs.writeFile(
 				path.join(tempDir, "package.json"),
 				JSON.stringify({
@@ -228,11 +238,20 @@ describe("Dast Target Preparer", () => {
 			expect(workspace.plan.port).toBe(12345);
 			expect(mockSpawn).toHaveBeenCalled();
 			expect(fetchCallCount).toBe(2);
+			const spawnEnv = mockSpawn.mock.calls[0][1].env as Record<
+				string,
+				string
+			>;
+			expect(spawnEnv.OPENAI_API_KEY).toBeUndefined();
+			expect(spawnEnv.DATABASE_URL).toBeUndefined();
+			expect(spawnEnv.HOME).not.toBe(process.env.HOME);
+			expect(await fs.stat(spawnEnv.HOME)).toBeTruthy();
 
 			// Check stop process triggers SIGTERM
 			await workspace.stop();
 			expect(killedWithSignal).toBe("SIGTERM");
 			expect(cleanExited).toBe(true);
+			await expect(fs.stat(spawnEnv.HOME)).rejects.toThrow();
 		});
 
 		it("should clean up and throw error if readiness checks persistently fail (timeout)", async () => {

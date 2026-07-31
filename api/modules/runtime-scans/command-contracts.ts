@@ -1,10 +1,12 @@
 import crypto from "node:crypto";
 
 export const NUCLEI_SAFE_POLICY_ID = "nuclei-safe-v1";
+export const NUCLEI_SAFE_TEMPLATE_TREE_HASH =
+	"sha256:d4d866e40b03eb7857b578792c09dee46e35d0e1dec18c6fbac3a59623d4f775";
 export const NUCLEI_SAFE_POLICY_HASH = crypto
 	.createHash("sha256")
 	.update(
-		"nuclei-safe:v1:omit-raw,no-interactsh,rate-limit=5,concurrency=5,retries=0",
+		`nuclei-safe:v1:omit-raw,no-interactsh,rate-limit=5,concurrency=5,retries=0,request-budget=20,templates=${NUCLEI_SAFE_TEMPLATE_TREE_HASH}`,
 	)
 	.digest("hex");
 

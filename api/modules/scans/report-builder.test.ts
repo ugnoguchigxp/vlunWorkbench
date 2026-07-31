@@ -430,6 +430,42 @@ describe("Report Builder", () => {
 		expect(report).toContain("must not be read as a safety attestation");
 	});
 
+	it("does not treat a missing expected DAST run as a clean zero-finding result", async () => {
+		await connection.db
+			.delete(findingDecisions)
+			.where(eq(findingDecisions.findingId, findingId1));
+		await connection.db
+			.delete(findingReviews)
+			.where(eq(findingReviews.findingId, findingId1));
+		await connection.db
+			.delete(findingEvidences)
+			.where(eq(findingEvidences.findingId, findingId1));
+		await connection.db.delete(findings);
+		await connection.db
+			.update(scanRuns)
+			.set({
+				profile: "web-app-baseline",
+				metadata: {
+					profileOutcome: "partial",
+					stepResults: [],
+				},
+			})
+			.where(eq(scanRuns.id, scanRunId));
+
+		const report = await buildMarkdownReport(connection.db, scanRunId, {
+			includeFalsePositives: true,
+			includeDeferred: true,
+			includeUndecided: true,
+		});
+
+		expect(report).toContain(
+			"DASTに未走査・通信失敗・認証失敗またはcoverage不明の領域があるため",
+		);
+		expect(report).not.toContain(
+			"**結論:** 今回のスキャン範囲では、対応が必要な指摘事項は発見されませんでした。",
+		);
+	});
+
 	it("reports diff provenance, whole-file semantics, and coverage gaps", async () => {
 		await connection.db.delete(findings);
 		await connection.db

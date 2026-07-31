@@ -18,6 +18,7 @@ import {
 	resolveProfileSteps,
 } from "./profile-runner";
 import { executeProfileSteps } from "./profile-step-orchestrator";
+import { aggregateRuntimeAssessmentCoverage } from "./runtime-assessment-coverage";
 import { getProfileById } from "./profiles";
 import { ArtifactRepository, ScanRepository } from "./repositories";
 import { resolveScanScope } from "./target-scope";
@@ -305,6 +306,11 @@ export async function runProfileScan(params: {
 	});
 
 	// Determine profile outcome
+	const runtimeAssessmentCoverage =
+		aggregateRuntimeAssessmentCoverage(stepResults);
+	const runtimeCoverageLimited =
+		runtimeAssessmentCoverage.steps.length > 0 &&
+		runtimeAssessmentCoverage.coverageStatus !== "covered";
 	let profileOutcome: "completed" | "completed_with_warnings" | "failed" =
 		"completed";
 	let finalScanStatus: "completed" | "failed" = "completed";
@@ -313,7 +319,7 @@ export async function runProfileScan(params: {
 		// A fail_profile tool failed, so the overall outcome is failed.
 		profileOutcome = "failed";
 		finalScanStatus = "failed";
-	} else if (optionalToolFailed) {
+	} else if (optionalToolFailed || runtimeCoverageLimited) {
 		// required tools succeeded, but at least one optional tool failed
 		profileOutcome = "completed_with_warnings";
 		finalScanStatus = "completed";
@@ -344,6 +350,7 @@ export async function runProfileScan(params: {
 			stepOrder,
 			toolResults,
 			stepResults,
+			runtimeAssessmentCoverage,
 			...(diffPlan
 				? {
 						target: diffPlan.target,

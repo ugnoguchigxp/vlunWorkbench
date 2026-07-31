@@ -36,6 +36,9 @@ describe("pinnedDastFetch", () => {
 			expect(response.headers.get("content-type")).toContain(
 				"application/json",
 			);
+			expect(await response.json()).toEqual({
+				host: `unresolvable.invalid:${server.port}`,
+			});
 		} finally {
 			server.stop(true);
 		}

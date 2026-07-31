@@ -1,0 +1,90 @@
+{
+  "exposed-env-file": {
+    "vulnerable": {
+      "status": 200,
+      "body": "DATABASE_URL=sqlite://fixture\nSECRET_KEY=owned-fixture"
+    },
+    "fixed": {
+      "status": 200,
+      "body": "<html><body>single page application</body></html>"
+    }
+  },
+  "exposed-git-config": {
+    "vulnerable": {
+      "status": 200,
+      "body": "[core]\nrepositoryformatversion = 0\nbare = false"
+    },
+    "fixed": {
+      "status": 404,
+      "body": "not found"
+    }
+  },
+  "exposed-openapi-document": {
+    "vulnerable": {
+      "status": 200,
+      "body": "{\"openapi\":\"3.1.0\",\"paths\":{\"/health\":{\"get\":{}}}}"
+    },
+    "fixed": {
+      "status": 200,
+      "body": "{\"message\":\"documentation disabled\"}"
+    }
+  },
+  "exposed-actuator-environment": {
+    "vulnerable": {
+      "status": 200,
+      "body": "{\"activeProfiles\":[\"prod\"],\"propertySources\":[]}"
+    },
+    "fixed": {
+      "status": 401,
+      "body": "{\"error\":\"unauthorized\"}"
+    }
+  },
+  "directory-listing": {
+    "vulnerable": {
+      "status": 200,
+      "body": "<html><title>Index of /uploads</title></html>"
+    },
+    "fixed": {
+      "status": 200,
+      "body": "<html><title>Uploads</title></html>"
+    }
+  },
+  "credentialed-cors-origin-reflection": {
+    "vulnerable": {
+      "status": 200,
+      "body": "{}",
+      "headers": {
+        "access-control-allow-origin": "https://attacker.invalid",
+        "access-control-allow-credentials": "true"
+      }
+    },
+    "fixed": {
+      "status": 200,
+      "body": "{}",
+      "headers": {
+        "access-control-allow-origin": "https://app.example.test",
+        "access-control-allow-credentials": "true"
+      }
+    }
+  },
+  "exposed-backup-archive": {
+    "vulnerable": {
+      "status": 200,
+      "body": "PK owned fixture archive"
+    },
+    "fixed": {
+      "status": 404,
+      "body": "not found"
+    }
+  },
+  "framework-debug-error": {
+    "vulnerable": {
+      "status": 200,
+      "body": "Debug mode enabled\nTypeError at fixture.ts:10:2"
+    },
+    "fixed": {
+      "status": 404,
+      "body": "debug route disabled"
+    }
+  }
+}

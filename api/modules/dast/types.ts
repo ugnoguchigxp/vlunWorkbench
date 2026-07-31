@@ -5,6 +5,12 @@ import type {
 	DastOutcome,
 	DastRunStatus,
 } from "../../../shared/schemas/dast.schema";
+import type {
+	DastCoverageStatus,
+	DastCoverageSummary,
+	DastRouteInventoryEntry,
+	DastVerdict,
+} from "../../../shared/schemas/dast-coverage.schema";
 
 export type {
 	DastArtifactKind,
@@ -12,6 +18,10 @@ export type {
 	DastKind,
 	DastOutcome,
 	DastRunStatus,
+	DastCoverageStatus,
+	DastCoverageSummary,
+	DastRouteInventoryEntry,
+	DastVerdict,
 };
 
 export type DastFailureKind =
@@ -78,6 +88,18 @@ export type DastHttpResponseObservation = {
 	ok: boolean;
 	redirectChain: string[];
 	headers: Record<string, string>;
+	contentType: string | null;
+	bodyBytesRead: number;
+	bodyTruncated: boolean;
+	bodySignals: {
+		htmlDocument: boolean;
+		envFile: boolean;
+		debugDisclosure: boolean;
+		openApiDocument: boolean;
+		directoryListing: boolean;
+		frameworkError: boolean;
+		spaFallback: boolean;
+	};
 	setCookies: Array<{
 		name: string;
 		attributes: string[];
@@ -97,6 +119,8 @@ export type DastHttpRawResult = {
 	completedAt: string;
 	requestCount: number;
 	responses: DastHttpResponseObservation[];
+	routeInventory: DastRouteInventoryEntry[];
+	coverage: DastCoverageSummary;
 	warnings: string[];
 };
 
@@ -105,9 +129,16 @@ export type DastBrowserRouteObservation = {
 	url: string;
 	finalUrl: string;
 	status: number | null;
+	requestBudgetExhausted: boolean;
 	consoleErrors: string[];
 	pageErrors: string[];
 	failedRequests: Array<{ url: string; method: string; failure: string }>;
+	networkRequests: Array<{
+		path: string;
+		queryKeys: string[];
+		method: string;
+		status: number;
+	}>;
 	screenshot?: {
 		filename: string;
 		bytes: Uint8Array;
@@ -123,6 +154,8 @@ export type DastBrowserRawResult = {
 	startedAt: string;
 	completedAt: string;
 	routes: DastBrowserRouteObservation[];
+	routeInventory: DastRouteInventoryEntry[];
+	coverage: DastCoverageSummary;
 	warnings: string[];
 };
 
@@ -162,5 +195,9 @@ export type DastNormalizerResult = {
 	findings: NormalizedDastFinding[];
 	evidence: NormalizedDastEvidence[];
 	outcome: DastOutcome;
+	verdict: DastVerdict;
+	coverageStatus: DastCoverageStatus;
+	coverageSummary: DastCoverageSummary;
+	limitationCodes: string[];
 	summary: string;
 };

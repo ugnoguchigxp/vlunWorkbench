@@ -1,0 +1,20 @@
+id: exposed-actuator-environment
+
+info:
+  name: Exposed actuator environment
+  author: vuln-workbench
+  severity: high
+  description: A framework actuator environment endpoint is publicly readable.
+  tags: exposure,debug,safe
+
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}/actuator/env"
+    matchers:
+      - type: dsl
+        condition: and
+        dsl:
+          - "status_code == 200"
+          - "len(body) < 1048576"
+          - "contains_any(to_lower(body), '\"propertysources\"', '\"activeprofiles\"')"

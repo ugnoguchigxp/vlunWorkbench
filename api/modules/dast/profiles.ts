@@ -3,15 +3,17 @@ import type { DastKind } from "./types";
 export type DastProfileDefinition = {
 	id:
 		| "http-baseline"
+		| "web-passive-standard"
 		| "browser-smoke"
 		| "authenticated-readonly"
+		| "authenticated-readonly-standard"
 		| "form-baseline";
 	displayName: string;
 	description: string;
 	kind: DastKind;
 	enabled: boolean;
 	checks: string[];
-	crawlerEnabled: false;
+	crawlerEnabled: boolean;
 	requiresRoutes: boolean;
 	requiresForms: boolean;
 	requiresAuth: boolean;
@@ -38,6 +40,27 @@ export const DAST_PROFILES: DastProfileDefinition[] = [
 		requiresAuth: false,
 	},
 	{
+		id: "web-passive-standard",
+		displayName: "Web Passive Standard",
+		description:
+			"Bounded same-origin discovery with coverage-aware passive HTTP checks.",
+		kind: "http",
+		enabled: true,
+		checks: [
+			"reachability",
+			"bounded-route-discovery",
+			"status-code-class",
+			"applicable-security-headers",
+			"cookie-flags",
+			"cors-policy",
+			"signature-backed-common-path-probes",
+		],
+		crawlerEnabled: true,
+		requiresRoutes: false,
+		requiresForms: false,
+		requiresAuth: false,
+	},
+	{
 		id: "browser-smoke",
 		displayName: "Browser Smoke",
 		description:
@@ -54,6 +77,26 @@ export const DAST_PROFILES: DastProfileDefinition[] = [
 		requiresRoutes: true,
 		requiresForms: false,
 		requiresAuth: false,
+	},
+	{
+		id: "authenticated-readonly-standard",
+		displayName: "Authenticated Read-only Standard",
+		description:
+			"Run bounded configured browser routes after explicit authentication assertions.",
+		kind: "browser",
+		enabled: true,
+		checks: [
+			"declarative-login",
+			"authentication-success-assertion",
+			"configured-route-load",
+			"failed-network-requests",
+			"final-url-scope",
+			"single-session-refresh",
+		],
+		crawlerEnabled: true,
+		requiresRoutes: true,
+		requiresForms: false,
+		requiresAuth: true,
 	},
 	{
 		id: "authenticated-readonly",

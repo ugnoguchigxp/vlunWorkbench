@@ -23,7 +23,10 @@ export type ScanProfileStep =
 	  }
 	| {
 			kind: "dast";
-			profileId: "http-baseline";
+			profileId:
+				| "http-baseline"
+				| "web-passive-standard"
+				| "authenticated-readonly-standard";
 			displayName: string;
 			required: boolean;
 			timeoutSec?: number;
@@ -88,6 +91,10 @@ export type StepSummary = {
 	artifactCount: number;
 	error: string | null;
 	outcome?: string | null;
+	verdict?: string | null;
+	coverageStatus?: "covered" | "partial" | "gap" | null;
+	coverageSummary?: Record<string, unknown> | null;
+	limitationCodes?: string[];
 	targetOrigin?: string | null;
 	applicability?: "applicable" | "not_applicable";
 	reasonCode?: string | null;
@@ -139,6 +146,10 @@ export type ScanStartStepResult =
 			required: boolean;
 			status: string;
 			outcome: string | null;
+			verdict?: string | null;
+			coverageStatus?: "covered" | "partial" | "gap" | null;
+			coverageSummary?: Record<string, unknown> | null;
+			limitationCodes?: string[];
 			findingCount: number;
 			dastRunId: string | null;
 			targetOrigin: string | null;

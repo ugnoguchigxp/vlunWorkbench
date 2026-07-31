@@ -1,16 +1,23 @@
 import { type Browser, type BrowserContext, chromium } from "playwright";
 import type {
 	DastAuthSecretPayload,
+	DastAuthSuccessAssertion,
 	DastLoginAction,
 } from "../../../shared/schemas/dast-auth.schema";
 import {
 	authHeadersFor,
-	redactSecretText,
+	redactDastEvidenceText,
+	redactDastEvidenceUrl,
 	secretFieldValue,
 } from "./auth-material";
 import type { BrowserRouteResult, DastBrowserAdapter } from "./browser-runner";
+import { canonicalizeRoute } from "./route-inventory";
 import { isUrlInDastScope } from "./target-validator";
 import type { ValidatedDastTarget } from "./types";
+
+const MAX_BROWSER_EVENTS_PER_ROUTE = 100;
+const MAX_BROWSER_MESSAGE_CHARS = 4_000;
+const MAX_SCREENSHOT_BYTES = 5 * 1024 * 1024;
 
 export type DastScreenshotPolicy =
 	| { enabled: false }
@@ -25,13 +32,18 @@ export class PlaywrightBrowserAdapter implements DastBrowserAdapter {
 	private context: BrowserContext | null = null;
 	private loginCompleted = false;
 	private loginRetryUsed = false;
+	private networkRequestCount = 0;
+	private networkBudgetExhausted = false;
 
 	constructor(
 		private readonly options: {
 			target: ValidatedDastTarget;
 			authSecret?: DastAuthSecretPayload;
 			loginFlow?: DastLoginAction[];
+			successAssertions?: DastAuthSuccessAssertion[];
+			requireAuthAssertion?: boolean;
 			screenshotPolicy?: DastScreenshotPolicy;
+			maxNetworkRequests?: number;
 		},
 	) {}
 
@@ -40,21 +52,32 @@ export class PlaywrightBrowserAdapter implements DastBrowserAdapter {
 		path: string;
 		timeoutMs: number;
 	}): Promise<BrowserRouteResult> {
-		const context = await this.ensureContext();
-		if (!this.loginCompleted && (this.options.loginFlow?.length ?? 0) > 0) {
-			await this.runLoginFlow(params.timeoutMs);
+		try {
+			const context = await this.ensureContext();
+			if (
+				!this.loginCompleted &&
+				((this.options.loginFlow?.length ?? 0) > 0 ||
+					this.options.requireAuthAssertion === true)
+			) {
+				await this.runLoginFlow(params.timeoutMs);
+			}
+			let result = await this.observeRoute(context, params);
+			if (
+				!this.loginRetryUsed &&
+				(this.options.loginFlow?.length ?? 0) > 0 &&
+				(result.status === 401 || result.status === 403)
+			) {
+				this.loginRetryUsed = true;
+				await this.runLoginFlow(params.timeoutMs);
+				result = await this.observeRoute(context, params);
+			}
+			return result;
+		} catch (error) {
+			if (this.networkBudgetExhausted) {
+				throw new Error("request_budget_exhausted");
+			}
+			throw error;
 		}
-		let result = await this.observeRoute(context, params);
-		if (
-			!this.loginRetryUsed &&
-			(this.options.loginFlow?.length ?? 0) > 0 &&
-			(result.status === 401 || result.status === 403)
-		) {
-			this.loginRetryUsed = true;
-			await this.runLoginFlow(params.timeoutMs);
-			result = await this.observeRoute(context, params);
-		}
-		return result;
 	}
 
 	async close(): Promise<void> {
@@ -62,6 +85,10 @@ export class PlaywrightBrowserAdapter implements DastBrowserAdapter {
 		await this.browser?.close().catch(() => undefined);
 		this.context = null;
 		this.browser = null;
+	}
+
+	requestCount(): number {
+		return this.networkRequestCount;
 	}
 
 	private async ensureContext(): Promise<BrowserContext> {
@@ -99,6 +126,14 @@ export class PlaywrightBrowserAdapter implements DastBrowserAdapter {
 		}
 		await this.context.route("**/*", async (route) => {
 			const url = route.request().url();
+			const maxNetworkRequests =
+				this.options.maxNetworkRequests ?? this.options.target.maxRequests;
+			if (this.networkRequestCount >= maxNetworkRequests) {
+				this.networkBudgetExhausted = true;
+				await route.abort("blockedbyclient");
+				return;
+			}
+			this.networkRequestCount += 1;
 			if (!isUrlInDastScope(url, this.options.target)) {
 				await route.abort("blockedbyclient");
 				return;
@@ -149,12 +184,58 @@ export class PlaywrightBrowserAdapter implements DastBrowserAdapter {
 						break;
 				}
 			}
+			await this.assertAuthenticationSucceeded(page, timeoutMs);
 			if (!isUrlInDastScope(page.url(), this.options.target)) {
 				throw new Error("login_redirect_out_of_scope");
 			}
 			this.loginCompleted = true;
 		} finally {
 			await page.close();
+		}
+	}
+
+	private async assertAuthenticationSucceeded(
+		page: import("playwright").Page,
+		timeoutMs: number,
+	): Promise<void> {
+		const assertions = this.options.successAssertions ?? [];
+		if (this.options.requireAuthAssertion && assertions.length === 0) {
+			throw new Error("authentication_assertion_required");
+		}
+		for (const assertion of assertions) {
+			switch (assertion.kind) {
+				case "url": {
+					const actual = new URL(page.url());
+					if (actual.pathname !== assertion.pathPattern) {
+						throw new Error("authentication_url_assertion_failed");
+					}
+					break;
+				}
+				case "selector":
+					await page
+						.locator(assertion.selector)
+						.waitFor({ state: "visible", timeout: timeoutMs })
+						.catch(() => {
+							throw new Error("authentication_selector_assertion_failed");
+						});
+					break;
+				case "status": {
+					const response = await page.goto(
+						new URL(
+							assertion.path,
+							this.options.target.runnerOrigin,
+						).toString(),
+						{ waitUntil: "domcontentloaded", timeout: timeoutMs },
+					);
+					if (
+						response === null ||
+						!assertion.expected.includes(response.status())
+					) {
+						throw new Error("authentication_status_assertion_failed");
+					}
+					break;
+				}
+			}
 		}
 	}
 
@@ -170,18 +251,55 @@ export class PlaywrightBrowserAdapter implements DastBrowserAdapter {
 			method: string;
 			failure: string;
 		}> = [];
+		const networkRequests: BrowserRouteResult["networkRequests"] = [];
+		const observedNetworkKeys = new Set<string>();
 		const redact = (value: string) =>
-			redactSecretText(value, this.options.authSecret);
+			redactDastEvidenceText(value, this.options.authSecret).slice(
+				0,
+				MAX_BROWSER_MESSAGE_CHARS,
+			);
 		page.on("console", (message) => {
-			if (message.type() === "error")
+			if (
+				message.type() === "error" &&
+				consoleErrors.length < MAX_BROWSER_EVENTS_PER_ROUTE
+			)
 				consoleErrors.push(redact(message.text()));
 		});
-		page.on("pageerror", (error) => pageErrors.push(redact(error.message)));
+		page.on("pageerror", (error) => {
+			if (pageErrors.length < MAX_BROWSER_EVENTS_PER_ROUTE) {
+				pageErrors.push(redact(error.message));
+			}
+		});
 		page.on("requestfailed", (request) => {
+			if (failedRequests.length >= MAX_BROWSER_EVENTS_PER_ROUTE) return;
 			failedRequests.push({
-				url: redact(request.url()),
+				url: redactDastEvidenceUrl(
+					request.url(),
+					this.options.authSecret,
+				).slice(0, MAX_BROWSER_MESSAGE_CHARS),
 				method: request.method(),
 				failure: redact(request.failure()?.errorText ?? "request_failed"),
+			});
+		});
+		page.on("response", (response) => {
+			if (networkRequests.length >= MAX_BROWSER_EVENTS_PER_ROUTE) return;
+			const request = response.request();
+			const method = request.method();
+			const canonical = canonicalizeRoute(response.url(), this.options.target);
+			if (!canonical) return;
+			const key = [
+				method,
+				canonical.path,
+				canonical.queryShapeHash,
+				response.status(),
+			].join("\0");
+			if (observedNetworkKeys.has(key)) return;
+			observedNetworkKeys.add(key);
+			networkRequests.push({
+				path: canonical.path,
+				queryKeys: canonical.queryKeys,
+				method,
+				status: response.status(),
 			});
 		});
 		try {
@@ -191,21 +309,28 @@ export class PlaywrightBrowserAdapter implements DastBrowserAdapter {
 			});
 			const screenshot = await this.captureScreenshot(page, params.path);
 			return {
-				finalUrl: page.url(),
+				finalUrl: redactDastEvidenceUrl(page.url(), this.options.authSecret),
 				status: response?.status() ?? null,
+				requestBudgetExhausted: this.networkBudgetExhausted,
 				consoleErrors,
 				pageErrors,
 				failedRequests,
+				networkRequests,
 				screenshot,
 				error: null,
 			};
 		} catch (error) {
 			return {
-				finalUrl: page.url() || params.url,
+				finalUrl: redactDastEvidenceUrl(
+					page.url() || params.url,
+					this.options.authSecret,
+				),
 				status: null,
+				requestBudgetExhausted: this.networkBudgetExhausted,
 				consoleErrors,
 				pageErrors,
 				failedRequests,
+				networkRequests,
 				error: redact(
 					error instanceof Error ? error.message : "browser_route_failed",
 				),
@@ -225,9 +350,12 @@ export class PlaywrightBrowserAdapter implements DastBrowserAdapter {
 			throw new Error("authenticated_screenshot_requires_mask_selectors");
 		}
 		const bytes = await page.screenshot({
-			fullPage: true,
+			fullPage: false,
 			mask: policy.maskSelectors.map((selector) => page.locator(selector)),
 		});
+		if (bytes.byteLength > MAX_SCREENSHOT_BYTES) {
+			throw new Error("browser_screenshot_size_limit_exceeded");
+		}
 		return {
 			filename: `${path.replace(/[^a-zA-Z0-9]/g, "_") || "root"}.png`,
 			bytes,

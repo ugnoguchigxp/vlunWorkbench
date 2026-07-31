@@ -1,0 +1,20 @@
+id: exposed-backup-archive
+
+info:
+  name: Exposed backup archive
+  author: vuln-workbench
+  severity: high
+  description: A conventional backup archive path returns ZIP content.
+  tags: exposure,backup,safe
+
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}/backup.zip"
+    matchers:
+      - type: dsl
+        condition: and
+        dsl:
+          - "status_code == 200"
+          - "len(body) >= 4"
+          - "starts_with(body, 'PK')"

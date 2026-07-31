@@ -1,4 +1,10 @@
 import { z } from "zod";
+import {
+	dastCoverageStatusSchema,
+	dastCoverageSummarySchema,
+	dastVerdictSchema,
+	EMPTY_DAST_COVERAGE_SUMMARY,
+} from "./dast-coverage.schema";
 import { relativeHttpPathSchema } from "./http-target.schema";
 
 export const dastKindSchema = z.enum(["http", "browser", "form"]);
@@ -89,6 +95,14 @@ export const dastRunSchema = z.object({
 	runnerOrigin: z.string().url(),
 	status: dastRunStatusSchema,
 	outcome: dastOutcomeSchema.nullable(),
+	verdict: dastVerdictSchema.nullable().default(null),
+	coverageStatus: dastCoverageStatusSchema.nullable().default(null),
+	coverageSummary: dastCoverageSummarySchema.default(
+		EMPTY_DAST_COVERAGE_SUMMARY,
+	),
+	limitationCodes: z.array(z.string()).default([]),
+	policyId: z.string().nullable().default(null),
+	policyHash: z.string().nullable().default(null),
 	startedAt: dateLikeSchema.nullable(),
 	completedAt: dateLikeSchema.nullable(),
 	summary: z.string().nullable(),
@@ -161,8 +175,16 @@ export const saveDastTargetRequestSchema = z.object({
 	enabled: z.boolean().optional().default(true),
 	allowLoopback: z.boolean().optional().default(true),
 	allowPrivateNetwork: z.boolean().optional().default(false),
-	allowedPathsJson: z.array(relativeHttpPathSchema).optional().default(["/"]),
-	excludedPathsJson: z.array(relativeHttpPathSchema).optional().default([]),
+	allowedPathsJson: z
+		.array(relativeHttpPathSchema)
+		.max(500)
+		.optional()
+		.default(["/"]),
+	excludedPathsJson: z
+		.array(relativeHttpPathSchema)
+		.max(500)
+		.optional()
+		.default([]),
 	defaultHeadersJson: dastDefaultHeadersSchema.optional().default({}),
 	maxDepth: z.number().int().min(0).max(3).optional().default(0),
 	maxRequests: z.number().int().positive().max(100).optional().default(20),
@@ -179,8 +201,16 @@ export const saveDastProfileRequestSchema = z.object({
 	profileId: z.string().min(1),
 	displayName: z.string().min(1),
 	enabled: z.boolean().optional().default(true),
-	routePathsJson: z.array(relativeHttpPathSchema).optional().default([]),
-	formSelectorsJson: z.array(z.string().min(1)).optional().default([]),
+	routePathsJson: z
+		.array(relativeHttpPathSchema)
+		.max(500)
+		.optional()
+		.default([]),
+	formSelectorsJson: z
+		.array(z.string().min(1).max(500))
+		.max(100)
+		.optional()
+		.default([]),
 	checkOptionsJson: z.record(z.string(), z.unknown()).optional().default({}),
 	timeoutSec: z.number().int().positive().max(120).nullable().optional(),
 	maxRequests: z.number().int().positive().max(100).nullable().optional(),
@@ -197,7 +227,7 @@ export const runDastRequestSchema = z
 		profileId: z.string().min(1),
 		profileConfigId: z.string().uuid().optional(),
 		scanRunId: z.string().uuid().optional(),
-		runner: z.enum(["host", "docker", "mock"]).optional().default("host"),
+		runner: z.enum(["host", "docker"]).optional().default("host"),
 		dockerImage: z.string().optional(),
 		timeoutSec: z.number().int().positive().max(120).optional(),
 		maxRequests: z.number().int().positive().max(100).optional(),

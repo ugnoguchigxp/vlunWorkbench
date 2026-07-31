@@ -14,7 +14,7 @@ export type ResolveHost = (
 
 export type ValidateDastTargetOptions = {
 	requestedPath?: string;
-	runner?: "host" | "docker" | "mock";
+	runner?: "host" | "docker";
 	resolveHost?: ResolveHost;
 };
 

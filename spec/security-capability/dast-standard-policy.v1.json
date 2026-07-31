@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 1,
+  "policyId": "dast-standard-v1",
+  "owner": "vulnWorkbench maintainers",
+  "mode": "read-only-passive",
+  "allowedMethods": [
+    "GET",
+    "HEAD",
+    "OPTIONS"
+  ],
+  "limits": {
+    "aggregateRequests": 250,
+    "ownedCrawlerRequests": 100,
+    "zapBaselineRequests": 100,
+    "nucleiSafeRequests": 20,
+    "schemathesisReadonlyRequests": 30,
+    "maxDepth": 2,
+    "maxDiscoveredUrls": 500,
+    "maxQueryShapesPerPath": 3,
+    "rateLimitPerSec": 2,
+    "concurrency": 2,
+    "maxResponseBytes": 1048576,
+    "maxTotalResponseBytes": 67108864,
+    "maxRedirectHops": 5,
+    "wallClockSeconds": 600
+  },
+  "minimums": {
+    "requiredSeedAttempt": 1,
+    "routeDiscoveryRecall": 0.9,
+    "routeDiscoveryPrecision": 0.95,
+    "passiveCheckRecall": 0.9,
+    "passiveCheckPrecision": 0.95,
+    "activeCleanupResetSuccess": 1
+  },
+  "maximums": {
+    "allTransportErrorFalsePass": 0,
+    "authFailureFalsePass": 0,
+    "budgetExhaustionFalsePass": 0,
+    "findingWithoutExecutableEvidence": 0,
+    "secretCanaryLeakage": 0,
+    "publicOrProductionRequests": 0,
+    "fixtureDurationSeconds": 300,
+    "aggregateRequestBudgetViolations": 0
+  },
+  "unsupported": [
+    "public internet target scanning",
+    "production active attack",
+    "WebSocket, gRPC, SOAP, and GraphQL subscription coverage",
+    "MFA, CAPTCHA, or external IdP bypass",
+    "complete vulnerability absence proof"
+  ]
+}

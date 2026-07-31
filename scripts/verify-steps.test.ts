@@ -27,6 +27,8 @@ describe("verification command graph", () => {
 		expect(STRICT_VERIFY_COMMANDS).toEqual([
 			["bun", "run", "verify"],
 			["bun", "run", "test:security-capability"],
+			["bun", "run", "verify:phase-51-baseline"],
+			["bun", "run", "verify:dast-capability"],
 			["bun", "run", "verify:phase-50-evidence"],
 			["bun", "run", "test:coverage"],
 			["bun", "run", "test:e2e"],

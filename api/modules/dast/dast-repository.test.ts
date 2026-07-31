@@ -99,11 +99,85 @@ describe("DastRepository", () => {
 			artifactId: artifact.id,
 			snippet: "status=200",
 		});
+		await dastRepo.replaceRouteInventory({
+			dastRunId: run.id,
+			projectId: project.id,
+			scanRunId: scanRun.id,
+			entries: [
+				{
+					method: "GET",
+					path: "/",
+					queryKeys: [],
+					queryShapeHash: "empty",
+					sources: ["configured"],
+					depth: 0,
+					required: true,
+					authMode: "anonymous",
+					state: "succeeded",
+					statusCode: 200,
+					limitationCode: null,
+				},
+			],
+		});
 
 		expect((await dastRepo.listTargetConfigsForProject(project.id))).toHaveLength(1);
 		expect((await dastRepo.listProfileConfigsForProject(project.id))).toHaveLength(1);
 		expect((await dastRepo.listRunsForProject(project.id))[0].id).toBe(run.id);
 		expect((await dastRepo.listArtifacts(run.id))[0].id).toBe(artifact.id);
 		expect((await dastRepo.listEvidence(run.id))[0].id).toBe(evidence.id);
+		expect(await dastRepo.listRouteInventory(run.id)).toEqual([
+			expect.objectContaining({
+				path: "/",
+				state: "succeeded",
+				sources: ["configured"],
+			}),
+		]);
+	});
+
+	it("stores the same profile independently for different targets", async () => {
+		const project = await projectRepo.createProject({
+			ownerUserId: userId,
+			name: "Multi-target DAST Project",
+			repoPath: "/tmp/multi-target-project",
+		});
+		const firstTarget = await dastRepo.createTargetConfig({
+			projectId: project.id,
+			name: "first",
+			origin: "http://127.0.0.1:3001",
+		});
+		const secondTarget = await dastRepo.createTargetConfig({
+			projectId: project.id,
+			name: "second",
+			origin: "http://127.0.0.1:3002",
+		});
+		const first = await dastRepo.createProfileConfig({
+			projectId: project.id,
+			targetConfigId: firstTarget.id,
+			profileId: "browser-smoke",
+			displayName: "First browser profile",
+			routePathsJson: ["/first"],
+		});
+		const second = await dastRepo.createProfileConfig({
+			projectId: project.id,
+			targetConfigId: secondTarget.id,
+			profileId: "browser-smoke",
+			displayName: "Second browser profile",
+			routePathsJson: ["/second"],
+		});
+
+		expect(
+			await dastRepo.getProfileConfigForTarget(
+				project.id,
+				firstTarget.id,
+				"browser-smoke",
+			),
+		).toEqual(expect.objectContaining({ id: first.id }));
+		expect(
+			await dastRepo.getProfileConfigForTarget(
+				project.id,
+				secondTarget.id,
+				"browser-smoke",
+			),
+		).toEqual(expect.objectContaining({ id: second.id }));
 	});
 });

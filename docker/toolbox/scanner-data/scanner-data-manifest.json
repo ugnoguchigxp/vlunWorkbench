@@ -1,7 +1,7 @@
 {
   "version": 2,
   "generatedAt": "2026-07-30T09:34:30.708Z",
-  "manifestHash": "sha256:7a2f6285f326022cc36d18919c81a5c1b9cd245a3dcaedf4b16f38718e5b25fc",
+  "manifestHash": "sha256:1aef81c79a83c6a37ec9cef9be7d1de4c5b6ca987d3db0eacba203b842fe41d7",
   "tools": {
     "semgrep": {
       "version": "1.171.0",
@@ -194,8 +194,17 @@
           "license": "MIT",
           "generatedAt": "2026-07-30T00:00:00.000Z",
           "maxAgeHours": 8760,
-          "digest": "sha256:c6291031618bdcf3313e32f5db4ef0abcabd5e11ac3c7e2821e6ff5039fd633a",
-          "coverage": ["http:exposed-env"],
+          "digest": "sha256:d4d866e40b03eb7857b578792c09dee46e35d0e1dec18c6fbac3a59623d4f775",
+          "coverage": [
+            "http:exposed-env",
+            "http:exposed-git",
+            "http:openapi",
+            "http:actuator",
+            "http:directory-listing",
+            "http:cors",
+            "http:backup",
+            "http:debug-error"
+          ],
           "path": "../nuclei-safe-templates"
         }
       ]

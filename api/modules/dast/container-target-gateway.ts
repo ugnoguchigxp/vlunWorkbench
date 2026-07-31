@@ -14,6 +14,16 @@ const SECRET_HEADERS = new Set([
 	"x-csrf-token",
 ]);
 const READ_ONLY_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+const HOP_BY_HOP_HEADERS = new Set([
+	"connection",
+	"keep-alive",
+	"proxy-authenticate",
+	"proxy-authorization",
+	"te",
+	"trailer",
+	"transfer-encoding",
+	"upgrade",
+]);
 
 export type ContainerTargetGatewayOptions = {
 	upstreamOrigin: string;
@@ -22,6 +32,9 @@ export type ContainerTargetGatewayOptions = {
 	maxRequests: number;
 	rateLimitPerSec: number;
 	dockerBin?: string;
+	containerAccess?: boolean;
+	maxResponseBytes?: number;
+	maxTotalResponseBytes?: number;
 };
 
 export type PreparedContainerTargetGateway = {
@@ -33,6 +46,8 @@ export type PreparedContainerTargetGateway = {
 		methodBlockedRequests: number;
 		pathBlockedRequests: number;
 		redirectBlockedResponses: number;
+		responseBytesRead: number;
+		responseBodyTruncatedResponses: number;
 	};
 	stop: () => Promise<void>;
 };
@@ -100,6 +115,7 @@ async function linuxBridgeAddress(dockerBin: string): Promise<string> {
 async function selectBindAddress(
 	options: ContainerTargetGatewayOptions,
 ): Promise<string> {
+	if (options.containerAccess === false) return "127.0.0.1";
 	if (os.platform() !== "linux") return "127.0.0.1";
 	return await linuxBridgeAddress(
 		options.dockerBin ?? process.env.VULN_WORKBENCH_DOCKER_BIN ?? "docker",
@@ -130,12 +146,34 @@ export async function prepareContainerTargetGateway(
 		methodBlockedRequests: 0,
 		pathBlockedRequests: 0,
 		redirectBlockedResponses: 0,
+		responseBytesRead: 0,
+		responseBodyTruncatedResponses: 0,
 	};
+	const maxResponseBytes = options.maxResponseBytes ?? 1024 * 1024;
+	const maxTotalResponseBytes =
+		options.maxTotalResponseBytes ?? 64 * 1024 * 1024;
+	if (
+		!Number.isInteger(maxResponseBytes) ||
+		maxResponseBytes < 1 ||
+		maxResponseBytes > 1024 * 1024
+	) {
+		throw new Error("maxResponseBytes must be between 1 and 1048576");
+	}
+	if (
+		!Number.isInteger(maxTotalResponseBytes) ||
+		maxTotalResponseBytes < maxResponseBytes ||
+		maxTotalResponseBytes > 64 * 1024 * 1024
+	) {
+		throw new Error(
+			"maxTotalResponseBytes must be between maxResponseBytes and 67108864",
+		);
+	}
 	const activeControllers = new Set<AbortController>();
 	let lastForwardedAt = 0;
 	let reservedRequests = 0;
 	let rateQueue = Promise.resolve();
 	let closed = false;
+	let gatewayPort = 0;
 
 	const server = http.createServer(async (req, res) => {
 		if (closed) return sendText(res, 503);
@@ -144,10 +182,11 @@ export async function prepareContainerTargetGateway(
 			metrics.methodBlockedRequests++;
 			return sendText(res, 405);
 		}
-		const incoming = new URL(
-			req.url ?? "/",
-			`http://${req.headers.host ?? "gateway"}`,
-		);
+		const requestTarget = req.url ?? "/";
+		if (!requestTarget.startsWith("/") || requestTarget.startsWith("//")) {
+			return sendText(res, 400);
+		}
+		const incoming = new URL(requestTarget, "http://gateway.invalid");
 		if (
 			!isPathAllowed({
 				path: incoming.pathname,
@@ -185,10 +224,20 @@ export async function prepareContainerTargetGateway(
 			upstreamOrigin,
 		);
 		const headers = new Headers();
+		const connectionHeaders = new Set(
+			(req.headers.connection ?? "")
+				.split(",")
+				.map((name) => name.trim().toLowerCase())
+				.filter(Boolean),
+		);
 		for (const [name, value] of Object.entries(req.headers)) {
+			const normalizedName = name.toLowerCase();
 			if (
-				SECRET_HEADERS.has(name.toLowerCase()) ||
-				name.toLowerCase() === "host"
+				SECRET_HEADERS.has(normalizedName) ||
+				HOP_BY_HOP_HEADERS.has(normalizedName) ||
+				connectionHeaders.has(normalizedName) ||
+				normalizedName === "host" ||
+				normalizedName === "content-length"
 			)
 				continue;
 			if (Array.isArray(value)) headers.set(name, value.join(", "));
@@ -210,7 +259,11 @@ export async function prepareContainerTargetGateway(
 			if (location) {
 				const locationUrl = new URL(location, upstreamOrigin);
 				if (locationUrl.origin === upstreamOrigin) {
-					const gatewayOrigin = `http://${req.headers.host}`;
+					const gatewayOrigin = gatewayOriginForRequest(
+						req.headers.host,
+						gatewayPort,
+						bindAddress,
+					);
 					locationUrl.protocol = new URL(gatewayOrigin).protocol;
 					locationUrl.hostname = new URL(gatewayOrigin).hostname;
 					locationUrl.port = new URL(gatewayOrigin).port;
@@ -220,17 +273,37 @@ export async function prepareContainerTargetGateway(
 					metrics.redirectBlockedResponses++;
 				}
 			}
-			for (const [name] of responseHeaders) {
+			const responseConnectionHeaders = new Set(
+				(responseHeaders.get("connection") ?? "")
+					.split(",")
+					.map((name) => name.trim().toLowerCase())
+					.filter(Boolean),
+			);
+			for (const name of [...responseHeaders.keys()]) {
+				const normalizedName = name.toLowerCase();
 				if (
-					name.toLowerCase() === "content-length" ||
-					name.toLowerCase() === "transfer-encoding"
-				)
+					normalizedName === "content-length" ||
+					HOP_BY_HOP_HEADERS.has(normalizedName) ||
+					responseConnectionHeaders.has(normalizedName)
+				) {
 					responseHeaders.delete(name);
+				}
 			}
-			const body =
-				method === "HEAD" ? null : Buffer.from(await response.arrayBuffer());
+			const bounded =
+				method === "HEAD"
+					? { body: null, truncated: false }
+					: await readBoundedResponseBody(
+							response,
+							maxResponseBytes,
+							maxTotalResponseBytes,
+							metrics,
+						);
+			if (bounded.truncated) {
+				metrics.responseBodyTruncatedResponses++;
+				responseHeaders.set("X-Vuln-Workbench-Gateway-Body", "truncated");
+			}
 			res.writeHead(response.status, Object.fromEntries(responseHeaders));
-			res.end(body);
+			res.end(bounded.body);
 		} catch {
 			if (!res.headersSent) sendText(res, 502);
 			else res.end();
@@ -249,10 +322,9 @@ export async function prepareContainerTargetGateway(
 		await new Promise<void>((resolve) => server.close(() => resolve()));
 		throw new Error("target_unreachable_from_container: gateway bind failed");
 	}
+	gatewayPort = address.port;
 	const hostOrigin = `http://127.0.0.1:${address.port}`;
-	const containerHost =
-		bindAddress === "127.0.0.1" ? "host.docker.internal" : bindAddress;
-	const containerOrigin = `http://${containerHost}:${address.port}`;
+	const containerOrigin = `http://host.docker.internal:${address.port}`;
 	return {
 		hostOrigin,
 		containerOrigin,
@@ -264,4 +336,71 @@ export async function prepareContainerTargetGateway(
 			await new Promise<void>((resolve) => server.close(() => resolve()));
 		},
 	};
+}
+
+function gatewayOriginForRequest(
+	hostHeader: string | undefined,
+	port: number,
+	bindAddress: string,
+): string {
+	const fallback = `http://127.0.0.1:${port}`;
+	if (!hostHeader || port <= 0) return fallback;
+	try {
+		const parsed = new URL(`http://${hostHeader}`);
+		const allowedHosts = new Set([
+			"127.0.0.1",
+			"localhost",
+			"host.docker.internal",
+			bindAddress.toLowerCase(),
+		]);
+		if (
+			!allowedHosts.has(parsed.hostname.toLowerCase()) ||
+			parsed.port !== String(port)
+		) {
+			return fallback;
+		}
+		return parsed.origin;
+	} catch {
+		return fallback;
+	}
+}
+
+async function readBoundedResponseBody(
+	response: Response,
+	maxResponseBytes: number,
+	maxTotalResponseBytes: number,
+	metrics: Metrics,
+): Promise<{ body: Buffer; truncated: boolean }> {
+	if (!response.body) return { body: Buffer.alloc(0), truncated: false };
+	const reader = response.body.getReader();
+	const chunks: Buffer[] = [];
+	let responseBytes = 0;
+	let truncated = false;
+	try {
+		while (true) {
+			const next = await reader.read();
+			if (next.done) break;
+			const remainingResponse = maxResponseBytes - responseBytes;
+			const remainingTotal = maxTotalResponseBytes - metrics.responseBytesRead;
+			const allowed = Math.min(remainingResponse, remainingTotal);
+			if (allowed <= 0) {
+				truncated = true;
+				break;
+			}
+			const chunk =
+				next.value.byteLength > allowed
+					? next.value.slice(0, allowed)
+					: next.value;
+			chunks.push(Buffer.from(chunk));
+			responseBytes += chunk.byteLength;
+			metrics.responseBytesRead += chunk.byteLength;
+			if (chunk.byteLength < next.value.byteLength) {
+				truncated = true;
+				break;
+			}
+		}
+	} finally {
+		await reader.cancel().catch(() => undefined);
+	}
+	return { body: Buffer.concat(chunks), truncated };
 }

@@ -9,6 +9,15 @@ on:
       - "scripts/build-*-image.ts"
       - "scripts/prepare-scanner-data.ts"
       - "scripts/verify-offline-toolbox.ts"
+      - "scripts/benchmark/dast-*.ts"
+      - "scripts/verify-dast-*.ts"
+      - "api/modules/dast/**"
+      - "api/modules/runtime-scans/**"
+      - "api/modules/api-schema-fuzz/**"
+      - "api/modules/scans/tools/**"
+      - "shared/schemas/dast*.ts"
+      - "spec/security-capability/dast-standard-*.json"
+      - "tests/security-capability/dast-standard/**"
       - "package.json"
       - "bun.lock"
       - ".github/workflows/container-security.yml"
@@ -21,6 +30,15 @@ on:
       - "scripts/build-*-image.ts"
       - "scripts/prepare-scanner-data.ts"
       - "scripts/verify-offline-toolbox.ts"
+      - "scripts/benchmark/dast-*.ts"
+      - "scripts/verify-dast-*.ts"
+      - "api/modules/dast/**"
+      - "api/modules/runtime-scans/**"
+      - "api/modules/api-schema-fuzz/**"
+      - "api/modules/scans/tools/**"
+      - "shared/schemas/dast*.ts"
+      - "spec/security-capability/dast-standard-*.json"
+      - "tests/security-capability/dast-standard/**"
       - "package.json"
       - "bun.lock"
 
@@ -57,6 +75,14 @@ jobs:
         env:
           VULN_WORKBENCH_TOOLBOX_IMAGE: vuln-workbench-toolbox:ci
         run: bun run verify:toolbox-offline
+      - name: Run owned DAST real-scanner gate
+        if: matrix.name == 'toolbox'
+        env:
+          VULN_WORKBENCH_TOOLBOX_IMAGE: vuln-workbench-toolbox:ci
+        run: bun run benchmark:dast-real-scanners
+      - name: Verify owned DAST real-scanner evidence
+        if: matrix.name == 'toolbox'
+        run: bun run verify:dast-real-scanners
       - name: Build dynamic image
         if: matrix.name == 'dynamic'
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
@@ -84,4 +110,14 @@ jobs:
         with:
           name: sbom-${{ matrix.name }}
           path: sbom-${{ matrix.name }}.cdx.json
+          retention-days: 30
+      - name: Upload DAST real-scanner evidence
+        if: always() && matrix.name == 'toolbox'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: dast-real-scanners
+          path: |
+            .artifacts/benchmark/dast-real-scanners.json
+            .artifacts/benchmark/dast-real-scanner-evidence/
+          if-no-files-found: error
           retention-days: 30

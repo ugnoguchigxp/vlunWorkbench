@@ -89,7 +89,7 @@ describe("Scan Profiles Route", () => {
 		);
 		expect(dastStep).toEqual(
 			expect.objectContaining({
-				profileId: "http-baseline",
+				profileId: "web-passive-standard",
 				target: { mode: "auto_project_start" },
 				failurePolicy: "warn_and_continue",
 			}),

@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { evaluateDastCoverage } from "./coverage-evaluator";
 import type { DastProfileDefinition } from "./profiles";
 import type {
 	DastBrowserRawResult,
@@ -9,12 +10,6 @@ import type {
 	NormalizedDastFinding,
 	ValidatedDastTarget,
 } from "./types";
-
-const SECURITY_HEADERS = [
-	"content-security-policy",
-	"x-frame-options",
-	"x-content-type-options",
-];
 
 function fingerprint(parts: string[]): string {
 	return crypto.createHash("sha256").update(parts.join("\0")).digest("hex");
@@ -65,7 +60,7 @@ function createFinding(params: {
 			{
 				kind: "tool-output",
 				title: params.title,
-				artifactId: null,
+				artifactId: params.artifactId,
 				location: {
 					kind: "url",
 					origin: params.target.normalizedOrigin,
@@ -95,127 +90,195 @@ function normalizeHttp(params: {
 			artifactId: params.rawArtifactId,
 			location: { path: response.path, url: response.url },
 			snippet: response.error ?? `status=${response.status}`,
-			metadata: { status: response.status, finalUrl: response.finalUrl },
+			metadata: {
+				status: response.status,
+				finalUrl: response.finalUrl,
+				contentType: response.contentType,
+				bodyBytesRead: response.bodyBytesRead,
+				bodyTruncated: response.bodyTruncated,
+			},
 		});
 
 		if (response.status !== null && response.status >= 500) {
 			findings.push(
 				createFinding({
-					projectId: params.projectId,
-					target: params.target,
-					profile: params.profile,
-					sourceTool: "dast-http",
+					...findingBase(params, response.path, params.rawArtifactId),
 					ruleId: "unexpected-server-error",
-					path: response.path,
 					evidenceKey: String(response.status),
 					title: "予期しないサーバーエラー応答",
 					description:
-						"設定済み DAST route が、範囲限定の HTTP baseline 実行中に 5xx 応答を返しました。",
+						"範囲限定のread-only DAST実行中に5xx応答を観測しました。",
 					severity: "low",
 					snippet: `HTTP ${response.status} at ${response.path}`,
-					artifactId: params.rawArtifactId,
 				}),
 			);
 		}
 
-		const missing = SECURITY_HEADERS.filter(
-			(header) => response.headers[header] === undefined,
-		);
-		if (response.status !== null && missing.length > 0) {
-			findings.push(
-				createFinding({
-					projectId: params.projectId,
-					target: params.target,
-					profile: params.profile,
-					sourceTool: "dast-http",
-					ruleId: "missing-security-header",
-					path: response.path,
-					evidenceKey: missing.join(","),
-					title: "一般的なセキュリティヘッダーが不足",
-					description: `レスポンスに一般的な hardening header が不足しています: ${missing.join(", ")}.`,
-					severity: "info",
-					snippet: `不足 header: ${missing.join(", ")}`,
-					artifactId: params.rawArtifactId,
-					metadata: { missingHeaders: missing },
-				}),
-			);
-		}
-
-		for (const cookie of response.setCookies) {
-			if (!cookie.secure || !cookie.httpOnly || !cookie.sameSite) {
+		if (isHtmlDocumentResponse(response)) {
+			const missing = [
+				"content-security-policy",
+				"x-frame-options",
+				"x-content-type-options",
+				"referrer-policy",
+			].filter((header) => response.headers[header] === undefined);
+			if (missing.length > 0) {
 				findings.push(
 					createFinding({
-						projectId: params.projectId,
-						target: params.target,
-						profile: params.profile,
-						sourceTool: "dast-http",
-						ruleId: "weak-cookie-flags",
-						path: response.path,
-						evidenceKey: cookie.name,
-						title: "Cookie の推奨セキュリティ属性が不足",
-						description:
-							"推奨される Secure、HttpOnly、SameSite 属性の一部が不足した Set-Cookie header を検出しました。",
-						severity: "low",
-						snippet: `${cookie.name}: secure=${cookie.secure}, httpOnly=${cookie.httpOnly}, sameSite=${cookie.sameSite}`,
-						artifactId: params.rawArtifactId,
-						metadata: { cookieName: cookie.name },
+						...findingBase(params, response.path, params.rawArtifactId),
+						ruleId: "missing-applicable-security-header",
+						evidenceKey: missing.join(","),
+						title: "HTML文書のセキュリティヘッダーが不足",
+						description: `HTML文書に適用可能なhardening headerが不足しています: ${missing.join(", ")}.`,
+						severity: "info",
+						snippet: `不足 header: ${missing.join(", ")}`,
+						metadata: { missingHeaders: missing },
 					}),
 				);
 			}
 		}
 
-		if (response.headers["access-control-allow-origin"] === "*") {
+		if (
+			params.target.normalizedOrigin.startsWith("https://") &&
+			response.status !== null &&
+			response.status >= 200 &&
+			response.status < 400 &&
+			response.headers["strict-transport-security"] === undefined
+		) {
 			findings.push(
 				createFinding({
-					projectId: params.projectId,
-					target: params.target,
-					profile: params.profile,
-					sourceTool: "dast-http",
-					ruleId: "cors-wildcard",
-					path: response.path,
-					evidenceKey: "access-control-allow-origin:*",
-					title: "ワイルドカード CORS ポリシーを検出",
+					...findingBase(params, response.path, params.rawArtifactId),
+					ruleId: "missing-hsts",
+					evidenceKey: "strict-transport-security",
+					title: "HTTPS応答にHSTSがありません",
 					description:
-						"レスポンスが Access-Control-Allow-Origin を * に設定しています。endpoint によってはブラウザから読み取り可能な応答を公開する可能性があります。",
-					severity: "low",
-					snippet: "access-control-allow-origin: *",
-					artifactId: params.rawArtifactId,
+						"HTTPS deployment contextでStrict-Transport-Securityが観測されませんでした。",
+					severity: "info",
+					snippet: "strict-transport-security: missing",
 				}),
 			);
 		}
 
+		for (const cookie of response.setCookies) {
+			const sessionLike = /(?:session|sid|auth|token|jwt|login)/i.test(
+				cookie.name,
+			);
+			const weak =
+				(sessionLike && !cookie.httpOnly) ||
+				(params.target.normalizedOrigin.startsWith("https://") &&
+					!cookie.secure) ||
+				!cookie.sameSite ||
+				(cookie.name.startsWith("__Host-") &&
+					(!cookie.secure ||
+						!cookie.attributes.some(
+							(attribute) => attribute.toLowerCase() === "path",
+						))) ||
+				(cookie.name.startsWith("__Secure-") && !cookie.secure);
+			if (!weak) continue;
+			findings.push(
+				createFinding({
+					...findingBase(params, response.path, params.rawArtifactId),
+					ruleId: "weak-cookie-flags",
+					evidenceKey: cookie.name,
+					title: "Cookieの適用可能なセキュリティ属性が不足",
+					description:
+						"deployment contextとcookie用途に照らして推奨属性が不足しています。",
+					severity: "low",
+					snippet: `${cookie.name}: secure=${cookie.secure}, httpOnly=${cookie.httpOnly}, sameSite=${cookie.sameSite}`,
+					metadata: { cookieName: cookie.name, sessionLike },
+				}),
+			);
+		}
+
+		const corsOrigin = response.headers["access-control-allow-origin"];
+		const corsCredentials =
+			response.headers["access-control-allow-credentials"]?.toLowerCase() ===
+			"true";
+		if (corsOrigin === "*") {
+			findings.push(
+				createFinding({
+					...findingBase(params, response.path, params.rawArtifactId),
+					ruleId: corsCredentials
+						? "cors-wildcard-with-credentials"
+						: "cors-wildcard-observation",
+					evidenceKey: `*:${corsCredentials}`,
+					title: corsCredentials
+						? "credential付きwildcard CORSを観測"
+						: "wildcard CORSを観測",
+					description: corsCredentials
+						? "資格情報を許可する応答でwildcard CORSを観測しました。"
+						: "wildcard CORSを観測しました。機密応答かどうかは別途確認が必要です。",
+					severity: corsCredentials ? "medium" : "info",
+					snippet: `access-control-allow-origin: *; credentials=${corsCredentials}`,
+				}),
+			);
+		}
+
+		const commonPathSignal =
+			(response.path === "/.env" && response.bodySignals.envFile) ||
+			(response.path === "/debug" &&
+				(response.bodySignals.debugDisclosure ||
+					response.bodySignals.frameworkError));
 		if (
-			["/.env", "/debug"].includes(response.path) &&
+			commonPathSignal &&
 			response.status !== null &&
 			response.status >= 200 &&
 			response.status < 300
 		) {
 			findings.push(
 				createFinding({
-					projectId: params.projectId,
-					target: params.target,
-					profile: params.profile,
-					sourceTool: "dast-http",
+					...findingBase(params, response.path, params.rawArtifactId),
 					ruleId: "sensitive-common-path-exposed",
-					path: response.path,
-					evidenceKey: String(response.status),
-					title: "機微な共通パスに到達可能",
+					evidenceKey: `${response.path}:signature`,
+					title: "機微な共通パスの内容を確認",
 					description:
-						"範囲限定の common-path probe が、機微になりやすい path で成功応答を返しました。",
+						"成功statusだけでなく、機微情報またはdebug disclosureのsignatureを観測しました。",
+					severity: "medium",
+					snippet: `${response.path} returned a matching redacted signature`,
+				}),
+			);
+		}
+		if (
+			response.bodySignals.directoryListing &&
+			response.status !== null &&
+			response.status >= 200 &&
+			response.status < 300
+		) {
+			findings.push(
+				createFinding({
+					...findingBase(params, response.path, params.rawArtifactId),
+					ruleId: "directory-listing-exposed",
+					evidenceKey: "index-of",
+					title: "ディレクトリ一覧を観測",
+					description: "HTML応答にディレクトリ一覧のsignatureを観測しました。",
 					severity: "low",
-					snippet: `${response.path} returned HTTP ${response.status}`,
-					artifactId: params.rawArtifactId,
+					snippet: "directory listing signature matched",
 				}),
 			);
 		}
 	}
 
-	const outcome = findings.length > 0 ? "findings" : "passed";
+	const evaluated = evaluateDastCoverage({
+		routeInventory: params.result.routeInventory,
+		requestCount: params.result.requestCount,
+		responseBytesRead: params.result.coverage.responseBytesRead,
+		findingCount: findings.length,
+		budgetExhausted: params.result.coverage.budgetExhausted,
+		authRequired: params.profile.requiresAuth,
+		authSucceeded:
+			!params.profile.requiresAuth ||
+			params.result.coverage.authFailureCount === 0,
+		limitationCodes: params.result.coverage.limitationCodes,
+	});
 	return {
 		findings,
 		evidence,
-		outcome,
-		summary: `HTTP DAST baseline は ${params.result.requestCount} 件の request で完了し、${findings.length} 件の finding を検出しました。`,
+		...evaluated,
+		summary: dastSummary(
+			"HTTP DAST",
+			params.result.requestCount,
+			findings.length,
+			evaluated,
+		),
 	};
 }
 
@@ -232,7 +295,7 @@ function normalizeBrowser(params: {
 		for (const message of route.consoleErrors) {
 			evidence.push({
 				kind: "browser-console",
-				title: `${route.path} の browser console error`,
+				title: `${route.path} のbrowser console error`,
 				artifactId: params.rawArtifactId,
 				location: { path: route.path, url: route.url },
 				snippet: message,
@@ -242,7 +305,7 @@ function normalizeBrowser(params: {
 		for (const request of route.failedRequests) {
 			evidence.push({
 				kind: "browser-network",
-				title: `${route.path} の失敗した browser request`,
+				title: `${route.path} の失敗したbrowser request`,
 				artifactId: params.rawArtifactId,
 				location: { path: route.path, url: request.url },
 				snippet: `${request.method} ${request.url}: ${request.failure}`,
@@ -252,7 +315,7 @@ function normalizeBrowser(params: {
 		if (route.error) {
 			evidence.push({
 				kind: "dast-result",
-				title: `${route.path} の browser route error`,
+				title: `${route.path} のbrowser route error`,
 				artifactId: params.rawArtifactId,
 				location: { path: route.path, url: route.url },
 				snippet: route.error,
@@ -260,11 +323,27 @@ function normalizeBrowser(params: {
 			});
 		}
 	}
+	const evaluated = evaluateDastCoverage({
+		routeInventory: params.result.routeInventory,
+		requestCount: params.result.coverage.requestCount,
+		findingCount: 0,
+		budgetExhausted: params.result.coverage.budgetExhausted,
+		authRequired: params.profile.requiresAuth,
+		authSucceeded:
+			!params.profile.requiresAuth ||
+			params.result.coverage.authFailureCount === 0,
+		limitationCodes: params.result.coverage.limitationCodes,
+	});
 	return {
 		findings,
 		evidence,
-		outcome: "passed",
-		summary: `Browser smoke は ${params.result.routes.length} 件の設定済み route で完了しました。`,
+		...evaluated,
+		summary: dastSummary(
+			"Browser DAST",
+			params.result.coverage.requestCount,
+			0,
+			evaluated,
+		),
 	};
 }
 
@@ -275,14 +354,46 @@ export function normalizeDastResult(params: {
 	result: DastRawResult;
 	rawArtifactId: string | null;
 }): DastNormalizerResult {
-	if (params.result.kind === "http") {
-		return normalizeHttp({
-			...params,
-			result: params.result,
-		});
-	}
-	return normalizeBrowser({
-		...params,
-		result: params.result,
-	});
+	return params.result.kind === "http"
+		? normalizeHttp({ ...params, result: params.result })
+		: normalizeBrowser({ ...params, result: params.result });
+}
+
+function findingBase(
+	params: {
+		projectId: string;
+		target: ValidatedDastTarget;
+		profile: DastProfileDefinition;
+	},
+	path: string,
+	artifactId: string | null,
+) {
+	return {
+		projectId: params.projectId,
+		target: params.target,
+		profile: params.profile,
+		sourceTool: "dast-http" as const,
+		path,
+		artifactId,
+	};
+}
+
+function isHtmlDocumentResponse(
+	response: DastHttpRawResult["responses"][number],
+): boolean {
+	return (
+		response.status !== null &&
+		response.status >= 200 &&
+		response.status < 400 &&
+		response.bodySignals.htmlDocument
+	);
+}
+
+function dastSummary(
+	label: string,
+	requestCount: number,
+	findingCount: number,
+	evaluation: ReturnType<typeof evaluateDastCoverage>,
+): string {
+	return `${label}は${requestCount}件のrequestを実行し、${findingCount}件のfindingを観測しました。verdict=${evaluation.verdict}, coverage=${evaluation.coverageStatus}, known=${evaluation.coverageSummary.knownRouteCount}, attempted=${evaluation.coverageSummary.attemptedRouteCount}.`;
 }

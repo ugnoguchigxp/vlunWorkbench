@@ -48,6 +48,10 @@ export interface StepSummary {
 	artifactCount: number;
 	error: string | null;
 	outcome?: string | null;
+	verdict?: string | null;
+	coverageStatus?: "covered" | "partial" | "gap" | null;
+	coverageSummary?: Record<string, unknown> | null;
+	limitationCodes?: string[];
 	targetOrigin?: string | null;
 	reasonCode?: string | null;
 	coverageEffect?: "covered" | "partial" | "gap";
@@ -269,6 +273,35 @@ export async function buildScanRunSummary(
 								(metadataResult?.outcome as string | null | undefined) ??
 								dastRun?.outcome ??
 								null,
+							verdict:
+								(metadataResult?.verdict as string | null | undefined) ??
+								dastRun?.verdict ??
+								(dastRun ? "unknown_legacy" : null),
+							coverageStatus:
+								(metadataResult?.coverageStatus as
+									| "covered"
+									| "partial"
+									| "gap"
+									| null
+									| undefined) ??
+								(dastRun?.coverageStatus as
+									| "covered"
+									| "partial"
+									| "gap"
+									| null
+									| undefined) ??
+								(dastRun ? "gap" : null),
+							coverageSummary:
+								(metadataResult?.coverageSummary as
+									| Record<string, unknown>
+									| null
+									| undefined) ??
+								dastRun?.coverageSummary ??
+								null,
+							limitationCodes:
+								(metadataResult?.limitationCodes as string[] | undefined) ??
+								dastRun?.limitationCodes ??
+								[],
 							targetOrigin:
 								(metadataResult?.targetOrigin as string | null | undefined) ??
 								dastRun?.targetOrigin ??

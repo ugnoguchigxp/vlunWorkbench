@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import {
 	type CreateDastAuthContextInput,
+	dastAuthSuccessAssertionSchema,
 	type DastAuthSecretPayload,
 	dastAuthSecretPayloadSchema,
 	dastLoginActionSchema,
@@ -26,7 +27,8 @@ export class DastAuthContextRepository {
 	) {}
 
 	async create(
-		input: CreateDastAuthContextInput & {
+		input: Omit<CreateDastAuthContextInput, "successAssertions"> & {
+			successAssertions?: CreateDastAuthContextInput["successAssertions"];
 			projectId: string;
 			createdByUserId: string;
 		},
@@ -71,6 +73,7 @@ export class DastAuthContextRepository {
 				secretAuthTag: encrypted.authTag,
 				secretKeyId: encrypted.keyId,
 				loginFlow: input.loginFlow,
+				successAssertions: input.successAssertions ?? [],
 				status: "active",
 				expiresAt: new Date(input.expiresAt),
 				createdByUserId: input.createdByUserId,
@@ -189,6 +192,9 @@ export class DastAuthContextRepository {
 			context: {
 				...sanitizeContext(row),
 				loginFlow: dastLoginActionSchema.array().parse(row.loginFlow),
+				successAssertions: dastAuthSuccessAssertionSchema
+					.array()
+					.parse(row.successAssertions),
 			},
 			secret: payload,
 		};

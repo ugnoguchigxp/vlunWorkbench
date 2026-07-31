@@ -3,6 +3,10 @@ import {
 	NUCLEI_SAFE_POLICY_HASH,
 	NUCLEI_SAFE_POLICY_ID,
 } from "../runtime-scans/command-contracts";
+import {
+	prepareContainerTargetGateway,
+	type PreparedContainerTargetGateway,
+} from "../dast/container-target-gateway";
 import { RuntimeScannerRunner } from "../runtime-scans/runtime-scanner-runner";
 import { ZapBaselineRunner } from "../runtime-scans/zap-baseline-runner";
 import { ZAP_STABLE_IMAGE } from "../runtime-scans/zap-image-policy";
@@ -90,22 +94,51 @@ export async function runRuntimeScannerIntoExistingScan(params: {
 			reasonCode: "tool_unavailable",
 		};
 	}
-	const result =
-		params.adapter === "zap-baseline"
-			? await (runner as ZapBaselineRunner).run({
-					scanRunId: params.scanRunId,
-					upstreamOrigin: params.targetOrigin,
-					allowedPaths: params.allowedPaths ?? ["/"],
-					excludedPaths: params.excludedPaths ?? [],
-					maxRequests: params.maxRequests ?? 20,
-					rateLimitPerSec: params.rateLimitPerSec ?? 2,
-					timeoutSec: params.timeoutSec,
-				})
-			: await (runner as RuntimeScannerRunner).run({
-					scanRunId: params.scanRunId,
-					targetOrigin: params.targetOrigin,
-					timeoutSec: params.timeoutSec,
-				});
+	let nucleiGateway: PreparedContainerTargetGateway | null = null;
+	let result:
+		| Awaited<ReturnType<RuntimeScannerRunner["run"]>>
+		| Awaited<ReturnType<ZapBaselineRunner["run"]>>;
+	try {
+		if (params.adapter === "nuclei-safe") {
+			nucleiGateway = await prepareContainerTargetGateway({
+				upstreamOrigin: params.targetOrigin,
+				allowedPaths: params.allowedPaths ?? ["/"],
+				excludedPaths: params.excludedPaths ?? [],
+				maxRequests: params.maxRequests ?? 20,
+				rateLimitPerSec: params.rateLimitPerSec ?? 2,
+				dockerBin: params.execution?.docker?.dockerBin,
+				containerAccess: params.execution?.runner === "docker",
+			});
+		}
+		result =
+			params.adapter === "zap-baseline"
+				? await (runner as ZapBaselineRunner).run({
+						scanRunId: params.scanRunId,
+						upstreamOrigin: params.targetOrigin,
+						allowedPaths: params.allowedPaths ?? ["/"],
+						excludedPaths: params.excludedPaths ?? [],
+						maxRequests: params.maxRequests ?? 20,
+						rateLimitPerSec: params.rateLimitPerSec ?? 2,
+						timeoutSec: params.timeoutSec,
+					})
+				: await (runner as RuntimeScannerRunner).run({
+						scanRunId: params.scanRunId,
+						targetOrigin:
+							params.execution?.runner === "docker"
+								? (nucleiGateway as PreparedContainerTargetGateway)
+										.containerOrigin
+								: (nucleiGateway as PreparedContainerTargetGateway).hostOrigin,
+						timeoutSec: params.timeoutSec,
+					});
+		if (params.adapter === "nuclei-safe") {
+			result.executionMetadata = {
+				...(result.executionMetadata ?? {}),
+				gatewayMetrics: nucleiGateway?.metrics() ?? null,
+			};
+		}
+	} finally {
+		await nucleiGateway?.stop().catch(() => undefined);
+	}
 	const artifactIds: string[] = [];
 	const rawArtifactId = result.rawArtifact
 		? (

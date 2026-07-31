@@ -46,7 +46,7 @@ export class DastArtifactStorage {
 	}): Promise<DastArtifactSaveResult> {
 		const runDir = this.getRunDir(params.dastRunId);
 		const targetDir = path.join(runDir, this.sanitizeFilename(params.subDir));
-		await fs.mkdir(targetDir, { recursive: true });
+		await fs.mkdir(targetDir, { recursive: true, mode: 0o700 });
 		const targetPath = path.join(
 			targetDir,
 			this.sanitizeFilename(params.filename),
@@ -54,7 +54,8 @@ export class DastArtifactStorage {
 		this.validatePath(targetPath, params.dastRunId);
 
 		const buffer = Buffer.from(params.buffer);
-		await fs.writeFile(targetPath, buffer);
+		await fs.writeFile(targetPath, buffer, { mode: 0o600 });
+		await fs.chmod(targetPath, 0o600);
 		return {
 			path: path.relative(this.baseDir, targetPath),
 			sha256: crypto.createHash("sha256").update(buffer).digest("hex"),

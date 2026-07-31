@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import net from "node:net";
+import os from "node:os";
 import path from "node:path";
 
 type PackageJson = {
@@ -201,15 +202,25 @@ async function waitForReadiness(params: {
 	while (Date.now() < deadline) {
 		for (const readinessPath of params.paths) {
 			const url = new URL(readinessPath, params.origin).toString();
+			const controller = new AbortController();
+			const timeout = setTimeout(
+				() => controller.abort(),
+				Math.min(1_000, Math.max(1, deadline - Date.now())),
+			);
+			let response: Response | undefined;
 			try {
-				const response = await params.fetchImpl(url, {
+				response = await params.fetchImpl(url, {
 					method: "GET",
 					redirect: "manual",
+					signal: controller.signal,
 				});
 				if (response.status < 500) return;
 				lastError = `readiness check returned ${response.status} for ${readinessPath}`;
 			} catch (error) {
 				lastError = error instanceof Error ? error.message : String(error);
+			} finally {
+				clearTimeout(timeout);
+				await response?.body?.cancel().catch(() => undefined);
 			}
 		}
 		await new Promise((resolve) => setTimeout(resolve, 250));
@@ -219,13 +230,15 @@ async function waitForReadiness(params: {
 
 async function stopProcess(proc: PreparedProcess): Promise<void> {
 	proc.kill("SIGTERM");
-	const timeout = new Promise<"timeout">((resolve) =>
-		setTimeout(() => resolve("timeout"), 3_000),
-	);
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const timeout = new Promise<"timeout">((resolve) => {
+		timer = setTimeout(() => resolve("timeout"), 3_000);
+	});
 	const result = await Promise.race([
 		proc.exited.then(() => "exited"),
 		timeout,
 	]);
+	if (timer) clearTimeout(timer);
 	if (result === "timeout") {
 		proc.kill("SIGKILL");
 		await proc.exited.catch(() => undefined);
@@ -252,20 +265,28 @@ export async function prepareDastTargetWorkspace(params: {
 				stdout: options.stdout,
 				stderr: options.stderr,
 			}) as PreparedProcess);
-	const proc = spawn(plan.command, {
-		cwd: params.repoPath,
-		env: {
-			...process.env,
-			HOST: "127.0.0.1",
-			PORT: String(plan.port),
-			VITE_PORT: String(plan.port),
-			APP_URL: plan.origin,
-			CORS_ORIGINS: plan.origin,
-			NODE_ENV: process.env.NODE_ENV ?? "development",
-		},
-		stdout: "ignore",
-		stderr: "ignore",
-	});
+	const runtimeHome = await fs.mkdtemp(
+		path.join(os.tmpdir(), "vwb-dast-target-"),
+	);
+	let proc: PreparedProcess;
+	try {
+		proc = spawn(plan.command, {
+			cwd: params.repoPath,
+			env: targetProcessEnvironment(plan, runtimeHome),
+			stdout: "ignore",
+			stderr: "ignore",
+		});
+	} catch (error) {
+		await fs.rm(runtimeHome, { recursive: true, force: true });
+		throw error;
+	}
+	let stopped = false;
+	const stop = async (): Promise<void> => {
+		if (stopped) return;
+		stopped = true;
+		await stopProcess(proc).catch(() => undefined);
+		await fs.rm(runtimeHome, { recursive: true, force: true });
+	};
 	let ready = false;
 	try {
 		await waitForReadiness({
@@ -285,8 +306,8 @@ export async function prepareDastTargetWorkspace(params: {
 				allowedPathsJson: ["/"],
 				excludedPathsJson: [],
 				defaultHeadersJson: {},
-				maxDepth: 0,
-				maxRequests: 20,
+				maxDepth: 2,
+				maxRequests: 100,
 				rateLimitPerSec: 2,
 				timeoutSec: 120,
 				metadata: {
@@ -303,10 +324,46 @@ export async function prepareDastTargetWorkspace(params: {
 				},
 			},
 			plan,
-			stop: () => stopProcess(proc),
+			stop,
 		};
 	} catch (error) {
-		if (!ready) await stopProcess(proc).catch(() => undefined);
+		if (!ready) await stop();
 		throw error;
 	}
+}
+
+function targetProcessEnvironment(
+	plan: DastTargetStartPlan,
+	runtimeHome: string,
+): Record<string, string> {
+	const env: Record<string, string> = {};
+	for (const name of [
+		"PATH",
+		"Path",
+		"PATHEXT",
+		"SystemRoot",
+		"WINDIR",
+		"TMPDIR",
+		"TEMP",
+		"TMP",
+		"LANG",
+		"LC_ALL",
+		"TZ",
+	]) {
+		const value = process.env[name];
+		if (value) env[name] = value;
+	}
+	return {
+		...env,
+		HOME: runtimeHome,
+		USERPROFILE: runtimeHome,
+		XDG_CONFIG_HOME: path.join(runtimeHome, ".config"),
+		XDG_CACHE_HOME: path.join(runtimeHome, ".cache"),
+		HOST: "127.0.0.1",
+		PORT: String(plan.port),
+		VITE_PORT: String(plan.port),
+		APP_URL: plan.origin,
+		CORS_ORIGINS: plan.origin,
+		NODE_ENV: "development",
+	};
 }

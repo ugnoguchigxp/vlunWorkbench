@@ -282,7 +282,7 @@ describe("Summary Builder", () => {
 					stepResults: [
 						{
 							kind: "dast",
-							profileId: "auto-http",
+							profileId: "web-passive-standard",
 							status: "completed",
 							findingCount: 2,
 							error: "Dast warning",
@@ -312,7 +312,7 @@ describe("Summary Builder", () => {
 			scanRunId: scanRun.id,
 			projectId,
 			targetConfigId: targetConfig.id,
-			profileId: "http-baseline",
+			profileId: "web-passive-standard",
 			dastKind: "http",
 			targetOrigin: "http://127.0.0.1:4000",
 			runnerOrigin: "http://127.0.0.1:4000",
@@ -325,7 +325,9 @@ describe("Summary Builder", () => {
 
 		const summary = await buildScanRunSummary(connection.db, scanRun.id);
 		expect(summary.steps).toBeDefined();
-		const dastStep = summary.steps?.find((s) => s.id === "dast:http-baseline");
+		const dastStep = summary.steps?.find(
+			(s) => s.id === "dast:web-passive-standard",
+		);
 		expect(dastStep).toBeDefined();
 		expect(dastStep?.status).toBe("completed");
 		expect(dastStep?.error).toBe("Dast warning");

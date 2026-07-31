@@ -32,6 +32,10 @@ const commands: Array<{
 		id: "owned-endpoint-discovery-v1",
 		script: "scripts/benchmark/endpoint-discovery.ts",
 	},
+	{
+		id: "owned-dast-standard-v1",
+		script: "scripts/benchmark/dast-standard.ts",
+	},
 ];
 const results: CommandResult[] = [];
 for (const command of commands) {

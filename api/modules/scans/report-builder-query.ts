@@ -94,10 +94,6 @@ export async function buildReportQuery(
 			.select()
 			.from(findingDecisions)
 			.where(inArray(findingDecisions.findingId, findingIds));
-		allDastEvidence = await db
-			.select()
-			.from(dastEvidence)
-			.where(inArray(dastEvidence.findingId, findingIds));
 	}
 
 	const allReproRuns = await db
@@ -114,6 +110,10 @@ export async function buildReportQuery(
 		.select()
 		.from(dastRuns)
 		.where(eq(dastRuns.scanRunId, scanRunId));
+	allDastEvidence = await db
+		.select()
+		.from(dastEvidence)
+		.where(eq(dastEvidence.scanRunId, scanRunId));
 	const allAttackSurfaceItems = await db
 		.select()
 		.from(attackSurfaceItems)

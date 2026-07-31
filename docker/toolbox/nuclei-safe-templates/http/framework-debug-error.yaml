@@ -1,0 +1,20 @@
+id: framework-debug-error
+
+info:
+  name: Framework debug error disclosure
+  author: vuln-workbench
+  severity: medium
+  description: A debug or stack trace signature is publicly visible.
+  tags: exposure,debug,safe
+
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}/debug"
+    matchers:
+      - type: dsl
+        condition: and
+        dsl:
+          - "status_code >= 200 && status_code < 500"
+          - "len(body) < 1048576"
+          - "regex('(?i)(stack trace|traceback \\(most recent call last\\)|debug mode|typeerror at|referenceerror at)', body)"

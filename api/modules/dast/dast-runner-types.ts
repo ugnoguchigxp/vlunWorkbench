@@ -1,4 +1,9 @@
 import type { DastFailureKind } from "./types";
+import type {
+	DastCoverageStatus,
+	DastCoverageSummary,
+	DastVerdict,
+} from "../../../shared/schemas/dast-coverage.schema";
 
 export type RunDastOptions = {
 	projectId: string;
@@ -6,10 +11,11 @@ export type RunDastOptions = {
 	profileId: string;
 	profileConfigId?: string | null;
 	scanRunId?: string | null;
-	runner?: "host" | "docker" | "mock";
+	runner?: "host" | "docker";
 	dockerImage?: string;
 	timeoutSec?: number;
 	maxRequests?: number;
+	checkOptions?: Record<string, unknown>;
 	dryRun?: boolean;
 	createdByUserId?: string | null;
 	manageScanRunStatus?: boolean;
@@ -25,6 +31,10 @@ export type DastCliResult =
 			scanRunId: string | null;
 			status: string;
 			outcome: string | null;
+			verdict: DastVerdict;
+			coverageStatus: DastCoverageStatus;
+			coverageSummary: DastCoverageSummary;
+			limitationCodes: string[];
 			targetConfigId: string;
 			profileId: string;
 			artifactIds: string[];
@@ -39,6 +49,8 @@ export type DastCliResult =
 			scanRunId: string | null;
 			status: "failed" | "timed_out";
 			outcome: "error" | "timed_out";
+			verdict: "inconclusive" | "not_tested";
+			coverageStatus: "gap";
 			failureKind: DastFailureKind;
 			message: string;
 			targetConfigId?: string;

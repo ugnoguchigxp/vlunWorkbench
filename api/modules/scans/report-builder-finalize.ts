@@ -1,4 +1,5 @@
 import type { AppDatabase } from "../../db";
+import type { DastCoverageSummary } from "../../../shared/schemas/dast-coverage.schema";
 import type { createFindingGroupRenderer } from "./report-builder-findings";
 import type { ReportBuilderOptions } from "./report-builder-helpers";
 import {
@@ -17,6 +18,21 @@ type Scope = Awaited<ReturnType<typeof buildReportQuery>> &
 		scanRunId: string;
 		options: ReportBuilderOptions;
 	};
+
+function readDastCoverageSummary(
+	value: DastCoverageSummary | Record<string, never>,
+): DastCoverageSummary | null {
+	return (
+		typeof value.actionableKnownRouteCount === "number" &&
+		typeof value.attemptedRouteCount === "number" &&
+		typeof value.failedRouteCount === "number" &&
+		typeof value.notTestedRouteCount === "number" &&
+		typeof value.requestCount === "number" &&
+		typeof value.budgetExhausted === "boolean"
+			? value
+			: null
+	) as DastCoverageSummary | null;
+}
 export async function finalizeMarkdownReport(scope: Scope): Promise<string> {
 	const {
 		activeFindings,
@@ -175,16 +191,55 @@ export async function finalizeMarkdownReport(scope: Scope): Promise<string> {
 	// DAST Summary Section
 	lines.push("## DAST サマリ");
 	if (allDastRuns.length > 0) {
-		lines.push("| Run ID | 対象Origin | プロファイル | 状態 | 結果 |");
-		lines.push("| --- | --- | --- | --- | --- |");
+		lines.push(
+			"| Run ID | 対象Origin | プロファイル | 実行状態 | Verdict | Coverage | Legacy outcome |",
+		);
+		lines.push("| --- | --- | --- | --- | --- | --- | --- |");
 		const sortedDastRuns = [...allDastRuns].sort((a, b) =>
 			a.id.localeCompare(b.id),
 		);
 		for (const r of sortedDastRuns) {
 			lines.push(
-				`| ${r.id} | ${escapeTableCell(r.targetOrigin)} | ${escapeTableCell(r.profileId)} | ${escapeTableCell(r.status)} | ${escapeTableCell(r.outcome || "-")} |`,
+				`| ${r.id} | ${escapeTableCell(r.targetOrigin)} | ${escapeTableCell(r.profileId)} | ${escapeTableCell(r.status)} | ${escapeTableCell(r.verdict ?? "unknown_legacy")} | ${escapeTableCell(r.coverageStatus ?? "gap")} | ${escapeTableCell(r.outcome || "-")} |`,
+			);
+			const coverage = readDastCoverageSummary(r.coverageSummary);
+			lines.push("");
+			lines.push(`### DAST scope and coverage: ${r.id}`);
+			lines.push(
+				`- **Verdict:** ${escapeTableCell(r.verdict ?? "unknown_legacy")}`,
+			);
+			lines.push(
+				`- **Coverage:** ${escapeTableCell(r.coverageStatus ?? "gap")}`,
+			);
+			lines.push(
+				`- **Policy:** ${escapeTableCell(r.policyId ?? "unknown")} (${escapeTableCell(r.policyHash ?? "hash unavailable")})`,
+			);
+			lines.push(
+				`- **Known actionable routes:** ${coverage?.actionableKnownRouteCount ?? "unknown"}`,
+			);
+			lines.push(
+				`- **Attempted routes:** ${coverage?.attemptedRouteCount ?? "unknown"}`,
+			);
+			lines.push(
+				`- **Failed/not-tested routes:** ${coverage ? coverage.failedRouteCount + coverage.notTestedRouteCount : "unknown"}`,
+			);
+			lines.push(
+				`- **Request budget:** used=${coverage?.requestCount ?? "unknown"}, exhausted=${coverage?.budgetExhausted ?? "unknown"}`,
+			);
+			lines.push(
+				`- **Required seed coverage:** ${coverage?.requiredSeedCoverage ?? "unknown"}`,
+			);
+			lines.push(
+				`- **Depth/auth/transport:** maxDepth=${coverage?.maxDepthReached ?? "unknown"}, authFailures=${coverage?.authFailureCount ?? "unknown"}, transportErrors=${coverage?.transportErrorCount ?? "unknown"}, timeouts=${coverage?.timeoutCount ?? "unknown"}`,
+			);
+			lines.push(
+				`- **Limitations:** ${r.limitationCodes.length > 0 ? r.limitationCodes.map(escapeTableCell).join(", ") : "none recorded"}`,
 			);
 		}
+		lines.push("");
+		lines.push(
+			"`no_findings_observed`は宣言済み範囲でfindingが観測されなかったことだけを示し、アプリケーション全体の脆弱性不存在を意味しません。",
+		);
 	} else {
 		lines.push("このスキャンには DAST run が記録されていません。");
 		if (expectedDastSteps.length > 0) {

@@ -2,6 +2,7 @@ import type {
 	DastAuthSecretPayload,
 	DastLoginAction,
 } from "../../../shared/schemas/dast-auth.schema";
+import { redactSecrets } from "../scans/normalizers/redaction";
 
 export type DastAuthMaterial = {
 	secret: DastAuthSecretPayload;
@@ -63,6 +64,36 @@ export function redactSecretText(
 	return redacted;
 }
 
+export function redactDastEvidenceUrl(
+	value: string,
+	secret: DastAuthSecretPayload | undefined,
+): string {
+	try {
+		const url = new URL(value);
+		url.username = "";
+		url.password = "";
+		url.hash = "";
+		for (const key of [...url.searchParams.keys()]) {
+			url.searchParams.set(key, "");
+		}
+		return redactSecrets(redactSecretText(url.toString(), secret));
+	} catch {
+		return redactSecrets(redactSecretText(value, secret));
+	}
+}
+
+export function redactDastEvidenceText(
+	value: string,
+	secret: DastAuthSecretPayload | undefined,
+): string {
+	const knownRedacted = redactSecretText(value, secret);
+	const urlRedacted = knownRedacted.replace(
+		/https?:\/\/[^\s"'<>]+/gi,
+		(candidate) => redactDastEvidenceUrl(candidate, secret),
+	);
+	return redactSecrets(urlRedacted);
+}
+
 function secretValues(secret: DastAuthSecretPayload): string[] {
 	switch (secret.kind) {
 		case "bearer_token":
@@ -74,9 +105,11 @@ function secretValues(secret: DastAuthSecretPayload): string[] {
 		case "cookie_set":
 			return secret.cookies.map((cookie) => cookie.value);
 		case "playwright_storage_state":
-			return secret.storageState.cookies.flatMap((cookie) => {
-				const value = cookie.value;
-				return typeof value === "string" ? [value] : [];
-			});
+			return [
+				...secret.storageState.cookies.map((cookie) => cookie.value),
+				...secret.storageState.origins.flatMap((origin) =>
+					origin.localStorage.map((item) => item.value),
+				),
+			];
 	}
 }

@@ -1,0 +1,91 @@
+{
+  "schemaVersion": 1,
+  "fixtureId": "owned-dast-standard-v1",
+  "description": "Ground truth for the bounded, read-only DAST runtime fixture.",
+  "eligibleRoutePaths": [
+    "/",
+    "/.env",
+    "/api/health",
+    "/auth",
+    "/cookie",
+    "/cors",
+    "/debug",
+    "/depth-1/1",
+    "/depth-1/2",
+    "/depth-1/3",
+    "/depth-1/4",
+    "/depth-1/5",
+    "/depth-1/6",
+    "/depth-1/7",
+    "/depth-1/8",
+    "/depth-1/9",
+    "/depth-1/10",
+    "/depth-2/1",
+    "/depth-2/2",
+    "/depth-2/3",
+    "/depth-2/4",
+    "/depth-2/5",
+    "/depth-2/6",
+    "/depth-2/7",
+    "/depth-2/8",
+    "/depth-2/9",
+    "/depth-2/10",
+    "/depth-3/1",
+    "/depth-3/2",
+    "/depth-3/3",
+    "/depth-3/4",
+    "/depth-3/5",
+    "/depth-3/6",
+    "/depth-3/7",
+    "/depth-3/8",
+    "/depth-3/9",
+    "/depth-3/10",
+    "/external-redirect",
+    "/forms",
+    "/headers",
+    "/listing",
+    "/openapi.json",
+    "/redirect",
+    "/search",
+    "/server-error",
+    "/swagger.json",
+    "/unlinked",
+    "/users/fixture-user"
+  ],
+  "excludedRoutePaths": [
+    "/excluded/private",
+    "/mutate",
+    "https://example.com/public"
+  ],
+  "vulnerableFindings": [
+    {
+      "ruleId": "sensitive-common-path-exposed",
+      "path": "/.env"
+    },
+    {
+      "ruleId": "sensitive-common-path-exposed",
+      "path": "/debug"
+    },
+    {
+      "ruleId": "missing-applicable-security-header",
+      "path": "/headers"
+    },
+    {
+      "ruleId": "cors-wildcard-observation",
+      "path": "/cors"
+    },
+    {
+      "ruleId": "weak-cookie-flags",
+      "path": "/cookie"
+    },
+    {
+      "ruleId": "directory-listing-exposed",
+      "path": "/listing"
+    },
+    {
+      "ruleId": "unexpected-server-error",
+      "path": "/server-error"
+    }
+  ],
+  "fixedFindings": []
+}

@@ -13,6 +13,10 @@
 4. Set explicit `PROJECT_ALLOWED_ROOTS`, trusted proxy CIDRs (when applicable),
    the LLM host allowlist, the LLM settings encryption key, and
    `DAST_AUTH_ENCRYPTION_KEY` when authenticated DAST is enabled.
+   Keep `VULN_WORKBENCH_DAST_STANDARD_V2_ENABLED=true` and
+   `VULN_WORKBENCH_DAST_STANDARD_V2_DEFAULT=true` for the coverage-aware
+   standard. Setting both to `false` is the supported legacy-smoke rollback;
+   it does not restore the old false-pass verdict behavior.
 5. For a scanner-capability release, build the toolbox and run the actual
    network-disabled matrix:
 
@@ -39,6 +43,17 @@
    to true and references a persisted passing benchmark run from the same
    release inputs. A successful command with below-threshold metrics is a
    completed measurement, not a passing capability.
+   Also verify the Phase 51 baseline and owned runtime DAST gate:
+
+   ```bash
+   bun run verify:phase-51-baseline
+   bun run verify:dast-capability
+   ```
+
+   The DAST artifact must reference the current commit and current policy,
+   ground-truth, fixture, and implementation hashes. Do not claim real ZAP,
+   Nuclei, Schemathesis, or Juice Shop coverage from the owned crawler
+   benchmark alone.
 6. Create and verify a backup:
 
    ```bash
@@ -106,6 +121,20 @@ missing, keep the affected scanner unavailable or mark report readiness
 `ready_with_limitations`; never silently fall back to a network update.
 
 ## Authenticated DAST credential rotation
+
+The standard passive profile records a verdict and coverage independently.
+`no_findings_observed/covered` means only that the declared bounded scope
+completed without an observed finding. A transport error, authentication
+failure, response truncation, scanner gateway budget block, or an unexecuted
+route must remain `inconclusive`, `not_tested`, `partial`, or `gap` in the UI,
+diagnostic pipeline, and report.
+
+The full runtime profile allocates at most 100 requests to the owned crawler,
+20 to Nuclei safe, 100 to ZAP baseline, and 30 to Schemathesis. Nuclei,
+ZAP, and Schemathesis are routed through read-only gateways with response byte
+limits. A gateway budget block is not a clean completion. Review
+`runtimeAssessmentCoverage` and the DAST route inventory before accepting a
+zero-finding result.
 
 Authenticated DAST uses an encrypted auth-context reference. API responses,
 plans, events, logs, and artifacts contain only redacted metadata. The secret is

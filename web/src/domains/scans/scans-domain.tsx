@@ -1,4 +1,5 @@
 import { DiagnosticDashboard } from "./components/diagnostic-dashboard";
+import { DastAssessmentPanel } from "./components/dast-assessment-panel";
 import { FindingDetailPanel } from "./components/finding-detail-panel";
 import { ScansSidebar, ScansToolbar } from "./components/scans-sidebar";
 import { ScansProvider } from "./scans-context";
@@ -15,6 +16,7 @@ export const ScansDomainSection = (props: ScansDomainSectionProps) => {
 			<main className="scans-layout">
 				<ScansToolbar />
 				<DiagnosticDashboard />
+				<DastAssessmentPanel />
 				<div className="scans-workspace">
 					<ScansSidebar />
 					<FindingDetailPanel />

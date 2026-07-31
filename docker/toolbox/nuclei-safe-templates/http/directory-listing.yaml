@@ -1,0 +1,20 @@
+id: directory-listing
+
+info:
+  name: Directory listing enabled
+  author: vuln-workbench
+  severity: low
+  description: A conventional directory index signature is publicly visible.
+  tags: exposure,misconfiguration,safe
+
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}/uploads/"
+    matchers:
+      - type: dsl
+        condition: and
+        dsl:
+          - "status_code == 200"
+          - "len(body) < 1048576"
+          - "regex('(?i)<(?:title|h1)>\\s*index of\\b', body)"

@@ -45,7 +45,11 @@ export type StaticToolProfileStep = z.infer<typeof staticToolProfileStepSchema>;
 
 export const dastProfileStepSchema = z.object({
 	kind: z.literal("dast"),
-	profileId: z.literal("http-baseline"),
+	profileId: z.enum([
+		"http-baseline",
+		"web-passive-standard",
+		"authenticated-readonly-standard",
+	]),
 	displayName: z.string(),
 	required: z.boolean(),
 	timeoutSec: z.number().int().positive().optional(),
@@ -55,7 +59,18 @@ export const dastProfileStepSchema = z.object({
 	}),
 	options: z
 		.object({
-			maxRequests: z.number().int().positive().optional(),
+			maxRequests: z.number().int().positive().max(100).optional(),
+			maxDepth: z.number().int().min(0).max(3).optional(),
+			aggregateRequestBudget: z.number().int().positive().max(250).optional(),
+			maxDiscoveredUrls: z.number().int().positive().max(500).optional(),
+			maxResponseBytes: z
+				.number()
+				.int()
+				.positive()
+				.max(1024 * 1024)
+				.optional(),
+			includeApplicationModelSeeds: z.boolean().optional(),
+			includeOpenApiSeeds: z.boolean().optional(),
 			readinessTimeoutMs: z.number().int().positive().optional(),
 		})
 		.optional(),
@@ -97,6 +112,12 @@ const scannerStepBaseSchema = profileToolEntrySchema.pick({
 	failurePolicy: true,
 });
 
+export const nucleiSafeOptionsSchema = z.object({
+	maxRequests: z.number().int().min(1).max(20).default(20),
+	rateLimitPerSec: z.number().positive().max(5).default(2),
+});
+export type NucleiSafeOptions = z.infer<typeof nucleiSafeOptionsSchema>;
+
 export const zapBaselineOptionsSchema = z.object({
 	maxRequests: z.number().int().min(1).max(100).default(20),
 	rateLimitPerSec: z.number().positive().max(10).default(2),
@@ -110,7 +131,7 @@ export const runtimeScannerStepSchema = z.discriminatedUnion("adapter", [
 		kind: z.literal("runtime_scanner"),
 		adapter: z.literal("nuclei-safe"),
 		target: z.object({ mode: z.literal("auto_project_start") }),
-		options: z.record(z.string(), z.unknown()).optional(),
+		options: nucleiSafeOptionsSchema.optional(),
 	}),
 	scannerStepBaseSchema.extend({
 		kind: z.literal("runtime_scanner"),
@@ -137,7 +158,12 @@ export const apiSchemaScanStepSchema = scannerStepBaseSchema.extend({
 		mode: z.literal("auto_discover"),
 		kind: z.enum(["openapi", "graphql", "auto"]),
 	}),
-	options: z.record(z.string(), z.unknown()).optional(),
+	options: z
+		.object({
+			maxRequests: z.number().int().min(1).max(30).default(30),
+			rateLimitPerSec: z.number().positive().max(5).default(2),
+		})
+		.optional(),
 });
 export type ApiSchemaScanStep = z.infer<typeof apiSchemaScanStepSchema>;
 

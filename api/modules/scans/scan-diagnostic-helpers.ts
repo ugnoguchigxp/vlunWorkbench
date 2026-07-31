@@ -95,7 +95,36 @@ export function collectBundleLimitations(bundle: ScanReviewBundle): string[] {
 	if (toolProvenance.some((item) => item.dataState === "missing")) {
 		limitations.push("scanner_data_missing");
 	}
-	return limitations;
+	const runtimeCoverage = asRecord(
+		asRecord(bundle.scanRun.metadata)?.runtimeAssessmentCoverage,
+	);
+	const runtimeSteps = Array.isArray(runtimeCoverage?.steps)
+		? runtimeCoverage.steps
+		: [];
+	if (
+		runtimeSteps.length > 0 &&
+		runtimeCoverage?.coverageStatus !== "covered"
+	) {
+		limitations.push(
+			runtimeCoverage?.coverageStatus === "gap"
+				? "runtime_assessment_coverage_gap"
+				: "runtime_assessment_coverage_partial",
+		);
+	}
+	for (const code of Array.isArray(runtimeCoverage?.limitationCodes)
+		? runtimeCoverage.limitationCodes
+		: []) {
+		if (typeof code === "string" && code.length > 0) {
+			limitations.push(`runtime:${code}`);
+		}
+	}
+	return [...new Set(limitations)].sort();
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+	return value && typeof value === "object" && !Array.isArray(value)
+		? (value as Record<string, unknown>)
+		: null;
 }
 
 export function logDiagnosticFailure(

@@ -213,6 +213,8 @@ Common environment variables:
 | `VULN_WORKBENCH_ZAP_ACTIVE_ENABLED` | Enables explicit disposable-target ZAP active runs. Defaults to `false`. |
 | `VULN_WORKBENCH_THREAT_MODEL_ENABLED` | Enables application-model and threat-hypothesis generation. Defaults to `false`. |
 | `VULN_WORKBENCH_BUSINESS_LOGIC_ENABLED` | Enables bounded business-logic scenario generation and execution. Defaults to `false`. |
+| `VULN_WORKBENCH_DAST_STANDARD_V2_ENABLED` | Enables coverage-aware standard DAST profiles. Defaults to `true`; set to `false` to reject explicit v2 runs. |
+| `VULN_WORKBENCH_DAST_STANDARD_V2_DEFAULT` | Makes `web-passive-standard` the default profile step. Defaults to `true`; set both DAST v2 flags to `false` for the legacy smoke rollback. |
 
 LLM API keys stay on the host side. Scanner containers and target projects should not receive LLM credentials. Docker scans always apply memory, CPU, memory-swap, and PID limits; stdout, stderr, and structured result files are rejected when their configured byte limit is exceeded. Dynamic verification inherits the same Docker and stream limits, permits request-time resource overrides only when they tighten the saved profile, and bounds collected artifacts to 16 MiB per file, 64 MiB total, 128 files, 16 directory levels, and 2,048 visited entries.
 
@@ -275,7 +277,7 @@ bun run scan:profile -- --project-path /path/to/repo --profile api-schema-readon
 bun run scan:profile -- --project-path /path/to/repo --profile container-image-security --image-ref local/app:tag --json
 ```
 
-`full-security-scan` runs the existing static tools, CycloneDX SBOM, HTTP baseline, Nuclei safe, ZAP baseline, and Schemathesis only when a schema is discovered. Nuclei uses the pinned safe template set; ZAP is Docker-only passive baseline through a bounded local gateway; Schemathesis sends no credentials and limits methods to GET/HEAD/OPTIONS. Missing schema or image input is reported as a coverage gap, not as “no vulnerabilities.”
+`full-security-scan` runs the existing static tools, CycloneDX SBOM, coverage-aware Web Passive Standard DAST, Nuclei safe, ZAP baseline, and Schemathesis only when a schema is discovered. Nuclei uses the pinned safe template set; ZAP is Docker-only passive baseline through a bounded local gateway; Schemathesis sends no credentials and limits methods to GET/HEAD/OPTIONS. The planned runtime allocations are bounded to 250 requests in total. Missing schema, failed transport, authentication failure, or budget exhaustion is reported as a coverage gap or limitation, not as “no vulnerabilities.”
 
 For a standalone ZAP run, use `bun run scan:zap-baseline -- --project-path /path/to/local-project --create-project true --json`. It uses the pinned `zaproxy/zap-stable@sha256:8d387b1a63e3425beef4846e39719f5af2a787753af2d8b6558c6257d7a577a2` image (ZAP `2.17.0`), sends at most 20 target requests at 2 requests/second by default, and returns a non-zero CLI status when the ZAP execution or target preflight fails. ZAP Baseline spiders passive GET/HEAD resources; it does not run active attacks or authenticated scans.
 
@@ -366,7 +368,7 @@ Auto-target mode starts a local target from project metadata when possible:
 ```bash
 bun run scan:dast -- \
   --project-id <project-id> \
-  --profile http-baseline \
+  --profile web-passive-standard \
   --auto-target true
 ```
 
@@ -376,7 +378,25 @@ Saved target mode:
 bun run scan:dast -- \
   --project-id <project-id> \
   --target-config-id <target-config-id> \
-  --profile http-baseline
+  --profile web-passive-standard
+```
+
+Standard DAST builds a same-origin route inventory from configured, source,
+OpenAPI, HTML, redirect, and common-probe seeds. It enforces depth, request,
+response-byte, and duration limits. Execution status, verdict, and coverage are
+separate: zero findings becomes `no_findings_observed` only when coverage is
+`covered`; otherwise it is `inconclusive` or `not_tested`. Legacy
+`http-baseline` remains available only when explicitly selected.
+
+Authenticated read-only runs use
+`--profile authenticated-readonly-standard --auth-context-id <id>
+--identity-role <role>`. The saved context must include a URL, selector, or
+status success assertion. Credentials are encrypted and never returned by the
+read API. Run the owned vulnerable/fixed capability gate with:
+
+```bash
+bun run verify:phase-51-baseline
+bun run verify:dast-capability
 ```
 
 ### Report Export

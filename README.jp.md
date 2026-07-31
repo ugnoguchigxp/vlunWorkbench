@@ -268,7 +268,7 @@ bun run scan:profile -- --project-path /path/to/repo --profile api-schema-readon
 bun run scan:profile -- --project-path /path/to/repo --profile container-image-security --image-ref local/app:tag --json
 ```
 
-`full-security-scan` は既存 static tool、CycloneDX SBOM、HTTP baseline、Nuclei safe、ZAP baseline、schema が検出できた場合の Schemathesis を順に実行します。Nuclei は固定 safe template set、ZAP は passive baseline、Schemathesis は credential を渡さず GET/HEAD/OPTIONS に限定します。schema 不在や image input 不在は「脆弱性なし」ではなく coverage gap として出力します。
+`full-security-scan` は既存 static tool、CycloneDX SBOM、coverage-awareなWeb Passive Standard DAST、Nuclei safe、ZAP baseline、schema が検出できた場合の Schemathesis を順に実行します。Nuclei は固定 safe template set、ZAP は passive baseline、Schemathesis は credential を渡さず GET/HEAD/OPTIONS に限定します。runtimeの計画上限は合計250 requestです。schema 不在、通信失敗、認証失敗、budget打ち切りは「脆弱性なし」ではなく coverage gap / limitation として出力します。
 
 ### Individual Scanners
 
@@ -347,7 +347,7 @@ auto-target mode は、project metadata から可能な場合に local target �
 ```bash
 bun run scan:dast -- \
   --project-id <project-id> \
-  --profile http-baseline \
+  --profile web-passive-standard \
   --auto-target true
 ```
 
@@ -357,7 +357,25 @@ bun run scan:dast -- \
 bun run scan:dast -- \
   --project-id <project-id> \
   --target-config-id <target-config-id> \
-  --profile http-baseline
+  --profile web-passive-standard
+```
+
+標準DASTはconfigured/source/OpenAPI/HTML/redirect/common probeから
+same-origin route inventoryを作り、depth、request、response byte、durationの
+上限を強制します。execution status、verdict、coverageは別々に保存されます。
+finding 0件でもcoverageが`covered`でなければ`no_findings_observed`にはならず、
+`inconclusive`または`not_tested`になります。旧`http-baseline`は明示指定時だけ
+利用できます。
+
+認証済みread-only実行では
+`--profile authenticated-readonly-standard --auth-context-id <id>
+--identity-role <role>`を指定し、保存contextにURL/selector/statusの成功assertionを
+必須とします。credentialは暗号化され、read APIからは返りません。owned
+vulnerable/fixed gateは次で確認できます。
+
+```bash
+bun run verify:phase-51-baseline
+bun run verify:dast-capability
 ```
 
 ### Report Export

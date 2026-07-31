@@ -23,6 +23,8 @@ import {
 import { parseZapReport, type ZapReport } from "./zap-report-schema";
 import { normalizeZap } from "./zap-normalizer";
 
+const MAX_ZAP_REPORT_BYTES = 20 * 1024 * 1024;
+
 export type ZapBaselineRunResult = {
 	ok: boolean;
 	exitCode: number | null;
@@ -53,8 +55,82 @@ type Spawned = {
 };
 type SpawnFn = (args: string[], options: Record<string, unknown>) => Spawned;
 
-function outputText(stream?: ReadableStream<Uint8Array>): Promise<string> {
-	return stream ? new Response(stream).text() : Promise.resolve("");
+type OutputCapture = {
+	promise: Promise<void>;
+	cancel: () => Promise<void>;
+	text: () => string;
+};
+
+function captureOutput(
+	stream?: ReadableStream<Uint8Array>,
+	maxBytes = 2 * 1024 * 1024,
+): OutputCapture {
+	if (!stream) {
+		return {
+			promise: Promise.resolve(),
+			cancel: async () => {},
+			text: () => "",
+		};
+	}
+	const reader = stream.getReader();
+	const decoder = new TextDecoder();
+	let output = "";
+	let bytesRead = 0;
+	const promise = (async () => {
+		try {
+			while (true) {
+				const { done, value } = await reader.read();
+				if (done) break;
+				if (!value) continue;
+				const remaining = maxBytes - bytesRead;
+				if (remaining <= 0) {
+					output += "\n[output truncated]\n";
+					await reader.cancel().catch(() => undefined);
+					break;
+				}
+				const retained =
+					value.byteLength <= remaining ? value : value.slice(0, remaining);
+				bytesRead += retained.byteLength;
+				output += decoder.decode(retained, { stream: true });
+				if (retained.byteLength < value.byteLength) {
+					output += "\n[output truncated]\n";
+					await reader.cancel().catch(() => undefined);
+					break;
+				}
+			}
+			output += decoder.decode();
+		} finally {
+			reader.releaseLock();
+		}
+	})().catch((error) => {
+		output += `\n[output capture failed: ${String(error)}]\n`;
+	});
+	return {
+		promise,
+		cancel: async () => {
+			await reader.cancel().catch(() => undefined);
+		},
+		text: () => output,
+	};
+}
+
+async function finishOutput(
+	stdout: OutputCapture,
+	stderr: OutputCapture,
+	waitMs: number,
+): Promise<{ stdout: string; stderr: string }> {
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const settled = await Promise.race([
+		Promise.all([stdout.promise, stderr.promise]).then(() => true),
+		new Promise<false>((resolve) => {
+			timer = setTimeout(() => resolve(false), waitMs);
+		}),
+	]);
+	if (timer) clearTimeout(timer);
+	if (!settled) {
+		await Promise.all([stdout.cancel(), stderr.cancel()]);
+	}
+	return { stdout: stdout.text(), stderr: stderr.text() };
 }
 
 function baseDockerArgs(dockerBin: string, containerName?: string): string[] {
@@ -144,8 +220,8 @@ async function runProcess(
 			timedOut: false,
 		};
 	}
-	const stdoutPromise = outputText(proc.stdout);
-	const stderrPromise = outputText(proc.stderr);
+	const stdoutCapture = captureOutput(proc.stdout);
+	const stderrCapture = captureOutput(proc.stderr);
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	const timeout = new Promise<"timeout">((resolve) => {
 		timer = setTimeout(() => resolve("timeout"), timeoutSec * 1000);
@@ -159,17 +235,17 @@ async function runProcess(
 			proc.exited.catch(() => undefined),
 			new Promise<void>((resolve) => setTimeout(resolve, 1_000)),
 		]);
+		const output = await finishOutput(stdoutCapture, stderrCapture, 1_000);
 		return {
 			exitCode: null,
-			stdout: await stdoutPromise,
-			stderr: await stderrPromise,
+			...output,
 			timedOut: true,
 		};
 	}
+	const output = await finishOutput(stdoutCapture, stderrCapture, 2_000);
 	return {
 		exitCode: result.code,
-		stdout: await stdoutPromise,
-		stderr: await stderrPromise,
+		...output,
 		timedOut: false,
 	};
 }
@@ -284,6 +360,10 @@ export class ZapBaselineRunner {
 			const reportPath = path.join(tempDir, ZAP_REPORT_FILENAME);
 			if (!preflightFailure && !timeout) {
 				try {
+					const reportStats = await fs.stat(reportPath);
+					if (reportStats.size > MAX_ZAP_REPORT_BYTES) {
+						throw new Error(`ZAP report exceeds ${MAX_ZAP_REPORT_BYTES} bytes`);
+					}
 					const parsed = JSON.parse(await fs.readFile(reportPath, "utf8"));
 					rawJson = parseZapReport(parsed);
 					const redacted = redactJsonSecrets(rawJson);

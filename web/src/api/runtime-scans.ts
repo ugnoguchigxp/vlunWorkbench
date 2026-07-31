@@ -3,13 +3,20 @@ import { requestJson } from "./core";
 // --- Phase 11 DAST API types and functions ---
 
 export type DastProfile = {
-	id: "http-baseline" | "browser-smoke" | "form-baseline";
+	id:
+		| "http-baseline"
+		| "web-passive-standard"
+		| "browser-smoke"
+		| "authenticated-readonly"
+		| "authenticated-readonly-standard"
+		| "form-baseline";
 	displayName: string;
 	description: string;
 	kind: "http" | "browser" | "form";
 	enabled: boolean;
 	checks: string[];
-	crawlerEnabled: false;
+	crawlerEnabled: boolean;
+	requiresAuth: boolean;
 	requiresRoutes: boolean;
 	requiresForms: boolean;
 };
@@ -79,12 +86,75 @@ export type DastRun = {
 		| "inconclusive"
 		| "error"
 		| null;
+	verdict:
+		| "findings"
+		| "no_findings_observed"
+		| "inconclusive"
+		| "not_tested"
+		| "unknown_legacy"
+		| null;
+	coverageStatus: "covered" | "partial" | "gap" | null;
+	coverageSummary: DastCoverageSummary | Record<string, never>;
+	limitationCodes: string[];
+	policyId: string | null;
+	policyHash: string | null;
 	startedAt: string | null;
 	completedAt: string | null;
 	summary: string | null;
 	errorMessage: string | null;
 	metadata: Record<string, unknown>;
 	createdByUserId: string | null;
+	createdAt: string;
+	updatedAt: string;
+};
+
+export type DastCoverageSummary = {
+	knownRouteCount: number;
+	actionableKnownRouteCount: number;
+	plannedRouteCount: number;
+	attemptedRouteCount: number;
+	successfulRouteCount: number;
+	failedRouteCount: number;
+	blockedRouteCount: number;
+	notTestedRouteCount: number;
+	requiredSeedCoverage: number;
+	actionableRouteCoverage: number;
+	requestCount: number;
+	responseBytesRead: number;
+	maxDepthReached: number;
+	transportErrorCount: number;
+	timeoutCount: number;
+	authFailureCount: number;
+	budgetExhausted: boolean;
+	limitationCodes: string[];
+};
+
+export type DastRouteInventoryEntry = {
+	id: string;
+	dastRunId: string;
+	method: "GET" | "HEAD" | "OPTIONS";
+	path: string;
+	queryKeys: string[];
+	sources: string[];
+	depth: number;
+	required: boolean;
+	authMode: "anonymous" | "authenticated";
+	state: string;
+	statusCode: number | null;
+	limitationCode: string | null;
+};
+
+export type DastAuthContext = {
+	id: string;
+	projectId: string;
+	targetConfigId: string;
+	identityRole: string;
+	label: string;
+	authKind: string;
+	loginFlow: Array<Record<string, unknown>>;
+	successAssertions: Array<Record<string, unknown>>;
+	status: "active" | "revoked";
+	expiresAt: string;
 	createdAt: string;
 	updatedAt: string;
 };
@@ -226,10 +296,12 @@ export async function triggerProjectDastRun(
 		profileId: string;
 		profileConfigId?: string;
 		scanRunId?: string;
-		runner?: "host" | "docker" | "mock";
+		runner?: "host" | "docker";
 		dockerImage?: string;
 		timeoutSec?: number;
 		maxRequests?: number;
+		authContextId?: string;
+		identityRole?: string;
 		dryRun?: boolean;
 	},
 ): Promise<{
@@ -256,135 +328,64 @@ export async function triggerProjectDastRun(
 	});
 }
 
-export async function fetchDastRunArtifacts(
-	dastRunId: string,
-): Promise<{ artifacts: DastArtifact[]; evidence: DastEvidence[] }> {
-	return requestJson<{ artifacts: DastArtifact[]; evidence: DastEvidence[] }>(
-		`/api/dast-runs/${dastRunId}/artifacts`,
-	);
-}
-
-// --- Phase 9 Sandbox Reproduction API types and functions ---
-
-export type ReproductionProfile = {
-	id: string;
-	displayName: string;
-	description: string;
-	sourceTools: string[];
-	defaultTimeoutSec: number;
-	defaultNetworkMode: "none" | "default";
-	isApplicable: boolean;
-	applicabilityReason: string | null;
-};
-
-export type ReproductionRun = {
-	id: string;
-	projectId: string;
-	scanRunId: string;
-	findingId: string;
-	profileId: string;
-	status:
-		| "queued"
-		| "running"
-		| "completed"
-		| "failed"
-		| "timed_out"
-		| "cancelled";
-	outcome: "reproduced" | "not_reproduced" | "inconclusive" | "error" | null;
-	runner: string;
-	commandJson: string[] | null;
-	exitCode: number | null;
-	startedAt: string | null;
-	completedAt: string | null;
-	summary: string | null;
-	errorMessage: string | null;
-	metadata: Record<string, unknown>;
-	createdByUserId: string | null;
-	createdAt: string;
-	updatedAt: string;
-};
-
-export type ReproductionArtifact = {
-	id: string;
-	reproductionRunId: string;
-	findingId: string;
-	kind: "raw_result" | "stdout" | "stderr" | "log" | "summary";
-	format: string;
-	path: string;
-	sha256: string;
-	sizeBytes: number;
-	metadata: Record<string, unknown>;
-	createdAt: string;
-};
-
-export type ReproductionEvidence = {
-	id: string;
-	reproductionRunId: string;
-	findingId: string;
-	kind: "reproduction-result" | "reproduction-log" | "tool-output";
-	title: string;
-	artifactId: string | null;
-	location: Record<string, unknown> | null;
-	snippet: string | null;
-	metadata: Record<string, unknown>;
-	createdAt: string;
-};
-
-export async function fetchReproductionProfiles(
-	findingId: string,
-): Promise<{ profiles: ReproductionProfile[] }> {
-	return requestJson<{ profiles: ReproductionProfile[] }>(
-		`/api/findings/${findingId}/reproduction-profiles`,
-	);
-}
-
-export async function fetchFindingReproductions(
-	findingId: string,
-): Promise<{ reproductions: ReproductionRun[] }> {
-	return requestJson<{ reproductions: ReproductionRun[] }>(
-		`/api/findings/${findingId}/reproductions`,
-	);
-}
-
-export async function triggerFindingReproduction(
-	findingId: string,
-	params: {
-		profileId: string;
-		runner?: "docker";
-		dockerImage?: string;
-		network?: "none" | "default";
-		timeoutSec?: number;
-		memory?: string;
-		cpus?: string;
-	},
-): Promise<Record<string, unknown> & { reproductionRunId?: string }> {
-	return requestJson<Record<string, unknown> & { reproductionRunId?: string }>(
-		`/api/findings/${findingId}/reproductions`,
-		{
-			method: "POST",
-			body: params,
-		},
-	);
-}
-
-export async function fetchReproductionRun(
-	reproductionRunId: string,
-): Promise<{ reproductionRun: ReproductionRun }> {
-	return requestJson<{ reproductionRun: ReproductionRun }>(
-		`/api/reproduction-runs/${reproductionRunId}`,
-	);
-}
-
-export async function fetchReproductionRunArtifacts(
-	reproductionRunId: string,
-): Promise<{
-	artifacts: ReproductionArtifact[];
-	evidence: ReproductionEvidence[];
+export async function fetchDastRunArtifacts(dastRunId: string): Promise<{
+	artifacts: DastArtifact[];
+	evidence: DastEvidence[];
+	routeInventory: DastRouteInventoryEntry[];
 }> {
 	return requestJson<{
-		artifacts: ReproductionArtifact[];
-		evidence: ReproductionEvidence[];
-	}>(`/api/reproduction-runs/${reproductionRunId}/artifacts`);
+		artifacts: DastArtifact[];
+		evidence: DastEvidence[];
+		routeInventory: DastRouteInventoryEntry[];
+	}>(`/api/dast-runs/${dastRunId}/artifacts`);
 }
 
+export async function fetchProjectDastAuthContexts(
+	projectId: string,
+): Promise<{ authContexts: DastAuthContext[] }> {
+	return requestJson<{ authContexts: DastAuthContext[] }>(
+		`/api/projects/${projectId}/dast-auth-contexts`,
+	);
+}
+
+export async function createProjectDastAuthContext(
+	projectId: string,
+	input: {
+		targetConfigId: string;
+		identityRole: string;
+		label: string;
+		secret: Record<string, unknown>;
+		loginFlow?: Array<Record<string, unknown>>;
+		successAssertions?: Array<Record<string, unknown>>;
+		expiresAt: string;
+	},
+): Promise<{ authContext: DastAuthContext }> {
+	return requestJson<{ authContext: DastAuthContext }>(
+		`/api/projects/${projectId}/dast-auth-contexts`,
+		{ method: "POST", body: input },
+	);
+}
+
+export async function rotateProjectDastAuthContext(
+	projectId: string,
+	authContextId: string,
+	input: { secret: Record<string, unknown>; expiresAt: string },
+): Promise<{ authContext: DastAuthContext }> {
+	return requestJson<{ authContext: DastAuthContext }>(
+		`/api/projects/${projectId}/dast-auth-contexts/${authContextId}/rotate`,
+		{ method: "POST", body: input },
+	);
+}
+
+export async function revokeProjectDastAuthContext(
+	projectId: string,
+	authContextId: string,
+): Promise<{ authContext: DastAuthContext }> {
+	return requestJson<{ authContext: DastAuthContext }>(
+		`/api/projects/${projectId}/dast-auth-contexts/${authContextId}/revoke`,
+		{ method: "POST" },
+	);
+}
+
+export * from "./runtime-scans-reproduction";
 export * from "./runtime-scans-dynamic";

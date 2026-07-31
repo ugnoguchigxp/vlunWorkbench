@@ -32,6 +32,8 @@ describe("readAppEnv", () => {
 		expect(env.curatedSastEnabled).toBe(false);
 		expect(env.multiEcosystemOsvEnabled).toBe(false);
 		expect(env.zapActiveEnabled).toBe(false);
+		expect(env.dastStandardV2Enabled).toBe(true);
+		expect(env.dastStandardV2Default).toBe(true);
 		expect(env.threatModelEnabled).toBe(false);
 		expect(env.businessLogicEnabled).toBe(false);
 	});
@@ -134,6 +136,8 @@ describe("readAppEnv", () => {
 			VULN_WORKBENCH_ZAP_ACTIVE_ENABLED: "true",
 			VULN_WORKBENCH_THREAT_MODEL_ENABLED: "true",
 			VULN_WORKBENCH_BUSINESS_LOGIC_ENABLED: "true",
+			VULN_WORKBENCH_DAST_STANDARD_V2_ENABLED: "false",
+			VULN_WORKBENCH_DAST_STANDARD_V2_DEFAULT: "false",
 		});
 		expect({
 			curatedSastEnabled: env.curatedSastEnabled,
@@ -141,12 +145,16 @@ describe("readAppEnv", () => {
 			zapActiveEnabled: env.zapActiveEnabled,
 			threatModelEnabled: env.threatModelEnabled,
 			businessLogicEnabled: env.businessLogicEnabled,
+			dastStandardV2Enabled: env.dastStandardV2Enabled,
+			dastStandardV2Default: env.dastStandardV2Default,
 		}).toEqual({
 			curatedSastEnabled: true,
 			multiEcosystemOsvEnabled: true,
 			zapActiveEnabled: true,
 			threatModelEnabled: true,
 			businessLogicEnabled: true,
+			dastStandardV2Enabled: false,
+			dastStandardV2Default: false,
 		});
 	});
 

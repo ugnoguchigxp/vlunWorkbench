@@ -4,6 +4,15 @@ import type {
 	ScanProfileStep,
 	ScanScopePolicy,
 } from "../../../shared/schemas/scan-profile.schema";
+import {
+	applyDastStandardRollout,
+	assertRuntimeAssessmentBudget,
+} from "./dast-profile-rollout";
+
+export {
+	plannedRuntimeAssessmentRequests,
+	RUNTIME_ASSESSMENT_AGGREGATE_REQUEST_BUDGET,
+} from "./dast-profile-rollout";
 import { buildStaticScanProfiles } from "./static-scan-profiles";
 import { ZAP_ACTIVE_DEDICATED_PROFILES } from "./zap-active-profiles";
 
@@ -74,18 +83,26 @@ function staticSteps(profile: Pick<ScanProfile, "tools">): ScanProfileStep[] {
 	return profile.tools.map((tool) => ({ kind: "static_tool", ...tool }));
 }
 
-const AUTO_HTTP_DAST_STEP: DastProfileStep = {
+const AUTO_STANDARD_DAST_STEP: DastProfileStep = {
 	kind: "dast",
-	profileId: "http-baseline",
-	displayName: "自動起動HTTP DAST診断",
+	profileId: "web-passive-standard",
+	displayName: "自動起動Web Passive Standard DAST",
 	required: false,
 	failurePolicy: "warn_and_continue",
 	target: { mode: "auto_project_start" },
-	options: { maxRequests: 20 },
+	options: {
+		maxRequests: 100,
+		maxDepth: 2,
+		aggregateRequestBudget: 100,
+		maxDiscoveredUrls: 500,
+		maxResponseBytes: 1024 * 1024,
+		includeApplicationModelSeeds: true,
+		includeOpenApiSeeds: true,
+	},
 };
 
-const REQUIRED_AUTO_HTTP_DAST_STEP: DastProfileStep = {
-	...AUTO_HTTP_DAST_STEP,
+const REQUIRED_AUTO_STANDARD_DAST_STEP: DastProfileStep = {
+	...AUTO_STANDARD_DAST_STEP,
 	required: true,
 	failurePolicy: "fail_profile",
 };
@@ -97,6 +114,10 @@ const NUCLEI_SAFE_STEP: ScanProfileStep = {
 	required: false,
 	failurePolicy: "warn_and_continue",
 	target: { mode: "auto_project_start" },
+	options: {
+		maxRequests: 20,
+		rateLimitPerSec: 2,
+	},
 };
 const ZAP_BASELINE_STEP: ScanProfileStep = {
 	kind: "runtime_scanner",
@@ -106,7 +127,7 @@ const ZAP_BASELINE_STEP: ScanProfileStep = {
 	failurePolicy: "warn_and_continue",
 	target: { mode: "auto_project_start" },
 	options: {
-		maxRequests: 20,
+		maxRequests: 100,
 		rateLimitPerSec: 2,
 		spiderMinutes: 1,
 		passiveWaitMinutes: 3,
@@ -134,6 +155,10 @@ const SCHEMATHESIS_STEP: ScanProfileStep = {
 	failurePolicy: "warn_and_continue",
 	target: { mode: "auto_project_start" },
 	schema: { mode: "auto_discover", kind: "auto" },
+	options: {
+		maxRequests: 30,
+		rateLimitPerSec: 2,
+	},
 };
 
 export const SCAN_PROFILES: ScanProfile[] = [
@@ -147,7 +172,7 @@ export const SCAN_PROFILES: ScanProfile[] = [
 		id: "web-app-baseline",
 		name: "Webアプリ標準診断",
 		description:
-			"Semgrep、Gitleaks、OSV による静的診断と、自動起動したローカル対象への HTTP DAST 診断をまとめて実行します。",
+			"Semgrep、Gitleaks、OSVによる静的診断と、自動起動したローカル対象へのbounded passive DASTをまとめて実行します。",
 		category: "basic",
 		enabled: true,
 		defaultTimeoutSec: 900,
@@ -204,20 +229,20 @@ export const SCAN_PROFILES: ScanProfile[] = [
 				failurePolicy: "fail_profile",
 				options: { dependencyMode: "manifest" },
 			},
-			AUTO_HTTP_DAST_STEP,
+			AUTO_STANDARD_DAST_STEP,
 		],
 	},
 	{
 		id: "runtime-web-safe",
 		name: "安全なWeb実行時診断",
 		description:
-			"自動起動したローカル対象に HTTP baseline、Nuclei safe、ZAP baseline を実行します。",
+			"自動起動したローカル対象にbounded passive DAST、Nuclei safe、ZAP baselineを実行します。",
 		category: "focused",
 		enabled: true,
 		defaultTimeoutSec: 900,
 		scope: SOURCE_BASELINE_SCOPE,
 		tools: [],
-		steps: [AUTO_HTTP_DAST_STEP, NUCLEI_SAFE_STEP, ZAP_BASELINE_STEP],
+		steps: [AUTO_STANDARD_DAST_STEP, NUCLEI_SAFE_STEP, ZAP_BASELINE_STEP],
 	},
 	{
 		id: "sbom-inventory",
@@ -280,18 +305,18 @@ export const SCAN_PROFILES: ScanProfile[] = [
 		id: "runtime-http-check",
 		name: "実行時HTTP診断",
 		description:
-			"選択したプロジェクトを自動起動し、HTTP応答、セキュリティヘッダー、Cookie、CORS を範囲限定の DAST で確認します。",
+			"選択したプロジェクトを自動起動し、既知route coverageを伴うbounded passive DASTを実行します。",
 		category: "focused",
 		enabled: true,
 		defaultTimeoutSec: 180,
 		tools: [],
-		steps: [REQUIRED_AUTO_HTTP_DAST_STEP],
+		steps: [REQUIRED_AUTO_STANDARD_DAST_STEP],
 	},
 	{
 		id: "full-security-scan",
 		name: "総合セキュリティ診断",
 		description:
-			"詳細な静的診断と自動起動 HTTP DAST 診断を合わせて、Webアプリの広めの診断証跡を収集します。",
+			"詳細な静的診断とbounded passive DASTを合わせて、Webアプリの広めの診断証跡を収集します。active attackは実行しません。",
 		category: "detailed",
 		enabled: true,
 		defaultTimeoutSec: 1200,
@@ -358,7 +383,7 @@ export const SCAN_PROFILES: ScanProfile[] = [
 				options: { scanners: ["vuln", "secret", "misconfig"] },
 			},
 			SBOM_STEP,
-			AUTO_HTTP_DAST_STEP,
+			AUTO_STANDARD_DAST_STEP,
 			NUCLEI_SAFE_STEP,
 			ZAP_BASELINE_STEP,
 			SCHEMATHESIS_STEP,
@@ -368,7 +393,7 @@ export const SCAN_PROFILES: ScanProfile[] = [
 		id: "secrets-dependencies-runtime",
 		name: "漏えい・依存関係・公開面診断",
 		description:
-			"Gitleaks、OSV、Trivy と自動起動 HTTP DAST 診断で、シークレット漏えい、依存関係、公開面の証跡を確認します。",
+			"Gitleaks、OSV、Trivyとbounded passive DASTで、シークレット漏えい、依存関係、公開面の証跡を確認します。",
 		category: "focused",
 		enabled: true,
 		defaultTimeoutSec: 900,
@@ -419,7 +444,7 @@ export const SCAN_PROFILES: ScanProfile[] = [
 				failurePolicy: "warn_and_continue",
 				options: { scanners: ["vuln", "secret", "misconfig"] },
 			},
-			AUTO_HTTP_DAST_STEP,
+			AUTO_STANDARD_DAST_STEP,
 		],
 	},
 	...ZAP_ACTIVE_DEDICATED_PROFILES,
@@ -427,13 +452,22 @@ export const SCAN_PROFILES: ScanProfile[] = [
 
 export function getProfileById(id: string): ScanProfile | undefined {
 	const profile = SCAN_PROFILES.find((p) => p.id === id && p.enabled);
-	return profile
-		? { ...profile, steps: profile.steps ?? staticSteps(profile) }
+	const rolledOut = profile
+		? applyDastStandardRollout({
+				...profile,
+				steps: profile.steps ?? staticSteps(profile),
+			})
 		: undefined;
+	if (rolledOut) assertRuntimeAssessmentBudget(rolledOut);
+	return rolledOut;
 }
 export function listProfiles(): ScanProfile[] {
-	return SCAN_PROFILES.filter((p) => p.enabled).map((profile) => ({
-		...profile,
-		steps: profile.steps ?? staticSteps(profile),
-	}));
+	return SCAN_PROFILES.filter((p) => p.enabled).map((profile) => {
+		const rolledOut = applyDastStandardRollout({
+			...profile,
+			steps: profile.steps ?? staticSteps(profile),
+		});
+		assertRuntimeAssessmentBudget(rolledOut);
+		return rolledOut;
+	});
 }

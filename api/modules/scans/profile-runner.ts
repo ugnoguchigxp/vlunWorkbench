@@ -2,6 +2,7 @@ import type {
 	ProfileToolEntry,
 	ScanProfileStep,
 } from "../../../shared/schemas/scan-profile.schema";
+import type { DastCoverageSummary } from "../../../shared/schemas/dast-coverage.schema";
 import type {
 	DiffManifestEntry,
 	ResolvedScanTarget,
@@ -43,6 +44,10 @@ export type DastStepResult = {
 	required: boolean;
 	status: "completed" | "failed" | "skipped";
 	outcome: string | null;
+	verdict?: string | null;
+	coverageStatus?: "covered" | "partial" | "gap" | null;
+	coverageSummary?: DastCoverageSummary | null;
+	limitationCodes?: string[];
 	findingCount: number;
 	dastRunId: string | null;
 	targetOrigin: string | null;

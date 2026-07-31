@@ -267,16 +267,15 @@ export async function executeProfileSteps(
 						} else {
 							optionalToolFailed = true;
 						}
+					} else if (dastResult.coverageStatus !== "covered") {
+						optionalToolFailed = true;
 					}
 					continue;
 				} else if (step.kind === "runtime_scanner") {
 					const target = await ensureSharedRuntimeTarget();
-					const zapOptions =
-						step.adapter === "zap-baseline"
-							? (step.options as
-									| { maxRequests?: number; rateLimitPerSec?: number }
-									| undefined)
-							: undefined;
+					const runtimeOptions = step.options as
+						| { maxRequests?: number; rateLimitPerSec?: number }
+						| undefined;
 					const runtimeResult = await runRuntimeScannerIntoExistingScan({
 						db: params.db,
 						projectId: params.projectId,
@@ -288,8 +287,8 @@ export async function executeProfileSteps(
 						execution,
 						allowedPaths: target.targetConfig.allowedPathsJson,
 						excludedPaths: target.targetConfig.excludedPathsJson,
-						maxRequests: zapOptions?.maxRequests,
-						rateLimitPerSec: zapOptions?.rateLimitPerSec,
+						maxRequests: runtimeOptions?.maxRequests,
+						rateLimitPerSec: runtimeOptions?.rateLimitPerSec,
 					});
 					const runtimeFailed = Boolean(runtimeResult.error);
 					stepResults.push({
@@ -313,6 +312,9 @@ export async function executeProfileSteps(
 					continue;
 				} else if (step.kind === "api_schema_scan") {
 					const target = await ensureSharedRuntimeTarget();
+					const schemaOptions = step.options as
+						| { maxRequests?: number; rateLimitPerSec?: number }
+						| undefined;
 					const schemaResult = await runSchemaScannerIntoExistingScan({
 						db: params.db,
 						projectId: params.projectId,
@@ -322,6 +324,10 @@ export async function executeProfileSteps(
 						artifactStorage,
 						timeoutSec: resolvedTimeout,
 						execution,
+						allowedPaths: target.targetConfig.allowedPathsJson,
+						excludedPaths: target.targetConfig.excludedPathsJson,
+						maxRequests: schemaOptions?.maxRequests,
+						rateLimitPerSec: schemaOptions?.rateLimitPerSec,
 					});
 					const notApplicable = !schemaResult.applicable;
 					const schemaFailed = Boolean(schemaResult.error);
@@ -341,6 +347,7 @@ export async function executeProfileSteps(
 						findingCount: schemaResult.findingCount,
 						error: schemaResult.error ?? null,
 						artifactIds: schemaResult.artifactIds,
+						metadata: schemaResult.metadata,
 					});
 					if (schemaFailed && failureFailsProfile)
 						profileFailingToolFailed = true;

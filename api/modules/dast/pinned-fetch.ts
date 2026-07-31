@@ -46,9 +46,11 @@ export async function pinnedDastFetch(
 					);
 				}
 				const status = response.statusCode ?? 500;
-				response.resume();
+				const bodyForbidden = [204, 205, 304].includes(status);
+				if (bodyForbidden) response.resume();
+				const body = bodyForbidden ? null : incomingMessageBody(response);
 				resolve(
-					new Response(null, {
+					new Response(body, {
 						status,
 						statusText: response.statusMessage,
 						headers: responseHeaders,
@@ -69,6 +71,29 @@ export async function pinnedDastFetch(
 		);
 		if (body) request.write(body);
 		request.end();
+	});
+}
+
+function incomingMessageBody(
+	response: http.IncomingMessage,
+): ReadableStream<Uint8Array> {
+	const iterator = response[Symbol.asyncIterator]();
+	return new ReadableStream<Uint8Array>({
+		async pull(controller) {
+			const next = await iterator.next();
+			if (next.done) {
+				controller.close();
+				return;
+			}
+			if (!(next.value instanceof Uint8Array)) {
+				throw new Error("pinned_fetch_invalid_response_chunk");
+			}
+			controller.enqueue(next.value);
+		},
+		async cancel() {
+			response.destroy();
+			await iterator.return?.();
+		},
 	});
 }
 

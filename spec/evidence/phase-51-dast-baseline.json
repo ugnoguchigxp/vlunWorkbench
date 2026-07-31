@@ -1,0 +1,84 @@
+{
+  "schemaVersion": 1,
+  "phase": "51",
+  "generatedAt": "2026-07-31T00:00:00.000Z",
+  "gitCommit": "75cb168ca67c7ef67d5b44b461dad932ec9cd4af",
+  "defaultProfiles": [
+    {
+      "profileId": "web-app-baseline",
+      "dastSteps": [
+        "http-baseline"
+      ],
+      "required": [
+        false
+      ]
+    },
+    {
+      "profileId": "runtime-web-safe",
+      "dastSteps": [
+        "http-baseline"
+      ],
+      "required": [
+        false
+      ]
+    },
+    {
+      "profileId": "runtime-http-check",
+      "dastSteps": [
+        "http-baseline"
+      ],
+      "required": [
+        true
+      ]
+    },
+    {
+      "profileId": "full-security-scan",
+      "dastSteps": [
+        "http-baseline"
+      ],
+      "required": [
+        false
+      ]
+    }
+  ],
+  "httpBaseline": {
+    "candidatePathsWithoutConfig": [
+      "/",
+      "/.env",
+      "/openapi.json",
+      "/swagger.json",
+      "/debug"
+    ],
+    "crawlerEnabled": false,
+    "maxDepthConsumedByRunner": false,
+    "methods": [
+      "GET"
+    ],
+    "responseBodyAnalyzed": false
+  },
+  "falsePassReproductions": [
+    {
+      "caseId": "all-http-requests-connection-refused",
+      "requestCount": 5,
+      "transportErrorCount": 5,
+      "currentOutcome": "passed"
+    },
+    {
+      "caseId": "browser-route-error",
+      "requestCount": 1,
+      "transportErrorCount": 1,
+      "currentOutcome": "passed"
+    }
+  ],
+  "scannerCoverage": {
+    "nucleiOwnedTemplateCount": 1,
+    "zapBaselineMode": "passive",
+    "zapBaselineRequestBudget": 20,
+    "juiceShopExecutedScenarios": 0
+  },
+  "hashes": {
+    "policy": "sha256:4bee9b2e3d724fc118eae393c8e12f9f3d92b8e52c5fe69524d6e576dbaa71c9",
+    "groundTruth": "sha256:ef404c236e1a41776595c751092a7d3213c4562f2ff344bfc01baa235c8c7121"
+  },
+  "residualRisk": "This artifact records the pre-Phase-51 behavior; it is evidence of the false-pass baseline and is not a current capability claim."
+}
