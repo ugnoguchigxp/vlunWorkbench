@@ -256,7 +256,7 @@ export function createDastRoute(deps: DastRouteDeps) {
 		);
 		if (artifact.format === "png") {
 			c.header("Content-Type", "image/png");
-			return c.body(content as any);
+			return c.body(new Uint8Array(content));
 		}
 		if (artifact.format === "json") {
 			return c.json(JSON.parse(content.toString("utf8")));
@@ -445,9 +445,13 @@ async function executeDastCli(params: {
 	const stderr = new TextDecoder().decode(stderrBuf);
 	await proc.exited;
 
-	let cliResult: any;
+	let cliResult: {
+		ok?: boolean;
+		dastRunId?: string;
+		message?: string;
+	};
 	try {
-		cliResult = JSON.parse(stdout.trim());
+		cliResult = JSON.parse(stdout.trim()) as typeof cliResult;
 	} catch (error) {
 		console.error(`DAST CLI bridge failed: ${stderr}`);
 		throw new HttpError(

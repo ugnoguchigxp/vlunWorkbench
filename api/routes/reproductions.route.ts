@@ -212,14 +212,18 @@ export function createReproductionsRoute(deps: ReproductionsRouteDeps) {
 			const stderr = new TextDecoder().decode(stderrBuf);
 			await proc.exited;
 
-			let cliResult: any;
+			let cliResult: {
+				ok?: boolean;
+				reproductionRunId?: string;
+				message?: string;
+			};
 			try {
-				cliResult = JSON.parse(stdout.trim());
-			} catch (err: any) {
+				cliResult = JSON.parse(stdout.trim()) as typeof cliResult;
+			} catch (err: unknown) {
 				console.error(`CLI execution failed: ${stderr}`);
 				throw new HttpError(
 					500,
-					`CLI bridge parse failure: ${stderr || err.message}`,
+					`CLI bridge parse failure: ${stderr || (err instanceof Error ? err.message : String(err))}`,
 				);
 			}
 

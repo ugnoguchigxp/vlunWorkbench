@@ -5,10 +5,25 @@ import { eq } from "drizzle-orm";
 import { MAX_DYNAMIC_TIMEOUT_SEC } from "../../../shared/schemas/dynamic.schema";
 import type { AppDatabase } from "../../db";
 import { projects } from "../../db/schema";
-import { DynamicArtifactStorage } from "./dynamic-artifact-storage";
+import {
+	DEFAULT_DYNAMIC_ARTIFACT_DIRECTORY_DEPTH_LIMIT,
+	DEFAULT_DYNAMIC_ARTIFACT_ENTRY_LIMIT,
+	DEFAULT_DYNAMIC_ARTIFACT_FILE_LIMIT,
+	DEFAULT_DYNAMIC_ARTIFACT_FILE_LIMIT_BYTES,
+	DEFAULT_DYNAMIC_ARTIFACT_TOTAL_LIMIT_BYTES,
+	DynamicArtifactStorage,
+} from "./dynamic-artifact-storage";
+import {
+	executeDynamicDockerRun,
+	resolveDynamicDockerLimits,
+} from "./dynamic-docker-executor";
 import { evaluateDynamicOutcome } from "./dynamic-evaluator";
 import { validateDynamicProfilePolicy } from "./dynamic-profiles";
 import { DynamicRepository } from "./dynamic-repository";
+import {
+	type ProcessOutputLimits,
+	resolveProcessOutputLimits,
+} from "../scans/tools/tool-process-runner";
 
 export interface RunDynamicOptions {
 	projectId: string;
@@ -25,11 +40,18 @@ export interface RunDynamicOptions {
 	createdByUserId?: string | null;
 }
 
-type PipeSubprocess = {
-	stdout: ReadableStream<Uint8Array>;
-	stderr: ReadableStream<Uint8Array>;
-	exited: Promise<number | null>;
-	kill(): void;
+type DynamicArtifactCollectionLimits = {
+	maxFiles: number;
+	maxTotalBytes: number;
+	maxFileBytes: number;
+	maxDepth: number;
+	maxEntries: number;
+};
+
+type DynamicRunnerOptions = {
+	outputLimits?: Partial<ProcessOutputLimits>;
+	artifactLimits?: Partial<DynamicArtifactCollectionLimits>;
+	storage?: DynamicArtifactStorage;
 };
 
 function getBaseMetadata(recordMetadata: unknown): Record<string, unknown> {
@@ -49,6 +71,12 @@ function classifyExecutionFailure(input: {
 	const text = `${input.error ?? ""}\n${input.stderr ?? ""}`.toLowerCase();
 	if (text.includes("timed out") || text.includes("timeout")) {
 		return { status: "timed_out", failureKind: "dynamic_timeout" };
+	}
+	if (text.includes("dynamic_output_limit_exceeded")) {
+		return {
+			status: "failed",
+			failureKind: "dynamic_output_limit_exceeded",
+		};
 	}
 	if (
 		text.includes("no such image") ||
@@ -115,31 +143,100 @@ function resolveNetworkMode(
 	return requested;
 }
 
-async function walkFiles(dir: string, base: string = dir): Promise<string[]> {
-	try {
-		const entries = await fs.readdir(dir, { withFileTypes: true });
-		const files: string[] = [];
-		for (const entry of entries) {
-			const fullPath = path.join(dir, entry.name);
+async function walkFiles(
+	dir: string,
+	limits: DynamicArtifactCollectionLimits,
+): Promise<string[]> {
+	const files: string[] = [];
+	let totalBytes = 0;
+	let entriesSeen = 0;
+
+	const walk = async (
+		currentDirectory: string,
+		depth: number,
+	): Promise<void> => {
+		if (depth > limits.maxDepth) {
+			throw new Error(
+				`dynamic_artifact_depth_limit_exceeded:${limits.maxDepth}`,
+			);
+		}
+		const directory = await fs.opendir(currentDirectory);
+		for await (const entry of directory) {
+			entriesSeen += 1;
+			if (entriesSeen > limits.maxEntries) {
+				throw new Error(
+					`dynamic_artifact_entry_limit_exceeded:${limits.maxEntries}`,
+				);
+			}
+			const fullPath = path.join(currentDirectory, entry.name);
 			if (entry.isDirectory()) {
-				files.push(...(await walkFiles(fullPath, base)));
-			} else if (entry.isFile()) {
-				files.push(path.relative(base, fullPath));
+				await walk(fullPath, depth + 1);
+				continue;
+			}
+			if (!entry.isFile()) continue;
+			const fileStat = await fs.stat(fullPath);
+			if (fileStat.size > limits.maxFileBytes) {
+				throw new Error(
+					`dynamic_artifact_file_limit_exceeded:${fileStat.size}:${limits.maxFileBytes}`,
+				);
+			}
+			totalBytes += fileStat.size;
+			if (totalBytes > limits.maxTotalBytes) {
+				throw new Error(
+					`dynamic_artifact_total_limit_exceeded:${totalBytes}:${limits.maxTotalBytes}`,
+				);
+			}
+			files.push(path.relative(dir, fullPath));
+			if (files.length > limits.maxFiles) {
+				throw new Error(
+					`dynamic_artifact_count_limit_exceeded:${limits.maxFiles}`,
+				);
 			}
 		}
-		return files;
-	} catch {
-		return [];
-	}
+	};
+
+	await walk(dir, 0);
+	return files;
 }
 
 export class DynamicRunner {
 	private readonly repo: DynamicRepository;
 	private readonly storage: DynamicArtifactStorage;
+	private readonly outputLimits: ProcessOutputLimits;
+	private readonly artifactLimits: DynamicArtifactCollectionLimits;
 
-	constructor(private readonly db: AppDatabase) {
+	constructor(
+		private readonly db: AppDatabase,
+		options: DynamicRunnerOptions = {},
+	) {
 		this.repo = new DynamicRepository(db);
-		this.storage = new DynamicArtifactStorage();
+		this.outputLimits = resolveProcessOutputLimits(options.outputLimits);
+		this.artifactLimits = {
+			maxFiles:
+				options.artifactLimits?.maxFiles ?? DEFAULT_DYNAMIC_ARTIFACT_FILE_LIMIT,
+			maxTotalBytes:
+				options.artifactLimits?.maxTotalBytes ??
+				DEFAULT_DYNAMIC_ARTIFACT_TOTAL_LIMIT_BYTES,
+			maxFileBytes:
+				options.artifactLimits?.maxFileBytes ??
+				DEFAULT_DYNAMIC_ARTIFACT_FILE_LIMIT_BYTES,
+			maxDepth:
+				options.artifactLimits?.maxDepth ??
+				DEFAULT_DYNAMIC_ARTIFACT_DIRECTORY_DEPTH_LIMIT,
+			maxEntries:
+				options.artifactLimits?.maxEntries ??
+				DEFAULT_DYNAMIC_ARTIFACT_ENTRY_LIMIT,
+		};
+		for (const [label, value] of Object.entries(this.artifactLimits)) {
+			if (!Number.isSafeInteger(value) || value <= 0) {
+				throw new Error(`${label} must be a positive integer.`);
+			}
+		}
+		this.storage =
+			options.storage ??
+			new DynamicArtifactStorage(undefined, {
+				maxFileBytes: this.artifactLimits.maxFileBytes,
+			});
 	}
 
 	async dryRun(options: RunDynamicOptions) {
@@ -178,6 +275,12 @@ export class DynamicRunner {
 			options.network,
 		);
 		const image = options.dockerImage ?? "vuln-workbench-dynamic:local";
+		const resourceLimits = resolveDynamicDockerLimits({
+			profileMemory: profileConfig.memory,
+			profileCpus: profileConfig.cpus,
+			requestedMemory: options.memory,
+			requestedCpus: options.cpus,
+		});
 
 		return {
 			dryRun: true,
@@ -187,8 +290,9 @@ export class DynamicRunner {
 			workingDirectory: profileConfig.workingDirectory,
 			timeoutSec,
 			network: networkMode,
-			memory: options.memory ?? profileConfig.memory ?? null,
-			cpus: options.cpus ?? profileConfig.cpus ?? null,
+			memory: resourceLimits.memory,
+			cpus: resourceLimits.cpus,
+			pidsLimit: resourceLimits.pidsLimit,
 			writableWorkdir: profileConfig.writableWorkdir,
 			allowProjectScripts: profileConfig.allowProjectScripts,
 			expectedArtifacts: profileConfig.expectedArtifactsJson || [],
@@ -196,8 +300,11 @@ export class DynamicRunner {
 				runner: options.runner,
 				image,
 				networkMode,
-				memory: options.memory ?? profileConfig.memory ?? null,
-				cpus: options.cpus ?? profileConfig.cpus ?? null,
+				memory: resourceLimits.memory,
+				memorySwap: resourceLimits.memory,
+				cpus: resourceLimits.cpus,
+				pidsLimit: resourceLimits.pidsLimit,
+				outputLimits: this.outputLimits,
 				timeoutSec,
 			},
 		};
@@ -230,11 +337,6 @@ export class DynamicRunner {
 			);
 		}
 
-		// 1. Setup temp directory for output mount on host
-		const hostOutDir = await fs.mkdtemp(
-			path.join(os.tmpdir(), "dynamic-run-out-"),
-		);
-
 		const timeoutSec = resolveTimeoutSec(
 			profileConfig.timeoutSec ?? 120,
 			options.timeoutSec,
@@ -244,8 +346,13 @@ export class DynamicRunner {
 			options.network,
 		);
 		const image = options.dockerImage ?? "vuln-workbench-dynamic:local";
-
-		// 2. Create dynamic run record
+		const resourceLimits = resolveDynamicDockerLimits({
+			profileMemory: profileConfig.memory,
+			profileCpus: profileConfig.cpus,
+			requestedMemory: options.memory,
+			requestedCpus: options.cpus,
+		});
+		// 1. Create dynamic run record
 		const runRecord = await this.repo.createRun({
 			projectId: project.id,
 			scanRunId: options.scanRunId ?? null,
@@ -262,9 +369,13 @@ export class DynamicRunner {
 				timeoutSec,
 				networkMode,
 				resourceLimits: {
-					memory: options.memory ?? profileConfig.memory ?? null,
-					cpus: options.cpus ?? profileConfig.cpus ?? null,
+					memory: resourceLimits.memory,
+					memorySwap: resourceLimits.memory,
+					cpus: resourceLimits.cpus,
+					pidsLimit: resourceLimits.pidsLimit,
 				},
+				outputLimits: this.outputLimits,
+				artifactLimits: this.artifactLimits,
 				runnerMetadata: {
 					runner: options.runner,
 					docker: {
@@ -280,19 +391,24 @@ export class DynamicRunner {
 		});
 
 		const runId = runRecord.id;
+		let hostOutDir: string | null = null;
 
 		try {
-			// 3. Coordinate and Execute the container process
+			// Setup the output mount only after every request-time policy check passes.
+			hostOutDir = await fs.mkdtemp(path.join(os.tmpdir(), "dynamic-run-out-"));
+			// 2. Coordinate and execute the container process
 			const containerName = `vuln-workbench-dyn-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
 			const dockerBin = process.env.VULN_WORKBENCH_DOCKER_BIN ?? "docker";
 
-			const runResult = await this.executeDockerRun({
+			const runResult = await executeDynamicDockerRun({
 				dockerBin,
 				image,
 				containerName,
 				networkMode,
-				memory: options.memory ?? profileConfig.memory ?? null,
-				cpus: options.cpus ?? profileConfig.cpus ?? null,
+				memory: resourceLimits.memory,
+				cpus: resourceLimits.cpus,
+				pidsLimit: resourceLimits.pidsLimit,
+				outputLimits: this.outputLimits,
 				repoPath: project.repoPath,
 				hostOutDir,
 				workingDirectory: profileConfig.workingDirectory,
@@ -305,9 +421,10 @@ export class DynamicRunner {
 			const runMetadata = {
 				...getBaseMetadata(runRecord.metadata),
 				elapsedMs: runResult.elapsedMs,
+				execution: runResult.executionMetadata,
 			};
 
-			// 4. Save stdout & stderr log artifacts
+			// 3. Save stdout & stderr log artifacts
 			const stdoutArtifact = await this.storage.saveDynamicLog(
 				runId,
 				"stdout",
@@ -340,7 +457,7 @@ export class DynamicRunner {
 				sizeBytes: stderrArtifact.sizeBytes,
 			});
 
-			// 5. Handle Docker infrastructure failures (daemon missing, missing image)
+			// 4. Handle Docker infrastructure failures (daemon missing, missing image)
 			const hasDockerError =
 				(!runResult.ok && !runResult.timedOut) ||
 				runResult.exitCode === 125 ||
@@ -400,8 +517,8 @@ export class DynamicRunner {
 				};
 			}
 
-			// 6. Collect generated artifacts from the host output mount directory
-			const generatedFiles = await walkFiles(hostOutDir);
+			// 5. Collect generated artifacts from the host output mount directory
+			const generatedFiles = await walkFiles(hostOutDir, this.artifactLimits);
 			const collectedArtifacts: Array<
 				Awaited<ReturnType<DynamicRepository["createArtifact"]>>
 			> = [];
@@ -429,7 +546,7 @@ export class DynamicRunner {
 				collectedArtifacts.push(dbArtifact);
 			}
 
-			// 7. Evaluate dynamic run outcome
+			// 6. Evaluate dynamic run outcome
 			const evalResult = evaluateDynamicOutcome({
 				dynamicKind: profileConfig.dynamicKind as "test" | "sanitizer" | "fuzz",
 				exitCode: runResult.exitCode,
@@ -439,7 +556,7 @@ export class DynamicRunner {
 				hasExpectedArtifacts: collectedArtifacts.length > 0,
 			});
 
-			// 8. Update DB run status and outcome
+			// 7. Update DB run status and outcome
 			const updatedMetadata = {
 				...runMetadata,
 				evaluator: {
@@ -462,7 +579,7 @@ export class DynamicRunner {
 				metadata: updatedMetadata,
 			});
 
-			// 9. Create appropriate evidence logs
+			// 8. Create appropriate evidence logs
 			let evidenceTitle = "";
 			let evidenceKind = "dynamic-result";
 			let snippetText = evalResult.reason;
@@ -525,12 +642,16 @@ export class DynamicRunner {
 			};
 		} catch (err) {
 			// Update DB record on unexpected execution failure
+			const message = err instanceof Error ? err.message : String(err);
+			const failureKind = message.startsWith("dynamic_artifact_")
+				? "dynamic_artifact_limit_exceeded"
+				: "unknown_error";
 			await this.repo.updateRunStatus(runId, "failed", {
 				outcome: "error",
-				errorMessage: (err as Error).message,
+				errorMessage: message,
 				metadata: {
 					...getBaseMetadata(runRecord.metadata),
-					failureKind: "unknown_error",
+					failureKind,
 				},
 			});
 			return {
@@ -543,199 +664,15 @@ export class DynamicRunner {
 				status: "failed",
 				outcome: "error",
 				runner: options.runner,
-				message: (err as Error).message,
+				message,
 			};
 		} finally {
-			// 10. Cleanup temp files on host
-			await fs.rm(hostOutDir, { recursive: true, force: true }).catch(() => {});
-		}
-	}
-
-	private async executeDockerRun(params: {
-		dockerBin: string;
-		image: string;
-		containerName: string;
-		networkMode: "none" | "default";
-		memory?: string | null;
-		cpus?: string | null;
-		repoPath: string;
-		hostOutDir: string;
-		workingDirectory: string;
-		command: string[];
-		writableWorkdir: boolean;
-		expectedArtifacts: string[];
-		timeoutSec: number;
-	}): Promise<{
-		ok: boolean;
-		exitCode: number | null;
-		stdout: string;
-		stderr: string;
-		elapsedMs: number;
-		timedOut: boolean;
-		error?: string;
-	}> {
-		const cleanGlobs = params.expectedArtifacts.map((glob) =>
-			glob.replace(/\*\*\/\*/g, "*").replace(/\*\*/g, "*"),
-		);
-
-		// Static shell wrapper only; profile-controlled values are passed via env.
-		const shellScript = `set +e
-RUN_ROOT="/workspace/repo"
-if [ -d "/workspace/workdir" ]; then
-  cp -a /workspace/repo/. /workspace/workdir/
-  RUN_ROOT="/workspace/workdir"
-fi
-cd "$RUN_ROOT/$DYNAMIC_WORKING_DIRECTORY"
-
-# Execute command
-"$@"
-EXIT_CODE=$?
-if [ -n "$DYNAMIC_EXPECTED_ARTIFACTS" ]; then
-  printf '%s' "$DYNAMIC_EXPECTED_ARTIFACTS" | tr ':' '\\n' | while IFS= read -r artifact_pattern; do
-    [ -z "$artifact_pattern" ] && continue
-    find . -path "./$artifact_pattern" -type f -exec sh -c '
-      for src do
-        rel="\${src#./}"
-        dir="$(dirname "$rel")"
-        mkdir -p "/workspace/out/$dir"
-        cp -- "$src" "/workspace/out/$rel"
-      done
-    ' sh {} +
-  done
-fi
-exit $EXIT_CODE
-`;
-
-		// Docker CLI arguments
-		const dockerArgs = [
-			params.dockerBin,
-			"run",
-			"--rm",
-			"--name",
-			params.containerName,
-			"--network",
-			params.networkMode,
-			"--user",
-			"65532:65532",
-			"--cap-drop",
-			"ALL",
-			"--security-opt",
-			"no-new-privileges",
-			"--read-only",
-			"--tmpfs",
-			"/tmp:rw,nosuid,nodev,size=256m",
-			"--env",
-			"HOME=/tmp",
-			"--env",
-			"PATH=/usr/local/cargo/bin:/usr/local/go/bin:/usr/local/bin:/usr/bin:/bin",
-			"--env",
-			`DYNAMIC_WORKING_DIRECTORY=${params.workingDirectory}`,
-			"--env",
-			`DYNAMIC_EXPECTED_ARTIFACTS=${cleanGlobs.join(":")}`,
-		];
-
-		if (params.memory) {
-			dockerArgs.push("--memory", params.memory);
-		}
-		if (params.cpus) {
-			dockerArgs.push("--cpus", params.cpus);
-		}
-
-		dockerArgs.push(
-			"-v",
-			`${path.resolve(params.repoPath)}:/workspace/repo:ro`,
-		);
-		dockerArgs.push(
-			"-v",
-			`${path.resolve(params.hostOutDir)}:/workspace/out:rw`,
-		);
-
-		if (params.writableWorkdir) {
-			dockerArgs.push(
-				"--tmpfs",
-				"/workspace/workdir:rw,nosuid,nodev,size=512m,uid=65532,gid=65532",
-			);
-		}
-
-		dockerArgs.push("--entrypoint", "/bin/sh");
-		dockerArgs.push(params.image, "-c", shellScript, "--", ...params.command);
-
-		const startTime = Date.now();
-		let stdout = "";
-		let stderr = "";
-		let exitCode: number | null = null;
-		let proc: PipeSubprocess | undefined;
-		let timeoutId: ReturnType<typeof setTimeout> | undefined;
-		let isKilled = false;
-
-		try {
-			proc = Bun.spawn(dockerArgs, {
-				stdout: "pipe",
-				stderr: "pipe",
-				env: {
-					...process.env,
-				},
-			}) as unknown as PipeSubprocess;
-
-			timeoutId = setTimeout(() => {
-				isKilled = true;
-				proc?.kill();
-			}, params.timeoutSec * 1000);
-
-			const [stdoutBuf, stderrBuf, code] = await Promise.all([
-				new Response(proc.stdout).arrayBuffer(),
-				new Response(proc.stderr).arrayBuffer(),
-				proc.exited,
-			]);
-
-			exitCode = code;
-			stdout = new TextDecoder().decode(stdoutBuf);
-			stderr = new TextDecoder().decode(stderrBuf);
-		} catch (err: unknown) {
-			const message = err instanceof Error ? err.message : String(err);
-			return {
-				ok: false,
-				exitCode: null,
-				stdout,
-				stderr: stderr || message,
-				elapsedMs: Date.now() - startTime,
-				timedOut: isKilled,
-				error: isKilled
-					? "Docker execution timed out"
-					: `Docker process error: ${message}`,
-			};
-		} finally {
-			if (timeoutId) {
-				clearTimeout(timeoutId);
-			}
-			if (isKilled) {
-				try {
-					Bun.spawnSync([params.dockerBin, "rm", "-f", params.containerName]);
-				} catch {}
+			// 9. Cleanup temp files on host
+			if (hostOutDir) {
+				await fs
+					.rm(hostOutDir, { recursive: true, force: true })
+					.catch(() => {});
 			}
 		}
-
-		const elapsedMs = Date.now() - startTime;
-
-		if (isKilled) {
-			return {
-				ok: false,
-				exitCode: null,
-				stdout,
-				stderr,
-				elapsedMs,
-				timedOut: true,
-				error: "Docker execution timed out",
-			};
-		}
-
-		return {
-			ok: true,
-			exitCode,
-			stdout,
-			stderr,
-			elapsedMs,
-			timedOut: false,
-		};
 	}
 }

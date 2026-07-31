@@ -1,6 +1,43 @@
 import { z } from "zod";
 
 export const MAX_DYNAMIC_TIMEOUT_SEC = 300;
+const MIN_DYNAMIC_MEMORY_BYTES = 512 * 1024 * 1024;
+const MAX_DYNAMIC_MEMORY_BYTES = 8 * 1024 * 1024 * 1024;
+
+function parseDockerMemoryBytes(value: string): number | null {
+	const match = value.trim().match(/^(\d+(?:\.\d+)?)([kmgt])(?:i?b)?$/i);
+	if (!match) return null;
+	const amount = Number(match[1]);
+	const power = { k: 1, m: 2, g: 3, t: 4 }[
+		match[2]?.toLowerCase() as "k" | "m" | "g" | "t"
+	];
+	const bytes = amount * 1024 ** power;
+	return Number.isFinite(bytes) ? bytes : null;
+}
+
+export const dynamicMemoryLimitSchema = z.string().superRefine((value, ctx) => {
+	const bytes = parseDockerMemoryBytes(value);
+	if (
+		bytes === null ||
+		bytes < MIN_DYNAMIC_MEMORY_BYTES ||
+		bytes > MAX_DYNAMIC_MEMORY_BYTES
+	) {
+		ctx.addIssue({
+			code: "custom",
+			message: "memory must be between 512 MiB and 8 GiB.",
+		});
+	}
+});
+
+export const dynamicCpuLimitSchema = z.string().superRefine((value, ctx) => {
+	const parsed = Number(value);
+	if (!Number.isFinite(parsed) || parsed < 0.25 || parsed > 4) {
+		ctx.addIssue({
+			code: "custom",
+			message: "cpus must be between 0.25 and 4.",
+		});
+	}
+});
 
 export const dynamicKindSchema = z.enum(["test", "sanitizer", "fuzz"]);
 export type DynamicKind = z.infer<typeof dynamicKindSchema>;
@@ -36,8 +73,8 @@ export const dynamicProfileConfigSchema = z.object({
 	workingDirectory: z.string(),
 	timeoutSec: z.number().int().positive(),
 	network: z.string(),
-	memory: z.string().nullable(),
-	cpus: z.string().nullable(),
+	memory: dynamicMemoryLimitSchema.nullable(),
+	cpus: dynamicCpuLimitSchema.nullable(),
 	writableWorkdir: z.boolean(),
 	allowProjectScripts: z.boolean(),
 	expectedArtifactsJson: z.array(z.string()),
@@ -132,8 +169,8 @@ export const runDynamicRequestSchema = z.object({
 		.positive()
 		.max(MAX_DYNAMIC_TIMEOUT_SEC)
 		.optional(),
-	memory: z.string().optional(),
-	cpus: z.string().optional(),
+	memory: dynamicMemoryLimitSchema.optional(),
+	cpus: dynamicCpuLimitSchema.optional(),
 });
 export type RunDynamicRequestInput = z.infer<typeof runDynamicRequestSchema>;
 
@@ -152,8 +189,8 @@ export const saveDynamicProfileRequestSchema = z.object({
 		.optional()
 		.default(120),
 	network: z.enum(["none", "default"]).optional().default("none"),
-	memory: z.string().nullable().optional(),
-	cpus: z.string().nullable().optional(),
+	memory: dynamicMemoryLimitSchema.nullable().optional(),
+	cpus: dynamicCpuLimitSchema.nullable().optional(),
 	writableWorkdir: z.boolean().optional().default(false),
 	allowProjectScripts: z.boolean().optional().default(false),
 	expectedArtifactsJson: z.array(z.string()).optional().default([]),

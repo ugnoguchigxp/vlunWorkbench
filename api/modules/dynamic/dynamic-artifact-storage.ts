@@ -9,14 +9,33 @@ export interface ArtifactSaveResult {
 	sizeBytes: number;
 }
 
+export const DEFAULT_DYNAMIC_ARTIFACT_FILE_LIMIT_BYTES = 16 * 1024 * 1024;
+export const DEFAULT_DYNAMIC_ARTIFACT_TOTAL_LIMIT_BYTES = 64 * 1024 * 1024;
+export const DEFAULT_DYNAMIC_ARTIFACT_FILE_LIMIT = 128;
+export const DEFAULT_DYNAMIC_ARTIFACT_DIRECTORY_DEPTH_LIMIT = 16;
+export const DEFAULT_DYNAMIC_ARTIFACT_ENTRY_LIMIT = 2_048;
+
 export class DynamicArtifactStorage {
 	private readonly baseDir: string;
+	private readonly maxFileBytes: number;
 
-	constructor(baseDir?: string) {
+	constructor(
+		baseDir?: string,
+		options: {
+			maxFileBytes?: number;
+		} = {},
+	) {
 		this.baseDir =
 			baseDir ??
 			process.env.DYNAMIC_ARTIFACT_ROOT ??
 			path.resolve(process.cwd(), "artifacts", "dynamic");
+		this.maxFileBytes =
+			options.maxFileBytes ?? DEFAULT_DYNAMIC_ARTIFACT_FILE_LIMIT_BYTES;
+		if (!Number.isSafeInteger(this.maxFileBytes) || this.maxFileBytes <= 0) {
+			throw new Error(
+				"Dynamic artifact file limit must be a positive integer.",
+			);
+		}
 	}
 
 	private getRunDir(dynamicRunId: string): string {
@@ -53,6 +72,13 @@ export class DynamicArtifactStorage {
 		const targetPath = path.join(rawDir, filename);
 		this.validatePath(targetPath, dynamicRunId);
 
+		const sourceStat = await fs.stat(sourcePath);
+		if (!sourceStat.isFile() || sourceStat.size > this.maxFileBytes) {
+			throw new Error(
+				`dynamic_artifact_file_limit_exceeded:${sourceStat.size}:${this.maxFileBytes}`,
+			);
+		}
+
 		// Read source
 		const contentStr = await fs.readFile(sourcePath, "utf8");
 
@@ -67,6 +93,7 @@ export class DynamicArtifactStorage {
 		}
 
 		const buffer = Buffer.from(redactedContent, "utf8");
+		this.assertBufferWithinLimit(buffer);
 		const sizeBytes = buffer.length;
 		const sha256 = crypto.createHash("sha256").update(buffer).digest("hex");
 
@@ -102,6 +129,7 @@ export class DynamicArtifactStorage {
 		const redactedContent = redactSecrets(content);
 
 		const buffer = Buffer.from(redactedContent, "utf8");
+		this.assertBufferWithinLimit(buffer);
 		const sizeBytes = buffer.length;
 		const sha256 = crypto.createHash("sha256").update(buffer).digest("hex");
 
@@ -134,6 +162,7 @@ export class DynamicArtifactStorage {
 		const redactedContent = redactSecrets(content);
 
 		const buffer = Buffer.from(redactedContent, "utf8");
+		this.assertBufferWithinLimit(buffer);
 		const sizeBytes = buffer.length;
 		const sha256 = crypto.createHash("sha256").update(buffer).digest("hex");
 
@@ -156,6 +185,20 @@ export class DynamicArtifactStorage {
 				"Path traversal detected: target path is outside of dynamic root.",
 			);
 		}
+		const artifactStat = await fs.stat(targetPath);
+		if (!artifactStat.isFile() || artifactStat.size > this.maxFileBytes) {
+			throw new Error(
+				`dynamic_artifact_file_limit_exceeded:${artifactStat.size}:${this.maxFileBytes}`,
+			);
+		}
 		return await fs.readFile(targetPath, "utf8");
+	}
+
+	private assertBufferWithinLimit(buffer: Uint8Array): void {
+		if (buffer.byteLength > this.maxFileBytes) {
+			throw new Error(
+				`dynamic_artifact_file_limit_exceeded:${buffer.byteLength}:${this.maxFileBytes}`,
+			);
+		}
 	}
 }

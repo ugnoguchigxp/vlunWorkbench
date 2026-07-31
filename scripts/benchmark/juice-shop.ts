@@ -97,6 +97,12 @@ const detected = catalog.scenarios.flatMap((scenario) => {
 });
 const score = scoreBenchmark(groundTruth, detected);
 const manifest = await loadScannerDataManifest();
+const measurementStatus =
+	byScenario.size === 0
+		? "not_executed"
+		: byScenario.size < catalog.scenarios.length
+			? "incomplete"
+			: "completed";
 const outputPath = path.resolve(".artifacts/benchmark/juice-shop-metrics.json");
 await mkdir(path.dirname(outputPath), { recursive: true });
 await Bun.write(
@@ -114,6 +120,7 @@ await Bun.write(
 			eligibleScenarioCount: catalog.scenarios.length,
 			categoryCount,
 			executedScenarioCount: byScenario.size,
+			measurementStatus,
 			networkMode: "isolated",
 			networkRequests: 0,
 			resetSucceeded: true,
@@ -130,6 +137,7 @@ console.log(
 		eligibleScenarioCount: catalog.scenarios.length,
 		categoryCount,
 		executedScenarioCount: byScenario.size,
+		measurementStatus,
 		overall: score.metrics.find((metric) => metric.category === "overall"),
 	}),
 );

@@ -16,25 +16,13 @@ export function renderReportOverview(
 	scope: Awaited<ReturnType<typeof buildReportQuery>>,
 ) {
 	const {
-		activeFindings,
-		allArtifacts,
-		allAttackSurfaceItems,
 		allDastEvidence,
-		allDastRuns,
-		allDiagnosticReports,
 		allDynamicRuns,
 		allReproRuns,
-		allReviews,
-		allSecurityCheckResults,
 		decidedFindingCount,
-		deferredFindings,
-		expectedDastSteps,
-		failedOrMissingDastSteps,
-		falsePositiveFindings,
 		includedFindings,
 		latestImprovementRequest,
 		processedFindings,
-		profileDefinition,
 		profileSteps,
 		project,
 		rawFindings,
@@ -42,11 +30,7 @@ export function renderReportOverview(
 		reviewedFindingCount,
 		scanRun,
 		severityStats,
-		sortedFindings,
 		stats,
-		stepResults,
-		tools,
-		undecidedFindings,
 	} = scope;
 
 	// Start building Markdown content

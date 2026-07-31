@@ -36,8 +36,7 @@ export function ZeroFindingDiagnosticPanel() {
 	const c = useScans();
 	const summary = c.selectedCoverageSummary;
 	const scanRun = c.selectedScanRun;
-	const actionDisabled =
-		!scanRun || scanRun.status !== "completed" || c.diagnosticLoading;
+	const actionDisabled = scanRun?.status !== "completed" || c.diagnosticLoading;
 	const passCount = summary.checkStatusCounts.pass ?? 0;
 	const reviewCount =
 		(summary.checkStatusCounts.manual_review ?? 0) +

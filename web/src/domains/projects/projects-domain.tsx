@@ -1,18 +1,5 @@
-import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
-import {
-	Activity,
-	BarChart3,
-	Braces,
-	CheckCircle2,
-	ChevronRight,
-	Copy,
-	FileCode2,
-	FolderOpen,
-	GitBranch,
-	Plus,
-	RefreshCw,
-	Shield,
-} from "lucide-react";
+import { useNavigate, useRouterState } from "@tanstack/react-router";
+import { Plus, RefreshCw } from "lucide-react";
 import {
 	type FormEvent,
 	useCallback,
@@ -21,11 +8,6 @@ import {
 	useRef,
 	useState,
 } from "react";
-import { formatCommandTokens } from "../../../../shared/format-command";
-import type {
-	FileRiskIndexEntry,
-	StaticIntelligenceExportV1,
-} from "../../../../shared/schemas/static-intelligence.schema";
 import type { StaticIntelligenceOntologyHandoff } from "../../../../shared/schemas/static-intelligence-module.schema";
 import {
 	browseProjectFolder,
@@ -44,11 +26,7 @@ import {
 	type ScanIntelligenceAgentMode,
 	type ScanRun,
 } from "../../api";
-import { Button, SelectInput, TextInput } from "../../ui";
-import { formatScanOutcome } from "../scans/scan-profile-display";
-import { formatDateTime } from "../scans/scans-utils";
-import { readinessPresentation } from "./project-intelligence-readiness";
-import { buildProjectCardSummary } from "./project-intelligence-view-model";
+import { Button } from "../../ui";
 
 import {
 	ProjectDetail,
@@ -68,7 +46,7 @@ type ProjectRouteState = {
 	scanRunId: string | null;
 };
 
-const severityOrder = {
+const _severityOrder = {
 	critical: 0,
 	high: 1,
 	medium: 2,

@@ -16,8 +16,20 @@ function writeResult(payload: Record<string, unknown>): void {
 	console.log(JSON.stringify(payload));
 }
 
+type ScanImportArgs = {
+	"project-id"?: string;
+	profile?: string;
+	tool?: string;
+	artifact?: string;
+	format?: string;
+};
+
+function errorMessage(error: unknown): string {
+	return error instanceof Error ? error.message : String(error);
+}
+
 async function main() {
-	let argsValues: any;
+	let argsValues: ScanImportArgs;
 	try {
 		const parsed = parseArgs({
 			args: process.argv.slice(2),
@@ -31,20 +43,20 @@ async function main() {
 			strict: true,
 		});
 		argsValues = parsed.values;
-	} catch (err: any) {
+	} catch (err: unknown) {
 		writeResult({
 			ok: false,
 			status: "failed",
-			message: `Failed to parse arguments: ${err.message}`,
+			message: `Failed to parse arguments: ${errorMessage(err)}`,
 		});
 		process.exit(1);
 	}
 
 	const projectId = argsValues["project-id"];
-	const profile = argsValues.profile;
+	const profile = argsValues.profile ?? "baseline";
 	const tool = argsValues.tool;
 	const artifactPath = argsValues.artifact;
-	const format = argsValues.format;
+	const format = argsValues.format ?? "json";
 
 	if (!projectId || !tool || !artifactPath) {
 		writeResult({
@@ -90,8 +102,7 @@ async function main() {
 	}
 
 	// Create scan run in running state
-	// biome-ignore lint/suspicious/noExplicitAny: CLI scan run
-	let scanRun: any;
+	let scanRun: Awaited<ReturnType<typeof scanRepo.createScanRun>>;
 	try {
 		scanRun = await scanRepo.createScanRun({
 			projectId,
@@ -99,12 +110,11 @@ async function main() {
 			status: "running",
 			metadata: { automaticDiagnosticRequested: true },
 		});
-		// biome-ignore lint/suspicious/noExplicitAny: CLI error
-	} catch (err: any) {
+	} catch (err: unknown) {
 		writeResult({
 			ok: false,
 			status: "failed",
-			message: `Failed to create scan run: ${err.message}`,
+			message: `Failed to create scan run: ${errorMessage(err)}`,
 		});
 		dbConnection.sqlite.close(false);
 		process.exit(1);
@@ -164,13 +174,11 @@ async function main() {
 		});
 
 		const content = await fs.readFile(artifactPath, "utf8");
-		// biome-ignore lint/suspicious/noExplicitAny: parsed JSON
-		let parsedJson: any;
+		let parsedJson: unknown;
 		try {
 			parsedJson = JSON.parse(content);
-			// biome-ignore lint/suspicious/noExplicitAny: error
-		} catch (err: any) {
-			throw new Error(`Failed to parse artifact JSON: ${err.message}`);
+		} catch (err: unknown) {
+			throw new Error(`Failed to parse artifact JSON: ${errorMessage(err)}`);
 		}
 
 		if (tool !== "fixture") {

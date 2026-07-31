@@ -16,7 +16,7 @@ import {
 	SecurityCheckRepository,
 } from "../modules/diagnostics/repository";
 import { buildZeroFindingDiagnosticReport } from "../modules/diagnostics/reports/zero-finding-report-builder";
-import { ArtifactStorage } from "../modules/scans/artifact-storage";
+import type { ArtifactStorage } from "../modules/scans/artifact-storage";
 import type {
 	ArtifactRepository,
 	ProjectRepository,

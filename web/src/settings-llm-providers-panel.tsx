@@ -1,36 +1,21 @@
 import {
-	ArrowDown,
-	ArrowUp,
 	CheckCircle2,
 	Plus,
 	RefreshCw,
 	Save,
 	Trash2,
-	X,
 	XCircle,
 } from "lucide-react";
-import {
-	fetchCodexStatus,
-	type LlmProviderKind,
-	type LlmThinkingDepth,
-} from "./api";
+import { fetchCodexStatus, type LlmProviderKind } from "./api";
 import { Button, SelectInput, TextArea, TextInput } from "./ui";
 import {
 	ensureCodexEndpoint,
-	ensureRoutes,
-	fallbackKey,
 	formatModelDisplayNames,
-	isThinkingModel,
 	modelText,
 	parseModelDisplayNames,
 	parseModels,
-	parseTargetKey,
 	PROVIDER_KINDS,
 	providerKindLabels,
-	targetKey,
-	taskLabels,
-	thinkingDepthOptions,
-	withThinkingDepth,
 } from "./settings-panel-model";
 import type { SettingsPanelModel } from "./settings-panel";
 

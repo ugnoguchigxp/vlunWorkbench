@@ -1,6 +1,10 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { MAX_DYNAMIC_TIMEOUT_SEC } from "../../../shared/schemas/dynamic.schema";
+import {
+	dynamicCpuLimitSchema,
+	dynamicMemoryLimitSchema,
+	MAX_DYNAMIC_TIMEOUT_SEC,
+} from "../../../shared/schemas/dynamic.schema";
 
 export interface DynamicProfileTemplate {
 	id: string;
@@ -225,6 +229,8 @@ export interface DynamicProfilePolicyInput {
 	expectedArtifactsJson?: string[] | null;
 	timeoutSec?: number | null;
 	network?: string | null;
+	memory?: string | null;
+	cpus?: string | null;
 }
 
 function validateRepoRelativePath(
@@ -291,6 +297,27 @@ export function validateDynamicProfilePolicy(
 		profile.network !== "default"
 	) {
 		return { valid: false, reason: "network must be none or default." };
+	}
+
+	if (
+		profile.memory !== undefined &&
+		profile.memory !== null &&
+		!dynamicMemoryLimitSchema.safeParse(profile.memory).success
+	) {
+		return {
+			valid: false,
+			reason: "memory must be between 512 MiB and 8 GiB.",
+		};
+	}
+	if (
+		profile.cpus !== undefined &&
+		profile.cpus !== null &&
+		!dynamicCpuLimitSchema.safeParse(profile.cpus).success
+	) {
+		return {
+			valid: false,
+			reason: "cpus must be between 0.25 and 4.",
+		};
 	}
 
 	const workingDirectoryValidation = validateRepoRelativePath(

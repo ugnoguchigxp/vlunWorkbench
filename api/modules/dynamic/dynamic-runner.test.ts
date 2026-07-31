@@ -122,6 +122,37 @@ describe("Dynamic Runner", () => {
 		expect(dryResult.writableWorkdir).toBe(true);
 	});
 
+	it("allows resource overrides to tighten but not broaden profile limits", async () => {
+		await repo.updateConfig(configId, { memory: "2g", cpus: "2" });
+
+		const tightened = await runner.dryRun({
+			projectId,
+			profileId: "test-profile-1",
+			runner: "docker",
+			memory: "1g",
+			cpus: "1",
+		});
+		expect(tightened.memory).toBe("1g");
+		expect(tightened.cpus).toBe("1");
+
+		await expect(
+			runner.dryRun({
+				projectId,
+				profileId: "test-profile-1",
+				runner: "docker",
+				memory: "4g",
+			}),
+		).rejects.toThrow("must not exceed the saved profile limit");
+		await expect(
+			runner.dryRun({
+				projectId,
+				profileId: "test-profile-1",
+				runner: "docker",
+				cpus: "3",
+			}),
+		).rejects.toThrow("must not exceed the saved profile limit");
+	});
+
 	it("should run dynamic verification successfully and collect stdout/stderr", async () => {
 		let dockerArgs: string[] = [];
 		vi.spyOn(Bun, "spawn").mockImplementation((args: any) => {
@@ -147,6 +178,10 @@ describe("Dynamic Runner", () => {
 		expect(dockerArgs).toContain(
 			"PATH=/usr/local/cargo/bin:/usr/local/go/bin:/usr/local/bin:/usr/bin:/bin",
 		);
+		expect(dockerArgs).toContain("--memory");
+		expect(dockerArgs).toContain("--memory-swap");
+		expect(dockerArgs).toContain("--cpus");
+		expect(dockerArgs).toContain("--pids-limit");
 
 		// Verify DB Run state
 		const dbRun = await repo.getRun(result.dynamicRunId!);
@@ -163,6 +198,36 @@ describe("Dynamic Runner", () => {
 		expect(evidence).toHaveLength(1);
 		expect(evidence[0].kind).toBe("dynamic-test-log");
 		expect(evidence[0].title).toContain("PASSED");
+	});
+
+	it("fails closed and retains only bounded process output", async () => {
+		runner = new DynamicRunner(connection.db, {
+			outputLimits: { stdoutBytes: 4, stderrBytes: 4 },
+		});
+		vi.spyOn(Bun, "spawnSync").mockImplementation(() => ({}) as never);
+		vi.spyOn(Bun, "spawn").mockImplementation(() => {
+			return {
+				exited: Promise.resolve(137),
+				stdout: streamText("12345"),
+				stderr: streamText(""),
+				kill: () => {},
+			} as any;
+		});
+
+		const result = await runner.run({
+			projectId,
+			profileId: "test-profile-1",
+			runner: "docker",
+			createdByUserId: userId,
+		});
+
+		expect(result.status).toBe("failed");
+		expect(result.message).toContain("dynamic_output_limit_exceeded");
+		const dbRun = await repo.getRun(result.dynamicRunId!);
+		expect(dbRun?.metadata.failureKind).toBe("dynamic_output_limit_exceeded");
+		const artifacts = await repo.listArtifacts(result.dynamicRunId!);
+		const stdout = artifacts.find((artifact) => artifact.kind === "stdout");
+		expect(stdout?.sizeBytes).toBe(4);
 	});
 
 	it("should collect fuzz crash artifacts from output directory mount", async () => {

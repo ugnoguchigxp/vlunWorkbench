@@ -1,16 +1,14 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { eq, desc } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { createDbConnection } from "../api/db";
 import {
 	projects,
-	scanRuns,
 	findings,
 	dastTargetConfigs,
 	users,
 	dynamicProfileConfigs,
 } from "../api/db/schema";
-import { readAppEnv } from "../api/app/env";
 
 function runCmd(
 	args: string[],

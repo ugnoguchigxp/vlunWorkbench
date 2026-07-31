@@ -2,6 +2,11 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { readBoundedProcessText } from "./bounded-process-output";
+import {
+	errorMessage,
+	parsePositiveInteger,
+	type PipeSubprocess,
+} from "./process-runner-shared";
 import { emitLifecycleEvent } from "./tool-lifecycle";
 
 export type ToolRunnerKind = "host" | "docker";
@@ -85,22 +90,6 @@ const DOCKER_TOOL_ALLOWLIST: Record<string, Set<string>> = {
 	st: new Set(["run", "--version"]),
 };
 const DOCKER_ENTRYPOINTS: Record<string, string> = {};
-
-function parsePositiveInteger(
-	value: string | number | undefined,
-	label: string,
-	fallback: number,
-	maximum: number,
-): number {
-	const parsed =
-		typeof value === "number" ? value : value ? Number(value) : fallback;
-	if (!Number.isSafeInteger(parsed) || parsed <= 0 || parsed > maximum) {
-		throw new Error(
-			`${label} must be a positive integer no greater than ${maximum}.`,
-		);
-	}
-	return parsed;
-}
 
 export function resolveProcessOutputLimits(
 	limits?: Partial<ProcessOutputLimits>,
@@ -319,9 +308,9 @@ async function runHostToolProcess(
 	let stderr = "";
 	let stdoutBytes = 0;
 	let stderrBytes = 0;
-	let proc: any;
-	let timeoutId: any;
-	let killAfterTerminationId: any;
+	let proc: PipeSubprocess | undefined;
+	let timeoutId: ReturnType<typeof setTimeout> | undefined;
+	let killAfterTerminationId: ReturnType<typeof setTimeout> | undefined;
 	let terminationReason: "timeout" | "stdout_limit" | "stderr_limit" | null =
 		null;
 
@@ -339,7 +328,7 @@ async function runHostToolProcess(
 			stdout: "pipe",
 			stderr: "pipe",
 			env: cleanEnv,
-		});
+		}) as PipeSubprocess;
 
 		const timeoutSec = options.timeoutSec ?? 300;
 		timeoutId = setTimeout(() => {
@@ -361,7 +350,8 @@ async function runHostToolProcess(
 		stderr = stderrResult.text;
 		stdoutBytes = stdoutResult.bytesRead;
 		stderrBytes = stderrResult.bytesRead;
-	} catch (err: any) {
+	} catch (err: unknown) {
+		const message = errorMessage(err);
 		const terminationError =
 			terminationReason === "stdout_limit"
 				? `tool_output_limit_exceeded: ${binaryName} stdout exceeded ${outputLimits.stdoutBytes} bytes`
@@ -374,9 +364,9 @@ async function runHostToolProcess(
 			ok: false,
 			exitCode: null,
 			stdout,
-			stderr: stderr || err.message,
+			stderr: stderr || message,
 			elapsedMs: Date.now() - startTime,
-			error: terminationError ?? `Process error: ${err.message}`,
+			error: terminationError ?? `Process error: ${message}`,
 			executionMetadata: {
 				runner: "host",
 				outputCapture: {
@@ -463,9 +453,9 @@ async function runDockerToolProcess(
 	let stdoutBytes = 0;
 	let stderrBytes = 0;
 	let exitCode: number | null = null;
-	let proc: any;
-	let timeoutId: any;
-	let killAfterTerminationId: any;
+	let proc: PipeSubprocess | undefined;
+	let timeoutId: ReturnType<typeof setTimeout> | undefined;
+	let killAfterTerminationId: ReturnType<typeof setTimeout> | undefined;
 	let terminationReason: "timeout" | "stdout_limit" | "stderr_limit" | null =
 		null;
 
@@ -567,7 +557,7 @@ async function runDockerToolProcess(
 			stdout: "pipe",
 			stderr: "pipe",
 			env: options.env ?? getCleanEnv(),
-		});
+		}) as PipeSubprocess;
 
 		await emit({
 			level: "info",
@@ -603,7 +593,8 @@ async function runDockerToolProcess(
 			message: `Docker toolbox container ${containerName} exited with code ${exitCode}.`,
 			data: { ...dockerMetadata, exitCode },
 		});
-	} catch (err: any) {
+	} catch (err: unknown) {
+		const message = errorMessage(err);
 		const error =
 			terminationReason === "stdout_limit"
 				? `tool_output_limit_exceeded: ${binaryName} Docker stdout exceeded ${outputLimits.stdoutBytes} bytes`
@@ -611,7 +602,7 @@ async function runDockerToolProcess(
 					? `tool_stderr_limit_exceeded: ${binaryName} Docker stderr exceeded ${outputLimits.stderrBytes} bytes`
 					: terminationReason === "timeout"
 						? `${binaryName} Docker execution timed out`
-						: `Docker process error: ${err.message}`;
+						: `Docker process error: ${message}`;
 		if (terminationReason) {
 			await emit({
 				level: "error",
@@ -630,7 +621,7 @@ async function runDockerToolProcess(
 			ok: false,
 			exitCode: null,
 			stdout,
-			stderr: stderr || err.message,
+			stderr: stderr || message,
 			elapsedMs: Date.now() - startTime,
 			error,
 			executionMetadata: {
@@ -877,12 +868,12 @@ async function cleanupDockerContainer(
 				data: { containerName, exitCode, stderr },
 			});
 		}
-	} catch (err: any) {
+	} catch (err: unknown) {
 		await emit({
 			level: "warn",
 			eventType: "docker.container.cleanup_failed",
 			message: `Failed to cleanup Docker toolbox container ${containerName}.`,
-			data: { containerName, error: err.message },
+			data: { containerName, error: errorMessage(err) },
 		});
 	}
 }

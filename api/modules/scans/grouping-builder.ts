@@ -28,7 +28,7 @@ const SEVERITY_RANK: Record<string, number> = {
 	unknown: 6,
 };
 
-function classifyFinding(finding: any): {
+function classifyFinding(finding: typeof findings.$inferSelect): {
 	strategy: string;
 	groupKey: string;
 	title: string;

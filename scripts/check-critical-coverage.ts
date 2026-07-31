@@ -8,6 +8,17 @@ const targets = new Map<string, number>([
 	["api/security/outbound-url-policy.ts", 95],
 	["api/security/project-path-policy.ts", 95],
 	["api/security/secret-crypto.ts", 95],
+	["api/modules/dast/active-assessment-runner.ts", 90],
+	["api/modules/dynamic/dynamic-artifact-storage.ts", 75],
+	["api/modules/dynamic/dynamic-docker-executor.ts", 85],
+	["api/modules/dynamic/dynamic-profiles.ts", 90],
+	["api/modules/dynamic/dynamic-runner.ts", 95],
+	[
+		"api/modules/integrations/nightworkers/nightworkers-integration.service.ts",
+		85,
+	],
+	["api/modules/scans/scan-diagnostic-runner.ts", 80],
+	["api/modules/scans/tools/tool-process-runner.ts", 80],
 ]);
 const tests = [
 	"api/middleware/auth.test.ts",
@@ -15,6 +26,13 @@ const tests = [
 	"api/security/outbound-url-policy.test.ts",
 	"api/security/project-path-policy.test.ts",
 	"api/security/secret-crypto.test.ts",
+	"api/modules/dast/active-assessment-runner.test.ts",
+	"api/modules/dynamic/dynamic-artifact-storage.test.ts",
+	"api/modules/dynamic/dynamic-profiles.test.ts",
+	"api/modules/dynamic/dynamic-runner.test.ts",
+	"api/modules/integrations/nightworkers/nightworkers-integration.service.test.ts",
+	"api/modules/scans/scan-diagnostic-runner.test.ts",
+	"api/modules/scans/tools/tool-process-runner.test.ts",
 ];
 
 const coverageDirectory = await mkdtemp(

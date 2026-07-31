@@ -1,28 +1,11 @@
+import { ArrowDown, ArrowUp, Plus, Save, X } from "lucide-react";
+import type { LlmThinkingDepth } from "./api";
+import { Button, SelectInput } from "./ui";
 import {
-	ArrowDown,
-	ArrowUp,
-	CheckCircle2,
-	Plus,
-	RefreshCw,
-	Save,
-	Trash2,
-	X,
-	XCircle,
-} from "lucide-react";
-import type { LlmProviderKind, LlmThinkingDepth } from "./api";
-import { Button, SelectInput, TextArea, TextInput } from "./ui";
-import {
-	ensureCodexEndpoint,
 	ensureRoutes,
 	fallbackKey,
-	formatModelDisplayNames,
 	isThinkingModel,
-	modelText,
-	parseModelDisplayNames,
-	parseModels,
 	parseTargetKey,
-	PROVIDER_KINDS,
-	providerKindLabels,
 	targetKey,
 	taskLabels,
 	thinkingDepthOptions,

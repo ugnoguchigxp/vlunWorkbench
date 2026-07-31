@@ -10,8 +10,22 @@ function writeResult(payload: Record<string, unknown>): void {
 	console.log(JSON.stringify(payload));
 }
 
+type ReviewFindingArgs = {
+	"finding-id"?: string;
+	task?: string;
+	provider?: string;
+	"provider-endpoint-id"?: string;
+	model?: string;
+	"max-snippet-lines"?: string;
+	"fixture-output"?: string;
+};
+
+function errorMessage(error: unknown): string {
+	return error instanceof Error ? error.message : String(error);
+}
+
 async function main() {
-	let argsValues: any;
+	let argsValues: ReviewFindingArgs;
 	try {
 		const parsed = parseArgs({
 			args: process.argv.slice(2),
@@ -27,11 +41,11 @@ async function main() {
 			strict: true,
 		});
 		argsValues = parsed.values;
-	} catch (err: any) {
+	} catch (err: unknown) {
 		writeResult({
 			ok: false,
 			status: "failed",
-			message: `Failed to parse arguments: ${err.message}`,
+			message: `Failed to parse arguments: ${errorMessage(err)}`,
 		});
 		process.exit(1);
 	}
@@ -103,12 +117,12 @@ async function main() {
 			});
 			process.exit(1);
 		}
-	} catch (err: any) {
+	} catch (err: unknown) {
 		writeResult({
 			ok: false,
 			findingId,
 			status: "failed",
-			message: err.message,
+			message: errorMessage(err),
 		});
 		process.exit(1);
 	} finally {

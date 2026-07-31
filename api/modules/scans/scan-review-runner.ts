@@ -8,7 +8,7 @@ import {
 import type { AppDatabase } from "../../db";
 import type { LlmRouter } from "../../providers/llmRouter";
 import type { LlmTask } from "../../providers/llmTaskTypes";
-import { type LlmProvider } from "../../providers/types";
+import type { LlmProvider } from "../../providers/types";
 import type { PromptMessageAudit } from "../../system-context/audit";
 import {
 	bindScanReviewSystemContext,

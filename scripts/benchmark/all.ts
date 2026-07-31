@@ -1,9 +1,10 @@
-import { mkdir, stat } from "node:fs/promises";
+import { mkdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
+import { assessJuiceShopMeasurement } from "./measurement-status";
 
 type CommandResult = {
 	id: string;
-	status: "completed" | "not_executed" | "failed";
+	status: "completed" | "incomplete" | "not_executed" | "failed";
 	exitCode: number | null;
 	reason: string | null;
 };
@@ -49,11 +50,12 @@ for (const command of commands) {
 		env: process.env,
 	});
 	const exitCode = await child.exited;
+	const measurement = await assessMeasurement(command.id, exitCode);
 	results.push({
 		id: command.id,
-		status: exitCode === 0 ? "completed" : "failed",
+		status: measurement.status,
 		exitCode,
-		reason: exitCode === 0 ? null : "benchmark_command_failed",
+		reason: measurement.reason,
 	});
 }
 const outputPath = path.resolve(".artifacts/benchmark/all.json");
@@ -82,4 +84,23 @@ if (results.some((item) => item.status === "failed")) process.exitCode = 1;
 
 async function exists(filePath: string): Promise<boolean> {
 	return Boolean(await stat(filePath).catch(() => null));
+}
+
+async function assessMeasurement(
+	id: string,
+	exitCode: number,
+): Promise<Pick<CommandResult, "status" | "reason">> {
+	if (exitCode !== 0) {
+		return { status: "failed", reason: "benchmark_command_failed" };
+	}
+	if (id !== "owasp-juice-shop") {
+		return { status: "completed", reason: null };
+	}
+	const metrics = JSON.parse(
+		await readFile(".artifacts/benchmark/juice-shop-metrics.json", "utf8"),
+	) as {
+		executedScenarioCount?: number;
+		eligibleScenarioCount?: number;
+	};
+	return assessJuiceShopMeasurement(metrics);
 }

@@ -306,7 +306,7 @@ export class ScanDiagnosticRunner {
 				reportRunner: this.deps.reportRunner,
 				reuseCompletedReport: !reviewResult.ok,
 			});
-			if (!report || report.status !== "completed") {
+			if (report?.status !== "completed") {
 				const error =
 					"Deterministic diagnostic report generation did not complete.";
 				await this.diagnosticRepository.update(

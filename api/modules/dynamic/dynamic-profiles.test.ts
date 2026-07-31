@@ -92,6 +92,19 @@ describe("Dynamic Profiles Validation & Registry", () => {
 			});
 			expect(tooLong.valid).toBe(false);
 			expect(tooLong.reason).toContain("timeout_sec");
+
+			const unsafeResources = validateDynamicProfilePolicy({
+				commandJson: ["pytest", "-q"],
+				allowProjectScripts: false,
+				workingDirectory: "",
+				expectedArtifactsJson: [],
+				timeoutSec: 120,
+				network: "none",
+				memory: "64g",
+				cpus: "100",
+			});
+			expect(unsafeResources.valid).toBe(false);
+			expect(unsafeResources.reason).toContain("memory");
 		});
 	});
 

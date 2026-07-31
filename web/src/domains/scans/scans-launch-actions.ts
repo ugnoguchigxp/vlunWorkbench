@@ -2,12 +2,6 @@ import {
 	browseProjectFolder,
 	cancelScan,
 	createProject,
-	type DynamicProfileConfig,
-	type DynamicRun,
-	type Finding,
-	type FindingDecision,
-	type FindingEvidence,
-	type FindingReview,
 	fetchAutomatedScanDiagnostics,
 	fetchScanAttackSurface,
 	fetchScanDiagnosticReports,
@@ -18,16 +12,10 @@ import {
 	generateScanReport,
 	previewScan,
 	retryAutomatedScanDiagnostic,
-	type ReproductionProfile,
-	type ReproductionRun,
 	type ScanTargetKind,
 	startScan,
 	triggerScanReview,
 } from "../../api";
-import type {
-	RemediationPriority,
-	RemediationStatus,
-} from "./remediation-plan";
 
 const DEFAULT_REPORT_OPTIONS = {
 	includeFalsePositives: true,
@@ -46,44 +34,6 @@ export type ScansDomainSectionProps = {
 	runWithBusy: (task: () => Promise<void>) => Promise<boolean>;
 	setErrorText: (text: string | null) => void;
 };
-type FindingDetails = {
-	finding: Finding;
-	evidence: FindingEvidence[];
-	latestReview: FindingReview | null;
-	latestDecision: FindingDecision | null;
-};
-type ScanDetailTab = "review" | "verification" | "report";
-type ActionQueueFilter =
-	| "active"
-	| "all"
-	| "needs_review"
-	| "needs_verification"
-	| "ready_for_report"
-	| "blocked_by_evidence";
-type FindingSelectionBundle = {
-	details: FindingDetails;
-	reviews: FindingReview[];
-	decisions: FindingDecision[];
-};
-type FindingVerificationBundle = {
-	reproductionProfiles: ReproductionProfile[];
-	selectedReproductionProfile: string;
-	reproductions: ReproductionRun[];
-	dynamicProfiles: DynamicProfileConfig[];
-	selectedDynamicProfile: string;
-	dynamicRuns: DynamicRun[];
-};
-const _remediationStatuses: RemediationStatus[] = [
-	"not_started",
-	"planned",
-	"in_progress",
-	"fixed",
-	"accepted",
-	"false_positive",
-	"deferred",
-];
-const _remediationPriorities: RemediationPriority[] = ["p0", "p1", "p2", "p3"];
-
 export function buildScanLaunchActions(scope: Record<string, any>) {
 	const {
 		buildSelectedScanTarget,

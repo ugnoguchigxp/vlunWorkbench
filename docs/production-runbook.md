@@ -72,6 +72,15 @@ metadata, and force-cleans a Docker container when necessary. Do not raise the
 hard limits to make a noisy or adversarial target pass; investigate the tool
 configuration and target scope first.
 
+Dynamic verification uses the same validated Docker defaults and hard ranges.
+Every run applies memory, equal memory-swap, CPU, and PID limits, and request
+options may only tighten the saved profile limits. Dynamic stdout/stderr use the
+scanner byte limits and fail closed as `dynamic_output_limit_exceeded`.
+Collected dynamic artifacts are also bounded to 16 MiB per file, 64 MiB total,
+128 files, 16 directory levels, and 2,048 visited entries. An artifact overflow
+fails closed as `dynamic_artifact_limit_exceeded`; reduce the profile output
+instead of broadening these collection limits.
+
 ## Scanner data update
 
 Scanner rules and vulnerability databases never update during a scan. Refresh

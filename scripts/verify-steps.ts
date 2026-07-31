@@ -33,6 +33,7 @@ export const VERIFY_STEPS: VerifyStep[] = [
 export const STRICT_VERIFY_COMMANDS = [
 	["bun", "run", "verify"],
 	["bun", "run", "test:security-capability"],
+	["bun", "run", "verify:phase-50-evidence"],
 	["bun", "run", "test:coverage"],
 	["bun", "run", "test:e2e"],
 ] as const;

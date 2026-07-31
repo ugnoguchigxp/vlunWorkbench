@@ -1,54 +1,25 @@
-import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
+import { Link } from "@tanstack/react-router";
 import {
-	Activity,
 	BarChart3,
 	Braces,
 	CheckCircle2,
 	ChevronRight,
-	Copy,
-	FileCode2,
-	FolderOpen,
-	GitBranch,
-	Plus,
 	RefreshCw,
 	Shield,
 } from "lucide-react";
-import {
-	type FormEvent,
-	useCallback,
-	useEffect,
-	useMemo,
-	useRef,
-	useState,
-} from "react";
-import { formatCommandTokens } from "../../../../shared/format-command";
-import type {
-	FileRiskIndexEntry,
-	StaticIntelligenceExportV1,
-} from "../../../../shared/schemas/static-intelligence.schema";
+import type { StaticIntelligenceExportV1 } from "../../../../shared/schemas/static-intelligence.schema";
 import type { StaticIntelligenceOntologyHandoff } from "../../../../shared/schemas/static-intelligence-module.schema";
-import {
-	browseProjectFolder,
-	createProject,
-	fetchProjectIntelligenceSummaries,
-	fetchProjectIntelligenceView,
-	fetchProjectOntologyHandoff,
-	fetchProjectStructure,
+import type {
 	fetchScanIntelligenceAgentQuery,
-	fetchScans,
-	type ProjectIntelligenceProject,
-	type ProjectIntelligenceSummary,
-	type ProjectIntelligenceView,
-	type ProjectStructureListResponse,
-	refreshProjectIntelligence,
-	type ScanIntelligenceAgentMode,
-	type ScanRun,
+	ProjectIntelligenceProject,
+	ProjectIntelligenceView,
+	ProjectStructureListResponse,
+	ScanIntelligenceAgentMode,
+	ScanRun,
 } from "../../api";
-import { Button, SelectInput, TextInput } from "../../ui";
-import { formatScanOutcome } from "../scans/scan-profile-display";
+import { Button } from "../../ui";
 import { formatDateTime } from "../scans/scans-utils";
 import { readinessPresentation } from "./project-intelligence-readiness";
-import { buildProjectCardSummary } from "./project-intelligence-view-model";
 
 import {
 	FileRiskSection,
@@ -57,7 +28,6 @@ import {
 } from "./project-structure-panels";
 import {
 	AgentBundleSection,
-	CodeStructureSection,
 	DegradedReasons,
 	EvidenceGraphSection,
 	Metric,

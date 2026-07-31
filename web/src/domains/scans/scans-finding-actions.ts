@@ -1,20 +1,12 @@
 import type { FormEvent } from "react";
 import {
 	createFindingDecision,
-	type DynamicProfileConfig,
-	type DynamicRun,
-	type Finding,
-	type FindingDecision,
-	type FindingEvidence,
-	type FindingReview,
 	fetchDynamicRunArtifacts,
 	fetchFindingDynamicRuns,
 	fetchFindingReproductions,
 	fetchReproductionRunArtifacts,
 	fetchScanFindings,
 	generateDiagnosticReport,
-	type ReproductionProfile,
-	type ReproductionRun,
 	runScanAttackSurfaceInventory,
 	runScanSecurityChecks,
 	triggerFindingDynamicRun,
@@ -27,49 +19,11 @@ import type {
 } from "./remediation-plan";
 import { useScansDerivedState } from "./scans-derived-controller";
 
-const _DEFAULT_REPORT_OPTIONS = {
-	includeFalsePositives: true,
-	includeDeferred: true,
-	includeUndecided: true,
-};
-const _SCAN_REVIEW_POLL_INTERVAL_MS = 1_500;
-const _SCAN_REVIEW_WAIT_TIMEOUT_MS = 630_000;
-
-const _wait = (durationMs: number) =>
-	new Promise<void>((resolve) => globalThis.setTimeout(resolve, durationMs));
-
 export type ScansDomainSectionProps = {
 	active: boolean;
 	busy: boolean;
 	runWithBusy: (task: () => Promise<void>) => Promise<boolean>;
 	setErrorText: (text: string | null) => void;
-};
-type FindingDetails = {
-	finding: Finding;
-	evidence: FindingEvidence[];
-	latestReview: FindingReview | null;
-	latestDecision: FindingDecision | null;
-};
-type ScanDetailTab = "review" | "verification" | "report";
-type ActionQueueFilter =
-	| "active"
-	| "all"
-	| "needs_review"
-	| "needs_verification"
-	| "ready_for_report"
-	| "blocked_by_evidence";
-type FindingSelectionBundle = {
-	details: FindingDetails;
-	reviews: FindingReview[];
-	decisions: FindingDecision[];
-};
-type FindingVerificationBundle = {
-	reproductionProfiles: ReproductionProfile[];
-	selectedReproductionProfile: string;
-	reproductions: ReproductionRun[];
-	dynamicProfiles: DynamicProfileConfig[];
-	selectedDynamicProfile: string;
-	dynamicRuns: DynamicRun[];
 };
 const remediationStatuses: RemediationStatus[] = [
 	"not_started",

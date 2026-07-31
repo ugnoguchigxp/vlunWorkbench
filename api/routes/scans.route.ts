@@ -162,7 +162,7 @@ export function createScansRoute(deps: ScansRouteDeps) {
 			const filename = artifact.path.split("/").pop() || "artifact";
 			const contentType =
 				artifact.format === "json" ? "application/json" : "text/plain";
-			return c.body(content as any, 200, {
+			return c.body(content, 200, {
 				"Content-Type": `${contentType}; charset=utf-8`,
 				"Content-Disposition": `attachment; filename="${filename}"`,
 			});

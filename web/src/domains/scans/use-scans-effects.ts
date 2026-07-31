@@ -1,11 +1,5 @@
 import { useEffect } from "react";
 import {
-	type DynamicProfileConfig,
-	type DynamicRun,
-	type Finding,
-	type FindingDecision,
-	type FindingEvidence,
-	type FindingReview,
 	fetchProjects,
 	fetchScan,
 	fetchScanEvents,
@@ -14,26 +8,9 @@ import {
 	fetchScanReviews,
 	fetchScanSummary,
 	fetchScans,
-	type ReproductionProfile,
-	type ReproductionRun,
 	type ScanRun,
 } from "../../api";
-import {
-	type RemediationPriority,
-	type RemediationStatus,
-	readRemediationMetadata,
-} from "./remediation-plan";
-
-const _DEFAULT_REPORT_OPTIONS = {
-	includeFalsePositives: true,
-	includeDeferred: true,
-	includeUndecided: true,
-};
-const _SCAN_REVIEW_POLL_INTERVAL_MS = 1_500;
-const _SCAN_REVIEW_WAIT_TIMEOUT_MS = 630_000;
-
-const _wait = (durationMs: number) =>
-	new Promise<void>((resolve) => globalThis.setTimeout(resolve, durationMs));
+import { readRemediationMetadata } from "./remediation-plan";
 
 export type ScansDomainSectionProps = {
 	active: boolean;
@@ -41,91 +18,27 @@ export type ScansDomainSectionProps = {
 	runWithBusy: (task: () => Promise<void>) => Promise<boolean>;
 	setErrorText: (text: string | null) => void;
 };
-type FindingDetails = {
-	finding: Finding;
-	evidence: FindingEvidence[];
-	latestReview: FindingReview | null;
-	latestDecision: FindingDecision | null;
-};
-type ScanDetailTab = "review" | "verification" | "report";
-type ActionQueueFilter =
-	| "active"
-	| "all"
-	| "needs_review"
-	| "needs_verification"
-	| "ready_for_report"
-	| "blocked_by_evidence";
-type FindingSelectionBundle = {
-	details: FindingDetails;
-	reviews: FindingReview[];
-	decisions: FindingDecision[];
-};
-type FindingVerificationBundle = {
-	reproductionProfiles: ReproductionProfile[];
-	selectedReproductionProfile: string;
-	reproductions: ReproductionRun[];
-	dynamicProfiles: DynamicProfileConfig[];
-	selectedDynamicProfile: string;
-	dynamicRuns: DynamicRun[];
-};
-const _remediationStatuses: RemediationStatus[] = [
-	"not_started",
-	"planned",
-	"in_progress",
-	"fixed",
-	"accepted",
-	"false_positive",
-	"deferred",
-];
-const _remediationPriorities: RemediationPriority[] = ["p0", "p1", "p2", "p3"];
-
 export function useScansEffects(scope: Record<string, any>) {
 	const {
 		active,
-		diffBaseRef,
-		diffHeadRef,
-		diffIncludeUntracked,
-		diffPreview,
-		diffPreviewRequestIdRef,
-		diffPreviewResolvedInputKey,
-		findingLoadInFlightRef,
-		findingSelectionCacheRef,
-		findingVerificationCacheRef,
-		findingVerificationInFlightRef,
 		linkReviewDefaultFindingRef,
-		profiles,
-		reports,
 		requestedProjectId,
 		requestedScanRunId,
-		runWithBusy,
-		scanDetailTab,
-		scanTargetKind,
 		selectedDecisionWorkflow,
 		selectedFindingDetails,
 		selectedFindingId,
 		selectedFindingIdRef,
 		selectedPollingStatus,
-		selectedProfileId,
 		selectedProjectId,
-		selectedReport,
 		selectedScanRunId,
 		setAllDecisions,
 		setAllReviews,
-		setAttackSurfaceItems,
 		setCommentInput,
 		setDecisionInput,
-		setDiagnosticReports,
-		setDiffPreview,
-		setDiffPreviewError,
-		setDiffPreviewLoading,
-		setDiffPreviewResolvedInputKey,
-		setDynamicProfiles,
-		setDynamicRuns,
 		setErrorText,
 		setFindings,
 		setFindingsLoading,
 		setLinkReviewInput,
-		setProfiles,
 		setProjects,
 		setReasonInput,
 		setRemediationDueDateInput,
@@ -133,28 +46,17 @@ export function useScansEffects(scope: Record<string, any>) {
 		setRemediationOwnerInput,
 		setRemediationPriorityInput,
 		setRemediationStatusInput,
-		setReportPreviewContent,
 		setReports,
-		setReproProfiles,
-		setReproRuns,
 		setReviewError,
 		setScanDetailTab,
 		setScanEvents,
-		setScanGroups,
 		setScanReviews,
 		setScanRuns,
 		setScanSummary,
-		setScanTargetKind,
-		setSecurityCheckResults,
-		setSelectedDynamicProfile,
 		setSelectedFindingDetails,
 		setSelectedFindingId,
-		setSelectedGroupId,
 		setSelectedProjectId,
-		setSelectedReport,
-		setSelectedReproProfile,
 		setSelectedScanRunId,
-		setVerificationDataLoadedFindingId,
 	} = scope;
 	useEffect(() => {
 		selectedFindingIdRef.current = selectedFindingId;

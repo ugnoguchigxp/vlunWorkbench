@@ -1,17 +1,3 @@
-import type {
-	DynamicProfileConfig,
-	DynamicRun,
-	Finding,
-	FindingDecision,
-	FindingEvidence,
-	FindingReview,
-	ReproductionProfile,
-	ReproductionRun,
-} from "../../api";
-import type {
-	RemediationPriority,
-	RemediationStatus,
-} from "./remediation-plan";
 import { buildScansNavigationHandlers } from "./scans-derived-controller";
 
 const DEFAULT_REPORT_OPTIONS = {
@@ -19,58 +5,23 @@ const DEFAULT_REPORT_OPTIONS = {
 	includeDeferred: true,
 	includeUndecided: true,
 };
-const _SCAN_REVIEW_POLL_INTERVAL_MS = 1_500;
-const _SCAN_REVIEW_WAIT_TIMEOUT_MS = 630_000;
-
-const _wait = (durationMs: number) =>
-	new Promise<void>((resolve) => globalThis.setTimeout(resolve, durationMs));
-
 export type ScansDomainSectionProps = {
 	active: boolean;
 	busy: boolean;
 	runWithBusy: (task: () => Promise<void>) => Promise<boolean>;
 	setErrorText: (text: string | null) => void;
 };
-type FindingDetails = {
-	finding: Finding;
-	evidence: FindingEvidence[];
-	latestReview: FindingReview | null;
-	latestDecision: FindingDecision | null;
+
+type NavigationParams = Parameters<typeof buildScansNavigationHandlers>[0];
+type ControllerViewModelScope = Omit<
+	NavigationParams,
+	"handleSelectScanRun" | "handleSelectFinding"
+> & {
+	setSelectedScanRunId: NavigationParams["setSelectedFindingId"];
 };
-type ScanDetailTab = "review" | "verification" | "report";
-type ActionQueueFilter =
-	| "active"
-	| "all"
-	| "needs_review"
-	| "needs_verification"
-	| "ready_for_report"
-	| "blocked_by_evidence";
-type FindingSelectionBundle = {
-	details: FindingDetails;
-	reviews: FindingReview[];
-	decisions: FindingDecision[];
-};
-type FindingVerificationBundle = {
-	reproductionProfiles: ReproductionProfile[];
-	selectedReproductionProfile: string;
-	reproductions: ReproductionRun[];
-	dynamicProfiles: DynamicProfileConfig[];
-	selectedDynamicProfile: string;
-	dynamicRuns: DynamicRun[];
-};
-const _remediationStatuses: RemediationStatus[] = [
-	"not_started",
-	"planned",
-	"in_progress",
-	"fixed",
-	"accepted",
-	"false_positive",
-	"deferred",
-];
-const _remediationPriorities: RemediationPriority[] = ["p0", "p1", "p2", "p3"];
 
 export function buildScansControllerViewModel<
-	T extends Record<string, unknown>,
+	T extends ControllerViewModelScope,
 >(scope: T) {
 	const {
 		findings,
@@ -87,7 +38,7 @@ export function buildScansControllerViewModel<
 		handleGenerateReport,
 		handleRetryAutomatedDiagnostic,
 		runDiagnosticsForScan,
-	} = scope as Record<string, any>;
+	} = scope;
 	const handleSelectScanRun = (scanRunId: string) => {
 		setSelectedScanRunId(scanRunId);
 		selectedFindingIdRef.current = "";

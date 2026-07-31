@@ -10,13 +10,10 @@ import {
 	scanReports,
 	reproductionRuns,
 	reproductionArtifacts,
-	reproductionEvidence,
 	dynamicRuns,
 	dynamicArtifacts,
-	dynamicEvidence,
 	dastRuns,
 	dastArtifacts,
-	dastEvidence,
 	scanArtifacts,
 } from "../api/db/schema";
 
@@ -207,8 +204,13 @@ async function main() {
 		if (!ok) {
 			process.exit(1);
 		}
-	} catch (err: any) {
-		console.error(JSON.stringify({ ok: false, error: err.message }));
+	} catch (err: unknown) {
+		console.error(
+			JSON.stringify({
+				ok: false,
+				error: err instanceof Error ? err.message : String(err),
+			}),
+		);
 		process.exit(1);
 	} finally {
 		dbConnection.sqlite.close(false);

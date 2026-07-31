@@ -214,7 +214,7 @@ Common environment variables:
 | `VULN_WORKBENCH_THREAT_MODEL_ENABLED` | Enables application-model and threat-hypothesis generation. Defaults to `false`. |
 | `VULN_WORKBENCH_BUSINESS_LOGIC_ENABLED` | Enables bounded business-logic scenario generation and execution. Defaults to `false`. |
 
-LLM API keys stay on the host side. Scanner containers and target projects should not receive LLM credentials. Docker scans always apply memory, CPU, memory-swap, and PID limits; stdout, stderr, and structured result files are rejected when their configured byte limit is exceeded.
+LLM API keys stay on the host side. Scanner containers and target projects should not receive LLM credentials. Docker scans always apply memory, CPU, memory-swap, and PID limits; stdout, stderr, and structured result files are rejected when their configured byte limit is exceeded. Dynamic verification inherits the same Docker and stream limits, permits request-time resource overrides only when they tighten the saved profile, and bounds collected artifacts to 16 MiB per file, 64 MiB total, 128 files, 16 directory levels, and 2,048 visited entries.
 
 ## CLI Workflows
 

@@ -771,7 +771,10 @@ async function runFixture(params: {
 			throw new Error("guardrail material result is missing sourceManifest");
 		}
 		for (const material of materials(firstMaterial.payload)) {
-			const sourceRefs = material.source?.sourceRefs;
+			const sourceRefs = objectRecord(
+				material.source,
+				"guardrail material source",
+			).sourceRefs;
 			if (!Array.isArray(sourceRefs) || sourceRefs.length === 0) {
 				throw new Error(`material ${material.id} is missing source refs`);
 			}
@@ -1052,10 +1055,10 @@ function manifestPayload(payload: Record<string, unknown>) {
 
 function materials(
 	payload: Record<string, unknown>,
-): Array<Record<string, any>> {
+): Array<Record<string, unknown>> {
 	return arrayProp(payload, "materials").map((item) =>
 		objectRecord(item, "guardrail material"),
-	) as Array<Record<string, any>>;
+	);
 }
 
 function materialIds(payload: Record<string, unknown>): string[] {
@@ -1066,7 +1069,12 @@ function materialIds(payload: Record<string, unknown>): string[] {
 
 function materialHashes(payload: Record<string, unknown>): string[] {
 	return materials(payload)
-		.map((material) => String(material.metadata?.materialHash))
+		.map((material) =>
+			String(
+				objectRecord(material.metadata, "guardrail material metadata")
+					.materialHash,
+			),
+		)
 		.sort((a, b) => a.localeCompare(b));
 }
 
@@ -1097,11 +1105,11 @@ function arrayProp(payload: Record<string, unknown>, key: string): unknown[] {
 	return value;
 }
 
-function objectRecord(value: unknown, label: string): Record<string, any> {
+function objectRecord(value: unknown, label: string): Record<string, unknown> {
 	if (!value || typeof value !== "object" || Array.isArray(value)) {
 		throw new Error(`${label} is not an object`);
 	}
-	return value as Record<string, any>;
+	return value as Record<string, unknown>;
 }
 
 function failureResult(
