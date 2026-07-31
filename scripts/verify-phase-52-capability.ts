@@ -14,7 +14,7 @@ const fixtureRoots = [
 	"tests/security-capability/osv/Maven",
 	"tests/security-capability/osv/Gradle",
 ] as const;
-const expectedPluginIds = [
+const requiredPhase52PluginIds = [
 	"build.gradle",
 	"build.maven",
 	"build.npm",
@@ -87,10 +87,10 @@ const pluginIds = builtInTechnologyPluginRegistry
 	.plugins()
 	.map((plugin) => plugin.manifest.id)
 	.sort((left, right) => left.localeCompare(right));
-if (JSON.stringify(pluginIds) !== JSON.stringify(expectedPluginIds)) {
-	throw new Error(
-		`phase_52_builtin_plugin_set_mismatch:${pluginIds.join(",")}`,
-	);
+if (
+	!requiredPhase52PluginIds.every((pluginId) => pluginIds.includes(pluginId))
+) {
+	throw new Error(`phase_52_required_plugin_missing:${pluginIds.join(",")}`);
 }
 
 const ruleDigests: Record<string, string> = {};

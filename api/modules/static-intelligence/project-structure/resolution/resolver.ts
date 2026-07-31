@@ -10,6 +10,12 @@ import type { UnresolvedStructureReference } from "../analyzers/registry";
 
 import { relativeResolutionCandidates } from "./resolution-candidates";
 import {
+	loadGoModules,
+	resolveGoImport,
+	resolvePythonImport,
+	type GoModuleBoundary,
+} from "./language-resolvers";
+import {
 	aliasCandidates,
 	loadResolverConfig,
 	type ResolverConfig,
@@ -34,12 +40,15 @@ export async function resolveStructureReferences(input: {
 	);
 	const config = await loadResolverConfig(input.inventoryEntries);
 	const diagnostics: ProjectStructureDiagnostic[] = [];
-	const references = input.references.map((reference) => {
+	const goModules = await loadGoModules(input.inventoryEntries);
+	const references: ProjectStructureReference[] = [];
+	for (const reference of input.references) {
 		const resolved = resolveReference(
 			reference,
 			entriesByPath,
 			entriesByLowerPath,
 			config,
+			goModules,
 		);
 		if (resolved.status === "unresolved" || resolved.status === "ambiguous") {
 			diagnostics.push(
@@ -67,8 +76,8 @@ export async function resolveStructureReferences(input: {
 				}),
 			);
 		}
-		return resolved;
-	});
+		references.push(resolved);
+	}
 	return {
 		references: uniqueReferences(references),
 		diagnostics: diagnostics.sort(compareDiagnostics),
@@ -80,6 +89,7 @@ function resolveReference(
 	entriesByPath: Map<string, ProjectInventoryEntry>,
 	entriesByLowerPath: Map<string, ProjectInventoryEntry>,
 	config: ResolverConfig,
+	goModules: GoModuleBoundary[],
 ): ProjectStructureReference {
 	const base = {
 		from: reference.from,
@@ -88,6 +98,12 @@ function resolveReference(
 	};
 	if (reference.kindHint === "java_import") {
 		return resolveJavaImport(reference, entriesByPath);
+	}
+	if (reference.kindHint === "python_import") {
+		return resolvePythonImport(reference, entriesByPath);
+	}
+	if (reference.kindHint === "go_import") {
+		return resolveGoImport(reference, entriesByPath, goModules);
 	}
 	if (isRemoteOrInline(reference.specifier)) {
 		return {

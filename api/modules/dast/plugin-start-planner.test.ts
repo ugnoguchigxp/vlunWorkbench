@@ -94,6 +94,98 @@ describe("plugin DAST start planner", () => {
 		expect(await snapshot()).toEqual(before);
 	});
 
+	it("validates a Python FastAPI plan but fails closed before project execution", async () => {
+		await write(
+			"app.py",
+			'from fastapi import FastAPI\napp = FastAPI()\n@app.get("/health")\ndef health(): return {"ok": True}\n',
+		);
+		await write("requirements.txt", "fastapi==0.116.1\nuvicorn==0.35.0\n");
+
+		await expect(
+			inferDastTargetStartPlan({ repoPath: root, port: 20123 }),
+		).rejects.toThrow("project_code_execution_consent_required");
+
+		const plan = await inferDastTargetStartPlan({
+			repoPath: root,
+			port: 20123,
+			consentProjectCodeExecution: true,
+		});
+		expect(plan).toMatchObject({
+			pluginId: "framework.python.fastapi",
+			packageManager: "python",
+			command: [
+				"python3",
+				"-m",
+				"uvicorn",
+				"app:app",
+				"--host",
+				"127.0.0.1",
+				"--port",
+				"20123",
+			],
+			requiresProjectCodeConsent: true,
+			origin: "http://127.0.0.1:20123",
+		});
+
+		let spawnCalled = false;
+		await expect(
+			prepareDastTargetWorkspace({
+				repoPath: root,
+				port: 20123,
+				consentProjectCodeExecution: true,
+				spawn: () => {
+					spawnCalled = true;
+					return { exited: Promise.resolve(0), kill: () => undefined };
+				},
+			}),
+		).rejects.toThrow("project_code_execution_sandbox_required");
+		expect(spawnCalled).toBe(false);
+	});
+
+	it("rejects ambiguous Python framework start plans", async () => {
+		await write(
+			"app.py",
+			[
+				"from fastapi import FastAPI",
+				"from flask import Flask",
+				"api = FastAPI()",
+				"web = Flask(__name__)",
+			].join("\n"),
+		);
+
+		await expect(
+			inferDastTargetStartPlan({
+				repoPath: root,
+				port: 20123,
+				consentProjectCodeExecution: true,
+			}),
+		).rejects.toThrow("dast_start_plan_ambiguous");
+	});
+
+	it("prefers a framework plan over a lower-priority npm start script", async () => {
+		await write(
+			"package.json",
+			JSON.stringify({ scripts: { start: "node server.js" } }),
+		);
+		await write("server.ts", "export const server = true;\n");
+		await write(
+			"app.py",
+			"from fastapi import FastAPI\napi = FastAPI()\n",
+		);
+
+		const plan = await inferDastTargetStartPlan({
+			repoPath: root,
+			port: 20123,
+			consentProjectCodeExecution: true,
+		});
+		expect(plan).toMatchObject({
+			pluginId: "framework.python.fastapi",
+			scriptName: "fastapi",
+			script:
+				"-m uvicorn app:api --host 127.0.0.1 --port 20123",
+		});
+	});
+
 	async function write(relativePath: string, content: string): Promise<void> {
 		const filePath = path.join(root, relativePath);
 		await fs.mkdir(path.dirname(filePath), { recursive: true });

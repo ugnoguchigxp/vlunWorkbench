@@ -5,6 +5,14 @@ import path from "node:path";
 import { builtInTechnologyPluginRegistry } from "../../plugins/builtin";
 import type { DastStartPlanV1 } from "../project-capabilities/plugin-contract";
 import { analyzeProjectCapabilities } from "../project-capabilities/plugin-detector";
+import {
+	preferredStartPlans,
+	startPlanPriority,
+} from "../project-capabilities/start-plan-selection";
+import {
+	packageManagerForStartPlan,
+	type DastPackageManager,
+} from "./start-plan-package-manager";
 
 type PackageJson = {
 	scripts?: Record<string, string>;
@@ -30,7 +38,7 @@ export type DastTargetStartPlan = {
 	repoPath: string;
 	scriptName: string;
 	script: string;
-	packageManager: "bun" | "pnpm" | "yarn" | "npm" | "maven" | "gradle";
+	packageManager: DastPackageManager;
 	command: string[];
 	env: Record<string, string>;
 	requiresProjectCodeConsent: boolean;
@@ -144,7 +152,7 @@ export async function inferDastTargetStartPlan(params: {
 		throw new Error(
 			scriptName
 				? "Could not infer how to start the project: no registered technology plugin produced a start plan."
-				: "Could not infer how to start the project: package.json has no dast/dev/start/serve/preview script and no Java framework start plan is available.",
+				: "Could not infer how to start the project: package.json has no dast/dev/start/serve/preview script and no registered framework start plan is available.",
 		);
 	}
 	await validatePluginStartPlan({
@@ -170,10 +178,13 @@ export async function inferDastTargetStartPlan(params: {
 		scriptName:
 			startPlan.pluginId === "build.npm"
 				? (scriptName ?? "start")
-				: packageManager === "maven"
-					? "spring-boot:run"
-					: "bootRun",
-		script: script || startPlan.args.join(" "),
+				: packageManager === "python"
+					? startPlan.pluginId.slice("framework.python.".length)
+					: packageManager === "maven"
+						? "spring-boot:run"
+						: "bootRun",
+		script:
+			startPlan.pluginId === "build.npm" ? script : startPlan.args.join(" "),
 		packageManager,
 		command,
 		env: startPlan.env,
@@ -205,10 +216,10 @@ async function selectPluginStartPlan(params: {
 		.filter((planner) => plannerPluginIds.has(planner.pluginId))
 		.sort(
 			(left, right) =>
-				startPlannerPriority(right.pluginId) -
-					startPlannerPriority(left.pluginId) ||
+				startPlanPriority(right.pluginId) - startPlanPriority(left.pluginId) ||
 				left.id.localeCompare(right.id),
 		);
+	const candidates: DastStartPlanV1[] = [];
 	for (const planner of planners) {
 		const plan = await planner.plan({
 			...params.technology.context,
@@ -216,13 +227,11 @@ async function selectPluginStartPlan(params: {
 			requestedPortExplicit: params.requestedPortExplicit,
 			activePluginIds,
 		});
-		if (plan) return plan;
+		if (plan) candidates.push(plan);
 	}
-	return null;
-}
-
-function startPlannerPriority(pluginId: string): number {
-	return pluginId.startsWith("framework.") ? 200 : 100;
+	const preferred = preferredStartPlans(candidates);
+	if (preferred.length > 1) throw new Error("dast_start_plan_ambiguous");
+	return preferred[0] ?? null;
 }
 
 async function validatePluginStartPlan(params: {
@@ -239,6 +248,7 @@ async function validatePluginStartPlan(params: {
 		"mvn",
 		"./gradlew",
 		"gradle",
+		"python3",
 	]);
 	if (!allowedExecutables.has(params.plan.executable)) {
 		throw new Error("dast_start_executable_not_allowed");
@@ -292,15 +302,6 @@ async function validatePluginStartPlan(params: {
 	) {
 		throw new Error("dast_start_environment_key_not_allowed");
 	}
-}
-
-function packageManagerForStartPlan(
-	plan: DastStartPlanV1,
-): DastTargetStartPlan["packageManager"] {
-	if (plan.executable === "./mvnw" || plan.executable === "mvn") return "maven";
-	if (plan.executable === "./gradlew" || plan.executable === "gradle")
-		return "gradle";
-	return plan.executable as "bun" | "pnpm" | "yarn" | "npm";
 }
 
 function isPathInside(candidate: string, root: string): boolean {

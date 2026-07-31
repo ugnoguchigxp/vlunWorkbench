@@ -10,6 +10,7 @@ import {
 	classifyScanReviewFailure,
 } from "../scan-improvement-request";
 import { readDiffTargetDisplay } from "../diff-target-display";
+import { readTechnologyCoverageDisplay } from "../technology-coverage-display";
 import { useScans } from "../scans-context";
 import { ExecutiveRiskSummary } from "./executive-risk-summary";
 import { ScanComparisonPanel } from "./scan-comparison-panel";
@@ -36,6 +37,7 @@ export function ScanResultOverview({
 	);
 	const outcome = c.scanSummary?.profileOutcome ?? scanRun?.status ?? null;
 	const diffTarget = readDiffTargetDisplay(scanRun?.metadata);
+	const technologyCoverage = readTechnologyCoverageDisplay(scanRun?.metadata);
 	const latestScanReview = c.scanReviews[0] ?? null;
 	const latestCompletedScanReview =
 		c.scanReviews.find((item) => item.status === "completed") ?? null;
@@ -126,6 +128,40 @@ export function ScanResultOverview({
 					<div className="scan-result-tool-list">
 						{c.scanSummary.tools.map((tool) => (
 							<ToolResultRow key={tool.toolId} tool={tool} />
+						))}
+					</div>
+				) : null}
+				{technologyCoverage ? (
+					<div className="scan-result-tool-list">
+						<div className="scan-result-tool-row">
+							<div className="scan-result-tool-copy">
+								<strong>言語・フレームワーク対応範囲</strong>
+								<span>検出結果と実行後の coverage を分けて表示します。</span>
+							</div>
+							<div className="scan-result-tool-result">
+								<small>registry: {technologyCoverage.registryDigest}</small>
+							</div>
+						</div>
+						{technologyCoverage.rows.map((row) => (
+							<div className="scan-result-tool-row" key={row.key}>
+								<div className="scan-result-tool-copy">
+									<strong>{row.pluginId}</strong>
+									<span>
+										{row.capability} / 検出: {row.detected ? "yes" : "no"} (
+										{row.confidence})
+									</span>
+								</div>
+								<div className="scan-result-tool-result">
+									<span className={`scan-status-badge badge-${row.support}`}>
+										{row.support}
+									</span>
+									<span>実行: {row.executionStatus}</span>
+									<small>coverage: {row.coverage}</small>
+									{row.limitationCodes.length > 0 ? (
+										<small>制限: {row.limitationCodes.join(", ")}</small>
+									) : null}
+								</div>
+							</div>
 						))}
 					</div>
 				) : null}

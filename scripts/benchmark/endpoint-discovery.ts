@@ -7,34 +7,40 @@ const fixtures = [
 		path: "hono.ts",
 		content: 'import { Hono } from "hono"; app.get("/hono/:id", handler);',
 		expected: ["GET /hono/{id}"],
+		activePluginIds: ["framework.typescript.hono"],
 	},
 	{
 		path: "express.js",
 		content: 'const express = require("express"); router.post("/express", h);',
 		expected: ["POST /express"],
+		activePluginIds: ["framework.typescript.express"],
 	},
 	{
 		path: "fastify.ts",
 		content:
 			'import fastify from "fastify"; app.route({ method: "PUT", url: "/fastify/:id", handler });',
 		expected: ["PUT /fastify/{id}"],
+		activePluginIds: ["framework.typescript.fastify"],
 	},
 	{
 		path: "fastapi.py",
 		content:
 			'from fastapi import FastAPI\n@app.patch("/fastapi/{id}")\ndef h(): pass',
 		expected: ["PATCH /fastapi/{id}"],
+		activePluginIds: ["framework.python.fastapi"],
 	},
 	{
 		path: "flask.py",
 		content: 'from flask import Flask\n@app.route("/flask")\ndef h(): pass',
 		expected: ["GET /flask"],
+		activePluginIds: ["framework.python.flask"],
 	},
 	{
 		path: "django.py",
 		content:
 			'from django.urls import path\nfrom django.views.decorators.http import require_http_methods\n@require_http_methods(["DELETE"])\ndef remove(request): pass\nurlpatterns = [path("django/<int:id>", remove)]',
 		expected: ["DELETE /django/{id}"],
+		activePluginIds: ["framework.python.django"],
 	},
 	{
 		path: "Spring.java",
@@ -49,37 +55,83 @@ const fixtures = [
 	{
 		path: "nethttp.go",
 		content:
-			'package main\nfunc main(){ http.HandleFunc("/net/{id}", func(w http.ResponseWriter, r *http.Request) { if r.Method != "DELETE" { return } }) }',
+			'package main\nimport "net/http"\nfunc main(){ http.HandleFunc("/net/{id}", func(w http.ResponseWriter, r *http.Request) { if r.Method != "DELETE" { return } }) }',
 		expected: ["DELETE /net/{id}"],
+		activePluginIds: ["framework.go.net-http"],
 	},
 	{
 		path: "gin.go",
 		content:
 			'package main\nimport "github.com/gin-gonic/gin"\nfunc r(e *gin.Engine){ e.GET("/gin/:id", h) }',
 		expected: ["GET /gin/{id}"],
+		activePluginIds: ["framework.go.gin"],
 	},
 	{
 		path: "echo.go",
 		content:
 			'package main\nimport "github.com/labstack/echo/v4"\nfunc r(e *echo.Echo){ e.POST("/echo/:id", h) }',
 		expected: ["POST /echo/{id}"],
+		activePluginIds: ["framework.go.echo"],
 	},
 	{
 		path: "negative.ts",
 		content:
 			'const api = { get: (value: string) => value }; const text = api.get("not-a-route");',
 		expected: [],
+		activePluginIds: [],
+	},
+	{
+		path: "negative.py",
+		content:
+			'from fastapi import FastAPI\ntext = "@app.get(\\"/not-a-route\\")"\n# @app.post("/commented")',
+		expected: [],
+		activePluginIds: ["framework.python.fastapi"],
+	},
+	{
+		path: "negative.go",
+		content:
+			'package main\ntype Router struct{}\nfunc route(r Router) { r.GET("/not-a-route", handler) }',
+		expected: [],
+		activePluginIds: ["framework.go.gin"],
 	},
 ];
 const expected = new Set(fixtures.flatMap((fixture) => fixture.expected));
+const observations = fixtures.map((fixture) => {
+	const actual = new Set(
+		extractEndpoints(fixture, {
+			...(fixture.activePluginIds
+				? { activePluginIds: fixture.activePluginIds }
+				: {}),
+		}).map((item) => `${item.method} ${item.path}`),
+	);
+	const expectedForFixture = new Set(fixture.expected);
+	return {
+		path: fixture.path,
+		expected: [...expectedForFixture].sort(),
+		actual: [...actual].sort(),
+		truePositive: [...actual].filter((item) => expectedForFixture.has(item))
+			.length,
+		falsePositive: [...actual].filter((item) => !expectedForFixture.has(item))
+			.length,
+		falseNegative: [...expectedForFixture].filter((item) => !actual.has(item))
+			.length,
+	};
+});
 const actual = new Set(
-	fixtures.flatMap((fixture) =>
-		extractEndpoints(fixture).map((item) => `${item.method} ${item.path}`),
-	),
+	observations.flatMap((observation) => observation.actual),
 );
-const truePositive = [...actual].filter((item) => expected.has(item)).length;
-const falsePositive = [...actual].filter((item) => !expected.has(item)).length;
-const falseNegative = [...expected].filter((item) => !actual.has(item)).length;
+const truePositive = observations.reduce(
+	(total, observation) => total + observation.truePositive,
+	0,
+);
+const falsePositive = observations.reduce(
+	(total, observation) => total + observation.falsePositive,
+	0,
+);
+const falseNegative = observations.reduce(
+	(total, observation) => total + observation.falseNegative,
+	0,
+);
 const recall = truePositive / (truePositive + falseNegative);
 const precision = truePositive / (truePositive + falsePositive);
 const outputPath = path.resolve(
@@ -99,6 +151,7 @@ await Bun.write(
 			precision,
 			expected: [...expected].sort(),
 			actual: [...actual].sort(),
+			observations,
 		},
 		null,
 		2,

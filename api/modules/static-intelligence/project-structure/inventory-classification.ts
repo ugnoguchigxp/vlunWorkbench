@@ -8,6 +8,14 @@ const MARKUP_EXTENSIONS = new Set([".html", ".htm"]);
 const CONFIG_FILENAMES = new Set([
 	"tsconfig.json",
 	"jsconfig.json",
+	"pyproject.toml",
+	"setup.cfg",
+	"setup.py",
+	"pipfile",
+	"poetry.lock",
+	"uv.lock",
+	"pdm.lock",
+	"go.work",
 	"application.properties",
 	"application.yml",
 	"application.yaml",
@@ -26,6 +34,9 @@ const IGNORED_DIRECTORIES = new Set([
 	".gradle",
 	"target",
 	"vendor",
+	".venv",
+	"venv",
+	"site-packages",
 ]);
 const SECRET_FILE_EXTENSIONS = new Set([
 	".pem",

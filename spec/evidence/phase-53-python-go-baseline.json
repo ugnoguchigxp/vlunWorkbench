@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "phase": "53",
+  "capturedAt": "2026-07-31T12:15:01.268Z",
+  "planningBaselineCommit": "44db27a1a88fcdd2e3535d7ef358f2cc874b0c72",
+  "implementationStartCommit": "b09a21c258390831ed87ad18088bbd0ea9da22eb",
+  "workingTreeClean": false,
+  "initialWorkingTreeStatus": [
+    "?? spec/phase-53-python-go-plugin-expansion-plan.md"
+  ],
+  "hardStartGate": {
+    "command": "bun run verify:phase-52-capability",
+    "status": "passed",
+    "phase52TestCount": 56,
+    "semgrepRuleCount": 45,
+    "osvFixtureEcosystemCount": 9
+  },
+  "registry": {
+    "beforeDigest": "sha256:b2c655a3f3dea597c3e30704515902a563cfbfe74a8599b3d667baae733c3ede",
+    "beforePluginIds": [
+      "build.gradle",
+      "build.maven",
+      "build.npm",
+      "framework.java.spring",
+      "framework.typescript.express",
+      "framework.typescript.fastify",
+      "framework.typescript.hono",
+      "language.java",
+      "language.typescript"
+    ]
+  },
+  "hashes": {
+    "pythonSemgrepRules": "sha256:ff8574338dbec9bb4db5784738b79d69bd655911d5e8da9aa9eeaa08d246df84",
+    "goSemgrepRules": "sha256:a6caaa0a915664b4b6545d5bb3080e9b427034f1a932f30cd7f32eb85d1146a6",
+    "semgrepCatalog": "sha256:8eebb13a1a23abc3ed158f76c4b13ff4d08050ff2b09f9365df3ff02935410a4",
+    "scannerDataManifestFile": "sha256:1676af8e62e415443cd0ff1cb802d0bae31c28f1ddc48b215db2e108849a34cd"
+  },
+  "availableFixtures": {
+    "pypi": "tests/security-capability/osv/PyPI",
+    "go": "tests/security-capability/osv/Go",
+    "pythonSemgrep": "tests/security-capability/semgrep/python",
+    "goSemgrep": "tests/security-capability/semgrep/go",
+    "endpointBenchmark": "scripts/benchmark/endpoint-discovery.ts"
+  },
+  "inheritedGaps": [
+    "toolbox_image_digest_not_available",
+    "offline_vulnerability_database_not_supplied",
+    "pre_scan_capability_ui_not_release_verified",
+    "same_commit_clean_checkout_not_claimed",
+    "target_project_code_execution_sandbox_not_implemented"
+  ],
+  "supportClaim": "baseline_only_no_python_go_formal_support"
+}

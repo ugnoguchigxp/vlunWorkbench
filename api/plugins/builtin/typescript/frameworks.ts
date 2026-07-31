@@ -29,7 +29,7 @@ function frameworkPlugin(
 				allOf: ["language.typescript", "build.npm"],
 				oneOf: [],
 			},
-			declaredCapabilities: ["endpoint_extraction", "dast_start"],
+			declaredCapabilities: ["endpoint_extraction"],
 		},
 		detectors: [
 			{

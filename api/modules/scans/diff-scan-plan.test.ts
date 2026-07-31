@@ -154,6 +154,37 @@ describe("diff scan plan", () => {
 		});
 	});
 
+	it("distinguishes Python requirements and Go module companion changes", () => {
+		const python = buildDiffScanPlan({
+			resolved: resolved([entry("requirements-prod.txt")]),
+			tools,
+			projectInventoryPaths: ["requirements-prod.txt"],
+		});
+		expect(python.pluginContext).toMatchObject({
+			dependencyStateChanged: true,
+			lockStateChanged: true,
+		});
+		expect(python.pluginContext.limitationCodes).toEqual(
+			expect.arrayContaining([
+				"python_requirements_pinned_entries_only",
+				"dependency_resolution_not_performed",
+			]),
+		);
+
+		const goSum = buildDiffScanPlan({
+			resolved: resolved([entry("go.sum")]),
+			tools,
+			projectInventoryPaths: ["go.mod", "go.sum"],
+		});
+		expect(goSum.pluginContext).toMatchObject({
+			dependencyStateChanged: true,
+			lockStateChanged: false,
+		});
+		expect(goSum.pluginContext.limitationCodes).toContain(
+			"go_mod_declared_dependencies_only",
+		);
+	});
+
 	it("separates detected plugins from path-affected plugins", () => {
 		const plan = buildDiffScanPlan({
 			resolved: resolved([entry("src/app.ts")]),

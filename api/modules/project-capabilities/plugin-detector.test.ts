@@ -213,6 +213,36 @@ describe("project technology plugin detector", () => {
 		).toBe(true);
 	});
 
+	it("downgrades failed executions to a coverage gap", async () => {
+		await write("src/app.ts", "export const app = true;");
+		const analysis = await analyzeProjectCapabilities(root);
+
+		const summary = buildPluginExecutionSummary({
+			detections: analysis.detections,
+			capabilityPlan: analysis.capabilityPlan,
+			stepResults: [
+				{
+					kind: "static_tool",
+					toolId: "semgrep",
+					status: "failed",
+					reasonCode: "scanner_execution_failed",
+				},
+			],
+		});
+
+		expect(
+			summary.pluginResults.find(
+				(result) =>
+					result.pluginId === "language.typescript" &&
+					result.capability === "semgrep",
+			),
+		).toMatchObject({
+			status: "failed",
+			coverageEffect: "gap",
+			limitationCodes: ["scanner_execution_failed"],
+		});
+	});
+
 	async function write(relativePath: string, content: string): Promise<void> {
 		const filePath = path.join(root, relativePath);
 		await fs.mkdir(path.dirname(filePath), { recursive: true });

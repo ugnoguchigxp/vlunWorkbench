@@ -51,7 +51,7 @@ export type DependencyCoverage = {
 export type DependencyProvider = {
 	id: string;
 	pluginId: string;
-	ecosystem: "npm" | "Maven";
+	ecosystem: "npm" | "Maven" | "PyPI" | "Go";
 	primaryGlobs: readonly string[];
 	lockGlobs: readonly string[];
 	companionGlobs: readonly string[];
@@ -64,6 +64,8 @@ export type SourceAnalyzerContribution = {
 	pluginId: string;
 	version: string;
 	extensions: readonly string[];
+	coverageEffect?: "covered" | "partial" | "gap";
+	limitationCodes?: readonly string[];
 	analyze(entry: ProjectInventoryEntry, bytes: Uint8Array): AnalyzerOutput;
 };
 
@@ -72,6 +74,8 @@ export type EndpointExtractorContribution = {
 	pluginId: string;
 	extensions: readonly string[];
 	frameworks: readonly string[];
+	coverageEffect?: "covered" | "partial" | "gap";
+	limitationCodes?: readonly string[];
 	extract(source: SourceInput): ExtractedEndpoint[];
 };
 

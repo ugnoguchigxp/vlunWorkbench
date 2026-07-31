@@ -102,13 +102,24 @@ function packageRootsForInventory(
 	workspacePatterns: Array<{ root: string; pattern: string }>,
 ): Array<{ pathPrefix: string; boundaryKind: "workspace" | "package" }> {
 	return entries
-		.filter((entry) =>
-			["package.json", "pom.xml", "build.gradle", "build.gradle.kts"].includes(
-				path.posix.basename(entry.path),
-			),
+		.filter(
+			(entry) =>
+				[
+					"package.json",
+					"pom.xml",
+					"build.gradle",
+					"build.gradle.kts",
+					"pyproject.toml",
+					"setup.cfg",
+					"setup.py",
+					"requirements.txt",
+					"go.mod",
+				].includes(path.posix.basename(entry.path)) ||
+				path.posix.basename(entry.path) === "__init__.py" ||
+				/^requirements(?:-[^.]+)?\.txt$/.test(path.posix.basename(entry.path)),
 		)
 		.map((entry) => path.posix.dirname(entry.path))
-		.filter((root) => root !== ".")
+		.filter((directory) => directory !== ".")
 		.map((pathPrefix) => ({
 			pathPrefix,
 			boundaryKind: workspacePatterns.some(({ root, pattern }) =>

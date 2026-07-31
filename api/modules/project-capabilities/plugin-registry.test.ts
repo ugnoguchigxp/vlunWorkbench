@@ -235,6 +235,14 @@ describe("technology plugin registry", () => {
 		);
 	});
 
+	it("rejects capability declarations without a matching contribution", () => {
+		const fixture = plugin("language.fixture");
+		fixture.manifest.declaredCapabilities = ["source_detection", "sast"];
+		expect(() => new TechnologyPluginRegistry([fixture])).toThrow(
+			"plugin_capability_without_contribution:language.fixture:sast",
+		);
+	});
+
 	it("allows a test-only extension without changing registry code", () => {
 		const fixture = plugin("language.fixture");
 		fixture.detectors = [

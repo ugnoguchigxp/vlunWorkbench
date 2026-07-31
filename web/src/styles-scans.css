@@ -1396,6 +1396,22 @@
 	color: var(--color-muted-strong);
 }
 
+.badge-partial {
+	background: #fef9c3;
+	color: #a16207;
+}
+
+.badge-gap {
+	background: var(--color-danger-surface);
+	color: var(--color-danger);
+}
+
+.badge-unsupported,
+.badge-unverified {
+	background: var(--color-surface-muted);
+	color: var(--color-muted-strong);
+}
+
 .badge-timed_out {
 	background: #ffedd5;
 	color: #c2410c;

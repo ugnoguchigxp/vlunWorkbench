@@ -17,7 +17,7 @@ export function extractEndpoints(
 	);
 	if (
 		options.activePluginIds &&
-		[".js", ".jsx", ".ts", ".tsx", ".java"].includes(extension)
+		[".js", ".jsx", ".ts", ".tsx", ".java", ".py", ".go"].includes(extension)
 	) {
 		return pluginEndpoints;
 	}

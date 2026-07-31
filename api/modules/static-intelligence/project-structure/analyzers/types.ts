@@ -4,7 +4,14 @@ import type { ProjectInventoryEntry } from "../inventory";
 export type UnresolvedStructureReference = {
 	from: string;
 	specifier: string;
-	kindHint: "code_module" | "stylesheet" | "asset" | "manifest" | "java_import";
+	kindHint:
+		| "code_module"
+		| "stylesheet"
+		| "asset"
+		| "manifest"
+		| "java_import"
+		| "python_import"
+		| "go_import";
 };
 
 export type AnalyzerOutput = {

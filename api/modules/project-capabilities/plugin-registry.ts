@@ -83,11 +83,15 @@ export class TechnologyPluginRegistry {
 				pluginId: item.pluginId,
 				version: item.version,
 				extensions: [...item.extensions],
+				coverageEffect: item.coverageEffect ?? "covered",
+				limitationCodes: [...(item.limitationCodes ?? [])],
 			})),
 			endpointExtractors: plugin.endpointExtractors.map((item) => ({
 				id: item.id,
 				extensions: [...item.extensions],
 				frameworks: [...item.frameworks],
+				coverageEffect: item.coverageEffect ?? "covered",
+				limitationCodes: [...(item.limitationCodes ?? [])],
 			})),
 			semgrepRules: plugin.semgrepRules,
 			startPlanners: plugin.startPlanners.map((item) => ({ id: item.id })),
@@ -113,6 +117,7 @@ function validateAndIndexPlugins(
 	const semgrepAssetClaims = new Set<string>();
 	const startPlannerIds = new Set<string>();
 	const exclusivePriorities = new Set<string>();
+	const contributionIds = new Set<string>();
 
 	for (const plugin of plugins) {
 		const manifest = technologyPluginManifestV1Schema.parse(plugin.manifest);
@@ -139,6 +144,7 @@ function validateAndIndexPlugins(
 		}
 		for (const analyzer of plugin.sourceAnalyzers) {
 			assertUnique(analyzerIds, analyzer.id, "duplicate_analyzer_ownership");
+			assertUnique(contributionIds, analyzer.id, "duplicate_contribution_id");
 		}
 		for (const provider of plugin.dependencyProviders) {
 			assertUnique(
@@ -146,6 +152,7 @@ function validateAndIndexPlugins(
 				provider.id,
 				"duplicate_dependency_provider_id",
 			);
+			assertUnique(contributionIds, provider.id, "duplicate_contribution_id");
 			for (const glob of provider.primaryGlobs) {
 				assertUnique(
 					primaryManifestClaims,
@@ -160,11 +167,18 @@ function validateAndIndexPlugins(
 				extractor.id,
 				"duplicate_endpoint_extractor_id",
 			);
+			assertUnique(contributionIds, extractor.id, "duplicate_contribution_id");
 		}
 		for (const planner of plugin.startPlanners) {
 			assertUnique(startPlannerIds, planner.id, "start_planner_id_collision");
+			assertUnique(contributionIds, planner.id, "duplicate_contribution_id");
 		}
 		for (const contribution of plugin.semgrepRules) {
+			assertUnique(
+				contributionIds,
+				`${contribution.rulesetId}:${contribution.language}`,
+				"duplicate_contribution_id",
+			);
 			assertUnique(
 				semgrepAssetClaims,
 				contribution.path,
@@ -245,6 +259,29 @@ function validateDeclaredCapabilities(plugin: TechnologyPluginV1): void {
 				);
 			}
 		}
+	}
+	const contributionByCapability: Partial<
+		Record<TechnologyPluginCapability, boolean>
+	> = {
+		source_detection: plugin.detectors.length > 0,
+		sast: plugin.semgrepRules.length > 0,
+		dependency_detection: plugin.dependencyProviders.length > 0,
+		dependency_scan: plugin.dependencyProviders.length > 0,
+		project_structure: plugin.sourceAnalyzers.length > 0,
+		endpoint_extraction: plugin.endpointExtractors.length > 0,
+		dast_start: plugin.startPlanners.length > 0,
+	};
+	for (const capability of declared) {
+		if (
+			capability === "source_detection" ||
+			capability === "schema_discovery"
+		) {
+			continue;
+		}
+		if (contributionByCapability[capability]) continue;
+		throw new Error(
+			`plugin_capability_without_contribution:${plugin.manifest.id}:${capability}`,
+		);
 	}
 }
 

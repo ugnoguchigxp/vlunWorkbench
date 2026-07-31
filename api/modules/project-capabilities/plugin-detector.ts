@@ -2,7 +2,6 @@ import { constants as fsConstants } from "node:fs";
 import fs from "node:fs/promises";
 import {
 	pluginExecutionSummaryV1Schema,
-	projectCapabilityPlanV1Schema,
 	type PluginExecutionSummaryV1,
 	type ProjectCapabilityPlanV1,
 	type ProjectCapabilityStepV1,
@@ -20,6 +19,10 @@ import type {
 } from "./plugin-contract";
 import { matchesAnyPluginGlob, normalizePluginPath } from "./path-patterns";
 import type { TechnologyPluginRegistry } from "./plugin-registry";
+import {
+	buildProjectCapabilityPlan,
+	worstCapabilityCoverage,
+} from "./capability-plan-builder";
 
 export const DEFAULT_PLUGIN_LIMITS = {
 	maxFiles: 20_000,
@@ -184,21 +187,34 @@ export function buildPluginExecutionSummary(params: {
 				step.applicability === "not_applicable"
 					? "skipped"
 					: executionStatus(execution?.status);
+			const executionCoverage:
+				| ProjectCapabilityStepV1["coverageEffect"]
+				| null =
+				execution?.coverageEffect === "gap" ||
+				execution?.coverageEffect === "partial" ||
+				execution?.coverageEffect === "covered"
+					? execution.coverageEffect
+					: null;
+			const coverageEffect =
+				status === "failed"
+					? "gap"
+					: worstCapabilityCoverage([
+							step.coverageEffect,
+							...(executionCoverage ? [executionCoverage] : []),
+						]);
+			const limitationCodes = [
+				...new Set([
+					...step.limitationCodes,
+					...(execution?.reasonCode ? [execution.reasonCode] : []),
+					...knownExecutionLimitations(execution?.error),
+				]),
+			].sort();
 			return {
 				pluginId,
 				capability: step.stepId,
 				status,
-				coverageEffect:
-					execution?.coverageEffect === "gap" ||
-					execution?.coverageEffect === "partial" ||
-					execution?.coverageEffect === "covered"
-						? execution.coverageEffect
-						: step.coverageEffect,
-				limitationCodes: [
-					...step.limitationCodes,
-					...(execution?.reasonCode ? [execution.reasonCode] : []),
-					...knownExecutionLimitations(execution?.error),
-				],
+				coverageEffect,
+				limitationCodes,
 			};
 		}),
 	);
@@ -314,128 +330,6 @@ async function readBoundedInventoryText(params: {
 	} finally {
 		await handle.close();
 	}
-}
-
-async function buildProjectCapabilityPlan(params: {
-	context: PluginContext;
-	detections: ProjectPluginDetection[];
-	activePlugins: TechnologyPluginV1[];
-	registry: TechnologyPluginRegistry;
-}): Promise<ProjectCapabilityPlanV1> {
-	const activeIds = params.activePlugins.map((plugin) => plugin.manifest.id);
-	const paths = params.context.inventory.map((entry) => entry.path);
-	const languagePlugins = params.activePlugins.filter(
-		(plugin) => plugin.manifest.kind === "language",
-	);
-	const buildPlugins = params.activePlugins.filter(
-		(plugin) => plugin.manifest.kind === "build_system",
-	);
-	const frameworkPlugins = params.activePlugins.filter(
-		(plugin) => plugin.manifest.kind === "framework",
-	);
-	const steps: ProjectCapabilityStepV1[] = [];
-	if (languagePlugins.length > 0) {
-		steps.push({
-			stepId: "semgrep",
-			pluginIds: languagePlugins
-				.filter((plugin) => plugin.semgrepRules.length > 0)
-				.map((plugin) => plugin.manifest.id),
-			applicability: "applicable",
-			reasonCode: null,
-			coverageEffect: "covered",
-			limitationCodes: [],
-		});
-		steps.push({
-			stepId: "project_structure",
-			pluginIds: languagePlugins.map((plugin) => plugin.manifest.id),
-			applicability: "applicable",
-			reasonCode: null,
-			coverageEffect: "covered",
-			limitationCodes: [],
-		});
-	}
-	for (const plugin of buildPlugins) {
-		for (const provider of plugin.dependencyProviders) {
-			const coverage = provider.coverage(paths);
-			steps.push({
-				stepId: `dependency:${provider.id}`,
-				pluginIds: [plugin.manifest.id],
-				applicability: "applicable",
-				reasonCode: coverage.reasonCode,
-				coverageEffect: coverage.coverageEffect,
-				limitationCodes: coverage.limitationCodes,
-			});
-		}
-	}
-	if (frameworkPlugins.length > 0) {
-		steps.push({
-			stepId: "endpoint_extraction",
-			pluginIds: frameworkPlugins.map((plugin) => plugin.manifest.id),
-			applicability: "applicable",
-			reasonCode: null,
-			coverageEffect: frameworkPlugins.some(
-				(plugin) => plugin.manifest.id === "framework.java.spring",
-			)
-				? "partial"
-				: "covered",
-			limitationCodes: params.detections
-				.filter((detection) =>
-					frameworkPlugins.some(
-						(plugin) => plugin.manifest.id === detection.pluginId,
-					),
-				)
-				.flatMap((detection) => detection.limitations),
-		});
-	}
-	const startPlans = (
-		await Promise.all(
-			params.activePlugins.flatMap((plugin) =>
-				plugin.startPlanners.map((planner) =>
-					planner.plan({
-						...params.context,
-						port: 3000,
-						requestedPortExplicit: false,
-						activePluginIds: activeIds,
-					}),
-				),
-			),
-		)
-	).filter((plan) => plan !== null);
-	const sandboxRequired = startPlans.some(
-		(plan) => plan.requiresProjectCodeConsent,
-	);
-	steps.push({
-		stepId: "dast_start",
-		pluginIds: [...new Set(startPlans.map((plan) => plan.pluginId))],
-		applicability: startPlans.length > 0 ? "applicable" : "not_applicable",
-		reasonCode:
-			startPlans.length === 0
-				? "target_start_not_supported"
-				: sandboxRequired
-					? "project_code_execution_sandbox_required"
-					: null,
-		coverageEffect:
-			startPlans.length > 0 && !sandboxRequired ? "covered" : "gap",
-		limitationCodes:
-			startPlans.length === 0
-				? ["target_start_not_supported"]
-				: sandboxRequired
-					? ["project_code_execution_sandbox_required"]
-					: [],
-	});
-	return projectCapabilityPlanV1Schema.parse({
-		schemaVersion: 1,
-		registryDigest: params.registry.registryDigest,
-		activePluginIds: activeIds,
-		languages: languagePlugins.map((plugin) =>
-			plugin.manifest.id.slice("language.".length),
-		),
-		buildSystems: buildPlugins.map((plugin) =>
-			plugin.manifest.id.slice("build.".length),
-		),
-		frameworks: frameworkPlugins.map((plugin) => plugin.manifest.id),
-		steps,
-	});
 }
 
 function highestConfidence(
