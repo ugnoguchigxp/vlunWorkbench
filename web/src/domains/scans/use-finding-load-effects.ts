@@ -17,13 +17,8 @@ import {
 	type ReproductionRun,
 	type ScanTarget,
 } from "../../api";
+import type { ScansControllerBaseScope } from "./use-scans-base-controller";
 
-export type ScansDomainSectionProps = {
-	active: boolean;
-	busy: boolean;
-	runWithBusy: (task: () => Promise<void>) => Promise<boolean>;
-	setErrorText: (text: string | null) => void;
-};
 type FindingDetails = {
 	finding: Finding;
 	evidence: FindingEvidence[];
@@ -43,7 +38,7 @@ type FindingVerificationBundle = {
 	selectedDynamicProfile: string;
 	dynamicRuns: DynamicRun[];
 };
-export function useFindingLoadEffects(scope: Record<string, any>) {
+export function useFindingLoadEffects(scope: ScansControllerBaseScope) {
 	const {
 		active,
 		diffBaseRef,

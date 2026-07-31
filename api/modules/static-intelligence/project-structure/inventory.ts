@@ -7,50 +7,15 @@ import type {
 	ProjectStructureCoverage,
 	ProjectStructureDiagnostic,
 	ProjectStructureInventoryEntry,
-	ProjectStructureInventoryKind,
 } from "../../../../shared/schemas/project-structure.schema";
 import { structureDiagnostic } from "./diagnostics";
-
-const CODE_EXTENSIONS = new Set([
-	".ts",
-	".tsx",
-	".js",
-	".jsx",
-	".mts",
-	".cts",
-	".mjs",
-	".cjs",
-]);
-
-const STYLE_EXTENSIONS = new Set([".css"]);
-const MARKUP_EXTENSIONS = new Set([".html", ".htm"]);
-const MANIFEST_FILENAMES = new Set(["package.json", "pnpm-workspace.yaml"]);
-const CONFIG_FILENAMES = new Set(["tsconfig.json", "jsconfig.json"]);
-
-const IGNORED_DIRECTORIES = new Set([
-	".git",
-	"node_modules",
-	"dist",
-	"dist-web",
-	"build",
-	"coverage",
-	".next",
-	".turbo",
-	".cache",
-	".vite",
-	"vendor",
-]);
-
-const SECRET_FILE_EXTENSIONS = new Set([
-	".pem",
-	".key",
-	".crt",
-	".p12",
-	".sqlite",
-	".db",
-	".wal",
-	".shm",
-]);
+import {
+	analyzerIdsForInventoryKind,
+	isIgnoredInventoryDirectory,
+	isSecretInventoryPath,
+	kindForInventoryPath,
+	mediaTypeForInventoryKind,
+} from "./inventory-classification";
 
 export type ProjectInventoryEntry = ProjectStructureInventoryEntry & {
 	absolutePath: string;
@@ -136,7 +101,7 @@ export async function buildProjectInventory(
 				exclude("project_ignore");
 				continue;
 			}
-			if (isIgnoredDirectory(directoryEntry.name, relativePath)) {
+			if (isIgnoredInventoryDirectory(directoryEntry.name, relativePath)) {
 				exclude(`ignored_directory:${directoryEntry.name}`);
 				continue;
 			}
@@ -184,7 +149,7 @@ export async function buildProjectInventory(
 				continue;
 			}
 			if (stat.isDirectory()) {
-				if (isIgnoredDirectory(directoryEntry.name, relativePath)) {
+				if (isIgnoredInventoryDirectory(directoryEntry.name, relativePath)) {
 					exclude(`ignored_directory:${directoryEntry.name}`);
 					continue;
 				}
@@ -217,7 +182,7 @@ export async function buildProjectInventory(
 			visitedFiles.add(realPath);
 
 			discoveredFileCount += 1;
-			if (isSecretDataPath(directoryEntry.name)) {
+			if (isSecretInventoryPath(directoryEntry.name)) {
 				exclude("secret_or_runtime_file");
 				continue;
 			}
@@ -234,7 +199,7 @@ export async function buildProjectInventory(
 				return;
 			}
 
-			const kind = kindForPath(relativePath);
+			const kind = kindForInventoryPath(relativePath);
 			const hashable = kind !== "resource" && stat.size <= maxHashBytes;
 			let contentHash: string | undefined;
 			if (hashable) {
@@ -259,11 +224,11 @@ export async function buildProjectInventory(
 				path: relativePath,
 				realPathRef: sha256Hex(relativePosix(rootPath, realPath)),
 				kind,
-				mediaType: mediaTypeForKind(kind),
+				mediaType: mediaTypeForInventoryKind(kind),
 				sizeBytes: stat.size,
 				hashMode: contentHash ? "content" : "path_only",
 				...(contentHash ? { contentHash } : {}),
-				analyzerIds: analyzerIdsForKind(kind),
+				analyzerIds: analyzerIdsForInventoryKind(kind),
 			});
 			totalIncludedBytes += stat.size;
 		}
@@ -354,54 +319,6 @@ export function isCodeInventoryEntry(entry: ProjectInventoryEntry): boolean {
 	return entry.kind === "source";
 }
 
-function kindForPath(filePath: string): ProjectStructureInventoryKind {
-	const basename = path.posix.basename(filePath).toLowerCase();
-	const extension = path.posix.extname(filePath).toLowerCase();
-	if (MANIFEST_FILENAMES.has(basename)) return "manifest";
-	if (
-		CONFIG_FILENAMES.has(basename) ||
-		/^tsconfig\.[^.]+\.json$/.test(basename) ||
-		/^jsconfig\.[^.]+\.json$/.test(basename)
-	)
-		return "config";
-	if (CODE_EXTENSIONS.has(extension)) return "source";
-	if (STYLE_EXTENSIONS.has(extension)) return "style";
-	if (MARKUP_EXTENSIONS.has(extension)) return "markup";
-	return "resource";
-}
-
-function analyzerIdsForKind(kind: ProjectStructureInventoryKind): string[] {
-	switch (kind) {
-		case "source":
-			return ["typescript-javascript"];
-		case "style":
-			return ["css"];
-		case "markup":
-			return ["html"];
-		case "manifest":
-		case "config":
-			return ["manifest-config"];
-		case "resource":
-			return [];
-	}
-}
-
-function mediaTypeForKind(kind: ProjectStructureInventoryKind): string {
-	switch (kind) {
-		case "source":
-			return "text/source";
-		case "style":
-			return "text/css";
-		case "markup":
-			return "text/html";
-		case "manifest":
-		case "config":
-			return "application/json";
-		case "resource":
-			return "application/octet-stream";
-	}
-}
-
 async function resolveProjectRoot(projectPath: string): Promise<string> {
 	let stat: Awaited<ReturnType<typeof fs.stat>>;
 	try {
@@ -412,22 +329,6 @@ async function resolveProjectRoot(projectPath: string): Promise<string> {
 	if (!stat.isDirectory())
 		throw new Error(`Project path is not a directory: ${projectPath}`);
 	return fs.realpath(projectPath);
-}
-
-function isSecretDataPath(fileName: string): boolean {
-	const lower = fileName.toLowerCase();
-	return (
-		lower === ".env" ||
-		lower.startsWith(".env.") ||
-		SECRET_FILE_EXTENSIONS.has(path.extname(lower))
-	);
-}
-
-function isIgnoredDirectory(name: string, relativePath: string): boolean {
-	return (
-		IGNORED_DIRECTORIES.has(name) ||
-		(name === "artifacts" && relativePath === "artifacts")
-	);
 }
 
 async function loadProjectIgnorePatterns(rootPath: string): Promise<string[]> {

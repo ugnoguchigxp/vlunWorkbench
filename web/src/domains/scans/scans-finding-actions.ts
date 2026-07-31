@@ -18,13 +18,14 @@ import type {
 	RemediationStatus,
 } from "./remediation-plan";
 import { useScansDerivedState } from "./scans-derived-controller";
+import type { ScansControllerBaseScope } from "./use-scans-base-controller";
+import type { useFindingLoadEffects } from "./use-finding-load-effects";
 
-export type ScansDomainSectionProps = {
-	active: boolean;
-	busy: boolean;
-	runWithBusy: (task: () => Promise<void>) => Promise<boolean>;
-	setErrorText: (text: string | null) => void;
-};
+type ScansFindingActionsScope = ScansControllerBaseScope &
+	ReturnType<typeof useFindingLoadEffects> & {
+		reloadDiagnostics: (scanRunId?: string) => Promise<void>;
+	};
+
 const remediationStatuses: RemediationStatus[] = [
 	"not_started",
 	"planned",
@@ -36,7 +37,7 @@ const remediationStatuses: RemediationStatus[] = [
 ];
 const remediationPriorities: RemediationPriority[] = ["p0", "p1", "p2", "p3"];
 
-export function useScansFindingActions(scope: Record<string, any>) {
+export function useScansFindingActions(scope: ScansFindingActionsScope) {
 	const {
 		actionQueueFilter,
 		allowProjectScriptsConsent,

@@ -17,41 +17,18 @@ import {
 import { Button, SelectInput, TextInput } from "../../ui";
 import { MarkdownEditor } from "../../components/markdown-editor";
 import { useKnowledgeNavigation } from "../knowledge/knowledge-navigation";
-
-type SearchResultsState = {
-	strategy: "merged" | "text_fallback" | "legacy_retrieve";
-	selectedResults: RetrievedFragment[];
-	vectorResults: RetrievedFragment[];
-	textResults: RetrievedFragment[];
-	webResults: WebSearchResult[];
-	webSearch: {
-		available: boolean;
-		provider: string | null;
-		message: string | null;
-		unavailableMessage: string | null;
-	};
-	mergedResults: RetrievedFragment[];
-};
+import {
+	formatSearchScore,
+	type SearchResultsState,
+	searchResultTitle,
+	webSearchProviderLabel,
+} from "./search-domain-model";
 
 type SearchDomainSectionProps = {
 	active: boolean;
 	busy: boolean;
 	runWithBusy: (task: () => Promise<void>) => Promise<boolean>;
 	availableCategories: string[];
-};
-
-const formatScore = (value: number | undefined): string =>
-	typeof value === "number" ? value.toFixed(4) : "-";
-
-const toResultTitle = (item: RetrievedFragment): string =>
-	item.heading && item.heading.trim().length > 0
-		? item.heading
-		: item.sourceUri;
-
-const toWebSearchLabel = (provider: string | null | undefined): string => {
-	if (provider === "exa") return "Exa Search";
-	if (provider === "brave") return "Brave Search";
-	return "Web Search";
 };
 
 export const SearchDomainSection = ({
@@ -200,7 +177,7 @@ export const SearchDomainSection = ({
 		const primaryScore = kind === "text" ? item.textScore : item.vectorScore;
 		const secondaryLabel = kind === "text" ? "vector" : "text";
 		const secondaryScore = kind === "text" ? item.vectorScore : item.textScore;
-		const resultTitle = toResultTitle(item);
+		const resultTitle = searchResultTitle(item);
 		return (
 			<article className="google-result">
 				<div className="google-result-attribution">
@@ -227,12 +204,12 @@ export const SearchDomainSection = ({
 				<p>{item.content}</p>
 				<div className="google-result-meta">
 					<span>
-						{primaryLabel}={formatScore(primaryScore)}
+						{primaryLabel}={formatSearchScore(primaryScore)}
 					</span>
 					<span>
-						{secondaryLabel}={formatScore(secondaryScore)}
+						{secondaryLabel}={formatSearchScore(secondaryScore)}
 					</span>
-					<span>combined={formatScore(item.combinedScore)}</span>
+					<span>combined={formatSearchScore(item.combinedScore)}</span>
 					{item.sourceHitCount && item.sourceHitCount > 1 ? (
 						<span>chunks={item.sourceHitCount}</span>
 					) : null}
@@ -481,7 +458,9 @@ export const SearchDomainSection = ({
 							</section>
 							<section className="search-results-column">
 								<header className="search-results-column-header">
-									<h3>{toWebSearchLabel(searchResults.webSearch.provider)}</h3>
+									<h3>
+										{webSearchProviderLabel(searchResults.webSearch.provider)}
+									</h3>
 									<small>{searchResults.webResults.length} hits</small>
 								</header>
 								<div className="search-results-column-list">
@@ -495,9 +474,9 @@ export const SearchDomainSection = ({
 										<div className="tree-info">
 											{searchResults.webSearch.available
 												? (searchResults.webSearch.message ??
-													`No ${toWebSearchLabel(searchResults.webSearch.provider)} hits.`)
+													`No ${webSearchProviderLabel(searchResults.webSearch.provider)} hits.`)
 												: (searchResults.webSearch.unavailableMessage ??
-													`${toWebSearchLabel(searchResults.webSearch.provider)} is not configured.`)}
+													`${webSearchProviderLabel(searchResults.webSearch.provider)} is not configured.`)}
 										</div>
 									)}
 								</div>

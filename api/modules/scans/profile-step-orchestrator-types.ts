@@ -1,0 +1,30 @@
+import type { AppDatabase } from "../../db";
+import type { ArtifactStorage } from "./artifact-storage";
+import type { DiffScanPlan } from "./diff-scan-plan";
+import type { DiffSnapshot } from "./diff-snapshot";
+import type { resolveProfileSteps } from "./profile-runner";
+import type { getProfileById } from "./profiles";
+import type { ScanRepository } from "./repositories";
+import type { resolveScanScope } from "./target-scope";
+import type { ToolExecutionConfig } from "./tools/tool-process-runner";
+
+export type ExecuteProfileStepsParams = {
+	db: AppDatabase;
+	projectId: string;
+	repoPath: string;
+	timeoutSec?: number;
+	createdByUserId?: string | null;
+	imageRef?: string;
+	imageTar?: string;
+	scanRepo: ScanRepository;
+	scanRun: { id: string };
+	profile: NonNullable<ReturnType<typeof getProfileById>>;
+	profileSteps: ReturnType<typeof resolveProfileSteps>;
+	continueOnToolFailure: boolean;
+	diffPlan: DiffScanPlan | null;
+	diffSnapshot: DiffSnapshot | null;
+	sharesRuntimeTarget: boolean;
+	resolvedScope: Awaited<ReturnType<typeof resolveScanScope>>;
+	artifactStorage: ArtifactStorage;
+	execution: ToolExecutionConfig;
+};

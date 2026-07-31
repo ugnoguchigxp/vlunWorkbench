@@ -161,6 +161,11 @@ describe("Tool process runner Docker backend", () => {
 				execution: { runner: "docker" },
 			}),
 		).rejects.toThrow("Docker runner does not allow tool");
+		await expect(
+			runToolProcess("semgrep", [], {
+				execution: { runner: "docker" },
+			}),
+		).rejects.toThrow("Docker runner does not allow semgrep invocation: (none)");
 	});
 
 	it("maps loopback runtime targets to Docker Desktop host access", async () => {

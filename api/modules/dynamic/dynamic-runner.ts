@@ -2,24 +2,27 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { eq } from "drizzle-orm";
-import { MAX_DYNAMIC_TIMEOUT_SEC } from "../../../shared/schemas/dynamic.schema";
 import type { AppDatabase } from "../../db";
 import { projects } from "../../db/schema";
-import {
-	DEFAULT_DYNAMIC_ARTIFACT_DIRECTORY_DEPTH_LIMIT,
-	DEFAULT_DYNAMIC_ARTIFACT_ENTRY_LIMIT,
-	DEFAULT_DYNAMIC_ARTIFACT_FILE_LIMIT,
-	DEFAULT_DYNAMIC_ARTIFACT_FILE_LIMIT_BYTES,
-	DEFAULT_DYNAMIC_ARTIFACT_TOTAL_LIMIT_BYTES,
-	DynamicArtifactStorage,
-} from "./dynamic-artifact-storage";
+import { DynamicArtifactStorage } from "./dynamic-artifact-storage";
 import {
 	executeDynamicDockerRun,
 	resolveDynamicDockerLimits,
 } from "./dynamic-docker-executor";
+import { buildDynamicEvidenceDescriptor } from "./dynamic-evidence-builder";
 import { evaluateDynamicOutcome } from "./dynamic-evaluator";
 import { validateDynamicProfilePolicy } from "./dynamic-profiles";
 import { DynamicRepository } from "./dynamic-repository";
+import {
+	classifyDynamicExecutionFailure,
+	type DynamicArtifactCollectionLimits,
+	type DynamicRunnerOptions,
+	getDynamicRunMetadata,
+	resolveDynamicArtifactLimits,
+	resolveDynamicNetworkMode,
+	resolveDynamicTimeoutSec,
+	walkDynamicArtifactFiles,
+} from "./dynamic-run-policy";
 import {
 	type ProcessOutputLimits,
 	resolveProcessOutputLimits,
@@ -40,165 +43,6 @@ export interface RunDynamicOptions {
 	createdByUserId?: string | null;
 }
 
-type DynamicArtifactCollectionLimits = {
-	maxFiles: number;
-	maxTotalBytes: number;
-	maxFileBytes: number;
-	maxDepth: number;
-	maxEntries: number;
-};
-
-type DynamicRunnerOptions = {
-	outputLimits?: Partial<ProcessOutputLimits>;
-	artifactLimits?: Partial<DynamicArtifactCollectionLimits>;
-	storage?: DynamicArtifactStorage;
-};
-
-function getBaseMetadata(recordMetadata: unknown): Record<string, unknown> {
-	return recordMetadata && typeof recordMetadata === "object"
-		? (recordMetadata as Record<string, unknown>)
-		: {};
-}
-
-function classifyExecutionFailure(input: {
-	error?: string;
-	stderr?: string;
-	exitCode?: number | null;
-}): {
-	status: "failed" | "timed_out";
-	failureKind: string;
-} {
-	const text = `${input.error ?? ""}\n${input.stderr ?? ""}`.toLowerCase();
-	if (text.includes("timed out") || text.includes("timeout")) {
-		return { status: "timed_out", failureKind: "dynamic_timeout" };
-	}
-	if (text.includes("dynamic_output_limit_exceeded")) {
-		return {
-			status: "failed",
-			failureKind: "dynamic_output_limit_exceeded",
-		};
-	}
-	if (
-		text.includes("no such image") ||
-		text.includes("unable to find image") ||
-		text.includes("pull access denied") ||
-		text.includes("manifest unknown")
-	) {
-		return { status: "failed", failureKind: "docker_image_missing" };
-	}
-	if (
-		input.exitCode === 125 ||
-		input.exitCode === 127 ||
-		text.includes("docker process error") ||
-		text.includes("enoent") ||
-		text.includes("cannot connect to the docker daemon") ||
-		text.includes("is the docker daemon running")
-	) {
-		return { status: "failed", failureKind: "docker_unavailable" };
-	}
-	return { status: "failed", failureKind: "unknown_error" };
-}
-
-function resolveTimeoutSec(
-	profileTimeoutSec: number,
-	requested?: number,
-): number {
-	if (
-		!Number.isInteger(profileTimeoutSec) ||
-		profileTimeoutSec <= 0 ||
-		profileTimeoutSec > MAX_DYNAMIC_TIMEOUT_SEC
-	) {
-		throw new Error(
-			`Profile timeout_sec must be a positive integer no greater than ${MAX_DYNAMIC_TIMEOUT_SEC}.`,
-		);
-	}
-	if (requested === undefined) return profileTimeoutSec;
-	if (
-		!Number.isInteger(requested) ||
-		requested <= 0 ||
-		requested > MAX_DYNAMIC_TIMEOUT_SEC
-	) {
-		throw new Error(
-			`Requested timeout_sec must be a positive integer no greater than ${MAX_DYNAMIC_TIMEOUT_SEC}.`,
-		);
-	}
-	if (requested > profileTimeoutSec) {
-		throw new Error("Requested timeout_sec exceeds the profile timeout_sec.");
-	}
-	return requested;
-}
-
-function resolveNetworkMode(
-	profileNetwork: string,
-	requested?: "none" | "default",
-): "none" | "default" {
-	const normalizedProfile =
-		profileNetwork === "default" ? "default" : ("none" as const);
-	if (!requested) return normalizedProfile;
-	if (requested === "default" && normalizedProfile !== "default") {
-		throw new Error(
-			"Requested network mode exceeds the profile network policy.",
-		);
-	}
-	return requested;
-}
-
-async function walkFiles(
-	dir: string,
-	limits: DynamicArtifactCollectionLimits,
-): Promise<string[]> {
-	const files: string[] = [];
-	let totalBytes = 0;
-	let entriesSeen = 0;
-
-	const walk = async (
-		currentDirectory: string,
-		depth: number,
-	): Promise<void> => {
-		if (depth > limits.maxDepth) {
-			throw new Error(
-				`dynamic_artifact_depth_limit_exceeded:${limits.maxDepth}`,
-			);
-		}
-		const directory = await fs.opendir(currentDirectory);
-		for await (const entry of directory) {
-			entriesSeen += 1;
-			if (entriesSeen > limits.maxEntries) {
-				throw new Error(
-					`dynamic_artifact_entry_limit_exceeded:${limits.maxEntries}`,
-				);
-			}
-			const fullPath = path.join(currentDirectory, entry.name);
-			if (entry.isDirectory()) {
-				await walk(fullPath, depth + 1);
-				continue;
-			}
-			if (!entry.isFile()) continue;
-			const fileStat = await fs.stat(fullPath);
-			if (fileStat.size > limits.maxFileBytes) {
-				throw new Error(
-					`dynamic_artifact_file_limit_exceeded:${fileStat.size}:${limits.maxFileBytes}`,
-				);
-			}
-			totalBytes += fileStat.size;
-			if (totalBytes > limits.maxTotalBytes) {
-				throw new Error(
-					`dynamic_artifact_total_limit_exceeded:${totalBytes}:${limits.maxTotalBytes}`,
-				);
-			}
-			files.push(path.relative(dir, fullPath));
-			if (files.length > limits.maxFiles) {
-				throw new Error(
-					`dynamic_artifact_count_limit_exceeded:${limits.maxFiles}`,
-				);
-			}
-		}
-	};
-
-	await walk(dir, 0);
-	return files;
-}
-
 export class DynamicRunner {
 	private readonly repo: DynamicRepository;
 	private readonly storage: DynamicArtifactStorage;
@@ -211,27 +55,7 @@ export class DynamicRunner {
 	) {
 		this.repo = new DynamicRepository(db);
 		this.outputLimits = resolveProcessOutputLimits(options.outputLimits);
-		this.artifactLimits = {
-			maxFiles:
-				options.artifactLimits?.maxFiles ?? DEFAULT_DYNAMIC_ARTIFACT_FILE_LIMIT,
-			maxTotalBytes:
-				options.artifactLimits?.maxTotalBytes ??
-				DEFAULT_DYNAMIC_ARTIFACT_TOTAL_LIMIT_BYTES,
-			maxFileBytes:
-				options.artifactLimits?.maxFileBytes ??
-				DEFAULT_DYNAMIC_ARTIFACT_FILE_LIMIT_BYTES,
-			maxDepth:
-				options.artifactLimits?.maxDepth ??
-				DEFAULT_DYNAMIC_ARTIFACT_DIRECTORY_DEPTH_LIMIT,
-			maxEntries:
-				options.artifactLimits?.maxEntries ??
-				DEFAULT_DYNAMIC_ARTIFACT_ENTRY_LIMIT,
-		};
-		for (const [label, value] of Object.entries(this.artifactLimits)) {
-			if (!Number.isSafeInteger(value) || value <= 0) {
-				throw new Error(`${label} must be a positive integer.`);
-			}
-		}
+		this.artifactLimits = resolveDynamicArtifactLimits(options.artifactLimits);
 		this.storage =
 			options.storage ??
 			new DynamicArtifactStorage(undefined, {
@@ -266,11 +90,11 @@ export class DynamicRunner {
 			);
 		}
 
-		const timeoutSec = resolveTimeoutSec(
+		const timeoutSec = resolveDynamicTimeoutSec(
 			profileConfig.timeoutSec ?? 120,
 			options.timeoutSec,
 		);
-		const networkMode = resolveNetworkMode(
+		const networkMode = resolveDynamicNetworkMode(
 			profileConfig.network ?? "none",
 			options.network,
 		);
@@ -337,11 +161,11 @@ export class DynamicRunner {
 			);
 		}
 
-		const timeoutSec = resolveTimeoutSec(
+		const timeoutSec = resolveDynamicTimeoutSec(
 			profileConfig.timeoutSec ?? 120,
 			options.timeoutSec,
 		);
-		const networkMode = resolveNetworkMode(
+		const networkMode = resolveDynamicNetworkMode(
 			profileConfig.network ?? "none",
 			options.network,
 		);
@@ -419,7 +243,7 @@ export class DynamicRunner {
 			});
 
 			const runMetadata = {
-				...getBaseMetadata(runRecord.metadata),
+				...getDynamicRunMetadata(runRecord.metadata),
 				elapsedMs: runResult.elapsedMs,
 				execution: runResult.executionMetadata,
 			};
@@ -474,11 +298,12 @@ export class DynamicRunner {
 						runResult.stderr.toLowerCase().includes("docker process error")));
 
 			if (hasDockerError) {
-				const { status: finalStatus, failureKind } = classifyExecutionFailure({
-					error: runResult.error,
-					stderr: runResult.stderr,
-					exitCode: runResult.exitCode,
-				});
+				const { status: finalStatus, failureKind } =
+					classifyDynamicExecutionFailure({
+						error: runResult.error,
+						stderr: runResult.stderr,
+						exitCode: runResult.exitCode,
+					});
 
 				await this.repo.updateRunStatus(runId, finalStatus, {
 					outcome: "error",
@@ -518,7 +343,10 @@ export class DynamicRunner {
 			}
 
 			// 5. Collect generated artifacts from the host output mount directory
-			const generatedFiles = await walkFiles(hostOutDir, this.artifactLimits);
+			const generatedFiles = await walkDynamicArtifactFiles(
+				hostOutDir,
+				this.artifactLimits,
+			);
 			const collectedArtifacts: Array<
 				Awaited<ReturnType<DynamicRepository["createArtifact"]>>
 			> = [];
@@ -580,45 +408,24 @@ export class DynamicRunner {
 			});
 
 			// 8. Create appropriate evidence logs
-			let evidenceTitle = "";
-			let evidenceKind = "dynamic-result";
-			let snippetText = evalResult.reason;
-			let mainArtifactId: string | null = null;
-
-			if (profileConfig.dynamicKind === "test") {
-				evidenceKind = "dynamic-test-log";
-				evidenceTitle = `Dynamic Test check: ${evalResult.outcome.toUpperCase()}`;
-				snippetText = `Exit code ${runResult.exitCode}. Reason: ${evalResult.reason}`;
-				mainArtifactId =
-					evalResult.outcome === "passed" ? dbStdout.id : dbStderr.id;
-			} else if (profileConfig.dynamicKind === "sanitizer") {
-				evidenceKind =
-					evalResult.outcome === "crashed"
-						? "sanitizer-finding"
-						: "dynamic-result";
-				evidenceTitle = `Dynamic Sanitizer check: ${evalResult.outcome.toUpperCase()}`;
-				snippetText = evalResult.reason;
-				mainArtifactId =
-					evalResult.outcome === "crashed" ? dbStderr.id : dbStdout.id;
-			} else if (profileConfig.dynamicKind === "fuzz") {
-				evidenceKind =
-					evalResult.outcome === "crashed" ? "fuzz-crash" : "dynamic-result";
-				evidenceTitle = `Dynamic Fuzz check: ${evalResult.outcome.toUpperCase()}`;
-				snippetText = evalResult.reason;
-				mainArtifactId =
-					collectedArtifacts.length > 0
-						? collectedArtifacts[0].id
-						: dbStdout.id;
-			}
+			const evidenceDescriptor = buildDynamicEvidenceDescriptor({
+				dynamicKind: profileConfig.dynamicKind as "test" | "sanitizer" | "fuzz",
+				outcome: evalResult.outcome,
+				reason: evalResult.reason,
+				exitCode: runResult.exitCode,
+				stdoutArtifactId: dbStdout.id,
+				stderrArtifactId: dbStderr.id,
+				collectedArtifactIds: collectedArtifacts.map((artifact) => artifact.id),
+			});
 
 			const evidence = await this.repo.createEvidence({
 				dynamicRunId: runId,
 				projectId: project.id,
 				findingId: options.findingId ?? null,
-				kind: evidenceKind,
-				title: evidenceTitle,
-				artifactId: mainArtifactId,
-				snippet: snippetText.slice(0, 1000),
+				kind: evidenceDescriptor.kind,
+				title: evidenceDescriptor.title,
+				artifactId: evidenceDescriptor.artifactId,
+				snippet: evidenceDescriptor.snippet.slice(0, 1000),
 				metadata: evalResult.metadata,
 			});
 
@@ -650,7 +457,7 @@ export class DynamicRunner {
 				outcome: "error",
 				errorMessage: message,
 				metadata: {
-					...getBaseMetadata(runRecord.metadata),
+					...getDynamicRunMetadata(runRecord.metadata),
 					failureKind,
 				},
 			});

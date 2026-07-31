@@ -279,15 +279,15 @@ async function main() {
 			status: "completed",
 			diagnostic,
 		});
-		// biome-ignore lint/suspicious/noExplicitAny: final catch
-	} catch (err: any) {
+	} catch (err: unknown) {
+		const message = errorMessage(err);
 		// Log error event
 		try {
 			await scanRepo.createScanEvent({
 				scanRunId: scanRun.id,
 				level: "error",
 				eventType: "scan.failed",
-				message: `Scan failed: ${err.message}`,
+				message: `Scan failed: ${message}`,
 			});
 			if (toolRunId) {
 				await scanRepo.updateToolRunStatus(toolRunId, "failed", {
@@ -303,7 +303,7 @@ async function main() {
 			ok: false,
 			scanRunId: scanRun.id,
 			status: "failed",
-			message: err.message,
+			message,
 		});
 		process.exit(1);
 	} finally {

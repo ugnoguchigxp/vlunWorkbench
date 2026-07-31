@@ -16,6 +16,10 @@ import {
 	startScan,
 	triggerScanReview,
 } from "../../api";
+import type { useScansFindingActions } from "./scans-finding-actions";
+import type { ScansControllerBaseScope } from "./use-scans-base-controller";
+import type { useFindingLoadEffects } from "./use-finding-load-effects";
+import type { useScanTargetEffects } from "./use-scan-target-effects";
 
 const DEFAULT_REPORT_OPTIONS = {
 	includeFalsePositives: true,
@@ -28,13 +32,15 @@ const SCAN_REVIEW_WAIT_TIMEOUT_MS = 630_000;
 const wait = (durationMs: number) =>
 	new Promise<void>((resolve) => globalThis.setTimeout(resolve, durationMs));
 
-export type ScansDomainSectionProps = {
-	active: boolean;
-	busy: boolean;
-	runWithBusy: (task: () => Promise<void>) => Promise<boolean>;
-	setErrorText: (text: string | null) => void;
-};
-export function buildScanLaunchActions(scope: Record<string, any>) {
+type ScanLaunchActionsScope = ScansControllerBaseScope &
+	ReturnType<typeof useFindingLoadEffects> &
+	ReturnType<typeof useScanTargetEffects> & {
+		getReportQualityPreview: () => ReturnType<
+			typeof useScansFindingActions
+		>["reportQualityPreview"];
+	};
+
+export function buildScanLaunchActions(scope: ScanLaunchActionsScope) {
 	const {
 		buildSelectedScanTarget,
 		continueOnToolFailure,
@@ -195,8 +201,8 @@ export function buildScanLaunchActions(scope: Record<string, any>) {
 		setErrorText(null);
 		try {
 			const scan = await cancelScan(selectedScanRunId);
-			setScanRuns((runs: Array<{ id: string }>) =>
-				runs.map((item: { id: string }) => (item.id === scan.id ? scan : item)),
+			setScanRuns((runs) =>
+				runs.map((item) => (item.id === scan.id ? scan : item)),
 			);
 		} catch (error) {
 			setErrorText(
@@ -237,10 +243,8 @@ export function buildScanLaunchActions(scope: Record<string, any>) {
 				repoPath,
 				defaultBranch: projectDefaultBranch.trim() || "main",
 			});
-			setProjects((prev: Array<{ id: string }>) => {
-				const others = prev.filter(
-					(item: { id: string }) => item.id !== created.id,
-				);
+			setProjects((prev) => {
+				const others = prev.filter((item) => item.id !== created.id);
 				return [created, ...others];
 			});
 			setSelectedProjectId(created.id);

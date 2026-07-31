@@ -11,14 +11,9 @@ import {
 	fetchScanSummary,
 	type ScanTarget,
 } from "../../api";
+import type { ScansControllerBaseScope } from "./use-scans-base-controller";
 
-export type ScansDomainSectionProps = {
-	active: boolean;
-	busy: boolean;
-	runWithBusy: (task: () => Promise<void>) => Promise<boolean>;
-	setErrorText: (text: string | null) => void;
-};
-export function useScanTargetEffects(scope: Record<string, any>) {
+export function useScanTargetEffects(scope: ScansControllerBaseScope) {
 	const {
 		active,
 		diffBaseRef,

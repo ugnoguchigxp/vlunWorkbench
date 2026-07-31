@@ -11,14 +11,9 @@ import {
 	type ScanRun,
 } from "../../api";
 import { readRemediationMetadata } from "./remediation-plan";
+import type { ScansControllerBaseScope } from "./use-scans-base-controller";
 
-export type ScansDomainSectionProps = {
-	active: boolean;
-	busy: boolean;
-	runWithBusy: (task: () => Promise<void>) => Promise<boolean>;
-	setErrorText: (text: string | null) => void;
-};
-export function useScansEffects(scope: Record<string, any>) {
+export function useScansEffects(scope: ScansControllerBaseScope) {
 	const {
 		active,
 		linkReviewDefaultFindingRef,

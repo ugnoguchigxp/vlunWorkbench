@@ -11,13 +11,22 @@ const targets = new Map<string, number>([
 	["api/modules/dast/active-assessment-runner.ts", 90],
 	["api/modules/dynamic/dynamic-artifact-storage.ts", 75],
 	["api/modules/dynamic/dynamic-docker-executor.ts", 85],
+	["api/modules/dynamic/dynamic-evidence-builder.ts", 90],
 	["api/modules/dynamic/dynamic-profiles.ts", 90],
+	["api/modules/dynamic/dynamic-run-policy.ts", 90],
 	["api/modules/dynamic/dynamic-runner.ts", 95],
 	[
 		"api/modules/integrations/nightworkers/nightworkers-integration.service.ts",
 		85,
 	],
+	[
+		"api/modules/integrations/nightworkers/nightworkers-result-operations.ts",
+		80,
+	],
+	["api/modules/integrations/nightworkers/nightworkers-scan-operations.ts", 95],
 	["api/modules/scans/scan-diagnostic-runner.ts", 80],
+	["api/modules/scans/tools/docker-tool-process-runner.ts", 80],
+	["api/modules/scans/tools/tool-process-policy.ts", 90],
 	["api/modules/scans/tools/tool-process-runner.ts", 80],
 ]);
 const tests = [
@@ -28,7 +37,9 @@ const tests = [
 	"api/security/secret-crypto.test.ts",
 	"api/modules/dast/active-assessment-runner.test.ts",
 	"api/modules/dynamic/dynamic-artifact-storage.test.ts",
+	"api/modules/dynamic/dynamic-evidence-builder.test.ts",
 	"api/modules/dynamic/dynamic-profiles.test.ts",
+	"api/modules/dynamic/dynamic-run-policy.test.ts",
 	"api/modules/dynamic/dynamic-runner.test.ts",
 	"api/modules/integrations/nightworkers/nightworkers-integration.service.test.ts",
 	"api/modules/scans/scan-diagnostic-runner.test.ts",

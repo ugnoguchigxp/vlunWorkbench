@@ -11,7 +11,6 @@ import * as schema from "../schema";
 import { decodeWriterValue, encodeWriterValue } from "./codec";
 import {
 	WRITER_PROTOCOL_VERSION,
-	type WriterErrorCode,
 	type WriterHealth,
 	type WriterMethod,
 	type WriterRequest,
@@ -20,45 +19,19 @@ import {
 	writerHealthSchema,
 	writerResponseSchema,
 } from "./protocol";
+import {
+	delay,
+	type FetchUnixInit,
+	processExists,
+	SqliteWriterClientError,
+} from "./client-support";
 
-type FetchUnixInit = RequestInit & { unix: string };
 const DEFAULT_CONNECT_TIMEOUT_MS = 15_000;
 const DEFAULT_HEALTH_TIMEOUT_MS = 2_000;
 const DEFAULT_REQUEST_TIMEOUT_MS = 60_000;
 const WRITER_SHUTDOWN_TIMEOUT_MS = 5_000;
 const ownedWriterClients = new Set<SqliteWriterClient>();
-
-export class SqliteWriterClientError extends Error {
-	constructor(
-		message: string,
-		readonly code:
-			| "WRITER_UNAVAILABLE"
-			| "WRITER_START_TIMEOUT"
-			| "WRITER_PROTOCOL_MISMATCH"
-			| "WRITER_DATABASE_MISMATCH"
-			| "WRITER_REQUEST_FAILED"
-			| "WRITER_RESULT_UNKNOWN",
-		readonly sqliteCode?: string,
-		readonly writerCode?: WriterErrorCode,
-	) {
-		super(message);
-		this.name = "SqliteWriterClientError";
-	}
-}
-
-function processExists(pid: number): boolean {
-	try {
-		process.kill(pid, 0);
-		return true;
-	} catch {
-		return false;
-	}
-}
-
-async function delay(ms: number): Promise<void> {
-	await new Promise((resolve) => setTimeout(resolve, ms));
-}
-
+export { SqliteWriterClientError } from "./client-support";
 export class SqliteWriterClient {
 	readonly databaseId: string;
 	readonly socketPath: string;
@@ -113,7 +86,6 @@ export class SqliteWriterClient {
 		};
 		this.db = drizzle(callback, batchCallback, { schema });
 	}
-
 	get writerInstanceId(): string | undefined {
 		return this.lastHealth?.writerInstanceId;
 	}

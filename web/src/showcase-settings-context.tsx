@@ -7,31 +7,37 @@ import {
 	type CSSProperties,
 	type ReactNode,
 } from "react";
+import {
+	defaultSettings,
+	persistShowcaseSettings,
+	readStoredSettings,
+	showcaseDensityOptions,
+	showcaseFontSizeOptions,
+	showcaseRadiusOptions,
+	showcaseThemeOptions,
+	type ShowcaseDensity,
+	type ShowcaseFontSize,
+	type ShowcaseRadius,
+	type ShowcaseSettings,
+	type ShowcaseTheme,
+} from "./showcase-settings-model";
+import { useShowcaseRootStyle } from "./showcase-settings-root";
 
-const STORAGE_KEY = "vuln-workbench.design-system.settings.v1";
-const LEGACY_STORAGE_KEY = "hono-standard.showcase.settings.v1";
-const ROOT_THEME_ATTRIBUTE = "data-design-system-theme";
-
-export type ShowcaseTheme =
-	| "emerald"
-	| "indigo"
-	| "rose"
-	| "amber"
-	| "tokyo-night"
-	| "campfire"
-	| "terminal";
-export type ShowcaseDensity = "compact" | "comfortable" | "spacious";
-export type ShowcaseRadius = "sharp" | "soft" | "round";
-export type ShowcaseFontSize = "small" | "medium" | "large";
-
-export type ShowcaseSettings = {
-	theme: ShowcaseTheme;
-	density: ShowcaseDensity;
-	radius: ShowcaseRadius;
-	fontSize: ShowcaseFontSize;
+export {
+	showcaseDensityOptions,
+	showcaseFontSizeOptions,
+	showcaseRadiusOptions,
+	showcaseThemeOptions,
+};
+export type {
+	ShowcaseDensity,
+	ShowcaseFontSize,
+	ShowcaseRadius,
+	ShowcaseSettings,
+	ShowcaseTheme,
 };
 
-type ShowcaseStyle = CSSProperties & Record<`--${string}`, string>;
+export type ShowcaseStyle = CSSProperties & Record<`--${string}`, string>;
 
 type ShowcaseSettingsContextValue = {
 	settings: ShowcaseSettings;
@@ -42,58 +48,6 @@ type ShowcaseSettingsContextValue = {
 	resetSettings: () => void;
 	showcaseStyle: ShowcaseStyle;
 };
-
-const defaultSettings: ShowcaseSettings = {
-	theme: "emerald",
-	density: "comfortable",
-	radius: "soft",
-	fontSize: "medium",
-};
-
-export const showcaseThemeOptions: Array<{
-	value: ShowcaseTheme;
-	label: string;
-	swatch: string;
-}> = [
-	{ value: "emerald", label: "Emerald", swatch: "#1f7a6a" },
-	{ value: "indigo", label: "Indigo", swatch: "#4f46e5" },
-	{ value: "rose", label: "Rose", swatch: "#be3455" },
-	{ value: "amber", label: "Amber", swatch: "#b7791f" },
-	{ value: "tokyo-night", label: "Tokyo Night", swatch: "#7aa2f7" },
-	{
-		value: "campfire",
-		label: "Campfire",
-		swatch: "linear-gradient(135deg, #120d0a 0%, #f97316 100%)",
-	},
-	{ value: "terminal", label: "Terminal", swatch: "#39ff14" },
-];
-
-export const showcaseDensityOptions: Array<{
-	value: ShowcaseDensity;
-	label: string;
-}> = [
-	{ value: "compact", label: "Compact" },
-	{ value: "comfortable", label: "Comfortable" },
-	{ value: "spacious", label: "Spacious" },
-];
-
-export const showcaseRadiusOptions: Array<{
-	value: ShowcaseRadius;
-	label: string;
-}> = [
-	{ value: "sharp", label: "Sharp" },
-	{ value: "soft", label: "Soft" },
-	{ value: "round", label: "Round" },
-];
-
-export const showcaseFontSizeOptions: Array<{
-	value: ShowcaseFontSize;
-	label: string;
-}> = [
-	{ value: "small", label: "Small" },
-	{ value: "medium", label: "Medium" },
-	{ value: "large", label: "Large" },
-];
 
 const themeTokens: Record<
 	ShowcaseTheme,
@@ -403,51 +357,11 @@ export function ShowcaseSettingsProvider({
 		useState<ShowcaseSettings>(readStoredSettings);
 
 	useEffect(() => {
-		window.localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
+		persistShowcaseSettings(settings);
 	}, [settings]);
 
 	const showcaseStyle = useMemo(() => getShowcaseStyle(settings), [settings]);
-
-	useEffect(() => {
-		if (typeof document === "undefined") {
-			return;
-		}
-
-		const root = document.documentElement;
-		const previousVariables = new Map(
-			Object.keys(showcaseStyle).map((name) => [
-				name,
-				root.style.getPropertyValue(name),
-			]),
-		);
-		const previousTheme = root.getAttribute(ROOT_THEME_ATTRIBUTE);
-		const previousColorScheme = root.style.colorScheme;
-
-		for (const [name, value] of Object.entries(showcaseStyle)) {
-			root.style.setProperty(name, value);
-		}
-		root.setAttribute(ROOT_THEME_ATTRIBUTE, settings.theme);
-		root.style.colorScheme = isDarkShowcaseTheme(settings.theme)
-			? "dark"
-			: "light";
-
-		return () => {
-			for (const [name, value] of previousVariables) {
-				if (value) {
-					root.style.setProperty(name, value);
-				} else {
-					root.style.removeProperty(name);
-				}
-			}
-
-			if (previousTheme) {
-				root.setAttribute(ROOT_THEME_ATTRIBUTE, previousTheme);
-			} else {
-				root.removeAttribute(ROOT_THEME_ATTRIBUTE);
-			}
-			root.style.colorScheme = previousColorScheme;
-		};
-	}, [settings.theme, showcaseStyle]);
+	useShowcaseRootStyle(settings.theme, showcaseStyle);
 
 	const value = useMemo<ShowcaseSettingsContextValue>(
 		() => ({
@@ -493,39 +407,6 @@ export function useShowcaseSettings() {
 		);
 	}
 	return context;
-}
-
-function readStoredSettings(): ShowcaseSettings {
-	if (typeof window === "undefined") {
-		return defaultSettings;
-	}
-
-	const rawSettings =
-		window.localStorage.getItem(STORAGE_KEY) ??
-		window.localStorage.getItem(LEGACY_STORAGE_KEY);
-	if (!rawSettings) {
-		return defaultSettings;
-	}
-
-	try {
-		const parsed = JSON.parse(rawSettings) as Partial<ShowcaseSettings>;
-		return {
-			theme: isShowcaseTheme(parsed.theme)
-				? parsed.theme
-				: defaultSettings.theme,
-			density: isShowcaseDensity(parsed.density)
-				? parsed.density
-				: defaultSettings.density,
-			radius: isShowcaseRadius(parsed.radius)
-				? parsed.radius
-				: defaultSettings.radius,
-			fontSize: isShowcaseFontSize(parsed.fontSize)
-				? parsed.fontSize
-				: defaultSettings.fontSize,
-		};
-	} catch {
-		return defaultSettings;
-	}
 }
 
 function getShowcaseStyle(settings: ShowcaseSettings): ShowcaseStyle {
@@ -595,28 +476,6 @@ function getShowcaseStyle(settings: ShowcaseSettings): ShowcaseStyle {
 		"--showcase-heading-size": fontSize.heading,
 		"--showcase-card-title-size": fontSize.cardTitle,
 	};
-}
-
-function isShowcaseTheme(value: unknown): value is ShowcaseTheme {
-	return showcaseThemeOptions.some((option) => option.value === value);
-}
-
-function isDarkShowcaseTheme(theme: ShowcaseTheme) {
-	return (
-		theme === "tokyo-night" || theme === "campfire" || theme === "terminal"
-	);
-}
-
-function isShowcaseDensity(value: unknown): value is ShowcaseDensity {
-	return showcaseDensityOptions.some((option) => option.value === value);
-}
-
-function isShowcaseRadius(value: unknown): value is ShowcaseRadius {
-	return showcaseRadiusOptions.some((option) => option.value === value);
-}
-
-function isShowcaseFontSize(value: unknown): value is ShowcaseFontSize {
-	return showcaseFontSizeOptions.some((option) => option.value === value);
 }
 
 export const DesignSystemProvider = ShowcaseSettingsProvider;

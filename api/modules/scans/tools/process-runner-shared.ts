@@ -9,6 +9,28 @@ export function errorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
 }
 
+export function getCleanEnv(): Record<string, string> {
+	const cleanEnv: Record<string, string> = {};
+	for (const [key, val] of Object.entries(process.env)) {
+		const normalizedKey = key.toUpperCase();
+		if (
+			val &&
+			!normalizedKey.includes("OPENAI") &&
+			!normalizedKey.includes("AZURE") &&
+			!normalizedKey.includes("LLM") &&
+			!normalizedKey.includes("SECRET") &&
+			!normalizedKey.includes("KEY") &&
+			!normalizedKey.includes("TOKEN") &&
+			!normalizedKey.includes("PASSWORD") &&
+			!normalizedKey.includes("PRIVATE") &&
+			!normalizedKey.includes("CREDENTIAL")
+		) {
+			cleanEnv[key] = val;
+		}
+	}
+	return cleanEnv;
+}
+
 export function parsePositiveInteger(
 	value: string | number | undefined,
 	label: string,

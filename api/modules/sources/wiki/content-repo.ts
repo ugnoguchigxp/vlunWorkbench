@@ -1,8 +1,6 @@
-import { execFile } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { promisify } from "node:util";
 import matter from "gray-matter";
 import {
 	categoryFromPageRelativePath,
@@ -11,13 +9,16 @@ import {
 import { sanitizeMarkdownBody, sanitizePlainText } from "./sanitize";
 import { assertSafeSlug, filePathToSlug } from "./slug";
 
-const execFileAsync = promisify(execFile);
-const gitInitLocks = new Map<string, Promise<void>>();
-
-export type GitSummary = {
-	branch: string;
-	commit: string;
-} | null;
+export {
+	commitDeleteChange,
+	commitFileChange,
+	commitPathsChange,
+	ensureGitRepo,
+	getGitSummary,
+	getPageDiff,
+	getPageHistory,
+} from "./content-git-repo";
+export type { GitSummary } from "./content-git-repo";
 
 export type PageTreeItem = {
 	slug: string;
@@ -462,244 +463,4 @@ export const renameFolder = async (
 		newAbsolutePath,
 		movedPages,
 	};
-};
-
-const runGit = async (
-	contentRoot: string,
-	args: string[],
-): Promise<{ stdout: string; stderr: string }> =>
-	execFileAsync("git", ["-C", contentRoot, ...args]);
-
-const errorMessage = (error: unknown): string => {
-	if (!(error instanceof Error)) return "";
-	const stderr =
-		"stderr" in error && typeof error.stderr === "string" ? error.stderr : "";
-	return `${error.message}\n${stderr}`.trim();
-};
-
-const hasStagedChanges = async (
-	contentRoot: string,
-	relativePath: string,
-): Promise<boolean> => {
-	try {
-		await runGit(contentRoot, [
-			"diff",
-			"--cached",
-			"--quiet",
-			"--",
-			relativePath,
-		]);
-		return false;
-	} catch {
-		return true;
-	}
-};
-
-const hasAnyStagedChanges = async (
-	contentRoot: string,
-	relativePaths: string[],
-): Promise<boolean> => {
-	try {
-		await runGit(contentRoot, [
-			"diff",
-			"--cached",
-			"--quiet",
-			"--",
-			...relativePaths,
-		]);
-		return false;
-	} catch {
-		return true;
-	}
-};
-
-export const ensureGitRepo = async (contentRoot: string): Promise<void> => {
-	const existing = gitInitLocks.get(contentRoot);
-	if (existing) {
-		await existing;
-		return;
-	}
-
-	const task = (async () => {
-		try {
-			await runGit(contentRoot, ["rev-parse", "--is-inside-work-tree"]);
-			return;
-		} catch {
-			// ignore and initialize
-		}
-
-		try {
-			await runGit(contentRoot, ["init"]);
-		} catch (error) {
-			const message = errorMessage(error);
-			if (
-				!message.includes(".git/info/exclude") ||
-				!message.includes("File exists")
-			) {
-				throw error;
-			}
-		}
-
-		try {
-			await runGit(contentRoot, ["checkout", "-b", "main"]);
-		} catch {
-			// no-op when branch already exists
-		}
-	})().finally(() => {
-		gitInitLocks.delete(contentRoot);
-	});
-
-	gitInitLocks.set(contentRoot, task);
-	await task;
-};
-
-export const getGitSummary = async (
-	contentRoot: string,
-): Promise<GitSummary> => {
-	try {
-		const [{ stdout: branchStdout }, { stdout: commitStdout }] =
-			await Promise.all([
-				execFileAsync("git", [
-					"-C",
-					contentRoot,
-					"rev-parse",
-					"--abbrev-ref",
-					"HEAD",
-				]),
-				execFileAsync("git", [
-					"-C",
-					contentRoot,
-					"rev-parse",
-					"--short",
-					"HEAD",
-				]),
-			]);
-		return { branch: branchStdout.trim(), commit: commitStdout.trim() };
-	} catch {
-		return null;
-	}
-};
-
-export const commitFileChange = async (
-	contentRoot: string,
-	absolutePath: string,
-	message: string,
-): Promise<string | null> => {
-	const relative = path.relative(contentRoot, absolutePath);
-	const normalizedRelative = normalizePosixPath(relative);
-	await runGit(contentRoot, ["add", normalizedRelative]);
-	try {
-		await runGit(contentRoot, ["commit", "-m", message]);
-	} catch (error) {
-		if (await hasStagedChanges(contentRoot, normalizedRelative)) {
-			throw error;
-		}
-	}
-	const summary = await getGitSummary(contentRoot);
-	return summary?.commit ?? null;
-};
-
-export const commitDeleteChange = async (
-	contentRoot: string,
-	absolutePath: string,
-	message: string,
-): Promise<string | null> => {
-	const relative = path.relative(contentRoot, absolutePath);
-	const normalizedRelative = normalizePosixPath(relative);
-	await runGit(contentRoot, ["add", "-A", normalizedRelative]);
-	try {
-		await runGit(contentRoot, ["commit", "-m", message]);
-	} catch (error) {
-		if (await hasStagedChanges(contentRoot, normalizedRelative)) {
-			throw error;
-		}
-	}
-	const summary = await getGitSummary(contentRoot);
-	return summary?.commit ?? null;
-};
-
-export const commitPathsChange = async (
-	contentRoot: string,
-	absolutePaths: string[],
-	message: string,
-): Promise<string | null> => {
-	const normalizedRelatives = absolutePaths.map((absolutePath) =>
-		normalizePosixPath(path.relative(contentRoot, absolutePath)),
-	);
-	await runGit(contentRoot, ["add", "-A", "--", ...normalizedRelatives]);
-	try {
-		await runGit(contentRoot, ["commit", "-m", message]);
-	} catch (error) {
-		if (await hasAnyStagedChanges(contentRoot, normalizedRelatives)) {
-			throw error;
-		}
-	}
-	const summary = await getGitSummary(contentRoot);
-	return summary?.commit ?? null;
-};
-
-const resolveGitPathspecs = async (
-	contentRoot: string,
-	slug: string,
-): Promise<string[]> => {
-	const existing = await findExistingPageRelativePath(contentRoot, slug);
-	if (existing) {
-		return [path.posix.join("pages", existing)];
-	}
-	return resolveCandidateRelativePaths(slug).map((candidate) =>
-		path.posix.join("pages", normalizePosixPath(candidate)),
-	);
-};
-
-export const getPageHistory = async (
-	contentRoot: string,
-	slug: string,
-): Promise<
-	Array<{ commit: string; author: string; date: string; message: string }>
-> => {
-	const pathspecs = await resolveGitPathspecs(contentRoot, slug);
-	try {
-		const { stdout } = await runGit(contentRoot, [
-			"log",
-			"--pretty=format:%H\t%an\t%ad\t%s",
-			"--date=iso-strict",
-			"--",
-			...pathspecs,
-		]);
-		return stdout
-			.split("\n")
-			.filter((line) => line.trim() !== "")
-			.map((line) => {
-				const [commit, author, date, message] = line.split("\t");
-				return {
-					commit: commit ?? "",
-					author: author ?? "",
-					date: date ?? "",
-					message: message ?? "",
-				};
-			});
-	} catch {
-		return [];
-	}
-};
-
-export const getPageDiff = async (
-	contentRoot: string,
-	slug: string,
-	from: string,
-	to: string,
-): Promise<string> => {
-	const pathspecs = await resolveGitPathspecs(contentRoot, slug);
-	try {
-		const { stdout } = await runGit(contentRoot, [
-			"diff",
-			from,
-			to,
-			"--",
-			...pathspecs,
-		]);
-		return stdout;
-	} catch {
-		return "";
-	}
 };

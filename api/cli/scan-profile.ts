@@ -43,48 +43,50 @@ function parseBooleanFlag(value: string | undefined, defaultValue: boolean) {
 	return value !== "false";
 }
 
+function parseScanProfileArgs() {
+	return parseArgs({
+		args: process.argv.slice(2),
+		options: {
+			"project-id": { type: "string" },
+			"scan-run-id": { type: "string" },
+			"execution-surface": { type: "string" },
+			"project-path": { type: "string" },
+			"create-project": { type: "string", default: "false" },
+			profile: { type: "string", default: "baseline" },
+			target: { type: "string", default: "full" },
+			base: { type: "string" },
+			head: { type: "string" },
+			"include-untracked": { type: "string" },
+			"expected-target-digest": { type: "string" },
+			preview: { type: "string", default: "false" },
+			step: { type: "string" },
+			"timeout-sec": { type: "string" },
+			"continue-on-tool-failure": { type: "string", default: "true" },
+			"output-summary": { type: "string" },
+			"dry-run": { type: "string", default: "false" },
+			"final-report": { type: "string", default: "true" },
+			"automated-diagnostic": { type: "string", default: "true" },
+			"report-title": { type: "string" },
+			"report-output": { type: "string" },
+			runner: { type: "string" },
+			"docker-bin": { type: "string" },
+			"docker-image": { type: "string" },
+			network: { type: "string", default: "none" },
+			memory: { type: "string" },
+			cpus: { type: "string" },
+			"tool-cache-dir": { type: "string" },
+			"image-ref": { type: "string" },
+			"image-tar": { type: "string" },
+			json: { type: "boolean", default: false },
+		},
+		strict: true,
+	}).values;
+}
+
 async function main() {
-	// biome-ignore lint/suspicious/noExplicitAny: CLI args
-	let argsValues: any;
+	let argsValues: ReturnType<typeof parseScanProfileArgs>;
 	try {
-		const parsed = parseArgs({
-			args: process.argv.slice(2),
-			options: {
-				"project-id": { type: "string" },
-				"scan-run-id": { type: "string" },
-				"execution-surface": { type: "string" },
-				"project-path": { type: "string" },
-				"create-project": { type: "string", default: "false" },
-				profile: { type: "string", default: "baseline" },
-				target: { type: "string", default: "full" },
-				base: { type: "string" },
-				head: { type: "string" },
-				"include-untracked": { type: "string" },
-				"expected-target-digest": { type: "string" },
-				preview: { type: "string", default: "false" },
-				step: { type: "string" },
-				"timeout-sec": { type: "string" },
-				"continue-on-tool-failure": { type: "string", default: "true" },
-				"output-summary": { type: "string" },
-				"dry-run": { type: "string", default: "false" },
-				"final-report": { type: "string", default: "true" },
-				"automated-diagnostic": { type: "string", default: "true" },
-				"report-title": { type: "string" },
-				"report-output": { type: "string" },
-				runner: { type: "string" },
-				"docker-bin": { type: "string" },
-				"docker-image": { type: "string" },
-				network: { type: "string", default: "none" },
-				memory: { type: "string" },
-				cpus: { type: "string" },
-				"tool-cache-dir": { type: "string" },
-				"image-ref": { type: "string" },
-				"image-tar": { type: "string" },
-				json: { type: "boolean", default: false },
-			},
-			strict: true,
-		});
-		argsValues = parsed.values;
+		argsValues = parseScanProfileArgs();
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);
 		writeResult({
@@ -272,7 +274,9 @@ async function main() {
 			: null;
 		const project = projectResolution
 			? projectResolution.project
-			: await projectRepo.findById(projectId);
+			: projectId
+				? await projectRepo.findById(projectId)
+				: null;
 		if (!project) {
 			writeResult({
 				ok: false,

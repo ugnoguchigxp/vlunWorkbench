@@ -186,6 +186,54 @@ describe("NightworkersIntegrationService", () => {
 		await fs.rm(root, { recursive: true, force: true });
 	});
 
+	it("reports default capabilities and resolves a full-snapshot preview", async () => {
+		const defaultEnv = { ...dependencies.env };
+		for (const key of [
+			"nightworkersIntegrationAllowedProfiles",
+			"nightworkersIntegrationMaxConcurrentScans",
+			"nightworkersIntegrationMaxFindingPageSize",
+			"nightworkersIntegrationMaxEventPageSize",
+			"nightworkersIntegrationMaxReportBytes",
+			"nightworkersIntegrationPreviewTtlSeconds",
+		] as const) {
+			Reflect.deleteProperty(defaultEnv, key);
+		}
+		const defaultService = new NightworkersIntegrationService({
+			...dependencies,
+			env: defaultEnv,
+		});
+
+		const capabilities = await defaultService.capabilities(client, projectPath);
+		expect(capabilities).toMatchObject({
+			provider: { id: "vulnworkbench", version: "1.0.0" },
+			project: { ref: projectId },
+			limits: {
+				maxConcurrentScansForClient: 2,
+				maxFindingPageSize: 100,
+				maxEventPageSize: 200,
+				maxReportBytes: 5 * 1024 * 1024,
+			},
+		});
+		expect(capabilities.presets.length).toBeGreaterThan(0);
+		expect(capabilities.selectableProfiles.length).toBeGreaterThan(0);
+
+		const preview = await defaultService.preview(client, {
+			projectPath,
+			selection: { mode: "preset", presetId: "standard" },
+			target: { kind: "full" },
+		});
+		expect(preview).toMatchObject({
+			resolvedProfileRef: "basic-security",
+			target: {
+				kind: "full",
+				fileCount: null,
+			},
+		});
+		expect(preview.warnings).toContain(
+			"未コミットの変更を含む現在のsnapshotを検査します。",
+		);
+	});
+
 	it("keeps preview side-effect free and creates one persistent scan across concurrent retries and restart", async () => {
 		const preview = await service.preview(client, {
 			projectPath,

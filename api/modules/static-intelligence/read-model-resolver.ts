@@ -1,4 +1,3 @@
-import path from "node:path";
 import type { AppDatabase } from "../../db";
 import type { ProjectRepository, ScanRepository } from "../scans/repositories";
 import { isTemporaryProjectPath } from "../scans/project-visibility";
@@ -20,71 +19,30 @@ import type {
 	IntelligenceReadinessStatus,
 	StaticIntelligenceReadiness,
 } from "../../../shared/schemas/static-intelligence-module.schema";
-import type { StaticIntelligenceKnowledgeSourceManifest } from "../../../shared/schemas/static-intelligence-knowledge-source.schema";
+import type {
+	ProjectIntelligenceSummary,
+	ProjectIntelligenceView,
+	ProjectRow,
+	ScanRow,
+	ScanSelection,
+} from "./read-model-types";
+import {
+	compareScansNewestFirst,
+	emptyIntelligenceView,
+	failedGenerationView,
+	generationSummary,
+	missingGenerationView,
+	toProjectIntelligenceProject,
+	uniqueSorted,
+} from "./read-model-views";
 
-type ProjectRow = NonNullable<
-	Awaited<ReturnType<ProjectRepository["findById"]>>
->;
-type ScanRow = NonNullable<Awaited<ReturnType<ScanRepository["findById"]>>>;
-type ScanSelection = {
-	latestUsableScan: ScanRow | null;
-	selectedScan: ScanRow | null;
-	selection: ProjectIntelligenceView["selection"];
-};
-
-export type ProjectIntelligenceProject = {
-	id: string;
-	name: string;
-	repositoryName: string;
-	defaultBranch: string;
-	createdAt: Date;
-	updatedAt: Date;
-};
+export type {
+	ProjectIntelligenceProject,
+	ProjectIntelligenceSummary,
+	ProjectIntelligenceView,
+} from "./read-model-types";
 
 export class StaticIntelligenceSelectionNotFoundError extends Error {}
-
-export type ProjectIntelligenceView = {
-	project: ProjectIntelligenceProject;
-	latestUsableScan: ScanRow | null;
-	selectedScan: ScanRow | null;
-	selection: {
-		requestedScanRunId: string | null;
-		selectedScanRunId: string | null;
-		isLatest: boolean;
-		selectionReason:
-			| "requested"
-			| "latest_completed"
-			| "latest_terminal_degraded"
-			| "none";
-	};
-	generation: {
-		generationId: string;
-		generatedAt: string;
-		sourceTreeHash: string;
-		sourceStateHash: string;
-		snapshotRef?: string;
-		exportHash: string;
-		status: IntelligenceReadinessStatus;
-	} | null;
-	export: PersistedStaticIntelligenceGeneration["export"]["payload"] | null;
-	manifest: StaticIntelligenceKnowledgeSourceManifest | null;
-	readiness: StaticIntelligenceReadiness;
-	degradedReasons: string[];
-};
-
-export type ProjectIntelligenceSummary = {
-	project: ProjectIntelligenceProject;
-	projectId: string;
-	selectedScanRunId: string | null;
-	scanStatus: string | null;
-	riskBand: string;
-	evidenceQuality: string;
-	findingCount: number;
-	codeStructureStatus: IntelligenceReadinessStatus;
-	generationStatus: IntelligenceReadinessStatus;
-	generatedAt: string | null;
-	degradedReasonCount: number;
-};
 
 export class StaticIntelligenceReadModelResolver {
 	private readonly generations: StaticIntelligenceGenerationRepository;
@@ -117,7 +75,8 @@ export class StaticIntelligenceReadModelResolver {
 			scans,
 			params.requestedScanRunId ?? null,
 		);
-		if (!selection.selectedScan) return emptyView(params.project, selection);
+		if (!selection.selectedScan)
+			return emptyIntelligenceView(params.project, selection);
 
 		let generation: PersistedStaticIntelligenceGeneration | null = null;
 		try {
@@ -508,121 +467,4 @@ function capability(
 		generationId: generation.generationId,
 		sourceRef: `scan:${generation.scanRunId}`,
 	};
-}
-
-const missingReadiness = (reason: string): StaticIntelligenceReadiness => {
-	const item = { status: "missing" as const, reasonCodes: [reason] };
-	return {
-		export: item,
-		fileRiskIndex: item,
-		evidenceGraph: item,
-		codeStructure: item,
-		semanticIndex: item,
-		agentBundle: item,
-		ontologyHandoff: item,
-	};
-};
-
-function emptyView(
-	project: ProjectRow,
-	selection: ScanSelection,
-): ProjectIntelligenceView {
-	return {
-		project: toProjectIntelligenceProject(project),
-		latestUsableScan: null,
-		selectedScan: null,
-		selection: selection.selection,
-		generation: null,
-		export: null,
-		manifest: null,
-		readiness: missingReadiness("scan_missing"),
-		degradedReasons: ["scan_missing"],
-	};
-}
-function missingGenerationView(
-	project: ProjectRow,
-	selection: ScanSelection,
-): ProjectIntelligenceView {
-	return {
-		project: toProjectIntelligenceProject(project),
-		latestUsableScan: selection.latestUsableScan,
-		selectedScan: selection.selectedScan,
-		selection: selection.selection,
-		generation: null,
-		export: null,
-		manifest: null,
-		readiness: missingReadiness("generation_missing"),
-		degradedReasons: ["generation_missing"],
-	};
-}
-function failedGenerationView(
-	project: ProjectRow,
-	selection: ScanSelection,
-): ProjectIntelligenceView {
-	const item = {
-		status: "failed" as const,
-		reasonCodes: ["generation_invalid"],
-	};
-	return {
-		project: toProjectIntelligenceProject(project),
-		latestUsableScan: selection.latestUsableScan,
-		selectedScan: selection.selectedScan,
-		selection: selection.selection,
-		generation: null,
-		export: null,
-		manifest: null,
-		readiness: {
-			export: item,
-			fileRiskIndex: item,
-			evidenceGraph: item,
-			codeStructure: item,
-			semanticIndex: item,
-			agentBundle: item,
-			ontologyHandoff: item,
-		},
-		degradedReasons: ["generation_invalid"],
-	};
-}
-
-function toProjectIntelligenceProject(
-	project: ProjectRow,
-): ProjectIntelligenceProject {
-	const normalized = project.repoPath.replaceAll("\\", "/").replace(/\/+$/, "");
-	return {
-		id: project.id,
-		name: project.name,
-		repositoryName: path.posix.basename(normalized) || project.name,
-		defaultBranch: project.defaultBranch,
-		createdAt: project.createdAt,
-		updatedAt: project.updatedAt,
-	};
-}
-
-function generationSummary(
-	generation: PersistedStaticIntelligenceGeneration,
-	status: IntelligenceReadinessStatus,
-) {
-	const exportHash = generation.export.metadata.exportHash;
-	if (!exportHash) throw new Error("Generation export provenance missing.");
-	return {
-		generationId: generation.generationId,
-		generatedAt: generation.structure.metadata.generatedAt,
-		sourceTreeHash: generation.structure.metadata.sourceTreeHash,
-		sourceStateHash: generation.structure.metadata.sourceStateHash,
-		snapshotRef: generation.structure.metadata.snapshotRef,
-		exportHash,
-		status,
-	};
-}
-
-function compareScansNewestFirst(a: ScanRow, b: ScanRow): number {
-	return scanTime(b) - scanTime(a);
-}
-function scanTime(scan: ScanRow): number {
-	return (scan.completedAt ?? scan.createdAt).getTime();
-}
-function uniqueSorted(values: string[]): string[] {
-	return [...new Set(values.filter(Boolean))].sort((a, b) =>
-		a.localeCompare(b),
-	);
 }
