@@ -162,46 +162,55 @@ async function copyDependencyCompanions(params: {
 	projectPath: string;
 	trivyWorkspacePath: string;
 }): Promise<number> {
+	if (!params.plan.pluginContext.dependencyStateChanged) return 0;
 	const changedPaths = new Set(params.plan.scanPaths);
-	const packageRoots = new Set(
-		params.plan.manifest.entries
-			.filter(
-				(entry) =>
-					entry.disposition === "scan" &&
-					matchesScopePath(entry.path, DEPENDENCY_MANIFEST_SCOPE),
-			)
-			.map((entry) => path.posix.dirname(entry.path)),
-	);
 	let contextFileCount = 0;
-	for (const packageRoot of [...packageRoots].sort()) {
-		const sourceDir =
-			packageRoot === "."
-				? params.projectPath
-				: path.resolve(params.projectPath, packageRoot);
-		assertInside(sourceDir, params.projectPath);
+	const walk = async (directory: string): Promise<void> => {
 		const entries = await fs
-			.readdir(sourceDir, { withFileTypes: true })
+			.readdir(directory, { withFileTypes: true })
 			.catch(() => []);
 		for (const entry of entries.sort((left, right) =>
 			left.name.localeCompare(right.name),
 		)) {
+			const sourcePath = path.resolve(directory, entry.name);
+			assertInside(sourcePath, params.projectPath);
+			const relativePath = path
+				.relative(params.projectPath, sourcePath)
+				.replaceAll(path.sep, "/");
+			if (entry.isDirectory()) {
+				if (
+					!matchesScopePath(`${relativePath}/placeholder`, {
+						...DEPENDENCY_MANIFEST_SCOPE,
+						includeGlobs: ["**/*"],
+					})
+				) {
+					continue;
+				}
+				await walk(sourcePath);
+				continue;
+			}
 			if (!entry.isFile() && !entry.isSymbolicLink()) continue;
-			const relativePath =
-				packageRoot === "." ? entry.name : `${packageRoot}/${entry.name}`;
 			if (
 				changedPaths.has(relativePath) ||
 				!matchesScopePath(relativePath, DEPENDENCY_MANIFEST_SCOPE)
 			) {
 				continue;
 			}
+			if (contextFileCount >= 5_000) {
+				throw new GitDiffResolutionError(
+					"snapshot_materialization_failed",
+					"Dependency companion file limit reached.",
+				);
+			}
 			await copySnapshotEntry(
-				path.resolve(params.projectPath, relativePath),
+				sourcePath,
 				path.resolve(params.trivyWorkspacePath, relativePath),
 				params.projectPath,
 			);
 			contextFileCount++;
 		}
-	}
+	};
+	await walk(params.projectPath);
 	return contextFileCount;
 }
 

@@ -10,6 +10,7 @@ import {
 } from "./report-builder-helpers";
 import type { renderReportOverview } from "./report-builder-overview";
 import type { buildReportQuery } from "./report-builder-query";
+import { renderTechnologyCoverage } from "./report-builder-technology";
 
 type Scope = Awaited<ReturnType<typeof buildReportQuery>> &
 	ReturnType<typeof renderReportOverview> &
@@ -250,15 +251,14 @@ export async function finalizeMarkdownReport(scope: Scope): Promise<string> {
 	}
 	lines.push("");
 
+	renderTechnologyCoverage(lines, scanRun.metadata);
+
 	lines.push("## Measured Web/API Capability");
 	lines.push(
 		"- **Claim:** measured-automated-web-api-assessment-v1 = not_met unless a release evidence artifact references passing runs for every required corpus and the same release digests.",
 	);
 	lines.push(
-		"- **Declared SAST languages:** JavaScript, TypeScript, Python, Java, Go.",
-	);
-	lines.push(
-		"- **Declared offline SCA ecosystems:** npm, PyPI, Go, Maven, crates.io, NuGet, Packagist, RubyGems.",
+		"- **Technology scope:** language、build system、frameworkの適用範囲は、上記のcurrent scan capability planを正とします。toolbox内にscanner dataが存在するだけではsupported claimに含めません。",
 	);
 	lines.push(
 		"- **Unsupported/not tested:** WebSocket, GraphQL subscription, gRPC, SOAP, production active attack, arbitrary scanner scripts, network/cloud/AD/mobile/wireless/social-engineering.",

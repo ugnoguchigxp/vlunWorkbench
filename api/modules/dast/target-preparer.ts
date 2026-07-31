@@ -2,6 +2,9 @@ import fs from "node:fs/promises";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
+import { builtInTechnologyPluginRegistry } from "../../plugins/builtin";
+import type { DastStartPlanV1 } from "../project-capabilities/plugin-contract";
+import { analyzeProjectCapabilities } from "../project-capabilities/plugin-detector";
 
 type PackageJson = {
 	scripts?: Record<string, string>;
@@ -23,11 +26,14 @@ type SpawnPreparedProcess = (
 ) => PreparedProcess;
 
 export type DastTargetStartPlan = {
+	pluginId: string;
 	repoPath: string;
 	scriptName: string;
 	script: string;
-	packageManager: "bun" | "pnpm" | "yarn" | "npm";
+	packageManager: "bun" | "pnpm" | "yarn" | "npm" | "maven" | "gradle";
 	command: string[];
+	env: Record<string, string>;
+	requiresProjectCodeConsent: boolean;
 	port: number;
 	origin: string;
 	readinessPaths: string[];
@@ -55,8 +61,6 @@ export type PreparedDastTargetWorkspace = {
 };
 
 const SCRIPT_PRIORITY = ["dast", "dev", "start", "serve", "preview"];
-const READINESS_PATHS = ["/", "/health", "/api/health"];
-
 function parsePackageJson(value: string): PackageJson {
 	const parsed = JSON.parse(value) as PackageJson;
 	if (!parsed || typeof parsed !== "object") return {};
@@ -68,16 +72,6 @@ async function pathExists(filePath: string): Promise<boolean> {
 		.access(filePath)
 		.then(() => true)
 		.catch(() => false);
-}
-
-async function detectPackageManager(
-	repoPath: string,
-): Promise<DastTargetStartPlan["packageManager"]> {
-	if (await pathExists(path.join(repoPath, "bun.lock"))) return "bun";
-	if (await pathExists(path.join(repoPath, "bun.lockb"))) return "bun";
-	if (await pathExists(path.join(repoPath, "pnpm-lock.yaml"))) return "pnpm";
-	if (await pathExists(path.join(repoPath, "yarn.lock"))) return "yarn";
-	return "npm";
 }
 
 function extractScriptPort(script: string): number | null {
@@ -106,28 +100,6 @@ function extraPortArgs(script: string, port: number): string[] {
 	return [];
 }
 
-function packageScriptCommand(params: {
-	packageManager: DastTargetStartPlan["packageManager"];
-	scriptName: string;
-	script: string;
-	port: number;
-	portFromScript: boolean;
-}): string[] {
-	const portArgs = params.portFromScript
-		? []
-		: extraPortArgs(params.script, params.port);
-	switch (params.packageManager) {
-		case "bun":
-			return ["bun", "run", params.scriptName, "--", ...portArgs];
-		case "pnpm":
-			return ["pnpm", "run", params.scriptName, "--", ...portArgs];
-		case "yarn":
-			return ["yarn", params.scriptName, ...portArgs];
-		case "npm":
-			return ["npm", "run", params.scriptName, "--", ...portArgs];
-	}
-}
-
 async function findFreePort(): Promise<number> {
 	return await new Promise((resolve, reject) => {
 		const server = net.createServer();
@@ -149,46 +121,196 @@ async function findFreePort(): Promise<number> {
 export async function inferDastTargetStartPlan(params: {
 	repoPath: string;
 	port?: number;
+	consentProjectCodeExecution?: boolean;
 }): Promise<DastTargetStartPlan> {
 	const packageJsonPath = path.join(params.repoPath, "package.json");
-	const packageJson = parsePackageJson(
-		await fs.readFile(packageJsonPath, "utf8"),
-	);
+	const packageJson: PackageJson = await fs
+		.readFile(packageJsonPath, "utf8")
+		.then(parsePackageJson)
+		.catch((): PackageJson => ({}));
 	const scripts = packageJson.scripts ?? {};
 	const scriptName = SCRIPT_PRIORITY.find((name) => scripts[name]);
-	if (!scriptName) {
+	const script = scriptName ? scripts[scriptName] : "";
+	const portFromScript = script ? extractScriptPort(script) : null;
+	const port = params.port ?? portFromScript ?? (await findFreePort());
+	const technology = await analyzeProjectCapabilities(params.repoPath);
+	const startPlan = await selectPluginStartPlan({
+		technology,
+		repoPath: params.repoPath,
+		port,
+		requestedPortExplicit: params.port !== undefined,
+	});
+	if (!startPlan) {
 		throw new Error(
-			"Could not infer how to start the project: package.json has no dast/dev/start/serve/preview script.",
+			scriptName
+				? "Could not infer how to start the project: no registered technology plugin produced a start plan."
+				: "Could not infer how to start the project: package.json has no dast/dev/start/serve/preview script and no Java framework start plan is available.",
 		);
 	}
-	const script = scripts[scriptName];
-	const portFromScript = extractScriptPort(script);
-	const port = params.port ?? portFromScript ?? (await findFreePort());
-	const packageManager = await detectPackageManager(params.repoPath);
-	const command = packageScriptCommand({
-		packageManager,
-		scriptName,
-		script,
-		port,
-		portFromScript: portFromScript !== null && params.port === undefined,
+	await validatePluginStartPlan({
+		plan: startPlan,
+		repoPath: params.repoPath,
+		consentProjectCodeExecution: params.consentProjectCodeExecution === true,
 	});
+	const packageManager = packageManagerForStartPlan(startPlan);
+	const command = [startPlan.executable, ...startPlan.args];
 	const warnings: string[] = [];
-	if (!portFromScript && extraPortArgs(script, port).length === 0) {
+	if (
+		startPlan.pluginId === "build.npm" &&
+		!portFromScript &&
+		extraPortArgs(script, port).length === 0
+	) {
 		warnings.push(
 			"Start script does not advertise a known framework port flag; PORT-style environment variables will be used.",
 		);
 	}
 	return {
+		pluginId: startPlan.pluginId,
 		repoPath: params.repoPath,
-		scriptName,
-		script,
+		scriptName:
+			startPlan.pluginId === "build.npm"
+				? (scriptName ?? "start")
+				: packageManager === "maven"
+					? "spring-boot:run"
+					: "bootRun",
+		script: script || startPlan.args.join(" "),
 		packageManager,
 		command,
+		env: startPlan.env,
+		requiresProjectCodeConsent: startPlan.requiresProjectCodeConsent,
 		port,
 		origin: `http://127.0.0.1:${port}`,
-		readinessPaths: READINESS_PATHS,
+		readinessPaths: startPlan.readinessPaths,
 		warnings,
 	};
+}
+
+async function selectPluginStartPlan(params: {
+	technology: Awaited<ReturnType<typeof analyzeProjectCapabilities>>;
+	repoPath: string;
+	port: number;
+	requestedPortExplicit: boolean;
+}): Promise<DastStartPlanV1 | null> {
+	const activePluginIds = params.technology.capabilityPlan.activePluginIds;
+	const plannerPluginIds = new Set([
+		...activePluginIds,
+		...params.technology.detections
+			.filter(
+				(detection) => detection.detected && detection.pluginId === "build.npm",
+			)
+			.map((detection) => detection.pluginId),
+	]);
+	const planners = builtInTechnologyPluginRegistry
+		.startPlanners()
+		.filter((planner) => plannerPluginIds.has(planner.pluginId))
+		.sort(
+			(left, right) =>
+				startPlannerPriority(right.pluginId) -
+					startPlannerPriority(left.pluginId) ||
+				left.id.localeCompare(right.id),
+		);
+	for (const planner of planners) {
+		const plan = await planner.plan({
+			...params.technology.context,
+			port: params.port,
+			requestedPortExplicit: params.requestedPortExplicit,
+			activePluginIds,
+		});
+		if (plan) return plan;
+	}
+	return null;
+}
+
+function startPlannerPriority(pluginId: string): number {
+	return pluginId.startsWith("framework.") ? 200 : 100;
+}
+
+async function validatePluginStartPlan(params: {
+	plan: DastStartPlanV1;
+	repoPath: string;
+	consentProjectCodeExecution: boolean;
+}): Promise<void> {
+	const allowedExecutables = new Set([
+		"bun",
+		"pnpm",
+		"yarn",
+		"npm",
+		"./mvnw",
+		"mvn",
+		"./gradlew",
+		"gradle",
+	]);
+	if (!allowedExecutables.has(params.plan.executable)) {
+		throw new Error("dast_start_executable_not_allowed");
+	}
+	if (params.plan.requestedNetwork !== "none") {
+		throw new Error("dast_start_network_not_allowed");
+	}
+	if (
+		params.plan.requiresProjectCodeConsent &&
+		!params.consentProjectCodeExecution
+	) {
+		throw new Error("project_code_execution_consent_required");
+	}
+	const values = [
+		params.plan.executable,
+		...params.plan.args,
+		...Object.keys(params.plan.env),
+		...Object.values(params.plan.env),
+	];
+	if (values.some((value) => /[\0\r\n]/.test(value))) {
+		throw new Error("dast_start_control_character_rejected");
+	}
+	const cwd = path.resolve(params.repoPath, params.plan.cwd);
+	if (!isPathInside(cwd, params.repoPath)) {
+		throw new Error("dast_start_cwd_outside_project");
+	}
+	if (params.plan.executable.startsWith("./")) {
+		const executablePath = path.resolve(
+			params.repoPath,
+			params.plan.executable,
+		);
+		if (!isPathInside(executablePath, params.repoPath)) {
+			throw new Error("dast_start_executable_outside_project");
+		}
+		if (!(await pathExists(executablePath))) {
+			throw new Error("dast_start_wrapper_not_found");
+		}
+	}
+	const allowedEnvironmentKeys = new Set([
+		"HOST",
+		"PORT",
+		"VITE_PORT",
+		"APP_URL",
+		"CORS_ORIGINS",
+		"NODE_ENV",
+		"SERVER_ADDRESS",
+		"SERVER_PORT",
+	]);
+	if (
+		Object.keys(params.plan.env).some((key) => !allowedEnvironmentKeys.has(key))
+	) {
+		throw new Error("dast_start_environment_key_not_allowed");
+	}
+}
+
+function packageManagerForStartPlan(
+	plan: DastStartPlanV1,
+): DastTargetStartPlan["packageManager"] {
+	if (plan.executable === "./mvnw" || plan.executable === "mvn") return "maven";
+	if (plan.executable === "./gradlew" || plan.executable === "gradle")
+		return "gradle";
+	return plan.executable as "bun" | "pnpm" | "yarn" | "npm";
+}
+
+function isPathInside(candidate: string, root: string): boolean {
+	const relative = path.relative(path.resolve(root), path.resolve(candidate));
+	return (
+		relative === "" ||
+		(!path.isAbsolute(relative) &&
+			relative !== ".." &&
+			!relative.startsWith(`..${path.sep}`))
+	);
 }
 
 async function waitForReadiness(params: {
@@ -248,6 +370,7 @@ async function stopProcess(proc: PreparedProcess): Promise<void> {
 export async function prepareDastTargetWorkspace(params: {
 	repoPath: string;
 	port?: number;
+	consentProjectCodeExecution?: boolean;
 	readinessTimeoutMs?: number;
 	spawn?: SpawnPreparedProcess;
 	fetchImpl?: typeof fetch;
@@ -255,7 +378,11 @@ export async function prepareDastTargetWorkspace(params: {
 	const plan = await inferDastTargetStartPlan({
 		repoPath: params.repoPath,
 		port: params.port,
+		consentProjectCodeExecution: params.consentProjectCodeExecution,
 	});
+	if (plan.requiresProjectCodeConsent) {
+		throw new Error("project_code_execution_sandbox_required");
+	}
 	const spawn =
 		params.spawn ??
 		((command, options) =>
@@ -365,5 +492,6 @@ function targetProcessEnvironment(
 		APP_URL: plan.origin,
 		CORS_ORIGINS: plan.origin,
 		NODE_ENV: "development",
+		...plan.env,
 	};
 }

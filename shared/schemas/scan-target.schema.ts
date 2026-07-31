@@ -152,8 +152,18 @@ export const diffManifestSchema = z.object({
 	}),
 	coverage: diffCoverageSchema,
 	entries: z.array(diffManifestEntrySchema),
+	pluginContext: z
+		.object({
+			detectedPluginIds: z.array(z.string().min(1)),
+			affectedPluginIds: z.array(z.string().min(1)),
+			dependencyStateChanged: z.boolean(),
+			lockStateChanged: z.boolean(),
+			limitationCodes: z.array(z.string().min(1)),
+		})
+		.strict(),
 });
 export type DiffManifest = z.infer<typeof diffManifestSchema>;
+export type PluginDiffContext = DiffManifest["pluginContext"];
 
 export const diffToolApplicabilitySchema = z.object({
 	toolId: z.string(),
@@ -181,5 +191,6 @@ export const diffScanPreviewSchema = z.object({
 		}),
 	),
 	tools: z.array(diffToolApplicabilitySchema),
+	pluginContext: diffManifestSchema.shape.pluginContext,
 });
 export type DiffScanPreview = z.infer<typeof diffScanPreviewSchema>;

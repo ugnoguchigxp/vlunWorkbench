@@ -191,6 +191,47 @@ describe("diff snapshot", () => {
 		}
 	});
 
+	it("materializes Maven multi-module companions for a child pom change", async () => {
+		await write("pom.xml", "<project><modules><module>service</module></modules></project>\n");
+		await write(
+			"service/pom.xml",
+			"<project><version>1.0.0</version></project>\n",
+		);
+		await write(
+			"shared/pom.xml",
+			"<project><version>1.0.0</version></project>\n",
+		);
+		await commit("maven modules");
+		await write(
+			"service/pom.xml",
+			"<project><version>2.0.0</version></project>\n",
+		);
+		const plan = buildDiffScanPlan({
+			resolved: await resolveGitDiff({
+				projectPath: repoPath,
+				target: {
+					kind: "working_tree",
+					base: "HEAD",
+					includeUntracked: true,
+				},
+			}),
+			tools,
+		});
+
+		const snapshot = await materializeDiffSnapshot({ plan });
+		try {
+			expect(snapshot.trivyContextFileCount).toBe(2);
+			for (const relativePath of ["pom.xml", "shared/pom.xml"]) {
+				await fs.access(path.join(snapshot.trivyWorkspacePath, relativePath));
+				await expect(
+					fs.access(path.join(snapshot.changedWorkspacePath, relativePath)),
+				).rejects.toThrow();
+			}
+		} finally {
+			await snapshot.cleanup();
+		}
+	});
+
 	it("removes changed non-scannable paths from every scanner snapshot", async () => {
 		await write("dist/generated.js", "base\n");
 		await commit("excluded base");

@@ -54,6 +54,7 @@ export function buildScanLaunchActions(scope: ScanLaunchActionsScope) {
 		projects,
 		scanReviewFindingFilter,
 		scanTargetKind,
+		scanProjectCodeExecutionConsent,
 		selectedProfileId,
 		selectedProjectId,
 		selectedScanRunId,
@@ -80,6 +81,7 @@ export function buildScanLaunchActions(scope: ScanLaunchActionsScope) {
 		setScanReviewLoading,
 		setScanReviews,
 		setScanRuns,
+		setScanProjectCodeExecutionConsent,
 		setScanTargetKind,
 		setSecurityCheckResults,
 		setSelectedFindingDetails,
@@ -170,6 +172,7 @@ export function buildScanLaunchActions(scope: ScanLaunchActionsScope) {
 			const res = await startScan(selectedProjectId, {
 				profile: selectedProfileId,
 				continueOnToolFailure,
+				consentProjectCodeExecution: scanProjectCodeExecutionConsent,
 				timeoutSec,
 				target,
 				...(target.kind !== "full" && diffPreviewCurrent && diffPreview
@@ -186,6 +189,7 @@ export function buildScanLaunchActions(scope: ScanLaunchActionsScope) {
 			}
 			setDiffPreview(null);
 			setDiffPreviewResolvedInputKey(null);
+			setScanProjectCodeExecutionConsent(false);
 			setShowRunScanForm(false);
 		} catch (err) {
 			setErrorText(

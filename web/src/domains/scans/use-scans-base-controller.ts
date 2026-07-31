@@ -120,6 +120,8 @@ export const useScansControllerBase = ({
 	const [diffPreviewError, setDiffPreviewError] = useState<string | null>(null);
 	const diffPreviewRequestIdRef = useRef(0);
 	const [continueOnToolFailure, setContinueOnToolFailure] = useState(true);
+	const [scanProjectCodeExecutionConsent, setScanProjectCodeExecutionConsent] =
+		useState(false);
 	const [timeoutSec, setTimeoutSec] = useState(600);
 	const [showRunScanForm, setShowRunScanForm] = useState(false);
 	const [isScanning, setIsScanning] = useState(false);
@@ -342,6 +344,7 @@ export const useScansControllerBase = ({
 		scanRuns,
 		scanSummary,
 		scanTargetKind,
+		scanProjectCodeExecutionConsent,
 		securityCheckResults,
 		selectedDecisionWorkflow,
 		selectedDynamicProfile,
@@ -422,6 +425,7 @@ export const useScansControllerBase = ({
 		setScanReviews,
 		setScanRuns,
 		setScanSummary,
+		setScanProjectCodeExecutionConsent,
 		setScanTargetKind,
 		setSecurityCheckResults,
 		setSelectedDynamicProfile,

@@ -86,6 +86,9 @@ function resolveReference(
 		specifier: reference.specifier,
 		kind: kindForReference(reference),
 	};
+	if (reference.kindHint === "java_import") {
+		return resolveJavaImport(reference, entriesByPath);
+	}
 	if (isRemoteOrInline(reference.specifier)) {
 		return {
 			...base,
@@ -240,6 +243,60 @@ function resolveReference(
 		target: target.path,
 		resolverId: "relative-path",
 		confidence: 1,
+		diagnosticCodes: [],
+	};
+}
+
+function resolveJavaImport(
+	reference: UnresolvedStructureReference,
+	entriesByPath: Map<string, ProjectInventoryEntry>,
+): ProjectStructureReference {
+	const base = {
+		from: reference.from,
+		specifier: reference.specifier,
+		kind: "code_module" as const,
+	};
+	if (reference.specifier.endsWith(".*")) {
+		return {
+			...base,
+			kind: "external_package",
+			status: "external",
+			resolverId: "java-package-import",
+			confidence: 0.7,
+			diagnosticCodes: [],
+		};
+	}
+	const suffix = `${reference.specifier.replaceAll(".", "/")}.java`;
+	const matches = [...entriesByPath.values()].filter(
+		(entry) => entry.path === suffix || entry.path.endsWith(`/${suffix}`),
+	);
+	if (matches.length === 1) {
+		const target = matches[0];
+		if (!target) throw new Error("Java import target unexpectedly missing.");
+		return {
+			...base,
+			status: target.analyzerIds.length > 0 ? "resolved" : "resolved_unparsed",
+			target: target.path,
+			resolverId: "java-package-import",
+			confidence: 0.95,
+			diagnosticCodes: [],
+		};
+	}
+	if (matches.length > 1) {
+		return {
+			...base,
+			status: "ambiguous",
+			resolverId: "java-package-import",
+			confidence: 0.5,
+			diagnosticCodes: ["resolution_target_ambiguous"],
+		};
+	}
+	return {
+		...base,
+		kind: "external_package",
+		status: "external",
+		resolverId: "java-package-import",
+		confidence: 0.8,
 		diagnosticCodes: [],
 	};
 }

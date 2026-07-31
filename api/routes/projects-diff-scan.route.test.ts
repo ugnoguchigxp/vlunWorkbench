@@ -113,6 +113,10 @@ describe("Projects diff scan routes", () => {
 				targetDigest: expect.stringMatching(/^[0-9a-f]{64}$/),
 			},
 			coverage: { changed: 1, scannable: 1 },
+			pluginContext: {
+				detectedPluginIds: ["language.typescript"],
+				affectedPluginIds: expect.arrayContaining(["language.typescript"]),
+			},
 			entries: [
 				{
 					status: "modified",

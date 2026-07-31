@@ -8,6 +8,7 @@ import type { AppEnv } from "../app/env";
 import { requireAdmin } from "../middleware/auth";
 import { getAuthContextUser } from "../modules/auth/context";
 import { HttpError } from "../modules/auth/errors";
+import { analyzeProjectCapabilities } from "../modules/project-capabilities/plugin-detector";
 import type {
 	ProjectRepository,
 	ScanRepository,
@@ -225,6 +226,9 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 					);
 				}
 				try {
+					const technologyAnalysis = await analyzeProjectCapabilities(
+						authorized.canonicalPath,
+					);
 					const plan = buildDiffScanPlan({
 						resolved: await resolveGitDiff({
 							projectPath: authorized.canonicalPath,
@@ -232,6 +236,12 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 							scope: profile.scope,
 						}),
 						tools: profile.tools,
+						detectedPluginIds: technologyAnalysis.detections
+							.filter((detection) => detection.detected)
+							.map((detection) => detection.pluginId),
+						projectInventoryPaths: technologyAnalysis.context.inventory.map(
+							(entry) => entry.path,
+						),
 					});
 					return c.json(toDiffScanPreview(plan));
 				} catch (error) {
@@ -254,6 +264,7 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 						.regex(/^[0-9a-f]{64}$/i)
 						.optional(),
 					continueOnToolFailure: z.boolean().default(true).optional(),
+					consentProjectCodeExecution: z.boolean().default(false).optional(),
 					timeoutSec: z.number().int().positive().optional(),
 					runner: z.enum(["host", "docker"]).default("host").optional(),
 					dockerBin: z.string().optional(),
@@ -346,6 +357,8 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 					body.profile,
 					"--continue-on-tool-failure",
 					String(body.continueOnToolFailure ?? true),
+					"--consent-project-code-execution",
+					String(body.consentProjectCodeExecution === true),
 					"--runner",
 					policy.runner,
 					"--final-report",

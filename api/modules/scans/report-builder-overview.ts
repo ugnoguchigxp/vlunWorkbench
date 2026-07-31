@@ -11,6 +11,7 @@ import {
 	toInlineText,
 } from "./report-builder-helpers";
 import type { buildReportQuery } from "./report-builder-query";
+import { readPluginExecutionSummary } from "./report-builder-technology";
 
 export function renderReportOverview(
 	scope: Awaited<ReturnType<typeof buildReportQuery>>,
@@ -43,6 +44,12 @@ export function renderReportOverview(
 	// Scan Summary
 	const profileOutcome = (scanRun.metadata?.profileOutcome as string) || "N/A";
 	const diffContext = readDiffReportContext(scanRun.metadata);
+	const technologySummary = readPluginExecutionSummary(scanRun.metadata);
+	const limitedTechnology =
+		technologySummary?.pluginResults.some(
+			(result) =>
+				result.coverageEffect !== "covered" || result.status !== "completed",
+		) ?? false;
 	const limitedDast =
 		expectedDastSteps.length > 0 &&
 		(allDastRuns.length === 0 ||
@@ -129,6 +136,10 @@ export function renderReportOverview(
 		} else if (limitedDast) {
 			lines.push(
 				"- **結論:** DASTに未走査・通信失敗・認証失敗またはcoverage不明の領域があるため、finding 0件を合格や脆弱性不存在として扱えません。",
+			);
+		} else if (limitedTechnology) {
+			lines.push(
+				"- **結論:** 検出されたtechnology pluginに未実行、partial、またはgapの領域があるため、finding 0件を合格や脆弱性不存在として扱えません。",
 			);
 		} else {
 			lines.push(

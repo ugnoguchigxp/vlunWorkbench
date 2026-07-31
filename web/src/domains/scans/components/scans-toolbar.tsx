@@ -16,6 +16,7 @@ import {
 	getToolDisplay,
 } from "../scan-profile-display";
 import { useScans } from "../scans-context";
+import { ScanProjectCodeConsent } from "./scan-project-code-consent";
 
 const folderNameFromPath = (value: string): string => {
 	const normalized = value.replaceAll("\\", "/").replace(/\/+$/, "");
@@ -145,10 +146,16 @@ export function ScansToolbar() {
 								<small>{selectedProfileStepLabels.join(" / ")}</small>
 							) : null}
 							{selectedProfileHasDast ? (
-								<p>
-									実行対象はプロジェクトの起動スクリプトから自動判別され、HTTP
-									DAST 証跡は同じスキャン結果に保存されます。
-								</p>
+								<>
+									<p>
+										実行対象はプロジェクトの起動スクリプトから自動判別され、HTTP
+										DAST 証跡は同じスキャン結果に保存されます。
+									</p>
+									<ScanProjectCodeConsent
+										checked={c.scanProjectCodeExecutionConsent}
+										onChange={c.setScanProjectCodeExecutionConsent}
+									/>
+								</>
 							) : null}
 						</div>
 					</div>

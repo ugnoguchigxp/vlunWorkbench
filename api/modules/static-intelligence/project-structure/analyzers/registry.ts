@@ -1,32 +1,18 @@
+import path from "node:path";
 import { load } from "cheerio";
 import postcss from "postcss";
-import type { ProjectStructureFile } from "../../../../../shared/schemas/project-structure.schema";
+import { builtInTechnologyPluginRegistry } from "../../../../plugins/builtin";
 import type { ProjectInventoryEntry } from "../inventory";
-import { TYPESCRIPT_JAVASCRIPT_ANALYZER } from "./typescript-javascript";
+import type {
+	ProjectStructureAnalyzer,
+	UnresolvedStructureReference,
+} from "./types";
 
-export type UnresolvedStructureReference = {
-	from: string;
-	specifier: string;
-	kindHint: "code_module" | "stylesheet" | "asset" | "manifest";
-};
-
-export type AnalyzerOutput = {
-	analyzerId: string;
-	references: UnresolvedStructureReference[];
-	diagnosticCodes: string[];
-	roleHints?: string[];
-	fileFacts?: Pick<
-		ProjectStructureFile,
-		"language" | "moduleKind" | "tags" | "exportedSymbols" | "identifiers"
-	>;
-};
-
-export type ProjectStructureAnalyzer = {
-	id: string;
-	version: string;
-	supports(entry: ProjectInventoryEntry): boolean;
-	analyze(entry: ProjectInventoryEntry, bytes: Uint8Array): AnalyzerOutput;
-};
+export type {
+	AnalyzerOutput,
+	ProjectStructureAnalyzer,
+	UnresolvedStructureReference,
+} from "./types";
 
 const CSS_ANALYZER: ProjectStructureAnalyzer = {
 	id: "css",
@@ -140,7 +126,6 @@ const MANIFEST_CONFIG_ANALYZER: ProjectStructureAnalyzer = {
 };
 
 const ANALYZERS: ProjectStructureAnalyzer[] = [
-	TYPESCRIPT_JAVASCRIPT_ANALYZER,
 	CSS_ANALYZER,
 	HTML_ANALYZER,
 	MANIFEST_CONFIG_ANALYZER,
@@ -149,6 +134,28 @@ const ANALYZERS: ProjectStructureAnalyzer[] = [
 export function analyzerFor(
 	entry: ProjectInventoryEntry,
 ): ProjectStructureAnalyzer | null {
+	const extension = path.posix.extname(entry.path).toLowerCase();
+	const contribution = builtInTechnologyPluginRegistry
+		.sourceAnalyzers()
+		.find(
+			(candidate) =>
+				entry.kind === "source" && candidate.extensions.includes(extension),
+		);
+	if (contribution) {
+		return {
+			id: contribution.id,
+			version: contribution.version,
+			supports(candidate) {
+				return (
+					candidate.kind === "source" &&
+					contribution.extensions.includes(
+						path.posix.extname(candidate.path).toLowerCase(),
+					)
+				);
+			},
+			analyze: contribution.analyze,
+		};
+	}
 	return ANALYZERS.find((analyzer) => analyzer.supports(entry)) ?? null;
 }
 

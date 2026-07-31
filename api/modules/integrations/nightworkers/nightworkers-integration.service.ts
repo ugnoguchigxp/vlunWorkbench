@@ -11,6 +11,7 @@ import type {
 	IntegrationStartScanResponse,
 } from "../../../../shared/schemas/nightworkers-security-scan-integration.schema";
 import type { AuthenticatedIntegrationClient } from "../../integrationClients/integration-client.service";
+import { analyzeProjectCapabilities } from "../../project-capabilities/plugin-detector";
 import { buildDiffScanPlan } from "../../scans/diff-scan-plan";
 import { resolveFullScanTarget } from "../../scans/full-scan-target";
 import { resolveGitDiff } from "../../scans/git-diff-resolver";
@@ -137,6 +138,9 @@ export class NightworkersIntegrationService {
 						: [],
 			};
 		}
+		const technologyAnalysis = await analyzeProjectCapabilities(
+			params.projectPath,
+		);
 		const plan = buildDiffScanPlan({
 			resolved: await resolveGitDiff({
 				projectPath: params.projectPath,
@@ -144,6 +148,12 @@ export class NightworkersIntegrationService {
 				scope: params.profile.scope,
 			}),
 			tools: params.profile.tools,
+			detectedPluginIds: technologyAnalysis.detections
+				.filter((detection) => detection.detected)
+				.map((detection) => detection.pluginId),
+			projectInventoryPaths: technologyAnalysis.context.inventory.map(
+				(entry) => entry.path,
+			),
 		});
 		const toolAvailability = new Map<
 			string,

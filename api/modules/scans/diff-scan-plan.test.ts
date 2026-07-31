@@ -83,6 +83,109 @@ describe("diff scan plan", () => {
 		});
 	});
 
+	it("makes Maven and Gradle dependency changes applicable", () => {
+		const maven = buildDiffScanPlan({
+			resolved: resolved([entry("services/orders/pom.xml")]),
+			tools,
+		});
+		expect(maven.dependencyChanged).toBe(true);
+		expect(maven.pluginContext.affectedPluginIds).toContain("build.maven");
+		expect(maven.pluginContext.lockStateChanged).toBe(false);
+		expect(maven.pluginContext.limitationCodes).toEqual(
+			expect.arrayContaining([
+				"maven_direct_dependencies_only",
+				"dependency_resolution_not_performed",
+			]),
+		);
+		expect(
+			maven.tools.find((tool) => tool.toolId === "osv",
+			),
+		).toMatchObject({
+			applicability: "applicable",
+			coverageEffect: "partial",
+		});
+
+		const gradleDefinitionOnly = buildDiffScanPlan({
+			resolved: resolved([entry("build.gradle.kts")]),
+			tools,
+		});
+		expect(gradleDefinitionOnly.pluginContext.limitationCodes).toContain(
+			"gradle_dependency_lock_missing",
+		);
+		expect(
+			gradleDefinitionOnly.tools.find((tool) => tool.toolId === "osv"),
+		).toMatchObject({
+			applicability: "applicable",
+			coverageEffect: "gap",
+		});
+
+		const gradleVerificationOnly = buildDiffScanPlan({
+			resolved: resolved([entry("gradle/verification-metadata.xml")]),
+			tools,
+		});
+		expect(gradleVerificationOnly.pluginContext).toMatchObject({
+			dependencyStateChanged: true,
+			lockStateChanged: false,
+		});
+		expect(
+			gradleVerificationOnly.tools.find((tool) => tool.toolId === "osv"),
+		).toMatchObject({
+			applicability: "applicable",
+			coverageEffect: "partial",
+		});
+
+		const gradleLock = buildDiffScanPlan({
+			resolved: resolved([
+				entry("services/orders/gradle.lockfile"),
+				entry("services/orders/build.gradle.kts"),
+			]),
+			tools,
+		});
+		expect(gradleLock.pluginContext).toMatchObject({
+			dependencyStateChanged: true,
+			lockStateChanged: true,
+			limitationCodes: [],
+		});
+		expect(
+			gradleLock.tools.find((tool) => tool.toolId === "osv"),
+		).toMatchObject({
+			applicability: "applicable",
+			coverageEffect: "covered",
+		});
+	});
+
+	it("separates detected plugins from path-affected plugins", () => {
+		const plan = buildDiffScanPlan({
+			resolved: resolved([entry("src/app.ts")]),
+			tools,
+			detectedPluginIds: ["language.java"],
+		});
+
+		expect(plan.pluginContext.detectedPluginIds).toEqual(["language.java"]);
+		expect(plan.pluginContext.affectedPluginIds).toContain(
+			"language.typescript",
+		);
+		expect(plan.pluginContext.affectedPluginIds).not.toContain("language.java");
+	});
+
+	it("uses the full project inventory when evaluating unchanged lock coverage", () => {
+		const plan = buildDiffScanPlan({
+			resolved: resolved([entry("package.json")]),
+			tools,
+			projectInventoryPaths: ["package.json", "package-lock.json"],
+		});
+
+		expect(plan.pluginContext).toMatchObject({
+			dependencyStateChanged: true,
+			lockStateChanged: false,
+			limitationCodes: [],
+		});
+		expect(plan.tools.find((tool) => tool.toolId === "osv")).toMatchObject({
+			applicability: "applicable",
+			coverageEffect: "covered",
+		});
+	});
+
 	it("distinguishes an empty diff from partial coverage", () => {
 		const empty = buildDiffScanPlan({ resolved: resolved([]), tools });
 		expect(

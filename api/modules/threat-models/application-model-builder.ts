@@ -20,6 +20,7 @@ type ExternalEndpoint = {
 export type ApplicationModelInput = {
 	projectId: string;
 	sources: SourceInput[];
+	activePluginIds?: string[];
 	openApiOperations?: ExternalEndpoint[];
 	runtimeRoutes?: ExternalEndpoint[];
 	databaseTables?: Array<{ name: string; ref: string }>;
@@ -58,9 +59,17 @@ export function buildApplicationModel(
 				(left, right) =>
 					left.evidenceRef.ref.localeCompare(right.evidenceRef.ref),
 			),
+			activePluginIds: [...(input.activePluginIds ?? [])].sort((left, right) =>
+				left.localeCompare(right),
+			),
 		}),
 	);
-	const sourceEndpoints = input.sources.flatMap(extractEndpoints);
+	const endpointOptions = input.activePluginIds
+		? { activePluginIds: input.activePluginIds }
+		: undefined;
+	const sourceEndpoints = input.sources.flatMap((source) =>
+		extractEndpoints(source, endpointOptions),
+	);
 	const inferredGuards = input.sources.flatMap((source) => {
 		if (
 			!/\b(requireAuth|requireAdmin|getAuthContextUser|authorize|permission|role)\b/.test(
@@ -68,7 +77,7 @@ export function buildApplicationModel(
 			)
 		)
 			return [];
-		return extractEndpoints(source).map((endpoint) => ({
+		return extractEndpoints(source, endpointOptions).map((endpoint) => ({
 			name: `inferred route guard for ${endpoint.method} ${endpoint.path}`,
 			kind: "unknown" as const,
 			method: endpoint.method,

@@ -1,4 +1,5 @@
 import { prepareDastTargetWorkspace } from "../dast/target-preparer";
+import { builtInTechnologyPluginRegistry } from "../../plugins/builtin";
 import { shouldUseChangedWorkspaceForSemgrep } from "./diff-scan-plan";
 import {
 	runDastStepIntoExistingScan,
@@ -41,6 +42,7 @@ export async function executeProfileSteps(
 		if (!sharedRuntimeTarget) {
 			sharedRuntimeTarget = await prepareDastTargetWorkspace({
 				repoPath: params.repoPath,
+				consentProjectCodeExecution: params.consentProjectCodeExecution,
 			});
 		}
 		return sharedRuntimeTarget;
@@ -201,6 +203,17 @@ export async function executeProfileSteps(
 						toolId,
 						options: {
 							...(("options" in step ? step.options : undefined) ?? {}),
+							...(toolId === "semgrep"
+								? {
+										semgrepRuleContributions: builtInTechnologyPluginRegistry
+											.semgrepRules()
+											.filter((contribution) =>
+												params.technologyAnalysis.capabilityPlan.activePluginIds.includes(
+													contribution.pluginId,
+												),
+											),
+									}
+								: {}),
 							...(step.kind === "sbom_export" ? { mode: "fs-sbom" } : {}),
 							...(step.kind === "container_image_scan"
 								? {
@@ -256,6 +269,7 @@ export async function executeProfileSteps(
 						timeoutSec: resolvedTimeout,
 						createdByUserId: params.createdByUserId,
 						preparedAutoTarget: target,
+						consentProjectCodeExecution: params.consentProjectCodeExecution,
 					});
 					stepResults.push(dastResult);
 					findingCount = dastResult.findingCount;

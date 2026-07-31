@@ -290,6 +290,7 @@ function stripInventoryAbsolutePath(entry: ProjectInventoryEntry) {
 }
 
 function languageForEntry(entry: ProjectInventoryEntry): string {
+	if (path.posix.extname(entry.path).toLowerCase() === ".java") return "java";
 	switch (entry.kind) {
 		case "style":
 			return "css";

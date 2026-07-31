@@ -261,6 +261,7 @@ export async function startScan(
 	params: {
 		profile: string;
 		continueOnToolFailure?: boolean;
+		consentProjectCodeExecution?: boolean;
 		timeoutSec?: number;
 		runner?: "host" | "docker";
 		dockerBin?: string;

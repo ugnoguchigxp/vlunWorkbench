@@ -4,9 +4,15 @@ import type {
 	DiffManifest,
 	DiffScanPreview,
 	DiffToolApplicability,
+	PluginDiffContext,
 	ResolvedScanTarget,
 } from "../../../shared/schemas/scan-target.schema";
 import type { ProfileToolEntry } from "../../../shared/schemas/scan-profile.schema";
+import {
+	dependencyProvidersForPaths,
+	detectAffectedPluginsFromPaths,
+} from "../project-capabilities/plugin-detector";
+import { matchesAnyPluginGlob } from "../project-capabilities/path-patterns";
 import { DEPENDENCY_MANIFEST_SCOPE } from "./profiles";
 import { DIFF_SCAN_LIMITS, type ResolvedGitDiff } from "./git-diff-resolver";
 import { matchesScopePath } from "./target-scope";
@@ -18,6 +24,7 @@ export type DiffScanPlan = {
 	tools: DiffToolApplicability[];
 	scanPaths: string[];
 	dependencyChanged: boolean;
+	pluginContext: PluginDiffContext;
 };
 
 const SEMGREP_MAX_EXPLICIT_TARGETS = 512;
@@ -37,6 +44,8 @@ export function shouldUseChangedWorkspaceForSemgrep(
 export function buildDiffScanPlan(params: {
 	resolved: ResolvedGitDiff;
 	tools: ProfileToolEntry[];
+	detectedPluginIds?: readonly string[];
+	projectInventoryPaths?: readonly string[];
 }): DiffScanPlan {
 	const entries = params.resolved.entries;
 	const coverage: DiffCoverage = {
@@ -54,11 +63,27 @@ export function buildDiffScanPlan(params: {
 		.filter((entry) => entry.disposition === "scan")
 		.map((entry) => entry.path)
 		.sort((left, right) => left.localeCompare(right));
-	const dependencyChanged = entries.some(
-		(entry) =>
-			entry.disposition === "scan" &&
-			matchesScopePath(entry.path, DEPENDENCY_MANIFEST_SCOPE),
+	const affectedPluginIds = detectAffectedPluginsFromPaths(scanPaths);
+	const dependencyProviders = dependencyProvidersForPaths(scanPaths);
+	const dependencyChanged = dependencyProviders.length > 0;
+	const lockStateChanged = dependencyProviders.some((provider) =>
+		scanPaths.some((candidate) =>
+			matchesAnyPluginGlob(candidate, provider.lockGlobs),
+		),
 	);
+	const dependencyCoverage = dependencyDiffCoverage(
+		params.projectInventoryPaths ?? scanPaths,
+		dependencyProviders,
+	);
+	const pluginContext: PluginDiffContext = {
+		detectedPluginIds: [...new Set(params.detectedPluginIds ?? [])].sort(
+			(left, right) => left.localeCompare(right),
+		),
+		affectedPluginIds,
+		dependencyStateChanged: dependencyChanged,
+		lockStateChanged,
+		limitationCodes: dependencyCoverage.limitationCodes,
+	};
 	const targetIdentity = {
 		schemaVersion: 1,
 		kind: params.resolved.requested.kind,
@@ -98,6 +123,7 @@ export function buildDiffScanPlan(params: {
 			coverage,
 			scanPaths,
 			dependencyChanged,
+			dependencyCoverageEffect: dependencyCoverage.coverageEffect,
 		}),
 	);
 	const manifest: DiffManifest = {
@@ -106,6 +132,7 @@ export function buildDiffScanPlan(params: {
 		limits: { ...DIFF_SCAN_LIMITS },
 		coverage,
 		entries,
+		pluginContext,
 	};
 	return {
 		resolved: params.resolved,
@@ -114,6 +141,7 @@ export function buildDiffScanPlan(params: {
 		tools,
 		scanPaths,
 		dependencyChanged,
+		pluginContext,
 	};
 }
 
@@ -131,6 +159,7 @@ export function toDiffScanPreview(plan: DiffScanPlan): DiffScanPreview {
 			reasonCode: entry.reasonCode,
 		})),
 		tools: plan.tools,
+		pluginContext: plan.pluginContext,
 	};
 }
 
@@ -139,6 +168,7 @@ function buildToolApplicability(params: {
 	coverage: DiffCoverage;
 	scanPaths: string[];
 	dependencyChanged: boolean;
+	dependencyCoverageEffect: DiffToolApplicability["coverageEffect"];
 }): DiffToolApplicability {
 	const hasGaps =
 		params.coverage.unsupported > 0 || params.coverage.tooLarge > 0;
@@ -155,11 +185,19 @@ function buildToolApplicability(params: {
 			: dependencyTool && !params.dependencyChanged
 				? "no_dependency_manifest_changed"
 				: "no_relevant_files";
+	const coverageEffect = dependencyTool
+		? worstCoverageEffect(
+				params.dependencyCoverageEffect,
+				hasGaps ? "partial" : "covered",
+			)
+		: hasGaps
+			? "partial"
+			: "covered";
 	return {
 		toolId: params.toolId,
 		applicability: applicable ? "applicable" : "not_applicable",
 		reasonCode,
-		coverageEffect: hasGaps ? "partial" : "covered",
+		coverageEffect,
 		changedFileCount: applicable
 			? dependencyTool
 				? params.scanPaths.filter((path) =>
@@ -169,6 +207,42 @@ function buildToolApplicability(params: {
 			: 0,
 		contextFileCount: 0,
 	};
+}
+
+function dependencyDiffCoverage(
+	projectInventoryPaths: readonly string[],
+	providers: ReturnType<typeof dependencyProvidersForPaths>,
+): {
+	coverageEffect: DiffToolApplicability["coverageEffect"];
+	limitationCodes: string[];
+} {
+	const limitations = new Set<string>();
+	let coverageEffect: DiffToolApplicability["coverageEffect"] = "covered";
+	for (const provider of providers) {
+		const coverage = provider.coverage(projectInventoryPaths);
+		coverageEffect = worstCoverageEffect(
+			coverageEffect,
+			coverage.coverageEffect,
+		);
+		if (coverage.reasonCode) limitations.add(coverage.reasonCode);
+		for (const limitation of coverage.limitationCodes) {
+			limitations.add(limitation);
+		}
+	}
+	return {
+		coverageEffect,
+		limitationCodes: [...limitations].sort((left, right) =>
+			left.localeCompare(right),
+		),
+	};
+}
+
+function worstCoverageEffect(
+	left: DiffToolApplicability["coverageEffect"],
+	right: DiffToolApplicability["coverageEffect"],
+): DiffToolApplicability["coverageEffect"] {
+	const rank = { covered: 0, partial: 1, gap: 2 } as const;
+	return rank[left] >= rank[right] ? left : right;
 }
 
 export function canonicalJson(value: unknown): string {

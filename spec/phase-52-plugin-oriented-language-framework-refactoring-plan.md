@@ -1,13 +1,16 @@
 # Phase 52: Plugin-Oriented Language, Build-System, and Framework Refactoring Plan
 
-Status: Draft; hard-blocked until the Phase 51 local implementation closeout gate is satisfied
+Status: Implementation in progress; Phase 51 local start gate satisfied.
+Slices 52.0–52.5、validated DAST start-plan generation、consent UI、post-scan
+technology reporting are implemented in the working tree. Sandboxed Java target
+execution、pre-scan capability UI、enforced rollout、legacy removal、same-commit
+release closeout remain pending.
 
 Predecessor:
 `spec/phase-51-dast-coverage-and-verdict-hardening-plan.md`
 
 Implementation baseline commit:
-Slice 52.0開始時に、Phase 51の統合済みcommitを記録する。DAST詳細化作業中の
-working tree SHAや未commit状態をbaselineとして固定しない。
+`aff18b530a8fddfdc67c2a7fc21a0b825712d9b6`
 
 Baseline date: 2026-07-31
 
@@ -18,6 +21,23 @@ Java/Maven・Gradle/Springに限定し、scanner execution、dependency scope、
 diff applicability、project structure、Application Model、DAST target start、
 reportingを、後から言語・build system・frameworkを追加できる
 versioned plugin contractへ段階移行する。
+
+Local implementation evidence:
+
+- `spec/evidence/phase-52-plugin-refactor-baseline.json`
+- `.artifacts/benchmark/phase-52-capability.json`
+- built-in registry digest:
+  `sha256:b2c655a3f3dea597c3e30704515902a563cfbfe74a8599b3d667baae733c3ede`
+- `bun run verify:phase-52-capability` successful
+- affected module regression: 532 tests passed
+- Phase 51 baseline and DAST capability gates successful after the refactor
+- Maven/Gradle start plans fail closed with
+  `project_code_execution_sandbox_required`; unsandboxed Java project code is
+  never spawned
+
+上記はlocal working treeの実装証跡であり、toolbox image digest、offline
+vulnerability databaseを使った実scanner vulnerable/fixed gate、
+same-commit clean checkoutを満たすrelease claimではない。
 
 ## 1. 結論
 
@@ -897,8 +917,8 @@ behavior変更は行わず、同じscript priority、port、readiness pathを維
 候補:
 
 ```text
-./mvnw spring-boot:run
-mvn spring-boot:run
+./mvnw --offline spring-boot:run
+mvn --offline spring-boot:run
 ```
 
 wrapperまたはbuild実行はproject code executionである。
@@ -1307,7 +1327,7 @@ tests/security-capability/java-maven/
 tests/security-capability/java-gradle/
 ```
 
-### 23.3 Proposed commands
+### 23.3 Implemented commands
 
 ```json
 {
@@ -1319,6 +1339,10 @@ tests/security-capability/java-gradle/
 ```
 
 command名は実装時に既存package script namingと衝突しないことを確認する。
+
+実装済み`verify:phase-52-capability`は、上記focused testに加えてSemgrep
+catalog、OSV offline fixture contract、registry/ruleset/fixture digestの検証と
+local evidence生成を行う。
 
 ### 23.4 Expected results
 

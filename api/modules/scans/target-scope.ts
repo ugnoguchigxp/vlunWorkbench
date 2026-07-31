@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { ScanScopePolicy } from "../../../shared/schemas/scan-profile.schema";
+import { matchesPluginGlob } from "../project-capabilities/path-patterns";
 
 export interface ResolvedScanScope {
 	scope: ScanScopePolicy;
@@ -241,48 +242,7 @@ function matchesAnyGlob(relativePath: string, globs: string[]): boolean {
 }
 
 function matchesGlob(relativePath: string, glob: string): boolean {
-	const normalizedPath = toPosixPath(relativePath);
-	const normalizedGlob = toPosixPath(glob);
-	if (normalizedGlob === "**/*" || normalizedGlob === "**") {
-		return true;
-	}
-	if (normalizedGlob.endsWith("/**")) {
-		const prefix = normalizedGlob.slice(0, -3);
-		return normalizedPath === prefix || normalizedPath.startsWith(`${prefix}/`);
-	}
-	if (normalizedGlob.startsWith("**/")) {
-		const suffix = normalizedGlob.slice(3);
-		return normalizedPath === suffix || normalizedPath.endsWith(`/${suffix}`);
-	}
-	if (normalizedGlob.startsWith("*.")) {
-		const suffix = normalizedGlob.slice(1);
-		return path.posix.basename(normalizedPath).endsWith(suffix);
-	}
-	if (!normalizedGlob.includes("*")) {
-		return normalizedPath === normalizedGlob;
-	}
-	return globToRegExp(normalizedGlob).test(normalizedPath);
-}
-
-function globToRegExp(glob: string): RegExp {
-	let pattern = "";
-	for (let index = 0; index < glob.length; index++) {
-		const char = glob[index];
-		const next = glob[index + 1];
-		if (char === "*" && next === "*") {
-			pattern += ".*";
-			index++;
-		} else if (char === "*") {
-			pattern += "[^/]*";
-		} else {
-			pattern += escapeRegExp(char);
-		}
-	}
-	return new RegExp(`^${pattern}$`);
-}
-
-function escapeRegExp(value: string): string {
-	return value.replace(/[\\^$.*+?()[\]{}|]/g, "\\$&");
+	return matchesPluginGlob(relativePath, glob);
 }
 
 function rootFromGlob(glob: string): string {

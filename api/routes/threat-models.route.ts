@@ -5,6 +5,7 @@ import type { AppDatabase } from "../db";
 import { attackSurfaceItems } from "../db/schema";
 import { getAuthContextUser } from "../modules/auth/context";
 import { HttpError } from "../modules/auth/errors";
+import { analyzeProjectCapabilities } from "../modules/project-capabilities/plugin-detector";
 import type { ProjectRepository } from "../modules/scans/repositories";
 import { buildApplicationModel } from "../modules/threat-models/application-model-builder";
 import { readProjectSupplementalModelEvidence } from "../modules/threat-models/project-model-evidence-reader";
@@ -25,21 +26,24 @@ export function createThreatModelsRoute(deps: {
 		canonicalRepoPath: string | null;
 	}) => {
 		const projectRoot = project.canonicalRepoPath ?? project.repoPath;
-		const [sources, supplemental, runtimeItems] = await Promise.all([
-			readProjectModelSources(projectRoot),
-			readProjectSupplementalModelEvidence(projectRoot),
-			deps.db
-				.select()
-				.from(attackSurfaceItems)
-				.where(
-					and(
-						eq(attackSurfaceItems.projectId, project.id),
-						eq(attackSurfaceItems.category, "api_route"),
-					),
-				)
-				.orderBy(desc(attackSurfaceItems.createdAt))
-				.limit(1_000),
-		]);
+		const [sources, supplemental, runtimeItems, technology] = await Promise.all(
+			[
+				readProjectModelSources(projectRoot),
+				readProjectSupplementalModelEvidence(projectRoot),
+				deps.db
+					.select()
+					.from(attackSurfaceItems)
+					.where(
+						and(
+							eq(attackSurfaceItems.projectId, project.id),
+							eq(attackSurfaceItems.category, "api_route"),
+						),
+					)
+					.orderBy(desc(attackSurfaceItems.createdAt))
+					.limit(1_000),
+				analyzeProjectCapabilities(projectRoot),
+			],
+		);
 		if (sources.length === 0)
 			throw new HttpError(409, "No supported source files were found");
 		const runtimeRoutes = runtimeItems.flatMap((item) => {
@@ -66,6 +70,7 @@ export function createThreatModelsRoute(deps: {
 		return buildApplicationModel({
 			projectId: project.id,
 			sources,
+			activePluginIds: technology.capabilityPlan.activePluginIds,
 			...supplemental,
 			runtimeRoutes,
 		});

@@ -89,6 +89,34 @@ describe("scan target scope", () => {
 		expect(matchesScopePath("dist/package.json", DEPENDENCY_MANIFEST_SCOPE)).toBe(
 			false,
 		);
+		expect(matchesScopePath("pom.xml", DEPENDENCY_MANIFEST_SCOPE)).toBe(true);
+		expect(
+			matchesScopePath(
+				"services/orders/pom.xml",
+				DEPENDENCY_MANIFEST_SCOPE,
+			),
+		).toBe(true);
+		expect(
+			matchesScopePath("gradle.lockfile", DEPENDENCY_MANIFEST_SCOPE),
+		).toBe(true);
+		expect(
+			matchesScopePath(
+				"services/orders/gradle/verification-metadata.xml",
+				DEPENDENCY_MANIFEST_SCOPE,
+			),
+		).toBe(true);
+		expect(
+			matchesScopePath(
+				"services/orders/build.gradle.kts",
+				DEPENDENCY_MANIFEST_SCOPE,
+			),
+		).toBe(true);
+		expect(
+			matchesScopePath(
+				"services/orders/build/output.bin",
+				DEPENDENCY_MANIFEST_SCOPE,
+			),
+		).toBe(false);
 	});
 
 	it("allows installed dependencies in full deep scope", () => {

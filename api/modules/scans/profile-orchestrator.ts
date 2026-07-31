@@ -1,6 +1,10 @@
 import type { ScanTarget } from "../../../shared/schemas/scan-target.schema";
 import type { AppDatabase } from "../../db";
 import { authorizeProjectPath } from "../../security/project-path-policy";
+import {
+	analyzeProjectCapabilities,
+	buildPluginExecutionSummary,
+} from "../project-capabilities/plugin-detector";
 import { ArtifactStorage } from "./artifact-storage";
 import {
 	buildDiffScanPlan,
@@ -46,6 +50,7 @@ export async function runProfileScan(params: {
 	projectAllowedRoots?: readonly string[];
 	target?: ScanTarget;
 	expectedTargetDigest?: string;
+	consentProjectCodeExecution?: boolean;
 }): Promise<ProfileScanResult> {
 	const scanRepo = new ScanRepository(params.db);
 	const artifactRepo = new ArtifactRepository(params.db);
@@ -92,6 +97,7 @@ export async function runProfileScan(params: {
 		repoPath: params.repoPath,
 		scope: profile.scope,
 	});
+	const technologyAnalysis = await analyzeProjectCapabilities(params.repoPath);
 	const profileSteps = resolveProfileSteps({
 		steps: profile.steps,
 		tools: profile.tools,
@@ -108,6 +114,12 @@ export async function runProfileScan(params: {
 					}),
 					tools: profileSteps.flatMap((step) =>
 						step.kind === "static_tool" ? [step] : [],
+					),
+					detectedPluginIds: technologyAnalysis.detections
+						.filter((detection) => detection.detected)
+						.map((detection) => detection.pluginId),
+					projectInventoryPaths: technologyAnalysis.context.inventory.map(
+						(entry) => entry.path,
 					),
 				});
 	const sharesRuntimeTarget = profileSteps.some(
@@ -134,6 +146,12 @@ export async function runProfileScan(params: {
 		stepOrder,
 		toolResults: [],
 		stepResults: [],
+		technologyPlugins: {
+			schemaVersion: 1,
+			registryDigest: technologyAnalysis.capabilityPlan.registryDigest,
+			detections: technologyAnalysis.detections,
+			capabilityPlan: technologyAnalysis.capabilityPlan,
+		},
 		...(diffPlan
 			? {
 					target: diffPlan.target,
@@ -303,6 +321,8 @@ export async function runProfileScan(params: {
 		resolvedScope,
 		artifactStorage,
 		execution,
+		technologyAnalysis,
+		consentProjectCodeExecution: params.consentProjectCodeExecution === true,
 	});
 
 	// Determine profile outcome
@@ -335,6 +355,11 @@ export async function runProfileScan(params: {
 		profileOutcome === "failed"
 			? `Scan profile ${params.profileId} failed due to profile-failing tool failure.`
 			: `Scan profile ${params.profileId} completed with outcome: ${profileOutcome}. Found ${totalFindings} findings total.`;
+	const pluginExecutionSummary = buildPluginExecutionSummary({
+		detections: technologyAnalysis.detections,
+		capabilityPlan: technologyAnalysis.capabilityPlan,
+		stepResults,
+	});
 
 	await scanRepo.updateScanRunStatus(scanRun.id, finalScanStatus, {
 		summary: summaryMsg,
@@ -351,6 +376,7 @@ export async function runProfileScan(params: {
 			toolResults,
 			stepResults,
 			runtimeAssessmentCoverage,
+			technologyPlugins: pluginExecutionSummary,
 			...(diffPlan
 				? {
 						target: diffPlan.target,

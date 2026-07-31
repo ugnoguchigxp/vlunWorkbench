@@ -1,4 +1,5 @@
 import type { AppDatabase } from "../../db";
+import type { ProjectCapabilityAnalysis } from "../project-capabilities/plugin-detector";
 import type { ArtifactStorage } from "./artifact-storage";
 import type { DiffScanPlan } from "./diff-scan-plan";
 import type { DiffSnapshot } from "./diff-snapshot";
@@ -27,4 +28,6 @@ export type ExecuteProfileStepsParams = {
 	resolvedScope: Awaited<ReturnType<typeof resolveScanScope>>;
 	artifactStorage: ArtifactStorage;
 	execution: ToolExecutionConfig;
+	technologyAnalysis: ProjectCapabilityAnalysis;
+	consentProjectCodeExecution: boolean;
 };

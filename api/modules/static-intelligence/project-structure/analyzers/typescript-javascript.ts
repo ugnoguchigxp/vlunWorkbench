@@ -8,7 +8,7 @@ import type {
 import type {
 	ProjectStructureAnalyzer,
 	UnresolvedStructureReference,
-} from "./registry";
+} from "./types";
 
 const TAG_ORDER: CodeStructureFileTag[] = [
 	"route",
@@ -23,7 +23,11 @@ const TAG_ORDER: CodeStructureFileTag[] = [
 export const TYPESCRIPT_JAVASCRIPT_ANALYZER: ProjectStructureAnalyzer = {
 	id: "typescript-javascript",
 	version: "2",
-	supports: (entry) => entry.kind === "source",
+	supports: (entry) =>
+		entry.kind === "source" &&
+		[".ts", ".tsx", ".js", ".jsx", ".mts", ".cts", ".mjs", ".cjs"].includes(
+			path.posix.extname(entry.path).toLowerCase(),
+		),
 	analyze(entry, bytes) {
 		const content = new TextDecoder().decode(bytes);
 		const sourceFile = ts.createSourceFile(

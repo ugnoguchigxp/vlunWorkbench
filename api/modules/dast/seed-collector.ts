@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { normalizeRelativeHttpPath } from "../../../shared/schemas/http-target.schema";
+import { analyzeProjectCapabilities } from "../project-capabilities/plugin-detector";
 import { extractEndpoints } from "../threat-models/endpoint-extractors";
 import { readProjectModelSources } from "../threat-models/project-source-reader";
 import type { DastRouteSeed } from "./route-inventory";
@@ -42,14 +43,20 @@ export async function collectDastSeeds(params: {
 	}
 	if (params.projectRoot && params.includeApplicationModel !== false) {
 		try {
-			const sources = await readProjectModelSources(params.projectRoot, {
-				maxFiles: 500,
-				maxFileBytes: 512 * 1024,
-				maxTotalBytes: 5 * 1024 * 1024,
-				maxEntries: 20_000,
-				maxDepth: 32,
-			});
-			for (const endpoint of sources.flatMap(extractEndpoints)) {
+			const [sources, technology] = await Promise.all([
+				readProjectModelSources(params.projectRoot, {
+					maxFiles: 500,
+					maxFileBytes: 512 * 1024,
+					maxTotalBytes: 5 * 1024 * 1024,
+					maxEntries: 20_000,
+					maxDepth: 32,
+				}),
+				analyzeProjectCapabilities(params.projectRoot),
+			]);
+			const activePluginIds = technology.capabilityPlan.activePluginIds;
+			for (const endpoint of sources.flatMap((source) =>
+				extractEndpoints(source, { activePluginIds }),
+			)) {
 				if (!["GET", "HEAD", "OPTIONS"].includes(endpoint.method)) continue;
 				const route = executablePath(endpoint.path);
 				if (!route) {

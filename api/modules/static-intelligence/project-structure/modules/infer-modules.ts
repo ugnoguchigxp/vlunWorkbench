@@ -102,7 +102,11 @@ function packageRootsForInventory(
 	workspacePatterns: Array<{ root: string; pattern: string }>,
 ): Array<{ pathPrefix: string; boundaryKind: "workspace" | "package" }> {
 	return entries
-		.filter((entry) => path.posix.basename(entry.path) === "package.json")
+		.filter((entry) =>
+			["package.json", "pom.xml", "build.gradle", "build.gradle.kts"].includes(
+				path.posix.basename(entry.path),
+			),
+		)
 		.map((entry) => path.posix.dirname(entry.path))
 		.filter((root) => root !== ".")
 		.map((pathPrefix) => ({

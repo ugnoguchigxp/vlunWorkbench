@@ -15,6 +15,7 @@ export async function runDastStepIntoExistingScan(params: {
 	timeoutSec?: number;
 	createdByUserId?: string | null;
 	preparedAutoTarget?: Awaited<ReturnType<typeof prepareDastTargetWorkspace>>;
+	consentProjectCodeExecution?: boolean;
 }): Promise<DastStepResult> {
 	const scanRepo = new ScanRepository(params.db);
 	const dastRepo = new DastRepository(params.db);
@@ -35,6 +36,8 @@ export async function runDastStepIntoExistingScan(params: {
 			preparedAutoTarget = await prepareDastTargetWorkspace({
 				repoPath: params.repoPath,
 				readinessTimeoutMs: params.step.options?.readinessTimeoutMs,
+				consentProjectCodeExecution:
+					params.consentProjectCodeExecution === true,
 			});
 		}
 		const target = await dastRepo.createTargetConfig({

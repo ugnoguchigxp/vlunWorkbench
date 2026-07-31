@@ -24,6 +24,7 @@ import {
 	type ToolLifecycleEvent,
 } from "./tools/tool-process-runner";
 import type { TrivyRunner } from "./tools/trivy-runner";
+import type { SemgrepRuleContribution } from "../project-capabilities/plugin-contract";
 
 export async function runToolIntoExistingScan(params: {
 	db: AppDatabase;
@@ -175,6 +176,9 @@ export async function runToolIntoExistingScan(params: {
 						? params.repoPath
 						: undefined,
 					onLifecycleEvent,
+					ruleContributions: Array.isArray(options.semgrepRuleContributions)
+						? (options.semgrepRuleContributions as SemgrepRuleContribution[])
+						: undefined,
 				},
 			);
 		} else if (params.toolId === "gitleaks") {

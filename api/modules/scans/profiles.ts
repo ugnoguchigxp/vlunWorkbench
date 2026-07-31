@@ -8,6 +8,7 @@ import {
 	applyDastStandardRollout,
 	assertRuntimeAssessmentBudget,
 } from "./dast-profile-rollout";
+import { buildPluginDependencyManifestScope } from "./plugin-dependency-scope";
 
 export {
 	plannedRuntimeAssessmentRequests,
@@ -34,28 +35,8 @@ export const SOURCE_BASELINE_SCOPE: ScanScopePolicy = {
 		"Scans first-party source, configuration, manifests, and lockfiles while excluding generated output and installed dependencies.",
 };
 
-export const DEPENDENCY_MANIFEST_SCOPE: ScanScopePolicy = {
-	intent: "dependency_manifest",
-	includeGlobs: [
-		"package.json",
-		"bun.lock",
-		"bun.lockb",
-		"package-lock.json",
-		"npm-shrinkwrap.json",
-		"yarn.lock",
-		"pnpm-lock.yaml",
-		"**/package.json",
-		"**/package-lock.json",
-		"**/yarn.lock",
-		"**/pnpm-lock.yaml",
-	],
-	excludeGlobs: ["node_modules/**", "dist/**", "dist-web/**", "build/**"],
-	includeGenerated: false,
-	includeInstalledDependencies: false,
-	includeVendoredDependencies: false,
-	notes:
-		"Focuses dependency scanners on manifests and lockfiles instead of deep scanning installed package trees.",
-};
+export const DEPENDENCY_MANIFEST_SCOPE: ScanScopePolicy =
+	buildPluginDependencyManifestScope();
 
 export const ARTIFACT_SCOPE: ScanScopePolicy = {
 	intent: "artifact",

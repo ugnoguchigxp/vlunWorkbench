@@ -506,6 +506,20 @@
 	overflow-wrap: anywhere;
 }
 
+.scan-project-code-consent {
+	align-items: flex-start;
+	color: var(--color-ink);
+	display: flex;
+	font-size: 11px;
+	gap: 6px;
+	line-height: 1.4;
+	margin-top: 6px;
+}
+
+.scan-project-code-consent input {
+	margin-top: 2px;
+}
+
 .scan-diff-target-config {
 	display: grid;
 	grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));

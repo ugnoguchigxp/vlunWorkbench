@@ -4,6 +4,7 @@ import type { ScanTarget } from "../../shared/schemas/scan-target.schema";
 import { readAppEnv } from "../app/env";
 import { createDbConnection } from "../db";
 import { ArtifactStorage } from "../modules/scans/artifact-storage";
+import { analyzeProjectCapabilities } from "../modules/project-capabilities/plugin-detector";
 import { runProfileScan } from "../modules/scans/profile-runner";
 import { getProfileById } from "../modules/scans/profiles";
 import {
@@ -62,6 +63,10 @@ function parseScanProfileArgs() {
 			step: { type: "string" },
 			"timeout-sec": { type: "string" },
 			"continue-on-tool-failure": { type: "string", default: "true" },
+			"consent-project-code-execution": {
+				type: "string",
+				default: "false",
+			},
 			"output-summary": { type: "string" },
 			"dry-run": { type: "string", default: "false" },
 			"final-report": { type: "string", default: "true" },
@@ -130,6 +135,8 @@ async function main() {
 	const timeoutSecStr = argsValues["timeout-sec"];
 	const continueOnToolFailure =
 		argsValues["continue-on-tool-failure"] !== "false";
+	const consentProjectCodeExecution =
+		argsValues["consent-project-code-execution"] === "true";
 	const outputSummaryPath = argsValues["output-summary"];
 	const dryRun = argsValues["dry-run"] === "true";
 	const finalReportEnabled = parseBooleanFlag(argsValues["final-report"], true);
@@ -310,6 +317,8 @@ async function main() {
 				process.exitCode = 2;
 				return;
 			}
+			const technologyAnalysis =
+				await analyzeProjectCapabilities(effectiveRepoPath);
 			const plan = buildDiffScanPlan({
 				resolved: await resolveGitDiff({
 					projectPath: effectiveRepoPath,
@@ -317,6 +326,12 @@ async function main() {
 					scope: profile.scope,
 				}),
 				tools: profile.tools,
+				detectedPluginIds: technologyAnalysis.detections
+					.filter((detection) => detection.detected)
+					.map((detection) => detection.pluginId),
+				projectInventoryPaths: technologyAnalysis.context.inventory.map(
+					(entry) => entry.path,
+				),
 			});
 			writeResult({
 				ok: true,
@@ -344,6 +359,7 @@ async function main() {
 			projectAllowedRoots: env.projectAllowedRoots,
 			target: scanTarget,
 			expectedTargetDigest,
+			consentProjectCodeExecution,
 			finalReport: {
 				enabled: finalReportEnabled,
 				title: reportTitle,

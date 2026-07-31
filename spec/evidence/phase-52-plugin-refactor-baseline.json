@@ -1,0 +1,94 @@
+{
+	"schemaVersion": 1,
+	"phase": "52",
+	"generatedAt": "2026-07-31T00:00:00.000Z",
+	"implementationBaselineCommit": "aff18b530a8fddfdc67c2a7fc21a0b825712d9b6",
+	"hardStartGate": {
+		"status": "passed",
+		"commands": [
+			{
+				"command": "bun run verify:phase-51-baseline",
+				"status": "passed"
+			},
+			{
+				"command": "bun run verify:dast-capability",
+				"status": "passed"
+			},
+			{
+				"command": "bun test api/modules/dast",
+				"status": "passed"
+			},
+			{
+				"command": "bun test api/modules/scans/profile-runner.test.ts",
+				"status": "passed"
+			},
+			{
+				"command": "bun test api/modules/scans/profiles-dast-budget.test.ts",
+				"status": "passed"
+			},
+			{
+				"command": "bun test api/modules/scans/runtime-assessment-coverage.test.ts",
+				"status": "passed"
+			}
+		]
+	},
+	"hashes": {
+		"scannerDataManifest": "sha256:1aef81c79a83c6a37ec9cef9be7d1de4c5b6ca987d3db0eacba203b842fe41d7",
+		"scannerDataManifestFile": "sha256:1676af8e62e415443cd0ff1cb802d0bae31c28f1ddc48b215db2e108849a34cd",
+		"semgrepCatalog": "sha256:8eebb13a1a23abc3ed158f76c4b13ff4d08050ff2b09f9365df3ff02935410a4",
+		"semgrepRules": {
+			"typescript": "sha256:a0849638801c67f8fcae4d10fb3086ddff28215a77bac8984d759a6b4aae9129",
+			"javascript": "sha256:9a3037344ab8aa04c33e797a4bd434798862596d1fce8381d875a97990327854",
+			"java": "sha256:fa0e42bfec4528e29410f76e100b330a20f5e3bfe8d2f2c22e505379c96fdf7a"
+		},
+		"toolboxImage": null
+	},
+	"toolboxImageLimitation": "The baseline toolbox image was not present in the local Docker daemon, so no image digest is claimed.",
+	"behaviorInventory": {
+		"typescript": {
+			"sourceExtensions": [".ts", ".tsx", ".mts", ".cts"],
+			"buildSystem": "npm-compatible",
+			"dependencyInputs": [
+				"package.json",
+				"bun.lock",
+				"bun.lockb",
+				"package-lock.json",
+				"npm-shrinkwrap.json",
+				"yarn.lock",
+				"pnpm-lock.yaml"
+			],
+			"frameworkAdapters": ["Hono", "Express", "Fastify"],
+			"autoStart": "package.json script priority: dast, dev, start, serve, preview"
+		},
+		"java": {
+			"sourceExtensions": [".java"],
+			"scannerDataRuleCount": 13,
+			"buildSystemsPlanned": ["Maven", "Gradle"],
+			"frameworkAdaptersPlanned": ["Spring Boot", "Spring MVC"]
+		},
+		"hardCodedBaselineLocations": [
+			"api/modules/scans/profiles.ts",
+			"api/modules/static-intelligence/project-structure/inventory-classification.ts",
+			"api/modules/threat-models/endpoint-extractors/index.ts",
+			"api/modules/dast/target-preparer.ts",
+			"api/modules/scans/report-builder-finalize.ts"
+		],
+		"toolVersions": {
+			"semgrep": "1.168.0",
+			"osvScanner": "2.4.0",
+			"trivy": "0.71.2"
+		}
+	},
+	"baselineKnownGaps": [
+		"Java source was classified as a resource and could produce analyzedFileCount=0.",
+		"Maven pom.xml and Gradle dependency inputs were absent from the shared dependency manifest scope.",
+		"Gradle build files without resolved locks could be misrepresented as not applicable.",
+		"Spring endpoint and auto-start selection were not connected to project technology detection.",
+		"Capability reporting used hard-coded scanner-data claims instead of current execution evidence."
+	],
+	"inheritedReleaseGates": [
+		"Phase 51 Linux real-ZAP evidence remains a release-environment gate.",
+		"Phase 51 Juice Shop scenario evidence remains a release-environment gate.",
+		"A same-commit clean-checkout toolbox image digest remains required for Phase 52 release closeout."
+	]
+}

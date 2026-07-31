@@ -1,7 +1,10 @@
+import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { ScanScopePolicy } from "../../../../shared/schemas/scan-profile.schema";
+import type { SemgrepRuleContribution } from "../../project-capabilities/plugin-contract";
+import { isSafeRelativePluginPath } from "../../project-capabilities/path-patterns";
 import type { ArtifactSaveResult, ArtifactStorage } from "../artifact-storage";
 import { redactJsonSecrets, redactSecrets } from "../normalizers/redaction";
 import {
@@ -38,6 +41,7 @@ export interface SemgrepRunnerOptions {
 	targetPaths?: string[];
 	normalizePathsRelativeTo?: string;
 	onLifecycleEvent?: (event: ToolLifecycleEvent) => Promise<void> | void;
+	ruleContributions?: SemgrepRuleContribution[];
 }
 
 export class SemgrepRunner {
@@ -81,8 +85,12 @@ export class SemgrepRunner {
 
 		const args = ["scan"];
 
-		const config = resolveSemgrepConfig(options.config, this.execution);
-		args.push("--config", config);
+		const configs = await resolveSemgrepConfigs(
+			options.config,
+			options.ruleContributions,
+			this.execution,
+		);
+		for (const config of configs) args.push("--config", config);
 
 		args.push("--json");
 		args.push("--output", tempJsonPath);
@@ -282,21 +290,62 @@ export class SemgrepRunner {
 	}
 }
 
-function resolveSemgrepConfig(
+async function resolveSemgrepConfigs(
 	config: string | undefined,
+	contributions: SemgrepRuleContribution[] | undefined,
 	execution: ToolExecutionConfig | undefined,
-): string {
+): Promise<string[]> {
+	if (contributions && contributions.length > 0) {
+		const sourceRoot = path.resolve(
+			process.cwd(),
+			"docker/toolbox/scanner-data/semgrep-rules",
+		);
+		const configs: string[] = [];
+		for (const contribution of [...contributions].sort((left, right) =>
+			left.path.localeCompare(right.path),
+		)) {
+			if (!isSafeRelativePluginPath(contribution.path)) {
+				throw new Error(`plugin_asset_path_invalid:${contribution.pluginId}`);
+			}
+			const sourcePath = path.resolve(sourceRoot, contribution.path);
+			const relative = path.relative(sourceRoot, sourcePath);
+			if (
+				relative === ".." ||
+				relative.startsWith(`..${path.sep}`) ||
+				path.isAbsolute(relative)
+			) {
+				throw new Error(`plugin_asset_path_invalid:${contribution.pluginId}`);
+			}
+			const digest = `sha256:${crypto
+				.createHash("sha256")
+				.update(await fs.readFile(sourcePath))
+				.digest("hex")}`;
+			if (digest !== contribution.digest) {
+				throw new Error(
+					`semgrep_rule_digest_mismatch:${contribution.pluginId}:${contribution.path}`,
+				);
+			}
+			configs.push(
+				execution?.runner === "docker"
+					? path.posix.join(
+							"/opt/vuln-workbench/scanner-data/semgrep-rules",
+							contribution.path,
+						)
+					: sourcePath,
+			);
+		}
+		return configs;
+	}
 	if (
 		config !== undefined &&
 		config !== "owned" &&
 		config !== "curated-sast-v1"
 	)
-		return config;
+		return [config];
 	if (execution?.runner === "docker") {
-		return "/opt/vuln-workbench/scanner-data/semgrep-rules";
+		return ["/opt/vuln-workbench/scanner-data/semgrep-rules"];
 	}
-	return path.resolve(
-		process.cwd(),
-		"docker/toolbox/scanner-data/semgrep-rules",
-	);
+	return [
+		path.resolve(process.cwd(), "docker/toolbox/scanner-data/semgrep-rules"),
+	];
 }

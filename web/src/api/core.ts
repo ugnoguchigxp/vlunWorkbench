@@ -20,135 +20,14 @@ import type {
 	SystemContextResponse,
 	WebSearchResult,
 } from "./core-types";
+import { requestJson, requestVoid } from "./core-request";
 
 export type * from "./core-types";
-
-type RequestInitJson = Omit<RequestInit, "body"> & {
-	body?: unknown;
-};
-
-export const UNAUTHORIZED_EVENT_NAME = "vuln-workbench:unauthorized";
-
-let lastUnauthorizedEventAt = 0;
-let refreshRequest: Promise<boolean> | null = null;
-
-const notifyUnauthorized = () => {
-	if (typeof window === "undefined") return;
-	const now = Date.now();
-	if (now - lastUnauthorizedEventAt < 500) return;
-	lastUnauthorizedEventAt = now;
-	window.dispatchEvent(new Event(UNAUTHORIZED_EVENT_NAME));
-};
-
-const isAuthPath = (path: string): boolean => path.startsWith("/api/auth/");
-
-const canRetryWithRefresh = (path: string): boolean =>
-	!isAuthPath(path) || path === "/api/auth/me";
-
-const shouldNotifyUnauthorized = (path: string): boolean =>
-	path !== "/api/auth/login";
-
-const parseErrorMessage = async (response: Response): Promise<string> => {
-	let message = `Request failed: ${response.status}`;
-	try {
-		const data = (await response.json()) as { message?: string };
-		if (data.message) {
-			message = data.message;
-		}
-	} catch {
-		// ignore parse errors for non-JSON responses
-	}
-	return message;
-};
-
-const refreshAuthSession = async (): Promise<boolean> => {
-	if (!refreshRequest) {
-		refreshRequest = fetch("/api/auth/refresh", {
-			method: "POST",
-			credentials: "include",
-		})
-			.then((response) => response.ok)
-			.catch(() => false)
-			.finally(() => {
-				refreshRequest = null;
-			});
-	}
-	return refreshRequest;
-};
-
-export async function requestJson<T>(
-	path: string,
-	init?: RequestInitJson,
-): Promise<T> {
-	const execute = async (): Promise<Response> => {
-		const headers = new Headers(init?.headers);
-		if (init?.body !== undefined && !headers.has("Content-Type")) {
-			headers.set("Content-Type", "application/json");
-		}
-
-		const { body, ...restInit } = init || {};
-		return fetch(path, {
-			...restInit,
-			headers,
-			credentials: "include",
-			body: body !== undefined ? JSON.stringify(body) : undefined,
-		});
-	};
-
-	let response = await execute();
-	if (response.status === 401 && canRetryWithRefresh(path)) {
-		const refreshed = await refreshAuthSession();
-		if (refreshed) {
-			response = await execute();
-		}
-	}
-
-	if (!response.ok) {
-		if (response.status === 401 && shouldNotifyUnauthorized(path)) {
-			notifyUnauthorized();
-		}
-		const message = await parseErrorMessage(response);
-		throw new Error(message);
-	}
-	return (await response.json()) as T;
-}
-
-export async function requestVoid(
-	path: string,
-	init?: RequestInitJson,
-): Promise<void> {
-	const execute = async (): Promise<Response> => {
-		const headers = new Headers(init?.headers);
-		if (init?.body !== undefined && !headers.has("Content-Type")) {
-			headers.set("Content-Type", "application/json");
-		}
-
-		const { body, ...restInit } = init || {};
-
-		return fetch(path, {
-			...restInit,
-			headers,
-			credentials: "include",
-			body: body !== undefined ? JSON.stringify(body) : undefined,
-		});
-	};
-
-	let response = await execute();
-	if (response.status === 401 && canRetryWithRefresh(path)) {
-		const refreshed = await refreshAuthSession();
-		if (refreshed) {
-			response = await execute();
-		}
-	}
-
-	if (!response.ok) {
-		if (response.status === 401 && shouldNotifyUnauthorized(path)) {
-			notifyUnauthorized();
-		}
-		const message = await parseErrorMessage(response);
-		throw new Error(message);
-	}
-}
+export {
+	requestJson,
+	requestVoid,
+	UNAUTHORIZED_EVENT_NAME,
+} from "./core-request";
 
 const pageEndpoint = (slug: string): string =>
 	`/api/sources/pages/${encodeSlug(slug)}`;

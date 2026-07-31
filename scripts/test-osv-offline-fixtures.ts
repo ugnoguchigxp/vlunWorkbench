@@ -31,7 +31,7 @@ for (const ecosystem of ecosystems) {
 		await readFile(path.join(root, "expected.json"), "utf8"),
 	) as Expected;
 	if (
-		expected.ecosystem !== ecosystem ||
+		!expected.ecosystem ||
 		!expected.package ||
 		!expected.vulnerableVersion ||
 		!expected.fixedVersion ||
@@ -54,14 +54,19 @@ for (const ecosystem of ecosystems) {
 	}
 	if (!databaseRoot) {
 		matrix.push({
-			ecosystem,
+			fixture: ecosystem,
+			ecosystem: expected.ecosystem,
 			expectedId: expected.expectedId,
 			status: "fixture_validated",
 			limitation: "offline_database_not_supplied",
 		});
 		continue;
 	}
-	const databasePath = path.join(archiveRoot as string, ecosystem, "all.zip");
+	const databasePath = path.join(
+		archiveRoot as string,
+		expected.ecosystem,
+		"all.zip",
+	);
 	await access(databasePath).catch(() =>
 		errors.push(`missing offline database: ${databasePath}`),
 	);
@@ -76,15 +81,16 @@ for (const ecosystem of ecosystems) {
 	if (fixedIds.has(expected.expectedId))
 		errors.push(`${ecosystem} fixed fixture retained ${expected.expectedId}`);
 	matrix.push({
-		ecosystem,
+		fixture: ecosystem,
+		ecosystem: expected.ecosystem,
 		expectedId: expected.expectedId,
 		status: "scanned_offline",
 		vulnerableDetected: vulnerableIds.has(expected.expectedId),
 		fixedDetected: fixedIds.has(expected.expectedId),
 	});
 }
-if (ecosystems.length !== 8)
-	errors.push(`expected 8 ecosystems, found ${ecosystems.length}`);
+if (ecosystems.length !== 9)
+	errors.push(`expected 9 ecosystem fixtures, found ${ecosystems.length}`);
 const result = {
 	ok: errors.length === 0,
 	networkRequests: 0,

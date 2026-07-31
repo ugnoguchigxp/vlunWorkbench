@@ -10,7 +10,7 @@ import type {
 } from "../../../../shared/schemas/project-structure.schema";
 import { structureDiagnostic } from "./diagnostics";
 import {
-	analyzerIdsForInventoryKind,
+	analyzerIdsForInventoryPath,
 	isIgnoredInventoryDirectory,
 	isSecretInventoryPath,
 	kindForInventoryPath,
@@ -228,7 +228,7 @@ export async function buildProjectInventory(
 				sizeBytes: stat.size,
 				hashMode: contentHash ? "content" : "path_only",
 				...(contentHash ? { contentHash } : {}),
-				analyzerIds: analyzerIdsForInventoryKind(kind),
+				analyzerIds: analyzerIdsForInventoryPath(relativePath, kind),
 			});
 			totalIncludedBytes += stat.size;
 		}
