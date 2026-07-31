@@ -3,6 +3,7 @@ import { parseArgs } from "node:util";
 import { readAppEnv } from "../app/env";
 import { createDbConnection } from "../db";
 import { DynamicRunner } from "../modules/dynamic/dynamic-runner";
+import { SettingsRepository } from "../modules/settings/settings.repository";
 
 type DynamicCliArgs = {
 	"project-id"?: string;
@@ -133,9 +134,22 @@ async function main() {
 	}
 
 	// Setup DB connection
-	const env = readAppEnv();
-	const dbConnection = createDbConnection(env.databaseUrl);
-	const runnerInstance = new DynamicRunner(dbConnection.db);
+	const startupEnv = readAppEnv();
+	const dbConnection = createDbConnection(startupEnv.databaseUrl);
+	const env = await new SettingsRepository(dbConnection.db).resolveAppEnv(
+		startupEnv,
+	);
+	const runnerInstance = new DynamicRunner(dbConnection.db, {
+		outputLimits: {
+			stdoutBytes: env.scannerStdoutLimitBytes,
+			stderrBytes: env.scannerStderrLimitBytes,
+		},
+		dockerDefaults: {
+			memory: env.dockerMemory,
+			cpus: env.dockerCpus === undefined ? undefined : String(env.dockerCpus),
+			pidsLimit: env.dockerPidsLimit,
+		},
+	});
 
 	try {
 		// Set Docker bin env if provided

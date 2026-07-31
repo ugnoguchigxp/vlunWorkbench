@@ -10,6 +10,7 @@ import type {
 	LlmSettingsResponse,
 	RetrievalLog,
 	RetrievedFragment,
+	RuntimeSettingsResponse,
 	SourceCategoryResponse,
 	SourceHealth,
 	SourceHistoryItem,
@@ -63,6 +64,19 @@ export async function updateSystemContext(
 	return requestJson("/api/settings/system-context", {
 		method: "PUT",
 		body: { systemContext },
+	});
+}
+
+export async function fetchRuntimeSettings(): Promise<RuntimeSettingsResponse> {
+	return requestJson("/api/settings/runtime");
+}
+
+export async function updateRuntimeSettings(
+	settings: Omit<RuntimeSettingsResponse, "updatedAt">,
+): Promise<RuntimeSettingsResponse> {
+	return requestJson("/api/settings/runtime", {
+		method: "PUT",
+		body: settings,
 	});
 }
 

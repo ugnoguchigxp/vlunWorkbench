@@ -184,7 +184,7 @@ bun run api/cli/llm-route-repair.ts -- \
   --tasks finding_review,scan_review,report_summary
 ```
 
-主な環境変数:
+起動前または信頼境界に関わる環境変数:
 
 | Variable | 目的 |
 | --- | --- |
@@ -192,21 +192,17 @@ bun run api/cli/llm-route-repair.ts -- \
 | `JWT_SECRET` | JWT signing secret。production では必ず変更する。 |
 | `APP_URL` | public app origin と cookie/CORS の基準。 |
 | `CORS_ORIGINS` | 追加で許可する origin。 |
-| `AZURE_OPENAI_ENDPOINT` | Azure OpenAI endpoint。 |
-| `AZURE_OPENAI_API_KEY` | Azure OpenAI API key。 |
-| `AZURE_OPENAI_DEPLOYMENT` | 既定の Azure chat deployment。 |
-| `OPENAI_API_KEY` | OpenAI-compatible provider key。 |
-| `OPENAI_BASE_URL` | OpenAI-compatible provider base URL。 |
-| `CODEX_SDK_TIMEOUT_MS` | Codex SDK review/report timeout。単位はミリ秒で、既定は `600000`。 |
-| `SCAN_EXECUTION_MODE` | scanner runner の一元ポリシー。`host` または `docker`。development は host、production は Docker が既定。 |
-| `ALLOW_HOST_SCANNER_EXECUTION` | host scanner 実行を明示的に許可する。production の既定は `false`。 |
-| `SCAN_DOCKER_IMAGE` | Docker scanner policy が使う toolbox image。 |
-| `VULN_WORKBENCH_DOCKER_MEMORY` | scanner containerごとのmemory上限。既定は`4g`、許容範囲は512 MiB–8 GiB。 |
-| `VULN_WORKBENCH_DOCKER_CPUS` | scanner containerごとのCPU上限。既定は`2`、許容範囲は0.25–4。 |
-| `VULN_WORKBENCH_DOCKER_PIDS_LIMIT` | scanner containerごとのPID上限。既定は`512`、許容範囲は64–1024。 |
-| `VULN_WORKBENCH_SCANNER_STDOUT_LIMIT_BYTES` | scanner stdoutおよび構造化結果fileの上限。既定は64 MiB、hard maximumは256 MiB。 |
-| `VULN_WORKBENCH_SCANNER_STDERR_LIMIT_BYTES` | scanner stderr上限。既定は8 MiB、hard maximumは32 MiB。 |
 | `PROJECT_ALLOWED_ROOTS` | Web/APIから登録・scanできるproject rootのカンマ区切り一覧。developmentの未設定時はcurrent working directory、productionの未設定時はfail-closed。 |
+
+LLM endpoint、model、task routing、暗号化されたprovider credentialは
+**Settings > LLM Providers**で管理します。従来のOpenAI/Azure環境変数は、
+既存環境との互換性を保つbootstrap値として利用できます。
+scannerの実行方式、host実行許可、Docker imageとresource上限、scanner出力上限、
+Codex SDK timeoutは **Settings > Runtime Settings** で設定し、検証後にSQLiteへ
+保存されます。従来の環境変数は、既存環境からの移行互換性のため、Runtime
+Settingsを最初に保存するまでの初期値としてのみ利用されます。通常調整しない
+capability rolloutの既定値はrelease policyとして
+`api/config/appDefaults.ts`に集約しています。
 
 LLM API key は host 側に置きます。scanner container や scan 対象 project に LLM credential を渡してはいけません。Docker scanではmemory、CPU、memory-swap、PID上限を常に適用し、stdout、stderr、構造化結果fileが設定byte上限を超えた場合は失敗として扱います。
 
@@ -306,6 +302,13 @@ OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY=.cache/scanner-data/phase-50/osv \
 run UUIDを参照する場合だけclaimを`met`にできます。観測不足、null denominator、
 stale/tampered data、cleanup失敗、passing run未指定のいずれかがあれば
 `not_met`のままです。
+
+ZAP activeは既定profileには含まれません。実行には
+`runtime-zap-active-lab`または`api-zap-active-lab`の明示選択、feature flag、
+有効なinternal Rules of Engagement、local/ephemeral private target、method/path
+budget、reset contractが必要です。runnerはLinux Dockerのinternal networkと
+bounded gatewayを使い、credentialをZAPへ返しません。browser login/token refreshと
+production targetは対象外です。
 
 ### Scan Review / Handoff
 

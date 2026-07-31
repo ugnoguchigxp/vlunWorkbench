@@ -34,10 +34,14 @@ function dockerMemoryBytes(value: string): number {
 	return Number(match[1]) * 1024 ** exponent;
 }
 
-function normalizeDynamicDockerLimits(memory?: string, cpus?: string) {
+function normalizeDynamicDockerLimits(
+	memory?: string,
+	cpus?: string,
+	pidsLimit?: number,
+) {
 	const docker = normalizeToolExecutionConfig({
 		runner: "docker",
-		docker: { memory, cpus },
+		docker: { memory, cpus, pidsLimit },
 	}).docker;
 	if (!docker?.memory || !docker.cpus || !docker.pidsLimit) {
 		throw new Error("Dynamic Docker resource limits could not be resolved.");
@@ -54,18 +58,23 @@ export function resolveDynamicDockerLimits(input: {
 	profileCpus?: string | null;
 	requestedMemory?: string | null;
 	requestedCpus?: string | null;
+	defaultMemory?: string;
+	defaultCpus?: string;
+	defaultPidsLimit?: number;
 }): {
 	memory: string;
 	cpus: string;
 	pidsLimit: number;
 } {
 	const profileLimits = normalizeDynamicDockerLimits(
-		input.profileMemory ?? undefined,
-		input.profileCpus ?? undefined,
+		input.profileMemory ?? input.defaultMemory,
+		input.profileCpus ?? input.defaultCpus,
+		input.defaultPidsLimit,
 	);
 	const requestedLimits = normalizeDynamicDockerLimits(
 		input.requestedMemory ?? profileLimits.memory,
 		input.requestedCpus ?? profileLimits.cpus,
+		profileLimits.pidsLimit,
 	);
 	if (
 		dockerMemoryBytes(requestedLimits.memory) >

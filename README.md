@@ -185,7 +185,7 @@ bun run api/cli/llm-route-repair.ts -- \
   --tasks finding_review,scan_review,report_summary
 ```
 
-Common environment variables:
+Startup and trust-boundary environment variables:
 
 | Variable | Purpose |
 | --- | --- |
@@ -193,28 +193,19 @@ Common environment variables:
 | `JWT_SECRET` | JWT signing secret. Must be changed for production. |
 | `APP_URL` | Public app origin and cookie/CORS basis. |
 | `CORS_ORIGINS` | Additional allowed origins. |
-| `AZURE_OPENAI_ENDPOINT` | Azure OpenAI endpoint. |
-| `AZURE_OPENAI_API_KEY` | Azure OpenAI API key. |
-| `AZURE_OPENAI_DEPLOYMENT` | Default Azure chat deployment. |
-| `OPENAI_API_KEY` | OpenAI-compatible provider key. |
-| `OPENAI_BASE_URL` | OpenAI-compatible provider base URL. |
-| `CODEX_SDK_TIMEOUT_MS` | Codex SDK review/report timeout in milliseconds. Defaults to `600000`. |
-| `SCAN_EXECUTION_MODE` | Central scanner runner policy: `host` or `docker`. Development defaults to host; production defaults to Docker. |
-| `ALLOW_HOST_SCANNER_EXECUTION` | Explicitly permits host scanner execution. Production defaults to `false`. |
-| `SCAN_DOCKER_IMAGE` | Toolbox image used by the Docker scanner policy. |
-| `VULN_WORKBENCH_DOCKER_MEMORY` | Per-scanner container memory limit. Defaults to `4g`; accepted range is 512 MiB–8 GiB. |
-| `VULN_WORKBENCH_DOCKER_CPUS` | Per-scanner container CPU limit. Defaults to `2`; accepted range is 0.25–4. |
-| `VULN_WORKBENCH_DOCKER_PIDS_LIMIT` | Per-scanner container PID limit. Defaults to `512`; accepted range is 64–1024. |
-| `VULN_WORKBENCH_SCANNER_STDOUT_LIMIT_BYTES` | Scanner stdout and structured-output limit. Defaults to 64 MiB; hard maximum is 256 MiB. |
-| `VULN_WORKBENCH_SCANNER_STDERR_LIMIT_BYTES` | Scanner stderr limit. Defaults to 8 MiB; hard maximum is 32 MiB. |
 | `PROJECT_ALLOWED_ROOTS` | Comma-separated roots available to Web/API project registration and scans. Development defaults to the current working directory; production is fail-closed when unset. |
-| `VULN_WORKBENCH_CURATED_SAST_ENABLED` | Enables the curated SAST capability. Defaults to `false`. |
-| `VULN_WORKBENCH_MULTI_ECOSYSTEM_OSV_ENABLED` | Enables the prepared eight-ecosystem OSV capability. Defaults to `false`. |
-| `VULN_WORKBENCH_ZAP_ACTIVE_ENABLED` | Enables explicit disposable-target ZAP active runs. Defaults to `false`. |
-| `VULN_WORKBENCH_THREAT_MODEL_ENABLED` | Enables application-model and threat-hypothesis generation. Defaults to `false`. |
-| `VULN_WORKBENCH_BUSINESS_LOGIC_ENABLED` | Enables bounded business-logic scenario generation and execution. Defaults to `false`. |
-| `VULN_WORKBENCH_DAST_STANDARD_V2_ENABLED` | Enables coverage-aware standard DAST profiles. Defaults to `true`; set to `false` to reject explicit v2 runs. |
-| `VULN_WORKBENCH_DAST_STANDARD_V2_DEFAULT` | Makes `web-passive-standard` the default profile step. Defaults to `true`; set both DAST v2 flags to `false` for the legacy smoke rollback. |
+
+LLM endpoints, models, task routing, and encrypted provider credentials are
+managed under **Settings > LLM Providers**. The former OpenAI/Azure environment
+variables remain available as bootstrap values for existing installations.
+Scanner execution mode, host execution permission, Docker image and resource
+limits, scanner output limits, and the Codex SDK timeout are configured under
+**Settings > Runtime Settings**. They are validated and stored in SQLite. The
+former environment variables are accepted only as initial values until the
+first Runtime Settings save, which keeps existing installations compatible.
+Capability rollout defaults live in
+`api/config/appDefaults.ts` because they are release policy rather than
+operator-tuned runtime configuration.
 
 LLM API keys stay on the host side. Scanner containers and target projects should not receive LLM credentials. Docker scans always apply memory, CPU, memory-swap, and PID limits; stdout, stderr, and structured result files are rejected when their configured byte limit is exceeded. Dynamic verification inherits the same Docker and stream limits, permits request-time resource overrides only when they tighten the saved profile, and bounds collected artifacts to 16 MiB per file, 64 MiB total, 128 files, 16 directory levels, and 2,048 visited entries.
 

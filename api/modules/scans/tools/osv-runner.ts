@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { SECURITY_CAPABILITY_DEFAULTS } from "../../../config/appDefaults";
 import type { ScanScopePolicy } from "../../../../shared/schemas/scan-profile.schema";
 import type { ArtifactSaveResult, ArtifactStorage } from "../artifact-storage";
 import { redactJsonSecrets, redactSecrets } from "../normalizers/redaction";
@@ -103,11 +104,7 @@ export class OsvRunner {
 
 		const offline =
 			this.execution?.runner === "docker" ||
-			["1", "true", "yes", "on"].includes(
-				(
-					process.env.VULN_WORKBENCH_MULTI_ECOSYSTEM_OSV_ENABLED ?? ""
-				).toLowerCase(),
-			);
+			SECURITY_CAPABILITY_DEFAULTS.multiEcosystemOsvEnabled;
 		const offlineArgs = offline ? ["--offline", "--no-resolve"] : [];
 		const args = [
 			"scan",

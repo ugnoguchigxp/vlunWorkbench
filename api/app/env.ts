@@ -1,6 +1,10 @@
 import path from "node:path";
 import { z } from "zod";
-import { APP_CONFIG_DEFAULTS } from "../config/appDefaults";
+import {
+	APP_CONFIG_DEFAULTS,
+	SECURITY_CAPABILITY_DEFAULTS,
+} from "../config/appDefaults";
+import { RUNTIME_SETTINGS_DEFAULTS } from "../config/runtime-settings";
 import { AGENTIC_SEARCH_DEFAULTS } from "../modules/agentic-search/constants";
 import {
 	normalizeOpenAiBaseUrl,
@@ -116,6 +120,11 @@ const EnvSchema = z.object({
 	SCAN_EXECUTION_MODE: optionalScanExecutionMode,
 	ALLOW_HOST_SCANNER_EXECUTION: optionalBoolean,
 	SCAN_DOCKER_IMAGE: optionalTrimmedString,
+	VULN_WORKBENCH_DOCKER_MEMORY: optionalTrimmedString,
+	VULN_WORKBENCH_DOCKER_CPUS: z.coerce.number().positive().optional(),
+	VULN_WORKBENCH_DOCKER_PIDS_LIMIT: optionalPositiveInteger,
+	VULN_WORKBENCH_SCANNER_STDOUT_LIMIT_BYTES: optionalPositiveInteger,
+	VULN_WORKBENCH_SCANNER_STDERR_LIMIT_BYTES: optionalPositiveInteger,
 	PROJECT_ALLOWED_ROOTS: optionalTrimmedString,
 	STATIC_INTELLIGENCE_ALLOWED_PROJECT_ROOTS: optionalTrimmedString,
 	STATIC_INTELLIGENCE_PROJECT_CREATION_POLICY: z
@@ -132,13 +141,6 @@ const EnvSchema = z.object({
 	NIGHTWORKERS_INTEGRATION_MAX_REPORT_BYTES: optionalPositiveInteger,
 	NIGHTWORKERS_INTEGRATION_MAX_REQUEST_BYTES: optionalPositiveInteger,
 	NIGHTWORKERS_REPORT_RUNNER_CONCURRENCY: optionalPositiveInteger,
-	VULN_WORKBENCH_CURATED_SAST_ENABLED: optionalBoolean,
-	VULN_WORKBENCH_MULTI_ECOSYSTEM_OSV_ENABLED: optionalBoolean,
-	VULN_WORKBENCH_ZAP_ACTIVE_ENABLED: optionalBoolean,
-	VULN_WORKBENCH_THREAT_MODEL_ENABLED: optionalBoolean,
-	VULN_WORKBENCH_BUSINESS_LOGIC_ENABLED: optionalBoolean,
-	VULN_WORKBENCH_DAST_STANDARD_V2_ENABLED: optionalBoolean,
-	VULN_WORKBENCH_DAST_STANDARD_V2_DEFAULT: optionalBoolean,
 	JWT_SECRET: z.preprocess((value) => {
 		if (typeof value !== "string") return value;
 		const trimmed = value.trim();
@@ -195,6 +197,11 @@ export type AppEnv = {
 	scanExecutionMode?: "host" | "docker";
 	allowHostScannerExecution?: boolean;
 	scanDockerImage?: string;
+	dockerMemory?: string;
+	dockerCpus?: number;
+	dockerPidsLimit?: number;
+	scannerStdoutLimitBytes?: number;
+	scannerStderrLimitBytes?: number;
 	projectAllowedRoots?: string[];
 	staticIntelligenceAllowedProjectRoots?: string[];
 	staticIntelligenceProjectCreationPolicy?:
@@ -330,7 +337,8 @@ export function readAppEnv(env: NodeJS.ProcessEnv = process.env): AppEnv {
 		openAiAgenticSearchMaxFetchCalls: AGENTIC_SEARCH_DEFAULTS.maxFetchCalls,
 		openAiAgenticSearchMaxContextChars: AGENTIC_SEARCH_DEFAULTS.maxContextChars,
 		codexSdkTimeoutMs:
-			parsed.CODEX_SDK_TIMEOUT_MS ?? APP_CONFIG_DEFAULTS.codexSdkTimeoutMs,
+			parsed.CODEX_SDK_TIMEOUT_MS ??
+			RUNTIME_SETTINGS_DEFAULTS.codexSdkTimeoutMs,
 		azureOpenAiEndpoint: parsed.AZURE_OPENAI_ENDPOINT,
 		azureOpenAiApiKey: parsed.AZURE_OPENAI_API_KEY,
 		azureOpenAiDeployment:
@@ -373,6 +381,20 @@ export function readAppEnv(env: NodeJS.ProcessEnv = process.env): AppEnv {
 		allowHostScannerExecution:
 			parsed.ALLOW_HOST_SCANNER_EXECUTION ?? parsed.NODE_ENV !== "production",
 		scanDockerImage: parsed.SCAN_DOCKER_IMAGE,
+		dockerMemory:
+			parsed.VULN_WORKBENCH_DOCKER_MEMORY ??
+			RUNTIME_SETTINGS_DEFAULTS.dockerMemory,
+		dockerCpus:
+			parsed.VULN_WORKBENCH_DOCKER_CPUS ?? RUNTIME_SETTINGS_DEFAULTS.dockerCpus,
+		dockerPidsLimit:
+			parsed.VULN_WORKBENCH_DOCKER_PIDS_LIMIT ??
+			RUNTIME_SETTINGS_DEFAULTS.dockerPidsLimit,
+		scannerStdoutLimitBytes:
+			parsed.VULN_WORKBENCH_SCANNER_STDOUT_LIMIT_BYTES ??
+			RUNTIME_SETTINGS_DEFAULTS.scannerStdoutLimitBytes,
+		scannerStderrLimitBytes:
+			parsed.VULN_WORKBENCH_SCANNER_STDERR_LIMIT_BYTES ??
+			RUNTIME_SETTINGS_DEFAULTS.scannerStderrLimitBytes,
 		projectAllowedRoots,
 		staticIntelligenceAllowedProjectRoots: parseAllowedProjectRoots(
 			parsed.STATIC_INTELLIGENCE_ALLOWED_PROJECT_ROOTS,
@@ -410,15 +432,13 @@ export function readAppEnv(env: NodeJS.ProcessEnv = process.env): AppEnv {
 			parsed.NIGHTWORKERS_INTEGRATION_MAX_REQUEST_BYTES ?? 64 * 1024,
 		nightworkersReportRunnerConcurrency:
 			parsed.NIGHTWORKERS_REPORT_RUNNER_CONCURRENCY ?? 2,
-		curatedSastEnabled: parsed.VULN_WORKBENCH_CURATED_SAST_ENABLED ?? false,
+		curatedSastEnabled: SECURITY_CAPABILITY_DEFAULTS.curatedSastEnabled,
 		multiEcosystemOsvEnabled:
-			parsed.VULN_WORKBENCH_MULTI_ECOSYSTEM_OSV_ENABLED ?? false,
-		zapActiveEnabled: parsed.VULN_WORKBENCH_ZAP_ACTIVE_ENABLED ?? false,
-		threatModelEnabled: parsed.VULN_WORKBENCH_THREAT_MODEL_ENABLED ?? false,
-		businessLogicEnabled: parsed.VULN_WORKBENCH_BUSINESS_LOGIC_ENABLED ?? false,
-		dastStandardV2Enabled:
-			parsed.VULN_WORKBENCH_DAST_STANDARD_V2_ENABLED ?? true,
-		dastStandardV2Default:
-			parsed.VULN_WORKBENCH_DAST_STANDARD_V2_DEFAULT ?? true,
+			SECURITY_CAPABILITY_DEFAULTS.multiEcosystemOsvEnabled,
+		zapActiveEnabled: SECURITY_CAPABILITY_DEFAULTS.zapActiveEnabled,
+		threatModelEnabled: SECURITY_CAPABILITY_DEFAULTS.threatModelEnabled,
+		businessLogicEnabled: SECURITY_CAPABILITY_DEFAULTS.businessLogicEnabled,
+		dastStandardV2Enabled: SECURITY_CAPABILITY_DEFAULTS.dastStandardV2Enabled,
+		dastStandardV2Default: SECURITY_CAPABILITY_DEFAULTS.dastStandardV2Default,
 	};
 }

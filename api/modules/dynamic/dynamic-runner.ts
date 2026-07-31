@@ -47,6 +47,9 @@ export class DynamicRunner {
 	private readonly repo: DynamicRepository;
 	private readonly storage: DynamicArtifactStorage;
 	private readonly outputLimits: ProcessOutputLimits;
+	private readonly dockerDefaults: NonNullable<
+		DynamicRunnerOptions["dockerDefaults"]
+	>;
 	private readonly artifactLimits: DynamicArtifactCollectionLimits;
 
 	constructor(
@@ -55,6 +58,7 @@ export class DynamicRunner {
 	) {
 		this.repo = new DynamicRepository(db);
 		this.outputLimits = resolveProcessOutputLimits(options.outputLimits);
+		this.dockerDefaults = options.dockerDefaults ?? {};
 		this.artifactLimits = resolveDynamicArtifactLimits(options.artifactLimits);
 		this.storage =
 			options.storage ??
@@ -104,6 +108,9 @@ export class DynamicRunner {
 			profileCpus: profileConfig.cpus,
 			requestedMemory: options.memory,
 			requestedCpus: options.cpus,
+			defaultMemory: this.dockerDefaults.memory,
+			defaultCpus: this.dockerDefaults.cpus,
+			defaultPidsLimit: this.dockerDefaults.pidsLimit,
 		});
 
 		return {
@@ -175,6 +182,9 @@ export class DynamicRunner {
 			profileCpus: profileConfig.cpus,
 			requestedMemory: options.memory,
 			requestedCpus: options.cpus,
+			defaultMemory: this.dockerDefaults.memory,
+			defaultCpus: this.dockerDefaults.cpus,
+			defaultPidsLimit: this.dockerDefaults.pidsLimit,
 		});
 		// 1. Create dynamic run record
 		const runRecord = await this.repo.createRun({

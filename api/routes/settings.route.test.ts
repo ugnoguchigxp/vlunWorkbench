@@ -18,6 +18,18 @@ const createApp = (role: "admin" | "member") => {
 					systemContext: "member-owned context",
 					updatedAt: new Date("2026-01-01T00:00:00.000Z"),
 				}),
+				getRuntimeSettings: vi.fn().mockResolvedValue({
+					scanExecutionMode: "host",
+					allowHostScannerExecution: true,
+					scanDockerImage: "vuln-workbench-toolbox:local",
+					dockerMemory: "4g",
+					dockerCpus: 2,
+					dockerPidsLimit: 512,
+					scannerStdoutLimitBytes: 64 * 1024 * 1024,
+					scannerStderrLimitBytes: 8 * 1024 * 1024,
+					codexSdkTimeoutMs: 600_000,
+					updatedAt: null,
+				}),
 			} as never,
 			llmSettingsRepository: {
 				getSettings: vi.fn().mockResolvedValue({
@@ -52,6 +64,16 @@ describe("Settings route authorization", () => {
 
 	it("allows administrators to read global LLM settings", async () => {
 		const response = await createApp("admin").request("/settings/llm");
+		expect(response.status).toBe(200);
+	});
+
+	it("denies global runtime settings to members", async () => {
+		const response = await createApp("member").request("/settings/runtime");
+		expect(response.status).toBe(403);
+	});
+
+	it("allows administrators to read runtime settings", async () => {
+		const response = await createApp("admin").request("/settings/runtime");
 		expect(response.status).toBe(200);
 	});
 });

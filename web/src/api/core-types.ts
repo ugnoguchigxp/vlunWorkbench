@@ -94,6 +94,19 @@ export type LlmSettingsResponse = {
 	updatedAt: string | null;
 };
 
+export type RuntimeSettingsResponse = {
+	scanExecutionMode: "host" | "docker";
+	allowHostScannerExecution: boolean;
+	scanDockerImage: string;
+	dockerMemory: string;
+	dockerCpus: number;
+	dockerPidsLimit: number;
+	scannerStdoutLimitBytes: number;
+	scannerStderrLimitBytes: number;
+	codexSdkTimeoutMs: number;
+	updatedAt: string | null;
+};
+
 export type LlmProviderHealthResult = {
 	ok: boolean;
 	reachable: boolean;

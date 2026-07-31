@@ -16,6 +16,7 @@ import {
 	ScanRepository,
 } from "../modules/scans/repositories";
 import type { ToolExecutionConfig } from "../modules/scans/tools/tool-process-runner";
+import { SettingsRepository } from "../modules/settings/settings.repository";
 import { runCliAutomatedDiagnostic } from "./scan-profile-diagnostic";
 
 export interface ScannerCliRunResult {
@@ -116,10 +117,13 @@ export async function executeScannerCli<
 	adapter: ScannerCliAdapter<TOptions, TRunner>,
 	request: ScannerCliRequest<TOptions>,
 ): Promise<void> {
-	const env = readAppEnv();
+	const startupEnv = readAppEnv();
+	const connection = createDbConnection(startupEnv.databaseUrl);
+	const env = await new SettingsRepository(connection.db).resolveAppEnv(
+		startupEnv,
+	);
 	const executionPolicy = resolveScanExecutionPolicy({ env, surface: "cli" });
 	const execution = executionConfigFromPolicy(executionPolicy);
-	const connection = createDbConnection(env.databaseUrl);
 	const projectRepo = new ProjectRepository(connection.db);
 	const scanRepo = new ScanRepository(connection.db);
 	const artifactRepo = new ArtifactRepository(connection.db);

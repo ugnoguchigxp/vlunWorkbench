@@ -21,6 +21,11 @@ export type DynamicArtifactCollectionLimits = {
 
 export type DynamicRunnerOptions = {
 	outputLimits?: Partial<ProcessOutputLimits>;
+	dockerDefaults?: {
+		memory?: string;
+		cpus?: string;
+		pidsLimit?: number;
+	};
 	artifactLimits?: Partial<DynamicArtifactCollectionLimits>;
 	storage?: DynamicArtifactStorage;
 };

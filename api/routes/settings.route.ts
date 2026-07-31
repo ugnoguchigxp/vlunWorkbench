@@ -1,7 +1,11 @@
 import { zValidator } from "@hono/zod-validator";
 import { Hono } from "hono";
 import { z } from "zod";
-import { readAppEnv } from "../app/env";
+import { type AppEnv, readAppEnv } from "../app/env";
+import {
+	applyRuntimeSettings,
+	RuntimeSettingsSchema,
+} from "../config/runtime-settings";
 import { requireAdmin } from "../middleware/auth";
 import { getAuthContextUser } from "../modules/auth/context";
 import { readCodexStatus } from "../modules/llm-settings/codex-status";
@@ -18,6 +22,7 @@ const UpdateSystemContextSchema = z.object({
 type SettingsRouteDeps = {
 	settingsRepository: SettingsRepository;
 	llmSettingsRepository?: LlmSettingsRepository;
+	runtimeEnv?: AppEnv;
 };
 
 export function createSettingsRoute(deps: SettingsRouteDeps) {
@@ -28,6 +33,7 @@ export function createSettingsRoute(deps: SettingsRouteDeps) {
 	const llmRepo = deps.llmSettingsRepository;
 
 	return new Hono()
+		.use("/runtime", requireAdmin())
 		.use("/llm", requireAdmin())
 		.use("/llm/*", requireAdmin())
 		.get("/system-context", async (c) => {
@@ -54,6 +60,20 @@ export function createSettingsRoute(deps: SettingsRouteDeps) {
 				});
 			},
 		)
+		.get("/runtime", async (c) => {
+			const env = deps.runtimeEnv ?? readAppEnv();
+			return c.json(await repo.getRuntimeSettings(env));
+		})
+		.put("/runtime", zValidator("json", RuntimeSettingsSchema), async (c) => {
+			const updated = await repo.updateRuntimeSettings(c.req.valid("json"));
+			if (deps.runtimeEnv) {
+				Object.assign(
+					deps.runtimeEnv,
+					applyRuntimeSettings(deps.runtimeEnv, updated),
+				);
+			}
+			return c.json(updated);
+		})
 		.get("/llm", async (c) => {
 			if (!llmRepo) {
 				return c.json({

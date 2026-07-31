@@ -52,7 +52,7 @@ describe("resolveScanExecutionPolicy", () => {
 		).toMatchObject({
 			runner: "docker",
 			dockerImage: "scanner:test",
-			source: "environment",
+			source: "configured",
 		});
 	});
 });

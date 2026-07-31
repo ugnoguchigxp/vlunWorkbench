@@ -14,6 +14,7 @@ export interface DockerRunnerConfig {
 export interface ToolExecutionConfig {
 	runner: ToolRunnerKind;
 	docker?: DockerRunnerConfig;
+	outputLimits?: Partial<ProcessOutputLimits>;
 }
 
 export interface ToolLifecycleEvent {

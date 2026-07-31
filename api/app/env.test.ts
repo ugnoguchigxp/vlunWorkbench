@@ -1,6 +1,7 @@
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { APP_CONFIG_DEFAULTS } from "../config/appDefaults";
+import { RUNTIME_SETTINGS_DEFAULTS } from "../config/runtime-settings";
 import { readAppEnv } from "./env";
 
 describe("readAppEnv", () => {
@@ -13,7 +14,9 @@ describe("readAppEnv", () => {
 		expect(env.appUrl).toBe(APP_CONFIG_DEFAULTS.appUrl);
 		expect(env.corsOrigins).toEqual(APP_CONFIG_DEFAULTS.corsOrigins);
 		expect(env.cookieSameSite).toBe(APP_CONFIG_DEFAULTS.cookieSameSite);
-		expect(env.codexSdkTimeoutMs).toBe(APP_CONFIG_DEFAULTS.codexSdkTimeoutMs);
+		expect(env.codexSdkTimeoutMs).toBe(
+			RUNTIME_SETTINGS_DEFAULTS.codexSdkTimeoutMs,
+		);
 		expect(env.jwtAccessExpiresIn).toBe("1d");
 		expect(env.jwtRefreshExpiresIn).toBe("7d");
 		expect(env.scanExecutionMode).toBeUndefined();
@@ -129,7 +132,7 @@ describe("readAppEnv", () => {
 		expect(env.zapActiveEnabled).toBe(false);
 	});
 
-	it("enables Phase 50 capabilities only through explicit flags", () => {
+	it("keeps capability rollout policy in source-controlled constants", () => {
 		const env = readAppEnv({
 			VULN_WORKBENCH_CURATED_SAST_ENABLED: "true",
 			VULN_WORKBENCH_MULTI_ECOSYSTEM_OSV_ENABLED: "true",
@@ -148,13 +151,13 @@ describe("readAppEnv", () => {
 			dastStandardV2Enabled: env.dastStandardV2Enabled,
 			dastStandardV2Default: env.dastStandardV2Default,
 		}).toEqual({
-			curatedSastEnabled: true,
-			multiEcosystemOsvEnabled: true,
-			zapActiveEnabled: true,
-			threatModelEnabled: true,
-			businessLogicEnabled: true,
-			dastStandardV2Enabled: false,
-			dastStandardV2Default: false,
+			curatedSastEnabled: false,
+			multiEcosystemOsvEnabled: false,
+			zapActiveEnabled: false,
+			threatModelEnabled: false,
+			businessLogicEnabled: false,
+			dastStandardV2Enabled: true,
+			dastStandardV2Default: true,
 		});
 	});
 

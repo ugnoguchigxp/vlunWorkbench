@@ -21,6 +21,7 @@ import {
 } from "../modules/scans/scan-execution-policy";
 import { ScanReviewRepository } from "../modules/scans/scan-review-repository";
 import { ScanReviewRunner } from "../modules/scans/scan-review-runner";
+import { SettingsRepository } from "../modules/settings/settings.repository";
 import { LlmRouter } from "../providers/llmRouter";
 
 const ORACLE_PROFILE = "agent-output";
@@ -109,13 +110,16 @@ async function main(): Promise<number> {
 	let dbConnection: ReturnType<typeof createDbConnection> | null = null;
 	let startupComplete = false;
 	try {
-		const env = readAppEnv();
+		const startupEnv = readAppEnv();
+		dbConnection = createDbConnection(startupEnv.databaseUrl);
+		const env = await new SettingsRepository(dbConnection.db).resolveAppEnv(
+			startupEnv,
+		);
 		const executionPolicy = resolveScanExecutionPolicy({
 			env,
 			surface: "security_oracle",
 		});
 		const execution = executionConfigFromPolicy(executionPolicy);
-		dbConnection = createDbConnection(env.databaseUrl);
 		startupComplete = true;
 		const resolvedProject = await resolveProjectByPath(
 			dbConnection.db,

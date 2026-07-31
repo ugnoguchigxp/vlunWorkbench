@@ -13,6 +13,9 @@ vi.mock("../db", () => ({
 				users: {
 					findFirst: vi.fn(),
 				},
+				runtimeSettings: {
+					findFirst: vi.fn().mockResolvedValue(undefined),
+				},
 					scanRuns: {
 						findMany: vi.fn().mockResolvedValue([]),
 					},
@@ -52,6 +55,7 @@ vi.mock("./env", () => ({
 		secureCookie: false,
 		cookieSameSite: "lax",
 		securityHeadersMode: "auto",
+		codexSdkTimeoutMs: 600_000,
 	}),
 }));
 

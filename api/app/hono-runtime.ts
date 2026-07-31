@@ -162,8 +162,10 @@ function isUnconfiguredAgenticService(value: unknown): boolean {
 }
 
 async function createRuntime(): Promise<AppRuntime> {
-	const env = readAppEnv();
-	const dbConnection = createDbConnection(env.databaseUrl);
+	const startupEnv = readAppEnv();
+	const dbConnection = createDbConnection(startupEnv.databaseUrl);
+	const settingsRepository = new SettingsRepository(dbConnection.db);
+	const env = await settingsRepository.resolveAppEnv(startupEnv);
 	const wikiBlobSyncer = createWikiBlobSyncer(env);
 	await wikiBlobSyncer?.pull({ force: true });
 
@@ -186,7 +188,6 @@ async function createRuntime(): Promise<AppRuntime> {
 		webSearchProvider: configuredWebSearch.provider,
 	});
 	const authService = new AuthService(dbConnection.db, env);
-	const settingsRepository = new SettingsRepository(dbConnection.db);
 	const llmSettingsRepository = new LlmSettingsRepository(dbConnection.db, env);
 	const llmRouter = new LlmRouter(llmSettingsRepository, env);
 	const scanRepository = new ScanRepository(dbConnection.db);

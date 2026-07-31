@@ -304,6 +304,7 @@ export function registerApplicationRoutes(
 		createSettingsRoute({
 			settingsRepository: runtime.settingsRepository,
 			llmSettingsRepository: runtime.llmSettingsRepository,
+			runtimeEnv: runtime.env,
 		}),
 	);
 	app.route(

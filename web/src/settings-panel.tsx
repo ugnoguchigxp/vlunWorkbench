@@ -4,13 +4,16 @@ import {
 	type CodexStatusResponse,
 	fetchCodexStatus,
 	fetchLlmSettings,
+	fetchRuntimeSettings,
 	type LlmModelTarget,
 	type LlmProviderEndpoint,
 	type LlmProviderHealthResult,
 	type LlmSettingsResponse,
+	type RuntimeSettingsResponse,
 	type LlmTask,
 	type LlmTaskRoute,
 	updateLlmSettings,
+	updateRuntimeSettings,
 	updateSystemContext,
 } from "./api";
 import {
@@ -38,6 +41,9 @@ export function useSettingsPanelModel({
 	const [llmSettings, setLlmSettings] = useState<LlmSettingsResponse | null>(
 		null,
 	);
+	const [runtimeSettings, setRuntimeSettings] =
+		useState<RuntimeSettingsResponse | null>(null);
+	const [runtimeSaving, setRuntimeSaving] = useState(false);
 	const [selectedEndpointId, setSelectedEndpointId] = useState<string | null>(
 		null,
 	);
@@ -75,9 +81,10 @@ export function useSettingsPanelModel({
 		void (async () => {
 			setLlmLoading(true);
 			try {
-				const [settings, codex] = await Promise.all([
+				const [settings, codex, runtime] = await Promise.all([
 					fetchLlmSettings(),
 					fetchCodexStatus(),
+					fetchRuntimeSettings(),
 				]);
 				const normalized = ensureCodexEndpoint(
 					{
@@ -93,6 +100,7 @@ export function useSettingsPanelModel({
 					)?.id ?? null,
 				);
 				setCodexStatus(codex);
+				setRuntimeSettings(runtime);
 			} catch (error) {
 				setErrorText(
 					error instanceof Error ? error.message : "Failed to load settings.",
@@ -204,6 +212,14 @@ export function useSettingsPanelModel({
 				),
 			};
 		});
+	};
+
+	const updateRuntimeSetting = (
+		patch: Partial<Omit<RuntimeSettingsResponse, "updatedAt">>,
+	): void => {
+		setRuntimeSettings((current) =>
+			current ? { ...current, ...patch } : current,
+		);
 	};
 
 	const updateCodexEndpoint = (patch: Partial<LlmProviderEndpoint>): void => {
@@ -359,6 +375,24 @@ export function useSettingsPanelModel({
 		}
 	};
 
+	const handleSaveRuntimeSettings = async () => {
+		if (!runtimeSettings) return;
+		setRuntimeSaving(true);
+		setErrorText(null);
+		try {
+			const { updatedAt: _updatedAt, ...input } = runtimeSettings;
+			setRuntimeSettings(await updateRuntimeSettings(input));
+		} catch (error) {
+			setErrorText(
+				error instanceof Error
+					? error.message
+					: "Failed to save runtime settings.",
+			);
+		} finally {
+			setRuntimeSaving(false);
+		}
+	};
+
 	const handleHealth = async (endpointId: string) => {
 		setHealthCheckingId(endpointId);
 		setErrorText(null);
@@ -417,6 +451,10 @@ export function useSettingsPanelModel({
 		handleSaveLlmSettings,
 		handleHealth,
 		llmSaveDisabled,
+		runtimeSettings,
+		runtimeSaving,
+		updateRuntimeSetting,
+		handleSaveRuntimeSettings,
 	};
 }
 

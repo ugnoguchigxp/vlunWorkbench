@@ -189,6 +189,16 @@ export const userSettings = sqliteTable("user_settings", {
 	updatedAt: timestampMs("updated_at"),
 });
 
+export const runtimeSettings = sqliteTable("runtime_settings", {
+	id: text("id").primaryKey(),
+	settings: text("settings_json", { mode: "json" })
+		.$type<Record<string, unknown>>()
+		.default(sql`'{}'`)
+		.notNull(),
+	createdAt: timestampMs("created_at"),
+	updatedAt: timestampMs("updated_at"),
+});
+
 export const llmProviderEndpoints = sqliteTable(
 	"llm_provider_endpoints",
 	{

@@ -30,6 +30,7 @@ import {
 	normalizeToolExecutionConfig,
 	type ToolRunnerKind,
 } from "../modules/scans/tools/tool-process-runner";
+import { SettingsRepository } from "../modules/settings/settings.repository";
 import { ProjectPathPolicyError } from "../security/project-path-policy";
 import { runCliAutomatedDiagnostic } from "./scan-profile-diagnostic";
 import { buildScanProfileDryRun } from "./scan-profile-dry-run";
@@ -248,7 +249,11 @@ async function main() {
 	let startupComplete = false;
 
 	try {
-		const env = readAppEnv();
+		const startupEnv = readAppEnv();
+		dbConnection = createDbConnection(startupEnv.databaseUrl);
+		const env = await new SettingsRepository(dbConnection.db).resolveAppEnv(
+			startupEnv,
+		);
 		const executionPolicy = resolveScanExecutionPolicy({
 			env,
 			surface: executionSurface,
@@ -265,13 +270,16 @@ async function main() {
 								argsValues["docker-image"] ??
 								executionConfigFromPolicy(executionPolicy).docker?.image,
 							networkMode,
-							memory: argsValues.memory,
-							cpus: argsValues.cpus,
+							memory:
+								argsValues.memory ??
+								executionConfigFromPolicy(executionPolicy).docker?.memory,
+							cpus:
+								argsValues.cpus ??
+								executionConfigFromPolicy(executionPolicy).docker?.cpus,
 							toolCacheDir: argsValues["tool-cache-dir"],
 						}
 					: undefined,
 		});
-		dbConnection = createDbConnection(env.databaseUrl);
 		startupComplete = true;
 		const projectRepo = new ProjectRepository(dbConnection.db);
 		const projectResolution = projectPath

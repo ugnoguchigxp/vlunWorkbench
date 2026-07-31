@@ -4,6 +4,7 @@ import { formatDateTime } from "./settings-panel-model";
 import type { SettingsPanelModel } from "./settings-panel";
 import { LlmProvidersPanel } from "./settings-llm-providers-panel";
 import { TaskRoutingPanel } from "./settings-task-routing-panel";
+import { RuntimeSettingsPanel } from "./settings-runtime-panel";
 
 export function SettingsPanelView({ model }: { model: SettingsPanelModel }) {
 	const {
@@ -70,6 +71,7 @@ export function SettingsPanelView({ model }: { model: SettingsPanelModel }) {
 					</div>
 				</div>
 			</section>
+			<RuntimeSettingsPanel model={model} />
 			<LlmProvidersPanel model={model} />
 			<TaskRoutingPanel model={model} />
 		</main>

@@ -2,13 +2,14 @@ import type {
 	ScanProfile,
 	ScanProfileStep,
 } from "../../../shared/schemas/scan-profile.schema";
+import { SECURITY_CAPABILITY_DEFAULTS } from "../../config/appDefaults";
 
 export const RUNTIME_ASSESSMENT_AGGREGATE_REQUEST_BUDGET = 250;
 
 export function applyDastStandardRollout(profile: ScanProfile): ScanProfile {
 	const enabled =
-		flagEnabled(process.env.VULN_WORKBENCH_DAST_STANDARD_V2_ENABLED) &&
-		flagEnabled(process.env.VULN_WORKBENCH_DAST_STANDARD_V2_DEFAULT);
+		SECURITY_CAPABILITY_DEFAULTS.dastStandardV2Enabled &&
+		SECURITY_CAPABILITY_DEFAULTS.dastStandardV2Default;
 	if (enabled) return profile;
 	return {
 		...profile,
@@ -23,12 +24,6 @@ export function applyDastStandardRollout(profile: ScanProfile): ScanProfile {
 				: step,
 		),
 	};
-}
-
-function flagEnabled(value: string | undefined): boolean {
-	return !["0", "false", "no", "off"].includes(
-		value?.trim().toLowerCase() ?? "",
-	);
 }
 
 export function plannedRuntimeAssessmentRequests(profile: ScanProfile): number {

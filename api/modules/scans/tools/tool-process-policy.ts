@@ -1,13 +1,15 @@
 import { parsePositiveInteger } from "./process-runner-shared";
+import { RUNTIME_SETTINGS_DEFAULTS } from "../../../config/runtime-settings";
 import type {
 	ProcessOutputLimits,
 	ToolExecutionConfig,
 } from "./tool-process-types";
 
-export const DEFAULT_DOCKER_IMAGE = "vuln-workbench-toolbox:local";
-export const DEFAULT_DOCKER_MEMORY = "4g";
-export const DEFAULT_DOCKER_CPUS = "2";
-export const DEFAULT_DOCKER_PIDS_LIMIT = 512;
+export const DEFAULT_DOCKER_IMAGE = RUNTIME_SETTINGS_DEFAULTS.scanDockerImage;
+export const DEFAULT_DOCKER_MEMORY = RUNTIME_SETTINGS_DEFAULTS.dockerMemory;
+export const DEFAULT_DOCKER_CPUS = String(RUNTIME_SETTINGS_DEFAULTS.dockerCpus);
+export const DEFAULT_DOCKER_PIDS_LIMIT =
+	RUNTIME_SETTINGS_DEFAULTS.dockerPidsLimit;
 const MIN_DOCKER_MEMORY_BYTES = 512 * 1024 * 1024;
 const MAX_DOCKER_MEMORY_BYTES = 8 * 1024 * 1024 * 1024;
 const MIN_DOCKER_CPUS = 0.25;
@@ -15,8 +17,8 @@ const MAX_DOCKER_CPUS = 4;
 const MIN_DOCKER_PIDS = 64;
 const MAX_DOCKER_PIDS = 1_024;
 export const DEFAULT_PROCESS_OUTPUT_LIMITS: ProcessOutputLimits = {
-	stdoutBytes: 64 * 1024 * 1024,
-	stderrBytes: 8 * 1024 * 1024,
+	stdoutBytes: RUNTIME_SETTINGS_DEFAULTS.scannerStdoutLimitBytes,
+	stderrBytes: RUNTIME_SETTINGS_DEFAULTS.scannerStderrLimitBytes,
 };
 const HARD_PROCESS_OUTPUT_LIMITS: ProcessOutputLimits = {
 	stdoutBytes: 256 * 1024 * 1024,
@@ -28,15 +30,13 @@ export function resolveProcessOutputLimits(
 ): ProcessOutputLimits {
 	return {
 		stdoutBytes: parsePositiveInteger(
-			limits?.stdoutBytes ??
-				process.env.VULN_WORKBENCH_SCANNER_STDOUT_LIMIT_BYTES,
+			limits?.stdoutBytes,
 			"Scanner stdout limit",
 			DEFAULT_PROCESS_OUTPUT_LIMITS.stdoutBytes,
 			HARD_PROCESS_OUTPUT_LIMITS.stdoutBytes,
 		),
 		stderrBytes: parsePositiveInteger(
-			limits?.stderrBytes ??
-				process.env.VULN_WORKBENCH_SCANNER_STDERR_LIMIT_BYTES,
+			limits?.stderrBytes,
 			"Scanner stderr limit",
 			DEFAULT_PROCESS_OUTPUT_LIMITS.stderrBytes,
 			HARD_PROCESS_OUTPUT_LIMITS.stderrBytes,
@@ -57,8 +57,7 @@ function parseDockerMemoryBytes(value: string): number {
 }
 
 function normalizeDockerMemory(value?: string): string {
-	const memory =
-		value ?? process.env.VULN_WORKBENCH_DOCKER_MEMORY ?? DEFAULT_DOCKER_MEMORY;
+	const memory = value ?? DEFAULT_DOCKER_MEMORY;
 	const bytes = parseDockerMemoryBytes(memory);
 	if (bytes < MIN_DOCKER_MEMORY_BYTES || bytes > MAX_DOCKER_MEMORY_BYTES) {
 		throw new Error("Docker memory must be between 512 MiB and 8 GiB.");
@@ -67,8 +66,7 @@ function normalizeDockerMemory(value?: string): string {
 }
 
 function normalizeDockerCpus(value?: string): string {
-	const cpus =
-		value ?? process.env.VULN_WORKBENCH_DOCKER_CPUS ?? DEFAULT_DOCKER_CPUS;
+	const cpus = value ?? DEFAULT_DOCKER_CPUS;
 	const parsed = Number(cpus);
 	if (
 		!Number.isFinite(parsed) ||
@@ -82,7 +80,7 @@ function normalizeDockerCpus(value?: string): string {
 
 function normalizeDockerPidsLimit(value?: number): number {
 	const parsed = parsePositiveInteger(
-		value ?? process.env.VULN_WORKBENCH_DOCKER_PIDS_LIMIT,
+		value,
 		"Docker PIDs limit",
 		DEFAULT_DOCKER_PIDS_LIMIT,
 		MAX_DOCKER_PIDS,
@@ -101,7 +99,10 @@ export function normalizeToolExecutionConfig(
 		throw new Error(`Invalid runner: ${runner}`);
 	}
 	if (runner === "host") {
-		return { runner: "host" };
+		return {
+			runner: "host",
+			outputLimits: resolveProcessOutputLimits(execution?.outputLimits),
+		};
 	}
 	const dockerConfig = execution?.docker ?? {};
 	const networkMode = dockerConfig.networkMode ?? "none";
@@ -122,5 +123,6 @@ export function normalizeToolExecutionConfig(
 			pidsLimit: normalizeDockerPidsLimit(dockerConfig.pidsLimit),
 			toolCacheDir: dockerConfig.toolCacheDir,
 		},
+		outputLimits: resolveProcessOutputLimits(execution?.outputLimits),
 	};
 }

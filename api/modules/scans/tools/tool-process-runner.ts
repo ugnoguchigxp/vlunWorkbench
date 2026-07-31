@@ -73,16 +73,18 @@ export async function runToolProcess(
 	options: ProcessRunnerOptions = {},
 ): Promise<ProcessRunnerResult> {
 	const execution = normalizeToolExecutionConfig(options.execution);
+	const outputLimits = options.outputLimits ?? execution.outputLimits;
+	const resolvedOptions = { ...options, outputLimits };
 	const result =
 		execution.runner === "docker"
-			? await runDockerToolProcess(binaryName, args, options, execution)
-			: await runHostToolProcess(binaryName, args, options);
+			? await runDockerToolProcess(binaryName, args, resolvedOptions, execution)
+			: await runHostToolProcess(binaryName, args, resolvedOptions);
 	if (!result.ok || !options.outputPath) {
 		return result;
 	}
-	const outputLimits = resolveProcessOutputLimits(options.outputLimits);
+	const resolvedOutputLimits = resolveProcessOutputLimits(outputLimits);
 	const outputStat = await fs.stat(options.outputPath).catch(() => null);
-	if (!outputStat || outputStat.size <= outputLimits.stdoutBytes) {
+	if (!outputStat || outputStat.size <= resolvedOutputLimits.stdoutBytes) {
 		return result;
 	}
 	await emitLifecycleEvent(options.onLifecycleEvent, {
@@ -91,13 +93,13 @@ export async function runToolProcess(
 		message: `${binaryName} structured output exceeded its byte limit.`,
 		data: {
 			outputBytes: outputStat.size,
-			limitBytes: outputLimits.stdoutBytes,
+			limitBytes: resolvedOutputLimits.stdoutBytes,
 		},
 	});
 	return {
 		...result,
 		ok: false,
-		error: `tool_output_limit_exceeded: ${binaryName} output file exceeded ${outputLimits.stdoutBytes} bytes`,
+		error: `tool_output_limit_exceeded: ${binaryName} output file exceeded ${resolvedOutputLimits.stdoutBytes} bytes`,
 		executionMetadata: {
 			...result.executionMetadata,
 			outputCapture: {
@@ -106,7 +108,7 @@ export async function runToolProcess(
 					unknown
 				>) ?? {}),
 				outputFileBytes: outputStat.size,
-				outputFileLimitBytes: outputLimits.stdoutBytes,
+				outputFileLimitBytes: resolvedOutputLimits.stdoutBytes,
 				terminationReason: "output_file_limit",
 			},
 		},
