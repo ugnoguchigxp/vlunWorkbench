@@ -196,6 +196,7 @@ describe("Security oracle CLI contract", () => {
 				profile: "agent-output",
 				findingCount: 0,
 				highOrCriticalCount: 0,
+				coverage: { completed: 3, skipped: 0, failed: 0, gaps: [] },
 			},
 			review: {
 				status: "completed",

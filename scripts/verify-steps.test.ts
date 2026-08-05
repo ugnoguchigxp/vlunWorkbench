@@ -29,6 +29,7 @@ describe("verification command graph", () => {
 			["bun", "run", "test:security-capability"],
 			["bun", "run", "verify:phase-51-baseline"],
 			["bun", "run", "verify:dast-capability"],
+			["bun", "run", "verify:phase-54-baseline"],
 			["bun", "run", "verify:phase-50-evidence"],
 			["bun", "run", "test:coverage"],
 			["bun", "run", "test:e2e"],

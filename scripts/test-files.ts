@@ -1,12 +1,11 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 
-const ignoredDirectories = new Set([
+const ignoredDirectoriesEverywhere = new Set([
 	".git",
 	".artifacts",
 	".cache",
 	".tmp",
-	"artifacts",
 	"build",
 	"coverage",
 	"data",
@@ -17,13 +16,21 @@ const ignoredDirectories = new Set([
 	"test-results",
 ]);
 
+const ignoredRootDirectories = new Set(["artifacts"]);
+
 async function walk(directory: string, root: string): Promise<string[]> {
 	const entries = await fs.readdir(directory, { withFileTypes: true });
 	const files: string[] = [];
 	for (const entry of entries) {
-		if (entry.isDirectory() && ignoredDirectories.has(entry.name)) continue;
 		const absolute = path.join(directory, entry.name);
 		if (entry.isDirectory()) {
+			const isRootDirectory = directory === root;
+			if (
+				ignoredDirectoriesEverywhere.has(entry.name) ||
+				(isRootDirectory && ignoredRootDirectories.has(entry.name))
+			) {
+				continue;
+			}
 			files.push(...(await walk(absolute, root)));
 			continue;
 		}
@@ -36,7 +43,7 @@ async function walk(directory: string, root: string): Promise<string[]> {
 export async function discoverTestFiles(
 	root = process.cwd(),
 ): Promise<string[]> {
-	return (await walk(root, root)).sort((a, b) => a.localeCompare(b));
+	return (await walk(root, root)).sort();
 }
 
 export const isVitestFile = (file: string): boolean =>

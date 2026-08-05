@@ -36,6 +36,7 @@ Thumbs.db
 /*.sqlite
 /*.sqlite-shm
 /*.sqlite-wal
+/backups/
 
 # coverage
 /coverage

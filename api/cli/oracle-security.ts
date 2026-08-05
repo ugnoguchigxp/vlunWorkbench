@@ -8,7 +8,10 @@ import {
 import { readAppEnv } from "../app/env";
 import { createDbConnection } from "../db";
 import { LlmSettingsRepository } from "../modules/llm-settings/llm-settings.repository";
-import { runProfileScan } from "../modules/scans/profile-runner";
+import {
+	type ProfileScanResult,
+	runProfileScan,
+} from "../modules/scans/profile-runner";
 import {
 	ProjectResolutionError,
 	resolveProjectByPath,
@@ -155,11 +158,29 @@ async function main(): Promise<number> {
 			const severity = finding.severity.toLowerCase();
 			return severity === "high" || severity === "critical";
 		}).length;
+		const severityCounts = {
+			critical: 0,
+			high: 0,
+			medium: 0,
+			low: 0,
+			info: 0,
+			unknown: 0,
+		};
+		for (const finding of findings) {
+			const severity = finding.severity.toLowerCase();
+			if (severity in severityCounts) {
+				severityCounts[severity as keyof typeof severityCounts] += 1;
+			} else {
+				severityCounts.unknown += 1;
+			}
+		}
 		const scanPayload = {
 			scanRunId: scanResult.scanRunId,
 			profile: ORACLE_PROFILE,
 			findingCount: findings.length,
 			highOrCriticalCount,
+			severityCounts,
+			coverage: summarizeCoverage(scanResult.stepResults),
 			findingsTruncated: findings.length > 10,
 			blockingFingerprints: findings
 				.filter((finding) => {
@@ -388,6 +409,34 @@ function compactText(value: string, maxLength: number) {
 	const compacted = value.replace(/\s+/g, " ").trim();
 	if (compacted.length <= maxLength) return compacted;
 	return `${compacted.slice(0, Math.max(0, maxLength - 1))}…`;
+}
+
+function summarizeCoverage(stepResults: ProfileScanResult["stepResults"]) {
+	const coverage = { completed: 0, skipped: 0, failed: 0, gaps: [] } as {
+		completed: number;
+		skipped: number;
+		failed: number;
+		gaps: Array<{ code: string; message: string }>;
+	};
+	for (const step of stepResults) {
+		coverage[step.status] += 1;
+		if (step.status === "completed") continue;
+		const id =
+			step.kind === "static_tool"
+				? step.toolId
+				: step.kind === "dast"
+					? step.profileId
+					: step.stepId;
+		const reasonCode = "reasonCode" in step ? step.reasonCode : null;
+		coverage.gaps.push({
+			code: compactText(`${step.status}:${id}`, 64),
+			message: compactText(
+				step.error ?? reasonCode ?? `${id} did not complete.`,
+				512,
+			),
+		});
+	}
+	return coverage;
 }
 
 process.exitCode = await main();

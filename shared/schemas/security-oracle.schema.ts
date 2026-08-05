@@ -26,6 +26,33 @@ export const securityOracleResultSchema = z
 				profile: z.string(),
 				findingCount: z.number().int().nonnegative(),
 				highOrCriticalCount: z.number().int().nonnegative(),
+				severityCounts: z
+					.object({
+						critical: z.number().int().nonnegative(),
+						high: z.number().int().nonnegative(),
+						medium: z.number().int().nonnegative(),
+						low: z.number().int().nonnegative(),
+						info: z.number().int().nonnegative(),
+						unknown: z.number().int().nonnegative(),
+					})
+					.strict()
+					.optional(),
+				coverage: z
+					.object({
+						completed: z.number().int().nonnegative(),
+						skipped: z.number().int().nonnegative(),
+						failed: z.number().int().nonnegative(),
+						gaps: z.array(
+							z
+								.object({
+									code: z.string().min(1).max(64),
+									message: z.string().min(1).max(512),
+								})
+								.strict(),
+						),
+					})
+					.strict()
+					.optional(),
 				findingsTruncated: z.boolean(),
 				blockingFingerprints: z.array(z.string()),
 				findings: z.array(

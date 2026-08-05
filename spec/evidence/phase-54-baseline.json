@@ -1,0 +1,313 @@
+{
+  "schemaVersion": 1,
+  "phase": "54",
+  "evidenceKind": "baseline",
+  "snapshotKind": "planning_baseline",
+  "generatedAt": "2026-08-05T13:20:44Z",
+  "owner": "vulnWorkbench maintainers",
+  "planningBaselineCommit": "91c1b082da95092a7549606cb8b45d98531c41ad",
+  "workingTree": {
+    "clean": false,
+    "changedPaths": [
+      "README.jp.md",
+      "README.md",
+      "api/cli/oracle-security.ts",
+      "shared/schemas/security-oracle.schema.ts",
+      "spec/phase-54-release-trust-and-product-value-realization-plan.md"
+    ],
+    "phase54ScopePaths": [
+      "README.jp.md",
+      "README.md",
+      "spec/phase-54-release-trust-and-product-value-realization-plan.md"
+    ],
+    "concurrentPathsExcludedFromScope": [
+      "api/cli/oracle-security.ts",
+      "shared/schemas/security-oracle.schema.ts"
+    ]
+  },
+  "toolchain": {
+    "bun": "1.3.14",
+    "platform": "darwin",
+    "architecture": "arm64"
+  },
+  "inventory": {
+    "testFiles": 261,
+    "ownedSemgrepRules": 45,
+    "osvEcosystems": [
+      "Go",
+      "Maven",
+      "NuGet",
+      "Packagist",
+      "PyPI",
+      "RubyGems",
+      "crates.io",
+      "npm"
+    ],
+    "builtInPlugins": 19,
+    "humanContributors": 1,
+    "automatedContributors": 1,
+    "gitTags": 0
+  },
+  "metrics": {
+    "owaspBenchmark": {
+      "recall": 0.7088339222614841,
+      "precision": 0.6945983379501385,
+      "falsePositiveRate": 0.31210191082802546,
+      "score": 0.39673201143345865
+    },
+    "juiceShop": {
+      "eligibleScenarios": 20,
+      "categories": 9,
+      "executedScenarios": 0,
+      "recall": 0,
+      "precision": null,
+      "falsePositiveRate": 0,
+      "score": 0
+    }
+  },
+  "documentation": {
+    "manifestIsSourceOfTruth": true,
+    "staleClaims": [
+      "third-party scanner record states three owned Semgrep rules",
+      "third-party scanner record states npm-only OSV coverage"
+    ]
+  },
+  "gates": [
+    {
+      "id": "format",
+      "command": "bun run format:check",
+      "state": "failed",
+      "durationMs": null,
+      "attempts": [
+        {
+          "attempt": 1,
+          "state": "failed",
+          "exitCode": 1,
+          "summary": "technology_coverage_display_format_difference"
+        }
+      ],
+      "evidenceRefs": [
+        "web/src/domains/scans/technology-coverage-display.ts"
+      ],
+      "summary": "Biome reported one formatting difference"
+    },
+    {
+      "id": "phase-50-historical-evidence",
+      "command": "bun run verify:phase-50-evidence",
+      "state": "failed",
+      "durationMs": null,
+      "attempts": [
+        {
+          "attempt": 1,
+          "state": "failed",
+          "exitCode": 1,
+          "summary": "phase_50_release_commit_has_non_evidence_descendants"
+        }
+      ],
+      "evidenceRefs": [
+        "scripts/verify-phase-50-release-evidence.ts"
+      ],
+      "summary": "Historical verifier rejects later feature commits by ancestry"
+    },
+    {
+      "id": "phase-53-capability",
+      "command": "bun run verify:phase-53-capability",
+      "state": "failed",
+      "durationMs": null,
+      "attempts": [
+        {
+          "attempt": 1,
+          "state": "failed",
+          "exitCode": 1,
+          "summary": "diff_snapshot_test_timed_out_at_5000ms"
+        },
+        {
+          "attempt": 2,
+          "state": "passed",
+          "exitCode": 0,
+          "summary": "isolated_retry_completed"
+        }
+      ],
+      "evidenceRefs": [
+        "api/modules/scans/diff-snapshot.test.ts",
+        ".artifacts/benchmark/phase-53-capability.json"
+      ],
+      "summary": "Isolated retry passed, but the required gate was not deterministic"
+    },
+    {
+      "id": "github-linux-strict",
+      "command": "bun run verify:strict",
+      "state": "failed",
+      "durationMs": null,
+      "attempts": [
+        {
+          "attempt": 1,
+          "state": "failed",
+          "exitCode": 1,
+          "summary": "container_target_gateway_connection_failed"
+        }
+      ],
+      "evidenceRefs": [
+        "github-actions:30611546902"
+      ],
+      "summary": "Latest observed main verification failed on the Linux gateway path"
+    },
+    {
+      "id": "capability-documentation",
+      "command": null,
+      "state": "failed",
+      "durationMs": null,
+      "attempts": [
+        {
+          "attempt": 1,
+          "state": "failed",
+          "exitCode": null,
+          "summary": "scanner_manifest_and_documentation_drift"
+        }
+      ],
+      "evidenceRefs": [
+        "docker/toolbox/scanner-data/scanner-data-manifest.json",
+        "spec/third-party-scanners.md"
+      ],
+      "summary": "Documentation understates owned rules and OSV ecosystem coverage"
+    },
+    {
+      "id": "professional-capability",
+      "command": "bun run verify:professional-capability:report",
+      "state": "failed",
+      "durationMs": null,
+      "attempts": [
+        {
+          "attempt": 1,
+          "state": "failed",
+          "exitCode": null,
+          "summary": "professional_capability_claim_not_met"
+        }
+      ],
+      "evidenceRefs": [
+        "spec/evidence/phase-50-external-benchmark.json",
+        "spec/security-capability/benchmark-policy.v1.json"
+      ],
+      "summary": "OWASP precision and false-positive policy fail and Juice Shop has no executed scenarios"
+    },
+    {
+      "id": "toolbox-offline",
+      "command": "bun run verify:toolbox-offline",
+      "state": "blocked",
+      "durationMs": null,
+      "attempts": [
+        {
+          "attempt": 1,
+          "state": "blocked",
+          "exitCode": null,
+          "summary": "toolbox_image_digest_not_available"
+        }
+      ],
+      "evidenceRefs": [
+        "spec/evidence/phase-53-python-go-baseline.json"
+      ],
+      "summary": "Immutable toolbox image input is not available"
+    },
+    {
+      "id": "python-project-execution-sandbox",
+      "command": null,
+      "state": "blocked",
+      "durationMs": null,
+      "attempts": [
+        {
+          "attempt": 1,
+          "state": "blocked",
+          "exitCode": null,
+          "summary": "target_project_code_execution_sandbox_required"
+        }
+      ],
+      "evidenceRefs": [
+        "spec/phase-53-python-go-plugin-expansion-plan.md"
+      ],
+      "summary": "Python DAST execution remains fail-closed without a sandbox"
+    },
+    {
+      "id": "go-dast-auto-start",
+      "command": null,
+      "state": "not_applicable",
+      "durationMs": null,
+      "attempts": [
+        {
+          "attempt": 1,
+          "state": "not_applicable",
+          "exitCode": null,
+          "summary": "go_dast_auto_start_unsupported"
+        }
+      ],
+      "evidenceRefs": [
+        "spec/phase-53-python-go-plugin-expansion-plan.md"
+      ],
+      "summary": "Go DAST auto-start is outside the supported capability set"
+    }
+  ],
+  "evaluationAxes": [
+    {
+      "id": "release_trust",
+      "assessment": "weak",
+      "evidence": [
+        "Strict verification, coverage, E2E, and clean-checkout entry points exist"
+      ],
+      "limitations": [
+        "Format, historical evidence, Linux gateway, and deterministic Phase 53 gates are not all passing"
+      ]
+    },
+    {
+      "id": "security_effectiveness",
+      "assessment": "partial",
+      "evidence": [
+        "45 owned Semgrep rules, 8 OSV ecosystems, and measured DAST benchmarks exist"
+      ],
+      "limitations": [
+        "Professional capability policy remains not met"
+      ]
+    },
+    {
+      "id": "product_correctness",
+      "assessment": "partial",
+      "evidence": [
+        "Evidence, provenance, redaction, and fail-closed contracts are implemented"
+      ],
+      "limitations": [
+        "Historical evidence ancestry currently blocks valid future feature commits"
+      ]
+    },
+    {
+      "id": "interoperability_adoption",
+      "assessment": "partial",
+      "evidence": [
+        "Markdown, CLI, MCP, and NightWorkers integration paths exist"
+      ],
+      "limitations": [
+        "General SARIF import and export are not implemented"
+      ]
+    },
+    {
+      "id": "sustainability",
+      "assessment": "weak",
+      "evidence": [
+        "Automated tests and operational runbooks are extensive"
+      ],
+      "limitations": [
+        "There are no Git tags and the human contributor count is one"
+      ]
+    }
+  ],
+  "hashes": {
+    "benchmarkPolicy": "sha256:084fedae4f0e9024e7265e5d03045fff4b2ca15e939b6cc4b35f8f4107a87e9a",
+    "scannerDataManifestFile": "sha256:1676af8e62e415443cd0ff1cb802d0bae31c28f1ddc48b215db2e108849a34cd",
+    "externalBenchmark": "sha256:7f4336bae2a2130df1400d26f9b9e70c73f453af06d058a9081a226b7f44db99",
+    "phase50ReleaseReport": "sha256:124c2231d7800d516bedb7c19a7fcaeeca546541cfa25027b3dab9f1286a976f",
+    "phase53Baseline": "sha256:d1a2800848e2d0dc025de80f4008b672f2e7232587dced6063aaf783a2b91556"
+  },
+  "privacy": {
+    "absoluteHomePathsIncluded": false,
+    "sourceSnippetsIncluded": false,
+    "credentialsIncluded": false
+  },
+  "residualRisk": "Release gates, measured professional capability, packaging inputs, and target execution sandbox remain incomplete and are not represented as passing."
+}
