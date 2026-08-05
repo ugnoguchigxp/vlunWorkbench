@@ -1,0 +1,18 @@
+services:
+  app:
+    build: .
+    ports:
+      - "5173:5173"
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: 5173
+      DATABASE_URL: /data/sqlite.db
+      JWT_SECRET: ${COMPOSE_JWT_SECRET:?Set COMPOSE_JWT_SECRET to a 32+ character production secret before running docker compose.}
+      APP_URL: http://localhost:5173
+      CORS_ORIGINS: http://localhost:5173
+      AUTH_COOKIE_SECURE: "false"
+      AUTH_COOKIE_SAME_SITE: lax
+      SECURITY_HEADERS_MODE: http
+    volumes:
+      - ./data:/data
