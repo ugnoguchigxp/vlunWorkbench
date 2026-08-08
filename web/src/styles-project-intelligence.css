@@ -1,0 +1,991 @@
+.intelligence-workspace,
+.intelligence-panel-stack {
+	display: flex;
+	flex-direction: column;
+	gap: 16px;
+	min-width: 0;
+}
+
+.intelligence-context-bar {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 16px;
+	min-width: 0;
+	padding: 4px 2px;
+}
+
+.intelligence-context-bar > div:first-child {
+	display: grid;
+	grid-template-columns: auto auto;
+	gap: 3px 8px;
+	min-width: 0;
+}
+
+.intelligence-context-bar span,
+.intelligence-context-bar small {
+	color: var(--color-muted);
+	font-size: 12px;
+}
+
+.intelligence-context-bar strong {
+	color: var(--color-ink);
+	font-size: 13px;
+}
+
+.intelligence-context-bar small {
+	grid-column: 1 / -1;
+}
+
+.intelligence-tabs {
+	display: grid;
+	grid-template-columns: repeat(4, minmax(0, 1fr));
+	gap: 10px;
+	min-width: 0;
+}
+
+.intelligence-tabs a {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 10px;
+	min-width: 0;
+	min-height: 56px;
+	padding: 12px 16px;
+	border: 1px solid var(--color-border);
+	border-radius: 10px;
+	background: var(--color-surface);
+	color: var(--color-muted-strong);
+	text-decoration: none;
+	transition:
+		border-color 120ms ease,
+		background 120ms ease,
+		color 120ms ease;
+}
+
+.intelligence-tabs a span {
+	color: var(--color-muted);
+	font-size: 16px;
+	font-variant-numeric: tabular-nums;
+}
+
+.intelligence-tabs a strong {
+	overflow: hidden;
+	font-size: 14px;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.intelligence-tabs a:hover,
+.intelligence-tabs a.active {
+	border-color: var(--color-brand);
+	background: var(--color-brand-soft);
+	color: var(--color-brand-strong);
+}
+
+.intelligence-tabs a.active {
+	box-shadow: inset 0 -3px 0 var(--color-brand);
+}
+
+.intelligence-tabs a.active span {
+	color: var(--color-brand);
+}
+
+.intelligence-tabs a:focus-visible,
+.intelligence-priority-list a:focus-visible,
+.intelligence-risk-file-list button:focus-visible,
+.intelligence-risk-matrix button:focus-visible,
+.intelligence-guided-queue button:focus-visible,
+.intelligence-decision-actions button:focus-visible {
+	outline: 2px solid var(--color-brand);
+	outline-offset: 2px;
+}
+
+.intelligence-priority-callout {
+	display: grid;
+	grid-template-columns: auto minmax(0, 1fr) auto;
+	align-items: center;
+	gap: 14px;
+	padding: 18px;
+	border: 1px solid var(--color-border);
+	border-left: 5px solid var(--color-brand);
+	border-radius: 10px;
+	background: var(--color-surface);
+}
+
+.intelligence-priority-callout.tone-danger {
+	border-left-color: var(--color-danger);
+	background: color-mix(
+		in srgb,
+		var(--color-danger-surface) 45%,
+		var(--color-surface)
+	);
+}
+
+.intelligence-priority-callout.tone-warning {
+	border-left-color: var(--color-warning);
+	background: color-mix(
+		in srgb,
+		var(--color-warning-surface) 45%,
+		var(--color-surface)
+	);
+}
+
+.intelligence-priority-callout.tone-success {
+	border-left-color: var(--color-success);
+	background: color-mix(
+		in srgb,
+		var(--color-success-surface) 45%,
+		var(--color-surface)
+	);
+}
+
+.intelligence-priority-callout > .icon {
+	width: 24px;
+	height: 24px;
+	color: var(--color-muted-strong);
+}
+
+.intelligence-priority-callout span,
+.intelligence-priority-callout p {
+	color: var(--color-muted);
+}
+
+.intelligence-priority-callout span {
+	font-size: 11px;
+	font-weight: 800;
+	text-transform: uppercase;
+}
+
+.intelligence-priority-callout h2,
+.intelligence-priority-callout p {
+	margin: 2px 0 0;
+}
+
+.intelligence-priority-callout h2 {
+	color: var(--color-ink);
+	font-size: 17px;
+}
+
+.intelligence-priority-callout p {
+	line-height: 1.5;
+}
+
+.intelligence-priority-list {
+	display: grid;
+	border: 1px solid var(--color-border);
+	border-radius: 9px;
+	overflow: hidden;
+}
+
+.intelligence-priority-list a {
+	display: grid;
+	grid-template-columns: 30px minmax(0, 1fr) auto auto 18px;
+	align-items: center;
+	gap: 12px;
+	min-width: 0;
+	padding: 11px 13px;
+	border-bottom: 1px solid var(--color-border);
+	color: var(--color-ink);
+	text-decoration: none;
+}
+
+.intelligence-priority-list a:last-child {
+	border-bottom: 0;
+}
+
+.intelligence-priority-list a:hover {
+	background: var(--color-surface-muted);
+}
+
+.intelligence-rank {
+	display: grid;
+	place-items: center;
+	width: 28px;
+	height: 28px;
+	border-radius: 50%;
+	background: var(--color-surface-muted);
+	color: var(--color-muted-strong);
+	font-size: 12px;
+	font-weight: 800;
+}
+
+.intelligence-priority-path {
+	display: grid;
+	gap: 3px;
+	min-width: 0;
+}
+
+.intelligence-priority-path strong,
+.intelligence-priority-path small {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.intelligence-priority-path small,
+.intelligence-muted {
+	color: var(--color-muted);
+}
+
+.readiness-strip.compact .readiness-item {
+	min-height: 62px;
+}
+
+.intelligence-technical-details,
+.intelligence-structure-details {
+	padding: 0;
+}
+
+.intelligence-technical-details > summary,
+.intelligence-structure-details > summary {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	padding: 15px 16px;
+	cursor: pointer;
+	list-style: none;
+}
+
+.intelligence-technical-details > summary::-webkit-details-marker,
+.intelligence-structure-details > summary::-webkit-details-marker {
+	display: none;
+}
+
+.intelligence-technical-details > summary span {
+	display: grid;
+	gap: 3px;
+}
+
+.intelligence-technical-details > summary small {
+	color: var(--color-muted);
+}
+
+.intelligence-technical-details > summary .icon,
+.intelligence-structure-details > summary .icon {
+	transition: transform 120ms ease;
+}
+
+.intelligence-technical-details[open] > summary .icon,
+.intelligence-structure-details[open] > summary .icon {
+	transform: rotate(90deg);
+}
+
+.intelligence-technical-stack {
+	display: grid;
+	gap: 12px;
+	padding: 0 12px 12px;
+}
+
+.intelligence-investigation {
+	display: grid;
+	grid-template-columns: minmax(300px, 0.36fr) minmax(0, 1fr);
+	min-height: 680px;
+	border: 1px solid var(--color-border);
+	border-radius: 10px;
+	background: var(--color-surface);
+	overflow: hidden;
+}
+
+.intelligence-investigation-master,
+.intelligence-guided-sidebar {
+	display: flex;
+	flex-direction: column;
+	gap: 13px;
+	min-width: 0;
+	padding: 16px;
+	border-right: 1px solid var(--color-border);
+	background: var(--color-surface-muted);
+}
+
+.intelligence-investigation-master > header,
+.intelligence-guided-sidebar > header {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 12px;
+}
+
+.intelligence-investigation-master h2,
+.intelligence-investigation-master p {
+	margin: 0;
+}
+
+.intelligence-investigation-master h2 {
+	color: var(--color-ink);
+	font-size: 16px;
+}
+
+.intelligence-investigation-master p {
+	color: var(--color-muted);
+	font-size: 12px;
+}
+
+.intelligence-filter-stack,
+.intelligence-filter-stack label,
+.intelligence-filter-row label,
+.intelligence-decision-form label {
+	display: grid;
+	gap: 5px;
+	min-width: 0;
+}
+
+.intelligence-filter-stack label > span,
+.intelligence-filter-row label > span,
+.intelligence-decision-form label > span {
+	color: var(--color-muted-strong);
+	font-size: 11px;
+	font-weight: 800;
+}
+
+.intelligence-filter-row {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 8px;
+}
+
+.intelligence-search-field {
+	position: relative;
+}
+
+.intelligence-search-field .icon {
+	position: absolute;
+	top: 50%;
+	left: 9px;
+	width: 14px;
+	height: 14px;
+	color: var(--color-muted);
+	transform: translateY(-50%);
+}
+
+.intelligence-search-field input {
+	padding-left: 30px;
+}
+
+.intelligence-risk-file-list,
+.intelligence-file-findings,
+.intelligence-guided-queue {
+	display: grid;
+	gap: 6px;
+	min-width: 0;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.intelligence-risk-file > button {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto auto;
+	align-items: center;
+	gap: 8px;
+	width: 100%;
+	padding: 10px;
+	border: 1px solid transparent;
+	border-radius: 8px;
+	background: transparent;
+	color: var(--color-ink);
+	text-align: left;
+	cursor: pointer;
+}
+
+.intelligence-risk-file > button:hover,
+.intelligence-risk-file > button.selected,
+.intelligence-file-findings button.selected,
+.intelligence-guided-queue button.selected {
+	border-color: var(--color-brand);
+	background: var(--color-brand-soft);
+}
+
+.intelligence-risk-file-copy,
+.intelligence-risk-file-copy strong,
+.intelligence-risk-file-copy small {
+	min-width: 0;
+}
+
+.intelligence-risk-file-copy {
+	display: grid;
+	gap: 3px;
+}
+
+.intelligence-risk-file-copy strong,
+.intelligence-risk-file-copy small {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.intelligence-risk-file-copy small,
+.intelligence-file-findings p {
+	color: var(--color-muted);
+}
+
+.intelligence-file-findings {
+	margin: 4px 0 8px 16px;
+	padding-left: 9px;
+	border-left: 2px solid var(--color-border);
+}
+
+.intelligence-file-findings button,
+.intelligence-guided-queue button {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	min-width: 0;
+	padding: 8px;
+	border: 1px solid transparent;
+	border-radius: 7px;
+	background: transparent;
+	color: var(--color-ink);
+	text-align: left;
+	cursor: pointer;
+}
+
+.intelligence-guided-queue li,
+.intelligence-guided-queue button {
+	width: 100%;
+}
+
+.intelligence-file-findings button span:last-child {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.severity-dot {
+	width: 7px;
+	height: 7px;
+	flex: 0 0 auto;
+	border-radius: 50%;
+	background: var(--color-muted);
+}
+
+.severity-dot.severity-critical,
+.severity-dot.severity-high {
+	background: var(--color-danger);
+}
+.severity-dot.severity-medium {
+	background: var(--color-warning);
+}
+.severity-dot.severity-low,
+.severity-dot.severity-info {
+	background: var(--color-success);
+}
+
+.intelligence-investigation-detail,
+.intelligence-guided-main {
+	min-width: 0;
+	padding: 18px;
+}
+
+.intelligence-finding-detail {
+	display: grid;
+	gap: 18px;
+	min-width: 0;
+}
+
+.intelligence-finding-detail > header {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 12px;
+}
+
+.intelligence-finding-detail h2,
+.intelligence-finding-detail h3,
+.intelligence-finding-detail p {
+	margin: 0;
+}
+
+.intelligence-finding-detail h2 {
+	margin-top: 8px;
+	color: var(--color-ink);
+	font-size: 20px;
+}
+
+.intelligence-finding-detail header p,
+.intelligence-detail-section > p {
+	margin-top: 5px;
+	color: var(--color-muted);
+	line-height: 1.55;
+}
+
+.intelligence-finding-summary,
+.intelligence-review-grid,
+.intelligence-landscape-context-grid {
+	display: grid;
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+	gap: 8px;
+}
+
+.intelligence-finding-summary > div,
+.intelligence-review-grid > div,
+.intelligence-landscape-context-grid > article {
+	display: grid;
+	gap: 4px;
+	min-width: 0;
+	padding: 10px;
+	border: 1px solid var(--color-border);
+	border-radius: 8px;
+	background: var(--color-surface-muted);
+}
+
+.intelligence-finding-summary span,
+.intelligence-review-grid small,
+.intelligence-landscape-context-grid span,
+.intelligence-landscape-context-grid p {
+	color: var(--color-muted);
+	font-size: 11px;
+}
+
+.intelligence-finding-summary strong,
+.intelligence-review-grid strong,
+.intelligence-landscape-context-grid strong {
+	overflow-wrap: anywhere;
+	color: var(--color-ink);
+}
+
+.intelligence-detail-section {
+	display: grid;
+	gap: 10px;
+	padding-top: 16px;
+	border-top: 1px solid var(--color-border);
+}
+
+.intelligence-detail-section h3 {
+	color: var(--color-ink);
+	font-size: 14px;
+}
+
+.intelligence-section-title-row {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+}
+
+.intelligence-evidence-list,
+.intelligence-edge-list {
+	display: grid;
+	gap: 8px;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.intelligence-evidence-list article {
+	display: flex;
+	align-items: flex-start;
+	gap: 9px;
+	padding: 10px;
+	border-radius: 8px;
+	background: var(--color-surface-muted);
+}
+
+.intelligence-evidence-list .icon {
+	width: 16px;
+	height: 16px;
+	flex: 0 0 auto;
+	color: var(--color-success);
+}
+
+.intelligence-evidence-list article > div {
+	display: grid;
+	gap: 4px;
+	min-width: 0;
+}
+
+.intelligence-evidence-list small {
+	color: var(--color-muted);
+}
+.intelligence-evidence-list pre {
+	max-width: 100%;
+	margin: 4px 0 0;
+	padding: 8px;
+	overflow: auto;
+	border: 1px solid var(--color-border);
+	border-radius: 6px;
+	background: var(--color-surface);
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+
+.intelligence-detail-empty {
+	display: grid;
+	gap: 10px;
+	place-content: center;
+	min-height: 320px;
+	text-align: center;
+}
+
+.intelligence-inline-error,
+.intelligence-compatibility-note {
+	padding: 10px;
+	border: 1px solid var(--color-danger-border);
+	border-radius: 8px;
+	background: var(--color-danger-surface);
+	color: var(--color-danger);
+}
+
+.intelligence-inline-error {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+}
+
+.intelligence-matrix-section h2 {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.intelligence-matrix-section h2 .icon {
+	width: 18px;
+	height: 18px;
+}
+.intelligence-risk-matrix-wrap {
+	max-width: 100%;
+	overflow-x: auto;
+	border: 1px solid var(--color-border);
+	border-radius: 8px;
+}
+
+.intelligence-risk-matrix {
+	width: 100%;
+	min-width: 760px;
+	border-collapse: collapse;
+}
+
+.intelligence-risk-matrix th,
+.intelligence-risk-matrix td {
+	padding: 7px;
+	border-right: 1px solid var(--color-border);
+	border-bottom: 1px solid var(--color-border);
+	text-align: center;
+}
+
+.intelligence-risk-matrix th:first-child {
+	position: sticky;
+	left: 0;
+	z-index: 1;
+	min-width: 190px;
+	background: var(--color-surface-muted);
+	text-align: left;
+}
+
+.intelligence-risk-matrix th > button {
+	display: grid;
+	gap: 3px;
+	width: 100%;
+	padding: 3px;
+	border: 0;
+	background: transparent;
+	color: var(--color-ink);
+	text-align: left;
+	cursor: pointer;
+}
+
+.intelligence-risk-matrix th small {
+	color: var(--color-muted);
+}
+.intelligence-risk-matrix td button {
+	width: 32px;
+	height: 32px;
+	border: 0;
+	border-radius: 6px;
+	background: var(--color-surface-muted);
+	color: var(--color-ink);
+	font-weight: 800;
+	cursor: pointer;
+}
+
+.intelligence-risk-matrix td.severity-critical button,
+.intelligence-risk-matrix td.severity-high button {
+	background: var(--color-danger-surface);
+	color: var(--color-danger);
+}
+.intelligence-risk-matrix td.severity-medium button {
+	background: var(--color-warning-surface);
+	color: var(--color-warning);
+}
+.intelligence-risk-matrix td.severity-low button,
+.intelligence-risk-matrix td.severity-info button {
+	background: var(--color-success-surface);
+	color: var(--color-success);
+}
+.intelligence-risk-matrix tr.selected th:first-child {
+	box-shadow: inset 3px 0 0 var(--color-brand);
+}
+.intelligence-matrix-total {
+	font-weight: 800;
+}
+
+.intelligence-landscape-detail h2 {
+	margin: 6px 0 0;
+}
+.intelligence-landscape-context-grid article p {
+	margin: 0;
+	line-height: 1.4;
+}
+.intelligence-structure-details > .projects-band {
+	margin: 0 12px 12px;
+	box-shadow: none;
+}
+
+.intelligence-guided-layout {
+	display: grid;
+	grid-template-columns: minmax(250px, 0.28fr) minmax(0, 1fr);
+	min-height: 720px;
+	border: 1px solid var(--color-border);
+	border-radius: 10px;
+	background: var(--color-surface);
+	overflow: hidden;
+}
+
+.intelligence-guided-sidebar header > div {
+	display: grid;
+	gap: 3px;
+}
+.intelligence-guided-sidebar header span {
+	color: var(--color-muted);
+	font-size: 11px;
+}
+.intelligence-guided-sidebar header strong {
+	color: var(--color-ink);
+	font-size: 18px;
+}
+.intelligence-guided-sidebar progress {
+	width: 100%;
+	accent-color: var(--color-brand);
+}
+.intelligence-guided-queue {
+	max-height: 540px;
+	overflow-y: auto;
+}
+.intelligence-guided-queue button .icon {
+	width: 14px;
+	height: 14px;
+	flex: 0 0 auto;
+}
+.intelligence-guided-queue button span {
+	display: grid;
+	gap: 2px;
+	min-width: 0;
+}
+.intelligence-guided-queue button small {
+	color: var(--color-muted);
+}
+.intelligence-guided-queue button strong {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.intelligence-guided-main {
+	display: flex;
+	flex-direction: column;
+	gap: 18px;
+}
+.intelligence-guided-nav {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+}
+.intelligence-guided-nav > div {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+.intelligence-guided-nav span {
+	color: var(--color-muted);
+}
+
+.intelligence-guided-steps,
+.intelligence-evidence-checklist {
+	display: grid;
+	gap: 8px;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.intelligence-guided-steps li,
+.intelligence-evidence-checklist > div {
+	display: flex;
+	align-items: flex-start;
+	gap: 10px;
+	padding: 10px;
+	border: 1px solid var(--color-border);
+	border-radius: 8px;
+}
+
+.intelligence-guided-steps .icon,
+.intelligence-evidence-checklist .icon {
+	width: 16px;
+	height: 16px;
+	flex: 0 0 auto;
+}
+.intelligence-guided-steps li > span,
+.intelligence-evidence-checklist > div > span {
+	display: grid;
+	gap: 3px;
+}
+.intelligence-guided-steps small,
+.intelligence-evidence-checklist small {
+	color: var(--color-muted);
+}
+.intelligence-guided-steps .complete .icon,
+.intelligence-evidence-checklist .available .icon {
+	color: var(--color-success);
+}
+.intelligence-guided-steps .warning .icon {
+	color: var(--color-warning);
+}
+.intelligence-guided-steps .pending .icon,
+.intelligence-evidence-checklist .missing .icon {
+	color: var(--color-muted);
+}
+
+.intelligence-decision-actions {
+	display: grid;
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+	gap: 8px;
+	margin: 0;
+	padding: 0;
+	border: 0;
+}
+
+.intelligence-visually-hidden {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	padding: 0;
+	overflow: hidden;
+	clip: rect(0 0 0 0);
+	white-space: nowrap;
+	border: 0;
+}
+
+.intelligence-decision-actions button {
+	display: grid;
+	gap: 4px;
+	padding: 12px;
+	border: 1px solid var(--color-border);
+	border-radius: 8px;
+	background: var(--color-surface);
+	color: var(--color-ink);
+	text-align: left;
+	cursor: pointer;
+}
+
+.intelligence-decision-actions button small {
+	color: var(--color-muted);
+	line-height: 1.4;
+}
+.intelligence-decision-actions button:hover,
+.intelligence-decision-actions button.selected {
+	border-color: var(--color-brand);
+	background: var(--color-brand-soft);
+}
+.intelligence-decision-form {
+	display: grid;
+	gap: 12px;
+	padding: 14px;
+	border: 1px solid var(--color-border);
+	border-radius: 8px;
+	background: var(--color-surface-muted);
+}
+.intelligence-compatibility-note {
+	border-color: var(--color-warning-border, var(--color-border));
+	background: var(--color-warning-surface);
+	color: var(--color-warning);
+}
+.intelligence-compatibility-note p {
+	margin: 4px 0 0;
+	line-height: 1.45;
+}
+.intelligence-save-success {
+	padding: 10px;
+	border-radius: 8px;
+	background: var(--color-success-surface);
+	color: var(--color-success);
+}
+
+@media (max-width: 940px) {
+	.intelligence-tabs {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+	}
+	.intelligence-investigation,
+	.intelligence-guided-layout {
+		grid-template-columns: 1fr;
+	}
+	.intelligence-investigation-master,
+	.intelligence-guided-sidebar {
+		border-right: 0;
+		border-bottom: 1px solid var(--color-border);
+	}
+	.intelligence-guided-queue {
+		max-height: 260px;
+	}
+	.intelligence-finding-summary,
+	.intelligence-review-grid,
+	.intelligence-landscape-context-grid {
+		grid-template-columns: 1fr;
+	}
+}
+
+@media (max-width: 600px) {
+	.intelligence-context-bar,
+	.intelligence-priority-callout,
+	.intelligence-finding-detail > header,
+	.intelligence-guided-nav {
+		align-items: stretch;
+		flex-direction: column;
+	}
+	.intelligence-priority-callout {
+		grid-template-columns: auto minmax(0, 1fr);
+	}
+	.intelligence-priority-callout .project-open-link {
+		grid-column: 1 / -1;
+		justify-content: center;
+	}
+	.intelligence-priority-list a {
+		grid-template-columns: 28px minmax(0, 1fr) auto;
+		gap: 8px;
+	}
+	.intelligence-priority-list a > .project-chip,
+	.intelligence-priority-list a > .icon {
+		display: none;
+	}
+	.intelligence-tabs a {
+		min-height: 50px;
+		padding: 10px 8px;
+		gap: 7px;
+	}
+	.intelligence-tabs a span {
+		font-size: 13px;
+	}
+	.intelligence-tabs a strong {
+		font-size: 12px;
+	}
+	.intelligence-investigation-detail,
+	.intelligence-guided-main {
+		padding: 14px;
+	}
+	.intelligence-filter-row,
+	.intelligence-decision-actions {
+		grid-template-columns: 1fr;
+	}
+	.intelligence-guided-nav > div:last-child {
+		display: grid;
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.intelligence-tabs a,
+	.intelligence-technical-details > summary .icon,
+	.intelligence-structure-details > summary .icon {
+		transition: none;
+	}
+}

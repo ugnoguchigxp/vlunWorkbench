@@ -5,9 +5,14 @@ import {
 	Outlet,
 } from "@tanstack/react-router";
 import { lazy, Suspense, useCallback, useEffect, useState } from "react";
-import { type AuthUser, fetchMe, logout, UNAUTHORIZED_EVENT_NAME } from "./api";
 import { App, type AppViewId } from "./App";
+import { type AuthUser, fetchMe, logout, UNAUTHORIZED_EVENT_NAME } from "./api";
 import { AppHeader } from "./app-header";
+import {
+	type IntelligenceViewId,
+	parseOptionalFocusPath,
+	parseOptionalIntelligenceViewId,
+} from "./domains/projects/project-intelligence-tab-model";
 import { DesignSystemProvider } from "./showcase-settings-context";
 import { parseShowcaseTableSearch } from "./showcase-table-search";
 
@@ -84,10 +89,25 @@ const projectDetailRoute = createRoute({
 const projectIntelligenceRoute = createRoute({
 	getParentRoute: () => rootRoute,
 	path: "/projects/$projectId/intelligence",
-	validateSearch: (search: Record<string, unknown>) => ({
-		scanRunId:
-			typeof search.scanRunId === "string" ? search.scanRunId : undefined,
-	}),
+	validateSearch: (
+		search: Record<string, unknown>,
+	): {
+		scanRunId?: string;
+		intelligenceView?: IntelligenceViewId;
+		focusPath?: string;
+	} => {
+		const intelligenceView = parseOptionalIntelligenceViewId(
+			search.intelligenceView,
+		);
+		const focusPath = parseOptionalFocusPath(search.focusPath);
+		return {
+			...(typeof search.scanRunId === "string"
+				? { scanRunId: search.scanRunId }
+				: {}),
+			...(intelligenceView ? { intelligenceView } : {}),
+			...(focusPath ? { focusPath } : {}),
+		};
+	},
 	component: renderAppView("projects"),
 });
 

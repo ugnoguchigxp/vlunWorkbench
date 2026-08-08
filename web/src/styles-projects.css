@@ -791,22 +791,6 @@
 	font-size: 12px;
 }
 
-.project-inner-nav {
-	display: flex;
-	gap: 8px;
-	overflow-x: auto;
-	padding-bottom: 2px;
-}
-
-.project-inner-nav a {
-	border: 1px solid var(--color-border);
-	border-radius: 999px;
-	padding: 7px 10px;
-	color: var(--color-ink);
-	text-decoration: none;
-	white-space: nowrap;
-}
-
 .structure-explorer {
 	display: grid;
 	grid-template-columns: minmax(190px, 0.32fr) minmax(0, 1fr);

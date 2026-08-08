@@ -8,26 +8,26 @@ import {
 	useRef,
 	useState,
 } from "react";
-import type { StaticIntelligenceOntologyHandoff } from "../../../../shared/schemas/static-intelligence-module.schema";
 import {
 	browseProjectFolder,
 	createProject,
 	fetchProjectIntelligenceSummaries,
 	fetchProjectIntelligenceView,
-	fetchProjectOntologyHandoff,
-	fetchProjectStructure,
 	fetchScanIntelligenceAgentQuery,
 	fetchScans,
 	type ProjectIntelligenceProject,
 	type ProjectIntelligenceSummary,
 	type ProjectIntelligenceView,
-	type ProjectStructureListResponse,
 	refreshProjectIntelligence,
 	type ScanIntelligenceAgentMode,
 	type ScanRun,
 } from "../../api";
 import { Button } from "../../ui";
-
+import {
+	type IntelligenceViewId,
+	parseFocusPath,
+	parseIntelligenceViewId,
+} from "./project-intelligence-tab-model";
 import {
 	ProjectDetail,
 	ProjectRegistrationPanel,
@@ -45,6 +45,8 @@ type ProjectRouteState = {
 	projectId: string | null;
 	tab: "list" | "overview" | "intelligence";
 	scanRunId: string | null;
+	intelligenceView: IntelligenceViewId;
+	focusPath: string | null;
 };
 
 type DetailRequestState = {
@@ -77,10 +79,6 @@ export function ProjectsDomainSection({
 	>({});
 	const [selectedView, setSelectedView] =
 		useState<ProjectIntelligenceView | null>(null);
-	const [structure, setStructure] =
-		useState<ProjectStructureListResponse | null>(null);
-	const [ontologyHandoff, setOntologyHandoff] =
-		useState<StaticIntelligenceOntologyHandoff | null>(null);
 	const [scanRuns, setScanRuns] = useState<ScanRun[]>([]);
 	const [loading, setLoading] = useState(false);
 	const [detailRequest, setDetailRequest] = useState<DetailRequestState>({
@@ -191,28 +189,9 @@ export function ProjectsDomainSection({
 					),
 					fetchScans(routeState.projectId),
 				]);
-				const scanRunId = view.selection.selectedScanRunId;
-				let nextStructure: ProjectStructureListResponse | null = null;
-				let nextHandoff: StaticIntelligenceOntologyHandoff | null = null;
-				if (routeState.tab === "intelligence" && scanRunId && view.generation) {
-					const [structureResult, handoffResult] = await Promise.all([
-						fetchProjectStructure(routeState.projectId, scanRunId, {
-							generationId: view.generation.generationId,
-						}),
-						fetchProjectOntologyHandoff(
-							routeState.projectId,
-							scanRunId,
-							view.generation.generationId,
-						),
-					]);
-					nextStructure = structureResult;
-					nextHandoff = handoffResult;
-				}
 				if (requestId !== detailRequestId.current) return;
 				setSelectedView(view);
 				setScanRuns(scans);
-				setStructure(nextStructure);
-				setOntologyHandoff(nextHandoff);
 				setDetailRequest({ key: detailRouteKey, status: "loaded" });
 			} catch (error) {
 				if (requestId === detailRequestId.current) {
@@ -231,13 +210,7 @@ export function ProjectsDomainSection({
 				}
 			}
 		},
-		[
-			detailRouteKey,
-			routeState.projectId,
-			routeState.scanRunId,
-			routeState.tab,
-			setErrorText,
-		],
+		[detailRouteKey, routeState.projectId, routeState.scanRunId, setErrorText],
 	);
 
 	useEffect(() => {
@@ -397,17 +370,20 @@ export function ProjectsDomainSection({
 					loading={detailLoading}
 					loadFailed={detailLoadFailed}
 					activeTab={routeState.tab}
+					intelligenceView={routeState.intelligenceView}
+					focusPath={routeState.focusPath}
 					selectedScanRunId={selectedScanRunId}
 					selectedExport={selectedExport}
-					structure={structure}
-					ontologyHandoff={ontologyHandoff}
 					refreshing={refreshing}
 					onRefreshAnalysis={() => void handleRefreshAnalysis()}
 					onScanChange={(scanRunId) =>
 						void navigate({
 							to: "/projects/$projectId/intelligence",
 							params: { projectId: routeState.projectId as string },
-							search: { scanRunId },
+							search: {
+								scanRunId,
+								intelligenceView: routeState.intelligenceView,
+							},
 						})
 					}
 					agentMode={agentMode}
@@ -441,5 +417,10 @@ function useProjectRouteState(): ProjectRouteState {
 					: "list";
 	const scanRunId =
 		new URLSearchParams(location.searchStr).get("scanRunId") ?? null;
-	return { projectId, tab, scanRunId };
+	const search = new URLSearchParams(location.searchStr);
+	const intelligenceView = parseIntelligenceViewId(
+		search.get("intelligenceView"),
+	);
+	const focusPath = parseFocusPath(search.get("focusPath"));
+	return { projectId, tab, scanRunId, intelligenceView, focusPath };
 }

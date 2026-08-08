@@ -9,13 +9,11 @@ import {
 } from "lucide-react";
 import type { FormEvent } from "react";
 import type { StaticIntelligenceExportV1 } from "../../../../shared/schemas/static-intelligence.schema";
-import type { StaticIntelligenceOntologyHandoff } from "../../../../shared/schemas/static-intelligence-module.schema";
 import type {
 	fetchScanIntelligenceAgentQuery,
 	ProjectIntelligenceProject,
 	ProjectIntelligenceSummary,
 	ProjectIntelligenceView,
-	ProjectStructureListResponse,
 	ScanIntelligenceAgentMode,
 	ScanRun,
 } from "../../api";
@@ -27,6 +25,7 @@ import {
 import { formatDateTime } from "../scans/scans-utils";
 import { Metric, StatusBadge } from "./project-detail-sections";
 import { IntelligenceView } from "./project-intelligence-panels";
+import type { IntelligenceViewId } from "./project-intelligence-tab-model";
 import { buildProjectCardSummary } from "./project-intelligence-view-model";
 import {
 	OverviewAction,
@@ -176,10 +175,10 @@ export function ProjectDetail({
 	loading,
 	loadFailed,
 	activeTab,
+	intelligenceView,
+	focusPath,
 	selectedScanRunId,
 	selectedExport,
-	structure,
-	ontologyHandoff,
 	refreshing,
 	onRefreshAnalysis,
 	onScanChange,
@@ -195,10 +194,10 @@ export function ProjectDetail({
 	loading: boolean;
 	loadFailed: boolean;
 	activeTab: "list" | "overview" | "intelligence";
+	intelligenceView: IntelligenceViewId;
+	focusPath: string | null;
 	selectedScanRunId: string | null;
 	selectedExport: StaticIntelligenceExportV1 | null;
-	structure: ProjectStructureListResponse | null;
-	ontologyHandoff: StaticIntelligenceOntologyHandoff | null;
 	refreshing: boolean;
 	onRefreshAnalysis: () => void;
 	onScanChange: (scanRunId: string | undefined) => void;
@@ -303,8 +302,8 @@ export function ProjectDetail({
 					scanRuns={scanRuns}
 					selectedScanRunId={selectedScanRunId}
 					selectedExport={selectedExport}
-					structure={structure}
-					ontologyHandoff={ontologyHandoff}
+					activeView={intelligenceView}
+					focusPath={focusPath}
 					refreshing={refreshing}
 					onRefreshAnalysis={onRefreshAnalysis}
 					agentMode={agentMode}

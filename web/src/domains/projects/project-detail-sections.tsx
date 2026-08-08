@@ -190,6 +190,7 @@ export function AgentBundleSection({
 				</div>
 				<div className="project-section-actions">
 					<SelectInput
+						aria-label="Agent bundle mode"
 						value={agentMode}
 						onChange={(event) =>
 							onAgentModeChange(event.target.value as ScanIntelligenceAgentMode)
