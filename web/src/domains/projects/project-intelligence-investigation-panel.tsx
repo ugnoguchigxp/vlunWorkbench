@@ -4,6 +4,7 @@ import type { StaticIntelligenceExportV1 } from "../../../../shared/schemas/stat
 import type { Finding } from "../../api";
 import { Button, SelectInput, TextInput } from "../../ui";
 import { IntelligenceFindingDetail } from "./project-intelligence-finding-detail";
+import { IntelligencePaginationButton } from "./project-intelligence-pagination-button";
 import {
 	buildFindingIndex,
 	sortFileRiskEntries,
@@ -20,7 +21,9 @@ export function IntelligenceInvestigationPanel({
 	findings,
 	findingsStatus,
 	findingsError,
+	hasMoreFindings,
 	onReloadFindings,
+	onLoadMoreFindings,
 	details,
 	detailStatus,
 	detailErrors,
@@ -33,7 +36,9 @@ export function IntelligenceInvestigationPanel({
 	findings: Finding[];
 	findingsStatus: ResourceStatus;
 	findingsError: string | null;
+	hasMoreFindings: boolean;
 	onReloadFindings: () => void;
+	onLoadMoreFindings: () => void;
 	details: Record<string, FindingDetail>;
 	detailStatus: Record<string, ResourceStatus>;
 	detailErrors: Record<string, string | null>;
@@ -185,7 +190,7 @@ export function IntelligenceInvestigationPanel({
 						<Button
 							type="button"
 							variant="secondary"
-							onClick={onReloadFindings}
+							onClick={hasMoreFindings ? onLoadMoreFindings : onReloadFindings}
 						>
 							<RotateCcw className="icon" /> 再試行
 						</Button>
@@ -241,6 +246,12 @@ export function IntelligenceInvestigationPanel({
 						<div className="projects-empty compact">
 							条件に一致するファイルはありません。
 						</div>
+					) : null}
+					{hasMoreFindings && !findingsError ? (
+						<IntelligencePaginationButton
+							loading={findingsStatus === "loading"}
+							onLoadMore={onLoadMoreFindings}
+						/>
 					) : null}
 				</div>
 			</aside>

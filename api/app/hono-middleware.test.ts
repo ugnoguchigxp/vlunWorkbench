@@ -145,4 +145,18 @@ describe("NightWorkers CSRF boundary", () => {
 			).status,
 		).toBe(403);
 	});
+
+	it("rejects oversized API bodies before JSON parsing", async () => {
+		vi.spyOn(console, "log").mockImplementation(() => undefined);
+		const { app } = createMiddlewareApp();
+		const response = await app.request("http://localhost/api/ordinary-probe", {
+			method: "POST",
+			headers: {
+				"content-type": "application/json",
+				"content-length": String(5 * 1024 * 1024 + 1),
+			},
+			body: "{}",
+		});
+		expect(response.status).toBe(413);
+	});
 });

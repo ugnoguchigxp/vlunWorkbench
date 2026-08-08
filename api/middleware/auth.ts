@@ -25,6 +25,10 @@ const resolveToken = (
 
 export const requireAuth = (deps: AuthMiddlewareDeps) =>
 	createMiddleware(async (c, next) => {
+		if (c.get("authUser")) {
+			await next();
+			return;
+		}
 		const token = resolveToken(
 			c.req.header("Authorization"),
 			getCookie(c, ACCESS_TOKEN_COOKIE_NAME),

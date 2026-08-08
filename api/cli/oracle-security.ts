@@ -27,11 +27,8 @@ import { ScanReviewRepository } from "../modules/scans/scan-review-repository";
 import { ScanReviewRunner } from "../modules/scans/scan-review-runner";
 import { SettingsRepository } from "../modules/settings/settings.repository";
 import { LlmRouter } from "../providers/llmRouter";
-import { parseScanTargetOption } from "./scan-profile-options";
-
 const DEFAULT_ORACLE_PROFILE = "agent-output";
 const DEFAULT_FINDING_LIMIT = 10;
-const MAX_FINDING_LIMIT = 1_000;
 
 type OracleStatus =
 	| "completed"
@@ -86,13 +83,6 @@ async function main(): Promise<number> {
 			args: process.argv.slice(2),
 			options: {
 				"project-path": { type: "string" },
-				profile: { type: "string", default: DEFAULT_ORACLE_PROFILE },
-				target: { type: "string", default: "full" },
-				"expected-target-digest": { type: "string" },
-				"finding-limit": {
-					type: "string",
-					default: String(DEFAULT_FINDING_LIMIT),
-				},
 			},
 			strict: true,
 		});
@@ -120,7 +110,7 @@ async function main(): Promise<number> {
 		writeResult(result);
 		return exitCodeFor(result);
 	}
-	const profileId = argsValues.profile as string;
+	const profileId = DEFAULT_ORACLE_PROFILE;
 	const profile = getProfileById(profileId);
 	if (!profile) {
 		const result = failureResult({
@@ -132,60 +122,9 @@ async function main(): Promise<number> {
 		writeResult(result);
 		return exitCodeFor(result);
 	}
-	let scanTarget: ReturnType<typeof parseScanTargetOption>;
-	try {
-		scanTarget = parseScanTargetOption(argsValues);
-	} catch (error) {
-		const result = failureResult({
-			status: "config_error",
-			code: "TARGET_INVALID",
-			message: error instanceof Error ? error.message : String(error),
-			nextAction: "inspect_diagnostic_failure",
-		});
-		writeResult(result);
-		return exitCodeFor(result);
-	}
-	if (!(profile.supportedTargets ?? ["full"]).includes(scanTarget.kind)) {
-		const result = failureResult({
-			status: "config_error",
-			code: "TARGET_NOT_SUPPORTED",
-			message: `Profile ${profileId} does not support target ${scanTarget.kind}.`,
-			nextAction: "inspect_diagnostic_failure",
-		});
-		writeResult(result);
-		return exitCodeFor(result);
-	}
-	const expectedTargetDigest = argsValues["expected-target-digest"] as
-		| string
-		| undefined;
-	if (expectedTargetDigest && !/^[0-9a-f]{64}$/i.test(expectedTargetDigest)) {
-		const result = failureResult({
-			status: "config_error",
-			code: "TARGET_DIGEST_INVALID",
-			message: "--expected-target-digest must be a 64-character SHA-256.",
-			nextAction: "inspect_diagnostic_failure",
-		});
-		writeResult(result);
-		return exitCodeFor(result);
-	}
-	const findingLimitInput = argsValues["finding-limit"] as string;
-	const findingLimit = /^\d+$/.test(findingLimitInput)
-		? Number.parseInt(findingLimitInput, 10)
-		: Number.NaN;
-	if (
-		!Number.isSafeInteger(findingLimit) ||
-		findingLimit < 1 ||
-		findingLimit > MAX_FINDING_LIMIT
-	) {
-		const result = failureResult({
-			status: "config_error",
-			code: "FINDING_LIMIT_INVALID",
-			message: `--finding-limit must be an integer from 1 to ${MAX_FINDING_LIMIT}.`,
-			nextAction: "inspect_diagnostic_failure",
-		});
-		writeResult(result);
-		return exitCodeFor(result);
-	}
+	const scanTarget = { kind: "full" } as const;
+	const expectedTargetDigest = undefined;
+	const findingLimit = DEFAULT_FINDING_LIMIT;
 
 	let dbConnection: ReturnType<typeof createDbConnection> | null = null;
 	let startupComplete = false;

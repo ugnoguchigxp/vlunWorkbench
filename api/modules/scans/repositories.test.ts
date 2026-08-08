@@ -234,6 +234,39 @@ describe("Scan Domain Repositories", () => {
 
 		const findingsList = await findingRepo.listFindings(scanRun.id);
 		expect(findingsList.length).toBe(1);
+		const secondFinding = await findingRepo.createFinding({
+			scanRunId: scanRun.id,
+			projectId: project.id,
+			sourceTool: "fixture",
+			ruleId: "rule-2",
+			title: "second vuln",
+			description: "desc",
+			severity: "medium",
+			confidence: "static",
+			status: "open",
+			primaryLocation: { path: "src/second.js", line: 20 },
+			fingerprint: "fp-2",
+		});
+		const firstPage = await findingRepo.listFindingsPage(scanRun.id, {
+			limit: 1,
+		});
+		expect(firstPage.items).toHaveLength(1);
+		expect(firstPage.nextCursor).toBe(firstPage.items[0]?.id);
+		const secondPage = await findingRepo.listFindingsPage(scanRun.id, {
+			limit: 1,
+			cursor: firstPage.nextCursor ?? undefined,
+		});
+		expect(secondPage.items).toHaveLength(1);
+		expect(secondPage.nextCursor).toBeNull();
+		expect(
+			new Set([...firstPage.items, ...secondPage.items].map((item) => item.id)),
+		).toEqual(new Set([finding.id, secondFinding.id]));
+		await expect(
+			findingRepo.listFindingsPage(scanRun.id, {
+				limit: 1,
+				cursor: "missing-finding",
+			}),
+		).rejects.toThrow("FINDING_CURSOR_INVALID");
 
 		const evidence = await findingRepo.createEvidence({
 			findingId: finding.id,

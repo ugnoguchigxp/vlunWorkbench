@@ -6,11 +6,12 @@ import {
 	RotateCcw,
 } from "lucide-react";
 import { type FormEvent, useEffect, useMemo, useState } from "react";
-import type { StaticIntelligenceExportV1 } from "../../../../shared/schemas/static-intelligence.schema";
-import type { Finding, FindingDecision } from "../../api";
+import type { FindingDecision } from "../../api";
 import { Button, SelectInput, TextArea } from "../../ui";
 import { buildDecisionWorkflow } from "../scans/decision-workflow";
 import { IntelligenceFindingDetail } from "./project-intelligence-finding-detail";
+import type { IntelligenceGuidedPanelProps } from "./project-intelligence-guided-panel.types";
+import { IntelligencePaginationButton } from "./project-intelligence-pagination-button";
 import {
 	buildGuidedVisibleQueue,
 	countGuidedProgress,
@@ -18,9 +19,6 @@ import {
 	GUIDED_REASON_OPTIONS,
 	type GuidedDecision,
 } from "./project-intelligence-workspace-model";
-import type { FindingDetail } from "./use-intelligence-workspace-data";
-
-type ResourceStatus = "idle" | "loading" | "loaded" | "failed";
 
 export function IntelligenceGuidedPanel({
 	projectId,
@@ -29,34 +27,15 @@ export function IntelligenceGuidedPanel({
 	findings,
 	findingsStatus,
 	findingsError,
+	hasMoreFindings,
 	onReloadFindings,
+	onLoadMoreFindings,
 	details,
 	detailStatus,
 	detailErrors,
 	onLoadFinding,
 	onSaveDecision,
-}: {
-	projectId: string;
-	scanRunId: string;
-	exportPayload: StaticIntelligenceExportV1;
-	findings: Finding[];
-	findingsStatus: ResourceStatus;
-	findingsError: string | null;
-	onReloadFindings: () => void;
-	details: Record<string, FindingDetail>;
-	detailStatus: Record<string, ResourceStatus>;
-	detailErrors: Record<string, string | null>;
-	onLoadFinding: (findingId: string, force?: boolean) => Promise<void>;
-	onSaveDecision: (
-		findingId: string,
-		input: {
-			decision: GuidedDecision;
-			reason: FindingDecision["reason"];
-			comment?: string;
-			linkedReviewId?: string;
-		},
-	) => Promise<FindingDecision>;
-}) {
+}: IntelligenceGuidedPanelProps) {
 	const [scope, setScope] = useState<"undecided" | "all">("undecided");
 	const [severity, setSeverity] = useState("all");
 	const [selectedFindingId, setSelectedFindingId] = useState<string | null>(
@@ -163,7 +142,9 @@ export function IntelligenceGuidedPanel({
 			<aside className="intelligence-guided-sidebar">
 				<header>
 					<div>
-						<span>確認の進捗</span>
+						<span>
+							{hasMoreFindings ? "読み込み済みの確認進捗" : "確認の進捗"}
+						</span>
 						<strong>
 							{progress.completed} / {progress.total}
 						</strong>
@@ -215,7 +196,7 @@ export function IntelligenceGuidedPanel({
 						<Button
 							type="button"
 							variant="secondary"
-							onClick={onReloadFindings}
+							onClick={hasMoreFindings ? onLoadMoreFindings : onReloadFindings}
 						>
 							<RotateCcw className="icon" /> 再試行
 						</Button>
@@ -227,6 +208,7 @@ export function IntelligenceGuidedPanel({
 							<button
 								type="button"
 								className={finding.id === selectedFindingId ? "selected" : ""}
+								aria-pressed={finding.id === selectedFindingId}
 								onClick={() => {
 									if (finding.id !== selectedFindingId) {
 										setPinnedFindingId(null);
@@ -250,9 +232,17 @@ export function IntelligenceGuidedPanel({
 					))}
 					{["idle", "loading"].includes(findingsStatus) &&
 					queue.length === 0 ? (
-						<p role="status">Findingを読み込んでいます…</p>
+						<li role="status">Findingを読み込んでいます…</li>
 					) : queue.length === 0 && !findingsError ? (
-						<p>条件に一致するFindingはありません。</p>
+						<li>条件に一致するFindingはありません。</li>
+					) : null}
+					{hasMoreFindings && !findingsError ? (
+						<li>
+							<IntelligencePaginationButton
+								loading={findingsStatus === "loading"}
+								onLoadMore={onLoadMoreFindings}
+							/>
+						</li>
 					) : null}
 				</ul>
 			</aside>

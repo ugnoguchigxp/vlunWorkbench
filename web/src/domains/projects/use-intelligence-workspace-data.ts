@@ -7,7 +7,7 @@ import {
 	fetchFinding,
 	fetchProjectOntologyHandoff,
 	fetchProjectStructure,
-	fetchScanFindings,
+	fetchScanFindingsPage,
 	fetchScanIntelligenceAgentQuery,
 	type ProjectStructureListResponse,
 } from "../../api";
@@ -20,6 +20,7 @@ type FindingsState = {
 	key: string | null;
 	status: ResourceStatus;
 	items: Finding[];
+	nextCursor: string | null;
 	error: string | null;
 };
 
@@ -77,6 +78,7 @@ export function useIntelligenceWorkspaceData({
 		key: null,
 		status: "idle",
 		items: [],
+		nextCursor: null,
 		error: null,
 	});
 	const [landscapeState, setLandscapeState] = useState<LandscapeState>({
@@ -121,15 +123,17 @@ export function useIntelligenceWorkspaceData({
 				key: findingsKey,
 				status: "loading",
 				items: current.key === findingsKey ? current.items : [],
+				nextCursor: null,
 				error: null,
 			}));
 			try {
-				const items = await fetchScanFindings(findingsKey);
+				const page = await fetchScanFindingsPage(findingsKey);
 				if (requestId !== findingsRequestId.current) return;
 				setFindingsState({
 					key: findingsKey,
 					status: "loaded",
-					items,
+					items: page.findings,
+					nextCursor: page.nextCursor,
 					error: null,
 				});
 			} catch (error) {
@@ -138,12 +142,54 @@ export function useIntelligenceWorkspaceData({
 					key: findingsKey,
 					status: "failed",
 					items: current.key === findingsKey ? current.items : [],
+					nextCursor: current.key === findingsKey ? current.nextCursor : null,
 					error: errorMessage(error, "Finding一覧を読み込めませんでした。"),
 				}));
 			}
 		},
 		[findingsKey, findingsState.key, findingsState.status],
 	);
+
+	const loadMoreFindings = useCallback(async () => {
+		if (
+			!findingsKey ||
+			!findingsState.nextCursor ||
+			findingsState.status === "loading"
+		)
+			return;
+		const cursor = findingsState.nextCursor;
+		const requestId = ++findingsRequestId.current;
+		setFindingsState((current) => ({
+			...current,
+			status: "loading",
+			error: null,
+		}));
+		try {
+			const page = await fetchScanFindingsPage(findingsKey, { cursor });
+			if (requestId !== findingsRequestId.current) return;
+			setFindingsState((current) => {
+				if (current.key !== findingsKey) return current;
+				const knownIds = new Set(current.items.map((finding) => finding.id));
+				return {
+					key: findingsKey,
+					status: "loaded",
+					items: [
+						...current.items,
+						...page.findings.filter((finding) => !knownIds.has(finding.id)),
+					],
+					nextCursor: page.nextCursor,
+					error: null,
+				};
+			});
+		} catch (error) {
+			if (requestId !== findingsRequestId.current) return;
+			setFindingsState((current) => ({
+				...current,
+				status: "failed",
+				error: errorMessage(error, "追加のFindingを読み込めませんでした。"),
+			}));
+		}
+	}, [findingsKey, findingsState.nextCursor, findingsState.status]);
 
 	const loadLandscape = useCallback(
 		async (force = false) => {
@@ -403,7 +449,10 @@ export function useIntelligenceWorkspaceData({
 			findingsState.key === findingsKey ? findingsState.status : "idle",
 		findingsError:
 			findingsState.key === findingsKey ? findingsState.error : null,
+		hasMoreFindings:
+			findingsState.key === findingsKey && findingsState.nextCursor !== null,
 		reloadFindings: () => loadFindings(true),
+		loadMoreFindings,
 		details,
 		detailStatus: visibleDetailStatus,
 		detailErrors: visibleDetailErrors,

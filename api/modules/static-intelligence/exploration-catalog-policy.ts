@@ -8,7 +8,7 @@ import type {
 import { projectExplorationCatalogResultSchema } from "../../../shared/schemas/static-intelligence-exploration-catalog.schema";
 import type { StaticIntelligenceExportV1 } from "../../../shared/schemas/static-intelligence.schema";
 import { redactSecrets } from "../scans/normalizers/redaction";
-import { buildStaticIntelligenceModuleCandidates } from "./module-candidates";
+import type { buildStaticIntelligenceModuleCandidates } from "./module-candidates";
 
 const TARGET_RESPONSE_BYTES = 8 * 1024;
 const HARD_RESPONSE_BYTES = 12 * 1024;

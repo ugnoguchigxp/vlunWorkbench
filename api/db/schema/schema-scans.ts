@@ -192,6 +192,11 @@ export const findings = sqliteTable(
 	},
 	(table) => ({
 		scanRunIdIdx: index("findings_scan_run_id_idx").on(table.scanRunId),
+		scanRunCreatedIdIdx: index("findings_scan_run_created_id_idx").on(
+			table.scanRunId,
+			table.createdAt,
+			table.id,
+		),
 		projectIdIdx: index("findings_project_id_idx").on(table.projectId),
 		fingerprintIdx: index("findings_fingerprint_idx").on(table.fingerprint),
 	}),

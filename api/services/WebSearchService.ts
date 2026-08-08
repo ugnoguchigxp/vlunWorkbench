@@ -1,4 +1,3 @@
-import { HttpError, fetchWithTimeout } from "../utils/httpClient";
 import { load } from "cheerio";
 import { JSDOM } from "jsdom";
 import type {
@@ -6,6 +5,7 @@ import type {
 	WebSearchProvider,
 	WebSearchResult,
 } from "../providers/types";
+import { fetchPublicWebResource } from "../security/public-web-fetch";
 
 export interface PageContent {
 	url: string;
@@ -45,8 +45,8 @@ export class WebSearchService {
 	 */
 	async fetchPageContent(url: string): Promise<PageContent> {
 		try {
-			const response = await fetchWithTimeout(url, {
-				timeout: 10000,
+			const response = await fetchPublicWebResource(url, {
+				timeoutMs: 10_000,
 				headers: {
 					"User-Agent": "Mozilla/5.0 (compatible; RegularRagBot/1.0)",
 					Accept: "text/html,text/plain",
@@ -75,10 +75,9 @@ export class WebSearchService {
 				extractedAt: new Date(),
 			};
 		} catch (error) {
-			if (error instanceof HttpError) {
-				throw new Error(`Failed to fetch page: ${error.message}`);
-			}
-			throw error;
+			throw new Error(
+				`Failed to fetch page: ${error instanceof Error ? error.message : String(error)}`,
+			);
 		}
 	}
 

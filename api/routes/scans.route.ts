@@ -1,5 +1,6 @@
 import { zValidator } from "@hono/zod-validator";
 import { Hono } from "hono";
+import { z } from "zod";
 import {
 	createScanReportSchema,
 	createScanReviewSchema,
@@ -49,6 +50,11 @@ type ScansRouteDeps = {
 	scanReportRunner?: Pick<ScanReportRunner, "start">;
 	scanDiagnosticRunner?: Pick<ScanDiagnosticRunner, "retry">;
 };
+
+const FindingsQuerySchema = z.object({
+	limit: z.coerce.number().int().min(1).max(100).default(100),
+	cursor: z.string().trim().min(1).max(128).optional(),
+});
 
 export function createScansRoute(deps: ScansRouteDeps) {
 	const {
@@ -167,28 +173,40 @@ export function createScansRoute(deps: ScansRouteDeps) {
 				"Content-Disposition": `attachment; filename="${filename}"`,
 			});
 		})
-		.get("/:scanRunId/findings", async (c) => {
-			const authUser = getAuthContextUser(c);
-			const scanRunId = c.req.param("scanRunId");
-			await checkScanOwnership(scanRunId, authUser.userId);
-			const list = await findingRepository.listFindings(scanRunId);
-
-			const findingsWithDecisions = await Promise.all(
-				list.map(async (f) => {
-					const [latestDecision, latestReview] = await Promise.all([
-						decisionRepository.findLatestDecisionForFinding(f.id),
-						findingReviewRepository.findLatestReview(f.id),
-					]);
-					return {
-						...f,
-						latestDecision,
-						latestReview,
-					};
-				}),
-			);
-
-			return c.json({ findings: findingsWithDecisions });
-		})
+		.get(
+			"/:scanRunId/findings",
+			zValidator("query", FindingsQuerySchema),
+			async (c) => {
+				const authUser = getAuthContextUser(c);
+				const scanRunId = c.req.param("scanRunId");
+				const query = c.req.valid("query");
+				await checkScanOwnership(scanRunId, authUser.userId);
+				const page = await findingRepository
+					.listFindingsPage(scanRunId, query)
+					.catch((error) => {
+						if (
+							error instanceof Error &&
+							error.message === "FINDING_CURSOR_INVALID"
+						) {
+							throw new HttpError(400, "Invalid finding cursor");
+						}
+						throw error;
+					});
+				const findingIds = page.items.map((finding) => finding.id);
+				const [decisionsByFinding, reviewsByFinding] = await Promise.all([
+					decisionRepository.findLatestDecisionsForFindings(findingIds),
+					findingReviewRepository.findLatestReviewsForFindings(findingIds),
+				]);
+				return c.json({
+					findings: page.items.map((finding) => ({
+						...finding,
+						latestDecision: decisionsByFinding.get(finding.id) ?? null,
+						latestReview: reviewsByFinding.get(finding.id) ?? null,
+					})),
+					nextCursor: page.nextCursor,
+				});
+			},
+		)
 		.get("/:scanRunId/summary", async (c) => {
 			const authUser = getAuthContextUser(c);
 			const scanRunId = c.req.param("scanRunId");

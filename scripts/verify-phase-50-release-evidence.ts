@@ -1,8 +1,11 @@
 import crypto from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { z } from "zod";
-import { loadScannerDataManifest } from "../api/modules/scans/tools/scanner-provenance";
-import { measuredCapabilityClaimSchema } from "../shared/schemas/security-capability.schema";
+import { canonicalJson } from "../api/modules/scans/diff-scan-plan";
+import {
+	measuredCapabilityClaimSchema,
+	scannerDataManifestV2Schema,
+} from "../shared/schemas/security-capability.schema";
 
 const evidenceFiles = [
 	"spec/evidence/phase-50-baseline.json",
@@ -44,12 +47,25 @@ const releaseCommit = [...releaseCommits][0];
 if (!releaseCommit) throw new Error("phase_50_release_commit_missing");
 await assertEvidenceOnlyReleaseDescendant(releaseCommit);
 
-const [manifest, scope, policy, corpusLockBytes] = await Promise.all([
-	loadScannerDataManifest(),
-	readJson("spec/security-capability/scope-catalog.v1.json"),
-	readJson("spec/security-capability/benchmark-policy.v1.json"),
-	readFile("spec/security-capability/corpora.lock.json"),
+const [manifestInput, scope, policy, corpusLockBytes] = await Promise.all([
+	readJsonAtCommit(
+		releaseCommit,
+		"docker/toolbox/scanner-data/scanner-data-manifest.json",
+	),
+	readJsonAtCommit(
+		releaseCommit,
+		"spec/security-capability/scope-catalog.v1.json",
+	),
+	readJsonAtCommit(
+		releaseCommit,
+		"spec/security-capability/benchmark-policy.v1.json",
+	),
+	gitFileAtCommit(releaseCommit, "spec/security-capability/corpora.lock.json"),
 ]);
+const manifest = scannerDataManifestV2Schema.parse(manifestInput);
+const { manifestHash, ...manifestHashInput } = manifest;
+if (sha256(Buffer.from(canonicalJson(manifestHashInput))) !== manifestHash)
+	throw new Error("phase_50_historical_scanner_manifest_hash_mismatch");
 const corpusLockHash = sha256(corpusLockBytes);
 
 const report = z
@@ -220,11 +236,13 @@ console.log(
 	}),
 );
 
-async function readJson(filePath: string): Promise<Record<string, unknown>> {
-	return JSON.parse(await readFile(filePath, "utf8")) as Record<
-		string,
-		unknown
-	>;
+async function readJsonAtCommit(
+	commit: string,
+	filePath: string,
+): Promise<Record<string, unknown>> {
+	return JSON.parse(
+		new TextDecoder().decode(await gitFileAtCommit(commit, filePath)),
+	) as Record<string, unknown>;
 }
 
 function sha256(value: Uint8Array): `sha256:${string}` {
@@ -234,24 +252,28 @@ function sha256(value: Uint8Array): `sha256:${string}` {
 async function assertEvidenceOnlyReleaseDescendant(
 	commit: string,
 ): Promise<void> {
-	const child = Bun.spawn(
-		["git", "merge-base", "--is-ancestor", commit, "HEAD"],
-		{
-			stdout: "pipe",
-			stderr: "pipe",
-		},
-	);
-	if ((await child.exited) !== 0)
+	if (!(await isAncestor(commit, "HEAD")))
 		throw new Error("phase_50_release_commit_is_not_ancestor");
-	const diff = Bun.spawn(["git", "diff", "--name-only", `${commit}..HEAD`], {
-		stdout: "pipe",
-		stderr: "pipe",
-	});
-	const [exitCode, output] = await Promise.all([
-		diff.exited,
-		new Response(diff.stdout).text(),
+	const evidenceCommits = new Set(
+		await Promise.all(
+			evidenceFiles.map((filePath) =>
+				gitOutput(["log", "-1", "--format=%H", "--", filePath]),
+			),
+		),
+	);
+	if (evidenceCommits.size !== 1)
+		throw new Error("phase_50_evidence_files_do_not_share_commit");
+	const evidenceCommit = [...evidenceCommits][0];
+	if (!evidenceCommit || !(await isAncestor(commit, evidenceCommit)))
+		throw new Error("phase_50_evidence_commit_is_not_release_descendant");
+	if (!(await isAncestor(evidenceCommit, "HEAD")))
+		throw new Error("phase_50_evidence_commit_is_not_ancestor");
+
+	const output = await gitOutput([
+		"diff",
+		"--name-only",
+		`${commit}..${evidenceCommit}`,
 	]);
-	if (exitCode !== 0) throw new Error("phase_50_release_diff_unavailable");
 	const changedFiles = output
 		.split("\n")
 		.map((value) => value.trim())
@@ -260,4 +282,57 @@ async function assertEvidenceOnlyReleaseDescendant(
 	const expectedFiles = [...evidenceFiles].sort();
 	if (JSON.stringify(changedFiles) !== JSON.stringify(expectedFiles))
 		throw new Error("phase_50_release_commit_has_non_evidence_descendants");
+
+	const currentEvidence = Bun.spawn(
+		["git", "diff", "--quiet", evidenceCommit, "--", ...evidenceFiles],
+		{
+			stdout: "pipe",
+			stderr: "pipe",
+		},
+	);
+	if ((await currentEvidence.exited) !== 0)
+		throw new Error("phase_50_evidence_changed_after_recording");
+}
+
+async function isAncestor(
+	ancestor: string,
+	descendant: string,
+): Promise<boolean> {
+	const child = Bun.spawn(
+		["git", "merge-base", "--is-ancestor", ancestor, descendant],
+		{
+			stdout: "pipe",
+			stderr: "pipe",
+		},
+	);
+	return (await child.exited) === 0;
+}
+
+async function gitOutput(args: string[]): Promise<string> {
+	const child = Bun.spawn(["git", ...args], {
+		stdout: "pipe",
+		stderr: "pipe",
+	});
+	const [exitCode, output] = await Promise.all([
+		child.exited,
+		new Response(child.stdout).text(),
+	]);
+	if (exitCode !== 0) throw new Error("phase_50_release_diff_unavailable");
+	return output.trim();
+}
+
+async function gitFileAtCommit(
+	commit: string,
+	filePath: string,
+): Promise<Uint8Array> {
+	const child = Bun.spawn(["git", "show", `${commit}:${filePath}`], {
+		stdout: "pipe",
+		stderr: "pipe",
+	});
+	const [exitCode, output] = await Promise.all([
+		child.exited,
+		new Response(child.stdout).arrayBuffer(),
+	]);
+	if (exitCode !== 0) throw new Error("phase_50_historical_input_unavailable");
+	return new Uint8Array(output);
 }

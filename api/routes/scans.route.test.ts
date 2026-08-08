@@ -30,17 +30,31 @@ describe("Scans Route", () => {
 
 	const mockFindingRepo = {
 		listFindings: vi.fn().mockResolvedValue([{ id: "f-1", ruleId: "rule-1" }]),
+		listFindingsPage: vi.fn().mockResolvedValue({
+			items: [{ id: "f-1", ruleId: "rule-1" }],
+			nextCursor: null,
+		}),
 	};
 
 	const mockDecisionRepo = {
 		findLatestDecisionForFinding: vi
 			.fn()
 			.mockResolvedValue({ id: "d-1", decision: "needs_fix" }),
+		findLatestDecisionsForFindings: vi
+			.fn()
+			.mockResolvedValue(
+				new Map([["f-1", { id: "d-1", decision: "needs_fix" }]]),
+			),
 	};
 	const mockFindingReviewRepo = {
 		findLatestReview: vi
 			.fn()
 			.mockResolvedValue({ id: "r-1", status: "completed" }),
+		findLatestReviewsForFindings: vi
+			.fn()
+			.mockResolvedValue(
+				new Map([["f-1", { id: "r-1", status: "completed" }]]),
+			),
 	};
 	const mockScanReportRepo = {
 		listReportsForScan: vi.fn().mockResolvedValue([]),
@@ -192,10 +206,26 @@ describe("Scans Route", () => {
 		expect(body.findings.length).toBe(1);
 		expect(body.findings[0].latestDecision).toMatchObject({ id: "d-1" });
 		expect(body.findings[0].latestReview).toMatchObject({ id: "r-1" });
-		expect(mockDecisionRepo.findLatestDecisionForFinding).toHaveBeenCalledWith(
+		expect(mockFindingRepo.listFindingsPage).toHaveBeenCalledWith("s-1", {
+			limit: 100,
+		});
+		expect(mockDecisionRepo.findLatestDecisionsForFindings).toHaveBeenCalledWith([
 			"f-1",
+		]);
+		expect(mockFindingReviewRepo.findLatestReviewsForFindings).toHaveBeenCalledWith([
+			"f-1",
+		]);
+	});
+
+	it("GET /:scanRunId/findings rejects an invalid pagination cursor", async () => {
+		mockFindingRepo.listFindingsPage.mockRejectedValueOnce(
+			new Error("FINDING_CURSOR_INVALID"),
 		);
-		expect(mockFindingReviewRepo.findLatestReview).toHaveBeenCalledWith("f-1");
+		const res = await app.request("/s-1/findings?cursor=missing");
+		expect(res.status).toBe(400);
+		expect(await res.json()).toMatchObject({
+			message: "Invalid finding cursor",
+		});
 	});
 
 	it("GET /:scanRunId/summary returns scan summary", async () => {

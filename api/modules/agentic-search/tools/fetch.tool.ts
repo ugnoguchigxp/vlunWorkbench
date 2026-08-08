@@ -1,7 +1,10 @@
 import { load } from "cheerio";
 import { z } from "zod";
-import { fetchWithTimeout } from "../../../utils/httpClient";
-import { clampText, isSafeHttpUrl, normalizeWhitespace } from "../utils";
+import {
+	fetchPublicWebResource,
+	isPublicWebPolicyError,
+} from "../../../security/public-web-fetch";
+import { clampText, normalizeWhitespace } from "../utils";
 import type { AgenticToolDefinition } from "./types";
 
 const FetchArgsSchema = z.object({
@@ -24,7 +27,17 @@ export const fetchTool: AgenticToolDefinition = {
 	},
 	async execute(rawArgs, _deps, runtime) {
 		const args = FetchArgsSchema.parse(rawArgs);
-		if (!isSafeHttpUrl(args.url)) {
+		let response: Response;
+		try {
+			response = await fetchPublicWebResource(args.url, {
+				timeoutMs: 15_000,
+				headers: {
+					"User-Agent": "vuln-workbench-agentic-search/1.0",
+					Accept: "text/html, text/plain;q=0.9",
+				},
+			});
+		} catch (error) {
+			if (!isPublicWebPolicyError(error)) throw error;
 			return {
 				output: {
 					url: args.url,
@@ -34,14 +47,6 @@ export const fetchTool: AgenticToolDefinition = {
 				resultCount: 0,
 			};
 		}
-
-		const response = await fetchWithTimeout(args.url, {
-			timeout: 15000,
-			headers: {
-				"User-Agent": "vuln-workbench-agentic-search/1.0",
-				Accept: "text/html, text/plain;q=0.9",
-			},
-		});
 		const contentType = response.headers.get("content-type") || "";
 		const rawBody = await response.text();
 		let title = args.url;

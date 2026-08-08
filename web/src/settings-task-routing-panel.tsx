@@ -26,6 +26,7 @@ export function TaskRoutingPanel({ model }: { model: SettingsPanelModel }) {
 		llmSaveDisabled,
 	} = model;
 	return (
+		// biome-ignore lint/complexity/noUselessFragments: Keeps the routing section isolated for future sibling panels.
 		<>
 			<section className="panel">
 				<div className="panel-header">

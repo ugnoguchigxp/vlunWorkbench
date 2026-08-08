@@ -1,4 +1,4 @@
-import { eq, desc } from "drizzle-orm";
+import { desc, eq, inArray } from "drizzle-orm";
 import type { AppDatabase } from "../../db";
 import { findingDecisions, findingReviews } from "../../db/schema";
 
@@ -60,7 +60,7 @@ export class FindingDecisionRepository {
 	async listDecisionsForFinding(findingId: string) {
 		return await this.db.query.findingDecisions.findMany({
 			where: eq(findingDecisions.findingId, findingId),
-			orderBy: [desc(findingDecisions.createdAt)],
+			orderBy: [desc(findingDecisions.createdAt), desc(findingDecisions.id)],
 		});
 	}
 
@@ -68,8 +68,22 @@ export class FindingDecisionRepository {
 		return (
 			(await this.db.query.findingDecisions.findFirst({
 				where: eq(findingDecisions.findingId, findingId),
-				orderBy: [desc(findingDecisions.createdAt)],
+				orderBy: [desc(findingDecisions.createdAt), desc(findingDecisions.id)],
 			})) ?? null
 		);
+	}
+
+	async findLatestDecisionsForFindings(findingIds: string[]) {
+		if (findingIds.length === 0) return new Map();
+		const rows = await this.db
+			.select()
+			.from(findingDecisions)
+			.where(inArray(findingDecisions.findingId, findingIds))
+			.orderBy(desc(findingDecisions.createdAt), desc(findingDecisions.id));
+		const latest = new Map<string, (typeof rows)[number]>();
+		for (const row of rows) {
+			if (!latest.has(row.findingId)) latest.set(row.findingId, row);
+		}
+		return latest;
 	}
 }

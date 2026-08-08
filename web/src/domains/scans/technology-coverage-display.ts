@@ -68,8 +68,11 @@ export function readTechnologyCoverageDisplay(
 		});
 	}
 	const resultKeys = new Set(rows.map((row) => row.key));
-	for (const step of Array.isArray(plan.steps) ? plan.steps.filter(isRecord) : []) {
-		if (typeof step.stepId !== "string" || !Array.isArray(step.pluginIds)) continue;
+	for (const step of Array.isArray(plan.steps)
+		? plan.steps.filter(isRecord)
+		: []) {
+		if (typeof step.stepId !== "string" || !Array.isArray(step.pluginIds))
+			continue;
 		for (const pluginId of step.pluginIds.filter(
 			(value): value is string => typeof value === "string",
 		)) {

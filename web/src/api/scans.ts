@@ -185,11 +185,40 @@ export async function fetchScanArtifacts(
 	return data.artifacts;
 }
 
+export type ScanFindingsPage = {
+	findings: Finding[];
+	nextCursor: string | null;
+};
+
+export async function fetchScanFindingsPage(
+	scanRunId: string,
+	options: { limit?: number; cursor?: string } = {},
+): Promise<ScanFindingsPage> {
+	const params = new URLSearchParams({ limit: String(options.limit ?? 100) });
+	if (options.cursor) params.set("cursor", options.cursor);
+	const data = await requestJson<{
+		findings: Finding[];
+		nextCursor?: string | null;
+	}>(`/api/scans/${scanRunId}/findings?${params.toString()}`);
+	return { findings: data.findings, nextCursor: data.nextCursor ?? null };
+}
+
 export async function fetchScanFindings(scanRunId: string): Promise<Finding[]> {
-	const data = await requestJson<{ findings: Finding[] }>(
-		`/api/scans/${scanRunId}/findings`,
-	);
-	return data.findings;
+	const findings: Finding[] = [];
+	const seenCursors = new Set<string>();
+	let cursor: string | undefined;
+	do {
+		const page = await fetchScanFindingsPage(scanRunId, { cursor });
+		findings.push(...page.findings);
+		cursor = page.nextCursor ?? undefined;
+		if (cursor) {
+			if (seenCursors.has(cursor)) {
+				throw new Error("Finding pagination returned a repeated cursor.");
+			}
+			seenCursors.add(cursor);
+		}
+	} while (cursor);
+	return findings;
 }
 
 export * from "./scans-intelligence";

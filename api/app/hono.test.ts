@@ -72,15 +72,15 @@ if (!("Bun" in globalThis)) {
 const { default: app } = await import("./hono");
 
 // Add test routes before any request is processed (Hono routers lock after first request)
-app.post("/api/test-http-error", () => {
+app.post("/test-http-error", () => {
 	throw new HttpError(400, "Bad Parameters");
 });
 
-app.post("/api/test-hono-http-exception", () => {
+app.post("/test-hono-http-exception", () => {
 	throw new HTTPException(403, { message: "Access Forbidden" });
 });
 
-app.post("/api/test-generic-error", () => {
+app.post("/test-generic-error", () => {
 	throw new Error("Something blew up");
 });
 
@@ -113,9 +113,18 @@ describe("hono app entry", () => {
 		expect(resInvalid.headers.get("Access-Control-Allow-Origin")).toBeNull();
 	});
 
-	it("should handle not found on api endpoints", async () => {
+	it("should require authentication for unknown api endpoints", async () => {
 		const res = await app.request("/api/not-a-valid-route");
-		expect(res.status).toBe(404);
+		expect(res.status).toBe(401);
+	});
+
+	it("protects assessment metadata endpoints by default", async () => {
+		for (const path of [
+			"/api/assessment-controls",
+			"/api/active-assessment-container-fixtures",
+		]) {
+			expect((await app.request(path)).status).toBe(401);
+		}
 	});
 
 	it("should return frontend fallback warning when frontend is not built", async () => {
@@ -142,7 +151,7 @@ describe("hono app entry", () => {
 	// Error Handler integration tests
 	describe("Error Handler", () => {
 		it("should handle HttpError and return custom status and message", async () => {
-			const res = await app.request("http://localhost:29831/api/test-http-error", {
+			const res = await app.request("http://localhost:29831/test-http-error", {
 				method: "POST",
 				headers: {
 					Origin: "http://localhost:29831",
@@ -154,7 +163,7 @@ describe("hono app entry", () => {
 		});
 
 		it("should handle HTTPException and return custom status and message", async () => {
-			const res = await app.request("http://localhost:29831/api/test-hono-http-exception", {
+			const res = await app.request("http://localhost:29831/test-hono-http-exception", {
 				method: "POST",
 				headers: {
 					Origin: "http://localhost:29831",
@@ -166,7 +175,7 @@ describe("hono app entry", () => {
 		});
 
 		it("should handle generic errors as 500 Internal Server Error", async () => {
-			const res = await app.request("http://localhost:29831/api/test-generic-error", {
+			const res = await app.request("http://localhost:29831/test-generic-error", {
 				method: "POST",
 				headers: {
 					Origin: "http://localhost:29831",

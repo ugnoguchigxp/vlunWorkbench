@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, asc, eq, gt, or } from "drizzle-orm";
 import type { AppDatabase } from "../../db";
 import { findingEvidences, findings } from "../../db/schema";
 
@@ -80,6 +80,45 @@ export class FindingRepository {
 		return await this.db.query.findings.findMany({
 			where: eq(findings.scanRunId, scanRunId),
 		});
+	}
+
+	async listFindingsPage(
+		scanRunId: string,
+		options: { limit: number; cursor?: string },
+	) {
+		const cursorFinding = options.cursor
+			? await this.db.query.findings.findFirst({
+					where: and(
+						eq(findings.id, options.cursor),
+						eq(findings.scanRunId, scanRunId),
+					),
+				})
+			: null;
+		if (options.cursor && !cursorFinding) {
+			throw new Error("FINDING_CURSOR_INVALID");
+		}
+		const rows = await this.db.query.findings.findMany({
+			where: cursorFinding
+				? and(
+						eq(findings.scanRunId, scanRunId),
+						or(
+							gt(findings.createdAt, cursorFinding.createdAt),
+							and(
+								eq(findings.createdAt, cursorFinding.createdAt),
+								gt(findings.id, cursorFinding.id),
+							),
+						),
+					)
+				: eq(findings.scanRunId, scanRunId),
+			orderBy: [asc(findings.createdAt), asc(findings.id)],
+			limit: options.limit + 1,
+		});
+		const hasMore = rows.length > options.limit;
+		const items = hasMore ? rows.slice(0, options.limit) : rows;
+		return {
+			items,
+			nextCursor: hasMore ? (items.at(-1)?.id ?? null) : null,
+		};
 	}
 
 	async listEvidence(findingId: string) {

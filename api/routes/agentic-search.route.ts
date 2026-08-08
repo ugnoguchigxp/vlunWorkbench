@@ -6,12 +6,13 @@ import { getAuthContextUser } from "../modules/auth/context";
 import type { AgenticSearchResult } from "../modules/agentic-search/types";
 
 const AgenticSearchRequestSchema = z.object({
-	query: z.string().trim().min(1),
+	query: z.string().trim().min(1).max(10_000),
 	topK: z.number().int().min(1).max(20).optional(),
 	category: z
 		.string()
 		.trim()
 		.min(1)
+		.max(128)
 		.regex(/^[^/]+$/, "Invalid category")
 		.optional(),
 });

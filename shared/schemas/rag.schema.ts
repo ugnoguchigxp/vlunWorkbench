@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 export const searchRequestSchema = z.object({
-	query: z.string().min(1),
+	query: z.string().min(1).max(10_000),
 	topK: z.number().int().min(1).max(20).optional(),
 	category: z
 		.string()
@@ -19,7 +19,7 @@ export const chatMessageSchema = z.object({
 
 export const chatRequestSchema = z.object({
 	conversationId: z.string().uuid().optional(),
-	messages: z.array(chatMessageSchema).min(1),
+	messages: z.array(chatMessageSchema).min(1).max(100),
 	topK: z.number().int().min(1).max(20).optional(),
 	category: z
 		.string()

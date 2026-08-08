@@ -152,7 +152,9 @@ export function IntelligenceView({
 					findings={data.findings}
 					findingsStatus={data.findingsStatus}
 					findingsError={data.findingsError}
+					hasMoreFindings={data.hasMoreFindings}
 					onReloadFindings={() => void data.reloadFindings()}
+					onLoadMoreFindings={() => void data.loadMoreFindings()}
 					details={data.details}
 					detailStatus={data.detailStatus}
 					detailErrors={data.detailErrors}
@@ -184,7 +186,9 @@ export function IntelligenceView({
 					findings={data.findings}
 					findingsStatus={data.findingsStatus}
 					findingsError={data.findingsError}
+					hasMoreFindings={data.hasMoreFindings}
 					onReloadFindings={() => void data.reloadFindings()}
+					onLoadMoreFindings={() => void data.loadMoreFindings()}
 					details={data.details}
 					detailStatus={data.detailStatus}
 					detailErrors={data.detailErrors}

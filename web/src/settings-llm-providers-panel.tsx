@@ -44,6 +44,7 @@ export function LlmProvidersPanel({ model }: { model: SettingsPanelModel }) {
 	} = model;
 	if (!isAdmin) return null;
 	return (
+		// biome-ignore lint/complexity/noUselessFragments: Keeps the provider section isolated for future sibling panels.
 		<>
 			<section className="panel llm-settings-panel">
 				<div className="panel-header">

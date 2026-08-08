@@ -7,7 +7,8 @@ export type OutboundProviderKind =
 	| "azure"
 	| "openai"
 	| "openai-compatible"
-	| "local";
+	| "local"
+	| "public-web";
 
 export type OutboundUrlPolicyErrorCode =
 	| "OUTBOUND_URL_INVALID"
@@ -170,6 +171,15 @@ export function validateOutboundUrlSyntax(
 			throw new OutboundUrlPolicyError(
 				"OUTBOUND_HOST_NOT_ALLOWED",
 				"Local providers must use a loopback host.",
+			);
+		}
+		return url;
+	}
+	if (policy.kind === "public-web") {
+		if (!["http:", "https:"].includes(url.protocol)) {
+			throw new OutboundUrlPolicyError(
+				"OUTBOUND_URL_SCHEME_NOT_ALLOWED",
+				"Public web URLs must use HTTP or HTTPS.",
 			);
 		}
 		return url;
@@ -418,7 +428,10 @@ export async function fetchWithOutboundPolicy(params: {
 		const resolved = await resolveOutboundUrl(url, params.policy);
 		const resolvedOrigin = resolved.url.origin;
 		credentialBoundaryOrigin ??= resolvedOrigin;
-		if (resolvedOrigin !== credentialBoundaryOrigin) {
+		if (
+			params.policy.kind !== "public-web" &&
+			resolvedOrigin !== credentialBoundaryOrigin
+		) {
 			throw new OutboundUrlPolicyError(
 				"OUTBOUND_HOST_NOT_ALLOWED",
 				"Provider redirects must remain on the configured origin.",
@@ -436,7 +449,18 @@ export async function fetchWithOutboundPolicy(params: {
 		}
 		const location = response.headers.get("location");
 		if (!location) return response;
-		url = new URL(location, url).toString();
+		const nextUrl = new URL(location, url);
+		if (
+			params.policy.kind === "public-web" &&
+			nextUrl.origin !== resolvedOrigin
+		) {
+			const headers = new Headers(init.headers);
+			for (const name of ["authorization", "cookie", "proxy-authorization"]) {
+				headers.delete(name);
+			}
+			init = { ...init, headers };
+		}
+		url = nextUrl.toString();
 		if (response.status === 303) {
 			init = { ...init, method: "GET", body: undefined };
 		}

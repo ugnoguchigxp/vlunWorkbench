@@ -37,12 +37,14 @@ export function createAssessmentsRoute(deps: {
 		}
 	};
 
-	route.get("/assessment-controls", (c) =>
-		c.json({ controls: COVERAGE_CATALOG }),
-	);
-	route.get("/active-assessment-container-fixtures", (c) =>
-		c.json({ fixtures: listContainerFixtures() }),
-	);
+	route.get("/assessment-controls", (c) => {
+		getAuthContextUser(c);
+		return c.json({ controls: COVERAGE_CATALOG });
+	});
+	route.get("/active-assessment-container-fixtures", (c) => {
+		getAuthContextUser(c);
+		return c.json({ fixtures: listContainerFixtures() });
+	});
 	route.get("/projects/:projectId/assessments", async (c) => {
 		const user = getAuthContextUser(c);
 		const projectId = c.req.param("projectId");

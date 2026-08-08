@@ -220,10 +220,14 @@ const moduleCandidate = {
 	reasons: ["path prefix"],
 };
 
-async function mockProjectIntelligence(page: Page) {
+async function mockProjectIntelligence(
+	page: Page,
+	options: { paginateFindings?: boolean } = {},
+) {
 	let baseRequests = 0;
 	let structureRequests = 0;
 	let ontologyRequests = 0;
+	let findingRequests = 0;
 	let savedDecision: Record<string, unknown> | null = null;
 	await page.route("**/api/**", async (route) => {
 		const request = route.request();
@@ -285,12 +289,21 @@ async function mockProjectIntelligence(page: Page) {
 			return json({ handoff: null });
 		}
 		if (path === `/api/scans/${scan.id}/findings`) {
+			findingRequests += 1;
+			const cursor = url.searchParams.get("cursor");
+			const pageFindings = options.paginateFindings
+				? cursor
+					? [findings[1]]
+					: [findings[0]]
+				: findings;
 			return json({
-				findings: findings.map((finding) =>
+				findings: pageFindings.map((finding) =>
 					finding.id === "finding-critical" && savedDecision
 						? { ...finding, latestDecision: savedDecision }
 						: finding,
 				),
+				nextCursor:
+					options.paginateFindings && !cursor ? findings[0].id : null,
 			});
 		}
 		if (path.startsWith("/api/findings/") && !path.endsWith("/decisions")) {
@@ -364,6 +377,7 @@ async function mockProjectIntelligence(page: Page) {
 		baseRequests: () => baseRequests,
 		structureRequests: () => structureRequests,
 		ontologyRequests: () => ontologyRequests,
+		findingRequests: () => findingRequests,
 		savedDecision: () => savedDecision,
 	};
 }
@@ -450,6 +464,25 @@ test("ガイド方式から確認付きで互換Decisionを保存する", async 
 	await expect(
 		page.getByRole("heading", { name: findings[1].title }),
 	).toBeVisible();
+});
+
+test("ガイド方式でFindingをカーソルから追加読込する", async ({ page }) => {
+	const state = await mockProjectIntelligence(page, { paginateFindings: true });
+	await page.goto(
+		`/projects/${project.id}/intelligence?scanRunId=${scan.id}&intelligenceView=guided`,
+	);
+
+	await expect(page.getByText("読み込み済みの確認進捗")).toBeVisible();
+	await page
+		.getByRole("button", { name: "さらにFindingを読み込む" })
+		.click();
+	await expect(
+		page.getByRole("button", { name: new RegExp(findings[1].title) }),
+	).toBeVisible();
+	await expect.poll(state.findingRequests).toBe(2);
+	await expect(
+		page.getByRole("button", { name: "さらにFindingを読み込む" }),
+	).toHaveCount(0);
 });
 
 test("390px幅でもページ全体に横スクロールを出さない", async ({ page }) => {

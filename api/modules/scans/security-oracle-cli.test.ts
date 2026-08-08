@@ -391,26 +391,34 @@ describe("Security oracle CLI contract", () => {
 	}, 30_000);
 
 	it("rejects orchestrator-supplied scan tuning arguments", async () => {
-		const proc = runCli([
-			"api/cli/oracle-security.ts",
-			"--project-path",
-			repoPath,
-			"--profile",
-			"agent-output",
-		]);
-		const payload = JSON.parse(proc.stdout.toString());
+		const forbiddenArguments = [
+			["--profile", "agent-output"],
+			["--target", "full"],
+			["--finding-limit", "1"],
+			["--expected-target-digest", "sha256:untrusted"],
+		];
 
-		expect(proc.exitCode).toBe(2);
-		expect(payload).toMatchObject({
-			ok: false,
-			status: "config_error",
-			project: null,
-			scan: null,
-			review: { status: "skipped" },
-			nextAction: "inspect_diagnostic_failure",
-			error: { code: "ARGUMENT_PARSE_FAILED" },
-		});
-		expect(proc.stderr.toString()).toBe("");
+		for (const tuningArguments of forbiddenArguments) {
+			const proc = runCli([
+				"api/cli/oracle-security.ts",
+				"--project-path",
+				repoPath,
+				...tuningArguments,
+			]);
+			const payload = JSON.parse(proc.stdout.toString());
+
+			expect(proc.exitCode).toBe(2);
+			expect(payload).toMatchObject({
+				ok: false,
+				status: "config_error",
+				project: null,
+				scan: null,
+				review: { status: "skipped" },
+				nextAction: "inspect_diagnostic_failure",
+				error: { code: "ARGUMENT_PARSE_FAILED" },
+			});
+			expect(proc.stderr.toString()).toBe("");
+		}
 	}, 30_000);
 
 	it("returns JSON config failure when oracle startup config is invalid", async () => {

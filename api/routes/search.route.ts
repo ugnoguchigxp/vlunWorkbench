@@ -8,12 +8,13 @@ import {
 import type { WebSearchProvider, WebSearchResult } from "../providers/types";
 
 const SearchRequestSchema = z.object({
-	query: z.string().min(1),
+	query: z.string().min(1).max(10_000),
 	topK: z.number().int().min(1).max(20).optional(),
 	category: z
 		.string()
 		.trim()
 		.min(1)
+		.max(128)
 		.regex(/^[^/]+$/, "Invalid category")
 		.optional(),
 });

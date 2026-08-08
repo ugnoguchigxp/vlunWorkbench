@@ -1,12 +1,14 @@
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import type { Hono } from "hono";
+import { bodyLimit } from "hono/body-limit";
 import { getConnInfo } from "hono/bun";
 import { cors } from "hono/cors";
 import { csrf } from "hono/csrf";
 import { HTTPException } from "hono/http-exception";
 import { secureHeaders } from "hono/secure-headers";
 import type { FailureKind } from "../../shared/schemas/failure.schema";
+import { requireAuth } from "../middleware/auth";
 import { rateLimiter } from "../middleware/rate-limiter";
 import { HttpError } from "../modules/auth/errors";
 import { IntegrationClientAuthenticationError } from "../modules/integrationClients/integration-client.service";
@@ -94,6 +96,14 @@ export function configureHttpMiddleware(app: Hono, runtime: AppRuntime): void {
 				"Idempotency-Key",
 				"X-Request-Id",
 			],
+		}),
+	);
+	app.use(
+		"/api/*",
+		bodyLimit({
+			maxSize: 5 * 1024 * 1024,
+			onError: (c) =>
+				c.json({ message: "Request body exceeds the 5 MiB limit." }, 413),
 		}),
 	);
 	app.use(
@@ -205,6 +215,28 @@ export function configureHttpMiddleware(app: Hono, runtime: AppRuntime): void {
 			);
 		}
 		await next();
+	});
+	const authenticateApiRequest = requireAuth({
+		env: runtime.env,
+		authService: runtime.authService,
+	});
+	app.use("/api/*", async (c, next) => {
+		const publicPaths = new Set([
+			"/api/health",
+			"/api/auth/login",
+			"/api/auth/refresh",
+			"/api/auth/logout",
+		]);
+		const integrationPrefix = "/api/integrations/nightworkers/v1";
+		const isIntegrationRequest =
+			runtime.env.nightworkersIntegrationEnabled &&
+			(c.req.path === integrationPrefix ||
+				c.req.path.startsWith(`${integrationPrefix}/`));
+		if (publicPaths.has(c.req.path) || isIntegrationRequest) {
+			await next();
+			return;
+		}
+		await authenticateApiRequest(c, next);
 	});
 	app.onError(async (error, c) => {
 		if (shouldLogAppError(error)) {

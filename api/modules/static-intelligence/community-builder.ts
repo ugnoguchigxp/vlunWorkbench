@@ -1,15 +1,9 @@
 import { createHash } from "node:crypto";
 import type {
 	DiagnosticEvidenceNode,
-	StaticIntelligenceEvidenceQuality,
 	StaticIntelligenceExportV1,
-	StaticIntelligenceSeverity,
 } from "../../../shared/schemas/static-intelligence.schema";
-import type {
-	RiskCommunity,
-	RiskCommunityBasis,
-	RiskCommunityConfidence,
-} from "../../../shared/schemas/static-intelligence-landscape.schema";
+import type { RiskCommunity } from "../../../shared/schemas/static-intelligence-landscape.schema";
 import { riskCommunitySchema } from "../../../shared/schemas/static-intelligence-landscape.schema";
 import {
 	addConnectedNode,

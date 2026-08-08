@@ -186,27 +186,6 @@ const resolveCandidateRelativePaths = (slug: string): string[] => {
 	return [path.join(safe, "index.md"), `${safe}.md`];
 };
 
-const findExistingPageRelativePath = async (
-	contentRoot: string,
-	slug: string,
-): Promise<string | null> => {
-	const candidates = resolveCandidateRelativePaths(slug);
-	for (const candidate of candidates) {
-		const absolute = assertInsidePages(contentRoot, candidate);
-		try {
-			const stat = await fs.stat(absolute);
-			if (stat.isFile()) {
-				return normalizePosixPath(candidate);
-			}
-		} catch (error) {
-			if (!isNotFoundError(error)) {
-				throw error;
-			}
-		}
-	}
-	return null;
-};
-
 function firstMarkdownHeading(body: string): string | null {
 	for (const line of body.split("\n")) {
 		const trimmed = line.trim();
