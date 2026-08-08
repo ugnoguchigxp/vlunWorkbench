@@ -43,7 +43,6 @@ export default defineConfig({
 			SQLITE_WRITER_DETACHED: "0",
 			CONTENT_ROOT: path.join(e2eRoot, "content"),
 			SCAN_ARTIFACT_ROOT: path.join(e2eRoot, "artifacts"),
-			PROJECT_ALLOWED_ROOTS: path.join(e2eRoot, "projects"),
 			JWT_SECRET: "e2e-only-jwt-secret-that-is-at-least-32-characters",
 			LLM_SETTINGS_ENCRYPTION_KEY: Buffer.alloc(32, 17).toString("base64"),
 			SEED_ADMIN_PASSWORD: "E2eAdminPassword!42",

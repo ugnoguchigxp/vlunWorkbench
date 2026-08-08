@@ -2,15 +2,15 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { Hono } from "hono";
 import {
+	runDastRequestSchema,
 	type SaveDastProfileRequestInput,
 	type SaveDastTargetRequestInput,
-	runDastRequestSchema,
 	saveDastProfileRequestSchema,
 	saveDastTargetRequestSchema,
 } from "../../shared/schemas/dast.schema";
 import { EMPTY_DAST_COVERAGE_SUMMARY } from "../../shared/schemas/dast-coverage.schema";
-import type { AppDatabase } from "../db";
 import type { AppEnv } from "../app/env";
+import type { AppDatabase } from "../db";
 import { getAuthContextUser } from "../modules/auth/context";
 import { HttpError } from "../modules/auth/errors";
 import { DastArtifactStorage } from "../modules/dast/dast-artifact-storage";
@@ -21,7 +21,10 @@ import {
 	validateDastTargetConfig,
 } from "../modules/dast/target-validator";
 import type { ProjectRepository } from "../modules/scans/repositories";
-import { authorizeProjectPath } from "../security/project-path-policy";
+import {
+	ProjectPathPolicyError,
+	resolveProjectPath,
+} from "../security/project-path-policy";
 import { executeDastCli } from "./dast-cli-bridge";
 
 type DastRouteDeps = {
@@ -43,17 +46,13 @@ export function createDastRoute(deps: DastRouteDeps) {
 	}
 
 	async function assertExecutionPath(repoPath: string) {
-		if (!deps.env) return;
 		try {
-			await authorizeProjectPath({
-				projectPath: repoPath,
-				allowedRoots: deps.env.projectAllowedRoots ?? [],
-			});
-		} catch {
-			throw new HttpError(
-				403,
-				"Project path is not authorized for Web execution.",
-			);
+			await resolveProjectPath(repoPath);
+		} catch (error) {
+			if (error instanceof ProjectPathPolicyError) {
+				throw new HttpError(400, error.message);
+			}
+			throw error;
 		}
 	}
 

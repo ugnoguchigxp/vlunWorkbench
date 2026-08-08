@@ -1,3 +1,4 @@
+import { requestJson, requestVoid } from "./core-request";
 import type {
 	AdminUser,
 	AgenticSearchResult,
@@ -11,6 +12,7 @@ import type {
 	RetrievalLog,
 	RetrievedFragment,
 	RuntimeSettingsResponse,
+	RuntimeSettingsUpdate,
 	SourceCategoryResponse,
 	SourceHealth,
 	SourceHistoryItem,
@@ -21,14 +23,13 @@ import type {
 	SystemContextResponse,
 	WebSearchResult,
 } from "./core-types";
-import { requestJson, requestVoid } from "./core-request";
 
-export type * from "./core-types";
 export {
 	requestJson,
 	requestVoid,
 	UNAUTHORIZED_EVENT_NAME,
 } from "./core-request";
+export type * from "./core-types";
 
 const pageEndpoint = (slug: string): string =>
 	`/api/sources/pages/${encodeSlug(slug)}`;
@@ -72,10 +73,19 @@ export async function fetchRuntimeSettings(): Promise<RuntimeSettingsResponse> {
 }
 
 export async function updateRuntimeSettings(
-	settings: Omit<RuntimeSettingsResponse, "updatedAt">,
+	settings: RuntimeSettingsUpdate,
 ): Promise<RuntimeSettingsResponse> {
 	return requestJson("/api/settings/runtime", {
 		method: "PUT",
+		body: settings,
+	});
+}
+
+export async function generateDastAuthEncryptionKey(
+	settings: RuntimeSettingsUpdate,
+): Promise<RuntimeSettingsResponse> {
+	return requestJson("/api/settings/runtime/dast-auth-key/generate", {
+		method: "POST",
 		body: settings,
 	});
 }

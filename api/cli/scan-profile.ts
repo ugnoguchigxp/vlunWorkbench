@@ -3,10 +3,8 @@ import { parseArgs } from "node:util";
 import type { ScanTarget } from "../../shared/schemas/scan-target.schema";
 import { readAppEnv } from "../app/env";
 import { createDbConnection } from "../db";
-import { ArtifactStorage } from "../modules/scans/artifact-storage";
 import { analyzeProjectCapabilities } from "../modules/project-capabilities/plugin-detector";
-import { runProfileScan } from "../modules/scans/profile-runner";
-import { getProfileById } from "../modules/scans/profiles";
+import { ArtifactStorage } from "../modules/scans/artifact-storage";
 import {
 	buildDiffScanPlan,
 	toDiffScanPreview,
@@ -15,6 +13,8 @@ import {
 	GitDiffResolutionError,
 	resolveGitDiff,
 } from "../modules/scans/git-diff-resolver";
+import { runProfileScan } from "../modules/scans/profile-runner";
+import { getProfileById } from "../modules/scans/profiles";
 import {
 	ProjectResolutionError,
 	resolveProjectByPath,
@@ -364,7 +364,6 @@ async function main() {
 			imageRef,
 			imageTar,
 			executionSurface,
-			projectAllowedRoots: env.projectAllowedRoots,
 			target: scanTarget,
 			expectedTargetDigest,
 			consentProjectCodeExecution,

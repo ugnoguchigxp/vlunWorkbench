@@ -1,7 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { readFileSync, readdirSync } from "node:fs";
-import { Hono } from "hono";
+import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { Hono } from "hono";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDbConnection, type DbConnection } from "../db";
 import { users } from "../db/schema";
 import { HttpError } from "../modules/auth/errors";
@@ -81,7 +81,7 @@ describe("DAST route", () => {
 		const project = await projectRepo.createProject({
 			ownerUserId: userId,
 			name: "Route Project",
-			repoPath: "/tmp/route",
+			repoPath: process.cwd(),
 		});
 		const createRes = await app.request(
 			`/api/projects/${project.id}/dast-targets`,
@@ -104,7 +104,7 @@ describe("DAST route", () => {
 		const project = await projectRepo.createProject({
 			ownerUserId: userId,
 			name: "Unsafe Target Project",
-			repoPath: "/tmp/unsafe-target",
+			repoPath: process.cwd(),
 		});
 		const createRes = await app.request(
 			`/api/projects/${project.id}/dast-targets`,
@@ -127,7 +127,7 @@ describe("DAST route", () => {
 		const project = await projectRepo.createProject({
 			ownerUserId: userId,
 			name: "Scoped Profile Project",
-			repoPath: "/tmp/scoped-profile",
+			repoPath: process.cwd(),
 		});
 		const target = await dastRepo.createTargetConfig({
 			projectId: project.id,
@@ -152,7 +152,7 @@ describe("DAST route", () => {
 		const project = await projectRepo.createProject({
 			ownerUserId: userId,
 			name: "No URL Project",
-			repoPath: "/tmp/no-url",
+			repoPath: process.cwd(),
 		});
 		const res = await app.request(`/api/projects/${project.id}/dast-runs`, {
 			method: "POST",
@@ -162,11 +162,27 @@ describe("DAST route", () => {
 		expect(res.status).toBe(400);
 	});
 
+	it("rejects an unavailable project path before validating a DAST run", async () => {
+		const project = await projectRepo.createProject({
+			ownerUserId: userId,
+			name: "Missing Path Project",
+			repoPath: path.join(process.cwd(), ".tmp", "missing-dast-route-project"),
+		});
+		const res = await app.request(`/api/projects/${project.id}/dast-runs`, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({}),
+		});
+
+		expect(res.status).toBe(400);
+		expect((await res.json()).message).toContain("does not exist");
+	});
+
 	it("rejects mock runners on the external DAST API", async () => {
 		const project = await projectRepo.createProject({
 			ownerUserId: userId,
 			name: "No Mock DAST Project",
-			repoPath: "/tmp/no-mock-dast",
+			repoPath: process.cwd(),
 		});
 		const target = await dastRepo.createTargetConfig({
 			projectId: project.id,
@@ -194,7 +210,7 @@ describe("DAST route", () => {
 		const project = await projectRepo.createProject({
 			ownerUserId: userId,
 			name: "Bridge Project",
-			repoPath: "/tmp/bridge",
+			repoPath: process.cwd(),
 		});
 		const target = await dastRepo.createTargetConfig({
 			projectId: project.id,
@@ -242,7 +258,7 @@ describe("DAST route", () => {
 		const project = await projectRepo.createProject({
 			ownerUserId: userId,
 			name: "Auto Target Project",
-			repoPath: "/tmp/auto-target",
+			repoPath: process.cwd(),
 		});
 		const spawn = vi.spyOn(Bun, "spawn").mockReturnValue({
 			stdout: streamText(
@@ -282,7 +298,7 @@ describe("DAST route", () => {
 		const project = await projectRepo.createProject({
 			ownerUserId: userId,
 			name: "Bounded Bridge Project",
-			repoPath: "/tmp/bounded-bridge",
+			repoPath: process.cwd(),
 		});
 		const target = await dastRepo.createTargetConfig({
 			projectId: project.id,
@@ -317,7 +333,7 @@ describe("DAST route", () => {
 		const project = await projectRepo.createProject({
 			ownerUserId: userId,
 			name: "Legacy DAST Project",
-			repoPath: "/tmp/legacy-dast",
+			repoPath: process.cwd(),
 		});
 		const scanRun = await new ScanRepository(connection.db).createScanRun({
 			projectId: project.id,

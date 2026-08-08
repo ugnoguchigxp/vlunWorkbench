@@ -3,6 +3,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { readAppEnv } from "../../app/env";
 import { createDbConnection, type DbConnection } from "../../db";
+import { runtimeSettings } from "../../db/schema";
 import { SettingsRepository } from "./settings.repository";
 
 function migrate(connection: DbConnection): void {
@@ -53,7 +54,7 @@ describe("SettingsRepository runtime settings", () => {
 			scannerStdoutLimitBytes: 32 * 1024 * 1024,
 			scannerStderrLimitBytes: 4 * 1024 * 1024,
 			codexSdkTimeoutMs: 300_000,
-		});
+		}, env);
 
 		const resolved = await repo.resolveAppEnv(env);
 		expect(resolved).toMatchObject({
@@ -67,6 +68,7 @@ describe("SettingsRepository runtime settings", () => {
 
 	it("rejects unsafe process limits before persistence", async () => {
 		const repo = new SettingsRepository(connection.db);
+		const env = readAppEnv({});
 		await expect(
 			repo.updateRuntimeSettings({
 				scanExecutionMode: "docker",
@@ -78,7 +80,56 @@ describe("SettingsRepository runtime settings", () => {
 				scannerStdoutLimitBytes: 64 * 1024 * 1024,
 				scannerStderrLimitBytes: 8 * 1024 * 1024,
 				codexSdkTimeoutMs: 600_000,
-			}),
+			}, env),
 		).rejects.toThrow(/between 512 MiB and 8 GiB/);
+	});
+
+	it("stores a masked DAST auth key and retains the previous key on rotation", async () => {
+		const repo = new SettingsRepository(connection.db);
+		const environmentKey = Buffer.alloc(32, 3).toString("base64");
+		const settingsKey = Buffer.alloc(32, 5).toString("base64");
+		const rotatedKey = Buffer.alloc(32, 7).toString("base64");
+		const env = readAppEnv({ DAST_AUTH_ENCRYPTION_KEY: environmentKey });
+		const base = {
+			scanExecutionMode: "host" as const,
+			allowHostScannerExecution: true,
+			scanDockerImage: "scanner:stable",
+			dockerMemory: "2g",
+			dockerCpus: 1.5,
+			dockerPidsLimit: 256,
+			scannerStdoutLimitBytes: 32 * 1024 * 1024,
+			scannerStderrLimitBytes: 4 * 1024 * 1024,
+			codexSdkTimeoutMs: 300_000,
+		};
+
+		expect(await repo.getRuntimeSettings(env)).toMatchObject({
+			dastAuthEncryptionKey: "",
+			dastAuthEncryptionKeyConfigured: true,
+			dastAuthEncryptionKeySource: "environment",
+		});
+
+		const saved = await repo.updateRuntimeSettings(
+			{ ...base, dastAuthEncryptionKey: settingsKey },
+			env,
+		);
+		expect(saved).toMatchObject({
+			dastAuthEncryptionKey: "",
+			dastAuthEncryptionKeyConfigured: true,
+			dastAuthEncryptionKeySource: "settings",
+		});
+		const raw = await connection.db.select().from(runtimeSettings);
+		expect(JSON.stringify(raw)).not.toContain(settingsKey);
+		expect(JSON.stringify(raw)).not.toContain(environmentKey);
+
+		await repo.updateRuntimeSettings(
+			{ ...base, dastAuthEncryptionKey: rotatedKey },
+			env,
+		);
+		const resolved = await repo.resolveAppEnv(env);
+		expect(resolved.dastAuthEncryptionKey).toBe(rotatedKey);
+		expect(resolved.dastAuthPreviousEncryptionKeys).toEqual([
+			settingsKey,
+			environmentKey,
+		]);
 	});
 });

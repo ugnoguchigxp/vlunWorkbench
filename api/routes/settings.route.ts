@@ -1,11 +1,9 @@
+import { randomBytes } from "node:crypto";
 import { zValidator } from "@hono/zod-validator";
 import { Hono } from "hono";
 import { z } from "zod";
 import { type AppEnv, readAppEnv } from "../app/env";
-import {
-	applyRuntimeSettings,
-	RuntimeSettingsSchema,
-} from "../config/runtime-settings";
+import { RuntimeSettingsUpdateSchema } from "../config/runtime-settings";
 import { requireAdmin } from "../middleware/auth";
 import { getAuthContextUser } from "../modules/auth/context";
 import { readCodexStatus } from "../modules/llm-settings/codex-status";
@@ -31,9 +29,18 @@ export function createSettingsRoute(deps: SettingsRouteDeps) {
 	}
 	const repo = deps.settingsRepository;
 	const llmRepo = deps.llmSettingsRepository;
+	const updateRuntimeSettings = async (input: unknown) => {
+		const env = deps.runtimeEnv ?? readAppEnv();
+		const updated = await repo.updateRuntimeSettings(input, env);
+		if (deps.runtimeEnv) {
+			Object.assign(deps.runtimeEnv, await repo.resolveAppEnv(env));
+		}
+		return updated;
+	};
 
 	return new Hono()
 		.use("/runtime", requireAdmin())
+		.use("/runtime/*", requireAdmin())
 		.use("/llm", requireAdmin())
 		.use("/llm/*", requireAdmin())
 		.get("/system-context", async (c) => {
@@ -64,16 +71,22 @@ export function createSettingsRoute(deps: SettingsRouteDeps) {
 			const env = deps.runtimeEnv ?? readAppEnv();
 			return c.json(await repo.getRuntimeSettings(env));
 		})
-		.put("/runtime", zValidator("json", RuntimeSettingsSchema), async (c) => {
-			const updated = await repo.updateRuntimeSettings(c.req.valid("json"));
-			if (deps.runtimeEnv) {
-				Object.assign(
-					deps.runtimeEnv,
-					applyRuntimeSettings(deps.runtimeEnv, updated),
-				);
-			}
-			return c.json(updated);
-		})
+		.put(
+			"/runtime",
+			zValidator("json", RuntimeSettingsUpdateSchema),
+			async (c) => c.json(await updateRuntimeSettings(c.req.valid("json"))),
+		)
+		.post(
+			"/runtime/dast-auth-key/generate",
+			zValidator("json", RuntimeSettingsUpdateSchema),
+			async (c) =>
+				c.json(
+					await updateRuntimeSettings({
+						...c.req.valid("json"),
+						dastAuthEncryptionKey: randomBytes(32).toString("base64"),
+					}),
+				),
+		)
 		.get("/llm", async (c) => {
 			if (!llmRepo) {
 				return c.json({

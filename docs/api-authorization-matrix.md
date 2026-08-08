@@ -12,9 +12,9 @@ checks always apply in addition to the authentication level shown here.
 | `/api/settings/system-context` | Authenticated | Authenticated | Per-user settings. |
 | `/api/settings/llm/**` | Admin | Admin | Global provider settings, Codex status, and health checks. |
 | `/api/sources/**` | Authenticated | Admin | Source health/tree/search/history are shared reads; folder/page/reindex writes are global administration. |
-| `/api/projects` | Authenticated | Authenticated | Registration requires the requested path to be inside `PROJECT_ALLOWED_ROOTS`. |
+| `/api/projects` | Authenticated | Authenticated | Registration requires an existing, readable directory; its canonical path is stored. |
 | `/api/projects/folder-picker` | Admin | Admin | Host filesystem discovery is never exposed to members. |
-| `/api/projects/:projectId/**` | Project member | Project member | Project ownership lookup; the canonical path is revalidated before execution. |
+| `/api/projects/:projectId/**` | Project member | Project member | Project ownership lookup; path availability is revalidated before execution. |
 | `/api/scans/**`, `/api/findings/**`, `/api/scan-reports/**` | Project member | Project member | Access follows the owning project through scan/finding/report relations. |
 | `/api/reproduction-runs/**`, `/api/dynamic-runs/**`, `/api/dast-runs/**` | Project member | Project member | Bounded profiles only; project path is revalidated immediately before execution. |
 | `/api/projects/:projectId/assessments/**`, `/api/projects/:projectId/active-assessment-runs/**` | Project owner | Project owner | Same-project engagement, target, encrypted auth contexts, cumulative RoE budget, and canonical origin/path/method scope are enforced before execution. |

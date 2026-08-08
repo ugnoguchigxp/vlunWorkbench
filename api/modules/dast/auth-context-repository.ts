@@ -2,9 +2,9 @@ import { randomUUID } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import {
 	type CreateDastAuthContextInput,
-	dastAuthSuccessAssertionSchema,
 	type DastAuthSecretPayload,
 	dastAuthSecretPayloadSchema,
+	dastAuthSuccessAssertionSchema,
 	dastLoginActionSchema,
 } from "../../../shared/schemas/dast-auth.schema";
 import type { AppDatabase } from "../../db";
@@ -23,8 +23,14 @@ import { assertAuthSecretTargetsOrigin } from "./auth-target-policy";
 export class DastAuthContextRepository {
 	constructor(
 		private readonly db: AppDatabase,
-		private readonly crypto: DastAuthContextCrypto,
+		private readonly crypto:
+			| DastAuthContextCrypto
+			| (() => DastAuthContextCrypto),
 	) {}
+
+	private currentCrypto(): DastAuthContextCrypto {
+		return typeof this.crypto === "function" ? this.crypto() : this.crypto;
+	}
 
 	async create(
 		input: Omit<CreateDastAuthContextInput, "successAssertions"> & {
@@ -33,6 +39,7 @@ export class DastAuthContextRepository {
 			createdByUserId: string;
 		},
 	) {
+		const crypto = this.currentCrypto();
 		await this.assertSecretTarget(
 			input.projectId,
 			input.targetConfigId,
@@ -56,7 +63,7 @@ export class DastAuthContextRepository {
 			identityRole: input.identityRole,
 			authKind: input.secret.kind,
 		});
-		const encrypted = this.crypto.encrypt(input.secret, identity);
+		const encrypted = crypto.encrypt(input.secret, identity);
 		const now = new Date();
 		const [created] = await this.db
 			.insert(dastAuthContexts)
@@ -105,6 +112,7 @@ export class DastAuthContextRepository {
 		expiresAt: string;
 		actorUserId: string;
 	}) {
+		const crypto = this.currentCrypto();
 		const current = await this.findOwned(params.id, params.projectId);
 		if (!current) return null;
 		if (current.status === "revoked") {
@@ -121,7 +129,7 @@ export class DastAuthContextRepository {
 		if (Date.parse(params.expiresAt) <= Date.now()) {
 			throw new Error("DAST auth context expiry must be in the future.");
 		}
-		const encrypted = this.crypto.encrypt(params.secret, identityFor(current));
+		const encrypted = crypto.encrypt(params.secret, identityFor(current));
 		const now = new Date();
 		const [updated] = await this.db
 			.update(dastAuthContexts)
@@ -163,6 +171,7 @@ export class DastAuthContextRepository {
 		identityRole: string;
 		actorUserId?: string;
 	}) {
+		const crypto = this.currentCrypto();
 		const row = await this.findOwned(params.id, params.projectId);
 		if (!row) throw new Error("DAST auth context not found.");
 		if (
@@ -177,7 +186,7 @@ export class DastAuthContextRepository {
 			throw new Error("DAST auth context is expired.");
 		}
 		const payload = dastAuthSecretPayloadSchema.parse(
-			this.crypto.decrypt(
+			crypto.decrypt(
 				{
 					ciphertext: row.secretCiphertext,
 					nonce: row.secretNonce,

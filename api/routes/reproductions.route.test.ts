@@ -1,3 +1,4 @@
+import path from "node:path";
 import { Hono } from "hono";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { HttpError } from "../modules/auth/errors";
@@ -32,7 +33,11 @@ describe("Reproductions Route", () => {
 	const mockProjectRepo = {
 		findById: vi.fn().mockImplementation(async (id: string) => {
 			if (id === "p-1") {
-				return { id: "p-1", ownerUserId: "user-123", repoPath: "/repo" };
+				return {
+					id: "p-1",
+					ownerUserId: "user-123",
+					repoPath: process.cwd(),
+				};
 			}
 			return null;
 		}),
@@ -155,6 +160,26 @@ describe("Reproductions Route", () => {
 		expect(capturedArgs).toContain("--finding-id");
 		expect(capturedArgs).toContain("f-1");
 		expect(capturedArgs).not.toContain("--command");
+	});
+
+	it("rejects an unavailable project path before validating a reproduction", async () => {
+		mockProjectRepo.findById.mockResolvedValueOnce({
+			id: "p-1",
+			ownerUserId: "user-123",
+			repoPath: path.join(
+				process.cwd(),
+				".tmp",
+				"missing-reproduction-route-project",
+			),
+		});
+		const res = await app.request("/findings/f-1/reproductions", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({}),
+		});
+
+		expect(res.status).toBe(400);
+		expect((await res.json()).message).toContain("does not exist");
 	});
 
 	it("POST /findings/:findingId/reproductions returns persisted failed run body as 200", async () => {

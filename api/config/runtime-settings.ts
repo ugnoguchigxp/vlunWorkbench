@@ -35,7 +35,7 @@ const dockerMemorySchema = z
 		}
 	});
 
-export const RuntimeSettingsSchema = z.object({
+export const RuntimeSettingsBaseSchema = z.object({
 	scanExecutionMode: z.enum(["host", "docker"]),
 	allowHostScannerExecution: z.boolean(),
 	scanDockerImage: z.string().trim().min(1).max(512),
@@ -55,9 +55,38 @@ export const RuntimeSettingsSchema = z.object({
 	codexSdkTimeoutMs: z.number().int().min(1_000).max(3_600_000),
 });
 
+const dastAuthEncryptionKeySchema = z
+	.string()
+	.trim()
+	.refine(
+		(value) => Buffer.from(value, "base64").length === 32,
+		"DAST auth encryption key must be a base64-encoded 32-byte key.",
+	);
+
+const optionalDastAuthEncryptionKeySchema = z.preprocess((value) => {
+	if (typeof value !== "string") return value;
+	const trimmed = value.trim();
+	return trimmed.length > 0 ? trimmed : undefined;
+}, dastAuthEncryptionKeySchema.optional());
+
+export const RuntimeSettingsSchema = RuntimeSettingsBaseSchema.extend({
+	dastAuthEncryptionKey: dastAuthEncryptionKeySchema.optional(),
+	dastAuthPreviousEncryptionKeys: z
+		.array(dastAuthEncryptionKeySchema)
+		.default([]),
+});
+
+export const RuntimeSettingsUpdateSchema = RuntimeSettingsBaseSchema.extend({
+	dastAuthEncryptionKey: optionalDastAuthEncryptionKeySchema,
+});
+
+export type RuntimeSettingsBase = z.infer<typeof RuntimeSettingsBaseSchema>;
 export type RuntimeSettings = z.infer<typeof RuntimeSettingsSchema>;
 
-export type RuntimeSettingsResponse = RuntimeSettings & {
+export type RuntimeSettingsResponse = RuntimeSettingsBase & {
+	dastAuthEncryptionKey: "";
+	dastAuthEncryptionKeyConfigured: boolean;
+	dastAuthEncryptionKeySource: "environment" | "settings" | "none";
 	updatedAt: string | null;
 };
 
@@ -81,6 +110,8 @@ export function runtimeSettingsFromAppEnv(env: AppEnv): RuntimeSettings {
 			env.scannerStderrLimitBytes ??
 			RUNTIME_SETTINGS_DEFAULTS.scannerStderrLimitBytes,
 		codexSdkTimeoutMs: env.codexSdkTimeoutMs,
+		dastAuthEncryptionKey: env.dastAuthEncryptionKey,
+		dastAuthPreviousEncryptionKeys: env.dastAuthPreviousEncryptionKeys ?? [],
 	});
 }
 
@@ -99,5 +130,7 @@ export function applyRuntimeSettings(
 		scannerStdoutLimitBytes: settings.scannerStdoutLimitBytes,
 		scannerStderrLimitBytes: settings.scannerStderrLimitBytes,
 		codexSdkTimeoutMs: settings.codexSdkTimeoutMs,
+		dastAuthEncryptionKey: settings.dastAuthEncryptionKey,
+		dastAuthPreviousEncryptionKeys: settings.dastAuthPreviousEncryptionKeys,
 	};
 }

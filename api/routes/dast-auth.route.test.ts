@@ -181,4 +181,72 @@ describe("DAST auth route", () => {
 			expect(response.status).toBe(400);
 		}
 	});
+
+	it("lists without a key and follows a key configured at runtime", async () => {
+		const env = {
+			dastAuthEncryptionKey: undefined,
+			dastAuthPreviousEncryptionKeys: [],
+		} as unknown as AppEnv;
+		const runtimeApp = new Hono();
+		runtimeApp.use("*", async (c, next) => {
+			c.set("authUser", {
+				userId: ownerUserId,
+				email: "dast-auth@example.com",
+				role: "member",
+			});
+			await next();
+		});
+		runtimeApp.onError((error, c) =>
+			error instanceof HttpError
+				? c.json({ message: error.message }, error.status as never)
+				: c.json({ message: (error as Error).message }, 500),
+		);
+		runtimeApp.route(
+			"/api",
+			createDastAuthRoute({
+				db: connection.db,
+				env,
+				projectRepository,
+			}),
+		);
+		const project = await projectRepository.createProject({
+			ownerUserId,
+			name: "Runtime DAST auth fixture",
+			repoPath: "/tmp/runtime-dast-auth-fixture",
+		});
+		const target = await dastRepository.createTargetConfig({
+			projectId: project.id,
+			name: "local",
+			origin: "http://127.0.0.1:3000",
+		});
+		const url = `/api/projects/${project.id}/dast-auth-contexts`;
+
+		expect((await runtimeApp.request(url)).status).toBe(200);
+		const body = JSON.stringify({
+			targetConfigId: target.id,
+			identityRole: "user-a",
+			label: "User A",
+			secret: { kind: "bearer_token", token: "runtime-secret" },
+			loginFlow: [],
+			expiresAt: "2099-01-01T00:00:00.000Z",
+		});
+		const unavailable = await runtimeApp.request(url, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body,
+		});
+		expect(unavailable.status).toBe(409);
+		expect(await unavailable.text()).toContain("Settings");
+
+		env.dastAuthEncryptionKey = Buffer.alloc(32, 11).toString("base64");
+		expect(
+			(
+				await runtimeApp.request(url, {
+					method: "POST",
+					headers: { "content-type": "application/json" },
+					body,
+				})
+			).status,
+		).toBe(201);
+	});
 });

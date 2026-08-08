@@ -235,9 +235,17 @@ describe("Profile Runner Orchestration", () => {
 		);
 	});
 
-	it("revalidates a Web project path before executing a profile", async () => {
-		const allowedRoot = path.join(tempDir, "allowed");
-		await fs.mkdir(allowedRoot);
+	it("allows a Web project path outside the process working directory", async () => {
+		vi.spyOn(profileRunnerModule, "runToolIntoExistingScan").mockImplementation(
+			async () => ({
+				toolRunId: "tool-run-web-path",
+				findingCount: 0,
+				exitCode: 0,
+				elapsedMs: 10,
+				artifactIds: [],
+				diffUnmappedFindingCount: 0,
+			}),
+		);
 
 		await expect(
 			runProfileScan({
@@ -246,9 +254,8 @@ describe("Profile Runner Orchestration", () => {
 				profileId: "baseline",
 				repoPath,
 				executionSurface: "web",
-				projectAllowedRoots: [allowedRoot],
 			}),
-		).rejects.toMatchObject({ code: "PROJECT_PATH_NOT_ALLOWED" });
+		).resolves.toMatchObject({ status: "completed" });
 	});
 
 	it("should generate a final report when requested", async () => {

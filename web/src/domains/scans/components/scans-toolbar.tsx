@@ -94,7 +94,7 @@ export function ScansToolbar() {
 							{c.selectedProject &&
 							c.selectedProject.pathPolicy?.status !== "allowed" ? (
 								<small role="alert">
-									保存済みパスが存在しないか、PROJECT_ALLOWED_ROOTSの範囲外です。
+									保存済みパスが存在しないか、読み取りできません。
 								</small>
 							) : null}
 						</label>

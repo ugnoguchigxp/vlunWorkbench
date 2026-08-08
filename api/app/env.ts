@@ -125,7 +125,6 @@ const EnvSchema = z.object({
 	VULN_WORKBENCH_DOCKER_PIDS_LIMIT: optionalPositiveInteger,
 	VULN_WORKBENCH_SCANNER_STDOUT_LIMIT_BYTES: optionalPositiveInteger,
 	VULN_WORKBENCH_SCANNER_STDERR_LIMIT_BYTES: optionalPositiveInteger,
-	PROJECT_ALLOWED_ROOTS: optionalTrimmedString,
 	STATIC_INTELLIGENCE_ALLOWED_PROJECT_ROOTS: optionalTrimmedString,
 	STATIC_INTELLIGENCE_PROJECT_CREATION_POLICY: z
 		.enum(["registered_only", "create_within_allowed_roots"])
@@ -202,7 +201,6 @@ export type AppEnv = {
 	dockerPidsLimit?: number;
 	scannerStdoutLimitBytes?: number;
 	scannerStderrLimitBytes?: number;
-	projectAllowedRoots?: string[];
 	staticIntelligenceAllowedProjectRoots?: string[];
 	staticIntelligenceProjectCreationPolicy?:
 		| "registered_only"
@@ -295,16 +293,6 @@ export function readAppEnv(env: NodeJS.ProcessEnv = process.env): AppEnv {
 	const databaseUrl = normalizeSqliteDatabaseUrl(
 		parsed.DATABASE_URL ?? APP_CONFIG_DEFAULTS.databaseUrl,
 	);
-	const configuredProjectAllowedRoots = parseAllowedProjectRoots(
-		parsed.PROJECT_ALLOWED_ROOTS,
-	);
-	const projectAllowedRoots =
-		configuredProjectAllowedRoots.length > 0
-			? configuredProjectAllowedRoots
-			: parsed.NODE_ENV === "production"
-				? []
-				: [path.resolve(process.cwd())];
-
 	return {
 		nodeEnv: parsed.NODE_ENV,
 		host: parsed.HOST ?? APP_CONFIG_DEFAULTS.host,
@@ -395,7 +383,6 @@ export function readAppEnv(env: NodeJS.ProcessEnv = process.env): AppEnv {
 		scannerStderrLimitBytes:
 			parsed.VULN_WORKBENCH_SCANNER_STDERR_LIMIT_BYTES ??
 			RUNTIME_SETTINGS_DEFAULTS.scannerStderrLimitBytes,
-		projectAllowedRoots,
 		staticIntelligenceAllowedProjectRoots: parseAllowedProjectRoots(
 			parsed.STATIC_INTELLIGENCE_ALLOWED_PROJECT_ROOTS,
 		),
@@ -409,7 +396,7 @@ export function readAppEnv(env: NodeJS.ProcessEnv = process.env): AppEnv {
 			...new Set(
 				(
 					parsed.NIGHTWORKERS_INTEGRATION_ALLOWED_PROFILES ??
-					"source-baseline,diff-source-baseline,diff-basic-security,basic-security,detailed-security"
+					"source-baseline,diff-source-baseline,diff-basic-security,basic-security,detailed-security,dependency-manifest,artifact"
 				)
 					.split(",")
 					.map((profile) => profile.trim())

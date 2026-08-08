@@ -79,10 +79,7 @@ describe("Projects diff scan routes", () => {
 				projectRepository: projectRepository as never,
 				scanRepository: scanRepository as never,
 				scanSupervisor: scanSupervisor as never,
-				env: readAppEnv({
-					NODE_ENV: "test",
-					PROJECT_ALLOWED_ROOTS: tempRoot,
-				}),
+				env: readAppEnv({ NODE_ENV: "test" }),
 			}),
 		);
 	});

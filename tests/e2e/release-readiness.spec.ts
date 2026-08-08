@@ -1,6 +1,6 @@
+import path from "node:path";
 import AxeBuilder from "@axe-core/playwright";
 import { expect, type Page, test } from "@playwright/test";
-import path from "node:path";
 
 const adminCredentials = {
 	email: "admin-e2e@example.com",
@@ -54,7 +54,7 @@ test("login is keyboard usable, accessible, and served with enforcing CSP", asyn
 	await expect(page.getByText("E2E Admin (admin)")).toBeVisible();
 });
 
-test("project path and member/admin boundaries hold through a browser session", async ({
+test("project path validation and member/admin boundaries hold through a browser session", async ({
 	page,
 }) => {
 	await login(page, adminCredentials);
@@ -72,9 +72,13 @@ test("project path and member/admin boundaries hold through a browser session", 
 	await login(page, memberCredentials);
 
 	const rejectedProject = await page.request.post("/api/projects", {
-		data: { repoPath: "/", defaultBranch: "main", metadata: {} },
+		data: {
+			repoPath: path.resolve(".tmp/e2e/missing-project"),
+			defaultBranch: "main",
+			metadata: {},
+		},
 	});
-	expect(rejectedProject.status()).toBe(403);
+	expect(rejectedProject.status()).toBe(400);
 	expect((await page.request.post("/api/projects/folder-picker")).status()).toBe(
 		403,
 	);
@@ -238,7 +242,7 @@ test("real DB flow registers a project, scans, shows a finding, and automaticall
 	await page.goto("/scans");
 
 	const fixtureProjectPath = path.resolve(
-		".tmp/e2e/projects/allowed-project",
+		".tmp/e2e/projects/fixture-project",
 	);
 	await page.getByRole("button", { name: "新規プロジェクト" }).click();
 	await page

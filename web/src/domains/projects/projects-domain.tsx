@@ -33,6 +33,7 @@ import {
 	ProjectRegistrationPanel,
 	ProjectsList,
 } from "./project-overview-panels";
+
 type ProjectsDomainSectionProps = {
 	active: boolean;
 	busy: boolean;
@@ -44,6 +45,11 @@ type ProjectRouteState = {
 	projectId: string | null;
 	tab: "list" | "overview" | "intelligence";
 	scanRunId: string | null;
+};
+
+type DetailRequestState = {
+	key: string | null;
+	status: "idle" | "loading" | "loaded" | "failed";
 };
 
 const _severityOrder = {
@@ -62,6 +68,9 @@ export function ProjectsDomainSection({
 }: ProjectsDomainSectionProps) {
 	const navigate = useNavigate();
 	const routeState = useProjectRouteState();
+	const detailRouteKey = routeState.projectId
+		? `${routeState.projectId}:${routeState.scanRunId ?? ""}:${routeState.tab}`
+		: null;
 	const [projects, setProjects] = useState<ProjectIntelligenceProject[]>([]);
 	const [summaryByProjectId, setSummaryByProjectId] = useState<
 		Record<string, ProjectIntelligenceSummary | null>
@@ -74,6 +83,10 @@ export function ProjectsDomainSection({
 		useState<StaticIntelligenceOntologyHandoff | null>(null);
 	const [scanRuns, setScanRuns] = useState<ScanRun[]>([]);
 	const [loading, setLoading] = useState(false);
+	const [detailRequest, setDetailRequest] = useState<DetailRequestState>({
+		key: null,
+		status: "idle",
+	});
 	const [refreshing, setRefreshing] = useState(false);
 	const listRequestId = useRef(0);
 	const detailRequestId = useRef(0);
@@ -111,15 +124,28 @@ export function ProjectsDomainSection({
 		() =>
 			routeState.projectId
 				? (visibleView?.project ??
+					(selectedView?.project.id === routeState.projectId
+						? selectedView.project
+						: null) ??
 					projects.find((item) => item.id === routeState.projectId) ??
 					null)
 				: null,
-		[projects, routeState.projectId, visibleView?.project],
+		[projects, routeState.projectId, selectedView, visibleView?.project],
 	);
 
 	const selectedScanRunId =
 		routeState.scanRunId ?? visibleView?.selection.selectedScanRunId ?? null;
 	const selectedExport = visibleView?.export ?? null;
+	const detailLoading = Boolean(
+		detailRouteKey &&
+			(detailRequest.key !== detailRouteKey ||
+				detailRequest.status === "loading"),
+	);
+	const detailLoadFailed = Boolean(
+		detailRouteKey &&
+			detailRequest.key === detailRouteKey &&
+			detailRequest.status === "failed",
+	);
 
 	const loadProjects = useCallback(async () => {
 		const requestId = ++listRequestId.current;
@@ -144,60 +170,75 @@ export function ProjectsDomainSection({
 		}
 	}, [setErrorText]);
 
-	const loadSelectedProject = useCallback(async () => {
-		if (!routeState.projectId) {
-			setSelectedView(null);
-			setScanRuns([]);
-			return;
-		}
-		const requestId = ++detailRequestId.current;
-		setLoading(true);
-		try {
-			const [view, scans] = await Promise.all([
-				fetchProjectIntelligenceView(
-					routeState.projectId,
-					routeState.scanRunId,
-				),
-				fetchScans(routeState.projectId),
-			]);
-			const scanRunId = view.selection.selectedScanRunId;
-			let nextStructure: ProjectStructureListResponse | null = null;
-			let nextHandoff: StaticIntelligenceOntologyHandoff | null = null;
-			if (routeState.tab === "intelligence" && scanRunId && view.generation) {
-				const [structureResult, handoffResult] = await Promise.all([
-					fetchProjectStructure(routeState.projectId, scanRunId, {
-						generationId: view.generation.generationId,
-					}),
-					fetchProjectOntologyHandoff(
-						routeState.projectId,
-						scanRunId,
-						view.generation.generationId,
-					),
-				]);
-				nextStructure = structureResult;
-				nextHandoff = handoffResult;
+	const loadSelectedProject = useCallback(
+		async (preserveView = false) => {
+			if (!routeState.projectId) {
+				setSelectedView(null);
+				setScanRuns([]);
+				setDetailRequest({ key: null, status: "idle" });
+				return;
 			}
-			if (requestId !== detailRequestId.current) return;
-			setSelectedView(view);
-			setScanRuns(scans);
-			setStructure(nextStructure);
-			setOntologyHandoff(nextHandoff);
-		} catch (error) {
-			if (requestId === detailRequestId.current)
-				setErrorText(
-					error instanceof Error
-						? error.message
-						: "Failed to load Project Intelligence.",
-				);
-		} finally {
-			if (requestId === detailRequestId.current) setLoading(false);
-		}
-	}, [
-		routeState.projectId,
-		routeState.scanRunId,
-		routeState.tab,
-		setErrorText,
-	]);
+			const requestId = ++detailRequestId.current;
+			if (!preserveView) {
+				setLoading(true);
+				setDetailRequest({ key: detailRouteKey, status: "loading" });
+			}
+			try {
+				const [view, scans] = await Promise.all([
+					fetchProjectIntelligenceView(
+						routeState.projectId,
+						routeState.scanRunId,
+					),
+					fetchScans(routeState.projectId),
+				]);
+				const scanRunId = view.selection.selectedScanRunId;
+				let nextStructure: ProjectStructureListResponse | null = null;
+				let nextHandoff: StaticIntelligenceOntologyHandoff | null = null;
+				if (routeState.tab === "intelligence" && scanRunId && view.generation) {
+					const [structureResult, handoffResult] = await Promise.all([
+						fetchProjectStructure(routeState.projectId, scanRunId, {
+							generationId: view.generation.generationId,
+						}),
+						fetchProjectOntologyHandoff(
+							routeState.projectId,
+							scanRunId,
+							view.generation.generationId,
+						),
+					]);
+					nextStructure = structureResult;
+					nextHandoff = handoffResult;
+				}
+				if (requestId !== detailRequestId.current) return;
+				setSelectedView(view);
+				setScanRuns(scans);
+				setStructure(nextStructure);
+				setOntologyHandoff(nextHandoff);
+				setDetailRequest({ key: detailRouteKey, status: "loaded" });
+			} catch (error) {
+				if (requestId === detailRequestId.current) {
+					if (!preserveView) {
+						setDetailRequest({ key: detailRouteKey, status: "failed" });
+					}
+					setErrorText(
+						error instanceof Error
+							? error.message
+							: "Failed to load Project Intelligence.",
+					);
+				}
+			} finally {
+				if (requestId === detailRequestId.current && !preserveView) {
+					setLoading(false);
+				}
+			}
+		},
+		[
+			detailRouteKey,
+			routeState.projectId,
+			routeState.scanRunId,
+			routeState.tab,
+			setErrorText,
+		],
+	);
 
 	useEffect(() => {
 		if (!active || routeState.projectId) return;
@@ -235,7 +276,7 @@ export function ProjectsDomainSection({
 				currentRoute.projectId === refreshTarget.projectId &&
 				currentRoute.scanRunId === refreshTarget.routeScanRunId
 			) {
-				await loadSelectedProject();
+				await loadSelectedProject(true);
 			}
 		} catch (error) {
 			setErrorText(
@@ -305,40 +346,38 @@ export function ProjectsDomainSection({
 
 	return (
 		<main className="projects-layout">
-			<div className="projects-head">
-				<div>
-					<h1>{routeState.projectId ? "Project Intelligence" : "Projects"}</h1>
-					<p>
-						登録済みプロジェクトの分析結果、Static Intelligence source、
-						Scans履歴を確認します。
-					</p>
+			{!routeState.projectId ? (
+				<div className="projects-head">
+					<div>
+						<h1>Projects</h1>
+						<p>
+							登録済みプロジェクトの分析結果、Static Intelligence source、
+							Scans履歴を確認します。
+						</p>
+					</div>
+					<div className="projects-head-actions">
+						<Button
+							type="button"
+							variant="secondary"
+							onClick={() => void loadProjects()}
+							disabled={loading}
+						>
+							<RefreshCw className="icon" />
+							最新状態を再読込
+						</Button>
+						<Button
+							type="button"
+							variant="primary"
+							onClick={() => setRegisterOpen((value) => !value)}
+						>
+							<Plus className="icon" />
+							Register
+						</Button>
+					</div>
 				</div>
-				<div className="projects-head-actions">
-					<Button
-						type="button"
-						variant="secondary"
-						onClick={() =>
-							void (routeState.projectId
-								? loadSelectedProject()
-								: loadProjects())
-						}
-						disabled={loading}
-					>
-						<RefreshCw className="icon" />
-						Refresh
-					</Button>
-					<Button
-						type="button"
-						variant="primary"
-						onClick={() => setRegisterOpen((value) => !value)}
-					>
-						<Plus className="icon" />
-						Register
-					</Button>
-				</div>
-			</div>
+			) : null}
 
-			{registerOpen ? (
+			{!routeState.projectId && registerOpen ? (
 				<ProjectRegistrationPanel
 					projectPath={projectPath}
 					defaultBranch={defaultBranch}
@@ -355,6 +394,8 @@ export function ProjectsDomainSection({
 					project={selectedProject}
 					view={visibleView}
 					scanRuns={scanRuns}
+					loading={detailLoading}
+					loadFailed={detailLoadFailed}
 					activeTab={routeState.tab}
 					selectedScanRunId={selectedScanRunId}
 					selectedExport={selectedExport}

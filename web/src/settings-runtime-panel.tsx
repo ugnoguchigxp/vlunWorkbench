@@ -1,7 +1,7 @@
-import { Save, SlidersHorizontal } from "lucide-react";
-import { Button, SelectInput, TextInput } from "./ui";
-import { formatDateTime } from "./settings-panel-model";
+import { KeyRound, RefreshCw, Save, SlidersHorizontal } from "lucide-react";
 import type { SettingsPanelModel } from "./settings-panel";
+import { formatDateTime } from "./settings-panel-model";
+import { Button, SelectInput, TextInput } from "./ui";
 
 const toNumber = (value: string, fallback: number): number => {
 	const parsed = Number(value);
@@ -13,8 +13,10 @@ export function RuntimeSettingsPanel({ model }: { model: SettingsPanelModel }) {
 		isAdmin,
 		runtimeSettings,
 		runtimeSaving,
+		runtimeGeneratingDastAuthKey,
 		updateRuntimeSetting,
 		handleSaveRuntimeSettings,
+		handleGenerateDastAuthKey,
 	} = model;
 	if (!isAdmin) return null;
 
@@ -139,6 +141,49 @@ export function RuntimeSettingsPanel({ model }: { model: SettingsPanelModel }) {
 								updateRuntimeSetting({ codexSdkTimeoutMs })
 							}
 						/>
+						<div className="settings-form-field settings-field-wide">
+							<label htmlFor="runtime-dast-auth-key">
+								DAST auth encryption key
+							</label>
+							<TextInput
+								id="runtime-dast-auth-key"
+								type="password"
+								value={runtimeSettings.dastAuthEncryptionKey}
+								onChange={(event) =>
+									updateRuntimeSetting({
+										dastAuthEncryptionKey: event.target.value,
+									})
+								}
+								placeholder={
+									runtimeSettings.dastAuthEncryptionKeyConfigured
+										? "Configured — enter a new key only to rotate"
+										: "Base64-encoded 32-byte key"
+								}
+								autoComplete="new-password"
+							/>
+							<div className="actions">
+								<KeyRound className="icon" />
+								<small>
+									{dastAuthKeyStatus(
+										runtimeSettings.dastAuthEncryptionKeyConfigured,
+										runtimeSettings.dastAuthEncryptionKeySource,
+									)}
+								</small>
+								<Button
+									type="button"
+									variant="secondary"
+									onClick={() => void handleGenerateDastAuthKey()}
+									disabled={runtimeSaving || runtimeGeneratingDastAuthKey}
+								>
+									<RefreshCw className="icon" />
+									<span>
+										{runtimeSettings.dastAuthEncryptionKeyConfigured
+											? "Generate and rotate"
+											: "Generate and save"}
+									</span>
+								</Button>
+							</div>
+						</div>
 					</div>
 					<div className="actions">
 						<SlidersHorizontal className="icon" />
@@ -150,6 +195,16 @@ export function RuntimeSettingsPanel({ model }: { model: SettingsPanelModel }) {
 			)}
 		</section>
 	);
+}
+
+function dastAuthKeyStatus(
+	configured: boolean,
+	source: "environment" | "settings" | "none",
+): string {
+	if (!configured) return "Not configured";
+	return source === "environment"
+		? "Configured by DAST_AUTH_ENCRYPTION_KEY"
+		: "Configured in encrypted runtime settings";
 }
 
 function NumberSetting({

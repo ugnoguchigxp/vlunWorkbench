@@ -12,6 +12,7 @@ import {
 	type ProfileScanResult,
 	runProfileScan,
 } from "../modules/scans/profile-runner";
+import { getProfileById } from "../modules/scans/profiles";
 import {
 	ProjectResolutionError,
 	resolveProjectByPath,
@@ -26,8 +27,11 @@ import { ScanReviewRepository } from "../modules/scans/scan-review-repository";
 import { ScanReviewRunner } from "../modules/scans/scan-review-runner";
 import { SettingsRepository } from "../modules/settings/settings.repository";
 import { LlmRouter } from "../providers/llmRouter";
+import { parseScanTargetOption } from "./scan-profile-options";
 
-const ORACLE_PROFILE = "agent-output";
+const DEFAULT_ORACLE_PROFILE = "agent-output";
+const DEFAULT_FINDING_LIMIT = 10;
+const MAX_FINDING_LIMIT = 1_000;
 
 type OracleStatus =
 	| "completed"
@@ -82,6 +86,13 @@ async function main(): Promise<number> {
 			args: process.argv.slice(2),
 			options: {
 				"project-path": { type: "string" },
+				profile: { type: "string", default: DEFAULT_ORACLE_PROFILE },
+				target: { type: "string", default: "full" },
+				"expected-target-digest": { type: "string" },
+				"finding-limit": {
+					type: "string",
+					default: String(DEFAULT_FINDING_LIMIT),
+				},
 			},
 			strict: true,
 		});
@@ -104,6 +115,72 @@ async function main(): Promise<number> {
 			status: "config_error",
 			code: "PROJECT_PATH_REQUIRED",
 			message: "Missing required argument: --project-path is required.",
+			nextAction: "inspect_diagnostic_failure",
+		});
+		writeResult(result);
+		return exitCodeFor(result);
+	}
+	const profileId = argsValues.profile as string;
+	const profile = getProfileById(profileId);
+	if (!profile) {
+		const result = failureResult({
+			status: "config_error",
+			code: "PROFILE_NOT_FOUND",
+			message: `Invalid profile: ${profileId}`,
+			nextAction: "inspect_diagnostic_failure",
+		});
+		writeResult(result);
+		return exitCodeFor(result);
+	}
+	let scanTarget: ReturnType<typeof parseScanTargetOption>;
+	try {
+		scanTarget = parseScanTargetOption(argsValues);
+	} catch (error) {
+		const result = failureResult({
+			status: "config_error",
+			code: "TARGET_INVALID",
+			message: error instanceof Error ? error.message : String(error),
+			nextAction: "inspect_diagnostic_failure",
+		});
+		writeResult(result);
+		return exitCodeFor(result);
+	}
+	if (!(profile.supportedTargets ?? ["full"]).includes(scanTarget.kind)) {
+		const result = failureResult({
+			status: "config_error",
+			code: "TARGET_NOT_SUPPORTED",
+			message: `Profile ${profileId} does not support target ${scanTarget.kind}.`,
+			nextAction: "inspect_diagnostic_failure",
+		});
+		writeResult(result);
+		return exitCodeFor(result);
+	}
+	const expectedTargetDigest = argsValues["expected-target-digest"] as
+		| string
+		| undefined;
+	if (expectedTargetDigest && !/^[0-9a-f]{64}$/i.test(expectedTargetDigest)) {
+		const result = failureResult({
+			status: "config_error",
+			code: "TARGET_DIGEST_INVALID",
+			message: "--expected-target-digest must be a 64-character SHA-256.",
+			nextAction: "inspect_diagnostic_failure",
+		});
+		writeResult(result);
+		return exitCodeFor(result);
+	}
+	const findingLimitInput = argsValues["finding-limit"] as string;
+	const findingLimit = /^\d+$/.test(findingLimitInput)
+		? Number.parseInt(findingLimitInput, 10)
+		: Number.NaN;
+	if (
+		!Number.isSafeInteger(findingLimit) ||
+		findingLimit < 1 ||
+		findingLimit > MAX_FINDING_LIMIT
+	) {
+		const result = failureResult({
+			status: "config_error",
+			code: "FINDING_LIMIT_INVALID",
+			message: `--finding-limit must be an integer from 1 to ${MAX_FINDING_LIMIT}.`,
 			nextAction: "inspect_diagnostic_failure",
 		});
 		writeResult(result);
@@ -139,8 +216,10 @@ async function main(): Promise<number> {
 		const scanResult = await runProfileScan({
 			db: dbConnection.db,
 			projectId: resolvedProject.project.id,
-			profileId: ORACLE_PROFILE,
+			profileId,
 			repoPath: resolvedProject.repoPath,
+			target: scanTarget,
+			expectedTargetDigest,
 			continueOnToolFailure: true,
 			execution,
 			executionPolicyMetadata: scanExecutionPolicyMetadata(executionPolicy),
@@ -176,12 +255,12 @@ async function main(): Promise<number> {
 		}
 		const scanPayload = {
 			scanRunId: scanResult.scanRunId,
-			profile: ORACLE_PROFILE,
+			profile: profileId,
 			findingCount: findings.length,
 			highOrCriticalCount,
 			severityCounts,
 			coverage: summarizeCoverage(scanResult.stepResults),
-			findingsTruncated: findings.length > 10,
+			findingsTruncated: findings.length > findingLimit,
 			blockingFingerprints: findings
 				.filter((finding) => {
 					const severity = finding.severity.toLowerCase();
@@ -189,7 +268,11 @@ async function main(): Promise<number> {
 				})
 				.map((finding) => finding.fingerprint)
 				.sort((a, b) => a.localeCompare(b)),
-			findings: summarizeFindings(findings, resolvedProject.repoPath),
+			findings: summarizeFindings(
+				findings,
+				resolvedProject.repoPath,
+				findingLimit,
+			),
 		};
 
 		if (!scanResult.ok && findings.length === 0) {
@@ -313,6 +396,7 @@ async function main(): Promise<number> {
 function summarizeFindings(
 	findings: Awaited<ReturnType<FindingRepository["listFindings"]>>,
 	repoRoot: string,
+	limit: number,
 ) {
 	return [...findings]
 		.sort((a, b) => {
@@ -320,7 +404,7 @@ function summarizeFindings(
 			if (severityDiff !== 0) return severityDiff;
 			return a.ruleId.localeCompare(b.ruleId);
 		})
-		.slice(0, 10)
+		.slice(0, limit)
 		.map((finding) => {
 			const location = locationSummary(finding.primaryLocation, repoRoot);
 			return {

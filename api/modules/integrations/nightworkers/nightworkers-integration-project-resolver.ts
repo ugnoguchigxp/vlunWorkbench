@@ -1,7 +1,8 @@
 import path from "node:path";
 import {
-	authorizeProjectPath,
+	authorizeProjectPathWithinRoots,
 	ProjectPathPolicyError,
+	resolveProjectPath,
 } from "../../../security/project-path-policy";
 import type { AuthenticatedIntegrationClient } from "../../integrationClients/integration-client.service";
 import type { ProjectRepository } from "../../scans/repositories";
@@ -19,7 +20,6 @@ export async function resolveNightworkersProject(params: {
 	projectPath: string;
 	client: AuthenticatedIntegrationClient;
 	projectRepository: ProjectRepository;
-	globalAllowedRoots: readonly string[];
 	autoCreateProjects: boolean;
 }): Promise<ResolvedNightworkersProject> {
 	if (!path.isAbsolute(params.projectPath)) {
@@ -30,13 +30,10 @@ export async function resolveNightworkersProject(params: {
 	}
 	let canonicalPath: string;
 	try {
-		const globalAuthorization = await authorizeProjectPath({
-			projectPath: params.projectPath,
-			allowedRoots: params.globalAllowedRoots,
-		});
-		canonicalPath = globalAuthorization.canonicalPath;
+		canonicalPath = (await resolveProjectPath(params.projectPath))
+			.canonicalPath;
 		if (params.client.allowedRoots.length > 0) {
-			await authorizeProjectPath({
+			await authorizeProjectPathWithinRoots({
 				projectPath: canonicalPath,
 				allowedRoots: params.client.allowedRoots,
 			});

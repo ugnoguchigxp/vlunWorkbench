@@ -1,17 +1,18 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-	checkLlmProviderHealth,
 	type CodexStatusResponse,
+	checkLlmProviderHealth,
 	fetchCodexStatus,
 	fetchLlmSettings,
 	fetchRuntimeSettings,
+	generateDastAuthEncryptionKey,
 	type LlmModelTarget,
 	type LlmProviderEndpoint,
 	type LlmProviderHealthResult,
 	type LlmSettingsResponse,
-	type RuntimeSettingsResponse,
 	type LlmTask,
 	type LlmTaskRoute,
+	type RuntimeSettingsResponse,
 	updateLlmSettings,
 	updateRuntimeSettings,
 	updateSystemContext,
@@ -21,8 +22,8 @@ import {
 	ensureCodexEndpoint,
 	ensureRoutes,
 	parseTargetKey,
-	taskLabels,
 	type SettingsPanelProps,
+	taskLabels,
 } from "./settings-panel-model";
 import { SettingsPanelView } from "./settings-panel-view";
 
@@ -44,6 +45,8 @@ export function useSettingsPanelModel({
 	const [runtimeSettings, setRuntimeSettings] =
 		useState<RuntimeSettingsResponse | null>(null);
 	const [runtimeSaving, setRuntimeSaving] = useState(false);
+	const [runtimeGeneratingDastAuthKey, setRuntimeGeneratingDastAuthKey] =
+		useState(false);
 	const [selectedEndpointId, setSelectedEndpointId] = useState<string | null>(
 		null,
 	);
@@ -380,7 +383,12 @@ export function useSettingsPanelModel({
 		setRuntimeSaving(true);
 		setErrorText(null);
 		try {
-			const { updatedAt: _updatedAt, ...input } = runtimeSettings;
+			const {
+				updatedAt: _updatedAt,
+				dastAuthEncryptionKeyConfigured: _configured,
+				dastAuthEncryptionKeySource: _source,
+				...input
+			} = runtimeSettings;
 			setRuntimeSettings(await updateRuntimeSettings(input));
 		} catch (error) {
 			setErrorText(
@@ -390,6 +398,29 @@ export function useSettingsPanelModel({
 			);
 		} finally {
 			setRuntimeSaving(false);
+		}
+	};
+
+	const handleGenerateDastAuthKey = async () => {
+		if (!runtimeSettings) return;
+		setRuntimeGeneratingDastAuthKey(true);
+		setErrorText(null);
+		try {
+			const {
+				updatedAt: _updatedAt,
+				dastAuthEncryptionKeyConfigured: _configured,
+				dastAuthEncryptionKeySource: _source,
+				...input
+			} = runtimeSettings;
+			setRuntimeSettings(await generateDastAuthEncryptionKey(input));
+		} catch (error) {
+			setErrorText(
+				error instanceof Error
+					? error.message
+					: "Failed to generate the DAST auth encryption key.",
+			);
+		} finally {
+			setRuntimeGeneratingDastAuthKey(false);
 		}
 	};
 
@@ -453,8 +484,10 @@ export function useSettingsPanelModel({
 		llmSaveDisabled,
 		runtimeSettings,
 		runtimeSaving,
+		runtimeGeneratingDastAuthKey,
 		updateRuntimeSetting,
 		handleSaveRuntimeSettings,
+		handleGenerateDastAuthKey,
 	};
 }
 

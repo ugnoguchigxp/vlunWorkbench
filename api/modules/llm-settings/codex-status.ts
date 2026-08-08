@@ -12,9 +12,25 @@ export type CodexStatus = {
 	adapterDiagnostics: {
 		packageName: string;
 		runtimeMode: "bun-direct";
+		sdkImportable: boolean;
+		cliBinaryResolved: boolean;
+		processLaunchVerified: false;
+		liveConnectionVerified: false;
 		message: string;
 	};
 };
+
+type CodexSdkModule = {
+	Codex?: new () => unknown;
+};
+
+type CodexSdkProbe = {
+	sdkImportable: boolean;
+	cliBinaryResolved: boolean;
+	message: string;
+};
+
+type CodexSdkLoader = () => Promise<CodexSdkModule>;
 
 type CodexAuthJson = {
 	OPENAI_API_KEY?: string;
@@ -25,12 +41,53 @@ type CodexAuthJson = {
 
 const DEFAULT_CODEX_MODELS = ["gpt-5.5", "gpt-5.4-mini", "gpt-5-mini"];
 
-async function canImportCodexSdk(): Promise<boolean> {
+const defaultCodexSdkLoader: CodexSdkLoader = async () => {
+	const mod = await import("@openai/codex-sdk");
+	return { Codex: mod.Codex };
+};
+
+function errorMessage(error: unknown): string {
+	const message = error instanceof Error ? error.message : String(error);
+	return message.replace(/\s+/g, " ").trim().slice(0, 240) || "Unknown error.";
+}
+
+function normalizedNonEmpty(value: unknown): string | null {
+	if (typeof value !== "string") return null;
+	const normalized = value.trim();
+	return normalized ? normalized : null;
+}
+
+async function probeCodexSdk(loader: CodexSdkLoader): Promise<CodexSdkProbe> {
 	try {
-		const mod = await import("@openai/codex-sdk");
-		return typeof mod.Codex === "function";
-	} catch {
-		return false;
+		const mod = await loader();
+		if (typeof mod.Codex !== "function") {
+			return {
+				sdkImportable: false,
+				cliBinaryResolved: false,
+				message: "Codex SDK does not export a Codex constructor.",
+			};
+		}
+		try {
+			new mod.Codex();
+			return {
+				sdkImportable: true,
+				cliBinaryResolved: true,
+				message:
+					"Codex SDK is importable and its bundled CLI binary was resolved. Process launch and live connectivity are not verified.",
+			};
+		} catch (error) {
+			return {
+				sdkImportable: true,
+				cliBinaryResolved: false,
+				message: `Codex SDK loaded, but its CLI binary is unavailable: ${errorMessage(error)}`,
+			};
+		}
+	} catch (error) {
+		return {
+			sdkImportable: false,
+			cliBinaryResolved: false,
+			message: `Codex SDK package is not importable: ${errorMessage(error)}`,
+		};
 	}
 }
 
@@ -44,9 +101,9 @@ async function readJson<T>(filePath: string): Promise<T | null> {
 
 function readCachedModels(modelCache: unknown): string[] {
 	if (Array.isArray(modelCache)) {
-		return modelCache.filter(
-			(model): model is string => typeof model === "string",
-		);
+		return modelCache
+			.map(normalizedNonEmpty)
+			.filter((model): model is string => model !== null);
 	}
 	if (
 		modelCache &&
@@ -71,6 +128,7 @@ export async function readCodexStatus(
 		codexHome?: string;
 		settingsModels?: string[];
 		codexApiKey?: string;
+		sdkLoader?: CodexSdkLoader;
 	} = {},
 ): Promise<CodexStatus> {
 	const env = options.env ?? process.env;
@@ -79,28 +137,37 @@ export async function readCodexStatus(
 	const authJson = await readJson<CodexAuthJson>(
 		path.join(codexHome, "auth.json"),
 	);
-	const hasEnvToken = Boolean(env.CODEX_API_KEY || env.OPENAI_API_KEY);
-	const hasSettingsToken = Boolean(options.codexApiKey);
+	const hasEnvToken = Boolean(
+		normalizedNonEmpty(env.CODEX_API_KEY) ??
+			normalizedNonEmpty(env.OPENAI_API_KEY),
+	);
+	const hasSettingsToken = Boolean(normalizedNonEmpty(options.codexApiKey));
 	const hasAuthJsonToken = Boolean(
-		authJson?.OPENAI_API_KEY || authJson?.tokens?.access_token,
+		normalizedNonEmpty(authJson?.OPENAI_API_KEY) ??
+			normalizedNonEmpty(authJson?.tokens?.access_token),
 	);
 	const modelCache = await readJson<unknown>(
 		path.join(codexHome, "models_cache.json"),
 	);
 	const cachedModels = readCachedModels(modelCache);
-	const settingsModels = options.settingsModels?.filter(Boolean) ?? [];
+	const settingsModels = (options.settingsModels ?? [])
+		.map(normalizedNonEmpty)
+		.filter((model): model is string => model !== null);
 	const detectedModels = Array.from(
 		new Set([...settingsModels, ...cachedModels, ...DEFAULT_CODEX_MODELS]),
 	);
 
-	const executableAdapterAvailable = await canImportCodexSdk();
+	const sdkProbe = await probeCodexSdk(
+		options.sdkLoader ?? defaultCodexSdkLoader,
+	);
+	const executableAdapterAvailable = sdkProbe.cliBinaryResolved;
 
 	return {
 		authenticated: hasEnvToken || hasSettingsToken || hasAuthJsonToken,
-		authSource: hasEnvToken
-			? "environment"
-			: hasSettingsToken
-				? "settings"
+		authSource: hasSettingsToken
+			? "settings"
+			: hasEnvToken
+				? "environment"
 				: hasAuthJsonToken
 					? "codex-auth-json"
 					: "none",
@@ -118,9 +185,11 @@ export async function readCodexStatus(
 		adapterDiagnostics: {
 			packageName: "@openai/codex-sdk",
 			runtimeMode: "bun-direct",
-			message: executableAdapterAvailable
-				? "Codex SDK package is importable."
-				: "Codex SDK package is not importable.",
+			sdkImportable: sdkProbe.sdkImportable,
+			cliBinaryResolved: sdkProbe.cliBinaryResolved,
+			processLaunchVerified: false,
+			liveConnectionVerified: false,
+			message: sdkProbe.message,
 		},
 	};
 }

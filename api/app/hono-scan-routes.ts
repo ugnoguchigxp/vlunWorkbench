@@ -164,7 +164,6 @@ export function registerScanRoutes(app: Hono, runtime: AppRuntime): void {
 			db: runtime.dbConnection.db,
 			findingRepository,
 			projectRepository,
-			env: runtime.env,
 		}),
 	);
 	app.route(
@@ -173,7 +172,6 @@ export function registerScanRoutes(app: Hono, runtime: AppRuntime): void {
 			db: runtime.dbConnection.db,
 			findingRepository,
 			projectRepository,
-			env: runtime.env,
 		}),
 	);
 	app.route(

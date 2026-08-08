@@ -2,8 +2,8 @@ import { readAppEnv } from "../app/env";
 import { createDbConnection } from "../db";
 import { projects } from "../db/schema";
 import {
-	authorizeProjectPath,
 	ProjectPathPolicyError,
+	resolveProjectPath,
 } from "../security/project-path-policy";
 
 type ProjectPathAuditStatus = "allowed" | "blocked" | "missing";
@@ -22,14 +22,11 @@ async function main(): Promise<void> {
 		const audited = await Promise.all(
 			rows.map(async (project) => {
 				try {
-					const authorized = await authorizeProjectPath({
-						projectPath: project.repoPath,
-						allowedRoots: env.projectAllowedRoots ?? [],
-					});
+					const resolved = await resolveProjectPath(project.repoPath);
 					return {
 						...project,
 						status: "allowed" as const,
-						canonicalPath: authorized.canonicalPath,
+						canonicalPath: resolved.canonicalPath,
 						reasonCode: null,
 					};
 				} catch (error) {
@@ -58,10 +55,6 @@ async function main(): Promise<void> {
 		process.stdout.write(
 			`${JSON.stringify({
 				ok: true,
-				policy: {
-					nodeEnv: env.nodeEnv,
-					configuredRootCount: env.projectAllowedRoots?.length ?? 0,
-				},
 				counts,
 				projects: audited,
 			})}\n`,

@@ -21,7 +21,6 @@ describe("readAppEnv", () => {
 		expect(env.jwtRefreshExpiresIn).toBe("7d");
 		expect(env.scanExecutionMode).toBeUndefined();
 		expect(env.allowHostScannerExecution).toBe(true);
-		expect(env.projectAllowedRoots).toEqual([path.resolve(process.cwd())]);
 		expect(env.staticIntelligenceAllowedProjectRoots).toEqual([]);
 		expect(env.staticIntelligenceProjectCreationPolicy).toBe("registered_only");
 		expect(env.nightworkersIntegrationEnabled).toBe(false);
@@ -39,22 +38,6 @@ describe("readAppEnv", () => {
 		expect(env.dastStandardV2Default).toBe(true);
 		expect(env.threatModelEnabled).toBe(false);
 		expect(env.businessLogicEnabled).toBe(false);
-	});
-
-	it("normalizes project roots and fails closed by default in production", () => {
-		const configured = readAppEnv({
-			PROJECT_ALLOWED_ROOTS: "./workspace, /tmp/repos,./workspace",
-		});
-		expect(configured.projectAllowedRoots).toEqual([
-			path.resolve("./workspace"),
-			path.resolve("/tmp/repos"),
-		]);
-
-		const production = readAppEnv({
-			NODE_ENV: "production",
-			JWT_SECRET: "x".repeat(32),
-		});
-		expect(production.projectAllowedRoots).toEqual([]);
 	});
 
 	it("normalizes the outbound LLM provider host allowlist", () => {

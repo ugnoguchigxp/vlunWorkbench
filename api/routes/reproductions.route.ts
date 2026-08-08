@@ -3,7 +3,6 @@ import { Hono } from "hono";
 import { runReproductionRequestSchema } from "../../shared/schemas/reproduction.schema";
 import { observationOutcomeToLegacy } from "../../shared/schemas/verification.schema";
 import type { AppDatabase } from "../db";
-import type { AppEnv } from "../app/env";
 import { getAuthContextUser } from "../modules/auth/context";
 import { HttpError } from "../modules/auth/errors";
 import {
@@ -16,13 +15,15 @@ import type {
 	FindingRepository,
 	ProjectRepository,
 } from "../modules/scans/repositories";
-import { authorizeProjectPath } from "../security/project-path-policy";
+import {
+	ProjectPathPolicyError,
+	resolveProjectPath,
+} from "../security/project-path-policy";
 
 type ReproductionsRouteDeps = {
 	db: AppDatabase;
 	findingRepository: FindingRepository;
 	projectRepository: ProjectRepository;
-	env?: AppEnv;
 };
 
 export function createReproductionsRoute(deps: ReproductionsRouteDeps) {
@@ -30,17 +31,13 @@ export function createReproductionsRoute(deps: ReproductionsRouteDeps) {
 	const repo = new ReproductionRepository(db);
 	const route = new Hono();
 	const assertExecutionPath = async (repoPath: string) => {
-		if (!deps.env) return;
 		try {
-			await authorizeProjectPath({
-				projectPath: repoPath,
-				allowedRoots: deps.env.projectAllowedRoots ?? [],
-			});
-		} catch {
-			throw new HttpError(
-				403,
-				"Project path is not authorized for Web execution.",
-			);
+			await resolveProjectPath(repoPath);
+		} catch (error) {
+			if (error instanceof ProjectPathPolicyError) {
+				throw new HttpError(400, error.message);
+			}
+			throw error;
 		}
 	};
 

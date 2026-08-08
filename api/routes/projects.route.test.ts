@@ -5,9 +5,11 @@ import { HttpError } from "../modules/auth/errors";
 import { createProjectsRoute } from "./projects.route";
 
 vi.mock("node:fs/promises", () => {
+	const notFoundError = () =>
+		Object.assign(new Error("ENOENT"), { code: "ENOENT" });
 	const mockAccess = vi.fn().mockImplementation(async (path: string) => {
 		if (path === "/invalid/path") {
-			throw new Error("ENOENT");
+			throw notFoundError();
 		}
 		return Promise.resolve();
 	});
@@ -16,14 +18,14 @@ vi.mock("node:fs/promises", () => {
 			access: mockAccess,
 			realpath: vi.fn(async (value: string) => value),
 			stat: vi.fn(async (value: string) => {
-				if (value === "/invalid/path") throw new Error("ENOENT");
+				if (value === "/invalid/path") throw notFoundError();
 				return { isDirectory: () => true };
 			}),
 		},
 		access: mockAccess,
 		realpath: vi.fn(async (value: string) => value),
 		stat: vi.fn(async (value: string) => {
-			if (value === "/invalid/path") throw new Error("ENOENT");
+			if (value === "/invalid/path") throw notFoundError();
 			return { isDirectory: () => true };
 		}),
 	};
@@ -77,10 +79,7 @@ describe("Projects Route", () => {
 		"/",
 		createProjectsRoute({
 			projectRepository: mockProjectRepo as any,
-			env: readAppEnv({
-				NODE_ENV: "test",
-				PROJECT_ALLOWED_ROOTS: "/",
-			}),
+			env: readAppEnv({ NODE_ENV: "test" }),
 		}),
 	);
 
@@ -166,9 +165,9 @@ describe("Projects Route", () => {
 		expect(body.message).toContain("does not exist");
 	});
 
-	it("POST / rejects a repository outside configured roots", async () => {
-		const restrictedApp = new Hono();
-		restrictedApp.use("*", async (c, next) => {
+	it("POST / accepts a repository anywhere on the filesystem", async () => {
+		const unrestrictedApp = new Hono();
+		unrestrictedApp.use("*", async (c, next) => {
 			c.set("authUser", {
 				userId: "user-123",
 				email: "user@example.com",
@@ -176,29 +175,26 @@ describe("Projects Route", () => {
 			});
 			await next();
 		});
-		restrictedApp.onError((err, c) => {
+		unrestrictedApp.onError((err, c) => {
 			if (err instanceof HttpError) {
 				return c.json({ message: err.message }, err.status as any);
 			}
 			return c.json({ message: err.message }, 500);
 		});
-		restrictedApp.route(
+		unrestrictedApp.route(
 			"/",
 			createProjectsRoute({
 				projectRepository: mockProjectRepo as any,
-				env: readAppEnv({
-					NODE_ENV: "test",
-					PROJECT_ALLOWED_ROOTS: "/allowed",
-				}),
+				env: readAppEnv({ NODE_ENV: "test" }),
 			}),
 		);
 
-		const res = await restrictedApp.request("/", {
+		const res = await unrestrictedApp.request("/", {
 			method: "POST",
 			headers: { "content-type": "application/json" },
 			body: JSON.stringify({ repoPath: "/outside/project" }),
 		});
-		expect(res.status).toBe(403);
+		expect(res.status).toBe(201);
 	});
 
 	it("POST /folder-picker requires an admin role", async () => {
@@ -243,10 +239,7 @@ describe("Projects Route", () => {
 				projectRepository: mockProjectRepo as any,
 				scanRepository: scanRepository as any,
 				scanSupervisor: scanSupervisor as any,
-				env: readAppEnv({
-					NODE_ENV: "test",
-					PROJECT_ALLOWED_ROOTS: "/",
-				}),
+				env: readAppEnv({ NODE_ENV: "test" }),
 			}),
 		);
 

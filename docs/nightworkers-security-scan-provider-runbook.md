@@ -30,8 +30,7 @@ Required rollout settings:
 
 ```dotenv
 NIGHTWORKERS_INTEGRATION_ENABLED=true
-PROJECT_ALLOWED_ROOTS=/absolute/path/to/approved/projects
-NIGHTWORKERS_INTEGRATION_ALLOWED_PROFILES=source-baseline,diff-source-baseline,diff-basic-security,basic-security,detailed-security
+NIGHTWORKERS_INTEGRATION_ALLOWED_PROFILES=source-baseline,diff-source-baseline,diff-basic-security,basic-security,detailed-security,dependency-manifest,artifact
 ```
 
 Security-sensitive defaults:
@@ -49,9 +48,8 @@ Security-sensitive defaults:
 | `NIGHTWORKERS_REPORT_RUNNER_CONCURRENCY` | `2` |
 
 In production, keep auto-create disabled unless the project-registration policy
-has been reviewed. Both `PROJECT_ALLOWED_ROOTS` and each credential's
-`--allowed-root` are enforced; an empty client root list does not broaden the
-global allowlist.
+has been reviewed. A credential's optional `--allowed-root` scopes that client;
+an empty client root list permits any existing, readable project directory.
 
 ## Credential operations
 

@@ -67,7 +67,6 @@ describe("NightWorkers integration project resolver", () => {
 			projectPath,
 			client: client({ allowedRoots: [root] }),
 			projectRepository: repository as never,
-			globalAllowedRoots: [root],
 			autoCreateProjects: false,
 		});
 		expect(resolved.project.id).toBe("project-1");
@@ -75,15 +74,14 @@ describe("NightWorkers integration project resolver", () => {
 	});
 
 	it("rejects a project outside the client-specific root", async () => {
-		const globalRoot = await temporaryDirectory();
+		const projectRoot = await temporaryDirectory();
 		const clientRoot = await temporaryDirectory();
-		const projectPath = await fs.mkdtemp(path.join(globalRoot, "repo-"));
+		const projectPath = await fs.mkdtemp(path.join(projectRoot, "repo-"));
 		await expect(
 			resolveNightworkersProject({
 				projectPath,
 				client: client({ allowedRoots: [clientRoot] }),
 				projectRepository: {} as never,
-				globalAllowedRoots: [globalRoot],
 				autoCreateProjects: false,
 			}),
 		).rejects.toMatchObject({ code: "project_path_denied" });

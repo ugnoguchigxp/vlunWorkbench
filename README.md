@@ -193,7 +193,6 @@ Startup and trust-boundary environment variables:
 | `JWT_SECRET` | JWT signing secret. Must be changed for production. |
 | `APP_URL` | Public app origin and cookie/CORS basis. |
 | `CORS_ORIGINS` | Additional allowed origins. |
-| `PROJECT_ALLOWED_ROOTS` | Comma-separated roots available to Web/API project registration and scans. Development defaults to the current working directory; production is fail-closed when unset. |
 
 LLM endpoints, models, task routing, and encrypted provider credentials are
 managed under **Settings > LLM Providers**. The former OpenAI/Azure environment
@@ -203,11 +202,34 @@ limits, scanner output limits, and the Codex SDK timeout are configured under
 **Settings > Runtime Settings**. They are validated and stored in SQLite. The
 former environment variables are accepted only as initial values until the
 first Runtime Settings save, which keeps existing installations compatible.
+The authenticated DAST encryption key can also be entered or generated there;
+it is write-only in the API and wrapped using `JWT_SECRET` before persistence.
+`DAST_AUTH_ENCRYPTION_KEY` remains available as the environment-managed option.
 Capability rollout defaults live in
 `api/config/appDefaults.ts` because they are release policy rather than
 operator-tuned runtime configuration.
 
 LLM API keys stay on the host side. Scanner containers and target projects should not receive LLM credentials. Docker scans always apply memory, CPU, memory-swap, and PID limits; stdout, stderr, and structured result files are rejected when their configured byte limit is exceeded. Dynamic verification inherits the same Docker and stream limits, permits request-time resource overrides only when they tighten the saved profile, and bounds collected artifacts to 16 MiB per file, 64 MiB total, 128 files, 16 directory levels, and 2,048 visited entries.
+
+### Codex SDK live contract test
+
+Live Codex SDK connectivity is excluded from normal `bun run test` and
+`bun run verify` runs. Only the explicit opt-in command below runs one billable
+Codex turn with the selected model:
+
+```bash
+VULN_WORKBENCH_CODEX_LIVE=1 \
+bun run verify:codex-live -- \
+  --model <available-model>
+```
+
+The command requires `OPENAI_API_KEY` or `CODEX_API_KEY`. It does not reuse the
+personal `~/.codex` authentication cache; it creates temporary `HOME` and
+`CODEX_HOME` directories and an empty read-only working directory. Successful
+output contains only non-sensitive verification metadata such as the model,
+runtime mode, duration, token usage, thread ID, and validation result. Prompts,
+response content, and credentials are never printed. The default timeout is 180
+seconds and `--timeout-ms` accepts values from 1,000 through 300,000 milliseconds.
 
 ## CLI Workflows
 

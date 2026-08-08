@@ -9,10 +9,6 @@ import { requireAdmin } from "../middleware/auth";
 import { getAuthContextUser } from "../modules/auth/context";
 import { HttpError } from "../modules/auth/errors";
 import { analyzeProjectCapabilities } from "../modules/project-capabilities/plugin-detector";
-import type {
-	ProjectRepository,
-	ScanRepository,
-} from "../modules/scans/repositories";
 import {
 	buildDiffScanPlan,
 	toDiffScanPreview,
@@ -23,14 +19,18 @@ import {
 } from "../modules/scans/git-diff-resolver";
 import { getProfileById } from "../modules/scans/profiles";
 import { isTemporaryProjectPath } from "../modules/scans/project-visibility";
+import type {
+	ProjectRepository,
+	ScanRepository,
+} from "../modules/scans/repositories";
 import {
 	resolveScanExecutionPolicy,
 	scanExecutionPolicyMetadata,
 } from "../modules/scans/scan-execution-policy";
 import type { ScanProcessSupervisor } from "../modules/scans/scan-process-supervisor";
 import {
-	authorizeProjectPath,
 	ProjectPathPolicyError,
+	resolveProjectPath,
 } from "../security/project-path-policy";
 
 type ProjectsRouteDeps = {
@@ -44,10 +44,7 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 	const repo = deps.projectRepository;
 	const projectPathPolicyStatus = async (projectPath: string) => {
 		try {
-			await authorizeProjectPath({
-				projectPath,
-				allowedRoots: deps.env?.projectAllowedRoots ?? [],
-			});
+			await resolveProjectPath(projectPath);
 			return { status: "allowed" as const, reasonCode: null };
 		} catch (error) {
 			const reasonCode =
@@ -63,20 +60,11 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 			};
 		}
 	};
-	const authorizeWebProjectPath = async (projectPath: string) => {
+	const resolveWebProjectPath = async (projectPath: string) => {
 		try {
-			return await authorizeProjectPath({
-				projectPath,
-				allowedRoots: deps.env?.projectAllowedRoots ?? [],
-			});
+			return await resolveProjectPath(projectPath);
 		} catch (error) {
 			if (!(error instanceof ProjectPathPolicyError)) throw error;
-			if (error.code === "PROJECT_PATH_NOT_ALLOWED") {
-				throw new HttpError(403, error.message);
-			}
-			if (error.code === "PROJECT_ALLOWED_ROOT_INVALID") {
-				throw new HttpError(500, error.message);
-			}
 			throw new HttpError(400, error.message);
 		}
 	};
@@ -128,7 +116,7 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 
 			const selectedPath = stdoutText.trim();
 			if (!selectedPath) return c.json({ path: null });
-			const authorized = await authorizeWebProjectPath(selectedPath);
+			const authorized = await resolveWebProjectPath(selectedPath);
 			return c.json({
 				path: authorized.canonicalPath,
 			});
@@ -154,7 +142,7 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 			const authUser = getAuthContextUser(c);
 			const body = c.req.valid("json");
 
-			const { canonicalPath: resolvedPath } = await authorizeWebProjectPath(
+			const { canonicalPath: resolvedPath } = await resolveWebProjectPath(
 				body.repoPath,
 			);
 
@@ -206,7 +194,7 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 				if (project.ownerUserId !== authUser.userId) {
 					throw new HttpError(403, "Forbidden");
 				}
-				const authorized = await authorizeWebProjectPath(project.repoPath);
+				const authorized = await resolveWebProjectPath(project.repoPath);
 				const profile = getProfileById(body.profile);
 				if (!profile) {
 					throw new HttpError(400, `Profile not found: ${body.profile}`);
@@ -293,7 +281,7 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 				if (!deps.scanRepository || !deps.scanSupervisor || !deps.env) {
 					throw new HttpError(500, "Scan runtime is not configured.");
 				}
-				await authorizeWebProjectPath(project.repoPath);
+				await resolveWebProjectPath(project.repoPath);
 				const profile = getProfileById(body.profile);
 				if (!profile) {
 					throw new HttpError(400, `Profile not found: ${body.profile}`);

@@ -17,9 +17,9 @@ import {
 	triggerScanReview,
 } from "../../api";
 import type { useScansFindingActions } from "./scans-finding-actions";
-import type { ScansControllerBaseScope } from "./use-scans-base-controller";
 import type { useFindingLoadEffects } from "./use-finding-load-effects";
 import type { useScanTargetEffects } from "./use-scan-target-effects";
+import type { ScansControllerBaseScope } from "./use-scans-base-controller";
 
 const DEFAULT_REPORT_OPTIONS = {
 	includeFalsePositives: true,
@@ -157,9 +157,7 @@ export function buildScanLaunchActions(scope: ScanLaunchActionsScope) {
 				item.id === selectedProjectId,
 		);
 		if (project?.pathPolicy?.status !== "allowed") {
-			setErrorText(
-				"このプロジェクトのパスは現在のPROJECT_ALLOWED_ROOTSでは実行できません。",
-			);
+			setErrorText("このプロジェクトのパスを読み取れないため実行できません。");
 			return;
 		}
 		setIsScanning(true);

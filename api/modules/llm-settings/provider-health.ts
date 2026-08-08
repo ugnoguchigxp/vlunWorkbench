@@ -20,6 +20,7 @@ type HealthOptions = {
 	timeoutMs?: number;
 	apiKey?: string;
 	outboundPolicy?: OutboundUrlPolicy;
+	codexStatusReader?: typeof readCodexStatus;
 };
 
 function normalizeBaseUrl(
@@ -61,25 +62,30 @@ export async function checkLlmProviderHealth(
 	const checkedAt = new Date().toISOString();
 	const url = buildHealthUrl(endpoint);
 	if (endpoint.kind === "codex") {
-		const status = await readCodexStatus({
+		const status = await (options.codexStatusReader ?? readCodexStatus)({
 			settingsModels: endpoint.models,
-			codexApiKey: endpoint.apiKey,
+			codexApiKey: options.apiKey ?? endpoint.apiKey,
 		});
 		const ok = status.authenticated && status.executableAdapterAvailable;
-		return {
-			ok,
-			reachable: ok,
-			status: ok
-				? "codex_ready"
+		const healthStatus = !status.adapterDiagnostics.sdkImportable
+			? "codex_sdk_unavailable"
+			: !status.adapterDiagnostics.cliBinaryResolved
+				? "codex_binary_unavailable"
 				: !status.authenticated
 					? "codex_auth_missing"
-					: "codex_adapter_unavailable",
+					: "codex_local_ready";
+		return {
+			ok,
+			reachable: false,
+			status: healthStatus,
 			url: null,
-			message: ok
-				? "Codex is authenticated and the execution adapter is available."
-				: !status.authenticated
-					? "Codex authentication is not configured."
-					: status.adapterDiagnostics.message,
+			message:
+				healthStatus === "codex_sdk_unavailable" ||
+				healthStatus === "codex_binary_unavailable"
+					? status.adapterDiagnostics.message
+					: healthStatus === "codex_auth_missing"
+						? "Codex authentication is not configured."
+						: "Codex authentication is configured and the local SDK prerequisites are available. Process launch and live connectivity are not verified.",
 			durationMs: Date.now() - started,
 			checkedAt,
 		};

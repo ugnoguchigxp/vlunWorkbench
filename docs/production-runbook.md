@@ -10,9 +10,10 @@
 3. After the release commit exists, run `bun run verify:clean-checkout -- HEAD`
    to repeat frozen installation and the strict gate from a detached temporary
    worktree.
-4. Set explicit `PROJECT_ALLOWED_ROOTS`, trusted proxy CIDRs (when applicable),
-   the LLM host allowlist, the LLM settings encryption key, and
-   `DAST_AUTH_ENCRYPTION_KEY` when authenticated DAST is enabled.
+4. Set trusted proxy CIDRs (when applicable), the LLM host allowlist,
+   and the LLM settings encryption key. For authenticated DAST, either set
+   `DAST_AUTH_ENCRYPTION_KEY` or generate the key under **Settings > Runtime
+   Settings** after the first administrator signs in.
    Keep `VULN_WORKBENCH_DAST_STANDARD_V2_ENABLED=true` and
    `VULN_WORKBENCH_DAST_STANDARD_V2_DEFAULT=true` for the coverage-aware
    standard. Setting both to `false` is the supported legacy-smoke rollback;
@@ -144,10 +145,13 @@ to the project, target, identity role, and auth kind.
 Rotate a context through its project-scoped rotate endpoint, verify one
 read-only run, and then revoke the old credential at the upstream identity
 provider. Revoked or expired contexts fail before a request is sent. When
-rotating the encryption key, deploy the new
+rotating an environment-managed encryption key, deploy the new
 `DAST_AUTH_ENCRYPTION_KEY` with the old key in
-`DAST_AUTH_PREVIOUS_ENCRYPTION_KEYS`, rotate every stored context, verify the
-credential-canary suite, then remove the old key.
+`DAST_AUTH_PREVIOUS_ENCRYPTION_KEYS`. A key generated or replaced in Runtime
+Settings retains prior DAST keys automatically. In either case, rotate every
+stored context and verify the credential-canary suite before retiring old keys.
+Runtime Settings wraps the DAST key with a key derived from `JWT_SECRET`; keep
+that secret stable and include it in the protected backup/restore procedure.
 
 If a credential may have leaked, revoke it upstream first, revoke the stored
 context, preserve only redacted audit metadata, and quarantine affected

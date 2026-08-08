@@ -213,15 +213,20 @@ async function createRuntime(): Promise<AppRuntime> {
 		reviewRunner: scanReviewRunner,
 		reportRunner: scanReportRunner,
 	});
-	const dastAuthContextRepository = env.dastAuthEncryptionKey
-		? new DastAuthContextRepository(
-				dbConnection.db,
-				new DastAuthContextCrypto(
-					env.dastAuthEncryptionKey,
-					env.dastAuthPreviousEncryptionKeys,
-				),
-			)
-		: undefined;
+	const dastAuthContextRepository = new DastAuthContextRepository(
+		dbConnection.db,
+		() => {
+			if (!env.dastAuthEncryptionKey) {
+				throw new Error(
+					"DAST auth encryption key is not configured in the environment or runtime settings.",
+				);
+			}
+			return new DastAuthContextCrypto(
+				env.dastAuthEncryptionKey,
+				env.dastAuthPreviousEncryptionKeys,
+			);
+		},
+	);
 	const activeAssessmentRunner = new ActiveAssessmentRunner(dbConnection.db, {
 		authContextRepository: dastAuthContextRepository,
 		zapActiveEnabled: env.zapActiveEnabled,

@@ -33,6 +33,8 @@ const DEFAULT_ALLOWED_PROFILES = [
 	"diff-basic-security",
 	"basic-security",
 	"detailed-security",
+	"dependency-manifest",
+	"artifact",
 ];
 type ResolvedTarget = {
 	kind: "working_tree" | "full";
@@ -79,7 +81,6 @@ export class NightworkersIntegrationService {
 			projectPath,
 			client,
 			projectRepository: this.deps.projectRepository,
-			globalAllowedRoots: this.deps.env.projectAllowedRoots ?? [],
 			autoCreateProjects:
 				this.deps.env.nightworkersIntegrationAutoCreateProjects ?? false,
 		});

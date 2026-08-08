@@ -2,6 +2,10 @@
 
 ## Implementation Status
 
+> Update: the global Web/API project allowed-root restriction introduced in this
+> phase was later removed. Current registration accepts any existing, readable
+> directory and stores its canonical path.
+
 2026-07-24時点でlocal release rehearsalは完了し、判定は
 **CONDITIONAL GO**。残るblockerは、現在のPhase 46 working treeをcommitし、
 そのclean commitでpinned GitHub Actionsを成功させてfinal commit SHAを
@@ -144,16 +148,15 @@ baseline は `spec/evidence/phase-46-baseline.json` に machine-readable に保�
 
 ## 5. Fixed Security Decisions
 
-### 5.1 Project Path Trust Model
+### 5.1 Project Path Handling (Updated)
 
-- Browser/API から登録・走査できる path は `PROJECT_ALLOWED_ROOTS` 配下だけとする。
-- root と candidate は `realpath` 後に比較する。
-- path policy は project 作成時だけでなく scan 開始時にも再検証する。
-- production で allowed roots が空の場合、Web project 作成と Web scan は fail closed とする。
-- development で未設定の場合は `process.cwd()` のみを root とする。親 directory や home directory へ自動拡張しない。
-- direct CLI は local operator surface として扱うが、`--execution-surface web` で起動した CLI は必ず Web policy を再適用する。
-- existing project が root 外の場合、record は削除せず scan を block し、operator 向け理由を返す。
-- folder picker は admin only とし、選択結果も allowed-root check を通す。
+- Browser/API は存在して読み取り可能な任意の directory を登録・走査できる。
+- 登録時に `realpath` で canonical path を保存する。
+- scan 開始時にも path の存在、directory、read/execute access を再検証する。
+- global allowed-root 設定は使用しない。
+- direct CLI と Web-launched CLI は同じ path availability check を行う。
+- existing project の path が利用不能な場合、record は削除せず scan を block して理由を返す。
+- folder picker は admin only とする。
 
 ### 5.2 Global Administration Model
 
@@ -276,7 +279,10 @@ Rollback:
 
 - formatter-only diff と baseline artifact を戻せば元の状態へ戻る。
 
-### Slice 1: Host Project Path Authorization
+### Slice 1: Host Project Path Authorization (Historical; Superseded)
+
+This slice records the original implementation. The current behavior is defined
+in section 5.1 above.
 
 Priority: P0 release blocker
 Dependencies: Slice 0
@@ -301,7 +307,7 @@ New files:
 
 Changes:
 
-1. `PROJECT_ALLOWED_ROOTS` を parse、canonicalize、deduplicate する。
+1. （後続変更で撤回）global project allowed-root 設定を parse、canonicalize、deduplicate する。
 2. root 自体が存在する directory であることを bootstrap/readiness で確認する。
 3. project registration で candidate の existence、directory、realpath、allowed-root containment を確認する。
 4. Web scan 起動前と `profile-runner` の execution surface claim 後に path を再検証する。

@@ -1,3 +1,4 @@
+import path from "node:path";
 import { Hono } from "hono";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { HttpError } from "../modules/auth/errors";
@@ -22,7 +23,11 @@ describe("Dynamic Route", () => {
 	const mockProjectRepo = {
 		findById: vi.fn().mockImplementation(async (id: string) => {
 			if (id === "p-1") {
-				return { id: "p-1", ownerUserId: "user-123", repoPath: "/repo" };
+				return {
+					id: "p-1",
+					ownerUserId: "user-123",
+					repoPath: process.cwd(),
+				};
 			}
 			return null;
 		}),
@@ -239,6 +244,22 @@ describe("Dynamic Route", () => {
 		expect(spawnSpy).toHaveBeenCalled();
 		const spawnArgs = spawnSpy.mock.calls[0][0];
 		expect(spawnArgs).toContain("api/cli/dynamic-run.ts");
+	});
+
+	it("rejects an unavailable project path before validating a dynamic run", async () => {
+		mockProjectRepo.findById.mockResolvedValueOnce({
+			id: "p-1",
+			ownerUserId: "user-123",
+			repoPath: path.join(process.cwd(), ".tmp", "missing-dynamic-route-project"),
+		});
+		const res = await app.request("/projects/p-1/dynamic-runs", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({}),
+		});
+
+		expect(res.status).toBe(400);
+		expect((await res.json()).message).toContain("does not exist");
 	});
 
 	it("GET /dynamic-runs/:runId/artifacts returns artifacts and evidence", async () => {

@@ -1,6 +1,6 @@
-import { Hono } from "hono";
-import { readdir, stat } from "node:fs/promises";
+import { readdir } from "node:fs/promises";
 import path from "node:path";
+import { Hono } from "hono";
 import type { AppEnv } from "../app/env";
 import type { DbConnection } from "../db";
 
@@ -43,11 +43,6 @@ export function createHealthRoute(deps?: HealthRouteDeps) {
 				const writerHealth = await deps.dbConnection.writerClient?.health();
 				if (writerHealth && writerHealth.status !== "ready") {
 					throw new Error("SQLite Writer is not ready.");
-				}
-				for (const root of deps.env.projectAllowedRoots ?? []) {
-					if (!(await stat(root)).isDirectory()) {
-						throw new Error("A configured project root is not a directory.");
-					}
 				}
 				return c.json({ status: "ready", service: "vuln-workbench" });
 			} catch {

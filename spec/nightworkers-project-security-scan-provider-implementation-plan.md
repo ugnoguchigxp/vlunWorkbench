@@ -305,7 +305,7 @@ NightWorkers は登録 Repository の canonical path を送るが、provider 側
 
 1. request の `projectPath` が absolute であることを検証する。
 2. filesystem の canonical path を取得する。
-3. global `PROJECT_ALLOWED_ROOTS` と client-specific allowed roots の両方を検証する。
+3. client-specific allowed roots が設定されている場合だけ、その scope を検証する。
 4. symlink / `..` による越境を canonical path 比較で拒否する。
 5. owner user が path に対応する vulnWorkbench project を利用可能か確認する。
 6. 既存 project がなければ integration policy に従って作成する。
@@ -315,7 +315,7 @@ MVP の推奨 policy は次の通り。
 - existing project があれば再利用
 - client owner と project owner が一致しなければ拒否
 - 自動作成は明示 config が有効な場合だけ許可
-- 自動作成時も allowed roots、real path、repository metadata を検証
+- 自動作成時も client-specific allowed roots（設定時）、real path、repository metadata を検証
 - path だけで別 owner の project を横取りしない
 
 request path を log / metric label に平文で残さない。必要なら hash または basename を用いる。
@@ -953,7 +953,7 @@ project path や arbitrary error message を label にしない。
 
 ### V2. project resolver と capability
 
-- allowed roots / realpath / owner resolver を実装する。
+- client-specific allowed roots / realpath / owner resolver を実装する。
 - preset registry と custom profile allowlist を実装する。
 - standard + working_tree 用の `diff-basic-security` profile と profile test を追加する。
 - capabilities route を実装する。
@@ -1059,7 +1059,7 @@ project path や arbitrary error message を label にしない。
 - token rotation
 - 別 integration client の scan / report ref
 - owner mismatch
-- allowed root / client root intersection
+- client-specific allowed root scope
 - symlink escape
 - prefix collision (`/repo/a` と `/repo/ab`)
 - CSRF bypass が integration group 外へ波及しない

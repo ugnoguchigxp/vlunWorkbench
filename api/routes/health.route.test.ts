@@ -9,7 +9,7 @@ describe("health route", () => {
 			"CREATE TABLE vuln_workbench_schema_migrations (filename text PRIMARY KEY)",
 		);
 		const route = createHealthRoute({
-			env: { projectAllowedRoots: [] } as never,
+			env: {} as never,
 			expectedMigrations: [],
 			dbConnection: {
 				sqlite,
@@ -33,7 +33,7 @@ describe("health route", () => {
 
 	it("does not expose internal readiness failure details", async () => {
 		const route = createHealthRoute({
-			env: { projectAllowedRoots: [] } as never,
+			env: {} as never,
 			dbConnection: {
 				sqlite: { query: () => ({ get: () => undefined }) },
 				db: {} as never,

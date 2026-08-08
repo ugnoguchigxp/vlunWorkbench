@@ -22,7 +22,7 @@ export type CodexSdkProviderDiagnostics = {
 	sdkAvailable: boolean;
 	runtimeMode: "bun-direct";
 	codexHome: string;
-	authSource: "api-key" | "codex-home" | "environment" | "none";
+	authSource: "api-key" | "codex-home-unverified" | "environment" | "none";
 	model: string;
 	timeoutMs: number;
 	reasoningEffort: ModelReasoningEffort | null;
@@ -37,9 +37,43 @@ export type CodexSdkProviderConfig = {
 	codexConstructor?: CodexConstructor;
 	tmpRoot?: string;
 	env?: NodeJS.ProcessEnv;
+	createWorkingDirectory?: () => Promise<string>;
+	removeWorkingDirectory?: (workingDirectory: string) => Promise<void>;
 };
 
 const DEFAULT_TIMEOUT_MS = 600_000;
+const WORKING_DIRECTORY_PREFIX = "vuln-workbench-codex-";
+
+function normalizedNonEmptyString(
+	value: string | undefined,
+): string | undefined {
+	const normalized = value?.trim();
+	return normalized || undefined;
+}
+
+function isOwnedTemporaryPath(
+	candidate: string,
+	parent: string,
+	prefix: string,
+): boolean {
+	const resolvedCandidate = path.resolve(candidate);
+	const resolvedParent = path.resolve(parent);
+	const basename = path.basename(resolvedCandidate);
+	return (
+		path.dirname(resolvedCandidate) === resolvedParent &&
+		basename.startsWith(prefix) &&
+		basename.length > prefix.length
+	);
+}
+
+async function pathWasRemoved(candidate: string): Promise<boolean> {
+	try {
+		await fs.lstat(candidate);
+		return false;
+	} catch (error) {
+		return (error as NodeJS.ErrnoException).code === "ENOENT";
+	}
+}
 
 function safeEnv(
 	env: NodeJS.ProcessEnv,
@@ -64,12 +98,12 @@ function safeEnv(
 		if (value) next[key] = value;
 	}
 	next.CODEX_HOME = params.codexHome;
-	if (params.apiKey) {
-		next.CODEX_API_KEY = params.apiKey;
-	} else if (env.CODEX_API_KEY) {
-		next.CODEX_API_KEY = env.CODEX_API_KEY;
-	} else if (env.OPENAI_API_KEY) {
-		next.CODEX_API_KEY = env.OPENAI_API_KEY;
+	const apiKey =
+		normalizedNonEmptyString(params.apiKey) ??
+		normalizedNonEmptyString(env.CODEX_API_KEY) ??
+		normalizedNonEmptyString(env.OPENAI_API_KEY);
+	if (apiKey) {
+		next.CODEX_API_KEY = apiKey;
 	}
 	return next;
 }
@@ -129,11 +163,38 @@ function authSource(params: {
 	codexHome: string;
 	env: NodeJS.ProcessEnv;
 }): CodexSdkProviderDiagnostics["authSource"] {
-	if (params.apiKey) return "api-key";
-	if (params.env.CODEX_API_KEY || params.env.OPENAI_API_KEY)
+	if (normalizedNonEmptyString(params.apiKey)) return "api-key";
+	if (
+		normalizedNonEmptyString(params.env.CODEX_API_KEY) ||
+		normalizedNonEmptyString(params.env.OPENAI_API_KEY)
+	)
 		return "environment";
-	if (params.codexHome) return "codex-home";
+	if (params.codexHome) return "codex-home-unverified";
 	return "none";
+}
+
+function executionError(
+	error: unknown,
+	params: { didTimeout: boolean; timeoutMs: number; model: string },
+): LlmProviderExecutionError {
+	if (error instanceof LlmProviderExecutionError) return error;
+	if (params.didTimeout) {
+		return new LlmProviderExecutionError(
+			`Codex SDK timed out after ${params.timeoutMs}ms.`,
+			{
+				model: params.model,
+				runtimeMode: "bun-direct",
+			},
+		);
+	}
+	const message =
+		error instanceof Error
+			? error.message
+			: `Codex SDK failed: ${String(error)}`;
+	return new LlmProviderExecutionError(message, {
+		model: params.model,
+		runtimeMode: "bun-direct",
+	});
 }
 
 export class CodexSdkProvider implements LlmProvider {
@@ -145,19 +206,30 @@ export class CodexSdkProvider implements LlmProvider {
 	private readonly model: string;
 	private readonly apiKey?: string;
 	private readonly reasoningEffort?: ModelReasoningEffort;
+	private readonly createWorkingDirectory: () => Promise<string>;
+	private readonly removeWorkingDirectory: (
+		workingDirectory: string,
+	) => Promise<void>;
 
 	constructor(config: CodexSdkProviderConfig) {
 		this.model = config.model;
-		this.apiKey = config.apiKey;
+		this.apiKey = normalizedNonEmptyString(config.apiKey);
 		this.reasoningEffort = config.reasoningEffort;
 		this.codexHome =
-			config.codexHome ??
-			config.env?.CODEX_HOME ??
+			normalizedNonEmptyString(config.codexHome) ??
+			normalizedNonEmptyString(config.env?.CODEX_HOME) ??
 			path.join(os.homedir(), ".codex");
 		this.timeoutMs = config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 		this.codexConstructor = config.codexConstructor ?? Codex;
 		this.tmpRoot = config.tmpRoot ?? os.tmpdir();
 		this.env = envSnapshot(config.env ?? process.env);
+		this.createWorkingDirectory =
+			config.createWorkingDirectory ??
+			(() => fs.mkdtemp(path.join(this.tmpRoot, WORKING_DIRECTORY_PREFIX)));
+		this.removeWorkingDirectory =
+			config.removeWorkingDirectory ??
+			((workingDirectory) =>
+				fs.rm(workingDirectory, { recursive: true, force: true }));
 	}
 
 	getDiagnostics(): CodexSdkProviderDiagnostics {
@@ -180,15 +252,37 @@ export class CodexSdkProvider implements LlmProvider {
 		messages: ChatMessage[],
 		options?: LlmCompletionOptions,
 	): Promise<LlmResponse> {
-		const workingDirectory = await fs.mkdtemp(
-			path.join(this.tmpRoot, "vuln-workbench-codex-"),
-		);
+		let workingDirectory: string;
+		try {
+			workingDirectory = await this.createWorkingDirectory();
+			if (
+				!isOwnedTemporaryPath(
+					workingDirectory,
+					this.tmpRoot,
+					WORKING_DIRECTORY_PREFIX,
+				)
+			) {
+				throw new Error("Unowned Codex working directory.");
+			}
+		} catch {
+			throw new LlmProviderExecutionError(
+				"Codex SDK working directory setup failed.",
+				{
+					code: "codex_working_directory_setup_failed",
+					model: this.model,
+					runtimeMode: "bun-direct",
+				},
+			);
+		}
 		const controller = new AbortController();
 		let didTimeout = false;
 		const timeout = setTimeout(() => {
 			didTimeout = true;
 			controller.abort();
 		}, this.timeoutMs);
+		let outcome:
+			| { ok: true; response: LlmResponse }
+			| { ok: false; error: LlmProviderExecutionError };
 		try {
 			const codex = new this.codexConstructor({
 				apiKey: this.apiKey,
@@ -223,33 +317,43 @@ export class CodexSdkProvider implements LlmProvider {
 					{ model: this.model },
 				);
 			}
-			return {
-				id: thread.id ?? crypto.randomUUID(),
-				content,
-				usage: usageFromCodex(result.usage),
+			outcome = {
+				ok: true,
+				response: {
+					id: thread.id ?? crypto.randomUUID(),
+					content,
+					usage: usageFromCodex(result.usage),
+				},
 			};
 		} catch (error) {
-			if (error instanceof LlmProviderExecutionError) throw error;
-			if (didTimeout) {
-				throw new LlmProviderExecutionError(
-					`Codex SDK timed out after ${this.timeoutMs}ms.`,
-					{
-						model: this.model,
-						runtimeMode: "bun-direct",
-					},
-				);
-			}
-			const message =
-				error instanceof Error
-					? error.message
-					: `Codex SDK failed: ${String(error)}`;
-			throw new LlmProviderExecutionError(message, {
-				model: this.model,
-				runtimeMode: "bun-direct",
-			});
-		} finally {
-			clearTimeout(timeout);
-			await fs.rm(workingDirectory, { recursive: true, force: true });
+			outcome = {
+				ok: false,
+				error: executionError(error, {
+					didTimeout,
+					timeoutMs: this.timeoutMs,
+					model: this.model,
+				}),
+			};
 		}
+		clearTimeout(timeout);
+
+		try {
+			await this.removeWorkingDirectory(workingDirectory);
+			if (!(await pathWasRemoved(workingDirectory))) {
+				throw new Error("Codex working directory still exists.");
+			}
+		} catch {
+			throw new LlmProviderExecutionError(
+				"Codex SDK working directory cleanup failed.",
+				{
+					code: "codex_working_directory_cleanup_failed",
+					model: this.model,
+					runtimeMode: "bun-direct",
+				},
+			);
+		}
+
+		if (!outcome.ok) throw outcome.error;
+		return outcome.response;
 	}
 }

@@ -104,8 +104,18 @@ export type RuntimeSettingsResponse = {
 	scannerStdoutLimitBytes: number;
 	scannerStderrLimitBytes: number;
 	codexSdkTimeoutMs: number;
+	dastAuthEncryptionKey: string;
+	dastAuthEncryptionKeyConfigured: boolean;
+	dastAuthEncryptionKeySource: "environment" | "settings" | "none";
 	updatedAt: string | null;
 };
+
+export type RuntimeSettingsUpdate = Omit<
+	RuntimeSettingsResponse,
+	| "updatedAt"
+	| "dastAuthEncryptionKeyConfigured"
+	| "dastAuthEncryptionKeySource"
+>;
 
 export type LlmProviderHealthResult = {
 	ok: boolean;

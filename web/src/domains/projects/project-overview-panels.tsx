@@ -1,9 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import {
 	Activity,
-	CheckCircle2,
 	ChevronRight,
-	FileCode2,
 	FolderOpen,
 	GitBranch,
 	Plus,
@@ -22,19 +20,21 @@ import type {
 	ScanRun,
 } from "../../api";
 import { Button, SelectInput, TextInput } from "../../ui";
-import { formatScanOutcome } from "../scans/scan-profile-display";
-import { formatDateTime } from "../scans/scans-utils";
-import { buildProjectCardSummary } from "./project-intelligence-view-model";
-import { SecurityCapabilityPanel } from "./project-security-capability-panel";
-
-import { IntelligenceView } from "./project-intelligence-panels";
 import {
-	DegradedReasons,
-	Metric,
-	ScanRunList,
-	StatusBadge,
-	SummaryTile,
-} from "./project-detail-sections";
+	formatScanOutcome,
+	getProfileDisplay,
+} from "../scans/scan-profile-display";
+import { formatDateTime } from "../scans/scans-utils";
+import { Metric, StatusBadge } from "./project-detail-sections";
+import { IntelligenceView } from "./project-intelligence-panels";
+import { buildProjectCardSummary } from "./project-intelligence-view-model";
+import {
+	OverviewAction,
+	OverviewStatus,
+	RecentScanTable,
+} from "./project-overview-components";
+import { buildProjectOverviewPresentation } from "./project-overview-view-model";
+import { SecurityCapabilityPanel } from "./project-security-capability-panel";
 
 export function ProjectRegistrationPanel({
 	projectPath,
@@ -173,6 +173,8 @@ export function ProjectDetail({
 	project,
 	view,
 	scanRuns,
+	loading,
+	loadFailed,
 	activeTab,
 	selectedScanRunId,
 	selectedExport,
@@ -190,6 +192,8 @@ export function ProjectDetail({
 	project: ProjectIntelligenceProject | null;
 	view: ProjectIntelligenceView | null;
 	scanRuns: ScanRun[];
+	loading: boolean;
+	loadFailed: boolean;
 	activeTab: "list" | "overview" | "intelligence";
 	selectedScanRunId: string | null;
 	selectedExport: StaticIntelligenceExportV1 | null;
@@ -207,13 +211,30 @@ export function ProjectDetail({
 	onLoadAgentPreview: () => void;
 }) {
 	if (!project) {
-		return <div className="projects-empty">Project not found.</div>;
+		if (loading) {
+			return (
+				<div className="projects-empty" role="status">
+					プロジェクト情報を読み込んでいます…
+				</div>
+			);
+		}
+		return (
+			<div className="projects-empty" role={loadFailed ? "alert" : undefined}>
+				{loadFailed
+					? "プロジェクト情報を読み込めませんでした。"
+					: "プロジェクトが見つかりません。"}
+			</div>
+		);
 	}
 	return (
 		<>
 			<section className="projects-band project-detail-head">
 				<div>
-					<h2>{project.repositoryName}</h2>
+					<h1>{project.repositoryName}</h1>
+					<p>
+						{project.defaultBranch} ・ 最終更新{" "}
+						{formatDateTime(project.updatedAt)}
+					</p>
 				</div>
 				{activeTab === "intelligence" ? (
 					<label
@@ -237,21 +258,14 @@ export function ProjectDetail({
 						</SelectInput>
 					</label>
 				) : null}
-				<div className="project-detail-actions">
+				<nav className="project-detail-actions" aria-label="プロジェクト">
 					<Link
 						to="/projects/$projectId"
 						params={{ projectId: project.id }}
 						className={activeTab === "overview" ? "active" : ""}
+						aria-current={activeTab === "overview" ? "page" : undefined}
 					>
 						Overview
-					</Link>
-					<Link
-						to="/projects/$projectId/intelligence"
-						params={{ projectId: project.id }}
-						search={{ scanRunId: undefined }}
-						className={activeTab === "intelligence" ? "active" : ""}
-					>
-						Static Intelligence
 					</Link>
 					<Link
 						to="/scans"
@@ -262,10 +276,27 @@ export function ProjectDetail({
 					>
 						Scans
 					</Link>
-				</div>
+					<Link
+						to="/projects/$projectId/intelligence"
+						params={{ projectId: project.id }}
+						search={{ scanRunId: undefined }}
+						className={activeTab === "intelligence" ? "active" : ""}
+						aria-current={activeTab === "intelligence" ? "page" : undefined}
+					>
+						Intelligence
+					</Link>
+				</nav>
 			</section>
 
-			{activeTab === "intelligence" ? (
+			{loading ? (
+				<div className="projects-empty" role="status">
+					プロジェクト情報を読み込んでいます…
+				</div>
+			) : !view ? (
+				<div className="projects-empty" role={loadFailed ? "alert" : undefined}>
+					プロジェクト情報を表示できません。
+				</div>
+			) : activeTab === "intelligence" ? (
 				<IntelligenceView
 					project={project}
 					view={view}
@@ -283,7 +314,13 @@ export function ProjectDetail({
 					onLoadAgentPreview={onLoadAgentPreview}
 				/>
 			) : (
-				<ProjectOverview project={project} view={view} scanRuns={scanRuns} />
+				<ProjectOverview
+					project={project}
+					view={view}
+					scanRuns={scanRuns}
+					refreshing={refreshing}
+					onRefreshAnalysis={onRefreshAnalysis}
+				/>
 			)}
 		</>
 	);
@@ -293,73 +330,161 @@ export function ProjectOverview({
 	project,
 	view,
 	scanRuns,
+	refreshing,
+	onRefreshAnalysis,
 }: {
 	project: ProjectIntelligenceProject;
-	view: ProjectIntelligenceView | null;
+	view: ProjectIntelligenceView;
 	scanRuns: ScanRun[];
+	refreshing: boolean;
+	onRefreshAnalysis: () => void;
 }) {
-	const exportPayload = view?.export ?? null;
+	const presentation = buildProjectOverviewPresentation(view);
+	const selectedScan = view.selectedScan ?? null;
+	const scanTitle = selectedScan
+		? getProfileDisplay(selectedScan.profile, selectedScan.profile, "").name
+		: presentation.scan.title;
+	const nextAction = presentation.intelligence.action
+		? {
+				title: presentation.intelligence.actionLabel ?? "Intelligenceを確認",
+				description: presentation.intelligence.description,
+			}
+		: {
+				title: presentation.scan.actionLabel,
+				description: presentation.scan.description,
+			};
 	return (
 		<>
-			<section className="projects-summary-grid">
-				<SummaryTile
-					icon={<Shield className="icon" />}
-					label="Risk Band"
-					value={exportPayload?.scanSummary.riskBand ?? "none"}
-				/>
-				<SummaryTile
-					icon={<CheckCircle2 className="icon" />}
-					label="Evidence Quality"
-					value={exportPayload?.scanSummary.evidenceQuality ?? "missing"}
-				/>
-				<SummaryTile
-					icon={<Activity className="icon" />}
-					label="Latest Scan"
-					value={
-						view?.selectedScan
-							? formatScanOutcome(view.selectedScan.status)
-							: "none"
-					}
-				/>
-				<SummaryTile
-					icon={<FileCode2 className="icon" />}
-					label="Code Structure"
-					value={view?.readiness.codeStructure.status ?? "missing"}
-				/>
+			<section className="project-overview-heading">
+				<h2>プロジェクト概要</h2>
+				<p>スキャンの実行状態とIntelligenceの利用可否を分けて確認します。</p>
 			</section>
-			<section className="projects-band">
-				<div className="projects-section-head">
-					<div>
-						<h2>Analysis Status</h2>
-						<p>
-							{view?.selectedScan
-								? `Selected scan ${view.selectedScan.id}`
-								: "No scan has been imported for this project yet."}
-						</p>
+			<div className="project-overview-status-grid">
+				<section
+					className="project-overview-domain-card"
+					aria-labelledby="project-overview-scan-title"
+				>
+					<div className="project-overview-domain-head">
+						<div className="project-overview-domain-name">
+							<Activity className="icon" />
+							<h2 id="project-overview-scan-title">スキャン</h2>
+						</div>
+						<OverviewStatus
+							label={presentation.scan.status}
+							tone={presentation.scan.tone}
+						/>
 					</div>
-					<div className="project-section-actions">
-						<Link
-							to="/projects/$projectId/intelligence"
-							params={{ projectId: project.id }}
-							search={{ scanRunId: undefined }}
-							className="project-open-link"
-						>
-							Open Intelligence
-							<ChevronRight className="icon" />
-						</Link>
+					<strong className="project-overview-domain-value">{scanTitle}</strong>
+					{selectedScan ? (
+						<small>
+							{formatDateTime(
+								selectedScan.completedAt ?? selectedScan.createdAt,
+							)}
+						</small>
+					) : null}
+					<p>{presentation.scan.description}</p>
+					<OverviewAction
+						action={presentation.scan.action}
+						label={presentation.scan.actionLabel}
+						projectId={project.id}
+						scanRunId={selectedScan?.id ?? null}
+						refreshing={refreshing}
+						onRefreshAnalysis={onRefreshAnalysis}
+					/>
+				</section>
+
+				<section
+					className="project-overview-domain-card"
+					aria-labelledby="project-overview-intelligence-title"
+					aria-busy={refreshing}
+				>
+					<div className="project-overview-domain-head">
+						<div className="project-overview-domain-name">
+							<Shield className="icon" />
+							<h2 id="project-overview-intelligence-title">Intelligence</h2>
+						</div>
+						<OverviewStatus
+							label={presentation.intelligence.status}
+							tone={presentation.intelligence.tone}
+						/>
+					</div>
+					<strong className="project-overview-domain-value">
+						{presentation.intelligence.title}
+					</strong>
+					{view.generation ? (
+						<small>
+							生成日時 {formatDateTime(view.generation.generatedAt)}
+						</small>
+					) : null}
+					<p>{presentation.intelligence.description}</p>
+					{presentation.intelligence.metrics.length > 0 ? (
+						<div className="project-overview-metrics">
+							{presentation.intelligence.metrics.map((metric) => (
+								<div key={metric.label}>
+									<span>{metric.label}</span>
+									<strong>{metric.value}</strong>
+								</div>
+							))}
+						</div>
+					) : null}
+					{presentation.intelligence.action &&
+					presentation.intelligence.actionLabel ? (
+						<OverviewAction
+							action={presentation.intelligence.action}
+							label={presentation.intelligence.actionLabel}
+							projectId={project.id}
+							scanRunId={selectedScan?.id ?? null}
+							refreshing={refreshing}
+							onRefreshAnalysis={onRefreshAnalysis}
+						/>
+					) : null}
+				</section>
+			</div>
+
+			<div className="project-overview-content-grid">
+				<section className="projects-band">
+					<div className="projects-section-head project-overview-table-head">
+						<div>
+							<h2>最近のスキャン</h2>
+							<p>このプロジェクトで最近実行されたスキャンです。</p>
+						</div>
 						<Link
 							to="/scans"
-							search={{ projectId: undefined, scanRunId: undefined }}
+							search={{ projectId: project.id, scanRunId: undefined }}
 							className="project-open-link"
 						>
-							Open Scans
+							すべて表示
 							<ChevronRight className="icon" />
 						</Link>
 					</div>
-				</div>
-				<DegradedReasons reasons={view?.degradedReasons ?? []} />
-				<ScanRunList projectId={project.id} scanRuns={scanRuns} />
-			</section>
+					<RecentScanTable projectId={project.id} scanRuns={scanRuns} />
+				</section>
+
+				<section className="projects-band project-overview-next-action">
+					<div className="projects-section-head">
+						<div>
+							<h2>次のアクション</h2>
+							<p>現在の状態から優先する操作です。</p>
+						</div>
+					</div>
+					<div className="project-overview-action-item">
+						<span aria-hidden="true">1</span>
+						<div>
+							<strong>{nextAction.title}</strong>
+							<small>{nextAction.description}</small>
+						</div>
+					</div>
+					{selectedScan && presentation.intelligence.action ? (
+						<div className="project-overview-action-item">
+							<span aria-hidden="true">2</span>
+							<div>
+								<strong>最新スキャンを確認</strong>
+								<small>実行結果と保存された成果物を確認します。</small>
+							</div>
+						</div>
+					) : null}
+				</section>
+			</div>
 			<SecurityCapabilityPanel projectId={project.id} />
 		</>
 	);

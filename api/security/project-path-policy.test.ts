@@ -1,11 +1,12 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
-	authorizeProjectPath,
+	authorizeProjectPathWithinRoots,
 	canonicalizeProjectAllowedRoots,
 	ProjectPathPolicyError,
+	resolveProjectPath,
 } from "./project-path-policy";
 
 describe("project path policy", () => {
@@ -23,86 +24,81 @@ describe("project path policy", () => {
 	});
 
 	afterEach(async () => {
+		vi.restoreAllMocks();
 		await fs.rm(temporaryRoot, { recursive: true, force: true });
 	});
 
-	it("allows a configured root and its descendants", async () => {
+	it("resolves any existing readable directory", async () => {
 		await expect(
-			authorizeProjectPath({
-				projectPath: allowedRoot,
-				allowedRoots: [allowedRoot],
-			}),
+			resolveProjectPath(allowedRoot),
 		).resolves.toMatchObject({
 			canonicalPath: await fs.realpath(allowedRoot),
 		});
 		await expect(
-			authorizeProjectPath({
-				projectPath,
-				allowedRoots: [allowedRoot],
-			}),
+			resolveProjectPath(projectPath),
 		).resolves.toMatchObject({
 			canonicalPath: await fs.realpath(projectPath),
 		});
 	});
 
-	it("does not confuse sibling path prefixes", async () => {
+	it("allows sibling paths and traversal outside the startup directory", async () => {
 		const sibling = path.join(temporaryRoot, "repo-safe-evil");
 		await fs.mkdir(sibling);
 		await expect(
-			authorizeProjectPath({
-				projectPath: sibling,
-				allowedRoots: [allowedRoot],
-			}),
-		).rejects.toMatchObject({ code: "PROJECT_PATH_NOT_ALLOWED" });
-	});
-
-	it("rejects traversal outside an allowed root", async () => {
+			resolveProjectPath(sibling),
+		).resolves.toMatchObject({ canonicalPath: await fs.realpath(sibling) });
 		await expect(
-			authorizeProjectPath({
-				projectPath: path.join(projectPath, "..", ".."),
-				allowedRoots: [allowedRoot],
-			}),
-		).rejects.toMatchObject({ code: "PROJECT_PATH_NOT_ALLOWED" });
+			resolveProjectPath(path.join(projectPath, "..", "..")),
+		).resolves.toMatchObject({ canonicalPath: await fs.realpath(temporaryRoot) });
 	});
 
-	it("rejects a symlink that resolves outside an allowed root", async () => {
+	it("accepts a readable directory reached through a symlink", async () => {
 		const outside = path.join(temporaryRoot, "outside");
 		const link = path.join(allowedRoot, "linked-project");
 		await fs.mkdir(outside);
 		await fs.symlink(outside, link, "dir");
 		await expect(
-			authorizeProjectPath({
-				projectPath: link,
-				allowedRoots: [allowedRoot],
-			}),
-		).rejects.toMatchObject({ code: "PROJECT_PATH_NOT_ALLOWED" });
+			resolveProjectPath(link),
+		).resolves.toMatchObject({ canonicalPath: await fs.realpath(outside) });
 	});
 
-	it("rejects missing paths, files, and an empty allowed-root policy", async () => {
+	it("rejects missing paths and files", async () => {
 		const filePath = path.join(allowedRoot, "README.md");
 		await fs.writeFile(filePath, "test");
 		await expect(
-			authorizeProjectPath({
-				projectPath: path.join(allowedRoot, "missing"),
-				allowedRoots: [allowedRoot],
-			}),
+			resolveProjectPath(path.join(allowedRoot, "missing")),
 		).rejects.toMatchObject({ code: "PROJECT_PATH_NOT_FOUND" });
 		await expect(
-			authorizeProjectPath({
-				projectPath: filePath,
-				allowedRoots: [allowedRoot],
-			}),
+			resolveProjectPath(filePath),
 		).rejects.toMatchObject({ code: "PROJECT_PATH_NOT_DIRECTORY" });
-		await expect(
-			authorizeProjectPath({ projectPath, allowedRoots: [] }),
-		).rejects.toMatchObject({ code: "PROJECT_PATH_NOT_ALLOWED" });
 	});
 
-	it("supports multiple roots and canonicalizes duplicates", async () => {
+	it("distinguishes unreadable paths from missing paths", async () => {
+		vi.spyOn(fs, "access").mockRejectedValueOnce(
+			Object.assign(new Error("permission denied"), { code: "EACCES" }),
+		);
+
+		await expect(resolveProjectPath(projectPath)).rejects.toMatchObject({
+			code: "PROJECT_PATH_UNREADABLE",
+		});
+	});
+
+	it("rechecks that the canonical target is still a directory", async () => {
+		const realStat = fs.stat.bind(fs);
+		vi.spyOn(fs, "stat")
+			.mockImplementationOnce(realStat)
+			.mockResolvedValueOnce({ isDirectory: () => false } as never);
+
+		await expect(resolveProjectPath(projectPath)).rejects.toMatchObject({
+			code: "PROJECT_PATH_NOT_DIRECTORY",
+		});
+	});
+
+	it("supports client-specific roots and canonicalizes duplicates", async () => {
 		const secondRoot = path.join(temporaryRoot, "second-root");
 		await fs.mkdir(secondRoot);
 		await expect(
-			authorizeProjectPath({
+			authorizeProjectPathWithinRoots({
 				projectPath: secondRoot,
 				allowedRoots: [allowedRoot, secondRoot],
 			}),
@@ -112,6 +108,12 @@ describe("project path policy", () => {
 		await expect(
 			canonicalizeProjectAllowedRoots([allowedRoot, allowedRoot]),
 		).resolves.toEqual([await fs.realpath(allowedRoot)]);
+		await expect(
+			authorizeProjectPathWithinRoots({
+				projectPath: secondRoot,
+				allowedRoots: [allowedRoot],
+			}),
+		).rejects.toMatchObject({ code: "PROJECT_PATH_NOT_ALLOWED" });
 	});
 
 	it("fails closed when a configured root is invalid", async () => {

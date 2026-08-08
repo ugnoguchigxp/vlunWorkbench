@@ -21,21 +21,18 @@ export function createDastAuthRoute(deps: {
 }) {
 	const dastRepository = new DastRepository(deps.db);
 	const route = new Hono();
-	const repository = () => {
+	const repository = new DastAuthContextRepository(deps.db, () => {
 		if (!deps.env.dastAuthEncryptionKey) {
 			throw new HttpError(
 				409,
-				"DAST_AUTH_ENCRYPTION_KEY is required for auth contexts.",
+				"Configure a DAST auth encryption key in Settings or set DAST_AUTH_ENCRYPTION_KEY.",
 			);
 		}
-		return new DastAuthContextRepository(
-			deps.db,
-			new DastAuthContextCrypto(
-				deps.env.dastAuthEncryptionKey,
-				deps.env.dastAuthPreviousEncryptionKeys,
-			),
+		return new DastAuthContextCrypto(
+			deps.env.dastAuthEncryptionKey,
+			deps.env.dastAuthPreviousEncryptionKeys,
 		);
-	};
+	});
 	const assertOwner = async (projectId: string, userId: string) => {
 		const project = await deps.projectRepository.findById(projectId);
 		if (!project || project.ownerUserId !== userId) {
@@ -54,7 +51,7 @@ export function createDastAuthRoute(deps: {
 		const user = getAuthContextUser(c);
 		const projectId = c.req.param("projectId");
 		await assertOwner(projectId, user.userId);
-		return c.json({ authContexts: await repository().list(projectId) });
+		return c.json({ authContexts: await repository.list(projectId) });
 	});
 	route.post("/projects/:projectId/dast-auth-contexts", async (c) => {
 		const user = getAuthContextUser(c);
@@ -79,7 +76,7 @@ export function createDastAuthRoute(deps: {
 				error instanceof Error ? error.message : String(error),
 			);
 		}
-		const authContext = await repository().create({
+		const authContext = await repository.create({
 			...parsed.data,
 			projectId,
 			createdByUserId: user.userId,
@@ -99,7 +96,7 @@ export function createDastAuthRoute(deps: {
 					parsed.error.issues.map((issue) => issue.message).join("; "),
 				);
 			}
-			const authRepository = repository();
+			const authRepository = repository;
 			const existing = await authRepository.get(
 				c.req.param("authContextId"),
 				projectId,
@@ -140,7 +137,7 @@ export function createDastAuthRoute(deps: {
 			const user = getAuthContextUser(c);
 			const projectId = c.req.param("projectId");
 			await assertOwner(projectId, user.userId);
-			const authContext = await repository().revoke(
+			const authContext = await repository.revoke(
 				c.req.param("authContextId"),
 				projectId,
 				user.userId,

@@ -140,10 +140,12 @@ describe("CodexSdkProvider", () => {
 		});
 		const provider = new CodexSdkProvider({
 			model: "gpt-5.4-mini",
+			apiKey: "   ",
 			codexHome: path.join(tmpRoot, "codex-home"),
 			tmpRoot,
 			env: {
 				PATH: "/usr/bin",
+				CODEX_API_KEY: "\t",
 				OPENAI_API_KEY: "openai-env-key",
 			},
 			codexConstructor: CodexMock as any,
@@ -158,6 +160,7 @@ describe("CodexSdkProvider", () => {
 		expect(codexOptions?.apiKey).toBeUndefined();
 		expect(codexOptions?.env.CODEX_API_KEY).toBe("openai-env-key");
 		expect(codexOptions?.env.OPENAI_API_KEY).toBeUndefined();
+		expect(provider.getDiagnostics().authSource).toBe("environment");
 	});
 
 	it("maps empty final responses to provider execution errors", async () => {
@@ -179,6 +182,94 @@ describe("CodexSdkProvider", () => {
 		await expect(
 			provider.chatCompletion([{ role: "user", content: "hello" }]),
 		).rejects.toBeInstanceOf(LlmProviderExecutionError);
+	});
+
+	it("reports working directory setup failures as provider errors", async () => {
+		const provider = new CodexSdkProvider({
+			model: "gpt-5.4-mini",
+			createWorkingDirectory: async () => {
+				throw new Error("host path must not leak");
+			},
+		});
+
+		await expect(
+			provider.chatCompletion([{ role: "user", content: "hello" }]),
+		).rejects.toMatchObject({
+			name: "LlmProviderExecutionError",
+			message: "Codex SDK working directory setup failed.",
+			details: {
+				code: "codex_working_directory_setup_failed",
+			},
+		});
+	});
+
+	it("never cleans up an unowned working directory returned by a test hook", async () => {
+		let removerCalled = false;
+		const provider = new CodexSdkProvider({
+			model: "gpt-5.4-mini",
+			tmpRoot,
+			createWorkingDirectory: async () => tmpRoot,
+			removeWorkingDirectory: async () => {
+				removerCalled = true;
+			},
+		});
+
+		await expect(
+			provider.chatCompletion([{ role: "user", content: "hello" }]),
+		).rejects.toMatchObject({
+			message: "Codex SDK working directory setup failed.",
+		});
+		expect(removerCalled).toBe(false);
+		await fs.access(tmpRoot);
+	});
+
+	it("reports working directory cleanup failures as provider errors", async () => {
+		let workingDirectory = "";
+		const startThread = vi.fn().mockReturnValue({
+			id: "thread-cleanup",
+			run: vi.fn().mockResolvedValue({
+				finalResponse: "done",
+				usage: null,
+			}),
+		});
+		const provider = new CodexSdkProvider({
+			model: "gpt-5.4-mini",
+			tmpRoot,
+			createWorkingDirectory: async () => {
+				workingDirectory = await fs.mkdtemp(
+					path.join(tmpRoot, "vuln-workbench-codex-cleanup-failure-"),
+				);
+				return workingDirectory;
+			},
+			removeWorkingDirectory: async () => {
+				// Simulate a cleanup implementation that silently leaves the directory.
+			},
+			codexConstructor: vi.fn(function () {
+				return { startThread };
+			}) as any,
+		});
+
+		await expect(
+			provider.chatCompletion([{ role: "user", content: "hello" }]),
+		).rejects.toMatchObject({
+			name: "LlmProviderExecutionError",
+			message: "Codex SDK working directory cleanup failed.",
+			details: {
+				code: "codex_working_directory_cleanup_failed",
+			},
+		});
+	});
+
+	it("marks Codex home authentication as unverified in synchronous diagnostics", () => {
+		const provider = new CodexSdkProvider({
+			model: "gpt-5.4-mini",
+			codexHome: path.join(tmpRoot, "codex-home"),
+			env: {},
+		});
+
+		expect(provider.getDiagnostics().authSource).toBe(
+			"codex-home-unverified",
+		);
 	});
 
 	it("wraps SDK failures as provider execution errors", async () => {

@@ -192,7 +192,6 @@ bun run api/cli/llm-route-repair.ts -- \
 | `JWT_SECRET` | JWT signing secret。production では必ず変更する。 |
 | `APP_URL` | public app origin と cookie/CORS の基準。 |
 | `CORS_ORIGINS` | 追加で許可する origin。 |
-| `PROJECT_ALLOWED_ROOTS` | Web/APIから登録・scanできるproject rootのカンマ区切り一覧。developmentの未設定時はcurrent working directory、productionの未設定時はfail-closed。 |
 
 LLM endpoint、model、task routing、暗号化されたprovider credentialは
 **Settings > LLM Providers**で管理します。従来のOpenAI/Azure環境変数は、
@@ -200,11 +199,32 @@ LLM endpoint、model、task routing、暗号化されたprovider credentialは
 scannerの実行方式、host実行許可、Docker imageとresource上限、scanner出力上限、
 Codex SDK timeoutは **Settings > Runtime Settings** で設定し、検証後にSQLiteへ
 保存されます。従来の環境変数は、既存環境からの移行互換性のため、Runtime
-Settingsを最初に保存するまでの初期値としてのみ利用されます。通常調整しない
-capability rolloutの既定値はrelease policyとして
+Settingsを最初に保存するまでの初期値としてのみ利用されます。
+認証DASTの暗号化キーも同画面で入力または自動生成できます。この値はAPIでは
+write-onlyとして扱われ、SQLiteへの保存前に`JWT_SECRET`を使ってラップされます。
+環境変数で管理する場合は、従来どおり`DAST_AUTH_ENCRYPTION_KEY`を利用できます。
+通常調整しないcapability rolloutの既定値はrelease policyとして
 `api/config/appDefaults.ts`に集約しています。
 
 LLM API key は host 側に置きます。scanner container や scan 対象 project に LLM credential を渡してはいけません。Docker scanではmemory、CPU、memory-swap、PID上限を常に適用し、stdout、stderr、構造化結果fileが設定byte上限を超えた場合は失敗として扱います。
+
+### Codex SDK live contract test
+
+Codex SDK の実モデル疎通は通常の `bun run test` / `bun run verify` には含まれません。
+次の opt-in command だけが、指定modelで課金対象の Codex turn を1回実行します。
+
+```bash
+VULN_WORKBENCH_CODEX_LIVE=1 \
+bun run verify:codex-live -- \
+  --model <利用可能なモデル>
+```
+
+実行には `OPENAI_API_KEY` または `CODEX_API_KEY` が必要です。個人の
+`~/.codex` auth cache は再利用せず、一時 `HOME` / `CODEX_HOME` と空の
+read-only working directory を使用します。成功時はmodel、duration、token usage、
+thread ID、validation結果などの非機密metadataだけを出力し、prompt、response本文、
+credentialは出力しません。
+既定timeoutは180秒で、`--timeout-ms`により1,000〜300,000ミリ秒の範囲で変更できます。
 
 ## CLI Workflows
 

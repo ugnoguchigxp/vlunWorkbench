@@ -144,7 +144,6 @@ describe("NightworkersIntegrationService", () => {
 		}));
 		const env = {
 			nodeEnv: "test",
-			projectAllowedRoots: [root],
 			nightworkersIntegrationAutoCreateProjects: false,
 			nightworkersIntegrationAllowedProfiles: [
 				"source-baseline",

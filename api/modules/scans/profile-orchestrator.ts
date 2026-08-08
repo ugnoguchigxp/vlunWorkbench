@@ -1,6 +1,6 @@
 import type { ScanTarget } from "../../../shared/schemas/scan-target.schema";
 import type { AppDatabase } from "../../db";
-import { authorizeProjectPath } from "../../security/project-path-policy";
+import { resolveProjectPath } from "../../security/project-path-policy";
 import {
 	analyzeProjectCapabilities,
 	buildPluginExecutionSummary,
@@ -22,9 +22,9 @@ import {
 	resolveProfileSteps,
 } from "./profile-runner";
 import { executeProfileSteps } from "./profile-step-orchestrator";
-import { aggregateRuntimeAssessmentCoverage } from "./runtime-assessment-coverage";
 import { getProfileById } from "./profiles";
 import { ArtifactRepository, ScanRepository } from "./repositories";
+import { aggregateRuntimeAssessmentCoverage } from "./runtime-assessment-coverage";
 import { resolveScanScope } from "./target-scope";
 import {
 	normalizeToolExecutionConfig,
@@ -47,7 +47,6 @@ export async function runProfileScan(params: {
 	imageTar?: string;
 	executionPolicyMetadata?: Record<string, unknown>;
 	executionSurface?: "cli" | "web";
-	projectAllowedRoots?: readonly string[];
 	target?: ScanTarget;
 	expectedTargetDigest?: string;
 	consentProjectCodeExecution?: boolean;
@@ -57,10 +56,7 @@ export async function runProfileScan(params: {
 	const artifactStorage = new ArtifactStorage();
 	const execution = normalizeToolExecutionConfig(params.execution);
 	if (params.executionSurface === "web") {
-		const authorized = await authorizeProjectPath({
-			projectPath: params.repoPath,
-			allowedRoots: params.projectAllowedRoots ?? [],
-		});
+		const authorized = await resolveProjectPath(params.repoPath);
 		params.repoPath = authorized.canonicalPath;
 	}
 
