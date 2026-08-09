@@ -1,12 +1,16 @@
+import type { StaticIntelligenceExportV1 } from "../../../shared/schemas/static-intelligence.schema";
 import type { CodeStructureSnapshot } from "../../../shared/schemas/static-intelligence-code-structure.schema";
 import type {
 	ExplorationVerificationClue,
 	ProjectExplorationCatalogFailure,
 	ProjectExplorationCatalogInput,
 	ProjectExplorationCatalogResult,
+	ProjectExplorationCatalogV2Result,
 } from "../../../shared/schemas/static-intelligence-exploration-catalog.schema";
-import { projectExplorationCatalogResultSchema } from "../../../shared/schemas/static-intelligence-exploration-catalog.schema";
-import type { StaticIntelligenceExportV1 } from "../../../shared/schemas/static-intelligence.schema";
+import {
+	projectExplorationCatalogResultSchema,
+	projectExplorationCatalogV2ResultSchema,
+} from "../../../shared/schemas/static-intelligence-exploration-catalog.schema";
 import { redactSecrets } from "../scans/normalizers/redaction";
 import type { buildStaticIntelligenceModuleCandidates } from "./module-candidates";
 
@@ -64,6 +68,39 @@ export function fitCatalogResponseBudget(
 	initial: ProjectExplorationCatalogResult,
 	totals: { files: number; tests: number; verificationCommands: number },
 ): ProjectExplorationCatalogResult | ProjectExplorationCatalogFailure {
+	return fitCatalogResponseBudgetInternal(initial, totals, (value) =>
+		projectExplorationCatalogResultSchema.parse(value),
+	);
+}
+
+export function fitCatalogV2ResponseBudget(
+	initial: ProjectExplorationCatalogV2Result,
+	totals: { files: number; tests: number; verificationCommands: number },
+): ProjectExplorationCatalogV2Result | ProjectExplorationCatalogFailure {
+	return fitCatalogResponseBudgetInternal(initial, totals, (value) =>
+		projectExplorationCatalogV2ResultSchema.parse(value),
+	);
+}
+
+type BudgetedCatalogResult = {
+	status: "completed" | "degraded";
+	degradedReasons: string[];
+	likelyFiles: unknown[];
+	relatedTests: unknown[];
+	verificationCandidates: unknown[];
+	truncation: {
+		truncated: boolean;
+		omittedFiles: number;
+		omittedTests: number;
+		omittedVerificationCommands: number;
+	};
+};
+
+function fitCatalogResponseBudgetInternal<T extends BudgetedCatalogResult>(
+	initial: T,
+	totals: { files: number; tests: number; verificationCommands: number },
+	parse: (value: unknown) => T,
+): T | ProjectExplorationCatalogFailure {
 	const result = structuredClone(initial);
 	let budgetTrimmed = false;
 	while (serializedBytes(result) > TARGET_RESPONSE_BYTES) {
@@ -93,12 +130,21 @@ export function fitCatalogResponseBudget(
 			"Catalog provenance exceeds hard response budget.",
 		);
 	}
-	return projectExplorationCatalogResultSchema.parse(result);
+	return parse(result);
 }
+
+export type ExplorationSearchSnapshot = {
+	files: Array<
+		Pick<
+			CodeStructureSnapshot["files"][number],
+			"path" | "tags" | "exportedSymbols" | "identifiers"
+		>
+	>;
+};
 
 export function termMatchesGeneration(
 	term: string,
-	snapshot: CodeStructureSnapshot,
+	snapshot: ExplorationSearchSnapshot,
 	modules: ReturnType<typeof buildStaticIntelligenceModuleCandidates>,
 ): boolean {
 	return (
@@ -110,7 +156,7 @@ export function termMatchesGeneration(
 
 export function termMatchesFile(
 	term: string,
-	file: CodeStructureSnapshot["files"][number],
+	file: ExplorationSearchSnapshot["files"][number],
 ): boolean {
 	return (
 		termMatchesFilePathOrTag(term, file) ||
@@ -121,7 +167,7 @@ export function termMatchesFile(
 
 export function termMatchesFilePathOrTag(
 	term: string,
-	file: CodeStructureSnapshot["files"][number],
+	file: ExplorationSearchSnapshot["files"][number],
 ): boolean {
 	const basename = file.path.split("/").at(-1) ?? file.path;
 	return [file.path, basename, ...file.path.split("/"), ...file.tags].some(

@@ -1,8 +1,14 @@
 import { desc, eq } from "drizzle-orm";
+import type {
+	ProjectExplorationCatalogReadiness,
+	ProjectExplorationCatalogSource,
+} from "../../../shared/schemas/static-intelligence-exploration-catalog.schema";
 import type { AppDatabase } from "../../db";
 import { scanRuns } from "../../db/schema";
 import { ScanRepository } from "../scans/repositories";
+import { summarizeProjectExplorationReadiness } from "./exploration-catalog";
 import { StaticIntelligenceGenerationRepository } from "./generation-repository";
+import type { PersistedStaticIntelligenceGeneration } from "./generation-repository-types";
 import { StaticIntelligencePrepareRepository } from "./prepare-repository";
 import {
 	ProjectPathResolutionError,
@@ -29,6 +35,8 @@ export type ProjectIntelligenceStatusResult = {
 	message?: string;
 	retryable?: boolean;
 	durationMs?: number;
+	source?: ProjectExplorationCatalogSource;
+	readiness?: ProjectExplorationCatalogReadiness;
 	provenance?: {
 		projectId: string;
 		scanRunId?: string;
@@ -70,7 +78,13 @@ export async function prepareProjectIntelligence(params: {
 				ready.generationId,
 			);
 			if (generation) {
-				return statusResponse(ready, resolved.projectPath, "ready", true);
+				return statusResponse(
+					ready,
+					resolved.projectPath,
+					"ready",
+					true,
+					generation,
+				);
 			}
 		}
 
@@ -181,7 +195,13 @@ export async function getProjectIntelligenceStatus(params: {
 				params.db,
 			).loadGeneration(ready.scanRunId, ready.generationId);
 			if (generation) {
-				return statusResponse(ready, resolved.projectPath, "ready", true);
+				return statusResponse(
+					ready,
+					resolved.projectPath,
+					"ready",
+					true,
+					generation,
+				);
 			}
 		}
 		const latestGeneration = await loadLatestPublishedGeneration(
@@ -196,6 +216,7 @@ export async function getProjectIntelligenceStatus(params: {
 				stage: "complete",
 				reused: true,
 				nextAction: "vuln_prepare_project_intelligence",
+				...generationCapability(latestGeneration),
 				provenance: {
 					projectId: resolved.project.id,
 					scanRunId: latestGeneration.scanRunId,
@@ -260,6 +281,7 @@ function statusResponse(
 	projectPath: string,
 	status: "queued" | "running" | "ready",
 	reused: boolean,
+	generation?: PersistedStaticIntelligenceGeneration,
 ): ProjectIntelligenceStatusResult {
 	return {
 		ok: true,
@@ -272,12 +294,33 @@ function statusResponse(
 			(job.completedAt ?? new Date()).getTime() - job.createdAt.getTime(),
 		),
 		...(status === "ready" ? {} : { retryAfterMs: 2000 }),
+		...(status === "ready" && generation
+			? generationCapability(generation)
+			: {}),
 		provenance: {
 			projectId: job.projectId,
 			prepareJobId: job.id,
 			...(job.scanRunId ? { scanRunId: job.scanRunId } : {}),
 			...(job.generationId ? { generationId: job.generationId } : {}),
 		},
+	};
+}
+
+function generationCapability(
+	generation: PersistedStaticIntelligenceGeneration,
+): Pick<ProjectIntelligenceStatusResult, "source" | "readiness"> {
+	const metadata = generation.projectStructure.metadata;
+	if (!metadata.snapshotRef) return {};
+	return {
+		source: {
+			structureSchemaVersion: "project-structure-v2",
+			snapshotRef: metadata.snapshotRef,
+			revision: metadata.sourceRevision,
+		},
+		readiness: summarizeProjectExplorationReadiness(
+			generation.projectStructure.snapshot,
+			generation.status,
+		),
 	};
 }
 

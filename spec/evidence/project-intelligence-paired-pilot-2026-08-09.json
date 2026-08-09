@@ -1,0 +1,233 @@
+{
+  "schemaVersion": "project-intelligence-paired-pilot-evidence-v1",
+  "pilotId": "project-intelligence-foundation-2026-08-09-sequential-v1",
+  "recordedAt": "2026-08-09T22:50:42+09:00",
+  "decision": "INSUFFICIENT_EVIDENCE",
+  "decisionReasonCodes": [
+    "minimum_pair_count_not_met",
+    "catalog_not_called",
+    "completion_evidence_missing",
+    "verification_evidence_missing",
+    "provider_capacity_failures",
+    "consumer_worktree_dirty",
+    "competing_nightworkers_process",
+    "pilot_database_run_loss"
+  ],
+  "controls": {
+    "repositoryId": "984c8844-643e-4596-93a5-703a8d14a1e0",
+    "repositoryRoot": "/Users/y.noguchi/Code/todolist",
+    "baseHead": "d87bfdd9f29aa64e484a0c4d1ad02956136dc6b0",
+    "targetRepositoryCleanAtStart": true,
+    "consumerHead": "54b08611b09da756b5385c6603022844da66bdf2",
+    "consumerCleanAtStart": false,
+    "runtimeLane": "native-api-runner",
+    "providerId": "openai",
+    "providerEndpointId": "ep_907907e7976062f8",
+    "model": "Qwen3.6-27B",
+    "thinkingDepth": "low",
+    "independentWorktrees": true,
+    "samePromptWithinPair": true,
+    "featureFlagRestoredToOff": true,
+    "pilotMcpServerDisabledAfterAbort": true,
+    "activePilotRunCountAfterAbort": 0,
+    "evidenceDatabase": "/Users/y.noguchi/Code/NightWorkers/.nightworkers/sqlite.db"
+  },
+  "producer": {
+    "contractVersion": "v2",
+    "structureSchemaVersion": "project-structure-v2",
+    "revisionGuardPassedForAvailablePins": true,
+    "readiness": {
+      "usability": "degraded_usable",
+      "reasonCodes": [
+        "generation_degraded"
+      ],
+      "coverage": {
+        "inventoriedFiles": 110,
+        "analyzedFiles": 96,
+        "resolvedReferences": 169,
+        "unresolvedReferences": 0,
+        "inferredModules": 14
+      }
+    },
+    "preparation": {
+      "reusedForAllFormalCatalogRuns": true,
+      "durationMs": [
+        167,
+        156,
+        142,
+        137,
+        137
+      ],
+      "medianDurationMs": 142
+    }
+  },
+  "sample": {
+    "requiredPairCount": 10,
+    "completeFormalPairCount": 5,
+    "partialFormalPairCount": 1,
+    "warmupPairCount": 1,
+    "formalCatalogAvailableCount": 5,
+    "formalCatalogCallCount": 0,
+    "formalCatalogFailureCount": 0,
+    "baselineCompletionCount": 0,
+    "catalogCompletionCount": 0,
+    "baselineVerificationEvidenceCount": 0,
+    "catalogVerificationEvidenceCount": 0,
+    "wrongRevisionIncidentCount": 0,
+    "wrongProjectIncidentCount": 0,
+    "unsafePathIncidentCount": 0,
+    "catalogFailurePropagationCount": 0,
+    "catalogProviderCapacityFailureCount": 5,
+    "medianBaselineExploratoryToolCallsBeforeMutation": 8,
+    "medianCatalogExploratoryToolCallsBeforeMutation": 0,
+    "explorationReductionComparable": false,
+    "inputTokenReductionComparable": false,
+    "comparisonInvalidReason": "Every formal catalog run ended before calling the catalog tool; one had no token telemetry. Zero catalog-side exploration therefore represents early runtime failure, not an observed reduction."
+  },
+  "formalPairs": [
+    {
+      "pairId": "p01",
+      "category": "frontend-routing",
+      "baseline": {
+        "runId": "0f5597ef-3aa6-4379-8944-ddc652618e8c",
+        "status": "failed",
+        "exploratoryToolCallsBeforeMutation": 8,
+        "uniqueFilesReadBeforeMutation": 7,
+        "inputTokens": 25916,
+        "timeToFirstMutationMs": null,
+        "providerFailureKind": "provider_provider_capacity"
+      },
+      "catalog": {
+        "runId": "c2269f60-008e-4d07-9f2e-464b56efc129",
+        "status": "failed",
+        "available": true,
+        "called": false,
+        "inputTokens": 7484,
+        "providerFailureKind": "provider_provider_capacity"
+      }
+    },
+    {
+      "pairId": "p02",
+      "category": "backend-configuration",
+      "baseline": {
+        "runId": "44665b00-d867-4202-886e-6012ebe5508b",
+        "status": "failed",
+        "exploratoryToolCallsBeforeMutation": 7,
+        "uniqueFilesReadBeforeMutation": 4,
+        "inputTokens": 165585,
+        "timeToFirstMutationMs": 320444,
+        "providerFailureKind": "provider_provider_capacity"
+      },
+      "catalog": {
+        "runId": "a527c91a-6b5f-40e0-b7a7-93358660b52b",
+        "status": "failed",
+        "available": true,
+        "called": false,
+        "inputTokens": 7478,
+        "providerFailureKind": "provider_provider_capacity"
+      }
+    },
+    {
+      "pairId": "p03",
+      "category": "shared-auth-contract",
+      "baseline": {
+        "runId": "f6dc8c4b-0980-4124-8845-e8898e6623b8",
+        "status": "needs_human",
+        "exploratoryToolCallsBeforeMutation": 15,
+        "uniqueFilesReadBeforeMutation": 8,
+        "inputTokens": 263385,
+        "timeToFirstMutationMs": 387833,
+        "providerFailureKind": "provider_unknown"
+      },
+      "catalog": {
+        "runId": "6bc6f62e-002e-4352-9d44-1957b6147aa4",
+        "status": "failed",
+        "available": true,
+        "called": false,
+        "inputTokens": null,
+        "providerFailureKind": "provider_provider_capacity"
+      }
+    },
+    {
+      "pairId": "p04",
+      "category": "database-runtime",
+      "baseline": {
+        "runId": "72d9c9ee-ea14-48ae-97f3-6136c1747f61",
+        "status": "needs_human",
+        "exploratoryToolCallsBeforeMutation": 11,
+        "uniqueFilesReadBeforeMutation": 9,
+        "inputTokens": 202867,
+        "timeToFirstMutationMs": 322858,
+        "providerFailureKind": "provider_unknown"
+      },
+      "catalog": {
+        "runId": "0501276b-f3d7-49ee-91df-5b9d26e76e99",
+        "status": "failed",
+        "available": true,
+        "called": false,
+        "inputTokens": 7469,
+        "providerFailureKind": "provider_provider_capacity"
+      }
+    },
+    {
+      "pairId": "p05",
+      "category": "security-policy",
+      "baseline": {
+        "runId": "b1deddb7-2d91-4a66-8d57-5c36aaefa5ce",
+        "status": "needs_human",
+        "exploratoryToolCallsBeforeMutation": 8,
+        "uniqueFilesReadBeforeMutation": 3,
+        "inputTokens": 312913,
+        "timeToFirstMutationMs": 228607,
+        "providerFailureKind": "provider_unknown"
+      },
+      "catalog": {
+        "runId": "81c05d71-9508-424a-b41c-27f903fb7b77",
+        "status": "failed",
+        "available": true,
+        "called": false,
+        "inputTokens": 7464,
+        "providerFailureKind": "provider_provider_capacity"
+      }
+    }
+  ],
+  "partialAndWarmup": {
+    "partialP06": {
+      "baselineRunId": "593d3523-c669-46df-b0a6-3e7b7bcd6349",
+      "baselineStatus": "needs_human",
+      "catalogRunId": "cdb52a7b-4057-4dfa-a02d-fdf014d3030d",
+      "catalogRecordMissingAfterProcessInterruption": true
+    },
+    "missingP07": {
+      "runId": "efc2cfd1-16d6-4672-ab50-b6df6688b987",
+      "recordMissing": true,
+      "observedFailure": "Foreign-key failures while persisting LLM usage and task events after the run record disappeared."
+    },
+    "warmup": {
+      "baselineRunId": "42f626a0-40c0-4d13-8d78-8016bcc2c58e",
+      "catalogRunId": "9b8617cd-efc5-4b24-b8c7-06d1192af8ce",
+      "excludedFromFormalAggregate": true,
+      "reason": "The two runs were started concurrently and the catalog run hit provider capacity. Both records remain in the evidence database."
+    }
+  },
+  "gateResults": {
+    "minimumTenPairs": false,
+    "pairedControls": true,
+    "consumerSourceClean": false,
+    "explorationReduction": null,
+    "inputTokenReduction": null,
+    "completionNonRegression": null,
+    "verificationNonRegression": null,
+    "zeroUnsafeIncidents": true,
+    "noCatalogReworkIncrease": null,
+    "zeroCatalogFailurePropagation": true
+  },
+  "requiredBeforeRepilot": [
+    "Run from a clean NightWorkers worktree containing the producer/consumer changes.",
+    "Use exactly one NightWorkers process against the pilot database, or submit the pilot through the owning API process.",
+    "Add a provider recovery cooldown between pair members and pairs.",
+    "Add bounded same-route retry for retryable provider-capacity failures, or select a stable native API endpoint.",
+    "Verify the available-system prompt causes project_exploration_catalog to be called before broad repository exploration.",
+    "Use a fresh dedicated pilot database and retain all failed/timed-out runs."
+  ]
+}

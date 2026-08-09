@@ -1,5 +1,5 @@
 import type { AppDatabase } from "../../db";
-import { buildProjectExplorationCatalog } from "./exploration-catalog";
+import { buildProjectExplorationCatalogV2 } from "./exploration-catalog";
 import {
 	getEvidenceBundleInputSchema,
 	getGuardrailMaterialInputSchema,
@@ -110,7 +110,7 @@ export function createStaticIntelligenceMcpToolRegistry(
 			params.allowedProjectRoots ?? [],
 		);
 		if (!context.ok) return context.failure;
-		const defaultPaths = context.generation.structure.snapshot.files
+		const defaultPaths = context.generation.projectStructure.snapshot.files
 			.slice(0, 10)
 			.map((file) => file.path);
 		const focus = parsed.data.focus
@@ -127,7 +127,7 @@ export function createStaticIntelligenceMcpToolRegistry(
 			params.db,
 			context.generation,
 		);
-		const result = buildProjectExplorationCatalog({
+		const result = buildProjectExplorationCatalogV2({
 			generation: {
 				projectId: context.generation.projectId,
 				scanRunId: context.generation.scanRunId,
@@ -136,6 +136,10 @@ export function createStaticIntelligenceMcpToolRegistry(
 				structure: {
 					metadata: context.generation.structure.metadata,
 					snapshot: context.generation.structure.snapshot,
+				},
+				projectStructure: {
+					metadata: context.generation.projectStructure.metadata,
+					snapshot: context.generation.projectStructure.snapshot,
 				},
 				export: { payload: context.generation.export.payload },
 			},

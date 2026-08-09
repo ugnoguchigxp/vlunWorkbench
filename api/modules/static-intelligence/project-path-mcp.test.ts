@@ -291,7 +291,16 @@ describe("projectPath-first Static Intelligence MCP", () => {
 			projectPath: projectDir,
 			allowedProjectRoots: [tempDir],
 		});
-		expect(reused).toMatchObject({ ok: true, status: "ready", reused: true });
+		expect(reused).toMatchObject({
+			ok: true,
+			status: "ready",
+			reused: true,
+			source: { structureSchemaVersion: "project-structure-v2" },
+			readiness: {
+				usability: "degraded_usable",
+				coverage: { inventoriedFiles: 1, analyzedFiles: 1 },
+			},
+		});
 		expect(tableCounts(connection)).toEqual(reusedBefore);
 
 		const projectId = queued.provenance?.projectId;
@@ -312,6 +321,18 @@ describe("projectPath-first Static Intelligence MCP", () => {
 			input: { projectPath: projectDir },
 			allowedProjectRoots: [tempDir],
 		});
+		expect(catalog).toMatchObject({
+			ok: true,
+			version: "v2",
+			source: { structureSchemaVersion: "project-structure-v2" },
+			readiness: {
+				usability: "degraded_usable",
+				coverage: { inventoriedFiles: 1, analyzedFiles: 1 },
+			},
+		});
+		expect(
+			(catalog as { source: { revision: unknown } }).source.revision,
+		).toEqual(reused.source?.revision);
 		const manifest = await tool("vuln_get_knowledge_source_manifest").handler({
 			db: connection.db,
 			input: { projectPath: projectDir },

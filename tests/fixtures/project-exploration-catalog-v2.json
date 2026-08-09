@@ -1,0 +1,82 @@
+{
+  "ok": true,
+  "status": "completed",
+  "version": "v2",
+  "generatedAt": "2026-08-09T00:00:00.000Z",
+  "freshness": { "status": "fresh" },
+  "source": {
+    "structureSchemaVersion": "project-structure-v2",
+    "snapshotRef": "project_structure:v2:fixture",
+    "revision": { "kind": "git", "head": "abc123", "value": "abc123" }
+  },
+  "readiness": {
+    "usability": "usable",
+    "reasonCodes": [],
+    "coverage": {
+      "inventoriedFiles": 5,
+      "analyzedFiles": 5,
+      "resolvedReferences": 3,
+      "unresolvedReferences": 0,
+      "inferredModules": 2
+    }
+  },
+  "focusResolution": {
+    "matchedPaths": ["src/app.ts"],
+    "matchedModuleIds": ["module:application"],
+    "matchedTerms": ["orders"],
+    "unmatched": []
+  },
+  "likelyFiles": [
+    {
+      "rank": 1,
+      "path": "src/app.ts",
+      "roleTags": ["source"],
+      "reasonCodes": ["focus_path_exact"],
+      "sourceRefs": ["file:src/app.ts"]
+    },
+    {
+      "rank": 2,
+      "path": "services/orders/OrderService.java",
+      "roleTags": ["source"],
+      "reasonCodes": ["same_module_role"],
+      "sourceRefs": ["module:module:application"]
+    },
+    {
+      "rank": 3,
+      "path": "services/orders/load_orders.py",
+      "roleTags": ["source"],
+      "reasonCodes": ["exported_symbol_match"],
+      "sourceRefs": ["term:orders"]
+    },
+    {
+      "rank": 4,
+      "path": "services/orders/store.go",
+      "roleTags": ["source"],
+      "reasonCodes": ["imports_from_focus"],
+      "sourceRefs": ["file:services/orders/OrderService.java"]
+    }
+  ],
+  "relatedTests": [
+    {
+      "rank": 1,
+      "path": "services/orders/order_service_test.py",
+      "reasonCodes": ["direct_test_importer"],
+      "sourceRefs": ["file:services/orders/OrderService.java"]
+    }
+  ],
+  "verificationCandidates": [
+    {
+      "rank": 1,
+      "command": "bun test && go test ./...",
+      "candidateOnly": true,
+      "sourceRefs": ["verification_command:1"]
+    }
+  ],
+  "truncation": {
+    "truncated": false,
+    "omittedFiles": 0,
+    "omittedTests": 0,
+    "omittedVerificationCommands": 0
+  },
+  "degradedReasons": []
+}

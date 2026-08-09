@@ -135,6 +135,36 @@ export const projectExplorationSourceRevisionSchema = z
 		}
 	});
 
+export const projectExplorationCatalogSourceSchema = z
+	.object({
+		structureSchemaVersion: z.literal("project-structure-v2"),
+		snapshotRef: z.string().min(1),
+		revision: projectExplorationSourceRevisionSchema,
+	})
+	.strict();
+export type ProjectExplorationCatalogSource = z.infer<
+	typeof projectExplorationCatalogSourceSchema
+>;
+
+export const projectExplorationCatalogReadinessSchema = z
+	.object({
+		usability: z.enum(["usable", "degraded_usable", "unusable"]),
+		reasonCodes: z.array(z.string().min(1)),
+		coverage: z
+			.object({
+				inventoriedFiles: z.number().int().nonnegative(),
+				analyzedFiles: z.number().int().nonnegative(),
+				resolvedReferences: z.number().int().nonnegative(),
+				unresolvedReferences: z.number().int().nonnegative(),
+				inferredModules: z.number().int().nonnegative(),
+			})
+			.strict(),
+	})
+	.strict();
+export type ProjectExplorationCatalogReadiness = z.infer<
+	typeof projectExplorationCatalogReadinessSchema
+>;
+
 export const projectExplorationCatalogResultSchema = z
 	.object({
 		ok: z.literal(true),
@@ -178,6 +208,49 @@ export const projectExplorationCatalogResultSchema = z
 export type ProjectExplorationCatalogResult = z.infer<
 	typeof projectExplorationCatalogResultSchema
 >;
+
+export const projectExplorationCatalogV2ResultSchema = z
+	.object({
+		ok: z.literal(true),
+		status: z.enum(["completed", "degraded"]),
+		version: z.literal("v2"),
+		generatedAt: z.string().datetime(),
+		source: projectExplorationCatalogSourceSchema,
+		readiness: projectExplorationCatalogReadinessSchema,
+		focusResolution: z
+			.object({
+				matchedPaths: z.array(projectExplorationPathSchema),
+				matchedModuleIds: z.array(z.string().min(1)),
+				matchedTerms: z.array(z.string().min(1)),
+				unmatched: z.array(z.string().min(1)),
+			})
+			.strict(),
+		likelyFiles: z.array(explorationFileClueSchema),
+		relatedTests: z.array(explorationTestClueSchema),
+		verificationCandidates: z.array(explorationVerificationClueSchema),
+		truncation: z
+			.object({
+				truncated: z.boolean(),
+				omittedFiles: z.number().int().nonnegative(),
+				omittedTests: z.number().int().nonnegative(),
+				omittedVerificationCommands: z.number().int().nonnegative(),
+			})
+			.strict(),
+		degradedReasons: z.array(z.string()),
+	})
+	.strict();
+export type ProjectExplorationCatalogV2Result = z.infer<
+	typeof projectExplorationCatalogV2ResultSchema
+>;
+
+export const projectExplorationPathCatalogV2ResultSchema =
+	projectExplorationCatalogV2ResultSchema
+		.extend({
+			freshness: z.object({ status: z.enum(["fresh", "stale"]) }).passthrough(),
+			projectPath: z.string().min(1).optional(),
+			provenance: z.record(z.string(), z.unknown()).optional(),
+		})
+		.passthrough();
 
 export const projectExplorationCatalogFailureReasonSchema = z.enum([
 	"invalid_input",
