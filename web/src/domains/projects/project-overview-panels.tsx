@@ -177,6 +177,7 @@ export function ProjectDetail({
 	activeTab,
 	intelligenceView,
 	focusPath,
+	moduleId,
 	selectedScanRunId,
 	selectedExport,
 	refreshing,
@@ -196,6 +197,7 @@ export function ProjectDetail({
 	activeTab: "list" | "overview" | "intelligence";
 	intelligenceView: IntelligenceViewId;
 	focusPath: string | null;
+	moduleId: string | null;
 	selectedScanRunId: string | null;
 	selectedExport: StaticIntelligenceExportV1 | null;
 	refreshing: boolean;
@@ -240,7 +242,7 @@ export function ProjectDetail({
 						className="project-scan-select"
 						htmlFor="project-intelligence-scan"
 					>
-						<span>Analysis scan</span>
+						<span>Intelligence source</span>
 						<SelectInput
 							id="project-intelligence-scan"
 							value={selectedScanRunId ?? ""}
@@ -299,11 +301,11 @@ export function ProjectDetail({
 				<IntelligenceView
 					project={project}
 					view={view}
-					scanRuns={scanRuns}
 					selectedScanRunId={selectedScanRunId}
 					selectedExport={selectedExport}
 					activeView={intelligenceView}
 					focusPath={focusPath}
+					moduleId={moduleId}
 					refreshing={refreshing}
 					onRefreshAnalysis={onRefreshAnalysis}
 					agentMode={agentMode}

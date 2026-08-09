@@ -3,7 +3,10 @@ import { Hono } from "hono";
 import { z } from "zod";
 import type { AppDatabase } from "../db";
 import { buildStaticIntelligenceGeneration } from "../modules/static-intelligence/build-service";
-import { projectStructureInventoryKindSchema } from "../../shared/schemas/project-structure.schema";
+import {
+	projectStructureInventoryKindSchema,
+	projectStructureReferenceSchema,
+} from "../../shared/schemas/project-structure.schema";
 import { buildStaticIntelligenceModuleCandidates } from "../modules/static-intelligence/module-candidates";
 import {
 	StaticIntelligenceReadModelResolver,
@@ -30,17 +33,57 @@ const viewQuerySchema = z.object({
 	scanRunId: z.string().trim().min(1).optional(),
 });
 
-const projectStructureQuerySchema = z.object({
-	scanRunId: z.string().trim().min(1),
-	generationId: z.string().uuid().optional(),
-	view: z.enum(["summary", "files", "references"]).default("summary"),
-	query: z.string().trim().max(1024).optional(),
-	kind: projectStructureInventoryKindSchema.optional(),
-	analyzerId: z.string().trim().min(1).max(128).optional(),
-	status: z.enum(["resolved", "unresolved", "external", "ignored"]).optional(),
-	cursor: z.coerce.number().int().nonnegative().default(0),
-	limit: z.coerce.number().int().min(1).max(500).default(100),
-});
+const projectStructureQuerySchema = z
+	.object({
+		scanRunId: z.string().trim().min(1),
+		generationId: z.string().uuid().optional(),
+		view: z.enum(["summary", "files", "references"]).default("summary"),
+		moduleId: z.string().trim().min(1).max(256).optional(),
+		direction: z.enum(["inbound", "outbound", "both"]).optional(),
+		query: z.string().trim().max(1024).optional(),
+		kind: projectStructureInventoryKindSchema.optional(),
+		analyzerId: z.string().trim().min(1).max(128).optional(),
+		status: projectStructureReferenceSchema.shape.status.optional(),
+		cursor: z.coerce.number().int().nonnegative().default(0),
+		limit: z.coerce.number().int().min(1).max(500).default(100),
+	})
+	.superRefine((query, ctx) => {
+		if (query.direction && !query.moduleId) {
+			ctx.addIssue({
+				code: "custom",
+				message: "direction requires moduleId",
+				path: ["direction"],
+			});
+		}
+		if (query.direction && query.view !== "references") {
+			ctx.addIssue({
+				code: "custom",
+				message: "direction is only valid for references view",
+				path: ["direction"],
+			});
+		}
+		if (query.status && query.view !== "references") {
+			ctx.addIssue({
+				code: "custom",
+				message: "status is only valid for references view",
+				path: ["status"],
+			});
+		}
+		if ((query.kind || query.analyzerId) && query.view !== "files") {
+			ctx.addIssue({
+				code: "custom",
+				message: "kind and analyzerId are only valid for files view",
+				path: [query.kind ? "kind" : "analyzerId"],
+			});
+		}
+		if (query.view === "summary" && (query.moduleId || query.direction)) {
+			ctx.addIssue({
+				code: "custom",
+				message: "summary view does not accept module filters",
+				path: [query.moduleId ? "moduleId" : "direction"],
+			});
+		}
+	});
 
 const ontologyHandoffQuerySchema = z.object({
 	scanRunId: z.string().trim().min(1),
@@ -144,32 +187,52 @@ export function createStaticIntelligenceRoute(
 				);
 				const snapshot = generation?.projectStructure.snapshot;
 				if (!generation || !snapshot) {
-					return c.json({
-						status: "missing",
+					const missing = {
+						status: "missing" as const,
 						generationId: generation?.generationId,
-						items: [],
-						nextCursor: null,
-					});
+						modules: [],
+					};
+					return query.view === "summary"
+						? c.json({ ...missing, view: "summary" as const })
+						: c.json({
+								...missing,
+								view: query.view,
+								items: [],
+								nextCursor: null,
+								total: 0,
+							});
 				}
+				const modules = buildStaticIntelligenceModuleCandidates({
+					snapshot: generation.structure.snapshot,
+					projectStructureSnapshot: snapshot,
+					exportPayload: generation.export.payload,
+				});
+				const selectedModule = query.moduleId
+					? snapshot.modules.find((module) => module.id === query.moduleId)
+					: null;
+				if (query.moduleId && !selectedModule) {
+					throw new HttpError(404, "Module candidate not found");
+				}
+				const moduleFiles = selectedModule
+					? new Set(selectedModule.files)
+					: null;
 				if (query.view === "summary") {
 					return c.json({
+						view: "summary",
 						status: snapshot.readiness.analysis.status,
 						generationId: generation.generationId,
 						summary: snapshot.summary,
 						coverage: snapshot.inventory.coverage,
 						readiness: snapshot.readiness,
 						diagnostics: snapshot.diagnostics,
-						modules: buildStaticIntelligenceModuleCandidates({
-							snapshot: generation.structure.snapshot,
-							projectStructureSnapshot: snapshot,
-							exportPayload: generation.export.payload,
-						}),
+						modules,
 					});
 				}
 				const normalizedQuery = query.query?.toLowerCase();
 				const filtered =
 					query.view === "files"
 						? snapshot.files.filter((item) => {
+								if (moduleFiles && !moduleFiles.has(item.path)) return false;
 								if (
 									normalizedQuery &&
 									!JSON.stringify(item).toLowerCase().includes(normalizedQuery)
@@ -186,6 +249,20 @@ export function createStaticIntelligenceRoute(
 								return true;
 							})
 						: snapshot.references.filter((item) => {
+								if (moduleFiles) {
+									const outbound = moduleFiles.has(item.from);
+									const inbound = item.target
+										? moduleFiles.has(item.target)
+										: false;
+									if (
+										(query.direction === "outbound" && !outbound) ||
+										(query.direction === "inbound" && !inbound) ||
+										((!query.direction || query.direction === "both") &&
+											!outbound &&
+											!inbound)
+									)
+										return false;
+								}
 								if (
 									normalizedQuery &&
 									!JSON.stringify(item).toLowerCase().includes(normalizedQuery)
@@ -226,6 +303,7 @@ export function createStaticIntelligenceRoute(
 							})
 						: page;
 				return c.json({
+					view: query.view,
 					status: snapshot.readiness.analysis.status,
 					generationId: generation.generationId,
 					items,
@@ -233,11 +311,7 @@ export function createStaticIntelligenceRoute(
 					coverage: snapshot.inventory.coverage,
 					readiness: snapshot.readiness,
 					diagnostics: snapshot.diagnostics,
-					modules: buildStaticIntelligenceModuleCandidates({
-						snapshot: generation.structure.snapshot,
-						projectStructureSnapshot: snapshot,
-						exportPayload: generation.export.payload,
-					}),
+					modules,
 					nextCursor:
 						query.cursor + items.length < filtered.length
 							? query.cursor + items.length

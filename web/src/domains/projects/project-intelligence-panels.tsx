@@ -1,32 +1,33 @@
-import { Link } from "@tanstack/react-router";
-import { ChevronRight, RefreshCw } from "lucide-react";
-import { useState } from "react";
+import { RefreshCw } from "lucide-react";
 import type { StaticIntelligenceExportV1 } from "../../../../shared/schemas/static-intelligence.schema";
 import type {
 	fetchScanIntelligenceAgentQuery,
 	ProjectIntelligenceProject,
 	ProjectIntelligenceView,
 	ScanIntelligenceAgentMode,
-	ScanRun,
 } from "../../api";
 import { Button } from "../../ui";
-import { formatDateTime } from "../scans/scans-utils";
-import { IntelligenceGuidedPanel } from "./project-intelligence-guided-panel";
-import { IntelligenceInvestigationPanel } from "./project-intelligence-investigation-panel";
-import { IntelligenceLandscapePanel } from "./project-intelligence-landscape-panel";
-import { IntelligencePriorityPanel } from "./project-intelligence-priority-panel";
+import { IntelligenceGenerationContext } from "./project-intelligence-generation-context";
+import { IntelligenceHandoffPanel } from "./project-intelligence-handoff-panel";
+import { IntelligenceModulePanel } from "./project-intelligence-module-panel";
+import { IntelligenceOverviewPanel } from "./project-intelligence-overview-panel";
+import { IntelligenceRelationshipPanel } from "./project-intelligence-relationship-panel";
+import { resolveSelectedModule } from "./project-intelligence-structure-model";
 import type { IntelligenceViewId } from "./project-intelligence-tab-model";
 import { IntelligenceTabs } from "./project-intelligence-tabs";
-import { useIntelligenceWorkspaceData } from "./use-intelligence-workspace-data";
+import {
+	useOntologyHandoff,
+	useProjectStructureSummary,
+} from "./use-intelligence-structure-data";
 
 export function IntelligenceView({
 	project,
 	view,
-	scanRuns,
 	selectedScanRunId,
 	selectedExport,
 	activeView,
 	focusPath,
+	moduleId,
 	refreshing,
 	onRefreshAnalysis,
 	agentMode,
@@ -37,11 +38,11 @@ export function IntelligenceView({
 }: {
 	project: ProjectIntelligenceProject;
 	view: ProjectIntelligenceView | null;
-	scanRuns: ScanRun[];
 	selectedScanRunId: string | null;
 	selectedExport: StaticIntelligenceExportV1 | null;
 	activeView: IntelligenceViewId;
 	focusPath: string | null;
+	moduleId: string | null;
 	refreshing: boolean;
 	onRefreshAnalysis: () => void;
 	agentMode: ScanIntelligenceAgentMode;
@@ -52,22 +53,27 @@ export function IntelligenceView({
 	onAgentModeChange: (mode: ScanIntelligenceAgentMode) => void;
 	onLoadAgentPreview: () => void;
 }) {
-	const [analysisDetailsOpen, setAnalysisDetailsOpen] = useState(false);
-	const data = useIntelligenceWorkspaceData({
+	const scanRunId = selectedScanRunId ?? selectedExport?.scan.id ?? "";
+	const generationId = view?.generation?.generationId ?? "";
+	const structure = useProjectStructureSummary({
 		projectId: project.id,
-		scanRunId: selectedScanRunId,
-		generationId: view?.generation?.generationId ?? null,
-		activeView,
-		analysisDetailsOpen,
+		scanRunId: scanRunId || null,
+		generationId: generationId || null,
+	});
+	const handoff = useOntologyHandoff({
+		projectId: project.id,
+		scanRunId,
+		generationId,
+		enabled: activeView === "handoff" && Boolean(scanRunId && generationId),
 	});
 
-	if (!selectedExport || !view?.selectedScan) {
+	if (!selectedExport || !view?.selectedScan || !view.generation) {
 		return (
 			<section className="projects-empty">
-				<h2>Static Intelligence is not available yet</h2>
+				<h2>Intelligence generationはまだありません</h2>
 				<p>
 					{view?.readiness.export.reasonCodes.join(", ") ||
-						"Run or import a scan before inspecting project intelligence."}
+						"分析スナップショットを選び、構造情報を生成してください。"}
 				</p>
 				{view?.selectedScan ? (
 					<Button
@@ -77,123 +83,88 @@ export function IntelligenceView({
 						disabled={refreshing}
 					>
 						<RefreshCw className="icon" />
-						{refreshing ? "Refreshing…" : "Refresh Analysis"}
+						{refreshing ? "生成中…" : "Intelligenceを生成"}
 					</Button>
 				) : null}
 			</section>
 		);
 	}
 
-	const scanRunId = selectedScanRunId ?? selectedExport.scan.id;
+	const selectedModule = resolveSelectedModule(
+		structure.data?.modules ?? [],
+		moduleId,
+	);
 	return (
 		<div className="intelligence-workspace">
-			<section className="intelligence-context-bar" aria-busy={refreshing}>
-				<div>
-					<span>Intelligence workspace</span>
-					<strong>{selectedExport.scan.profile}</strong>
-					<small>
-						{view.selection.isLatest ? "最新の分析" : "過去の分析"} · generated{" "}
-						{formatDateTime(selectedExport.generatedAt)}
-					</small>
-				</div>
-				<div className="project-section-actions">
-					<Button
-						type="button"
-						variant="secondary"
-						onClick={onRefreshAnalysis}
-						disabled={refreshing}
-					>
-						<RefreshCw className={`icon${refreshing ? " spinning" : ""}`} />
-						{refreshing ? "更新中…" : "分析を更新"}
-					</Button>
-					<Link
-						to="/scans"
-						search={{ projectId: project.id, scanRunId }}
-						className="project-open-link"
-					>
-						Scan Workspace
-						<ChevronRight className="icon" />
-					</Link>
-				</div>
-			</section>
-
+			<IntelligenceGenerationContext
+				project={project}
+				view={view}
+				scanRunId={scanRunId}
+				refreshing={refreshing}
+				onRefresh={onRefreshAnalysis}
+			/>
 			<IntelligenceTabs
 				projectId={project.id}
 				scanRunId={scanRunId}
 				activeView={activeView}
+				moduleId={selectedModule?.id ?? moduleId}
 			/>
 
-			{activeView === "priority" ? (
-				<IntelligencePriorityPanel
-					project={project}
+			{activeView === "overview" ? (
+				<IntelligenceOverviewPanel
+					projectId={project.id}
+					scanRunId={scanRunId}
 					view={view}
-					scanRuns={scanRuns}
-					selectedScanRunId={scanRunId}
-					selectedExport={selectedExport}
-					ontologyHandoff={data.ontologyHandoff}
-					ontologyStatus={data.ontologyStatus}
-					ontologyError={data.ontologyError}
-					onAnalysisDetailsOpenChange={setAnalysisDetailsOpen}
-					onReloadOntology={() => void data.reloadOntology()}
+					exportPayload={selectedExport}
+					structure={structure.data}
+					structureStatus={structure.status}
+					structureError={structure.error}
+					onReload={() => void structure.reload()}
+				/>
+			) : null}
+
+			{activeView === "modules" ? (
+				<IntelligenceModulePanel
+					projectId={project.id}
+					scanRunId={scanRunId}
+					generationId={generationId}
+					structure={structure.data}
+					structureStatus={structure.status}
+					structureError={structure.error}
+					selectedModule={selectedModule}
+					focusPath={focusPath}
+					onReloadStructure={() => void structure.reload()}
+				/>
+			) : null}
+
+			{activeView === "relationships" ? (
+				<IntelligenceRelationshipPanel
+					projectId={project.id}
+					scanRunId={scanRunId}
+					generationId={generationId}
+					structure={structure.data}
+					structureStatus={structure.status}
+					structureError={structure.error}
+					selectedModule={selectedModule}
+					exportPayload={selectedExport}
+					onReloadStructure={() => void structure.reload()}
+				/>
+			) : null}
+
+			{activeView === "handoff" ? (
+				<IntelligenceHandoffPanel
+					projectId={project.id}
+					scanRunId={scanRunId}
+					view={view}
+					handoff={handoff.data}
+					status={handoff.status}
+					error={handoff.error}
+					onReload={() => void handoff.reload()}
 					agentMode={agentMode}
 					agentPreview={agentPreview}
 					agentLoading={agentLoading}
 					onAgentModeChange={onAgentModeChange}
 					onLoadAgentPreview={onLoadAgentPreview}
-				/>
-			) : null}
-
-			{activeView === "investigate" ? (
-				<IntelligenceInvestigationPanel
-					projectId={project.id}
-					scanRunId={scanRunId}
-					exportPayload={selectedExport}
-					focusPath={focusPath}
-					findings={data.findings}
-					findingsStatus={data.findingsStatus}
-					findingsError={data.findingsError}
-					hasMoreFindings={data.hasMoreFindings}
-					onReloadFindings={() => void data.reloadFindings()}
-					onLoadMoreFindings={() => void data.loadMoreFindings()}
-					details={data.details}
-					detailStatus={data.detailStatus}
-					detailErrors={data.detailErrors}
-					onLoadFinding={data.loadFindingDetail}
-				/>
-			) : null}
-
-			{activeView === "landscape" ? (
-				<IntelligenceLandscapePanel
-					projectId={project.id}
-					scanRunId={scanRunId}
-					exportPayload={selectedExport}
-					structure={data.structure}
-					structureStatus={data.structureStatus}
-					structureError={data.structureError}
-					onReloadStructure={() => void data.reloadStructure()}
-					landscapeResult={data.landscape}
-					landscapeStatus={data.landscapeStatus}
-					landscapeError={data.landscapeError}
-					onReloadLandscape={() => void data.reloadLandscape()}
-				/>
-			) : null}
-
-			{activeView === "guided" ? (
-				<IntelligenceGuidedPanel
-					projectId={project.id}
-					scanRunId={scanRunId}
-					exportPayload={selectedExport}
-					findings={data.findings}
-					findingsStatus={data.findingsStatus}
-					findingsError={data.findingsError}
-					hasMoreFindings={data.hasMoreFindings}
-					onReloadFindings={() => void data.reloadFindings()}
-					onLoadMoreFindings={() => void data.loadMoreFindings()}
-					details={data.details}
-					detailStatus={data.detailStatus}
-					detailErrors={data.detailErrors}
-					onLoadFinding={data.loadFindingDetail}
-					onSaveDecision={data.saveFindingDecision}
 				/>
 			) : null}
 		</div>

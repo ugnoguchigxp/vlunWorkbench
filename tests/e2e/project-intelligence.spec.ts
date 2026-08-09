@@ -2,6 +2,7 @@ import AxeBuilder from "@axe-core/playwright";
 import { expect, type Page, test } from "@playwright/test";
 
 const timestamp = "2026-08-08T02:20:53.000Z";
+const generationId = "00000000-0000-4000-8000-000000000010";
 const project = {
 	id: "project-intelligence-e2e",
 	name: "vulnWorkbench",
@@ -24,92 +25,35 @@ const scan = {
 	updatedAt: timestamp,
 };
 
-const findings = [
-	{
-		id: "finding-critical",
-		scanRunId: scan.id,
-		projectId: project.id,
-		sourceTool: "semgrep",
-		ruleId: "typescript.sql-injection",
-		title: "SQL query includes untrusted input",
-		description: "A request value is concatenated into a SQL query.",
-		severity: "critical",
-		confidence: "static",
-		status: "open",
-		primaryLocation: { path: "src/auth/session.ts", startLine: 42 },
-		fingerprint: "fingerprint-critical",
-		metadata: {},
-		createdAt: timestamp,
-		updatedAt: timestamp,
-		latestDecision: null,
-		latestReview: null,
-	},
-	{
-		id: "finding-medium",
-		scanRunId: scan.id,
-		projectId: project.id,
-		sourceTool: "gitleaks",
-		ruleId: "generic-api-key",
-		title: "Possible API key",
-		description: "A value resembles an API key.",
-		severity: "medium",
-		confidence: "static",
-		status: "open",
-		primaryLocation: { path: "src/config.ts", startLine: 8 },
-		fingerprint: "fingerprint-medium",
-		metadata: {},
-		createdAt: timestamp,
-		updatedAt: timestamp,
-		latestDecision: null,
-		latestReview: null,
-	},
-];
-
-const fileRiskIndex = [
-	{
-		path: "src/auth/session.ts",
-		findingCount: 1,
-		maxSeverity: "critical",
-		evidenceQuality: "strong",
-		scanners: ["semgrep"],
-		ruleIds: ["typescript.sql-injection"],
-		findingIds: ["finding-critical"],
-		evidenceRefs: ["evidence-critical"],
-		artifactRefs: [],
-		verificationRefs: [],
-		latestScanRunId: scan.id,
-	},
-	{
-		path: "src/config.ts",
-		findingCount: 1,
-		maxSeverity: "medium",
-		evidenceQuality: "weak",
-		scanners: ["gitleaks"],
-		ruleIds: ["generic-api-key"],
-		findingIds: ["finding-medium"],
-		evidenceRefs: [],
-		artifactRefs: [],
-		verificationRefs: [],
-		latestScanRunId: scan.id,
-	},
-];
+const fileRisk = {
+	path: "src/auth/session.ts",
+	findingCount: 1,
+	maxSeverity: "critical",
+	evidenceQuality: "strong",
+	scanners: ["semgrep"],
+	ruleIds: ["typescript.sql-injection"],
+	findingIds: ["finding-critical"],
+	evidenceRefs: ["evidence-critical"],
+	artifactRefs: [],
+	verificationRefs: [],
+	latestScanRunId: scan.id,
+	latestSeenAt: timestamp,
+};
 
 const graph = {
 	nodes: [
-		{ id: "project-node", kind: "project", label: project.name, sourceId: project.id },
+		{
+			id: "project-node",
+			kind: "project",
+			label: project.name,
+			sourceId: project.id,
+		},
 		{
 			id: "finding-node-critical",
 			kind: "finding",
-			label: findings[0].title,
-			sourceId: findings[0].id,
+			label: "SQL query includes untrusted input",
+			sourceId: "finding-critical",
 			severity: "critical",
-		},
-		{
-			id: "finding-node-medium",
-			kind: "finding",
-			label: findings[1].title,
-			sourceId: findings[1].id,
-			severity: "medium",
 		},
 		{
 			id: "evidence-node-critical",
@@ -130,7 +74,6 @@ const graph = {
 	],
 };
 
-const readinessItem = { status: "available", reasonCodes: [] };
 const exportPayload = {
 	version: "v1",
 	generatedAt: timestamp,
@@ -141,43 +84,38 @@ const exportPayload = {
 		status: scan.status,
 		startedAt: scan.startedAt,
 		completedAt: scan.completedAt,
-		findingCount: findings.length,
+		findingCount: 1,
 		toolRunCount: 2,
 		artifactCount: 1,
 		reviewStatus: "completed",
 	},
 	scanSummary: {
 		riskBand: "critical",
-		evidenceQuality: "mixed",
+		evidenceQuality: "strong",
 		degradedReasons: [],
 	},
-	fileRiskIndex,
+	fileRiskIndex: [fileRisk],
 	graph,
-	codeStructure: {
-		status: "available",
-		snapshotRef: "snapshot-e2e",
-		summary: {
-			fileCount: 2,
-			parsedFileCount: 2,
-			importEdgeCount: 1,
-			packageDependencyCount: 1,
-		},
-		degradedReasons: [],
-	},
 };
 
+const readinessItem = {
+	status: "available",
+	reasonCodes: [],
+	generatedAt: timestamp,
+	generationId,
+};
 const projectView = {
 	project,
 	latestUsableScan: scan,
 	selectedScan: scan,
 	selection: {
-		requestedScanRunId: null,
+		requestedScanRunId: scan.id,
 		selectedScanRunId: scan.id,
 		isLatest: true,
-		selectionReason: "latest_completed",
+		selectionReason: "requested",
 	},
 	generation: {
-		generationId: "generation-intelligence-e2e",
+		generationId,
 		generatedAt: timestamp,
 		sourceTreeHash: "a".repeat(64),
 		sourceStateHash: "b".repeat(64),
@@ -186,7 +124,14 @@ const projectView = {
 		status: "available",
 	},
 	export: exportPayload,
-	manifest: null,
+	manifest: {
+		availableBundles: [
+			{
+				kind: "project_structure_snapshot",
+				command: ["intelligence:project-structure", "--scan-run-id", scan.id],
+			},
+		],
+	},
 	readiness: {
 		export: readinessItem,
 		fileRiskIndex: readinessItem,
@@ -199,15 +144,15 @@ const projectView = {
 	degradedReasons: [],
 };
 
-const moduleCandidate = {
-	id: "module-auth",
+const authModule = {
+	id: "module:auth",
 	pathPrefix: "src/auth",
 	label: "Authentication",
 	fileCount: 1,
 	entrypointFiles: ["src/auth/session.ts"],
-	roleTags: ["entrypoint"],
+	roleTags: ["route"],
 	exportedSymbols: ["createSession"],
-	internalDependencies: [],
+	internalDependencies: ["src/core"],
 	packageDependencies: ["database"],
 	risk: {
 		findingCount: 1,
@@ -216,22 +161,121 @@ const moduleCandidate = {
 		fileRefs: ["src/auth/session.ts"],
 		findingIds: ["finding-critical"],
 	},
-	confidence: 0.9,
-	reasons: ["path prefix"],
+	confidence: 0.95,
+	reasons: ["directory boundary", "entrypoint"],
 };
+const coreModule = {
+	id: "module:core",
+	pathPrefix: "src/core",
+	label: "Core",
+	fileCount: 2,
+	entrypointFiles: ["src/core/index.ts"],
+	roleTags: ["source"],
+	exportedSymbols: ["createCore", "CoreService"],
+	internalDependencies: ["src/auth"],
+	packageDependencies: [],
+	risk: {
+		findingCount: 0,
+		maxSeverity: "unknown",
+		evidenceQuality: "none",
+		fileRefs: [],
+		findingIds: [],
+	},
+	confidence: 0.88,
+	reasons: ["directory boundary"],
+};
+const modules = [authModule, coreModule];
+
+const coverage = {
+	discoveredFileCount: 4,
+	includedFileCount: 3,
+	analyzableFileCount: 3,
+	unsupportedFileCount: 0,
+	resourceFileCount: 0,
+	excludedFileCount: 1,
+	excludedByReason: { ignored: 1 },
+	unhashedFileCount: 0,
+	totalIncludedBytes: 2400,
+	budgetHit: false,
+};
+const structureReadiness = {
+	inventory: { status: "available", reasonCodes: [] },
+	analysis: { status: "available", reasonCodes: [] },
+	resolution: { status: "available", reasonCodes: [] },
+	moduleInference: { status: "available", reasonCodes: [] },
+};
+const structureSummary = {
+	fileCount: 3,
+	analyzedFileCount: 3,
+	styleFileCount: 0,
+	markupFileCount: 0,
+	resourceFileCount: 0,
+	resolvedReferenceCount: 2,
+	unresolvedReferenceCount: 0,
+	moduleCount: 2,
+};
+
+const moduleFiles = {
+	"module:auth": [
+		{
+			path: "src/auth/session.ts",
+			language: "typescript",
+			moduleKind: "esm",
+			tags: ["route"],
+			analysisStatus: "analyzed",
+			referenceCount: 2,
+			exportCount: 1,
+			externalDependencyCount: 1,
+			risk: fileRisk,
+		},
+	],
+	"module:core": [
+		{
+			path: "src/core/index.ts",
+			language: "typescript",
+			moduleKind: "esm",
+			tags: ["source"],
+			analysisStatus: "analyzed",
+			referenceCount: 1,
+			exportCount: 2,
+			externalDependencyCount: 0,
+			risk: null,
+		},
+	],
+} as const;
+
+const references = [
+	{
+		from: "src/auth/session.ts",
+		specifier: "../core",
+		kind: "code_module",
+		status: "resolved",
+		target: "src/core/index.ts",
+		resolverId: "typescript",
+		confidence: 1,
+		diagnosticCodes: [],
+	},
+	{
+		from: "src/core/index.ts",
+		specifier: "../auth/session",
+		kind: "code_module",
+		status: "resolved",
+		target: "src/auth/session.ts",
+		resolverId: "typescript",
+		confidence: 1,
+		diagnosticCodes: [],
+	},
+];
 
 async function mockProjectIntelligence(
 	page: Page,
-	options: { paginateFindings?: boolean } = {},
+	options: { emptyFindings?: boolean; structureFailure?: boolean } = {},
 ) {
 	let baseRequests = 0;
 	let structureRequests = 0;
 	let ontologyRequests = 0;
-	let findingRequests = 0;
-	let savedDecision: Record<string, unknown> | null = null;
 	await page.route("**/api/**", async (route) => {
-		const request = route.request();
-		const url = new URL(request.url());
+		const url = new URL(route.request().url());
 		const path = url.pathname;
 		const json = (body: unknown, status = 200) =>
 			route.fulfill({
@@ -250,135 +294,140 @@ async function mockProjectIntelligence(
 				},
 			});
 		}
-		if (path === "/api/sources/health") return json({ service: "ok", git: null });
-		if (path === "/api/health") return json({ status: "ok", service: "vuln-workbench" });
+		if (path === "/api/sources/health")
+			return json({ service: "ok", git: null });
+		if (path === "/api/health")
+			return json({ status: "ok", service: "vuln-workbench" });
 		if (path === "/api/sources/categories") return json({ items: ["tech"] });
-		if (path === "/api/settings/system-context") return json({ systemContext: "", updatedAt: null });
+		if (path === "/api/settings/system-context")
+			return json({ systemContext: "", updatedAt: null });
 		if (path === `/api/projects/${project.id}/intelligence`) {
 			baseRequests += 1;
-			return json(projectView);
+			return json(
+				options.emptyFindings
+					? {
+							...projectView,
+							export: {
+								...exportPayload,
+								scan: { ...exportPayload.scan, findingCount: 0 },
+								scanSummary: {
+									riskBand: "none",
+									evidenceQuality: "none",
+									degradedReasons: [],
+								},
+								fileRiskIndex: [],
+								graph: { nodes: [graph.nodes[0]], edges: [] },
+							},
+						}
+					: projectView,
+			);
 		}
-		if (path === "/api/scans" && url.searchParams.get("projectId") === project.id) {
+		if (
+			path === "/api/scans" &&
+			url.searchParams.get("projectId") === project.id
+		)
 			return json({ scans: [scan] });
-		}
 		if (path.endsWith("/intelligence/project-structure")) {
 			structureRequests += 1;
-			return json({
+			if (options.structureFailure)
+				return json({ message: "structure fixture unavailable" }, 503);
+			const view = url.searchParams.get("view") ?? "summary";
+			const responseModules = options.emptyFindings
+				? modules.map((module) => ({
+						...module,
+						risk: {
+							findingCount: 0,
+							maxSeverity: "unknown",
+							evidenceQuality: "none",
+							fileRefs: [],
+							findingIds: [],
+						},
+					}))
+				: modules;
+			const base = {
+				view,
 				status: "available",
-				generationId: projectView.generation.generationId,
-				items: [
-					{
-						path: "src/auth/session.ts",
-						language: "typescript",
-						moduleKind: "source",
-						tags: ["entrypoint"],
-						analysisStatus: "analyzed",
-						referenceCount: 1,
-						exportCount: 1,
-						externalDependencyCount: 1,
-						risk: fileRiskIndex[0],
-					},
-				],
-				modules: [moduleCandidate],
+				generationId,
+				summary: structureSummary,
+				coverage,
+				readiness: structureReadiness,
+				diagnostics: [],
+				modules: responseModules,
+			};
+			if (view === "summary") return json(base);
+			if (view === "files") {
+				const moduleId = url.searchParams.get("moduleId") ?? "module:auth";
+				const items =
+					moduleFiles[moduleId as keyof typeof moduleFiles]?.map((item) => ({
+						...item,
+						risk: options.emptyFindings ? null : item.risk,
+					})) ?? [];
+				return json({
+					...base,
+					view: "files",
+					items,
+					nextCursor: null,
+					total: items.length,
+				});
+			}
+			const moduleId = url.searchParams.get("moduleId");
+			const selectedFiles = new Set(
+				moduleId === "module:core"
+					? ["src/core/index.ts"]
+					: ["src/auth/session.ts"],
+			);
+			const items = references.filter(
+				(reference) =>
+					selectedFiles.has(reference.from) ||
+					Boolean(reference.target && selectedFiles.has(reference.target)),
+			);
+			return json({
+				...base,
+				view: "references",
+				items,
 				nextCursor: null,
-				total: 1,
+				total: items.length,
 			});
 		}
 		if (path.endsWith("/intelligence/ontology-handoff")) {
 			ontologyRequests += 1;
-			return json({ handoff: null });
-		}
-		if (path === `/api/scans/${scan.id}/findings`) {
-			findingRequests += 1;
-			const cursor = url.searchParams.get("cursor");
-			const pageFindings = options.paginateFindings
-				? cursor
-					? [findings[1]]
-					: [findings[0]]
-				: findings;
 			return json({
-				findings: pageFindings.map((finding) =>
-					finding.id === "finding-critical" && savedDecision
-						? { ...finding, latestDecision: savedDecision }
-						: finding,
-				),
-				nextCursor:
-					options.paginateFindings && !cursor ? findings[0].id : null,
-			});
-		}
-		if (path.startsWith("/api/findings/") && !path.endsWith("/decisions")) {
-			const findingId = path.split("/")[3];
-			const finding = findings.find((item) => item.id === findingId);
-			return json({
-				finding,
-				evidence:
-					findingId === "finding-critical"
-						? [
-								{
-									id: "evidence-critical",
-									findingId,
-									kind: "source-location",
-									title: "Source location",
-									artifactId: null,
-									location: { path: "src/auth/session.ts", startLine: 42 },
-									snippet: "db.query('SELECT ' + request.userId)",
-									metadata: {},
-									createdAt: timestamp,
-								},
-							]
-						: [],
-				latestReview: null,
-				latestDecision: findingId === "finding-critical" ? savedDecision : null,
-			});
-		}
-		if (path === `/api/findings/finding-critical/decisions` && request.method() === "POST") {
-			const body = request.postDataJSON();
-			savedDecision = {
-				id: "decision-e2e",
-				findingId: "finding-critical",
-				...body,
-				linkedReviewId: null,
-				decidedByUserId: "user-e2e",
-				createdAt: timestamp,
-				updatedAt: timestamp,
-			};
-			return json({ decision: savedDecision });
-		}
-		if (path === `/api/scans/${scan.id}/intelligence/agent-query`) {
-			return json({
-				result: {
-					ok: true,
-					status: "completed",
-					version: "v1",
-					generatedAt: timestamp,
+				handoff: {
+					status: "available",
+					projectId: project.id,
 					scanRunId: scan.id,
-					queryKind: "project_overview",
-					summary: { title: "Landscape", body: "Current risk landscape", candidateOnly: true },
-					refs: { findingIds: [], evidenceRefs: [], artifactRefs: [], fileRefs: [], sourceRefs: [] },
-					results: [],
-					bundles: {
-						landscape: {
-							risk: { band: "critical", findingCount: 2, bySeverity: { critical: 1, medium: 1 }, byScanner: { semgrep: 1, gitleaks: 1 }, byFile: [] },
-							coverage: { status: "covered", scannedToolCount: 2, artifactCount: 1, unknownFileCount: 0, degradedReasons: [] },
-							evidence: { quality: "mixed", missingEvidenceFindingIds: ["finding-medium"], weakEvidenceFindingIds: [], artifactBackedEvidenceRefs: [] },
-							remediation: { reviewStatus: "completed", hasImprovementRequest: false, acceptanceCriteriaCount: 2, verificationCommandCount: 1, openFocus: [] },
-						},
+					generationId,
+					snapshotRef: "snapshot-e2e",
+					exportHash: "c".repeat(64),
+					sourceTreeHash: "a".repeat(64),
+					modules,
+					graphSummary: {
+						nodeCounts: { project: 1, finding: 1, evidence: 1 },
+						edgeCounts: { evidenced_by: 1 },
 					},
+					verificationCommands: ["bun test src/auth"],
+					sourceRefs: ["src/auth/session.ts", "src/core/index.ts"],
 					degradedReasons: [],
+					consumerBoundary: {
+						ownsCanonicalOntology: false,
+						ownsTaskCompilation: false,
+						consumer: "NightWorkers",
+					},
 				},
 			});
 		}
-		if (path === `/api/projects/${project.id}/threat-model-runs`) return json({ runs: [] });
-		if (path === `/api/projects/${project.id}/business-logic-scenarios`) return json({ scenarios: [] });
-		if (path === `/api/projects/${project.id}/active-assessment-runs`) return json({ runs: [] });
+		if (path === `/api/projects/${project.id}/threat-model-runs`)
+			return json({ runs: [] });
+		if (path === `/api/projects/${project.id}/business-logic-scenarios`)
+			return json({ scenarios: [] });
+		if (path === `/api/projects/${project.id}/active-assessment-runs`)
+			return json({ runs: [] });
 		return json({ message: `Unhandled E2E route: ${path}` }, 404);
 	});
 	return {
 		baseRequests: () => baseRequests,
 		structureRequests: () => structureRequests,
 		ontologyRequests: () => ontologyRequests,
-		findingRequests: () => findingRequests,
-		savedDecision: () => savedDecision,
 	};
 }
 
@@ -393,107 +442,143 @@ async function expectNoSeriousAccessibilityViolations(page: Page) {
 	).toEqual([]);
 }
 
-test("Intelligenceの4画面をURLと同期し、基礎データを再取得しない", async ({ page }) => {
+test("構造中心の4画面をURLと同期し、generationを再取得しない", async ({
+	page,
+}) => {
 	const state = await mockProjectIntelligence(page);
-	await page.goto(`/projects/${project.id}/intelligence?scanRunId=${scan.id}`);
+	await page.goto(
+		`/projects/${project.id}/intelligence?scanRunId=${scan.id}`,
+	);
 
-	await expect(page.getByRole("heading", { name: "優先して確認するFindingがあります" })).toBeVisible();
-	await expect.poll(state.structureRequests).toBe(0);
-	await expect.poll(state.ontologyRequests).toBe(0);
-	const projectNavigation = page.getByRole("navigation", { name: "プロジェクト" });
-	const intelligenceNavigation = page.getByRole("navigation", { name: "Intelligence views" });
-	await expect(intelligenceNavigation.getByRole("link")).toHaveCount(4);
-	await expect(projectNavigation).toBeVisible();
 	await expect(
-		page.locator(".project-detail-actions, .intelligence-tabs").first(),
-	).toHaveClass(/project-detail-actions/);
-
-	await intelligenceNavigation
-		.getByRole("link", { name: /^調査ビュー:/ })
-		.focus();
-	await page.keyboard.press("Enter");
-	await expect(page).toHaveURL(/intelligenceView=investigate/);
-	await expect(page.getByRole("heading", { name: findings[0].title })).toBeVisible();
-	await expect(page.getByText("db.query('SELECT ' + request.userId)")).toBeVisible();
-
-	await intelligenceNavigation.getByRole("link", { name: /^リスクマップ:/ }).click();
-	await expect(page).toHaveURL(/intelligenceView=landscape/);
-	await expect(page.getByRole("heading", { name: /Module × Severity/ })).toBeVisible();
-	await expect(page.getByRole("button", { name: "Authenticationのcritical Finding 1件" })).toBeVisible();
-	await expect.poll(state.structureRequests).toBe(1);
-
-	await intelligenceNavigation.getByRole("link", { name: /^ガイド方式:/ }).click();
-	await expect(page).toHaveURL(/intelligenceView=guided/);
-	await expect(page.getByRole("heading", { name: "確認ステップ" })).toBeVisible();
-	await page.goBack();
-	await expect(page).toHaveURL(/intelligenceView=landscape/);
-	await expect(page.getByRole("heading", { name: /Module × Severity/ })).toBeVisible();
-	await page.goForward();
-	await expect(page).toHaveURL(/intelligenceView=guided/);
-	await intelligenceNavigation.getByRole("link", { name: /^判断優先:/ }).click();
-	await expect.poll(state.ontologyRequests).toBe(0);
-	await page.getByText("分析詳細", { exact: true }).click();
-	await expect.poll(state.ontologyRequests).toBe(1);
-	await expect(
-		page.getByRole("heading", { name: "External Agent Readiness" }),
+		page.getByRole("heading", { name: "プロジェクト構造を利用できます" }),
 	).toBeVisible();
+	await expect.poll(state.structureRequests).toBe(1);
+	const navigation = page.getByRole("navigation", {
+		name: "Intelligence views",
+	});
+	await expect(navigation.getByRole("link")).toHaveCount(4);
+	await expect(
+		navigation.getByRole("link", { name: /^構造サマリー:/ }),
+	).toHaveAttribute("aria-current", "page");
+
+	await navigation.getByRole("link", { name: /^モジュール:/ }).click();
+	await expect(page).toHaveURL(/intelligenceView=modules/);
+	await expect(page.getByRole("heading", { name: "Core" })).toBeVisible();
+	await expect(
+		page.locator("td code").filter({ hasText: "src/core/index.ts" }),
+	).toBeVisible();
+
+	await navigation.getByRole("link", { name: /^関係マップ:/ }).click();
+	await expect(page).toHaveURL(/intelligenceView=relationships/);
+	await expect(
+		page.getByRole("heading", { name: "関係マップ", exact: true }),
+	).toBeVisible();
+	await expect(page.getByRole("heading", { name: "Outbound" })).toBeVisible();
+	await expect(
+		page
+			.getByRole("heading", { name: "Outbound" })
+			.locator("..")
+			.getByRole("link", { name: /Authentication src\/auth/ }),
+	).toBeVisible();
+
+	await navigation.getByRole("link", { name: /^Ontology連携:/ }).click();
+	await expect(page).toHaveURL(/intelligenceView=handoff/);
+	await expect(
+		page.getByRole("heading", {
+			name: "Ontologyへ渡す前の候補データです",
+		}),
+	).toBeVisible();
+	await expect(
+		page.getByRole("heading", { name: "Handoff readiness" }),
+	).toBeVisible();
+	await expect.poll(state.ontologyRequests).toBe(1);
+
+	await page.goBack();
+	await expect(page).toHaveURL(/intelligenceView=relationships/);
+	await page.goForward();
+	await expect(page).toHaveURL(/intelligenceView=handoff/);
 	await expect.poll(state.baseRequests).toBe(1);
 	await expectNoSeriousAccessibilityViolations(page);
 });
 
-test("ガイド方式から確認付きで互換Decisionを保存する", async ({ page }) => {
-	const state = await mockProjectIntelligence(page);
-	await page.goto(`/projects/${project.id}/intelligence?scanRunId=${scan.id}&intelligenceView=guided`);
-
-	await page.getByRole("button", { name: /問題として確認/ }).click();
-	await page.getByLabel("理由（必須）").selectOption("confirmed_by_evidence");
-	await page.getByLabel("補足（任意）").fill("E2Eで確認しました");
-	await page.getByRole("button", { name: "互換Decisionを保存" }).click();
-
-	await expect(page.getByRole("status")).toContainText("互換Decisionを保存しました");
-	await expect(
-		page.getByRole("heading", { name: findings[0].title }),
-	).toBeVisible();
-	await expect.poll(state.savedDecision).toMatchObject({
-		decision: "needs_fix",
-		reason: "confirmed_by_evidence",
-		comment: "E2Eで確認しました",
-	});
-	await expect(page.getByText("実装改善候補").first()).toBeVisible();
-	await page.getByRole("button", { name: /^次へ/ }).click();
-	await expect(
-		page.getByRole("heading", { name: findings[1].title }),
-	).toBeVisible();
-});
-
-test("ガイド方式でFindingをカーソルから追加読込する", async ({ page }) => {
-	const state = await mockProjectIntelligence(page, { paginateFindings: true });
+test("検出事項が0件でも構造・モジュール・関係を探索できる", async ({
+	page,
+}) => {
+	await mockProjectIntelligence(page, { emptyFindings: true });
 	await page.goto(
-		`/projects/${project.id}/intelligence?scanRunId=${scan.id}&intelligenceView=guided`,
+		`/projects/${project.id}/intelligence?scanRunId=${scan.id}`,
 	);
 
-	await expect(page.getByText("読み込み済みの確認進捗")).toBeVisible();
-	await page
-		.getByRole("button", { name: "さらにFindingを読み込む" })
-		.click();
 	await expect(
-		page.getByRole("button", { name: new RegExp(findings[1].title) }),
+		page.getByText(
+			"このgenerationには検出事項のoverlayがありません。構造解析結果は引き続き利用できます。",
+		),
 	).toBeVisible();
-	await expect.poll(state.findingRequests).toBe(2);
+	await expect(page.getByText("Module candidates").first()).toBeVisible();
+	await expect(page.getByText("2", { exact: true }).first()).toBeVisible();
+
+	const navigation = page.getByRole("navigation", {
+		name: "Intelligence views",
+	});
+	await navigation.getByRole("link", { name: /^モジュール:/ }).click();
+	await expect(page.getByRole("heading", { name: "Core" })).toBeVisible();
 	await expect(
-		page.getByRole("button", { name: "さらにFindingを読み込む" }),
-	).toHaveCount(0);
+		page.locator("td code").filter({ hasText: "src/core/index.ts" }),
+	).toBeVisible();
+	await navigation.getByRole("link", { name: /^関係マップ:/ }).click();
+	await expect(
+		page.getByRole("heading", { name: "Outbound" }),
+	).toBeVisible();
+	await expect(page.getByText("Findingを選択してください")).toHaveCount(0);
+	await expect(page.getByText("検出事項を選択してください")).toHaveCount(0);
 });
 
-test("390px幅でもページ全体に横スクロールを出さない", async ({ page }) => {
+test("旧タブURLを対応する構造画面へ移行する", async ({ page }) => {
+	await mockProjectIntelligence(page);
+	await page.goto(
+		`/projects/${project.id}/intelligence?scanRunId=${scan.id}&intelligenceView=investigate`,
+	);
+
+	await expect(page.getByRole("heading", { name: "Core" })).toBeVisible();
+	await expect(
+		page.getByRole("link", { name: /^モジュール:/ }),
+	).toHaveAttribute("aria-current", "page");
+});
+
+test("構造取得エラーを自動再試行せず、利用者の操作で再試行する", async ({
+	page,
+}) => {
+	const state = await mockProjectIntelligence(page, { structureFailure: true });
+	await page.goto(
+		`/projects/${project.id}/intelligence?scanRunId=${scan.id}`,
+	);
+
+	await expect(
+		page.getByRole("heading", { name: "プロジェクト構造を取得できません" }),
+	).toBeVisible();
+	await expect.poll(state.structureRequests).toBe(1);
+	await page.getByRole("button", { name: "再試行" }).click();
+	await expect.poll(state.structureRequests).toBe(2);
+});
+
+test("390px幅でも横スクロールを出さず操作できる", async ({ page }) => {
 	await page.setViewportSize({ width: 390, height: 844 });
 	await mockProjectIntelligence(page);
-	await page.goto(`/projects/${project.id}/intelligence?scanRunId=${scan.id}&intelligenceView=investigate`);
-	await expect(page.getByRole("navigation", { name: "Intelligence views" })).toBeVisible();
+	await page.goto(
+		`/projects/${project.id}/intelligence?scanRunId=${scan.id}&intelligenceView=modules`,
+	);
+
+	await expect(
+		page.getByRole("navigation", { name: "Intelligence views" }),
+	).toBeVisible();
+	await expect(page.getByRole("heading", { name: "Core" })).toBeVisible();
 	await expect
 		.poll(() =>
 			page.evaluate(
-				() => document.documentElement.scrollWidth <= document.documentElement.clientWidth,
+				() =>
+					document.documentElement.scrollWidth <=
+					document.documentElement.clientWidth,
 			),
 		)
 		.toBe(true);

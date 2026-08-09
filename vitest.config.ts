@@ -25,7 +25,7 @@ export default defineConfig({
 				"web/src/domains/scans/use-scan-target-effects.ts",
 				"web/src/domains/scans/use-scans-effects.ts",
 				// Project Intelligence orchestration is covered by the dedicated Playwright flow.
-				"web/src/domains/projects/use-intelligence-workspace-data.ts",
+				"web/src/domains/projects/use-intelligence-structure-data.ts",
 			],
 			thresholds: {
 				lines: 80,

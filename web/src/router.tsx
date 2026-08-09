@@ -12,6 +12,7 @@ import {
 	type IntelligenceViewId,
 	parseOptionalFocusPath,
 	parseOptionalIntelligenceViewId,
+	parseOptionalModuleId,
 } from "./domains/projects/project-intelligence-tab-model";
 import { DesignSystemProvider } from "./showcase-settings-context";
 import { parseShowcaseTableSearch } from "./showcase-table-search";
@@ -95,17 +96,20 @@ const projectIntelligenceRoute = createRoute({
 		scanRunId?: string;
 		intelligenceView?: IntelligenceViewId;
 		focusPath?: string;
+		moduleId?: string;
 	} => {
 		const intelligenceView = parseOptionalIntelligenceViewId(
 			search.intelligenceView,
 		);
 		const focusPath = parseOptionalFocusPath(search.focusPath);
+		const moduleId = parseOptionalModuleId(search.moduleId);
 		return {
 			...(typeof search.scanRunId === "string"
 				? { scanRunId: search.scanRunId }
 				: {}),
 			...(intelligenceView ? { intelligenceView } : {}),
 			...(focusPath ? { focusPath } : {}),
+			...(moduleId ? { moduleId } : {}),
 		};
 	},
 	component: renderAppView("projects"),

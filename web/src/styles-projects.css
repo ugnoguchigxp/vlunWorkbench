@@ -283,7 +283,10 @@
 	padding: 12px 2px 10px;
 }
 
-.project-detail-actions a:hover,
+.project-detail-actions a:hover {
+	color: var(--color-brand);
+}
+
 .project-detail-actions a.active {
 	border-bottom-color: var(--color-brand);
 	color: var(--color-brand);
@@ -791,35 +794,13 @@
 	font-size: 12px;
 }
 
-.structure-explorer {
-	display: grid;
-	grid-template-columns: minmax(190px, 0.32fr) minmax(0, 1fr);
-	gap: 12px;
-}
-
-.project-structure-coverage {
-	margin: -4px 0 12px;
-	color: var(--color-muted);
-	font-size: 0.86rem;
-}
-
-.project-structure-legacy {
-	color: var(--color-muted);
-	font-size: 0.82rem;
-}
-
-.module-list,
-.module-detail,
 .project-detail-panel,
 .evidence-adjacency,
-.agent-result-list,
-.module-handoff-list {
+.agent-result-list {
 	display: grid;
 	gap: 8px;
 }
 
-.module-list button,
-.module-handoff-list article,
 .agent-result-list article,
 .project-detail-panel,
 .evidence-adjacency {
@@ -829,53 +810,29 @@
 	color: var(--color-ink);
 	padding: 10px;
 }
-
-.module-list button {
-	text-align: left;
-	display: grid;
-	gap: 3px;
-	cursor: pointer;
-}
-
-.module-list button.selected,
 .project-table tr.selected td {
 	border-color: var(--color-brand);
 	background: color-mix(in srgb, var(--color-brand) 10%, var(--color-surface));
 }
 
-.module-list span,
-.module-list small,
-.module-handoff-list span,
-.module-handoff-list small,
 .agent-result-list small {
 	color: var(--color-muted);
 	overflow-wrap: anywhere;
 }
 
-.project-detail-panel dl,
-.module-detail dl {
+.project-detail-panel dl {
 	display: grid;
 	grid-template-columns: minmax(90px, auto) 1fr;
 	gap: 6px 12px;
 	margin: 0;
 }
 
-.project-detail-panel dt,
-.module-detail dt {
+.project-detail-panel dt {
 	font-weight: 800;
 }
-.project-detail-panel dd,
-.module-detail dd {
+.project-detail-panel dd {
 	margin: 0;
 	overflow-wrap: anywhere;
-}
-.consumer-boundary {
-	border-left: 3px solid var(--color-brand);
-	padding-left: 10px;
-}
-
-.project-table tbody tr {
-	cursor: pointer;
 }
 
 @media (max-width: 940px) {
@@ -892,10 +849,6 @@
 
 	.project-path-input-row {
 		flex-wrap: wrap;
-	}
-
-	.structure-explorer {
-		grid-template-columns: 1fr;
 	}
 
 	.project-overview-status-grid,

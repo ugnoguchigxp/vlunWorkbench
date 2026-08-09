@@ -27,6 +27,7 @@ import {
 	type IntelligenceViewId,
 	parseFocusPath,
 	parseIntelligenceViewId,
+	parseModuleId,
 } from "./project-intelligence-tab-model";
 import {
 	ProjectDetail,
@@ -47,6 +48,7 @@ type ProjectRouteState = {
 	scanRunId: string | null;
 	intelligenceView: IntelligenceViewId;
 	focusPath: string | null;
+	moduleId: string | null;
 };
 
 type DetailRequestState = {
@@ -372,6 +374,7 @@ export function ProjectsDomainSection({
 					activeTab={routeState.tab}
 					intelligenceView={routeState.intelligenceView}
 					focusPath={routeState.focusPath}
+					moduleId={routeState.moduleId}
 					selectedScanRunId={selectedScanRunId}
 					selectedExport={selectedExport}
 					refreshing={refreshing}
@@ -422,5 +425,6 @@ function useProjectRouteState(): ProjectRouteState {
 		search.get("intelligenceView"),
 	);
 	const focusPath = parseFocusPath(search.get("focusPath"));
-	return { projectId, tab, scanRunId, intelligenceView, focusPath };
+	const moduleId = parseModuleId(search.get("moduleId"));
+	return { projectId, tab, scanRunId, intelligenceView, focusPath, moduleId };
 }

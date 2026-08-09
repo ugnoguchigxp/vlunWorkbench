@@ -1,6 +1,8 @@
 import type {
 	ProjectStructureCoverage,
 	ProjectStructureDiagnostic,
+	ProjectStructureInventoryKind,
+	ProjectStructureReference,
 	ProjectStructureSnapshotV2,
 } from "../../../shared/schemas/project-structure.schema";
 import type {
@@ -73,28 +75,46 @@ export type ProjectIntelligenceProject = {
 	updatedAt: string;
 };
 
-export type ProjectStructureListResponse = {
-	status: IntelligenceReadinessStatus | "available" | "degraded";
+type ProjectStructureResponseBase = {
+	status: IntelligenceReadinessStatus;
 	generationId?: string;
-	items: Array<{
-		path: string;
-		language: string;
-		moduleKind: string;
-		tags: string[];
-		analysisStatus: string;
-		referenceCount: number;
-		exportCount: number;
-		externalDependencyCount: number;
-		risk: FileRiskIndexEntry | null;
-	}>;
-	modules: StaticIntelligenceModuleCandidate[];
-	nextCursor: number | null;
-	total?: number;
 	summary?: ProjectStructureSnapshotV2["summary"];
 	coverage?: ProjectStructureCoverage;
 	readiness?: ProjectStructureSnapshotV2["readiness"];
 	diagnostics?: ProjectStructureDiagnostic[];
+	modules: StaticIntelligenceModuleCandidate[];
 };
+
+export type ProjectStructureFileItem = {
+	path: string;
+	language: string;
+	moduleKind: string;
+	tags: string[];
+	analysisStatus: string;
+	referenceCount: number;
+	exportCount: number;
+	externalDependencyCount: number;
+	risk: FileRiskIndexEntry | null;
+};
+
+export type ProjectStructureSummaryResponse = ProjectStructureResponseBase & {
+	view: "summary";
+};
+
+export type ProjectStructureFilesResponse = ProjectStructureResponseBase & {
+	view: "files";
+	items: ProjectStructureFileItem[];
+	nextCursor: number | null;
+	total?: number;
+};
+
+export type ProjectStructureReferencesResponse =
+	ProjectStructureResponseBase & {
+		view: "references";
+		items: ProjectStructureReference[];
+		nextCursor: number | null;
+		total?: number;
+	};
 
 export type ScanIntelligenceExportResponse = {
 	export: StaticIntelligenceExportV1;
@@ -142,23 +162,56 @@ export async function fetchProjectIntelligenceSummaries(): Promise<
 	return data.summaries;
 }
 
-export async function fetchProjectStructure(
+export async function fetchProjectStructureSummary(
+	projectId: string,
+	scanRunId: string,
+	generationId?: string,
+): Promise<ProjectStructureSummaryResponse> {
+	const search = new URLSearchParams({ scanRunId, view: "summary" });
+	if (generationId) search.set("generationId", generationId);
+	return requestJson<ProjectStructureSummaryResponse>(
+		`/api/projects/${projectId}/intelligence/project-structure?${search.toString()}`,
+	);
+}
+
+export async function fetchProjectStructureFiles(
 	projectId: string,
 	scanRunId: string,
 	params: {
 		generationId?: string;
+		moduleId?: string;
 		query?: string;
 		analyzerId?: string;
-		kind?: string;
-		status?: string;
+		kind?: ProjectStructureInventoryKind;
 		cursor?: number;
 		limit?: number;
 	} = {},
-): Promise<ProjectStructureListResponse> {
+): Promise<ProjectStructureFilesResponse> {
 	const search = new URLSearchParams({ scanRunId, view: "files" });
 	for (const [key, value] of Object.entries(params))
 		if (value !== undefined && value !== "") search.set(key, String(value));
-	return requestJson<ProjectStructureListResponse>(
+	return requestJson<ProjectStructureFilesResponse>(
+		`/api/projects/${projectId}/intelligence/project-structure?${search.toString()}`,
+	);
+}
+
+export async function fetchProjectStructureReferences(
+	projectId: string,
+	scanRunId: string,
+	params: {
+		generationId?: string;
+		moduleId?: string;
+		direction?: "inbound" | "outbound" | "both";
+		query?: string;
+		status?: ProjectStructureReference["status"];
+		cursor?: number;
+		limit?: number;
+	} = {},
+): Promise<ProjectStructureReferencesResponse> {
+	const search = new URLSearchParams({ scanRunId, view: "references" });
+	for (const [key, value] of Object.entries(params))
+		if (value !== undefined && value !== "") search.set(key, String(value));
+	return requestJson<ProjectStructureReferencesResponse>(
 		`/api/projects/${projectId}/intelligence/project-structure?${search.toString()}`,
 	);
 }

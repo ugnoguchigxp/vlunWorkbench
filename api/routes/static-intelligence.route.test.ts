@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
 import type { StaticIntelligenceAgentQueryResult } from "../../shared/schemas/static-intelligence-agent-query.schema";
+import type { ProjectStructureSnapshotV2 } from "../../shared/schemas/project-structure.schema";
 import type { StaticIntelligenceExportV1 } from "../../shared/schemas/static-intelligence.schema";
 import { HttpError } from "../modules/auth/errors";
 import { createStaticIntelligenceRoute } from "./static-intelligence.route";
@@ -137,6 +138,168 @@ function readiness(item: Record<string, unknown>) {
 		semanticIndex: item,
 		agentBundle: item,
 		ontologyHandoff: item,
+	};
+}
+
+function projectStructureSnapshot(): ProjectStructureSnapshotV2 {
+	const hash = "a".repeat(64);
+	const stage = { status: "available" as const, reasonCodes: [] };
+	return {
+		version: "v2",
+		generatedAt: now.toISOString(),
+		project: {
+			id: "p-1",
+			rootRef: hash,
+			rootPathIncluded: false,
+		},
+		status: "completed",
+		structureInputHash: hash,
+		inventory: {
+			entries: [
+				{
+					path: "src/auth/index.ts",
+					realPathRef: hash,
+					kind: "source",
+					mediaType: "text/typescript",
+					sizeBytes: 120,
+					hashMode: "content",
+					contentHash: hash,
+					analyzerIds: ["typescript"],
+				},
+				{
+					path: "src/core/index.ts",
+					realPathRef: hash,
+					kind: "source",
+					mediaType: "text/typescript",
+					sizeBytes: 80,
+					hashMode: "content",
+					contentHash: hash,
+					analyzerIds: ["typescript"],
+				},
+			],
+			coverage: {
+				discoveredFileCount: 2,
+				includedFileCount: 2,
+				analyzableFileCount: 2,
+				unsupportedFileCount: 0,
+				resourceFileCount: 0,
+				excludedFileCount: 0,
+				excludedByReason: {},
+				unhashedFileCount: 0,
+				totalIncludedBytes: 200,
+				budgetHit: false,
+			},
+		},
+		files: [
+			{
+				path: "src/auth/index.ts",
+				analyzerId: "typescript",
+				language: "typescript",
+				moduleKind: "esm",
+				tags: ["route"],
+				exportedSymbols: ["authenticate"],
+				identifiers: ["authenticate"],
+				contentHash: hash,
+				status: "analyzed",
+				diagnosticCodes: [],
+			},
+			{
+				path: "src/core/index.ts",
+				analyzerId: "typescript",
+				language: "typescript",
+				moduleKind: "esm",
+				tags: [],
+				exportedSymbols: ["core"],
+				identifiers: ["core"],
+				contentHash: hash,
+				status: "analyzed",
+				diagnosticCodes: [],
+			},
+		],
+		references: [
+			{
+				from: "src/auth/index.ts",
+				specifier: "../../core",
+				kind: "code_module",
+				status: "resolved",
+				target: "src/core/index.ts",
+				resolverId: "typescript",
+				confidence: 1,
+				diagnosticCodes: [],
+			},
+			{
+				from: "src/core/index.ts",
+				specifier: "../../auth",
+				kind: "code_module",
+				status: "resolved",
+				target: "src/auth/index.ts",
+				resolverId: "typescript",
+				confidence: 1,
+				diagnosticCodes: [],
+			},
+			{
+				from: "src/auth/index.ts",
+				specifier: "jose",
+				kind: "external_package",
+				status: "external",
+				resolverId: "typescript",
+				confidence: 1,
+				diagnosticCodes: [],
+			},
+		],
+		modules: [
+			{
+				id: "module:auth",
+				label: "Authentication",
+				pathPrefix: "src/auth",
+				boundaryKind: "directory",
+				files: ["src/auth/index.ts"],
+				entrypoints: ["src/auth/index.ts"],
+				internalDependencies: ["src/core"],
+				externalDependencies: ["jose"],
+				confidence: 0.95,
+				confidenceReasons: ["directory boundary"],
+			},
+			{
+				id: "module:core",
+				label: "Core",
+				pathPrefix: "src/core",
+				boundaryKind: "directory",
+				files: ["src/core/index.ts"],
+				entrypoints: [],
+				internalDependencies: ["src/auth"],
+				externalDependencies: [],
+				confidence: 0.9,
+				confidenceReasons: ["directory boundary"],
+			},
+		],
+		packages: [{ name: "jose", importedBy: ["src/auth/index.ts"] }],
+		diagnostics: [],
+		readiness: {
+			inventory: stage,
+			analysis: stage,
+			resolution: stage,
+			moduleInference: stage,
+		},
+		summary: {
+			fileCount: 2,
+			analyzedFileCount: 2,
+			styleFileCount: 0,
+			markupFileCount: 0,
+			resourceFileCount: 0,
+			resolvedReferenceCount: 2,
+			unresolvedReferenceCount: 0,
+			moduleCount: 2,
+		},
+	};
+}
+
+function projectStructureGeneration() {
+	return {
+		generationId: "00000000-0000-4000-8000-000000000010",
+		structure: { snapshot: { files: [], edges: [] } },
+		projectStructure: { snapshot: projectStructureSnapshot() },
+		export: { payload: exportPayload() },
 	};
 }
 
@@ -294,6 +457,96 @@ describe("Static Intelligence Route", () => {
 		expect(res.status).toBe(200);
 		const body = await res.json();
 		expect(body.export.scan.id).toBe("s-1");
+	});
+
+	it("serves summary, exact module files, and directional references", async () => {
+		const resolveGeneration = vi.fn(async () => projectStructureGeneration());
+		const { app } = buildApp({
+			projects: { "p-1": project() },
+			scans: { "s-1": scan() },
+			readResolver: {
+				listSummaries: vi.fn(async () => []),
+				resolveGeneration,
+			},
+		});
+
+		const summaryResponse = await app.request(
+			"/api/projects/p-1/intelligence/project-structure?scanRunId=s-1&view=summary",
+		);
+		expect(summaryResponse.status).toBe(200);
+		expect(await summaryResponse.json()).toMatchObject({
+			view: "summary",
+			status: "available",
+			summary: { analyzedFileCount: 2, moduleCount: 2 },
+			modules: [
+				{ id: "module:auth", fileCount: 1 },
+				{ id: "module:core", fileCount: 1 },
+			],
+		});
+
+		const filesResponse = await app.request(
+			"/api/projects/p-1/intelligence/project-structure?scanRunId=s-1&view=files&moduleId=module%3Aauth",
+		);
+		expect(filesResponse.status).toBe(200);
+		expect(await filesResponse.json()).toMatchObject({
+			view: "files",
+			total: 1,
+			items: [{ path: "src/auth/index.ts", referenceCount: 2 }],
+		});
+
+		const outboundResponse = await app.request(
+			"/api/projects/p-1/intelligence/project-structure?scanRunId=s-1&view=references&moduleId=module%3Aauth&direction=outbound",
+		);
+		expect(outboundResponse.status).toBe(200);
+		const outbound = await outboundResponse.json();
+		expect(outbound.view).toBe("references");
+		expect(outbound.items).toHaveLength(2);
+		expect(outbound.items.every((item: { from: string }) => item.from.startsWith("src/auth/"))).toBe(true);
+
+		const inboundResponse = await app.request(
+			"/api/projects/p-1/intelligence/project-structure?scanRunId=s-1&view=references&moduleId=module%3Aauth&direction=inbound",
+		);
+		expect(inboundResponse.status).toBe(200);
+		expect(await inboundResponse.json()).toMatchObject({
+			total: 1,
+			items: [{ from: "src/core/index.ts", target: "src/auth/index.ts" }],
+		});
+	});
+
+	it("rejects invalid project-structure module filters", async () => {
+		const { app } = buildApp({
+			projects: { "p-1": project() },
+			scans: { "s-1": scan() },
+			readResolver: {
+				listSummaries: vi.fn(async () => []),
+				resolveGeneration: vi.fn(async () => projectStructureGeneration()),
+			},
+		});
+
+		const missingModule = await app.request(
+			"/api/projects/p-1/intelligence/project-structure?scanRunId=s-1&view=files&moduleId=module%3Amissing",
+		);
+		expect(missingModule.status).toBe(404);
+
+		const missingModuleForDirection = await app.request(
+			"/api/projects/p-1/intelligence/project-structure?scanRunId=s-1&view=references&direction=inbound",
+		);
+		expect(missingModuleForDirection.status).toBe(400);
+
+		const summaryWithModule = await app.request(
+			"/api/projects/p-1/intelligence/project-structure?scanRunId=s-1&view=summary&moduleId=module%3Aauth",
+		);
+		expect(summaryWithModule.status).toBe(400);
+
+		const filesWithDirection = await app.request(
+			"/api/projects/p-1/intelligence/project-structure?scanRunId=s-1&view=files&moduleId=module%3Aauth&direction=outbound",
+		);
+		expect(filesWithDirection.status).toBe(400);
+
+		const referencesWithFileFilter = await app.request(
+			"/api/projects/p-1/intelligence/project-structure?scanRunId=s-1&view=references&kind=source",
+		);
+		expect(referencesWithFileFilter.status).toBe(400);
 	});
 
 	it("maps agent query modes without accepting browser filesystem paths", async () => {

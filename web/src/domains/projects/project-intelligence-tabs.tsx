@@ -8,10 +8,12 @@ export function IntelligenceTabs({
 	projectId,
 	scanRunId,
 	activeView,
+	moduleId,
 }: {
 	projectId: string;
 	scanRunId: string | null;
 	activeView: IntelligenceViewId;
+	moduleId: string | null;
 }) {
 	return (
 		<nav className="intelligence-tabs" aria-label="Intelligence views">
@@ -23,6 +25,12 @@ export function IntelligenceTabs({
 					search={{
 						scanRunId: scanRunId ?? undefined,
 						intelligenceView: tab.id,
+						moduleId:
+							tab.id === "modules" ||
+							tab.id === "relationships" ||
+							tab.id === "handoff"
+								? (moduleId ?? undefined)
+								: undefined,
 					}}
 					className={activeView === tab.id ? "active" : ""}
 					aria-current={activeView === tab.id ? "page" : undefined}
