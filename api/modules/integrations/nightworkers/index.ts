@@ -5,3 +5,5 @@ export {
 	listNightworkersSelectableProfiles,
 	resolveNightworkersProfile,
 } from "./nightworkers-scan-preset-registry";
+export { createNightworkersSecurityIntelligenceRoutes } from "./nightworkers-security-intelligence.routes";
+export { NightworkersSecurityIntelligenceService } from "./nightworkers-security-intelligence.service";

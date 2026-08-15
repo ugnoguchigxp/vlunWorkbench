@@ -7,7 +7,7 @@
 - Last updated: 2026-08-15
 - Source concept: [Security Intelligence Integration Concept](./security-intelligence-integration-concept.md)
 - Scope: 最初の実証を成立させる4 PR。default activationと恒久知識への自動登録は含めない。
-- Progress: PR 1 committed as `538866f`; PR 2 committed as `ca0205e`; PR 3 implemented and targeted verification passed
+- Progress: PR 1 committed as `538866f`; PR 2 committed as `ca0205e`; PR 3 committed as `5a4df84`; PR 4 vulnWorkbench endpoint implemented、cross-repository consumer/pilot pending
 
 ## 1. 結論
 

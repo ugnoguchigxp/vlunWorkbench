@@ -1,5 +1,9 @@
 # PR 4: NightWorkers Security Intelligence Paired Pilot
 
+Status: vulnWorkbench producer/endpoint implemented; NightWorkers consumer、smoke、10-pair pilotは未実施
+
+Implementation baseline: PR 1 `538866f`、PR 2 `ca0205e`、PR 3 `5a4df84`
+
 ## 1. 目的
 
 NightWorkersがtask/runに紐付くrevision-bound assessmentを取得し、既存security scanと比較できるpaired pilotをdefault OFFで実行可能にする。
@@ -16,7 +20,7 @@ NightWorkersがtask/runに紐付くrevision-bound assessmentを取得し、既�
 GET /api/integrations/nightworkers/security-intelligence/v1/scans/:scanRunRef/assessment
 ```
 
-routeは既存NightWorkers integration authentication、binding、owner/project authorizationを再利用するが、response bodyはPR 1の別contractである。
+routeは既存NightWorkers integration authentication、binding、owner/project authorizationを再利用する。response bodyはPR 1のstrict assessment自体を変更せず、Dependency assessmentとoptional Authorization stateを格納する独立versionのbundleである。
 
 この分離により、既存consumerのstrict parserやcapability responseを壊さずpilot consumerだけを追加できる。
 
@@ -27,9 +31,11 @@ routeは既存NightWorkers integration authentication、binding、owner/project 
 | New | `api/modules/integrations/nightworkers/nightworkers-security-intelligence.routes.ts` | 独立version route |
 | New | `api/modules/integrations/nightworkers/nightworkers-security-intelligence.service.ts` | auth後のassessment取得 |
 | New | `api/modules/integrations/nightworkers/nightworkers-security-intelligence-projection.ts` | contract validation、redaction、stable response |
-| New | `api/modules/integrations/nightworkers/nightworkers-security-intelligence.test.ts` | auth、binding、state、redaction、v1 regression |
+| New | `api/modules/integrations/nightworkers/nightworkers-security-intelligence-telemetry.ts` | aggregate-only latency/payload metric |
+| New | `api/modules/integrations/nightworkers/nightworkers-security-intelligence.{service,routes,telemetry}.test.ts` | auth、binding、state、redaction、metric |
+| New | `shared/schemas/nightworkers-security-intelligence.schema.ts` | strict outer bundle / response contract |
+| New | `shared/schemas/nightworkers-security-intelligence-pilot.schema.ts` | versioned pilot evidence contract |
 | Change | integration route registration file | 新route groupをmount |
-| Change | `api/modules/security-intelligence/security-assessment-service.ts` | integration用read-only entrypoint |
 | New | `spec/evidence/security-intelligence-nightworkers-pilot-template.json` | paired observation template |
 | New | `spec/security-intelligence-pilot-decision-template.md` | GO / ITERATE / STOP decision format |
 
@@ -65,10 +71,11 @@ contextStillはこのpilotのcritical dependencyにしない。pilot後にvalida
 ### Success
 
 - HTTP 200
-- bodyは`SecurityIntelligenceAssessmentV1`
+- bodyはversioned success envelope内の`NightworkersSecurityIntelligenceBundle`
+- Dependency payloadと利用可能なAuthorization payloadは、それぞれstrictな`SecurityIntelligenceAssessmentV1`
 - `projectRef`、`scanRunRef`、target digestがrequested bindingと一致
 - Dependency sectionはPR 2の結果
-- Authorization sectionはflag ONかつ利用可能な場合だけoptional shadowとして含む
+- Authorization sectionは常に`disabled / unavailable / available`を明示し、flag ONかつ利用可能な場合だけassessmentを含む
 
 ### Not ready / unavailable
 
@@ -216,11 +223,10 @@ flag keyの具体名は既存configuration conventionを確認して決め、pla
 vulnWorkbench:
 
 ```bash
-bun test api/modules/integrations/nightworkers/nightworkers-security-intelligence.test.ts
-bun test api/modules/integrations/nightworkers/nightworkers-integration-projection.test.ts
-bun test shared/schemas/nightworkers-security-scan-integration.schema.test.ts
-bun test shared/schemas/security-intelligence-assessment.schema.test.ts
-bun run integration:nightworkers:capabilities
+bun test api/modules/integrations/nightworkers api/modules/security-intelligence api/app/env.test.ts
+bunx vitest run shared/schemas/nightworkers-security-intelligence.schema.test.ts shared/schemas/nightworkers-security-intelligence-pilot.schema.test.ts
+bunx vitest run shared/schemas/nightworkers-security-scan-integration.schema.test.ts shared/schemas/security-intelligence-assessment.schema.test.ts
+bun run verify:security-intelligence-contract
 bun run typecheck
 git diff --check
 ```

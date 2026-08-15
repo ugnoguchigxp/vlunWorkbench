@@ -6,6 +6,7 @@ import type { AppRuntime } from "./hono-runtime";
 
 function createMiddlewareApp(options?: {
 	enabled?: boolean;
+	securityIntelligenceEnabled?: boolean;
 	authenticationFails?: boolean;
 	authenticationBackendFails?: boolean;
 }) {
@@ -30,6 +31,8 @@ function createMiddlewareApp(options?: {
 			trustProxy: false,
 			trustedProxyCidrs: [],
 			nightworkersIntegrationEnabled: options?.enabled ?? true,
+			nightworkersSecurityIntelligenceEnabled:
+				options?.securityIntelligenceEnabled ?? false,
 			nodeEnv: "test",
 		},
 		integrationClientService: { authenticate },
@@ -41,6 +44,10 @@ function createMiddlewareApp(options?: {
 	);
 	app.post("/api/integrations/nightworkers/v10/probe", (c) =>
 		c.json({ ok: true }),
+	);
+	app.get(
+		"/api/integrations/nightworkers/security-intelligence/v1/probe",
+		(c) => c.json({ ok: true }),
 	);
 	app.post("/api/ordinary-probe", (c) => c.json({ ok: true }));
 	return { app, authenticate };
@@ -158,5 +165,26 @@ describe("NightWorkers CSRF boundary", () => {
 			body: "{}",
 		});
 		expect(response.status).toBe(413);
+	});
+
+	it("exempts the Security Intelligence prefix from user sessions only when its flags are enabled", async () => {
+		vi.spyOn(console, "log").mockImplementation(() => undefined);
+		const enabled = createMiddlewareApp({ securityIntelligenceEnabled: true });
+		const enabledResponse = await enabled.app.request(
+			"/api/integrations/nightworkers/security-intelligence/v1/probe",
+			{ headers: integrationHeaders },
+		);
+		expect(enabledResponse.status).toBe(200);
+		expect(enabled.authenticate).toHaveBeenCalledTimes(1);
+
+		const disabled = createMiddlewareApp({
+			securityIntelligenceEnabled: false,
+		});
+		const disabledResponse = await disabled.app.request(
+			"/api/integrations/nightworkers/security-intelligence/v1/probe",
+			{ headers: integrationHeaders },
+		);
+		expect(disabledResponse.status).toBe(401);
+		expect(disabled.authenticate).not.toHaveBeenCalled();
 	});
 });

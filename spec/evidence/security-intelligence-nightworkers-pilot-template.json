@@ -1,0 +1,44 @@
+{
+  "schemaVersion": "security-intelligence-nightworkers-pilot-evidence-v1",
+  "pilotId": "pilot:replace-before-use",
+  "status": "not_started",
+  "contractVersion": 1,
+  "generatedAt": null,
+  "configuration": {
+    "vulnWorkbenchEndpointDefaultEnabled": false,
+    "nightWorkersConsumerDefaultEnabled": false,
+    "authorizationShadowDefaultEnabled": false,
+    "allowedProjectCount": 0
+  },
+  "sample": {
+    "requiredValidPairCount": 10,
+    "pairs": [],
+    "invalidPairs": []
+  },
+  "metrics": {
+    "wrongProjectOrRevisionBindingCount": null,
+    "unresolvedEvidenceRefCount": null,
+    "secretOrAbsolutePathLeakCount": null,
+    "requiredFailureShownAsSuccessCount": null,
+    "contractParseFailureCount": null,
+    "evidenceResolutionRate": null,
+    "operatorActionRate": null,
+    "baselineTimeToEvidenceMedianSeconds": null,
+    "assessmentTimeToEvidenceMedianSeconds": null,
+    "assessmentBuildLatencyP50Ms": null,
+    "assessmentBuildLatencyP95Ms": null,
+    "endpointErrorRate": null,
+    "payloadSizeP95Bytes": null
+  },
+  "privacyAssertions": {
+    "noSourceBody": false,
+    "noSecret": false,
+    "noAbsoluteFilesystemPath": false
+  },
+  "rollbackDrill": {
+    "nightWorkersConsumerDisabled": false,
+    "vulnWorkbenchEndpointDisabled": false,
+    "existingScanApiUnaffected": false
+  },
+  "stopReasonCodes": []
+}

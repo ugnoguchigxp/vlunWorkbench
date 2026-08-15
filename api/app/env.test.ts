@@ -31,6 +31,11 @@ describe("readAppEnv", () => {
 		expect(env.nightworkersIntegrationMaxReportBytes).toBe(5 * 1024 * 1024);
 		expect(env.nightworkersIntegrationMaxRequestBytes).toBe(64 * 1024);
 		expect(env.nightworkersReportRunnerConcurrency).toBe(2);
+		expect(env.nightworkersSecurityIntelligenceEnabled).toBe(false);
+		expect(
+			env.nightworkersSecurityIntelligenceAuthorizationShadowEnabled,
+		).toBe(false);
+		expect(env.nightworkersSecurityIntelligenceAllowedProjectIds).toEqual([]);
 		expect(env.curatedSastEnabled).toBe(false);
 		expect(env.multiEcosystemOsvEnabled).toBe(false);
 		expect(env.zapActiveEnabled).toBe(false);
@@ -74,6 +79,11 @@ describe("readAppEnv", () => {
 			NIGHTWORKERS_INTEGRATION_MAX_REPORT_BYTES: "1048576",
 			NIGHTWORKERS_INTEGRATION_MAX_REQUEST_BYTES: "32768",
 			NIGHTWORKERS_REPORT_RUNNER_CONCURRENCY: "3",
+			NIGHTWORKERS_SECURITY_INTELLIGENCE_ENABLED: "true",
+			NIGHTWORKERS_SECURITY_INTELLIGENCE_AUTHORIZATION_SHADOW_ENABLED:
+				"true",
+			NIGHTWORKERS_SECURITY_INTELLIGENCE_ALLOWED_PROJECT_IDS:
+				"11111111-1111-4111-8111-111111111111,22222222-2222-4222-8222-222222222222,11111111-1111-4111-8111-111111111111",
 		});
 
 		expect(env.nightworkersIntegrationEnabled).toBe(true);
@@ -90,6 +100,23 @@ describe("readAppEnv", () => {
 		expect(env.nightworkersIntegrationMaxReportBytes).toBe(1_048_576);
 		expect(env.nightworkersIntegrationMaxRequestBytes).toBe(32_768);
 		expect(env.nightworkersReportRunnerConcurrency).toBe(3);
+		expect(env.nightworkersSecurityIntelligenceEnabled).toBe(true);
+		expect(
+			env.nightworkersSecurityIntelligenceAuthorizationShadowEnabled,
+		).toBe(true);
+		expect(env.nightworkersSecurityIntelligenceAllowedProjectIds).toEqual([
+			"11111111-1111-4111-8111-111111111111",
+			"22222222-2222-4222-8222-222222222222",
+		]);
+	});
+
+	it("rejects invalid Security Intelligence project allowlist entries", () => {
+		expect(() =>
+			readAppEnv({
+				NIGHTWORKERS_SECURITY_INTELLIGENCE_ALLOWED_PROJECT_IDS:
+					"not-a-project-id",
+			}),
+		).toThrow();
 	});
 
 	it("normalizes and deduplicates Static Intelligence allowed roots", () => {

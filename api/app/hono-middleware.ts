@@ -156,11 +156,10 @@ export function configureHttpMiddleware(app: Hono, runtime: AppRuntime): void {
 	);
 	const csrfMiddleware = csrf();
 	app.use("/api/*", async (c, next) => {
-		const integrationPrefix = "/api/integrations/nightworkers/v1";
-		const isIntegrationRequest =
-			runtime.env.nightworkersIntegrationEnabled &&
-			(c.req.path === integrationPrefix ||
-				c.req.path.startsWith(`${integrationPrefix}/`));
+		const isIntegrationRequest = isNightworkersIntegrationRequest(
+			c.req.path,
+			runtime.env,
+		);
 		if (!isIntegrationRequest) {
 			return await csrfMiddleware(c, next);
 		}
@@ -227,11 +226,10 @@ export function configureHttpMiddleware(app: Hono, runtime: AppRuntime): void {
 			"/api/auth/refresh",
 			"/api/auth/logout",
 		]);
-		const integrationPrefix = "/api/integrations/nightworkers/v1";
-		const isIntegrationRequest =
-			runtime.env.nightworkersIntegrationEnabled &&
-			(c.req.path === integrationPrefix ||
-				c.req.path.startsWith(`${integrationPrefix}/`));
+		const isIntegrationRequest = isNightworkersIntegrationRequest(
+			c.req.path,
+			runtime.env,
+		);
 		if (publicPaths.has(c.req.path) || isIntegrationRequest) {
 			await next();
 			return;
@@ -328,6 +326,25 @@ export function configureHttpMiddleware(app: Hono, runtime: AppRuntime): void {
 			500,
 		);
 	});
+}
+
+function isNightworkersIntegrationRequest(
+	requestPath: string,
+	env: Pick<
+		AppRuntime["env"],
+		"nightworkersIntegrationEnabled" | "nightworkersSecurityIntelligenceEnabled"
+	>,
+): boolean {
+	if (!env.nightworkersIntegrationEnabled) return false;
+	const prefixes = [
+		"/api/integrations/nightworkers/v1",
+		...(env.nightworkersSecurityIntelligenceEnabled
+			? ["/api/integrations/nightworkers/security-intelligence/v1"]
+			: []),
+	];
+	return prefixes.some(
+		(prefix) => requestPath === prefix || requestPath.startsWith(`${prefix}/`),
+	);
 }
 
 function integrationRequestId(c: {

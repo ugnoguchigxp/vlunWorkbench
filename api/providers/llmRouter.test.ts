@@ -62,6 +62,9 @@ const env = {
 	nightworkersIntegrationMaxReportBytes: 5 * 1024 * 1024,
 	nightworkersIntegrationMaxRequestBytes: 64 * 1024,
 	nightworkersReportRunnerConcurrency: 2,
+	nightworkersSecurityIntelligenceEnabled: false,
+	nightworkersSecurityIntelligenceAuthorizationShadowEnabled: false,
+	nightworkersSecurityIntelligenceAllowedProjectIds: [],
 } satisfies AppEnv;
 
 describe("LlmRouter", () => {

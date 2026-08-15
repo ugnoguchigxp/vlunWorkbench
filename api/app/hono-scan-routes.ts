@@ -5,9 +5,12 @@ import { serveStatic } from "hono/bun";
 import { FindingDecisionRepository } from "../modules/decisions/finding-decision-repository";
 import {
 	createNightworkersIntegrationRoutes,
+	createNightworkersSecurityIntelligenceRoutes,
 	NightworkersIntegrationService,
+	NightworkersSecurityIntelligenceService,
 } from "../modules/integrations/nightworkers";
 import { NightworkersIntegrationRepository } from "../modules/integrations/nightworkers/nightworkers-integration.repository";
+import { emitNightworkersSecurityIntelligenceTelemetry } from "../modules/integrations/nightworkers/nightworkers-security-intelligence-telemetry";
 import { FindingReviewRepository } from "../modules/reviews/finding-review-repository";
 import { ArtifactStorage } from "../modules/scans/artifact-storage";
 import { ScanReportRepository } from "../modules/scans/report-repository";
@@ -78,6 +81,24 @@ export function registerScanRoutes(app: Hono, runtime: AppRuntime): void {
 				maxRequestBytes: runtime.env.nightworkersIntegrationMaxRequestBytes,
 			}),
 		);
+		if (runtime.env.nightworkersSecurityIntelligenceEnabled) {
+			const securityIntelligenceService =
+				new NightworkersSecurityIntelligenceService({
+					db: runtime.dbConnection.db,
+					env: runtime.env,
+					integrationRepository: nightworkersRepository,
+					scanRepository,
+					artifactStorage,
+					telemetry: emitNightworkersSecurityIntelligenceTelemetry,
+				});
+			app.route(
+				"/api/integrations/nightworkers/security-intelligence/v1",
+				createNightworkersSecurityIntelligenceRoutes({
+					integrationClientService: runtime.integrationClientService,
+					service: securityIntelligenceService,
+				}),
+			);
+		}
 	}
 
 	app.route(

@@ -1,3 +1,4 @@
+import { Buffer } from "node:buffer";
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -6,7 +7,6 @@ import { createDbConnection, type DbConnection } from "../../db";
 import { llmProviderEndpoints } from "../../db/schema";
 import { LlmSettingsRepository } from "./llm-settings.repository";
 import { SECRET_MASK } from "./secret-mask";
-import { Buffer } from "node:buffer";
 
 function migrate(connection: DbConnection): void {
 	const migrationsDir = path.resolve(process.cwd(), "drizzle");
@@ -65,6 +65,9 @@ function appEnv(overrides: Partial<AppEnv> = {}): AppEnv {
 		nightworkersIntegrationMaxReportBytes: 5 * 1024 * 1024,
 		nightworkersIntegrationMaxRequestBytes: 64 * 1024,
 		nightworkersReportRunnerConcurrency: 2,
+		nightworkersSecurityIntelligenceEnabled: false,
+		nightworkersSecurityIntelligenceAuthorizationShadowEnabled: false,
+		nightworkersSecurityIntelligenceAllowedProjectIds: [],
 		...overrides,
 	};
 }

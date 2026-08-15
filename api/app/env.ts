@@ -60,6 +60,21 @@ const optionalPositiveInteger = z.preprocess((value) => {
 	return trimmed.length > 0 ? trimmed : undefined;
 }, z.coerce.number().int().positive().optional());
 
+function parseUuidCsv(value: string | undefined): string[] {
+	if (!value) return [];
+	const uuidSchema = z.string().uuid();
+	return [
+		...new Set(
+			value
+				.split(",")
+				.map((item) => item.trim())
+				.filter(Boolean),
+		),
+	]
+		.map((item) => uuidSchema.parse(item))
+		.sort();
+}
+
 const optionalSecurityHeadersMode = z.preprocess(
 	(value) => {
 		if (typeof value !== "string") return value;
@@ -140,6 +155,10 @@ const EnvSchema = z.object({
 	NIGHTWORKERS_INTEGRATION_MAX_REPORT_BYTES: optionalPositiveInteger,
 	NIGHTWORKERS_INTEGRATION_MAX_REQUEST_BYTES: optionalPositiveInteger,
 	NIGHTWORKERS_REPORT_RUNNER_CONCURRENCY: optionalPositiveInteger,
+	NIGHTWORKERS_SECURITY_INTELLIGENCE_ENABLED: optionalBoolean,
+	NIGHTWORKERS_SECURITY_INTELLIGENCE_AUTHORIZATION_SHADOW_ENABLED:
+		optionalBoolean,
+	NIGHTWORKERS_SECURITY_INTELLIGENCE_ALLOWED_PROJECT_IDS: optionalTrimmedString,
 	JWT_SECRET: z.preprocess((value) => {
 		if (typeof value !== "string") return value;
 		const trimmed = value.trim();
@@ -216,6 +235,9 @@ export type AppEnv = {
 	nightworkersIntegrationMaxReportBytes: number;
 	nightworkersIntegrationMaxRequestBytes: number;
 	nightworkersReportRunnerConcurrency: number;
+	nightworkersSecurityIntelligenceEnabled: boolean;
+	nightworkersSecurityIntelligenceAuthorizationShadowEnabled: boolean;
+	nightworkersSecurityIntelligenceAllowedProjectIds: string[];
 	curatedSastEnabled?: boolean;
 	multiEcosystemOsvEnabled?: boolean;
 	zapActiveEnabled?: boolean;
@@ -419,6 +441,14 @@ export function readAppEnv(env: NodeJS.ProcessEnv = process.env): AppEnv {
 			parsed.NIGHTWORKERS_INTEGRATION_MAX_REQUEST_BYTES ?? 64 * 1024,
 		nightworkersReportRunnerConcurrency:
 			parsed.NIGHTWORKERS_REPORT_RUNNER_CONCURRENCY ?? 2,
+		nightworkersSecurityIntelligenceEnabled:
+			parsed.NIGHTWORKERS_SECURITY_INTELLIGENCE_ENABLED ?? false,
+		nightworkersSecurityIntelligenceAuthorizationShadowEnabled:
+			parsed.NIGHTWORKERS_SECURITY_INTELLIGENCE_AUTHORIZATION_SHADOW_ENABLED ??
+			false,
+		nightworkersSecurityIntelligenceAllowedProjectIds: parseUuidCsv(
+			parsed.NIGHTWORKERS_SECURITY_INTELLIGENCE_ALLOWED_PROJECT_IDS,
+		),
 		curatedSastEnabled: SECURITY_CAPABILITY_DEFAULTS.curatedSastEnabled,
 		multiEcosystemOsvEnabled:
 			SECURITY_CAPABILITY_DEFAULTS.multiEcosystemOsvEnabled,

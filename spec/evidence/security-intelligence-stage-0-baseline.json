@@ -1,9 +1,9 @@
 {
 	"schemaVersion": 1,
 	"evidenceKind": "security_intelligence_stage_0_baseline",
-	"capturedAt": "2026-08-15T03:56:29.000Z",
-	"baselineCommit": "cbfdf40414cb5aee865cfa42b0b1b07f37ee9597",
-	"scope": "Security Intelligence Assessment v1 contract and fixtures; runtime routes, database state, and the NightWorkers security scan v1 contract are excluded from change scope.",
+	"capturedAt": "2026-08-15T07:08:48.000Z",
+	"baselineCommit": "2825d6d5cae95b34882378d9386cb02c80246bce",
+	"scope": "Security Intelligence Assessment v1 remains unchanged; the NightWorkers v1 fixture is re-pinned to the committed optional-scanner state without changing its schema.",
 	"workingTreeContext": {
 		"excludedFromPr1": [
 			"shared/fixtures/nightworkers-security-scan-integration-v1.ts changed concurrently from the Semgrep preview example to the Gitleaks preview example; PR 1 did not edit or revert it."
@@ -12,7 +12,7 @@
 	"nightworkersV1": {
 		"contractVersion": 1,
 		"schemaFileSha256": "sha256:98090b09c05f1f505cadf51e01b7d19fcf1ce38cf1ab8f1536630cbebf635eea",
-		"fixtureFileSha256": "sha256:d4cff1a655c1bc9d15b9a0dac7582d56506c977030169a6079a65c7d17e36707"
+		"fixtureFileSha256": "sha256:9cb8aed77bfc03b254c0c7917015be7be928dfc648300341cff70843c9ba51cd"
 	},
 	"assessmentContract": {
 		"contractVersion": "1",
