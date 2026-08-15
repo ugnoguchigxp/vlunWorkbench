@@ -1,5 +1,9 @@
 # vulnWorkbench Concept
 
+Cross-projectのSecurity Intelligence循環と、vulnWorkbench / NightWorkers / contextStill / Project Declarationの責務境界は、[Security Intelligence Integration Concept](security-intelligence-integration-concept.md)を参照する。
+
+vulnWorkbench側の最初の実装順序とPR境界は、[Security Intelligence Initial Implementation Roadmap](security-intelligence-initial-implementation-roadmap.md)を参照する。
+
 ## Purpose
 
 vulnWorkbench は、既存のセキュリティCLIツールが生成した診断結果を、証跡制約付きLLMが評価し、統合診断結果と実装可能なレポートへ自動変換するローカル脆弱性診断ワークベンチである。

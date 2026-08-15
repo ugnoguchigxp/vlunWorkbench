@@ -72,6 +72,7 @@
 		"scan:profile": "bun run api/cli/scan-profile.ts",
 		"oracle:security": "bun run api/cli/oracle-security.ts",
 		"integration:nightworkers:capabilities": "bun run api/cli/nightworkers-security-capabilities.ts",
+		"verify:security-intelligence-contract": "bun run scripts/verify-security-intelligence-contract.ts",
 		"scan:dast": "bun run api/cli/scan-dast.ts",
 		"review:finding": "bun run api/cli/review-finding.ts",
 		"review:scan": "bun run api/cli/review-scan.ts",

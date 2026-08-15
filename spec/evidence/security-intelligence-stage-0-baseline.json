@@ -1,0 +1,140 @@
+{
+	"schemaVersion": 1,
+	"evidenceKind": "security_intelligence_stage_0_baseline",
+	"capturedAt": "2026-08-15T03:56:29.000Z",
+	"baselineCommit": "cbfdf40414cb5aee865cfa42b0b1b07f37ee9597",
+	"scope": "Security Intelligence Assessment v1 contract and fixtures; runtime routes, database state, and the NightWorkers security scan v1 contract are excluded from change scope.",
+	"workingTreeContext": {
+		"excludedFromPr1": [
+			"shared/fixtures/nightworkers-security-scan-integration-v1.ts changed concurrently from the Semgrep preview example to the Gitleaks preview example; PR 1 did not edit or revert it."
+		]
+	},
+	"nightworkersV1": {
+		"contractVersion": 1,
+		"schemaFileSha256": "sha256:98090b09c05f1f505cadf51e01b7d19fcf1ce38cf1ab8f1536630cbebf635eea",
+		"fixtureFileSha256": "sha256:9cb8aed77bfc03b254c0c7917015be7be928dfc648300341cff70843c9ba51cd"
+	},
+	"assessmentContract": {
+		"contractVersion": "1",
+		"schemaFileSha256": "sha256:58d8b6b91e92c2b468156b6c313a54780c65980bd7c606aba7deaf3f905fd122",
+		"schemaComponentsFileSha256": "sha256:f08e62f40e50f11027413284e66975fea9a860f2a09ca064e81d1f342a437a57",
+		"canonicalizationFileSha256": "sha256:b758eb12c86b646974c7ed720b2630c501563476a173f0eab15e454315f54785",
+		"fixtureSourceFileSha256": "sha256:0972479171a4d47ed29471cb8ffc825eaed14a6e59785d44c1aa1e3f06c8b294",
+		"negativeFixtureSourceFileSha256": "sha256:1b66bc53b33a125b4b72c563749459e25b21aa02d022df303ab7f29f074fb939",
+		"verifierFileSha256": "sha256:fec62d2fa4c7d292a94a5c8f358224e784b8ae6a52f2e8aeca2339055a9f803d",
+		"positiveFixtureCount": 6,
+		"negativeFixtureCount": 11,
+		"fixtureSetSha256": "sha256:908c35d956cbea5035fefce8cc14e980530a6231cf8adcf01be6905ee837b71d",
+		"fixtures": [
+			{
+				"name": "authorization-coverage-lost",
+				"assessmentRef": "sia:v1:f8707c52d5e02864b25f048ed2065f2a954835983ac38b47116ca84b9e5b6ba2",
+				"sha256": "sha256:69015bc37f62f353869768c2e05b8a450ff5c3fa5c70896af32a001e98ffd3b9"
+			},
+			{
+				"name": "authorization-shadow-observed",
+				"assessmentRef": "sia:v1:0deb1eaebefbb7625ecb88171406d6fbd05e56d120a68b74aabdd164079c4c61",
+				"sha256": "sha256:5b113b22d00b540b827d2b36018325054e46b9ca65941b0e6b6d9d4fcf8e16e7"
+			},
+			{
+				"name": "dependency-findings-observed",
+				"assessmentRef": "sia:v1:3bee2440036fac01626433988bb9378145266c379645481233142bc492e4fb28",
+				"sha256": "sha256:e6a1cd41228002b8e15f0401ff32c03783e9d463f07ee8ef58945dbd3b78d4fa"
+			},
+			{
+				"name": "dependency-inconclusive",
+				"assessmentRef": "sia:v1:98c42550f94d350fffce7c6549b1364dafd9722cd4123554959726ac04c6f9bd",
+				"sha256": "sha256:7b536fcd5072b45903f5bdbec956bce75588791d8da818e6366ed2ddd5269f98"
+			},
+			{
+				"name": "dependency-no-findings-observed",
+				"assessmentRef": "sia:v1:7f1642e5783366aa0fd7b834bb61479c2f3b977b3326509066e75d6ca4550c51",
+				"sha256": "sha256:d53cbaf9130798b00cb3ba43213ef77ed86895be2da495d215cac21905c2d27e"
+			},
+			{
+				"name": "dependency-unavailable",
+				"assessmentRef": "sia:v1:c22f25d1f0413a815f11bc8c6c027e6905c597dc93b075949dfb578a4a0f3033",
+				"sha256": "sha256:c621dbb532a8b572d0e2d8dbad4c67e9db7c1256bd0d3064d60091623b7068b6"
+			}
+		],
+		"negativeFixtures": [
+			{
+				"name": "absolute-path-evidence",
+				"expectedIssue": "security_intelligence:repository_relative_path_required",
+				"sha256": "sha256:6d5d259307bac8c265d43d6e8d87a36c21f2ab911e2810660786e6dbe54ec0c6",
+				"validator": "schema"
+			},
+			{
+				"name": "credential-shaped-text",
+				"expectedIssue": "security_intelligence:credential_shaped_text_forbidden",
+				"sha256": "sha256:dd8df5474c2cb8023459cb76cd74c82ba1a968b0cc2adb456dad30ec82563f57",
+				"validator": "schema"
+			},
+			{
+				"name": "declared-producer-claim",
+				"expectedIssue": "security_intelligence:claim_origin_invalid",
+				"sha256": "sha256:fd00d5f3114c6cceb28a90ecb268ea391e1bc36fd36f98f662baaf1ebae5de8c",
+				"validator": "schema"
+			},
+			{
+				"name": "finding-not-linked-to-verification-evidence",
+				"expectedIssue": "security_intelligence:verification_finding_requires_linked_evidence",
+				"sha256": "sha256:69bf806e46349418853ce8aa78c14eefb4145925262f8c9624a953a75d9d68b0",
+				"validator": "schema"
+			},
+			{
+				"name": "mismatched-evidence-target",
+				"expectedIssue": "security_intelligence:evidence_target_mismatch",
+				"sha256": "sha256:6582338d74a828b7a3834dea15184c495fc60efeddd59ff23379d355872db64b",
+				"validator": "schema"
+			},
+			{
+				"name": "missing-target-revision",
+				"expectedIssue": "security_intelligence:revision_format_invalid",
+				"sha256": "sha256:5cbbb774bfa452bb996ddcdc3ebb68a80214f4467e577ef7e98a3be3663a7a04",
+				"validator": "schema"
+			},
+			{
+				"name": "no-findings-with-required-failure",
+				"expectedIssue": "security_intelligence:no_findings_requires_required_verifications_tested",
+				"sha256": "sha256:dacb9f855c06c92184351c597d78be51850e6f545b8e098b160774dff49d4dd6",
+				"validator": "schema"
+			},
+			{
+				"name": "semantic-assessment-ref-mismatch",
+				"expectedIssue": "security_intelligence:assessment_ref_mismatch",
+				"sha256": "sha256:8ffade7c214ea358b8dcfb5c66836023dce96fd66d5d883fa4cfd84bde102966",
+				"validator": "contract"
+			},
+			{
+				"name": "tested-without-evidence",
+				"expectedIssue": "security_intelligence:tested_evidence_required",
+				"sha256": "sha256:f7646a1bc761e71d889ea7a246828a3e455736d3e2fc4cd224d91a544aed47e8",
+				"validator": "schema"
+			},
+			{
+				"name": "unknown-field",
+				"expectedIssue": "security_intelligence:unknown_field",
+				"sha256": "sha256:84f5dc1062f24127328bef28937a66d13fc651a0ef04732326d8a6e95cdcccc5",
+				"validator": "contract"
+			},
+			{
+				"name": "unsafe-outcome-label",
+				"expectedIssue": "security_intelligence:outcome_invalid",
+				"sha256": "sha256:72e3a4d4d18659b519e8960720d3c44a46317ee3ad4c52638ec24d8e63614124",
+				"validator": "schema"
+			}
+		]
+	},
+	"verification": {
+		"positiveFixtures": "pass",
+		"negativeFixtures": "pass",
+		"semanticAssessmentRefs": "pass",
+		"canonicalHashRepeatability": "pass"
+	},
+	"privacy": {
+		"absoluteHomePathsIncluded": false,
+		"credentialsIncluded": false,
+		"sourceBodiesIncluded": false
+	}
+}
