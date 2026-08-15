@@ -6,8 +6,7 @@ technology reporting are implemented in the working tree. Sandboxed Java target
 execution、pre-scan capability UI、enforced rollout、legacy removal、same-commit
 release closeout remain pending.
 
-Predecessor:
-`spec/phase-51-dast-coverage-and-verdict-hardening-plan.md`
+Predecessor: Phase 51 DAST Coverage, Depth, and Verdict Hardening（完了）
 
 Implementation baseline commit:
 `aff18b530a8fddfdc67c2a7fc21a0b825712d9b6`
@@ -1491,8 +1490,6 @@ supported inputを自動拡張しない。
 
 ## 30. 参照するrepository file
 
-- `spec/phase-51-dast-coverage-and-verdict-hardening-plan.md`
-- `spec/phase-50-automated-professional-web-api-gap-closure-plan.md`
 - `api/modules/scans/profiles.ts`
 - `api/modules/scans/target-scope.ts`
 - `api/modules/scans/diff-scan-plan.ts`

@@ -57,6 +57,7 @@ export const integrationResourceBindings = sqliteTable(
 		ownerUserId: text("owner_user_id")
 			.notNull()
 			.references(() => users.id, { onDelete: "cascade" }),
+		activeCapacityLimit: integer("active_capacity_limit"),
 		createdAt: timestampMs("created_at"),
 	},
 	(table) => ({

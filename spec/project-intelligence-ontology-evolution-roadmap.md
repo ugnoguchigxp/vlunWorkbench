@@ -2,7 +2,7 @@
 
 - Status: Directional roadmap
 - Date: 2026-08-09
-- Entry gate: [Project Intelligence Foundation Hardening Implementation Plan](./project-intelligence-foundation-hardening-implementation-plan.md)
+- Entry gate: Project Intelligence Foundation Hardening（完了）
 - Scope: Persistent Project Structure Index -> Project Intelligence -> independent Ontology Core
 
 ## 1. Purpose
@@ -68,9 +68,7 @@ Codex / Claude Code / other agents
 
 ## 4. Stage 0: Foundation and Value Proof
 
-Source of truth:
-
-- `spec/project-intelligence-foundation-hardening-implementation-plan.md`
+Completed entry gate: Project Intelligence Foundation Hardening
 
 Outcome:
 

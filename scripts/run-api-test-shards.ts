@@ -6,7 +6,7 @@ import { discoverTestFiles, isVitestFile } from "./test-files";
 
 const concurrency = Math.max(
 	1,
-	Number.parseInt(process.env.TEST_SHARD_CONCURRENCY ?? "4", 10) || 4,
+	Number.parseInt(process.env.TEST_SHARD_CONCURRENCY ?? "2", 10) || 2,
 );
 const files = (await discoverTestFiles()).filter((file) => !isVitestFile(file));
 const initialWriterPids = new Set(

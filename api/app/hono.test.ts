@@ -9,6 +9,16 @@ vi.mock("../db", () => ({
 	runInProcessDbTransaction: vi.fn((db, callback) => callback(db)),
 	createDbConnection: vi.fn().mockReturnValue({
 		db: {
+			select: vi.fn().mockReturnValue({
+				from: vi.fn().mockReturnValue({
+					where: vi.fn().mockReturnValue({}),
+				}),
+			}),
+			update: vi.fn().mockReturnValue({
+				set: vi.fn().mockReturnValue({
+					where: vi.fn().mockResolvedValue(undefined),
+				}),
+			}),
 			query: {
 				users: {
 					findFirst: vi.fn(),

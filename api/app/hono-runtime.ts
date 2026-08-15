@@ -11,6 +11,8 @@ import { ActiveAssessmentRunner } from "../modules/dast/active-assessment-runner
 import { DastAuthContextCrypto } from "../modules/dast/auth-context-crypto";
 import { DastAuthContextRepository } from "../modules/dast/auth-context-repository";
 import { IntegrationClientService } from "../modules/integrationClients/integration-client.service";
+import { NightworkersWorkspaceTargetGrantRepository } from "../modules/integrations/nightworkers/nightworkers-workspace-target-grant.repository";
+import { NightworkersWorkspaceTargetGrantJanitor } from "../modules/integrations/nightworkers/nightworkers-workspace-target-grant-janitor";
 import { LlmSettingsRepository } from "../modules/llm-settings/llm-settings.repository";
 import { SourceRetriever } from "../modules/rag/retriever";
 import { SearchEvidenceCollector } from "../modules/rag/search-evidence";
@@ -64,6 +66,10 @@ export type AppRuntime = {
 	activeAssessmentRunner: ActiveAssessmentRunner;
 	businessLogicRunner: BusinessLogicRunner;
 	integrationClientService: IntegrationClientService;
+	workspaceTargetGrantJanitor: Pick<
+		NightworkersWorkspaceTargetGrantJanitor,
+		"stop"
+	>;
 	agenticSearchService: {
 		run(input: {
 			query: string;
@@ -148,6 +154,9 @@ function isRuntimeShape(value: unknown): value is AppRuntime {
 		Boolean(obj.activeAssessmentRunner) &&
 		Boolean(obj.businessLogicRunner) &&
 		Boolean(obj.integrationClientService) &&
+		typeof (
+			obj.workspaceTargetGrantJanitor as Record<string, unknown> | undefined
+		)?.stop === "function" &&
 		typeof settingsRepo?.getSystemContextForUser === "function" &&
 		typeof settingsRepo?.updateSystemContext === "function" &&
 		Boolean(obj.agenticSearchService) &&
@@ -253,7 +262,6 @@ async function createRuntime(): Promise<AppRuntime> {
 	const integrationClientService = new IntegrationClientService(
 		dbConnection.db,
 	);
-
 	const agenticLogger = createAgenticLogger(env.openAiAgenticSearchDebug);
 	const agenticDisabledReason = !env.openAiApiKey
 		? "Agentic search requires OPENAI_API_KEY, or AZURE_OPENAI_API_KEY with AZURE_OPENAI_ENDPOINT."
@@ -316,6 +324,11 @@ async function createRuntime(): Promise<AppRuntime> {
 				});
 			})()
 		: new UnconfiguredAgenticSearchService(agenticDisabledReason);
+	const workspaceTargetGrantJanitor =
+		new NightworkersWorkspaceTargetGrantJanitor(
+			new NightworkersWorkspaceTargetGrantRepository(dbConnection.db),
+		);
+	await workspaceTargetGrantJanitor.start();
 
 	return {
 		env,
@@ -339,6 +352,7 @@ async function createRuntime(): Promise<AppRuntime> {
 		activeAssessmentRunner,
 		businessLogicRunner,
 		integrationClientService,
+		workspaceTargetGrantJanitor,
 		agenticSearchService,
 	};
 }

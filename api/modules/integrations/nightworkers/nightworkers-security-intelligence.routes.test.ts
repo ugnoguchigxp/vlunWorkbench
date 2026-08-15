@@ -163,6 +163,13 @@ describe("NightWorkers Security Intelligence routes", () => {
 		);
 		expect(deniedResponse.status).toBe(403);
 		expect(denied.workspaceGrantService.createGrant).not.toHaveBeenCalled();
+		expect(denied.auditRepository.recordAudit).toHaveBeenCalledWith(
+			expect.objectContaining({
+				operation: "workspace_target_grant_create",
+				outcome: "rejected",
+				errorCode: "integration_scope_denied",
+			}),
+		);
 
 		const limited = createRoute({
 			scopes: ["nightworkers:security-scan:write"],
@@ -177,6 +184,13 @@ describe("NightWorkers Security Intelligence routes", () => {
 		expect(limitedResponse.status).toBe(413);
 		expect((await limitedResponse.json()).error.code).toBe("invalid_request");
 		expect(limited.workspaceGrantService.createGrant).not.toHaveBeenCalled();
+		expect(limited.auditRepository.recordAudit).toHaveBeenCalledWith(
+			expect.objectContaining({
+				operation: "integration_request_body_limit",
+				outcome: "rejected",
+				errorCode: "invalid_request",
+			}),
+		);
 	});
 
 	it("returns capabilities without advertising full or local CLI support", async () => {
@@ -238,6 +252,13 @@ describe("NightWorkers Security Intelligence routes", () => {
 		expect((await unauthorizedResponse.json()).error.code).toBe(
 			"integration_unauthorized",
 		);
+		expect(unauthorized.auditRepository.recordAudit).toHaveBeenCalledWith(
+			expect.objectContaining({
+				integrationClientId: null,
+				operation: "integration_authentication",
+				errorCode: "integration_unauthorized",
+			}),
+		);
 
 		const denied = createRoute({ scopes: [] });
 		const deniedResponse = await denied.app.request(request(SCAN_ID));
@@ -247,6 +268,13 @@ describe("NightWorkers Security Intelligence routes", () => {
 			"integration_scope_denied",
 		);
 		expect(denied.service.assessment).not.toHaveBeenCalled();
+		expect(denied.auditRepository.recordAudit).toHaveBeenCalledWith(
+			expect.objectContaining({
+				integrationClientId: "client-1",
+				operation: "security_intelligence_assessment_read",
+				errorCode: "integration_scope_denied",
+			}),
+		);
 	});
 
 	it("rejects a malformed scan reference before service access", async () => {
@@ -271,6 +299,13 @@ describe("NightWorkers Security Intelligence routes", () => {
 			retryable: true,
 			details: { retryAfterSeconds: expect.any(Number) },
 		});
+		expect(setup.auditRepository.recordAudit).toHaveBeenCalledWith(
+			expect.objectContaining({
+				operation: "integration_rate_limit",
+				outcome: "rejected",
+				errorCode: "rate_limit_exceeded",
+			}),
+		);
 	});
 
 	it("distinguishes retryable not-ready from terminal unavailable", async () => {

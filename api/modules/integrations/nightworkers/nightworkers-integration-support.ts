@@ -44,6 +44,13 @@ export function sha256(value: string): string {
 	return createHash("sha256").update(value, "utf8").digest("hex");
 }
 
+export function isIntegrationScanCapacityConstraint(error: unknown): boolean {
+	return (
+		error instanceof Error &&
+		error.message.includes("integration_scan_capacity_exceeded")
+	);
+}
+
 export function executionStatus(
 	value: string,
 ): IntegrationScanRunDetail["status"] {

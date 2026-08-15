@@ -750,8 +750,13 @@ git diff --cached --name-only -- artifacts
 - `spec/contextstill-static-intelligence-bridge-concept.md`
 - `spec/project-scan-exploration-reduction-mcp-concept.md`
 - `spec/static-intelligence-coding-agent-consumer-companion-plan.md`
-- `spec/phase-46-security-release-readiness-plan.md`
-- `spec/phase-48-quality-reliability-hardening-plan.md`
+- `spec/phase-52-plugin-oriented-language-framework-refactoring-plan.md`
 - `spec/phase-54-release-trust-and-product-value-realization-plan.md`
+- `spec/project-intelligence-ontology-evolution-roadmap.md`
+- `spec/security-intelligence-integration-concept.md`
+- `spec/security-intelligence-initial-implementation-roadmap.md`
+- `spec/security-intelligence-pr4-nightworkers-pilot-plan.md`
+- `spec/security-intelligence-pilot-decision-template.md`
 
-実装済みの計画書は working tree から削除し、Git history で参照します。
+実装済みの計画書は `spec/.archived/` へ移します。この隠しディレクトリは
+LLM の通常探索対象に含めず、明示的な履歴監査を依頼された場合だけ参照します。

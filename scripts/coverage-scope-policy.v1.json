@@ -12,6 +12,11 @@
 		"api/modules/dast/active-*.ts",
 		"api/modules/dynamic/dynamic-*.ts",
 		"api/modules/integrations/nightworkers/nightworkers-security-intelligence*.ts",
+		"api/modules/integrations/nightworkers/nightworkers-workspace-target-grant-cli.ts",
+		"api/modules/integrations/nightworkers/nightworkers-workspace-target-grant-janitor.ts",
+		"api/modules/integrations/nightworkers/nightworkers-workspace-target-grant.repository.ts",
+		"api/modules/integrations/nightworkers/nightworkers-workspace-target-grant.service.ts",
+		"api/modules/integrations/nightworkers/nightworkers-workspace-target-state.ts",
 		"api/modules/reproductions/reproduction-run-*.ts",
 		"api/modules/scans/tools/docker-tool-*.ts"
 	],

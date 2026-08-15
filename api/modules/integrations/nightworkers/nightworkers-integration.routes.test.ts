@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { IntegrationClientAuthenticationError } from "../../integrationClients/integration-client.service";
 import { createNightworkersIntegrationRoutes } from "./nightworkers-integration.routes";
+import { NightworkersRequestGuard } from "./nightworkers-integration-auth.middleware";
 
 const SCAN_ID = "11111111-1111-4111-8111-111111111111";
 const REPORT_ID = "22222222-2222-4222-8222-222222222222";
@@ -25,6 +26,7 @@ function createRoute(options?: {
 	authenticationFails?: boolean;
 	authenticationBackendFails?: boolean;
 	rateLimitPolicy?: { limit: number; windowMs: number };
+	requestGuard?: NightworkersRequestGuard;
 }) {
 	const integrationClientService = {
 		authenticate: vi.fn(async () => {
@@ -87,13 +89,14 @@ function createRoute(options?: {
 		})),
 	};
 	const auditRepository = {
-		recordAudit: vi.fn(async () => undefined),
+		recordAudit: vi.fn(async (_entry: Record<string, unknown>) => undefined),
 	};
 	const app = createNightworkersIntegrationRoutes({
 		integrationClientService: integrationClientService as never,
 		auditRepository,
 		service: service as never,
 		maxRequestBytes: 64 * 1024,
+		requestGuard: options?.requestGuard,
 	});
 	return { app, auditRepository, integrationClientService, service };
 }
@@ -112,7 +115,9 @@ function request(path: string, init?: RequestInit) {
 
 describe("NightWorkers integration routes", () => {
 	it("returns the versioned error envelope when authentication fails", async () => {
-		const { app } = createRoute({ authenticationFails: true });
+		const { app, auditRepository } = createRoute({
+			authenticationFails: true,
+		});
 		const response = await app.request(
 			request("/capabilities", {
 				method: "POST",
@@ -130,6 +135,14 @@ describe("NightWorkers integration routes", () => {
 				retryable: false,
 			},
 		});
+		expect(auditRepository.recordAudit).toHaveBeenCalledWith(
+			expect.objectContaining({
+				integrationClientId: null,
+				operation: "integration_authentication",
+				outcome: "rejected",
+				errorCode: "integration_unauthorized",
+			}),
+		);
 	});
 
 	it("does not disguise an authentication backend failure as invalid credentials", async () => {
@@ -150,8 +163,27 @@ describe("NightWorkers integration routes", () => {
 		log.mockRestore();
 	});
 
+	it("bounds persisted anonymous authentication rejection audits", async () => {
+		const { app, auditRepository } = createRoute({
+			authenticationFails: true,
+		});
+		const responses = await Promise.all(
+			Array.from({ length: 61 }, () =>
+				app.request(
+					request("/capabilities", {
+						method: "POST",
+						body: JSON.stringify({ projectPath: "/workspace/project" }),
+					}),
+				),
+			),
+		);
+
+		expect(responses.every((response) => response.status === 401)).toBe(true);
+		expect(auditRepository.recordAudit).toHaveBeenCalledTimes(60);
+	});
+
 	it("rejects a route when the credential lacks its scope", async () => {
-		const { app } = createRoute({
+		const { app, auditRepository } = createRoute({
 			scopes: ["nightworkers:security-scan:read"],
 		});
 		const response = await app.request(
@@ -162,10 +194,18 @@ describe("NightWorkers integration routes", () => {
 		expect((await response.json()).error.code).toBe(
 			"integration_scope_denied",
 		);
+		expect(auditRepository.recordAudit).toHaveBeenCalledWith(
+			expect.objectContaining({
+				integrationClientId: "client-1",
+				operation: "scan_reports_read",
+				outcome: "rejected",
+				errorCode: "integration_scope_denied",
+			}),
+		);
 	});
 
 	it("does not update last-used for a request rejected by the rate limiter", async () => {
-		const { app, integrationClientService } = createRoute({
+		const { app, auditRepository, integrationClientService } = createRoute({
 			rateLimitPolicy: { limit: 1, windowMs: 60_000 },
 		});
 		const first = await app.request(
@@ -180,10 +220,59 @@ describe("NightWorkers integration routes", () => {
 				body: JSON.stringify({ projectPath: "/workspace/project" }),
 			}),
 		);
+		const third = await app.request(
+			request("/capabilities", {
+				method: "POST",
+				body: JSON.stringify({ projectPath: "/workspace/project" }),
+			}),
+		);
 
 		expect(first.status).toBe(200);
 		expect(second.status).toBe(429);
+		expect(third.status).toBe(429);
 		expect(integrationClientService.markUsed).toHaveBeenCalledTimes(1);
+		expect(auditRepository.recordAudit).toHaveBeenCalledWith(
+			expect.objectContaining({
+				integrationClientId: "client-1",
+				operation: "integration_rate_limit",
+				outcome: "rejected",
+				errorCode: "rate_limit_exceeded",
+			}),
+		);
+		expect(
+			auditRepository.recordAudit.mock.calls.filter(
+				([entry]) => entry.errorCode === "rate_limit_exceeded",
+			),
+		).toHaveLength(1);
+	});
+
+	it("shares a client rate limit across route instances", async () => {
+		const requestGuard = new NightworkersRequestGuard();
+		const firstRoute = createRoute({
+			rateLimitPolicy: { limit: 1, windowMs: 60_000 },
+			requestGuard,
+		});
+		const secondRoute = createRoute({
+			rateLimitPolicy: { limit: 1, windowMs: 60_000 },
+			requestGuard,
+		});
+
+		const first = await firstRoute.app.request(
+			request("/capabilities", {
+				method: "POST",
+				body: JSON.stringify({ projectPath: "/workspace/project" }),
+			}),
+		);
+		const second = await secondRoute.app.request(
+			request("/capabilities", {
+				method: "POST",
+				body: JSON.stringify({ projectPath: "/workspace/project" }),
+			}),
+		);
+
+		expect(first.status).toBe(200);
+		expect(second.status).toBe(429);
+		expect(secondRoute.integrationClientService.markUsed).not.toHaveBeenCalled();
 	});
 
 	it("requires a UUID Idempotency-Key before starting a scan", async () => {

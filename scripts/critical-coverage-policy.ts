@@ -3,7 +3,7 @@ export type CriticalCoverageTarget = {
 	minimum: number;
 };
 
-export const criticalCoverageTargetBaseline = 22;
+export const criticalCoverageTargetBaseline = 27;
 
 export const criticalCoverageTargets: readonly CriticalCoverageTarget[] = [
 	{ path: "api/middleware/auth.ts", minimum: 95 },
@@ -34,6 +34,26 @@ export const criticalCoverageTargets: readonly CriticalCoverageTarget[] = [
 		path: "api/modules/integrations/nightworkers/nightworkers-security-intelligence.service.ts",
 		minimum: 80,
 	},
+	{
+		path: "api/modules/integrations/nightworkers/nightworkers-workspace-target-grant-cli.ts",
+		minimum: 90,
+	},
+	{
+		path: "api/modules/integrations/nightworkers/nightworkers-workspace-target-grant-janitor.ts",
+		minimum: 95,
+	},
+	{
+		path: "api/modules/integrations/nightworkers/nightworkers-workspace-target-grant.repository.ts",
+		minimum: 95,
+	},
+	{
+		path: "api/modules/integrations/nightworkers/nightworkers-workspace-target-grant.service.ts",
+		minimum: 95,
+	},
+	{
+		path: "api/modules/integrations/nightworkers/nightworkers-workspace-target-state.ts",
+		minimum: 85,
+	},
 	{ path: "api/modules/scans/scan-diagnostic-runner.ts", minimum: 80 },
 	{ path: "api/modules/scans/tools/docker-tool-cleanup.ts", minimum: 80 },
 	{
@@ -62,6 +82,11 @@ export const criticalCoverageTests = [
 	"api/modules/dynamic/dynamic-runner.test.ts",
 	"api/modules/integrations/nightworkers/nightworkers-integration.service.test.ts",
 	"api/modules/integrations/nightworkers/nightworkers-security-intelligence.service.test.ts",
+	"api/modules/integrations/nightworkers/nightworkers-workspace-target-grant-cli.test.ts",
+	"api/modules/integrations/nightworkers/nightworkers-workspace-target-grant-janitor.test.ts",
+	"api/modules/integrations/nightworkers/nightworkers-workspace-target-grant.repository.test.ts",
+	"api/modules/integrations/nightworkers/nightworkers-workspace-target-grant.service.test.ts",
+	"api/modules/integrations/nightworkers/nightworkers-workspace-target-state.test.ts",
 	"api/modules/reproductions/reproduction-runner.test.ts",
 	"api/modules/scans/scan-diagnostic-runner.test.ts",
 	"api/modules/scans/tools/tool-process-runner.test.ts",

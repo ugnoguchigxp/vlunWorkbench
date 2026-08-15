@@ -20,13 +20,15 @@ import { securityIntelligenceSafeTextSchema } from "../../../../shared/schemas/s
 import type { IntegrationClientService } from "../../integrationClients/integration-client.service";
 import { NightworkersIntegrationError } from "./nightworkers-integration.errors";
 import type { NightworkersIntegrationRepository } from "./nightworkers-integration.repository";
-import { sha256 } from "./nightworkers-integration-support";
 import {
 	createNightworkersAuthenticationMiddleware,
 	type NightworkersHonoEnv,
+	type NightworkersRequestGuard,
+	recordNightworkersAudit,
 	requestIdFor,
 	requireNightworkersScope,
 } from "./nightworkers-integration-auth.middleware";
+import { sha256 } from "./nightworkers-integration-support";
 import { NightworkersSecurityIntelligenceError } from "./nightworkers-security-intelligence.errors";
 import type { NightworkersSecurityIntelligenceService } from "./nightworkers-security-intelligence.service";
 import type { NightworkersWorkspaceTargetGrantService } from "./nightworkers-workspace-target-grant.service";
@@ -49,6 +51,7 @@ export function createNightworkersSecurityIntelligenceRoutes(deps: {
 		"createGrant" | "preview" | "start"
 	>;
 	maxRequestBytes?: number;
+	requestGuard?: NightworkersRequestGuard;
 }) {
 	const app = new Hono<NightworkersHonoEnv>();
 	app.use("*", async (c, next) => {
@@ -69,14 +72,28 @@ export function createNightworkersSecurityIntelligenceRoutes(deps: {
 	});
 	app.use(
 		"*",
-		createNightworkersAuthenticationMiddleware(deps.integrationClientService),
+		createNightworkersAuthenticationMiddleware(
+			deps.integrationClientService,
+			deps.auditRepository,
+			deps.requestGuard,
+		),
 	);
 	app.use(
 		"*",
 		bodyLimit({
 			maxSize: deps.maxRequestBytes ?? 16 * 1024,
-			onError: (c) =>
-				c.json(
+			onError: async (c) => {
+				setAuditContext(c, {
+					scope: "nightworkers:integration",
+					operation: "integration_request_body_limit",
+				});
+				await recordNightworkersAudit(
+					deps.auditRepository,
+					c,
+					"rejected",
+					"invalid_request",
+				);
+				return c.json(
 					{
 						contractVersion:
 							NIGHTWORKERS_SECURITY_INTELLIGENCE_CONTRACT_VERSION,
@@ -88,12 +105,17 @@ export function createNightworkersSecurityIntelligenceRoutes(deps: {
 						},
 					},
 					413,
-				),
+				);
+			},
 		}),
 	);
 	app.get(
 		"/capabilities",
-		requireNightworkersScope("nightworkers:security-scan:read"),
+		requireNightworkersScope(
+			"nightworkers:security-scan:read",
+			deps.auditRepository,
+			"security_intelligence_capabilities_read",
+		),
 		async (c) => {
 			setAuditContext(c, {
 				scope: "nightworkers:security-scan:read",
@@ -106,13 +128,17 @@ export function createNightworkersSecurityIntelligenceRoutes(deps: {
 					data: deps.service.capabilities(),
 				}),
 			);
-			await recordAudit(deps.auditRepository, c, "accepted");
+			await recordNightworkersAudit(deps.auditRepository, c, "accepted");
 			return response;
 		},
 	);
 	app.post(
 		"/workspace-target-grants",
-		requireNightworkersScope("nightworkers:security-scan:write"),
+		requireNightworkersScope(
+			"nightworkers:security-scan:write",
+			deps.auditRepository,
+			"workspace_target_grant_create",
+		),
 		async (c) => {
 			setAuditContext(c, {
 				scope: "nightworkers:security-scan:write",
@@ -139,13 +165,17 @@ export function createNightworkersSecurityIntelligenceRoutes(deps: {
 				requestId: requestIdFor(c),
 				data,
 			});
-			await recordAudit(deps.auditRepository, c, "accepted");
+			await recordNightworkersAudit(deps.auditRepository, c, "accepted");
 			return c.json(envelope, 201);
 		},
 	);
 	app.post(
 		"/workspace-target-grants/:grantRef/preview",
-		requireNightworkersScope("nightworkers:security-scan:read"),
+		requireNightworkersScope(
+			"nightworkers:security-scan:read",
+			deps.auditRepository,
+			"workspace_target_grant_preview",
+		),
 		async (c) => {
 			setAuditContext(c, {
 				scope: "nightworkers:security-scan:read",
@@ -172,13 +202,17 @@ export function createNightworkersSecurityIntelligenceRoutes(deps: {
 				requestId: requestIdFor(c),
 				data,
 			});
-			await recordAudit(deps.auditRepository, c, "accepted");
+			await recordNightworkersAudit(deps.auditRepository, c, "accepted");
 			return c.json(envelope);
 		},
 	);
 	app.post(
 		"/workspace-target-grants/:grantRef/scans",
-		requireNightworkersScope("nightworkers:security-scan:write"),
+		requireNightworkersScope(
+			"nightworkers:security-scan:write",
+			deps.auditRepository,
+			"workspace_target_scan_start",
+		),
 		async (c) => {
 			setAuditContext(c, {
 				scope: "nightworkers:security-scan:write",
@@ -221,7 +255,7 @@ export function createNightworkersSecurityIntelligenceRoutes(deps: {
 				requestId: requestIdFor(c),
 				data,
 			});
-			await recordAudit(
+			await recordNightworkersAudit(
 				deps.auditRepository,
 				c,
 				data.replayed ? "replayed" : "accepted",
@@ -231,7 +265,11 @@ export function createNightworkersSecurityIntelligenceRoutes(deps: {
 	);
 	app.get(
 		"/scans/:scanRunRef/binding-proof",
-		requireNightworkersScope("nightworkers:security-scan:read"),
+		requireNightworkersScope(
+			"nightworkers:security-scan:read",
+			deps.auditRepository,
+			"security_intelligence_binding_proof_read",
+		),
 		async (c) => {
 			setAuditContext(c, {
 				scope: "nightworkers:security-scan:read",
@@ -259,13 +297,17 @@ export function createNightworkersSecurityIntelligenceRoutes(deps: {
 					requestId: requestIdFor(c),
 					data,
 				});
-			await recordAudit(deps.auditRepository, c, "accepted");
+			await recordNightworkersAudit(deps.auditRepository, c, "accepted");
 			return c.json(envelope);
 		},
 	);
 	app.get(
 		"/scans/:scanRunRef/assessment",
-		requireNightworkersScope("nightworkers:security-scan:read"),
+		requireNightworkersScope(
+			"nightworkers:security-scan:read",
+			deps.auditRepository,
+			"security_intelligence_assessment_read",
+		),
 		async (c) => {
 			setAuditContext(c, {
 				scope: "nightworkers:security-scan:read",
@@ -293,7 +335,7 @@ export function createNightworkersSecurityIntelligenceRoutes(deps: {
 					requestId: requestIdFor(c),
 					data,
 				});
-			await recordAudit(deps.auditRepository, c, "accepted");
+			await recordNightworkersAudit(deps.auditRepository, c, "accepted");
 			return c.json(envelope);
 		},
 	);
@@ -311,7 +353,12 @@ export function createNightworkersSecurityIntelligenceRoutes(deps: {
 				}),
 			);
 		}
-		await recordAudit(deps.auditRepository, c, "rejected", safe.code);
+		await recordNightworkersAudit(
+			deps.auditRepository,
+			c,
+			"rejected",
+			safe.code,
+		);
 		return c.json(
 			{
 				contractVersion: NIGHTWORKERS_SECURITY_INTELLIGENCE_CONTRACT_VERSION,
@@ -335,41 +382,6 @@ function setAuditContext(
 	>,
 ): void {
 	c.set("integrationAuditContext", value);
-}
-
-async function recordAudit(
-	repository: Pick<NightworkersIntegrationRepository, "recordAudit">,
-	c: Context<NightworkersHonoEnv>,
-	outcome: "accepted" | "replayed" | "rejected",
-	errorCode?: string,
-): Promise<void> {
-	const audit = c.get("integrationAuditContext");
-	const client = c.get("integrationClient");
-	if (!audit || !client) return;
-	try {
-		await repository.recordAudit({
-			integrationClientId: client.id,
-			ownerUserId: client.ownerUserId,
-			scope: audit.scope,
-			operation: audit.operation,
-			requestId: c.get("integrationRequestId"),
-			pathHash: audit.pathHash ?? null,
-			idempotencyKeyHash: audit.idempotencyKeyHash ?? null,
-			resourceRef: audit.resourceRef ?? null,
-			outcome,
-			errorCode: errorCode ?? null,
-		});
-	} catch (error) {
-		console.error(
-			JSON.stringify({
-				version: 1,
-				level: "error",
-				event: "nightworkers.security_intelligence.audit_write_failed",
-				requestId: c.get("integrationRequestId"),
-				errorName: error instanceof Error ? error.name : "UnknownError",
-			}),
-		);
-	}
 }
 
 function requireWorkspaceGrantService(

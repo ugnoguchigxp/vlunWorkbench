@@ -38,6 +38,8 @@
 | `web/src/domains/scans/` | primary scan workflow UI |
 | `drizzle/` | SQL migrations |
 | `scripts/verify.ts` | verification pipeline |
+| `spec/` | Product concepts and active implementation plans |
+| `spec/.archived/` | Completed plans retained for history; do not load unless the user explicitly requests a historical audit |
 
 ## Task Routing
 

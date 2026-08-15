@@ -3,7 +3,7 @@ import { z } from "zod";
 import { securityIntelligenceRevisionSchema } from "./security-intelligence-assessment-components.schema";
 
 export const SECURITY_INTELLIGENCE_IDENTITY_FIXTURE_SHA256 =
-	"sha256:5009d3937819b87fadef64bb316644efe2a4d1508e2a42d08e557ebf21fec672";
+	"sha256:d715270ebf16ed55ac9bb3dca2b095e800d3ca51e0de58111b28d3129f007c12";
 
 const rawDigestSchema = z.string().regex(/^[a-f0-9]{64}$/);
 const canonicalDigestSchema = z.string().regex(/^sha256:[a-f0-9]{64}$/);
@@ -61,6 +61,7 @@ export const securityIntelligenceIdentityFixtureSchema = z
 				assessmentResponseBytes: z.literal(2 * 1024 * 1024),
 				candidateBatchBytes: z.literal(256 * 1024),
 				feedbackBatchBytes: z.literal(128 * 1024),
+				workspaceGrantRequestBytes: z.literal(16 * 1024),
 			})
 			.strict(),
 	})

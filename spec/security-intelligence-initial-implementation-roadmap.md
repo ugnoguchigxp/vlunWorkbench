@@ -58,9 +58,9 @@ flowchart LR
 
 | PR | 成果 | 主な新規・変更箇所 | Merge gate |
 | --- | --- | --- | --- |
-| [PR 1](./security-intelligence-pr1-contract-and-baseline-plan.md) | Contract + baseline | `shared/schemas/`、`shared/fixtures/`、検証script | schema、negative fixture、hashが決定的 |
-| [PR 2](./security-intelligence-pr2-dependency-change-assessment-plan.md) | Dependency縦切り | `api/modules/security-intelligence/`、CLI | 保存済みrevision/evidenceから説明可能なassessmentを生成 |
-| [PR 3](./security-intelligence-pr3-authorization-boundary-shadow-plan.md) | Authorization shadow | revision-bound snapshot、observer、fixture | coverage lossをchangeと誤認せず、runtime判断へ影響しない |
+| PR 1（完了） | Contract + baseline | `shared/schemas/`、`shared/fixtures/`、検証script | schema、negative fixture、hashが決定的 |
+| PR 2（完了） | Dependency縦切り | `api/modules/security-intelligence/`、CLI | 保存済みrevision/evidenceから説明可能なassessmentを生成 |
+| PR 3（完了） | Authorization shadow | revision-bound snapshot、observer、fixture | coverage lossをchangeと誤認せず、runtime判断へ影響しない |
 | [PR 4](./security-intelligence-pr4-nightworkers-pilot-plan.md) | NightWorkers pilot | 独立integration endpoint、metric、pilot evidence | wrong-revision 0件、既存v1非破壊、default OFF |
 
 依存関係は`PR 1 -> PR 2 -> PR 4`が必須で、PR 3はPR 1 merge後にPR 2と並行開発できる。PR 4のAuthorization出力はPR 3が間に合わなくてもoptionalとして扱い、Dependency pilotを止めない。

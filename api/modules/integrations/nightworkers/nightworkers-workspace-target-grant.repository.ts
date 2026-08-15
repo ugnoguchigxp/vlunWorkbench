@@ -1,5 +1,16 @@
 import { randomUUID } from "node:crypto";
-import { and, count, eq, gt, inArray, isNull, lte, sql } from "drizzle-orm";
+import {
+	and,
+	count,
+	eq,
+	gt,
+	inArray,
+	isNull,
+	lte,
+	notExists,
+	or,
+	sql,
+} from "drizzle-orm";
 import {
 	type AppDatabase,
 	runInProcessDbTransaction,
@@ -12,6 +23,7 @@ import {
 	scanEvents,
 	scanRuns,
 } from "../../../db/schema";
+import { isIntegrationScanCapacityConstraint } from "./nightworkers-integration-support";
 
 type MutationQuery = {
 	toSQL(): { sql: string; params: unknown[] };
@@ -83,6 +95,15 @@ export class NightworkersWorkspaceTargetGrantRepository {
 	}
 
 	async clearExpiredWorkspacePaths(now = new Date()): Promise<void> {
+		const activeConsumedScan = this.db
+			.select({ value: sql`1` })
+			.from(scanRuns)
+			.where(
+				and(
+					eq(scanRuns.id, nightworkersWorkspaceTargetGrants.consumedScanRunId),
+					inArray(scanRuns.status, ["queued", "running"]),
+				),
+			);
 		await this.db
 			.update(nightworkersWorkspaceTargetGrants)
 			.set({ canonicalWorkspacePath: "", updatedAt: now })
@@ -90,6 +111,10 @@ export class NightworkersWorkspaceTargetGrantRepository {
 				and(
 					lte(nightworkersWorkspaceTargetGrants.expiresAt, now),
 					sql`${nightworkersWorkspaceTargetGrants.canonicalWorkspacePath} <> ''`,
+					or(
+						isNull(nightworkersWorkspaceTargetGrants.consumedScanRunId),
+						notExists(activeConsumedScan),
+					),
 				),
 			);
 	}
@@ -294,6 +319,7 @@ export class NightworkersWorkspaceTargetGrantRepository {
 						resourceId: scanRunId,
 						projectId: params.projectId,
 						ownerUserId: params.ownerUserId,
+						activeCapacityLimit: params.maxConcurrentScans,
 						createdAt: now,
 					}) as MutationQuery,
 					db.insert(integrationIdempotencyKeys).values([
@@ -368,6 +394,9 @@ export class NightworkersWorkspaceTargetGrantRepository {
 					grantAfterRace.expiresAt.getTime() <= Date.now()
 				) {
 					throw new WorkspaceGrantChangedError();
+				}
+				if (isIntegrationScanCapacityConstraint(error)) {
+					throw new WorkspaceGrantCapacityError();
 				}
 				throw error;
 			}

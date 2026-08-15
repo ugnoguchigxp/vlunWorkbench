@@ -20,6 +20,7 @@ import {
 	cleanupExpiredIntegrationState,
 	findRetainedIdempotency,
 } from "./nightworkers-idempotency-retention";
+import { isIntegrationScanCapacityConstraint } from "./nightworkers-integration-support";
 
 type MutationQuery = {
 	toSQL(): { sql: string; params: unknown[] };
@@ -199,6 +200,7 @@ export class NightworkersIntegrationRepository {
 					resourceId: scanRunId,
 					projectId: params.projectId,
 					ownerUserId: params.ownerUserId,
+					activeCapacityLimit: params.maxConcurrentScans,
 					createdAt: now,
 				}) as MutationQuery,
 				db.insert(integrationIdempotencyKeys).values({
@@ -234,6 +236,9 @@ export class NightworkersIntegrationRepository {
 					throw new IntegrationIdempotencyConflictError();
 				}
 				return { resourceId: raced.resourceId, replayed: true };
+			}
+			if (isIntegrationScanCapacityConstraint(error)) {
+				throw new IntegrationScanCapacityError();
 			}
 			throw error;
 		}
@@ -462,9 +467,9 @@ export class NightworkersIntegrationRepository {
 	}
 
 	async recordAudit(params: {
-		integrationClientId: string;
-		ownerUserId: string;
-		scope: string;
+		integrationClientId: string | null;
+		ownerUserId: string | null;
+		scope: string | null;
 		operation: string;
 		requestId: string;
 		projectRef?: string | null;

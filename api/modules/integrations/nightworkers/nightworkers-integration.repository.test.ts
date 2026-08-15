@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createDbConnection, type DbConnection } from "../../../db";
 import {
+	integrationAuditLogs,
 	integrationClients,
 	integrationIdempotencyKeys,
 	integrationResourceBindings,
@@ -294,5 +295,78 @@ describe("NightworkersIntegrationRepository", () => {
 			}
 		}
 		expect(await connection.db.select().from(scanRuns)).toHaveLength(2);
+	});
+
+	it("enforces scan capacity in SQLite when process-local locks are bypassed", async () => {
+		await repository.createIdempotentScan({
+			integrationClientId,
+			ownerUserId,
+			projectId,
+			profileRef: "source-baseline",
+			requestHash: "database-capacity-first",
+			idempotencyKey: "database-capacity-first",
+			idempotencyExpiresAt: new Date("2030-01-01T00:00:00.000Z"),
+			metadata: {},
+			eventMessage: "Scan queued.",
+			maxConcurrentScans: 1,
+		});
+		const secondScanRunId = "55555555-5555-4555-8555-555555555555";
+		await connection.db.insert(scanRuns).values({
+			id: secondScanRunId,
+			projectId,
+			profile: "source-baseline",
+			status: "queued",
+			createdByUserId: ownerUserId,
+		});
+
+		expect(() =>
+			connection.db
+				.insert(integrationResourceBindings)
+				.values({
+					integrationClientId,
+					resourceType: "scan_run",
+					resourceId: secondScanRunId,
+					projectId,
+					ownerUserId,
+					activeCapacityLimit: 1,
+				})
+				.run(),
+		).toThrow("integration_scan_capacity_exceeded");
+
+		expect(() =>
+			connection.db
+				.insert(integrationResourceBindings)
+				.values({
+					integrationClientId,
+					resourceType: "scan_run",
+					resourceId: secondScanRunId,
+					projectId,
+					ownerUserId,
+				})
+				.run(),
+		).toThrow("integration_scan_capacity_exceeded");
+	});
+
+	it("persists anonymous authentication rejection audits without credentials", async () => {
+		await repository.recordAudit({
+			integrationClientId: null,
+			ownerUserId: null,
+			scope: "nightworkers:integration",
+			operation: "integration_authentication",
+			requestId: "anonymous-request",
+			outcome: "rejected",
+			errorCode: "integration_unauthorized",
+		});
+
+		const [audit] = await connection.db.select().from(integrationAuditLogs);
+		expect(audit).toMatchObject({
+			integrationClientId: null,
+			ownerUserId: null,
+			operation: "integration_authentication",
+			requestId: "anonymous-request",
+			outcome: "rejected",
+			errorCode: "integration_unauthorized",
+		});
+		expect(JSON.stringify(audit)).not.toContain("Bearer");
 	});
 });

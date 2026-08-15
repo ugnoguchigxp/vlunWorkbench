@@ -10,6 +10,7 @@ import {
 	NightworkersSecurityIntelligenceService,
 } from "../modules/integrations/nightworkers";
 import { NightworkersIntegrationRepository } from "../modules/integrations/nightworkers/nightworkers-integration.repository";
+import { NightworkersRequestGuard } from "../modules/integrations/nightworkers/nightworkers-integration-auth.middleware";
 import { emitNightworkersSecurityIntelligenceTelemetry } from "../modules/integrations/nightworkers/nightworkers-security-intelligence-telemetry";
 import { NightworkersWorkspaceTargetGrantRepository } from "../modules/integrations/nightworkers/nightworkers-workspace-target-grant.repository";
 import { NightworkersWorkspaceTargetGrantService } from "../modules/integrations/nightworkers/nightworkers-workspace-target-grant.service";
@@ -58,6 +59,7 @@ export function registerScanRoutes(app: Hono, runtime: AppRuntime): void {
 	);
 	const artifactStorage = new ArtifactStorage();
 	if (runtime.env.nightworkersIntegrationEnabled) {
+		const nightworkersRequestGuard = new NightworkersRequestGuard();
 		const nightworkersRepository = new NightworkersIntegrationRepository(
 			runtime.dbConnection.db,
 		);
@@ -81,6 +83,7 @@ export function registerScanRoutes(app: Hono, runtime: AppRuntime): void {
 				auditRepository: nightworkersRepository,
 				service: nightworkersService,
 				maxRequestBytes: runtime.env.nightworkersIntegrationMaxRequestBytes,
+				requestGuard: nightworkersRequestGuard,
 			}),
 		);
 		if (runtime.env.nightworkersSecurityIntelligenceEnabled) {
@@ -114,6 +117,7 @@ export function registerScanRoutes(app: Hono, runtime: AppRuntime): void {
 					maxRequestBytes:
 						runtime.env
 							.nightworkersSecurityIntelligenceWorkspaceGrantMaxRequestBytes,
+					requestGuard: nightworkersRequestGuard,
 				}),
 			);
 		}

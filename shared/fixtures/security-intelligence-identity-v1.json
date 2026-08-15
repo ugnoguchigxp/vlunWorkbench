@@ -37,6 +37,7 @@
 	"limits": {
 		"assessmentResponseBytes": 2097152,
 		"candidateBatchBytes": 262144,
-		"feedbackBatchBytes": 131072
+		"feedbackBatchBytes": 131072,
+		"workspaceGrantRequestBytes": 16384
 	}
 }

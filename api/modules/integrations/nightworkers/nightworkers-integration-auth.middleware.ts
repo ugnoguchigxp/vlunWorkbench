@@ -10,6 +10,7 @@ import {
 	IntegrationClientAuthenticationError,
 	type IntegrationClientService,
 } from "../../integrationClients/integration-client.service";
+import type { NightworkersIntegrationRepository } from "./nightworkers-integration.repository";
 
 export type NightworkersHonoEnv = {
 	Variables: {
@@ -25,16 +26,93 @@ export type NightworkersHonoEnv = {
 	};
 };
 
-type RateWindow = { startedAt: number; count: number; windowMs: number };
+type RateWindow = {
+	startedAt: number;
+	count: number;
+	windowMs: number;
+	rejectionAudited: boolean;
+};
+
+const ANONYMOUS_AUDIT_WINDOW_MS = 60_000;
+const ANONYMOUS_AUDIT_LIMIT = 60;
+
+export class NightworkersRequestGuard {
+	private readonly rateWindows = new Map<string, RateWindow>();
+	private anonymousAuditWindow = { startedAt: 0, count: 0 };
+
+	shouldAuditAnonymousRejection(now = Date.now()): boolean {
+		if (
+			now - this.anonymousAuditWindow.startedAt >=
+			ANONYMOUS_AUDIT_WINDOW_MS
+		) {
+			this.anonymousAuditWindow = { startedAt: now, count: 0 };
+		}
+		if (this.anonymousAuditWindow.count >= ANONYMOUS_AUDIT_LIMIT) {
+			return false;
+		}
+		this.anonymousAuditWindow.count += 1;
+		return true;
+	}
+
+	consumeRateLimit(
+		client: Pick<AuthenticatedIntegrationClient, "id" | "rateLimitPolicy">,
+		now = Date.now(),
+	):
+		| { allowed: true }
+		| {
+				allowed: false;
+				retryAfterSeconds: number;
+				shouldAudit: boolean;
+		  } {
+		if (this.rateWindows.size >= 1_024) {
+			for (const [clientId, candidate] of this.rateWindows) {
+				if (now - candidate.startedAt >= candidate.windowMs) {
+					this.rateWindows.delete(clientId);
+				}
+			}
+		}
+		const current = this.rateWindows.get(client.id);
+		const window =
+			!current ||
+			current.windowMs !== client.rateLimitPolicy.windowMs ||
+			now - current.startedAt >= current.windowMs
+				? {
+						startedAt: now,
+						count: 0,
+						windowMs: client.rateLimitPolicy.windowMs,
+						rejectionAudited: false,
+					}
+				: current;
+		window.count += 1;
+		this.rateWindows.set(client.id, window);
+		if (window.count <= client.rateLimitPolicy.limit) {
+			return { allowed: true };
+		}
+		const shouldAudit = !window.rejectionAudited;
+		window.rejectionAudited = true;
+		return {
+			allowed: false,
+			retryAfterSeconds: Math.max(
+				1,
+				Math.ceil((window.windowMs - (now - window.startedAt)) / 1_000),
+			),
+			shouldAudit,
+		};
+	}
+}
 
 export function createNightworkersAuthenticationMiddleware(
 	service: IntegrationClientService,
+	auditRepository?: Pick<NightworkersIntegrationRepository, "recordAudit">,
+	requestGuard = new NightworkersRequestGuard(),
 ): MiddlewareHandler<NightworkersHonoEnv> {
-	const rateWindows = new Map<string, RateWindow>();
 	return async (c, next) => {
 		const requestId = requestIdFor(c);
 		c.set("integrationRequestId", requestId);
-		c.set("integrationAuditContext", null);
+		c.set("integrationAuditContext", {
+			scope: "nightworkers:integration",
+			operation: "integration_authentication",
+		});
 		c.header("X-Request-Id", requestId);
 		const authorization = c.req.header("authorization");
 		const match = authorization?.match(/^Bearer ([^\s]+)$/);
@@ -51,6 +129,14 @@ export function createNightworkersAuthenticationMiddleware(
 			}
 		}
 		if (!client) {
+			if (requestGuard.shouldAuditAnonymousRejection()) {
+				await recordNightworkersAudit(
+					auditRepository,
+					c,
+					"rejected",
+					"integration_unauthorized",
+				);
+			}
 			return integrationErrorResponse(
 				c,
 				requestId,
@@ -60,34 +146,23 @@ export function createNightworkersAuthenticationMiddleware(
 				401,
 			);
 		}
+		c.set("integrationClient", client);
 
-		const now = Date.now();
-		if (rateWindows.size >= 1_024) {
-			for (const [clientId, candidate] of rateWindows) {
-				if (now - candidate.startedAt >= candidate.windowMs) {
-					rateWindows.delete(clientId);
-				}
+		const rateLimit = requestGuard.consumeRateLimit(client);
+		if (!rateLimit.allowed) {
+			c.set("integrationAuditContext", {
+				scope: "nightworkers:integration",
+				operation: "integration_rate_limit",
+			});
+			if (rateLimit.shouldAudit) {
+				await recordNightworkersAudit(
+					auditRepository,
+					c,
+					"rejected",
+					"rate_limit_exceeded",
+				);
 			}
-		}
-		const current = rateWindows.get(client.id);
-		const window =
-			!current ||
-			current.windowMs !== client.rateLimitPolicy.windowMs ||
-			now - current.startedAt >= current.windowMs
-				? {
-						startedAt: now,
-						count: 0,
-						windowMs: client.rateLimitPolicy.windowMs,
-					}
-				: current;
-		window.count += 1;
-		rateWindows.set(client.id, window);
-		if (window.count > client.rateLimitPolicy.limit) {
-			const retryAfterSeconds = Math.max(
-				1,
-				Math.ceil((window.windowMs - (now - window.startedAt)) / 1_000),
-			);
-			c.header("Retry-After", String(retryAfterSeconds));
+			c.header("Retry-After", String(rateLimit.retryAfterSeconds));
 			return integrationErrorResponse(
 				c,
 				requestId,
@@ -95,10 +170,9 @@ export function createNightworkersAuthenticationMiddleware(
 				"Integration client rate limit exceeded.",
 				true,
 				429,
-				{ retryAfterSeconds },
+				{ retryAfterSeconds: rateLimit.retryAfterSeconds },
 			);
 		}
-		c.set("integrationClient", client);
 		await service.markUsed(client.id);
 		await next();
 	};
@@ -106,10 +180,19 @@ export function createNightworkersAuthenticationMiddleware(
 
 export function requireNightworkersScope(
 	scope: NightworkersIntegrationScope,
+	auditRepository?: Pick<NightworkersIntegrationRepository, "recordAudit">,
+	operation = "integration_request",
 ): MiddlewareHandler<NightworkersHonoEnv> {
 	return async (c, next) => {
+		c.set("integrationAuditContext", { scope, operation });
 		const client = c.get("integrationClient");
 		if (!client.scopes.includes(scope)) {
+			await recordNightworkersAudit(
+				auditRepository,
+				c,
+				"rejected",
+				"integration_scope_denied",
+			);
 			return integrationErrorResponse(
 				c,
 				c.get("integrationRequestId"),
@@ -121,6 +204,50 @@ export function requireNightworkersScope(
 		}
 		await next();
 	};
+}
+
+export async function recordNightworkersAudit(
+	repository:
+		| Pick<NightworkersIntegrationRepository, "recordAudit">
+		| undefined,
+	c: Parameters<typeof requestIdFor>[0] & {
+		get(
+			key: "integrationAuditContext",
+		): NightworkersHonoEnv["Variables"]["integrationAuditContext"];
+		get(key: "integrationClient"): AuthenticatedIntegrationClient | undefined;
+		get(key: "integrationRequestId"): string | undefined;
+	},
+	outcome: "accepted" | "replayed" | "rejected",
+	errorCode?: string,
+): Promise<void> {
+	if (!repository) return;
+	const audit = c.get("integrationAuditContext");
+	if (!audit) return;
+	const client = c.get("integrationClient");
+	try {
+		await repository.recordAudit({
+			integrationClientId: client?.id ?? null,
+			ownerUserId: client?.ownerUserId ?? null,
+			scope: audit.scope,
+			operation: audit.operation,
+			requestId: c.get("integrationRequestId") ?? requestIdFor(c),
+			pathHash: audit.pathHash ?? null,
+			idempotencyKeyHash: audit.idempotencyKeyHash ?? null,
+			resourceRef: audit.resourceRef ?? null,
+			outcome,
+			errorCode: errorCode ?? null,
+		});
+	} catch (error) {
+		console.error(
+			JSON.stringify({
+				version: 1,
+				level: "error",
+				event: "nightworkers.integration.audit_write_failed",
+				requestId: c.get("integrationRequestId") ?? requestIdFor(c),
+				errorName: error instanceof Error ? error.name : "UnknownError",
+			}),
+		);
+	}
 }
 
 export function requestIdFor(c: {

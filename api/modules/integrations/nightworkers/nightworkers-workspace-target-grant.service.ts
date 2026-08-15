@@ -88,12 +88,6 @@ export class NightworkersWorkspaceTargetGrantService {
 		request: CreateProviderWorkspaceTargetGrantRequest,
 	) {
 		this.assertEnabled();
-		try {
-			await this.deps.grantRepository.clearExpiredWorkspacePaths(this.now());
-		} catch {
-			// Privacy cleanup is retried on the next grant operation and does not
-			// change the result of an already authorized scan.
-		}
 		const project = await this.deps.projectRepository.findById(
 			request.providerProjectRef,
 		);

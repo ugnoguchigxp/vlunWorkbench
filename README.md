@@ -778,8 +778,14 @@ Product boundaries and active, incomplete plans are:
 - `spec/contextstill-static-intelligence-bridge-concept.md`
 - `spec/project-scan-exploration-reduction-mcp-concept.md`
 - `spec/static-intelligence-coding-agent-consumer-companion-plan.md`
-- `spec/phase-46-security-release-readiness-plan.md`
-- `spec/phase-48-quality-reliability-hardening-plan.md`
+- `spec/phase-52-plugin-oriented-language-framework-refactoring-plan.md`
 - `spec/phase-54-release-trust-and-product-value-realization-plan.md`
+- `spec/project-intelligence-ontology-evolution-roadmap.md`
+- `spec/security-intelligence-integration-concept.md`
+- `spec/security-intelligence-initial-implementation-roadmap.md`
+- `spec/security-intelligence-pr4-nightworkers-pilot-plan.md`
+- `spec/security-intelligence-pilot-decision-template.md`
 
-Completed implementation plans are removed from the working tree and remain available in Git history.
+Completed implementation plans are moved to `spec/.archived/`. This hidden directory
+is excluded from normal LLM exploration and is read only for an explicitly requested
+historical audit.

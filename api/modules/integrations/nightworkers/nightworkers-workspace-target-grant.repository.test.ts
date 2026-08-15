@@ -162,6 +162,49 @@ describe("NightworkersWorkspaceTargetGrantRepository", () => {
 		).toBe("");
 	});
 
+	it("retains an expired path only while its consumed scan is active", async () => {
+		const grant = await createPreviewedGrant(repository, {
+			integrationClientId,
+			ownerUserId,
+			projectId,
+		});
+		const created = await repository.consumeAndCreateScan(
+			consumptionParams({
+				grantId: grant.id,
+				grantRef: grant.grantRef,
+				expectedRevision: grant.revision,
+				integrationClientId,
+				ownerUserId,
+				projectId,
+			}),
+		);
+		const afterExpiry = new Date("2031-01-01T00:00:00.000Z");
+
+		await repository.clearExpiredWorkspacePaths(afterExpiry);
+		expect(
+			(
+				await repository.findForClient({
+					grantRef: grant.grantRef,
+					integrationClientId,
+				})
+			)?.canonicalWorkspacePath,
+		).toBe("/workspace/project");
+
+		await connection.db
+			.update(scanRuns)
+			.set({ status: "completed" })
+			.where(eq(scanRuns.id, created.resourceId));
+		await repository.clearExpiredWorkspacePaths(afterExpiry);
+		expect(
+			(
+				await repository.findForClient({
+					grantRef: grant.grantRef,
+					integrationClientId,
+				})
+			)?.canonicalWorkspacePath,
+		).toBe("");
+	});
+
 	it("rejects a stale preview revision without creating an orphan scan", async () => {
 		const grant = await createPreviewedGrant(repository, {
 			integrationClientId,

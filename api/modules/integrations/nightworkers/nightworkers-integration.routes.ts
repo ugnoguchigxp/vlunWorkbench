@@ -18,6 +18,8 @@ import {
 	createNightworkersAuthenticationMiddleware,
 	integrationErrorResponse,
 	type NightworkersHonoEnv,
+	type NightworkersRequestGuard,
+	recordNightworkersAudit,
 	requestIdFor,
 	requireNightworkersScope,
 } from "./nightworkers-integration-auth.middleware";
@@ -30,18 +32,33 @@ export function createNightworkersIntegrationRoutes(deps: {
 	auditRepository: Pick<NightworkersIntegrationRepository, "recordAudit">;
 	service: NightworkersIntegrationService;
 	maxRequestBytes: number;
+	requestGuard?: NightworkersRequestGuard;
 }) {
 	const app = new Hono<NightworkersHonoEnv>();
 	app.use(
 		"*",
-		createNightworkersAuthenticationMiddleware(deps.integrationClientService),
+		createNightworkersAuthenticationMiddleware(
+			deps.integrationClientService,
+			deps.auditRepository,
+			deps.requestGuard,
+		),
 	);
 	app.use(
 		"*",
 		bodyLimit({
 			maxSize: deps.maxRequestBytes,
-			onError: (c) =>
-				integrationErrorResponse(
+			onError: async (c) => {
+				c.set("integrationAuditContext", {
+					scope: "nightworkers:integration",
+					operation: "integration_request_body_limit",
+				});
+				await recordNightworkersAudit(
+					deps.auditRepository,
+					c,
+					"rejected",
+					"invalid_request",
+				);
+				return integrationErrorResponse(
 					c,
 					requestIdFor(c),
 					"invalid_request",
@@ -49,13 +66,18 @@ export function createNightworkersIntegrationRoutes(deps: {
 					false,
 					413,
 					{ maxBytes: deps.maxRequestBytes },
-				),
+				);
+			},
 		}),
 	);
 
 	app.post(
 		"/capabilities",
-		requireNightworkersScope("nightworkers:security-scan:read"),
+		requireNightworkersScope(
+			"nightworkers:security-scan:read",
+			deps.auditRepository,
+			"integration_capabilities_read",
+		),
 		async (c) => {
 			const input = await parseJson(c, integrationCapabilitiesRequestSchema);
 			const data = await deps.service.capabilities(
@@ -67,7 +89,11 @@ export function createNightworkersIntegrationRoutes(deps: {
 	);
 	app.post(
 		"/scans/preview",
-		requireNightworkersScope("nightworkers:security-scan:read"),
+		requireNightworkersScope(
+			"nightworkers:security-scan:read",
+			deps.auditRepository,
+			"scan_preview",
+		),
 		async (c) => {
 			const input = await parseJson(c, integrationPreviewRequestSchema);
 			const data = await deps.service.preview(
@@ -79,7 +105,11 @@ export function createNightworkersIntegrationRoutes(deps: {
 	);
 	app.post(
 		"/scans",
-		requireNightworkersScope("nightworkers:security-scan:write"),
+		requireNightworkersScope(
+			"nightworkers:security-scan:write",
+			deps.auditRepository,
+			"scan_start",
+		),
 		async (c) => {
 			setAuditContext(c, {
 				scope: "nightworkers:security-scan:write",
@@ -105,7 +135,11 @@ export function createNightworkersIntegrationRoutes(deps: {
 	);
 	app.get(
 		"/scans/:scanRunRef",
-		requireNightworkersScope("nightworkers:security-scan:read"),
+		requireNightworkersScope(
+			"nightworkers:security-scan:read",
+			deps.auditRepository,
+			"scan_detail_read",
+		),
 		async (c) => {
 			const ref = parseResourceRef(c.req.param("scanRunRef"));
 			const data = await deps.service.scanDetail(
@@ -117,7 +151,11 @@ export function createNightworkersIntegrationRoutes(deps: {
 	);
 	app.get(
 		"/scans/:scanRunRef/events",
-		requireNightworkersScope("nightworkers:security-scan:read"),
+		requireNightworkersScope(
+			"nightworkers:security-scan:read",
+			deps.auditRepository,
+			"scan_events_read",
+		),
 		async (c) => {
 			const ref = parseResourceRef(c.req.param("scanRunRef"));
 			const query = z
@@ -141,7 +179,11 @@ export function createNightworkersIntegrationRoutes(deps: {
 	);
 	app.post(
 		"/scans/:scanRunRef/cancel",
-		requireNightworkersScope("nightworkers:security-scan:write"),
+		requireNightworkersScope(
+			"nightworkers:security-scan:write",
+			deps.auditRepository,
+			"scan_cancel",
+		),
 		async (c) => {
 			const ref = parseResourceRef(c.req.param("scanRunRef"));
 			setAuditContext(c, {
@@ -159,7 +201,11 @@ export function createNightworkersIntegrationRoutes(deps: {
 	);
 	app.get(
 		"/scans/:scanRunRef/findings",
-		requireNightworkersScope("nightworkers:security-scan:read"),
+		requireNightworkersScope(
+			"nightworkers:security-scan:read",
+			deps.auditRepository,
+			"scan_findings_read",
+		),
 		async (c) => {
 			const ref = parseResourceRef(c.req.param("scanRunRef"));
 			const query = z
@@ -186,7 +232,11 @@ export function createNightworkersIntegrationRoutes(deps: {
 	);
 	app.get(
 		"/scans/:scanRunRef/reports",
-		requireNightworkersScope("nightworkers:security-report:read"),
+		requireNightworkersScope(
+			"nightworkers:security-report:read",
+			deps.auditRepository,
+			"scan_reports_read",
+		),
 		async (c) => {
 			const ref = parseResourceRef(c.req.param("scanRunRef"));
 			const data = await deps.service.listReports(
@@ -198,7 +248,11 @@ export function createNightworkersIntegrationRoutes(deps: {
 	);
 	app.post(
 		"/scans/:scanRunRef/reports",
-		requireNightworkersScope("nightworkers:security-report:write"),
+		requireNightworkersScope(
+			"nightworkers:security-report:write",
+			deps.auditRepository,
+			"report_start",
+		),
 		async (c) => {
 			const ref = parseResourceRef(c.req.param("scanRunRef"));
 			setAuditContext(c, {
@@ -220,7 +274,11 @@ export function createNightworkersIntegrationRoutes(deps: {
 	);
 	app.get(
 		"/scans/:scanRunRef/reports/:reportRef",
-		requireNightworkersScope("nightworkers:security-report:read"),
+		requireNightworkersScope(
+			"nightworkers:security-report:read",
+			deps.auditRepository,
+			"report_detail_read",
+		),
 		async (c) => {
 			const scanRef = parseResourceRef(c.req.param("scanRunRef"));
 			const reportRef = parseResourceRef(c.req.param("reportRef"));
@@ -234,7 +292,11 @@ export function createNightworkersIntegrationRoutes(deps: {
 	);
 	app.get(
 		"/scans/:scanRunRef/reports/:reportRef/content",
-		requireNightworkersScope("nightworkers:security-report:read"),
+		requireNightworkersScope(
+			"nightworkers:security-report:read",
+			deps.auditRepository,
+			"report_content_read",
+		),
 		async (c) => {
 			const scanRef = parseResourceRef(c.req.param("scanRunRef"));
 			const reportRef = parseResourceRef(c.req.param("reportRef"));
@@ -266,30 +328,12 @@ export function createNightworkersIntegrationRoutes(deps: {
 				error,
 			);
 		}
-		const audit = c.get("integrationAuditContext");
-		const client = c.get("integrationClient");
-		if (audit && client) {
-			await deps.auditRepository
-				.recordAudit({
-					integrationClientId: client.id,
-					ownerUserId: client.ownerUserId,
-					scope: audit.scope,
-					operation: audit.operation,
-					requestId: c.get("integrationRequestId"),
-					pathHash: audit.pathHash ?? null,
-					idempotencyKeyHash: audit.idempotencyKeyHash ?? null,
-					resourceRef: audit.resourceRef ?? null,
-					outcome: "rejected",
-					errorCode: safe.code,
-				})
-				.catch((auditError) => {
-					logIntegrationFailure(
-						"nightworkers.integration.audit_write_failed",
-						c.get("integrationRequestId"),
-						auditError,
-					);
-				});
-		}
+		await recordNightworkersAudit(
+			deps.auditRepository,
+			c,
+			"rejected",
+			safe.code,
+		);
 		return integrationErrorResponse(
 			c,
 			requestIdFor(c),
