@@ -3,6 +3,7 @@ import { parseArgs } from "node:util";
 import type { ScanTarget } from "../../shared/schemas/scan-target.schema";
 import { readAppEnv } from "../app/env";
 import { createDbConnection } from "../db";
+import { resolveWorkspaceTargetGrantPath } from "../modules/integrations/nightworkers/nightworkers-workspace-target-grant-cli";
 import { analyzeProjectCapabilities } from "../modules/project-capabilities/plugin-detector";
 import { ArtifactStorage } from "../modules/scans/artifact-storage";
 import {
@@ -53,6 +54,7 @@ function parseScanProfileArgs() {
 			"scan-run-id": { type: "string" },
 			"execution-surface": { type: "string" },
 			"project-path": { type: "string" },
+			"workspace-target-grant-ref": { type: "string" },
 			"create-project": { type: "string", default: "false" },
 			profile: { type: "string", default: "baseline" },
 			target: { type: "string", default: "full" },
@@ -107,6 +109,7 @@ async function main() {
 	const scanRunId = argsValues["scan-run-id"];
 	const executionSurface = argsValues["execution-surface"] ?? "cli";
 	const projectPath = argsValues["project-path"];
+	const workspaceTargetGrantRef = argsValues["workspace-target-grant-ref"];
 	const createProject = parseBooleanFlag(argsValues["create-project"], false);
 	const profileId = argsValues.profile;
 	let scanTarget: ScanTarget;
@@ -305,7 +308,18 @@ async function main() {
 			process.exitCode = 2;
 			return;
 		}
-		const effectiveRepoPath = projectResolution?.repoPath ?? project.repoPath;
+		let effectiveRepoPath = projectResolution?.repoPath ?? project.repoPath;
+		if (workspaceTargetGrantRef) {
+			effectiveRepoPath = await resolveWorkspaceTargetGrantPath({
+				db: dbConnection.db,
+				grantRef: workspaceTargetGrantRef,
+				projectId: project.id,
+				scanRunId,
+				executionSurface,
+				target: scanTarget,
+				expectedTargetDigest,
+			});
+		}
 		if (preview) {
 			if (scanTarget.kind === "full") {
 				writeResult({
@@ -375,7 +389,6 @@ async function main() {
 				includeUndecided: true,
 			},
 		});
-
 		const automatedDiagnostic =
 			automatedDiagnosticEnabled &&
 			executionSurface === "cli" &&

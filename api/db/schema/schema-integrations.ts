@@ -163,3 +163,59 @@ export const integrationAuditLogs = sqliteTable(
 		),
 	}),
 );
+export const nightworkersWorkspaceTargetGrants = sqliteTable(
+	"nightworkers_workspace_target_grants",
+	{
+		id: id(),
+		grantRef: text("grant_ref").notNull(),
+		grantDigest: text("grant_digest").notNull(),
+		integrationClientId: text("integration_client_id")
+			.notNull()
+			.references(() => integrationClients.id, { onDelete: "cascade" }),
+		ownerUserId: text("owner_user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		projectId: text("project_id")
+			.notNull()
+			.references(() => projects.id, { onDelete: "cascade" }),
+		workspaceSubjectRef: text("workspace_subject_ref").notNull(),
+		canonicalWorkspacePath: text("canonical_workspace_path").notNull(),
+		expectedGitCommonDirDigest: text(
+			"expected_git_common_dir_digest",
+		).notNull(),
+		expectedHeadSha: text("expected_head_sha").notNull(),
+		providerWorkspaceStateDigest: text(
+			"provider_workspace_state_digest",
+		).notNull(),
+		previewRef: text("preview_ref"),
+		previewSelection: jsonObject("preview_selection_json"),
+		previewTargetDigest: text("preview_target_digest"),
+		previewSourceRevision: text("preview_source_revision"),
+		previewWorkspaceStateDigest: text("preview_workspace_state_digest"),
+		previewExpiresAt: integer("preview_expires_at", { mode: "timestamp_ms" }),
+		consumedRequestHash: text("consumed_request_hash"),
+		consumedScanRunId: text("consumed_scan_run_id"),
+		consumedAt: integer("consumed_at", { mode: "timestamp_ms" }),
+		revision: integer("revision").notNull().default(1),
+		expiresAt: integer("expires_at", { mode: "timestamp_ms" }).notNull(),
+		createdAt: timestampMs("created_at"),
+		updatedAt: timestampMs("updated_at"),
+	},
+	(table) => ({
+		grantRefUniqueIdx: uniqueIndex(
+			"nightworkers_workspace_target_grants_ref_unique_idx",
+		).on(table.grantRef),
+		grantDigestUniqueIdx: uniqueIndex(
+			"nightworkers_workspace_target_grants_digest_unique_idx",
+		).on(table.grantDigest),
+		clientProjectIdx: index(
+			"nightworkers_workspace_target_grants_client_project_idx",
+		).on(table.integrationClientId, table.projectId),
+		expiresAtIdx: index(
+			"nightworkers_workspace_target_grants_expires_at_idx",
+		).on(table.expiresAt),
+		consumedScanIdx: index(
+			"nightworkers_workspace_target_grants_consumed_scan_idx",
+		).on(table.consumedScanRunId),
+	}),
+);

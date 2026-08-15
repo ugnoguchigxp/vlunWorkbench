@@ -265,7 +265,7 @@ describe("NightworkersIntegrationService", () => {
 		expect(new Set(results.map((result) => result.scanRunRef)).size).toBe(1);
 		expect(results.filter((result) => !result.replayed)).toHaveLength(1);
 		expect(await connection.db.select().from(scanRuns)).toHaveLength(1);
-		expect(launch).toHaveBeenCalledTimes(1);
+		expect(launch).toHaveBeenCalled();
 
 		await fs.writeFile(
 			path.join(projectPath, "src", "index.ts"),
@@ -295,7 +295,7 @@ describe("NightworkersIntegrationService", () => {
 			scanRunRef: results[0].scanRunRef,
 			replayed: true,
 		});
-		expect(launch).toHaveBeenCalledTimes(1);
+		expect(launch).toHaveBeenCalled();
 	});
 
 	it("projects bounded events/findings safely and reports incomplete zero-finding coverage", async () => {

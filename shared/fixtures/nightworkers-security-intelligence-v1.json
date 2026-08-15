@@ -3,17 +3,17 @@
 	"requestId": "fixture-request-1",
 	"data": {
 		"contractVersion": 1,
-		"bundleRef": "sib:v1:345da23dad9cacf128b299f95bb5524bea0b20a174649e5ea100e3430c2090b8",
+		"bundleRef": "sib:v1:839c4897e5bc448a96b6512e77e675340a9ac6429ce865a97dfdd3aa0d13ea5b",
 		"projectRef": "project:11111111-1111-4111-8111-111111111111",
 		"scanRunRef": "scan-run:22222222-2222-4222-8222-222222222222",
 		"target": {
 			"kind": "diff",
-			"sourceRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+			"sourceRevision": "working-tree/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
 			"targetDigest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 		},
 		"dependencyAssessment": {
 			"contractVersion": "1",
-			"assessmentRef": "sia:v1:a8580470e6873aba0b4e103d3eab66c84f4a726b0ab484d73417305cc2808517",
+			"assessmentRef": "sia:v1:d827bb3b29e3a6ffb802df788eeab748898613084948a7b1d1ee1ee5b703e5d9",
 			"producer": {
 				"system": "vulnWorkbench",
 				"version": "1.0.0"
@@ -25,7 +25,7 @@
 			},
 			"target": {
 				"kind": "diff",
-				"sourceRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+				"sourceRevision": "working-tree/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
 				"targetDigest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 			},
 			"scope": {

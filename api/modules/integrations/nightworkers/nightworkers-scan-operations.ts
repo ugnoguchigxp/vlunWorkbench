@@ -75,6 +75,25 @@ export class NightworkersScanOperations {
 			const target = asRecord(metadata.target);
 			const targetKind =
 				target.kind === "working_tree" ? "working_tree" : "full";
+			const executionPolicy = asRecord(metadata.executionPolicy);
+			const policyRunner =
+				executionPolicy.runner === "host" || executionPolicy.runner === "docker"
+					? executionPolicy.runner
+					: resolveScanExecutionPolicy({
+							env: this.deps.env,
+							surface: "web",
+						}).runner;
+			await this.ensureScanLaunched({
+				scanRunId: scan.id,
+				projectId: binding.projectId,
+				profileRef: scan.profile,
+				targetKind,
+				targetDigest:
+					typeof target.targetDigest === "string"
+						? target.targetDigest
+						: params.request.expectedTargetDigest,
+				policyRunner,
+			});
 			await this.deps.integrationRepository.recordAudit({
 				integrationClientId: params.client.id,
 				ownerUserId: params.client.ownerUserId,
@@ -222,16 +241,14 @@ export class NightworkersScanOperations {
 			throw error;
 		}
 
-		if (!created.replayed) {
-			await this.ensureScanLaunched({
-				scanRunId: created.resourceId,
-				projectId: current.projectId,
-				profileRef: current.preview.resolvedProfileRef,
-				targetKind: params.request.target.kind,
-				targetDigest: params.request.expectedTargetDigest,
-				policyRunner: policy.runner,
-			});
-		}
+		await this.ensureScanLaunched({
+			scanRunId: created.resourceId,
+			projectId: current.projectId,
+			profileRef: current.preview.resolvedProfileRef,
+			targetKind: params.request.target.kind,
+			targetDigest: params.request.expectedTargetDigest,
+			policyRunner: policy.runner,
+		});
 		const scan = await this.deps.scanRepository.findById(created.resourceId);
 		if (!scan) {
 			throw new NightworkersIntegrationError(

@@ -1,0 +1,51 @@
+{
+	"fixtureVersion": 1,
+	"startResponse": {
+		"scanRunRef": "22222222-2222-4222-8222-222222222222",
+		"status": "queued",
+		"resolvedProfileRef": "diff-basic-security",
+		"target": {
+			"kind": "working_tree",
+			"digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+			"sourceRevision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+		},
+		"createdAt": "2026-08-15T01:00:00.000Z",
+		"replayed": false
+	},
+	"bindingProof": {
+		"version": 1,
+		"identityMappingVersion": 1,
+		"rawProviderProjectRef": "11111111-1111-4111-8111-111111111111",
+		"canonicalProjectRef": "project:11111111-1111-4111-8111-111111111111",
+		"rawScanRunRef": "22222222-2222-4222-8222-222222222222",
+		"canonicalScanRunRef": "scan-run:22222222-2222-4222-8222-222222222222",
+		"target": {
+			"kind": "diff",
+			"baseRevision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			"assessedRevision": "working-tree/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+			"rawTargetDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+			"canonicalTargetDigest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+		},
+		"proofRef": "sibp:v1:96c056168c1fb83d12e77f5e09b7bbd2effe287525f5dbda858fe9be8513687c",
+		"proofDigest": "sha256:96c056168c1fb83d12e77f5e09b7bbd2effe287525f5dbda858fe9be8513687c"
+	},
+	"assessmentFixture": "nightworkers-security-intelligence-v1.json",
+	"negativeAssessmentCases": [
+		{
+			"name": "wrong-project",
+			"expectedReasonCategory": "project_ref_mismatch"
+		},
+		{
+			"name": "wrong-revision-role",
+			"expectedReasonCategory": "revision_role_mismatch"
+		},
+		{
+			"name": "wrong-target-digest",
+			"expectedReasonCategory": "target_digest_mismatch"
+		},
+		{
+			"name": "absolute-path",
+			"expectedReasonCategory": "absolute_path_forbidden"
+		}
+	]
+}

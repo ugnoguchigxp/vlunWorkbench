@@ -69,6 +69,25 @@ describe("ScanProcessSupervisor", () => {
 		await supervisor.shutdown();
 	});
 
+	it("deduplicates concurrent and repeated launch requests for an owned scan", async () => {
+		const repository = createRepository({
+			id: "scan-deduplicated",
+			status: "queued",
+			metadata: { launchSource: "web" },
+		});
+		const supervisor = new ScanProcessSupervisor(repository as never);
+		const argv = [process.execPath, "-e", "setInterval(() => {}, 1000)"];
+
+		await Promise.all([
+			supervisor.launch("scan-deduplicated", argv),
+			supervisor.launch("scan-deduplicated", argv),
+		]);
+		await supervisor.launch("scan-deduplicated", argv);
+
+		expect(repository.mergeScanRunMetadata).toHaveBeenCalledTimes(1);
+		await supervisor.shutdown();
+	});
+
 	it("rejects cancellation when this runtime does not own the process", async () => {
 		const repository = createRepository({
 			id: "scan-2",

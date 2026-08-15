@@ -14,6 +14,7 @@ const isActiveStatus = (status: string) =>
 export class ScanProcessSupervisor {
 	readonly runtimeInstanceId = randomUUID();
 	private readonly owned = new Map<string, OwnedScanProcess>();
+	private readonly launchPromises = new Map<string, Promise<void>>();
 
 	constructor(
 		private readonly scanRepository: ScanRepository,
@@ -52,9 +53,21 @@ export class ScanProcessSupervisor {
 	}
 
 	async launch(scanRunId: string, argv: string[]): Promise<void> {
-		if (this.owned.has(scanRunId)) {
-			throw new Error(`Scan process is already owned: ${scanRunId}`);
+		if (this.owned.has(scanRunId)) return;
+		const existing = this.launchPromises.get(scanRunId);
+		if (existing) return await existing;
+		const launch = this.launchOnce(scanRunId, argv);
+		this.launchPromises.set(scanRunId, launch);
+		try {
+			await launch;
+		} finally {
+			if (this.launchPromises.get(scanRunId) === launch) {
+				this.launchPromises.delete(scanRunId);
+			}
 		}
+	}
+
+	private async launchOnce(scanRunId: string, argv: string[]): Promise<void> {
 		const launchToken = randomUUID();
 		await this.scanRepository.mergeScanRunMetadata(scanRunId, {
 			launchSource: "web",

@@ -11,6 +11,8 @@ import {
 } from "../modules/integrations/nightworkers";
 import { NightworkersIntegrationRepository } from "../modules/integrations/nightworkers/nightworkers-integration.repository";
 import { emitNightworkersSecurityIntelligenceTelemetry } from "../modules/integrations/nightworkers/nightworkers-security-intelligence-telemetry";
+import { NightworkersWorkspaceTargetGrantRepository } from "../modules/integrations/nightworkers/nightworkers-workspace-target-grant.repository";
+import { NightworkersWorkspaceTargetGrantService } from "../modules/integrations/nightworkers/nightworkers-workspace-target-grant.service";
 import { FindingReviewRepository } from "../modules/reviews/finding-review-repository";
 import { ArtifactStorage } from "../modules/scans/artifact-storage";
 import { ScanReportRepository } from "../modules/scans/report-repository";
@@ -82,6 +84,17 @@ export function registerScanRoutes(app: Hono, runtime: AppRuntime): void {
 			}),
 		);
 		if (runtime.env.nightworkersSecurityIntelligenceEnabled) {
+			const workspaceGrantRepository =
+				new NightworkersWorkspaceTargetGrantRepository(runtime.dbConnection.db);
+			const workspaceGrantService = new NightworkersWorkspaceTargetGrantService(
+				{
+					env: runtime.env,
+					projectRepository,
+					scanRepository,
+					grantRepository: workspaceGrantRepository,
+					scanSupervisor: runtime.scanSupervisor,
+				},
+			);
 			const securityIntelligenceService =
 				new NightworkersSecurityIntelligenceService({
 					db: runtime.dbConnection.db,
@@ -95,7 +108,12 @@ export function registerScanRoutes(app: Hono, runtime: AppRuntime): void {
 				"/api/integrations/nightworkers/security-intelligence/v1",
 				createNightworkersSecurityIntelligenceRoutes({
 					integrationClientService: runtime.integrationClientService,
+					auditRepository: nightworkersRepository,
 					service: securityIntelligenceService,
+					workspaceGrantService,
+					maxRequestBytes:
+						runtime.env
+							.nightworkersSecurityIntelligenceWorkspaceGrantMaxRequestBytes,
 				}),
 			);
 		}

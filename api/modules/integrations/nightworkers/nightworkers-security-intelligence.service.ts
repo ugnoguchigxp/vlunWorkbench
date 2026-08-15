@@ -1,4 +1,10 @@
 import type { SecurityIntelligenceAssessmentV1 } from "../../../../shared/schemas/security-intelligence-assessment.schema";
+import {
+	deriveSecurityIntelligenceBindingProof,
+	NIGHTWORKERS_SECURITY_INTELLIGENCE_IDENTITY_MAPPING_VERSION,
+	type NightworkersSecurityIntelligenceCapabilities,
+	type SecurityIntelligenceBindingProof,
+} from "../../../../shared/schemas/nightworkers-security-intelligence-binding.schema";
 import { NIGHTWORKERS_SECURITY_INTELLIGENCE_CONTRACT_VERSION } from "../../../../shared/schemas/nightworkers-security-intelligence.schema";
 import { parseSecurityIntelligenceAssessmentV1 } from "../../../../shared/security-intelligence-assessment-contract";
 import type { AppEnv } from "../../../app/env";
@@ -42,6 +48,9 @@ export class NightworkersSecurityIntelligenceService {
 				| "nightworkersSecurityIntelligenceAllowedProjectIds"
 				| "nightworkersSecurityIntelligenceAuthorizationShadowEnabled"
 				| "nightworkersSecurityIntelligenceMaxResponseBytes"
+				| "nightworkersSecurityIntelligenceWorkspaceGrantEnabled"
+				| "nightworkersSecurityIntelligenceWorkspaceGrantMaxRequestBytes"
+				| "nightworkersSecurityIntelligenceWorkspaceGrantTtlSeconds"
 			>;
 			integrationRepository: Pick<
 				NightworkersIntegrationRepository,
@@ -66,7 +75,140 @@ export class NightworkersSecurityIntelligenceService {
 				}));
 	}
 
+	capabilities(): NightworkersSecurityIntelligenceCapabilities {
+		const workspaceTargetGrant = this.deps.env
+			.nightworkersSecurityIntelligenceWorkspaceGrantEnabled
+			? ({
+					available: true,
+					maxRequestBytes:
+						this.deps.env
+							.nightworkersSecurityIntelligenceWorkspaceGrantMaxRequestBytes ??
+						16 * 1024,
+					ttlSeconds:
+						this.deps.env
+							.nightworkersSecurityIntelligenceWorkspaceGrantTtlSeconds ?? 300,
+				} as const)
+			: ({
+					available: false,
+					reasonCode: "workspace_target_grant_unavailable",
+					maxRequestBytes:
+						this.deps.env
+							.nightworkersSecurityIntelligenceWorkspaceGrantMaxRequestBytes ??
+						16 * 1024,
+					ttlSeconds:
+						this.deps.env
+							.nightworkersSecurityIntelligenceWorkspaceGrantTtlSeconds ?? 300,
+				} as const);
+		return {
+			contractVersion: NIGHTWORKERS_SECURITY_INTELLIGENCE_CONTRACT_VERSION,
+			identityMappingVersion:
+				NIGHTWORKERS_SECURITY_INTELLIGENCE_IDENTITY_MAPPING_VERSION,
+			available: true,
+			supportedTransports: ["http_service"],
+			supportedTargetKinds: ["working_tree"],
+			unsupportedTransports: ["local_cli"],
+			unsupportedTargetKinds: ["full"],
+			maxResponseBytes: Math.min(
+				this.deps.env.nightworkersSecurityIntelligenceMaxResponseBytes,
+				2 * 1024 * 1024,
+			),
+			workspaceTargetGrant,
+		};
+	}
+
+	async bindingProof(
+		client: AuthenticatedIntegrationClient,
+		scanRunId: string,
+	): Promise<SecurityIntelligenceBindingProof> {
+		const { binding, expectedTarget } = await this.resolveBoundTerminalScan(
+			client,
+			scanRunId,
+		);
+		return deriveSecurityIntelligenceBindingProof({
+			version: 1,
+			identityMappingVersion:
+				NIGHTWORKERS_SECURITY_INTELLIGENCE_IDENTITY_MAPPING_VERSION,
+			rawProviderProjectRef: binding.projectId,
+			canonicalProjectRef: `project:${binding.projectId}`,
+			rawScanRunRef: scanRunId,
+			canonicalScanRunRef: `scan-run:${scanRunId}`,
+			target: {
+				kind: "diff",
+				baseRevision: expectedTarget.baseRevision,
+				assessedRevision: expectedTarget.sourceRevision,
+				rawTargetDigest: expectedTarget.targetDigest.slice("sha256:".length),
+				canonicalTargetDigest: expectedTarget.targetDigest,
+			},
+		});
+	}
+
 	async assessment(client: AuthenticatedIntegrationClient, scanRunId: string) {
+		const { binding, completedAt, expectedTarget } =
+			await this.resolveBoundTerminalScan(client, scanRunId);
+
+		let dependencyAssessment: SecurityIntelligenceAssessmentV1;
+		const dependencyStartedAt = performance.now();
+		try {
+			dependencyAssessment = parseSecurityIntelligenceAssessmentV1(
+				await this.buildDependencyAssessment({
+					scanRunId,
+					expectedProjectId: binding.projectId,
+					ownerUserId: client.ownerUserId,
+					expectedSourceRevision: expectedTarget.sourceRevision,
+					generatedAt: completedAt,
+				}),
+			);
+		} catch {
+			throw assessmentUnavailable();
+		}
+		const dependencyBuildDurationMs = roundDuration(
+			performance.now() - dependencyStartedAt,
+		);
+		assertDependencyBinding({
+			assessment: dependencyAssessment,
+			projectId: binding.projectId,
+			scanRunId,
+			completedAt,
+			expectedTarget,
+		});
+
+		const authorizationShadow = await this.authorizationState({
+			client,
+			scanRunId,
+			projectId: binding.projectId,
+			dependencyAssessment,
+			expectedTarget,
+		});
+		try {
+			const bundle = projectNightworkersSecurityIntelligenceBundle({
+				dependencyAssessment,
+				authorizationShadow,
+			});
+			const payloadBytes = maximumResponsePayloadBytes(bundle);
+			if (
+				payloadBytes >
+				this.deps.env.nightworkersSecurityIntelligenceMaxResponseBytes
+			) {
+				throw assessmentUnavailable();
+			}
+			this.emitTelemetry({
+				dependencyBuildDurationMs,
+				payloadBytes,
+				authorizationStatus: authorizationShadow.status,
+				dependencyOutcome: dependencyAssessment.outcome,
+				evidenceRefCount: dependencyAssessment.evidenceRefs.length,
+				limitationCount: bundle.limitationCodes.length,
+			});
+			return bundle;
+		} catch {
+			throw assessmentUnavailable();
+		}
+	}
+
+	private async resolveBoundTerminalScan(
+		client: AuthenticatedIntegrationClient,
+		scanRunId: string,
+	) {
 		const binding = await this.deps.integrationRepository.findResourceBinding({
 			integrationClientId: client.id,
 			resourceType: "scan_run",
@@ -102,65 +244,11 @@ export class NightworkersSecurityIntelligenceService {
 			throw assessmentUnavailable();
 		}
 		if (!scan.completedAt) throw assessmentUnavailable();
-		const expectedTarget = expectedTargetBinding(scan.metadata);
-
-		let dependencyAssessment: SecurityIntelligenceAssessmentV1;
-		const dependencyStartedAt = performance.now();
-		try {
-			dependencyAssessment = parseSecurityIntelligenceAssessmentV1(
-				await this.buildDependencyAssessment({
-					scanRunId,
-					expectedProjectId: binding.projectId,
-					ownerUserId: client.ownerUserId,
-					expectedSourceRevision: expectedTarget.sourceRevision,
-					generatedAt: scan.completedAt,
-				}),
-			);
-		} catch {
-			throw assessmentUnavailable();
-		}
-		const dependencyBuildDurationMs = roundDuration(
-			performance.now() - dependencyStartedAt,
-		);
-		assertDependencyBinding({
-			assessment: dependencyAssessment,
-			projectId: binding.projectId,
-			scanRunId,
+		return {
+			binding,
 			completedAt: scan.completedAt,
-			expectedTarget,
-		});
-
-		const authorizationShadow = await this.authorizationState({
-			client,
-			scanRunId,
-			projectId: binding.projectId,
-			dependencyAssessment,
-			expectedTarget,
-		});
-		try {
-			const bundle = projectNightworkersSecurityIntelligenceBundle({
-				dependencyAssessment,
-				authorizationShadow,
-			});
-			const payloadBytes = maximumResponsePayloadBytes(bundle);
-			if (
-				payloadBytes >
-				this.deps.env.nightworkersSecurityIntelligenceMaxResponseBytes
-			) {
-				throw assessmentUnavailable();
-			}
-			this.emitTelemetry({
-				dependencyBuildDurationMs,
-				payloadBytes,
-				authorizationStatus: authorizationShadow.status,
-				dependencyOutcome: dependencyAssessment.outcome,
-				evidenceRefCount: dependencyAssessment.evidenceRefs.length,
-				limitationCount: bundle.limitationCodes.length,
-			});
-			return bundle;
-		} catch {
-			throw assessmentUnavailable();
-		}
+			expectedTarget: expectedTargetBinding(scan.metadata),
+		};
 	}
 
 	private emitTelemetry(
@@ -291,6 +379,12 @@ function expectedTargetBinding(metadata: unknown): ExpectedTargetBinding {
 	const parsed = persistedDependencyScanMetadataSchema.safeParse(metadata);
 	if (!parsed.success) throw assessmentUnavailable();
 	const target = parsed.data.target;
+	if (
+		target.kind !== "working_tree" ||
+		!/^[a-f0-9]{64}$/.test(target.targetDigest)
+	) {
+		throw assessmentUnavailable();
+	}
 	return {
 		sourceRevision: target.headSha ?? `working-tree/${target.targetDigest}`,
 		targetDigest: `sha256:${target.targetDigest}`,

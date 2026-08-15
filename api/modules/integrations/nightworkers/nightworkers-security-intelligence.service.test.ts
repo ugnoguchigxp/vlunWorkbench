@@ -17,15 +17,16 @@ const OWNER_ID = "33333333-3333-4333-8333-333333333333";
 const COMPLETED_AT = new Date("2026-08-15T01:00:00.000Z");
 const digest = (character: string): string =>
 	`sha256:${character.repeat(64)}`;
+const ASSESSED_REVISION = `working-tree/${"b".repeat(64)}`;
 const dependencyTarget = {
 	kind: "diff" as const,
-	sourceRevision: "b".repeat(40),
+	sourceRevision: ASSESSED_REVISION,
 	targetDigest: digest("b"),
 };
 const authorizationTarget = {
 	...dependencyTarget,
 	baseRevision: "a".repeat(40),
-	headRevision: "b".repeat(40),
+	headRevision: ASSESSED_REVISION,
 	baseTargetDigest: digest("a"),
 };
 
@@ -38,6 +39,48 @@ const client = {
 };
 
 describe("NightworkersSecurityIntelligenceService", () => {
+	it("advertises only the implemented HTTP working-tree contract", () => {
+		const setup = createService({});
+		expect(setup.service.capabilities()).toEqual({
+			contractVersion: 1,
+			identityMappingVersion: 1,
+			available: true,
+			supportedTransports: ["http_service"],
+			supportedTargetKinds: ["working_tree"],
+			unsupportedTransports: ["local_cli"],
+			unsupportedTargetKinds: ["full"],
+			maxResponseBytes: 2 * 1024 * 1024,
+			workspaceTargetGrant: {
+				available: false,
+				reasonCode: "workspace_target_grant_unavailable",
+				maxRequestBytes: 16 * 1024,
+				ttlSeconds: 300,
+			},
+		});
+	});
+
+	it("derives a binding proof from persisted scan identity", async () => {
+		const setup = createService({});
+		const proof = await setup.service.bindingProof(client as never, SCAN_ID);
+		expect(proof).toMatchObject({
+			identityMappingVersion: 1,
+			rawProviderProjectRef: PROJECT_ID,
+			canonicalProjectRef: `project:${PROJECT_ID}`,
+			rawScanRunRef: SCAN_ID,
+			canonicalScanRunRef: `scan-run:${SCAN_ID}`,
+			target: {
+				kind: "diff",
+				baseRevision: "a".repeat(40),
+				assessedRevision: ASSESSED_REVISION,
+				rawTargetDigest: "b".repeat(64),
+				canonicalTargetDigest: digest("b"),
+			},
+		});
+		expect(proof.proofRef.slice("sibp:v1:".length)).toBe(
+			proof.proofDigest.slice("sha256:".length),
+		);
+	});
+
 	it("returns a deterministic dependency bundle with authorization explicitly disabled", async () => {
 		const dependency = rebind(
 			dependencyNoFindingsObservedFixture,
@@ -65,7 +108,7 @@ describe("NightworkersSecurityIntelligenceService", () => {
 			scanRunId: SCAN_ID,
 			expectedProjectId: PROJECT_ID,
 			ownerUserId: OWNER_ID,
-			expectedSourceRevision: "b".repeat(40),
+			expectedSourceRevision: ASSESSED_REVISION,
 			generatedAt: COMPLETED_AT,
 		});
 		expect(telemetry).toHaveBeenCalledTimes(2);
@@ -92,6 +135,38 @@ describe("NightworkersSecurityIntelligenceService", () => {
 			retryable: true,
 		});
 		expect(setup.dependencyBuilder).not.toHaveBeenCalled();
+	});
+
+	it("applies the same fail-closed binding and terminal checks to proofs", async () => {
+		for (const [setup, expected] of [
+			[
+				createService({ scan: { status: "queued", completedAt: null } }),
+				{ code: "assessment_not_ready", status: 409 },
+			],
+			[
+				createService({ scan: { status: "paused" } }),
+				{ code: "assessment_unavailable", status: 422 },
+			],
+			[
+				createService({ binding: null }),
+				{ code: "scan_not_found", status: 404 },
+			],
+			[
+				createService({
+					scan: {
+						metadata: {
+							...scan().metadata,
+							target: { ...scan().metadata.target, kind: "commit" },
+						},
+					},
+				}),
+				{ code: "assessment_unavailable", status: 422 },
+			],
+		] as const) {
+			await expect(
+				setup.service.bindingProof(client as never, SCAN_ID),
+			).rejects.toMatchObject(expected);
+		}
 	});
 
 	it("fails closed when the resource is not bound and allowlisted for the client", async () => {
@@ -292,6 +367,10 @@ function createService(options: {
 				options.authorizationShadowEnabled ?? false,
 			nightworkersSecurityIntelligenceMaxResponseBytes:
 				options.maxResponseBytes ?? 2 * 1024 * 1024,
+			nightworkersSecurityIntelligenceWorkspaceGrantEnabled: false,
+			nightworkersSecurityIntelligenceWorkspaceGrantMaxRequestBytes:
+				16 * 1024,
+			nightworkersSecurityIntelligenceWorkspaceGrantTtlSeconds: 300,
 		},
 		integrationRepository: {
 			findResourceBinding: vi.fn(async () => resourceBinding),
@@ -333,19 +412,18 @@ function scan() {
 		metadata: {
 			target: {
 				schemaVersion: 1,
-				kind: "commit",
+				kind: "working_tree",
 				requested: {
-					kind: "commit",
-					head: "b".repeat(40),
-					base: "a".repeat(40),
+					kind: "working_tree",
+					includeUntracked: true,
 				},
 				projectPrefix: "",
 				baseSha: "a".repeat(40),
-				headSha: "b".repeat(40),
-				mergeBaseSha: "a".repeat(40),
-				includeUntracked: false,
+				headSha: null,
+				mergeBaseSha: null,
+				includeUntracked: true,
 				targetDigest: "b".repeat(64),
-				snapshotDigest: "b".repeat(64),
+				snapshotDigest: null,
 				changedFileCount: 1,
 				scannableFileCount: 1,
 			},

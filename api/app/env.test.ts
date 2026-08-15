@@ -39,6 +39,15 @@ describe("readAppEnv", () => {
 		expect(env.nightworkersSecurityIntelligenceMaxResponseBytes).toBe(
 			2 * 1024 * 1024,
 		);
+		expect(env.nightworkersSecurityIntelligenceWorkspaceGrantEnabled).toBe(
+			false,
+		);
+		expect(env.nightworkersSecurityIntelligenceWorkspaceGrantTtlSeconds).toBe(
+			300,
+		);
+		expect(
+			env.nightworkersSecurityIntelligenceWorkspaceGrantMaxRequestBytes,
+		).toBe(16 * 1024);
 		expect(env.curatedSastEnabled).toBe(false);
 		expect(env.multiEcosystemOsvEnabled).toBe(false);
 		expect(env.zapActiveEnabled).toBe(false);
@@ -88,6 +97,11 @@ describe("readAppEnv", () => {
 			NIGHTWORKERS_SECURITY_INTELLIGENCE_ALLOWED_PROJECT_IDS:
 				"11111111-1111-4111-8111-111111111111,22222222-2222-4222-8222-222222222222,11111111-1111-4111-8111-111111111111",
 			NIGHTWORKERS_SECURITY_INTELLIGENCE_MAX_RESPONSE_BYTES: "1048576",
+			NIGHTWORKERS_SECURITY_INTELLIGENCE_WORKSPACE_GRANT_ENABLED: "true",
+			NIGHTWORKERS_SECURITY_INTELLIGENCE_WORKSPACE_GRANT_TTL_SECONDS:
+				"180",
+			NIGHTWORKERS_SECURITY_INTELLIGENCE_WORKSPACE_GRANT_MAX_REQUEST_BYTES:
+				"8192",
 		});
 
 		expect(env.nightworkersIntegrationEnabled).toBe(true);
@@ -113,6 +127,15 @@ describe("readAppEnv", () => {
 			"22222222-2222-4222-8222-222222222222",
 		]);
 		expect(env.nightworkersSecurityIntelligenceMaxResponseBytes).toBe(1_048_576);
+		expect(env.nightworkersSecurityIntelligenceWorkspaceGrantEnabled).toBe(
+			true,
+		);
+		expect(env.nightworkersSecurityIntelligenceWorkspaceGrantTtlSeconds).toBe(
+			180,
+		);
+		expect(
+			env.nightworkersSecurityIntelligenceWorkspaceGrantMaxRequestBytes,
+		).toBe(8_192);
 	});
 
 	it("rejects invalid Security Intelligence project allowlist entries", () => {

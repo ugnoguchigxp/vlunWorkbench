@@ -17,7 +17,7 @@
 	"nightworkersSecurityIntelligenceV1": {
 		"contractVersion": 1,
 		"schemaFileSha256": "sha256:6718d8c8f0da56cd2bfd95fd1be9c22520a28250e43ee88ccd31af879c09e323",
-		"fixtureFileSha256": "sha256:e08a03d0add8989779b394f8f498f152bcd2a5e519a557c1dfc1094f0f131633"
+    "fixtureFileSha256": "sha256:c2394dc0a532dd8ff35079da204b4bb55e62c2b9c862ba8834bd94d3808aa8ae"
 	},
 	"assessmentContract": {
 		"contractVersion": "1",
