@@ -10,11 +10,12 @@ import {
 } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { scannerDataManifestV2Schema } from "../shared/schemas/security-capability.schema";
 import {
 	computeScannerManifestHash,
 	hashTree,
 } from "../api/modules/scans/tools/scanner-provenance";
+import { scannerDataManifestV2Schema } from "../shared/schemas/security-capability.schema";
+import { normalizeTrivyDatabaseMetadata } from "./scanner-data-metadata";
 
 const OSV_ECOSYSTEMS = [
 	"npm",
@@ -130,6 +131,9 @@ try {
 		"--download-db-only",
 		"--no-progress",
 	]);
+	await normalizeTrivyDatabaseMetadata(
+		path.join(trivyRoot, "db", "metadata.json"),
+	);
 
 	const tools = structuredClone(template.tools);
 	const sourceLockDigest = await sha256File(

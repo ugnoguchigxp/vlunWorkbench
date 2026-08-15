@@ -16,7 +16,7 @@ Maximum review interval: 31 days
 | `fast-uri` | `3.1.5` | Exclude vulnerable JSON-schema resolver versions. |
 | `hono` | `4.12.34` | Keep all direct and transitive Hono copies on one audited version. |
 | `minimatch` | `10.2.5` | Keep transitive glob consumers on the audited release. |
-| `nanoid` | `3.3.17` | Exclude vulnerable identifier generator versions used by PostCSS. |
+| `nanoid` | `3.3.18` | Exclude versions affected by GHSA-2v37-7h3g-55p8 while keeping PostCSS on its compatible Nano ID 3.x range. |
 | `picomatch` | `4.0.4` | Exclude vulnerable glob-matching versions in tooling. |
 | `postcss` | `8.5.23` | Keep Tailwind/Vite consumers on one audited parser release. |
 | `rollup` | `4.62.0` | Lock the production bundler to the audited release. |

@@ -663,6 +663,15 @@ catalog pair, then runs typecheck, lint, format check, tests, build, bundle,
 audit, and artifact tracking. `bun run verify:strict` is the closeout gate and
 additionally runs Web/critical coverage and browser E2E.
 
+Coverage is deliberately reported as three different scopes. `selected_web`
+is the thresholded Web/domain subset (the previously reported 94.0% figure),
+not repository-wide coverage. `critical_api` is the per-file release gate for
+security boundaries. `repository_measurement` inventories every production
+TypeScript file and records observed V8 coverage without turning the initial
+repository-wide percentage into a release threshold. Run `bun run
+coverage:inventory` for the classification and `bun run coverage:repository`
+for the measurement artifact under `.artifacts/coverage/`.
+
 LLMへ送る固定のsystem/userメッセージは`contexts/**/*.context.toml`で管理します。変更時は
 `bun run s11tnext:lint`、`bun run s11tnext:build`を実行し、
 `.s11tnext/catalog.json`と`.s11tnext/catalog.generated.ts`を同時にcommit

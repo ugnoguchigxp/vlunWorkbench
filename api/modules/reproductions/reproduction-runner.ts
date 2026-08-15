@@ -12,52 +12,11 @@ import {
 } from "./profiles";
 import { ReproductionArtifactStorage } from "./reproduction-artifact-storage";
 import { ReproductionRepository } from "./reproduction-repository";
-
-function getBaseMetadata(recordMetadata: unknown): Record<string, unknown> {
-	return recordMetadata && typeof recordMetadata === "object"
-		? (recordMetadata as Record<string, unknown>)
-		: {};
-}
-
-function withRunnerMetadata(
-	baseMetadata: Record<string, unknown>,
-	executionMetadata?: Record<string, unknown>,
-): Record<string, unknown> {
-	if (!executionMetadata) {
-		return baseMetadata;
-	}
-	return {
-		...baseMetadata,
-		runnerMetadata: executionMetadata,
-	};
-}
-
-function classifyExecutionFailure(input: { error?: string; stderr?: string }): {
-	status: "failed" | "timed_out";
-	failureKind: string;
-} {
-	const text = `${input.error ?? ""}\n${input.stderr ?? ""}`.toLowerCase();
-	if (text.includes("timed out") || text.includes("timeout")) {
-		return { status: "timed_out", failureKind: "sandbox_timeout" };
-	}
-	if (
-		text.includes("no such image") ||
-		text.includes("unable to find image") ||
-		text.includes("pull access denied") ||
-		text.includes("manifest unknown")
-	) {
-		return { status: "failed", failureKind: "docker_image_missing" };
-	}
-	if (
-		text.includes("docker process error") ||
-		text.includes("enoent") ||
-		text.includes("cannot connect to the docker daemon") ||
-		text.includes("is the docker daemon running")
-	) {
-		return { status: "failed", failureKind: "docker_unavailable" };
-	}
-	return { status: "failed", failureKind: "unknown_error" };
-}
+import {
+	classifyReproductionExecutionFailure,
+	getReproductionBaseMetadata,
+	withReproductionRunnerMetadata,
+} from "./reproduction-run-outcome";
 
 export interface RunReproductionOptions {
 	findingId: string;
@@ -246,8 +205,8 @@ export class ReproductionRunner {
 				repoPath: project.repoPath,
 				outputPath: tempJsonPath,
 			});
-			const runMetadata = withRunnerMetadata(
-				getBaseMetadata(runRecord.metadata),
+			const runMetadata = withReproductionRunnerMetadata(
+				getReproductionBaseMetadata(runRecord.metadata),
 				runResult.executionMetadata,
 			);
 
@@ -285,7 +244,7 @@ export class ReproductionRunner {
 			// 5. Handle runToolProcess failure (timeout, docker error, etc.)
 			if (!runResult.ok) {
 				const { status: finalStatus, failureKind } =
-					classifyExecutionFailure(runResult);
+					classifyReproductionExecutionFailure(runResult);
 
 				await this.repo.updateRunStatus(runId, finalStatus, {
 					outcome: "error",
@@ -487,7 +446,7 @@ export class ReproductionRunner {
 				outcome: "error",
 				errorMessage: (err as Error).message,
 				metadata: {
-					...getBaseMetadata(runRecord.metadata),
+					...getReproductionBaseMetadata(runRecord.metadata),
 					failureKind: "unknown_error",
 				},
 			});

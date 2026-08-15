@@ -12,7 +12,10 @@ const artifactRoot = path.resolve(
 	process.env.SCAN_ARTIFACT_ROOT ?? ".tmp/e2e/artifacts",
 );
 const fixtureProjectRoot = path.resolve("tests/e2e/fixtures/project");
-const fixtureProjectPath = path.join(projectRoot, "fixture-project");
+const fixtureProjectPaths = [
+	path.join(projectRoot, "fixture-project"),
+	path.join(projectRoot, "fixture-project-semgrep"),
+];
 const fixtureBinRoot = path.resolve("tests/e2e/fixtures/bin");
 
 for (const filename of [
@@ -24,7 +27,9 @@ for (const filename of [
 }
 await Promise.all([
 	rm(artifactRoot, { recursive: true, force: true }),
-	rm(fixtureProjectPath, { recursive: true, force: true }),
+	...fixtureProjectPaths.map((fixtureProjectPath) =>
+		rm(fixtureProjectPath, { recursive: true, force: true }),
+	),
 ]);
 await Promise.all([
 	mkdir(path.dirname(databasePath), { recursive: true }),
@@ -32,7 +37,11 @@ await Promise.all([
 	mkdir(projectRoot, { recursive: true }),
 	mkdir(artifactRoot, { recursive: true }),
 ]);
-await cp(fixtureProjectRoot, fixtureProjectPath, { recursive: true });
+await Promise.all(
+	fixtureProjectPaths.map((fixtureProjectPath) =>
+		cp(fixtureProjectRoot, fixtureProjectPath, { recursive: true }),
+	),
+);
 await Promise.all(
 	["semgrep", "gitleaks", "osv-scanner"].map((filename) =>
 		chmod(path.join(fixtureBinRoot, filename), 0o755),

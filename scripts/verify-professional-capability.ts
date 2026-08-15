@@ -12,6 +12,7 @@ import {
 	verifyJuiceShopArtifactIntegrity,
 	verifyOwaspArtifactIntegrity,
 } from "./professional-capability-artifact-verifier";
+import { assessOsvEvidence } from "./professional-capability-gates";
 
 const cliArguments = process.argv.slice(2);
 if (cliArguments.some((argument) => argument !== "--report-only"))
@@ -110,21 +111,15 @@ if (juice)
 		manifestHash: manifest.manifestHash,
 		corpusLock,
 	});
-const osvGate =
-	manifest.tools.osv?.state === "ready" &&
-	osvBundles.filter((item) => item.kind === "vulnerability-db").length ===
-		minimums.osvSupportedEcosystems &&
-	osvEvidence?.databaseSupplied === true &&
-	osvEvidence?.networkRequests === 0 &&
-	Array.isArray(osvEvidence?.matrix) &&
-	osvEvidence.matrix.length === minimums.osvSupportedEcosystems &&
-	osvEvidence.matrix.every(
-		(item) =>
-			Boolean(item) &&
-			typeof item === "object" &&
-			(item as Record<string, unknown>).vulnerableDetected === true &&
-			(item as Record<string, unknown>).fixedDetected === false,
-	);
+const osvGate = assessOsvEvidence({
+	bundleCount: osvBundles.filter((item) => item.kind === "vulnerability-db")
+		.length,
+	databaseSupplied: osvEvidence?.databaseSupplied,
+	manifestState: manifest.tools.osv?.state,
+	matrix: osvEvidence?.matrix,
+	minimumEcosystems: minimums.osvSupportedEcosystems,
+	networkRequests: osvEvidence?.networkRequests,
+});
 const owaspOverall = overall(owasp);
 const juiceOverall = overall(juice);
 const businessOverall = overall(business);

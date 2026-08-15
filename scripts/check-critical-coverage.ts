@@ -1,50 +1,17 @@
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import {
+	criticalCoverageTargetBaseline,
+	criticalCoverageTargets,
+	criticalCoverageTests,
+} from "./critical-coverage-policy";
 
-const targets = new Map<string, number>([
-	["api/middleware/auth.ts", 95],
-	["api/middleware/rate-limiter.ts", 75],
-	["api/security/outbound-url-policy.ts", 95],
-	["api/security/project-path-policy.ts", 95],
-	["api/security/secret-crypto.ts", 95],
-	["api/modules/dast/active-assessment-runner.ts", 90],
-	["api/modules/dynamic/dynamic-artifact-storage.ts", 75],
-	["api/modules/dynamic/dynamic-docker-executor.ts", 85],
-	["api/modules/dynamic/dynamic-evidence-builder.ts", 90],
-	["api/modules/dynamic/dynamic-profiles.ts", 90],
-	["api/modules/dynamic/dynamic-run-policy.ts", 90],
-	["api/modules/dynamic/dynamic-runner.ts", 95],
-	[
-		"api/modules/integrations/nightworkers/nightworkers-integration.service.ts",
-		85,
-	],
-	[
-		"api/modules/integrations/nightworkers/nightworkers-result-operations.ts",
-		80,
-	],
-	["api/modules/integrations/nightworkers/nightworkers-scan-operations.ts", 95],
-	["api/modules/scans/scan-diagnostic-runner.ts", 80],
-	["api/modules/scans/tools/docker-tool-process-runner.ts", 80],
-	["api/modules/scans/tools/tool-process-policy.ts", 90],
-	["api/modules/scans/tools/tool-process-runner.ts", 80],
-]);
-const tests = [
-	"api/middleware/auth.test.ts",
-	"api/middleware/rate-limiter.test.ts",
-	"api/security/outbound-url-policy.test.ts",
-	"api/security/project-path-policy.test.ts",
-	"api/security/secret-crypto.test.ts",
-	"api/modules/dast/active-assessment-runner.test.ts",
-	"api/modules/dynamic/dynamic-artifact-storage.test.ts",
-	"api/modules/dynamic/dynamic-evidence-builder.test.ts",
-	"api/modules/dynamic/dynamic-profiles.test.ts",
-	"api/modules/dynamic/dynamic-run-policy.test.ts",
-	"api/modules/dynamic/dynamic-runner.test.ts",
-	"api/modules/integrations/nightworkers/nightworkers-integration.service.test.ts",
-	"api/modules/scans/scan-diagnostic-runner.test.ts",
-	"api/modules/scans/tools/tool-process-runner.test.ts",
-];
+if (criticalCoverageTargets.length < criticalCoverageTargetBaseline) {
+	throw new Error(
+		`Critical coverage target count regressed: ${criticalCoverageTargets.length} < ${criticalCoverageTargetBaseline}.`,
+	);
+}
 
 const coverageDirectory = await mkdtemp(
 	path.join(os.tmpdir(), "vuln-workbench-coverage-"),
@@ -57,7 +24,7 @@ try {
 			"--coverage",
 			"--coverage-reporter=lcov",
 			`--coverage-dir=${coverageDirectory}`,
-			...tests,
+			...criticalCoverageTests,
 		],
 		{ stdout: "inherit", stderr: "inherit" },
 	);
@@ -69,7 +36,7 @@ try {
 	);
 	const records = lcov.split("end_of_record");
 	const results = [];
-	for (const [target, minimum] of targets) {
+	for (const { path: target, minimum } of criticalCoverageTargets) {
 		const record = records.find((candidate) =>
 			candidate.includes(`SF:${target}\n`),
 		);
@@ -83,7 +50,13 @@ try {
 	}
 	const failed = results.filter((result) => result.percent < result.minimum);
 	process.stdout.write(
-		`${JSON.stringify({ ok: failed.length === 0, results })}\n`,
+		`${JSON.stringify({
+			scopeKind: "critical_api",
+			ok: failed.length === 0,
+			targetCount: criticalCoverageTargets.length,
+			targetBaseline: criticalCoverageTargetBaseline,
+			results,
+		})}\n`,
 	);
 	if (failed.length > 0) process.exitCode = 1;
 } finally {

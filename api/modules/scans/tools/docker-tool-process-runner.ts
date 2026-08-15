@@ -2,6 +2,12 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { readBoundedProcessText } from "./bounded-process-output";
+import { cleanupDockerContainer } from "./docker-tool-cleanup";
+import {
+	assertAllowedDockerInvocation,
+	dockerEntrypointFor,
+} from "./docker-tool-invocation-policy";
+export { registerDockerToolInvocationPolicy } from "./docker-tool-invocation-policy";
 import {
 	errorMessage,
 	getCleanEnv,
@@ -26,42 +32,6 @@ import type {
 const CONTAINER_REPO_PATH = "/workspace/repo";
 const CONTAINER_OUT_PATH = "/workspace/out";
 const CONTAINER_CACHE_PATH = "/workspace/cache";
-
-const DOCKER_TOOL_ALLOWLIST: Record<string, Set<string>> = {
-	gitleaks: new Set(["version", "detect"]),
-	"osv-scanner": new Set(["--version", "--format", "scan"]),
-	trivy: new Set(["--version", "fs", "image"]),
-	nuclei: new Set(["--version", "-version", "-u"]),
-	st: new Set(["run", "--version"]),
-};
-const DOCKER_ENTRYPOINTS: Record<string, string> = {};
-
-export function registerDockerToolInvocationPolicy(
-	binaryName: string,
-	allowedFirstArgs: readonly string[],
-): void {
-	if (!/^[a-zA-Z0-9._-]+$/.test(binaryName) || allowedFirstArgs.length === 0) {
-		throw new Error(`Invalid Docker scanner invocation policy: ${binaryName}`);
-	}
-	const requested = new Set<string>();
-	for (const arg of allowedFirstArgs) {
-		if (!arg || /[\r\n\0]/.test(arg)) {
-			throw new Error(`Invalid Docker scanner first argument: ${binaryName}`);
-		}
-		requested.add(arg);
-	}
-	const existing = DOCKER_TOOL_ALLOWLIST[binaryName];
-	if (
-		existing &&
-		(existing.size !== requested.size ||
-			[...existing].some((arg) => !requested.has(arg)))
-	) {
-		throw new Error(
-			`Conflicting Docker scanner invocation policy: ${binaryName}`,
-		);
-	}
-	DOCKER_TOOL_ALLOWLIST[binaryName] = requested;
-}
 
 export async function runDockerToolProcess(
 	binaryName: string,
@@ -317,22 +287,6 @@ export async function runDockerToolProcess(
 	};
 }
 
-function assertAllowedDockerInvocation(
-	binaryName: string,
-	args: string[],
-): void {
-	const allowedFirstArgs = DOCKER_TOOL_ALLOWLIST[binaryName];
-	if (!allowedFirstArgs) {
-		throw new Error(`Docker runner does not allow tool: ${binaryName}`);
-	}
-	const firstArg = args[0] ?? "";
-	if (!allowedFirstArgs.has(firstArg)) {
-		throw new Error(
-			`Docker runner does not allow ${binaryName} invocation: ${firstArg || "(none)"}`,
-		);
-	}
-}
-
 function rewriteToolArgs(
 	args: string[],
 	paths: {
@@ -421,8 +375,7 @@ function buildDockerRunArgs(params: {
 		"--env",
 		"PATH=/usr/local/bin:/usr/bin:/bin",
 		"--entrypoint",
-		DOCKER_ENTRYPOINTS[params.binaryName] ??
-			`/usr/local/bin/${params.binaryName}`,
+		dockerEntrypointFor(params.binaryName),
 	];
 	if (process.platform === "linux" && params.networkMode === "default") {
 		args.push("--add-host", "host.docker.internal:host-gateway");
@@ -465,39 +418,4 @@ function isPathInside(childPath: string, parentPath: string): boolean {
 			!relative.startsWith(`..${path.sep}`) &&
 			!path.isAbsolute(relative))
 	);
-}
-
-async function cleanupDockerContainer(
-	dockerBin: string,
-	containerName: string,
-	emit: (event: ToolLifecycleEvent) => Promise<void>,
-): Promise<void> {
-	try {
-		const proc = Bun.spawn([dockerBin, "rm", "-f", containerName], {
-			stdout: "pipe",
-			stderr: "pipe",
-			env: getCleanEnv(),
-		});
-		const [stderrResult, _stdoutResult, exitCode] = await Promise.all([
-			readBoundedProcessText(proc.stderr, 64 * 1024),
-			readBoundedProcessText(proc.stdout, 64 * 1024),
-			proc.exited,
-		]);
-		if (exitCode !== 0) {
-			const stderr = stderrResult.text.trim();
-			await emit({
-				level: "warn",
-				eventType: "docker.container.cleanup_failed",
-				message: `Failed to cleanup Docker toolbox container ${containerName}.`,
-				data: { containerName, exitCode, stderr },
-			});
-		}
-	} catch (err: unknown) {
-		await emit({
-			level: "warn",
-			eventType: "docker.container.cleanup_failed",
-			message: `Failed to cleanup Docker toolbox container ${containerName}.`,
-			data: { containerName, error: errorMessage(err) },
-		});
-	}
 }

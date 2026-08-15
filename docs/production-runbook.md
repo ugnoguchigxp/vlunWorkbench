@@ -103,7 +103,8 @@ Scanner rules and vulnerability databases never update during a scan. Refresh
 them only in an explicit build/update job:
 
 ```bash
-bun run scanner-data:prepare -- /absolute/path/to/new-scanner-data
+bun run scanner-data:refresh-lock
+bun run verify:toolbox-provenance
 bun run docker:toolbox:build
 bun run verify:security-capability
 ```
@@ -116,6 +117,9 @@ copies the owned optional-adapter Semgrep rules, hashes each bundle, and atomica
 times, freshness limits, and coverage. Review all manifest and capability-result
 diffs before replacing a release image. A missing, stale, or digest-mismatched
 ecosystem is `not_tested`; never fall back to an online OSV update during a scan.
+The refresh command normalizes Trivy's download-time-only metadata before
+hashing, converts image-only bundle paths to repository lock paths, recomputes
+the manifest hash, and atomically replaces only the committed manifest.
 
 Do not copy an unverified host cache into a release image. If data is stale or
 missing, keep the affected scanner unavailable or mark report readiness

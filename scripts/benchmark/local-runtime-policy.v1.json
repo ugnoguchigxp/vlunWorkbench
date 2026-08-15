@@ -1,0 +1,39 @@
+{
+	"schemaVersion": 1,
+	"supportBoundary": "local single application instance with one SQLite Writer; remote databases, distributed limiters, and multi-node writers are unsupported",
+	"minimumRepeat": 3,
+	"maximumRssBytes": 805306368,
+	"maximumQueueDepth": 9999,
+	"regression": {
+		"maximumP95IncreasePercent": 20,
+		"maximumRssIncreasePercent": 25
+	},
+	"approvedBaseline": {
+		"hostClass": "darwin-arm64-10cpu-32gib",
+		"rssBytes": 115343360,
+		"p95Ms": {
+			"health_readiness": 0.5,
+			"authenticated_lists": 1,
+			"writer_single": 0.5,
+			"writer_concurrency_4": 0.5,
+			"writer_concurrency_16": 0.5,
+			"writer_concurrency_64": 0.5,
+			"scan_process_admission": 25,
+			"finding_10k_pagination": 1,
+			"static_intelligence_current_read": 0.5,
+			"diagnostic_fixture_admission": 0.5
+		}
+	},
+	"workloads": {
+		"health_readiness": { "maximumP95Ms": 10 },
+		"authenticated_lists": { "maximumP95Ms": 20 },
+		"writer_single": { "maximumP95Ms": 10 },
+		"writer_concurrency_4": { "maximumP95Ms": 20 },
+		"writer_concurrency_16": { "maximumP95Ms": 50 },
+		"writer_concurrency_64": { "maximumP95Ms": 150 },
+		"scan_process_admission": { "maximumP95Ms": 300 },
+		"finding_10k_pagination": { "maximumP95Ms": 20 },
+		"static_intelligence_current_read": { "maximumP95Ms": 10 },
+		"diagnostic_fixture_admission": { "maximumP95Ms": 50 }
+	}
+}

@@ -1,0 +1,56 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$id": "https://vuln-workbench.local/schemas/local-runtime-policy.v1.json",
+	"type": "object",
+	"additionalProperties": false,
+	"required": [
+		"schemaVersion",
+		"supportBoundary",
+		"minimumRepeat",
+		"maximumRssBytes",
+		"maximumQueueDepth",
+		"regression",
+		"workloads"
+	],
+	"properties": {
+		"schemaVersion": { "const": 1 },
+		"supportBoundary": { "type": "string", "minLength": 1 },
+		"minimumRepeat": { "type": "integer", "minimum": 3 },
+		"maximumRssBytes": { "type": "integer", "minimum": 1 },
+		"maximumQueueDepth": { "type": "integer", "minimum": 1 },
+		"regression": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": ["maximumP95IncreasePercent", "maximumRssIncreasePercent"],
+			"properties": {
+				"maximumP95IncreasePercent": { "type": "number", "minimum": 0 },
+				"maximumRssIncreasePercent": { "type": "number", "minimum": 0 }
+			}
+		},
+		"approvedBaseline": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": ["hostClass", "rssBytes", "p95Ms"],
+			"properties": {
+				"hostClass": { "type": "string" },
+				"rssBytes": { "type": "number", "minimum": 1 },
+				"p95Ms": {
+					"type": "object",
+					"additionalProperties": { "type": "number", "minimum": 0 }
+				}
+			}
+		},
+		"workloads": {
+			"type": "object",
+			"minProperties": 1,
+			"additionalProperties": {
+				"type": "object",
+				"additionalProperties": false,
+				"required": ["maximumP95Ms"],
+				"properties": {
+					"maximumP95Ms": { "type": "number", "exclusiveMinimum": 0 }
+				}
+			}
+		}
+	}
+}

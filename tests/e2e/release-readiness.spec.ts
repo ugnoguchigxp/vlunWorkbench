@@ -22,6 +22,111 @@ async function login(
 	await expect(page.getByRole("button", { name: "Logout" })).toBeVisible();
 }
 
+async function registerFixtureProject(
+	page: Page,
+	fixtureDirectory: "fixture-project" | "fixture-project-semgrep",
+): Promise<{ id: string; repoPath: string }> {
+	await page.goto("/scans");
+	const fixtureProjectPath = path.resolve(
+		`.tmp/e2e/projects/${fixtureDirectory}`,
+	);
+	await page.getByRole("button", { name: "新規プロジェクト" }).click();
+	await page
+		.getByLabel("プロジェクトフォルダ path")
+		.fill(fixtureProjectPath);
+	await page.getByLabel("既定ブランチ").fill("main");
+
+	const projectResponsePromise = page.waitForResponse(
+		(response) =>
+			response.request().method() === "POST" &&
+			new URL(response.url()).pathname === "/api/projects",
+	);
+	await page.getByRole("button", { name: "プロジェクトを登録" }).click();
+	const projectResponse = await projectResponsePromise;
+	expect(projectResponse.status()).toBe(201);
+	const project = (await projectResponse.json()).project as {
+		id: string;
+		repoPath: string;
+	};
+	expect(project.repoPath).toBe(fixtureProjectPath);
+	return project;
+}
+
+async function startProfileScan(
+	page: Page,
+	projectId: string,
+	profileId: "baseline" | "semgrep-baseline",
+): Promise<string> {
+	await page.getByLabel("スキャンプロファイル").selectOption(profileId);
+	const scanResponsePromise = page.waitForResponse(
+		(response) =>
+			response.request().method() === "POST" &&
+			new URL(response.url()).pathname ===
+				`/api/projects/${projectId}/scans`,
+	);
+	await page.getByRole("button", { name: "スキャンを開始" }).click();
+	const scanResponse = await scanResponsePromise;
+	expect(scanResponse.status()).toBe(202);
+	return ((await scanResponse.json()).scan as { id: string }).id;
+}
+
+async function waitForCompletedScan(page: Page, scanId: string): Promise<void> {
+	await expect
+		.poll(
+			async () => {
+				const response = await page.request.get(`/api/scans/${scanId}`);
+				if (!response.ok()) return `http-${response.status()}`;
+				return ((await response.json()).scan as { status: string }).status;
+			},
+			{ timeout: 30_000 },
+		)
+		.toBe("completed");
+}
+
+async function waitForAutomaticReport(
+	page: Page,
+	scanId: string,
+): Promise<string> {
+	let automaticReportId: string | null = null;
+	await expect
+		.poll(
+			async () => {
+				const response = await page.request.get(
+					`/api/scans/${scanId}/diagnostics`,
+				);
+				if (!response.ok()) return `http-${response.status()}`;
+				const diagnostics = (await response.json()).diagnostics as Array<{
+					status: string;
+					readiness: string | null;
+					scanReportId: string | null;
+				}>;
+				const diagnostic = diagnostics[0];
+				automaticReportId = diagnostic?.scanReportId ?? null;
+				return diagnostic
+					? `${diagnostic.status}:${diagnostic.readiness}:${Boolean(
+							diagnostic.scanReportId,
+						)}`
+					: "missing";
+			},
+			{ timeout: 30_000 },
+		)
+		.toBe("completed_with_limitations:ready_with_limitations:true");
+	expect(automaticReportId).not.toBeNull();
+	const reportId = automaticReportId as string;
+	await expect
+		.poll(async () => {
+			const response = await page.request.get(`/api/scans/${scanId}/reports`);
+			if (!response.ok()) return `http-${response.status()}`;
+			const reports = (await response.json()).reports as Array<{
+				id: string;
+				status: string;
+			}>;
+			return reports.find((report) => report.id === reportId)?.status;
+		})
+		.toBe("completed");
+	return reportId;
+}
+
 async function expectNoSeriousAccessibilityViolations(page: Page) {
 	const result = await new AxeBuilder({ page })
 		.withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
@@ -234,60 +339,73 @@ test("mocked completed scan results and Markdown report preview render", async (
 	await expectNoSeriousAccessibilityViolations(page);
 });
 
-test("real DB flow registers a project, scans, shows a finding, and automatically generates a report", async ({
+test("real DB standard profile completes without invoking optional Semgrep", async ({
 	page,
 }) => {
 	test.setTimeout(60_000);
 	await login(page, adminCredentials);
-	await page.goto("/scans");
-
-	const fixtureProjectPath = path.resolve(
-		".tmp/e2e/projects/fixture-project",
-	);
-	await page.getByRole("button", { name: "新規プロジェクト" }).click();
-	await page
-		.getByLabel("プロジェクトフォルダ path")
-		.fill(fixtureProjectPath);
-	await page.getByLabel("既定ブランチ").fill("main");
-
-	const projectResponsePromise = page.waitForResponse(
-		(response) =>
-			response.request().method() === "POST" &&
-			new URL(response.url()).pathname === "/api/projects",
-	);
-	await page.getByRole("button", { name: "プロジェクトを登録" }).click();
-	const projectResponse = await projectResponsePromise;
+	const fixtureProjectPath = path.resolve(".tmp/e2e/projects/fixture-project");
+	const projectResponse = await page.request.post("/api/projects", {
+		data: {
+			repoPath: fixtureProjectPath,
+			defaultBranch: "main",
+			metadata: {},
+		},
+	});
 	expect(projectResponse.status()).toBe(201);
 	const project = (await projectResponse.json()).project as {
 		id: string;
 		repoPath: string;
 	};
 	expect(project.repoPath).toBe(fixtureProjectPath);
-
-	await page.getByLabel("スキャンプロファイル").selectOption("baseline");
-	const scanResponsePromise = page.waitForResponse(
-		(response) =>
-			response.request().method() === "POST" &&
-			new URL(response.url()).pathname ===
-				`/api/projects/${project.id}/scans`,
-	);
-	await page.getByRole("button", { name: "スキャンを開始" }).click();
-	const scanResponse = await scanResponsePromise;
-	expect(scanResponse.status()).toBe(202);
-	const scan = (await scanResponse.json()).scan as { id: string };
-
-	await expect
-		.poll(
-			async () => {
-				const response = await page.request.get(`/api/scans/${scan.id}`);
-				if (!response.ok()) return `http-${response.status()}`;
-				return ((await response.json()).scan as { status: string }).status;
+	const scanResponse = await page.request.post(
+		`/api/projects/${project.id}/scans`,
+		{
+			data: {
+				profile: "baseline",
+				target: { kind: "full" },
+				finalReport: true,
 			},
-			{ timeout: 30_000 },
-			)
-			.toBe("completed");
+		},
+	);
+	expect(scanResponse.status()).toBe(202);
+	const scanId = ((await scanResponse.json()).scan as { id: string }).id;
+	await waitForCompletedScan(page, scanId);
 
-	await page.goto(`/scans?projectId=${project.id}&scanRunId=${scan.id}`);
+	const findingsResponse = await page.request.get(
+		`/api/scans/${scanId}/findings`,
+	);
+	expect(findingsResponse.ok()).toBe(true);
+	expect((await findingsResponse.json()).findings).toEqual([]);
+
+	const reportId = await waitForAutomaticReport(page, scanId);
+	const reportResponse = await page.request.get(
+		`/api/scan-reports/${reportId}/download`,
+	);
+	expect(reportResponse.ok()).toBe(true);
+	expect(await reportResponse.text()).toContain(
+		"今回のスキャン範囲では、対応が必要な指摘事項は発見されませんでした。",
+	);
+});
+
+test("real DB optional Semgrep profile persists a finding and automatic report", async ({
+	page,
+}) => {
+	test.setTimeout(60_000);
+	await login(page, adminCredentials);
+	const project = await registerFixtureProject(
+		page,
+		"fixture-project-semgrep",
+	);
+	await expect(
+		page
+			.getByLabel("スキャンプロファイル")
+			.locator('option[value="semgrep-baseline"]'),
+	).toHaveCount(1);
+	const scanId = await startProfileScan(page, project.id, "semgrep-baseline");
+	await waitForCompletedScan(page, scanId);
+
+	await page.goto(`/scans?projectId=${project.id}&scanRunId=${scanId}`);
 	await expect(
 		page.getByText("E2E unsafe eval finding", { exact: true }).first(),
 	).toBeVisible({ timeout: 15_000 });
@@ -295,45 +413,8 @@ test("real DB flow registers a project, scans, shows a finding, and automaticall
 		page.getByText("src/example.ts", { exact: false }).first(),
 	).toBeVisible();
 
-	let automaticReportId: string | null = null;
-	await expect
-		.poll(
-			async () => {
-				const response = await page.request.get(
-					`/api/scans/${scan.id}/diagnostics`,
-				);
-				if (!response.ok()) return `http-${response.status()}`;
-				const diagnostics = (await response.json()).diagnostics as Array<{
-					status: string;
-					readiness: string | null;
-					scanReportId: string | null;
-				}>;
-				const diagnostic = diagnostics[0];
-				automaticReportId = diagnostic?.scanReportId ?? null;
-				return diagnostic
-					? `${diagnostic.status}:${diagnostic.readiness}:${Boolean(
-							diagnostic.scanReportId,
-						)}`
-					: "missing";
-			},
-			{ timeout: 30_000 },
-		)
-		.toBe("completed_with_limitations:ready_with_limitations:true");
-	expect(automaticReportId).not.toBeNull();
-	await expect
-		.poll(async () => {
-			const response = await page.request.get(
-				`/api/scans/${scan.id}/reports`,
-			);
-			if (!response.ok()) return `http-${response.status()}`;
-			const reports = (await response.json()).reports as Array<{
-				id: string;
-				status: string;
-			}>;
-			return reports.find((report) => report.id === automaticReportId)?.status;
-		})
-		.toBe("completed");
-	await page.goto(`/scans?projectId=${project.id}&scanRunId=${scan.id}`);
+	const automaticReportId = await waitForAutomaticReport(page, scanId);
+	await page.goto(`/scans?projectId=${project.id}&scanRunId=${scanId}`);
 	await page.getByRole("tab", { name: "レポート MD" }).click();
 	await expect(
 		page.getByText("E2E unsafe eval finding", { exact: false }).first(),
@@ -343,8 +424,8 @@ test("real DB flow registers a project, scans, shows a finding, and automaticall
 		await Promise.all([
 			page.request.get("/api/projects"),
 			page.request.get(`/api/scans?projectId=${project.id}`),
-			page.request.get(`/api/scans/${scan.id}/findings`),
-			page.request.get(`/api/scans/${scan.id}/reports`),
+			page.request.get(`/api/scans/${scanId}/findings`),
+			page.request.get(`/api/scans/${scanId}/reports`),
 		]);
 	for (const response of [
 		projectsResponse,
@@ -374,13 +455,13 @@ test("real DB flow registers a project, scans, shows a finding, and automaticall
 	expect(projects.some((item) => item.id === project.id)).toBe(true);
 	expect(
 		scans.some(
-			(item) => item.id === scan.id && item.projectId === project.id,
+			(item) => item.id === scanId && item.projectId === project.id,
 		),
 	).toBe(true);
 	expect(
 		findings.some(
 			(item) =>
-				item.scanRunId === scan.id &&
+				item.scanRunId === scanId &&
 				item.projectId === project.id &&
 				item.title === "E2E unsafe eval finding",
 		),
@@ -388,7 +469,7 @@ test("real DB flow registers a project, scans, shows a finding, and automaticall
 	expect(
 		reports.some(
 			(item) =>
-				item.id === automaticReportId && item.scanRunId === scan.id,
+				item.id === automaticReportId && item.scanRunId === scanId,
 		),
 	).toBe(true);
 	await expectNoSeriousAccessibilityViolations(page);

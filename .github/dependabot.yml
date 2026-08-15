@@ -9,3 +9,18 @@ updates:
     directory: /
     schedule:
       interval: monthly
+  - package-ecosystem: docker
+    directory: /docker/toolbox
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+  - package-ecosystem: docker
+    directory: /docker/dynamic
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+  - package-ecosystem: docker
+    directory: /docker/plugins/semgrep
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5

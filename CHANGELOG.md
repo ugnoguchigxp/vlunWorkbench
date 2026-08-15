@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+No unreleased changes are classified yet.
+
+## [1.0.0] - 2026-08-15
+
 ### Security
 
 - Enforce canonical allowed-root authorization when registering and executing
@@ -22,3 +26,12 @@
 - Add complete test inventory, isolated API test processes, frozen dependency
   installation, audit/artifact/bundle gates, Dependabot, and CI verification.
 - Lazy-load major frontend domains and enforce initial bundle budgets.
+
+### Known limitations
+
+- The measured professional-capability claim is `not_met`: the pinned OWASP
+  benchmark does not meet precision/FPR/score policy, and Juice Shop runtime
+  observations have not been accepted.
+- The supported runtime is one local application instance with one SQLite
+  Writer; remote databases and multi-node writers are unsupported.
+- Backup maintainer roles are unassigned and the bus factor remains one.

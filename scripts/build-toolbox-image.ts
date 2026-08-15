@@ -177,7 +177,7 @@ try {
 		GOOS: "linux",
 		GOTOOLCHAIN: "local",
 		GOEXPERIMENT: "jsonv2",
-		GOCACHE: path.join(cacheRoot, "go-build"),
+		GOCACHE: path.join(workRoot, "go-build"),
 		GOMODCACHE: path.join(cacheRoot, "go-mod"),
 	};
 	await run(

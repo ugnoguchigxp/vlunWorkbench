@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { createStaticScannerAdapterRegistry } from "../static-scanner-adapters";
+import { cleanupDockerContainer } from "./docker-tool-cleanup";
 import {
 	checkToolVersion,
 	normalizeToolExecutionConfig,
@@ -212,6 +213,49 @@ describe("Tool process runner Docker backend", () => {
 				},
 			}),
 		).rejects.toThrow("Docker process error: ENOENT");
+	});
+
+	it("reports both non-zero and unavailable Docker cleanup attempts", async () => {
+		const events: Array<{ eventType: string; data?: Record<string, unknown> }> =
+			[];
+		const emit = async (event: {
+			eventType: string;
+			data?: Record<string, unknown>;
+		}) => {
+			events.push(event);
+		};
+		vi.spyOn(Bun, "spawn").mockImplementationOnce(
+			() =>
+				({
+					stdout: streamText(""),
+					stderr: streamText("cleanup denied"),
+					exited: Promise.resolve(1),
+				}) as any,
+		);
+		await cleanupDockerContainer("docker", "container-one", emit as never);
+
+		vi.spyOn(Bun, "spawn").mockImplementationOnce(() => {
+			throw new Error("ENOENT");
+		});
+		await cleanupDockerContainer("docker", "container-two", emit as never);
+
+		expect(events).toEqual([
+			expect.objectContaining({
+				eventType: "docker.container.cleanup_failed",
+				data: expect.objectContaining({
+					containerName: "container-one",
+					exitCode: 1,
+					stderr: "cleanup denied",
+				}),
+			}),
+			expect.objectContaining({
+				eventType: "docker.container.cleanup_failed",
+				data: expect.objectContaining({
+					containerName: "container-two",
+					error: "ENOENT",
+				}),
+			}),
+		]);
 	});
 
 	it("accepts version output written to stderr", async () => {

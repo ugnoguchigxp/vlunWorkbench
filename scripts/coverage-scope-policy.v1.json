@@ -1,0 +1,158 @@
+{
+	"version": 1,
+	"selectedWebPatterns": [
+		"web/src/agentic-markdown.ts",
+		"web/src/domains/projects/*.ts",
+		"web/src/domains/scans/*.ts",
+		"shared/report-sections.ts"
+	],
+	"criticalSurfacePatterns": [
+		"api/middleware/*.ts",
+		"api/security/*.ts",
+		"api/modules/dast/active-*.ts",
+		"api/modules/dynamic/dynamic-*.ts",
+		"api/modules/integrations/nightworkers/nightworkers-security-intelligence*.ts",
+		"api/modules/reproductions/reproduction-run-*.ts",
+		"api/modules/scans/tools/docker-tool-*.ts"
+	],
+	"criticalSurfaceExemptionBaseline": 11,
+	"criticalSurfaceExemptions": [
+		{
+			"path": "api/security/public-web-fetch.ts",
+			"reason": "Transport wrapper is exercised by the outbound URL policy and dedicated fetch tests.",
+			"tests": ["api/security/public-web-fetch.test.ts"]
+		},
+		{
+			"path": "api/modules/dast/active-assessment-repository.ts",
+			"reason": "Persistence adapter is exercised through the thresholded active assessment runner.",
+			"tests": ["api/modules/dast/active-assessment-runner.test.ts"]
+		},
+		{
+			"path": "api/modules/dast/active-container-target-gateway.ts",
+			"reason": "Gateway behavior has a dedicated contract test.",
+			"tests": ["api/modules/dast/active-container-target-gateway.test.ts"]
+		},
+		{
+			"path": "api/modules/dast/active-request-executor.ts",
+			"reason": "Executor behavior is covered through active assessment runner characterization tests.",
+			"tests": ["api/modules/dast/active-assessment-runner.test.ts"]
+		},
+		{
+			"path": "api/modules/dynamic/dynamic-evaluator.ts",
+			"reason": "Evaluation policy has dedicated paired outcome tests.",
+			"tests": ["api/modules/dynamic/dynamic-evaluator.test.ts"]
+		},
+		{
+			"path": "api/modules/dynamic/dynamic-repository.ts",
+			"reason": "Persistence adapter has dedicated repository tests.",
+			"tests": ["api/modules/dynamic/dynamic-repository.test.ts"]
+		},
+		{
+			"path": "api/modules/integrations/nightworkers/nightworkers-security-intelligence-projection.ts",
+			"reason": "Projection is exercised by the service compatibility suite.",
+			"tests": [
+				"api/modules/integrations/nightworkers/nightworkers-security-intelligence.service.test.ts"
+			]
+		},
+		{
+			"path": "api/modules/integrations/nightworkers/nightworkers-security-intelligence-telemetry.ts",
+			"reason": "Telemetry redaction is exercised by the service compatibility suite.",
+			"tests": [
+				"api/modules/integrations/nightworkers/nightworkers-security-intelligence.service.test.ts"
+			]
+		},
+		{
+			"path": "api/modules/integrations/nightworkers/nightworkers-security-intelligence.errors.ts",
+			"reason": "Privacy-safe error mapping is exercised by the route and service suites.",
+			"tests": [
+				"api/modules/integrations/nightworkers/nightworkers-security-intelligence.routes.test.ts"
+			]
+		},
+		{
+			"path": "api/modules/integrations/nightworkers/nightworkers-security-intelligence.routes.ts",
+			"reason": "HTTP boundary has a dedicated route suite.",
+			"tests": [
+				"api/modules/integrations/nightworkers/nightworkers-security-intelligence.routes.test.ts"
+			]
+		},
+		{
+			"path": "api/modules/reproductions/reproduction-run-outcome.ts",
+			"reason": "Outcome extraction is characterized through reproduction runner tests.",
+			"tests": ["api/modules/reproductions/reproduction-runner.test.ts"]
+		}
+	],
+	"e2eOnly": [
+		{
+			"path": "web/src/domains/projects/use-intelligence-structure-data.ts",
+			"testId": "E2E-PROJECT-INTELLIGENCE-STRUCTURE",
+			"spec": "tests/e2e/project-intelligence.spec.ts",
+			"title": "構造中心の4画面をURLと同期し、generationを再取得しない"
+		},
+		{
+			"path": "web/src/domains/scans/scans-controller-view-model.ts",
+			"testId": "E2E-SCAN-RESULT-VIEW-MODEL",
+			"spec": "tests/e2e/release-readiness.spec.ts",
+			"title": "mocked completed scan results and Markdown report preview render"
+		},
+		{
+			"path": "web/src/domains/scans/scans-derived-controller.ts",
+			"testId": "E2E-SCAN-RESULT-DERIVED-CONTROLLER",
+			"spec": "tests/e2e/release-readiness.spec.ts",
+			"title": "real DB standard profile completes without invoking optional Semgrep"
+		},
+		{
+			"path": "web/src/domains/scans/scans-finding-actions.ts",
+			"testId": "E2E-SCAN-FINDING-ACTIONS",
+			"spec": "tests/e2e/release-readiness.spec.ts",
+			"title": "real DB optional Semgrep profile persists a finding and automatic report"
+		},
+		{
+			"path": "web/src/domains/scans/scans-launch-actions.ts",
+			"testId": "E2E-SCAN-LAUNCH-ACTIONS",
+			"spec": "tests/e2e/release-readiness.spec.ts",
+			"title": "real DB standard profile completes without invoking optional Semgrep"
+		},
+		{
+			"path": "web/src/domains/scans/use-automated-diagnostic-state.ts",
+			"testId": "E2E-SCAN-DIAGNOSTIC-STATE",
+			"spec": "tests/e2e/release-readiness.spec.ts",
+			"title": "mocked completed scan results and Markdown report preview render"
+		},
+		{
+			"path": "web/src/domains/scans/use-dast-controller.ts",
+			"testId": "E2E-DAST-CONTROLLER",
+			"spec": "tests/e2e/release-readiness.spec.ts",
+			"title": "project path validation and member/admin boundaries hold through a browser session"
+		},
+		{
+			"path": "web/src/domains/scans/use-finding-load-effects.ts",
+			"testId": "E2E-SCAN-FINDING-LOAD",
+			"spec": "tests/e2e/release-readiness.spec.ts",
+			"title": "real DB optional Semgrep profile persists a finding and automatic report"
+		},
+		{
+			"path": "web/src/domains/scans/use-scan-target-effects.ts",
+			"testId": "E2E-SCAN-TARGET-EFFECTS",
+			"spec": "tests/e2e/release-readiness.spec.ts",
+			"title": "project path validation and member/admin boundaries hold through a browser session"
+		},
+		{
+			"path": "web/src/domains/scans/use-scans-base-controller.ts",
+			"testId": "E2E-SCANS-BASE-CONTROLLER",
+			"spec": "tests/e2e/release-readiness.spec.ts",
+			"title": "real DB standard profile completes without invoking optional Semgrep"
+		},
+		{
+			"path": "web/src/domains/scans/use-scans-controller.ts",
+			"testId": "E2E-SCANS-CONTROLLER",
+			"spec": "tests/e2e/release-readiness.spec.ts",
+			"title": "real DB standard profile completes without invoking optional Semgrep"
+		},
+		{
+			"path": "web/src/domains/scans/use-scans-effects.ts",
+			"testId": "E2E-SCANS-EFFECTS",
+			"spec": "tests/e2e/release-readiness.spec.ts",
+			"title": "real DB optional Semgrep profile persists a finding and automatic report"
+		}
+	]
+}

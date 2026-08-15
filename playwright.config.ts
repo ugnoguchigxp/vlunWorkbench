@@ -52,6 +52,7 @@ export default defineConfig({
 			TRUST_PROXY: "false",
 			SCAN_EXECUTION_MODE: "host",
 			ALLOW_HOST_SCANNER_EXECUTION: "true",
+			VULN_WORKBENCH_OPTIONAL_SCANNER_ADAPTERS: "semgrep",
 			PATH: `${fixtureBinRoot}${path.delimiter}${process.env.PATH ?? ""}`,
 		},
 	},

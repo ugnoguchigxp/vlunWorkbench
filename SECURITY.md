@@ -2,8 +2,15 @@
 
 ## Supported versions
 
-Security fixes are provided for the current `main` branch and the latest tagged
-release. Older releases are unsupported unless a release note says otherwise.
+| Version | Status |
+| --- | --- |
+| `v1.0.0` | Supported |
+| `main` | Development branch; not a release |
+
+Only versions that appear in `git tag` and have same-commit clean-checkout
+evidence are supported releases. An untagged package version or draft release
+note is not a supported release. Older releases are unsupported unless a
+release note explicitly says otherwise.
 
 ## Reporting a vulnerability
 

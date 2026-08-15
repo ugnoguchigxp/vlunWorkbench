@@ -26,6 +26,7 @@ export type SearchEvidence = {
 export type SearchEvidenceCollectorDeps = {
 	retriever: SourceRetriever;
 	webSearchProvider?: WebSearchProvider;
+	pageContentFetcher?: (url: string) => Promise<{ cleanText: string }>;
 };
 
 export type CollectSearchEvidenceInput = {
@@ -107,7 +108,10 @@ export class SearchEvidenceCollector {
 				results.map(async (result, index) => {
 					if (index >= 2) return result;
 					try {
-						const page = await service.fetchPageContent(result.url);
+						const page = await (
+							this.deps.pageContentFetcher ??
+							((url: string) => service.fetchPageContent(url))
+						)(result.url);
 						return {
 							...result,
 							content: page.cleanText,

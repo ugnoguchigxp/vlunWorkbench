@@ -45,6 +45,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   scan:
     runs-on: ubuntu-latest
@@ -57,6 +61,8 @@ jobs:
             dockerfile: docker/toolbox/Dockerfile
           - name: dynamic
             dockerfile: docker/dynamic/Dockerfile
+          - name: semgrep
+            dockerfile: docker/plugins/semgrep/Dockerfile
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
@@ -84,7 +90,7 @@ jobs:
         if: matrix.name == 'toolbox'
         run: bun run verify:dast-real-scanners
       - name: Build dynamic image
-        if: matrix.name == 'dynamic'
+        if: matrix.name != 'toolbox'
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .

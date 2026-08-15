@@ -6,3 +6,18 @@ description = "Synthetic API-key assignment used by the redaction unit test"
 paths = ['''^api/modules/scans/normalizers/fixture\.test\.ts$''']
 regexTarget = "match"
 regexes = ['''api_key\s*=\s*"sensitiveKeyStrHere"''']
+
+[[allowlists]]
+description = "Owned DAST canary returned only by the intentionally vulnerable fixture"
+paths = ['''^tests/security-capability/dast-standard/app/server\.ts$''']
+regexTarget = "match"
+regexes = ['''DAST_CANARY_SECRET=phase51-owned-fixture''']
+
+[[allowlists]]
+description = "Synthetic integration token prefix used with non-secret repeated hashes"
+paths = [
+  '''^api/modules/integrations/nightworkers/nightworkers-integration-project-resolver\.test\.ts$''',
+  '''^api/modules/integrations/nightworkers/nightworkers-integration\.repository\.test\.ts$''',
+]
+regexTarget = "match"
+regexes = ['''tokenPrefix:\s*"0123456789abcdef"''']
