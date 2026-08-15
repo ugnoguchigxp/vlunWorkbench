@@ -5,6 +5,7 @@ import path from "node:path";
 import { z } from "zod";
 import { createLocalRuntimeDatabaseFixture } from "../../api/db/testing/connection";
 import {
+	classifyGitSourceState,
 	median,
 	medianSummary,
 	summarizeObservation,
@@ -39,13 +40,18 @@ function numberArgument(name: string, fallback: number): number {
 	return value ? Number.parseInt(value.slice(prefix.length), 10) : fallback;
 }
 
-async function gitOutput(args: string[]): Promise<string> {
+async function gitOutput(
+	args: string[],
+): Promise<{ exitCode: number; output: string }> {
 	const processResult = Bun.spawn(["git", ...args], {
 		stdout: "pipe",
 		stderr: "ignore",
 	});
-	if ((await processResult.exited) !== 0) return "unknown";
-	return (await new Response(processResult.stdout).text()).trim() || "unknown";
+	const [exitCode, output] = await Promise.all([
+		processResult.exited,
+		new Response(processResult.stdout).text(),
+	]);
+	return { exitCode, output: output.trim() };
 }
 
 const policy = policySchema.parse(
@@ -77,13 +83,13 @@ const fixtureHash = createHash("sha256")
 const sqliteFixture = createLocalRuntimeDatabaseFixture();
 const sqliteVersion = sqliteFixture.sqliteVersion;
 sqliteFixture.close();
-const commit = await gitOutput(["rev-parse", "HEAD"]);
-const sourceState =
-	(await gitOutput(["status", "--porcelain"])) === "unknown"
-		? "unknown"
-		: (await gitOutput(["status", "--porcelain"]))
-			? "dirty"
-			: "clean";
+const commitResult = await gitOutput(["rev-parse", "HEAD"]);
+const commit = commitResult.exitCode === 0 ? commitResult.output : "unknown";
+const statusResult = await gitOutput(["status", "--porcelain"]);
+const sourceState = classifyGitSourceState(
+	statusResult.exitCode,
+	statusResult.output,
+);
 
 const runSummaries: WorkloadSummary[][] = [];
 const rssByRun: number[] = [];

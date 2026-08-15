@@ -1,11 +1,18 @@
 import { describe, expect, test } from "bun:test";
 import {
+	classifyGitSourceState,
 	medianSummary,
 	percentile,
 	summarizeObservation,
 } from "./local-runtime-lib";
 
 describe("local runtime benchmark metrics", () => {
+	test("distinguishes clean, dirty, and unavailable Git state", () => {
+		expect(classifyGitSourceState(0, "")).toBe("clean");
+		expect(classifyGitSourceState(0, " M package.json\n")).toBe("dirty");
+		expect(classifyGitSourceState(128, "")).toBe("unknown");
+	});
+
 	test("uses nearest-rank percentiles and reports queue/error truthfully", () => {
 		expect(percentile([5, 1, 4, 2, 3], 50)).toBe(3);
 		expect(percentile([5, 1, 4, 2, 3], 95)).toBe(5);

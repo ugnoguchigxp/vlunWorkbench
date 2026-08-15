@@ -19,6 +19,14 @@ export type WorkloadSummary = {
 	rejections: number;
 };
 
+export function classifyGitSourceState(
+	exitCode: number,
+	statusOutput: string,
+): "clean" | "dirty" | "unknown" {
+	if (exitCode !== 0) return "unknown";
+	return statusOutput.trim() ? "dirty" : "clean";
+}
+
 export function percentile(values: readonly number[], value: number): number {
 	if (values.length === 0) return 0;
 	const sorted = [...values].sort((left, right) => left - right);
