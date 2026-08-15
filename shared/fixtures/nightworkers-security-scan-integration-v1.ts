@@ -58,9 +58,9 @@ export const integrationPreviewFixture: IntegrationPreview = {
 	estimatedDurationSeconds: { min: 60, max: 900 },
 	toolSteps: [
 		{
-			id: "semgrep",
-			name: "Semgrep Changed Source Analysis",
-			category: "static",
+			id: "gitleaks",
+			name: "Gitleaks Changed File Detection",
+			category: "secret",
 			required: true,
 			availability: "available",
 		},

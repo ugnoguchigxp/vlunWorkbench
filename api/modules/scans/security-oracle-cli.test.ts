@@ -65,10 +65,20 @@ if (args.includes("version")) {
 const outIdx = args.indexOf("--report-path");
 if (outIdx >= 0) {
 	const outPath = args[outIdx + 1];
+	const findings = process.env.MOCK_GITLEAKS_FINDING === "generic-api-key"
+		? [{
+			RuleID: "generic-api-key",
+			Description: "Generic API Key",
+			File: process.env.MOCK_GITLEAKS_PATH ?? path.join(process.env.MOCK_REPO_PATH ?? process.cwd(), "Dockerfile"),
+			StartLine: 18,
+			EndLine: 18,
+			Secret: "super-secret-value"
+		}]
+		: [];
 	await fs.mkdir(path.dirname(outPath), { recursive: true });
-	await fs.writeFile(outPath, JSON.stringify([]));
+	await fs.writeFile(outPath, JSON.stringify(findings));
 }
-process.exit(0);
+process.exit(Number.parseInt(process.env.MOCK_GITLEAKS_EXIT_CODE ?? "0", 10));
 `,
 	);
 	await writeMockTool(
@@ -196,7 +206,7 @@ describe("Security oracle CLI contract", () => {
 				profile: "agent-output",
 				findingCount: 0,
 				highOrCriticalCount: 0,
-				coverage: { completed: 3, skipped: 0, failed: 0, gaps: [] },
+				coverage: { completed: 2, skipped: 0, failed: 0, gaps: [] },
 			},
 			review: {
 				status: "completed",
@@ -253,7 +263,7 @@ describe("Security oracle CLI contract", () => {
 			],
 			{
 				MOCK_REPO_PATH: repoPath,
-				MOCK_SEMGREP_FINDING: "missing-user",
+				MOCK_GITLEAKS_FINDING: "generic-api-key",
 			},
 		);
 		const payload = JSON.parse(proc.stdout.toString());
@@ -268,20 +278,20 @@ describe("Security oracle CLI contract", () => {
 				findings: [
 					{
 						severity: "high",
-						tool: "semgrep",
-						ruleId: "dockerfile.security.missing-user.missing-user",
+						tool: "gitleaks",
+						ruleId: "generic-api-key",
 					location: {
 							path: "Dockerfile",
 							line: 18,
 						},
 						recommendation:
-							"Dockerfile に non-root の user/group 作成を追加し、最後に USER でそのユーザーへ切り替えてください。",
+							"Dockerfile:18 で Generic API Key に対応する制御を追加してください。",
 					},
 				],
 			},
 			nextAction: "apply_security_fix",
 		});
-		expect(payload.scan.findings[0].title).toContain("USER");
+		expect(payload.scan.findings[0].title).toContain("API Key");
 		expect(proc.stderr.toString()).toBe("");
 	}, 30_000);
 
@@ -295,8 +305,8 @@ describe("Security oracle CLI contract", () => {
 			],
 			{
 				MOCK_REPO_PATH: repoPath,
-				MOCK_SEMGREP_PATH: outsidePath,
-				MOCK_SEMGREP_FINDING: "missing-user",
+				MOCK_GITLEAKS_PATH: outsidePath,
+				MOCK_GITLEAKS_FINDING: "generic-api-key",
 			},
 		);
 		const stdout = proc.stdout.toString();
@@ -321,8 +331,8 @@ describe("Security oracle CLI contract", () => {
 			],
 			{
 				MOCK_REPO_PATH: repoPath,
-				MOCK_SEMGREP_EXIT_CODE: "1",
-				MOCK_SEMGREP_FINDING: "missing-user",
+				MOCK_GITLEAKS_EXIT_CODE: "1",
+				MOCK_GITLEAKS_FINDING: "generic-api-key",
 			},
 		);
 		const payload = JSON.parse(proc.stdout.toString());
@@ -336,9 +346,9 @@ describe("Security oracle CLI contract", () => {
 				highOrCriticalCount: 1,
 				findings: [
 					{
-						ruleId: "dockerfile.security.missing-user.missing-user",
+						ruleId: "generic-api-key",
 						recommendation:
-							"Dockerfile に non-root の user/group 作成を追加し、最後に USER でそのユーザーへ切り替えてください。",
+							"Dockerfile:18 で Generic API Key に対応する制御を追加してください。",
 					},
 				],
 			},

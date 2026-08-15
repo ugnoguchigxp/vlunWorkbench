@@ -5,7 +5,11 @@ import { eq } from "drizzle-orm";
 import type { AppDatabase } from "../../db";
 import { findings, projects } from "../../db/schema";
 import { runToolProcess } from "../scans/tools/tool-process-runner";
-import { getReproductionProfileById } from "./profiles";
+import {
+	getReproductionProfileById,
+	REPRODUCTION_PROFILES,
+	type ReproductionProfile,
+} from "./profiles";
 import { ReproductionArtifactStorage } from "./reproduction-artifact-storage";
 import { ReproductionRepository } from "./reproduction-repository";
 
@@ -72,7 +76,10 @@ export class ReproductionRunner {
 	private readonly repo: ReproductionRepository;
 	private readonly storage: ReproductionArtifactStorage;
 
-	constructor(private readonly db: AppDatabase) {
+	constructor(
+		private readonly db: AppDatabase,
+		private readonly profiles: readonly ReproductionProfile[] = REPRODUCTION_PROFILES,
+	) {
 		this.repo = new ReproductionRepository(db);
 		this.storage = new ReproductionArtifactStorage();
 	}
@@ -92,7 +99,10 @@ export class ReproductionRunner {
 			throw new Error(`Project not found: ${finding.projectId}`);
 		}
 
-		const profile = getReproductionProfileById(options.profileId);
+		const profile = getReproductionProfileById(
+			options.profileId,
+			this.profiles,
+		);
 		if (!profile) {
 			throw new Error(`Profile not found: ${options.profileId}`);
 		}
@@ -156,7 +166,10 @@ export class ReproductionRunner {
 			throw new Error(`Project not found: ${finding.projectId}`);
 		}
 
-		const profile = getReproductionProfileById(options.profileId);
+		const profile = getReproductionProfileById(
+			options.profileId,
+			this.profiles,
+		);
 		if (!profile) {
 			throw new Error(`Profile not found: ${options.profileId}`);
 		}
@@ -215,6 +228,7 @@ export class ReproductionRunner {
 
 		try {
 			// 3. Execute
+			await profile.prepareExecution?.();
 			const timeoutSec = options.timeoutSec ?? profile.defaultTimeoutSec;
 			const runResult = await runToolProcess(cmd.binaryName, cmd.args, {
 				timeoutSec,

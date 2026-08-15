@@ -1,7 +1,11 @@
 import { parseArgs } from "node:util";
-import { normalizeSemgrep } from "../modules/scans/normalizers/semgrep";
-import { SemgrepRunner } from "../modules/scans/tools/semgrep-runner";
+import { StaticScannerAdapterRegistry } from "../modules/scans/static-scanner-adapter-registry";
+import { semgrepScannerAdapter } from "../plugins/scanners/semgrep";
 import { executeScannerCli } from "./scan-cli-lifecycle";
+
+const registeredSemgrepAdapter = new StaticScannerAdapterRegistry()
+	.register(semgrepScannerAdapter)
+	.require("semgrep");
 
 try {
 	const { values } = parseArgs({
@@ -26,15 +30,27 @@ try {
 		: undefined;
 	await executeScannerCli(
 		{
-			adapter: "semgrep",
-			displayName: "Semgrep",
-			command: `semgrep scan --config ${values.config}`,
+			adapter: registeredSemgrepAdapter.manifest.id,
+			displayName: registeredSemgrepAdapter.manifest.displayName,
+			command: registeredSemgrepAdapter.defaultCommand({
+				config: values.config,
+			}),
 			unavailableMessage: "Semgrep executable not found",
 			createRunner: (storage, execution) =>
-				new SemgrepRunner(storage, execution),
+				registeredSemgrepAdapter.createRunner({
+					artifactStorage: storage,
+					execution,
+				}),
 			run: (runner, scanRunId, repoPath, options) =>
-				runner.run(scanRunId, repoPath, options),
-			normalize: (rawJson, stderr) => normalizeSemgrep(rawJson, { stderr }),
+				runner.run({
+					scanRunId,
+					repoPath,
+					options,
+					timeoutSec: options.timeoutSec,
+					onLifecycleEvent: () => {},
+				}),
+			normalize: (rawJson, stderr) =>
+				registeredSemgrepAdapter.normalize(rawJson, { stderr }),
 			runMetadata: (options) => ({
 				config: options.config,
 				timeoutSec: options.timeoutSec ?? null,

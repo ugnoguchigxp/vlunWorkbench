@@ -108,14 +108,14 @@ describe("Profile Runner Orchestration", () => {
 		expect(result.ok).toBe(true);
 		expect(result.status).toBe("completed");
 		expect(result.profileOutcome).toBe("completed");
-		expect(result.toolResults).toHaveLength(3); // semgrep, gitleaks, osv
+		expect(result.toolResults).toHaveLength(2); // gitleaks, osv
 		expect(result.toolResults[0].status).toBe("completed");
 		expect(result.toolResults[0].findingCount).toBe(3);
 
-		expect(spy).toHaveBeenCalledTimes(3);
+		expect(spy).toHaveBeenCalledTimes(2);
 		expect(spy).toHaveBeenCalledWith(
 			expect.objectContaining({
-				toolId: "semgrep",
+				toolId: "gitleaks",
 				options: expect.objectContaining({
 					scope: expect.objectContaining({
 						intent: "source",
@@ -181,7 +181,7 @@ describe("Profile Runner Orchestration", () => {
 
 		expect(result.ok).toBe(true);
 		expect(result.profileOutcome).toBe("completed");
-		expect(result.toolResults).toHaveLength(4);
+		expect(result.toolResults).toHaveLength(3);
 		expect(
 			result.toolResults.find((tool) => tool.toolId === "osv"),
 		).toMatchObject({
@@ -189,15 +189,7 @@ describe("Profile Runner Orchestration", () => {
 			applicability: "not_applicable",
 			reasonCode: "no_dependency_manifest_changed",
 		});
-		expect(spy).toHaveBeenCalledTimes(3);
-		const semgrepCall = spy.mock.calls.find(
-			([params]) => params.toolId === "semgrep",
-		)?.[0];
-		expect(semgrepCall?.repoPath).not.toBe(repoPath);
-		expect(semgrepCall?.diffContext).toMatchObject({
-			inputKind: "full_snapshot",
-			targetPaths: ["src/app.ts"],
-		});
+		expect(spy).toHaveBeenCalledTimes(2);
 		const gitleaksCall = spy.mock.calls.find(
 			([params]) => params.toolId === "gitleaks",
 		)?.[0];
@@ -388,8 +380,8 @@ describe("Profile Runner Orchestration", () => {
 			defaultTimeoutSec: 100,
 			tools: [
 				{
-					toolId: "semgrep",
-					displayName: "Semgrep",
+					toolId: "gitleaks",
+					displayName: "Gitleaks",
 					required: true,
 					failurePolicy: "fail_profile" as const,
 				},
@@ -397,8 +389,8 @@ describe("Profile Runner Orchestration", () => {
 			steps: [
 				{
 					kind: "static_tool" as const,
-					toolId: "semgrep",
-					displayName: "Semgrep",
+					toolId: "gitleaks",
+					displayName: "Gitleaks",
 					required: true,
 					failurePolicy: "fail_profile" as const,
 				},
@@ -421,7 +413,7 @@ describe("Profile Runner Orchestration", () => {
 		const staticSpy = vi
 			.spyOn(profileRunnerModule, "runToolIntoExistingScan")
 			.mockImplementation(async () => ({
-				toolRunId: "tool-run-semgrep",
+				toolRunId: "tool-run-gitleaks",
 				findingCount: 1,
 				exitCode: 0,
 				elapsedMs: 50,
@@ -478,7 +470,7 @@ describe("Profile Runner Orchestration", () => {
 		expect(result.toolResults).toHaveLength(1);
 		expect(result.stepResults).toHaveLength(2);
 		expect(result.stepResults[0]).toEqual(
-			expect.objectContaining({ kind: "static_tool", toolId: "semgrep" }),
+			expect.objectContaining({ kind: "static_tool", toolId: "gitleaks" }),
 		);
 		expect(result.stepResults[1]).toEqual(
 			expect.objectContaining({
@@ -496,7 +488,7 @@ describe("Profile Runner Orchestration", () => {
 			.where(eq(scanRuns.id, result.scanRunId));
 		expect(scanRun.metadata).toEqual(
 			expect.objectContaining({
-				stepOrder: ["semgrep", "dast:http-baseline"],
+				stepOrder: ["gitleaks", "dast:http-baseline"],
 				stepResults: expect.arrayContaining([
 					expect.objectContaining({ kind: "dast", dastRunId: "dast-run-1" }),
 				]),
@@ -572,7 +564,7 @@ describe("Profile Runner Orchestration", () => {
 	it("should stop execution on required tool failure when continueOnToolFailure is false", async () => {
 		const runToolSpy = vi.spyOn(profileRunnerModule, "runToolIntoExistingScan").mockImplementation(
 			async (params) => {
-				if (params.toolId === "semgrep") {
+			if (params.toolId === "gitleaks") {
 					throw new Error("Required tool failed mock error");
 				}
 				return {
@@ -598,7 +590,7 @@ describe("Profile Runner Orchestration", () => {
 		expect(result.status).toBe("failed");
 		expect(result.profileOutcome).toBe("failed");
 		expect(result.toolResults[0].status).toBe("failed");
-		expect(result.toolResults[1].status).toBe("skipped"); // gitleaks skipped
+		expect(result.toolResults[1].status).toBe("skipped"); // osv skipped
 	});
 
 	it("should run runToolIntoExistingScan directly with mocked Bun.spawn for Gitleaks", async () => {

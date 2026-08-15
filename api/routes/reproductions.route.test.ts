@@ -2,6 +2,7 @@ import path from "node:path";
 import { Hono } from "hono";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { HttpError } from "../modules/auth/errors";
+import { createReproductionProfiles } from "../modules/reproductions/profiles";
 import { createReproductionsRoute } from "./reproductions.route";
 
 function streamText(text: string) {
@@ -93,6 +94,9 @@ describe("Reproductions Route", () => {
 			db: mockDb as any,
 			findingRepository: mockFindingRepo as any,
 			projectRepository: mockProjectRepo as any,
+			reproductionProfiles: createReproductionProfiles({
+				includeOptionalSemgrep: true,
+			}),
 		}),
 	);
 

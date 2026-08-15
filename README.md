@@ -27,8 +27,8 @@ local project
 If the LLM route is unavailable or its structured output is rejected, the deterministic report still completes with explicit limitation codes. Authorization, active-scan permission, credentials, network policy, and resource limits remain server-enforced safety controls; they are not delegated to the LLM.
 
 This is not a complete replacement for a professional penetration test. The
-versioned Phase 50 baseline contains 45 offline Semgrep rules across five
-languages, prepared OSV databases for eight ecosystems, explicit disposable
+versioned Phase 50 assets contain 45 offline rules for the optional Semgrep
+adapter across five languages, prepared OSV databases for eight ecosystems, explicit disposable
 target ZAP active profiles, deterministic application/threat models, and
 bounded business-logic scenarios. The current measured capability claim is
 still `not_met`: the pinned OWASP Benchmark run measured recall `0.7088`,
@@ -44,7 +44,7 @@ vulnWorkbench also acts as a Static Intelligence source for adjacent coding-agen
 ## What It Does
 
 - Registers local repositories as projects.
-- Runs Semgrep, Gitleaks, OSV, Trivy, scan profiles, DAST, reproduction, and dynamic verification through bounded CLI paths.
+- Runs core Gitleaks, OSV, and Trivy adapters plus explicitly enabled optional scanners, scan profiles, DAST, reproduction, and dynamic verification through bounded CLI paths.
 - Stores raw artifacts, normalized findings, evidence, scan events, reviews, reports, and diagnostics in local SQLite.
 - Builds scan review bundles from saved data only.
 - Uses configured LLM task routes for finding review, scan review, and report summaries.
@@ -305,11 +305,13 @@ bun run scan:sbom -- --project-id <project-id>
 bun run scan:trivy-image -- --project-id <project-id> --image-ref local/app:tag
 ```
 
-Semgrep uses the repository-owned, tree-hashed `curated-sast-v1` catalog by
-default: 45 rules, five languages, and at least six security families per
+When explicitly enabled, the optional Semgrep adapter uses the repository-owned,
+tree-hashed `curated-sast-v1` catalog by default: 45 rules, five languages, and at least six security families per
 language. Its release fixtures contain 90 positive and 90 negative annotations.
 Pass `--config auto` only for an exploratory registry run; that run is recorded
 as non-reproducible and the automatic report remains ready with limitations.
+The LGPL engine is not included in the core toolbox or standard profiles; see
+[`docs/scanner-adapters.md`](docs/scanner-adapters.md).
 
 ### Measured security capability
 

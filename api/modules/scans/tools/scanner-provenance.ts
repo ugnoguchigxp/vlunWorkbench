@@ -57,6 +57,13 @@ export type ScannerDataManifest = {
 
 export class ScannerProvenanceError extends Error {
 	readonly code = "SCANNER_PROVENANCE_INVALID";
+
+	constructor(
+		message: string,
+		readonly reason: "invalid" | "entry_missing" = "invalid",
+	) {
+		super(message);
+	}
 }
 
 export async function loadScannerDataManifest(
@@ -181,6 +188,7 @@ export async function resolveScannerProvenance(params: {
 	if (!entry) {
 		throw new ScannerProvenanceError(
 			`Scanner data manifest has no entry for ${params.toolId}`,
+			"entry_missing",
 		);
 	}
 	if (params.execution.runner === "docker" && entry.state !== "ready") {

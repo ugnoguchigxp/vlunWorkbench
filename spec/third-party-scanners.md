@@ -1,10 +1,10 @@
 # Third-party scanner distribution record
 
-Phase 41 keeps scanner execution outside the target repository. The repository owns the command policy, output redaction, and artifact metadata; scanner binaries/images and their update operations are managed separately.
+Scanner execution stays outside the target repository. The repository owns the command policy, output redaction, artifact metadata, and adapter contracts; scanner binaries/images and their update operations are managed separately. Core distribution is limited to MIT/Apache-2.0 engines. Other licenses require an explicitly enabled optional adapter and a separately built image.
 
 | Component | Intended use | License | Pin and data status |
 | --- | --- | --- | --- |
-| Semgrep `1.171.0` | minimal owned-rule static analysis with JSON output | LGPL-2.1-or-later (engine; packaged dependencies require inventory) | Python package version pinned; three owned rules are tree-hashed in the scanner-data manifest |
+| Semgrep `1.171.0` | optional owned-rule static analysis with JSON output | LGPL-2.1-or-later (engine; packaged dependencies require inventory) | Not in the core toolbox or standard profiles; separately built adapter image, explicitly enabled with `VULN_WORKBENCH_OPTIONAL_SCANNER_ADAPTERS=semgrep` |
 | Gitleaks `8.30.1` | secret detection | MIT (upstream) | source commit and source archive SHA-256 pinned; built with the pinned Go toolchain |
 | OSV-Scanner `2.4.0` | lockfile / manifest dependency analysis | Apache-2.0 (upstream) | source commit and archive SHA-256 pinned; toolbox build embeds a hashed npm offline database with a 168-hour freshness limit |
 | Nuclei engine `v3.11.0` / owned safe template set | safe, allowlisted loopback web templates | MIT (upstream) | pinned in toolbox; template root is `docker/toolbox/nuclei-safe-templates` |
@@ -24,16 +24,16 @@ result is supplied to `docker/toolbox/Dockerfile` as the named `scanner-data`
 build context by `scripts/build-toolbox-image.ts`. A direct Docker build without
 that named context is intentionally not the release build path.
 
-`bun run verify:toolbox-offline` starts the built image with
+`bun run verify:toolbox-offline` starts the core image with
 `--network none`, 4 GiB memory, 2 CPUs, and a 512 PID limit and requires valid
-JSON from Semgrep, OSV-Scanner, and Trivy. The output records the image digest
+JSON from OSV-Scanner and Trivy. The output records the image digest
 and the embedded manifest hash. OSV coverage is currently npm-only; other
 ecosystems remain an explicit coverage limitation.
 
-The default Semgrep configuration is `owned`, not registry `auto`. It currently
-contains only three first-party rules: JavaScript/TypeScript child-process shell
-use, JavaScript/TypeScript weak random use, and Python `shell=True`. This is a
-reproducible smoke-level SAST layer, not broad professional SAST coverage.
+When the optional adapter is enabled, the default Semgrep configuration is `owned`, not registry `auto`. The
+`curated-sast-v1` catalog currently contains 45 repository-owned rules across
+five languages. This is a reproducible curated SAST layer; its measured
+capability remains limited to the checked-in rule catalog and fixtures.
 `--config auto` remains an explicit developer exploration option and is recorded
 as `reproducible=false`; a custom unpinned configuration is treated the same way.
 No third-party community rules are redistributed by this repository.

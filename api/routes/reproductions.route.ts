@@ -8,6 +8,8 @@ import { HttpError } from "../modules/auth/errors";
 import {
 	getReproductionProfileById,
 	listReproductionProfiles,
+	REPRODUCTION_PROFILES,
+	type ReproductionProfile,
 } from "../modules/reproductions/profiles";
 import { ReproductionArtifactStorage } from "../modules/reproductions/reproduction-artifact-storage";
 import { ReproductionRepository } from "../modules/reproductions/reproduction-repository";
@@ -24,10 +26,13 @@ type ReproductionsRouteDeps = {
 	db: AppDatabase;
 	findingRepository: FindingRepository;
 	projectRepository: ProjectRepository;
+	reproductionProfiles?: readonly ReproductionProfile[];
 };
 
 export function createReproductionsRoute(deps: ReproductionsRouteDeps) {
 	const { db, findingRepository, projectRepository } = deps;
+	const reproductionProfiles =
+		deps.reproductionProfiles ?? REPRODUCTION_PROFILES;
 	const repo = new ReproductionRepository(db);
 	const route = new Hono();
 	const assertExecutionPath = async (repoPath: string) => {
@@ -55,7 +60,7 @@ export function createReproductionsRoute(deps: ReproductionsRouteDeps) {
 		if (!project || project.ownerUserId !== authUser.userId) {
 			throw new HttpError(403, "Forbidden");
 		}
-		const allProfiles = listReproductionProfiles();
+		const allProfiles = listReproductionProfiles(reproductionProfiles);
 		const resolvedProfiles = allProfiles.map((p) => {
 			const appCheck = p.isApplicable({ finding });
 			return {
@@ -152,7 +157,10 @@ export function createReproductionsRoute(deps: ReproductionsRouteDeps) {
 			} = parseResult.data;
 
 			// Validate profile exists and is applicable before launching CLI
-			const profile = getReproductionProfileById(profileId);
+			const profile = getReproductionProfileById(
+				profileId,
+				reproductionProfiles,
+			);
 			if (!profile) {
 				throw new HttpError(400, `Profile not found: ${profileId}`);
 			}

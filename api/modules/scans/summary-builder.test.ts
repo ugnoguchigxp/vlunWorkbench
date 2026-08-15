@@ -188,12 +188,20 @@ describe("Summary Builder", () => {
 				updatedAt: now,
 			})
 			.returning();
+		await connection.db.insert(toolRuns).values({
+			scanRunId: scanRun.id,
+			toolName: "gitleaks",
+			status: "completed",
+			exitCode: 0,
+			createdAt: now,
+			updatedAt: now,
+		});
 
 		await connection.db.insert(findings).values([
 			{
 				scanRunId: scanRun.id,
 				projectId,
-				sourceTool: "semgrep",
+				sourceTool: "gitleaks",
 				ruleId: "rules-1",
 				title: "Vuln 1",
 				description: "Desc 1",
@@ -207,7 +215,7 @@ describe("Summary Builder", () => {
 			{
 				scanRunId: scanRun.id,
 				projectId,
-				sourceTool: "semgrep",
+				sourceTool: "gitleaks",
 				ruleId: "rules-2",
 				title: "Vuln 2",
 				description: "Desc 2",
@@ -221,9 +229,9 @@ describe("Summary Builder", () => {
 		]);
 
 		const summary = await buildScanRunSummary(connection.db, scanRun.id);
-		const semgrepSummary = summary.tools.find((t) => t.toolId === "semgrep");
-		expect(semgrepSummary?.severityCounts.info).toBe(1);
-		expect(semgrepSummary?.severityCounts.unknown).toBe(1);
+		const gitleaksSummary = summary.tools.find((t) => t.toolId === "gitleaks");
+		expect(gitleaksSummary?.severityCounts.info).toBe(1);
+		expect(gitleaksSummary?.severityCounts.unknown).toBe(1);
 	});
 
 	it("should handle ad-hoc tool runs not defined in the profile", async () => {

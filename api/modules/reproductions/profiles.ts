@@ -1,12 +1,12 @@
-import path from "node:path";
 import type { findings } from "../../db/schema";
+import { semgrepReproductionProfile } from "../../plugins/scanners/semgrep-reproduction-profile";
 import { normalizeGitleaks } from "../scans/normalizers/gitleaks";
 import { normalizeOsv } from "../scans/normalizers/osv";
-import { normalizeSemgrep } from "../scans/normalizers/semgrep";
 import { normalizeTrivy } from "../scans/normalizers/trivy";
+import { isOptionalScannerAdapterEnabled } from "../scans/optional-scanner-adapter-config";
 
 export interface ReproductionCommand {
-	binaryName: "semgrep" | "gitleaks" | "osv-scanner" | "trivy";
+	binaryName: string;
 	args: string[];
 	rawOutputFileName: string;
 	outputFormat: "json";
@@ -29,6 +29,7 @@ export interface ReproductionProfile {
 	sourceTools: string[];
 	defaultTimeoutSec: number;
 	defaultNetworkMode: "none" | "default";
+	prepareExecution?(): Promise<void> | void;
 	buildCommand(input: {
 		repoPath: string;
 		outputPath: string;
@@ -46,99 +47,7 @@ export interface ReproductionProfile {
 	}): ReproductionOutcomeResult;
 }
 
-export const REPRODUCTION_PROFILES: ReproductionProfile[] = [
-	{
-		id: "semgrep-path-recheck",
-		displayName: "Semgrep Path Recheck",
-		description:
-			"Re-scan the specific finding file path using Semgrep in the Docker sandbox.",
-		sourceTools: ["semgrep"],
-		defaultTimeoutSec: 120,
-		defaultNetworkMode: "none",
-		isApplicable({ finding }) {
-			if (finding.sourceTool !== "semgrep") {
-				return { applicable: false, reason: "Not a Semgrep finding." };
-			}
-			const loc = finding.primaryLocation as Record<string, unknown> | null;
-			const filepath = loc?.path as string | undefined;
-			if (!filepath || typeof filepath !== "string" || filepath.trim() === "") {
-				return {
-					applicable: false,
-					reason: "Finding is missing a primary location path.",
-				};
-			}
-			const normalized = path.normalize(filepath);
-			if (path.isAbsolute(normalized) || normalized.startsWith("..")) {
-				return {
-					applicable: false,
-					reason: "Primary location path is not a safe relative path.",
-				};
-			}
-			return { applicable: true };
-		},
-		buildCommand({ repoPath, outputPath, finding }) {
-			const loc = finding.primaryLocation as Record<string, unknown> | null;
-			const filepath = loc?.path as string;
-			const normalized = path.normalize(filepath);
-			return {
-				binaryName: "semgrep",
-				args: [
-					"scan",
-					"--config",
-					"auto",
-					"--json",
-					"--output",
-					outputPath,
-					"--include",
-					normalized,
-					repoPath,
-				],
-				rawOutputFileName: "semgrep-output.json",
-				outputFormat: "json",
-			};
-		},
-		evaluate({ finding, stderr, rawOutput }) {
-			try {
-				const normalized = normalizeSemgrep(rawOutput, { stderr });
-				const origRuleId = finding.ruleId;
-				const loc = finding.primaryLocation as Record<string, unknown> | null;
-				const origPath = loc?.path as string | undefined;
-				const origStartLine = loc?.startLine as number | undefined;
-
-				let matched = false;
-				let matchStrength: "exact" | "path_rule" | "none" = "none";
-
-				for (const f of normalized) {
-					if (f.ruleId === origRuleId && f.primaryLocation.path === origPath) {
-						matched = true;
-						if (f.primaryLocation.startLine === origStartLine) {
-							matchStrength = "exact";
-							break;
-						}
-						matchStrength = "path_rule";
-					}
-				}
-
-				if (matched) {
-					return {
-						outcome: "reproduced",
-						metadata: { matchStrength },
-					};
-				}
-				return {
-					outcome: "not_reproduced",
-					metadata: { matchStrength: "none" },
-				};
-			} catch (err) {
-				return {
-					outcome: "inconclusive",
-					metadata: {
-						error: `Normalization failed: ${(err as Error).message}`,
-					},
-				};
-			}
-		},
-	},
+const CORE_REPRODUCTION_PROFILES: ReproductionProfile[] = [
 	{
 		id: "gitleaks-recheck",
 		displayName: "Gitleaks Recheck",
@@ -382,12 +291,29 @@ export const REPRODUCTION_PROFILES: ReproductionProfile[] = [
 	},
 ];
 
-export function getReproductionProfileById(
-	id: string,
-): ReproductionProfile | undefined {
-	return REPRODUCTION_PROFILES.find((p) => p.id === id);
+export function createReproductionProfiles(params?: {
+	includeOptionalSemgrep?: boolean;
+}): ReproductionProfile[] {
+	const includeOptionalSemgrep =
+		params?.includeOptionalSemgrep ??
+		isOptionalScannerAdapterEnabled("semgrep");
+	return [
+		...(includeOptionalSemgrep ? [semgrepReproductionProfile] : []),
+		...CORE_REPRODUCTION_PROFILES,
+	];
 }
 
-export function listReproductionProfiles(): ReproductionProfile[] {
-	return REPRODUCTION_PROFILES;
+export const REPRODUCTION_PROFILES = createReproductionProfiles();
+
+export function getReproductionProfileById(
+	id: string,
+	profiles: readonly ReproductionProfile[] = REPRODUCTION_PROFILES,
+): ReproductionProfile | undefined {
+	return profiles.find((profile) => profile.id === id);
+}
+
+export function listReproductionProfiles(
+	profiles: readonly ReproductionProfile[] = REPRODUCTION_PROFILES,
+): ReproductionProfile[] {
+	return [...profiles];
 }

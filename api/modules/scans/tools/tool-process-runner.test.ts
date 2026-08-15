@@ -1,7 +1,8 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { createStaticScannerAdapterRegistry } from "../static-scanner-adapters";
 import {
 	checkToolVersion,
 	normalizeToolExecutionConfig,
@@ -16,6 +17,10 @@ function streamText(text: string) {
 		},
 	});
 }
+
+beforeAll(() => {
+	createStaticScannerAdapterRegistry({ optionalAdapterIds: ["semgrep"] });
+});
 
 describe("Tool process runner Docker backend", () => {
 	afterEach(() => {

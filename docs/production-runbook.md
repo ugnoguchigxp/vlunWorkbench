@@ -27,7 +27,7 @@
    ```
 
    Keep `.artifacts/offline-toolbox-matrix.json` with the release evidence.
-   The gate must show Semgrep, OSV-Scanner, and Trivy JSON output, the image
+   The core gate must show OSV-Scanner and Trivy JSON output, the image
    digest, scanner-data manifest hash, `networkMode=none`, and the enforced
    memory/CPU/PID limits.
    Then run the pinned external capability gates:
@@ -111,7 +111,7 @@ bun run verify:security-capability
 The preparation job downloads the official OSV archives for npm, PyPI, Go,
 Maven, crates.io, NuGet, Packagist, and RubyGems plus the Trivy vulnerability
 database. It validates bounded archive paths and sampled ecosystem records,
-copies the owned Semgrep rules, hashes each bundle, and atomically emits
+copies the owned optional-adapter Semgrep rules, hashes each bundle, and atomically emits
 `scanner-data-manifest.json` with source references, record counts, generation
 times, freshness limits, and coverage. Review all manifest and capability-result
 diffs before replacing a release image. A missing, stale, or digest-mismatched

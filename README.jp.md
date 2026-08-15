@@ -27,7 +27,7 @@ local project
 LLM route が利用不能、または構造化出力が拒否された場合も、deterministic report は明示的な limitation code 付きで完了します。認可、active scan の許可、credential、network policy、resource limit は引き続き server 側の安全契約であり、LLM へ委譲しません。
 
 これはプロによるペネトレーションテストの完全代替ではありません。Phase 50の
-versioned baselineには、5言語45本のoffline Semgrep rule、8 ecosystemの
+versioned assetには、任意Semgrep adapter向けの5言語45本のoffline rule、8 ecosystemの
 prepared OSV database、明示選択式のdisposable target向けZAP active profile、
 deterministic application/threat model、bounded business-logic scenarioが
 含まれます。一方、現在のmeasured capability claimは`not_met`です。固定済み
@@ -43,7 +43,7 @@ vulnWorkbench は、隣接する coding-agent system 向けの Static Intelligen
 ## できること
 
 - ローカルリポジトリを project として登録します。
-- Semgrep、Gitleaks、OSV、Trivy、scan profile、DAST、reproduction、dynamic verification を bounded CLI path で実行します。
+- core の Gitleaks、OSV、Trivy adapter と、明示的に有効化した任意 scanner、scan profile、DAST、reproduction、dynamic verification を bounded CLI path で実行します。
 - raw artifact、正規化済み finding、evidence、scan event、review、report、diagnostic をローカル SQLite に保存します。
 - 保存済みデータだけから scan review bundle を作ります。
 - finding review、scan review、report summary を LLM task route に基づいて実行します。
@@ -297,11 +297,13 @@ bun run scan:sbom -- --project-id <project-id>
 bun run scan:trivy-image -- --project-id <project-id> --image-ref local/app:tag
 ```
 
-Semgrep は既定で、リポジトリ所有・tree hash 済みの`curated-sast-v1`を
+任意Semgrep adapterを明示的に有効化した場合は、リポジトリ所有・tree hash 済みの`curated-sast-v1`を
 使用します。内訳は5言語45 rule、各言語6 security family以上で、release
 fixtureはpositive 90件、negative 90件です。registryを使う探索実行は
 `--config auto`を明示し、その実行は再現不能として記録され、自動レポートも
 制限付きreadyになります。
+LGPL engineはcore toolboxにも標準profileにも含めません。導入方法とadapter
+契約は[`docs/scanner-adapters.md`](docs/scanner-adapters.md)を参照してください。
 
 ### 実測security capability
 

@@ -31,18 +31,19 @@ try {
 		`${outputRoot}:/workspace/out:rw`,
 		image,
 	];
-	run(
+	execFileSync(
+		"docker",
 		[
-			...common,
-			"semgrep",
-			"scan",
-			"--config",
-			"/opt/vuln-workbench/scanner-data/semgrep-rules",
-			"--json",
-			"--quiet",
-			"api/modules/dast/auth-material.ts",
+			"run",
+			"--rm",
+			"--network",
+			"none",
+			image,
+			"sh",
+			"-c",
+			"! command -v semgrep >/dev/null 2>&1",
 		],
-		path.join(outputRoot, "semgrep.json"),
+		{ stdio: "inherit" },
 	);
 	run([
 		...common,
@@ -93,7 +94,7 @@ try {
 	);
 	const outputs = Object.fromEntries(
 		await Promise.all(
-			["semgrep", "osv", "trivy"].map(async (toolId) => {
+			["osv", "trivy"].map(async (toolId) => {
 				const bytes = await readFile(path.join(outputRoot, `${toolId}.json`));
 				JSON.parse(bytes.toString("utf8"));
 				return [toolId, { ok: true, outputBytes: bytes.byteLength }];
@@ -112,6 +113,7 @@ try {
 		manifestHash: manifest.manifestHash,
 		networkMode: "none",
 		resourceLimits: { memory: "4g", cpus: "2", pids: 512 },
+		excludedCoreTools: { semgrep: true },
 		outputs,
 	};
 	const artifactPath = path.resolve(".artifacts/offline-toolbox-matrix.json");

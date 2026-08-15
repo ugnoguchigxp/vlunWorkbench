@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDbConnection, type DbConnection } from "../../db";
 import { findings, projects, scanRuns, users } from "../../db/schema";
+import { createReproductionProfiles } from "./profiles";
 import { ReproductionRepository } from "./reproduction-repository";
 import { ReproductionRunner } from "./reproduction-runner";
 
@@ -40,7 +41,10 @@ describe("Reproduction Runner", () => {
 			connection.sqlite.exec(sqlText);
 		}
 
-		runner = new ReproductionRunner(connection.db);
+		runner = new ReproductionRunner(
+			connection.db,
+			createReproductionProfiles({ includeOptionalSemgrep: true }),
+		);
 		repo = new ReproductionRepository(connection.db);
 
 		// Seed a test user

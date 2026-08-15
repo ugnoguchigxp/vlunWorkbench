@@ -183,6 +183,10 @@ export function buildPluginExecutionSummary(params: {
 		step.pluginIds.map((pluginId) => {
 			const scannerStepId = scannerStepForCapabilityStep(step.stepId);
 			const execution = resultByStep.get(scannerStepId);
+			const scannerExecutionMissing =
+				step.applicability === "applicable" &&
+				!execution &&
+				isExecutionBackedCapabilityStep(step.stepId);
 			const status =
 				step.applicability === "not_applicable"
 					? "skipped"
@@ -196,7 +200,7 @@ export function buildPluginExecutionSummary(params: {
 					? execution.coverageEffect
 					: null;
 			const coverageEffect =
-				status === "failed"
+				status === "failed" || scannerExecutionMissing
 					? "gap"
 					: worstCapabilityCoverage([
 							step.coverageEffect,
@@ -205,6 +209,7 @@ export function buildPluginExecutionSummary(params: {
 			const limitationCodes = [
 				...new Set([
 					...step.limitationCodes,
+					...(scannerExecutionMissing ? ["capability_step_not_executed"] : []),
 					...(execution?.reasonCode ? [execution.reasonCode] : []),
 					...knownExecutionLimitations(execution?.error),
 				]),
@@ -358,6 +363,14 @@ function scannerStepForCapabilityStep(stepId: string): string {
 	if (stepId.startsWith("dependency:")) return "osv";
 	if (stepId === "dast_start") return "dast";
 	return stepId;
+}
+
+function isExecutionBackedCapabilityStep(stepId: string): boolean {
+	return (
+		stepId === "semgrep" ||
+		stepId.startsWith("dependency:") ||
+		stepId === "dast_start"
+	);
 }
 
 function executionStatus(

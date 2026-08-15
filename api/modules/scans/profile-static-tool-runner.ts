@@ -15,16 +15,11 @@ import {
 	FindingRepository,
 	ScanRepository,
 } from "./repositories";
-import type { GitleaksRunner } from "./tools/gitleaks-runner";
-import type { OsvRunner } from "./tools/osv-runner";
-import type { SemgrepRunner } from "./tools/semgrep-runner";
 import {
 	normalizeToolExecutionConfig,
 	type ToolExecutionConfig,
 	type ToolLifecycleEvent,
 } from "./tools/tool-process-runner";
-import type { TrivyRunner } from "./tools/trivy-runner";
-import type { SemgrepRuleContribution } from "../project-capabilities/plugin-contract";
 
 export async function runToolIntoExistingScan(params: {
 	db: AppDatabase;
@@ -50,20 +45,20 @@ export async function runToolIntoExistingScan(params: {
 	const findingRepo = new FindingRepository(params.db);
 
 	let options = { ...(params.options ?? {}) };
-	if (
-		params.toolId === "trivy" &&
-		options.mode === "image" &&
-		!options.imageRef &&
-		!options.imageTar
-	) {
-		throw new Error("image_input_not_provided");
-	}
 	const timeoutSec = params.timeoutSec;
 	const execution = normalizeToolExecutionConfig(params.execution);
+	const selectedTool = selectStaticTool({
+		toolId: params.toolId,
+		artifactStorage: params.artifactStorage,
+		execution,
+		options,
+	});
+	await selectedTool.adapter.validateOptions?.(options);
 	const preparedProvenance = await prepareToolProvenance({
 		toolId: params.toolId,
 		execution,
 		options,
+		adapter: selectedTool.adapter,
 	});
 	options = preparedProvenance.options;
 	const scannerProvenance = preparedProvenance.provenance;
@@ -79,20 +74,8 @@ export async function runToolIntoExistingScan(params: {
 			}
 		: {};
 	const scope = options.scope as ScanScopePolicy | undefined;
-	const scanners = Array.isArray(options.scanners)
-		? (options.scanners as string[])
-		: undefined;
-	const dependencyMode = options.dependencyMode as
-		| "manifest"
-		| "installed_tree"
-		| undefined;
-
-	const { runner, normalizer, toolName, defaultCommand } = selectStaticTool({
-		toolId: params.toolId,
-		artifactStorage: params.artifactStorage,
-		execution,
-		options,
-	});
+	const { runner, normalizer, toolName } = selectedTool;
+	const defaultCommand = selectedTool.adapter.defaultCommand(options);
 
 	// 2. Check Version
 	const toolVersion = await runner.checkVersion();
@@ -160,77 +143,15 @@ export async function runToolIntoExistingScan(params: {
 				...event,
 			});
 		};
-		if (params.toolId === "semgrep") {
-			runResult = await (runner as SemgrepRunner).run(
-				params.scanRunId,
-				params.repoPath,
-				{
-					config: (options.config as string) ?? "auto",
-					scope,
-					timeoutSec,
-					maxTargetBytes: options.maxTargetBytes
-						? Number(options.maxTargetBytes)
-						: undefined,
-					targetPaths: params.diffContext?.targetPaths,
-					normalizePathsRelativeTo: params.diffContext
-						? params.repoPath
-						: undefined,
-					onLifecycleEvent,
-					ruleContributions: Array.isArray(options.semgrepRuleContributions)
-						? (options.semgrepRuleContributions as SemgrepRuleContribution[])
-						: undefined,
-				},
-			);
-		} else if (params.toolId === "gitleaks") {
-			runResult = await (runner as GitleaksRunner).run(
-				params.scanRunId,
-				params.repoPath,
-				{
-					timeoutSec,
-					scope,
-					preScoped: params.diffContext?.inputKind === "changed_workspace",
-					normalizePathsRelativeTo: params.diffContext
-						? params.repoPath
-						: undefined,
-					onLifecycleEvent,
-				},
-			);
-		} else if (params.toolId === "osv") {
-			runResult = await (runner as OsvRunner).run(
-				params.scanRunId,
-				params.repoPath,
-				{
-					timeoutSec,
-					scope,
-					dependencyMode,
-					normalizePathsRelativeTo: params.diffContext
-						? params.repoPath
-						: undefined,
-					onLifecycleEvent,
-				},
-			);
-		} else {
-			runResult = await (runner as TrivyRunner).run(
-				params.scanRunId,
-				params.repoPath,
-				{
-					timeoutSec,
-					scope,
-					scanners,
-					mode: options.mode as
-						| "fs-vulnerability"
-						| "fs-sbom"
-						| "image"
-						| undefined,
-					imageRef: options.imageRef as string | undefined,
-					imageTar: options.imageTar as string | undefined,
-					normalizePathsRelativeTo: params.diffContext
-						? params.repoPath
-						: undefined,
-					onLifecycleEvent,
-				},
-			);
-		}
+		runResult = await runner.run({
+			scanRunId: params.scanRunId,
+			repoPath: params.repoPath,
+			options,
+			timeoutSec,
+			scope,
+			diffContext: params.diffContext,
+			onLifecycleEvent,
+		});
 
 		exitCode = runResult.exitCode;
 		executionMetadata = {

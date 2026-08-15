@@ -31,16 +31,6 @@ export function buildStaticScanProfiles(
 			scope: SOURCE_BASELINE_SCOPE,
 			tools: [
 				{
-					toolId: "semgrep",
-					displayName: "Semgrep Source Analysis",
-					required: true,
-					failurePolicy: "fail_profile",
-					options: {
-						config: "curated-sast-v1",
-						scanners: ["vuln", "secret", "config"],
-					},
-				},
-				{
 					toolId: "gitleaks",
 					displayName: "Gitleaks Secret Detection",
 					required: true,
@@ -59,22 +49,12 @@ export function buildStaticScanProfiles(
 			id: "baseline",
 			name: "標準スキャン",
 			description:
-				"Semgrep、Gitleaks、OSV-Scanner で、コード実装、シークレット、依存関係の基本観点を確認します。",
+				"Gitleaks、OSV-Scanner で、シークレットと依存関係の基本観点を確認します。追加の SAST engine は任意 adapter として導入できます。",
 			category: "basic",
 			enabled: true,
 			defaultTimeoutSec: 600,
 			scope: SOURCE_BASELINE_SCOPE,
 			tools: [
-				{
-					toolId: "semgrep",
-					displayName: "Semgrep Static Analysis",
-					required: true,
-					failurePolicy: "fail_profile",
-					options: {
-						config: "curated-sast-v1",
-						scanners: ["vuln", "secret", "config"],
-					},
-				},
 				{
 					toolId: "gitleaks",
 					displayName: "Gitleaks Secret Detection",
@@ -94,22 +74,12 @@ export function buildStaticScanProfiles(
 			id: "source-baseline",
 			name: "ソースコード重点スキャン",
 			description:
-				"生成物や installed dependency tree を外し、手元のソースコードを中心に Semgrep、Gitleaks、OSV で確認します。",
+				"生成物や installed dependency tree を外し、手元のソースと manifest を Gitleaks、OSV で確認します。",
 			category: "focused",
 			enabled: true,
 			defaultTimeoutSec: 600,
 			scope: SOURCE_BASELINE_SCOPE,
 			tools: [
-				{
-					toolId: "semgrep",
-					displayName: "Semgrep Source Analysis",
-					required: true,
-					failurePolicy: "fail_profile",
-					options: {
-						config: "curated-sast-v1",
-						scanners: ["vuln", "secret", "config"],
-					},
-				},
 				{
 					toolId: "gitleaks",
 					displayName: "Gitleaks Secret Detection",
@@ -129,20 +99,13 @@ export function buildStaticScanProfiles(
 			id: "diff-source-baseline",
 			name: "Git差分ソーススキャン",
 			description:
-				"commit、branch range、working treeで変更されたファイルをSemgrep、Gitleaks、OSV、Trivyで確認します。",
+				"commit、branch range、working treeで変更されたファイルをGitleaks、OSV、Trivyで確認します。",
 			category: "focused",
 			enabled: true,
 			defaultTimeoutSec: 600,
 			scope: SOURCE_BASELINE_SCOPE,
 			supportedTargets: ["commit", "range", "working_tree"],
 			tools: [
-				{
-					toolId: "semgrep",
-					displayName: "Semgrep Changed Source Analysis",
-					required: true,
-					failurePolicy: "fail_profile",
-					options: { config: "curated-sast-v1" },
-				},
 				{
 					toolId: "gitleaks",
 					displayName: "Gitleaks Changed File Detection",
@@ -169,23 +132,13 @@ export function buildStaticScanProfiles(
 			id: "diff-basic-security",
 			name: "Git差分基本セキュリティスキャン",
 			description:
-				"commit、branch range、working tree の変更範囲を Semgrep、Gitleaks、OSV、Trivy の必須検査で確認します。",
+				"commit、branch range、working tree の変更範囲を Gitleaks、OSV、Trivy の必須検査で確認します。",
 			category: "basic",
 			enabled: true,
 			defaultTimeoutSec: 900,
 			scope: SOURCE_BASELINE_SCOPE,
 			supportedTargets: ["commit", "range", "working_tree"],
 			tools: [
-				{
-					toolId: "semgrep",
-					displayName: "Semgrep Changed Source Analysis",
-					required: true,
-					failurePolicy: "fail_profile",
-					options: {
-						config: "curated-sast-v1",
-						scanners: ["vuln", "secret", "config"],
-					},
-				},
 				{
 					toolId: "gitleaks",
 					displayName: "Gitleaks Changed File Detection",
@@ -212,22 +165,12 @@ export function buildStaticScanProfiles(
 			id: "basic-security",
 			name: "基本セキュリティスキャン",
 			description:
-				"コード実装、シークレット、依存関係、設定ミスの基本観点を Semgrep、Gitleaks、OSV、Trivy で確認します。",
+				"シークレット、依存関係、設定ミスの基本観点を Gitleaks、OSV、Trivy で確認します。",
 			category: "basic",
 			enabled: true,
 			defaultTimeoutSec: 900,
 			scope: SOURCE_BASELINE_SCOPE,
 			tools: [
-				{
-					toolId: "semgrep",
-					displayName: "Semgrep Static Analysis",
-					required: true,
-					failurePolicy: "fail_profile",
-					options: {
-						config: "curated-sast-v1",
-						scanners: ["vuln", "secret", "config"],
-					},
-				},
 				{
 					toolId: "gitleaks",
 					displayName: "Gitleaks Secret Detection",
@@ -312,13 +255,6 @@ export function buildStaticScanProfiles(
 			scope: FULL_DEEP_SCOPE,
 			tools: [
 				{
-					toolId: "semgrep",
-					displayName: "Semgrep Deep Static Analysis",
-					required: true,
-					failurePolicy: "fail_profile",
-					options: { config: "curated-sast-v1", maxTargetBytes: 2000000 },
-				},
-				{
 					toolId: "gitleaks",
 					displayName: "Gitleaks Deep Secret Detection",
 					required: true,
@@ -344,19 +280,12 @@ export function buildStaticScanProfiles(
 			id: "detailed-security",
 			name: "詳細スキャン",
 			description:
-				"Semgrep、Gitleaks、OSV-Scanner、Trivy で、生成物や installed dependency tree まで含めて Static 全検査を実行します。",
+				"Gitleaks、OSV-Scanner、Trivy で、生成物や installed dependency tree まで含めて Static 検査を実行します。",
 			category: "detailed",
 			enabled: true,
 			defaultTimeoutSec: 1200,
 			scope: FULL_DEEP_SCOPE,
 			tools: [
-				{
-					toolId: "semgrep",
-					displayName: "Semgrep Deep Static Analysis",
-					required: true,
-					failurePolicy: "fail_profile",
-					options: { config: "curated-sast-v1", maxTargetBytes: 2000000 },
-				},
 				{
 					toolId: "gitleaks",
 					displayName: "Gitleaks Deep Secret Detection",

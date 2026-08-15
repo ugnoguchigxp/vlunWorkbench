@@ -41,7 +41,7 @@ describe("Scan Profiles Route", () => {
 		expect(sourceProfile.steps[0]).toEqual(
 			expect.objectContaining({
 				kind: "static_tool",
-				toolId: "semgrep",
+				toolId: "gitleaks",
 			}),
 		);
 
@@ -50,7 +50,6 @@ describe("Scan Profiles Route", () => {
 		);
 		expect(basicProfile.category).toBe("basic");
 		expect(basicProfile.tools.map((tool: any) => tool.toolId)).toEqual([
-			"semgrep",
 			"gitleaks",
 			"osv",
 			"trivy",
@@ -79,7 +78,6 @@ describe("Scan Profiles Route", () => {
 			(profile: any) => profile.id === "web-app-baseline",
 		);
 		expect(webAppProfile.steps.map((step: any) => step.kind)).toEqual([
-			"static_tool",
 			"static_tool",
 			"static_tool",
 			"dast",

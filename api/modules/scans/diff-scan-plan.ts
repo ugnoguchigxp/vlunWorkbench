@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import type { ProfileToolEntry } from "../../../shared/schemas/scan-profile.schema";
 import type {
 	DiffCoverage,
 	DiffManifest,
@@ -7,14 +8,13 @@ import type {
 	PluginDiffContext,
 	ResolvedScanTarget,
 } from "../../../shared/schemas/scan-target.schema";
-import type { ProfileToolEntry } from "../../../shared/schemas/scan-profile.schema";
+import { matchesAnyPluginGlob } from "../project-capabilities/path-patterns";
 import {
 	dependencyProvidersForPaths,
 	detectAffectedPluginsFromPaths,
 } from "../project-capabilities/plugin-detector";
-import { matchesAnyPluginGlob } from "../project-capabilities/path-patterns";
-import { DEPENDENCY_MANIFEST_SCOPE } from "./profiles";
 import { DIFF_SCAN_LIMITS, type ResolvedGitDiff } from "./git-diff-resolver";
+import { DEPENDENCY_MANIFEST_SCOPE } from "./profiles";
 import { matchesScopePath } from "./target-scope";
 
 export type DiffScanPlan = {
@@ -26,20 +26,6 @@ export type DiffScanPlan = {
 	dependencyChanged: boolean;
 	pluginContext: PluginDiffContext;
 };
-
-const SEMGREP_MAX_EXPLICIT_TARGETS = 512;
-const SEMGREP_MAX_ESTIMATED_ARG_BYTES = 96 * 1024;
-
-export function shouldUseChangedWorkspaceForSemgrep(
-	scanPaths: string[],
-): boolean {
-	if (scanPaths.length > SEMGREP_MAX_EXPLICIT_TARGETS) return true;
-	const estimatedBytes = scanPaths.reduce(
-		(total, scanPath) => total + Buffer.byteLength(scanPath, "utf8") + 256,
-		0,
-	);
-	return estimatedBytes > SEMGREP_MAX_ESTIMATED_ARG_BYTES;
-}
 
 export function buildDiffScanPlan(params: {
 	resolved: ResolvedGitDiff;

@@ -99,6 +99,7 @@
 		"repro:finding": "bun run api/cli/repro-finding.ts",
 		"dynamic:run": "bun run api/cli/dynamic-run.ts",
 		"docker:toolbox:build": "bun run scripts/build-toolbox-image.ts",
+		"docker:plugin:semgrep:build": "docker build -f docker/plugins/semgrep/Dockerfile -t vuln-workbench-toolbox-semgrep:local .",
 		"verify:toolbox-provenance": "bun run scripts/verify-toolbox-provenance.ts",
 		"verify:toolbox-offline": "bun run scripts/verify-offline-toolbox.ts",
 		"scanner-data:prepare": "bun run scripts/prepare-scanner-data.ts",

@@ -99,38 +99,10 @@ describe("Git diff scan E2E", () => {
 				return originalSpawn(args, options);
 			}
 			if (
-				(binary === "semgrep" && argv[1] === "--version") ||
 				(binary === "gitleaks" && argv[1] === "version") ||
 				(binary === "trivy" && argv[1] === "--version")
 			) {
 				return processResult(0, "test-version\n");
-			}
-
-			if (binary === "semgrep") {
-				const outputPath = argv[argv.indexOf("--output") + 1];
-				const targetPath = argv.find((value) =>
-					value.endsWith("/src/app.ts"),
-				);
-				const writeResult = fs.writeFile(
-					outputPath,
-					JSON.stringify({
-						results: [
-							{
-								check_id: "test.eval",
-								path: targetPath,
-								start: { line: 1, col: 1 },
-								end: { line: 1, col: 5 },
-								extra: {
-									message: "Dynamic evaluation",
-									lines: "eval(userInput)",
-									severity: "ERROR",
-									metadata: {},
-								},
-							},
-						],
-					}),
-				);
-				return processResult(1, `scanned ${targetPath}`, writeResult);
 			}
 
 			if (binary === "gitleaks") {
@@ -192,13 +164,12 @@ describe("Git diff scan E2E", () => {
 			.select()
 			.from(findings)
 			.where(eq(findings.scanRunId, result.scanRunId));
-		expect(persistedFindings).toHaveLength(2);
+		expect(persistedFindings).toHaveLength(1);
 		expect(
 			persistedFindings.map((finding) => finding.primaryLocation),
 		).toEqual(
 			expect.arrayContaining([
-				expect.objectContaining({ path: "src/app.ts" }),
-				expect.objectContaining({ path: "secrets.txt" }),
+					expect.objectContaining({ path: "secrets.txt" }),
 			]),
 		);
 		expect(

@@ -64,21 +64,15 @@ RUN mkdir -p /src/trivy \
 FROM python:3.12-slim-bookworm@sha256:d50fb7611f86d04a3b0471b46d7557818d88983fc3136726336b2a4c657aa30b
 
 ARG TARGETARCH
-ARG SEMGREP_VERSION=1.171.0
 ARG SCHEMATHESIS_VERSION=4.24.2
 
 LABEL org.opencontainers.image.title="vulnWorkbench toolbox"
-LABEL org.opencontainers.image.description="Toolbox image for Semgrep, Gitleaks, OSV-Scanner, Trivy, Nuclei, and Schemathesis"
+LABEL org.opencontainers.image.description="Core toolbox image for Gitleaks, OSV-Scanner, Trivy, Nuclei, and Schemathesis"
 LABEL vuln-workbench.toolbox.version="2"
 
 RUN apt-get update \
 	&& apt-get install -y --no-install-recommends ca-certificates curl git tar gzip unzip \
 	&& rm -rf /var/lib/apt/lists/*
-
-RUN python -m venv /opt/semgrep \
-	&& /opt/semgrep/bin/pip install --no-cache-dir "setuptools<81" "semgrep==${SEMGREP_VERSION}" \
-	&& ln -s /opt/semgrep/bin/semgrep /usr/local/bin/semgrep \
-	&& ln -s /opt/semgrep/bin/pysemgrep /usr/local/bin/pysemgrep
 
 COPY --from=patched-tools /out/gitleaks /out/osv-scanner /out/nuclei /usr/local/bin/
 COPY --from=trivy-binary /trivy /usr/local/bin/trivy
@@ -99,11 +93,9 @@ RUN mkdir -p /workspace/repo /workspace/out /workspace/cache \
 
 ENV HOME=/workspace/cache \
 	XDG_CACHE_HOME=/workspace/cache/.cache \
-	OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY=/opt/vuln-workbench/scanner-data/osv \
-	SEMGREP_ENABLE_VERSION_CHECK=0 \
-	SEMGREP_SEND_METRICS=off
+	OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY=/opt/vuln-workbench/scanner-data/osv
 
 USER 65532:65532
 WORKDIR /workspace/repo
 
-CMD ["semgrep", "--version"]
+CMD ["gitleaks", "version"]

@@ -1,11 +1,10 @@
 import { describe, expect, it } from "bun:test";
 import type { ProfileToolEntry } from "../../../shared/schemas/scan-profile.schema";
-import type { ResolvedGitDiff } from "./git-diff-resolver";
 import {
 	buildDiffScanPlan,
 	canonicalJson,
-	shouldUseChangedWorkspaceForSemgrep,
 } from "./diff-scan-plan";
+import type { ResolvedGitDiff } from "./git-diff-resolver";
 
 const tools: ProfileToolEntry[] = [
 	{
@@ -253,14 +252,6 @@ describe("diff scan plan", () => {
 		).toBe('{"a":{"b":false,"y":true},"z":1}');
 	});
 
-	it("falls back to a changed workspace before Semgrep argv becomes unsafe", () => {
-		expect(shouldUseChangedWorkspaceForSemgrep(["src/app.ts"])).toBe(false);
-		expect(
-			shouldUseChangedWorkspaceForSemgrep(
-				Array.from({ length: 513 }, (_, index) => `src/${index}.ts`),
-			),
-		).toBe(true);
-	});
 });
 
 function resolved(

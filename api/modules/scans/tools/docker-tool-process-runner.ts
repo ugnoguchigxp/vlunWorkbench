@@ -3,18 +3,18 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { readBoundedProcessText } from "./bounded-process-output";
 import {
+	errorMessage,
+	getCleanEnv,
+	type PipeSubprocess,
+} from "./process-runner-shared";
+import { emitLifecycleEvent } from "./tool-lifecycle";
+import {
 	DEFAULT_DOCKER_CPUS,
 	DEFAULT_DOCKER_IMAGE,
 	DEFAULT_DOCKER_MEMORY,
 	DEFAULT_DOCKER_PIDS_LIMIT,
 	resolveProcessOutputLimits,
 } from "./tool-process-policy";
-import {
-	errorMessage,
-	getCleanEnv,
-	type PipeSubprocess,
-} from "./process-runner-shared";
-import { emitLifecycleEvent } from "./tool-lifecycle";
 import type {
 	DockerNetworkMode,
 	ProcessRunnerOptions,
@@ -28,7 +28,6 @@ const CONTAINER_OUT_PATH = "/workspace/out";
 const CONTAINER_CACHE_PATH = "/workspace/cache";
 
 const DOCKER_TOOL_ALLOWLIST: Record<string, Set<string>> = {
-	semgrep: new Set(["--version", "scan"]),
 	gitleaks: new Set(["version", "detect"]),
 	"osv-scanner": new Set(["--version", "--format", "scan"]),
 	trivy: new Set(["--version", "fs", "image"]),
@@ -36,6 +35,33 @@ const DOCKER_TOOL_ALLOWLIST: Record<string, Set<string>> = {
 	st: new Set(["run", "--version"]),
 };
 const DOCKER_ENTRYPOINTS: Record<string, string> = {};
+
+export function registerDockerToolInvocationPolicy(
+	binaryName: string,
+	allowedFirstArgs: readonly string[],
+): void {
+	if (!/^[a-zA-Z0-9._-]+$/.test(binaryName) || allowedFirstArgs.length === 0) {
+		throw new Error(`Invalid Docker scanner invocation policy: ${binaryName}`);
+	}
+	const requested = new Set<string>();
+	for (const arg of allowedFirstArgs) {
+		if (!arg || /[\r\n\0]/.test(arg)) {
+			throw new Error(`Invalid Docker scanner first argument: ${binaryName}`);
+		}
+		requested.add(arg);
+	}
+	const existing = DOCKER_TOOL_ALLOWLIST[binaryName];
+	if (
+		existing &&
+		(existing.size !== requested.size ||
+			[...existing].some((arg) => !requested.has(arg)))
+	) {
+		throw new Error(
+			`Conflicting Docker scanner invocation policy: ${binaryName}`,
+		);
+	}
+	DOCKER_TOOL_ALLOWLIST[binaryName] = requested;
+}
 
 export async function runDockerToolProcess(
 	binaryName: string,

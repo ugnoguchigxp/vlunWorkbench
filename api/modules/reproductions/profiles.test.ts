@@ -1,20 +1,33 @@
 import { describe, expect, it } from "vitest";
 import type { findings } from "../../db/schema";
-import { getReproductionProfileById, listReproductionProfiles } from "./profiles";
+import { semgrepReproductionProfile } from "../../plugins/scanners/semgrep-reproduction-profile";
+import {
+	createReproductionProfiles,
+	getReproductionProfileById,
+	listReproductionProfiles,
+} from "./profiles";
 
 describe("Reproduction Profiles Registry", () => {
-	it("should list all four mandatory profiles", () => {
+	it("keeps optional Semgrep out of the default profile list", () => {
 		const profiles = listReproductionProfiles();
-		expect(profiles).toHaveLength(4);
+		expect(profiles).toHaveLength(3);
 		const ids = profiles.map((p) => p.id);
-		expect(ids).toContain("semgrep-path-recheck");
+		expect(ids).not.toContain("semgrep-path-recheck");
 		expect(ids).toContain("gitleaks-recheck");
 		expect(ids).toContain("osv-dependency-recheck");
 		expect(ids).toContain("trivy-fs-recheck");
 	});
 
+	it("adds the Semgrep recheck only through explicit optional configuration", () => {
+		expect(
+			createReproductionProfiles({ includeOptionalSemgrep: true }).map(
+				(profile) => profile.id,
+			),
+		).toContain("semgrep-path-recheck");
+	});
+
 	describe("semgrep-path-recheck", () => {
-		const profile = getReproductionProfileById("semgrep-path-recheck")!;
+		const profile = semgrepReproductionProfile;
 
 		it("is applicable for semgrep findings with relative path", () => {
 			const finding = {
@@ -76,7 +89,7 @@ describe("Reproduction Profiles Registry", () => {
 			expect(cmd.args).toEqual([
 				"scan",
 				"--config",
-				"auto",
+				"/opt/vuln-workbench/scanner-data/semgrep-rules",
 				"--json",
 				"--output",
 				"/host/out.json",

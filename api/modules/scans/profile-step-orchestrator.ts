@@ -1,6 +1,4 @@
 import { prepareDastTargetWorkspace } from "../dast/target-preparer";
-import { builtInTechnologyPluginRegistry } from "../../plugins/builtin";
-import { shouldUseChangedWorkspaceForSemgrep } from "./diff-scan-plan";
 import {
 	runDastStepIntoExistingScan,
 	runRuntimeScannerIntoExistingScan,
@@ -10,6 +8,8 @@ import {
 	type ToolResult,
 } from "./profile-runner";
 import type { ExecuteProfileStepsParams } from "./profile-step-orchestrator-types";
+import { resolveStaticScannerDiffExecution } from "./static-scanner-adapter";
+import { staticScannerAdapterRegistry } from "./static-scanner-adapters";
 import { withMandatoryExcludes } from "./target-scope";
 
 export async function executeProfileSteps(
@@ -172,22 +172,21 @@ export async function executeProfileSteps(
 					step.kind === "container_image_scan"
 				) {
 					const toolId = step.kind === "static_tool" ? step.toolId : "trivy";
-					const semgrepUsesChangedWorkspace =
-						toolId === "semgrep" &&
-						Boolean(
-							diffPlan &&
-								shouldUseChangedWorkspaceForSemgrep(diffPlan.scanPaths),
-						);
+					const scannerAdapter = staticScannerAdapterRegistry.require(toolId);
+					const diffExecution =
+						diffPlan && step.kind === "static_tool"
+							? resolveStaticScannerDiffExecution(
+									scannerAdapter,
+									diffPlan.scanPaths,
+								)
+							: null;
 					const diffInputKind =
-						(toolId === "semgrep" && !semgrepUsesChangedWorkspace) ||
-						toolId === "osv"
-							? "full_snapshot"
-							: "changed_workspace";
+						diffExecution?.inputKind ?? scannerAdapter.manifest.diffInput;
 					const toolRepoPath =
 						diffPlan && step.kind === "static_tool"
 							? diffInputKind === "full_snapshot"
 								? diffSnapshot?.projectPath
-								: toolId === "trivy"
+								: diffExecution?.workspace === "trivy"
 									? diffSnapshot?.trivyWorkspacePath
 									: diffSnapshot?.changedWorkspacePath
 							: params.repoPath;
@@ -196,35 +195,32 @@ export async function executeProfileSteps(
 							"snapshot_materialization_failed: scanner input is unavailable",
 						);
 					}
+					const baseOptions = {
+						...(("options" in step ? step.options : undefined) ?? {}),
+						...(step.kind === "sbom_export" ? { mode: "fs-sbom" } : {}),
+						...(step.kind === "container_image_scan"
+							? {
+									mode: "image",
+									imageRef: params.imageRef,
+									imageTar: params.imageTar,
+								}
+							: {}),
+						scope: withMandatoryExcludes(profile.scope),
+						scopeSummary: resolvedScope,
+					};
+					const toolOptions = scannerAdapter.extendProfileOptions
+						? await scannerAdapter.extendProfileOptions({
+								options: baseOptions,
+								activeTechnologyPluginIds:
+									params.technologyAnalysis.capabilityPlan.activePluginIds,
+							})
+						: baseOptions;
 					const toolRes = await runToolIntoExistingScan({
 						db: params.db,
 						projectId: params.projectId,
 						scanRunId: scanRun.id,
 						toolId,
-						options: {
-							...(("options" in step ? step.options : undefined) ?? {}),
-							...(toolId === "semgrep"
-								? {
-										semgrepRuleContributions: builtInTechnologyPluginRegistry
-											.semgrepRules()
-											.filter((contribution) =>
-												params.technologyAnalysis.capabilityPlan.activePluginIds.includes(
-													contribution.pluginId,
-												),
-											),
-									}
-								: {}),
-							...(step.kind === "sbom_export" ? { mode: "fs-sbom" } : {}),
-							...(step.kind === "container_image_scan"
-								? {
-										mode: "image",
-										imageRef: params.imageRef,
-										imageTar: params.imageTar,
-									}
-								: {}),
-							scope: withMandatoryExcludes(profile.scope),
-							scopeSummary: resolvedScope,
-						},
+						options: toolOptions,
 						artifactStorage,
 						timeoutSec: resolvedTimeout,
 						repoPath: toolRepoPath,
@@ -234,10 +230,7 @@ export async function executeProfileSteps(
 								? {
 										target: diffPlan.target,
 										entries: diffPlan.manifest.entries,
-										targetPaths:
-											toolId === "semgrep" && !semgrepUsesChangedWorkspace
-												? diffPlan.scanPaths
-												: undefined,
+										targetPaths: diffExecution?.targetPaths,
 										inputKind: diffInputKind,
 										contextFileCount:
 											toolId === "trivy"

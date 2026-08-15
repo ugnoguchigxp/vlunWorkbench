@@ -4,7 +4,7 @@ export const PROFILE_DISPLAY: Record<
 > = {
 	baseline: {
 		name: "標準スキャン",
-		subtitle: "Semgrep、Gitleaks、OSV で基本的なリスクを確認します。",
+		subtitle: "Gitleaks、OSV で基本的なリスクを確認します。",
 	},
 	"basic-security": {
 		name: "基本セキュリティスキャン",
@@ -47,7 +47,11 @@ export const PROFILE_DISPLAY: Record<
 	},
 	"detailed-security": {
 		name: "詳細スキャン",
-		subtitle: "Semgrep、Gitleaks、OSV、Trivy で Static 全検査を実行します。",
+		subtitle: "Gitleaks、OSV、Trivy で Static 検査を実行します。",
+	},
+	"semgrep-baseline": {
+		name: "Semgrep SAST（任意 adapter）",
+		subtitle: "明示的に導入・有効化した Semgrep engine で確認します。",
 	},
 	"web-app-baseline": {
 		name: "Webアプリ標準診断",

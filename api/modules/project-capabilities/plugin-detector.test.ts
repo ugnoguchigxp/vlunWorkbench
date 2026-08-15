@@ -243,6 +243,29 @@ describe("project technology plugin detector", () => {
 		});
 	});
 
+	it("reports an applicable scanner capability omitted by a profile as a gap", async () => {
+		await write("src/app.ts", "export const app = true;");
+		const analysis = await analyzeProjectCapabilities(root);
+
+		const summary = buildPluginExecutionSummary({
+			detections: analysis.detections,
+			capabilityPlan: analysis.capabilityPlan,
+			stepResults: [],
+		});
+
+		expect(
+			summary.pluginResults.find(
+				(result) =>
+					result.pluginId === "language.typescript" &&
+					result.capability === "semgrep",
+			),
+		).toMatchObject({
+			status: "skipped",
+			coverageEffect: "gap",
+			limitationCodes: ["capability_step_not_executed"],
+		});
+	});
+
 	async function write(relativePath: string, content: string): Promise<void> {
 		const filePath = path.join(root, relativePath);
 		await fs.mkdir(path.dirname(filePath), { recursive: true });

@@ -4,6 +4,7 @@ import path from "node:path";
 import { readAppEnv } from "../api/app/env";
 import { createDbConnection } from "../api/db";
 import { resolveScanExecutionPolicy } from "../api/modules/scans/scan-execution-policy";
+import { staticScannerAdapterRegistry } from "../api/modules/scans/static-scanner-adapters";
 
 type CheckResult = {
 	label: string;
@@ -13,12 +14,7 @@ type CheckResult = {
 
 const MIGRATIONS_TABLE = "vuln_workbench_schema_migrations";
 const REQUIRED_TOOLS = ["bun"] as const;
-const OPTIONAL_SCAN_TOOLS = [
-	"semgrep",
-	"gitleaks",
-	"osv-scanner",
-	"trivy",
-] as const;
+const REGISTERED_SCAN_TOOLS = staticScannerAdapterRegistry.list();
 
 function parseArgs(argv: string[]): { skipPort: boolean } {
 	const args = { skipPort: false };
@@ -260,14 +256,14 @@ async function main() {
 		}
 	}
 
-	for (const tool of OPTIONAL_SCAN_TOOLS) {
-		const found = await commandExists(tool);
+	for (const adapter of REGISTERED_SCAN_TOOLS) {
+		const found = await commandExists(adapter.manifest.binaryName);
 		results.push({
-			label: `optional scanner ${tool}`,
+			label: `${adapter.manifest.distribution} scanner ${adapter.manifest.id}`,
 			status: found ? "ok" : "warn",
 			message: found
 				? "found"
-				: "missing; related scan profiles may fail until installed",
+				: `${adapter.manifest.binaryName} missing; related scan profiles may fail until installed`,
 		});
 	}
 

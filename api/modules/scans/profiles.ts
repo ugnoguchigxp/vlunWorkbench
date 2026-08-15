@@ -4,16 +4,19 @@ import type {
 	ScanProfileStep,
 	ScanScopePolicy,
 } from "../../../shared/schemas/scan-profile.schema";
+import { buildOptionalSemgrepProfile } from "../../plugins/scanners/semgrep-profile";
 import {
 	applyDastStandardRollout,
 	assertRuntimeAssessmentBudget,
 } from "./dast-profile-rollout";
+import { isOptionalScannerAdapterEnabled } from "./optional-scanner-adapter-config";
 import { buildPluginDependencyManifestScope } from "./plugin-dependency-scope";
 
 export {
 	plannedRuntimeAssessmentRequests,
 	RUNTIME_ASSESSMENT_AGGREGATE_REQUEST_BUDGET,
 } from "./dast-profile-rollout";
+
 import { buildStaticScanProfiles } from "./static-scan-profiles";
 import { ZAP_ACTIVE_DEDICATED_PROFILES } from "./zap-active-profiles";
 
@@ -149,26 +152,19 @@ export const SCAN_PROFILES: ScanProfile[] = [
 		ARTIFACT_SCOPE,
 		FULL_DEEP_SCOPE,
 	}),
+	...(isOptionalScannerAdapterEnabled("semgrep")
+		? [buildOptionalSemgrepProfile(SOURCE_BASELINE_SCOPE)]
+		: []),
 	{
 		id: "web-app-baseline",
 		name: "Webアプリ標準診断",
 		description:
-			"Semgrep、Gitleaks、OSVによる静的診断と、自動起動したローカル対象へのbounded passive DASTをまとめて実行します。",
+			"Gitleaks、OSVによる静的診断と、自動起動したローカル対象へのbounded passive DASTをまとめて実行します。",
 		category: "basic",
 		enabled: true,
 		defaultTimeoutSec: 900,
 		scope: SOURCE_BASELINE_SCOPE,
 		tools: [
-			{
-				toolId: "semgrep",
-				displayName: "Semgrep Static Analysis",
-				required: true,
-				failurePolicy: "fail_profile",
-				options: {
-					config: "curated-sast-v1",
-					scanners: ["vuln", "secret", "config"],
-				},
-			},
 			{
 				toolId: "gitleaks",
 				displayName: "Gitleaks Secret Detection",
@@ -184,17 +180,6 @@ export const SCAN_PROFILES: ScanProfile[] = [
 			},
 		],
 		steps: [
-			{
-				kind: "static_tool",
-				toolId: "semgrep",
-				displayName: "Semgrep Static Analysis",
-				required: true,
-				failurePolicy: "fail_profile",
-				options: {
-					config: "curated-sast-v1",
-					scanners: ["vuln", "secret", "config"],
-				},
-			},
 			{
 				kind: "static_tool",
 				toolId: "gitleaks",
@@ -304,13 +289,6 @@ export const SCAN_PROFILES: ScanProfile[] = [
 		scope: FULL_DEEP_SCOPE,
 		tools: [
 			{
-				toolId: "semgrep",
-				displayName: "Semgrep Deep Static Analysis",
-				required: true,
-				failurePolicy: "fail_profile",
-				options: { config: "curated-sast-v1", maxTargetBytes: 2000000 },
-			},
-			{
 				toolId: "gitleaks",
 				displayName: "Gitleaks Deep Secret Detection",
 				required: true,
@@ -332,14 +310,6 @@ export const SCAN_PROFILES: ScanProfile[] = [
 			},
 		],
 		steps: [
-			{
-				kind: "static_tool",
-				toolId: "semgrep",
-				displayName: "Semgrep Deep Static Analysis",
-				required: true,
-				failurePolicy: "fail_profile",
-				options: { config: "curated-sast-v1", maxTargetBytes: 2000000 },
-			},
 			{
 				kind: "static_tool",
 				toolId: "gitleaks",
