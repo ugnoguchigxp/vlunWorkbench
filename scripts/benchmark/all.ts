@@ -113,6 +113,9 @@ async function assessMeasurement(
 		await readFile(".artifacts/benchmark/juice-shop-run.json", "utf8"),
 	) as {
 		counts?: Parameters<typeof assessJuiceShopMeasurement>[0];
+		preflight?: { status?: "passed" | "blocked" };
 	};
-	return assessJuiceShopMeasurement(runReport.counts ?? {});
+	return assessJuiceShopMeasurement(runReport.counts ?? {}, {
+		preflightStatus: runReport.preflight?.status,
+	});
 }

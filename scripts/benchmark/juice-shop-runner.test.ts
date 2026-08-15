@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { ActiveResetExecutor } from "../../api/modules/runtime-scans/zap-active-runner";
@@ -101,6 +101,61 @@ describe("Juice Shop scenario runner", () => {
 					observation.vulnerable.detection === "not_scored",
 			),
 		).toBe(true);
+	});
+
+	test("keeps a live shared-fixture lock and recovers an abandoned one", async () => {
+		const { catalog, playbooks } = await loadAndValidateJuiceShopInputs();
+		const evidenceRoot = await mkdtemp(
+			path.join(os.tmpdir(), "juice-runner-lock-"),
+		);
+		roots.push(evidenceRoot);
+		const lockPath = ".artifacts/benchmark/juice-shop.lock";
+		await mkdir(path.dirname(lockPath), { recursive: true });
+		await writeFile(
+			lockPath,
+			`${JSON.stringify({ pid: process.pid, token: "live" })}\n`,
+		);
+		const blocked = await runJuiceShopScenarios({
+			catalog,
+			playbooks: playbooks.slice(0, 1),
+			evidenceRoot,
+			resetExecutor: successfulReset(),
+		});
+		expect(blocked.preflight.errorCode).toBe("shared_fixture_busy");
+		expect(await stat(lockPath).then(() => true)).toBe(true);
+
+		await writeFile(
+			lockPath,
+			`${JSON.stringify({ pid: 2_147_483_647, token: "abandoned" })}\n`,
+		);
+		const recovered = await runJuiceShopScenarios({
+			catalog,
+			playbooks: playbooks.slice(0, 1),
+			evidenceRoot,
+			resetExecutor: successfulReset(),
+			executeProbe: async () => ({
+				status: "completed",
+				probe: {
+					kind: "observation_only",
+					cwe: "CWE-284",
+					status: 200,
+					reliable: true,
+				},
+				findings: [],
+				requests: [
+					{
+						method: "GET",
+						path: "/administration",
+						queryKeys: [],
+						status: 200,
+						responseBytes: 0,
+						responseShapeHash: responseShapeHash({}),
+					},
+				],
+			}),
+		});
+		expect(recovered.preflight.status).toBe("passed");
+		expect(await stat(lockPath).catch(() => null)).toBeNull();
 	});
 });
 

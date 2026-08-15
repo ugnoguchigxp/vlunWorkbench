@@ -1,7 +1,8 @@
 import crypto from "node:crypto";
-import { readFile, stat } from "node:fs/promises";
+import { lstat, readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
+import { juiceShopExecutionEvidenceSchema } from "./juice-shop-evidence";
 
 const sha256Schema = z.string().regex(/^sha256:[a-f0-9]{64}$/);
 const relativeEvidencePathSchema = z
@@ -77,6 +78,16 @@ export const juiceShopExecutionSchema = z
 				code: "custom",
 				path: ["normalizedFindingRefs"],
 				message: "A detected execution requires a normalized finding reference",
+			});
+		}
+		if (
+			value.detection !== "detected" &&
+			value.normalizedFindingRefs.length > 0
+		) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["normalizedFindingRefs"],
+				message: "Only a detected execution can reference findings",
 			});
 		}
 	});
@@ -276,12 +287,59 @@ export function validateJuiceShopObservations(
 	return byScenario;
 }
 
+export function summarizeJuiceShopObservations(
+	observations: JuiceShopObservation[],
+	params: { eligibleScenarioCount: number; categoryCount: number },
+) {
+	return {
+		eligibleScenarioCount: params.eligibleScenarioCount,
+		categoryCount: params.categoryCount,
+		observationCount: observations.length,
+		executedScenarioCount: observations.filter(isCompletedJuiceShopObservation)
+			.length,
+		detectedScenarioCount: observations.filter(
+			(observation) =>
+				isCompletedJuiceShopObservation(observation) &&
+				observation.vulnerable.detection === "detected",
+		).length,
+		blockedScenarioCount: observations.filter(
+			(observation) => observation.scenarioStatus === "blocked",
+		).length,
+		inconclusiveScenarioCount: observations.filter(
+			(observation) => observation.scenarioStatus === "inconclusive",
+		).length,
+		failedCleanupScenarioCount: observations.filter(
+			(observation) => observation.scenarioStatus === "failed_cleanup",
+		).length,
+		targetRequestCount: observations.reduce(
+			(total, observation) => total + observation.lifecycle.targetRequestCount,
+			0,
+		),
+		externalNetworkRequests: observations.reduce(
+			(total, observation) =>
+				total + observation.lifecycle.externalNetworkRequests,
+			0,
+		),
+		publicProductionRequests: observations.reduce(
+			(total, observation) =>
+				total + observation.lifecycle.publicProductionRequests,
+			0,
+		),
+		credentialCanaryLeakageCount: observations.filter(
+			(observation) => observation.lifecycle.credentialCanaryLeakage,
+		).length,
+	};
+}
+
 export async function verifyJuiceShopEvidenceFiles(
 	observations: Iterable<JuiceShopObservation>,
 	evidenceRoot: string,
+	controlIdByScenario: ReadonlyMap<string, string>,
 ): Promise<void> {
 	const canonicalRoot = path.resolve(evidenceRoot);
+	const expectedEvidencePaths = new Set<string>();
 	for (const observation of observations) {
+		let observedRequestCount = 0;
 		for (const [targetKind, execution] of [
 			["vulnerable", observation.vulnerable],
 			["fixed", observation.fixed],
@@ -291,17 +349,76 @@ export async function verifyJuiceShopEvidenceFiles(
 			const relative = path.relative(canonicalRoot, evidencePath);
 			if (!relative || relative.startsWith("..") || path.isAbsolute(relative))
 				throw new Error("juice_shop_evidence_path_invalid");
-			const fileStat = await stat(evidencePath);
+			const expectedRelativePath = path.posix.join(
+				observation.scenarioId,
+				`${targetKind}.json`,
+			);
+			if (execution.evidencePath !== expectedRelativePath)
+				throw new Error("juice_shop_evidence_path_not_canonical");
+			expectedEvidencePaths.add(expectedRelativePath);
+			const fileStat = await lstat(evidencePath);
+			if (fileStat.isSymbolicLink())
+				throw new Error("juice_shop_evidence_symlink_rejected");
 			if (!fileStat.isFile() || fileStat.size > 16 * 1024 * 1024)
 				throw new Error("juice_shop_evidence_file_invalid");
+			const bytes = await readFile(evidencePath);
 			const actualHash = `sha256:${crypto
 				.createHash("sha256")
-				.update(await readFile(evidencePath))
+				.update(bytes)
 				.digest("hex")}`;
 			if (actualHash !== execution.evidenceHash)
 				throw new Error(
 					`juice_shop_evidence_hash_mismatch:${observation.scenarioId}:${targetKind}`,
 				);
+			const evidence = juiceShopExecutionEvidenceSchema.parse(
+				JSON.parse(bytes.toString("utf8")),
+			);
+			const expectedControlId = controlIdByScenario.get(observation.scenarioId);
+			if (
+				!expectedControlId ||
+				evidence.scenarioId !== observation.scenarioId ||
+				evidence.targetKind !== targetKind ||
+				evidence.controlId !== expectedControlId ||
+				evidence.findings.map((finding) => finding.id).join("\0") !==
+					execution.normalizedFindingRefs.join("\0") ||
+				evidence.findings.length > 0 !== (execution.detection === "detected")
+			) {
+				throw new Error(
+					`juice_shop_evidence_semantic_mismatch:${observation.scenarioId}:${targetKind}`,
+				);
+			}
+			observedRequestCount += evidence.requests.length;
 		}
+		if (observedRequestCount !== observation.lifecycle.targetRequestCount)
+			throw new Error(
+				`juice_shop_evidence_request_count_mismatch:${observation.scenarioId}`,
+			);
 	}
+	const actualEvidencePaths = await listEvidenceFiles(canonicalRoot);
+	if (
+		actualEvidencePaths.length !== expectedEvidencePaths.size ||
+		actualEvidencePaths.some((entry) => !expectedEvidencePaths.has(entry))
+	)
+		throw new Error("juice_shop_evidence_file_set_mismatch");
+}
+
+async function listEvidenceFiles(
+	root: string,
+	relativeDirectory = "",
+): Promise<string[]> {
+	const directory = path.resolve(root, relativeDirectory);
+	const entries = await readdir(directory, { withFileTypes: true });
+	const files: string[] = [];
+	for (const entry of entries) {
+		const relativePath = path.posix.join(relativeDirectory, entry.name);
+		if (entry.isSymbolicLink())
+			throw new Error("juice_shop_evidence_symlink_rejected");
+		if (entry.isDirectory()) {
+			files.push(...(await listEvidenceFiles(root, relativePath)));
+			continue;
+		}
+		if (!entry.isFile()) throw new Error("juice_shop_evidence_file_invalid");
+		files.push(relativePath);
+	}
+	return files.sort();
 }

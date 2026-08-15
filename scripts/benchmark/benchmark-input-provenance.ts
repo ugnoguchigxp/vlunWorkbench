@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { readdir, readFile, stat } from "node:fs/promises";
+import { lstat, readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 
 export function sha256(value: string | Uint8Array): string {
@@ -39,7 +39,9 @@ export async function gitCommit(): Promise<string> {
 
 async function listFiles(inputPath: string): Promise<string[]> {
 	const resolved = path.resolve(inputPath);
-	const metadata = await stat(resolved);
+	const metadata = await lstat(resolved);
+	if (metadata.isSymbolicLink())
+		throw new Error(`benchmark_provenance_symlink_rejected:${inputPath}`);
 	if (metadata.isFile()) return [resolved];
 	if (!metadata.isDirectory()) return [];
 	const entries = await readdir(resolved, { withFileTypes: true });

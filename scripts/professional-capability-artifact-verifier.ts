@@ -3,16 +3,27 @@ import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 import { scoreBenchmark } from "../api/modules/benchmarks/metric-scorer";
+import {
+	mapSemgrepFindingToObservation,
+	parseOwaspExpectedResults,
+} from "../api/modules/benchmarks/owasp-benchmark-adapter";
 import { canonicalJson } from "../api/modules/scans/diff-scan-plan";
 import { benchmarkMetricSchema } from "../shared/schemas/benchmark.schema";
 import {
 	isCompletedJuiceShopObservation,
 	juiceShopObservationsSchema,
 	juiceShopRunReportSchema,
+	summarizeJuiceShopObservations,
 	type JuiceShopRunReport,
 	validateJuiceShopObservations,
 	verifyJuiceShopEvidenceFiles,
 } from "./benchmark/juice-shop-observations";
+import {
+	JUICE_SHOP_PLAYBOOKS,
+	juiceShopCatalogSchema,
+	validateJuiceShopCatalogAgainstUpstream,
+} from "./benchmark/juice-shop-playbooks";
+import { assessJuiceShopMeasurement } from "./benchmark/measurement-status";
 import {
 	gitCommit as benchmarkGitCommit,
 	sha256File,
@@ -44,6 +55,7 @@ export type MetricArtifact = {
 	scannerManifestHash?: string;
 	findingsPath?: string;
 	findingsHash?: string;
+	normalizedFindingSnapshotHash?: string;
 	networkRequests?: number;
 	resetSucceeded?: boolean;
 	upstreamGroundTruthHash?: string;
@@ -163,11 +175,50 @@ export function assertMetricArtifactIntegrity(artifact: MetricArtifact): void {
 		throw new Error("benchmark_metric_output_hash_mismatch");
 }
 
+export function assertOwaspMetricArtifactMatchesInputs(params: {
+	artifact: MetricArtifact;
+	expectedResultsCsv: string;
+	findings: unknown;
+}): void {
+	const findings = z
+		.array(
+			z
+				.object({
+					path: z.string().min(1),
+					cwe: z.union([z.string(), z.number()]),
+					category: z.string().min(1),
+				})
+				.strict(),
+		)
+		.parse(params.findings);
+	const observations = findings
+		.map(mapSemgrepFindingToObservation)
+		.filter((value) => value !== null);
+	const expectedScore = scoreBenchmark(
+		parseOwaspExpectedResults(params.expectedResultsCsv),
+		observations,
+	);
+	const normalizedFindingSnapshotHash = sha256(
+		new TextEncoder().encode(canonicalJson(observations)),
+	);
+	if (
+		params.artifact.outputHash !== expectedScore.outputHash ||
+		params.artifact.normalizedFindingSnapshotHash !==
+			normalizedFindingSnapshotHash ||
+		canonicalJson(params.artifact.metrics) !==
+			canonicalJson(expectedScore.metrics) ||
+		canonicalJson(params.artifact.unmappedObservations ?? []) !==
+			canonicalJson(expectedScore.unmappedObservations)
+	)
+		throw new Error("owasp_benchmark_score_recomputation_mismatch");
+}
+
 export async function verifyOwaspArtifactIntegrity(params: {
 	artifact: MetricArtifact;
 	manifestHash: string;
 	corpusLock: Record<string, unknown>;
 }): Promise<void> {
+	assertMetricArtifactIntegrity(params.artifact);
 	const corpus = (
 		params.corpusLock.corpora as Array<Record<string, unknown>> | undefined
 	)?.find((item) => item.id === "owasp-benchmark-java");
@@ -176,6 +227,11 @@ export async function verifyOwaspArtifactIntegrity(params: {
 	);
 	const rawScannerArtifactPath = path.resolve(
 		".artifacts/benchmark/owasp-semgrep-raw.json",
+	);
+	const expectedResultsPath = path.resolve(
+		process.env.VULN_WORKBENCH_SECURITY_CORPORA_ROOT ??
+			".cache/security-corpora",
+		"owasp-benchmark-java/source/expectedresults-1.2beta.csv",
 	);
 	if (
 		!corpus ||
@@ -190,12 +246,16 @@ export async function verifyOwaspArtifactIntegrity(params: {
 	)
 		throw new Error("owasp_benchmark_provenance_mismatch");
 	const [
+		expectedResultsBytes,
+		findingsBytes,
 		findingsHash,
 		rawScannerArtifactHash,
 		policyHash,
 		implementationHash,
 		currentCommit,
 	] = await Promise.all([
+		readFile(expectedResultsPath),
+		readFile(expectedFindingsPath),
 		sha256(await readFile(expectedFindingsPath)),
 		sha256(await readFile(rawScannerArtifactPath)),
 		sha256File("spec/security-capability/benchmark-policy.v1.json"),
@@ -205,10 +265,12 @@ export async function verifyOwaspArtifactIntegrity(params: {
 			"api/modules/benchmarks/metric-scorer.ts",
 			"api/modules/benchmarks/owasp-benchmark-adapter.ts",
 			"api/modules/scans/tools/java-taint-precision-filter.ts",
+			"scripts/benchmark/benchmark-input-provenance.ts",
 		]),
 		benchmarkGitCommit(),
 	]);
 	if (
+		params.artifact.expectedResultsHash !== sha256(expectedResultsBytes) ||
 		params.artifact.findingsHash !== findingsHash ||
 		params.artifact.rawScannerArtifactHash !== rawScannerArtifactHash ||
 		params.artifact.policyHash !== policyHash ||
@@ -216,6 +278,11 @@ export async function verifyOwaspArtifactIntegrity(params: {
 		params.artifact.gitCommit !== currentCommit
 	)
 		throw new Error("owasp_benchmark_artifact_hash_mismatch");
+	assertOwaspMetricArtifactMatchesInputs({
+		artifact: params.artifact,
+		expectedResultsCsv: expectedResultsBytes.toString("utf8"),
+		findings: JSON.parse(findingsBytes.toString("utf8")),
+	});
 }
 
 export async function verifyJuiceShopArtifactIntegrity(params: {
@@ -223,6 +290,7 @@ export async function verifyJuiceShopArtifactIntegrity(params: {
 	manifestHash: string;
 	corpusLock: Record<string, unknown>;
 }): Promise<JuiceShopRunReport> {
+	assertMetricArtifactIntegrity(params.artifact);
 	const corpus = (
 		params.corpusLock.corpora as Array<Record<string, unknown>> | undefined
 	)?.find((item) => item.id === "owasp-juice-shop");
@@ -237,29 +305,64 @@ export async function verifyJuiceShopArtifactIntegrity(params: {
 	);
 	const evidenceRoot = path.resolve(".artifacts/benchmark/juice-shop-evidence");
 	const policyPath = "spec/security-capability/benchmark-policy.v1.json";
-	const [catalogBytes, observationBytes, policyBytes, runReportBytes] =
-		await Promise.all([
-			readFile(catalogPath),
-			readFile(observationsPath),
-			readFile(policyPath),
-			readFile(runReportPath),
-		]);
-	const catalog = JSON.parse(catalogBytes.toString("utf8")) as {
-		corpusVersion?: string;
-		scenarios?: Array<{ id: string; category: string; cwe: string[] }>;
-	};
+	const upstreamChallengesPath = path.resolve(
+		process.env.VULN_WORKBENCH_SECURITY_CORPORA_ROOT ??
+			".cache/security-corpora",
+		"owasp-juice-shop/source/data/static/challenges.yml",
+	);
+	const [
+		catalogBytes,
+		observationBytes,
+		policyBytes,
+		runReportBytes,
+		upstreamChallengesBytes,
+	] = await Promise.all([
+		readFile(catalogPath),
+		readFile(observationsPath),
+		readFile(policyPath),
+		readFile(runReportPath),
+		readFile(upstreamChallengesPath),
+	]);
+	const catalog = juiceShopCatalogSchema.parse(
+		JSON.parse(catalogBytes.toString("utf8")),
+	);
+	validateJuiceShopCatalogAgainstUpstream(
+		catalog,
+		upstreamChallengesBytes.toString("utf8"),
+	);
 	const observations = juiceShopObservationsSchema.parse(
 		JSON.parse(observationBytes.toString("utf8")),
 	);
 	const report = juiceShopRunReportSchema.parse(
 		JSON.parse(runReportBytes.toString("utf8")),
 	);
+	const policy = z
+		.object({
+			policyVersion: z.string().min(1),
+			minimums: z.object({
+				juiceShopEligibleScenarios: z.number().nonnegative(),
+				juiceShopCategories: z.number().nonnegative(),
+				juiceShopRecall: z.number().min(0).max(1),
+				juiceShopPrecision: z.number().min(0).max(1),
+			}),
+		})
+		.passthrough()
+		.parse(JSON.parse(policyBytes.toString("utf8")));
 	const byScenario = validateJuiceShopObservations(
 		observations,
-		(catalog.scenarios ?? []).map((scenario) => scenario.id),
+		catalog.scenarios.map((scenario) => scenario.id),
 	);
-	await verifyJuiceShopEvidenceFiles(byScenario.values(), evidenceRoot);
-	const scenarios = catalog.scenarios ?? [];
+	await verifyJuiceShopEvidenceFiles(
+		byScenario.values(),
+		evidenceRoot,
+		new Map(
+			JUICE_SHOP_PLAYBOOKS.map((playbook) => [
+				playbook.scenarioId,
+				playbook.controlId,
+			]),
+		),
+	);
+	const scenarios = catalog.scenarios;
 	const groundTruth = scenarios.flatMap((scenario) =>
 		scenario.cwe.flatMap((cwe) => [
 			{
@@ -296,6 +399,29 @@ export async function verifyJuiceShopArtifactIntegrity(params: {
 		]);
 	});
 	const expectedScore = scoreBenchmark(groundTruth, detected);
+	const expectedCounts = summarizeJuiceShopObservations(observations, {
+		eligibleScenarioCount: scenarios.length,
+		categoryCount: new Set(scenarios.map((scenario) => scenario.category)).size,
+	});
+	const expectedMeasurement = assessJuiceShopMeasurement(expectedCounts, {
+		preflightStatus: report.preflight.status,
+	});
+	const expectedOverall = expectedScore.metrics.find(
+		(metric) => metric.category === "overall",
+	);
+	const expectedGatePassed =
+		report.preflight.status === "passed" &&
+		expectedMeasurement.status === "completed" &&
+		expectedCounts.eligibleScenarioCount >=
+			policy.minimums.juiceShopEligibleScenarios &&
+		expectedCounts.categoryCount >= policy.minimums.juiceShopCategories &&
+		expectedCounts.executedScenarioCount ===
+			expectedCounts.eligibleScenarioCount &&
+		(expectedOverall?.recall ?? -1) >= policy.minimums.juiceShopRecall &&
+		(expectedOverall?.precision ?? -1) >= policy.minimums.juiceShopPrecision &&
+		expectedCounts.externalNetworkRequests === 0 &&
+		expectedCounts.publicProductionRequests === 0 &&
+		expectedCounts.credentialCanaryLeakageCount === 0;
 	const [
 		playbookHash,
 		fixedFixtureHash,
@@ -309,33 +435,46 @@ export async function verifyJuiceShopArtifactIntegrity(params: {
 			"tests/security-capability/juice-shop/fixed-app",
 		]),
 		sha256Tree([
+			"api/modules/benchmarks/metric-scorer.ts",
 			"api/modules/dast/security-probe-detector.ts",
 			"api/modules/runtime-scans/container-fixture-reset.ts",
+			"scripts/benchmark/benchmark-input-provenance.ts",
+			"scripts/benchmark/juice-shop.ts",
 			"scripts/benchmark/juice-shop-runner.ts",
 			"scripts/benchmark/juice-shop-evidence.ts",
+			"scripts/benchmark/juice-shop-observations.ts",
+			"scripts/benchmark/measurement-status.ts",
 		]),
 		sha256Tree([evidenceRoot]),
 		benchmarkGitCommit(),
 	]);
 	const expectedFixtureImage =
 		typeof corpus?.image === "string" && typeof corpus.imageDigest === "string"
-			? `${corpus.image.split(":")[0]}@${corpus.imageDigest}`
+			? pinnedImageReference(corpus.image, corpus.imageDigest)
 			: null;
 	const counts = report.counts;
 	const reportObservationsMatch =
 		canonicalJson(report.observations) === canonicalJson(observations);
+	const reportCountsMatch =
+		canonicalJson(counts) === canonicalJson(expectedCounts);
 	if (
 		!corpus ||
 		report.measurementStatus !== "completed" ||
+		report.measurementStatus !== expectedMeasurement.status ||
+		report.measurementReason !== expectedMeasurement.reason ||
 		report.metricsGenerated !== true ||
+		report.metricsGenerated !== (expectedMeasurement.status === "completed") ||
+		report.gatePassed !== expectedGatePassed ||
 		report.gatePassed !== true ||
 		report.preflight.status !== "passed" ||
 		!reportObservationsMatch ||
+		!reportCountsMatch ||
 		report.provenance.gitCommit !== currentCommit ||
 		report.provenance.corpusVersion !== catalog.corpusVersion ||
 		report.provenance.corpusDigest !== corpus.archiveSha256 ||
 		report.provenance.upstreamGroundTruthHash !== corpus.groundTruthSha256 ||
 		report.provenance.benchmarkPolicyHash !== sha256(policyBytes) ||
+		report.provenance.benchmarkPolicyVersion !== policy.policyVersion ||
 		report.provenance.catalogHash !== sha256(catalogBytes) ||
 		report.provenance.playbookHash !== playbookHash ||
 		report.provenance.fixedFixtureHash !== fixedFixtureHash ||
@@ -365,6 +504,10 @@ export async function verifyJuiceShopArtifactIntegrity(params: {
 		params.artifact.fixtureImageDigest !==
 			report.provenance.fixtureImageDigest ||
 		params.artifact.outputHash !== expectedScore.outputHash ||
+		canonicalJson(params.artifact.metrics) !==
+			canonicalJson(expectedScore.metrics) ||
+		canonicalJson(params.artifact.unmappedObservations ?? []) !==
+			canonicalJson(expectedScore.unmappedObservations) ||
 		params.artifact.eligibleScenarioCount !== counts.eligibleScenarioCount ||
 		params.artifact.categoryCount !== counts.categoryCount ||
 		params.artifact.observationCount !== counts.observationCount ||
@@ -405,4 +548,13 @@ function ratio(numerator: number, denominator: number): number | null {
 
 function sha256(value: Uint8Array): string {
 	return `sha256:${crypto.createHash("sha256").update(value).digest("hex")}`;
+}
+
+function pinnedImageReference(image: string, digest: string): string {
+	const withoutDigest = image.split("@")[0] ?? image;
+	const lastSlash = withoutDigest.lastIndexOf("/");
+	const lastColon = withoutDigest.lastIndexOf(":");
+	const repository =
+		lastColon > lastSlash ? withoutDigest.slice(0, lastColon) : withoutDigest;
+	return `${repository}@${digest}`;
 }

@@ -51,6 +51,14 @@ export type SecurityProbe =
 			passwordInBoundedCommonList: boolean;
 	  }
 	| {
+			kind: "knowledge_factor_reset";
+			cwe: "CWE-640";
+			status: number;
+			unauthenticated: boolean;
+			publiclyDiscoverableAnswerUsed: boolean;
+			passwordChanged: boolean;
+	  }
+	| {
 			kind: "replay_protection";
 			cwe: string;
 			attemptCount: number;
@@ -71,6 +79,14 @@ export type SecurityProbe =
 			status: number;
 			traversalSyntaxUsed: boolean;
 			sensitiveExtensionRequested: boolean;
+			sensitiveContentFingerprintPresent: boolean;
+	  }
+	| {
+			kind: "sensitive_endpoint";
+			cwe: "CWE-200";
+			status: number;
+			unauthenticated: boolean;
+			expectedPrivate: boolean;
 			sensitiveContentFingerprintPresent: boolean;
 	  }
 	| {
@@ -96,6 +112,14 @@ export type SecurityProbe =
 			localCanaryHits: number;
 	  }
 	| {
+			kind: "redirect_policy";
+			cwe: "CWE-601";
+			status: number;
+			suppliedDestination: string;
+			redirectLocation: string | null;
+			destinationAllowedByPolicy: boolean;
+	  }
+	| {
 			kind: "observation_only";
 			cwe: string;
 			status: number;
@@ -110,12 +134,15 @@ export type SecurityProbeFinding = {
 		| "SQL_INJECTION"
 		| "HTML_INJECTION"
 		| "WEAK_CREDENTIAL"
+		| "WEAK_PASSWORD_RECOVERY"
 		| "REPLAY_PROTECTION"
 		| "ALLOWLIST_BYPASS"
 		| "SENSITIVE_FILE_EXPOSURE"
+		| "SENSITIVE_ENDPOINT_EXPOSURE"
 		| "NUMERIC_BOUNDARY"
 		| "STATE_TRANSITION"
-		| "SSRF_CANARY";
+		| "SSRF_CANARY"
+		| "REDIRECT_POLICY_BYPASS";
 	cwe: string;
 	title: string;
 };
@@ -210,6 +237,18 @@ function detectorDecision(
 						title: "A bounded common credential authenticated successfully",
 					}
 				: null;
+		case "knowledge_factor_reset":
+			return probe.status >= 200 &&
+				probe.status < 300 &&
+				probe.unauthenticated &&
+				probe.publiclyDiscoverableAnswerUsed &&
+				probe.passwordChanged
+				? {
+						ruleId: "WEAK_PASSWORD_RECOVERY",
+						title:
+							"A publicly discoverable knowledge factor reset an account password",
+					}
+				: null;
 		case "replay_protection":
 			return probe.attemptCount >= 2 &&
 				probe.acceptedCount === probe.attemptCount &&
@@ -239,6 +278,17 @@ function detectorDecision(
 						title: "A sensitive file was returned through a bounded probe",
 					}
 				: null;
+		case "sensitive_endpoint":
+			return probe.status >= 200 &&
+				probe.status < 300 &&
+				probe.unauthenticated &&
+				probe.expectedPrivate &&
+				probe.sensitiveContentFingerprintPresent
+				? {
+						ruleId: "SENSITIVE_ENDPOINT_EXPOSURE",
+						title: "A sensitive endpoint was accessible without authentication",
+					}
+				: null;
 		case "numeric_boundary":
 			return probe.status >= 200 &&
 				probe.status < 300 &&
@@ -264,6 +314,17 @@ function detectorDecision(
 				? {
 						ruleId: "SSRF_CANARY",
 						title: "The target reached an internal outbound canary",
+					}
+				: null;
+		case "redirect_policy":
+			return probe.status >= 300 &&
+				probe.status < 400 &&
+				probe.redirectLocation === probe.suppliedDestination &&
+				!probe.destinationAllowedByPolicy
+				? {
+						ruleId: "REDIRECT_POLICY_BYPASS",
+						title:
+							"A redirect reached a destination outside the current policy",
 					}
 				: null;
 		case "observation_only":

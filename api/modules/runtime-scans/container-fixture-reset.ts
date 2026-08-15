@@ -22,6 +22,10 @@ type ExecFetchResult = {
 	body: string;
 };
 
+export type ContainerFixtureResetExecutor = ActiveResetExecutor & {
+	teardown: () => Promise<{ ok: boolean; errorCode?: string }>;
+};
+
 const CONTAINER_LOOPBACK_FETCH_SCRIPT = `
 const chunks = [];
 for await (const chunk of process.stdin) chunks.push(chunk);
@@ -146,7 +150,7 @@ export function createContainerFixtureResetExecutor(params: {
 	dockerBin?: string;
 	fetchImpl?: DastFetch;
 	spawn?: (args: string[], timeoutSec: number) => Promise<SpawnResult>;
-}): ActiveResetExecutor {
+}): ContainerFixtureResetExecutor {
 	const fixture = FIXTURES[params.strategy.fixtureId as keyof typeof FIXTURES];
 	if (!fixture) throw new Error("zap_active_container_fixture_not_registered");
 	const baselineHash = fixtureBaselineHash(params.strategy.fixtureId);
@@ -159,7 +163,6 @@ export function createContainerFixtureResetExecutor(params: {
 	)
 		throw new Error("zap_active_container_fixture_target_mismatch");
 	const spawn = params.spawn ?? spawnBounded;
-	let networkVerified = false;
 	let ownsFixtureClaim = false;
 	const acquireFixture = () => {
 		if (ownsFixtureClaim || activeFixtureIds.has(params.strategy.fixtureId))
@@ -173,8 +176,8 @@ export function createContainerFixtureResetExecutor(params: {
 		ownsFixtureClaim = false;
 	};
 	const recreate = async () => {
-		if (!networkVerified) {
-			const inspected = await spawn(
+		const inspectNetwork = () =>
+			spawn(
 				[
 					params.dockerBin ?? "docker",
 					"network",
@@ -185,25 +188,28 @@ export function createContainerFixtureResetExecutor(params: {
 				],
 				30,
 			);
-			if (inspected.exitCode === 0) {
-				if (inspected.stdout.trim() !== "true")
-					throw new Error("zap_active_container_fixture_network_not_internal");
-			} else {
-				const created = await spawn(
-					[
-						params.dockerBin ?? "docker",
-						"network",
-						"create",
-						"--internal",
-						fixture.networkName,
-					],
-					30,
-				);
-				if (created.timedOut || created.exitCode !== 0)
-					throw new Error("zap_active_container_fixture_network_create_failed");
-			}
-			networkVerified = true;
+		let inspected = await inspectNetwork();
+		if (inspected.exitCode !== 0) {
+			const created = await spawn(
+				[
+					params.dockerBin ?? "docker",
+					"network",
+					"create",
+					"--internal",
+					fixture.networkName,
+				],
+				30,
+			);
+			if (created.timedOut || created.exitCode !== 0)
+				throw new Error("zap_active_container_fixture_network_create_failed");
+			inspected = await inspectNetwork();
 		}
+		if (
+			inspected.timedOut ||
+			inspected.exitCode !== 0 ||
+			inspected.stdout.trim() !== "true"
+		)
+			throw new Error("zap_active_container_fixture_network_not_internal");
 		const removed = await spawn(
 			[params.dockerBin ?? "docker", "rm", "-f", fixture.containerName],
 			30,
@@ -277,6 +283,26 @@ export function createContainerFixtureResetExecutor(params: {
 							? error.message
 							: "zap_active_container_fixture_reset_failed",
 				};
+			} finally {
+				releaseFixture();
+			}
+		},
+		teardown: async () => {
+			try {
+				const removed = await spawn(
+					[params.dockerBin ?? "docker", "rm", "-f", fixture.containerName],
+					30,
+				);
+				if (
+					removed.timedOut ||
+					(removed.exitCode !== 0 &&
+						!removed.stderr.toLowerCase().includes("no such container"))
+				)
+					return {
+						ok: false,
+						errorCode: "zap_active_container_fixture_teardown_failed",
+					};
+				return { ok: true };
 			} finally {
 				releaseFixture();
 			}

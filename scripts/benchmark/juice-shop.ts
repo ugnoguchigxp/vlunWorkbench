@@ -8,10 +8,14 @@ import {
 	isCompletedJuiceShopObservation,
 	juiceShopObservationsSchema,
 	juiceShopRunReportSchema,
+	summarizeJuiceShopObservations,
 	validateJuiceShopObservations,
 	verifyJuiceShopEvidenceFiles,
 } from "./juice-shop-observations";
-import { loadAndValidateJuiceShopInputs } from "./juice-shop-playbooks";
+import {
+	loadAndValidateJuiceShopInputs,
+	validateJuiceShopCatalogAgainstUpstream,
+} from "./juice-shop-playbooks";
 import { runJuiceShopScenarios } from "./juice-shop-runner";
 import { assessJuiceShopMeasurement } from "./measurement-status";
 
@@ -25,22 +29,38 @@ const runReportPath = path.join(artifactsRoot, "juice-shop-run.json");
 const metricsPath = path.join(artifactsRoot, "juice-shop-metrics.json");
 const catalogPath = "spec/security-capability/juice-shop-ground-truth.v1.json";
 const policyPath = "spec/security-capability/benchmark-policy.v1.json";
+await rm(evidenceRoot, { recursive: true, force: true });
 await mkdir(evidenceRoot, { recursive: true, mode: 0o700 });
 
 const corporaRoot = path.resolve(
 	process.env.VULN_WORKBENCH_SECURITY_CORPORA_ROOT ?? ".cache/security-corpora",
 );
-const [verifiedCorpora, inputs, manifest, catalogBytes, policyBytes] =
-	await Promise.all([
-		verifyPreparedCorpora({
-			outputRoot: corporaRoot,
-			ids: ["owasp-juice-shop"],
-		}),
-		loadAndValidateJuiceShopInputs(),
-		loadScannerDataManifest(),
-		readFile(catalogPath),
-		readFile(policyPath),
-	]);
+const upstreamChallengesPath = path.join(
+	corporaRoot,
+	"owasp-juice-shop/source/data/static/challenges.yml",
+);
+const [
+	verifiedCorpora,
+	inputs,
+	manifest,
+	catalogBytes,
+	policyBytes,
+	upstreamChallengesBytes,
+] = await Promise.all([
+	verifyPreparedCorpora({
+		outputRoot: corporaRoot,
+		ids: ["owasp-juice-shop"],
+	}),
+	loadAndValidateJuiceShopInputs(),
+	loadScannerDataManifest(),
+	readFile(catalogPath),
+	readFile(policyPath),
+	readFile(upstreamChallengesPath),
+]);
+validateJuiceShopCatalogAgainstUpstream(
+	inputs.catalog,
+	upstreamChallengesBytes.toString("utf8"),
+);
 const policy = JSON.parse(policyBytes.toString("utf8")) as {
 	policyVersion: string;
 	minimums: Record<string, number>;
@@ -65,47 +85,24 @@ const byScenario = validateJuiceShopObservations(
 	observations,
 	inputs.catalog.scenarios.map((scenario) => scenario.id),
 );
-await verifyJuiceShopEvidenceFiles(byScenario.values(), evidenceRoot);
+await verifyJuiceShopEvidenceFiles(
+	byScenario.values(),
+	evidenceRoot,
+	new Map(
+		inputs.playbooks.map((playbook) => [
+			playbook.scenarioId,
+			playbook.controlId,
+		]),
+	),
+);
 
-const counts = {
+const counts = summarizeJuiceShopObservations(observations, {
 	eligibleScenarioCount: inputs.catalog.scenarios.length,
 	categoryCount,
-	observationCount: observations.length,
-	executedScenarioCount: observations.filter(isCompletedJuiceShopObservation)
-		.length,
-	detectedScenarioCount: observations.filter(
-		(observation) =>
-			isCompletedJuiceShopObservation(observation) &&
-			observation.vulnerable.detection === "detected",
-	).length,
-	blockedScenarioCount: observations.filter(
-		(observation) => observation.scenarioStatus === "blocked",
-	).length,
-	inconclusiveScenarioCount: observations.filter(
-		(observation) => observation.scenarioStatus === "inconclusive",
-	).length,
-	failedCleanupScenarioCount: observations.filter(
-		(observation) => observation.scenarioStatus === "failed_cleanup",
-	).length,
-	targetRequestCount: observations.reduce(
-		(total, observation) => total + observation.lifecycle.targetRequestCount,
-		0,
-	),
-	externalNetworkRequests: observations.reduce(
-		(total, observation) =>
-			total + observation.lifecycle.externalNetworkRequests,
-		0,
-	),
-	publicProductionRequests: observations.reduce(
-		(total, observation) =>
-			total + observation.lifecycle.publicProductionRequests,
-		0,
-	),
-	credentialCanaryLeakageCount: observations.filter(
-		(observation) => observation.lifecycle.credentialCanaryLeakage,
-	).length,
-};
-const measurement = assessJuiceShopMeasurement(counts);
+});
+const measurement = assessJuiceShopMeasurement(counts, {
+	preflightStatus: run.preflight.status,
+});
 const metricsGenerated = measurement.status === "completed";
 const provenance = {
 	gitCommit: await gitCommit(),
@@ -127,10 +124,15 @@ const provenance = {
 		"tests/security-capability/juice-shop/fixed-app",
 	]),
 	detectorImplementationHash: await sha256Tree([
+		"api/modules/benchmarks/metric-scorer.ts",
 		"api/modules/dast/security-probe-detector.ts",
 		"api/modules/runtime-scans/container-fixture-reset.ts",
+		"scripts/benchmark/benchmark-input-provenance.ts",
+		"scripts/benchmark/juice-shop.ts",
 		"scripts/benchmark/juice-shop-runner.ts",
 		"scripts/benchmark/juice-shop-evidence.ts",
+		"scripts/benchmark/juice-shop-observations.ts",
+		"scripts/benchmark/measurement-status.ts",
 	]),
 	scannerManifestHash: manifest.manifestHash,
 	observationsHash: sha256(observationBytes),
@@ -185,6 +187,7 @@ if (metricsGenerated) {
 	score = scoreBenchmark(groundTruth, detected);
 	const overall = score.metrics.find((metric) => metric.category === "overall");
 	gatePassed =
+		run.preflight.status === "passed" &&
 		counts.eligibleScenarioCount >=
 			policy.minimums.juiceShopEligibleScenarios &&
 		counts.categoryCount >= policy.minimums.juiceShopCategories &&

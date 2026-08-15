@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
+import { z } from "zod";
 import type {
 	SecurityProbe,
 	SecurityProbeFinding,
@@ -15,6 +16,74 @@ export type JuiceShopRequestEvidence = {
 	responseBytes: number;
 	responseShapeHash: string;
 };
+
+const sha256Schema = z.string().regex(/^sha256:[a-f0-9]{64}$/);
+
+export const juiceShopRequestEvidenceSchema = z
+	.object({
+		method: z.string().regex(/^[A-Z]+$/),
+		path: z.string().startsWith("/").max(2_000),
+		queryKeys: z.array(z.string().min(1).max(200)).max(100),
+		status: z.number().int().min(0).max(599),
+		responseBytes: z
+			.number()
+			.int()
+			.nonnegative()
+			.max(16 * 1024 * 1024),
+		responseShapeHash: sha256Schema,
+	})
+	.strict();
+
+export const juiceShopExecutionEvidenceSchema = z
+	.object({
+		schemaVersion: z.literal(1),
+		scenarioId: z.string().regex(/^juice-[a-z0-9-]+$/),
+		targetKind: z.enum(["vulnerable", "fixed"]),
+		controlId: z.string().regex(/^[a-z0-9][a-z0-9/-]+$/),
+		probe: z
+			.object({
+				kind: z.string().min(1).max(100),
+				cwe: z.string().regex(/^CWE-\d+$/),
+			})
+			.passthrough(),
+		findings: z
+			.array(
+				z
+					.object({
+						id: z.string().min(1).max(300),
+						ruleId: z.string().min(1).max(100),
+						cwe: z.string().regex(/^CWE-\d+$/),
+						title: z.string().min(1).max(500),
+					})
+					.strict(),
+			)
+			.max(100),
+		requests: z.array(juiceShopRequestEvidenceSchema).min(1).max(50),
+	})
+	.strict()
+	.superRefine((value, ctx) => {
+		if (value.findings.some((finding) => finding.cwe !== value.probe.cwe)) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["findings"],
+				message: "Finding CWE must match the probe CWE",
+			});
+		}
+		if (
+			new Set(value.findings.map((finding) => finding.id)).size !==
+			value.findings.length
+		) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["findings"],
+				message: "Finding IDs must be unique",
+			});
+		}
+	});
+
+export type JuiceShopExecutionEvidence = z.infer<
+	typeof juiceShopExecutionEvidenceSchema
+>;
 
 export async function writeJuiceShopExecutionEvidence(params: {
 	evidenceRoot: string;
@@ -38,7 +107,7 @@ export async function writeJuiceShopExecutionEvidence(params: {
 		throw new Error("juice_shop_evidence_output_path_invalid");
 	}
 	await mkdir(path.dirname(absolutePath), { recursive: true, mode: 0o700 });
-	const artifact = {
+	const artifact = juiceShopExecutionEvidenceSchema.parse({
 		schemaVersion: 1,
 		scenarioId: params.scenarioId,
 		targetKind: params.targetKind,
@@ -46,7 +115,7 @@ export async function writeJuiceShopExecutionEvidence(params: {
 		probe: params.probe,
 		findings: params.findings,
 		requests: params.requests,
-	};
+	});
 	const bytes = `${canonicalJson(artifact)}\n`;
 	if (Buffer.byteLength(bytes) > 16 * 1024 * 1024)
 		throw new Error("juice_shop_evidence_output_too_large");

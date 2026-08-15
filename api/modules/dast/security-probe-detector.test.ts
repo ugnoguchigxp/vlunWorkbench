@@ -84,4 +84,48 @@ describe("security probe detector", () => {
 			),
 		).toEqual([]);
 	});
+
+	test("detects weak recovery, sensitive endpoints, and policy-bypassing redirects", () => {
+		expect(
+			detectSecurityProbe(
+				{
+					kind: "knowledge_factor_reset",
+					cwe: "CWE-640",
+					status: 200,
+					unauthenticated: true,
+					publiclyDiscoverableAnswerUsed: true,
+					passwordChanged: true,
+				},
+				context,
+			)[0]?.ruleId,
+		).toBe("WEAK_PASSWORD_RECOVERY");
+		expect(
+			detectSecurityProbe(
+				{
+					kind: "sensitive_endpoint",
+					cwe: "CWE-200",
+					status: 200,
+					unauthenticated: true,
+					expectedPrivate: true,
+					sensitiveContentFingerprintPresent: true,
+				},
+				context,
+			)[0]?.ruleId,
+		).toBe("SENSITIVE_ENDPOINT_EXPOSURE");
+		const destination =
+			"https://attacker.invalid/?next=https://github.com/juice-shop/juice-shop";
+		expect(
+			detectSecurityProbe(
+				{
+					kind: "redirect_policy",
+					cwe: "CWE-601",
+					status: 302,
+					suppliedDestination: destination,
+					redirectLocation: destination,
+					destinationAllowedByPolicy: false,
+				},
+				context,
+			)[0]?.ruleId,
+		).toBe("REDIRECT_POLICY_BYPASS");
+	});
 });

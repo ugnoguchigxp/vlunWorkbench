@@ -27,6 +27,7 @@ describe("container fixture reset", () => {
 	test("recreates only a registered immutable fixture and returns its baseline hash", async () => {
 		const fixture = listContainerFixtures()[0];
 		const commands: string[][] = [];
+		let networkCreated = false;
 		const executor = createContainerFixtureResetExecutor({
 			strategy: {
 				kind: "container_recreate",
@@ -36,11 +37,24 @@ describe("container fixture reset", () => {
 			targetOrigin: "http://127.0.0.1:3000",
 			spawn: async (args) => {
 				commands.push(args);
-				if (args[1] === "network" && args[2] === "inspect")
+				if (
+					args[1] === "network" &&
+					args[2] === "inspect" &&
+					!networkCreated
+				)
 					return {
 						exitCode: 1,
 						stdout: "",
 						stderr: "network not found",
+						timedOut: false,
+					};
+				if (args[1] === "network" && args[2] === "create")
+					networkCreated = true;
+				if (args[1] === "network" && args[2] === "inspect")
+					return {
+						exitCode: 0,
+						stdout: "true\n",
+						stderr: "",
 						timedOut: false,
 					};
 				return args[1] === "rm"
@@ -69,7 +83,7 @@ describe("container fixture reset", () => {
 			fixtureId: fixture.fixtureId,
 			expectedBaselineHash: fixture.expectedBaselineHash,
 		})).toEqual({ ok: true, baselineHash: fixture.expectedBaselineHash });
-		expect(commands).toHaveLength(6);
+		expect(commands).toHaveLength(8);
 		expect(commands[1]).toEqual([
 			"docker",
 			"network",
@@ -77,13 +91,16 @@ describe("container fixture reset", () => {
 			"--internal",
 			"vuln-workbench-fixture-internal",
 		]);
-		expect(commands[3]).toContain(fixture.image);
-		expect(commands[3]).toContain("--pull");
-		expect(commands[3]).toContain("never");
-		expect(commands[3]).toContain("--network");
-		expect(commands[3]).toContain("vuln-workbench-fixture-internal");
-		expect(commands[3]).not.toContain("--publish");
-		expect(commands[3]).not.toContain("host");
+		expect(commands[4]).toContain(fixture.image);
+		expect(commands[4]).toContain("--pull");
+		expect(commands[4]).toContain("never");
+		expect(commands[4]).toContain("--network");
+		expect(commands[4]).toContain("vuln-workbench-fixture-internal");
+		expect(commands[4]).not.toContain("--publish");
+		expect(commands[4]).not.toContain("host");
+		expect(await executor.teardown()).toEqual({ ok: true });
+		expect(commands).toHaveLength(9);
+		expect(commands.at(-1)?.slice(0, 3)).toEqual(["docker", "rm", "-f"]);
 	});
 
 	test("serializes recreation of a shared container fixture", async () => {

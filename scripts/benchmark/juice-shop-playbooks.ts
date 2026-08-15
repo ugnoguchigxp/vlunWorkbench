@@ -12,7 +12,8 @@ export const juiceShopCatalogSchema = z.object({
 		.array(
 			z.object({
 				id: z.string().regex(/^juice-[a-z0-9-]+$/),
-				challengeKey: z.string().min(1),
+				challengeKey: z.string().regex(/^[a-z][A-Za-z0-9]+Challenge$/),
+				challengeName: z.string().min(1),
 				category: z.string().min(1),
 				cwe: z.array(z.string().regex(/^CWE-\d+$/)).min(1),
 				actors: z.array(z.string().min(1)).min(1),
@@ -38,11 +39,11 @@ export const juiceShopPlaybookSchema = z.object({
 		"sql_login_admin",
 		"sql_login_bender",
 		"sql_user_credentials",
-		"dom_xss",
-		"reflected_xss",
-		"stored_xss",
+		"sensitive_document",
+		"exposed_metrics",
+		"redirect_allowlist_bypass",
 		"weak_password",
-		"reset_workflow",
+		"knowledge_factor_reset",
 		"captcha_replay",
 		"locale_allowlist",
 		"local_file_read",
@@ -50,7 +51,7 @@ export const juiceShopPlaybookSchema = z.object({
 		"negative_order",
 		"zero_stars",
 		"deluxe_transition",
-		"outbound_canary",
+		"outdated_redirect",
 	]),
 	methods: z.array(httpMethodSchema).min(1).max(4),
 	allowedPathPrefixes: z.array(z.string().startsWith("/")).min(1).max(10),
@@ -69,7 +70,7 @@ export const JUICE_SHOP_PLAYBOOKS: JuiceShopPlaybook[] = [
 		"browser",
 		"admin_route",
 		["GET", "POST"],
-		["/", "/administration", "/rest/user/login", "/api/Users"],
+		["/rest/user/login", "/api/Users"],
 	),
 	playbook(
 		"juice-view-basket",
@@ -120,28 +121,28 @@ export const JUICE_SHOP_PLAYBOOKS: JuiceShopPlaybook[] = [
 		["/rest/products/search"],
 	),
 	playbook(
-		"juice-dom-xss",
-		"xss/dom-xss",
-		"browser",
-		"dom_xss",
-		["GET"],
-		["/", "/search"],
-	),
-	playbook(
-		"juice-reflected-xss",
-		"xss/reflected-xss",
-		"browser",
-		"reflected_xss",
-		["GET"],
-		["/", "/track-result"],
-	),
-	playbook(
-		"juice-api-only-xss",
-		"xss/api-only-xss",
+		"juice-confidential-document",
+		"file-access/confidential-document",
 		"bounded_http",
-		"stored_xss",
-		["POST", "GET"],
-		["/rest/user/login", "/api/Products", "/rest/products/search"],
+		"sensitive_document",
+		["GET"],
+		["/ftp/acquisitions.md"],
+	),
+	playbook(
+		"juice-exposed-metrics",
+		"security-misconfiguration/exposed-metrics",
+		"bounded_http",
+		"exposed_metrics",
+		["GET"],
+		["/metrics"],
+	),
+	playbook(
+		"juice-allowlist-bypass",
+		"redirect/allowlist-bypass",
+		"bounded_http",
+		"redirect_allowlist_bypass",
+		["GET"],
+		["/redirect"],
 	),
 	playbook(
 		"juice-weak-password",
@@ -152,12 +153,16 @@ export const JUICE_SHOP_PLAYBOOKS: JuiceShopPlaybook[] = [
 		["/rest/user/login"],
 	),
 	playbook(
-		"juice-reset-token",
-		"authentication/reset-token",
+		"juice-reset-jim-password",
+		"authentication/reset-jim-password",
 		"business_logic",
-		"reset_workflow",
-		["GET"],
-		["/rest/user/security-question", "/rest/user/reset-password"],
+		"knowledge_factor_reset",
+		["GET", "POST"],
+		[
+			"/rest/user/security-question",
+			"/rest/user/reset-password",
+			"/rest/user/login",
+		],
 	),
 	playbook(
 		"juice-captcha-bypass",
@@ -217,12 +222,12 @@ export const JUICE_SHOP_PLAYBOOKS: JuiceShopPlaybook[] = [
 		["/rest/user/login", "/rest/deluxe-membership"],
 	),
 	playbook(
-		"juice-blockchain-hype",
-		"ssrf/blockchain-hype",
-		"outbound_canary",
-		"outbound_canary",
+		"juice-outdated-allowlist",
+		"redirect/outdated-allowlist",
+		"bounded_http",
+		"outdated_redirect",
 		["GET"],
-		["/", "/tokensale-ico-ea", "/api/Products"],
+		["/redirect"],
 	),
 ].map((value) => juiceShopPlaybookSchema.parse(value));
 
@@ -297,7 +302,10 @@ export async function loadAndValidateJuiceShopInputs(
 			scenario.expectedEvidenceKind !== playbook.expectedEvidenceKind ||
 			!scenario.entrypoints.every((entrypoint) =>
 				playbook.allowedPathPrefixes.some((prefix) =>
-					entrypoint.replace(/\{[^}]+\}/g, "").startsWith(prefix),
+					pathMatchesAllowedPrefix(
+						entrypoint.replace(/\{[^}]+\}/g, ""),
+						prefix,
+					),
 				),
 			)
 		) {
@@ -307,6 +315,42 @@ export async function loadAndValidateJuiceShopInputs(
 		}
 	}
 	return { catalog, playbooks: JUICE_SHOP_PLAYBOOKS };
+}
+
+export function pathMatchesAllowedPrefix(
+	requestPath: string,
+	allowedPrefix: string,
+): boolean {
+	return (
+		requestPath === allowedPrefix ||
+		(allowedPrefix.endsWith("/")
+			? requestPath.startsWith(allowedPrefix)
+			: requestPath.startsWith(`${allowedPrefix}/`))
+	);
+}
+
+export function validateJuiceShopCatalogAgainstUpstream(
+	catalog: JuiceShopCatalog,
+	upstreamChallengesYaml: string,
+): void {
+	const upstreamChallenges = z
+		.array(
+			z
+				.object({
+					key: z.string().min(1),
+					name: z.string().min(1),
+				})
+				.passthrough(),
+		)
+		.parse(Bun.YAML.parse(upstreamChallengesYaml));
+	const byKey = new Map(
+		upstreamChallenges.map((challenge) => [challenge.key, challenge]),
+	);
+	for (const scenario of catalog.scenarios) {
+		const upstream = byKey.get(scenario.challengeKey);
+		if (!upstream || upstream.name !== scenario.challengeName)
+			throw new Error(`juice_shop_upstream_challenge_mismatch:${scenario.id}`);
+	}
 }
 
 function playbook(
@@ -326,11 +370,11 @@ function playbook(
 		"juice-login-admin": "bounded_sql_injection",
 		"juice-login-bender": "bounded_sql_injection",
 		"juice-user-credentials": "bounded_sql_injection",
-		"juice-dom-xss": "browser_dom_sink",
-		"juice-reflected-xss": "reflected_payload",
-		"juice-api-only-xss": "stored_payload",
+		"juice-confidential-document": "sensitive_document_exposure",
+		"juice-exposed-metrics": "sensitive_metrics_exposure",
+		"juice-allowlist-bypass": "redirect_policy_bypass",
 		"juice-weak-password": "credential_policy",
-		"juice-reset-token": "one_time_token_reuse",
+		"juice-reset-jim-password": "public_knowledge_factor_reset",
 		"juice-captcha-bypass": "replay_sequence",
 		"juice-extra-language": "path_allowlist",
 		"juice-local-file-read": "path_traversal",
@@ -338,7 +382,7 @@ function playbook(
 		"juice-negative-order": "bounded_numeric_delta",
 		"juice-zero-stars": "numeric_boundary",
 		"juice-deluxe-fraud": "state_transition",
-		"juice-blockchain-hype": "outbound_request_canary",
+		"juice-outdated-allowlist": "obsolete_redirect_destination",
 	};
 	return {
 		schemaVersion: 1,

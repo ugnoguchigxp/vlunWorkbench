@@ -61,4 +61,20 @@ describe("assessJuiceShopMeasurement", () => {
 			reason: "scenario_cleanup_failed",
 		});
 	});
+
+	it("does not complete a run when preflight or final teardown is blocked", () => {
+		expect(
+			assessJuiceShopMeasurement(
+				{
+					eligibleScenarioCount: 20,
+					observationCount: 20,
+					executedScenarioCount: 20,
+				},
+				{ preflightStatus: "blocked" },
+			),
+		).toEqual({
+			status: "blocked",
+			reason: "runtime_preflight_or_teardown_blocked",
+		});
+	});
 });

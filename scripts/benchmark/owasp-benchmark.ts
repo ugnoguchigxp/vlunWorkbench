@@ -78,6 +78,7 @@ const [
 		"api/modules/benchmarks/metric-scorer.ts",
 		"api/modules/benchmarks/owasp-benchmark-adapter.ts",
 		"api/modules/scans/tools/java-taint-precision-filter.ts",
+		"scripts/benchmark/benchmark-input-provenance.ts",
 	]),
 ]);
 const rawArtifactPath = path.resolve(

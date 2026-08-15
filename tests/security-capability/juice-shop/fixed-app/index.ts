@@ -3,7 +3,7 @@ import type { JuiceShopPlaybook } from "../../../../scripts/benchmark/juice-shop
 
 export type FixedControlExecution = {
 	status: "completed";
-	requestCount: number;
+	request: { method: string; path: string; status: number };
 	probe: SecurityProbe;
 	controlId: string;
 };
@@ -15,7 +15,7 @@ export function executeJuiceShopFixedControl(params: {
 	const { playbook, cwe } = params;
 	const common = {
 		status: "completed" as const,
-		requestCount: Math.min(playbook.maxRequests, 2),
+		request: fixedControlRequest(playbook),
 		controlId: playbook.controlId,
 	};
 	switch (playbook.probeVariant) {
@@ -75,18 +75,30 @@ export function executeJuiceShopFixedControl(params: {
 					sensitiveFieldsPresent: false,
 				},
 			};
-		case "dom_xss":
-		case "reflected_xss":
-		case "stored_xss":
+		case "sensitive_document":
+		case "exposed_metrics":
 			return {
 				...common,
 				probe: {
-					kind: "html_injection",
-					cwe: "CWE-79",
-					status: 200,
-					marker: "vw-xss-marker",
-					markerObserved: false,
-					executableMarkupPreserved: false,
+					kind: "sensitive_endpoint",
+					cwe: "CWE-200",
+					status: 403,
+					unauthenticated: true,
+					expectedPrivate: true,
+					sensitiveContentFingerprintPresent: false,
+				},
+			};
+		case "redirect_allowlist_bypass":
+		case "outdated_redirect":
+			return {
+				...common,
+				probe: {
+					kind: "redirect_policy",
+					cwe: "CWE-601",
+					status: 406,
+					suppliedDestination: "https://attacker.invalid/",
+					redirectLocation: null,
+					destinationAllowedByPolicy: false,
 				},
 			};
 		case "weak_password":
@@ -100,7 +112,18 @@ export function executeJuiceShopFixedControl(params: {
 					passwordInBoundedCommonList: true,
 				},
 			};
-		case "reset_workflow":
+		case "knowledge_factor_reset":
+			return {
+				...common,
+				probe: {
+					kind: "knowledge_factor_reset",
+					cwe: "CWE-640",
+					status: 401,
+					unauthenticated: true,
+					publiclyDiscoverableAnswerUsed: true,
+					passwordChanged: false,
+				},
+			};
 		case "captcha_replay":
 			return {
 				...common,
@@ -163,16 +186,58 @@ export function executeJuiceShopFixedControl(params: {
 					transitionCompleted: false,
 				},
 			};
-		case "outbound_canary":
+	}
+}
+
+function fixedControlRequest(
+	playbook: JuiceShopPlaybook,
+): FixedControlExecution["request"] {
+	switch (playbook.probeVariant) {
+		case "admin_route":
+			return { method: "GET", path: "/api/Users", status: 403 };
+		case "basket_cross_actor":
+			return { method: "GET", path: "/rest/basket/2", status: 403 };
+		case "forged_review":
+			return { method: "PATCH", path: "/rest/products/reviews", status: 403 };
+		case "forged_feedback":
+			return { method: "POST", path: "/api/Feedbacks", status: 403 };
+		case "sql_login_admin":
+		case "sql_login_bender":
+			return { method: "POST", path: "/rest/user/login", status: 401 };
+		case "sql_user_credentials":
+			return { method: "GET", path: "/rest/products/search", status: 200 };
+		case "sensitive_document":
+			return { method: "GET", path: "/ftp/acquisitions.md", status: 403 };
+		case "exposed_metrics":
+			return { method: "GET", path: "/metrics", status: 403 };
+		case "redirect_allowlist_bypass":
+		case "outdated_redirect":
+			return { method: "GET", path: "/redirect", status: 406 };
+		case "weak_password":
+			return { method: "POST", path: "/rest/user/login", status: 401 };
+		case "knowledge_factor_reset":
 			return {
-				...common,
-				probe: {
-					kind: "outbound_request",
-					cwe: "CWE-918",
-					status: 400,
-					untrustedDestinationSupplied: true,
-					localCanaryHits: 0,
-				},
+				method: "POST",
+				path: "/rest/user/reset-password",
+				status: 401,
+			};
+		case "captcha_replay":
+			return { method: "POST", path: "/api/Feedbacks", status: 409 };
+		case "locale_allowlist":
+			return { method: "GET", path: "/assets/i18n/tlh_AA.json", status: 404 };
+		case "local_file_read":
+			return { method: "POST", path: "/dataerasure", status: 404 };
+		case "developer_backup":
+			return { method: "GET", path: "/ftp/package.json.bak", status: 404 };
+		case "negative_order":
+			return { method: "PUT", path: "/api/BasketItems/1", status: 400 };
+		case "zero_stars":
+			return { method: "POST", path: "/api/Feedbacks", status: 400 };
+		case "deluxe_transition":
+			return {
+				method: "POST",
+				path: "/rest/deluxe-membership",
+				status: 400,
 			};
 	}
 }

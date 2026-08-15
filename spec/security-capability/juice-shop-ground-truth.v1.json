@@ -1,22 +1,24 @@
 {
   "schemaVersion": 1,
-  "catalogVersion": "1.0.0",
+  "catalogVersion": "1.1.0",
   "corpusVersion": "20.1.1",
   "scenarios": [
     {
       "id": "juice-admin-section",
-      "challengeKey": "Admin Section",
+      "challengeKey": "adminSectionChallenge",
+      "challengeName": "Admin Section",
       "category": "authorization",
       "cwe": ["CWE-284"],
       "actors": ["customer"],
-      "entrypoints": ["/administration"],
+      "entrypoints": ["/api/Users"],
       "expectedEvidenceKind": "authorization_matrix",
       "scannerFamilies": ["authorization"],
       "pairedFixedFixture": "authorization/admin-section"
     },
     {
       "id": "juice-view-basket",
-      "challengeKey": "View Basket",
+      "challengeKey": "basketAccessChallenge",
+      "challengeName": "View Basket",
       "category": "authorization",
       "cwe": ["CWE-639"],
       "actors": ["customer-a", "customer-b"],
@@ -27,7 +29,8 @@
     },
     {
       "id": "juice-forged-review",
-      "challengeKey": "Forged Review",
+      "challengeKey": "forgedReviewChallenge",
+      "challengeName": "Forged Review",
       "category": "authorization",
       "cwe": ["CWE-639"],
       "actors": ["customer-a", "customer-b"],
@@ -38,7 +41,8 @@
     },
     {
       "id": "juice-forged-feedback",
-      "challengeKey": "Forged Feedback",
+      "challengeKey": "forgedFeedbackChallenge",
+      "challengeName": "Forged Feedback",
       "category": "authorization",
       "cwe": ["CWE-862"],
       "actors": ["customer"],
@@ -49,7 +53,8 @@
     },
     {
       "id": "juice-login-admin",
-      "challengeKey": "Login Admin",
+      "challengeKey": "loginAdminChallenge",
+      "challengeName": "Login Admin",
       "category": "injection",
       "cwe": ["CWE-89"],
       "actors": ["anonymous"],
@@ -60,7 +65,8 @@
     },
     {
       "id": "juice-login-bender",
-      "challengeKey": "Login Bender",
+      "challengeKey": "loginBenderChallenge",
+      "challengeName": "Login Bender",
       "category": "injection",
       "cwe": ["CWE-89"],
       "actors": ["anonymous"],
@@ -71,7 +77,8 @@
     },
     {
       "id": "juice-user-credentials",
-      "challengeKey": "User Credentials",
+      "challengeKey": "unionSqlInjectionChallenge",
+      "challengeName": "User Credentials",
       "category": "injection",
       "cwe": ["CWE-89"],
       "actors": ["anonymous"],
@@ -81,41 +88,45 @@
       "pairedFixedFixture": "injection/user-credentials"
     },
     {
-      "id": "juice-dom-xss",
-      "challengeKey": "DOM XSS",
-      "category": "xss",
-      "cwe": ["CWE-79"],
+      "id": "juice-confidential-document",
+      "challengeKey": "directoryListingChallenge",
+      "challengeName": "Confidential Document",
+      "category": "file_access",
+      "cwe": ["CWE-200"],
       "actors": ["anonymous"],
-      "entrypoints": ["/#/search"],
-      "expectedEvidenceKind": "browser_dom_sink",
+      "entrypoints": ["/ftp/acquisitions.md"],
+      "expectedEvidenceKind": "sensitive_document_exposure",
       "scannerFamilies": ["zap"],
-      "pairedFixedFixture": "xss/dom-xss"
+      "pairedFixedFixture": "file-access/confidential-document"
     },
     {
-      "id": "juice-reflected-xss",
-      "challengeKey": "Reflected XSS",
-      "category": "xss",
-      "cwe": ["CWE-79"],
-      "actors": ["customer"],
-      "entrypoints": ["/track-result"],
-      "expectedEvidenceKind": "reflected_payload",
+      "id": "juice-exposed-metrics",
+      "challengeKey": "exposedMetricsChallenge",
+      "challengeName": "Exposed Metrics",
+      "category": "security_misconfiguration",
+      "cwe": ["CWE-200"],
+      "actors": ["anonymous"],
+      "entrypoints": ["/metrics"],
+      "expectedEvidenceKind": "sensitive_metrics_exposure",
       "scannerFamilies": ["zap"],
-      "pairedFixedFixture": "xss/reflected-xss"
+      "pairedFixedFixture": "security-misconfiguration/exposed-metrics"
     },
     {
-      "id": "juice-api-only-xss",
-      "challengeKey": "API-only XSS",
-      "category": "xss",
-      "cwe": ["CWE-79"],
-      "actors": ["customer"],
-      "entrypoints": ["/api/Products"],
-      "expectedEvidenceKind": "stored_payload",
+      "id": "juice-allowlist-bypass",
+      "challengeKey": "redirectChallenge",
+      "challengeName": "Allowlist Bypass",
+      "category": "redirect",
+      "cwe": ["CWE-601"],
+      "actors": ["anonymous"],
+      "entrypoints": ["/redirect"],
+      "expectedEvidenceKind": "redirect_policy_bypass",
       "scannerFamilies": ["zap"],
-      "pairedFixedFixture": "xss/api-only-xss"
+      "pairedFixedFixture": "redirect/allowlist-bypass"
     },
     {
       "id": "juice-weak-password",
-      "challengeKey": "Password Strength",
+      "challengeKey": "weakPasswordChallenge",
+      "challengeName": "Password Strength",
       "category": "authentication",
       "cwe": ["CWE-521"],
       "actors": ["customer"],
@@ -125,19 +136,21 @@
       "pairedFixedFixture": "authentication/weak-password"
     },
     {
-      "id": "juice-reset-token",
-      "challengeKey": "Reset Jim's Password",
+      "id": "juice-reset-jim-password",
+      "challengeKey": "resetPasswordJimChallenge",
+      "challengeName": "Reset Jim's Password",
       "category": "authentication",
       "cwe": ["CWE-640"],
       "actors": ["anonymous"],
       "entrypoints": ["/rest/user/reset-password"],
-      "expectedEvidenceKind": "one_time_token_reuse",
+      "expectedEvidenceKind": "public_knowledge_factor_reset",
       "scannerFamilies": ["business_logic"],
-      "pairedFixedFixture": "authentication/reset-token"
+      "pairedFixedFixture": "authentication/reset-jim-password"
     },
     {
       "id": "juice-captcha-bypass",
-      "challengeKey": "CAPTCHA Bypass",
+      "challengeKey": "captchaBypassChallenge",
+      "challengeName": "CAPTCHA Bypass",
       "category": "anti_automation",
       "cwe": ["CWE-799"],
       "actors": ["anonymous"],
@@ -148,7 +161,8 @@
     },
     {
       "id": "juice-extra-language",
-      "challengeKey": "Extra Language",
+      "challengeKey": "extraLanguageChallenge",
+      "challengeName": "Extra Language",
       "category": "input_validation",
       "cwe": ["CWE-20"],
       "actors": ["anonymous"],
@@ -159,7 +173,8 @@
     },
     {
       "id": "juice-local-file-read",
-      "challengeKey": "Local File Read",
+      "challengeKey": "lfrChallenge",
+      "challengeName": "Local File Read",
       "category": "file_access",
       "cwe": ["CWE-22"],
       "actors": ["anonymous"],
@@ -170,7 +185,8 @@
     },
     {
       "id": "juice-forgotten-developer-backup",
-      "challengeKey": "Forgotten Developer Backup",
+      "challengeKey": "forgottenDevBackupChallenge",
+      "challengeName": "Forgotten Developer Backup",
       "category": "file_access",
       "cwe": ["CWE-552"],
       "actors": ["anonymous"],
@@ -181,7 +197,8 @@
     },
     {
       "id": "juice-negative-order",
-      "challengeKey": "Payback Time",
+      "challengeKey": "negativeOrderChallenge",
+      "challengeName": "Payback Time",
       "category": "business_logic",
       "cwe": ["CWE-20"],
       "actors": ["customer"],
@@ -192,7 +209,8 @@
     },
     {
       "id": "juice-zero-stars",
-      "challengeKey": "Zero Stars",
+      "challengeKey": "zeroStarsChallenge",
+      "challengeName": "Zero Stars",
       "category": "business_logic",
       "cwe": ["CWE-20"],
       "actors": ["customer"],
@@ -203,7 +221,8 @@
     },
     {
       "id": "juice-deluxe-fraud",
-      "challengeKey": "Deluxe Fraud",
+      "challengeKey": "freeDeluxeChallenge",
+      "challengeName": "Deluxe Fraud",
       "category": "business_logic",
       "cwe": ["CWE-841"],
       "actors": ["customer"],
@@ -213,15 +232,16 @@
       "pairedFixedFixture": "business-logic/deluxe-fraud"
     },
     {
-      "id": "juice-blockchain-hype",
-      "challengeKey": "Blockchain Hype",
-      "category": "ssrf",
-      "cwe": ["CWE-918"],
-      "actors": ["customer"],
-      "entrypoints": ["/api/Products"],
-      "expectedEvidenceKind": "outbound_request_canary",
+      "id": "juice-outdated-allowlist",
+      "challengeKey": "redirectCryptoCurrencyChallenge",
+      "challengeName": "Outdated Allowlist",
+      "category": "redirect",
+      "cwe": ["CWE-601"],
+      "actors": ["anonymous"],
+      "entrypoints": ["/redirect"],
+      "expectedEvidenceKind": "obsolete_redirect_destination",
       "scannerFamilies": ["zap"],
-      "pairedFixedFixture": "ssrf/blockchain-hype"
+      "pairedFixedFixture": "redirect/outdated-allowlist"
     }
   ]
 }

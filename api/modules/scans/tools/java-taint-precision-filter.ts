@@ -214,8 +214,19 @@ function provesConstantSwitch(source: string): boolean {
 function provesSafeListResult(source: string): boolean {
 	const listName = source.match(/List<String>\s+(\w+)\s*=\s*new\s+[^;]+;/)?.[1];
 	if (!listName) return false;
-	const operations = [
+	const gets = [
 		...source.matchAll(
+			new RegExp(
+				`bar\\s*=\\s*${escapeRegex(listName)}\\.get\\(\\s*(\\d+)\\s*\\)\\s*;`,
+				"g",
+			),
+		),
+	];
+	const lastGet = gets.at(-1);
+	if (!lastGet) return false;
+	const sourceBeforeRead = source.slice(0, lastGet.index ?? 0);
+	const operations = [
+		...sourceBeforeRead.matchAll(
 			new RegExp(
 				`${escapeRegex(listName)}\\.(add|remove)\\(\\s*([^;)]+)\\s*\\)\\s*;`,
 				"g",
@@ -235,16 +246,7 @@ function provesSafeListResult(source: string): boolean {
 			values.splice(index, 1);
 		}
 	}
-	const gets = [
-		...source.matchAll(
-			new RegExp(
-				`bar\\s*=\\s*${escapeRegex(listName)}\\.get\\(\\s*(\\d+)\\s*\\)\\s*;`,
-				"g",
-			),
-		),
-	];
-	const selected = Number.parseInt(gets.at(-1)?.[1] ?? "", 10);
-	const lastGet = gets.at(-1);
+	const selected = Number.parseInt(lastGet[1] ?? "", 10);
 	return Boolean(
 		Number.isInteger(selected) &&
 			values[selected] === "safe" &&
@@ -260,8 +262,19 @@ function provesSafeMapResult(source: string): boolean {
 		/HashMap<String\s*,\s*Object>\s+(\w+)\s*=\s*new\s+[^;]+;/,
 	)?.[1];
 	if (!mapName) return false;
+	const gets = [
+		...source.matchAll(
+			new RegExp(
+				`bar\\s*=\\s*\\(String\\)${escapeRegex(mapName)}\\.get\\(\\s*"([^"]+)"\\s*\\)\\s*;`,
+				"g",
+			),
+		),
+	];
+	const lastGet = gets.at(-1);
+	if (!lastGet) return false;
+	const sourceBeforeRead = source.slice(0, lastGet.index ?? 0);
 	const values = new Map<string, "safe" | "tainted">();
-	for (const put of source.matchAll(
+	for (const put of sourceBeforeRead.matchAll(
 		new RegExp(
 			`${escapeRegex(mapName)}\\.put\\(\\s*"([^"]+)"\\s*,\\s*([^;)]+)\\s*\\)\\s*;`,
 			"g",
@@ -272,16 +285,7 @@ function provesSafeMapResult(source: string): boolean {
 			isSafeLiteralExpression(put[2] ?? "") ? "safe" : "tainted",
 		);
 	}
-	const gets = [
-		...source.matchAll(
-			new RegExp(
-				`bar\\s*=\\s*\\(String\\)${escapeRegex(mapName)}\\.get\\(\\s*"([^"]+)"\\s*\\)\\s*;`,
-				"g",
-			),
-		),
-	];
-	const selectedKey = gets.at(-1)?.[1];
-	const lastGet = gets.at(-1);
+	const selectedKey = lastGet[1];
 	return Boolean(
 		selectedKey &&
 			values.get(selectedKey) === "safe" &&
@@ -351,10 +355,16 @@ function proveCalledHelperSafe(
 	callerBody: string,
 	rule: Parameters<typeof proveOwnedJavaTaintFindingSafe>[1],
 ): JavaTaintSuppression["reason"] | null {
-	const calledNames = new Set(
-		[...callerBody.matchAll(/\b(\w+)\s*\(\s*param\s*\)/g)].map(
-			(match) => match[1],
+	const assignedHelperCalls = [
+		...callerBody.matchAll(
+			/(?:\bString\s+)?\bbar\s*=\s*(?:(?:new\s+[\w.$<>]+\s*\([^;)]*\)|[\w.$]+)\s*\.\s*)?(\w+)\s*\(\s*param\s*\)\s*;/g,
 		),
+	].filter(
+		(match) =>
+			!hasBarAssignment(callerBody.slice((match.index ?? 0) + match[0].length)),
+	);
+	const calledNames = new Set(
+		assignedHelperCalls.map((match) => match[1]).filter(Boolean),
 	);
 	for (const calledName of calledNames) {
 		const candidates = javaMethods(source).filter(

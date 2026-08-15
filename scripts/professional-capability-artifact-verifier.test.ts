@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
+import crypto from "node:crypto";
 import { scoreBenchmark } from "../api/modules/benchmarks/metric-scorer";
+import { canonicalJson } from "../api/modules/scans/diff-scan-plan";
 import {
 	assertMetricArtifactIntegrity,
+	assertOwaspMetricArtifactMatchesInputs,
 	isAuthoritativeJuiceShopReleaseRun,
 	type MetricArtifact,
 } from "./professional-capability-artifact-verifier";
@@ -54,6 +57,48 @@ describe("professional capability artifact verifier", () => {
 		expect(() => assertMetricArtifactIntegrity(hashMismatch)).toThrow(
 			"benchmark_metric_output_hash_mismatch",
 		);
+	});
+
+	test("recomputes OWASP metrics from the pinned truth and finding inputs", () => {
+		const csv = [
+			"BenchmarkTest00001,authorization,true,CWE-284",
+			"BenchmarkTest00002,authorization,false,CWE-284",
+		].join("\n");
+		const findings = [
+			{
+				path: "/corpus/BenchmarkTest00001.java",
+				category: "authorization",
+				cwe: "CWE-284",
+			},
+		];
+		const artifact = validArtifact();
+		artifact.normalizedFindingSnapshotHash = `sha256:${crypto
+			.createHash("sha256")
+			.update(
+				canonicalJson([
+					{
+						testId: "BenchmarkTest00001",
+						category: "authorization",
+						cwe: "CWE-284",
+					},
+				]),
+			)
+			.digest("hex")}`;
+		expect(() =>
+			assertOwaspMetricArtifactMatchesInputs({
+				artifact,
+				expectedResultsCsv: csv,
+				findings,
+			}),
+		).not.toThrow();
+
+		expect(() =>
+			assertOwaspMetricArtifactMatchesInputs({
+				artifact,
+				expectedResultsCsv: csv,
+				findings: [],
+			}),
+		).toThrow("owasp_benchmark_score_recomputation_mismatch");
 	});
 
 	test("accepts only complete same-commit authoritative Juice Shop evidence", () => {

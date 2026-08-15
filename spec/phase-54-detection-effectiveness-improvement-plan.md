@@ -33,8 +33,9 @@ corpus、実装hashが追跡できない改善は採用しない。
 - OWASP category: SQLi recall 0.75、trust-boundary recall 0.9639。
 - OWASP FP分類: mapped safe FP 0、unmapped cross-CWE 55。unmappedは除外せず
   overall FPへ残した。
-- Juice Shop: 20/20 scenario完了、12 TP / 8 FN / 20 TN / 0 FP、recall 0.60、
-  precision 1.00、外部・public/production request 0、credential leakage 0。
+- Juice Shop（catalog 1.1.0 review後）: 20/20 scenario完了、17 TP / 3 FN /
+  20 TN / 0 FP、recall 0.85、precision 1.00、外部・public/production request 0、
+  credential leakage 0。
 - macOS上の実測はdiagnostic passであり、release claimには使用しない。
   `.github/workflows/verify.yml`のUbuntu jobがpinned imageをpreloadし、同一commit、
   clean tree、Linux、全provenanceを再検証する。
@@ -69,6 +70,9 @@ corpus、実装hashが追跡できない改善は採用しない。
 | authorization matrixで認可4件を実行できる | matrixはread-only、2 actor、2 object、object pathを要求する | view-basket以外はbusiness/browser primitiveを使う |
 | ZAP active 9 ruleはSQLi/XSS系 | SQLi 2、XSS 2、その他5で、path traversal/SSRF ruleはない | rule catalogどおりに能力を表記する |
 | owned business logic 8/8がlive検出の証拠 | benchmark observationはfixture一覧から機械生成される | executor contractとしてのみ使い、live Juice evidenceと分離する |
+| Reset Jimはreset token replay | upstream 20.1.1は公開情報から推測可能な秘密の質問`Samuel`によるpassword reset | 実際のreset POSTと変更後loginを実行する |
+| Blockchain HypeはSSRF | upstream challenge名は`Outdated Allowlist`で、obsolete crypto URLへのredirect | manual redirectを検証し、外部destinationへは追従しない |
+| DockerでXSS 3件をvulnerableとして採点 | Reflected/API-only XSSはupstreamでDocker無効、DOM XSSはHTTP GETだけではDOM sinkを実行していなかった | pinned Dockerで有効なConfidential Document、Exposed Metrics、Allowlist Bypassへ置換する |
 
 ## 3. Source of truth
 
@@ -221,7 +225,7 @@ primitiveの出力だけから作り、catalogのexpected vulnerabilityをdetect
 - `detected`: production detectorがscenario/CWEへ対応するfindingを出し、実行証拠を持つ。
 - `not_detected`: executedだが対応findingがない。
 - `inconclusive`: requestは実行したが、transport、auth、応答、oracleが信頼できない。
-- `blocked`: Docker、image、browser、auth fixture等が実行前に不足した。
+- `blocked`: Docker、image、auth fixture等が実行前に不足した。
 - `failed_cleanup`: cleanupまたはbaseline復元に失敗した。
 
 observation v2は最低限、次を持つ。vulnerableとfixedは別々のexecution/evidenceを
@@ -323,11 +327,11 @@ production contract testを通した後にbenchmark adapterから呼ぶ。busine
 | `juice-login-admin` | ZAP 40018/40019 | auth endpoint seed、path、observation adapter | yes |
 | `juice-login-bender` | ZAP 40018/40019 | 同上 | yes |
 | `juice-user-credentials` | ZAP 40018/40019 | search endpoint playbook | yes |
-| `juice-dom-xss` | bounded browser transaction | DOM action/sink adapterがない | no |
-| `juice-reflected-xss` | ZAP 40012 | auth seedとroute mapping | yes |
-| `juice-api-only-xss` | ZAP 40014 + seed/cleanup | stored value lifecycle | yes |
+| `juice-confidential-document` | bounded HTTP sensitive-endpoint observer | confidential content fingerprint | yes |
+| `juice-exposed-metrics` | bounded HTTP sensitive-endpoint observer | Prometheus content fingerprint | yes |
+| `juice-allowlist-bypass` | manual redirect policy observer | disallowed origin + allowlisted substring | yes |
 | `juice-weak-password` | business credential-policy scenario | ephemeral accountとpolicy observer | no |
-| `juice-reset-token` | business replay scenario | token seed、reuse、cleanup | no |
+| `juice-reset-jim-password` | knowledge-factor reset observer | reset POST + changed credential login + cleanup | yes |
 | `juice-captcha-bypass` | business replay scenario | CAPTCHA state observer | no |
 | `juice-extra-language` | bounded HTTP + production normalized finding | detector mapping未確認 | no |
 | `juice-local-file-read` | bounded HTTP/DAST | current ZAP allowlistにpath traversal ruleがない | no |
@@ -335,7 +339,7 @@ production contract testを通した後にbenchmark adapterから呼ぶ。busine
 | `juice-negative-order` | business numeric invariant | live basket seedとnumeric observer | yes |
 | `juice-zero-stars` | business boundary invariant | feedback seed/cleanup | yes |
 | `juice-deluxe-fraud` | business state transition | membership state observer | yes |
-| `juice-blockchain-hype` | internal outbound canary | external OASTを使わないlocal canary adapter | no |
+| `juice-outdated-allowlist` | manual redirect policy observer | obsolete destinationを追従せずLocationだけ検証 | yes |
 
 initial candidateは12件だが、dry run前に検出済みとは表記しない。remaining 8も実際に
 scenarioを実行し、production detectorがfindingを出さなければ`not_detected`として
@@ -444,7 +448,7 @@ command injectionまたは下位ruleの改善も必要である。
 - observation/reportをschema v2へ上げ、v1 historical artifactは再解釈しない。
 - missing、blocked、inconclusive、failed cleanupを分離する。
 - `resetSucceeded`のハードコードを廃止する。曖昧な`networkRequests`はtarget requestと
-  external/public requestに分離し、gateway/browser/canary evidenceから算出する。
+  external/public requestに分離し、bounded transport evidenceから算出する。
 - catalogの全fieldをtyped schemaで検証する。
 - commitとsource tree hashをartifact verifierで照合する。
 - `benchmark:all`がblockedをfailedやcompletedへ丸めないようにする。
@@ -465,17 +469,15 @@ command injectionまたは下位ruleの改善も必要である。
 - `tests/security-capability/juice-shop/fixed-app/`
 - family別playbook test
 
-新しい検出能力が必要になった場合の候補は、Juice固有名を持たない
-`api/modules/dast/browser-transaction-runner.ts`、
-`api/modules/dast/outbound-canary-runner.ts`等のgeneric primitiveと対応testである。
-実測分類で不要と分かったmoduleは作らない。
+新しい検出能力はJuice固有oracleにせず、`security-probe-detector.ts`のgenericな
+sensitive endpoint、password recovery、redirect policy primitiveと対応testへ実装する。
 
 #### Delivery order
 
-1. Linux、Docker、pinned image、browser、port、toolbox digestをpreflightする。
+1. Linux、Docker、pinned image、port、toolbox digestをpreflightする。
 2. shared fixture lockを取り、scenarioを直列実行する。
 3. vulnerableとfixedのprepare/execute/evidence/cleanupを同じcontractで実行する。
-4. authorization、business、ZAP、browser、bounded HTTP adapterを順に接続する。
+4. authorization、business、bounded HTTP adapterを順に接続する。
 5. 20 scenarioのID、actor、entrypoint、evidence kind、control IDをcheckerで照合する。
 6. cleanup失敗時は後続scenarioを停止し、fixtureをbusy/unknownとして残さない。
 
@@ -495,7 +497,7 @@ command injectionまたは下位ruleの改善も必要である。
 - SQLi 3
 - authorization 4
 - business logic 3
-- reflected/stored XSS 2
+- sensitive endpoint 2、redirect policy 2、knowledge-factor reset 1
 
 これら12件を優先するが、production findingとevidenceが得られた件数だけをTPとする。
 既存primitiveで不足する場合は、既存ruleのallowlistを無制限に広げず、bounded adapterを
@@ -503,8 +505,8 @@ command injectionまたは下位ruleの改善も必要である。
 
 #### Remaining execution
 
-DOM XSS、weak password、reset token、CAPTCHA、extra language、file access 2件、SSRFも
-実行する。検出できない場合は`not_detected`とlimitationを保存し、分母から外さない。
+weak password、CAPTCHA、extra language、file access、numeric boundaryも実行する。
+検出できない場合は`not_detected`とlimitationを保存し、分母から外さない。
 
 #### Exit
 
@@ -534,10 +536,11 @@ DOM XSS、weak password、reset token、CAPTCHA、extra language、file access 2
 - shared Juice fixtureは直列実行し、同時利用を拒否する。
 - ZAP containerはinternal networkとbounded gatewayを使う。
 - Docker socketをscanner containerへmountしない。
-- SSRF canaryは同じ隔離環境内のlocal sinkだけを使い、外部DNS/OASTへ送らない。
+- redirect probeは`redirect: manual`でLocationだけを観測し、外部destinationへ追従しない。
 - actor secretはauth storeまたはephemeral setupから得て、playbook/evidenceへ保存しない。
 - URL query、header、body、browser console、screenshotを既存redaction policyで処理する。
-- evidenceはroot外path、重複hash、16 MiB超過、hash mismatchを拒否する。
+- evidenceはroot外path、symlink、余剰file、重複hash、16 MiB超過、hash mismatchを
+  拒否し、scenario、target、control、finding、request countをobservationへ結び付ける。
 - cleanupまたはbaseline mismatchはfindingを破棄して`failed_cleanup`にする。
 - LLMはsummaryを作れても、scenario statusとdetected flagを決定しない。
 
@@ -556,7 +559,7 @@ DOM XSS、weak password、reset token、CAPTCHA、extra language、file access 2
 | Fixed run | same detectorでfindingなし | fixed用short-circuit | fixed evidence bundle |
 | State | completed 20/20 | blocked/inconclusiveをFN化 | observation v2 |
 | Cleanup | baseline hash一致 | cleanup timeout/mismatch | prepare/cleanup hashes |
-| Evidence | unique hash、root内、bounded | reuse、traversal、oversize、tamper | verifier result |
+| Evidence | unique hash、root内、bounded、semantic binding | reuse、traversal、symlink、stale file、hash-valid semantic tamper | verifier result |
 | Provenance | same commit/input hashes | stale/mixed artifact | release report |
 | Claim | all gate + persisted OWASP run | missing run/human approval | approved claim PR |
 
@@ -626,7 +629,7 @@ parent planのPR 5と6を、次のreview単位へ分割する。
 | J2 | orchestrator/preflight/evidence | J1 | claim変更 | L |
 | J3 | executable fixed controls | J1-J2 | fixed short-circuit | L |
 | J4 | SQLi/authorization adapters | J2-J3 | broad ZAP allowlist | L |
-| J5 | business/XSS adapters | J2-J3 | browser/SSRF scope拡張 | L |
+| J5 | business/sensitive-endpoint adapters | J2-J3 | external redirect追従 | L |
 | J6 | remaining 8 execution adapters | J2-J5 | denominator削減 | L |
 | C1 | same-commit closeout | A6,J6 | unrelated feature、claim変更 | M |
 | C2 | human-approved claim change | C1 pass | scanner/evaluation変更 | S |
@@ -642,7 +645,7 @@ sub-PRはrebase後に全benchmarkを再実行する。
 | Unmappedだけ減ってscore改善 | benchmark gamingとしてreject | normalization/rule change |
 | Category recallでFP増加 | source/sink拡張を分割または撤回 | 対象category rule |
 | Observation v2でhistorical verifier破壊 | versioned readerを分離 | v2 reader/verifier |
-| Docker/browser不足 | blocked report、release gate停止 | runtime changeなし |
+| Docker/image不足 | blocked report、release gate停止 | runtime changeなし |
 | Auth/setup不安定 | scenarioをinconclusive、原因修正 | actor/playbook |
 | Cleanup/baseline失敗 | 後続停止、findingを採点しない | fixture lifecycle |
 | Fixed controlが比較不能 | precision claimを停止 | 対象control fixture |
@@ -682,7 +685,7 @@ old artifactの意味を変更しない。
 - [x] public/production request、credential leakage、evidence reuseが0である。
 - [x] raw、normalized、observation、metricsをhashで再計算できる。
 - [ ] OWASPとJuice artifactが同じclean commitへ結び付く。
-- [ ] regression benchmarkとfull verificationがgreenである。
+- [x] regression benchmarkとfull verificationがgreenである。
 - [ ] claim変更が別PRでhuman approvalを受けている。
 
 ## 15. Plan quality gate

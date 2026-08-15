@@ -38,19 +38,19 @@
 			"fixedControl": "parameterized product search"
 		},
 		{
-			"scenarioId": "juice-dom-xss",
-			"controlId": "xss/dom-xss",
-			"fixedControl": "DOM text sink"
+			"scenarioId": "juice-confidential-document",
+			"controlId": "file-access/confidential-document",
+			"fixedControl": "authenticated confidential document access"
 		},
 		{
-			"scenarioId": "juice-reflected-xss",
-			"controlId": "xss/reflected-xss",
-			"fixedControl": "contextual output encoding"
+			"scenarioId": "juice-exposed-metrics",
+			"controlId": "security-misconfiguration/exposed-metrics",
+			"fixedControl": "authenticated metrics access"
 		},
 		{
-			"scenarioId": "juice-api-only-xss",
-			"controlId": "xss/api-only-xss",
-			"fixedControl": "stored value encoding"
+			"scenarioId": "juice-allowlist-bypass",
+			"controlId": "redirect/allowlist-bypass",
+			"fixedControl": "exact redirect destination matching"
 		},
 		{
 			"scenarioId": "juice-weak-password",
@@ -58,9 +58,9 @@
 			"fixedControl": "minimum password policy"
 		},
 		{
-			"scenarioId": "juice-reset-token",
-			"controlId": "authentication/reset-token",
-			"fixedControl": "single-use expiring reset token"
+			"scenarioId": "juice-reset-jim-password",
+			"controlId": "authentication/reset-jim-password",
+			"fixedControl": "strong authenticated recovery factor"
 		},
 		{
 			"scenarioId": "juice-captcha-bypass",
@@ -98,9 +98,9 @@
 			"fixedControl": "server-side membership state transition"
 		},
 		{
-			"scenarioId": "juice-blockchain-hype",
-			"controlId": "ssrf/blockchain-hype",
-			"fixedControl": "outbound destination allowlist"
+			"scenarioId": "juice-outdated-allowlist",
+			"controlId": "redirect/outdated-allowlist",
+			"fixedControl": "current redirect destination allowlist"
 		}
 	]
 }

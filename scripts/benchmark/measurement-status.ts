@@ -8,14 +8,22 @@ export type MeasurementAssessment = {
 	reason: string | null;
 };
 
-export function assessJuiceShopMeasurement(metrics: {
-	executedScenarioCount?: number;
-	eligibleScenarioCount?: number;
-	observationCount?: number;
-	blockedScenarioCount?: number;
-	inconclusiveScenarioCount?: number;
-	failedCleanupScenarioCount?: number;
-}): MeasurementAssessment {
+export function assessJuiceShopMeasurement(
+	metrics: {
+		executedScenarioCount?: number;
+		eligibleScenarioCount?: number;
+		observationCount?: number;
+		blockedScenarioCount?: number;
+		inconclusiveScenarioCount?: number;
+		failedCleanupScenarioCount?: number;
+	},
+	options: { preflightStatus?: "passed" | "blocked" } = {},
+): MeasurementAssessment {
+	if (options.preflightStatus === "blocked")
+		return {
+			status: "blocked",
+			reason: "runtime_preflight_or_teardown_blocked",
+		};
 	const executed = metrics.executedScenarioCount ?? 0;
 	const eligible = metrics.eligibleScenarioCount ?? 0;
 	const observed = metrics.observationCount ?? executed;

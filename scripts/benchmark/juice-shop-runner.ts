@@ -1,9 +1,10 @@
 import crypto from "node:crypto";
-import { open, rm } from "node:fs/promises";
+import { mkdir, open, readFile, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import type { DastFetch } from "../../api/modules/dast/http-runner";
 import type { ActiveResetExecutor } from "../../api/modules/runtime-scans/zap-active-runner";
 import {
+	type ContainerFixtureResetExecutor,
 	createContainerFixtureLoopbackFetch,
 	createContainerFixtureResetExecutor,
 	listContainerFixtures,
@@ -27,6 +28,7 @@ import type {
 	JuiceShopCatalog,
 	JuiceShopPlaybook,
 } from "./juice-shop-playbooks";
+import { pathMatchesAllowedPrefix } from "./juice-shop-playbooks";
 
 const TARGET_ORIGIN = "http://127.0.0.1:3000";
 const MAX_RESPONSE_BYTES = 1024 * 1024;
@@ -76,26 +78,31 @@ export async function runJuiceShopScenarios(params: {
 		fixtureId: FIXTURE_ID,
 		expectedBaselineHash: fixture.expectedBaselineHash,
 	};
-	const resetExecutor =
-		params.resetExecutor ??
-		createContainerFixtureResetExecutor({
-			strategy: resetStrategy,
-			targetOrigin,
-			fetchImpl: createContainerFixtureLoopbackFetch({
-				fixtureId: FIXTURE_ID,
-			}),
-		});
+	const defaultResetExecutor: ContainerFixtureResetExecutor | null =
+		params.resetExecutor
+			? null
+			: createContainerFixtureResetExecutor({
+					strategy: resetStrategy,
+					targetOrigin,
+					fetchImpl: createContainerFixtureLoopbackFetch({
+						fixtureId: FIXTURE_ID,
+					}),
+				});
+	const resetExecutor = params.resetExecutor ?? defaultResetExecutor;
+	if (!resetExecutor) throw new Error("juice_shop_reset_executor_missing");
 	const targetFetch = params.resetExecutor
 		? fetch
 		: createContainerFixtureLoopbackFetch({ fixtureId: FIXTURE_ID });
 	const lockPath = path.resolve(".artifacts/benchmark/juice-shop.lock");
-	const releaseLock = await acquireLock(lockPath).catch(() => null);
+	let lockError: string | null = null;
+	const releaseLock = await acquireLock(lockPath).catch((error) => {
+		lockError = safeErrorCode(error);
+		return null;
+	});
 	if (!releaseLock) {
+		const errorCode = lockError ?? "juice_shop_lock_unavailable";
 		return {
-			observations: blockedObservations(
-				params.playbooks,
-				"shared_fixture_busy",
-			),
+			observations: blockedObservations(params.playbooks, errorCode),
 			preflight: {
 				status: "blocked",
 				platform: process.platform,
@@ -103,7 +110,7 @@ export async function runJuiceShopScenarios(params: {
 				image: fixture.image,
 				targetOrigin,
 				authoritativeLinux: process.platform === "linux",
-				errorCode: "shared_fixture_busy",
+				errorCode,
 			},
 		};
 	}
@@ -112,6 +119,15 @@ export async function runJuiceShopScenarios(params: {
 		params.catalog.scenarios.map((scenario) => [scenario.id, scenario]),
 	);
 	let preflightError: string | null = null;
+	let teardownAttempted = false;
+	const teardownDefaultFixture = async () => {
+		if (!defaultResetExecutor || teardownAttempted) return;
+		teardownAttempted = true;
+		const teardown = await defaultResetExecutor.teardown();
+		if (!teardown.ok)
+			preflightError ??=
+				teardown.errorCode ?? "juice_shop_fixture_teardown_failed";
+	};
 	try {
 		for (const playbook of params.playbooks) {
 			const scenario = scenarioById.get(playbook.scenarioId);
@@ -171,10 +187,10 @@ export async function runJuiceShopScenarios(params: {
 					findings: fixedFindings,
 					requests: [
 						{
-							method: playbook.methods[0] ?? "GET",
-							path: playbook.allowedPathPrefixes[0] ?? "/",
+							method: fixed.request.method,
+							path: fixed.request.path,
 							queryKeys: [],
-							status: probeStatus(fixed.probe),
+							status: fixed.request.status,
 							responseBytes: 0,
 							responseShapeHash: responseShapeHash(fixed.probe),
 						},
@@ -216,8 +232,7 @@ export async function runJuiceShopScenarios(params: {
 							normalizedFindingRefs: fixedFindings.map((finding) => finding.id),
 						},
 						lifecycle: {
-							targetRequestCount:
-								vulnerable.requests.length + fixed.requestCount,
+							targetRequestCount: vulnerable.requests.length + 1,
 							externalNetworkRequests: 0,
 							publicProductionRequests: 0,
 							prepareBaselineHash,
@@ -285,6 +300,7 @@ export async function runJuiceShopScenarios(params: {
 				}
 			}
 		}
+		await teardownDefaultFixture();
 		return {
 			observations,
 			preflight: {
@@ -298,6 +314,7 @@ export async function runJuiceShopScenarios(params: {
 			},
 		};
 	} finally {
+		await teardownDefaultFixture();
 		await releaseLock();
 	}
 }
@@ -322,7 +339,12 @@ export class BoundedJuiceShopClient {
 	async request(
 		requestPath: string,
 		init: RequestInit = {},
-	): Promise<{ status: number; json: unknown; text: string }> {
+	): Promise<{
+		status: number;
+		json: unknown;
+		text: string;
+		redirectLocation: string | null;
+	}> {
 		const url = new URL(requestPath, this.origin);
 		if (url.origin !== this.origin)
 			throw new Error("juice_shop_origin_mismatch");
@@ -331,7 +353,7 @@ export class BoundedJuiceShopClient {
 			throw new Error(`juice_shop_method_not_allowed:${method}`);
 		if (
 			!this.playbook.allowedPathPrefixes.some((prefix) =>
-				url.pathname.startsWith(prefix),
+				pathMatchesAllowedPrefix(url.pathname, prefix),
 			)
 		)
 			throw new Error(`juice_shop_path_not_allowed:${url.pathname}`);
@@ -369,7 +391,12 @@ export class BoundedJuiceShopClient {
 				json ?? { type: "text", bytes: responseBytes },
 			),
 		});
-		return { status: response.status, json, text };
+		return {
+			status: response.status,
+			json,
+			text,
+			redirectLocation: response.headers.get("location"),
+		};
 	}
 
 	requestEvidence(): JuiceShopRequestEvidence[] {
@@ -565,47 +592,43 @@ async function collectProbe(
 				),
 			};
 		}
-		case "dom_xss":
-		case "reflected_xss": {
-			const marker = "vw-xss-marker";
-			const route =
-				playbook.probeVariant === "dom_xss"
-					? `/?q=${marker}`
-					: `/track-result?id=${marker}`;
-			const response = await client.request(route);
+		case "sensitive_document":
+		case "exposed_metrics": {
+			const response = await client.request(
+				playbook.probeVariant === "sensitive_document"
+					? "/ftp/acquisitions.md"
+					: "/metrics",
+			);
 			return {
-				kind: "html_injection",
-				cwe: "CWE-79",
+				kind: "sensitive_endpoint",
+				cwe: "CWE-200",
 				status: response.status,
-				marker,
-				markerObserved: response.text.includes(marker),
-				executableMarkupPreserved: false,
+				unauthenticated: true,
+				expectedPrivate: true,
+				sensitiveContentFingerprintPresent:
+					playbook.probeVariant === "sensitive_document"
+						? response.text.includes("This document is confidential") &&
+							response.text.includes("Planned Acquisitions")
+						: response.text.includes("# HELP") &&
+							response.text.includes("_challenges_solved"),
 			};
 		}
-		case "stored_xss": {
-			const auth = await login(client, "admin@juice-sh.op", "admin123");
-			const marker = `vw-xss-${crypto.randomUUID().slice(0, 8)}`;
-			const markup = `<iframe src="javascript:void('${marker}')">`;
-			const created = await client.request("/api/Products", {
-				method: "POST",
-				headers: {
-					...bearer(auth.token),
-					"content-type": "application/json",
-				},
-				body: JSON.stringify({
-					name: marker,
-					description: markup,
-					price: 47.11,
-				}),
-			});
-			const stored = record(record(created.json)?.data)?.description;
+		case "redirect_allowlist_bypass":
+		case "outdated_redirect": {
+			const suppliedDestination =
+				playbook.probeVariant === "redirect_allowlist_bypass"
+					? "https://attacker.invalid/?continue=https://github.com/juice-shop/juice-shop"
+					: "https://blockchain.info/address/1AbKfgvw9psQ41NbLi8kufDQTezwG8DRZm";
+			const response = await client.request(
+				`/redirect?to=${encodeURIComponent(suppliedDestination)}`,
+			);
 			return {
-				kind: "html_injection",
-				cwe: "CWE-79",
-				status: created.status,
-				marker,
-				markerObserved: String(stored ?? "").includes(marker),
-				executableMarkupPreserved: String(stored ?? "").includes("<iframe"),
+				kind: "redirect_policy",
+				cwe: "CWE-601",
+				status: response.status,
+				suppliedDestination,
+				redirectLocation: response.redirectLocation,
+				destinationAllowedByPolicy: false,
 			};
 		}
 		case "weak_password": {
@@ -618,16 +641,29 @@ async function collectProbe(
 				passwordInBoundedCommonList: true,
 			};
 		}
-		case "reset_workflow": {
-			const response = await client.request(
+		case "knowledge_factor_reset": {
+			await client.request(
 				"/rest/user/security-question?email=jim%40juice-sh.op",
 			);
+			const password = `VwReset-${crypto.randomUUID()}`;
+			const response = await client.request("/rest/user/reset-password", {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({
+					email: "jim@juice-sh.op",
+					answer: "Samuel",
+					new: password,
+					repeat: password,
+				}),
+			});
+			const loginResponse = await rawLogin(client, "jim@juice-sh.op", password);
 			return {
-				kind: "replay_protection",
-				cwe,
-				attemptCount: 1,
-				acceptedCount: response.status === 200 ? 1 : 0,
-				nonceReuseObserved: false,
+				kind: "knowledge_factor_reset",
+				cwe: "CWE-640",
+				status: response.status,
+				unauthenticated: true,
+				publiclyDiscoverableAnswerUsed: true,
+				passwordChanged: tokenFrom(loginResponse.json) !== null,
 			};
 		}
 		case "captcha_replay": {
@@ -762,16 +798,6 @@ async function collectProbe(
 					String(record(response.json)?.status ?? "") === "success",
 			};
 		}
-		case "outbound_canary": {
-			const response = await client.request("/");
-			return {
-				kind: "outbound_request",
-				cwe: "CWE-918",
-				status: response.status,
-				untrustedDestinationSupplied: false,
-				localCanaryHits: 0,
-			};
-		}
 	}
 }
 
@@ -859,12 +885,6 @@ function record(value: unknown): Record<string, unknown> | null {
 		: null;
 }
 
-function probeStatus(probe: SecurityProbe): number {
-	if ("status" in probe) return probe.status;
-	if ("probeStatus" in probe) return probe.probeStatus;
-	return 200;
-}
-
 function blockedObservations(
 	playbooks: JuiceShopPlaybook[],
 	errorCode: string,
@@ -932,11 +952,64 @@ function assertLocalTarget(origin: string): void {
 }
 
 async function acquireLock(lockPath: string): Promise<() => Promise<void>> {
-	const handle = await open(lockPath, "wx", 0o600);
+	await mkdir(path.dirname(lockPath), { recursive: true, mode: 0o700 });
+	const token = crypto.randomUUID();
+	let handle: Awaited<ReturnType<typeof open>> | null = null;
+	for (let attempt = 0; attempt < 2; attempt++) {
+		try {
+			handle = await open(lockPath, "wx", 0o600);
+			await handle.writeFile(
+				`${JSON.stringify({ pid: process.pid, token, createdAt: new Date().toISOString() })}\n`,
+			);
+			break;
+		} catch (error) {
+			if (!isNodeError(error, "EEXIST")) throw error;
+			if (attempt > 0 || !(await isStaleLock(lockPath)))
+				throw new Error("shared_fixture_busy");
+			const before = await readFile(lockPath, "utf8").catch(() => null);
+			if (before === null || !(await isStaleLock(lockPath))) throw error;
+			const current = await readFile(lockPath, "utf8").catch(() => null);
+			if (current !== before) throw error;
+			await rm(lockPath, { force: true });
+		}
+	}
+	if (!handle) throw new Error("juice_shop_lock_unavailable");
 	return async () => {
-		await handle.close();
-		await rm(lockPath, { force: true });
+		await handle?.close();
+		const current = await readFile(lockPath, "utf8").catch(() => "");
+		if (current.includes(`"token":"${token}"`))
+			await rm(lockPath, { force: true });
 	};
+}
+
+async function isStaleLock(lockPath: string): Promise<boolean> {
+	const [contents, metadata] = await Promise.all([
+		readFile(lockPath, "utf8").catch(() => ""),
+		stat(lockPath).catch(() => null),
+	]);
+	try {
+		const parsed = JSON.parse(contents) as { pid?: unknown };
+		if (typeof parsed.pid === "number" && Number.isInteger(parsed.pid)) {
+			try {
+				process.kill(parsed.pid, 0);
+				return false;
+			} catch (error) {
+				if (isNodeError(error, "ESRCH")) return true;
+				return false;
+			}
+		}
+	} catch {
+		// A malformed lock is recoverable only after a bounded stale interval.
+	}
+	return Boolean(metadata && Date.now() - metadata.mtimeMs > 60 * 60 * 1000);
+}
+
+function isNodeError(error: unknown, code: string): boolean {
+	return (
+		error instanceof Error &&
+		"code" in error &&
+		(error as NodeJS.ErrnoException).code === code
+	);
 }
 
 function safeErrorCode(error: unknown): string {

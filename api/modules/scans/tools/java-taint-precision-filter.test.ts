@@ -75,6 +75,16 @@ describe("owned Java taint precision filter", () => {
 				"command-injection",
 			),
 		).toBeNull();
+		expect(
+			proveOwnedJavaTaintFindingSafe(
+				`java.util.List<String> values = new java.util.ArrayList<String>();
+				values.add(param);
+				String bar = values.get(0);
+				values.remove(0);
+				values.add("safe-after-read");`,
+				"command-injection",
+			),
+		).toBeNull();
 
 		const safeMap = `
 			String bar = "safe";
@@ -93,6 +103,15 @@ describe("owned Java taint precision filter", () => {
 					'bar = (String)values.get("safe");',
 					"",
 				),
+				"ldap-injection",
+			),
+		).toBeNull();
+		expect(
+			proveOwnedJavaTaintFindingSafe(
+				`java.util.HashMap<String,Object> values = new java.util.HashMap<String,Object>();
+				values.put("selected", param);
+				String bar = (String)values.get("selected");
+				values.put("selected", "safe-after-read");`,
 				"ldap-injection",
 			),
 		).toBeNull();
@@ -207,6 +226,40 @@ describe("owned Java taint precision filter", () => {
 		);
 		expect((result.output as { results: unknown[] }).results).toHaveLength(0);
 		expect(result.suppressions[0]?.reason).toBe("constant_branch");
+	});
+
+	test("does not use an unrelated safe helper to suppress the value reaching the sink", async () => {
+		const helperSource = `class MixedHelperFlow {
+			void run(String param) {
+				safeTransform(param);
+				String bar = unsafeTransform(param);
+				sink(bar);
+			}
+			String safeTransform(String param) {
+				String bar;
+				int num = 86;
+				if ((7 * 42) - num > 200) bar = "safe"; else bar = param;
+				return bar;
+			}
+			String unsafeTransform(String param) {
+				String bar = param;
+				return bar;
+			}
+		}`;
+		const result = await filterOwnedJavaTaintResults(
+			{
+				results: [
+					finding(
+						"vuln-workbench.java.sql-injection",
+						"MixedHelperFlow.java",
+						5,
+					),
+				],
+			},
+			{ readSource: async () => helperSource },
+		);
+		expect((result.output as { results: unknown[] }).results).toHaveLength(1);
+		expect(result.suppressions).toEqual([]);
 	});
 });
 
