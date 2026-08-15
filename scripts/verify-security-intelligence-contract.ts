@@ -5,6 +5,11 @@ import { positiveSecurityIntelligenceAssessmentFixtures } from "../shared/fixtur
 import { negativeSecurityIntelligenceAssessmentFixtures } from "../shared/fixtures/security-intelligence-assessment-v1-negative";
 import { NIGHTWORKERS_SECURITY_SCAN_CONTRACT_VERSION } from "../shared/schemas/nightworkers-security-scan-integration.schema";
 import {
+	NIGHTWORKERS_SECURITY_INTELLIGENCE_CONTRACT_VERSION,
+	nightworkersSecurityIntelligenceSuccessEnvelopeSchema,
+	parseNightworkersSecurityIntelligenceBundle,
+} from "../shared/schemas/nightworkers-security-intelligence.schema";
+import {
 	SECURITY_INTELLIGENCE_ASSESSMENT_CONTRACT_VERSION,
 	securityIntelligenceAssessmentV1Schema,
 } from "../shared/schemas/security-intelligence-assessment.schema";
@@ -109,6 +114,19 @@ export type NightworkersV1ContractSnapshot = z.infer<
 	typeof nightworkersV1ContractSnapshotSchema
 >;
 
+export const nightworkersSecurityIntelligenceV1ContractSnapshotSchema = z
+	.object({
+		contractVersion: z.literal(
+			NIGHTWORKERS_SECURITY_INTELLIGENCE_CONTRACT_VERSION,
+		),
+		schemaFileSha256: sha256DigestSchema,
+		fixtureFileSha256: sha256DigestSchema,
+	})
+	.strict();
+export type NightworkersSecurityIntelligenceV1ContractSnapshot = z.infer<
+	typeof nightworkersSecurityIntelligenceV1ContractSnapshotSchema
+>;
+
 export const securityIntelligenceStage0BaselineSchema = z
 	.object({
 		schemaVersion: z.literal(1),
@@ -122,6 +140,8 @@ export const securityIntelligenceStage0BaselineSchema = z
 			})
 			.strict(),
 		nightworkersV1: nightworkersV1ContractSnapshotSchema,
+		nightworkersSecurityIntelligenceV1:
+			nightworkersSecurityIntelligenceV1ContractSnapshotSchema,
 		assessmentContract: securityIntelligenceContractSnapshotSchema,
 		verification: z
 			.object({
@@ -176,6 +196,7 @@ function assertUniqueFixtureNames(
 export async function buildSecurityIntelligenceContractSnapshot(): Promise<{
 	assessmentContract: SecurityIntelligenceContractSnapshot;
 	nightworkersV1: NightworkersV1ContractSnapshot;
+	nightworkersSecurityIntelligenceV1: NightworkersSecurityIntelligenceV1ContractSnapshot;
 }> {
 	const positiveEntries = Object.entries(
 		positiveSecurityIntelligenceAssessmentFixtures,
@@ -238,6 +259,8 @@ export async function buildSecurityIntelligenceContractSnapshot(): Promise<{
 		verifierFileSha256,
 		nightworkersSchemaFileSha256,
 		nightworkersFixtureFileSha256,
+		nightworkersSecurityIntelligenceSchemaFileSha256,
+		nightworkersSecurityIntelligenceFixtureFileSha256,
 	] = await Promise.all([
 		fileSha256("shared/schemas/security-intelligence-assessment.schema.ts"),
 		fileSha256(
@@ -253,7 +276,23 @@ export async function buildSecurityIntelligenceContractSnapshot(): Promise<{
 			"shared/schemas/nightworkers-security-scan-integration.schema.ts",
 		),
 		fileSha256("shared/fixtures/nightworkers-security-scan-integration-v1.ts"),
+		fileSha256("shared/schemas/nightworkers-security-intelligence.schema.ts"),
+		fileSha256("shared/fixtures/nightworkers-security-intelligence-v1.json"),
 	]);
+	const nightworkersSecurityIntelligenceFixture =
+		nightworkersSecurityIntelligenceSuccessEnvelopeSchema.parse(
+			JSON.parse(
+				await Bun.file(
+					path.join(
+						repositoryRoot,
+						"shared/fixtures/nightworkers-security-intelligence-v1.json",
+					),
+				).text(),
+			),
+		);
+	parseNightworkersSecurityIntelligenceBundle(
+		nightworkersSecurityIntelligenceFixture.data,
+	);
 
 	return {
 		assessmentContract: securityIntelligenceContractSnapshotSchema.parse({
@@ -275,6 +314,12 @@ export async function buildSecurityIntelligenceContractSnapshot(): Promise<{
 			schemaFileSha256: nightworkersSchemaFileSha256,
 			fixtureFileSha256: nightworkersFixtureFileSha256,
 		}),
+		nightworkersSecurityIntelligenceV1:
+			nightworkersSecurityIntelligenceV1ContractSnapshotSchema.parse({
+				contractVersion: NIGHTWORKERS_SECURITY_INTELLIGENCE_CONTRACT_VERSION,
+				schemaFileSha256: nightworkersSecurityIntelligenceSchemaFileSha256,
+				fixtureFileSha256: nightworkersSecurityIntelligenceFixtureFileSha256,
+			}),
 	};
 }
 
@@ -351,6 +396,18 @@ export function assertSecurityIntelligenceBaselineMatches(
 	) {
 		throw new Error("security_intelligence:nightworkers_v1_baseline_mismatch");
 	}
+	if (
+		canonicalStringifySecurityIntelligenceValue(
+			baseline.nightworkersSecurityIntelligenceV1,
+		) !==
+		canonicalStringifySecurityIntelligenceValue(
+			computed.nightworkersSecurityIntelligenceV1,
+		)
+	) {
+		throw new Error(
+			"security_intelligence:nightworkers_security_intelligence_v1_baseline_mismatch",
+		);
+	}
 	return baseline;
 }
 
@@ -361,6 +418,9 @@ export async function verifySecurityIntelligenceContract(
 	baseline: { path: string; matched: true };
 	assessmentContract: SecurityIntelligenceContractSnapshot;
 	nightworkersV1: NightworkersV1ContractSnapshot & { unchanged: true };
+	nightworkersSecurityIntelligenceV1: NightworkersSecurityIntelligenceV1ContractSnapshot & {
+		unchanged: true;
+	};
 }> {
 	const computed = await buildSecurityIntelligenceContractSnapshot();
 	const baselineInput: unknown = JSON.parse(
@@ -378,6 +438,10 @@ export async function verifySecurityIntelligenceContract(
 		},
 		assessmentContract: computed.assessmentContract,
 		nightworkersV1: { ...computed.nightworkersV1, unchanged: true },
+		nightworkersSecurityIntelligenceV1: {
+			...computed.nightworkersSecurityIntelligenceV1,
+			unchanged: true,
+		},
 	};
 }
 

@@ -65,6 +65,7 @@ const env = {
 	nightworkersSecurityIntelligenceEnabled: false,
 	nightworkersSecurityIntelligenceAuthorizationShadowEnabled: false,
 	nightworkersSecurityIntelligenceAllowedProjectIds: [],
+	nightworkersSecurityIntelligenceMaxResponseBytes: 2 * 1024 * 1024,
 } satisfies AppEnv;
 
 describe("LlmRouter", () => {

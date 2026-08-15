@@ -1,0 +1,89 @@
+{
+	"contractVersion": 1,
+	"requestId": "fixture-request-1",
+	"data": {
+		"contractVersion": 1,
+		"bundleRef": "sib:v1:345da23dad9cacf128b299f95bb5524bea0b20a174649e5ea100e3430c2090b8",
+		"projectRef": "project:11111111-1111-4111-8111-111111111111",
+		"scanRunRef": "scan-run:22222222-2222-4222-8222-222222222222",
+		"target": {
+			"kind": "diff",
+			"sourceRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+			"targetDigest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+		},
+		"dependencyAssessment": {
+			"contractVersion": "1",
+			"assessmentRef": "sia:v1:a8580470e6873aba0b4e103d3eab66c84f4a726b0ab484d73417305cc2808517",
+			"producer": {
+				"system": "vulnWorkbench",
+				"version": "1.0.0"
+			},
+			"projectRef": "project:11111111-1111-4111-8111-111111111111",
+			"source": {
+				"scanRunRef": "scan-run:22222222-2222-4222-8222-222222222222",
+				"completedAt": "2026-08-15T01:01:00.000Z"
+			},
+			"target": {
+				"kind": "diff",
+				"sourceRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+				"targetDigest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+			},
+			"scope": {
+				"profileRef": "diff-basic-security",
+				"declaredInvariantRefs": [],
+				"threatModelRefs": []
+			},
+			"outcome": "no_findings_observed",
+			"claims": [],
+			"verifications": [
+				{
+					"verificationRef": "verification:osv",
+					"capabilityRef": "dependency-vulnerability:osv",
+					"required": true,
+					"status": "tested",
+					"reasonCode": "completed_without_findings",
+					"summary": "OSV completed without reporting a dependency finding.",
+					"evidenceRefs": ["artifact:diff-manifest", "tool-run:osv"],
+					"findingRefs": []
+				}
+			],
+			"evidenceRefs": [
+				{
+					"ref": "artifact:diff-manifest",
+					"kind": "scan_artifact",
+					"targetRole": "assessment_target",
+					"scanRunRef": "scan-run:22222222-2222-4222-8222-222222222222",
+					"targetDigest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+					"digest": "sha256:4444444444444444444444444444444444444444444444444444444444444444"
+				},
+				{
+					"ref": "tool-run:osv",
+					"kind": "tool_run",
+					"targetRole": "assessment_target",
+					"scanRunRef": "scan-run:22222222-2222-4222-8222-222222222222",
+					"targetDigest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+					"digest": "sha256:5555555555555555555555555555555555555555555555555555555555555555"
+				}
+			],
+			"findingRefs": [],
+			"coverage": {
+				"covered": [
+					"Dependency manifests changed in the requested diff",
+					"Known dependency vulnerabilities reported by OSV"
+				],
+				"gaps": ["Registry changes after the scanner data snapshot"],
+				"limitationCodes": ["scanner_data_point_in_time"]
+			},
+			"unknowns": [],
+			"residualRisk": [
+				"No finding does not establish that the dependency graph is safe"
+			],
+			"generatedAt": "2026-08-15T01:01:00.000Z"
+		},
+		"authorizationShadow": {
+			"status": "disabled",
+			"reasonCode": "authorization_shadow_disabled"
+		},
+		"limitationCodes": ["authorization_shadow_disabled"]
+	}
+}

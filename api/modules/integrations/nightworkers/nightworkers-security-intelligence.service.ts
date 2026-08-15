@@ -1,8 +1,6 @@
 import type { SecurityIntelligenceAssessmentV1 } from "../../../../shared/schemas/security-intelligence-assessment.schema";
-import {
-	canonicalStringifySecurityIntelligenceValue,
-	parseSecurityIntelligenceAssessmentV1,
-} from "../../../../shared/security-intelligence-assessment-contract";
+import { NIGHTWORKERS_SECURITY_INTELLIGENCE_CONTRACT_VERSION } from "../../../../shared/schemas/nightworkers-security-intelligence.schema";
+import { parseSecurityIntelligenceAssessmentV1 } from "../../../../shared/security-intelligence-assessment-contract";
 import type { AppEnv } from "../../../app/env";
 import type { AppDatabase } from "../../../db";
 import type { AuthenticatedIntegrationClient } from "../../integrationClients/integration-client.service";
@@ -12,6 +10,7 @@ import {
 	buildPersistedDependencyAssessment,
 	type DependencyAssessmentRequest,
 } from "../../security-intelligence/security-assessment-service";
+import { persistedDependencyScanMetadataSchema } from "../../security-intelligence/persisted-dependency-assessment.schema";
 import { NightworkersIntegrationError } from "./nightworkers-integration.errors";
 import type { NightworkersIntegrationRepository } from "./nightworkers-integration.repository";
 import {
@@ -42,6 +41,7 @@ export class NightworkersSecurityIntelligenceService {
 				AppEnv,
 				| "nightworkersSecurityIntelligenceAllowedProjectIds"
 				| "nightworkersSecurityIntelligenceAuthorizationShadowEnabled"
+				| "nightworkersSecurityIntelligenceMaxResponseBytes"
 			>;
 			integrationRepository: Pick<
 				NightworkersIntegrationRepository,
@@ -78,6 +78,10 @@ export class NightworkersSecurityIntelligenceService {
 		if (
 			!binding ||
 			!scan ||
+			binding.integrationClientId !== client.id ||
+			binding.resourceType !== "scan_run" ||
+			binding.resourceId !== scanRunId ||
+			scan.id !== scanRunId ||
 			binding.projectId !== scan.projectId ||
 			binding.ownerUserId !== client.ownerUserId ||
 			scan.createdByUserId !== client.ownerUserId ||
@@ -90,7 +94,15 @@ export class NightworkersSecurityIntelligenceService {
 		if (scan.status === "queued" || scan.status === "running") {
 			throw assessmentNotReady();
 		}
+		if (
+			scan.status !== "completed" &&
+			scan.status !== "failed" &&
+			scan.status !== "cancelled"
+		) {
+			throw assessmentUnavailable();
+		}
 		if (!scan.completedAt) throw assessmentUnavailable();
+		const expectedTarget = expectedTargetBinding(scan.metadata);
 
 		let dependencyAssessment: SecurityIntelligenceAssessmentV1;
 		const dependencyStartedAt = performance.now();
@@ -100,6 +112,7 @@ export class NightworkersSecurityIntelligenceService {
 					scanRunId,
 					expectedProjectId: binding.projectId,
 					ownerUserId: client.ownerUserId,
+					expectedSourceRevision: expectedTarget.sourceRevision,
 					generatedAt: scan.completedAt,
 				}),
 			);
@@ -113,6 +126,8 @@ export class NightworkersSecurityIntelligenceService {
 			assessment: dependencyAssessment,
 			projectId: binding.projectId,
 			scanRunId,
+			completedAt: scan.completedAt,
+			expectedTarget,
 		});
 
 		const authorizationShadow = await this.authorizationState({
@@ -120,16 +135,23 @@ export class NightworkersSecurityIntelligenceService {
 			scanRunId,
 			projectId: binding.projectId,
 			dependencyAssessment,
+			expectedTarget,
 		});
 		try {
 			const bundle = projectNightworkersSecurityIntelligenceBundle({
 				dependencyAssessment,
 				authorizationShadow,
 			});
+			const payloadBytes = maximumResponsePayloadBytes(bundle);
+			if (
+				payloadBytes >
+				this.deps.env.nightworkersSecurityIntelligenceMaxResponseBytes
+			) {
+				throw assessmentUnavailable();
+			}
 			this.emitTelemetry({
 				dependencyBuildDurationMs,
-				payloadBytes: new TextEncoder().encode(JSON.stringify(bundle))
-					.byteLength,
+				payloadBytes,
 				authorizationStatus: authorizationShadow.status,
 				dependencyOutcome: dependencyAssessment.outcome,
 				evidenceRefCount: dependencyAssessment.evidenceRefs.length,
@@ -156,6 +178,7 @@ export class NightworkersSecurityIntelligenceService {
 		scanRunId: string;
 		projectId: string;
 		dependencyAssessment: SecurityIntelligenceAssessmentV1;
+		expectedTarget: ExpectedTargetBinding;
 	}) {
 		if (
 			!this.deps.env.nightworkersSecurityIntelligenceAuthorizationShadowEnabled
@@ -174,7 +197,11 @@ export class NightworkersSecurityIntelligenceService {
 				scanRunId: params.scanRunId,
 				projectId: params.projectId,
 				ownerUserId: params.client.ownerUserId,
-				expectedTarget: params.dependencyAssessment.target,
+				expectedTarget: {
+					...params.dependencyAssessment.target,
+					baseRevision: params.expectedTarget.baseRevision,
+					headRevision: params.expectedTarget.sourceRevision,
+				},
 			});
 		} catch {
 			return authorizationUnavailable();
@@ -189,6 +216,7 @@ export class NightworkersSecurityIntelligenceService {
 		assertAuthorizationBinding({
 			assessment,
 			dependencyAssessment: params.dependencyAssessment,
+			expectedTarget: params.expectedTarget,
 		});
 		return { status: "available" as const, assessment };
 	}
@@ -202,10 +230,23 @@ function assertDependencyBinding(params: {
 	assessment: SecurityIntelligenceAssessmentV1;
 	projectId: string;
 	scanRunId: string;
+	completedAt: Date;
+	expectedTarget: ExpectedTargetBinding;
 }): void {
 	if (
 		params.assessment.projectRef !== `project:${params.projectId}` ||
-		params.assessment.source.scanRunRef !== `scan-run:${params.scanRunId}`
+		params.assessment.source.scanRunRef !== `scan-run:${params.scanRunId}` ||
+		params.assessment.source.completedAt !== params.completedAt.toISOString() ||
+		params.assessment.generatedAt !== params.completedAt.toISOString() ||
+		params.assessment.target.kind !== "diff" ||
+		params.assessment.target.sourceRevision !==
+			params.expectedTarget.sourceRevision ||
+		params.assessment.target.targetDigest !==
+			params.expectedTarget.targetDigest ||
+		params.assessment.verifications.length === 0 ||
+		!params.assessment.verifications.every((verification) =>
+			verification.capabilityRef.startsWith("dependency-vulnerability:"),
+		)
 	) {
 		throw assessmentUnavailable();
 	}
@@ -214,16 +255,47 @@ function assertDependencyBinding(params: {
 function assertAuthorizationBinding(params: {
 	assessment: SecurityIntelligenceAssessmentV1;
 	dependencyAssessment: SecurityIntelligenceAssessmentV1;
+	expectedTarget: ExpectedTargetBinding;
 }): void {
 	const dependency = params.dependencyAssessment;
 	if (
 		params.assessment.projectRef !== dependency.projectRef ||
 		params.assessment.source.scanRunRef !== dependency.source.scanRunRef ||
-		canonicalStringifySecurityIntelligenceValue(params.assessment.target) !==
-			canonicalStringifySecurityIntelligenceValue(dependency.target)
+		params.assessment.source.completedAt !== dependency.source.completedAt ||
+		params.assessment.target.kind !== "diff" ||
+		params.assessment.target.sourceRevision !==
+			params.expectedTarget.sourceRevision ||
+		params.assessment.target.targetDigest !==
+			params.expectedTarget.targetDigest ||
+		params.assessment.target.baseRevision !==
+			params.expectedTarget.baseRevision ||
+		params.assessment.target.headRevision !==
+			params.expectedTarget.sourceRevision ||
+		params.assessment.target.baseTargetDigest === undefined ||
+		params.assessment.verifications.length === 0 ||
+		!params.assessment.verifications.every((verification) =>
+			verification.capabilityRef.startsWith("authorization-boundary:"),
+		)
 	) {
 		throw assessmentUnavailable();
 	}
+}
+
+type ExpectedTargetBinding = {
+	sourceRevision: string;
+	targetDigest: `sha256:${string}`;
+	baseRevision: string;
+};
+
+function expectedTargetBinding(metadata: unknown): ExpectedTargetBinding {
+	const parsed = persistedDependencyScanMetadataSchema.safeParse(metadata);
+	if (!parsed.success) throw assessmentUnavailable();
+	const target = parsed.data.target;
+	return {
+		sourceRevision: target.headSha ?? `working-tree/${target.targetDigest}`,
+		targetDigest: `sha256:${target.targetDigest}`,
+		baseRevision: target.baseSha,
+	};
 }
 
 function authorizationUnavailable() {
@@ -231,6 +303,16 @@ function authorizationUnavailable() {
 		status: "unavailable" as const,
 		reasonCode: "authorization_shadow_unavailable" as const,
 	};
+}
+
+function maximumResponsePayloadBytes(bundle: unknown): number {
+	return new TextEncoder().encode(
+		JSON.stringify({
+			contractVersion: NIGHTWORKERS_SECURITY_INTELLIGENCE_CONTRACT_VERSION,
+			requestId: "x".repeat(64),
+			data: bundle,
+		}),
+	).byteLength;
 }
 
 function scanNotFound(): NightworkersIntegrationError {

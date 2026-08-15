@@ -29,6 +29,7 @@ describe("NightWorkers Security Intelligence routes", () => {
 		const response = await setup.app.request(request(SCAN_ID));
 
 		expect(response.status).toBe(200);
+		expectPrivateNoStore(response);
 		const body = nightworkersSecurityIntelligenceSuccessEnvelopeSchema.parse(
 			await response.json(),
 		);
@@ -44,6 +45,7 @@ describe("NightWorkers Security Intelligence routes", () => {
 		const unauthorized = createRoute({ authenticationFails: true });
 		const unauthorizedResponse = await unauthorized.app.request(request(SCAN_ID));
 		expect(unauthorizedResponse.status).toBe(401);
+		expectPrivateNoStore(unauthorizedResponse);
 		expect((await unauthorizedResponse.json()).error.code).toBe(
 			"integration_unauthorized",
 		);
@@ -51,6 +53,7 @@ describe("NightWorkers Security Intelligence routes", () => {
 		const denied = createRoute({ scopes: [] });
 		const deniedResponse = await denied.app.request(request(SCAN_ID));
 		expect(deniedResponse.status).toBe(403);
+		expectPrivateNoStore(deniedResponse);
 		expect((await deniedResponse.json()).error.code).toBe(
 			"integration_scope_denied",
 		);
@@ -61,6 +64,7 @@ describe("NightWorkers Security Intelligence routes", () => {
 		const setup = createRoute();
 		const response = await setup.app.request(request("not-a-uuid"));
 		expect(response.status).toBe(400);
+		expectPrivateNoStore(response);
 		expect((await response.json()).error.code).toBe("invalid_request");
 		expect(setup.service.assessment).not.toHaveBeenCalled();
 	});
@@ -197,9 +201,6 @@ function dependencyAssessment(): SecurityIntelligenceAssessmentV1 {
 		kind: "diff" as const,
 		sourceRevision: "b".repeat(40),
 		targetDigest: digest("b"),
-		baseRevision: "a".repeat(40),
-		headRevision: "b".repeat(40),
-		baseTargetDigest: digest("a"),
 	};
 	assessment.projectRef = `project:${PROJECT_ID}`;
 	assessment.source.scanRunRef = `scan-run:${SCAN_ID}`;
@@ -207,11 +208,19 @@ function dependencyAssessment(): SecurityIntelligenceAssessmentV1 {
 	assessment.evidenceRefs = assessment.evidenceRefs.map((evidence) => ({
 		...evidence,
 		scanRunRef: assessment.source.scanRunRef,
-		targetDigest:
-			evidence.targetRole === "base_target"
-				? target.baseTargetDigest
-				: target.targetDigest,
+		targetDigest: target.targetDigest,
 	}));
 	assessment.assessmentRef = deriveSecurityIntelligenceAssessmentRef(assessment);
 	return parseSecurityIntelligenceAssessmentV1(assessment);
+}
+
+function expectPrivateNoStore(response: Response): void {
+	expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+	expect(response.headers.get("Pragma")).toBe("no-cache");
+	expect(
+		response.headers
+			.get("Vary")
+			?.split(",")
+			.map((field) => field.trim().toLowerCase()),
+	).toContain("authorization");
 }

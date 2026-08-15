@@ -17,10 +17,13 @@ const OWNER_ID = "33333333-3333-4333-8333-333333333333";
 const COMPLETED_AT = new Date("2026-08-15T01:00:00.000Z");
 const digest = (character: string): string =>
 	`sha256:${character.repeat(64)}`;
-const target = {
+const dependencyTarget = {
 	kind: "diff" as const,
 	sourceRevision: "b".repeat(40),
 	targetDigest: digest("b"),
+};
+const authorizationTarget = {
+	...dependencyTarget,
 	baseRevision: "a".repeat(40),
 	headRevision: "b".repeat(40),
 	baseTargetDigest: digest("a"),
@@ -36,7 +39,10 @@ const client = {
 
 describe("NightworkersSecurityIntelligenceService", () => {
 	it("returns a deterministic dependency bundle with authorization explicitly disabled", async () => {
-		const dependency = rebind(dependencyNoFindingsObservedFixture);
+		const dependency = rebind(
+			dependencyNoFindingsObservedFixture,
+			dependencyTarget,
+		);
 		const telemetry = vi.fn(
 			(_observation: NightworkersSecurityIntelligenceTelemetry) => undefined,
 		);
@@ -59,6 +65,7 @@ describe("NightworkersSecurityIntelligenceService", () => {
 			scanRunId: SCAN_ID,
 			expectedProjectId: PROJECT_ID,
 			ownerUserId: OWNER_ID,
+			expectedSourceRevision: "b".repeat(40),
 			generatedAt: COMPLETED_AT,
 		});
 		expect(telemetry).toHaveBeenCalledTimes(2);
@@ -73,7 +80,7 @@ describe("NightworkersSecurityIntelligenceService", () => {
 
 	it("reports in-progress scans as retryable without building an assessment", async () => {
 		const setup = createService({
-			dependency: rebind(dependencyNoFindingsObservedFixture),
+			dependency: rebind(dependencyNoFindingsObservedFixture, dependencyTarget),
 			scan: { status: "running", completedAt: null },
 		});
 
@@ -88,11 +95,29 @@ describe("NightworkersSecurityIntelligenceService", () => {
 	});
 
 	it("fails closed when the resource is not bound and allowlisted for the client", async () => {
-		const dependency = rebind(dependencyNoFindingsObservedFixture);
+		const dependency = rebind(
+			dependencyNoFindingsObservedFixture,
+			dependencyTarget,
+		);
 		for (const setup of [
 			createService({ dependency, binding: null }),
 			createService({ dependency, allowedProjectIds: [] }),
 			createService({ dependency, binding: { ownerUserId: "another-owner" } }),
+			createService({
+				dependency,
+				binding: { integrationClientId: "another-client" },
+			}),
+			createService({
+				dependency,
+				binding: { resourceType: "another-resource" },
+			}),
+			createService({ dependency, binding: { resourceId: "another-scan" } }),
+			createService({ dependency, scan: { id: "another-scan" } }),
+			createService({ dependency, scan: { projectId: "another-project" } }),
+			createService({
+				dependency,
+				scan: { createdByUserId: "another-owner" },
+			}),
 		]) {
 			await expect(
 				setup.service.assessment(client as never, SCAN_ID),
@@ -120,7 +145,10 @@ describe("NightworkersSecurityIntelligenceService", () => {
 	});
 
 	it("degrades an absent or failed optional authorization provider explicitly", async () => {
-		const dependency = rebind(dependencyNoFindingsObservedFixture);
+		const dependency = rebind(
+			dependencyNoFindingsObservedFixture,
+			dependencyTarget,
+		);
 		for (const authorizationAssessmentProvider of [
 			vi.fn(async () => null),
 			vi.fn(async () => {
@@ -143,13 +171,16 @@ describe("NightworkersSecurityIntelligenceService", () => {
 		}
 	});
 
-	it("accepts only an authorization assessment bound to the exact diff target", async () => {
-		const dependency = rebind(dependencyNoFindingsObservedFixture);
+	it("accepts an authorization assessment with the same target identity and full diff context", async () => {
+		const dependency = rebind(
+			dependencyNoFindingsObservedFixture,
+			dependencyTarget,
+		);
 		const available = createService({
 			dependency,
 			authorizationShadowEnabled: true,
 			authorizationAssessmentProvider: vi.fn(async () =>
-				rebind(authorizationShadowObservedFixture),
+				rebind(authorizationShadowObservedFixture, authorizationTarget),
 			),
 		});
 		expect(
@@ -157,7 +188,10 @@ describe("NightworkersSecurityIntelligenceService", () => {
 				.authorizationShadow.status,
 		).toBe("available");
 
-		const mismatched = rebind(authorizationShadowObservedFixture);
+		const mismatched = rebind(
+			authorizationShadowObservedFixture,
+			authorizationTarget,
+		);
 		mismatched.target = { ...mismatched.target, baseRevision: "c".repeat(40) };
 		mismatched.assessmentRef = deriveSecurityIntelligenceAssessmentRef(mismatched);
 		const rejected = createService({
@@ -168,6 +202,68 @@ describe("NightworkersSecurityIntelligenceService", () => {
 		await expect(
 			rejected.service.assessment(client as never, SCAN_ID),
 		).rejects.toMatchObject({ code: "assessment_unavailable", status: 422 });
+	});
+
+	it("fails closed for unknown terminal states before reading persisted evidence", async () => {
+		const setup = createService({
+			dependency: rebind(
+				dependencyNoFindingsObservedFixture,
+				dependencyTarget,
+			),
+			scan: { status: "paused" },
+		});
+
+		await expect(
+			setup.service.assessment(client as never, SCAN_ID),
+		).rejects.toMatchObject({ code: "assessment_unavailable", status: 422 });
+		expect(setup.dependencyBuilder).not.toHaveBeenCalled();
+	});
+
+	it("rejects dependency projections that drift from persisted scan identity", async () => {
+		const valid = rebind(
+			dependencyNoFindingsObservedFixture,
+			dependencyTarget,
+		);
+		const cases = [
+			{ ...valid, generatedAt: "2026-08-15T01:00:01.000Z" },
+			{
+				...valid,
+				source: {
+					...valid.source,
+					completedAt: "2026-08-15T01:00:01.000Z",
+				},
+			},
+			{
+				...valid,
+				target: { ...valid.target, targetDigest: digest("c") },
+			},
+			{ ...valid, verifications: [] },
+		];
+
+		for (const assessment of cases) {
+			assessment.assessmentRef = deriveSecurityIntelligenceAssessmentRef(assessment);
+			const setup = createService({ dependency: assessment });
+			await expect(
+				setup.service.assessment(client as never, SCAN_ID),
+			).rejects.toMatchObject({ code: "assessment_unavailable", status: 422 });
+		}
+	});
+
+	it("rejects oversized bundles before telemetry emission", async () => {
+		const telemetry = vi.fn();
+		const setup = createService({
+			dependency: rebind(
+				dependencyNoFindingsObservedFixture,
+				dependencyTarget,
+			),
+			maxResponseBytes: 1,
+			telemetry,
+		});
+
+		await expect(
+			setup.service.assessment(client as never, SCAN_ID),
+		).rejects.toMatchObject({ code: "assessment_unavailable", status: 422 });
+		expect(telemetry).not.toHaveBeenCalled();
 	});
 });
 
@@ -180,6 +276,7 @@ function createService(options: {
 	authorizationShadowEnabled?: boolean;
 	authorizationAssessmentProvider?: ReturnType<typeof vi.fn>;
 	telemetry?: (observation: NightworkersSecurityIntelligenceTelemetry) => void;
+	maxResponseBytes?: number;
 }) {
 	const dependencyBuilder =
 		options.dependencyBuilder ?? vi.fn(async () => options.dependency);
@@ -193,6 +290,8 @@ function createService(options: {
 				options.allowedProjectIds ?? [PROJECT_ID],
 			nightworkersSecurityIntelligenceAuthorizationShadowEnabled:
 				options.authorizationShadowEnabled ?? false,
+			nightworkersSecurityIntelligenceMaxResponseBytes:
+				options.maxResponseBytes ?? 2 * 1024 * 1024,
 		},
 		integrationRepository: {
 			findResourceBinding: vi.fn(async () => resourceBinding),
@@ -231,7 +330,29 @@ function scan() {
 		createdByUserId: OWNER_ID,
 		summary: null,
 		lastEventSeq: 1,
-		metadata: {},
+		metadata: {
+			target: {
+				schemaVersion: 1,
+				kind: "commit",
+				requested: {
+					kind: "commit",
+					head: "b".repeat(40),
+					base: "a".repeat(40),
+				},
+				projectPrefix: "",
+				baseSha: "a".repeat(40),
+				headSha: "b".repeat(40),
+				mergeBaseSha: "a".repeat(40),
+				includeUntracked: false,
+				targetDigest: "b".repeat(64),
+				snapshotDigest: "b".repeat(64),
+				changedFileCount: 1,
+				scannableFileCount: 1,
+			},
+			diffManifestArtifactId: "artifact-1",
+			diffToolApplicability: [],
+			toolResults: [],
+		},
 		createdAt: new Date("2026-08-15T00:29:00.000Z"),
 		updatedAt: COMPLETED_AT,
 	};
@@ -239,18 +360,21 @@ function scan() {
 
 function rebind(
 	input: SecurityIntelligenceAssessmentV1,
+	selectedTarget: SecurityIntelligenceAssessmentV1["target"],
 ): SecurityIntelligenceAssessmentV1 {
 	const assessment = structuredClone(input);
 	assessment.projectRef = `project:${PROJECT_ID}`;
 	assessment.source.scanRunRef = `scan-run:${SCAN_ID}`;
-	assessment.target = target;
+	assessment.source.completedAt = COMPLETED_AT.toISOString();
+	assessment.generatedAt = COMPLETED_AT.toISOString();
+	assessment.target = selectedTarget;
 	assessment.evidenceRefs = assessment.evidenceRefs.map((evidence) => ({
 		...evidence,
 		scanRunRef: assessment.source.scanRunRef,
 		targetDigest:
 			evidence.targetRole === "base_target"
-				? target.baseTargetDigest
-				: target.targetDigest,
+				? (selectedTarget.baseTargetDigest ?? selectedTarget.targetDigest)
+				: selectedTarget.targetDigest,
 	}));
 	assessment.assessmentRef = deriveSecurityIntelligenceAssessmentRef(assessment);
 	return parseSecurityIntelligenceAssessmentV1(assessment);

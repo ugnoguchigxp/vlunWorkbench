@@ -54,6 +54,48 @@ describe("NightWorkers Security Intelligence pilot evidence", () => {
 			).status,
 		).toBe("completed");
 	});
+
+	it("does not count duplicate task/run/bundle evidence as independent pairs", () => {
+		const completed = completedEvidence();
+		completed.sample.pairs[1] = structuredClone(completed.sample.pairs[0]);
+
+		expect(() =>
+			nightworkersSecurityIntelligencePilotEvidenceSchema.parse(completed),
+		).toThrow("security_intelligence:pilot_duplicate_task_ref");
+	});
+
+	it("rejects reported metrics that cannot be derived from pair evidence", () => {
+		const completed = completedEvidence();
+		completed.metrics.evidenceResolutionRate = 0.9;
+
+		expect(() =>
+			nightworkersSecurityIntelligencePilotEvidenceSchema.parse(completed),
+		).toThrow("security_intelligence:pilot_metric_mismatch");
+	});
+
+	it("requires an explicit stop reason and completed rollback drill", () => {
+		const template = JSON.parse(readFileSync(templatePath, "utf8"));
+		const stopped = {
+			...template,
+			status: "stopped",
+			generatedAt: "2026-08-15T08:00:00.000Z",
+			stopReasonCodes: ["pilot_integrity_incident"],
+			rollbackDrill: {
+				nightWorkersConsumerDisabled: true,
+				vulnWorkbenchEndpointDisabled: true,
+				existingScanApiUnaffected: true,
+			},
+		};
+		expect(
+			nightworkersSecurityIntelligencePilotEvidenceSchema.parse(stopped).status,
+		).toBe("stopped");
+		expect(() =>
+			nightworkersSecurityIntelligencePilotEvidenceSchema.parse({
+				...stopped,
+				stopReasonCodes: [],
+			}),
+		).toThrow("security_intelligence:pilot_stop_evidence_incomplete");
+	});
 });
 
 function completedEvidence() {
@@ -62,16 +104,23 @@ function completedEvidence() {
 		...template,
 		status: "completed",
 		generatedAt: "2026-08-15T08:00:00.000Z",
-		sample: {
+			sample: {
 			...template.sample,
 			pairs: Array.from({ length: 10 }, (_, index) => ({
 				taskRef: `task:${index}`,
 				baselineRunRef: `run:baseline:${index}`,
 				assessmentRunRef: `run:assessment:${index}`,
+				bundleRef: `sib:v1:${index.toString(16).padStart(64, "0")}`,
+				dependencyAssessmentRef: `sia:v1:${(index + 16)
+					.toString(16)
+					.padStart(64, "0")}`,
+				authorizationAssessmentRef: null,
 				projectRef: "project:fixture",
 				sourceRevision: "a".repeat(40),
 				targetDigest: `sha256:${"b".repeat(64)}`,
 				selectedVerificationRefs: ["verification:dependency"],
+				selectedEvidenceRefs: [`evidence:${index}`],
+				unresolvedEvidenceRefs: [],
 				evidenceResolution: "resolved",
 				outcome: "no_findings_observed",
 				operatorAction: "investigated",
@@ -80,9 +129,15 @@ function completedEvidence() {
 				limitationCodes: [],
 			})),
 		},
-		metrics: Object.fromEntries(
-			Object.keys(template.metrics).map((key) => [key, 0]),
-		),
+		metrics: {
+			...Object.fromEntries(
+				Object.keys(template.metrics).map((key) => [key, 0]),
+			),
+			evidenceResolutionRate: 1,
+			operatorActionRate: 1,
+			baselineTimeToEvidenceMedianSeconds: 20,
+			assessmentTimeToEvidenceMedianSeconds: 10,
+		},
 		privacyAssertions: {
 			noSourceBody: true,
 			noSecret: true,

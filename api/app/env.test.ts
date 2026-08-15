@@ -36,6 +36,9 @@ describe("readAppEnv", () => {
 			env.nightworkersSecurityIntelligenceAuthorizationShadowEnabled,
 		).toBe(false);
 		expect(env.nightworkersSecurityIntelligenceAllowedProjectIds).toEqual([]);
+		expect(env.nightworkersSecurityIntelligenceMaxResponseBytes).toBe(
+			2 * 1024 * 1024,
+		);
 		expect(env.curatedSastEnabled).toBe(false);
 		expect(env.multiEcosystemOsvEnabled).toBe(false);
 		expect(env.zapActiveEnabled).toBe(false);
@@ -84,6 +87,7 @@ describe("readAppEnv", () => {
 				"true",
 			NIGHTWORKERS_SECURITY_INTELLIGENCE_ALLOWED_PROJECT_IDS:
 				"11111111-1111-4111-8111-111111111111,22222222-2222-4222-8222-222222222222,11111111-1111-4111-8111-111111111111",
+			NIGHTWORKERS_SECURITY_INTELLIGENCE_MAX_RESPONSE_BYTES: "1048576",
 		});
 
 		expect(env.nightworkersIntegrationEnabled).toBe(true);
@@ -108,6 +112,7 @@ describe("readAppEnv", () => {
 			"11111111-1111-4111-8111-111111111111",
 			"22222222-2222-4222-8222-222222222222",
 		]);
+		expect(env.nightworkersSecurityIntelligenceMaxResponseBytes).toBe(1_048_576);
 	});
 
 	it("rejects invalid Security Intelligence project allowlist entries", () => {

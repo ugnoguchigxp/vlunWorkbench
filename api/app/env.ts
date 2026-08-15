@@ -159,6 +159,8 @@ const EnvSchema = z.object({
 	NIGHTWORKERS_SECURITY_INTELLIGENCE_AUTHORIZATION_SHADOW_ENABLED:
 		optionalBoolean,
 	NIGHTWORKERS_SECURITY_INTELLIGENCE_ALLOWED_PROJECT_IDS: optionalTrimmedString,
+	NIGHTWORKERS_SECURITY_INTELLIGENCE_MAX_RESPONSE_BYTES:
+		optionalPositiveInteger,
 	JWT_SECRET: z.preprocess((value) => {
 		if (typeof value !== "string") return value;
 		const trimmed = value.trim();
@@ -238,6 +240,7 @@ export type AppEnv = {
 	nightworkersSecurityIntelligenceEnabled: boolean;
 	nightworkersSecurityIntelligenceAuthorizationShadowEnabled: boolean;
 	nightworkersSecurityIntelligenceAllowedProjectIds: string[];
+	nightworkersSecurityIntelligenceMaxResponseBytes: number;
 	curatedSastEnabled?: boolean;
 	multiEcosystemOsvEnabled?: boolean;
 	zapActiveEnabled?: boolean;
@@ -449,6 +452,9 @@ export function readAppEnv(env: NodeJS.ProcessEnv = process.env): AppEnv {
 		nightworkersSecurityIntelligenceAllowedProjectIds: parseUuidCsv(
 			parsed.NIGHTWORKERS_SECURITY_INTELLIGENCE_ALLOWED_PROJECT_IDS,
 		),
+		nightworkersSecurityIntelligenceMaxResponseBytes:
+			parsed.NIGHTWORKERS_SECURITY_INTELLIGENCE_MAX_RESPONSE_BYTES ??
+			2 * 1024 * 1024,
 		curatedSastEnabled: SECURITY_CAPABILITY_DEFAULTS.curatedSastEnabled,
 		multiEcosystemOsvEnabled:
 			SECURITY_CAPABILITY_DEFAULTS.multiEcosystemOsvEnabled,

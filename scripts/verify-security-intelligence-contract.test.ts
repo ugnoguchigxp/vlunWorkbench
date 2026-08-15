@@ -8,7 +8,7 @@ import {
 } from "./verify-security-intelligence-contract";
 
 describe("Security Intelligence contract verifier", () => {
-	test("matches the versioned baseline and preserves NightWorkers v1", async () => {
+	test("matches the versioned baseline and preserves NightWorkers contracts", async () => {
 		const result = await verifySecurityIntelligenceContract();
 		expect(result.ok).toBe(true);
 		expect(result.baseline.matched).toBe(true);
@@ -18,6 +18,10 @@ describe("Security Intelligence contract verifier", () => {
 			/^sha256:[a-f0-9]{64}$/,
 		);
 		expect(result.nightworkersV1).toMatchObject({
+			contractVersion: 1,
+			unchanged: true,
+		});
+		expect(result.nightworkersSecurityIntelligenceV1).toMatchObject({
 			contractVersion: 1,
 			unchanged: true,
 		});
@@ -44,6 +48,8 @@ describe("Security Intelligence contract verifier", () => {
 			scope: "fixture",
 			workingTreeContext: { excludedFromPr1: [] },
 			nightworkersV1: computed.nightworkersV1,
+			nightworkersSecurityIntelligenceV1:
+				computed.nightworkersSecurityIntelligenceV1,
 			assessmentContract: {
 				...computed.assessmentContract,
 				fixtureSetSha256: `sha256:${"0".repeat(64)}` as const,
@@ -76,6 +82,8 @@ describe("Security Intelligence contract verifier", () => {
 			scope: "fixture",
 			workingTreeContext: { excludedFromPr1: [] },
 			nightworkersV1: computed.nightworkersV1,
+			nightworkersSecurityIntelligenceV1:
+				computed.nightworkersSecurityIntelligenceV1,
 			assessmentContract: computed.assessmentContract,
 			verification: {
 				positiveFixtures: "pass",
@@ -107,6 +115,8 @@ describe("Security Intelligence contract verifier", () => {
 				...computed.nightworkersV1,
 				fixtureFileSha256: `sha256:${"0".repeat(64)}`,
 			},
+			nightworkersSecurityIntelligenceV1:
+				computed.nightworkersSecurityIntelligenceV1,
 			assessmentContract: computed.assessmentContract,
 			verification: {
 				positiveFixtures: "pass",
@@ -124,5 +134,40 @@ describe("Security Intelligence contract verifier", () => {
 		expect(() =>
 			assertSecurityIntelligenceBaselineMatches(computed, baseline),
 		).toThrow("security_intelligence:nightworkers_v1_baseline_mismatch");
+	});
+
+	test("rejects drift in the pinned NightWorkers Security Intelligence contract", async () => {
+		const computed = await buildSecurityIntelligenceContractSnapshot();
+		const baseline = {
+			schemaVersion: 1,
+			evidenceKind: "security_intelligence_stage_0_baseline",
+			capturedAt: "2026-08-15T00:00:00.000Z",
+			baselineCommit: "cbfdf40414cb5aee865cfa42b0b1b07f37ee9597",
+			scope: "fixture",
+			workingTreeContext: { excludedFromPr1: [] },
+			nightworkersV1: computed.nightworkersV1,
+			nightworkersSecurityIntelligenceV1: {
+				...computed.nightworkersSecurityIntelligenceV1,
+				fixtureFileSha256: `sha256:${"0".repeat(64)}`,
+			},
+			assessmentContract: computed.assessmentContract,
+			verification: {
+				positiveFixtures: "pass",
+				negativeFixtures: "pass",
+				semanticAssessmentRefs: "pass",
+				canonicalHashRepeatability: "pass",
+			},
+			privacy: {
+				absoluteHomePathsIncluded: false,
+				credentialsIncluded: false,
+				sourceBodiesIncluded: false,
+			},
+		};
+
+		expect(() =>
+			assertSecurityIntelligenceBaselineMatches(computed, baseline),
+		).toThrow(
+			"security_intelligence:nightworkers_security_intelligence_v1_baseline_mismatch",
+		);
 	});
 });

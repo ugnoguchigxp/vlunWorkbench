@@ -68,6 +68,7 @@ function appEnv(overrides: Partial<AppEnv> = {}): AppEnv {
 		nightworkersSecurityIntelligenceEnabled: false,
 		nightworkersSecurityIntelligenceAuthorizationShadowEnabled: false,
 		nightworkersSecurityIntelligenceAllowedProjectIds: [],
+		nightworkersSecurityIntelligenceMaxResponseBytes: 2 * 1024 * 1024,
 		...overrides,
 	};
 }

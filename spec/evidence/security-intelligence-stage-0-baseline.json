@@ -14,6 +14,11 @@
 		"schemaFileSha256": "sha256:98090b09c05f1f505cadf51e01b7d19fcf1ce38cf1ab8f1536630cbebf635eea",
 		"fixtureFileSha256": "sha256:9cb8aed77bfc03b254c0c7917015be7be928dfc648300341cff70843c9ba51cd"
 	},
+	"nightworkersSecurityIntelligenceV1": {
+		"contractVersion": 1,
+		"schemaFileSha256": "sha256:6718d8c8f0da56cd2bfd95fd1be9c22520a28250e43ee88ccd31af879c09e323",
+		"fixtureFileSha256": "sha256:e08a03d0add8989779b394f8f498f152bcd2a5e519a557c1dfc1094f0f131633"
+	},
 	"assessmentContract": {
 		"contractVersion": "1",
 		"schemaFileSha256": "sha256:58d8b6b91e92c2b468156b6c313a54780c65980bd7c606aba7deaf3f905fd122",
@@ -21,7 +26,7 @@
 		"canonicalizationFileSha256": "sha256:b758eb12c86b646974c7ed720b2630c501563476a173f0eab15e454315f54785",
 		"fixtureSourceFileSha256": "sha256:0972479171a4d47ed29471cb8ffc825eaed14a6e59785d44c1aa1e3f06c8b294",
 		"negativeFixtureSourceFileSha256": "sha256:1b66bc53b33a125b4b72c563749459e25b21aa02d022df303ab7f29f074fb939",
-		"verifierFileSha256": "sha256:fec62d2fa4c7d292a94a5c8f358224e784b8ae6a52f2e8aeca2339055a9f803d",
+		"verifierFileSha256": "sha256:8be031649884058c6df0145474e65757396675cdb9124b723a6b9c0dd77dc49c",
 		"positiveFixtureCount": 6,
 		"negativeFixtureCount": 11,
 		"fixtureSetSha256": "sha256:908c35d956cbea5035fefce8cc14e980530a6231cf8adcf01be6905ee837b71d",

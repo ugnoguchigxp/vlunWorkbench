@@ -24,6 +24,22 @@ export function createNightworkersSecurityIntelligenceRoutes(deps: {
 	service: Pick<NightworkersSecurityIntelligenceService, "assessment">;
 }) {
 	const app = new Hono<NightworkersHonoEnv>();
+	app.use("*", async (c, next) => {
+		c.header("Cache-Control", "private, no-store");
+		c.header("Pragma", "no-cache");
+		await next();
+		const vary = c.res.headers.get("Vary");
+		const fields = new Set(
+			(vary ?? "")
+				.split(",")
+				.map((field) => field.trim())
+				.filter(Boolean),
+		);
+		if (![...fields].some((field) => field.toLowerCase() === "authorization")) {
+			fields.add("Authorization");
+		}
+		c.header("Vary", [...fields].join(", "));
+	});
 	app.use(
 		"*",
 		createNightworkersAuthenticationMiddleware(deps.integrationClientService),

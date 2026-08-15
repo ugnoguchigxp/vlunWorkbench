@@ -31,6 +31,11 @@ const safeErrorDetailsSchema = z
 		z.union([z.string().max(512), z.number().finite(), z.boolean(), z.null()]),
 	)
 	.optional();
+const authorizationStateLimitationCodes = [
+	"authorization_shadow_disabled",
+	"authorization_shadow_only",
+	"authorization_shadow_unavailable",
+] as const;
 
 export const nightworkersAuthorizationShadowStateSchema = z.discriminatedUnion(
 	"status",
@@ -80,6 +85,7 @@ export const nightworkersSecurityIntelligenceBundleSchema = z
 			scanRunRef: value.scanRunRef,
 			target: value.target,
 			path: ["dependencyAssessment"],
+			targetMode: "exact",
 			ctx,
 		});
 		if (value.dependencyAssessment.target.kind !== "diff") {
@@ -89,6 +95,19 @@ export const nightworkersSecurityIntelligenceBundleSchema = z
 				message: "security_intelligence:nightworkers_dependency_diff_required",
 			});
 		}
+		if (
+			value.dependencyAssessment.verifications.length === 0 ||
+			!value.dependencyAssessment.verifications.every((verification) =>
+				verification.capabilityRef.startsWith("dependency-vulnerability:"),
+			)
+		) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["dependencyAssessment", "verifications"],
+				message:
+					"security_intelligence:nightworkers_dependency_assessment_required",
+			});
+		}
 		if (value.authorizationShadow.status === "available") {
 			assertAssessmentBinding({
 				assessment: value.authorizationShadow.assessment,
@@ -96,25 +115,46 @@ export const nightworkersSecurityIntelligenceBundleSchema = z
 				scanRunRef: value.scanRunRef,
 				target: value.target,
 				path: ["authorizationShadow", "assessment"],
+				targetMode: "shared_identity",
 				ctx,
 			});
+			const authorization = value.authorizationShadow.assessment;
+			if (
+				authorization.target.baseRevision === undefined ||
+				authorization.target.headRevision === undefined ||
+				authorization.target.baseTargetDigest === undefined ||
+				authorization.verifications.length === 0 ||
+				!authorization.verifications.every((verification) =>
+					verification.capabilityRef.startsWith("authorization-boundary:"),
+				)
+			) {
+				ctx.addIssue({
+					code: "custom",
+					path: ["authorizationShadow", "assessment"],
+					message:
+						"security_intelligence:nightworkers_authorization_assessment_required",
+				});
+			}
 		}
 		const expectedLimitation =
 			value.authorizationShadow.status === "disabled"
 				? "authorization_shadow_disabled"
 				: value.authorizationShadow.status === "unavailable"
 					? "authorization_shadow_unavailable"
-					: null;
-		if (
-			expectedLimitation &&
-			!value.limitationCodes.includes(expectedLimitation)
-		) {
-			ctx.addIssue({
-				code: "custom",
-				path: ["limitationCodes"],
-				message:
-					"security_intelligence:nightworkers_authorization_state_limitation_required",
-			});
+					: "authorization_shadow_only";
+		for (const code of authorizationStateLimitationCodes) {
+			if (
+				value.limitationCodes.includes(code) !==
+				(code === expectedLimitation)
+			) {
+				ctx.addIssue({
+					code: "custom",
+					path: ["limitationCodes"],
+					message:
+						"security_intelligence:nightworkers_authorization_state_limitation_mismatch",
+				});
+				break;
+			}
 		}
 	});
 export type NightworkersSecurityIntelligenceBundle = z.infer<
@@ -186,14 +226,21 @@ function assertAssessmentBinding(params: {
 	scanRunRef: string;
 	target: SecurityIntelligenceAssessmentV1["target"];
 	path: Array<string | number>;
+	targetMode: "exact" | "shared_identity";
 	ctx: z.RefinementCtx;
 }): void {
 	const { assessment, target } = params;
+	const targetMatches =
+		params.targetMode === "exact"
+			? canonicalStringifySecurityIntelligenceValue(assessment.target) ===
+				canonicalStringifySecurityIntelligenceValue(target)
+			: assessment.target.kind === target.kind &&
+				assessment.target.sourceRevision === target.sourceRevision &&
+				assessment.target.targetDigest === target.targetDigest;
 	if (
 		assessment.projectRef !== params.projectRef ||
 		assessment.source.scanRunRef !== params.scanRunRef ||
-		canonicalStringifySecurityIntelligenceValue(assessment.target) !==
-			canonicalStringifySecurityIntelligenceValue(target)
+		!targetMatches
 	) {
 		params.ctx.addIssue({
 			code: "custom",

@@ -55,6 +55,12 @@ export function configureHttpMiddleware(app: Hono, runtime: AppRuntime): void {
 	};
 
 	app.use("*", async (c, next) => {
+		const isSecurityIntelligenceRequest =
+			isNightworkersSecurityIntelligencePath(c.req.path);
+		if (isSecurityIntelligenceRequest) {
+			c.header("Cache-Control", "private, no-store");
+			c.header("Pragma", "no-cache");
+		}
 		const suppliedRequestId = c.req.header("x-request-id");
 		const requestId =
 			suppliedRequestId && /^[A-Za-z0-9._:-]{1,64}$/.test(suppliedRequestId)
@@ -65,6 +71,9 @@ export function configureHttpMiddleware(app: Hono, runtime: AppRuntime): void {
 		try {
 			await next();
 		} finally {
+			if (isSecurityIntelligenceRequest) {
+				addVaryAuthorization(c.res.headers);
+			}
 			console.log(
 				JSON.stringify({
 					version: 1,
@@ -345,6 +354,24 @@ function isNightworkersIntegrationRequest(
 	return prefixes.some(
 		(prefix) => requestPath === prefix || requestPath.startsWith(`${prefix}/`),
 	);
+}
+
+function isNightworkersSecurityIntelligencePath(requestPath: string): boolean {
+	const prefix = "/api/integrations/nightworkers/security-intelligence/v1";
+	return requestPath === prefix || requestPath.startsWith(`${prefix}/`);
+}
+
+function addVaryAuthorization(headers: Headers): void {
+	const fields = new Set(
+		(headers.get("Vary") ?? "")
+			.split(",")
+			.map((field) => field.trim())
+			.filter(Boolean),
+	);
+	if (![...fields].some((field) => field.toLowerCase() === "authorization")) {
+		fields.add("Authorization");
+	}
+	headers.set("Vary", [...fields].join(", "));
 }
 
 function integrationRequestId(c: {

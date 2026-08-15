@@ -175,7 +175,19 @@ describe("NightWorkers CSRF boundary", () => {
 			{ headers: integrationHeaders },
 		);
 		expect(enabledResponse.status).toBe(200);
+		expectPrivateNoStore(enabledResponse);
 		expect(enabled.authenticate).toHaveBeenCalledTimes(1);
+
+		const invalid = createMiddlewareApp({
+			securityIntelligenceEnabled: true,
+			authenticationFails: true,
+		});
+		const invalidResponse = await invalid.app.request(
+			"/api/integrations/nightworkers/security-intelligence/v1/probe",
+			{ headers: integrationHeaders },
+		);
+		expect(invalidResponse.status).toBe(401);
+		expectPrivateNoStore(invalidResponse);
 
 		const disabled = createMiddlewareApp({
 			securityIntelligenceEnabled: false,
@@ -185,6 +197,30 @@ describe("NightWorkers CSRF boundary", () => {
 			{ headers: integrationHeaders },
 		);
 		expect(disabledResponse.status).toBe(401);
+		expectPrivateNoStore(disabledResponse);
 		expect(disabled.authenticate).not.toHaveBeenCalled();
+
+		const masterDisabled = createMiddlewareApp({
+			enabled: false,
+			securityIntelligenceEnabled: true,
+		});
+		const masterDisabledResponse = await masterDisabled.app.request(
+			"/api/integrations/nightworkers/security-intelligence/v1/probe",
+			{ headers: integrationHeaders },
+		);
+		expect(masterDisabledResponse.status).toBe(401);
+		expectPrivateNoStore(masterDisabledResponse);
+		expect(masterDisabled.authenticate).not.toHaveBeenCalled();
 	});
 });
+
+function expectPrivateNoStore(response: Response): void {
+	expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+	expect(response.headers.get("Pragma")).toBe("no-cache");
+	expect(
+		response.headers
+			.get("Vary")
+			?.split(",")
+			.map((field) => field.trim().toLowerCase()),
+	).toContain("authorization");
+}

@@ -76,6 +76,8 @@ contextStillはこのpilotのcritical dependencyにしない。pilot後にvalida
 - `projectRef`、`scanRunRef`、target digestがrequested bindingと一致
 - Dependency sectionはPR 2の結果
 - Authorization sectionは常に`disabled / unavailable / available`を明示し、flag ONかつ利用可能な場合だけassessmentを含む
+- success/error responseは`Cache-Control: private, no-store`、`Pragma: no-cache`、`Vary: Authorization`を返す
+- bundle payloadは`NIGHTWORKERS_SECURITY_INTELLIGENCE_MAX_RESPONSE_BYTES`（既定2 MiB）を超えた場合にfail closedする
 
 ### Not ready / unavailable
 
@@ -115,10 +117,15 @@ PR merge前に次を固定する。
 taskRef
   baselineRunRef
   assessmentRunRef
+  bundleRef
+  dependencyAssessmentRef
+  authorizationAssessmentRef
   projectRef
   sourceRevision
   targetDigest
   selectedVerifications
+  selectedEvidenceRefs
+  unresolvedEvidenceRefs
   evidenceResolution
   outcome
   operatorAction
@@ -126,7 +133,7 @@ taskRef
   limitations
 ```
 
-baselineとassessmentでrevision/digestが一致しないpairは無効とし、performance比較へ含めない。ただしmismatch自体は安全性incidentとして記録する。
+baselineとassessmentでrevision/digestが一致しないpairは無効とし、performance比較へ含めない。ただしmismatch自体は安全性incidentとして記録する。task/run/bundle refが重複するpairは独立sampleとして数えず、pairから再計算できない集計metricを受理しない。
 
 ## 8. Metrics
 
@@ -192,7 +199,7 @@ GO条件を満たしても、このPR内でdefault ONにしない。別のdated 
 - kill switchは再deployなし、または最小のconfig rollbackで発動できること
 - flag OFF後も既存scan routeは影響を受けないこと
 
-flag keyの具体名は既存configuration conventionを確認して決め、plan内の仮名をそのまま増やさない。
+producer側は`NIGHTWORKERS_INTEGRATION_ENABLED`、`NIGHTWORKERS_SECURITY_INTELLIGENCE_ENABLED`、`NIGHTWORKERS_SECURITY_INTELLIGENCE_AUTHORIZATION_SHADOW_ENABLED`、`NIGHTWORKERS_SECURITY_INTELLIGENCE_ALLOWED_PROJECT_IDS`で制御する。payload上限は`NIGHTWORKERS_SECURITY_INTELLIGENCE_MAX_RESPONSE_BYTES`で制御する。
 
 ## 11. Implementation order
 
@@ -213,7 +220,9 @@ flag keyの具体名は既存configuration conventionを確認して決め、pla
 - running scanは成功payloadを返さない。
 - wrong owner/project/bindingは既存integrationと同等に拒否される。
 - existing NightWorkers v1 fixtureとroute testが不変で通る。
+- Security Intelligence v1のschemaと静的response fixtureがhash baselineで固定される。
 - flag OFFで既存workflowへobservableな差分がない。
+- responseはprivate/no-storeで、設定されたpayload上限を超えない。
 - assessmentからすべてのevidence refを解決できる。
 - 1-pair smokeとrollback drillが成功する。
 - paired pilot artifactがsource本文/secret/raw pathなしで作成される。

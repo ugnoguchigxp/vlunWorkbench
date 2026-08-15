@@ -16,17 +16,24 @@ export const NIGHTWORKERS_SECURITY_INTELLIGENCE_PILOT_SCHEMA_VERSION =
 const nullableCount = z.number().int().nonnegative().nullable();
 const nullableRate = z.number().min(0).max(1).nullable();
 const nullableDuration = z.number().nonnegative().nullable();
+const bundleRefSchema = z.string().regex(/^sib:v1:[a-f0-9]{64}$/);
+const assessmentRefSchema = z.string().regex(/^sia:v1:[a-f0-9]{64}$/);
 
 export const nightworkersSecurityIntelligencePilotPairSchema = z
 	.object({
 		taskRef: securityIntelligenceOpaqueRefSchema,
 		baselineRunRef: securityIntelligenceOpaqueRefSchema,
 		assessmentRunRef: securityIntelligenceOpaqueRefSchema,
+		bundleRef: bundleRefSchema,
+		dependencyAssessmentRef: assessmentRefSchema,
+		authorizationAssessmentRef: assessmentRefSchema.nullable(),
 		projectRef: securityIntelligenceOpaqueRefSchema,
 		sourceRevision: securityIntelligenceRevisionSchema,
 		targetDigest: securityIntelligenceSha256DigestSchema,
 		selectedVerificationRefs:
 			securityIntelligenceCanonicalOpaqueRefsSchema.min(1),
+		selectedEvidenceRefs: securityIntelligenceCanonicalOpaqueRefsSchema.min(1),
+		unresolvedEvidenceRefs: securityIntelligenceCanonicalOpaqueRefsSchema,
 		evidenceResolution: z.enum([
 			"resolved",
 			"partially_resolved",
@@ -44,7 +51,39 @@ export const nightworkersSecurityIntelligencePilotPairSchema = z
 		assessmentTimeToEvidenceSeconds: z.number().nonnegative(),
 		limitationCodes: securityIntelligenceCanonicalReasonCodesSchema,
 	})
-	.strict();
+	.strict()
+	.superRefine((value, ctx) => {
+		if (value.baselineRunRef === value.assessmentRunRef) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["assessmentRunRef"],
+				message: "security_intelligence:pilot_run_pair_not_independent",
+			});
+		}
+		const selected = new Set(value.selectedEvidenceRefs);
+		if (value.unresolvedEvidenceRefs.some((ref) => !selected.has(ref))) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["unresolvedEvidenceRefs"],
+				message: "security_intelligence:pilot_unselected_evidence_ref",
+			});
+		}
+		const unresolvedCount = value.unresolvedEvidenceRefs.length;
+		const selectedCount = value.selectedEvidenceRefs.length;
+		const expectedResolution =
+			unresolvedCount === 0
+				? "resolved"
+				: unresolvedCount === selectedCount
+					? "unresolved"
+					: "partially_resolved";
+		if (value.evidenceResolution !== expectedResolution) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["evidenceResolution"],
+				message: "security_intelligence:pilot_evidence_resolution_mismatch",
+			});
+		}
+	});
 
 export const nightworkersSecurityIntelligencePilotEvidenceSchema = z
 	.object({
@@ -114,6 +153,40 @@ export const nightworkersSecurityIntelligencePilotEvidenceSchema = z
 	})
 	.strict()
 	.superRefine((value, ctx) => {
+		for (const [field, code] of [
+			["taskRef", "task_ref"],
+			["baselineRunRef", "baseline_run_ref"],
+			["assessmentRunRef", "assessment_run_ref"],
+			["bundleRef", "bundle_ref"],
+			["dependencyAssessmentRef", "dependency_assessment_ref"],
+		] as const) {
+			if (
+				new Set(value.sample.pairs.map((pair) => pair[field])).size !==
+				value.sample.pairs.length
+			) {
+				ctx.addIssue({
+					code: "custom",
+					path: ["sample", "pairs"],
+					message: `security_intelligence:pilot_duplicate_${code}`,
+				});
+			}
+		}
+		const authorizationAssessmentRefs = value.sample.pairs.flatMap((pair) =>
+			pair.authorizationAssessmentRef === null
+				? []
+				: [pair.authorizationAssessmentRef],
+		);
+		if (
+			new Set(authorizationAssessmentRefs).size !==
+			authorizationAssessmentRefs.length
+		) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["sample", "pairs"],
+				message:
+					"security_intelligence:pilot_duplicate_authorization_assessment_ref",
+			});
+		}
 		if (value.sample.invalidPairs.length > 0 && value.status === "completed") {
 			ctx.addIssue({
 				code: "custom",
@@ -121,13 +194,38 @@ export const nightworkersSecurityIntelligencePilotEvidenceSchema = z
 				message: "security_intelligence:pilot_integrity_incident_requires_stop",
 			});
 		}
+		if (value.status === "stopped") {
+			if (value.generatedAt === null || value.stopReasonCodes.length === 0) {
+				ctx.addIssue({
+					code: "custom",
+					path: ["stopReasonCodes"],
+					message: "security_intelligence:pilot_stop_evidence_incomplete",
+				});
+			}
+			if (Object.values(value.rollbackDrill).some((assertion) => !assertion)) {
+				ctx.addIssue({
+					code: "custom",
+					path: ["rollbackDrill"],
+					message: "security_intelligence:pilot_rollback_incomplete",
+				});
+			}
+			return;
+		}
 		if (value.status !== "completed") return;
+		if (value.stopReasonCodes.length > 0) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["stopReasonCodes"],
+				message: "security_intelligence:pilot_completed_with_stop_reason",
+			});
+		}
 		if (value.sample.pairs.length < value.sample.requiredValidPairCount) {
 			ctx.addIssue({
 				code: "custom",
 				path: ["sample", "pairs"],
 				message: "security_intelligence:pilot_sample_incomplete",
 			});
+			return;
 		}
 		if (
 			value.generatedAt === null ||
@@ -138,6 +236,7 @@ export const nightworkersSecurityIntelligencePilotEvidenceSchema = z
 				path: ["metrics"],
 				message: "security_intelligence:pilot_metrics_incomplete",
 			});
+			return;
 		}
 		const integrityMetrics = [
 			value.metrics.wrongProjectOrRevisionBindingCount,
@@ -173,8 +272,54 @@ export const nightworkersSecurityIntelligencePilotEvidenceSchema = z
 				message: "security_intelligence:pilot_rollback_incomplete",
 			});
 		}
+		const pairCount = value.sample.pairs.length;
+		const selectedEvidenceCount = value.sample.pairs.reduce(
+			(total, pair) => total + pair.selectedEvidenceRefs.length,
+			0,
+		);
+		const unresolvedEvidenceCount = value.sample.pairs.reduce(
+			(total, pair) => total + pair.unresolvedEvidenceRefs.length,
+			0,
+		);
+		const expectedMetrics = {
+			unresolvedEvidenceRefCount: unresolvedEvidenceCount,
+			evidenceResolutionRate:
+				(selectedEvidenceCount - unresolvedEvidenceCount) /
+				selectedEvidenceCount,
+			operatorActionRate:
+				value.sample.pairs.filter((pair) => pair.operatorAction !== "none")
+					.length / pairCount,
+			baselineTimeToEvidenceMedianSeconds: median(
+				value.sample.pairs.map((pair) => pair.baselineTimeToEvidenceSeconds),
+			),
+			assessmentTimeToEvidenceMedianSeconds: median(
+				value.sample.pairs.map((pair) => pair.assessmentTimeToEvidenceSeconds),
+			),
+		};
+		for (const [metric, expected] of Object.entries(expectedMetrics)) {
+			const actual = value.metrics[metric as keyof typeof expectedMetrics];
+			if (typeof actual !== "number" || !approximatelyEqual(actual, expected)) {
+				ctx.addIssue({
+					code: "custom",
+					path: ["metrics", metric],
+					message: "security_intelligence:pilot_metric_mismatch",
+				});
+			}
+		}
 	});
 
 export type NightworkersSecurityIntelligencePilotEvidence = z.infer<
 	typeof nightworkersSecurityIntelligencePilotEvidenceSchema
 >;
+
+function median(values: number[]): number {
+	const ordered = [...values].sort((left, right) => left - right);
+	const middle = Math.floor(ordered.length / 2);
+	return ordered.length % 2 === 0
+		? (ordered[middle - 1] + ordered[middle]) / 2
+		: ordered[middle];
+}
+
+function approximatelyEqual(left: number, right: number): boolean {
+	return Math.abs(left - right) <= 1e-9;
+}
