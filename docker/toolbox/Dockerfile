@@ -1,4 +1,4 @@
-FROM golang:1.26.6-bookworm@sha256:116d58cbd88c1297624acc6e967a060012422bacf9930927e23fb719189c6f36 AS patched-tools
+FROM golang:1.27rc2-bookworm@sha256:a2f9daa5dbd9f7a68eb3c32cf91e4f9fc50a11a07f8b9cd9ffa542d2298d9f82 AS patched-tools
 
 ARG GITLEAKS_VERSION=8.30.1
 ARG GITLEAKS_SOURCE_COMMIT=83d9cd684c87d95d656c1458ef04895a7f1cbd8e
@@ -42,7 +42,7 @@ RUN mkdir -p /src/nuclei \
 	&& go get github.com/go-git/go-git/v5@v5.19.2 \
 	&& go build -trimpath -buildvcs=false -ldflags "-s -w" -o /out/nuclei ./cmd/nuclei
 
-FROM golang:1.26.6-bookworm@sha256:116d58cbd88c1297624acc6e967a060012422bacf9930927e23fb719189c6f36 AS trivy-binary
+FROM golang:1.27rc2-bookworm@sha256:a2f9daa5dbd9f7a68eb3c32cf91e4f9fc50a11a07f8b9cd9ffa542d2298d9f82 AS trivy-binary
 
 ARG TRIVY_VERSION=0.72.0
 ARG TRIVY_SOURCE_COMMIT=8a32853686209a428179bb3a1688802b25691564
