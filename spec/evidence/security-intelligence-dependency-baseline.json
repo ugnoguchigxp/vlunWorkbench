@@ -1,0 +1,84 @@
+{
+	"schemaVersion": 1,
+	"evidenceKind": "security_intelligence_dependency_baseline",
+	"assessment": {
+		"contractVersion": "1",
+		"assessmentRef": "sia:v1:2d71f1c9d415c69f2fcc0c6d344938f2a1195fd727b10c7026d434f68ddab0b4",
+		"producer": {
+			"system": "vulnWorkbench",
+			"version": "1.0.0"
+		},
+		"projectRef": "project:fixture",
+		"source": {
+			"scanRunRef": "scan-run:fixture",
+			"completedAt": "2026-08-15T05:00:00.000Z"
+		},
+		"target": {
+			"kind": "diff",
+			"sourceRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+			"targetDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+		},
+		"scope": {
+			"profileRef": "diff-basic-security",
+			"declaredInvariantRefs": [],
+			"threatModelRefs": []
+		},
+		"outcome": "no_findings_observed",
+		"claims": [
+			{
+				"claimRef": "claim:dependency-state-changed",
+				"origin": "observed",
+				"subject": "Dependency state",
+				"predicate": "dependency_state_changed",
+				"summary": "Dependency manifest or lock state changed in the saved diff manifest.",
+				"confidence": "high",
+				"evidenceRefs": ["artifact:manifest"]
+			}
+		],
+		"verifications": [
+			{
+				"verificationRef": "verification:osv",
+				"capabilityRef": "dependency-vulnerability:osv",
+				"required": true,
+				"status": "tested",
+				"reasonCode": "completed_without_findings",
+				"summary": "OSV completed without reporting dependency findings.",
+				"evidenceRefs": ["artifact:manifest", "tool-run:osv"],
+				"findingRefs": []
+			}
+		],
+		"evidenceRefs": [
+			{
+				"ref": "artifact:manifest",
+				"kind": "scan_artifact",
+				"targetRole": "assessment_target",
+				"scanRunRef": "scan-run:fixture",
+				"targetDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+				"digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+			},
+			{
+				"ref": "tool-run:osv",
+				"kind": "tool_run",
+				"targetRole": "assessment_target",
+				"scanRunRef": "scan-run:fixture",
+				"targetDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+				"digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+			}
+		],
+		"findingRefs": [],
+		"coverage": {
+			"covered": [
+				"Dependency change applicability from the saved diff manifest",
+				"Dependency manifest and lock-state changes",
+				"npm dependencies change scope"
+			],
+			"gaps": [],
+			"limitationCodes": []
+		},
+		"unknowns": [],
+		"residualRisk": [
+			"No finding does not establish that the dependency graph is safe"
+		],
+		"generatedAt": "2026-08-15T05:01:00.000Z"
+	}
+}

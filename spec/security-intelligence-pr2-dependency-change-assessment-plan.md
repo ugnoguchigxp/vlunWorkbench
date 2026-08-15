@@ -1,5 +1,9 @@
 # PR 2: Dependency Change Assessment Vertical Slice
 
+- Status: implemented and verified
+- Reviewed: 2026-08-15
+- Depends on: PR 1 commit `538866f`
+
 ## 1. 目的
 
 保存済みscan runとartifactから、Dependency changeに限定したrevision-bound assessmentを生成する。これはSecurity Intelligence構想で最初にend-to-endで動く縦切りである。
@@ -45,7 +49,12 @@ assessment生成時に現在のworking treeを再scan・再解析しない。sca
 | New | `api/modules/security-intelligence/dependency-change-observer.test.ts` | ecosystem別、limitation別test |
 | New | `api/modules/security-intelligence/security-assessment-service.ts` | persisted scan/artifactのloadとbinding validation |
 | New | `api/modules/security-intelligence/security-assessment-service.test.ts` | wrong project/revision、artifact欠落test |
+| New | `api/modules/security-intelligence/security-assessment-integrity.ts` | manifest、target、coverage、artifact digestの再検証 |
+| New | `api/modules/security-intelligence/persisted-dependency-assessment.schema.ts` | 保存済みmetadataのruntime validationとtyped failure |
 | New | `api/cli/security-assessment.ts` | `--scan-run-id`からassessment JSONを生成 |
+| New | `api/cli/security-assessment.test.ts` | stdout/stderrとargument failureのCLI contract test |
+| Change | `api/modules/scans/artifact-storage.ts` | bounded streaming hashによる参照artifact検証 |
+| Change | `api/modules/scans/artifact-storage.test.ts` | size limit、path traversal、symlink境界test |
 | Change | `package.json` | `security-intelligence:assess` script |
 | New | `spec/evidence/security-intelligence-dependency-baseline.json` | fixture runの評価用output |
 
@@ -59,6 +68,8 @@ DB migrationは行わない。assessmentは既存recordから決定的に再生�
   - `pluginContext.lockStateChanged`
   - `limitationCodes`
   - tool applicability
+- `api/modules/project-capabilities/plugin-detector.ts`
+  - manifest entryからdependency ecosystemとlock-stateを再導出する既存判定
 - `api/modules/scans/diff-snapshot.ts`
   - scan時のimmutable targetとdependency companion files
 - `api/modules/scans/profile-orchestrator.ts`
@@ -67,7 +78,7 @@ DB migrationは行わない。assessmentは既存recordから決定的に再生�
   - findingとdiff relation
 - existing OSV/Trivy findings and reports
 
-observerが同じdependency manifest解析を再実装することは禁止する。observerは既存artifactをSecurity Intelligence contractへ変換するadapterに留める。
+observerがdependency manifest patternを再定義することは禁止する。observerは保存済みmanifest entryへ既存のplugin detectorを適用し、改変可能なdenormalized flagを肯定的claimの根拠にせず、Security Intelligence contractへ変換するadapterに留める。
 
 ## 6. Dependency observation rules
 
@@ -164,6 +175,8 @@ bun run security-intelligence:assess --scan-run-id <scan-run-id> --format json
 bun test api/modules/security-intelligence/dependency-change-observer.test.ts
 bun test api/modules/security-intelligence/security-assessment-builder.test.ts
 bun test api/modules/security-intelligence/security-assessment-service.test.ts
+bun test api/cli/security-assessment.test.ts
+bun test api/modules/scans/artifact-storage.test.ts
 bun test api/modules/scans/diff-scan-plan.test.ts
 bun test api/modules/scans/nightworkers-profile-contract.test.ts
 bun run security-intelligence:assess --scan-run-id <fixture-scan-run-id> --format json

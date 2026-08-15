@@ -99,4 +99,34 @@ describe("ArtifactStorage", () => {
 			await fs.rm(outside, { force: true });
 		}
 	});
+
+	it("hashes artifacts with the same size and boundary protections as reads", async () => {
+		const saved = await storage.saveTextArtifact(
+			"scan-123",
+			"reports",
+			"hash this report",
+			"report.json",
+		);
+		expect(await storage.hashArtifact(saved.path, { maxBytes: 64 })).toEqual({
+			sha256: saved.sha256,
+			sizeBytes: saved.sizeBytes,
+		});
+		await expect(
+			storage.hashArtifact(saved.path, { maxBytes: 5 }),
+		).rejects.toThrow("configured read limit");
+
+		const outside = path.resolve(tempDir, "..", "outside-hash-artifact.txt");
+		const link = path.resolve(tempDir, "scan-123", "reports", "hash-escape.json");
+		await fs.writeFile(outside, "outside");
+		await fs.symlink(outside, link);
+		try {
+			await expect(
+				storage.hashArtifact("scan-123/reports/hash-escape.json", {
+					maxBytes: 64,
+				}),
+			).rejects.toThrow("symlink resolves outside");
+		} finally {
+			await fs.rm(outside, { force: true });
+		}
+	});
 });

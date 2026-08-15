@@ -12,7 +12,7 @@
 	"nightworkersV1": {
 		"contractVersion": 1,
 		"schemaFileSha256": "sha256:98090b09c05f1f505cadf51e01b7d19fcf1ce38cf1ab8f1536630cbebf635eea",
-		"fixtureFileSha256": "sha256:9cb8aed77bfc03b254c0c7917015be7be928dfc648300341cff70843c9ba51cd"
+		"fixtureFileSha256": "sha256:d4cff1a655c1bc9d15b9a0dac7582d56506c977030169a6079a65c7d17e36707"
 	},
 	"assessmentContract": {
 		"contractVersion": "1",
