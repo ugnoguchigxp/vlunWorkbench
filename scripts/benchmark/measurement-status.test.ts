@@ -25,4 +25,40 @@ describe("assessJuiceShopMeasurement", () => {
 			}),
 		).toEqual({ status: "completed", reason: null });
 	});
+
+	it("preserves blocked, inconclusive, and cleanup failure states", () => {
+		expect(
+			assessJuiceShopMeasurement({
+				eligibleScenarioCount: 20,
+				observationCount: 20,
+				executedScenarioCount: 0,
+				blockedScenarioCount: 20,
+			}),
+		).toEqual({
+			status: "blocked",
+			reason: "scenario_dependencies_blocked",
+		});
+		expect(
+			assessJuiceShopMeasurement({
+				eligibleScenarioCount: 20,
+				observationCount: 20,
+				executedScenarioCount: 19,
+				inconclusiveScenarioCount: 1,
+			}),
+		).toEqual({
+			status: "incomplete",
+			reason: "scenario_observations_inconclusive",
+		});
+		expect(
+			assessJuiceShopMeasurement({
+				eligibleScenarioCount: 20,
+				observationCount: 20,
+				executedScenarioCount: 19,
+				failedCleanupScenarioCount: 1,
+			}),
+		).toEqual({
+			status: "failed_cleanup",
+			reason: "scenario_cleanup_failed",
+		});
+	});
 });

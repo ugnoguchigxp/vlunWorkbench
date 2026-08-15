@@ -4,79 +4,102 @@
 	"pairs": [
 		{
 			"scenarioId": "juice-admin-section",
+			"controlId": "authorization/admin-section",
 			"fixedControl": "role middleware rejects non-admin actor"
 		},
 		{
 			"scenarioId": "juice-view-basket",
+			"controlId": "authorization/view-basket",
 			"fixedControl": "basket owner is derived from authenticated actor"
 		},
 		{
 			"scenarioId": "juice-forged-review",
+			"controlId": "authorization/forged-review",
 			"fixedControl": "review owner is immutable"
 		},
 		{
 			"scenarioId": "juice-forged-feedback",
+			"controlId": "authorization/forged-feedback",
 			"fixedControl": "feedback user id is server-derived"
 		},
 		{
 			"scenarioId": "juice-login-admin",
+			"controlId": "injection/login-admin",
 			"fixedControl": "parameterized login lookup"
 		},
 		{
 			"scenarioId": "juice-login-bender",
+			"controlId": "injection/login-bender",
 			"fixedControl": "parameterized login lookup"
 		},
 		{
 			"scenarioId": "juice-user-credentials",
+			"controlId": "injection/user-credentials",
 			"fixedControl": "parameterized product search"
 		},
-		{ "scenarioId": "juice-dom-xss", "fixedControl": "DOM text sink" },
+		{
+			"scenarioId": "juice-dom-xss",
+			"controlId": "xss/dom-xss",
+			"fixedControl": "DOM text sink"
+		},
 		{
 			"scenarioId": "juice-reflected-xss",
+			"controlId": "xss/reflected-xss",
 			"fixedControl": "contextual output encoding"
 		},
 		{
 			"scenarioId": "juice-api-only-xss",
+			"controlId": "xss/api-only-xss",
 			"fixedControl": "stored value encoding"
 		},
 		{
 			"scenarioId": "juice-weak-password",
+			"controlId": "authentication/weak-password",
 			"fixedControl": "minimum password policy"
 		},
 		{
 			"scenarioId": "juice-reset-token",
+			"controlId": "authentication/reset-token",
 			"fixedControl": "single-use expiring reset token"
 		},
 		{
 			"scenarioId": "juice-captcha-bypass",
+			"controlId": "anti-automation/captcha-bypass",
 			"fixedControl": "server-side CAPTCHA nonce consumption"
 		},
 		{
 			"scenarioId": "juice-extra-language",
+			"controlId": "input-validation/extra-language",
 			"fixedControl": "locale allowlist"
 		},
 		{
 			"scenarioId": "juice-local-file-read",
+			"controlId": "file-access/local-file-read",
 			"fixedControl": "canonical path containment"
 		},
 		{
 			"scenarioId": "juice-forgotten-developer-backup",
+			"controlId": "file-access/developer-backup",
 			"fixedControl": "backup files excluded from deployment"
 		},
 		{
 			"scenarioId": "juice-negative-order",
+			"controlId": "business-logic/negative-order",
 			"fixedControl": "positive quantity constraint"
 		},
 		{
 			"scenarioId": "juice-zero-stars",
+			"controlId": "business-logic/zero-stars",
 			"fixedControl": "rating range constraint"
 		},
 		{
 			"scenarioId": "juice-deluxe-fraud",
+			"controlId": "business-logic/deluxe-fraud",
 			"fixedControl": "server-side membership state transition"
 		},
 		{
 			"scenarioId": "juice-blockchain-hype",
+			"controlId": "ssrf/blockchain-hype",
 			"fixedControl": "outbound destination allowlist"
 		}
 	]

@@ -15,11 +15,41 @@ type SpawnResult = {
 	timedOut: boolean;
 };
 
+type ExecFetchResult = {
+	status: number;
+	statusText: string;
+	headers: Record<string, string>;
+	body: string;
+};
+
+const CONTAINER_LOOPBACK_FETCH_SCRIPT = `
+const chunks = [];
+for await (const chunk of process.stdin) chunks.push(chunk);
+const request = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+const response = await fetch(request.url, {
+  method: request.method,
+  headers: request.headers,
+  body: request.body,
+  redirect: request.redirect,
+  signal: AbortSignal.timeout(request.timeoutMs)
+});
+const body = Buffer.from(await response.arrayBuffer());
+if (body.length > 1048576) throw new Error("response_too_large");
+process.stdout.write(JSON.stringify({
+  status: response.status,
+  statusText: response.statusText,
+  headers: Object.fromEntries(response.headers.entries()),
+  body: body.toString("base64")
+}));
+`;
+
 const FIXTURES = {
 	"juice-shop-20.1.1": {
 		image:
 			"docker.io/bkimminich/juice-shop@sha256:cd58d79c5cb4d82f22fbaf616f9ff43bbd04ba630cd6b448a9ed99cf652fcebf",
 		containerName: "vuln-workbench-fixture-juice-shop-20-1-1",
+		networkName: "vuln-workbench-fixture-internal",
+		nodeBin: "/nodejs/bin/node",
 		port: 3000,
 		healthPath: "/",
 	},
@@ -33,6 +63,81 @@ export function listContainerFixtures() {
 		port: fixture.port,
 		expectedBaselineHash: fixtureBaselineHash(fixtureId),
 	}));
+}
+
+/**
+ * Performs a bounded HTTP request from inside the isolated fixture container.
+ * The fixture stays on an internal Docker network with no host or internet route.
+ */
+export function createContainerFixtureLoopbackFetch(params: {
+	fixtureId: string;
+	dockerBin?: string;
+}): DastFetch {
+	const fixture = FIXTURES[params.fixtureId as keyof typeof FIXTURES];
+	if (!fixture) throw new Error("zap_active_container_fixture_not_registered");
+	return async (input, init = {}) => {
+		const inputRequest = input instanceof Request ? input : null;
+		const inputUrl = new URL(
+			input instanceof Request
+				? input.url
+				: input instanceof URL
+					? input.href
+					: input,
+		);
+		if (
+			inputUrl.protocol !== "http:" ||
+			!["127.0.0.1", "localhost", "[::1]"].includes(inputUrl.hostname) ||
+			Number(inputUrl.port || 80) !== fixture.port
+		)
+			throw new Error("zap_active_container_fixture_loopback_target_mismatch");
+		const method = (init.method ?? inputRequest?.method ?? "GET").toUpperCase();
+		const headers = new Headers(inputRequest?.headers);
+		for (const [name, value] of new Headers(init.headers))
+			headers.set(name, value);
+		let body: string | null = null;
+		if (typeof init.body === "string") body = init.body;
+		else if (init.body !== undefined && init.body !== null)
+			throw new Error("zap_active_container_fixture_loopback_body_unsupported");
+		else if (inputRequest && !["GET", "HEAD"].includes(method))
+			body = await inputRequest.clone().text();
+		const payload = JSON.stringify({
+			url: `http://127.0.0.1:${fixture.port}${inputUrl.pathname}${inputUrl.search}`,
+			method,
+			headers: Object.fromEntries(headers.entries()),
+			body,
+			redirect: init.redirect ?? inputRequest?.redirect ?? "manual",
+			timeoutMs: 12_000,
+		});
+		const result = await spawnWithStdin(
+			[
+				params.dockerBin ?? "docker",
+				"exec",
+				"-i",
+				fixture.containerName,
+				fixture.nodeBin,
+				"-e",
+				CONTAINER_LOOPBACK_FETCH_SCRIPT,
+			],
+			payload,
+			15,
+			init.signal,
+		);
+		if (result.timedOut)
+			throw new Error("zap_active_container_fixture_loopback_timeout");
+		if (result.exitCode !== 0)
+			throw new Error("zap_active_container_fixture_loopback_request_failed");
+		let parsed: ExecFetchResult;
+		try {
+			parsed = JSON.parse(result.stdout) as ExecFetchResult;
+		} catch {
+			throw new Error("zap_active_container_fixture_loopback_response_invalid");
+		}
+		return new Response(Buffer.from(parsed.body, "base64"), {
+			status: parsed.status,
+			statusText: parsed.statusText,
+			headers: parsed.headers,
+		});
+	};
 }
 
 export function createContainerFixtureResetExecutor(params: {
@@ -54,6 +159,7 @@ export function createContainerFixtureResetExecutor(params: {
 	)
 		throw new Error("zap_active_container_fixture_target_mismatch");
 	const spawn = params.spawn ?? spawnBounded;
+	let networkVerified = false;
 	let ownsFixtureClaim = false;
 	const acquireFixture = () => {
 		if (ownsFixtureClaim || activeFixtureIds.has(params.strategy.fixtureId))
@@ -67,6 +173,37 @@ export function createContainerFixtureResetExecutor(params: {
 		ownsFixtureClaim = false;
 	};
 	const recreate = async () => {
+		if (!networkVerified) {
+			const inspected = await spawn(
+				[
+					params.dockerBin ?? "docker",
+					"network",
+					"inspect",
+					fixture.networkName,
+					"--format",
+					"{{.Internal}}",
+				],
+				30,
+			);
+			if (inspected.exitCode === 0) {
+				if (inspected.stdout.trim() !== "true")
+					throw new Error("zap_active_container_fixture_network_not_internal");
+			} else {
+				const created = await spawn(
+					[
+						params.dockerBin ?? "docker",
+						"network",
+						"create",
+						"--internal",
+						fixture.networkName,
+					],
+					30,
+				);
+				if (created.timedOut || created.exitCode !== 0)
+					throw new Error("zap_active_container_fixture_network_create_failed");
+			}
+			networkVerified = true;
+		}
 		const removed = await spawn(
 			[params.dockerBin ?? "docker", "rm", "-f", fixture.containerName],
 			30,
@@ -87,7 +224,7 @@ export function createContainerFixtureResetExecutor(params: {
 				"--pull",
 				"never",
 				"--network",
-				"host",
+				fixture.networkName,
 				"--memory",
 				"1g",
 				"--memory-swap",
@@ -156,6 +293,8 @@ function fixtureBaselineHash(fixtureId: string): string {
 			JSON.stringify({
 				fixtureId,
 				image: fixture.image,
+				networkName: fixture.networkName,
+				nodeBin: fixture.nodeBin,
 				port: fixture.port,
 			}),
 		)
@@ -221,4 +360,48 @@ async function spawnBounded(
 		stdout: await stdout,
 		stderr: await stderr,
 	};
+}
+
+async function spawnWithStdin(
+	args: string[],
+	stdin: string,
+	timeoutSec: number,
+	signal?: AbortSignal | null,
+): Promise<SpawnResult> {
+	const child = Bun.spawn(args, {
+		stdin: "pipe",
+		stdout: "pipe",
+		stderr: "pipe",
+	});
+	child.stdin.write(stdin);
+	child.stdin.end();
+	const abort = () => child.kill("SIGKILL");
+	signal?.addEventListener("abort", abort, { once: true });
+	try {
+		const stdout = child.stdout
+			? new Response(child.stdout).text()
+			: Promise.resolve("");
+		const stderr = child.stderr
+			? new Response(child.stderr).text()
+			: Promise.resolve("");
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		const result = await Promise.race([
+			child.exited.then((exitCode) => ({ exitCode, timedOut: false })),
+			new Promise<{ exitCode: null; timedOut: true }>((resolve) => {
+				timer = setTimeout(
+					() => resolve({ exitCode: null, timedOut: true }),
+					timeoutSec * 1000,
+				);
+			}),
+		]);
+		if (timer) clearTimeout(timer);
+		if (result.timedOut) child.kill("SIGKILL");
+		return {
+			...result,
+			stdout: await stdout,
+			stderr: await stderr,
+		};
+	} finally {
+		signal?.removeEventListener("abort", abort);
+	}
 }

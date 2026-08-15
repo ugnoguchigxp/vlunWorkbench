@@ -15,14 +15,28 @@ import javax.servlet.http.HttpSession;
 import javax.xml.xpath.XPath;
 
 class OwnedCore {
+  interface JdbcOperations {
+    Object query(String sql, Object mapper);
+    long queryForLong(String sql);
+    int[] batchUpdate(String sql);
+  }
+
+  interface RequestSource {
+    String getTheParameter(String name);
+  }
+
   void vulnerable(
       String input,
       Statement statement,
+      JdbcOperations jdbc,
+      RequestSource source,
       ObjectInputStream stream,
       HttpServletRequest request,
       HttpServletResponse response
   ) throws Exception {
     String tainted = request.getParameter("q");
+    String wrappedTainted = source.getTheParameter("q");
+    String parameterName = request.getParameterNames().nextElement();
     // ruleid: vuln-workbench.java.command-injection
     Runtime.getRuntime().exec(tainted);
     // ruleid: vuln-workbench.java.command-injection
@@ -31,6 +45,12 @@ class OwnedCore {
     statement.execute(tainted);
     // ruleid: vuln-workbench.java.sql-injection
     statement.executeQuery(tainted);
+    // ruleid: vuln-workbench.java.sql-injection
+    jdbc.query("SELECT * FROM users WHERE name='" + wrappedTainted + "'", null);
+    // ruleid: vuln-workbench.java.sql-injection
+    jdbc.queryForLong("SELECT count(*) FROM users WHERE name='" + parameterName + "'");
+    // ruleid: vuln-workbench.java.sql-injection
+    jdbc.batchUpdate("DELETE FROM users WHERE name='" + tainted + "'");
     // ruleid: vuln-workbench.java.xss-response-writer
     response.getWriter().write(tainted);
     // ruleid: vuln-workbench.java.xss-response-writer
@@ -79,9 +99,18 @@ class OwnedCore {
     session.setAttribute("first", tainted);
     // ruleid: vuln-workbench.java.trust-boundary
     session.setAttribute(tainted, "value");
+    // ruleid: vuln-workbench.java.trust-boundary
+    session.putValue("wrapped", wrappedTainted);
+    // ruleid: vuln-workbench.java.trust-boundary
+    session.putValue(parameterName, "value");
   }
 
-  void fixed(PreparedStatement statement, HttpServletResponse response)
+  void fixed(
+      PreparedStatement statement,
+      JdbcOperations jdbc,
+      HttpSession session,
+      HttpServletResponse response
+  )
       throws Exception {
     // ok: vuln-workbench.java.command-injection
     new ProcessBuilder("/usr/bin/id", "-u").start();
@@ -91,6 +120,12 @@ class OwnedCore {
     statement.execute();
     // ok: vuln-workbench.java.sql-injection
     statement.setString(1, "value");
+    // ok: vuln-workbench.java.sql-injection
+    jdbc.query("SELECT name FROM users", null);
+    // ok: vuln-workbench.java.sql-injection
+    jdbc.queryForLong("SELECT count(*) FROM users");
+    // ok: vuln-workbench.java.sql-injection
+    jdbc.batchUpdate("DELETE FROM expired_users");
     // ok: vuln-workbench.java.xss-response-writer
     response.getWriter().write("safe");
     // ok: vuln-workbench.java.xss-response-writer
@@ -136,5 +171,7 @@ class OwnedCore {
     String safeSessionKey = "userId";
     // ok: vuln-workbench.java.trust-boundary
     String safeSessionValue = "system";
+    // ok: vuln-workbench.java.trust-boundary
+    session.putValue("userId", "system");
   }
 }

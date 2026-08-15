@@ -18,6 +18,7 @@ import {
 	type ToolExecutionConfig,
 	type ToolLifecycleEvent,
 } from "./tool-process-runner";
+import { filterOwnedJavaTaintResults } from "./java-taint-precision-filter";
 
 export interface SemgrepRunResult {
 	ok: boolean;
@@ -163,9 +164,15 @@ export class SemgrepRunner {
 		let rawJson: unknown = null;
 		let rawJsonText: string | null = null;
 		let jsonValid = false;
+		let javaTaintPrecisionSuppressionCount = 0;
 		try {
 			rawJsonText = await fs.readFile(tempJsonPath, "utf8");
 			rawJson = JSON.parse(rawJsonText);
+			const precisionFiltered = await filterOwnedJavaTaintResults(rawJson);
+			rawJson = precisionFiltered.output;
+			javaTaintPrecisionSuppressionCount =
+				precisionFiltered.suppressions.length;
+			rawJsonText = JSON.stringify(rawJson);
 			if (options.normalizePathsRelativeTo) {
 				rawJson = normalizeStructuredOutputPaths(
 					rawJson,
@@ -285,7 +292,10 @@ export class SemgrepRunner {
 			rawJsonArtifact,
 			stdoutArtifact,
 			stderrArtifact,
-			executionMetadata,
+			executionMetadata: {
+				...executionMetadata,
+				javaTaintPrecisionSuppressionCount,
+			},
 		};
 	}
 }

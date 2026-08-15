@@ -4,7 +4,13 @@ import { assessJuiceShopMeasurement } from "./measurement-status";
 
 type CommandResult = {
 	id: string;
-	status: "completed" | "incomplete" | "not_executed" | "failed";
+	status:
+		| "completed"
+		| "incomplete"
+		| "not_executed"
+		| "blocked"
+		| "failed_cleanup"
+		| "failed";
 	exitCode: number | null;
 	reason: string | null;
 };
@@ -74,7 +80,9 @@ await Bun.write(
 			status:
 				completed === results.length
 					? "completed"
-					: results.some((item) => item.status === "failed")
+					: results.some((item) =>
+								["failed", "failed_cleanup"].includes(item.status),
+							)
 						? "failed"
 						: "completed_with_limitations",
 			results,
@@ -84,7 +92,8 @@ await Bun.write(
 	)}\n`,
 );
 console.log(JSON.stringify({ ok: true, outputPath, results }));
-if (results.some((item) => item.status === "failed")) process.exitCode = 1;
+if (results.some((item) => ["failed", "failed_cleanup"].includes(item.status)))
+	process.exitCode = 1;
 
 async function exists(filePath: string): Promise<boolean> {
 	return Boolean(await stat(filePath).catch(() => null));
@@ -100,11 +109,10 @@ async function assessMeasurement(
 	if (id !== "owasp-juice-shop") {
 		return { status: "completed", reason: null };
 	}
-	const metrics = JSON.parse(
-		await readFile(".artifacts/benchmark/juice-shop-metrics.json", "utf8"),
+	const runReport = JSON.parse(
+		await readFile(".artifacts/benchmark/juice-shop-run.json", "utf8"),
 	) as {
-		executedScenarioCount?: number;
-		eligibleScenarioCount?: number;
+		counts?: Parameters<typeof assessJuiceShopMeasurement>[0];
 	};
-	return assessJuiceShopMeasurement(metrics);
+	return assessJuiceShopMeasurement(runReport.counts ?? {});
 }

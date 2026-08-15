@@ -15,10 +15,12 @@ type CorpusLock = {
 	}>;
 };
 
+export type VerifiedCorpus = CorpusLock["corpora"][number];
+
 export async function verifyPreparedCorpora(params: {
 	outputRoot: string;
 	ids?: CorpusId[];
-}): Promise<Array<Record<string, unknown>>> {
+}): Promise<VerifiedCorpus[]> {
 	const lock = JSON.parse(
 		await readFile("spec/security-capability/corpora.lock.json", "utf8"),
 	) as CorpusLock;
@@ -27,7 +29,7 @@ export async function verifyPreparedCorpora(params: {
 	const selected = lock.corpora.filter((item) => requested.has(item.id));
 	if (selected.length !== requested.size)
 		throw new Error("corpus_lock_entry_missing");
-	const verified: Array<Record<string, unknown>> = [];
+	const verified: VerifiedCorpus[] = [];
 	for (const corpus of selected) {
 		const corpusRoot = path.join(params.outputRoot, corpus.id);
 		const prepared = JSON.parse(

@@ -398,6 +398,10 @@ drift checkerだけに戻し、人手文章を維持する。
 
 ## 11. Slice 54.4 — Measured detection effectiveness
 
+Detailed execution plan:
+
+[Phase 54.4 Detection Effectiveness Improvement Plan](phase-54-detection-effectiveness-improvement-plan.md)
+
 ### Objective
 
 professional capability claimの未達を、threshold変更ではなく検出とevaluation pathの

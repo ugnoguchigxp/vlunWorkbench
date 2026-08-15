@@ -9,9 +9,15 @@ import {
 	parseOwaspExpectedResults,
 } from "../../api/modules/benchmarks/owasp-benchmark-adapter";
 import { canonicalJson } from "../../api/modules/scans/diff-scan-plan";
+import { filterOwnedJavaTaintResults } from "../../api/modules/scans/tools/java-taint-precision-filter";
 import { loadScannerDataManifest } from "../../api/modules/scans/tools/scanner-provenance";
 import { benchmarkRunInputSchema } from "../../shared/schemas/benchmark.schema";
 import { verifyPreparedCorpora } from "../security-corpora-lib";
+import {
+	gitCommit as currentGitCommit,
+	sha256File as provenanceSha256File,
+	sha256Tree,
+} from "./benchmark-input-provenance";
 
 type FindingInput = {
 	path: string;
@@ -53,10 +59,26 @@ const observations = findings
 const score = scoreBenchmark(expected, observations);
 const outputPath = path.resolve(".artifacts/benchmark/owasp-metrics.json");
 await mkdir(path.dirname(outputPath), { recursive: true });
-const [manifest, expectedResultsHash, findingsHash] = await Promise.all([
+const [
+	manifest,
+	expectedResultsHash,
+	findingsHash,
+	releaseCommit,
+	policyHash,
+	implementationHash,
+] = await Promise.all([
 	loadScannerDataManifest(),
 	sha256File(expectedResultsPath),
 	sha256File(findingsPath),
+	currentGitCommit(),
+	provenanceSha256File("spec/security-capability/benchmark-policy.v1.json"),
+	sha256Tree([
+		"docker/toolbox/scanner-data/semgrep-rules/java",
+		"scripts/benchmark/owasp-benchmark.ts",
+		"api/modules/benchmarks/metric-scorer.ts",
+		"api/modules/benchmarks/owasp-benchmark-adapter.ts",
+		"api/modules/scans/tools/java-taint-precision-filter.ts",
+	]),
 ]);
 const rawArtifactPath = path.resolve(
 	".artifacts/benchmark/owasp-semgrep-raw.json",
@@ -68,6 +90,9 @@ const rawScannerArtifactHash =
 const metricArtifact = {
 	schemaVersion: 1,
 	corpusId: "owasp-benchmark-java",
+	gitCommit: releaseCommit,
+	policyHash,
+	implementationHash,
 	corpusVersion: verifiedCorpora[0]?.version,
 	corpusDigest: verifiedCorpora[0]?.archiveSha256,
 	expectedResultsHash,
@@ -127,12 +152,15 @@ async function runSemgrepBenchmark(
 	]);
 	if (![0, 1].includes(exitCode))
 		throw new Error(`owasp_semgrep_failed:${exitCode}:${stderr.slice(0, 500)}`);
-	const raw = JSON.parse(await readFile(rawPath, "utf8")) as {
+	const rawEnvelope = JSON.parse(await readFile(rawPath, "utf8")) as {
 		results?: Array<{
 			path?: string;
 			extra?: { metadata?: { cwe?: string | string[] } };
 		}>;
 	};
+	const filtered = await filterOwnedJavaTaintResults(rawEnvelope);
+	const raw = filtered.output as typeof rawEnvelope;
+	await Bun.write(rawPath, `${JSON.stringify(raw, null, 2)}\n`);
 	const categoryByTest = new Map(
 		expected.map((item) => [item.testId, item.category]),
 	);

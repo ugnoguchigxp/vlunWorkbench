@@ -30,13 +30,15 @@ rules:
     message: Servlet-controlled data reaches a dynamic SQL API.
     severity: ERROR
     languages: [java]
-    metadata: { cwe: CWE-89, owasp: ["A03:2021"], security-family: sql-nosql-ldap-xpath-injection, confidence: high, source-kind: owned-core, source-ref: "repo:java/owned-core.yml", license: MIT, rule-version: "2", supported-frameworks: [jdbc], remediation: "Use a fixed prepared statement and bind every value." }
+    metadata: { cwe: CWE-89, owasp: ["A03:2021"], security-family: sql-nosql-ldap-xpath-injection, confidence: high, source-kind: owned-core, source-ref: "repo:java/owned-core.yml", license: MIT, rule-version: "3", supported-frameworks: [jdbc, spring-jdbc], remediation: "Use a fixed prepared statement and bind every value." }
     mode: taint
     pattern-sources:
       - pattern-either:
           - pattern: $REQ.getParameter(...)
           - pattern: $REQ.getParameterValues(...)
           - pattern: $REQ.getParameterMap()
+          - pattern: $REQ.getParameterNames()
+          - pattern: $SOURCE.getTheParameter(...)
           - pattern: $REQ.getQueryString()
           - pattern: $REQ.getHeader(...)
           - pattern: $REQ.getHeaders(...)
@@ -56,6 +58,9 @@ rules:
           - pattern: $STMT.executeUpdate(...)
           - pattern: $ENTITY.createNativeQuery(...)
           - pattern: $SESSION.createQuery(...)
+          - pattern: $JDBC.query(...)
+          - pattern: $JDBC.queryForLong(...)
+          - pattern: $JDBC.batchUpdate(...)
   - id: vuln-workbench.java.xss-response-writer
     message: Servlet-controlled data is written directly to an HTTP response.
     severity: WARNING
@@ -250,13 +255,15 @@ rules:
     message: Servlet-controlled data is stored in an HTTP session.
     severity: WARNING
     languages: [java]
-    metadata: { cwe: CWE-501, owasp: ["A04:2021"], security-family: authentication-session-misuse, confidence: medium, source-kind: owned-core, source-ref: "repo:java/owned-core.yml", license: MIT, rule-version: "1", supported-frameworks: [servlet], remediation: "Validate and normalize data before storing it across a trust boundary." }
+    metadata: { cwe: CWE-501, owasp: ["A04:2021"], security-family: authentication-session-misuse, confidence: medium, source-kind: owned-core, source-ref: "repo:java/owned-core.yml", license: MIT, rule-version: "2", supported-frameworks: [servlet], remediation: "Validate and normalize data before storing it across a trust boundary." }
     mode: taint
     pattern-sources:
       - pattern-either:
           - pattern: $REQ.getParameter(...)
           - pattern: $REQ.getParameterValues(...)
           - pattern: $REQ.getParameterMap()
+          - pattern: $REQ.getParameterNames()
+          - pattern: $SOURCE.getTheParameter(...)
           - pattern: $REQ.getQueryString()
           - pattern: $REQ.getHeader(...)
           - pattern: $REQ.getHeaders(...)
@@ -268,4 +275,6 @@ rules:
           - pattern: $REQ.getParts()
           - pattern: $REQ.getSession().getAttribute(...)
     pattern-sinks:
-      - pattern: $SESSION.setAttribute(...)
+      - pattern-either:
+          - pattern: $SESSION.setAttribute(...)
+          - pattern: $SESSION.putValue(...)

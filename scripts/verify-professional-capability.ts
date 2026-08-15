@@ -7,6 +7,7 @@ import { loadScannerDataManifest } from "../api/modules/scans/tools/scanner-prov
 import { measuredCapabilityClaimSchema } from "../shared/schemas/security-capability.schema";
 import {
 	assertMetricArtifactIntegrity,
+	isAuthoritativeJuiceShopReleaseRun,
 	overall,
 	readMetricArtifact,
 	verifyJuiceShopArtifactIntegrity,
@@ -20,6 +21,7 @@ if (cliArguments.some((argument) => argument !== "--report-only"))
 const reportOnly = cliArguments.includes("--report-only");
 
 const contracts = [
+	["bun", "run", "test:detection-effectiveness"],
 	["bun", "run", "test:semgrep:catalog"],
 	["bun", "run", "test:osv:offline-fixtures"],
 	["bun", "run", "test:zap-active:contract"],
@@ -97,6 +99,8 @@ const endpoint = await readJsonIfExists(
 const osvEvidence = await readJsonIfExists(
 	".artifacts/benchmark/osv-offline-fixtures.json",
 );
+const releaseCommit = await gitCommit();
+const workingTreeClean = await gitWorkingTreeClean();
 for (const artifact of [owasp, juice, business])
 	if (artifact) assertMetricArtifactIntegrity(artifact);
 if (owasp)
@@ -105,12 +109,13 @@ if (owasp)
 		manifestHash: manifest.manifestHash,
 		corpusLock,
 	});
-if (juice)
-	await verifyJuiceShopArtifactIntegrity({
-		artifact: juice,
-		manifestHash: manifest.manifestHash,
-		corpusLock,
-	});
+const juiceRunReport = juice
+	? await verifyJuiceShopArtifactIntegrity({
+			artifact: juice,
+			manifestHash: manifest.manifestHash,
+			corpusLock,
+		})
+	: null;
 const osvGate = assessOsvEvidence({
 	bundleCount: osvBundles.filter((item) => item.kind === "vulnerability-db")
 		.length,
@@ -149,6 +154,11 @@ const externalGates = {
 		owaspCategoryGate,
 	juiceShop:
 		Boolean(juiceOverall) &&
+		isAuthoritativeJuiceShopReleaseRun({
+			report: juiceRunReport,
+			releaseCommit,
+			workingTreeClean,
+		}) &&
 		(juice?.eligibleScenarioCount ?? 0) >=
 			minimums.juiceShopEligibleScenarios &&
 		(juice?.categoryCount ?? 0) >= minimums.juiceShopCategories &&
@@ -164,7 +174,6 @@ const externalGates = {
 		Number(endpoint?.recall ?? -1) >= minimums.endpointDiscoveryRecall &&
 		Number(endpoint?.precision ?? -1) >= minimums.endpointDiscoveryPrecision,
 };
-const releaseCommit = await gitCommit();
 const unsupportedCapabilities = (
 	scope.capabilities as Array<{ id: string; tier: string }>
 )
@@ -217,6 +226,13 @@ const report = {
 		),
 		scannerManifest: manifest.manifestHash,
 	},
+	provenance: {
+		workingTreeClean,
+		juiceShopAuthoritativeLinux:
+			juiceRunReport?.preflight.authoritativeLinux ?? false,
+		juiceShopMeasurementStatus:
+			juiceRunReport?.measurementStatus ?? "not_executed",
+	},
 	gates: {
 		contracts: contractResults,
 		semgrep: semgrepGate,
@@ -266,4 +282,14 @@ async function gitCommit(): Promise<string> {
 	});
 	if ((await child.exited) !== 0) throw new Error("git_commit_unavailable");
 	return (await new Response(child.stdout).text()).trim();
+}
+
+async function gitWorkingTreeClean(): Promise<boolean> {
+	const child = Bun.spawn(
+		["git", "status", "--porcelain", "--untracked-files=all"],
+		{ stdout: "pipe", stderr: "pipe" },
+	);
+	if ((await child.exited) !== 0)
+		throw new Error("git_working_tree_status_unavailable");
+	return (await new Response(child.stdout).text()).trim() === "";
 }

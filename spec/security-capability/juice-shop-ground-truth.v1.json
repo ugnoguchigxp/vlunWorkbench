@@ -163,7 +163,7 @@
       "category": "file_access",
       "cwe": ["CWE-22"],
       "actors": ["anonymous"],
-      "entrypoints": ["/ftp/{file}"],
+      "entrypoints": ["/dataerasure"],
       "expectedEvidenceKind": "path_traversal",
       "scannerFamilies": ["zap"],
       "pairedFixedFixture": "file-access/local-file-read"
