@@ -1,0 +1,19 @@
+{
+	"schemaVersion": 1,
+	"evidenceKind": "security_intelligence_authorization_shadow_baseline",
+	"fixtureClassificationCounts": {
+		"coverage_lost": 1,
+		"introduced": 1,
+		"removed": 1,
+		"resolved": 1,
+		"unchanged": 1,
+		"unknown": 2,
+		"worsened": 1
+	},
+	"supportedFrameworks": ["express", "fastify", "hono"],
+	"falseWorsenedCount": 0,
+	"absoluteRootIndependent": true,
+	"targetMismatchRejected": true,
+	"featureDefaultOff": true,
+	"pathLeakCount": 0
+}

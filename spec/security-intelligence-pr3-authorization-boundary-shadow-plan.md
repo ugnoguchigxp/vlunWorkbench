@@ -1,5 +1,7 @@
 # PR 3: Authorization Boundary Shadow Observer
 
+Status: Implemented; PR 3 targeted verification passed
+
 ## 1. 目的
 
 route/entrypointとAuthorization guardの変化をrevision-boundに比較し、Security Intelligence Assessmentへshadow observationとして追加する。
@@ -36,12 +38,14 @@ support外のlanguage/framework、動的route構築、runtime policy engineは`u
 | New | `shared/schemas/security-intelligence-authorization.schema.ts` | revision-bound boundary snapshot/diff schema |
 | New | `shared/schemas/security-intelligence-authorization.schema.test.ts` | strict validation、target binding test |
 | New | `api/modules/security-intelligence/authorization-boundary-projector.ts` | ApplicationModel/source evidenceからsnapshot生成 |
+| New | `api/modules/security-intelligence/authorization-boundary-source-analysis.ts` | TypeScript AST解析とcheckout root非依存のsource正規化 |
 | New | `api/modules/security-intelligence/authorization-boundary-projector.test.ts` | framework fixtureとconfidence test |
 | New | `api/modules/security-intelligence/authorization-boundary-diff.ts` | before/after比較pure function |
 | New | `api/modules/security-intelligence/authorization-boundary-diff.test.ts` | classification table test |
 | New | `api/modules/security-intelligence/authorization-shadow-service.ts` | immutable target load、assessmentへのshadow追加 |
-| New | `tests/fixtures/security-intelligence/authorization/` | small before/after projects |
-| Change | `api/modules/security-intelligence/security-assessment-builder.ts` | optional authorization observationを追加 |
+| New | `api/modules/security-intelligence/authorization-shadow-service.test.ts` | flag OFF、target binding、no finding test |
+| New | `api/cli/authorization-shadow-assessment.ts` | flag既定OFFのread-only explicit CLI |
+| New | colocated test fixture builders | small before/after sourceと明示guard association |
 | New | `spec/evidence/security-intelligence-authorization-shadow-baseline.json` | fixture精度とcoverage結果 |
 
 既存`ApplicationModel` schemaを破壊的に変更しない。revision identityが必要なため、Security Intelligence専用wrapper/projected snapshotへ明示的に追加する。
@@ -122,6 +126,12 @@ fixtureは1件ごとに小さなprojectとし、実repo snapshotを保存しな�
 
 PR 4のpilotではshadow observationをoptional sectionとして返せるが、Dependency assessmentのoutcomeへ影響させない。
 
+実装では既存Dependency assessment builderを変更せず、独立した`runAuthorizationShadow`を追加した。これによりflag OFF時の既存scan/assessment出力は構造上も不変である。CLIは次のように明示的に有効化した場合だけinput JSONを読み、結果をstdoutへ返す。
+
+```bash
+bun run security-intelligence:authorization-shadow -- --enable --input authorization-shadow-input.json
+```
+
 ## 10. Evaluation metrics
 
 fixture以外に、許可されたpilot repositoryでmanual labelと比較する。
@@ -144,7 +154,7 @@ fixture以外に、許可されたpilot repositoryでmanual labelと比較する
 3. projectorをframework 1つから実装する。
 4. stable identityとpure diffを実装する。
 5. parse failure/unsupported caseを`coverage_lost`/`unknown`へ通す。
-6. assessment builderへoptional shadow sectionとして接続する。
+6. 独立したshadow assessment serviceへ接続する。
 7. feature flag OFFとno-side-effect testを追加する。
 8. baseline metric artifactを生成する。
 
@@ -162,7 +172,7 @@ fixture以外に、許可されたpilot repositoryでmanual labelと比較する
 ## 13. Verification commands
 
 ```bash
-bun test shared/schemas/security-intelligence-authorization.schema.test.ts
+bunx vitest run shared/schemas/security-intelligence-authorization.schema.test.ts
 bun test api/modules/security-intelligence/authorization-boundary-projector.test.ts
 bun test api/modules/security-intelligence/authorization-boundary-diff.test.ts
 bun test api/modules/security-intelligence/authorization-shadow-service.test.ts
