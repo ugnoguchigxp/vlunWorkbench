@@ -1,13 +1,13 @@
-FROM debian:bookworm-slim@sha256:7b140f374b289a7c2befc338f42ebe6441b7ea838a042bbd5acbfca6ec875818
+FROM debian:bookworm-slim@sha256:abd67ffcfa541b485a3dff59865ab629aa048a6c613e639d36e7456b0b229241
 
 ARG TARGETARCH
 ARG NODE_VERSION=24.18.0
-ARG NPM_VERSION=12.0.1
+ARG NPM_VERSION=12.0.2
 ARG BUN_VERSION=1.3.14
 ARG PYTEST_VERSION=9.1.1
-ARG GO_VERSION=1.26.5
-ARG GO_AMD64_SHA256=5c2c3b16caefa1d968a94c1daca04a7ca301a496d9b086e17ad77bb81393f053
-ARG GO_ARM64_SHA256=fe4789e92b1f33358680864bbe8704289e7bb5fc207d80623c308935bd696d49
+ARG GO_VERSION=1.26.6
+ARG GO_AMD64_SHA256=708effb774be8237570d0add163225abbdfaf4fca28b2611df167beba4feef89
+ARG GO_ARM64_SHA256=d0507e9e9d7fe012aae570108cbd76c15de879e17130ab8cb90d4d7445cb1f2e
 ARG RUST_TOOLCHAIN=1.97.1
 
 LABEL org.opencontainers.image.title="vulnWorkbench Dynamic Runner"
@@ -48,6 +48,22 @@ RUN set -eux; \
     rm -f "/tmp/${asset}" /tmp/SHASUMS256.txt
 
 RUN npm install --global "npm@${NPM_VERSION}" \
+    && mkdir -p /tmp/npm-security-fixes \
+    && npm pack --ignore-scripts --pack-destination /tmp/npm-security-fixes "brace-expansion@5.0.9" \
+    && npm pack --ignore-scripts --pack-destination /tmp/npm-security-fixes "ip-address@10.3.1" \
+    && rm -rf \
+        /usr/local/lib/node_modules/npm/node_modules/brace-expansion \
+        /usr/local/lib/node_modules/npm/node_modules/ip-address \
+    && mkdir -p \
+        /usr/local/lib/node_modules/npm/node_modules/brace-expansion \
+        /usr/local/lib/node_modules/npm/node_modules/ip-address \
+    && tar -xzf /tmp/npm-security-fixes/brace-expansion-5.0.9.tgz \
+        -C /usr/local/lib/node_modules/npm/node_modules/brace-expansion \
+        --strip-components=1 \
+    && tar -xzf /tmp/npm-security-fixes/ip-address-10.3.1.tgz \
+        -C /usr/local/lib/node_modules/npm/node_modules/ip-address \
+        --strip-components=1 \
+    && rm -rf /tmp/npm-security-fixes \
     && npm cache clean --force
 
 # Install checksum-verified Bun

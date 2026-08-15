@@ -19,6 +19,8 @@ No unreleased changes are classified yet.
 - Trust forwarding headers only from configured proxy CIDRs, add a normalized
   email login limiter, and enforce a production Content Security Policy.
 - Upgrade or override audited dependency trees to patched versions.
+- Refresh pinned release-container bases and scanner toolchains, and replace
+  vulnerable npm-bundled transitive packages before image publication.
 - Stop tracking generated runtime artifacts while preserving local files.
 
 ### Release engineering

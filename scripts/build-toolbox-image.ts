@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 
 const image = process.argv[2] ?? "vuln-workbench-toolbox:local";
-const goVersion = "1.26.5";
+const goVersion = "1.26.6";
 const trivyVersion = "0.72.0";
 const trivySourceCommit = "8a32853686209a428179bb3a1688802b25691564";
 const trivySourceSha256 =
@@ -12,13 +12,13 @@ const trivySourceSha256 =
 
 const goChecksums: Record<string, string> = {
 	"darwin-amd64":
-		"6231d8d3b8f5552ec6cbf6d685bdd5482e1e703214b120e89b3bf0d7bf1ef725",
+		"08b65a63f244115121ced6c3b55ad38d801a7442acad5c949a17aad84ae6d684",
 	"darwin-arm64":
-		"efb87ff28af9a188d0536ef5d42e63dd52ba8263cd7344a993cc48dd11dedb6a",
+		"2dc95ce4675829f2df0e86b28bcef3283635902062a5f0580ca659bf570f3204",
 	"linux-amd64":
-		"5c2c3b16caefa1d968a94c1daca04a7ca301a496d9b086e17ad77bb81393f053",
+		"708effb774be8237570d0add163225abbdfaf4fca28b2611df167beba4feef89",
 	"linux-arm64":
-		"fe4789e92b1f33358680864bbe8704289e7bb5fc207d80623c308935bd696d49",
+		"d0507e9e9d7fe012aae570108cbd76c15de879e17130ab8cb90d4d7445cb1f2e",
 };
 
 async function run(
@@ -185,8 +185,11 @@ try {
 			goBinary,
 			"get",
 			"github.com/containerd/containerd/v2@v2.3.2",
+			"github.com/go-git/go-git/v5@v5.19.2",
 			"google.golang.org/grpc@v1.82.1",
-			"oras.land/oras-go/v2@v2.6.1",
+			"golang.org/x/net@v0.56.0",
+			"golang.org/x/text@v0.39.0",
+			"oras.land/oras-go/v2@v2.6.2",
 		],
 		{ cwd: sourceRoot, env: goEnv },
 	);
