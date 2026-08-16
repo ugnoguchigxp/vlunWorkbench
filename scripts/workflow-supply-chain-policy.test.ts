@@ -26,6 +26,7 @@ describe("workflow supply-chain policy", () => {
 		expect(secretScan).not.toMatch(/^    needs:/m);
 		expect(secretScan).toContain("gitleaks/gitleaks-action@");
 		expect(secretScan).toContain("actions/checkout@");
+		expect(secretScan).toContain("fetch-depth: 0");
 		expect(workflow).toContain("cancel-in-progress: true");
 	});
 
