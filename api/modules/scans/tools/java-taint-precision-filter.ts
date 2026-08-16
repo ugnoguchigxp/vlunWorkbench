@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import { readFile } from "node:fs/promises";
 
 const OWNED_JAVA_TAINT_RULES = new Set([
@@ -13,14 +14,16 @@ const OWNED_JAVA_TAINT_RULES = new Set([
 type SemgrepResult = {
 	check_id?: string;
 	path?: string;
-	start?: { line?: number };
+	start?: { line?: number; col?: number };
 	extra?: { metadata?: Record<string, unknown> };
 };
 
 export type JavaTaintSuppression = {
+	findingId: string;
 	checkId: string;
 	path: string;
 	line: number | null;
+	sourceHash: string;
 	reason:
 		| "contextual_output_encoding"
 		| "constant_branch"
@@ -77,9 +80,11 @@ export async function filterOwnedJavaTaintResults(
 			continue;
 		}
 		suppressions.push({
+			findingId: suppressionFindingId(result, sourceText),
 			checkId: result.check_id ?? rule,
 			path: result.path,
 			line: result.start?.line ?? null,
+			sourceHash: sha256(sourceText),
 			reason,
 		});
 	}
@@ -94,6 +99,21 @@ export async function filterOwnedJavaTaintResults(
 					},
 		suppressions,
 	};
+}
+
+function suppressionFindingId(result: SemgrepResult, source: string): string {
+	return sha256(
+		[
+			result.check_id ?? "unknown-rule",
+			sha256(source),
+			String(result.start?.line ?? 0),
+			String(result.start?.col ?? 0),
+		].join("\0"),
+	);
+}
+
+function sha256(value: string): string {
+	return `sha256:${crypto.createHash("sha256").update(value).digest("hex")}`;
 }
 
 export function proveOwnedJavaTaintFindingSafe(

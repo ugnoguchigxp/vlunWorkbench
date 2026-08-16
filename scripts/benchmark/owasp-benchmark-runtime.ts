@@ -81,9 +81,11 @@ export const sanitizedSemgrepEvidenceArtifactSchema = z
 		vulnWorkbenchSuppressed: z.array(
 			z
 				.object({
+					findingId: z.string().regex(digestPattern),
 					checkId: z.string().min(1).max(500),
 					path: corpusEvidencePathSchema,
 					line: z.number().int().nonnegative().nullable(),
+					sourceHash: z.string().regex(digestPattern),
 					reason: z.enum([
 						"contextual_output_encoding",
 						"constant_branch",
@@ -366,19 +368,23 @@ export function sanitizeSemgrepEvidenceArtifact(
 					throw new Error("owasp_semgrep_suppression_invalid");
 				}
 				if (
+					typeof rawSuppression.findingId !== "string" ||
 					typeof rawSuppression.checkId !== "string" ||
 					typeof rawSuppression.path !== "string" ||
+					typeof rawSuppression.sourceHash !== "string" ||
 					typeof rawSuppression.reason !== "string"
 				) {
 					throw new Error("owasp_semgrep_suppression_identity_invalid");
 				}
 				return {
+					findingId: rawSuppression.findingId,
 					checkId: rawSuppression.checkId,
 					path: hostCorpusPathToEvidencePath(rawSuppression.path, corpusSource),
 					line:
 						typeof rawSuppression.line === "number"
 							? rawSuppression.line
 							: null,
+					sourceHash: rawSuppression.sourceHash,
 					reason: rawSuppression.reason,
 				};
 			})

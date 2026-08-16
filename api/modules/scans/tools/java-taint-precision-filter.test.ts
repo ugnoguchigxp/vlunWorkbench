@@ -173,10 +173,26 @@ describe("owned Java taint precision filter", () => {
 		).toHaveLength(2);
 		expect(result.suppressions).toEqual([
 			expect.objectContaining({
+				findingId: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
 				checkId: "vuln-workbench.java.sql-injection",
 				reason: "constant_branch",
+				sourceHash: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
 			}),
 		]);
+		const repeated = await filterOwnedJavaTaintResults(
+			{
+				results: [
+					finding("vuln-workbench.java.sql-injection", "Safe.java"),
+				],
+			},
+			{ readSource: async () => safeSource },
+		);
+		expect(repeated.suppressions[0]?.findingId).toBe(
+			result.suppressions[0]?.findingId,
+		);
+		expect(repeated.suppressions[0]?.sourceHash).toBe(
+			result.suppressions[0]?.sourceHash,
+		);
 	});
 
 	test("does not suppress an unsafe finding because another method is safe", async () => {
