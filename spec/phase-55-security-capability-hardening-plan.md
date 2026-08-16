@@ -1,6 +1,6 @@
 # Phase 55: Security Capability Hardening and Coverage Expansion Plan
 
-Status: In Progress — Slice 55.0 hardened locally; authoritative CI entry pending
+Status: In Progress — Slice 55.0 passed on main; Slice 55.1 strict-verified locally, CI pending
 
 Predecessors:
 
@@ -269,11 +269,12 @@ limitations
 
 ## 8. Slice 55.0 — Baseline and entry gate
 
-Implementation status: Hardened locally on 2026-08-16. Baseline inputs are
-tracked and exact-bound, and the strict entry command runs the full Phase 54
-closeout before emitting a same-commit entry report. The committed planning
-baseline remains `blocked` until the Ubuntu CI entry succeeds, so Slice 55.1
-以降のproduction変更はまだ開始しない。
+Implementation status: Completed on main commit
+`7481a263e500fcf1b72ccc46fe0c0f470b5b959e` on 2026-08-16. The clean Ubuntu
+strict verify, repository coverage, secret scan, authoritative Phase 54 closeout,
+strict Phase 55 entry, and container-security jobs passed for that same commit.
+The committed planning baseline remains an immutable historical `blocked`
+snapshot; the authoritative main result is the production-slice entry decision.
 
 ### Objective
 
@@ -322,6 +323,13 @@ git diff --check
 baseline collectorだけをrevertする。Phase 54 artifact、policy、claim、metricを変更しない。
 
 ## 9. Slice 55.1 — Truthful SAST coverage in default workflows
+
+Implementation status: Implemented and strict-verified locally on 2026-08-16.
+Authoritative CI and main merge are pending. The resolved profile and its digest
+are stored with every scan, Semgrep becomes a required `curated-sast-v1` step
+when its optional adapter is registered, and otherwise
+`source_sast_not_executed` remains visible through profile resolution, dry-run,
+stored coverage, reports, and the UI.
 
 ### Objective
 

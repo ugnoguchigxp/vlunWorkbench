@@ -4,7 +4,8 @@ export const PROFILE_DISPLAY: Record<
 > = {
 	baseline: {
 		name: "標準スキャン",
-		subtitle: "Gitleaks、OSV で基本的なリスクを確認します。",
+		subtitle:
+			"Gitleaks と OSV の secret/SCA baseline です。source SAST は含みません。",
 	},
 	"basic-security": {
 		name: "基本セキュリティスキャン",
@@ -14,7 +15,7 @@ export const PROFILE_DISPLAY: Record<
 	"source-baseline": {
 		name: "ソースコード重点スキャン",
 		subtitle:
-			"生成物や installed dependency tree を外し、手元のソースコードを中心に確認します。",
+			"生成物を外した Gitleaks/OSV の secret/SCA baseline です。source SAST は含みません。",
 	},
 	secrets: {
 		name: "シークレット漏えいスキャン",
@@ -88,7 +89,8 @@ export const PROFILE_DISPLAY: Record<
 	},
 	"full-security-scan": {
 		name: "総合セキュリティ診断",
-		subtitle: "詳細な静的診断と自動起動 HTTP DAST 診断をまとめて実行します。",
+		subtitle:
+			"詳細な静的診断と HTTP DAST を実行します。Semgrep 未登録時は source SAST 未実行を coverage gap として記録します。",
 	},
 	"secrets-dependencies-runtime": {
 		name: "漏えい・依存関係・公開面診断",

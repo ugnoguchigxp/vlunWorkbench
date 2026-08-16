@@ -93,5 +93,10 @@ describe("Scan Profiles Route", () => {
 			}),
 		);
 		expect(dastStep.options).toBeUndefined();
+
+		const fullProfile = body.profiles.find(
+			(profile: any) => profile.id === "full-security-scan",
+		);
+		expect(fullProfile.coverageGaps).toEqual(["source_sast_not_executed"]);
 	});
 });

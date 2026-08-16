@@ -1,5 +1,6 @@
 import type { ScanProfile } from "../../shared/schemas/scan-profile.schema";
 import type { ScanTarget } from "../../shared/schemas/scan-target.schema";
+import { hashResolvedProfile } from "../modules/scans/resolved-profile";
 import type { ToolRunnerKind } from "../modules/scans/tools/tool-process-runner";
 
 export function buildScanProfileDryRun(params: {
@@ -27,6 +28,8 @@ export function buildScanProfileDryRun(params: {
 	return {
 		dryRun: true,
 		profileId: params.profile.id,
+		resolvedProfileHash: hashResolvedProfile(params.profile),
+		coverageGaps: params.profile.coverageGaps ?? [],
 		target: params.scanTarget,
 		runner: params.runner ?? "host",
 		finalReport: params.finalReportEnabled,

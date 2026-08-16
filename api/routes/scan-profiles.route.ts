@@ -13,6 +13,7 @@ export function createScanProfilesRoute() {
 			enabled: p.enabled,
 			defaultTimeoutSec: p.defaultTimeoutSec,
 			supportedTargets: p.supportedTargets ?? ["full"],
+			coverageGaps: p.coverageGaps ?? [],
 			scope: p.scope
 				? {
 						intent: p.scope.intent,

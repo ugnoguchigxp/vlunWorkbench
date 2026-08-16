@@ -197,5 +197,6 @@ export const scanProfileSchema = z.object({
 	supportedTargets: z.array(scanTargetKindSchema).optional(),
 	tools: z.array(profileToolEntrySchema),
 	steps: z.array(scanProfileStepSchema).optional(),
+	coverageGaps: z.array(z.string().min(1).max(100)).max(20).optional(),
 });
 export type ScanProfile = z.infer<typeof scanProfileSchema>;

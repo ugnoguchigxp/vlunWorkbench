@@ -308,6 +308,91 @@ describe("Profile Runner Orchestration", () => {
 		);
 	});
 
+	it("persists and reports the explicit source SAST gap", async () => {
+		const mockProfile = {
+			id: "full-security-scan",
+			name: "Truthful Full Scan",
+			description: "Full scan without an optional Semgrep adapter",
+			enabled: true,
+			defaultTimeoutSec: 100,
+			coverageGaps: ["source_sast_not_executed"],
+			tools: [
+				{
+					toolId: "gitleaks",
+					displayName: "Gitleaks",
+					required: true,
+					failurePolicy: "fail_profile" as const,
+				},
+			],
+			steps: [
+				{
+					kind: "static_tool" as const,
+					toolId: "gitleaks",
+					displayName: "Gitleaks",
+					required: true,
+					failurePolicy: "fail_profile" as const,
+				},
+			],
+		};
+		const profilesModule = require("./profiles");
+		const getProfileSpy = vi
+			.spyOn(profilesModule, "getProfileById")
+			.mockReturnValue(mockProfile);
+		vi.spyOn(profileRunnerModule, "runToolIntoExistingScan").mockResolvedValue({
+			toolRunId: "tool-run-source-gap",
+			findingCount: 0,
+			exitCode: 0,
+			elapsedMs: 10,
+			artifactIds: [],
+			diffUnmappedFindingCount: 0,
+		});
+
+		const result = await runProfileScan({
+			db: connection.db,
+			projectId,
+			profileId: "full-security-scan",
+			repoPath,
+			finalReport: { enabled: true },
+		});
+		expect(result.profileOutcome).toBe("completed_with_warnings");
+
+		const [scanRun] = await connection.db
+			.select()
+			.from(scanRuns)
+			.where(eq(scanRuns.id, result.scanRunId));
+		expect(scanRun.metadata).toEqual(
+			expect.objectContaining({
+				resolvedProfile: expect.objectContaining({
+					id: "full-security-scan",
+					coverageGaps: ["source_sast_not_executed"],
+				}),
+				resolvedProfileHash: expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
+				profileLimitationCodes: ["source_sast_not_executed"],
+				sourceSastCoverage: expect.objectContaining({
+					state: "applicable",
+					coverageEffect: "gap",
+					limitationCodes: ["source_sast_not_executed"],
+				}),
+			}),
+		);
+		const reportArtifact = await connection.db.query.scanArtifacts.findFirst({
+			where: eq(scanArtifacts.id, result.finalReport!.artifactId!),
+		});
+		const report = await fs.readFile(
+			path.resolve(
+				process.env.SCAN_ARTIFACT_ROOT ?? "artifacts/scans",
+				reportArtifact!.path,
+			),
+			"utf8",
+		);
+		expect(report).toContain("Source SAST coverage");
+		expect(report).toContain("source_sast_not_executed");
+		expect(report).toContain(
+			"finding 0件をソースコードの安全性判断には使用できません",
+		);
+		getProfileSpy.mockRestore();
+	});
+
 	it("should handle optional tool failure with completed_with_warnings status", async () => {
 		const mockProfile = {
 			id: "test-optional",
