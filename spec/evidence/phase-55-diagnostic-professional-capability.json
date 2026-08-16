@@ -1,0 +1,306 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-08-15T17:08:33.078Z",
+  "releaseCommit": "7778d847f0c5633271be9840b0a378964c64bf66",
+  "claim": {
+    "claimId": "measured-automated-web-api-assessment-v1",
+    "status": "not_met",
+    "scopeCatalogVersion": "1.0.0",
+    "benchmarkPolicyVersion": "1.0.0",
+    "passingBenchmarkRunId": null,
+    "unsupportedCapabilities": [
+      "arbitrary-scanner-script",
+      "browser-authenticated-zap-active",
+      "network-cloud-ad-mobile-wireless-social-engineering",
+      "production-active-attack"
+    ]
+  },
+  "hashes": {
+    "corpusLock": "sha256:fa37583cb2fc95e0236748a584b02c399624a95e5e2a76c6eaeecbe3637a6859",
+    "scannerManifest": "sha256:a6721d9aba8764e3663b37a92fee1c0ddbe3c7d4b02d788463196278cf72c102"
+  },
+  "provenance": {
+    "workingTreeClean": false,
+    "juiceShopAuthoritativeLinux": false,
+    "juiceShopMeasurementStatus": "completed"
+  },
+  "gates": {
+    "contracts": [
+      {
+        "command": "bun run test:detection-effectiveness",
+        "ok": true,
+        "exitCode": 0
+      },
+      {
+        "command": "bun run test:semgrep:catalog",
+        "ok": true,
+        "exitCode": 0
+      },
+      {
+        "command": "bun run test:osv:offline-fixtures",
+        "ok": true,
+        "exitCode": 0
+      },
+      {
+        "command": "bun run test:zap-active:contract",
+        "ok": true,
+        "exitCode": 0
+      },
+      {
+        "command": "bun run test:threat-model",
+        "ok": true,
+        "exitCode": 0
+      },
+      {
+        "command": "bun run test:business-logic",
+        "ok": true,
+        "exitCode": 0
+      },
+      {
+        "command": "bun run scripts/benchmark/endpoint-discovery.ts",
+        "ok": true,
+        "exitCode": 0
+      },
+      {
+        "command": "bun run scripts/benchmark/business-logic.ts",
+        "ok": true,
+        "exitCode": 0
+      }
+    ],
+    "semgrep": true,
+    "osv": false,
+    "owasp": true,
+    "juiceShop": false,
+    "businessLogic": true,
+    "endpointDiscovery": true
+  },
+  "metrics": {
+    "owasp": {
+      "category": "overall",
+      "truePositive": 1131,
+      "falseNegative": 284,
+      "trueNegative": 1325,
+      "falsePositive": 55,
+      "recall": 0.7992932862190812,
+      "precision": 0.9536256323777403,
+      "falsePositiveRate": 0.03985507246376811,
+      "score": 0.7594382137553132
+    },
+    "juiceShop": {
+      "category": "overall",
+      "truePositive": 17,
+      "falseNegative": 3,
+      "trueNegative": 20,
+      "falsePositive": 0,
+      "recall": 0.85,
+      "precision": 1,
+      "falsePositiveRate": 0,
+      "score": 0.85
+    },
+    "businessLogic": {
+      "category": "overall",
+      "truePositive": 8,
+      "falseNegative": 0,
+      "trueNegative": 8,
+      "falsePositive": 0,
+      "recall": 1,
+      "precision": 1,
+      "falsePositiveRate": 0,
+      "score": 1
+    },
+    "endpointDiscovery": {
+      "schemaVersion": 1,
+      "frameworkCount": 11,
+      "truePositive": 11,
+      "falsePositive": 0,
+      "falseNegative": 0,
+      "recall": 1,
+      "precision": 1,
+      "expected": [
+        "DELETE /django/{id}",
+        "DELETE /net/{id}",
+        "GET /flask",
+        "GET /gin/{id}",
+        "GET /hono/{id}",
+        "GET /spring/{id}",
+        "PATCH /fastapi/{id}",
+        "POST /echo/{id}",
+        "POST /express",
+        "POST /jax/{id}",
+        "PUT /fastify/{id}"
+      ],
+      "actual": [
+        "DELETE /django/{id}",
+        "DELETE /net/{id}",
+        "GET /flask",
+        "GET /gin/{id}",
+        "GET /hono/{id}",
+        "GET /spring/{id}",
+        "PATCH /fastapi/{id}",
+        "POST /echo/{id}",
+        "POST /express",
+        "POST /jax/{id}",
+        "PUT /fastify/{id}"
+      ],
+      "observations": [
+        {
+          "path": "hono.ts",
+          "expected": [
+            "GET /hono/{id}"
+          ],
+          "actual": [
+            "GET /hono/{id}"
+          ],
+          "truePositive": 1,
+          "falsePositive": 0,
+          "falseNegative": 0
+        },
+        {
+          "path": "express.js",
+          "expected": [
+            "POST /express"
+          ],
+          "actual": [
+            "POST /express"
+          ],
+          "truePositive": 1,
+          "falsePositive": 0,
+          "falseNegative": 0
+        },
+        {
+          "path": "fastify.ts",
+          "expected": [
+            "PUT /fastify/{id}"
+          ],
+          "actual": [
+            "PUT /fastify/{id}"
+          ],
+          "truePositive": 1,
+          "falsePositive": 0,
+          "falseNegative": 0
+        },
+        {
+          "path": "fastapi.py",
+          "expected": [
+            "PATCH /fastapi/{id}"
+          ],
+          "actual": [
+            "PATCH /fastapi/{id}"
+          ],
+          "truePositive": 1,
+          "falsePositive": 0,
+          "falseNegative": 0
+        },
+        {
+          "path": "flask.py",
+          "expected": [
+            "GET /flask"
+          ],
+          "actual": [
+            "GET /flask"
+          ],
+          "truePositive": 1,
+          "falsePositive": 0,
+          "falseNegative": 0
+        },
+        {
+          "path": "django.py",
+          "expected": [
+            "DELETE /django/{id}"
+          ],
+          "actual": [
+            "DELETE /django/{id}"
+          ],
+          "truePositive": 1,
+          "falsePositive": 0,
+          "falseNegative": 0
+        },
+        {
+          "path": "Spring.java",
+          "expected": [
+            "GET /spring/{id}"
+          ],
+          "actual": [
+            "GET /spring/{id}"
+          ],
+          "truePositive": 1,
+          "falsePositive": 0,
+          "falseNegative": 0
+        },
+        {
+          "path": "Jax.java",
+          "expected": [
+            "POST /jax/{id}"
+          ],
+          "actual": [
+            "POST /jax/{id}"
+          ],
+          "truePositive": 1,
+          "falsePositive": 0,
+          "falseNegative": 0
+        },
+        {
+          "path": "nethttp.go",
+          "expected": [
+            "DELETE /net/{id}"
+          ],
+          "actual": [
+            "DELETE /net/{id}"
+          ],
+          "truePositive": 1,
+          "falsePositive": 0,
+          "falseNegative": 0
+        },
+        {
+          "path": "gin.go",
+          "expected": [
+            "GET /gin/{id}"
+          ],
+          "actual": [
+            "GET /gin/{id}"
+          ],
+          "truePositive": 1,
+          "falsePositive": 0,
+          "falseNegative": 0
+        },
+        {
+          "path": "echo.go",
+          "expected": [
+            "POST /echo/{id}"
+          ],
+          "actual": [
+            "POST /echo/{id}"
+          ],
+          "truePositive": 1,
+          "falsePositive": 0,
+          "falseNegative": 0
+        },
+        {
+          "path": "negative.ts",
+          "expected": [],
+          "actual": [],
+          "truePositive": 0,
+          "falsePositive": 0,
+          "falseNegative": 0
+        },
+        {
+          "path": "negative.py",
+          "expected": [],
+          "actual": [],
+          "truePositive": 0,
+          "falsePositive": 0,
+          "falseNegative": 0
+        },
+        {
+          "path": "negative.go",
+          "expected": [],
+          "actual": [],
+          "truePositive": 0,
+          "falsePositive": 0,
+          "falseNegative": 0
+        }
+      ]
+    }
+  },
+  "residualRisk": "One or more prepared offline datasets or external benchmark gates have not passed; the measured capability claim remains not_met."
+}

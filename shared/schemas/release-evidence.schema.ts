@@ -31,7 +31,7 @@ export const repositoryRelativePathSchema = z
 		);
 	}, "Expected a normalized repository-relative path");
 
-const evidenceTextSchema = z
+export const evidenceTextSchema = z
 	.string()
 	.min(1)
 	.max(4_000)
@@ -407,7 +407,7 @@ export const currentReleaseEvidenceSchema = z
 		}
 	});
 
-const phase54CloseoutInputHashesSchema = z.object({
+export const phase54CloseoutInputHashesSchema = z.object({
 	benchmarkPolicy: sha256DigestSchema,
 	corpusLock: sha256DigestSchema,
 	scannerManifestFile: sha256DigestSchema,

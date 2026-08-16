@@ -80,12 +80,12 @@ jobs:
         env:
           DATABASE_URL: file:${{ runner.temp }}/phase-54-closeout.sqlite
         run: bun run db:migrate
-      - name: Run authoritative Phase 54 same-commit closeout
+      - name: Run authoritative Phase 54 closeout and strict Phase 55 entry
         env:
           DATABASE_URL: file:${{ runner.temp }}/phase-54-closeout.sqlite
           VULN_WORKBENCH_BENCHMARK_DATABASE_URL: file:${{ runner.temp }}/phase-54-closeout.sqlite
           VULN_WORKBENCH_BENCHMARK_DATABASE_BACKUP_PATH: ${{ runner.temp }}/phase-54-closeout-backup.sqlite
-        run: bun run phase-54:closeout
+        run: bun run verify:phase-55-entry
       - name: Upload closeout evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -101,6 +101,7 @@ jobs:
             .artifacts/benchmark/juice-shop-observations.json
             .artifacts/benchmark/juice-shop-run.json
             .artifacts/phase-54-closeout/
+            .artifacts/phase-55-entry/
             .artifacts/professional-capability-release-report.json
             ${{ runner.temp }}/phase-54-closeout-backup.sqlite
           if-no-files-found: error

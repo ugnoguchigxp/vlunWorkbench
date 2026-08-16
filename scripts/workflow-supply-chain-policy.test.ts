@@ -52,8 +52,11 @@ describe("workflow supply-chain policy", () => {
 		expect(workflow).toContain("severity: HIGH,CRITICAL");
 	});
 
-	test("runs the Phase 54 closeout with pinned benchmark images and persisted evidence", async () => {
-		const workflow = await readRepositoryFile(".github/workflows/verify.yml");
+	test("runs the strict Phase 55 entry with pinned benchmark images and persisted evidence", async () => {
+		const [workflow, phase55Entry] = await Promise.all([
+			readRepositoryFile(".github/workflows/verify.yml"),
+			readRepositoryFile("scripts/verify-phase-55-entry.ts"),
+		]);
 		const closeout = jobBlock(workflow, "juice-shop-benchmark");
 		expect(closeout).toContain("needs: [verify, secret-scan]");
 		expect(closeout).toContain(
@@ -66,9 +69,14 @@ describe("workflow supply-chain policy", () => {
 			"docker pull docker.io/bkimminich/juice-shop@sha256:",
 		);
 		expect(closeout).toContain("bun run db:migrate");
-		expect(closeout).toContain("bun run phase-54:closeout");
+		expect(closeout).toContain("bun run verify:phase-55-entry");
+		expect(phase55Entry).toContain(
+			'["bun", "run", "verify:phase-55-baseline"]',
+		);
+		expect(phase55Entry).toContain('["bun", "run", "phase-54:closeout"]');
 		expect(closeout).toContain("phase-54-closeout-backup.sqlite");
 		expect(closeout).toContain("phase-54-same-commit-closeout");
+		expect(closeout).toContain(".artifacts/phase-55-entry/");
 		expect(closeout).toContain(
 			"VULN_WORKBENCH_PHASE54_REGRESSION_VERIFIED_COMMIT: ${{ github.sha }}",
 		);
@@ -77,7 +85,7 @@ describe("workflow supply-chain policy", () => {
 		);
 		expect(closeout).not.toMatch(/^\s+\.artifacts\/benchmark\/$/m);
 		expect(closeout.indexOf("bun run db:migrate")).toBeLessThan(
-			closeout.indexOf("bun run phase-54:closeout"),
+			closeout.indexOf("bun run verify:phase-55-entry"),
 		);
 	});
 });

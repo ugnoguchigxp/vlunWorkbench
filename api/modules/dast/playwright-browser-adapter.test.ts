@@ -2,33 +2,45 @@ import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { PlaywrightBrowserAdapter } from "./playwright-browser-adapter";
 import type { ValidatedDastTarget } from "./types";
 
-let server: ReturnType<typeof Bun.serve>;
+let server: ReturnType<typeof Bun.serve> | undefined;
 let target: ValidatedDastTarget;
 
-beforeAll(() => {
-		server = Bun.serve({
-			port: 0,
-			fetch(request) {
-				const path = new URL(request.url).pathname;
-				if (path === "/budget-page") {
-					return new Response('<script src="/asset"></script>', {
-						headers: { "content-type": "text/html" },
-					});
-				}
-				if (path === "/asset") return new Response("asset");
-				if (path === "/redirect-secret") {
-					return new Response(null, {
-						status: 302,
-						headers: { location: "/private?code=browser-secret" },
-					});
-				}
-				const role = request.headers.get("x-test-role");
-			return new Response(
-				role === "user-a" || role === "user-b" ? `private:${role}` : "denied",
-				{ status: role ? 200 : 401 },
-			);
-		},
-	});
+beforeAll(async () => {
+	for (let attempt = 1; attempt <= 5; attempt++) {
+		try {
+			server = Bun.serve({
+				hostname: "127.0.0.1",
+				port: 0,
+				fetch(request) {
+					const path = new URL(request.url).pathname;
+					if (path === "/budget-page") {
+						return new Response('<script src="/asset"></script>', {
+							headers: { "content-type": "text/html" },
+						});
+					}
+					if (path === "/asset") return new Response("asset");
+					if (path === "/redirect-secret") {
+						return new Response(null, {
+							status: 302,
+							headers: { location: "/private?code=browser-secret" },
+						});
+					}
+					const role = request.headers.get("x-test-role");
+					return new Response(
+						role === "user-a" || role === "user-b"
+							? `private:${role}`
+							: "denied",
+						{ status: role ? 200 : 401 },
+					);
+				},
+			});
+			break;
+		} catch (error) {
+			if (attempt === 5) throw error;
+			await Bun.sleep(attempt * 25);
+		}
+	}
+	if (!server) throw new Error("playwright_test_server_unavailable");
 	const origin = `http://dast-pinned.invalid:${server.port}`;
 	target = {
 		ok: true,
@@ -47,7 +59,7 @@ beforeAll(() => {
 	};
 });
 
-afterAll(() => server.stop(true));
+afterAll(() => server?.stop(true));
 
 describe("PlaywrightBrowserAdapter", () => {
 	it("loads the same read-only route for two encrypted identity materials", async () => {

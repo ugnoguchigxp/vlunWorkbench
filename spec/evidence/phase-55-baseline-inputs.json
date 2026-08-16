@@ -1,0 +1,102 @@
+{
+  "schemaVersion": 1,
+  "evidenceKind": "phase_55_planning_input_snapshot",
+  "capturedAt": "2026-08-15T17:08:33.078Z",
+  "planningBaselineCommit": "45ef82d877f5c8413d4d3b7185175d8bdeb7a463",
+  "profileInventory": {
+    "profileIds": [
+      "agent-output",
+      "api-schema-readonly",
+      "api-zap-active-lab",
+      "artifact",
+      "baseline",
+      "basic-security",
+      "container-image-security",
+      "dependency-manifest",
+      "detailed-security",
+      "diff-basic-security",
+      "diff-source-baseline",
+      "full-deep",
+      "full-security-scan",
+      "runtime-http-check",
+      "runtime-web-safe",
+      "runtime-zap-active-lab",
+      "runtime-zap-baseline",
+      "sbom-inventory",
+      "secrets-dependencies-runtime",
+      "source-baseline",
+      "web-app-baseline"
+    ],
+    "optionalSemgrepEnabledByDefault": false,
+    "profileDefinitionsHash": "sha256:30fa68ede04629304292fb52159ebdb19c9d40ea11888bdb05e6bb41289d1865"
+  },
+  "professionalCapabilitySource": {
+    "evidenceRef": "spec/evidence/phase-55-diagnostic-professional-capability.json",
+    "artifactHash": "sha256:ece0082dac196e25514725b423f856d626d48efc75d70b879733d7b08d7cafd8"
+  },
+  "professionalCapability": {
+    "source": "diagnostic",
+    "artifactHash": "sha256:ece0082dac196e25514725b423f856d626d48efc75d70b879733d7b08d7cafd8",
+    "releaseCommit": "7778d847f0c5633271be9840b0a378964c64bf66",
+    "claimStatus": "not_met",
+    "unsupportedCapabilities": [
+      "arbitrary-scanner-script",
+      "browser-authenticated-zap-active",
+      "network-cloud-ad-mobile-wireless-social-engineering",
+      "production-active-attack"
+    ],
+    "gates": {
+      "semgrep": true,
+      "osv": false,
+      "owasp": true,
+      "juiceShop": false,
+      "businessLogic": true,
+      "endpointDiscovery": true
+    },
+    "metrics": {
+      "owasp": {
+        "truePositive": 1131,
+        "falseNegative": 284,
+        "trueNegative": 1325,
+        "falsePositive": 55,
+        "recall": 0.7992932862190812,
+        "precision": 0.9536256323777403,
+        "falsePositiveRate": 0.03985507246376811,
+        "score": 0.7594382137553132
+      },
+      "juiceShop": {
+        "truePositive": 17,
+        "falseNegative": 3,
+        "trueNegative": 20,
+        "falsePositive": 0,
+        "recall": 0.85,
+        "precision": 1,
+        "falsePositiveRate": 0,
+        "score": 0.85
+      },
+      "businessLogic": {
+        "truePositive": 8,
+        "falseNegative": 0,
+        "trueNegative": 8,
+        "falsePositive": 0,
+        "recall": 1,
+        "precision": 1,
+        "falsePositiveRate": 0,
+        "score": 1
+      },
+      "endpointDiscovery": {
+        "frameworkCount": 11,
+        "truePositive": 11,
+        "falsePositive": 0,
+        "falseNegative": 0,
+        "recall": 1,
+        "precision": 1
+      }
+    }
+  },
+  "privacy": {
+    "absoluteHomePathsIncluded": false,
+    "sourceSnippetsIncluded": false,
+    "credentialsIncluded": false
+  }
+}

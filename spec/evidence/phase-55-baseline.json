@@ -1,0 +1,144 @@
+{
+  "schemaVersion": 1,
+  "phase": "55",
+  "evidenceKind": "planning_baseline",
+  "capturedAt": "2026-08-16T04:12:07.000Z",
+  "owner": "vulnWorkbench maintainers",
+  "planningBaselineCommit": "45ef82d877f5c8413d4d3b7185175d8bdeb7a463",
+  "phase54Closeout": {
+    "evidenceRef": ".artifacts/phase-54-closeout/report.json",
+    "availability": "missing",
+    "gateState": "blocked",
+    "reasonCode": "phase_54_authoritative_closeout_missing",
+    "reportHash": null,
+    "releaseCommit": null,
+    "inputHashes": null,
+    "professionalReportHash": null
+  },
+  "productionSliceEntry": {
+    "state": "blocked",
+    "allowed": false,
+    "reasonCode": "phase_54_authoritative_closeout_missing"
+  },
+  "inventory": {
+    "testFiles": 315,
+    "ownedSemgrepRules": 45,
+    "semgrepLanguages": [
+      "go",
+      "java",
+      "javascript",
+      "python",
+      "typescript"
+    ],
+    "osvEcosystems": [
+      "Go",
+      "Maven",
+      "NuGet",
+      "Packagist",
+      "PyPI",
+      "RubyGems",
+      "crates.io",
+      "npm"
+    ],
+    "profileIds": [
+      "agent-output",
+      "api-schema-readonly",
+      "api-zap-active-lab",
+      "artifact",
+      "baseline",
+      "basic-security",
+      "container-image-security",
+      "dependency-manifest",
+      "detailed-security",
+      "diff-basic-security",
+      "diff-source-baseline",
+      "full-deep",
+      "full-security-scan",
+      "runtime-http-check",
+      "runtime-web-safe",
+      "runtime-zap-active-lab",
+      "runtime-zap-baseline",
+      "sbom-inventory",
+      "secrets-dependencies-runtime",
+      "source-baseline",
+      "web-app-baseline"
+    ],
+    "optionalSemgrepEnabledByDefault": false
+  },
+  "professionalCapability": {
+    "source": "diagnostic",
+    "artifactHash": "sha256:ece0082dac196e25514725b423f856d626d48efc75d70b879733d7b08d7cafd8",
+    "releaseCommit": "7778d847f0c5633271be9840b0a378964c64bf66",
+    "claimStatus": "not_met",
+    "unsupportedCapabilities": [
+      "arbitrary-scanner-script",
+      "browser-authenticated-zap-active",
+      "network-cloud-ad-mobile-wireless-social-engineering",
+      "production-active-attack"
+    ],
+    "gates": {
+      "semgrep": true,
+      "osv": false,
+      "owasp": true,
+      "juiceShop": false,
+      "businessLogic": true,
+      "endpointDiscovery": true
+    },
+    "metrics": {
+      "owasp": {
+        "truePositive": 1131,
+        "falseNegative": 284,
+        "trueNegative": 1325,
+        "falsePositive": 55,
+        "recall": 0.7992932862190812,
+        "precision": 0.9536256323777403,
+        "falsePositiveRate": 0.03985507246376811,
+        "score": 0.7594382137553132
+      },
+      "juiceShop": {
+        "truePositive": 17,
+        "falseNegative": 3,
+        "trueNegative": 20,
+        "falsePositive": 0,
+        "recall": 0.85,
+        "precision": 1,
+        "falsePositiveRate": 0,
+        "score": 0.85
+      },
+      "businessLogic": {
+        "truePositive": 8,
+        "falseNegative": 0,
+        "trueNegative": 8,
+        "falsePositive": 0,
+        "recall": 1,
+        "precision": 1,
+        "falsePositiveRate": 0,
+        "score": 1
+      },
+      "endpointDiscovery": {
+        "frameworkCount": 11,
+        "truePositive": 11,
+        "falsePositive": 0,
+        "falseNegative": 0,
+        "recall": 1,
+        "precision": 1
+      }
+    }
+  },
+  "hashes": {
+    "benchmarkPolicy": "sha256:084fedae4f0e9024e7265e5d03045fff4b2ca15e939b6cc4b35f8f4107a87e9a",
+    "scopeCatalog": "sha256:c00e935c3b4eecc707b0aaebf1155ca18d92c1f73b597f030f8a25ec7abc8095",
+    "corpusLock": "sha256:fa37583cb2fc95e0236748a584b02c399624a95e5e2a76c6eaeecbe3637a6859",
+    "scannerManifestFile": "sha256:96f260a10844f4288913a74e533ba9ae00b57f1183b50f77bcc1b5483dbf8c3c",
+    "scannerManifest": "sha256:a6721d9aba8764e3663b37a92fee1c0ddbe3c7d4b02d788463196278cf72c102",
+    "semgrepCatalog": "sha256:8eebb13a1a23abc3ed158f76c4b13ff4d08050ff2b09f9365df3ff02935410a4",
+    "profileDefinitions": "sha256:30fa68ede04629304292fb52159ebdb19c9d40ea11888bdb05e6bb41289d1865",
+    "baselineInputSnapshot": "sha256:b3af3a209ea5c048c77f5847b4b47c4186b1bec0db5f0efa6639141b94fe7aef"
+  },
+  "privacy": {
+    "absoluteHomePathsIncluded": false,
+    "sourceSnippetsIncluded": false,
+    "credentialsIncluded": false
+  },
+  "residualRisk": "Phase 54 authoritative Ubuntu closeout is unavailable; only baseline, schema, fixture design, and documentation work may proceed."
+}
