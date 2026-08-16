@@ -103,6 +103,66 @@ describe("Juice Shop scenario runner", () => {
 		).toBe(true);
 	});
 
+	test("preserves opaque CAPTCHA answers across identity, replay, and boundary probes", async () => {
+		const { catalog, playbooks } = await loadAndValidateJuiceShopInputs();
+		const evidenceRoot = await mkdtemp(
+			path.join(os.tmpdir(), "juice-runner-captcha-"),
+		);
+		roots.push(evidenceRoot);
+		const selected = playbooks.filter((playbook) =>
+			["forged_feedback", "captcha_replay", "zero_stars"].includes(
+				playbook.probeVariant,
+			),
+		);
+		const token = `header.${Buffer.from(
+			JSON.stringify({ data: { id: 2, email: "actor@example.test" } }),
+		).toString("base64url")}.signature`;
+		const fetchImpl = async (input: RequestInfo | URL, init?: RequestInit) => {
+			const url = new URL(
+				input instanceof Request ? input.url : input.toString(),
+			);
+			if (url.pathname === "/rest/user/login") {
+				return Response.json({ authentication: { token, bid: 1 } });
+			}
+			if (url.pathname === "/rest/captcha/") {
+				return Response.json({ captchaId: 7, answer: "-4" });
+			}
+			if (url.pathname === "/api/Feedbacks") {
+				const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+				if (body.captcha !== "-4") {
+					return new Response("Wrong CAPTCHA", { status: 401 });
+				}
+				return Response.json(
+					{
+						data: {
+							UserId: body.UserId ?? null,
+							rating: body.rating,
+						},
+					},
+					{ status: 201 },
+				);
+			}
+			return new Response("Not found", { status: 404 });
+		};
+		const result = await runJuiceShopScenarios({
+			catalog,
+			playbooks: selected,
+			evidenceRoot,
+			resetExecutor: successfulReset(),
+			fetchImpl,
+		});
+		expect(result.preflight.status).toBe("passed");
+		expect(result.observations).toHaveLength(3);
+		expect(
+			result.observations.every(
+				(observation) =>
+					observation.scenarioStatus === "completed" &&
+					observation.vulnerable.detection === "detected" &&
+					observation.fixed.detection === "not_detected",
+			),
+		).toBe(true);
+	});
+
 	test("keeps a live shared-fixture lock and recovers an abandoned one", async () => {
 		const { catalog, playbooks } = await loadAndValidateJuiceShopInputs();
 		const evidenceRoot = await mkdtemp(
