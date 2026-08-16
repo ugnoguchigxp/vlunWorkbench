@@ -73,6 +73,7 @@ describe("workflow supply-chain policy", () => {
 		]);
 		const closeout = jobBlock(workflow, "juice-shop-benchmark");
 		expect(closeout).toContain("needs: [verify, secret-scan]");
+		expect(closeout).toContain("fetch-depth: 0");
 		expect(closeout).toContain(
 			"VULN_WORKBENCH_OWASP_SEMGREP_IMAGE: docker.io/semgrep/semgrep@sha256:",
 		);
