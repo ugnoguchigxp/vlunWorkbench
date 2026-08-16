@@ -14,7 +14,10 @@ import {
 	GitDiffResolutionError,
 	resolveGitDiff,
 } from "../modules/scans/git-diff-resolver";
-import { runProfileScan } from "../modules/scans/profile-runner";
+import {
+	resolveProfileSteps,
+	runProfileScan,
+} from "../modules/scans/profile-runner";
 import { getProfileById } from "../modules/scans/profiles";
 import {
 	ProjectResolutionError,
@@ -26,6 +29,7 @@ import {
 	resolveScanExecutionPolicy,
 	scanExecutionPolicyMetadata,
 } from "../modules/scans/scan-execution-policy";
+import { runScanPreflight } from "../modules/scans/scan-preflight";
 import {
 	type DockerNetworkMode,
 	normalizeToolExecutionConfig,
@@ -62,6 +66,7 @@ function parseScanProfileArgs() {
 			head: { type: "string" },
 			"include-untracked": { type: "string" },
 			"expected-target-digest": { type: "string" },
+			"expected-preflight-binding-hash": { type: "string" },
 			preview: { type: "string", default: "false" },
 			step: { type: "string" },
 			"timeout-sec": { type: "string" },
@@ -131,6 +136,20 @@ async function main() {
 			ok: false,
 			status: "config_error",
 			message: "--expected-target-digest must be a 64-character SHA-256.",
+		});
+		process.exit(2);
+	}
+	const expectedPreflightBindingHash = argsValues[
+		"expected-preflight-binding-hash"
+	] as string | undefined;
+	if (
+		expectedPreflightBindingHash &&
+		!/^sha256:[0-9a-f]{64}$/.test(expectedPreflightBindingHash)
+	) {
+		writeResult({
+			ok: false,
+			status: "config_error",
+			message: "--expected-preflight-binding-hash must be a sha256: digest.",
 		});
 		process.exit(2);
 	}
@@ -217,7 +236,7 @@ async function main() {
 		process.exit(1);
 	}
 
-	if (dryRun) {
+	if (dryRun && !projectId && !projectPath) {
 		const dryRunResult = buildScanProfileDryRun({
 			profile,
 			scanTarget,
@@ -228,6 +247,7 @@ async function main() {
 			automatedDiagnosticEnabled,
 			imageRef,
 			imageTar,
+			expectedPreflightBindingHash,
 		});
 		writeResult(dryRunResult);
 		process.exit(dryRunResult.ok === false ? 1 : 0);
@@ -320,6 +340,36 @@ async function main() {
 				expectedTargetDigest,
 			});
 		}
+		if (dryRun) {
+			const preflight = await runScanPreflight({
+				profile,
+				steps: resolveProfileSteps({
+					steps: profile.steps,
+					tools: profile.tools,
+					stepId,
+				}),
+				projectId: project.id,
+				repoPath: effectiveRepoPath,
+				execution,
+				consentProjectCodeExecution,
+			});
+			const dryRunResult = buildScanProfileDryRun({
+				profile,
+				scanTarget,
+				stepId,
+				timeoutSec,
+				runner: execution.runner,
+				finalReportEnabled,
+				automatedDiagnosticEnabled,
+				imageRef,
+				imageTar,
+				preflight,
+				expectedPreflightBindingHash,
+			});
+			writeResult(dryRunResult);
+			process.exitCode = dryRunResult.ok === false ? 1 : 0;
+			return;
+		}
 		if (preview) {
 			if (scanTarget.kind === "full") {
 				writeResult({
@@ -380,6 +430,7 @@ async function main() {
 			executionSurface,
 			target: scanTarget,
 			expectedTargetDigest,
+			expectedPreflightBindingHash,
 			consentProjectCodeExecution,
 			finalReport: {
 				enabled: finalReportEnabled,

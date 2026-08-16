@@ -10,6 +10,7 @@ import {
 	fetchScanSecurityChecks,
 	fetchScans,
 	generateScanReport,
+	preflightScan,
 	previewScan,
 	retryAutomatedScanDiagnostic,
 	type ScanTargetKind,
@@ -167,12 +168,22 @@ export function buildScanLaunchActions(scope: ScanLaunchActionsScope) {
 			if (target.kind !== "full" && !diffPreviewCurrent) {
 				throw new Error("差分を確認してからscanを開始してください。");
 			}
+			const preflight = await preflightScan(selectedProjectId, {
+				profile: selectedProfileId,
+				consentProjectCodeExecution: scanProjectCodeExecutionConsent,
+			});
+			if (preflight.mode === "enforced" && preflight.status === "blocked") {
+				throw new Error(
+					`scan preflight failed: ${preflight.limitationCodes.join(", ")}`,
+				);
+			}
 			const res = await startScan(selectedProjectId, {
 				profile: selectedProfileId,
 				continueOnToolFailure,
 				consentProjectCodeExecution: scanProjectCodeExecutionConsent,
 				timeoutSec,
 				target,
+				expectedPreflightBindingHash: preflight.bindingHash,
 				...(target.kind !== "full" && diffPreviewCurrent && diffPreview
 					? { expectedTargetDigest: diffPreview.target.targetDigest }
 					: {}),

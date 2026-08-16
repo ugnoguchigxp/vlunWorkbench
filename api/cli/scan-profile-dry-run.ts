@@ -1,3 +1,4 @@
+import type { ScanPreflightResult } from "../../shared/schemas/scan-preflight.schema";
 import type { ScanProfile } from "../../shared/schemas/scan-profile.schema";
 import type { ScanTarget } from "../../shared/schemas/scan-target.schema";
 import { hashResolvedProfile } from "../modules/scans/resolved-profile";
@@ -13,6 +14,8 @@ export function buildScanProfileDryRun(params: {
 	automatedDiagnosticEnabled: boolean;
 	imageRef?: string;
 	imageTar?: string;
+	preflight?: ScanPreflightResult;
+	expectedPreflightBindingHash?: string;
 }): Record<string, unknown> {
 	const allSteps = params.profile.steps ?? [];
 	const selectedSteps = params.stepId
@@ -25,11 +28,24 @@ export function buildScanProfileDryRun(params: {
 			message: `Invalid profile step: ${params.stepId}`,
 		};
 	}
+	if (
+		params.expectedPreflightBindingHash &&
+		params.preflight &&
+		params.expectedPreflightBindingHash !== params.preflight.bindingHash
+	) {
+		return {
+			ok: false,
+			status: "failed",
+			message: "preflight_changed: preflight binding changed after preview",
+			preflight: params.preflight,
+		};
+	}
 	return {
 		dryRun: true,
 		profileId: params.profile.id,
 		resolvedProfileHash: hashResolvedProfile(params.profile),
 		coverageGaps: params.profile.coverageGaps ?? [],
+		preflight: params.preflight ?? null,
 		target: params.scanTarget,
 		runner: params.runner ?? "host",
 		finalReport: params.finalReportEnabled,

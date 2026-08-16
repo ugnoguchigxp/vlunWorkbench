@@ -17,6 +17,7 @@ import {
 	GitDiffResolutionError,
 	resolveGitDiff,
 } from "../modules/scans/git-diff-resolver";
+import { resolveProfileSteps } from "../modules/scans/profile-runner";
 import { getProfileById } from "../modules/scans/profiles";
 import { isTemporaryProjectPath } from "../modules/scans/project-visibility";
 import type {
@@ -24,10 +25,13 @@ import type {
 	ScanRepository,
 } from "../modules/scans/repositories";
 import {
+	executionConfigFromPolicy,
 	resolveScanExecutionPolicy,
 	scanExecutionPolicyMetadata,
 } from "../modules/scans/scan-execution-policy";
+import { runScanPreflight } from "../modules/scans/scan-preflight";
 import type { ScanProcessSupervisor } from "../modules/scans/scan-process-supervisor";
+import { normalizeToolExecutionConfig } from "../modules/scans/tools/tool-process-runner";
 import {
 	ProjectPathPolicyError,
 	resolveProjectPath,
@@ -38,13 +42,15 @@ type ProjectsRouteDeps = {
 	scanRepository?: ScanRepository;
 	scanSupervisor?: ScanProcessSupervisor;
 	env?: AppEnv;
+	resolveProjectPath?: typeof resolveProjectPath;
 };
 
 export function createProjectsRoute(deps: ProjectsRouteDeps) {
 	const repo = deps.projectRepository;
+	const resolvePath = deps.resolveProjectPath ?? resolveProjectPath;
 	const projectPathPolicyStatus = async (projectPath: string) => {
 		try {
-			await resolveProjectPath(projectPath);
+			await resolvePath(projectPath);
 			return { status: "allowed" as const, reasonCode: null };
 		} catch (error) {
 			const reasonCode =
@@ -62,7 +68,7 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 	};
 	const resolveWebProjectPath = async (projectPath: string) => {
 		try {
-			return await resolveProjectPath(projectPath);
+			return await resolvePath(projectPath);
 		} catch (error) {
 			if (!(error instanceof ProjectPathPolicyError)) throw error;
 			throw new HttpError(400, error.message);
@@ -177,6 +183,59 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 			);
 		})
 		.post(
+			"/:projectId/scans/preflight",
+			zValidator(
+				"json",
+				z.object({
+					profile: z.string().default("baseline"),
+					stepId: z.string().optional(),
+					consentProjectCodeExecution: z.boolean().default(false).optional(),
+					runner: z.enum(["host", "docker"]).default("host").optional(),
+				}),
+			),
+			async (c) => {
+				const authUser = getAuthContextUser(c);
+				const projectId = c.req.param("projectId");
+				const body = c.req.valid("json");
+				const project = await repo.findById(projectId);
+				if (!project) throw new HttpError(404, "Project not found");
+				if (project.ownerUserId !== authUser.userId) {
+					throw new HttpError(403, "Forbidden");
+				}
+				if (!deps.env) {
+					throw new HttpError(500, "Scan runtime is not configured.");
+				}
+				const authorized = await resolveWebProjectPath(project.repoPath);
+				const profile = getProfileById(body.profile);
+				if (!profile) {
+					throw new HttpError(400, `Profile not found: ${body.profile}`);
+				}
+				const policy = resolveScanExecutionPolicy({
+					env: deps.env,
+					surface: "web",
+					requestedRunner: body.runner,
+				});
+				const execution = normalizeToolExecutionConfig(
+					executionConfigFromPolicy(policy),
+				);
+				const steps = resolveProfileSteps({
+					steps: profile.steps,
+					tools: profile.tools,
+					stepId: body.stepId,
+				});
+				const preflight = await runScanPreflight({
+					profile,
+					steps,
+					projectId,
+					repoPath: authorized.canonicalPath,
+					execution,
+					consentProjectCodeExecution:
+						body.consentProjectCodeExecution === true,
+				});
+				return c.json({ preflight });
+			},
+		)
+		.post(
 			"/:projectId/scans/preview",
 			zValidator(
 				"json",
@@ -251,14 +310,14 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 						.string()
 						.regex(/^[0-9a-f]{64}$/i)
 						.optional(),
+					expectedPreflightBindingHash: z
+						.string()
+						.regex(/^sha256:[0-9a-f]{64}$/)
+						.optional(),
 					continueOnToolFailure: z.boolean().default(true).optional(),
 					consentProjectCodeExecution: z.boolean().default(false).optional(),
 					timeoutSec: z.number().int().positive().optional(),
 					runner: z.enum(["host", "docker"]).default("host").optional(),
-					dockerBin: z.string().optional(),
-					dockerImage: z.string().optional(),
-					network: z.enum(["none", "default"]).default("none").optional(),
-					toolCacheDir: z.string().optional(),
 					imageRef: z.string().optional(),
 					imageTar: z.string().optional(),
 					finalReport: z.boolean().default(true).optional(),
@@ -321,6 +380,8 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 						executionPolicy: scanExecutionPolicyMetadata(policy),
 						requestedTarget: body.target,
 						expectedTargetDigest: body.expectedTargetDigest ?? null,
+						expectedPreflightBindingHash:
+							body.expectedPreflightBindingHash ?? null,
 					},
 				});
 				await deps.scanRepository.createScanEvent({
@@ -364,6 +425,12 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 				appendScanTargetArgs(args, body.target);
 				if (body.expectedTargetDigest) {
 					args.push("--expected-target-digest", body.expectedTargetDigest);
+				}
+				if (body.expectedPreflightBindingHash) {
+					args.push(
+						"--expected-preflight-binding-hash",
+						body.expectedPreflightBindingHash,
+					);
 				}
 
 				await deps.scanSupervisor.launch(queued.id, args);

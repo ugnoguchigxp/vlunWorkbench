@@ -1,3 +1,4 @@
+import type { ScanPreflightMode } from "../../../shared/schemas/scan-preflight.schema";
 import type { ScanTarget } from "../../../shared/schemas/scan-target.schema";
 import type { AppDatabase } from "../../db";
 import { resolveProjectPath } from "../../security/project-path-policy";
@@ -26,6 +27,7 @@ import { getProfileById } from "./profiles";
 import { ArtifactRepository, ScanRepository } from "./repositories";
 import { hashResolvedProfile } from "./resolved-profile";
 import { aggregateRuntimeAssessmentCoverage } from "./runtime-assessment-coverage";
+import { preflightBlocksExecution, runScanPreflight } from "./scan-preflight";
 import { resolveSourceSastCoverage } from "./source-sast-coverage";
 import { resolveScanScope } from "./target-scope";
 import {
@@ -52,6 +54,8 @@ export async function runProfileScan(params: {
 	target?: ScanTarget;
 	expectedTargetDigest?: string;
 	consentProjectCodeExecution?: boolean;
+	preflightMode?: ScanPreflightMode;
+	expectedPreflightBindingHash?: string;
 }): Promise<ProfileScanResult> {
 	const scanRepo = new ScanRepository(params.db);
 	const artifactRepo = new ArtifactRepository(params.db);
@@ -196,6 +200,95 @@ export async function runProfileScan(params: {
 		message: `Scan profile ${params.profileId} started.`,
 	});
 
+	const scanPreflight = await runScanPreflight({
+		profile,
+		steps: profileSteps,
+		projectId: params.projectId,
+		repoPath: params.repoPath,
+		execution,
+		mode: params.preflightMode,
+		consentProjectCodeExecution: params.consentProjectCodeExecution,
+	});
+	const preflightBindingChanged = Boolean(
+		params.expectedPreflightBindingHash &&
+			params.expectedPreflightBindingHash !== scanPreflight.bindingHash,
+	);
+	await scanRepo.mergeScanRunMetadata(scanRun.id, {
+		scanPreflight,
+		preflightBindingHash: scanPreflight.bindingHash,
+	});
+	await scanRepo.createScanEvent({
+		scanRunId: scanRun.id,
+		level:
+			scanPreflight.status === "ready" && !preflightBindingChanged
+				? "info"
+				: "warn",
+		eventType: preflightBindingChanged
+			? "scan.preflight_changed"
+			: "scan.preflight_completed",
+		message: preflightBindingChanged
+			? "Scan preflight binding changed after preview."
+			: `Scan preflight completed with status: ${scanPreflight.status}.`,
+		data: {
+			status: scanPreflight.status,
+			mode: scanPreflight.mode,
+			bindingHash: scanPreflight.bindingHash,
+			limitationCodes: scanPreflight.limitationCodes,
+		},
+	});
+	if (preflightBindingChanged || preflightBlocksExecution(scanPreflight)) {
+		const terminationReason = preflightBindingChanged
+			? "preflight_changed"
+			: "preflight_failed";
+		const summaryMsg = preflightBindingChanged
+			? "Scan failed because the preflight binding changed after preview."
+			: "Scan failed because a required preflight check was blocked.";
+		await scanRepo.updateScanRunStatus(scanRun.id, "failed", {
+			summary: summaryMsg,
+			metadata: {
+				...scanRun.metadata,
+				...initialMetadata,
+				scanPreflight,
+				preflightBindingHash: scanPreflight.bindingHash,
+				profileOutcome: "failed",
+				terminationReason,
+				profileLimitationCodes: [
+					...new Set([
+						...(profile.coverageGaps ?? []),
+						...scanPreflight.limitationCodes,
+						terminationReason,
+					]),
+				].sort(),
+			},
+		});
+		await scanRepo.createScanEvent({
+			scanRunId: scanRun.id,
+			level: "error",
+			eventType: "scan.failed",
+			message: summaryMsg,
+			data: { terminationReason },
+		});
+		const finalReport = await generateRequestedFinalReport({
+			db: params.db,
+			scanRunId: scanRun.id,
+			artifactStorage,
+			options: finalReportOptions,
+			scanRepo,
+		});
+		return {
+			ok: false,
+			scanRunId: scanRun.id,
+			profileId: params.profileId,
+			status: "failed",
+			profileOutcome: "failed",
+			runner: execution.runner,
+			message: summaryMsg,
+			toolResults: [],
+			stepResults: [],
+			finalReport,
+		};
+	}
+
 	let diffSnapshot: DiffSnapshot | null = null;
 	let diffManifestArtifactId: string | null = null;
 	if (diffPlan) {
@@ -329,6 +422,7 @@ export async function runProfileScan(params: {
 		execution,
 		technologyAnalysis,
 		consentProjectCodeExecution: params.consentProjectCodeExecution === true,
+		scanPreflight,
 	});
 
 	// Determine profile outcome
@@ -343,6 +437,7 @@ export async function runProfileScan(params: {
 		...new Set([
 			...(profile.coverageGaps ?? []),
 			...(sourceSastCoverage?.limitationCodes ?? []),
+			...scanPreflight.limitationCodes,
 		]),
 	].sort();
 	let profileOutcome: "completed" | "completed_with_warnings" | "failed" =
@@ -417,30 +512,13 @@ export async function runProfileScan(params: {
 		message: summaryMsg,
 	});
 
-	let finalReport: FinalReportResult | undefined;
-	if (finalReportOptions.enabled) {
-		await scanRepo.createScanEvent({
-			scanRunId: scanRun.id,
-			level: "info",
-			eventType: "report.started",
-			message: "Final scan report generation started.",
-		});
-		finalReport = await generateFinalReport({
-			db: params.db,
-			scanRunId: scanRun.id,
-			artifactStorage,
-			options: finalReportOptions,
-		});
-		await scanRepo.createScanEvent({
-			scanRunId: scanRun.id,
-			level: finalReport.ok ? "info" : "error",
-			eventType: finalReport.ok ? "report.completed" : "report.failed",
-			message: finalReport.ok
-				? `Final scan report generated: ${finalReport.artifactPath}`
-				: `Final scan report generation failed: ${finalReport.error}`,
-			data: { ...finalReport },
-		});
-	}
+	const finalReport = await generateRequestedFinalReport({
+		db: params.db,
+		scanRunId: scanRun.id,
+		artifactStorage,
+		options: finalReportOptions,
+		scanRepo,
+	});
 
 	const ok = profileOutcome !== "failed" && (finalReport?.ok ?? true);
 	const message =
@@ -460,4 +538,36 @@ export async function runProfileScan(params: {
 		stepResults,
 		finalReport,
 	};
+}
+
+async function generateRequestedFinalReport(params: {
+	db: AppDatabase;
+	scanRunId: string;
+	artifactStorage: ArtifactStorage;
+	options: Required<FinalReportOptions>;
+	scanRepo: ScanRepository;
+}): Promise<FinalReportResult | undefined> {
+	if (!params.options.enabled) return undefined;
+	await params.scanRepo.createScanEvent({
+		scanRunId: params.scanRunId,
+		level: "info",
+		eventType: "report.started",
+		message: "Final scan report generation started.",
+	});
+	const finalReport = await generateFinalReport({
+		db: params.db,
+		scanRunId: params.scanRunId,
+		artifactStorage: params.artifactStorage,
+		options: params.options,
+	});
+	await params.scanRepo.createScanEvent({
+		scanRunId: params.scanRunId,
+		level: finalReport.ok ? "info" : "error",
+		eventType: finalReport.ok ? "report.completed" : "report.failed",
+		message: finalReport.ok
+			? `Final scan report generated: ${finalReport.artifactPath}`
+			: `Final scan report generation failed: ${finalReport.error}`,
+		data: { ...finalReport },
+	});
+	return finalReport;
 }

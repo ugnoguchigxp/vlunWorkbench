@@ -9,6 +9,7 @@ import {
 } from "./report-builder-helpers";
 import type { renderReportOverview } from "./report-builder-overview";
 import type { buildReportQuery } from "./report-builder-query";
+import { readStoredScanPreflight } from "./scan-preflight";
 import { readSourceSastCoverage } from "./source-sast-coverage";
 
 type Scope = Awaited<ReturnType<typeof buildReportQuery>> &
@@ -52,6 +53,21 @@ export function renderReportCoverage(scope: Scope): void {
 		lines.push(
 			`- **Source SAST:** ${sourceSastCoverage.coverageEffect}; state=${sourceSastCoverage.state}; limitations=${sourceSastCoverage.limitationCodes.join(", ") || "none"}`,
 		);
+	}
+	const scanPreflight = readStoredScanPreflight(scanRun.metadata);
+	if (scanPreflight) {
+		lines.push(
+			`- **Preflight:** ${scanPreflight.status}; mode=${scanPreflight.mode}; checks=${scanPreflight.checks.length}; limitations=${scanPreflight.limitationCodes.join(", ") || "none"}`,
+		);
+		lines.push(
+			"| Preflight step | Check | Required | Status | Reason | Action |",
+		);
+		lines.push("| --- | --- | --- | --- | --- | --- |");
+		for (const check of scanPreflight.checks) {
+			lines.push(
+				`| ${escapeTableCell(check.stepId)} | ${escapeTableCell(check.kind)} | ${check.required ? "yes" : "no"} | ${check.status} | ${escapeTableCell(check.reasonCode ?? "-")} | ${escapeTableCell(check.action ?? "-")} |`,
+			);
+		}
 	}
 	lines.push(
 		"| Control | Framework | Category | Claim | Status | Method | Reason | Evidence |",

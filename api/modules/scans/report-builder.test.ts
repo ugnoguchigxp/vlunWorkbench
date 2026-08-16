@@ -430,6 +430,78 @@ describe("Report Builder", () => {
 		expect(report).toContain("must not be read as a safety attestation");
 	});
 
+	it("reports stored preflight checks and does not treat blocked zero findings as safe", async () => {
+		await connection.db.delete(findings);
+		const digest = `sha256:${"a".repeat(64)}`;
+		await connection.db
+			.update(scanRuns)
+			.set({
+				metadata: {
+					profileOutcome: "failed",
+					terminationReason: "preflight_failed",
+					scanPreflight: {
+						schemaVersion: 1,
+						projectId,
+						profileId: "baseline",
+						sourceRevision: null,
+						mode: "enforced",
+						status: "blocked",
+						createdAt: "2026-08-16T00:00:00.000Z",
+						checks: [
+							{
+								id: "osv:scanner-data",
+								stepId: "osv",
+								kind: "scanner_data",
+								required: true,
+								status: "blocked",
+								reasonCode: "scanner_data_missing",
+								action: "prepare_scanner_database",
+								scannerId: "osv",
+								observedVersion: null,
+								expectedVersion: "2.4.0",
+								expectedDigest: digest,
+								observedDigest: null,
+								dataState: "missing",
+								dataGeneratedAt: null,
+								evidenceRefs: [],
+							},
+						],
+						summary: {
+							ready: 0,
+							blockedRequired: 1,
+							blockedOptional: 0,
+							notApplicable: 0,
+						},
+						limitationCodes: ["scanner_data_missing"],
+						binding: {
+							resolvedProfileHash: digest,
+							executionHash: digest,
+							scannerManifestHash: digest,
+							scannerVersionsHash: digest,
+							dockerImagesHash: null,
+							targetPlanHash: null,
+							sourceRevisionHash: null,
+						},
+						bindingHash: digest,
+						preflightHash: digest,
+					},
+				},
+			})
+			.where(eq(scanRuns.id, scanRunId));
+
+		const report = await buildMarkdownReport(connection.db, scanRunId, {
+			includeFalsePositives: true,
+			includeDeferred: true,
+			includeUndecided: true,
+		});
+		expect(report).toContain("Scan preflight");
+		expect(report).toContain("scanner_data_missing");
+		expect(report).toContain("prepare_scanner_database");
+		expect(report).toContain(
+			"finding 0件を安全性判断には使用できません",
+		);
+	});
+
 	it("does not treat a missing expected DAST run as a clean zero-finding result", async () => {
 		await connection.db
 			.delete(findingDecisions)

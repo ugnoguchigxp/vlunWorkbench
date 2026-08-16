@@ -2,33 +2,17 @@ import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
 import { readAppEnv } from "../app/env";
 import { HttpError } from "../modules/auth/errors";
+import { ProjectPathPolicyError } from "../security/project-path-policy";
 import { createProjectsRoute } from "./projects.route";
 
-vi.mock("node:fs/promises", () => {
-	const notFoundError = () =>
-		Object.assign(new Error("ENOENT"), { code: "ENOENT" });
-	const mockAccess = vi.fn().mockImplementation(async (path: string) => {
-		if (path === "/invalid/path") {
-			throw notFoundError();
-		}
-		return Promise.resolve();
-	});
-	return {
-		default: {
-			access: mockAccess,
-			realpath: vi.fn(async (value: string) => value),
-			stat: vi.fn(async (value: string) => {
-				if (value === "/invalid/path") throw notFoundError();
-				return { isDirectory: () => true };
-			}),
-		},
-		access: mockAccess,
-		realpath: vi.fn(async (value: string) => value),
-		stat: vi.fn(async (value: string) => {
-			if (value === "/invalid/path") throw notFoundError();
-			return { isDirectory: () => true };
-		}),
-	};
+const mockResolveProjectPath = vi.fn(async (projectPath: string) => {
+	if (projectPath === "/invalid/path") {
+		throw new ProjectPathPolicyError(
+			"PROJECT_PATH_NOT_FOUND",
+			"The requested project path does not exist.",
+		);
+	}
+	return { canonicalPath: projectPath };
 });
 
 describe("Projects Route", () => {
@@ -80,6 +64,7 @@ describe("Projects Route", () => {
 		createProjectsRoute({
 			projectRepository: mockProjectRepo as any,
 			env: readAppEnv({ NODE_ENV: "test" }),
+			resolveProjectPath: mockResolveProjectPath,
 		}),
 	);
 
@@ -186,6 +171,7 @@ describe("Projects Route", () => {
 			createProjectsRoute({
 				projectRepository: mockProjectRepo as any,
 				env: readAppEnv({ NODE_ENV: "test" }),
+				resolveProjectPath: mockResolveProjectPath,
 			}),
 		);
 
@@ -216,6 +202,25 @@ describe("Projects Route", () => {
 		expect(body.message).toContain("already registered");
 	});
 
+	it("POST /:projectId/scans/preflight returns a server-owned versioned result", async () => {
+		const res = await app.request("/p-1/scans/preflight", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ profile: "baseline", runner: "host" }),
+		});
+		expect(res.status).toBe(200);
+		const body = await res.json();
+		expect(body.preflight).toEqual(
+			expect.objectContaining({
+				schemaVersion: 1,
+				profileId: "baseline",
+				mode: "shadow",
+				bindingHash: expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
+				preflightHash: expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
+			}),
+		);
+	});
+
 	it("POST /:projectId/scans admits a queued scan and returns 202 without waiting", async () => {
 		const scanRepository = {
 			createScanRun: vi.fn().mockResolvedValue({ id: "s-queued" }),
@@ -237,16 +242,20 @@ describe("Projects Route", () => {
 			"/",
 			createProjectsRoute({
 				projectRepository: mockProjectRepo as any,
-				scanRepository: scanRepository as any,
-				scanSupervisor: scanSupervisor as any,
-				env: readAppEnv({ NODE_ENV: "test" }),
-			}),
+					scanRepository: scanRepository as any,
+					scanSupervisor: scanSupervisor as any,
+					env: readAppEnv({ NODE_ENV: "test" }),
+					resolveProjectPath: mockResolveProjectPath,
+				}),
 		);
 
 		const res = await scanApp.request("/p-1/scans", {
 			method: "POST",
 			headers: { "content-type": "application/json" },
-			body: JSON.stringify({ profile: "baseline" }),
+			body: JSON.stringify({
+				profile: "baseline",
+				expectedPreflightBindingHash: `sha256:${"a".repeat(64)}`,
+			}),
 		});
 		await launchStarted;
 		expect(res.status).toBe(202);
@@ -257,7 +266,12 @@ describe("Projects Route", () => {
 		expect(scanRepository.createScanRun).toHaveBeenCalledTimes(1);
 		expect(scanSupervisor.launch).toHaveBeenCalledWith(
 			"s-queued",
-			expect.arrayContaining(["--scan-run-id", "s-queued"]),
+			expect.arrayContaining([
+				"--scan-run-id",
+				"s-queued",
+				"--expected-preflight-binding-hash",
+				`sha256:${"a".repeat(64)}`,
+			]),
 		);
 	});
 });

@@ -12,6 +12,7 @@ import {
 } from "./report-builder-helpers";
 import type { buildReportQuery } from "./report-builder-query";
 import { readPluginExecutionSummary } from "./report-builder-technology";
+import { readStoredScanPreflight } from "./scan-preflight";
 import { readSourceSastCoverage } from "./source-sast-coverage";
 
 export function renderReportOverview(
@@ -48,6 +49,9 @@ export function renderReportOverview(
 	const technologySummary = readPluginExecutionSummary(scanRun.metadata);
 	const sourceSastCoverage = readSourceSastCoverage(scanRun.metadata);
 	const limitedSourceSast = sourceSastCoverage?.coverageEffect === "gap";
+	const scanPreflight = readStoredScanPreflight(scanRun.metadata);
+	const limitedPreflight =
+		scanPreflight !== null && scanPreflight.status !== "ready";
 	const limitedTechnology =
 		technologySummary?.pluginResults.some(
 			(result) =>
@@ -92,6 +96,16 @@ export function renderReportOverview(
 		if (sourceSastCoverage.limitationCodes.length > 0) {
 			lines.push(
 				`- **Source SAST limitations:** ${sourceSastCoverage.limitationCodes.join(", ")}`,
+			);
+		}
+	}
+	if (scanPreflight) {
+		lines.push(
+			`- **Scan preflight:** status=${scanPreflight.status}, mode=${scanPreflight.mode}, binding=${scanPreflight.bindingHash}`,
+		);
+		if (scanPreflight.limitationCodes.length > 0) {
+			lines.push(
+				`- **Preflight limitations:** ${scanPreflight.limitationCodes.join(", ")}`,
 			);
 		}
 	}
@@ -145,6 +159,10 @@ export function renderReportOverview(
 		) {
 			lines.push(
 				"- **結論:** 差分対象のscanner実行が完了していないため、finding 0件を安全性の判断には使用できません。失敗または未実行のtoolを確認してください。",
+			);
+		} else if (limitedPreflight) {
+			lines.push(
+				"- **結論:** scanner/runtime preflight に blocked または未確認領域があるため、finding 0件を安全性判断には使用できません。preflight check と action code を確認してください。",
 			);
 		} else if (limitedSourceSast) {
 			lines.push(
