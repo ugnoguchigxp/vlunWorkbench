@@ -2,28 +2,28 @@ import crypto from "node:crypto";
 import { mkdir, open, readFile, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import type { DastFetch } from "../../api/modules/dast/http-runner";
-import type { ActiveResetExecutor } from "../../api/modules/runtime-scans/zap-active-runner";
+import {
+	detectSecurityProbe,
+	type SecurityProbe,
+	type SecurityProbeFinding,
+} from "../../api/modules/dast/security-probe-detector";
 import {
 	type ContainerFixtureResetExecutor,
 	createContainerFixtureLoopbackFetch,
 	createContainerFixtureResetExecutor,
 	listContainerFixtures,
 } from "../../api/modules/runtime-scans/container-fixture-reset";
-import {
-	detectSecurityProbe,
-	type SecurityProbe,
-	type SecurityProbeFinding,
-} from "../../api/modules/dast/security-probe-detector";
+import type { ActiveResetExecutor } from "../../api/modules/runtime-scans/zap-active-runner";
 import { executeJuiceShopFixedControl } from "../../tests/security-capability/juice-shop/fixed-app";
+import {
+	type JuiceShopRequestEvidence,
+	responseShapeHash,
+	writeJuiceShopExecutionEvidence,
+} from "./juice-shop-evidence";
 import {
 	type JuiceShopObservation,
 	juiceShopObservationSchema,
 } from "./juice-shop-observations";
-import {
-	responseShapeHash,
-	type JuiceShopRequestEvidence,
-	writeJuiceShopExecutionEvidence,
-} from "./juice-shop-evidence";
 import type {
 	JuiceShopCatalog,
 	JuiceShopPlaybook,
@@ -66,6 +66,7 @@ export async function runJuiceShopScenarios(params: {
 		cwe: string,
 		client: BoundedJuiceShopClient,
 	) => Promise<ProbeExecution>;
+	fetchImpl?: DastFetch;
 }): Promise<JuiceShopRunnerResult> {
 	const targetOrigin = params.targetOrigin ?? TARGET_ORIGIN;
 	assertLocalTarget(targetOrigin);
@@ -90,9 +91,11 @@ export async function runJuiceShopScenarios(params: {
 				});
 	const resetExecutor = params.resetExecutor ?? defaultResetExecutor;
 	if (!resetExecutor) throw new Error("juice_shop_reset_executor_missing");
-	const targetFetch = params.resetExecutor
-		? fetch
-		: createContainerFixtureLoopbackFetch({ fixtureId: FIXTURE_ID });
+	const targetFetch =
+		params.fetchImpl ??
+		(params.resetExecutor
+			? fetch
+			: createContainerFixtureLoopbackFetch({ fixtureId: FIXTURE_ID }));
 	const lockPath = path.resolve(".artifacts/benchmark/juice-shop.lock");
 	let lockError: string | null = null;
 	const releaseLock = await acquireLock(lockPath).catch((error) => {
@@ -835,15 +838,16 @@ async function login(
 
 async function getCaptcha(
 	client: BoundedJuiceShopClient,
-): Promise<{ id: number; answer: number }> {
+): Promise<{ id: number; answer: string }> {
 	const response = await client.request("/rest/captcha/");
 	const body = record(response.json);
 	const id = Number(body?.captchaId);
-	const answer = Number(body?.answer);
+	const answer = body?.answer;
 	if (
 		response.status !== 200 ||
 		!Number.isFinite(id) ||
-		!Number.isFinite(answer)
+		typeof answer !== "string" ||
+		answer.length === 0
 	)
 		throw new Error("juice_shop_captcha_unavailable");
 	return { id, answer };
