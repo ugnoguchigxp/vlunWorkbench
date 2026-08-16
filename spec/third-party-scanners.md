@@ -17,12 +17,17 @@ Source URLs: [Semgrep](https://pypi.org/project/semgrep/1.171.0/), [Gitleaks](ht
 Verification date: 2026-07-30. This file records the distribution gate, not a legal conclusion. Before shipping a toolbox or image, record the exact dependency license/NOTICE inventory and checksum output. Automatic template, add-on, vulnerability database, or registry credential updates are not part of a scan.
 
 `scripts/prepare-scanner-data.ts` is the only supported data refresh path. It
-copies owned Semgrep rules, downloads the OSV npm offline database and Trivy
-vulnerability database, hashes each data tree, and emits a manifest with source
+copies owned Semgrep rules, downloads the supported OSV ecosystem archives and
+Trivy vulnerability database, hashes each data tree, and emits a manifest with source
 references, generation time, freshness limit, and ecosystem coverage. The
 result is supplied to `docker/toolbox/Dockerfile` as the named `scanner-data`
 build context by `scripts/build-toolbox-image.ts`. A direct Docker build without
 that named context is intentionally not the release build path.
+
+The Trivy database source is an immutable, allowlisted GHCR OCI manifest rather
+than the mutable `:2` tag. `scanner-data:refresh-lock` bypasses valid local OSV
+archive caches; a Trivy database update requires reviewing and recording a new
+immutable OCI manifest digest and its normalized tree digest together.
 
 `bun run verify:toolbox-offline` starts the core image with
 `--network none`, 4 GiB memory, 2 CPUs, and a 512 PID limit and requires valid

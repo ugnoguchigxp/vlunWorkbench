@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { readFile } from "node:fs/promises";
 import { computeScannerManifestHash } from "../api/modules/scans/tools/scanner-provenance";
 import { buildRepositoryScannerDataLock } from "./scanner-data-lock";
 
@@ -25,6 +26,34 @@ describe("repository scanner data lock", () => {
 		).toBe("../nuclei-safe-templates");
 		const { manifestHash, ...hashInput } = manifest;
 		expect(manifestHash).toBe(computeScannerManifestHash(hashInput));
+	});
+
+	test("pins the Trivy database to an immutable allowed OCI manifest", async () => {
+		const manifest = JSON.parse(
+			await readFile(
+				new URL(
+					"../docker/toolbox/scanner-data/scanner-data-manifest.json",
+					import.meta.url,
+				),
+				"utf8",
+			),
+		);
+		const trivyBundle = manifest.tools.trivy.dataBundles.find(
+			(bundle: { id: string }) => bundle.id === "trivy-db-v2",
+		);
+		expect(trivyBundle?.sourceRef).toMatch(
+			/^ghcr\.io\/aquasecurity\/trivy-db@sha256:[a-f0-9]{64}$/,
+		);
+		const { manifestHash, ...hashInput } = manifest;
+		expect(manifestHash).toBe(computeScannerManifestHash(hashInput));
+
+		const preparation = await readFile(
+			new URL("./prepare-scanner-data.ts", import.meta.url),
+			"utf8",
+		);
+		expect(preparation).toContain('"--db-repository"');
+		expect(preparation).toContain("assertAllowedTrivyDatabaseSource");
+		expect(preparation).toContain("let recordCount = allowRefresh");
 	});
 });
 

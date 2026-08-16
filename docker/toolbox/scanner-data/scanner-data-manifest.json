@@ -1,7 +1,7 @@
 {
   "version": 2,
   "generatedAt": "2026-08-16T05:51:44.562Z",
-  "manifestHash": "sha256:e04b35c8ac061e2de8f4e06e2a9ff567ea556184d90b9e42a186862cdcf16647",
+  "manifestHash": "sha256:45ac5da152da4c55155d980cb81610533b6abd8d4a651719907d1664dccc47cd",
   "tools": {
     "semgrep": {
       "version": "1.171.0",
@@ -187,12 +187,12 @@
         {
           "id": "trivy-db-v2",
           "kind": "vulnerability-db",
-          "sourceRef": "mirror.gcr.io/aquasec/trivy-db:2",
+          "sourceRef": "ghcr.io/aquasecurity/trivy-db@sha256:a63f34335e4869a3565d36c699152107a3676075fafa689ef052bb9579d64fd7",
           "sourceCommit": null,
           "license": "Apache-2.0",
           "generatedAt": "2026-08-16T05:51:44.562Z",
           "maxAgeHours": 168,
-          "digest": "sha256:4f20ed508f6c733ff9c6d1b8ed3c06f58ba42416730c7af9d006d6f2f851de11",
+          "digest": "sha256:7e58d80b54e0e0e20c1a2ffe48457398a9f6543a980a7e70a7212e11f858d54c",
           "coverage": [
             "os-packages",
             "language-packages"

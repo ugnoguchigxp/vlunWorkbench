@@ -79,10 +79,11 @@ try {
 			`${ecosystem.replace(/[^A-Za-z0-9._-]/g, "_")}-all.zip`,
 		);
 		const sourceRef = `https://osv-vulnerabilities.storage.googleapis.com/${encodeURIComponent(ecosystem)}/all.zip`;
-		let recordCount = await validateOsvArchive(
-			cachedArchivePath,
-			ecosystem,
-		).catch(() => null);
+		let recordCount = allowRefresh
+			? null
+			: await validateOsvArchive(cachedArchivePath, ecosystem).catch(
+					() => null,
+				);
 		if (recordCount === null) {
 			await rm(cachedArchivePath, { force: true });
 			await downloadBounded(
@@ -123,11 +124,19 @@ try {
 	}
 
 	const trivyRoot = path.join(stagedOutput, "trivy");
+	const lockedTrivy = template.tools.trivy.dataBundles.find(
+		(bundle) => bundle.id === "trivy-db-v2",
+	);
+	const trivySourceRef =
+		lockedTrivy?.sourceRef ?? "mirror.gcr.io/aquasec/trivy-db:2";
+	assertAllowedTrivyDatabaseSource(trivySourceRef);
 	await run([
 		"trivy",
 		"image",
 		"--cache-dir",
 		trivyRoot,
+		"--db-repository",
+		trivySourceRef,
 		"--download-db-only",
 		"--no-progress",
 	]);
@@ -200,9 +209,6 @@ try {
 		dataBundles: osvBundles,
 	};
 	const trivyDigest = await hashTree(trivyRoot);
-	const lockedTrivy = template.tools.trivy.dataBundles.find(
-		(bundle) => bundle.id === "trivy-db-v2",
-	);
 	if (
 		template.tools.trivy.state === "ready" &&
 		lockedTrivy &&
@@ -217,7 +223,7 @@ try {
 			{
 				id: "trivy-db-v2",
 				kind: "vulnerability-db",
-				sourceRef: "mirror.gcr.io/aquasec/trivy-db:2",
+				sourceRef: trivySourceRef,
 				sourceCommit: null,
 				license: "Apache-2.0",
 				generatedAt,
@@ -254,6 +260,11 @@ try {
 	);
 } finally {
 	await rm(tempRoot, { recursive: true, force: true });
+}
+
+function assertAllowedTrivyDatabaseSource(sourceRef: string): void {
+	if (!/^ghcr\.io\/aquasecurity\/trivy-db@sha256:[a-f0-9]{64}$/.test(sourceRef))
+		throw new Error(`scanner_data_trivy_source_not_pinned:${sourceRef}`);
 }
 
 async function downloadBounded(
