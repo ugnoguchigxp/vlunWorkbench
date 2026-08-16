@@ -70,7 +70,6 @@ jobs:
         with:
           bun-version: 1.3.14
       - uses: aquasecurity/setup-trivy@e6c2c5e321ed9123bda567646e2f96565e34abe1 # pinned
-        if: matrix.name != 'dynamic'
         with:
           version: v0.72.0
           cache: true
@@ -115,6 +114,7 @@ jobs:
           image-ref: vuln-workbench-${{ matrix.name }}:ci
           format: cyclonedx
           output: sbom-${{ matrix.name }}.cdx.json
+          skip-setup-trivy: true
       - name: Block High and Critical findings
         uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8 # v0.33.1
         with:
@@ -124,6 +124,7 @@ jobs:
           ignore-unfixed: true
           trivyignores: .trivyignore.yaml
           exit-code: "1"
+          skip-setup-trivy: true
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: sbom-${{ matrix.name }}
