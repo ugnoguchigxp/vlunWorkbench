@@ -61,6 +61,8 @@ describe("workflow supply-chain policy", () => {
 		expect(workflow.match(/skip-setup-trivy: true/g)).toHaveLength(2);
 		expect(workflow).toContain("format: cyclonedx");
 		expect(workflow).toContain("severity: HIGH,CRITICAL");
+		expect(workflow).toContain("TRIVY_IGNOREFILE: .trivyignore.yaml");
+		expect(workflow).not.toContain("trivyignores:");
 	});
 
 	test("runs the strict Phase 55 entry with pinned benchmark images and persisted evidence", async () => {

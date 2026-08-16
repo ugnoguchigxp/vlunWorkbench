@@ -117,12 +117,15 @@ jobs:
           skip-setup-trivy: true
       - name: Block High and Critical findings
         uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8 # v0.33.1
+        env:
+          # trivy-action's `trivyignores` input concatenates files into an
+          # extensionless legacy-format file. Preserve YAML parsing instead.
+          TRIVY_IGNOREFILE: .trivyignore.yaml
         with:
           image-ref: vuln-workbench-${{ matrix.name }}:ci
           format: table
           severity: HIGH,CRITICAL
           ignore-unfixed: true
-          trivyignores: .trivyignore.yaml
           exit-code: "1"
           skip-setup-trivy: true
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

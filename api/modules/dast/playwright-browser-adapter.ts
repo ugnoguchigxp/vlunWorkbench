@@ -130,7 +130,10 @@ export class PlaywrightBrowserAdapter implements DastBrowserAdapter {
 				this.options.maxNetworkRequests ?? this.options.target.maxRequests;
 			if (this.networkRequestCount >= maxNetworkRequests) {
 				this.networkBudgetExhausted = true;
-				await route.abort("blockedbyclient");
+				await route.fulfill({
+					status: 204,
+					body: "",
+				});
 				return;
 			}
 			this.networkRequestCount += 1;

@@ -1,47 +1,40 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
+import http from "node:http";
 import { PlaywrightBrowserAdapter } from "./playwright-browser-adapter";
 import type { ValidatedDastTarget } from "./types";
 
-let server: ReturnType<typeof Bun.serve> | undefined;
+let server: http.Server | undefined;
 let target: ValidatedDastTarget;
 
 beforeAll(async () => {
-	for (let attempt = 1; attempt <= 5; attempt++) {
-		try {
-			server = Bun.serve({
-				hostname: "127.0.0.1",
-				port: 0,
-				fetch(request) {
-					const path = new URL(request.url).pathname;
-					if (path === "/budget-page") {
-						return new Response('<script src="/asset"></script>', {
-							headers: { "content-type": "text/html" },
-						});
-					}
-					if (path === "/asset") return new Response("asset");
-					if (path === "/redirect-secret") {
-						return new Response(null, {
-							status: 302,
-							headers: { location: "/private?code=browser-secret" },
-						});
-					}
-					const role = request.headers.get("x-test-role");
-					return new Response(
-						role === "user-a" || role === "user-b"
-							? `private:${role}`
-							: "denied",
-						{ status: role ? 200 : 401 },
-					);
-				},
-			});
-			break;
-		} catch (error) {
-			if (attempt === 5) throw error;
-			await Bun.sleep(attempt * 25);
+	server = http.createServer((request, response) => {
+		const path = new URL(request.url ?? "/", "http://127.0.0.1").pathname;
+		if (path === "/budget-page") {
+			response.writeHead(200, { "content-type": "text/html" });
+			return response.end('<script src="/asset"></script>');
 		}
+		if (path === "/asset") return response.end("asset");
+		if (path === "/redirect-secret") {
+			response.writeHead(302, {
+				location: "/private?code=browser-secret",
+			});
+			return response.end();
+		}
+		const role = request.headers["x-test-role"];
+		response.writeHead(role ? 200 : 401);
+		response.end(
+			role === "user-a" || role === "user-b" ? `private:${role}` : "denied",
+		);
+	});
+	await new Promise<void>((resolve, reject) => {
+		server?.once("error", reject);
+		server?.listen(0, "127.0.0.1", resolve);
+	});
+	const address = server.address();
+	if (!address || typeof address === "string") {
+		throw new Error("playwright_test_server_unavailable");
 	}
-	if (!server) throw new Error("playwright_test_server_unavailable");
-	const origin = `http://dast-pinned.invalid:${server.port}`;
+	const origin = `http://dast-pinned.invalid:${address.port}`;
 	target = {
 		ok: true,
 		targetConfigId: "target",
@@ -59,7 +52,13 @@ beforeAll(async () => {
 	};
 });
 
-afterAll(() => server?.stop(true));
+afterAll(
+	() =>
+		new Promise<void>((resolve) => {
+			if (!server) return resolve();
+			server.close(() => resolve());
+		}),
+);
 
 describe("PlaywrightBrowserAdapter", () => {
 	it("loads the same read-only route for two encrypted identity materials", async () => {
@@ -87,7 +86,7 @@ describe("PlaywrightBrowserAdapter", () => {
 		}
 	}, 60_000);
 
-	it("aborts page subrequests after the aggregate browser request budget", async () => {
+	it("blocks page subrequests after the aggregate browser request budget", async () => {
 		const adapter = new PlaywrightBrowserAdapter({
 			target: { ...target, allowedPaths: ["/"] },
 			maxNetworkRequests: 1,
@@ -101,6 +100,7 @@ describe("PlaywrightBrowserAdapter", () => {
 			});
 			expect(result.status).toBe(200);
 			expect(result.requestBudgetExhausted).toBe(true);
+			expect(adapter.requestCount()).toBe(1);
 		} finally {
 			await adapter.close();
 		}
