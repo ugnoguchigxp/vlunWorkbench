@@ -56,6 +56,8 @@ describe("workflow supply-chain policy", () => {
 		expect(workflow).toContain(
 			"--build-arg BASE_IMAGE=vuln-workbench-toolbox:ci",
 		);
+		expect(workflow).toContain("aquasecurity/setup-trivy@");
+		expect(workflow).toContain("version: v0.72.0");
 		expect(workflow).toContain("format: cyclonedx");
 		expect(workflow).toContain("severity: HIGH,CRITICAL");
 	});
