@@ -201,6 +201,7 @@ function ownedJavaTaintRule(
 	| null {
 	if (!checkId?.includes("vuln-workbench.java.")) return null;
 	const suffix = checkId.split(".").at(-1) ?? "";
+	if (suffix === "xss-parameter-name-output") return "xss-response-writer";
 	return OWNED_JAVA_TAINT_RULES.has(suffix)
 		? (suffix as ReturnType<typeof ownedJavaTaintRule>)
 		: null;

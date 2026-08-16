@@ -326,6 +326,36 @@ describe("owned Java taint precision filter", () => {
 			"configured_algorithm_unresolved",
 		);
 	});
+
+	test("applies XSS safety proofs to the parameter-name output variant", async () => {
+		const safeSource = `class ParameterNameOutput {
+			void run(String param) {
+				String bar;
+				int num = 86;
+				if ((7 * 42) - num > 200) bar = "safe"; else bar = param;
+				sink(bar);
+			}
+		}`;
+		const result = await filterOwnedJavaTaintResults(
+			{
+				results: [
+					finding(
+						"vuln-workbench.java.xss-parameter-name-output",
+						"ParameterNameOutput.java",
+						6,
+					),
+				],
+			},
+			{ readSource: async () => safeSource },
+		);
+		expect((result.output as { results: unknown[] }).results).toHaveLength(0);
+		expect(result.suppressions[0]).toEqual(
+			expect.objectContaining({
+				checkId: "vuln-workbench.java.xss-parameter-name-output",
+				reason: "constant_branch",
+			}),
+		);
+	});
 });
 
 function finding(checkId: string, path: string, line = 5) {
