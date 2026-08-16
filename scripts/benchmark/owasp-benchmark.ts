@@ -206,7 +206,9 @@ async function runSemgrepBenchmark(
 				: hostCorpusPath(result.path, corpusSource);
 		}
 	}
-	const filtered = await filterOwnedJavaTaintResults(rawEnvelope);
+	const filtered = await filterOwnedJavaTaintResults(rawEnvelope, {
+		projectRoot: corpusSource,
+	});
 	const raw = sanitizeSemgrepEvidenceArtifact(filtered.output, corpusSource);
 	await Bun.write(rawPath, `${JSON.stringify(raw, null, 2)}\n`);
 	const categoryByTest = new Map(

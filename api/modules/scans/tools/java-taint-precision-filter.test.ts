@@ -277,6 +277,55 @@ describe("owned Java taint precision filter", () => {
 		expect((result.output as { results: unknown[] }).results).toHaveLength(1);
 		expect(result.suppressions).toEqual([]);
 	});
+
+	test("keeps only configured digest findings resolved to a weak algorithm", async () => {
+		const configuredSource = `class ConfiguredHash {
+			void run() throws Exception {
+				java.util.Properties properties = new java.util.Properties();
+				properties.load(getClass().getClassLoader().getResourceAsStream("application.properties"));
+				String algorithm = properties.getProperty("security.digest", "SHA-256");
+				java.security.MessageDigest.getInstance(algorithm);
+			}
+		}`;
+		const input = {
+			results: [
+				finding(
+					"vuln-workbench.java.configured-weak-hash",
+					"ConfiguredHash.java",
+					6,
+				),
+			],
+		};
+		const strong = await filterOwnedJavaTaintResults(input, {
+			readSource: async () => configuredSource,
+			projectRoot: "/repo",
+			resolveProjectProperty: async () => ({
+				status: "resolved",
+				value: "SHA-256",
+			}),
+		});
+		expect((strong.output as { results: unknown[] }).results).toHaveLength(0);
+		expect(strong.suppressions[0]?.reason).toBe(
+			"configured_algorithm_strong",
+		);
+		const weak = await filterOwnedJavaTaintResults(input, {
+			readSource: async () => configuredSource,
+			projectRoot: "/repo",
+			resolveProjectProperty: async () => ({
+				status: "resolved",
+				value: "MD5",
+			}),
+		});
+		expect((weak.output as { results: unknown[] }).results).toHaveLength(1);
+		expect(weak.suppressions).toEqual([]);
+		const unresolved = await filterOwnedJavaTaintResults(input, {
+			readSource: async () => configuredSource,
+		});
+		expect((unresolved.output as { results: unknown[] }).results).toHaveLength(0);
+		expect(unresolved.suppressions[0]?.reason).toBe(
+			"configured_algorithm_unresolved",
+		);
+	});
 });
 
 function finding(checkId: string, path: string, line = 5) {

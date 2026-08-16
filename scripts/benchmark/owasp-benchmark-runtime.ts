@@ -92,6 +92,9 @@ export const sanitizedSemgrepEvidenceArtifactSchema = z
 						"constant_switch",
 						"collection_overwrite",
 						"constant_interprocedural_flow",
+						"configured_algorithm_strong",
+						"configured_algorithm_unresolved",
+						"configured_algorithm_ambiguous",
 					]),
 				})
 				.strict(),
