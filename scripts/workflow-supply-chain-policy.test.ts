@@ -49,6 +49,13 @@ describe("workflow supply-chain policy", () => {
 		]) {
 			expect(workflow).toContain(`dockerfile: ${dockerfile}`);
 		}
+		expect(workflow).not.toContain("docker/setup-buildx-action@");
+		expect(workflow).toContain(
+			"matrix.name == 'toolbox' || matrix.name == 'semgrep'",
+		);
+		expect(workflow).toContain(
+			"--build-arg BASE_IMAGE=vuln-workbench-toolbox:ci",
+		);
 		expect(workflow).toContain("format: cyclonedx");
 		expect(workflow).toContain("severity: HIGH,CRITICAL");
 	});
