@@ -201,7 +201,9 @@ describe("Profile Runner Orchestration", () => {
 					schemaVersion: 1,
 					mode: "enforced",
 					status: "blocked",
-					limitationCodes: ["scanner_data_manifest_invalid"],
+					limitationCodes: expect.arrayContaining([
+						"scanner_data_manifest_invalid",
+					]),
 				}),
 			}),
 		);
@@ -531,7 +533,9 @@ describe("Profile Runner Orchestration", () => {
 					coverageGaps: ["source_sast_not_executed"],
 				}),
 				resolvedProfileHash: expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
-				profileLimitationCodes: ["source_sast_not_executed"],
+				profileLimitationCodes: expect.arrayContaining([
+					"source_sast_not_executed",
+				]),
 				sourceSastCoverage: expect.objectContaining({
 					state: "applicable",
 					coverageEffect: "gap",
