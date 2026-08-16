@@ -1,4 +1,5 @@
 import path from "node:path";
+import { runBoundedProcess } from "../processes/bounded-process-runner";
 import { readBoundedProcessText } from "../scans/tools/bounded-process-output";
 import {
 	normalizeToolExecutionConfig,
@@ -281,9 +282,11 @@ exit $EXIT_CODE
 	} finally {
 		if (timeoutId) clearTimeout(timeoutId);
 		if (isKilled || outputLimitExceeded) {
-			try {
-				Bun.spawnSync([params.dockerBin, "rm", "-f", params.containerName]);
-			} catch {}
+			await runBoundedProcess({
+				argv: [params.dockerBin, "rm", "-f", params.containerName],
+				timeoutMs: 30_000,
+				outputLimitBytes: 64 * 1024,
+			}).catch(() => undefined);
 		}
 	}
 

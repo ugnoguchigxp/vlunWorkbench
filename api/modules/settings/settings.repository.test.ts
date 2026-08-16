@@ -53,6 +53,10 @@ describe("SettingsRepository runtime settings", () => {
 			dockerPidsLimit: 256,
 			scannerStdoutLimitBytes: 32 * 1024 * 1024,
 			scannerStderrLimitBytes: 4 * 1024 * 1024,
+			webProcessConcurrency: 3,
+			webScanQueueLimit: 12,
+			webScanStepTimeoutMaxSec: 1_800,
+			webScanWallClockTimeoutSec: 7_200,
 			codexSdkTimeoutMs: 300_000,
 		}, env);
 
@@ -62,8 +66,37 @@ describe("SettingsRepository runtime settings", () => {
 			scanDockerImage: "scanner:stable",
 			dockerMemory: "2g",
 			dockerCpus: 1.5,
+			webProcessConcurrency: 3,
+			webScanQueueLimit: 12,
+			webScanStepTimeoutMaxSec: 1_800,
+			webScanWallClockTimeoutSec: 7_200,
 			codexSdkTimeoutMs: 300_000,
 		});
+	});
+
+	it("rejects Web process limits outside the supported range", async () => {
+		const repo = new SettingsRepository(connection.db);
+		const env = readAppEnv({});
+		await expect(
+			repo.updateRuntimeSettings(
+				{
+					scanExecutionMode: "host",
+					allowHostScannerExecution: true,
+					scanDockerImage: "scanner:stable",
+					dockerMemory: "2g",
+					dockerCpus: 2,
+					dockerPidsLimit: 512,
+					scannerStdoutLimitBytes: 64 * 1024 * 1024,
+					scannerStderrLimitBytes: 8 * 1024 * 1024,
+					webProcessConcurrency: 9,
+					webScanQueueLimit: 32,
+					webScanStepTimeoutMaxSec: 3_600,
+					webScanWallClockTimeoutSec: 21_600,
+					codexSdkTimeoutMs: 600_000,
+				},
+				env,
+			),
+		).rejects.toThrow();
 	});
 
 	it("rejects unsafe process limits before persistence", async () => {

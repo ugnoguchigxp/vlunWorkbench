@@ -170,6 +170,7 @@ export class ScanRepository {
 			summary?: string | null;
 			completedAt?: Date | null;
 			metadata?: Record<string, unknown>;
+			returnNullIfNotUpdated?: boolean;
 		},
 	) {
 		const now = new Date();
@@ -210,7 +211,10 @@ export class ScanRepository {
 			.set(updateValues)
 			.where(transitionGuard)
 			.returning();
-		return updated ?? (await this.findById(id));
+		return (
+			updated ??
+			(options?.returnNullIfNotUpdated ? null : await this.findById(id))
+		);
 	}
 
 	async findById(id: string) {

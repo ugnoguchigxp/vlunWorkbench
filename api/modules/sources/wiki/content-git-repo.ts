@@ -2,10 +2,13 @@ import { execFile } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
+import { assertGitObjectId } from "./git-object-id";
 import { assertSafeSlug } from "./slug";
 
 const execFileAsync = promisify(execFile);
 const gitInitLocks = new Map<string, Promise<void>>();
+const GIT_COMMAND_TIMEOUT_MS = 30_000;
+const GIT_MAX_BUFFER_BYTES = 32 * 1024 * 1024;
 
 export type GitSummary = {
 	branch: string;
@@ -65,7 +68,13 @@ const runGit = async (
 	contentRoot: string,
 	args: string[],
 ): Promise<{ stdout: string; stderr: string }> =>
-	execFileAsync("git", ["-C", contentRoot, ...args]);
+	execFileAsync("git", ["-C", contentRoot, ...args], {
+		encoding: "utf8",
+		maxBuffer: GIT_MAX_BUFFER_BYTES,
+		timeout: GIT_COMMAND_TIMEOUT_MS,
+		killSignal: "SIGKILL",
+		env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+	});
 
 const errorMessage = (error: unknown): string => {
 	if (!(error instanceof Error)) return "";
@@ -152,20 +161,8 @@ export const getGitSummary = async (
 	try {
 		const [{ stdout: branchStdout }, { stdout: commitStdout }] =
 			await Promise.all([
-				execFileAsync("git", [
-					"-C",
-					contentRoot,
-					"rev-parse",
-					"--abbrev-ref",
-					"HEAD",
-				]),
-				execFileAsync("git", [
-					"-C",
-					contentRoot,
-					"rev-parse",
-					"--short",
-					"HEAD",
-				]),
+				runGit(contentRoot, ["rev-parse", "--abbrev-ref", "HEAD"]),
+				runGit(contentRoot, ["rev-parse", "--short", "HEAD"]),
 			]);
 		return { branch: branchStdout.trim(), commit: commitStdout.trim() };
 	} catch {
@@ -181,7 +178,7 @@ export const commitFileChange = async (
 	const normalizedRelative = normalizePosixPath(
 		path.relative(contentRoot, absolutePath),
 	);
-	await runGit(contentRoot, ["add", normalizedRelative]);
+	await runGit(contentRoot, ["add", "--", normalizedRelative]);
 	try {
 		await runGit(contentRoot, ["commit", "-m", message]);
 	} catch (error) {
@@ -198,7 +195,7 @@ export const commitDeleteChange = async (
 	const normalizedRelative = normalizePosixPath(
 		path.relative(contentRoot, absolutePath),
 	);
-	await runGit(contentRoot, ["add", "-A", normalizedRelative]);
+	await runGit(contentRoot, ["add", "-A", "--", normalizedRelative]);
 	try {
 		await runGit(contentRoot, ["commit", "-m", message]);
 	} catch (error) {
@@ -274,10 +271,21 @@ export const getPageDiff = async (
 	from: string,
 	to: string,
 ): Promise<string> => {
+	const safeFrom = assertGitObjectId(from);
+	const safeTo = assertGitObjectId(to);
 	const pathspecs = await resolveGitPathspecs(contentRoot, slug);
 	try {
-		return (await runGit(contentRoot, ["diff", from, to, "--", ...pathspecs]))
-			.stdout;
+		return (
+			await runGit(contentRoot, [
+				"diff",
+				"--no-ext-diff",
+				"--no-textconv",
+				safeFrom,
+				safeTo,
+				"--",
+				...pathspecs,
+			])
+		).stdout;
 	} catch {
 		return "";
 	}

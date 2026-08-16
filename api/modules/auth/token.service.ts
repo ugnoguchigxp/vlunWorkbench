@@ -14,13 +14,6 @@ const secretKey = (jwtSecret: string): Uint8Array =>
 	new TextEncoder().encode(jwtSecret);
 
 type JwtCorePayload = Omit<JwtPayload, "type">;
-export type RefreshTokenSession = {
-	payload: JwtPayload;
-	expiresAt: Date;
-	shouldRotate: boolean;
-};
-
-const REFRESH_TOKEN_ROTATION_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 async function verifyJwtPayload(token: string, env: AppEnv) {
 	try {
@@ -117,45 +110,6 @@ export async function consumeRefreshToken(
 		throw new HttpError(401, "Invalid refresh token.");
 	}
 	return payload;
-}
-
-export async function validateRefreshToken(
-	token: string,
-	db: AppDatabase,
-	env: AppEnv,
-	now = new Date(),
-): Promise<RefreshTokenSession> {
-	const tokenHash = hashToken(token);
-	const stored = await db.query.refreshTokens.findFirst({
-		where: eq(refreshTokens.token, tokenHash),
-	});
-
-	if (!stored) {
-		throw new HttpError(401, "Invalid refresh token.");
-	}
-	if (now > stored.expiresAt) {
-		throw new HttpError(401, "Refresh token expired.");
-	}
-
-	const verified = await verifyJwtPayload(token, env);
-	if (verified.payload.type !== "refresh") {
-		throw new HttpError(401, "Invalid refresh token.");
-	}
-	const parsed = jwtPayloadSchema.safeParse(verified.payload);
-	if (!parsed.success) {
-		throw new HttpError(401, "Invalid refresh token.");
-	}
-	const payload = parsed.data;
-	if (payload.userId !== stored.userId) {
-		throw new HttpError(401, "Invalid refresh token.");
-	}
-	return {
-		payload,
-		expiresAt: stored.expiresAt,
-		shouldRotate:
-			stored.expiresAt.getTime() - now.getTime() <=
-			REFRESH_TOKEN_ROTATION_WINDOW_MS,
-	};
 }
 
 export async function revokeRefreshToken(

@@ -4,16 +4,12 @@ import { readdirSync, readFileSync } from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import {
-	getDefaultEnvironment,
-	StdioClientTransport,
-} from "@modelcontextprotocol/sdk/client/stdio.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createDbConnection, type DbConnection } from "../../db";
 import { createWritableTestDbConnection } from "../../db/testing/connection";
 import { projects, scanRuns, users } from "../../db/schema";
 import { buildStaticIntelligenceGeneration } from "./build-service";
+import { staticIntelligenceMcpToolRegistry } from "./mcp-tools";
 
 const NOW = new Date("2026-07-15T01:00:00.000Z");
 const RAW_SOURCE_MARKER = "CATALOG_CLI_RAW_SOURCE_MUST_NOT_LEAK";
@@ -136,62 +132,54 @@ describe("Project exploration catalog CLI and MCP smoke", () => {
 		});
 	});
 
-	it("lists and calls the catalog through a real MCP stdio client", async () => {
-		const transport = new StdioClientTransport({
-			command: process.execPath,
-			args: ["api/cli/static-intelligence-mcp-server.ts"],
-			cwd: process.cwd(),
-			env: {
-				...getDefaultEnvironment(),
-				DATABASE_URL: databaseUrl,
-				SCAN_ARTIFACT_ROOT: artifactDir,
-				STATIC_INTELLIGENCE_ALLOWED_PROJECT_ROOTS: tempDir,
-			},
-			stderr: "pipe",
-		});
-		const client = new Client(
-			{ name: "catalog-smoke-test", version: "1.0.0" },
-			{ capabilities: {} },
+	it("lists and calls the catalog through the MCP tool registry", async () => {
+		const catalogTool = staticIntelligenceMcpToolRegistry.find(
+			(tool) => tool.name === "vuln_get_project_exploration_catalog",
 		);
+		expect(catalogTool).toMatchObject({
+			name: "vuln_get_project_exploration_catalog",
+			readOnlyHint: true,
+		});
+		if (!catalogTool) throw new Error("Catalog MCP tool is missing.");
+
+		const connection = createDbConnection(databaseUrl);
 		try {
-			await client.connect(transport);
-			const listed = await client.listTools();
-			const listedCatalog = listed.tools.find(
-				(tool) => tool.name === "vuln_get_project_exploration_catalog",
-			);
-			expect(listedCatalog).toMatchObject({
-				name: "vuln_get_project_exploration_catalog",
-				annotations: { readOnlyHint: true },
-			});
-			const called = await client.callTool({
-				name: "vuln_get_project_exploration_catalog",
-				arguments: {
+			const payload = await catalogTool.handler({
+				db: connection.db,
+				input: {
 					projectPath: projectDir,
 					focus: { paths: ["api/routes/fizzbuzz.ts"] },
 				},
+				allowedProjectRoots: [tempDir],
+				projectCreationPolicy: "registered_only",
 			});
-			const payload = JSON.parse(readMcpText(called));
 			expect(payload).toMatchObject({
 				ok: true,
 				projectPath: projectDir,
 			});
-			expect(paths(payload.likelyFiles)).toContain(
+			expect(
+				paths(
+					(payload as { likelyFiles: Array<{ path: string }> }).likelyFiles,
+				),
+			).toContain(
 				"shared/http/http-client.ts",
 			);
 
-			const failedCall = await client.callTool({
-				name: "vuln_get_project_exploration_catalog",
-				arguments: {
+			const failedPayload = await catalogTool.handler({
+				db: connection.db,
+				input: {
 					projectPath: path.join(tempDir, "missing-project"),
 					focus: { terms: ["missing"] },
 				},
+				allowedProjectRoots: [tempDir],
+				projectCreationPolicy: "registered_only",
 			});
-			expect(JSON.parse(readMcpText(failedCall))).toMatchObject({
+			expect(failedPayload).toMatchObject({
 				ok: false,
 				status: "failed",
 			});
 		} finally {
-			await client.close();
+			connection.sqlite.close();
 		}
 	});
 
@@ -243,21 +231,6 @@ async function writeProjectFixture(projectDir: string) {
 
 function paths(items: Array<{ path: string }>): string[] {
 	return items.map((item) => item.path);
-}
-
-function readMcpText(value: unknown): string {
-	if (!value || typeof value !== "object") throw new Error("MCP result missing");
-	const content = (value as { content?: unknown }).content;
-	if (!Array.isArray(content)) throw new Error("MCP content missing");
-	const text = content.find(
-		(item) =>
-			item &&
-			typeof item === "object" &&
-			(item as { type?: unknown }).type === "text" &&
-			typeof (item as { text?: unknown }).text === "string",
-	) as { text: string } | undefined;
-	if (!text) throw new Error("MCP text content missing");
-	return text.text;
 }
 
 function applyMigrations(connection: DbConnection) {

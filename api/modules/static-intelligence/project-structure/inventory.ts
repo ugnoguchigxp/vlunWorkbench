@@ -280,7 +280,13 @@ async function loadGitIncludedPaths(
 		const { stdout: topLevel } = await execFileAsync(
 			"git",
 			["rev-parse", "--show-toplevel"],
-			{ cwd: rootPath, encoding: "utf8", maxBuffer: 1024 * 1024 },
+			{
+				cwd: rootPath,
+				encoding: "utf8",
+				maxBuffer: 1024 * 1024,
+				timeout: 30_000,
+				killSignal: "SIGKILL",
+			},
 		);
 		const repositoryRoot = await fs.realpath(topLevel.trim());
 		if (!isPathInside(repositoryRoot, rootPath)) return null;
@@ -297,7 +303,13 @@ async function loadGitIncludedPaths(
 				"--",
 				pathspec,
 			],
-			{ cwd: repositoryRoot, encoding: "buffer", maxBuffer: 32 * 1024 * 1024 },
+			{
+				cwd: repositoryRoot,
+				encoding: "buffer",
+				maxBuffer: 32 * 1024 * 1024,
+				timeout: 30_000,
+				killSignal: "SIGKILL",
+			},
 		);
 		const prefix = projectPrefix ? `${projectPrefix}/` : "";
 		return new Set(

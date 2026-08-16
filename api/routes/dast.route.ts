@@ -21,6 +21,7 @@ import {
 	validateDastTargetConfig,
 } from "../modules/dast/target-validator";
 import type { ProjectRepository } from "../modules/scans/repositories";
+import type { WebProcessCapacity } from "../modules/processes/web-process-capacity";
 import {
 	ProjectPathPolicyError,
 	resolveProjectPath,
@@ -31,6 +32,7 @@ type DastRouteDeps = {
 	db: AppDatabase;
 	projectRepository: ProjectRepository;
 	env?: AppEnv;
+	processCapacity?: WebProcessCapacity;
 };
 
 export function createDastRoute(deps: DastRouteDeps) {
@@ -230,6 +232,7 @@ export function createDastRoute(deps: DastRouteDeps) {
 			projectId,
 			...parsed.data,
 			createdByUserId: authUser.userId,
+			processCapacity: deps.processCapacity,
 		});
 		return c.json(cliResult);
 	});

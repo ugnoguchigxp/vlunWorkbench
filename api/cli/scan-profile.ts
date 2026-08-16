@@ -41,6 +41,8 @@ import { runCliAutomatedDiagnostic } from "./scan-profile-diagnostic";
 import { buildScanProfileDryRun } from "./scan-profile-dry-run";
 import { parseScanTargetOption } from "./scan-profile-options";
 
+const MAX_SCAN_STEP_TIMEOUT_SEC = 86_400;
+
 function writeResult(payload: Record<string, unknown>): void {
 	console.log(JSON.stringify(payload));
 }
@@ -226,12 +228,13 @@ async function main() {
 		timeoutSec !== undefined &&
 		(!Number.isFinite(timeoutSec) ||
 			!Number.isInteger(timeoutSec) ||
-			timeoutSec <= 0)
+			timeoutSec <= 0 ||
+			timeoutSec > MAX_SCAN_STEP_TIMEOUT_SEC)
 	) {
 		writeResult({
 			ok: false,
 			status: "failed",
-			message: "--timeout-sec must be a positive integer.",
+			message: `--timeout-sec must be an integer between 1 and ${MAX_SCAN_STEP_TIMEOUT_SEC}.`,
 		});
 		process.exit(1);
 	}

@@ -12,6 +12,7 @@ import { getAuthContextUser } from "../modules/auth/context";
 import { HttpError } from "../modules/auth/errors";
 import { ActiveAssessmentRepository } from "../modules/dast/active-assessment-repository";
 import type { ActiveAssessmentRunner } from "../modules/dast/active-assessment-runner";
+import type { WebProcessCapacity } from "../modules/processes/web-process-capacity";
 import type {
 	ProjectRepository,
 	ScanRepository,
@@ -25,6 +26,7 @@ export function createAssessmentsRoute(deps: {
 	scanRepository: ScanRepository;
 	activeAssessmentRunner?: ActiveAssessmentRunner;
 	scanDiagnosticRunner?: ScanDiagnosticRunner;
+	processCapacity?: WebProcessCapacity;
 }) {
 	const repository = new AssessmentRepository(deps.db);
 	const activeRepository = new ActiveAssessmentRepository(deps.db);
@@ -129,18 +131,35 @@ export function createAssessmentsRoute(deps: {
 				parsed.error.issues.map((issue) => issue.message).join("; "),
 			);
 		}
-		const result = await deps.activeAssessmentRunner
-			.run({
+		const releaseCapacity =
+			parsed.data.kind === "zap_active"
+				? deps.processCapacity?.tryAcquire()
+				: undefined;
+		if (
+			parsed.data.kind === "zap_active" &&
+			deps.processCapacity &&
+			!releaseCapacity
+		) {
+			throw new HttpError(
+				429,
+				"Local execution capacity is full. Retry after an active process completes.",
+			);
+		}
+		let result: Awaited<ReturnType<ActiveAssessmentRunner["run"]>>;
+		try {
+			result = await deps.activeAssessmentRunner.run({
 				projectId,
 				createdByUserId: user.userId,
 				request: parsed.data,
-			})
-			.catch((error) => {
-				throw new HttpError(
-					409,
-					error instanceof Error ? error.message : String(error),
-				);
 			});
+		} catch (error) {
+			throw new HttpError(
+				409,
+				error instanceof Error ? error.message : String(error),
+			);
+		} finally {
+			releaseCapacity?.();
+		}
 		if (deps.scanDiagnosticRunner) {
 			const started = await deps.scanDiagnosticRunner.start(result.scanRunId);
 			void started.completion.catch((error) => {

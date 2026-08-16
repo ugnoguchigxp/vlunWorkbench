@@ -10,6 +10,10 @@ export const RUNTIME_SETTINGS_DEFAULTS = {
 	dockerPidsLimit: 512,
 	scannerStdoutLimitBytes: 64 * 1024 * 1024,
 	scannerStderrLimitBytes: 8 * 1024 * 1024,
+	webProcessConcurrency: 2,
+	webScanQueueLimit: 32,
+	webScanStepTimeoutMaxSec: 3_600,
+	webScanWallClockTimeoutSec: 21_600,
 	codexSdkTimeoutMs: 600_000,
 } as const;
 
@@ -52,6 +56,30 @@ export const RuntimeSettingsBaseSchema = z.object({
 		.int()
 		.positive()
 		.max(32 * 1024 * 1024),
+	webProcessConcurrency: z
+		.number()
+		.int()
+		.min(1)
+		.max(8)
+		.default(RUNTIME_SETTINGS_DEFAULTS.webProcessConcurrency),
+	webScanQueueLimit: z
+		.number()
+		.int()
+		.min(1)
+		.max(256)
+		.default(RUNTIME_SETTINGS_DEFAULTS.webScanQueueLimit),
+	webScanStepTimeoutMaxSec: z
+		.number()
+		.int()
+		.min(60)
+		.max(86_400)
+		.default(RUNTIME_SETTINGS_DEFAULTS.webScanStepTimeoutMaxSec),
+	webScanWallClockTimeoutSec: z
+		.number()
+		.int()
+		.min(300)
+		.max(86_400)
+		.default(RUNTIME_SETTINGS_DEFAULTS.webScanWallClockTimeoutSec),
 	codexSdkTimeoutMs: z.number().int().min(1_000).max(3_600_000),
 });
 
@@ -109,6 +137,17 @@ export function runtimeSettingsFromAppEnv(env: AppEnv): RuntimeSettings {
 		scannerStderrLimitBytes:
 			env.scannerStderrLimitBytes ??
 			RUNTIME_SETTINGS_DEFAULTS.scannerStderrLimitBytes,
+		webProcessConcurrency:
+			env.webProcessConcurrency ??
+			RUNTIME_SETTINGS_DEFAULTS.webProcessConcurrency,
+		webScanQueueLimit:
+			env.webScanQueueLimit ?? RUNTIME_SETTINGS_DEFAULTS.webScanQueueLimit,
+		webScanStepTimeoutMaxSec:
+			env.webScanStepTimeoutMaxSec ??
+			RUNTIME_SETTINGS_DEFAULTS.webScanStepTimeoutMaxSec,
+		webScanWallClockTimeoutSec:
+			env.webScanWallClockTimeoutSec ??
+			RUNTIME_SETTINGS_DEFAULTS.webScanWallClockTimeoutSec,
 		codexSdkTimeoutMs: env.codexSdkTimeoutMs,
 		dastAuthEncryptionKey: env.dastAuthEncryptionKey,
 		dastAuthPreviousEncryptionKeys: env.dastAuthPreviousEncryptionKeys ?? [],
@@ -129,6 +168,10 @@ export function applyRuntimeSettings(
 		dockerPidsLimit: settings.dockerPidsLimit,
 		scannerStdoutLimitBytes: settings.scannerStdoutLimitBytes,
 		scannerStderrLimitBytes: settings.scannerStderrLimitBytes,
+		webProcessConcurrency: settings.webProcessConcurrency,
+		webScanQueueLimit: settings.webScanQueueLimit,
+		webScanStepTimeoutMaxSec: settings.webScanStepTimeoutMaxSec,
+		webScanWallClockTimeoutSec: settings.webScanWallClockTimeoutSec,
 		codexSdkTimeoutMs: settings.codexSdkTimeoutMs,
 		dastAuthEncryptionKey: settings.dastAuthEncryptionKey,
 		dastAuthPreviousEncryptionKeys: settings.dastAuthPreviousEncryptionKeys,

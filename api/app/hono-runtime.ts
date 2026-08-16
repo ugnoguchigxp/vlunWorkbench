@@ -14,6 +14,7 @@ import { IntegrationClientService } from "../modules/integrationClients/integrat
 import { NightworkersWorkspaceTargetGrantRepository } from "../modules/integrations/nightworkers/nightworkers-workspace-target-grant.repository";
 import { NightworkersWorkspaceTargetGrantJanitor } from "../modules/integrations/nightworkers/nightworkers-workspace-target-grant-janitor";
 import { LlmSettingsRepository } from "../modules/llm-settings/llm-settings.repository";
+import { WebProcessCapacity } from "../modules/processes/web-process-capacity";
 import { SourceRetriever } from "../modules/rag/retriever";
 import { SearchEvidenceCollector } from "../modules/rag/search-evidence";
 import { ScanReportRunner } from "../modules/reports/scan-report-runner";
@@ -61,6 +62,7 @@ export type AppRuntime = {
 	llmRouter: LlmRouter;
 	wikiBlobSyncer: WikiBlobSyncer | null;
 	scanSupervisor: ScanProcessSupervisor;
+	webProcessCapacity: WebProcessCapacity;
 	scanReportRunner: ScanReportRunner;
 	scanDiagnosticRunner: ScanDiagnosticRunner;
 	activeAssessmentRunner: ActiveAssessmentRunner;
@@ -149,6 +151,7 @@ function isRuntimeShape(value: unknown): value is AppRuntime {
 		Boolean(obj.llmRouter) &&
 		Object.hasOwn(obj, "wikiBlobSyncer") &&
 		Boolean(obj.scanSupervisor) &&
+		Boolean(obj.webProcessCapacity) &&
 		Boolean(obj.scanReportRunner) &&
 		Boolean(obj.scanDiagnosticRunner) &&
 		Boolean(obj.activeAssessmentRunner) &&
@@ -244,7 +247,13 @@ async function createRuntime(): Promise<AppRuntime> {
 	const businessLogicRunner = new BusinessLogicRunner(dbConnection.db, {
 		authContextRepository: dastAuthContextRepository,
 	});
+	const webProcessCapacity = new WebProcessCapacity(() => ({
+		concurrency: env.webProcessConcurrency,
+		queueLimit: env.webScanQueueLimit,
+	}));
 	const scanSupervisor = new ScanProcessSupervisor(scanRepository, {
+		processCapacity: webProcessCapacity,
+		wallClockTimeoutSec: () => env.webScanWallClockTimeoutSec,
 		onCompletedScan: async (scanRunId) => {
 			const started = await scanDiagnosticRunner.start(scanRunId);
 			void started.completion.catch((error) => {
@@ -347,6 +356,7 @@ async function createRuntime(): Promise<AppRuntime> {
 		llmRouter,
 		wikiBlobSyncer,
 		scanSupervisor,
+		webProcessCapacity,
 		scanReportRunner,
 		scanDiagnosticRunner,
 		activeAssessmentRunner,

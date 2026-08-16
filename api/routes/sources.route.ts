@@ -457,9 +457,6 @@ export function createSourcesRoute(deps: SourcesRouteDeps) {
 				return c.json(invalidSlugResponse(slug), 400);
 			}
 			const { from, to } = c.req.valid("query");
-			if (!from || !to) {
-				return c.json({ message: "from and to query are required" }, 400);
-			}
 			const diff = await getPageDiff(deps.contentRoot, slug, from, to);
 			return c.json({ slug, from, to, diff });
 		});

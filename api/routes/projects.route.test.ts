@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
 import { readAppEnv } from "../app/env";
 import { HttpError } from "../modules/auth/errors";
+import { ProcessCapacityExceededError } from "../modules/processes/web-process-capacity";
 import { ProjectPathPolicyError } from "../security/project-path-policy";
 import { createProjectsRoute } from "./projects.route";
 
@@ -221,6 +222,55 @@ describe("Projects Route", () => {
 		);
 	});
 
+	it("POST /:projectId/scans rejects a step timeout above the configured maximum", async () => {
+		const res = await app.request("/p-1/scans", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ timeoutSec: 3_601 }),
+		});
+
+		expect(res.status).toBe(400);
+	});
+
+	it("uses the current step timeout maximum after runtime settings change", async () => {
+		const env = readAppEnv({ NODE_ENV: "test" });
+		const liveSettingsApp = new Hono();
+		liveSettingsApp.use("*", async (c, next) => {
+			c.set("authUser", {
+				userId: "user-123",
+				email: "user@example.com",
+				role: "member",
+			});
+			await next();
+		});
+		liveSettingsApp.onError((error, c) => {
+			if (error instanceof HttpError) {
+				return c.json({ message: error.message }, error.status as never);
+			}
+			return c.json({ message: error.message }, 500);
+		});
+		liveSettingsApp.route(
+			"/",
+			createProjectsRoute({
+				projectRepository: mockProjectRepo as any,
+				env,
+				resolveProjectPath: mockResolveProjectPath,
+			}),
+		);
+		env.webScanStepTimeoutMaxSec = 120;
+
+		const res = await liveSettingsApp.request("/p-1/scans", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ timeoutSec: 121 }),
+		});
+
+		expect(res.status).toBe(400);
+		expect(await res.json()).toEqual({
+			message: "timeoutSec must be at most 120.",
+		});
+	});
+
 	it("POST /:projectId/scans admits a queued scan and returns 202 without waiting", async () => {
 		const scanRepository = {
 			createScanRun: vi.fn().mockResolvedValue({ id: "s-queued" }),
@@ -273,5 +323,54 @@ describe("Projects Route", () => {
 				`sha256:${"a".repeat(64)}`,
 			]),
 		);
+	});
+
+	it("POST /:projectId/scans returns 429 when the Web process queue is full", async () => {
+		const scanRepository = {
+			createScanRun: vi.fn().mockResolvedValue({ id: "s-rejected" }),
+			createScanEvent: vi.fn().mockResolvedValue({ id: "e-rejected" }),
+		};
+		const scanSupervisor = {
+			launch: vi.fn(async () => {
+				throw new ProcessCapacityExceededError("Web process queue is full.");
+			}),
+		};
+		const scanApp = new Hono();
+		scanApp.use("*", async (c, next) => {
+			c.set("authUser", {
+				userId: "user-123",
+				email: "user@example.com",
+				role: "member",
+			});
+			await next();
+		});
+		scanApp.onError((error, c) => {
+			if (error instanceof HttpError) {
+				return c.json({ message: error.message }, error.status as never);
+			}
+			return c.json({ message: error.message }, 500);
+		});
+		scanApp.route(
+			"/",
+			createProjectsRoute({
+				projectRepository: mockProjectRepo as any,
+				scanRepository: scanRepository as any,
+				scanSupervisor: scanSupervisor as any,
+				env: readAppEnv({ NODE_ENV: "test" }),
+				resolveProjectPath: mockResolveProjectPath,
+			}),
+		);
+
+		const res = await scanApp.request("/p-1/scans", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({
+				profile: "baseline",
+				expectedPreflightBindingHash: `sha256:${"a".repeat(64)}`,
+			}),
+		});
+
+		expect(res.status).toBe(429);
+		expect(await res.json()).toEqual({ message: "Web process queue is full." });
 	});
 });

@@ -5,6 +5,8 @@ import { promisify } from "node:util";
 import { isPathAllowed, normalizeDastOrigin } from "./target-validator";
 
 const execFileAsync = promisify(execFile);
+const NETWORK_PROBE_TIMEOUT_MS = 10_000;
+const NETWORK_PROBE_MAX_BUFFER_BYTES = 64 * 1024;
 const SECRET_HEADERS = new Set([
 	"authorization",
 	"cookie",
@@ -88,20 +90,38 @@ function isSafeLoopbackOrigin(origin: string): string {
 
 async function linuxBridgeAddress(dockerBin: string): Promise<string> {
 	try {
-		const result = await execFileAsync(dockerBin, [
-			"network",
-			"inspect",
-			"bridge",
-			"--format",
-			"{{(index .IPAM.Config 0).Gateway}}",
-		]);
+		const result = await execFileAsync(
+			dockerBin,
+			[
+				"network",
+				"inspect",
+				"bridge",
+				"--format",
+				"{{(index .IPAM.Config 0).Gateway}}",
+			],
+			{
+				encoding: "utf8",
+				maxBuffer: NETWORK_PROBE_MAX_BUFFER_BYTES,
+				timeout: NETWORK_PROBE_TIMEOUT_MS,
+				killSignal: "SIGKILL",
+			},
+		);
 		const address = result.stdout.trim();
 		if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(address)) return address;
 	} catch {
 		// Try the host route below before failing closed.
 	}
 	try {
-		const result = await execFileAsync("ip", ["-4", "addr", "show", "docker0"]);
+		const result = await execFileAsync(
+			"ip",
+			["-4", "addr", "show", "docker0"],
+			{
+				encoding: "utf8",
+				maxBuffer: NETWORK_PROBE_MAX_BUFFER_BYTES,
+				timeout: NETWORK_PROBE_TIMEOUT_MS,
+				killSignal: "SIGKILL",
+			},
+		);
 		const match = result.stdout.match(/\binet\s+(\d{1,3}(?:\.\d{1,3}){3})\//);
 		if (match?.[1]) return match[1];
 	} catch {
