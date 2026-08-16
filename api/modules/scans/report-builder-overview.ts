@@ -12,6 +12,7 @@ import {
 } from "./report-builder-helpers";
 import type { buildReportQuery } from "./report-builder-query";
 import { readPluginExecutionSummary } from "./report-builder-technology";
+import { readSourceSastCoverage } from "./source-sast-coverage";
 
 export function renderReportOverview(
 	scope: Awaited<ReturnType<typeof buildReportQuery>>,
@@ -45,6 +46,8 @@ export function renderReportOverview(
 	const profileOutcome = (scanRun.metadata?.profileOutcome as string) || "N/A";
 	const diffContext = readDiffReportContext(scanRun.metadata);
 	const technologySummary = readPluginExecutionSummary(scanRun.metadata);
+	const sourceSastCoverage = readSourceSastCoverage(scanRun.metadata);
+	const limitedSourceSast = sourceSastCoverage?.coverageEffect === "gap";
 	const limitedTechnology =
 		technologySummary?.pluginResults.some(
 			(result) =>
@@ -81,6 +84,16 @@ export function renderReportOverview(
 				)
 				.join(", ")}`,
 		);
+	}
+	if (sourceSastCoverage) {
+		lines.push(
+			`- **Source SAST coverage:** state=${sourceSastCoverage.state}, coverage=${sourceSastCoverage.coverageEffect}, engine=${sourceSastCoverage.engine ?? "not executed"}, ruleset=${sourceSastCoverage.rulesetId ?? "not executed"}`,
+		);
+		if (sourceSastCoverage.limitationCodes.length > 0) {
+			lines.push(
+				`- **Source SAST limitations:** ${sourceSastCoverage.limitationCodes.join(", ")}`,
+			);
+		}
 	}
 	lines.push("");
 
@@ -132,6 +145,10 @@ export function renderReportOverview(
 		) {
 			lines.push(
 				"- **結論:** 差分対象のscanner実行が完了していないため、finding 0件を安全性の判断には使用できません。失敗または未実行のtoolを確認してください。",
+			);
+		} else if (limitedSourceSast) {
+			lines.push(
+				"- **結論:** source SAST が実行されていないため、finding 0件をソースコードの安全性判断には使用できません。`source_sast_not_executed` は未確認領域として残ります。",
 			);
 		} else if (limitedDast) {
 			lines.push(

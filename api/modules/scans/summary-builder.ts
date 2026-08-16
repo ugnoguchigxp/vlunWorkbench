@@ -1,15 +1,16 @@
 import { eq, inArray } from "drizzle-orm";
 import type { AppDatabase } from "../../db";
 import {
+	dastRuns,
+	findingDecisions,
+	findingReviews,
+	findings,
+	scanArtifacts,
 	scanRuns,
 	toolRuns,
-	scanArtifacts,
-	findings,
-	findingReviews,
-	findingDecisions,
-	dastRuns,
 } from "../../db/schema";
 import { getProfileById } from "./profiles";
+import { readStoredResolvedProfile } from "./resolved-profile";
 
 export interface ToolSummary {
 	toolId: string;
@@ -141,7 +142,9 @@ export async function buildScanRunSummary(
 	}
 
 	// 6. Map tools using the profile definition
-	const profile = getProfileById(scanRun.profile);
+	const profile =
+		readStoredResolvedProfile(scanRun.metadata, scanRun.profile) ??
+		getProfileById(scanRun.profile);
 	const profileTools = profile?.tools ?? [];
 	const profileSteps = profile?.steps ?? [];
 	const metadataStepResults = Array.isArray(scanRun.metadata?.stepResults)

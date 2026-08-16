@@ -52,6 +52,7 @@ export type ScanProfile = {
 	scope?: ScanProfileScope;
 	tools: ScanProfileTool[];
 	steps?: ScanProfileStep[];
+	coverageGaps?: string[];
 };
 
 export type ToolSummary = {

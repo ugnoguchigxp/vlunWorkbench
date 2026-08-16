@@ -24,7 +24,9 @@ import {
 import { executeProfileSteps } from "./profile-step-orchestrator";
 import { getProfileById } from "./profiles";
 import { ArtifactRepository, ScanRepository } from "./repositories";
+import { hashResolvedProfile } from "./resolved-profile";
 import { aggregateRuntimeAssessmentCoverage } from "./runtime-assessment-coverage";
+import { resolveSourceSastCoverage } from "./source-sast-coverage";
 import { resolveScanScope } from "./target-scope";
 import {
 	normalizeToolExecutionConfig,
@@ -64,6 +66,8 @@ export async function runProfileScan(params: {
 	if (!profile) {
 		throw new Error(`Profile not found: ${params.profileId}`);
 	}
+	const resolvedProfileHash = hashResolvedProfile(profile);
+	const initialSourceSastCoverage = resolveSourceSastCoverage(profile);
 	const requestedTarget: ScanTarget = params.target ?? { kind: "full" };
 	const supportedTargets = profile.supportedTargets ?? ["full"];
 	if (!supportedTargets.includes(requestedTarget.kind)) {
@@ -135,6 +139,12 @@ export async function runProfileScan(params: {
 	const initialMetadata = {
 		profileId: params.profileId,
 		profileVersion: 1,
+		resolvedProfile: profile,
+		resolvedProfileHash,
+		profileLimitationCodes: profile.coverageGaps ?? [],
+		...(initialSourceSastCoverage
+			? { sourceSastCoverage: initialSourceSastCoverage }
+			: {}),
 		scope: resolvedScope,
 		continueOnToolFailure,
 		runner: execution.runner,
@@ -327,6 +337,14 @@ export async function runProfileScan(params: {
 	const runtimeCoverageLimited =
 		runtimeAssessmentCoverage.steps.length > 0 &&
 		runtimeAssessmentCoverage.coverageStatus !== "covered";
+	const sourceSastCoverage = resolveSourceSastCoverage(profile, stepResults);
+	const sourceSastLimited = sourceSastCoverage?.coverageEffect === "gap";
+	const profileLimitationCodes = [
+		...new Set([
+			...(profile.coverageGaps ?? []),
+			...(sourceSastCoverage?.limitationCodes ?? []),
+		]),
+	].sort();
 	let profileOutcome: "completed" | "completed_with_warnings" | "failed" =
 		"completed";
 	let finalScanStatus: "completed" | "failed" = "completed";
@@ -335,7 +353,11 @@ export async function runProfileScan(params: {
 		// A fail_profile tool failed, so the overall outcome is failed.
 		profileOutcome = "failed";
 		finalScanStatus = "failed";
-	} else if (optionalToolFailed || runtimeCoverageLimited) {
+	} else if (
+		optionalToolFailed ||
+		runtimeCoverageLimited ||
+		sourceSastLimited
+	) {
 		// required tools succeeded, but at least one optional tool failed
 		profileOutcome = "completed_with_warnings";
 		finalScanStatus = "completed";
@@ -363,6 +385,10 @@ export async function runProfileScan(params: {
 			...scanRun.metadata,
 			profileId: params.profileId,
 			profileVersion: 1,
+			resolvedProfile: profile,
+			resolvedProfileHash,
+			profileLimitationCodes,
+			...(sourceSastCoverage ? { sourceSastCoverage } : {}),
 			scope: resolvedScope,
 			profileOutcome,
 			continueOnToolFailure,

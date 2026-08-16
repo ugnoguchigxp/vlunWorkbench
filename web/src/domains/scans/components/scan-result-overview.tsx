@@ -1,17 +1,18 @@
 import type { StepSummary, ToolSummary } from "../../../api";
+import { readDiffTargetDisplay } from "../diff-target-display";
+import {
+	buildScanImprovementRequestView,
+	classifyScanReviewFailure,
+} from "../scan-improvement-request";
 import {
 	formatScanOutcome,
 	formatScanReason,
 	getProfileDisplay,
 	getToolDisplay,
 } from "../scan-profile-display";
-import {
-	buildScanImprovementRequestView,
-	classifyScanReviewFailure,
-} from "../scan-improvement-request";
-import { readDiffTargetDisplay } from "../diff-target-display";
-import { readTechnologyCoverageDisplay } from "../technology-coverage-display";
 import { useScans } from "../scans-context";
+import { readSourceSastCoverageDisplay } from "../source-sast-coverage-display";
+import { readTechnologyCoverageDisplay } from "../technology-coverage-display";
 import { ExecutiveRiskSummary } from "./executive-risk-summary";
 import { ScanComparisonPanel } from "./scan-comparison-panel";
 import { ScanImprovementRequestPanel } from "./scan-improvement-request-panel";
@@ -37,6 +38,7 @@ export function ScanResultOverview({
 	);
 	const outcome = c.scanSummary?.profileOutcome ?? scanRun?.status ?? null;
 	const diffTarget = readDiffTargetDisplay(scanRun?.metadata);
+	const sourceSastCoverage = readSourceSastCoverageDisplay(scanRun?.metadata);
 	const technologyCoverage = readTechnologyCoverageDisplay(scanRun?.metadata);
 	const latestScanReview = c.scanReviews[0] ?? null;
 	const latestCompletedScanReview =
@@ -129,6 +131,32 @@ export function ScanResultOverview({
 						{c.scanSummary.tools.map((tool) => (
 							<ToolResultRow key={tool.toolId} tool={tool} />
 						))}
+					</div>
+				) : null}
+				{sourceSastCoverage ? (
+					<div className="scan-result-tool-list">
+						<div className="scan-result-tool-row">
+							<div className="scan-result-tool-copy">
+								<strong>Source SAST coverage</strong>
+								<span>実行済み step と finding 件数を分けて表示します。</span>
+							</div>
+							<div className="scan-result-tool-result">
+								<span
+									className={`scan-status-badge badge-${sourceSastCoverage.coverageEffect}`}
+								>
+									{sourceSastCoverage.coverageEffect}
+								</span>
+								<span>状態: {sourceSastCoverage.state}</span>
+								<small>
+									engine: {sourceSastCoverage.engine ?? "not executed"}
+								</small>
+								{sourceSastCoverage.limitationCodes.length > 0 ? (
+									<small>
+										制限: {sourceSastCoverage.limitationCodes.join(", ")}
+									</small>
+								) : null}
+							</div>
+						</div>
 					</div>
 				) : null}
 				{technologyCoverage ? (

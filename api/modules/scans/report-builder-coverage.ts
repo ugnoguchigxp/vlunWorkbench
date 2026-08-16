@@ -1,3 +1,4 @@
+import { coverageControlById } from "../assessments/coverage-catalog";
 import {
 	buildRemediationFallback,
 	escapeTableCell,
@@ -6,9 +7,9 @@ import {
 	reportHeading,
 	toInlineText,
 } from "./report-builder-helpers";
-import { coverageControlById } from "../assessments/coverage-catalog";
 import type { renderReportOverview } from "./report-builder-overview";
 import type { buildReportQuery } from "./report-builder-query";
+import { readSourceSastCoverage } from "./source-sast-coverage";
 
 type Scope = Awaited<ReturnType<typeof buildReportQuery>> &
 	ReturnType<typeof renderReportOverview> & { scanRunId: string };
@@ -46,6 +47,12 @@ export function renderReportCoverage(scope: Scope): void {
 	lines.push(
 		"finding 件数とは独立した control 単位の実行結果です。`not_tested`、`blocked`、`inconclusive` は成功として扱いません。",
 	);
+	const sourceSastCoverage = readSourceSastCoverage(scanRun.metadata);
+	if (sourceSastCoverage) {
+		lines.push(
+			`- **Source SAST:** ${sourceSastCoverage.coverageEffect}; state=${sourceSastCoverage.state}; limitations=${sourceSastCoverage.limitationCodes.join(", ") || "none"}`,
+		);
+	}
 	lines.push(
 		"| Control | Framework | Category | Claim | Status | Method | Reason | Evidence |",
 	);

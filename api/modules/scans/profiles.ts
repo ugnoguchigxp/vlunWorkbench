@@ -145,261 +145,283 @@ const SCHEMATHESIS_STEP: ScanProfileStep = {
 	},
 };
 
-export const SCAN_PROFILES: ScanProfile[] = [
-	...buildStaticScanProfiles({
-		SOURCE_BASELINE_SCOPE,
-		DEPENDENCY_MANIFEST_SCOPE,
-		ARTIFACT_SCOPE,
-		FULL_DEEP_SCOPE,
-	}),
-	...(isOptionalScannerAdapterEnabled("semgrep")
-		? [buildOptionalSemgrepProfile(SOURCE_BASELINE_SCOPE)]
-		: []),
-	{
-		id: "web-app-baseline",
-		name: "Webアプリ標準診断",
-		description:
-			"Gitleaks、OSVによる静的診断と、自動起動したローカル対象へのbounded passive DASTをまとめて実行します。",
-		category: "basic",
-		enabled: true,
-		defaultTimeoutSec: 900,
-		scope: SOURCE_BASELINE_SCOPE,
-		tools: [
-			{
-				toolId: "gitleaks",
-				displayName: "Gitleaks Secret Detection",
-				required: true,
-				failurePolicy: "fail_profile",
-			},
-			{
-				toolId: "osv",
-				displayName: "OSV Dependency Scanner",
-				required: true,
-				failurePolicy: "fail_profile",
-				options: { dependencyMode: "manifest" },
-			},
-		],
-		steps: [
-			{
-				kind: "static_tool",
-				toolId: "gitleaks",
-				displayName: "Gitleaks Secret Detection",
-				required: true,
-				failurePolicy: "fail_profile",
-			},
-			{
-				kind: "static_tool",
-				toolId: "osv",
-				displayName: "OSV Dependency Scanner",
-				required: true,
-				failurePolicy: "fail_profile",
-				options: { dependencyMode: "manifest" },
-			},
-			AUTO_STANDARD_DAST_STEP,
-		],
-	},
-	{
-		id: "runtime-web-safe",
-		name: "安全なWeb実行時診断",
-		description:
-			"自動起動したローカル対象にbounded passive DAST、Nuclei safe、ZAP baselineを実行します。",
-		category: "focused",
-		enabled: true,
-		defaultTimeoutSec: 900,
-		scope: SOURCE_BASELINE_SCOPE,
-		tools: [],
-		steps: [AUTO_STANDARD_DAST_STEP, NUCLEI_SAFE_STEP, ZAP_BASELINE_STEP],
-	},
-	{
-		id: "sbom-inventory",
-		name: "CycloneDXソフトウェアインベントリ",
-		description:
-			"対象 filesystem から CycloneDX JSON SBOM を生成します。SBOM component は finding に変換しません。",
-		category: "focused",
-		enabled: true,
-		defaultTimeoutSec: 600,
-		scope: SOURCE_BASELINE_SCOPE,
-		tools: [],
-		steps: [SBOM_STEP],
-	},
-	{
-		id: "api-schema-readonly",
-		name: "APIスキーマ読み取り専用診断",
-		description:
-			"自動起動したローカル対象の OpenAPI/GraphQL を検出し、読み取り専用 operation に限定して確認します。",
-		category: "focused",
-		enabled: true,
-		defaultTimeoutSec: 600,
-		scope: SOURCE_BASELINE_SCOPE,
-		tools: [],
-		steps: [SCHEMATHESIS_STEP],
-	},
-	{
-		id: "container-image-security",
-		name: "既存コンテナイメージ診断",
-		description:
-			"明示された既存 image ref または image tar だけを Trivy で診断します。自動 build は行いません。",
-		category: "focused",
-		enabled: true,
-		defaultTimeoutSec: 600,
-		scope: SOURCE_BASELINE_SCOPE,
-		tools: [],
-		steps: [
-			{
-				kind: "container_image_scan",
-				adapter: "trivy",
-				displayName: "Trivy Existing Image Scan",
-				required: false,
-				failurePolicy: "warn_and_continue",
-				target: { mode: "explicit_existing_image" },
-			},
-		],
-	},
-	{
-		id: "runtime-zap-baseline",
-		name: "ZAP Baseline Passive Scan",
-		description:
-			"公式 ZAP image を Docker で実行し、bounded gateway 経由で自動起動したローカル対象を passive scan します。",
-		category: "detailed",
-		enabled: true,
-		defaultTimeoutSec: 600,
-		scope: SOURCE_BASELINE_SCOPE,
-		tools: [],
-		steps: [REQUIRED_ZAP_BASELINE_STEP],
-	},
-	{
-		id: "runtime-http-check",
-		name: "実行時HTTP診断",
-		description:
-			"選択したプロジェクトを自動起動し、既知route coverageを伴うbounded passive DASTを実行します。",
-		category: "focused",
-		enabled: true,
-		defaultTimeoutSec: 180,
-		tools: [],
-		steps: [REQUIRED_AUTO_STANDARD_DAST_STEP],
-	},
-	{
-		id: "full-security-scan",
-		name: "総合セキュリティ診断",
-		description:
-			"詳細な静的診断とbounded passive DASTを合わせて、Webアプリの広めの診断証跡を収集します。active attackは実行しません。",
-		category: "detailed",
-		enabled: true,
-		defaultTimeoutSec: 1200,
-		scope: FULL_DEEP_SCOPE,
-		tools: [
-			{
-				toolId: "gitleaks",
-				displayName: "Gitleaks Deep Secret Detection",
-				required: true,
-				failurePolicy: "fail_profile",
-			},
-			{
-				toolId: "osv",
-				displayName: "OSV Installed Tree Dependency Scanner",
-				required: true,
-				failurePolicy: "fail_profile",
-				options: { dependencyMode: "installed_tree" },
-			},
-			{
-				toolId: "trivy",
-				displayName: "Trivy Deep Filesystem Scanner",
-				required: true,
-				failurePolicy: "fail_profile",
-				options: { scanners: ["vuln", "secret", "misconfig"] },
-			},
-		],
-		steps: [
-			{
-				kind: "static_tool",
-				toolId: "gitleaks",
-				displayName: "Gitleaks Deep Secret Detection",
-				required: true,
-				failurePolicy: "fail_profile",
-			},
-			{
-				kind: "static_tool",
-				toolId: "osv",
-				displayName: "OSV Installed Tree Dependency Scanner",
-				required: true,
-				failurePolicy: "fail_profile",
-				options: { dependencyMode: "installed_tree" },
-			},
-			{
-				kind: "static_tool",
-				toolId: "trivy",
-				displayName: "Trivy Deep Filesystem Scanner",
-				required: true,
-				failurePolicy: "fail_profile",
-				options: { scanners: ["vuln", "secret", "misconfig"] },
-			},
-			SBOM_STEP,
-			AUTO_STANDARD_DAST_STEP,
-			NUCLEI_SAFE_STEP,
-			ZAP_BASELINE_STEP,
-			SCHEMATHESIS_STEP,
-		],
-	},
-	{
-		id: "secrets-dependencies-runtime",
-		name: "漏えい・依存関係・公開面診断",
-		description:
-			"Gitleaks、OSV、Trivyとbounded passive DASTで、シークレット漏えい、依存関係、公開面の証跡を確認します。",
-		category: "focused",
-		enabled: true,
-		defaultTimeoutSec: 900,
-		scope: SOURCE_BASELINE_SCOPE,
-		tools: [
-			{
-				toolId: "gitleaks",
-				displayName: "Gitleaks Secret Detection",
-				required: true,
-				failurePolicy: "fail_profile",
-			},
-			{
-				toolId: "osv",
-				displayName: "OSV Dependency Scanner",
-				required: true,
-				failurePolicy: "fail_profile",
-				options: { dependencyMode: "manifest" },
-			},
-			{
-				toolId: "trivy",
-				displayName: "Trivy Filesystem Scanner",
-				required: false,
-				failurePolicy: "warn_and_continue",
-				options: { scanners: ["vuln", "secret", "misconfig"] },
-			},
-		],
-		steps: [
-			{
-				kind: "static_tool",
-				toolId: "gitleaks",
-				displayName: "Gitleaks Secret Detection",
-				required: true,
-				failurePolicy: "fail_profile",
-			},
-			{
-				kind: "static_tool",
-				toolId: "osv",
-				displayName: "OSV Dependency Scanner",
-				required: true,
-				failurePolicy: "fail_profile",
-				options: { dependencyMode: "manifest" },
-			},
-			{
-				kind: "static_tool",
-				toolId: "trivy",
-				displayName: "Trivy Filesystem Scanner",
-				required: false,
-				failurePolicy: "warn_and_continue",
-				options: { scanners: ["vuln", "secret", "misconfig"] },
-			},
-			AUTO_STANDARD_DAST_STEP,
-		],
-	},
-	...ZAP_ACTIVE_DEDICATED_PROFILES,
-];
+const OPTIONAL_SEMGREP_TOOL = {
+	toolId: "semgrep",
+	displayName: "Semgrep Static Analysis (optional engine)",
+	required: true,
+	failurePolicy: "fail_profile" as const,
+	options: { config: "curated-sast-v1" },
+};
+
+export function buildScanProfiles(params?: {
+	optionalAdapterIds?: readonly string[];
+}): ScanProfile[] {
+	const semgrepEnabled = params?.optionalAdapterIds
+		? params.optionalAdapterIds.includes("semgrep")
+		: isOptionalScannerAdapterEnabled("semgrep");
+	return [
+		...buildStaticScanProfiles({
+			SOURCE_BASELINE_SCOPE,
+			DEPENDENCY_MANIFEST_SCOPE,
+			ARTIFACT_SCOPE,
+			FULL_DEEP_SCOPE,
+		}),
+		...(semgrepEnabled
+			? [buildOptionalSemgrepProfile(SOURCE_BASELINE_SCOPE)]
+			: []),
+		{
+			id: "web-app-baseline",
+			name: "Webアプリ標準診断",
+			description:
+				"Gitleaks、OSVによる静的診断と、自動起動したローカル対象へのbounded passive DASTをまとめて実行します。",
+			category: "basic",
+			enabled: true,
+			defaultTimeoutSec: 900,
+			scope: SOURCE_BASELINE_SCOPE,
+			tools: [
+				{
+					toolId: "gitleaks",
+					displayName: "Gitleaks Secret Detection",
+					required: true,
+					failurePolicy: "fail_profile",
+				},
+				{
+					toolId: "osv",
+					displayName: "OSV Dependency Scanner",
+					required: true,
+					failurePolicy: "fail_profile",
+					options: { dependencyMode: "manifest" },
+				},
+			],
+			steps: [
+				{
+					kind: "static_tool",
+					toolId: "gitleaks",
+					displayName: "Gitleaks Secret Detection",
+					required: true,
+					failurePolicy: "fail_profile",
+				},
+				{
+					kind: "static_tool",
+					toolId: "osv",
+					displayName: "OSV Dependency Scanner",
+					required: true,
+					failurePolicy: "fail_profile",
+					options: { dependencyMode: "manifest" },
+				},
+				AUTO_STANDARD_DAST_STEP,
+			],
+		},
+		{
+			id: "runtime-web-safe",
+			name: "安全なWeb実行時診断",
+			description:
+				"自動起動したローカル対象にbounded passive DAST、Nuclei safe、ZAP baselineを実行します。",
+			category: "focused",
+			enabled: true,
+			defaultTimeoutSec: 900,
+			scope: SOURCE_BASELINE_SCOPE,
+			tools: [],
+			steps: [AUTO_STANDARD_DAST_STEP, NUCLEI_SAFE_STEP, ZAP_BASELINE_STEP],
+		},
+		{
+			id: "sbom-inventory",
+			name: "CycloneDXソフトウェアインベントリ",
+			description:
+				"対象 filesystem から CycloneDX JSON SBOM を生成します。SBOM component は finding に変換しません。",
+			category: "focused",
+			enabled: true,
+			defaultTimeoutSec: 600,
+			scope: SOURCE_BASELINE_SCOPE,
+			tools: [],
+			steps: [SBOM_STEP],
+		},
+		{
+			id: "api-schema-readonly",
+			name: "APIスキーマ読み取り専用診断",
+			description:
+				"自動起動したローカル対象の OpenAPI/GraphQL を検出し、読み取り専用 operation に限定して確認します。",
+			category: "focused",
+			enabled: true,
+			defaultTimeoutSec: 600,
+			scope: SOURCE_BASELINE_SCOPE,
+			tools: [],
+			steps: [SCHEMATHESIS_STEP],
+		},
+		{
+			id: "container-image-security",
+			name: "既存コンテナイメージ診断",
+			description:
+				"明示された既存 image ref または image tar だけを Trivy で診断します。自動 build は行いません。",
+			category: "focused",
+			enabled: true,
+			defaultTimeoutSec: 600,
+			scope: SOURCE_BASELINE_SCOPE,
+			tools: [],
+			steps: [
+				{
+					kind: "container_image_scan",
+					adapter: "trivy",
+					displayName: "Trivy Existing Image Scan",
+					required: false,
+					failurePolicy: "warn_and_continue",
+					target: { mode: "explicit_existing_image" },
+				},
+			],
+		},
+		{
+			id: "runtime-zap-baseline",
+			name: "ZAP Baseline Passive Scan",
+			description:
+				"公式 ZAP image を Docker で実行し、bounded gateway 経由で自動起動したローカル対象を passive scan します。",
+			category: "detailed",
+			enabled: true,
+			defaultTimeoutSec: 600,
+			scope: SOURCE_BASELINE_SCOPE,
+			tools: [],
+			steps: [REQUIRED_ZAP_BASELINE_STEP],
+		},
+		{
+			id: "runtime-http-check",
+			name: "実行時HTTP診断",
+			description:
+				"選択したプロジェクトを自動起動し、既知route coverageを伴うbounded passive DASTを実行します。",
+			category: "focused",
+			enabled: true,
+			defaultTimeoutSec: 180,
+			tools: [],
+			steps: [REQUIRED_AUTO_STANDARD_DAST_STEP],
+		},
+		{
+			id: "full-security-scan",
+			name: "総合セキュリティ診断",
+			description:
+				"詳細な静的診断とbounded passive DASTを合わせて、Webアプリの広めの診断証跡を収集します。active attackは実行しません。",
+			category: "detailed",
+			enabled: true,
+			defaultTimeoutSec: 1200,
+			scope: FULL_DEEP_SCOPE,
+			tools: [
+				{
+					toolId: "gitleaks",
+					displayName: "Gitleaks Deep Secret Detection",
+					required: true,
+					failurePolicy: "fail_profile",
+				},
+				{
+					toolId: "osv",
+					displayName: "OSV Installed Tree Dependency Scanner",
+					required: true,
+					failurePolicy: "fail_profile",
+					options: { dependencyMode: "installed_tree" },
+				},
+				{
+					toolId: "trivy",
+					displayName: "Trivy Deep Filesystem Scanner",
+					required: true,
+					failurePolicy: "fail_profile",
+					options: { scanners: ["vuln", "secret", "misconfig"] },
+				},
+				...(semgrepEnabled ? [OPTIONAL_SEMGREP_TOOL] : []),
+			],
+			steps: [
+				{
+					kind: "static_tool",
+					toolId: "gitleaks",
+					displayName: "Gitleaks Deep Secret Detection",
+					required: true,
+					failurePolicy: "fail_profile",
+				},
+				{
+					kind: "static_tool",
+					toolId: "osv",
+					displayName: "OSV Installed Tree Dependency Scanner",
+					required: true,
+					failurePolicy: "fail_profile",
+					options: { dependencyMode: "installed_tree" },
+				},
+				{
+					kind: "static_tool",
+					toolId: "trivy",
+					displayName: "Trivy Deep Filesystem Scanner",
+					required: true,
+					failurePolicy: "fail_profile",
+					options: { scanners: ["vuln", "secret", "misconfig"] },
+				},
+				...(semgrepEnabled
+					? [{ kind: "static_tool" as const, ...OPTIONAL_SEMGREP_TOOL }]
+					: []),
+				SBOM_STEP,
+				AUTO_STANDARD_DAST_STEP,
+				NUCLEI_SAFE_STEP,
+				ZAP_BASELINE_STEP,
+				SCHEMATHESIS_STEP,
+			],
+			coverageGaps: semgrepEnabled ? [] : ["source_sast_not_executed"],
+		},
+		{
+			id: "secrets-dependencies-runtime",
+			name: "漏えい・依存関係・公開面診断",
+			description:
+				"Gitleaks、OSV、Trivyとbounded passive DASTで、シークレット漏えい、依存関係、公開面の証跡を確認します。",
+			category: "focused",
+			enabled: true,
+			defaultTimeoutSec: 900,
+			scope: SOURCE_BASELINE_SCOPE,
+			tools: [
+				{
+					toolId: "gitleaks",
+					displayName: "Gitleaks Secret Detection",
+					required: true,
+					failurePolicy: "fail_profile",
+				},
+				{
+					toolId: "osv",
+					displayName: "OSV Dependency Scanner",
+					required: true,
+					failurePolicy: "fail_profile",
+					options: { dependencyMode: "manifest" },
+				},
+				{
+					toolId: "trivy",
+					displayName: "Trivy Filesystem Scanner",
+					required: false,
+					failurePolicy: "warn_and_continue",
+					options: { scanners: ["vuln", "secret", "misconfig"] },
+				},
+			],
+			steps: [
+				{
+					kind: "static_tool",
+					toolId: "gitleaks",
+					displayName: "Gitleaks Secret Detection",
+					required: true,
+					failurePolicy: "fail_profile",
+				},
+				{
+					kind: "static_tool",
+					toolId: "osv",
+					displayName: "OSV Dependency Scanner",
+					required: true,
+					failurePolicy: "fail_profile",
+					options: { dependencyMode: "manifest" },
+				},
+				{
+					kind: "static_tool",
+					toolId: "trivy",
+					displayName: "Trivy Filesystem Scanner",
+					required: false,
+					failurePolicy: "warn_and_continue",
+					options: { scanners: ["vuln", "secret", "misconfig"] },
+				},
+				AUTO_STANDARD_DAST_STEP,
+			],
+		},
+		...ZAP_ACTIVE_DEDICATED_PROFILES,
+	];
+}
+
+export const SCAN_PROFILES: ScanProfile[] = buildScanProfiles();
 
 export function getProfileById(id: string): ScanProfile | undefined {
 	const profile = SCAN_PROFILES.find((p) => p.id === id && p.enabled);

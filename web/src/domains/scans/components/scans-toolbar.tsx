@@ -145,6 +145,11 @@ export function ScansToolbar() {
 							{selectedProfileStepLabels.length > 0 ? (
 								<small>{selectedProfileStepLabels.join(" / ")}</small>
 							) : null}
+							{selectedProfile?.coverageGaps?.length ? (
+								<p role="status" className="badge-failed">
+									未実行の診断範囲: {selectedProfile.coverageGaps.join(", ")}
+								</p>
+							) : null}
 							{selectedProfileHasDast ? (
 								<>
 									<p>

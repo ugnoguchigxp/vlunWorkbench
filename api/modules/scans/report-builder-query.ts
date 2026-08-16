@@ -1,10 +1,9 @@
 import { desc, eq, inArray } from "drizzle-orm";
 import { automatedScanReviewOutputSchema } from "../../../shared/schemas/automated-diagnostic.schema";
 import type { AppDatabase } from "../../db";
-import { ensureScanCoverageResults } from "../assessments/coverage-builder";
 import {
-	attackSurfaceItems,
 	applicationModelSnapshots,
+	attackSurfaceItems,
 	businessLogicRuns,
 	dastEvidence,
 	dastRuns,
@@ -19,13 +18,14 @@ import {
 	scanArtifacts,
 	scanReviews,
 	scanRuns,
-	securityCheckResults,
 	securityCapabilityBenchmarkMetrics,
 	securityCapabilityBenchmarkRuns,
+	securityCheckResults,
 	threatHypotheses,
 	threatModelRuns,
 	toolRuns,
 } from "../../db/schema";
+import { ensureScanCoverageResults } from "../assessments/coverage-builder";
 import { getProfileById } from "./profiles";
 import type { ReportBuilderOptions } from "./report-builder-helpers";
 import {
@@ -37,6 +37,7 @@ import {
 	readImprovementRequest,
 	toInlineText,
 } from "./report-builder-helpers";
+import { readStoredResolvedProfile } from "./resolved-profile";
 
 export async function buildReportQuery(
 	db: AppDatabase,
@@ -322,7 +323,9 @@ export async function buildReportQuery(
 		if (finding.bucket === "undecided") return options.includeUndecided;
 		return false;
 	});
-	const profileDefinition = getProfileById(scanRun.profile);
+	const profileDefinition =
+		readStoredResolvedProfile(scanRun.metadata, scanRun.profile) ??
+		getProfileById(scanRun.profile);
 	const profileSteps = profileDefinition?.steps ?? [];
 	const stepResults = Array.isArray(scanRun.metadata?.stepResults)
 		? (scanRun.metadata.stepResults as Array<Record<string, unknown>>)

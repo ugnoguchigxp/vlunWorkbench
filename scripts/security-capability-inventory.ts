@@ -17,6 +17,7 @@ const inventory = {
 		category: profile.category,
 		enabled: profile.enabled,
 		tools: profile.tools.map((tool) => tool.toolId),
+		coverageGaps: profile.coverageGaps ?? [],
 		steps: (profile.steps ?? []).map((step) =>
 			step.kind === "static_tool"
 				? step.toolId
