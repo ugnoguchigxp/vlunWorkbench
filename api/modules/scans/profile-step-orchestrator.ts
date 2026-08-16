@@ -67,6 +67,67 @@ export async function executeProfileSteps(
 					: step.kind === "dast"
 						? `dast:${step.profileId}`
 						: `${step.kind}:${step.adapter}`;
+			const preflightReasonCodes =
+				params.scanPreflight.mode === "enforced"
+					? params.scanPreflight.checks
+							.filter(
+								(check) =>
+									check.stepId === stepId && check.status === "blocked",
+							)
+							.flatMap((check) => check.reasonCode ?? [])
+					: [];
+			if (preflightReasonCodes.length > 0) {
+				const errorMessage = `Blocked by scan preflight: ${preflightReasonCodes.join(", ")}`;
+				if (failureFailsProfile) profileFailingToolFailed = true;
+				else optionalToolFailed = true;
+				if (step.kind === "static_tool") {
+					const toolResult: ToolResult = {
+						toolId: step.toolId,
+						toolRunId: null,
+						required: step.required,
+						status: "skipped",
+						findingCount: 0,
+						exitCode: null,
+						error: errorMessage,
+						applicability: "applicable",
+						reasonCode: "preflight_failed",
+						coverageEffect: "gap",
+						artifactIds: [],
+						metadata: { preflightReasonCodes },
+					};
+					toolResults.push(toolResult);
+					stepResults.push({ kind: "static_tool", ...toolResult });
+				} else if (step.kind === "dast") {
+					stepResults.push({
+						kind: "dast",
+						profileId: step.profileId,
+						required: step.required,
+						status: "skipped",
+						outcome: null,
+						coverageStatus: "gap",
+						limitationCodes: ["preflight_failed", ...preflightReasonCodes],
+						findingCount: 0,
+						dastRunId: null,
+						targetOrigin: null,
+						error: errorMessage,
+					});
+				} else {
+					stepResults.push({
+						kind: step.kind,
+						stepId,
+						adapter: step.adapter,
+						required: step.required,
+						status: "skipped",
+						applicability: "applicable",
+						reasonCode: "preflight_failed",
+						coverageEffect: "gap",
+						findingCount: 0,
+						error: errorMessage,
+						metadata: { preflightReasonCodes },
+					});
+				}
+				continue;
+			}
 
 			let toolRunId: string | null = null;
 			let findingCount = 0;

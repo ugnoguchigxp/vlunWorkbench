@@ -1,3 +1,4 @@
+import type { ScanPreflightResult } from "../../../shared/schemas/scan-preflight.schema";
 import type {
 	DiffScanPreview,
 	ScanTarget,
@@ -265,14 +266,11 @@ export async function startScan(
 		consentProjectCodeExecution?: boolean;
 		timeoutSec?: number;
 		runner?: "host" | "docker";
-		dockerBin?: string;
-		dockerImage?: string;
-		network?: "none" | "default";
-		toolCacheDir?: string;
 		imageRef?: string;
 		imageTar?: string;
 		target?: ScanTarget;
 		expectedTargetDigest?: string;
+		expectedPreflightBindingHash?: string;
 	},
 ): Promise<{
 	scan: { id: string; status: string; profile: string };
@@ -286,6 +284,22 @@ export async function startScan(
 		method: "POST",
 		body: params,
 	});
+}
+
+export async function preflightScan(
+	projectId: string,
+	params: {
+		profile: string;
+		stepId?: string;
+		consentProjectCodeExecution?: boolean;
+		runner?: "host" | "docker";
+	},
+): Promise<ScanPreflightResult> {
+	const data = await requestJson<{ preflight: ScanPreflightResult }>(
+		`/api/projects/${projectId}/scans/preflight`,
+		{ method: "POST", body: params },
+	);
+	return data.preflight;
 }
 
 export async function previewScan(

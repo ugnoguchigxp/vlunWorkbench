@@ -1,6 +1,6 @@
 # Phase 55: Security Capability Hardening and Coverage Expansion Plan
 
-Status: In Progress — Slice 55.0 passed on main; Slice 55.1 strict-verified locally, CI pending
+Status: In Progress — Slices 55.0 and 55.1 passed on main; Slice 55.2 strict-verified locally, CI pending
 
 Predecessors:
 
@@ -324,9 +324,10 @@ baseline collectorだけをrevertする。Phase 54 artifact、policy、claim、m
 
 ## 9. Slice 55.1 — Truthful SAST coverage in default workflows
 
-Implementation status: Implemented and strict-verified locally on 2026-08-16.
-Authoritative CI and main merge are pending. The resolved profile and its digest
-are stored with every scan, Semgrep becomes a required `curated-sast-v1` step
+Implementation status: Completed on main commit
+`0b33643a0cb783fdf60fd0f137c7a79776deefa6` on 2026-08-16. Pull-request and
+post-merge main CI passed. The resolved profile and its digest are stored with
+every scan, Semgrep becomes a required `curated-sast-v1` step
 when its optional adapter is registered, and otherwise
 `source_sast_not_executed` remains visible through profile resolution, dry-run,
 stored coverage, reports, and the UI.
@@ -389,6 +390,13 @@ bun run typecheck
   `source_sast_not_executed`表示は維持する。
 
 ## 10. Slice 55.2 — Scanner and runtime preflight
+
+Implementation status: Implemented and strict-verified locally on 2026-08-16;
+pull-request CI pending. The versioned server-owned result is persisted in scan
+metadata, shared by CLI/API/report/UI, binds source/profile/execution/manifest/
+versions/images/target plan, and enforces required/optional admission without a
+network fetch. Generated capability documentation and its verify drift gate are
+included in the same change.
 
 ### Objective
 

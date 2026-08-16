@@ -113,6 +113,8 @@
 		"security-corpora:prepare": "bun run scripts/security-corpora-prepare.ts",
 		"security-corpora:verify": "bun run scripts/security-corpora-verify.ts",
 		"security:capability:inventory": "bun run scripts/security-capability-inventory.ts",
+		"docs:security-capability": "bun run scripts/security-capability-docs.ts",
+		"check:security-capability-docs": "bun run scripts/security-capability-docs.ts --check",
 		"test:security-capability": "bun test tests/security-capability shared/schemas/active-assessment.schema.test.ts shared/schemas/automated-diagnostic.schema.test.ts api/modules/assessments/coverage-builder.test.ts api/modules/dast/active-assessment-runner.test.ts api/modules/dast/authorization-matrix-runner.test.ts api/modules/dast/transaction-runner.test.ts api/modules/dast/rules-of-engagement.test.ts api/modules/dast/target-validator.test.ts api/modules/dast/pinned-fetch.test.ts api/modules/dast/auth-context-repository.test.ts api/modules/dast/playwright-browser-adapter.test.ts api/modules/scans/scan-diagnostic-runner.test.ts api/modules/scans/scan-review-bundle.test.ts api/modules/scans/tools/scanner-provenance.test.ts api/routes/assessments.route.test.ts api/routes/dast-auth.route.test.ts",
 		"test:semgrep:catalog": "bun run scripts/test-semgrep-catalog.ts",
 		"test:osv:offline-fixtures": "bun run scripts/test-osv-offline-fixtures.ts",

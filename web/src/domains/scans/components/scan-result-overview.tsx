@@ -4,6 +4,7 @@ import {
 	buildScanImprovementRequestView,
 	classifyScanReviewFailure,
 } from "../scan-improvement-request";
+import { readScanPreflightDisplay } from "../scan-preflight-display";
 import {
 	formatScanOutcome,
 	formatScanReason,
@@ -38,6 +39,7 @@ export function ScanResultOverview({
 	);
 	const outcome = c.scanSummary?.profileOutcome ?? scanRun?.status ?? null;
 	const diffTarget = readDiffTargetDisplay(scanRun?.metadata);
+	const scanPreflight = readScanPreflightDisplay(scanRun?.metadata);
 	const sourceSastCoverage = readSourceSastCoverageDisplay(scanRun?.metadata);
 	const technologyCoverage = readTechnologyCoverageDisplay(scanRun?.metadata);
 	const latestScanReview = c.scanReviews[0] ?? null;
@@ -131,6 +133,32 @@ export function ScanResultOverview({
 						{c.scanSummary.tools.map((tool) => (
 							<ToolResultRow key={tool.toolId} tool={tool} />
 						))}
+					</div>
+				) : null}
+				{scanPreflight ? (
+					<div className="scan-result-tool-list">
+						<div className="scan-result-tool-row">
+							<div className="scan-result-tool-copy">
+								<strong>Scanner/runtime preflight</strong>
+								<span>server が保存した実行前 check と対処 action です。</span>
+							</div>
+							<div className="scan-result-tool-result">
+								<span
+									className={`scan-status-badge ${scanPreflight.status === "ready" ? "badge-completed" : "badge-gap"}`}
+								>
+									{scanPreflight.status}
+								</span>
+								<span>mode: {scanPreflight.mode}</span>
+								{scanPreflight.checks
+									.filter((check) => check.status === "blocked")
+									.map((check) => (
+										<small key={check.id}>
+											{check.stepId}: {check.reasonCode} / action:{" "}
+											{check.action}
+										</small>
+									))}
+							</div>
+						</div>
 					</div>
 				) : null}
 				{sourceSastCoverage ? (

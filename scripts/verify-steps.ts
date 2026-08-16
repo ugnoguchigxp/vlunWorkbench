@@ -20,6 +20,10 @@ export const VERIFY_STEPS: VerifyStep[] = [
 		label: "dependency-override-docs",
 		command: ["bun", "run", "check:override-docs"],
 	},
+	{
+		label: "security-capability-docs",
+		command: ["bun", "run", "check:security-capability-docs"],
+	},
 	{ label: "test", command: ["bun", "run", "test"] },
 	{ label: "build", command: ["bun", "run", "build"] },
 	{ label: "bundle-budget", command: ["bun", "run", "check:bundle"] },

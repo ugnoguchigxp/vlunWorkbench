@@ -12,6 +12,7 @@ describe("verification command graph", () => {
 			"format",
 			"source-size-budget",
 			"dependency-override-docs",
+			"security-capability-docs",
 			"test",
 			"build",
 			"bundle-budget",

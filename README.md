@@ -315,6 +315,11 @@ The LGPL engine is not included in the core toolbox or standard profiles; see
 
 ### Measured security capability
 
+The [generated security capability table](docs/generated/security-capability-table.md)
+binds scanner manifest inputs, profile inventory, and the versioned preflight
+contract. Per-scan stored preflight and coverage results remain authoritative;
+configured capability alone is not evidence that a scanner ran.
+
 Prepare and verify the pinned corpora and offline scanner data before running
 the external gates:
 

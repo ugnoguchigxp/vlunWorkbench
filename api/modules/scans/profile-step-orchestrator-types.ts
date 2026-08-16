@@ -1,3 +1,4 @@
+import type { ScanPreflightResult } from "../../../shared/schemas/scan-preflight.schema";
 import type { AppDatabase } from "../../db";
 import type { ProjectCapabilityAnalysis } from "../project-capabilities/plugin-detector";
 import type { ArtifactStorage } from "./artifact-storage";
@@ -30,4 +31,5 @@ export type ExecuteProfileStepsParams = {
 	execution: ToolExecutionConfig;
 	technologyAnalysis: ProjectCapabilityAnalysis;
 	consentProjectCodeExecution: boolean;
+	scanPreflight: ScanPreflightResult;
 };

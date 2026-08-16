@@ -141,6 +141,172 @@ describe("Profile Runner Orchestration", () => {
 		);
 	});
 
+	it("fails before starting any scanner when enforced required preflight is blocked", async () => {
+		const scannerSpy = vi
+			.spyOn(profileRunnerModule, "runToolIntoExistingScan")
+			.mockResolvedValue({
+				toolRunId: "must-not-run",
+				findingCount: 0,
+				exitCode: 0,
+				elapsedMs: 1,
+				artifactIds: [],
+				diffUnmappedFindingCount: 0,
+			});
+		const previousManifest =
+			process.env.VULN_WORKBENCH_SCANNER_DATA_MANIFEST;
+		process.env.VULN_WORKBENCH_SCANNER_DATA_MANIFEST = path.join(
+			tempDir,
+			"missing-scanner-data-manifest.json",
+		);
+		let result: Awaited<ReturnType<typeof runProfileScan>>;
+		try {
+			result = await runProfileScan({
+				db: connection.db,
+				projectId,
+				profileId: "baseline",
+				repoPath,
+				preflightMode: "enforced",
+				finalReport: { enabled: true },
+			});
+		} finally {
+			if (previousManifest === undefined) {
+				delete process.env.VULN_WORKBENCH_SCANNER_DATA_MANIFEST;
+			} else {
+				process.env.VULN_WORKBENCH_SCANNER_DATA_MANIFEST = previousManifest;
+			}
+		}
+		expect(result).toMatchObject({
+			ok: false,
+			status: "failed",
+			profileOutcome: "failed",
+			toolResults: [],
+			stepResults: [],
+			finalReport: expect.objectContaining({ status: "completed" }),
+		});
+		expect(scannerSpy).not.toHaveBeenCalled();
+		expect(
+			await connection.db
+				.select()
+				.from(toolRuns)
+				.where(eq(toolRuns.scanRunId, result.scanRunId)),
+		).toHaveLength(0);
+		const [scanRun] = await connection.db
+			.select()
+			.from(scanRuns)
+			.where(eq(scanRuns.id, result.scanRunId));
+		expect(scanRun.metadata).toEqual(
+			expect.objectContaining({
+				terminationReason: "preflight_failed",
+				scanPreflight: expect.objectContaining({
+					schemaVersion: 1,
+					mode: "enforced",
+					status: "blocked",
+					limitationCodes: expect.arrayContaining([
+						"scanner_data_manifest_invalid",
+					]),
+				}),
+			}),
+		);
+	});
+
+	it("fails before starting a scanner when the preflight binding changed", async () => {
+		const scannerSpy = vi
+			.spyOn(profileRunnerModule, "runToolIntoExistingScan")
+			.mockRejectedValue(new Error("must not run"));
+		const result = await runProfileScan({
+			db: connection.db,
+			projectId,
+			profileId: "baseline",
+			repoPath,
+			expectedPreflightBindingHash: `sha256:${"0".repeat(64)}`,
+		});
+		expect(result).toMatchObject({
+			ok: false,
+			status: "failed",
+			profileOutcome: "failed",
+			toolResults: [],
+			stepResults: [],
+		});
+		expect(scannerSpy).not.toHaveBeenCalled();
+		const [scanRun] = await connection.db
+			.select()
+			.from(scanRuns)
+			.where(eq(scanRuns.id, result.scanRunId));
+		expect(scanRun.metadata).toEqual(
+			expect.objectContaining({
+				terminationReason: "preflight_changed",
+				preflightBindingHash: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
+			}),
+		);
+	});
+
+	it("skips only an optional step blocked by enforced preflight", async () => {
+		const mockProfile = {
+			id: "optional-preflight",
+			name: "Optional preflight",
+			description: "Optional scanner preflight",
+			category: "focused" as const,
+			enabled: true,
+			defaultTimeoutSec: 60,
+			tools: [
+				{
+					toolId: "osv",
+					displayName: "OSV",
+					required: false,
+					failurePolicy: "warn_and_continue" as const,
+				},
+			],
+		};
+		vi.spyOn(require("./profiles"), "getProfileById").mockReturnValue(
+			mockProfile,
+		);
+		const scannerSpy = vi
+			.spyOn(profileRunnerModule, "runToolIntoExistingScan")
+			.mockRejectedValue(new Error("must not run"));
+		const previousManifest =
+			process.env.VULN_WORKBENCH_SCANNER_DATA_MANIFEST;
+		process.env.VULN_WORKBENCH_SCANNER_DATA_MANIFEST = path.join(
+			tempDir,
+			"missing-optional-manifest.json",
+		);
+		let result: Awaited<ReturnType<typeof runProfileScan>>;
+		try {
+			result = await runProfileScan({
+				db: connection.db,
+				projectId,
+				profileId: mockProfile.id,
+				repoPath,
+				preflightMode: "enforced",
+			});
+		} finally {
+			if (previousManifest === undefined) {
+				delete process.env.VULN_WORKBENCH_SCANNER_DATA_MANIFEST;
+			} else {
+				process.env.VULN_WORKBENCH_SCANNER_DATA_MANIFEST = previousManifest;
+			}
+		}
+		expect(result).toMatchObject({
+			ok: true,
+			status: "completed",
+			profileOutcome: "completed_with_warnings",
+			toolResults: [
+				expect.objectContaining({
+					toolId: "osv",
+					status: "skipped",
+					reasonCode: "preflight_failed",
+					coverageEffect: "gap",
+				}),
+			],
+		});
+		expect(scannerSpy).not.toHaveBeenCalled();
+		expect(
+			await connection.db
+				.select()
+				.from(toolRuns)
+				.where(eq(toolRuns.scanRunId, result.scanRunId)),
+		).toHaveLength(0);
+	});
+
 	it("runs a working-tree diff profile with immutable scanner inputs", async () => {
 		execFileSync("git", ["init", "-b", "main"], { cwd: repoPath });
 		execFileSync("git", ["config", "user.email", "test@example.com"], {
@@ -367,7 +533,9 @@ describe("Profile Runner Orchestration", () => {
 					coverageGaps: ["source_sast_not_executed"],
 				}),
 				resolvedProfileHash: expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
-				profileLimitationCodes: ["source_sast_not_executed"],
+				profileLimitationCodes: expect.arrayContaining([
+					"source_sast_not_executed",
+				]),
 				sourceSastCoverage: expect.objectContaining({
 					state: "applicable",
 					coverageEffect: "gap",

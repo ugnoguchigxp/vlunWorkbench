@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { listProfiles } from "../modules/scans/profiles";
+import { resolveScanPreflightMode } from "../modules/scans/scan-preflight";
 
 export function createScanProfilesRoute() {
 	return new Hono().get("/", async (c) => {
@@ -51,6 +52,9 @@ export function createScanProfilesRoute() {
 				};
 			}),
 		}));
-		return c.json({ profiles: sanitizedProfiles });
+		return c.json({
+			profiles: sanitizedProfiles,
+			preflight: { schemaVersion: 1, mode: resolveScanPreflightMode() },
+		});
 	});
 }
