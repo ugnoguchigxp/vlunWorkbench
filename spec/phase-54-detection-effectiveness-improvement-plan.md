@@ -1,6 +1,6 @@
 # Phase 54.4: Detection Effectiveness Improvement Plan
 
-Status: Implemented locally on 2026-08-15; authoritative Linux CI and human claim approval pending
+Status: Implemented locally through Slice 54.4-G on 2026-08-16; authoritative Linux CI closeout and human claim approval pending
 
 Parent plan: `spec/phase-54-release-trust-and-product-value-realization-plan.md`
 
@@ -41,6 +41,34 @@ corpus、実装hashが追跡できない改善は採用しない。
   clean tree、Linux、全provenanceを再検証する。
 - professional capability claimは、OSV database、persisted passing run ID、Linux CI、
   human approvalが揃うまで`not_met`を維持する。
+
+### 1.2 Same-commit closeout実装（2026-08-16）
+
+- `phase-54:closeout`を追加し、clean Linux checkout、事前artifact不在、source treeと
+  benchmark inputの実行前後hash一致を単一runnerで強制する。snapshot採取自体も
+  commit/index/statusを二重取得し、採取中の変更をrejectする。
+- OWASPはSemgrep `1.171.0`のdigest固定imageを`--network none`、capability drop、
+  no-new-privilegesで実行する。container pathはboundedにhost corpusへ戻してから
+  production Java precision filterへ渡す。
+- OWASP runはoverall/category policyを満たしたfresh scanner runだけを一時SQLite DBへ
+  persistする。run ID、input/output hash、commit、toolbox image digest、policy、manifest、
+  corpus、全metricを統合verifierで照合する。
+- Juice Shopはauthoritative Linux、20/20 execution、全input/evidence hash、network/secret/
+  cleanup gateを同じrelease commitへ照合する。
+- closeout DBはconsistent backupを作成・integrity検証し、closeout report、OWASP/Juice raw
+  evidence、professional reportとともにGitHub Actions artifactへ保存する。backupはmigration
+  historyと単一OWASP run/metrics以外のtableが空であることも確認し、credentialを含む通常の
+  application recordが混入したDBをrelease evidenceにしない。
+- OWASP evidenceはcorpus相対pathとallowlist済みSemgrep fieldだけを保存し、source snippet、
+  metavariable content、host home pathを除外する。closeout対象はregular/non-hard-linked JSON、
+  file/total size、privacy、検証前後hashを再確認し、upload pathも必要な証跡だけに限定する。
+- closeout CI jobは同じ`github.sha`の`verify`と`secret-scan`成功に依存し、そのcommitを
+  closeout reportへ照合する。独立job失敗時にauthoritative reportだけが成功する状態を許さない。
+- closeout中はpassing run IDをprofessional claim generatorへ渡さず、claimを`not_met`に
+  固定する。claim変更とhuman approvalはC2の別PR境界を維持する。
+- localではdigest固定・network無効SemgrepでOWASP TP 1,131 / FN 284 / TN 1,325 /
+  FP 55を再現し、`verify:strict`を完走した。Definition of Doneのsame-commit項目は、
+  この実装を含むcommitのauthoritative Ubuntu job成功後にだけ完了へ変更する。
 
 ## 2. レビュー結果
 
@@ -527,6 +555,17 @@ weak password、CAPTCHA、extra language、file access、numeric boundaryも実�
 - Juice reportのcommitと全input hashをrelease commitへ照合する。
 - claim変更は別PRにし、raw/normalized差分とlimitationをhuman reviewerが承認する。
 
+#### Implemented entrypoints
+
+- `bun run phase-54:closeout`
+- `bun run verify:phase-54-closeout`
+- GitHub Actions `juice-shop-benchmark` job（既存check IDを維持し、OWASP/Juice統合
+  closeoutへ拡張）
+
+CI jobはpinned corpusとSemgrep/Juice imageをpreloadし、一時DBをmigrationしてから
+closeoutを実行する。既存artifact、dirty checkout、source/input drift、policy未達、
+persisted run不一致、non-authoritative Juice evidence、claim遷移をfail closedする。
+
 ## 8. Safety boundaries
 
 - active targetは`local`または`ephemeral`だけとする。
@@ -684,7 +723,8 @@ old artifactの意味を変更しない。
 - [x] challenge labelをdetected flagのoracleに使っていない。
 - [x] public/production request、credential leakage、evidence reuseが0である。
 - [x] raw、normalized、observation、metricsをhashで再計算できる。
-- [ ] OWASPとJuice artifactが同じclean commitへ結び付く。
+- [ ] OWASPとJuice artifactが同じclean commitへ結び付く（実装済み、authoritative
+      Ubuntu artifact待ち）。
 - [x] regression benchmarkとfull verificationがgreenである。
 - [ ] claim変更が別PRでhuman approvalを受けている。
 

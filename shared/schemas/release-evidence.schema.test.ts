@@ -2,6 +2,8 @@ import { describe, expect, test } from "vitest";
 import {
 	currentReleaseEvidenceSchema,
 	phase54BaselineEvidenceSchema,
+	phase54CloseoutReportSchema,
+	phase54CloseoutSnapshotSchema,
 } from "./release-evidence.schema";
 
 const digest = `sha256:${"a".repeat(64)}`;
@@ -191,7 +193,7 @@ describe("Phase 54 baseline evidence", () => {
 });
 
 describe("current release evidence", () => {
-		test("requires a passing run and reviewer approval for met claims", () => {
+	test("requires a passing run and reviewer approval for met claims", () => {
 		const value = {
 			schemaVersion: 1,
 			evidenceKind: "current_release",
@@ -249,7 +251,7 @@ describe("current release evidence", () => {
 			kind: "reviewer",
 			approvedBy: "reviewer-1",
 			approvedAt: "2026-08-05T00:01:00.000Z",
-		});
+	});
 		expect(currentReleaseEvidenceSchema.parse(value).claims[0]?.status).toBe(
 			"met",
 		);
@@ -307,5 +309,97 @@ describe("current release evidence", () => {
 		expect(() => currentReleaseEvidenceSchema.parse(value)).toThrow(
 			"claim ids must be unique",
 		);
+	});
+});
+
+describe("Phase 54 same-commit closeout evidence", () => {
+	const inputHashes = {
+		benchmarkPolicy: digest,
+		corpusLock: digest,
+		scannerManifestFile: digest,
+		owaspImplementation: digest,
+		juiceShopImplementation: digest,
+	};
+
+	test("accepts a Linux clean-checkout snapshot", () => {
+		expect(
+			phase54CloseoutSnapshotSchema.parse({
+				schemaVersion: 1,
+				evidenceKind: "phase_54_same_commit_input_snapshot",
+				capturedAt: "2026-08-16T00:00:00.000Z",
+				releaseCommit: commit,
+				cleanCheckout: true,
+				platform: "linux",
+				architecture: "x64",
+				sourceTreeHash: digest,
+				inputHashes,
+			}).releaseCommit,
+		).toBe(commit);
+	});
+
+	test("requires verified evidence and excludes claim changes", () => {
+		const report = {
+			schemaVersion: 1,
+			evidenceKind: "phase_54_same_commit_closeout",
+			generatedAt: "2026-08-16T00:00:00.000Z",
+			releaseCommit: commit,
+			cleanCheckout: true,
+			platform: "linux",
+			architecture: "x64",
+			sourceTreeHash: digest,
+			inputHashes,
+			toolboxImageDigest: digest,
+			owasp: {
+				runId: "00000000-0000-4000-8000-000000000001",
+				inputHash: digest,
+				outputHash: digest,
+				metricsArtifactHash: digest,
+				runReceiptHash: digest,
+			},
+			juiceShop: {
+				metricsArtifactHash: digest,
+				runReportHash: digest,
+				evidenceBundleHash: digest,
+			},
+			professionalReportHash: digest,
+			benchmarkDatabaseBackupHash: digest,
+			verification: {
+				sourceInputsStable: true,
+				owaspArtifactIntegrity: true,
+				owaspPolicyPassed: true,
+				owaspRunPersisted: true,
+				databaseBackupIsolated: true,
+				juiceShopArtifactIntegrity: true,
+				juiceShopAuthoritativeLinux: true,
+				regressionContractsPassed: true,
+				regressionVerifiedCommit: commit,
+			},
+			professionalClaimStatus: "not_met",
+			claimChangeIncluded: false,
+			privacy: {
+				absoluteHomePathsIncluded: false,
+				sourceSnippetsIncluded: false,
+				credentialsIncluded: false,
+			},
+		};
+
+		expect(phase54CloseoutReportSchema.parse(report).claimChangeIncluded).toBe(
+			false,
+		);
+		expect(() =>
+			phase54CloseoutReportSchema.parse({
+				...report,
+				claimChangeIncluded: true,
+			}),
+		).toThrow();
+		expect(() =>
+			phase54CloseoutReportSchema.parse({
+				...report,
+				verification: {
+					...report.verification,
+					regressionVerifiedCommit: "b".repeat(40),
+				},
+			}),
+		).toThrow("phase_54_regression_commit_mismatch");
 	});
 });

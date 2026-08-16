@@ -407,6 +407,77 @@ export const currentReleaseEvidenceSchema = z
 		}
 	});
 
+const phase54CloseoutInputHashesSchema = z.object({
+	benchmarkPolicy: sha256DigestSchema,
+	corpusLock: sha256DigestSchema,
+	scannerManifestFile: sha256DigestSchema,
+	owaspImplementation: sha256DigestSchema,
+	juiceShopImplementation: sha256DigestSchema,
+});
+
+export const phase54CloseoutSnapshotSchema = z.object({
+	schemaVersion: z.literal(1),
+	evidenceKind: z.literal("phase_54_same_commit_input_snapshot"),
+	capturedAt: z.string().datetime(),
+	releaseCommit: gitCommitSchema,
+	cleanCheckout: z.literal(true),
+	platform: z.literal("linux"),
+	architecture: z.enum(["x64", "arm64"]),
+	sourceTreeHash: sha256DigestSchema,
+	inputHashes: phase54CloseoutInputHashesSchema,
+});
+
+export const phase54CloseoutReportSchema = z
+	.object({
+		schemaVersion: z.literal(1),
+		evidenceKind: z.literal("phase_54_same_commit_closeout"),
+		generatedAt: z.string().datetime(),
+		releaseCommit: gitCommitSchema,
+		cleanCheckout: z.literal(true),
+		platform: z.literal("linux"),
+		architecture: z.enum(["x64", "arm64"]),
+		sourceTreeHash: sha256DigestSchema,
+		inputHashes: phase54CloseoutInputHashesSchema,
+		toolboxImageDigest: sha256DigestSchema,
+		owasp: z.object({
+			runId: z.string().uuid(),
+			inputHash: sha256DigestSchema,
+			outputHash: sha256DigestSchema,
+			metricsArtifactHash: sha256DigestSchema,
+			runReceiptHash: sha256DigestSchema,
+		}),
+		juiceShop: z.object({
+			metricsArtifactHash: sha256DigestSchema,
+			runReportHash: sha256DigestSchema,
+			evidenceBundleHash: sha256DigestSchema,
+		}),
+		professionalReportHash: sha256DigestSchema,
+		benchmarkDatabaseBackupHash: sha256DigestSchema,
+		verification: z.object({
+			sourceInputsStable: z.literal(true),
+			owaspArtifactIntegrity: z.literal(true),
+			owaspPolicyPassed: z.literal(true),
+			owaspRunPersisted: z.literal(true),
+			databaseBackupIsolated: z.literal(true),
+			juiceShopArtifactIntegrity: z.literal(true),
+			juiceShopAuthoritativeLinux: z.literal(true),
+			regressionContractsPassed: z.literal(true),
+			regressionVerifiedCommit: gitCommitSchema,
+		}),
+		professionalClaimStatus: z.literal("not_met"),
+		claimChangeIncluded: z.literal(false),
+		privacy: releaseEvidencePrivacySchema,
+	})
+	.superRefine((report, context) => {
+		if (report.verification.regressionVerifiedCommit !== report.releaseCommit) {
+			context.addIssue({
+				code: "custom",
+				message: "phase_54_regression_commit_mismatch",
+				path: ["verification", "regressionVerifiedCommit"],
+			});
+		}
+	});
+
 export type ReleaseEvidenceGateState = z.infer<
 	typeof releaseEvidenceGateStateSchema
 >;
@@ -417,3 +488,7 @@ export type Phase54BaselineEvidence = z.infer<
 export type CurrentReleaseEvidence = z.infer<
 	typeof currentReleaseEvidenceSchema
 >;
+export type Phase54CloseoutSnapshot = z.infer<
+	typeof phase54CloseoutSnapshotSchema
+>;
+export type Phase54CloseoutReport = z.infer<typeof phase54CloseoutReportSchema>;

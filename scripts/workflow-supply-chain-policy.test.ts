@@ -51,4 +51,33 @@ describe("workflow supply-chain policy", () => {
 		expect(workflow).toContain("format: cyclonedx");
 		expect(workflow).toContain("severity: HIGH,CRITICAL");
 	});
+
+	test("runs the Phase 54 closeout with pinned benchmark images and persisted evidence", async () => {
+		const workflow = await readRepositoryFile(".github/workflows/verify.yml");
+		const closeout = jobBlock(workflow, "juice-shop-benchmark");
+		expect(closeout).toContain("needs: [verify, secret-scan]");
+		expect(closeout).toContain(
+			"VULN_WORKBENCH_OWASP_SEMGREP_IMAGE: docker.io/semgrep/semgrep@sha256:",
+		);
+		expect(closeout).toContain(
+			'docker pull "$VULN_WORKBENCH_OWASP_SEMGREP_IMAGE"',
+		);
+		expect(closeout).toContain(
+			"docker pull docker.io/bkimminich/juice-shop@sha256:",
+		);
+		expect(closeout).toContain("bun run db:migrate");
+		expect(closeout).toContain("bun run phase-54:closeout");
+		expect(closeout).toContain("phase-54-closeout-backup.sqlite");
+		expect(closeout).toContain("phase-54-same-commit-closeout");
+		expect(closeout).toContain(
+			"VULN_WORKBENCH_PHASE54_REGRESSION_VERIFIED_COMMIT: ${{ github.sha }}",
+		);
+		expect(closeout).toContain(
+			".artifacts/benchmark/owasp-semgrep-raw.json",
+		);
+		expect(closeout).not.toMatch(/^\s+\.artifacts\/benchmark\/$/m);
+		expect(closeout.indexOf("bun run db:migrate")).toBeLessThan(
+			closeout.indexOf("bun run phase-54:closeout"),
+		);
+	});
 });

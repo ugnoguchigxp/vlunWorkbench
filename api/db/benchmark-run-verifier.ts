@@ -13,6 +13,7 @@ export async function verifyPersistedBenchmarkRun(params: {
 	manifestHash: string;
 	policyVersion: string;
 	toolboxImageDigest?: string;
+	runInputHash: string;
 	artifact: {
 		corpusDigest?: string;
 		outputHash?: string;
@@ -37,6 +38,7 @@ export async function verifyPersistedBenchmarkRun(params: {
 			.select({
 				corpusId: securityCapabilityBenchmarkRuns.corpusId,
 				corpusDigest: securityCapabilityBenchmarkRuns.corpusDigest,
+				inputHash: securityCapabilityBenchmarkRuns.inputHash,
 				gitCommit: securityCapabilityBenchmarkRuns.gitCommit,
 				scannerManifestHash:
 					securityCapabilityBenchmarkRuns.scannerManifestHash,
@@ -59,6 +61,7 @@ export async function verifyPersistedBenchmarkRun(params: {
 			run.benchmarkPolicyVersion !== params.policyVersion ||
 			run.corpusDigest !== params.artifact?.corpusDigest ||
 			run.outputHash !== params.artifact?.outputHash ||
+			run.inputHash !== params.runInputHash ||
 			typeof params.artifact?.rawScannerArtifactHash !== "string"
 		)
 			throw new Error("passing_benchmark_run_provenance_mismatch");
