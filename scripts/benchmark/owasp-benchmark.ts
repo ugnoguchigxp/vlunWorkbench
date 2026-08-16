@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { mkdir, readFile, stat } from "node:fs/promises";
+import { mkdir, readFile, stat, unlink } from "node:fs/promises";
 import path from "node:path";
 import { createDbConnection } from "../../api/db";
 import { BenchmarkRepository } from "../../api/modules/benchmarks/benchmark-repository";
@@ -18,6 +18,7 @@ import {
 	sha256File as provenanceSha256File,
 	sha256Tree,
 } from "./benchmark-input-provenance";
+import { owaspBenchmarkInputHash } from "./owasp-benchmark-input";
 import {
 	buildPinnedSemgrepDockerCommand,
 	containerCorpusPathToHost,
@@ -26,7 +27,6 @@ import {
 	repositoryRelativeEvidencePath,
 	sanitizeSemgrepEvidenceArtifact,
 } from "./owasp-benchmark-runtime";
-import { owaspBenchmarkInputHash } from "./owasp-benchmark-input";
 import {
 	assertOwaspMetricsPassReleasePolicy,
 	owaspReleasePolicySchema,
@@ -148,6 +148,9 @@ async function runSemgrepBenchmark(
 ): Promise<void> {
 	const rawPath = path.resolve(".artifacts/benchmark/owasp-semgrep-raw.json");
 	await mkdir(path.dirname(rawPath), { recursive: true });
+	await unlink(rawPath).catch((error: NodeJS.ErrnoException) => {
+		if (error.code !== "ENOENT") throw error;
+	});
 	const command = semgrepImage
 		? buildPinnedSemgrepDockerCommand({
 				image: semgrepImage,
@@ -178,12 +181,18 @@ async function runSemgrepBenchmark(
 			SEMGREP_ENABLE_VERSION_CHECK: "0",
 		},
 	});
-	const [exitCode, stderr] = await Promise.all([
+	const [exitCode, stdout, stderr] = await Promise.all([
 		child.exited,
+		new Response(child.stdout).text(),
 		new Response(child.stderr).text(),
 	]);
-	if (![0, 1].includes(exitCode))
-		throw new Error(`owasp_semgrep_failed:${exitCode}:${stderr.slice(0, 500)}`);
+	if (![0, 1].includes(exitCode)) {
+		const diagnostic = `${stdout}\n${stderr}`
+			.replaceAll(process.cwd(), "<repository>")
+			.replaceAll(corpusSource, "<corpus>")
+			.slice(0, 500);
+		throw new Error(`owasp_semgrep_failed:${exitCode}:${diagnostic}`);
+	}
 	const rawEnvelope = JSON.parse(await readFile(rawPath, "utf8")) as {
 		results?: Array<{
 			path?: string;

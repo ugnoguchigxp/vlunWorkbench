@@ -130,6 +130,11 @@ export function buildPinnedSemgrepDockerCommand(params: {
 	if (!/^[a-z0-9][a-z0-9._-]{0,199}$/i.test(outputName)) {
 		throw new Error("owasp_semgrep_output_name_invalid");
 	}
+	const uid = process.getuid?.();
+	const gid = process.getgid?.();
+	if (uid === undefined || gid === undefined) {
+		throw new Error("owasp_semgrep_host_identity_unavailable");
+	}
 
 	return [
 		"docker",
@@ -143,6 +148,10 @@ export function buildPinnedSemgrepDockerCommand(params: {
 		"no-new-privileges",
 		"--pids-limit",
 		"256",
+		"--user",
+		`${uid}:${gid}`,
+		"--env",
+		"HOME=/tmp",
 		"--env",
 		"SEMGREP_SEND_METRICS=off",
 		"--env",

@@ -26,6 +26,9 @@ describe("OWASP benchmark runtime", () => {
 		expect(command).toContain("none");
 		expect(command).toContain("ALL");
 		expect(command).toContain("no-new-privileges");
+		expect(command).toContain("--user");
+		expect(command[command.indexOf("--user") + 1]).toMatch(/^\d+:\d+$/);
+		expect(command).toContain("HOME=/tmp");
 		expect(command).toContain(image);
 		expect(command).toContain("/workspace/corpus");
 		expect(command).toContain("--strict");
