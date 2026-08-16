@@ -343,7 +343,7 @@ function gatewayOriginForRequest(
 	port: number,
 	bindAddress: string,
 ): string {
-	const fallback = `http://127.0.0.1:${port}`;
+	const fallback = `http://${bindAddress}:${port}`;
 	if (!hostHeader || port <= 0) return fallback;
 	try {
 		const parsed = new URL(`http://${hostHeader}`);

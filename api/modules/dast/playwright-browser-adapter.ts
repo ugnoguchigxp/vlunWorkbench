@@ -18,6 +18,21 @@ import type { ValidatedDastTarget } from "./types";
 const MAX_BROWSER_EVENTS_PER_ROUTE = 100;
 const MAX_BROWSER_MESSAGE_CHARS = 4_000;
 const MAX_SCREENSHOT_BYTES = 5 * 1024 * 1024;
+const BROWSER_RESOURCE_CLOSE_TIMEOUT_MS = 3_000;
+
+async function settleWithin(
+	task: Promise<unknown>,
+	timeoutMs: number,
+): Promise<void> {
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	await Promise.race([
+		task.catch(() => undefined),
+		new Promise<void>((resolve) => {
+			timer = setTimeout(resolve, timeoutMs);
+		}),
+	]);
+	if (timer) clearTimeout(timer);
+}
 
 export type DastScreenshotPolicy =
 	| { enabled: false }
@@ -81,10 +96,19 @@ export class PlaywrightBrowserAdapter implements DastBrowserAdapter {
 	}
 
 	async close(): Promise<void> {
-		await this.context?.close().catch(() => undefined);
-		await this.browser?.close().catch(() => undefined);
+		const context = this.context;
+		const browser = this.browser;
 		this.context = null;
 		this.browser = null;
+		if (context) {
+			await context
+				.unrouteAll({ behavior: "ignoreErrors" })
+				.catch(() => undefined);
+			await settleWithin(context.close(), BROWSER_RESOURCE_CLOSE_TIMEOUT_MS);
+		}
+		if (browser) {
+			await settleWithin(browser.close(), BROWSER_RESOURCE_CLOSE_TIMEOUT_MS);
+		}
 	}
 
 	requestCount(): number {
@@ -130,10 +154,7 @@ export class PlaywrightBrowserAdapter implements DastBrowserAdapter {
 				this.options.maxNetworkRequests ?? this.options.target.maxRequests;
 			if (this.networkRequestCount >= maxNetworkRequests) {
 				this.networkBudgetExhausted = true;
-				await route.fulfill({
-					status: 204,
-					body: "",
-				});
+				await route.fulfill({ status: 204 });
 				return;
 			}
 			this.networkRequestCount += 1;
@@ -193,7 +214,10 @@ export class PlaywrightBrowserAdapter implements DastBrowserAdapter {
 			}
 			this.loginCompleted = true;
 		} finally {
-			await page.close();
+			await settleWithin(
+				page.close({ runBeforeUnload: false }),
+				BROWSER_RESOURCE_CLOSE_TIMEOUT_MS,
+			);
 		}
 	}
 
