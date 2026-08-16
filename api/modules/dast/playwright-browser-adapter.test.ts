@@ -1,9 +1,11 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import http from "node:http";
+import { type Browser, chromium } from "playwright";
 import { PlaywrightBrowserAdapter } from "./playwright-browser-adapter";
 import type { ValidatedDastTarget } from "./types";
 
 let server: http.Server | undefined;
+let browser: Browser | undefined;
 let target: ValidatedDastTarget;
 
 beforeAll(async () => {
@@ -50,28 +52,46 @@ beforeAll(async () => {
 		resolvedAddresses: ["127.0.0.1"],
 		warnings: [],
 	};
+	browser = await chromium.launch({
+		headless: true,
+		args: [
+			`--host-resolver-rules=MAP dast-pinned.invalid 127.0.0.1,EXCLUDE localhost`,
+		],
+	});
 });
 
-afterAll(
-	() =>
-		new Promise<void>((resolve) => {
-			if (!server) return resolve();
-			server.close(() => resolve());
-		}),
-);
+afterAll(async () => {
+	if (browser) {
+		let closeTimer: ReturnType<typeof setTimeout> | undefined;
+		await Promise.race([
+			browser.close().catch(() => undefined),
+			new Promise<void>((resolve) => {
+				closeTimer = setTimeout(resolve, 3_000);
+			}),
+		]);
+		if (closeTimer) clearTimeout(closeTimer);
+	}
+	await new Promise<void>((resolve) => {
+		if (!server) return resolve();
+		server.close(() => resolve());
+	});
+});
 
 describe("PlaywrightBrowserAdapter", () => {
 	it("loads the same read-only route for two encrypted identity materials", async () => {
 		for (const role of ["user-a", "user-b"]) {
-			const adapter = new PlaywrightBrowserAdapter({
-				target,
-				authSecret: {
-					kind: "named_header",
-					name: "X-Test-Role",
-					value: role,
+			const adapter = new PlaywrightBrowserAdapter(
+				{
+					target,
+					authSecret: {
+						kind: "named_header",
+						name: "X-Test-Role",
+						value: role,
+					},
+					screenshotPolicy: { enabled: false },
 				},
-				screenshotPolicy: { enabled: false },
-			});
+				browser,
+			);
 			try {
 				const result = await adapter.loadRoute({
 					url: `${target.runnerOrigin}/private`,
@@ -87,11 +107,14 @@ describe("PlaywrightBrowserAdapter", () => {
 	}, 60_000);
 
 	it("blocks page subrequests after the aggregate browser request budget", async () => {
-		const adapter = new PlaywrightBrowserAdapter({
-			target: { ...target, allowedPaths: ["/"] },
-			maxNetworkRequests: 1,
-			screenshotPolicy: { enabled: false },
-		});
+		const adapter = new PlaywrightBrowserAdapter(
+			{
+				target: { ...target, allowedPaths: ["/"] },
+				maxNetworkRequests: 1,
+				screenshotPolicy: { enabled: false },
+			},
+			browser,
+		);
 		try {
 			const result = await adapter.loadRoute({
 				url: `${target.runnerOrigin}/budget-page`,
@@ -107,16 +130,19 @@ describe("PlaywrightBrowserAdapter", () => {
 	}, 60_000);
 
 	it("removes redirect query values from browser evidence URLs", async () => {
-		const adapter = new PlaywrightBrowserAdapter({
-			target: { ...target, allowedPaths: ["/"], maxRequests: 5 },
-			authSecret: {
-				kind: "named_header",
-				name: "X-Test-Role",
-				value: "user-a",
+		const adapter = new PlaywrightBrowserAdapter(
+			{
+				target: { ...target, allowedPaths: ["/"], maxRequests: 5 },
+				authSecret: {
+					kind: "named_header",
+					name: "X-Test-Role",
+					value: "user-a",
+				},
+				maxNetworkRequests: 5,
+				screenshotPolicy: { enabled: false },
 			},
-			maxNetworkRequests: 5,
-			screenshotPolicy: { enabled: false },
-		});
+			browser,
+		);
 		try {
 			const result = await adapter.loadRoute({
 				url: `${target.runnerOrigin}/redirect-secret`,

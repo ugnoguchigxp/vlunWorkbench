@@ -60,6 +60,7 @@ export class PlaywrightBrowserAdapter implements DastBrowserAdapter {
 			screenshotPolicy?: DastScreenshotPolicy;
 			maxNetworkRequests?: number;
 		},
+		private readonly sharedBrowser?: Browser,
 	) {}
 
 	async loadRoute(params: {
@@ -98,15 +99,17 @@ export class PlaywrightBrowserAdapter implements DastBrowserAdapter {
 	async close(): Promise<void> {
 		const context = this.context;
 		const browser = this.browser;
+		const ownsBrowser = browser !== null && browser !== this.sharedBrowser;
 		this.context = null;
 		this.browser = null;
 		if (context) {
-			await context
-				.unrouteAll({ behavior: "ignoreErrors" })
-				.catch(() => undefined);
+			await settleWithin(
+				context.unrouteAll({ behavior: "ignoreErrors" }),
+				BROWSER_RESOURCE_CLOSE_TIMEOUT_MS,
+			);
 			await settleWithin(context.close(), BROWSER_RESOURCE_CLOSE_TIMEOUT_MS);
 		}
-		if (browser) {
+		if (browser && ownsBrowser) {
 			await settleWithin(browser.close(), BROWSER_RESOURCE_CLOSE_TIMEOUT_MS);
 		}
 	}
@@ -120,12 +123,14 @@ export class PlaywrightBrowserAdapter implements DastBrowserAdapter {
 		const runnerHost = new URL(this.options.target.runnerOrigin).hostname;
 		const pinnedAddress = this.options.target.resolvedAddresses[0];
 		if (!pinnedAddress) throw new Error("browser_pinned_address_unavailable");
-		this.browser = await chromium.launch({
-			headless: true,
-			args: [
-				`--host-resolver-rules=MAP ${runnerHost} ${pinnedAddress},EXCLUDE localhost`,
-			],
-		});
+		this.browser =
+			this.sharedBrowser ??
+			(await chromium.launch({
+				headless: true,
+				args: [
+					`--host-resolver-rules=MAP ${runnerHost} ${pinnedAddress},EXCLUDE localhost`,
+				],
+			}));
 		const secret = this.options.authSecret;
 		this.context = await this.browser.newContext({
 			extraHTTPHeaders: authHeadersFor(secret),
