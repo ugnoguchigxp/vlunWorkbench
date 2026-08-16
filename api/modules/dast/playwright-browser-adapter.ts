@@ -363,7 +363,10 @@ export class PlaywrightBrowserAdapter implements DastBrowserAdapter {
 				),
 			};
 		} finally {
-			await page.close();
+			await settleWithin(
+				page.close({ runBeforeUnload: false }),
+				BROWSER_RESOURCE_CLOSE_TIMEOUT_MS,
+			);
 		}
 	}
 

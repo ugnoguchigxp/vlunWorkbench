@@ -23,6 +23,7 @@ describe("workflow supply-chain policy", () => {
 		const secretScan = jobBlock(workflow, "secret-scan");
 
 		expect(verify).not.toContain("gitleaks/gitleaks-action");
+		expect(verify).toContain("fetch-depth: 0");
 		expect(secretScan).not.toMatch(/^    needs:/m);
 		expect(secretScan).toContain("gitleaks/gitleaks-action@");
 		expect(secretScan).toContain("actions/checkout@");
