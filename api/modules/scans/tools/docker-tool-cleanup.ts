@@ -1,4 +1,4 @@
-import { readBoundedProcessText } from "./bounded-process-output";
+import { runBoundedProcess } from "../../processes/bounded-process-runner";
 import { errorMessage, getCleanEnv } from "./process-runner-shared";
 import type { ToolLifecycleEvent } from "./tool-process-types";
 
@@ -8,23 +8,24 @@ export async function cleanupDockerContainer(
 	emit: (event: ToolLifecycleEvent) => Promise<void>,
 ): Promise<void> {
 	try {
-		const proc = Bun.spawn([dockerBin, "rm", "-f", containerName], {
-			stdout: "pipe",
-			stderr: "pipe",
+		const result = await runBoundedProcess({
+			argv: [dockerBin, "rm", "-f", containerName],
+			timeoutMs: 30_000,
+			outputLimitBytes: 64 * 1024,
 			env: getCleanEnv(),
 		});
-		const [stderrResult, _stdoutResult, exitCode] = await Promise.all([
-			readBoundedProcessText(proc.stderr, 64 * 1024),
-			readBoundedProcessText(proc.stdout, 64 * 1024),
-			proc.exited,
-		]);
-		if (exitCode !== 0) {
-			const stderr = stderrResult.text.trim();
+		if (result.exitCode !== 0) {
+			const stderr = result.stderr.trim();
 			await emit({
 				level: "warn",
 				eventType: "docker.container.cleanup_failed",
 				message: `Failed to cleanup Docker toolbox container ${containerName}.`,
-				data: { containerName, exitCode, stderr },
+				data: {
+					containerName,
+					exitCode: result.exitCode,
+					stderr,
+					terminationReason: result.terminationReason,
+				},
 			});
 		}
 	} catch (err: unknown) {

@@ -140,6 +140,10 @@ const EnvSchema = z.object({
 	VULN_WORKBENCH_DOCKER_PIDS_LIMIT: optionalPositiveInteger,
 	VULN_WORKBENCH_SCANNER_STDOUT_LIMIT_BYTES: optionalPositiveInteger,
 	VULN_WORKBENCH_SCANNER_STDERR_LIMIT_BYTES: optionalPositiveInteger,
+	VULN_WORKBENCH_WEB_PROCESS_CONCURRENCY: optionalPositiveInteger,
+	VULN_WORKBENCH_WEB_SCAN_QUEUE_LIMIT: optionalPositiveInteger,
+	VULN_WORKBENCH_WEB_SCAN_STEP_TIMEOUT_MAX_SEC: optionalPositiveInteger,
+	VULN_WORKBENCH_WEB_SCAN_WALL_CLOCK_TIMEOUT_SEC: optionalPositiveInteger,
 	STATIC_INTELLIGENCE_ALLOWED_PROJECT_ROOTS: optionalTrimmedString,
 	STATIC_INTELLIGENCE_PROJECT_CREATION_POLICY: z
 		.enum(["registered_only", "create_within_allowed_roots"])
@@ -227,6 +231,10 @@ export type AppEnv = {
 	dockerPidsLimit?: number;
 	scannerStdoutLimitBytes?: number;
 	scannerStderrLimitBytes?: number;
+	webProcessConcurrency: number;
+	webScanQueueLimit: number;
+	webScanStepTimeoutMaxSec: number;
+	webScanWallClockTimeoutSec: number;
 	staticIntelligenceAllowedProjectRoots?: string[];
 	staticIntelligenceProjectCreationPolicy?:
 		| "registered_only"
@@ -416,6 +424,18 @@ export function readAppEnv(env: NodeJS.ProcessEnv = process.env): AppEnv {
 		scannerStderrLimitBytes:
 			parsed.VULN_WORKBENCH_SCANNER_STDERR_LIMIT_BYTES ??
 			RUNTIME_SETTINGS_DEFAULTS.scannerStderrLimitBytes,
+		webProcessConcurrency:
+			parsed.VULN_WORKBENCH_WEB_PROCESS_CONCURRENCY ??
+			RUNTIME_SETTINGS_DEFAULTS.webProcessConcurrency,
+		webScanQueueLimit:
+			parsed.VULN_WORKBENCH_WEB_SCAN_QUEUE_LIMIT ??
+			RUNTIME_SETTINGS_DEFAULTS.webScanQueueLimit,
+		webScanStepTimeoutMaxSec:
+			parsed.VULN_WORKBENCH_WEB_SCAN_STEP_TIMEOUT_MAX_SEC ??
+			RUNTIME_SETTINGS_DEFAULTS.webScanStepTimeoutMaxSec,
+		webScanWallClockTimeoutSec:
+			parsed.VULN_WORKBENCH_WEB_SCAN_WALL_CLOCK_TIMEOUT_SEC ??
+			RUNTIME_SETTINGS_DEFAULTS.webScanWallClockTimeoutSec,
 		staticIntelligenceAllowedProjectRoots: parseAllowedProjectRoots(
 			parsed.STATIC_INTELLIGENCE_ALLOWED_PROJECT_ROOTS,
 		),

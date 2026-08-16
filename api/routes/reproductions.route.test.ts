@@ -166,6 +166,21 @@ describe("Reproductions Route", () => {
 		expect(capturedArgs).not.toContain("--command");
 	});
 
+	it("rejects a reproduction timeout above the fixed maximum", async () => {
+		const spawn = vi.spyOn(Bun, "spawn");
+		const res = await app.request("/findings/f-1/reproductions", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({
+				profileId: "semgrep-path-recheck",
+				timeoutSec: 901,
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		expect(spawn).not.toHaveBeenCalled();
+	});
+
 	it("rejects an unavailable project path before validating a reproduction", async () => {
 		mockProjectRepo.findById.mockResolvedValueOnce({
 			id: "p-1",

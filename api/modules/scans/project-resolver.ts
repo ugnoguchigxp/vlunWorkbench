@@ -3,6 +3,7 @@ import path from "node:path";
 import { eq } from "drizzle-orm";
 import type { AppDatabase } from "../../db";
 import { users } from "../../db/schema";
+import { runBoundedProcess } from "../processes/bounded-process-runner";
 import { ProjectRepository } from "./repositories";
 
 export const CLI_ORACLE_USER_EMAIL = "security-oracle@vuln-workbench.local";
@@ -79,15 +80,13 @@ async function resolveDefaultBranch(
 	repoPath: string,
 ): Promise<string | undefined> {
 	try {
-		const proc = Bun.spawnSync(
-			["git", "-C", repoPath, "rev-parse", "--abbrev-ref", "HEAD"],
-			{
-				stderr: "pipe",
-				stdout: "pipe",
-			},
-		);
-		if (!proc.success) return undefined;
-		const branch = proc.stdout.toString().trim();
+		const result = await runBoundedProcess({
+			argv: ["git", "-C", repoPath, "rev-parse", "--abbrev-ref", "HEAD"],
+			timeoutMs: 10_000,
+			outputLimitBytes: 64 * 1024,
+		});
+		if (result.exitCode !== 0) return undefined;
+		const branch = result.stdout.trim();
 		return branch && branch !== "HEAD" ? branch : undefined;
 	} catch {
 		return undefined;

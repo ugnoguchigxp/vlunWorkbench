@@ -37,4 +37,12 @@ describe("Sources route authorization", () => {
 		});
 		expect(response.status).toBe(403);
 	});
+
+	it("rejects option-like Git diff revisions during query validation", async () => {
+		const commit = "a".repeat(40);
+		const response = await createMemberApp().request(
+			`/sources/diff/guide?from=${encodeURIComponent("--output=/tmp/injected")}&to=${commit}`,
+		);
+		expect(response.status).toBe(400);
+	});
 });

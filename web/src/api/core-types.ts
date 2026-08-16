@@ -103,6 +103,10 @@ export type RuntimeSettingsResponse = {
 	dockerPidsLimit: number;
 	scannerStdoutLimitBytes: number;
 	scannerStderrLimitBytes: number;
+	webProcessConcurrency: number;
+	webScanQueueLimit: number;
+	webScanStepTimeoutMaxSec: number;
+	webScanWallClockTimeoutSec: number;
 	codexSdkTimeoutMs: number;
 	dastAuthEncryptionKey: string;
 	dastAuthEncryptionKeyConfigured: boolean;

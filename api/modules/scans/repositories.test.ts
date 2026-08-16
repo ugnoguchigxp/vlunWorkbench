@@ -190,6 +190,28 @@ describe("Scan Domain Repositories", () => {
 		expect(updatedTool?.metadata).toMatchObject({ image: "zaproxy/zap-stable@sha256:example" });
 	});
 
+	it("reports a rejected active-to-terminal transition without overwriting the winner", async () => {
+		const project = await projectRepo.createProject({
+			ownerUserId: userId,
+			name: "Transition Project",
+			repoPath: "/path/to/transition-repo",
+		});
+		const scanRun = await scanRepo.createScanRun({
+			projectId: project.id,
+			profile: "baseline",
+			status: "queued",
+			createdByUserId: userId,
+		});
+		await scanRepo.updateScanRunStatus(scanRun.id, "completed");
+
+		const rejected = await scanRepo.updateScanRunStatus(scanRun.id, "failed", {
+			returnNullIfNotUpdated: true,
+		});
+
+		expect(rejected).toBeNull();
+		expect((await scanRepo.findById(scanRun.id))?.status).toBe("completed");
+	});
+
 	it("should store scan artifacts, findings, and evidence", async () => {
 		const project = await projectRepo.createProject({
 			ownerUserId: userId,

@@ -10,6 +10,7 @@ import { HttpError } from "../modules/auth/errors";
 import { DynamicArtifactStorage } from "../modules/dynamic/dynamic-artifact-storage";
 import { validateDynamicProfilePolicy } from "../modules/dynamic/dynamic-profiles";
 import { DynamicRepository } from "../modules/dynamic/dynamic-repository";
+import type { WebProcessCapacity } from "../modules/processes/web-process-capacity";
 import type {
 	FindingRepository,
 	ProjectRepository,
@@ -18,11 +19,16 @@ import {
 	ProjectPathPolicyError,
 	resolveProjectPath,
 } from "../security/project-path-policy";
+import { parseCliJsonObject, runBoundedCliProcess } from "./cli-process-bridge";
+
+const DYNAMIC_CLI_OUTPUT_LIMIT_BYTES = 1024 * 1024;
+const DYNAMIC_CLI_TIMEOUT_MS = 12 * 60 * 1000;
 
 type DynamicRouteDeps = {
 	db: AppDatabase;
 	findingRepository: FindingRepository;
 	projectRepository: ProjectRepository;
+	processCapacity?: WebProcessCapacity;
 };
 
 type DynamicCliBridgeResult = Record<string, unknown> & {
@@ -218,6 +224,7 @@ export function createDynamicRoute(deps: DynamicRouteDeps) {
 			timeoutSec: parseResult.data.timeoutSec,
 			memory: parseResult.data.memory,
 			cpus: parseResult.data.cpus,
+			processCapacity: deps.processCapacity,
 		});
 
 		return c.json(cliResult);
@@ -283,6 +290,7 @@ export function createDynamicRoute(deps: DynamicRouteDeps) {
 			timeoutSec: parseResult.data.timeoutSec,
 			memory: parseResult.data.memory,
 			cpus: parseResult.data.cpus,
+			processCapacity: deps.processCapacity,
 		});
 
 		return c.json(cliResult);
@@ -376,6 +384,7 @@ async function executeDynamicRunCli(params: {
 	timeoutSec?: number;
 	memory?: string;
 	cpus?: string;
+	processCapacity?: WebProcessCapacity;
 }) {
 	const args = [
 		"run",
@@ -408,32 +417,18 @@ async function executeDynamicRunCli(params: {
 		args.push("--cpus", params.cpus);
 	}
 
-	const proc = Bun.spawn(["bun", ...args], {
-		stdout: "pipe",
-		stderr: "pipe",
+	const processResult = await runBoundedCliProcess({
+		argv: ["bun", ...args],
+		processCapacity: params.processCapacity,
+		timeoutMs: DYNAMIC_CLI_TIMEOUT_MS,
+		outputLimitBytes: DYNAMIC_CLI_OUTPUT_LIMIT_BYTES,
+		label: "Dynamic CLI",
 	});
 
-	const [stdoutBuf, stderrBuf] = await Promise.all([
-		new Response(proc.stdout).arrayBuffer(),
-		new Response(proc.stderr).arrayBuffer(),
-	]);
-
-	const stdout = new TextDecoder().decode(stdoutBuf);
-	const stderr = new TextDecoder().decode(stderrBuf);
-	await proc.exited;
-
-	let cliResult: DynamicCliBridgeResult;
-	try {
-		const parsed = JSON.parse(stdout.trim());
-		if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-			throw new Error("CLI returned a non-object JSON payload");
-		}
-		cliResult = parsed as DynamicCliBridgeResult;
-	} catch (err: unknown) {
-		const message = err instanceof Error ? err.message : String(err);
-		console.error(`Dynamic run CLI bridge failed: ${stderr}`);
-		throw new HttpError(500, `CLI bridge parse failure: ${stderr || message}`);
-	}
+	const cliResult = parseCliJsonObject(
+		processResult,
+		"Dynamic CLI",
+	) as DynamicCliBridgeResult;
 
 	if (!cliResult.ok && !cliResult.dynamicRunId) {
 		throw new HttpError(

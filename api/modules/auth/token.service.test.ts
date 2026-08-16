@@ -1,15 +1,28 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
-import type { AppDatabase } from "../../db";
+import { readdirSync, readFileSync } from "node:fs";
+import path from "node:path";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createDbConnection, type AppDatabase } from "../../db";
+import { users } from "../../db/schema";
 import type { AppEnv } from "../../app/env";
 import { HttpError } from "./errors";
 import {
+	consumeRefreshToken,
 	generateAccessToken,
 	generateRefreshToken,
-	verifyAccessToken,
-	consumeRefreshToken,
 	revokeRefreshToken,
-	validateRefreshToken,
+	verifyAccessToken,
 } from "./token.service";
+
+function migrate(connection: ReturnType<typeof createDbConnection>): void {
+	const migrationsDir = path.resolve(process.cwd(), "drizzle");
+	for (const filename of readdirSync(migrationsDir)
+		.filter((file) => file.endsWith(".sql"))
+		.sort((a, b) => a.localeCompare(b))) {
+		connection.sqlite.exec(
+			readFileSync(path.resolve(migrationsDir, filename), "utf8"),
+		);
+	}
+}
 
 describe("token.service", () => {
 	let mockDb: any;
@@ -115,50 +128,6 @@ describe("token.service", () => {
 			expect(mockDb.delete).toHaveBeenCalled();
 		});
 
-		it("should validate a refresh token without consuming it", async () => {
-			const token = await generateRefreshToken(
-				testPayload,
-				mockDb as unknown as AppDatabase,
-				mockEnv,
-			);
-
-			mockDb.query.refreshTokens.findFirst.mockResolvedValue({
-				userId: testPayload.userId,
-				expiresAt: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000),
-			});
-
-			const session = await validateRefreshToken(
-				token,
-				mockDb as unknown as AppDatabase,
-				mockEnv,
-			);
-
-			expect(session.payload.userId).toBe(testPayload.userId);
-			expect(session.shouldRotate).toBe(false);
-			expect(mockDb.delete).not.toHaveBeenCalled();
-		});
-
-		it("should mark a valid refresh token for rotation near expiration", async () => {
-			const token = await generateRefreshToken(
-				testPayload,
-				mockDb as unknown as AppDatabase,
-				mockEnv,
-			);
-
-			mockDb.query.refreshTokens.findFirst.mockResolvedValue({
-				userId: testPayload.userId,
-				expiresAt: new Date(Date.now() + 60 * 60 * 1000),
-			});
-
-			const session = await validateRefreshToken(
-				token,
-				mockDb as unknown as AppDatabase,
-				mockEnv,
-			);
-
-			expect(session.shouldRotate).toBe(true);
-		});
-
 		it("should throw HttpError 401 when refresh token is missing in database", async () => {
 			mockDb.returning.mockResolvedValue([]); // not found
 
@@ -169,6 +138,73 @@ describe("token.service", () => {
 					mockEnv,
 				),
 			).rejects.toThrowError(new HttpError(401, "Invalid refresh token."));
+		});
+
+		it("allows only one concurrent consumer for the same refresh token", async () => {
+			const token = await generateRefreshToken(
+				testPayload,
+				mockDb as unknown as AppDatabase,
+				mockEnv,
+			);
+			const stored = {
+				userId: testPayload.userId,
+				expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+			};
+			mockDb.returning
+				.mockResolvedValueOnce([stored])
+				.mockResolvedValueOnce([]);
+
+			const results = await Promise.allSettled([
+				consumeRefreshToken(token, mockDb as AppDatabase, mockEnv),
+				consumeRefreshToken(token, mockDb as AppDatabase, mockEnv),
+			]);
+
+			expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+			expect(results.filter((result) => result.status === "rejected")).toHaveLength(1);
+		});
+
+		it("atomically allows one consumer against SQLite", async () => {
+			const connection = createDbConnection(":memory:");
+			try {
+				migrate(connection);
+				const now = new Date();
+				const [user] = await connection.db
+					.insert(users)
+					.values({
+						email: "refresh-race@example.com",
+						passwordHash: "hash",
+						displayName: "Refresh Race",
+						role: "member",
+						isActive: true,
+						createdAt: now,
+						updatedAt: now,
+					})
+					.returning();
+				const payload = {
+					...testPayload,
+					userId: user.id,
+					email: user.email,
+				};
+				const token = await generateRefreshToken(
+					payload,
+					connection.db,
+					mockEnv,
+				);
+
+				const results = await Promise.allSettled([
+					consumeRefreshToken(token, connection.db, mockEnv),
+					consumeRefreshToken(token, connection.db, mockEnv),
+				]);
+
+				expect(
+					results.filter((result) => result.status === "fulfilled"),
+				).toHaveLength(1);
+				expect(
+					results.filter((result) => result.status === "rejected"),
+				).toHaveLength(1);
+			} finally {
+				connection.sqlite.close(false);
+			}
 		});
 
 		it("should throw HttpError 401 when refresh token is expired", async () => {

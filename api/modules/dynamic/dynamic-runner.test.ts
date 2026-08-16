@@ -317,16 +317,23 @@ describe("Dynamic Runner", () => {
 		"should preserve timeout as a dynamic outcome instead of a runner error",
 		async () => {
 			let resolveExit: (code: number | null) => void = () => {};
-			vi.spyOn(Bun, "spawn").mockImplementation(() => {
-				return {
-					exited: new Promise<number | null>((resolve) => {
-						resolveExit = resolve;
-					}),
-					stdout: streamText("still running"),
+			vi.spyOn(Bun, "spawn")
+				.mockImplementationOnce(() => {
+					return {
+						exited: new Promise<number | null>((resolve) => {
+							resolveExit = resolve;
+						}),
+						stdout: streamText("still running"),
+						stderr: streamText(""),
+						kill: () => resolveExit(null),
+					} as any;
+				})
+				.mockImplementationOnce(() => ({
+					exited: Promise.resolve(0),
+					stdout: streamText(""),
 					stderr: streamText(""),
-					kill: () => resolveExit(null),
-				} as any;
-			});
+					kill: () => {},
+				}) as any);
 
 			const result = await runner.run({
 				projectId,

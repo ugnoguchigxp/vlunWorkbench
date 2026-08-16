@@ -66,6 +66,10 @@ const env = {
 	nightworkersSecurityIntelligenceAuthorizationShadowEnabled: false,
 	nightworkersSecurityIntelligenceAllowedProjectIds: [],
 	nightworkersSecurityIntelligenceMaxResponseBytes: 2 * 1024 * 1024,
+	webProcessConcurrency: 2,
+	webScanQueueLimit: 32,
+	webScanStepTimeoutMaxSec: 3_600,
+	webScanWallClockTimeoutSec: 21_600,
 } satisfies AppEnv;
 
 describe("LlmRouter", () => {

@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
-import { executeStaticIntelligenceMcpTool } from "../../cli/static-intelligence-mcp-server";
+import { executeStaticIntelligenceMcpTool } from "./mcp-server-runtime";
 import { staticIntelligenceMcpToolRegistry } from "./mcp-tools";
 
 const EXPECTED_TOOL_NAMES = [

@@ -134,6 +134,38 @@ export function RuntimeSettingsPanel({ model }: { model: SettingsPanelModel }) {
 							}
 						/>
 						<NumberSetting
+							id="runtime-web-process-concurrency"
+							label="Web process concurrency"
+							value={runtimeSettings.webProcessConcurrency}
+							onChange={(webProcessConcurrency) =>
+								updateRuntimeSetting({ webProcessConcurrency })
+							}
+						/>
+						<NumberSetting
+							id="runtime-web-scan-queue-limit"
+							label="Web scan queue limit"
+							value={runtimeSettings.webScanQueueLimit}
+							onChange={(webScanQueueLimit) =>
+								updateRuntimeSetting({ webScanQueueLimit })
+							}
+						/>
+						<NumberSetting
+							id="runtime-web-scan-step-timeout"
+							label="Web scan step timeout max (sec)"
+							value={runtimeSettings.webScanStepTimeoutMaxSec}
+							onChange={(webScanStepTimeoutMaxSec) =>
+								updateRuntimeSetting({ webScanStepTimeoutMaxSec })
+							}
+						/>
+						<NumberSetting
+							id="runtime-web-scan-wall-clock-timeout"
+							label="Web scan wall-clock timeout (sec)"
+							value={runtimeSettings.webScanWallClockTimeoutSec}
+							onChange={(webScanWallClockTimeoutSec) =>
+								updateRuntimeSetting({ webScanWallClockTimeoutSec })
+							}
+						/>
+						<NumberSetting
 							id="runtime-codex-timeout"
 							label="Codex timeout (ms)"
 							value={runtimeSettings.codexSdkTimeoutMs}

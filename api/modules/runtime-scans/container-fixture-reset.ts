@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import type { ActiveResetStrategy } from "../../../shared/schemas/active-assessment.schema";
 import type { DastFetch } from "../dast/http-runner";
+import { runBoundedProcess } from "../processes/bounded-process-runner";
 import type { ActiveResetExecutor } from "./zap-active-runner";
 
 type ContainerFixtureStrategy = Extract<
@@ -59,6 +60,7 @@ const FIXTURES = {
 	},
 } as const;
 const activeFixtureIds = new Set<string>();
+const FIXTURE_PROCESS_OUTPUT_LIMIT_BYTES = 2 * 1024 * 1024;
 
 export function listContainerFixtures() {
 	return Object.entries(FIXTURES).map(([fixtureId, fixture]) => ({
@@ -362,29 +364,16 @@ async function spawnBounded(
 	args: string[],
 	timeoutSec: number,
 ): Promise<SpawnResult> {
-	const child = Bun.spawn(args, { stdout: "pipe", stderr: "pipe" });
-	const stdout = child.stdout
-		? new Response(child.stdout).text()
-		: Promise.resolve("");
-	const stderr = child.stderr
-		? new Response(child.stderr).text()
-		: Promise.resolve("");
-	let timer: ReturnType<typeof setTimeout> | undefined;
-	const result = await Promise.race([
-		child.exited.then((exitCode) => ({ exitCode, timedOut: false })),
-		new Promise<{ exitCode: null; timedOut: true }>((resolve) => {
-			timer = setTimeout(
-				() => resolve({ exitCode: null, timedOut: true }),
-				timeoutSec * 1000,
-			);
-		}),
-	]);
-	if (timer) clearTimeout(timer);
-	if (result.timedOut) child.kill("SIGKILL");
+	const result = await runBoundedProcess({
+		argv: args,
+		timeoutMs: timeoutSec * 1_000,
+		outputLimitBytes: FIXTURE_PROCESS_OUTPUT_LIMIT_BYTES,
+	});
 	return {
-		...result,
-		stdout: await stdout,
-		stderr: await stderr,
+		exitCode: result.exitCode,
+		stdout: result.stdout,
+		stderr: result.stderr,
+		timedOut: result.terminationReason === "timeout",
 	};
 }
 
@@ -394,40 +383,17 @@ async function spawnWithStdin(
 	timeoutSec: number,
 	signal?: AbortSignal | null,
 ): Promise<SpawnResult> {
-	const child = Bun.spawn(args, {
-		stdin: "pipe",
-		stdout: "pipe",
-		stderr: "pipe",
+	const result = await runBoundedProcess({
+		argv: args,
+		stdin,
+		timeoutMs: timeoutSec * 1_000,
+		outputLimitBytes: FIXTURE_PROCESS_OUTPUT_LIMIT_BYTES,
+		signal,
 	});
-	child.stdin.write(stdin);
-	child.stdin.end();
-	const abort = () => child.kill("SIGKILL");
-	signal?.addEventListener("abort", abort, { once: true });
-	try {
-		const stdout = child.stdout
-			? new Response(child.stdout).text()
-			: Promise.resolve("");
-		const stderr = child.stderr
-			? new Response(child.stderr).text()
-			: Promise.resolve("");
-		let timer: ReturnType<typeof setTimeout> | undefined;
-		const result = await Promise.race([
-			child.exited.then((exitCode) => ({ exitCode, timedOut: false })),
-			new Promise<{ exitCode: null; timedOut: true }>((resolve) => {
-				timer = setTimeout(
-					() => resolve({ exitCode: null, timedOut: true }),
-					timeoutSec * 1000,
-				);
-			}),
-		]);
-		if (timer) clearTimeout(timer);
-		if (result.timedOut) child.kill("SIGKILL");
-		return {
-			...result,
-			stdout: await stdout,
-			stderr: await stderr,
-		};
-	} finally {
-		signal?.removeEventListener("abort", abort);
-	}
+	return {
+		exitCode: result.exitCode,
+		stdout: result.stdout,
+		stderr: result.stderr,
+		timedOut: result.terminationReason === "timeout",
+	};
 }

@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import { parseArgs } from "node:util";
+import { MAX_DYNAMIC_TIMEOUT_SEC } from "../../shared/schemas/dynamic.schema";
 import { readAppEnv } from "../app/env";
 import { createDbConnection } from "../db";
 import { DynamicRunner } from "../modules/dynamic/dynamic-runner";
@@ -122,13 +123,14 @@ async function main() {
 		timeoutSec !== undefined &&
 		(!Number.isFinite(timeoutSec) ||
 			!Number.isInteger(timeoutSec) ||
-			timeoutSec <= 0)
+			timeoutSec <= 0 ||
+			timeoutSec > MAX_DYNAMIC_TIMEOUT_SEC)
 	) {
 		writeResult({
 			ok: false,
 			status: "failed",
 			outcome: "error",
-			message: "--timeout-sec must be a positive integer.",
+			message: `--timeout-sec must be an integer between 1 and ${MAX_DYNAMIC_TIMEOUT_SEC}.`,
 		});
 		process.exit(1);
 	}

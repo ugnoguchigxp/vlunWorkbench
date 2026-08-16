@@ -17,6 +17,18 @@ describe("readAppEnv", () => {
 		expect(env.codexSdkTimeoutMs).toBe(
 			RUNTIME_SETTINGS_DEFAULTS.codexSdkTimeoutMs,
 		);
+		expect(env.webProcessConcurrency).toBe(
+			RUNTIME_SETTINGS_DEFAULTS.webProcessConcurrency,
+		);
+		expect(env.webScanQueueLimit).toBe(
+			RUNTIME_SETTINGS_DEFAULTS.webScanQueueLimit,
+		);
+		expect(env.webScanStepTimeoutMaxSec).toBe(
+			RUNTIME_SETTINGS_DEFAULTS.webScanStepTimeoutMaxSec,
+		);
+		expect(env.webScanWallClockTimeoutSec).toBe(
+			RUNTIME_SETTINGS_DEFAULTS.webScanWallClockTimeoutSec,
+		);
 		expect(env.jwtAccessExpiresIn).toBe("1d");
 		expect(env.jwtRefreshExpiresIn).toBe("7d");
 		expect(env.scanExecutionMode).toBeUndefined();
@@ -226,6 +238,20 @@ describe("readAppEnv", () => {
 		expect(env.cookieSameSite).toBe("none");
 		expect(env.securityHeadersMode).toBe("https");
 		expect(env.codexSdkTimeoutMs).toBe(900_000);
+	});
+
+	it("accepts Web process and scan deadline overrides", () => {
+		const env = readAppEnv({
+			VULN_WORKBENCH_WEB_PROCESS_CONCURRENCY: "4",
+			VULN_WORKBENCH_WEB_SCAN_QUEUE_LIMIT: "24",
+			VULN_WORKBENCH_WEB_SCAN_STEP_TIMEOUT_MAX_SEC: "1800",
+			VULN_WORKBENCH_WEB_SCAN_WALL_CLOCK_TIMEOUT_SEC: "7200",
+		});
+
+		expect(env.webProcessConcurrency).toBe(4);
+		expect(env.webScanQueueLimit).toBe(24);
+		expect(env.webScanStepTimeoutMaxSec).toBe(1_800);
+		expect(env.webScanWallClockTimeoutSec).toBe(7_200);
 	});
 
 	it("rejects SameSite none without secure cookies", () => {

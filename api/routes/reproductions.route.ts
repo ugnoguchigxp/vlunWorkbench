@@ -5,6 +5,7 @@ import { observationOutcomeToLegacy } from "../../shared/schemas/verification.sc
 import type { AppDatabase } from "../db";
 import { getAuthContextUser } from "../modules/auth/context";
 import { HttpError } from "../modules/auth/errors";
+import type { WebProcessCapacity } from "../modules/processes/web-process-capacity";
 import {
 	getReproductionProfileById,
 	listReproductionProfiles,
@@ -21,12 +22,17 @@ import {
 	ProjectPathPolicyError,
 	resolveProjectPath,
 } from "../security/project-path-policy";
+import { parseCliJsonObject, runBoundedCliProcess } from "./cli-process-bridge";
+
+const REPRODUCTION_CLI_OUTPUT_LIMIT_BYTES = 1024 * 1024;
+const REPRODUCTION_CLI_TIMEOUT_MS = 17 * 60 * 1000;
 
 type ReproductionsRouteDeps = {
 	db: AppDatabase;
 	findingRepository: FindingRepository;
 	projectRepository: ProjectRepository;
 	reproductionProfiles?: readonly ReproductionProfile[];
+	processCapacity?: WebProcessCapacity;
 };
 
 export function createReproductionsRoute(deps: ReproductionsRouteDeps) {
@@ -203,34 +209,22 @@ export function createReproductionsRoute(deps: ReproductionsRouteDeps) {
 			}
 
 			// Run reproduction via CLI processes to ensure process safety boundary
-			const proc = Bun.spawn(["bun", ...args], {
-				stdout: "pipe",
-				stderr: "pipe",
+			const processResult = await runBoundedCliProcess({
+				argv: ["bun", ...args],
+				processCapacity: deps.processCapacity,
+				timeoutMs: REPRODUCTION_CLI_TIMEOUT_MS,
+				outputLimitBytes: REPRODUCTION_CLI_OUTPUT_LIMIT_BYTES,
+				label: "Reproduction CLI",
 			});
 
-			const [stdoutBuf, stderrBuf] = await Promise.all([
-				new Response(proc.stdout).arrayBuffer(),
-				new Response(proc.stderr).arrayBuffer(),
-			]);
-
-			const stdout = new TextDecoder().decode(stdoutBuf);
-			const stderr = new TextDecoder().decode(stderrBuf);
-			await proc.exited;
-
-			let cliResult: {
+			const cliResult = parseCliJsonObject(
+				processResult,
+				"Reproduction CLI",
+			) as {
 				ok?: boolean;
 				reproductionRunId?: string;
 				message?: string;
 			};
-			try {
-				cliResult = JSON.parse(stdout.trim()) as typeof cliResult;
-			} catch (err: unknown) {
-				console.error(`CLI execution failed: ${stderr}`);
-				throw new HttpError(
-					500,
-					`CLI bridge parse failure: ${stderr || (err instanceof Error ? err.message : String(err))}`,
-				);
-			}
 
 			// If CLI failed before creating run
 			if (!cliResult.ok && !cliResult.reproductionRunId) {

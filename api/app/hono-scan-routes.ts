@@ -140,6 +140,7 @@ export function registerScanRoutes(app: Hono, runtime: AppRuntime): void {
 			projectRepository,
 			scanRepository,
 			scanSupervisor: runtime.scanSupervisor,
+			processCapacity: runtime.webProcessCapacity,
 			env: runtime.env,
 		}),
 	);
@@ -207,6 +208,7 @@ export function registerScanRoutes(app: Hono, runtime: AppRuntime): void {
 			db: runtime.dbConnection.db,
 			findingRepository,
 			projectRepository,
+			processCapacity: runtime.webProcessCapacity,
 		}),
 	);
 	app.route(
@@ -215,6 +217,7 @@ export function registerScanRoutes(app: Hono, runtime: AppRuntime): void {
 			db: runtime.dbConnection.db,
 			findingRepository,
 			projectRepository,
+			processCapacity: runtime.webProcessCapacity,
 		}),
 	);
 	app.route(
@@ -225,6 +228,7 @@ export function registerScanRoutes(app: Hono, runtime: AppRuntime): void {
 			scanRepository,
 			activeAssessmentRunner: runtime.activeAssessmentRunner,
 			scanDiagnosticRunner: runtime.scanDiagnosticRunner,
+			processCapacity: runtime.webProcessCapacity,
 		}),
 	);
 	app.route(
@@ -250,6 +254,7 @@ export function registerScanRoutes(app: Hono, runtime: AppRuntime): void {
 			db: runtime.dbConnection.db,
 			projectRepository,
 			env: runtime.env,
+			processCapacity: runtime.webProcessCapacity,
 		}),
 	);
 	app.route(

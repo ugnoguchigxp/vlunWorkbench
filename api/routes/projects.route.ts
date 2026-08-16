@@ -8,6 +8,10 @@ import type { AppEnv } from "../app/env";
 import { requireAdmin } from "../middleware/auth";
 import { getAuthContextUser } from "../modules/auth/context";
 import { HttpError } from "../modules/auth/errors";
+import {
+	ProcessCapacityExceededError,
+	type WebProcessCapacity,
+} from "../modules/processes/web-process-capacity";
 import { analyzeProjectCapabilities } from "../modules/project-capabilities/plugin-detector";
 import {
 	buildDiffScanPlan,
@@ -36,11 +40,17 @@ import {
 	ProjectPathPolicyError,
 	resolveProjectPath,
 } from "../security/project-path-policy";
+import { runBoundedCliProcess } from "./cli-process-bridge";
+
+const FOLDER_PICKER_TIMEOUT_MS = 10 * 60 * 1_000;
+const FOLDER_PICKER_OUTPUT_LIMIT_BYTES = 64 * 1_024;
+const ABSOLUTE_WEB_SCAN_STEP_TIMEOUT_MAX_SEC = 86_400;
 
 type ProjectsRouteDeps = {
 	projectRepository: ProjectRepository;
 	scanRepository?: ScanRepository;
 	scanSupervisor?: ScanProcessSupervisor;
+	processCapacity?: WebProcessCapacity;
 	env?: AppEnv;
 	resolveProjectPath?: typeof resolveProjectPath;
 };
@@ -102,13 +112,17 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 
 			const script =
 				'POSIX path of (choose folder with prompt "Select a project folder to scan")';
-			const proc = Bun.spawn(["osascript", "-e", script], {
-				stdout: "pipe",
-				stderr: "pipe",
+			const {
+				exitCode,
+				stdout: stdoutText,
+				stderr: stderrText,
+			} = await runBoundedCliProcess({
+				argv: ["osascript", "-e", script],
+				processCapacity: deps.processCapacity,
+				timeoutMs: FOLDER_PICKER_TIMEOUT_MS,
+				outputLimitBytes: FOLDER_PICKER_OUTPUT_LIMIT_BYTES,
+				label: "Folder picker",
 			});
-			const exitCode = await proc.exited;
-			const stdoutText = await new Response(proc.stdout).text();
-			const stderrText = await new Response(proc.stderr).text();
 
 			if (exitCode !== 0) {
 				if (stderrText.toLowerCase().includes("user canceled")) {
@@ -316,7 +330,12 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 						.optional(),
 					continueOnToolFailure: z.boolean().default(true).optional(),
 					consentProjectCodeExecution: z.boolean().default(false).optional(),
-					timeoutSec: z.number().int().positive().optional(),
+					timeoutSec: z
+						.number()
+						.int()
+						.positive()
+						.max(ABSOLUTE_WEB_SCAN_STEP_TIMEOUT_MAX_SEC)
+						.optional(),
 					runner: z.enum(["host", "docker"]).default("host").optional(),
 					imageRef: z.string().optional(),
 					imageTar: z.string().optional(),
@@ -337,7 +356,19 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 					throw new HttpError(403, "Forbidden");
 				}
 
-				if (!deps.scanRepository || !deps.scanSupervisor || !deps.env) {
+				if (!deps.env) {
+					throw new HttpError(500, "Scan runtime is not configured.");
+				}
+				if (
+					body.timeoutSec !== undefined &&
+					body.timeoutSec > deps.env.webScanStepTimeoutMaxSec
+				) {
+					throw new HttpError(
+						400,
+						`timeoutSec must be at most ${deps.env.webScanStepTimeoutMaxSec}.`,
+					);
+				}
+				if (!deps.scanRepository || !deps.scanSupervisor) {
 					throw new HttpError(500, "Scan runtime is not configured.");
 				}
 				await resolveWebProjectPath(project.repoPath);
@@ -433,7 +464,14 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 					);
 				}
 
-				await deps.scanSupervisor.launch(queued.id, args);
+				try {
+					await deps.scanSupervisor.launch(queued.id, args);
+				} catch (error) {
+					if (error instanceof ProcessCapacityExceededError) {
+						throw new HttpError(429, error.message);
+					}
+					throw error;
+				}
 				return c.json(
 					{
 						scan: { id: queued.id, status: "queued", profile: body.profile },
