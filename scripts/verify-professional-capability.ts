@@ -5,6 +5,7 @@ import { z } from "zod";
 import { verifyPersistedBenchmarkRun } from "../api/db/benchmark-run-verifier";
 import { loadScannerDataManifest } from "../api/modules/scans/tools/scanner-provenance";
 import { measuredCapabilityClaimSchema } from "../shared/schemas/security-capability.schema";
+import { owaspBenchmarkInputHash } from "./benchmark/owasp-benchmark-input";
 import {
 	assertMetricArtifactIntegrity,
 	isAuthoritativeJuiceShopReleaseRun,
@@ -185,7 +186,8 @@ const passingRunResult = z.string().uuid().safeParse(passingRunInput);
 if (passingRunInput && !passingRunResult.success)
 	throw new Error("passing_benchmark_run_id_invalid");
 const verifiedBenchmarkRunId = passingRunResult.data ?? null;
-if (verifiedBenchmarkRunId)
+if (verifiedBenchmarkRunId) {
+	if (!owasp) throw new Error("passing_benchmark_owasp_artifact_required");
 	await verifyPersistedBenchmarkRun({
 		runId: verifiedBenchmarkRunId,
 		databaseUrl: process.env.VULN_WORKBENCH_BENCHMARK_DATABASE_URL,
@@ -193,8 +195,10 @@ if (verifiedBenchmarkRunId)
 		manifestHash: manifest.manifestHash,
 		policyVersion: String(policy.policyVersion),
 		toolboxImageDigest: process.env.VULN_WORKBENCH_TOOLBOX_IMAGE_DIGEST,
+		runInputHash: owaspBenchmarkInputHash(owasp),
 		artifact: owasp,
 	});
+}
 const status =
 	verifiedBenchmarkRunId &&
 	semgrepGate &&

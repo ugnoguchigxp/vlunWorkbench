@@ -1,6 +1,7 @@
 import { mkdir, readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
+import { buildPinnedSemgrepRepositoryCommand } from "./benchmark/owasp-benchmark-runtime";
 
 const catalogSchema = z.object({
 	schemaVersion: z.literal(1),
@@ -84,13 +85,8 @@ const commandResults =
 		? [
 				await run([
 					"semgrep",
-					"--validate",
-					"--config",
-					"docker/toolbox/scanner-data/semgrep-rules",
-				]),
-				await run([
-					"semgrep",
 					"--test",
+					"--strict",
 					"--config",
 					"docker/toolbox/scanner-data/semgrep-rules",
 					"tests/security-capability/semgrep",
@@ -177,7 +173,16 @@ async function run(args: string[]): Promise<{
 	ok: boolean;
 	stderr: string;
 }> {
-	const child = Bun.spawn(args, {
+	const semgrepImage = process.env.VULN_WORKBENCH_OWASP_SEMGREP_IMAGE;
+	const command = semgrepImage
+		? buildPinnedSemgrepRepositoryCommand({
+				image: semgrepImage,
+				expectedImageDigest: process.env.VULN_WORKBENCH_TOOLBOX_IMAGE_DIGEST,
+				repositoryRoot: process.cwd(),
+				semgrepArguments: args.slice(1),
+			})
+		: args;
+	const child = Bun.spawn(command, {
 		stdout: "inherit",
 		stderr: "pipe",
 		env: {

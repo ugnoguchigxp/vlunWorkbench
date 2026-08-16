@@ -18,6 +18,21 @@ import type { ValidatedDastTarget } from "./types";
 const MAX_BROWSER_EVENTS_PER_ROUTE = 100;
 const MAX_BROWSER_MESSAGE_CHARS = 4_000;
 const MAX_SCREENSHOT_BYTES = 5 * 1024 * 1024;
+const BROWSER_RESOURCE_CLOSE_TIMEOUT_MS = 3_000;
+
+async function settleWithin(
+	task: Promise<unknown>,
+	timeoutMs: number,
+): Promise<void> {
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	await Promise.race([
+		task.catch(() => undefined),
+		new Promise<void>((resolve) => {
+			timer = setTimeout(resolve, timeoutMs);
+		}),
+	]);
+	if (timer) clearTimeout(timer);
+}
 
 export type DastScreenshotPolicy =
 	| { enabled: false }
@@ -45,6 +60,7 @@ export class PlaywrightBrowserAdapter implements DastBrowserAdapter {
 			screenshotPolicy?: DastScreenshotPolicy;
 			maxNetworkRequests?: number;
 		},
+		private readonly sharedBrowser?: Browser,
 	) {}
 
 	async loadRoute(params: {
@@ -81,10 +97,21 @@ export class PlaywrightBrowserAdapter implements DastBrowserAdapter {
 	}
 
 	async close(): Promise<void> {
-		await this.context?.close().catch(() => undefined);
-		await this.browser?.close().catch(() => undefined);
+		const context = this.context;
+		const browser = this.browser;
+		const ownsBrowser = browser !== null && browser !== this.sharedBrowser;
 		this.context = null;
 		this.browser = null;
+		if (context) {
+			await settleWithin(
+				context.unrouteAll({ behavior: "ignoreErrors" }),
+				BROWSER_RESOURCE_CLOSE_TIMEOUT_MS,
+			);
+			await settleWithin(context.close(), BROWSER_RESOURCE_CLOSE_TIMEOUT_MS);
+		}
+		if (browser && ownsBrowser) {
+			await settleWithin(browser.close(), BROWSER_RESOURCE_CLOSE_TIMEOUT_MS);
+		}
 	}
 
 	requestCount(): number {
@@ -96,12 +123,14 @@ export class PlaywrightBrowserAdapter implements DastBrowserAdapter {
 		const runnerHost = new URL(this.options.target.runnerOrigin).hostname;
 		const pinnedAddress = this.options.target.resolvedAddresses[0];
 		if (!pinnedAddress) throw new Error("browser_pinned_address_unavailable");
-		this.browser = await chromium.launch({
-			headless: true,
-			args: [
-				`--host-resolver-rules=MAP ${runnerHost} ${pinnedAddress},EXCLUDE localhost`,
-			],
-		});
+		this.browser =
+			this.sharedBrowser ??
+			(await chromium.launch({
+				headless: true,
+				args: [
+					`--host-resolver-rules=MAP ${runnerHost} ${pinnedAddress},EXCLUDE localhost`,
+				],
+			}));
 		const secret = this.options.authSecret;
 		this.context = await this.browser.newContext({
 			extraHTTPHeaders: authHeadersFor(secret),
@@ -130,7 +159,7 @@ export class PlaywrightBrowserAdapter implements DastBrowserAdapter {
 				this.options.maxNetworkRequests ?? this.options.target.maxRequests;
 			if (this.networkRequestCount >= maxNetworkRequests) {
 				this.networkBudgetExhausted = true;
-				await route.abort("blockedbyclient");
+				await route.fulfill({ status: 204 });
 				return;
 			}
 			this.networkRequestCount += 1;
@@ -190,7 +219,10 @@ export class PlaywrightBrowserAdapter implements DastBrowserAdapter {
 			}
 			this.loginCompleted = true;
 		} finally {
-			await page.close();
+			await settleWithin(
+				page.close({ runBeforeUnload: false }),
+				BROWSER_RESOURCE_CLOSE_TIMEOUT_MS,
+			);
 		}
 	}
 
@@ -336,7 +368,10 @@ export class PlaywrightBrowserAdapter implements DastBrowserAdapter {
 				),
 			};
 		} finally {
-			await page.close();
+			await settleWithin(
+				page.close({ runBeforeUnload: false }),
+				BROWSER_RESOURCE_CLOSE_TIMEOUT_MS,
+			);
 		}
 	}
 

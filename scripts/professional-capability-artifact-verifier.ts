@@ -24,6 +24,7 @@ import {
 	validateJuiceShopCatalogAgainstUpstream,
 } from "./benchmark/juice-shop-playbooks";
 import { assessJuiceShopMeasurement } from "./benchmark/measurement-status";
+import { sanitizedSemgrepEvidenceArtifactSchema } from "./benchmark/owasp-benchmark-runtime";
 import {
 	gitCommit as benchmarkGitCommit,
 	sha256File,
@@ -225,6 +226,8 @@ export async function verifyOwaspArtifactIntegrity(params: {
 	const expectedFindingsPath = path.resolve(
 		".artifacts/benchmark/owasp-findings.json",
 	);
+	const expectedFindingsEvidencePath =
+		".artifacts/benchmark/owasp-findings.json";
 	const rawScannerArtifactPath = path.resolve(
 		".artifacts/benchmark/owasp-semgrep-raw.json",
 	);
@@ -238,7 +241,7 @@ export async function verifyOwaspArtifactIntegrity(params: {
 		params.artifact.corpusDigest !== corpus.archiveSha256 ||
 		params.artifact.expectedResultsHash !== corpus.groundTruthSha256 ||
 		params.artifact.scannerManifestHash !== params.manifestHash ||
-		params.artifact.findingsPath !== expectedFindingsPath ||
+		params.artifact.findingsPath !== expectedFindingsEvidencePath ||
 		params.artifact.networkRequests !== 0 ||
 		params.artifact.resetSucceeded !== true ||
 		typeof params.artifact.findingsHash !== "string" ||
@@ -249,7 +252,7 @@ export async function verifyOwaspArtifactIntegrity(params: {
 		expectedResultsBytes,
 		findingsBytes,
 		findingsHash,
-		rawScannerArtifactHash,
+		rawScannerArtifactBytes,
 		policyHash,
 		implementationHash,
 		currentCommit,
@@ -257,11 +260,14 @@ export async function verifyOwaspArtifactIntegrity(params: {
 		readFile(expectedResultsPath),
 		readFile(expectedFindingsPath),
 		sha256(await readFile(expectedFindingsPath)),
-		sha256(await readFile(rawScannerArtifactPath)),
+		readFile(rawScannerArtifactPath),
 		sha256File("spec/security-capability/benchmark-policy.v1.json"),
 		sha256Tree([
 			"docker/toolbox/scanner-data/semgrep-rules/java",
 			"scripts/benchmark/owasp-benchmark.ts",
+			"scripts/benchmark/owasp-benchmark-input.ts",
+			"scripts/benchmark/owasp-benchmark-runtime.ts",
+			"scripts/benchmark/owasp-release-policy.ts",
 			"api/modules/benchmarks/metric-scorer.ts",
 			"api/modules/benchmarks/owasp-benchmark-adapter.ts",
 			"api/modules/scans/tools/java-taint-precision-filter.ts",
@@ -269,6 +275,10 @@ export async function verifyOwaspArtifactIntegrity(params: {
 		]),
 		benchmarkGitCommit(),
 	]);
+	const rawScannerArtifactHash = sha256(rawScannerArtifactBytes);
+	sanitizedSemgrepEvidenceArtifactSchema.parse(
+		JSON.parse(rawScannerArtifactBytes.toString("utf8")),
+	);
 	if (
 		params.artifact.expectedResultsHash !== sha256(expectedResultsBytes) ||
 		params.artifact.findingsHash !== findingsHash ||

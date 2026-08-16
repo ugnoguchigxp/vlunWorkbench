@@ -323,7 +323,7 @@ export async function prepareContainerTargetGateway(
 		throw new Error("target_unreachable_from_container: gateway bind failed");
 	}
 	gatewayPort = address.port;
-	const hostOrigin = `http://127.0.0.1:${address.port}`;
+	const hostOrigin = `http://${bindAddress}:${address.port}`;
 	const containerOrigin = `http://host.docker.internal:${address.port}`;
 	return {
 		hostOrigin,
@@ -343,7 +343,7 @@ function gatewayOriginForRequest(
 	port: number,
 	bindAddress: string,
 ): string {
-	const fallback = `http://127.0.0.1:${port}`;
+	const fallback = `http://${bindAddress}:${port}`;
 	if (!hostHeader || port <= 0) return fallback;
 	try {
 		const parsed = new URL(`http://${hostHeader}`);

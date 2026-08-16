@@ -23,9 +23,11 @@ describe("workflow supply-chain policy", () => {
 		const secretScan = jobBlock(workflow, "secret-scan");
 
 		expect(verify).not.toContain("gitleaks/gitleaks-action");
+		expect(verify).toContain("fetch-depth: 0");
 		expect(secretScan).not.toMatch(/^    needs:/m);
 		expect(secretScan).toContain("gitleaks/gitleaks-action@");
 		expect(secretScan).toContain("actions/checkout@");
+		expect(secretScan).toContain("fetch-depth: 0");
 		expect(workflow).toContain("cancel-in-progress: true");
 	});
 
@@ -48,7 +50,57 @@ describe("workflow supply-chain policy", () => {
 		]) {
 			expect(workflow).toContain(`dockerfile: ${dockerfile}`);
 		}
+		expect(workflow).not.toContain("docker/setup-buildx-action@");
+		expect(workflow).toContain(
+			"matrix.name == 'toolbox' || matrix.name == 'semgrep'",
+		);
+		expect(workflow).toContain(
+			"--build-arg BASE_IMAGE=vuln-workbench-toolbox:ci",
+		);
+		expect(workflow).toContain("aquasecurity/setup-trivy@");
+		expect(workflow).toContain("version: v0.72.0");
+		expect(workflow.match(/skip-setup-trivy: true/g)).toHaveLength(2);
 		expect(workflow).toContain("format: cyclonedx");
 		expect(workflow).toContain("severity: HIGH,CRITICAL");
+		expect(workflow).toContain("TRIVY_IGNOREFILE: .trivyignore.yaml");
+		expect(workflow).not.toContain("trivyignores:");
+	});
+
+	test("runs the strict Phase 55 entry with pinned benchmark images and persisted evidence", async () => {
+		const [workflow, phase55Entry] = await Promise.all([
+			readRepositoryFile(".github/workflows/verify.yml"),
+			readRepositoryFile("scripts/verify-phase-55-entry.ts"),
+		]);
+		const closeout = jobBlock(workflow, "juice-shop-benchmark");
+		expect(closeout).toContain("needs: [verify, secret-scan]");
+		expect(closeout).toContain("fetch-depth: 0");
+		expect(closeout).toContain(
+			"VULN_WORKBENCH_OWASP_SEMGREP_IMAGE: docker.io/semgrep/semgrep@sha256:",
+		);
+		expect(closeout).toContain(
+			'docker pull "$VULN_WORKBENCH_OWASP_SEMGREP_IMAGE"',
+		);
+		expect(closeout).toContain(
+			"docker pull docker.io/bkimminich/juice-shop@sha256:",
+		);
+		expect(closeout).toContain("bun run db:migrate");
+		expect(closeout).toContain("bun run verify:phase-55-entry");
+		expect(phase55Entry).toContain(
+			'["bun", "run", "verify:phase-55-baseline"]',
+		);
+		expect(phase55Entry).toContain('["bun", "run", "phase-54:closeout"]');
+		expect(closeout).toContain("phase-54-closeout-backup.sqlite");
+		expect(closeout).toContain("phase-54-same-commit-closeout");
+		expect(closeout).toContain(".artifacts/phase-55-entry/");
+		expect(closeout).toContain(
+			"VULN_WORKBENCH_PHASE54_REGRESSION_VERIFIED_COMMIT: ${{ github.sha }}",
+		);
+		expect(closeout).toContain(
+			".artifacts/benchmark/owasp-semgrep-raw.json",
+		);
+		expect(closeout).not.toMatch(/^\s+\.artifacts\/benchmark\/$/m);
+		expect(closeout.indexOf("bun run db:migrate")).toBeLessThan(
+			closeout.indexOf("bun run verify:phase-55-entry"),
+		);
 	});
 });
