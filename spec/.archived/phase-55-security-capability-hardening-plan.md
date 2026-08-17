@@ -1,5 +1,9 @@
 # Phase 55: Security Capability Hardening and Coverage Expansion Plan
 
+Archive status: Slices 55.0-55.2 completed on main. Remaining detection、language、
+sandbox、LLM quality、closeout work was transferred to
+`spec/phase-56-capability-product-completion-plan.md`.
+
 Status: In Progress — Slices 55.0 and 55.1 passed on main; Slice 55.2 strict-verified locally, CI pending
 
 Predecessors:

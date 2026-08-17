@@ -1,5 +1,9 @@
 # Phase 54.4: Detection Effectiveness Improvement Plan
 
+Archive status: Authoritative Linux OWASP/Juice Shop closeout completed. OSV、
+claim approval、holdout、remaining category work was transferred to
+`spec/phase-56-capability-product-completion-plan.md`.
+
 Status: Implemented locally through Slice 54.4-G on 2026-08-16; authoritative Linux CI closeout and human claim approval pending
 
 Parent plan: `spec/phase-54-release-trust-and-product-value-realization-plan.md`

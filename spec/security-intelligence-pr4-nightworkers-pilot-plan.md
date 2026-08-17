@@ -1,14 +1,18 @@
-# PR 4: NightWorkers Security Intelligence Paired Pilot
+# PR 4: NightWorkers Security Intelligence Integration — Legacy Plan
 
-Status: vulnWorkbench producer/endpoint implemented; NightWorkers consumer、smoke、10-pair pilotは未実施
+Status: SUPERSEDED — producer、consumer、post-assessment、shadow plumbingは実装済み
+
+この文書はPR 4当時の設計記録であり、paired Runや10-pair pilotを実行してはならない。
+現在の実行契約は`security-intelligence-integrity-smoke-template.json`（v2）、現在の残作業は
+NightWorkersの`security-intelligence-pilot-rollout-todo.md`を正とする。
 
 Implementation baseline: PR 1 `538866f`、PR 2 `ca0205e`、PR 3 `5a4df84`
 
 ## 1. 目的
 
-NightWorkersがtask/runに紐付くrevision-bound assessmentを取得し、既存security scanと比較できるpaired pilotをdefault OFFで実行可能にする。
+NightWorkersがtask/runに紐付くrevision-bound assessmentを取得できるようにする。
 
-このPRはdefault activationの判断を行わない。pilot evidenceを収集し、別のdecision recordでGO / ITERATE / STOPを判断できる状態を作る。
+このPRはdefault activationの判断を行わない。integrity evidenceを収集し、別のdecision recordでGO / ITERATE / STOPを判断できる状態を作る。
 
 ## 2. Integration boundary
 
@@ -34,9 +38,9 @@ routeは既存NightWorkers integration authentication、binding、owner/project 
 | New | `api/modules/integrations/nightworkers/nightworkers-security-intelligence-telemetry.ts` | aggregate-only latency/payload metric |
 | New | `api/modules/integrations/nightworkers/nightworkers-security-intelligence.{service,routes,telemetry}.test.ts` | auth、binding、state、redaction、metric |
 | New | `shared/schemas/nightworkers-security-intelligence.schema.ts` | strict outer bundle / response contract |
-| New | `shared/schemas/nightworkers-security-intelligence-pilot.schema.ts` | versioned pilot evidence contract |
+| New | `shared/schemas/nightworkers-security-intelligence-integrity-evidence.schema.ts` | single-Run integrity evidence v2 contract |
 | Change | integration route registration file | 新route groupをmount |
-| New | `spec/evidence/security-intelligence-nightworkers-pilot-template.json` | paired observation template |
+| New | `spec/evidence/security-intelligence-integrity-smoke-template.json` | single-Run integrity evidence template |
 | New | `spec/security-intelligence-pilot-decision-template.md` | GO / ITERATE / STOP decision format |
 
 実装時は既存route registrationの実pathを確認し、同じ役割のfileがある場合は重複route rootを作らない。
@@ -95,31 +99,38 @@ PR merge前に次を固定する。
 - 新routeの追加が既存scopeの意味を拡張しすぎない。必要なら新scopeは別migration/PRに分ける。
 - strict old consumerが新fieldを受け取る経路を作らない。
 
-## 7. Pilot design
+## 7. Historical pilot design and replacement
 
-### Phase A: Smoke
+以下のpaired baseline designは採用しない。assessmentはpersisted scan artifactのprojectionであり、
+実装Runを複製するとモデル揺れ、費用、時間が増え、integrity検証の精度は上がらない。
 
-- 1 repository、1 revision pair
+現在は1 Task / 1 implementation Run / 1 canonical Evidence Subjectで、pre assessment →
+Security Contract → implementation → post assessment → structured judgmentを確認する。
+もう一方のruntime laneはadapter / tool contract smokeだけを行う。
+
+### Adopted Phase A: single-Run integrity smoke
+
+- 1 repository、1 implementation Run
 - Dependency changeあり
 - assessment ref/evidence refを人手で解決確認
 - wrong project/revision、redaction、rollbackを確認
 
-### Phase B: Paired sample
+### Rejected Phase B: Paired sample
 
-- 少なくとも10件のvalid pair
-- 同一task、同一revision、同一scan profileでbaselineとassessment-enabledを比較
-- tool failureやzero findingを除外せずsampleへ含める
-- Authorization shadowは利用できるcaseだけ測定し、Dependency結果と別集計する
+baseline / assessment-enabledの二重Runと10件sampleは実行しない。typed unavailable、
+tool failure、zero findingはfocused unit / contract scenarioでfail-closedを固定する。
 
-### Pair unit
+### Evidence unit
 
 ```text
 taskRef
-  baselineRunRef
-  assessmentRunRef
-  bundleRef
-  dependencyAssessmentRef
-  authorizationAssessmentRef
+  taskRevisionSnapshotId / taskRevisionSnapshotDigest
+  runRef
+  evidenceSubjectRef
+  preBundleRef / preAssessmentRef
+  securityContractRef
+  postBundleRef / postAssessmentRef
+  finalJudgmentRef
   projectRef
   sourceRevision
   targetDigest
@@ -128,12 +139,12 @@ taskRef
   unresolvedEvidenceRefs
   evidenceResolution
   outcome
-  operatorAction
-  timeToEvidence
+  primaryLane / secondaryLaneContractCheck
   limitations
 ```
 
-baselineとassessmentでrevision/digestが一致しないpairは無効とし、performance比較へ含めない。ただしmismatch自体は安全性incidentとして記録する。task/run/bundle refが重複するpairは独立sampleとして数えず、pairから再計算できない集計metricを受理しない。
+pre/postのtask、run、Evidence Subject、project、revision role、digestが一致しない場合は
+安全性incidentとして停止する。
 
 ## 8. Metrics
 
@@ -145,33 +156,23 @@ baselineとassessmentでrevision/digestが一致しないpairは無効とし、p
 - required verification failureをsuccess表示したcount
 - contract parse failure count
 
-### Usefulness
-
-- Dependency change taskで適切なverificationが選択された率
-- assessmentからfinding evidenceへ到達できた率
-- operatorが追加調査または修正へ移った率
-- time-to-evidenceのbaseline差
-- inconclusive/unknownの理由が説明可能だった率
-
 ### Cost / reliability
 
-- assessment build latency p50/p95
-- endpoint error/timeout rate
+- assessment build latency
+- endpoint request/error count
 - scan completion latencyへの影響
 - payload size
-- Authorization shadowのunknown/coverage-lost/false-worsened count
 
 telemetryにはsource本文、secret、raw filesystem pathを保存しない。
 
 ## 9. Decision gates
 
-### GO候補
+### Capability-level GO候補
 
 - wrong project/revision、secret/path leakが0件
 - assessmentのevidence refが100%解決可能
 - required failureのsuccess誤表示が0件
 - 既存scan completionへの重大regressionがない
-- Dependency sliceでactionabilityまたはtime-to-evidenceに改善が観測される
 - rollback drillが成功する
 
 ### ITERATE
@@ -188,7 +189,8 @@ telemetryにはsource本文、secret、raw filesystem pathを保存しない。
 - required failureを成功扱いする
 - 既存scan contractまたは主要workflowを不安定化する
 
-GO条件を満たしても、このPR内でdefault ONにしない。別のdated decision recordとactivation PRを必要とする。
+assessment consumer、post-assessment grant、candidate export、feedback export、shadow retrievalを
+別々に判断する。GO条件を満たしてもdefault ONにせず、別のdated activation decisionを必要とする。
 
 ## 10. Rollout control
 
@@ -210,9 +212,10 @@ producer側は`NIGHTWORKERS_INTEGRATION_ENABLED`、`NIGHTWORKERS_SECURITY_INTELL
 5. redactionとexisting v1 regression testを追加する。
 6. server/consumer flagとallowlistを追加する。
 7. NightWorkers consumer fixture testをgreenにする。
-8. 1-pair smokeとrollback drillを行う。
-9. 10件以上のpaired pilotを実施し、versioned evidenceを保存する。
-10. decision templateから別decision recordを作る。
+8. cross-repository fixture checkerを通す。
+9. single-Run integrity smokeと1回のrollback drillを行う。
+10. Stage 2 integrity PASS後に1-batch shadow smokeを行う。
+11. decision templateからcapability別decision recordを作る。
 
 ## 12. Acceptance criteria
 
@@ -224,8 +227,8 @@ producer側は`NIGHTWORKERS_INTEGRATION_ENABLED`、`NIGHTWORKERS_SECURITY_INTELL
 - flag OFFで既存workflowへobservableな差分がない。
 - responseはprivate/no-storeで、設定されたpayload上限を超えない。
 - assessmentからすべてのevidence refを解決できる。
-- 1-pair smokeとrollback drillが成功する。
-- paired pilot artifactがsource本文/secret/raw pathなしで作成される。
+- single-Run integrity smokeとrollback drillが成功する。
+- integrity evidence artifactがsource本文/secret/raw pathなしで作成される。
 
 ## 13. Verification commands
 
@@ -246,7 +249,7 @@ NightWorkersでは、repository固有commandに加えて次の結果を必須に
 - flag OFF regression test
 - wrong revision/project rejection test
 - inconclusive/unavailable rendering test
-- smoke pair evidence validation
+- single-Run integrity evidence validation
 
 ## 14. Failureとrollback
 

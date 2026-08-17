@@ -1,5 +1,9 @@
 # Phase 54: Release Trust and Product Value Realization Plan
 
+Archive status: Authoritative same-commit Linux closeout completed; remaining
+claim、productization、packaging、governance work was transferred to
+`spec/phase-56-capability-product-completion-plan.md`.
+
 Status: In progress. Slice 54.0 was implemented locally on 2026-08-05; the
 remaining P0 release-trust slices are not yet complete.
 

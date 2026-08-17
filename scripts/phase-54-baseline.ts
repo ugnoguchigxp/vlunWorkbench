@@ -40,7 +40,7 @@ const phase54ScopePaths = new Set([
 	"shared/schemas/release-evidence.schema.test.ts",
 	"shared/schemas/release-evidence.schema.ts",
 	"spec/evidence/phase-54-baseline.json",
-	"spec/phase-54-release-trust-and-product-value-realization-plan.md",
+	"spec/.archived/phase-54-release-trust-and-product-value-realization-plan.md",
 ]);
 
 const externalBenchmarkSchema = z.object({

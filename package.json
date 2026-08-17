@@ -78,6 +78,8 @@
 		"oracle:security": "bun run api/cli/oracle-security.ts",
 		"integration:nightworkers:capabilities": "bun run api/cli/nightworkers-security-capabilities.ts",
 		"verify:security-intelligence-contract": "bun run scripts/verify-security-intelligence-contract.ts",
+		"verify:security-intelligence-cross-repo-fixtures": "bun run scripts/verify-security-intelligence-cross-repo-fixtures.ts",
+		"verify:security-intelligence-integrity-evidence": "bun run scripts/verify-security-intelligence-integrity-evidence.ts",
 		"security-intelligence:assess": "bun run api/cli/security-assessment.ts",
 		"security-intelligence:authorization-shadow": "bun run api/cli/authorization-shadow-assessment.ts",
 		"scan:dast": "bun run api/cli/scan-dast.ts",

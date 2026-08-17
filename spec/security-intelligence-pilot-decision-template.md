@@ -1,53 +1,68 @@
-# Security Intelligence NightWorkers Pilot Decision
+# Security Intelligence NightWorkers Integrity Smoke Decision
 
 Status: DRAFT — no rollout decision has been made
 
 Decision date: `<YYYY-MM-DD>`
 
-Pilot evidence: `./evidence/<completed-pilot-evidence>.json`
+Integrity evidence: `./evidence/<completed-integrity-evidence>.json`
 
 Contract version: `1`
 
 ## Decision
 
-Choose exactly one after validating the completed evidence artifact:
+Choose exactly one decision for each capability after validating the completed evidence artifact.
+Do not collapse unrelated capabilities into one rollout decision.
 
-- `GO`: integrity gates pass and Dependency usefulness improves. Keep default OFF; propose a separate activation PR.
-- `ITERATE`: no integrity incident occurred, but usefulness, latency, reliability, or Authorization quality needs work.
-- `STOP`: an integrity, privacy, evidence-resolution, or required-failure presentation incident occurred.
+| Capability | Decision | Evidence refs | Rationale |
+| --- | --- | --- | --- |
+| Assessment consumer | `<GO \| ITERATE \| STOP>` | `<refs>` | `<summary>` |
+| Post-assessment workspace grant | `<GO \| ITERATE \| STOP>` | `<refs>` | `<summary>` |
+| Candidate export | `<GO \| ITERATE \| STOP>` | `<refs>` | `<summary>` |
+| Feedback export | `<GO \| ITERATE \| STOP>` | `<refs>` | `<summary>` |
+| Shadow retrieval | `<GO \| ITERATE \| STOP>` | `<refs>` | `<summary>` |
 
-Selected decision: `<GO | ITERATE | STOP>`
+`GO` means eligible for a later controlled activation change. It does not authorize default ON.
 
 ## Evidence gate
 
 | Gate | Required | Observed | Result |
 | --- | ---: | ---: | --- |
-| Valid paired samples | 10 or more | `<value>` | `<PASS/FAIL>` |
+| Cross-repository fixture digests recorded and aligned | 5 | `<value>` | `<PASS/FAIL>` |
+| Authoritative implementation Runs | exactly 1 | `<value>` | `<PASS/FAIL>` |
+| Pre → contract → post → judgment lifecycle | complete on the same Run | `<value>` | `<PASS/FAIL>` |
+| Secondary runtime lane | adapter/tool contract verified | `<value>` | `<PASS/FAIL>` |
 | Wrong project/revision bindings | 0 | `<value>` | `<PASS/FAIL>` |
+| Wrong evidence subject accepted | 0 | `<value>` | `<PASS/FAIL>` |
+| Cross-Run evidence accepted | 0 | `<value>` | `<PASS/FAIL>` |
 | Secret or absolute-path leaks | 0 | `<value>` | `<PASS/FAIL>` |
 | Required failures shown as success | 0 | `<value>` | `<PASS/FAIL>` |
+| Unavailable results shown as success | 0 | `<value>` | `<PASS/FAIL>` |
 | Evidence resolution rate | 100% | `<value>` | `<PASS/FAIL>` |
 | Contract parse failures | 0 | `<value>` | `<PASS/FAIL>` |
+| Stage 3 shadow isolation checks | all pass | `<value>` | `<PASS/FAIL>` |
 | Rollback drill | successful | `<value>` | `<PASS/FAIL>` |
 
 ## Usefulness and cost
 
-- Operator action rate: `<value>`
-- Baseline median time-to-evidence: `<value>` seconds
-- Assessment median time-to-evidence: `<value>` seconds
-- Assessment build latency p50 / p95: `<value>` / `<value>` ms
-- Endpoint error rate: `<value>`
-- Payload size p95: `<value>` bytes
-- Authorization shadow observations: `<summary or unavailable>`
+- Assessment build latency: `<value>` ms
+- Endpoint requests / unexpected errors: `<value>` / `<value>`
+- Payload size: `<value>` bytes
+- Declaration scope: `<verified_repository_declarations | transport_integrity_only>`
+- Stage 3 shadow observations: `<summary>`
+
+These are operational observations from one integrity Run, not a baseline-versus-enabled
+performance comparison.
 
 ## Rationale
 
-`<Explain the decision using only the linked versioned evidence. Do not include source text, secrets, or absolute filesystem paths.>`
+`<Explain each capability decision using only linked versioned evidence. Do not include source text, secrets, or absolute filesystem paths.>`
 
 ## Rollback and follow-up
 
-- NightWorkers consumer flag after pilot: `OFF`
-- vulnWorkbench endpoint flag after pilot: `OFF`
-- Project allowlist after pilot: `empty`
+- NightWorkers assessment / post-assessment flags after smoke: `OFF`
+- candidate / feedback / shadow flags after smoke: `OFF`
+- vulnWorkbench endpoint flag after smoke: `OFF`
+- Project allowlist after smoke: `empty`
+- Default activation authorized by this decision: `NO`
 - Existing NightWorkers scan API regression check: `<PASS/FAIL>`
 - Follow-up owner and issue: `<reference>`

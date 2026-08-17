@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { NIGHTWORKERS_SECURITY_INTELLIGENCE_CONTRACT_VERSION } from "./nightworkers-security-intelligence.schema";
 import {
 	securityIntelligenceCanonicalOpaqueRefsSchema,
 	securityIntelligenceCanonicalReasonCodesSchema,
@@ -8,8 +9,8 @@ import {
 	securityIntelligenceSha256DigestSchema,
 	securityIntelligenceTimestampSchema,
 } from "./security-intelligence-assessment-components.schema";
-import { NIGHTWORKERS_SECURITY_INTELLIGENCE_CONTRACT_VERSION } from "./nightworkers-security-intelligence.schema";
 
+/** @deprecated Historical paired-run evidence v1. Use the integrity evidence v2 schema. */
 export const NIGHTWORKERS_SECURITY_INTELLIGENCE_PILOT_SCHEMA_VERSION =
 	"security-intelligence-nightworkers-pilot-evidence-v1" as const;
 

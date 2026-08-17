@@ -910,7 +910,7 @@ source code、README、issue、comment、test fixture、scanner message、artifa
 - wrong project / revision negative tests
 - service unavailable / timeout tests
 - secret / path redaction tests
-- end-to-end paired pilot
+- single-Run end-to-end integrity smokeとsecondary lane contract smoke
 
 各laneはprivate database schemaを共有しない。shared contractが不安定な間は、各project内部実装を先行して外部契約へ固定しない。
 
@@ -1122,7 +1122,7 @@ rollbackはfeature flag、independent adapter、versioned contractによってpr
 6. candidate promotionに必要なEvidenceとhuman review範囲。
 7. project-scoped lessonのretention / revision expiry。
 8. baseline、targeted、exploration budgetの割合。
-9. paired pilotのsample、holdout、success threshold。
+9. capability別rollout decisionとdefault activationを分離する条件。
 10. Ontology Coreを独立させるmandatory triggerの到達時期。
 
 ---

@@ -1,5 +1,8 @@
 # Phase 52: Plugin-Oriented Language, Build-System, and Framework Refactoring Plan
 
+Archive status: Superseded by `spec/phase-56-capability-product-completion-plan.md`.
+Remaining sandbox、test、plugin registration work was transferred to Phase 56.
+
 Status: Implementation in progress; Phase 51 local start gate satisfied.
 Slices 52.0–52.5、validated DAST start-plan generation、consent UI、post-scan
 technology reporting are implemented in the working tree. Sandboxed Java target

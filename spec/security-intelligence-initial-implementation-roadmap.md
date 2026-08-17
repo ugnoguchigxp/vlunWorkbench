@@ -2,12 +2,12 @@
 
 ## Status
 
-- Status: Proposed
+- Status: Implemented; cross-repository integrity smoke pending
 - Owner: `vulnWorkbench`
-- Last updated: 2026-08-15
+- Last updated: 2026-08-16
 - Source concept: [Security Intelligence Integration Concept](./security-intelligence-integration-concept.md)
 - Scope: 最初の実証を成立させる4 PR。default activationと恒久知識への自動登録は含めない。
-- Progress: PR 1 committed as `538866f`; PR 2 committed as `ca0205e`; PR 3 committed as `5a4df84`; PR 4 vulnWorkbench endpoint implemented、cross-repository consumer/pilot pending
+- Progress: PR 1–3とPR 4 producer/consumer/post-assessment/shadow plumbingは実装済み。single-Run integrity smokeとrollout decisionが未完了
 
 ## 1. 結論
 
@@ -18,7 +18,7 @@
 1. assessment contractとbaseline fixtureを固定する。
 2. dependency changeを対象に、既存evidenceからassessmentを生成する最初の縦切りを作る。
 3. authorization boundary changeをshadow modeで観測する。
-4. NightWorkersとのpaired pilotをdefault OFFで実行可能にする。
+4. NightWorkersとのsingle-Run integrity smokeをdefault OFFで実行可能にする。
 
 この順序なら各PRを単独でmerge・revertできる。PR 2で最小価値を確認でき、Authorization解析の不確実性がDependency経路を止めない。
 
@@ -36,8 +36,8 @@ flowchart LR
     F --> G
     H --> G
     G --> I["Security Intelligence Assessment v1"]
-    I --> J["NightWorkers task/run\npaired pilot"]
-    I -. "pilot後のcandidateのみ" .-> K["contextStill"]
+    I --> J["NightWorkers task/run\nsingle-Run integrity smoke"]
+    I -. "Stage 2 integrity PASS後のcandidateのみ" .-> K["contextStill"]
 ```
 
 `vulnWorkbench`はscannerの生出力をそのまま「安全判定」へ変換しない。対象revision、確認scope、evidence、coverage gap、unknown、residual riskを一つのassessmentへ投影する。NightWorkersはその結果をtask/runへ関連付け、contextStillへの知識候補生成はpilot後の別段階とする。
@@ -52,7 +52,7 @@ flowchart LR
 | Dependency検出 | npm、Maven、Gradle、Python、Goを扱う既存差分判定 | 最初のproduction-like vertical sliceにする |
 | Authorization情報 | `ApplicationModel`のentrypointと`authorizationGuards` | revision bindingと精度を補強し、PR 3ではshadow出力だけにする |
 | Static Intelligence | canonical ontologyを所有しないhandoff設計 | 境界を維持する。永続知識へ直接書き込まない |
-| Rollout evidence | 既存判断は`INSUFFICIENT_EVIDENCE` | default OFFを維持し、paired pilotの結果で再判断する |
+| Rollout evidence | deployment evidence pending | default OFFを維持し、single-Run integrity smokeとcapability別decisionで判断する |
 
 ## 4. PR構成
 
@@ -61,7 +61,7 @@ flowchart LR
 | PR 1（完了） | Contract + baseline | `shared/schemas/`、`shared/fixtures/`、検証script | schema、negative fixture、hashが決定的 |
 | PR 2（完了） | Dependency縦切り | `api/modules/security-intelligence/`、CLI | 保存済みrevision/evidenceから説明可能なassessmentを生成 |
 | PR 3（完了） | Authorization shadow | revision-bound snapshot、observer、fixture | coverage lossをchangeと誤認せず、runtime判断へ影響しない |
-| [PR 4](./security-intelligence-pr4-nightworkers-pilot-plan.md) | NightWorkers pilot | 独立integration endpoint、metric、pilot evidence | wrong-revision 0件、既存v1非破壊、default OFF |
+| [PR 4](./security-intelligence-pr4-nightworkers-pilot-plan.md)（実装済み） | NightWorkers integration | 独立integration endpoint、consumer、post-assessment、shadow plumbing | wrong-revision 0件、既存v1非破壊、default OFF |
 
 依存関係は`PR 1 -> PR 2 -> PR 4`が必須で、PR 3はPR 1 merge後にPR 2と並行開発できる。PR 4のAuthorization出力はPR 3が間に合わなくてもoptionalとして扱い、Dependency pilotを止めない。
 
@@ -119,7 +119,7 @@ git diff --check
 - required verificationの未実行・失敗を成功扱いしない。
 - Authorization observerの解析不能を`coverage_lost`または`unknown`として表現できる。
 - NightWorkersが既存scan contractを壊さずassessmentを参照できる。
-- paired pilot evidenceがversion管理されたartifactとして残る。
+- single-Run integrity evidenceがversion管理されたartifactとして残る。
 - 誤ったproject/revisionへの紐付けとsecret/path leakが0件である。
 - default activationの判断が、実装PRとは別のdecision recordで行われる。
 
@@ -133,6 +133,9 @@ git diff --check
 - 新しいscannerの導入
 - 既存NightWorkers scan API v1の破壊的変更
 
-## 10. 最初の着手点
+## 10. 残る着手点
 
-最初の実装作業はPR 1のschema skeletonとnegative fixtureである。特に「revision不一致」「required verificationにevidenceがない」「絶対pathを含む」の3ケースを先にrejectできる状態を作る。それが成立してからpositive fixtureを固定し、NightWorkers/contextStillへ共有する。
+3 repositoryのfixture semantic digestを一致させ、1 Task / 1 Run / 1 Evidence Subjectで
+pre assessment → Security Contract → post assessment → final judgmentのintegrity smokeを行う。
+Project declaration resolverが未導入の間は`transport_integrity_only`として証跡化し、
+Project Loop完成を主張しない。
