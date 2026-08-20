@@ -206,6 +206,18 @@ export class ArtifactStorage {
 		);
 	}
 
+	/** Removes only the directory addressed by a server-owned scan run ID. */
+	async removeRunDirectory(scanRunId: string): Promise<void> {
+		const scanDir = this.getScanDir(scanRunId);
+		const relative = path.relative(this.baseDir, scanDir);
+		if (relative.startsWith("..") || path.isAbsolute(relative) || !relative) {
+			throw new Error(
+				"Path traversal detected: scan directory is outside of artifact root.",
+			);
+		}
+		await fs.rm(scanDir, { recursive: true, force: true });
+	}
+
 	async readTextArtifact(
 		relativePath: string,
 		options: { maxBytes?: number } = {},

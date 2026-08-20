@@ -48,6 +48,13 @@ describe("Projects Route", () => {
 		}),
 		createProject: vi.fn().mockResolvedValue({ id: "p-new", name: "New Project" }),
 	};
+	const mockProjectDeletionService = {
+		deleteOwnedProject: vi.fn().mockResolvedValue({
+			deletedProjectId: "p-1",
+			deletedAt: new Date("2026-08-20T12:30:00.000Z"),
+			artifactCleanup: "queued",
+		}),
+	};
 
 	const app = new Hono();
 	app.use("*", async (c, next) => {
@@ -64,6 +71,7 @@ describe("Projects Route", () => {
 		"/",
 		createProjectsRoute({
 			projectRepository: mockProjectRepo as any,
+			projectDeletionService: mockProjectDeletionService as any,
 			env: readAppEnv({ NODE_ENV: "test" }),
 			resolveProjectPath: mockResolveProjectPath,
 		}),
@@ -98,6 +106,25 @@ describe("Projects Route", () => {
 	it("GET /:projectId returns 404 if project not found", async () => {
 		const res = await app.request("/p-missing");
 		expect(res.status).toBe(404);
+	});
+
+	it("DELETE /:projectId validates confirmation and delegates to the deletion service", async () => {
+		const res = await app.request("/p-1", {
+			method: "DELETE",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ confirmation: "Project 1" }),
+		});
+		expect(res.status).toBe(200);
+		expect(await res.json()).toEqual({
+			deletedProjectId: "p-1",
+			deletedAt: "2026-08-20T12:30:00.000Z",
+			artifactCleanup: "queued",
+		});
+		expect(mockProjectDeletionService.deleteOwnedProject).toHaveBeenCalledWith({
+			projectId: "p-1",
+			userId: "user-123",
+			confirmation: "Project 1",
+		});
 	});
 
 	it("POST / creates new project", async () => {

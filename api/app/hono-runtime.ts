@@ -8,9 +8,11 @@ import type { AgenticSearchResult } from "../modules/agentic-search/types";
 import { AuthService } from "../modules/auth/auth.service";
 import { BusinessLogicRunner } from "../modules/business-logic/business-logic-runner";
 import { ActiveAssessmentRunner } from "../modules/dast/active-assessment-runner";
+import { DastArtifactStorage } from "../modules/dast/dast-artifact-storage";
 import { DastAuthContextCrypto } from "../modules/dast/auth-context-crypto";
 import { DastAuthContextRepository } from "../modules/dast/auth-context-repository";
 import { IntegrationClientService } from "../modules/integrationClients/integration-client.service";
+import { DynamicArtifactStorage } from "../modules/dynamic/dynamic-artifact-storage";
 import { NightworkersWorkspaceTargetGrantRepository } from "../modules/integrations/nightworkers/nightworkers-workspace-target-grant.repository";
 import { NightworkersWorkspaceTargetGrantJanitor } from "../modules/integrations/nightworkers/nightworkers-workspace-target-grant-janitor";
 import { LlmSettingsRepository } from "../modules/llm-settings/llm-settings.repository";
@@ -18,7 +20,10 @@ import { WebProcessCapacity } from "../modules/processes/web-process-capacity";
 import { SourceRetriever } from "../modules/rag/retriever";
 import { SearchEvidenceCollector } from "../modules/rag/search-evidence";
 import { ScanReportRunner } from "../modules/reports/scan-report-runner";
+import { ReproductionArtifactStorage } from "../modules/reproductions/reproduction-artifact-storage";
 import { ArtifactStorage } from "../modules/scans/artifact-storage";
+import { ProjectArtifactCleanupRunner } from "../modules/scans/project-artifact-cleanup-runner";
+import { ProjectDeletionCleanupRepository } from "../modules/scans/project-deletion-cleanup-repository";
 import { ScanReportRepository } from "../modules/scans/report-repository";
 import {
 	ArtifactRepository,
@@ -68,6 +73,7 @@ export type AppRuntime = {
 	activeAssessmentRunner: ActiveAssessmentRunner;
 	businessLogicRunner: BusinessLogicRunner;
 	integrationClientService: IntegrationClientService;
+	projectArtifactCleanupRunner: ProjectArtifactCleanupRunner;
 	workspaceTargetGrantJanitor: Pick<
 		NightworkersWorkspaceTargetGrantJanitor,
 		"stop"
@@ -157,6 +163,7 @@ function isRuntimeShape(value: unknown): value is AppRuntime {
 		Boolean(obj.activeAssessmentRunner) &&
 		Boolean(obj.businessLogicRunner) &&
 		Boolean(obj.integrationClientService) &&
+		Boolean(obj.projectArtifactCleanupRunner) &&
 		typeof (
 			obj.workspaceTargetGrantJanitor as Record<string, unknown> | undefined
 		)?.stop === "function" &&
@@ -264,10 +271,20 @@ async function createRuntime(): Promise<AppRuntime> {
 			});
 		},
 	});
+	const projectArtifactCleanupRunner = new ProjectArtifactCleanupRunner(
+		new ProjectDeletionCleanupRepository(dbConnection.db),
+		{
+			scanStorage: new ArtifactStorage(),
+			dastStorage: new DastArtifactStorage(),
+			dynamicStorage: new DynamicArtifactStorage(),
+			reproductionStorage: new ReproductionArtifactStorage(),
+		},
+	);
 	await scanSupervisor.recoverStaleWebScans();
 	await scanDiagnosticRunner.recover();
 	await activeAssessmentRunner.recover();
 	await businessLogicRunner.recover();
+	await projectArtifactCleanupRunner.recover();
 	const integrationClientService = new IntegrationClientService(
 		dbConnection.db,
 	);
@@ -362,6 +379,7 @@ async function createRuntime(): Promise<AppRuntime> {
 		activeAssessmentRunner,
 		businessLogicRunner,
 		integrationClientService,
+		projectArtifactCleanupRunner,
 		workspaceTargetGrantJanitor,
 		agenticSearchService,
 	};

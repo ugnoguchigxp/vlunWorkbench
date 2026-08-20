@@ -1,4 +1,3 @@
-import { marked } from "marked";
 import {
 	type ChangeEvent,
 	type MouseEvent,
@@ -6,6 +5,7 @@ import {
 	useMemo,
 	useRef,
 } from "react";
+import { renderMarkdownToSafeHtml } from "./safe-markdown";
 
 type MarkdownEditorProps = {
 	value: string;
@@ -17,37 +17,7 @@ type MarkdownEditorProps = {
 	className?: string;
 };
 
-const markdownRenderer = new marked.Renderer();
-const renderSafeLink = markdownRenderer.link.bind(markdownRenderer);
-const isSafeLink = (href: string): boolean => {
-	if (href.includes("&") || href.startsWith("//")) return false;
-	try {
-		return ["http:", "https:", "mailto:"].includes(
-			new URL(href, "https://markdown.local/").protocol,
-		);
-	} catch {
-		return false;
-	}
-};
-markdownRenderer.html = () => "";
-markdownRenderer.image = () => "";
-markdownRenderer.link = (token) => {
-	const href = token.href.trim();
-	if (!isSafeLink(href)) {
-		return markdownRenderer.parser.parseInline(token.tokens);
-	}
-	return renderSafeLink(token);
-};
-
-export const renderMarkdownToSafeHtml = (markdown: string): string => {
-	const rendered = marked.parse(markdown, {
-		async: false,
-		breaks: false,
-		gfm: true,
-		renderer: markdownRenderer,
-	});
-	return typeof rendered === "string" ? rendered : "";
-};
+export { renderMarkdownToSafeHtml } from "./safe-markdown";
 
 const joinClassNames = (
 	...values: Array<string | false | null | undefined>

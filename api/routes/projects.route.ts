@@ -24,6 +24,7 @@ import {
 import { resolveProfileSteps } from "../modules/scans/profile-runner";
 import { getProfileById } from "../modules/scans/profiles";
 import { isTemporaryProjectPath } from "../modules/scans/project-visibility";
+import type { ProjectDeletionService } from "../modules/scans/project-deletion-service";
 import type {
 	ProjectRepository,
 	ScanRepository,
@@ -52,6 +53,7 @@ type ProjectsRouteDeps = {
 	scanSupervisor?: ScanProcessSupervisor;
 	processCapacity?: WebProcessCapacity;
 	env?: AppEnv;
+	projectDeletionService?: ProjectDeletionService;
 	resolveProjectPath?: typeof resolveProjectPath;
 };
 
@@ -158,6 +160,26 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 				},
 			});
 		})
+		.delete(
+			"/:projectId",
+			zValidator("json", z.object({ confirmation: z.string().min(1) })),
+			async (c) => {
+				if (!deps.projectDeletionService) {
+					throw new HttpError(500, "Project deletion is not configured.");
+				}
+				const authUser = getAuthContextUser(c);
+				const result = await deps.projectDeletionService.deleteOwnedProject({
+					projectId: c.req.param("projectId"),
+					userId: authUser.userId,
+					confirmation: c.req.valid("json").confirmation,
+				});
+				return c.json({
+					deletedProjectId: result.deletedProjectId,
+					deletedAt: result.deletedAt.toISOString(),
+					artifactCleanup: result.artifactCleanup,
+				});
+			},
+		)
 		.post("/", zValidator("json", createProjectSchema), async (c) => {
 			const authUser = getAuthContextUser(c);
 			const body = c.req.valid("json");

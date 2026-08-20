@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import {
 	index,
 	integer,
+	primaryKey,
 	sqliteTable,
 	text,
 	uniqueIndex,
@@ -332,6 +333,65 @@ export const scanReports = sqliteTable(
 		scanRunIdIdx: index("scan_reports_scan_run_id_idx").on(table.scanRunId),
 		artifactIdIdx: index("scan_reports_artifact_id_idx").on(table.artifactId),
 		statusIdx: index("scan_reports_status_idx").on(table.status),
+	}),
+);
+
+export type ProjectArtifactCleanupManifest = {
+	scanRunIds: string[];
+	dastRunIds: string[];
+	dynamicRunIds: string[];
+	reproductionRunIds: string[];
+};
+
+export const projectDeletionCleanupJobs = sqliteTable(
+	"project_deletion_cleanup_jobs",
+	{
+		id: id(),
+		ownerUserId: text("owner_user_id").references(() => users.id, {
+			onDelete: "set null",
+		}),
+		// This remains an audit value after the project row has been deleted.
+		projectId: text("project_id").notNull(),
+		projectName: text("project_name").notNull(),
+		manifest: text("manifest_json", { mode: "json" })
+			.$type<ProjectArtifactCleanupManifest>()
+			.notNull(),
+		status: text("status").notNull().default("pending"),
+		attemptCount: integer("attempt_count").notNull().default(0),
+		lastError: text("last_error"),
+		createdAt: timestampMs("created_at"),
+		updatedAt: timestampMs("updated_at"),
+		completedAt: integer("completed_at", { mode: "timestamp_ms" }),
+	},
+	(table) => ({
+		statusCreatedIdx: index("project_deletion_cleanup_jobs_status_created_idx").on(
+			table.status,
+			table.createdAt,
+		),
+	}),
+);
+
+export const scanReportUserViews = sqliteTable(
+	"scan_report_user_views",
+	{
+		reportId: text("report_id")
+			.notNull()
+			.references(() => scanReports.id, { onDelete: "cascade" }),
+		userId: text("user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		llmCommentSeenAt: integer("llm_comment_seen_at", {
+			mode: "timestamp_ms",
+		}),
+		createdAt: timestampMs("created_at"),
+		updatedAt: timestampMs("updated_at"),
+	},
+	(table) => ({
+		pk: primaryKey({ columns: [table.reportId, table.userId] }),
+		userUpdatedIdx: index("scan_report_user_views_user_updated_idx").on(
+			table.userId,
+			table.updatedAt,
+		),
 	}),
 );
 

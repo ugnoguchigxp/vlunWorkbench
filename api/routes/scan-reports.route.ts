@@ -5,6 +5,7 @@ import { HttpError } from "../modules/auth/errors";
 import type { ArtifactStorage } from "../modules/scans/artifact-storage";
 import { buildMarkdownReport as defaultBuildMarkdownReport } from "../modules/scans/report-builder";
 import type { ScanReportRepository } from "../modules/scans/report-repository";
+import type { ReportViewStateRepository } from "../modules/scans/report-view-state-repository";
 import type {
 	ArtifactRepository,
 	ProjectRepository,
@@ -18,6 +19,7 @@ type ScanReportsRouteDeps = {
 	artifactRepository: ArtifactRepository;
 	artifactStorage: ArtifactStorage;
 	db: AppDatabase;
+	reportViewStateRepository: ReportViewStateRepository;
 	buildMarkdownReport?: typeof defaultBuildMarkdownReport;
 };
 
@@ -35,6 +37,7 @@ export function createScanReportsRoute(deps: ScanReportsRouteDeps) {
 		artifactRepository,
 		artifactStorage,
 		db,
+		reportViewStateRepository,
 	} = deps;
 	const buildMarkdownReport =
 		deps.buildMarkdownReport ?? defaultBuildMarkdownReport;
@@ -113,6 +116,43 @@ export function createScanReportsRoute(deps: ScanReportsRouteDeps) {
 			const { report } = await checkReportOwnership(reportId, authUser.userId);
 			return c.json({ report });
 		})
+		.get("/:id/viewer-state", async (c) => {
+			const authUser = getAuthContextUser(c);
+			const reportId = c.req.param("id");
+			await checkReportOwnership(reportId, authUser.userId);
+			const viewerState = await reportViewStateRepository.get(
+				reportId,
+				authUser.userId,
+			);
+			return c.json({
+				viewerState: {
+					llmCommentSeenAt:
+						viewerState?.llmCommentSeenAt?.toISOString() ?? null,
+				},
+			});
+		})
+		.put("/:id/viewer-state", async (c) => {
+			const authUser = getAuthContextUser(c);
+			const body: unknown = await c.req.json().catch(() => null);
+			if (
+				!body ||
+				typeof body !== "object" ||
+				(body as Record<string, unknown>).llmCommentSeen !== true
+			) {
+				throw new HttpError(400, "llmCommentSeen must be true");
+			}
+			const reportId = c.req.param("id");
+			await checkReportOwnership(reportId, authUser.userId);
+			const viewerState = await reportViewStateRepository.markLlmCommentSeen(
+				reportId,
+				authUser.userId,
+			);
+			return c.json({
+				viewerState: {
+					llmCommentSeenAt: viewerState.llmCommentSeenAt?.toISOString() ?? null,
+				},
+			});
+		})
 		.get("/:id/download", async (c) => {
 			const authUser = getAuthContextUser(c);
 			const reportId = c.req.param("id");
@@ -149,6 +189,14 @@ export function createScanReportsRoute(deps: ScanReportsRouteDeps) {
 
 			let content: string;
 			try {
+				const intact = await artifactStorage.verifyArtifact(
+					artifact.path,
+					{ sha256: artifact.sha256, sizeBytes: artifact.sizeBytes },
+					{ maxBytes: 64 * 1024 * 1024 },
+				);
+				if (!intact) {
+					throw new HttpError(409, "Report artifact integrity mismatch");
+				}
 				content = await artifactStorage.readTextArtifact(artifact.path);
 			} catch (err) {
 				if (!isMissingFileError(err)) {

@@ -1,7 +1,4 @@
-import { DiagnosticDashboard } from "./components/diagnostic-dashboard";
-import { DastAssessmentPanel } from "./components/dast-assessment-panel";
-import { FindingDetailPanel } from "./components/finding-detail-panel";
-import { ScansSidebar, ScansToolbar } from "./components/scans-sidebar";
+import { ScansWorkspacePage } from "./components/scans-workspace-page";
 import { ScansProvider } from "./scans-context";
 import {
 	type ScansDomainSectionProps,
@@ -13,15 +10,7 @@ export const ScansDomainSection = (props: ScansDomainSectionProps) => {
 	if (!props.active) return null;
 	return (
 		<ScansProvider value={controller}>
-			<main className="scans-layout">
-				<ScansToolbar />
-				<DiagnosticDashboard />
-				<DastAssessmentPanel />
-				<div className="scans-workspace">
-					<ScansSidebar />
-					<FindingDetailPanel />
-				</div>
-			</main>
+			<ScansWorkspacePage />
 		</ScansProvider>
 	);
 };

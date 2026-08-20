@@ -25,10 +25,14 @@ import type {
 } from "./core-types";
 
 export {
+	ApiRequestError,
+	isApiRequestError,
 	requestJson,
+	requestText,
 	requestVoid,
 	UNAUTHORIZED_EVENT_NAME,
 } from "./core-request";
+export type { ApiErrorBody } from "./core-request";
 export type * from "./core-types";
 
 const pageEndpoint = (slug: string): string =>

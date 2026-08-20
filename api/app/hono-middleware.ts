@@ -271,6 +271,8 @@ export function configureHttpMiddleware(app: Hono, runtime: AppRuntime): void {
 					ok: false,
 					kind: error.kind || ("unknown_error" as FailureKind),
 					message: error.message,
+					...(error.code ? { code: error.code } : {}),
+					...(error.details !== undefined ? { details: error.details } : {}),
 				},
 				error.status as 400 | 401 | 403 | 404 | 409 | 500,
 			);

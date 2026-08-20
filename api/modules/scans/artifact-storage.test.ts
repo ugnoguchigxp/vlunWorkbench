@@ -73,6 +73,15 @@ describe("ArtifactStorage", () => {
 		).rejects.toThrow("Path traversal detected");
 	});
 
+	it("removes only a server-owned scan run directory", async () => {
+		await storage.saveTextArtifact("scan-123", "reports", "content", "report.md");
+		await storage.removeRunDirectory("scan-123");
+		await expect(fs.stat(path.join(tempDir, "scan-123"))).rejects.toThrow();
+		await expect(storage.removeRunDirectory("../outside")).rejects.toThrow(
+			"Path traversal detected",
+		);
+	});
+
 	it("bounds reads and rejects symlinks that escape the artifact root", async () => {
 		const saved = await storage.saveTextArtifact(
 			"scan-123",

@@ -307,6 +307,10 @@ test("mocked completed scan results and Markdown report preview render", async (
 			return json({ groups: [], ungroupedFindingIds: [finding.id] });
 		if (path === `/api/scans/${scan.id}/reports`)
 			return json({ reports: [report] });
+		if (path === `/api/scan-reports/${report.id}`)
+			return json({ report: { ...report, format: "markdown" } });
+		if (path === `/api/scan-reports/${report.id}/viewer-state`)
+			return json({ viewerState: { llmCommentSeenAt: null } });
 		if (path === `/api/scans/${scan.id}/reviews`)
 			return json({ reviews: [] });
 		if (path === `/api/scans/${scan.id}/attack-surface`)

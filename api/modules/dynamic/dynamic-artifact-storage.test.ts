@@ -39,4 +39,13 @@ describe("DynamicArtifactStorage", () => {
 			"dynamic_artifact_file_limit_exceeded",
 		);
 	});
+
+	it("removes only the requested dynamic run directory", async () => {
+		await storage.saveDynamicLog("run-1", "stdout", "1234");
+		await storage.removeRunDirectory("run-1");
+		await expect(fs.stat(path.join(root, "artifacts", "run-1"))).rejects.toThrow();
+		await expect(storage.removeRunDirectory("../outside")).rejects.toThrow(
+			"Path traversal detected",
+		);
+	});
 });

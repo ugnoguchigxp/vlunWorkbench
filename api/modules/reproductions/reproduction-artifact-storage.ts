@@ -23,6 +23,17 @@ export class ReproductionArtifactStorage {
 		return path.resolve(this.baseDir, reproductionRunId);
 	}
 
+	private validateRunDirectory(reproductionRunId: string): string {
+		const runDir = this.getRunDir(reproductionRunId);
+		const relative = path.relative(this.baseDir, runDir);
+		if (relative.startsWith("..") || path.isAbsolute(relative) || !relative) {
+			throw new Error(
+				"Path traversal detected: reproduction run directory is outside of artifact root.",
+			);
+		}
+		return runDir;
+	}
+
 	private validatePath(targetPath: string, reproductionRunId: string): void {
 		const runDir = this.getRunDir(reproductionRunId);
 		const resolvedTarget = path.resolve(targetPath);
@@ -126,5 +137,12 @@ export class ReproductionArtifactStorage {
 			);
 		}
 		return await fs.readFile(targetPath, "utf8");
+	}
+
+	async removeRunDirectory(reproductionRunId: string): Promise<void> {
+		await fs.rm(this.validateRunDirectory(reproductionRunId), {
+			recursive: true,
+			force: true,
+		});
 	}
 }

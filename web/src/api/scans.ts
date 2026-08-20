@@ -1,4 +1,4 @@
-import { requestJson } from "./core";
+import { requestJson, requestText } from "./core";
 
 export type Project = {
 	id: string;
@@ -138,6 +138,22 @@ export async function createProject(params: {
 		body: params,
 	});
 	return data.project;
+}
+
+export type DeleteProjectResult = {
+	deletedProjectId: string;
+	deletedAt: string;
+	artifactCleanup: "queued";
+};
+
+export async function deleteProject(
+	projectId: string,
+	params: { confirmation: string },
+): Promise<DeleteProjectResult> {
+	return requestJson<DeleteProjectResult>(`/api/projects/${projectId}`, {
+		method: "DELETE",
+		body: params,
+	});
 }
 
 export async function browseProjectFolder(): Promise<{ path: string | null }> {
@@ -478,6 +494,33 @@ export async function fetchScanReport(
 	reportId: string,
 ): Promise<{ report: ScanReport }> {
 	return requestJson<{ report: ScanReport }>(`/api/scan-reports/${reportId}`);
+}
+
+export type ScanReportViewerState = {
+	llmCommentSeenAt: string | null;
+};
+
+export async function fetchScanReportViewerState(
+	reportId: string,
+): Promise<ScanReportViewerState> {
+	const data = await requestJson<{ viewerState: ScanReportViewerState }>(
+		`/api/scan-reports/${reportId}/viewer-state`,
+	);
+	return data.viewerState;
+}
+
+export async function markScanReportLlmCommentSeen(
+	reportId: string,
+): Promise<ScanReportViewerState> {
+	const data = await requestJson<{ viewerState: ScanReportViewerState }>(
+		`/api/scan-reports/${reportId}/viewer-state`,
+		{ method: "PUT", body: { llmCommentSeen: true } },
+	);
+	return data.viewerState;
+}
+
+export async function downloadScanReportMarkdown(reportId: string): Promise<string> {
+	return await requestText(`/api/scan-reports/${reportId}/download`);
 }
 
 export * from "./scans-execution";

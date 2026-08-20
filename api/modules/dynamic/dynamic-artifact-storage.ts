@@ -42,6 +42,17 @@ export class DynamicArtifactStorage {
 		return path.resolve(this.baseDir, dynamicRunId);
 	}
 
+	private validateRunDirectory(dynamicRunId: string): string {
+		const runDir = this.getRunDir(dynamicRunId);
+		const relative = path.relative(this.baseDir, runDir);
+		if (relative.startsWith("..") || path.isAbsolute(relative) || !relative) {
+			throw new Error(
+				"Path traversal detected: dynamic run directory is outside of artifact root.",
+			);
+		}
+		return runDir;
+	}
+
 	private validatePath(targetPath: string, dynamicRunId: string): void {
 		const runDir = this.getRunDir(dynamicRunId);
 		const resolvedTarget = path.resolve(targetPath);
@@ -192,6 +203,13 @@ export class DynamicArtifactStorage {
 			);
 		}
 		return await fs.readFile(targetPath, "utf8");
+	}
+
+	async removeRunDirectory(dynamicRunId: string): Promise<void> {
+		await fs.rm(this.validateRunDirectory(dynamicRunId), {
+			recursive: true,
+			force: true,
+		});
 	}
 
 	private assertBufferWithinLimit(buffer: Uint8Array): void {

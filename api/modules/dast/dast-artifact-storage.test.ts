@@ -64,4 +64,13 @@ describe("DastArtifactStorage", () => {
 			"Path traversal detected",
 		);
 	});
+
+	it("removes only the requested DAST run directory", async () => {
+		await storage.saveTextArtifact("run-1", "logs", "safe", "run.log");
+		await storage.removeRunDirectory("run-1");
+		await expect(fs.stat(path.join(tempDir, "run-1"))).rejects.toThrow();
+		await expect(storage.removeRunDirectory("../outside")).rejects.toThrow(
+			"Path traversal detected",
+		);
+	});
 });

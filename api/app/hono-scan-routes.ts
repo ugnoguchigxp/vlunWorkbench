@@ -16,7 +16,9 @@ import { NightworkersWorkspaceTargetGrantRepository } from "../modules/integrati
 import { NightworkersWorkspaceTargetGrantService } from "../modules/integrations/nightworkers/nightworkers-workspace-target-grant.service";
 import { FindingReviewRepository } from "../modules/reviews/finding-review-repository";
 import { ArtifactStorage } from "../modules/scans/artifact-storage";
+import { ProjectDeletionService } from "../modules/scans/project-deletion-service";
 import { ScanReportRepository } from "../modules/scans/report-repository";
+import { ReportViewStateRepository } from "../modules/scans/report-view-state-repository";
 import {
 	ArtifactRepository,
 	FindingRepository,
@@ -58,6 +60,11 @@ export function registerScanRoutes(app: Hono, runtime: AppRuntime): void {
 		runtime.dbConnection.db,
 	);
 	const artifactStorage = new ArtifactStorage();
+	const projectDeletionService = new ProjectDeletionService({
+		db: runtime.dbConnection.db,
+		projectRepository,
+		cleanupRunner: runtime.projectArtifactCleanupRunner,
+	});
 	if (runtime.env.nightworkersIntegrationEnabled) {
 		const nightworkersRequestGuard = new NightworkersRequestGuard();
 		const nightworkersRepository = new NightworkersIntegrationRepository(
@@ -142,6 +149,7 @@ export function registerScanRoutes(app: Hono, runtime: AppRuntime): void {
 			scanSupervisor: runtime.scanSupervisor,
 			processCapacity: runtime.webProcessCapacity,
 			env: runtime.env,
+			projectDeletionService,
 		}),
 	);
 	app.route("/api/scan-profiles", createScanProfilesRoute());
@@ -171,6 +179,9 @@ export function registerScanRoutes(app: Hono, runtime: AppRuntime): void {
 			artifactRepository,
 			artifactStorage,
 			db: runtime.dbConnection.db,
+			reportViewStateRepository: new ReportViewStateRepository(
+				runtime.dbConnection.db,
+			),
 		}),
 	);
 	app.route(
