@@ -74,6 +74,11 @@ export function ScansWorkspacePage() {
 		c.setSelectedScanRunId("");
 		move({ projectId });
 	};
+	const openProjectHistory = (project: (typeof c.projects)[number]) => {
+		c.setSelectedProjectId(project.id);
+		c.setSelectedScanRunId("");
+		move({ projectId: project.id, tab: "history" });
+	};
 	const selectScan = (scanRunId: string) => {
 		c.handleSelectScanRun(scanRunId);
 		move({ projectId: c.selectedProjectId, scanRunId, tab: activeTab });
@@ -123,6 +128,7 @@ export function ScansWorkspacePage() {
 					projects={c.projects}
 					selectedProjectId={c.selectedProjectId}
 					onSelect={selectProject}
+					onOpenHistory={openProjectHistory}
 					onAdd={() => c.setShowNewProjectModal(true)}
 					onDelete={projectDeletion.open}
 				/>

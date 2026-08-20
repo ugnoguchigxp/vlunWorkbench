@@ -1,0 +1,169 @@
+<article lang="en" data-spec-role="decision-contract">
+  <h1 id="third-party-scanner-distribution-record">Third-party scanner distribution record</h1>
+  <p>
+    Scanner execution stays outside the target repository. The repository owns the command policy,
+    output redaction, artifact metadata, and adapter contracts; scanner binaries/images and their
+    update operations are managed separately. Core distribution is limited to MIT/Apache-2.0
+    engines. Other licenses require an explicitly enabled optional adapter and a separately built
+    image.
+  </p>
+  <table>
+    <caption>
+      Third-party scanner distribution record
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Component</th>
+        <th scope="col">Intended use</th>
+        <th scope="col">License</th>
+        <th scope="col">Pin and data status</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Semgrep <code>1.171.0</code></td>
+        <td>optional owned-rule static analysis with JSON output</td>
+        <td>LGPL-2.1-or-later (engine; packaged dependencies require inventory)</td>
+        <td>
+          Not in the core toolbox or standard profiles; separately built adapter image, explicitly
+          enabled with <code>VULN_WORKBENCH_OPTIONAL_SCANNER_ADAPTERS=semgrep</code>
+        </td>
+      </tr>
+      <tr>
+        <td>Gitleaks <code>8.30.1</code></td>
+        <td>secret detection</td>
+        <td>MIT (upstream)</td>
+        <td>source commit and source archive SHA-256 pinned; built with the pinned Go toolchain</td>
+      </tr>
+      <tr>
+        <td>OSV-Scanner <code>2.4.0</code></td>
+        <td>lockfile / manifest dependency analysis</td>
+        <td>Apache-2.0 (upstream)</td>
+        <td>
+          source commit and archive SHA-256 pinned; toolbox build embeds a hashed npm offline
+          database with a 168-hour freshness limit
+        </td>
+      </tr>
+      <tr>
+        <td>
+          Nuclei engine <code>v3.11.0</code> / owned safe template set
+        </td>
+        <td>safe, allowlisted loopback web templates</td>
+        <td>MIT (upstream)</td>
+        <td>pinned in toolbox; template root is <code>docker/toolbox/nuclei-safe-templates</code></td>
+      </tr>
+      <tr>
+        <td>
+          ZAP official image
+          <code>zaproxy/zap-stable@sha256:8d387b1a63e3425beef4846e39719f5af2a787753af2d8b6558c6257d7a577a2</code>
+          (<code>2.17.0</code>)
+        </td>
+        <td>Docker-only baseline passive scan through a bounded local gateway</td>
+        <td>Apache-2.0 (core; image dependencies require inventory)</td>
+        <td>
+          immutable multi-platform image index; amd64 <code>c558ee87358911ab17278c70991e856f57793e115d9cd0f88ca475cf82907a1a</code>,
+          arm64 <code>1110082c94217b6e9592b18934740108839a44c02f1d0e961e4933bbb98bab45</code>
+        </td>
+      </tr>
+      <tr>
+        <td>Trivy <code>0.72.0</code></td>
+        <td>filesystem vulnerability, CycloneDX SBOM, existing-image scan</td>
+        <td>Apache-2.0 (upstream)</td>
+        <td>
+          source commit/archive and patched Go dependencies pinned; toolbox build embeds a hashed
+          vulnerability DB with a 168-hour freshness limit
+        </td>
+      </tr>
+      <tr>
+        <td>Schemathesis <code>4.24.2</code></td>
+        <td>bounded read-only API schema checks</td>
+        <td>MIT (upstream; Python dependencies require inventory)</td>
+        <td>pinned in toolbox</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    Source URLs: <a href="https://pypi.org/project/semgrep/1.171.0/">Semgrep</a>,
+    <a href="https://github.com/gitleaks/gitleaks/releases/tag/v8.30.1">Gitleaks</a>,
+    <a href="https://github.com/google/osv-scanner/releases/tag/v2.4.0">OSV-Scanner</a>,
+    <a href="https://github.com/projectdiscovery/nuclei/releases/tag/v3.11.0">Nuclei</a>,
+    <a href="https://github.com/projectdiscovery/nuclei-templates/releases/tag/v10.4.4"
+      >Nuclei templates</a
+    >, <a href="https://hub.docker.com/r/zaproxy/zap-stable/tags">ZAP image</a>,
+    <a href="https://pypi.org/project/schemathesis/4.24.2/">Schemathesis</a>,
+    <a href="https://github.com/aquasecurity/trivy/releases/tag/v0.72.0">Trivy</a>.
+  </p>
+  <p>
+    Verification date: 2026-07-30. This file records the distribution gate, not a legal conclusion.
+    Before shipping a toolbox or image, record the exact dependency license/NOTICE inventory and
+    checksum output. Automatic template, add-on, vulnerability database, or registry credential
+    updates are not part of a scan.
+  </p>
+  <p>
+    <code>scripts/prepare-scanner-data.ts</code> is the only supported data refresh path. It copies
+    owned Semgrep rules, downloads the supported OSV ecosystem archives and Trivy vulnerability
+    database, hashes each data tree, and emits a manifest with source references, generation time,
+    freshness limit, and ecosystem coverage. The result is supplied to
+    <code>docker/toolbox/Dockerfile</code> as the named
+    <code>scanner-data</code> build context by
+    <code>scripts/build-toolbox-image.ts</code>. A direct Docker build without that named context
+    is intentionally not the release build path.
+  </p>
+  <p>
+    The Trivy database source is an immutable, allowlisted GHCR OCI manifest rather than the mutable
+    <code>:2</code> tag.
+    <code>scanner-data:refresh-lock</code> bypasses valid local OSV archive caches; a Trivy
+    database update requires reviewing and recording a new immutable OCI manifest digest and its
+    normalized tree digest together.
+  </p>
+  <p>
+    <code>bun run verify:toolbox-offline</code> starts the core image with
+    <code>--network none</code>, 4 GiB memory, 2 CPUs, and a 512 PID limit and
+    requires valid JSON from OSV-Scanner and Trivy. The output records the image digest and the
+    embedded manifest hash. OSV coverage is currently npm-only; other ecosystems remain an explicit
+    coverage limitation.
+  </p>
+  <p>
+    When the optional adapter is enabled, the default Semgrep configuration is
+    <code>owned</code>, not registry
+    <code>auto</code>. The
+    <code>curated-sast-v1</code> catalog currently contains 45 repository-owned
+    rules across five languages. This is a reproducible curated SAST layer; its measured capability
+    remains limited to the checked-in rule catalog and fixtures.
+    <code>--config auto</code> remains an explicit developer exploration option
+    and is recorded as <code>reproducible=false</code>; a custom unpinned configuration
+    is treated the same way. No third-party community rules are redistributed by this repository.
+  </p>
+  <p>
+    The toolbox rebuilds Gitleaks, OSV-Scanner, and Nuclei from checksum-verified release source
+    with Go 1.26.5. Trivy 0.72.0 is rebuilt by <code>scripts/build-toolbox-image.ts</code> with
+    patched containerd, gRPC, and ORAS dependencies before it is copied into the final image. CI
+    performs the same source build in the Docker <code>trivy-binary</code> stage.
+  </p>
+  <p>
+    Exception owner: vulnWorkbench maintainers. The following four time-bounded exceptions expire on
+    2026-10-24. <code>CVE-2026-34040</code> is scoped to the
+    <code>github.com/docker/docker</code> package embedded in OSV-Scanner. The issue requires
+    a Docker daemon using body-inspecting AuthZ plugins; vulnWorkbench does not mount a Docker
+    socket into the toolbox and invokes OSV-Scanner only for filesystem analysis.
+    <code>CVE-2026-52869</code>, <code>CVE-2026-52870</code>, and
+    <code>CVE-2026-59950</code> are scoped to the MCP Python SDK version required by
+    Semgrep; they affect HTTP/WebSocket MCP server transports or experimental MCP task handlers,
+    none of which the Semgrep CLI starts. Exact package paths and PURLs are constrained in
+    <code>.trivyignore.yaml</code>.
+  </p>
+  <p>
+    ZAP Baseline does not require host Java or a host ZAP installation. The
+    <code>runtime-zap-baseline</code> profile runs the official image with a fixed passive
+    command and sends requests only to the ephemeral gateway. The gateway forwards read-only
+    GET/HEAD/OPTIONS requests within the configured path, rate, and request budget; it does not
+    perform active attacks, authenticated scans, Ajax crawling, or browser automation.
+  </p>
+  <p>
+    Authenticated browser checks use the application&#39;s pinned Playwright development dependency
+    and a locally installed pinned Chromium build; browser binaries are not distributed in the
+    scanner toolbox. Active ZAP/API attack profiles and external benchmark corpora are not
+    distributed by this release and must not be inferred from the passive ZAP or owned-fixture
+    capability results.
+  </p>
+</article>

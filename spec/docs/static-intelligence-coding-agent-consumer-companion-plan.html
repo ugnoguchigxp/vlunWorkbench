@@ -1,0 +1,996 @@
+<article lang="ja" data-spec-role="active-plan">
+  <h1 id="static-intelligence-coding-agent-consumer-companion-plan">
+    Static Intelligence Coding Agent Consumer Companion Plan
+  </h1>
+  <h2 id="purpose">Purpose</h2>
+  <p>
+    この計画は、vulnWorkbench Phase 40 が提供する persisted Static Intelligence generation
+    を、NightWorkers の coding-agent Ontology / Task Compiler / runtime / closeout へ安全に接続する
+    consumer-side companion plan である。
+  </p>
+  <pre><code class="language-text">vulnWorkbench persisted generation
+  -&gt; source discovery
+  -&gt; generation selection and pinning
+  -&gt; code/security evidence adapter
+  -&gt; existing module Ontology mapping
+  -&gt; task compilation
+  -&gt; runtime context snapshot
+  -&gt; boundary / verification closeout
+  -&gt; rescan and feedback
+</code></pre>
+  <p>
+    この文書の想定 implementation repository は NightWorkers である。ただし NightWorkers
+    の現在の作業ツリーを変更せず、vulnWorkbench 側に cross-repository consumer contract
+    として保存する。
+  </p>
+  <h2 id="position">Position</h2>
+  <p>この計画は次を置き換えない。</p>
+  <ul>
+    <li>NightWorkers の <code>.agent-ontology</code> module manifests</li>
+    <li><code>classify_goal</code></li>
+    <li><code>compile_module_context</code></li>
+    <li><code>check_boundary</code></li>
+    <li><code>get_verification_plan</code></li>
+    <li>Task Generation Ontology Evidence Bridge</li>
+    <li>runtime ontology context snapshot</li>
+    <li>boundary closeout audit</li>
+    <li>Review Mode の vulnWorkbench security diagnostic</li>
+  </ul>
+  <p>
+    追加するのは、vulnWorkbench Static Intelligence を既存 evidence layers へ接続する
+    adapter、generation pinning、task/run provenance、closeout feedback である。
+  </p>
+  <h2 id="core-decisions">Core Decisions</h2>
+  <ul>
+    <li>
+      Static Intelligence source discovery と generation selection は supervisor / orchestration
+      layer の責務とし、worker coding agent が ad hoc に決めない。
+    </li>
+    <li>
+      generation selection は routing decision であり、provider capacity、queue admission、runtime
+      lane selection と分離する。
+    </li>
+    <li>
+      selected generationId は planning 時に固定し、同じ task/run の途中で latest generation
+      へ自動追従しない。
+    </li>
+    <li>
+      vulnWorkbench module candidates は <code>codeEvidence</code> に入れ、<code
+        >moduleManifest</code
+      >
+      source truth にしない。
+    </li>
+    <li>
+      canonical module ownership、invariants、forbidden mutations は NightWorkers manifest
+      が優先する。
+    </li>
+    <li>scanner-backed findings と code structure candidates を別 evidence layer に保つ。</li>
+    <li>
+      code structure、semantic similarity、risk community だけから security task を confirmed
+      finding として生成しない。
+    </li>
+    <li>
+      candidate verification commands はそのまま実行せず、repository verification plan と command
+      policy で選別する。
+    </li>
+    <li>
+      Review Mode security diagnostic と Ontology context ingestion は activation policy を分ける。
+    </li>
+    <li>
+      end-to-end adoption validation は coding-agent platform / NightWorkers
+      の責務であり、vulnWorkbench browser E2E suite には含めない。
+    </li>
+  </ul>
+  <h2 id="responsibility-matrix">Responsibility Matrix</h2>
+  <table>
+    <caption>
+      Responsibility Matrix
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Area</th>
+        <th scope="col">vulnWorkbench</th>
+        <th scope="col">NightWorkers supervisor</th>
+        <th scope="col">Worker coding agent</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>scanner / structure generation</td>
+        <td>owns</td>
+        <td>requests bounded build when configured</td>
+        <td>does not reimplement</td>
+      </tr>
+      <tr>
+        <td>source discovery</td>
+        <td>exposes manifest/MCP</td>
+        <td>discovers configured source</td>
+        <td>uses pinned reference only</td>
+      </tr>
+      <tr>
+        <td>generation selection</td>
+        <td>exposes generations/readiness</td>
+        <td>selects and pins</td>
+        <td>does not switch latest</td>
+      </tr>
+      <tr>
+        <td>canonical Ontology</td>
+        <td>does not own</td>
+        <td>owns manifests and mapping</td>
+        <td>follows runtime snapshot</td>
+      </tr>
+      <tr>
+        <td>task compilation</td>
+        <td>supplies candidates/evidence</td>
+        <td>adopts, groups, constrains</td>
+        <td>executes one compiled task</td>
+      </tr>
+      <tr>
+        <td>boundary decision</td>
+        <td>supplies affected paths/risk refs</td>
+        <td>applies <code>check_boundary</code></td>
+        <td>reports touched files/crossings</td>
+      </tr>
+      <tr>
+        <td>verification selection</td>
+        <td>supplies candidates</td>
+        <td>merges with canonical plan/policy</td>
+        <td>runs only authorized commands</td>
+      </tr>
+      <tr>
+        <td>security rescan</td>
+        <td>owns diagnostic CLI</td>
+        <td>schedules/invokes integration</td>
+        <td>reports need/result, does not fake evidence</td>
+      </tr>
+      <tr>
+        <td>feedback</td>
+        <td>creates new generation after rescan</td>
+        <td>stores run/closeout provenance</td>
+        <td>returns structured outcome</td>
+      </tr>
+    </tbody>
+  </table>
+  <h2 id="existing-nightworkers-evidence-model">Existing NightWorkers Evidence Model</h2>
+  <p>既存 <code>compile_module_context</code> は、次の evidence layers を分離する。</p>
+  <pre><code class="language-text">moduleManifest
+codeEvidence
+taskGenerationEvidence
+memoryEvidence
+llmSynthesis
+</code></pre>
+  <p>Static Intelligence は新しい source-truth layer を増やさず、次のように接続する。</p>
+  <pre><code class="language-text">moduleManifest
+  &lt;- unchanged canonical ownership
+
+codeEvidence
+  &lt;- repository-local extractor facts
+  &lt;- vulnWorkbench code structure/module candidates
+
+securityEvidence
+  &lt;- scanner-backed findings/evidence/verification candidates
+  &lt;- new separated section inside context/run snapshot
+
+taskGenerationEvidence
+  &lt;- goal/mission/task candidate hints
+
+memoryEvidence
+  &lt;- reusable lessons, only when not contradictory
+</code></pre>
+  <p>
+    <code>securityEvidence</code> は agent-facing contract 上で分離する。既存 core
+    evidence pack の内部実装上は
+    <code>codeEvidence.staticIntelligence</code> として保持してもよいが、scanner evidence と code
+    facts を同じ配列へ平坦化しない。
+  </p>
+  <h2 id="activation-policy">Activation Policy</h2>
+  <h3 id="ontology-planning-lane">Ontology planning lane</h3>
+  <ul>
+    <li>
+      current NightWorkers policy に従い、Ontology MCP が large/huge project または explicit project
+      config で有効な場合に使う。
+    </li>
+    <li>
+      Static Intelligence availability だけを理由に small project の Ontology を自動有効化しない。
+    </li>
+    <li>
+      explicit task / project setting で source を要求した場合は current file-scale policy の
+      override rules に従う。
+    </li>
+    <li>
+      Ontology disabled の場合、runtime は current disabled snapshot + fallback guidance
+      を維持する。
+    </li>
+  </ul>
+  <h3 id="security-review-lane">Security review lane</h3>
+  <ul>
+    <li>
+      <code>securityReview=true</code> の Review Run は Ontology enabled/disabled
+      と独立して vulnWorkbench scanner evidence を利用できる。
+    </li>
+    <li>
+      security diagnostic 完了後に scanRunId が得られた場合、supervisor は必要に応じて
+      <code>intelligence:build</code> を呼び、同じ scan の persisted generation
+      を作る。
+    </li>
+    <li>Ontology off を理由に scanner-backed security evidence を捨てない。</li>
+    <li>
+      Static Intelligence candidate material だけを理由に confirmed vulnerability finding
+      を作らない。
+    </li>
+  </ul>
+  <h3 id="general-implementation-lane">General implementation lane</h3>
+  <ul>
+    <li>recent usable source がなければ、manifest + repository-local code evidence で継続する。</li>
+    <li>source missing は run failure ではなく warning / unavailable evidence とする。</li>
+    <li>
+      security-sensitive task で source が stale の場合、current risk assertion
+      として使わず、refresh/rescanを planning blocker または explicit prerequisite にする。
+    </li>
+  </ul>
+  <h2 id="source-discovery-contract">Source Discovery Contract</h2>
+  <p>Add a consumer service conceptually equivalent to:</p>
+  <pre><code class="language-ts">type StaticIntelligenceSourceDiscovery = {
+  available: boolean;
+  sourceId: string | null;
+  projectId: string | null;
+  scanRunId: string | null;
+  latestGenerationId: string | null;
+  readiness: &quot;available&quot; | &quot;stale&quot; | &quot;degraded&quot; | &quot;missing&quot; | &quot;failed&quot;;
+  generatedAt: string | null;
+  sourceTreeHash: string | null;
+  exportHash: string | null;
+  warnings: string[];
+};
+</code></pre>
+  <p>Discovery rules:</p>
+  <ol>
+    <li>repository mapping は configured integration / manifest project identity から解決する。</li>
+    <li>NightWorkers は vulnWorkbench SQLite を直接読まない。</li>
+    <li>arbitrary filesystem path を MCP source discovery に渡さない。</li>
+    <li>
+      <code>vuln_list_knowledge_sources</code> または CLI manifest を primary discovery surface
+      とする。
+    </li>
+    <li>repository と source project の identity mismatch を unavailable とする。</li>
+    <li>source discovery は candidate set を返すだけで generation adoption を決めない。</li>
+    <li>unavailable source は structured warning にし、empty success にしない。</li>
+  </ol>
+  <h2 id="generation-selection-and-pinning">Generation Selection and Pinning</h2>
+  <pre><code class="language-ts">type StaticIntelligenceConsumerRef = {
+  sourceId: string;
+  projectId: string;
+  scanRunId: string;
+  generationId: string;
+  snapshotRef: string;
+  exportHash: string;
+  sourceTreeHash: string;
+  sourceStateHash: string;
+  selectedAt: string;
+  selectionReason:
+    | &quot;latest_available&quot;
+    | &quot;explicit_generation&quot;
+    | &quot;review_scan_generation&quot;;
+};
+</code></pre>
+  <p>Selection rules:</p>
+  <ul>
+    <li>planning 時点で source discovery result から一つの generation を選ぶ。</li>
+    <li>explicit generationId がある場合は exact read を使う。</li>
+    <li>latest selection の場合も、選択直後に resolved generationId を保存する。</li>
+    <li>
+      incomplete generation pair、schema failure、project mismatch、scan mismatch は採用しない。
+    </li>
+    <li><code>degraded</code> は warning 付きで採用可能。</li>
+    <li>
+      <code>stale</code> は historical evidence
+      としてのみ参照可能。current likely files / current risk assertion には使わない。
+    </li>
+    <li>security-sensitive task は stale generation を current gate evidence に使わない。</li>
+    <li>run 開始後に latest generation が変わっても pinned generation を維持する。</li>
+    <li>new generation を使うには task context recompile または new run を作る。</li>
+    <li>generation selection は queue capacity や provider availability を変更しない。</li>
+  </ul>
+  <h2 id="consumer-adapter-contract">Consumer Adapter Contract</h2>
+  <pre><code class="language-ts">type StaticIntelligenceConsumerEvidence = {
+  ref: StaticIntelligenceConsumerRef;
+  readiness: &quot;available&quot; | &quot;degraded&quot; | &quot;stale&quot;;
+  codeEvidence: {
+    modules: StaticIntelligenceModuleCandidate[];
+    likelyFiles: string[];
+    structureWarnings: string[];
+  };
+  securityEvidence: {
+    findings: Array&lt;{
+      findingId: string;
+      severity: string;
+      fileRefs: string[];
+      evidenceRefs: string[];
+      artifactRefs: string[];
+      scannerRefs: string[];
+      candidateOnly: boolean;
+    }&gt;;
+    verificationCandidates: Array&lt;{
+      command: string;
+      sourceRefs: string[];
+      findingIds: string[];
+    }&gt;;
+    degradedReasons: string[];
+  };
+};
+</code></pre>
+  <p>Adapter rules:</p>
+  <ul>
+    <li>all file refs must be repository-relative.</li>
+    <li>
+      received absolute path makes the source invalid/degraded; consumer must not silently trim it
+      differently from producer.
+    </li>
+    <li>module candidates remain code evidence with confidence/reasons.</li>
+    <li>scanner finding must keep finding/evidence/artifact/scanner provenance.</li>
+    <li>candidate-only semantic/community results stay candidate-only.</li>
+    <li>raw artifact bodies and source contents are not loaded into the runtime snapshot.</li>
+    <li>large arrays are filtered after task scope is known.</li>
+    <li>generationId / snapshotRef / exportHash are retained through every projection.</li>
+  </ul>
+  <h2 id="ontology-mapping-contract">Ontology Mapping Contract</h2>
+  <p>Map module candidates to existing manifest ownership without mutating the manifest.</p>
+  <pre><code class="language-ts">type StaticIntelligenceOntologyMapping = {
+  candidateId: string;
+  pathPrefix: string;
+  outcome:
+    | &quot;matched&quot;
+    | &quot;ambiguous&quot;
+    | &quot;emerging&quot;
+    | &quot;conflict&quot;
+    | &quot;unmapped&quot;;
+  matchedModules: string[];
+  primaryModule: string | null;
+  confidence: number;
+  reasons: string[];
+  warnings: string[];
+};
+</code></pre>
+  <p>Mapping priority:</p>
+  <ol>
+    <li><code>moduleManifest.ownedPaths</code></li>
+    <li><code>readMostlyPaths</code></li>
+    <li>explicit <code>allowedCrossModule</code></li>
+    <li>current <code>classify_goal</code> routing</li>
+    <li>Static Intelligence module candidate pathPrefix / edges / tags</li>
+  </ol>
+  <p>Rules:</p>
+  <ul>
+    <li>manifest-owned path match is authoritative.</li>
+    <li>Static Intelligence cannot create or rename a canonical module automatically.</li>
+    <li>
+      multiple manifest matches become <code>ambiguous</code> and require
+      task-scoped warning.
+    </li>
+    <li>
+      candidate outside all manifests becomes <code>emerging</code> or
+      <code>unmapped</code>, not confirmed ownership.
+    </li>
+    <li>
+      candidate contradicting manifest ownership becomes
+      <code>conflict</code>; manifest wins and warning remains visible.
+    </li>
+    <li>
+      <code>canonicalDomainSummary</code> does not include task-specific risk emphasis.
+    </li>
+    <li>
+      <code>taskScopedSummary</code> may include selected risk/evidence relevant to
+      the current goal.
+    </li>
+    <li>
+      LLM synthesis cannot turn <code>emerging</code>/<code
+        >ambiguous</code
+      >
+      into canonical ownership.
+    </li>
+  </ul>
+  <h2 id="task-compilation-responsibilities">Task Compilation Responsibilities</h2>
+  <p>The coding-agent platform owns adoption, grouping, ordering, and task boundaries.</p>
+  <h3 id="inputs-allowed">Inputs allowed</h3>
+  <ul>
+    <li>pinned consumer ref</li>
+    <li>matched module routing</li>
+    <li>scanner-backed findings/evidence</li>
+    <li>risk communities as grouping candidates</li>
+    <li>verification candidates</li>
+    <li>handoff acceptance criteria / non-goals</li>
+    <li>current Goal / Mission / TaskCandidate evidence</li>
+  </ul>
+  <h3 id="outputs">Outputs</h3>
+  <pre><code class="language-ts">type StaticIntelligenceTaskProvenance = {
+  sourceId: string;
+  scanRunId: string;
+  generationId: string;
+  exportHash: string;
+  findingIds: string[];
+  evidenceRefs: string[];
+  moduleCandidateIds: string[];
+  mappingOutcomes: string[];
+};
+</code></pre>
+  <p>Task rules:</p>
+  <ul>
+    <li>one finding does not automatically become one task.</li>
+    <li>group only when shared root cause / affected module / verification family is evidenced.</li>
+    <li>security-fix task requires scanner-backed finding/evidence or explicit human decision.</li>
+    <li>
+      code structure facts may influence scope and likely files, but cannot establish vulnerability.
+    </li>
+    <li>task objective and acceptance criteria preserve finding/evidence provenance.</li>
+    <li>verification candidates are not silently promoted to mandatory commands.</li>
+    <li>
+      project-wide constraints remain constraints; they do not become standalone module ownership.
+    </li>
+    <li>duplicate generation/exportHash must not create duplicate task candidates.</li>
+    <li>
+      stale generation cannot create a new current-security task without refresh/rescan
+      prerequisite.
+    </li>
+    <li>task compilation does not decide provider capacity or queue admission.</li>
+  </ul>
+  <h2 id="runtime-context-snapshot">Runtime Context Snapshot</h2>
+  <p>Extend the current ontology runtime snapshot with a concise separated section.</p>
+  <pre><code class="language-ts">type StaticIntelligenceRuntimeSnapshot = {
+  available: boolean;
+  readiness: &quot;available&quot; | &quot;degraded&quot; | &quot;stale&quot; | &quot;unavailable&quot;;
+  sourceId: string | null;
+  projectId: string | null;
+  scanRunId: string | null;
+  generationId: string | null;
+  snapshotRef: string | null;
+  exportHash: string | null;
+  selectedModuleCandidateIds: string[];
+  selectedFindingIds: string[];
+  selectedEvidenceRefs: string[];
+  mappingWarnings: string[];
+  securityWarnings: string[];
+  verificationCandidates: string[];
+};
+</code></pre>
+  <p>Integration shape:</p>
+  <pre><code class="language-ts">type OntologyRuntimeContextSnapshotV2 = OntologyRuntimeContextSnapshot &amp; {
+  staticIntelligence: StaticIntelligenceRuntimeSnapshot;
+};
+</code></pre>
+  <p>Runtime rules:</p>
+  <ul>
+    <li>build snapshot before Codex/native runtime starts.</li>
+    <li>Codex lane and native API lane receive the same pinned ref and concise evidence.</li>
+    <li>
+      prompt gets primary/secondary modules, selected risk scope, warnings, verification candidates,
+      hashes; not full graph/snapshot.
+    </li>
+    <li>worker may use read-only MCP on demand only with pinned scanRunId + generationId.</li>
+    <li>worker does not call refresh/build from inside the run.</li>
+    <li>source unavailable does not fail the run; snapshot records unavailable + warning.</li>
+    <li>
+      source stale does not disappear; it remains visible as historical/untrusted-currentness
+      evidence.
+    </li>
+    <li>prompt budget limits selected files/findings/refs and links back to read-only tools.</li>
+  </ul>
+  <h2 id="worker-coding-agent-responsibilities">Worker Coding Agent Responsibilities</h2>
+  <p>The worker coding agent must:</p>
+  <ul>
+    <li>treat the runtime ontology snapshot as the boundary contract.</li>
+    <li>treat Static Intelligence module candidates as evidence, not ownership truth.</li>
+    <li>keep work within primary/secondary module paths or report crossing reason.</li>
+    <li>inspect pinned evidence refs when a security task depends on them.</li>
+    <li>avoid broad repository exploration when scoped structure/evidence is sufficient.</li>
+    <li>not expand scope merely because related risk exists outside the task.</li>
+    <li>run only verification commands authorized by task/runtime command policy.</li>
+    <li>report verification performed and skipped reasons.</li>
+    <li>return touched files and boundary crossing reasons for closeout audit.</li>
+    <li>distinguish remediated, deferred, not-applicable, and unverified findings.</li>
+  </ul>
+  <p>The worker coding agent must not:</p>
+  <ul>
+    <li>select another latest generation mid-run.</li>
+    <li>call scanner/build/refresh through an unapproved path.</li>
+    <li>treat semantic similarity as vulnerability proof.</li>
+    <li>rewrite canonical module manifests automatically.</li>
+    <li>suppress stale/degraded warnings.</li>
+    <li>claim a security issue fixed without verification/rescan evidence.</li>
+  </ul>
+  <h2 id="boundary-enforcement">Boundary Enforcement</h2>
+  <p>Existing <code>check_boundary</code> remains authoritative.</p>
+  <p>Static Intelligence affects boundary work only by:</p>
+  <ul>
+    <li>suggesting likely affected files/modules.</li>
+    <li>exposing evidence-backed cross-module relationships.</li>
+    <li>identifying risky files that may need declared secondary routing.</li>
+    <li>adding warning context for read-mostly/unknown paths.</li>
+  </ul>
+  <p>It does not:</p>
+  <ul>
+    <li>grant permission to edit a path.</li>
+    <li>override forbidden mutations.</li>
+    <li>convert a risk community into allowed cross-module scope.</li>
+  </ul>
+  <p>
+    Closeout must compare touched files against the pinned ontology snapshot and keep generation
+    provenance alongside the boundary decision.
+  </p>
+  <h2 id="verification-selection">Verification Selection</h2>
+  <p>Verification selection order:</p>
+  <ol>
+    <li>module manifest focused verification</li>
+    <li>repository-native verify/test contracts</li>
+    <li>task acceptance criteria</li>
+    <li>vulnWorkbench verification candidates</li>
+    <li>configured security rescan/oracle integration</li>
+  </ol>
+  <p>Rules:</p>
+  <ul>
+    <li>candidate command must be parsed as structured tokens where possible.</li>
+    <li>
+      reject destructive, external-network, secret-bearing, or out-of-repository commands unless
+      explicitly authorized by policy.
+    </li>
+    <li>dedupe equivalent commands.</li>
+    <li>
+      repository-native canonical verification is not removed because a vulnWorkbench command
+      exists.
+    </li>
+    <li>
+      security rescan is scheduled through supervisor integration, not invented in worker shell
+      steps.
+    </li>
+    <li>skipped verification needs an explicit reason.</li>
+    <li>scan result and repo test result remain separate evidence.</li>
+  </ul>
+  <h2 id="security-review-integration">Security Review Integration</h2>
+  <p>Current Review Mode diagnostic remains scanner execution entrypoint.</p>
+  <p>Target flow:</p>
+  <pre><code class="language-text">Review target
+  -&gt; oracle-security / configured vulnWorkbench diagnostic
+  -&gt; scanRunId
+  -&gt; intelligence:build for that scan when Static Intelligence context is needed
+  -&gt; pin generation
+  -&gt; map scanner-backed findings into Review findings
+  -&gt; implementation task / review decision
+  -&gt; repository verification
+  -&gt; configured vulnWorkbench rerun
+  -&gt; new scanRunId / generation
+</code></pre>
+  <p>Rules:</p>
+  <ul>
+    <li>old and new scan/generation remain distinct.</li>
+    <li>
+      before/after comparison uses finding/rule/path fingerprints and provenance, not mutable
+      replacement.
+    </li>
+    <li>Review Mode does not rerun vulnWorkbench inside the target repository worker context.</li>
+    <li>scanner-backed result remains primary security evidence.</li>
+    <li>Static Intelligence structure/communities improve routing and grouping only.</li>
+  </ul>
+  <h2 id="closeout-and-feedback-contract">Closeout and Feedback Contract</h2>
+  <pre><code class="language-ts">type StaticIntelligenceCloseoutEvidence = {
+  pinned: StaticIntelligenceConsumerRef | null;
+  usedFindingIds: string[];
+  usedEvidenceRefs: string[];
+  addressedFindingIds: string[];
+  deferredFindingIds: string[];
+  notApplicableFindingIds: string[];
+  boundaryDecision: string | null;
+  verification: Array&lt;{
+    command: string;
+    source: &quot;manifest&quot; | &quot;repo&quot; | &quot;static_intelligence&quot; | &quot;security_rescan&quot;;
+    status: &quot;passed&quot; | &quot;failed&quot; | &quot;skipped&quot;;
+    reason?: string;
+  }&gt;;
+  rescan: {
+    requested: boolean;
+    completed: boolean;
+    scanRunId: string | null;
+    generationId: string | null;
+    status: &quot;improved&quot; | &quot;unchanged&quot; | &quot;regressed&quot; | &quot;unavailable&quot; | null;
+  };
+  warnings: string[];
+};
+</code></pre>
+  <p>Feedback rules:</p>
+  <ul>
+    <li>persist closeout evidence in run context/events, not in prompt prose only.</li>
+    <li>never mutate the pinned generation.</li>
+    <li>rescan creates a new scan/generation reference.</li>
+    <li>boundary audit and security evidence outcomes remain separately inspectable.</li>
+    <li>
+      proposed ontology manifest change becomes reviewable candidate; no automatic manifest write.
+    </li>
+    <li>
+      reusable remediation/false-positive lessons may be distilled for contextStill only through its
+      candidate lifecycle.
+    </li>
+  </ul>
+  <h2 id="debug-and-observability">Debug and Observability</h2>
+  <p>Extend the existing read-only ontology debug report with a summary only.</p>
+  <pre><code class="language-ts">type StaticIntelligenceDebugSummary = {
+  available: boolean;
+  readiness: string;
+  sourceId: string | null;
+  scanRunId: string | null;
+  generationId: string | null;
+  snapshotRef: string | null;
+  exportHash: string | null;
+  mappingOutcomeCounts: Record&lt;string, number&gt;;
+  selectedFindingCount: number;
+  verificationCandidateCount: number;
+  closeoutRescanStatus: string | null;
+};
+</code></pre>
+  <p>Debug report must not expose:</p>
+  <ul>
+    <li>raw source bodies</li>
+    <li>raw artifact bodies</li>
+    <li>full prompts/transcripts</li>
+    <li>private absolute paths</li>
+    <li>provider credentials</li>
+    <li>full structure payload</li>
+  </ul>
+  <p>Useful events:</p>
+  <pre><code class="language-text">static_intelligence.source_discovered
+static_intelligence.generation_pinned
+static_intelligence.ontology_mapped
+static_intelligence.runtime_snapshot
+static_intelligence.closeout_feedback
+</code></pre>
+  <h2 id="failure-and-degradation-policy">Failure and Degradation Policy</h2>
+  <table>
+    <caption>
+      Failure and Degradation Policy
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Condition</th>
+        <th scope="col">Consumer behavior</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>source unavailable</td>
+        <td>continue with manifest/local evidence; warning</td>
+      </tr>
+      <tr>
+        <td>generation missing</td>
+        <td>do not guess; optional refresh prerequisite</td>
+      </tr>
+      <tr>
+        <td>generation incomplete/corrupt</td>
+        <td>reject generation; use previous valid if explicitly selected</td>
+      </tr>
+      <tr>
+        <td>project/scan mismatch</td>
+        <td>reject source</td>
+      </tr>
+      <tr>
+        <td>stale generation, general task</td>
+        <td>historical hints only; warning</td>
+      </tr>
+      <tr>
+        <td>stale generation, security-sensitive task</td>
+        <td>require refresh/rescan before current-risk claim</td>
+      </tr>
+      <tr>
+        <td>degraded code structure</td>
+        <td>use parsed subset; expose reasons</td>
+      </tr>
+      <tr>
+        <td>manifest mapping conflict</td>
+        <td>manifest wins; warning</td>
+      </tr>
+      <tr>
+        <td>ambiguous module mapping</td>
+        <td>task-scoped secondary/emerging warning; no ownership mutation</td>
+      </tr>
+      <tr>
+        <td>verification candidate unsafe</td>
+        <td>skip/reject with reason</td>
+      </tr>
+      <tr>
+        <td>rescan unavailable</td>
+        <td>do not claim security closure</td>
+      </tr>
+    </tbody>
+  </table>
+  <h2 id="implementation-units">Implementation Units</h2>
+  <h3 id="ca1-consumer-contracts-and-configuration">CA.1: Consumer Contracts and Configuration</h3>
+  <p>Target files in NightWorkers:</p>
+  <ul>
+    <li>add schemas/types under <code>api/services/static-intelligence/</code></li>
+    <li>update project/repository integration settings</li>
+    <li>add focused contract tests</li>
+  </ul>
+  <p>Tasks:</p>
+  <ul>
+    <li>define source discovery, consumer ref, evidence, mapping, runtime, closeout schemas.</li>
+    <li>configure enablement and source endpoint/CLI without hard-coded user paths.</li>
+    <li>keep Ontology and security-review activation separate.</li>
+    <li>validate all inbound payloads.</li>
+  </ul>
+  <p>Acceptance:</p>
+  <ul>
+    <li>config can represent disabled/unavailable without startup failure.</li>
+    <li>no vulnWorkbench DB/schema dependency is imported.</li>
+    <li>provider capacity/routing config is unchanged.</li>
+  </ul>
+  <h3 id="ca2-source-discovery-and-generation-selection">
+    CA.2: Source Discovery and Generation Selection
+  </h3>
+  <p>Target files:</p>
+  <ul>
+    <li>add <code>static-intelligence-source.service.ts</code></li>
+    <li>add <code>static-intelligence-generation-selector.ts</code></li>
+    <li>tests for discovery/selection</li>
+  </ul>
+  <p>Tasks:</p>
+  <ul>
+    <li>call list/manifest surface.</li>
+    <li>match source to current repository identity.</li>
+    <li>select latest or explicit generation.</li>
+    <li>persist exact consumer ref in planning/task metadata.</li>
+    <li>implement stale/degraded/missing policy.</li>
+  </ul>
+  <p>Acceptance:</p>
+  <ul>
+    <li>no source discovery result silently becomes adopted generation.</li>
+    <li>selected generation never mixes artifacts.</li>
+    <li>generation selection does not affect queue/capacity.</li>
+  </ul>
+  <h3 id="ca3-evidence-adapter-and-ontology-mapping">
+    CA.3: Evidence Adapter and Ontology Mapping
+  </h3>
+  <p>Target files:</p>
+  <ul>
+    <li>add <code>static-intelligence-evidence-adapter.ts</code></li>
+    <li>add <code>static-intelligence-ontology-mapper.ts</code></li>
+    <li>update <code>api/services/agent-ontology/agent-ontology.service.ts</code> minimally</li>
+    <li>update agent ontology tests</li>
+  </ul>
+  <p>Tasks:</p>
+  <ul>
+    <li>adapt module/risk/evidence/verification data into separated layers.</li>
+    <li>map module candidates against existing manifests.</li>
+    <li>keep contradictions/warnings.</li>
+    <li>
+      add optional Static Intelligence evidence input to
+      <code>compile_module_context</code>.
+    </li>
+  </ul>
+  <p>Acceptance:</p>
+  <ul>
+    <li>manifest ownership is never overwritten.</li>
+    <li>canonical summary excludes task-specific security emphasis.</li>
+    <li>task-scoped summary preserves generation provenance.</li>
+  </ul>
+  <h3 id="ca4-task-compilation-integration">CA.4: Task Compilation Integration</h3>
+  <p>Target files:</p>
+  <ul>
+    <li>task generation evidence adapter/service</li>
+    <li>Goal/Mission/TaskCandidate metadata schemas</li>
+    <li>task generation focused tests</li>
+  </ul>
+  <p>Tasks:</p>
+  <ul>
+    <li>include pinned consumer ref in task metadata.</li>
+    <li>group/dedupe scanner-backed findings into reviewable tasks.</li>
+    <li>add acceptance/verification/non-goal candidates with provenance.</li>
+    <li>prevent code-fact-only security tasks.</li>
+    <li>keep routing and queue admission separate.</li>
+  </ul>
+  <p>Acceptance:</p>
+  <ul>
+    <li>repeated source hash does not duplicate tasks.</li>
+    <li>every adopted security task has scanner/evidence refs.</li>
+    <li>stale generation cannot produce current-security task without prerequisite.</li>
+  </ul>
+  <h3 id="ca5-runtime-snapshot-and-prompt-projection">
+    CA.5: Runtime Snapshot and Prompt Projection
+  </h3>
+  <p>Target files:</p>
+  <ul>
+    <li><code>api/services/agent-runtime/ontology-runtime-context.ts</code></li>
+    <li><code>api/modules/nightworkers/run-orchestration/start-task-run.ts</code></li>
+    <li>Codex/native prompt projection files</li>
+    <li>runtime focused tests</li>
+  </ul>
+  <p>Tasks:</p>
+  <ul>
+    <li>extend ontology runtime snapshot with concise Static Intelligence section.</li>
+    <li>resolve/pin before runtime starts.</li>
+    <li>project same fields into Codex and native lanes.</li>
+    <li>support exact generation MCP reads.</li>
+    <li>preserve unavailable fallback.</li>
+  </ul>
+  <p>Acceptance:</p>
+  <ul>
+    <li>both lanes see same generationId/hash/warnings.</li>
+    <li>prompt does not contain full snapshot/graph.</li>
+    <li>worker cannot silently switch generation.</li>
+  </ul>
+  <h3 id="ca6-boundary-verification-and-closeout">CA.6: Boundary, Verification, and Closeout</h3>
+  <p>Target files:</p>
+  <ul>
+    <li><code>api/modules/nightworkers/run-orchestration/runtime-execution.ts</code></li>
+    <li>boundary/verification selection services</li>
+    <li>closeout/event schemas and tests</li>
+  </ul>
+  <p>Tasks:</p>
+  <ul>
+    <li>include pinned provenance in boundary audit.</li>
+    <li>validate/dedupe verification candidates.</li>
+    <li>persist structured closeout evidence.</li>
+    <li>connect configured security rescan result without mutating old generation.</li>
+    <li>keep skipped reasons visible.</li>
+  </ul>
+  <p>Acceptance:</p>
+  <ul>
+    <li>cross-module risk does not grant edit permission.</li>
+    <li>security closure requires test/rescan evidence or explicit unavailable state.</li>
+    <li>closeout compares before/after generations without overwriting history.</li>
+  </ul>
+  <h3 id="ca7-read-only-debug-surface">CA.7: Read-only Debug Surface</h3>
+  <p>Target files:</p>
+  <ul>
+    <li><code>api/modules/nightworkers/nightworkers.run-query.service.ts</code></li>
+    <li>run schema / route response</li>
+    <li>debug report tests</li>
+  </ul>
+  <p>Tasks:</p>
+  <ul>
+    <li>add Static Intelligence debug summary.</li>
+    <li>prefer non-empty run context snapshot, then fallback events.</li>
+    <li>expose mapping/warning/verification/rescan summary only.</li>
+  </ul>
+  <p>Acceptance:</p>
+  <ul>
+    <li>support can explain which source/generation was used or skipped.</li>
+    <li>no raw payload/prompt/path leak.</li>
+  </ul>
+  <h3 id="ca8-coding-agent-end-to-end-adoption-validation">
+    CA.8: Coding-Agent End-to-End Adoption Validation
+  </h3>
+  <p>This unit belongs to the coding-agent platform, not vulnWorkbench product/browser E2E.</p>
+  <p>Validate run-level scenarios:</p>
+  <ol>
+    <li>
+      available generation -&gt; mapped module -&gt; task-scoped context -&gt; run -&gt; boundary
+      audit.
+    </li>
+    <li>degraded structure -&gt; usable subset + visible warning.</li>
+    <li>stale security generation -&gt; refresh/rescan prerequisite.</li>
+    <li>manifest conflict -&gt; manifest wins + warning.</li>
+    <li>cross-module finding -&gt; declared secondary or unexplained crossing.</li>
+    <li>no Static Intelligence source -&gt; normal manifest/local-evidence fallback.</li>
+    <li>
+      Review security scan -&gt; build generation -&gt; fix -&gt; repo verify -&gt; rescan -&gt; new
+      generation.
+    </li>
+    <li>Codex lane and native API lane pin the same consumer ref.</li>
+  </ol>
+  <p>Evidence to record:</p>
+  <ul>
+    <li>source discovery outcome</li>
+    <li>selected generationId/exportHash</li>
+    <li>mapping outcomes</li>
+    <li>task provenance</li>
+    <li>runtime snapshot</li>
+    <li>touched files/boundary decision</li>
+    <li>verification results</li>
+    <li>before/after scan/generation refs</li>
+  </ul>
+  <p>
+    This is rollout/pilot validation and can use NightWorkers runtime fixtures, run events, and
+    ontology debug report. It is not a requirement to add Playwright/browser tests to vulnWorkbench.
+  </p>
+  <h2 id="consumer-verification-strategy">Consumer Verification Strategy</h2>
+  <p>Focused tests should cover:</p>
+  <pre><code class="language-text">source contract parsing
+generation exact selection
+manifest mapping precedence
+candidate-only security semantics
+task provenance/dedup
+runtime lane parity
+boundary/verification closeout
+debug report fallback
+</code></pre>
+  <p>
+    Potential NightWorkers verification commands, adjusted to actual test locations at
+    implementation time:
+  </p>
+  <pre><code class="language-bash">bunx vitest run tests/agent-ontology.test.ts
+bunx vitest run tests/nightworkers-codex-mcp-integration.test.ts
+bunx vitest run tests/services.codex-agent-runtime.test.ts
+bunx vitest run tests/services.native-api-runner.test.ts
+bunx vitest run tests/review-vulnworkbench.test.ts
+bun run verify
+</code></pre>
+  <p>
+    The consumer implementation must use the NightWorkers repository-native verification gate as the
+    final authority.
+  </p>
+  <h2 id="cross-repository-completion-boundary">Cross-Repository Completion Boundary</h2>
+  <p>
+    vulnWorkbench Phase 40 can complete when producer contracts, persisted generations, read
+    surfaces, UI, and producer verification pass.
+  </p>
+  <p>Coding-agent adoption can complete only when:</p>
+  <ul>
+    <li>source discovery and generation pinning are implemented.</li>
+    <li>Static Intelligence is mapped into separated evidence layers.</li>
+    <li>existing manifests remain canonical.</li>
+    <li>task/run metadata preserves generation provenance.</li>
+    <li>Codex/native lanes consume the same pinned snapshot.</li>
+    <li>boundary and verification closeout include source provenance.</li>
+    <li>Review security flow can create and compare before/after generations.</li>
+    <li>coding-agent run-level adoption scenarios are validated.</li>
+  </ul>
+  <p>
+    Neither repository should claim end-to-end adoption complete based only on its local unit tests.
+  </p>
+  <h2 id="non-goals">Non-Goals</h2>
+  <ul>
+    <li>copying vulnWorkbench scanner/graph/index implementation into NightWorkers</li>
+    <li>NightWorkers direct reads of vulnWorkbench SQLite/artifact paths</li>
+    <li>auto-generating canonical manifests from module candidates</li>
+    <li>provider capacity or queue policy changes</li>
+    <li>enabling Ontology for every small project</li>
+    <li>letting worker agents refresh sources mid-run</li>
+    <li>treating risk communities/semantic candidates as findings</li>
+    <li>replacing Review Mode security diagnostic with Ontology context</li>
+    <li>adding vulnWorkbench browser E2E tests</li>
+    <li>storing raw source/artifact bodies in run context</li>
+  </ul>
+  <h2 id="review-checklist">Review Checklist</h2>
+  <ul>
+    <li><input disabled="" type="checkbox" /> discovery and generation selection are separate.</li>
+    <li>
+      <input disabled="" type="checkbox" /> selection and capacity/queue routing are separate.
+    </li>
+    <li><input disabled="" type="checkbox" /> generationId is pinned before runtime.</li>
+    <li><input disabled="" type="checkbox" /> exact generation reads are used during run.</li>
+    <li><input disabled="" type="checkbox" /> module candidates stay in code evidence.</li>
+    <li><input disabled="" type="checkbox" /> scanner evidence stays separate from code facts.</li>
+    <li><input disabled="" type="checkbox" /> manifest ownership wins conflicts.</li>
+    <li><input disabled="" type="checkbox" /> task compiler owns adoption/grouping/dedup.</li>
+    <li><input disabled="" type="checkbox" /> security task has scanner/evidence provenance.</li>
+    <li><input disabled="" type="checkbox" /> runtime snapshot is concise and lane-consistent.</li>
+    <li><input disabled="" type="checkbox" /> boundary checks remain authoritative.</li>
+    <li><input disabled="" type="checkbox" /> verification candidates are policy-validated.</li>
+    <li><input disabled="" type="checkbox" /> rescan creates a new generation.</li>
+    <li><input disabled="" type="checkbox" /> debug report is read-only and summary-shaped.</li>
+    <li>
+      <input disabled="" type="checkbox" /> Ontology-off does not disable Review security evidence.
+    </li>
+    <li>
+      <input disabled="" type="checkbox" /> coding-agent end-to-end validation stays outside
+      vulnWorkbench browser E2E.
+    </li>
+  </ul>
+  <h2 id="stop-conditions">Stop Conditions</h2>
+  <ul>
+    <li>consumer reads vulnWorkbench DB directly.</li>
+    <li>worker selects or refreshes latest generation mid-run.</li>
+    <li>Static Intelligence module candidate overrides canonical ownership.</li>
+    <li>code structure fact becomes confirmed security finding.</li>
+    <li>source mismatch is accepted to keep the run moving.</li>
+    <li>stale generation is treated as current security truth.</li>
+    <li>candidate command bypasses command policy.</li>
+    <li>rescan overwrites pinned before-state provenance.</li>
+    <li>Ontology enablement is broadened solely because Static Intelligence exists.</li>
+    <li>implementation requires overwriting unrelated dirty-tree work in NightWorkers.</li>
+  </ul>
+  <h2 id="completion-definition">Completion Definition</h2>
+  <p>
+    This companion plan is complete when the coding-agent platform can discover and pin a
+    vulnWorkbench generation, map it into existing Ontology evidence without changing canonical
+    ownership, compile provenance-backed tasks, expose the same context to both runtime lanes, audit
+    boundaries, select safe verification, compare post-change rescan evidence, and report the full
+    chain through a read-only debug surface.
+  </p>
+</article>

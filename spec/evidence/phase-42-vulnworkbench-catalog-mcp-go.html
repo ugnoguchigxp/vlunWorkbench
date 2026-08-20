@@ -1,0 +1,95 @@
+<article lang="en">
+  <h1 id="phase-42-vulnworkbench-catalog-mcp-go-decision">
+    Phase 42 vulnWorkbench Catalog MCP GO Decision
+  </h1>
+  <p>Date: 2026-07-15</p>
+  <p>Decision: <strong>GO for the vulnWorkbench Catalog MCP component</strong></p>
+  <p>
+    This decision covers the correctness, safety, deterministic contract, and external stdio
+    usability of <code>vuln_get_project_exploration_catalog</code>. It does not decide whether a specific
+    consumer such as NightWorkers should enable the tool by default. Consumer activation rate,
+    exploratory-call reduction, token reduction, completion, and verification non-regression belong
+    to that consumer&#39;s rollout evaluation.
+  </p>
+  <h2 id="evidence">Evidence</h2>
+  <ul>
+    <li>
+      The tool reads one exact persisted <code>scanRunId</code> /
+      <code>generationId</code> pair and does not scan, build, or mutate the
+      target repository.
+    </li>
+    <li>
+      The external <code>@modelcontextprotocol/sdk</code> stdio client can connect, list the
+      tool with <code>readOnlyHint: true</code>, and call it against a generated
+      fixture.
+    </li>
+    <li>
+      The machine-readable CLI and external MCP call return the exact same JSON contract for the
+      same generation and focus.
+    </li>
+    <li>
+      Repeated reads use the persisted generation timestamp, so request time does not make otherwise
+      identical Catalog responses differ.
+    </li>
+    <li>
+      Focus paths and returned paths remain project-relative; raw source bodies, fixture source
+      markers, absolute project paths, and secrets are not returned.
+    </li>
+    <li>Response target and hard-cap behavior is covered without slicing JSON.</li>
+    <li>
+      The expanded scenario evidence contains 41 scenarios: 36 useful results, 3 correct negatives,
+      1 invalid module rejection, 1 known granularity limitation, and 0 unexpected failures.
+    </li>
+    <li>
+      The historical offline evaluation contains 10 source-changing tasks across 2 repositories. Its
+      recall metrics are diagnostic ranking evidence, not a production threshold.
+    </li>
+  </ul>
+  <h2 id="reproducible-checks">Reproducible checks</h2>
+  <pre><code class="language-bash">bun test ./api/modules/static-intelligence/intelligence-exploration-catalog-cli.test.ts \
+  ./api/modules/static-intelligence/static-intelligence-mcp-server-cli.test.ts \
+  ./api/modules/static-intelligence/exploration-catalog.test.ts \
+  ./api/modules/static-intelligence/mcp-tools.test.ts \
+  ./api/modules/static-intelligence/generation-repository.test.ts \
+  ./api/modules/static-intelligence/evaluate-exploration-catalog-cli.test.ts
+bun run verify
+</code></pre>
+  <p>Focused result: <strong>PASS — 37 tests, 0 failures</strong></p>
+  <p>
+    Final repository verification result:
+    <strong
+      >PASS — typecheck, lint, format, test, build, and verify complete after review
+      closeout</strong
+    >
+  </p>
+  <h2 id="review-closeout-improvements">Review closeout improvements</h2>
+  <ul>
+    <li>Bounded scan, path, and module focus string lengths at the public schema.</li>
+    <li>Redacted secret-shaped values and project roots from verification candidates.</li>
+    <li>Returned an exact test-path focus first while following its implementation import.</li>
+    <li>
+      Made rootRef discovery linear in generation count, deterministic on timestamp ties, sequential
+      for artifact reads, and rejecting duplicate artifact roles.
+    </li>
+    <li>
+      Kept CLI and MCP handler failure reason codes aligned without exposing storage paths through
+      Catalog-unavailable messages.
+    </li>
+    <li>Rejected empty, duplicate-ID, and non-project-relative evaluator fixtures.</li>
+    <li>Removed the temporary absolute worktree path from committed validation evidence.</li>
+  </ul>
+  <h2 id="related-evidence">Related evidence</h2>
+  <ul>
+    <li><code>spec/evidence/phase-42-expanded-scenario-validation.json</code></li>
+    <li><code>spec/evidence/phase-42-meaningful-catalog-validation.json</code></li>
+    <li><code>spec/evidence/phase-42-offline-evaluation.json</code></li>
+  </ul>
+  <h2 id="deferred-consumer-decision">Deferred consumer decision</h2>
+  <p>
+    NightWorkers integration and paired runtime value measurement are intentionally not used as the
+    completion gate for this component. That separate task may produce
+    <code>GO</code>, <code>NO-GO</code>, or
+    <code>INSUFFICIENT_EVIDENCE</code> for NightWorkers rollout without changing this
+    Catalog MCP correctness decision.
+  </p>
+</article>

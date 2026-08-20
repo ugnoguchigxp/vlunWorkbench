@@ -1,0 +1,233 @@
+<article lang="en" data-spec-role="decision-contract">
+  <h1 id="nightworkers-security-scan-provider-runbook">
+    NightWorkers security scan provider runbook
+  </h1>
+  <h2 id="scope">Scope</h2>
+  <p>vulnWorkbench exposes the versioned provider API at:</p>
+  <pre><code class="language-text">/api/integrations/nightworkers/v1
+</code></pre>
+  <p>
+    The route is disabled by default. It uses a dedicated bearer credential and does not accept the
+    browser session cookie as integration authorization.
+  </p>
+  <h2 id="database-migration">Database migration</h2>
+  <p>Back up the database, then apply migrations before enabling the route:</p>
+  <pre><code class="language-bash">bun run backup:create
+bun run db:migrate
+</code></pre>
+  <p>
+    Migration <code>0017_nightworkers_security_scan_provider.sql</code> adds integration credentials, resource
+    bindings, preview/idempotency/audit storage, monotonic scan event sequence fields, and
+    asynchronous report lifecycle fields.
+  </p>
+  <h2 id="configuration">Configuration</h2>
+  <p>Required rollout settings:</p>
+  <pre><code class="language-dotenv">NIGHTWORKERS_INTEGRATION_ENABLED=true
+NIGHTWORKERS_INTEGRATION_ALLOWED_PROFILES=source-baseline,diff-source-baseline,diff-basic-security,basic-security,detailed-security,dependency-manifest,artifact
+</code></pre>
+  <p>Security-sensitive defaults:</p>
+  <table>
+    <caption>
+      Configuration
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Setting</th>
+        <th scope="col" class="markdown-align-right">Default</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>NIGHTWORKERS_INTEGRATION_AUTO_CREATE_PROJECTS</code></td>
+        <td class="markdown-align-right"><code>false</code></td>
+      </tr>
+      <tr>
+        <td><code>NIGHTWORKERS_INTEGRATION_PREVIEW_TTL_SECONDS</code></td>
+        <td class="markdown-align-right"><code>300</code></td>
+      </tr>
+      <tr>
+        <td><code>NIGHTWORKERS_INTEGRATION_IDEMPOTENCY_TTL_HOURS</code></td>
+        <td class="markdown-align-right"><code>168</code></td>
+      </tr>
+      <tr>
+        <td><code>NIGHTWORKERS_INTEGRATION_MAX_CONCURRENT_SCANS</code></td>
+        <td class="markdown-align-right"><code>2</code></td>
+      </tr>
+      <tr>
+        <td><code>NIGHTWORKERS_INTEGRATION_MAX_FINDING_PAGE_SIZE</code></td>
+        <td class="markdown-align-right"><code>100</code></td>
+      </tr>
+      <tr>
+        <td><code>NIGHTWORKERS_INTEGRATION_MAX_EVENT_PAGE_SIZE</code></td>
+        <td class="markdown-align-right"><code>200</code></td>
+      </tr>
+      <tr>
+        <td><code>NIGHTWORKERS_INTEGRATION_MAX_REPORT_BYTES</code></td>
+        <td class="markdown-align-right"><code>5242880</code></td>
+      </tr>
+      <tr>
+        <td><code>NIGHTWORKERS_INTEGRATION_MAX_REQUEST_BYTES</code></td>
+        <td class="markdown-align-right"><code>65536</code></td>
+      </tr>
+      <tr>
+        <td><code>NIGHTWORKERS_REPORT_RUNNER_CONCURRENCY</code></td>
+        <td class="markdown-align-right"><code>2</code></td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    In production, keep auto-create disabled unless the project-registration policy has been
+    reviewed. A credential&#39;s optional <code>--allowed-root</code> scopes that
+    client; an empty client root list permits any existing, readable project directory.
+  </p>
+  <h2 id="credential-operations">Credential operations</h2>
+  <p>Create a client for an existing vulnWorkbench user:</p>
+  <pre><code class="language-bash">bun run integration:client create \
+  --name nightworkers-production \
+  --owner-user &lt;user-id&gt; \
+  --scope nightworkers:security-scan:read \
+  --scope nightworkers:security-scan:write \
+  --scope nightworkers:security-report:read \
+  --scope nightworkers:security-report:write \
+  --allowed-root /absolute/path/to/approved/projects
+</code></pre>
+  <p>
+    The plaintext token is printed once. Store it in the NightWorkers OS secret store; vulnWorkbench
+    stores only its hash and a lookup prefix.
+  </p>
+  <pre><code class="language-bash">bun run integration:client list
+bun run integration:client rotate --id &lt;client-id&gt;
+bun run integration:client revoke --id &lt;client-id&gt;
+</code></pre>
+  <p>
+    Rotation preserves the client ID, resource bindings, and idempotency history. Revocation rejects
+    subsequent requests immediately.
+  </p>
+  <h2 id="canary-rollout">Canary rollout</h2>
+  <ol>
+    <li>Apply the database migration with the provider route disabled.</li>
+    <li>Restart vulnWorkbench and confirm normal user-facing scan/report routes.</li>
+    <li>
+      Create a read-only canary credential with only <code>nightworkers:security-scan:read</code>.
+    </li>
+    <li>
+      Enable the route and verify <code>POST /capabilities</code> and
+      <code>POST /scans/preview</code>.
+    </li>
+    <li>
+      Add scan write scope and exercise <code>quick</code>, then
+      <code>standard</code>, against a disposable registered repository.
+    </li>
+    <li>
+      Confirm event sequence pagination, terminal outcome/coverage, finding redaction, and
+      cancellation.
+    </li>
+    <li>
+      Add report read/write scopes and verify asynchronous report generation and Markdown integrity
+      metadata.
+    </li>
+    <li>Restart both processes and confirm the same opaque refs remain readable.</li>
+  </ol>
+  <h2 id="compatibility-matrix">Compatibility matrix</h2>
+  <table>
+    <caption>
+      Compatibility matrix
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Consumer</th>
+        <th scope="col">Provider contract</th>
+        <th scope="col">Supported operations</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>NightWorkers canary</td>
+        <td>v1</td>
+        <td>capabilities, preview, quick/standard scan</td>
+      </tr>
+      <tr>
+        <td>NightWorkers full rollout</td>
+        <td>v1</td>
+        <td>deep/custom scan and asynchronous report</td>
+      </tr>
+      <tr>
+        <td>vulnWorkbench Web/CLI</td>
+        <td>existing user API</td>
+        <td>unchanged; integration bearer tokens are rejected</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    The v1 provider treats unknown request fields and enum values as invalid. Consumers must use the
+    <code>contractVersion: 1</code> response envelope and must not depend on internal
+    database columns.
+  </p>
+  <h2 id="monitoring-and-invariant-checks">Monitoring and invariant checks</h2>
+  <p>
+    The normal structured <code>http_request</code> log supplies request count,
+    status, and latency by integration path without logging request or response bodies. Audit rows
+    supply operation outcome and replay correlation.
+  </p>
+  <p>After a canary, verify event and idempotency invariants:</p>
+  <pre><code class="language-bash">sqlite3 data/vuln-workbench.sqlite &quot;
+SELECT scan_run_id, COUNT(*) AS events, COUNT(DISTINCT seq) AS distinct_seq,
+       MIN(seq) AS first_seq, MAX(seq) AS last_seq
+FROM scan_events
+GROUP BY scan_run_id
+HAVING events &lt;&gt; distinct_seq OR first_seq &lt;&gt; 1 OR last_seq &lt;&gt; events;&quot;
+
+sqlite3 data/vuln-workbench.sqlite &quot;
+SELECT integration_client_id, operation, idempotency_key, COUNT(*)
+FROM integration_idempotency_keys
+GROUP BY integration_client_id, operation, idempotency_key
+HAVING COUNT(*) &gt; 1;&quot;
+</code></pre>
+  <p>Both queries must return no rows. Also inspect recent operation outcomes:</p>
+  <pre><code class="language-bash">sqlite3 data/vuln-workbench.sqlite &quot;
+SELECT operation, outcome, error_code, COUNT(*)
+FROM integration_audit_logs
+GROUP BY operation, outcome, error_code
+ORDER BY operation, outcome;&quot;
+</code></pre>
+  <h2 id="disable-and-rollback">Disable and rollback</h2>
+  <p>
+    Set <code>NIGHTWORKERS_INTEGRATION_ENABLED=false</code> and restart to remove the provider route without
+    deleting scan/report history. Revoke affected credentials if a token may be exposed.
+  </p>
+  <p>
+    As a revoke drill, revoke the canary client and confirm its next request returns
+    <code>integration_unauthorized</code>; do not rotate a revoked client. Create a new client
+    when re-enabling access after an incident.
+  </p>
+  <p>
+    Database rollback should normally restore the pre-migration backup. Do not drop integration
+    tables while scans or reports created through the provider still need to be resolved. Existing
+    user-facing scan/report endpoints remain separate from the feature-flagged provider route.
+  </p>
+  <h2 id="incident-checks">Incident checks</h2>
+  <ul>
+    <li>
+      Authentication and scope failures return a versioned structured error without token or path
+      disclosure.
+    </li>
+    <li>
+      Side-effect operations record client, owner, scope, request ID, project ref, hashed
+      path/idempotency key, resource ref, and outcome in
+      <code>integration_audit_logs</code>.
+    </li>
+    <li>
+      <code>scan_events.seq</code> is the resume cursor. Consumers must treat
+      <code>afterSeq</code> as exclusive and continue until
+      <code>hasMore</code> is false.
+    </li>
+    <li>
+      A scan result of <code>no_findings</code> is not a safety attestation.
+      Coverage gaps force <code>inconclusive</code>.
+    </li>
+    <li>
+      Report Markdown is available only after <code>completed</code>; stored
+      size and SHA-256 are verified before download.
+    </li>
+  </ul>
+</article>

@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import { load } from "cheerio";
 
 type PackageManifest = {
 	overrides?: Record<string, string>;
@@ -7,15 +8,25 @@ type PackageManifest = {
 const manifest = JSON.parse(
 	await fs.readFile("package.json", "utf8"),
 ) as PackageManifest;
-const document = await fs.readFile("docs/dependency-overrides.md", "utf8");
-const owner = document.match(/^Owner:\s*(.+)$/m)?.[1]?.trim();
-const nextReview = document.match(/^Next review:\s*(\d{4}-\d{2}-\d{2})$/m)?.[1];
+const document = await fs.readFile(
+	"spec/decisions/dependency-overrides.html",
+	"utf8",
+);
+const $ = load(document);
+const paragraphs = $("p")
+	.toArray()
+	.map((element) => $(element).text().trim());
+const metadata = paragraphs.find((text) => text.startsWith("Owner:")) ?? "";
+const owner = metadata.match(/Owner:\s*(.+?)\s+Next review:/)?.[1]?.trim();
+const nextReview = metadata.match(/Next review:\s*(\d{4}-\d{2}-\d{2})/)?.[1];
 const rows = new Map<string, { version: string; reason: string }>();
-for (const match of document.matchAll(
-	/^\| `([^`]+)` \| `([^`]+)` \| (.+) \|$/gm,
-)) {
-	rows.set(match[1], { version: match[2], reason: match[3].trim() });
-}
+$("table tbody tr").each((_index, row) => {
+	const cells = $(row).find("td");
+	const name = cells.eq(0).text().trim();
+	const version = cells.eq(1).text().trim();
+	const reason = cells.eq(2).text().trim();
+	if (name) rows.set(name, { version, reason });
+});
 
 const errors: string[] = [];
 if (!owner) errors.push("Dependency override owner is missing.");

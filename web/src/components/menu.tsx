@@ -12,9 +12,10 @@ const MenuCloseContext = createContext<(() => void) | null>(null);
 type MenuProps = {
 	label: string;
 	children: ReactNode;
+	trigger?: ReactNode;
 };
 
-export function Menu({ label, children }: MenuProps) {
+export function Menu({ label, children, trigger }: MenuProps) {
 	const [open, setOpen] = useState(false);
 	const rootRef = useRef<HTMLDivElement>(null);
 
@@ -41,9 +42,11 @@ export function Menu({ label, children }: MenuProps) {
 				className="workspace-menu-trigger"
 				aria-haspopup="menu"
 				aria-expanded={open}
+				aria-label={label}
+				title={label}
 				onClick={() => setOpen((value) => !value)}
 			>
-				{label}
+				{trigger ?? label}
 			</button>
 			{open ? (
 				<MenuCloseContext.Provider value={() => setOpen(false)}>
@@ -79,4 +82,9 @@ export function MenuItem({
 			{children}
 		</button>
 	);
+}
+
+/** Separates irreversible menu actions from navigation and other safe actions. */
+export function MenuDivider() {
+	return <hr className="workspace-menu-divider" />;
 }

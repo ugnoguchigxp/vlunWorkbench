@@ -38,8 +38,9 @@
 | `web/src/domains/scans/` | primary scan workflow UI |
 | `drizzle/` | SQL migrations |
 | `scripts/verify.ts` | verification pipeline |
-| `spec/` | Product concepts and active implementation plans |
-| `spec/.archived/` | Completed plans retained for history; do not load unless the user explicitly requests a historical audit |
+| `spec/` | Product concepts, decisions, policies, templates, and evidence |
+| `spec/docs/active-plans/` | Active implementation plans and designs with remaining completion conditions |
+| `spec/docs/.archived/` | Completed plans retained for history; do not load unless the user explicitly requests a historical audit |
 
 ## Task Routing
 
@@ -52,7 +53,7 @@
 | Change scan UI | `web/src/domains/scans/` | `web/src/api.ts`, `web/src/styles-scans.css`, shared schema | backend runner implementation unless API changes |
 | Change auth/API shell | `api/routes/auth.route.ts`, `api/modules/auth/`, `api/middleware/auth.ts` | `web/src/api.ts`, `web/src/domains/auth/login-domain.tsx` | scan runner details |
 | Change env/config | `api/app/env.ts`, `api/config/appDefaults.ts`, `.env.example` | `drizzle.config.ts`, README environment table | unrelated frontend views |
-| Change docs/metadata | `README.md`, `package.json`, `LLM_CONTEXT.md`, `docs/` | source truth for mentioned commands and modules | behavior changes |
+| Change docs/metadata | `README.md`, `package.json`, `LLM_CONTEXT.md`, `spec/` | source truth for mentioned commands and modules | behavior changes |
 
 ## Implementation Contracts
 

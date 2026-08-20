@@ -1,9 +1,6 @@
 import fs from "node:fs/promises";
 import type { AppDatabase } from "../../db";
-import {
-	discoverRepositoryApiSchema,
-	type SchemaDiscoveryResult,
-} from "../api-schema-fuzz/schema-discovery";
+import type { SchemaDiscoveryResult } from "../api-schema-fuzz/schema-discovery";
 import { runSchemathesisReadonly } from "../api-schema-fuzz/schemathesis-runner";
 import {
 	type PreparedContainerTargetGateway,
@@ -23,7 +20,7 @@ export async function runSchemaScannerIntoExistingScan(params: {
 	scanRunId: string;
 	repoPath: string;
 	targetOrigin: string;
-	discovery?: SchemaDiscoveryResult;
+	discovery: SchemaDiscoveryResult;
 	artifactStorage: ArtifactStorage;
 	timeoutSec?: number;
 	execution?: ToolExecutionConfig;
@@ -40,8 +37,7 @@ export async function runSchemaScannerIntoExistingScan(params: {
 	error?: string;
 	metadata?: Record<string, unknown>;
 }> {
-	const discovery =
-		params.discovery ?? (await discoverRepositoryApiSchema(params.repoPath));
+	const discovery = params.discovery;
 	if (!discovery.applicable || !discovery.schemaPath)
 		return {
 			applicable: false,

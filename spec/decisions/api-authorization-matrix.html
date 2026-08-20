@@ -1,0 +1,182 @@
+<article lang="en" data-spec-role="decision-contract">
+  <h1 id="api-authorization-matrix">API authorization matrix</h1>
+  <p>
+    This matrix is the release contract for the HTTP API. Route-local ownership checks always apply
+    in addition to the authentication level shown here.
+  </p>
+  <table>
+    <caption>
+      API authorization matrix
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Route surface</th>
+        <th scope="col">Read</th>
+        <th scope="col">Mutation / execution</th>
+        <th scope="col">Additional boundary</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>
+          <code>/api/health</code>, <code>/api/health/ready</code>
+        </td>
+        <td>Public</td>
+        <td>N/A</td>
+        <td>Readiness returns only a generic state.</td>
+      </tr>
+      <tr>
+        <td>
+          <code>/api/auth/login</code>, <code>/api/auth/refresh</code>
+        </td>
+        <td>Public</td>
+        <td>Public</td>
+        <td>Normalized-email rate limit; refresh-cookie rotation.</td>
+      </tr>
+      <tr>
+        <td>
+          <code>/api/auth/me</code>, <code>/api/auth/logout</code>
+        </td>
+        <td>Authenticated</td>
+        <td>Authenticated</td>
+        <td>Session user only.</td>
+      </tr>
+      <tr>
+        <td><code>/api/admin/**</code></td>
+        <td>Admin</td>
+        <td>Admin</td>
+        <td>User lifecycle administration.</td>
+      </tr>
+      <tr>
+        <td><code>/api/settings/system-context</code></td>
+        <td>Authenticated</td>
+        <td>Authenticated</td>
+        <td>Per-user settings.</td>
+      </tr>
+      <tr>
+        <td><code>/api/settings/llm/**</code></td>
+        <td>Admin</td>
+        <td>Admin</td>
+        <td>Global provider settings, Codex status, and health checks.</td>
+      </tr>
+      <tr>
+        <td><code>/api/sources/**</code></td>
+        <td>Authenticated</td>
+        <td>Admin</td>
+        <td>
+          Source health/tree/search/history are shared reads; folder/page/reindex writes are global
+          administration.
+        </td>
+      </tr>
+      <tr>
+        <td><code>/api/projects</code></td>
+        <td>Authenticated</td>
+        <td>Authenticated</td>
+        <td>
+          Registration requires an existing, readable directory; its canonical path is stored.
+        </td>
+      </tr>
+      <tr>
+        <td><code>/api/projects/folder-picker</code></td>
+        <td>Admin</td>
+        <td>Admin</td>
+        <td>Host filesystem discovery is never exposed to members.</td>
+      </tr>
+      <tr>
+        <td><code>/api/projects/:projectId/**</code></td>
+        <td>Project member</td>
+        <td>Project member</td>
+        <td>Project ownership lookup; path availability is revalidated before execution.</td>
+      </tr>
+      <tr>
+        <td>
+          <code>/api/scans/**</code>,
+          <code>/api/findings/**</code>, <code>/api/scan-reports/**</code>
+        </td>
+        <td>Project member</td>
+        <td>Project member</td>
+        <td>Access follows the owning project through scan/finding/report relations.</td>
+      </tr>
+      <tr>
+        <td>
+          <code>/api/reproduction-runs/**</code>,
+          <code>/api/dynamic-runs/**</code>, <code>/api/dast-runs/**</code>
+        </td>
+        <td>Project member</td>
+        <td>Project member</td>
+        <td>Bounded profiles only; project path is revalidated immediately before execution.</td>
+      </tr>
+      <tr>
+        <td>
+          <code>/api/projects/:projectId/assessments/**</code>, <code>/api/projects/:projectId/active-assessment-runs/**</code>
+        </td>
+        <td>Project owner</td>
+        <td>Project owner</td>
+        <td>
+          Same-project engagement, target, encrypted auth contexts, cumulative RoE budget, and
+          canonical origin/path/method scope are enforced before execution.
+        </td>
+      </tr>
+      <tr>
+        <td>
+          <code>/api/diagnostic-reports/**</code>,
+          <code>/api/finding-reviews/**</code>, <code>/api/finding-decisions/**</code>
+        </td>
+        <td>Project member</td>
+        <td>Project member</td>
+        <td>Access follows the related scan or finding.</td>
+      </tr>
+      <tr>
+        <td><code>/api/static-intelligence/**</code></td>
+        <td>Project member</td>
+        <td>Project member</td>
+        <td>Read/build access follows the related project or scan.</td>
+      </tr>
+      <tr>
+        <td><code>/api/artifacts/**</code></td>
+        <td>Authenticated owner</td>
+        <td>Authenticated owner</td>
+        <td>Artifact path is resolved from persisted metadata, never a caller path.</td>
+      </tr>
+      <tr>
+        <td>
+          <code>/api/search/**</code>, <code>/api/agentic-search/**</code>,
+          <code>/api/chat/**</code>
+        </td>
+        <td>Authenticated</td>
+        <td>Authenticated</td>
+        <td>User-scoped conversations and bounded retrieval inputs.</td>
+      </tr>
+      <tr>
+        <td><code>/api/scan-profiles</code></td>
+        <td>Authenticated</td>
+        <td>N/A</td>
+        <td>Read-only profile catalog.</td>
+      </tr>
+    </tbody>
+  </table>
+  <h2 id="enforcement-and-tests">Enforcement and tests</h2>
+  <ul>
+    <li>
+      <code>api/app/hono.ts</code> installs authentication before protected route
+      registration.
+    </li>
+    <li>
+      <code>requireAdmin</code> and
+      <code>requireAdminForMutation</code> provide the global admin boundary.
+    </li>
+    <li>
+      Route repositories resolve project ownership without accepting a user-supplied ownership
+      claim.
+    </li>
+    <li>
+      <code>api/app/hono.test.ts</code>, <code>api/middleware/auth.test.ts</code>,
+      <code>api/routes/settings.route.test.ts</code>, <code>api/routes/sources.route.test.ts</code>, and
+      the project/scan/finding route tests are the executable contract.
+    </li>
+    <li>
+      Any new endpoint must update this matrix and add an unauthenticated, wrong-role, or
+      wrong-owner test as applicable.
+    </li>
+  </ul>
+</article>

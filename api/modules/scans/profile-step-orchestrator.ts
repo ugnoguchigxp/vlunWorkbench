@@ -395,7 +395,6 @@ export async function executeProfileSteps(
 							error: null,
 							artifactIds: [],
 						});
-						optionalToolFailed = true;
 						continue;
 					}
 					const target = await ensureSharedRuntimeTarget();
@@ -439,7 +438,7 @@ export async function executeProfileSteps(
 					});
 					if (schemaFailed && failureFailsProfile)
 						profileFailingToolFailed = true;
-					else if (schemaFailed || notApplicable) optionalToolFailed = true;
+					else if (schemaFailed) optionalToolFailed = true;
 					continue;
 				}
 			} catch (err: unknown) {

@@ -40,7 +40,7 @@ const phase54ScopePaths = new Set([
 	"shared/schemas/release-evidence.schema.test.ts",
 	"shared/schemas/release-evidence.schema.ts",
 	"spec/evidence/phase-54-baseline.json",
-	"spec/.archived/phase-54-release-trust-and-product-value-realization-plan.md",
+	"spec/docs/.archived/phase-54-release-trust-and-product-value-realization-plan.md",
 ]);
 
 const externalBenchmarkSchema = z.object({
@@ -147,7 +147,7 @@ async function collectBaseline(params: {
 		readFile(benchmarkPolicyPath),
 		readFile("spec/evidence/phase-50-release-report.json"),
 		readFile("spec/evidence/phase-53-python-go-baseline.json"),
-		readFile("spec/third-party-scanners.md", "utf8"),
+		readFile("spec/decisions/third-party-scanners.html", "utf8"),
 		discoverTestFiles(),
 	]);
 	const manifest = scannerDataManifestV2Schema.parse(
@@ -360,7 +360,10 @@ async function collectGates(params: {
 		state: gateStateFromAttempts([docsAttempt]),
 		durationMs: null,
 		attempts: [docsAttempt],
-		evidenceRefs: ["spec/third-party-scanners.md", scannerManifestPath],
+		evidenceRefs: [
+			"spec/decisions/third-party-scanners.html",
+			scannerManifestPath,
+		],
 		summary: "Manifest-backed documentation consistency",
 	});
 
@@ -486,7 +489,7 @@ async function readCollectionFingerprint(): Promise<Record<string, string>> {
 		readFile(benchmarkPolicyPath),
 		readFile("spec/evidence/phase-50-release-report.json"),
 		readFile("spec/evidence/phase-53-python-go-baseline.json"),
-		readFile("spec/third-party-scanners.md", "utf8"),
+		readFile("spec/decisions/third-party-scanners.html", "utf8"),
 	]);
 	return {
 		headCommit,

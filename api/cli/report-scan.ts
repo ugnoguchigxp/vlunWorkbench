@@ -5,6 +5,7 @@ import { readAppEnv } from "../app/env";
 import { createDbConnection } from "../db";
 import { scanRuns } from "../db/schema";
 import { LlmSettingsRepository } from "../modules/llm-settings/llm-settings.repository";
+import { ScanArtifactSink } from "../modules/scans/artifact-sink";
 import { ArtifactStorage } from "../modules/scans/artifact-storage";
 import { buildMarkdownReport } from "../modules/scans/report-builder";
 import { ScanReportRepository } from "../modules/scans/report-repository";
@@ -159,23 +160,14 @@ async function main() {
 		const markdown = buildResult.markdown;
 
 		// 5. Save to artifact storage
-		const filename = `report-${report.id}.md`;
-		const saveResult = await storage.saveTextArtifact(
+		const artifact = await new ScanArtifactSink(storage, artifactRepo, {
 			scanRunId,
-			"reports",
-			markdown,
-			filename,
-		);
-
-		// 6. Create scan artifact metadata
-		const artifact = await artifactRepo.createArtifact({
-			scanRunId,
-			toolRunId: null,
 			kind: "report",
+			id: report.id,
+		}).saveText({
+			role: "report",
 			format: "markdown",
-			path: saveResult.path,
-			sha256: saveResult.sha256,
-			sizeBytes: saveResult.sizeBytes,
+			content: markdown,
 			metadata: {
 				reportId: report.id,
 				summaryMode,
@@ -229,7 +221,7 @@ async function main() {
 			reportId: report.id,
 			artifactId: artifact.id,
 			status: "completed",
-			sha256: saveResult.sha256,
+			sha256: artifact.sha256,
 		});
 	} catch (err) {
 		const errMsg = err instanceof Error ? err.message : String(err);

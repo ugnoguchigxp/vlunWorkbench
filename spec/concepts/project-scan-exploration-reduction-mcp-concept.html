@@ -1,0 +1,617 @@
+<article lang="ja" data-spec-role="concept">
+  <h1 id="project-scan-exploration-reduction-mcp-concept">
+    Project Scan Exploration Reduction MCP Concept
+  </h1>
+  <h2 id="purpose">Purpose</h2>
+  <p>
+    この文書は、vulnWorkbench が persisted Static Intelligence generation から、NightWorkers
+    のコーディングエージェント向けに「探索の手がかり目録」を read-only MCP tool
+    として提供する全体構想を定義する。
+  </p>
+  <p>
+    目的はエージェントへ追加情報を大量投入することではない。実装前に繰り返される
+    <code>list_dir</code
+    >、<code>search_files</code>、<code>rg</code>、無関係な
+    source read、test / verification 探索の一部を、構造化済み generation への一回の限定 query
+    へ置き換えることである。
+  </p>
+  <pre><code class="language-text">unplanned repository exploration
+  -&gt; many directory/search/read calls
+  -&gt; large source context
+  -&gt; implementation scope is discovered late
+
+becomes
+
+pinned Project Scan generation
+  -&gt; one bounded exploration-catalog MCP call
+  -&gt; ranked file/test/verification clues
+  -&gt; targeted source reads only
+</code></pre>
+  <h2 id="executive-decision">Executive Decision</h2>
+  <ul>
+    <li>
+      新しい MCP surface は、project overview 全体ではなく、探索削減に必要な
+      file、test、verification の限定目録を返す。
+    </li>
+    <li>MCP response は既存探索へ追加する情報ではなく、広い探索を置き換える情報として使う。</li>
+    <li>source body、snippet、全file一覧、全graph、全finding、raw artifact は返さない。</li>
+    <li>
+      worker は supervisor が planning 時に pin した <code>scanRunId</code> /
+      <code>generationId</code> だけを使い、run 中に latest generation
+      を選び直さない。
+    </li>
+    <li>
+      source discovery / binding は raw repository path を MCP へ渡さず、既存 code structure の
+      <code>rootRef</code> と persisted generation provenance を使う。
+    </li>
+    <li>
+      MCP は read-only のままとし、scan、generation build、verification、task creation、NightWorkers
+      mutation を行わない。
+    </li>
+    <li>
+      最初の価値判定は、出力件数やactual changed-file recallではなく、探索tool call、source
+      read、input token、completion / verification非劣化で行う。actual changed-file
+      recallは同一fixture上のranking回帰診断にだけ使う。
+    </li>
+    <li>
+      実測で探索を置き換えられなければ、AST fact、LSP、Project Graph、Embedding
+      への追加投資を止める。
+    </li>
+  </ul>
+  <h2 id="problem">Problem</h2>
+  <h3 id="current-agent-behavior">Current agent behavior</h3>
+  <p>
+    repository
+    の実装範囲が明示されていないTaskでは、コーディングエージェントは通常、次の探索を行う。
+  </p>
+  <ol>
+    <li>directory tree と package manifest を読む。</li>
+    <li>
+      Task文中の語を <code>rg</code> /
+      <code>search_files</code> で検索する。
+    </li>
+    <li>route、service、schema、repository、test を順に読む。</li>
+    <li>import元・import先を追加検索する。</li>
+    <li>package scripts、CI、既存taskからverification commandを探す。</li>
+    <li>読み落としが判明すると、実装途中で探索へ戻る。</li>
+  </ol>
+  <p>
+    この探索は必要だが、毎回LLMがraw
+    sourceに対して再計算している。複数Task・複数run・複数agentが同じrepositoryで同じ探索を繰り返すと、入力tokenとtool
+    round-tripが重複する。
+  </p>
+  <h3 id="existing-producer-assets">Existing producer assets</h3>
+  <p>vulnWorkbench には既に次がある。</p>
+  <ul>
+    <li>bounded TypeScript / JavaScript structure extraction</li>
+    <li>file path、file tag、exported symbol、import、package dependency</li>
+    <li>deterministic module candidate</li>
+    <li>scanner-backed file risk / evidence refs</li>
+    <li>verification command candidate</li>
+    <li>persisted structure + export generation</li>
+    <li><code>generationId</code> を指定した exact read</li>
+    <li>read-only MCP server</li>
+  </ul>
+  <p>
+    不足しているのは解析機能そのものより、これらを「エージェントが最初に読むべき場所を絞る小さな目録」へ投影するconsumer-facing
+    queryである。
+  </p>
+  <h2 id="value-hypothesis">Value Hypothesis</h2>
+  <p>価値は次の式で判断する。</p>
+  <pre><code class="language-text">net value
+  = avoided exploratory input tokens
+  + avoided tool round-trips
+  + avoided rework from missed boundaries/tests
+  + reuse across tasks on the same generation
+  - MCP request/response tokens
+  - generation preparation cost
+  - wrong-clue correction cost
+</code></pre>
+  <p>
+    MCP responseを既存探索へ単純追加した場合、net
+    valueは負になる。価値が出る条件は、MCP後にdirectory全走査や同じ語のbroad
+    searchを行わず、上位候補だけをtargeted readすることである。
+  </p>
+  <h3 id="primary-value">Primary value</h3>
+  <ol>
+    <li>
+      <strong>探索tokenの削減</strong>
+      <ul>
+        <li>raw sourceを読む前に候補を絞り、無関係なfile内容をcontextへ入れない。</li>
+      </ul>
+    </li>
+    <li>
+      <strong>tool round-tripの削減</strong>
+      <ul>
+        <li>tree、複数回のsearch、test探索、verification探索を一回のread-only queryへ圧縮する。</li>
+      </ul>
+    </li>
+    <li>
+      <strong>探索結果の再利用</strong>
+      <ul>
+        <li>
+          AST / manifest /
+          scanner解析をgeneration作成時に一度だけ行い、同じGit状態の複数Taskで再利用する。
+        </li>
+      </ul>
+    </li>
+    <li>
+      <strong>見落としによるreworkの削減</strong>
+      <ul>
+        <li>
+          direct importer、related test、repository verification entrypointを実装開始前に提示する。
+        </li>
+      </ul>
+    </li>
+    <li>
+      <strong>provenanceとfreshness</strong>
+      <ul>
+        <li>どのgenerationの事実かを固定し、staleな目録をcurrent truthとして扱わない。</li>
+      </ul>
+    </li>
+  </ol>
+  <h3 id="secondary-value">Secondary value</h3>
+  <ul>
+    <li>NightWorkersのTask decompositionがlikely fileとtest境界を参照できる。</li>
+    <li>Review / closeoutがplanning時の手がかりと実変更を比較できる。</li>
+    <li>どのsource refが判断に使われたかをrun eventで説明できる。</li>
+    <li>scanner evidenceが存在する場合、security-focused queryだけが限定的に参照できる。</li>
+  </ul>
+  <p>
+    Security evidenceは通常のimplementation explorationのprimary
+    valueではない。通常Taskへ常時含めるとresponseを肥大化させるため、別intentまたは明示opt-inにする。
+  </p>
+  <h2 id="position-in-the-existing-architecture">Position in the Existing Architecture</h2>
+  <pre><code class="language-text">vulnWorkbench
+  scanners / manifests / TypeScript Compiler API
+    -&gt; persisted Static Intelligence generation
+       -&gt; bounded exploration catalog projection
+          -&gt; read-only MCP
+
+NightWorkers supervisor
+  repository identity
+    -&gt; source discovery by rootRef
+    -&gt; generation selection and pinning
+    -&gt; runtime context with exact generation reference
+
+NightWorkers coding agent
+  task / todo / module focus
+    -&gt; one exploration catalog call when needed
+    -&gt; targeted file reads
+    -&gt; implementation
+    -&gt; repository-native verification
+</code></pre>
+  <h3 id="vulnworkbench-owns">vulnWorkbench owns</h3>
+  <ul>
+    <li>persisted code / scan facts</li>
+    <li>deterministic catalog ranking and bounded projection</li>
+    <li>generation provenance / readiness / degraded reasons</li>
+    <li>MCP schema、handler、redaction、response budget</li>
+    <li>candidate-only file/test/verification clues</li>
+  </ul>
+  <h3 id="nightworkers-supervisor-owns">NightWorkers supervisor owns</h3>
+  <ul>
+    <li>NightWorkers repository と vulnWorkbench source のbinding</li>
+    <li>generation selection and pinning</li>
+    <li>Task / run にMCPを公開するactivation policy</li>
+    <li>runtime contextへfocusとexact generation referenceを渡すこと</li>
+    <li>usage / tool-call / file-read telemetry</li>
+  </ul>
+  <h3 id="worker-coding-agent-owns">Worker coding agent owns</h3>
+  <ul>
+    <li>MCPを呼ぶ必要があるかの最終判断</li>
+    <li>clueを確定変更対象と誤認せず、対象sourceを実際に読むこと</li>
+    <li>targeted searchで仮説を検証すること</li>
+    <li>repository policyに従ってverificationを選ぶこと</li>
+    <li>MCPがmissing / stale / degradedなら通常探索へfallbackすること</li>
+  </ul>
+  <h3 id="mcp-does-not-own">MCP does not own</h3>
+  <ul>
+    <li>canonical Project Ontology</li>
+    <li>Task generation / task approval</li>
+    <li>source mutation</li>
+    <li>scan / generation refresh</li>
+    <li>verification execution</li>
+    <li>queue admission / provider routing</li>
+    <li>vulnerability confirmation</li>
+  </ul>
+  <h2 id="terminology">Terminology</h2>
+  <h3 id="project-scan-generation">Project Scan generation</h3>
+  <p>
+    同じ<code>generationId</code>に束ねられたpersisted code structure
+    snapshotとStatic Intelligence export。MCP readはこのgenerationをsource of truthとして使う。
+  </p>
+  <h3 id="exploration-catalog">Exploration catalog</h3>
+  <p>
+    特定のTask focusに対して、最初に確認すべきfile、related test、verification
+    candidateをrank付きで返す小さなread model。source codeの代替ではなく、source
+    codeへ到達する索引である。
+  </p>
+  <h3 id="focus">Focus</h3>
+  <p>NightWorkersまたはworkerがqueryへ渡す限定条件。初期surfaceでは次を扱う。</p>
+  <ul>
+    <li>known project-relative path</li>
+    <li>NightWorkers / vulnWorkbench module id or path prefix</li>
+    <li>Task titleから抽出した少数のlexical term</li>
+  </ul>
+  <p>
+    focusが空の場合、MCPはproject全体を返さず<code>focus_required</code>を返す。
+  </p>
+  <h3 id="clue">Clue</h3>
+  <p>
+    変更対象の断定ではなく、persisted factに基づくcandidate。各clueはrank、reason code、source
+    refを持つ。
+  </p>
+  <h2 id="tool-surface">Tool Surface</h2>
+  <p>全体構想のprimary toolは一つとする。</p>
+  <pre><code class="language-text">vuln_get_project_exploration_catalog
+</code></pre>
+  <p>既存の次のtoolsはsource discoveryやdeep diveに残す。</p>
+  <ul>
+    <li><code>vuln_list_knowledge_sources</code></li>
+    <li><code>vuln_get_knowledge_source_manifest</code></li>
+    <li><code>vuln_get_project_structure_snapshot</code></li>
+    <li><code>vuln_get_verification_commands</code></li>
+    <li><code>vuln_get_evidence_bundle</code></li>
+  </ul>
+  <p>
+    新toolはこれらをすべてまとめて返さない。探索削減に必要なsubsetを、一つのgenerationから一貫して投影する。
+  </p>
+  <h3 id="conceptual-input">Conceptual input</h3>
+  <pre><code class="language-ts">type ProjectExplorationCatalogInput = {
+  scanRunId: string;
+  generationId: string;
+  focus: {
+    paths?: string[];
+    moduleIds?: string[];
+    terms?: string[];
+  };
+  limits?: {
+    files?: number;
+    tests?: number;
+    verificationCommands?: number;
+  };
+};
+</code></pre>
+  <p>
+    <code>generationId</code>はworker-facing callでは必須とする。latest
+    resolutionはsupervisorのplanning責務であり、worker queryのたびに変化させない。
+  </p>
+  <h3 id="conceptual-output">Conceptual output</h3>
+  <pre><code class="language-ts">type ProjectExplorationCatalog = {
+  ok: true;
+  status: &quot;completed&quot; | &quot;degraded&quot;;
+  generation: {
+    scanRunId: string;
+    generationId: string;
+    snapshotRef: string;
+    sourceTreeHash: string;
+    sourceStateHash: string;
+    readiness: &quot;available&quot; | &quot;stale&quot; | &quot;degraded&quot;;
+  };
+  focusResolution: {
+    matchedPaths: string[];
+    matchedModuleIds: string[];
+    matchedTerms: string[];
+    unmatched: string[];
+  };
+  likelyFiles: Array&lt;{
+    rank: number;
+    path: string;
+    roleTags: string[];
+    reasonCodes: string[];
+    sourceRefs: string[];
+  }&gt;;
+  relatedTests: Array&lt;{
+    rank: number;
+    path: string;
+    reasonCodes: string[];
+    sourceRefs: string[];
+  }&gt;;
+  verificationCandidates: Array&lt;{
+    rank: number;
+    command: string;
+    reasonCodes: string[];
+    sourceRefs: string[];
+    candidateOnly: true;
+  }&gt;;
+  truncation: {
+    truncated: boolean;
+    omittedFiles: number;
+    omittedTests: number;
+    omittedVerificationCommands: number;
+  };
+  degradedReasons: string[];
+};
+</code></pre>
+  <h2 id="ranking-model">Ranking Model</h2>
+  <p>初期rankingはdeterministicで説明可能にする。EmbeddingやLLM rerankingを必須にしない。</p>
+  <p>優先順位の基本は次とする。</p>
+  <ol>
+    <li>exact focus path</li>
+    <li>matched moduleのentrypoint / route / handler</li>
+    <li>focus pathのdirect import target</li>
+    <li>focus pathのdirect importer</li>
+    <li>matched exported symbol / path term</li>
+    <li>same moduleのschema / worker / config</li>
+    <li>direct importerであるtest file</li>
+    <li>same moduleのtest file</li>
+  </ol>
+  <p>
+    同順位はproject-relative
+    pathの昇順で固定する。scoreだけを返さず、必ず<code>reasonCodes</code>を返す。
+  </p>
+  <p>
+    初期Project Scanのedgeはfile-level
+    <code>imports</code
+    >と<code>depends_on_package</code>に限定されるため、symbol referenceやcall
+    graphを暗黙に推定しない。精度不足は<code>degradedReasons</code>または評価結果として残し、事実を作らない。
+  </p>
+  <h2 id="response-budget">Response Budget</h2>
+  <p>MCPはtokenizerに依存しないserver-side budgetを持つ。</p>
+  <ul>
+    <li>default: files 12、tests 6、verification commands 4</li>
+    <li>hard maximum: files 20、tests 10、verification commands 6</li>
+    <li>target serialized JSON budget: 8 KiB</li>
+    <li>hard serialized JSON budget: 12 KiB</li>
+    <li>source body / snippet: 0 bytes</li>
+    <li>raw evidence / artifact body: 0 bytes</li>
+  </ul>
+  <p>
+    budgetを超える場合はJSON文字列を途中で切らない。rankの低いitemをdeterministicに除外し、<code>truncation</code>へomitted
+    countを保存する。paginationで全projectを取りに行く設計にはしない。focusを狭めて再queryする。
+  </p>
+  <h2 id="source-discovery-and-binding">Source Discovery and Binding</h2>
+  <p>MCPにarbitrary filesystem pathを渡してはならない。bindingは次の順序で行う。</p>
+  <ol>
+    <li>
+      NightWorkersが自身のrepository rootから、Phase
+      40と同じcanonicalizationで<code>rootRef</code>を計算する。
+    </li>
+    <li>
+      <code>vuln_list_knowledge_sources</code>がoptional
+      <code>rootRef</code>
+      filterと、各sourceの<code>rootRef</code>を返す。
+    </li>
+    <li>
+      supervisorが同じ<code>rootRef</code>のcandidate setからselection
+      policyで一つのgenerationを選び、<code>scanRunId</code> /
+      <code>generationId</code> / hashesをrun contextへpinする。
+    </li>
+    <li>workerはexact IDsでexploration catalogを読む。</li>
+  </ol>
+  <p>
+    <code>rootRef</code>はlocal absolute pathそのものではなくhash
+    identityである。project
+    name一致だけでbindingしてはならない。同じprojectの複数scan/generationは通常のcandidate
+    setであり、supervisorがreadinessとgeneration生成時刻で一つを選ぶ。異なるproject
+    identityが同じbinding候補へ混在する、またはselection
+    policyで一意に決められない場合は自動採用しない。
+  </p>
+  <p>
+    <code>rootRef</code>はcanonical realpathのhashであり、同じlocal
+    checkoutを参照するconsumer間のidentityである。別machineや別checkout pathをまたぐportable
+    repository IDとして扱わない。
+  </p>
+  <h2 id="freshness-and-pinning">Freshness and Pinning</h2>
+  <ul>
+    <li>
+      <code>available</code>: current source
+      stateと一致し、通常のclueとして使える。
+    </li>
+    <li><code>degraded</code>:利用できるがextractor gapなどを併記する。</li>
+    <li>
+      <code>stale</code>: historical clueとしてのみ使い、current
+      impactを断定しない。
+    </li>
+    <li>
+      <code>missing</code> / <code>failed</code>:
+      MCPを使わず通常探索へfallbackする。
+    </li>
+  </ul>
+  <p>
+    run中にnew generationが作られても、既存runはpinned
+    generationを維持する。新generationは次のplanning / runから採用する。
+  </p>
+  <h2 id="activation-policy">Activation Policy</h2>
+  <h3 id="use-the-mcp-when">Use the MCP when</h3>
+  <ul>
+    <li>Taskに編集fileが明示されていない。</li>
+    <li>primary moduleは分かるがentrypoint / related testが不明である。</li>
+    <li>複数layerにまたがる可能性がある。</li>
+    <li>repositoryが大きく、broad searchの候補が多い。</li>
+    <li>同じgenerationを複数Taskで再利用できる。</li>
+  </ul>
+  <h3 id="skip-the-mcp-when">Skip the MCP when</h3>
+  <ul>
+    <li>編集fileとverificationが既に明示されている。</li>
+    <li>1 fileのtrivial fixである。</li>
+    <li>generationがmissing / failedである。</li>
+    <li>stale generationしかなく、current構造を必要とする。</li>
+    <li>対象言語がextractorでほぼ<code>skipped</code>になっている。</li>
+    <li>catalogを読んだ後も必ずrepository全体を再探索する運用になっている。</li>
+  </ul>
+  <h3 id="agent-instruction">Agent instruction</h3>
+  <p>NightWorkersがagentへ与えるinstructionは次の意味を持つ。</p>
+  <blockquote>
+    <p>
+      対象範囲が不明な場合、broadなdirectory/search/read探索を始める前に、pinned
+      generationのexploration
+      catalogを一度だけ取得する。結果は候補であり、編集前に対象sourceを読む。catalog取得後は上位候補からtargeted
+      readし、同じ情報を得るためのproject-wide searchを繰り返さない。
+    </p>
+  </blockquote>
+  <h2 id="agent-workflow">Agent Workflow</h2>
+  <pre><code class="language-text">Task / Todo starts
+  -&gt; explicit file scope already sufficient?
+       yes -&gt; skip MCP
+       no  -&gt; pinned generation available and usable?
+                no  -&gt; normal exploration
+                yes -&gt; call exploration catalog once
+                        -&gt; targeted reads of top clues
+                        -&gt; narrow search only for unresolved questions
+                        -&gt; implement
+                        -&gt; repository-native verification
+</code></pre>
+  <p>
+    MCP callが失敗したことはTask failureではない。fallback理由をrun eventへ残し、通常探索へ移る。
+  </p>
+  <h2 id="measurement-model">Measurement Model</h2>
+  <h3 id="primary-metrics">Primary metrics</h3>
+  <ul>
+    <li>input tokens before first successful source mutation</li>
+    <li>
+      <code>list_dir</code> / <code>search_files</code> /
+      command-based search calls before first mutation
+    </li>
+    <li>unique source files read before first mutation</li>
+    <li>time to first mutation</li>
+    <li>total task input tokens</li>
+    <li>MCP response bytes</li>
+  </ul>
+  <h3 id="quality-guard-metrics">Quality guard metrics</h3>
+  <ul>
+    <li>
+      recall@N: catalog top-Nにactual changed
+      filesが含まれた割合。同一fixture上のranking回帰診断であり、scan coverageやproduction
+      gateではない
+    </li>
+    <li>related-test hit rate</li>
+    <li>selected verification command acceptance rate</li>
+    <li>Task completion / failure / correction count</li>
+    <li>boundary miss / reopen / replan count</li>
+  </ul>
+  <h3 id="measurement-rule">Measurement rule</h3>
+  <ul>
+    <li>
+      同じrepository revision、Task prompt、model/provider、runtime laneでMCP off/onを比較する。
+    </li>
+    <li>generation build costはgeneration単位で記録し、再利用Task数で償却する。</li>
+    <li>cached input tokensとnon-cached input tokensを分ける。</li>
+    <li>MCPを呼んだだけで探索が減っていないrunをsuccess扱いしない。</li>
+    <li>sample不足時は価値を断定しない。</li>
+  </ul>
+  <h2 id="rollout-gates">Rollout Gates</h2>
+  <p>初期pilotの推奨gateは次とする。</p>
+  <ul>
+    <li>response hard capを全caseで守る。</li>
+    <li>
+      representative requestsへのCLI / MCP direct
+      smokeで、実装・testの有用な探索開始地点が得られる。
+    </li>
+    <li>paired runsでmedian pre-mutation exploratory tool callが20%以上減る。</li>
+    <li>paired runsでmedian pre-mutation input tokensが15%以上減る。</li>
+    <li>completion / verification successがbaselineより悪化しない。</li>
+    <li>clue誤りによるreplan増加がない。</li>
+  </ul>
+  <p>
+    固定recall閾値は置かない。変更file数が10件を超えるTaskではtop-10
+    recallの上限自体がTaskごとに異なり、catalogは全変更fileの予測器ではない。未達の場合はranking、activation、source
+    readinessのどこが原因かを分離し、広いAST/LSP/Graph追加へ直ちに進まない。
+  </p>
+  <h2 id="evolution-roadmap">Evolution Roadmap</h2>
+  <h3 id="stage-1-file-level-exploration-catalog">Stage 1: File-level exploration catalog</h3>
+  <ul>
+    <li>current file/tag/import/module factsを再利用</li>
+    <li>related tests and verification candidates</li>
+    <li>strict response budget</li>
+    <li>NightWorkers controlled pilot</li>
+  </ul>
+  <h3 id="stage-2-measured-ranking-improvements">Stage 2: Measured ranking improvements</h3>
+  <ul>
+    <li>historical diff feedbackを使ったdeterministic ranking調整</li>
+    <li>test associationの改善</li>
+    <li>reverse dependency / bounded depth query</li>
+  </ul>
+  <h3 id="stage-3-fact-enrichment-driven-by-misses">Stage 3: Fact enrichment driven by misses</h3>
+  <ul>
+    <li><code>defines</code></li>
+    <li><code>tested_by</code></li>
+    <li><code>uses_schema</code></li>
+    <li>route / handler relation</li>
+    <li>symbol relation</li>
+  </ul>
+  <p>追加factはrecall missの原因が既存fact不足と証明された場合だけ導入する。</p>
+  <h3 id="stage-4-optional-enrichments">Stage 4: Optional enrichments</h3>
+  <ul>
+    <li>multi-language extractor</li>
+    <li>optional LSP definition / references</li>
+    <li>semantic candidate expansion</li>
+    <li>security-focused exploration intent</li>
+  </ul>
+  <h3 id="stage-5-closeout-feedback">Stage 5: Closeout feedback</h3>
+  <ul>
+    <li>planned cluesとactual changed filesの比較</li>
+    <li>before / after generation link</li>
+    <li>ranking評価datasetの継続更新</li>
+  </ul>
+  <p>Graph canvasと専用Graph DBは、探索削減の価値に直接必要になるまで導入しない。</p>
+  <h2 id="security-and-privacy">Security and Privacy</h2>
+  <ul>
+    <li>MCPはread-only annotationを維持する。</li>
+    <li>raw repository pathをtool input/outputへ出さない。</li>
+    <li>project-relative normalized pathだけを返す。</li>
+    <li>source code、snippet、secret、raw evidenceを返さない。</li>
+    <li>verification commandはcandidate-onlyであり実行しない。</li>
+    <li>findingは通常intentに含めない。</li>
+    <li>NightWorkers / contextStill DBをvulnWorkbenchから読まない。</li>
+    <li>NightWorkersはvulnWorkbench SQLite / artifact pathを直接読まない。</li>
+    <li>missing generationを理由にMCPがfilesystem extractionやbuildを開始しない。</li>
+  </ul>
+  <h2 id="non-goals">Non-Goals</h2>
+  <ul>
+    <li>source code browser</li>
+    <li>repository全体の要約</li>
+    <li>full Project Graph export</li>
+    <li>Graph UI / canvas</li>
+    <li>Graph DB導入</li>
+    <li>LSP server常駐</li>
+    <li>call graph / taint analysis</li>
+    <li>Task自動生成・自動承認</li>
+    <li>verification実行</li>
+    <li>security findingの自動確定</li>
+    <li>current Project Signal全体の置き換え</li>
+    <li>trivial Taskへの強制利用</li>
+  </ul>
+  <h2 id="stop-conditions">Stop Conditions</h2>
+  <ul>
+    <li>MCP responseが探索削減用の限定目録ではなく、project dumpになる。</li>
+    <li>source body / raw artifact / secretを返す必要が生じる。</li>
+    <li>workerがlatest generationをrun中に選び直す。</li>
+    <li>MCPがscan、build、verification、task mutationを始める。</li>
+    <li>catalog取得後も同じbroad explorationが必須で、tokenが純増する。</li>
+    <li>project nameだけでsourceを自動bindingする。</li>
+    <li>stale generationをcurrent impact truthとして使う。</li>
+    <li>pilot gate未達のままAST/LSP/Graphの大規模拡張を正当化する。</li>
+  </ul>
+  <h2 id="completion-definition">Completion Definition</h2>
+  <p>
+    この構想の最終的な成功は、NightWorkersのコーディングエージェントが、pinned Project Scan
+    generationから小さな探索目録を取得し、実装前のbroad tool explorationとsource
+    readを実際に減らしながら、Task completionとverification品質を維持できたときに成立する。
+  </p>
+  <p>
+    MCP toolが存在するだけ、またはlikely
+    fileを表示できるだけでは完了ではない。MCPなしのbaselineと比較してnet token / tool-call
+    valueが確認できることを必須とする。
+  </p>
+  <p>
+    Phase 42はvulnWorkbench側Catalog MCP
+    componentの完成をもって完了済みとする。NightWorkersでの効果測定とrollout判断は後続の独立した評価として扱い、Phase
+    42の完了条件には含めない。
+  </p>
+  <h2 id="relationship-to-existing-documents">Relationship to Existing Documents</h2>
+  <ul>
+    <li>
+      <code>spec/concepts/static-intelligence-layer-concept.html</code>: vulnWorkbench全体のStatic Intelligence責務境界
+    </li>
+    <li>
+      <code>spec/docs/active-plans/static-intelligence-coding-agent-consumer-companion-plan.html</code>: broader Ontology / Task / runtime / closeout
+      consumer adoption
+    </li>
+    <li>Phase 42実装計画: 完了済み。Git historyで参照する</li>
+    <li>
+      <code>spec/evidence/phase-42-vulnworkbench-catalog-mcp-go.html</code>: vulnWorkbench側Catalog MCP componentの完了根拠
+    </li>
+  </ul>
+</article>

@@ -303,7 +303,7 @@ fixtureはpositive 90件、negative 90件です。registryを使う探索実行�
 `--config auto`を明示し、その実行は再現不能として記録され、自動レポートも
 制限付きreadyになります。
 LGPL engineはcore toolboxにも標準profileにも含めません。導入方法とadapter
-契約は[`docs/scanner-adapters.md`](docs/scanner-adapters.md)を参照してください。
+契約は[`spec/decisions/scanner-adapters.html`](spec/decisions/scanner-adapters.html)を参照してください。
 
 ### 実測security capability
 
@@ -528,7 +528,7 @@ bun run mcp:static-intelligence -- --smoke
 
 path-first Queryはcanonicalな `{ projectPath }` をstrictに要求し、symlink aliasと内部ID selectorを拒否します。current sourceのreadではready prepare jobに記録されたexact generationを選択し、過去のlatest generationは`stale`としてのみ公開します。未準備なら `not_prepared` と次のActionを返し、Query自身はproject、scan、prepare job、generationを作りません。finding指定は `projectPath + findingFingerprint` を使用し、曖昧なfingerprintは `AMBIGUOUS_FINDING` になります。raw artifact body / evidence snippetは公開しません。
 
-`vuln_get_project_exploration_catalog` の `focus.paths`、`focus.modules`、`focus.terms` は任意です。deterministicかつboundedなcandidateだけを返し、source bodyを公開しません。運用とNightWorkers側の受け入れ条件は [NightWorkers path-first MCP handoff](docs/nightworkers-static-intelligence-mcp.md) を参照してください。
+`vuln_get_project_exploration_catalog` の `focus.paths`、`focus.modules`、`focus.terms` は任意です。deterministicかつboundedなcandidateだけを返し、source bodyを公開しません。運用とNightWorkers側の受け入れ条件は [NightWorkers path-first MCP handoff](spec/decisions/nightworkers-static-intelligence-mcp.html) を参照してください。
 
 ## API Surface
 
@@ -711,7 +711,7 @@ bearer credentialを使用し、browser cookieは受け付けません。
 
 migration順序、credentialの作成・rotation・revoke、canary、monitoring、
 rollbackは
-[NightWorkers security scan provider runbook](docs/nightworkers-security-scan-provider-runbook.md)
+[NightWorkers security scan provider runbook](spec/decisions/nightworkers-security-scan-provider-runbook.html)
 に従ってください。
 
 ## Operational Checks
@@ -743,9 +743,24 @@ git diff --cached --name-only -- artifacts
 
 ## Concept と進行中の計画書
 
-`spec/README.md`を仕様書のcanonical indexとして使用します。security/releaseの
-active completion planは`spec/phase-56-capability-product-completion-plan.md`です。
+`spec/index.html`を仕様書のcanonical indexとして使用します。security/releaseの
+active completion planは`spec/docs/active-plans/phase-56-capability-product-completion-plan.html`です。
 長期conceptとintegration pilotはindex内で別に分類します。
 
-完了または置換された実装計画書は`spec/.archived/`へ移します。この隠しディレクトリは
+設計書・運用文書・証跡の正本は`spec/`配下のHTMLです。
+
+完了または置換された実装計画書は`spec/docs/.archived/`へ移します。この隠しディレクトリは
 LLMの通常探索対象に含めず、明示的な履歴監査を依頼された場合だけ参照します。
+
+## GitHub Pages
+
+ランディングページの正本は`site/`配下です。`docs/`はGitHub Pagesの公開ルートとして
+生成する成果物なので、直接編集しません。previewと公開用成果物は次のコマンドで生成します。
+
+```bash
+./build-preview.sh
+./build-dist.sh
+```
+
+公開用buildには`/vlunWorkbench`のbase pathが入ります。公開前に
+`bash scripts/run-lighthouse.sh`を実行し、生成結果を検証してください。

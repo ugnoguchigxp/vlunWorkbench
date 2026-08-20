@@ -1,0 +1,31 @@
+title: vulnWorkbench
+description: vulnWorkbench は、スキャナーの結果と検証可能な証跡を束ねるローカルAppSecワークベンチです。
+lang: ja
+url: "https://ugnoguchigxp.github.io"
+baseurl: "/vlunWorkbench"
+repository: "ugnoguchigxp/vlunWorkbench"
+
+source: site
+destination: docs
+
+markdown: kramdown
+permalink: pretty
+
+plugins:
+  - jekyll-seo-tag
+  - jekyll-sitemap
+
+defaults:
+  - scope:
+      path: ""
+    values:
+      layout: default
+
+include:
+  - .nojekyll
+
+exclude:
+  - Gemfile
+  - Gemfile.lock
+  - README.md
+  - vendor

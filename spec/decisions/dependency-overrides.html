@@ -1,0 +1,101 @@
+<article lang="en" data-spec-role="decision-contract">
+  <h1 id="dependency-override-policy">Dependency override policy</h1>
+  <p>
+    Package overrides are temporary security and reproducibility controls. The dependency owner
+    reviews them monthly and removes an override once every direct consumer naturally resolves to
+    the same or a newer patched version.
+  </p>
+  <p>Owner: vulnWorkbench maintainers Next review: 2026-08-24 Maximum review interval: 31 days</p>
+  <table>
+    <caption>
+      Dependency override policy
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Package</th>
+        <th scope="col">Pinned version</th>
+        <th scope="col">Reason</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>@hono/node-server</code></td>
+        <td><code>2.0.10</code></td>
+        <td>Keep the transitive Hono adapter on the audited release.</td>
+      </tr>
+      <tr>
+        <td><code>brace-expansion</code></td>
+        <td><code>5.0.9</code></td>
+        <td>Exclude vulnerable transitive range used by build tooling.</td>
+      </tr>
+      <tr>
+        <td><code>esbuild</code></td>
+        <td><code>0.28.1</code></td>
+        <td>Lock the build service to the audited Vite-compatible release.</td>
+      </tr>
+      <tr>
+        <td><code>fast-uri</code></td>
+        <td><code>3.1.5</code></td>
+        <td>Exclude vulnerable JSON-schema resolver versions.</td>
+      </tr>
+      <tr>
+        <td><code>hono</code></td>
+        <td><code>4.12.34</code></td>
+        <td>Keep all direct and transitive Hono copies on one audited version.</td>
+      </tr>
+      <tr>
+        <td><code>minimatch</code></td>
+        <td><code>10.2.5</code></td>
+        <td>Keep transitive glob consumers on the audited release.</td>
+      </tr>
+      <tr>
+        <td><code>nanoid</code></td>
+        <td><code>3.3.18</code></td>
+        <td>
+          Exclude versions affected by GHSA-2v37-7h3g-55p8 while keeping PostCSS on its compatible
+          Nano ID 3.x range.
+        </td>
+      </tr>
+      <tr>
+        <td><code>picomatch</code></td>
+        <td><code>4.0.4</code></td>
+        <td>Exclude vulnerable glob-matching versions in tooling.</td>
+      </tr>
+      <tr>
+        <td><code>postcss</code></td>
+        <td><code>8.5.23</code></td>
+        <td>Keep Tailwind/Vite consumers on one audited parser release.</td>
+      </tr>
+      <tr>
+        <td><code>rollup</code></td>
+        <td><code>4.62.0</code></td>
+        <td>Lock the production bundler to the audited release.</td>
+      </tr>
+      <tr>
+        <td><code>undici</code></td>
+        <td><code>7.29.0</code></td>
+        <td>Use the audited HTTP transport used by the pinned-address LLM boundary.</td>
+      </tr>
+      <tr>
+        <td><code>js-yaml</code></td>
+        <td><code>3.15.1</code></td>
+        <td>Exclude vulnerable YAML parser versions used by gray-matter.</td>
+      </tr>
+      <tr>
+        <td><code>vite</code></td>
+        <td><code>8.0.16</code></td>
+        <td>Keep direct and transitive Vite copies aligned.</td>
+      </tr>
+      <tr>
+        <td><code>ws</code></td>
+        <td><code>8.21.0</code></td>
+        <td>Exclude vulnerable WebSocket transitive versions.</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    <code>bun run check:audit</code> blocks moderate, high, and critical advisories. An
+    exception requires an advisory identifier, non-applicability evidence, owner, and expiry date in
+    this file; there are currently no exceptions.
+  </p>
+</article>

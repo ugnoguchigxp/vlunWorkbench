@@ -311,11 +311,11 @@ language. Its release fixtures contain 90 positive and 90 negative annotations.
 Pass `--config auto` only for an exploratory registry run; that run is recorded
 as non-reproducible and the automatic report remains ready with limitations.
 The LGPL engine is not included in the core toolbox or standard profiles; see
-[`docs/scanner-adapters.md`](docs/scanner-adapters.md).
+[`spec/decisions/scanner-adapters.html`](spec/decisions/scanner-adapters.html).
 
 ### Measured security capability
 
-The [generated security capability table](docs/generated/security-capability-table.md)
+The [generated security capability table](spec/generated/security-capability-table.html)
 binds scanner manifest inputs, profile inventory, and the versioned preflight
 contract. Per-scan stored preflight and coverage results remain authoritative;
 configured capability alone is not evidence that a scanner ran.
@@ -550,7 +550,7 @@ All remaining tools are read-only queries:
 
 Path-first queries require a strict canonical `{ projectPath }` input; symlink aliases and internal ID selectors are rejected. A current-source read selects the exact generation recorded by the ready prepare job, while an older latest generation is exposed only as `stale`. When no generation exists the query returns `not_prepared` and the next action without creating projects, scans, jobs, or generations. NightWorkers may use the returned project-relative clues in a separate Git worktree only after verifying that the registered root and worktree are clean at the same `HEAD`; MCP requests always keep the registered canonical `projectPath`. Finding reads use `projectPath + findingFingerprint`; duplicate fingerprints return `AMBIGUOUS_FINDING`.
 
-The catalog accepts optional `focus.paths`, `focus.modules`, and `focus.terms` and returns deterministic bounded candidates without source bodies. See the [NightWorkers path-first MCP handoff](docs/nightworkers-static-intelligence-mcp.md) for operational requirements.
+The catalog accepts optional `focus.paths`, `focus.modules`, and `focus.terms` and returns deterministic bounded candidates without source bodies. See the [NightWorkers path-first MCP handoff](spec/decisions/nightworkers-static-intelligence-mcp.html) for operational requirements.
 
 ## API Surface
 
@@ -745,7 +745,7 @@ browser cookies are not accepted as integration authorization.
 
 For migration order, credential creation/rotation/revocation, canary checks,
 monitoring, and rollback, follow the
-[NightWorkers security scan provider runbook](docs/nightworkers-security-scan-provider-runbook.md).
+[NightWorkers security scan provider runbook](spec/decisions/nightworkers-security-scan-provider-runbook.html).
 
 ## Operational Checks
 
@@ -776,9 +776,9 @@ git diff --cached --name-only -- artifacts
 
 ## Concept and Active Planning Documents
 
-Use `spec/README.md` as the canonical specification index. The active
+Use `spec/index.html` as the canonical specification index. The active
 security/release completion plan is
-`spec/phase-56-capability-product-completion-plan.html`; long-term concepts and
+`spec/docs/active-plans/phase-56-capability-product-completion-plan.html`; long-term concepts and
 integration pilots are cataloged separately in the index.
 
 Browse and validate the active specification documents with Spec HTML:
@@ -788,12 +788,25 @@ bun run docs
 bun run docs:check
 ```
 
-The Viewer serves active Spec HTML and retained Markdown from `spec/`, and
-exposes `spec/.archived/` through its archived-document view. Do not run
-`spec-html migrate --write` for this repository: `.archived` records completed
-or superseded implementation plans, not Markdown sources retired by a format
-migration.
+The Viewer serves the active HTML documents from `spec/` and exposes
+`spec/docs/.archived/` through its archived-document view. Do not use
+`spec-html migrate --write` as a source-retirement workflow in this repository:
+`.archived` records completed or superseded implementation plans.
 
-Completed or superseded implementation plans are moved to `spec/.archived/`.
+Completed or superseded implementation plans are moved to `spec/docs/.archived/`.
 This hidden directory is excluded from normal LLM exploration and is read only
 for an explicitly requested historical audit.
+
+## GitHub Pages
+
+Edit the landing page source under `site/`; `docs/` is the generated GitHub
+Pages root and must not be edited directly. Build a local preview or refresh the
+publishable artifact with:
+
+```bash
+./build-preview.sh
+./build-dist.sh
+```
+
+The production build uses the `/vlunWorkbench` base path. Run
+`bash scripts/run-lighthouse.sh` before publishing to verify the generated page.
