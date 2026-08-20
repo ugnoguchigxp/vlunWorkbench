@@ -6,11 +6,14 @@ import {
 	createScanReviewSchema,
 } from "../../shared/schemas/scan.schema";
 import type { AppDatabase } from "../db";
+import { AssessmentRepository } from "../modules/assessments/assessment-repository";
+import { buildCoverageResults } from "../modules/assessments/coverage-builder";
+import { coverageControlById } from "../modules/assessments/coverage-catalog";
 import { getAuthContextUser } from "../modules/auth/context";
 import { HttpError } from "../modules/auth/errors";
 import type { FindingDecisionRepository } from "../modules/decisions/finding-decision-repository";
-import { FindingReviewRepository } from "../modules/reviews/finding-review-repository";
 import { ScanReportRunner } from "../modules/reports/scan-report-runner";
+import { FindingReviewRepository } from "../modules/reviews/finding-review-repository";
 import type { ArtifactStorage } from "../modules/scans/artifact-storage";
 import { buildGroupedFindings } from "../modules/scans/grouping-builder";
 import type { ScanReportRepository } from "../modules/scans/report-repository";
@@ -26,9 +29,6 @@ import type { ScanProcessSupervisor } from "../modules/scans/scan-process-superv
 import { ScanReviewRepository } from "../modules/scans/scan-review-repository";
 import { ScanReviewRunner } from "../modules/scans/scan-review-runner";
 import { buildScanRunSummary } from "../modules/scans/summary-builder";
-import { AssessmentRepository } from "../modules/assessments/assessment-repository";
-import { buildCoverageResults } from "../modules/assessments/coverage-builder";
-import { coverageControlById } from "../modules/assessments/coverage-catalog";
 import type { LlmRouter } from "../providers/llmRouter";
 
 type ScansRouteDeps = {
@@ -164,8 +164,19 @@ export function createScansRoute(deps: ScansRouteDeps) {
 			if (!artifact) {
 				throw new HttpError(404, "Artifact not found");
 			}
-			const content = await artifactStorage.readTextArtifact(artifact.path);
-			const filename = artifact.path.split("/").pop() || "artifact";
+			const storageKey = artifact.storageKey ?? artifact.path;
+			const intact = await artifactStorage
+				.verifyArtifact(
+					storageKey,
+					{ sha256: artifact.sha256, sizeBytes: artifact.sizeBytes },
+					{ maxBytes: 64 * 1024 * 1024 },
+				)
+				.catch(() => false);
+			if (!intact) {
+				throw new HttpError(409, "Artifact integrity mismatch");
+			}
+			const content = await artifactStorage.readTextArtifact(storageKey);
+			const filename = storageKey.split("/").pop() || "artifact";
 			const contentType =
 				artifact.format === "json" ? "application/json" : "text/plain";
 			return c.body(content, 200, {

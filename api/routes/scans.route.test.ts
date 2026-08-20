@@ -1,9 +1,13 @@
-import { describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
-import { createScansRoute } from "./scans.route";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { HttpError } from "../modules/auth/errors";
+import { createScansRoute } from "./scans.route";
 
 describe("Scans Route", () => {
+	afterEach(() => {
+		vi.restoreAllMocks();
+	});
+
 	const mockProjectRepo = {
 		findById: vi.fn().mockImplementation(async (id: string) => {
 			if (id === "p-1") {
@@ -26,6 +30,10 @@ describe("Scans Route", () => {
 
 	const mockArtifactRepo = {
 		listArtifacts: vi.fn().mockResolvedValue([{ id: "a-1", kind: "raw_result" }]),
+	};
+	const mockArtifactStorage = {
+		verifyArtifact: vi.fn().mockResolvedValue(true),
+		readTextArtifact: vi.fn().mockResolvedValue('{"ok":true}'),
 	};
 
 	const mockFindingRepo = {
@@ -159,7 +167,7 @@ describe("Scans Route", () => {
 			scanReviewRunner: mockScanReviewRunner as any,
 			scanReportRunner: mockScanReportRunner as any,
 			scanDiagnosticRunner: mockScanDiagnosticRunner as any,
-			artifactStorage: {} as any,
+			artifactStorage: mockArtifactStorage as any,
 			db: {} as any,
 			scanSupervisor: mockScanSupervisor as any,
 		}),
@@ -197,6 +205,32 @@ describe("Scans Route", () => {
 		expect(res.status).toBe(200);
 		const body = await res.json();
 		expect(body.artifacts.length).toBe(1);
+	});
+
+	it("downloads through storageKey rather than the legacy display path", async () => {
+		mockArtifactRepo.listArtifacts.mockResolvedValueOnce([
+			{
+				id: "a-download",
+				kind: "raw_result",
+				format: "json",
+				path: "legacy/result.json",
+				storageKey: "s-1/owners/tool-run/t-1/raw/result.json",
+				sha256: "a".repeat(64),
+				sizeBytes: 11,
+			},
+		]);
+		mockArtifactStorage.verifyArtifact.mockClear();
+		mockArtifactStorage.readTextArtifact.mockClear();
+		const res = await app.request("/s-1/artifacts/a-download/download");
+		expect(res.status).toBe(200);
+		expect(mockArtifactStorage.verifyArtifact).toHaveBeenCalledWith(
+			"s-1/owners/tool-run/t-1/raw/result.json",
+			expect.anything(),
+			expect.anything(),
+		);
+		expect(mockArtifactStorage.readTextArtifact).toHaveBeenCalledWith(
+			"s-1/owners/tool-run/t-1/raw/result.json",
+		);
 	});
 
 	it("GET /:scanRunId/findings returns findings list", async () => {

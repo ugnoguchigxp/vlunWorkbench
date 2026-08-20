@@ -205,12 +205,18 @@ export class ScanReportRunner {
 					false,
 				);
 			}
-			const saved = await this.artifactStorage.saveTextArtifact(
-				report.scanRunId,
-				"reports",
-				reportBuild.markdown,
-				`report-${report.id}.md`,
-			);
+			const saved = await this.artifactStorage
+				.forOwner({
+					scanRunId: report.scanRunId,
+					kind: "report",
+					id: report.id,
+				})
+				.saveTextArtifact(
+					report.scanRunId,
+					"reports",
+					reportBuild.markdown,
+					`report-${report.id}.md`,
+				);
 			const artifact = await this.artifactRepository.createArtifact({
 				scanRunId: report.scanRunId,
 				toolRunId: null,

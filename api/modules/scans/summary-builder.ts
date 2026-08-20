@@ -238,8 +238,12 @@ export async function buildScanRunSummary(
 		}
 	}
 
+	const metadataProfileOutcome = scanRun.metadata?.profileOutcome;
 	const profileOutcome =
-		(scanRun.metadata?.profileOutcome as string) ||
+		(scanRun.profileOutcome !== "pending" && scanRun.profileOutcome) ||
+		(typeof metadataProfileOutcome === "string"
+			? metadataProfileOutcome
+			: null) ||
 		(scanRun.status === "failed" ? "failed" : "completed");
 	const steps: StepSummary[] =
 		profileSteps.length > 0

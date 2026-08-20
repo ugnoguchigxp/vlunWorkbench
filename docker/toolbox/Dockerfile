@@ -86,10 +86,14 @@ RUN python -m venv /opt/schemathesis \
 COPY docker/toolbox/nuclei-safe-templates /opt/vuln-workbench/nuclei-safe-templates
 COPY --from=scanner-data / /opt/vuln-workbench/scanner-data
 
+# Trivy persists its per-scan fanal cache beside the immutable offline DB. The
+# scanner remains uid 65532 under the Docker runner's constrained policy; this
+# only permits copy-on-write cache entries in the ephemeral container layer.
 RUN mkdir -p /workspace/repo /workspace/out /workspace/cache \
 	&& mkdir -p /workspace/cache/.cache \
 	&& ln -s /opt/vuln-workbench/scanner-data/osv/osv-scanner /workspace/cache/.cache/osv-scanner \
 	&& chmod -R a+rX /opt/vuln-workbench/scanner-data \
+	&& chmod -R a+rwX /opt/vuln-workbench/scanner-data/trivy \
 	&& chown -R 65532:65532 /workspace
 
 ENV HOME=/workspace/cache \

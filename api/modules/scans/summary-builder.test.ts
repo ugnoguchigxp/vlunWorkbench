@@ -71,6 +71,7 @@ describe("Summary Builder", () => {
 				projectId,
 				profile: "baseline",
 				status: "completed",
+				profileOutcome: "completed",
 				metadata: { profileOutcome: "completed_with_warnings" },
 				createdAt: now,
 				updatedAt: now,
@@ -152,7 +153,7 @@ describe("Summary Builder", () => {
 
 		expect(summary.scanRunId).toBe(scanRun.id);
 		expect(summary.profileId).toBe("baseline");
-		expect(summary.profileOutcome).toBe("completed_with_warnings");
+		expect(summary.profileOutcome).toBe("completed");
 		expect(summary.totals.findingCount).toBe(3);
 
 		const semgrepSummary = summary.tools.find((t) => t.toolId === "semgrep");

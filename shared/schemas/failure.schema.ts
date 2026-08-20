@@ -9,6 +9,7 @@ export const FAILURE_KINDS = [
 	"normalizer_failed",
 	"artifact_write_failed",
 	"artifact_read_failed",
+	"artifact_integrity_mismatch",
 	"path_validation_failed",
 	"ownership_check_failed",
 	"llm_provider_unconfigured",

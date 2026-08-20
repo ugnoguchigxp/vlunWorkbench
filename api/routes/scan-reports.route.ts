@@ -70,12 +70,18 @@ export function createScanReportsRoute(deps: ScanReportsRouteDeps) {
 			...FULL_REPORT_OPTIONS,
 			title: report.title,
 		});
-		const saveResult = await artifactStorage.saveTextArtifact(
-			report.scanRunId,
-			"reports",
-			markdown,
-			`report-${report.id}.md`,
-		);
+		const saveResult = await artifactStorage
+			.forOwner({
+				scanRunId: report.scanRunId,
+				kind: "report",
+				id: report.id,
+			})
+			.saveTextArtifact(
+				report.scanRunId,
+				"reports",
+				markdown,
+				`report-${report.id}.md`,
+			);
 		const artifact = await artifactRepository.createArtifact({
 			scanRunId: report.scanRunId,
 			toolRunId: null,
@@ -186,18 +192,19 @@ export function createScanReportsRoute(deps: ScanReportsRouteDeps) {
 			) {
 				throw new HttpError(404, "Report artifact metadata mismatch");
 			}
+			const storageKey = artifact.storageKey ?? artifact.path;
 
 			let content: string;
 			try {
 				const intact = await artifactStorage.verifyArtifact(
-					artifact.path,
+					storageKey,
 					{ sha256: artifact.sha256, sizeBytes: artifact.sizeBytes },
 					{ maxBytes: 64 * 1024 * 1024 },
 				);
 				if (!intact) {
 					throw new HttpError(409, "Report artifact integrity mismatch");
 				}
-				content = await artifactStorage.readTextArtifact(artifact.path);
+				content = await artifactStorage.readTextArtifact(storageKey);
 			} catch (err) {
 				if (!isMissingFileError(err)) {
 					throw err;

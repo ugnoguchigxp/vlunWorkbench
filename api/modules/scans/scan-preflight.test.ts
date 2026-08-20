@@ -90,7 +90,9 @@ function profile(id = "baseline"): ScanProfile {
 
 describe("scan preflight", () => {
 	it("blocks a required OSV step before execution when its database is missing", async () => {
-		const probeScannerVersion = vi.fn(async () => "2.4.0");
+		const probeScannerVersion = vi.fn(async (scannerId: string) =>
+			scannerId === "gitleaks" ? "8.30.1" : "2.4.0",
+		);
 		const selected = profile();
 		const result = await runScanPreflight({
 			profile: selected,
@@ -145,6 +147,26 @@ describe("scan preflight", () => {
 			"scanner_data_runtime_unreadable",
 		);
 		expect(result.status).toBe("blocked");
+	});
+
+	it("blocks a scanner whose observed version differs from the manifest", async () => {
+		const selected = profile();
+		const result = await runScanPreflight({
+			profile: selected,
+			steps: selected.tools.map((tool) => ({
+				kind: "static_tool" as const,
+				...tool,
+			})),
+			repoPath: "/redacted/project",
+			execution: { runner: "host" },
+			mode: "enforced",
+			dependencies: dependencies({
+				probeScannerVersion: async (scannerId) =>
+					scannerId === "gitleaks" ? "gitleaks 8.29.0" : "osv 2.4.0",
+			}),
+		});
+		expect(result.status).toBe("blocked");
+		expect(result.limitationCodes).toContain("scanner_version_mismatch");
 	});
 
 	it("blocks an image whose platform differs from the Docker daemon", async () => {

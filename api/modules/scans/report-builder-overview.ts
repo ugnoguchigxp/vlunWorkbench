@@ -44,7 +44,13 @@ export function renderReportOverview(
 	lines.push("");
 
 	// Scan Summary
-	const profileOutcome = (scanRun.metadata?.profileOutcome as string) || "N/A";
+	const metadataProfileOutcome = scanRun.metadata?.profileOutcome;
+	const profileOutcome =
+		(scanRun.profileOutcome !== "pending" && scanRun.profileOutcome) ||
+		(typeof metadataProfileOutcome === "string"
+			? metadataProfileOutcome
+			: null) ||
+		"N/A";
 	const diffContext = readDiffReportContext(scanRun.metadata);
 	const technologySummary = readPluginExecutionSummary(scanRun.metadata);
 	const sourceSastCoverage = readSourceSastCoverage(scanRun.metadata);

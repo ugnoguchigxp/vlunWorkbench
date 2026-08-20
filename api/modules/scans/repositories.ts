@@ -1,9 +1,17 @@
-import { and, asc, eq, gt, inArray, or } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, or, sql } from "drizzle-orm";
 import { type AppDatabase, writerClientForDatabase } from "../../db";
 import { projects, scanEvents, scanRuns, toolRuns } from "../../db/schema";
 
 export { ArtifactRepository } from "./artifact-repository";
 export { FindingRepository } from "./finding-repository";
+
+/**
+ * SQLite evaluates json_patch in the same UPDATE statement. This avoids the
+ * read/modify/write race between the scan worker, supervisor, and report job.
+ */
+function mergeJsonMetadata(metadata: Record<string, unknown>) {
+	return sql`json_patch(COALESCE(${scanRuns.metadata}, '{}'), ${JSON.stringify(metadata)})`;
+}
 
 export class ProjectRepository {
 	constructor(private readonly db: AppDatabase) {}
@@ -105,6 +113,7 @@ export class ScanRepository {
 				projectId: params.projectId,
 				profile: params.profile,
 				status: params.status,
+				profileOutcome: params.status === "queued" ? "pending" : "running",
 				createdByUserId: params.createdByUserId ?? null,
 				startedAt: params.status === "queued" ? null : now,
 				metadata: params.metadata ?? {},
@@ -136,7 +145,7 @@ export class ScanRepository {
 				status: "running",
 				startedAt: now,
 				updatedAt: now,
-				metadata: { ...existing.metadata, ...(params.metadata ?? {}) },
+				metadata: mergeJsonMetadata(params.metadata ?? {}),
 			})
 			.where(and(eq(scanRuns.id, params.id), eq(scanRuns.status, "queued")))
 			.returning();
@@ -144,12 +153,10 @@ export class ScanRepository {
 	}
 
 	async mergeScanRunMetadata(id: string, metadata: Record<string, unknown>) {
-		const existing = await this.findById(id);
-		if (!existing) return null;
 		const [updated] = await this.db
 			.update(scanRuns)
 			.set({
-				metadata: { ...existing.metadata, ...metadata },
+				metadata: mergeJsonMetadata(metadata),
 				updatedAt: new Date(),
 			})
 			.where(eq(scanRuns.id, id))
@@ -170,6 +177,12 @@ export class ScanRepository {
 			summary?: string | null;
 			completedAt?: Date | null;
 			metadata?: Record<string, unknown>;
+			profileOutcome?:
+				| "pending"
+				| "running"
+				| "completed"
+				| "completed_with_warnings"
+				| "failed";
 			returnNullIfNotUpdated?: boolean;
 		},
 	) {
@@ -191,7 +204,10 @@ export class ScanRepository {
 			updateValues.completedAt = now;
 		}
 		if (options?.metadata !== undefined) {
-			updateValues.metadata = options.metadata;
+			updateValues.metadata = mergeJsonMetadata(options.metadata);
+		}
+		if (options?.profileOutcome !== undefined) {
+			updateValues.profileOutcome = options.profileOutcome;
 		}
 
 		const terminalStatuses = ["completed", "failed", "cancelled"];

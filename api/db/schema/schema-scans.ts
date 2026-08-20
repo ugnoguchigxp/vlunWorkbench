@@ -44,6 +44,7 @@ export const scanRuns = sqliteTable(
 			.references(() => projects.id, { onDelete: "cascade" }),
 		profile: text("profile").notNull().default("baseline"),
 		status: text("status").notNull(), // queued, running, completed, failed, cancelled
+		profileOutcome: text("profile_outcome").notNull().default("pending"),
 		startedAt: integer("started_at", { mode: "timestamp_ms" }),
 		completedAt: integer("completed_at", { mode: "timestamp_ms" }),
 		createdByUserId: text("created_by_user_id").references(() => users.id, {
@@ -155,6 +156,9 @@ export const scanArtifacts = sqliteTable(
 		kind: text("kind").notNull(), // raw_result, stdout, stderr, log, normalized_result, source_snippet, report
 		format: text("format").notNull(), // json, sarif, text, markdown
 		path: text("path").notNull(),
+		// Canonical storage identity. New writes use an owner-scoped path and
+		// must never share this key with another artifact row.
+		storageKey: text("storage_key"),
 		sha256: text("sha256").notNull(),
 		sizeBytes: integer("size_bytes").notNull(),
 		metadata: jsonObject("metadata"),
@@ -163,6 +167,9 @@ export const scanArtifacts = sqliteTable(
 	(table) => ({
 		scanRunIdIdx: index("scan_artifacts_scan_run_id_idx").on(table.scanRunId),
 		toolRunIdIdx: index("scan_artifacts_tool_run_id_idx").on(table.toolRunId),
+		storageKeyUniqueIdx: uniqueIndex("scan_artifacts_storage_key_unique_idx")
+			.on(table.storageKey)
+			.where(sql`${table.storageKey} IS NOT NULL`),
 	}),
 );
 

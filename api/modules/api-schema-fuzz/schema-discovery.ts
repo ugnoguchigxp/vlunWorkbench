@@ -32,13 +32,11 @@ function looksLikeApiSchema(value: unknown): boolean {
 	);
 }
 
-export async function discoverApiSchema(params: {
-	repoPath: string;
-	targetOrigin?: string;
-	fetchImpl?: (input: URL, init?: RequestInit) => Promise<Response>;
-}): Promise<SchemaDiscoveryResult> {
+export async function discoverRepositoryApiSchema(
+	repoPath: string,
+): Promise<SchemaDiscoveryResult> {
 	for (const candidate of FILE_CANDIDATES) {
-		const candidatePath = path.resolve(params.repoPath, candidate);
+		const candidatePath = path.resolve(repoPath, candidate);
 		try {
 			const stat = await fs.stat(candidatePath);
 			if (stat.isFile())
@@ -52,45 +50,55 @@ export async function discoverApiSchema(params: {
 			// bounded candidate lookup intentionally ignores missing files
 		}
 	}
-	if (params.targetOrigin) {
-		const fetchImpl = params.fetchImpl ?? fetch;
-		for (const candidate of HTTP_CANDIDATES) {
-			try {
-				const response = await fetchImpl(
-					new URL(candidate, params.targetOrigin),
-					{ method: "GET", redirect: "manual" },
-				);
-				if (response.status === 401 || response.status === 403)
-					return {
-						applicable: false,
-						schemaPath: null,
-						source: null,
-						reasonCode: "authentication_required",
-					};
-				if (!response.ok) continue;
-				const body = await response.text();
-				let parsed: unknown;
-				try {
-					parsed = JSON.parse(body);
-				} catch {
-					continue;
-				}
-				if (!looksLikeApiSchema(parsed)) continue;
-				const tempPath = path.join(
-					await fs.mkdtemp(path.join("/tmp", "vuln-schema-")),
-					"openapi.json",
-				);
-				await fs.writeFile(tempPath, body, "utf8");
+	return {
+		applicable: false,
+		schemaPath: null,
+		source: null,
+		reasonCode: "schema_not_found",
+	};
+}
+
+export async function discoverTargetApiSchema(params: {
+	targetOrigin: string;
+	fetchImpl?: (input: URL, init?: RequestInit) => Promise<Response>;
+}): Promise<SchemaDiscoveryResult> {
+	const fetchImpl = params.fetchImpl ?? fetch;
+	for (const candidate of HTTP_CANDIDATES) {
+		try {
+			const response = await fetchImpl(
+				new URL(candidate, params.targetOrigin),
+				{ method: "GET", redirect: "manual" },
+			);
+			if (response.status === 401 || response.status === 403)
 				return {
-					applicable: true,
-					schemaPath: tempPath,
-					cleanupPath: path.dirname(tempPath),
-					source: "target",
-					reasonCode: null,
+					applicable: false,
+					schemaPath: null,
+					source: null,
+					reasonCode: "authentication_required",
 				};
+			if (!response.ok) continue;
+			const body = await response.text();
+			let parsed: unknown;
+			try {
+				parsed = JSON.parse(body);
 			} catch {
-				// bounded probe; the caller records a coverage gap if no candidate works
+				continue;
 			}
+			if (!looksLikeApiSchema(parsed)) continue;
+			const tempPath = path.join(
+				await fs.mkdtemp(path.join("/tmp", "vuln-schema-")),
+				"openapi.json",
+			);
+			await fs.writeFile(tempPath, body, "utf8");
+			return {
+				applicable: true,
+				schemaPath: tempPath,
+				cleanupPath: path.dirname(tempPath),
+				source: "target",
+				reasonCode: null,
+			};
+		} catch {
+			// bounded probe; the caller records a coverage gap if no candidate works
 		}
 	}
 	return {
@@ -99,4 +107,21 @@ export async function discoverApiSchema(params: {
 		source: null,
 		reasonCode: "schema_not_found",
 	};
+}
+
+/**
+ * Legacy discovery sequence. Profile execution intentionally uses the
+ * repository-only probe first, so it can declare N/A without starting a target.
+ */
+export async function discoverApiSchema(params: {
+	repoPath: string;
+	targetOrigin?: string;
+	fetchImpl?: (input: URL, init?: RequestInit) => Promise<Response>;
+}): Promise<SchemaDiscoveryResult> {
+	const repository = await discoverRepositoryApiSchema(params.repoPath);
+	if (repository.applicable || !params.targetOrigin) return repository;
+	return await discoverTargetApiSchema({
+		targetOrigin: params.targetOrigin,
+		fetchImpl: params.fetchImpl,
+	});
 }

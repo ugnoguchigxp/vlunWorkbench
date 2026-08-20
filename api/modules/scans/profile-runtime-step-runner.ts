@@ -1,12 +1,12 @@
 import type { AppDatabase } from "../../db";
 import {
+	type PreparedContainerTargetGateway,
+	prepareContainerTargetGateway,
+} from "../dast/container-target-gateway";
+import {
 	NUCLEI_SAFE_POLICY_HASH,
 	NUCLEI_SAFE_POLICY_ID,
 } from "../runtime-scans/command-contracts";
-import {
-	prepareContainerTargetGateway,
-	type PreparedContainerTargetGateway,
-} from "../dast/container-target-gateway";
 import { RuntimeScannerRunner } from "../runtime-scans/runtime-scanner-runner";
 import { ZapBaselineRunner } from "../runtime-scans/zap-baseline-runner";
 import { ZAP_STABLE_IMAGE } from "../runtime-scans/zap-image-policy";
@@ -16,9 +16,9 @@ import {
 	FindingRepository,
 	ScanRepository,
 } from "./repositories";
+import { resolveScannerProvenance } from "./tools/scanner-provenance";
 import type { ToolExecutionConfig } from "./tools/tool-process-runner";
 import { normalizeToolExecutionConfig } from "./tools/tool-process-runner";
-import { resolveScannerProvenance } from "./tools/scanner-provenance";
 
 export async function runRuntimeScannerIntoExistingScan(params: {
 	db: AppDatabase;
@@ -49,17 +49,14 @@ export async function runRuntimeScannerIntoExistingScan(params: {
 		toolId: params.adapter,
 		execution: normalizeToolExecutionConfig(params.execution),
 	});
-	const runner =
-		params.adapter === "zap-baseline"
-			? new ZapBaselineRunner(params.artifactStorage, params.execution)
-			: new RuntimeScannerRunner(
-					"nuclei-safe",
-					params.artifactStorage,
-					params.execution,
-				);
+	const versionRunner = new RuntimeScannerRunner(
+		"nuclei-safe",
+		params.artifactStorage,
+		params.execution,
+	);
 	const toolVersion =
 		params.adapter === "nuclei-safe"
-			? await (runner as RuntimeScannerRunner).checkVersion()
+			? await versionRunner.checkVersion()
 			: null;
 	const toolRun = await scanRepo.createToolRun({
 		scanRunId: params.scanRunId,
@@ -80,6 +77,18 @@ export async function runRuntimeScannerIntoExistingScan(params: {
 			provenance,
 		},
 	});
+	const scopedStorage = params.artifactStorage.forToolRun(
+		params.scanRunId,
+		toolRun.id,
+	);
+	const runner =
+		params.adapter === "zap-baseline"
+			? new ZapBaselineRunner(scopedStorage, params.execution)
+			: new RuntimeScannerRunner(
+					"nuclei-safe",
+					scopedStorage,
+					params.execution,
+				);
 	if (params.adapter === "nuclei-safe" && !toolVersion) {
 		await scanRepo.updateToolRunStatus(toolRun.id, "failed", {
 			exitCode: 127,

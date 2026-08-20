@@ -1,10 +1,13 @@
 import fs from "node:fs/promises";
 import type { AppDatabase } from "../../db";
-import { discoverApiSchema } from "../api-schema-fuzz/schema-discovery";
+import {
+	discoverRepositoryApiSchema,
+	type SchemaDiscoveryResult,
+} from "../api-schema-fuzz/schema-discovery";
 import { runSchemathesisReadonly } from "../api-schema-fuzz/schemathesis-runner";
 import {
-	prepareContainerTargetGateway,
 	type PreparedContainerTargetGateway,
+	prepareContainerTargetGateway,
 } from "../dast/container-target-gateway";
 import type { ArtifactStorage } from "./artifact-storage";
 import {
@@ -20,6 +23,7 @@ export async function runSchemaScannerIntoExistingScan(params: {
 	scanRunId: string;
 	repoPath: string;
 	targetOrigin: string;
+	discovery?: SchemaDiscoveryResult;
 	artifactStorage: ArtifactStorage;
 	timeoutSec?: number;
 	execution?: ToolExecutionConfig;
@@ -36,10 +40,8 @@ export async function runSchemaScannerIntoExistingScan(params: {
 	error?: string;
 	metadata?: Record<string, unknown>;
 }> {
-	const discovery = await discoverApiSchema({
-		repoPath: params.repoPath,
-		targetOrigin: params.targetOrigin,
-	});
+	const discovery =
+		params.discovery ?? (await discoverRepositoryApiSchema(params.repoPath));
 	if (!discovery.applicable || !discovery.schemaPath)
 		return {
 			applicable: false,
@@ -62,6 +64,10 @@ export async function runSchemaScannerIntoExistingScan(params: {
 			schemaPath: discovery.schemaPath,
 		},
 	});
+	const scopedStorage = params.artifactStorage.forToolRun(
+		params.scanRunId,
+		toolRun.id,
+	);
 	let result: Awaited<ReturnType<typeof runSchemathesisReadonly>>;
 	let gateway: PreparedContainerTargetGateway | null = null;
 	try {
@@ -82,7 +88,7 @@ export async function runSchemaScannerIntoExistingScan(params: {
 				params.execution?.runner === "docker"
 					? gateway.containerOrigin
 					: gateway.hostOrigin,
-			storage: params.artifactStorage,
+			storage: scopedStorage,
 			execution: params.execution,
 			timeoutSec: params.timeoutSec,
 		});

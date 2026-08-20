@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { createHash } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
@@ -203,12 +204,15 @@ describe("persisted dependency assessment service", () => {
 		const manifestText = await storage.readTextArtifact(fixture.manifestPath);
 		const manifest = JSON.parse(manifestText);
 		manifest.coverage.changed = 2;
-		const saved = await storage.saveTextArtifact(
-			fixture.scanRunId,
-			"manifests",
-			`${canonicalJson(manifest)}\n`,
-			"diff-manifest.json",
+		const alteredManifest = `${canonicalJson(manifest)}\n`;
+		await fs.writeFile(
+			path.resolve(artifactRoot, fixture.manifestPath),
+			alteredManifest,
 		);
+		const saved = {
+			sha256: createHash("sha256").update(alteredManifest).digest("hex"),
+			sizeBytes: Buffer.byteLength(alteredManifest, "utf8"),
+		};
 		await connection.db
 			.update(scanArtifacts)
 			.set({ sha256: saved.sha256, sizeBytes: saved.sizeBytes })

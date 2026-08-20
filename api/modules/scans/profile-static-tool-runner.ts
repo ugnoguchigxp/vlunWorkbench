@@ -74,11 +74,11 @@ export async function runToolIntoExistingScan(params: {
 			}
 		: {};
 	const scope = options.scope as ScanScopePolicy | undefined;
-	const { runner, normalizer, toolName } = selectedTool;
+	const { runner: versionRunner, normalizer, toolName } = selectedTool;
 	const defaultCommand = selectedTool.adapter.defaultCommand(options);
 
 	// 2. Check Version
-	const toolVersion = await runner.checkVersion();
+	const toolVersion = await versionRunner.checkVersion();
 
 	// 3. Create Tool Run in running status
 	const toolRun = await scanRepo.createToolRun({
@@ -94,6 +94,15 @@ export async function runToolIntoExistingScan(params: {
 		},
 	});
 	const toolRunId = toolRun.id;
+	// Every invocation gets its own immutable artifact namespace. The initial
+	// runner above is used only for the version probe, before a tool-run ID exists.
+	const runner = selectedTool.adapter.createRunner({
+		artifactStorage: params.artifactStorage.forToolRun(
+			params.scanRunId,
+			toolRunId,
+		),
+		execution,
+	});
 
 	if (!toolVersion) {
 		const errMsg = `${toolName} executable not found on host system`;

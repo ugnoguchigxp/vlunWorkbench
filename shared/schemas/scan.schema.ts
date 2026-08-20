@@ -36,6 +36,15 @@ export const scanRunSchema = z.object({
 	projectId: z.string().uuid(),
 	profile: z.string().default("baseline"),
 	status: scanRunStatusSchema,
+	profileOutcome: z
+		.enum([
+			"pending",
+			"running",
+			"completed",
+			"completed_with_warnings",
+			"failed",
+		])
+		.default("pending"),
 	startedAt: z.string().or(z.date()).nullable(),
 	completedAt: z.string().or(z.date()).nullable(),
 	createdByUserId: z.string().uuid().nullable(),
@@ -88,6 +97,9 @@ export const scanArtifactKindSchema = z.enum([
 	"source_snippet",
 	"report",
 	"diff_manifest",
+	"sbom",
+	"dast_raw_result",
+	"diagnostic_report",
 ]);
 export type ScanArtifactKind = z.infer<typeof scanArtifactKindSchema>;
 
@@ -98,6 +110,7 @@ export const scanArtifactSchema = z.object({
 	kind: scanArtifactKindSchema,
 	format: z.string(),
 	path: z.string(),
+	storageKey: z.string().nullable().optional(),
 	sha256: z.string(),
 	sizeBytes: z.number(),
 	metadata: z.record(z.string(), z.unknown()).default({}),

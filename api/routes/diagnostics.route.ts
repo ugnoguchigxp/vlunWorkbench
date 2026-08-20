@@ -1,5 +1,5 @@
-import { Hono } from "hono";
 import type { Context } from "hono";
+import { Hono } from "hono";
 import {
 	createDiagnosticReportRequestSchema,
 	runAttackSurfaceInventoryRequestSchema,
@@ -10,12 +10,12 @@ import { getAuthContextUser } from "../modules/auth/context";
 import { HttpError } from "../modules/auth/errors";
 import { AttackSurfaceInventoryRunner } from "../modules/diagnostics/attack-surface/inventory-runner";
 import { SecurityCheckRunner } from "../modules/diagnostics/checks/check-runner";
+import { buildZeroFindingDiagnosticReport } from "../modules/diagnostics/reports/zero-finding-report-builder";
 import {
 	AttackSurfaceRepository,
 	DiagnosticReportRepository,
 	SecurityCheckRepository,
 } from "../modules/diagnostics/repository";
-import { buildZeroFindingDiagnosticReport } from "../modules/diagnostics/reports/zero-finding-report-builder";
 import type { ArtifactStorage } from "../modules/scans/artifact-storage";
 import type {
 	ArtifactRepository,
@@ -176,9 +176,21 @@ export function createDiagnosticsRoute(deps: DiagnosticsRouteDeps) {
 					"Diagnostic report artifact metadata mismatch",
 				);
 			}
-			const content = await deps.artifactStorage.readTextArtifact(
-				artifact.path,
-			);
+			const storageKey = artifact.storageKey ?? artifact.path;
+			const intact = await deps.artifactStorage
+				.verifyArtifact(
+					storageKey,
+					{ sha256: artifact.sha256, sizeBytes: artifact.sizeBytes },
+					{ maxBytes: 64 * 1024 * 1024 },
+				)
+				.catch(() => false);
+			if (!intact) {
+				throw new HttpError(
+					409,
+					"Diagnostic report artifact integrity mismatch",
+				);
+			}
+			const content = await deps.artifactStorage.readTextArtifact(storageKey);
 			return c.body(content, 200, {
 				"Content-Type": "text/markdown; charset=utf-8",
 				"Content-Disposition": `attachment; filename="diagnostic-${report.id.slice(0, 8)}.md"`,

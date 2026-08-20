@@ -1,3 +1,4 @@
+import { discoverRepositoryApiSchema } from "../api-schema-fuzz/schema-discovery";
 import { prepareDastTargetWorkspace } from "../dast/target-preparer";
 import {
 	runDastStepIntoExistingScan,
@@ -379,6 +380,24 @@ export async function executeProfileSteps(
 					}
 					continue;
 				} else if (step.kind === "api_schema_scan") {
+					const discovery = await discoverRepositoryApiSchema(params.repoPath);
+					if (!discovery.applicable) {
+						stepResults.push({
+							kind: step.kind,
+							stepId,
+							adapter: step.adapter,
+							required: step.required,
+							status: "skipped",
+							applicability: "not_applicable",
+							reasonCode: discovery.reasonCode ?? "schema_not_found",
+							coverageEffect: "gap",
+							findingCount: 0,
+							error: null,
+							artifactIds: [],
+						});
+						optionalToolFailed = true;
+						continue;
+					}
 					const target = await ensureSharedRuntimeTarget();
 					const schemaOptions = step.options as
 						| { maxRequests?: number; rateLimitPerSec?: number }
@@ -389,6 +408,7 @@ export async function executeProfileSteps(
 						scanRunId: scanRun.id,
 						repoPath: params.repoPath,
 						targetOrigin: target.origin,
+						discovery,
 						artifactStorage,
 						timeoutSec: resolvedTimeout,
 						execution,

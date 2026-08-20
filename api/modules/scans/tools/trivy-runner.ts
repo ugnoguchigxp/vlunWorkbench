@@ -3,11 +3,11 @@ import os from "node:os";
 import path from "node:path";
 import type { ScanScopePolicy } from "../../../../shared/schemas/scan-profile.schema";
 import type { ArtifactSaveResult, ArtifactStorage } from "../artifact-storage";
-import { redactJsonSecrets, redactSecrets } from "../normalizers/redaction";
 import {
 	normalizeScannerOutputText,
 	normalizeStructuredOutputPaths,
 } from "../diff-output-paths";
+import { redactJsonSecrets, redactSecrets } from "../normalizers/redaction";
 import { createScopedWorkspace, getScopeSkipDirs } from "../target-scope";
 import {
 	checkToolVersion,
@@ -136,6 +136,7 @@ export class TrivyRunner {
 			timeoutSec: options.timeoutSec,
 			execution: this.execution,
 			repoPath: scanPath,
+			inputPaths: options.imageTar ? [options.imageTar] : undefined,
 			outputPath: tempJsonPath,
 			onLifecycleEvent: options.onLifecycleEvent,
 		});

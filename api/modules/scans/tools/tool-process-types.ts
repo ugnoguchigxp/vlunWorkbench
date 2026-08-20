@@ -29,6 +29,8 @@ export interface ProcessRunnerOptions {
 	env?: Record<string, string>;
 	execution?: ToolExecutionConfig;
 	repoPath?: string;
+	/** Explicit read-only files (for example a container image tarball). */
+	inputPaths?: string[];
 	outputPath?: string;
 	outputLimits?: Partial<ProcessOutputLimits>;
 	onLifecycleEvent?: (event: ToolLifecycleEvent) => Promise<void> | void;

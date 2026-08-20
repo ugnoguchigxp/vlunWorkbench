@@ -108,6 +108,46 @@ describe("Tool process runner Docker backend", () => {
 		await fs.rm(tempDir, { recursive: true, force: true });
 	});
 
+	it("permits only Trivy's ephemeral image cache to use its container root filesystem", async () => {
+		let capturedArgs: string[] = [];
+		vi.spyOn(Bun, "spawn").mockImplementation((args) => {
+			capturedArgs = [...args];
+			return {
+				exited: Promise.resolve(0),
+				stdout: streamText("Version: 0.72.0"),
+				stderr: streamText(""),
+			} as any;
+		});
+		await runToolProcess("trivy", ["--version"], {
+			execution: { runner: "docker" },
+		});
+		expect(capturedArgs).not.toContain("--read-only");
+		expect(capturedArgs).toContain("--user");
+		expect(capturedArgs).toContain("65532:65532");
+		expect(capturedArgs).toContain("--cap-drop");
+		expect(capturedArgs).toContain("ALL");
+	});
+
+	it("rejects Docker input files that would collide in the container", async () => {
+		const firstDir = await fs.mkdtemp(path.join(os.tmpdir(), "tool-input-a-"));
+		const secondDir = await fs.mkdtemp(path.join(os.tmpdir(), "tool-input-b-"));
+		try {
+			const first = path.join(firstDir, "image.tar");
+			const second = path.join(secondDir, "image.tar");
+			await fs.writeFile(first, "one");
+			await fs.writeFile(second, "two");
+			await expect(
+				runToolProcess("trivy", ["image", "--input", first, second], {
+					execution: { runner: "docker" },
+					inputPaths: [first, second],
+				}),
+			).rejects.toThrow("Docker tool inputs must have unique filenames.");
+		} finally {
+			await fs.rm(firstDir, { recursive: true, force: true });
+			await fs.rm(secondDir, { recursive: true, force: true });
+		}
+	});
+
 	it("does not let lifecycle observer failures interrupt a Docker tool", async () => {
 		vi.spyOn(console, "error").mockImplementation(() => undefined);
 		vi.spyOn(Bun, "spawn").mockImplementation(

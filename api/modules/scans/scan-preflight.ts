@@ -129,8 +129,16 @@ export async function runScanPreflight(params: {
 					required: params.steps.some(
 						(step) => step.required && step.kind !== "dast",
 					),
-					ready: dockerImageIsCompatible(toolboxImageProbe, dockerProbe),
-					reasonCode: dockerImageReason(toolboxImageProbe, dockerProbe),
+					ready: dockerImageIsCompatible(
+						toolboxImageProbe,
+						dockerProbe,
+						digestFromImageRef(toolboxImage),
+					),
+					reasonCode: dockerImageReason(
+						toolboxImageProbe,
+						dockerProbe,
+						digestFromImageRef(toolboxImage),
+					),
 					action: "build_toolbox_image",
 					expectedDigest: digestFromImageRef(toolboxImage),
 					observedDigest: toolboxImageProbe.digest,
@@ -151,8 +159,16 @@ export async function runScanPreflight(params: {
 					stepId: "runtime_scanner:zap-baseline",
 					kind: "docker_image",
 					required: zapSteps.some((step) => step.required),
-					ready: dockerImageIsCompatible(zapImageProbe, dockerProbe),
-					reasonCode: dockerImageReason(zapImageProbe, dockerProbe),
+					ready: dockerImageIsCompatible(
+						zapImageProbe,
+						dockerProbe,
+						digestFromImageRef(ZAP_STABLE_IMAGE),
+					),
+					reasonCode: dockerImageReason(
+						zapImageProbe,
+						dockerProbe,
+						digestFromImageRef(ZAP_STABLE_IMAGE),
+					),
 					action: "pull_pinned_image",
 					expectedDigest: digestFromImageRef(ZAP_STABLE_IMAGE),
 					observedDigest: zapImageProbe.digest,
@@ -170,7 +186,8 @@ export async function runScanPreflight(params: {
 		try {
 			targetPlan = await dependencies.inferTargetPlan({
 				repoPath: params.repoPath,
-				consentProjectCodeExecution: true,
+				consentProjectCodeExecution:
+					params.consentProjectCodeExecution === true,
 			});
 		} catch (error) {
 			targetPlanFailure = safeReasonCode(
@@ -262,7 +279,11 @@ export async function runScanPreflight(params: {
 						Boolean(
 							dockerProbe &&
 								toolboxImageProbe &&
-								dockerImageIsCompatible(toolboxImageProbe, dockerProbe),
+								dockerImageIsCompatible(
+									toolboxImageProbe,
+									dockerProbe,
+									digestFromImageRef(toolboxImage),
+								),
 						),
 					dependencies,
 				});
@@ -286,7 +307,11 @@ export async function runScanPreflight(params: {
 					Boolean(
 						dockerProbe &&
 							toolboxImageProbe &&
-							dockerImageIsCompatible(toolboxImageProbe, dockerProbe),
+							dockerImageIsCompatible(
+								toolboxImageProbe,
+								dockerProbe,
+								digestFromImageRef(toolboxImage),
+							),
 					),
 				dependencies,
 			});
@@ -458,13 +483,23 @@ function versionCheck(
 	version: string | null,
 	expectedVersion: string | null,
 ): ScanPreflightCheck {
+	const observedNormalized = version ? normalizedVersion(version) : null;
+	const expectedNormalized = expectedVersion
+		? normalizedVersion(expectedVersion)
+		: null;
 	return check({
 		id: `${stepId}:binary-version`,
 		stepId,
 		kind: "binary_version",
 		required,
-		ready: Boolean(version),
-		reasonCode: version ? null : "scanner_binary_unavailable",
+		ready:
+			Boolean(version) &&
+			(expectedVersion === null || observedNormalized === expectedNormalized),
+		reasonCode: !version
+			? "scanner_binary_unavailable"
+			: expectedVersion !== null && observedNormalized !== expectedNormalized
+				? "scanner_version_mismatch"
+				: null,
 		action: "build_toolbox_image",
 		scannerId,
 		observedVersion: version,
@@ -546,8 +581,12 @@ function sanitizeVersion(value: string | null | undefined): string | null {
 
 function safeReasonCode(error: unknown, fallback: string): string {
 	const message = error instanceof Error ? error.message : String(error);
-	const candidate = message.match(/[a-z][a-z0-9_]{2,99}/)?.[0];
-	return candidate ?? fallback;
+	const candidate = message.trim();
+	return /^[a-z][a-z0-9_]{2,99}$/.test(candidate) ? candidate : fallback;
+}
+
+function normalizedVersion(value: string): string | null {
+	return value.match(/\b\d+(?:\.\d+){1,3}(?:[-+][0-9a-z.-]+)?\b/i)?.[0] ?? null;
 }
 
 export function resolveScanPreflightMode(

@@ -1,8 +1,8 @@
+import type { DastCoverageSummary } from "../../../shared/schemas/dast-coverage.schema";
 import type {
 	ProfileToolEntry,
 	ScanProfileStep,
 } from "../../../shared/schemas/scan-profile.schema";
-import type { DastCoverageSummary } from "../../../shared/schemas/dast-coverage.schema";
 import type {
 	DiffManifestEntry,
 	ResolvedScanTarget,
@@ -211,12 +211,13 @@ export async function generateFinalReport(params: {
 			title: params.options.title,
 		});
 		const filename = `report-${report.id}.md`;
-		const saveResult = await params.artifactStorage.saveTextArtifact(
-			params.scanRunId,
-			"reports",
-			markdown,
-			filename,
-		);
+		const saveResult = await params.artifactStorage
+			.forOwner({
+				scanRunId: params.scanRunId,
+				kind: "report",
+				id: report.id,
+			})
+			.saveTextArtifact(params.scanRunId, "reports", markdown, filename);
 		const artifact = await artifactRepo.createArtifact({
 			scanRunId: params.scanRunId,
 			toolRunId: null,

@@ -59,6 +59,44 @@ describe("ArtifactStorage", () => {
 		expect(targetContent).toBe(logContent);
 	});
 
+	it("isolates concurrent tool outputs and rejects a duplicate owner write", async () => {
+		const scanRunId = "scan-123";
+		const left = storage.forToolRun(scanRunId, "tool-left");
+		const right = storage.forToolRun(scanRunId, "tool-right");
+		const [leftSaved, rightSaved] = await Promise.all([
+			left.saveLog(scanRunId, "stdout", "left"),
+			right.saveLog(scanRunId, "stdout", "right"),
+		]);
+		expect(leftSaved.path).toContain("owners/tool-run/tool-left/logs/stdout.log");
+		expect(rightSaved.path).toContain("owners/tool-run/tool-right/logs/stdout.log");
+		await expect(left.saveLog(scanRunId, "stdout", "again")).rejects.toMatchObject({
+			code: "EEXIST",
+		});
+	});
+
+	it("rolls back every completed link when an atomic batch has duplicate targets", async () => {
+		const owner = storage.forToolRun("scan-123", "tool-atomic");
+		await expect(
+			owner.saveTextArtifactsAtomically("scan-123", [
+				{ subDir: "raw", filename: "result.json", content: "first" },
+				{ subDir: "raw", filename: "result.json", content: "second" },
+			]),
+		).rejects.toThrow();
+		await expect(
+			fs.stat(
+				path.join(
+					tempDir,
+					"scan-123",
+					"owners",
+					"tool-run",
+					"tool-atomic",
+					"raw",
+					"result.json",
+				),
+			),
+		).rejects.toThrow();
+	});
+
 	it("should reject path traversal in suggestedFilename", async () => {
 		const scanRunId = "scan-123";
 		const sourceFile = path.join(tempDir, "source.json");
@@ -73,12 +111,24 @@ describe("ArtifactStorage", () => {
 		).rejects.toThrow("Path traversal detected");
 	});
 
+	it("rejects invalid scan IDs and keeps scoped cleanup inside its owner namespace", async () => {
+		await expect(
+			storage.saveLog("../outside", "stdout", "content"),
+		).rejects.toThrow("Invalid scan run ID.");
+		const left = storage.forToolRun("scan-123", "tool-left");
+		const right = storage.forToolRun("scan-123", "tool-right");
+		const rightArtifact = await right.saveLog("scan-123", "stdout", "right");
+		await expect(left.removeArtifacts([rightArtifact.path])).rejects.toThrow(
+			"Artifact owner cannot remove artifacts outside its namespace.",
+		);
+	});
+
 	it("removes only a server-owned scan run directory", async () => {
 		await storage.saveTextArtifact("scan-123", "reports", "content", "report.md");
 		await storage.removeRunDirectory("scan-123");
 		await expect(fs.stat(path.join(tempDir, "scan-123"))).rejects.toThrow();
 		await expect(storage.removeRunDirectory("../outside")).rejects.toThrow(
-			"Path traversal detected",
+			"Invalid scan run ID.",
 		);
 	});
 

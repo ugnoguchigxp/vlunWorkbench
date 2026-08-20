@@ -87,6 +87,14 @@ function compactScanRunMetadata(metadata: unknown): Record<string, unknown> {
 	return compact;
 }
 
+function effectiveProfileOutcome(scanRun: ScanRunRow): string {
+	if (scanRun.profileOutcome !== "pending") return scanRun.profileOutcome;
+	const legacyOutcome = scanRun.metadata?.profileOutcome;
+	return typeof legacyOutcome === "string"
+		? legacyOutcome
+		: scanRun.profileOutcome;
+}
+
 type FindingRow = typeof findings.$inferSelect;
 type ScanRunRow = typeof scanRuns.$inferSelect;
 type CurrentDeltaKind = "new" | "unchanged" | "regressed";
@@ -364,6 +372,7 @@ export async function buildScanReviewBundle(
 			projectId: scanRun.projectId,
 			profile: scanRun.profile,
 			status: scanRun.status,
+			profileOutcome: effectiveProfileOutcome(scanRun),
 			summary: scanRun.summary,
 			metadata: compactScanRunMetadata(scanRun.metadata),
 			startedAt: scanRun.startedAt,

@@ -3,12 +3,12 @@ import type { AppDatabase } from "../../../db";
 import { findings, projects, scanRuns, toolRuns } from "../../../db/schema";
 import { ArtifactStorage } from "../../scans/artifact-storage";
 import { ArtifactRepository } from "../../scans/repositories";
+import { SECURITY_CHECK_DEFINITIONS } from "../checks/check-registry";
 import {
 	AttackSurfaceRepository,
 	DiagnosticReportRepository,
 	SecurityCheckRepository,
 } from "../repository";
-import { SECURITY_CHECK_DEFINITIONS } from "../checks/check-registry";
 
 export type DiagnosticReportBuildResult = {
 	ok: boolean;
@@ -65,12 +65,18 @@ export async function buildZeroFindingDiagnosticReport(params: {
 			...data,
 		});
 		const storage = params.artifactStorage ?? new ArtifactStorage();
-		const saveResult = await storage.saveTextArtifact(
-			params.scanRunId,
-			"diagnostics",
-			markdown,
-			`zero-finding-diagnostic-${report.id}.md`,
-		);
+		const saveResult = await storage
+			.forOwner({
+				scanRunId: params.scanRunId,
+				kind: "diagnostic",
+				id: report.id,
+			})
+			.saveTextArtifact(
+				params.scanRunId,
+				"diagnostics",
+				markdown,
+				`zero-finding-diagnostic-${report.id}.md`,
+			);
 		const artifact = await new ArtifactRepository(params.db).createArtifact({
 			scanRunId: params.scanRunId,
 			toolRunId: null,

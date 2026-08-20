@@ -115,8 +115,11 @@ describe("ScanReportRunner", () => {
 		});
 		expect(artifact?.sha256).toMatch(/^[0-9a-f]{64}$/);
 		expect(artifact?.sizeBytes).toBeGreaterThan(0);
+		expect(artifact?.storageKey).toContain(
+			`owners/report/${started.reportId}/reports/`,
+		);
 		const markdown = await fs.readFile(
-			path.resolve(artifactRoot, artifact?.path ?? ""),
+			path.resolve(artifactRoot, artifact?.storageKey ?? artifact?.path ?? ""),
 			"utf8",
 		);
 		expect(Buffer.byteLength(markdown, "utf8")).toBe(artifact?.sizeBytes);

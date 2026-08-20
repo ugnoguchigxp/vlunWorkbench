@@ -21,6 +21,7 @@ export type DockerProbe = {
 export type DockerImageProbe = {
 	ready: boolean;
 	digest: string | null;
+	repoDigests?: string[];
 	platform: string | null;
 	reasonCode: string | null;
 };
@@ -106,21 +107,35 @@ export function hashPreflightValue(value: string): string {
 export function dockerImageIsCompatible(
 	image: DockerImageProbe,
 	daemon: DockerProbe,
+	expectedDigest: string | null = null,
 ): boolean {
 	return (
 		image.ready &&
 		Boolean(image.platform) &&
 		Boolean(daemon.platform) &&
-		image.platform === daemon.platform
+		image.platform === daemon.platform &&
+		(expectedDigest === null ||
+			(image.repoDigests ?? []).some((digest) =>
+				digest.endsWith(`@${expectedDigest}`),
+			))
 	);
 }
 
 export function dockerImageReason(
 	image: DockerImageProbe,
 	daemon: DockerProbe,
+	expectedDigest: string | null = null,
 ): string | null {
 	if (!image.ready) return image.reasonCode;
-	return dockerImageIsCompatible(image, daemon)
+	if (
+		expectedDigest !== null &&
+		!(image.repoDigests ?? []).some((digest) =>
+			digest.endsWith(`@${expectedDigest}`),
+		)
+	) {
+		return "docker_image_digest_mismatch";
+	}
+	return dockerImageIsCompatible(image, daemon, expectedDigest)
 		? null
 		: "docker_image_platform_incompatible";
 }

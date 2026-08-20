@@ -1,12 +1,12 @@
-import type { DastArtifactStorage } from "./dast-artifact-storage";
-import { DastArtifactStorage as DefaultDastArtifactStorage } from "./dast-artifact-storage";
-import type { DastRepository } from "./dast-repository";
-import type { DastRawResult } from "./types";
-import type { ArtifactRepository } from "../scans/repositories";
 import {
 	ArtifactStorage,
 	type ArtifactStorage as ScanArtifactStorage,
 } from "../scans/artifact-storage";
+import type { ArtifactRepository } from "../scans/repositories";
+import type { DastArtifactStorage } from "./dast-artifact-storage";
+import { DastArtifactStorage as DefaultDastArtifactStorage } from "./dast-artifact-storage";
+import type { DastRepository } from "./dast-repository";
+import type { DastRawResult } from "./types";
 
 export async function saveDastRawArtifacts(params: {
 	repository: DastRepository;
@@ -41,7 +41,11 @@ export async function saveDastRawArtifacts(params: {
 		sizeBytes: rawSaved.sizeBytes,
 	});
 	artifactIds.push(raw.id);
-	const scanStorage = params.scanStorage ?? new ArtifactStorage();
+	const scanStorage = (params.scanStorage ?? new ArtifactStorage()).forOwner({
+		scanRunId: params.scanRunId,
+		kind: "dast",
+		id: params.dastRunId,
+	});
 	const rawScanSaved = await scanStorage.saveTextArtifact(
 		params.scanRunId,
 		"dast",

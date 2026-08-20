@@ -87,22 +87,36 @@ export const defaultScanPreflightDependencies: ScanPreflightDependencies = {
 			"image",
 			"inspect",
 			"--format",
-			"{{.Id}} {{.Os}}/{{.Architecture}}",
+			"{{json .RepoDigests}}\t{{.Os}}/{{.Architecture}}",
 			image,
 		]);
-		const [digest, platform] = result.stdout.trim().split(/\s+/, 2);
-		const validDigest = /^sha256:[a-f0-9]{64}$/.test(digest ?? "")
-			? digest
-			: null;
+		const [rawRepoDigests, rawPlatform] = result.stdout.trim().split("\t", 2);
+		let repoDigests: string[] = [];
+		try {
+			const parsed = rawRepoDigests ? JSON.parse(rawRepoDigests) : null;
+			if (Array.isArray(parsed)) {
+				repoDigests = parsed.filter(
+					(value): value is string => typeof value === "string",
+				);
+			}
+		} catch {
+			// The image exists but its inspect payload cannot establish a digest.
+		}
+		const digest = repoDigests
+			.map((value) => value.match(/@(sha256:[a-f0-9]{64})$/)?.[1] ?? null)
+			.find((value): value is string => value !== null);
+		const validDigest =
+			digest && /^sha256:[a-f0-9]{64}$/.test(digest) ? digest : null;
 		return {
-			ready: result.ok && result.exitCode === 0 && Boolean(validDigest),
+			ready: result.ok && result.exitCode === 0 && Boolean(rawPlatform),
 			digest: validDigest,
-			platform: platform ?? null,
+			repoDigests,
+			platform: rawPlatform || null,
 			reasonCode:
 				result.ok && result.exitCode === 0
-					? validDigest
+					? rawPlatform
 						? null
-						: "docker_image_digest_missing"
+						: "docker_image_platform_missing"
 					: "docker_image_unavailable",
 		};
 	},

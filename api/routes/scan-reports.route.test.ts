@@ -133,7 +133,9 @@ describe("Scan Reports Route", () => {
 			sha256: "sha-regenerated",
 			sizeBytes: 27,
 		}),
+		forOwner: vi.fn(),
 	};
+	mockArtifactStorage.forOwner.mockReturnValue(mockArtifactStorage);
 	const mockBuildMarkdownReport = vi
 		.fn()
 		.mockResolvedValue("# Regenerated Report Content");

@@ -245,6 +245,7 @@ export async function runProfileScan(params: {
 			: "Scan failed because a required preflight check was blocked.";
 		await scanRepo.updateScanRunStatus(scanRun.id, "failed", {
 			summary: summaryMsg,
+			profileOutcome: "failed",
 			metadata: {
 				...scanRun.metadata,
 				...initialMetadata,
@@ -317,12 +318,18 @@ export async function runProfileScan(params: {
 			diffPlan.target.snapshotDigest =
 				diffSnapshot?.snapshotDigest ?? diffPlan.target.targetDigest;
 			diffPlan.manifest.target.snapshotDigest = diffPlan.target.snapshotDigest;
-			const savedManifest = await artifactStorage.saveTextArtifact(
-				scanRun.id,
-				"manifests",
-				`${canonicalJson(diffPlan.manifest)}\n`,
-				"diff-manifest.json",
-			);
+			const savedManifest = await artifactStorage
+				.forOwner({
+					scanRunId: scanRun.id,
+					kind: "scan",
+					id: "diff-manifest",
+				})
+				.saveTextArtifact(
+					scanRun.id,
+					"manifests",
+					`${canonicalJson(diffPlan.manifest)}\n`,
+					"diff-manifest.json",
+				);
 			const artifact = await artifactRepo
 				.createArtifact({
 					scanRunId: scanRun.id,
@@ -476,6 +483,7 @@ export async function runProfileScan(params: {
 
 	await scanRepo.updateScanRunStatus(scanRun.id, finalScanStatus, {
 		summary: summaryMsg,
+		profileOutcome,
 		metadata: {
 			...scanRun.metadata,
 			profileId: params.profileId,

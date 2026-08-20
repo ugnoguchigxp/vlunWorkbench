@@ -14,6 +14,32 @@ export interface ArtifactSaveResult {
 	sizeBytes: number;
 }
 
+export type ArtifactOwnerKind =
+	| "tool-run"
+	| "report"
+	| "scan"
+	| "dast"
+	| "diagnostic";
+
+const ARTIFACT_OWNER_KINDS: readonly ArtifactOwnerKind[] = [
+	"tool-run",
+	"report",
+	"scan",
+	"dast",
+	"diagnostic",
+];
+
+/**
+ * A server-generated owner namespace for artifacts belonging to one producer.
+ * A scan run may execute several tools concurrently, so the scan run ID alone
+ * is not a sufficient write namespace.
+ */
+export type ArtifactOwner = {
+	scanRunId: string;
+	kind: ArtifactOwnerKind;
+	id: string;
+};
+
 export class ArtifactSizeLimitError extends Error {
 	constructor(readonly maxBytes: number) {
 		super("Artifact exceeds the configured read limit.");
@@ -23,20 +49,63 @@ export class ArtifactSizeLimitError extends Error {
 
 export class ArtifactStorage {
 	private readonly baseDir: string;
+	private readonly owner: ArtifactOwner | null;
 
-	constructor(baseDir?: string) {
+	constructor(baseDir?: string, owner: ArtifactOwner | null = null) {
 		this.baseDir =
 			baseDir ??
 			process.env.SCAN_ARTIFACT_ROOT ??
 			path.resolve(process.cwd(), "artifacts", "scans");
+		this.owner = owner;
+	}
+
+	/** Returns an isolated writer for one tool/report producer. */
+	forOwner(owner: ArtifactOwner): ArtifactStorage {
+		this.assertPathComponent(owner.scanRunId, "scan run ID");
+		this.assertPathComponent(owner.id, "artifact owner ID");
+		if (!ARTIFACT_OWNER_KINDS.includes(owner.kind)) {
+			throw new Error("Invalid artifact owner kind.");
+		}
+		return new ArtifactStorage(this.baseDir, owner);
+	}
+
+	forToolRun(scanRunId: string, toolRunId: string): ArtifactStorage {
+		return this.forOwner({ scanRunId, kind: "tool-run", id: toolRunId });
 	}
 
 	private getScanDir(scanRunId: string): string {
+		this.assertPathComponent(scanRunId, "scan run ID");
 		return path.resolve(this.baseDir, scanRunId);
 	}
 
+	private assertPathComponent(value: string, label: string): void {
+		if (
+			!value ||
+			value === "." ||
+			value === ".." ||
+			value.includes("/") ||
+			value.includes("\\") ||
+			path.isAbsolute(value)
+		) {
+			throw new Error(`Invalid ${label}.`);
+		}
+	}
+
+	private getArtifactDir(scanRunId: string): string {
+		if (!this.owner) return this.getScanDir(scanRunId);
+		if (this.owner.scanRunId !== scanRunId) {
+			throw new Error("Artifact owner does not belong to this scan run.");
+		}
+		return path.join(
+			this.getScanDir(scanRunId),
+			"owners",
+			this.owner.kind,
+			this.owner.id,
+		);
+	}
+
 	private validatePath(targetPath: string, scanRunId: string): void {
-		const scanDir = this.getScanDir(scanRunId);
+		const scanDir = this.getArtifactDir(scanRunId);
 		const resolvedTarget = path.resolve(targetPath);
 		const relative = path.relative(scanDir, resolvedTarget);
 		if (relative.startsWith("..") || path.isAbsolute(relative)) {
@@ -51,7 +120,7 @@ export class ArtifactStorage {
 		sourcePath: string,
 		suggestedFilename?: string,
 	): Promise<ArtifactSaveResult> {
-		const scanDir = this.getScanDir(scanRunId);
+		const scanDir = this.getArtifactDir(scanRunId);
 		const rawDir = path.join(scanDir, "raw");
 		await fs.mkdir(rawDir, { recursive: true });
 
@@ -65,7 +134,7 @@ export class ArtifactStorage {
 		const sha256 = crypto.createHash("sha256").update(content).digest("hex");
 
 		// Write to target
-		await fs.writeFile(targetPath, content);
+		await fs.writeFile(targetPath, content, { flag: "wx" });
 
 		const relativePath = path.relative(this.baseDir, targetPath);
 
@@ -83,7 +152,7 @@ export class ArtifactStorage {
 		suggestedFilename?: string,
 		options?: { mode?: number },
 	): Promise<ArtifactSaveResult> {
-		const scanDir = this.getScanDir(scanRunId);
+		const scanDir = this.getArtifactDir(scanRunId);
 		const logDir = path.join(scanDir, "logs");
 		await fs.mkdir(logDir, { recursive: true });
 
@@ -95,7 +164,10 @@ export class ArtifactStorage {
 		const sizeBytes = buffer.length;
 		const sha256 = crypto.createHash("sha256").update(buffer).digest("hex");
 
-		await fs.writeFile(targetPath, buffer, { mode: options?.mode });
+		await fs.writeFile(targetPath, buffer, {
+			mode: options?.mode,
+			flag: "wx",
+		});
 		if (options?.mode !== undefined) await fs.chmod(targetPath, options.mode);
 
 		const relativePath = path.relative(this.baseDir, targetPath);
@@ -114,7 +186,7 @@ export class ArtifactStorage {
 		filename: string,
 		options?: { mode?: number },
 	): Promise<ArtifactSaveResult> {
-		const scanDir = this.getScanDir(scanRunId);
+		const scanDir = this.getArtifactDir(scanRunId);
 		const targetDir = path.join(scanDir, subDir);
 		await fs.mkdir(targetDir, { recursive: true });
 
@@ -125,7 +197,10 @@ export class ArtifactStorage {
 		const sizeBytes = buffer.length;
 		const sha256 = crypto.createHash("sha256").update(buffer).digest("hex");
 
-		await fs.writeFile(targetPath, buffer, { mode: options?.mode });
+		await fs.writeFile(targetPath, buffer, {
+			mode: options?.mode,
+			flag: "wx",
+		});
 		if (options?.mode !== undefined) await fs.chmod(targetPath, options.mode);
 
 		const relativePath = path.relative(this.baseDir, targetPath);
@@ -143,7 +218,7 @@ export class ArtifactStorage {
 	): Promise<ArtifactSaveResult[]> {
 		if (artifacts.length === 0) return [];
 
-		const scanDir = this.getScanDir(scanRunId);
+		const scanDir = this.getArtifactDir(scanRunId);
 		const stagingDir = path.join(scanDir, ".staging", crypto.randomUUID());
 		const staged: Array<{
 			targetPath: string;
@@ -179,8 +254,11 @@ export class ArtifactStorage {
 
 			for (const artifact of staged) {
 				await fs.mkdir(path.dirname(artifact.targetPath), { recursive: true });
-				await fs.rename(artifact.stagedPath, artifact.targetPath);
+				// link(2) is exclusive at the target path, unlike rename(2), which
+				// could silently replace a concurrently-created artifact.
+				await fs.link(artifact.stagedPath, artifact.targetPath);
 				movedPaths.push(artifact.result.path);
+				await fs.rm(artifact.stagedPath, { force: true });
 			}
 			return staged.map((artifact) => artifact.result);
 		} catch (error) {
@@ -200,6 +278,18 @@ export class ArtifactStorage {
 					throw new Error(
 						"Path traversal detected: target path is outside of artifact root.",
 					);
+				}
+				if (this.owner) {
+					const ownerDir = this.getArtifactDir(this.owner.scanRunId);
+					const ownerRelative = path.relative(ownerDir, targetPath);
+					if (
+						ownerRelative.startsWith("..") ||
+						path.isAbsolute(ownerRelative)
+					) {
+						throw new Error(
+							"Artifact owner cannot remove artifacts outside its namespace.",
+						);
+					}
 				}
 				await fs.rm(targetPath, { force: true });
 			}),
@@ -341,5 +431,17 @@ export class ArtifactStorage {
 		} finally {
 			await handle.close();
 		}
+	}
+
+	async verifyArtifact(
+		relativePath: string,
+		expected: Pick<ArtifactSaveResult, "sha256" | "sizeBytes">,
+		options: { maxBytes: number },
+	): Promise<boolean> {
+		const actual = await this.hashArtifact(relativePath, options);
+		return (
+			actual.sha256 === expected.sha256 &&
+			actual.sizeBytes === expected.sizeBytes
+		);
 	}
 }

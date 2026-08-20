@@ -7,7 +7,9 @@ import {
 	assertAllowedDockerInvocation,
 	dockerEntrypointFor,
 } from "./docker-tool-invocation-policy";
+
 export { registerDockerToolInvocationPolicy } from "./docker-tool-invocation-policy";
+
 import {
 	errorMessage,
 	getCleanEnv,
@@ -32,6 +34,7 @@ import type {
 const CONTAINER_REPO_PATH = "/workspace/repo";
 const CONTAINER_OUT_PATH = "/workspace/out";
 const CONTAINER_CACHE_PATH = "/workspace/cache";
+const CONTAINER_INPUT_PATH = "/workspace/inputs";
 
 export async function runDockerToolProcess(
 	binaryName: string,
@@ -101,6 +104,22 @@ export async function runDockerToolProcess(
 		await fs.mkdir(cacheDir, { recursive: true });
 		await fs.chmod(cacheDir, 0o777).catch(() => {});
 	}
+	const inputPaths = await Promise.all(
+		(options.inputPaths ?? []).map(async (inputPath) => {
+			const resolved = path.resolve(inputPath);
+			const canonical = await fs.realpath(resolved);
+			if (!(await fs.stat(canonical)).isFile()) {
+				throw new Error("Docker tool input must be a file.");
+			}
+			return resolved;
+		}),
+	);
+	const inputBasenames = inputPaths.map((inputPath) =>
+		path.basename(inputPath),
+	);
+	if (new Set(inputBasenames).size !== inputBasenames.length) {
+		throw new Error("Docker tool inputs must have unique filenames.");
+	}
 
 	const dockerArgs = buildDockerRunArgs({
 		dockerBin,
@@ -111,11 +130,13 @@ export async function runDockerToolProcess(
 		cpus: docker.cpus,
 		pidsLimit: docker.pidsLimit,
 		toolCacheDir: cacheDir,
+		inputPaths,
 		repoPath: options.repoPath,
 		outputDir: outDir,
 		binaryName,
 		toolArgs: rewriteToolArgs(args, {
 			repoPath: options.repoPath,
+			inputPaths,
 			outputPath: options.outputPath,
 			binaryName,
 			networkMode,
@@ -129,6 +150,7 @@ export async function runDockerToolProcess(
 			repo: options.repoPath ? "read-only" : "none",
 			output: outDir ? "read-write" : "none",
 			cache: cacheDir ? "read-write" : "none",
+			inputs: inputPaths.length > 0 ? "read-only" : "none",
 		},
 		resourceLimits: {
 			memory: docker.memory,
@@ -291,6 +313,7 @@ function rewriteToolArgs(
 	args: string[],
 	paths: {
 		repoPath?: string;
+		inputPaths?: string[];
 		outputPath?: string;
 		binaryName: string;
 		networkMode: DockerNetworkMode;
@@ -300,6 +323,9 @@ function rewriteToolArgs(
 		? `${CONTAINER_OUT_PATH}/${path.basename(paths.outputPath)}`
 		: null;
 	return args.map((arg) => {
+		if (paths.inputPaths?.includes(path.resolve(arg))) {
+			return `${CONTAINER_INPUT_PATH}/${path.basename(arg)}`;
+		}
 		if (paths.repoPath && path.resolve(arg) === path.resolve(paths.repoPath)) {
 			return CONTAINER_REPO_PATH;
 		}
@@ -340,6 +366,7 @@ function buildDockerRunArgs(params: {
 	cpus?: string;
 	pidsLimit?: number;
 	toolCacheDir?: string;
+	inputPaths?: string[];
 	repoPath?: string;
 	outputDir: string | null;
 	binaryName: string;
@@ -359,7 +386,7 @@ function buildDockerRunArgs(params: {
 		"ALL",
 		"--security-opt",
 		"no-new-privileges",
-		"--read-only",
+		...(params.binaryName === "trivy" ? [] : ["--read-only"]),
 		"--tmpfs",
 		"/tmp:rw,nosuid,nodev,size=2g",
 		"--memory",
@@ -377,6 +404,11 @@ function buildDockerRunArgs(params: {
 		"--entrypoint",
 		dockerEntrypointFor(params.binaryName),
 	];
+	// Trivy's offline database is baked into the image and it creates its
+	// per-scan fanal cache beside that database. The container is still
+	// non-root, capability-free, ephemeral, and has no writable host mount
+	// except the explicit output/cache mounts. All other scanners keep a
+	// read-only root filesystem.
 	if (process.platform === "linux" && params.networkMode === "default") {
 		args.push("--add-host", "host.docker.internal:host-gateway");
 	}
@@ -390,6 +422,12 @@ function buildDockerRunArgs(params: {
 		args.push(
 			"-v",
 			`${path.resolve(params.outputDir)}:${CONTAINER_OUT_PATH}:rw`,
+		);
+	}
+	for (const inputPath of params.inputPaths ?? []) {
+		args.push(
+			"-v",
+			`${inputPath}:${CONTAINER_INPUT_PATH}/${path.basename(inputPath)}:ro`,
 		);
 	}
 	if (params.toolCacheDir) {

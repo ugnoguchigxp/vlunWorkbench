@@ -27,7 +27,7 @@ export async function loadVerifiedDiffManifest(params: {
 	metadataTarget: ResolvedScanTarget;
 }): Promise<DiffManifest> {
 	const text = await params.storage
-		.readTextArtifact(params.artifact.path, {
+		.readTextArtifact(params.artifact.storageKey ?? params.artifact.path, {
 			maxBytes: MAX_DIFF_MANIFEST_BYTES,
 		})
 		.catch((error) => {
@@ -64,7 +64,7 @@ export async function assertReferencedArtifactIntegrity(params: {
 		const artifact = params.artifactRows.find((row) => row.id === artifactId);
 		if (!artifact) fail("tool_artifact_binding_mismatch");
 		const actual = await params.storage
-			.hashArtifact(artifact.path, {
+			.hashArtifact(artifact.storageKey ?? artifact.path, {
 				maxBytes: MAX_REFERENCED_ARTIFACT_BYTES,
 			})
 			.catch((error) => {

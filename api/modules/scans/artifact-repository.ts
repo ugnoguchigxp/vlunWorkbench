@@ -11,6 +11,7 @@ export class ArtifactRepository {
 		kind: string;
 		format: string;
 		path: string;
+		storageKey?: string;
 		sha256: string;
 		sizeBytes: number;
 		metadata?: Record<string, unknown>;
@@ -24,6 +25,7 @@ export class ArtifactRepository {
 				kind: params.kind,
 				format: params.format,
 				path: params.path,
+				storageKey: params.storageKey ?? params.path,
 				sha256: params.sha256,
 				sizeBytes: params.sizeBytes,
 				metadata: params.metadata ?? {},

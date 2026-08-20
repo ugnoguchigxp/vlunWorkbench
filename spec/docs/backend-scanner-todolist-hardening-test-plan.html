@@ -1,0 +1,2145 @@
+<article lang="ja" data-spec-role="active-plan">
+  <h1 id="backend-scanner-todolist-hardening-test-plan">
+    Backend Scanner Hardening and todolist Validation Plan
+  </h1>
+  <p>Status: Reviewed / Core implementation and real-scanner qualification completed</p>
+  <p>Parent plan: Phase 56 Slice 56.11</p>
+  <p>Planning baseline commit: <code>e5f6a21f8686079314179261e6eeb57686d6eab4</code></p>
+  <p>Planning baseline date: 2026-08-20</p>
+  <p>Owner: vulnWorkbench maintainers</p>
+  <p>
+    Target: UI更新と切り離して、scan backend、scanner adapter、artifact、preflight、 runtime
+    target、DAST、reportの整合性を立て直す。実repositoryを使うprocess-level testの scan
+    targetは<code>todolist</code>だけに固定する。
+  </p>
+
+  <h2 id="implementation-record">実装記録（2026-08-20）</h2>
+  <p>
+    この節は計画本文より優先する現在の実装契約である。受入entrypointは
+    <code>scripts/todolist-scan-acceptance.ts</code>、package commandは
+    <code>bun run test:todolist-scans</code>である。個別選択は
+    <code>--only gitleaks,osv,trivy-fs,sbom,schemathesis-no-schema,nuclei-safe,zap-baseline,trivy-image</code>
+    を使う。実行ごとに一時SQLite DB・artifact rootを作り、終了時に所有するSQLite writerを停止する。
+  </p>
+  <p>
+    runtime系はホストでtodolistのコードを起動しない。harnessがtodolist Docker imageをbuildし、
+    loopback公開、read-only root filesystem、tmpfsの<code>/data</code>、capability drop、
+    no-new-privilegesを付けた一時targetを起動する。NucleiとZAPはこのtargetに対して各々独立の
+    scan run/tool runを作る。todolist HEAD
+    <code>d87bfdd9f29aa64e484a0c4d1ad02956136dc6b0</code>で、8個すべての個別ケースを実行済みである。
+  </p>
+  <table>
+    <caption>実行済み個別qualification</caption>
+    <thead><tr><th scope="col">case</th><th scope="col">期待結果</th><th scope="col">実測</th></tr></thead>
+    <tbody>
+      <tr><td>gitleaks / osv / trivy-fs</td><td>raw resultを保存しcompleted</td><td>各2 artifact、completed</td></tr>
+      <tr><td>sbom</td><td>SBOMを保存</td><td>2 artifact、completed_with_warnings</td></tr>
+      <tr><td>schemathesis-no-schema</td><td>targetを起動せずschema_not_found N/A</td><td>0 artifact、completed_with_warnings</td></tr>
+      <tr><td>nuclei-safe</td><td>隔離runtime targetへのsafe scan</td><td>1 artifact、completed</td></tr>
+      <tr><td>zap-baseline</td><td>隔離runtime targetへのpassive scan</td><td>2 artifact、completed</td></tr>
+      <tr><td>trivy-image</td><td>明示image tarをread-only mountしてscan</td><td>2 artifact、completed_with_warnings</td></tr>
+    </tbody>
+  </table>
+  <p>
+    harnessは各artifactの<code>storageKey</code>、SHA-256、sizeを検証し、期待kindと
+    SchemathesisのN/A reasonを照合する。明示schemaを供給するSchemathesisケース、
+    full-security-scanの連続実行、baseline比較は、このcore qualificationとは別の未実施gateとして
+    本文のDefinition of Doneに残す。
+  </p>
+
+  <h2 id="1-conclusion">1. 結論</h2>
+  <p>
+    最初に直すのはscannerの検出精度ではない。artifactの上書き、terminal updateによる
+    metadata消失、不安定なreason code、実行versionとmanifestの不一致を先に閉じる。
+    これらが残ったまま再scanしても、結果を独立検証できず、個別scannerの成否も比較できない。
+  </p>
+  <p>実装と検証の順序を次で固定する。</p>
+  <ol>
+    <li>todolistのtarget identityと隔離されたacceptance環境を固定する。</li>
+    <li>artifactをtool run単位で一意に保存し、上書きをfail closedする。</li>
+    <li>scan terminal updateをatomic metadata mergeへ変更し、preflightを失わない。</li>
+    <li>preflight codeとscanner provenanceをtyped contractへ変更する。</li>
+    <li>各scannerを一つずつtodolistへ実行し、DBとartifactの両方を検証する。</li>
+    <li>todolist runtimeを一度だけ起動し、DAST、Nuclei、ZAPを個別に検証する。</li>
+    <li>Schemathesisのnot-applicable経路と明示schema経路を分けて検証する。</li>
+    <li>最後にfull-security-scanを連続2回実行し、再現性とcleanupを確認する。</li>
+    <li>missing binary、timeout、壊れたJSON、重複artifact、target停止を障害注入する。</li>
+  </ol>
+  <p>
+    UI component、画面文言、routing、visual stateは本計画のmerge条件に含めない。backendの JSON
+    contractは固定するが、UIがそのcontractを利用する作業は別PRで扱う。
+  </p>
+  <h3 id="11-review-verdict">1.1 レビュー結果</h3>
+  <p>
+    初版は優先順位とtest matrixは妥当だったが、実装者が決め直さなければならない点が残っていた。
+    本改訂では次の曖昧さを解消し、以降の記載を実装上の決定事項とする。
+  </p>
+  <table>
+    <caption>
+      1.1 レビューで検出し、本改訂で閉じた設計上の不足
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">不足</th>
+        <th scope="col">決定</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>migration名、column、互換方針が未確定</td>
+        <td>
+          <code>0033_scan_artifact_storage_key.sql</code>と
+          <code>0034_scan_run_profile_outcome.sql</code
+          >を順番に追加し、既存rowはnullableのまま保持する。
+        </td>
+      </tr>
+      <tr>
+        <td>artifact ownerをrunnerへ渡す方法が未確定</td>
+        <td>
+          DB登録まで所有する<code>ScanArtifactSink</code>をtool
+          run作成後に生成し、runnerのrun inputへ渡す。
+        </td>
+      </tr>
+      <tr>
+        <td>file writeとDB insertの失敗境界が未確定</td>
+        <td>
+          sinkがexclusive write、DB insert、失敗時file
+          cleanupを一つのmethodで行う。runnerは未登録pathを返さない。
+        </td>
+      </tr>
+      <tr>
+        <td>metadata mergeの「transaction」が現行SQLite Writerで実行不能</td>
+        <td>
+          read-modify-writeを廃止し、SQLite
+          <code>json_patch</code>を含むguard付き単一
+          <code>UPDATE ... RETURNING</code>へ変更する。
+        </td>
+      </tr>
+      <tr>
+        <td><code>profileOutcome</code>の保存場所が曖昧</td>
+        <td>
+          <code>scan_runs.profile_outcome</code>をcanonical
+          fieldとし、移行期間だけmetadataをfallback readする。
+        </td>
+      </tr>
+      <tr>
+        <td>Schemathesis N/A判定とruntime schema discoveryが競合</td>
+        <td>
+          profile実行ではrepositoryまたは明示schemaをtarget起動前に解決する。schema-only stepでHTTP
+          discoveryは行わない。
+        </td>
+      </tr>
+      <tr>
+        <td>todolist runtimeの起動主体が曖昧</td>
+        <td>
+          acceptance harnessがpinned
+          commitからimageを準備し、<code>RuntimeTargetProvider</code>として注入する。host
+          spawnは禁止する。
+        </td>
+      </tr>
+      <tr>
+        <td>各sliceの変更file、test名、command、handoffが不足</td>
+        <td>Section 10.2以降にfile-level runbookと完了証跡を固定する。</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2 id="2-position-and-boundary">2. Phase 56との関係と境界</h2>
+  <p>
+    本文書はPhase 56を置換する計画ではない。Slice 56.11のうち、scan backendとscanner
+    verificationを実行可能な粒度へ分解したsubordinate planである。Phase 56のclaim、UI、
+    distribution、governanceの完了条件を増減させない。
+  </p>
+  <h3 id="21-in-scope">2.1 In scope</h3>
+  <ul>
+    <li>ArtifactStorage、ArtifactRepository、artifact downloadのintegrity contract</li>
+    <li>ScanRepositoryのterminal transitionとmetadata merge</li>
+    <li>preflight check、binding、source revision、reason code、version判定</li>
+    <li>Gitleaks、OSV-Scanner、Trivy、Semgrep、CycloneDX SBOMの個別実行</li>
+    <li>todolistのruntime準備、起動、readiness、停止、cleanup</li>
+    <li>passive DAST、Nuclei safe、ZAP baseline、Schemathesis read-only</li>
+    <li>scan event、tool run、finding、evidence、coverage、reportのDB整合性</li>
+    <li>同一target commitに対するrepeatability、failure injection、concurrency</li>
+    <li>UIを経由しないservice-level backend acceptance harnessと独立CLI contract test</li>
+  </ul>
+  <h3 id="22-non-goals">2.2 Non-goals</h3>
+  <ul>
+    <li>
+      <code>web/</code>配下の画面・component・状態管理・copyの変更
+    </li>
+    <li>todolistの製品実装、dependency、設定、lockfile、tracked fileの変更</li>
+    <li>新しいscannerの採用、active attack、認証突破、production target scan</li>
+    <li>finding件数を減らすためのrule tuningまたはignore追加</li>
+    <li>今回採取するlocal resultをprofessional capability claimへ直接利用すること</li>
+    <li>LLM review品質、finding decision、automatic remediationの改善</li>
+  </ul>
+
+  <h2 id="3-baseline-problems">3. 変更前に固定する問題</h2>
+  <table>
+    <caption>
+      3.1 2026-08-20 scanで確認したbackend問題
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">ID</th>
+        <th scope="col">問題</th>
+        <th scope="col">本計画での扱い</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>B-01</td>
+        <td>
+          Trivy filesystem JSONとCycloneDX SBOMが同じpathへ保存され、後発artifactが上書きする。
+        </td>
+        <td>P0。最初のproduction changeとする。</td>
+      </tr>
+      <tr>
+        <td>B-02</td>
+        <td>複数toolのstdout/stderrが共通pathへ保存され、DBのSHAと実fileが不一致になる。</td>
+        <td>P0。B-01と同じartifact identity contractで閉じる。</td>
+      </tr>
+      <tr>
+        <td>B-03</td>
+        <td>
+          preflight metadataをmergeした後、古いscanRun.metadataでterminal updateして消している。
+        </td>
+        <td>P0。repositoryのatomic terminal transitionへ集約する。</td>
+      </tr>
+      <tr>
+        <td>B-04</td>
+        <td>
+          例外messageから正規表現でreason
+          codeを生成し、<code>ould</code>のような値を保存する。
+        </td>
+        <td>P0。typed error以外はstable fallbackにする。</td>
+      </tr>
+      <tr>
+        <td>B-05</td>
+        <td>host上のTrivy 0.71.2とmanifest 0.72.0が不一致でもreproducible扱いになる。</td>
+        <td>P0。version compatibilityをpreflight判定へ含める。</td>
+      </tr>
+      <tr>
+        <td>B-06</td>
+        <td>optional runtime step全滅でもlifecycle statusだけを見るとcompletedに見える。</td>
+        <td>P1。lifecycleとprofile outcomeをDB/API上で別fieldに固定する。</td>
+      </tr>
+      <tr>
+        <td>B-07</td>
+        <td>
+          schemaがないprojectでもtarget start失敗が先に出るとSchemathesisがexecution_failedになる。
+        </td>
+        <td>P1。applicability判定をtarget startより前へ移す。</td>
+      </tr>
+      <tr>
+        <td>B-08</td>
+        <td>
+          Docker image probeがlocal image IDを読むだけで、pinned refのexpected digestが
+          <code>RepoDigests</code>に存在するかをready判定へ使っていない。
+        </td>
+        <td>P0。digestとplatformの両方をpreflight compatibilityへ含める。</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    characterization testでは上記をknown failureとして再現する。修正後にexpected resultを
+    反転し、known failureをskipまたはTODOのまま残さない。
+  </p>
+
+  <h2 id="4-fixed-todolist-target">4. 固定scan target: todolist</h2>
+  <h3 id="41-target-identity">4.1 Target identity</h3>
+  <table>
+    <caption>
+      4.1 todolist baseline
+    </caption>
+    <tbody>
+      <tr>
+        <th scope="row">Logical name</th>
+        <td><code>todolist</code></td>
+      </tr>
+      <tr>
+        <th scope="row">Local planning path</th>
+        <td><code>/Users/y.noguchi/Code/todolist</code></td>
+      </tr>
+      <tr>
+        <th scope="row">Pinned planning commit</th>
+        <td><code>d87bfdd9f29aa64e484a0c4d1ad02956136dc6b0</code></td>
+      </tr>
+      <tr>
+        <th scope="row">Detected technology</th>
+        <td>TypeScript、Hono、React、Vite、Bun、SQLite</td>
+      </tr>
+      <tr>
+        <th scope="row">Start scripts</th>
+        <td>
+          <code>dev</code>と<code
+            >start</code
+          >
+        </td>
+      </tr>
+      <tr>
+        <th scope="row">Lockfile</th>
+        <td><code>bun.lock</code></td>
+      </tr>
+      <tr>
+        <th scope="row">OpenAPI in repository</th>
+        <td>
+          なし。通常scanではSchemathesisは<code>not_applicable</code>が正しい。
+        </td>
+      </tr>
+      <tr>
+        <th scope="row">Git remote</th>
+        <td>
+          現在なし。portable CI取得経路ができるまでreal-target gateはlocal authoritativeとする。
+        </td>
+      </tr>
+    </tbody>
+  </table>
+  <h3 id="42-target-safety-rules">4.2 Target safety rules</h3>
+  <ul>
+    <li>
+      test開始時と終了時にtargetのHEADと<code>git status --porcelain</code>を比較する。
+    </li>
+    <li>dirty target、HEAD不一致、unmerged fileがある場合はscanを開始しない。</li>
+    <li>
+      targetのtracked
+      file、<code>.env</code>、database、lockfileをtestから変更しない。
+    </li>
+    <li>
+      runtime testはtodolistのimmutable source snapshotから作った一時container/sandboxを使い、
+      原本をprocess cwdにしない。
+    </li>
+    <li>依存treeが必要な場合は既存treeのread-only snapshotを使い、scan中にinstallしない。</li>
+    <li>database、tool-specific cache、XDG cache、temporary fileはrun root配下へ隔離する。</li>
+    <li>target commitとsnapshot SHA-256を全acceptance evidenceへ保存する。</li>
+    <li>absolute home path、credential、target source bodyは共有evidenceへ保存しない。</li>
+  </ul>
+  <h3 id="43-runtime-shape">4.3 Runtime shape</h3>
+  <p>
+    scanner個別testとtarget起動testを分離する。scanner個別testではacceptance harnessが
+    todolistのpinned target imageを一度起動し、確定したloopback gateway originをscannerへ 渡す。auto
+    target testではproductionの<code>RuntimeTargetProvider</code>
+    interface、readiness、stop処理を通す。 これによりscanner failureとtarget lifecycle
+    failureを混同せず、target project codeをhost processとして実行しない。
+  </p>
+  <ul>
+    <li>
+      bindは<code>127.0.0.1</code>だけとし、portはOSから動的に確保する。
+    </li>
+    <li>
+      target imageはscan前の準備段階でtodolist
+      commitと<code>bun.lock</code>から作り、image
+      digestをevidenceへ保存する。scan中にbuildやdependency downloadを行わない。
+    </li>
+    <li>外向きnetworkはscanner data準備段階を除いて無効にする。</li>
+    <li>runtime databaseは一時workspace内でmigrationし、run終了時に削除する。</li>
+    <li>
+      readinessは<code>/api/health</code>だけを使い、status 200と固定JSON
+      bodyを照合する。
+    </li>
+    <li>stop後にport、child process、Docker containerが残っていないことを検査する。</li>
+    <li>state-mutating APIをSchemathesis、crawler、Nuclei、ZAPのseedへ入れない。</li>
+  </ul>
+
+  <h2 id="5-fixed-backend-contracts">5. 先に固定するbackend contract</h2>
+  <h3 id="51-artifact-identity">5.1 Artifact identityと保存</h3>
+  <p>artifact pathは表示名ではなくowner identityから生成する。</p>
+  <pre><code class="language-text">{scanRunId}/tools/{toolRunId}/raw/{role}.{extension}
+{scanRunId}/tools/{toolRunId}/logs/stdout.log
+{scanRunId}/tools/{toolRunId}/logs/stderr.log
+{scanRunId}/scan/{scanRunId}/{role}.{extension}
+{scanRunId}/reports/{reportId}/report.md
+{scanRunId}/dast/{dastRunId}/raw/result.json
+{scanRunId}/diagnostics/{diagnosticRunId}/{role}.json
+</code></pre>
+  <ul>
+    <li>
+      filesystem writeは<code>flag: "wx"</code>、file mode
+      <code>0600</code>、directory mode
+      <code>0700</code>のexclusive createとし、既存pathを上書きしない。
+    </li>
+    <li>
+      <code>storage_key</code>はOSに依存しないPOSIX separatorで組み立てる。
+      absolute
+      path、<code>.</code>、<code>..</code>、空segment、backslashを受理しない。
+    </li>
+    <li>
+      runnerへ<code>ArtifactStorage</code>そのものを渡さない。tool
+      run作成後に生成した
+      <code>ScanArtifactSink</code>をrun inputへ渡す。
+    </li>
+    <li>
+      roleは<code>raw_result</code>、<code>sbom</code>、<code>diff_manifest</code>、<code>stdout</code>、
+      <code>stderr</code
+      >、<code>report</code>、<code>diagnostic</code>に限定する。
+      Trivy filesystem JSONとCycloneDXはそれぞれ<code>raw_result</code>と
+      <code>sbom</code>を使う。
+    </li>
+    <li>
+      DBには新規write用のnullable <code>storage_key</code>を追加し、partial
+      unique indexを張る。
+    </li>
+    <li>
+      new
+      writerは<code>path</code>と<code>storage_key</code>へ同じrelative
+      pathを保存する。
+      readerは<code>storage_key ?? path</code>を使い、<code>path</code>は本計画では削除しない。
+    </li>
+    <li>
+      legacy
+      rowは<code>storage_key=NULL</code>のまま保持し、履歴を捏造して修復しない。
+    </li>
+    <li>
+      sinkはfile作成後にDB rowをinsertし、insert失敗時はそのfileを削除して元のerrorを再throwする。
+      file作成失敗時はDB insertを開始しない。
+    </li>
+    <li>
+      download時はbuffer読取と同時にsizeとSHA-256を検証し、不一致ならbyteを返さず
+      <code>409 artifact_integrity_mismatch</code>にする。DB
+      rowがありfileがない場合も404ではなく409とする。
+    </li>
+    <li>report生成前に参照artifactを検証し、不一致artifactをvalid evidenceへ数えない。</li>
+  </ul>
+  <p>新規typeとmethod signatureは次で固定する。</p>
+  <pre><code class="language-typescript">export const artifactOwnerKindSchema = z.enum([
+  "scan",
+  "tool",
+  "report",
+  "dast",
+  "diagnostic",
+]);
+export const artifactOwnerSchema = z.object({
+  scanRunId: z.string().uuid(),
+  kind: artifactOwnerKindSchema,
+  id: z.string().uuid(),
+  toolRunId: z.string().uuid().nullable(),
+});
+export type ArtifactOwner = z.infer&lt;typeof artifactOwnerSchema&gt;;
+
+export const scanArtifactRoleSchema = z.enum([
+  "raw_result",
+  "sbom",
+  "diff_manifest",
+  "stdout",
+  "stderr",
+  "report",
+  "diagnostic",
+]);
+export type ScanArtifactRole = z.infer&lt;typeof scanArtifactRoleSchema&gt;;
+
+export interface ScanArtifactSink {
+  saveFile(input: {
+    role: ScanArtifactRole;
+    format: string;
+    sourcePath: string;
+    metadata?: Record&lt;string, unknown&gt;;
+  }): Promise&lt;PersistedScanArtifact&gt;;
+  saveText(input: {
+    role: ScanArtifactRole;
+    format: string;
+    content: string;
+    metadata?: Record&lt;string, unknown&gt;;
+  }): Promise&lt;PersistedScanArtifact&gt;;
+}
+</code></pre>
+  <p>
+    owner
+    invariantは<code>kind === "tool"</code>なら<code>id === toolRunId</code>、それ以外は
+    <code>toolRunId === null</code>、<code>kind === "scan"</code>なら
+    <code>id === scanRunId</code
+    >とする。schemaの<code>superRefine</code>で保存前に強制する。
+  </p>
+  <p>
+    <code>PersistedScanArtifact</code>はDB
+    rowと<code>path</code>、<code>storageKey</code>、
+    <code>sha256</code
+    >、<code>sizeBytes</code>を返す。filenameをcaller入力にせず、roleとformatから
+    <code>artifact-storage.ts</code
+    >の固定mapで決める。これにより<code>../../../</code>やtool名由来の
+    filenameを保存処理へ渡さない。
+  </p>
+  <table>
+    <caption>
+      5.1 Artifact role mapping
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Role</th>
+        <th scope="col">DB kind</th>
+        <th scope="col">Owner配下のkey</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>raw_result / json</td>
+        <td>raw_result</td>
+        <td><code>raw/result.json</code></td>
+      </tr>
+      <tr>
+        <td>raw_result / jsonl・ndjson</td>
+        <td>raw_result</td>
+        <td><code>raw/result.ndjson</code></td>
+      </tr>
+      <tr>
+        <td>sbom</td>
+        <td>sbom</td>
+        <td><code>raw/sbom.cdx.json</code></td>
+      </tr>
+      <tr>
+        <td>diff_manifest</td>
+        <td>diff_manifest</td>
+        <td><code>raw/diff-manifest.json</code></td>
+      </tr>
+      <tr>
+        <td>stdout</td>
+        <td>stdout</td>
+        <td><code>logs/stdout.log</code></td>
+      </tr>
+      <tr>
+        <td>stderr</td>
+        <td>stderr</td>
+        <td><code>logs/stderr.log</code></td>
+      </tr>
+      <tr>
+        <td>report</td>
+        <td>report</td>
+        <td><code>report.md</code></td>
+      </tr>
+      <tr>
+        <td>diagnostic / markdown</td>
+        <td>diagnostic_report</td>
+        <td><code>diagnostic.md</code></td>
+      </tr>
+      <tr>
+        <td>diagnostic / json</td>
+        <td>diagnostic_report</td>
+        <td><code>diagnostic.json</code></td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    filesystemとSQLiteを一つのACID transactionにはできない。通常errorはsinkがcompensating
+    cleanupする。 process crashでfileとrowの片方だけが残った場合はintegrity
+    verifierが必ずfailureにし、成功扱いしない。
+    <code>.staging</code
+    >内の未完了fileだけは次回起動時にquarantineできるが、final keyのfileを自動削除しない。
+  </p>
+  <h3 id="52-atomic-scan-state">5.2 Atomic scan state</h3>
+  <ul>
+    <li><code>updateScanRunStatus(..., metadata: fullObject)</code>による全置換をterminal pathから除去する。</li>
+    <li>
+      repositoryに<code>patchScanRunMetadata</code>と<code>transitionScanRunTerminal</code>を設ける。
+      いずれもreadを先行させず、SQLite
+      <code>json_patch</code>を含む単一statementで実行する。
+    </li>
+    <li>terminal transitionは一度だけ成功し、遅延workerの古いsnapshotで上書きできない。</li>
+    <li>
+      <code>scanPreflight</code
+      >、<code>sourceRevision</code>、<code>resolvedProfileHash</code>、
+      <code>runtimeAssessmentCoverage</code>をterminal rowに必須とする。
+    </li>
+    <li>automated diagnosticの後続metadata追加もpatch mergeだけを使う。</li>
+  </ul>
+  <pre><code class="language-typescript">export type ScanLifecycleStatus =
+  | "queued"
+  | "running"
+  | "completed"
+  | "failed"
+  | "cancelled";
+export type ScanProfileOutcome =
+  | "completed"
+  | "completed_with_warnings"
+  | "failed";
+
+patchScanRunMetadata(
+  id: string,
+  patch: Record&lt;string, unknown&gt;,
+): Promise&lt;ScanRun | null&gt;;
+
+transitionScanRunTerminal(
+  id: string,
+  input: {
+    status: "completed" | "failed" | "cancelled";
+    summary?: string | null;
+    profileOutcome?: ScanProfileOutcome | null;
+    metadataPatch?: Record&lt;string, unknown&gt;;
+  },
+): Promise&lt;ScanRun | null&gt;;
+</code></pre>
+  <p>
+    SQLの意味を次に固定する。<code>metadata</code>はJSON nullを許さず、
+    <code>json_patch(COALESCE(metadata, '{}'), json(?))</code>でpatchする。 terminal
+    transitionのWHERE句は<code>id = ? AND status IN ('queued','running')</code>とし、
+    競合に負けたcallerへは<code>null</code>を返す。file-backed
+    DBではcross-process transaction callbackを使わず、同じ単一UPDATEをSQLite Writerへ送る。 patch
+    inputに<code>undefined</code>は許可せず、JSON nullはRFC
+    7396どおり該当keyの削除として扱う。
+  </p>
+  <h3 id="53-status-and-outcome">5.3 Lifecycle statusとassessment outcome</h3>
+  <p>次の2軸を混ぜない。</p>
+  <pre><code class="language-text">status: queued | running | completed | failed | cancelled
+profileOutcome: completed | completed_with_warnings | failed
+</code></pre>
+  <ul>
+    <li>
+      migration後のcanonical valueはnullableな<code>scan_runs.profile_outcome</code>であり、
+      <code>shared/schemas/scan.schema.ts</code
+      >の<code>scanRunSchema</code>にもnullable enumとして追加する。
+    </li>
+    <li>
+      移行中のreaderは<code>scanRun.profileOutcome ?? parseLegacyMetadataOutcome(...)</code>を使う。 new
+      writerはcolumnとmetadataの両方へ同じ値を書き、S8でmetadata fallbackの削除可否を別判断する。
+    </li>
+    <li>optional step失敗はstatusをcompletedにできるが、outcomeをcompletedにしない。</li>
+    <li>required stepのblocked/failedはstatusとoutcomeの両方をfailedにする。</li>
+    <li>report、CLI JSON、API summaryは同じoutcome resolverを使う。</li>
+  </ul>
+  <h3 id="54-preflight-contract">5.4 Preflight contract</h3>
+  <ul>
+    <li>例外messageからreason codeを推定しない。</li>
+    <li>
+      target plannerとscanner
+      probeは<code>code</code>を持つ<code>PreflightError</code>をthrowする。
+    </li>
+    <li>unknown errorはcomponent別のstable fallback codeへ落とす。</li>
+    <li>
+      <code>shared/schemas/scan-preflight.schema.ts</code>へ
+      <code>scanPreflightReasonCodeSchema</code>を追加し、未知codeをDBへ保存しない。
+    </li>
+    <li>
+      qualification runではpreflight modeを<code>enforced</code>に固定する。
+    </li>
+    <li>expected/observed version不一致を<code>scanner_binary_version_mismatch</code>にする。</li>
+    <li>
+      version不一致時は<code>reproducible=false</code>とし、required
+      stepを開始しない。
+    </li>
+    <li>
+      profile内のschema applicabilityはrepositoryまたは明示schemaだけでtarget
+      startより先に判定する。 schema-only stepはHTTP候補を探すためにtargetを起動しない。
+    </li>
+    <li>
+      正常なnot-applicableはwarningまたはcoverage gapへ変換しない。
+      <code>coverageEffectSchema</code
+      >へ<code>not_applicable</code>を追加し、
+      <code>optionalToolFailed</code>を立てない。
+    </li>
+  </ul>
+  <pre><code class="language-typescript">export class PreflightError extends Error {
+  constructor(
+    readonly code: ScanPreflightReasonCode,
+    message: string,
+    readonly cause?: unknown,
+  ) {
+    super(message);
+  }
+}
+
+export function preflightReasonCode(
+  error: unknown,
+  fallback: ScanPreflightReasonCode,
+): ScanPreflightReasonCode {
+  return error instanceof PreflightError ? error.code : fallback;
+}
+</code></pre>
+  <p>
+    version比較はobserved文字列から最初のSemVer
+    <code>major.minor.patch[-prerelease]</code>を抽出し、manifestのexpected
+    versionと完全一致させる。 parse不能は<code>scanner_binary_version_unparseable</code>、不一致は
+    <code>scanner_binary_version_mismatch</code
+    >とする。expectedがnullのSchemathesisは存在確認だけを行い、 observed
+    versionをprovenanceへ保存する。
+  </p>
+
+  <h2 id="6-test-architecture">6. Test architecture</h2>
+  <table>
+    <caption>
+      6.1 Test layers
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Layer</th>
+        <th scope="col">Purpose</th>
+        <th scope="col">Scanner</th>
+        <th scope="col">Target</th>
+        <th scope="col">Frequency</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>T0</td>
+        <td>pure function、repository、normalizer、policyのfocused test</td>
+        <td>mockなしまたはin-memory result</td>
+        <td>real repositoryを起動しない</td>
+        <td>every PR</td>
+      </tr>
+      <tr>
+        <td>T1</td>
+        <td>runner/CLI/process contractとfailure injection</td>
+        <td>fixture binary</td>
+        <td>minimal file fixture</td>
+        <td>every PR</td>
+      </tr>
+      <tr>
+        <td>T2</td>
+        <td>real scannerを一つずつ検証</td>
+        <td>pinned real binary/image</td>
+        <td>todolistだけ</td>
+        <td>local qualification / nightly</td>
+      </tr>
+      <tr>
+        <td>T3</td>
+        <td>runtime scannerとtarget lifecycleを個別検証</td>
+        <td>real Nuclei/ZAP/Schemathesis/DAST</td>
+        <td>todolistだけ</td>
+        <td>local qualification / nightly</td>
+      </tr>
+      <tr>
+        <td>T4</td>
+        <td>full profile、repeatability、cleanup、DB/report整合性</td>
+        <td>resolved profile全体</td>
+        <td>todolistだけ</td>
+        <td>merge前の明示gate</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    T0/T1のfixtureはscanner contractを再現する入力であり、real scan targetとは数えない。
+    T2-T4で別repositoryをscanしてはならない。
+  </p>
+
+  <h2 id="7-acceptance-harness">7. todolist acceptance harness</h2>
+  <h3 id="71-new-entrypoints">7.1 導入するentrypoint</h3>
+  <ul>
+    <li><code>scripts/todolist-scanner-acceptance.ts</code>: case選択、target準備、実行、cleanup</li>
+    <li>
+      <code>scripts/verify-scan-run-integrity.ts</code>: DB、artifact、event、finding evidence検証
+    </li>
+    <li><code>scripts/todolist-acceptance-baseline.ts</code>: reviewed baselineとの比較</li>
+    <li><code>spec/security-capability/todolist-scan-target.v1.json</code>: target contract</li>
+    <li><code>spec/security-capability/todolist-readonly-openapi.v1.yaml</code>: Schemathesis用read-only schema</li>
+  </ul>
+  <p>package scriptは次の責務で追加する。</p>
+  <pre><code class="language-text">test:scanner-backend
+test:scanner-real:todolist
+test:scanner-runtime:todolist
+test:scan-profile:todolist
+verify:scanner-backend:todolist
+</code></pre>
+  <h3 id="72-isolation">7.2 Isolation</h3>
+  <p>各acceptance runは一つのrun rootを作る。</p>
+  <pre><code class="language-text">.artifacts/todolist-scanner-acceptance/{acceptanceRunId}/
+  workbench.sqlite
+  artifacts/
+  target-runtime/
+  target-database/
+  command-results/
+  evidence.json
+</code></pre>
+  <ul>
+    <li>
+      productionの<code>data/vuln-workbench.sqlite</code>と<code>artifacts/scans</code>を使わない。
+    </li>
+    <li>新規DBへmigrationを適用し、todolist projectをCLIから作成する。</li>
+    <li>各caseは独立scan runを作り、full profileだけ共有runtime targetを使う。</li>
+    <li>case終了時にDB connection、process、container、gateway、temporary directoryを閉じる。</li>
+    <li>失敗時はrun rootを保持し、成功時の保持期間は設定可能にする。</li>
+  </ul>
+  <h3 id="73-target-resolution">7.3 Target resolution</h3>
+  <ul>
+    <li>codeに個人home pathを埋め込まず、<code>VULN_WORKBENCH_TODOLIST_REPO_PATH</code>で渡す。</li>
+    <li>realpath、repository basename、HEAD、clean statusをtarget contractと照合する。</li>
+    <li>
+      未指定、commit不一致、dirtyの場合は<code>blocked</code>で終了する。
+    </li>
+    <li>
+      CIへ昇格するときはremoteまたはimmutable source archiveとSHA-256をtarget contractへ追加する。
+    </li>
+  </ul>
+
+  <h2 id="8-individual-scanner-matrix">8. Scanner別test matrix</h2>
+  <table>
+    <caption>
+      8.1 Real scanner acceptance against todolist
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Case</th>
+        <th scope="col">Execution</th>
+        <th scope="col">Required assertions</th>
+        <th scope="col">Negative case</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>TS-01 Gitleaks</td>
+        <td><code>gitleaks</code> stepだけをpinned runnerで実行</td>
+        <td>exit 0、raw JSON valid、redaction済み、tool-scoped artifact、target無変更</td>
+        <td>binary missing、timeout、malformed output</td>
+      </tr>
+      <tr>
+        <td>TS-02 OSV</td>
+        <td>
+          <code>osv</code>
+          stepを<code>bun.lock</code>とinstalled treeへ実行
+        </td>
+        <td>ecosystem/applicability記録、DB digest、normalized snapshot、offline証跡</td>
+        <td>DB missing/stale、unsupported lock、exit 1 with valid findings</td>
+      </tr>
+      <tr>
+        <td>TS-03 Trivy filesystem</td>
+        <td><code>trivy</code> stepをvuln/secret/misconfigで実行</td>
+        <td>actual version一致、filesystem JSON role、parser件数、raw hash一致</td>
+        <td>version mismatch、DB stale、non-zero exit、output limit</td>
+      </tr>
+      <tr>
+        <td>TS-04 CycloneDX SBOM</td>
+        <td><code>sbom_export:trivy</code>だけを実行</td>
+        <td>SBOM role、component/dependency count、Trivy JSONと別storage key</td>
+        <td>同じfilenameを要求してもexclusive writeが拒否する</td>
+      </tr>
+      <tr>
+        <td>TS-05 Semgrep</td>
+        <td>optional adapterを明示有効化しowned rulesだけで実行</td>
+        <td>source SAST executed、ruleset hash、normalized locations、network fetchなし</td>
+        <td>adapter無効、binary missing、ruleset digest mismatch</td>
+      </tr>
+      <tr>
+        <td>TS-06 Passive DAST</td>
+        <td>起動済みtodolistへ<code>web-passive-standard</code>を実行</td>
+        <td>DAST run persisted、request count &gt; 0、coverage非gap、read-only traffic</td>
+        <td>target停止、readiness timeout、request budget超過</td>
+      </tr>
+      <tr>
+        <td>TS-07 Nuclei safe</td>
+        <td>owned safe templateとbounded gateway経由で実行</td>
+        <td>public download無効、request数上限、policy hash、JSONL artifact</td>
+        <td>binary missing、template path missing、gateway拒否</td>
+      </tr>
+      <tr>
+        <td>TS-08 ZAP baseline</td>
+        <td>pinned official imageをbounded gateway経由で実行</td>
+        <td>image digest、passive mode、request budget、report version、container cleanup</td>
+        <td>Docker停止、digest/platform mismatch、ZAP timeout</td>
+      </tr>
+      <tr>
+        <td>TS-09 Schemathesis N/A</td>
+        <td>変更していないtodolistを通常discoveryする</td>
+        <td><code>not_applicable/schema_not_found</code>、target/scanner process未起動</td>
+        <td>not-applicableをexecution_failedへ変換しない</td>
+      </tr>
+      <tr>
+        <td>TS-10 Schemathesis read-only</td>
+        <td>versioned test schemaを明示しtodolist APIへ実行</td>
+        <td>GET/HEAD/OPTIONS限定、max 30、DB snapshot不変、NDJSON artifact</td>
+        <td>schemaにwrite operationが含まれても実行対象から除外され、gateway requestは0件</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    finding件数は計画作成時に推測して固定しない。Slice 0でtarget commitごとのbaselineを
+    採取し、人がraw evidenceを確認してからcountとnormalized snapshot hashを承認する。
+    以後の差分は、増減の方向に関係なくreviewを要求する。
+  </p>
+
+  <h2 id="9-test-case-details">9. Backend test case詳細</h2>
+  <h3 id="91-artifact-tests">9.1 Artifact tests</h3>
+  <ul>
+    <li>同一scan内で4 toolがstderrを生成しても4つの異なるstorage keyになる。</li>
+    <li>Trivy filesystemとSBOMを連続実行し、両方のSHA/size/content typeが一致する。</li>
+    <li>同じstorage keyへの逐次writeと同時writeを両方拒否する。</li>
+    <li>DB insert失敗時にorphan fileを残さず、file write失敗時にDB rowを作らない。</li>
+    <li>download前のhash mismatch、missing file、symlink escapeを拒否する。</li>
+    <li>legacy collision rowは<code>legacy_integrity_unverifiable</code>として返す。</li>
+    <li>finding evidenceが別scanまたは別toolのartifactを参照できない。</li>
+  </ul>
+  <h3 id="92-state-tests">9.2 Scan state tests</h3>
+  <ul>
+    <li>preflight保存後のterminal completionでpreflightが残る。</li>
+    <li>tool実行中にmetadata patchが追加されてもterminal completionが失わない。</li>
+    <li>completed scanへ遅延workerがfailed/completedを再適用できない。</li>
+    <li>cancelとtool completionが競合してもterminal stateが一つだけになる。</li>
+    <li>source revision、profile hash、preflight bindingがreportとDBで一致する。</li>
+    <li>diagnostic metadata追加後もoriginal scan metadataが変わらない。</li>
+  </ul>
+  <h3 id="93-preflight-tests">9.3 Preflight tests</h3>
+  <ul>
+    <li>全reason codeがschema enumに含まれ、自然文断片を受理しない。</li>
+    <li>todolistのstart planがBun/Vite、loopback、dynamic portとして解決される。</li>
+    <li>missing schemaはtarget start前にnot-applicableとなる。</li>
+    <li>required scannerのversion mismatchはenforced modeでprocessを起動しない。</li>
+    <li>optional scannerの不足はgapとなり、profile outcomeへ伝播する。</li>
+    <li>preview bindingと実行時bindingの差をfail closedする。</li>
+    <li>preflightはbinary/database/browser/imageをdownloadしない。</li>
+  </ul>
+  <h3 id="94-api-tests">9.4 Backend API tests</h3>
+  <ul>
+    <li>scan launchはserver-owned preflightとexpected bindingを必須にする。</li>
+    <li>scan detail、summary、events、artifactsが同じoutcomeを返す。</li>
+    <li>artifact downloadはownershipとhash/sizeの両方を確認する。</li>
+    <li>integrity failureは404へ丸めず、stable error codeを返す。</li>
+    <li>findings pagination中に別scanのfinding/evidenceを混ぜない。</li>
+    <li>UI response shapeのsnapshotではなくschema validationでcontractを固定する。</li>
+  </ul>
+
+  <h2 id="10-slices">10. Implementation slices and PR boundaries</h2>
+  <table>
+    <caption>
+      10.1 Ordered slices
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Priority</th>
+        <th scope="col">Slice</th>
+        <th scope="col">Production change</th>
+        <th scope="col">Required test before merge</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>P0</td>
+        <td>S0 Characterization and harness skeleton</td>
+        <td>なし。known failuresとisolated DB/artifact runnerを追加</td>
+        <td>T0/T1、todolist identity/cleanliness check</td>
+      </tr>
+      <tr>
+        <td>P0</td>
+        <td>S1 Artifact identity and integrity</td>
+        <td>tool-scoped key、exclusive write、download verification</td>
+        <td>collision、concurrency、Trivy+SBOM、4 stderr</td>
+      </tr>
+      <tr>
+        <td>P0</td>
+        <td>S2 Atomic scan lifecycle</td>
+        <td>terminal transaction、metadata patch、outcome field</td>
+        <td>lost-update、cancel race、diagnostic patch</td>
+      </tr>
+      <tr>
+        <td>P0</td>
+        <td>S3 Typed preflight and provenance</td>
+        <td>typed errors、version match、schema-first applicability</td>
+        <td>reason-code table、version mismatch、binding drift</td>
+      </tr>
+      <tr>
+        <td>P1</td>
+        <td>S4 Static scanner qualification</td>
+        <td>原則なし。real runnerでartifact/provenance contractをqualification</td>
+        <td>TS-01からTS-05をtodolistでpass</td>
+      </tr>
+      <tr>
+        <td>P1</td>
+        <td>S5 todolist runtime lifecycle</td>
+        <td>runtime target provider、container adapter、readiness、cleanup</td>
+        <td>container起動/停止/timeout/target無変更/host spawnなし</td>
+      </tr>
+      <tr>
+        <td>P1</td>
+        <td>S6 Runtime scanner qualification</td>
+        <td>原則なし。DAST/Nuclei/ZAP/Schemathesisを個別qualification</td>
+        <td>TS-06からTS-10をtodolistでpass</td>
+      </tr>
+      <tr>
+        <td>P1</td>
+        <td>S7 Full profile integration</td>
+        <td>shared runtime、outcome、report整合性</td>
+        <td>full scan連続2回、integrity verifier pass</td>
+      </tr>
+      <tr>
+        <td>P2</td>
+        <td>S8 Fault, repeatability, and closeout</td>
+        <td>verification commandとmachine-readable evidence</td>
+        <td>全障害注入、cleanup、strict verification</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    S1、S2、S3を一つのPRへまとめない。artifact migration、scan state transition、preflight
+    semanticsはrollback条件が異なる。S4以降は前sliceのacceptance evidenceがpassしてから開始する。
+  </p>
+
+  <h3 id="102-implementation-rules">10.2 全slice共通の実装規則</h3>
+  <ol>
+    <li>
+      各sliceの開始時に記載した<code>rg</code>でcall
+      siteを再列挙する。新しいcall siteが増えていた場合は
+      同じcontractへ移行し、一覧との差をPR本文へ記録する。
+    </li>
+    <li>
+      migrationを含むsliceは、空の一時DBへの全migrationと、直前migrationまで適用したDBへの増分migrationを
+      両方実行する。
+    </li>
+    <li>
+      test名はこの節に記載した文言を使う。実装都合でfileを分割しても、case
+      IDとassertionを削除しない。
+    </li>
+    <li>
+      各sliceの完了時に<code>git diff --check</code>、<code>bun run typecheck</code>、focused
+      test、
+      <code>bun run docs:check</code>を実行する。
+    </li>
+    <li>
+      real scannerを使うcommandはS4以降だけで実行する。S0-S3はfixture binaryとtemporary
+      DBだけで完了可能にする。
+    </li>
+    <li>
+      production codeのerror message文面をassertionにしない。typed code、row、artifact bytes、exit
+      statusをassertする。
+    </li>
+  </ol>
+  <p>slice間の依存は次で固定する。</p>
+  <pre><code class="language-text">S0
+ ├─&gt; S1 ─&gt; S4
+ ├─&gt; S2 ────────┐
+ └─&gt; S3 ─&gt; S5 ─&gt; S6 ─&gt; S7 ─&gt; S8
+                 └───────────────┘
+</code></pre>
+  <p>S4はS1とS3の完了後、S5はS3の完了後に開始できる。S7はS1からS6が全て完了するまで開始しない。</p>
+
+  <h3 id="103-s0-runbook">10.3 S0 runbook — Characterizationとharness骨格</h3>
+  <h4 id="1031-s0-files">10.3.1 追加・変更file</h4>
+  <ul>
+    <li><code>scripts/lib/todolist-acceptance-context.ts</code>を新規追加する。</li>
+    <li><code>scripts/lib/todolist-acceptance-context.test.ts</code>を新規追加する。</li>
+    <li><code>scripts/todolist-scanner-acceptance.ts</code>を新規追加する。</li>
+    <li><code>scripts/verify-scan-run-integrity.ts</code>を新規追加する。</li>
+    <li><code>spec/security-capability/todolist-scan-target.v1.json</code>を新規追加する。</li>
+    <li><code>spec/security-capability/todolist-readonly-openapi.v1.yaml</code>を新規追加する。</li>
+    <li><code>package.json</code>へSection 10.3.3のscriptを追加する。</li>
+  </ul>
+  <h4 id="1032-s0-contract">10.3.2 Harness contract</h4>
+  <p><code>todolist-scan-target.v1.json</code>の必須fieldは次とする。</p>
+  <pre><code class="language-json">{
+  "schemaVersion": 1,
+  "name": "todolist",
+  "repositoryBasename": "todolist",
+  "commit": "d87bfdd9f29aa64e484a0c4d1ad02956136dc6b0",
+  "lockfile": "bun.lock",
+  "dockerfile": "Dockerfile",
+  "containerPort": 5173,
+  "readinessPath": "/api/health",
+  "readinessStatus": 200,
+  "readinessBody": { "status": "ok", "service": "hono-standard" },
+  "readOnlyPaths": ["/", "/api/health"],
+  "forbiddenMethods": ["POST", "PUT", "PATCH", "DELETE"]
+}
+</code></pre>
+  <p>
+    context factoryは<code>VULN_WORKBENCH_TODOLIST_REPO_PATH</code>をrealpath化し、basename、HEAD、
+    <code>git status --porcelain=v1 --untracked-files=all</code>がcontractと一致しなければ
+    <code>target_identity_mismatch</code
+    >または<code>target_dirty</code>でscan前に終了する。 run
+    rootは<code>fs.mkdtemp</code>で作り、DB URL、artifact root、DAST artifact
+    root、<code>XDG_CACHE_HOME</code>、<code>TMPDIR</code>、scanner固有cacheをすべてその配下へ設定する。
+  </p>
+  <p>
+    S0ではB-01からB-08を直さない。<code>--case characterize</code>が各bugの再現結果を
+    <code>evidence.json.expectedDefects</code
+    >へ保存し、8件すべてが観測できた場合にcommand自体は0で終了する。 このcharacterization
+    commandはS1-S3完了後に削除し、同じcase IDをregression testへ移す。 main branchへ意図的なfailing
+    test、<code>test.skip</code>、<code>test.todo</code>は追加しない。
+  </p>
+  <h4 id="1033-s0-tests">10.3.3 Testとcommand</h4>
+  <ul>
+    <li><code>AC-CTX-01 rejects a missing target path before creating a database</code></li>
+    <li><code>AC-CTX-02 rejects a dirty or wrong-commit todolist checkout</code></li>
+    <li><code>AC-CTX-03 creates all writable paths below one run root</code></li>
+    <li><code>AC-CTX-04 never points to production database or artifact roots</code></li>
+    <li><code>AC-CTX-05 preserves target HEAD and status after cleanup</code></li>
+  </ul>
+  <pre><code class="language-json">{
+  "scripts": {
+    "test:scanner-backend": "bun test api/modules/scans api/modules/api-schema-fuzz api/modules/runtime-scans api/modules/dast scripts/lib/todolist-acceptance-context.test.ts",
+    "test:scanner-real:todolist": "bun run scripts/todolist-scanner-acceptance.ts --group static",
+    "test:scanner-runtime:todolist": "bun run scripts/todolist-scanner-acceptance.ts --group runtime",
+    "test:scan-profile:todolist": "bun run scripts/todolist-scanner-acceptance.ts --group profile --repeat 2",
+    "verify:scanner-backend:todolist": "bun run scripts/verify-scan-run-integrity.ts --latest"
+  }
+}
+</code></pre>
+  <pre><code class="language-bash">bun test scripts/lib/todolist-acceptance-context.test.ts
+bun run scripts/todolist-scanner-acceptance.ts --case characterize --keep-run-root
+</code></pre>
+  <p>
+    完了証跡はrun root path、target before/after、8件のbug IDとobserved signature、production DBの
+    before/after file statである。production
+    fileが存在しない環境では<code>absent/absent</code>を記録する。
+  </p>
+
+  <h3 id="104-s1-runbook">10.4 S1 runbook — Artifact identityとintegrity</h3>
+  <h4 id="1041-s1-migration">10.4.1 Migrationとschema</h4>
+  <p><code>drizzle/0031_scan_artifact_storage_key.sql</code>を次の内容で追加する。</p>
+  <pre><code class="language-sql">ALTER TABLE scan_artifacts ADD COLUMN storage_key text;
+CREATE UNIQUE INDEX scan_artifacts_storage_key_unique_idx
+ON scan_artifacts(storage_key)
+WHERE storage_key IS NOT NULL;
+</code></pre>
+  <ul>
+    <li>
+      <code>api/db/schema/schema-scans.ts</code
+      >へnullableな<code>storageKey</code>と同名partial unique
+      indexを追加する。
+    </li>
+    <li>
+      <code>shared/schemas/scan.schema.ts</code>の<code>scanArtifactSchema</code>へ
+      <code>storageKey: z.string().nullable()</code>を追加する。
+      <code>scanArtifactKindSchema</code>にはproduction writerが既に使う
+      <code>sbom</code
+      >、<code>dast_raw_result</code>、<code>diagnostic_report</code>も追加する。
+    </li>
+    <li>
+      <code>shared/schemas/failure.schema.ts</code>へ
+      <code>artifact_integrity_mismatch</code>を追加する。routeは
+      <code>HttpError(409, message, "artifact_integrity_mismatch")</code>を返す。
+    </li>
+    <li>
+      backfillは行わない。existing DB
+      testではmigration前rowの<code>storage_key</code>がnullで残ることをassertする。
+    </li>
+    <li>
+      migration testは<code>api/db/migrations/scan-artifact-storage-key.test.ts</code>へ追加し、
+      <code>api/db/testing/migrate.ts</code>を使ってfresh/upgradeの両経路を作る。
+    </li>
+  </ul>
+  <h4 id="1042-s1-code">10.4.2 Production code</h4>
+  <ul>
+    <li>
+      <code>api/modules/scans/artifact-storage.ts</code>にowner/roleからrelative keyを作るpure function、
+      exclusive buffer write、verified buffer
+      readを追加する。既存の任意<code>subDir</code>と
+      <code>suggestedFilename</code>をscanner production pathから使わない。 verified
+      readの内部理由は<code>missing</code>、<code>size_mismatch</code>、
+      <code>sha256_mismatch</code>に限定し、APIでは同じfailure kindへredactする。
+    </li>
+    <li>
+      <code>api/modules/scans/artifact-sink.ts</code>を新規追加し、Section 5.1の
+      <code>ScanArtifactSink</code
+      >を実装する。constructorは<code>ArtifactStorage</code>、
+      <code>ArtifactRepository</code
+      >、<code>ArtifactOwner</code>だけを受け取る。
+    </li>
+    <li>
+      <code>api/modules/scans/artifact-repository.ts</code>のnew write inputでは
+      <code>storageKey</code>を必須にする。legacy fixture専用insertはtest
+      helperへ置き、production methodへ optional flagを追加しない。
+    </li>
+    <li>
+      <code>api/modules/scans/static-scanner-adapter.ts</code>の
+      <code>StaticScannerRunInput</code
+      >へ必須<code>artifactSink</code>を追加し、
+      <code>createRunner</code
+      >から<code>artifactStorage</code>引数を削除する。
+    </li>
+    <li>
+      <code>api/modules/scans/profile-static-tool-runner.ts</code>はtool run作成直後にsinkを生成する。 runner
+      resultはartifact pathではなくpersist済みartifact
+      IDを返し、同file内の二重DB登録blockを削除する。
+    </li>
+    <li>
+      <code>api/modules/scans/tools/gitleaks-runner.ts</code>、<code>osv-runner.ts</code>、
+      <code>trivy-runner.ts</code
+      >、<code>semgrep-runner.ts</code>はrun inputのsinkだけを使う。 adapter
+      bridgeは<code>api/modules/scans/builtin-static-scanner-adapters.ts</code>と
+      <code>api/plugins/scanners/semgrep.ts</code>で更新する。
+    </li>
+    <li>
+      同じsignatureを<code>api/modules/runtime-scans/runtime-scanner-runner.ts</code>、
+      <code>zap-baseline-runner.ts</code>、<code>zap-active-runner.ts</code>、
+      <code>api/modules/api-schema-fuzz/schemathesis-runner.ts</code>へ適用する。
+      <code>api/modules/scans/profile-runtime-step-runner.ts</code>と
+      <code>profile-schema-step-runner.ts</code>はtool
+      run作成後にsinkを生成し、artifactの再登録blockを削除する。
+    </li>
+    <li>
+      report、diagnostic、DAST mirrorのownerはそれぞれreport ID、diagnostic run ID、DAST run
+      IDとする。
+      <code>api/modules/scans/profile-runner.ts</code>、<code>api/modules/reports/scan-report-runner.ts</code>、
+      <code>api/routes/scan-reports.route.ts</code>、
+      <code>api/modules/diagnostics/reports/zero-finding-report-builder.ts</code>、
+      <code>api/modules/dast/dast-run-artifacts.ts</code>、
+      <code>api/modules/runtime-scans/zap-active-assessment-coordinator.ts</code>をsinkへ移行する。
+    </li>
+    <li>
+      CLI import/reportとdiff manifestのwriterも例外にしない。
+      <code>api/cli/report-scan.ts</code>、<code>api/cli/scan-import.ts</code>、
+      <code>api/modules/scans/profile-orchestrator.ts</code>をそれぞれreport/scan/scan ownerへ移行する。
+    </li>
+    <li>
+      <code>api/routes/scans.route.ts</code>、<code>api/routes/scan-reports.route.ts</code>、
+      <code>api/routes/diagnostics.route.ts</code>はverified readを使う。hash/size不一致とDB
+      rowに対する missing fileは<code>409</code>とstable
+      codeを返す。deterministic reportのmissing file再生成は ENOENTだけに限定し、hash
+      mismatchでは再生成しない。
+    </li>
+    <li>
+      deterministic reportのDB rowが存在してfileだけがない場合、再生成bytesが既存rowのSHA/sizeと
+      完全一致したときだけ同じstorage keyへexclusive restoreし、既存rowを再利用する。
+      bytesが異なる場合や既存fileがある場合は409とし、新しいartifact rowを作らない。
+    </li>
+  </ul>
+  <p>実装前後のcall site確認command:</p>
+  <pre><code class="language-bash">rg -l '\.saveRawArtifact\(|\.saveLog\(|\.saveTextArtifact\(' api
+rg -n 'createArtifact\(' api/modules api/routes
+rg -n 'storageKey:|storage_key' api shared drizzle
+</code></pre>
+  <p>
+    slice完了時、最初の2 commandにscanner production pathのlegacy writerが残っていてはならない。
+    migration/test fixtureだけは例外とし、PR本文に行単位で列挙する。
+  </p>
+  <h4 id="1043-s1-tests">10.4.3 Test</h4>
+  <ul>
+    <li><code>ART-01 creates four distinct stderr keys for four tool owners</code></li>
+    <li><code>ART-02 keeps Trivy raw_result and sbom bytes independently</code></li>
+    <li><code>ART-03 rejects sequential duplicate storage keys without changing bytes</code></li>
+    <li><code>ART-04 allows only one concurrent exclusive writer</code></li>
+    <li><code>ART-05 removes a newly written file when repository insert fails</code></li>
+    <li><code>ART-06 does not insert a row when filesystem write fails</code></li>
+    <li><code>ART-07 rejects traversal, absolute path, separator and symlink escape</code></li>
+    <li><code>ART-08 returns 409 for hash mismatch, size mismatch and missing registered file</code></li>
+    <li><code>ART-09 keeps legacy storage_key null after upgrade</code></li>
+    <li><code>ART-10 accepts a legacy artifact only when current bytes match stored hash and size</code></li>
+    <li><code>ART-11 validates every production artifact kind with scanArtifactKindSchema</code></li>
+    <li><code>ART-12 restores a missing deterministic report only when regenerated bytes match</code></li>
+  </ul>
+  <pre><code class="language-bash">bun test api/modules/scans/artifact-storage.test.ts \
+  api/modules/scans/artifact-sink.test.ts \
+  api/modules/scans/repositories.test.ts \
+  api/db/migrations/scan-artifact-storage-key.test.ts \
+  api/routes/scans.route.test.ts \
+  api/routes/scan-reports.route.test.ts
+bun test api/modules/scans/tools api/modules/runtime-scans api/modules/api-schema-fuzz
+</code></pre>
+  <p>
+    完了条件はB-01/B-02 regression、fresh/upgrade migration、全caller typecheck、download negative
+    caseがpassし、 同じscan run内の<code>storage_key</code>重複とDB/file
+    mismatchが0件であること。
+  </p>
+
+  <h3 id="105-s2-runbook">10.5 S2 runbook — Atomic scan lifecycleとoutcome</h3>
+  <h4 id="1051-s2-migration">10.5.1 Migrationとschema</h4>
+  <p><code>drizzle/0032_scan_run_profile_outcome.sql</code>を次の内容で追加する。</p>
+  <pre><code class="language-sql">ALTER TABLE scan_runs ADD COLUMN profile_outcome text;
+</code></pre>
+  <ul>
+    <li>
+      <code>api/db/schema/schema-scans.ts</code
+      >へnullableな<code>profileOutcome</code>を追加する。 SQLite
+      migrationで既存rowへ値を推測してbackfillしない。
+    </li>
+    <li>
+      <code>shared/schemas/scan.schema.ts</code
+      >へ<code>scanProfileOutcomeSchema</code>とnullable fieldを追加する。
+    </li>
+    <li>
+      <code>api/modules/scans/profile-outcome.ts</code>を新規追加し、column優先、legacy metadata
+      fallbackの <code>resolveStoredProfileOutcome</code>を唯一のreaderにする。
+    </li>
+    <li>
+      migration testは<code>api/db/migrations/scan-run-profile-outcome.test.ts</code>へ追加し、 fresh
+      DB、0031までのDB、legacy metadata rowを検証する。
+    </li>
+  </ul>
+  <h4 id="1052-s2-repository">10.5.2 Repositoryとcall site</h4>
+  <ul>
+    <li>
+      <code>api/modules/scans/repositories.ts</code>へSection 5.2の2 methodを追加し、既存
+      <code>mergeScanRunMetadata</code
+      >は<code>patchScanRunMetadata</code>へ置換する。
+    </li>
+    <li>
+      <code>updateScanRunStatus</code>はqueued/runningの非terminal
+      updateだけに縮小する。terminal statusを渡した場合は type errorになるsignatureへ変更し、runtime
+      guardも残す。
+    </li>
+    <li>
+      terminal call siteを<code>api/modules/scans/profile-orchestrator.ts</code>、
+      <code>api/cli/scan-cli-lifecycle.ts</code>、<code>api/cli/scan-import.ts</code>、
+      <code>api/modules/dast/dast-runner.ts</code>、
+      <code>api/modules/dast/active-assessment-runner.ts</code>、
+      <code>api/modules/business-logic/business-logic-runner.ts</code>、
+      <code>api/modules/static-intelligence/prepare-worker.ts</code>、
+      <code>api/modules/scans/scan-process-supervisor.ts</code>で移行する。
+    </li>
+    <li>
+      repositoryを迂回する直接updateも禁止する。
+      <code>api/modules/business-logic/business-logic-repository.ts</code>と
+      <code>api/modules/dast/active-assessment-repository.ts</code>のinterrupted-run処理は
+      <code>ScanRepository.transitionScanRunTerminal</code>を使う。
+    </li>
+    <li>
+      <code>profile-orchestrator.ts</code
+      >では開始時の<code>scanRun.metadata</code>をterminal patchへspreadしない。
+      terminal patchにはその場で確定したprofile resultだけを渡す。
+    </li>
+    <li>
+      <code>api/modules/scans/summary-builder.ts</code>、<code>report-builder-overview.ts</code>、
+      <code>scan-review-bundle.ts</code>、<code>api/cli/scan-profile.ts</code>は
+      <code>resolveStoredProfileOutcome</code>を使う。
+    </li>
+  </ul>
+  <p>移行漏れ確認:</p>
+  <pre><code class="language-bash">rg -n 'updateScanRunStatus\(|mergeScanRunMetadata\(' api --glob '!**/*.test.ts'
+rg -n '\.update\(scanRuns\)' api --glob '!api/modules/scans/repositories.ts' --glob '!**/*.test.ts'
+rg -n 'metadata: \{[[:space:]]*\.\.\.scanRun\.metadata' api
+rg -n 'metadata\?\.profileOutcome|metadata\.profileOutcome' api --glob '!**/*.test.ts'
+</code></pre>
+  <p>
+    完了時、最初のcommandにterminal statusを渡すproduction call site、2つ目のrepository bypass、
+    3つ目のspread、4つ目の直接readerが0件でなければならない。
+  </p>
+  <h4 id="1053-s2-tests">10.5.3 Test</h4>
+  <ul>
+    <li><code>STATE-01 preserves preflight when profile completion patches metadata</code></li>
+    <li><code>STATE-02 preserves a concurrent diagnostic metadata patch</code></li>
+    <li><code>STATE-03 returns null to the loser of two terminal transitions</code></li>
+    <li><code>STATE-04 cannot replace completed with failed or cancelled</code></li>
+    <li><code>STATE-05 stores completed_with_warnings in column and legacy metadata equally</code></li>
+    <li><code>STATE-06 reads pre-migration outcome from metadata without backfill</code></li>
+    <li><code>STATE-07 keeps cancelled profile_outcome null when no assessment completed</code></li>
+    <li><code>STATE-08 applies json_patch atomically through the file-backed SQLite Writer</code></li>
+    <li><code>STATE-09 exposes nullable profileOutcome consistently in scan list, detail and summary</code></li>
+  </ul>
+  <pre><code class="language-bash">bun test api/modules/scans/repositories.test.ts \
+  api/db/migrations/scan-run-profile-outcome.test.ts \
+  api/modules/scans/profile-runner.test.ts \
+  api/modules/scans/summary-builder.test.ts \
+  api/modules/scans/report-builder.test.ts \
+  api/modules/scans/scan-process-supervisor.test.ts \
+  api/routes/scans.route.test.ts
+</code></pre>
+  <p>
+    完了条件はB-03/B-06 regression、fresh/upgrade migration、in-memory DBとfile-backed
+    Writerの両方で lost update/raceが再現しないこと。
+  </p>
+
+  <h3 id="106-s3-runbook">10.6 S3 runbook — Typed preflight、version、schema-first</h3>
+  <h4 id="1061-s3-schema">10.6.1 Reason code schema</h4>
+  <p>
+    <code>shared/schemas/scan-preflight.schema.ts</code>へ次の値でenumを追加し、
+    <code>scanPreflightCheckSchema.reasonCode</code>をこのnullable enumへ変更する。
+  </p>
+  <pre><code class="language-text">preflight_failed
+scanner_adapter_not_registered
+scanner_binary_unavailable
+scanner_binary_version_unparseable
+scanner_binary_version_mismatch
+scanner_data_manifest_invalid
+scanner_data_entry_missing
+scanner_data_missing
+scanner_data_stale
+scanner_data_runtime_unreadable
+docker_daemon_unavailable
+docker_image_unavailable
+docker_image_digest_missing
+docker_image_digest_mismatch
+docker_image_platform_incompatible
+target_start_plan_unavailable
+dast_start_plan_ambiguous
+dast_start_executable_not_allowed
+dast_start_network_not_allowed
+dast_start_control_character_rejected
+dast_start_cwd_outside_project
+dast_start_executable_outside_project
+dast_start_wrapper_not_found
+dast_start_environment_key_not_allowed
+target_start_timeout
+target_start_exited
+project_code_execution_consent_required
+project_code_execution_sandbox_required
+schema_not_found
+playwright_browser_unavailable
+</code></pre>
+  <p>
+    新しいcodeが必要になった場合は、enum、schema test、failure matrixを同じPRで更新する。
+    message断片をcodeとして追加してはならない。
+  </p>
+  <h4 id="1062-s3-code">10.6.2 Production code</h4>
+  <ul>
+    <li>
+      <code>api/modules/scans/preflight-error.ts</code>を新規追加し、Section 5.4の
+      <code>PreflightError</code>とresolverを実装する。
+    </li>
+    <li>
+      <code>api/modules/dast/target-preparer.ts</code>のplanner errorをtyped errorへ置換する。
+      runtime起動後のtimeoutは<code>target_start_timeout</code>、早期exitは
+      <code>target_start_exited</code>として別typeで扱い、planner failureへ混ぜない。
+    </li>
+    <li>
+      <code>api/modules/scans/scan-preflight.ts</code
+      >から<code>safeReasonCode</code>を削除し、 target plannerのunknown
+      errorは常に<code>target_start_plan_unavailable</code>へ落とす。
+    </li>
+    <li>
+      <code>api/modules/scans/scanner-version.ts</code>を新規追加し、SemVer抽出とexact matchをpure
+      functionにする。
+      <code>versionCheck</code>はbinary存在だけでなくこの結果でreadyを決める。
+    </li>
+    <li>
+      <code>api/modules/scans/scan-preflight-probes.ts</code>のDocker image probeは
+      <code>docker image inspect --format '{{json .RepoDigests}}|{{.Id}}|{{.Os}}/{{.Architecture}}'</code>
+      を使い、<code>repoDigests</code>、local
+      <code>imageId</code>、platformを別fieldで返す。
+    </li>
+    <li>
+      <code>api/modules/scans/scan-preflight-binding.ts</code>のcompatibility判定はplatform一致に加え、 pinned
+      refの場合はexpected digestを末尾に持つ<code>RepoDigests</code>
+      entryを必須にする。 matched
+      digestだけを<code>observedDigest</code>へ保存し、local image IDを代入しない。
+    </li>
+    <li>
+      <code>api/modules/api-schema-fuzz/schema-discovery.ts</code>を
+      <code>discoverRepositoryApiSchema</code
+      >と<code>discoverTargetApiSchema</code>へ分離する。 repository側はbounded
+      file候補だけを読み、networkを使わない。
+    </li>
+    <li>
+      <code>api/modules/scans/profile-schema-step-runner.ts</code>の実行methodは解決済み
+      <code>ApplicableApiSchema</code>を必須にし、自身でdiscoveryしない。
+    </li>
+    <li>
+      <code>api/modules/scans/profile-step-orchestrator.ts</code>は
+      <code>api_schema_scan</code> branchの先頭でrepository schemaを解決する。not
+      foundならtool run、target、gateway、 Schemathesisを一つも作らずN/A resultを返す。
+    </li>
+    <li>
+      <code>shared/schemas/scan-profile.schema.ts</code>の<code>coverageEffectSchema</code>と
+      <code>CoverageStepResult</code
+      >へ<code>not_applicable</code>を追加する。正常N/Aで
+      <code>optionalToolFailed</code>をtrueにしない。
+    </li>
+    <li>
+      同fileの<code>scanStepReasonCodeSchema</code>は、step resultへ伝播し得るpreflight
+      codeを
+      <code>scanPreflightReasonCodeSchema</code>から合成する。
+      <code>ToolResult</code
+      >と<code>CoverageStepResult</code>のreasonCodeを
+      <code>ScanStepReasonCode | null</code>へ変更し、production codeで任意stringを返さない。
+    </li>
+  </ul>
+  <h4 id="1063-s3-tests">10.6.3 Test</h4>
+  <ul>
+    <li><code>PREF-01 maps Could-not-plan message to target_start_plan_unavailable, never ould</code></li>
+    <li><code>PREF-02 preserves an explicit typed target planner code</code></li>
+    <li><code>PREF-03 rejects every reason code outside the enum</code></li>
+    <li><code>PREF-04 blocks Trivy 0.71.2 when manifest requires 0.72.0</code></li>
+    <li><code>PREF-05 marks an unparsable version as blocked</code></li>
+    <li><code>PREF-06 accepts exact versions with tool-specific prefixes</code></li>
+    <li><code>PREF-07 blocks a pinned image when expected digest is absent from RepoDigests</code></li>
+    <li><code>PREF-08 preserves local image ID as evidence, not as observed registry digest</code></li>
+    <li><code>SCHEMA-01 returns N/A before target preparation when todolist has no schema</code></li>
+    <li><code>SCHEMA-02 does not create a tool run for a non-applicable schema step</code></li>
+    <li><code>SCHEMA-03 does not downgrade profile outcome for normal N/A</code></li>
+    <li><code>SCHEMA-04 excludes write methods from the explicit read-only execution plan</code></li>
+    <li><code>SCHEMA-05 validates every persisted step reason code with the shared schema</code></li>
+  </ul>
+  <pre><code class="language-bash">bun test shared/schemas/scan-preflight.schema.test.ts \
+  api/modules/scans/scanner-version.test.ts \
+  api/modules/scans/scan-preflight.test.ts \
+  api/modules/api-schema-fuzz/schema-discovery.test.ts \
+  api/modules/scans/profile-runner.test.ts \
+  api/modules/dast/target-preparer.test.ts
+</code></pre>
+  <p>
+    完了条件はB-04/B-05/B-07/B-08 regressionがpassし、N/A caseでtarget
+    provider、gateway、runnerのspyが すべて0 callであること。
+  </p>
+
+  <h3 id="107-s4-runbook">10.7 S4 runbook — Static scanner個別qualification</h3>
+  <p>
+    S4は原則としてproduction designを変えず、S1/S3のcontractをreal scannerで検証するsliceである。
+    scanner固有修正が必要ならtoolごとに独立commitとし、他toolのbaselineを同時更新しない。
+  </p>
+  <h4 id="1071-s4-target-snapshot">10.7.1 Scan snapshot準備</h4>
+  <ol>
+    <li>
+      target identity check後に<code>git archive --format=tar HEAD</code>をrun
+      rootへ出力しSHA-256を計算する。
+    </li>
+    <li>
+      archiveを<code>target-runtime/source</code>へ展開し、以後original
+      repositoryをscannerへ渡さない。
+    </li>
+    <li>todolist Docker imageをscan開始前にbuildし、image IDとplatformを記録する。</li>
+    <li>
+      OSV installed-tree caseだけ、同imageの<code>/app/node_modules</code>をscan
+      snapshotへcopyする。
+      digestを別field<code>target.dependencyTreeSha256</code>へ保存し、他scannerのscopeからは除外する。
+    </li>
+    <li>
+      scanner binary/image、DB、ruleset、templateを全てpreflightでready確認してからcaseを開始する。
+    </li>
+  </ol>
+  <h4 id="1072-s4-cases">10.7.2 Caseごとの実行</h4>
+  <table>
+    <caption>
+      10.7 Static qualification commands
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Case</th>
+        <th scope="col">step/options</th>
+        <th scope="col">追加assertion</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>TS-01</td>
+        <td><code>--case gitleaks</code></td>
+        <td>redacted JSON parse成功、source pathはsnapshot相対、exit 0/1をcompletedとして区別</td>
+      </tr>
+      <tr>
+        <td>TS-02a</td>
+        <td><code>--case osv-manifest</code></td>
+        <td>
+          <code>bun.lock</code>applicability、offline DB digest、no network
+        </td>
+      </tr>
+      <tr>
+        <td>TS-02b</td>
+        <td><code>--case osv-installed-tree</code></td>
+        <td>
+          image由来dependency treeだけを対象、original
+          <code>node_modules</code>未参照
+        </td>
+      </tr>
+      <tr>
+        <td>TS-03</td>
+        <td><code>--case trivy-filesystem</code></td>
+        <td>manifest/observed version exact match、raw role、DB digest一致</td>
+      </tr>
+      <tr>
+        <td>TS-04</td>
+        <td><code>--case trivy-sbom</code></td>
+        <td>
+          CycloneDX parse成功、role
+          <code>sbom</code>、TS-03とkey/hashが別
+        </td>
+      </tr>
+      <tr>
+        <td>TS-05</td>
+        <td><code>--case semgrep</code></td>
+        <td>optional adapter明示有効、owned ruleset hash、registry/network access 0</td>
+      </tr>
+    </tbody>
+  </table>
+  <pre><code class="language-bash">bun run scripts/todolist-scanner-acceptance.ts --case gitleaks
+bun run scripts/todolist-scanner-acceptance.ts --case osv-manifest
+bun run scripts/todolist-scanner-acceptance.ts --case osv-installed-tree
+bun run scripts/todolist-scanner-acceptance.ts --case trivy-filesystem
+bun run scripts/todolist-scanner-acceptance.ts --case trivy-sbom
+VULN_WORKBENCH_OPTIONAL_SCANNER_ADAPTERS=semgrep \
+  bun run scripts/todolist-scanner-acceptance.ts --case semgrep
+bun run scripts/todolist-scanner-acceptance.ts --group static
+</code></pre>
+  <p>
+    各caseは独立scan runとし、case直後にintegrity verifierを実行する。group
+    commandは先行caseの失敗後も 残りを実行し、最後に失敗case一覧を返す。完了証跡は5 toolのactual
+    version、data/ruleset digest、 normalized snapshot hash、artifact integrity、target
+    before/afterである。
+  </p>
+
+  <h3 id="108-s5-runbook">10.8 S5 runbook — todolist runtime lifecycle</h3>
+  <h4 id="1081-s5-provider">10.8.1 Runtime target abstraction</h4>
+  <p><code>api/modules/dast/runtime-target-provider.ts</code>を新規追加する。</p>
+  <pre><code class="language-typescript">export type PreparedRuntimeTarget = {
+  origin: string;
+  containerOrigin: string;
+  runtimeKind: "container";
+  targetConfig: DastTargetConfig;
+  evidence: {
+    sourceCommit: string;
+    sourceArchiveSha256: string;
+    imageId: string;
+    containerId: string;
+    publishedPort: number;
+  };
+  stop(): Promise&lt;void&gt;;
+};
+
+export interface RuntimeTargetProvider {
+  prepare(input: {
+    repoPath: string;
+    readinessTimeoutMs: number;
+  }): Promise&lt;PreparedRuntimeTarget&gt;;
+}
+</code></pre>
+  <ul>
+    <li>
+      <code>api/modules/scans/profile-step-orchestrator-types.ts</code>へoptional providerを追加し、
+      <code>profile-step-orchestrator.ts</code
+      >の<code>ensureSharedRuntimeTarget</code>はproviderだけを呼ぶ。 production default
+      adapterは既存preparerを包むが、qualification harnessは必ずcontainer providerを注入する。
+    </li>
+    <li>
+      <code>api/modules/dast/target-preparer.ts</code>のnpm/Bun start planは全て
+      <code>requiresProjectCodeConsent: true</code>とする。falseのままproject scriptをhost
+      spawnしない。
+    </li>
+    <li>
+      <code>scripts/lib/todolist-container-target.ts</code>を新規追加し、pinned imageから
+      <code>PreparedRuntimeTarget</code>を返す。これはacceptance専用adapterだがproduction
+      interfaceを実装する。
+    </li>
+  </ul>
+  <h4 id="1082-s5-container">10.8.2 Container lifecycle</h4>
+  <ol>
+    <li>
+      image buildはscan case開始前のprepare phaseで行う。tagは
+      <code>vuln-workbench-acceptance-todolist:&lt;12-char-commit&gt;</code>、build contextはarchive展開先とする。
+    </li>
+    <li>
+      run root内にmode 0600のenv
+      fileを生成し、<code>JWT_SECRET</code>、<code>APP_URL</code>、
+      <code>CORS_ORIGINS</code
+      >、<code>DATABASE_URL=/data/sqlite.db</code>を渡す。secret valueはevidenceへ保存しない。
+    </li>
+    <li>
+      containerは<code>127.0.0.1</code>のdynamic host portへ5173をpublishし、
+      <code>target-database</code>だけを書込みmountする。source mountは行わない。
+    </li>
+    <li>
+      <code>GET /api/health</code>を250ms間隔、最大30秒でpollし、status 200とJSON
+      bodyをcontract照合する。 timeoutまたはcontainer早期exit時はlogをbounded
+      artifactとして保存してstopする。
+    </li>
+    <li>
+      readiness後のtarget DB hashをbaselineとし、read-only runtime case終了後に再計算する。
+      migrationによる初期変化をfalse positiveにしない。
+    </li>
+    <li>
+      cleanupはscanner gateway、scanner container、target container、networkの順にstop/removeする。
+      success時もfailure時も<code>finally</code>から同じidempotent
+      methodを呼ぶ。
+    </li>
+  </ol>
+  <h4 id="1083-s5-tests">10.8.3 Test</h4>
+  <ul>
+    <li><code>TARGET-01 starts pinned todolist and validates /api/health</code></li>
+    <li><code>TARGET-02 publishes only a loopback dynamic port</code></li>
+    <li><code>TARGET-03 never calls Bun.spawn with todolist as host cwd</code></li>
+    <li><code>TARGET-04 reports target_start_timeout and removes the container</code></li>
+    <li><code>TARGET-05 reports target_start_exited with bounded redacted logs</code></li>
+    <li><code>TARGET-06 stop is idempotent and leaves no port, process, container or network</code></li>
+    <li><code>TARGET-07 preserves original repository HEAD and status</code></li>
+  </ul>
+  <pre><code class="language-bash">bun test api/modules/dast/target-preparer.test.ts \
+  api/modules/scans/profile-runner.test.ts \
+  scripts/lib/todolist-container-target.test.ts
+bun run scripts/todolist-scanner-acceptance.ts --case target-lifecycle
+</code></pre>
+
+  <h3 id="109-s6-runbook">10.9 S6 runbook — Runtime scanner個別qualification</h3>
+  <p>
+    TS-06からTS-10はS5のcontainer targetを共有できるが、DB上はcaseごとに別scan runを使う。
+    trafficはbounded gatewayを必ず通し、gateway metricsのrequest count、method、path、reject
+    countをevidenceへ保存する。
+  </p>
+  <table>
+    <caption>
+      10.9 Runtime qualification details
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Case</th>
+        <th scope="col">固定policy</th>
+        <th scope="col">Pass criteria</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>TS-06 Passive DAST</td>
+        <td>
+          <code>web-passive-standard</code>、allowed
+          <code>/</code>と<code>/api/health</code>
+        </td>
+        <td>request &gt; 0、mutation 0、coverage covered/partial、DASTとscan artifact整合</td>
+      </tr>
+      <tr>
+        <td>TS-07 Nuclei safe</td>
+        <td>owned template tree、max 20、rate 2/s、update/interactsh無効</td>
+        <td>policy/template hash一致、JSONL parse成功、public template access 0</td>
+      </tr>
+      <tr>
+        <td>TS-08 ZAP baseline</td>
+        <td>pinned digest image、baseline/passiveだけ、max 20</td>
+        <td>image digest/platform一致、report parse成功、active rule実行0、container cleanup</td>
+      </tr>
+      <tr>
+        <td>TS-09 Schemathesis N/A</td>
+        <td>original todolist snapshot、repository discoveryのみ</td>
+        <td>tool run 0、target prepare 0、N/A、profile warning 0</td>
+      </tr>
+      <tr>
+        <td>TS-10 Schemathesis read-only</td>
+        <td>
+          fixture
+          schemaの<code>GET /api/health</code>だけ、GET/HEAD/OPTIONS、gateway max 30
+        </td>
+        <td>NDJSON parse成功、forbidden method 0、readiness後target DB hash不変</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    <code>todolist-readonly-openapi.v1.yaml</code
+    >には<code>GET /api/health</code>だけを記載し、 response
+    bodyの<code>status: ok</code>と<code>service: hono-standard</code>をschema化する。
+    TS-10はprofile definitionへfixture pathを埋め込まず、harnessから
+    <code>runSchemaScannerIntoExistingScan</code>へ解決済みexplicit schemaを渡す。
+  </p>
+  <pre><code class="language-bash">bun run scripts/todolist-scanner-acceptance.ts --case passive-dast
+bun run scripts/todolist-scanner-acceptance.ts --case nuclei-safe
+bun run scripts/todolist-scanner-acceptance.ts --case zap-baseline
+bun run scripts/todolist-scanner-acceptance.ts --case schemathesis-na
+bun run scripts/todolist-scanner-acceptance.ts --case schemathesis-readonly
+bun run scripts/todolist-scanner-acceptance.ts --group runtime
+</code></pre>
+  <p>
+    完了条件は全caseでtarget DB、original repository、artifact integrity、request
+    budget、cleanupがpassすること。 0 requestはcoveredへせず、scanner exit 0でもinvalid
+    outputならfailedとする。
+  </p>
+
+  <h3 id="1010-s7-runbook">10.10 S7 runbook — Full profile integration</h3>
+  <ol>
+    <li>
+      harnessは同じtarget archive、image ID、scanner manifest、ruleset/DB digestを使って
+      <code>full-security-scan</code>を2回実行する。各runは別workbench DB scan
+      rowと別artifact namespaceを持つ。
+    </li>
+    <li>
+      optional
+      Semgrepを明示有効にし、preflightは<code>enforced</code>、scanner
+      executionはpinned Docker toolbox、target executionはS5 container providerとする。
+    </li>
+    <li>
+      unmodified todolistではSchemathesis stepをN/Aとし、それ単独で
+      <code>completed_with_warnings</code>へ落とさない。他のoptional
+      gapがあればそのcodeでwarningにする。
+    </li>
+    <li>
+      runごとにscan detail、summary、report、events、tool runs、step
+      resultsを取得し、status/outcome、 order、count、limitation codeを相互照合する。
+    </li>
+    <li>
+      repeatability比較からUUID、timestamp、elapsed、container ID、dynamic port、absolute temp
+      pathを除外する。 tool version、finding fingerprint、severity、relative
+      location、coverage、reason code、artifact roleは比較対象に残す。
+    </li>
+  </ol>
+  <pre><code class="language-bash">VULN_WORKBENCH_SCAN_PREFLIGHT_MODE=enforced \
+VULN_WORKBENCH_OPTIONAL_SCANNER_ADAPTERS=semgrep \
+  bun run scripts/todolist-scanner-acceptance.ts --group profile --repeat 2
+bun run scripts/verify-scan-run-integrity.ts --evidence &lt;run-root&gt;/evidence.json
+</code></pre>
+  <p>
+    完了条件は2 runともterminalで、required failureがなく、正規化snapshot hashとcoverage
+    stateが一致し、 scan間artifact key重複、running
+    row、listener、container、gatewayが0件であること。
+  </p>
+
+  <h3 id="1011-s8-runbook">10.11 S8 runbook — Fault、baseline、closeout</h3>
+  <h4 id="10111-s8-faults">10.11.1 Failure injection実装</h4>
+  <ul>
+    <li>
+      fixture binaryは<code>tests/e2e/fixtures/bin</code>へ置き、missing、timeout、exit
+      1、malformed JSON、 oversized stdout/stderrを環境変数で選択できる一つの共通fixture
+      contractにする。
+    </li>
+    <li>
+      duplicate
+      artifactは同じowner/roleの逐次2回と<code>Promise.all</code>同時2回を別testにする。
+    </li>
+    <li>target failureはreadiness前exit、readiness timeout、scan途中stopを別caseにする。</li>
+    <li>
+      state raceはfile-backed Writerを2
+      clientから呼び、completed/failedとcompleted/cancelledを各100回実行する。
+      flaky回避のsleepを使わずbarrier promiseで同時開始する。
+    </li>
+  </ul>
+  <h4 id="10112-s8-baseline">10.11.2 Baseline file</h4>
+  <p>
+    人手review後に<code>spec/security-capability/todolist-scanner-baseline.v1.json</code>を追加する。
+    caseごとの必須fieldはtarget commit、scanner version、data/ruleset digest、finding
+    count、severity count、 normalized snapshot hash、coverage stateである。raw
+    finding本文、absolute path、UUID、timestampは保存しない。
+  </p>
+  <h4 id="10113-s8-verifier">10.11.3 Verifier exit code</h4>
+  <table>
+    <caption>
+      10.11 Integrity verifier exit codes
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Exit</th>
+        <th scope="col">Meaning</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>0</td>
+        <td>全contract pass</td>
+      </tr>
+      <tr>
+        <td>2</td>
+        <td>argument、target contract、evidence schema不正</td>
+      </tr>
+      <tr>
+        <td>3</td>
+        <td>DB lifecycle/ownership不整合</td>
+      </tr>
+      <tr>
+        <td>4</td>
+        <td>artifact missing/hash/size/key不整合</td>
+      </tr>
+      <tr>
+        <td>5</td>
+        <td>coverage/request policy不整合</td>
+      </tr>
+      <tr>
+        <td>6</td>
+        <td>target mutationまたはcleanup leak</td>
+      </tr>
+      <tr>
+        <td>7</td>
+        <td>review済みbaselineとの差分</td>
+      </tr>
+    </tbody>
+  </table>
+  <pre><code class="language-bash">bun run test:scanner-backend
+bun run test:scanner-real:todolist
+bun run test:scanner-runtime:todolist
+bun run test:scan-profile:todolist
+bun run verify:scanner-backend:todolist
+bun run typecheck
+bun run lint
+bun run docs:check
+git diff --check
+</code></pre>
+  <p>
+    closeoutではB-01からB-08のcharacterization modeを削除し、各bug IDが恒久regression
+    testへ移ったことを verifierで確認する。baseline差分がある場合はexit 7のまま停止し、raw artifact
+    reviewと別reviewer承認後だけ baseline fileを更新する。
+  </p>
+
+  <h3 id="1012-handoff-template">10.12 Slice handoff template</h3>
+  <p>各sliceのPRまたは担当交代時は次を埋める。空欄のhandoffは未完了として扱う。</p>
+  <pre><code class="language-text">Slice:
+Commit:
+Changed production files:
+Changed test files:
+Migration fresh DB result:
+Migration upgrade DB result:
+Focused test command/result:
+Real todolist case IDs/result:
+Evidence path and SHA-256:
+Target before/after HEAD/status:
+Known residual risks:
+Rollback switch or revert boundary:
+Next unblocked slice:
+</code></pre>
+
+  <h2 id="11-slice-acceptance">11. Slice別acceptance</h2>
+  <h3 id="111-s0">11.1 S0 — Characterization and harness skeleton</h3>
+  <ul>
+    <li>B-01からB-08を隔離環境で再現し、machine-readable characterization evidenceへ保存する。</li>
+    <li>isolated SQLite、artifact root、target pathを一つのtest contextから生成する。</li>
+    <li>production DBへrowが増えないことをtest終了後に検査する。</li>
+    <li>todolist HEAD/clean statusをbefore/after evidenceへ保存する。</li>
+    <li>
+      known failure一覧とproduction bug IDを1対1で対応させ、skip/failing testをmainへ残さない。
+    </li>
+  </ul>
+  <h3 id="112-s1">11.2 S1 — Artifact identity and integrity</h3>
+  <ul>
+    <li>すべてのscanner runnerがtool-scoped writerを使用する。</li>
+    <li>新規artifact rowのstorage keyに重複がない。</li>
+    <li>scan終了後の全artifactでDB SHA/sizeとfileが一致する。</li>
+    <li>壊れたartifactをAPI、report、review bundleが正常証跡として返さない。</li>
+    <li>既存legacy artifactを削除・書換えしない。</li>
+  </ul>
+  <h3 id="113-s2">11.3 S2 — Atomic scan lifecycle</h3>
+  <ul>
+    <li>terminal updateにfull metadata objectを渡すcall siteが0件になる。</li>
+    <li>preflight/source revision/profile hashがscan完了後も読める。</li>
+    <li>同時terminal transitionの一方だけが成功する。</li>
+    <li>report生成とautomated diagnosticのmetadata追加がlost updateを起こさない。</li>
+  </ul>
+  <h3 id="114-s3">11.4 S3 — Typed preflight and provenance</h3>
+  <ul>
+    <li><code>ould</code>を再現した入力がstable codeへ変換される。</li>
+    <li>todolist preflightがtarget planとsource revisionを保存する。</li>
+    <li>Trivy manifest/actual mismatchをreadyにしない。</li>
+    <li>Nuclei、Schemathesis、browser、Docker不足を別codeで判別できる。</li>
+    <li>enforced modeのrequired blockではtool run rowを作らない。</li>
+  </ul>
+  <h3 id="115-s4-s6">11.5 S4-S6 — Scanner qualification</h3>
+  <ul>
+    <li>各caseを単独で再実行でき、他scannerの失敗に影響されない。</li>
+    <li>stdout/stderr/raw artifactのowner tool runが一致する。</li>
+    <li>finding fingerprintとevidence locationがtarget snapshot内に収まる。</li>
+    <li>runtime request budgetとgateway metricsが保存される。</li>
+    <li>todolist repositoryとruntime DBのbefore/after policyを満たす。</li>
+  </ul>
+  <h3 id="116-s7-s8">11.6 S7-S8 — Full integration and closeout</h3>
+  <ul>
+    <li>full profileの全stepがcompletedまたは正しいnot-applicableになる。</li>
+    <li>missing/blocked/failedを0 findingへ丸めない。</li>
+    <li>2回のrunでnormalized finding snapshot、coverage state、step orderingが一致する。</li>
+    <li>全artifact integrityがpassし、path collisionが0件である。</li>
+    <li>run後にrunning row、listener、child process、container、gatewayが残らない。</li>
+  </ul>
+
+  <h2 id="12-failure-injection">12. Failure injection matrix</h2>
+  <table>
+    <caption>
+      12.1 Required negative scenarios
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Failure</th>
+        <th scope="col">Expected backend result</th>
+        <th scope="col">Must not happen</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>scanner binary missing</td>
+        <td>preflight blocked/tool_unavailable、process未起動</td>
+        <td>completed、finding 0 success</td>
+      </tr>
+      <tr>
+        <td>scanner version mismatch</td>
+        <td>scanner_binary_version_mismatch、reproducible=false</td>
+        <td>manifest versionを実行versionとして保存</td>
+      </tr>
+      <tr>
+        <td>database missing/stale</td>
+        <td>scanner_data_missing/stale</td>
+        <td>scan中の自動download</td>
+      </tr>
+      <tr>
+        <td>structured output malformed</td>
+        <td>invalid_structured_output、raw/log artifact保持</td>
+        <td>empty finding listとしてsuccess</td>
+      </tr>
+      <tr>
+        <td>stdout/stderr/output file limit</td>
+        <td>stable limit code、child停止、bounded artifact</td>
+        <td>memory無制限、truncated JSON parse</td>
+      </tr>
+      <tr>
+        <td>duplicate artifact key</td>
+        <td>exclusive write failure、existing bytes不変</td>
+        <td>silent overwrite</td>
+      </tr>
+      <tr>
+        <td>target readiness timeout</td>
+        <td>target_start_timeout、process cleanup</td>
+        <td>runtime scanner起動、zombie process</td>
+      </tr>
+      <tr>
+        <td>target exits during scan</td>
+        <td>runtime coverage gapとstep failure</td>
+        <td>0 requestをcovered扱い</td>
+      </tr>
+      <tr>
+        <td>request budget exceeded</td>
+        <td>gateway拒否、aggregate_request_budget_exceeded</td>
+        <td>上限超過traffic</td>
+      </tr>
+      <tr>
+        <td>target changes after preview</td>
+        <td>target_changed/preflight_changed</td>
+        <td>変更後sourceのscan続行</td>
+      </tr>
+      <tr>
+        <td>terminal update race</td>
+        <td>一つのterminal transitionだけ成功</td>
+        <td>completed後のfailed上書き、metadata消失</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2 id="13-machine-verification">13. Machine verification</h2>
+  <p>
+    <code>verify-scan-run-integrity</code>はrun
+    IDごとに次を検査し、一つでも不一致ならnon-zeroで終了する。
+  </p>
+  <ul>
+    <li>scan rowがterminalで、profile outcomeが存在する。</li>
+    <li>source revision、resolved profile hash、preflight bindingが存在する。</li>
+    <li>event sequenceが単調増加し、startedとterminal eventが一つずつある。</li>
+    <li>全tool runがterminalで、step resultと対応する。</li>
+    <li>全artifact fileが存在し、storage keyが一意で、SHA/sizeが一致する。</li>
+    <li>finding/evidence/artifactのscan ownershipが一致する。</li>
+    <li>coverage statusがrequest countと矛盾しない。</li>
+    <li>reportのtool/step/finding countがDBと一致する。</li>
+    <li>limitation codeがschemaに含まれる。</li>
+    <li>target before/after HEADとclean statusが一致する。</li>
+  </ul>
+  <p>acceptance evidenceの最低schema:</p>
+  <pre><code class="language-text">schemaVersion
+acceptanceRunId
+vulnWorkbenchCommit
+target.name
+target.commit
+target.snapshotSha256
+scannerManifestHash
+toolboxImageDigest
+cases[].caseId
+cases[].scanRunId
+cases[].profileId
+cases[].stepId
+cases[].status
+cases[].profileOutcome
+cases[].normalizedFindingSnapshotHash
+cases[].artifactIntegrity
+cases[].coverage
+cleanup
+startedAt
+completedAt
+</code></pre>
+
+  <h2 id="14-command-plan">14. Command plan</h2>
+  <p>実装後の代表的な実行形を次とする。実際のrun rootはharnessが生成する。</p>
+  <pre><code class="language-bash">export VULN_WORKBENCH_TODOLIST_REPO_PATH=/Users/y.noguchi/Code/todolist
+export VULN_WORKBENCH_SCAN_PREFLIGHT_MODE=enforced
+export VULN_WORKBENCH_OPTIONAL_SCANNER_ADAPTERS=semgrep
+
+bun run test:scanner-backend
+bun run test:scanner-real:todolist
+bun run test:scanner-runtime:todolist
+bun run test:scan-profile:todolist
+bun run verify:scanner-backend:todolist
+</code></pre>
+  <p>開発中のfocused test:</p>
+  <pre><code class="language-bash">bun test api/modules/scans/artifact-storage.test.ts
+bun test api/modules/scans/repositories.test.ts
+bun test api/modules/scans/scan-preflight.test.ts
+bun test api/modules/scans/profile-runner.test.ts
+bun test api/modules/dast/target-preparer.test.ts
+bun test api/modules/runtime-scans/runtime-scanner-runner.test.ts
+bun test api/modules/runtime-scans/zap-baseline-runner.test.ts
+bun test api/modules/api-schema-fuzz
+</code></pre>
+  <p>
+    acceptance harnessはexport済みの<code>runProfileScan</code>と個別runner
+    serviceをisolated DB上で呼び、 S5のruntime target providerを注入する。CLI
+    contractはT1で別途testする。担当者がproduction DBへ 手動commandを打つ手順をacceptance
+    procedureにしない。
+  </p>
+
+  <h2 id="15-baseline-and-delta-policy">15. Baseline and delta policy</h2>
+  <ul>
+    <li>最初のpassing T2-T4 runをcandidate baselineとして保存する。</li>
+    <li>raw artifactを読んでscanner別finding、severity、locationを人が確認する。</li>
+    <li>承認後にcountとnormalized snapshot hashだけをversioned baselineへ反映する。</li>
+    <li>raw absolute path、timestamp、random UUID、tool elapsed timeは比較hashから除外する。</li>
+    <li>scanner version、ruleset、DB digest、target commit変更時はbaseline自動更新を禁止する。</li>
+    <li>finding増加だけでなく減少もreview対象とし、false negative化を見逃さない。</li>
+    <li>local diagnostic baselineとCI authoritative baselineを同じlabelで保存しない。</li>
+  </ul>
+
+  <h2 id="16-ci-and-local-gates">16. Local/CI gate separation</h2>
+  <table>
+    <caption>
+      16.1 Gate ownership
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Gate</th>
+        <th scope="col">Current authority</th>
+        <th scope="col">Promotion condition</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>T0/T1 focused tests</td>
+        <td>normal CI</td>
+        <td>常時required</td>
+      </tr>
+      <tr>
+        <td>T2 real static scanners on todolist</td>
+        <td>local qualification</td>
+        <td>immutable todolist source取得経路とscanner imageがCIにある</td>
+      </tr>
+      <tr>
+        <td>T3 runtime scanners on todolist</td>
+        <td>local qualification</td>
+        <td>Docker/browser/loopback policyを持つdedicated runnerがある</td>
+      </tr>
+      <tr>
+        <td>T4 full profile</td>
+        <td>merge前のlocal required gate</td>
+        <td>T2/T3がCIでauthoritativeになった後にprotected gateへ昇格</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    todolistにGit remoteがない現状で、CI target取得を暗黙に成功扱いしない。取得経路がない CI
+    runは<code>blocked: target_source_unavailable</code>であり、passではない。
+  </p>
+
+  <h2 id="17-review-and-merge-rules">17. Review and merge rules</h2>
+  <ul>
+    <li>各PRはproduction change、focused test、negative test、rollback手順を持つ。</li>
+    <li>UI fileの変更が含まれたPRは本計画のbackend sliceとしてmergeしない。</li>
+    <li>todolist側の変更を同一PRまたは同一acceptance evidenceへ混ぜない。</li>
+    <li>migrationを含むPRはfresh DBとexisting DBの両方をtestする。</li>
+    <li>scanner更新とbackend logic変更を同一PRにしない。</li>
+    <li>finding baseline更新とdetector/rule変更を同じreviewで自己承認しない。</li>
+    <li>artifact mismatch、target mutation、zombie processが1件でもあればmergeを止める。</li>
+  </ul>
+
+  <h2 id="18-rollback">18. Rollback</h2>
+  <ul>
+    <li>
+      S1 rollbackではmigrationを残し、該当profile/adapterをdisableしてartifact-producing scanをfail
+      closedする。 legacy共通path writerへ戻さない。
+    </li>
+    <li>S2はatomic terminal repository methodのcall site単位でrollbackする。</li>
+    <li>S3はenforced判定を弱めず、問題checkだけをblockedへ戻す。</li>
+    <li>S4-S6のscanner adapter failureは該当adapterをdisableし、他adapterへ影響させない。</li>
+    <li>rollback時もnew artifactをlegacy共通pathへ書き戻さない。</li>
+    <li>既に採取したacceptance evidenceはimmutableとして残し、後続runで置換しない。</li>
+  </ul>
+
+  <h2 id="19-definition-of-done">19. Definition of Done</h2>
+  <ul>
+    <li><input disabled="" type="checkbox" /> B-01からB-08のregression testが全てpassする。</li>
+    <li><input disabled="" type="checkbox" /> 新規artifactのpath collisionが0件である。</li>
+    <li><input disabled="" type="checkbox" /> 全artifactのDB SHA/sizeとfileが一致する。</li>
+    <li><input disabled="" type="checkbox" /> terminal scanにpreflightとsource revisionが残る。</li>
+    <li><input disabled="" type="checkbox" /> reason codeに自然文断片が混入しない。</li>
+    <li><input disabled="" type="checkbox" /> actual scanner versionとprovenanceが一致する。</li>
+    <li><input disabled="" type="checkbox" /> TS-01からTS-10が期待結果で完了する。</li>
+    <li><input disabled="" type="checkbox" /> full-security-scanをtodolistへ連続2回実行できる。</li>
+    <li>
+      <input disabled="" type="checkbox" /> 2回のnormalized snapshotとcoverage stateが一致する。
+    </li>
+    <li><input disabled="" type="checkbox" /> runtime request countが0のstepをcoveredにしない。</li>
+    <li><input disabled="" type="checkbox" /> failure injection全caseがfail closedする。</li>
+    <li><input disabled="" type="checkbox" /> test前後でtodolist HEAD/statusが変わらない。</li>
+    <li><input disabled="" type="checkbox" /> production DBとartifact rootが変更されない。</li>
+    <li><input disabled="" type="checkbox" /> process/container/listenerのleakが0件である。</li>
+    <li>
+      <input disabled="" type="checkbox" /> todolist project codeをhost processとしてspawnしない。
+    </li>
+    <li><input disabled="" type="checkbox" /> backend acceptance evidence verifierがpassする。</li>
+    <li><input disabled="" type="checkbox" /> UI変更なしで上記をCLIから再現できる。</li>
+  </ul>
+
+  <h2 id="20-stop-conditions">20. Stop conditions</h2>
+  <ul>
+    <li>artifact上書きまたはDB/file hash mismatchが再発した。</li>
+    <li>preflight/source revisionがterminal scanから消えた。</li>
+    <li>missing、blocked、not-applicable、0 requestをsuccessへ変換した。</li>
+    <li>target repositoryまたはtarget database原本を変更した。</li>
+    <li>todolist project codeをhost processとして起動した。</li>
+    <li>scannerがscan中にbinary、rules、template、vulnerability DBをdownloadした。</li>
+    <li>Nucleiがpublic templateを使った、またはZAPがactive modeを実行した。</li>
+    <li>Schemathesisがread-only以外のoperationを送信した。</li>
+    <li>finding baseline差分をraw evidence reviewなしで承認した。</li>
+    <li>real scan targetをtodolist以外へ差し替えた。</li>
+    <li>backend修正のために進行中のUI改修を巻き戻した、または同じPRへ混ぜた。</li>
+  </ul>
+</article>

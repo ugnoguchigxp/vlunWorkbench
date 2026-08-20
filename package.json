@@ -41,6 +41,7 @@
 		"test:inventory": "bun run scripts/test-inventory.ts",
 		"test:web": "vitest run",
 		"test:api": "bun run scripts/run-api-test-shards.ts",
+		"test:todolist-scans": "bun run scripts/todolist-scan-acceptance.ts",
 		"test:coverage:web": "vitest run --coverage && bun run scripts/coverage-scope-label.ts -- selected_web",
 		"test:coverage:critical": "bun run scripts/check-critical-coverage.ts",
 		"coverage:inventory": "bun run scripts/coverage-scope-inventory.ts",
