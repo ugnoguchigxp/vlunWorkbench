@@ -62,7 +62,7 @@ RUN mkdir -p /src/trivy \
 		-ldflags "-s -w -X github.com/aquasecurity/trivy/pkg/version/app.ver=${TRIVY_VERSION}" \
 		-o /trivy ./cmd/trivy
 
-FROM python:3.12-slim-bookworm@sha256:a116514e19457bcb7af7efe9c3dd0b9b71e85b317694e7882a1c52aa15a78134
+FROM python:3.14-slim-bookworm@sha256:23c59390fc717bf09f9336908199a0ae75d9c4264bf296123f94ad772fea3b52
 
 ARG TARGETARCH
 ARG SCHEMATHESIS_VERSION=4.24.2
