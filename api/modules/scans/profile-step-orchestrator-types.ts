@@ -1,5 +1,6 @@
 import type { ScanPreflightResult } from "../../../shared/schemas/scan-preflight.schema";
 import type { AppDatabase } from "../../db";
+import type { RuntimeTargetProvider } from "../dast/runtime-target-provider";
 import type { ProjectCapabilityAnalysis } from "../project-capabilities/plugin-detector";
 import type { ArtifactStorage } from "./artifact-storage";
 import type { DiffScanPlan } from "./diff-scan-plan";
@@ -31,5 +32,6 @@ export type ExecuteProfileStepsParams = {
 	execution: ToolExecutionConfig;
 	technologyAnalysis: ProjectCapabilityAnalysis;
 	consentProjectCodeExecution: boolean;
+	runtimeTargetProvider?: RuntimeTargetProvider;
 	scanPreflight: ScanPreflightResult;
 };

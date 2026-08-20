@@ -1,5 +1,6 @@
 import type { ScanScopePolicy } from "../../../shared/schemas/scan-profile.schema";
 import type { AppDatabase } from "../../db";
+import { ScanArtifactSink } from "./artifact-sink";
 import type { ArtifactStorage } from "./artifact-storage";
 import {
 	buildBaseExecutionMetadata,
@@ -103,6 +104,15 @@ export async function runToolIntoExistingScan(params: {
 		),
 		execution,
 	});
+	const artifactSink = new ScanArtifactSink(
+		params.artifactStorage,
+		artifactRepo,
+		{
+			scanRunId: params.scanRunId,
+			kind: "tool-run",
+			id: toolRunId,
+		},
+	);
 
 	if (!toolVersion) {
 		const errMsg = `${toolName} executable not found on host system`;
@@ -175,14 +185,10 @@ export async function runToolIntoExistingScan(params: {
 		let stderrArtifactId: string | null = null;
 
 		if (runResult.rawJsonArtifact) {
-			const rawRecord = await artifactRepo.createArtifact({
-				scanRunId: params.scanRunId,
-				toolRunId,
-				kind: options.mode === "fs-sbom" ? "sbom" : "raw_result",
+			const rawRecord = await artifactSink.registerSaved({
+				role: options.mode === "fs-sbom" ? "sbom" : "raw_result",
 				format: options.mode === "fs-sbom" ? "cyclonedx-json" : "json",
-				path: runResult.rawJsonArtifact.path,
-				sha256: runResult.rawJsonArtifact.sha256,
-				sizeBytes: runResult.rawJsonArtifact.sizeBytes,
+				saved: runResult.rawJsonArtifact,
 				metadata:
 					options.mode === "fs-sbom"
 						? { inventory: true, findingConversion: "disabled" }
@@ -201,27 +207,19 @@ export async function runToolIntoExistingScan(params: {
 		}
 
 		if (runResult.stdoutArtifact) {
-			const stdoutRecord = await artifactRepo.createArtifact({
-				scanRunId: params.scanRunId,
-				toolRunId,
-				kind: "stdout",
+			const stdoutRecord = await artifactSink.registerSaved({
+				role: "stdout",
 				format: "text",
-				path: runResult.stdoutArtifact.path,
-				sha256: runResult.stdoutArtifact.sha256,
-				sizeBytes: runResult.stdoutArtifact.sizeBytes,
+				saved: runResult.stdoutArtifact,
 			});
 			artifactIds.push(stdoutRecord.id);
 		}
 
 		if (runResult.stderrArtifact) {
-			const stderrRecord = await artifactRepo.createArtifact({
-				scanRunId: params.scanRunId,
-				toolRunId,
-				kind: "stderr",
+			const stderrRecord = await artifactSink.registerSaved({
+				role: "stderr",
 				format: "text",
-				path: runResult.stderrArtifact.path,
-				sha256: runResult.stderrArtifact.sha256,
-				sizeBytes: runResult.stderrArtifact.sizeBytes,
+				saved: runResult.stderrArtifact,
 			});
 			stderrArtifactId = stderrRecord.id;
 			artifactIds.push(stderrRecord.id);

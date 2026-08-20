@@ -10,6 +10,7 @@ import {
 import { RuntimeScannerRunner } from "../runtime-scans/runtime-scanner-runner";
 import { ZapBaselineRunner } from "../runtime-scans/zap-baseline-runner";
 import { ZAP_STABLE_IMAGE } from "../runtime-scans/zap-image-policy";
+import { ScanArtifactSink } from "./artifact-sink";
 import type { ArtifactStorage } from "./artifact-storage";
 import {
 	ArtifactRepository,
@@ -81,6 +82,11 @@ export async function runRuntimeScannerIntoExistingScan(params: {
 		params.scanRunId,
 		toolRun.id,
 	);
+	const artifactSink = new ScanArtifactSink(
+		params.artifactStorage,
+		artifactRepo,
+		{ scanRunId: params.scanRunId, kind: "tool-run", id: toolRun.id },
+	);
 	const runner =
 		params.adapter === "zap-baseline"
 			? new ZapBaselineRunner(scopedStorage, params.execution)
@@ -151,28 +157,20 @@ export async function runRuntimeScannerIntoExistingScan(params: {
 	const artifactIds: string[] = [];
 	const rawArtifactId = result.rawArtifact
 		? (
-				await artifactRepo.createArtifact({
-					scanRunId: params.scanRunId,
-					toolRunId: toolRun.id,
-					kind: "raw_result",
+				await artifactSink.registerSaved({
+					role: "raw_result",
 					format: params.adapter === "nuclei-safe" ? "jsonl" : "json",
-					path: result.rawArtifact.path,
-					sha256: result.rawArtifact.sha256,
-					sizeBytes: result.rawArtifact.sizeBytes,
+					saved: result.rawArtifact,
 				})
 			).id
 		: null;
 	if (rawArtifactId) artifactIds.push(rawArtifactId);
 	const stderrArtifactId = result.stderrArtifact
 		? (
-				await artifactRepo.createArtifact({
-					scanRunId: params.scanRunId,
-					toolRunId: toolRun.id,
-					kind: "stderr",
+				await artifactSink.registerSaved({
+					role: "stderr",
 					format: "text",
-					path: result.stderrArtifact.path,
-					sha256: result.stderrArtifact.sha256,
-					sizeBytes: result.stderrArtifact.sizeBytes,
+					saved: result.stderrArtifact,
 				})
 			).id
 		: null;
@@ -180,14 +178,10 @@ export async function runRuntimeScannerIntoExistingScan(params: {
 	if (result.stdoutArtifact)
 		artifactIds.push(
 			(
-				await artifactRepo.createArtifact({
-					scanRunId: params.scanRunId,
-					toolRunId: toolRun.id,
-					kind: "stdout",
+				await artifactSink.registerSaved({
+					role: "stdout",
 					format: "text",
-					path: result.stdoutArtifact.path,
-					sha256: result.stdoutArtifact.sha256,
-					sizeBytes: result.stdoutArtifact.sizeBytes,
+					saved: result.stdoutArtifact,
 				})
 			).id,
 		);

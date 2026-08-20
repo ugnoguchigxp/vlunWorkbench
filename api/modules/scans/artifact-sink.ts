@@ -1,3 +1,4 @@
+import path from "node:path";
 import {
 	type ScanArtifactKind,
 	scanArtifactKindSchema,
@@ -14,6 +15,12 @@ export type PersistedScanArtifact = {
 	sha256: string;
 	sizeBytes: number;
 	kind: ScanArtifactKind;
+};
+
+type StoredArtifact = {
+	path: string;
+	sha256: string;
+	sizeBytes: number;
 };
 
 const ROLE_LOCATION: Record<
@@ -57,12 +64,18 @@ export class ScanArtifactSink {
 		metadata?: Record<string, unknown>;
 	}): Promise<PersistedScanArtifact> {
 		const location = this.location(input.role, input.format);
-		const saved = await this.storage.saveRawArtifact(
+		const saved = await this.storage.saveFileArtifact(
 			this.owner.scanRunId,
+			location.subDir,
 			input.sourcePath,
 			location.filename,
 		);
-		return await this.register(saved, input.role, input.format, input.metadata);
+		return await this.registerSaved({
+			role: input.role,
+			format: input.format,
+			saved,
+			metadata: input.metadata,
+		});
 	}
 
 	async saveText(input: {
@@ -78,7 +91,39 @@ export class ScanArtifactSink {
 			input.content,
 			location.filename,
 		);
-		return await this.register(saved, input.role, input.format, input.metadata);
+		return await this.registerSaved({
+			role: input.role,
+			format: input.format,
+			saved,
+			metadata: input.metadata,
+		});
+	}
+
+	/** Registers a file already written by a scanner and removes it if the insert fails. */
+	async registerSaved(input: {
+		role: ScanArtifactRole;
+		format: string;
+		saved: StoredArtifact;
+		metadata?: Record<string, unknown>;
+	}): Promise<PersistedScanArtifact> {
+		const ownerPrefix = path.join(
+			this.owner.scanRunId,
+			"owners",
+			this.owner.kind,
+			this.owner.id,
+		);
+		if (
+			input.saved.path === ownerPrefix ||
+			!input.saved.path.startsWith(`${ownerPrefix}${path.sep}`)
+		) {
+			throw new Error("Artifact does not belong to its declared owner.");
+		}
+		return await this.register(
+			input.saved,
+			input.role,
+			input.format,
+			input.metadata,
+		);
 	}
 
 	private location(role: ScanArtifactRole, format: string) {
@@ -88,7 +133,7 @@ export class ScanArtifactSink {
 	}
 
 	private async register(
-		saved: { path: string; sha256: string; sizeBytes: number },
+		saved: StoredArtifact,
 		role: ScanArtifactRole,
 		format: string,
 		metadata?: Record<string, unknown>,

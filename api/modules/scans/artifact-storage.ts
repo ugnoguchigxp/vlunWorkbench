@@ -120,28 +120,33 @@ export class ArtifactStorage {
 		sourcePath: string,
 		suggestedFilename?: string,
 	): Promise<ArtifactSaveResult> {
+		return await this.saveFileArtifact(
+			scanRunId,
+			"raw",
+			sourcePath,
+			suggestedFilename ?? path.basename(sourcePath),
+		);
+	}
+
+	/** Copies a file into a caller-selected artifact role directory without decoding it. */
+	async saveFileArtifact(
+		scanRunId: string,
+		subDir: string,
+		sourcePath: string,
+		filename: string,
+	): Promise<ArtifactSaveResult> {
 		const scanDir = this.getArtifactDir(scanRunId);
-		const rawDir = path.join(scanDir, "raw");
-		await fs.mkdir(rawDir, { recursive: true });
-
-		const filename = suggestedFilename ?? path.basename(sourcePath);
-		const targetPath = path.join(rawDir, filename);
+		const targetDir = path.join(scanDir, subDir);
+		const targetPath = path.join(targetDir, filename);
 		this.validatePath(targetPath, scanRunId);
+		await fs.mkdir(targetDir, { recursive: true });
 
-		// Read source
 		const content = await fs.readFile(sourcePath);
-		const sizeBytes = content.length;
-		const sha256 = crypto.createHash("sha256").update(content).digest("hex");
-
-		// Write to target
 		await fs.writeFile(targetPath, content, { flag: "wx" });
-
-		const relativePath = path.relative(this.baseDir, targetPath);
-
 		return {
-			path: relativePath,
-			sha256,
-			sizeBytes,
+			path: path.relative(this.baseDir, targetPath),
+			sha256: crypto.createHash("sha256").update(content).digest("hex"),
+			sizeBytes: content.length,
 		};
 	}
 

@@ -1,4 +1,5 @@
 import { discoverRepositoryApiSchema } from "../api-schema-fuzz/schema-discovery";
+import type { PreparedRuntimeTarget } from "../dast/runtime-target-provider";
 import { prepareDastTargetWorkspace } from "../dast/target-preparer";
 import {
 	runDastStepIntoExistingScan,
@@ -36,15 +37,19 @@ export async function executeProfileSteps(
 	} = params;
 	const toolResults: ToolResult[] = [];
 	const stepResults: ScanProfileStepResult[] = [];
-	let sharedRuntimeTarget: Awaited<
-		ReturnType<typeof prepareDastTargetWorkspace>
-	> | null = null;
+	let sharedRuntimeTarget: PreparedRuntimeTarget | null = null;
 	const ensureSharedRuntimeTarget = async () => {
 		if (!sharedRuntimeTarget) {
-			sharedRuntimeTarget = await prepareDastTargetWorkspace({
-				repoPath: params.repoPath,
-				consentProjectCodeExecution: params.consentProjectCodeExecution,
-			});
+			sharedRuntimeTarget = params.runtimeTargetProvider
+				? await params.runtimeTargetProvider.prepare({
+						repoPath: params.repoPath,
+						readinessTimeoutMs: 30_000,
+						consentProjectCodeExecution: params.consentProjectCodeExecution,
+					})
+				: await prepareDastTargetWorkspace({
+						repoPath: params.repoPath,
+						consentProjectCodeExecution: params.consentProjectCodeExecution,
+					});
 		}
 		return sharedRuntimeTarget;
 	};
@@ -324,6 +329,7 @@ export async function executeProfileSteps(
 						timeoutSec: resolvedTimeout,
 						createdByUserId: params.createdByUserId,
 						preparedAutoTarget: target,
+						artifactStorage,
 						consentProjectCodeExecution: params.consentProjectCodeExecution,
 					});
 					stepResults.push(dastResult);

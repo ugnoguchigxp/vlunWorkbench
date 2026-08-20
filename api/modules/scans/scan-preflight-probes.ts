@@ -87,10 +87,12 @@ export const defaultScanPreflightDependencies: ScanPreflightDependencies = {
 			"image",
 			"inspect",
 			"--format",
-			"{{json .RepoDigests}}\t{{.Os}}/{{.Architecture}}",
+			"{{json .RepoDigests}}\t{{.Id}}\t{{.Os}}/{{.Architecture}}",
 			image,
 		]);
-		const [rawRepoDigests, rawPlatform] = result.stdout.trim().split("\t", 2);
+		const [rawRepoDigests, rawImageId, rawPlatform] = result.stdout
+			.trim()
+			.split("\t", 3);
 		let repoDigests: string[] = [];
 		try {
 			const parsed = rawRepoDigests ? JSON.parse(rawRepoDigests) : null;
@@ -111,6 +113,9 @@ export const defaultScanPreflightDependencies: ScanPreflightDependencies = {
 			ready: result.ok && result.exitCode === 0 && Boolean(rawPlatform),
 			digest: validDigest,
 			repoDigests,
+			imageId: /^sha256:[a-f0-9]{64}$/.test(rawImageId ?? "")
+				? rawImageId
+				: null,
 			platform: rawPlatform || null,
 			reasonCode:
 				result.ok && result.exitCode === 0

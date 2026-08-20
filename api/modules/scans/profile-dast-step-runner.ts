@@ -2,7 +2,9 @@ import type { DastProfileStep } from "../../../shared/schemas/scan-profile.schem
 import type { AppDatabase } from "../../db";
 import { DastRepository } from "../dast/dast-repository";
 import { DastRunner } from "../dast/dast-runner";
+import type { PreparedRuntimeTarget } from "../dast/runtime-target-provider";
 import { prepareDastTargetWorkspace } from "../dast/target-preparer";
+import type { ArtifactStorage } from "./artifact-storage";
 import type { DastStepResult } from "./profile-runner";
 import { ScanRepository } from "./repositories";
 
@@ -14,8 +16,9 @@ export async function runDastStepIntoExistingScan(params: {
 	repoPath: string;
 	timeoutSec?: number;
 	createdByUserId?: string | null;
-	preparedAutoTarget?: Awaited<ReturnType<typeof prepareDastTargetWorkspace>>;
+	preparedAutoTarget?: PreparedRuntimeTarget;
 	consentProjectCodeExecution?: boolean;
+	artifactStorage?: ArtifactStorage;
 }): Promise<DastStepResult> {
 	const scanRepo = new ScanRepository(params.db);
 	const dastRepo = new DastRepository(params.db);
@@ -53,7 +56,9 @@ export async function runDastStepIntoExistingScan(params: {
 		});
 		targetConfigId = target.id;
 
-		const runner = new DastRunner(params.db);
+		const runner = new DastRunner(params.db, {
+			scanStorage: params.artifactStorage,
+		});
 		const result = await runner.run({
 			projectId: params.projectId,
 			targetConfigId,

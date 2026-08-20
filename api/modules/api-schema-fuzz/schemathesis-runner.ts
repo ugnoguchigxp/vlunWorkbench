@@ -57,6 +57,7 @@ export async function runSchemathesisReadonly(params: {
 				timeoutSec: params.timeoutSec,
 				outputPath,
 				repoPath: params.repoPath,
+				inputPaths: [params.schemaPath],
 			},
 		);
 		let raw: unknown = [];

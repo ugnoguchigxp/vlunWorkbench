@@ -1,3 +1,4 @@
+import { ScanArtifactSink } from "../scans/artifact-sink";
 import {
 	ArtifactStorage,
 	type ArtifactStorage as ScanArtifactStorage,
@@ -41,26 +42,14 @@ export async function saveDastRawArtifacts(params: {
 		sizeBytes: rawSaved.sizeBytes,
 	});
 	artifactIds.push(raw.id);
-	const scanStorage = (params.scanStorage ?? new ArtifactStorage()).forOwner({
-		scanRunId: params.scanRunId,
-		kind: "dast",
-		id: params.dastRunId,
-	});
-	const rawScanSaved = await scanStorage.saveTextArtifact(
-		params.scanRunId,
-		"dast",
-		await storage.readTextArtifact(rawSaved.path),
-		`${params.dastRunId}-raw-result.json`,
-		{ mode: 0o600 },
-	);
-	const rawScanArtifact = await params.artifactRepository.createArtifact({
-		scanRunId: params.scanRunId,
-		toolRunId: null,
-		kind: "dast_raw_result",
+	const rawScanArtifact = await new ScanArtifactSink(
+		params.scanStorage ?? new ArtifactStorage(),
+		params.artifactRepository,
+		{ scanRunId: params.scanRunId, kind: "dast", id: params.dastRunId },
+	).saveText({
+		role: "dast_raw_result",
 		format: "json",
-		path: rawScanSaved.path,
-		sha256: rawScanSaved.sha256,
-		sizeBytes: rawScanSaved.sizeBytes,
+		content: await storage.readTextArtifact(rawSaved.path),
 		metadata: {
 			dastRunId: params.dastRunId,
 			dastArtifactId: raw.id,

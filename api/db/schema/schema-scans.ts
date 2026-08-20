@@ -62,6 +62,33 @@ export const scanRuns = sqliteTable(
 	}),
 );
 
+/** Immutable execution decision captured immediately after preflight. */
+export const scanExecutionPlans = sqliteTable(
+	"scan_execution_plans",
+	{
+		id: id(),
+		scanRunId: text("scan_run_id")
+			.notNull()
+			.references(() => scanRuns.id, { onDelete: "cascade" }),
+		projectId: text("project_id")
+			.notNull()
+			.references(() => projects.id, { onDelete: "cascade" }),
+		profileId: text("profile_id").notNull(),
+		strictness: text("strictness").notNull(),
+		planHash: text("plan_hash").notNull(),
+		plan: jsonObject("plan"),
+		createdAt: timestampMs("created_at"),
+	},
+	(table) => ({
+		scanRunUniqueIdx: uniqueIndex(
+			"scan_execution_plans_scan_run_unique_idx",
+		).on(table.scanRunId),
+		projectIdx: index("scan_execution_plans_project_id_idx").on(
+			table.projectId,
+		),
+	}),
+);
+
 export const staticIntelligencePrepareJobs = sqliteTable(
 	"static_intelligence_prepare_jobs",
 	{

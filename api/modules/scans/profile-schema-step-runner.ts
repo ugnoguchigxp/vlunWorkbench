@@ -6,6 +6,7 @@ import {
 	type PreparedContainerTargetGateway,
 	prepareContainerTargetGateway,
 } from "../dast/container-target-gateway";
+import { ScanArtifactSink } from "./artifact-sink";
 import type { ArtifactStorage } from "./artifact-storage";
 import {
 	ArtifactRepository,
@@ -64,6 +65,11 @@ export async function runSchemaScannerIntoExistingScan(params: {
 		params.scanRunId,
 		toolRun.id,
 	);
+	const artifactSink = new ScanArtifactSink(
+		params.artifactStorage,
+		artifactRepo,
+		{ scanRunId: params.scanRunId, kind: "tool-run", id: toolRun.id },
+	);
 	let result: Awaited<ReturnType<typeof runSchemathesisReadonly>>;
 	let gateway: PreparedContainerTargetGateway | null = null;
 	try {
@@ -109,14 +115,10 @@ export async function runSchemaScannerIntoExistingScan(params: {
 	const artifactIds: string[] = [];
 	const rawArtifactId = result.rawArtifact
 		? (
-				await artifactRepo.createArtifact({
-					scanRunId: params.scanRunId,
-					toolRunId: toolRun.id,
-					kind: "raw_result",
+				await artifactSink.registerSaved({
+					role: "raw_result",
 					format: "ndjson",
-					path: result.rawArtifact.path,
-					sha256: result.rawArtifact.sha256,
-					sizeBytes: result.rawArtifact.sizeBytes,
+					saved: result.rawArtifact,
 				})
 			).id
 		: null;
@@ -124,28 +126,20 @@ export async function runSchemaScannerIntoExistingScan(params: {
 	if (result.stdoutArtifact)
 		artifactIds.push(
 			(
-				await artifactRepo.createArtifact({
-					scanRunId: params.scanRunId,
-					toolRunId: toolRun.id,
-					kind: "stdout",
+				await artifactSink.registerSaved({
+					role: "stdout",
 					format: "text",
-					path: result.stdoutArtifact.path,
-					sha256: result.stdoutArtifact.sha256,
-					sizeBytes: result.stdoutArtifact.sizeBytes,
+					saved: result.stdoutArtifact,
 				})
 			).id,
 		);
 	if (result.stderrArtifact)
 		artifactIds.push(
 			(
-				await artifactRepo.createArtifact({
-					scanRunId: params.scanRunId,
-					toolRunId: toolRun.id,
-					kind: "stderr",
+				await artifactSink.registerSaved({
+					role: "stderr",
 					format: "text",
-					path: result.stderrArtifact.path,
-					sha256: result.stderrArtifact.sha256,
-					sizeBytes: result.stderrArtifact.sizeBytes,
+					saved: result.stderrArtifact,
 				})
 			).id,
 		);

@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import type { AppDatabase } from "../../../db";
 import { findings, projects, scanRuns, toolRuns } from "../../../db/schema";
+import { ScanArtifactSink } from "../../scans/artifact-sink";
 import { ArtifactStorage } from "../../scans/artifact-storage";
 import { ArtifactRepository } from "../../scans/repositories";
 import { SECURITY_CHECK_DEFINITIONS } from "../checks/check-registry";
@@ -65,26 +66,14 @@ export async function buildZeroFindingDiagnosticReport(params: {
 			...data,
 		});
 		const storage = params.artifactStorage ?? new ArtifactStorage();
-		const saveResult = await storage
-			.forOwner({
-				scanRunId: params.scanRunId,
-				kind: "diagnostic",
-				id: report.id,
-			})
-			.saveTextArtifact(
-				params.scanRunId,
-				"diagnostics",
-				markdown,
-				`zero-finding-diagnostic-${report.id}.md`,
-			);
-		const artifact = await new ArtifactRepository(params.db).createArtifact({
-			scanRunId: params.scanRunId,
-			toolRunId: null,
-			kind: "diagnostic_report",
+		const artifact = await new ScanArtifactSink(
+			storage,
+			new ArtifactRepository(params.db),
+			{ scanRunId: params.scanRunId, kind: "diagnostic", id: report.id },
+		).saveText({
+			role: "diagnostic_report",
 			format: "markdown",
-			path: saveResult.path,
-			sha256: saveResult.sha256,
-			sizeBytes: saveResult.sizeBytes,
+			content: markdown,
 			metadata: { diagnosticReportId: report.id, reportKind: "zero-finding" },
 		});
 		await reportRepo.updateReport(report.id, {
@@ -100,7 +89,7 @@ export async function buildZeroFindingDiagnosticReport(params: {
 			ok: true,
 			reportId: report.id,
 			artifactId: artifact.id,
-			artifactPath: saveResult.path,
+			artifactPath: artifact.path,
 			status: "completed",
 			summary,
 		};

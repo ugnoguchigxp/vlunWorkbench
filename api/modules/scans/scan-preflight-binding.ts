@@ -22,6 +22,8 @@ export type DockerImageProbe = {
 	ready: boolean;
 	digest: string | null;
 	repoDigests?: string[];
+	/** Local daemon identity retained as provenance, never used as a registry digest. */
+	imageId?: string | null;
 	platform: string | null;
 	reasonCode: string | null;
 };
@@ -141,5 +143,8 @@ export function dockerImageReason(
 }
 
 export function dockerImageEvidenceRefs(image: DockerImageProbe): string[] {
-	return image.digest ? [`docker-image:${image.digest}`] : [];
+	return [
+		...(image.digest ? [`docker-image:${image.digest}`] : []),
+		...(image.imageId ? [`docker-image-id:${image.imageId}`] : []),
+	];
 }

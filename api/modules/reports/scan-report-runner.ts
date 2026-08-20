@@ -1,5 +1,6 @@
 import type { AppDatabase } from "../../db";
 import type { LlmRouter } from "../../providers/llmRouter";
+import { ScanArtifactSink } from "../scans/artifact-sink";
 import { ArtifactStorage } from "../scans/artifact-storage";
 import { buildMarkdownReport } from "../scans/report-builder";
 import { ScanReportRepository } from "../scans/report-repository";
@@ -205,26 +206,14 @@ export class ScanReportRunner {
 					false,
 				);
 			}
-			const saved = await this.artifactStorage
-				.forOwner({
-					scanRunId: report.scanRunId,
-					kind: "report",
-					id: report.id,
-				})
-				.saveTextArtifact(
-					report.scanRunId,
-					"reports",
-					reportBuild.markdown,
-					`report-${report.id}.md`,
-				);
-			const artifact = await this.artifactRepository.createArtifact({
-				scanRunId: report.scanRunId,
-				toolRunId: null,
-				kind: "report",
+			const artifact = await new ScanArtifactSink(
+				this.artifactStorage,
+				this.artifactRepository,
+				{ scanRunId: report.scanRunId, kind: "report", id: report.id },
+			).saveText({
+				role: "report",
 				format: "markdown",
-				path: saved.path,
-				sha256: saved.sha256,
-				sizeBytes: saved.sizeBytes,
+				content: reportBuild.markdown,
 				metadata: {
 					reportId: report.id,
 					summaryMode,

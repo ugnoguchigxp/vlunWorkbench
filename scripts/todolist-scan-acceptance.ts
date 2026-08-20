@@ -6,10 +6,13 @@ import { eq } from "drizzle-orm";
 import { createDbConnection } from "../api/db";
 import { projects, scanArtifacts, scanRuns, users } from "../api/db/schema";
 import { ArtifactStorage } from "../api/modules/scans/artifact-storage";
+import { runDastStepIntoExistingScan } from "../api/modules/scans/profile-dast-step-runner";
 import { runRuntimeScannerIntoExistingScan } from "../api/modules/scans/profile-runtime-step-runner";
+import { runSchemaScannerIntoExistingScan } from "../api/modules/scans/profile-schema-step-runner";
 import { ScanRepository } from "../api/modules/scans/repositories";
 import { startTodolistRuntimeTarget } from "./todolist-runtime-target";
 import {
+	createTodolistSourceSnapshot,
 	resolveTodolistAcceptanceTarget,
 	selectTodolistAcceptanceProfiles,
 } from "./todolist-scan-acceptance-lib";
@@ -74,6 +77,7 @@ async function main() {
 	const root = await fs.mkdtemp(
 		path.join(os.tmpdir(), "vwb-todolist-acceptance-"),
 	);
+	const sourceSnapshot = await createTodolistSourceSnapshot(target, root);
 	const dbPath = path.join(root, "acceptance.sqlite");
 	const artifactRoot = path.join(root, "artifacts");
 	const env = {
@@ -109,8 +113,8 @@ async function main() {
 				.values({
 					ownerUserId: "00000000-0000-4000-8000-000000000001",
 					name: "todolist scanner acceptance",
-					repoPath: target.repoPath,
-					canonicalRepoPath: target.repoPath,
+					repoPath: sourceSnapshot.sourcePath,
+					canonicalRepoPath: sourceSnapshot.sourcePath,
 					createdAt: new Date(),
 					updatedAt: new Date(),
 				})
@@ -122,7 +126,7 @@ async function main() {
 			const targetImage = `vuln-workbench-todolist-acceptance:${target.commit.slice(0, 12)}`;
 			if (imageProfile) {
 				const imageBuild = await run(
-					["docker", "build", "-t", targetImage, target.repoPath],
+					["docker", "build", "-t", targetImage, sourceSnapshot.sourcePath],
 					env,
 				);
 				if (imageBuild.exitCode !== 0) {
@@ -147,7 +151,12 @@ async function main() {
 			const results: Array<Record<string, unknown>> = [];
 			for (const profile of selected) {
 				let scanRunId: string;
-				if (profile.id === "nuclei-safe" || profile.id === "zap-baseline") {
+				if (
+					profile.id === "nuclei-safe" ||
+					profile.id === "zap-baseline" ||
+					profile.id === "schemathesis-readonly" ||
+					profile.id === "passive-dast"
+				) {
 					const scanRun = await scanRepo.createScanRun({
 						projectId: project.id,
 						profile: profile.profile,
@@ -159,19 +168,95 @@ async function main() {
 					scanRunId = scanRun.id;
 					const runtimeTarget = await startTodolistRuntimeTarget(targetImage);
 					try {
-						const runtime = await runRuntimeScannerIntoExistingScan({
-							db: connection.db,
-							projectId: project.id,
-							scanRunId,
-							adapter: profile.id,
-							targetOrigin: runtimeTarget.origin,
-							artifactStorage: storage,
-							timeoutSec: 600,
-							execution: {
-								runner: "docker",
-								docker: { image: toolboxImage, networkMode: "default" },
-							},
-						});
+						const runtime =
+							profile.id === "passive-dast"
+								? await runDastStepIntoExistingScan({
+										db: connection.db,
+										projectId: project.id,
+										scanRunId,
+										repoPath: sourceSnapshot.sourcePath,
+										timeoutSec: 600,
+										step: {
+											kind: "dast",
+											profileId: "web-passive-standard",
+											displayName: "todolist passive DAST",
+											required: true,
+											failurePolicy: "fail_profile",
+											target: { mode: "auto_project_start" },
+											options: { maxRequests: 30, maxDepth: 2 },
+										},
+										preparedAutoTarget: {
+											origin: runtimeTarget.origin,
+											stop: runtimeTarget.stop,
+											plan: {
+												pluginId: "acceptance.todolist",
+												repoPath: sourceSnapshot.sourcePath,
+												scriptName: "container",
+												script: "container",
+												packageManager: "bun",
+												command: ["docker", "run"],
+												env: {},
+													port: 5173,
+												origin: runtimeTarget.origin,
+												readinessPaths: ["/api/health"],
+												requiresProjectCodeConsent: false,
+												warnings: [],
+											},
+											targetConfig: {
+												name: "todolist acceptance",
+												origin: runtimeTarget.origin,
+												allowLoopback: true,
+												allowPrivateNetwork: false,
+												allowedPathsJson: ["/", "/api/health"],
+												excludedPathsJson: [],
+												defaultHeadersJson: {},
+												maxDepth: 2,
+												maxRequests: 30,
+												rateLimitPerSec: 2,
+												timeoutSec: 600,
+												metadata: { acceptance: true },
+											},
+										},
+										artifactStorage: storage,
+									})
+								: profile.id === "schemathesis-readonly"
+									? await runSchemaScannerIntoExistingScan({
+											db: connection.db,
+											projectId: project.id,
+											scanRunId,
+											repoPath: sourceSnapshot.sourcePath,
+											targetOrigin: runtimeTarget.origin,
+											discovery: {
+												applicable: true,
+												schemaPath: path.resolve(
+													process.cwd(),
+													"spec/security-capability/todolist-readonly-openapi.v1.yaml",
+												),
+												source: "repository",
+												reasonCode: null,
+											},
+											artifactStorage: storage,
+											timeoutSec: 600,
+											execution: {
+												runner: "docker",
+												docker: { image: toolboxImage, networkMode: "default" },
+											},
+											allowedPaths: ["/api/health"],
+											maxRequests: 30,
+										})
+									: await runRuntimeScannerIntoExistingScan({
+											db: connection.db,
+											projectId: project.id,
+											scanRunId,
+											adapter: profile.id,
+											targetOrigin: runtimeTarget.origin,
+											artifactStorage: storage,
+											timeoutSec: 600,
+											execution: {
+												runner: "docker",
+												docker: { image: toolboxImage, networkMode: "default" },
+											},
+										});
 						if (runtime.error) {
 							await scanRepo.updateScanRunStatus(scanRunId, "failed", {
 								profileOutcome: "failed",
@@ -191,7 +276,8 @@ async function main() {
 								acceptanceRuntime: {
 									adapter: profile.id,
 									findingCount: runtime.findingCount,
-									artifactIds: runtime.artifactIds,
+									artifactIds:
+										"artifactIds" in runtime ? runtime.artifactIds : [],
 								},
 							},
 						});
@@ -207,7 +293,7 @@ async function main() {
 						"--project-id",
 						project.id,
 						"--project-path",
-						target.repoPath,
+						sourceSnapshot.sourcePath,
 						"--profile",
 						profile.profile,
 						"--runner",
@@ -225,12 +311,17 @@ async function main() {
 							? ["--image-tar", path.join(root, "todolist-image.tar")]
 							: []),
 					];
-					const execution = await run(command, env);
+					const execution = await run(command, {
+						...env,
+						...(profile.id === "semgrep"
+							? { VULN_WORKBENCH_OPTIONAL_SCANNER_ADAPTERS: "semgrep" }
+							: {}),
+					});
 					const payload = parsePayload(execution.stdout);
 					scanRunId = payload.scanRunId as string;
 					if (typeof scanRunId !== "string") {
 						throw new Error(
-							`todolist_acceptance_scan_id_missing:${profile.id}`,
+							`todolist_acceptance_scan_id_missing:${profile.id}:${String(payload.message ?? execution.stderr)}`,
 						);
 					}
 					if (execution.exitCode !== 0 || payload.ok !== true) {
@@ -294,6 +385,15 @@ async function main() {
 						);
 					}
 				}
+				if (
+					"expectedProfileOutcome" in profile &&
+					profile.expectedProfileOutcome &&
+					scanRun?.profileOutcome !== profile.expectedProfileOutcome
+				) {
+					throw new Error(
+						`todolist_acceptance_profile_outcome_mismatch:${profile.id}:expected=${profile.expectedProfileOutcome}:actual=${scanRun?.profileOutcome ?? "missing"}`,
+					);
+				}
 				results.push({
 					profile: profile.id,
 					scanRunId,
@@ -301,7 +401,27 @@ async function main() {
 					artifactCount: artifacts.length,
 				});
 			}
-			console.log(JSON.stringify({ ok: true, target, results, artifactRoot }));
+			const evidence = {
+				ok: true,
+				retained: args.keep,
+				target: {
+					commit: target.commit,
+					sourceArchiveSha256: sourceSnapshot.archiveSha256,
+					sourceArchivePath: sourceSnapshot.archivePath,
+					sourcePath: sourceSnapshot.sourcePath,
+				},
+				results,
+				artifactRoot,
+				databasePath: dbPath,
+			};
+			if (args.keep) {
+				await fs.writeFile(
+					path.join(root, "evidence.json"),
+					`${JSON.stringify(evidence)}\n`,
+					{ mode: 0o600 },
+				);
+			}
+			console.log(JSON.stringify(evidence));
 		} finally {
 			connection.sqlite.close();
 		}

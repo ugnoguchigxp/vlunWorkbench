@@ -2,10 +2,12 @@ import type { ScanPreflightMode } from "../../../shared/schemas/scan-preflight.s
 import type { ScanTarget } from "../../../shared/schemas/scan-target.schema";
 import type { AppDatabase } from "../../db";
 import { resolveProjectPath } from "../../security/project-path-policy";
+import type { RuntimeTargetProvider } from "../dast/runtime-target-provider";
 import {
 	analyzeProjectCapabilities,
 	buildPluginExecutionSummary,
 } from "../project-capabilities/plugin-detector";
+import { ScanArtifactSink } from "./artifact-sink";
 import { ArtifactStorage } from "./artifact-storage";
 import {
 	buildDiffScanPlan,
@@ -56,6 +58,7 @@ export async function runProfileScan(params: {
 	consentProjectCodeExecution?: boolean;
 	preflightMode?: ScanPreflightMode;
 	expectedPreflightBindingHash?: string;
+	runtimeTargetProvider?: RuntimeTargetProvider;
 }): Promise<ProfileScanResult> {
 	const scanRepo = new ScanRepository(params.db);
 	const artifactRepo = new ArtifactRepository(params.db);
@@ -318,38 +321,19 @@ export async function runProfileScan(params: {
 			diffPlan.target.snapshotDigest =
 				diffSnapshot?.snapshotDigest ?? diffPlan.target.targetDigest;
 			diffPlan.manifest.target.snapshotDigest = diffPlan.target.snapshotDigest;
-			const savedManifest = await artifactStorage
-				.forOwner({
-					scanRunId: scanRun.id,
-					kind: "scan",
-					id: "diff-manifest",
-				})
-				.saveTextArtifact(
-					scanRun.id,
-					"manifests",
-					`${canonicalJson(diffPlan.manifest)}\n`,
-					"diff-manifest.json",
-				);
-			const artifact = await artifactRepo
-				.createArtifact({
-					scanRunId: scanRun.id,
-					toolRunId: null,
-					kind: "diff_manifest",
-					format: "json",
-					path: savedManifest.path,
-					sha256: savedManifest.sha256,
-					sizeBytes: savedManifest.sizeBytes,
-					metadata: {
-						schemaVersion: 1,
-						targetDigest: diffPlan.target.targetDigest,
-					},
-				})
-				.catch(async (error) => {
-					await artifactStorage
-						.removeArtifacts([savedManifest.path])
-						.catch(() => undefined);
-					throw error;
-				});
+			const artifact = await new ScanArtifactSink(
+				artifactStorage,
+				artifactRepo,
+				{ scanRunId: scanRun.id, kind: "scan", id: "diff-manifest" },
+			).saveText({
+				role: "diff_manifest",
+				format: "json",
+				content: `${canonicalJson(diffPlan.manifest)}\n`,
+				metadata: {
+					schemaVersion: 1,
+					targetDigest: diffPlan.target.targetDigest,
+				},
+			});
 			diffManifestArtifactId = artifact.id;
 			await scanRepo.mergeScanRunMetadata(scanRun.id, {
 				target: diffPlan.target,
@@ -429,15 +413,17 @@ export async function runProfileScan(params: {
 		execution,
 		technologyAnalysis,
 		consentProjectCodeExecution: params.consentProjectCodeExecution === true,
+		runtimeTargetProvider: params.runtimeTargetProvider,
 		scanPreflight,
 	});
 
 	// Determine profile outcome
 	const runtimeAssessmentCoverage =
 		aggregateRuntimeAssessmentCoverage(stepResults);
-	const runtimeCoverageLimited =
-		runtimeAssessmentCoverage.steps.length > 0 &&
-		runtimeAssessmentCoverage.coverageStatus !== "covered";
+	const runtimeCoverageLimited = runtimeAssessmentCoverage.steps.some(
+		(step) =>
+			step.applicability === "applicable" && step.coverageEffect !== "covered",
+	);
 	const sourceSastCoverage = resolveSourceSastCoverage(profile, stepResults);
 	const sourceSastLimited = sourceSastCoverage?.coverageEffect === "gap";
 	const profileLimitationCodes = [
