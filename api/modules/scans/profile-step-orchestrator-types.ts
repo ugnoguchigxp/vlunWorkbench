@@ -1,3 +1,4 @@
+import type { ScanExecutionPlan } from "../../../shared/schemas/scan-execution-plan.schema";
 import type { ScanPreflightResult } from "../../../shared/schemas/scan-preflight.schema";
 import type { AppDatabase } from "../../db";
 import type { RuntimeTargetProvider } from "../dast/runtime-target-provider";
@@ -34,4 +35,5 @@ export type ExecuteProfileStepsParams = {
 	consentProjectCodeExecution: boolean;
 	runtimeTargetProvider?: RuntimeTargetProvider;
 	scanPreflight: ScanPreflightResult;
+	executionPlan: ScanExecutionPlan;
 };

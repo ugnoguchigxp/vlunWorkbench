@@ -63,7 +63,6 @@ export async function runGitCommand(params: {
 	const timeoutMs = params.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 	const maxBufferBytes = params.maxBufferBytes ?? DEFAULT_MAX_BUFFER_BYTES;
 	const allowedExitCodes = new Set(params.allowedExitCodes ?? [0]);
-
 	return await new Promise((resolve, reject) => {
 		const child = spawn("git", [...params.args], {
 			cwd: params.cwd,

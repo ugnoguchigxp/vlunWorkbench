@@ -10,6 +10,11 @@ import {
 	type ToolResult,
 } from "./profile-runner";
 import type { ExecuteProfileStepsParams } from "./profile-step-orchestrator-types";
+import {
+	notApplicablePlannedStepResult,
+	preflightBlockedStepResult,
+} from "./profile-step-results";
+import { scanProfileStepId } from "./scan-execution-plan-builder";
 import { resolveStaticScannerDiffExecution } from "./static-scanner-adapter";
 import { staticScannerAdapterRegistry } from "./static-scanner-adapters";
 import { withMandatoryExcludes } from "./target-scope";
@@ -37,6 +42,9 @@ export async function executeProfileSteps(
 	} = params;
 	const toolResults: ToolResult[] = [];
 	const stepResults: ScanProfileStepResult[] = [];
+	const executionSteps = new Map(
+		params.executionPlan.steps.map((planned) => [planned.stepId, planned]),
+	);
 	let sharedRuntimeTarget: PreparedRuntimeTarget | null = null;
 	const ensureSharedRuntimeTarget = async () => {
 		if (!sharedRuntimeTarget) {
@@ -67,71 +75,48 @@ export async function executeProfileSteps(
 			const failureFailsProfile =
 				step.required || step.failurePolicy === "fail_profile";
 
-			const stepId =
-				step.kind === "static_tool"
-					? step.toolId
-					: step.kind === "dast"
-						? `dast:${step.profileId}`
-						: `${step.kind}:${step.adapter}`;
+			const stepId = scanProfileStepId(step);
+			const planned = executionSteps.get(stepId);
+			if (!planned) {
+				throw new Error(`execution_plan_step_missing:${stepId}`);
+			}
+			if (planned.applicability === "not_applicable") {
+				const reasonCode = planned.reasonCodes[0] ?? "not_applicable";
+				const result = notApplicablePlannedStepResult({
+					step,
+					stepId,
+					reasonCode,
+					executionPlanHash: params.executionPlan.planHash,
+				});
+				if (result.toolResult) toolResults.push(result.toolResult);
+				stepResults.push(result.stepResult);
+				await scanRepo.createScanEvent({
+					scanRunId: scanRun.id,
+					level: "info",
+					eventType: "tool.not_applicable",
+					message: `${stepId} is not applicable according to the execution plan.`,
+					data: {
+						reasonCode,
+						executionPlanHash: params.executionPlan.planHash,
+					},
+				});
+				continue;
+			}
 			const preflightReasonCodes =
-				params.scanPreflight.mode === "enforced"
-					? params.scanPreflight.checks
-							.filter(
-								(check) =>
-									check.stepId === stepId && check.status === "blocked",
-							)
-							.flatMap((check) => check.reasonCode ?? [])
+				params.scanPreflight.mode === "enforced" &&
+				planned.readiness === "blocked"
+					? planned.reasonCodes
 					: [];
 			if (preflightReasonCodes.length > 0) {
-				const errorMessage = `Blocked by scan preflight: ${preflightReasonCodes.join(", ")}`;
 				if (failureFailsProfile) profileFailingToolFailed = true;
 				else optionalToolFailed = true;
-				if (step.kind === "static_tool") {
-					const toolResult: ToolResult = {
-						toolId: step.toolId,
-						toolRunId: null,
-						required: step.required,
-						status: "skipped",
-						findingCount: 0,
-						exitCode: null,
-						error: errorMessage,
-						applicability: "applicable",
-						reasonCode: "preflight_failed",
-						coverageEffect: "gap",
-						artifactIds: [],
-						metadata: { preflightReasonCodes },
-					};
-					toolResults.push(toolResult);
-					stepResults.push({ kind: "static_tool", ...toolResult });
-				} else if (step.kind === "dast") {
-					stepResults.push({
-						kind: "dast",
-						profileId: step.profileId,
-						required: step.required,
-						status: "skipped",
-						outcome: null,
-						coverageStatus: "gap",
-						limitationCodes: ["preflight_failed", ...preflightReasonCodes],
-						findingCount: 0,
-						dastRunId: null,
-						targetOrigin: null,
-						error: errorMessage,
-					});
-				} else {
-					stepResults.push({
-						kind: step.kind,
-						stepId,
-						adapter: step.adapter,
-						required: step.required,
-						status: "skipped",
-						applicability: "applicable",
-						reasonCode: "preflight_failed",
-						coverageEffect: "gap",
-						findingCount: 0,
-						error: errorMessage,
-						metadata: { preflightReasonCodes },
-					});
-				}
+				const result = preflightBlockedStepResult({
+					step,
+					stepId,
+					preflightReasonCodes,
+				});
+				if (result.toolResult) toolResults.push(result.toolResult);
+				stepResults.push(result.stepResult);
 				continue;
 			}
 

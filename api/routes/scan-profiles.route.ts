@@ -12,6 +12,7 @@ export function createScanProfilesRoute() {
 			description: p.description,
 			category: p.category,
 			enabled: p.enabled,
+			strictness: p.strictness ?? "best_effort",
 			defaultTimeoutSec: p.defaultTimeoutSec,
 			supportedTargets: p.supportedTargets ?? ["full"],
 			coverageGaps: p.coverageGaps ?? [],

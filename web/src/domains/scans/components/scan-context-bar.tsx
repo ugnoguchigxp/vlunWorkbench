@@ -10,7 +10,11 @@ const statusLabels: Record<ScanRun["status"], string> = {
 
 export function ScanContextBar({ scan }: { scan: ScanRun | null }) {
 	if (!scan) {
-		return <div className="workspace-scan-context empty">まだスキャン結果はありません。</div>;
+		return (
+			<div className="workspace-scan-context empty">
+				まだスキャン結果はありません。
+			</div>
+		);
 	}
 	return (
 		<div className="workspace-scan-context">

@@ -1,11 +1,12 @@
 import crypto from "node:crypto";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
 
 export const TODOLIST_ACCEPTANCE_PROFILES = [
 	{
 		id: "gitleaks",
-		profile: "baseline",
+		profile: "full-security-scan",
 		step: "gitleaks",
 		requiresTarget: false,
 		expectedArtifactKinds: ["raw_result"],
@@ -18,8 +19,15 @@ export const TODOLIST_ACCEPTANCE_PROFILES = [
 		expectedArtifactKinds: ["raw_result"],
 	},
 	{
+		id: "osv-installed-tree",
+		profile: "full-security-scan",
+		step: "osv",
+		requiresTarget: false,
+		expectedArtifactKinds: ["raw_result"],
+	},
+	{
 		id: "trivy-fs",
-		profile: "secrets-dependencies-runtime",
+		profile: "full-security-scan",
 		step: "trivy",
 		requiresTarget: false,
 		expectedArtifactKinds: ["raw_result"],
@@ -34,14 +42,14 @@ export const TODOLIST_ACCEPTANCE_PROFILES = [
 	{
 		id: "sbom",
 		profile: "sbom-inventory",
-		step: null,
+		step: "sbom_export:trivy",
 		requiresTarget: false,
 		expectedArtifactKinds: ["sbom"],
 	},
 	{
 		id: "schemathesis-no-schema",
 		profile: "api-schema-readonly",
-		step: null,
+		step: "api_schema_scan:schemathesis",
 		requiresTarget: false,
 		expectedArtifactKinds: [],
 		expectedNotApplicableReason: "schema_not_found",
@@ -50,35 +58,35 @@ export const TODOLIST_ACCEPTANCE_PROFILES = [
 	{
 		id: "schemathesis-readonly",
 		profile: "api-schema-readonly",
-		step: null,
+		step: "api_schema_scan:schemathesis",
 		requiresTarget: true,
 		expectedArtifactKinds: ["raw_result"],
 	},
 	{
 		id: "passive-dast",
-		profile: "web-passive-standard",
-		step: null,
+		profile: "runtime-web-safe",
+		step: "dast:web-passive-standard",
 		requiresTarget: true,
 		expectedArtifactKinds: ["dast_raw_result"],
 	},
 	{
 		id: "nuclei-safe",
 		profile: "runtime-web-safe",
-		step: null,
+		step: "runtime_scanner:nuclei-safe",
 		requiresTarget: true,
 		expectedArtifactKinds: ["raw_result"],
 	},
 	{
 		id: "zap-baseline",
-		profile: "runtime-zap-baseline",
-		step: null,
+		profile: "runtime-web-safe",
+		step: "runtime_scanner:zap-baseline",
 		requiresTarget: true,
 		expectedArtifactKinds: ["raw_result"],
 	},
 	{
 		id: "trivy-image",
 		profile: "container-image-security",
-		step: null,
+		step: "container_image_scan:trivy",
 		requiresTarget: true,
 		expectedArtifactKinds: ["raw_result"],
 	},
@@ -129,24 +137,19 @@ async function loadTargetContract(): Promise<TodolistTargetContract> {
 	return parsed as TodolistTargetContract;
 }
 
-async function runGit(repoPath: string, args: string[]): Promise<string> {
-	const child = Bun.spawn(["git", "-C", repoPath, ...args], {
-		stdout: "pipe",
-		stderr: "pipe",
-	});
-	const [exitCode, stdout] = await Promise.all([
-		child.exited,
-		new Response(child.stdout).text(),
-	]);
-	if (exitCode !== 0) {
+function runGit(repoPath: string, args: string[]): string {
+	try {
+		return execFileSync("git", ["-C", repoPath, ...args], {
+			encoding: "utf8",
+			stdio: ["ignore", "pipe", "pipe"],
+		}).trim();
+	} catch {
 		throw new Error("todolist_acceptance_target_not_a_git_repository");
 	}
-	return stdout.trim();
 }
 
 export async function resolveTodolistAcceptanceTarget(
-	repoPath =
-		process.env.VULN_WORKBENCH_TODOLIST_REPO_PATH ??
+	repoPath = process.env.VULN_WORKBENCH_TODOLIST_REPO_PATH ??
 		path.resolve(process.cwd(), "..", "todolist"),
 ): Promise<TodolistAcceptanceTarget> {
 	const resolved = path.resolve(repoPath);
@@ -160,14 +163,14 @@ export async function resolveTodolistAcceptanceTarget(
 	void packageJson;
 	void dockerfile;
 	const contract = await loadTargetContract();
-	const status = await runGit(resolved, [
+	const status = runGit(resolved, [
 		"status",
 		"--porcelain=v1",
 		"--untracked-files=all",
 	]);
 	if (status) throw new Error("todolist_acceptance_target_dirty");
 	try {
-		await runGit(resolved, ["cat-file", "-e", `${contract.commit}^{commit}`]);
+		runGit(resolved, ["cat-file", "-e", `${contract.commit}^{commit}`]);
 	} catch {
 		throw new Error("todolist_acceptance_target_commit_unavailable");
 	}

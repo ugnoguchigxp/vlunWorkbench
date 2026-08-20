@@ -198,5 +198,10 @@ export const scanProfileSchema = z.object({
 	tools: z.array(profileToolEntrySchema),
 	steps: z.array(scanProfileStepSchema).optional(),
 	coverageGaps: z.array(z.string().min(1).max(100)).max(20).optional(),
+	/**
+	 * Strict profiles are release-grade contracts: every applicable capability
+	 * must complete and an incomplete preflight must block execution.
+	 */
+	strictness: z.enum(["strict", "best_effort"]).optional(),
 });
 export type ScanProfile = z.infer<typeof scanProfileSchema>;

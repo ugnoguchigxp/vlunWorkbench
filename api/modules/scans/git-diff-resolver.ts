@@ -25,10 +25,7 @@ import {
 	type RawDiffEntry,
 } from "./git-diff-types";
 
-export {
-	DIFF_SCAN_LIMITS,
-	GitDiffResolutionError,
-} from "./git-diff-types";
+export { DIFF_SCAN_LIMITS, GitDiffResolutionError } from "./git-diff-types";
 
 export type ResolvedGitDiff = {
 	gitRoot: string;

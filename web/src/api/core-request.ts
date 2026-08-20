@@ -65,9 +65,7 @@ const parseErrorBody = async (response: Response): Promise<ApiErrorBody> => {
 					? record.message
 					: fallback.message,
 			...(typeof record.code === "string" ? { code: record.code } : {}),
-			...(Object.hasOwn(record, "details")
-				? { details: record.details }
-				: {}),
+			...(Object.hasOwn(record, "details") ? { details: record.details } : {}),
 		};
 	} catch {
 		return fallback;

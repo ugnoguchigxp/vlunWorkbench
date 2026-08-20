@@ -90,12 +90,16 @@ export interface ProfileScanResult {
 	scanRunId: string;
 	profileId: string;
 	status: "completed" | "failed";
-	profileOutcome: "completed" | "completed_with_warnings" | "failed";
+	profileOutcome:
+		| "completed"
+		| "completed_with_warnings"
+		| "blocked"
+		| "incomplete"
+		| "failed";
 	runner: "host" | "docker";
 	message?: string;
 	toolResults: ToolResult[];
 	stepResults: ScanProfileStepResult[];
-	finalReport?: FinalReportResult;
 }
 
 export interface FinalReportOptions {
@@ -187,21 +191,39 @@ export async function generateFinalReport(params: {
 	scanRunId: string;
 	artifactStorage: ArtifactStorage;
 	options: Required<FinalReportOptions>;
+	/** Supplying a claimed record lets finalization preserve one canonical report. */
+	reportId?: string;
+	stage?: "preliminary" | "canonical_final";
+	reportMetadata?: Record<string, unknown>;
 }): Promise<FinalReportResult> {
 	const reportRepo = new ScanReportRepository(params.db);
 	const artifactRepo = new ArtifactRepository(params.db);
-	const report = await reportRepo.createReport({
-		scanRunId: params.scanRunId,
-		format: "markdown",
-		title: params.options.title,
-		options: {
-			includeFalsePositives: params.options.includeFalsePositives,
-			includeDeferred: params.options.includeDeferred,
-			includeUndecided: params.options.includeUndecided,
-			source: "scan-profile-final-report",
-		},
-		status: "running",
-	});
+	const reportOptions = {
+		includeFalsePositives: params.options.includeFalsePositives,
+		includeDeferred: params.options.includeDeferred,
+		includeUndecided: params.options.includeUndecided,
+		source: "scan-profile-final-report",
+		...(params.reportMetadata ?? {}),
+	};
+	const report = params.reportId
+		? await reportRepo.findById(params.reportId)
+		: await reportRepo.createReport({
+				scanRunId: params.scanRunId,
+				format: "markdown",
+				title: params.options.title,
+				options: reportOptions,
+				stage: params.stage ?? "preliminary",
+				status: "running",
+			});
+	if (!report) throw new Error("Final report record was not found.");
+	if (report.scanRunId !== params.scanRunId || report.status !== "running") {
+		throw new Error("Final report record is not claimed for this scan.");
+	}
+	if (params.reportId) {
+		await reportRepo.updateReportStatus(report.id, "running", {
+			options: reportOptions,
+		});
+	}
 
 	try {
 		const markdown = await buildMarkdownReport(params.db, params.scanRunId, {
@@ -210,7 +232,10 @@ export async function generateFinalReport(params: {
 			includeUndecided: params.options.includeUndecided,
 			title: params.options.title,
 		});
-		const filename = `report-${report.id}.md`;
+		// A failed post-write DB update can be retried under the same canonical
+		// report ID. Keep every attempt immutable rather than colliding on the
+		// storage layer's exclusive-create guard.
+		const filename = `report-${report.id}-attempt-${report.attemptCount}.md`;
 		const saveResult = await params.artifactStorage
 			.forOwner({
 				scanRunId: params.scanRunId,
@@ -226,7 +251,12 @@ export async function generateFinalReport(params: {
 			path: saveResult.path,
 			sha256: saveResult.sha256,
 			sizeBytes: saveResult.sizeBytes,
-			metadata: { reportId: report.id, source: "scan-profile-final-report" },
+			metadata: {
+				reportId: report.id,
+				source: "scan-profile-final-report",
+				stage: report.stage,
+				...params.reportMetadata,
+			},
 		});
 		await reportRepo.updateReportStatus(report.id, "completed", {
 			artifactId: artifact.id,

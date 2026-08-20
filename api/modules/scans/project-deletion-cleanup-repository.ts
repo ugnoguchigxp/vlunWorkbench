@@ -86,7 +86,8 @@ export class ProjectDeletionCleanupRepository {
 	}
 
 	async fail(jobId: string, error: unknown) {
-		const message = error instanceof Error ? error.message : "Artifact cleanup failed";
+		const message =
+			error instanceof Error ? error.message : "Artifact cleanup failed";
 		await this.db
 			.update(projectDeletionCleanupJobs)
 			.set({

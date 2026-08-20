@@ -4,7 +4,7 @@ const ogJpegPath = "site/assets/img/og-image.jpg";
 
 const source = Bun.file(sourcePath);
 if (!(await source.exists())) {
-  throw new Error(`Source image not found: ${sourcePath}`);
+	throw new Error(`Source image not found: ${sourcePath}`);
 }
 
 const sourceSize = source.size;
@@ -25,17 +25,18 @@ const ogReduced = sourceSize - ogJpegSize;
 const ogRatio = ((ogJpegSize / sourceSize) * 100).toFixed(1);
 
 console.log(
-  [
-    `source: ${sourcePath}`,
-    `webp:   ${webpPath}`,
-    `ogjpg:  ${ogJpegPath}`,
-    `dimensions: ${meta.width}x${meta.height}`,
-    `source bytes: ${sourceSize}`,
-    `webp bytes:   ${webpSize}`,
-    `webp saved:   ${webpReduced}`,
-    `webp ratio:   ${webpRatio}%`,
-    `og jpg bytes: ${ogJpegSize}`,
-    `og jpg saved: ${ogReduced}`,
-    `og jpg ratio: ${ogRatio}%`,
-  ].join("\n"),
+	[
+		`source: ${sourcePath}`,
+		`webp:   ${webpPath}`,
+		`ogjpg:  ${ogJpegPath}`,
+		`dimensions: ${meta.width}x${meta.height}`,
+		`source bytes: ${sourceSize}`,
+		`webp bytes:   ${webpSize}`,
+		`webp saved:   ${webpReduced}`,
+		`webp ratio:   ${webpRatio}%`,
+		`og jpg bytes: ${ogJpegSize}`,
+		`og jpg saved: ${ogReduced}`,
+		`og jpg ratio: ${ogRatio}%`,
+	].join("\n"),
 );
+export {};

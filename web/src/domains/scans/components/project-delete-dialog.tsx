@@ -32,8 +32,14 @@ export function ProjectDeleteDialog({
 						この操作は取り消せません。スキャン履歴、検出結果、注釈、レポートを削除します。ローカルのリポジトリファイルは削除されません。
 					</p>
 					<dl className="workspace-delete-project-meta">
-						<div><dt>ブランチ</dt><dd>{project.defaultBranch}</dd></div>
-						<div><dt>リポジトリ</dt><dd>{project.repoPath}</dd></div>
+						<div>
+							<dt>ブランチ</dt>
+							<dd>{project.defaultBranch}</dd>
+						</div>
+						<div>
+							<dt>リポジトリ</dt>
+							<dd>{project.repoPath}</dd>
+						</div>
 					</dl>
 					<label htmlFor="project-delete-confirmation">
 						確認のため {project.name} と入力してください
@@ -44,10 +50,26 @@ export function ProjectDeleteDialog({
 							disabled={submitting}
 						/>
 					</label>
-					{error ? <p className="workspace-dialog-error" role="alert">{error}</p> : null}
+					{error ? (
+						<p className="workspace-dialog-error" role="alert">
+							{error}
+						</p>
+					) : null}
 					<div className="workspace-dialog-actions">
-						<Button type="button" variant="secondary" onClick={onClose} disabled={submitting}>キャンセル</Button>
-						<Button type="button" variant="destructive" onClick={onConfirm} disabled={!canSubmit}>
+						<Button
+							type="button"
+							variant="secondary"
+							onClick={onClose}
+							disabled={submitting}
+						>
+							キャンセル
+						</Button>
+						<Button
+							type="button"
+							variant="destructive"
+							onClick={onConfirm}
+							disabled={!canSubmit}
+						>
 							{submitting ? "削除中..." : "プロジェクトを削除"}
 						</Button>
 					</div>

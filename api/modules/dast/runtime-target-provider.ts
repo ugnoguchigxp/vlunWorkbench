@@ -13,6 +13,8 @@ export type PreparedRuntimeTarget = Pick<
 };
 
 export interface RuntimeTargetProvider {
+	/** Preflight-visible contract for an injected isolated target. */
+	plan?: DastTargetStartPlan;
 	prepare(input: {
 		repoPath: string;
 		readinessTimeoutMs: number;

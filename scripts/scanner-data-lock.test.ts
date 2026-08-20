@@ -54,6 +54,8 @@ describe("repository scanner data lock", () => {
 		expect(preparation).toContain('"--db-repository"');
 		expect(preparation).toContain("assertAllowedTrivyDatabaseSource");
 		expect(preparation).toContain("let recordCount = allowRefresh");
+		expect(preparation).toContain("? new Date().toISOString()");
+		expect(preparation).toContain(": template.generatedAt");
 	});
 });
 

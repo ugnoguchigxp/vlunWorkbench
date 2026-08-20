@@ -6,6 +6,10 @@ import { RuntimeScannerRunner } from "../runtime-scans/runtime-scanner-runner";
 import { ArtifactStorage } from "./artifact-storage";
 import type { ScanPreflightDependencies } from "./scan-preflight";
 import { staticScannerAdapterRegistry } from "./static-scanner-adapters";
+import {
+	loadScannerE2EContractHash,
+	loadScannerE2EQualification,
+} from "./scanner-e2e-qualification";
 import { loadScannerDataManifest } from "./tools/scanner-provenance";
 import {
 	checkToolVersion,
@@ -39,6 +43,8 @@ async function runLocalProbe(binary: string, args: string[]) {
 
 export const defaultScanPreflightDependencies: ScanPreflightDependencies = {
 	loadManifest: () => loadScannerDataManifest(),
+	loadQualification: () => loadScannerE2EQualification(),
+	loadQualificationContractHash: () => loadScannerE2EContractHash(),
 	probeScannerVersion: async (scannerId, execution) => {
 		if (scannerId === "nuclei-safe") {
 			return await new RuntimeScannerRunner(

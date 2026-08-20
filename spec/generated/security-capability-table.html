@@ -2,8 +2,8 @@
 <article lang="en">
   <h1>Security capability table</h1>
   <p>
-    Source contract hash: <code>sha256:32e25aa5f32585fdd0fbf27232e4749a195e9f0c68d6b8c9f16c98a2ea9df515</code><br />Scanner manifest:
-    <code>sha256:45ac5da152da4c55155d980cb81610533b6abd8d4a651719907d1664dccc47cd</code>
+    Source contract hash: <code>sha256:791bed1f4391ee12a72312fbd187b827fb131c2b7bffb02a231df9838d0e2696</code><br />Scanner manifest:
+    <code>sha256:b1cbafc73502bc86d3bf624a1f9548385afff5e7db4000995ac552dc8701d594</code>
   </p>
   <p>
     This table describes configured capability and readiness contracts. It is not evidence that a
@@ -49,28 +49,28 @@
         <td>required</td>
         <td>
           <code>osv-npm</code> (vulnerability-db,
-          <code>sha256:35b7a86990d773bd4b2656cd97ae9707e6c8bbf69ddbfb763b7da15ff115fbba</code>)<br /><code
+          <code>sha256:d956137befb8162541330b218e20cc0d89798cc86e35f0841dbc86375a20d258</code>)<br /><code
             >osv-PyPI</code
           >
-          (vulnerability-db, <code>sha256:b6db54730f77072fd767f042f35ceefac58ca39bc5fb82e246d1beb6d1f27fc7</code>)<br /><code
+          (vulnerability-db, <code>sha256:0d95293afabae9e5d354c0ab51b433d7c1b2eebfa6e39dab593004a7f22112dc</code>)<br /><code
             >osv-Go</code
           >
-          (vulnerability-db, <code>sha256:34e97db7383e475c8ea7443ba7b3776a49e05a9faea9f98d0ca62f91d6a08da2</code>)<br /><code
+          (vulnerability-db, <code>sha256:22a8548482210256121a024b715a1710ad7195186c74334afc984683c9342c1a</code>)<br /><code
             >osv-Maven</code
           >
-          (vulnerability-db, <code>sha256:751ded3e26f46fad338db16f2cd9d87d2441a83f4bf70a25267ea9a8132f1b84</code>)<br /><code
+          (vulnerability-db, <code>sha256:bec80df3151fe762e269fd94689fc7d44ba4b2591dfc94a3ebe658553f232f3f</code>)<br /><code
             >osv-crates.io</code
           >
-          (vulnerability-db, <code>sha256:6fa4cd02ac6f52f3851b9a3d718909d573ebb9c705bfe3dd1d512e6a20545d18</code>)<br /><code
+          (vulnerability-db, <code>sha256:f65833914e8870775814126074edc70637bf399b92f85734fb2c371d78e96fe4</code>)<br /><code
             >osv-NuGet</code
           >
-          (vulnerability-db, <code>sha256:3a2c810e8facc3459f47e24c47488874c2c6d25f66ee1dd760318eaf0ee5e6db</code>)<br /><code
+          (vulnerability-db, <code>sha256:83383e0b78863a8a3a6eee06cfb343f8153c186c0343d39f1cac32b592631f3b</code>)<br /><code
             >osv-Packagist</code
           >
-          (vulnerability-db, <code>sha256:f27062ac0804d74e7b76af4921acab28a0d86eb6d40a224783d7aa9ea77f558f</code>)<br /><code
+          (vulnerability-db, <code>sha256:b36635c19cec20090bfe1b5ef6e46a4dae1394914a01b6540771808a123e9773</code>)<br /><code
             >osv-RubyGems</code
           >
-          (vulnerability-db, <code>sha256:1767e4488bde574878ff108d2b903334ee905b227f4658b8b49c00a48d74730f</code>)
+          (vulnerability-db, <code>sha256:fc8b0b07c5c6e74e14e3601ed2690da512845ba540b57d3880554307774d842b</code>)
         </td>
       </tr>
       <tr>
@@ -147,8 +147,8 @@
       <tr>
         <td><code>api-schema-readonly</code></td>
         <td>core</td>
-        <td>—</td>
         <td><code>api_schema_scan:schemathesis</code></td>
+        <td>—</td>
         <td>—</td>
       </tr>
       <tr>
@@ -194,8 +194,8 @@
       <tr>
         <td><code>container-image-security</code></td>
         <td>core</td>
-        <td>—</td>
         <td><code>container_image_scan:trivy</code></td>
+        <td>—</td>
         <td>—</td>
       </tr>
       <tr>
@@ -257,15 +257,13 @@
             >osv</code
           ><br /><code>trivy</code><br /><code
             >semgrep</code
-          ><br /><code>sbom_export:trivy</code>
+          ><br /><code>sbom_export:trivy</code><br /><code
+            >dast:web-passive-standard</code
+          ><br /><code>runtime_scanner:nuclei-safe</code><br /><code
+            >runtime_scanner:zap-baseline</code
+          ><br /><code>api_schema_scan:schemathesis</code>
         </td>
-        <td>
-          <code>dast:web-passive-standard</code><br /><code
-            >runtime_scanner:nuclei-safe</code
-          ><br /><code>runtime_scanner:zap-baseline</code><br /><code
-            >api_schema_scan:schemathesis</code
-          >
-        </td>
+        <td>—</td>
         <td>—</td>
       </tr>
       <tr>
@@ -278,12 +276,12 @@
       <tr>
         <td><code>runtime-web-safe</code></td>
         <td>core</td>
-        <td>—</td>
         <td>
           <code>dast:web-passive-standard</code><br /><code
             >runtime_scanner:nuclei-safe</code
           ><br /><code>runtime_scanner:zap-baseline</code>
         </td>
+        <td>—</td>
         <td>—</td>
       </tr>
       <tr>
@@ -323,10 +321,14 @@
         <td>—</td>
       </tr>
       <tr>
-        <td><code>semgrep-baseline</code></td>
-        <td>optional adapter</td>
-        <td><code>semgrep</code></td>
-        <td>—</td>
+        <td><code>security-inventory-best-effort</code></td>
+        <td>core</td>
+        <td><code>gitleaks</code></td>
+        <td>
+          <code>osv</code><br /><code
+            >trivy</code
+          >
+        </td>
         <td>—</td>
       </tr>
       <tr>
@@ -364,7 +366,7 @@
     <code>docker_daemon</code>, <code>docker_image</code>,
     <code>target_start_plan</code>, <code>project_code_consent</code>,
     <code>sandbox_availability</code>, <code>api_schema_applicability</code>,
-    <code>browser_runtime</code>.
+    <code>browser_runtime</code>, <code>scanner_e2e_qualification</code>.
   </p>
   <p>
     Drift binding: <code>resolvedProfileHash</code>,

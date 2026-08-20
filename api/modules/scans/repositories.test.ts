@@ -191,6 +191,35 @@ describe("Scan Domain Repositories", () => {
 		expect(updatedTool?.metadata).toMatchObject({ image: "zaproxy/zap-stable@sha256:example" });
 	});
 
+	it("preserves null-valued nested scan metadata during an atomic merge", async () => {
+		const project = await projectRepo.createProject({
+			ownerUserId: userId,
+			name: "Preflight metadata project",
+			repoPath: "/path/to/preflight-metadata",
+		});
+		const scanRun = await scanRepo.createScanRun({
+			projectId: project.id,
+			profile: "baseline",
+			status: "running",
+			metadata: { existing: { preserved: true } },
+		});
+
+		await scanRepo.mergeScanRunMetadata(scanRun.id, {
+			scanPreflight: {
+				sourceRevision: null,
+				binding: { dockerImagesHash: null, sourceRevisionHash: null },
+			},
+		});
+
+		expect((await scanRepo.findById(scanRun.id))?.metadata).toEqual({
+			existing: { preserved: true },
+			scanPreflight: {
+				sourceRevision: null,
+				binding: { dockerImagesHash: null, sourceRevisionHash: null },
+			},
+		});
+	});
+
 	it("lists scan history newest first", async () => {
 		const project = await projectRepo.createProject({
 			ownerUserId: userId,

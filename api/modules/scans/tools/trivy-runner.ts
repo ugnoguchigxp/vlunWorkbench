@@ -116,9 +116,12 @@ export class TrivyRunner {
 			args.push("--scanners", options.scanners.join(","));
 		}
 		if (this.execution?.runner === "docker" && mode !== "fs-sbom") {
+			const cacheDir = this.execution.docker?.toolCacheDir
+				? "/workspace/cache/trivy"
+				: "/opt/vuln-workbench/scanner-data/trivy";
 			args.push(
 				"--cache-dir",
-				"/opt/vuln-workbench/scanner-data/trivy",
+				cacheDir,
 				"--skip-db-update",
 				"--skip-java-db-update",
 				"--offline-scan",

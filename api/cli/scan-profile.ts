@@ -19,6 +19,7 @@ import {
 	runProfileScan,
 } from "../modules/scans/profile-runner";
 import { getProfileById } from "../modules/scans/profiles";
+import { finalizeScanAfterDiagnostic } from "../modules/scans/scan-finalization-service";
 import {
 	ProjectResolutionError,
 	resolveProjectByPath,
@@ -435,16 +436,9 @@ async function main() {
 			expectedTargetDigest,
 			expectedPreflightBindingHash,
 			consentProjectCodeExecution,
-			finalReport: {
-				enabled: finalReportEnabled,
-				title: reportTitle,
-				includeFalsePositives: true,
-				includeDeferred: true,
-				includeUndecided: true,
-			},
 		});
 		const automatedDiagnostic =
-			automatedDiagnosticEnabled &&
+			(automatedDiagnosticEnabled || finalReportEnabled) &&
 			executionSurface === "cli" &&
 			result.status === "completed"
 				? await runCliAutomatedDiagnostic({
@@ -453,9 +447,24 @@ async function main() {
 						scanRunId: result.scanRunId,
 					})
 				: null;
+		const finalReport =
+			finalReportEnabled && result.status === "completed"
+				? await finalizeScanAfterDiagnostic({
+						db: dbConnection.db,
+						scanRunId: result.scanRunId,
+						options: {
+							enabled: true,
+							title:
+								reportTitle ?? `${result.profileId} 最終セキュリティレポート`,
+							includeFalsePositives: true,
+							includeDeferred: true,
+							includeUndecided: true,
+						},
+					})
+				: undefined;
 		const reportArtifactPath =
+			finalReport?.artifactPath ??
 			automatedDiagnostic?.reportArtifactPath ??
-			result.finalReport?.artifactPath ??
 			null;
 		if (reportOutputPath && reportArtifactPath) {
 			const reportMarkdown = await new ArtifactStorage().readTextArtifact(
@@ -477,7 +486,7 @@ async function main() {
 			status: result.status,
 			profileOutcome: result.profileOutcome,
 			message: result.message,
-			finalReport: result.finalReport,
+			finalReport,
 			automatedDiagnostic,
 			toolResults: result.toolResults.map((r) => ({
 				toolId: r.toolId,

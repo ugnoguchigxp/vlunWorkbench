@@ -162,12 +162,6 @@ async function main(): Promise<number> {
 			continueOnToolFailure: true,
 			execution,
 			executionPolicyMetadata: scanExecutionPolicyMetadata(executionPolicy),
-			finalReport: {
-				enabled: true,
-				includeFalsePositives: true,
-				includeDeferred: true,
-				includeUndecided: true,
-			},
 		});
 
 		const findingRepo = new FindingRepository(dbConnection.db);

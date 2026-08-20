@@ -196,7 +196,7 @@ async function main() {
 												packageManager: "bun",
 												command: ["docker", "run"],
 												env: {},
-													port: 5173,
+												port: 5173,
 												origin: runtimeTarget.origin,
 												readinessPaths: ["/api/health"],
 												requiresProjectCodeConsent: false,

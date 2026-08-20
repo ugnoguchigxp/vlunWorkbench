@@ -3,6 +3,7 @@ import type {
 	ScanPreflightMode,
 	ScanPreflightResult,
 } from "../../../shared/schemas/scan-preflight.schema";
+import type { ScannerE2EQualification } from "../../../shared/schemas/scanner-e2e-qualification.schema";
 import { scanPreflightResultSchema } from "../../../shared/schemas/scan-preflight.schema";
 import type {
 	ScanProfile,
@@ -21,8 +22,17 @@ import {
 	dockerImageReason,
 	hashPreflightValue,
 } from "./scan-preflight-binding";
+import {
+	addScannerChecks,
+	buildPreflightCheck as check,
+	buildVersionCheck,
+	digestFromImageRef,
+	scanStepId,
+	stepNeedsTargetPlan,
+} from "./scan-preflight-check-builders";
 import { defaultScanPreflightDependencies } from "./scan-preflight-probes";
 import { staticScannerAdapterRegistry } from "./static-scanner-adapters";
+import { checkScannerE2EQualification } from "./scanner-e2e-qualification";
 import type { ScannerDataManifest } from "./tools/scanner-provenance";
 import { DEFAULT_DOCKER_IMAGE } from "./tools/tool-process-policy";
 import type { ToolExecutionConfig } from "./tools/tool-process-runner";
@@ -50,6 +60,8 @@ export type ScanPreflightDependencies = {
 	discoverRepositorySchema: (repoPath: string) => Promise<boolean>;
 	probeBrowser: () => Promise<string | null>;
 	resolveSourceRevision: (repoPath: string) => Promise<string | null>;
+	loadQualification: () => Promise<ScannerE2EQualification | null>;
+	loadQualificationContractHash: () => Promise<string | null>;
 	now: () => Date;
 };
 
@@ -61,6 +73,13 @@ export async function runScanPreflight(params: {
 	execution: ToolExecutionConfig;
 	mode?: ScanPreflightMode;
 	consentProjectCodeExecution?: boolean;
+	targetPlan?: DastTargetStartPlan;
+	/**
+	 * Optional deployment-admission control. The protected CI gate is always
+	 * required to produce qualification; normal project scans must not be
+	 * blocked merely because their runtime lacks the CI artifact.
+	 */
+	requireScannerE2EQualification?: boolean;
 	dependencies?: Partial<ScanPreflightDependencies>;
 }): Promise<ScanPreflightResult> {
 	const dependencies = {
@@ -184,11 +203,13 @@ export async function runScanPreflight(params: {
 	let targetPlanFailure: string | null = null;
 	if (params.steps.some(stepNeedsTargetPlan)) {
 		try {
-			targetPlan = await dependencies.inferTargetPlan({
-				repoPath: params.repoPath,
-				consentProjectCodeExecution:
-					params.consentProjectCodeExecution === true,
-			});
+			targetPlan =
+				params.targetPlan ??
+				(await dependencies.inferTargetPlan({
+					repoPath: params.repoPath,
+					consentProjectCodeExecution:
+						params.consentProjectCodeExecution === true,
+				}));
 		} catch (error) {
 			targetPlanFailure = safeReasonCode(
 				error,
@@ -337,7 +358,13 @@ export async function runScanPreflight(params: {
 					params.execution,
 				);
 				checks.push(
-					versionCheck(stepId, step.required, "schemathesis", version, null),
+					buildVersionCheck(
+						stepId,
+						step.required,
+						"schemathesis",
+						version,
+						null,
+					),
 				);
 			}
 		} else if (step.kind === "dast") {
@@ -370,6 +397,36 @@ export async function runScanPreflight(params: {
 		sourceRevision,
 		checks,
 	});
+	const requireScannerE2EQualification =
+		params.requireScannerE2EQualification ??
+		process.env.VULN_WORKBENCH_REQUIRE_SCANNER_E2E_QUALIFICATION === "true";
+	if (
+		params.profile.strictness === "strict" &&
+		requireScannerE2EQualification
+	) {
+		const [qualification, expectedContractHash] = await Promise.all([
+			dependencies.loadQualification(),
+			dependencies.loadQualificationContractHash(),
+		]);
+		const qualificationCheck = checkScannerE2EQualification({
+			qualification,
+			steps: params.steps,
+			preflight: { binding, checks },
+			expectedContractHash,
+		});
+		checks.push(
+			check({
+				id: `profile:${params.profile.id}:scanner-e2e-qualification`,
+				stepId: `profile:${params.profile.id}`,
+				kind: "scanner_e2e_qualification",
+				required: true,
+				ready: qualificationCheck.ready,
+				reasonCode: qualificationCheck.reasonCode,
+				action: "run_scanner_e2e_qualification",
+				evidenceRefs: qualificationCheck.evidenceRefs,
+			}),
+		);
+	}
 	const blocked = checks.filter((item) => item.status === "blocked");
 	const status = blocked.some((item) => item.required)
 		? "blocked"
@@ -406,192 +463,17 @@ export async function runScanPreflight(params: {
 	});
 }
 
-async function addScannerChecks(params: {
-	checks: ScanPreflightCheck[];
-	stepId: string;
-	required: boolean;
-	scannerId: string;
-	execution: ToolExecutionConfig;
-	manifest: ScannerDataManifest | null;
-	manifestFailure: string | null;
-	dockerBin: string;
-	toolboxImage: string;
-	toolboxReady: boolean;
-	dependencies: ScanPreflightDependencies;
-}) {
-	const entry = params.manifest?.tools[params.scannerId];
-	let dataReady = Boolean(entry && entry.state === "ready");
-	let reasonCode = params.manifestFailure;
-	if (!reasonCode && !entry) reasonCode = "scanner_data_entry_missing";
-	if (!reasonCode && entry?.state === "missing")
-		reasonCode = "scanner_data_missing";
-	if (!reasonCode && entry?.state === "stale")
-		reasonCode = "scanner_data_stale";
-	if (
-		dataReady &&
-		params.execution.runner === "docker" &&
-		entry?.runtimePath &&
-		params.toolboxReady
-	) {
-		dataReady = await params.dependencies.probeDockerRuntimePath(
-			params.dockerBin,
-			params.toolboxImage,
-			entry.runtimePath,
-		);
-		if (!dataReady) reasonCode = "scanner_data_runtime_unreadable";
-	}
-	params.checks.push(
-		check({
-			id: `${params.stepId}:scanner-data`,
-			stepId: params.stepId,
-			kind: "scanner_data",
-			required: params.required,
-			ready: dataReady,
-			reasonCode,
-			action: "prepare_scanner_database",
-			scannerId: params.scannerId,
-			expectedVersion: entry?.version ?? null,
-			expectedDigest: entry?.digest ?? null,
-			observedDigest: dataReady ? (entry?.digest ?? null) : null,
-			dataState: entry?.state ?? null,
-			dataGeneratedAt: entry?.generatedAt ?? null,
-			evidenceRefs: params.manifest
-				? [`scanner-manifest:${params.manifest.manifestHash}`]
-				: [],
-		}),
-	);
-	if (params.execution.runner === "docker" && !params.toolboxReady) return;
-	const version = await params.dependencies.probeScannerVersion(
-		params.scannerId,
-		params.execution,
-	);
-	params.checks.push(
-		versionCheck(
-			params.stepId,
-			params.required,
-			params.scannerId,
-			version,
-			entry?.version ?? null,
-		),
-	);
-}
-
-function versionCheck(
-	stepId: string,
-	required: boolean,
-	scannerId: string,
-	version: string | null,
-	expectedVersion: string | null,
-): ScanPreflightCheck {
-	const observedNormalized = version ? normalizedVersion(version) : null;
-	const expectedNormalized = expectedVersion
-		? normalizedVersion(expectedVersion)
-		: null;
-	return check({
-		id: `${stepId}:binary-version`,
-		stepId,
-		kind: "binary_version",
-		required,
-		ready:
-			Boolean(version) &&
-			(expectedVersion === null || observedNormalized === expectedNormalized),
-		reasonCode: !version
-			? "scanner_binary_unavailable"
-			: expectedVersion !== null && observedNormalized !== expectedNormalized
-				? "scanner_version_mismatch"
-				: null,
-		action: "build_toolbox_image",
-		scannerId,
-		observedVersion: version,
-		expectedVersion,
-		evidenceRefs: version ? [`scanner-version:${scannerId}`] : [],
-	});
-}
-
-function check(params: {
-	id: string;
-	stepId: string;
-	kind: ScanPreflightCheck["kind"];
-	required: boolean;
-	ready: boolean;
-	reasonCode?: string | null;
-	action: ScanPreflightCheck["action"];
-	scannerId?: string | null;
-	observedVersion?: string | null;
-	expectedVersion?: string | null;
-	expectedDigest?: string | null;
-	observedDigest?: string | null;
-	expectedPlatform?: string | null;
-	observedPlatform?: string | null;
-	dataState?: ScanPreflightCheck["dataState"];
-	dataGeneratedAt?: string | null;
-	evidenceRefs?: string[];
-}): ScanPreflightCheck {
-	return {
-		id: params.id,
-		stepId: params.stepId,
-		kind: params.kind,
-		required: params.required,
-		status: params.ready ? "ready" : "blocked",
-		reasonCode: params.ready ? null : (params.reasonCode ?? "preflight_failed"),
-		action: params.ready ? null : params.action,
-		scannerId: params.scannerId ?? null,
-		observedVersion: sanitizeVersion(params.observedVersion),
-		expectedVersion: params.expectedVersion ?? null,
-		expectedDigest: params.expectedDigest ?? null,
-		observedDigest: params.observedDigest ?? null,
-		expectedPlatform: params.expectedPlatform ?? null,
-		observedPlatform: params.observedPlatform ?? null,
-		dataState: params.dataState ?? null,
-		dataGeneratedAt: params.dataGeneratedAt ?? null,
-		evidenceRefs: params.evidenceRefs ?? [],
-	};
-}
-
-function scanStepId(step: ScanProfileStep): string {
-	return step.kind === "static_tool"
-		? step.toolId
-		: step.kind === "dast"
-			? `dast:${step.profileId}`
-			: `${step.kind}:${step.adapter}`;
-}
-
-function stepNeedsTargetPlan(step: ScanProfileStep): boolean {
-	return (
-		step.kind === "dast" ||
-		step.kind === "runtime_scanner" ||
-		step.kind === "api_schema_scan"
-	);
-}
-
-function digestFromImageRef(image: string): string | null {
-	const match = image.match(/@(sha256:[a-f0-9]{64})$/);
-	return match?.[1] ?? null;
-}
-
-function sanitizeVersion(value: string | null | undefined): string | null {
-	if (!value) return null;
-	return (
-		value
-			.replace(/[\r\n\0]+/g, " ")
-			.trim()
-			.slice(0, 200) || null
-	);
-}
-
 function safeReasonCode(error: unknown, fallback: string): string {
 	const message = error instanceof Error ? error.message : String(error);
 	const candidate = message.trim();
 	return /^[a-z][a-z0-9_]{2,99}$/.test(candidate) ? candidate : fallback;
 }
 
-function normalizedVersion(value: string): string | null {
-	return value.match(/\b\d+(?:\.\d+){1,3}(?:[-+][0-9a-z.-]+)?\b/i)?.[0] ?? null;
-}
-
 export function resolveScanPreflightMode(
 	value = process.env.VULN_WORKBENCH_SCAN_PREFLIGHT_MODE,
 ): ScanPreflightMode {
+	// Legacy/best-effort profiles retain their diagnostic default. Strict
+	// profiles override this in the orchestrator and are always enforced.
 	return value === "enforced" ? "enforced" : "shadow";
 }
 

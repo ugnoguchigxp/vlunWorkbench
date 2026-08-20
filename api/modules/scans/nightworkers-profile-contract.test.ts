@@ -29,11 +29,17 @@ describe("NightWorkers scan profile contract", () => {
 		expect(new Set(identifiers).size).toBe(identifiers.length);
 	});
 
-	it("keeps optional Semgrep out of every standard profile", () => {
+	it("requires Semgrep only in the strict full-security profile", () => {
 		for (const profile of listProfiles()) {
-			expect(profile.tools.some((tool) => tool.toolId === "semgrep")).toBe(
-				false,
-			);
+			const semgrep = profile.tools.find((tool) => tool.toolId === "semgrep");
+			if (profile.id === "full-security-scan") {
+				expect(semgrep).toMatchObject({
+				required: true,
+				failurePolicy: "fail_profile",
+			});
+			} else {
+				expect(semgrep).toBeUndefined();
+			}
 		}
 	});
 });

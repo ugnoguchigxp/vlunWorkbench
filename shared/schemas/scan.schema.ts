@@ -42,6 +42,8 @@ export const scanRunSchema = z.object({
 			"running",
 			"completed",
 			"completed_with_warnings",
+			"blocked",
+			"incomplete",
 			"failed",
 		])
 		.default("pending"),

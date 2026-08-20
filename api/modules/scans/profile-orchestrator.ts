@@ -17,19 +17,19 @@ import {
 import { type DiffSnapshot, materializeDiffSnapshot } from "./diff-snapshot";
 import { resolveFullScanTarget } from "./full-scan-target";
 import { resolveGitDiff } from "./git-diff-resolver";
-import {
-	type FinalReportOptions,
-	type FinalReportResult,
-	generateFinalReport,
-	type ProfileScanResult,
-	resolveProfileSteps,
-} from "./profile-runner";
+import { type ProfileScanResult, resolveProfileSteps } from "./profile-runner";
 import { executeProfileSteps } from "./profile-step-orchestrator";
 import { getProfileById } from "./profiles";
 import { ArtifactRepository, ScanRepository } from "./repositories";
 import { hashResolvedProfile } from "./resolved-profile";
 import { aggregateRuntimeAssessmentCoverage } from "./runtime-assessment-coverage";
 import { preflightBlocksExecution, runScanPreflight } from "./scan-preflight";
+import {
+	applyExecutionPlanToSteps,
+	applyStrictProfileRequirements,
+	buildScanExecutionPlan,
+	executionPlanBlocks,
+} from "./scan-execution-plan-builder";
 import { resolveSourceSastCoverage } from "./source-sast-coverage";
 import { resolveScanScope } from "./target-scope";
 import {
@@ -48,7 +48,6 @@ export async function runProfileScan(params: {
 	timeoutSec?: number;
 	createdByUserId?: string | null;
 	execution?: ToolExecutionConfig;
-	finalReport?: FinalReportOptions;
 	imageRef?: string;
 	imageTar?: string;
 	executionPolicyMetadata?: Record<string, unknown>;
@@ -91,25 +90,20 @@ export async function runProfileScan(params: {
 			throw new Error("target_changed: full target changed after preview");
 		}
 	}
-	const finalReportOptions: Required<FinalReportOptions> = {
-		enabled: params.finalReport?.enabled ?? false,
-		title:
-			params.finalReport?.title ??
-			`${profile.name || params.profileId} 最終セキュリティレポート`,
-		includeFalsePositives: params.finalReport?.includeFalsePositives ?? true,
-		includeDeferred: params.finalReport?.includeDeferred ?? true,
-		includeUndecided: params.finalReport?.includeUndecided ?? true,
-	};
 	const resolvedScope = await resolveScanScope({
 		repoPath: params.repoPath,
 		scope: profile.scope,
 	});
 	const technologyAnalysis = await analyzeProjectCapabilities(params.repoPath);
-	const profileSteps = resolveProfileSteps({
+	const selectedProfileSteps = resolveProfileSteps({
 		steps: profile.steps,
 		tools: profile.tools,
 		stepId: params.stepId,
 	});
+	const profileSteps = applyStrictProfileRequirements(
+		profile,
+		selectedProfileSteps,
+	);
 	const diffPlan: DiffScanPlan | null =
 		requestedTarget.kind === "full"
 			? null
@@ -129,10 +123,13 @@ export async function runProfileScan(params: {
 						(entry) => entry.path,
 					),
 				});
-	const sharesRuntimeTarget = profileSteps.some(
-		(step) =>
-			step.kind === "runtime_scanner" || step.kind === "api_schema_scan",
-	);
+	const sharesRuntimeTarget =
+		profileSteps.some(
+			(step) =>
+				step.kind === "runtime_scanner" || step.kind === "api_schema_scan",
+		) ||
+		(Boolean(params.runtimeTargetProvider) &&
+			profileSteps.some((step) => step.kind === "dast"));
 	const stepOrder = profileSteps.map((step) =>
 		step.kind === "static_tool"
 			? step.toolId
@@ -209,16 +206,33 @@ export async function runProfileScan(params: {
 		projectId: params.projectId,
 		repoPath: params.repoPath,
 		execution,
-		mode: params.preflightMode,
+		mode: profile.strictness === "strict" ? "enforced" : params.preflightMode,
 		consentProjectCodeExecution: params.consentProjectCodeExecution,
+		targetPlan: params.runtimeTargetProvider?.plan,
 	});
 	const preflightBindingChanged = Boolean(
 		params.expectedPreflightBindingHash &&
 			params.expectedPreflightBindingHash !== scanPreflight.bindingHash,
 	);
+	const executionPlan = buildScanExecutionPlan({
+		scanRunId: scanRun.id,
+		projectId: params.projectId,
+		profile,
+		steps: profileSteps,
+		preflight: scanPreflight,
+	});
+	await scanRepo.saveExecutionPlan({
+		scanRunId: scanRun.id,
+		projectId: params.projectId,
+		profileId: profile.id,
+		strictness: executionPlan.strictness,
+		planHash: executionPlan.planHash,
+		plan: executionPlan,
+	});
 	await scanRepo.mergeScanRunMetadata(scanRun.id, {
 		scanPreflight,
 		preflightBindingHash: scanPreflight.bindingHash,
+		executionPlan,
 	});
 	await scanRepo.createScanEvent({
 		scanRunId: scanRun.id,
@@ -239,7 +253,11 @@ export async function runProfileScan(params: {
 			limitationCodes: scanPreflight.limitationCodes,
 		},
 	});
-	if (preflightBindingChanged || preflightBlocksExecution(scanPreflight)) {
+	if (
+		preflightBindingChanged ||
+		preflightBlocksExecution(scanPreflight) ||
+		(profile.strictness === "strict" && executionPlanBlocks(executionPlan))
+	) {
 		const terminationReason = preflightBindingChanged
 			? "preflight_changed"
 			: "preflight_failed";
@@ -248,13 +266,14 @@ export async function runProfileScan(params: {
 			: "Scan failed because a required preflight check was blocked.";
 		await scanRepo.updateScanRunStatus(scanRun.id, "failed", {
 			summary: summaryMsg,
-			profileOutcome: "failed",
+			profileOutcome: "blocked",
 			metadata: {
 				...scanRun.metadata,
 				...initialMetadata,
 				scanPreflight,
 				preflightBindingHash: scanPreflight.bindingHash,
-				profileOutcome: "failed",
+				profileOutcome: "blocked",
+				executionPlan,
 				terminationReason,
 				profileLimitationCodes: [
 					...new Set([
@@ -272,24 +291,16 @@ export async function runProfileScan(params: {
 			message: summaryMsg,
 			data: { terminationReason },
 		});
-		const finalReport = await generateRequestedFinalReport({
-			db: params.db,
-			scanRunId: scanRun.id,
-			artifactStorage,
-			options: finalReportOptions,
-			scanRepo,
-		});
 		return {
 			ok: false,
 			scanRunId: scanRun.id,
 			profileId: params.profileId,
 			status: "failed",
-			profileOutcome: "failed",
+			profileOutcome: "blocked",
 			runner: execution.runner,
 			message: summaryMsg,
 			toolResults: [],
 			stepResults: [],
-			finalReport,
 		};
 	}
 
@@ -403,7 +414,7 @@ export async function runProfileScan(params: {
 		scanRepo,
 		scanRun,
 		profile,
-		profileSteps,
+		profileSteps: applyExecutionPlanToSteps(profileSteps, executionPlan),
 		continueOnToolFailure,
 		diffPlan,
 		diffSnapshot,
@@ -415,6 +426,7 @@ export async function runProfileScan(params: {
 		consentProjectCodeExecution: params.consentProjectCodeExecution === true,
 		runtimeTargetProvider: params.runtimeTargetProvider,
 		scanPreflight,
+		executionPlan,
 	});
 
 	// Determine profile outcome
@@ -506,19 +518,8 @@ export async function runProfileScan(params: {
 		message: summaryMsg,
 	});
 
-	const finalReport = await generateRequestedFinalReport({
-		db: params.db,
-		scanRunId: scanRun.id,
-		artifactStorage,
-		options: finalReportOptions,
-		scanRepo,
-	});
-
-	const ok = profileOutcome !== "failed" && (finalReport?.ok ?? true);
-	const message =
-		finalReport && !finalReport.ok
-			? `${summaryMsg} Final report generation failed: ${finalReport.error}`
-			: summaryMsg;
+	const ok = profileOutcome !== "failed";
+	const message = summaryMsg;
 
 	return {
 		ok,
@@ -530,38 +531,5 @@ export async function runProfileScan(params: {
 		message,
 		toolResults,
 		stepResults,
-		finalReport,
 	};
-}
-
-async function generateRequestedFinalReport(params: {
-	db: AppDatabase;
-	scanRunId: string;
-	artifactStorage: ArtifactStorage;
-	options: Required<FinalReportOptions>;
-	scanRepo: ScanRepository;
-}): Promise<FinalReportResult | undefined> {
-	if (!params.options.enabled) return undefined;
-	await params.scanRepo.createScanEvent({
-		scanRunId: params.scanRunId,
-		level: "info",
-		eventType: "report.started",
-		message: "Final scan report generation started.",
-	});
-	const finalReport = await generateFinalReport({
-		db: params.db,
-		scanRunId: params.scanRunId,
-		artifactStorage: params.artifactStorage,
-		options: params.options,
-	});
-	await params.scanRepo.createScanEvent({
-		scanRunId: params.scanRunId,
-		level: finalReport.ok ? "info" : "error",
-		eventType: finalReport.ok ? "report.completed" : "report.failed",
-		message: finalReport.ok
-			? `Final scan report generated: ${finalReport.artifactPath}`
-			: `Final scan report generation failed: ${finalReport.error}`,
-		data: { ...finalReport },
-	});
-	return finalReport;
 }

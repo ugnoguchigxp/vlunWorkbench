@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, it } from "vitest";
 import type { ScanReport, ScanReview } from "../../api";
 import {
 	hasLlmComment,
@@ -49,13 +49,13 @@ const review = (overrides: Partial<ScanReview> = {}): ScanReview => ({
 });
 
 describe("report workspace view model", () => {
-	test("uses a valid requested report and otherwise falls back to newest report", () => {
+	it("uses a valid requested report and otherwise falls back to newest report", () => {
 		expect(selectWorkspaceReportId([report("new"), report("old")], "old")).toBe("old");
 		expect(selectWorkspaceReportId([report("new")], "missing")).toBe("new");
 		expect(selectWorkspaceReportId([])).toBeNull();
 	});
 
-	test("only exposes a completed LLM review with visible commentary", () => {
+	it("only exposes a completed LLM review with visible commentary", () => {
 		expect(hasLlmComment(review())).toBe(true);
 		expect(hasLlmComment(review({ status: "running" }))).toBe(false);
 		expect(

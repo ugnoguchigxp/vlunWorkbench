@@ -23,21 +23,54 @@
   </p>
   <p>
     runtime系はホストでtodolistのコードを起動しない。harnessがtodolist Docker imageをbuildし、
-    loopback公開、read-only root filesystem、tmpfsの<code>/data</code>、capability drop、
-    no-new-privilegesを付けた一時targetを起動する。NucleiとZAPはこのtargetに対して各々独立の
-    scan run/tool runを作る。todolist HEAD
+    loopback公開、read-only root
+    filesystem、tmpfsの<code>/data</code>、capability drop、
+    no-new-privilegesを付けた一時targetを起動する。NucleiとZAPはこのtargetに対して各々独立の scan
+    run/tool runを作る。todolist HEAD
     <code>d87bfdd9f29aa64e484a0c4d1ad02956136dc6b0</code>で、8個すべての個別ケースを実行済みである。
   </p>
   <table>
-    <caption>実行済み個別qualification</caption>
-    <thead><tr><th scope="col">case</th><th scope="col">期待結果</th><th scope="col">実測</th></tr></thead>
+    <caption>
+      実行済み個別qualification
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">case</th>
+        <th scope="col">期待結果</th>
+        <th scope="col">実測</th>
+      </tr>
+    </thead>
     <tbody>
-      <tr><td>gitleaks / osv / trivy-fs</td><td>raw resultを保存しcompleted</td><td>各2 artifact、completed</td></tr>
-      <tr><td>sbom</td><td>SBOMを保存</td><td>2 artifact、completed_with_warnings</td></tr>
-      <tr><td>schemathesis-no-schema</td><td>targetを起動せずschema_not_found N/A</td><td>0 artifact、completed_with_warnings</td></tr>
-      <tr><td>nuclei-safe</td><td>隔離runtime targetへのsafe scan</td><td>1 artifact、completed</td></tr>
-      <tr><td>zap-baseline</td><td>隔離runtime targetへのpassive scan</td><td>2 artifact、completed</td></tr>
-      <tr><td>trivy-image</td><td>明示image tarをread-only mountしてscan</td><td>2 artifact、completed_with_warnings</td></tr>
+      <tr>
+        <td>gitleaks / osv / trivy-fs</td>
+        <td>raw resultを保存しcompleted</td>
+        <td>各2 artifact、completed</td>
+      </tr>
+      <tr>
+        <td>sbom</td>
+        <td>SBOMを保存</td>
+        <td>2 artifact、completed_with_warnings</td>
+      </tr>
+      <tr>
+        <td>schemathesis-no-schema</td>
+        <td>targetを起動せずschema_not_found N/A</td>
+        <td>0 artifact、completed_with_warnings</td>
+      </tr>
+      <tr>
+        <td>nuclei-safe</td>
+        <td>隔離runtime targetへのsafe scan</td>
+        <td>1 artifact、completed</td>
+      </tr>
+      <tr>
+        <td>zap-baseline</td>
+        <td>隔離runtime targetへのpassive scan</td>
+        <td>2 artifact、completed</td>
+      </tr>
+      <tr>
+        <td>trivy-image</td>
+        <td>明示image tarをread-only mountしてscan</td>
+        <td>2 artifact、completed_with_warnings</td>
+      </tr>
     </tbody>
   </table>
   <p>

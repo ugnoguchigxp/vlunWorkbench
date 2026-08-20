@@ -11,6 +11,8 @@ export class ScanReportRepository {
 		title: string;
 		options: Record<string, unknown>;
 		status: "queued" | "running" | "completed" | "failed";
+		stage?: "preliminary" | "canonical_final";
+		supersedesReportId?: string | null;
 		generatedByUserId?: string | null;
 	}) {
 		const now = new Date();
@@ -19,6 +21,7 @@ export class ScanReportRepository {
 			.values({
 				scanRunId: params.scanRunId,
 				format: params.format,
+				stage: params.stage ?? "preliminary",
 				title: params.title,
 				options: params.options,
 				status: params.status,
@@ -28,11 +31,76 @@ export class ScanReportRepository {
 						? now
 						: null,
 				generatedByUserId: params.generatedByUserId ?? null,
+				supersedesReportId: params.supersedesReportId ?? null,
 				createdAt: now,
 				updatedAt: now,
 			})
 			.returning();
 		return created;
+	}
+
+	async findCanonicalFinalReport(scanRunId: string) {
+		return (
+			(await this.db.query.scanReports.findFirst({
+				where: and(
+					eq(scanReports.scanRunId, scanRunId),
+					eq(scanReports.stage, "canonical_final"),
+				),
+			})) ?? null
+		);
+	}
+
+	/**
+	 * The partial unique index is the concurrency boundary. A failed canonical
+	 * report is deliberately reused by a retry instead of creating a second
+	 * final report for the same scan.
+	 */
+	async createOrFindCanonicalFinalReport(params: {
+		scanRunId: string;
+		format: string;
+		title: string;
+		options: Record<string, unknown>;
+		supersedesReportId?: string | null;
+		generatedByUserId?: string | null;
+	}) {
+		const existing = await this.findCanonicalFinalReport(params.scanRunId);
+		if (existing) return existing;
+		try {
+			return await this.createReport({
+				...params,
+				stage: "canonical_final",
+				status: "queued",
+			});
+		} catch (error) {
+			const concurrent = await this.findCanonicalFinalReport(params.scanRunId);
+			if (concurrent) return concurrent;
+			throw error;
+		}
+	}
+
+	async claimCanonicalFinalReport(id: string) {
+		const now = new Date();
+		const [claimed] = await this.db
+			.update(scanReports)
+			.set({
+				status: "running",
+				startedAt: now,
+				completedAt: null,
+				errorCode: null,
+				errorMessage: null,
+				retryable: null,
+				attemptCount: sql`${scanReports.attemptCount} + 1`,
+				updatedAt: now,
+			})
+			.where(
+				and(
+					eq(scanReports.id, id),
+					eq(scanReports.stage, "canonical_final"),
+					inArray(scanReports.status, ["queued", "failed", "completed"]),
+				),
+			)
+			.returning();
+		return claimed ?? null;
 	}
 
 	async claimQueuedReport(id: string) {

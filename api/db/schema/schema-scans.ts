@@ -347,6 +347,8 @@ export const scanReports = sqliteTable(
 			onDelete: "set null",
 		}),
 		format: text("format").notNull(), // markdown
+		/** preliminary reports are historical; one canonical_final is current per scan. */
+		stage: text("stage").notNull().default("preliminary"),
 		title: text("title").notNull(),
 		summary: text("summary"),
 		options: jsonObject("options"),
@@ -358,6 +360,9 @@ export const scanReports = sqliteTable(
 		generatedByUserId: text("generated_by_user_id").references(() => users.id, {
 			onDelete: "set null",
 		}),
+		// Self-reference is enforced by the migration. Keeping the column plain
+		// avoids a circular Drizzle table initializer while preserving the FK in SQL.
+		supersedesReportId: text("supersedes_report_id"),
 		startedAt: integer("started_at", { mode: "timestamp_ms" }),
 		completedAt: integer("completed_at", { mode: "timestamp_ms" }),
 		createdAt: timestampMs("created_at"),
@@ -367,6 +372,10 @@ export const scanReports = sqliteTable(
 		scanRunIdIdx: index("scan_reports_scan_run_id_idx").on(table.scanRunId),
 		artifactIdIdx: index("scan_reports_artifact_id_idx").on(table.artifactId),
 		statusIdx: index("scan_reports_status_idx").on(table.status),
+		stageScanRunIdx: index("scan_reports_stage_scan_run_idx").on(
+			table.stage,
+			table.scanRunId,
+		),
 	}),
 );
 
@@ -403,10 +412,9 @@ export const projectDeletionCleanupJobs = sqliteTable(
 		completedAt: integer("completed_at", { mode: "timestamp_ms" }),
 	},
 	(table) => ({
-		statusCreatedIdx: index("project_deletion_cleanup_jobs_status_created_idx").on(
-			table.status,
-			table.createdAt,
-		),
+		statusCreatedIdx: index(
+			"project_deletion_cleanup_jobs_status_created_idx",
+		).on(table.status, table.createdAt),
 	}),
 );
 

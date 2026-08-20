@@ -23,6 +23,7 @@ export const scanPreflightCheckKindSchema = z.enum([
 	"sandbox_availability",
 	"api_schema_applicability",
 	"browser_runtime",
+	"scanner_e2e_qualification",
 ]);
 export const scanPreflightActionSchema = z.enum([
 	"configure_scanner_adapter",
@@ -35,6 +36,7 @@ export const scanPreflightActionSchema = z.enum([
 	"configure_target_start_plan",
 	"configure_api_schema",
 	"configure_project_sandbox",
+	"run_scanner_e2e_qualification",
 ]);
 
 export const scanPreflightCheckSchema = z.object({

@@ -39,7 +39,8 @@ export function buildScanWorkspaceViewModel(params: {
 		})
 		.slice(0, 3);
 	const selectedScan =
-		params.scanRuns.find((scan) => scan.id === params.selectedScanRunId) ?? null;
+		params.scanRuns.find((scan) => scan.id === params.selectedScanRunId) ??
+		null;
 	return {
 		severityCounts,
 		priorityFindings,

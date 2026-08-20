@@ -65,7 +65,11 @@ try {
 		path.join(stagedOutput, "nuclei-safe-templates"),
 		{ recursive: true },
 	);
-	const generatedAt = new Date().toISOString();
+	// A locked build must reproduce the repository manifest byte-for-byte. Only
+	// the explicit refresh workflow advances its freshness clock and lock hash.
+	const generatedAt = allowRefresh
+		? new Date().toISOString()
+		: template.generatedAt;
 	const osvRoot = path.join(stagedOutput, "osv", "osv-scanner");
 	await mkdir(osvRoot, { recursive: true });
 	await mkdir(downloadCacheRoot, { recursive: true });

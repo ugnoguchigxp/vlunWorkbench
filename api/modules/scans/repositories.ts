@@ -1,16 +1,30 @@
 import { and, asc, eq, gt, inArray, or, sql } from "drizzle-orm";
 import { type AppDatabase, writerClientForDatabase } from "../../db";
-import { projects, scanEvents, scanRuns, toolRuns } from "../../db/schema";
+import {
+	projects,
+	scanEvents,
+	scanExecutionPlans,
+	scanRuns,
+	toolRuns,
+} from "../../db/schema";
 
 export { ArtifactRepository } from "./artifact-repository";
 export { FindingRepository } from "./finding-repository";
 
 /**
- * SQLite evaluates json_patch in the same UPDATE statement. This avoids the
- * read/modify/write race between the scan worker, supervisor, and report job.
+ * SQLite evaluates the nested json_set calls in one UPDATE statement, keeping
+ * the metadata merge atomic. json_patch cannot be used here: RFC 7396 treats
+ * nested nulls as delete instructions and corrupted persisted preflight data.
  */
 function mergeJsonMetadata(metadata: Record<string, unknown>) {
-	return sql`json_patch(COALESCE(${scanRuns.metadata}, '{}'), ${JSON.stringify(metadata)})`;
+	let merged = sql`COALESCE(${scanRuns.metadata}, '{}')`;
+	for (const [key, value] of Object.entries(metadata)) {
+		const serialized = JSON.stringify(value);
+		if (serialized === undefined) continue;
+		const path = `$.${JSON.stringify(key)}`;
+		merged = sql`json_set(${merged}, ${path}, json(${serialized}))`;
+	}
+	return merged;
 }
 
 export class ProjectRepository {
@@ -164,6 +178,35 @@ export class ScanRepository {
 		return updated ?? null;
 	}
 
+	async saveExecutionPlan(params: {
+		scanRunId: string;
+		projectId: string;
+		profileId: string;
+		strictness: "strict" | "best_effort";
+		planHash: string;
+		plan: Record<string, unknown>;
+	}) {
+		const [saved] = await this.db
+			.insert(scanExecutionPlans)
+			.values({
+				scanRunId: params.scanRunId,
+				projectId: params.projectId,
+				profileId: params.profileId,
+				strictness: params.strictness,
+				planHash: params.planHash,
+				plan: params.plan,
+				createdAt: new Date(),
+			})
+			.onConflictDoNothing({ target: scanExecutionPlans.scanRunId })
+			.returning();
+		if (saved) return saved;
+		return (
+			(await this.db.query.scanExecutionPlans.findFirst({
+				where: eq(scanExecutionPlans.scanRunId, params.scanRunId),
+			})) ?? null
+		);
+	}
+
 	async listActiveScanRuns() {
 		return await this.db.query.scanRuns.findMany({
 			where: or(eq(scanRuns.status, "queued"), eq(scanRuns.status, "running")),
@@ -182,6 +225,8 @@ export class ScanRepository {
 				| "running"
 				| "completed"
 				| "completed_with_warnings"
+				| "blocked"
+				| "incomplete"
 				| "failed";
 			returnNullIfNotUpdated?: boolean;
 		},
