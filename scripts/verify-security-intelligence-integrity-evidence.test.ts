@@ -5,6 +5,7 @@ import {
 	mkdtempSync,
 	readFileSync,
 	rmSync,
+	symlinkSync,
 	writeFileSync,
 } from "node:fs";
 import os from "node:os";
@@ -13,6 +14,7 @@ import {
 	assertRecordedCrossRepositoryFixtureDigests,
 	assertRecordedRepositoryStates,
 	readRepositoryStates,
+	resolveCanonicalIntegrityEvidencePath,
 	verifySecurityIntelligenceIntegrityEvidence,
 } from "./verify-security-intelligence-integrity-evidence";
 
@@ -152,6 +154,78 @@ describe("Security Intelligence integrity evidence verifier", () => {
 					ignoredWorkingTreePaths: { vulnWorkbench: [evidencePath] },
 				}).vulnWorkbench.clean,
 			).toBe(false);
+
+			writeFileSync(path.join(roots.vulnWorkbench, "tracked.txt"), "baseline\n");
+			rmSync(evidencePath);
+			const wildcardEvidencePath = path.join(
+				roots.vulnWorkbench,
+				"spec/evidence/security-intelligence-*.json",
+			);
+			writeFileSync(wildcardEvidencePath, "{}", "utf8");
+			writeFileSync(
+				path.join(
+					roots.vulnWorkbench,
+					"spec/evidence/security-intelligence-other.json",
+				),
+				"{}",
+				"utf8",
+			);
+			expect(
+				readRepositoryStates(roots, {
+					ignoredWorkingTreePaths: {
+						vulnWorkbench: [wildcardEvidencePath],
+					},
+				}).vulnWorkbench.clean,
+			).toBe(false);
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
+	});
+
+	test("accepts only regular evidence files inside the canonical directory", () => {
+		const root = mkdtempSync(
+			path.join(os.tmpdir(), "security-intelligence-evidence-path-"),
+		);
+		try {
+			const repository = path.join(root, "repository");
+			const evidenceDirectory = path.join(repository, "spec/evidence");
+			mkdirSync(evidenceDirectory, { recursive: true });
+			const evidencePath = path.join(evidenceDirectory, "evidence.json");
+			writeFileSync(evidencePath, "{}", "utf8");
+			expect(
+				resolveCanonicalIntegrityEvidencePath(repository, evidencePath),
+			).toBe(evidencePath);
+
+			const outsidePath = path.join(root, "outside.json");
+			writeFileSync(outsidePath, "{}", "utf8");
+			expect(() =>
+				resolveCanonicalIntegrityEvidencePath(repository, outsidePath),
+			).toThrow(
+				"security_intelligence:integrity_evidence_path_outside_canonical_directory",
+			);
+
+			const linkedPath = path.join(evidenceDirectory, "linked.json");
+			symlinkSync(outsidePath, linkedPath);
+			expect(() =>
+				resolveCanonicalIntegrityEvidencePath(repository, linkedPath),
+			).toThrow(
+				"security_intelligence:integrity_evidence_must_be_regular_file",
+			);
+
+			const outsideDirectory = path.join(root, "outside-directory");
+			mkdirSync(outsideDirectory);
+			const nestedEvidencePath = path.join(outsideDirectory, "evidence.json");
+			writeFileSync(nestedEvidencePath, "{}", "utf8");
+			const linkedDirectory = path.join(evidenceDirectory, "linked-directory");
+			symlinkSync(outsideDirectory, linkedDirectory, "dir");
+			expect(() =>
+				resolveCanonicalIntegrityEvidencePath(
+					repository,
+					path.join(linkedDirectory, "evidence.json"),
+				),
+			).toThrow(
+				"security_intelligence:integrity_evidence_must_be_regular_file",
+			);
 		} finally {
 			rmSync(root, { recursive: true, force: true });
 		}

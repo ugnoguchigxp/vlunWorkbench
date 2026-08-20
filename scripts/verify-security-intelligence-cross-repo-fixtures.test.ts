@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+	mkdirSync,
+	mkdtempSync,
+	rmSync,
+	symlinkSync,
+	writeFileSync,
+} from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import {
@@ -49,6 +55,64 @@ describe("Security Intelligence cross-repository fixture verifier", () => {
 			verifySecurityIntelligenceCrossRepositoryFixtures(roots),
 		).toThrow(
 			"security_intelligence:cross_repo_fixture_mismatch:feedbackBatch:nightWorkers:contextStill",
+		);
+	});
+
+	test("does not hide a workspace grant added to the producer fixture", () => {
+		const roots = fixtureRepositories();
+		writeJson(
+			roots.vulnWorkbench,
+			"shared/fixtures/security-intelligence-scan-binding-v2.json",
+			{
+				fixtureVersion: 1,
+				nested: { stable: true },
+				workspaceTargetGrant: { available: true },
+			},
+		);
+
+		expect(() =>
+			verifySecurityIntelligenceCrossRepositoryFixtures(roots),
+		).toThrow(
+			"security_intelligence:cross_repo_fixture_mismatch:scanBindingCore:vulnWorkbench:nightWorkers",
+		);
+	});
+
+	test("rejects a fixture symlink instead of hashing content outside the repository file", () => {
+		const roots = fixtureRepositories();
+		const linkedFixture = path.join(
+			roots.contextStill,
+			"shared/fixtures/security-intelligence-identity-v1.json",
+		);
+		rmSync(linkedFixture);
+		symlinkSync(
+			path.join(
+				roots.vulnWorkbench,
+				"shared/fixtures/security-intelligence-identity-v1.json",
+			),
+			linkedFixture,
+		);
+
+		expect(() =>
+			verifySecurityIntelligenceCrossRepositoryFixtures(roots),
+		).toThrow(
+			"security_intelligence:fixture_not_regular_file:identityMapping:contextStill",
+		);
+	});
+
+	test("rejects a symlinked fixture directory", () => {
+		const roots = fixtureRepositories();
+		const fixtureDirectory = path.join(roots.contextStill, "shared/fixtures");
+		rmSync(fixtureDirectory, { recursive: true });
+		symlinkSync(
+			path.join(roots.vulnWorkbench, "shared/fixtures"),
+			fixtureDirectory,
+			"dir",
+		);
+
+		expect(() =>
+			verifySecurityIntelligenceCrossRepositoryFixtures(roots),
+		).toThrow(
+			"security_intelligence:fixture_not_regular_file:identityMapping:contextStill",
 		);
 	});
 });

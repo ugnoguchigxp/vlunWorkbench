@@ -778,8 +778,21 @@ git diff --cached --name-only -- artifacts
 
 Use `spec/README.md` as the canonical specification index. The active
 security/release completion plan is
-`spec/phase-56-capability-product-completion-plan.md`; long-term concepts and
+`spec/phase-56-capability-product-completion-plan.html`; long-term concepts and
 integration pilots are cataloged separately in the index.
+
+Browse and validate the active specification documents with Spec HTML:
+
+```bash
+bun run docs
+bun run docs:check
+```
+
+The Viewer serves active Spec HTML and retained Markdown from `spec/`, and
+exposes `spec/.archived/` through its archived-document view. Do not run
+`spec-html migrate --write` for this repository: `.archived` records completed
+or superseded implementation plans, not Markdown sources retired by a format
+migration.
 
 Completed or superseded implementation plans are moved to `spec/.archived/`.
 This hidden directory is excluded from normal LLM exploration and is read only

@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { lstatSync, readFileSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { parseArgs } from "node:util";
 import type { NightworkersSecurityIntelligenceIntegrityEvidence } from "../shared/schemas/nightworkers-security-intelligence-integrity-evidence.schema";
@@ -74,7 +74,7 @@ export function readRepositoryStates(
 					"--untracked-files=all",
 					"--",
 					".",
-					...ignoredPaths.map((item) => `:(exclude)${item}`),
+					...ignoredPaths.map((item) => `:(exclude,literal)${item}`),
 				],
 				{ encoding: "utf8" },
 			).trim();
@@ -96,6 +96,58 @@ function repositoryRelativePath(root: string, input: string): string {
 		);
 	}
 	return relative.split(path.sep).join("/");
+}
+
+export function resolveCanonicalIntegrityEvidencePath(
+	repositoryRoot: string,
+	input: string,
+): string {
+	const absoluteEvidencePath = path.resolve(input);
+	const evidenceDirectory = path.join(repositoryRoot, "spec", "evidence");
+	const evidenceRelativeToDirectory = path.relative(
+		evidenceDirectory,
+		absoluteEvidencePath,
+	);
+	if (
+		evidenceRelativeToDirectory.length === 0 ||
+		evidenceRelativeToDirectory === ".." ||
+		evidenceRelativeToDirectory.startsWith(`..${path.sep}`) ||
+		path.isAbsolute(evidenceRelativeToDirectory)
+	) {
+		throw new Error(
+			"security_intelligence:integrity_evidence_path_outside_canonical_directory",
+		);
+	}
+	let currentPath = repositoryRoot;
+	for (const segment of path
+		.relative(repositoryRoot, absoluteEvidencePath)
+		.split(path.sep)) {
+		currentPath = path.join(currentPath, segment);
+		if (lstatSync(currentPath).isSymbolicLink()) {
+			throw new Error(
+				"security_intelligence:integrity_evidence_must_be_regular_file",
+			);
+		}
+	}
+	if (!lstatSync(absoluteEvidencePath).isFile()) {
+		throw new Error(
+			"security_intelligence:integrity_evidence_must_be_regular_file",
+		);
+	}
+	const realEvidenceDirectory = realpathSync(evidenceDirectory);
+	const realEvidencePath = realpathSync(absoluteEvidencePath);
+	const realRelative = path.relative(realEvidenceDirectory, realEvidencePath);
+	if (
+		realRelative.length === 0 ||
+		realRelative === ".." ||
+		realRelative.startsWith(`..${path.sep}`) ||
+		path.isAbsolute(realRelative)
+	) {
+		throw new Error(
+			"security_intelligence:integrity_evidence_path_outside_canonical_directory",
+		);
+	}
+	return absoluteEvidencePath;
 }
 
 export function assertRecordedRepositoryStates(
@@ -136,27 +188,15 @@ function main(): void {
 	if (!evidencePath) {
 		throw new Error("security_intelligence:integrity_evidence_path_required");
 	}
-	const absoluteEvidencePath = path.resolve(evidencePath);
+	const repositoryRoot = path.resolve(import.meta.dir, "..");
+	const absoluteEvidencePath = resolveCanonicalIntegrityEvidencePath(
+		repositoryRoot,
+		evidencePath,
+	);
 	const evidence = verifySecurityIntelligenceIntegrityEvidence(
 		JSON.parse(readFileSync(absoluteEvidencePath, "utf8")),
 		{ allowIncomplete: parsed.values["allow-incomplete"] },
 	);
-	const repositoryRoot = path.resolve(import.meta.dir, "..");
-	const evidenceDirectory = path.join(repositoryRoot, "spec", "evidence");
-	const evidenceRelativeToDirectory = path.relative(
-		evidenceDirectory,
-		absoluteEvidencePath,
-	);
-	if (
-		evidenceRelativeToDirectory.length === 0 ||
-		evidenceRelativeToDirectory === ".." ||
-		evidenceRelativeToDirectory.startsWith(`..${path.sep}`) ||
-		path.isAbsolute(evidenceRelativeToDirectory)
-	) {
-		throw new Error(
-			"security_intelligence:integrity_evidence_path_outside_canonical_directory",
-		);
-	}
 	const roots: RepositoryRoots = {
 		vulnWorkbench: repositoryRoot,
 		nightWorkers: path.resolve(

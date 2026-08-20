@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { lstatSync, readFileSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { parseArgs } from "node:util";
 import { canonicalStringifySecurityIntelligenceValue } from "../shared/security-intelligence-assessment-contract";
@@ -14,7 +14,7 @@ type FixtureCheck = {
 	key: CrossRepositoryFixtureKey;
 	label: string;
 	files: Array<{ repository: keyof RepositoryRoots; relativePath: string }>;
-	project?: (value: unknown) => unknown;
+	project?: (value: unknown, repository: keyof RepositoryRoots) => unknown;
 };
 
 export type CrossRepositoryFixtureKey =
@@ -122,12 +122,18 @@ export function verifySecurityIntelligenceCrossRepositoryFixtures(
 ): CrossRepositoryFixtureCheckResult[] {
 	return fixtureChecks.map((check) => {
 		const values = check.files.map((file) => {
-			const absolutePath = path.join(roots[file.repository], file.relativePath);
+			const repositoryRoot = roots[file.repository];
+			const absolutePath = assertRegularRepositoryFixture(
+				repositoryRoot,
+				file.relativePath,
+				check.key,
+				file.repository,
+			);
 			const parsed = JSON.parse(readFileSync(absolutePath, "utf8"));
 			return {
 				repository: file.repository,
 				canonical: canonicalStringifySecurityIntelligenceValue(
-					check.project ? check.project(parsed) : parsed,
+					check.project ? check.project(parsed, file.repository) : parsed,
 				),
 			};
 		});
@@ -154,9 +160,52 @@ export function verifySecurityIntelligenceCrossRepositoryFixtures(
 	});
 }
 
-function scanBindingCore(value: unknown): unknown {
+function assertRegularRepositoryFixture(
+	repositoryRoot: string,
+	relativePath: string,
+	key: CrossRepositoryFixtureKey,
+	repository: keyof RepositoryRoots,
+): string {
+	let currentPath = repositoryRoot;
+	for (const segment of relativePath.split("/")) {
+		currentPath = path.join(currentPath, segment);
+		if (lstatSync(currentPath).isSymbolicLink()) {
+			throw new Error(
+				`security_intelligence:fixture_not_regular_file:${key}:${repository}`,
+			);
+		}
+	}
+	if (!lstatSync(currentPath).isFile()) {
+		throw new Error(
+			`security_intelligence:fixture_not_regular_file:${key}:${repository}`,
+		);
+	}
+	const relativeRealPath = path.relative(
+		realpathSync(repositoryRoot),
+		realpathSync(currentPath),
+	);
+	if (
+		relativeRealPath.length === 0 ||
+		relativeRealPath === ".." ||
+		relativeRealPath.startsWith(`..${path.sep}`) ||
+		path.isAbsolute(relativeRealPath)
+	) {
+		throw new Error(
+			`security_intelligence:fixture_outside_repository:${key}:${repository}`,
+		);
+	}
+	return currentPath;
+}
+
+function scanBindingCore(
+	value: unknown,
+	repository: keyof RepositoryRoots,
+): unknown {
 	if (!isRecord(value)) {
 		throw new Error("security_intelligence:scan_binding_fixture_not_object");
+	}
+	if (repository !== "nightWorkers") {
+		return value;
 	}
 	const { workspaceTargetGrant: _workspaceTargetGrant, ...core } = value;
 	return core;

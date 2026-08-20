@@ -1,0 +1,704 @@
+<article lang="ja">
+  <h1 id="project-intelligence-and-ontology-evolution-roadmap">
+    Project Intelligence and Ontology Evolution Roadmap
+  </h1>
+  <ul>
+    <li>Status: Directional roadmap</li>
+    <li>Date: 2026-08-09</li>
+    <li>Entry gate: Project Intelligence Foundation Hardening（完了）</li>
+    <li>
+      Scope: Persistent Project Structure Index -&gt; Project Intelligence -&gt; independent
+      Ontology Core
+    </li>
+  </ul>
+  <h2 id="1-purpose">1. Purpose</h2>
+  <p>
+    この文書は、Project Exploration
+    MVPの先で、vulnWorkbenchとNightWorkersをどの順序で深化させるかを定義する。
+  </p>
+  <p>
+    最終目標は、単に大きなgraphを作ることではない。coding agent、人間、CI、security
+    toolingが、同じprojectについて次を区別して参照できる状態を作ることである。
+  </p>
+  <ul>
+    <li>sourceから観測された事実</li>
+    <li>repository ownerが宣言した意味・責務・制約</li>
+    <li>evidenceから導出された推論</li>
+    <li>task/runで選択された一時的projection</li>
+  </ul>
+  <p>この区別を保持できない段階では「Ontology製品」と呼ばない。</p>
+  <h3 id="document-precedence">Document precedence</h3>
+  <ul>
+    <li>
+      本書は将来のproduct boundaryと分離条件を定義し、目下の実装順序はFoundation Hardening
+      Planに従う。
+    </li>
+    <li>
+      <code>static-intelligence-layer-concept.html</code>のうち「NightWorkersがProject
+      Ontologyを所有する」という記述は、NightWorkersがtask/run projectionを所有し、canonical
+      lifecycleは将来のOntology Coreが所有する境界へ更新する。
+    </li>
+    <li>
+      current <code>.agent-ontology</code>は削除対象ではなく、Stage
+      3へ移行可能なrepository-owned declaration seedとして扱う。
+    </li>
+    <li>各Stageのentry gateを満たさない場合、後続Stageへ進まない。</li>
+  </ul>
+  <h2 id="2-long-term-position">2. Long-Term Position</h2>
+  <pre><code class="language-text">vulnWorkbench
+  = source/security/CI observations producer
+
+Target repository
+  = declared semantic source
+
+Ontology Core
+  = canonical identity, revision, validation, conflict, projection
+
+NightWorkers
+  = task/run-scoped consumer, execution controller, feedback producer
+
+Codex / Claude Code / other agents
+  = bounded query consumers
+</code></pre>
+  <p>不変の責務境界:</p>
+  <table>
+    <caption>
+      2. Long-Term Position
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Layer</th>
+        <th scope="col">Owns</th>
+        <th scope="col">Must not own</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>vulnWorkbench</td>
+        <td>observed structure/security facts、provenance、coverage</td>
+        <td>task、worker policy、canonical meaning</td>
+      </tr>
+      <tr>
+        <td>target repository</td>
+        <td>declared domain、owner、invariant、policy</td>
+        <td>observed scanner factの改ざん</td>
+      </tr>
+      <tr>
+        <td>Ontology Core</td>
+        <td>canonical IDs、claim revision、validation、conflict、projection</td>
+        <td>scanner execution、task execution</td>
+      </tr>
+      <tr>
+        <td>NightWorkers</td>
+        <td>task/run/worktree、activation、execution、verification、feedback</td>
+        <td>canonical ontology lifecycle、raw structure graph copy</td>
+      </tr>
+    </tbody>
+  </table>
+  <h2 id="3-product-naming-by-stage">3. Product Naming by Stage</h2>
+  <p>能力に対して過大な名称を使わない。</p>
+  <table>
+    <caption>
+      3. Product Naming by Stage
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Stage</th>
+        <th scope="col">Product name</th>
+        <th scope="col">What it can truthfully claim</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>0</td>
+        <td>Project Exploration Catalog</td>
+        <td>bounded候補で探索を減らす</td>
+      </tr>
+      <tr>
+        <td>1</td>
+        <td>Persistent Project Structure Index</td>
+        <td>revision付きの構造factをqueryできる</td>
+      </tr>
+      <tr>
+        <td>2</td>
+        <td>Project Intelligence</td>
+        <td>構造・security・CI・ownershipの観測を結合できる</td>
+      </tr>
+      <tr>
+        <td>3</td>
+        <td>Declarative Project Model</td>
+        <td>repo-owned semantic declarationsを検証・投影できる</td>
+      </tr>
+      <tr>
+        <td>4</td>
+        <td>Project Ontology Core</td>
+        <td>canonical claim、revision、conflict、approvalを管理できる</td>
+      </tr>
+      <tr>
+        <td>5</td>
+        <td>Project Intelligence Ecosystem</td>
+        <td>複数producer / consumer / repositoryを扱える</td>
+      </tr>
+    </tbody>
+  </table>
+  <h2 id="4-stage-0-foundation-and-value-proof">4. Stage 0: Foundation and Value Proof</h2>
+  <p>Completed entry gate: Project Intelligence Foundation Hardening</p>
+  <p>Outcome:</p>
+  <ul>
+    <li>V2-backed catalog</li>
+    <li>exact run revision guard</li>
+    <li>dedicated consumer boundary</li>
+    <li>typed readiness</li>
+    <li>paired value evidence</li>
+  </ul>
+  <p>Exit gate:</p>
+  <ul>
+    <li>Project Explorationが広い探索を測定可能に置き換える。</li>
+    <li>completion / verificationが非劣化。</li>
+    <li>wrong revision / wrong project incidentが0件。</li>
+  </ul>
+  <p>Stop / rollback:</p>
+  <ul>
+    <li>探索が減らずtokenが純増する場合、graph・LSP・embedding投資へ進まない。</li>
+    <li>feature flagをOFFにし、rankingとactivationを再評価する。</li>
+  </ul>
+  <h2 id="5-stage-1-persistent-project-structure-index">
+    5. Stage 1: Persistent Project Structure Index
+  </h2>
+  <h3 id="51-goal">5.1 Goal</h3>
+  <p>
+    revisionごとに構造解析を一度行い、複数agent / taskが小さなqueryで再利用できるtask-neutral
+    indexにする。
+  </p>
+  <h3 id="52-capabilities">5.2 Capabilities</h3>
+  <ul>
+    <li>revision + extractor version keyed cache</li>
+    <li>incremental inventory / analysis</li>
+    <li>language capability readiness</li>
+    <li>exact symbol lookup</li>
+    <li>direct dependencies / importers</li>
+    <li>module membership</li>
+    <li>entrypoint lookup</li>
+    <li>related test candidates</li>
+    <li>bounded impact candidates</li>
+    <li>explainable relation reason</li>
+    <li>snapshot diff</li>
+    <li>CI precompute</li>
+  </ul>
+  <p>Candidate query surface:</p>
+  <pre><code class="language-text">get_project_status
+find_symbol
+find_dependencies
+find_importers
+find_entrypoints
+find_related_tests
+get_impact_candidates
+explain_relation
+diff_structure_snapshots
+</code></pre>
+  <p>すべてtask-neutral、read-only、bounded responseとする。</p>
+  <h3 id="53-client-strategy">5.3 Client Strategy</h3>
+  <ul>
+    <li>NightWorkersはruntime adapter経由で使う。</li>
+    <li>Codex / Claude Codeは安全なread-only MCP queryを直接使える。</li>
+    <li>direct clientへprepare権限を既定付与しない。</li>
+    <li>clientごとに構造graphをコピーしない。</li>
+  </ul>
+  <h3 id="54-entry-gate">5.4 Entry Gate</h3>
+  <ul>
+    <li>Stage 0がGO。</li>
+    <li>catalog missの原因がactivationではなくfact/query不足と示される。</li>
+    <li>same revisionで複数taskがindexを再利用している。</li>
+  </ul>
+  <h3 id="55-exit-gate">5.5 Exit Gate</h3>
+  <ul>
+    <li>incremental updateがfull rebuildより安定して速い。</li>
+    <li>supported languageごとのcoverageとdegraded reasonが測定される。</li>
+    <li>query追加がexploration call削減に寄与する。</li>
+    <li>API response budgetが維持される。</li>
+  </ul>
+  <h3 id="56-do-not-add-yet">5.6 Do Not Add Yet</h3>
+  <ul>
+    <li>canonical domain meaning</li>
+    <li>LLMによる自動ontology確定</li>
+    <li>human approval workflow</li>
+    <li>cross-repository semantic inference</li>
+    <li>graph database（既存storageで限界が測定されるまで）</li>
+  </ul>
+  <h2 id="6-stage-2-project-intelligence">6. Stage 2: Project Intelligence</h2>
+  <h3 id="61-goal">6.1 Goal</h3>
+  <p>構造factだけでなく、project運用上の観測をprovenance付きで結合する。</p>
+  <h3 id="62-observation-sources">6.2 Observation Sources</h3>
+  <ul>
+    <li>source structure</li>
+    <li>security findings / evidence</li>
+    <li>CI status</li>
+    <li>test inventory / test results</li>
+    <li>coverage</li>
+    <li>CODEOWNERS / ownership files</li>
+    <li>package / deployment manifests</li>
+    <li>runtime entrypoints</li>
+    <li>configuration surfaces</li>
+    <li>historical change / verification outcomes</li>
+  </ul>
+  <h3 id="63-observation-model">6.3 Observation Model</h3>
+  <p>最低限、すべての観測は次を持つ。</p>
+  <pre><code class="language-ts">type ObservedClaim = {
+  claimId: string;
+  subjectId: string;
+  predicate: string;
+  object: unknown;
+  claimKind: &quot;observed&quot;;
+  source: {
+    producer: string;
+    artifactRef: string;
+    sourceRevision: string;
+    observedAt: string;
+  };
+  confidence: number;
+  coverage?: unknown;
+  validForRevision: string;
+};
+</code></pre>
+  <p>Examples:</p>
+  <ul>
+    <li><code>api/modules/billing/routes.ts imports shared/payment/client.ts</code></li>
+    <li><code>billing module has failing test X at CI run Y</code></li>
+    <li><code>file Z is covered by CODEOWNERS entry A</code></li>
+    <li><code>finding F is supported by scanner artifact E</code></li>
+  </ul>
+  <h3 id="64-boundary">6.4 Boundary</h3>
+  <p>Project Intelligenceは観測を結合するが、次をcanonical truthとして確定しない。</p>
+  <ul>
+    <li>「このmoduleはBilling Domainである」</li>
+    <li>「このownerだけが変更を承認できる」</li>
+    <li>「このinvariantは必ず守るべき」</li>
+  </ul>
+  <p>これらはdeclared claimとして別扱いにする。</p>
+  <h3 id="65-entry-gate">6.5 Entry Gate</h3>
+  <ul>
+    <li>Stage 1のindexが安定している。</li>
+    <li>構造factだけでは説明できない実際のconsumer use caseが複数ある。</li>
+    <li>security / CI / ownershipを結合する価値が測定できる。</li>
+  </ul>
+  <h3 id="66-exit-gate">6.6 Exit Gate</h3>
+  <ul>
+    <li>observation sourceごとのprovenanceとfreshnessを保持できる。</li>
+    <li>contradictory observationsを消さずに併存できる。</li>
+    <li>security candidateとconfirmed findingを区別できる。</li>
+    <li>NightWorkersがtask-scoped projectionだけを取得できる。</li>
+  </ul>
+  <h2 id="7-stage-3-declarative-project-model">7. Stage 3: Declarative Project Model</h2>
+  <h3 id="71-goal">7.1 Goal</h3>
+  <p>
+    現在の<code>.agent-ontology</code>を、NightWorkers固有の内部機能から、repository-owned
+    declaration contractとして一般化する。
+  </p>
+  <h3 id="72-existing-assets-to-reuse">7.2 Existing Assets to Reuse</h3>
+  <ul>
+    <li>module ID / aliases</li>
+    <li>responsibilities</li>
+    <li>owned paths / read-mostly paths</li>
+    <li>owned data</li>
+    <li>invariants</li>
+    <li>allowed / forbidden mutations</li>
+    <li>allowed cross-module relations</li>
+    <li>verification plans</li>
+    <li>schema validation</li>
+    <li>deterministic goal classification</li>
+    <li>boundary audit</li>
+  </ul>
+  <h3 id="73-required-evolution">7.3 Required Evolution</h3>
+  <p>manifest schemaを次のclaim種別へ分ける。</p>
+  <pre><code class="language-text">declared
+  repository ownerが明示した意味・責務・制約
+
+observed
+  vulnWorkbench / CI / scannerが検出した事実
+
+inferred
+  declared + observedから導出した候補
+
+task_projection
+  一つのtask/runのために選択した一時的context
+</code></pre>
+  <p>Rules:</p>
+  <ul>
+    <li>observed relationをdeclared relationへ自動昇格しない。</li>
+    <li>inferred claimにはrule / input claim refs / confidenceを付ける。</li>
+    <li>task成功を理由にcanonical declarationを自動変更しない。</li>
+    <li>repository manifestが不正な場合はlast-known-goodまたはunavailableへfail-safeする。</li>
+  </ul>
+  <h3 id="74-ownership">7.4 Ownership</h3>
+  <p>
+    この段階ではdataはtarget repositoryに残す。compiler /
+    validatorは共有packageへ抽出してよいが、独立serviceはまだ必須ではない。
+  </p>
+  <p>Recommended package boundary:</p>
+  <pre><code class="language-text">project-ontology-contracts
+  schemas
+  canonicalization
+  validation
+  diff
+  deterministic projection
+</code></pre>
+  <p>NightWorkersはこのpackageのconsumerであり、manifest正本のownerではない。</p>
+  <h3 id="75-entry-gate">7.5 Entry Gate</h3>
+  <ul>
+    <li>複数repositoryがdeclaration manifestを採用する。</li>
+    <li>path ownership / invariant / verificationのruntime価値が測定される。</li>
+    <li>
+      current
+      <code>.agent-ontology</code> のNightWorkers固有部分と一般部分を分離できる。
+    </li>
+  </ul>
+  <h3 id="76-exit-gate">7.6 Exit Gate</h3>
+  <ul>
+    <li>stable entity IDがrepository revisionをまたいで維持される。</li>
+    <li>manifest diffとmigrationが可能。</li>
+    <li>declared / observed / inferredがAPIとUIで区別される。</li>
+    <li>conflict / ambiguityがsilent overwriteされない。</li>
+    <li>NightWorkers以外のconsumerが同じcontractを利用する。</li>
+  </ul>
+  <h2 id="8-stage-4-independent-ontology-core">8. Stage 4: Independent Ontology Core</h2>
+  <h3 id="81-extraction-decision">8.1 Extraction Decision</h3>
+  <p>
+    次のいずれかを本格導入する時点で、Ontology
+    Coreを<code>vulnWorkbench</code>または<code>NightWorkers</code>内に置かず、独立project
+    / serviceへ分離する。
+  </p>
+  <p>Mandatory triggers:</p>
+  <ul>
+    <li>canonical declarationをrepository外でも編集・保存する。</li>
+    <li>human approve / reject / review workflowを持つ。</li>
+    <li>複数producerのclaimを一つのcanonical revisionへ統合する。</li>
+    <li>conflict resolutionまたはontology migrationを行う。</li>
+    <li>複数consumerへ独立release cycleで提供する。</li>
+  </ul>
+  <p>Supporting triggers:</p>
+  <ul>
+    <li>cross-repository entity identityが必要。</li>
+    <li>ontology専用UIが必要。</li>
+    <li>access control / audit retentionがNightWorkers run lifecycleと異なる。</li>
+    <li>graph query負荷がproducer / orchestratorのstorageを圧迫する。</li>
+  </ul>
+  <p>
+    単にdirectory名に<code>ontology</code>がある、graphを保存したい、将来使いそう、という理由だけでは分離しない。
+  </p>
+  <h3 id="82-core-responsibilities">8.2 Core Responsibilities</h3>
+  <ul>
+    <li>canonical entity IDs</li>
+    <li>typed relation / claim schema</li>
+    <li>declared / observed / inferred claim separation</li>
+    <li>ontology revision / immutable commit</li>
+    <li>branch / draft / publish lifecycle</li>
+    <li>diff / migration</li>
+    <li>provenance / confidence / validity interval</li>
+    <li>constraint validation</li>
+    <li>conflict / ambiguity representation</li>
+    <li>human review / approval</li>
+    <li>task-neutral query</li>
+    <li>consumer-specific bounded projection</li>
+    <li>access control / audit</li>
+  </ul>
+  <h3 id="83-non-responsibilities">8.3 Non-Responsibilities</h3>
+  <ul>
+    <li>repository scan execution</li>
+    <li>security scanner orchestration</li>
+    <li>task generation</li>
+    <li>queue admission</li>
+    <li>worker tool execution</li>
+    <li>patch application</li>
+    <li>test command execution</li>
+    <li>automatic truth creation from LLM output</li>
+  </ul>
+  <h3 id="84-minimum-domain-model">8.4 Minimum Domain Model</h3>
+  <pre><code class="language-ts">type OntologyEntity = {
+  id: string;
+  type: string;
+  labels: Record&lt;string, string&gt;;
+  lifecycle: &quot;active&quot; | &quot;deprecated&quot; | &quot;replaced&quot;;
+};
+
+type OntologyClaim = {
+  id: string;
+  subjectId: string;
+  predicate: string;
+  object: unknown;
+  kind: &quot;declared&quot; | &quot;observed&quot; | &quot;inferred&quot;;
+  provenance: ClaimProvenance[];
+  confidence?: number;
+  validFromRevision?: string;
+  validToRevision?: string;
+  status: &quot;draft&quot; | &quot;accepted&quot; | &quot;rejected&quot; | &quot;superseded&quot;;
+};
+
+type OntologyRevision = {
+  id: string;
+  parentIds: string[];
+  schemaVersion: string;
+  createdAt: string;
+  createdBy: string;
+  digest: string;
+};
+</code></pre>
+  <h3 id="85-api-direction">8.5 API Direction</h3>
+  <p>Producer APIs:</p>
+  <pre><code class="language-text">publish_observation_batch
+supersede_observation_batch
+get_publish_status
+</code></pre>
+  <p>Declaration APIs:</p>
+  <pre><code class="language-text">validate_declaration
+create_draft_revision
+diff_revision
+submit_revision
+approve_revision
+reject_revision
+</code></pre>
+  <p>Consumer APIs:</p>
+  <pre><code class="language-text">get_project_projection
+get_task_projection
+query_entities
+query_claims
+explain_claim
+get_conflicts
+</code></pre>
+  <p>
+    NightWorkersは<code>get_task_projection</code>を使うが、canonical
+    revisionをrun中に変更しない。
+  </p>
+  <h3 id="86-sufficient-ontology-product-gate">8.6 Sufficient Ontology Product Gate</h3>
+  <p>次をすべて満たした時点で「Ontology製品」と呼べる。</p>
+  <ol>
+    <li>canonical entity identityがある。</li>
+    <li>schemaとvalidationがversionedである。</li>
+    <li>declared / observed / inferredを区別する。</li>
+    <li>すべてのclaimにprovenanceがある。</li>
+    <li>ontology revisionとdiffがある。</li>
+    <li>conflict / ambiguityを表現できる。</li>
+    <li>human review / approvalがある。</li>
+    <li>constraint / invariant validationがある。</li>
+    <li>task-neutral queryとbounded projectionがある。</li>
+    <li>複数producer / consumerを扱える。</li>
+    <li>access controlとauditがある。</li>
+    <li>unsupported claimをsilentにcanonical化しない。</li>
+  </ol>
+  <h2 id="9-stage-5-feedback-and-ecosystem">9. Stage 5: Feedback and Ecosystem</h2>
+  <h3 id="91-nightworkers-feedback">9.1 NightWorkers Feedback</h3>
+  <p>NightWorkersは次をexecution observationとして返す。</p>
+  <ul>
+    <li>catalog candidateが読まれたか</li>
+    <li>実際に変更されたfile</li>
+    <li>boundary crossing</li>
+    <li>verification commandと結果</li>
+    <li>fallback / replan</li>
+    <li>completion / failure</li>
+    <li>human correction</li>
+  </ul>
+  <p>
+    Feedbackはrankingとprojection評価に使う。canonical declarationへの自動mutationには使わない。
+  </p>
+  <h3 id="92-multiple-consumers">9.2 Multiple Consumers</h3>
+  <ul>
+    <li>NightWorkers</li>
+    <li>Codex</li>
+    <li>Claude Code</li>
+    <li>CI policy checker</li>
+    <li>security review tool</li>
+    <li>architecture review UI</li>
+  </ul>
+  <p>consumerごとにraw full graphを配布せず、purpose-bound projectionを返す。</p>
+  <h3 id="93-cross-repository-intelligence">9.3 Cross-Repository Intelligence</h3>
+  <p>次の条件を満たすまで導入しない。</p>
+  <ul>
+    <li>repository-local IDsが安定している。</li>
+    <li>package/service identityの明示mappingがある。</li>
+    <li>access policyがrepository境界を扱える。</li>
+    <li>stale relationの失効規則がある。</li>
+  </ul>
+  <p>導入候補:</p>
+  <ul>
+    <li>service dependency</li>
+    <li>shared schema / package usage</li>
+    <li>ownership across repositories</li>
+    <li>deployment topology</li>
+    <li>coordinated change impact</li>
+  </ul>
+  <h2 id="10-migration-from-current-implementation">10. Migration from Current Implementation</h2>
+  <h3 id="101-vulnworkbench">10.1 vulnWorkbench</h3>
+  <pre><code class="language-text">current Static Intelligence generation
+  -&gt; V2 Structure Index
+  -&gt; versioned observation batches
+  -&gt; Ontology Core producer adapter
+</code></pre>
+  <p>維持するもの:</p>
+  <ul>
+    <li>scanners</li>
+    <li>Project Structure analyzers</li>
+    <li>artifact / evidence storage</li>
+    <li>source revision / coverage</li>
+    <li>bounded MCP query</li>
+  </ul>
+  <p>移さないもの:</p>
+  <ul>
+    <li>scan execution</li>
+    <li>raw artifacts</li>
+    <li>finding review workflow</li>
+  </ul>
+  <h3 id="102-nightworkers">10.2 NightWorkers</h3>
+  <pre><code class="language-text">current .agent-ontology + runtime compiler
+  -&gt; repository declaration contract
+  -&gt; shared validator / projector
+  -&gt; Ontology Core client
+</code></pre>
+  <p>維持するもの:</p>
+  <ul>
+    <li>task/run/worktree authority</li>
+    <li>tool exposure</li>
+    <li>execution boundary application</li>
+    <li>verification orchestration</li>
+    <li>run feedback</li>
+  </ul>
+  <p>最終的に移すもの:</p>
+  <ul>
+    <li>generic ontology canonicalization</li>
+    <li>canonical revision storage</li>
+    <li>conflict / approval workflow</li>
+  </ul>
+  <h3 id="103-existing-data">10.3 Existing Data</h3>
+  <ul>
+    <li>
+      <code>.agent-ontology</code>はrepository declaration
+      sourceとしてimportできるようにする。
+    </li>
+    <li>Git historyをinitial revision provenanceとして使う。</li>
+    <li>current V1 manifestを破壊的に一括migrationしない。</li>
+    <li>schema versionごとのreaderを保持し、明示migration commandを用意する。</li>
+    <li>inferred relationをdeclared relationとしてmigrationしない。</li>
+  </ul>
+  <h2 id="11-stage-gates-summary">11. Stage Gates Summary</h2>
+  <table>
+    <caption>
+      11. Stage Gates Summary
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">From</th>
+        <th scope="col">To</th>
+        <th scope="col">Required evidence</th>
+        <th scope="col">If not met</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Exploration Catalog</td>
+        <td>Structure Index</td>
+        <td>paired exploration value、multi-task reuse</td>
+        <td>catalog範囲に留める</td>
+      </tr>
+      <tr>
+        <td>Structure Index</td>
+        <td>Project Intelligence</td>
+        <td>複数observation sourceのconsumer価値</td>
+        <td>structure queryだけを継続</td>
+      </tr>
+      <tr>
+        <td>Project Intelligence</td>
+        <td>Declarative Model</td>
+        <td>repo-owned semanticsのruntime価値</td>
+        <td>declarationsをAGENTS/docsに維持</td>
+      </tr>
+      <tr>
+        <td>Declarative Model</td>
+        <td>Ontology Core</td>
+        <td>canonical lifecycle / multi-consumer need</td>
+        <td>shared packageに留める</td>
+      </tr>
+      <tr>
+        <td>Ontology Core</td>
+        <td>Ecosystem</td>
+        <td>stable IDs、ACL、cross-repo demand</td>
+        <td>repository-local運用を維持</td>
+      </tr>
+    </tbody>
+  </table>
+  <h2 id="12-risks-and-controls">12. Risks and Controls</h2>
+  <table>
+    <caption>
+      12. Risks and Controls
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Risk</th>
+        <th scope="col">Control</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>observedをcanonical truthへ昇格</td>
+        <td>claim kindとapprovalを必須化</td>
+      </tr>
+      <tr>
+        <td>NightWorkersの責務肥大化</td>
+        <td>canonical lifecycleをCoreへ抽出</td>
+      </tr>
+      <tr>
+        <td>vulnWorkbenchの責務肥大化</td>
+        <td>observation producer境界を維持</td>
+      </tr>
+      <tr>
+        <td>graph / payload肥大化</td>
+        <td>bounded projection、cursor、purpose query</td>
+      </tr>
+      <tr>
+        <td>stale ontology</td>
+        <td>revision binding、validity、source freshness</td>
+      </tr>
+      <tr>
+        <td>LLM hallucinated relation</td>
+        <td>inferred claim、provenance、review</td>
+      </tr>
+      <tr>
+        <td>feedbackによる自己強化誤り</td>
+        <td>canonical auto-mutation禁止</td>
+      </tr>
+      <tr>
+        <td>schema migration失敗</td>
+        <td>immutable revision、versioned reader、rollback</td>
+      </tr>
+      <tr>
+        <td>vendor-specific consumer contract</td>
+        <td>JSON Schema中心、MCPはadapter</td>
+      </tr>
+      <tr>
+        <td>premature service split</td>
+        <td>mandatory extraction triggerまでpackage運用</td>
+      </tr>
+    </tbody>
+  </table>
+  <h2 id="13-non-goals">13. Non-Goals</h2>
+  <ul>
+    <li>source code全文をknowledge graphへ保存すること</li>
+    <li>LLMにrepositoryの正本を自動生成させること</li>
+    <li>Ontologyを理由にworkerへ無制限な探索・変更権限を与えること</li>
+    <li>scanner findingを自動でconfirmed vulnerabilityにすること</li>
+    <li>一つの巨大promptへ全project contextを埋め込むこと</li>
+    <li>すべてのqueryをsemantic searchへ置き換えること</li>
+    <li>graph database導入自体をproduct milestoneにすること</li>
+    <li>NightWorkersをcanonical knowledge platformにすること</li>
+  </ul>
+  <h2 id="14-immediate-next-decision">14. Immediate Next Decision</h2>
+  <p>当面はStage 0だけを実施する。</p>
+  <pre><code class="language-text">V2 catalog correctness
+  -&gt; revision-safe consumer
+  -&gt; dedicated MCP boundary
+  -&gt; readiness transport
+  -&gt; controlled paired pilot
+  -&gt; GO / NO-GO
+</code></pre>
+  <p>
+    GOが確認されるまで、Stage 1以降の新機能、独立Ontology repository、graph database、semantic
+    enrichmentへ着手しない。
+  </p>
+</article>

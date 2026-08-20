@@ -4,7 +4,7 @@
 
 ## Active execution plan
 
-- `phase-56-capability-product-completion-plan.md`
+- `phase-56-capability-product-completion-plan.html`
 
 Phase 56が、security capability、professional claim、product completion、
 release closeoutに関する唯一のactive implementation planである。
@@ -13,16 +13,21 @@ release closeoutに関する唯一のactive implementation planである。
 
 以下は長期的な境界・設計・pilotを扱う。Phase 56の完了条件を自動的に増やさない。
 
-- `vuln-workbench-concept.md`
-- `static-intelligence-layer-concept.md`
-- `contextstill-static-intelligence-bridge-concept.md`
-- `project-scan-exploration-reduction-mcp-concept.md`
-- `project-intelligence-ontology-evolution-roadmap.md`
-- `security-intelligence-integration-concept.md`
-- `security-intelligence-initial-implementation-roadmap.md`
-- `security-intelligence-pr4-nightworkers-pilot-plan.md`
-- `security-intelligence-pilot-decision-template.md`
-- `static-intelligence-coding-agent-consumer-companion-plan.md`
+- `vuln-workbench-concept.html`
+- `static-intelligence-layer-concept.html`
+- `contextstill-static-intelligence-bridge-concept.html`
+- `project-scan-exploration-reduction-mcp-concept.html`
+- `project-intelligence-ontology-evolution-roadmap.html`
+- `security-intelligence-integration-concept.html`
+- `security-intelligence-initial-implementation-roadmap.html`
+- `security-intelligence-pr4-nightworkers-pilot-plan.html`
+- `security-intelligence-pilot-decision-template.html`
+- `static-intelligence-coding-agent-consumer-companion-plan.html`
+
+## Decisions and operational contracts
+
+- `project-intelligence-rollout-decision-2026-08-09.html`
+- `nightworkers-cli-diagnostic-contract-instructions.html`
 
 ## Machine-readable policy and evidence
 

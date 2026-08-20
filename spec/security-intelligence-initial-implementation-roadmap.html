@@ -1,0 +1,289 @@
+<article lang="ja">
+  <h1 id="security-intelligence-initial-implementation-roadmap">
+    Security Intelligence Initial Implementation Roadmap
+  </h1>
+  <h2 id="status">Status</h2>
+  <ul>
+    <li>Status: Implemented; cross-repository integrity smoke pending</li>
+    <li>Owner: <code>vulnWorkbench</code></li>
+    <li>Last updated: 2026-08-16</li>
+    <li>
+      Source concept:
+      <a href="./security-intelligence-integration-concept.html"
+        >Security Intelligence Integration Concept</a
+      >
+    </li>
+    <li>Scope: 最初の実証を成立させる4 PR。default activationと恒久知識への自動登録は含めない。</li>
+    <li>
+      Progress: PR 1–3とPR 4 producer/consumer/post-assessment/shadow plumbingは実装済み。single-Run
+      integrity smokeとrollout decisionが未完了
+    </li>
+  </ul>
+  <h2 id="1-結論">1. 結論</h2>
+  <p>
+    最初に作るべきものは新しいscannerや大規模な統合基盤ではなく、既存のscan
+    evidenceをrevisionへ結び付けて説明する、小さな<code>Security Intelligence Assessment</code>
+    producerである。
+  </p>
+  <p>実装は次の4 PRへ分割する。</p>
+  <ol>
+    <li>assessment contractとbaseline fixtureを固定する。</li>
+    <li>dependency changeを対象に、既存evidenceからassessmentを生成する最初の縦切りを作る。</li>
+    <li>authorization boundary changeをshadow modeで観測する。</li>
+    <li>NightWorkersとのsingle-Run integrity smokeをdefault OFFで実行可能にする。</li>
+  </ol>
+  <p>
+    この順序なら各PRを単独でmerge・revertできる。PR
+    2で最小価値を確認でき、Authorization解析の不確実性がDependency経路を止めない。
+  </p>
+  <h2 id="2-実装イメージ">2. 実装イメージ</h2>
+  <figure>
+    <pre class="mermaid" data-spec-html-source="markdown">flowchart LR
+    A[&quot;Immutable target\nrevision + digest&quot;] --&gt; B[&quot;Existing scan pipeline&quot;]
+    B --&gt; C[&quot;diff_manifest&quot;]
+    B --&gt; D[&quot;OSV / Trivy / Semgrep / Gitleaks evidence&quot;]
+    A --&gt; E[&quot;ApplicationModel snapshot&quot;]
+    C --&gt; F[&quot;Dependency observer&quot;]
+    D --&gt; G[&quot;Assessment builder&quot;]
+    E --&gt; H[&quot;Authorization observer\nshadow only&quot;]
+    F --&gt; G
+    H --&gt; G
+    G --&gt; I[&quot;Security Intelligence Assessment v1&quot;]
+    I --&gt; J[&quot;NightWorkers task/run\nsingle-Run integrity smoke&quot;]
+    I -. &quot;Stage 2 integrity PASS後のcandidateのみ&quot; .-&gt; K[&quot;contextStill&quot;]
+</pre>
+    <figcaption>2. 実装イメージ</figcaption>
+  </figure>
+  <p>
+    <code>vulnWorkbench</code
+    >はscannerの生出力をそのまま「安全判定」へ変換しない。対象revision、確認scope、evidence、coverage
+    gap、unknown、residual
+    riskを一つのassessmentへ投影する。NightWorkersはその結果をtask/runへ関連付け、contextStillへの知識候補生成はpilot後の別段階とする。
+  </p>
+  <h2 id="3-現在地と再利用方針">3. 現在地と再利用方針</h2>
+  <table>
+    <caption>
+      3. 現在地と再利用方針
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">領域</th>
+        <th scope="col">現在あるもの</th>
+        <th scope="col">初期実装での扱い</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>NightWorkers連携</td>
+        <td><code>shared/schemas/nightworkers-security-scan-integration.schema.ts</code>とintegration routes</td>
+        <td>v1を変更しない。新しいassessment contractを別version空間で追加する</td>
+      </tr>
+      <tr>
+        <td>差分scope</td>
+        <td>
+          <code>api/modules/scans/diff-scan-plan.ts</code>、<code>diff-snapshot.ts</code>
+        </td>
+        <td>再計算せず、scan時に保存したtargetとmanifestを利用する</td>
+      </tr>
+      <tr>
+        <td>Evidence</td>
+        <td>
+          <code>diff_manifest</code> artifact、finding/report、OSV/Trivy等のtool
+          run
+        </td>
+        <td>assessmentのverification/evidence referenceへ投影する</td>
+      </tr>
+      <tr>
+        <td>Dependency検出</td>
+        <td>npm、Maven、Gradle、Python、Goを扱う既存差分判定</td>
+        <td>最初のproduction-like vertical sliceにする</td>
+      </tr>
+      <tr>
+        <td>Authorization情報</td>
+        <td>
+          <code>ApplicationModel</code>のentrypointと<code
+            >authorizationGuards</code
+          >
+        </td>
+        <td>revision bindingと精度を補強し、PR 3ではshadow出力だけにする</td>
+      </tr>
+      <tr>
+        <td>Static Intelligence</td>
+        <td>canonical ontologyを所有しないhandoff設計</td>
+        <td>境界を維持する。永続知識へ直接書き込まない</td>
+      </tr>
+      <tr>
+        <td>Rollout evidence</td>
+        <td>deployment evidence pending</td>
+        <td>default OFFを維持し、single-Run integrity smokeとcapability別decisionで判断する</td>
+      </tr>
+    </tbody>
+  </table>
+  <h2 id="4-pr構成">4. PR構成</h2>
+  <table>
+    <caption>
+      4. PR構成
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">PR</th>
+        <th scope="col">成果</th>
+        <th scope="col">主な新規・変更箇所</th>
+        <th scope="col">Merge gate</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>PR 1（完了）</td>
+        <td>Contract + baseline</td>
+        <td>
+          <code>shared/schemas/</code
+          >、<code>shared/fixtures/</code>、検証script
+        </td>
+        <td>schema、negative fixture、hashが決定的</td>
+      </tr>
+      <tr>
+        <td>PR 2（完了）</td>
+        <td>Dependency縦切り</td>
+        <td><code>api/modules/security-intelligence/</code>、CLI</td>
+        <td>保存済みrevision/evidenceから説明可能なassessmentを生成</td>
+      </tr>
+      <tr>
+        <td>PR 3（完了）</td>
+        <td>Authorization shadow</td>
+        <td>revision-bound snapshot、observer、fixture</td>
+        <td>coverage lossをchangeと誤認せず、runtime判断へ影響しない</td>
+      </tr>
+      <tr>
+        <td>
+          <a href="./security-intelligence-pr4-nightworkers-pilot-plan.html">PR 4</a>（実装済み）
+        </td>
+        <td>NightWorkers integration</td>
+        <td>独立integration endpoint、consumer、post-assessment、shadow plumbing</td>
+        <td>wrong-revision 0件、既存v1非破壊、default OFF</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    依存関係は<code>PR 1 -&gt; PR 2 -&gt; PR 4</code>が必須で、PR 3はPR 1 merge後にPR
+    2と並行開発できる。PR 4のAuthorization出力はPR 3が間に合わなくてもoptionalとして扱い、Dependency
+    pilotを止めない。
+  </p>
+  <h2 id="5-cross-repositoryの並行開発境界">5. Cross-repositoryの並行開発境界</h2>
+  <p>PR 1のfixtureとcanonical hashを3 repositoryの共通接点にする。実装コードのcopyは行わない。</p>
+  <table>
+    <caption>
+      5. Cross-repositoryの並行開発境界
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Repository</th>
+        <th scope="col">PR 1後に並行着手できること</th>
+        <th scope="col">まだ着手しないこと</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>vulnWorkbench</code></td>
+        <td>Assessment producer、observer、evidence projection</td>
+        <td>canonical task/knowledgeの所有</td>
+      </tr>
+      <tr>
+        <td><code>NightWorkers</code></td>
+        <td>fixture-based consumer、task/runへのreference保持、UI/CLIのshadow表示</td>
+        <td>assessment内容の再判定、producer evidenceの改変</td>
+      </tr>
+      <tr>
+        <td><code>contextStill</code></td>
+        <td>candidate受入schemaとprovenance validationの設計</td>
+        <td>pilot前の自動登録、candidateの自動昇格</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>Cross-repository契約変更は、次の順で行う。</p>
+  <ol>
+    <li>
+      <code>vulnWorkbench</code>でschema、positive/negative
+      fixture、hashをmergeする。
+    </li>
+    <li>NightWorkers/contextStillが同じfixtureをconsumer testへ取り込む。</li>
+    <li>全consumerが新versionを受け入れてからproducerを切り替える。</li>
+    <li>旧version廃止は別PR・別判断とする。</li>
+  </ol>
+  <h2 id="6-共通実装規則">6. 共通実装規則</h2>
+  <ul>
+    <li>対象はpathだけでなく<code>projectRef + sourceRevision + targetDigest</code>で同定する。</li>
+    <li>
+      <code>no findings observed</code
+      >を<code>safe</code>へ変換しない。
+    </li>
+    <li>
+      <code>declared</code
+      >、<code>observed</code>、<code>inferred</code>、<code>task_projection</code>を混同しない。vulnWorkbenchが生成できるclaimは原則<code>observed</code>または<code>inferred</code>である。
+    </li>
+    <li>
+      <code>tested</code>はrequired
+      verificationが完了し、再確認可能なevidence referenceを持つ場合だけ表現できる。
+    </li>
+    <li>
+      required
+      toolの失敗、revision不一致、artifact欠落は<code>inconclusive</code>またはhard
+      failureにする。
+    </li>
+    <li>source本文、secret、絶対pathをintegration responseやtelemetryへ含めない。</li>
+    <li>既存NightWorkers scan contract version 1のfield、enum、意味を変更しない。</li>
+    <li>
+      DB migration、UI、MCP tool、新scanner追加は、vertical sliceの成立に必要になるまで遅延する。
+    </li>
+  </ul>
+  <h2 id="7-各prの共通チェック">7. 各PRの共通チェック</h2>
+  <p>各PR descriptionには次を含める。</p>
+  <ul>
+    <li>このPRが所有する判断と、所有しない判断</li>
+    <li>revision/evidence bindingの方法</li>
+    <li>positive fixtureとnegative fixture</li>
+    <li>focused test、typecheck、<code>git diff --check</code>の結果</li>
+    <li>failure時の挙動とrollback方法</li>
+    <li>次PRへ進むためのgate</li>
+  </ul>
+  <p>標準検証コマンドは次の通り。各PR計画に追加のfocused testを記載する。</p>
+  <pre><code class="language-bash">bun run typecheck
+git diff --check
+</code></pre>
+  <h2 id="8-初期trancheのdefinition-of-done">8. 初期trancheのDefinition of Done</h2>
+  <p>
+    4 PRをmergeしただけではdefault ONにしない。初期tranche完了は、次をすべて満たした状態とする。
+  </p>
+  <ul>
+    <li>
+      Dependency changeについて、保存済みscan runからrevision-bound assessmentを再生成できる。
+    </li>
+    <li>required verificationの未実行・失敗を成功扱いしない。</li>
+    <li>
+      Authorization
+      observerの解析不能を<code>coverage_lost</code>または<code>unknown</code>として表現できる。
+    </li>
+    <li>NightWorkersが既存scan contractを壊さずassessmentを参照できる。</li>
+    <li>single-Run integrity evidenceがversion管理されたartifactとして残る。</li>
+    <li>誤ったproject/revisionへの紐付けとsecret/path leakが0件である。</li>
+    <li>default activationの判断が、実装PRとは別のdecision recordで行われる。</li>
+  </ul>
+  <h2 id="9-今回含めないもの">9. 今回含めないもの</h2>
+  <ul>
+    <li>「安全」「脆弱性なし」という総合判定</li>
+    <li>全言語・全frameworkのAuthorization解析</li>
+    <li>LLMだけを根拠とするfindingやverification status</li>
+    <li>contextStillへの自動知識登録・自動昇格</li>
+    <li>自動修正、merge block、deployment gate</li>
+    <li>新しいscannerの導入</li>
+    <li>既存NightWorkers scan API v1の破壊的変更</li>
+  </ul>
+  <h2 id="10-残る着手点">10. 残る着手点</h2>
+  <p>
+    3 repositoryのfixture semantic digestを一致させ、1 Task / 1 Run / 1 Evidence Subjectで pre
+    assessment → Security Contract → post assessment → final judgmentのintegrity smokeを行う。
+    Project declaration
+    resolverが未導入の間は<code>transport_integrity_only</code>として証跡化し、 Project
+    Loop完成を主張しない。
+  </p>
+</article>
