@@ -25,6 +25,7 @@ import {
 	ProjectRepository,
 	ScanRepository,
 } from "../modules/scans/repositories";
+import { ScanDeletionService } from "../modules/scans/scan-deletion-service";
 import { createAssessmentsRoute } from "../routes/assessments.route";
 import { createBusinessLogicRoute } from "../routes/business-logic.route";
 import { createDastRoute } from "../routes/dast.route";
@@ -63,6 +64,12 @@ export function registerScanRoutes(app: Hono, runtime: AppRuntime): void {
 	const projectDeletionService = new ProjectDeletionService({
 		db: runtime.dbConnection.db,
 		projectRepository,
+		cleanupRunner: runtime.projectArtifactCleanupRunner,
+	});
+	const scanDeletionService = new ScanDeletionService({
+		db: runtime.dbConnection.db,
+		projectRepository,
+		scanRepository,
 		cleanupRunner: runtime.projectArtifactCleanupRunner,
 	});
 	if (runtime.env.nightworkersIntegrationEnabled) {
@@ -168,6 +175,7 @@ export function registerScanRoutes(app: Hono, runtime: AppRuntime): void {
 			scanSupervisor: runtime.scanSupervisor,
 			scanReportRunner: runtime.scanReportRunner,
 			scanDiagnosticRunner: runtime.scanDiagnosticRunner,
+			scanDeletionService,
 		}),
 	);
 	app.route(

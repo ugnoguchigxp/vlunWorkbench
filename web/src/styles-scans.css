@@ -3350,7 +3350,6 @@
 }
 
 .workspace-project-list,
-.workspace-history-list,
 .workspace-priority-list,
 .workspace-findings-list {
 	display: grid;
@@ -3403,6 +3402,10 @@
 	border-radius: 10px;
 }
 
+.workspace-project-node {
+	min-width: 0;
+}
+
 .workspace-project-item.selected {
 	border-color: var(--color-brand-border);
 	background: var(--color-brand-soft);
@@ -3410,6 +3413,8 @@
 
 .workspace-project-select {
 	display: grid;
+	grid-template-columns: auto minmax(0, 1fr);
+	gap: 8px;
 	align-items: center;
 	min-width: 0;
 	padding: 10px 8px 10px 10px;
@@ -3419,6 +3424,23 @@
 	color: inherit;
 	text-align: left;
 	cursor: pointer;
+}
+
+.workspace-project-folder {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	color: var(--color-brand-strong);
+}
+
+.workspace-project-folder svg:first-child {
+	width: 13px;
+	height: 13px;
+}
+
+.workspace-project-folder svg:last-child {
+	width: 17px;
+	height: 17px;
 }
 
 .workspace-project-copy > strong,
@@ -3437,6 +3459,102 @@
 .workspace-project-copy > span {
 	color: var(--color-muted);
 	font-size: 0.75rem;
+}
+
+.workspace-project-scan-tree {
+	display: grid;
+	gap: 5px;
+	margin: 4px 0 8px 19px;
+	padding-left: 10px;
+	border-left: 1px solid var(--color-border);
+}
+
+.workspace-project-scan-item {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
+	align-items: center;
+	min-width: 0;
+	border-radius: 9px;
+}
+
+.workspace-project-scan-item > button {
+	display: grid;
+	grid-template-columns: auto minmax(0, 1fr);
+	align-items: center;
+	gap: 8px;
+	min-width: 0;
+	padding: 8px 6px 8px 9px;
+	border: 1px solid transparent;
+	border-radius: 8px;
+	background: transparent;
+	color: inherit;
+	text-align: left;
+	cursor: pointer;
+}
+
+.workspace-project-scan-item > button:hover,
+.workspace-project-scan-item > button.selected {
+	border-color: var(--color-brand-border);
+	background: var(--color-brand-soft);
+}
+
+.workspace-project-scan-copy {
+	display: grid;
+	gap: 2px;
+	min-width: 0;
+}
+
+.workspace-project-scan-copy > strong,
+.workspace-project-scan-copy > span {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.workspace-project-scan-copy > strong {
+	font-size: 0.84rem;
+}
+
+.workspace-project-scan-copy > span,
+.workspace-project-scan-empty {
+	color: var(--color-muted);
+	font-size: 0.7rem;
+}
+
+.workspace-project-scan-empty {
+	margin: 4px 8px 6px;
+}
+
+.workspace-scan-state-dot {
+	width: 8px;
+	height: 8px;
+	border-radius: 999px;
+	background: var(--color-muted);
+}
+
+.workspace-scan-state-dot.completed {
+	background: var(--color-success);
+}
+
+.workspace-scan-state-dot.failed {
+	background: var(--color-danger);
+}
+
+.workspace-scan-state-dot.cancelled {
+	background: var(--color-muted-strong);
+}
+
+.workspace-scan-spinner {
+	width: 14px;
+	height: 14px;
+	color: var(--color-brand-strong);
+	animation: workspace-scan-spin 0.9s linear infinite;
+}
+
+@keyframes workspace-scan-spin {
+	to {
+		transform: rotate(360deg);
+	}
 }
 
 .workspace-project-select:focus-visible,
@@ -3679,8 +3797,7 @@
 }
 
 .workspace-priority-list button,
-.workspace-findings-list button,
-.workspace-history-list button {
+.workspace-findings-list button {
 	display: grid;
 	grid-template-columns: auto minmax(0, 1fr) auto;
 	gap: 10px;
@@ -3695,9 +3812,7 @@
 }
 
 .workspace-priority-list button:hover,
-.workspace-findings-list button:hover,
-.workspace-history-list button:hover,
-.workspace-history-list button.selected {
+.workspace-findings-list button:hover {
 	border-color: var(--color-brand-border);
 	background: var(--color-brand-soft);
 }
@@ -3709,8 +3824,7 @@
 	white-space: nowrap;
 }
 .workspace-priority-list small,
-.workspace-findings-list small,
-.workspace-history-list time {
+.workspace-findings-list small {
 	color: var(--color-muted);
 }
 
@@ -4018,6 +4132,16 @@
 .workspace-menu-item.danger {
 	color: var(--color-danger);
 }
+
+.workspace-menu-item:disabled {
+	color: var(--color-muted);
+	cursor: not-allowed;
+	opacity: 0.72;
+}
+
+.workspace-menu-item:disabled:hover {
+	background: transparent;
+}
 .workspace-menu-divider {
 	width: 100%;
 	margin: 4px 0;
@@ -4091,13 +4215,11 @@
 		grid-template-columns: 1fr;
 	}
 	.workspace-priority-list button,
-	.workspace-findings-list button,
-	.workspace-history-list button {
+	.workspace-findings-list button {
 		grid-template-columns: auto minmax(0, 1fr);
 	}
 	.workspace-priority-list button small,
-	.workspace-findings-list button small,
-	.workspace-history-list button time {
+	.workspace-findings-list button small {
 		grid-column: 2;
 	}
 }

@@ -2,8 +2,11 @@ import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDbConnection, type DbConnection } from "../../db";
-import { staticIntelligencePrepareJobs, users } from "../../db/schema";
-import { HttpError } from "../auth/errors";
+import {
+	projectDeletionCleanupJobs,
+	staticIntelligencePrepareJobs,
+	users,
+} from "../../db/schema";
 import { ProjectArtifactCleanupRunner } from "./project-artifact-cleanup-runner";
 import { ProjectDeletionCleanupRepository } from "./project-deletion-cleanup-repository";
 import { ProjectDeletionService } from "./project-deletion-service";
@@ -140,6 +143,36 @@ describe("ProjectDeletionService", () => {
 		});
 	});
 
+	it("refuses deletion while a tool run is still active", async () => {
+		const project = await projectRepository.createProject({
+			ownerUserId: userId,
+			name: "Code",
+			repoPath: "/tmp/code",
+		});
+		const scan = await scanRepository.createScanRun({
+			projectId: project.id,
+			profile: "baseline",
+			status: "completed",
+		});
+		await scanRepository.createToolRun({
+			scanRunId: scan.id,
+			toolName: "still-running",
+			status: "running",
+		});
+
+		await expect(
+			service.deleteOwnedProject({
+				projectId: project.id,
+				userId,
+				confirmation: "Code",
+			}),
+		).rejects.toMatchObject({
+			status: 409,
+			code: "PROJECT_HAS_ACTIVE_WORK",
+			details: { activeWork: [{ kind: "tool_runs", count: 1 }] },
+		});
+	});
+
 	it("refuses deletion while static intelligence is still requested", async () => {
 		const project = await projectRepository.createProject({
 			ownerUserId: userId,
@@ -172,5 +205,76 @@ describe("ProjectDeletionService", () => {
 				],
 			},
 		});
+	});
+
+	it("rolls back the cleanup job when deleting the project fails", async () => {
+		const project = await projectRepository.createProject({
+			ownerUserId: userId,
+			name: "Code",
+			repoPath: "/tmp/code",
+		});
+		connection.sqlite.exec(`
+			CREATE TRIGGER prevent_project_delete
+			BEFORE DELETE ON projects
+			BEGIN
+				SELECT RAISE(ABORT, 'project delete blocked');
+			END;
+		`);
+
+		await expect(
+			service.deleteOwnedProject({
+				projectId: project.id,
+				userId,
+				confirmation: "Code",
+			}),
+		).rejects.toThrow("project delete blocked");
+
+		expect(await projectRepository.findById(project.id)).not.toBeNull();
+		expect(await connection.db.select().from(projectDeletionCleanupJobs)).toHaveLength(
+			0,
+		);
+		expect(cleanupRunner.enqueue).not.toHaveBeenCalled();
+	});
+
+	it("returns a conflict when active work starts during deletion", async () => {
+		const project = await projectRepository.createProject({
+			ownerUserId: userId,
+			name: "Code",
+			repoPath: "/tmp/code",
+		});
+		connection.sqlite.exec(`
+			CREATE TRIGGER introduce_project_active_work
+			BEFORE INSERT ON project_deletion_cleanup_jobs
+			BEGIN
+				INSERT INTO scan_runs (
+					id,
+					project_id,
+					profile,
+					status
+				) VALUES (
+					'race-scan-run',
+					'${project.id}',
+					'baseline',
+					'running'
+				);
+			END;
+		`);
+
+		await expect(
+			service.deleteOwnedProject({
+				projectId: project.id,
+				userId,
+				confirmation: "Code",
+			}),
+		).rejects.toMatchObject({ status: 409, code: "PROJECT_HAS_ACTIVE_WORK" });
+
+		expect(await projectRepository.findById(project.id)).not.toBeNull();
+		expect(await connection.db.select().from(staticIntelligencePrepareJobs)).toHaveLength(
+			0,
+		);
+		expect(await connection.db.select().from(projectDeletionCleanupJobs)).toHaveLength(
+			0,
+		);
+		expect(cleanupRunner.enqueue).not.toHaveBeenCalled();
 	});
 });

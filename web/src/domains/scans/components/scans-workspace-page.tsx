@@ -4,19 +4,21 @@ import { useCallback, useEffect, useMemo } from "react";
 import { Dialog } from "../../../components/dialog";
 import { ToastRegion } from "../../../components/toast-region";
 import { Button, TextInput } from "../../../ui";
+import { useScans } from "../scans-context";
 import {
+	normalizeScansSearch,
 	parseScansSearch,
 	type ScanWorkspaceTab,
-	normalizeScansSearch,
 } from "../scans-route-search";
-import { useScans } from "../scans-context";
-import type { ScansController } from "../use-scans-controller";
 import { useProjectDeleteController } from "../use-project-delete-controller";
-import { ProjectDeleteDialog } from "./project-delete-dialog";
+import { useScanDeleteController } from "../use-scan-delete-controller";
+import type { ScansController } from "../use-scans-controller";
 import { DastAssessmentPanel } from "./dast-assessment-panel";
 import { FindingDetailPanel } from "./finding-detail-panel";
+import { ProjectDeleteDialog } from "./project-delete-dialog";
 import { ProjectRail } from "./project-rail";
 import { ScanContextBar } from "./scan-context-bar";
+import { ScanDeleteDialog } from "./scan-delete-dialog";
 import { ScanLaunchCard } from "./scan-launch-card";
 import { ScanOverviewTab } from "./scan-overview-tab";
 import { ScanReportWorkspace } from "./scan-report-workspace";
@@ -69,6 +71,27 @@ export function ScansWorkspacePage() {
 			move({});
 		},
 	});
+	const scanDeletion = useScanDeleteController({
+		onDeleted: (scanRunId) => {
+			const remainingRuns = c.scanRuns.filter((scan) => scan.id !== scanRunId);
+			c.setScanRuns(remainingRuns);
+			if (c.selectedScanRunId !== scanRunId) return;
+			const nextScanRunId = remainingRuns[0]?.id ?? "";
+			c.setSelectedFindingId("");
+			c.setSelectedFindingDetails(null);
+			if (nextScanRunId) {
+				c.handleSelectScanRun(nextScanRunId);
+				move({
+					projectId: c.selectedProjectId,
+					scanRunId: nextScanRunId,
+					tab: activeTab,
+				});
+				return;
+			}
+			c.setSelectedScanRunId("");
+			move({ projectId: c.selectedProjectId });
+		},
+	});
 	const selectProject = (projectId: string) => {
 		c.setSelectedProjectId(projectId);
 		c.setSelectedScanRunId("");
@@ -77,7 +100,7 @@ export function ScansWorkspacePage() {
 	const openProjectHistory = (project: (typeof c.projects)[number]) => {
 		c.setSelectedProjectId(project.id);
 		c.setSelectedScanRunId("");
-		move({ projectId: project.id, tab: "history" });
+		move({ projectId: project.id });
 	};
 	const selectScan = (scanRunId: string) => {
 		c.handleSelectScanRun(scanRunId);
@@ -127,10 +150,14 @@ export function ScansWorkspacePage() {
 				<ProjectRail
 					projects={c.projects}
 					selectedProjectId={c.selectedProjectId}
+					scanRuns={c.scanRuns}
+					selectedScanRunId={c.selectedScanRunId}
 					onSelect={selectProject}
+					onSelectScan={selectScan}
 					onOpenHistory={openProjectHistory}
 					onAdd={() => c.setShowNewProjectModal(true)}
 					onDelete={projectDeletion.open}
+					onDeleteScan={scanDeletion.open}
 				/>
 				<section className="scan-workspace-main">
 					<header className="workspace-page-header">
@@ -187,13 +214,6 @@ export function ScansWorkspacePage() {
 							}
 						/>
 					) : null}
-					{activeTab === "history" ? (
-						<HistoryTab
-							selectedScanRunId={c.selectedScanRunId}
-							scanRuns={c.scanRuns}
-							onSelect={selectScan}
-						/>
-					) : null}
 					{activeTab === "report" ? (
 						<ScanReportWorkspace
 							reports={c.reports}
@@ -227,7 +247,14 @@ export function ScansWorkspacePage() {
 				onClose={projectDeletion.close}
 				onConfirm={() => void projectDeletion.submit()}
 			/>
-			<ToastRegion message={projectDeletion.toast} />
+			<ScanDeleteDialog
+				scan={scanDeletion.scan}
+				error={scanDeletion.error}
+				submitting={scanDeletion.submitting}
+				onClose={scanDeletion.close}
+				onConfirm={() => void scanDeletion.submit()}
+			/>
+			<ToastRegion message={scanDeletion.toast ?? projectDeletion.toast} />
 		</main>
 	);
 }
@@ -286,41 +313,6 @@ function CoverageTab({ coverageGaps }: { coverageGaps: number }) {
 					: `${coverageGaps} 件のカバレッジギャップを確認してください。`}
 			</p>
 			<DastAssessmentPanel />
-		</section>
-	);
-}
-
-function HistoryTab({
-	scanRuns,
-	selectedScanRunId,
-	onSelect,
-}: {
-	scanRuns: ScansController["scanRuns"];
-	selectedScanRunId: string;
-	onSelect: (id: string) => void;
-}) {
-	return (
-		<section className="workspace-tab-panel" role="tabpanel">
-			<div className="workspace-section-heading">
-				<h2>スキャン履歴</h2>
-				<span>{scanRuns.length} 件</span>
-			</div>
-			<div className="workspace-history-list">
-				{scanRuns.map((scan) => (
-					<button
-						key={scan.id}
-						type="button"
-						className={scan.id === selectedScanRunId ? "selected" : ""}
-						onClick={() => onSelect(scan.id)}
-					>
-						<strong>{scan.profile}</strong>
-						<span>{scan.status}</span>
-						<time dateTime={scan.createdAt}>
-							{new Date(scan.createdAt).toLocaleString("ja-JP")}
-						</time>
-					</button>
-				))}
-			</div>
 		</section>
 	);
 }

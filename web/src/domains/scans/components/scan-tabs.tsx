@@ -5,7 +5,6 @@ const tabs: Array<{ id: ScanWorkspaceTab; label: string }> = [
 	{ id: "findings", label: "検出結果" },
 	{ id: "coverage", label: "カバレッジ" },
 	{ id: "report", label: "レポート" },
-	{ id: "history", label: "履歴" },
 ];
 
 export function ScanTabs({

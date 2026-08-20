@@ -26,6 +26,7 @@ export function useScansEffects(scope: ScansControllerBaseScope) {
 		selectedPollingStatus,
 		selectedProjectId,
 		selectedScanRunId,
+		scanRuns,
 		setAllDecisions,
 		setAllReviews,
 		setCommentInput,
@@ -157,6 +158,11 @@ export function useScansEffects(scope: ScansControllerBaseScope) {
 
 	useEffect(() => {
 		if (!active || !selectedProjectId) return;
+		setScanRuns([]);
+	}, [active, selectedProjectId, setScanRuns]);
+
+	useEffect(() => {
+		if (!active || !selectedProjectId) return;
 		setSelectedFindingId("");
 		setSelectedFindingDetails(null);
 		setScanDetailTab("review");
@@ -192,6 +198,40 @@ export function useScansEffects(scope: ScansControllerBaseScope) {
 		setSelectedFindingDetails,
 		setScanDetailTab,
 		setScanRuns,
+	]);
+
+	const unselectedActiveScanIds = scanRuns
+		.filter(
+			(scan) =>
+				scan.id !== selectedScanRunId &&
+				(scan.status === "queued" || scan.status === "running"),
+		)
+		.map((scan) => scan.id)
+		.join(",");
+	useEffect(() => {
+		if (!active || !selectedProjectId || !unselectedActiveScanIds) return;
+		let mounted = true;
+		const refreshRuns = async () => {
+			try {
+				const runs = await fetchScans(selectedProjectId);
+				if (mounted) setScanRuns(runs);
+			} catch (error) {
+				if (mounted) {
+					setErrorText(error instanceof Error ? error.message : String(error));
+				}
+			}
+		};
+		const timer = setInterval(() => void refreshRuns(), 1_500);
+		return () => {
+			mounted = false;
+			clearInterval(timer);
+		};
+	}, [
+		active,
+		selectedProjectId,
+		setErrorText,
+		setScanRuns,
+		unselectedActiveScanIds,
 	]);
 
 	useEffect(() => {

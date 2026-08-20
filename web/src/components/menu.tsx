@@ -63,10 +63,12 @@ export function MenuItem({
 	children,
 	onSelect,
 	danger = false,
+	disabled = false,
 }: {
 	children: ReactNode;
 	onSelect: () => void;
 	danger?: boolean;
+	disabled?: boolean;
 }) {
 	const closeMenu = useContext(MenuCloseContext);
 	return (
@@ -74,6 +76,7 @@ export function MenuItem({
 			type="button"
 			role="menuitem"
 			className={danger ? "workspace-menu-item danger" : "workspace-menu-item"}
+			disabled={disabled}
 			onClick={() => {
 				onSelect();
 				closeMenu?.();

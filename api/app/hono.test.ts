@@ -26,22 +26,25 @@ vi.mock("../db", () => ({
 				runtimeSettings: {
 					findFirst: vi.fn().mockResolvedValue(undefined),
 				},
-					scanRuns: {
-						findMany: vi.fn().mockResolvedValue([]),
-					},
-					scanReports: {
-						findMany: vi.fn().mockResolvedValue([]),
-					},
-					scanDiagnosticRuns: {
-						findMany: vi.fn().mockResolvedValue([]),
-					},
-					activeAssessmentRuns: {
-						findMany: vi.fn().mockResolvedValue([]),
-					},
-					businessLogicRuns: {
-						findMany: vi.fn().mockResolvedValue([]),
-					},
+				projectDeletionCleanupJobs: {
+					findMany: vi.fn().mockResolvedValue([]),
 				},
+				scanRuns: {
+					findMany: vi.fn().mockResolvedValue([]),
+				},
+				scanReports: {
+					findMany: vi.fn().mockResolvedValue([]),
+				},
+				scanDiagnosticRuns: {
+					findMany: vi.fn().mockResolvedValue([]),
+				},
+				activeAssessmentRuns: {
+					findMany: vi.fn().mockResolvedValue([]),
+				},
+				businessLogicRuns: {
+					findMany: vi.fn().mockResolvedValue([]),
+				},
+			},
 		},
 		sqlite: {
 			close: vi.fn(),

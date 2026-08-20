@@ -8,11 +8,11 @@ import type { AgenticSearchResult } from "../modules/agentic-search/types";
 import { AuthService } from "../modules/auth/auth.service";
 import { BusinessLogicRunner } from "../modules/business-logic/business-logic-runner";
 import { ActiveAssessmentRunner } from "../modules/dast/active-assessment-runner";
-import { DastArtifactStorage } from "../modules/dast/dast-artifact-storage";
 import { DastAuthContextCrypto } from "../modules/dast/auth-context-crypto";
 import { DastAuthContextRepository } from "../modules/dast/auth-context-repository";
-import { IntegrationClientService } from "../modules/integrationClients/integration-client.service";
+import { DastArtifactStorage } from "../modules/dast/dast-artifact-storage";
 import { DynamicArtifactStorage } from "../modules/dynamic/dynamic-artifact-storage";
+import { IntegrationClientService } from "../modules/integrationClients/integration-client.service";
 import { NightworkersWorkspaceTargetGrantRepository } from "../modules/integrations/nightworkers/nightworkers-workspace-target-grant.repository";
 import { NightworkersWorkspaceTargetGrantJanitor } from "../modules/integrations/nightworkers/nightworkers-workspace-target-grant-janitor";
 import { LlmSettingsRepository } from "../modules/llm-settings/llm-settings.repository";
@@ -132,13 +132,16 @@ declare global {
 	var __honoStandardRuntime__: Promise<unknown> | undefined;
 }
 
-function isRuntimeShape(value: unknown): value is AppRuntime {
+export function isRuntimeShape(value: unknown): value is AppRuntime {
 	if (!value || typeof value !== "object") return false;
 	const obj = value as Record<string, unknown>;
 	const settingsRepo = obj.settingsRepository as
 		| Record<string, unknown>
 		| undefined;
 	const agenticService = obj.agenticSearchService as
+		| Record<string, unknown>
+		| undefined;
+	const projectArtifactCleanupRunner = obj.projectArtifactCleanupRunner as
 		| Record<string, unknown>
 		| undefined;
 	return (
@@ -163,7 +166,8 @@ function isRuntimeShape(value: unknown): value is AppRuntime {
 		Boolean(obj.activeAssessmentRunner) &&
 		Boolean(obj.businessLogicRunner) &&
 		Boolean(obj.integrationClientService) &&
-		Boolean(obj.projectArtifactCleanupRunner) &&
+		typeof projectArtifactCleanupRunner?.enqueue === "function" &&
+		typeof projectArtifactCleanupRunner?.recover === "function" &&
 		typeof (
 			obj.workspaceTargetGrantJanitor as Record<string, unknown> | undefined
 		)?.stop === "function" &&

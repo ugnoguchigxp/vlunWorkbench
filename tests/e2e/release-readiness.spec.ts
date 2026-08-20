@@ -204,7 +204,7 @@ test("project path validation and member/admin boundaries hold through a browser
 	await expectNoSeriousAccessibilityViolations(page);
 });
 
-test("mocked completed scan results and Markdown report preview render", async ({
+test("mocked scan workspace renders results, report preview, and history deletion", async ({
 	page,
 }) => {
 	const timestamp = "2026-07-24T00:00:00.000Z";
@@ -261,6 +261,7 @@ test("mocked completed scan results and Markdown report preview render", async (
 		createdAt: timestamp,
 		updatedAt: timestamp,
 	};
+	let scanDeleted = false;
 
 	await page.route("**/api/**", async (route) => {
 		const url = new URL(route.request().url());
@@ -287,6 +288,17 @@ test("mocked completed scan results and Markdown report preview render", async (
 			return json({ systemContext: "", updatedAt: null });
 		if (path === "/api/health")
 			return json({ status: "ok", service: "vuln-workbench" });
+		if (
+			path === `/api/scans/${scan.id}` &&
+			route.request().method() === "DELETE"
+		) {
+			scanDeleted = true;
+			return json({
+				deletedScanRunId: scan.id,
+				deletedAt: timestamp,
+				artifactCleanup: "queued",
+			});
+		}
 		if (path === "/api/projects") return json({ projects: [project] });
 		if (path === "/api/scan-profiles")
 			return json({
@@ -329,7 +341,7 @@ test("mocked completed scan results and Markdown report preview render", async (
 			});
 		}
 		if (path === "/api/scans" && url.searchParams.get("projectId") === project.id)
-			return json({ scans: [scan] });
+			return json({ scans: scanDeleted ? [] : [scan] });
 		return json({ ok: false, message: `Unhandled E2E route: ${path}` }, 404);
 	});
 
@@ -338,8 +350,35 @@ test("mocked completed scan results and Markdown report preview render", async (
 		page.getByText("Unsafe fixture finding", { exact: true }),
 	).toBeVisible();
 	await page.getByRole("tab", { name: "レポート MD" }).click();
-	await expect(page.getByText("E2E Security Report", { exact: false })).toBeVisible();
+	await expect(
+		page.getByRole("heading", { name: "E2E Security Report", exact: true }),
+	).toBeVisible();
 	await expect(page.getByText("Rendered report preview.")).toBeVisible();
+	const projectFolder = page
+		.locator(".workspace-project-select")
+		.filter({ hasText: "E2E project" });
+	await expect(projectFolder).toHaveAttribute("aria-expanded", "true");
+	await projectFolder.click();
+	await expect(projectFolder).toHaveAttribute("aria-expanded", "false");
+	await expect(
+		page.getByRole("button", { name: "baseline のスキャン履歴を操作" }),
+	).toHaveCount(0);
+	await projectFolder.click();
+	await expect(projectFolder).toHaveAttribute("aria-expanded", "true");
+	await expect(
+		page.getByRole("button", { name: "baseline のスキャン履歴を操作" }),
+	).toBeVisible();
+	await page
+		.getByRole("button", { name: "baseline のスキャン履歴を操作" })
+		.click();
+	await page.getByRole("menuitem", { name: "履歴を削除" }).click();
+	await expect(
+		page.getByRole("heading", {
+			name: "「baseline」のスキャン履歴を削除しますか？",
+		}),
+	).toBeVisible();
+	await page.getByRole("button", { name: "履歴を削除" }).click();
+	await expect(page.getByText("スキャン履歴はありません。")).toBeVisible();
 	await expectNoSeriousAccessibilityViolations(page);
 });
 

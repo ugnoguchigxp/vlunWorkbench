@@ -3,7 +3,6 @@ export const scanWorkspaceTabs = [
 	"findings",
 	"coverage",
 	"report",
-	"history",
 ] as const;
 
 export type ScanWorkspaceTab = (typeof scanWorkspaceTabs)[number];

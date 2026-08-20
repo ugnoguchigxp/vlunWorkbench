@@ -29,6 +29,12 @@ describe("scan workspace route search", () => {
 		).toEqual({ projectId: "project-1" });
 	});
 
+	it("normalizes the former history tab to the overview", () => {
+		expect(
+			parseScansSearch({ projectId: "project-1", tab: "history" }),
+		).toEqual({ projectId: "project-1" });
+	});
+
 	it("retains a report only in the report tab", () => {
 		expect(
 			parseScansSearch({

@@ -11,14 +11,13 @@ import {
 	scanReviews,
 	scanRuns,
 	staticIntelligencePrepareJobs,
-	threatModelRuns,
 	toolRuns,
 } from "../../db/schema";
 
 const activeStatuses = ["queued", "running"] as const;
 const activePrepareJobStatuses = ["requested", ...activeStatuses] as const;
 
-export type ProjectActiveWork = {
+export type ScanActiveWork = {
 	kind:
 		| "scan_runs"
 		| "tool_runs"
@@ -30,7 +29,6 @@ export type ProjectActiveWork = {
 		| "dynamic_runs"
 		| "reproduction_runs"
 		| "active_assessment_runs"
-		| "threat_model_runs"
 		| "business_logic_runs";
 	count: number;
 };
@@ -38,11 +36,11 @@ export type ProjectActiveWork = {
 const countRows = async <T>(query: Promise<T[]>): Promise<number> =>
 	(await query).length;
 
-/** Lists active work without exposing PIDs, commands, or other execution details. */
-export async function listProjectActiveWork(
+/** Lists work that still references one scan and must finish before deletion. */
+export async function listScanActiveWork(
 	db: AppDatabase,
-	projectId: string,
-): Promise<ProjectActiveWork[]> {
+	scanRunId: string,
+): Promise<ScanActiveWork[]> {
 	const entries = await Promise.all([
 		countRows(
 			db
@@ -50,7 +48,7 @@ export async function listProjectActiveWork(
 				.from(scanRuns)
 				.where(
 					and(
-						eq(scanRuns.projectId, projectId),
+						eq(scanRuns.id, scanRunId),
 						inArray(scanRuns.status, activeStatuses),
 					),
 				),
@@ -59,10 +57,9 @@ export async function listProjectActiveWork(
 			db
 				.select({ id: toolRuns.id })
 				.from(toolRuns)
-				.innerJoin(scanRuns, eq(toolRuns.scanRunId, scanRuns.id))
 				.where(
 					and(
-						eq(scanRuns.projectId, projectId),
+						eq(toolRuns.scanRunId, scanRunId),
 						inArray(toolRuns.status, activeStatuses),
 					),
 				),
@@ -73,7 +70,7 @@ export async function listProjectActiveWork(
 				.from(staticIntelligencePrepareJobs)
 				.where(
 					and(
-						eq(staticIntelligencePrepareJobs.projectId, projectId),
+						eq(staticIntelligencePrepareJobs.scanRunId, scanRunId),
 						inArray(
 							staticIntelligencePrepareJobs.status,
 							activePrepareJobStatuses,
@@ -87,7 +84,7 @@ export async function listProjectActiveWork(
 				.from(scanReviews)
 				.where(
 					and(
-						eq(scanReviews.projectId, projectId),
+						eq(scanReviews.scanRunId, scanRunId),
 						inArray(scanReviews.status, activeStatuses),
 					),
 				),
@@ -96,10 +93,9 @@ export async function listProjectActiveWork(
 			db
 				.select({ id: scanReports.id })
 				.from(scanReports)
-				.innerJoin(scanRuns, eq(scanReports.scanRunId, scanRuns.id))
 				.where(
 					and(
-						eq(scanRuns.projectId, projectId),
+						eq(scanReports.scanRunId, scanRunId),
 						inArray(scanReports.status, activeStatuses),
 					),
 				),
@@ -108,10 +104,9 @@ export async function listProjectActiveWork(
 			db
 				.select({ id: scanDiagnosticRuns.id })
 				.from(scanDiagnosticRuns)
-				.innerJoin(scanRuns, eq(scanDiagnosticRuns.scanRunId, scanRuns.id))
 				.where(
 					and(
-						eq(scanRuns.projectId, projectId),
+						eq(scanDiagnosticRuns.scanRunId, scanRunId),
 						inArray(scanDiagnosticRuns.status, activeStatuses),
 					),
 				),
@@ -122,7 +117,7 @@ export async function listProjectActiveWork(
 				.from(dastRuns)
 				.where(
 					and(
-						eq(dastRuns.projectId, projectId),
+						eq(dastRuns.scanRunId, scanRunId),
 						inArray(dastRuns.status, activeStatuses),
 					),
 				),
@@ -133,7 +128,7 @@ export async function listProjectActiveWork(
 				.from(dynamicRuns)
 				.where(
 					and(
-						eq(dynamicRuns.projectId, projectId),
+						eq(dynamicRuns.scanRunId, scanRunId),
 						inArray(dynamicRuns.status, activeStatuses),
 					),
 				),
@@ -144,7 +139,7 @@ export async function listProjectActiveWork(
 				.from(reproductionRuns)
 				.where(
 					and(
-						eq(reproductionRuns.projectId, projectId),
+						eq(reproductionRuns.scanRunId, scanRunId),
 						inArray(reproductionRuns.status, activeStatuses),
 					),
 				),
@@ -155,19 +150,8 @@ export async function listProjectActiveWork(
 				.from(activeAssessmentRuns)
 				.where(
 					and(
-						eq(activeAssessmentRuns.projectId, projectId),
+						eq(activeAssessmentRuns.scanRunId, scanRunId),
 						inArray(activeAssessmentRuns.status, activeStatuses),
-					),
-				),
-		),
-		countRows(
-			db
-				.select({ id: threatModelRuns.id })
-				.from(threatModelRuns)
-				.where(
-					and(
-						eq(threatModelRuns.projectId, projectId),
-						inArray(threatModelRuns.status, activeStatuses),
 					),
 				),
 		),
@@ -177,13 +161,13 @@ export async function listProjectActiveWork(
 				.from(businessLogicRuns)
 				.where(
 					and(
-						eq(businessLogicRuns.projectId, projectId),
+						eq(businessLogicRuns.scanRunId, scanRunId),
 						inArray(businessLogicRuns.status, activeStatuses),
 					),
 				),
 		),
 	]);
-	const kinds: ProjectActiveWork["kind"][] = [
+	const kinds: ScanActiveWork["kind"][] = [
 		"scan_runs",
 		"tool_runs",
 		"static_intelligence_prepare_jobs",
@@ -194,10 +178,9 @@ export async function listProjectActiveWork(
 		"dynamic_runs",
 		"reproduction_runs",
 		"active_assessment_runs",
-		"threat_model_runs",
 		"business_logic_runs",
 	];
-	return entries.reduce<ProjectActiveWork[]>((result, count, index) => {
+	return entries.reduce<ScanActiveWork[]>((result, count, index) => {
 		const kind = kinds[index];
 		if (count > 0 && kind) result.push({ kind, count });
 		return result;

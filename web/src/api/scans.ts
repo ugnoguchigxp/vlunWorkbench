@@ -192,6 +192,18 @@ export async function cancelScan(scanRunId: string): Promise<ScanRun> {
 	return data.scan;
 }
 
+export type DeleteScanResult = {
+	deletedScanRunId: string;
+	deletedAt: string;
+	artifactCleanup: "queued";
+};
+
+export async function deleteScan(scanRunId: string): Promise<DeleteScanResult> {
+	return requestJson<DeleteScanResult>(`/api/scans/${scanRunId}`, {
+		method: "DELETE",
+	});
+}
+
 export async function fetchScanArtifacts(
 	scanRunId: string,
 ): Promise<ScanArtifact[]> {
@@ -519,7 +531,9 @@ export async function markScanReportLlmCommentSeen(
 	return data.viewerState;
 }
 
-export async function downloadScanReportMarkdown(reportId: string): Promise<string> {
+export async function downloadScanReportMarkdown(
+	reportId: string,
+): Promise<string> {
 	return await requestText(`/api/scan-reports/${reportId}/download`);
 }
 

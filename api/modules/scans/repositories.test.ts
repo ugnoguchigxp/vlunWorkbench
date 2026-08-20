@@ -1,13 +1,14 @@
-import { describe, expect, it, beforeEach, afterEach } from "vitest";
-import { readFileSync, readdirSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { eq } from "drizzle-orm";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createDbConnection, type DbConnection } from "../../db";
-import { users } from "../../db/schema";
+import { scanRuns, users } from "../../db/schema";
 import {
-	ProjectRepository,
-	ScanRepository,
 	ArtifactRepository,
 	FindingRepository,
+	ProjectRepository,
+	ScanRepository,
 } from "./repositories";
 
 describe("Scan Domain Repositories", () => {
@@ -188,6 +189,36 @@ describe("Scan Domain Repositories", () => {
 		expect(updatedTool?.exitCode).toBe(0);
 		expect(updatedTool?.toolVersion).toBe("2.17.0");
 		expect(updatedTool?.metadata).toMatchObject({ image: "zaproxy/zap-stable@sha256:example" });
+	});
+
+	it("lists scan history newest first", async () => {
+		const project = await projectRepo.createProject({
+			ownerUserId: userId,
+			name: "Ordered scans",
+			repoPath: "/path/to/ordered-scans",
+		});
+		const older = await scanRepo.createScanRun({
+			projectId: project.id,
+			profile: "older",
+			status: "completed",
+		});
+		const newer = await scanRepo.createScanRun({
+			projectId: project.id,
+			profile: "newer",
+			status: "completed",
+		});
+		await connection.db
+			.update(scanRuns)
+			.set({ createdAt: new Date("2026-01-01T00:00:00.000Z") })
+			.where(eq(scanRuns.id, older.id));
+		await connection.db
+			.update(scanRuns)
+			.set({ createdAt: new Date("2026-01-02T00:00:00.000Z") })
+			.where(eq(scanRuns.id, newer.id));
+
+		expect(
+			(await scanRepo.listScanRunsByProject(project.id)).map((scan) => scan.id),
+		).toEqual([newer.id, older.id]);
 	});
 
 	it("reports a rejected active-to-terminal transition without overwriting the winner", async () => {

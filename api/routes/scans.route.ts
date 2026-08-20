@@ -23,6 +23,7 @@ import type {
 	ProjectRepository,
 	ScanRepository,
 } from "../modules/scans/repositories";
+import type { ScanDeletionService } from "../modules/scans/scan-deletion-service";
 import { ScanDiagnosticRepository } from "../modules/scans/scan-diagnostic-repository";
 import type { ScanDiagnosticRunner } from "../modules/scans/scan-diagnostic-runner";
 import type { ScanProcessSupervisor } from "../modules/scans/scan-process-supervisor";
@@ -49,6 +50,7 @@ type ScansRouteDeps = {
 	scanReviewRunner?: Pick<ScanReviewRunner, "start">;
 	scanReportRunner?: Pick<ScanReportRunner, "start">;
 	scanDiagnosticRunner?: Pick<ScanDiagnosticRunner, "retry">;
+	scanDeletionService: Pick<ScanDeletionService, "deleteOwnedScan">;
 };
 
 const FindingsQuerySchema = z.object({
@@ -122,6 +124,14 @@ export function createScansRoute(deps: ScansRouteDeps) {
 			const scanRunId = c.req.param("scanRunId");
 			const scan = await checkScanOwnership(scanRunId, authUser.userId);
 			return c.json({ scan });
+		})
+		.delete("/:scanRunId", async (c) => {
+			const authUser = getAuthContextUser(c);
+			const result = await deps.scanDeletionService.deleteOwnedScan({
+				scanRunId: c.req.param("scanRunId"),
+				userId: authUser.userId,
+			});
+			return c.json(result);
 		})
 		.get("/:scanRunId/events", async (c) => {
 			const authUser = getAuthContextUser(c);

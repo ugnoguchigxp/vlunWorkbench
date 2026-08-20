@@ -1,3 +1,4 @@
+import type { ProjectArtifactCleanupManifest } from "../../db/schema";
 import type { DastArtifactStorage } from "../dast/dast-artifact-storage";
 import type { DynamicArtifactStorage } from "../dynamic/dynamic-artifact-storage";
 import type { ReproductionArtifactStorage } from "../reproductions/reproduction-artifact-storage";
@@ -24,10 +25,7 @@ export class ProjectArtifactCleanupRunner {
 		if (this.inFlight.has(jobId)) return;
 		const task = this.run(jobId)
 			.catch((error) => {
-				console.error(
-					`Project artifact cleanup job ${jobId} could not start:`,
-					error,
-				);
+				console.error(`Artifact cleanup job ${jobId} could not start:`, error);
 			})
 			.finally(() => this.inFlight.delete(jobId));
 		this.inFlight.set(jobId, task);
@@ -44,23 +42,29 @@ export class ProjectArtifactCleanupRunner {
 		const job = await this.repository.claim(jobId);
 		if (!job) return;
 		try {
-			await Promise.all([
-				...job.manifest.scanRunIds.map((id) =>
-					this.storage.scanStorage.removeRunDirectory(id),
-				),
-				...job.manifest.dastRunIds.map((id) =>
-					this.storage.dastStorage.removeRunDirectory(id),
-				),
-				...job.manifest.dynamicRunIds.map((id) =>
-					this.storage.dynamicStorage.removeRunDirectory(id),
-				),
-				...job.manifest.reproductionRunIds.map((id) =>
-					this.storage.reproductionStorage.removeRunDirectory(id),
-				),
-			]);
+			await this.removeManifest(job.manifest);
 			await this.repository.complete(job.id);
 		} catch (error) {
 			await this.repository.fail(job.id, error);
 		}
+	}
+
+	private async removeManifest(
+		manifest: ProjectArtifactCleanupManifest,
+	): Promise<void> {
+		await Promise.all([
+			...manifest.scanRunIds.map((id) =>
+				this.storage.scanStorage.removeRunDirectory(id),
+			),
+			...manifest.dastRunIds.map((id) =>
+				this.storage.dastStorage.removeRunDirectory(id),
+			),
+			...manifest.dynamicRunIds.map((id) =>
+				this.storage.dynamicStorage.removeRunDirectory(id),
+			),
+			...manifest.reproductionRunIds.map((id) =>
+				this.storage.reproductionStorage.removeRunDirectory(id),
+			),
+		]);
 	}
 }

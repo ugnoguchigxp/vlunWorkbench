@@ -139,6 +139,13 @@ describe("Scans Route", () => {
 	const mockScanSupervisor = {
 		cancel: vi.fn().mockResolvedValue({ cancelled: true }),
 	};
+	const mockScanDeletionService = {
+		deleteOwnedScan: vi.fn().mockResolvedValue({
+			deletedScanRunId: "s-1",
+			deletedAt: new Date("2026-08-20T00:00:00.000Z"),
+			artifactCleanup: "queued",
+		}),
+	};
 
 	const app = new Hono();
 	app.use("*", async (c, next) => {
@@ -170,6 +177,7 @@ describe("Scans Route", () => {
 			artifactStorage: mockArtifactStorage as any,
 			db: {} as any,
 			scanSupervisor: mockScanSupervisor as any,
+			scanDeletionService: mockScanDeletionService,
 		}),
 	);
 
@@ -185,6 +193,21 @@ describe("Scans Route", () => {
 		expect(res.status).toBe(200);
 		const body = await res.json();
 		expect(body.scan.id).toBe("s-1");
+	});
+
+	it("DELETE /:scanRunId delegates deletion with the authenticated owner", async () => {
+		mockScanDeletionService.deleteOwnedScan.mockClear();
+		const res = await app.request("/s-1", { method: "DELETE" });
+
+		expect(res.status).toBe(200);
+		expect(mockScanDeletionService.deleteOwnedScan).toHaveBeenCalledWith({
+			scanRunId: "s-1",
+			userId: "user-123",
+		});
+		expect(await res.json()).toMatchObject({
+			deletedScanRunId: "s-1",
+			artifactCleanup: "queued",
+		});
 	});
 
 	it("GET /:scanRunId/events returns events list", async () => {

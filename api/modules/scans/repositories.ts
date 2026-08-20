@@ -242,14 +242,13 @@ export class ScanRepository {
 	}
 
 	async listScanRuns(projectId: string) {
-		return await this.db.query.scanRuns.findMany({
-			where: eq(scanRuns.projectId, projectId),
-		});
+		return await this.listScanRunsByProject(projectId);
 	}
 
 	async listScanRunsByProject(projectId: string) {
 		return await this.db.query.scanRuns.findMany({
 			where: eq(scanRuns.projectId, projectId),
+			orderBy: (fields, { desc }) => [desc(fields.createdAt), desc(fields.id)],
 		});
 	}
 

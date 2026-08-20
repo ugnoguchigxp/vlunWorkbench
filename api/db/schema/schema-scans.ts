@@ -377,6 +377,11 @@ export type ProjectArtifactCleanupManifest = {
 	reproductionRunIds: string[];
 };
 
+/**
+ * Durable server-owned artifact cleanup ledger.
+ * The legacy table name is retained because project and scan deletion share the
+ * same idempotent manifest runner and recovery lifecycle.
+ */
 export const projectDeletionCleanupJobs = sqliteTable(
 	"project_deletion_cleanup_jobs",
 	{
@@ -384,7 +389,7 @@ export const projectDeletionCleanupJobs = sqliteTable(
 		ownerUserId: text("owner_user_id").references(() => users.id, {
 			onDelete: "set null",
 		}),
-		// This remains an audit value after the project row has been deleted.
+		// These remain audit values even after the owning project or scan is deleted.
 		projectId: text("project_id").notNull(),
 		projectName: text("project_name").notNull(),
 		manifest: text("manifest_json", { mode: "json" })

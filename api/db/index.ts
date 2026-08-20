@@ -2,9 +2,8 @@ import { Database } from "bun:sqlite";
 import { existsSync } from "node:fs";
 import { type BunSQLiteDatabase, drizzle } from "drizzle-orm/bun-sqlite";
 import * as sqliteVec from "sqlite-vec";
-
-import * as schema from "./schema";
 import { canonicalDatabasePath } from "./database-url";
+import * as schema from "./schema";
 import {
 	getSqliteWriterClient,
 	type SqliteWriterClient,
@@ -127,17 +126,31 @@ export function writerClientForDatabase(
 }
 
 type DbTransactionCallback = Parameters<AppDatabase["transaction"]>[0];
+type DbTransaction = Parameters<DbTransactionCallback>[0];
 
-export function runInProcessDbTransaction(
+export function runInProcessDbTransaction<T>(
 	db: AppDatabase,
-	callback: DbTransactionCallback,
-): ReturnType<AppDatabase["transaction"]> {
+	callback: (transaction: DbTransaction) => T,
+	..._rejectAsyncCallback: T extends PromiseLike<unknown> ? [never] : []
+): T {
 	if (writerClientForDatabase(db)) {
 		throw new Error(
 			"File-backed databases must use an atomic Writer batch instead of an in-process transaction.",
 		);
 	}
-	return db.transaction(callback);
+	return db.transaction((transaction) => {
+		const result = callback(transaction);
+		if (
+			result !== null &&
+			typeof result === "object" &&
+			typeof (result as { then?: unknown }).then === "function"
+		) {
+			throw new Error(
+				"In-process SQLite transaction callbacks must be synchronous.",
+			);
+		}
+		return result;
+	});
 }
 
 export async function connectDb(sqlite: Database) {

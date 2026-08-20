@@ -1,23 +1,40 @@
 import { randomUUID } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import {
-	runInProcessDbTransaction,
 	type AppDatabase,
+	runInProcessDbTransaction,
 	writerClientForDatabase,
 } from "../../db";
 import {
 	dastRuns,
 	dynamicRuns,
+	type ProjectArtifactCleanupManifest,
 	projectDeletionCleanupJobs,
 	projects,
 	reproductionRuns,
 	scanRuns,
-	type ProjectArtifactCleanupManifest,
 } from "../../db/schema";
 import { HttpError } from "../auth/errors";
-import { listProjectActiveWork } from "./project-deletion-active-work";
 import type { ProjectArtifactCleanupRunner } from "./project-artifact-cleanup-runner";
+import {
+	listProjectActiveWork,
+	type ProjectActiveWork,
+} from "./project-deletion-active-work";
 import type { ProjectRepository } from "./repositories";
+
+const projectHasActiveWorkError = (activeWork: ProjectActiveWork[]) =>
+	new HttpError(
+		409,
+		"Stop active work before deleting this project.",
+		undefined,
+		"PROJECT_HAS_ACTIVE_WORK",
+		{ activeWork },
+	);
+
+const isActiveWorkDeleteConstraint = (error: unknown): boolean =>
+	error instanceof Error &&
+	(error.message.includes("scan_has_active_work") ||
+		error.message.includes("project_has_active_work"));
 
 export class ProjectDeletionService {
 	constructor(
@@ -53,13 +70,7 @@ export class ProjectDeletionService {
 			params.projectId,
 		);
 		if (activeWork.length > 0) {
-			throw new HttpError(
-				409,
-				"Stop active work before deleting this project.",
-				undefined,
-				"PROJECT_HAS_ACTIVE_WORK",
-				{ activeWork },
-			);
+			throw projectHasActiveWorkError(activeWork);
 		}
 
 		const manifest = await this.buildArtifactManifest(params.projectId);
@@ -76,32 +87,43 @@ export class ProjectDeletionService {
 			updatedAt: now,
 		};
 		const writer = writerClientForDatabase(this.deps.db);
-		if (writer) {
-			await writer.atomicDrizzleBatch([
-				this.deps.db.insert(projectDeletionCleanupJobs).values(cleanupJob),
-				this.deps.db
-					.delete(projects)
-					.where(
-						and(
-							eq(projects.id, project.id),
-							eq(projects.ownerUserId, params.userId),
+		try {
+			if (writer) {
+				await writer.atomicDrizzleBatch([
+					this.deps.db.insert(projectDeletionCleanupJobs).values(cleanupJob),
+					this.deps.db
+						.delete(projects)
+						.where(
+							and(
+								eq(projects.id, project.id),
+								eq(projects.ownerUserId, params.userId),
+							),
 						),
-					),
-			]);
-		} else {
-			await runInProcessDbTransaction(this.deps.db, async (transaction) => {
-				await transaction.insert(projectDeletionCleanupJobs).values(cleanupJob);
-				const [deleted] = await transaction
-					.delete(projects)
-					.where(
-						and(
-							eq(projects.id, project.id),
-							eq(projects.ownerUserId, params.userId),
-						),
-					)
-					.returning({ id: projects.id });
-				if (!deleted) throw new HttpError(404, "Project not found");
-			});
+				]);
+			} else {
+				runInProcessDbTransaction(this.deps.db, (transaction) => {
+					transaction
+						.insert(projectDeletionCleanupJobs)
+						.values(cleanupJob)
+						.run();
+					const deleted = transaction
+						.delete(projects)
+						.where(
+							and(
+								eq(projects.id, project.id),
+								eq(projects.ownerUserId, params.userId),
+							),
+						)
+						.returning({ id: projects.id })
+						.get();
+					if (!deleted) throw new HttpError(404, "Project not found");
+				});
+			}
+		} catch (error) {
+			if (!isActiveWorkDeleteConstraint(error)) throw error;
+			throw projectHasActiveWorkError(
+				await listProjectActiveWork(this.deps.db, params.projectId),
+			);
 		}
 		this.deps.cleanupRunner.enqueue(cleanupJob.id);
 		return {
