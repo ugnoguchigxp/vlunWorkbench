@@ -9,6 +9,9 @@ import {
 } from "./todolist-scan-acceptance-lib";
 
 const temporaryRoots: string[] = [];
+const todolistRepoPath =
+  process.env.VULN_WORKBENCH_TODOLIST_REPO_PATH ??
+  path.resolve(process.cwd(), "..", "todolist");
 
 afterEach(async () => {
   await Promise.all(
@@ -20,9 +23,7 @@ afterEach(async () => {
 
 describe("todolist scanner acceptance target", () => {
   it("uses the dedicated todolist repository and its fixed individual matrix", async () => {
-    const target = await resolveTodolistAcceptanceTarget(
-      path.resolve(process.cwd(), "..", "todolist"),
-    );
+    const target = await resolveTodolistAcceptanceTarget(todolistRepoPath);
     expect(target.repoPath).toContain(`${path.sep}todolist`);
     expect(typeof target.commit).toBe("string");
     expect(
@@ -51,11 +52,7 @@ describe("todolist scanner acceptance target", () => {
 
   it("accepts the target path only through the explicit environment contract", async () => {
     const original = process.env.VULN_WORKBENCH_TODOLIST_REPO_PATH;
-    process.env.VULN_WORKBENCH_TODOLIST_REPO_PATH = path.resolve(
-      process.cwd(),
-      "..",
-      "todolist",
-    );
+    process.env.VULN_WORKBENCH_TODOLIST_REPO_PATH = todolistRepoPath;
     try {
       expect((await resolveTodolistAcceptanceTarget()).repoPath).toContain(
         `${path.sep}todolist`,
@@ -68,9 +65,7 @@ describe("todolist scanner acceptance target", () => {
   });
 
   it("creates a clean Git worktree at the pinned revision before scanners receive a source path", async () => {
-    const target = await resolveTodolistAcceptanceTarget(
-      path.resolve(process.cwd(), "..", "todolist"),
-    );
+    const target = await resolveTodolistAcceptanceTarget(todolistRepoPath);
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "vwb-snapshot-test-"));
     temporaryRoots.push(root);
     const snapshot = await createTodolistSourceSnapshot(target, root);

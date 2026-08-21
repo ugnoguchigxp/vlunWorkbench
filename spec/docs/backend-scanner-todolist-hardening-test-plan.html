@@ -2,10 +2,7 @@
   <h1 id="backend-scanner-todolist-hardening-test-plan">
     Backend Scanner Hardening and todolist Validation Plan
   </h1>
-  <p>
-    Status: Reviewed / Real-scanner qualification and composite-profile repeatability gate
-    implemented
-  </p>
+  <p>Status: Closeout tooling implemented / protected CI promotion pending</p>
   <p>Parent plan: Phase 56 Slice 56.11</p>
   <p>
     Archive closeout:
@@ -25,10 +22,10 @@
   <h2 id="implementation-record">実装記録（2026-08-20）</h2>
   <p>
     この節は計画本文より優先する現在の実装契約である。受入entrypointは
-    <code>scripts/todolist-scan-acceptance.ts</code>、package commandは
-    <code>bun run test:todolist-scans</code>である。個別選択は
-    <code>--only gitleaks,osv,trivy-fs,sbom,schemathesis-no-schema,nuclei-safe,zap-baseline,trivy-image</code>
-    を使う。実行ごとに一時SQLite DB・artifact rootを作り、終了時に所有するSQLite writerを停止する。
+    <code>scripts/scanner-e2e.ts</code>、全体commandは
+    <code>bun run test:scanner-e2e</code>である。個別caseはversion 2 registryのexact 12
+    caseとし、実行ごとに一時SQLite DB・artifact rootを作り、終了時に所有するSQLite
+    writer、target、containerを停止する。
   </p>
   <p>
     runtime系はホストでtodolistのコードを起動しない。harnessがtodolist Docker imageをbuildし、
@@ -36,7 +33,8 @@
     filesystem、tmpfsの<code>/data</code>、capability drop、
     no-new-privilegesを付けた一時targetを起動する。NucleiとZAPはこのtargetに対して各々独立の scan
     run/tool runを作る。todolist HEAD
-    <code>d87bfdd9f29aa64e484a0c4d1ad02956136dc6b0</code>で、8個すべての個別ケースを実行済みである。
+    <code>d87bfdd9f29aa64e484a0c4d1ad02956136dc6b0</code>で、12個すべての個別caseとfail-closed
+    companionを実行する。
   </p>
   <table>
     <caption>
@@ -51,34 +49,29 @@
     </thead>
     <tbody>
       <tr>
-        <td>gitleaks / osv / trivy-fs</td>
-        <td>raw resultを保存しcompleted</td>
-        <td>各2 artifact、completed</td>
+        <td>gitleaks-source / osv-manifest / osv-installed-tree</td>
+        <td>real process、work &gt; 0、raw artifact</td>
+        <td>case別work、identity、final report digestを検証</td>
       </tr>
       <tr>
-        <td>sbom</td>
-        <td>SBOMを保存</td>
-        <td>2 artifact、completed_with_warnings</td>
+        <td>trivy-filesystem / trivy-sbom / trivy-image</td>
+        <td>filesystem、SBOM、image targetを個別実行</td>
+        <td>package/component/target countとartifact bytesを検証</td>
       </tr>
       <tr>
-        <td>schemathesis-no-schema</td>
-        <td>targetを起動せずschema_not_found N/A</td>
-        <td>0 artifact、completed_with_warnings</td>
+        <td>semgrep-source</td>
+        <td>owned rule、parse error 0、files &gt; 0</td>
+        <td>rule/file/candidate countとraw artifactを検証</td>
       </tr>
       <tr>
-        <td>nuclei-safe</td>
-        <td>隔離runtime targetへのsafe scan</td>
-        <td>1 artifact、completed</td>
+        <td>passive-dast / nuclei-safe / zap-baseline</td>
+        <td>隔離runtime targetへのread-only scan</td>
+        <td>request &gt; 0、mutation/public request 0、cleanup 0を検証</td>
       </tr>
       <tr>
-        <td>zap-baseline</td>
-        <td>隔離runtime targetへのpassive scan</td>
-        <td>2 artifact、completed</td>
-      </tr>
-      <tr>
-        <td>trivy-image</td>
-        <td>明示image tarをread-only mountしてscan</td>
-        <td>2 artifact、completed_with_warnings</td>
+        <td>schemathesis-not-applicable / schemathesis-readonly</td>
+        <td>APIなしN/Aと明示schemaのread-only実行を分離</td>
+        <td>target/scanner 0またはoperation/request &gt; 0を検証</td>
       </tr>
     </tbody>
   </table>
@@ -89,8 +82,72 @@
     <code>full-security-scan</code>を2回実行する。9 stepの実行状態、runtime
     request、artifact role、 canonical final、target cleanup、同一plan hashと正規化evidence
     hashを検証し、 <code>scripts/verify-scanner-e2e-full-profile-evidence.ts</code>が保存済みartifact
-    bytesを再検証する。
+    bytesを再検証する。個別2回、full profile 2回、11 failure case、qualificationは同じapplication
+    commit、todolist archive digest、toolbox image digest、scanner manifest、canonical final report
+    digestへ結合する。protected CIの取得元が未設定の間はarchiveせず
+    <code>target_source_unavailable</code>として扱う。
   </p>
+
+  <h3 id="implementation-handoff-record">実装handoff record</h3>
+  <table>
+    <caption>
+      S0からS8のcloseout provider
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Slice</th>
+        <th scope="col">Production/Test</th>
+        <th scope="col">Evidence/Rollback</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>S0</td>
+        <td>scope contract / scope verifier tests</td>
+        <td>scope report / contractをrevert</td>
+      </tr>
+      <tr>
+        <td>S1</td>
+        <td>artifact storage / collision tests</td>
+        <td>individual・full-profile artifact hash / writer境界をrevert</td>
+      </tr>
+      <tr>
+        <td>S2</td>
+        <td>atomic repository transition / race test</td>
+        <td>FI-11 / repository methodをrevert</td>
+      </tr>
+      <tr>
+        <td>S3</td>
+        <td>preflight・provenance / focused tests</td>
+        <td>FI-01〜03・10 / strict stepをblockedへ戻す</td>
+      </tr>
+      <tr>
+        <td>S4</td>
+        <td>static scanner adapters / 7 static case</td>
+        <td>individual evidence / adapter単位disable</td>
+      </tr>
+      <tr>
+        <td>S5</td>
+        <td>container target / lifecycle tests</td>
+        <td>full-profile cleanup / runtime stepをblockedへ戻す</td>
+      </tr>
+      <tr>
+        <td>S6</td>
+        <td>runtime/API scanners / 5 case</td>
+        <td>request・artifact evidence / scanner単位disable</td>
+      </tr>
+      <tr>
+        <td>S7</td>
+        <td>failure runner / FI-01〜11</td>
+        <td>failure evidence / injection contractをrevert</td>
+      </tr>
+      <tr>
+        <td>S8</td>
+        <td>closeout・CI verifier / negative tests</td>
+        <td>receipt / archiveせずactiveへ戻す</td>
+      </tr>
+    </tbody>
+  </table>
 
   <h2 id="1-conclusion">1. 結論</h2>
   <p>
@@ -1855,11 +1912,15 @@ bun run scripts/verify-scanner-e2e-full-profile-evidence.ts \
       </tr>
     </tbody>
   </table>
-  <pre><code class="language-bash">bun run test:scanner-backend
-bun run test:scanner-real:todolist
-bun run test:scanner-runtime:todolist
-bun run test:scan-profile:todolist
-bun run verify:scanner-backend:todolist
+  <pre><code class="language-bash">bun run test:scanner-e2e:contract
+bun run scanner-e2e:repeat
+bun run scanner-e2e:verify
+bun run scanner-e2e:full-profile
+bun run scanner-e2e:qualify
+bun run scanner-e2e:failure
+bun run scanner-e2e:failure:verify
+bun run scanner-hardening:baseline:verify
+bun run scanner-hardening:dod:verify
 bun run typecheck
 bun run lint
 bun run docs:check
@@ -2053,14 +2114,16 @@ completedAt
   <h2 id="14-command-plan">14. Command plan</h2>
   <p>実装後の代表的な実行形を次とする。実際のrun rootはharnessが生成する。</p>
   <pre><code class="language-bash">export VULN_WORKBENCH_TODOLIST_REPO_PATH=/Users/y.noguchi/Code/todolist
-export VULN_WORKBENCH_SCAN_PREFLIGHT_MODE=enforced
-export VULN_WORKBENCH_OPTIONAL_SCANNER_ADAPTERS=semgrep
 
-bun run test:scanner-backend
-bun run test:scanner-real:todolist
-bun run test:scanner-runtime:todolist
-bun run test:scan-profile:todolist
-bun run verify:scanner-backend:todolist
+bun run test:scanner-e2e:contract
+bun run scanner-e2e:repeat
+bun run scanner-e2e:verify
+bun run scanner-e2e:full-profile
+bun run scanner-e2e:qualify
+bun run scanner-e2e:failure
+bun run scanner-e2e:failure:verify
+bun run scanner-hardening:baseline:verify
+bun run scanner-hardening:dod:verify
 </code></pre>
   <p>開発中のfocused test:</p>
   <pre><code class="language-bash">bun test api/modules/scans/artifact-storage.test.ts

@@ -1,6 +1,6 @@
-import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import http from "node:http";
 import { type Browser, chromium } from "playwright";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { PlaywrightBrowserAdapter } from "./playwright-browser-adapter";
 import type { ValidatedDastTarget } from "./types";
 

@@ -10,12 +10,47 @@ export async function verifyScannerE2EV2Evidence(params: {
 	evidencePath: string;
 	/** The harness preserves this directory so the verifier can recompute every recorded digest. */
 	artifactRoot?: string;
+	expectedApplicationCommit?: string;
+	targetRepoPath?: string;
+	verifyTargetSnapshot?: boolean;
 }) {
 	const [{ registry, contractHash }, raw] = await Promise.all([
 		loadScannerE2ECaseRegistryV2(),
 		fs.readFile(params.evidencePath, "utf8"),
 	]);
 	const bundle = scannerE2EEvidenceBundleV2Schema.parse(JSON.parse(raw));
+	if (
+		params.expectedApplicationCommit &&
+		bundle.applicationCommit !== params.expectedApplicationCommit
+	) {
+		throw new Error("scanner_e2e_v2_application_commit_mismatch");
+	}
+	const targetContract = JSON.parse(
+		await fs.readFile(
+			path.resolve(
+				import.meta.dir,
+				"../spec/security-capability/todolist-scan-target.v1.json",
+			),
+			"utf8",
+		),
+	) as { repository?: unknown; commit?: unknown };
+	if (
+		bundle.target.repository !== targetContract.repository ||
+		bundle.target.commit !== targetContract.commit
+	) {
+		throw new Error("scanner_e2e_v2_target_contract_mismatch");
+	}
+	if (params.verifyTargetSnapshot !== false) {
+		const observedSnapshot = await gitArchiveDigest(
+			params.targetRepoPath ??
+				process.env.VULN_WORKBENCH_TODOLIST_REPO_PATH ??
+				path.resolve(import.meta.dir, "../../todolist"),
+			bundle.target.commit,
+		);
+		if (observedSnapshot !== bundle.target.snapshotSha256) {
+			throw new Error("scanner_e2e_v2_target_snapshot_mismatch");
+		}
+	}
 	const byId = new Map(bundle.evidence.map((entry) => [entry.caseId, entry]));
 	if (byId.size !== bundle.evidence.length) {
 		throw new Error("scanner_e2e_v2_evidence_duplicate_case");
@@ -127,9 +162,40 @@ export async function verifyScannerE2EV2Evidence(params: {
 				);
 			}
 		}
+		assertArtifactStorageKey(
+			contract.id,
+			success.canonicalFinalReportStorageKey,
+		);
+		const finalPath = path.resolve(
+			artifactRoot,
+			success.canonicalFinalReportStorageKey,
+		);
+		const finalRelative = path.relative(path.resolve(artifactRoot), finalPath);
+		if (finalRelative.startsWith("..") || path.isAbsolute(finalRelative)) {
+			throw new Error(
+				`scanner_e2e_v2_final_report_path_invalid:${contract.id}`,
+			);
+		}
+		const finalBytes = await fs.readFile(finalPath).catch(() => null);
+		if (!finalBytes) {
+			throw new Error(`scanner_e2e_v2_final_report_missing:${contract.id}`);
+		}
+		const finalDigest = `sha256:${crypto
+			.createHash("sha256")
+			.update(finalBytes)
+			.digest("hex")}`;
+		if (
+			finalDigest !== success.canonicalFinalReportSha256 ||
+			finalBytes.length !== success.canonicalFinalReportSizeBytes
+		) {
+			throw new Error(`scanner_e2e_v2_final_report_invalid:${contract.id}`);
+		}
 	}
 	return {
 		contractHash,
+		applicationCommit: bundle.applicationCommit,
+		target: bundle.target,
+		toolboxImageDigest: bundle.toolboxImageDigest,
 		evidence: bundle.evidence,
 		evidenceHashes: Object.fromEntries(
 			bundle.evidence.map((entry) => [
@@ -138,6 +204,23 @@ export async function verifyScannerE2EV2Evidence(params: {
 			]),
 		),
 	};
+}
+
+async function gitArchiveDigest(repoPath: string, commit: string) {
+	const child = Bun.spawn(
+		["git", "-C", path.resolve(repoPath), "archive", "--format=tar", commit],
+		{ stdout: "pipe", stderr: "pipe" },
+	);
+	const [bytes, exitCode] = await Promise.all([
+		new Response(child.stdout).arrayBuffer(),
+		child.exited,
+	]);
+	if (exitCode !== 0)
+		throw new Error("scanner_e2e_v2_target_snapshot_unavailable");
+	return `sha256:${crypto
+		.createHash("sha256")
+		.update(new Uint8Array(bytes))
+		.digest("hex")}`;
 }
 
 function assertExactAssertions(
@@ -168,12 +251,16 @@ function assertArtifactStorageKey(caseId: string, storageKey: string) {
 async function main() {
 	const args = parseArgs({
 		args: process.argv.slice(2),
-		options: { evidence: { type: "string" } },
+		options: {
+			evidence: { type: "string" },
+			"expected-commit": { type: "string" },
+		},
 		strict: true,
 	}).values;
 	if (!args.evidence) throw new Error("scanner_e2e_evidence_path_required");
 	const verified = await verifyScannerE2EV2Evidence({
 		evidencePath: args.evidence,
+		expectedApplicationCommit: args["expected-commit"],
 	});
 	console.log(
 		JSON.stringify({ ok: true, contractHash: verified.contractHash }),

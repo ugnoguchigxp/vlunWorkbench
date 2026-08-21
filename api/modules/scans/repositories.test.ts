@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createDbConnection, type DbConnection } from "../../db";
 import { scanRuns, users } from "../../db/schema";
+import { recordScannerE2EFailureObservation } from "../../testing/scanner-e2e-failure-observation";
 import {
 	ArtifactRepository,
 	FindingRepository,
@@ -323,6 +324,42 @@ describe("Scan Domain Repositories", () => {
 
 		expect(rejected).toBeNull();
 		expect((await scanRepo.findById(scanRun.id))?.status).toBe("completed");
+	});
+
+	it("allows exactly one concurrent terminal transition and preserves metadata", async () => {
+		const project = await projectRepo.createProject({
+			ownerUserId: userId,
+			name: "Concurrent terminal transition",
+			repoPath: "/path/to/concurrent-terminal-transition",
+		});
+		const scanRun = await scanRepo.createScanRun({
+			projectId: project.id,
+			profile: "baseline",
+			status: "running",
+			createdByUserId: userId,
+			metadata: { preflightHash: "sha256:preserved" },
+		});
+
+		const [completed, failed] = await Promise.all([
+			scanRepo.updateScanRunStatus(scanRun.id, "completed", {
+				returnNullIfNotUpdated: true,
+				metadata: { completedBy: "left" },
+			}),
+			scanRepo.updateScanRunStatus(scanRun.id, "failed", {
+				returnNullIfNotUpdated: true,
+				metadata: { completedBy: "right" },
+			}),
+		]);
+		expect([completed, failed].filter((result) => result !== null)).toHaveLength(1);
+		const stored = await scanRepo.findById(scanRun.id);
+		expect(["completed", "failed"]).toContain(stored?.status);
+		expect(stored?.metadata).toMatchObject({
+			preflightHash: "sha256:preserved",
+		});
+		recordScannerE2EFailureObservation("FI-11", {
+			profileOutcome: "terminal",
+			reasonCodes: ["terminal_transition_conflict"],
+		});
 	});
 
 	it("should store scan artifacts, findings, and evidence", async () => {

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { recordScannerE2EFailureObservation } from "../../testing/scanner-e2e-failure-observation";
 import { bindObservedToolProvenance } from "./profile-tool-provenance";
 
 describe("tool provenance observation", () => {
@@ -11,6 +12,10 @@ describe("tool provenance observation", () => {
 		).toMatchObject({
 			identityCompatibility: "mismatch",
 			reproducible: false,
+		});
+		recordScannerE2EFailureObservation("FI-02", {
+			profileOutcome: "blocked",
+			reasonCodes: ["scanner_binary_version_mismatch"],
 		});
 	});
 

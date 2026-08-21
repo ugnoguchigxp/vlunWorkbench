@@ -24,6 +24,10 @@ async function writeEvidence(options: { corruptWork?: boolean; omitFailure?: boo
 		const artifactId = `10000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`;
 		const storageKey = `${scanId}/owners/tool-run/${artifactId}/raw/raw_result.json`;
 		const bytes = Buffer.from(`fixture-${contract.id}`);
+		const finalBytes = Buffer.from(`final-${contract.id}`);
+		const finalStorageKey = `${scanId}/owners/report/final/canonical.json`;
+		await fs.mkdir(path.dirname(path.join(storage, finalStorageKey)), { recursive: true });
+		await fs.writeFile(path.join(storage, finalStorageKey), finalBytes);
 		if (contract.expectedArtifactRoles.length) {
 			await fs.mkdir(path.dirname(path.join(storage, storageKey)), { recursive: true });
 			await fs.writeFile(path.join(storage, storageKey), bytes);
@@ -62,6 +66,9 @@ async function writeEvidence(options: { corruptWork?: boolean; omitFailure?: boo
 						: [],
 					canonicalFinalReportId: `20000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
 					canonicalFinalArtifactId: `30000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+					canonicalFinalReportStorageKey: finalStorageKey,
+					canonicalFinalReportSha256: `sha256:${crypto.createHash("sha256").update(finalBytes).digest("hex")}`,
+					canonicalFinalReportSizeBytes: finalBytes.length,
 					canonicalFinalReportCount: 1,
 					toolVersions: { [contract.scannerId]: "fixture-1" },
 					imageDigests: [],
@@ -89,7 +96,20 @@ async function writeEvidence(options: { corruptWork?: boolean; omitFailure?: boo
 		});
 	}
 	const evidencePath = path.join(temporaryDirectory, "evidence.v2.json");
-	await fs.writeFile(evidencePath, `${JSON.stringify({ schemaVersion: 2, evidence })}\n`);
+	await fs.writeFile(
+		evidencePath,
+		`${JSON.stringify({
+			schemaVersion: 2,
+			applicationCommit: "b".repeat(40),
+			target: {
+				repository: "todolist",
+				commit: "d87bfdd9f29aa64e484a0c4d1ad02956136dc6b0",
+				snapshotSha256: DIGEST,
+			},
+			toolboxImageDigest: DIGEST,
+			evidence,
+		})}\n`,
+	);
 	return evidencePath;
 }
 
@@ -99,6 +119,7 @@ describe("scanner E2E v2 evidence verifier", () => {
 		const verified = await verifyScannerE2EV2Evidence({
 			evidencePath,
 			artifactRoot: path.join(temporaryDirectory!, "storage"),
+			verifyTargetSnapshot: false,
 		});
 		expect(Object.keys(verified.evidenceHashes)).toHaveLength(12);
 	});
@@ -109,6 +130,7 @@ describe("scanner E2E v2 evidence verifier", () => {
 			verifyScannerE2EV2Evidence({
 				evidencePath,
 				artifactRoot: path.join(temporaryDirectory!, "storage"),
+				verifyTargetSnapshot: false,
 			}),
 		).rejects.toThrow(
 			"scanner_e2e_v2_work_counter_invalid:gitleaks-source:filesScanned",
@@ -121,6 +143,7 @@ describe("scanner E2E v2 evidence verifier", () => {
 			verifyScannerE2EV2Evidence({
 				evidencePath,
 				artifactRoot: path.join(temporaryDirectory!, "storage"),
+				verifyTargetSnapshot: false,
 			}),
 		).rejects.toThrow(
 			"scanner_e2e_v2_scenario_set_mismatch:gitleaks-source",

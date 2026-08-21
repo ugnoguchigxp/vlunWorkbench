@@ -43,6 +43,13 @@ function qualification(): ScannerE2EQualificationV2 {
 		schemaVersion: 2 as const,
 		contractHash: DIGEST,
 		qualifiedAt: "2026-08-21T00:00:00.000Z",
+		applicationCommit: "b".repeat(40),
+		target: {
+			repository: "todolist" as const,
+			commit: "c".repeat(40),
+			snapshotSha256: DIGEST,
+		},
+		toolboxImageDigest: DIGEST,
 		scannerManifestHash: DIGEST,
 		executionHash: DIGEST,
 		caseEvidenceHashes: Object.fromEntries(CASE_IDS.map((id) => [id, DIGEST])),
@@ -54,6 +61,16 @@ function qualification(): ScannerE2EQualificationV2 {
 			]),
 		),
 		qualifiedCaseIds: CASE_IDS,
+		individualEvidenceSha256: DIGEST,
+		repeatEvidenceSha256: DIGEST,
+		fullProfileEvidenceSha256: DIGEST,
+		fullProfileExecutionPlanHash: DIGEST,
+		fullProfileNormalizedEvidenceHash: DIGEST,
+		canonicalFinalReportHashes: Object.fromEntries([
+			...CASE_IDS.map((id) => [id, DIGEST]),
+			["full-profile-1", DIGEST],
+			["full-profile-2", DIGEST],
+		]),
 	};
 	return { ...unsigned, qualificationHash: sha256(canonicalJson(unsigned)) };
 }

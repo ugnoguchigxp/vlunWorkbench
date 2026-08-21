@@ -2,8 +2,9 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { recordScannerE2EFailureObservation } from "../../testing/scanner-e2e-failure-observation";
 import { ArtifactStorage } from "../scans/artifact-storage";
-import { ZapBaselineRunner, buildZapBaselineDockerCommand } from "./zap-baseline-runner";
+import { buildZapBaselineDockerCommand, ZapBaselineRunner } from "./zap-baseline-runner";
 import { isPinnedZapImage, ZAP_STABLE_IMAGE } from "./zap-image-policy";
 
 const report = JSON.stringify({ "@programName": "ZAP", "@version": "2.17.0", site: [] });
@@ -122,6 +123,13 @@ describe("ZapBaselineRunner", () => {
 		const invalid = await runWithExitCode(0, "{}")();
 		expect(invalid.ok).toBe(false);
 		expect(invalid.reasonCode).toBe("invalid_structured_output");
+		recordScannerE2EFailureObservation("FI-04", {
+			profileOutcome: "failed",
+			reasonCodes: [invalid.reasonCode ?? "invalid_structured_output"],
+			scannerProcessCount: 1,
+			toolRunCount: 1,
+			artifactCount: 1,
+		});
 	});
 
 	it("rejects a ZAP report larger than the bounded input limit", async () => {

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ScanProfile } from "../../../shared/schemas/scan-profile.schema";
+import { recordScannerE2EFailureObservation } from "../../testing/scanner-e2e-failure-observation";
 import { buildScanProfiles } from "./profiles";
 import {
   preflightBlocksExecution,
@@ -123,6 +124,37 @@ describe("scan preflight", () => {
 		);
 	});
 
+	it("blocks before execution when a required scanner binary is unavailable", async () => {
+		const selected = profile("baseline");
+		const result = await runScanPreflight({
+			profile: selected,
+			steps: selected.tools.map((tool) => ({
+				kind: "static_tool" as const,
+				...tool,
+			})),
+			repoPath: "/redacted/project",
+			execution: { runner: "host" },
+			mode: "enforced",
+			dependencies: dependencies({ probeScannerVersion: async () => null }),
+		});
+
+		expect(result.status).toBe("blocked");
+		expect(result.limitationCodes).toEqual(["scanner_binary_unavailable"]);
+		expect(result.checks).toContainEqual(
+			expect.objectContaining({
+				kind: "binary_version",
+				required: true,
+				status: "blocked",
+				reasonCode: "scanner_binary_unavailable",
+			}),
+		);
+		expect(preflightBlocksExecution(result)).toBe(true);
+		recordScannerE2EFailureObservation("FI-01", {
+			profileOutcome: "blocked",
+			reasonCodes: result.limitationCodes,
+		});
+	});
+
   it("blocks a required OSV step before execution when its database is missing", async () => {
     const probeScannerVersion = vi.fn(async (scannerId: string) =>
       scannerId === "gitleaks" ? "8.30.1" : "2.4.0",
@@ -156,6 +188,10 @@ describe("scan preflight", () => {
     );
     expect(preflightBlocksExecution(result)).toBe(true);
     expect(JSON.stringify(result)).not.toContain("/redacted/project");
+		recordScannerE2EFailureObservation("FI-03", {
+			profileOutcome: "blocked",
+			reasonCodes: result.limitationCodes,
+		});
   });
 
   it("does not trust a ready manifest when the Docker runtime path is unreadable", async () => {
@@ -391,6 +427,10 @@ describe("scan preflight", () => {
     });
     expect(result.status).toBe("ready_with_gaps");
     expect(preflightBlocksExecution(result)).toBe(false);
+		recordScannerE2EFailureObservation("FI-03", {
+			profileOutcome: "blocked",
+			reasonCodes: ["scanner_data_stale"],
+		});
   });
 
   it("binds target plan, profile, execution, and manifest without storing source", async () => {

@@ -1,9 +1,12 @@
+import { writeFile } from "node:fs/promises";
 import { users } from "../../schema";
 import { SqliteWriterClient } from "../client";
 
-const [databaseUrl, socketPath, indexText] = process.argv.slice(2);
-if (!databaseUrl || !socketPath || indexText === undefined) {
-	throw new Error("databaseUrl, socketPath, and index are required.");
+const [databaseUrl, socketPath, indexText, outputPath] = process.argv.slice(2);
+if (!databaseUrl || !socketPath || indexText === undefined || !outputPath) {
+	throw new Error(
+		"databaseUrl, socketPath, index, and outputPath are required.",
+	);
 }
 const index = Number(indexText);
 const client = new SqliteWriterClient(databaseUrl, { socketPath });
@@ -19,10 +22,12 @@ await client.db.insert(users).values({
 	updatedAt: now,
 });
 const health = await client.health();
-console.log(
-	JSON.stringify({
+await writeFile(
+	outputPath,
+	`${JSON.stringify({
 		writerInstanceId: health.writerInstanceId,
 		pid: health.pid,
-	}),
+	})}\n`,
+	{ encoding: "utf8", flag: "wx" },
 );
 await client.close();

@@ -73,6 +73,13 @@ export async function verifyScannerE2ERepeatability(params: {
 	if (first.contractHash !== repeat.contractHash) {
 		throw new Error("scanner_e2e_repeatability_contract_mismatch");
 	}
+	if (
+		first.applicationCommit !== repeat.applicationCommit ||
+		canonicalJson(first.target) !== canonicalJson(repeat.target) ||
+		first.toolboxImageDigest !== repeat.toolboxImageDigest
+	) {
+		throw new Error("scanner_e2e_repeatability_binding_mismatch");
+	}
 	const firstNormalized = normalizedScannerE2EEvidence(first);
 	const repeatNormalized = normalizedScannerE2EEvidence(repeat);
 	const firstHash = sha256(canonicalJson(firstNormalized));
@@ -82,6 +89,9 @@ export async function verifyScannerE2ERepeatability(params: {
 	}
 	return {
 		contractHash: first.contractHash,
+		applicationCommit: first.applicationCommit,
+		target: first.target,
+		toolboxImageDigest: first.toolboxImageDigest,
 		normalizedEvidenceHash: firstHash,
 	};
 }

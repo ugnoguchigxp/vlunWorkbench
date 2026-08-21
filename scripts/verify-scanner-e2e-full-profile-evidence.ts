@@ -10,9 +10,44 @@ import { normalizedFullProfileRun } from "./scanner-e2e-full-profile-lib";
 export async function verifyScannerE2EFullProfileEvidence(params: {
 	evidencePath: string;
 	artifactRoot?: string;
+	expectedApplicationCommit?: string;
+	targetRepoPath?: string;
+	verifyTargetSnapshot?: boolean;
 }) {
 	const raw = await fs.readFile(params.evidencePath, "utf8");
 	const evidence = scannerE2EFullProfileEvidenceSchema.parse(JSON.parse(raw));
+	if (
+		params.expectedApplicationCommit &&
+		evidence.applicationCommit !== params.expectedApplicationCommit
+	) {
+		throw new Error("scanner_e2e_full_profile_application_commit_mismatch");
+	}
+	const targetContract = JSON.parse(
+		await fs.readFile(
+			path.resolve(
+				import.meta.dir,
+				"../spec/security-capability/todolist-scan-target.v1.json",
+			),
+			"utf8",
+		),
+	) as { repository?: unknown; commit?: unknown };
+	if (
+		evidence.target.repository !== targetContract.repository ||
+		evidence.target.commit !== targetContract.commit
+	) {
+		throw new Error("scanner_e2e_full_profile_target_contract_mismatch");
+	}
+	if (params.verifyTargetSnapshot !== false) {
+		const observedSnapshot = await gitArchiveDigest(
+			params.targetRepoPath ??
+				process.env.VULN_WORKBENCH_TODOLIST_REPO_PATH ??
+				path.resolve(import.meta.dir, "../../todolist"),
+			evidence.target.commit,
+		);
+		if (observedSnapshot !== evidence.target.snapshotSha256) {
+			throw new Error("scanner_e2e_full_profile_target_snapshot_mismatch");
+		}
+	}
 	const artifactRoot =
 		params.artifactRoot ??
 		path.join(
@@ -56,6 +91,28 @@ export async function verifyScannerE2EFullProfileEvidence(params: {
 				);
 			}
 		}
+		assertArtifactStorageKey(index, run.canonicalFinalReportStorageKey);
+		const finalPath = path.resolve(
+			artifactRoot,
+			run.canonicalFinalReportStorageKey,
+		);
+		const finalRelative = path.relative(path.resolve(artifactRoot), finalPath);
+		if (finalRelative.startsWith("..") || path.isAbsolute(finalRelative)) {
+			throw new Error(
+				`scanner_e2e_full_profile_final_report_path_invalid:${index}`,
+			);
+		}
+		const finalBytes = await fs.readFile(finalPath).catch(() => null);
+		const finalDigest = finalBytes
+			? `sha256:${crypto.createHash("sha256").update(finalBytes).digest("hex")}`
+			: null;
+		if (
+			!finalBytes ||
+			finalDigest !== run.canonicalFinalReportSha256 ||
+			finalBytes.length !== run.canonicalFinalReportSizeBytes
+		) {
+			throw new Error(`scanner_e2e_full_profile_final_report_invalid:${index}`);
+		}
 	}
 	const [first, repeat] = evidence.runs;
 	if (first.sourceRevisionHash !== repeat.sourceRevisionHash) {
@@ -68,10 +125,32 @@ export async function verifyScannerE2EFullProfileEvidence(params: {
 		throw new Error("scanner_e2e_full_profile_repeatability_mismatch");
 	}
 	return {
+		applicationCommit: evidence.applicationCommit,
+		target: evidence.target,
+		toolboxImageDigest: evidence.toolboxImageDigest,
 		targetCommit: evidence.target.commit,
 		executionPlanHash: evidence.runs[0].executionPlanHash,
 		normalizedEvidenceHash: evidence.runs[0].normalizedEvidenceHash,
+		evidence,
 	};
+}
+
+async function gitArchiveDigest(repoPath: string, commit: string) {
+	const child = Bun.spawn(
+		["git", "-C", path.resolve(repoPath), "archive", "--format=tar", commit],
+		{ stdout: "pipe", stderr: "pipe" },
+	);
+	const [bytes, exitCode] = await Promise.all([
+		new Response(child.stdout).arrayBuffer(),
+		child.exited,
+	]);
+	if (exitCode !== 0) {
+		throw new Error("scanner_e2e_full_profile_target_snapshot_unavailable");
+	}
+	return `sha256:${crypto
+		.createHash("sha256")
+		.update(new Uint8Array(bytes))
+		.digest("hex")}`;
 }
 
 function assertArtifactStorageKey(runIndex: number, storageKey: string) {
@@ -90,13 +169,17 @@ function assertArtifactStorageKey(runIndex: number, storageKey: string) {
 async function main() {
 	const args = parseArgs({
 		args: process.argv.slice(2),
-		options: { evidence: { type: "string" } },
+		options: {
+			evidence: { type: "string" },
+			"expected-commit": { type: "string" },
+		},
 		strict: true,
 	}).values;
 	if (!args.evidence)
 		throw new Error("scanner_e2e_full_profile_evidence_required");
 	const verified = await verifyScannerE2EFullProfileEvidence({
 		evidencePath: args.evidence,
+		expectedApplicationCommit: args["expected-commit"],
 	});
 	console.log(JSON.stringify({ ok: true, ...verified }));
 }

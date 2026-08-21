@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { recordScannerE2EFailureObservation } from "../../testing/scanner-e2e-failure-observation";
 import { ArtifactStorage } from "./artifact-storage";
 
 describe("ArtifactStorage", () => {
@@ -71,6 +72,12 @@ describe("ArtifactStorage", () => {
 		expect(rightSaved.path).toContain("owners/tool-run/tool-right/logs/stdout.log");
 		await expect(left.saveLog(scanRunId, "stdout", "again")).rejects.toMatchObject({
 			code: "EEXIST",
+		});
+		recordScannerE2EFailureObservation("FI-06", {
+			profileOutcome: "failed",
+			reasonCodes: ["artifact_key_conflict"],
+			toolRunCount: 1,
+			artifactCount: 1,
 		});
 	});
 

@@ -1,8 +1,9 @@
 import { defineConfig } from "vitest/config";
+import { nodeVitestFiles } from "./scripts/test-files";
 
 export default defineConfig({
 	test: {
-		include: ["web/**/*.test.ts", "shared/**/*.test.ts"],
+		include: ["web/**/*.test.ts", "shared/**/*.test.ts", ...nodeVitestFiles],
 		coverage: {
 			provider: "v8",
 			reporter: ["text", "html"],

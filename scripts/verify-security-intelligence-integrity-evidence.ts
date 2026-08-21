@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { lstatSync, readFileSync, realpathSync } from "node:fs";
+import { lstatSync, readFileSync, readdirSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { parseArgs } from "node:util";
 import type { NightworkersSecurityIntelligenceIntegrityEvidence } from "../shared/schemas/nightworkers-security-intelligence-integrity-evidence.schema";
@@ -64,23 +64,87 @@ export function readRepositoryStates(
 			const ignoredPaths = (
 				options.ignoredWorkingTreePaths?.[repository] ?? []
 			).map((item) => repositoryRelativePath(root, item));
-			const status = execFileSync(
+			const pathspec = [
+				".",
+				...ignoredPaths.map((item) => `:(exclude,literal)${item}`),
+			];
+			const trackedClean = [[], ["--cached"]].every((prefix) =>
+				gitDiffIsQuiet(root, [...prefix, "--", ...pathspec]),
+			);
+			const listedUntracked = execFileSync(
 				"git",
-				[
-					"-C",
-					root,
-					"status",
-					"--porcelain=v1",
-					"--untracked-files=all",
-					"--",
-					".",
-					...ignoredPaths.map((item) => `:(exclude,literal)${item}`),
-				],
+				["-C", root, "ls-files", "--others", "--exclude-standard"],
 				{ encoding: "utf8" },
-			).trim();
-			return [name, { commit, clean: status.length === 0 }];
+			)
+				.split(/\r?\n/)
+				.filter(Boolean);
+			const trackedProbe = execFileSync("git", ["-C", root, "ls-files"], {
+				encoding: "utf8",
+			});
+			const hasUnexpectedUntracked =
+				listedUntracked.some((item) => !ignoredPaths.includes(item)) ||
+				(listedUntracked.length === 0 && trackedProbe.length === 0
+					? repositoryFiles(root).some((item) => {
+							if (ignoredPaths.includes(item)) return false;
+							if (
+								gitCommandSucceeds(root, [
+									"ls-files",
+									"--error-unmatch",
+									"--",
+									item,
+								])
+							) {
+								return false;
+							}
+							return !gitCommandSucceeds(root, [
+								"check-ignore",
+								"-q",
+								"--",
+								item,
+							]);
+						})
+					: false);
+			return [name, { commit, clean: trackedClean && !hasUnexpectedUntracked }];
 		}),
 	) as Record<keyof RepositoryRoots, RepositoryState>;
+}
+
+function repositoryFiles(root: string): string[] {
+	const files: string[] = [];
+	const visit = (directory: string) => {
+		for (const entry of readdirSync(directory, { withFileTypes: true })) {
+			if (entry.name === ".git") continue;
+			const absolute = path.join(directory, entry.name);
+			if (entry.isDirectory()) visit(absolute);
+			else files.push(path.relative(root, absolute).split(path.sep).join("/"));
+		}
+	};
+	visit(root);
+	return files;
+}
+
+function gitCommandSucceeds(root: string, args: string[]): boolean {
+	try {
+		execFileSync("git", ["-C", root, ...args], { stdio: "ignore" });
+		return true;
+	} catch (error) {
+		const status = (error as { status?: number }).status;
+		if (status === 1) return false;
+		throw error;
+	}
+}
+
+function gitDiffIsQuiet(root: string, args: string[]): boolean {
+	try {
+		execFileSync("git", ["-C", root, "diff", "--quiet", ...args], {
+			stdio: "ignore",
+		});
+		return true;
+	} catch (error) {
+		const status = (error as { status?: number }).status;
+		if (status === 1) return false;
+		throw error;
+	}
 }
 
 function repositoryRelativePath(root: string, input: string): string {

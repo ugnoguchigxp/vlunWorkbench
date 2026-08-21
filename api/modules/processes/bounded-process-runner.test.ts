@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { recordScannerE2EFailureObservation } from "../../testing/scanner-e2e-failure-observation";
 import { runBoundedProcess } from "./bounded-process-runner";
 
 function emptyStream(): ReadableStream<Uint8Array> {
@@ -46,6 +47,12 @@ describe("runBoundedProcess", () => {
 			terminationReason: "stdout_limit",
 		});
 		expect(kill).toHaveBeenCalledWith("SIGTERM");
+		recordScannerE2EFailureObservation("FI-05", {
+			profileOutcome: "failed",
+			reasonCodes: [result.terminationReason ?? "unknown"],
+			scannerProcessCount: 1,
+			toolRunCount: 1,
+		});
 	});
 
 	it("rejects invalid bounds before spawning", async () => {

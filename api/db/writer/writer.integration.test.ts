@@ -13,6 +13,7 @@ import { migrateTestDatabase } from "../testing/migrate";
 import { SqliteWriterClient, SqliteWriterClientError } from "./client";
 import { encodeWriterValue } from "./codec";
 import {
+	readWriterLockMetadata,
 	type SqliteWriterServer,
 	startSqliteWriterServer,
 } from "./server";
@@ -474,14 +475,16 @@ describe("SQLite Writer", () => {
 		const socketPath = path.join(root, "race.sock");
 		await migrateTestDatabase(databaseUrl);
 
-		const processes = Array.from({ length: 10 }, (_, index) =>
-			Bun.spawn(
+		const clients = Array.from({ length: 10 }, (_, index) => ({
+			outputPath: path.join(root, `client-${index}.json`),
+			process: Bun.spawn(
 				[
 					process.execPath,
 					"api/db/writer/fixtures/concurrent-client.ts",
 					databaseUrl,
 					socketPath,
 					String(index),
+					path.join(root, `client-${index}.json`),
 				],
 				{
 					cwd: process.cwd(),
@@ -489,22 +492,33 @@ describe("SQLite Writer", () => {
 					stderr: "pipe",
 				},
 			),
-		);
-		const outputs = await Promise.all(
-			processes.map(async (proc) => {
-				const [exitCode, stdout, stderr] = await Promise.all([
-					proc.exited,
-					new Response(proc.stdout).text(),
-					new Response(proc.stderr).text(),
-				]);
-				expect(stderr).toBe("");
-				expect(exitCode).toBe(0);
-				return JSON.parse(stdout) as {
-					writerInstanceId: string;
-					pid: number;
-				};
-			}),
-		);
+		}));
+		let outputs: Array<{ writerInstanceId: string; pid: number }> = [];
+		try {
+			outputs = await Promise.all(
+				clients.map(async (client, index) => {
+					const [stderr, exitCode] = await Promise.all([
+						new Response(client.process.stderr).text(),
+						client.process.exited,
+					]);
+					if (exitCode !== 0 || stderr !== "") {
+						throw new Error(
+							`Concurrent Writer client ${index} failed (exit ${exitCode}): ${stderr.trim()}`,
+						);
+					}
+					return JSON.parse(await readFile(client.outputPath, "utf8")) as {
+						writerInstanceId: string;
+						pid: number;
+					};
+				}),
+			);
+		} finally {
+			const owner = readWriterLockMetadata(databaseUrl);
+			if (owner?.pid) writerPids.add(owner.pid);
+			for (const client of clients) {
+				if (client.process.exitCode === null) client.process.kill("SIGTERM");
+			}
+		}
 		for (const output of outputs) writerPids.add(output.pid);
 		expect(new Set(outputs.map((output) => output.writerInstanceId)).size).toBe(
 			1,
@@ -528,7 +542,7 @@ describe("SQLite Writer", () => {
 		process.kill(writerPid, "SIGTERM");
 		await waitForProcessExit(writerPid);
 		writerPids.delete(writerPid);
-	}, 15_000);
+	}, 45_000);
 
 	it("rejects hard-linked database aliases that cannot share WAL sidecars", async () => {
 		const root = await mkdtemp(path.join(os.tmpdir(), "vuln-writer-hardlink-"));

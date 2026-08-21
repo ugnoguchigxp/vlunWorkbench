@@ -1,5 +1,6 @@
 import http from "node:http";
 import { afterEach, describe, expect, it } from "vitest";
+import { recordScannerE2EFailureObservation } from "../../testing/scanner-e2e-failure-observation";
 import { prepareContainerTargetGateway } from "./container-target-gateway";
 
 const servers: http.Server[] = [];
@@ -33,6 +34,13 @@ describe("container target gateway", () => {
 		expect(blocked.status).toBe(204);
 		expect(blocked.headers.get("x-vuln-workbench-gateway")).toBe("budget-blocked");
 		expect(gateway.metrics()).toMatchObject({ forwardedRequests: 1, budgetBlockedRequests: 1 });
+		recordScannerE2EFailureObservation("FI-09", {
+			profileOutcome: "incomplete",
+			reasonCodes: ["aggregate_request_budget_exceeded"],
+			scannerProcessCount: 1,
+			toolRunCount: 1,
+			requestCount: gateway.metrics().forwardedRequests,
+		});
 		await gateway.stop();
 	});
 

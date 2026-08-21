@@ -146,7 +146,7 @@ describe("Security Intelligence integrity evidence verifier", () => {
 
 			writeFileSync(
 				path.join(roots.vulnWorkbench, "tracked.txt"),
-				"changed\n",
+				"changed with drift\n",
 				"utf8",
 			);
 			expect(

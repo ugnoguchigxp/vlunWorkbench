@@ -17,6 +17,7 @@ import {
   users,
 } from "../../db/schema";
 import { closeTestDbConnection } from "../../db/testing/connection";
+import { recordScannerE2EFailureObservation } from "../../testing/scanner-e2e-failure-observation";
 import * as profileRunnerModule from "./profile-runner";
 import { runProfileScan } from "./profile-runner";
 
@@ -29,11 +30,14 @@ describe("Profile Runner Orchestration", () => {
   let projectId: string;
   let repoPath: string;
   let previousPreflightMode: string | undefined;
+  let previousArtifactRoot: string | undefined;
 
   beforeEach(async () => {
 		previousPreflightMode = process.env.VULN_WORKBENCH_SCAN_PREFLIGHT_MODE;
 		process.env.VULN_WORKBENCH_SCAN_PREFLIGHT_MODE = "shadow";
+    previousArtifactRoot = process.env.SCAN_ARTIFACT_ROOT;
     tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "profile-runner-test-"));
+    process.env.SCAN_ARTIFACT_ROOT = path.join(tempDir, "artifacts");
     dbFile = path.join(tempDir, "test.sqlite");
     dbUrl = `file:${dbFile}`;
     repoPath = path.join(tempDir, "repo");
@@ -88,6 +92,11 @@ describe("Profile Runner Orchestration", () => {
 		} else {
 			process.env.VULN_WORKBENCH_SCAN_PREFLIGHT_MODE = previousPreflightMode;
 		}
+    if (previousArtifactRoot === undefined) {
+      delete process.env.SCAN_ARTIFACT_ROOT;
+    } else {
+      process.env.SCAN_ARTIFACT_ROOT = previousArtifactRoot;
+    }
     vi.restoreAllMocks();
   });
 
@@ -243,6 +252,10 @@ describe("Profile Runner Orchestration", () => {
         preflightBindingHash: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
       }),
     );
+		recordScannerE2EFailureObservation("FI-10", {
+			profileOutcome: "blocked",
+			reasonCodes: ["preflight_changed"],
+		});
   });
 
 	it("fails before starting a scanner when the execution plan changed", async () => {

@@ -18,6 +18,11 @@ const ignoredDirectoriesEverywhere = new Set([
 
 const ignoredRootDirectories = new Set(["artifacts"]);
 
+export const nodeVitestFiles = [
+	"api/modules/dast/playwright-browser-adapter.test.ts",
+	"api/modules/static-intelligence/static-intelligence-mcp-stdio.test.ts",
+] as const;
+
 async function walk(directory: string, root: string): Promise<string[]> {
 	const entries = await fs.readdir(directory, { withFileTypes: true });
 	const files: string[] = [];
@@ -47,4 +52,6 @@ export async function discoverTestFiles(
 }
 
 export const isVitestFile = (file: string): boolean =>
-	file.startsWith("web/") || file.startsWith("shared/");
+	file.startsWith("web/") ||
+	file.startsWith("shared/") ||
+	nodeVitestFiles.includes(file as (typeof nodeVitestFiles)[number]);

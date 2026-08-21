@@ -52,6 +52,7 @@ export const scannerE2EFullProfileRunSchema = z
 		executionPlanHash: sha256DigestSchema,
 		preflightHash: sha256DigestSchema,
 		sourceRevisionHash: sha256DigestSchema,
+		scannerManifestHash: sha256DigestSchema,
 		steps: z.array(profileStepSchema).length(9),
 		scannerProcessCount: z.number().int().min(1),
 		runtimeRequestCount: z.number().int().min(1),
@@ -59,6 +60,9 @@ export const scannerE2EFullProfileRunSchema = z
 		toolVersions: z.record(z.string().min(1), z.string().min(1).max(200)),
 		artifacts: z.array(artifactSchema).min(1).max(128),
 		canonicalFinalReportCount: z.literal(1),
+		canonicalFinalReportStorageKey: z.string().min(1).max(500),
+		canonicalFinalReportSha256: sha256DigestSchema,
+		canonicalFinalReportSizeBytes: z.number().int().nonnegative(),
 		targetStartCount: z.literal(1),
 		activeTargetCountAfterRun: z.literal(0),
 		normalizedEvidenceHash: sha256DigestSchema,
@@ -105,11 +109,16 @@ export const scannerE2EFullProfileRunSchema = z
 export const scannerE2EFullProfileEvidenceSchema = z
 	.object({
 		schemaVersion: z.literal(1),
+		applicationCommit: z.string().regex(/^[a-f0-9]{40}$/),
 		executedAt: z.string().datetime(),
-		target: z.object({
-			repository: z.literal("todolist"),
-			commit: z.string().regex(/^[a-f0-9]{40}$/),
-		}),
+		target: z
+			.object({
+				repository: z.literal("todolist"),
+				commit: z.string().regex(/^[a-f0-9]{40}$/),
+				snapshotSha256: sha256DigestSchema,
+			})
+			.strict(),
+		toolboxImageDigest: sha256DigestSchema,
 		apiWithoutSchemaBlock: apiWithoutSchemaBlockSchema,
 		runs: z.array(scannerE2EFullProfileRunSchema).length(2),
 	})

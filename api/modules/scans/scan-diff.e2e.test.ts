@@ -98,11 +98,14 @@ describe("Git diff scan E2E", () => {
 			if (path.basename(binary) === "git") {
 				return originalSpawn(args, options);
 			}
-			if (
-				(binary === "gitleaks" && argv[1] === "version") ||
-				(binary === "trivy" && argv[1] === "--version")
-			) {
-				return processResult(0, "test-version\n");
+			if (binary === "gitleaks" && argv[1] === "version") {
+				return processResult(0, "8.30.1\n");
+			}
+			if (binary === "trivy" && argv[1] === "--version") {
+				return processResult(0, "Version: 0.72.0\n");
+			}
+			if (binary === "osv-scanner" && argv[1] === "--version") {
+				return processResult(0, "osv-scanner version: 2.4.0\n");
 			}
 
 			if (binary === "gitleaks") {
@@ -151,7 +154,6 @@ describe("Git diff scan E2E", () => {
 			},
 			continueOnToolFailure: true,
 		});
-
 		expect(result.ok).toBe(true);
 		expect(result.profileOutcome).toBe("completed");
 		expect(

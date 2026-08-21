@@ -1,0 +1,63 @@
+{
+  "schemaVersion": 1,
+  "parentDod": [
+    { "id": "SH-DOD-01", "condition": "B-01からB-08のregression testが全てpassする", "requiredProviderIds": ["focused-regressions"] },
+    { "id": "SH-DOD-02", "condition": "新規artifactのpath collisionが0件である", "requiredProviderIds": ["individual-e2e", "full-profile-e2e"] },
+    { "id": "SH-DOD-03", "condition": "全artifactのDB SHA/sizeとfileが一致する", "requiredProviderIds": ["individual-e2e", "full-profile-e2e"] },
+    { "id": "SH-DOD-04", "condition": "terminal scanにpreflightとsource revisionが残る", "requiredProviderIds": ["individual-e2e", "full-profile-e2e"] },
+    { "id": "SH-DOD-05", "condition": "reason codeに自然文断片が混入しない", "requiredProviderIds": ["focused-regressions", "failure-e2e"] },
+    { "id": "SH-DOD-06", "condition": "actual scanner versionとprovenanceが一致する", "requiredProviderIds": ["individual-e2e", "qualification"] },
+    { "id": "SH-DOD-07", "condition": "TS-01からTS-10が期待結果で完了する", "requiredProviderIds": ["individual-e2e"] },
+    { "id": "SH-DOD-08", "condition": "full-security-scanをtodolistへ連続2回実行できる", "requiredProviderIds": ["full-profile-e2e"] },
+    { "id": "SH-DOD-09", "condition": "2回のnormalized snapshotとcoverage stateが一致する", "requiredProviderIds": ["repeatability-e2e", "full-profile-e2e"] },
+    { "id": "SH-DOD-10", "condition": "runtime request countが0のstepをcoveredにしない", "requiredProviderIds": ["focused-regressions", "individual-e2e"] },
+    { "id": "SH-DOD-11", "condition": "failure injection全caseがfail closedする", "requiredProviderIds": ["failure-e2e"] },
+    { "id": "SH-DOD-12", "condition": "test前後でtodolist HEAD/statusが変わらない", "requiredProviderIds": ["closeout-receipt"] },
+    { "id": "SH-DOD-13", "condition": "production DBとartifact rootが変更されない", "requiredProviderIds": ["closeout-receipt"] },
+    { "id": "SH-DOD-14", "condition": "process/container/listenerのleakが0件である", "requiredProviderIds": ["closeout-receipt"] },
+    { "id": "SH-DOD-15", "condition": "todolist project codeをhost processとしてspawnしない", "requiredProviderIds": ["full-profile-e2e", "closeout-receipt"] },
+    { "id": "SH-DOD-16", "condition": "backend acceptance evidence verifierがpassする", "requiredProviderIds": ["qualification", "failure-e2e", "closeout-receipt"] },
+    { "id": "SH-DOD-17", "condition": "UI変更なしで上記をCLIから再現できる", "requiredProviderIds": ["scope-report", "strict-verification", "closeout-receipt"] }
+  ],
+  "parentCloseout": [
+    { "id": "SH-CLOSE-01", "condition": "S0からS8のproduction/test/evidence/rollback handoffに空欄がない", "requiredProviderIds": ["docs-closeout"] },
+    { "id": "SH-CLOSE-02", "condition": "review済みtodolist scanner baselineが固定されverifierを通る", "requiredProviderIds": ["reviewed-baseline"] },
+    { "id": "SH-CLOSE-03", "condition": "親計画のcommand planが実在するpackage commandだけを参照する", "requiredProviderIds": ["docs-closeout", "strict-verification"] },
+    { "id": "SH-CLOSE-04", "condition": "implementation recordが12 case、repeat、full profile、qualification、failure、CI receiptを記録する", "requiredProviderIds": ["docs-closeout", "ci-receipt"] }
+  ],
+  "remediationDod": [
+    { "id": "RE-DOD-01", "condition": "E-01からE-11 regression", "requiredProviderIds": ["focused-regressions"] },
+    { "id": "RE-DOD-02", "condition": "strict execution plan", "requiredProviderIds": ["focused-regressions", "full-profile-e2e"] },
+    { "id": "RE-DOD-03", "condition": "blocked preflightでscanner process 0", "requiredProviderIds": ["failure-e2e"] },
+    { "id": "RE-DOD-04", "condition": "source SAST未実行runをcompleteにしない", "requiredProviderIds": ["focused-regressions"] },
+    { "id": "RE-DOD-05", "condition": "runtime request countをcoverageへ反映", "requiredProviderIds": ["individual-e2e", "failure-e2e"] },
+    { "id": "RE-DOD-06", "condition": "API applicabilityを正しく区別", "requiredProviderIds": ["individual-e2e", "full-profile-e2e"] },
+    { "id": "RE-DOD-07", "condition": "development dependencyを含む", "requiredProviderIds": ["individual-e2e"] },
+    { "id": "RE-DOD-08", "condition": "tool identity mismatchをreproducibleにしない", "requiredProviderIds": ["failure-e2e", "qualification"] },
+    { "id": "RE-DOD-09", "condition": "pipeline identityをrunから追跡できる", "requiredProviderIds": ["individual-e2e", "qualification"] },
+    { "id": "RE-DOD-10", "condition": "blocked、incomplete、N/A、finding 0を区別", "requiredProviderIds": ["focused-regressions"] },
+    { "id": "RE-DOD-11", "condition": "canonical final reportがscanごとに一つ", "requiredProviderIds": ["individual-e2e", "full-profile-e2e"] },
+    { "id": "RE-DOD-12", "condition": "static scanner 6 caseがreal toolboxでpass", "requiredProviderIds": ["individual-e2e"] },
+    { "id": "RE-DOD-13", "condition": "runtime/API/image 6 caseがpass", "requiredProviderIds": ["individual-e2e"] },
+    { "id": "RE-DOD-14", "condition": "全scanner E2Eがproduction entrypointを通る", "requiredProviderIds": ["individual-e2e"] },
+    { "id": "RE-DOD-15", "condition": "inventoryとcase registryが全単射", "requiredProviderIds": ["focused-regressions", "individual-e2e"] },
+    { "id": "RE-DOD-16", "condition": "qualificationとprotected CIが同じidentityを検証", "requiredProviderIds": ["qualification", "ci-receipt"] },
+    { "id": "RE-DOD-17", "condition": "A1からA10とfailure matrixが同一commitでpass", "requiredProviderIds": ["failure-e2e", "closeout-receipt"] },
+    { "id": "RE-DOD-18", "condition": "連続2 runの再現性とcleanup", "requiredProviderIds": ["repeatability-e2e", "full-profile-e2e"] },
+    { "id": "RE-DOD-19", "condition": "typecheck、lint、docs、verify strictがpass", "requiredProviderIds": ["strict-verification"] },
+    { "id": "RE-DOD-20", "condition": "protected CI artifactへ全release bindingを保存", "requiredProviderIds": ["ci-receipt"] },
+    { "id": "RE-DOD-21", "condition": "必須CI checkが同じevidence bundleでpass", "requiredProviderIds": ["ci-receipt"] }
+  ],
+  "remediationCases": [
+    { "id": "A1", "condition": "spec-html pinned snapshot", "disposition": "superseded", "reason": "real_scan_target_fixed_to_todolist", "successorContract": "spec/security-capability/todolist-scan-target.v1.json", "requiredProviderIds": ["scope-report"] },
+    { "id": "A2", "condition": "todolist pinned API/web target", "disposition": "passed", "reason": null, "successorContract": null, "requiredProviderIds": ["full-profile-e2e"] },
+    { "id": "A3", "condition": "TypeScript library fixture", "disposition": "superseded", "reason": "real_scan_target_fixed_to_todolist", "successorContract": "spec/security-capability/todolist-scan-target.v1.json", "requiredProviderIds": ["scope-report"] },
+    { "id": "A4", "condition": "API detected、schema missing", "disposition": "passed", "reason": null, "successorContract": null, "requiredProviderIds": ["full-profile-e2e", "failure-e2e"] },
+    { "id": "A5", "condition": "Trivy version mismatch", "disposition": "passed", "reason": null, "successorContract": null, "requiredProviderIds": ["failure-e2e"] },
+    { "id": "A6", "condition": "Nuclei binary missing", "disposition": "passed", "reason": null, "successorContract": null, "requiredProviderIds": ["failure-e2e"] },
+    { "id": "A7", "condition": "development dependency coverage", "disposition": "passed", "reason": null, "successorContract": null, "requiredProviderIds": ["individual-e2e"] },
+    { "id": "A8", "condition": "runtime 0 request", "disposition": "passed", "reason": null, "successorContract": null, "requiredProviderIds": ["focused-regressions", "failure-e2e"] },
+    { "id": "A9", "condition": "diagnostic前server restart", "disposition": "passed", "reason": null, "successorContract": null, "requiredProviderIds": ["focused-regressions"] },
+    { "id": "A10", "condition": "同一snapshot連続2回", "disposition": "passed", "reason": null, "successorContract": null, "requiredProviderIds": ["repeatability-e2e", "full-profile-e2e"] }
+  ]
+}

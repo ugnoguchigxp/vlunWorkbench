@@ -11,8 +11,8 @@ import { expect, it } from "vitest";
 it("lists Static Intelligence tools through a real MCP stdio connection", async () => {
 	const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "mcp-stdio-smoke-"));
 	const transport = new StdioClientTransport({
-		command: process.execPath,
-		args: ["api/cli/static-intelligence-mcp-server.ts"],
+		command: "bun",
+		args: ["run", "api/cli/static-intelligence-mcp-server.ts"],
 		cwd: process.cwd(),
 		env: {
 			...getDefaultEnvironment(),

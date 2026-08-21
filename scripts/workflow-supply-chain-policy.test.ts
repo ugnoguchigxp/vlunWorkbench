@@ -103,4 +103,32 @@ describe("workflow supply-chain policy", () => {
 			closeout.indexOf("bun run verify:phase-55-entry"),
 		);
 	});
+
+	test("binds the real scanner and API-confirmed closeout receipt to the caller commit", async () => {
+		const [workflow, scannerWorkflow] = await Promise.all([
+			readRepositoryFile(".github/workflows/verify.yml"),
+			readRepositoryFile(".github/workflows/scanner-e2e-real.yml"),
+		]);
+		expect(workflow.match(/^  scanner-hardening-receipt:$/gm)).toHaveLength(1);
+		const scanner = jobBlock(workflow, "scanner-e2e-real");
+		const receipt = jobBlock(workflow, "scanner-hardening-receipt");
+		expect(scanner).toContain("needs: [verify]");
+		expect(scanner).toContain(
+			"target_repository: ${{ vars.TODOLIST_E2E_REPOSITORY }}",
+		);
+		expect(scanner).toContain(
+			"target_ref: d87bfdd9f29aa64e484a0c4d1ad02956136dc6b0",
+		);
+		expect(receipt).toContain("needs: [verify, scanner-e2e-real]");
+		expect(receipt).toContain(
+			"capture-scanner-hardening-branch-protection.ts",
+		);
+		expect(receipt).toContain("github.ref_protected");
+		expect(receipt).toContain("--require-protected");
+		expect(receipt).not.toContain("VWB_BRANCH_PROTECTION_CONFIRMED");
+		expect(scannerWorkflow).toContain(
+			'[[ "$TARGET_REF" == "d87bfdd9f29aa64e484a0c4d1ad02956136dc6b0" ]]',
+		);
+		expect(scannerWorkflow).toContain("bun run scanner-e2e:failure:verify");
+	});
 });

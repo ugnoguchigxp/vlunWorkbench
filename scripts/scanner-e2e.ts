@@ -27,12 +27,12 @@ import { finalizeScanAfterDiagnostic } from "../api/modules/scans/scan-finalizat
 import { ScanReviewRunner } from "../api/modules/scans/scan-review-runner";
 import { scannerE2ECaseIdentityHash } from "../api/modules/scans/scanner-e2e-qualification";
 import { scanPreflightResultSchema } from "../shared/schemas/scan-preflight.schema";
-import { scannerE2EEvidenceBundleV2Schema } from "../shared/schemas/scanner-e2e-v2.schema";
 import { scannerE2EFullProfileEvidenceSchema } from "../shared/schemas/scanner-e2e-full-profile.schema";
-import { loadScannerE2ECaseRegistryV2 } from "./scanner-e2e-v2-case-registry";
-import { observeScannerE2EWork } from "./scanner-e2e-v2-work";
+import { scannerE2EEvidenceBundleV2Schema } from "../shared/schemas/scanner-e2e-v2.schema";
 import { canonicalJson, sha256 } from "./scanner-e2e-case-registry";
 import { normalizedFullProfileRun } from "./scanner-e2e-full-profile-lib";
+import { loadScannerE2ECaseRegistryV2 } from "./scanner-e2e-v2-case-registry";
+import { observeScannerE2EWork } from "./scanner-e2e-v2-work";
 import { startTodolistRuntimeTarget } from "./todolist-runtime-target";
 import {
 	createTodolistSourceSnapshot,
@@ -105,7 +105,7 @@ async function seedTrivyToolCache(params: {
 async function resolveImmutableDockerImage(params: {
 	image: string;
 	env: Record<string, string>;
-}): Promise<string> {
+}): Promise<{ reference: string; digest: string }> {
 	const inspected = await command(
 		["docker", "image", "inspect", "--format", "{{.Id}}", params.image],
 		params.env,
@@ -122,7 +122,16 @@ async function resolveImmutableDockerImage(params: {
 	if (tagged.exitCode !== 0) {
 		throw new Error(`scanner_e2e_toolbox_image_pin_failed:${imageId}`);
 	}
-	return pinnedTag;
+	return { reference: pinnedTag, digest: imageId };
+}
+
+async function resolveApplicationCommit() {
+	const result = await command(["git", "rev-parse", "HEAD"], {});
+	const commit = result.stdout.trim();
+	if (result.exitCode !== 0 || !/^[a-f0-9]{40}$/.test(commit)) {
+		throw new Error("scanner_e2e_application_commit_unavailable");
+	}
+	return commit;
 }
 
 /**
@@ -458,10 +467,13 @@ async function main() {
 		SCAN_ARTIFACT_ROOT: artifactRoot,
 	};
 	try {
-		const toolboxImage = await resolveImmutableDockerImage({
+		const resolvedToolbox = await resolveImmutableDockerImage({
 			image: requestedToolboxImage,
 			env,
 		});
+		const toolboxImage = resolvedToolbox.reference;
+		const toolboxImageDigest = resolvedToolbox.digest;
+		const applicationCommit = await resolveApplicationCommit();
 		const migrate = await command(["bun", "run", "api/cli/migrate.ts"], env);
 		if (migrate.exitCode !== 0)
 			throw new Error(`scanner_e2e_migration_failed:${migrate.stderr}`);
@@ -534,6 +546,9 @@ async function main() {
 					apiWithoutSchemaSourcePath: snapshot.sourcePath,
 					apiWithoutSchemaSourceSnapshotDigest: snapshot.archiveSha256,
 					targetCommit: target.commit,
+					targetSnapshotSha256: asDigest(snapshot.archiveSha256),
+					applicationCommit,
+					toolboxImageDigest,
 					targetImage,
 					toolboxImage,
 					toolCacheDir,
@@ -712,6 +727,12 @@ async function main() {
 				const scannerArtifacts = allArtifacts.filter(
 					(artifact) => artifact.kind !== "report",
 				);
+				const finalArtifact = allArtifacts.find(
+					(artifact) => artifact.id === finalized.final.artifactId,
+				);
+				if (!finalArtifact) {
+					throw new Error(`scanner_e2e_final_artifact_missing:${canonical}`);
+				}
 				const normalizedFindingHashes = [
 					...new Set(
 						caseFindings.map((finding) =>
@@ -832,6 +853,10 @@ async function main() {
 							})),
 							canonicalFinalReportId: finalized.final.reportId,
 							canonicalFinalArtifactId: finalized.final.artifactId,
+							canonicalFinalReportStorageKey:
+								finalArtifact.storageKey ?? finalArtifact.path,
+							canonicalFinalReportSha256: asDigest(finalArtifact.sha256),
+							canonicalFinalReportSizeBytes: finalArtifact.sizeBytes,
 							canonicalFinalReportCount: reports.filter(
 								(report) =>
 									report.stage === "canonical_final" &&
@@ -874,6 +899,13 @@ async function main() {
 			}
 			const bundle = scannerE2EEvidenceBundleV2Schema.parse({
 				schemaVersion: 2,
+				applicationCommit,
+				target: {
+					repository: "todolist",
+					commit: target.commit,
+					snapshotSha256: asDigest(snapshot.archiveSha256),
+				},
+				toolboxImageDigest,
 				evidence,
 			});
 			if (!args.evidence) throw new Error("scanner_e2e_evidence_path_required");
@@ -922,6 +954,9 @@ async function runFullProfileRepeatE2E(params: {
 	apiWithoutSchemaSourcePath: string;
 	apiWithoutSchemaSourceSnapshotDigest: string;
 	targetCommit: string;
+	targetSnapshotSha256: string;
+	applicationCommit: string;
+	toolboxImageDigest: string;
 	targetImage: string;
 	toolboxImage: string;
 	toolCacheDir: string;
@@ -1061,7 +1096,13 @@ async function runFullProfileRepeatE2E(params: {
 		const binding = asRecord(preflight?.binding);
 		const preflightHash = digestOrNull(preflight?.preflightHash);
 		const sourceRevisionHash = digestOrNull(binding?.sourceRevisionHash);
-		if (!executionPlan || !preflightHash || !sourceRevisionHash) {
+		const scannerManifestHash = digestOrNull(binding?.scannerManifestHash);
+		if (
+			!executionPlan ||
+			!preflightHash ||
+			!sourceRevisionHash ||
+			!scannerManifestHash
+		) {
 			throw new Error(
 				`scanner_e2e_full_profile_preflight_missing:${runNumber}`,
 			);
@@ -1096,12 +1137,21 @@ async function runFullProfileRepeatE2E(params: {
 		const scannerArtifacts = artifacts.filter(
 			(artifact) => artifact.kind !== "report",
 		);
+		const finalArtifact = artifacts.find(
+			(artifact) => artifact.id === finalized.final.artifactId,
+		);
+		if (!finalArtifact) {
+			throw new Error(
+				`scanner_e2e_full_profile_final_artifact_missing:${runNumber}`,
+			);
+		}
 		const run = {
 			scanRunId: result.scanRunId,
 			profileOutcome: result.profileOutcome,
 			executionPlanHash: executionPlan.planHash,
 			preflightHash,
 			sourceRevisionHash,
+			scannerManifestHash,
 			steps,
 			scannerProcessCount: tools.length,
 			runtimeRequestCount,
@@ -1119,6 +1169,10 @@ async function runFullProfileRepeatE2E(params: {
 				(report) =>
 					report.stage === "canonical_final" && report.status === "completed",
 			).length,
+			canonicalFinalReportStorageKey:
+				finalArtifact.storageKey ?? finalArtifact.path,
+			canonicalFinalReportSha256: asDigest(finalArtifact.sha256),
+			canonicalFinalReportSizeBytes: finalArtifact.sizeBytes,
 			targetStartCount,
 			activeTargetCountAfterRun: activeTargetCount,
 		};
@@ -1132,8 +1186,14 @@ async function runFullProfileRepeatE2E(params: {
 	}
 	const rawEvidence = {
 		schemaVersion: 1,
+		applicationCommit: params.applicationCommit,
 		executedAt: new Date().toISOString(),
-		target: { repository: "todolist", commit: params.targetCommit },
+		target: {
+			repository: "todolist",
+			commit: params.targetCommit,
+			snapshotSha256: params.targetSnapshotSha256,
+		},
+		toolboxImageDigest: params.toolboxImageDigest,
 		apiWithoutSchemaBlock,
 		runs,
 	};

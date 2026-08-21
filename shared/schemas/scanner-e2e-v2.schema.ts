@@ -114,6 +114,9 @@ const scannerE2ESuccessScenarioV2Schema = z.object({
 	artifacts: z.array(scannerE2EArtifactEvidenceV2Schema).max(64),
 	canonicalFinalReportId: z.string().uuid(),
 	canonicalFinalArtifactId: z.string().uuid(),
+	canonicalFinalReportStorageKey: z.string().min(1).max(500),
+	canonicalFinalReportSha256: sha256DigestSchema,
+	canonicalFinalReportSizeBytes: z.number().int().nonnegative(),
 	canonicalFinalReportCount: z.literal(1),
 	toolVersions: z.record(z.string(), z.string().min(1).max(200)),
 	imageDigests: z.array(sha256DigestSchema).max(12),
@@ -152,6 +155,15 @@ export const scannerE2EEvidenceV2Schema = z.object({
 
 export const scannerE2EEvidenceBundleV2Schema = z.object({
 	schemaVersion: z.literal(2),
+	applicationCommit: z.string().regex(/^[a-f0-9]{40}$/),
+	target: z
+		.object({
+			repository: z.literal("todolist"),
+			commit: z.string().regex(/^[a-f0-9]{40}$/),
+			snapshotSha256: sha256DigestSchema,
+		})
+		.strict(),
+	toolboxImageDigest: sha256DigestSchema,
 	// The harness permits a partial bundle for local `--only` diagnostics. The
 	// release verifier separately requires the exact canonical 12-case set.
 	evidence: z.array(scannerE2EEvidenceV2Schema).min(1).max(12),

@@ -1,8 +1,8 @@
+import { afterEach, expect, test } from "bun:test";
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, expect, test } from "bun:test";
 import { canonicalJson, sha256 } from "./scanner-e2e-case-registry";
 import { normalizedFullProfileRun } from "./scanner-e2e-full-profile-lib";
 import { verifyScannerE2EFullProfileEvidence } from "./verify-scanner-e2e-full-profile-evidence";
@@ -35,6 +35,12 @@ test("rejects a full-profile evidence bundle when copied artifact bytes differ",
 			};
 		}),
 	);
+	const finalStorageKey = `${SCAN_ID}/owners/report/final/canonical.json`;
+	const finalBytes = Buffer.from("canonical-final", "utf8");
+	await fs.mkdir(path.dirname(path.join(storageRoot, finalStorageKey)), {
+		recursive: true,
+	});
+	await fs.writeFile(path.join(storageRoot, finalStorageKey), finalBytes);
 	const steps = [
 		"gitleaks",
 		"osv",
@@ -63,6 +69,7 @@ test("rejects a full-profile evidence bundle when copied artifact bytes differ",
 		executionPlanHash: DIGEST,
 		preflightHash: DIGEST,
 		sourceRevisionHash: DIGEST,
+		scannerManifestHash: DIGEST,
 		steps,
 		scannerProcessCount: 1,
 		runtimeRequestCount: 4,
@@ -70,6 +77,9 @@ test("rejects a full-profile evidence bundle when copied artifact bytes differ",
 		toolVersions: { trivy: "1" },
 		artifacts,
 		canonicalFinalReportCount: 1,
+		canonicalFinalReportStorageKey: finalStorageKey,
+		canonicalFinalReportSha256: `sha256:${crypto.createHash("sha256").update(finalBytes).digest("hex")}`,
+		canonicalFinalReportSizeBytes: finalBytes.length,
 		targetStartCount: 1,
 		activeTargetCountAfterRun: 0,
 	};
@@ -80,9 +90,15 @@ test("rejects a full-profile evidence bundle when copied artifact bytes differ",
 	await fs.writeFile(
 		evidencePath,
 		`${JSON.stringify({
-			schemaVersion: 1,
+			 schemaVersion: 1,
+			applicationCommit: "b".repeat(40),
 			executedAt: "2026-08-21T00:00:00.000Z",
-			target: { repository: "todolist", commit: "b".repeat(40) },
+			target: {
+				repository: "todolist",
+				commit: "d87bfdd9f29aa64e484a0c4d1ad02956136dc6b0",
+				snapshotSha256: DIGEST,
+			},
+			toolboxImageDigest: DIGEST,
 			apiWithoutSchemaBlock: {
 				scanRunId: "00000000-0000-4000-8000-000000000003",
 				profileOutcome: "blocked",
@@ -97,10 +113,16 @@ test("rejects a full-profile evidence bundle when copied artifact bytes differ",
 		})}\n`,
 	);
 	await expect(
-		verifyScannerE2EFullProfileEvidence({ evidencePath }),
+		verifyScannerE2EFullProfileEvidence({
+			evidencePath,
+			verifyTargetSnapshot: false,
+		}),
 	).resolves.toMatchObject({ executionPlanHash: DIGEST });
 	await fs.writeFile(path.join(storageRoot, artifacts[0]!.storageKey), "changed");
 	await expect(
-		verifyScannerE2EFullProfileEvidence({ evidencePath }),
+		verifyScannerE2EFullProfileEvidence({
+			evidencePath,
+			verifyTargetSnapshot: false,
+		}),
 	).rejects.toThrow("scanner_e2e_full_profile_artifact_integrity_invalid");
 });
