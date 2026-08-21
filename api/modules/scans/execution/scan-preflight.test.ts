@@ -94,6 +94,27 @@ function profile(id = "baseline"): ScanProfile {
 }
 
 describe("scan preflight", () => {
+	it("blocks runtime-capable profiles before execution when no isolated provider was injected", async () => {
+		const selected = profile("api-schema-readonly");
+		const result = await runScanPreflight({
+			profile: selected,
+			steps: selected.steps!,
+			repoPath: "/redacted/project",
+			execution: { runner: "host" },
+			isolatedRuntimeProviderAvailable: false,
+			dependencies: dependencies(),
+		});
+
+		expect(result.status).toBe("blocked");
+		expect(result.checks).toContainEqual(
+			expect.objectContaining({
+				id: "profile:api-schema-readonly:runtime-isolation-provider",
+				status: "blocked",
+				reasonCode: "runtime_isolation_provider_unavailable",
+			}),
+		);
+	});
+
 	it("uses enforced mode unless shadow was explicitly requested", () => {
 		expect(resolveScanPreflightMode(undefined)).toBe("enforced");
 		expect(resolveScanPreflightMode("shadow")).toBe("shadow");

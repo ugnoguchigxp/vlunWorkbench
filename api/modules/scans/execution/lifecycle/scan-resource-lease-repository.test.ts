@@ -77,6 +77,53 @@ describe("scan resource leases", () => {
 		expect(await repository.release(lease!.id, { released: true })).toMatchObject({ state: "released", releasedAt: expect.any(Date) });
 	});
 
+	it("only updates receipts while the bundle lease is active", async () => {
+		const lease = await repository.acquire({
+			scanRunId,
+			stepId: "runtime-target",
+			resourceType: "runtime_bundle",
+			provider: "docker-runtime-isolation",
+			externalId: "runtime-bundle:fixture",
+			leaseExpiresAt: new Date("2026-01-01T00:00:00.000Z"),
+		});
+		await expect(
+			repository.updateActiveReceipt(lease!.id, {
+				children: [{ role: "namespace-owner", id: "private-docker-id" }],
+			}),
+		).resolves.toMatchObject({ state: "active" });
+		await repository.release(lease!.id, { complete: true });
+		await expect(
+			repository.updateActiveReceipt(lease!.id, { children: [] }),
+		).rejects.toThrow("runtime_bundle_receipt_persistence_failed");
+	});
+
+	it("filters recovery candidates by provider when requested", async () => {
+		const leaseExpiresAt = new Date("2026-01-01T00:00:00.000Z");
+		await repository.acquire({
+			scanRunId,
+			stepId: "runtime-target",
+			resourceType: "runtime_bundle",
+			provider: "docker-runtime-isolation",
+			externalId: "runtime-bundle:fixture",
+			leaseExpiresAt,
+		});
+		await repository.acquire({
+			scanRunId,
+			stepId: "runtime-target",
+			resourceType: "runtime_target",
+			provider: "another-provider",
+			externalId: "other-target",
+			leaseExpiresAt,
+		});
+
+		expect(
+			await repository.listRecoverable(
+				new Date("2026-01-02T00:00:00.000Z"),
+				"docker-runtime-isolation",
+			),
+		).toMatchObject([{ provider: "docker-runtime-isolation" }]);
+	});
+
 	it("releases reclaimable resources and quarantines cleanup failures", async () => {
 		const expiresAt = new Date("2026-01-01T00:00:00.000Z");
 		await repository.acquire({

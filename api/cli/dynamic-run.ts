@@ -105,6 +105,16 @@ export async function main(
 		});
 		return 1;
 	}
+	if (!dryRun && !scanRunId) {
+		write({
+			ok: false,
+			status: "failed",
+			outcome: "error",
+			message:
+				"--scan-run-id is required for execution so Dynamic resources have a recoverable parent lease.",
+		});
+		return 1;
+	}
 
 	if (runner !== "docker") {
 		write({
@@ -162,6 +172,7 @@ export async function main(
 		startupEnv,
 	);
 	const runnerInstance = new DynamicRunner(dbConnection.db, {
+		qualifiedDynamicImage: process.env.VULN_WORKBENCH_DYNAMIC_IMAGE,
 		outputLimits: {
 			stdoutBytes: env.scannerStdoutLimitBytes,
 			stderrBytes: env.scannerStderrLimitBytes,

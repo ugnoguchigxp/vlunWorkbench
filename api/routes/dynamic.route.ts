@@ -14,12 +14,12 @@ import {
 } from "../modules/dynamic/dynamic-profiles";
 import { DynamicRepository } from "../modules/dynamic/dynamic-repository";
 import type { WebProcessCapacity } from "../modules/processes/web-process-capacity";
+import { buildDedicatedProfileMetadata } from "../modules/scans/profile-resolution";
 import type {
 	FindingRepository,
 	ProjectRepository,
 } from "../modules/scans/repositories";
 import { ScanRepository } from "../modules/scans/repositories";
-import { buildDedicatedProfileMetadata } from "../modules/scans/profile-resolution";
 import {
 	ProjectPathPolicyError,
 	resolveProjectPath,
@@ -365,22 +365,68 @@ export function createDynamicRoute(deps: DynamicRouteDeps) {
 				"Explicit consent is required for isolated project code execution.",
 			);
 		}
-
-		const cliResult = await executeDynamicRunCli({
+		await ensureBuiltinProfileConfig({
+			repository: repo,
 			projectId: project.id,
-			findingId,
+			repoPath: project.repoPath,
 			profileId: parseResult.data.profileId,
-			runner: parseResult.data.runner,
-			dockerImage: parseResult.data.dockerImage,
-			network: parseResult.data.network,
-			timeoutSec: parseResult.data.timeoutSec,
-			memory: parseResult.data.memory,
-			cpus: parseResult.data.cpus,
-			executionConsent: true,
-			processCapacity: deps.processCapacity,
+			createdByUserId: authUser.userId,
 		});
-
-		return c.json(cliResult);
+		const scan = await scanRepository.createScanRun({
+			projectId: project.id,
+			profile: "dynamic-verification",
+			status: "running",
+			createdByUserId: authUser.userId,
+			metadata: {
+				...buildDedicatedProfileMetadata({
+					canonicalProfileId: "dynamic-verification",
+					providedInputKinds: ["source_target", "execution_consent"],
+				}),
+				findingId,
+				dynamicProfileId: parseResult.data.profileId,
+				safetyBoundary: "docker-isolated-readonly-source",
+				networkMode: parseResult.data.network ?? "none",
+			},
+		});
+		try {
+			const cliResult = await executeDynamicRunCli({
+				projectId: project.id,
+				findingId,
+				scanRunId: scan.id,
+				profileId: parseResult.data.profileId,
+				runner: parseResult.data.runner,
+				dockerImage: parseResult.data.dockerImage,
+				network: parseResult.data.network,
+				timeoutSec: parseResult.data.timeoutSec,
+				memory: parseResult.data.memory,
+				cpus: parseResult.data.cpus,
+				executionConsent: true,
+				processCapacity: deps.processCapacity,
+			});
+			const completed = cliResult.ok === true;
+			await scanRepository.updateScanRunStatus(
+				scan.id,
+				completed ? "completed" : "failed",
+				{
+					summary: completed
+						? `Isolated dynamic verification completed with outcome: ${cliResult.outcome ?? "unknown"}.`
+						: String(cliResult.message ?? "Dynamic verification failed."),
+					profileOutcome: completed ? "completed" : "failed",
+					metadata: {
+						dynamicRunId: cliResult.dynamicRunId ?? null,
+						dynamicStatus: cliResult.status ?? null,
+						dynamicOutcome: cliResult.outcome ?? null,
+					},
+				},
+			);
+			return c.json({ ...cliResult, scanRunId: scan.id });
+		} catch (error) {
+			await scanRepository.updateScanRunStatus(scan.id, "failed", {
+				summary: error instanceof Error ? error.message : String(error),
+				profileOutcome: "failed",
+			});
+			throw error;
+		}
 	});
 
 	// Get specific run

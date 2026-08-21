@@ -2,9 +2,32 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, test } from "bun:test";
-import { executeDynamicDockerRun } from "./dynamic-docker-executor";
+import {
+	buildDynamicOutputVolumeCreateArgs,
+	buildDynamicOutputVolumeRemoveArgs,
+	dynamicOutputVolumeName,
+	executeDynamicDockerRun,
+} from "./dynamic-docker-executor";
 
 describe("executeDynamicDockerRun cleanup", () => {
+	test("names and labels a server-owned dynamic output volume", () => {
+		const volumeName = dynamicOutputVolumeName("vuln-workbench-dyn-test-1");
+		expect(volumeName).toBe("vuln-workbench-dyn-test-1-out");
+		expect(
+			buildDynamicOutputVolumeCreateArgs({ dockerBin: "docker", volumeName }),
+		).toEqual([
+			"docker",
+			"volume",
+			"create",
+			"--label",
+			"com.vuln-workbench.dynamic-output=true",
+			volumeName,
+		]);
+		expect(
+			buildDynamicOutputVolumeRemoveArgs({ dockerBin: "docker", volumeName }),
+		).toEqual(["docker", "volume", "rm", "-f", volumeName]);
+	});
+
 	test("does not expose unrelated application secrets to the Docker CLI", async () => {
 		const root = await fs.mkdtemp(path.join(os.tmpdir(), "dynamic-env-"));
 		const dockerBin = path.join(root, "fake-docker");

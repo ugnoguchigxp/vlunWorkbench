@@ -1,4 +1,7 @@
-import type { ScanExecutionPlan } from "../../../../shared/schemas/scan-execution-plan.schema";
+import type {
+	ScanExecutionPlan,
+	ScanExecutionPlanV3,
+} from "../../../../shared/schemas/scan-execution-plan.schema";
 import { scanExecutionPlanSchema } from "../../../../shared/schemas/scan-execution-plan.schema";
 import type { ScanPreflightResult } from "../../../../shared/schemas/scan-preflight.schema";
 import type {
@@ -44,7 +47,8 @@ export function buildScanExecutionPlan(params: {
 	technologyRegistryDigest?: string | null;
 	sourceSnapshotDigest?: string | null;
 	runner?: "host" | "docker";
-	schemaVersion?: 1 | 2;
+	schemaVersion?: 1 | 2 | 3;
+	runtimeIsolation?: ScanExecutionPlanV3["runtimeIsolation"];
 }): ScanExecutionPlan {
 	const schemaVersion = params.schemaVersion ?? 1;
 	const strictness = params.profile.strictness ?? "best_effort";
@@ -127,7 +131,7 @@ export function buildScanExecutionPlan(params: {
 		steps,
 	};
 	const versionedContract =
-		schemaVersion === 2
+		schemaVersion === 2 || schemaVersion === 3
 			? {
 					...contract,
 					schemaVersion: 2 as const,
@@ -178,6 +182,15 @@ export function buildScanExecutionPlan(params: {
 					}),
 				}
 			: { ...contract, schemaVersion: 1 as const };
+	if (schemaVersion === 3) {
+		if (!params.runtimeIsolation) {
+			throw new Error("runtime_isolation_plan_required");
+		}
+		Object.assign(versionedContract, {
+			schemaVersion: 3 as const,
+			runtimeIsolation: params.runtimeIsolation,
+		});
+	}
 
 	// Run identity and timestamps are audit attributes, not contract inputs. A
 	// preview and the subsequently created run must therefore produce one hash.

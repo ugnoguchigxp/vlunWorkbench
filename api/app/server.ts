@@ -20,6 +20,8 @@ const shutdown = async (signal: string) => {
 	try {
 		const runtime = await getAppRuntime();
 		await runtime.workspaceTargetGrantJanitor.stop();
+		await runtime.runtimeBundleLeaseJanitor.stop();
+		await runtime.dynamicBundleLeaseJanitor.stop();
 		await runtime.scanSupervisor.shutdown();
 		await runtime.activeAssessmentRunner.shutdown();
 		await runtime.scanDiagnosticRunner.shutdown();

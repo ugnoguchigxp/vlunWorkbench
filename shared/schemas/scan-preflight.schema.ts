@@ -117,8 +117,9 @@ export const scanPreflightResultV1Schema = z.object({
 	preflightHash: sha256DigestSchema,
 });
 
-export const runtimeIsolationPreflightBindingSchema = z
+export const runtimeIsolationReadyPreflightBindingSchema = z
 	.object({
+		status: z.literal("ready"),
 		sourceSnapshotDigest: sha256DigestSchema,
 		runtimeProjectionDigest: sha256DigestSchema,
 		recipeHash: sha256DigestSchema,
@@ -130,6 +131,21 @@ export const runtimeIsolationPreflightBindingSchema = z
 		databaseMode: runtimeDatabaseModeSchema,
 	})
 	.strict();
+
+export const runtimeIsolationBlockedPreflightBindingSchema = z
+	.object({
+		status: z.literal("blocked"),
+		reasonCode: z.string().min(1).max(100),
+	})
+	.strict();
+
+export const runtimeIsolationPreflightBindingSchema = z.discriminatedUnion(
+	"status",
+	[
+		runtimeIsolationReadyPreflightBindingSchema,
+		runtimeIsolationBlockedPreflightBindingSchema,
+	],
+);
 
 export const scanPreflightResultV2Schema = scanPreflightResultV1Schema.extend({
 	schemaVersion: z.literal(2),
@@ -151,7 +167,7 @@ export type ScanPreflightMode = z.infer<typeof scanPreflightModeSchema>;
 export type ScanPreflightCheck = z.infer<typeof scanPreflightCheckSchema>;
 export type ScanPreflightResultV1 = z.infer<typeof scanPreflightResultV1Schema>;
 export type ScanPreflightResultV2 = z.infer<typeof scanPreflightResultV2Schema>;
-export type ScanPreflightResult = ScanPreflightResultV1;
+export type ScanPreflightResult = ScanPreflightResultV1 | ScanPreflightResultV2;
 export type AnyScanPreflightResult = z.infer<
 	typeof scanPreflightAnyResultSchema
 >;

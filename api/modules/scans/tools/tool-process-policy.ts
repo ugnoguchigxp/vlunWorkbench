@@ -109,6 +109,12 @@ export function normalizeToolExecutionConfig(
 	if (networkMode !== "none" && networkMode !== "default") {
 		throw new Error(`Invalid Docker network mode: ${networkMode}`);
 	}
+	if (
+		dockerConfig.runtimeNamespaceOwnerId !== undefined &&
+		!/^vwb-[0-9a-f-]{36}-owner$/.test(dockerConfig.runtimeNamespaceOwnerId)
+	) {
+		throw new Error("Invalid runtime namespace owner.");
+	}
 	return {
 		runner: "docker",
 		docker: {
@@ -122,6 +128,7 @@ export function normalizeToolExecutionConfig(
 			cpus: normalizeDockerCpus(dockerConfig.cpus),
 			pidsLimit: normalizeDockerPidsLimit(dockerConfig.pidsLimit),
 			toolCacheDir: dockerConfig.toolCacheDir,
+			runtimeNamespaceOwnerId: dockerConfig.runtimeNamespaceOwnerId,
 		},
 		outputLimits: resolveProcessOutputLimits(execution?.outputLimits),
 	};

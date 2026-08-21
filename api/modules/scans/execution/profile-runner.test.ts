@@ -22,6 +22,7 @@ import { runGitText } from "./diff/git-command";
 import { scanCapabilityIdSchema } from "../../../../shared/schemas/scan-capability.schema";
 import * as profileRunnerModule from "./profile-runner";
 import { runProfileScan } from "./profile-orchestrator";
+import type { RuntimeTargetProvider } from "../../dast/runtime-target-provider";
 
 describe("Profile Runner Orchestration", () => {
   let tempDir: string;
@@ -159,6 +160,88 @@ describe("Profile Runner Orchestration", () => {
       }),
     );
   });
+
+	it("persists a V2 preflight and V3 plan when an isolated runtime provider is factory-created", async () => {
+		await fs.writeFile(
+			path.join(repoPath, "package.json"),
+			JSON.stringify({ scripts: { start: "node server.js" } }),
+		);
+		await fs.writeFile(
+			path.join(repoPath, "package-lock.json"),
+			JSON.stringify({ lockfileVersion: 3, packages: { "": { name: "sample" } } }),
+		);
+		await fs.writeFile(path.join(repoPath, "server.js"), "process.exit(0)\n");
+		execFileSync("git", ["init"], { cwd: repoPath });
+		execFileSync("git", ["add", "."], { cwd: repoPath });
+		execFileSync(
+			"git",
+			[
+				"-c",
+				"user.email=runtime@example.invalid",
+				"-c",
+				"user.name=Runtime Test",
+				"commit",
+				"-m",
+				"runtime fixture",
+			],
+			{ cwd: repoPath },
+		);
+		const digest = `sha256:${"a".repeat(64)}`;
+		const provider: RuntimeTargetProvider = {
+			plan: {
+				pluginId: "build.npm",
+				repoPath,
+				scriptName: "start",
+				script: "node server.js",
+				packageManager: "npm",
+				command: ["npm", "run", "start"],
+				env: {},
+				requiresProjectCodeConsent: false,
+				port: 18080,
+				origin: "http://127.0.0.1:18080",
+				readinessPaths: ["/"],
+				warnings: [],
+			},
+			runtimeIsolationPlanning: {
+				status: "ready",
+				planHash: digest,
+				plan: {
+					schemaVersion: 1,
+					profileId: "runtime-web-safe",
+					source: { sourceSnapshotDigest: digest, runtimeProjectionDigest: digest, projectionPolicyVersion: 1 },
+					recipe: { recipeHash: digest, startPlannerId: "build.npm" },
+					dependency: { adapterId: "npm-package-lock-v1", policyVersion: 1, lockDigest: digest },
+					images: { namespaceOwnerImageDigest: digest, nodeRuntimeImageDigest: digest, materializerImageDigest: digest, registryProxyImageDigest: digest, probeImageDigest: digest, httpExecutorImageDigest: digest, databaseImageDigest: null, scannerImageDigests: { nuclei: digest, zap: digest } },
+					start: { executable: "npm", args: ["run", "start"], port: 18080, readinessPaths: ["/"] },
+					database: { mode: "none", policyVersion: 1, bindings: [] },
+					environment: { policyVersion: 1 }, network: { kind: "container_namespace", policyVersion: 1 }, limits: { policyVersion: 1, targetMemoryMiB: 1024, targetPids: 256 }, cleanup: { required: true, policyVersion: 1 }, dockerDaemonIdentityHash: digest, qualificationHash: digest,
+				},
+			},
+			prepare: async () => { throw new Error("preflight must block before target preparation"); },
+		};
+
+		const result = await runProfileScan({
+			db: connection.db,
+			projectId,
+			profileId: "runtime-web-safe",
+			repoPath,
+			runtimeTargetProviderFactory: async () => provider,
+		});
+		expect(result.profileOutcome).toBe("blocked");
+		const [scanRun] = await connection.db
+			.select()
+			.from(scanRuns)
+			.where(eq(scanRuns.id, result.scanRunId));
+		expect(scanRun.metadata).toEqual(
+			expect.objectContaining({
+				scanPreflight: expect.objectContaining({ schemaVersion: 2 }),
+				executionPlan: expect.objectContaining({
+					schemaVersion: 3,
+					runtimeIsolation: expect.objectContaining({ planHash: digest }),
+				}),
+			}),
+		);
+	});
 
   it("fails before starting any scanner when enforced required preflight is blocked", async () => {
     const scannerSpy = vi

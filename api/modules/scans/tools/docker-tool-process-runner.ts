@@ -24,7 +24,6 @@ import {
 	resolveProcessOutputLimits,
 } from "./tool-process-policy";
 import type {
-	DockerNetworkMode,
 	ProcessRunnerOptions,
 	ProcessRunnerResult,
 	ToolExecutionConfig,
@@ -47,7 +46,9 @@ export async function runDockerToolProcess(
 	const docker = execution.docker ?? {};
 	const dockerBin = docker.dockerBin ?? "docker";
 	const image = docker.image ?? DEFAULT_DOCKER_IMAGE;
-	const networkMode = docker.networkMode ?? "none";
+	const networkMode = docker.runtimeNamespaceOwnerId
+		? runtimeNamespaceNetwork(docker.runtimeNamespaceOwnerId)
+		: (docker.networkMode ?? "none");
 	const startTime = Date.now();
 	const containerName = makeContainerName(binaryName);
 	const outputLimits = resolveProcessOutputLimits(options.outputLimits);
@@ -146,6 +147,7 @@ export async function runDockerToolProcess(
 		image,
 		containerName,
 		networkMode,
+		runtimeNamespaceOwnerId: docker.runtimeNamespaceOwnerId ?? null,
 		mountMode: {
 			repo: options.repoPath ? "read-only" : "none",
 			output: outDir ? "read-write" : "none",
@@ -316,7 +318,7 @@ function rewriteToolArgs(
 		inputPaths?: string[];
 		outputPath?: string;
 		binaryName: string;
-		networkMode: DockerNetworkMode;
+		networkMode: string;
 	},
 ): string[] {
 	const rewrittenOutputPath = paths.outputPath
@@ -361,7 +363,7 @@ function buildDockerRunArgs(params: {
 	dockerBin: string;
 	image: string;
 	containerName: string;
-	networkMode: DockerNetworkMode;
+	networkMode: string;
 	memory?: string;
 	cpus?: string;
 	pidsLimit?: number;
@@ -438,6 +440,16 @@ function buildDockerRunArgs(params: {
 	}
 	args.push(params.image, ...params.toolArgs);
 	return args;
+}
+
+function runtimeNamespaceNetwork(ownerId: string): string {
+	// Lifecycle-owned names are generated as vwb-<uuid>-owner. Rejecting all
+	// other values prevents this internal escape hatch being repurposed to join
+	// an arbitrary container namespace.
+	if (!/^vwb-[0-9a-f-]{36}-owner$/.test(ownerId)) {
+		throw new Error("runtime_namespace_owner_invalid");
+	}
+	return `container:${ownerId}`;
 }
 
 function makeContainerName(binaryName: string): string {

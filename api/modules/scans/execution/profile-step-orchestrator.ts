@@ -126,17 +126,19 @@ export async function executeProfileSteps(
 				consentProjectCodeExecution: params.consentProjectCodeExecution,
 				runtimeTargetProvider: params.runtimeTargetProvider,
 			});
-			const lease = await resourceLeases.acquire({
-				scanRunId: scanRun.id,
-				stepId: "runtime-target",
-				resourceType: "runtime_target",
-				provider: params.runtimeTargetProvider ? "injected" : "local",
-				externalId: `${scanRun.id}:${sharedRuntimeTarget.current.origin}`,
-				receipt: { origin: sharedRuntimeTarget.current.origin },
-				leaseExpiresAt: new Date(
-					Date.now() + Math.max(profile.defaultTimeoutSec, 60) * 1_000,
-				),
-			});
+			const lease = sharedRuntimeTarget.current.leaseManaged
+				? null
+				: await resourceLeases.acquire({
+						scanRunId: scanRun.id,
+						stepId: "runtime-target",
+						resourceType: "runtime_target",
+						provider: params.runtimeTargetProvider ? "injected" : "local",
+						externalId: `${scanRun.id}:${sharedRuntimeTarget.current.origin}`,
+						receipt: { origin: sharedRuntimeTarget.current.origin },
+						leaseExpiresAt: new Date(
+							Date.now() + Math.max(profile.defaultTimeoutSec, 60) * 1_000,
+						),
+					});
 			runtimeTargetLeaseId = lease?.id ?? null;
 		}
 		return sharedRuntimeTarget.current;

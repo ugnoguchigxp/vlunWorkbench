@@ -30,6 +30,8 @@ function createRuntimeShape(projectArtifactCleanupRunner: unknown) {
 		integrationClientService: {},
 		projectArtifactCleanupRunner,
 		workspaceTargetGrantJanitor: { stop() {} },
+		runtimeBundleLeaseJanitor: { stop() {} },
+		dynamicBundleLeaseJanitor: { stop() {} },
 		agenticSearchService: { run() {} },
 	};
 }

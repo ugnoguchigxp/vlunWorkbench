@@ -12,6 +12,7 @@ import { DastAuthContextCrypto } from "../modules/dast/auth-context-crypto";
 import { DastAuthContextRepository } from "../modules/dast/auth-context-repository";
 import { DastArtifactStorage } from "../modules/dast/dast-artifact-storage";
 import { DynamicArtifactStorage } from "../modules/dynamic/dynamic-artifact-storage";
+import { DynamicBundleLeaseJanitor } from "../modules/dynamic/dynamic-bundle-lease-janitor";
 import { IntegrationClientService } from "../modules/integrationClients/integration-client.service";
 import { NightworkersWorkspaceTargetGrantRepository } from "../modules/integrations/nightworkers/nightworkers-workspace-target-grant.repository";
 import { NightworkersWorkspaceTargetGrantJanitor } from "../modules/integrations/nightworkers/nightworkers-workspace-target-grant-janitor";
@@ -21,6 +22,8 @@ import { SourceRetriever } from "../modules/rag/retriever";
 import { SearchEvidenceCollector } from "../modules/rag/search-evidence";
 import { ScanReportRunner } from "../modules/reports/scan-report-runner";
 import { ReproductionArtifactStorage } from "../modules/reproductions/reproduction-artifact-storage";
+import { RuntimeBundleLeaseJanitor } from "../modules/runtime-isolation/runtime-bundle-lease-janitor";
+import { loadRuntimeIsolationProviderFactory } from "../modules/runtime-isolation/runtime-isolation-runtime-config";
 import { ArtifactStorage } from "../modules/scans/artifact-storage";
 import { ProjectArtifactCleanupRunner } from "../modules/scans/project-artifact-cleanup-runner";
 import { ProjectDeletionCleanupRepository } from "../modules/scans/project-deletion-cleanup-repository";
@@ -34,6 +37,7 @@ import { ScanImprovementRequestRunner } from "../modules/scans/scan-improvement-
 import { ScanProcessSupervisor } from "../modules/scans/scan-process-supervisor";
 import { ScanReviewRepository } from "../modules/scans/scan-review-repository";
 import { ScanReviewRunner } from "../modules/scans/scan-review-runner";
+import { ScanResourceLeaseRepository } from "../modules/scans/execution/lifecycle/scan-resource-lease-repository";
 import { finalizeWebScanAfterDiagnostic } from "../modules/scans/web-scan-post-processing";
 import { SettingsRepository } from "../modules/settings/settings.repository";
 import { SourceRepository } from "../modules/sources/source.repository";
@@ -81,6 +85,8 @@ export type AppRuntime = {
 		NightworkersWorkspaceTargetGrantJanitor,
 		"stop"
 	>;
+	runtimeBundleLeaseJanitor: Pick<RuntimeBundleLeaseJanitor, "stop">;
+	dynamicBundleLeaseJanitor: Pick<DynamicBundleLeaseJanitor, "stop">;
 	agenticSearchService: {
 		run(input: {
 			query: string;
@@ -174,6 +180,12 @@ export function isRuntimeShape(value: unknown): value is AppRuntime {
 		typeof projectArtifactCleanupRunner?.recover === "function" &&
 		typeof (
 			obj.workspaceTargetGrantJanitor as Record<string, unknown> | undefined
+		)?.stop === "function" &&
+		typeof (
+			obj.runtimeBundleLeaseJanitor as Record<string, unknown> | undefined
+		)?.stop === "function" &&
+		typeof (
+			obj.dynamicBundleLeaseJanitor as Record<string, unknown> | undefined
 		)?.stop === "function" &&
 		typeof settingsRepo?.getSystemContextForUser === "function" &&
 		typeof settingsRepo?.updateSystemContext === "function" &&
@@ -373,6 +385,18 @@ async function createRuntime(): Promise<AppRuntime> {
 			new NightworkersWorkspaceTargetGrantRepository(dbConnection.db),
 		);
 	await workspaceTargetGrantJanitor.start();
+	const runtimeBundleLeaseJanitor = new RuntimeBundleLeaseJanitor(
+		new ScanResourceLeaseRepository(dbConnection.db),
+	);
+	if (loadRuntimeIsolationProviderFactory({ db: dbConnection.db })) {
+		await runtimeBundleLeaseJanitor.start();
+	}
+	const dynamicBundleLeaseJanitor = new DynamicBundleLeaseJanitor(
+		new ScanResourceLeaseRepository(dbConnection.db),
+	);
+	if (loadRuntimeIsolationProviderFactory({ db: dbConnection.db })) {
+		await dynamicBundleLeaseJanitor.start();
+	}
 
 	return {
 		env,
@@ -400,6 +424,8 @@ async function createRuntime(): Promise<AppRuntime> {
 		integrationClientService,
 		projectArtifactCleanupRunner,
 		workspaceTargetGrantJanitor,
+		runtimeBundleLeaseJanitor,
+		dynamicBundleLeaseJanitor,
 		agenticSearchService,
 	};
 }

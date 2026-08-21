@@ -240,6 +240,21 @@ describe("Tool process runner Docker backend", () => {
 		expect(capturedArgs).not.toContain("http://127.0.0.1:4173");
 	});
 
+	it("joins only a lifecycle-owned runtime namespace without rewriting loopback to the host", async () => {
+		let capturedArgs: string[] = [];
+		vi.spyOn(Bun, "spawn").mockImplementation((args) => {
+			capturedArgs = [...args];
+			return { exited: Promise.resolve(0), stdout: streamText(""), stderr: streamText("") } as any;
+		});
+		const owner = "vwb-123e4567-e89b-12d3-a456-426614174000-owner";
+		await runToolProcess("nuclei", ["-u", "http://127.0.0.1:18080", "-silent"], {
+			execution: { runner: "docker", docker: { runtimeNamespaceOwnerId: owner } },
+		});
+		expect(capturedArgs).toContain(`container:${owner}`);
+		expect(capturedArgs).toContain("http://127.0.0.1:18080");
+		expect(capturedArgs).not.toContain("host.docker.internal");
+	});
+
 	it("fails docker version checks clearly when docker is unavailable", async () => {
 		vi.spyOn(Bun, "spawn").mockImplementation(() => {
 			throw new Error("ENOENT");

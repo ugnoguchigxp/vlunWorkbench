@@ -65,6 +65,28 @@ export class ScanResourceLeaseRepository {
 		return await this.findById(id);
 	}
 
+	/**
+	 * Runtime bundles append private child resource references immediately after
+	 * creation and before start. A terminal lease must never be resurrected.
+	 */
+	async updateActiveReceipt(id: string, receipt: Record<string, unknown>) {
+		const now = new Date();
+		const updated = await this.db
+			.update(scanResourceLeases)
+			.set({ receipt, updatedAt: now })
+			.where(
+				and(
+					eq(scanResourceLeases.id, id),
+					eq(scanResourceLeases.state, "active"),
+				),
+			)
+			.returning({ id: scanResourceLeases.id });
+		if (updated.length !== 1) {
+			throw new Error("runtime_bundle_receipt_persistence_failed");
+		}
+		return await this.findById(id);
+	}
+
 	async quarantine(id: string, receipt?: Record<string, unknown>) {
 		const now = new Date();
 		await this.db
@@ -74,18 +96,21 @@ export class ScanResourceLeaseRepository {
 		return await this.findById(id);
 	}
 
-	async listRecoverable(now = new Date()) {
+	async listRecoverable(now = new Date(), provider?: string) {
+		const recoverable = and(
+			eq(scanResourceLeases.state, "active"),
+			or(
+				lt(scanResourceLeases.leaseExpiresAt, now),
+				isNull(scanResourceLeases.leaseExpiresAt),
+			),
+		);
 		return await this.db
 			.select()
 			.from(scanResourceLeases)
 			.where(
-				and(
-					eq(scanResourceLeases.state, "active"),
-					or(
-						lt(scanResourceLeases.leaseExpiresAt, now),
-						isNull(scanResourceLeases.leaseExpiresAt),
-					),
-				),
+				provider
+					? and(recoverable, eq(scanResourceLeases.provider, provider))
+					: recoverable,
 			);
 	}
 

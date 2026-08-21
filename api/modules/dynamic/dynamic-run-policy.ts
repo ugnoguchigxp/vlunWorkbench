@@ -28,6 +28,8 @@ export type DynamicRunnerOptions = {
 	};
 	artifactLimits?: Partial<DynamicArtifactCollectionLimits>;
 	storage?: DynamicArtifactStorage;
+	/** Server-owned, digest-pinned image allowed to execute dynamic profiles. */
+	qualifiedDynamicImage?: string;
 };
 
 export function getDynamicRunMetadata(
@@ -112,13 +114,13 @@ export function resolveDynamicNetworkMode(
 ): "none" | "default" {
 	const normalizedProfile =
 		profileNetwork === "default" ? "default" : ("none" as const);
-	if (!requested) return normalizedProfile;
-	if (requested === "default" && normalizedProfile !== "default") {
+	if (normalizedProfile === "default" || requested === "default") {
 		throw new Error(
-			"Requested network mode exceeds the profile network policy.",
+			"Dynamic default network requires a qualified runtime bundle and is not available.",
 		);
 	}
-	return requested;
+	if (!requested) return "none";
+	return "none";
 }
 
 export function resolveDynamicArtifactLimits(

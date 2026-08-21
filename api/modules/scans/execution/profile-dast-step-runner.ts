@@ -44,6 +44,11 @@ export async function runDastStepIntoExistingScan(params: {
 			if (!preparedAutoTarget) {
 				throw new Error("runtime_isolation_provider_unavailable");
 			}
+			if (
+				preparedAutoTarget.runtimeNamespaceOwnerId &&
+				!preparedAutoTarget.runtimeDastFetch
+			)
+				throw new Error("runtime_namespace_dast_executor_unavailable");
 			const target = await dastRepo.createTargetConfig({
 				projectId: params.projectId,
 				...preparedAutoTarget.targetConfig,
@@ -63,6 +68,7 @@ export async function runDastStepIntoExistingScan(params: {
 
 			const runner = new DastRunner(params.db, {
 				scanStorage: params.artifactStorage,
+				fetchImpl: preparedAutoTarget.runtimeDastFetch,
 			});
 			const result = await runner.run({
 				projectId: params.projectId,

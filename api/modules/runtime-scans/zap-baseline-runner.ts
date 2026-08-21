@@ -134,15 +134,21 @@ async function finishOutput(
 	return { stdout: stdout.text(), stderr: stderr.text() };
 }
 
-function baseDockerArgs(dockerBin: string, containerName?: string): string[] {
+function baseDockerArgs(
+	dockerBin: string,
+	containerName?: string,
+	runtimeNamespaceOwnerId?: string,
+): string[] {
 	return [
 		dockerBin,
 		"run",
 		"--rm",
 		...(containerName ? ["--name", containerName] : []),
 		"--network",
-		"default",
-		...(process.platform === "linux"
+		runtimeNamespaceOwnerId
+			? `container:${runtimeNamespaceOwnerId}`
+			: "default",
+		...(!runtimeNamespaceOwnerId && process.platform === "linux"
 			? ["--add-host", "host.docker.internal:host-gateway"]
 			: []),
 		"--cap-drop",
@@ -155,6 +161,7 @@ function baseDockerArgs(dockerBin: string, containerName?: string): string[] {
 export function buildZapBaselineDockerCommand(params: {
 	dockerBin?: string;
 	image?: string;
+	runtimeNamespaceOwnerId?: string;
 	containerName: string;
 	outputDir: string;
 	targetOrigin: string;
@@ -165,7 +172,11 @@ export function buildZapBaselineDockerCommand(params: {
 	if (!isPinnedZapImage(image))
 		throw new Error("ZAP requires a pinned official image index.");
 	return [
-		...baseDockerArgs(params.dockerBin ?? "docker", params.containerName),
+		...baseDockerArgs(
+			params.dockerBin ?? "docker",
+			params.containerName,
+			params.runtimeNamespaceOwnerId,
+		),
 		"--memory",
 		params.memory ?? "2g",
 		"--cpus",
@@ -188,9 +199,10 @@ export function buildZapBaselineDockerCommand(params: {
 function buildPreflightCommand(
 	dockerBin: string,
 	targetOrigin: string,
+	runtimeNamespaceOwnerId?: string,
 ): string[] {
 	return [
-		...baseDockerArgs(dockerBin),
+		...baseDockerArgs(dockerBin, undefined, runtimeNamespaceOwnerId),
 		"--entrypoint",
 		"python3",
 		ZAP_STABLE_IMAGE,
@@ -289,6 +301,7 @@ export class ZapBaselineRunner {
 	}): Promise<ZapBaselineRunResult> {
 		const startedAt = Date.now();
 		const docker = this.execution?.docker ?? {};
+		const runtimeNamespaceOwnerId = docker.runtimeNamespaceOwnerId;
 		const dockerBin = docker.dockerBin ?? "docker";
 		const tempDir = await fs.mkdtemp(
 			path.join(os.tmpdir(), "zap-baseline-run-"),
@@ -315,7 +328,7 @@ export class ZapBaselineRunner {
 		let runError: unknown;
 		try {
 			runResult = await (async (): Promise<ZapBaselineRunResult> => {
-				if (!gateway) {
+				if (!gateway && !runtimeNamespaceOwnerId) {
 					try {
 						gateway = await this.gatewayFactory({
 							upstreamOrigin: params.upstreamOrigin,
@@ -330,10 +343,17 @@ export class ZapBaselineRunner {
 						stderr = String(error);
 					}
 				}
-				if (!preflightFailure && gateway) {
+				const scannerOrigin = runtimeNamespaceOwnerId
+					? params.upstreamOrigin
+					: gateway?.containerOrigin;
+				if (!preflightFailure && scannerOrigin) {
 					const preflight = await runProcess(
 						this.spawn,
-						buildPreflightCommand(dockerBin, gateway.containerOrigin),
+						buildPreflightCommand(
+							dockerBin,
+							scannerOrigin,
+							runtimeNamespaceOwnerId,
+						),
 						Math.min(params.timeoutSec ?? 120, 30),
 					);
 					stdout += preflight.stdout;
@@ -350,14 +370,16 @@ export class ZapBaselineRunner {
 						preflightFailure = "authentication_required";
 					stderr += preflight.stderr;
 				}
-				if (!preflightFailure && gateway) {
+				if (!preflightFailure && scannerOrigin) {
 					const scan = await runProcess(
 						this.spawn,
 						buildZapBaselineDockerCommand({
 							dockerBin,
 							containerName,
 							outputDir: tempDir,
-							targetOrigin: gateway.containerOrigin,
+							targetOrigin: scannerOrigin,
+							image: docker.image,
+							runtimeNamespaceOwnerId,
 							memory: docker.memory,
 							cpus: docker.cpus,
 						}),
@@ -399,8 +421,8 @@ export class ZapBaselineRunner {
 					stderr: redactSecrets(stderr),
 					executionMetadata: {
 						runner: "docker",
-						image: ZAP_STABLE_IMAGE,
-						imageDigest: ZAP_STABLE_IMAGE.split("@", 2)[1],
+						image: docker.image ?? ZAP_STABLE_IMAGE,
+						imageDigest: (docker.image ?? ZAP_STABLE_IMAGE).split("@", 2)[1],
 						containerName,
 						gatewayMetrics: gateway?.metrics() ?? null,
 						reportVersion: rawJson?.["@version"] ?? null,

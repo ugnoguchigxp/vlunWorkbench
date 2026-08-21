@@ -2,6 +2,7 @@ import type {
 	ScanPreflightCheck,
 	ScanPreflightMode,
 	ScanPreflightResult,
+	ScanPreflightResultV1,
 } from "../../../../shared/schemas/scan-preflight.schema";
 import {
 	SCAN_PREFLIGHT_EVIDENCE_REF_LIMIT,
@@ -125,19 +126,51 @@ export async function runScanPreflight(params: {
 	trustPolicy?: string;
 	targetPlan?: DastTargetStartPlan;
 	/**
+	 * Runtime-capable profiles may only start a local target through the
+	 * isolated runtime provider.  This is deliberately separate from a target
+	 * start plan: a plan describes what may run, while the provider is the
+	 * enforcement point that prevents a host-process fallback.
+	 */
+	isolatedRuntimeProviderAvailable?: boolean;
+	/**
 	 * Optional deployment-admission control. The protected CI gate is always
 	 * required to produce qualification; normal project scans must not be
 	 * blocked merely because their runtime lacks the CI artifact.
 	 */
 	requireScannerE2EQualification?: boolean;
 	dependencies?: Partial<ScanPreflightDependencies>;
-}): Promise<ScanPreflightResult> {
+}): Promise<ScanPreflightResultV1> {
 	const dependencies = {
 		...defaultScanPreflightDependencies,
 		...params.dependencies,
 	};
 	const mode = params.mode ?? resolveScanPreflightMode();
 	const checks: ScanPreflightCheck[] = [];
+	const requiresIsolatedRuntime = params.steps.some(
+		(step) =>
+			step.kind === "runtime_scanner" ||
+			step.kind === "api_schema_scan" ||
+			step.kind === "dast",
+	);
+	if (
+		requiresIsolatedRuntime &&
+		params.isolatedRuntimeProviderAvailable !== undefined
+	) {
+		checks.push(
+			check({
+				id: `profile:${params.profile.id}:runtime-isolation-provider`,
+				stepId: `profile:${params.profile.id}`,
+				kind: "sandbox_availability",
+				required: true,
+				ready: params.isolatedRuntimeProviderAvailable === true,
+				reasonCode:
+					params.isolatedRuntimeProviderAvailable === true
+						? null
+						: "runtime_isolation_provider_unavailable",
+				action: "configure_project_sandbox",
+			}),
+		);
+	}
 	const profileInputBindings: Record<string, string | undefined> = {
 		imageRef: params.imageRef,
 		imageTar: params.imageTar,

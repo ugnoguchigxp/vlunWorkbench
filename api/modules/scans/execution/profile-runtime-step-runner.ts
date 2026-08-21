@@ -35,6 +35,8 @@ export async function runRuntimeScannerIntoExistingScan(params: {
 	excludedPaths?: string[];
 	maxRequests?: number;
 	rateLimitPerSec?: number;
+	runtimeNamespaceOwnerId?: string;
+	runtimeImage?: string;
 }): Promise<{
 	toolRunId: string;
 	findingCount: number;
@@ -47,14 +49,26 @@ export async function runRuntimeScannerIntoExistingScan(params: {
 	const scanRepo = new ScanRepository(params.db);
 	const artifactRepo = new ArtifactRepository(params.db);
 	const findingRepo = new FindingRepository(params.db);
+	const runtimeExecution: ToolExecutionConfig | undefined =
+		params.runtimeNamespaceOwnerId
+			? {
+					...(params.execution ?? { runner: "docker" }),
+					runner: "docker",
+					docker: {
+						...(params.execution?.docker ?? {}),
+						runtimeNamespaceOwnerId: params.runtimeNamespaceOwnerId,
+						...(params.runtimeImage ? { image: params.runtimeImage } : {}),
+					},
+				}
+			: params.execution;
 	let provenance: Record<string, unknown> = await resolveScannerProvenance({
 		toolId: params.adapter,
-		execution: normalizeToolExecutionConfig(params.execution),
+		execution: normalizeToolExecutionConfig(runtimeExecution),
 	});
 	const versionRunner = new RuntimeScannerRunner(
 		"nuclei-safe",
 		params.artifactStorage,
-		params.execution,
+		runtimeExecution,
 	);
 	const toolVersion =
 		params.adapter === "nuclei-safe"
@@ -91,11 +105,11 @@ export async function runRuntimeScannerIntoExistingScan(params: {
 	);
 	const runner =
 		params.adapter === "zap-baseline"
-			? new ZapBaselineRunner(scopedStorage, params.execution)
+			? new ZapBaselineRunner(scopedStorage, runtimeExecution)
 			: new RuntimeScannerRunner(
 					"nuclei-safe",
 					scopedStorage,
-					params.execution,
+					runtimeExecution,
 				);
 	if (params.adapter === "nuclei-safe" && !toolVersion) {
 		await scanRepo.updateToolRunStatus(toolRun.id, "failed", {
@@ -135,15 +149,15 @@ export async function runRuntimeScannerIntoExistingScan(params: {
 		| null = null;
 	let executionError: unknown = null;
 	try {
-		if (params.adapter === "nuclei-safe") {
+		if (params.adapter === "nuclei-safe" && !params.runtimeNamespaceOwnerId) {
 			nucleiGateway = await prepareContainerTargetGateway({
 				upstreamOrigin: params.targetOrigin,
 				allowedPaths: params.allowedPaths ?? ["/"],
 				excludedPaths: params.excludedPaths ?? [],
 				maxRequests: params.maxRequests ?? 20,
 				rateLimitPerSec: params.rateLimitPerSec ?? 2,
-				dockerBin: params.execution?.docker?.dockerBin,
-				containerAccess: params.execution?.runner === "docker",
+				dockerBin: runtimeExecution?.docker?.dockerBin,
+				containerAccess: runtimeExecution?.runner === "docker",
 			});
 		}
 		result =
@@ -159,8 +173,9 @@ export async function runRuntimeScannerIntoExistingScan(params: {
 					})
 				: await (runner as RuntimeScannerRunner).run({
 						scanRunId: params.scanRunId,
-						targetOrigin:
-							params.execution?.runner === "docker"
+						targetOrigin: params.runtimeNamespaceOwnerId
+							? params.targetOrigin
+							: runtimeExecution?.runner === "docker"
 								? (nucleiGateway as PreparedContainerTargetGateway)
 										.containerOrigin
 								: (nucleiGateway as PreparedContainerTargetGateway).hostOrigin,

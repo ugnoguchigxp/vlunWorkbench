@@ -479,6 +479,12 @@ async function executeRuntimeStep(params: {
 		throw new Error(`Unsupported profile step: ${stepId}`);
 	}
 	const target = await params.ensureSharedRuntimeTarget();
+	if (
+		target.runtimeNamespaceOwnerId &&
+		!target.runtimeScannerImages?.[step.adapter]
+	) {
+		throw new Error("runtime_scanner_image_unavailable");
+	}
 	const runtimeOptions = step.options as
 		| { maxRequests?: number; rateLimitPerSec?: number }
 		| undefined;
@@ -490,11 +496,16 @@ async function executeRuntimeStep(params: {
 		targetOrigin: target.origin,
 		artifactStorage: params.scope.artifactStorage,
 		timeoutSec: params.resolvedTimeout,
-		execution: params.scope.execution,
+		execution: runtimeScannerExecution(
+			params.scope.execution,
+			target.runtimeNamespaceOwnerId,
+		),
 		allowedPaths: target.targetConfig.allowedPathsJson,
 		excludedPaths: target.targetConfig.excludedPathsJson,
 		maxRequests: runtimeOptions?.maxRequests,
 		rateLimitPerSec: runtimeOptions?.rateLimitPerSec,
+		runtimeNamespaceOwnerId: target.runtimeNamespaceOwnerId,
+		runtimeImage: target.runtimeScannerImages?.[step.adapter],
 	});
 	const runtimeFailed = Boolean(runtimeResult.error);
 	return {
@@ -517,6 +528,21 @@ async function executeRuntimeStep(params: {
 		],
 		profileFailingToolFailed: runtimeFailed && params.failureFailsProfile,
 		optionalToolFailed: runtimeFailed && !params.failureFailsProfile,
+	};
+}
+
+function runtimeScannerExecution(
+	execution: ExecuteProfileStepsParams["execution"],
+	runtimeNamespaceOwnerId: string | undefined,
+) {
+	if (!runtimeNamespaceOwnerId) return execution;
+	return {
+		...execution,
+		runner: "docker" as const,
+		docker: {
+			...(execution.docker ?? {}),
+			runtimeNamespaceOwnerId,
+		},
 	};
 }
 
@@ -556,6 +582,12 @@ async function executeSchemaStep(params: {
 		};
 	}
 	const target = await params.ensureSharedRuntimeTarget();
+	if (
+		target.runtimeNamespaceOwnerId &&
+		!target.runtimeScannerImages?.schemathesis
+	) {
+		throw new Error("runtime_scanner_image_unavailable");
+	}
 	const schemaOptions = step.options as
 		| { maxRequests?: number; rateLimitPerSec?: number }
 		| undefined;
@@ -573,6 +605,8 @@ async function executeSchemaStep(params: {
 		excludedPaths: target.targetConfig.excludedPathsJson,
 		maxRequests: schemaOptions?.maxRequests,
 		rateLimitPerSec: schemaOptions?.rateLimitPerSec,
+		runtimeNamespaceOwnerId: target.runtimeNamespaceOwnerId,
+		runtimeImage: target.runtimeScannerImages?.schemathesis,
 	});
 	const notApplicable = !schemaResult.applicable;
 	const schemaFailed = Boolean(schemaResult.error);

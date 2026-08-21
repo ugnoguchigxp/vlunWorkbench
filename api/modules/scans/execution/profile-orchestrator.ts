@@ -65,6 +65,10 @@ import {
 	executionPlanBlocks,
 } from "./scan-execution-plan-builder";
 import { preflightBlocksExecution, runScanPreflight } from "./scan-preflight";
+import {
+	buildRuntimeIsolationPreflight,
+	runtimeIsolationImageDigests,
+} from "../../runtime-isolation/runtime-isolation-preflight";
 import { hashProfileInputs } from "./scan-preflight-binding";
 import { evaluateScanGate } from "./scan-result-policy";
 
@@ -98,7 +102,12 @@ export async function runProfileScan(params: {
 	/** SHA-256 of an externally materialized immutable source archive. */
 	sourceSnapshotDigest?: string;
 	runtimeTargetProvider?: RuntimeTargetProvider;
-	executionPlanSchemaVersion?: 1 | 2;
+	runtimeTargetProviderFactory?: (input: {
+		scanRunId: string;
+		profileId: string;
+		sourceSnapshot: FullSourceSnapshot;
+	}) => Promise<RuntimeTargetProvider>;
+	executionPlanSchemaVersion?: 1 | 2 | 3;
 }): Promise<ProfileScanResult> {
 	if (
 		params.sourceSnapshotDigest !== undefined &&
@@ -131,7 +140,9 @@ export async function runProfileScan(params: {
 			attestationSubject: params.attestationSubject,
 			attestationBundle: params.attestationBundle,
 			trustPolicy: params.trustPolicy,
-			autoStartPlan: Boolean(params.runtimeTargetProvider),
+			autoStartPlan: Boolean(
+				params.runtimeTargetProvider || params.runtimeTargetProviderFactory,
+			),
 			executionConsent: params.consentProjectCodeExecution,
 		}),
 		requestedResultPolicy: params.resultPolicy,
@@ -216,7 +227,9 @@ export async function runProfileScan(params: {
 			(step) =>
 				step.kind === "runtime_scanner" || step.kind === "api_schema_scan",
 		) ||
-		(Boolean(params.runtimeTargetProvider) &&
+		(Boolean(
+			params.runtimeTargetProvider || params.runtimeTargetProviderFactory,
+		) &&
 			profileSteps.some((step) => step.kind === "dast"));
 	const stepOrder = profileSteps.map((step) =>
 		step.kind === "static_tool"
@@ -311,7 +324,50 @@ export async function runProfileScan(params: {
 		});
 	}
 
-	const scanPreflight = await runScanPreflight({
+	let fullSourceSnapshot: FullSourceSnapshot | null = null;
+	let runtimeTargetProvider = params.runtimeTargetProvider;
+	let runtimeProviderDispose: (() => Promise<void>) | undefined;
+	const needsIsolatedRuntime = profileSteps.some(
+		(step) =>
+			step.kind === "runtime_scanner" ||
+			step.kind === "api_schema_scan" ||
+			step.kind === "dast",
+	);
+	if (
+		needsIsolatedRuntime &&
+		!runtimeTargetProvider &&
+		params.runtimeTargetProviderFactory &&
+		fullScanTarget
+	) {
+		fullSourceSnapshot = await materializeScopedSourceSnapshot({
+			repositoryPath: params.repoPath,
+			sourceRevision: fullScanTarget.sourceRevision,
+			scope: resolvedScope.scope,
+		});
+		if (
+			fullScanTarget.scopeContentDigest &&
+			fullSourceSnapshot.snapshotDigest !== fullScanTarget.scopeContentDigest
+		) {
+			await fullSourceSnapshot.cleanup();
+			fullSourceSnapshot = null;
+			throw new Error("target_changed: scoped target changed before execution");
+		}
+		runtimeTargetProvider = await params.runtimeTargetProviderFactory({
+			scanRunId: scanRun.id,
+			profileId: profile.id,
+			sourceSnapshot: fullSourceSnapshot,
+		});
+		runtimeProviderDispose = runtimeTargetProvider.dispose;
+		await scanRepo.mergeScanRunMetadata(scanRun.id, {
+			fullSourceSnapshot: {
+				sourceRevision: fullSourceSnapshot.sourceRevision,
+				snapshotDigest: fullSourceSnapshot.snapshotDigest,
+				snapshotKind: "scoped_worktree",
+			},
+		});
+	}
+
+	const baseScanPreflight = await runScanPreflight({
 		profile,
 		steps: profileSteps,
 		projectId: params.projectId,
@@ -325,8 +381,19 @@ export async function runProfileScan(params: {
 		attestationSubject: params.attestationSubject,
 		attestationBundle: params.attestationBundle,
 		trustPolicy: params.trustPolicy,
-		targetPlan: params.runtimeTargetProvider?.plan,
+		targetPlan: runtimeTargetProvider?.plan,
+		isolatedRuntimeProviderAvailable: Boolean(runtimeTargetProvider),
 	});
+	const runtimeIsolationPlanning =
+		runtimeTargetProvider?.runtimeIsolationPlanning;
+	const scanPreflight = runtimeIsolationPlanning
+		? buildRuntimeIsolationPreflight({
+				base: baseScanPreflight,
+				planning: runtimeIsolationPlanning,
+				networkReady: true,
+				cleanupReady: true,
+			})
+		: baseScanPreflight;
 	const preflightBindingChanged = Boolean(
 		params.expectedPreflightBindingHash &&
 			params.expectedPreflightBindingHash !== scanPreflight.bindingHash,
@@ -340,7 +407,29 @@ export async function runProfileScan(params: {
 		technologyRegistryDigest: technologyAnalysis.capabilityPlan.registryDigest,
 		sourceSnapshotDigest: params.sourceSnapshotDigest ?? fullScanTarget?.digest,
 		runner: execution.runner,
-		schemaVersion: params.executionPlanSchemaVersion,
+		schemaVersion: runtimeIsolationPlanning
+			? 3
+			: params.executionPlanSchemaVersion,
+		runtimeIsolation:
+			runtimeIsolationPlanning?.status === "ready"
+				? {
+						planHash: runtimeIsolationPlanning.planHash,
+						qualificationHash: runtimeIsolationPlanning.plan.qualificationHash,
+						sourceSnapshotDigest:
+							runtimeIsolationPlanning.plan.source.sourceSnapshotDigest,
+						projectionDigest:
+							runtimeIsolationPlanning.plan.source.runtimeProjectionDigest,
+						recipeHash: runtimeIsolationPlanning.plan.recipe.recipeHash,
+						dependencyLockDigest:
+							runtimeIsolationPlanning.plan.dependency.lockDigest,
+						dockerDaemonIdentityHash:
+							runtimeIsolationPlanning.plan.dockerDaemonIdentityHash,
+						imageDigests: runtimeIsolationImageDigests(
+							runtimeIsolationPlanning.plan.images,
+						),
+						databaseMode: runtimeIsolationPlanning.plan.database.mode,
+					}
+				: undefined,
 	});
 	const executionPlanChanged = Boolean(
 		params.expectedPlanHash &&
@@ -404,6 +493,12 @@ export async function runProfileScan(params: {
 		preflightBlocksExecution(scanPreflight) ||
 		(profile.strictness === "strict" && executionPlanBlocks(executionPlan))
 	) {
+		if (fullSourceSnapshot) {
+			await runtimeProviderDispose?.();
+			runtimeProviderDispose = undefined;
+			await fullSourceSnapshot.cleanup();
+			fullSourceSnapshot = null;
+		}
 		const coverageLedger = buildCoverageLedger({
 			profile,
 			planHash: executionPlan.planHash,
@@ -479,7 +574,6 @@ export async function runProfileScan(params: {
 	}
 
 	let diffSnapshot: DiffSnapshot | null = null;
-	let fullSourceSnapshot: FullSourceSnapshot | null = null;
 	let profileInputSnapshot: ProfileInputSnapshot | null = null;
 	let diffManifestArtifactId: string | null = null;
 	try {
@@ -630,7 +724,7 @@ export async function runProfileScan(params: {
 			throw failure;
 		}
 	}
-	if (fullScanTarget) {
+	if (fullScanTarget && !fullSourceSnapshot) {
 		try {
 			fullSourceSnapshot = await materializeScopedSourceSnapshot({
 				repositoryPath: params.repoPath,
@@ -664,6 +758,14 @@ export async function runProfileScan(params: {
 									{
 										kind: "source_snapshot",
 										cleanup: fullSourceSnapshot.cleanup,
+									},
+								]
+							: []),
+						...(runtimeProviderDispose
+							? [
+									{
+										kind: "runtime_projection",
+										cleanup: runtimeProviderDispose,
 									},
 								]
 							: []),
@@ -725,7 +827,7 @@ export async function runProfileScan(params: {
 					technologyAnalysis,
 					consentProjectCodeExecution:
 						params.consentProjectCodeExecution === true,
-					runtimeTargetProvider: params.runtimeTargetProvider,
+					runtimeTargetProvider,
 					scanPreflight,
 					executionPlan,
 				});
@@ -739,6 +841,14 @@ export async function runProfileScan(params: {
 									{
 										kind: "source_snapshot",
 										cleanup: fullSourceSnapshot.cleanup,
+									},
+								]
+							: []),
+						...(runtimeProviderDispose
+							? [
+									{
+										kind: "runtime_projection",
+										cleanup: runtimeProviderDispose,
 									},
 								]
 							: []),

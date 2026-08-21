@@ -276,6 +276,50 @@ describe("Dynamic Route", () => {
 		expect(spawnArgs).toContain("--consent-project-code-execution");
 	});
 
+	it("creates a parent scan for finding Dynamic runs so expired resources can be reclaimed", async () => {
+		mockScanRepository.createScanRun.mockClear();
+		mockScanRepository.updateScanRunStatus.mockClear();
+		const spawnSpy = vi.spyOn(Bun, "spawn").mockImplementation(() => ({
+			stdout: new ReadableStream({
+				start(controller) {
+					controller.enqueue(
+						new TextEncoder().encode(
+							JSON.stringify({
+								ok: true,
+								dynamicRunId: "run-1",
+								status: "completed",
+								outcome: "passed",
+							}),
+						),
+					);
+					controller.close();
+				},
+			}),
+			stderr: new ReadableStream({ start: (controller) => controller.close() }),
+			exited: Promise.resolve(0),
+		}) as any);
+
+		const res = await app.request("/findings/f-1/dynamic-runs", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				profileId: "bun-test",
+				consentProjectCodeExecution: true,
+				runner: "docker",
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		expect(await res.json()).toMatchObject({ scanRunId: "scan-dynamic-1" });
+		expect(mockScanRepository.createScanRun).toHaveBeenCalledWith(
+			expect.objectContaining({
+				profile: "dynamic-verification",
+				metadata: expect.objectContaining({ findingId: "f-1" }),
+			}),
+		);
+		expect(spawnSpy.mock.calls[0]?.[0]).toContain("--scan-run-id");
+	});
+
 	it("rejects project dynamic execution without explicit consent", async () => {
 		mockScanRepository.createScanRun.mockClear();
 		const res = await app.request("/projects/p-1/dynamic-runs", {

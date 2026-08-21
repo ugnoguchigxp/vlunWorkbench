@@ -292,6 +292,10 @@ bun run scan:profile -- --project-path /path/to/repo --profile container-image-s
 
 `full-security-scan` runs the existing static tools, CycloneDX SBOM, coverage-aware Web Passive Standard DAST, Nuclei safe, ZAP baseline, and Schemathesis only when a schema is discovered. Nuclei uses the pinned safe template set; ZAP is Docker-only passive baseline through a bounded local gateway; Schemathesis sends no credentials and limits methods to GET/HEAD/OPTIONS. The planned runtime allocations are bounded to 250 requests in total. Missing schema, failed transport, authentication failure, or budget exhaustion is reported as a coverage gap or limitation, not as “no vulnerabilities.”
 
+Runtime profiles that auto-start a local target never start a host process. They require digest-pinned, server-owned runtime images (namespace owner, Node, materializer, registry proxy, probe, and HTTP executor), the current Docker daemon identity hash, and a matching qualification hash. If any item is missing, mutable, or mismatched, preflight blocks the runtime profile. The target, DB sidecar, passive DAST, Nuclei, ZAP, and Schemathesis run in one disposable container namespace and cannot use the host network or an existing database.
+
+Dynamic verification likewise requires the server-owned, digest-pinned `VULN_WORKBENCH_DYNAMIC_IMAGE` setting. Request and CLI image overrides may only repeat that exact value; mutable or unqualified images are blocked before a source snapshot is created.
+
 For strict `full-security-scan` runs from the Web UI, set Runtime Settings to the `Docker` scanner execution mode and use `vuln-workbench-toolbox-semgrep:local`. The core `vuln-workbench-toolbox:local` image intentionally excludes the separately licensed Semgrep engine and therefore cannot satisfy the full-profile preflight by itself.
 
 For a standalone ZAP run, use `bun run scan:zap-baseline -- --project-path /path/to/local-project --create-project true --json`. It uses the pinned `zaproxy/zap-stable@sha256:8d387b1a63e3425beef4846e39719f5af2a787753af2d8b6558c6257d7a577a2` image (ZAP `2.17.0`), sends at most 20 target requests at 2 requests/second by default, and returns a non-zero CLI status when the ZAP execution or target preflight fails. ZAP Baseline spiders passive GET/HEAD resources; it does not run active attacks or authenticated scans.
@@ -380,7 +384,8 @@ bun run repro:finding -- \
 ```bash
 bun run dynamic:run -- \
   --project-id <project-id> \
-  --profile bun-test
+  --profile bun-test \
+  --scan-run-id <dynamic-verification-scan-run-id>
 ```
 
 ### DAST

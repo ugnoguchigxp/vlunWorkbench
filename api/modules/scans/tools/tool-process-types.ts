@@ -9,6 +9,12 @@ export interface DockerRunnerConfig {
 	cpus?: string;
 	pidsLimit?: number;
 	toolCacheDir?: string;
+	/**
+	 * Private runtime namespace created by the runtime-bundle lifecycle. This is
+	 * intentionally an opaque owner name, never a user-controlled Docker
+	 * network name or host-network escape hatch.
+	 */
+	runtimeNamespaceOwnerId?: string;
 }
 
 export interface ToolExecutionConfig {

@@ -265,4 +265,40 @@ describe("scan execution plan compiler", () => {
 		});
 		expect(v2.planHash).not.toBe(v1.planHash);
 	});
+
+	it("requires and persists a runtime isolation envelope for v3", () => {
+		const profile = buildScanProfiles().find(
+			(candidate) => candidate.id === "runtime-web-safe",
+		)!;
+		const input = {
+			scanRunId: "00000000-0000-4000-8000-000000000001",
+			projectId: "00000000-0000-4000-8000-000000000002",
+			profile,
+			steps: profile.steps!,
+			preflight: preflight({
+				profileId: profile.id,
+				stepId: "dast:standard",
+				status: "ready",
+			}),
+		};
+		expect(() => buildScanExecutionPlan({ ...input, schemaVersion: 3 })).toThrow(
+			"runtime_isolation_plan_required",
+		);
+		const plan = buildScanExecutionPlan({
+			...input,
+			schemaVersion: 3,
+			runtimeIsolation: {
+				planHash: DIGEST,
+				qualificationHash: DIGEST,
+				sourceSnapshotDigest: DIGEST,
+				projectionDigest: DIGEST,
+				recipeHash: DIGEST,
+				dependencyLockDigest: DIGEST,
+				dockerDaemonIdentityHash: DIGEST,
+				imageDigests: { node: DIGEST },
+				databaseMode: "none",
+			},
+		});
+		expect(plan).toMatchObject({ schemaVersion: 3, runtimeIsolation: { planHash: DIGEST } });
+	});
 });

@@ -4,12 +4,6 @@ import { createDbConnection } from "../db";
 import { DastRunner, type DastCliResult } from "../modules/dast/dast-runner";
 import { DastAuthContextCrypto } from "../modules/dast/auth-context-crypto";
 import { DastAuthContextRepository } from "../modules/dast/auth-context-repository";
-import { DastRepository } from "../modules/dast/dast-repository";
-import { prepareDastTargetWorkspace } from "../modules/dast/target-preparer";
-import {
-	ProjectRepository,
-	ScanRepository,
-} from "../modules/scans/repositories";
 import { runCliAutomatedDiagnostic } from "./scan-profile-diagnostic";
 
 type DastCliArgs = {
@@ -89,7 +83,7 @@ async function main() {
 	}
 
 	const projectId = values["project-id"];
-	let targetConfigId = values["target-config-id"];
+	const targetConfigId = values["target-config-id"];
 	const autoTarget = values["auto-target"] === "true";
 	const profileId = values.profile;
 	if (!projectId || !profileId || (!targetConfigId && !autoTarget)) {
@@ -120,6 +114,20 @@ async function main() {
 			message: "--runner must be host or docker.",
 		});
 		process.exit(1);
+	}
+	if (autoTarget) {
+		writeResult({
+			ok: false,
+			dastRunId: null,
+			scanRunId: values["scan-run-id"] ?? null,
+			status: "failed",
+			outcome: "error",
+			failureKind: "dast_target_rejected",
+			message:
+				"--auto-target is unavailable until an isolated runtime bundle provider is configured.",
+		});
+		process.exitCode = 1;
+		return;
 	}
 
 	let timeoutSec: number | undefined;
@@ -156,40 +164,11 @@ async function main() {
 		process.exit(1);
 	}
 	const connection = createDbConnection(env.databaseUrl);
-	let preparedAutoTarget: Awaited<
-		ReturnType<typeof prepareDastTargetWorkspace>
-	> | null = null;
-	const dastRepo = new DastRepository(connection.db);
 	let finalResult: Record<string, unknown> | null = null;
 	let finalExitCode = 1;
 	let runnerResult: DastCliResult | null = null;
 	let dryRun = false;
 	try {
-		if (autoTarget) {
-			const project = await new ProjectRepository(connection.db).findById(
-				projectId,
-			);
-			if (!project) {
-				throw new DastCliResultError({
-					ok: false,
-					dastRunId: null,
-					scanRunId: values["scan-run-id"] ?? null,
-					status: "failed",
-					outcome: "error",
-					failureKind: "dast_target_rejected",
-					message: "Project not found.",
-				});
-			}
-			preparedAutoTarget = await prepareDastTargetWorkspace({
-				repoPath: project.repoPath,
-			});
-			const target = await dastRepo.createTargetConfig({
-				projectId,
-				...preparedAutoTarget.targetConfig,
-				createdByUserId: values["created-by-user-id"] ?? null,
-			});
-			targetConfigId = target.id;
-		}
 		const authContextRepository = env.dastAuthEncryptionKey
 			? new DastAuthContextRepository(
 					connection.db,
@@ -215,30 +194,13 @@ async function main() {
 			authContextId: values["auth-context-id"] ?? null,
 			identityRole: values["identity-role"] ?? null,
 			createdByUserId: values["created-by-user-id"] ?? null,
-			// An auto-prepared target remains owned by this CLI until cleanup.
-			// Do not make its scan terminal before that cleanup has succeeded.
-			manageScanRunStatus: !preparedAutoTarget,
+			manageScanRunStatus: true,
 		};
 		const result = runOptions.dryRun
 			? await runner.dryRun(runOptions)
 			: await runner.run(runOptions);
 		runnerResult = result;
-		finalResult =
-			preparedAutoTarget && result.ok
-				? {
-						...result,
-						plan: {
-							...(result.plan ?? {}),
-							autoTarget: {
-								origin: preparedAutoTarget.origin,
-								command: preparedAutoTarget.plan.command,
-								scriptName: preparedAutoTarget.plan.scriptName,
-								port: preparedAutoTarget.plan.port,
-								warnings: preparedAutoTarget.plan.warnings,
-							},
-						},
-					}
-				: { ...result };
+		finalResult = { ...result };
 		finalExitCode = result.ok || result.dastRunId ? 0 : 1;
 	} catch (error) {
 		finalResult =
@@ -255,92 +217,6 @@ async function main() {
 							error instanceof Error ? error.message : "DAST execution failed.",
 					};
 		finalExitCode = 1;
-	} finally {
-		if (preparedAutoTarget) {
-			const cleanupTasks: Promise<unknown>[] = [preparedAutoTarget.stop()];
-			if (targetConfigId) {
-				cleanupTasks.push(
-					dastRepo.updateTargetConfig(targetConfigId, {
-						enabled: false,
-						metadata: {
-							...preparedAutoTarget.targetConfig.metadata,
-							autoPreparedCompletedAt: new Date().toISOString(),
-						},
-					}),
-				);
-			}
-			const cleanupResults = await Promise.allSettled(cleanupTasks);
-			if (cleanupResults.some((result) => result.status === "rejected")) {
-				finalResult = {
-					ok: false,
-					dastRunId:
-						typeof finalResult?.dastRunId === "string"
-							? finalResult.dastRunId
-							: null,
-					scanRunId:
-						typeof finalResult?.scanRunId === "string"
-							? finalResult.scanRunId
-							: (values["scan-run-id"] ?? null),
-					status: "failed",
-					outcome: "error",
-					failureKind: "dast_target_workspace_cleanup_failed",
-					message: "Failed to clean up the auto-prepared DAST target.",
-				};
-				finalExitCode = 1;
-			}
-		}
-	}
-	if (preparedAutoTarget && runnerResult?.scanRunId && !dryRun) {
-		try {
-			const scanRepo = new ScanRepository(connection.db);
-			const scan = await scanRepo.findById(runnerResult.scanRunId);
-			const completed = finalResult?.ok === true;
-			await scanRepo.updateScanRunStatus(
-				runnerResult.scanRunId,
-				completed ? "completed" : "failed",
-				{
-					summary: completed
-						? runnerResult.ok
-							? runnerResult.summary
-							: runnerResult.message
-						: typeof finalResult?.message === "string"
-							? finalResult.message
-							: "DAST run or target cleanup failed.",
-					profileOutcome:
-						scan?.profile === "authenticated-web"
-							? completed && runnerResult.coverageStatus === "covered"
-								? "completed"
-								: completed
-									? "incomplete"
-									: "failed"
-							: undefined,
-					metadata: {
-						dastRunId: runnerResult.dastRunId,
-						dastOutcome: runnerResult.outcome,
-						dastVerdict: runnerResult.verdict,
-						dastCoverageStatus: runnerResult.coverageStatus,
-						dastCoverageSummary: runnerResult.ok
-							? runnerResult.coverageSummary
-							: null,
-						dastLimitationCodes: runnerResult.ok
-							? runnerResult.limitationCodes
-							: [runnerResult.failureKind],
-						autoTargetCleanupSucceeded: completed,
-					},
-				},
-			);
-		} catch {
-			finalResult = {
-				ok: false,
-				dastRunId: runnerResult.dastRunId,
-				scanRunId: runnerResult.scanRunId,
-				status: "failed",
-				outcome: "error",
-				failureKind: "dast_scan_finalization_failed",
-				message: "Failed to persist the auto-target DAST terminal state.",
-			};
-			finalExitCode = 1;
-		}
 	}
 	const diagnostic =
 		finalResult?.ok === true && runnerResult?.scanRunId && !dryRun

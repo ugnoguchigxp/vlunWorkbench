@@ -29,6 +29,8 @@ export async function runSchemaScannerIntoExistingScan(params: {
 	excludedPaths?: string[];
 	maxRequests?: number;
 	rateLimitPerSec?: number;
+	runtimeNamespaceOwnerId?: string;
+	runtimeImage?: string;
 }): Promise<{
 	applicable: boolean;
 	reasonCode?: string;
@@ -70,29 +72,47 @@ export async function runSchemaScannerIntoExistingScan(params: {
 		artifactRepo,
 		{ scanRunId: params.scanRunId, kind: "tool-run", id: toolRun.id },
 	);
+	const runtimeExecution: ToolExecutionConfig | undefined =
+		params.runtimeNamespaceOwnerId
+			? {
+					...(params.execution ?? { runner: "docker" }),
+					runner: "docker",
+					docker: {
+						...(params.execution?.docker ?? {}),
+						runtimeNamespaceOwnerId: params.runtimeNamespaceOwnerId,
+						...(params.runtimeImage ? { image: params.runtimeImage } : {}),
+					},
+				}
+			: params.execution;
 	let result: Awaited<ReturnType<typeof runSchemathesisReadonly>> | null = null;
 	let gateway: PreparedContainerTargetGateway | null = null;
 	let executionError: unknown = null;
 	try {
-		gateway = await prepareContainerTargetGateway({
-			upstreamOrigin: params.targetOrigin,
-			allowedPaths: params.allowedPaths ?? ["/"],
-			excludedPaths: params.excludedPaths ?? [],
-			maxRequests: params.maxRequests ?? 30,
-			rateLimitPerSec: params.rateLimitPerSec ?? 2,
-			dockerBin: params.execution?.docker?.dockerBin,
-			containerAccess: params.execution?.runner === "docker",
-		});
+		if (!params.runtimeNamespaceOwnerId)
+			gateway = await prepareContainerTargetGateway({
+				upstreamOrigin: params.targetOrigin,
+				allowedPaths: params.allowedPaths ?? ["/"],
+				excludedPaths: params.excludedPaths ?? [],
+				maxRequests: params.maxRequests ?? 30,
+				rateLimitPerSec: params.rateLimitPerSec ?? 2,
+				dockerBin: params.execution?.docker?.dockerBin,
+				containerAccess: runtimeExecution?.runner === "docker",
+			});
 		result = await runSchemathesisReadonly({
 			scanRunId: params.scanRunId,
 			schemaPath: discovery.schemaPath,
-			repoPath: discovery.source === "repository" ? params.repoPath : undefined,
-			targetOrigin:
-				params.execution?.runner === "docker"
-					? gateway.containerOrigin
-					: gateway.hostOrigin,
+			repoPath: params.runtimeNamespaceOwnerId
+				? undefined
+				: discovery.source === "repository"
+					? params.repoPath
+					: undefined,
+			targetOrigin: params.runtimeNamespaceOwnerId
+				? params.targetOrigin
+				: runtimeExecution?.runner === "docker"
+					? (gateway as PreparedContainerTargetGateway).containerOrigin
+					: (gateway as PreparedContainerTargetGateway).hostOrigin,
 			storage: scopedStorage,
-			execution: params.execution,
+			execution: runtimeExecution,
 			timeoutSec: params.timeoutSec,
 		});
 	} catch (error) {

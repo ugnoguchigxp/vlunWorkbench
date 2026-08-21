@@ -9,7 +9,9 @@ export class ScanResourceLeaseReaper {
 			provider: string;
 			externalId: string;
 			resourceType: string;
+			receipt: Record<string, unknown>;
 		}) => Promise<void>,
+		private readonly provider?: string,
 	) {}
 
 	async reap(
@@ -17,7 +19,10 @@ export class ScanResourceLeaseReaper {
 	): Promise<{ released: number; quarantined: number }> {
 		let released = 0;
 		let quarantined = 0;
-		for (const lease of await this.repository.listRecoverable(now)) {
+		for (const lease of await this.repository.listRecoverable(
+			now,
+			this.provider,
+		)) {
 			try {
 				await this.cleanup(lease);
 				await this.repository.release(lease.id, {
