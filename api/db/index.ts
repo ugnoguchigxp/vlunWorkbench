@@ -119,6 +119,19 @@ export function createDbConnection(
 	return { sqlite, db, writerClient, ownsConnection: true };
 }
 
+/** Open an existing database for bounded operator/verifier snapshot reads. */
+export function openReadonlySqliteSnapshot(databaseUrl: string): Database {
+	configureSqliteExtensionLoading();
+	const sqlitePath = canonicalDatabasePath(databaseUrl);
+	if (sqlitePath === ":memory:" || !existsSync(sqlitePath)) {
+		throw new Error(`SQLite database does not exist: ${sqlitePath}`);
+	}
+	const sqlite = new Database(sqlitePath, { readonly: true, strict: true });
+	sqlite.run("PRAGMA foreign_keys = ON");
+	sqlite.run("PRAGMA query_only = ON");
+	return sqlite;
+}
+
 export function writerClientForDatabase(
 	db: AppDatabase,
 ): SqliteWriterClient | undefined {

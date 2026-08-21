@@ -150,6 +150,7 @@ export async function runSchemaScannerIntoExistingScan(params: {
 				toolVersion: result.toolVersion,
 				error: result.error,
 				artifactIds,
+				gatewayMetrics: gateway?.metrics() ?? null,
 			},
 		});
 		return {
@@ -192,6 +193,7 @@ export async function runSchemaScannerIntoExistingScan(params: {
 			artifactIds,
 			findingCount: result.findings.length,
 			schemaSource: discovery.source,
+			gatewayMetrics: gateway?.metrics() ?? null,
 		},
 	});
 	return {

@@ -184,6 +184,7 @@ export function buildScanLaunchActions(scope: ScanLaunchActionsScope) {
 				timeoutSec,
 				target,
 				expectedPreflightBindingHash: preflight.bindingHash,
+				expectedPlanHash: preflight.executionPlan.planHash,
 				...(target.kind !== "full" && diffPreviewCurrent && diffPreview
 					? { expectedTargetDigest: diffPreview.target.targetDigest }
 					: {}),

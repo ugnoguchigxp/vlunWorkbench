@@ -207,6 +207,7 @@ describe("Scan Domain Repositories", () => {
 		await scanRepo.mergeScanRunMetadata(scanRun.id, {
 			scanPreflight: {
 				sourceRevision: null,
+				sourceState: "unknown",
 				binding: { dockerImagesHash: null, sourceRevisionHash: null },
 			},
 		});
@@ -215,9 +216,61 @@ describe("Scan Domain Repositories", () => {
 			existing: { preserved: true },
 			scanPreflight: {
 				sourceRevision: null,
+				sourceState: "unknown",
 				binding: { dockerImagesHash: null, sourceRevisionHash: null },
 			},
 		});
+	});
+
+	it("keeps a scan execution plan immutable", async () => {
+		const project = await projectRepo.createProject({
+			ownerUserId: userId,
+			name: "Immutable execution plan project",
+			repoPath: "/path/to/immutable-plan",
+		});
+		const scanRun = await scanRepo.createScanRun({
+			projectId: project.id,
+			profile: "strict-profile",
+			status: "running",
+		});
+		const original = {
+			scanRunId: scanRun.id,
+			projectId: project.id,
+			planHash: `sha256:${"a".repeat(64)}`,
+			profileId: "strict-profile",
+			strictness: "strict",
+		};
+		const saved = await scanRepo.saveExecutionPlan({
+			scanRunId: scanRun.id,
+			projectId: project.id,
+			profileId: "strict-profile",
+			strictness: "strict",
+			planHash: original.planHash,
+			plan: original,
+		});
+		expect(saved.plan).toEqual(original);
+
+		const repeated = await scanRepo.saveExecutionPlan({
+			scanRunId: scanRun.id,
+			projectId: project.id,
+			profileId: "strict-profile",
+			strictness: "strict",
+			planHash: original.planHash,
+			plan: original,
+		});
+		expect(repeated.id).toBe(saved.id);
+
+		const changedHash = `sha256:${"b".repeat(64)}`;
+		await expect(
+			scanRepo.saveExecutionPlan({
+				scanRunId: scanRun.id,
+				projectId: project.id,
+				profileId: "strict-profile",
+				strictness: "strict",
+				planHash: changedHash,
+				plan: { ...original, planHash: changedHash },
+			}),
+		).rejects.toThrow("scan_execution_plan_immutable_conflict");
 	});
 
 	it("lists scan history newest first", async () => {

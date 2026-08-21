@@ -1,5 +1,5 @@
-import crypto from "node:crypto";
 import { execFileSync } from "node:child_process";
+import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 
@@ -198,7 +198,19 @@ export async function createTodolistSourceSnapshot(
 ): Promise<TodolistSourceSnapshot> {
 	const archivePath = path.join(runRoot, "todolist-source.tar");
 	const sourcePath = path.join(runRoot, "target-runtime", "source");
-	await fs.mkdir(sourcePath, { recursive: true });
+	// A tar archive alone has no .git directory, which makes a strict scan
+	// unable to bind its source revision. Clone at the reviewed commit so every
+	// scanner sees an isolated, clean, immutable Git worktree as well as the
+	// archive digest retained for evidence.
+	await run([
+		"git",
+		"clone",
+		"--no-local",
+		"--no-checkout",
+		target.repoPath,
+		sourcePath,
+	]);
+	await run(["git", "-C", sourcePath, "checkout", "--detach", target.commit]);
 	await run([
 		"git",
 		"-C",
@@ -209,7 +221,6 @@ export async function createTodolistSourceSnapshot(
 		archivePath,
 		target.commit,
 	]);
-	await run(["tar", "-xf", archivePath, "-C", sourcePath]);
 	const archiveSha256 = crypto
 		.createHash("sha256")
 		.update(await fs.readFile(archivePath))

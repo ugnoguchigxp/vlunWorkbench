@@ -1,0 +1,438 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-08-21T00:34:13.973Z",
+  "run": {
+    "id": "a9a80eb9-c8d2-425a-bb00-d86f8150324a",
+    "profile": "full-security-scan",
+    "status": "completed",
+    "profileOutcome": "completed_with_warnings"
+  },
+  "preflight": {
+    "mode": "shadow",
+    "status": "blocked",
+    "preflightHash": "sha256:01e27c4b432b98296362af25b89e287439419e4ab98d6e9871d3f5dfe0bf486d",
+    "bindingHash": "sha256:0f42a5c3bee3364f8f5808b25cd1a13fac0a83ad249c96d08f015eb8b53512de",
+    "sourceRevision": "e67d4167d5e5b742280447440add8d124ae1bd17",
+    "sourceRevisionHash": "sha256:5d17165be964515897a2cd1498875ac0a6d4a677d36fa095b4d286cbe107460e",
+    "sourceState": "unknown"
+  },
+  "events": [
+    {
+      "seq": 1,
+      "level": "info",
+      "eventType": "scan.queued"
+    },
+    {
+      "seq": 2,
+      "level": "info",
+      "eventType": "scan.started"
+    },
+    {
+      "seq": 3,
+      "level": "warn",
+      "eventType": "scan.preflight_completed"
+    },
+    {
+      "seq": 4,
+      "level": "info",
+      "eventType": "tool.started"
+    },
+    {
+      "seq": 5,
+      "level": "info",
+      "eventType": "artifact.registered"
+    },
+    {
+      "seq": 6,
+      "level": "info",
+      "eventType": "artifact.parse_started"
+    },
+    {
+      "seq": 7,
+      "level": "info",
+      "eventType": "artifact.parse_completed"
+    },
+    {
+      "seq": 8,
+      "level": "info",
+      "eventType": "tool.completed"
+    },
+    {
+      "seq": 9,
+      "level": "info",
+      "eventType": "tool.started"
+    },
+    {
+      "seq": 10,
+      "level": "info",
+      "eventType": "artifact.registered"
+    },
+    {
+      "seq": 11,
+      "level": "info",
+      "eventType": "artifact.parse_started"
+    },
+    {
+      "seq": 12,
+      "level": "info",
+      "eventType": "artifact.parse_completed"
+    },
+    {
+      "seq": 13,
+      "level": "info",
+      "eventType": "tool.completed"
+    },
+    {
+      "seq": 14,
+      "level": "info",
+      "eventType": "tool.started"
+    },
+    {
+      "seq": 15,
+      "level": "info",
+      "eventType": "artifact.registered"
+    },
+    {
+      "seq": 16,
+      "level": "info",
+      "eventType": "artifact.parse_started"
+    },
+    {
+      "seq": 17,
+      "level": "info",
+      "eventType": "artifact.parse_completed"
+    },
+    {
+      "seq": 18,
+      "level": "info",
+      "eventType": "tool.completed"
+    },
+    {
+      "seq": 19,
+      "level": "info",
+      "eventType": "tool.started"
+    },
+    {
+      "seq": 20,
+      "level": "info",
+      "eventType": "artifact.registered"
+    },
+    {
+      "seq": 21,
+      "level": "info",
+      "eventType": "artifact.parse_started"
+    },
+    {
+      "seq": 22,
+      "level": "info",
+      "eventType": "artifact.parse_completed"
+    },
+    {
+      "seq": 23,
+      "level": "info",
+      "eventType": "tool.completed"
+    },
+    {
+      "seq": 24,
+      "level": "info",
+      "eventType": "scan.completed"
+    },
+    {
+      "seq": 25,
+      "level": "info",
+      "eventType": "report.started"
+    },
+    {
+      "seq": 26,
+      "level": "info",
+      "eventType": "report.completed"
+    },
+    {
+      "seq": 27,
+      "level": "info",
+      "eventType": "diagnostic.started"
+    },
+    {
+      "seq": 28,
+      "level": "warn",
+      "eventType": "diagnostic.completed_with_limitations"
+    },
+    {
+      "seq": 29,
+      "level": "info",
+      "eventType": "diagnostic.started"
+    },
+    {
+      "seq": 30,
+      "level": "warn",
+      "eventType": "diagnostic.completed_with_limitations"
+    }
+  ],
+  "tools": [
+    {
+      "toolName": "gitleaks",
+      "recordedRunVersion": "8.30.1",
+      "status": "completed",
+      "exitCode": 0,
+      "provenance": {
+        "manifestHash": "sha256:45ac5da152da4c55155d980cb81610533b6abd8d4a651719907d1664dccc47cd",
+        "expectedVersion": "8.30.1",
+        "recordedReproducible": true
+      }
+    },
+    {
+      "toolName": "osv",
+      "recordedRunVersion": "osv-scanner version: 2.4.0\nosv-scalibr version: 0.4.5\ncommit: n/a\nbuilt at: n/a",
+      "status": "completed",
+      "exitCode": 0,
+      "provenance": {
+        "manifestHash": "sha256:45ac5da152da4c55155d980cb81610533b6abd8d4a651719907d1664dccc47cd",
+        "expectedVersion": "2.4.0",
+        "recordedReproducible": true
+      }
+    },
+    {
+      "toolName": "trivy",
+      "recordedRunVersion": null,
+      "status": "completed",
+      "exitCode": 0,
+      "provenance": {
+        "manifestHash": "sha256:45ac5da152da4c55155d980cb81610533b6abd8d4a651719907d1664dccc47cd",
+        "expectedVersion": "0.72.0",
+        "recordedReproducible": true
+      }
+    },
+    {
+      "toolName": "trivy",
+      "recordedRunVersion": null,
+      "status": "completed",
+      "exitCode": 0,
+      "provenance": {
+        "manifestHash": "sha256:45ac5da152da4c55155d980cb81610533b6abd8d4a651719907d1664dccc47cd",
+        "expectedVersion": "0.72.0",
+        "recordedReproducible": true
+      }
+    }
+  ],
+  "artifacts": [
+    {
+      "id": "37c4604b-2a1c-4229-95f3-352810caa004",
+      "kind": "raw_result",
+      "format": "json",
+      "storageKey": "a9a80eb9-c8d2-425a-bb00-d86f8150324a/owners/tool-run/5e01c5ea-de31-49f4-9f79-665f8b630f05/raw/trivy-result.json",
+      "sha256": "sha256:ecbc5702f48178e9d9e1b3a7ce7445f1435a0a58d7b102738bdb596ae45086f9",
+      "sizeBytes": 115746,
+      "recomputedSha256": "sha256:ecbc5702f48178e9d9e1b3a7ce7445f1435a0a58d7b102738bdb596ae45086f9",
+      "recomputedSizeBytes": 115746
+    },
+    {
+      "id": "3df72c01-1d3d-4307-a136-d573d408b758",
+      "kind": "raw_result",
+      "format": "json",
+      "storageKey": "a9a80eb9-c8d2-425a-bb00-d86f8150324a/owners/tool-run/f586371a-c301-45c7-a942-4fb620a0fb93/raw/gitleaks-result.json",
+      "sha256": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "sizeBytes": 2,
+      "recomputedSha256": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "recomputedSizeBytes": 2
+    },
+    {
+      "id": "448aad51-3705-498e-9906-1b5719ccf757",
+      "kind": "sbom",
+      "format": "cyclonedx-json",
+      "storageKey": "a9a80eb9-c8d2-425a-bb00-d86f8150324a/owners/tool-run/1235c3b0-b84d-4419-bbf6-dcfe43a63872/raw/trivy-result.json",
+      "sha256": "sha256:5de46e18c2e2003b5c72675e5026063597795c35b74e88d7a7d204841b9cc719",
+      "sizeBytes": 133140,
+      "recomputedSha256": "sha256:5de46e18c2e2003b5c72675e5026063597795c35b74e88d7a7d204841b9cc719",
+      "recomputedSizeBytes": 133140
+    },
+    {
+      "id": "71f295b6-6469-4a28-91fa-53586c1b9cda",
+      "kind": "report",
+      "format": "markdown",
+      "storageKey": "a9a80eb9-c8d2-425a-bb00-d86f8150324a/owners/report/c55e76f1-3aa8-4980-8765-dfee28f6245f/reports/report.md",
+      "sha256": "sha256:cb527fedeaedb749d31405d0fdc0f1ae9f91a459486f516ab8141ab1aadd6925",
+      "sizeBytes": 22144,
+      "recomputedSha256": "sha256:cb527fedeaedb749d31405d0fdc0f1ae9f91a459486f516ab8141ab1aadd6925",
+      "recomputedSizeBytes": 22144
+    },
+    {
+      "id": "7dd69a63-5657-4813-9d70-565d1db5bdaf",
+      "kind": "stderr",
+      "format": "text",
+      "storageKey": "a9a80eb9-c8d2-425a-bb00-d86f8150324a/owners/tool-run/5e01c5ea-de31-49f4-9f79-665f8b630f05/logs/stderr.log",
+      "sha256": "sha256:d4abf93c60f34440797b7536b05276c5613acd5df8acc8e605427842caaec552",
+      "sizeBytes": 1145,
+      "recomputedSha256": "sha256:d4abf93c60f34440797b7536b05276c5613acd5df8acc8e605427842caaec552",
+      "recomputedSizeBytes": 1145
+    },
+    {
+      "id": "8f02fa31-b477-47ec-9a59-515b36cecc0d",
+      "kind": "stderr",
+      "format": "text",
+      "storageKey": "a9a80eb9-c8d2-425a-bb00-d86f8150324a/owners/tool-run/1235c3b0-b84d-4419-bbf6-dcfe43a63872/logs/stderr.log",
+      "sha256": "sha256:a30d379f5b1c62c51bf310841dcc38caee17fa0c89e9885d2b1dc1751f6bd417",
+      "sizeBytes": 391,
+      "recomputedSha256": "sha256:a30d379f5b1c62c51bf310841dcc38caee17fa0c89e9885d2b1dc1751f6bd417",
+      "recomputedSizeBytes": 391
+    },
+    {
+      "id": "93d4df6e-5f6f-47ad-a943-12b183fdf9dd",
+      "kind": "raw_result",
+      "format": "json",
+      "storageKey": "a9a80eb9-c8d2-425a-bb00-d86f8150324a/owners/tool-run/4a284e1a-677d-42d8-9a2e-22b273a18582/raw/osv-result.json",
+      "sha256": "sha256:a6ed535f121d0eb76c0cfb3acc20778c035503478fef4c40386e954151083899",
+      "sizeBytes": 123,
+      "recomputedSha256": "sha256:a6ed535f121d0eb76c0cfb3acc20778c035503478fef4c40386e954151083899",
+      "recomputedSizeBytes": 123
+    },
+    {
+      "id": "ba1e8765-9d84-47ac-bae8-8bc09c2fde13",
+      "kind": "report",
+      "format": "markdown",
+      "storageKey": "a9a80eb9-c8d2-425a-bb00-d86f8150324a/owners/report/bd9b741f-9ede-491b-a718-642cb29c0507/reports/report-bd9b741f-9ede-491b-a718-642cb29c0507.md",
+      "sha256": "sha256:1d18df045657bbfd6108b170da3c6fcf7410e3153ce248bbea89a1ddafbcb042",
+      "sizeBytes": 14826,
+      "recomputedSha256": "sha256:1d18df045657bbfd6108b170da3c6fcf7410e3153ce248bbea89a1ddafbcb042",
+      "recomputedSizeBytes": 14826
+    },
+    {
+      "id": "d05d24cc-26ff-49b6-87e8-b27773bf11c3",
+      "kind": "stderr",
+      "format": "text",
+      "storageKey": "a9a80eb9-c8d2-425a-bb00-d86f8150324a/owners/tool-run/f586371a-c301-45c7-a942-4fb620a0fb93/logs/stderr.log",
+      "sha256": "sha256:95d432ec00e2b811b537c7aa8c28450f29e26ae41b434dd2d220631cb0dca9e5",
+      "sizeBytes": 256,
+      "recomputedSha256": "sha256:95d432ec00e2b811b537c7aa8c28450f29e26ae41b434dd2d220631cb0dca9e5",
+      "recomputedSizeBytes": 256
+    },
+    {
+      "id": "f8efc516-84cc-4852-a3ee-028509d4bb09",
+      "kind": "report",
+      "format": "markdown",
+      "storageKey": "a9a80eb9-c8d2-425a-bb00-d86f8150324a/reports/report-4fca0388-9e32-403d-886e-9341d57a026a.md",
+      "sha256": "sha256:4123dc6522ae78b4055376d0c25d8448f264fed08b469b0783d2fc0861519192",
+      "sizeBytes": 22157,
+      "recomputedSha256": "sha256:4123dc6522ae78b4055376d0c25d8448f264fed08b469b0783d2fc0861519192",
+      "recomputedSizeBytes": 22157
+    },
+    {
+      "id": "ffeac3b5-8fac-42b6-9966-08abfe21af70",
+      "kind": "stderr",
+      "format": "text",
+      "storageKey": "a9a80eb9-c8d2-425a-bb00-d86f8150324a/owners/tool-run/4a284e1a-677d-42d8-9a2e-22b273a18582/logs/stderr.log",
+      "sha256": "sha256:20edd49855c6d8887d2ffc053fa2728f0fab76a8b8088a5c2c31a6b233cde23a",
+      "sizeBytes": 276,
+      "recomputedSha256": "sha256:20edd49855c6d8887d2ffc053fa2728f0fab76a8b8088a5c2c31a6b233cde23a",
+      "recomputedSizeBytes": 276
+    }
+  ],
+  "coverage": [
+    {
+      "controlId": "API1:2023",
+      "status": "not_tested",
+      "method": "automated",
+      "reasonCode": "profile_did_not_cover_control",
+      "snapshotHash": "420b8b2cf8c53708e9cbb281f422ebc0f0e2416dfbbe4b667dcff4645890bee3"
+    },
+    {
+      "controlId": "API5:2023",
+      "status": "not_tested",
+      "method": "automated",
+      "reasonCode": "profile_did_not_cover_control",
+      "snapshotHash": "420b8b2cf8c53708e9cbb281f422ebc0f0e2416dfbbe4b667dcff4645890bee3"
+    },
+    {
+      "controlId": "API8:2023",
+      "status": "inconclusive",
+      "method": "automated",
+      "reasonCode": "scanner_failed",
+      "snapshotHash": "420b8b2cf8c53708e9cbb281f422ebc0f0e2416dfbbe4b667dcff4645890bee3"
+    },
+    {
+      "controlId": "ASVS-v5.0.0-1.2.4",
+      "status": "not_tested",
+      "method": "automated",
+      "reasonCode": "profile_did_not_cover_control",
+      "snapshotHash": "420b8b2cf8c53708e9cbb281f422ebc0f0e2416dfbbe4b667dcff4645890bee3"
+    },
+    {
+      "controlId": "ASVS-v5.0.0-15.1.2",
+      "status": "inconclusive",
+      "method": "automated",
+      "reasonCode": "partial_automation_without_finding",
+      "snapshotHash": "420b8b2cf8c53708e9cbb281f422ebc0f0e2416dfbbe4b667dcff4645890bee3"
+    },
+    {
+      "controlId": "ASVS-v5.0.0-16.2.5",
+      "status": "inconclusive",
+      "method": "automated",
+      "reasonCode": "partial_automation_without_finding",
+      "snapshotHash": "420b8b2cf8c53708e9cbb281f422ebc0f0e2416dfbbe4b667dcff4645890bee3"
+    },
+    {
+      "controlId": "WSTG-v42-ATHZ-04",
+      "status": "not_tested",
+      "method": "automated",
+      "reasonCode": "profile_did_not_cover_control",
+      "snapshotHash": "420b8b2cf8c53708e9cbb281f422ebc0f0e2416dfbbe4b667dcff4645890bee3"
+    },
+    {
+      "controlId": "WSTG-v42-INFO-05",
+      "status": "inconclusive",
+      "method": "automated",
+      "reasonCode": "scanner_failed",
+      "snapshotHash": "420b8b2cf8c53708e9cbb281f422ebc0f0e2416dfbbe4b667dcff4645890bee3"
+    },
+    {
+      "controlId": "WSTG-v42-INPV-05",
+      "status": "inconclusive",
+      "method": "automated",
+      "reasonCode": "scanner_failed",
+      "snapshotHash": "420b8b2cf8c53708e9cbb281f422ebc0f0e2416dfbbe4b667dcff4645890bee3"
+    },
+    {
+      "controlId": "WSTG-v42-SESS-02",
+      "status": "not_tested",
+      "method": "automated",
+      "reasonCode": "profile_did_not_cover_control",
+      "snapshotHash": "420b8b2cf8c53708e9cbb281f422ebc0f0e2416dfbbe4b667dcff4645890bee3"
+    }
+  ],
+  "reports": [
+    {
+      "id": "4fca0388-9e32-403d-886e-9341d57a026a",
+      "artifactId": "f8efc516-84cc-4852-a3ee-028509d4bb09",
+      "format": "markdown",
+      "status": "completed",
+      "errorCode": null
+    },
+    {
+      "id": "bd9b741f-9ede-491b-a718-642cb29c0507",
+      "artifactId": "ba1e8765-9d84-47ac-bae8-8bc09c2fde13",
+      "format": "markdown",
+      "status": "completed",
+      "errorCode": null
+    },
+    {
+      "id": "c55e76f1-3aa8-4980-8765-dfee28f6245f",
+      "artifactId": "71f295b6-6469-4a28-91fa-53586c1b9cda",
+      "format": "markdown",
+      "status": "completed",
+      "errorCode": null
+    }
+  ],
+  "reviews": [
+    {
+      "id": "12b7e381-f911-4ecf-a7da-ad6c7b8fd5cb",
+      "provider": "codex:codex-default",
+      "model": "gpt-5.4-mini",
+      "status": "completed"
+    },
+    {
+      "id": "e6f94ebf-2c5e-41fd-8f1a-4f293cfba88a",
+      "provider": "codex:codex-default",
+      "model": "gpt-5.4-mini",
+      "status": "completed"
+    }
+  ]
+}

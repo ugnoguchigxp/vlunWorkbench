@@ -3,6 +3,9 @@ import { useScans } from "../scans-context";
 
 const stageLabels = {
 	scan_running: "スキャン実行中",
+	scan_failed: "スキャン失敗",
+	scan_blocked: "スキャンはブロックされています",
+	scan_incomplete: "スキャンは未完了です",
 	diagnostic_running: "自動診断実行中",
 	diagnostic_retry: "自動診断の再実行が必要",
 	needs_review: "LLM レビューが必要",

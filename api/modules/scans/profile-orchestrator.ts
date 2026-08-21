@@ -23,13 +23,13 @@ import { getProfileById } from "./profiles";
 import { ArtifactRepository, ScanRepository } from "./repositories";
 import { hashResolvedProfile } from "./resolved-profile";
 import { aggregateRuntimeAssessmentCoverage } from "./runtime-assessment-coverage";
-import { preflightBlocksExecution, runScanPreflight } from "./scan-preflight";
 import {
 	applyExecutionPlanToSteps,
 	applyStrictProfileRequirements,
 	buildScanExecutionPlan,
 	executionPlanBlocks,
 } from "./scan-execution-plan-builder";
+import { preflightBlocksExecution, runScanPreflight } from "./scan-preflight";
 import { resolveSourceSastCoverage } from "./source-sast-coverage";
 import { resolveScanScope } from "./target-scope";
 import {
@@ -57,8 +57,17 @@ export async function runProfileScan(params: {
 	consentProjectCodeExecution?: boolean;
 	preflightMode?: ScanPreflightMode;
 	expectedPreflightBindingHash?: string;
+	expectedPlanHash?: string;
+	/** SHA-256 of an externally materialized immutable source archive. */
+	sourceSnapshotDigest?: string;
 	runtimeTargetProvider?: RuntimeTargetProvider;
 }): Promise<ProfileScanResult> {
+	if (
+		params.sourceSnapshotDigest !== undefined &&
+		!/^[a-f0-9]{64}$/.test(params.sourceSnapshotDigest)
+	) {
+		throw new Error("source_snapshot_digest_invalid");
+	}
 	const scanRepo = new ScanRepository(params.db);
 	const artifactRepo = new ArtifactRepository(params.db);
 	const artifactStorage = new ArtifactStorage();
@@ -172,6 +181,9 @@ export async function runProfileScan(params: {
 		...(params.executionPolicyMetadata
 			? { executionPolicy: params.executionPolicyMetadata }
 			: {}),
+		...(params.sourceSnapshotDigest
+			? { sourceSnapshotDigest: params.sourceSnapshotDigest }
+			: {}),
 	};
 
 	// CLI/oracle callers create a running row; Web jobs atomically claim a queued row.
@@ -220,7 +232,14 @@ export async function runProfileScan(params: {
 		profile,
 		steps: profileSteps,
 		preflight: scanPreflight,
+		technologyRegistryDigest: technologyAnalysis.capabilityPlan.registryDigest,
+		sourceSnapshotDigest: params.sourceSnapshotDigest,
+		runner: execution.runner,
 	});
+	const executionPlanChanged = Boolean(
+		params.expectedPlanHash &&
+			params.expectedPlanHash !== executionPlan.planHash,
+	);
 	await scanRepo.saveExecutionPlan({
 		scanRunId: scanRun.id,
 		projectId: params.projectId,
@@ -237,33 +256,45 @@ export async function runProfileScan(params: {
 	await scanRepo.createScanEvent({
 		scanRunId: scanRun.id,
 		level:
-			scanPreflight.status === "ready" && !preflightBindingChanged
+			scanPreflight.status === "ready" &&
+			!preflightBindingChanged &&
+			!executionPlanChanged
 				? "info"
 				: "warn",
-		eventType: preflightBindingChanged
-			? "scan.preflight_changed"
-			: "scan.preflight_completed",
-		message: preflightBindingChanged
-			? "Scan preflight binding changed after preview."
-			: `Scan preflight completed with status: ${scanPreflight.status}.`,
+		eventType: executionPlanChanged
+			? "scan.plan_changed"
+			: preflightBindingChanged
+				? "scan.preflight_changed"
+				: "scan.preflight_completed",
+		message: executionPlanChanged
+			? "Scan execution plan changed after preview."
+			: preflightBindingChanged
+				? "Scan preflight binding changed after preview."
+				: `Scan preflight completed with status: ${scanPreflight.status}.`,
 		data: {
 			status: scanPreflight.status,
 			mode: scanPreflight.mode,
 			bindingHash: scanPreflight.bindingHash,
+			planHash: executionPlan.planHash,
 			limitationCodes: scanPreflight.limitationCodes,
 		},
 	});
 	if (
+		executionPlanChanged ||
 		preflightBindingChanged ||
 		preflightBlocksExecution(scanPreflight) ||
 		(profile.strictness === "strict" && executionPlanBlocks(executionPlan))
 	) {
-		const terminationReason = preflightBindingChanged
-			? "preflight_changed"
-			: "preflight_failed";
-		const summaryMsg = preflightBindingChanged
-			? "Scan failed because the preflight binding changed after preview."
-			: "Scan failed because a required preflight check was blocked.";
+		const terminationReason = executionPlanChanged
+			? "plan_changed"
+			: preflightBindingChanged
+				? "preflight_changed"
+				: "preflight_failed";
+		const summaryMsg = executionPlanChanged
+			? "Scan failed because the execution plan changed after preview."
+			: preflightBindingChanged
+				? "Scan failed because the preflight binding changed after preview."
+				: "Scan failed because a required preflight check was blocked.";
 		await scanRepo.updateScanRunStatus(scanRun.id, "failed", {
 			summary: summaryMsg,
 			profileOutcome: "blocked",

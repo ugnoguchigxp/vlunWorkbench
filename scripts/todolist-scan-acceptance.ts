@@ -228,6 +228,10 @@ async function main() {
 											targetOrigin: runtimeTarget.origin,
 											discovery: {
 												applicable: true,
+												apiDetected: true,
+												apiEvidencePaths: [
+													"spec/security-capability/todolist-readonly-openapi.v1.yaml",
+												],
 												schemaPath: path.resolve(
 													process.cwd(),
 													"spec/security-capability/todolist-readonly-openapi.v1.yaml",

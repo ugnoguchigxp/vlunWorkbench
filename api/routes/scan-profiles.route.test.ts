@@ -11,7 +11,7 @@ describe("Scan Profiles Route", () => {
     expect(res.status).toBe(200);
 
     const body = await res.json();
-    expect(body.preflight).toEqual({ schemaVersion: 1, mode: "shadow" });
+    expect(body.preflight).toEqual({ schemaVersion: 1, mode: "enforced" });
     const profileIds = body.profiles.map((profile: any) => profile.id);
     expect(profileIds).toEqual(
       expect.arrayContaining([

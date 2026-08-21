@@ -13,6 +13,9 @@ export type WorkflowCompletion = {
 	scanRunId: string;
 	stage:
 		| "scan_running"
+		| "scan_failed"
+		| "scan_blocked"
+		| "scan_incomplete"
 		| "diagnostic_running"
 		| "diagnostic_retry"
 		| "needs_review"
@@ -60,7 +63,10 @@ type BuildWorkflowCompletionInput = {
 const completeReport = (
 	reports: ScanReport[] | undefined,
 ): ScanReport | undefined =>
-	reports?.find((report) => report.status === "completed");
+	reports?.find(
+		(report) =>
+			report.status === "completed" && report.stage === "canonical_final",
+	);
 
 const incomplete = (
 	id: string,
@@ -161,6 +167,55 @@ export function buildWorkflowCompletion(
 				),
 			],
 			nextBestAction: null,
+		};
+	}
+
+	const profileOutcome = input.scanRun.metadata?.profileOutcome;
+	if (input.scanRun.status === "failed" || profileOutcome === "blocked") {
+		const isBlocked = profileOutcome === "blocked";
+		return {
+			scanRunId,
+			stage: isBlocked ? "scan_blocked" : "scan_failed",
+			percent: 0,
+			checklist: [
+				blocked(
+					"scan",
+					"scanner 実行完了",
+					20,
+					input.scanRun.summary ??
+						(isBlocked
+							? "必須の実行条件を満たせないため、scanner は起動していません。"
+							: "scanner 実行が失敗したため、完了として扱いません。"),
+				),
+			],
+			nextBestAction: {
+				label: "カバレッジとブロッカーを確認",
+				action: "inspect_coverage",
+				targetId: scanRunId,
+			},
+		};
+	}
+	if (
+		profileOutcome === "incomplete" ||
+		profileOutcome === "completed_with_warnings"
+	) {
+		return {
+			scanRunId,
+			stage: "scan_incomplete",
+			percent: 0,
+			checklist: [
+				incomplete(
+					"scan",
+					"scanner 実行完了",
+					20,
+					"必須ではない実行面またはカバレッジが不足しているため、総合診断は未完了です。",
+				),
+			],
+			nextBestAction: {
+				label: "カバレッジを確認",
+				action: "inspect_coverage",
+				targetId: scanRunId,
+			},
 		};
 	}
 

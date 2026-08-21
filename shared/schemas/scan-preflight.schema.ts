@@ -24,6 +24,7 @@ export const scanPreflightCheckKindSchema = z.enum([
 	"api_schema_applicability",
 	"browser_runtime",
 	"scanner_e2e_qualification",
+	"source_revision",
 ]);
 export const scanPreflightActionSchema = z.enum([
 	"configure_scanner_adapter",
@@ -37,6 +38,7 @@ export const scanPreflightActionSchema = z.enum([
 	"configure_api_schema",
 	"configure_project_sandbox",
 	"run_scanner_e2e_qualification",
+	"commit_or_clean_worktree",
 ]);
 
 export const scanPreflightCheckSchema = z.object({
@@ -87,6 +89,7 @@ export const scanPreflightResultSchema = z.object({
 		.string()
 		.regex(/^[a-f0-9]{40,64}$/)
 		.nullable(),
+	sourceState: z.enum(["clean", "dirty", "unknown"]),
 	mode: scanPreflightModeSchema,
 	status: scanPreflightStatusSchema,
 	createdAt: z.string().datetime(),

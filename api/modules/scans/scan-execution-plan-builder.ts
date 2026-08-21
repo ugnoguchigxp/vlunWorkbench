@@ -24,10 +24,15 @@ function adapterForStep(step: ScanProfileStep): string {
 			: step.adapter;
 }
 
+function uniqueSorted(values: Array<string | null | undefined>): string[] {
+	return [
+		...new Set(values.filter((value): value is string => Boolean(value))),
+	].sort();
+}
+
 /**
- * Compiles the immutable execution contract after preflight.  This is the
- * single source of truth for a scan's required/applicable decisions: callers
- * must not recompute those decisions while executing individual steps.
+ * Compile the immutable execution contract after preflight. Execution must use
+ * this plan instead of recomputing required/applicable decisions per step.
  */
 export function buildScanExecutionPlan(params: {
 	scanRunId: string;
@@ -36,6 +41,9 @@ export function buildScanExecutionPlan(params: {
 	steps: ScanProfileStep[];
 	preflight: ScanPreflightResult;
 	qualificationHash?: string | null;
+	technologyRegistryDigest?: string | null;
+	sourceSnapshotDigest?: string | null;
+	runner?: "host" | "docker";
 }): ScanExecutionPlan {
 	const strictness = params.profile.strictness ?? "best_effort";
 	const steps = params.steps.map((step) => {
@@ -48,6 +56,7 @@ export function buildScanExecutionPlan(params: {
 		);
 		const blocked = checks.some((check) => check.status === "blocked");
 		const required = strictness === "strict" ? !notApplicable : step.required;
+
 		return {
 			stepId,
 			kind: step.kind,
@@ -66,36 +75,66 @@ export function buildScanExecutionPlan(params: {
 			requirement: required
 				? ("required_if_applicable" as const)
 				: ("advisory" as const),
-			reasonCodes: [
-				...new Set(checks.flatMap((check) => check.reasonCode ?? [])),
-			].sort(),
-			evidenceRefs: [
-				...new Set(checks.flatMap((check) => check.evidenceRefs)),
-			].sort(),
+			reasonCodes: uniqueSorted(checks.map((check) => check.reasonCode)),
+			evidenceRefs: uniqueSorted(checks.flatMap((check) => check.evidenceRefs)),
 		};
 	});
-	const unsigned = {
+
+	const blockerCodes = uniqueSorted(
+		params.preflight.checks
+			.filter((check) => check.required && check.status === "blocked")
+			.map((check) => check.reasonCode),
+	);
+	const warningCodes = uniqueSorted(
+		params.preflight.limitationCodes.filter(
+			(code) => !blockerCodes.includes(code),
+		),
+	);
+	const qualificationHash =
+		params.qualificationHash ??
+		params.preflight.checks
+			.find((check) => check.kind === "scanner_e2e_qualification")
+			?.evidenceRefs.find((ref) => ref.startsWith("scanner-e2e-qualification:"))
+			?.replace("scanner-e2e-qualification:", "") ??
+		null;
+
+	const contract = {
 		schemaVersion: 1 as const,
-		scanRunId: params.scanRunId,
 		projectId: params.projectId,
 		profileId: params.profile.id,
+		profileVersion: 1,
 		strictness,
+		sourceRevision: params.preflight.sourceRevision,
+		sourceRevisionHash: params.preflight.binding.sourceRevisionHash,
+		sourceSnapshotDigest: params.sourceSnapshotDigest ?? null,
+		sourceState: params.preflight.sourceState,
+		resolvedProfileHash: params.preflight.binding.resolvedProfileHash,
+		scannerManifestHash: params.preflight.binding.scannerManifestHash,
+		scannerVersionsHash: params.preflight.binding.scannerVersionsHash,
+		dockerImagesHash: params.preflight.binding.dockerImagesHash,
+		targetPlanHash: params.preflight.binding.targetPlanHash,
+		technologyRegistryDigest: params.technologyRegistryDigest ?? null,
+		orchestrator: {
+			id: "profile-orchestrator" as const,
+			version: 1 as const,
+			runner: params.runner ?? ("host" as const),
+		},
 		preflightBindingHash: params.preflight.bindingHash,
-		preflightHash: params.preflight.preflightHash,
-		qualificationHash:
-			params.qualificationHash ??
-			params.preflight.checks
-				.find((check) => check.kind === "scanner_e2e_qualification")
-				?.evidenceRefs.find((ref) =>
-					ref.startsWith("scanner-e2e-qualification:"),
-				)
-				?.replace("scanner-e2e-qualification:", "") ??
-			null,
+		qualificationHash,
+		blockerCodes,
+		warningCodes,
 		steps,
 	};
+
+	// Run identity and timestamps are audit attributes, not contract inputs. A
+	// preview and the subsequently created run must therefore produce one hash.
+	const planHash = hashPreflightValue(canonicalJson(contract));
 	return scanExecutionPlanSchema.parse({
-		...unsigned,
-		planHash: hashPreflightValue(canonicalJson(unsigned)),
+		...contract,
+		scanRunId: params.scanRunId,
+		createdAt: params.preflight.createdAt,
+		preflightHash: params.preflight.preflightHash,
+		planHash,
 	});
 }
 
@@ -115,7 +154,7 @@ export function applyExecutionPlanToSteps(
 	});
 }
 
-/** Apply strict requirements before preflight so blocked checks are required too. */
+/** Apply strict requirements before preflight so blocked checks are required. */
 export function applyStrictProfileRequirements(
 	profile: ScanProfile,
 	steps: ScanProfileStep[],
@@ -132,7 +171,19 @@ export function executionPlanBlocks(plan: ScanExecutionPlan): boolean {
 	return plan.steps.some(
 		(step) =>
 			step.required &&
-			step.applicability === "applicable" &&
-			step.readiness === "blocked",
+			(step.applicability === "unknown" ||
+				(step.applicability === "applicable" && step.readiness !== "ready")),
 	);
+}
+
+export function readStoredScanExecutionPlan(
+	metadata: unknown,
+): ScanExecutionPlan | null {
+	if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
+		return null;
+	}
+	const parsed = scanExecutionPlanSchema.safeParse(
+		(metadata as Record<string, unknown>).executionPlan,
+	);
+	return parsed.success ? parsed.data : null;
 }

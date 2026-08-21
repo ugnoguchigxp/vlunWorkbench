@@ -10,7 +10,10 @@ import {
 	persistedTargetMetadata,
 } from "./profile-runner";
 import { selectStaticTool } from "./profile-static-tool-selection";
-import { prepareToolProvenance } from "./profile-tool-provenance";
+import {
+	bindObservedToolProvenance,
+	prepareToolProvenance,
+} from "./profile-tool-provenance";
 import {
 	ArtifactRepository,
 	FindingRepository,
@@ -62,7 +65,7 @@ export async function runToolIntoExistingScan(params: {
 		adapter: selectedTool.adapter,
 	});
 	options = preparedProvenance.options;
-	const scannerProvenance = preparedProvenance.provenance;
+	let scannerProvenance = preparedProvenance.provenance;
 	const baseExecutionMetadata = buildBaseExecutionMetadata(execution);
 	const diffExecutionMetadata = params.diffContext
 		? {
@@ -80,6 +83,10 @@ export async function runToolIntoExistingScan(params: {
 
 	// 2. Check Version
 	const toolVersion = await versionRunner.checkVersion();
+	scannerProvenance = bindObservedToolProvenance(
+		scannerProvenance,
+		toolVersion,
+	);
 
 	// 3. Create Tool Run in running status
 	const toolRun = await scanRepo.createToolRun({
@@ -132,6 +139,20 @@ export async function runToolIntoExistingScan(params: {
 			},
 		});
 		throw new Error(errMsg);
+	}
+	if (scannerProvenance.identityCompatibility === "mismatch") {
+		const errMsg = `${toolName} scanner version changed after preflight`;
+		await scanRepo.updateToolRunStatus(toolRunId, "failed", {
+			exitCode: null,
+			metadata: {
+				...baseExecutionMetadata,
+				...diffExecutionMetadata,
+				provenance: scannerProvenance,
+				reasonCode: "scanner_version_mismatch",
+				error: errMsg,
+			},
+		});
+		throw new Error(`scanner_version_mismatch: ${errMsg}`);
 	}
 
 	let exitCode: number | null = null;

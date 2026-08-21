@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createDbConnection, type DbConnection } from "../../db";
@@ -72,6 +72,22 @@ describe("buildScanReviewBundle filters", () => {
 				metadata: {
 					profileId: "baseline",
 					scope: { intent: "source_baseline" },
+					scanPreflight: {
+						mode: "enforced",
+						status: "ready",
+						bindingHash: `sha256:${"a".repeat(64)}`,
+						preflightHash: `sha256:${"b".repeat(64)}`,
+						limitationCodes: [],
+						secret: "must-not-enter-the-bundle",
+					},
+					executionPlan: {
+						planHash: `sha256:${"c".repeat(64)}`,
+						profileId: "baseline",
+						strictness: "best_effort",
+						blockerCodes: [],
+						steps: [],
+						secret: "must-not-enter-the-bundle",
+					},
 					toolResults: [{ toolId: "semgrep", status: "completed" }],
 					stepResults: [{ kind: "static_tool", status: "completed" }],
 				},
@@ -248,6 +264,20 @@ describe("buildScanReviewBundle filters", () => {
 		expect(bundle.scanRun.metadata).toEqual({
 			profileId: "baseline",
 			scope: { intent: "source_baseline" },
+			scanPreflight: {
+				mode: "enforced",
+				status: "ready",
+				bindingHash: `sha256:${"a".repeat(64)}`,
+				preflightHash: `sha256:${"b".repeat(64)}`,
+				limitationCodes: [],
+			},
+			executionPlan: {
+				planHash: `sha256:${"c".repeat(64)}`,
+				profileId: "baseline",
+				strictness: "best_effort",
+				blockerCodes: [],
+				steps: [],
+			},
 		});
 		expect(bundle.summary.tools[0]).not.toHaveProperty("metadata");
 		expect(bundle.findings[0]?.description).toBe(

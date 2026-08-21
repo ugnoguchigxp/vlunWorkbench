@@ -67,7 +67,7 @@ describe("todolist scanner acceptance target", () => {
     }
   });
 
-  it("archives the pinned target before scanners receive a source path", async () => {
+  it("creates a clean Git worktree at the pinned revision before scanners receive a source path", async () => {
     const target = await resolveTodolistAcceptanceTarget(
       path.resolve(process.cwd(), "..", "todolist"),
     );
@@ -79,5 +79,8 @@ describe("todolist scanner acceptance target", () => {
     await expect(
       fs.access(path.join(snapshot.sourcePath, "package.json")),
     ).resolves.toBeNull();
+    await expect(fs.access(path.join(snapshot.sourcePath, ".git"))).resolves.toBeNull();
+    const head = await fs.readFile(path.join(snapshot.sourcePath, ".git", "HEAD"), "utf8");
+    expect(head.trim()).toBe(target.commit);
   });
 });

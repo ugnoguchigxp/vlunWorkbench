@@ -3,7 +3,6 @@ import type {
 	ScanPreflightMode,
 	ScanPreflightResult,
 } from "../../../shared/schemas/scan-preflight.schema";
-import type { ScannerE2EQualification } from "../../../shared/schemas/scanner-e2e-qualification.schema";
 import { scanPreflightResultSchema } from "../../../shared/schemas/scan-preflight.schema";
 import type {
 	ScanProfile,
@@ -24,15 +23,18 @@ import {
 } from "./scan-preflight-binding";
 import {
 	addScannerChecks,
-	buildPreflightCheck as check,
 	buildVersionCheck,
+	buildPreflightCheck as check,
 	digestFromImageRef,
 	scanStepId,
 	stepNeedsTargetPlan,
 } from "./scan-preflight-check-builders";
 import { defaultScanPreflightDependencies } from "./scan-preflight-probes";
+import {
+	type AnyScannerE2EQualification,
+	checkScannerE2EQualification,
+} from "./scanner-e2e-qualification";
 import { staticScannerAdapterRegistry } from "./static-scanner-adapters";
-import { checkScannerE2EQualification } from "./scanner-e2e-qualification";
 import type { ScannerDataManifest } from "./tools/scanner-provenance";
 import { DEFAULT_DOCKER_IMAGE } from "./tools/tool-process-policy";
 import type { ToolExecutionConfig } from "./tools/tool-process-runner";
@@ -57,13 +59,43 @@ export type ScanPreflightDependencies = {
 		repoPath: string;
 		consentProjectCodeExecution: boolean;
 	}) => Promise<DastTargetStartPlan>;
-	discoverRepositorySchema: (repoPath: string) => Promise<boolean>;
+	discoverRepositorySchema: (repoPath: string) => Promise<
+		| boolean
+		| {
+				schemaPresent: boolean;
+				apiDetected: boolean;
+				evidenceRefs?: string[];
+		  }
+	>;
 	probeBrowser: () => Promise<string | null>;
 	resolveSourceRevision: (repoPath: string) => Promise<string | null>;
-	loadQualification: () => Promise<ScannerE2EQualification | null>;
+	resolveSourceState: (
+		repoPath: string,
+	) => Promise<"clean" | "dirty" | "unknown">;
+	loadQualification: () => Promise<AnyScannerE2EQualification | null>;
 	loadQualificationContractHash: () => Promise<string | null>;
 	now: () => Date;
 };
+
+type RepositorySchemaApplicability = {
+	schemaPresent: boolean;
+	apiDetected: boolean;
+	evidenceRefs: string[];
+};
+
+function normalizeRepositorySchemaApplicability(
+	discovered: Awaited<
+		ReturnType<ScanPreflightDependencies["discoverRepositorySchema"]>
+	>,
+): RepositorySchemaApplicability {
+	return typeof discovered === "boolean"
+		? { schemaPresent: discovered, apiDetected: false, evidenceRefs: [] }
+		: {
+				schemaPresent: discovered.schemaPresent,
+				apiDetected: discovered.apiDetected,
+				evidenceRefs: discovered.evidenceRefs ?? [],
+			};
+}
 
 export async function runScanPreflight(params: {
 	profile: ScanProfile;
@@ -91,12 +123,48 @@ export async function runScanPreflight(params: {
 	const sourceRevision = await dependencies.resolveSourceRevision(
 		params.repoPath,
 	);
+	const sourceState = await dependencies.resolveSourceState(params.repoPath);
+	if (params.profile.strictness === "strict") {
+		const sourceReady = Boolean(sourceRevision) && sourceState === "clean";
+		checks.push(
+			check({
+				id: `profile:${params.profile.id}:source-revision`,
+				stepId: `profile:${params.profile.id}`,
+				kind: "source_revision",
+				required: true,
+				ready: sourceReady,
+				reasonCode: !sourceRevision
+					? "source_revision_unavailable"
+					: sourceState === "dirty"
+						? "source_worktree_dirty"
+						: "source_state_unknown",
+				action: "commit_or_clean_worktree",
+				evidenceRefs: sourceRevision
+					? [`source-revision:${sourceRevision}`]
+					: [],
+			}),
+		);
+	}
 	let manifest: ScannerDataManifest | null = null;
 	let manifestFailure: string | null = null;
 	try {
 		manifest = await dependencies.loadManifest();
 	} catch {
 		manifestFailure = "scanner_data_manifest_invalid";
+	}
+	// API-schema scans do not need a target plan until a repository schema is
+	// present. Resolve this before target planning so an API-without-schema
+	// strict preview is genuinely process-free, and a non-API library can be
+	// classified N/A without requiring an invented start command.
+	const repositorySchemas = new Map<string, RepositorySchemaApplicability>();
+	for (const step of params.steps) {
+		if (step.kind !== "api_schema_scan") continue;
+		repositorySchemas.set(
+			scanStepId(step),
+			normalizeRepositorySchemaApplicability(
+				await dependencies.discoverRepositorySchema(params.repoPath),
+			),
+		);
 	}
 
 	const needsToolboxDocker =
@@ -201,7 +269,14 @@ export async function runScanPreflight(params: {
 
 	let targetPlan: DastTargetStartPlan | null = null;
 	let targetPlanFailure: string | null = null;
-	if (params.steps.some(stepNeedsTargetPlan)) {
+	if (
+		params.steps.some(
+			(step) =>
+				stepNeedsTargetPlan(step) &&
+				(step.kind !== "api_schema_scan" ||
+					repositorySchemas.get(scanStepId(step))?.schemaPresent === true),
+		)
+	) {
 		try {
 			targetPlan =
 				params.targetPlan ??
@@ -220,7 +295,11 @@ export async function runScanPreflight(params: {
 
 	for (const step of params.steps) {
 		const stepId = scanStepId(step);
-		if (stepNeedsTargetPlan(step)) {
+		const requiresTargetPlan =
+			stepNeedsTargetPlan(step) &&
+			(step.kind !== "api_schema_scan" ||
+				repositorySchemas.get(stepId)?.schemaPresent === true);
+		if (requiresTargetPlan) {
 			checks.push(
 				check({
 					id: `${stepId}:target-start-plan`,
@@ -337,20 +416,30 @@ export async function runScanPreflight(params: {
 				dependencies,
 			});
 		} else if (step.kind === "api_schema_scan") {
-			const applicable = await dependencies.discoverRepositorySchema(
-				params.repoPath,
-			);
+			const schema = repositorySchemas.get(stepId);
+			if (!schema) throw new Error(`api_schema_discovery_missing:${stepId}`);
+			const applicable = schema.schemaPresent;
+			const missingSchemaForDetectedApi =
+				!applicable &&
+				schema.apiDetected &&
+				params.profile.strictness === "strict";
 			checks.push({
 				...check({
 					id: `${stepId}:schema`,
 					stepId,
 					kind: "api_schema_applicability",
-					required: step.required,
+					required:
+						step.required && (applicable || missingSchemaForDetectedApi),
 					ready: applicable,
 					reasonCode: applicable ? null : "schema_not_found",
 					action: "configure_api_schema",
+					evidenceRefs: schema.evidenceRefs,
 				}),
-				status: applicable ? "ready" : "not_applicable",
+				status: applicable
+					? "ready"
+					: missingSchemaForDetectedApi
+						? "blocked"
+						: "not_applicable",
 			});
 			if (applicable) {
 				const version = await dependencies.probeScannerVersion(
@@ -448,6 +537,7 @@ export async function runScanPreflight(params: {
 		projectId: params.projectId ?? null,
 		profileId: params.profile.id,
 		sourceRevision,
+		sourceState,
 		mode,
 		status,
 		createdAt: dependencies.now().toISOString(),
@@ -472,9 +562,9 @@ function safeReasonCode(error: unknown, fallback: string): string {
 export function resolveScanPreflightMode(
 	value = process.env.VULN_WORKBENCH_SCAN_PREFLIGHT_MODE,
 ): ScanPreflightMode {
-	// Legacy/best-effort profiles retain their diagnostic default. Strict
-	// profiles override this in the orchestrator and are always enforced.
-	return value === "enforced" ? "enforced" : "shadow";
+	// Production must fail closed. Shadow mode remains an explicit diagnostic
+	// opt-in; strict profiles are additionally enforced by the orchestrator.
+	return value === "shadow" ? "shadow" : "enforced";
 }
 
 export function readStoredScanPreflight(

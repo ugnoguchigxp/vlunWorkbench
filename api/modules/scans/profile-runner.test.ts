@@ -28,8 +28,11 @@ describe("Profile Runner Orchestration", () => {
   let userId: string;
   let projectId: string;
   let repoPath: string;
+  let previousPreflightMode: string | undefined;
 
   beforeEach(async () => {
+		previousPreflightMode = process.env.VULN_WORKBENCH_SCAN_PREFLIGHT_MODE;
+		process.env.VULN_WORKBENCH_SCAN_PREFLIGHT_MODE = "shadow";
     tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "profile-runner-test-"));
     dbFile = path.join(tempDir, "test.sqlite");
     dbUrl = `file:${dbFile}`;
@@ -80,6 +83,11 @@ describe("Profile Runner Orchestration", () => {
       await closeTestDbConnection(connection);
     }
     await fs.rm(tempDir, { recursive: true, force: true });
+		if (previousPreflightMode === undefined) {
+			delete process.env.VULN_WORKBENCH_SCAN_PREFLIGHT_MODE;
+		} else {
+			process.env.VULN_WORKBENCH_SCAN_PREFLIGHT_MODE = previousPreflightMode;
+		}
     vi.restoreAllMocks();
   });
 
@@ -206,7 +214,7 @@ describe("Profile Runner Orchestration", () => {
     );
   });
 
-  it("fails before starting a scanner when the preflight binding changed", async () => {
+	it("fails before starting a scanner when the preflight binding changed", async () => {
     const scannerSpy = vi
       .spyOn(profileRunnerModule, "runToolIntoExistingScan")
       .mockRejectedValue(new Error("must not run"));
@@ -216,7 +224,7 @@ describe("Profile Runner Orchestration", () => {
       profileId: "baseline",
       repoPath,
       expectedPreflightBindingHash: `sha256:${"0".repeat(64)}`,
-    });
+		});
     expect(result).toMatchObject({
       ok: false,
       status: "failed",
@@ -236,6 +244,39 @@ describe("Profile Runner Orchestration", () => {
       }),
     );
   });
+
+	it("fails before starting a scanner when the execution plan changed", async () => {
+		const scannerSpy = vi
+			.spyOn(profileRunnerModule, "runToolIntoExistingScan")
+			.mockRejectedValue(new Error("must not run"));
+		const result = await runProfileScan({
+			db: connection.db,
+			projectId,
+			profileId: "baseline",
+			repoPath,
+			expectedPlanHash: `sha256:${"0".repeat(64)}`,
+		});
+		expect(result).toMatchObject({
+			ok: false,
+			status: "failed",
+			profileOutcome: "blocked",
+			toolResults: [],
+			stepResults: [],
+		});
+		expect(scannerSpy).not.toHaveBeenCalled();
+		const [scanRun] = await connection.db
+			.select()
+			.from(scanRuns)
+			.where(eq(scanRuns.id, result.scanRunId));
+		expect(scanRun.metadata).toEqual(
+			expect.objectContaining({
+				terminationReason: "plan_changed",
+				executionPlan: expect.objectContaining({
+					planHash: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
+				}),
+			}),
+		);
+	});
 
   it("skips only an optional step blocked by enforced preflight", async () => {
     const mockProfile = {
@@ -318,12 +359,11 @@ describe("Profile Runner Orchestration", () => {
     );
     execFileSync("git", ["add", "-A"], { cwd: repoPath });
     execFileSync("git", ["commit", "-m", "base"], { cwd: repoPath });
-    await fs.writeFile(
-      path.join(repoPath, "src/app.ts"),
-      "export const a = 2;\n",
-    );
-
-    const spy = vi
+	await fs.writeFile(
+		path.join(repoPath, "src/app.ts"),
+		"export const a = 2;\n",
+	);
+	const spy = vi
       .spyOn(profileRunnerModule, "runToolIntoExistingScan")
       .mockImplementation(async () => ({
         toolRunId: randomUUID(),
@@ -800,6 +840,48 @@ describe("Profile Runner Orchestration", () => {
     expect(result.toolResults[1].status).toBe("skipped"); // osv skipped
   });
 
+	it("stops before the scanner invocation when its version changed after preflight", async () => {
+		const { ArtifactStorage } = require("./artifact-storage");
+		const { GitleaksRunner } = require("./tools/gitleaks-runner");
+		const storage = new ArtifactStorage(tempDir);
+		vi.spyOn(GitleaksRunner.prototype, "checkVersion").mockResolvedValue("8.18.0");
+		const runSpy = vi
+			.spyOn(GitleaksRunner.prototype, "run")
+			.mockRejectedValue(new Error("must not execute"));
+		const [scanRun] = await connection.db
+			.insert(scanRuns)
+			.values({
+				projectId,
+				profile: "baseline",
+				status: "running",
+				createdAt: new Date(),
+				updatedAt: new Date(),
+			})
+			.returning();
+
+		await expect(
+			profileRunnerModule.runToolIntoExistingScan({
+				db: connection.db,
+				projectId,
+				scanRunId: scanRun.id,
+				toolId: "gitleaks",
+				artifactStorage: storage,
+				repoPath,
+			}),
+		).rejects.toThrow("scanner_version_mismatch");
+		expect(runSpy).not.toHaveBeenCalled();
+		const [persistedToolRun] = await connection.db
+			.select()
+			.from(toolRuns)
+			.where(eq(toolRuns.scanRunId, scanRun.id));
+		expect(persistedToolRun).toMatchObject({
+			status: "failed",
+			metadata: expect.objectContaining({
+				reasonCode: "scanner_version_mismatch",
+			}),
+		});
+	});
+
   it("should run runToolIntoExistingScan directly with mocked Bun.spawn for Gitleaks", async () => {
     const { ArtifactStorage } = require("./artifact-storage");
     const storage = new ArtifactStorage(tempDir);
@@ -810,7 +892,7 @@ describe("Profile Runner Orchestration", () => {
         if (args.includes("version")) {
           return {
             exited: Promise.resolve(0),
-            stdout: new Response("8.18.0\n"),
+            stdout: new Response("8.30.1\n"),
             stderr: new Response(""),
           } as any;
         }

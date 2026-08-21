@@ -16,6 +16,8 @@ const mockResolveProjectPath = vi.fn(async (projectPath: string) => {
 	return { canonicalPath: projectPath };
 });
 
+const PREFLIGHT_PROJECT_ID = "00000000-0000-4000-8000-000000000001";
+
 describe("Projects Route", () => {
 	const mockProjectRepo = {
 		listProjects: vi.fn().mockResolvedValue([
@@ -23,6 +25,14 @@ describe("Projects Route", () => {
 			{ id: "p-tmp", name: "Temporary", repoPath: "/tmp/phase42-case" },
 		]),
 		findById: vi.fn().mockImplementation(async (id: string) => {
+			if (id === PREFLIGHT_PROJECT_ID) {
+				return {
+					id: PREFLIGHT_PROJECT_ID,
+					name: "Preflight Project",
+					ownerUserId: "user-123",
+					repoPath: process.cwd(),
+				};
+			}
 			if (id === "p-1") {
 				return {
 					id: "p-1",
@@ -231,7 +241,7 @@ describe("Projects Route", () => {
 	});
 
 	it("POST /:projectId/scans/preflight returns a server-owned versioned result", async () => {
-		const res = await app.request("/p-1/scans/preflight", {
+		const res = await app.request(`/${PREFLIGHT_PROJECT_ID}/scans/preflight`, {
 			method: "POST",
 			headers: { "content-type": "application/json" },
 			body: JSON.stringify({ profile: "baseline", runner: "host" }),
@@ -242,9 +252,15 @@ describe("Projects Route", () => {
 			expect.objectContaining({
 				schemaVersion: 1,
 				profileId: "baseline",
-				mode: "shadow",
+				mode: "enforced",
 				bindingHash: expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
 				preflightHash: expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
+			}),
+		);
+		expect(body.executionPlan).toEqual(
+			expect.objectContaining({
+				planHash: expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
+				profileId: "baseline",
 			}),
 		);
 	});
@@ -329,9 +345,10 @@ describe("Projects Route", () => {
 		const res = await scanApp.request("/p-1/scans", {
 			method: "POST",
 			headers: { "content-type": "application/json" },
-			body: JSON.stringify({
-				profile: "baseline",
-				expectedPreflightBindingHash: `sha256:${"a".repeat(64)}`,
+		body: JSON.stringify({
+			profile: "baseline",
+			expectedPreflightBindingHash: `sha256:${"a".repeat(64)}`,
+			expectedPlanHash: `sha256:${"b".repeat(64)}`,
 			}),
 		});
 		await launchStarted;
@@ -348,6 +365,8 @@ describe("Projects Route", () => {
 				"s-queued",
 				"--expected-preflight-binding-hash",
 				`sha256:${"a".repeat(64)}`,
+				"--expected-plan-hash",
+				`sha256:${"b".repeat(64)}`,
 			]),
 		);
 	});

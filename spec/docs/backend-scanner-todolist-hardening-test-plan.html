@@ -2,8 +2,17 @@
   <h1 id="backend-scanner-todolist-hardening-test-plan">
     Backend Scanner Hardening and todolist Validation Plan
   </h1>
-  <p>Status: Reviewed / Core implementation and real-scanner qualification completed</p>
+  <p>
+    Status: Reviewed / Real-scanner qualification and composite-profile repeatability gate
+    implemented
+  </p>
   <p>Parent plan: Phase 56 Slice 56.11</p>
+  <p>
+    Archive closeout:
+    <a href="./scanner-hardening-archive-closeout-implementation-plan.html"
+      >Scanner Hardening Archive Closeout Implementation Plan</a
+    >。変更範囲の固定、Definition of Doneの証跡化、strict gateの終了記録はこの独立計画で扱う。
+  </p>
   <p>Planning baseline commit: <code>e5f6a21f8686079314179261e6eeb57686d6eab4</code></p>
   <p>Planning baseline date: 2026-08-20</p>
   <p>Owner: vulnWorkbench maintainers</p>
@@ -75,9 +84,12 @@
   </table>
   <p>
     harnessは各artifactの<code>storageKey</code>、SHA-256、sizeを検証し、期待kindと
-    SchemathesisのN/A reasonを照合する。明示schemaを供給するSchemathesisケース、
-    full-security-scanの連続実行、baseline比較は、このcore qualificationとは別の未実施gateとして
-    本文のDefinition of Doneに残す。
+    SchemathesisのN/A reasonを照合する。加えて、<code>bun run scanner-e2e:full-profile</code>は
+    strict preflightを通るread-only schema fixtureを含む同一immutable snapshotに対して
+    <code>full-security-scan</code>を2回実行する。9 stepの実行状態、runtime
+    request、artifact role、 canonical final、target cleanup、同一plan hashと正規化evidence
+    hashを検証し、 <code>scripts/verify-scanner-e2e-full-profile-evidence.ts</code>が保存済みartifact
+    bytesを再検証する。
   </p>
 
   <h2 id="1-conclusion">1. 結論</h2>
@@ -1744,28 +1756,34 @@ bun run scripts/todolist-scanner-acceptance.ts --group runtime
       executionはpinned Docker toolbox、target executionはS5 container providerとする。
     </li>
     <li>
-      unmodified todolistではSchemathesis stepをN/Aとし、それ単独で
-      <code>completed_with_warnings</code>へ落とさない。他のoptional
-      gapがあればそのcodeでwarningにする。
+      detected API sourceにschemaがないstrict
+      profileは<code>schema_not_found</code>でblockする。 composite
+      E2Eではharnessがimmutableなread-only schema fixtureを供給し、
+      Schemathesisを実行済みstepとして確認する。schemaを捏造してN/Aへ落とすことはしない。
+      schema起因のlimitation codeはevidenceに残し、2 runで同一であることを要求する。
     </li>
     <li>
       runごとにscan detail、summary、report、events、tool runs、step
       resultsを取得し、status/outcome、 order、count、limitation codeを相互照合する。
     </li>
     <li>
-      repeatability比較からUUID、timestamp、elapsed、container ID、dynamic port、absolute temp
-      pathを除外する。 tool version、finding fingerprint、severity、relative
-      location、coverage、reason code、artifact roleは比較対象に残す。
+      repeatability比較からUUID、timestamp、preflight timestamp、elapsed、container ID、dynamic
+      port、absolute temp path、artifact byte identity、ephemeral originを含むfinding
+      fingerprintを除外する（各runのartifact byte identityは別途SHA/sizeで検証する）。 tool
+      version、rule、title、severity、relative location、coverage、reason code、artifact
+      roleは比較対象に残す。ZAPはinstance URLの揺れをraw artifactへ保持し、正規化比較は一意なalert
+      rule単位で行う。
     </li>
   </ol>
-  <pre><code class="language-bash">VULN_WORKBENCH_SCAN_PREFLIGHT_MODE=enforced \
-VULN_WORKBENCH_OPTIONAL_SCANNER_ADAPTERS=semgrep \
-  bun run scripts/todolist-scanner-acceptance.ts --group profile --repeat 2
-bun run scripts/verify-scan-run-integrity.ts --evidence &lt;run-root&gt;/evidence.json
+  <pre><code class="language-bash">VULN_WORKBENCH_TODOLIST_REPO_PATH=/absolute/path/to/todolist \
+  bun run scanner-e2e:full-profile
+# 実行済みevidenceだけを再検証する場合
+bun run scripts/verify-scanner-e2e-full-profile-evidence.ts \
+  --evidence artifacts/scanner-e2e/full-profile.v1.json
 </code></pre>
   <p>
-    完了条件は2 runともterminalで、required failureがなく、正規化snapshot hashとcoverage
-    stateが一致し、 scan間artifact key重複、running
+    完了条件は2 runともterminalで、required failureがなく、execution plan hashと正規化evidence
+    hash、 coverage stateが一致し、scan間artifact key重複、running
     row、listener、container、gatewayが0件であること。
   </p>
 

@@ -10,7 +10,12 @@ export const selectWorkspaceReportId = (
 	) {
 		return requestedReportId;
 	}
-	return reports[0]?.id ?? null;
+	return (
+		reports.find(
+			(report) =>
+				report.status === "completed" && report.stage === "canonical_final",
+		)?.id ?? null
+	);
 };
 
 export const hasLlmComment = (review: ScanReview | null): boolean =>

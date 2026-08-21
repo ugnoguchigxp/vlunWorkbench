@@ -1,3 +1,4 @@
+import type { Dirent } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 
@@ -12,14 +13,106 @@ const FILE_CANDIDATES = [
 	"docs/openapi.json",
 ];
 const HTTP_CANDIDATES = ["/openapi.json", "/swagger.json", "/v3/api-docs"];
+const API_SOURCE_EXTENSIONS = new Set([
+	".js",
+	".cjs",
+	".mjs",
+	".ts",
+	".cts",
+	".mts",
+	".jsx",
+	".tsx",
+]);
+const IGNORED_SOURCE_DIRECTORIES = new Set([
+	".git",
+	"node_modules",
+	"dist",
+	"dist-web",
+	"build",
+	"coverage",
+	"artifacts",
+]);
+const MAX_API_EVIDENCE_FILES = 500;
+const MAX_API_EVIDENCE_BYTES = 256 * 1024;
+
+/**
+ * This is intentionally a conservative source-evidence probe, not framework
+ * detection. A package dependency alone is insufficient: the strict API
+ * profile is blocked only when a bounded first-party source file actually
+ * declares a conventional HTTP route or server bootstrap.
+ */
+const API_ROUTE_EVIDENCE =
+	/\b(?:app|router|server|api)\s*\.\s*(?:get|post|put|patch|delete|head|options|use|route)\s*\(|\b(?:express|fastify)\s*\(|\bnew\s+(?:Hono|Elysia)\s*\(/;
 
 export type SchemaDiscoveryResult = {
 	applicable: boolean;
+	/** A schema itself is API evidence; otherwise this comes from first-party route source. */
+	apiDetected: boolean;
+	apiEvidencePaths: string[];
 	schemaPath: string | null;
 	cleanupPath?: string;
 	source: "repository" | "target" | null;
 	reasonCode: "schema_not_found" | "authentication_required" | null;
 };
+
+async function collectApiEvidencePaths(params: {
+	root: string;
+	directory?: string;
+	paths?: string[];
+	state?: { sourceFilesRead: number };
+}): Promise<string[]> {
+	const directory = params.directory ?? params.root;
+	const paths = params.paths ?? [];
+	const state = params.state ?? { sourceFilesRead: 0 };
+	if (state.sourceFilesRead >= MAX_API_EVIDENCE_FILES) return paths;
+	let entries: Dirent[];
+	try {
+		entries = await fs.readdir(directory, { withFileTypes: true });
+	} catch {
+		return paths;
+	}
+	for (const entry of entries.sort((left, right) =>
+		left.name.localeCompare(right.name),
+	)) {
+		if (state.sourceFilesRead >= MAX_API_EVIDENCE_FILES) break;
+		const entryPath = path.join(directory, entry.name);
+		if (entry.isDirectory()) {
+			if (!IGNORED_SOURCE_DIRECTORIES.has(entry.name)) {
+				await collectApiEvidencePaths({
+					root: params.root,
+					directory: entryPath,
+					paths,
+					state,
+				});
+			}
+			continue;
+		}
+		if (
+			!entry.isFile() ||
+			!API_SOURCE_EXTENSIONS.has(path.extname(entry.name))
+		) {
+			continue;
+		}
+		state.sourceFilesRead += 1;
+		const source = await fs.readFile(entryPath, "utf8").catch(() => null);
+		if (
+			source !== null &&
+			source.length <= MAX_API_EVIDENCE_BYTES &&
+			API_ROUTE_EVIDENCE.test(source)
+		) {
+			paths.push(path.relative(params.root, entryPath));
+		}
+	}
+	return paths;
+}
+
+export async function detectRepositoryApiEvidence(repoPath: string): Promise<{
+	detected: boolean;
+	paths: string[];
+}> {
+	const paths = await collectApiEvidencePaths({ root: repoPath });
+	return { detected: paths.length > 0, paths };
+}
 
 function looksLikeApiSchema(value: unknown): boolean {
 	if (!value || typeof value !== "object" || Array.isArray(value)) return false;
@@ -42,6 +135,8 @@ export async function discoverRepositoryApiSchema(
 			if (stat.isFile())
 				return {
 					applicable: true,
+					apiDetected: true,
+					apiEvidencePaths: [candidate],
 					schemaPath: candidatePath,
 					source: "repository",
 					reasonCode: null,
@@ -50,8 +145,11 @@ export async function discoverRepositoryApiSchema(
 			// bounded candidate lookup intentionally ignores missing files
 		}
 	}
+	const apiEvidence = await detectRepositoryApiEvidence(repoPath);
 	return {
 		applicable: false,
+		apiDetected: apiEvidence.detected,
+		apiEvidencePaths: apiEvidence.paths,
 		schemaPath: null,
 		source: null,
 		reasonCode: "schema_not_found",
@@ -72,6 +170,8 @@ export async function discoverTargetApiSchema(params: {
 			if (response.status === 401 || response.status === 403)
 				return {
 					applicable: false,
+					apiDetected: false,
+					apiEvidencePaths: [],
 					schemaPath: null,
 					source: null,
 					reasonCode: "authentication_required",
@@ -92,6 +192,8 @@ export async function discoverTargetApiSchema(params: {
 			await fs.writeFile(tempPath, body, "utf8");
 			return {
 				applicable: true,
+				apiDetected: true,
+				apiEvidencePaths: [candidate],
 				schemaPath: tempPath,
 				cleanupPath: path.dirname(tempPath),
 				source: "target",
@@ -103,6 +205,8 @@ export async function discoverTargetApiSchema(params: {
 	}
 	return {
 		applicable: false,
+		apiDetected: false,
+		apiEvidencePaths: [],
 		schemaPath: null,
 		source: null,
 		reasonCode: "schema_not_found",

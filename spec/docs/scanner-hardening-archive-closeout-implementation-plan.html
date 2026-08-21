@@ -1,0 +1,772 @@
+<article lang="ja" data-spec-role="active-plan">
+  <h1 id="scanner-hardening-archive-closeout-implementation-plan">
+    Scanner Hardening Archive Closeout Implementation Plan
+  </h1>
+  <p>Status: Proposed / standalone closeout plan</p>
+  <p>
+    Parent plan:
+    <a href="./backend-scanner-todolist-hardening-test-plan.html"
+      >Backend Scanner Hardening and todolist Validation Plan</a
+    >
+  </p>
+  <p>Planning baseline commit: <code>40e77d3</code></p>
+  <p>Planning baseline date: 2026-08-21</p>
+  <p>Owner: vulnWorkbench maintainers</p>
+  <p>
+    Target: scanner hardeningのproduction実装を増やさず、変更範囲の固定、Definition of Doneの
+    machine-readableな証明、<code>verify:strict</code>の終了記録を完了し、親計画を安全に
+    <code>spec/docs/.archived/</code>へ移せる状態にする。
+  </p>
+
+  <h2 id="1-conclusion">1. 結論</h2>
+  <p>アーカイブまでの作業を次の3スライスへ限定し、順序を固定する。</p>
+  <ol>
+    <li>
+      AR-01で現在の変更をscanner hardening対象、別計画対象、生成物に分類し、対象変更だけを
+      review可能なimplementation commitへ固定する。
+    </li>
+    <li>
+      AR-02で親計画の17個の完了条件をstable IDと実測証跡へ結び付ける。証拠がない条件は
+      checkboxを更新せず、不足するtestまたはverifierを実装する。
+    </li>
+    <li>
+      AR-03でclean checkout上の全gateを一つのrunnerから実行し、各commandの終了コードと
+      evidence digestを保存する。全gate合格後だけ親計画をarchiveする。
+    </li>
+  </ol>
+  <p>
+    3スライスを同時に完了扱いにしない。AR-01、AR-02、AR-03の順でhandoffし、前段の
+    acceptanceが不合格なら後段を開始しない。
+  </p>
+
+  <h2 id="2-scope">2. Scope</h2>
+  <h3 id="21-in-scope">2.1 In scope</h3>
+  <ul>
+    <li>scanner hardening変更のpath inventoryと明示allowlist</li>
+    <li>親計画の17個のDefinition of Doneに対するstable ID、evidence source、合否</li>
+    <li>各scannerの実E2E、full profile repeatability、failure injectionの再検証</li>
+    <li>clean checkout上での<code>verify:strict</code>実行と終了コードの保存</li>
+    <li>process、container、listener、target、production DB、production artifact rootの不変確認</li>
+    <li>closeout receiptのschema、runner、verifier、tests、package command</li>
+    <li>親計画の完了記録、archive移動、spec index更新</li>
+  </ul>
+  <h3 id="22-out-of-scope">2.2 Out of scope</h3>
+  <ul>
+    <li>scannerの追加、rule tuning、finding baselineの変更</li>
+    <li>scanner version、image、ruleset、vulnerability databaseの更新</li>
+    <li>UI表示、画面文言、routing、visual regressionの変更</li>
+    <li>todolist repositoryのsource、HEAD、working tree、runtime databaseの変更</li>
+    <li>professional capability claim、release tag、deploymentの更新</li>
+    <li>親計画の未達条件を説明だけで達成扱いにすること</li>
+  </ul>
+
+  <h2 id="3-baseline">3. Planning baseline</h2>
+  <table>
+    <caption>
+      2026-08-21時点のarchive blocker
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">ID</th>
+        <th scope="col">観測事実</th>
+        <th scope="col">必要な変更</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>AR-01</td>
+        <td>
+          <code>git status --porcelain=v1</code>が77 pathを返し、最後のcommitは
+          <code>40e77d3</code>である。
+        </td>
+        <td>変更の所有範囲を固定し、clean checkoutで再現できるcommitを作る。</td>
+      </tr>
+      <tr>
+        <td>AR-02</td>
+        <td>親計画のDefinition of Done 17項目が全て未完了表示である。</td>
+        <td>各条件を実測証跡へ結び付け、verifierが合否を決める。</td>
+      </tr>
+      <tr>
+        <td>AR-03</td>
+        <td>
+          focused gateの成功は確認済みだが、直近の<code>verify:strict</code>は最終終了コードを
+          closeout evidenceへ保存していない。
+        </td>
+        <td>shell pipelineに依存せず、child processの終了コードとlog digestを保存する。</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    現行<code>scanner-e2e-cases.v2.json</code>は12個のindividual caseを持ち、各caseに
+    successと<code>plan_changed</code>のfail-closed scenarioを要求する。ただし親計画12章の
+    11種のfailure injectionを全て実行するcontractではない。この差分はAR-02の実装対象とする。
+  </p>
+
+  <h2 id="4-source-of-truth">4. Source of truth and commit model</h2>
+  <dl>
+    <dt><code>planningBaselineCommit</code></dt>
+    <dd>本計画作成時の基準commit。値は<code>40e77d3</code>で固定する。</dd>
+    <dt><code>implementationCommit</code></dt>
+    <dd>scanner hardeningのproduction、test、contractを含むreview済みcommit。</dd>
+    <dt><code>closeoutReceipt</code></dt>
+    <dd>
+      clean checkoutで<code>implementationCommit</code>を検証した結果。commit自身のhashを含める
+      自己参照は行わず、検証対象を<code>implementationCommit</code>として保存する。
+    </dd>
+    <dt><code>archiveCommit</code></dt>
+    <dd>
+      receipt検証後に親計画を<code>spec/docs/.archived/</code>へ移し、indexを更新するdocs-only
+      commit。
+    </dd>
+  </dl>
+  <p>
+    authorityの順序は、closeout receipt、scanner E2E evidence、production test、親計画の
+    checkbox、console上の過去ログとする。consoleへ<code>pass</code>と表示されたことだけでは
+    完了根拠にしない。
+  </p>
+
+  <h2 id="5-deliverables">5. Required deliverables</h2>
+  <table>
+    <caption>
+      実装者が作成または更新するfile
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Path</th>
+        <th scope="col">Responsibility</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>spec/security-capability/scanner-hardening-closeout-scope.v1.json</code></td>
+        <td>planning baselineからの許可path、除外path、生成物を宣言する。</td>
+      </tr>
+      <tr>
+        <td><code>shared/schemas/scanner-hardening-closeout.schema.ts</code></td>
+        <td>scope report、gate result、DoD result、cleanup result、receiptをstrict schema化する。</td>
+      </tr>
+      <tr>
+        <td><code>scripts/check-scanner-hardening-closeout-scope.ts</code></td>
+        <td>baselineからcandidateまでの変更pathとworking treeをscope contractへ照合する。</td>
+      </tr>
+      <tr>
+        <td><code>spec/security-capability/scanner-e2e-failure-cases.v1.json</code></td>
+        <td>親計画12章の11 failure mode、期待code、禁止状態、所有testを列挙する。</td>
+      </tr>
+      <tr>
+        <td><code>shared/schemas/scanner-e2e-failure.schema.ts</code></td>
+        <td>failure injection contractとevidenceをstrict schema化する。</td>
+      </tr>
+      <tr>
+        <td><code>scripts/scanner-e2e-failure.ts</code></td>
+        <td>11 failure modeを隔離fixtureで実行し、fail-closed evidenceを作る。</td>
+      </tr>
+      <tr>
+        <td><code>scripts/verify-scanner-e2e-failure-evidence.ts</code></td>
+        <td>全failure caseの存在、期待code、禁止状態、cleanupを再検証する。</td>
+      </tr>
+      <tr>
+        <td><code>spec/security-capability/scanner-hardening-dod.v1.json</code></td>
+        <td>親計画の17条件と必要evidence providerを1対1で定義する。</td>
+      </tr>
+      <tr>
+        <td><code>scripts/scanner-hardening-closeout.ts</code></td>
+        <td>固定commandを順に実行し、logとreceipt候補をout-of-treeへ保存する。</td>
+      </tr>
+      <tr>
+        <td><code>scripts/verify-scanner-hardening-closeout.ts</code></td>
+        <td>receipt、DoD、evidence bytes、commit、cleanupを再検証する。</td>
+      </tr>
+      <tr>
+        <td><code>scripts/*.test.ts</code></td>
+        <td>上記scope、failure、closeout verifierのpositive/negative testを持つ。</td>
+      </tr>
+      <tr>
+        <td><code>spec/evidence/scanner-hardening-archive-closeout.v1.json</code></td>
+        <td>review済みreceipt。raw logやrandom UUIDを埋め込まずdigestと合否だけを保存する。</td>
+      </tr>
+      <tr>
+        <td><code>package.json</code></td>
+        <td>scope、failure E2E、closeout、receipt verifierの固定entrypointを追加する。</td>
+      </tr>
+      <tr>
+        <td><code>spec/docs/backend-scanner-todolist-hardening-test-plan.html</code></td>
+        <td>receiptから導出した完了状態とarchive handoffだけを反映する。</td>
+      </tr>
+      <tr>
+        <td><code>spec/index.html</code></td>
+        <td>本計画をactive planとして登録し、完了後は親計画と本計画をarchive一覧へ移す。</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2 id="6-ar-01">6. AR-01 — Change-set convergence</h2>
+  <h3 id="61-scope-rules">6.1 Scope rules</h3>
+  <table>
+    <caption>
+      Path classification
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Class</th>
+        <th scope="col">Rule</th>
+        <th scope="col">Action</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>scanner hardening</td>
+        <td>
+          <code>api/modules/scans/**</code>、必要な
+          <code>api/modules/api-schema-fuzz/**</code>、scanner CLI、shared schema、scanner E2E
+          scriptsとtests
+        </td>
+        <td><code>implementationCommit</code>へ含める。</td>
+      </tr>
+      <tr>
+        <td>contract documentation</td>
+        <td>
+          本計画、親計画、scanner security-capability contract、対応するgenerated document
+        </td>
+        <td>generatorと検証結果が一致するときだけ含める。</td>
+      </tr>
+      <tr>
+        <td>conditional integration</td>
+        <td><code>package.json</code>、route、DB repository、API response型</td>
+        <td>scanner contractをcompileまたは実行するために必要なdiffだけを含める。</td>
+      </tr>
+      <tr>
+        <td>separate work</td>
+        <td><code>web/**</code>、scanner以外のfeature、release metadata</td>
+        <td>本計画のcommitへ混ぜず、別計画・別commitへ移管する。</td>
+      </tr>
+      <tr>
+        <td>runtime output</td>
+        <td><code>artifacts/**</code>、temporary SQLite、container filesystem、raw logs</td>
+        <td>Gitへ追加しない。receiptにはSHA-256とsizeだけを残す。</td>
+      </tr>
+      <tr>
+        <td>foreign target</td>
+        <td>todolist repository内の全path</td>
+        <td>変更禁止。before/after HEADとporcelain statusが一致しなければ停止する。</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    計画時点のdirty treeには<code>web/**</code>が含まれている。親計画17章はUI変更をbackend
+    sliceへ含めることを禁止しているため、scope checkerはこれを自動許可しない。削除、reset、stashは
+    行わず、所有者が別commitまたは別worktreeへ移管するまでAR-01を不合格とする。
+  </p>
+
+  <h3 id="62-scope-contract">6.2 Scope contract</h3>
+  <p><code>scanner-hardening-closeout-scope.v1.json</code>は次を必須にする。</p>
+  <ul>
+    <li><code>schemaVersion: 1</code></li>
+    <li><code>planningBaselineCommit</code>の完全な40桁commit hash</li>
+    <li><code>allowedPaths</code>の完全pathまたは末尾<code>/**</code>だけを許すprefix</li>
+    <li><code>excludedPaths</code>と除外理由</li>
+    <li><code>generatedPaths</code>と生成command</li>
+    <li><code>requiredPaths</code>と、欠落した場合のstable reason code</li>
+  </ul>
+  <p>
+    <code>..</code>、absolute path、symlink escape、空prefix、repository root全体の
+    <code>/**</code>は禁止する。unknown pathが1件でもあればexit 3で停止する。
+  </p>
+
+  <h3 id="63-ar-01-implementation">6.3 Implementation sequence</h3>
+  <ol>
+    <li>
+      <code>git diff --name-status 40e77d3</code>と
+      <code>git ls-files --others --exclude-standard</code>を取得する。
+    </li>
+    <li>renameは旧pathと新pathの両方を検査し、deleteもscope対象として扱う。</li>
+    <li>各pathを前節のclassへ割り当て、unknownを0件にする。</li>
+    <li>scanner hardening対象だけをexplicit pathspecでstageする。</li>
+    <li><code>git diff --cached --check</code>とscope checkerを実行する。</li>
+    <li>staged diffをreviewし、production changeに対応testがない場合は停止する。</li>
+    <li>implementation commitを作り、そのcommitからdetached clean worktreeを作る。</li>
+    <li>以降のAR-02とAR-03はclean worktreeだけで実行する。</li>
+  </ol>
+  <p>
+    自動化は<code>git reset</code>、<code>git checkout --</code>、<code>git clean</code>、
+    <code>git stash</code>を実行してはならない。scope外変更を発見した場合はpath一覧を返して停止する。
+  </p>
+
+  <h3 id="64-ar-01-acceptance">6.4 Acceptance</h3>
+  <ul>
+    <li>baselineからimplementation commitまでのunknown pathが0件である。</li>
+    <li>implementation commitに<code>web/**</code>変更が0件である。</li>
+    <li>required production pathごとに対応test pathがscope manifestへ登録されている。</li>
+    <li>clean worktreeの<code>git status --porcelain=v1</code>が空である。</li>
+    <li><code>git diff --check 40e77d3..HEAD</code>がpassする。</li>
+  </ul>
+
+  <h2 id="7-ar-02">7. AR-02 — Definition of Done evidence closure</h2>
+  <h3 id="71-dod-contract">7.1 DoD contract</h3>
+  <p>
+    親計画の17条件を<code>SH-DOD-01</code>から<code>SH-DOD-17</code>へ固定する。
+    <code>scanner-hardening-dod.v1.json</code>では各条件に次を必須とする。
+  </p>
+  <ul>
+    <li><code>id</code>、親計画内の原文、evidence provider ID</li>
+    <li>必要なcase ID、assertion ID、minimum count</li>
+    <li>許可するstatusと禁止するstatus</li>
+    <li>artifact、request、process、target、repositoryの実測field</li>
+    <li>pass条件。説明文やconsole substringをpredicateに使わない。</li>
+  </ul>
+
+  <h3 id="72-dod-mapping">7.2 Required evidence mapping</h3>
+  <table>
+    <caption>
+      Parent DoD to executable evidence
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">ID</th>
+        <th scope="col">Condition</th>
+        <th scope="col">Required evidence</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>SH-DOD-01</td>
+        <td>B-01からB-08 regression</td>
+        <td>focused regression testのexact file listと全exit 0</td>
+      </tr>
+      <tr>
+        <td>SH-DOD-02</td>
+        <td>artifact collision 0</td>
+        <td>individual E2Eとfull profile内のstorage key uniqueness</td>
+      </tr>
+      <tr>
+        <td>SH-DOD-03</td>
+        <td>DB SHA/sizeとfile一致</td>
+        <td>v2/full-profile verifierによる保存済みbytes再計算</td>
+      </tr>
+      <tr>
+        <td>SH-DOD-04</td>
+        <td>terminal preflight/source revision</td>
+        <td>terminal scan rowから取得したhashとexecution plan binding</td>
+      </tr>
+      <tr>
+        <td>SH-DOD-05</td>
+        <td>reason codeがstable</td>
+        <td>closed schema parseとunknown exception fallback regression</td>
+      </tr>
+      <tr>
+        <td>SH-DOD-06</td>
+        <td>actual scanner version/provenance一致</td>
+        <td>実行process由来version、manifest、image digest、ruleset digest</td>
+      </tr>
+      <tr>
+        <td>SH-DOD-07</td>
+        <td>TS-01からTS-10</td>
+        <td>7.3の全caseと追加<code>trivy-image</code>の合格</td>
+      </tr>
+      <tr>
+        <td>SH-DOD-08</td>
+        <td>full profile連続2回</td>
+        <td><code>scanner-e2e:full-profile</code>の2 run</td>
+      </tr>
+      <tr>
+        <td>SH-DOD-09</td>
+        <td>normalized snapshot/coverage一致</td>
+        <td>plan、source、finding、coverage、artifact role、tool versionのnormalized hash一致</td>
+      </tr>
+      <tr>
+        <td>SH-DOD-10</td>
+        <td>0 requestをcoveredにしない</td>
+        <td>request countとcoverage stateのcross-field verifier</td>
+      </tr>
+      <tr>
+        <td>SH-DOD-11</td>
+        <td>全failure injectionがfail closed</td>
+        <td>7.4の11 caseが全て合格</td>
+      </tr>
+      <tr>
+        <td>SH-DOD-12</td>
+        <td>todolist HEAD/status不変</td>
+        <td>caseごとのbefore/after HEADとporcelain digest一致</td>
+      </tr>
+      <tr>
+        <td>SH-DOD-13</td>
+        <td>production DB/artifact root不変</td>
+        <td>実行前後のresolved path、existence、file tree digest一致</td>
+      </tr>
+      <tr>
+        <td>SH-DOD-14</td>
+        <td>process/container/listener leak 0</td>
+        <td>harness所有IDの起動台帳とfinally後のactive count 0</td>
+      </tr>
+      <tr>
+        <td>SH-DOD-15</td>
+        <td>todolist host spawn 0</td>
+        <td>target provider kindがcontainer、host child PID count 0</td>
+      </tr>
+      <tr>
+        <td>SH-DOD-16</td>
+        <td>backend evidence verifier</td>
+        <td>v2、repeatability、full-profile、failure、closeout verifier全exit 0</td>
+      </tr>
+      <tr>
+        <td>SH-DOD-17</td>
+        <td>UI変更なしのCLI再現</td>
+        <td>AR-01 scope passとpackage commandだけによるclean checkout run</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3 id="73-scanner-mapping">7.3 Scanner-level E2E gate</h3>
+  <table>
+    <caption>
+      TS caseとv2 executable caseの固定対応
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Parent case</th>
+        <th scope="col">Executable case</th>
+        <th scope="col">Pass condition</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td>TS-01</td><td><code>gitleaks-source</code></td><td>executed、work &gt; 0、artifact verified</td></tr>
+      <tr>
+        <td>TS-02</td>
+        <td><code>osv-manifest</code>と<code>osv-installed-tree</code></td>
+        <td>両mode executed、package work &gt; 0、artifact verified</td>
+      </tr>
+      <tr><td>TS-03</td><td><code>trivy-filesystem</code></td><td>target/result &gt; 0、artifact verified</td></tr>
+      <tr><td>TS-04</td><td><code>trivy-sbom</code></td><td>component/dependency &gt; 0、SBOM verified</td></tr>
+      <tr><td>TS-05</td><td><code>semgrep-source</code></td><td>rules/files &gt; 0、parse error 0</td></tr>
+      <tr><td>TS-06</td><td><code>passive-dast</code></td><td>request/covered route &gt; 0、mutation 0</td></tr>
+      <tr><td>TS-07</td><td><code>nuclei-safe</code></td><td>template/request &gt; 0、public request 0</td></tr>
+      <tr><td>TS-08</td><td><code>zap-baseline</code></td><td>request &gt; 0、mutation 0、cleanup 0</td></tr>
+      <tr>
+        <td>TS-09</td>
+        <td><code>schemathesis-not-applicable</code></td>
+        <td><code>schema_not_found</code>、scanner/target/artifact 0</td>
+      </tr>
+      <tr>
+        <td>TS-10</td>
+        <td><code>schemathesis-readonly</code></td>
+        <td>operation/request &gt; 0、write operation 0</td>
+      </tr>
+      <tr>
+        <td>Additional</td>
+        <td><code>trivy-image</code></td>
+        <td>explicit image target/package &gt; 0、artifact verified</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    各caseはproduction entrypoint、persisted DB row、artifact bytesからassertionを導出する。
+    producerが<code>assertionIds</code>へ固定文字列を代入しただけでは合格にしない。verifierは各IDに
+    必要なobserved fieldを再計算し、欠落または0 workを不合格にする。
+  </p>
+
+  <h3 id="74-failure-matrix">7.4 Failure injection E2E gate</h3>
+  <table>
+    <caption>
+      Required negative cases
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Case ID</th>
+        <th scope="col">Injection</th>
+        <th scope="col">Required result</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td>FI-01</td><td>binary missing</td><td>preflight blocked、scanner process 0</td></tr>
+      <tr><td>FI-02</td><td>version mismatch</td><td>stable mismatch code、reproducible false</td></tr>
+      <tr><td>FI-03</td><td>database missing/stale</td><td>missing/stale code、自動download 0</td></tr>
+      <tr><td>FI-04</td><td>malformed structured output</td><td>invalid output、raw/log保持、success禁止</td></tr>
+      <tr><td>FI-05</td><td>output limit</td><td>bounded artifact、child停止、truncated parse禁止</td></tr>
+      <tr><td>FI-06</td><td>duplicate artifact key</td><td>exclusive failure、existing bytes不変</td></tr>
+      <tr><td>FI-07</td><td>target readiness timeout</td><td>timeout code、runtime scanner 0、cleanup 0</td></tr>
+      <tr><td>FI-08</td><td>target exits during scan</td><td>coverage gap、step failure、covered禁止</td></tr>
+      <tr><td>FI-09</td><td>request budget exceeded</td><td>gateway拒否、送信数が上限以下</td></tr>
+      <tr><td>FI-10</td><td>target changes after preview</td><td>preflight blocked、tool/artifact/report 0</td></tr>
+      <tr><td>FI-11</td><td>terminal update race</td><td>terminal transition 1、metadata保持</td></tr>
+    </tbody>
+  </table>
+  <p>
+    FI-01からFI-11はproduction serviceへfixture dependencyを注入して実行する。PATH全体、Docker
+    daemon全体、実production DBを破壊してfailureを作らない。各caseは独立したtemporary DB、artifact
+    root、target owner IDを持つ。
+  </p>
+
+  <h3 id="75-ar-02-commands">7.5 Commands</h3>
+  <pre><code class="language-bash">bun test api/modules/scans/artifact-sink.test.ts \
+  api/modules/scans/artifact-storage.test.ts \
+  api/modules/scans/repositories.test.ts \
+  api/modules/scans/profile-runner.test.ts \
+  api/modules/scans/scan-preflight.test.ts \
+  api/modules/scans/profile-tool-provenance.test.ts \
+  api/modules/scans/tools/scanner-provenance.test.ts
+
+bun run test:scanner-e2e:contract
+bun run scanner-e2e:repeat
+bun run scanner-e2e:verify
+bun run scanner-e2e:qualify
+bun run scanner-e2e:full-profile
+bun run scanner-e2e:failure
+bun run scanner-e2e:failure:verify
+</code></pre>
+  <p>
+    <code>package.json</code>へ
+    <code>scanner-e2e:failure</code>、<code>scanner-e2e:failure:verify</code>、
+    <code>scanner-hardening:closeout</code>、<code>scanner-hardening:closeout:verify</code>を追加する。
+    commandはshell stringを組み立てず、引数配列を固定する。
+  </p>
+
+  <h3 id="76-ar-02-acceptance">7.6 Acceptance</h3>
+  <ul>
+    <li>SH-DOD-01からSH-DOD-17が重複なくexact setで存在する。</li>
+    <li>全12 individual scanner caseがsuccessとcase-specific observationを持つ。</li>
+    <li>TS-01からTS-10の未対応caseが0件である。</li>
+    <li>FI-01からFI-11がexact setで存在し、禁止状態が1件も観測されない。</li>
+    <li>full profile 2 runのplan/source/normalized evidence hashが一致する。</li>
+    <li>DoD verifierが1条件でも未証明ならreceipt verdictを<code>passed</code>にしない。</li>
+  </ul>
+
+  <h2 id="8-ar-03">8. AR-03 — Strict closeout receipt</h2>
+  <h3 id="81-runner-contract">8.1 Runner contract</h3>
+  <p>
+    <code>scripts/scanner-hardening-closeout.ts</code>はclean checkoutでだけ動作し、次を順番に
+    実行する。各commandは<code>Bun.spawn</code>へ引数配列で渡し、stdout/stderrを画面へ転送しながら
+    個別fileへ保存する。pipelineや最後のconsole lineから合否を推測しない。
+  </p>
+  <ol>
+    <li>full 40桁commit、clean status、scope contractを検証する。</li>
+    <li>production DB、production artifact root、todolist HEAD/statusのbefore digestを採取する。</li>
+    <li><code>bun run test:scanner-e2e</code>を実行する。</li>
+    <li><code>bun run scanner-e2e:failure</code>とfailure verifierを実行する。</li>
+    <li><code>bun run verify:strict</code>を実行する。</li>
+    <li>全scanner evidence verifierをもう一度read-onlyで実行する。</li>
+    <li>finallyで所有process、container、listener、temporary targetを停止・検査する。</li>
+    <li>before/after digestを比較し、DoD predicateを評価する。</li>
+    <li>全条件合格時だけpromotable receiptを生成する。</li>
+  </ol>
+  <p>
+    SIGINTまたはSIGTERMを受けた場合は実行中childへ同じsignalを転送し、cleanupを完了してから
+    non-zeroで終了する。中断runのpartial logはdiagnosticとして残せるが、closeout receiptへ昇格しない。
+  </p>
+
+  <h3 id="82-receipt-schema">8.2 Receipt schema</h3>
+  <p>receiptは少なくとも次のfieldを持ち、unknown fieldを拒否する。</p>
+  <pre><code class="language-text">schemaVersion: 1
+planningBaselineCommit
+implementationCommit
+startedAt
+completedAt
+runnerVersion
+scope:
+  contractHash
+  changedPathCount
+  unknownPathCount
+  cleanCheckout
+commands[]:
+  id
+  argv[]
+  startedAt
+  completedAt
+  exitCode
+  stdoutSha256
+  stderrSha256
+evidence:
+  scannerContractHash
+  individualEvidenceSha256
+  repeatEvidenceSha256
+  fullProfileEvidenceSha256
+  failureEvidenceSha256
+  qualificationSha256
+dod[]:
+  id
+  status
+  evidenceProviderIds[]
+cleanup:
+  activeOwnedProcessCount
+  activeOwnedContainerCount
+  activeOwnedListenerCount
+  targetHeadUnchanged
+  targetStatusUnchanged
+  productionDatabaseUnchanged
+  productionArtifactRootUnchanged
+verdict
+</code></pre>
+  <p>
+    <code>verdict</code>は全command exit 0、SH-DOD-01から17が全てpassed、cleanup count 0、
+    immutable input一致のときだけ<code>passed</code>を許す。<code>skipped</code>、
+    <code>not_run</code>、<code>blocked</code>をpassへ集約しない。
+  </p>
+
+  <h3 id="83-log-and-evidence-policy">8.3 Log and evidence policy</h3>
+  <ul>
+    <li>run rootは<code>artifacts/scanner-hardening-closeout/&lt;run-id&gt;/</code>とする。</li>
+    <li>既存run rootへは書かず、exclusive createを使う。</li>
+    <li>raw log、SQLite、scanner artifactはGitへ追加しない。</li>
+    <li>receiptにはrelative path、SHA-256、size、exit codeだけを保存する。</li>
+    <li>absolute path、secret、environment dump、raw finding bodyをreceiptへ保存しない。</li>
+    <li>promotion後のtracked receiptを再生成または上書きしない。</li>
+  </ul>
+
+  <h3 id="84-exit-codes">8.4 Exit codes</h3>
+  <table>
+    <caption>
+      Closeout runner exit codes
+    </caption>
+    <thead>
+      <tr><th scope="col">Exit</th><th scope="col">Meaning</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>0</td><td>全gate合格、promotable receipt生成</td></tr>
+      <tr><td>2</td><td>argument、schema、commit不正</td></tr>
+      <tr><td>3</td><td>dirty checkout、scope外path、generated drift</td></tr>
+      <tr><td>4</td><td>focused regressionまたはDoD evidence不足</td></tr>
+      <tr><td>5</td><td>individual scanner E2E不合格</td></tr>
+      <tr><td>6</td><td>repeatability、full profile、failure injection不合格</td></tr>
+      <tr><td>7</td><td><code>verify:strict</code>不合格または中断</td></tr>
+      <tr><td>8</td><td>target mutation、production data mutation、cleanup leak</td></tr>
+      <tr><td>9</td><td>receiptまたはevidence digest不一致</td></tr>
+    </tbody>
+  </table>
+
+  <h3 id="85-ar-03-commands">8.5 Commands</h3>
+  <pre><code class="language-bash">bun run scanner-hardening:closeout -- \
+  --implementation-commit "$(git rev-parse HEAD)" \
+  --out artifacts/scanner-hardening-closeout
+
+bun run scanner-hardening:closeout:verify -- \
+  --receipt artifacts/scanner-hardening-closeout/&lt;run-id&gt;/receipt.json
+
+bun run docs:check
+git diff --check
+</code></pre>
+  <p>
+    実装ではshell command substitutionを使わない。上記は人間向けの実行例であり、runner内部では
+    <code>git rev-parse HEAD</code>のstdoutを検証して引数値と照合する。
+  </p>
+
+  <h3 id="86-ar-03-acceptance">8.6 Acceptance</h3>
+  <ul>
+    <li>closeout runnerとreceipt verifierが同じreceiptに対してexit 0を返す。</li>
+    <li><code>verify:strict</code>の実終了コード0がreceiptへ保存されている。</li>
+    <li>command台帳に重複、欠落、任意command injectionがない。</li>
+    <li>全scanner evidenceのbytes、SHA-256、sizeをreceipt verifierが再計算する。</li>
+    <li>run終了後のowned process/container/listener countが全て0である。</li>
+    <li>todolist、production DB、production artifact rootのbefore/afterが一致する。</li>
+    <li>receiptが示すimplementation commitをclean checkoutで取得できる。</li>
+  </ul>
+
+  <h2 id="9-test-plan">9. Test plan for closeout tooling</h2>
+  <table>
+    <caption>
+      Closeout-specific tests
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Test</th>
+        <th scope="col">Fixture</th>
+        <th scope="col">Expected</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td>scope pass</td><td>allowlist内のrename/add/delete</td><td>exit 0</td></tr>
+      <tr><td>scope unknown</td><td><code>web/**</code>変更</td><td>exit 3、pathを列挙</td></tr>
+      <tr><td>scope escape</td><td>absolute path、<code>..</code>、symlink</td><td>schema拒否</td></tr>
+      <tr><td>DoD missing</td><td>SH-DOD-17欠落</td><td>receipt不合格</td></tr>
+      <tr><td>DoD duplicate</td><td>同じIDを2件</td><td>schemaまたはverifier拒否</td></tr>
+      <tr><td>command failed</td><td>strict exit 1</td><td>exit 7、promotable receiptなし</td></tr>
+      <tr><td>command interrupted</td><td>SIGTERM</td><td>child停止、cleanup、non-zero</td></tr>
+      <tr><td>log tampered</td><td>promotion後のstdout変更</td><td>exit 9</td></tr>
+      <tr><td>artifact tampered</td><td>scanner evidence bytes変更</td><td>exit 9</td></tr>
+      <tr><td>cleanup leak</td><td>owned containerを残す</td><td>exit 8</td></tr>
+      <tr><td>target mutated</td><td>fixture target status変更</td><td>exit 8</td></tr>
+      <tr><td>production path mutated</td><td>fixture DB/artifact tree変更</td><td>exit 8</td></tr>
+      <tr><td>failure case missing</td><td>FI-11欠落</td><td>failure verifier不合格</td></tr>
+      <tr><td>false success</td><td>0 requestでcovered</td><td>SH-DOD-10不合格</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="10-implementation-order">10. Implementation order and commits</h2>
+  <ol>
+    <li>
+      Commit A: scope schema、scope contract、scope checker、tests。本commitではscanner実装を変更しない。
+    </li>
+    <li>
+      Commit B: DoD registry、failure injection contract/runner/verifier、case-specific observations、tests。
+    </li>
+    <li>
+      Commit C: closeout runner、receipt schema/verifier、package commands、tests。
+    </li>
+    <li>Commit D: scanner hardening対象diffをscope contractに従って統合する。</li>
+    <li>
+      Commit E: clean checkoutのpassing receipt、親計画の完了記録、本計画の実装記録を追加する。
+    </li>
+    <li>
+      Commit F: 親計画と本計画をarchiveへ移し、<code>spec/index.html</code>を更新するdocs-only commit。
+    </li>
+  </ol>
+  <p>
+    reviewを容易にするため、Commit Bでscanner versionやfinding baselineを更新しない。既存testが
+    failure injectionに必要なdependency seamを持たない場合は、production behaviorを変えない最小の
+    dependency injection境界を同commit内に追加する。
+  </p>
+
+  <h2 id="11-handoff">11. Handoff contract</h2>
+  <p>各commitまたは担当交代時に次を埋める。空欄があれば次のsliceへ進まない。</p>
+  <pre><code class="language-text">Slice: AR-01 | AR-02 | AR-03
+Planning baseline commit:
+Implementation commit:
+Changed production files:
+Changed test/contract files:
+Scope checker command/result:
+Focused test command/result:
+Individual scanner case IDs/result:
+Failure injection case IDs/result:
+Full-profile evidence path/SHA-256:
+Strict command exit code/log SHA-256:
+Target before/after HEAD/status:
+Production DB/artifact before/after:
+Owned process/container/listener after run:
+Receipt path/SHA-256:
+Residual risks:
+Next unblocked slice:
+</code></pre>
+
+  <h2 id="12-stop-conditions">12. Stop conditions</h2>
+  <ul>
+    <li>scope外path、特に<code>web/**</code>がimplementation commitへ混入した。</li>
+    <li>DoDをconsole text、手動記憶、自己申告のassertion IDだけでpassにした。</li>
+    <li>TS、FI、SH-DODのrequired IDが一つでも欠落した。</li>
+    <li>scanner E2Eまたはstrict gateをskipしてreceiptを生成した。</li>
+    <li>target、production DB、production artifact rootが変更された。</li>
+    <li>owned process、container、listenerが一つでも残った。</li>
+    <li>既存evidence、receipt、raw artifactを上書きした。</li>
+    <li>todolist codeをhost processとして起動した。</li>
+    <li>scannerが実行中にbinary、rules、template、databaseをdownloadした。</li>
+    <li>失敗結果を<code>completed</code>、0 finding、warningだけへ変換した。</li>
+  </ul>
+
+  <h2 id="13-definition-of-done">13. Definition of Done</h2>
+  <ul>
+    <li><input disabled="" type="checkbox" /> AR-01のscope checkerがclean checkoutでpassする。</li>
+    <li><input disabled="" type="checkbox" /> scanner hardening対象のimplementation commitが存在する。</li>
+    <li><input disabled="" type="checkbox" /> scope外変更がscanner hardening commitに含まれない。</li>
+    <li><input disabled="" type="checkbox" /> SH-DOD-01からSH-DOD-17が全て実測証跡でpassする。</li>
+    <li><input disabled="" type="checkbox" /> 全12 individual scanner E2E caseがpassする。</li>
+    <li><input disabled="" type="checkbox" /> FI-01からFI-11が全てfail closedする。</li>
+    <li><input disabled="" type="checkbox" /> full profile 2 runのrepeatability verifierがpassする。</li>
+    <li><input disabled="" type="checkbox" /> <code>verify:strict</code>のexit 0がreceiptへ保存される。</li>
+    <li><input disabled="" type="checkbox" /> closeout receipt verifierがpassする。</li>
+    <li><input disabled="" type="checkbox" /> cleanup、target、production dataの全predicateがpassする。</li>
+    <li><input disabled="" type="checkbox" /> 親計画の完了記録がreceiptと一致する。</li>
+    <li><input disabled="" type="checkbox" /> 親計画と本計画をarchiveへ移したdocs-only commitがpassする。</li>
+  </ul>
+  <p>
+    上記12項目が全てpassした時点でのみ、親計画と本計画をarchive可能と判定する。未完了項目を
+    別計画へ移管する場合は、移管先のactive plan、owner、acceptance、開始条件をreceiptへ記録する。
+    単なる「後で対応」は移管として認めない。
+  </p>
+</article>

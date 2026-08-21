@@ -12,6 +12,7 @@ import {
 } from "./report-builder-helpers";
 import type { buildReportQuery } from "./report-builder-query";
 import { readPluginExecutionSummary } from "./report-builder-technology";
+import { readStoredScanExecutionPlan } from "./scan-execution-plan-builder";
 import { readStoredScanPreflight } from "./scan-preflight";
 import { readSourceSastCoverage } from "./source-sast-coverage";
 
@@ -56,6 +57,7 @@ export function renderReportOverview(
 	const sourceSastCoverage = readSourceSastCoverage(scanRun.metadata);
 	const limitedSourceSast = sourceSastCoverage?.coverageEffect === "gap";
 	const scanPreflight = readStoredScanPreflight(scanRun.metadata);
+	const executionPlan = readStoredScanExecutionPlan(scanRun.metadata);
 	const limitedPreflight =
 		scanPreflight !== null && scanPreflight.status !== "ready";
 	const limitedTechnology =
@@ -112,6 +114,25 @@ export function renderReportOverview(
 		if (scanPreflight.limitationCodes.length > 0) {
 			lines.push(
 				`- **Preflight limitations:** ${scanPreflight.limitationCodes.join(", ")}`,
+			);
+		}
+	}
+	if (executionPlan) {
+		const applicable = executionPlan.steps.filter(
+			(step) => step.applicability === "applicable",
+		).length;
+		const notApplicable = executionPlan.steps.filter(
+			(step) => step.applicability === "not_applicable",
+		).length;
+		const blocked = executionPlan.steps.filter(
+			(step) => step.readiness === "blocked",
+		).length;
+		lines.push(
+			`- **Execution plan:** hash=${executionPlan.planHash}, strictness=${executionPlan.strictness}, applicable=${applicable}, not_applicable=${notApplicable}, blocked=${blocked}`,
+		);
+		if (executionPlan.blockerCodes.length > 0) {
+			lines.push(
+				`- **Execution plan blockers:** ${executionPlan.blockerCodes.join(", ")}`,
 			);
 		}
 	}

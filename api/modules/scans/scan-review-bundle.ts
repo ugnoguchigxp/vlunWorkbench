@@ -84,7 +84,55 @@ function compactScanRunMetadata(metadata: unknown): Record<string, unknown> {
 	]) {
 		if (source[key] !== undefined) compact[key] = source[key];
 	}
+	const preflight = compactPreflight(source.scanPreflight);
+	if (preflight) compact.scanPreflight = preflight;
+	const executionPlan = compactExecutionPlan(source.executionPlan);
+	if (executionPlan) compact.executionPlan = executionPlan;
 	return compact;
+}
+
+function compactPreflight(value: unknown): Record<string, unknown> | null {
+	if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+	const source = value as Record<string, unknown>;
+	return pickDefined(source, [
+		"mode",
+		"status",
+		"bindingHash",
+		"preflightHash",
+		"limitationCodes",
+		"summary",
+	]);
+}
+
+function compactExecutionPlan(value: unknown): Record<string, unknown> | null {
+	if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+	const source = value as Record<string, unknown>;
+	return pickDefined(source, [
+		"planHash",
+		"profileId",
+		"profileVersion",
+		"strictness",
+		"sourceState",
+		"sourceSnapshotDigest",
+		"sourceRevisionHash",
+		"resolvedProfileHash",
+		"technologyRegistryDigest",
+		"qualificationHash",
+		"blockerCodes",
+		"warningCodes",
+		"steps",
+	]);
+}
+
+function pickDefined(
+	source: Record<string, unknown>,
+	keys: readonly string[],
+): Record<string, unknown> {
+	return Object.fromEntries(
+		keys.flatMap((key) =>
+			source[key] === undefined ? [] : [[key, source[key]]],
+		),
+	);
 }
 
 function effectiveProfileOutcome(scanRun: ScanRunRow): string {

@@ -1,3 +1,4 @@
+import type { ScanExecutionPlan } from "../../shared/schemas/scan-execution-plan.schema";
 import type { ScanPreflightResult } from "../../shared/schemas/scan-preflight.schema";
 import type { ScanProfile } from "../../shared/schemas/scan-profile.schema";
 import type { ScanTarget } from "../../shared/schemas/scan-target.schema";
@@ -16,6 +17,8 @@ export function buildScanProfileDryRun(params: {
 	imageTar?: string;
 	preflight?: ScanPreflightResult;
 	expectedPreflightBindingHash?: string;
+	expectedPlanHash?: string;
+	executionPlan?: ScanExecutionPlan;
 }): Record<string, unknown> {
 	const allSteps = params.profile.steps ?? [];
 	const selectedSteps = params.stepId
@@ -40,12 +43,28 @@ export function buildScanProfileDryRun(params: {
 			preflight: params.preflight,
 		};
 	}
+	if (
+		params.expectedPlanHash &&
+		(!params.executionPlan ||
+			params.expectedPlanHash !== params.executionPlan.planHash)
+	) {
+		return {
+			ok: false,
+			status: "failed",
+			message: params.executionPlan
+				? "plan_changed: execution plan changed after preview"
+				: "plan_preview_unavailable: an execution plan requires a project target",
+			preflight: params.preflight ?? null,
+			executionPlan: params.executionPlan ?? null,
+		};
+	}
 	return {
 		dryRun: true,
 		profileId: params.profile.id,
 		resolvedProfileHash: hashResolvedProfile(params.profile),
 		coverageGaps: params.profile.coverageGaps ?? [],
 		preflight: params.preflight ?? null,
+		executionPlan: params.executionPlan ?? null,
 		target: params.scanTarget,
 		runner: params.runner ?? "host",
 		finalReport: params.finalReportEnabled,

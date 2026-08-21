@@ -12,6 +12,7 @@ import { ZapBaselineRunner } from "../runtime-scans/zap-baseline-runner";
 import { ZAP_STABLE_IMAGE } from "../runtime-scans/zap-image-policy";
 import { ScanArtifactSink } from "./artifact-sink";
 import type { ArtifactStorage } from "./artifact-storage";
+import { bindObservedToolProvenance } from "./profile-tool-provenance";
 import {
 	ArtifactRepository,
 	FindingRepository,
@@ -46,7 +47,7 @@ export async function runRuntimeScannerIntoExistingScan(params: {
 	const scanRepo = new ScanRepository(params.db);
 	const artifactRepo = new ArtifactRepository(params.db);
 	const findingRepo = new FindingRepository(params.db);
-	const provenance = await resolveScannerProvenance({
+	let provenance: Record<string, unknown> = await resolveScannerProvenance({
 		toolId: params.adapter,
 		execution: normalizeToolExecutionConfig(params.execution),
 	});
@@ -59,6 +60,7 @@ export async function runRuntimeScannerIntoExistingScan(params: {
 		params.adapter === "nuclei-safe"
 			? await versionRunner.checkVersion()
 			: null;
+	provenance = bindObservedToolProvenance(provenance, toolVersion);
 	const toolRun = await scanRepo.createToolRun({
 		scanRunId: params.scanRunId,
 		toolName: params.adapter,
@@ -107,6 +109,23 @@ export async function runRuntimeScannerIntoExistingScan(params: {
 			exitCode: 127,
 			error: "nuclei executable not found",
 			reasonCode: "tool_unavailable",
+		};
+	}
+	if (
+		params.adapter === "nuclei-safe" &&
+		provenance.identityCompatibility === "mismatch"
+	) {
+		await scanRepo.updateToolRunStatus(toolRun.id, "failed", {
+			exitCode: null,
+			metadata: { reasonCode: "scanner_version_mismatch", provenance },
+		});
+		return {
+			toolRunId: toolRun.id,
+			findingCount: 0,
+			artifactIds: [],
+			exitCode: null,
+			error: "nuclei scanner version changed after preflight",
+			reasonCode: "scanner_version_mismatch",
 		};
 	}
 	let nucleiGateway: PreparedContainerTargetGateway | null = null;

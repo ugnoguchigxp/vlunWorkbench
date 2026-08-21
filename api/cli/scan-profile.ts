@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import { parseArgs } from "node:util";
 import type { ScanTarget } from "../../shared/schemas/scan-target.schema";
@@ -19,17 +20,21 @@ import {
 	runProfileScan,
 } from "../modules/scans/profile-runner";
 import { getProfileById } from "../modules/scans/profiles";
-import { finalizeScanAfterDiagnostic } from "../modules/scans/scan-finalization-service";
 import {
 	ProjectResolutionError,
 	resolveProjectByPath,
 } from "../modules/scans/project-resolver";
 import { ProjectRepository } from "../modules/scans/repositories";
 import {
+	applyStrictProfileRequirements,
+	buildScanExecutionPlan,
+} from "../modules/scans/scan-execution-plan-builder";
+import {
 	executionConfigFromPolicy,
 	resolveScanExecutionPolicy,
 	scanExecutionPolicyMetadata,
 } from "../modules/scans/scan-execution-policy";
+import { finalizeScanAfterDiagnostic } from "../modules/scans/scan-finalization-service";
 import { runScanPreflight } from "../modules/scans/scan-preflight";
 import {
 	type DockerNetworkMode,
@@ -70,6 +75,7 @@ function parseScanProfileArgs() {
 			"include-untracked": { type: "string" },
 			"expected-target-digest": { type: "string" },
 			"expected-preflight-binding-hash": { type: "string" },
+			"expected-plan-hash": { type: "string" },
 			preview: { type: "string", default: "false" },
 			step: { type: "string" },
 			"timeout-sec": { type: "string" },
@@ -153,6 +159,17 @@ async function main() {
 			ok: false,
 			status: "config_error",
 			message: "--expected-preflight-binding-hash must be a sha256: digest.",
+		});
+		process.exit(2);
+	}
+	const expectedPlanHash = argsValues["expected-plan-hash"] as
+		| string
+		| undefined;
+	if (expectedPlanHash && !/^sha256:[0-9a-f]{64}$/.test(expectedPlanHash)) {
+		writeResult({
+			ok: false,
+			status: "config_error",
+			message: "--expected-plan-hash must be a sha256: digest.",
 		});
 		process.exit(2);
 	}
@@ -252,6 +269,7 @@ async function main() {
 			imageRef,
 			imageTar,
 			expectedPreflightBindingHash,
+			expectedPlanHash,
 		});
 		writeResult(dryRunResult);
 		process.exit(dryRunResult.ok === false ? 1 : 0);
@@ -345,17 +363,33 @@ async function main() {
 			});
 		}
 		if (dryRun) {
-			const preflight = await runScanPreflight({
+			const steps = applyStrictProfileRequirements(
 				profile,
-				steps: resolveProfileSteps({
+				resolveProfileSteps({
 					steps: profile.steps,
 					tools: profile.tools,
 					stepId,
 				}),
+			);
+			const preflight = await runScanPreflight({
+				profile,
+				steps,
 				projectId: project.id,
 				repoPath: effectiveRepoPath,
 				execution,
 				consentProjectCodeExecution,
+			});
+			const technologyAnalysis =
+				await analyzeProjectCapabilities(effectiveRepoPath);
+			const executionPlan = buildScanExecutionPlan({
+				scanRunId: randomUUID(),
+				projectId: project.id,
+				profile,
+				steps,
+				preflight,
+				technologyRegistryDigest:
+					technologyAnalysis.capabilityPlan.registryDigest,
+				runner: execution.runner,
 			});
 			const dryRunResult = buildScanProfileDryRun({
 				profile,
@@ -369,6 +403,8 @@ async function main() {
 				imageTar,
 				preflight,
 				expectedPreflightBindingHash,
+				expectedPlanHash,
+				executionPlan,
 			});
 			writeResult(dryRunResult);
 			process.exitCode = dryRunResult.ok === false ? 1 : 0;
@@ -435,6 +471,7 @@ async function main() {
 			target: scanTarget,
 			expectedTargetDigest,
 			expectedPreflightBindingHash,
+			expectedPlanHash,
 			consentProjectCodeExecution,
 		});
 		const automatedDiagnostic =

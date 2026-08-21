@@ -3,6 +3,7 @@ import type { ScanProfile } from "../../../shared/schemas/scan-profile.schema";
 import { buildScanProfiles } from "./profiles";
 import {
   preflightBlocksExecution,
+	resolveScanPreflightMode,
   runScanPreflight,
   type ScanPreflightDependencies,
 } from "./scan-preflight";
@@ -76,7 +77,8 @@ function dependencies(
     }),
     discoverRepositorySchema: async () => false,
     probeBrowser: async () => "chromium",
-    resolveSourceRevision: async () => "c".repeat(40),
+	resolveSourceRevision: async () => "c".repeat(40),
+	resolveSourceState: async () => "clean",
     loadQualification: async () => null,
 		loadQualificationContractHash: async () => DIGEST,
     now: () => NOW,
@@ -91,6 +93,36 @@ function profile(id = "baseline"): ScanProfile {
 }
 
 describe("scan preflight", () => {
+	it("uses enforced mode unless shadow was explicitly requested", () => {
+		expect(resolveScanPreflightMode(undefined)).toBe("enforced");
+		expect(resolveScanPreflightMode("shadow")).toBe("shadow");
+		expect(resolveScanPreflightMode("enforced")).toBe("enforced");
+	});
+
+	it("fails closed for a strict profile without a clean immutable source revision", async () => {
+		const selected = profile("full-security-scan");
+		const result = await runScanPreflight({
+			profile: selected,
+			steps: selected.tools.map((tool) => ({
+				kind: "static_tool" as const,
+				...tool,
+			})),
+			repoPath: "/redacted/project",
+			execution: { runner: "host" },
+			dependencies: dependencies({ resolveSourceState: async () => "dirty" }),
+		});
+
+		expect(result.status).toBe("blocked");
+		expect(result.limitationCodes).toContain("source_worktree_dirty");
+		expect(result.checks).toContainEqual(
+			expect.objectContaining({
+				kind: "source_revision",
+				required: true,
+				status: "blocked",
+			}),
+		);
+	});
+
   it("blocks a required OSV step before execution when its database is missing", async () => {
     const probeScannerVersion = vi.fn(async (scannerId: string) =>
       scannerId === "gitleaks" ? "8.30.1" : "2.4.0",
@@ -214,7 +246,7 @@ describe("scan preflight", () => {
     );
   });
 
-  it("keeps normal strict scans independent from the protected-CI qualification artifact", async () => {
+	it("keeps normal strict scans independent from the protected-CI qualification artifact", async () => {
     const selected = profile("api-schema-readonly");
     const result = await runScanPreflight({
       profile: selected,
@@ -223,12 +255,63 @@ describe("scan preflight", () => {
       execution: { runner: "host" },
       mode: "enforced",
       dependencies: dependencies(),
-    });
+	});
+
     expect(result.status).toBe("ready");
     expect(result.checks).not.toContainEqual(
       expect.objectContaining({ kind: "scanner_e2e_qualification" }),
     );
   });
+
+	it("blocks a strict API scan before any target or scanner process when route evidence has no schema", async () => {
+		const selected = profile("api-schema-readonly");
+		const probeScannerVersion = vi.fn(async () => "schemathesis 4.0.0");
+		const inferTargetPlan = vi.fn(async ({ repoPath }: { repoPath: string }) => ({
+			pluginId: "build.npm",
+			repoPath,
+			scriptName: "start",
+			script: "vite",
+			packageManager: "bun" as const,
+			command: ["bun", "run", "start"],
+			env: {},
+			requiresProjectCodeConsent: false,
+			port: 4000,
+			origin: "http://127.0.0.1:4000",
+			readinessPaths: ["/"],
+			warnings: [],
+		}));
+		const result = await runScanPreflight({
+			profile: selected,
+			steps: selected.steps!,
+			repoPath: "/redacted/project",
+			execution: { runner: "host" },
+			mode: "enforced",
+			dependencies: dependencies({
+				probeScannerVersion,
+				inferTargetPlan,
+				discoverRepositorySchema: async () => ({
+					schemaPresent: false,
+					apiDetected: true,
+					evidenceRefs: ["api-source:src/server.ts"],
+				}),
+			}),
+		});
+
+		expect(result).toMatchObject({
+			status: "blocked",
+			limitationCodes: ["schema_not_found"],
+		});
+		expect(result.checks).toContainEqual(
+			expect.objectContaining({
+				kind: "api_schema_applicability",
+				status: "blocked",
+				required: true,
+				evidenceRefs: ["api-source:src/server.ts"],
+			}),
+		);
+		expect(probeScannerVersion).not.toHaveBeenCalled();
+		expect(inferTargetPlan).not.toHaveBeenCalled();
+	});
 
   it("can enforce the verified scanner qualification as an explicit deployment admission control", async () => {
     const selected = profile("api-schema-readonly");

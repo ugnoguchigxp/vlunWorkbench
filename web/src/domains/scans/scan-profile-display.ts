@@ -90,7 +90,7 @@ export const PROFILE_DISPLAY: Record<
 	"full-security-scan": {
 		name: "総合セキュリティ診断",
 		subtitle:
-			"詳細な静的診断と HTTP DAST を実行します。Semgrep 未登録時は source SAST 未実行を coverage gap として記録します。",
+			"詳細な静的診断と HTTP DAST を実行します。必要な scanner が利用できない場合は、未実行として成功扱いにせず停止します。",
 	},
 	"secrets-dependencies-runtime": {
 		name: "漏えい・依存関係・公開面診断",
@@ -165,6 +165,8 @@ export function formatScanOutcome(value: string | null | undefined): string {
 	const labels: Record<string, string> = {
 		completed: "完了",
 		completed_with_warnings: "完了（警告あり）",
+		blocked: "ブロック済み",
+		incomplete: "未完了",
 		failed: "失敗",
 		running: "実行中",
 		queued: "待機中",

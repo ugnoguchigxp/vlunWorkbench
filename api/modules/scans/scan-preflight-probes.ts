@@ -5,11 +5,11 @@ import { inferDastTargetStartPlan } from "../dast/target-preparer";
 import { RuntimeScannerRunner } from "../runtime-scans/runtime-scanner-runner";
 import { ArtifactStorage } from "./artifact-storage";
 import type { ScanPreflightDependencies } from "./scan-preflight";
-import { staticScannerAdapterRegistry } from "./static-scanner-adapters";
 import {
 	loadScannerE2EContractHash,
 	loadScannerE2EQualification,
 } from "./scanner-e2e-qualification";
+import { staticScannerAdapterRegistry } from "./static-scanner-adapters";
 import { loadScannerDataManifest } from "./tools/scanner-provenance";
 import {
 	checkToolVersion,
@@ -150,8 +150,16 @@ export const defaultScanPreflightDependencies: ScanPreflightDependencies = {
 		return result.ok && result.exitCode === 0;
 	},
 	inferTargetPlan: (params) => inferDastTargetStartPlan(params),
-	discoverRepositorySchema: async (repoPath) =>
-		(await discoverApiSchema({ repoPath })).applicable,
+	discoverRepositorySchema: async (repoPath) => {
+		const discovery = await discoverApiSchema({ repoPath });
+		return {
+			schemaPresent: discovery.applicable,
+			apiDetected: discovery.apiDetected,
+			evidenceRefs: discovery.apiEvidencePaths.map(
+				(candidate) => `api-source:${candidate}`,
+			),
+		};
+	},
 	probeBrowser: async () => {
 		const executable = chromium.executablePath();
 		return (await fs
@@ -174,6 +182,17 @@ export const defaultScanPreflightDependencies: ScanPreflightDependencies = {
 			/^[a-f0-9]{40,64}$/.test(revision)
 			? revision
 			: null;
+	},
+	resolveSourceState: async (repoPath) => {
+		const result = await runLocalProbe("git", [
+			"-C",
+			repoPath,
+			"status",
+			"--porcelain",
+			"--untracked-files=all",
+		]);
+		if (!result.ok || result.exitCode !== 0) return "unknown";
+		return result.stdout.trim() ? "dirty" : "clean";
 	},
 	now: () => new Date(),
 };

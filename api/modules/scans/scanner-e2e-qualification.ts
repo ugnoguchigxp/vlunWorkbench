@@ -2,14 +2,16 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import type { ScanPreflightResult } from "../../../shared/schemas/scan-preflight.schema";
 import type { ScanProfileStep } from "../../../shared/schemas/scan-profile.schema";
-import {
-	SCANNER_E2E_CASE_IDS,
-	scannerE2ECaseRegistrySchema,
-} from "../../../shared/schemas/scanner-e2e-case.schema";
+import { SCANNER_E2E_CASE_IDS } from "../../../shared/schemas/scanner-e2e-case.schema";
 import {
 	type ScannerE2EQualification,
 	scannerE2EQualificationSchema,
 } from "../../../shared/schemas/scanner-e2e-qualification.schema";
+import {
+	type ScannerE2EQualificationV2,
+	scannerE2EQualificationV2Schema,
+} from "../../../shared/schemas/scanner-e2e-qualification-v2.schema";
+import { scannerE2ECaseRegistryV2Schema } from "../../../shared/schemas/scanner-e2e-v2.schema";
 import { canonicalJson } from "./diff-scan-plan";
 import { hashPreflightValue } from "./scan-preflight-binding";
 
@@ -30,6 +32,10 @@ type UnsignedScannerE2EQualification = Omit<
 	"qualificationHash"
 >;
 
+export type AnyScannerE2EQualification =
+	| ScannerE2EQualification
+	| ScannerE2EQualificationV2;
+
 const CASE_SCANNER_IDS: Record<string, string | null> = {
 	"gitleaks-source": "gitleaks",
 	"osv-manifest": "osv",
@@ -44,6 +50,29 @@ const CASE_SCANNER_IDS: Record<string, string | null> = {
 	"schemathesis-not-applicable": "schemathesis",
 	"schemathesis-readonly": "schemathesis",
 };
+
+const REQUIRED_V2_ASSERTIONS = [
+	"INV-01",
+	"ENT-01",
+	"PLAN-01",
+	"PREF-01",
+	"PROV-01",
+	"WORK-01",
+	"ART-01",
+	"NORM-01",
+	"VERDICT-01",
+	"REPORT-01",
+	"SAFE-01",
+	"CLEAN-01",
+	"FAIL-01",
+];
+const REQUIRED_V2_NOT_APPLICABLE_ASSERTIONS = REQUIRED_V2_ASSERTIONS.filter(
+	(assertion) =>
+		assertion !== "PROV-01" &&
+		assertion !== "WORK-01" &&
+		assertion !== "ART-01" &&
+		assertion !== "NORM-01",
+);
 
 /**
  * Produces a case-scoped scanner identity. The user project revision and its
@@ -108,11 +137,11 @@ export function scannerE2ECaseIdentityHash(params: {
 
 export async function loadScannerE2EQualification(
 	qualificationPath = process.env.VULN_WORKBENCH_SCANNER_E2E_QUALIFICATION,
-): Promise<ScannerE2EQualification | null> {
+): Promise<AnyScannerE2EQualification | null> {
 	if (!qualificationPath) return null;
 	try {
 		const raw = await fs.readFile(path.resolve(qualificationPath), "utf8");
-		const qualification = scannerE2EQualificationSchema.parse(JSON.parse(raw));
+		const qualification = zodAnyQualification(JSON.parse(raw));
 		return isCompleteScannerE2EQualification(qualification)
 			? qualification
 			: null;
@@ -129,10 +158,10 @@ export async function loadScannerE2EContractHash(): Promise<string | null> {
 	try {
 		const contractPath = path.resolve(
 			import.meta.dir,
-			"../../../spec/security-capability/scanner-e2e-cases.v1.json",
+			"../../../spec/security-capability/scanner-e2e-cases.v2.json",
 		);
 		const raw = await fs.readFile(contractPath, "utf8");
-		const registry = scannerE2ECaseRegistrySchema.parse(JSON.parse(raw));
+		const registry = scannerE2ECaseRegistryV2Schema.parse(JSON.parse(raw));
 		const caseIds = registry.cases.map((entry) => entry.id);
 		if (
 			caseIds.length !== SCANNER_E2E_CASE_IDS.length ||
@@ -162,16 +191,38 @@ function hasExactCanonicalCaseSet(caseIds: readonly string[]): boolean {
 
 /** Reject partial, duplicate, or hand-assembled case maps before admission. */
 export function isCompleteScannerE2EQualification(
-	qualification: ScannerE2EQualification,
+	qualification: AnyScannerE2EQualification,
 ): boolean {
 	const { qualificationHash, ...unsigned } = qualification;
 	return (
-		qualificationHash === scannerE2EQualificationHash(unsigned) &&
+		qualificationHash === hashPreflightValue(canonicalJson(unsigned)) &&
 		hasExactCanonicalCaseSet(qualification.qualifiedCaseIds) &&
 		hasExactCanonicalCaseSet(Object.keys(qualification.caseEvidenceHashes)) &&
 		hasExactCanonicalCaseSet(
 			Object.keys(qualification.caseScannerIdentityHashes),
-		)
+		) &&
+		(qualification.schemaVersion === 1 ||
+			(hasExactCanonicalCaseSet(Object.keys(qualification.caseAssertionIds)) &&
+				Object.entries(qualification.caseAssertionIds).every(
+					([caseId, assertions]) =>
+						hasExactAssertionSet(
+							assertions,
+							caseId === "schemathesis-not-applicable"
+								? REQUIRED_V2_NOT_APPLICABLE_ASSERTIONS
+								: REQUIRED_V2_ASSERTIONS,
+						),
+				)))
+	);
+}
+
+function hasExactAssertionSet(
+	actual: readonly string[],
+	expected: readonly string[],
+): boolean {
+	return (
+		actual.length === expected.length &&
+		new Set(actual).size === actual.length &&
+		expected.every((assertion) => actual.includes(assertion))
 	);
 }
 
@@ -212,7 +263,7 @@ function requiredCaseIdsFor(steps: ScanProfileStep[]): string[] {
  * explicit deployment-admission control for strict scans.
  */
 export function checkScannerE2EQualification(params: {
-	qualification: ScannerE2EQualification | null;
+	qualification: AnyScannerE2EQualification | null;
 	steps: ScanProfileStep[];
 	preflight: ScannerE2EPreflightIdentity;
 	expectedContractHash: string | null;
@@ -278,4 +329,14 @@ export function checkScannerE2EQualification(params: {
 			`scanner-e2e-qualification:${qualification.qualificationHash}`,
 		],
 	};
+}
+
+function zodAnyQualification(value: unknown): AnyScannerE2EQualification {
+	return (
+		value &&
+		typeof value === "object" &&
+		(value as { schemaVersion?: unknown }).schemaVersion === 2
+			? scannerE2EQualificationV2Schema
+			: scannerE2EQualificationSchema
+	).parse(value);
 }

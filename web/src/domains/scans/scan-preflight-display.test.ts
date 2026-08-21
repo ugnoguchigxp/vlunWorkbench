@@ -11,6 +11,7 @@ describe("scan preflight display", () => {
 				projectId: "project-1",
 				profileId: "baseline",
 				sourceRevision: null,
+				sourceState: "unknown",
 				mode: "enforced",
 				status: "blocked",
 				createdAt: "2026-08-16T00:00:00.000Z",

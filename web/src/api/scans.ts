@@ -378,6 +378,7 @@ export type ScanReport = {
 		providerRouting?: Record<string, unknown>;
 	};
 	status: "queued" | "running" | "completed" | "failed";
+	stage: "preliminary" | "canonical_final";
 	errorMessage: string | null;
 	generatedByUserId: string | null;
 	createdAt: string;

@@ -19,6 +19,7 @@ const report = (id: string): ScanReport => ({
 		includeUndecided: true,
 	},
 	status: "completed",
+	stage: "canonical_final",
 	errorMessage: null,
 	generatedByUserId: "user-1",
 	createdAt: "2026-08-20T00:00:00.000Z",
@@ -49,11 +50,20 @@ const review = (overrides: Partial<ScanReview> = {}): ScanReview => ({
 });
 
 describe("report workspace view model", () => {
-	it("uses a valid requested report and otherwise falls back to newest report", () => {
+	it("uses a valid requested report and otherwise falls back to the canonical final", () => {
 		expect(selectWorkspaceReportId([report("new"), report("old")], "old")).toBe("old");
 		expect(selectWorkspaceReportId([report("new")], "missing")).toBe("new");
+		expect(
+			selectWorkspaceReportId([
+				{ ...report("preliminary"), stage: "preliminary" },
+				report("final"),
+			]),
+		).toBe("final");
+		expect(
+			selectWorkspaceReportId([{ ...report("preliminary"), stage: "preliminary" }]),
+		).toBeNull();
 		expect(selectWorkspaceReportId([])).toBeNull();
-	});
+});
 
 	it("only exposes a completed LLM review with visible commentary", () => {
 		expect(hasLlmComment(review())).toBe(true);

@@ -105,6 +105,9 @@ export class TrivyRunner {
 							"image",
 							"--format",
 							"json",
+							// Image E2E must prove package coverage, not merely that the
+							// image command started. This is also useful production evidence.
+							"--list-all-pkgs",
 							"--output",
 							tempJsonPath,
 							...(options.imageRef

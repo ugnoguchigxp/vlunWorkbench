@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { zValidator } from "@hono/zod-validator";
 import { Hono } from "hono";
@@ -23,12 +24,16 @@ import {
 } from "../modules/scans/git-diff-resolver";
 import { resolveProfileSteps } from "../modules/scans/profile-runner";
 import { getProfileById } from "../modules/scans/profiles";
-import { isTemporaryProjectPath } from "../modules/scans/project-visibility";
 import type { ProjectDeletionService } from "../modules/scans/project-deletion-service";
+import { isTemporaryProjectPath } from "../modules/scans/project-visibility";
 import type {
 	ProjectRepository,
 	ScanRepository,
 } from "../modules/scans/repositories";
+import {
+	applyStrictProfileRequirements,
+	buildScanExecutionPlan,
+} from "../modules/scans/scan-execution-plan-builder";
 import {
 	executionConfigFromPolicy,
 	resolveScanExecutionPolicy,
@@ -254,11 +259,17 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 				const execution = normalizeToolExecutionConfig(
 					executionConfigFromPolicy(policy),
 				);
-				const steps = resolveProfileSteps({
-					steps: profile.steps,
-					tools: profile.tools,
-					stepId: body.stepId,
-				});
+				const steps = applyStrictProfileRequirements(
+					profile,
+					resolveProfileSteps({
+						steps: profile.steps,
+						tools: profile.tools,
+						stepId: body.stepId,
+					}),
+				);
+				const technologyAnalysis = await analyzeProjectCapabilities(
+					authorized.canonicalPath,
+				);
 				const preflight = await runScanPreflight({
 					profile,
 					steps,
@@ -268,7 +279,17 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 					consentProjectCodeExecution:
 						body.consentProjectCodeExecution === true,
 				});
-				return c.json({ preflight });
+				const executionPlan = buildScanExecutionPlan({
+					scanRunId: randomUUID(),
+					projectId,
+					profile,
+					steps,
+					preflight,
+					technologyRegistryDigest:
+						technologyAnalysis.capabilityPlan.registryDigest,
+					runner: execution.runner,
+				});
+				return c.json({ preflight, executionPlan });
 			},
 		)
 		.post(
@@ -347,6 +368,10 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 						.regex(/^[0-9a-f]{64}$/i)
 						.optional(),
 					expectedPreflightBindingHash: z
+						.string()
+						.regex(/^sha256:[0-9a-f]{64}$/)
+						.optional(),
+					expectedPlanHash: z
 						.string()
 						.regex(/^sha256:[0-9a-f]{64}$/)
 						.optional(),
@@ -435,6 +460,7 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 						expectedTargetDigest: body.expectedTargetDigest ?? null,
 						expectedPreflightBindingHash:
 							body.expectedPreflightBindingHash ?? null,
+						expectedPlanHash: body.expectedPlanHash ?? null,
 					},
 				});
 				await deps.scanRepository.createScanEvent({
@@ -484,6 +510,9 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 						"--expected-preflight-binding-hash",
 						body.expectedPreflightBindingHash,
 					);
+				}
+				if (body.expectedPlanHash) {
+					args.push("--expected-plan-hash", body.expectedPlanHash);
 				}
 
 				try {

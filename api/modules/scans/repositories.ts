@@ -186,6 +186,15 @@ export class ScanRepository {
 		planHash: string;
 		plan: Record<string, unknown>;
 	}) {
+		if (
+			params.plan.scanRunId !== params.scanRunId ||
+			params.plan.projectId !== params.projectId ||
+			params.plan.profileId !== params.profileId ||
+			params.plan.strictness !== params.strictness ||
+			params.plan.planHash !== params.planHash
+		) {
+			throw new Error("scan_execution_plan_identity_mismatch");
+		}
 		const [saved] = await this.db
 			.insert(scanExecutionPlans)
 			.values({
@@ -200,11 +209,20 @@ export class ScanRepository {
 			.onConflictDoNothing({ target: scanExecutionPlans.scanRunId })
 			.returning();
 		if (saved) return saved;
-		return (
+		const existing =
 			(await this.db.query.scanExecutionPlans.findFirst({
 				where: eq(scanExecutionPlans.scanRunId, params.scanRunId),
-			})) ?? null
-		);
+			})) ?? null;
+		if (
+			!existing ||
+			existing.projectId !== params.projectId ||
+			existing.profileId !== params.profileId ||
+			existing.strictness !== params.strictness ||
+			existing.planHash !== params.planHash
+		) {
+			throw new Error("scan_execution_plan_immutable_conflict");
+		}
+		return existing;
 	}
 
 	async listActiveScanRuns() {

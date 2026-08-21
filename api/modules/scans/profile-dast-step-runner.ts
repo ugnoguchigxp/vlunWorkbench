@@ -8,6 +8,13 @@ import type { ArtifactStorage } from "./artifact-storage";
 import type { DastStepResult } from "./profile-runner";
 import { ScanRepository } from "./repositories";
 
+export function scanScopedAutoTargetName(
+	baseName: string,
+	scanRunId: string,
+): string {
+	return `${baseName} [scan:${scanRunId}]`;
+}
+
 export async function runDastStepIntoExistingScan(params: {
 	db: AppDatabase;
 	projectId: string;
@@ -46,6 +53,10 @@ export async function runDastStepIntoExistingScan(params: {
 		const target = await dastRepo.createTargetConfig({
 			projectId: params.projectId,
 			...preparedAutoTarget.targetConfig,
+			name: scanScopedAutoTargetName(
+				preparedAutoTarget.targetConfig.name,
+				params.scanRunId,
+			),
 			createdByUserId: params.createdByUserId ?? null,
 			metadata: {
 				...preparedAutoTarget.targetConfig.metadata,

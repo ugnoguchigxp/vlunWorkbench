@@ -439,11 +439,55 @@ describe("Report Builder", () => {
 				metadata: {
 					profileOutcome: "failed",
 					terminationReason: "preflight_failed",
+					executionPlan: {
+						schemaVersion: 1,
+						scanRunId,
+						projectId,
+						profileId: "baseline",
+						createdAt: "2026-08-16T00:00:00.000Z",
+						profileVersion: 1,
+						strictness: "strict",
+						sourceRevision: null,
+						sourceRevisionHash: null,
+						sourceSnapshotDigest: null,
+						sourceState: "unknown",
+						resolvedProfileHash: digest,
+						scannerManifestHash: digest,
+						scannerVersionsHash: digest,
+						dockerImagesHash: null,
+						targetPlanHash: null,
+						technologyRegistryDigest: digest,
+						orchestrator: {
+							id: "profile-orchestrator",
+							version: 1,
+							runner: "host",
+						},
+						preflightBindingHash: digest,
+						preflightHash: digest,
+						planHash: digest,
+						qualificationHash: null,
+						blockerCodes: ["scanner_data_missing"],
+						warningCodes: [],
+						steps: [
+							{
+								stepId: "osv",
+								kind: "static_tool",
+								adapter: "osv",
+								required: true,
+								applicability: "applicable",
+								readiness: "blocked",
+								requirement: "required_if_applicable",
+								reasonCodes: ["scanner_data_missing"],
+								evidenceRefs: [],
+							},
+						],
+					},
 					scanPreflight: {
 						schemaVersion: 1,
 						projectId,
 						profileId: "baseline",
 						sourceRevision: null,
+						sourceState: "unknown",
 						mode: "enforced",
 						status: "blocked",
 						createdAt: "2026-08-16T00:00:00.000Z",
@@ -495,6 +539,8 @@ describe("Report Builder", () => {
 			includeUndecided: true,
 		});
 		expect(report).toContain("Scan preflight");
+		expect(report).toContain(`Execution plan:** hash=${digest}`);
+		expect(report).toContain("Execution plan blockers:** scanner_data_missing");
 		expect(report).toContain("scanner_data_missing");
 		expect(report).toContain("prepare_scanner_database");
 		expect(report).toContain(

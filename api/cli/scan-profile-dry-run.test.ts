@@ -43,6 +43,7 @@ describe("scan profile dry run", () => {
       projectId: "project-1",
       profileId: "baseline",
       sourceRevision: null,
+		sourceState: "unknown" as const,
       mode: "shadow" as const,
       status: "ready" as const,
       createdAt: "2026-08-16T00:00:00.000Z",

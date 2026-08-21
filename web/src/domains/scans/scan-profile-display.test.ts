@@ -25,6 +25,8 @@ describe("scan profile display", () => {
 
 	it("formats known, empty, and unknown outcomes", () => {
 		expect(formatScanOutcome("completed_with_warnings")).toBe("完了（警告あり）");
+		expect(formatScanOutcome("blocked")).toBe("ブロック済み");
+		expect(formatScanOutcome("incomplete")).toBe("未完了");
 		expect(formatScanOutcome(null)).toBe("未確定");
 		expect(formatScanOutcome("new_outcome")).toBe("NEW OUTCOME");
 	});
