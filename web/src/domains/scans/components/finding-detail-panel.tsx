@@ -1,5 +1,6 @@
 import { X } from "lucide-react";
 import { useEffect, useRef } from "react";
+import { MarkdownEditor } from "../../../components/markdown-editor";
 import { SelectInput } from "../../../ui";
 import { readDiffFindingRelationDisplay } from "../diff-target-display";
 import { formatFindingTitle, formatSeverityLabel } from "../scan-display-copy";
@@ -7,13 +8,10 @@ import { useScans } from "../scans-context";
 import { formatDateTime, getSeverityClass, shortPath } from "../scans-utils";
 import { actionQueueStateLabel, type FindingWorkState } from "../work-states";
 import { DecisionSection } from "./decision-section";
-import { RemediationPlanSection } from "./remediation-plan-section";
-import { ReportDetailPanel } from "./report-detail-panel";
-import { ReviewSection } from "./review-section";
-import { ScanResultOverview } from "./scan-result-overview";
-import { ScanSummaryPanel } from "./scan-summary-panel";
-import { VerificationSections } from "./verification-sections";
-import { ZeroFindingDiagnosticPanel } from "./zero-finding-diagnostic-panel";
+import {
+	DECISION_LABELS,
+	DECISION_STATE_LABELS,
+} from "./finding-detail-labels";
 import {
 	DecisionCompletenessSummary,
 	EvidenceChecklistPanel,
@@ -21,21 +19,24 @@ import {
 	ReportImpactPreview,
 	SourceEvidenceDetail,
 } from "./finding-evidence-panels";
-import {
-	DECISION_LABELS,
-	DECISION_STATE_LABELS,
-} from "./finding-detail-labels";
+import { RemediationPlanSection } from "./remediation-plan-section";
+import { ReportDetailPanel } from "./report-detail-panel";
+import { ReviewSection } from "./review-section";
+import { ScanResultOverview } from "./scan-result-overview";
+import { ScanSummaryPanel } from "./scan-summary-panel";
+import { VerificationSections } from "./verification-sections";
+import { ZeroFindingDiagnosticPanel } from "./zero-finding-diagnostic-panel";
 
-export function FindingDetailPanel() {
+export function FindingDetailPanel({ onClose }: { onClose: () => void }) {
 	const c = useScans();
 	return (
 		<section className="scans-panel scans-detail-col">
 			<div className="scans-panel-header scan-detail-header">
 				<div className="scan-detail-heading-copy">
-					<h2>finding 分析と LLM レビュー</h2>
+					<h2>finding 分析</h2>
 					<p>
 						選択中のスキャンが何を確認したものか、その結果として出た
-						finding、LLM レビュー、検証、レポートを確認します。
+						finding、保存済みレビュー、検証、レポートを確認します。
 					</p>
 					{c.selectedScanRunId ? (
 						<small>
@@ -76,7 +77,7 @@ export function FindingDetailPanel() {
 			) : (
 				<EmptyFindingState />
 			)}
-			<FindingDetailDrawer />
+			<FindingDetailDrawer onClose={onClose} />
 		</section>
 	);
 }
@@ -288,7 +289,7 @@ function formatFindingWorkState(state: FindingWorkState): string {
 	return actionQueueStateLabel(state);
 }
 
-function FindingDetailDrawer() {
+function FindingDetailDrawer({ onClose }: { onClose: () => void }) {
 	const c = useScans();
 	const panelRef = useRef<HTMLElement | null>(null);
 	useEffect(() => {
@@ -296,11 +297,11 @@ function FindingDetailDrawer() {
 		const handlePointerDown = (event: PointerEvent) => {
 			const panel = panelRef.current;
 			if (!panel || !(event.target instanceof Node)) return;
-			if (!panel.contains(event.target)) c.handleCloseFinding();
+			if (!panel.contains(event.target)) onClose();
 		};
 		document.addEventListener("pointerdown", handlePointerDown);
 		return () => document.removeEventListener("pointerdown", handlePointerDown);
-	}, [c.selectedFindingId, c.handleCloseFinding]);
+	}, [c.selectedFindingId, onClose]);
 	if (!c.selectedFindingId) return null;
 	const workflow = c.selectedDecisionWorkflow;
 	const finding = c.selectedFindingDetails?.finding;
@@ -377,7 +378,7 @@ function FindingDetailDrawer() {
 					<button
 						type="button"
 						className="scan-modal-close"
-						onClick={c.handleCloseFinding}
+						onClick={onClose}
 						aria-label="finding 詳細を閉じる"
 					>
 						<X className="icon" />
@@ -441,7 +442,7 @@ function FindingBody() {
 					<code>ルール: {finding.ruleId}</code>
 				</div>
 				<h1>{formatFindingTitle(finding.title)}</h1>
-				<p>{finding.description}</p>
+				<FindingDescriptionMarkdown value={finding.description} />
 			</div>
 			<RemediationPlanSection />
 			<DecisionCompletenessSummary />
@@ -452,5 +453,16 @@ function FindingBody() {
 			<SourceEvidenceDetail />
 			<ReportImpactPreview />
 		</>
+	);
+}
+
+export function FindingDescriptionMarkdown({ value }: { value: string }) {
+	return (
+		<MarkdownEditor
+			value={value}
+			editable={false}
+			autoHeight={true}
+			className="finding-description-markdown"
+		/>
 	);
 }

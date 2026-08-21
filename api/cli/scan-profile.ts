@@ -485,7 +485,9 @@ async function main() {
 					})
 				: null;
 		const finalReport =
-			finalReportEnabled && result.status === "completed"
+			finalReportEnabled &&
+			result.status === "completed" &&
+			executionSurface === "cli"
 				? await finalizeScanAfterDiagnostic({
 						db: dbConnection.db,
 						scanRunId: result.scanRunId,

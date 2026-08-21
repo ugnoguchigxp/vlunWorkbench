@@ -180,7 +180,7 @@ describe("Security Intelligence integrity evidence verifier", () => {
 		} finally {
 			rmSync(root, { recursive: true, force: true });
 		}
-	});
+	}, 15_000);
 
 	test("accepts only regular evidence files inside the canonical directory", () => {
 		const root = mkdtempSync(

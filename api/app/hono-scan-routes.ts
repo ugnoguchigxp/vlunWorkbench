@@ -173,6 +173,7 @@ export function registerScanRoutes(app: Hono, runtime: AppRuntime): void {
 			db: runtime.dbConnection.db,
 			llmRouter: runtime.llmRouter,
 			scanSupervisor: runtime.scanSupervisor,
+			improvementRequestRunner: runtime.scanImprovementRequestRunner,
 			scanReportRunner: runtime.scanReportRunner,
 			scanDiagnosticRunner: runtime.scanDiagnosticRunner,
 			scanDeletionService,

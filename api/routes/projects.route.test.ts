@@ -358,6 +358,16 @@ describe("Projects Route", () => {
 			profileOutcome: "pending",
 		});
 		expect(scanRepository.createScanRun).toHaveBeenCalledTimes(1);
+		expect(scanRepository.createScanRun).toHaveBeenCalledWith(
+			expect.objectContaining({
+				metadata: expect.objectContaining({
+					finalReportRequest: {
+						requested: true,
+						title: "baseline 最終セキュリティレポート",
+					},
+				}),
+			}),
+		);
 		expect(scanSupervisor.launch).toHaveBeenCalledWith(
 			"s-queued",
 			expect.arrayContaining([

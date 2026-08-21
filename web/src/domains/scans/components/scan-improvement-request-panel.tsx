@@ -6,6 +6,9 @@ import {
 	MinusCircle,
 	XCircle,
 } from "lucide-react";
+import { useState } from "react";
+import type { Finding } from "../../../api";
+import { MarkdownEditor } from "../../../components/markdown-editor";
 import { Button } from "../../../ui";
 import {
 	buildScanImprovementRequestMarkdown,
@@ -18,6 +21,7 @@ type ScanImprovementRequestPanelProps = {
 	completedAt?: string | null;
 	providerLabel?: string | null;
 	compact?: boolean;
+	findings?: Finding[];
 };
 
 export function ScanImprovementRequestPanel({
@@ -25,15 +29,28 @@ export function ScanImprovementRequestPanel({
 	completedAt,
 	providerLabel,
 	compact = false,
+	findings = [],
 }: ScanImprovementRequestPanelProps) {
+	const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">(
+		"idle",
+	);
+	const [previewOpen, setPreviewOpen] = useState(false);
 	const request = view.request;
 	if (!view.available || !request) return null;
-	const copyHandoffPrompt = () => {
-		if (typeof navigator === "undefined" || !navigator.clipboard) return;
-		void navigator.clipboard.writeText(view.handoffPrompt);
+	const markdown = buildScanImprovementRequestMarkdown(request, findings);
+	const copyHandoffPrompt = async () => {
+		if (typeof navigator === "undefined" || !navigator.clipboard) {
+			setCopyStatus("failed");
+			return;
+		}
+		try {
+			await navigator.clipboard.writeText(markdown);
+			setCopyStatus("copied");
+		} catch {
+			setCopyStatus("failed");
+		}
 	};
 	const exportMarkdown = () => {
-		const markdown = buildScanImprovementRequestMarkdown(request);
 		const blob = new Blob([markdown], { type: "text/markdown;charset=utf-8" });
 		const url = URL.createObjectURL(blob);
 		const anchor = document.createElement("a");
@@ -46,7 +63,9 @@ export function ScanImprovementRequestPanel({
 		<section className="decision-grade-panel scan-improvement-request">
 			<div className="decision-grade-panel-head">
 				<div>
-					<span className="scan-review-context-label">LLM 引き継ぎ</span>
+					<span className="scan-review-context-label">
+						LLMへの改修依頼指示書
+					</span>
 					<h3>
 						<Code className="icon" />
 						{view.title}
@@ -60,9 +79,13 @@ export function ScanImprovementRequestPanel({
 					) : null}
 				</div>
 				<div className="scan-handoff-actions">
-					<Button type="button" variant="secondary" onClick={copyHandoffPrompt}>
+					<Button
+						type="button"
+						variant="secondary"
+						onClick={() => void copyHandoffPrompt()}
+					>
 						<Copy className="icon" />
-						コピー
+						{copyStatus === "copied" ? "コピーしました" : "指示書をコピー"}
 					</Button>
 					<Button type="button" variant="secondary" onClick={exportMarkdown}>
 						<Download className="icon" />
@@ -70,6 +93,11 @@ export function ScanImprovementRequestPanel({
 					</Button>
 				</div>
 			</div>
+			{copyStatus === "failed" ? (
+				<p className="workspace-inline-error" role="status">
+					クリップボードへコピーできませんでした。
+				</p>
+			) : null}
 			<p>{view.objective}</p>
 			<div className="scan-handoff-quality">
 				{view.qualityChecks.map((check) => (
@@ -109,9 +137,20 @@ export function ScanImprovementRequestPanel({
 					))}
 				</div>
 			) : null}
-			<pre className="remediation-box">
-				<code>{view.handoffPrompt}</code>
-			</pre>
+			<details
+				className="scan-handoff-preview"
+				onToggle={(event) => setPreviewOpen(event.currentTarget.open)}
+			>
+				<summary>依頼指示書をプレビュー</summary>
+				{previewOpen ? (
+					<MarkdownEditor
+						value={markdown}
+						editable={false}
+						autoHeight={true}
+						className="scan-handoff-markdown"
+					/>
+				) : null}
+			</details>
 		</section>
 	);
 }

@@ -306,7 +306,7 @@ export const scanImprovementRequestSchema = z.object({
 			z.object({
 				priority: z.enum(["critical", "high", "medium", "low"]),
 				rationale: z.string().min(1).max(1000),
-				findingIds: z.array(z.string().uuid()).max(50),
+				findingIds: z.array(z.string().uuid()).max(5000),
 			}),
 		)
 		.max(20),
@@ -315,7 +315,7 @@ export const scanImprovementRequestSchema = z.object({
 			z.object({
 				title: z.string().min(1).max(200),
 				body: z.string().min(1).max(2000),
-				findingIds: z.array(z.string().uuid()).max(50),
+				findingIds: z.array(z.string().uuid()).max(5000),
 				evidenceRefs: z.array(z.string().min(1).max(200)).max(50),
 			}),
 		)

@@ -1,8 +1,7 @@
 import type { ScanWorkspaceTab } from "../scans-route-search";
 
 const tabs: Array<{ id: ScanWorkspaceTab; label: string }> = [
-	{ id: "overview", label: "概要" },
-	{ id: "findings", label: "検出結果" },
+	{ id: "overview", label: "概要・検出結果" },
 	{ id: "coverage", label: "カバレッジ" },
 	{ id: "report", label: "レポート" },
 ];

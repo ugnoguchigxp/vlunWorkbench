@@ -97,7 +97,7 @@
 			"path": "web/src/domains/scans/scans-controller-view-model.ts",
 			"testId": "E2E-SCAN-RESULT-VIEW-MODEL",
 			"spec": "tests/e2e/release-readiness.spec.ts",
-			"title": "mocked completed scan results and Markdown report preview render"
+			"title": "mocked scan workspace renders results, report preview, and history deletion"
 		},
 		{
 			"path": "web/src/domains/scans/scans-derived-controller.ts",
@@ -121,7 +121,7 @@
 			"path": "web/src/domains/scans/use-automated-diagnostic-state.ts",
 			"testId": "E2E-SCAN-DIAGNOSTIC-STATE",
 			"spec": "tests/e2e/release-readiness.spec.ts",
-			"title": "mocked completed scan results and Markdown report preview render"
+			"title": "mocked scan workspace renders results, report preview, and history deletion"
 		},
 		{
 			"path": "web/src/domains/scans/use-dast-controller.ts",

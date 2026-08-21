@@ -6,7 +6,11 @@ const DIGEST = `sha256:${"a".repeat(64)}`;
 
 describe("scan profile dry run", () => {
   it("returns the strict SAST contract from profile resolution", () => {
-    const profile = buildScanProfiles({ optionalAdapterIds: [] }).find(
+    const profiles = buildScanProfiles({ optionalAdapterIds: [] });
+    expect(profiles.some((candidate) => candidate.id === "semgrep-baseline")).toBe(
+      false,
+    );
+    const profile = profiles.find(
       (candidate) => candidate.id === "full-security-scan",
     )!;
     const result = buildScanProfileDryRun({
@@ -21,9 +25,15 @@ describe("scan profile dry run", () => {
   });
 
   it("keeps Semgrep in the profile regardless of old optional adapter flags", () => {
-    const profile = buildScanProfiles({
+    const profiles = buildScanProfiles({
       optionalAdapterIds: ["semgrep"],
-    }).find((candidate) => candidate.id === "full-security-scan")!;
+    });
+    expect(profiles.some((candidate) => candidate.id === "semgrep-baseline")).toBe(
+      true,
+    );
+    const profile = profiles.find(
+      (candidate) => candidate.id === "full-security-scan",
+    )!;
     const result = buildScanProfileDryRun({
       profile,
       scanTarget: { kind: "full" },

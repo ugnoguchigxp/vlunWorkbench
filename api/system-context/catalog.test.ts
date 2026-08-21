@@ -10,10 +10,10 @@ import { promptCatalog } from "./catalog";
 describe("promptCatalog", () => {
 	test("loads all production contexts with validated integrity", () => {
 		const descriptions = promptCatalog.list();
-		expect(descriptions).toHaveLength(10);
+		expect(descriptions).toHaveLength(12);
 		expect(
 			descriptions.filter((description) => description.messageRole === "user"),
-		).toHaveLength(3);
+		).toHaveLength(4);
 	});
 
 	test("binds the English chat decision context without fallback", () => {

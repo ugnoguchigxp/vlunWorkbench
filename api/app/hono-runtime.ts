@@ -30,9 +30,11 @@ import {
 	ScanRepository,
 } from "../modules/scans/repositories";
 import { ScanDiagnosticRunner } from "../modules/scans/scan-diagnostic-runner";
+import { ScanImprovementRequestRunner } from "../modules/scans/scan-improvement-request-runner";
 import { ScanProcessSupervisor } from "../modules/scans/scan-process-supervisor";
 import { ScanReviewRepository } from "../modules/scans/scan-review-repository";
 import { ScanReviewRunner } from "../modules/scans/scan-review-runner";
+import { finalizeWebScanAfterDiagnostic } from "../modules/scans/web-scan-post-processing";
 import { SettingsRepository } from "../modules/settings/settings.repository";
 import { SourceRepository } from "../modules/sources/source.repository";
 import {
@@ -70,6 +72,7 @@ export type AppRuntime = {
 	webProcessCapacity: WebProcessCapacity;
 	scanReportRunner: ScanReportRunner;
 	scanDiagnosticRunner: ScanDiagnosticRunner;
+	scanImprovementRequestRunner: ScanImprovementRequestRunner;
 	activeAssessmentRunner: ActiveAssessmentRunner;
 	businessLogicRunner: BusinessLogicRunner;
 	integrationClientService: IntegrationClientService;
@@ -163,6 +166,7 @@ export function isRuntimeShape(value: unknown): value is AppRuntime {
 		Boolean(obj.webProcessCapacity) &&
 		Boolean(obj.scanReportRunner) &&
 		Boolean(obj.scanDiagnosticRunner) &&
+		Boolean(obj.scanImprovementRequestRunner) &&
 		Boolean(obj.activeAssessmentRunner) &&
 		Boolean(obj.businessLogicRunner) &&
 		Boolean(obj.integrationClientService) &&
@@ -229,12 +233,27 @@ async function createRuntime(): Promise<AppRuntime> {
 		llmRouter,
 		reviewRepository: scanReviewRepository,
 	});
+	const scanImprovementRequestRunner = new ScanImprovementRequestRunner(
+		dbConnection.db,
+		{
+			llmRouter,
+			reviewRepository: scanReviewRepository,
+		},
+	);
 	const scanDiagnosticRunner = new ScanDiagnosticRunner(dbConnection.db, {
 		scanRepository,
 		reviewRepository: scanReviewRepository,
 		reportRepository: scanReportRepository,
 		reviewRunner: scanReviewRunner,
 		reportRunner: scanReportRunner,
+		onCompletedDiagnostic: async (scanRunId, diagnostic) => {
+			await finalizeWebScanAfterDiagnostic({
+				db: dbConnection.db,
+				scanRunId,
+				scanRepository,
+				diagnostic,
+			});
+		},
 	});
 	const dastAuthContextRepository = new DastAuthContextRepository(
 		dbConnection.db,
@@ -266,13 +285,7 @@ async function createRuntime(): Promise<AppRuntime> {
 		processCapacity: webProcessCapacity,
 		wallClockTimeoutSec: () => env.webScanWallClockTimeoutSec,
 		onCompletedScan: async (scanRunId) => {
-			const started = await scanDiagnosticRunner.start(scanRunId);
-			void started.completion.catch((error) => {
-				console.error(
-					`Automated diagnostic ${started.diagnosticRunId} failed:`,
-					error,
-				);
-			});
+			await scanDiagnosticRunner.run(scanRunId);
 		},
 	});
 	const projectArtifactCleanupRunner = new ProjectArtifactCleanupRunner(
@@ -285,6 +298,7 @@ async function createRuntime(): Promise<AppRuntime> {
 		},
 	);
 	await scanSupervisor.recoverStaleWebScans();
+	await scanImprovementRequestRunner.recover();
 	await scanDiagnosticRunner.recover();
 	await activeAssessmentRunner.recover();
 	await businessLogicRunner.recover();
@@ -380,6 +394,7 @@ async function createRuntime(): Promise<AppRuntime> {
 		webProcessCapacity,
 		scanReportRunner,
 		scanDiagnosticRunner,
+		scanImprovementRequestRunner,
 		activeAssessmentRunner,
 		businessLogicRunner,
 		integrationClientService,

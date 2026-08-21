@@ -6,15 +6,15 @@ import { ToastRegion } from "../../../components/toast-region";
 import { Button, TextInput } from "../../../ui";
 import { useScans } from "../scans-context";
 import {
+	buildClosedFindingSearch,
 	normalizeScansSearch,
 	parseScansSearch,
+	resolveRequestedFindingId,
 	type ScanWorkspaceTab,
 } from "../scans-route-search";
 import { useProjectDeleteController } from "../use-project-delete-controller";
 import { useScanDeleteController } from "../use-scan-delete-controller";
-import type { ScansController } from "../use-scans-controller";
 import { DastAssessmentPanel } from "./dast-assessment-panel";
-import { FindingDetailPanel } from "./finding-detail-panel";
 import { ProjectDeleteDialog } from "./project-delete-dialog";
 import { ProjectRail } from "./project-rail";
 import { ScanContextBar } from "./scan-context-bar";
@@ -37,15 +37,13 @@ export function ScansWorkspacePage() {
 	);
 	const activeTab = search.tab ?? "overview";
 	useEffect(() => {
-		const requestedFinding =
-			activeTab === "findings" ? search.findingId : undefined;
-		if (
-			!requestedFinding ||
-			!c.findings.some((finding) => finding.id === requestedFinding)
-		) {
+		const requestedFinding = resolveRequestedFindingId(
+			{ tab: activeTab, findingId: search.findingId },
+			c.findings.map((finding) => finding.id),
+		);
+		if (!requestedFinding) {
 			if (c.selectedFindingId) {
-				c.setSelectedFindingId("");
-				c.setSelectedFindingDetails(null);
+				c.handleCloseFinding();
 			}
 			return;
 		}
@@ -118,9 +116,17 @@ export function ScansWorkspacePage() {
 		move({
 			projectId: c.selectedProjectId,
 			scanRunId: c.selectedScanRunId,
-			tab: "findings",
+			tab: "overview",
 			findingId,
 		});
+	};
+	const closeFinding = () => {
+		move(
+			buildClosedFindingSearch({
+				projectId: c.selectedProjectId || undefined,
+				scanRunId: c.selectedScanRunId || undefined,
+			}),
+		);
 	};
 	const selectReport = (reportId: string) => {
 		const report = c.reports.find((item) => item.id === reportId) ?? null;
@@ -135,6 +141,9 @@ export function ScansWorkspacePage() {
 	const generateReport = () => {
 		void c.handleGenerateReport("deterministic");
 		changeTab("report");
+	};
+	const generateImprovementRequest = () => {
+		void c.handleGenerateImprovementRequest();
 	};
 	const selectedProfile = c.profiles.find(
 		(profile) => profile.id === c.selectedProfileId,
@@ -197,14 +206,17 @@ export function ScansWorkspacePage() {
 							coverageGaps={
 								c.diagnosticDashboard.diagnosticCoverage.coverageGaps
 							}
-							onSelectFinding={selectFinding}
-						/>
-					) : null}
-					{activeTab === "findings" ? (
-						<FindingsTab
-							findings={c.findings}
 							selectedFindingId={c.selectedFindingId}
-							onSelect={selectFinding}
+							scanReviews={c.scanReviews}
+							generatingImprovementRequest={c.scanReviewLoading}
+							automaticDiagnosticRunning={c.automatedDiagnostics.some(
+								(diagnostic) =>
+									diagnostic.status === "queued" ||
+									diagnostic.status === "running",
+							)}
+							onSelectFinding={selectFinding}
+							onCloseFinding={closeFinding}
+							onGenerateImprovementRequest={generateImprovementRequest}
 						/>
 					) : null}
 					{activeTab === "coverage" ? (
@@ -256,50 +268,6 @@ export function ScansWorkspacePage() {
 			/>
 			<ToastRegion message={scanDeletion.toast ?? projectDeletion.toast} />
 		</main>
-	);
-}
-
-function FindingsTab({
-	findings,
-	selectedFindingId,
-	onSelect,
-}: {
-	findings: ScansController["findings"];
-	selectedFindingId: string;
-	onSelect: (id: string) => void;
-}) {
-	return (
-		<section className="workspace-tab-panel" role="tabpanel">
-			<div className="workspace-section-heading">
-				<h2>検出結果</h2>
-				<span>{findings.length} 件</span>
-			</div>
-			{findings.length ? (
-				<div className="workspace-findings-list">
-					{findings.map((finding) => (
-						<button
-							key={finding.id}
-							type="button"
-							aria-pressed={finding.id === selectedFindingId}
-							onClick={() => onSelect(finding.id)}
-						>
-							<span className={`severity-${finding.severity}`}>
-								{finding.severity}
-							</span>
-							<strong>{finding.title}</strong>
-							<small>{finding.sourceTool}</small>
-						</button>
-					))}
-				</div>
-			) : (
-				<p className="workspace-empty">検出結果はありません。</p>
-			)}
-			{selectedFindingId ? (
-				<div className="workspace-finding-detail">
-					<FindingDetailPanel />
-				</div>
-			) : null}
-		</section>
 	);
 }
 

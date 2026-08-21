@@ -1,9 +1,6 @@
 import type { StepSummary, ToolSummary } from "../../../api";
 import { readDiffTargetDisplay } from "../diff-target-display";
-import {
-	buildScanImprovementRequestView,
-	classifyScanReviewFailure,
-} from "../scan-improvement-request";
+import { classifyScanReviewFailure } from "../scan-improvement-request";
 import { readScanPreflightDisplay } from "../scan-preflight-display";
 import {
 	formatScanOutcome,
@@ -16,7 +13,6 @@ import { readSourceSastCoverageDisplay } from "../source-sast-coverage-display";
 import { readTechnologyCoverageDisplay } from "../technology-coverage-display";
 import { ExecutiveRiskSummary } from "./executive-risk-summary";
 import { ScanComparisonPanel } from "./scan-comparison-panel";
-import { ScanImprovementRequestPanel } from "./scan-improvement-request-panel";
 import { WorkflowCompletionPanel } from "./workflow-completion-panel";
 
 type ScanResultOverviewProps = {
@@ -43,11 +39,8 @@ export function ScanResultOverview({
 	const sourceSastCoverage = readSourceSastCoverageDisplay(scanRun?.metadata);
 	const technologyCoverage = readTechnologyCoverageDisplay(scanRun?.metadata);
 	const latestScanReview = c.scanReviews[0] ?? null;
-	const latestCompletedScanReview =
-		c.scanReviews.find((item) => item.status === "completed") ?? null;
 	const latestFailedScanReview =
 		latestScanReview?.status === "failed" ? latestScanReview : null;
-	const handoffView = buildScanImprovementRequestView(c.scanReviews);
 	const scanReviewFailure = classifyScanReviewFailure(
 		latestFailedScanReview?.errorMessage,
 	);
@@ -60,16 +53,6 @@ export function ScanResultOverview({
 				<WorkflowCompletionPanel />
 				<ScanComparisonPanel />
 			</div>
-			<ScanImprovementRequestPanel
-				view={handoffView}
-				completedAt={latestCompletedScanReview?.completedAt}
-				providerLabel={
-					latestCompletedScanReview
-						? `${latestCompletedScanReview.provider} / ${latestCompletedScanReview.model}`
-						: null
-				}
-				compact
-			/>
 			{scanReviewFailure ? (
 				<div className="scan-review-failure">
 					<strong>{scanReviewFailure.label}</strong>

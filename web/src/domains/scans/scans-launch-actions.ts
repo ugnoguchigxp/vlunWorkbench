@@ -15,8 +15,10 @@ import {
 	retryAutomatedScanDiagnostic,
 	type ScanTargetKind,
 	startScan,
+	triggerScanImprovementRequest,
 	triggerScanReview,
 } from "../../api";
+import { formatScanPreflightFailure } from "./scan-preflight-display";
 import type { useScansFindingActions } from "./scans-finding-actions";
 import type { useFindingLoadEffects } from "./use-finding-load-effects";
 import type { useScanTargetEffects } from "./use-scan-target-effects";
@@ -173,9 +175,7 @@ export function buildScanLaunchActions(scope: ScanLaunchActionsScope) {
 				consentProjectCodeExecution: scanProjectCodeExecutionConsent,
 			});
 			if (preflight.mode === "enforced" && preflight.status === "blocked") {
-				throw new Error(
-					`scan preflight failed: ${preflight.limitationCodes.join(", ")}`,
-				);
+				throw new Error(formatScanPreflightFailure(preflight));
 			}
 			const res = await startScan(selectedProjectId, {
 				profile: selectedProfileId,
@@ -356,6 +356,53 @@ export function buildScanLaunchActions(scope: ScanLaunchActionsScope) {
 		}
 	};
 
+	const handleGenerateImprovementRequest = async (
+		scanRunId = selectedScanRunId,
+	) => {
+		if (!scanRunId) return;
+		setScanReviewLoading(true);
+		setErrorText(null);
+		try {
+			const started = await triggerScanImprovementRequest(scanRunId);
+			if (!started.result.ok) {
+				const reviews = await fetchScanReviews(scanRunId).catch(() => null);
+				if (reviews) setScanReviews(reviews);
+				throw new Error(
+					started.result.error ?? "改修依頼指示書を開始できませんでした。",
+				);
+			}
+
+			const deadline = Date.now() + SCAN_REVIEW_WAIT_TIMEOUT_MS;
+			while (true) {
+				const reviews = await fetchScanReviews(scanRunId);
+				setScanReviews(reviews);
+				const review = reviews.find(
+					(item) => item.id === started.result.reviewId,
+				);
+				if (review?.status === "completed") break;
+				if (review?.status === "failed") {
+					throw new Error(
+						review.errorMessage ?? "改修依頼指示書の生成に失敗しました。",
+					);
+				}
+				if (Date.now() >= deadline) {
+					throw new Error(
+						"改修依頼指示書の完了待機がタイムアウトしました。生成状態を確認してください。",
+					);
+				}
+				await wait(SCAN_REVIEW_POLL_INTERVAL_MS);
+			}
+		} catch (error) {
+			setErrorText(
+				error instanceof Error
+					? error.message
+					: "改修依頼指示書の生成に失敗しました。",
+			);
+		} finally {
+			setScanReviewLoading(false);
+		}
+	};
+
 	const reloadDiagnostics = async (scanRunId = selectedScanRunId) => {
 		if (!scanRunId) return;
 		const [inventory, checks, diagnostic] = await Promise.all([
@@ -426,6 +473,7 @@ export function buildScanLaunchActions(scope: ScanLaunchActionsScope) {
 		handleCancelScan,
 		handleCreateProjectFromFolder,
 		handleGenerateReport,
+		handleGenerateImprovementRequest,
 		handleRetryAutomatedDiagnostic,
 		handlePreviewDiffTarget,
 		handleScanTargetKindChange,

@@ -24,6 +24,7 @@ function createRuntimeShape(projectArtifactCleanupRunner: unknown) {
 		webProcessCapacity: {},
 		scanReportRunner: {},
 		scanDiagnosticRunner: {},
+		scanImprovementRequestRunner: {},
 		activeAssessmentRunner: {},
 		businessLogicRunner: {},
 		integrationClientService: {},

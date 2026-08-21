@@ -25,6 +25,7 @@ export function useScanTargetEffects(scope: ScansControllerBaseScope) {
 		profiles,
 		automatedDiagnostics,
 		scanDetailTab,
+		scanReviews,
 		scanTargetKind,
 		scanRuns,
 		selectedProfileId,
@@ -168,6 +169,11 @@ export function useScanTargetEffects(scope: ScansControllerBaseScope) {
 		(scan: { id: string }) => scan.id === selectedScanRunId,
 	);
 	const automatedDiagnosticStatus = automatedDiagnostics[0]?.status;
+	const runningImprovementRequest = scanReviews.find(
+		(review) =>
+			review.status === "running" &&
+			review.inputBundle?.generationKind === "improvement_request",
+	);
 	const automatedDiagnosticTerminal =
 		automatedDiagnosticStatus === "completed" ||
 		automatedDiagnosticStatus === "completed_with_limitations" ||
@@ -231,6 +237,30 @@ export function useScanTargetEffects(scope: ScansControllerBaseScope) {
 		setScanReviews,
 		setSelectedReport,
 	]);
+
+	useEffect(() => {
+		if (!active || !selectedScanRunId || !runningImprovementRequest) return;
+		let mounted = true;
+		let polling = false;
+		const poll = async () => {
+			if (polling) return;
+			polling = true;
+			try {
+				const reviews = await fetchScanReviews(selectedScanRunId);
+				if (mounted) setScanReviews(reviews);
+			} finally {
+				polling = false;
+			}
+		};
+		const timer = globalThis.setInterval(
+			() => void poll().catch(() => undefined),
+			1_500,
+		);
+		return () => {
+			mounted = false;
+			globalThis.clearInterval(timer);
+		};
+	}, [active, runningImprovementRequest, selectedScanRunId, setScanReviews]);
 
 	useEffect(() => {
 		if (

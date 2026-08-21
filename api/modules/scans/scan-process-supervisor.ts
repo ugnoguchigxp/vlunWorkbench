@@ -25,6 +25,7 @@ type OwnedScanProcess = {
 	wallClockTimeoutSec: number;
 	wallClockTimer?: ReturnType<typeof setTimeout>;
 	killTimer?: ReturnType<typeof setTimeout>;
+	monitorCompletion?: Promise<void>;
 	terminationReason?:
 		| "scan.wall_clock_timeout"
 		| "scan.child_output_limit"
@@ -38,6 +39,8 @@ export class ScanProcessSupervisor {
 	readonly runtimeInstanceId = randomUUID();
 	private readonly owned = new Map<string, OwnedScanProcess>();
 	private readonly pending = new Map<string, PendingScanProcess>();
+	private readonly monitoring = new Set<Promise<void>>();
+	private readonly postProcessing = new Set<Promise<void>>();
 	private readonly fallbackCapacity = new WebProcessCapacity(() => ({
 		concurrency: 2,
 		queueLimit: 32,
@@ -206,9 +209,15 @@ export class ScanProcessSupervisor {
 		if (this.pending.get(scanRunId) === pending) {
 			this.pending.delete(scanRunId);
 		}
-		void this.monitor(owned).catch((error) => {
-			console.error(`Failed to monitor Web scan ${scanRunId}:`, error);
-		});
+		const monitorCompletion = this.monitor(owned)
+			.catch((error) => {
+				console.error(`Failed to monitor Web scan ${scanRunId}:`, error);
+			})
+			.finally(() => {
+				this.monitoring.delete(monitorCompletion);
+			});
+		owned.monitorCompletion = monitorCompletion;
+		this.monitoring.add(monitorCompletion);
 		return true;
 	}
 
@@ -343,14 +352,21 @@ export class ScanProcessSupervisor {
 		}
 		await Promise.all(
 			jobs.map(async (job) => {
-				if (!(await this.waitForExit(job, TERMINATION_GRACE_MS))) {
+				let exited = await this.waitForExit(job, TERMINATION_GRACE_MS);
+				if (!exited) {
 					this.kill(job, "SIGKILL");
-					if (!(await this.waitForExit(job, 1_000))) {
+					exited = await this.waitForExit(job, 1_000);
+					if (!exited) {
 						this.releaseOwnership(job);
+						if (job.monitorCompletion) {
+							this.monitoring.delete(job.monitorCompletion);
+						}
 					}
 				}
 			}),
 		);
+		await Promise.allSettled([...this.monitoring]);
+		await Promise.allSettled([...this.postProcessing]);
 	}
 
 	private terminateOwnedProcess(
@@ -436,18 +452,24 @@ export class ScanProcessSupervisor {
 		if (!scan) return;
 		if (!isActiveStatus(scan.status)) {
 			if (scan.status === "completed" && this.deps.onCompletedScan) {
-				await this.deps.onCompletedScan(job.scanRunId).catch(async (error) => {
+				const postProcessing = this.deps.onCompletedScan(job.scanRunId);
+				this.postProcessing.add(postProcessing);
+				try {
+					await postProcessing;
+				} catch (error) {
 					await this.scanRepository.createScanEvent({
 						scanRunId: job.scanRunId,
 						level: "error",
-						eventType: "diagnostic.dispatch_failed",
+						eventType: "scan.post_processing_failed",
 						message:
-							"Completed scan could not be dispatched to the automated diagnostic pipeline.",
+							"Completed scan post-processing did not finish successfully.",
 						data: {
 							error: error instanceof Error ? error.message : String(error),
 						},
 					});
-				});
+				} finally {
+					this.postProcessing.delete(postProcessing);
+				}
 			}
 			return;
 		}

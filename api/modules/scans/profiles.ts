@@ -4,10 +4,12 @@ import type {
 	ScanProfileStep,
 	ScanScopePolicy,
 } from "../../../shared/schemas/scan-profile.schema";
+import { buildOptionalSemgrepProfile } from "../../plugins/scanners/semgrep-profile";
 import {
 	applyDastStandardRollout,
 	assertRuntimeAssessmentBudget,
 } from "./dast-profile-rollout";
+import { isOptionalScannerAdapterEnabled } from "./optional-scanner-adapter-config";
 import { buildPluginDependencyManifestScope } from "./plugin-dependency-scope";
 
 export {
@@ -161,9 +163,12 @@ const OPTIONAL_SEMGREP_TOOL = {
 	options: { config: "curated-sast-v1" },
 };
 
-export function buildScanProfiles(_params?: {
+export function buildScanProfiles(params?: {
 	optionalAdapterIds?: readonly string[];
 }): ScanProfile[] {
+	const semgrepProfileEnabled = params?.optionalAdapterIds
+		? params.optionalAdapterIds.includes("semgrep")
+		: isOptionalScannerAdapterEnabled("semgrep");
 	return [
 		...buildStaticScanProfiles({
 			SOURCE_BASELINE_SCOPE,
@@ -171,6 +176,9 @@ export function buildScanProfiles(_params?: {
 			ARTIFACT_SCOPE,
 			FULL_DEEP_SCOPE,
 		}),
+		...(semgrepProfileEnabled
+			? [buildOptionalSemgrepProfile(SOURCE_BASELINE_SCOPE)]
+			: []),
 		{
 			id: "web-app-baseline",
 			name: "Webアプリ標準診断",

@@ -3,7 +3,10 @@ import type {
 	ScanPreflightMode,
 	ScanPreflightResult,
 } from "../../../shared/schemas/scan-preflight.schema";
-import { scanPreflightResultSchema } from "../../../shared/schemas/scan-preflight.schema";
+import {
+	SCAN_PREFLIGHT_EVIDENCE_REF_LIMIT,
+	scanPreflightResultSchema,
+} from "../../../shared/schemas/scan-preflight.schema";
 import type {
 	ScanProfile,
 	ScanProfileStep,
@@ -93,7 +96,10 @@ function normalizeRepositorySchemaApplicability(
 		: {
 				schemaPresent: discovered.schemaPresent,
 				apiDetected: discovered.apiDetected,
-				evidenceRefs: discovered.evidenceRefs ?? [],
+				evidenceRefs: (discovered.evidenceRefs ?? []).slice(
+					0,
+					SCAN_PREFLIGHT_EVIDENCE_REF_LIMIT,
+				),
 			};
 }
 

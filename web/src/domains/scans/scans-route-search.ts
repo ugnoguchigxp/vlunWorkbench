@@ -1,9 +1,4 @@
-export const scanWorkspaceTabs = [
-	"overview",
-	"findings",
-	"coverage",
-	"report",
-] as const;
+export const scanWorkspaceTabs = ["overview", "coverage", "report"] as const;
 
 export type ScanWorkspaceTab = (typeof scanWorkspaceTabs)[number];
 
@@ -20,31 +15,34 @@ const isNonEmptyString = (value: unknown): value is string =>
 
 export const parseOptionalScanWorkspaceTab = (
 	value: unknown,
-): ScanWorkspaceTab | undefined =>
-	typeof value === "string" &&
-	(scanWorkspaceTabs as readonly string[]).includes(value)
+): ScanWorkspaceTab | undefined => {
+	if (value === "findings") return "overview";
+	return typeof value === "string" &&
+		(scanWorkspaceTabs as readonly string[]).includes(value)
 		? (value as ScanWorkspaceTab)
 		: undefined;
+};
 
 /** Parses untrusted TanStack Router search input without coercing identifiers. */
 export const parseScansSearch = (
 	search: Record<string, unknown>,
-): ScanWorkspaceSearch =>
-	normalizeScansSearch({
+): ScanWorkspaceSearch => {
+	const tab = parseOptionalScanWorkspaceTab(search.tab);
+	const acceptsFindingId = search.tab === undefined || tab === "overview";
+	return normalizeScansSearch({
 		...(isNonEmptyString(search.projectId)
 			? { projectId: search.projectId }
 			: {}),
 		...(isNonEmptyString(search.scanRunId)
 			? { scanRunId: search.scanRunId }
 			: {}),
-		...(parseOptionalScanWorkspaceTab(search.tab)
-			? { tab: parseOptionalScanWorkspaceTab(search.tab) }
-			: {}),
-		...(isNonEmptyString(search.findingId)
+		...(tab ? { tab } : {}),
+		...(acceptsFindingId && isNonEmptyString(search.findingId)
 			? { findingId: search.findingId }
 			: {}),
 		...(isNonEmptyString(search.reportId) ? { reportId: search.reportId } : {}),
 	});
+};
 
 /**
  * Produces the canonical URL form. Finding and report identifiers never leak
@@ -59,11 +57,29 @@ export const normalizeScansSearch = (
 		...(search.scanRunId ? { scanRunId: search.scanRunId } : {}),
 		...(tab === "overview" ? {} : { tab }),
 	};
-	if (tab === "findings" && search.findingId) {
+	if (tab === "overview" && search.findingId) {
 		return { ...base, findingId: search.findingId };
 	}
 	if (tab === "report" && search.reportId) {
 		return { ...base, reportId: search.reportId };
 	}
 	return base;
+};
+
+/** Keeps the unified overview open while removing the route-owned drawer selection. */
+export const buildClosedFindingSearch = (
+	search: Pick<ScanWorkspaceSearch, "projectId" | "scanRunId">,
+): ScanWorkspaceSearch =>
+	normalizeScansSearch({
+		...search,
+		tab: "overview",
+	});
+
+/** Resolves the route-owned drawer selection against the currently loaded findings. */
+export const resolveRequestedFindingId = (
+	search: ScanWorkspaceSearch,
+	availableFindingIds: readonly string[],
+): string => {
+	if ((search.tab ?? "overview") !== "overview" || !search.findingId) return "";
+	return availableFindingIds.includes(search.findingId) ? search.findingId : "";
 };

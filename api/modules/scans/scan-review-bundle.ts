@@ -1,4 +1,4 @@
-import { eq, inArray } from "drizzle-orm";
+import { asc, count, eq, inArray, sql } from "drizzle-orm";
 import type { ScanReviewFindingFilter } from "../../../shared/schemas/scan.schema";
 import type { AppDatabase } from "../../db";
 import {
@@ -23,6 +23,7 @@ import { buildScanRunSummary } from "./summary-builder";
 
 export type ScanReviewBundleOptions = {
 	maxFindings?: number;
+	findingOffset?: number;
 	maxEvidencePerFinding?: number;
 	maxSnippetChars?: number;
 	maxDescriptionChars?: number;
@@ -244,13 +245,18 @@ export async function buildScanReviewBundle(
 	scanRunId: string,
 	options: ScanReviewBundleOptions = {},
 ) {
-	const maxFindings = options.maxFindings ?? DEFAULT_MAX_FINDINGS;
+	const requestedMaxFindings = options.maxFindings ?? DEFAULT_MAX_FINDINGS;
+	const maxFindings = Number.isSafeInteger(requestedMaxFindings)
+		? Math.max(0, requestedMaxFindings)
+		: DEFAULT_MAX_FINDINGS;
+	const findingOffset = Math.max(0, options.findingOffset ?? 0);
 	const maxEvidencePerFinding =
 		options.maxEvidencePerFinding ?? DEFAULT_MAX_EVIDENCE_PER_FINDING;
 	const maxSnippetChars = options.maxSnippetChars ?? DEFAULT_MAX_SNIPPET_CHARS;
 	const maxDescriptionChars =
 		options.maxDescriptionChars ?? DEFAULT_MAX_DESCRIPTION_CHARS;
 	const findingFilter = options.findingFilter ?? "all";
+	const pageAllFindingsInDatabase = findingFilter === "all";
 	const [scanRun] = await db
 		.select()
 		.from(scanRuns)
@@ -267,6 +273,7 @@ export async function buildScanReviewBundle(
 		toolRows,
 		artifactRows,
 		findingRows,
+		findingCountRows,
 		reproRows,
 		dynamicRows,
 		dastRows,
@@ -277,7 +284,30 @@ export async function buildScanReviewBundle(
 			.select()
 			.from(scanArtifacts)
 			.where(eq(scanArtifacts.scanRunId, scanRunId)),
-		db.select().from(findings).where(eq(findings.scanRunId, scanRunId)),
+		pageAllFindingsInDatabase
+			? db
+					.select()
+					.from(findings)
+					.where(eq(findings.scanRunId, scanRunId))
+					.orderBy(
+						sql`case ${findings.severity}
+							when 'critical' then 0
+							when 'high' then 1
+							when 'medium' then 2
+							when 'low' then 3
+							when 'info' then 4
+							else 5 end`,
+						sql`coalesce(json_extract(${findings.primaryLocation}, '$.path'), '')`,
+						sql`coalesce(cast(json_extract(${findings.primaryLocation}, '$.startLine') as integer), 0)`,
+						asc(findings.id),
+					)
+					.limit(maxFindings)
+					.offset(findingOffset)
+			: db.select().from(findings).where(eq(findings.scanRunId, scanRunId)),
+		db
+			.select({ count: count() })
+			.from(findings)
+			.where(eq(findings.scanRunId, scanRunId)),
 		db
 			.select()
 			.from(reproductionRuns)
@@ -285,6 +315,7 @@ export async function buildScanReviewBundle(
 		db.select().from(dynamicRuns).where(eq(dynamicRuns.scanRunId, scanRunId)),
 		db.select().from(dastRuns).where(eq(dastRuns.scanRunId, scanRunId)),
 	]);
+	const totalFindingCount = findingCountRows[0]?.count ?? 0;
 
 	const sortedAllFindings = [...findingRows].sort((a, b) => {
 		const severityOrder = ["critical", "high", "medium", "low", "info"];
@@ -364,7 +395,9 @@ export async function buildScanReviewBundle(
 			currentDeltaByFindingId?.get(finding.id);
 		return deltaKind === "new" || deltaKind === "regressed";
 	});
-	const sortedFindings = filteredFindings.slice(0, maxFindings);
+	const sortedFindings = pageAllFindingsInDatabase
+		? filteredFindings
+		: filteredFindings.slice(findingOffset, findingOffset + maxFindings);
 	const findingIds = sortedFindings.map((finding) => finding.id);
 	const evidenceRows = allEvidenceRows.filter((evidence) =>
 		findingIds.includes(evidence.findingId),
@@ -522,8 +555,12 @@ export async function buildScanReviewBundle(
 			})),
 		},
 		limits: {
-			totalFindings: findingRows.length,
+			totalFindings: totalFindingCount,
+			filteredFindings: pageAllFindingsInDatabase
+				? totalFindingCount
+				: filteredFindings.length,
 			includedFindings: sortedFindings.length,
+			findingOffset,
 			maxFindings,
 			maxEvidencePerFinding,
 			maxSnippetChars,

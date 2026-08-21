@@ -292,6 +292,8 @@ bun run scan:profile -- --project-path /path/to/repo --profile container-image-s
 
 `full-security-scan` runs the existing static tools, CycloneDX SBOM, coverage-aware Web Passive Standard DAST, Nuclei safe, ZAP baseline, and Schemathesis only when a schema is discovered. Nuclei uses the pinned safe template set; ZAP is Docker-only passive baseline through a bounded local gateway; Schemathesis sends no credentials and limits methods to GET/HEAD/OPTIONS. The planned runtime allocations are bounded to 250 requests in total. Missing schema, failed transport, authentication failure, or budget exhaustion is reported as a coverage gap or limitation, not as “no vulnerabilities.”
 
+For strict `full-security-scan` runs from the Web UI, set Runtime Settings to the `Docker` scanner execution mode and use `vuln-workbench-toolbox-semgrep:local`. The core `vuln-workbench-toolbox:local` image intentionally excludes the separately licensed Semgrep engine and therefore cannot satisfy the full-profile preflight by itself.
+
 For a standalone ZAP run, use `bun run scan:zap-baseline -- --project-path /path/to/local-project --create-project true --json`. It uses the pinned `zaproxy/zap-stable@sha256:8d387b1a63e3425beef4846e39719f5af2a787753af2d8b6558c6257d7a577a2` image (ZAP `2.17.0`), sends at most 20 target requests at 2 requests/second by default, and returns a non-zero CLI status when the ZAP execution or target preflight fails. ZAP Baseline spiders passive GET/HEAD resources; it does not run active attacks or authenticated scans.
 
 ### Individual Scanners

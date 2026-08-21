@@ -3,7 +3,7 @@
   "artifactVersion": 2,
   "compilerVersion": "0.1.2",
   "releaseProfile": "production",
-  "policyDigest": "sha256:483295daa89c0db3fb28cddab0a3f358917afd16f6881bc6801bd358e4e7aa5d",
+  "policyDigest": "sha256:38b98859d4d0fb2f76a56bbeb8a18077b80ede17a3f63f71bdd0300c41efab6b",
   "createdFrom": {
     "configPath": "s11tnext.config.toml",
     "sourceFiles": [
@@ -13,6 +13,8 @@
       "contexts/chat/searchDecision.context.toml",
       "contexts/reviews/findingReview.context.toml",
       "contexts/reviews/findingReviewInput.context.toml",
+      "contexts/scans/improvementRequest.context.toml",
+      "contexts/scans/improvementRequestInput.context.toml",
       "contexts/scans/reportSummary.context.toml",
       "contexts/scans/reportSummaryInput.context.toml",
       "contexts/scans/scanReview.context.toml",
@@ -876,6 +878,162 @@
       "definitionHash": "sha256:4b8686630d0cea355b96f60741574f63a8166f1362d9ca7b8924aff34e92371d",
       "releaseDigest": "sha256:52e66f0b03206c54cf04d0717b177a5691b0ec0bd4852c9777db7d5ffb8a13a7"
     },
+    "scans.improvementRequest": {
+      "key": "scans.improvementRequest",
+      "owner": "security-review",
+      "contentKind": "text",
+      "messageRole": "system",
+      "sourceLocale": "ja-JP",
+      "requiredLocales": [
+        "ja-JP"
+      ],
+      "variables": {},
+      "locales": {
+        "ja-JP": {
+          "sections": [
+            {
+              "id": "request.role",
+              "kind": "instruction",
+              "severity": "must",
+              "optimizable": false,
+              "omitIfEmpty": false,
+              "segments": [
+                {
+                  "type": "literal",
+                  "value": "あなたはセキュリティスキャン結果を実装修正へ引き継ぐ担当者です。\n提供された scan bundle に含まれる finding と保存済み evidence だけを使い、別の LLM または実装者へそのまま渡せる改修依頼指示書を作成してください。"
+                }
+              ]
+            },
+            {
+              "id": "request.language",
+              "kind": "instruction",
+              "severity": "must",
+              "optimizable": false,
+              "omitIfEmpty": false,
+              "segments": [
+                {
+                  "type": "literal",
+                  "value": "JSON のキー名と enum 値を除き、本文は必ず日本語で書いてください。"
+                }
+              ]
+            },
+            {
+              "id": "request.evidence-boundary",
+              "kind": "instruction",
+              "severity": "must",
+              "optimizable": false,
+              "omitIfEmpty": false,
+              "segments": [
+                {
+                  "type": "literal",
+                  "value": "bundle に含まれていない repository files、raw artifacts、web pages、runtime state、logs を見たかのように書いてはいけません。不明な内容は制約または不足情報として明記してください。"
+                }
+              ]
+            },
+            {
+              "id": "request.coverage",
+              "kind": "instruction",
+              "severity": "must",
+              "optimizable": false,
+              "omitIfEmpty": false,
+              "segments": [
+                {
+                  "type": "literal",
+                  "value": "findings が 1 件以上ある場合、implementationTasks の findingIds 全体で、提供された全 finding ID を少なくとも1回参照してください。同じ修正方針の finding は1つのタスクへまとめてください。架空の finding ID や evidence reference を作ってはいけません。\nfindings が 0 件の場合は、安全宣言ではなく coverage confirmation、missing diagnostics、追加確認を中心にし、findingIds は空配列にしてください。"
+                }
+              ]
+            },
+            {
+              "id": "request.handoff",
+              "kind": "instruction",
+              "severity": "must",
+              "optimizable": false,
+              "omitIfEmpty": false,
+              "segments": [
+                {
+                  "type": "literal",
+                  "value": "handoffPrompt は、目的、対象範囲、実装タスク、受け入れ条件、検証方法、非ゴール、保存済み context だけを根拠にする制約を含む standalone の依頼文にしてください。"
+                }
+              ]
+            },
+            {
+              "id": "request.output",
+              "kind": "output-contract",
+              "severity": "must",
+              "optimizable": false,
+              "omitIfEmpty": false,
+              "segments": [
+                {
+                  "type": "literal",
+                  "value": "出力は次の形の単一 JSON object のみにしてください。markdown code block で囲んでも構いません。\n{\n  \"title\": \"改修依頼のタイトル\",\n  \"objective\": \"目的\",\n  \"scope\": [\"対象範囲\"],\n  \"priorityPlan\": [{\"priority\":\"high\",\"rationale\":\"理由\",\"findingIds\":[\"bundle 内の finding UUID\"]}],\n  \"implementationTasks\": [{\"title\":\"タスク名\",\"body\":\"具体的な作業内容\",\"findingIds\":[\"bundle 内の finding UUID\"],\"evidenceRefs\":[\"bundle 内の evidence ID、artifact ID、または location text\"]}],\n  \"acceptanceCriteria\": [\"受け入れ条件\"],\n  \"verificationCommands\": [\"検証コマンド候補\"],\n  \"constraints\": [\"制約\"],\n  \"nonGoals\": [\"非ゴール\"],\n  \"handoffPrompt\": \"別 LLM に渡せる依頼文\"\n}"
+                }
+              ]
+            }
+          ],
+          "artifactHash": "sha256:41e0c951cf5c2cdd61809c0767cd4ccc06fcb03400fe7cbf1ad3d4e66165694a"
+        }
+      },
+      "definitionHash": "sha256:50208522d54804adaeaefaecc684ca1efa726af660593674751bfffc9528bc0f",
+      "releaseDigest": "sha256:71ce9e8eaea403a858f74ce67c5798582cf1e732faf17e10db4807cc8c459671"
+    },
+    "scans.improvementRequestInput": {
+      "key": "scans.improvementRequestInput",
+      "owner": "security-review",
+      "contentKind": "text",
+      "messageRole": "user",
+      "sourceLocale": "ja-JP",
+      "requiredLocales": [
+        "ja-JP"
+      ],
+      "variables": {
+        "bundle": {
+          "required": true,
+          "type": "json",
+          "trust": "untrusted",
+          "placement": "delimited-context",
+          "encoding": "json-value"
+        }
+      },
+      "locales": {
+        "ja-JP": {
+          "sections": [
+            {
+              "id": "request.instruction",
+              "kind": "instruction",
+              "severity": "must",
+              "optimizable": false,
+              "omitIfEmpty": false,
+              "segments": [
+                {
+                  "type": "literal",
+                  "value": "この scan bundle の全 finding を改修依頼にまとめ、指定された JSON のみを返してください。本文は必ず日本語で書いてください。"
+                }
+              ]
+            },
+            {
+              "id": "request.bundle",
+              "kind": "runtime-fact",
+              "severity": "must",
+              "optimizable": false,
+              "omitIfEmpty": false,
+              "segments": [
+                {
+                  "type": "literal",
+                  "value": "SCAN BUNDLE:\n"
+                },
+                {
+                  "type": "variable",
+                  "name": "bundle"
+                }
+              ]
+            }
+          ],
+          "artifactHash": "sha256:a15cab5a4c801abfb732395e14ea543bf0a06fb6e0c8548d0469c234dc42f05c"
+        }
+      },
+      "definitionHash": "sha256:a494248229f24263d8b7e48132eb92a5432c94e778f97a5b1b97e6c893bbe569",
+      "releaseDigest": "sha256:90ae94f98e17225078af4e9494f33f2e1c4f6de0bdee7d563dd270b175013248"
+    },
     "scans.reportSummary": {
       "key": "scans.reportSummary",
       "owner": "security-review",
@@ -1254,5 +1412,5 @@
       "releaseDigest": "sha256:7c47ef1b8f5ae3e49e80c825fcc6eaaa93d801423b119dc395f6952979880a6e"
     }
   },
-  "catalogDigest": "sha256:8f9dd667715eceea4f66dc590a15bde689a50d49968e6f36414fb425eb111ead"
+  "catalogDigest": "sha256:a755b5310d5f6c36d45a92e040235fd818c52640e75bf1e36268858729418a81"
 }

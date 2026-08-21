@@ -1,7 +1,7 @@
-import { eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
+import type { ScanReviewOutput } from "../../../shared/schemas/scan.schema";
 import type { AppDatabase } from "../../db";
 import { scanReviews } from "../../db/schema";
-import type { ScanReviewOutput } from "../../../shared/schemas/scan.schema";
 
 export class ScanReviewRepository {
 	constructor(private readonly db: AppDatabase) {}
@@ -85,6 +85,21 @@ export class ScanReviewRepository {
 		return updated || null;
 	}
 
+	async failRunningReview(id: string, errorMessage: string) {
+		const now = new Date();
+		const [updated] = await this.db
+			.update(scanReviews)
+			.set({
+				status: "failed",
+				errorMessage,
+				completedAt: now,
+				updatedAt: now,
+			})
+			.where(and(eq(scanReviews.id, id), eq(scanReviews.status, "running")))
+			.returning();
+		return updated ?? null;
+	}
+
 	async findById(id: string) {
 		return (
 			(await this.db.query.scanReviews.findFirst({
@@ -106,6 +121,31 @@ export class ScanReviewRepository {
 				where: eq(scanReviews.scanRunId, scanRunId),
 				orderBy: (fields, { desc }) => [desc(fields.createdAt)],
 			})) ?? null
+		);
+	}
+
+	async findRunningImprovementRequest(scanRunId: string) {
+		const rows = await this.db.query.scanReviews.findMany({
+			where: and(
+				eq(scanReviews.scanRunId, scanRunId),
+				eq(scanReviews.status, "running"),
+			),
+			orderBy: [desc(scanReviews.createdAt), desc(scanReviews.id)],
+		});
+		return (
+			rows.find(
+				(row) => row.inputBundle?.generationKind === "improvement_request",
+			) ?? null
+		);
+	}
+
+	async listRunningImprovementRequests() {
+		const rows = await this.db.query.scanReviews.findMany({
+			where: eq(scanReviews.status, "running"),
+			orderBy: [desc(scanReviews.createdAt), desc(scanReviews.id)],
+		});
+		return rows.filter(
+			(row) => row.inputBundle?.generationKind === "improvement_request",
 		);
 	}
 }

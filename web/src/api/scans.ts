@@ -422,6 +422,7 @@ export type ScanReview = {
 	recommendedNextActions: string[];
 	findingTriageHints: Array<Record<string, unknown>>;
 	confidenceNotes: string[];
+	inputBundle?: Record<string, unknown>;
 	output?: Record<string, unknown>;
 	errorMessage: string | null;
 	createdAt: string;
@@ -490,6 +491,28 @@ export async function triggerScanReview(
 			error?: string;
 		};
 	}>(`/api/scans/${scanRunId}/reviews`, { method: "POST", body: input });
+}
+
+export async function triggerScanImprovementRequest(
+	scanRunId: string,
+): Promise<{
+	review: ScanReview | null;
+	result: {
+		ok: boolean;
+		reviewId: string;
+		status: "running" | "failed";
+		error?: string;
+	};
+}> {
+	return requestJson<{
+		review: ScanReview | null;
+		result: {
+			ok: boolean;
+			reviewId: string;
+			status: "running" | "failed";
+			error?: string;
+		};
+	}>(`/api/scans/${scanRunId}/improvement-requests`, { method: "POST" });
 }
 
 export async function fetchScanReports(

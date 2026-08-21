@@ -223,6 +223,56 @@ describe("buildScanReviewBundle filters", () => {
 		expect(bundle.limits.findingFilter).toBe("high_or_critical");
 	});
 
+	it("paginates findings with a deterministic offset without omissions", async () => {
+		const critical = await addFinding({
+			title: "Critical",
+			severity: "critical",
+			fingerprint: "critical",
+		});
+		const high = await addFinding({
+			title: "High",
+			severity: "high",
+			fingerprint: "high",
+		});
+		const medium = await addFinding({
+			title: "Medium",
+			severity: "medium",
+			fingerprint: "medium",
+		});
+
+		const first = await buildScanReviewBundle(connection.db, scanRunId, {
+			findingFilter: "all",
+			maxFindings: 2,
+			findingOffset: 0,
+		});
+		const second = await buildScanReviewBundle(connection.db, scanRunId, {
+			findingFilter: "all",
+			maxFindings: 2,
+			findingOffset: 2,
+		});
+
+		expect(first.findings.map((finding) => finding.id)).toEqual([
+			critical.id,
+			high.id,
+		]);
+		expect(second.findings.map((finding) => finding.id)).toEqual([medium.id]);
+		expect(
+			new Set(
+				[...first.findings, ...second.findings].map((finding) => finding.id),
+			),
+		).toEqual(new Set([critical.id, high.id, medium.id]));
+		expect(first.limits).toMatchObject({
+			filteredFindings: 3,
+			includedFindings: 2,
+			findingOffset: 0,
+		});
+		expect(second.limits).toMatchObject({
+			filteredFindings: 3,
+			includedFindings: 1,
+			findingOffset: 2,
+		});
+	});
+
 	it("includes findings with missing evidence", async () => {
 		await addFinding({
 			title: "Has evidence",

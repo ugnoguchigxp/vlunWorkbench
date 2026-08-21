@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { sha256DigestSchema } from "./security-capability.schema";
 
+export const SCAN_PREFLIGHT_EVIDENCE_REF_LIMIT = 10;
+
 export const scanPreflightModeSchema = z.enum(["shadow", "enforced"]);
 export const scanPreflightCheckStatusSchema = z.enum([
 	"ready",
@@ -61,7 +63,9 @@ export const scanPreflightCheckSchema = z.object({
 	observedPlatform: z.string().min(1).max(80).nullable().optional(),
 	dataState: z.enum(["ready", "missing", "stale", "external"]).nullable(),
 	dataGeneratedAt: z.string().datetime().nullable(),
-	evidenceRefs: z.array(z.string().min(1).max(200)).max(10),
+	evidenceRefs: z
+		.array(z.string().min(1).max(200))
+		.max(SCAN_PREFLIGHT_EVIDENCE_REF_LIMIT),
 });
 
 export const scanPreflightBindingSchema = z.object({

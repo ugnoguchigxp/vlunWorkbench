@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { readScanPreflightDisplay } from "./scan-preflight-display";
+import {
+	formatScanPreflightFailure,
+	readScanPreflightDisplay,
+} from "./scan-preflight-display";
 
 const digest = `sha256:${"a".repeat(64)}`;
 
@@ -63,6 +66,9 @@ describe("scan preflight display", () => {
 				}),
 			],
 		});
+		expect(formatScanPreflightFailure(result!)).toBe(
+			"scan preflight failed: osv [osv]: scanner_data_missing (expected version 2.4.0, observed unavailable, expected digest sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa, observed digest unavailable, action prepare_scanner_database)",
+		);
 	});
 
 	it("rejects a UI-only or malformed readiness guess", () => {

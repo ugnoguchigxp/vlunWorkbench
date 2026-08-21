@@ -286,6 +286,8 @@ bun run scan:profile -- --project-path /path/to/repo --profile container-image-s
 
 `full-security-scan` は既存 static tool、CycloneDX SBOM、coverage-awareなWeb Passive Standard DAST、Nuclei safe、ZAP baseline、schema が検出できた場合の Schemathesis を順に実行します。Nuclei は固定 safe template set、ZAP は passive baseline、Schemathesis は credential を渡さず GET/HEAD/OPTIONS に限定します。runtimeの計画上限は合計250 requestです。schema 不在、通信失敗、認証失敗、budget打ち切りは「脆弱性なし」ではなく coverage gap / limitation として出力します。
 
+Web UIから厳格な`full-security-scan`を実行する環境では、Runtime SettingsのScanner executionを`Docker`、Docker imageを`vuln-workbench-toolbox-semgrep:local`に設定します。core toolboxにはライセンス分離されたSemgrep engineが含まれないため、`vuln-workbench-toolbox:local`のままでは総合診断のpreflightを通過しません。
+
 ### Individual Scanners
 
 ```bash

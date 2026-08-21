@@ -2,8 +2,8 @@ import { readdirSync, readFileSync } from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { eq } from "drizzle-orm";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDbConnection, type DbConnection } from "../../db";
 import {
 	findingEvidences,
@@ -274,6 +274,126 @@ describe("ScanDiagnosticRunner", () => {
 		);
 		expect(markdown).toContain("## LLM Criticality Assessment");
 		expect(markdown).toContain(`finding:${findingId}`);
+	});
+
+	it("runs terminal post-processing during recovery", async () => {
+		const provider: LlmProvider = {
+			chatCompletion: vi.fn(async () => ({
+				id: "diagnostic-recovery-response",
+				content: JSON.stringify(validReviewOutput(findingId)),
+			})),
+		};
+		let resolveCompleted: (() => void) | undefined;
+		const completed = new Promise<void>((resolve) => {
+			resolveCompleted = resolve;
+		});
+		const onCompletedDiagnostic = vi.fn(async () => {
+			resolveCompleted?.();
+		});
+		const runner = new ScanDiagnosticRunner(connection.db, {
+			reviewRunner: new ScanReviewRunner(connection.db, provider),
+			reportRunner: new ScanReportRunner(connection.db, {
+				artifactStorage: new ArtifactStorage(artifactRoot),
+				concurrency: 1,
+			}),
+			onCompletedDiagnostic,
+		});
+
+		await runner.recover();
+		await completed;
+		expect(onCompletedDiagnostic).toHaveBeenCalledWith(
+			scanRunId,
+			expect.objectContaining({ status: "completed" }),
+		);
+		await runner.shutdown();
+	});
+
+	it("deduplicates concurrent terminal post-processing for one diagnostic", async () => {
+		const provider: LlmProvider = {
+			chatCompletion: vi.fn(async () => ({
+				id: "diagnostic-deduplication-response",
+				content: JSON.stringify(validReviewOutput(findingId)),
+			})),
+		};
+		const initialRunner = new ScanDiagnosticRunner(connection.db, {
+			reviewRunner: new ScanReviewRunner(connection.db, provider),
+			reportRunner: new ScanReportRunner(connection.db, {
+				artifactStorage: new ArtifactStorage(artifactRoot),
+				concurrency: 1,
+			}),
+		});
+		await initialRunner.run(scanRunId);
+
+		let releaseHook!: () => void;
+		const hookMayFinish = new Promise<void>((resolve) => {
+			releaseHook = resolve;
+		});
+		let notifyHookStarted!: () => void;
+		const hookStarted = new Promise<void>((resolve) => {
+			notifyHookStarted = resolve;
+		});
+		const onCompletedDiagnostic = vi.fn(async () => {
+			notifyHookStarted();
+			await hookMayFinish;
+		});
+		const runner = new ScanDiagnosticRunner(connection.db, {
+			reviewRunner: new ScanReviewRunner(connection.db, provider),
+			reportRunner: new ScanReportRunner(connection.db, {
+				artifactStorage: new ArtifactStorage(artifactRoot),
+				concurrency: 1,
+			}),
+			onCompletedDiagnostic,
+		});
+
+		const first = runner.run(scanRunId);
+		const second = runner.run(scanRunId);
+		await hookStarted;
+		expect(onCompletedDiagnostic).toHaveBeenCalledTimes(1);
+		releaseHook();
+		await expect(Promise.all([first, second])).resolves.toHaveLength(2);
+		expect(onCompletedDiagnostic).toHaveBeenCalledTimes(1);
+	});
+
+	it("waits for recovery post-processing during shutdown", async () => {
+		const provider: LlmProvider = {
+			chatCompletion: vi.fn(async () => ({
+				id: "diagnostic-shutdown-response",
+				content: JSON.stringify(validReviewOutput(findingId)),
+			})),
+		};
+		let releaseHook!: () => void;
+		const hookMayFinish = new Promise<void>((resolve) => {
+			releaseHook = resolve;
+		});
+		let notifyHookStarted!: () => void;
+		const hookStarted = new Promise<void>((resolve) => {
+			notifyHookStarted = resolve;
+		});
+		const onCompletedDiagnostic = vi.fn(async () => {
+			notifyHookStarted();
+			await hookMayFinish;
+		});
+		const runner = new ScanDiagnosticRunner(connection.db, {
+			reviewRunner: new ScanReviewRunner(connection.db, provider),
+			reportRunner: new ScanReportRunner(connection.db, {
+				artifactStorage: new ArtifactStorage(artifactRoot),
+				concurrency: 1,
+			}),
+			onCompletedDiagnostic,
+		});
+
+		await runner.recover();
+		await hookStarted;
+		expect(onCompletedDiagnostic).toHaveBeenCalledTimes(1);
+		let shutdownCompleted = false;
+		const shutdown = runner.shutdown().then(() => {
+			shutdownCompleted = true;
+		});
+		await Promise.resolve();
+		expect(shutdownCompleted).toBe(false);
+		releaseHook();
+		await shutdown;
+		expect(shutdownCompleted).toBe(true);
 	});
 
 	it("finishes with a deterministic report when the LLM is unavailable", async () => {

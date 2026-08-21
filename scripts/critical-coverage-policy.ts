@@ -3,7 +3,7 @@ export type CriticalCoverageTarget = {
 	minimum: number;
 };
 
-export const criticalCoverageTargetBaseline = 27;
+export const criticalCoverageTargetBaseline = 31;
 
 export const criticalCoverageTargets: readonly CriticalCoverageTarget[] = [
 	{ path: "api/middleware/auth.ts", minimum: 95 },
@@ -55,6 +55,16 @@ export const criticalCoverageTargets: readonly CriticalCoverageTarget[] = [
 		minimum: 85,
 	},
 	{ path: "api/modules/scans/scan-diagnostic-runner.ts", minimum: 80 },
+	{
+		path: "api/modules/scans/scan-improvement-request-builder.ts",
+		minimum: 85,
+	},
+	{
+		path: "api/modules/scans/scan-improvement-request-runner.ts",
+		minimum: 80,
+	},
+	{ path: "api/modules/scans/scan-process-supervisor.ts", minimum: 80 },
+	{ path: "api/modules/scans/web-scan-post-processing.ts", minimum: 90 },
 	{ path: "api/modules/scans/tools/docker-tool-cleanup.ts", minimum: 80 },
 	{
 		path: "api/modules/scans/tools/docker-tool-invocation-policy.ts",
@@ -89,5 +99,8 @@ export const criticalCoverageTests = [
 	"api/modules/integrations/nightworkers/nightworkers-workspace-target-state.test.ts",
 	"api/modules/reproductions/reproduction-runner.test.ts",
 	"api/modules/scans/scan-diagnostic-runner.test.ts",
+	"api/modules/scans/scan-improvement-request-runner.test.ts",
+	"api/modules/scans/scan-process-supervisor.test.ts",
+	"api/modules/scans/web-scan-post-processing.test.ts",
 	"api/modules/scans/tools/tool-process-runner.test.ts",
 ];

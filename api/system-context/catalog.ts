@@ -12,6 +12,8 @@ export const PROMPT_KEYS = {
 	findingReviewInput: "reviews.findingReviewInput",
 	scanReview: "scans.scanReview",
 	scanReviewInput: "scans.scanReviewInput",
+	improvementRequest: "scans.improvementRequest",
+	improvementRequestInput: "scans.improvementRequestInput",
 	reportSummary: "scans.reportSummary",
 	reportSummaryInput: "scans.reportSummaryInput",
 } as const;

@@ -25,6 +25,10 @@ export default defineConfig({
 				"web/src/domains/scans/use-finding-load-effects.ts",
 				"web/src/domains/scans/use-scan-target-effects.ts",
 				"web/src/domains/scans/use-scans-effects.ts",
+				// React context/view helpers are classified as unmeasured and exercised
+				// through browser flows, not the selected pure-model unit threshold.
+				"web/src/domains/scans/scans-context.tsx",
+				"web/src/domains/scans/scans-utils.tsx",
 				// Project Intelligence orchestration is covered by the dedicated Playwright flow.
 				"web/src/domains/projects/use-intelligence-structure-data.ts",
 			],

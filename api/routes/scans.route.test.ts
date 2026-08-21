@@ -103,6 +103,13 @@ describe("Scans Route", () => {
 			completion: new Promise(() => {}),
 		}),
 	};
+	const mockImprovementRequestRunner = {
+		start: vi.fn().mockResolvedValue({
+			reviewId: "scan-review-1",
+			status: "running",
+			completion: new Promise(() => {}),
+		}),
+	};
 	const mockScanDiagnosticRepo = {
 		listForScan: vi.fn().mockResolvedValue([
 			{
@@ -172,6 +179,7 @@ describe("Scans Route", () => {
 			scanDiagnosticRepository: mockScanDiagnosticRepo as any,
 			assessmentRepository: mockAssessmentRepository as any,
 			scanReviewRunner: mockScanReviewRunner as any,
+			improvementRequestRunner: mockImprovementRequestRunner as any,
 			scanReportRunner: mockScanReportRunner as any,
 			scanDiagnosticRunner: mockScanDiagnosticRunner as any,
 			artifactStorage: mockArtifactStorage as any,
@@ -332,6 +340,26 @@ describe("Scans Route", () => {
 				findingFilter: "all",
 			}),
 		);
+		expect(await res.json()).toMatchObject({
+			review: { id: "scan-review-1", status: "running" },
+			result: {
+				ok: true,
+				reviewId: "scan-review-1",
+				status: "running",
+			},
+		});
+	});
+
+	it("POST /:scanRunId/improvement-requests starts an all-finding instruction job", async () => {
+		mockImprovementRequestRunner.start.mockClear();
+		const res = await app.request("/s-1/improvement-requests", {
+			method: "POST",
+		});
+
+		expect(res.status).toBe(202);
+		expect(mockImprovementRequestRunner.start).toHaveBeenCalledWith("s-1", {
+			createdByUserId: "user-123",
+		});
 		expect(await res.json()).toMatchObject({
 			review: { id: "scan-review-1", status: "running" },
 			result: {

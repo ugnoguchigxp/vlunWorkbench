@@ -30,7 +30,7 @@ async function registerFixtureProject(
 	const fixtureProjectPath = path.resolve(
 		`.tmp/e2e/projects/${fixtureDirectory}`,
 	);
-	await page.getByRole("button", { name: "新規プロジェクト" }).click();
+	await page.getByRole("button", { name: "プロジェクトを追加" }).click();
 	await page
 		.getByLabel("プロジェクトフォルダ path")
 		.fill(fixtureProjectPath);
@@ -254,6 +254,7 @@ test("mocked scan workspace renders results, report preview, and history deletio
 		scanRunId: scan.id,
 		title: "E2E Security Report",
 		status: "completed",
+		stage: "canonical_final",
 		reportMode: "deterministic",
 		options: {},
 		artifactId: "artifact-e2e",
@@ -351,8 +352,9 @@ test("mocked scan workspace renders results, report preview, and history deletio
 	).toBeVisible();
 	await page.getByRole("tab", { name: "レポート MD" }).click();
 	await expect(
-		page.getByRole("heading", { name: "E2E Security Report", exact: true }),
+		page.getByRole("heading", { name: "Markdownレポート", exact: true }),
 	).toBeVisible();
+	await expect(page.getByLabel("表示するレポート")).toHaveValue(report.id);
 	await expect(page.getByText("Rendered report preview.")).toBeVisible();
 	const projectFolder = page
 		.locator(".workspace-project-select")
@@ -452,6 +454,10 @@ test("real DB optional Semgrep profile persists a finding and automatic report",
 	await expect(
 		page.getByText("E2E unsafe eval finding", { exact: true }).first(),
 	).toBeVisible({ timeout: 15_000 });
+	await page
+		.getByRole("button", { name: /E2E unsafe eval finding/ })
+		.first()
+		.click();
 	await expect(
 		page.getByText("src/example.ts", { exact: false }).first(),
 	).toBeVisible();

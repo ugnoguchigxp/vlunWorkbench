@@ -38,6 +38,9 @@ vi.mock("../db", () => ({
 				scanDiagnosticRuns: {
 					findMany: vi.fn().mockResolvedValue([]),
 				},
+				scanReviews: {
+					findMany: vi.fn().mockResolvedValue([]),
+				},
 				activeAssessmentRuns: {
 					findMany: vi.fn().mockResolvedValue([]),
 				},

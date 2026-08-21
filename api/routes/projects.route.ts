@@ -455,6 +455,12 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 					createdByUserId: authUser.userId,
 					metadata: {
 						launchSource: "web",
+						finalReportRequest: {
+							requested: body.finalReport ?? true,
+							title:
+								body.reportTitle?.trim() ||
+								`${body.profile} 最終セキュリティレポート`,
+						},
 						executionPolicy: scanExecutionPolicyMetadata(policy),
 						requestedTarget: body.target,
 						expectedTargetDigest: body.expectedTargetDigest ?? null,

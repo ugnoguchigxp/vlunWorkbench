@@ -349,6 +349,34 @@ describe("scan preflight", () => {
 		expect(inferTargetPlan).not.toHaveBeenCalled();
 	});
 
+	it("bounds API route evidence before validating the preflight result", async () => {
+		const selected = profile("api-schema-readonly");
+		const evidenceRefs = Array.from(
+			{ length: 12 },
+			(_, index) => `api-source:src/routes/route-${index}.ts`,
+		);
+		const result = await runScanPreflight({
+			profile: selected,
+			steps: selected.steps!,
+			repoPath: "/redacted/project",
+			execution: { runner: "host" },
+			mode: "enforced",
+			dependencies: dependencies({
+				discoverRepositorySchema: async () => ({
+					schemaPresent: false,
+					apiDetected: true,
+					evidenceRefs,
+				}),
+			}),
+		});
+
+		const schemaCheck = result.checks.find(
+			(check) => check.kind === "api_schema_applicability",
+		);
+		expect(result.status).toBe("blocked");
+		expect(schemaCheck?.evidenceRefs).toEqual(evidenceRefs.slice(0, 10));
+	});
+
   it("can enforce the verified scanner qualification as an explicit deployment admission control", async () => {
     const selected = profile("api-schema-readonly");
     const result = await runScanPreflight({

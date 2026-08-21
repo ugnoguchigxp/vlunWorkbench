@@ -5,6 +5,8 @@ import type {
 import type { AppDatabase } from "../../db";
 import { ensureScanCoverageResults } from "../assessments/coverage-builder";
 import type { ScanReportRunner } from "../reports/scan-report-runner";
+import { ScanReportRepository } from "./report-repository";
+import { ScanRepository } from "./repositories";
 import {
 	buildDiagnosticSnapshotHashes,
 	classifyReviewLimitation,
@@ -16,8 +18,6 @@ import {
 } from "./scan-diagnostic-helpers";
 import { produceDiagnosticReport } from "./scan-diagnostic-report";
 import { ScanDiagnosticRepository } from "./scan-diagnostic-repository";
-import { ScanReportRepository } from "./report-repository";
-import { ScanRepository } from "./repositories";
 import {
 	buildScanReviewBundle,
 	type ScanReviewBundle,
@@ -43,11 +43,20 @@ type ScanDiagnosticRunnerDeps = {
 	reportRepository?: ScanReportRepository;
 	reviewRunner: Pick<ScanReviewRunner, "start">;
 	reportRunner: Pick<ScanReportRunner, "start">;
+	onCompletedDiagnostic?: (
+		scanRunId: string,
+		result: DiagnosticJobResult,
+	) => Promise<void>;
 	pipelineVersion?: string;
 };
 
 export class ScanDiagnosticRunner {
 	private readonly active = new Map<string, Promise<DiagnosticJobResult>>();
+	private readonly completions = new Map<
+		string,
+		Promise<DiagnosticJobResult>
+	>();
+	private readonly starting = new Set<Promise<DiagnosticStartResult>>();
 	private readonly scanRepository: ScanRepository;
 	private readonly diagnosticRepository: ScanDiagnosticRepository;
 	private readonly reviewRepository: ScanReviewRepository;
@@ -74,6 +83,16 @@ export class ScanDiagnosticRunner {
 		if (this.shuttingDown) {
 			throw new Error("Automated diagnostic runner is shutting down.");
 		}
+		const operation = this.startOnce(scanRunId);
+		this.starting.add(operation);
+		try {
+			return await operation;
+		} finally {
+			this.starting.delete(operation);
+		}
+	}
+
+	private async startOnce(scanRunId: string): Promise<DiagnosticStartResult> {
 		const scan = await this.scanRepository.findById(scanRunId);
 		if (!scan) throw new Error(`Scan run not found: ${scanRunId}`);
 		if (scan.status !== "completed") {
@@ -99,10 +118,15 @@ export class ScanDiagnosticRunner {
 		}
 
 		if (isTerminalDiagnosticStatus(diagnostic.status)) {
+			const completion = this.getOrCreateCompletion(
+				diagnostic.id,
+				scanRunId,
+				() => Promise.resolve(diagnosticResultFromRow(diagnostic)),
+			);
 			return {
 				diagnosticRunId: diagnostic.id,
 				status: diagnostic.status as AutomatedDiagnosticStatus,
-				completion: Promise.resolve(diagnosticResultFromRow(diagnostic)),
+				completion,
 			};
 		}
 
@@ -118,18 +142,25 @@ export class ScanDiagnosticRunner {
 			return {
 				diagnosticRunId: diagnostic.id,
 				status: "running",
-				completion: this.waitForTerminal(diagnostic.id),
+				completion: this.getOrCreateCompletion(diagnostic.id, scanRunId, () =>
+					this.waitForTerminal(diagnostic.id),
+				),
 			};
 		}
 
-		const completion = this.execute({
-			diagnosticRunId: diagnostic.id,
+		const completion = this.getOrCreateCompletion(
+			diagnostic.id,
 			scanRunId,
-			generatedByUserId: scan.createdByUserId,
-			bundle,
-			inputSnapshotHash,
-			scannerProvenanceHash,
-		}).finally(() => {
+			() =>
+				this.execute({
+					diagnosticRunId: diagnostic.id,
+					scanRunId,
+					generatedByUserId: scan.createdByUserId,
+					bundle,
+					inputSnapshotHash,
+					scannerProvenanceHash,
+				}),
+		).finally(() => {
 			this.active.delete(diagnostic.id);
 		});
 		this.active.set(diagnostic.id, completion);
@@ -211,7 +242,28 @@ export class ScanDiagnosticRunner {
 
 	async shutdown(): Promise<void> {
 		this.shuttingDown = true;
-		await Promise.allSettled(this.active.values());
+		await Promise.allSettled([...this.starting]);
+		await Promise.allSettled([...this.completions.values()]);
+	}
+
+	private getOrCreateCompletion(
+		diagnosticRunId: string,
+		scanRunId: string,
+		startCompletion: () => Promise<DiagnosticJobResult>,
+	): Promise<DiagnosticJobResult> {
+		const existing = this.completions.get(diagnosticRunId);
+		if (existing) return existing;
+		const completion = (async () => {
+			const result = await startCompletion();
+			await this.deps.onCompletedDiagnostic?.(scanRunId, result);
+			return result;
+		})().finally(() => {
+			if (this.completions.get(diagnosticRunId) === completion) {
+				this.completions.delete(diagnosticRunId);
+			}
+		});
+		this.completions.set(diagnosticRunId, completion);
+		return completion;
 	}
 
 	private async execute(params: {

@@ -91,6 +91,10 @@ export function RuntimeSettingsPanel({ model }: { model: SettingsPanelModel }) {
 									})
 								}
 							/>
+							<small>
+								総合セキュリティ診断ではSemgrepを含む
+								vuln-workbench-toolbox-semgrep:localを使用します。
+							</small>
 						</div>
 						<div className="settings-form-field">
 							<label htmlFor="runtime-docker-memory">Docker memory</label>

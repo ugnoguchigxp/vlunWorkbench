@@ -3,7 +3,7 @@ import type { Finding } from "../../api";
 import { buildScanWorkspaceViewModel } from "./scans-workspace-view-model";
 
 describe("scan workspace view model", () => {
-	it("orders priority findings by severity, confidence, and stable ID", () => {
+	it("summarizes every finding by severity", () => {
 		const finding = (
 			id: string,
 			severity: Finding["severity"],
@@ -36,11 +36,8 @@ describe("scan workspace view model", () => {
 			selectedScanRunId: "",
 			coverageGaps: 2,
 		});
-		expect(view.priorityFindings.map((item) => item.id)).toEqual([
-			"critical-a",
-			"critical-b",
-			"high-b",
-		]);
 		expect(view.severityCounts.critical).toBe(2);
+		expect(view.severityCounts.high).toBe(1);
+		expect(view.severityCounts.low).toBe(1);
 	});
 });

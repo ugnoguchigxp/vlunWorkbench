@@ -152,8 +152,13 @@ describe("ScanProcessSupervisor", () => {
 		const completed = new Promise<void>((resolve) => {
 			resolveCompleted = resolve;
 		});
+		let resolvePostProcessing!: () => void;
+		const postProcessingMayFinish = new Promise<void>((resolve) => {
+			resolvePostProcessing = resolve;
+		});
 		const onCompletedScan = vi.fn(async () => {
 			resolveCompleted();
+			await postProcessingMayFinish;
 		});
 		let notifySpawned!: () => void;
 		const spawned = new Promise<void>((resolve) => {
@@ -188,6 +193,72 @@ describe("ScanProcessSupervisor", () => {
 		await completed;
 		expect(onCompletedScan).toHaveBeenCalledWith("scan-4");
 		expect(repository.scan.metadata.automaticDiagnosticRequested).toBe(true);
+		let shutdownCompleted = false;
+		const shutdown = supervisor.shutdown().then(() => {
+			shutdownCompleted = true;
+		});
+		await flushMicrotasks();
+		expect(shutdownCompleted).toBe(false);
+		resolvePostProcessing();
+		await shutdown;
+		expect(shutdownCompleted).toBe(true);
+	});
+
+	it("waits for completed-scan lookup before shutdown finishes", async () => {
+		const repository = createRepository({
+			id: "scan-post-processing-race",
+			status: "queued",
+			metadata: {},
+		});
+		let notifyLookupStarted!: () => void;
+		const lookupStarted = new Promise<void>((resolve) => {
+			notifyLookupStarted = resolve;
+		});
+		let resolveLookup!: () => void;
+		const lookupMayFinish = new Promise<void>((resolve) => {
+			resolveLookup = resolve;
+		});
+		const originalFind = repository.findById.getMockImplementation()!;
+		repository.findById.mockImplementation(async (id: string) => {
+			if (repository.scan.status === "completed") {
+				notifyLookupStarted();
+				await lookupMayFinish;
+			}
+			return originalFind(id);
+		});
+		let resolveExit!: (code: number) => void;
+		const exited = new Promise<number>((resolve) => {
+			resolveExit = resolve;
+		});
+		const onCompletedScan = vi.fn(async () => undefined);
+		const supervisor = new ScanProcessSupervisor(repository as never, {
+			onCompletedScan,
+			spawn: vi.fn(() => ({
+				stdout: streamText(),
+				stderr: streamText(),
+				exited,
+				kill: vi.fn(),
+			})) as unknown as typeof Bun.spawn,
+		});
+
+		await supervisor.launch("scan-post-processing-race", [
+			process.execPath,
+			"scan",
+		]);
+		await flushMicrotasks();
+		repository.setStatus("completed");
+		resolveExit(0);
+		await lookupStarted;
+		let shutdownCompleted = false;
+		const shutdown = supervisor.shutdown().then(() => {
+			shutdownCompleted = true;
+		});
+		await flushMicrotasks();
+		expect(shutdownCompleted).toBe(false);
+
+		resolveLookup();
+		await shutdown;
+		expect(onCompletedScan).toHaveBeenCalledWith("scan-post-processing-race");
 	});
 
 	it("cancels a queued scan before spawning it", async () => {

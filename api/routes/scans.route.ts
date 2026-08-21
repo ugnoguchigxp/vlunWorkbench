@@ -26,6 +26,7 @@ import type {
 import type { ScanDeletionService } from "../modules/scans/scan-deletion-service";
 import { ScanDiagnosticRepository } from "../modules/scans/scan-diagnostic-repository";
 import type { ScanDiagnosticRunner } from "../modules/scans/scan-diagnostic-runner";
+import { ScanImprovementRequestRunner } from "../modules/scans/scan-improvement-request-runner";
 import type { ScanProcessSupervisor } from "../modules/scans/scan-process-supervisor";
 import { ScanReviewRepository } from "../modules/scans/scan-review-repository";
 import { ScanReviewRunner } from "../modules/scans/scan-review-runner";
@@ -48,6 +49,7 @@ type ScansRouteDeps = {
 	llmRouter?: LlmRouter;
 	scanSupervisor?: ScanProcessSupervisor;
 	scanReviewRunner?: Pick<ScanReviewRunner, "start">;
+	improvementRequestRunner?: Pick<ScanImprovementRequestRunner, "start">;
 	scanReportRunner?: Pick<ScanReportRunner, "start">;
 	scanDiagnosticRunner?: Pick<ScanDiagnosticRunner, "retry">;
 	scanDeletionService: Pick<ScanDeletionService, "deleteOwnedScan">;
@@ -81,6 +83,12 @@ export function createScansRoute(deps: ScansRouteDeps) {
 	const scanReviewRunner =
 		deps.scanReviewRunner ??
 		new ScanReviewRunner(db, {
+			llmRouter,
+			reviewRepository: scanReviewRepository,
+		});
+	const improvementRequestRunner =
+		deps.improvementRequestRunner ??
+		new ScanImprovementRequestRunner(db, {
 			llmRouter,
 			reviewRepository: scanReviewRepository,
 		});
@@ -315,6 +323,41 @@ export function createScansRoute(deps: ScansRouteDeps) {
 				void started.completion.catch((error) => {
 					console.error(
 						`Scan review ${started.reviewId} background execution failed:`,
+						error,
+					);
+				});
+			}
+			const review = await scanReviewRepository.findById(started.reviewId);
+			return c.json(
+				{
+					review,
+					result: {
+						ok: started.status === "running",
+						reviewId: started.reviewId,
+						status: started.status,
+						error: started.error,
+					},
+				},
+				started.status === "running" ? 202 : 200,
+			);
+		})
+		.post("/:scanRunId/improvement-requests", async (c) => {
+			const authUser = getAuthContextUser(c);
+			const scanRunId = c.req.param("scanRunId");
+			const scan = await checkScanOwnership(scanRunId, authUser.userId);
+			if (scan.status !== "completed") {
+				throw new HttpError(
+					409,
+					"Improvement request requires a completed scan.",
+				);
+			}
+			const started = await improvementRequestRunner.start(scanRunId, {
+				createdByUserId: authUser.userId,
+			});
+			if (started.status === "running") {
+				void started.completion.catch((error) => {
+					console.error(
+						`Improvement request ${started.reviewId} background execution failed:`,
 						error,
 					);
 				});
