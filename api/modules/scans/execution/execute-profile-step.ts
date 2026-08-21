@@ -1,8 +1,27 @@
 import type { ScanProfileStep } from "../../../../shared/schemas/scan-profile.schema";
 import { discoverRepositoryApiSchema } from "../../api-schema-fuzz/schema-discovery";
 import type { PreparedRuntimeTarget } from "../../dast/runtime-target-provider";
+import {
+	CosignAttestationProvider,
+	isCosignVersionSafe,
+	parseCosignVersion,
+} from "../attestation/cosign-attestation-provider";
+import {
+	resolveAttestationInputPaths,
+	resolveRepositoryRelativeFile,
+} from "../attestation/attestation-inputs";
+import { ArtifactRepository } from "../repositories";
+import { resolveStaticScannerDiffExecution } from "../static-scanner-adapter";
+import { staticScannerAdapterRegistry } from "../static-scanner-adapters";
+import { withMandatoryExcludes } from "../target-scope";
+import {
+	checkToolVersion,
+	getCleanEnv,
+	runToolProcess,
+} from "../tools/tool-process-runner";
 import type { DiffScanPlan } from "./diff/diff-scan-plan";
 import type { DiffSnapshot } from "./diff/diff-snapshot";
+import { ScanArtifactSink } from "./lifecycle/artifact-sink";
 import {
 	runDastStepIntoExistingScan,
 	runRuntimeScannerIntoExistingScan,
@@ -12,9 +31,6 @@ import {
 	type ToolResult,
 } from "./profile-runner";
 import type { ExecuteProfileStepsParams } from "./profile-step-orchestrator-types";
-import { resolveStaticScannerDiffExecution } from "../static-scanner-adapter";
-import { staticScannerAdapterRegistry } from "../static-scanner-adapters";
-import { withMandatoryExcludes } from "../target-scope";
 
 export type ProfileStepExecution = {
 	toolResults: ToolResult[];
@@ -73,6 +89,7 @@ export const profileStepRunnerRegistry: Record<
 	dast: executeDastStep,
 	runtime_scanner: executeRuntimeStep,
 	api_schema_scan: executeSchemaStep,
+	attestation_verify: executeAttestationStep,
 };
 
 function failureDelta(
@@ -85,7 +102,11 @@ function failureDelta(
 		optionalToolFailed: !failureFailsProfile,
 		profileFailingToolFailed: failureFailsProfile,
 	};
-	if (step.kind === "runtime_scanner" || step.kind === "api_schema_scan") {
+	if (
+		step.kind === "runtime_scanner" ||
+		step.kind === "api_schema_scan" ||
+		step.kind === "attestation_verify"
+	) {
 		return {
 			...flags,
 			toolResults: [],
@@ -173,6 +194,97 @@ function failureDelta(
 	return null;
 }
 
+async function executeAttestationStep(params: {
+	step: ScanProfileStep;
+	stepId: string;
+	failureFailsProfile: boolean;
+	resolvedTimeout: number;
+	scope: ExecuteProfileStepsParams;
+}): Promise<ProfileStepExecution> {
+	const { step, stepId, scope } = params;
+	if (step.kind !== "attestation_verify") {
+		throw new Error(`Unsupported profile step: ${stepId}`);
+	}
+	if (
+		!scope.attestationSubject ||
+		!scope.attestationBundle ||
+		!scope.trustPolicy
+	) {
+		throw new Error("attestation_input_missing");
+	}
+	const observedCosignVersion = await checkToolVersion("cosign", ["version"], {
+		execution: { runner: "host" },
+	});
+	if (!isCosignVersionSafe(observedCosignVersion)) {
+		throw new Error("scanner_version_vulnerable:cosign");
+	}
+	const preflightCosignVersion = scope.scanPreflight.checks.find(
+		(check) =>
+			check.stepId === stepId &&
+			check.kind === "binary_version" &&
+			check.scannerId === "cosign",
+	)?.observedVersion;
+	if (
+		preflightCosignVersion &&
+		String(parseCosignVersion(preflightCosignVersion)) !==
+			String(parseCosignVersion(observedCosignVersion))
+	) {
+		throw new Error("scanner_version_mismatch:cosign");
+	}
+	const paths = await resolveAttestationInputPaths({
+		repoPath: scope.profileInputRepoPath,
+		subject: scope.attestationSubject,
+		bundle: scope.attestationBundle,
+		trustPolicy: scope.trustPolicy,
+	});
+	const provider = new CosignAttestationProvider(
+		async ({ binary, args, timeoutSec }) => {
+			const result = await runToolProcess(binary, args, {
+				execution: { runner: "host" },
+				timeoutSec: Math.min(timeoutSec, params.resolvedTimeout),
+				env: getCleanEnv(),
+			});
+			return { ok: result.ok, exitCode: result.exitCode };
+		},
+	);
+	const receipt = await provider.verify(paths);
+	const sink = new ScanArtifactSink(
+		scope.artifactStorage,
+		new ArtifactRepository(scope.db),
+		{ scanRunId: scope.scanRun.id, kind: "scan", id: "attestation" },
+	);
+	const artifact = await sink.saveText({
+		role: "raw_result",
+		format: "json",
+		content: JSON.stringify(receipt, null, 2),
+		metadata: { adapter: "cosign", offline: true },
+	});
+	const failed = !receipt.verified;
+	return {
+		toolResults: [],
+		stepResults: [
+			{
+				kind: "attestation_verify",
+				stepId,
+				adapter: "cosign",
+				required: step.required,
+				status: failed ? "failed" : "completed",
+				applicability: "applicable",
+				reasonCode: failed ? "attestation_verification_failed" : null,
+				coverageEffect: failed ? "gap" : "covered",
+				findingCount: 0,
+				error: failed
+					? "Cosign could not verify the supplied attestation."
+					: null,
+				artifactIds: [artifact.id],
+				metadata: { receipt },
+			},
+		],
+		profileFailingToolFailed: failed && params.failureFailsProfile,
+		optionalToolFailed: failed && !params.failureFailsProfile,
+	};
+}
+
 async function executeAdapterStep(params: {
 	step: ScanProfileStep;
 	stepId: string;
@@ -212,6 +324,14 @@ async function executeAdapterStep(params: {
 			"snapshot_materialization_failed: scanner input is unavailable",
 		);
 	}
+	const resolvedImageTar =
+		step.kind === "container_image_scan" && scope.imageTar
+			? await resolveRepositoryRelativeFile(
+					scope.profileInputRepoPath,
+					scope.imageTar,
+					"image tar",
+				)
+			: undefined;
 	const baseOptions = {
 		...(("options" in step ? step.options : undefined) ?? {}),
 		...(step.kind === "sbom_export" ? { mode: "fs-sbom" } : {}),
@@ -219,7 +339,7 @@ async function executeAdapterStep(params: {
 			? {
 					mode: "image",
 					imageRef: scope.imageRef,
-					imageTar: scope.imageTar,
+					imageTar: resolvedImageTar,
 				}
 			: {}),
 		scope: withMandatoryExcludes(scope.profile.scope),

@@ -230,6 +230,16 @@ describe("assessments route", () => {
 				processCapacity: capacity,
 			}),
 		);
+		const missingConsent = await capacityApp.request(
+			`/api/projects/${project.id}/active-assessment-runs`,
+			{
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ kind: "zap_active" }),
+			},
+		);
+		expect(missingConsent.status).toBe(400);
+		expect((await missingConsent.json()).message).toContain("Explicit consent");
 
 		const response = await capacityApp.request(
 			`/api/projects/${project.id}/active-assessment-runs`,
@@ -237,6 +247,7 @@ describe("assessments route", () => {
 				method: "POST",
 				headers: { "content-type": "application/json" },
 				body: JSON.stringify({
+					destructiveConsent: true,
 					engagementId: "11111111-1111-4111-8111-111111111111",
 					targetConfigId: "22222222-2222-4222-8222-222222222222",
 					kind: "zap_active",

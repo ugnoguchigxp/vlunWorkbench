@@ -122,9 +122,18 @@ export function createAssessmentsRoute(deps: {
 		if (!deps.activeAssessmentRunner) {
 			throw new HttpError(409, "Active assessment runner is not configured");
 		}
-		const parsed = runActiveAssessmentRequestSchema.safeParse(
-			await c.req.json().catch(() => null),
-		);
+		const body = await c.req.json().catch(() => null);
+		if (
+			!body ||
+			typeof body !== "object" ||
+			(body as Record<string, unknown>).destructiveConsent !== true
+		) {
+			throw new HttpError(
+				400,
+				"Explicit consent is required for state-changing active assessment.",
+			);
+		}
+		const parsed = runActiveAssessmentRequestSchema.safeParse(body);
 		if (!parsed.success) {
 			throw new HttpError(
 				400,
@@ -150,6 +159,7 @@ export function createAssessmentsRoute(deps: {
 			result = await deps.activeAssessmentRunner.run({
 				projectId,
 				createdByUserId: user.userId,
+				executionConsent: true,
 				request: parsed.data,
 			});
 		} catch (error) {

@@ -2,6 +2,7 @@ import path from "node:path";
 import { runBoundedProcess } from "../processes/bounded-process-runner";
 import { readBoundedProcessText } from "../scans/tools/bounded-process-output";
 import {
+	getCleanEnv,
 	normalizeToolExecutionConfig,
 	type ProcessOutputLimits,
 } from "../scans/tools/tool-process-runner";
@@ -211,12 +212,14 @@ exit $EXIT_CODE
 	let outputLimitExceeded = false;
 	let stdoutBytesRead = 0;
 	let stderrBytesRead = 0;
+	let terminalResult: DynamicDockerRunResult | null = null;
+	let cleanupFailed = false;
 
 	try {
 		proc = Bun.spawn(dockerArgs, {
 			stdout: "pipe",
 			stderr: "pipe",
-			env: process.env,
+			env: getCleanEnv(),
 		}) as unknown as PipeSubprocess;
 
 		timeoutId = setTimeout(() => {
@@ -249,7 +252,7 @@ exit $EXIT_CODE
 		stderrBytesRead = stderrResult.bytesRead;
 		if (stdoutResult.exceeded || stderrResult.exceeded) {
 			const stream = stdoutResult.exceeded ? "stdout" : "stderr";
-			return {
+			terminalResult = {
 				ok: false,
 				exitCode,
 				stdout,
@@ -267,7 +270,7 @@ exit $EXIT_CODE
 		}
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
-		return {
+		terminalResult = {
 			ok: false,
 			exitCode: null,
 			stdout,
@@ -286,16 +289,47 @@ exit $EXIT_CODE
 		};
 	} finally {
 		if (timeoutId) clearTimeout(timeoutId);
-		if (isKilled || outputLimitExceeded) {
-			await runBoundedProcess({
-				argv: [params.dockerBin, "rm", "-f", params.containerName],
-				timeoutMs: 30_000,
-				outputLimitBytes: 64 * 1024,
-			}).catch(() => undefined);
+		if (proc && exitCode === null && !isKilled && !outputLimitExceeded) {
+			proc.kill("SIGKILL");
+		}
+		if (isKilled || outputLimitExceeded || (proc && exitCode === null)) {
+			try {
+				const cleanupResult = await runBoundedProcess({
+					argv: [params.dockerBin, "rm", "-f", params.containerName],
+					timeoutMs: 30_000,
+					outputLimitBytes: 64 * 1024,
+				});
+				cleanupFailed =
+					cleanupResult.terminationReason !== null ||
+					cleanupResult.exitCode !== 0;
+			} catch {
+				cleanupFailed = true;
+			}
 		}
 	}
 
 	const elapsedMs = Date.now() - startTime;
+	if (cleanupFailed) {
+		return {
+			ok: false,
+			exitCode,
+			stdout,
+			stderr,
+			elapsedMs,
+			timedOut: isKilled,
+			error: "dynamic_container_cleanup_failed",
+			executionMetadata: {
+				terminationReason: "cleanup_failed",
+				priorTerminationReason:
+					terminalResult?.executionMetadata.terminationReason ??
+					(isKilled ? "timeout" : "output_limit_exceeded"),
+				outputLimits: params.outputLimits,
+				stdoutBytesRead,
+				stderrBytesRead,
+			},
+		};
+	}
+	if (terminalResult) return terminalResult;
 	if (isKilled) {
 		return {
 			ok: false,

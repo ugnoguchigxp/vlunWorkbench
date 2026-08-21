@@ -21,7 +21,12 @@ const severityRank: Record<string, number> = {
 export function evaluateScanGate(params: {
 	resultPolicy: ScanResultPolicy;
 	gateThreshold: "critical" | "high" | "medium" | "low" | null;
-	profileOutcome: "completed" | "completed_with_warnings" | "blocked" | "incomplete" | "failed";
+	profileOutcome:
+		| "completed"
+		| "completed_with_warnings"
+		| "blocked"
+		| "incomplete"
+		| "failed";
 	findings: ReadonlyArray<{ severity: string }>;
 }): ScanGateEvaluation {
 	if (params.resultPolicy === "advisory") {

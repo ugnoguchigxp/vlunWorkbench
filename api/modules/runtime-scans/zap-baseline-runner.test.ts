@@ -183,4 +183,53 @@ describe("ZapBaselineRunner", () => {
 		expect(stop).toHaveBeenCalledOnce();
 		await fs.rm(root, { recursive: true, force: true });
 	});
+
+	it("fails closed when the target gateway cannot be stopped", async () => {
+		const root = await fs.mkdtemp(path.join(os.tmpdir(), "zap-cleanup-test-"));
+		const storage = new ArtifactStorage(path.join(root, "artifacts"));
+		const spawn = (args: string[]) => {
+			if (args.includes("python3")) {
+				return {
+					exited: Promise.resolve(0),
+					stdout: stream("200"),
+					stderr: stream(""),
+				};
+			}
+			const mount = args[args.indexOf("-v") + 1] ?? "";
+			const outputDir = mount.split(":/zap/wrk", 1)[0];
+			return {
+				exited: fs
+					.writeFile(path.join(outputDir, "zap-report.json"), report)
+					.then(() => 0),
+				stdout: stream(""),
+				stderr: stream(""),
+			};
+		};
+		const runner = new ZapBaselineRunner(
+			storage,
+			{ runner: "docker", docker: { dockerBin: "docker" } },
+			{ spawn: spawn as any },
+		);
+
+		try {
+			await expect(
+				runner.run({
+					scanRunId: "scan-cleanup",
+					upstreamOrigin: "http://127.0.0.1:3000",
+					allowedPaths: ["/"],
+					excludedPaths: [],
+					maxRequests: 20,
+					rateLimitPerSec: 2,
+					gateway: {
+						...fakeGateway(),
+						stop: async () => {
+							throw new Error("gateway stop failed");
+						},
+					},
+				}),
+			).rejects.toThrow("zap_baseline_cleanup_failed");
+		} finally {
+			await fs.rm(root, { recursive: true, force: true });
+		}
+	});
 });

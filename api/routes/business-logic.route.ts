@@ -155,11 +155,23 @@ export function createBusinessLogicRoute(deps: {
 		);
 		if (!scenario)
 			throw new HttpError(404, "Business logic scenario not found");
+		const body = await c.req.json().catch(() => null);
+		if (
+			!body ||
+			typeof body !== "object" ||
+			(body as Record<string, unknown>).destructiveConsent !== true
+		) {
+			throw new HttpError(
+				400,
+				"Explicit consent is required for state-changing business logic assessment.",
+			);
+		}
 		const result = await deps.runner
 			.run({
 				scenarioId: scenario.id,
 				projectId: scenario.projectId,
 				ownerUserId: user.userId,
+				executionConsent: true,
 			})
 			.catch((error) => {
 				throw new HttpError(

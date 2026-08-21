@@ -11,6 +11,34 @@ type CommandRunner = (params: {
 	timeoutSec: number;
 }) => Promise<{ ok: boolean; exitCode: number | null }>;
 
+export const COSIGN_SAFE_VERSION_REQUIREMENT = ">=2.6.5 <3.0.0 or >=3.1.3";
+
+export function parseCosignVersion(
+	value: string | null | undefined,
+): [major: number, minor: number, patch: number] | null {
+	const match = value?.match(
+		/(?:^|[^0-9a-z])v?(\d+)\.(\d+)\.(\d+)([-+][0-9a-z.-]+)?(?![0-9a-z.])/i,
+	);
+	if (!match?.[1] || !match[2] || !match[3] || match[4]?.startsWith("-")) {
+		return null;
+	}
+	return [
+		Number.parseInt(match[1], 10),
+		Number.parseInt(match[2], 10),
+		Number.parseInt(match[3], 10),
+	];
+}
+
+export function isCosignVersionSafe(value: string | null | undefined): boolean {
+	const version = parseCosignVersion(value);
+	if (!version) return false;
+	const [major, minor, patch] = version;
+	if (major > 3) return true;
+	if (major === 3) return minor > 1 || (minor === 1 && patch >= 3);
+	if (major === 2) return minor > 6 || (minor === 6 && patch >= 5);
+	return false;
+}
+
 /** Offline-first Cosign verifier. It never asks Cosign to contact a registry or log. */
 export class CosignAttestationProvider {
 	constructor(
@@ -35,8 +63,12 @@ export class CosignAttestationProvider {
 			const result = await this.commandRunner({
 				binary: "cosign",
 				args: [
-					"verify-blob",
+					"verify-blob-attestation",
 					"--offline",
+					"--new-bundle-format=true",
+					"--check-claims=true",
+					"--type",
+					"slsaprovenance1",
 					"--bundle",
 					params.bundlePath,
 					"--key",

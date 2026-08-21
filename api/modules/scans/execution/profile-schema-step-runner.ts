@@ -70,8 +70,9 @@ export async function runSchemaScannerIntoExistingScan(params: {
 		artifactRepo,
 		{ scanRunId: params.scanRunId, kind: "tool-run", id: toolRun.id },
 	);
-	let result: Awaited<ReturnType<typeof runSchemathesisReadonly>>;
+	let result: Awaited<ReturnType<typeof runSchemathesisReadonly>> | null = null;
 	let gateway: PreparedContainerTargetGateway | null = null;
+	let executionError: unknown = null;
 	try {
 		gateway = await prepareContainerTargetGateway({
 			upstreamOrigin: params.targetOrigin,
@@ -95,11 +96,31 @@ export async function runSchemaScannerIntoExistingScan(params: {
 			timeoutSec: params.timeoutSec,
 		});
 	} catch (error) {
-		const message = error instanceof Error ? error.message : String(error);
-		await scanRepo.updateToolRunStatus(toolRun.id, "failed", {
-			exitCode: 1,
-			metadata: { error: message, reasonCode: "execution_failed" },
-		});
+		executionError = error;
+	} finally {
+		const cleanupResults = await Promise.allSettled([
+			...(gateway ? [gateway.stop()] : []),
+			...(discovery.cleanupPath
+				? [fs.rm(discovery.cleanupPath, { recursive: true, force: true })]
+				: []),
+		]);
+		if (cleanupResults.some((cleanup) => cleanup.status === "rejected")) {
+			executionError = new Error("api_schema_workspace_cleanup_failed");
+		}
+	}
+	if (executionError || !result) {
+		const message =
+			executionError instanceof Error
+				? executionError.message
+				: "api_schema_execution_failed";
+		try {
+			await scanRepo.updateToolRunStatus(toolRun.id, "failed", {
+				exitCode: 1,
+				metadata: { error: message, reasonCode: "execution_failed" },
+			});
+		} catch {
+			// The returned failure still prevents a successful parent profile.
+		}
 		return {
 			applicable: true,
 			toolRunId: toolRun.id,
@@ -107,10 +128,6 @@ export async function runSchemaScannerIntoExistingScan(params: {
 			artifactIds: [],
 			error: message,
 		};
-	} finally {
-		await gateway?.stop().catch(() => undefined);
-		if (discovery.cleanupPath)
-			await fs.rm(discovery.cleanupPath, { recursive: true, force: true });
 	}
 	const artifactIds: string[] = [];
 	const rawArtifactId = result.rawArtifact

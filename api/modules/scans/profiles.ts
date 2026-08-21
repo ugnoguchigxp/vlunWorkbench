@@ -17,9 +17,9 @@ export {
 	RUNTIME_ASSESSMENT_AGGREGATE_REQUEST_BUDGET,
 } from "./dast-profile-rollout";
 
+import { buildCanonicalScanProfiles } from "./canonical-scan-profiles";
 import { buildStaticScanProfiles } from "./static-scan-profiles";
 import { ZAP_ACTIVE_DEDICATED_PROFILES } from "./zap-active-profiles";
-import { buildCanonicalScanProfiles } from "./canonical-scan-profiles";
 
 export const SOURCE_BASELINE_SCOPE: ScanScopePolicy = {
 	intent: "source",
@@ -501,6 +501,7 @@ export const SCAN_PROFILES: ScanProfile[] = buildScanProfiles();
 export function getCanonicalProfileById(id: string): ScanProfile | undefined {
 	const profile = buildCanonicalScanProfiles({
 		sourceScope: SOURCE_BASELINE_SCOPE,
+		dependencyScope: DEPENDENCY_MANIFEST_SCOPE,
 	}).find((candidate) => candidate.id === id && candidate.enabled);
 	if (profile) assertRuntimeAssessmentBudget(profile);
 	return profile;
@@ -509,6 +510,7 @@ export function getCanonicalProfileById(id: string): ScanProfile | undefined {
 export function listCanonicalProfiles(): ScanProfile[] {
 	return buildCanonicalScanProfiles({
 		sourceScope: SOURCE_BASELINE_SCOPE,
+		dependencyScope: DEPENDENCY_MANIFEST_SCOPE,
 	}).map((profile) => {
 		assertRuntimeAssessmentBudget(profile);
 		return profile;

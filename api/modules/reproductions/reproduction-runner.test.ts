@@ -119,6 +119,19 @@ describe("Reproduction Runner", () => {
 		vi.restoreAllMocks();
 	});
 
+	it("rejects an explicit parent scan that is not remediation verification", async () => {
+		await expect(
+			runner.dryRun({
+				findingId,
+				scanRunId,
+				profileId: "semgrep-path-recheck",
+				runner: "docker",
+			}),
+		).rejects.toThrow(
+			"Reproduction parent scan is not a remediation verification run.",
+		);
+	});
+
 	it("should perform dryRun successfully", async () => {
 		const dryResult = await runner.dryRun({
 			findingId,

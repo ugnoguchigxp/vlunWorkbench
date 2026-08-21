@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import type { ScanScopePolicy } from "../../../../shared/schemas/scan-profile.schema";
+import { digestScopedFiles } from "../target-scope";
 import { buildDiffScanPlan, canonicalJson } from "./diff/diff-scan-plan";
 import { resolveGitDiff } from "./diff/git-diff-resolver";
 
@@ -7,6 +8,7 @@ export type ResolvedFullScanTarget = {
 	digest: string;
 	sourceRevision: string;
 	changedFileCount: number;
+	scopeContentDigest: string | null;
 };
 
 export async function resolveFullScanTarget(
@@ -22,6 +24,10 @@ export async function resolveFullScanTarget(
 		tools: [],
 	});
 	const sourceRevision = workingTree.target.baseSha;
+	const scopeContentDigest = await digestScopedFiles({
+		repoPath: projectPath,
+		scope,
+	});
 	const digest = createHash("sha256")
 		.update(
 			canonicalJson({
@@ -29,6 +35,7 @@ export async function resolveFullScanTarget(
 				kind: "full",
 				sourceRevision,
 				workingTreeDigest: workingTree.target.targetDigest,
+				scopeContentDigest,
 			}),
 		)
 		.digest("hex");
@@ -36,5 +43,6 @@ export async function resolveFullScanTarget(
 		digest,
 		sourceRevision,
 		changedFileCount: workingTree.target.changedFileCount,
+		scopeContentDigest,
 	};
 }

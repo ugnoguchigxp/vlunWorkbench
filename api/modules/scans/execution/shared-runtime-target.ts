@@ -2,7 +2,6 @@ import type {
 	PreparedRuntimeTarget,
 	RuntimeTargetProvider,
 } from "../../dast/runtime-target-provider";
-import { prepareDastTargetWorkspace } from "../../dast/target-preparer";
 
 export type SharedRuntimeTarget = PreparedRuntimeTarget;
 
@@ -18,8 +17,5 @@ export async function prepareSharedRuntimeTarget(params: {
 			consentProjectCodeExecution: params.consentProjectCodeExecution,
 		});
 	}
-	return prepareDastTargetWorkspace({
-		repoPath: params.repoPath,
-		consentProjectCodeExecution: params.consentProjectCodeExecution,
-	});
+	throw new Error("runtime_isolation_provider_unavailable");
 }

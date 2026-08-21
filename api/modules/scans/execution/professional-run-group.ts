@@ -64,7 +64,9 @@ export function buildProfessionalRunGroupPlan(params: {
 	}
 	const children = params.executionPlan.capabilityRequirements.map(
 		(requirement) => {
-			const expectedStepIds = new Set(capabilityStepIds(requirement.capabilityId));
+			const expectedStepIds = new Set(
+				capabilityStepIds(requirement.capabilityId),
+			);
 			const matchingSteps = params.executionPlan.steps.filter((step) =>
 				expectedStepIds.has(step.stepId),
 			);
@@ -92,7 +94,10 @@ export function buildProfessionalRunGroupPlan(params: {
 		children,
 		humanReview: { required: true as const, status: "pending" as const },
 	};
-	return professionalRunGroupPlanSchema.parse({ ...unsigned, planHash: hash(unsigned) });
+	return professionalRunGroupPlanSchema.parse({
+		...unsigned,
+		planHash: hash(unsigned),
+	});
 }
 
 /** A parent group can never auto-approve; technical completion is ledger-led. */
@@ -115,8 +120,7 @@ export function assessProfessionalRunGroup(params: {
 			const ledgerEntry = ledgerByCapability.get(child.capabilityId);
 			const result = resultByChild.get(child.childId);
 			return (
-				!ledgerEntry ||
-				ledgerEntry.coverageEffect !== "covered" ||
+				ledgerEntry?.coverageEffect !== "covered" ||
 				!result ||
 				result.execution !== "completed" ||
 				result.coverageEffect !== "covered" ||
@@ -128,7 +132,7 @@ export function assessProfessionalRunGroup(params: {
 		.filter((child) => {
 			if (!child.cleanupRequired) return false;
 			const result = resultByChild.get(child.childId);
-			return !result || result.cleanupState !== "completed";
+			return result?.cleanupState !== "completed";
 		})
 		.map((child) => child.childId);
 	const blockingCapabilityIds = [
@@ -137,7 +141,7 @@ export function assessProfessionalRunGroup(params: {
 				const entry = ledgerByCapability.get(child.capabilityId);
 				return (
 					child.requirement !== "advisory" &&
-					(!entry || entry.coverageEffect !== "covered")
+					entry?.coverageEffect !== "covered"
 				);
 			})
 			.map((child) => child.capabilityId),
@@ -146,7 +150,9 @@ export function assessProfessionalRunGroup(params: {
 			: params.plan.children
 					.filter((child) => child.requirement !== "advisory")
 					.map((child) => child.capabilityId)),
-	].filter((capabilityId, index, values) => values.indexOf(capabilityId) === index);
+	].filter(
+		(capabilityId, index, values) => values.indexOf(capabilityId) === index,
+	);
 	return professionalRunGroupAssessmentSchema.parse({
 		schemaVersion: 1,
 		parentScanRunId: params.plan.parentScanRunId,
@@ -184,7 +190,9 @@ export function qualifyProfessionalRunGroup(params: {
 		throw new Error("professional_run_group_qualification_incomplete");
 	}
 	if (params.ledger.planHash !== params.plan.executionPlanHash) {
-		throw new Error("professional_run_group_qualification_ledger_plan_mismatch");
+		throw new Error(
+			"professional_run_group_qualification_ledger_plan_mismatch",
+		);
 	}
 	const qualifiedCapabilityIds = params.ledger.entries
 		.filter(

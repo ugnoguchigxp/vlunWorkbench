@@ -15,16 +15,16 @@ import {
 	GitDiffResolutionError,
 	resolveGitDiff,
 } from "../modules/scans/git-diff-resolver";
-import {
-	resolveProfileSteps,
-	runProfileScan,
-} from "../modules/scans/profile-runner";
+import { resolveDefaultCatalogProfileId } from "../modules/scans/profile-catalog";
 import {
 	normalizeProfileResolutionInput,
 	ProfileResolutionError,
 	resolveProfileSelection,
 } from "../modules/scans/profile-resolution";
-import { resolveDefaultCatalogProfileId } from "../modules/scans/profile-catalog";
+import {
+	resolveProfileSteps,
+	runProfileScan,
+} from "../modules/scans/profile-runner";
 import {
 	ProjectResolutionError,
 	resolveProjectByPath,
@@ -108,6 +108,9 @@ function parseScanProfileArgs() {
 			"tool-cache-dir": { type: "string" },
 			"image-ref": { type: "string" },
 			"image-tar": { type: "string" },
+			"attestation-subject": { type: "string" },
+			"attestation-bundle": { type: "string" },
+			"trust-policy": { type: "string" },
 			json: { type: "boolean", default: false },
 		},
 		strict: true,
@@ -232,6 +235,9 @@ async function main() {
 	const reportOutputPath = argsValues["report-output"];
 	const imageRef = argsValues["image-ref"];
 	const imageTar = argsValues["image-tar"];
+	const attestationSubject = argsValues["attestation-subject"];
+	const attestationBundle = argsValues["attestation-bundle"];
+	const trustPolicy = argsValues["trust-policy"];
 	if (imageRef && imageTar) {
 		writeResult({
 			ok: false,
@@ -279,6 +285,9 @@ async function main() {
 				repoPath: projectPath ?? "project-id",
 				imageRef,
 				imageTar,
+				attestationSubject,
+				attestationBundle,
+				trustPolicy,
 				executionConsent: consentProjectCodeExecution,
 			}),
 			requestedResultPolicy: resultPolicy,
@@ -440,6 +449,12 @@ async function main() {
 				repoPath: effectiveRepoPath,
 				execution,
 				consentProjectCodeExecution,
+				allowDirtySource: scanTarget.kind === "working_tree",
+				imageRef,
+				imageTar,
+				attestationSubject,
+				attestationBundle,
+				trustPolicy,
 			});
 			const technologyAnalysis =
 				await analyzeProjectCapabilities(effectiveRepoPath);
@@ -532,6 +547,9 @@ async function main() {
 			executionPolicyMetadata: scanExecutionPolicyMetadata(executionPolicy),
 			imageRef,
 			imageTar,
+			attestationSubject,
+			attestationBundle,
+			trustPolicy,
 			executionSurface,
 			target: scanTarget,
 			expectedTargetDigest,

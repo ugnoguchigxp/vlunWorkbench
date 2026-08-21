@@ -108,6 +108,29 @@ describe("Dynamic Runner", () => {
 		vi.restoreAllMocks();
 	});
 
+	it("requires explicit execution consent at the runner boundary", async () => {
+		await expect(
+			runner.run({
+				projectId,
+				profileId: "test-profile-1",
+				runner: "docker",
+				executionConsent: false as true,
+			}),
+		).rejects.toThrow("dynamic_execution_consent_required");
+	});
+
+	it("rejects a parent scan with the wrong canonical profile", async () => {
+		await expect(
+			runner.run({
+				projectId,
+				profileId: "test-profile-1",
+				scanRunId,
+				runner: "docker",
+				executionConsent: true,
+			}),
+		).rejects.toThrow("dynamic_parent_scan_invalid");
+	});
+
 	it("should perform dryRun successfully", async () => {
 		const dryResult = await runner.dryRun({
 			projectId,
@@ -169,6 +192,7 @@ describe("Dynamic Runner", () => {
 			projectId,
 			profileId: "test-profile-1",
 			runner: "docker",
+			executionConsent: true,
 			createdByUserId: userId,
 		});
 
@@ -205,7 +229,15 @@ describe("Dynamic Runner", () => {
 			outputLimits: { stdoutBytes: 4, stderrBytes: 4 },
 		});
 		vi.spyOn(Bun, "spawnSync").mockImplementation(() => ({}) as never);
-		vi.spyOn(Bun, "spawn").mockImplementation(() => {
+		vi.spyOn(Bun, "spawn").mockImplementation((args: string[]) => {
+			if (args.includes("rm")) {
+				return {
+					exited: Promise.resolve(0),
+					stdout: streamText(""),
+					stderr: streamText(""),
+					kill: () => {},
+				} as any;
+			}
 			return {
 				exited: Promise.resolve(137),
 				stdout: streamText("12345"),
@@ -218,6 +250,7 @@ describe("Dynamic Runner", () => {
 			projectId,
 			profileId: "test-profile-1",
 			runner: "docker",
+			executionConsent: true,
 			createdByUserId: userId,
 		});
 
@@ -272,6 +305,7 @@ describe("Dynamic Runner", () => {
 			projectId,
 			profileId: "test-profile-1",
 			runner: "docker",
+			executionConsent: true,
 			createdByUserId: userId,
 		});
 
@@ -300,6 +334,7 @@ describe("Dynamic Runner", () => {
 			projectId,
 			profileId: "test-profile-1",
 			runner: "docker",
+			executionConsent: true,
 			createdByUserId: userId,
 		});
 
@@ -339,6 +374,7 @@ describe("Dynamic Runner", () => {
 				projectId,
 				profileId: "test-profile-1",
 				runner: "docker",
+				executionConsent: true,
 				timeoutSec: 1,
 				createdByUserId: userId,
 			});

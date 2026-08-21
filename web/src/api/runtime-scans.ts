@@ -296,6 +296,7 @@ export async function triggerProjectDastRun(
 		profileId: string;
 		profileConfigId?: string;
 		scanRunId?: string;
+		catalogProfileId?: "authenticated-web";
 		runner?: "host" | "docker";
 		dockerImage?: string;
 		timeoutSec?: number;
@@ -387,5 +388,5 @@ export async function revokeProjectDastAuthContext(
 	);
 }
 
-export * from "./runtime-scans-reproduction";
 export * from "./runtime-scans-dynamic";
+export * from "./runtime-scans-reproduction";

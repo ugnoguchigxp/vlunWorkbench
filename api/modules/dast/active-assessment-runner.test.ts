@@ -18,6 +18,7 @@ import { ProjectRepository, ScanRepository } from "../scans/repositories";
 import { ActiveAssessmentRepository } from "./active-assessment-repository";
 import {
 	ActiveAssessmentRunner,
+	activeProfileOutcome,
 	activeScanStatus,
 } from "./active-assessment-runner";
 import { DastAuthContextCrypto } from "./auth-context-crypto";
@@ -30,6 +31,9 @@ describe("ActiveAssessmentRunner", () => {
 		expect(activeScanStatus("failed_cleanup")).toBe("failed");
 		expect(activeScanStatus("inconclusive")).toBe("completed");
 		expect(activeScanStatus("completed")).toBe("completed");
+		expect(activeProfileOutcome("failed_cleanup")).toBe("failed");
+		expect(activeProfileOutcome("inconclusive")).toBe("incomplete");
+		expect(activeProfileOutcome("completed")).toBe("completed");
 	});
 
 	let connection: DbConnection;
@@ -191,6 +195,7 @@ describe("ActiveAssessmentRunner", () => {
 		const vulnerableResult = await runner.run({
 			projectId,
 			createdByUserId: userId,
+			executionConsent: true,
 			request: {
 				kind: "authorization_matrix",
 				engagementId,
@@ -224,6 +229,7 @@ describe("ActiveAssessmentRunner", () => {
 		const fixedResult = await runner.run({
 			projectId,
 			createdByUserId: userId,
+			executionConsent: true,
 			request: {
 				kind: "authorization_matrix",
 				engagementId,
@@ -263,6 +269,7 @@ describe("ActiveAssessmentRunner", () => {
 		const inconclusiveResult = await runner.run({
 			projectId,
 			createdByUserId: userId,
+			executionConsent: true,
 			request: {
 				kind: "authorization_matrix",
 				engagementId,
@@ -327,6 +334,7 @@ describe("ActiveAssessmentRunner", () => {
 		const result = await runner.run({
 			projectId,
 			createdByUserId: userId,
+			executionConsent: true,
 			request,
 		});
 		expect(result.status).toBe("inconclusive");
@@ -336,9 +344,52 @@ describe("ActiveAssessmentRunner", () => {
 			runner.run({
 				projectId,
 				createdByUserId: userId,
+				executionConsent: true,
 				request,
 			}),
 		).rejects.toThrow("roe_request_budget_insufficient_for_plan");
+	});
+
+	it("rejects active assessments outside a disposable internal environment", async () => {
+		const engagementId = await createActiveEngagement({
+			connection,
+			projectId,
+			userId,
+			methods: ["POST", "PATCH", "DELETE"],
+			paths: ["/fixtures"],
+			origin: `http://127.0.0.1:${server.port}`,
+			environment: "staging",
+		});
+		const runner = new ActiveAssessmentRunner(connection.db);
+
+		await expect(
+			runner.run({
+				projectId,
+				createdByUserId: userId,
+				executionConsent: true,
+				request: {
+					kind: "transaction",
+					engagementId,
+					targetConfigId,
+					transaction: {
+						id: "unsafe-environment",
+						seed: [],
+						request: {
+							method: "PATCH",
+							path: "/fixtures/a",
+							headers: {},
+							body: null,
+							expectedStatus: [200],
+						},
+						cleanup: [],
+						maxRequests: 1,
+					},
+				},
+			}),
+		).rejects.toThrow("active_assessment_disposable_internal_target_required");
+		expect(
+			await new ScanRepository(connection.db).listScanRuns(projectId),
+		).toHaveLength(0);
 	});
 
 	it("serializes active work per project", async () => {
@@ -408,6 +459,7 @@ describe("ActiveAssessmentRunner", () => {
 		const running = runner.run({
 			projectId,
 			createdByUserId: userId,
+			executionConsent: true,
 			request,
 		});
 		await requestStarted;
@@ -415,6 +467,7 @@ describe("ActiveAssessmentRunner", () => {
 			runner.run({
 				projectId,
 				createdByUserId: userId,
+				executionConsent: true,
 				request,
 			}),
 		).rejects.toThrow("active_assessment_project_busy");
@@ -484,12 +537,14 @@ async function createActiveEngagement(params: {
 	paths: string[];
 	origin: string;
 	requestBudget?: number;
+	purpose?: "internal" | "external";
+	environment?: "local" | "ephemeral" | "staging" | "production";
 }) {
 	const repository = new AssessmentRepository(params.connection.db);
 	const engagement = await repository.createEngagement({
 		projectId: params.projectId,
-		purpose: "internal",
-		environment: "ephemeral",
+		purpose: params.purpose ?? "internal",
+		environment: params.environment ?? "ephemeral",
 		scope: {
 			origins: [params.origin],
 			paths: params.paths,

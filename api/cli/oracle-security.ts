@@ -120,7 +120,9 @@ async function main(): Promise<number> {
 			requestedProfileId: profileId,
 			surface: "security_oracle",
 			target: scanTarget,
-			providedInputKinds: normalizeProfileResolutionInput({ repoPath: projectPath }),
+			providedInputKinds: normalizeProfileResolutionInput({
+				repoPath: projectPath,
+			}),
 		}).executionProfile;
 	} catch {
 		const result = failureResult({

@@ -5,6 +5,7 @@ import type {
 	ArtifactSaveResult,
 	ArtifactStorage,
 } from "../scans/artifact-storage";
+import { cleanupTemporaryPaths } from "../scans/execution/lifecycle/temporary-path-cleanup";
 import { redactSecrets } from "../scans/normalizers/redaction";
 import {
 	runToolProcess,
@@ -71,91 +72,93 @@ export class RuntimeScannerRunner {
 			path.join(os.tmpdir(), `${this.adapter}-run-`),
 		);
 		const outputPath = path.join(tempDir, "nuclei.jsonl");
-		const args = buildNucleiSafeCommand(
-			params.targetOrigin,
-			outputPath,
-			params.templateRoot ??
-				process.env.VULN_WORKBENCH_NUCLEI_TEMPLATES ??
-				"/opt/vuln-workbench/nuclei-safe-templates",
-		);
-		const toolResult = await runToolProcess("nuclei", args, {
-			timeoutSec: params.timeoutSec,
-			execution: this.execution,
-			outputPath,
-			onLifecycleEvent: params.onLifecycleEvent,
-			env: {
-				...getCleanEnv(),
-				DISABLE_NUCLEI_TEMPLATES_PUBLIC_DOWNLOAD: "true",
-			},
-		});
-		let rawJson: unknown;
-		let structuredValid = false;
 		try {
-			rawJson = parseNucleiJsonl(await fs.readFile(outputPath, "utf8"));
-			structuredValid = true;
-		} catch {
-			// A missing or malformed report is never a clean scan.
-		}
-		const artifacts: Partial<
-			Pick<
-				RuntimeScannerRunResult,
-				"rawArtifact" | "stdoutArtifact" | "stderrArtifact"
-			>
-		> = {};
-		if (structuredValid)
-			artifacts.rawArtifact = await this.storage.saveRawArtifact(
-				params.scanRunId,
+			const args = buildNucleiSafeCommand(
+				params.targetOrigin,
 				outputPath,
-				"nuclei.jsonl",
+				params.templateRoot ??
+					process.env.VULN_WORKBENCH_NUCLEI_TEMPLATES ??
+					"/opt/vuln-workbench/nuclei-safe-templates",
 			);
-		if (toolResult.stdout)
-			artifacts.stdoutArtifact = await this.storage.saveLog(
-				params.scanRunId,
-				"stdout",
-				redactSecrets(toolResult.stdout),
-			);
-		if (toolResult.stderr)
-			artifacts.stderrArtifact = await this.storage.saveLog(
-				params.scanRunId,
-				"stderr",
-				redactSecrets(toolResult.stderr),
-			);
-		await fs
-			.rm(tempDir, { recursive: true, force: true })
-			.catch(() => undefined);
-		if (!toolResult.ok || toolResult.exitCode !== 0 || !structuredValid) {
-			const reasonCode = toolResult.error?.includes("timed out")
-				? "timed_out"
-				: !structuredValid
-					? "invalid_structured_output"
-					: toolResult.error?.includes("not found")
-						? "tool_unavailable"
-						: "execution_failed";
+			const toolResult = await runToolProcess("nuclei", args, {
+				timeoutSec: params.timeoutSec,
+				execution: this.execution,
+				outputPath,
+				onLifecycleEvent: params.onLifecycleEvent,
+				env: {
+					...getCleanEnv(),
+					DISABLE_NUCLEI_TEMPLATES_PUBLIC_DOWNLOAD: "true",
+				},
+			});
+			let rawJson: unknown;
+			let structuredValid = false;
+			try {
+				rawJson = parseNucleiJsonl(await fs.readFile(outputPath, "utf8"));
+				structuredValid = true;
+			} catch {
+				// A missing or malformed report is never a clean scan.
+			}
+			const artifacts: Partial<
+				Pick<
+					RuntimeScannerRunResult,
+					"rawArtifact" | "stdoutArtifact" | "stderrArtifact"
+				>
+			> = {};
+			if (structuredValid)
+				artifacts.rawArtifact = await this.storage.saveRawArtifact(
+					params.scanRunId,
+					outputPath,
+					"nuclei.jsonl",
+				);
+			if (toolResult.stdout)
+				artifacts.stdoutArtifact = await this.storage.saveLog(
+					params.scanRunId,
+					"stdout",
+					redactSecrets(toolResult.stdout),
+				);
+			if (toolResult.stderr)
+				artifacts.stderrArtifact = await this.storage.saveLog(
+					params.scanRunId,
+					"stderr",
+					redactSecrets(toolResult.stderr),
+				);
+			if (!toolResult.ok || toolResult.exitCode !== 0 || !structuredValid) {
+				const reasonCode = toolResult.error?.includes("timed out")
+					? "timed_out"
+					: !structuredValid
+						? "invalid_structured_output"
+						: toolResult.error?.includes("not found")
+							? "tool_unavailable"
+							: "execution_failed";
+				return {
+					ok: false,
+					exitCode: toolResult.exitCode,
+					elapsedMs: Date.now() - startedAt,
+					stdout: toolResult.stdout,
+					stderr: toolResult.stderr,
+					rawJson,
+					findings: [],
+					...artifacts,
+					reasonCode,
+					error:
+						toolResult.error ??
+						`nuclei exited with code ${toolResult.exitCode}`,
+					executionMetadata: toolResult.executionMetadata,
+				};
+			}
 			return {
-				ok: false,
+				ok: true,
 				exitCode: toolResult.exitCode,
 				elapsedMs: Date.now() - startedAt,
 				stdout: toolResult.stdout,
 				stderr: toolResult.stderr,
 				rawJson,
-				findings: [],
+				findings: normalizeNuclei(rawJson),
 				...artifacts,
-				reasonCode,
-				error:
-					toolResult.error ?? `nuclei exited with code ${toolResult.exitCode}`,
 				executionMetadata: toolResult.executionMetadata,
 			};
+		} finally {
+			await cleanupTemporaryPaths([tempDir], "nuclei_workspace_cleanup_failed");
 		}
-		return {
-			ok: true,
-			exitCode: toolResult.exitCode,
-			elapsedMs: Date.now() - startedAt,
-			stdout: toolResult.stdout,
-			stderr: toolResult.stderr,
-			rawJson,
-			findings: normalizeNuclei(rawJson),
-			...artifacts,
-			executionMetadata: toolResult.executionMetadata,
-		};
 	}
 }

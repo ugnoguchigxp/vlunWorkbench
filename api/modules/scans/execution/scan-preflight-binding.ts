@@ -34,6 +34,7 @@ export function buildScanPreflightBinding(params: {
 	manifest: ScannerDataManifest | null;
 	targetPlan: DastTargetStartPlan | null;
 	sourceRevision: string | null;
+	profileInputs?: Record<string, string | undefined>;
 	checks: ScanPreflightCheck[];
 }): ScanPreflightResult["binding"] {
 	const imageChecks = params.checks
@@ -85,7 +86,21 @@ export function buildScanPreflightBinding(params: {
 		sourceRevisionHash: params.sourceRevision
 			? hashPreflightValue(params.sourceRevision)
 			: null,
+		profileInputsHash: hashProfileInputs(params.profileInputs),
 	};
+}
+
+export function hashProfileInputs(
+	inputs: Record<string, string | undefined> | undefined,
+): string | null {
+	const normalized = Object.fromEntries(
+		Object.entries(inputs ?? {})
+			.filter((entry): entry is [string, string] => Boolean(entry[1]))
+			.sort(([left], [right]) => left.localeCompare(right)),
+	);
+	return Object.keys(normalized).length > 0
+		? hashPreflightValue(canonicalJson(normalized))
+		: null;
 }
 
 function sanitizedExecution(execution: ToolExecutionConfig) {

@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import http from "node:http";
 import os from "node:os";
 import { promisify } from "node:util";
+import { closeHttpServerBounded } from "./http-server-cleanup";
 import { isPathAllowed, normalizeDastOrigin } from "./target-validator";
 
 const execFileAsync = promisify(execFile);
@@ -339,21 +340,27 @@ export async function prepareContainerTargetGateway(
 	});
 	const address = server.address();
 	if (!address || typeof address === "string") {
-		await new Promise<void>((resolve) => server.close(() => resolve()));
+		await closeHttpServerBounded(server, "target_gateway_bind_cleanup_failed");
 		throw new Error("target_unreachable_from_container: gateway bind failed");
 	}
 	gatewayPort = address.port;
 	const hostOrigin = `http://${bindAddress}:${address.port}`;
 	const containerOrigin = `http://host.docker.internal:${address.port}`;
+	let stopPromise: Promise<void> | null = null;
 	return {
 		hostOrigin,
 		containerOrigin,
 		metrics: () => ({ ...metrics }),
 		stop: async () => {
-			if (closed) return;
-			closed = true;
-			for (const controller of activeControllers) controller.abort();
-			await new Promise<void>((resolve) => server.close(() => resolve()));
+			if (!stopPromise) {
+				closed = true;
+				for (const controller of activeControllers) controller.abort();
+				stopPromise = closeHttpServerBounded(
+					server,
+					"target_gateway_cleanup_failed",
+				);
+			}
+			await stopPromise;
 		},
 	};
 }

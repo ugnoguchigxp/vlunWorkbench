@@ -21,6 +21,7 @@ type DynamicCliArgs = {
 	"tool-cache-dir"?: string;
 	"output-summary"?: string;
 	"dry-run"?: string;
+	"consent-project-code-execution"?: string;
 };
 
 function writeResult(payload: Record<string, unknown>): void {
@@ -50,6 +51,10 @@ export async function main(
 				"tool-cache-dir": { type: "string" },
 				"output-summary": { type: "string" },
 				"dry-run": { type: "string", default: "false" },
+				"consent-project-code-execution": {
+					type: "string",
+					default: "false",
+				},
 			},
 			strict: true,
 		});
@@ -78,6 +83,8 @@ export async function main(
 	const toolCacheDir = argsValues["tool-cache-dir"];
 	const outputSummaryPath = argsValues["output-summary"];
 	const dryRun = argsValues["dry-run"] === "true";
+	const consentProjectCodeExecution =
+		argsValues["consent-project-code-execution"] === "true";
 
 	if (!projectId) {
 		write({
@@ -105,6 +112,16 @@ export async function main(
 			status: "failed",
 			outcome: "error",
 			message: "--runner must be docker. Host execution is not allowed.",
+		});
+		return 1;
+	}
+	if (!dryRun && !consentProjectCodeExecution) {
+		write({
+			ok: false,
+			status: "failed",
+			outcome: "error",
+			message:
+				"--consent-project-code-execution true is required for dynamic execution.",
 		});
 		return 1;
 	}
@@ -183,7 +200,10 @@ export async function main(
 		}
 
 		// Perform execution
-		const runResult = await runnerInstance.run(runOptions);
+		const runResult = await runnerInstance.run({
+			...runOptions,
+			executionConsent: true,
+		});
 
 		// Write output summary if specified
 		if (outputSummaryPath) {

@@ -30,6 +30,7 @@ function sourceSastRequirement(enabled: boolean) {
 
 export function buildCanonicalScanProfiles(params: {
 	sourceScope: ScanScopePolicy;
+	dependencyScope?: ScanScopePolicy;
 	semgrepEnabled?: boolean;
 }): ScanProfile[] {
 	const semgrepEnabled =
@@ -118,6 +119,60 @@ export function buildCanonicalScanProfiles(params: {
 				...sourceSastRequirement(semgrepEnabled),
 			],
 			coverageGaps: semgrepEnabled ? [] : ["source_sast_adapter_not_available"],
+		},
+		{
+			id: "dependency-supply-chain",
+			name: "依存関係・サプライチェーン保証",
+			description:
+				"OSVによる依存関係診断、Trivy CycloneDX SBOM生成、Cosignによる署名付きSLSA provenanceのオフライン検証を実行します。",
+			category: "focused",
+			enabled: true,
+			strictness: "strict",
+			defaultTimeoutSec: 900,
+			scope: params.dependencyScope ?? params.sourceScope,
+			supportedTargets: ["full"],
+			tools: [
+				{
+					toolId: "osv",
+					displayName: "OSV Dependency Scanner",
+					required: true,
+					failurePolicy: "fail_profile",
+					options: { dependencyMode: "manifest" },
+				},
+			],
+			steps: [
+				{
+					kind: "static_tool",
+					toolId: "osv",
+					displayName: "OSV Dependency Scanner",
+					required: true,
+					failurePolicy: "fail_profile",
+					options: { dependencyMode: "manifest" },
+				},
+				{
+					kind: "sbom_export",
+					adapter: "trivy",
+					displayName: "Trivy CycloneDX SBOM",
+					required: true,
+					failurePolicy: "fail_profile",
+					target: { mode: "project_filesystem" },
+					format: "cyclonedx",
+				},
+				{
+					kind: "attestation_verify",
+					adapter: "cosign",
+					displayName: "Cosign Offline Attestation Verification",
+					required: true,
+					failurePolicy: "fail_profile",
+					target: { mode: "repository_relative_files" },
+				},
+			],
+			capabilityRequirements: [
+				{ capabilityId: "sca", requirement: "required" },
+				{ capabilityId: "sbom", requirement: "required" },
+				{ capabilityId: "provenance_integrity", requirement: "required" },
+			],
+			coverageGaps: [],
 		},
 	];
 }

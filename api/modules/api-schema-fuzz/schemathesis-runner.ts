@@ -11,6 +11,7 @@ import {
 	runToolProcess,
 	type ToolExecutionConfig,
 } from "../scans/tools/tool-process-runner";
+import { cleanupTemporaryPaths } from "../scans/execution/lifecycle/temporary-path-cleanup";
 import { normalizeSchemathesis } from "./schemathesis-normalizer";
 
 export async function runSchemathesisReadonly(params: {
@@ -97,6 +98,6 @@ export async function runSchemathesisReadonly(params: {
 			error: result.ok ? undefined : (result.error ?? "execution_failed"),
 		};
 	} finally {
-		await fs.rm(dir, { recursive: true, force: true }).catch(() => undefined);
+		await cleanupTemporaryPaths([dir], "schemathesis_workspace_cleanup_failed");
 	}
 }

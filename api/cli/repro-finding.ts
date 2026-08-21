@@ -8,6 +8,7 @@ import { ReproductionRunner } from "../modules/reproductions/reproduction-runner
 
 type ReproCliArgs = {
 	"finding-id"?: string;
+	"scan-run-id"?: string;
 	profile?: string;
 	runner?: string;
 	"docker-bin"?: string;
@@ -32,6 +33,7 @@ async function main() {
 			args: process.argv.slice(2),
 			options: {
 				"finding-id": { type: "string" },
+				"scan-run-id": { type: "string" },
 				profile: { type: "string" },
 				runner: { type: "string", default: "docker" },
 				"docker-bin": { type: "string" },
@@ -61,6 +63,7 @@ async function main() {
 	}
 
 	const findingId = argsValues["finding-id"];
+	const scanRunId = argsValues["scan-run-id"];
 	const profileId = argsValues.profile;
 	const runner = argsValues.runner;
 	const dockerBin = argsValues["docker-bin"];
@@ -156,6 +159,7 @@ async function main() {
 
 		const runOptions = {
 			findingId,
+			scanRunId,
 			profileId,
 			runner: "docker" as const,
 			dockerImage,

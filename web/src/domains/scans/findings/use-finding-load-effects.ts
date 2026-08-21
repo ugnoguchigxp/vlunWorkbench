@@ -38,6 +38,7 @@ type FindingLoadEffectsScope = Pick<
 	active: boolean;
 	runWithBusy: (task: () => Promise<void>) => Promise<boolean>;
 	scanDetailTab: ScanDetailTab;
+	selectedProfileId: string;
 };
 
 export function useFindingLoadEffects(scope: FindingLoadEffectsScope) {
@@ -49,6 +50,7 @@ export function useFindingLoadEffects(scope: FindingLoadEffectsScope) {
 		findingVerificationInFlightRef,
 		runWithBusy,
 		scanDetailTab,
+		selectedProfileId,
 		selectedFindingDetails,
 		selectedFindingId,
 		selectedFindingIdRef,
@@ -261,12 +263,23 @@ export function useFindingLoadEffects(scope: FindingLoadEffectsScope) {
 	]);
 
 	useEffect(() => {
-		if (!active || scanDetailTab !== "verification" || !selectedFindingId)
+		if (
+			!active ||
+			!selectedFindingId ||
+			(scanDetailTab !== "verification" &&
+				selectedProfileId !== "remediation-verification")
+		)
 			return;
 		void loadFindingVerification(selectedFindingId).catch((err) =>
 			console.error("Failed to load finding verification data:", err),
 		);
-	}, [active, scanDetailTab, selectedFindingId, loadFindingVerification]);
+	}, [
+		active,
+		scanDetailTab,
+		selectedFindingId,
+		selectedProfileId,
+		loadFindingVerification,
+	]);
 
 	useEffect(() => {
 		if (

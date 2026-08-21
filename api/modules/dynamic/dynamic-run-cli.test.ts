@@ -99,6 +99,22 @@ describe("Dynamic Run CLI", () => {
 		expect(result.command).toEqual(["bun", "test"]);
 	});
 
+	it("rejects execution without explicit project-code consent", async () => {
+		const proc = await runCli([
+			"--project-id",
+			projectId,
+			"--profile",
+			"test-profile",
+			"--runner",
+			"docker",
+		]);
+
+		expect(proc.exitCode).toBe(1);
+		expect((proc.result as { message: string }).message).toContain(
+			"--consent-project-code-execution true",
+		);
+	});
+
 	it("should print a descriptive validation failure for unsafe binary", async () => {
 		// Create an unsafe config
 		await repo.createConfig({

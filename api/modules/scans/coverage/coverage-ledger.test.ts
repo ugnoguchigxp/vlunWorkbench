@@ -82,4 +82,53 @@ describe("coverage ledger", () => {
 			coverageEffect: "gap",
 		});
 	});
+
+	it("binds a persisted Cosign receipt to provenance coverage", () => {
+		const supplyChainProfile: ScanProfile = {
+			...profile,
+			id: "dependency-supply-chain",
+			steps: [
+				{
+					kind: "attestation_verify",
+					adapter: "cosign",
+					displayName: "Cosign",
+					required: true,
+					failurePolicy: "fail_profile",
+					target: { mode: "repository_relative_files" },
+				},
+			],
+			capabilityRequirements: [
+				{ capabilityId: "provenance_integrity", requirement: "required" },
+			],
+		};
+		const ledger = buildCoverageLedger({
+			profile: supplyChainProfile,
+			planHash: DIGEST,
+			derivedAt: "2026-08-21T00:00:00.000Z",
+			stepResults: [
+				{
+					kind: "attestation_verify",
+					stepId: "attestation_verify:cosign",
+					adapter: "cosign",
+					required: true,
+					status: "completed",
+					applicability: "applicable",
+					reasonCode: null,
+					coverageEffect: "covered",
+					findingCount: 0,
+					error: null,
+					artifactIds: ["receipt-1"],
+				},
+			],
+		});
+		expect(ledger?.entries[0]).toMatchObject({
+			capabilityId: "provenance_integrity",
+			execution: "completed",
+			coverageEffect: "covered",
+			evidenceRefs: [
+				"artifact:receipt-1",
+				"step-result:attestation_verify:cosign",
+			],
+		});
+	});
 });

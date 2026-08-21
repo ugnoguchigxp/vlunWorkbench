@@ -295,7 +295,7 @@ describe("Profile Runner Orchestration", () => {
 
   it("skips only an optional step blocked by enforced preflight", async () => {
     const mockProfile = {
-      id: "optional-preflight",
+	      id: "baseline",
       name: "Optional preflight",
       description: "Optional scanner preflight",
       category: "focused" as const,
@@ -468,6 +468,54 @@ describe("Profile Runner Orchestration", () => {
         args: ["diff", "--name-only", "HEAD"],
       }),
     ).toContain("src/app.ts");
+  });
+
+  it("runs a full profile against an immutable copy of the current scoped tree", async () => {
+    execFileSync("git", ["init", "-b", "main"], { cwd: repoPath });
+    execFileSync("git", ["config", "user.email", "test@example.com"], {
+      cwd: repoPath,
+    });
+    execFileSync("git", ["config", "user.name", "Test User"], {
+      cwd: repoPath,
+    });
+    await fs.writeFile(path.join(repoPath, "app.ts"), "v1\n");
+    execFileSync("git", ["add", "-A"], { cwd: repoPath });
+    execFileSync("git", ["commit", "-m", "base"], { cwd: repoPath });
+    await fs.writeFile(path.join(repoPath, "app.ts"), "v2\n");
+    const scannerPaths: string[] = [];
+    const scannerContents: string[] = [];
+    vi.spyOn(profileRunnerModule, "runToolIntoExistingScan").mockImplementation(
+      async (params) => {
+        scannerPaths.push(params.repoPath);
+        scannerContents.push(
+          await fs.readFile(path.join(params.repoPath, "app.ts"), "utf8"),
+        );
+        return {
+          toolRunId: randomUUID(),
+          findingCount: 0,
+          exitCode: 0,
+          elapsedMs: 1,
+          artifactIds: [],
+          diffUnmappedFindingCount: 0,
+        };
+      },
+    );
+
+    const result = await runProfileScan({
+      db: connection.db,
+      projectId,
+      profileId: "baseline",
+      repoPath,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(scannerContents).toEqual(["v2\n", "v2\n"]);
+    expect(scannerPaths.every((scannerPath) => scannerPath !== repoPath)).toBe(
+      true,
+    );
+    for (const scannerPath of scannerPaths) {
+      await expect(fs.stat(scannerPath)).rejects.toThrow();
+    }
   });
 
   it("allows a Web project path outside the process working directory", async () => {
@@ -651,7 +699,7 @@ describe("Profile Runner Orchestration", () => {
 
   it("should handle optional tool failure with completed_with_warnings status", async () => {
     const mockProfile = {
-      id: "test-optional",
+	      id: "source-baseline",
       name: "Test Optional Profile",
       description: "Profile for testing optional tool failure",
       enabled: true,
@@ -696,7 +744,7 @@ describe("Profile Runner Orchestration", () => {
     const result = await runProfileScan({
       db: connection.db,
       projectId,
-      profileId: "test-optional",
+	      profileId: "source-baseline",
       repoPath,
       continueOnToolFailure: true,
     });
@@ -714,7 +762,7 @@ describe("Profile Runner Orchestration", () => {
 
   it("should orchestrate static and DAST steps in one profile scan", async () => {
     const mockProfile = {
-      id: "web-test",
+	      id: "web-app-baseline",
       name: "Web Test Profile",
       description: "Profile for testing unified static and DAST steps",
       enabled: true,
@@ -801,7 +849,7 @@ describe("Profile Runner Orchestration", () => {
     const result = await runProfileScan({
       db: connection.db,
       projectId,
-      profileId: "web-test",
+	      profileId: "web-app-baseline",
       repoPath,
       continueOnToolFailure: true,
     });
@@ -841,7 +889,7 @@ describe("Profile Runner Orchestration", () => {
 
   it("should fail profile when a fail_profile tool is marked optional", async () => {
     const mockProfile = {
-      id: "test-fail-policy",
+	      id: "basic-security",
       name: "Test Failure Policy Profile",
       description: "Profile for testing fail_profile policy",
       enabled: true,
@@ -886,7 +934,7 @@ describe("Profile Runner Orchestration", () => {
     const result = await runProfileScan({
       db: connection.db,
       projectId,
-      profileId: "test-fail-policy",
+	      profileId: "basic-security",
       repoPath,
       continueOnToolFailure: true,
     });

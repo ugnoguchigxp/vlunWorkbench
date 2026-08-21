@@ -272,12 +272,16 @@ describe("Tool process runner Docker backend", () => {
 					exited: Promise.resolve(1),
 				}) as any,
 		);
-		await cleanupDockerContainer("docker", "container-one", emit as never);
+		await expect(
+			cleanupDockerContainer("docker", "container-one", emit as never),
+		).rejects.toThrow("docker_container_cleanup_failed");
 
 		vi.spyOn(Bun, "spawn").mockImplementationOnce(() => {
 			throw new Error("ENOENT");
 		});
-		await cleanupDockerContainer("docker", "container-two", emit as never);
+		await expect(
+			cleanupDockerContainer("docker", "container-two", emit as never),
+		).rejects.toThrow("docker_container_cleanup_failed");
 
 		expect(events).toEqual([
 			expect.objectContaining({

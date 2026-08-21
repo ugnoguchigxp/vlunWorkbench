@@ -7,16 +7,23 @@ import {
 	analyzeProjectCapabilities,
 	buildPluginExecutionSummary,
 } from "../../project-capabilities/plugin-detector";
-import { ScanArtifactSink } from "./lifecycle/artifact-sink";
-import { ArtifactStorage } from "./lifecycle/artifact-storage";
-import {
-	materializeFullSourceSnapshot,
-	type FullSourceSnapshot,
-} from "./lifecycle/full-source-snapshot";
-import { aggregateRuntimeAssessmentCoverage } from "../coverage/runtime-assessment-coverage";
 import { buildCoverageLedger } from "../coverage/coverage-ledger";
+import { aggregateRuntimeAssessmentCoverage } from "../coverage/runtime-assessment-coverage";
 import { resolveSourceSastApplicability } from "../coverage/source-sast-applicability";
 import { resolveSourceSastCoverage } from "../coverage/source-sast-coverage";
+import { FindingRepository } from "../finding-repository";
+import { getCatalogEntry, hashCatalogEntry } from "../profile-catalog";
+import {
+	normalizeProfileResolutionInput,
+	resolveProfileSelection,
+} from "../profile-resolution";
+import { ArtifactRepository, ScanRepository } from "../repositories";
+import { staticScannerAdapterRegistry } from "../static-scanner-adapters";
+import { resolveScanScope } from "../target-scope";
+import {
+	normalizeToolExecutionConfig,
+	type ToolExecutionConfig,
+} from "../tools/tool-process-runner";
 import {
 	buildDiffScanPlan,
 	canonicalJson,
@@ -26,19 +33,31 @@ import {
 	type DiffSnapshot,
 	materializeDiffSnapshot,
 } from "./diff/diff-snapshot";
+import {
+	GitDiffResolutionError,
+	resolveGitDiff,
+} from "./diff/git-diff-resolver";
 import { resolveFullScanTarget } from "./full-scan-target";
-import { resolveGitDiff } from "./diff/git-diff-resolver";
+import { ScanArtifactSink } from "./lifecycle/artifact-sink";
+import { ArtifactStorage } from "./lifecycle/artifact-storage";
+import {
+	type FullSourceSnapshot,
+	materializeScopedSourceSnapshot,
+} from "./lifecycle/full-source-snapshot";
+import {
+	type ProfileInputSnapshot,
+	materializeProfileInputSnapshot,
+} from "./lifecycle/profile-input-snapshot";
+import { normalizeProfileStepResult } from "./normalized-step-result";
+import {
+	assessProfessionalRunGroup,
+	buildProfessionalRunGroupPhase56Handoff,
+	buildProfessionalRunGroupPlan,
+	qualifyProfessionalRunGroup,
+} from "./professional-run-group";
 import { type ProfileScanResult, resolveProfileSteps } from "./profile-runner";
 import { executeProfileSteps } from "./profile-step-orchestrator";
-import { normalizeProfileStepResult } from "./normalized-step-result";
-import { ArtifactRepository, ScanRepository } from "../repositories";
 import { hashResolvedProfile } from "./resolved-profile";
-import {
-	normalizeProfileResolutionInput,
-	resolveProfileSelection,
-} from "../profile-resolution";
-import { evaluateScanGate } from "./scan-result-policy";
-import { FindingRepository } from "../finding-repository";
 import {
 	applyExecutionPlanToSteps,
 	applyStrictProfileRequirements,
@@ -46,19 +65,8 @@ import {
 	executionPlanBlocks,
 } from "./scan-execution-plan-builder";
 import { preflightBlocksExecution, runScanPreflight } from "./scan-preflight";
-import { resolveScanScope } from "../target-scope";
-import { staticScannerAdapterRegistry } from "../static-scanner-adapters";
-import { getCatalogEntry, hashCatalogEntry } from "../profile-catalog";
-import {
-	assessProfessionalRunGroup,
-	buildProfessionalRunGroupPhase56Handoff,
-	buildProfessionalRunGroupPlan,
-	qualifyProfessionalRunGroup,
-} from "./professional-run-group";
-import {
-	normalizeToolExecutionConfig,
-	type ToolExecutionConfig,
-} from "../tools/tool-process-runner";
+import { hashProfileInputs } from "./scan-preflight-binding";
+import { evaluateScanGate } from "./scan-result-policy";
 
 export async function runProfileScan(params: {
 	db: AppDatabase;
@@ -73,6 +81,9 @@ export async function runProfileScan(params: {
 	execution?: ToolExecutionConfig;
 	imageRef?: string;
 	imageTar?: string;
+	attestationSubject?: string;
+	attestationBundle?: string;
+	trustPolicy?: string;
 	executionPolicyMetadata?: Record<string, unknown>;
 	executionSurface?: "cli" | "web" | "security_oracle" | "nightworkers";
 	target?: ScanTarget;
@@ -111,18 +122,25 @@ export async function runProfileScan(params: {
 		resolution,
 	} = resolveProfileSelection({
 		requestedProfileId: params.profileId,
-			surface: params.executionSurface ?? "cli",
+		surface: params.executionSurface ?? "cli",
 		target: requestedTarget,
 		providedInputKinds: normalizeProfileResolutionInput({
 			repoPath: params.repoPath,
 			imageRef: params.imageRef,
 			imageTar: params.imageTar,
+			attestationSubject: params.attestationSubject,
+			attestationBundle: params.attestationBundle,
+			trustPolicy: params.trustPolicy,
 			autoStartPlan: Boolean(params.runtimeTargetProvider),
 			executionConsent: params.consentProjectCodeExecution,
 		}),
 		requestedResultPolicy: params.resultPolicy,
 		allowExperimental: params.allowExperimental,
 	});
+	const executionProfileId = resolution.executionProfileId;
+	if (!executionProfileId) {
+		throw new Error("profile_resolution_execution_profile_missing");
+	}
 	if (
 		params.expectedCatalogEntryHash &&
 		params.expectedCatalogEntryHash !== resolution.catalogEntryHash
@@ -144,7 +162,13 @@ export async function runProfileScan(params: {
 		} catch (error) {
 			// Existing non-Git projects remain scannable; immutable snapshots apply
 			// when a fixed source revision is available.
-			if (params.expectedTargetDigest) throw error;
+			if (
+				params.expectedTargetDigest ||
+				!(error instanceof GitDiffResolutionError) ||
+				error.code !== "not_a_git_repository"
+			) {
+				throw error;
+			}
 		}
 	}
 	if (
@@ -295,6 +319,12 @@ export async function runProfileScan(params: {
 		execution,
 		mode: profile.strictness === "strict" ? "enforced" : params.preflightMode,
 		consentProjectCodeExecution: params.consentProjectCodeExecution,
+		allowDirtySource: requestedTarget.kind === "working_tree",
+		imageRef: params.imageRef,
+		imageTar: params.imageTar,
+		attestationSubject: params.attestationSubject,
+		attestationBundle: params.attestationBundle,
+		trustPolicy: params.trustPolicy,
 		targetPlan: params.runtimeTargetProvider?.plan,
 	});
 	const preflightBindingChanged = Boolean(
@@ -436,7 +466,7 @@ export async function runProfileScan(params: {
 			scanRunId: scanRun.id,
 			profileId: params.profileId,
 			canonicalProfileId: resolution.canonicalProfileId,
-			executionProfileId: resolution.executionProfileId!,
+			executionProfileId,
 			resultPolicy: resolution.resultPolicy,
 			gateDecision: "blocked",
 			status: "failed",
@@ -450,7 +480,55 @@ export async function runProfileScan(params: {
 
 	let diffSnapshot: DiffSnapshot | null = null;
 	let fullSourceSnapshot: FullSourceSnapshot | null = null;
+	let profileInputSnapshot: ProfileInputSnapshot | null = null;
 	let diffManifestArtifactId: string | null = null;
+	try {
+		profileInputSnapshot = await materializeProfileInputSnapshot({
+			repositoryPath: params.repoPath,
+			imageRef: params.imageRef,
+			imageTar: params.imageTar,
+			attestationSubject: params.attestationSubject,
+			attestationBundle: params.attestationBundle,
+			trustPolicy: params.trustPolicy,
+		});
+		if (
+			profileInputSnapshot &&
+			hashProfileInputs(profileInputSnapshot.bindings) !==
+				scanPreflight.binding.profileInputsHash
+		) {
+			throw new Error("profile_input_changed_after_preflight");
+		}
+	} catch (error) {
+		let failure = error;
+		if (profileInputSnapshot) {
+			try {
+				await cleanupExecutionWorkspaces({
+					scanRepo,
+					scanRunId: scanRun.id,
+					workspaces: [
+						{
+							kind: "profile_input_snapshot",
+							cleanup: profileInputSnapshot.cleanup,
+						},
+					],
+				});
+			} catch (cleanupError) {
+				failure = cleanupError;
+			}
+		}
+		const message =
+			failure instanceof Error ? failure.message : String(failure);
+		await scanRepo.updateScanRunStatus(scanRun.id, "failed", {
+			summary: message,
+			profileOutcome: "blocked",
+			metadata: {
+				...scanRun.metadata,
+				...initialMetadata,
+				terminationReason: message,
+			},
+		});
+		throw failure;
+	}
 	if (diffPlan) {
 		try {
 			const hasApplicableTool = diffPlan.tools.some(
@@ -509,23 +587,33 @@ export async function runProfileScan(params: {
 				},
 			});
 		} catch (error) {
-			await diffSnapshot?.cleanup().catch(async (cleanupError) => {
-				await scanRepo.createScanEvent({
+			let failure = error;
+			try {
+				await cleanupExecutionWorkspaces({
+					scanRepo,
 					scanRunId: scanRun.id,
-					level: "warn",
-					eventType: "diff.cleanup_failed",
-					message: "Temporary diff snapshot cleanup failed.",
-					data: {
-						errorType:
-							cleanupError instanceof Error
-								? cleanupError.name
-								: "UnknownCleanupError",
-					},
+					workspaces: [
+						...(diffSnapshot
+							? [{ kind: "diff_snapshot", cleanup: diffSnapshot.cleanup }]
+							: []),
+						...(profileInputSnapshot
+							? [
+									{
+										kind: "profile_input_snapshot",
+										cleanup: profileInputSnapshot.cleanup,
+									},
+								]
+							: []),
+					],
 				});
-			});
-			const message = error instanceof Error ? error.message : String(error);
+			} catch (cleanupError) {
+				failure = cleanupError;
+			}
+			const message =
+				failure instanceof Error ? failure.message : String(failure);
 			await scanRepo.updateScanRunStatus(scanRun.id, "failed", {
 				summary: message,
+				profileOutcome: "failed",
 				metadata: {
 					...scanRun.metadata,
 					target: diffPlan.target,
@@ -539,74 +627,156 @@ export async function runProfileScan(params: {
 				eventType: "diff.target_failed",
 				message,
 			});
-			throw error;
+			throw failure;
 		}
 	}
 	if (fullScanTarget) {
 		try {
-			fullSourceSnapshot = await materializeFullSourceSnapshot({
+			fullSourceSnapshot = await materializeScopedSourceSnapshot({
 				repositoryPath: params.repoPath,
 				sourceRevision: fullScanTarget.sourceRevision,
+				scope: resolvedScope.scope,
 			});
+			if (
+				fullScanTarget.scopeContentDigest &&
+				fullSourceSnapshot.snapshotDigest !== fullScanTarget.scopeContentDigest
+			) {
+				throw new Error(
+					"target_changed: scoped target changed before execution",
+				);
+			}
 			await scanRepo.mergeScanRunMetadata(scanRun.id, {
 				fullSourceSnapshot: {
 					sourceRevision: fullSourceSnapshot.sourceRevision,
 					snapshotDigest: fullSourceSnapshot.snapshotDigest,
+					snapshotKind: "scoped_worktree",
 				},
 			});
 		} catch (error) {
+			let failure = error;
+			try {
+				await cleanupExecutionWorkspaces({
+					scanRepo,
+					scanRunId: scanRun.id,
+					workspaces: [
+						...(fullSourceSnapshot
+							? [
+									{
+										kind: "source_snapshot",
+										cleanup: fullSourceSnapshot.cleanup,
+									},
+								]
+							: []),
+						...(profileInputSnapshot
+							? [
+									{
+										kind: "profile_input_snapshot",
+										cleanup: profileInputSnapshot.cleanup,
+									},
+								]
+							: []),
+					],
+				});
+			} catch (cleanupError) {
+				failure = cleanupError;
+			}
 			await scanRepo.updateScanRunStatus(scanRun.id, "failed", {
 				summary:
 					"Scan failed because the immutable source snapshot could not be created.",
+				profileOutcome: "failed",
 				metadata: {
 					...scanRun.metadata,
 					...initialMetadata,
 					terminationReason: "source_snapshot_materialization_failed",
 				},
 			});
-			throw error;
+			throw failure;
 		}
 	}
 
-	const executionResult = await (async () => {
-		try {
-			return await executeProfileSteps({
-				db: params.db,
-				projectId: params.projectId,
-				repoPath: fullSourceSnapshot?.projectPath ?? params.repoPath,
-				timeoutSec: params.timeoutSec,
-				createdByUserId: params.createdByUserId,
-				imageRef: params.imageRef,
-				imageTar: params.imageTar,
-				scanRepo,
-				scanRun,
-				profile,
-				profileSteps: applyExecutionPlanToSteps(profileSteps, executionPlan),
-				continueOnToolFailure,
-				diffPlan,
-				diffSnapshot,
-				sharesRuntimeTarget,
-				resolvedScope,
-				artifactStorage,
-				execution,
-				technologyAnalysis,
-				consentProjectCodeExecution:
-					params.consentProjectCodeExecution === true,
-				runtimeTargetProvider: params.runtimeTargetProvider,
-				scanPreflight,
-				executionPlan,
-			});
-		} finally {
-			await fullSourceSnapshot?.cleanup().catch(async () => {
-				await scanRepo.createScanEvent({
-					scanRunId: scanRun.id,
-					level: "warn",
-					eventType: "source_snapshot.cleanup_failed",
-					message: "Immutable source snapshot cleanup failed.",
+	let executionResult: Awaited<ReturnType<typeof executeProfileSteps>>;
+	try {
+		executionResult = await (async () => {
+			try {
+				return await executeProfileSteps({
+					db: params.db,
+					projectId: params.projectId,
+					repoPath: fullSourceSnapshot?.projectPath ?? params.repoPath,
+					profileInputRepoPath:
+						profileInputSnapshot?.rootPath ?? params.repoPath,
+					timeoutSec: params.timeoutSec,
+					createdByUserId: params.createdByUserId,
+					imageRef: params.imageRef,
+					imageTar: params.imageTar,
+					attestationSubject: params.attestationSubject,
+					attestationBundle: params.attestationBundle,
+					trustPolicy: params.trustPolicy,
+					scanRepo,
+					scanRun,
+					profile,
+					profileSteps: applyExecutionPlanToSteps(profileSteps, executionPlan),
+					continueOnToolFailure,
+					diffPlan,
+					diffSnapshot,
+					sharesRuntimeTarget,
+					resolvedScope,
+					artifactStorage,
+					execution,
+					technologyAnalysis,
+					consentProjectCodeExecution:
+						params.consentProjectCodeExecution === true,
+					runtimeTargetProvider: params.runtimeTargetProvider,
+					scanPreflight,
+					executionPlan,
 				});
-			});
-		}
-	})();
+			} finally {
+				await cleanupExecutionWorkspaces({
+					scanRepo,
+					scanRunId: scanRun.id,
+					workspaces: [
+						...(fullSourceSnapshot
+							? [
+									{
+										kind: "source_snapshot",
+										cleanup: fullSourceSnapshot.cleanup,
+									},
+								]
+							: []),
+						...(diffSnapshot
+							? [{ kind: "diff_snapshot", cleanup: diffSnapshot.cleanup }]
+							: []),
+						...(profileInputSnapshot
+							? [
+									{
+										kind: "profile_input_snapshot",
+										cleanup: profileInputSnapshot.cleanup,
+									},
+								]
+							: []),
+					],
+				});
+			}
+		})();
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		const currentScan = await scanRepo.findById(scanRun.id);
+		await scanRepo.updateScanRunStatus(scanRun.id, "failed", {
+			summary: message,
+			profileOutcome: "failed",
+			metadata: {
+				...(currentScan?.metadata ?? scanRun.metadata),
+				...initialMetadata,
+				terminationReason: message,
+			},
+		});
+		await scanRepo.createScanEvent({
+			scanRunId: scanRun.id,
+			level: "error",
+			eventType: "scan.failed",
+			message,
+		});
+		throw error;
+	}
 	const {
 		toolResults,
 		stepResults,
@@ -653,9 +823,11 @@ export async function runProfileScan(params: {
 				})
 			: null;
 	const professionalRunGroupQualification =
-		professionalRunGroupAssessment?.technicalCompletion && coverageLedger
+		professionalRunGroupPlan &&
+		professionalRunGroupAssessment?.technicalCompletion &&
+		coverageLedger
 			? qualifyProfessionalRunGroup({
-					plan: professionalRunGroupPlan!,
+					plan: professionalRunGroupPlan,
 					ledger: coverageLedger,
 					assessment: professionalRunGroupAssessment,
 					qualifiedAt: new Date().toISOString(),
@@ -791,7 +963,7 @@ export async function runProfileScan(params: {
 		scanRunId: scanRun.id,
 		profileId: params.profileId,
 		canonicalProfileId: resolution.canonicalProfileId,
-		executionProfileId: resolution.executionProfileId!,
+		executionProfileId,
 		resultPolicy: resolution.resultPolicy,
 		gateDecision: gateEvaluation.gateDecision,
 		status: finalScanStatus,
@@ -801,4 +973,67 @@ export async function runProfileScan(params: {
 		toolResults,
 		stepResults,
 	};
+}
+
+export async function cleanupExecutionWorkspaces(params: {
+	scanRepo: {
+		createScanEvent: (
+			input: Parameters<ScanRepository["createScanEvent"]>[0],
+		) => Promise<unknown>;
+		mergeScanRunMetadata: (
+			scanRunId: string,
+			metadata: Record<string, unknown>,
+		) => Promise<unknown>;
+	};
+	scanRunId: string;
+	workspaces: Array<{ kind: string; cleanup: () => Promise<void> }>;
+}): Promise<void> {
+	if (params.workspaces.length === 0) return;
+	const receipts: Array<{
+		kind: string;
+		status: "completed" | "failed";
+		completedAt: string;
+		failureCode?: string;
+	}> = [];
+	const failureCodes: string[] = [];
+	for (const workspace of params.workspaces) {
+		const completedAt = new Date().toISOString();
+		try {
+			await workspace.cleanup();
+			receipts.push({
+				kind: workspace.kind,
+				status: "completed",
+				completedAt,
+			});
+		} catch {
+			const failureCode = `${workspace.kind}_cleanup_failed`;
+			failureCodes.push(failureCode);
+			receipts.push({
+				kind: workspace.kind,
+				status: "failed",
+				completedAt,
+				failureCode,
+			});
+			try {
+				await params.scanRepo.createScanEvent({
+					scanRunId: params.scanRunId,
+					level: "error",
+					eventType: `${workspace.kind}.cleanup_failed`,
+					message: `Temporary ${workspace.kind} cleanup failed.`,
+				});
+			} catch {
+				// Continue cleanup; the persisted receipt remains the source of truth.
+			}
+		}
+	}
+	try {
+		await params.scanRepo.mergeScanRunMetadata(params.scanRunId, {
+			workspaceCleanupReceipts: receipts,
+		});
+	} catch {
+		throw new Error("workspace_cleanup_receipt_not_persisted");
+	}
+	if (failureCodes.length > 0) {
+		throw new Error(failureCodes.sort().join(","));
+	}
 }

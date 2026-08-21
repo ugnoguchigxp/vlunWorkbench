@@ -14,13 +14,12 @@ import {
 } from "../scans-route-search";
 import { useProjectDeleteController } from "../use-project-delete-controller";
 import { useScanDeleteController } from "../use-scan-delete-controller";
-import { DastAssessmentPanel } from "./dast-assessment-panel";
 import { ProjectDeleteDialog } from "./project-delete-dialog";
 import { ProjectRail } from "./project-rail";
 import { ScanDeleteDialog } from "./scan-delete-dialog";
 import { ScanLaunchCard } from "./scan-launch-card";
-import { ScanProfileCatalogList } from "./scan-profile-catalog-list";
 import { ScanOverviewTab } from "./scan-overview-tab";
+import { ScanProfileInputFields } from "./scan-profile-input-fields";
 import { ScanProgressPanel } from "./scan-progress-panel";
 import { ScanReportWorkspace } from "./scan-report-workspace";
 import { ScanTabs } from "./scan-tabs";
@@ -146,9 +145,6 @@ export function ScansWorkspacePage() {
 	const generateImprovementRequest = () => {
 		void c.handleGenerateImprovementRequest();
 	};
-	const selectedProfile = c.profiles.find(
-		(profile) => profile.id === c.selectedProfileId,
-	);
 	const progressProfile = c.progressScanRun
 		? (c.profiles.find(
 				(profile) => profile.id === c.progressScanRun?.profile,
@@ -189,22 +185,12 @@ export function ScansWorkspacePage() {
 						scanTargetKind={c.scanTargetKind}
 						disabled={!canStart}
 						isScanning={c.isScanning}
-						onProfileChange={c.setSelectedProfileId}
+						onProfileChange={c.handleScanProfileChange}
 						onTargetChange={c.handleScanTargetKindChange}
 						onStart={() => void c.handleStartScanProfile()}
-					/>
-					<ScanProfileCatalogList
-						entries={c.catalogEntries}
-						genericStartProfileIds={c.profiles.map((profile) => profile.id)}
-					/>
-					{selectedProfile?.capabilityRequirements?.length ? (
-						<p className="workspace-coverage-notice">
-							実行前の診断要件:{" "}
-							{selectedProfile.capabilityRequirements
-								.map((entry) => entry.capabilityId)
-								.join(", ")}
-						</p>
-					) : null}
+					>
+						<ScanProfileInputFields />
+					</ScanLaunchCard>
 					{!canStart && c.selectedProjectId ? (
 						<p className="workspace-coverage-notice">
 							保存済みパスを読み取れないため、スキャンを実行できません。
@@ -293,7 +279,6 @@ function CoverageTab({ coverageGaps }: { coverageGaps: number }) {
 					? "未確認のカバレッジギャップはありません。"
 					: `${coverageGaps} 件のカバレッジギャップを確認してください。`}
 			</p>
-			<DastAssessmentPanel />
 		</section>
 	);
 }

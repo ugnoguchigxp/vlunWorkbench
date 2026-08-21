@@ -3,23 +3,27 @@ import type { ScanPreflightResult } from "../../../../shared/schemas/scan-prefli
 import type { AppDatabase } from "../../../db";
 import type { RuntimeTargetProvider } from "../../dast/runtime-target-provider";
 import type { ProjectCapabilityAnalysis } from "../../project-capabilities/plugin-detector";
-import type { ArtifactStorage } from "./lifecycle/artifact-storage";
-import type { DiffScanPlan } from "./diff/diff-scan-plan";
-import type { DiffSnapshot } from "./diff/diff-snapshot";
-import type { resolveProfileSteps } from "./profile-runner";
 import type { getProfileById } from "../profiles";
 import type { ScanRepository } from "../repositories";
 import type { resolveScanScope } from "../target-scope";
 import type { ToolExecutionConfig } from "../tools/tool-process-runner";
+import type { DiffScanPlan } from "./diff/diff-scan-plan";
+import type { DiffSnapshot } from "./diff/diff-snapshot";
+import type { ArtifactStorage } from "./lifecycle/artifact-storage";
+import type { resolveProfileSteps } from "./profile-runner";
 
 export type ExecuteProfileStepsParams = {
 	db: AppDatabase;
 	projectId: string;
 	repoPath: string;
+	profileInputRepoPath: string;
 	timeoutSec?: number;
 	createdByUserId?: string | null;
 	imageRef?: string;
 	imageTar?: string;
+	attestationSubject?: string;
+	attestationBundle?: string;
+	trustPolicy?: string;
 	scanRepo: ScanRepository;
 	scanRun: { id: string };
 	profile: NonNullable<ReturnType<typeof getProfileById>>;

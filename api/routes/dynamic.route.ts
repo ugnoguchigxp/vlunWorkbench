@@ -8,13 +8,18 @@ import type { AppDatabase } from "../db";
 import { getAuthContextUser } from "../modules/auth/context";
 import { HttpError } from "../modules/auth/errors";
 import { DynamicArtifactStorage } from "../modules/dynamic/dynamic-artifact-storage";
-import { validateDynamicProfilePolicy } from "../modules/dynamic/dynamic-profiles";
+import {
+	DYNAMIC_PROFILE_TEMPLATES,
+	validateDynamicProfilePolicy,
+} from "../modules/dynamic/dynamic-profiles";
 import { DynamicRepository } from "../modules/dynamic/dynamic-repository";
 import type { WebProcessCapacity } from "../modules/processes/web-process-capacity";
 import type {
 	FindingRepository,
 	ProjectRepository,
 } from "../modules/scans/repositories";
+import { ScanRepository } from "../modules/scans/repositories";
+import { buildDedicatedProfileMetadata } from "../modules/scans/profile-resolution";
 import {
 	ProjectPathPolicyError,
 	resolveProjectPath,
@@ -29,17 +34,21 @@ type DynamicRouteDeps = {
 	findingRepository: FindingRepository;
 	projectRepository: ProjectRepository;
 	processCapacity?: WebProcessCapacity;
+	scanRepository?: ScanRepository;
 };
 
 type DynamicCliBridgeResult = Record<string, unknown> & {
 	ok?: boolean;
 	dynamicRunId?: string;
+	status?: string;
+	outcome?: string;
 	message?: string;
 };
 
 export function createDynamicRoute(deps: DynamicRouteDeps) {
 	const { db, findingRepository, projectRepository } = deps;
 	const repo = new DynamicRepository(db);
+	const scanRepository = deps.scanRepository ?? new ScanRepository(db);
 	const route = new Hono();
 	const assertExecutionPath = async (repoPath: string) => {
 		try {
@@ -63,8 +72,21 @@ export function createDynamicRoute(deps: DynamicRouteDeps) {
 		if (!project || project.ownerUserId !== authUser.userId) {
 			throw new HttpError(403, "Forbidden");
 		}
-		const configs = await repo.listConfigsForProject(projectId);
-		return c.json({ configs });
+		const [configs, applicability] = await Promise.all([
+			repo.listConfigsForProject(projectId),
+			Promise.all(
+				DYNAMIC_PROFILE_TEMPLATES.map(async (template) => ({
+					id: template.id,
+					displayName: template.displayName,
+					dynamicKind: template.dynamicKind,
+					applicable: await template.isApplicable(project.repoPath),
+				})),
+			),
+		]);
+		return c.json({
+			configs,
+			templates: applicability.filter((template) => template.applicable),
+		});
 	});
 
 	// Create project profile config
@@ -214,20 +236,78 @@ export function createDynamicRoute(deps: DynamicRouteDeps) {
 				.join("; ");
 			throw new HttpError(400, `Validation failed: ${message}`);
 		}
+		if (!parseResult.data.consentProjectCodeExecution) {
+			throw new HttpError(
+				400,
+				"Explicit consent is required for isolated project code execution.",
+			);
+		}
 
-		const cliResult = await executeDynamicRunCli({
+		await ensureBuiltinProfileConfig({
+			repository: repo,
 			projectId,
+			repoPath: project.repoPath,
 			profileId: parseResult.data.profileId,
-			runner: parseResult.data.runner,
-			dockerImage: parseResult.data.dockerImage,
-			network: parseResult.data.network,
-			timeoutSec: parseResult.data.timeoutSec,
-			memory: parseResult.data.memory,
-			cpus: parseResult.data.cpus,
-			processCapacity: deps.processCapacity,
+			createdByUserId: authUser.userId,
 		});
-
-		return c.json(cliResult);
+		const scan = await scanRepository.createScanRun({
+			projectId,
+			profile: "dynamic-verification",
+			status: "running",
+			createdByUserId: authUser.userId,
+			metadata: {
+				...buildDedicatedProfileMetadata({
+					canonicalProfileId: "dynamic-verification",
+					providedInputKinds: ["source_target", "execution_consent"],
+				}),
+				dynamicProfileId: parseResult.data.profileId,
+				safetyBoundary: "docker-isolated-readonly-source",
+				networkMode: parseResult.data.network ?? "none",
+			},
+		});
+		try {
+			const cliResult = await executeDynamicRunCli({
+				projectId,
+				scanRunId: scan.id,
+				profileId: parseResult.data.profileId,
+				runner: parseResult.data.runner,
+				dockerImage: parseResult.data.dockerImage,
+				network: parseResult.data.network,
+				timeoutSec: parseResult.data.timeoutSec,
+				memory: parseResult.data.memory,
+				cpus: parseResult.data.cpus,
+				executionConsent: true,
+				processCapacity: deps.processCapacity,
+			});
+			const completed = cliResult.ok === true;
+			const profileOutcome = completed
+				? cliResult.outcome === "passed"
+					? "completed"
+					: "completed_with_warnings"
+				: "failed";
+			await scanRepository.updateScanRunStatus(
+				scan.id,
+				completed ? "completed" : "failed",
+				{
+					summary: completed
+						? `Isolated dynamic verification completed with outcome: ${cliResult.outcome ?? "unknown"}.`
+						: String(cliResult.message ?? "Dynamic verification failed."),
+					profileOutcome,
+					metadata: {
+						dynamicRunId: cliResult.dynamicRunId ?? null,
+						dynamicStatus: cliResult.status ?? null,
+						dynamicOutcome: cliResult.outcome ?? null,
+					},
+				},
+			);
+			return c.json({ ...cliResult, scanRunId: scan.id });
+		} catch (error) {
+			await scanRepository.updateScanRunStatus(scan.id, "failed", {
+				summary: error instanceof Error ? error.message : String(error),
+				profileOutcome: "failed",
+			});
+			throw error;
+		}
 	});
 
 	// List finding runs
@@ -279,6 +359,12 @@ export function createDynamicRoute(deps: DynamicRouteDeps) {
 				.join("; ");
 			throw new HttpError(400, `Validation failed: ${message}`);
 		}
+		if (!parseResult.data.consentProjectCodeExecution) {
+			throw new HttpError(
+				400,
+				"Explicit consent is required for isolated project code execution.",
+			);
+		}
 
 		const cliResult = await executeDynamicRunCli({
 			projectId: project.id,
@@ -290,6 +376,7 @@ export function createDynamicRoute(deps: DynamicRouteDeps) {
 			timeoutSec: parseResult.data.timeoutSec,
 			memory: parseResult.data.memory,
 			cpus: parseResult.data.cpus,
+			executionConsent: true,
 			processCapacity: deps.processCapacity,
 		});
 
@@ -376,6 +463,7 @@ export function createDynamicRoute(deps: DynamicRouteDeps) {
 // Subprocess execution wrapper to decouple api routes from docker details
 async function executeDynamicRunCli(params: {
 	projectId: string;
+	scanRunId?: string;
 	findingId?: string | null;
 	profileId: string;
 	runner: string;
@@ -384,6 +472,7 @@ async function executeDynamicRunCli(params: {
 	timeoutSec?: number;
 	memory?: string;
 	cpus?: string;
+	executionConsent: true;
 	processCapacity?: WebProcessCapacity;
 }) {
 	const args = [
@@ -396,7 +485,10 @@ async function executeDynamicRunCli(params: {
 		params.profileId,
 		"--runner",
 		params.runner,
+		"--consent-project-code-execution",
+		String(params.executionConsent),
 	];
+	if (params.scanRunId) args.push("--scan-run-id", params.scanRunId);
 
 	if (params.findingId) {
 		args.push("--finding-id", params.findingId);
@@ -438,4 +530,44 @@ async function executeDynamicRunCli(params: {
 	}
 
 	return cliResult;
+}
+
+async function ensureBuiltinProfileConfig(params: {
+	repository: DynamicRepository;
+	projectId: string;
+	repoPath: string;
+	profileId: string;
+	createdByUserId: string;
+}) {
+	const existing = await params.repository.getConfigByProfileId(
+		params.projectId,
+		params.profileId,
+	);
+	if (existing) return existing;
+	const template = DYNAMIC_PROFILE_TEMPLATES.find(
+		(candidate) => candidate.id === params.profileId,
+	);
+	if (!template || !(await template.isApplicable(params.repoPath))) {
+		throw new HttpError(
+			400,
+			`Dynamic profile is not applicable: ${params.profileId}`,
+		);
+	}
+	return await params.repository.createConfig({
+		projectId: params.projectId,
+		profileId: template.id,
+		dynamicKind: template.dynamicKind,
+		displayName: template.displayName,
+		enabled: true,
+		commandJson: template.commandJson,
+		workingDirectory: "",
+		timeoutSec: template.timeoutSec,
+		network: template.network,
+		memory: null,
+		cpus: null,
+		writableWorkdir: template.writableWorkdir,
+		allowProjectScripts: template.allowProjectScripts,
+		expectedArtifactsJson: template.expectedArtifactsJson ?? [],
+		createdByUserId: params.createdByUserId,
+	});
 }

@@ -13,6 +13,7 @@ import { selectProgressScanRun } from "./workspace/scan-progress-model";
 import { useScanLaunchEffects } from "./workspace/use-scan-launch-effects";
 import { useScanLaunchState } from "./workspace/use-scan-launch-state";
 import { useSelectedScanResultRefresh } from "./workspace/use-selected-scan-result-refresh";
+import { useSpecializedScanLaunch } from "./workspace/use-specialized-scan-launch";
 
 const DEFAULT_REPORT_OPTIONS = {
 	includeFalsePositives: true,
@@ -34,6 +35,10 @@ export const useScansControllerBase = ({
 	setErrorText,
 }: ScansControllerBaseProps) => {
 	const launch = useScanLaunchState();
+	const specializedLaunch = useSpecializedScanLaunch({
+		active,
+		selectedProjectId: launch.selectedProjectId,
+	});
 	const findings = useScanFindingsState();
 	const reports = useScanReportsState();
 	const diagnostics = useScanDiagnosticsState();
@@ -119,6 +124,7 @@ export const useScansControllerBase = ({
 		active,
 		runWithBusy,
 		scanDetailTab: launch.scanDetailTab,
+		selectedProfileId: launch.selectedProfileId,
 	});
 	useScanReportsEffects({
 		...reports,
@@ -149,6 +155,7 @@ export const useScansControllerBase = ({
 	});
 	return {
 		...dast,
+		...specializedLaunch,
 		...launch,
 		...findings,
 		...reports,

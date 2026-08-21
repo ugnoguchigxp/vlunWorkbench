@@ -63,13 +63,10 @@ export const coverageLedgerSchema = z
 			}
 			seen.add(entry.capabilityId);
 		}
-		const summary = ledger.entries.reduce(
-			(total, entry) => ({
-				...total,
-				[entry.coverageEffect]: total[entry.coverageEffect] + 1,
-			}),
-			{ covered: 0, partial: 0, gap: 0 },
-		);
+		const summary = { covered: 0, partial: 0, gap: 0 };
+		for (const entry of ledger.entries) {
+			summary[entry.coverageEffect] += 1;
+		}
 		if (
 			summary.covered !== ledger.summary.covered ||
 			summary.partial !== ledger.summary.partial ||

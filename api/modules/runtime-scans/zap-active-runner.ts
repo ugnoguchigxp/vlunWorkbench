@@ -25,6 +25,7 @@ import {
 	redactJsonSecrets,
 	redactSecrets,
 } from "../scans/normalizers/redaction";
+import { cleanupTemporaryPaths } from "../scans/execution/lifecycle/temporary-path-cleanup";
 import {
 	ZAP_ACTIVE_MAX_REPORT_BYTES,
 	ZAP_ACTIVE_POLICY_ID,
@@ -145,8 +146,6 @@ export class ZapActiveRunner {
 		) => void | Promise<void>;
 	}): Promise<ZapActiveRunResult> {
 		const dockerBin = this.options.dockerBin ?? "docker";
-		const tempDir = await mkdtemp(path.join(os.tmpdir(), "zap-active-run-"));
-		await chmod(tempDir, 0o700);
 		const reportFilename = "zap-active-report.json";
 		const plan = buildZapAutomationPlan({
 			contextName: "vuln-workbench-active",
@@ -156,6 +155,13 @@ export class ZapActiveRunner {
 			maxDurationMinutes: Math.ceil(params.durationSec / 60),
 			reportFilename,
 		});
+		const tempDir = await mkdtemp(path.join(os.tmpdir(), "zap-active-run-"));
+		try {
+			await chmod(tempDir, 0o700);
+		} catch (error) {
+			await cleanupTemporaryPaths([tempDir], "zap_active_temp_cleanup_failed");
+			throw error;
+		}
 		let network:
 			| { name: string; gatewayAddress: string; stop: () => Promise<void> }
 			| undefined;

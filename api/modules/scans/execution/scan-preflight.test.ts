@@ -124,6 +124,33 @@ describe("scan preflight", () => {
 		);
 	});
 
+	it("accepts a dirty working tree when the requested target is the working tree", async () => {
+		const selected = {
+			...profile("diff-basic-security"),
+			strictness: "strict" as const,
+		};
+		const result = await runScanPreflight({
+			profile: selected,
+			steps: selected.tools.map((tool) => ({
+				kind: "static_tool" as const,
+				...tool,
+			})),
+			repoPath: "/redacted/project",
+			execution: { runner: "host" },
+			allowDirtySource: true,
+			dependencies: dependencies({ resolveSourceState: async () => "dirty" }),
+		});
+
+		expect(result.limitationCodes).not.toContain("source_worktree_dirty");
+		expect(result.checks).toContainEqual(
+			expect.objectContaining({
+				kind: "source_revision",
+				required: true,
+				status: "ready",
+			}),
+		);
+	});
+
 	it("blocks before execution when a required scanner binary is unavailable", async () => {
 		const selected = profile("baseline");
 		const result = await runScanPreflight({

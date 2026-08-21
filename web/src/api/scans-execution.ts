@@ -23,7 +23,8 @@ export type ScanProfileStep = {
 		| "runtime_scanner"
 		| "sbom_export"
 		| "api_schema_scan"
-		| "container_image_scan";
+		| "container_image_scan"
+		| "attestation_verify";
 	adapter: string;
 	displayName: string;
 	required: boolean;
@@ -58,6 +59,17 @@ export type ScanProfile = {
 		capabilityId: string;
 		requirement: "required" | "required_if_applicable" | "advisory";
 	}>;
+	availability?: "stable" | "experimental" | "planned" | "deprecated";
+	safetyClass?: "R0" | "R1" | "R2" | "R3" | "mixed";
+	launchMode?:
+		| "profile_orchestrator"
+		| "dedicated_flow"
+		| "run_group"
+		| "unavailable";
+	requiredInputs?: Array<{
+		kind: string;
+		requirement: "required" | "required_if_applicable" | "advisory";
+	}>;
 };
 
 export type ScanProfileCatalogEntry = {
@@ -65,10 +77,16 @@ export type ScanProfileCatalogEntry = {
 	displayName: string;
 	description: string;
 	availability: "stable" | "experimental" | "planned" | "deprecated";
-	launchMode: "profile_orchestrator" | "dedicated_flow" | "unavailable";
+	safetyClass: "R0" | "R1" | "R2" | "R3" | "mixed";
+	launchMode:
+		| "profile_orchestrator"
+		| "dedicated_flow"
+		| "run_group"
+		| "unavailable";
 	supportedTargets: ScanTargetKind[];
 	strictness: "best_effort" | "strict";
 	capabilityRequirements: NonNullable<ScanProfile["capabilityRequirements"]>;
+	requiredInputs: NonNullable<ScanProfile["requiredInputs"]>;
 	launchDestination?: string | null;
 	limitationCodes?: string[];
 };
@@ -113,7 +131,8 @@ export type StepSummary = {
 		| "runtime_scanner"
 		| "sbom_export"
 		| "api_schema_scan"
-		| "container_image_scan";
+		| "container_image_scan"
+		| "attestation_verify";
 	id: string;
 	displayName: string;
 	status: string;
@@ -152,7 +171,8 @@ export type ScanStartCoverageStepResult = {
 		| "runtime_scanner"
 		| "sbom_export"
 		| "api_schema_scan"
-		| "container_image_scan";
+		| "container_image_scan"
+		| "attestation_verify";
 	stepId: string;
 	adapter: string;
 	required: boolean;
@@ -308,17 +328,19 @@ export async function fetchScanProfiles(): Promise<ScanProfile[]> {
 export function toLaunchableScanProfiles(
 	data: ScanProfileCatalogResponse,
 ): ScanProfile[] {
-	if (!data.catalogEntries || !data.genericStartCatalogProfileIds) {
+	if (!data.catalogEntries) {
 		return data.profiles;
 	}
-	const genericIds = new Set(data.genericStartCatalogProfileIds);
 	return data.catalogEntries
-		.filter((entry) => genericIds.has(entry.id))
+		.filter(
+			(entry) =>
+				entry.id !== "professional-full" && entry.launchMode !== "unavailable",
+		)
 		.map((entry) => ({
 			id: entry.id,
 			name: entry.displayName,
 			description: entry.description,
-			enabled: entry.availability === "stable",
+			enabled: true,
 			strictness: entry.strictness,
 			defaultTimeoutSec: 600,
 			supportedTargets: entry.supportedTargets,
@@ -326,6 +348,10 @@ export function toLaunchableScanProfiles(
 			steps: [],
 			coverageMeasurement: "not_measured" as const,
 			capabilityRequirements: entry.capabilityRequirements,
+			availability: entry.availability,
+			safetyClass: entry.safetyClass,
+			launchMode: entry.launchMode,
+			requiredInputs: entry.requiredInputs,
 		}));
 }
 
@@ -339,12 +365,16 @@ export async function startScan(
 		runner?: "host" | "docker";
 		imageRef?: string;
 		imageTar?: string;
+		attestationSubject?: string;
+		attestationBundle?: string;
+		trustPolicy?: string;
 		target?: ScanTarget;
 		expectedTargetDigest?: string;
 		expectedPreflightBindingHash?: string;
 		expectedPlanHash?: string;
 		expectedCatalogEntryHash?: string;
 		resultPolicy?: "advisory" | "gate";
+		allowExperimental?: boolean;
 	},
 ): Promise<{
 	scan: { id: string; status: string; profile: string };
@@ -367,9 +397,15 @@ export async function preflightScan(
 		profile: string;
 		target?: ScanTarget;
 		resultPolicy?: "advisory" | "gate";
+		allowExperimental?: boolean;
 		stepId?: string;
 		consentProjectCodeExecution?: boolean;
 		runner?: "host" | "docker";
+		imageRef?: string;
+		imageTar?: string;
+		attestationSubject?: string;
+		attestationBundle?: string;
+		trustPolicy?: string;
 	},
 ): Promise<
 	ScanPreflightResult & {

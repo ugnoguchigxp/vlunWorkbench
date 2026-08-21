@@ -62,6 +62,9 @@ export async function executeDastCli(params: {
 	const cliResult = parseCliJsonObject(processResult, "DAST CLI") as {
 		ok?: boolean;
 		dastRunId?: string;
+		status?: string;
+		outcome?: string;
+		coverageStatus?: string;
 		message?: string;
 	};
 	if (!cliResult.ok && !cliResult.dastRunId) {

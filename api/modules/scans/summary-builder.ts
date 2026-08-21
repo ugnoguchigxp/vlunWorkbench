@@ -1,4 +1,5 @@
 import { eq, inArray } from "drizzle-orm";
+import { scanProfileResolutionSchema } from "../../../shared/schemas/scan-profile-catalog.schema";
 import type { AppDatabase } from "../../db";
 import {
 	dastRuns,
@@ -11,7 +12,6 @@ import {
 } from "../../db/schema";
 import { getProfileById } from "./profiles";
 import { readStoredResolvedProfile } from "./resolved-profile";
-import { scanProfileResolutionSchema } from "../../../shared/schemas/scan-profile-catalog.schema";
 
 export interface ToolSummary {
 	toolId: string;
@@ -41,7 +41,8 @@ export interface StepSummary {
 		| "runtime_scanner"
 		| "sbom_export"
 		| "api_schema_scan"
-		| "container_image_scan";
+		| "container_image_scan"
+		| "attestation_verify";
 	id: string;
 	displayName: string;
 	status: string;
@@ -251,7 +252,10 @@ export async function buildScanRunSummary(
 		scanRun.metadata?.gateEvaluation &&
 		typeof scanRun.metadata.gateEvaluation === "object" &&
 		["not_requested", "pass", "fail", "blocked"].includes(
-			String((scanRun.metadata.gateEvaluation as Record<string, unknown>).gateDecision),
+			String(
+				(scanRun.metadata.gateEvaluation as Record<string, unknown>)
+					.gateDecision,
+			),
 		)
 			? ((scanRun.metadata.gateEvaluation as Record<string, unknown>)
 					.gateDecision as ScanRunSummary["gateDecision"])
@@ -425,7 +429,8 @@ export async function buildScanRunSummary(
 		...(profileResolution.success
 			? {
 					canonicalProfileId: profileResolution.data.canonicalProfileId,
-					executionProfileId: profileResolution.data.executionProfileId ?? undefined,
+					executionProfileId:
+						profileResolution.data.executionProfileId ?? undefined,
 					resultPolicy: profileResolution.data.resultPolicy,
 				}
 			: {}),

@@ -147,6 +147,7 @@ export async function executeProfileSteps(
 			(diffPlan.manifest.coverage.unsupported > 0 ||
 				diffPlan.manifest.coverage.tooLarge > 0),
 	);
+	let executionError: unknown;
 
 	try {
 		for (const [stepIndex, step] of profileSteps.entries()) {
@@ -348,26 +349,36 @@ export async function executeProfileSteps(
 				});
 			}
 		}
-	} finally {
-		if (sharedRuntimeTarget.current) {
-			try {
-				await sharedRuntimeTarget.current.stop();
-				if (runtimeTargetLeaseId) {
-					await resourceLeases.release(runtimeTargetLeaseId, {
-						stopped: true,
-					});
-				}
-			} catch (cleanupError) {
-				if (runtimeTargetLeaseId) {
+	} catch (error) {
+		executionError = error;
+	}
+	let cleanupFailed = false;
+	if (sharedRuntimeTarget.current) {
+		try {
+			await sharedRuntimeTarget.current.stop();
+			if (runtimeTargetLeaseId) {
+				await resourceLeases.release(runtimeTargetLeaseId, {
+					stopped: true,
+				});
+			}
+		} catch (cleanupError) {
+			cleanupFailed = true;
+			if (runtimeTargetLeaseId) {
+				try {
 					await resourceLeases.quarantine(runtimeTargetLeaseId, {
 						reasonCode: "cleanup_failed",
 					});
+				} catch {
+					// Cleanup still fails closed even when quarantine persistence fails.
 				}
+			}
+			try {
 				await scanRepo.createScanEvent({
 					scanRunId: scanRun.id,
-					level: "warn",
+					level: "error",
 					eventType: "runtime_target.cleanup_failed",
-					message: "Runtime target cleanup failed; resource was quarantined.",
+					message:
+						"Runtime target cleanup failed; the scan cannot be considered successful.",
 					data: {
 						errorType:
 							cleanupError instanceof Error
@@ -375,23 +386,13 @@ export async function executeProfileSteps(
 								: "UnknownCleanupError",
 					},
 				});
+			} catch {
+				// Preserve the cleanup failure as the terminal error.
 			}
 		}
-		await diffSnapshot?.cleanup().catch(async (cleanupError) => {
-			await scanRepo.createScanEvent({
-				scanRunId: scanRun.id,
-				level: "warn",
-				eventType: "diff.cleanup_failed",
-				message: "Temporary diff snapshot cleanup failed.",
-				data: {
-					errorType:
-						cleanupError instanceof Error
-							? cleanupError.name
-							: "UnknownCleanupError",
-				},
-			});
-		});
 	}
+	if (cleanupFailed) throw new Error("runtime_target_cleanup_failed");
+	if (executionError) throw executionError;
 	return {
 		toolResults,
 		stepResults,

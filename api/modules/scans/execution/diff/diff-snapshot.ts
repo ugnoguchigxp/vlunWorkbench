@@ -50,10 +50,10 @@ export async function materializeDiffSnapshot(params: {
 	let cleaned = false;
 	const cleanup = async () => {
 		if (cleaned) return;
+		await fs.rm(tempRoot, { recursive: true, force: true });
 		cleaned = true;
 		process.off("SIGTERM", handleSigterm);
 		process.off("SIGINT", handleSigint);
-		await fs.rm(tempRoot, { recursive: true, force: true });
 	};
 	const terminateAfterCleanup = (exitCode: number) => {
 		void cleanup().finally(() => process.exit(exitCode));
@@ -166,9 +166,7 @@ async function copyDependencyCompanions(params: {
 	const changedPaths = new Set(params.plan.scanPaths);
 	let contextFileCount = 0;
 	const walk = async (directory: string): Promise<void> => {
-		const entries = await fs
-			.readdir(directory, { withFileTypes: true })
-			.catch(() => []);
+		const entries = await fs.readdir(directory, { withFileTypes: true });
 		for (const entry of entries.sort((left, right) =>
 			left.name.localeCompare(right.name),
 		)) {

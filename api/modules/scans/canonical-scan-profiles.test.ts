@@ -10,10 +10,19 @@ describe("canonical scan profiles", () => {
 		expect(profiles.map((profile) => profile.id)).toEqual([
 			"change-gate",
 			"source-assurance",
+			"dependency-supply-chain",
 		]);
 		for (const profile of profiles) {
 			expect(profile.strictness).toBe("strict");
 			expect(profile.enabled).toBe(true);
 		}
+		const supplyChain = profiles.find(
+			(profile) => profile.id === "dependency-supply-chain",
+		);
+		expect(supplyChain?.steps?.map((step) => step.kind)).toEqual([
+			"static_tool",
+			"sbom_export",
+			"attestation_verify",
+		]);
 	});
 });

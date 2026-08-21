@@ -15,10 +15,12 @@ import {
 	normalizeScannerOutputText,
 	normalizeStructuredOutputPaths,
 } from "../execution/diff/diff-output-paths";
+import { cleanupTemporaryPaths } from "../execution/lifecycle/temporary-path-cleanup";
 import { DEPENDENCY_MANIFEST_SCOPE } from "../profiles";
 import { createScopedWorkspace } from "../target-scope";
 import {
 	checkToolVersion,
+	getCleanEnv,
 	runToolProcess,
 	type ToolExecutionConfig,
 	type ToolLifecycleEvent,
@@ -94,7 +96,7 @@ export class OsvRunner {
 				};
 			}
 		} catch (error) {
-			await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+			await cleanupTemporaryPaths([tempDir], "osv_workspace_cleanup_failed");
 			throw error;
 		}
 		const scanPath = scopedWorkspace?.path ?? repoPath;
@@ -125,21 +127,30 @@ export class OsvRunner {
 		];
 
 		const startTime = Date.now();
-		const runResult = await runToolProcess("osv-scanner", args, {
-			timeoutSec: options.timeoutSec,
-			execution: this.execution,
-			repoPath: scanPath,
-			outputPath: tempJsonPath,
-			env: offline
-				? {
-						...process.env,
-						OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY:
-							process.env.OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY ??
-							path.resolve(".cache/scanner-data/osv"),
-					}
-				: undefined,
-			onLifecycleEvent: options.onLifecycleEvent,
-		});
+		let runResult: Awaited<ReturnType<typeof runToolProcess>>;
+		try {
+			runResult = await runToolProcess("osv-scanner", args, {
+				timeoutSec: options.timeoutSec,
+				execution: this.execution,
+				repoPath: scanPath,
+				outputPath: tempJsonPath,
+				env: offline
+					? {
+							...getCleanEnv(),
+							OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY:
+								process.env.OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY ??
+								path.resolve(".cache/scanner-data/osv"),
+						}
+					: undefined,
+				onLifecycleEvent: options.onLifecycleEvent,
+			});
+		} catch (error) {
+			await cleanupTemporaryPaths(
+				[tempDir, scopedWorkspace?.path],
+				"osv_workspace_cleanup_failed",
+			);
+			throw error;
+		}
 		const elapsedMs = Date.now() - startTime;
 		const outputNormalizationRoot =
 			scopedWorkspace?.path ?? options.normalizePathsRelativeTo;
@@ -151,8 +162,10 @@ export class OsvRunner {
 			: runResult.stderr;
 
 		if (!runResult.ok && runResult.exitCode !== 1) {
-			await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
-			await cleanupScopedWorkspace(scopedWorkspace?.path);
+			await cleanupTemporaryPaths(
+				[tempDir, scopedWorkspace?.path],
+				"osv_workspace_cleanup_failed",
+			);
 			return {
 				ok: false,
 				exitCode: runResult.exitCode,
@@ -185,10 +198,10 @@ export class OsvRunner {
 		}
 
 		// Clean up temporary path
-		await Promise.all([
-			fs.rm(tempDir, { recursive: true, force: true }).catch(() => {}),
-			cleanupScopedWorkspace(scopedWorkspace?.path),
-		]);
+		await cleanupTemporaryPaths(
+			[tempDir, scopedWorkspace?.path],
+			"osv_workspace_cleanup_failed",
+		);
 
 		// OSV-Scanner exits with 1 when vulnerabilities are found, and 0 when none are found.
 		const isCompleted =
@@ -204,14 +217,20 @@ export class OsvRunner {
 					const tempOutDir = await fs.mkdtemp(
 						path.join(os.tmpdir(), "osv-invalid-"),
 					);
-					const finalTempPath = path.join(tempOutDir, "osv-result.json");
-					await fs.writeFile(finalTempPath, redactSecrets(rawJsonText));
-					rawJsonArtifact = await this.storage.saveRawArtifact(
-						scanRunId,
-						finalTempPath,
-						"osv-result.json",
-					);
-					await fs.rm(tempOutDir, { recursive: true, force: true });
+					try {
+						const finalTempPath = path.join(tempOutDir, "osv-result.json");
+						await fs.writeFile(finalTempPath, redactSecrets(rawJsonText));
+						rawJsonArtifact = await this.storage.saveRawArtifact(
+							scanRunId,
+							finalTempPath,
+							"osv-result.json",
+						);
+					} finally {
+						await cleanupTemporaryPaths(
+							[tempOutDir],
+							"osv_artifact_workspace_cleanup_failed",
+						);
+					}
 				}
 				if (stdout) {
 					stdoutArtifact = await this.storage.saveLog(
@@ -254,19 +273,24 @@ export class OsvRunner {
 
 		if (this.storage) {
 			const tempOutDir = await fs.mkdtemp(path.join(os.tmpdir(), "osv-final-"));
-			const finalTempPath = path.join(tempOutDir, "osv-result.json");
-			await fs.writeFile(
-				finalTempPath,
-				JSON.stringify(redactedRawJson, null, 2),
-			);
+			try {
+				const finalTempPath = path.join(tempOutDir, "osv-result.json");
+				await fs.writeFile(
+					finalTempPath,
+					JSON.stringify(redactedRawJson, null, 2),
+				);
 
-			rawJsonArtifact = await this.storage.saveRawArtifact(
-				scanRunId,
-				finalTempPath,
-				"osv-result.json",
-			);
-
-			await fs.rm(tempOutDir, { recursive: true, force: true });
+				rawJsonArtifact = await this.storage.saveRawArtifact(
+					scanRunId,
+					finalTempPath,
+					"osv-result.json",
+				);
+			} finally {
+				await cleanupTemporaryPaths(
+					[tempOutDir],
+					"osv_artifact_workspace_cleanup_failed",
+				);
+			}
 
 			if (stdout) {
 				stdoutArtifact = await this.storage.saveLog(
@@ -300,9 +324,4 @@ export class OsvRunner {
 			},
 		};
 	}
-}
-
-async function cleanupScopedWorkspace(workspacePath?: string): Promise<void> {
-	if (!workspacePath) return;
-	await fs.rm(workspacePath, { recursive: true, force: true }).catch(() => {});
 }

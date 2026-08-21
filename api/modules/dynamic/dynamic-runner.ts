@@ -27,6 +27,8 @@ import {
 	type ProcessOutputLimits,
 	resolveProcessOutputLimits,
 } from "../scans/tools/tool-process-runner";
+import { finalizeTemporaryWorkspace } from "../scans/execution/lifecycle/temporary-workspace-cleanup";
+import { ScanRepository } from "../scans/repositories";
 
 export interface RunDynamicOptions {
 	projectId: string;
@@ -141,12 +143,27 @@ export class DynamicRunner {
 		};
 	}
 
-	async run(options: RunDynamicOptions) {
+	async run(options: RunDynamicOptions & { executionConsent: true }) {
+		if (options.executionConsent !== true) {
+			throw new Error("dynamic_execution_consent_required");
+		}
 		const project = await this.db.query.projects.findFirst({
 			where: eq(projects.id, options.projectId),
 		});
 		if (!project) {
 			throw new Error(`Project not found: ${options.projectId}`);
+		}
+		if (options.scanRunId) {
+			const parentScan = await new ScanRepository(this.db).findById(
+				options.scanRunId,
+			);
+			if (
+				!parentScan ||
+				parentScan.projectId !== project.id ||
+				parentScan.profile !== "dynamic-verification"
+			) {
+				throw new Error("dynamic_parent_scan_invalid");
+			}
 		}
 
 		const profileConfig = await this.repo.getConfigByProfileId(
@@ -486,9 +503,14 @@ export class DynamicRunner {
 		} finally {
 			// 9. Cleanup temp files on host
 			if (hostOutDir) {
-				await fs
-					.rm(hostOutDir, { recursive: true, force: true })
-					.catch(() => {});
+				const cleanupPath = hostOutDir;
+				await finalizeTemporaryWorkspace({
+					remove: () => fs.rm(cleanupPath, { recursive: true, force: true }),
+					loadRun: () => this.repo.getRun(runId),
+					updateRun: (status, update) =>
+						this.repo.updateRunStatus(runId, status, update),
+					failureCode: "dynamic_workspace_cleanup_failed",
+				});
 			}
 		}
 	}

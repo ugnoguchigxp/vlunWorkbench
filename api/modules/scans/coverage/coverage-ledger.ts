@@ -4,19 +4,19 @@ import type {
 	ScanCapabilityRequirementEntry,
 } from "../../../../shared/schemas/scan-capability.schema";
 import {
-	coverageLedgerSchema,
 	type CoverageEffect,
 	type CoverageLedger,
 	type CoverageLedgerEntry,
+	coverageLedgerSchema,
 } from "../../../../shared/schemas/scan-coverage-ledger.schema";
-import {
-	scanReasonCodeSchema,
-	type ScanReasonCode,
-} from "../../../../shared/schemas/scan-reason-code.schema";
 import type {
 	ScanProfile,
 	ScanProfileStep,
 } from "../../../../shared/schemas/scan-profile.schema";
+import {
+	type ScanReasonCode,
+	scanReasonCodeSchema,
+} from "../../../../shared/schemas/scan-reason-code.schema";
 import type { ScanProfileStepResult } from "../execution/profile-runner";
 
 export type {
@@ -48,7 +48,7 @@ const CAPABILITY_BINDINGS: Record<ScanCapabilityId, CapabilityBinding> = {
 		missingReasonCode: "capability_not_integrated",
 	},
 	provenance_integrity: {
-		stepIds: [],
+		stepIds: ["attestation_verify:cosign"],
 		missingReasonCode: "capability_not_integrated",
 	},
 	artifact_container: {
@@ -123,13 +123,10 @@ export function buildCoverageLedger(params: {
 	const entries = requirements.map((requirement) =>
 		buildEntry(requirement, plannedStepIds, resultsByStepId),
 	);
-	const summary = entries.reduce(
-		(total, entry) => ({
-			...total,
-			[entry.coverageEffect]: total[entry.coverageEffect] + 1,
-		}),
-		{ covered: 0, partial: 0, gap: 0 },
-	);
+	const summary = { covered: 0, partial: 0, gap: 0 };
+	for (const entry of entries) {
+		summary[entry.coverageEffect] += 1;
+	}
 	const unsigned = {
 		schemaVersion: 1 as const,
 		planHash: params.planHash,

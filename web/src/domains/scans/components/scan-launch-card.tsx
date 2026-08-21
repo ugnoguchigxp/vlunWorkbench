@@ -1,4 +1,5 @@
 import { Play } from "lucide-react";
+import type { ReactNode } from "react";
 import type { ScanProfile, ScanTargetKind } from "../../../api";
 import { Button, SelectInput } from "../../../ui";
 
@@ -9,6 +10,13 @@ const targetLabels: Record<ScanTargetKind, string> = {
 	range: "ブランチ差分",
 };
 
+const availabilityLabels = {
+	stable: "",
+	experimental: "（実験的）",
+	planned: "（計画中）",
+	deprecated: "（廃止予定）",
+} as const;
+
 export function ScanLaunchCard({
 	profiles,
 	selectedProfileId,
@@ -18,6 +26,7 @@ export function ScanLaunchCard({
 	onProfileChange,
 	onTargetChange,
 	onStart,
+	children,
 }: {
 	profiles: ScanProfile[];
 	selectedProfileId: string;
@@ -27,6 +36,7 @@ export function ScanLaunchCard({
 	onProfileChange: (profileId: string) => void;
 	onTargetChange: (target: ScanTargetKind) => void;
 	onStart: () => void;
+	children?: ReactNode;
 }) {
 	const profile = profiles.find((item) => item.id === selectedProfileId);
 	const targets = profile?.supportedTargets ?? ["full"];
@@ -51,6 +61,7 @@ export function ScanLaunchCard({
 					{profiles.map((item) => (
 						<option key={item.id} value={item.id}>
 							{item.name}
+							{item.availability ? availabilityLabels[item.availability] : ""}
 						</option>
 					))}
 				</SelectInput>
@@ -81,6 +92,7 @@ export function ScanLaunchCard({
 				<Play className="icon" />
 				{isScanning ? "スキャン中" : "スキャンを開始"}
 			</Button>
+			{children}
 		</section>
 	);
 }

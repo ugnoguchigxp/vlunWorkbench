@@ -2,6 +2,8 @@ import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import type { ScanScopePolicy } from "../../../../../shared/schemas/scan-profile.schema";
+import { createScopedWorkspace, digestScopedFiles } from "../../target-scope";
 import { runGitCommand } from "../diff/git-command";
 
 export type FullSourceSnapshot = {
@@ -31,8 +33,8 @@ export async function materializeFullSourceSnapshot(params: {
 	let cleaned = false;
 	const cleanup = async () => {
 		if (cleaned) return;
-		cleaned = true;
 		await fs.rm(tempRoot, { recursive: true, force: true });
+		cleaned = true;
 	};
 	try {
 		await runGitCommand({
@@ -62,6 +64,43 @@ export async function materializeFullSourceSnapshot(params: {
 			projectPath: checkoutRoot,
 			sourceRevision: params.sourceRevision,
 			snapshotDigest,
+			cleanup,
+		};
+	} catch (error) {
+		await cleanup();
+		throw error;
+	}
+}
+
+export async function materializeScopedSourceSnapshot(params: {
+	repositoryPath: string;
+	sourceRevision: string;
+	scope: ScanScopePolicy;
+}): Promise<FullSourceSnapshot> {
+	if (!/^[a-f0-9]{40,64}$/.test(params.sourceRevision)) {
+		throw new Error("source_snapshot_revision_invalid");
+	}
+	const workspace = await createScopedWorkspace({
+		repoPath: params.repositoryPath,
+		scope: params.scope,
+		prefix: path.join(os.tmpdir(), "vuln-workbench-scope-"),
+	});
+	const projectPath = await fs.realpath(workspace.path);
+	let cleaned = false;
+	const cleanup = async () => {
+		if (cleaned) return;
+		await fs.rm(projectPath, { recursive: true, force: true });
+		cleaned = true;
+	};
+	try {
+		return {
+			rootPath: projectPath,
+			projectPath,
+			sourceRevision: params.sourceRevision,
+			snapshotDigest: await digestScopedFiles({
+				repoPath: projectPath,
+				scope: params.scope,
+			}),
 			cleanup,
 		};
 	} catch (error) {

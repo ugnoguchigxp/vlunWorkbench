@@ -177,6 +177,13 @@ export type ContainerImageScanStep = z.infer<
 	typeof containerImageScanStepSchema
 >;
 
+export const attestationVerifyStepSchema = scannerStepBaseSchema.extend({
+	kind: z.literal("attestation_verify"),
+	adapter: z.literal("cosign"),
+	target: z.object({ mode: z.literal("repository_relative_files") }),
+});
+export type AttestationVerifyStep = z.infer<typeof attestationVerifyStepSchema>;
+
 export const scanProfileStepSchema = z.discriminatedUnion("kind", [
 	staticToolProfileStepSchema,
 	dastProfileStepSchema,
@@ -184,6 +191,7 @@ export const scanProfileStepSchema = z.discriminatedUnion("kind", [
 	sbomExportStepSchema,
 	apiSchemaScanStepSchema,
 	containerImageScanStepSchema,
+	attestationVerifyStepSchema,
 ]);
 export type ScanProfileStep = z.infer<typeof scanProfileStepSchema>;
 

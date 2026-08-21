@@ -14,6 +14,20 @@ import type {
 import { getDastProfile } from "../../dast/profiles";
 import type { DastTargetStartPlan } from "../../dast/target-preparer";
 import { ZAP_STABLE_IMAGE } from "../../runtime-scans/zap-image-policy";
+import { buildProfileInputBindings } from "../attestation/attestation-inputs";
+import {
+	COSIGN_SAFE_VERSION_REQUIREMENT,
+	isCosignVersionSafe,
+} from "../attestation/cosign-attestation-provider";
+import {
+	type AnyScannerE2EQualification,
+	checkScannerE2EQualification,
+} from "../scanner-e2e-qualification";
+import { staticScannerAdapterRegistry } from "../static-scanner-adapters";
+import { inspectScopedFiles } from "../target-scope";
+import type { ScannerDataManifest } from "../tools/scanner-provenance";
+import { DEFAULT_DOCKER_IMAGE } from "../tools/tool-process-policy";
+import type { ToolExecutionConfig } from "../tools/tool-process-runner";
 import { canonicalJson } from "./diff/diff-scan-plan";
 import {
 	buildScanPreflightBinding,
@@ -33,14 +47,6 @@ import {
 	stepNeedsTargetPlan,
 } from "./scan-preflight-check-builders";
 import { defaultScanPreflightDependencies } from "./scan-preflight-probes";
-import {
-	type AnyScannerE2EQualification,
-	checkScannerE2EQualification,
-} from "../scanner-e2e-qualification";
-import { staticScannerAdapterRegistry } from "../static-scanner-adapters";
-import type { ScannerDataManifest } from "../tools/scanner-provenance";
-import { DEFAULT_DOCKER_IMAGE } from "../tools/tool-process-policy";
-import type { ToolExecutionConfig } from "../tools/tool-process-runner";
 
 export type ScanPreflightDependencies = {
 	loadManifest: () => Promise<ScannerDataManifest>;
@@ -111,6 +117,12 @@ export async function runScanPreflight(params: {
 	execution: ToolExecutionConfig;
 	mode?: ScanPreflightMode;
 	consentProjectCodeExecution?: boolean;
+	allowDirtySource?: boolean;
+	imageRef?: string;
+	imageTar?: string;
+	attestationSubject?: string;
+	attestationBundle?: string;
+	trustPolicy?: string;
 	targetPlan?: DastTargetStartPlan;
 	/**
 	 * Optional deployment-admission control. The protected CI gate is always
@@ -126,12 +138,22 @@ export async function runScanPreflight(params: {
 	};
 	const mode = params.mode ?? resolveScanPreflightMode();
 	const checks: ScanPreflightCheck[] = [];
+	const profileInputBindings: Record<string, string | undefined> = {
+		imageRef: params.imageRef,
+		imageTar: params.imageTar,
+		attestationSubject: params.attestationSubject,
+		attestationBundle: params.attestationBundle,
+		trustPolicy: params.trustPolicy,
+	};
 	const sourceRevision = await dependencies.resolveSourceRevision(
 		params.repoPath,
 	);
 	const sourceState = await dependencies.resolveSourceState(params.repoPath);
 	if (params.profile.strictness === "strict") {
-		const sourceReady = Boolean(sourceRevision) && sourceState === "clean";
+		const sourceReady =
+			Boolean(sourceRevision) &&
+			(sourceState === "clean" ||
+				(params.allowDirtySource === true && sourceState === "dirty"));
 		checks.push(
 			check({
 				id: `profile:${params.profile.id}:source-revision`,
@@ -421,6 +443,59 @@ export async function runScanPreflight(params: {
 					),
 				dependencies,
 			});
+		} else if (step.kind === "attestation_verify") {
+			let inputFailure: string | null = null;
+			try {
+				if (
+					!params.attestationSubject ||
+					!params.attestationBundle ||
+					!params.trustPolicy
+				) {
+					throw new Error("attestation_input_missing");
+				}
+				Object.assign(
+					profileInputBindings,
+					await buildProfileInputBindings({
+						repoPath: params.repoPath,
+						attestationSubject: params.attestationSubject,
+						attestationBundle: params.attestationBundle,
+						trustPolicy: params.trustPolicy,
+					}),
+				);
+			} catch (error) {
+				inputFailure = safeReasonCode(error, "attestation_input_invalid");
+			}
+			checks.push(
+				check({
+					id: `${stepId}:profile-input`,
+					stepId,
+					kind: "profile_input",
+					required: step.required,
+					ready: inputFailure === null,
+					reasonCode: inputFailure,
+					action: "provide_profile_input",
+				}),
+			);
+			const version = await dependencies.probeScannerVersion("cosign", {
+				runner: "host",
+			});
+			checks.push(
+				check({
+					id: `${stepId}:binary-version`,
+					stepId,
+					kind: "binary_version",
+					required: step.required,
+					ready: isCosignVersionSafe(version),
+					reasonCode: version
+						? "scanner_version_vulnerable"
+						: "scanner_binary_unavailable",
+					action: "build_toolbox_image",
+					scannerId: "cosign",
+					observedVersion: version,
+					expectedVersion: COSIGN_SAFE_VERSION_REQUIREMENT,
+					evidenceRefs: version ? ["scanner-version:cosign"] : [],
+				}),
+			);
 		} else if (step.kind === "api_schema_scan") {
 			const schema = repositorySchemas.get(stepId);
 			if (!schema) throw new Error(`api_schema_discovery_missing:${stepId}`);
@@ -483,6 +558,61 @@ export async function runScanPreflight(params: {
 			}
 		}
 	}
+	if (
+		params.profile.scope?.intent === "artifact" &&
+		!params.imageRef &&
+		!params.imageTar
+	) {
+		const artifactScope = await inspectScopedFiles({
+			repoPath: params.repoPath,
+			scope: params.profile.scope,
+		});
+		checks.push(
+			check({
+				id: `profile:${params.profile.id}:artifact-input`,
+				stepId: `profile:${params.profile.id}`,
+				kind: "profile_input",
+				required: true,
+				ready: artifactScope.fileCount > 0,
+				reasonCode:
+					artifactScope.fileCount > 0 ? null : "artifact_input_missing",
+				action: "provide_profile_input",
+				evidenceRefs:
+					artifactScope.fileCount > 0
+						? [`artifact-scope:${artifactScope.digest}`]
+						: [],
+			}),
+		);
+	}
+	if (params.imageRef || params.imageTar) {
+		let imageInputFailure: string | null = null;
+		if (params.imageRef && !digestFromImageRef(params.imageRef)) {
+			imageInputFailure = "image_digest_required";
+		} else if (params.imageTar) {
+			try {
+				Object.assign(
+					profileInputBindings,
+					await buildProfileInputBindings({
+						repoPath: params.repoPath,
+						imageTar: params.imageTar,
+					}),
+				);
+			} catch (error) {
+				imageInputFailure = safeReasonCode(error, "image_tar_input_invalid");
+			}
+		}
+		checks.push(
+			check({
+				id: `profile:${params.profile.id}:image-input`,
+				stepId: `profile:${params.profile.id}`,
+				kind: "profile_input",
+				required: true,
+				ready: imageInputFailure === null,
+				reasonCode: imageInputFailure,
+				action: "provide_profile_input",
+			}),
+		);
+	}
 
 	const binding = buildScanPreflightBinding({
 		profile: params.profile,
@@ -490,6 +620,7 @@ export async function runScanPreflight(params: {
 		manifest,
 		targetPlan,
 		sourceRevision,
+		profileInputs: profileInputBindings,
 		checks,
 	});
 	const requireScannerE2EQualification =
@@ -561,7 +692,7 @@ export async function runScanPreflight(params: {
 
 function safeReasonCode(error: unknown, fallback: string): string {
 	const message = error instanceof Error ? error.message : String(error);
-	const candidate = message.trim();
+	const candidate = message.trim().split(":", 1)[0] ?? "";
 	return /^[a-z][a-z0-9_]{2,99}$/.test(candidate) ? candidate : fallback;
 }
 

@@ -1,6 +1,8 @@
 import type { Dirent } from "node:fs";
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
+import { cleanupTemporaryPaths } from "../scans/execution/lifecycle/temporary-path-cleanup";
 
 const FILE_CANDIDATES = [
 	"openapi.json",
@@ -162,6 +164,7 @@ export async function discoverTargetApiSchema(params: {
 }): Promise<SchemaDiscoveryResult> {
 	const fetchImpl = params.fetchImpl ?? fetch;
 	for (const candidate of HTTP_CANDIDATES) {
+		let tempRoot: string | null = null;
 		try {
 			const response = await fetchImpl(
 				new URL(candidate, params.targetOrigin),
@@ -185,10 +188,8 @@ export async function discoverTargetApiSchema(params: {
 				continue;
 			}
 			if (!looksLikeApiSchema(parsed)) continue;
-			const tempPath = path.join(
-				await fs.mkdtemp(path.join("/tmp", "vuln-schema-")),
-				"openapi.json",
-			);
+			tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "vuln-schema-"));
+			const tempPath = path.join(tempRoot, "openapi.json");
 			await fs.writeFile(tempPath, body, "utf8");
 			return {
 				applicable: true,
@@ -200,6 +201,12 @@ export async function discoverTargetApiSchema(params: {
 				reasonCode: null,
 			};
 		} catch {
+			if (tempRoot) {
+				await cleanupTemporaryPaths(
+					[tempRoot],
+					"api_schema_discovery_cleanup_failed",
+				);
+			}
 			// bounded probe; the caller records a coverage gap if no candidate works
 		}
 	}

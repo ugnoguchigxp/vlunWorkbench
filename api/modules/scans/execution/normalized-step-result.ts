@@ -55,7 +55,9 @@ export function normalizeProfileStepResult(
 				? [`dast-run:${result.dastRunId}`]
 				: [],
 		cleanupState:
-			result.kind === "dast" && result.autoTarget ? "completed" : "not_required",
+			result.kind === "dast" && result.autoTarget
+				? "completed"
+				: "not_required",
 	});
 }
 

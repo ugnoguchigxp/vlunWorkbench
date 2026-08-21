@@ -5,7 +5,6 @@ import {
 	type ScanProfileInputKind,
 	type ScanProfileResolution,
 	type ScanResultPolicy,
-	scanProfileCatalogEntrySchema,
 	scanProfileResolutionSchema,
 } from "../../../shared/schemas/scan-profile-catalog.schema";
 import type { ScanTarget } from "../../../shared/schemas/scan-target.schema";
@@ -51,6 +50,7 @@ export function normalizeProfileResolutionInput(params: {
 	autoStartPlan?: boolean;
 	executionConsent?: boolean;
 	authContextRef?: string;
+	attestationSubject?: string;
 	attestationBundle?: string;
 	trustPolicy?: string;
 	disposableTargetRef?: string;
@@ -72,6 +72,7 @@ export function normalizeProfileResolutionInput(params: {
 	if (params.autoStartPlan) inputKinds.push("auto_start_plan");
 	if (params.executionConsent) inputKinds.push("execution_consent");
 	if (params.authContextRef) inputKinds.push("auth_context_ref");
+	if (params.attestationSubject) inputKinds.push("attestation_subject");
 	if (params.attestationBundle) inputKinds.push("attestation_bundle");
 	if (params.trustPolicy) inputKinds.push("trust_policy");
 	if (params.disposableTargetRef) inputKinds.push("disposable_target_ref");
@@ -141,40 +142,7 @@ export function resolveProfileSelection(params: {
 
 	const catalogEntry = getCatalogEntry(params.requestedProfileId);
 	if (!catalogEntry) {
-		const executionProfile = getProfileById(params.requestedProfileId);
-		if (!executionProfile) {
-			throw new ProfileResolutionError("profile_not_found");
-		}
-		assertTarget(executionProfile, params.target);
-		const legacyEntry = buildUncataloguedLegacyEntry(executionProfile);
-		const resultPolicy = resolveResultPolicy(
-			legacyEntry.allowedResultPolicies,
-			legacyEntry.defaultResultPolicy,
-			params.requestedResultPolicy,
-		);
-		return {
-			catalogEntry: legacyEntry,
-			executionProfile,
-			resolution: scanProfileResolutionSchema.parse({
-				schemaVersion: 1,
-				requestedProfileId: params.requestedProfileId,
-				canonicalProfileId: legacyEntry.id,
-				executionProfileId: executionProfile.id,
-				executionVariantId: null,
-				catalogVersion: legacyEntry.catalogVersion,
-				catalogEntryHash: hashCatalogEntry(legacyEntry),
-				migrationKind: "legacy_preset",
-				launchMode: "profile_orchestrator",
-				availability: "deprecated",
-				strictness: executionProfile.strictness ?? "best_effort",
-				resultPolicy,
-				gateSeverityThreshold: null,
-				providedInputKinds: [...params.providedInputKinds],
-				launchability: "launchable",
-				reasonCodes: [],
-				warningCodes: ["legacy_catalog_entry_missing"],
-			}),
-		};
+		throw new ProfileResolutionError("profile_not_found");
 	}
 	if (catalogEntry.availability === "planned") {
 		throw new ProfileResolutionError("profile_not_launchable");
@@ -195,10 +163,16 @@ export function resolveProfileSelection(params: {
 		throw new ProfileResolutionError("profile_target_not_supported");
 	}
 	const variant = selectVariant(catalogEntry, params.providedInputKinds);
-	const executionProfile = executionProfileFor(variant.executionProfileRef);
-	if (!executionProfile?.enabled) {
+	const executionProfileDefinition = executionProfileFor(
+		variant.executionProfileRef,
+	);
+	if (!executionProfileDefinition?.enabled) {
 		throw new ProfileResolutionError("profile_definition_missing");
 	}
+	const executionProfile: ScanProfile = {
+		...executionProfileDefinition,
+		strictness: catalogEntry.strictness,
+	};
 	assertTarget(executionProfile, params.target);
 	const resultPolicy = resolveResultPolicy(
 		catalogEntry.allowedResultPolicies,
@@ -230,39 +204,114 @@ export function resolveProfileSelection(params: {
 	};
 }
 
-function buildUncataloguedLegacyEntry(
-	profile: ScanProfile,
-): ScanProfileCatalogEntry {
-	return scanProfileCatalogEntrySchema.parse({
-		schemaVersion: 1,
-		id: profile.id,
-		catalogVersion: 1,
-		displayOrder: 99_999,
-		displayName: profile.name,
-		description: profile.description,
-		availability: "deprecated",
-		safetyClass: "mixed",
-		launchMode: "profile_orchestrator",
-		launchDestination: "scan_workspace",
-		strictness: profile.strictness ?? "best_effort",
-		defaultResultPolicy: "advisory",
-		allowedResultPolicies: ["advisory", "gate"],
-		gateSeverityThreshold: null,
-		supportedTargets: profile.supportedTargets ?? ["full"],
-		requiredInputs: [{ kind: "source_target", requirement: "required" }],
-		capabilityRequirements: profile.capabilityRequirements ?? [],
-		executionVariants: [
-			{
-				id: "legacy-execution",
-				executionProfileRef: profile.id,
-				requiredInputKinds: ["source_target"],
-				forbiddenInputKinds: [],
-			},
-		],
-		environmentRequirementCodes: [],
-		limitationCodes: [],
-		replacementProfileId: null,
-	});
+export function resolveDedicatedProfileSelection(params: {
+	canonicalProfileId: string;
+	providedInputKinds: readonly ScanProfileInputKind[];
+}): {
+	resolution: ScanProfileResolution;
+	catalogEntry: ScanProfileCatalogEntry;
+} {
+	const catalogEntry = getCatalogEntry(params.canonicalProfileId);
+	if (!catalogEntry) throw new ProfileResolutionError("profile_not_found");
+	if (
+		catalogEntry.launchMode !== "dedicated_flow" ||
+		catalogEntry.availability === "planned" ||
+		catalogEntry.availability === "deprecated"
+	) {
+		throw new ProfileResolutionError("profile_not_launchable");
+	}
+	const provided = new Set(params.providedInputKinds);
+	const missingInputs = catalogEntry.requiredInputs
+		.filter((input) => input.requirement === "required")
+		.map((input) => input.kind)
+		.filter((kind) => !provided.has(kind));
+	if (missingInputs.length > 0) {
+		throw new ProfileResolutionError(
+			"profile_input_missing",
+			`Missing dedicated profile inputs: ${missingInputs.join(",")}`,
+		);
+	}
+	return {
+		catalogEntry,
+		resolution: scanProfileResolutionSchema.parse({
+			schemaVersion: 1,
+			requestedProfileId: catalogEntry.id,
+			canonicalProfileId: catalogEntry.id,
+			executionProfileId: null,
+			executionVariantId: null,
+			catalogVersion: catalogEntry.catalogVersion,
+			catalogEntryHash: hashCatalogEntry(catalogEntry),
+			migrationKind: "canonical",
+			launchMode: "dedicated_flow",
+			availability: catalogEntry.availability,
+			strictness: catalogEntry.strictness,
+			resultPolicy: catalogEntry.defaultResultPolicy,
+			gateSeverityThreshold: catalogEntry.gateSeverityThreshold,
+			providedInputKinds: [...params.providedInputKinds],
+			launchability: "launchable",
+			reasonCodes: [],
+			warningCodes: [],
+		}),
+	};
+}
+
+export function buildDedicatedProfileMetadata(params: {
+	canonicalProfileId: string;
+	providedInputKinds: readonly ScanProfileInputKind[];
+}): Record<string, unknown> {
+	const { catalogEntry, resolution } = resolveDedicatedProfileSelection(params);
+	return {
+		profileId: catalogEntry.id,
+		canonicalProfileId: catalogEntry.id,
+		catalogEntry,
+		profileResolution: resolution,
+	};
+}
+
+export function resolveStoredScanSafetyBoundary(scan: {
+	profile: string;
+	metadata: unknown;
+}): {
+	canonicalProfileId: string;
+	safetyClass: ScanProfileCatalogEntry["safetyClass"];
+} | null {
+	const metadata =
+		scan.metadata &&
+		typeof scan.metadata === "object" &&
+		!Array.isArray(scan.metadata)
+			? (scan.metadata as Record<string, unknown>)
+			: {};
+	const resolution =
+		metadata.profileResolution &&
+		typeof metadata.profileResolution === "object" &&
+		!Array.isArray(metadata.profileResolution)
+			? (metadata.profileResolution as Record<string, unknown>)
+			: {};
+	const candidateIds = [
+		resolution.canonicalProfileId,
+		metadata.canonicalProfileId,
+		scan.profile,
+	].filter((value): value is string => typeof value === "string");
+	for (const candidateId of candidateIds) {
+		const direct = getCatalogEntry(candidateId);
+		if (direct) {
+			return {
+				canonicalProfileId: direct.id,
+				safetyClass: direct.safetyClass,
+			};
+		}
+		const association = getLegacyProfileAssociation(candidateId);
+		const catalogEntry = association
+			? getCatalogEntry(association.canonicalProfileId)
+			: undefined;
+		if (catalogEntry) {
+			return {
+				canonicalProfileId: catalogEntry.id,
+				safetyClass: catalogEntry.safetyClass,
+			};
+		}
+	}
+	return null;
 }
 
 function selectVariant(

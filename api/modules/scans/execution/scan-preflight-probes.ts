@@ -3,8 +3,6 @@ import { chromium } from "playwright";
 import { discoverApiSchema } from "../../api-schema-fuzz/schema-discovery";
 import { inferDastTargetStartPlan } from "../../dast/target-preparer";
 import { RuntimeScannerRunner } from "../../runtime-scans/runtime-scanner-runner";
-import { ArtifactStorage } from "./lifecycle/artifact-storage";
-import type { ScanPreflightDependencies } from "./scan-preflight";
 import {
 	loadScannerE2EContractHash,
 	loadScannerE2EQualification,
@@ -16,6 +14,8 @@ import {
 	getCleanEnv,
 	runToolProcess,
 } from "../tools/tool-process-runner";
+import { ArtifactStorage } from "./lifecycle/artifact-storage";
+import type { ScanPreflightDependencies } from "./scan-preflight";
 
 const PROBE_OUTPUT_LIMIT = 4096;
 
@@ -46,6 +46,11 @@ export const defaultScanPreflightDependencies: ScanPreflightDependencies = {
 	loadQualification: () => loadScannerE2EQualification(),
 	loadQualificationContractHash: () => loadScannerE2EContractHash(),
 	probeScannerVersion: async (scannerId, execution) => {
+		if (scannerId === "cosign") {
+			return await checkToolVersion("cosign", ["version"], {
+				execution: { runner: "host" },
+			});
+		}
 		if (scannerId === "nuclei-safe") {
 			return await new RuntimeScannerRunner(
 				"nuclei-safe",

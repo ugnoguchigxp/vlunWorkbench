@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { scanCapabilityRequirementsSchema } from "./scan-capability.schema";
 import { sha256DigestSchema } from "./security-capability.schema";
+import { runtimeDatabaseModeSchema } from "./runtime-isolation.schema";
 
 export const scanExecutionStrictnessSchema = z.enum(["strict", "best_effort"]);
 export const scanExecutionStepSchema = z.object({
@@ -12,6 +13,7 @@ export const scanExecutionStepSchema = z.object({
 		"sbom_export",
 		"api_schema_scan",
 		"container_image_scan",
+		"attestation_verify",
 	]),
 	adapter: z.string().min(1).max(100),
 	required: z.boolean(),
@@ -82,11 +84,30 @@ export const scanExecutionPlanV2Schema = scanExecutionPlanV1Schema.extend({
 	steps: z.array(scanExecutionPlanV2StepSchema).min(1).max(64),
 });
 
+export const scanExecutionPlanV3Schema = scanExecutionPlanV2Schema.extend({
+	schemaVersion: z.literal(3),
+	runtimeIsolation: z
+		.object({
+			planHash: sha256DigestSchema,
+			qualificationHash: sha256DigestSchema,
+			sourceSnapshotDigest: sha256DigestSchema,
+			projectionDigest: sha256DigestSchema,
+			recipeHash: sha256DigestSchema,
+			dependencyLockDigest: sha256DigestSchema,
+			dockerDaemonIdentityHash: sha256DigestSchema,
+			imageDigests: z.record(z.string().min(1).max(100), sha256DigestSchema),
+			databaseMode: runtimeDatabaseModeSchema,
+		})
+		.strict(),
+});
+
 export const scanExecutionPlanSchema = z.discriminatedUnion("schemaVersion", [
 	scanExecutionPlanV1Schema,
 	scanExecutionPlanV2Schema,
+	scanExecutionPlanV3Schema,
 ]);
 
 export type ScanExecutionPlanV1 = z.infer<typeof scanExecutionPlanV1Schema>;
 export type ScanExecutionPlanV2 = z.infer<typeof scanExecutionPlanV2Schema>;
+export type ScanExecutionPlanV3 = z.infer<typeof scanExecutionPlanV3Schema>;
 export type ScanExecutionPlan = z.infer<typeof scanExecutionPlanSchema>;

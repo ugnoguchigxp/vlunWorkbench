@@ -3,7 +3,11 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { runGitCommand } from "../diff/git-command";
-import { materializeFullSourceSnapshot } from "./full-source-snapshot";
+import {
+	materializeFullSourceSnapshot,
+	materializeScopedSourceSnapshot,
+} from "./full-source-snapshot";
+import { ARTIFACT_SCOPE } from "../../profiles";
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -32,5 +36,31 @@ describe("full source snapshot", () => {
 			await snapshot.cleanup();
 		}
 		await expect(fs.stat(snapshot.rootPath)).rejects.toThrow();
+	});
+
+	it("materializes ignored build output for an artifact scan", async () => {
+		const repositoryPath = await fs.mkdtemp(
+			path.join(os.tmpdir(), "vwb-artifact-source-test-"),
+		);
+		roots.push(repositoryPath);
+		const sourceRevision = "a".repeat(40);
+		await fs.writeFile(path.join(repositoryPath, "tracked.txt"), "source");
+		await fs.mkdir(path.join(repositoryPath, "dist"));
+		await fs.writeFile(path.join(repositoryPath, "dist", "bundle.js"), "bundle");
+		const snapshot = await materializeScopedSourceSnapshot({
+			repositoryPath,
+			sourceRevision,
+			scope: ARTIFACT_SCOPE,
+		});
+		try {
+			await expect(
+				fs.readFile(path.join(snapshot.projectPath, "dist", "bundle.js"), "utf8"),
+			).resolves.toBe("bundle");
+			await expect(
+				fs.stat(path.join(snapshot.projectPath, "tracked.txt")),
+			).rejects.toThrow();
+		} finally {
+			await snapshot.cleanup();
+		}
 	});
 });

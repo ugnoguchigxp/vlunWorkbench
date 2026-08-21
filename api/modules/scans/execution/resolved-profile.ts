@@ -20,7 +20,9 @@ export function readStoredResolvedProfile(
 		metadata?.profileResolution,
 	);
 	if (resolution.success) {
-		return resolution.data.executionProfileId === parsed.data.id ? parsed.data : null;
+		return resolution.data.executionProfileId === parsed.data.id
+			? parsed.data
+			: null;
 	}
 	if (parsed.data.id !== expectedProfileId) return null;
 	return parsed.data;

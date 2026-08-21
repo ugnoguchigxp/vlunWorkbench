@@ -4,7 +4,9 @@ import {
 	hashProfileResolution,
 	normalizeProfileResolutionInput,
 	ProfileResolutionError,
+	resolveDedicatedProfileSelection,
 	resolveProfileSelection,
+	resolveStoredScanSafetyBoundary,
 } from "./profile-resolution";
 import { listProfiles } from "./profiles";
 
@@ -59,6 +61,45 @@ describe("profile resolution", () => {
 		expect(resolved.resolution).toMatchObject({
 			executionProfileId: "container-image-security",
 			executionVariantId: "container-image-ref",
+		});
+	});
+
+	test("applies canonical strictness to a legacy execution definition", () => {
+		const resolved = resolveProfileSelection({
+			requestedProfileId: "release-artifact",
+			surface: "web",
+			target: { kind: "full" },
+			providedInputKinds: sourceInput,
+		});
+
+		expect(resolved.resolution.strictness).toBe("strict");
+		expect(resolved.executionProfile.id).toBe("artifact");
+		expect(resolved.executionProfile.strictness).toBe("strict");
+	});
+
+	test("requires and resolves the complete offline attestation input set", () => {
+		expect(() =>
+			resolveProfileSelection({
+				requestedProfileId: "dependency-supply-chain",
+				surface: "cli",
+				target: { kind: "full" },
+				providedInputKinds: sourceInput,
+			}),
+		).toThrow("profile_input_missing");
+		const resolved = resolveProfileSelection({
+			requestedProfileId: "dependency-supply-chain",
+			surface: "cli",
+			target: { kind: "full" },
+			providedInputKinds: normalizeProfileResolutionInput({
+				repoPath: "/tmp/project",
+				attestationSubject: "dist/app.tar.gz",
+				attestationBundle: "attestations/app.bundle.json",
+				trustPolicy: "security/cosign.pub",
+			}),
+		});
+		expect(resolved.resolution).toMatchObject({
+			executionProfileId: "dependency-supply-chain",
+			executionVariantId: "offline-attestation",
 		});
 	});
 
@@ -127,5 +168,71 @@ describe("profile resolution", () => {
 			),
 		).toBe(true);
 		}
+	});
+
+	test("records dedicated workflow identity without inventing an execution profile", () => {
+		const { resolution } = resolveDedicatedProfileSelection({
+			canonicalProfileId: "active-technical-lab",
+			providedInputKinds: [
+				"disposable_target_ref",
+				"rules_of_engagement_ref",
+				"execution_consent",
+			],
+		});
+
+		expect(resolution).toMatchObject({
+			canonicalProfileId: "active-technical-lab",
+			executionProfileId: null,
+			launchMode: "dedicated_flow",
+			resultPolicy: "advisory",
+			launchability: "launchable",
+		});
+	});
+
+	test("rejects a dedicated workflow with a missing required safety input", () => {
+		expect(() =>
+			resolveDedicatedProfileSelection({
+				canonicalProfileId: "business-logic-lab",
+				providedInputKinds: [
+					"disposable_target_ref",
+					"scenario_ref",
+					"rules_of_engagement_ref",
+				],
+			}),
+		).toThrow("Missing dedicated profile inputs: execution_consent");
+	});
+
+	test("restores a canonical safety boundary from stored scan metadata", () => {
+		expect(
+			resolveStoredScanSafetyBoundary({
+				profile: "baseline",
+				metadata: {
+					profileResolution: {
+						canonicalProfileId: "active-technical-lab",
+					},
+				},
+			}),
+		).toEqual({
+			canonicalProfileId: "active-technical-lab",
+			safetyClass: "R3",
+		});
+	});
+
+	test("restores legacy safety boundaries and rejects unknown stored profiles", () => {
+		expect(
+			resolveStoredScanSafetyBoundary({
+				profile: "source-baseline",
+				metadata: null,
+			}),
+		).toEqual({
+			canonicalProfileId: "source-assurance",
+			safetyClass: "R0",
+		});
+		expect(
+			resolveStoredScanSafetyBoundary({
+				profile: "removed-unmapped-profile",
+				metadata: {},
+			}),
+		).toBeNull();
 	});
 });

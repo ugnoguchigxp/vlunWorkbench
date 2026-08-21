@@ -1,12 +1,15 @@
 import { parseArgs } from "node:util";
 import { readAppEnv } from "../app/env";
 import { createDbConnection } from "../db";
-import { DastRunner } from "../modules/dast/dast-runner";
+import { DastRunner, type DastCliResult } from "../modules/dast/dast-runner";
 import { DastAuthContextCrypto } from "../modules/dast/auth-context-crypto";
 import { DastAuthContextRepository } from "../modules/dast/auth-context-repository";
 import { DastRepository } from "../modules/dast/dast-repository";
 import { prepareDastTargetWorkspace } from "../modules/dast/target-preparer";
-import { ProjectRepository } from "../modules/scans/repositories";
+import {
+	ProjectRepository,
+	ScanRepository,
+} from "../modules/scans/repositories";
 import { runCliAutomatedDiagnostic } from "./scan-profile-diagnostic";
 
 type DastCliArgs = {
@@ -25,6 +28,12 @@ type DastCliArgs = {
 	"identity-role"?: string;
 	"created-by-user-id"?: string;
 };
+
+class DastCliResultError extends Error {
+	constructor(readonly result: Record<string, unknown>) {
+		super(typeof result.message === "string" ? result.message : "DAST failed.");
+	}
+}
 
 function writeResult(payload: Record<string, unknown>): void {
 	console.log(JSON.stringify(payload));
@@ -151,13 +160,17 @@ async function main() {
 		ReturnType<typeof prepareDastTargetWorkspace>
 	> | null = null;
 	const dastRepo = new DastRepository(connection.db);
+	let finalResult: Record<string, unknown> | null = null;
+	let finalExitCode = 1;
+	let runnerResult: DastCliResult | null = null;
+	let dryRun = false;
 	try {
 		if (autoTarget) {
 			const project = await new ProjectRepository(connection.db).findById(
 				projectId,
 			);
 			if (!project) {
-				writeResult({
+				throw new DastCliResultError({
 					ok: false,
 					dastRunId: null,
 					scanRunId: values["scan-run-id"] ?? null,
@@ -166,8 +179,6 @@ async function main() {
 					failureKind: "dast_target_rejected",
 					message: "Project not found.",
 				});
-				process.exitCode = 1;
-				return;
 			}
 			preparedAutoTarget = await prepareDastTargetWorkspace({
 				repoPath: project.repoPath,
@@ -189,6 +200,7 @@ async function main() {
 				)
 			: undefined;
 		const runner = new DastRunner(connection.db, { authContextRepository });
+		dryRun = values["dry-run"] === "true";
 		const runOptions = {
 			projectId,
 			targetConfigId: targetConfigId as string,
@@ -199,34 +211,22 @@ async function main() {
 			dockerImage: values["docker-image"],
 			timeoutSec,
 			maxRequests,
-			dryRun: values["dry-run"] === "true",
+			dryRun,
 			authContextId: values["auth-context-id"] ?? null,
 			identityRole: values["identity-role"] ?? null,
 			createdByUserId: values["created-by-user-id"] ?? null,
+			// An auto-prepared target remains owned by this CLI until cleanup.
+			// Do not make its scan terminal before that cleanup has succeeded.
+			manageScanRunStatus: !preparedAutoTarget,
 		};
 		const result = runOptions.dryRun
 			? await runner.dryRun(runOptions)
 			: await runner.run(runOptions);
-		const diagnostic =
-			result.ok && result.scanRunId && !runOptions.dryRun
-				? await runCliAutomatedDiagnostic({
-						db: connection.db,
-						env,
-						scanRunId: result.scanRunId,
-					}).catch((error) => ({
-						status: "failed" as const,
-						readiness: "failed" as const,
-						error:
-							error instanceof Error
-								? error.message
-								: "Automated diagnostic failed.",
-					}))
-				: null;
-		writeResult(
+		runnerResult = result;
+		finalResult =
 			preparedAutoTarget && result.ok
 				? {
 						...result,
-						diagnostic,
 						plan: {
 							...(result.plan ?? {}),
 							autoTarget: {
@@ -238,38 +238,139 @@ async function main() {
 							},
 						},
 					}
-				: { ...result, diagnostic },
-		);
-		process.exitCode = result.ok || result.dastRunId ? 0 : 1;
-		return;
+				: { ...result };
+		finalExitCode = result.ok || result.dastRunId ? 0 : 1;
 	} catch (error) {
-		writeResult({
+		finalResult =
+			error instanceof DastCliResultError
+				? error.result
+				: {
+						ok: false,
+						dastRunId: null,
+						scanRunId: values["scan-run-id"] ?? null,
+						status: "failed",
+						outcome: "error",
+						failureKind: "unknown_error",
+						message:
+							error instanceof Error ? error.message : "DAST execution failed.",
+					};
+		finalExitCode = 1;
+	} finally {
+		if (preparedAutoTarget) {
+			const cleanupTasks: Promise<unknown>[] = [preparedAutoTarget.stop()];
+			if (targetConfigId) {
+				cleanupTasks.push(
+					dastRepo.updateTargetConfig(targetConfigId, {
+						enabled: false,
+						metadata: {
+							...preparedAutoTarget.targetConfig.metadata,
+							autoPreparedCompletedAt: new Date().toISOString(),
+						},
+					}),
+				);
+			}
+			const cleanupResults = await Promise.allSettled(cleanupTasks);
+			if (cleanupResults.some((result) => result.status === "rejected")) {
+				finalResult = {
+					ok: false,
+					dastRunId:
+						typeof finalResult?.dastRunId === "string"
+							? finalResult.dastRunId
+							: null,
+					scanRunId:
+						typeof finalResult?.scanRunId === "string"
+							? finalResult.scanRunId
+							: (values["scan-run-id"] ?? null),
+					status: "failed",
+					outcome: "error",
+					failureKind: "dast_target_workspace_cleanup_failed",
+					message: "Failed to clean up the auto-prepared DAST target.",
+				};
+				finalExitCode = 1;
+			}
+		}
+	}
+	if (preparedAutoTarget && runnerResult?.scanRunId && !dryRun) {
+		try {
+			const scanRepo = new ScanRepository(connection.db);
+			const scan = await scanRepo.findById(runnerResult.scanRunId);
+			const completed = finalResult?.ok === true;
+			await scanRepo.updateScanRunStatus(
+				runnerResult.scanRunId,
+				completed ? "completed" : "failed",
+				{
+					summary: completed
+						? runnerResult.ok
+							? runnerResult.summary
+							: runnerResult.message
+						: typeof finalResult?.message === "string"
+							? finalResult.message
+							: "DAST run or target cleanup failed.",
+					profileOutcome:
+						scan?.profile === "authenticated-web"
+							? completed && runnerResult.coverageStatus === "covered"
+								? "completed"
+								: completed
+									? "incomplete"
+									: "failed"
+							: undefined,
+					metadata: {
+						dastRunId: runnerResult.dastRunId,
+						dastOutcome: runnerResult.outcome,
+						dastVerdict: runnerResult.verdict,
+						dastCoverageStatus: runnerResult.coverageStatus,
+						dastCoverageSummary: runnerResult.ok
+							? runnerResult.coverageSummary
+							: null,
+						dastLimitationCodes: runnerResult.ok
+							? runnerResult.limitationCodes
+							: [runnerResult.failureKind],
+						autoTargetCleanupSucceeded: completed,
+					},
+				},
+			);
+		} catch {
+			finalResult = {
+				ok: false,
+				dastRunId: runnerResult.dastRunId,
+				scanRunId: runnerResult.scanRunId,
+				status: "failed",
+				outcome: "error",
+				failureKind: "dast_scan_finalization_failed",
+				message: "Failed to persist the auto-target DAST terminal state.",
+			};
+			finalExitCode = 1;
+		}
+	}
+	const diagnostic =
+		finalResult?.ok === true && runnerResult?.scanRunId && !dryRun
+			? await runCliAutomatedDiagnostic({
+					db: connection.db,
+					env,
+					scanRunId: runnerResult.scanRunId,
+				}).catch((error) => ({
+					status: "failed" as const,
+					readiness: "failed" as const,
+					error:
+						error instanceof Error
+							? error.message
+							: "Automated diagnostic failed.",
+				}))
+			: null;
+	if (finalResult) finalResult = { ...finalResult, diagnostic };
+	connection.sqlite.close(false);
+	writeResult(
+		finalResult ?? {
 			ok: false,
 			dastRunId: null,
 			scanRunId: values["scan-run-id"] ?? null,
 			status: "failed",
 			outcome: "error",
 			failureKind: "unknown_error",
-			message:
-				error instanceof Error ? error.message : "DAST execution failed.",
-		});
-		process.exitCode = 1;
-		return;
-	} finally {
-		if (preparedAutoTarget && targetConfigId) {
-			await dastRepo
-				.updateTargetConfig(targetConfigId, {
-					enabled: false,
-					metadata: {
-						...preparedAutoTarget.targetConfig.metadata,
-						autoPreparedCompletedAt: new Date().toISOString(),
-					},
-				})
-				.catch(() => undefined);
-		}
-		await preparedAutoTarget?.stop().catch(() => undefined);
-		connection.sqlite.close(false);
-	}
+			message: "DAST execution did not produce a result.",
+		},
+	);
+	process.exitCode = finalExitCode;
 }
 
 main();

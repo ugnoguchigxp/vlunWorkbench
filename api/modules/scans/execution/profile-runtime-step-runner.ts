@@ -131,7 +131,9 @@ export async function runRuntimeScannerIntoExistingScan(params: {
 	let nucleiGateway: PreparedContainerTargetGateway | null = null;
 	let result:
 		| Awaited<ReturnType<RuntimeScannerRunner["run"]>>
-		| Awaited<ReturnType<ZapBaselineRunner["run"]>>;
+		| Awaited<ReturnType<ZapBaselineRunner["run"]>>
+		| null = null;
+	let executionError: unknown = null;
 	try {
 		if (params.adapter === "nuclei-safe") {
 			nucleiGateway = await prepareContainerTargetGateway({
@@ -170,8 +172,40 @@ export async function runRuntimeScannerIntoExistingScan(params: {
 				gatewayMetrics: nucleiGateway?.metrics() ?? null,
 			};
 		}
+	} catch (error) {
+		executionError = error;
 	} finally {
-		await nucleiGateway?.stop().catch(() => undefined);
+		try {
+			await nucleiGateway?.stop();
+		} catch {
+			executionError = new Error("runtime_gateway_cleanup_failed");
+		}
+	}
+	if (executionError || !result) {
+		const message =
+			executionError instanceof Error
+				? executionError.message
+				: "runtime_scanner_execution_failed";
+		try {
+			await scanRepo.updateToolRunStatus(toolRun.id, "failed", {
+				exitCode: 1,
+				metadata: {
+					provenance,
+					reasonCode: "execution_failed",
+					error: message,
+				},
+			});
+		} catch {
+			// The returned failure still prevents a successful parent profile.
+		}
+		return {
+			toolRunId: toolRun.id,
+			findingCount: 0,
+			artifactIds: [],
+			exitCode: 1,
+			error: message,
+			reasonCode: "execution_failed",
+		};
 	}
 	const artifactIds: string[] = [];
 	const rawArtifactId = result.rawArtifact

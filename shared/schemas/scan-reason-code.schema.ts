@@ -18,6 +18,8 @@ export const scanReasonCodeSchema = z.enum([
 	"auth_context_missing",
 	"image_input_not_provided",
 	"image_source_unreachable",
+	"attestation_input_missing",
+	"attestation_verification_failed",
 	"target_start_not_supported",
 	"target_unreachable_from_container",
 	"preflight_failed",
@@ -83,6 +85,18 @@ export const scanReasonCodeRegistry = {
 		coverageEffect: "gap",
 		action: "make_image_source_reachable",
 		messageKey: "image_source_unreachable",
+	},
+	attestation_input_missing: {
+		category: "readiness",
+		coverageEffect: "gap",
+		action: "provide_attestation_inputs",
+		messageKey: "attestation_input_missing",
+	},
+	attestation_verification_failed: {
+		category: "execution",
+		coverageEffect: "gap",
+		action: "inspect_attestation_and_trust_policy",
+		messageKey: "attestation_verification_failed",
 	},
 	target_start_not_supported: {
 		category: "applicability",

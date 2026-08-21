@@ -5,7 +5,7 @@ import type {
 	DiffManifestEntry,
 	ScanTarget,
 } from "../../../../../shared/schemas/scan-target.schema";
-import { runGitCommand, runGitText } from "./git-command";
+import { GitCommandError, runGitCommand, runGitText } from "./git-command";
 import {
 	enrichCommittedEntries,
 	enrichWorkingTreeEntries,
@@ -143,11 +143,17 @@ async function resolveGitRoot(projectRoot: string): Promise<string> {
 			args: ["rev-parse", "--show-toplevel"],
 		});
 		return await fs.realpath(output.trim());
-	} catch {
-		throw new GitDiffResolutionError(
-			"not_a_git_repository",
-			"Project path is not inside a Git worktree.",
-		);
+	} catch (error) {
+		if (
+			error instanceof GitCommandError &&
+			/not a git repository|must be run in a work tree/i.test(error.stderr)
+		) {
+			throw new GitDiffResolutionError(
+				"not_a_git_repository",
+				"Project path is not inside a Git worktree.",
+			);
+		}
+		throw error;
 	}
 }
 

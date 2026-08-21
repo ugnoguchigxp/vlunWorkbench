@@ -31,7 +31,8 @@ export const SCAN_PROFILE_CATALOG = [
 		id: "change-gate",
 		displayOrder: 10,
 		displayName: "変更差分セキュリティゲート",
-		description: "変更範囲を対象に、シークレット・依存関係・設定を確認します。",
+		description:
+			"変更範囲をGitleaks、OSV-Scanner、Trivyと、有効化済みのSemgrepで確認します。",
 		availability: "stable",
 		safetyClass: "R0",
 		launchMode: "profile_orchestrator",
@@ -65,7 +66,7 @@ export const SCAN_PROFILE_CATALOG = [
 		displayOrder: 20,
 		displayName: "ソースセキュリティ保証",
 		description:
-			"リポジトリ全体のシークレット、依存関係、設定、適用可能なSASTを確認します。",
+			"リポジトリ全体をGitleaks、OSV-Scanner、Trivyと、有効化済みのSemgrepで確認します。",
 		availability: "stable",
 		safetyClass: "R0",
 		launchMode: "profile_orchestrator",
@@ -99,11 +100,11 @@ export const SCAN_PROFILE_CATALOG = [
 		displayOrder: 30,
 		displayName: "依存関係・サプライチェーン保証",
 		description:
-			"SBOM、依存関係、provenanceを信頼ポリシーに照らして確認します。",
-		availability: "planned",
+			"OSV-Scannerで依存関係、TrivyでCycloneDX SBOM、Cosignで署名付きSLSA provenanceと成果物digestの整合性を確認します。",
+		availability: "stable",
 		safetyClass: "R0",
-		launchMode: "unavailable",
-		launchDestination: null,
+		launchMode: "profile_orchestrator",
+		launchDestination: "scan_workspace",
 		strictness: "strict",
 		defaultResultPolicy: "gate",
 		allowedResultPolicies: [...ALL_RESULT_POLICIES],
@@ -111,6 +112,7 @@ export const SCAN_PROFILE_CATALOG = [
 		supportedTargets: ["full"],
 		requiredInputs: [
 			{ kind: "source_target", requirement: "required" },
+			{ kind: "attestation_subject", requirement: "required" },
 			{ kind: "attestation_bundle", requirement: "required" },
 			{ kind: "trust_policy", requirement: "required" },
 		],
@@ -119,9 +121,21 @@ export const SCAN_PROFILE_CATALOG = [
 			{ capabilityId: "sbom", requirement: "required" },
 			{ capabilityId: "provenance_integrity", requirement: "required" },
 		]),
-		executionVariants: [],
-		environmentRequirementCodes: ["supply_chain_verifier_not_integrated"],
-		limitationCodes: ["provenance_integrity_not_integrated"],
+		executionVariants: [
+			{
+				id: "offline-attestation",
+				executionProfileRef: "dependency-supply-chain",
+				requiredInputKinds: [
+					"source_target",
+					"attestation_subject",
+					"attestation_bundle",
+					"trust_policy",
+				],
+				forbiddenInputKinds: [],
+			},
+		],
+		environmentRequirementCodes: ["cosign_required"],
+		limitationCodes: [],
 		replacementProfileId: null,
 	}),
 	catalogEntry({
@@ -129,7 +143,7 @@ export const SCAN_PROFILE_CATALOG = [
 		displayOrder: 40,
 		displayName: "リリース成果物・コンテナ診断",
 		description:
-			"既存のビルド成果物または明示された既存コンテナイメージを確認します。",
+			"Trivy等で既存のビルド成果物またはdigest固定済みコンテナイメージを確認します。",
 		availability: "stable",
 		safetyClass: "R0",
 		launchMode: "profile_orchestrator",
@@ -283,8 +297,6 @@ export const SCAN_PROFILE_CATALOG = [
 		requiredInputs: [{ kind: "source_target", requirement: "required" }],
 		capabilityRequirements: capabilities([
 			{ capabilityId: "api_schema_contract", requirement: "required" },
-			{ capabilityId: "authentication_session", requirement: "advisory" },
-			{ capabilityId: "authorization_matrix", requirement: "advisory" },
 		]),
 		executionVariants: [
 			{
@@ -295,7 +307,7 @@ export const SCAN_PROFILE_CATALOG = [
 			},
 		],
 		environmentRequirementCodes: ["schema_required"],
-		limitationCodes: ["authorization_matrix_not_integrated"],
+		limitationCodes: [],
 		replacementProfileId: null,
 	}),
 	catalogEntry({
@@ -316,6 +328,7 @@ export const SCAN_PROFILE_CATALOG = [
 		requiredInputs: [
 			{ kind: "disposable_target_ref", requirement: "required" },
 			{ kind: "rules_of_engagement_ref", requirement: "required" },
+			{ kind: "execution_consent", requirement: "required" },
 		],
 		capabilityRequirements: capabilities([
 			{ capabilityId: "active_dast", requirement: "required" },
@@ -345,6 +358,7 @@ export const SCAN_PROFILE_CATALOG = [
 			{ kind: "disposable_target_ref", requirement: "required" },
 			{ kind: "scenario_ref", requirement: "required" },
 			{ kind: "rules_of_engagement_ref", requirement: "required" },
+			{ kind: "execution_consent", requirement: "required" },
 		],
 		capabilityRequirements: capabilities([
 			{ capabilityId: "business_logic", requirement: "required" },

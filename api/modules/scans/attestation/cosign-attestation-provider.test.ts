@@ -2,7 +2,10 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { CosignAttestationProvider } from "./cosign-attestation-provider";
+import {
+	CosignAttestationProvider,
+	isCosignVersionSafe,
+} from "./cosign-attestation-provider";
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -31,10 +34,24 @@ describe("Cosign attestation provider", () => {
 		expect(commandRunner).toHaveBeenCalledWith(
 			expect.objectContaining({
 				binary: "cosign",
-				args: expect.arrayContaining(["verify-blob", "--offline"]),
+				args: expect.arrayContaining([
+					"verify-blob-attestation",
+					"--offline",
+					"--new-bundle-format=true",
+					"--check-claims=true",
+					"slsaprovenance1",
+				]),
 			}),
 		);
 		expect(receipt).toMatchObject({ offline: true, verified: true, reasonCode: "verified" });
 		expect(receipt.subjectDigest).toMatch(/^sha256:/);
+	});
+
+	it("rejects Cosign releases affected by public-key bundle verification bypasses", () => {
+		expect(isCosignVersionSafe("GitVersion: v2.6.4")).toBe(false);
+		expect(isCosignVersionSafe("GitVersion: v2.6.5")).toBe(true);
+		expect(isCosignVersionSafe("GitVersion: v3.1.2")).toBe(false);
+		expect(isCosignVersionSafe("GitVersion: v3.1.3")).toBe(true);
+		expect(isCosignVersionSafe("GitVersion: v3.1.3-rc.1")).toBe(false);
 	});
 });

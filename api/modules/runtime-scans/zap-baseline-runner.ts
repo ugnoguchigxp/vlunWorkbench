@@ -9,6 +9,7 @@ import {
 	redactJsonSecrets,
 	redactSecrets,
 } from "../scans/normalizers/redaction";
+import { cleanupTemporaryPaths } from "../scans/execution/lifecycle/temporary-path-cleanup";
 import type { ToolExecutionConfig } from "../scans/tools/tool-process-runner";
 import {
 	prepareContainerTargetGateway,
@@ -292,7 +293,15 @@ export class ZapBaselineRunner {
 		const tempDir = await fs.mkdtemp(
 			path.join(os.tmpdir(), "zap-baseline-run-"),
 		);
-		await fs.chmod(tempDir, 0o777);
+		try {
+			await fs.chmod(tempDir, 0o777);
+		} catch (error) {
+			await cleanupTemporaryPaths(
+				[tempDir],
+				"zap_baseline_temp_cleanup_failed",
+			);
+			throw error;
+		}
 		const containerName = `vuln-workbench-zap-${cryptoSafeName()}`;
 		let gateway: PreparedContainerTargetGateway | undefined = params.gateway;
 		let stdout = "";
@@ -302,192 +311,210 @@ export class ZapBaselineRunner {
 		let rawJson: ZapReport | undefined;
 		let rawArtifact: ArtifactSaveResult | undefined;
 		let preflightFailure: ZapBaselineRunResult["reasonCode"] | undefined;
+		let runResult: ZapBaselineRunResult | undefined;
+		let runError: unknown;
 		try {
-			if (!gateway) {
-				try {
-					gateway = await this.gatewayFactory({
-						upstreamOrigin: params.upstreamOrigin,
-						allowedPaths: params.allowedPaths,
-						excludedPaths: params.excludedPaths,
-						maxRequests: params.maxRequests,
-						rateLimitPerSec: params.rateLimitPerSec,
-						dockerBin,
-					});
-				} catch (error) {
-					preflightFailure = "target_unreachable_from_container";
-					stderr = String(error);
-				}
-			}
-			if (!preflightFailure && gateway) {
-				const preflight = await runProcess(
-					this.spawn,
-					buildPreflightCommand(dockerBin, gateway.containerOrigin),
-					Math.min(params.timeoutSec ?? 120, 30),
-				);
-				stdout += preflight.stdout;
-				if (preflight.timedOut)
-					preflightFailure = "target_unreachable_from_container";
-				else if (/ENOENT|docker process error/i.test(preflight.stderr))
-					preflightFailure = "execution_failed";
-				else if (
-					preflight.exitCode !== 0 ||
-					preflight.stdout.includes("ERROR:")
-				)
-					preflightFailure = "target_unreachable_from_container";
-				else if (/(^|\D)(401|403)(\D|$)/.test(preflight.stdout))
-					preflightFailure = "authentication_required";
-				stderr += preflight.stderr;
-			}
-			if (!preflightFailure && gateway) {
-				const scan = await runProcess(
-					this.spawn,
-					buildZapBaselineDockerCommand({
-						dockerBin,
-						containerName,
-						outputDir: tempDir,
-						targetOrigin: gateway.containerOrigin,
-						memory: docker.memory,
-						cpus: docker.cpus,
-					}),
-					params.timeoutSec ?? 300,
-				);
-				exitCode = scan.exitCode;
-				stdout += scan.stdout;
-				stderr += scan.stderr;
-				timeout = scan.timedOut;
-				if (timeout) await this.cleanupContainer(dockerBin, containerName);
-			}
-			const reportPath = path.join(tempDir, ZAP_REPORT_FILENAME);
-			if (!preflightFailure && !timeout) {
-				try {
-					const reportStats = await fs.stat(reportPath);
-					if (reportStats.size > MAX_ZAP_REPORT_BYTES) {
-						throw new Error(`ZAP report exceeds ${MAX_ZAP_REPORT_BYTES} bytes`);
+			runResult = await (async (): Promise<ZapBaselineRunResult> => {
+				if (!gateway) {
+					try {
+						gateway = await this.gatewayFactory({
+							upstreamOrigin: params.upstreamOrigin,
+							allowedPaths: params.allowedPaths,
+							excludedPaths: params.excludedPaths,
+							maxRequests: params.maxRequests,
+							rateLimitPerSec: params.rateLimitPerSec,
+							dockerBin,
+						});
+					} catch (error) {
+						preflightFailure = "target_unreachable_from_container";
+						stderr = String(error);
 					}
-					const parsed = JSON.parse(await fs.readFile(reportPath, "utf8"));
-					rawJson = parseZapReport(parsed);
-					const redacted = redactJsonSecrets(rawJson);
-					rawJson = redacted as ZapReport;
-					rawArtifact = await this.storage.saveTextArtifact(
-						params.scanRunId,
-						"raw",
-						JSON.stringify(redacted, null, 2),
-						ZAP_REPORT_FILENAME,
-						{ mode: 0o600 },
-					);
-				} catch (error) {
-					stderr += `Invalid ZAP report: ${String(error)}`;
 				}
-			}
-			const common = {
-				elapsedMs: Date.now() - startedAt,
-				stdout: redactSecrets(stdout),
-				stderr: redactSecrets(stderr),
-				executionMetadata: {
-					runner: "docker",
-					image: ZAP_STABLE_IMAGE,
-					imageDigest: ZAP_STABLE_IMAGE.split("@", 2)[1],
-					containerName,
-					gatewayMetrics: gateway?.metrics() ?? null,
-					reportVersion: rawJson?.["@version"] ?? null,
-				},
-			};
-			const stdoutArtifact = stdout
-				? await this.storage.saveTextArtifact(
-						params.scanRunId,
-						"logs",
-						redactSecrets(stdout),
-						"zap-stdout.log",
-						{ mode: 0o600 },
+				if (!preflightFailure && gateway) {
+					const preflight = await runProcess(
+						this.spawn,
+						buildPreflightCommand(dockerBin, gateway.containerOrigin),
+						Math.min(params.timeoutSec ?? 120, 30),
+					);
+					stdout += preflight.stdout;
+					if (preflight.timedOut)
+						preflightFailure = "target_unreachable_from_container";
+					else if (/ENOENT|docker process error/i.test(preflight.stderr))
+						preflightFailure = "execution_failed";
+					else if (
+						preflight.exitCode !== 0 ||
+						preflight.stdout.includes("ERROR:")
 					)
-				: undefined;
-			const stderrArtifact = stderr
-				? await this.storage.saveTextArtifact(
-						params.scanRunId,
-						"logs",
-						redactSecrets(stderr),
-						"zap-stderr.log",
-						{ mode: 0o600 },
-					)
-				: undefined;
-			if (preflightFailure)
-				return {
-					...common,
-					ok: false,
-					exitCode: null,
-					rawJson: undefined,
-					findings: [],
-					stdoutArtifact,
-					stderrArtifact,
-					reasonCode: preflightFailure,
-					error: stderr || preflightFailure,
+						preflightFailure = "target_unreachable_from_container";
+					else if (/(^|\D)(401|403)(\D|$)/.test(preflight.stdout))
+						preflightFailure = "authentication_required";
+					stderr += preflight.stderr;
+				}
+				if (!preflightFailure && gateway) {
+					const scan = await runProcess(
+						this.spawn,
+						buildZapBaselineDockerCommand({
+							dockerBin,
+							containerName,
+							outputDir: tempDir,
+							targetOrigin: gateway.containerOrigin,
+							memory: docker.memory,
+							cpus: docker.cpus,
+						}),
+						params.timeoutSec ?? 300,
+					);
+					exitCode = scan.exitCode;
+					stdout += scan.stdout;
+					stderr += scan.stderr;
+					timeout = scan.timedOut;
+					if (timeout) await this.cleanupContainer(dockerBin, containerName);
+				}
+				const reportPath = path.join(tempDir, ZAP_REPORT_FILENAME);
+				if (!preflightFailure && !timeout) {
+					try {
+						const reportStats = await fs.stat(reportPath);
+						if (reportStats.size > MAX_ZAP_REPORT_BYTES) {
+							throw new Error(
+								`ZAP report exceeds ${MAX_ZAP_REPORT_BYTES} bytes`,
+							);
+						}
+						const parsed = JSON.parse(await fs.readFile(reportPath, "utf8"));
+						rawJson = parseZapReport(parsed);
+						const redacted = redactJsonSecrets(rawJson);
+						rawJson = redacted as ZapReport;
+						rawArtifact = await this.storage.saveTextArtifact(
+							params.scanRunId,
+							"raw",
+							JSON.stringify(redacted, null, 2),
+							ZAP_REPORT_FILENAME,
+							{ mode: 0o600 },
+						);
+					} catch (error) {
+						stderr += `Invalid ZAP report: ${String(error)}`;
+					}
+				}
+				const common = {
+					elapsedMs: Date.now() - startedAt,
+					stdout: redactSecrets(stdout),
+					stderr: redactSecrets(stderr),
+					executionMetadata: {
+						runner: "docker",
+						image: ZAP_STABLE_IMAGE,
+						imageDigest: ZAP_STABLE_IMAGE.split("@", 2)[1],
+						containerName,
+						gatewayMetrics: gateway?.metrics() ?? null,
+						reportVersion: rawJson?.["@version"] ?? null,
+					},
 				};
-			if (timeout)
+				const stdoutArtifact = stdout
+					? await this.storage.saveTextArtifact(
+							params.scanRunId,
+							"logs",
+							redactSecrets(stdout),
+							"zap-stdout.log",
+							{ mode: 0o600 },
+						)
+					: undefined;
+				const stderrArtifact = stderr
+					? await this.storage.saveTextArtifact(
+							params.scanRunId,
+							"logs",
+							redactSecrets(stderr),
+							"zap-stderr.log",
+							{ mode: 0o600 },
+						)
+					: undefined;
+				if (preflightFailure)
+					return {
+						...common,
+						ok: false,
+						exitCode: null,
+						rawJson: undefined,
+						findings: [],
+						stdoutArtifact,
+						stderrArtifact,
+						reasonCode: preflightFailure,
+						error: stderr || preflightFailure,
+					};
+				if (timeout)
+					return {
+						...common,
+						ok: false,
+						exitCode: null,
+						rawJson: undefined,
+						findings: [],
+						stdoutArtifact,
+						stderrArtifact,
+						reasonCode: "timed_out",
+						error: "ZAP Baseline timed out",
+					};
+				if (!rawJson)
+					return {
+						...common,
+						ok: false,
+						exitCode,
+						rawJson: undefined,
+						findings: [],
+						rawArtifact,
+						stdoutArtifact,
+						stderrArtifact,
+						reasonCode: "invalid_structured_output",
+						error: "ZAP report is missing or structurally invalid",
+					};
+				if (![0, 1, 2].includes(exitCode ?? -1))
+					return {
+						...common,
+						ok: false,
+						exitCode,
+						rawJson,
+						findings: [],
+						rawArtifact,
+						stdoutArtifact,
+						stderrArtifact,
+						reasonCode: "execution_failed",
+						error: `ZAP exited with code ${exitCode}`,
+					};
 				return {
 					...common,
-					ok: false,
-					exitCode: null,
-					rawJson: undefined,
-					findings: [],
-					stdoutArtifact,
-					stderrArtifact,
-					reasonCode: "timed_out",
-					error: "ZAP Baseline timed out",
-				};
-			if (!rawJson)
-				return {
-					...common,
-					ok: false,
-					exitCode,
-					rawJson: undefined,
-					findings: [],
-					rawArtifact,
-					stdoutArtifact,
-					stderrArtifact,
-					reasonCode: "invalid_structured_output",
-					error: "ZAP report is missing or structurally invalid",
-				};
-			if (![0, 1, 2].includes(exitCode ?? -1))
-				return {
-					...common,
-					ok: false,
+					ok: true,
 					exitCode,
 					rawJson,
-					findings: [],
+					findings: normalizeZap(rawJson, {
+						upstreamOrigin: params.upstreamOrigin,
+						gatewayOrigin: gateway?.containerOrigin ?? "",
+					}),
 					rawArtifact,
 					stdoutArtifact,
 					stderrArtifact,
-					reasonCode: "execution_failed",
-					error: `ZAP exited with code ${exitCode}`,
 				};
-			return {
-				...common,
-				ok: true,
-				exitCode,
-				rawJson,
-				findings: normalizeZap(rawJson, {
-					upstreamOrigin: params.upstreamOrigin,
-					gatewayOrigin: gateway?.containerOrigin ?? "",
-				}),
-				rawArtifact,
-				stdoutArtifact,
-				stderrArtifact,
-			};
-		} finally {
-			await gateway?.stop().catch(() => undefined);
-			await fs
-				.rm(tempDir, { recursive: true, force: true })
-				.catch(() => undefined);
+			})();
+		} catch (error) {
+			runError = error;
 		}
+		const cleanupResults = await Promise.allSettled([
+			...(gateway ? [gateway.stop()] : []),
+			fs.rm(tempDir, { recursive: true, force: true }),
+		]);
+		if (cleanupResults.some((result) => result.status === "rejected")) {
+			throw new Error("zap_baseline_cleanup_failed");
+		}
+		if (runError) throw runError;
+		if (!runResult) throw new Error("zap_baseline_result_missing");
+		return runResult;
 	}
 
 	private async cleanupContainer(
 		dockerBin: string,
 		name: string,
 	): Promise<void> {
-		await runProcess(this.spawn, [dockerBin, "rm", "-f", name], 10).catch(
-			() => undefined,
+		const result = await runProcess(
+			this.spawn,
+			[dockerBin, "rm", "-f", name],
+			10,
 		);
+		if (result.timedOut || result.exitCode !== 0) {
+			throw new Error("zap_baseline_container_cleanup_failed");
+		}
 	}
 }
 

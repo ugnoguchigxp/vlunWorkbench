@@ -240,30 +240,38 @@ describe("Projects Route", () => {
 		expect(body.message).toContain("already registered");
 	});
 
-	it("POST /:projectId/scans/preflight returns a server-owned versioned result", async () => {
-		const res = await app.request(`/${PREFLIGHT_PROJECT_ID}/scans/preflight`, {
-			method: "POST",
-			headers: { "content-type": "application/json" },
-			body: JSON.stringify({ profile: "baseline", runner: "host" }),
-		});
-		expect(res.status).toBe(200);
-		const body = await res.json();
-		expect(body.preflight).toEqual(
-			expect.objectContaining({
-				schemaVersion: 1,
-				profileId: "baseline",
-				mode: "enforced",
-				bindingHash: expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
-				preflightHash: expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
-			}),
-		);
-		expect(body.executionPlan).toEqual(
-			expect.objectContaining({
-				planHash: expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
-				profileId: "baseline",
-			}),
-		);
-	});
+	it(
+		"POST /:projectId/scans/preflight returns a server-owned versioned result",
+		async () => {
+			const res = await app.request(
+				`/${PREFLIGHT_PROJECT_ID}/scans/preflight`,
+				{
+					method: "POST",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify({ profile: "baseline", runner: "host" }),
+				},
+			);
+			expect(res.status).toBe(200);
+			const body = await res.json();
+			expect(body.preflight).toEqual(
+				expect.objectContaining({
+					schemaVersion: 1,
+					profileId: "baseline",
+					mode: "enforced",
+					bindingHash: expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
+					preflightHash: expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
+				}),
+			);
+			expect(body.executionPlan).toEqual(
+				expect.objectContaining({
+					planHash: expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
+					profileId: "baseline",
+					sourceSnapshotDigest: expect.stringMatching(/^[0-9a-f]{64}$/),
+				}),
+			);
+		},
+		15_000,
+	);
 
 	it("POST /:projectId/scans rejects a step timeout above the configured maximum", async () => {
 		const res = await app.request("/p-1/scans", {

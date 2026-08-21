@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { scanCapabilityRequirementsSchema } from "./scan-capability.schema";
-import { sha256DigestSchema } from "./security-capability.schema";
 import { scanTargetKindSchema } from "./scan-target.schema";
+import { sha256DigestSchema } from "./security-capability.schema";
 
 const catalogIdSchema = z
 	.string()
@@ -43,6 +43,7 @@ export const scanProfileInputKindSchema = z.enum([
 	"auto_start_plan",
 	"execution_consent",
 	"auth_context_ref",
+	"attestation_subject",
 	"attestation_bundle",
 	"trust_policy",
 	"disposable_target_ref",

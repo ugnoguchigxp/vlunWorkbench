@@ -64,12 +64,14 @@ export function buildScanProfileDryRun(params: {
 	if (
 		params.expectedCatalogEntryHash &&
 		params.profileResolution &&
-		params.expectedCatalogEntryHash !== params.profileResolution.catalogEntryHash
+		params.expectedCatalogEntryHash !==
+			params.profileResolution.catalogEntryHash
 	) {
 		return {
 			ok: false,
 			status: "failed",
-			message: "catalog_entry_changed: profile catalog entry changed after preview",
+			message:
+				"catalog_entry_changed: profile catalog entry changed after preview",
 			profileResolution: params.profileResolution,
 		};
 	}

@@ -10,6 +10,7 @@ import {
 	normalizeScannerOutputText,
 	normalizeStructuredOutputPaths,
 } from "../execution/diff/diff-output-paths";
+import { cleanupTemporaryPaths } from "../execution/lifecycle/temporary-path-cleanup";
 import {
 	redactJsonSecrets,
 	redactSecrets,
@@ -92,15 +93,24 @@ export class TrivyRunner {
 			tempDir,
 			options.mode === "fs-sbom" ? "sbom.cdx.json" : "trivy-output.json",
 		);
-		const scopedWorkspace =
-			options.scope?.intent === "artifact" ||
-			options.scope?.intent === "dependency_manifest"
-				? await createScopedWorkspace({
-						repoPath,
-						scope: options.scope,
-						prefix: path.join(os.tmpdir(), "trivy-scope-"),
-					})
-				: null;
+		let scopedWorkspace: Awaited<
+			ReturnType<typeof createScopedWorkspace>
+		> | null = null;
+		try {
+			if (
+				options.scope?.intent === "artifact" ||
+				options.scope?.intent === "dependency_manifest"
+			) {
+				scopedWorkspace = await createScopedWorkspace({
+					repoPath,
+					scope: options.scope,
+					prefix: path.join(os.tmpdir(), "trivy-scope-"),
+				});
+			}
+		} catch (error) {
+			await cleanupTemporaryPaths([tempDir], "trivy_workspace_cleanup_failed");
+			throw error;
+		}
 		const scanPath = scopedWorkspace?.path ?? repoPath;
 
 		const args =
@@ -144,14 +154,23 @@ export class TrivyRunner {
 		if (mode !== "image") args.push(scanPath);
 
 		const startTime = Date.now();
-		const runResult = await runToolProcess("trivy", args, {
-			timeoutSec: options.timeoutSec,
-			execution: this.execution,
-			repoPath: scanPath,
-			inputPaths: options.imageTar ? [options.imageTar] : undefined,
-			outputPath: tempJsonPath,
-			onLifecycleEvent: options.onLifecycleEvent,
-		});
+		let runResult: Awaited<ReturnType<typeof runToolProcess>>;
+		try {
+			runResult = await runToolProcess("trivy", args, {
+				timeoutSec: options.timeoutSec,
+				execution: this.execution,
+				repoPath: scanPath,
+				inputPaths: options.imageTar ? [options.imageTar] : undefined,
+				outputPath: tempJsonPath,
+				onLifecycleEvent: options.onLifecycleEvent,
+			});
+		} catch (error) {
+			await cleanupTemporaryPaths(
+				[tempDir, scopedWorkspace?.path],
+				"trivy_workspace_cleanup_failed",
+			);
+			throw error;
+		}
 		const elapsedMs = Date.now() - startTime;
 		const stdout = options.normalizePathsRelativeTo
 			? normalizeScannerOutputText(
@@ -173,12 +192,10 @@ export class TrivyRunner {
 		};
 
 		if (!runResult.ok) {
-			await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
-			if (scopedWorkspace) {
-				await fs
-					.rm(scopedWorkspace.path, { recursive: true, force: true })
-					.catch(() => {});
-			}
+			await cleanupTemporaryPaths(
+				[tempDir, scopedWorkspace?.path],
+				"trivy_workspace_cleanup_failed",
+			);
 			return {
 				ok: false,
 				exitCode: runResult.exitCode,
@@ -220,14 +237,10 @@ export class TrivyRunner {
 		}
 
 		// Clean up temporary path
-		try {
-			await fs.rm(tempDir, { recursive: true, force: true });
-			if (scopedWorkspace) {
-				await fs.rm(scopedWorkspace.path, { recursive: true, force: true });
-			}
-		} catch {
-			// ignore cleanup
-		}
+		await cleanupTemporaryPaths(
+			[tempDir, scopedWorkspace?.path],
+			"trivy_workspace_cleanup_failed",
+		);
 
 		// Trivy exits with 0 on normal runs even with findings, unless exit-code option is explicitly configured.
 		const isCompleted = runResult.exitCode === 0 && jsonValid;
@@ -242,14 +255,20 @@ export class TrivyRunner {
 					const tempOutDir = await fs.mkdtemp(
 						path.join(os.tmpdir(), "trivy-invalid-"),
 					);
-					const finalTempPath = path.join(tempOutDir, "trivy-result.json");
-					await fs.writeFile(finalTempPath, redactSecrets(rawJsonText));
-					rawJsonArtifact = await this.storage.saveRawArtifact(
-						scanRunId,
-						finalTempPath,
-						"trivy-result.json",
-					);
-					await fs.rm(tempOutDir, { recursive: true, force: true });
+					try {
+						const finalTempPath = path.join(tempOutDir, "trivy-result.json");
+						await fs.writeFile(finalTempPath, redactSecrets(rawJsonText));
+						rawJsonArtifact = await this.storage.saveRawArtifact(
+							scanRunId,
+							finalTempPath,
+							"trivy-result.json",
+						);
+					} finally {
+						await cleanupTemporaryPaths(
+							[tempOutDir],
+							"trivy_artifact_workspace_cleanup_failed",
+						);
+					}
 				}
 				if (stdout) {
 					stdoutArtifact = await this.storage.saveLog(
@@ -291,19 +310,24 @@ export class TrivyRunner {
 			const tempOutDir = await fs.mkdtemp(
 				path.join(os.tmpdir(), "trivy-final-"),
 			);
-			const finalTempPath = path.join(tempOutDir, "trivy-result.json");
-			await fs.writeFile(
-				finalTempPath,
-				JSON.stringify(redactedRawJson, null, 2),
-			);
+			try {
+				const finalTempPath = path.join(tempOutDir, "trivy-result.json");
+				await fs.writeFile(
+					finalTempPath,
+					JSON.stringify(redactedRawJson, null, 2),
+				);
 
-			rawJsonArtifact = await this.storage.saveRawArtifact(
-				scanRunId,
-				finalTempPath,
-				"trivy-result.json",
-			);
-
-			await fs.rm(tempOutDir, { recursive: true, force: true });
+				rawJsonArtifact = await this.storage.saveRawArtifact(
+					scanRunId,
+					finalTempPath,
+					"trivy-result.json",
+				);
+			} finally {
+				await cleanupTemporaryPaths(
+					[tempOutDir],
+					"trivy_artifact_workspace_cleanup_failed",
+				);
+			}
 
 			if (stdout) {
 				stdoutArtifact = await this.storage.saveLog(

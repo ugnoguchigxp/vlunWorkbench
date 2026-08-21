@@ -7,6 +7,7 @@ export const scanProgressStepKindSchema = z.enum([
 	"sbom_export",
 	"api_schema_scan",
 	"container_image_scan",
+	"attestation_verify",
 ]);
 export type ScanProgressStepKind = z.infer<typeof scanProgressStepKindSchema>;
 

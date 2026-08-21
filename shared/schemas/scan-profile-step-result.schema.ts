@@ -14,6 +14,7 @@ export const normalizedProfileStepResultSchema = z.object({
 		"sbom_export",
 		"api_schema_scan",
 		"container_image_scan",
+		"attestation_verify",
 	]),
 	adapter: z.string().min(1).max(100),
 	required: z.boolean(),

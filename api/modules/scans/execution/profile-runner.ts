@@ -8,12 +8,12 @@ import type {
 	ResolvedScanTarget,
 } from "../../../../shared/schemas/scan-target.schema";
 import type { AppDatabase } from "../../../db";
-import type { ArtifactStorage } from "./lifecycle/artifact-storage";
 import type { NormalizedFinding } from "../findings/normalizers/fixture";
 import { buildMarkdownReport } from "../reporting/report-builder";
 import { ScanReportRepository } from "../reporting/report-repository";
 import { ArtifactRepository } from "../repositories";
 import type { ToolExecutionConfig } from "../tools/tool-process-runner";
+import type { ArtifactStorage } from "./lifecycle/artifact-storage";
 
 export interface ToolResult {
 	toolId: string;
@@ -66,7 +66,8 @@ export type CoverageStepResult = {
 		| "runtime_scanner"
 		| "sbom_export"
 		| "api_schema_scan"
-		| "container_image_scan";
+		| "container_image_scan"
+		| "attestation_verify";
 	stepId: string;
 	adapter: string;
 	required: boolean;

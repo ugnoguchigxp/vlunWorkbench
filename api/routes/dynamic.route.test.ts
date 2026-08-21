@@ -119,6 +119,10 @@ describe("Dynamic Route", () => {
 			},
 		},
 	};
+	const mockScanRepository = {
+		createScanRun: vi.fn().mockResolvedValue({ id: "scan-dynamic-1" }),
+		updateScanRunStatus: vi.fn().mockResolvedValue({ id: "scan-dynamic-1" }),
+	};
 
 	const app = new Hono();
 	app.use("*", async (c, next) => {
@@ -137,6 +141,7 @@ describe("Dynamic Route", () => {
 			db: mockDb as any,
 			findingRepository: mockFindingRepo as any,
 			projectRepository: mockProjectRepo as any,
+			scanRepository: mockScanRepository as any,
 		}),
 	);
 
@@ -232,6 +237,7 @@ describe("Dynamic Route", () => {
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({
 				profileId: "bun-test",
+				consentProjectCodeExecution: true,
 				runner: "docker",
 			}),
 		});
@@ -240,10 +246,47 @@ describe("Dynamic Route", () => {
 		const body = await res.json();
 		expect(body.ok).toBe(true);
 		expect(body.dynamicRunId).toBe("run-1");
+		expect(body.scanRunId).toBe("scan-dynamic-1");
+		expect(mockScanRepository.createScanRun).toHaveBeenCalledWith(
+			expect.objectContaining({
+				profile: "dynamic-verification",
+				metadata: expect.objectContaining({
+					profileResolution: expect.objectContaining({
+						canonicalProfileId: "dynamic-verification",
+						launchMode: "dedicated_flow",
+					}),
+				}),
+			}),
+		);
+		expect(mockScanRepository.updateScanRunStatus).toHaveBeenLastCalledWith(
+			"scan-dynamic-1",
+			"completed",
+			expect.objectContaining({
+				profileOutcome: "completed",
+				metadata: expect.objectContaining({
+					dynamicRunId: "run-1",
+					dynamicOutcome: "passed",
+				}),
+			}),
+		);
 
 		expect(spawnSpy).toHaveBeenCalled();
 		const spawnArgs = spawnSpy.mock.calls[0][0];
 		expect(spawnArgs).toContain("api/cli/dynamic-run.ts");
+		expect(spawnArgs).toContain("--consent-project-code-execution");
+	});
+
+	it("rejects project dynamic execution without explicit consent", async () => {
+		mockScanRepository.createScanRun.mockClear();
+		const res = await app.request("/projects/p-1/dynamic-runs", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ profileId: "bun-test", runner: "docker" }),
+		});
+
+		expect(res.status).toBe(400);
+		expect((await res.json()).message).toContain("Explicit consent");
+		expect(mockScanRepository.createScanRun).not.toHaveBeenCalled();
 	});
 
 	it("rejects an unavailable project path before validating a dynamic run", async () => {

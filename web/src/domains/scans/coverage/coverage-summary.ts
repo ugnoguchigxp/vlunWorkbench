@@ -127,14 +127,18 @@ export function buildCoverageSummary(
 			attackSurfaceItemId: result.attackSurfaceItemId,
 		}));
 	for (const entry of coverageLedger?.entries ?? []) {
-		if (entry.coverageEffect === "covered" || entry.capabilityId === "source_sast") {
+		if (
+			entry.coverageEffect === "covered" ||
+			entry.capabilityId === "source_sast"
+		) {
 			continue;
 		}
 		coverageGaps.unshift({
 			id: `capability:${entry.capabilityId}`,
 			status: "not_checked",
 			title: entry.capabilityId,
-			summary: entry.reasonCodes.join(", ") || "capability coverage is incomplete",
+			summary:
+				entry.reasonCodes.join(", ") || "capability coverage is incomplete",
 			category: entry.capabilityId,
 			attackSurfaceItemId: null,
 		});

@@ -7,6 +7,7 @@ export async function cleanupDockerContainer(
 	containerName: string,
 	emit: (event: ToolLifecycleEvent) => Promise<void>,
 ): Promise<void> {
+	let failureEvent: ToolLifecycleEvent | null = null;
 	try {
 		const result = await runBoundedProcess({
 			argv: [dockerBin, "rm", "-f", containerName],
@@ -14,9 +15,9 @@ export async function cleanupDockerContainer(
 			outputLimitBytes: 64 * 1024,
 			env: getCleanEnv(),
 		});
-		if (result.exitCode !== 0) {
+		if (result.exitCode !== 0 || result.terminationReason !== null) {
 			const stderr = result.stderr.trim();
-			await emit({
+			failureEvent = {
 				level: "warn",
 				eventType: "docker.container.cleanup_failed",
 				message: `Failed to cleanup Docker toolbox container ${containerName}.`,
@@ -26,14 +27,22 @@ export async function cleanupDockerContainer(
 					stderr,
 					terminationReason: result.terminationReason,
 				},
-			});
+			};
 		}
 	} catch (err: unknown) {
-		await emit({
+		failureEvent = {
 			level: "warn",
 			eventType: "docker.container.cleanup_failed",
 			message: `Failed to cleanup Docker toolbox container ${containerName}.`,
 			data: { containerName, error: errorMessage(err) },
-		});
+		};
+	}
+	if (failureEvent) {
+		try {
+			await emit(failureEvent);
+		} catch {
+			// Cleanup failure remains terminal even if its event cannot be persisted.
+		}
+		throw new Error("docker_container_cleanup_failed");
 	}
 }

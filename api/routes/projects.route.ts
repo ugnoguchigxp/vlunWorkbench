@@ -22,13 +22,14 @@ import {
 	GitDiffResolutionError,
 	resolveGitDiff,
 } from "../modules/scans/git-diff-resolver";
-import { resolveProfileSteps } from "../modules/scans/profile-runner";
+import { resolveFullScanTarget } from "../modules/scans/full-scan-target";
+import { resolveDefaultCatalogProfileId } from "../modules/scans/profile-catalog";
 import {
 	normalizeProfileResolutionInput,
 	ProfileResolutionError,
 	resolveProfileSelection,
 } from "../modules/scans/profile-resolution";
-import { resolveDefaultCatalogProfileId } from "../modules/scans/profile-catalog";
+import { resolveProfileSteps } from "../modules/scans/profile-runner";
 import type { ProjectDeletionService } from "../modules/scans/project-deletion-service";
 import { isTemporaryProjectPath } from "../modules/scans/project-visibility";
 import type {
@@ -240,6 +241,11 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 					stepId: z.string().optional(),
 					consentProjectCodeExecution: z.boolean().default(false).optional(),
 					runner: z.enum(["host", "docker"]).default("host").optional(),
+					imageRef: z.string().optional(),
+					imageTar: z.string().optional(),
+					attestationSubject: z.string().min(1).max(500).optional(),
+					attestationBundle: z.string().min(1).max(500).optional(),
+					trustPolicy: z.string().min(1).max(500).optional(),
 				}),
 			),
 			async (c) => {
@@ -263,6 +269,11 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 					resultPolicy: body.resultPolicy,
 					allowExperimental: body.allowExperimental,
 					consentProjectCodeExecution: body.consentProjectCodeExecution,
+					imageRef: body.imageRef,
+					imageTar: body.imageTar,
+					attestationSubject: body.attestationSubject,
+					attestationBundle: body.attestationBundle,
+					trustPolicy: body.trustPolicy,
 				});
 				const profile = selection.executionProfile;
 				const policy = resolveScanExecutionPolicy({
@@ -281,18 +292,40 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 						stepId: body.stepId,
 					}),
 				);
-				const technologyAnalysis = await analyzeProjectCapabilities(
-					authorized.canonicalPath,
-				);
-				const preflight = await runScanPreflight({
-					profile,
-					steps,
-					projectId,
-					repoPath: authorized.canonicalPath,
-					execution,
-					consentProjectCodeExecution:
-						body.consentProjectCodeExecution === true,
-				});
+				const fullTargetPromise =
+					body.target.kind === "full"
+						? resolveFullScanTarget(
+								authorized.canonicalPath,
+								profile.scope,
+							).catch((error) => {
+								if (
+									error instanceof GitDiffResolutionError &&
+									error.code === "not_a_git_repository"
+								) {
+									return null;
+								}
+								throw error;
+							})
+						: Promise.resolve(null);
+				const [technologyAnalysis, fullTarget, preflight] = await Promise.all([
+					analyzeProjectCapabilities(authorized.canonicalPath),
+					fullTargetPromise,
+					runScanPreflight({
+						profile,
+						steps,
+						projectId,
+						repoPath: authorized.canonicalPath,
+						execution,
+						consentProjectCodeExecution:
+							body.consentProjectCodeExecution === true,
+						allowDirtySource: body.target.kind === "working_tree",
+						imageRef: body.imageRef,
+						imageTar: body.imageTar,
+						attestationSubject: body.attestationSubject,
+						attestationBundle: body.attestationBundle,
+						trustPolicy: body.trustPolicy,
+					}),
+				]);
 				const executionPlan = buildScanExecutionPlan({
 					scanRunId: randomUUID(),
 					projectId,
@@ -301,6 +334,7 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 					preflight,
 					technologyRegistryDigest:
 						technologyAnalysis.capabilityPlan.registryDigest,
+					sourceSnapshotDigest: fullTarget?.digest,
 					runner: execution.runner,
 					schemaVersion: deps.env?.scanExecutionPlanV2 ? 2 : 1,
 				});
@@ -413,6 +447,9 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 					runner: z.enum(["host", "docker"]).default("host").optional(),
 					imageRef: z.string().optional(),
 					imageTar: z.string().optional(),
+					attestationSubject: z.string().min(1).max(500).optional(),
+					attestationBundle: z.string().min(1).max(500).optional(),
+					trustPolicy: z.string().min(1).max(500).optional(),
 					finalReport: z.boolean().default(true).optional(),
 					reportTitle: z.string().optional(),
 				}),
@@ -455,11 +492,15 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 					allowExperimental: body.allowExperimental,
 					imageRef: body.imageRef,
 					imageTar: body.imageTar,
+					attestationSubject: body.attestationSubject,
+					attestationBundle: body.attestationBundle,
+					trustPolicy: body.trustPolicy,
 					consentProjectCodeExecution: body.consentProjectCodeExecution,
 				});
 				if (
 					body.expectedCatalogEntryHash &&
-					body.expectedCatalogEntryHash !== selection.resolution.catalogEntryHash
+					body.expectedCatalogEntryHash !==
+						selection.resolution.catalogEntryHash
 				) {
 					throw new HttpError(
 						409,
@@ -504,7 +545,8 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 							body.expectedPreflightBindingHash ?? null,
 						expectedPlanHash: body.expectedPlanHash ?? null,
 						expectedCatalogEntryHash:
-							body.expectedCatalogEntryHash ?? selection.resolution.catalogEntryHash,
+							body.expectedCatalogEntryHash ??
+							selection.resolution.catalogEntryHash,
 					},
 				});
 				await deps.scanRepository.createScanEvent({
@@ -544,6 +586,13 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 				}
 				if (body.imageRef) args.push("--image-ref", body.imageRef);
 				if (body.imageTar) args.push("--image-tar", body.imageTar);
+				if (body.attestationSubject) {
+					args.push("--attestation-subject", body.attestationSubject);
+				}
+				if (body.attestationBundle) {
+					args.push("--attestation-bundle", body.attestationBundle);
+				}
+				if (body.trustPolicy) args.push("--trust-policy", body.trustPolicy);
 				if (body.reportTitle) {
 					args.push("--report-title", body.reportTitle);
 				}
@@ -562,7 +611,8 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 				}
 				args.push(
 					"--expected-catalog-entry-hash",
-					body.expectedCatalogEntryHash ?? selection.resolution.catalogEntryHash,
+					body.expectedCatalogEntryHash ??
+						selection.resolution.catalogEntryHash,
 				);
 
 				try {
@@ -575,7 +625,11 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 				}
 				return c.json(
 					{
-						scan: { id: queued.id, status: "queued", profile: selectedProfileId },
+						scan: {
+							id: queued.id,
+							status: "queued",
+							profile: selectedProfileId,
+						},
 						profileResolution: selection.resolution,
 						runner: policy.runner,
 						profileOutcome: "pending",
@@ -595,6 +649,9 @@ function resolveWebProfileSelection(params: {
 	allowExperimental?: boolean;
 	imageRef?: string;
 	imageTar?: string;
+	attestationSubject?: string;
+	attestationBundle?: string;
+	trustPolicy?: string;
 	consentProjectCodeExecution?: boolean;
 }) {
 	try {
@@ -606,6 +663,9 @@ function resolveWebProfileSelection(params: {
 				repoPath: "web-project",
 				imageRef: params.imageRef,
 				imageTar: params.imageTar,
+				attestationSubject: params.attestationSubject,
+				attestationBundle: params.attestationBundle,
+				trustPolicy: params.trustPolicy,
 				executionConsent: params.consentProjectCodeExecution,
 			}),
 			requestedResultPolicy: params.resultPolicy,

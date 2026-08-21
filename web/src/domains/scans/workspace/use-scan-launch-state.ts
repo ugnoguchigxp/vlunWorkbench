@@ -47,7 +47,9 @@ export function useScanLaunchState() {
 	const [actionQueueFilter, setActionQueueFilter] =
 		useState<ActionQueueFilter>("active");
 	const [profiles, setProfiles] = useState<ScanProfile[]>([]);
-	const [catalogEntries, setCatalogEntries] = useState<ScanProfileCatalogEntry[]>([]);
+	const [catalogEntries, setCatalogEntries] = useState<
+		ScanProfileCatalogEntry[]
+	>([]);
 	const [catalogDefaultProfileIds, setCatalogDefaultProfileIds] = useState<
 		Partial<Record<ScanTargetKind, string>>
 	>({});

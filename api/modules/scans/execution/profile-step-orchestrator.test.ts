@@ -52,6 +52,7 @@ describe("executeProfileSteps lifecycle events", () => {
 	it("registers every currently supported profile step kind", () => {
 		expect(Object.keys(profileStepRunnerRegistry).sort()).toEqual([
 			"api_schema_scan",
+			"attestation_verify",
 			"container_image_scan",
 			"dast",
 			"runtime_scanner",

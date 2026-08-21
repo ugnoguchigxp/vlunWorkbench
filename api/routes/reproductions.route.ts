@@ -18,6 +18,11 @@ import type {
 	FindingRepository,
 	ProjectRepository,
 } from "../modules/scans/repositories";
+import { ScanRepository } from "../modules/scans/repositories";
+import {
+	buildDedicatedProfileMetadata,
+	resolveStoredScanSafetyBoundary,
+} from "../modules/scans/profile-resolution";
 import {
 	ProjectPathPolicyError,
 	resolveProjectPath,
@@ -33,6 +38,7 @@ type ReproductionsRouteDeps = {
 	projectRepository: ProjectRepository;
 	reproductionProfiles?: readonly ReproductionProfile[];
 	processCapacity?: WebProcessCapacity;
+	scanRepository?: ScanRepository;
 };
 
 export function createReproductionsRoute(deps: ReproductionsRouteDeps) {
@@ -40,6 +46,7 @@ export function createReproductionsRoute(deps: ReproductionsRouteDeps) {
 	const reproductionProfiles =
 		deps.reproductionProfiles ?? REPRODUCTION_PROFILES;
 	const repo = new ReproductionRepository(db);
+	const scanRepository = deps.scanRepository ?? new ScanRepository(db);
 	const route = new Hono();
 	const assertExecutionPath = async (repoPath: string) => {
 		try {
@@ -66,6 +73,11 @@ export function createReproductionsRoute(deps: ReproductionsRouteDeps) {
 		if (!project || project.ownerUserId !== authUser.userId) {
 			throw new HttpError(403, "Forbidden");
 		}
+		const originalScan = await scanRepository.findById(finding.scanRunId);
+		const originalSafetyBoundary =
+			originalScan && originalScan.projectId === project.id
+				? resolveStoredScanSafetyBoundary(originalScan)
+				: null;
 		const allProfiles = listReproductionProfiles(reproductionProfiles);
 		const resolvedProfiles = allProfiles.map((p) => {
 			const appCheck = p.isApplicable({ finding });
@@ -76,8 +88,12 @@ export function createReproductionsRoute(deps: ReproductionsRouteDeps) {
 				sourceTools: p.sourceTools,
 				defaultTimeoutSec: p.defaultTimeoutSec,
 				defaultNetworkMode: p.defaultNetworkMode,
-				isApplicable: appCheck.applicable,
-				applicabilityReason: appCheck.reason || null,
+				isApplicable: appCheck.applicable && Boolean(originalSafetyBoundary),
+				applicabilityReason:
+					appCheck.reason ||
+					(originalSafetyBoundary
+						? null
+						: "Original scan safety boundary is unavailable."),
 			};
 		});
 
@@ -178,6 +194,37 @@ export function createReproductionsRoute(deps: ReproductionsRouteDeps) {
 					`Profile ${profileId} is not applicable: ${appCheck.reason}`,
 				);
 			}
+			const originalScan = await scanRepository.findById(finding.scanRunId);
+			const originalSafetyBoundary =
+				originalScan && originalScan.projectId === project.id
+					? resolveStoredScanSafetyBoundary(originalScan)
+					: null;
+			if (!originalSafetyBoundary) {
+				throw new HttpError(
+					409,
+					"original_safety_boundary_required: original scan safety boundary is unavailable",
+				);
+			}
+			const scan = await scanRepository.createScanRun({
+				projectId: project.id,
+				profile: "remediation-verification",
+				status: "running",
+				createdByUserId: authUser.userId,
+				metadata: {
+					...buildDedicatedProfileMetadata({
+						canonicalProfileId: "remediation-verification",
+						providedInputKinds: ["finding_ref"],
+					}),
+					findingId,
+					reproductionProfileId: profileId,
+					originalScanRunId: finding.scanRunId,
+					originalSafetyBoundary: {
+						...originalSafetyBoundary,
+						scanRunId: finding.scanRunId,
+					},
+					safetyBoundary: "docker-readonly-source",
+				},
+			});
 
 			// Construct CLI arguments
 			const args = [
@@ -186,6 +233,8 @@ export function createReproductionsRoute(deps: ReproductionsRouteDeps) {
 				"--",
 				"--finding-id",
 				findingId,
+				"--scan-run-id",
+				scan.id,
 				"--profile",
 				profileId,
 				"--runner",
@@ -209,33 +258,67 @@ export function createReproductionsRoute(deps: ReproductionsRouteDeps) {
 			}
 
 			// Run reproduction via CLI processes to ensure process safety boundary
-			const processResult = await runBoundedCliProcess({
-				argv: ["bun", ...args],
-				processCapacity: deps.processCapacity,
-				timeoutMs: REPRODUCTION_CLI_TIMEOUT_MS,
-				outputLimitBytes: REPRODUCTION_CLI_OUTPUT_LIMIT_BYTES,
-				label: "Reproduction CLI",
-			});
-
-			const cliResult = parseCliJsonObject(
-				processResult,
-				"Reproduction CLI",
-			) as {
+			let cliResult: {
 				ok?: boolean;
 				reproductionRunId?: string;
+				status?: string;
+				outcome?: string;
 				message?: string;
 			};
+			try {
+				const processResult = await runBoundedCliProcess({
+					argv: ["bun", ...args],
+					processCapacity: deps.processCapacity,
+					timeoutMs: REPRODUCTION_CLI_TIMEOUT_MS,
+					outputLimitBytes: REPRODUCTION_CLI_OUTPUT_LIMIT_BYTES,
+					label: "Reproduction CLI",
+				});
+				cliResult = parseCliJsonObject(
+					processResult,
+					"Reproduction CLI",
+				) as typeof cliResult;
+			} catch (error) {
+				await scanRepository.updateScanRunStatus(scan.id, "failed", {
+					summary: error instanceof Error ? error.message : String(error),
+					profileOutcome: "failed",
+				});
+				throw error;
+			}
 
 			// If CLI failed before creating run
 			if (!cliResult.ok && !cliResult.reproductionRunId) {
+				await scanRepository.updateScanRunStatus(scan.id, "failed", {
+					summary: cliResult.message ?? "Failed to start reproduction",
+					profileOutcome: "failed",
+				});
 				throw new HttpError(
 					400,
 					cliResult.message || "Failed to start reproduction",
 				);
 			}
+			const profileOutcome = cliResult.ok
+				? ["not_reproduced", "not_observed"].includes(cliResult.outcome ?? "")
+					? "completed"
+					: "completed_with_warnings"
+				: "failed";
+			await scanRepository.updateScanRunStatus(
+				scan.id,
+				cliResult.ok ? "completed" : "failed",
+				{
+					summary: cliResult.ok
+						? `Remediation verification completed with outcome: ${cliResult.outcome ?? "unknown"}.`
+						: (cliResult.message ?? "Remediation verification failed."),
+					profileOutcome,
+					metadata: {
+						reproductionRunId: cliResult.reproductionRunId ?? null,
+						reproductionStatus: cliResult.status ?? null,
+						reproductionOutcome: cliResult.outcome ?? null,
+					},
+				},
+			);
 
 			// Return 200 even for failed execution run, as long as it has reproductionRunId
-			return c.json(cliResult);
+			return c.json({ ...cliResult, scanRunId: scan.id });
 		},
 	);
 
