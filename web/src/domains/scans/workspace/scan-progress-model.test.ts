@@ -173,4 +173,47 @@ describe("scan progress model", () => {
 			}),
 		).toBeNull();
 	});
+
+	it("labels a queued scan as waiting to start", () => {
+		const model = buildScanProgressModel({
+			scan: scan("queued"),
+			profile,
+			events: [],
+		});
+		expect(model?.statusLabel).toBe("開始待ち");
+		expect(model?.current).toBeNull();
+	});
+
+	it("records failed, blocked, and not-applicable outcomes from lifecycle events", () => {
+		const model = buildScanProgressModel({
+			scan: scan(),
+			profile,
+			events: [
+				event(1, "scan.step.started", startedData),
+				event(2, "scan.step.finished", {
+					...startedData,
+					outcome: "failed",
+					findingCount: 0,
+					reasonCode: "execution_failed",
+					durationMs: 5,
+				}),
+				event(3, "scan.step.finished", {
+					...startedData,
+					stepId: "osv",
+					adapter: "osv",
+					displayName: "OSV Dependency Scanner",
+					position: 2,
+					outcome: "blocked",
+					findingCount: 0,
+					reasonCode: "preflight_failed",
+					durationMs: null,
+				}),
+			],
+		});
+		expect(model?.items.map((item) => item.state)).toEqual([
+			"failed",
+			"blocked",
+		]);
+		expect(model?.latestUpdate).toContain("停止しました");
+	});
 });

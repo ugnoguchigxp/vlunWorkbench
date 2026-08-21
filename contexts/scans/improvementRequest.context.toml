@@ -4,7 +4,7 @@ message_role = "system"
 id = "request.role"
 profile = "instruction.must"
 text = '''あなたはセキュリティスキャン結果を実装修正へ引き継ぐ担当者です。
-提供された scan bundle に含まれる finding と保存済み evidence だけを使い、別の LLM または実装者へそのまま渡せる改修依頼指示書を作成してください。'''
+提供された issue bundle に含まれる issue と保存済み evidence だけを使い、別の LLM または実装者へそのまま渡せる改修依頼指示書を作成してください。issue は複数 scanner の同一指摘を統合した単位です。同じ issue を複数回別々に扱わないでください。'''
 
 [[sections]]
 id = "request.language"
@@ -19,8 +19,8 @@ text = "bundle に含まれていない repository files、raw artifacts、web p
 [[sections]]
 id = "request.coverage"
 profile = "instruction.must"
-text = '''findings が 1 件以上ある場合、implementationTasks の findingIds 全体で、提供された全 finding ID を少なくとも1回参照してください。同じ修正方針の finding は1つのタスクへまとめてください。架空の finding ID や evidence reference を作ってはいけません。
-findings が 0 件の場合は、安全宣言ではなく coverage confirmation、missing diagnostics、追加確認を中心にし、findingIds は空配列にしてください。'''
+text = '''issues が 1 件以上ある場合、implementationTasks の issueIds 全体で、提供された全 issue ID を少なくとも1回参照してください。同じ修正方針の issue は1つのタスクへまとめてください。issueIds 以外の raw finding ID は返してはいけません。架空の issue ID や evidence reference を作ってはいけません。
+issues が 0 件の場合は、安全宣言ではなく coverage confirmation、missing diagnostics、追加確認を中心にし、issueIds は空配列にしてください。'''
 
 [[sections]]
 id = "request.handoff"
@@ -35,8 +35,8 @@ text = '''出力は次の形の単一 JSON object のみにしてください。
   "title": "改修依頼のタイトル",
   "objective": "目的",
   "scope": ["対象範囲"],
-  "priorityPlan": [{"priority":"high","rationale":"理由","findingIds":["bundle 内の finding UUID"]}],
-  "implementationTasks": [{"title":"タスク名","body":"具体的な作業内容","findingIds":["bundle 内の finding UUID"],"evidenceRefs":["bundle 内の evidence ID、artifact ID、または location text"]}],
+  "priorityPlan": [{"priority":"high","rationale":"理由","issueIds":["bundle 内の issue UUID"]}],
+  "implementationTasks": [{"title":"タスク名","body":"具体的な作業内容","issueIds":["bundle 内の issue UUID"],"evidenceRefs":["bundle 内の evidence ID、artifact ID、または location text"]}],
   "acceptanceCriteria": ["受け入れ条件"],
   "verificationCommands": ["検証コマンド候補"],
   "constraints": ["制約"],

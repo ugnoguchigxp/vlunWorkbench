@@ -1,8 +1,8 @@
 import crypto from "node:crypto";
 import { z } from "zod";
 import {
+	llmIssueImprovementRequestSchema,
 	type ScanImprovementRequest,
-	scanImprovementRequestSchema,
 	scanReviewOutputSchema,
 } from "../../../../shared/schemas/scan.schema";
 import type { AppDatabase } from "../../../db";
@@ -17,17 +17,16 @@ import {
 import { executePromptCompletion } from "../../../system-context/llm-execution";
 import { ScanRepository } from "../repositories";
 import {
-	mergeScanImprovementRequests,
-	parseChunkImprovementRequest,
+	mergeIssueImprovementRequests,
+	parseIssueChunkImprovementRequest,
 	StructuredImprovementRequestError,
 } from "./scan-improvement-request-builder";
 import {
-	buildScanReviewBundle,
-	type ScanReviewBundle,
-} from "./scan-review-bundle";
+	buildImprovementRequestIssueBundles,
+	toImprovementRequestPromptBundle,
+	type ImprovementRequestIssueBundle,
+} from "./scan-improvement-issue-bundle";
 import { ScanReviewRepository } from "./scan-review-repository";
-
-const CHUNK_SIZE = 50;
 
 type RunnerDeps = {
 	llmProvider?: LlmProvider;
@@ -136,7 +135,7 @@ export class ScanImprovementRequestRunner {
 			throw new Error("Improvement request requires a completed scan.");
 		}
 
-		let bundles: ScanReviewBundle[];
+		let bundles: ImprovementRequestIssueBundle[];
 		try {
 			bundles = await this.buildAllBundles(scanRunId);
 		} catch (error) {
@@ -228,33 +227,13 @@ export class ScanImprovementRequestRunner {
 
 	private async buildAllBundles(
 		scanRunId: string,
-	): Promise<ScanReviewBundle[]> {
-		const firstBundle = await buildScanReviewBundle(this.db, scanRunId, {
-			findingFilter: "all",
-			maxFindings: CHUNK_SIZE,
-			findingOffset: 0,
-		});
-		const totalFindings = firstBundle.limits.filteredFindings;
-		const bundles = [firstBundle];
-		for (
-			let findingOffset = CHUNK_SIZE;
-			findingOffset < totalFindings;
-			findingOffset += CHUNK_SIZE
-		) {
-			bundles.push(
-				await buildScanReviewBundle(this.db, scanRunId, {
-					findingFilter: "all",
-					maxFindings: CHUNK_SIZE,
-					findingOffset,
-				}),
-			);
-		}
-		return bundles;
+	): Promise<ImprovementRequestIssueBundle[]> {
+		return buildImprovementRequestIssueBundles(this.db, scanRunId);
 	}
 
 	private async complete(params: {
 		reviewId: string;
-		bundles: ScanReviewBundle[];
+		bundles: ImprovementRequestIssueBundle[];
 		provider?: LlmProvider;
 		providerRouting?: Record<string, unknown>;
 	}): Promise<ScanImprovementRequestRunResult> {
@@ -264,15 +243,16 @@ export class ScanImprovementRequestRunner {
 			for (const bundle of params.bundles) {
 				generated.push(await this.generateChunk(params.provider, bundle));
 			}
-			const request = mergeScanImprovementRequests(
+			const request = mergeIssueImprovementRequests(
 				params.bundles,
 				generated.map((item) => item.request),
 			);
-			const totalFindings = params.bundles[0]?.limits.filteredFindings ?? 0;
+			const totalFindings = params.bundles[0]?.grouping.rawFindingCount ?? 0;
+			const totalIssues = params.bundles[0]?.grouping.issueCount ?? 0;
 			const output = scanReviewOutputSchema.parse({
 				summary:
 					totalFindings > 0
-						? `保存済み証跡に基づき、全 ${totalFindings} 件の finding を改修依頼指示書に集約しました。`
+						? `保存済み証跡に基づき、全 ${totalIssues} 件の issue（raw finding ${totalFindings} 件）を改修依頼指示書に集約しました。`
 						: "finding は 0 件でした。安全宣言を避け、カバレッジ確認の依頼指示書を作成しました。",
 				riskOverview: request.objective,
 				priorityNotes: request.priorityPlan
@@ -287,8 +267,11 @@ export class ScanImprovementRequestRunner {
 				confidenceNotes: request.constraints.slice(0, 20),
 				improvementRequest: request,
 			});
+			const issueIds = params.bundles.flatMap((bundle) =>
+				bundle.issueManifest.map((issue) => issue.issueId),
+			);
 			const findingIds = params.bundles.flatMap((bundle) =>
-				bundle.findings.map((finding) => finding.id),
+				bundle.issueManifest.flatMap((issue) => issue.memberFindingIds),
 			);
 			await this.reviewRepository.updateReview(params.reviewId, "completed", {
 				...output,
@@ -296,9 +279,12 @@ export class ScanImprovementRequestRunner {
 					...output,
 					generationKind: "improvement_request",
 					coverage: {
+						totalIssues,
+						coveredIssues: issueIds.length,
 						totalFindings,
 						coveredFindings: findingIds.length,
 						chunkCount: params.bundles.length,
+						issueIdsSha256: sha256(JSON.stringify(issueIds)),
 						findingIdsSha256: sha256(JSON.stringify(findingIds)),
 					},
 					...(params.providerRouting
@@ -328,20 +314,22 @@ export class ScanImprovementRequestRunner {
 
 	private async generateChunk(
 		provider: LlmProvider,
-		bundle: ScanReviewBundle,
+		bundle: ImprovementRequestIssueBundle,
 	): Promise<GeneratedChunk> {
 		const execution = await executePromptCompletion({
 			provider,
 			promptMessages: [
 				bindImprovementRequestSystemContext(),
-				bindImprovementRequestUserMessage(bundle),
+				bindImprovementRequestUserMessage(
+					toImprovementRequestPromptBundle(bundle),
+				),
 			],
 			options: {
 				temperature: 0.1,
-				outputSchema: z.toJSONSchema(scanImprovementRequestSchema),
+				outputSchema: z.toJSONSchema(llmIssueImprovementRequestSchema),
 			},
 		});
-		const request = parseChunkImprovementRequest(
+		const request = parseIssueChunkImprovementRequest(
 			execution.response.content,
 			bundle,
 		);
@@ -392,16 +380,12 @@ export class ScanImprovementRequestRunner {
 }
 
 function buildPersistedInputBundle(
-	bundles: ScanReviewBundle[],
+	bundles: ImprovementRequestIssueBundle[],
 ): Record<string, unknown> {
-	const findingManifest = bundles.flatMap((bundle) =>
-		bundle.findings.map((finding) => ({
-			id: finding.id,
-			severity: finding.severity,
-			sourceTool: finding.sourceTool,
-			ruleId: finding.ruleId,
-			title: finding.title,
-			primaryLocation: finding.primaryLocation,
+	const issueManifest = bundles.flatMap((bundle) =>
+		bundle.issueManifest.map((issue) => ({
+			issueId: issue.issueId,
+			memberFindingIds: issue.memberFindingIds,
 		})),
 	);
 	const first = bundles[0];
@@ -409,16 +393,18 @@ function buildPersistedInputBundle(
 		generationKind: "improvement_request",
 		scanRun: first?.scanRun,
 		project: first?.project,
+		grouping: first?.grouping,
 		limits: {
-			totalFindings: findingManifest.length,
-			includedFindings: findingManifest.length,
-			findingFilter: "all",
-			chunkSize: CHUNK_SIZE,
+			totalIssues: first?.grouping.issueCount ?? 0,
+			totalFindings: first?.grouping.rawFindingCount ?? 0,
+			includedIssues: issueManifest.length,
+			chunkSize: 50,
 			chunkCount: bundles.length,
 		},
-		findingManifest,
+		issueManifest,
+		issueIdsSha256: sha256(JSON.stringify(issueManifest.map((issue) => issue.issueId))),
 		findingIdsSha256: sha256(
-			JSON.stringify(findingManifest.map((finding) => finding.id)),
+			JSON.stringify(issueManifest.flatMap((issue) => issue.memberFindingIds)),
 		),
 	};
 }

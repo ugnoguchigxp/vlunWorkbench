@@ -26,6 +26,8 @@ export type ScanImprovementRequestView = {
 	readiness: "ready" | "partial" | "missing";
 	coverage: {
 		status: "complete" | "partial" | "unknown";
+		totalIssues: number | null;
+		includedIssues: number | null;
 		totalFindings: number | null;
 		includedFindings: number | null;
 	};
@@ -57,6 +59,8 @@ const emptyView = (
 	readiness: "missing",
 	coverage: {
 		status: "unknown",
+		totalIssues: null,
+		includedIssues: null,
 		totalFindings: null,
 		includedFindings: null,
 	},
@@ -127,6 +131,12 @@ function readCoverage(
 ): ScanImprovementRequestView["coverage"] {
 	const outputCoverage = asRecord(review.output?.coverage);
 	const inputLimits = asRecord(review.inputBundle?.limits);
+	const totalIssues = numberValue(
+		outputCoverage?.totalIssues ?? inputLimits?.totalIssues,
+	);
+	const includedIssues = numberValue(
+		outputCoverage?.coveredIssues ?? inputLimits?.includedIssues,
+	);
 	const totalFindings = numberValue(
 		outputCoverage?.totalFindings ?? inputLimits?.totalFindings,
 	);
@@ -134,9 +144,20 @@ function readCoverage(
 		outputCoverage?.coveredFindings ?? inputLimits?.includedFindings,
 	);
 	const findingFilter = inputLimits?.findingFilter;
+	if (totalIssues !== null && includedIssues !== null) {
+		return {
+			status: includedIssues === totalIssues ? "complete" : "partial",
+			totalIssues,
+			includedIssues,
+			totalFindings,
+			includedFindings,
+		};
+	}
 	if (totalFindings === null || includedFindings === null) {
 		return {
 			status: "unknown",
+			totalIssues,
+			includedIssues,
 			totalFindings,
 			includedFindings,
 		};
@@ -148,6 +169,8 @@ function readCoverage(
 				: "partial",
 		totalFindings,
 		includedFindings,
+		totalIssues,
+		includedIssues,
 	};
 }
 
@@ -179,6 +202,15 @@ const mentionsContextLimit = (request: ScanImprovementRequest): boolean => {
 function buildQualityChecks(
 	request: ScanImprovementRequest,
 ): ScanImprovementRequestQualityCheck[] {
+	const referencedIssueCount =
+		request.priorityPlan.reduce(
+			(total, item) => total + (item.issueIds?.length ?? 0),
+			0,
+		) +
+		request.implementationTasks.reduce(
+			(total, item) => total + (item.issueIds?.length ?? 0),
+			0,
+		);
 	const referencedFindingCount =
 		request.priorityPlan.reduce(
 			(total, item) => total + item.findingIds.length,
@@ -213,16 +245,18 @@ function buildQualityChecks(
 		},
 		{
 			id: "findings",
-			label: "対象 finding",
+			label: referencedIssueCount > 0 ? "対象 issue" : "対象 finding",
 			status:
-				referencedFindingCount > 0
+				referencedIssueCount > 0 || referencedFindingCount > 0
 					? "ready"
 					: hasCoverageScope
 						? "partial"
 						: "missing",
 			reason:
-				referencedFindingCount > 0
-					? "対象 finding ID が参照されています。"
+				referencedIssueCount > 0
+					? "対象 issue ID が参照されています。"
+					: referencedFindingCount > 0
+						? "対象 finding ID が参照されています。"
 					: hasCoverageScope
 						? "finding 0 件のカバレッジ確認として扱えます。"
 						: "対象 finding または zero-finding scope がありません。",
@@ -340,8 +374,8 @@ export function buildScanImprovementRequestMarkdown(
 		request.priorityPlan.length > 0
 			? `## 優先計画\n${request.priorityPlan
 					.map((item) => {
-						const ids = item.findingIds.length
-							? ` (${item.findingIds.join(", ")})`
+						const ids = (item.issueIds ?? item.findingIds).length
+							? ` (${(item.issueIds ?? item.findingIds).join(", ")})`
 							: "";
 						return `- ${item.priority}: ${item.rationale}${ids}`;
 					})
@@ -350,8 +384,10 @@ export function buildScanImprovementRequestMarkdown(
 		request.implementationTasks.length > 0
 			? `## 実装タスク\n${request.implementationTasks
 					.map((task) => {
-						const refs = task.findingIds.length
-							? `\nfinding ID: ${task.findingIds.join(", ")}`
+						const refs = task.issueIds?.length
+							? `\nissue ID: ${task.issueIds.join(", ")}`
+							: task.findingIds.length
+								? `\nfinding ID: ${task.findingIds.join(", ")}`
 							: "";
 						return `### ${task.title}\n${task.body}${refs}`;
 					})

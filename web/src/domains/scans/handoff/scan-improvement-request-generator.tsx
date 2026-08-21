@@ -55,8 +55,7 @@ export function ScanImprovementRequestGenerator({
 					<span className="scan-review-context-label">検出結果を一括整理</span>
 					<h3>LLMへの改修依頼指示書</h3>
 					<p>
-						{findings.length} 件の finding
-						と保存済み証跡をまとめ、実装担当のLLMへ渡せる指示書を生成します。
+						重複を統合した issue と保存済み証跡をまとめ、実装担当のLLMへ渡せる指示書を生成します。
 					</p>
 				</div>
 				<Button
@@ -86,7 +85,9 @@ export function ScanImprovementRequestGenerator({
 			{view.available && view.coverage.status !== "complete" ? (
 				<p className="workspace-improvement-request-warning" role="status">
 					{view.coverage.status === "partial"
-						? `現在の指示書は ${view.coverage.includedFindings ?? 0} / ${view.coverage.totalFindings ?? findings.length} 件を対象にしています。全件版を生成してください。`
+						? view.coverage.totalIssues !== null
+							? `現在の指示書は ${view.coverage.includedIssues ?? 0} / ${view.coverage.totalIssues} issues を対象にしています。全件版を生成してください。`
+							: `現在の指示書は ${view.coverage.includedFindings ?? 0} / ${view.coverage.totalFindings ?? findings.length} 件を対象にしています。全件版を生成してください。`
 						: "現在の指示書は対象件数を確認できません。全件版の再生成を推奨します。"}
 				</p>
 			) : null}

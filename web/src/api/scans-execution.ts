@@ -6,6 +6,7 @@ import type {
 	ScanTargetKind,
 } from "../../../shared/schemas/scan-target.schema";
 import { requestJson } from "./core";
+import type { Finding, FindingEvidence } from "./scans";
 
 export type ScanProfileTool = {
 	toolId: string;
@@ -183,13 +184,33 @@ export type FindingGroup = {
 	id: string;
 	groupKey: string;
 	title: string;
+	description: string;
 	severity: string;
+	representativeFindingId: string;
 	findingIds: string[];
 	sourceTools: string[];
-	metadata: { strategy: string };
+	primaryLocation: Record<string, unknown>;
+	matchConfidence: "exact" | "high" | "singleton";
+	reasonCodes: string[];
+	metadata: { strategy: string; algorithmVersion: string };
 };
 
-export type GroupedFindingsResult = { groups: FindingGroup[] };
+export type GroupedFindingsResult = {
+	grouping?: {
+		runId: string | null;
+		runStatus: "completed" | null;
+		mode: "deterministic" | "singleton_fallback";
+		algorithmVersion: string;
+		findingSetHash: string | null;
+		snapshotHash: string | null;
+		rawFindingCount: number;
+		issueCount: number;
+		suppressedCount: number;
+		ambiguousCount: number;
+		limitations: string[];
+	};
+	groups: FindingGroup[];
+};
 
 export type AttackSurfaceItem = {
 	id: string;
@@ -330,6 +351,18 @@ export async function fetchScanGroups(
 	scanRunId: string,
 ): Promise<GroupedFindingsResult> {
 	return requestJson(`/api/scans/${scanRunId}/groups`);
+}
+
+export async function fetchScanGroupDetail(scanRunId: string, groupId: string) {
+	return requestJson<{
+		grouping: NonNullable<GroupedFindingsResult["grouping"]>;
+		group: FindingGroup;
+		members: Array<{
+			finding: Finding;
+			evidence: FindingEvidence[];
+			provenance: Record<string, unknown> | null;
+		}>;
+	}>(`/api/scans/${scanRunId}/groups/${groupId}`);
 }
 
 export async function fetchScanAttackSurface(

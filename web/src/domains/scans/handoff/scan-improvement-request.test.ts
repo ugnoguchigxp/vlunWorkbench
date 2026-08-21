@@ -10,6 +10,7 @@ import {
 
 const now = "2026-06-27T00:00:00.000Z";
 const findingId = "11111111-1111-4111-8111-111111111111";
+const issueId = "22222222-2222-4222-8222-222222222222";
 
 function review(
 	output: Record<string, unknown> | null,
@@ -156,6 +157,58 @@ describe("buildScanImprovementRequestView", () => {
 		expect(view.sourceReviewId).toBe("review-complete");
 		expect(view.title).toBe("全件版");
 		expect(view.coverage.status).toBe("complete");
+	});
+
+	it("prefers issue coverage and renders issue IDs for issue-first requests", () => {
+		const issueFirst = request({
+			priorityPlan: [
+				{
+					priority: "high",
+					rationale: "同一の issue を優先する。",
+					issueIds: [issueId],
+					findingIds: [findingId],
+				},
+			],
+			implementationTasks: [
+				{
+					title: "issue を修正する",
+					body: "代表指摘と保存済み証跡を確認する。",
+					issueIds: [issueId],
+					findingIds: [findingId],
+					evidenceRefs: [],
+				},
+			],
+		});
+		const view = buildScanImprovementRequestView([
+			review(
+				{ improvementRequest: issueFirst },
+				{
+					output: {
+						generationKind: "improvement_request",
+						coverage: {
+							totalIssues: 1,
+							coveredIssues: 1,
+							totalFindings: 1,
+							coveredFindings: 1,
+						},
+						improvementRequest: issueFirst,
+					},
+				},
+			),
+		]);
+
+		expect(view.coverage).toMatchObject({
+			status: "complete",
+			totalIssues: 1,
+			includedIssues: 1,
+		});
+		expect(view.qualityChecks.find((item) => item.id === "findings")).toMatchObject({
+			label: "対象 issue",
+			status: "ready",
+		});
+		expect(buildScanImprovementRequestMarkdown(issueFirst)).toContain(
+			`issue ID: ${issueId}`,
+		);
 	});
 
 	it("missing verificationCommands returns partial", () => {

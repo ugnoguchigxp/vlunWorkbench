@@ -307,6 +307,8 @@ export const scanImprovementRequestSchema = z.object({
 				priority: z.enum(["critical", "high", "medium", "low"]),
 				rationale: z.string().min(1).max(1000),
 				findingIds: z.array(z.string().uuid()).max(5000),
+				/** Source issue IDs for new issue-first requests; finding IDs remain audit data. */
+				issueIds: z.array(z.string().uuid()).max(5000).optional(),
 			}),
 		)
 		.max(20),
@@ -316,6 +318,8 @@ export const scanImprovementRequestSchema = z.object({
 				title: z.string().min(1).max(200),
 				body: z.string().min(1).max(2000),
 				findingIds: z.array(z.string().uuid()).max(5000),
+				/** Source issue IDs for new issue-first requests; finding IDs remain audit data. */
+				issueIds: z.array(z.string().uuid()).max(5000).optional(),
 				evidenceRefs: z.array(z.string().min(1).max(200)).max(50),
 			}),
 		)
@@ -328,6 +332,49 @@ export const scanImprovementRequestSchema = z.object({
 });
 export type ScanImprovementRequest = z.infer<
 	typeof scanImprovementRequestSchema
+>;
+
+/**
+ * LLM-only contract for issue-first improvement requests. Raw finding IDs are
+ * deliberately excluded: the server expands issue IDs from the saved manifest.
+ */
+export const llmIssueImprovementRequestSchema = z
+	.object({
+		title: z.string().min(1).max(200),
+		objective: z.string().min(1).max(2000),
+		scope: z.array(z.string().min(1).max(1000)).max(20),
+		priorityPlan: z
+			.array(
+				z
+					.object({
+						priority: z.enum(["critical", "high", "medium", "low"]),
+						rationale: z.string().min(1).max(1000),
+						issueIds: z.array(z.string().uuid()).max(5000),
+					})
+					.strict(),
+			)
+			.max(20),
+		implementationTasks: z
+			.array(
+				z
+					.object({
+						title: z.string().min(1).max(200),
+						body: z.string().min(1).max(2000),
+						issueIds: z.array(z.string().uuid()).max(5000),
+						evidenceRefs: z.array(z.string().min(1).max(200)).max(50),
+					})
+					.strict(),
+			)
+			.max(30),
+		acceptanceCriteria: z.array(z.string().min(1).max(1000)).max(20),
+		verificationCommands: z.array(z.string().min(1).max(500)).max(20),
+		constraints: z.array(z.string().min(1).max(1000)).max(20),
+		nonGoals: z.array(z.string().min(1).max(1000)).max(20),
+		handoffPrompt: z.string().min(1).max(6000),
+	})
+	.strict();
+export type LlmIssueImprovementRequest = z.infer<
+	typeof llmIssueImprovementRequestSchema
 >;
 
 export const scanReviewFindingFilterSchema = z

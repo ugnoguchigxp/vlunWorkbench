@@ -7,6 +7,7 @@ import {
 	scanRuns,
 } from "../../db/schema";
 import { ArtifactStorage } from "./artifact-storage";
+import { buildGroupedFindings } from "./grouping-builder";
 import {
 	type FinalReportOptions,
 	type FinalReportResult,
@@ -51,6 +52,9 @@ export async function finalizeScanAfterDiagnostic(params: {
 		.select({ planHash: scanExecutionPlans.planHash })
 		.from(scanExecutionPlans)
 		.where(eq(scanExecutionPlans.scanRunId, params.scanRunId));
+	const grouping = await buildGroupedFindings(params.db, params.scanRunId).catch(
+		() => null,
+	);
 	const reportRepo = new ScanReportRepository(params.db);
 	const previousReports = await reportRepo.listReportsForScan(params.scanRunId);
 	const latestPreliminary = previousReports.find(
@@ -63,6 +67,10 @@ export async function finalizeScanAfterDiagnostic(params: {
 		diagnosticPipelineVersion: diagnostic.pipelineVersion,
 		reviewId: diagnostic.scanReviewId,
 		executionPlanHash: executionPlan?.planHash ?? null,
+		groupingRunId: grouping?.grouping?.runId ?? null,
+		groupingFindingSetHash: grouping?.grouping?.findingSetHash ?? null,
+		groupingSnapshotHash: grouping?.grouping?.snapshotHash ?? null,
+		groupingAlgorithmVersion: grouping?.grouping?.algorithmVersion ?? null,
 	};
 	const report = await reportRepo.createOrFindCanonicalFinalReport({
 		scanRunId: params.scanRunId,
@@ -82,7 +90,14 @@ export async function finalizeScanAfterDiagnostic(params: {
 			report.options,
 			"diagnosticSnapshotHash",
 		);
-		if (reportSnapshotHash !== diagnostic.inputSnapshotHash) {
+		const groupingSnapshotHash = readOptionString(
+			report.options,
+			"groupingSnapshotHash",
+		);
+		if (
+			reportSnapshotHash !== diagnostic.inputSnapshotHash ||
+			groupingSnapshotHash !== (grouping?.grouping?.snapshotHash ?? null)
+		) {
 			return await refreshCanonicalFinal({
 				db: params.db,
 				scanRunId: params.scanRunId,

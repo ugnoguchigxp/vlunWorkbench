@@ -133,7 +133,7 @@ export const useScansControllerBase = ({
 	const [scanGroups, setScanGroups] = useState<FindingGroup[]>([]);
 	const [selectedGroupId, setSelectedGroupId] = useState("");
 	const [findingsViewMode, setFindingsViewMode] = useState<"list" | "grouped">(
-		"list",
+		"grouped",
 	);
 	const [selectedFindingDetails, setSelectedFindingDetails] =
 		useState<FindingDetails | null>(null);

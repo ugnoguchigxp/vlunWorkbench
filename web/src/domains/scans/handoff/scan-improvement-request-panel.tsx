@@ -123,14 +123,14 @@ export function ScanImprovementRequestPanel({
 					{request.implementationTasks.slice(0, compact ? 3 : 6).map((task) => (
 						<div
 							className="decision-grade-command"
-							key={`${task.title}-${task.findingIds.join("-")}`}
+							key={`${task.title}-${(task.issueIds ?? task.findingIds).join("-")}`}
 						>
 							<span>
 								<strong>{task.title}</strong>
 								<small>{task.body}</small>
 							</span>
-							{task.findingIds.length > 0 ? (
-								<small>{task.findingIds.join(", ")}</small>
+							{(task.issueIds ?? task.findingIds).length > 0 ? (
+								<small>{(task.issueIds ?? task.findingIds).join(", ")}</small>
 							) : null}
 						</div>
 					))}

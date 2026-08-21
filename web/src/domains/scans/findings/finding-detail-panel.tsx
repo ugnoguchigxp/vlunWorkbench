@@ -1,7 +1,6 @@
 import { X } from "lucide-react";
 import { useEffect, useRef } from "react";
 import { MarkdownEditor } from "../../../components/markdown-editor";
-import { SelectInput } from "../../../ui";
 import { DecisionSection } from "../components/decision-section";
 import { RemediationPlanSection } from "../components/remediation-plan-section";
 import { ReviewSection } from "../components/review-section";
@@ -101,47 +100,29 @@ function ScanResultsBody() {
 					<div>
 						<h3 className="detail-section-title">検出された問題</h3>
 						<p className="scan-tool-purpose">
-							選択中の scan run で正規化された finding を table で確認します。
+							既定では重複を統合した issue を表示します。raw finding と証跡はいつでも確認できます。
 						</p>
 					</div>
 					<div className="finding-meta-row">
 						<button
 							type="button"
-							className={`demo-button secondary ${c.findingsViewMode === "list" ? "active" : ""}`}
+							className={`demo-button secondary ${c.findingsViewMode === "grouped" ? "active" : ""}`}
 							onClick={() => {
-								c.setFindingsViewMode("list");
+								c.setFindingsViewMode("grouped");
 								c.setSelectedGroupId("");
 							}}
 						>
-							一覧 ({c.findings.length})
+							Issue ({c.scanGroups.length})
 						</button>
 						<button
 							type="button"
-							className={`demo-button secondary ${c.findingsViewMode === "grouped" ? "active" : ""}`}
-							onClick={() => c.setFindingsViewMode("grouped")}
+							className={`demo-button secondary ${c.findingsViewMode === "list" ? "active" : ""}`}
+							onClick={() => c.setFindingsViewMode("list")}
 						>
-							グループ ({c.scanGroups.length})
+							Raw finding ({c.scanSummary?.totals.findingCount ?? c.findings.length})
 						</button>
 					</div>
 				</div>
-				{c.findingsViewMode === "grouped" && c.scanGroups.length > 0 ? (
-					<label htmlFor="findings-group-select" className="scan-table-filter">
-						<span>グループ選択</span>
-						<SelectInput
-							id="findings-group-select"
-							value={c.selectedGroupId}
-							onChange={(event) => c.setSelectedGroupId(event.target.value)}
-						>
-							<option value="">-- すべてのグループ --</option>
-							{c.scanGroups.map((group) => (
-								<option key={group.id} value={group.id}>
-									[{group.severity.toUpperCase()}] {group.title} (
-									{group.findingIds.length})
-								</option>
-							))}
-						</SelectInput>
-					</label>
-				) : null}
 				<FindingsTable />
 			</div>
 		</div>
@@ -150,6 +131,7 @@ function ScanResultsBody() {
 
 function FindingsTable() {
 	const c = useScans();
+	if (c.findingsViewMode === "grouped") return <IssueGroupsTable />;
 	if (c.displayedFindings.length === 0) {
 		if (c.findingsLoading) {
 			return <div className="tree-info">finding を読み込んでいます...</div>;
@@ -279,6 +261,114 @@ function FindingsTable() {
 				</tbody>
 			</table>
 		</div>
+	);
+}
+
+function IssueGroupsTable() {
+	const c = useScans();
+	if (c.scanGroups.length === 0) {
+		if (c.findingsLoading) {
+			return <div className="tree-info">issue を読み込んでいます...</div>;
+		}
+		if (c.selectedScanRunId && c.findings.length === 0) {
+			return <ZeroFindingDiagnosticPanel />;
+		}
+		return (
+			<div className="tree-info">
+				issue grouping を取得できませんでした。Raw finding 表示で確認してください。
+			</div>
+		);
+	}
+	const rawCount = c.scanSummary?.totals.findingCount ?? c.findings.length;
+	return (
+		<>
+			<p className="scan-tool-purpose">
+				{c.scanGroups.length} issues / {rawCount} raw findings /{" "}
+				{Math.max(0, rawCount - c.scanGroups.length)} duplicates grouped
+			</p>
+			<div className="scan-findings-table-wrap">
+				<table className="scan-findings-table">
+					<thead>
+						<tr>
+							<th>重大度</th>
+							<th>issue</th>
+							<th>scanner signals</th>
+							<th>位置</th>
+							<th>統合根拠</th>
+						</tr>
+					</thead>
+					<tbody>
+						{c.scanGroups.map((group) => {
+							const location = group.primaryLocation;
+							const path = typeof location.path === "string" ? location.path : "";
+							const line =
+								typeof location.startLine === "string" ||
+								typeof location.startLine === "number"
+									? String(location.startLine)
+									: "";
+							return (
+								<tr
+									key={group.id}
+									className={
+										c.selectedFindingId === group.representativeFindingId
+											? "active"
+											: ""
+									}
+									onClick={() => {
+										c.setSelectedGroupId(group.id);
+										c.handleSelectFinding(group.representativeFindingId);
+									}}
+									onKeyDown={(event) => {
+										if (event.key === "Enter" || event.key === " ") {
+											event.preventDefault();
+											c.setSelectedGroupId(group.id);
+											c.handleSelectFinding(group.representativeFindingId);
+										}
+									}}
+									tabIndex={0}
+								>
+									<td>
+										<span className={`severity-badge ${getSeverityClass(group.severity)}`}>
+											{formatSeverityLabel(group.severity)}
+										</span>
+									</td>
+									<td>
+										<strong>{formatFindingTitle(group.title)}</strong>
+										<small>{group.description}</small>
+										<details>
+											<summary>{group.findingIds.length} raw findings</summary>
+											<div className="finding-meta-row">
+												{group.findingIds.map((findingId) => (
+													<button
+														type="button"
+														className="demo-button secondary"
+														key={findingId}
+														onClick={(event) => {
+															event.stopPropagation();
+															c.handleSelectFinding(findingId);
+														}}
+													>
+														{findingId}
+													</button>
+												))}
+											</div>
+										</details>
+									</td>
+									<td>{group.sourceTools.join(", ")}</td>
+									<td>
+										{path ? <code>{shortPath(path)}{line ? `:${line}` : ""}</code> : "位置なし"}
+									</td>
+									<td>
+										{group.reasonCodes.join(", ") || "singleton"}
+										<small>{group.matchConfidence}</small>
+									</td>
+								</tr>
+							);
+						})}
+					</tbody>
+				</table>
+			</div>
+		</>
 	);
 }
 

@@ -71,7 +71,7 @@ export function bindScanReviewUserMessage(
 }
 
 export function bindImprovementRequestUserMessage(
-	bundle: ScanReviewBundle,
+	bundle: unknown,
 ): PromptInvocation<"scans.improvementRequestInput", "user"> {
 	return bindJapanese(PROMPT_KEYS.improvementRequestInput, {
 		bundle: toJsonValue(bundle),

@@ -16,6 +16,7 @@ import { ScanReportRunner } from "../modules/reports/scan-report-runner";
 import { FindingReviewRepository } from "../modules/reviews/finding-review-repository";
 import type { ArtifactStorage } from "../modules/scans/artifact-storage";
 import { buildGroupedFindings } from "../modules/scans/grouping-builder";
+import { FindingGroupingRunner } from "../modules/scans/finding-grouping-runner";
 import type { ScanReportRepository } from "../modules/scans/report-repository";
 import type {
 	ArtifactRepository,
@@ -259,6 +260,18 @@ export function createScansRoute(deps: ScansRouteDeps) {
 			await checkScanOwnership(scanRunId, authUser.userId);
 			const grouped = await buildGroupedFindings(db, scanRunId);
 			return c.json(grouped);
+		})
+		.get("/:scanRunId/groups/:groupId", async (c) => {
+			const authUser = getAuthContextUser(c);
+			const scanRunId = c.req.param("scanRunId");
+			const groupId = c.req.param("groupId");
+			await checkScanOwnership(scanRunId, authUser.userId);
+			const detail = await new FindingGroupingRunner(db).getCurrentGroupDetail(
+				scanRunId,
+				groupId,
+			);
+			if (!detail) throw new HttpError(404, "Finding group not found");
+			return c.json(detail);
 		})
 		.get("/:scanRunId/reports", async (c) => {
 			const authUser = getAuthContextUser(c);

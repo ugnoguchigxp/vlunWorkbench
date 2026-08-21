@@ -1,5 +1,6 @@
 import type { DastCoverageSummary } from "../../../../shared/schemas/dast-coverage.schema";
 import type { AppDatabase } from "../../../db";
+import { buildGroupedFindings } from "../grouping-builder";
 import type { createFindingGroupRenderer } from "./report-builder-findings";
 import type { ReportBuilderOptions } from "./report-builder-helpers";
 import {
@@ -62,7 +63,19 @@ export async function finalizeMarkdownReport(scope: Scope): Promise<string> {
 		options,
 	} = scope;
 
-	// 4. Render main sections
+	let groupedFindings: Awaited<ReturnType<typeof buildGroupedFindings>> | null =
+		null;
+	let groupingError: string | null = null;
+	try {
+		groupedFindings = await buildGroupedFindings(db, scanRunId);
+	} catch (error) {
+		groupingError = error instanceof Error ? error.message : String(error);
+	}
+	renderIssueGroups(lines, groupedFindings, groupingError);
+
+	// Raw finding sections remain as an audit trail and preserve the existing
+	// decision-oriented report structure. The issue section above is the primary
+	// interpretation of duplicate scanner results.
 	renderFindingsGroup("実装改善候補・既知リスク Finding", activeFindings, true);
 	renderFindingsGroup(
 		"後続確認記録 Finding",
@@ -344,6 +357,11 @@ export async function finalizeMarkdownReport(scope: Scope): Promise<string> {
 		`- **レポート生成基準日時:** ${formatDateTime(scanRun.completedAt || scanRun.startedAt || scanRun.createdAt)}`,
 	);
 	lines.push(`- **Scan Run ID:** ${scanRunId}`);
+	if (groupedFindings?.grouping) {
+		lines.push(
+			`- **Grouping snapshot:** run=${groupedFindings.grouping.runId ?? "unavailable"}, algorithm=${groupedFindings.grouping.algorithmVersion}, findingSetHash=${groupedFindings.grouping.findingSetHash ?? "unavailable"}, snapshotHash=${groupedFindings.grouping.snapshotHash ?? "unavailable"}`,
+		);
+	}
 	lines.push(`- **Drizzle Schema Version:** Phase 12 Hardened`);
 	lines.push("");
 
@@ -396,28 +414,81 @@ export async function finalizeMarkdownReport(scope: Scope): Promise<string> {
 
 	// Appendix: Finding Groups Snapshot
 	lines.push("### Finding Group Snapshot");
-	try {
-		const { buildGroupedFindings } = await import("../grouping-builder");
-		const grouped = await buildGroupedFindings(db, scanRunId);
-		if (grouped.groups.length > 0) {
+	if (groupedFindings) {
+		if (groupedFindings.groups.length > 0) {
 			lines.push(
-				"| グループタイトル | 戦略 | Severity | 検出ツール | Finding件数 |",
+				"| Issue ID | グループタイトル | 戦略 | Severity | 検出ツール | Raw finding件数 |",
 			);
-			lines.push("| --- | --- | --- | --- | --- |");
-			for (const g of grouped.groups) {
+			lines.push("| --- | --- | --- | --- | --- | --- |");
+			for (const g of groupedFindings.groups) {
 				lines.push(
-					`| ${escapeTableCell(g.title)} | ${escapeTableCell(g.metadata.strategy)} | ${escapeTableCell(g.severity)} | ${escapeTableCell(g.sourceTools.join(", "))} | ${g.findingIds.length} |`,
+					`| ${g.id} | ${escapeTableCell(g.title)} | ${escapeTableCell(g.metadata.strategy)} | ${escapeTableCell(g.severity)} | ${escapeTableCell(g.sourceTools.join(", "))} | ${g.findingIds.length} |`,
 				);
 			}
 		} else {
 			lines.push("finding グループは記録されていません。");
 		}
-	} catch (err) {
+	} else {
 		lines.push(
-			`finding グループの生成に失敗しました: ${err instanceof Error ? err.message : String(err)}`,
+			`finding グループの生成に失敗しました: ${groupingError ?? "unknown error"}`,
 		);
 	}
 	lines.push("");
 
 	return lines.join("\n");
+}
+
+function renderIssueGroups(
+	lines: string[],
+	grouped: Awaited<ReturnType<typeof buildGroupedFindings>> | null,
+	error: string | null,
+): void {
+	lines.push("## Issue Summary");
+	if (!grouped) {
+		lines.push(
+			`Issue grouping は利用できません。raw finding 基準で表示します: ${error ?? "unknown error"}`,
+		);
+		lines.push("");
+		return;
+	}
+	const { grouping, groups } = grouped;
+	if (grouping) {
+		lines.push(
+			`- **Counts:** ${grouping.issueCount} issues / ${grouping.rawFindingCount} raw findings / ${grouping.suppressedCount} duplicates grouped`,
+		);
+		lines.push(`- **Grouping mode:** ${grouping.mode}`);
+		if (grouping.limitations.length > 0) {
+			lines.push(`- **Limitations:** ${grouping.limitations.join(", ")}`);
+		}
+	}
+	if (groups.length === 0) {
+		lines.push("このスキャンでは issue は検出されていません。");
+		lines.push("");
+		return;
+	}
+	lines.push("");
+	lines.push("## Issue Findings");
+	for (const group of groups) {
+		const location = formatGroupLocation(group.primaryLocation);
+		lines.push(`### [${group.severity.toUpperCase()}] ${group.title}`);
+		lines.push(
+			`- **Issue ID:** ${group.id}`,
+			`- **Raw findings:** ${group.findingIds.length} (${group.findingIds.join(", ")})`,
+			`- **Scanner signals:** ${group.sourceTools.join(", ")}`,
+			`- **Location:** ${location || "not recorded"}`,
+			`- **Grouping evidence:** ${group.reasonCodes.join(", ") || "singleton"} (${group.matchConfidence})`,
+		);
+		if (group.description.trim()) lines.push("", group.description.trim());
+		lines.push("");
+	}
+}
+
+function formatGroupLocation(location: Record<string, unknown>): string {
+	const path = typeof location.path === "string" ? location.path : "";
+	const line =
+		typeof location.startLine === "number" ||
+		typeof location.startLine === "string"
+			? String(location.startLine)
+			: "";
+	return path ? (line ? `${path}:${line}` : path) : "";
 }

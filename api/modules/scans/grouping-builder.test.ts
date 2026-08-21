@@ -4,9 +4,19 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createDbConnection, type DbConnection } from "../../db";
-import { findings, projects, scanRuns, users } from "../../db/schema";
+import {
+	findingGroupingRuns,
+	findingIssueGroupMembers,
+	findingIssueGroups,
+	findingEvidences,
+	findings,
+	projects,
+	scanRuns,
+	users,
+} from "../../db/schema";
 import { closeTestDbConnection } from "../../db/testing/connection";
 import { buildGroupedFindings } from "./grouping-builder";
+import { FindingGroupingRunner } from "./finding-grouping-runner";
 
 describe("Grouping Builder", () => {
 	let tempDir: string;
@@ -147,10 +157,43 @@ describe("Grouping Builder", () => {
 		expect(depGroup?.severity).toBe("critical"); // Max severity between high and critical
 		expect(depGroup?.sourceTools).toContain("osv");
 		expect(depGroup?.sourceTools).toContain("trivy");
+		await connection.db.insert(findingEvidences).values({
+			findingId: depGroup?.findingIds[0] as string,
+			kind: "source-location",
+			title: "dependency manifest",
+			location: { path: "package-lock.json" },
+			createdAt: now,
+		});
+		const detail = await new FindingGroupingRunner(
+			connection.db,
+		).getCurrentGroupDetail(scanRun.id, depGroup?.id as string);
+		expect(detail?.members).toHaveLength(2);
+		expect(detail?.members.flatMap((member) => member.evidence)).toHaveLength(1);
 
 		const secretGroup = result.groups.find((g) => g.metadata.strategy === "secret");
 		expect(secretGroup).toBeDefined();
 		expect(secretGroup?.findingIds).toHaveLength(1);
 		expect(secretGroup?.severity).toBe("high");
+		expect(result.grouping).toMatchObject({
+			runStatus: "completed",
+			rawFindingCount: 3,
+			issueCount: 2,
+			suppressedCount: 1,
+		});
+
+		const [storedRuns, storedGroups, storedMembers] = await Promise.all([
+			connection.db.select().from(findingGroupingRuns),
+			connection.db.select().from(findingIssueGroups),
+			connection.db.select().from(findingIssueGroupMembers),
+		]);
+		expect(storedRuns).toHaveLength(1);
+		expect(storedGroups).toHaveLength(2);
+		expect(storedMembers).toHaveLength(3);
+
+		const replay = await buildGroupedFindings(connection.db, scanRun.id);
+		expect(replay.grouping?.runId).toBe(result.grouping?.runId);
+		expect(await connection.db.select().from(findingGroupingRuns)).toHaveLength(
+			1,
+		);
 	});
 });

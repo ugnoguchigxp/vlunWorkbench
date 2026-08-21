@@ -90,6 +90,48 @@ function request(ids: string[], suffix: string): ScanImprovementRequest {
 	};
 }
 
+function issueRequest(issueIds: string[], suffix: string) {
+	return {
+		title: `改修依頼 ${suffix}`,
+		objective: "保存済み証跡に基づき、検出結果を修正する。",
+		scope: ["このチャンクに含まれる issue を対象にする。"],
+		priorityPlan: issueIds.length
+			? [
+					{
+						priority: "high",
+						rationale: "重大度の高い検出結果を優先する。",
+						issueIds,
+					},
+				]
+			: [],
+		implementationTasks: [
+			{
+				title: `検出結果を修正する ${suffix}`,
+				body: "保存済み証跡を確認し、実装修正と回帰テストを追加する。",
+				issueIds,
+				evidenceRefs: [],
+			},
+		],
+		acceptanceCriteria: ["対象 issue の修正をテストで確認できる。"],
+		verificationCommands: ["bun test"],
+		constraints: ["保存済み context だけを根拠にする。"],
+		nonGoals: ["新しい scanner の追加は対象外とする。"],
+		handoffPrompt: "保存済み証跡に基づいて検出結果を修正してください。",
+	};
+}
+
+function issueIdsFromPrompt(messages: Array<{ content: string }>): string[] {
+	return [
+		...new Set(
+			messages.flatMap((message) =>
+				[...message.content.matchAll(/"issueId"\s*:\s*"([0-9a-f-]{36})"/gi)].map(
+					(match) => match[1] as string,
+				),
+			),
+		),
+	];
+}
+
 describe("mergeScanImprovementRequests", () => {
 	it("covers every finding when more than 50 findings are split into chunks", () => {
 		const ids = Array.from({ length: 51 }, (_, index) => findingId(index + 1));
@@ -262,9 +304,9 @@ describe("ScanImprovementRequestRunner", () => {
 
 	it("persists an all-finding request with complete coverage metadata", async () => {
 		const provider: LlmProvider = {
-			chatCompletion: vi.fn(async () => ({
+			chatCompletion: vi.fn(async (messages) => ({
 				id: "improvement-response",
-				content: JSON.stringify(request([findingUuid], "全件")),
+				content: JSON.stringify(issueRequest(issueIdsFromPrompt(messages), "全件")),
 			})),
 		};
 		const runner = new ScanImprovementRequestRunner(connection.db, provider);
@@ -281,15 +323,17 @@ describe("ScanImprovementRequestRunner", () => {
 		expect(row?.inputBundle).toMatchObject({
 			generationKind: "improvement_request",
 			limits: {
+				totalIssues: 1,
 				totalFindings: 1,
-				includedFindings: 1,
-				findingFilter: "all",
+				includedIssues: 1,
 				chunkCount: 1,
 			},
 		});
 		expect(row?.output).toMatchObject({
 			generationKind: "improvement_request",
 			coverage: {
+				totalIssues: 1,
+				coveredIssues: 1,
 				totalFindings: 1,
 				coveredFindings: 1,
 				chunkCount: 1,
@@ -302,13 +346,103 @@ describe("ScanImprovementRequestRunner", () => {
 		});
 	});
 
+	it("passes one issue, not duplicate raw findings, to the improvement LLM", async () => {
+		const [scan] = await connection.db
+			.select()
+			.from(scanRuns)
+			.where(eq(scanRuns.id, scanRunId));
+		const [duplicate] = await connection.db
+			.insert(findings)
+			.values({
+				scanRunId,
+				projectId: scan.projectId,
+				sourceTool: "trivy",
+				ruleId: "CVE-2020-8203",
+				title: "lodash vulnerability",
+				description: "dependency advisory",
+				severity: "critical",
+				confidence: "static",
+				status: "open",
+				primaryLocation: { path: "package-lock.json" },
+				fingerprint: "duplicate-dependency-finding",
+				metadata: {
+					type: "npm",
+					packageName: "lodash",
+					installedVersion: "4.17.20",
+					target: "package-lock.json",
+					vulnerabilityId: "CVE-2020-8203",
+					aliases: ["GHSA-ABCD-1234-EFGH"],
+				},
+				createdAt: new Date("2026-08-21T00:00:00.000Z"),
+				updatedAt: new Date("2026-08-21T00:00:00.000Z"),
+			})
+			.returning();
+		await connection.db
+			.update(findings)
+			.set({
+				sourceTool: "osv",
+				ruleId: "GHSA-ABCD-1234-EFGH",
+				primaryLocation: { path: "package-lock.json" },
+				metadata: {
+					ecosystem: "npm",
+					packageName: "lodash",
+					packageVersion: "4.17.20",
+					manifestPath: "package-lock.json",
+					advisoryId: "GHSA-ABCD-1234-EFGH",
+					aliases: ["CVE-2020-8203"],
+				},
+			})
+			.where(eq(findings.id, findingUuid));
+		let promptContent = "";
+		const provider: LlmProvider = {
+			chatCompletion: vi.fn(
+				async (messages: Parameters<LlmProvider["chatCompletion"]>[0]) => {
+					promptContent = messages.map((message) => message.content).join("\n");
+				return {
+					id: "deduplicated-issue-response",
+					content: JSON.stringify(
+						issueRequest(issueIdsFromPrompt(messages), "重複統合"),
+					),
+				};
+				},
+			),
+		};
+		const runner = new ScanImprovementRequestRunner(connection.db, provider);
+
+		const completed = await (
+			await runner.start(scanRunId, { createdByUserId: userId })
+		).completion;
+
+		expect(completed.ok).toBe(true);
+		expect(provider.chatCompletion).toHaveBeenCalledTimes(1);
+		expect(issueIdsFromPrompt([{ content: promptContent }])).toHaveLength(1);
+		expect(
+			[findingUuid, duplicate.id].filter((id) => promptContent.includes(id)),
+		).toHaveLength(1);
+		const row = await connection.db.query.scanReviews.findFirst();
+		expect(row?.output).toMatchObject({
+			coverage: { totalIssues: 1, totalFindings: 2 },
+			improvementRequest: {
+				implementationTasks: [
+					expect.objectContaining({
+						findingIds: expect.arrayContaining([findingUuid, duplicate.id]),
+					}),
+				],
+			},
+		});
+	});
+
 	it("deduplicates simultaneous generation requests for the same scan", async () => {
 		let resolveProvider!: (response: LlmResponse) => void;
+		let capturedIssueIds: string[] = [];
 		const providerResponse = new Promise<LlmResponse>((resolve) => {
 			resolveProvider = resolve;
 		});
 		const provider: LlmProvider = {
-			chatCompletion: vi.fn(() => providerResponse),
+			chatCompletion: vi.fn((messages) => {
+				capturedIssueIds = issueIdsFromPrompt(messages);
+				return providerResponse;
+			}),
 		};
 		const runner = new ScanImprovementRequestRunner(connection.db, provider);
 
@@ -321,7 +455,7 @@ describe("ScanImprovementRequestRunner", () => {
 		expect(provider.chatCompletion).toHaveBeenCalledTimes(1);
 		resolveProvider({
 			id: "deduplicated-response",
-			content: JSON.stringify(request([findingUuid], "重複防止")),
+			content: JSON.stringify(issueRequest(capturedIssueIds, "重複防止")),
 		});
 		const [firstResult, secondResult] = await Promise.all([
 			first.completion,
@@ -369,11 +503,15 @@ describe("ScanImprovementRequestRunner", () => {
 
 	it("waits for active generation during shutdown", async () => {
 		let resolveProvider!: (response: LlmResponse) => void;
+		let capturedIssueIds: string[] = [];
 		const providerResponse = new Promise<LlmResponse>((resolve) => {
 			resolveProvider = resolve;
 		});
 		const runner = new ScanImprovementRequestRunner(connection.db, {
-			chatCompletion: vi.fn(() => providerResponse),
+			chatCompletion: vi.fn((messages) => {
+				capturedIssueIds = issueIdsFromPrompt(messages);
+				return providerResponse;
+			}),
 		});
 		const started = await runner.start(scanRunId, {
 			createdByUserId: userId,
@@ -387,7 +525,7 @@ describe("ScanImprovementRequestRunner", () => {
 
 		resolveProvider({
 			id: "shutdown-response",
-			content: JSON.stringify(request([findingUuid], "終了待機")),
+			content: JSON.stringify(issueRequest(capturedIssueIds, "終了待機")),
 		});
 		await expect(started.completion).resolves.toMatchObject({ ok: true });
 		await shutdown;
@@ -426,13 +564,12 @@ describe("ScanImprovementRequestRunner", () => {
 		const orderedIds = [findingUuid, ...extraFindings.map((finding) => finding.id)];
 		let callIndex = 0;
 		const provider: LlmProvider = {
-			chatCompletion: vi.fn(async () => {
-				const start = callIndex * 50;
+			chatCompletion: vi.fn(async (messages) => {
 				callIndex += 1;
 				return {
 					id: `chunk-${callIndex}`,
 					content: JSON.stringify(
-						request(orderedIds.slice(start, start + 50), `分割 ${callIndex}`),
+						issueRequest(issueIdsFromPrompt(messages), `分割 ${callIndex}`),
 					),
 				};
 			}),

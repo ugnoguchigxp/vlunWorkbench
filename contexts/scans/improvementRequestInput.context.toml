@@ -6,7 +6,7 @@ profile = "untrusted.json"
 [[sections]]
 id = "request.instruction"
 profile = "instruction.must"
-text = "この scan bundle の全 finding を改修依頼にまとめ、指定された JSON のみを返してください。本文は必ず日本語で書いてください。"
+text = "この issue bundle の全 issue を改修依頼にまとめ、指定された JSON のみを返してください。raw finding ID は返さず、各 priorityPlan と implementationTasks には issueIds だけを使ってください。本文は必ず日本語で書いてください。"
 
 [[sections]]
 id = "request.bundle"

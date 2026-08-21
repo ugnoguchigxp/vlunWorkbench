@@ -440,11 +440,13 @@ export type ScanImprovementRequest = {
 		priority: "critical" | "high" | "medium" | "low";
 		rationale: string;
 		findingIds: string[];
+		issueIds?: string[];
 	}>;
 	implementationTasks: Array<{
 		title: string;
 		body: string;
 		findingIds: string[];
+		issueIds?: string[];
 		evidenceRefs: string[];
 	}>;
 	acceptanceCriteria: string[];

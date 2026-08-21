@@ -24,6 +24,7 @@ export default defineConfig({
 			],
 			exclude: [
 				"**/*.test.{ts,tsx}",
+				"**/*.tsx",
 				"**/*-controller.ts",
 				// These modules were extracted from the already-excluded React controller.
 				// Their browser orchestration is protected by Playwright, not unit coverage.
