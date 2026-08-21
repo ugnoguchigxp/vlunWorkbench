@@ -36,23 +36,9 @@ export async function executeProfileStep(params: {
 }): Promise<ProfileStepExecution> {
 	const { step, stepId, failureFailsProfile } = params;
 	try {
-		if (
-			step.kind === "static_tool" ||
-			step.kind === "sbom_export" ||
-			step.kind === "container_image_scan"
-		) {
-			return await executeAdapterStep(params);
-		}
-		if (step.kind === "dast") {
-			return await executeDastStep(params);
-		}
-		if (step.kind === "runtime_scanner") {
-			return await executeRuntimeStep(params);
-		}
-		if (step.kind === "api_schema_scan") {
-			return await executeSchemaStep(params);
-		}
-		throw new Error(`Unsupported profile step: ${stepId}`);
+		const runner = profileStepRunnerRegistry[step.kind];
+		if (!runner) throw new Error(`Unsupported profile step: ${stepId}`);
+		return await runner(params);
 	} catch (err: unknown) {
 		const error = err instanceof Error ? err.message : String(err);
 		const failed = failureDelta(step, stepId, error, failureFailsProfile);
@@ -60,6 +46,34 @@ export async function executeProfileStep(params: {
 		throw err;
 	}
 }
+
+type ProfileStepRunner = (params: {
+	step: ScanProfileStep;
+	stepId: string;
+	resolvedTimeout: number;
+	failureFailsProfile: boolean;
+	diffPlan: DiffScanPlan | null;
+	diffSnapshot: DiffSnapshot | null;
+	sharesRuntimeTarget: boolean;
+	ensureSharedRuntimeTarget: () => Promise<PreparedRuntimeTarget>;
+	scope: ExecuteProfileStepsParams;
+}) => Promise<ProfileStepExecution>;
+
+/**
+ * The registry is the single dispatch point for every profile step kind. New
+ * adapters must register here rather than introduce another orchestration path.
+ */
+export const profileStepRunnerRegistry: Record<
+	ScanProfileStep["kind"],
+	ProfileStepRunner
+> = {
+	static_tool: executeAdapterStep,
+	sbom_export: executeAdapterStep,
+	container_image_scan: executeAdapterStep,
+	dast: executeDastStep,
+	runtime_scanner: executeRuntimeStep,
+	api_schema_scan: executeSchemaStep,
+};
 
 function failureDelta(
 	step: ScanProfileStep,

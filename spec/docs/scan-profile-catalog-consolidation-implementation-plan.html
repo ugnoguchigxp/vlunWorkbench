@@ -1,0 +1,2113 @@
+<article lang="ja" data-spec-role="active-plan">
+  <h1 id="scan-profile-catalog-consolidation-implementation-plan">
+    Scan Profile Catalog Consolidation Implementation Plan
+  </h1>
+  <p>Status: Milestone A implemented (PC-07 remains blocked by its promotion dependency)</p>
+  <p>Planning baseline commit: <code>d808f6c65a0c8f74dec013abf8dba3509486241e</code></p>
+  <p>Baseline date: 2026-08-21</p>
+  <p>Plan revision: 3</p>
+  <p>Last reviewed: 2026-08-21</p>
+  <p>Owner: vulnWorkbench maintainers</p>
+  <p>
+    Target: 現在のtool起点かつ重複を含むscan profile群を、利用者の目的、安全境界、入力、
+    完了条件が明確なuse-case起点のcatalogへ統合する。
+  </p>
+
+  <h2 id="1-outcome-and-milestones">1. Outcome and milestones</h2>
+  <p>
+    公開profileは現時点で12種類を目標とする。ただし、12という件数自体を仕様にはしない。
+    profileは利用目的、capabilityは検査能力、execution profileは現在のorchestratorが実行する定義、
+    strictnessは実行欠落の判定、result policyはfindingの扱い、safety classは実行可能な環境を表す。
+    これらを別の型とregistryで管理する。
+  </p>
+  <p>本計画には二つの完了点がある。</p>
+  <table>
+    <caption>
+      1.1 Milestones
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Milestone</th>
+        <th scope="col">Scope</th>
+        <th scope="col">Completion state</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>A — Catalog consolidation</td>
+        <td>PC-00〜PC-06</td>
+        <td>
+          用途別catalog、legacy互換、安全な4 stable profile（うち通常Web選択は3件）、dedicated
+          flow表示、consumer移行
+        </td>
+      </tr>
+      <tr>
+        <td>B — Professional full promotion</td>
+        <td>PC-07</td>
+        <td>Gap Completion workstream完了後の<code>professional-full</code>昇格</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    Milestone
+    Aは<code>professional-full</code>をplannedのまま完了できる。依存するcapabilityが未完成なら、
+    仮adapterや空coverageでMilestone Bを成立させない。
+  </p>
+  <p>
+    2026-08-21 implementation record: PC-00〜PC-06はcatalog baseline、schema/resolver、canonical
+    execution definitions、result-policy、API/CLI/Web consumer migration、closeout
+    verifierとして実装した。 既存legacy IDはexecution
+    definitionを変更せず維持し、<code>professional-full</code>はplannedのままにしている。
+  </p>
+
+  <h2 id="2-review-findings-and-resolutions">2. Review findings and resolutions</h2>
+  <table>
+    <caption>
+      2.1 Revision 3 findings
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">ID</th>
+        <th scope="col">Priority</th>
+        <th scope="col">Finding</th>
+        <th scope="col">Resolution</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>R-01</td>
+        <td>P0</td>
+        <td>
+          公開catalogと実行可能な<code>ScanProfile</code>が混在していた。
+        </td>
+        <td>catalog schemaを分離し、planned profileがexecutorへ渡らない構造にする。</td>
+      </tr>
+      <tr>
+        <td>R-02</td>
+        <td>P0</td>
+        <td>
+          <code>partial</code
+          >がavailabilityとして使われ、想定enumと矛盾していた。
+        </td>
+        <td>availabilityを4値へ固定し、部分実装はlimitationとpromotion dependencyで表す。</td>
+      </tr>
+      <tr>
+        <td>R-03</td>
+        <td>P0</td>
+        <td>実行stepの異なる旧IDを同義aliasとしてまとめる危険があった。</td>
+        <td>
+          <code>exact_alias</code
+          >と<code>legacy_preset</code>を分け、baseline fingerprintで判定する。
+        </td>
+      </tr>
+      <tr>
+        <td>R-04</td>
+        <td>P0</td>
+        <td>requested/canonical/execution IDの保存先が未定義だった。</td>
+        <td>DDLを増やさず、versioned resolution envelopeをrun metadataへ保存する。</td>
+      </tr>
+      <tr>
+        <td>R-05</td>
+        <td>P1</td>
+        <td>新規module名、変更順、各sliceのexit gateが不足していた。</td>
+        <td>Section 9と10で作成ファイル、手順、test、証跡を固定する。</td>
+      </tr>
+      <tr>
+        <td>R-06</td>
+        <td>P1</td>
+        <td>Web、CLI、Oracle、NightWorkersの切替順が未定義だった。</td>
+        <td>外部contractを維持するconsumer別migrationをPC-05へ組み込む。</td>
+      </tr>
+      <tr>
+        <td>R-07</td>
+        <td>P1</td>
+        <td>時間経過だけでlegacy IDを削除できる記述だった。</td>
+        <td>contract version、usage evidence、rollbackが揃うまで削除しない。</td>
+      </tr>
+      <tr>
+        <td>R-08</td>
+        <td>P0</td>
+        <td>enabled 20/21件だけを数え、disabled Active系2定義が移行表から欠落していた。</td>
+        <td>全22/23定義をbaseline化し、disabled 2件を明示的な起動拒否testへ含める。</td>
+      </tr>
+      <tr>
+        <td>R-09</td>
+        <td>P0</td>
+        <td>orchestrator以外のpreflight、preview、start、CLI dry-runが直接解決のままだった。</td>
+        <td>入力正規化とresolverを全実行境界で共有し、preview/start間をhashでbindする。</td>
+      </tr>
+      <tr>
+        <td>R-10</td>
+        <td>P0</td>
+        <td>
+          <code>gate</code>の閾値、保存値、process
+          failureとの違いが未定義だった。
+        </td>
+        <td>
+          High以上を既定閾値とする独立<code>gateDecision</code>を定義し、run
+          statusと分離する。
+        </td>
+      </tr>
+      <tr>
+        <td>R-11</td>
+        <td>P1</td>
+        <td>professional-fullが未完成のcompanion planを暗黙依存していた。</td>
+        <td>
+          Milestone Aを自己完結させ、companion planとcloseout
+          schemaが完成するまでPC-07をblockedにする。
+        </td>
+      </tr>
+      <tr>
+        <td>R-12</td>
+        <td>P0</td>
+        <td>
+          既存<code>profiles</code>配列の中身をcanonicalへ替えながらadditive
+          APIと呼んでいた。
+        </td>
+        <td>v1配列を凍結し、canonical catalogとlaunchable IDを新fieldで追加する。</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2 id="3-planning-baseline">3. Planning baseline</h2>
+  <h3 id="31-current-facts">3.1 Current facts</h3>
+  <ul>
+    <li>
+      <code>buildScanProfiles</code>は通常22件、optional
+      Semgrep有効時23件の定義を返す。 enabledは20/21件であり、残る2件は
+      <code>runtime-zap-active-lab</code
+      >と<code>api-zap-active-lab</code>のdisabled placeholderである。
+    </li>
+    <li>
+      <code>agent-output</code
+      >、<code>baseline</code>、<code>source-baseline</code>は
+      GitleaksとOSVを中心とする同等候補である。
+    </li>
+    <li>
+      <code>full-deep</code
+      >と<code>detailed-security</code>はGitleaks、OSV、Trivyを中心とする
+      同等候補である。
+    </li>
+    <li>
+      <code>full-security-scan</code
+      >は広い受動profileだが、認証付きWeb、権限matrix、active DAST、 business
+      logic、dynamic/fuzz、横断的retestを含まない。
+    </li>
+    <li>
+      <code>shared/schemas/scan-profile.schema.ts</code>とexecution plan v1が表現できるstepは、
+      <code>static_tool</code
+      >、<code>dast</code>、<code>runtime_scanner</code>、
+      <code>sbom_export</code>、<code>api_schema_scan</code>、
+      <code>container_image_scan</code>の6種である。
+    </li>
+    <li>
+      active ZAP、authorization matrix、business
+      logic、dynamic、reproductionには個別engineがあるが、 共通profile execution
+      planのstepではない。
+    </li>
+    <li>
+      <code>scan_runs.profile</code>は現在requested ID相当を保存し、
+      <code>scan_execution_plans.profile_id</code>は実行profile IDを保存している。
+    </li>
+  </ul>
+
+  <h3 id="32-authoritative-code-paths">3.2 Authoritative code paths</h3>
+  <ul>
+    <li>
+      定義: <code>api/modules/scans/profiles.ts</code>、<code
+        >static-scan-profiles.ts</code
+      >
+    </li>
+    <li>
+      解決: <code>getProfileById</code>、<code
+        >listProfiles</code
+      >
+    </li>
+    <li>実行: <code>api/modules/scans/execution/profile-orchestrator.ts</code></li>
+    <li>plan: <code>api/modules/scans/execution/scan-execution-plan-builder.ts</code></li>
+    <li>
+      保存: <code>api/modules/scans/repositories.ts</code>、<code
+        >schema-scans.ts</code
+      >
+    </li>
+    <li>API: <code>api/routes/scan-profiles.route.ts</code></li>
+    <li>
+      Web: <code>web/src/api/scans-execution.ts</code>、<code
+        >web/src/domains/scans/</code
+      >
+    </li>
+    <li>integration: <code>api/modules/integrations/nightworkers/nightworkers-scan-preset-registry.ts</code></li>
+  </ul>
+  <p>
+    <code>api/modules/scans/profile-orchestrator.ts</code>等の上位fileはcompatibility re-exportである。
+    実装本体を変更するときは<code>execution/</code>配下を編集し、re-export
+    fileへlogicを追加しない。
+  </p>
+
+  <h3 id="33-implementation-start-checkpoint">3.3 Implementation start checkpoint</h3>
+  <p>
+    実装者は最初に次を実行する。dirty treeをreset、checkout、上書きしない。結果は
+    <code>artifacts/scan-profile-catalog/pc-00/</code>へ保存する。
+  </p>
+  <pre><code class="language-bash">git rev-parse HEAD
+git status --short
+bun run docs:check
+bun test api/modules/scans/nightworkers-profile-contract.test.ts \
+  api/modules/integrations/nightworkers/nightworkers-scan-preset-registry.test.ts
+bunx vitest run api/routes/scan-profiles.route.test.ts \
+  api/modules/scans/execution/resolved-profile.test.ts \
+  api/modules/scans/execution/scan-execution-plan-builder.test.ts \
+  web/src/domains/scans/scan-profile-display.test.ts
+</code></pre>
+  <p>
+    baseline testが失敗した場合はPC-00へ進まず、既存失敗か今回の変更かを切り分ける。
+    無関係な修正を本計画へ混ぜない。
+  </p>
+
+  <h3 id="34-known-consumer-baseline">3.4 Known consumer baseline</h3>
+  <table>
+    <caption>
+      3.4 Profile ID consumers that must be characterized
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Consumer</th>
+        <th scope="col">Current IDs / source</th>
+        <th scope="col">Migration owner</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>CLI default</td>
+        <td>
+          <code>baseline</code> in
+          <code>api/cli/scan-profile.ts</code>
+        </td>
+        <td>PC-05</td>
+      </tr>
+      <tr>
+        <td>Oracle</td>
+        <td>
+          <code>agent-output</code> in
+          <code>api/cli/oracle-security.ts</code>
+        </td>
+        <td>preserve v1</td>
+      </tr>
+      <tr>
+        <td>Web state</td>
+        <td>
+          <code>baseline</code> in
+          <code>use-scan-launch-state.ts</code>
+        </td>
+        <td>PC-05</td>
+      </tr>
+      <tr>
+        <td>Profile list API</td>
+        <td>
+          <code>listProfiles</code> in
+          <code>scan-profiles.route.ts</code>
+        </td>
+        <td>PC-05</td>
+      </tr>
+      <tr>
+        <td>Web preflight/start</td>
+        <td>
+          <code>baseline</code> and direct
+          <code>getProfileById</code> in
+          <code>projects.route.ts</code>
+        </td>
+        <td>PC-05 atomic migration</td>
+      </tr>
+      <tr>
+        <td>Diff preview</td>
+        <td>
+          <code>diff-source-baseline</code> in
+          <code>api/routes/projects.route.ts</code>
+        </td>
+        <td>PC-05</td>
+      </tr>
+      <tr>
+        <td>CLI dry-run</td>
+        <td>direct <code>getProfileById</code> before DB startup</td>
+        <td>PC-05</td>
+      </tr>
+      <tr>
+        <td>NightWorkers presets</td>
+        <td>source/diff/basic/detailed legacy IDs</td>
+        <td>preserve contract v1</td>
+      </tr>
+      <tr>
+        <td>NightWorkers allowlist</td>
+        <td><code>api/app/env.ts</code> legacy default list</td>
+        <td>preserve v1; resolver internal</td>
+      </tr>
+      <tr>
+        <td>Saved runs</td>
+        <td><code>scan_runs.profile</code> and metadata</td>
+        <td>read-compatible; no backfill</td>
+      </tr>
+      <tr>
+        <td>Summary/report</td>
+        <td>
+          <code>readStoredResolvedProfile</code> then legacy
+          <code>getProfileById</code>
+        </td>
+        <td>PC-02 compatibility</td>
+      </tr>
+      <tr>
+        <td>Tests/docs</td>
+        <td><code>rg</code>で抽出した全literal reference</td>
+        <td>sliceごとに更新/保持を分類</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    PC-00のbaseline
+    scriptはrepository全体を文字列置換しない。上表と<code>rg</code>結果をmanifestへ保存し、
+    各参照を<code>migrate</code>、<code>preserve_contract</code>、<code>historical</code>、<code>test_fixture</code>へ分類する。
+  </p>
+
+  <h2 id="4-scope-and-invariants">4. Scope and invariants</h2>
+  <h3 id="41-in-scope">4.1 In scope</h3>
+  <ul>
+    <li>use-case起点のcanonical profile catalog</li>
+    <li>catalog、execution definition、policy、safety、availabilityの分離</li>
+    <li>最大21件のenabled legacy IDと2件のdisabled definitionを扱うlegacy resolution</li>
+    <li>API、CLI、Web、NightWorkers、Oracleで共通のresolver</li>
+    <li>実行前入力、availability、launchability、limitationの一貫表示</li>
+    <li>machine-readable baseline、migration test、closeout evidence</li>
+  </ul>
+
+  <h3 id="42-out-of-scope">4.2 Out of scope</h3>
+  <ul>
+    <li>network、cloud、AD、mobile、wireless、social engineering診断</li>
+    <li>production対象へのactive attack</li>
+    <li>arbitrary scriptまたは無制限fuzzing</li>
+    <li>新しいexecution step kindとexecution plan v2</li>
+    <li>historical <code>scan_runs</code>の一括backfill</li>
+    <li>NightWorkers contract v2またはOracle output contract変更</li>
+    <li>profile数を12に固定するschema rule</li>
+  </ul>
+
+  <h3 id="43-non-negotiable-invariants">4.3 Non-negotiable invariants</h3>
+  <ol>
+    <li>旧IDで起動したscanのstep、scope、required flag、failure policyを移行だけで変えない。</li>
+    <li>
+      planned profileとmissing execution
+      definitionを<code>getProfileById</code>から返さない。
+    </li>
+    <li>NightWorkers allowlistはalias解決前のrequested IDへ適用する。</li>
+    <li><code>scan_runs.profile</code>とhistorical metadataを一括更新しない。</li>
+    <li>catalog entry hashとexecution profile hashを同じ意味で使わない。</li>
+    <li>R1/R3の既存policy、reset、cleanup要件を弱めない。</li>
+    <li>coverage unknown、blocked、not executedをcoveredへ変換しない。</li>
+  </ol>
+
+  <h2 id="5-domain-model-and-safety">5. Domain model and safety</h2>
+  <table>
+    <caption>
+      5.1 Domain concepts
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Concept</th>
+        <th scope="col">Meaning</th>
+        <th scope="col">Owner</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Catalog entry</td>
+        <td>利用者が選ぶ目的、説明、入力、安全性、提供状態</td>
+        <td>新catalog registry</td>
+      </tr>
+      <tr>
+        <td>Execution profile</td>
+        <td>既存orchestratorが実行できるtool/step定義</td>
+        <td><code>profiles.ts</code></td>
+      </tr>
+      <tr>
+        <td>Execution variant</td>
+        <td>入力に応じて選ぶ内部execution profile</td>
+        <td>resolver</td>
+      </tr>
+      <tr>
+        <td>Capability</td>
+        <td>独立して実行・証拠化できる検査</td>
+        <td>catalog requirement</td>
+      </tr>
+      <tr>
+        <td>Availability</td>
+        <td>製品としての提供状態</td>
+        <td>catalog entry</td>
+      </tr>
+      <tr>
+        <td>Launchability</td>
+        <td>現在の環境と入力で実行できるか</td>
+        <td>resolver/preflight</td>
+      </tr>
+      <tr>
+        <td>Legacy preset</td>
+        <td>旧IDの実行内容を保存した非公開定義</td>
+        <td>legacy registry</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3 id="52-safety-classes">5.2 Safety classes</h3>
+  <table>
+    <caption>
+      5.2 Safety classes
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Class</th>
+        <th scope="col">Behavior</th>
+        <th scope="col">Required boundary</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>R0</td>
+        <td>source、manifest、既存artifactを実行せず読む</td>
+        <td>read-only input、専用output、network policy</td>
+      </tr>
+      <tr>
+        <td>R1</td>
+        <td>test、build、sanitizer、bounded fuzzでcodeを実行</td>
+        <td>独立snapshot、非特権container、resource limit、原則network none</td>
+      </tr>
+      <tr>
+        <td>R2</td>
+        <td>GET/HEAD/OPTIONS中心の非破壊HTTP診断</td>
+        <td>許可target、request budget、DNS/redirect pinning、auth scope</td>
+      </tr>
+      <tr>
+        <td>R3</td>
+        <td>状態変更を伴うactive/business検証</td>
+        <td>disposable target、RoE、reset、cleanup receipt、no egress</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    Git worktreeは変更分離には使えるが、<code>.git</code>、host
+    process、DB、cache、外部serviceを隔離しない。 R1/R3のsecurity boundaryにはしない。
+  </p>
+
+  <h3 id="53-destructive-scan-lifecycle">5.3 R1/R3 disposable execution lifecycle</h3>
+  <p>
+    R1/R3 profileのcatalog接続は、次のlifecycleを既存dedicated flowが満たす場合だけ許可する。
+    worktreeは入力materializationの一方式であり、containerまたは同等のsandboxと組み合わせる。
+  </p>
+  <ol>
+    <li>元repositoryのpathと状態を記録し、元repositoryを実行時の書込先にしない。</li>
+    <li>
+      commitまたは明示snapshotから一時workspaceを作る。未commit変更はsnapshot化してdigestを固定する。
+    </li>
+    <li>
+      非特権、resource limit、原則network
+      none、専用DB/cacheのsandboxだけでcodeまたはattackを実行する。
+    </li>
+    <li>R3はdisposable target、RoE、reset strategy、egress policyを実行前に検証する。</li>
+    <li>evidenceを一時workspace外へコピーし、secretを除いたcleanup receiptを保存する。</li>
+    <li>
+      <code>finally</code
+      >でcontainer、worktree、一時volumeを片付ける。元repositoryへ<code>reset</code>や<code>clean</code>を実行しない。
+    </li>
+    <li>
+      cleanupまたはresetの確認失敗は成功扱いにせず、<code>blocked</code>または<code>incomplete</code>にする。
+    </li>
+  </ol>
+  <p>
+    PC-04はengineを作り直すsliceではない。<code>dynamic-run-policy.ts</code>、<code>dynamic-docker-executor.ts</code>、<code>zap-active-policy.ts</code>、<code>container-fixture-reset.ts</code>、<code>active-container-target-gateway.ts</code>、business
+    logic/reproduction runnerの既存contract testを証跡として確認し、不足があればcatalog
+    entryをexperimentalかつ非起動のまま残してGap Completionへ戻す。
+  </p>
+
+  <h2 id="6-canonical-catalog">6. Canonical catalog</h2>
+  <h3 id="61-capability-ids">6.1 Capability IDs</h3>
+  <pre><code class="language-text">secret_detection          source_sast              dependency_sca
+config_iac                sbom                     provenance_integrity
+artifact_container_scan   dynamic_tests            sanitizer_fuzz
+passive_dast              browser_client           auth_session
+api_contract              authorization_matrix     active_dast
+business_logic            remediation_retest
+</code></pre>
+  <p>
+    threat modeling、architecture review、manual secure code review、analyst validationはscan
+    capabilityへ 偽装せず、<code>professional-full</code>のhuman-led taskとして残す。
+  </p>
+
+  <h3 id="62-profile-requirements">6.2 Authoritative profile requirements</h3>
+  <table>
+    <caption>
+      6.2 Canonical profile composition
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Profile</th>
+        <th scope="col">Targets / required inputs</th>
+        <th scope="col">Required capabilities</th>
+        <th scope="col">Conditional/advisory</th>
+        <th scope="col">Milestone A state</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>change-gate</code></td>
+        <td>commit/range/working_tree、source_target</td>
+        <td>secret_detection</td>
+        <td>source_sast、dependency_sca、config_iac required-if-applicable</td>
+        <td>stable、profile_orchestrator、R0</td>
+      </tr>
+      <tr>
+        <td><code>source-assurance</code></td>
+        <td>full、source_target</td>
+        <td>secret_detection、dependency_sca、config_iac</td>
+        <td>source_sast required-if-applicable</td>
+        <td>stable、profile_orchestrator、R0</td>
+      </tr>
+      <tr>
+        <td><code>dependency-supply-chain</code></td>
+        <td>full、source_target、attestation_bundle、trust_policy</td>
+        <td>dependency_sca、sbom、provenance_integrity</td>
+        <td>none</td>
+        <td>planned until supply-chain gap completion</td>
+      </tr>
+      <tr>
+        <td><code>release-artifact</code></td>
+        <td>full、project artifact scopeまたはimage_ref/image_tar</td>
+        <td>artifact_container_scan</td>
+        <td>secret_detection、config_iac</td>
+        <td>stable、input-selected variant、R0</td>
+      </tr>
+      <tr>
+        <td><code>dynamic-verification</code></td>
+        <td>full、source_target、execution_consent</td>
+        <td>dynamic_tests</td>
+        <td>sanitizer_fuzz</td>
+        <td>experimental dedicated_flow、R1</td>
+      </tr>
+      <tr>
+        <td><code>runtime-passive</code></td>
+        <td>full、runtime_targetまたはauto_start_plan</td>
+        <td>passive_dast</td>
+        <td>browser_client、api_contract advisory</td>
+        <td>stable、profile_orchestrator、R2</td>
+      </tr>
+      <tr>
+        <td><code>authenticated-web</code></td>
+        <td>full、runtime_target、auth_context_ref</td>
+        <td>auth_session、passive_dast、browser_client</td>
+        <td>none</td>
+        <td>experimental dedicated_flow、R2</td>
+      </tr>
+      <tr>
+        <td><code>api-readonly</code></td>
+        <td>full、runtime_target、optional auth_context_ref</td>
+        <td>api_contract</td>
+        <td>auth_session、authorization_matrix</td>
+        <td>experimental、authorization limitation、R2</td>
+      </tr>
+      <tr>
+        <td><code>active-technical-lab</code></td>
+        <td>full、disposable_target_ref、rules_of_engagement_ref</td>
+        <td>active_dast</td>
+        <td>auth_session</td>
+        <td>experimental dedicated_flow、R3</td>
+      </tr>
+      <tr>
+        <td><code>business-logic-lab</code></td>
+        <td>full、disposable_target_ref、scenario_ref、RoE</td>
+        <td>business_logic</td>
+        <td>auth_session</td>
+        <td>experimental dedicated_flow、R3</td>
+      </tr>
+      <tr>
+        <td><code>remediation-verification</code></td>
+        <td>finding_refと元findingのsafety/input</td>
+        <td>remediation_retest</td>
+        <td>original capability</td>
+        <td>experimental dedicated_flow、mixed</td>
+      </tr>
+      <tr>
+        <td><code>professional-full</code></td>
+        <td>run_group、全applicable input/approval</td>
+        <td>全applicable supported capability</td>
+        <td>human-led review tasks</td>
+        <td>planned until Milestone B、mixed</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    required-if-applicableのapplicabilityが<code>unknown</code>なら自動skipしない。
+    strict profileではblockerまたはcoverage gapにする。
+  </p>
+
+  <h3 id="63-default-policy-matrix">6.3 Default policy matrix</h3>
+  <table>
+    <caption>
+      6.3 Execution completeness and finding policy
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Profiles</th>
+        <th scope="col">Strictness</th>
+        <th scope="col">Default result policy</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>change-gate、release-artifact</td>
+        <td>strict</td>
+        <td>gate</td>
+      </tr>
+      <tr>
+        <td>source-assurance、runtime-passive、api-readonly</td>
+        <td>strict</td>
+        <td>advisory</td>
+      </tr>
+      <tr>
+        <td>dependency-supply-chain</td>
+        <td>strict</td>
+        <td>gate</td>
+      </tr>
+      <tr>
+        <td>
+          dynamic-verification、authenticated-web、active-technical-lab、business-logic-lab、
+          remediation-verification
+        </td>
+        <td>strict</td>
+        <td>advisory</td>
+      </tr>
+      <tr>
+        <td>professional-full</td>
+        <td>strict</td>
+        <td>advisory</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    result policyはrun
+    parameterで<code>advisory</code>または<code>gate</code>へ変更できるが、
+    profile IDを増やす理由にしない。policy変更はresolved run metadataへ保存する。 result
+    policyをadvisoryへ変えてもrequired stepの失敗やblockerは成功にならない。 planned
+    profileのpolicyは昇格前に実行せず、human decisionはresult policyと別recordにする。 Milestone
+    Aの全entryは<code>allowedResultPolicies: ["advisory", "gate"]</code>、
+    <code>gateSeverityThreshold: "high"</code>で登録する。
+  </p>
+  <p>
+    legacy
+    IDは既存実行の完了意味を変えないため、明示的な<code>resultPolicy</code>指定がない限り
+    <code>advisory</code>として解決する。canonical
+    IDはcatalogのdefaultを用いる。
+  </p>
+
+  <h3 id="64-result-policy-contract">6.4 Result policy contract</h3>
+  <p>
+    result policyはscannerの運用成否とfinding判定を混ぜない。Milestone Aでは次の固定規則を実装する。
+  </p>
+  <table>
+    <caption>
+      6.4 Gate decision rules
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Condition</th>
+        <th scope="col">gateDecision</th>
+        <th scope="col">Run status effect</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>resultPolicy = advisory</td>
+        <td>not_requested</td>
+        <td>なし</td>
+      </tr>
+      <tr>
+        <td>required executionがblocked/incomplete/failed</td>
+        <td>blocked</td>
+        <td>既存profileOutcomeを維持</td>
+      </tr>
+      <tr>
+        <td>severity unknownのfindingが1件以上</td>
+        <td>blocked</td>
+        <td>scan自体はcompletedのままでもよい</td>
+      </tr>
+      <tr>
+        <td>閾値以上のfindingが1件以上</td>
+        <td>fail</td>
+        <td>scan自体はcompleted、CLI gate exitは3</td>
+      </tr>
+      <tr>
+        <td>上記以外</td>
+        <td>pass</td>
+        <td>なし</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    既定閾値は<code>high</code>とし、severity順はinfo、low、medium、high、criticalで固定する。
+    <code>gateDecision</code>、閾値、severity countはrun
+    metadata、result、reportへ保存する。 scanner process failureをfinding gate
+    failへ変換せず、false-positive等の後続reviewでimmutableな
+    run時decisionを書き換えない。review後のrelease判断は別recordで扱う。対話CLIはgate failを exit
+    3で返すが、<code>executionSurface=web</code>のchild processはterminal
+    run保存後にexit 0とし、 supervisorへprocess failureとして通知しない。
+  </p>
+
+  <h2 id="7-legacy-migration">7. Legacy migration</h2>
+  <p>
+    canonical associationは同じ利用目的を示すだけで、同じ実行内容を意味しない。
+    PC-02時点では旧IDのexecution definitionをすべて保持する。
+  </p>
+  <table>
+    <caption>
+      7.1 Complete 22/23 definition mapping
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Legacy ID</th>
+        <th scope="col">Canonical association</th>
+        <th scope="col">Preservation rule</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>agent-output</code></td>
+        <td>source-assurance</td>
+        <td>Oracle contract-bound。削除禁止。</td>
+      </tr>
+      <tr>
+        <td><code>baseline</code></td>
+        <td>source-assurance</td>
+        <td>旧defaultとGitleaks/OSVを維持。</td>
+      </tr>
+      <tr>
+        <td><code>source-baseline</code></td>
+        <td>source-assurance</td>
+        <td>NightWorkers contract-bound。</td>
+      </tr>
+      <tr>
+        <td><code>diff-source-baseline</code></td>
+        <td>change-gate</td>
+        <td>OSV/Trivy optional性を維持。</td>
+      </tr>
+      <tr>
+        <td><code>diff-basic-security</code></td>
+        <td>change-gate</td>
+        <td>3 scanner requiredを維持。</td>
+      </tr>
+      <tr>
+        <td><code>basic-security</code></td>
+        <td>source-assurance</td>
+        <td>3 scanner requiredを維持。</td>
+      </tr>
+      <tr>
+        <td><code>dependency-manifest</code></td>
+        <td>dependency-supply-chain</td>
+        <td>SCAだけ。provenance済みと表示しない。</td>
+      </tr>
+      <tr>
+        <td><code>artifact</code></td>
+        <td>release-artifact</td>
+        <td>filesystem artifact scopeを維持。</td>
+      </tr>
+      <tr>
+        <td><code>full-deep</code></td>
+        <td>source-assurance</td>
+        <td>generated/vendored/installed scopeを維持。</td>
+      </tr>
+      <tr>
+        <td><code>detailed-security</code></td>
+        <td>source-assurance</td>
+        <td>full-deep duplicate候補。</td>
+      </tr>
+      <tr>
+        <td><code>web-app-baseline</code></td>
+        <td>runtime-passive</td>
+        <td>static 2 step + passive DASTを維持。</td>
+      </tr>
+      <tr>
+        <td><code>runtime-web-safe</code></td>
+        <td>runtime-passive</td>
+        <td>DAST/Nuclei/ZAP requiredを維持。</td>
+      </tr>
+      <tr>
+        <td><code>sbom-inventory</code></td>
+        <td>dependency-supply-chain</td>
+        <td>SBOMだけ。finding化しない。</td>
+      </tr>
+      <tr>
+        <td><code>api-schema-readonly</code></td>
+        <td>api-readonly</td>
+        <td>unauthenticated schema scanを維持。</td>
+      </tr>
+      <tr>
+        <td><code>container-image-security</code></td>
+        <td>release-artifact</td>
+        <td>既存image/tarだけ。auto-build禁止。</td>
+      </tr>
+      <tr>
+        <td><code>runtime-zap-baseline</code></td>
+        <td>runtime-passive</td>
+        <td>ZAP baselineだけを維持。</td>
+      </tr>
+      <tr>
+        <td><code>runtime-http-check</code></td>
+        <td>runtime-passive</td>
+        <td>bounded passive DASTだけを維持。</td>
+      </tr>
+      <tr>
+        <td><code>full-security-scan</code></td>
+        <td>professional-full</td>
+        <td>同義ではない。legacy passive-fullとして維持。</td>
+      </tr>
+      <tr>
+        <td><code>security-inventory-best-effort</code></td>
+        <td>source-assurance</td>
+        <td>best-effort policyを維持。</td>
+      </tr>
+      <tr>
+        <td><code>secrets-dependencies-runtime</code></td>
+        <td>runtime-passive</td>
+        <td>static 3 step + passive DASTを維持。</td>
+      </tr>
+      <tr>
+        <td><code>semgrep-baseline</code></td>
+        <td>source-assurance</td>
+        <td>optional adapter有効時だけ存在。</td>
+      </tr>
+      <tr>
+        <td><code>runtime-zap-active-lab</code></td>
+        <td>active-technical-lab</td>
+        <td>disabled placeholder。generic resolverから起動させない。</td>
+      </tr>
+      <tr>
+        <td><code>api-zap-active-lab</code></td>
+        <td>active-technical-lab</td>
+        <td>disabled placeholder。dedicated API以外から起動させない。</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    初期<code>migrationKind</code>は全definitionで<code>legacy_preset</code>とする。
+    disabled 2件にもassociationを持たせるが、resolverは実行せず
+    <code>profile_not_launchable</code>を返す。
+    <code>exact_alias</code>へ変えられるのはSection 9.2のexecution
+    fingerprintが一致し、 external contractとstored hashへの影響がない場合だけである。
+  </p>
+
+  <h2 id="8-contracts">8. Catalog, resolution, persistence, and API contracts</h2>
+  <h3 id="81-catalog-schema">8.1 Catalog schema</h3>
+  <p>
+    <code>shared/schemas/scan-profile-catalog.schema.ts</code>を新規作成する。
+    既存<code>scan-profile.schema.ts</code>はexecution definition専用のまま維持する。
+  </p>
+  <pre><code class="language-typescript">scanProfileAvailabilitySchema = z.enum([
+  "stable", "experimental", "planned", "deprecated",
+]);
+scanProfileSafetyClassSchema = z.enum(["R0", "R1", "R2", "R3", "mixed"]);
+scanProfileLaunchModeSchema = z.enum([
+  "profile_orchestrator", "dedicated_flow", "run_group", "unavailable",
+]);
+scanProfileLaunchDestinationSchema = z.enum([
+  "scan_workspace", "dynamic_workspace", "dast_workspace",
+  "business_logic_workspace", "finding_verification", "professional_run_group",
+]);
+scanProfileRequirementSchema = z.enum([
+  "required", "required_if_applicable", "advisory",
+]);
+scanProfileInputKindSchema = z.enum([
+  "source_target", "image_ref", "image_tar", "runtime_target",
+  "auto_start_plan", "execution_consent", "auth_context_ref",
+  "attestation_bundle", "trust_policy", "disposable_target_ref",
+  "rules_of_engagement_ref", "scenario_ref", "finding_ref",
+]);
+
+scanProfileExecutionVariantSchema = z.object({
+  id: kebabCaseId,
+  executionProfileRef: z.string().min(1).max(160),
+  requiredInputKinds: z.array(scanProfileInputKindSchema),
+  forbiddenInputKinds: z.array(scanProfileInputKindSchema),
+}).strict();
+
+scanProfileCatalogEntrySchema = z.object({
+  schemaVersion: z.literal(1),
+  id: kebabCaseId,
+  catalogVersion: z.number().int().positive(),
+  displayOrder: z.number().int().nonnegative(),
+  displayName: z.string().min(1).max(160),
+  description: z.string().min(1).max(1000),
+  availability: scanProfileAvailabilitySchema,
+  safetyClass: scanProfileSafetyClassSchema,
+  launchMode: scanProfileLaunchModeSchema,
+  launchDestination: scanProfileLaunchDestinationSchema.nullable(),
+  strictness: z.enum(["strict", "best_effort"]),
+  defaultResultPolicy: z.enum(["gate", "advisory"]),
+  allowedResultPolicies: z.array(z.enum(["gate", "advisory"])).min(1),
+  gateSeverityThreshold: z.enum(["low", "medium", "high", "critical"]).nullable(),
+  supportedTargets: z.array(scanTargetKindSchema).min(1),
+  requiredInputs: z.array(z.object({
+    kind: scanProfileInputKindSchema,
+    requirement: scanProfileRequirementSchema,
+  }).strict()),
+  capabilityRequirements: z.array(z.object({
+    capabilityId: scanCapabilityIdSchema,
+    requirement: scanProfileRequirementSchema,
+  }).strict()).min(1),
+  executionVariants: z.array(scanProfileExecutionVariantSchema),
+  environmentRequirementCodes: z.array(z.string().min(1).max(100)),
+  limitationCodes: z.array(z.string().min(1).max(100)),
+  replacementProfileId: kebabCaseId.nullable(),
+}).strict();
+</code></pre>
+  <p>registry import時に次を検証する。</p>
+  <ul>
+    <li>catalog IDとdisplayOrderが一意</li>
+    <li>capability/input/variantの重複なし</li>
+    <li>unknown capability/legacy/canonical/execution referenceなし</li>
+    <li>
+      <code>defaultResultPolicy</code
+      >が<code>allowedResultPolicies</code>に含まれる
+    </li>
+    <li>
+      <code>gate</code
+      >を許可するentryはgateSeverityThresholdがnullではない
+    </li>
+    <li>
+      <code>stable</code
+      >かつ<code>profile_orchestrator</code>のentryには、有効なexecution
+      variantが一つ以上ある
+    </li>
+    <li>planned entryをlaunchable listへ出さない</li>
+    <li>
+      <code>dedicated_flow</code
+      >と<code>run_group</code>をgeneric execution variantへ結ばない
+    </li>
+    <li>
+      <code>unavailable</code>だけはlaunchDestinationがnullで、それ以外はlaunch
+      modeと互換なdestinationを一つ持つ
+    </li>
+    <li>deprecated entryだけがreplacementを持てる</li>
+    <li>legacy resolution cycleなし</li>
+  </ul>
+
+  <h3 id="82-resolution-schema">8.2 Resolution schema and function</h3>
+  <pre><code class="language-typescript">scanProfileResolutionSchema = z.object({
+  schemaVersion: z.literal(1),
+  requestedProfileId: z.string().min(1).max(160),
+  canonicalProfileId: kebabCaseId,
+  executionProfileId: z.string().min(1).max(160).nullable(),
+  executionVariantId: z.string().min(1).max(100).nullable(),
+  catalogVersion: z.number().int().positive(),
+  catalogEntryHash: sha256DigestSchema,
+  migrationKind: z.enum(["canonical", "exact_alias", "legacy_preset"]),
+  launchMode: scanProfileLaunchModeSchema,
+  availability: scanProfileAvailabilitySchema,
+  strictness: z.enum(["strict", "best_effort"]),
+  resultPolicy: z.enum(["gate", "advisory"]),
+  gateSeverityThreshold: z.enum(["low", "medium", "high", "critical"]).nullable(),
+  providedInputKinds: z.array(scanProfileInputKindSchema),
+  launchability: z.enum(["launchable", "blocked", "not_applicable"]),
+  reasonCodes: z.array(z.string().min(1).max(100)),
+  warningCodes: z.array(z.string().min(1).max(100)),
+}).strict();
+
+resolveProfileSelection({
+  requestedProfileId,
+  surface,                 // web | cli | security_oracle | nightworkers
+  target,
+  providedInputKinds,
+  requestedResultPolicy,
+  allowExperimental,
+  includeDeprecated,
+}): {
+  resolution: ScanProfileResolution;
+  catalogEntry: ScanProfileCatalogEntry;
+  executionProfile: ScanProfile | null;
+}
+</code></pre>
+  <p>実行境界ごとのraw inputは、次の一つのhelperでresolver入力へ変換する。</p>
+  <pre><code class="language-typescript">normalizeProfileResolutionInput({
+  repoPath,
+  target,
+  imageRef,
+  imageTar,
+  runtimeTarget,
+  autoStartPlan,
+  executionConsent,
+  authContextRef,
+  attestationBundle,
+  trustPolicy,
+  disposableTargetRef,
+  rulesOfEngagementRef,
+  scenarioRef,
+  findingRef,
+}): {
+  target: ScanTarget;
+  providedInputKinds: ScanProfileInputKind[];
+}
+</code></pre>
+  <p>resolverは次の順で判定する。</p>
+  <ol>
+    <li>requested IDをcanonicalまたはlegacy registryから一度だけ解決する。</li>
+    <li>availabilityとsurface opt-inを確認する。</li>
+    <li>target supportを確認する。</li>
+    <li>required/forbidden inputからexecution variantを一つ選ぶ。</li>
+    <li>requested result policyが許可されることとgate閾値を確認する。</li>
+    <li>profile_orchestratorならexecution definitionの存在とenabledを確認する。</li>
+    <li>
+      entry/variant/execution definitionをhashし、secret値を含まないimmutable resolutionを返す。
+    </li>
+  </ol>
+  <p>
+    preview、preflight、dry-run、enqueue、実行は同じ<code>resolveProfileSelection</code>と
+    <code>normalizeProfileResolutionInput</code>を使う。route、CLI、Webごとにvariant選択を
+    再実装しない。各request境界では一度だけresolveし、start APIはraw requested ID、typed
+    input、<code>expectedCatalogEntryHash</code>を<code>runProfileScan</code>へ渡す。
+    orchestratorは実行直前に再解決し、preview/preflight時のcatalog hash、preflight binding
+    hash、plan hashのいずれかが異なれば実行しない。
+  </p>
+  <p>error codeは次に固定する。</p>
+  <pre><code class="language-text">profile_not_found
+profile_not_launchable
+profile_experimental_not_enabled
+profile_target_not_supported
+profile_input_missing
+profile_input_invalid
+profile_result_policy_not_allowed
+profile_definition_missing
+profile_alias_cycle
+</code></pre>
+  <p>
+    generic Web/APIでexperimental entryを起動するにはrequestの
+    <code>allowExperimental: true</code
+    >を必須とする。R1/R3ではこの値だけで許可せず、dedicated routeの既存feature flag、approval、RoE
+    policyを優先する。<code>includeDeprecated</code>は
+    list/read用途だけで使用し、start
+    routeでは常に<code>false</code>とする。
+  </p>
+  <table>
+    <caption>
+      8.2 Resolver error mapping
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Error</th>
+        <th scope="col">HTTP</th>
+        <th scope="col">CLI exit</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>profile_not_found</td>
+        <td>404</td>
+        <td>2</td>
+      </tr>
+      <tr>
+        <td>profile_not_launchable / profile_experimental_not_enabled</td>
+        <td>409</td>
+        <td>2</td>
+      </tr>
+      <tr>
+        <td>target/input/result policy error</td>
+        <td>400</td>
+        <td>2</td>
+      </tr>
+      <tr>
+        <td>definition_missing / alias_cycle</td>
+        <td>500</td>
+        <td>1</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3 id="83-module-ownership">8.3 Module ownership</h3>
+  <ul>
+    <li>
+      <code>api/modules/scans/profile-catalog.ts</code>: 12 entry、legacy map、validation、list
+      projection
+    </li>
+    <li><code>api/modules/scans/profile-resolution.ts</code>: ID/input/surface resolutionとtyped error</li>
+    <li><code>api/modules/scans/canonical-scan-profiles.ts</code>: 新canonical execution definition</li>
+    <li>
+      <code>api/modules/scans/profiles.ts</code>: execution buildと一時compatibility facade
+    </li>
+    <li><code>static-scan-profiles.ts</code>: Milestone A中はlegacy definitionを保持</li>
+  </ul>
+  <p>
+    PC-02後の新規codeは<code>resolveProfileSelection</code>を使い、
+    <code>SCAN_PROFILES.find</code>を追加しない。planned/dedicated/run-group entryは
+    generic <code>runProfileScan</code>へ渡さない。
+  </p>
+  <p>
+    <code>getProfileById</code>はlegacy IDと入力不要でvariantが一意なcanonical
+    IDだけを扱う。
+    <code>release-artifact</code
+    >のような入力依存IDを受けた場合は<code>undefined</code>を返し、
+    callerをresolverへ移行する。暗黙にfilesystem variantを選ばない。
+  </p>
+
+  <h3 id="84-persistence-contract">8.4 Persistence without DDL</h3>
+  <table>
+    <caption>
+      8.4 Persisted identity mapping
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Location</th>
+        <th scope="col">Value</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>scan_runs.profile</code></td>
+        <td>requestedProfileId</td>
+      </tr>
+      <tr>
+        <td><code>scan_runs.metadata.profileResolution</code></td>
+        <td>resolution envelope</td>
+      </tr>
+      <tr>
+        <td><code>scan_runs.metadata.resolvedProfile</code></td>
+        <td>実際に実行した<code>ScanProfile</code></td>
+      </tr>
+      <tr>
+        <td><code>scan_execution_plans.profile_id</code></td>
+        <td>executionProfileId</td>
+      </tr>
+      <tr>
+        <td><code>scan_execution_plans.plan</code></td>
+        <td>現行schema v1。catalog fieldは追加しない。</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    PC-00〜PC-06ではSQLite migrationを作らない。execution plan v1の
+    <code>resolvedProfileHash</code
+    >は実行定義をbindし続け、catalogEntryHashはmetadataとeventへ保存する。 planへcatalog
+    bindingを含める変更はexecution plan v2 workstreamで行う。 historical
+    metadataにresolutionがなければlegacy表示へfallbackする。
+  </p>
+  <p>run resultとstored profile readerのidentity規則を次に固定する。</p>
+  <ul>
+    <li><code>ProfileScanResult.profileId</code>は後方互換のためrequestedProfileIdを返す。</li>
+    <li>
+      <code>canonicalProfileId</code
+      >と<code>executionProfileId</code>をresultへ追加する。
+    </li>
+    <li>
+      <code>readStoredResolvedProfile</code>はresolutionがあればexecutionProfileIdと
+      <code>resolvedProfile.id</code>を比較し、なければ従来どおりrequested
+      IDと比較する。
+    </li>
+    <li>canonical IDとexecution IDが異なることだけをidentity mismatchにしない。</li>
+  </ul>
+
+  <h3 id="85-api-contract">8.5 Additive API response</h3>
+  <pre><code class="language-text">schemaVersion: 2
+profiles: frozen legacy v1 launchable projections[]
+catalogEntries: all public canonical entries[]
+genericStartCatalogProfileIds: canonical IDs routed to generic preflight/start[]
+defaults:
+  full: source-assurance
+  working_tree: change-gate
+  commit: change-gate
+  range: change-gate
+preflight: existing projection
+</code></pre>
+  <ul>
+    <li>
+      <code>profiles</code>は旧client互換fieldであり、PC-00のenabled legacy
+      projection、順序、 field semanticsをMilestone A中は変えない。canonical entryを混ぜない。
+    </li>
+    <li>
+      <code>catalogEntries</code>はplanned/dedicatedを含むがsecret、command、raw
+      optionsを含めない。
+    </li>
+    <li>stableは製品supportを意味し、現在のhostでreadyとは限らない。</li>
+    <li>
+      新Webは<code>catalogEntries</code>と<code>genericStartCatalogProfileIds</code>だけで通常選択肢を作る。
+    </li>
+    <li>
+      list responseはproject/input固有のready判定を行わない。tool、Docker、auth、input不足は
+      preflight responseのlaunchabilityとreason codeで示す。
+    </li>
+  </ul>
+  <p>project scan APIの3境界は同じresolution contractを使う。</p>
+  <table>
+    <caption>
+      8.5 Project scan boundary changes
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Boundary</th>
+        <th scope="col">Request addition</th>
+        <th scope="col">Response / persistence</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>POST /scans/preflight</code></td>
+        <td>target、imageRef/imageTar、resultPolicy、allowExperimental</td>
+        <td>profileResolution、catalogEntryHash、preflight、executionPlan</td>
+      </tr>
+      <tr>
+        <td><code>POST /scans/preview</code></td>
+        <td>既存target、resultPolicy、allowExperimental</td>
+        <td>既存previewへprofileResolutionとcatalogEntryHashを追加</td>
+      </tr>
+      <tr>
+        <td><code>POST /scans</code></td>
+        <td>resultPolicy、allowExperimental、expectedCatalogEntryHash</td>
+        <td>requested IDでqueueし、resolution envelopeをmetadataへ保存</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    preflightとstartは同じtarget・variant入力を受ける。Webはpreflight responseの
+    <code>catalogEntryHash</code
+    >をstartの<code>expectedCatalogEntryHash</code>へそのまま渡す。 start
+    routeはenqueue前にresolveし、queued
+    rowの<code>profile</code>にはrequested IDを保存する。 response
+    schemaはshared Zod schemaからAPIとWebの双方がinferし、手書きmirror typeを残さない。
+  </p>
+  <p>
+    defaultはprofile fieldのZod
+    <code>.default()</code>では決めない。requestのtargetをparseした後、
+    <code>resolveDefaultCatalogProfileId(target.kind)</code>でfullなら
+    <code>source-assurance</code
+    >、working_tree/commit/rangeなら<code>change-gate</code>を返す。
+    preflight、preview、start、CLI、Webはこのshared server projectionと同じmatrixを使う。
+  </p>
+
+  <h2 id="9-implementation-slices">9. Implementation slices</h2>
+  <table>
+    <caption>
+      9.1 Delivery order
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Slice</th>
+        <th scope="col">Deliverable</th>
+        <th scope="col">Next-step rule</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>PC-00</td>
+        <td>22/23 definition baselineとconsumer inventory</td>
+        <td>fingerprint固定後にPC-01</td>
+      </tr>
+      <tr>
+        <td>PC-01</td>
+        <td>shared schemaとplanned registry</td>
+        <td>挙動差分ゼロならPC-02</td>
+      </tr>
+      <tr>
+        <td>PC-02</td>
+        <td>resolverとmetadata persistence</td>
+        <td>最大21 enabledのgoldenとdisabled 2件の拒否test後にPC-03</td>
+      </tr>
+      <tr>
+        <td>PC-03</td>
+        <td>4 stable canonical profile</td>
+        <td>safety/preflight pass後にPC-04</td>
+      </tr>
+      <tr>
+        <td>PC-04</td>
+        <td>dedicated/experimental catalog connection</td>
+        <td>generic bypassなしでPC-05</td>
+      </tr>
+      <tr>
+        <td>PC-05</td>
+        <td>API/Web/CLI/integration migration</td>
+        <td>external contract pass後にPC-06</td>
+      </tr>
+      <tr>
+        <td>PC-06</td>
+        <td>Milestone A closeout</td>
+        <td>GC evidenceなしなら停止</td>
+      </tr>
+      <tr>
+        <td>PC-07</td>
+        <td>professional-full promotion</td>
+        <td>Gap Completion全gate必須</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3 id="92-pc-00-baseline">9.2 PC-00 — Baseline and characterization</h3>
+  <h4 id="pc-00-changes">Changes</h4>
+  <ol>
+    <li><code>scripts/scan-profile-catalog-baseline.ts</code>を作成する。</li>
+    <li><code>spec/security-capability/scan-profile-catalog-baseline.v1.json</code>を生成する。</li>
+    <li>
+      JSONへcommit、optional adapter set、ID、enabled、scope、targets、strictness、timeout、
+      resolved tools/steps、coverage gaps、known consumersを保存する。
+    </li>
+    <li>
+      <code>executionFingerprint</code
+      >はID/name/description/category/coverageGapsを除外し、timeout、scope、
+      supportedTargets、strictness、tools、DAST rollout後stepsのcanonical JSONをSHA-256化する。
+    </li>
+    <li>
+      definition総数22/23件、enabled 20/21件、disabled 2件、重複なし、optional差分が
+      <code>semgrep-baseline</code>だけであることをassertする。
+    </li>
+  </ol>
+  <h4 id="pc-00-tests">Tests</h4>
+  <pre><code class="language-bash">bun run scripts/scan-profile-catalog-baseline.ts --write
+bun run scripts/scan-profile-catalog-baseline.ts --check
+bun test api/modules/scans/nightworkers-profile-contract.test.ts \
+  api/modules/integrations/nightworkers/nightworkers-scan-preset-registry.test.ts
+bunx vitest run api/routes/scan-profiles.route.test.ts \
+  api/modules/scans/execution/resolved-profile.test.ts
+</code></pre>
+  <h4 id="pc-00-exit">Exit gate</h4>
+  <ul>
+    <li>baselineを再生成して差分ゼロ</li>
+    <li>全23 definition IDにconsumerまたは<code>none</code>を明記</li>
+    <li>証跡: baseline JSON、PC-00 test log</li>
+  </ul>
+
+  <h3 id="93-pc-01-registry">9.3 PC-01 — Schema and registry</h3>
+  <h4 id="pc-01-changes">Changes</h4>
+  <ol>
+    <li>Section 8.1のshared schemaを実装する。</li>
+    <li>
+      <code>profile-catalog.ts</code>へ12 entryと23 definition associationを定義する。
+    </li>
+    <li>全canonical entryを最初はplannedとして登録し、このsliceでは実行可能にしない。</li>
+    <li>cross-entry validatorと<code>hashCatalogEntry</code>を実装する。</li>
+    <li>既存profiles/API/Web/CLIの挙動を変えない。</li>
+  </ol>
+  <h4 id="pc-01-tests">Tests</h4>
+  <pre><code class="language-bash">bun test shared/schemas/scan-profile-catalog.schema.test.ts \
+  api/modules/scans/profile-catalog.test.ts
+bun run typecheck
+bun run scripts/scan-profile-catalog-baseline.ts --check
+</code></pre>
+  <p>
+    duplicate ID/order、unknown capability、duplicate requirement、planned launch、invalid
+    replacement/variant、 unstable hash、entry mutation後のhash差分をnegative testに含める。
+  </p>
+  <h4 id="pc-01-exit">Exit gate</h4>
+  <ul>
+    <li>12 entryと23 definition associationがparse/validationを通る。</li>
+    <li>現行list API、defaults、execution fingerprintに差分なし。</li>
+  </ul>
+
+  <h3 id="94-pc-02-resolution">9.4 PC-02 — Resolution and persistence</h3>
+  <h4 id="pc-02-changes">Changes</h4>
+  <ol>
+    <li>
+      <code>profile-resolution.ts</code
+      >と<code>ProfileResolutionError</code>を作成する。
+    </li>
+    <li>
+      同fileに<code>normalizeProfileResolutionInput</code>を実装し、input
+      kindの導出を一箇所へ固定する。
+    </li>
+    <li>
+      最大21件のenabled legacy IDは元execution definitionへ解決し、canonical
+      associationだけmetadataへ追加する。disabled 2件は解決前に拒否する。
+    </li>
+    <li><code>execution/profile-orchestrator.ts</code>の冒頭で一度だけresolverを呼ぶ。</li>
+    <li>requested ID、canonical ID、execution IDをSection 8.4どおり保存する。</li>
+    <li>
+      <code>ProfileScanResult</code>とstored profile readerをSection
+      8.4のidentity規則へ更新する。
+    </li>
+    <li>
+      <code>profile.resolved</code> eventへ3 ID、catalog version/hash、migration
+      kindを保存する。
+    </li>
+    <li>
+      <code>getProfileById</code>をlegacy compatibility wrapperとして維持する。
+    </li>
+  </ol>
+  <h4 id="pc-02-tests">Tests</h4>
+  <pre><code class="language-bash">bun test api/modules/scans/profile-resolution.test.ts \
+  api/modules/scans/repositories.test.ts \
+  api/modules/scans/nightworkers-profile-contract.test.ts
+bunx vitest run api/modules/scans/execution/profile-runner.test.ts \
+  api/modules/scans/execution/scan-execution-plan-builder.test.ts \
+  api/modules/scans/execution/resolved-profile.test.ts \
+  api/modules/scans/summary-builder.test.ts \
+  api/modules/scans/reporting/report-builder.test.ts
+</code></pre>
+  <p>
+    最大21件のenabled legacy IDごとに3 ID、step fingerprint、strictness、target
+    supportがbaselineと一致するgolden testを作る。disabled 2件、planned、unknown、target
+    mismatch、alias cycle、missing definitionをnegative testにする。
+  </p>
+  <h4 id="pc-02-exit">Exit gate</h4>
+  <ul>
+    <li>新規run metadataからresolutionを読み戻せる。</li>
+    <li>resolutionなしのhistorical runを表示・report生成できる。</li>
+    <li>旧IDのexecution fingerprintがPC-00と一致する。</li>
+    <li>
+      disabled Active系2 IDは<code>profile_not_launchable</code>になりrun rowを作らない。
+    </li>
+  </ul>
+
+  <h3 id="95-pc-03-stable-rollout">9.5 PC-03 — Safe stable rollout</h3>
+  <h4 id="pc-03-changes">Changes</h4>
+  <ol>
+    <li><code>canonical-scan-profiles.ts</code>を作成する。</li>
+    <li>
+      <code>change-gate</code>はdiff targetだけをsupportし、Gitleaks required、
+      OSV/Trivy/Semgrep required-if-applicableのstrict definitionにする。
+    </li>
+    <li>
+      <code>source-assurance</code>はfullだけをsupportし、Gitleaks/OSV/Trivy
+      required、 Semgrepをsource SAST applicable時requiredにする。
+    </li>
+    <li>
+      <code>release-artifact</code
+      >はimage入力なしなら既存<code>artifact</code>、image_ref/image_tarなら
+      <code>container-image-security</code
+      >へ解決する。image_refとimage_tarの同時指定を拒否する。
+    </li>
+    <li>
+      <code>runtime-passive</code
+      >は既存<code>runtime-web-safe</code>のbudgetを変えずに使う。
+    </li>
+    <li>
+      <code>execution/scan-result-policy.ts</code>を作成し、全stepとfinding保存後にSection
+      6.4の<code>gateDecision</code>を一度だけ計算する。
+    </li>
+    <li>
+      result、run metadata、report projectionへresult policy、閾値、decision、severity
+      countを追加する。
+      <code>scan_runs.status</code>の意味は変えない。
+    </li>
+    <li>4 entryだけをstableへ昇格する。</li>
+  </ol>
+  <h4 id="pc-03-tests">Tests</h4>
+  <pre><code class="language-bash">bun test api/modules/scans/canonical-scan-profiles.test.ts \
+  api/modules/scans/nightworkers-profile-contract.test.ts
+bunx vitest run api/modules/scans/execution/scan-preflight.test.ts \
+  api/modules/scans/execution/profile-runner.test.ts \
+  api/modules/scans/execution/scan-result-policy.test.ts \
+  api/modules/scans/execution/scan-process-supervisor.test.ts \
+  api/modules/scans/profiles-dast-budget.test.ts \
+  api/modules/scans/summary-builder.test.ts \
+  api/modules/scans/reporting/report-builder.test.ts \
+  api/routes/scan-profiles.route.test.ts
+bun run test:scanner-e2e:contract
+</code></pre>
+  <h4 id="pc-03-exit">Exit gate</h4>
+  <ul>
+    <li>4 canonical IDがlaunchableで、legacy fingerprintは不変。</li>
+    <li>Semgrep applicable/unavailableを成功にしない。</li>
+    <li>release profileはauto-buildせず、image入力を混同しない。</li>
+    <li>runtime request/rate/time budgetが既存上限以下。</li>
+    <li>
+      gate pass/fail/blocked/not_requested、対話CLI exit 3、Web child exit 0がSection 6.4どおり。
+    </li>
+  </ul>
+
+  <h3 id="96-pc-04-dedicated">9.6 PC-04 — Dedicated-flow catalog integration</h3>
+  <h4 id="pc-04-changes">Changes</h4>
+  <ol>
+    <li>dynamic-verificationをexperimental dynamic dedicated flowへ結ぶ。</li>
+    <li>authenticated-webをexperimental authenticated DAST flowへ結ぶ。</li>
+    <li>api-readonlyを既存api-schema-readonlyへ解決し、authorization未統合をlimitationにする。</li>
+    <li>active-technical-labをZAP active専用flowへ結び、generic orchestratorでは拒否する。</li>
+    <li>business-logic-labをbusiness logic専用flowへ結び、generic orchestratorでは拒否する。</li>
+    <li>remediation-verificationをreproduction flowへ結び、対応scanner範囲をlimitationにする。</li>
+    <li>dependency-supply-chainとprofessional-fullはplannedのままにする。</li>
+  </ol>
+  <table>
+    <caption>
+      9.6 Dedicated binding matrix
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Catalog ID</th>
+        <th scope="col">Destination</th>
+        <th scope="col">Existing execution boundary</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>dynamic-verification</td>
+        <td>dynamic_workspace</td>
+        <td><code>POST /projects/:projectId/dynamic-runs</code></td>
+      </tr>
+      <tr>
+        <td>authenticated-web</td>
+        <td>dast_workspace</td>
+        <td>DAST target/auth context作成後の<code>POST /projects/:projectId/dast-runs</code></td>
+      </tr>
+      <tr>
+        <td>api-readonly</td>
+        <td>scan_workspace</td>
+        <td><code>api-schema-readonly</code> execution definition</td>
+      </tr>
+      <tr>
+        <td>active-technical-lab</td>
+        <td>dast_workspace</td>
+        <td>ZAP active policy付き<code>POST /projects/:projectId/dast-runs</code></td>
+      </tr>
+      <tr>
+        <td>business-logic-lab</td>
+        <td>business_logic_workspace</td>
+        <td><code>POST /business-logic-scenarios/:scenarioId/runs</code></td>
+      </tr>
+      <tr>
+        <td>remediation-verification</td>
+        <td>finding_verification</td>
+        <td><code>POST /findings/:findingId/verifications</code></td>
+      </tr>
+    </tbody>
+  </table>
+  <h4 id="pc-04-tests">Tests</h4>
+  <pre><code class="language-bash">bun test api/modules/dynamic api/modules/business-logic \
+  api/modules/reproductions api/modules/runtime-scans/zap-active-policy.test.ts
+bunx vitest run api/routes/dynamic.route.test.ts \
+  api/routes/dast.route.test.ts \
+  api/routes/dast-auth.route.test.ts \
+  api/routes/reproductions.route.test.ts
+bun run test:zap-active:contract
+</code></pre>
+  <h4 id="pc-04-exit">Exit gate</h4>
+  <ul>
+    <li>dedicated entryは正しいsurfaceを示しgeneric startを持たない。</li>
+    <li>R3はRoE/disposable/reset条件なしで実行不能。</li>
+    <li>R1/R3のcleanup receiptが残り、一時workspace削除失敗を成功扱いにしない。</li>
+    <li>host repositoryのstatus/digestが実行前後で不変。</li>
+    <li>planned entryはlaunchable listへ入らない。</li>
+  </ul>
+
+  <h3 id="97-pc-05-consumers">9.7 PC-05 — Consumer migration</h3>
+  <h4 id="pc-05-changes">Changes</h4>
+  <ol>
+    <li>shared list response schemaとSection 8.5のAPI responseを実装する。</li>
+    <li>
+      <code>api/routes/projects.route.ts</code>のpreflight、preview、startを同じinput
+      normalization/resolverへ移行する。3 endpointを一つのsliceで切り替え、混在状態をmergeしない。
+    </li>
+    <li>
+      preflight/preview responseへresolutionとcatalog hashを追加し、start requestの
+      <code>expectedCatalogEntryHash</code>をorchestratorまで伝播する。
+    </li>
+    <li><code>web/src/api/scans-execution.ts</code>の手書きprofile型をshared inferへ置換する。</li>
+    <li>typed paramsを<code>as any</code>へ落とさない。</li>
+    <li>
+      Web selectはlaunchable genericだけにする。新規
+      <code>web/src/domains/scans/components/scan-profile-catalog-list.tsx</code>で、 dedicated/planned
+      entryの状態、limitation、既存surfaceへの遷移先を表示する。
+    </li>
+    <li>
+      <code>use-scan-launch-state.ts</code
+      >の<code>baseline</code>固定値を削除しserver defaultを使う。
+      現在の有効な選択を勝手に変更しない。
+    </li>
+    <li>
+      project
+      routeの<code>profile</code>をoptionalにし、Zodの固定defaultを削除する。
+      target parse後にSection 8.5のdefault resolverを呼ぶ。
+    </li>
+    <li>
+      scan-profile CLIのoption parserから固定defaultを削除し、fullはsource-assurance、diffは
+      change-gateを選ぶ。
+    </li>
+    <li>
+      <code>api/cli/scan-profile.ts</code
+      >と<code>scan-profile-dry-run.ts</code>の事前検証をresolverへ
+      移し、<code>--result-policy=advisory|gate</code>を追加する。canonical ID、legacy ID、variant
+      入力、policyのdry-runと実行結果を一致させる。
+    </li>
+    <li>Oracleはagent-outputを維持し、内部resolverだけを使う。</li>
+    <li>
+      NightWorkers v1 preset/allowlistはlegacy refを維持する。requested
+      IDのallowlist確認後にresolverを呼び、 canonical associationによるallowlist迂回を防ぐ。
+    </li>
+    <li><code>PROFILE_DISPLAY</code>はhistorical legacy fallbackとして残す。</li>
+  </ol>
+  <p>
+    Web stateは<code>selectedProfileId: string | null</code>と
+    <code>profileSelectionOrigin: "server_default" | "user"</code>を持つ。profile list初回load時だけ current
+    targetのserver defaultを選ぶ。target変更時はserver_default由来なら追随し、user由来で
+    新targetをsupportする選択は保持する。supportしない場合だけserver
+    defaultへ戻し、その理由を表示する。
+  </p>
+  <h4 id="pc-05-tests">Tests</h4>
+  <pre><code class="language-bash">bun test api/modules/integrations/nightworkers/nightworkers-scan-preset-registry.test.ts \
+  api/modules/integrations/nightworkers/nightworkers-integration.service.test.ts \
+  api/modules/scans/security-oracle-cli.test.ts
+bunx vitest run api/routes/scan-profiles.route.test.ts \
+  api/routes/projects.route.test.ts \
+  api/routes/projects-diff-scan.route.test.ts \
+  api/cli/scan-profile-dry-run.test.ts \
+  web/src/domains/scans/components/scan-launch-card.test.ts \
+  web/src/domains/scans/components/scan-profile-catalog-list.test.ts \
+  web/src/domains/scans/scan-profile-display.test.ts
+bun run typecheck
+</code></pre>
+  <h4 id="pc-05-exit">Exit gate</h4>
+  <ul>
+    <li>API/Webが同じshared schemaを使う。</li>
+    <li>preflight、preview、start、CLI dry-runが同じcanonical/execution IDを返す。</li>
+    <li>catalog/preflight/plan hash不一致はqueueまたは実行を開始しない。</li>
+    <li>Web selectにlegacy/planned重複なし。</li>
+    <li>NightWorkers v1 fixtureとOracle output fixtureが不変。</li>
+    <li>allowlist外IDがlegacy/canonicalどちらでも拒否される。</li>
+  </ul>
+
+  <h3 id="98-pc-06-closeout">9.8 PC-06 — Milestone A closeout</h3>
+  <h4 id="pc-06-changes">Changes</h4>
+  <ol>
+    <li>
+      legacy resolution時にsecretを含まない<code>profile.legacy_resolved</code>
+      eventを保存する。
+    </li>
+    <li><code>scripts/verify-scan-profile-catalog-consolidation.ts</code>を作成する。</li>
+    <li>
+      <code>test:scan-profile-catalog</code
+      >と<code>verify:scan-profile-catalog</code>をpackage scriptsへ追加する。
+    </li>
+    <li>
+      verifierはcatalog hash、22/23 definition baseline、12 entry、public重複なし、legacy
+      fingerprint、legacy v1 API fixture、planned非実行、gate policy fixture、external contract
+      fixture、docs linkを検証する。
+    </li>
+    <li>contract-bound legacy IDを削除しない。時間だけを削除条件にしない。</li>
+  </ol>
+  <h4 id="pc-06-tests">Tests</h4>
+  <pre><code class="language-bash">bun run test:scan-profile-catalog
+bun run verify:scan-profile-catalog
+bun run test:inventory -- --assert-complete
+bun run typecheck
+bun run docs:check
+git diff --check
+</code></pre>
+  <h4 id="pc-06-exit">Exit gate</h4>
+  <ul>
+    <li>Web通常選択と<code>catalogEntries</code>はcanonicalだけを表示する。</li>
+    <li>
+      APIのlegacy <code>profiles</code> fieldはPC-00 fixtureと一致する。
+    </li>
+    <li>
+      最大21件のenabled legacy IDは通常UIからhiddenで、API compatibility fieldとstart互換だけを
+      維持する。disabled 2件は起動不能。
+    </li>
+    <li><code>artifacts/scan-profile-catalog/closeout.v1.json</code>がcurrent commitとtest結果を参照する。</li>
+  </ul>
+
+  <h3 id="99-pc-07-professional-full">9.9 PC-07 — Professional-full gate</h3>
+  <p>Status: Blocked by the Gap Completion companion plan and execution plan v2.</p>
+  <p>
+    Gap CompletionのGC-00〜GC-08相当のcloseout evidenceがない場合は着手しない。
+    professional-fullをplannedのまま残してMilestone Aを完了する。
+  </p>
+  <ol>
+    <li>完成したrun-group execution refをcatalog entryへ結ぶ。</li>
+    <li>execution plan v2のcatalog bindingと全required coverageを検証する。</li>
+    <li>R0/R1/R2/R3のapproval、cleanup、limitationsを一つのprojectionへ結ぶ。</li>
+    <li>human-led taskを自動passから分離したままexperimentalへ昇格する。</li>
+    <li>same-commit closeoutと人手approval後だけstable昇格を別判断する。</li>
+  </ol>
+
+  <h2 id="10-file-change-manifest">10. File change manifest</h2>
+  <table>
+    <caption>
+      10.1 Required file-level work
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Action</th>
+        <th scope="col">Path</th>
+        <th scope="col">Responsibility / slice</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Create</td>
+        <td><code>shared/schemas/scan-profile-catalog.schema.ts</code></td>
+        <td>catalog/resolution/list response schema、PC-01/05</td>
+      </tr>
+      <tr>
+        <td>Create</td>
+        <td><code>shared/schemas/scan-profile-catalog.schema.test.ts</code></td>
+        <td>schema negative tests、PC-01</td>
+      </tr>
+      <tr>
+        <td>Create</td>
+        <td><code>api/modules/scans/profile-catalog.ts</code></td>
+        <td>12 entry、23 definition map、validation、PC-01</td>
+      </tr>
+      <tr>
+        <td>Create</td>
+        <td><code>api/modules/scans/profile-catalog.test.ts</code></td>
+        <td>registry/hash tests、PC-01</td>
+      </tr>
+      <tr>
+        <td>Create</td>
+        <td><code>api/modules/scans/profile-resolution.ts</code></td>
+        <td>single resolverとtyped error、PC-02</td>
+      </tr>
+      <tr>
+        <td>Create</td>
+        <td><code>api/modules/scans/profile-resolution.test.ts</code></td>
+        <td>最大21 enabled mappingとdisabled 2件のnegative tests、PC-02</td>
+      </tr>
+      <tr>
+        <td>Create</td>
+        <td><code>api/modules/scans/canonical-scan-profiles.ts</code></td>
+        <td>change/source execution definitions、PC-03</td>
+      </tr>
+      <tr>
+        <td>Create</td>
+        <td><code>api/modules/scans/canonical-scan-profiles.test.ts</code></td>
+        <td>composition/target/budget tests、PC-03</td>
+      </tr>
+      <tr>
+        <td>Create</td>
+        <td><code>api/modules/scans/execution/scan-result-policy.ts</code></td>
+        <td>advisory/gate decisionの純粋関数、PC-03</td>
+      </tr>
+      <tr>
+        <td>Create</td>
+        <td><code>api/modules/scans/execution/scan-result-policy.test.ts</code></td>
+        <td>severity thresholdとrun outcome分離、PC-03</td>
+      </tr>
+      <tr>
+        <td>Create</td>
+        <td><code>scripts/scan-profile-catalog-baseline.ts</code></td>
+        <td>baseline writer/checker、PC-00</td>
+      </tr>
+      <tr>
+        <td>Create</td>
+        <td><code>spec/security-capability/scan-profile-catalog-baseline.v1.json</code></td>
+        <td>pre-change golden、PC-00</td>
+      </tr>
+      <tr>
+        <td>Create</td>
+        <td><code>scripts/verify-scan-profile-catalog-consolidation.ts</code></td>
+        <td>closeout verifier、PC-06</td>
+      </tr>
+      <tr>
+        <td>Update</td>
+        <td><code>api/modules/scans/profiles.ts</code></td>
+        <td>canonical definitionsとcompatibility facade、PC-02/03</td>
+      </tr>
+      <tr>
+        <td>Preserve</td>
+        <td><code>api/modules/scans/static-scan-profiles.ts</code></td>
+        <td>legacy execution definitions。Milestone Aでは削除しない。</td>
+      </tr>
+      <tr>
+        <td>Update</td>
+        <td><code>api/modules/scans/execution/profile-orchestrator.ts</code></td>
+        <td>resolve once、metadata/event保存、result policy適用、PC-02/03</td>
+      </tr>
+      <tr>
+        <td>Update</td>
+        <td><code>api/modules/scans/execution/profile-runner.ts</code></td>
+        <td>resultへcanonical/execution IDとgate decisionを追加、PC-02/03</td>
+      </tr>
+      <tr>
+        <td>Update</td>
+        <td><code>api/modules/scans/execution/resolved-profile.ts</code></td>
+        <td>resolution-aware stored profile reader、PC-02</td>
+      </tr>
+      <tr>
+        <td>Update</td>
+        <td><code>api/modules/scans/summary-builder.ts</code></td>
+        <td>historical resolution fallbackとgate decision projection、PC-02/03</td>
+      </tr>
+      <tr>
+        <td>Update</td>
+        <td><code>api/modules/scans/reporting/report-builder-query.ts</code></td>
+        <td>3 ID、policy、gate decision、limitationのreport入力、PC-02/03</td>
+      </tr>
+      <tr>
+        <td>Update</td>
+        <td><code>api/routes/scan-profiles.route.ts</code></td>
+        <td>sanitized v2 additive response、PC-05</td>
+      </tr>
+      <tr>
+        <td>Update</td>
+        <td><code>api/routes/projects.route.ts</code></td>
+        <td>preflight/preview/start共通resolver、hash binding、canonical defaults、PC-05</td>
+      </tr>
+      <tr>
+        <td>Update</td>
+        <td><code>web/src/api/scans-execution.ts</code></td>
+        <td>shared inferred typeとresolution/hash request/response、PC-05</td>
+      </tr>
+      <tr>
+        <td>Update</td>
+        <td><code>web/src/domains/scans/components/scan-launch-card.tsx</code></td>
+        <td>launchable generic profileだけを選択、PC-05</td>
+      </tr>
+      <tr>
+        <td>Create</td>
+        <td><code>web/src/domains/scans/components/scan-profile-catalog-list.tsx</code></td>
+        <td>dedicated/planned entryと遷移先の表示、PC-05</td>
+      </tr>
+      <tr>
+        <td>Create</td>
+        <td><code>web/src/domains/scans/components/scan-profile-catalog-list.test.ts</code></td>
+        <td>launch可否、limitation、navigation rendering、PC-05</td>
+      </tr>
+      <tr>
+        <td>Update</td>
+        <td><code>web/src/domains/scans/workspace/use-scan-launch-state.ts</code></td>
+        <td>server default、PC-05</td>
+      </tr>
+      <tr>
+        <td>Preserve/update</td>
+        <td><code>web/src/domains/scans/scan-profile-display.ts</code></td>
+        <td>legacy historical fallback、新copyはcatalog、PC-05</td>
+      </tr>
+      <tr>
+        <td>Update</td>
+        <td><code>api/cli/scan-profile.ts</code></td>
+        <td>canonical default、resolver利用、hash伝播、PC-05</td>
+      </tr>
+      <tr>
+        <td>Update</td>
+        <td><code>api/cli/scan-profile-dry-run.ts</code></td>
+        <td>canonical/legacy/variant resolutionの共通化、PC-05</td>
+      </tr>
+      <tr>
+        <td>Preserve</td>
+        <td><code>api/cli/oracle-security.ts</code></td>
+        <td><code>agent-output</code> contractを維持</td>
+      </tr>
+      <tr>
+        <td>Update internally</td>
+        <td><code>api/modules/integrations/nightworkers/nightworkers-scan-preset-registry.ts</code></td>
+        <td>resolver利用、v1 ref維持、PC-05</td>
+      </tr>
+      <tr>
+        <td>Preserve</td>
+        <td><code>shared/schemas/nightworkers-security-scan-integration.schema.ts</code></td>
+        <td>contract version 1を変更しない</td>
+      </tr>
+      <tr>
+        <td>Update</td>
+        <td><code>package.json</code></td>
+        <td>test/verify scripts、PC-06</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    <code>shared/schemas/scan-execution-plan.schema.ts</code>とDrizzle migrationはMilestone Aで変更しない。
+    変更が必要になった場合は本計画を止め、execution plan v2 dependencyとして再評価する。
+  </p>
+
+  <h2 id="11-testing-and-evidence">11. Testing and evidence</h2>
+  <table>
+    <caption>
+      11.1 Required test layers
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Layer</th>
+        <th scope="col">Required proof</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Schema</td>
+        <td>strict parse、invalid enum/input/variant/replacement rejection</td>
+      </tr>
+      <tr>
+        <td>Registry</td>
+        <td>12 canonical、23 definition association、unique order、stable hash</td>
+      </tr>
+      <tr>
+        <td>Migration</td>
+        <td>enabled legacy execution fingerprint不変、disabled 2件の起動拒否</td>
+      </tr>
+      <tr>
+        <td>Resolver</td>
+        <td>canonical/legacy/input/target/surface/experimental/blocked</td>
+      </tr>
+      <tr>
+        <td>Persistence</td>
+        <td>3 ID、hash、historical fallback、plan identity</td>
+      </tr>
+      <tr>
+        <td>Result policy</td>
+        <td>advisory/gate、severity threshold、unknown block、run status分離</td>
+      </tr>
+      <tr>
+        <td>API</td>
+        <td>
+          legacy v1 fixture不変、sanitization、canonical launchable list、catalog list、defaults
+        </td>
+      </tr>
+      <tr>
+        <td>Web</td>
+        <td>no hardcoded default、disabled planned、dedicated navigation</td>
+      </tr>
+      <tr>
+        <td>External contract</td>
+        <td>NightWorkers v1とOracle fixture不変、allowlist bypass拒否</td>
+      </tr>
+      <tr>
+        <td>Safety</td>
+        <td>R1/R3 generic launch拒否、runtime budget不変</td>
+      </tr>
+      <tr>
+        <td>Closeout</td>
+        <td>clean-checkout compatible、typecheck、docs、inventory、diff check</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>closeout evidenceの最低schemaは次とする。</p>
+  <pre><code class="language-text">schemaVersion
+releaseCommit
+catalogVersion
+catalogHash
+baselineHash
+canonicalProfileIds[]
+legacyProfileIds[]
+legacyExecutionFingerprints{}
+gatePolicyContractHash
+testCommands[]: command, status, completedAt
+externalContractStatus
+milestone: A | B
+professionalFullAvailability
+limitations[]
+</code></pre>
+
+  <h2 id="12-migration-and-rollback">12. Migration and rollback</h2>
+  <ol>
+    <li>PC-01はregistry追加だけで既存consumerを変えない。</li>
+    <li>PC-02はresolverを導入するが旧IDのexecution definitionを変えない。</li>
+    <li>PC-03でcanonical IDを追加し、旧IDを同時に受理する。</li>
+    <li>PC-05でWeb/API defaultをcanonicalへ切り替える。</li>
+    <li>Oracle/NightWorkers v1はlegacy IDのままresolverを利用する。</li>
+    <li>
+      rollbackはconsumer defaultとcatalog availabilityを戻し、metadata/historical
+      evidenceを削除しない。
+    </li>
+  </ol>
+  <p>
+    rollback flagはcatalog全体を消す一つのbooleanではなく、canonical public
+    listing/default切替を戻せる bounded settingにする。R3 safety policy、legacy
+    resolver、保存済みresolutionはrollback対象にしない。
+  </p>
+  <p>legacy ID削除には次をすべて要求する。</p>
+  <ul>
+    <li>repository内の実行参照ゼロ</li>
+    <li>対象external contractの新versionとconsumer移行</li>
+    <li>保存済み設定のread/migrate test</li>
+    <li>usage evidenceが定義した観測期間でゼロ</li>
+    <li>historical run displayとrollback test</li>
+  </ul>
+
+  <h2 id="13-definition-of-done-and-handoff">13. Definition of done and handoff</h2>
+  <h3 id="131-milestone-a-dod">13.1 Milestone A Definition of Done</h3>
+  <ul>
+    <li>public catalogに12 use-case entryがあり、通常選択肢にtool差だけの重複がない。</li>
+    <li>
+      4 stable profile（うち通常generic startは3件）と6 experimental/dedicated
+      profileの状態・入力・安全性が正しい。
+    </li>
+    <li>dependency-supply-chainとprofessional-fullをplanned/disabledとして正直に表示する。</li>
+    <li>
+      最大21件のenabled legacy IDのstep、scope、required/failure policy
+      fingerprintが不変で、disabled 2件がgeneric経由で拒否される。
+    </li>
+    <li>requested/canonical/execution IDを新規runから追跡できる。</li>
+    <li>gate decisionがSection 6.4どおりで、scanner運用失敗と混同されない。</li>
+    <li>API/Webがshared schemaを使い、server defaultから選択する。</li>
+    <li>Oracle/NightWorkers v1 contractとallowlist securityが維持される。</li>
+    <li>R1/R3 dedicated flowがgeneric profile経由で起動できない。</li>
+    <li>
+      <code>verify:scan-profile-catalog</code>、typecheck、docs、test inventory、diff
+      checkがpassする。
+    </li>
+    <li>closeout evidenceがcurrent commitへ結び付く。</li>
+  </ul>
+
+  <h3 id="132-milestone-b-dod">13.2 Milestone B Definition of Done</h3>
+  <ul>
+    <li>
+      Gap Completionの全required capability、execution plan v2、coverage ledger、cleanup
+      evidenceが完成。
+    </li>
+    <li>professional-fullのrequired applicable step欠落でcompleteにならない。</li>
+    <li>vulnerable/fixed、clean-clone、same-commit report、人手approvalが揃う。</li>
+    <li>自動scanの限界とhuman-led taskがreportへ残る。</li>
+  </ul>
+
+  <h3 id="133-terra-handoff-template">13.3 Terra handoff template</h3>
+  <p>各slice終了時に次を埋め、次の担当へ渡す。</p>
+  <pre><code class="language-text">Slice:
+Commit / working tree state:
+Files created:
+Files updated:
+Baseline hash before / after:
+Commands executed and exit codes:
+Evidence paths:
+Unresolved blockers:
+Legacy behavior deviations: none | details
+Next permitted slice:
+</code></pre>
+  <p>
+    <code>Unresolved blockers</code
+    >または<code>Legacy behavior deviations</code>に内容がある場合、
+    次sliceへ自動継続しない。計画へ判断結果を追記してから再開する。
+  </p>
+
+  <h2 id="14-plan-relationship">14. Plan relationship</h2>
+  <p>
+    <a href="phase-56-capability-product-completion-plan.html">Phase 56</a>はprofessional
+    claim、一般化評価、 製品入口、交換形式、配布、保守性を扱う。本計画はcatalog、resolution、legacy
+    migration、consumer表示を扱い、 Phase 56のclaimや評価値を置き換えない。
+  </p>
+  <p>
+    <a href="security-capability-gap-completion-implementation-plan.html"
+      >Security Capability Gap Completion</a
+    >
+    はPC-07の外部dependencyである。同文書がGC-00以降のfile、test、exit gate、closeout schemaを
+    定義し、same-commit
+    evidenceを生成できる状態になるまで、PC-07は<code>blocked</code>とする。
+    このblockerはPC-00〜PC-06の完了を妨げない。
+  </p>
+
+  <h2 id="15-normative-references">15. Normative references and design consequences</h2>
+  <ul>
+    <li>
+      <a
+        href="https://owasp.org/www-project-web-security-testing-guide/stable/4-Web_Application_Security_Testing/00-Introduction_and_Objectives/"
+        >OWASP Web Security Testing Guide — Web Application Security Testing</a
+      >: passiveとactiveを別profile・別安全境界にし、単一tool実行を包括診断と表示しない根拠とする。
+    </li>
+    <li>
+      <a href="https://www.zaproxy.org/docs/docker/about/">ZAP Docker User Guide</a>と
+      <a href="https://www.zaproxy.org/docs/docker/baseline-scan/">ZAP Baseline Scan</a>:
+      baselineは受動、full/API scanはactiveを含むため、runtime-passiveとactive-technical-labを
+      同じgeneric profileへ統合しない。
+    </li>
+    <li>
+      <a href="https://csrc.nist.gov/pubs/sp/800/115/final">NIST SP 800-115</a>:
+      planning、execution、finding analysis、mitigationを証跡付きphaseとして扱う。
+    </li>
+    <li>
+      <a href="https://csrc.nist.gov/pubs/sp/800/218/final">NIST SP 800-218 SSDF 1.1</a>:
+      change-gateとsource-assuranceをSDLC内の継続的な検査入口として扱う。
+    </li>
+    <li>
+      <a href="https://owasp.org/www-project-application-security-verification-standard/"
+        >OWASP ASVS 5.0</a
+      >: authentication、authorization、business controlはtool名ではなく検証capabilityとして表す。
+    </li>
+    <li>
+      <a href="https://slsa.dev/spec/v1.2/provenance">SLSA v1.2 Provenance</a>:
+      SBOM/SCAだけをprovenance検証済みとせず、attestationとtrust policyが揃うまで
+      dependency-supply-chainをplannedに保つ。
+    </li>
+  </ul>
+</article>

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { scanCapabilityRequirementsSchema } from "./scan-capability.schema";
 import { sha256DigestSchema } from "./security-capability.schema";
 
 export const scanExecutionStrictnessSchema = z.enum(["strict", "best_effort"]);
@@ -21,7 +22,7 @@ export const scanExecutionStepSchema = z.object({
 	evidenceRefs: z.array(z.string().min(1).max(200)).max(32),
 });
 
-export const scanExecutionPlanSchema = z.object({
+export const scanExecutionPlanV1Schema = z.object({
 	schemaVersion: z.literal(1),
 	scanRunId: z.string().uuid(),
 	projectId: z.string().uuid(),
@@ -60,4 +61,32 @@ export const scanExecutionPlanSchema = z.object({
 	steps: z.array(scanExecutionStepSchema).min(1).max(64),
 });
 
+export const scanExecutionPlanV2StepSchema = scanExecutionStepSchema.extend({
+	inputBindingHash: sha256DigestSchema.nullable(),
+	policyHash: sha256DigestSchema.nullable(),
+	budget: z.object({
+		timeoutSec: z.number().int().positive().max(86_400).nullable(),
+		maxRequests: z.number().int().positive().max(1_000_000).nullable(),
+	}),
+	cleanupRequirement: z.enum(["not_required", "required"]),
+});
+
+export const scanExecutionPlanV2Schema = scanExecutionPlanV1Schema.extend({
+	schemaVersion: z.literal(2),
+	capabilityRequirements: scanCapabilityRequirementsSchema,
+	safety: z.object({
+		networkPolicy: z.enum(["offline", "allowlisted", "isolated"]),
+		approvalRequired: z.boolean(),
+		approvalRef: z.string().min(1).max(200).nullable(),
+	}),
+	steps: z.array(scanExecutionPlanV2StepSchema).min(1).max(64),
+});
+
+export const scanExecutionPlanSchema = z.discriminatedUnion("schemaVersion", [
+	scanExecutionPlanV1Schema,
+	scanExecutionPlanV2Schema,
+]);
+
+export type ScanExecutionPlanV1 = z.infer<typeof scanExecutionPlanV1Schema>;
+export type ScanExecutionPlanV2 = z.infer<typeof scanExecutionPlanV2Schema>;
 export type ScanExecutionPlan = z.infer<typeof scanExecutionPlanSchema>;

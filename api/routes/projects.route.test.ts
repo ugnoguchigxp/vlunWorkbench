@@ -381,6 +381,43 @@ describe("Projects Route", () => {
 		);
 	});
 
+	it("rejects a changed catalog entry before creating a queued scan", async () => {
+		const scanRepository = {
+			createScanRun: vi.fn(),
+			createScanEvent: vi.fn(),
+		};
+		const scanApp = new Hono();
+		scanApp.use("*", async (c, next) => {
+			c.set("authUser", { userId: "user-123", email: "user@example.com", role: "member" });
+			await next();
+		});
+		scanApp.onError((error, c) =>
+			error instanceof HttpError
+				? c.json({ message: error.message }, error.status as never)
+				: c.json({ message: error.message }, 500),
+		);
+		scanApp.route(
+			"/",
+			createProjectsRoute({
+				projectRepository: mockProjectRepo as any,
+				scanRepository: scanRepository as any,
+				scanSupervisor: { launch: vi.fn() } as any,
+				env: readAppEnv({ NODE_ENV: "test" }),
+				resolveProjectPath: mockResolveProjectPath,
+			}),
+		);
+		const res = await scanApp.request("/p-1/scans", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({
+				profile: "baseline",
+				expectedCatalogEntryHash: `sha256:${"0".repeat(64)}`,
+			}),
+		});
+		expect(res.status).toBe(409);
+		expect(scanRepository.createScanRun).not.toHaveBeenCalled();
+	});
+
 	it("POST /:projectId/scans returns 429 when the Web process queue is full", async () => {
 		const scanRepository = {
 			createScanRun: vi.fn().mockResolvedValue({ id: "s-rejected" }),

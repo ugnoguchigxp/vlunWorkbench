@@ -29,6 +29,7 @@ describe("readAppEnv", () => {
 		expect(env.webScanWallClockTimeoutSec).toBe(
 			RUNTIME_SETTINGS_DEFAULTS.webScanWallClockTimeoutSec,
 		);
+		expect(env.scanExecutionPlanV2).toBe(false);
 		expect(env.jwtAccessExpiresIn).toBe("1d");
 		expect(env.jwtRefreshExpiresIn).toBe("7d");
 		expect(env.scanExecutionMode).toBeUndefined();
@@ -77,6 +78,13 @@ describe("readAppEnv", () => {
 			"llm.example",
 			"azure.example",
 		]);
+	});
+
+	it("parses the explicit execution plan v2 writer flag", () => {
+		expect(
+			readAppEnv({ VULN_WORKBENCH_SCAN_EXECUTION_PLAN_V2: "true" })
+				.scanExecutionPlanV2,
+		).toBe(true);
 	});
 
 	it("accepts an explicit Static Intelligence project creation policy", () => {

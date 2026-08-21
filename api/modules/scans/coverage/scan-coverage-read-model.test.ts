@@ -27,6 +27,8 @@ describe("scan coverage read model", () => {
 			],
 		});
 		expect(model.sourceSast?.coverageEffect).toBe("gap");
+		expect(model.ledger).toBeNull();
+		expect(model.normalizedStepResults).toEqual([]);
 		expect(model.controls[0]?.status).toBe("not_tested");
 	});
 });

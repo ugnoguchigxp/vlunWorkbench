@@ -16,12 +16,15 @@ describe("stored resolved scan profiles", () => {
     expect(hashResolvedProfile(withoutSemgrep)).toBe(
       hashResolvedProfile(withSemgrep),
     );
-    expect(
-      readStoredResolvedProfile(
-        { resolvedProfile: withoutSemgrep },
-        "full-security-scan",
-      )?.coverageGaps,
-    ).toEqual([]);
+    const stored = readStoredResolvedProfile(
+      { resolvedProfile: withoutSemgrep },
+      "full-security-scan",
+    );
+    expect(stored?.coverageGaps).toBeUndefined();
+    expect(stored?.capabilityRequirements).toContainEqual({
+      capabilityId: "source_sast",
+      requirement: "required_if_applicable",
+    });
   });
 
   it("rejects a stored profile with the wrong id", () => {

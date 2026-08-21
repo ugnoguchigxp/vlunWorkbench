@@ -5,6 +5,7 @@ import type {
 	Project,
 	ScanEvent,
 	ScanProfile,
+	ScanProfileCatalogEntry,
 	ScanRun,
 	ScanTargetKind,
 } from "../../../api";
@@ -46,7 +47,11 @@ export function useScanLaunchState() {
 	const [actionQueueFilter, setActionQueueFilter] =
 		useState<ActionQueueFilter>("active");
 	const [profiles, setProfiles] = useState<ScanProfile[]>([]);
-	const [selectedProfileId, setSelectedProfileId] = useState("baseline");
+	const [catalogEntries, setCatalogEntries] = useState<ScanProfileCatalogEntry[]>([]);
+	const [catalogDefaultProfileIds, setCatalogDefaultProfileIds] = useState<
+		Partial<Record<ScanTargetKind, string>>
+	>({});
+	const [selectedProfileId, setSelectedProfileId] = useState("");
 	const [scanTargetKind, setScanTargetKind] = useState<ScanTargetKind>("full");
 	const [diffBaseRef, setDiffBaseRef] = useState("HEAD");
 	const [diffHeadRef, setDiffHeadRef] = useState("HEAD");
@@ -67,6 +72,8 @@ export function useScanLaunchState() {
 	return {
 		actionQueueFilter,
 		activeScanEvents,
+		catalogEntries,
+		catalogDefaultProfileIds,
 		continueOnToolFailure,
 		diffBaseRef,
 		diffHeadRef,
@@ -99,6 +106,8 @@ export function useScanLaunchState() {
 		selectedScanRunId,
 		setActionQueueFilter,
 		setActiveScanEvents,
+		setCatalogEntries,
+		setCatalogDefaultProfileIds,
 		setContinueOnToolFailure,
 		setDiffBaseRef,
 		setDiffHeadRef,

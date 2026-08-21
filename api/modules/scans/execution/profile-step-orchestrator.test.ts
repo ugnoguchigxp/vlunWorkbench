@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ExecuteProfileStepsParams } from "./profile-step-orchestrator-types";
 import { executeProfileSteps } from "./profile-step-orchestrator";
+import { profileStepRunnerRegistry } from "./execute-profile-step";
 import { getProfileById } from "../profiles";
 
 const profile = getProfileById("baseline");
@@ -48,6 +49,17 @@ function buildParams(params: {
 }
 
 describe("executeProfileSteps lifecycle events", () => {
+	it("registers every currently supported profile step kind", () => {
+		expect(Object.keys(profileStepRunnerRegistry).sort()).toEqual([
+			"api_schema_scan",
+			"container_image_scan",
+			"dast",
+			"runtime_scanner",
+			"sbom_export",
+			"static_tool",
+		]);
+	});
+
 	it("emits a terminal not_applicable event when a planned step is skipped", async () => {
 		const fixture = buildParams({
 			applicability: "not_applicable",

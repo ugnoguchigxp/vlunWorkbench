@@ -12,7 +12,10 @@ import {
 	type ProfileScanResult,
 	runProfileScan,
 } from "../modules/scans/profile-runner";
-import { getProfileById } from "../modules/scans/profiles";
+import {
+	normalizeProfileResolutionInput,
+	resolveProfileSelection,
+} from "../modules/scans/profile-resolution";
 import {
 	ProjectResolutionError,
 	resolveProjectByPath,
@@ -111,8 +114,15 @@ async function main(): Promise<number> {
 		return exitCodeFor(result);
 	}
 	const profileId = DEFAULT_ORACLE_PROFILE;
-	const profile = getProfileById(profileId);
-	if (!profile) {
+	const scanTarget = { kind: "full" } as const;
+	try {
+		resolveProfileSelection({
+			requestedProfileId: profileId,
+			surface: "security_oracle",
+			target: scanTarget,
+			providedInputKinds: normalizeProfileResolutionInput({ repoPath: projectPath }),
+		}).executionProfile;
+	} catch {
 		const result = failureResult({
 			status: "config_error",
 			code: "PROFILE_NOT_FOUND",
@@ -122,7 +132,6 @@ async function main(): Promise<number> {
 		writeResult(result);
 		return exitCodeFor(result);
 	}
-	const scanTarget = { kind: "full" } as const;
 	const expectedTargetDigest = undefined;
 	const findingLimit = DEFAULT_FINDING_LIMIT;
 
@@ -162,6 +171,7 @@ async function main(): Promise<number> {
 			continueOnToolFailure: true,
 			execution,
 			executionPolicyMetadata: scanExecutionPolicyMetadata(executionPolicy),
+			executionSurface: "security_oracle",
 		});
 
 		const findingRepo = new FindingRepository(dbConnection.db);

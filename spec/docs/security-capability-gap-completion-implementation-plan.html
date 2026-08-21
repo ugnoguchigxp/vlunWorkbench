@@ -1,0 +1,900 @@
+<article lang="ja" data-spec-role="active-plan">
+  <h1 id="security-capability-gap-completion-implementation-plan">
+    Security Capability Gap Completion Implementation Plan
+  </h1>
+  <p>Status: Reviewed — Ready for implementation</p>
+  <p>Plan revision: <code>2</code></p>
+  <p>Planning baseline commit: <code>b7e8be17601c9cad97335de188048c5979415098</code></p>
+  <p>Baseline and review date: 2026-08-21</p>
+  <p>Owner: vulnWorkbench maintainers</p>
+  <p>
+    Target: 既存scanner、個別engine、schema、UIを安全なprofile executionへ接続し、宣言範囲の実行、
+    未適用、失敗、未計測、cleanupを一つの証拠付き結果として判定できる状態にする。
+  </p>
+  <p>
+    最初の実装単位は<code>GC-00.1</code>である。全sliceを同時に開始してはならない。
+    Section 7のrunbookに従い、work package単位で実装、検証、handoffを完了してから次へ進む。
+  </p>
+
+  <h2 id="1-conclusion">1. Conclusion</h2>
+  <p>
+    repositoryにはGitleaks、OSV、Trivy、Semgrep、SBOM、container scan、passive DAST、ZAP、
+    authorization matrix、business
+    logic、dynamic、reproductionの実装がある。ただしcomponentの存在は、
+    profileが入力解決、preflight、実行、cancel、cleanup、coverage、reportを完遂できることを証明しない。
+    不足しているのは共通contract、lifecycle、qualification、truthful coverageである。
+  </p>
+  <p>
+    completeはsupport scope内の適用可能なrequired
+    capabilityが実行され、input、policy、tool、evidence、
+    cleanupを追跡できることを指す。全脆弱性の自動検出、人手診断の代替、support
+    boundary外の実装は意味しない。
+  </p>
+  <h3 id="11-normative-language">1.1 Normative language</h3>
+  <ul>
+    <li>「必須」「してはならない」はrelease gateであり、担当者の裁量で緩和しない。</li>
+    <li>「既定」はproduction/CIのfail-closed値を指す。</li>
+    <li>
+      「evidence」はcurrent commit、input、policy、tool digestへ結び付いた保存済みartifactを指す。
+    </li>
+    <li>未決定事項はSection 6のdefault decisionを適用し、推測でscopeを広げない。</li>
+  </ul>
+
+  <h2 id="2-baseline-scope-gaps">2. Baseline, scope, and gaps</h2>
+  <h3 id="21-current-facts">2.1 Current facts</h3>
+  <ul>
+    <li><code>scan_execution_plans</code>にimmutable plan JSON/hashを保存している。</li>
+    <li>
+      共通profileはstatic、DAST、runtime scanner、SBOM、API schema、container imageの6
+      kindを表現する。
+    </li>
+    <li>
+      active ZAP、authorization matrix、business logic、dynamic、reproductionは専用flowを持つ。
+    </li>
+    <li>
+      <code>full-security-scan.coverageGaps</code
+      >は空だが、auth、active、business、dynamic、retestを実行しない。
+      P0で固定空配列を廃止し、capability requirementと実測結果からledgerを導出する。
+    </li>
+  </ul>
+  <h3 id="22-authoritative-paths">2.2 Authoritative extension points</h3>
+  <table>
+    <caption>
+      2.2 Current code paths
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Concern</th>
+        <th scope="col">Path</th>
+        <th scope="col">Baseline</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Profile schema</td>
+        <td><code>shared/schemas/scan-profile.schema.ts</code></td>
+        <td>6 kind、handwritten gaps</td>
+      </tr>
+      <tr>
+        <td>Plan schema</td>
+        <td><code>shared/schemas/scan-execution-plan.schema.ts</code></td>
+        <td>v1 only</td>
+      </tr>
+      <tr>
+        <td>Plan builder</td>
+        <td><code>api/modules/scans/execution/scan-execution-plan-builder.ts</code></td>
+        <td>v1 build/strict</td>
+      </tr>
+      <tr>
+        <td>Orchestrator</td>
+        <td><code>api/modules/scans/execution/profile-orchestrator.ts</code></td>
+        <td>preflight to finalize</td>
+      </tr>
+      <tr>
+        <td>Step dispatch</td>
+        <td>
+          <code>profile-step-orchestrator.ts</code>、<code>execute-profile-step.ts</code>
+        </td>
+        <td>kind branch、no registry</td>
+      </tr>
+      <tr>
+        <td>Result union</td>
+        <td><code>api/modules/scans/execution/profile-runner.ts</code></td>
+        <td>6 kind、DAST別shape</td>
+      </tr>
+      <tr>
+        <td>Persistence</td>
+        <td><code>api/db/schema/schema-scans.ts</code></td>
+        <td>immutable JSON</td>
+      </tr>
+      <tr>
+        <td>Coverage/report</td>
+        <td>
+          <code>api/modules/scans/coverage/</code>、<code>reporting/</code>
+        </td>
+        <td>multiple projections</td>
+      </tr>
+      <tr>
+        <td>Product</td>
+        <td>
+          <code>api/routes/scan-profiles.route.ts</code>、<code>web/src/domains/scans/coverage/</code>
+        </td>
+        <td>mixed source</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    root直下の同名scan moduleはre-export shimである。互換export以外のlogicを追加しない。
+    HEADがbaselineと異なる場合は上表を再確認し、契約変更を旧構造へ戻さずhandoffへ記録する。
+  </p>
+  <h3 id="23-in-scope">2.3 In scope</h3>
+  <ul>
+    <li>capability/reason/plan-v2/runner/result contractとmachine-derived ledger</li>
+    <li>R1 independent snapshot、R3 disposable lease/reset/cleanup/quarantine</li>
+    <li>target artifact signature/attestation/provenance</li>
+    <li>versioned sanitizer/bounded-fuzz recipe</li>
+    <li>auth/API/active/business/retest integrationとAPI/CLI/Web/report projection</li>
+  </ul>
+  <h3 id="24-out-of-scope">2.4 Out of scope</h3>
+  <ul>
+    <li>production active scan、arbitrary command/script、unlimited fuzz</li>
+    <li>network/cloud/AD/mobile/wireless/social engineering</li>
+    <li>WebSocket、GraphQL subscription、gRPC、SOAPの正式support</li>
+    <li>threat modeling、manual code review、analyst validationの自動代替</li>
+  </ul>
+  <h3 id="25-safety-classes">2.5 Safety classes</h3>
+  <table>
+    <caption>
+      2.5 Required isolation
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Class</th>
+        <th scope="col">Behavior</th>
+        <th scope="col">Boundary</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>R0</td>
+        <td>source/artifact read</td>
+        <td>read-only input、bounded output/network</td>
+      </tr>
+      <tr>
+        <td>R1</td>
+        <td>test/build/sanitizer/fuzz</td>
+        <td>independent snapshot、non-root、limits、network none</td>
+      </tr>
+      <tr>
+        <td>R2</td>
+        <td>read-only HTTP</td>
+        <td>target/DNS pin、request budget、auth scope</td>
+      </tr>
+      <tr>
+        <td>R3</td>
+        <td>state-changing probe/workflow</td>
+        <td>local disposable target、RoE、lease、reset、no egress</td>
+      </tr>
+    </tbody>
+  </table>
+  <h3 id="26-gap-register">2.6 Gap register</h3>
+  <table>
+    <caption>
+      2.6 Gaps and outcomes
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">ID</th>
+        <th scope="col">Gap</th>
+        <th scope="col">Outcome</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>CG-00/10</td>
+        <td>fixed/fragmented coverage</td>
+        <td>stored sole-source ledger</td>
+      </tr>
+      <tr>
+        <td>CG-01</td>
+        <td>conditional SAST truth</td>
+        <td>applicability/qualification</td>
+      </tr>
+      <tr>
+        <td>CG-02/03</td>
+        <td>target provenance/safe build absent</td>
+        <td>attestation + approved R1 recipe</td>
+      </tr>
+      <tr>
+        <td>CG-04</td>
+        <td>sanitizer/fuzz recipe absent</td>
+        <td>bounded tier-1 templates</td>
+      </tr>
+      <tr>
+        <td>CG-05/06/07</td>
+        <td>runtime/auth/API fragmentation</td>
+        <td>shared R2 lifecycle/identity</td>
+      </tr>
+      <tr>
+        <td>CG-08</td>
+        <td>engines outside common plan</td>
+        <td>v2 registry/adapters</td>
+      </tr>
+      <tr>
+        <td>CG-09</td>
+        <td>static-centric retest</td>
+        <td>cross-family reproduction</td>
+      </tr>
+      <tr>
+        <td>CG-11</td>
+        <td>lifecycle receipt absent</td>
+        <td>lease/reset/cleanup/quarantine</td>
+      </tr>
+      <tr>
+        <td>CG-12</td>
+        <td>professional orchestration absent</td>
+        <td>one plan/report/handoff</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2 id="3-fixed-contracts">3. Fixed architecture contracts</h2>
+  <h3 id="31-review-decisions">3.1 Review decisions</h3>
+  <ol>
+    <li>本計画がcapability ID/requirementを所有し、Profile Catalogは同じschemaを再利用する。</li>
+    <li>
+      plan v2は既存<code>scan_execution_plans.plan</code> JSONへ保存し、v1をbackfillしない。
+    </li>
+    <li>個別engineを再実装せず、adapterがchild run/resultをprofileへ結合する。</li>
+    <li>ledgerはpure functionで導出し、finalization時にsnapshot保存する。</li>
+    <li>plan v2、ledger、resource leaseを別work packageで導入する。</li>
+  </ol>
+  <h3 id="32-capabilities">3.2 Capability model</h3>
+  <pre><code class="language-text">secret_detection / source_sast / sca / iac_config / sbom
+provenance_integrity / artifact_container / dynamic_tests / sanitizer_fuzz
+passive_dast / browser_client / authentication_session / api_schema_contract
+authorization_matrix / active_dast / business_logic / remediation_retest</code></pre>
+  <p>
+    requirement: <code>required | required_if_applicable | advisory</code>。 applicability:
+    <code>applicable | not_applicable | unknown</code>。evidenceのないN/Aはunknown。
+  </p>
+  <h3 id="33-plan-v2">3.3 Execution plan v2</h3>
+  <pre><code class="language-text">scanExecutionPlanSchema = discriminatedUnion("schemaVersion", [v1, v2])
+v2: profile resolution + safety/approval + capabilityRequirements[]
+    steps[]: inputBindingHash, policyHash, budget, cleanupRequirement</code></pre>
+  <ul>
+    <li>現行shapeを意味変更なしでv1 schemaへrenameする。</li>
+    <li>
+      writer
+      flagは<code>VULN_WORKBENCH_SCAN_EXECUTION_PLAN_V2</code>一つ。<code>api/app/env.ts</code>でparse。
+    </li>
+    <li>
+      v1
+      preview後のv2切替は<code>plan_changed</code>で拒否し、暗黙再previewしない。
+    </li>
+    <li>new kind: dynamic、active、authorization、business、reproduction、attestation。</li>
+  </ul>
+  <h3 id="34-runner-result">3.4 Runner and normalized result</h3>
+  <pre><code class="language-text">ProfileStepRunner: preflight / execute(AbortSignal) / cancel / cleanup
+ProfileStepResult:
+  stepId, kind, adapter, required
+  execution: completed | failed | blocked | not_executed | cancelled
+  applicability, coverageEffect, reasonCodes[], findingCount
+  evidenceRefs[], artifactIds[], childRunRefs[]
+  cleanupState: not_required | completed | failed | quarantined</code></pre>
+  <ul>
+    <li>GC-01では既存6 kindをregistryへ移すだけで結果意味を変えない。</li>
+    <li>exception textをreason codeとして保存せずcentral registryへmapする。</li>
+    <li>timeout/cancelもfinally cleanup。secret/cookie/passwordをplan/event/resultへ含めない。</li>
+  </ul>
+  <h3 id="35-ledger">3.5 Coverage ledger</h3>
+  <pre><code class="language-text">buildCoverageLedger(requirements, planSteps, stepResults, receipts, derivedAt)
+  -&gt; CoverageLedgerV1(schemaVersion, planHash, entries, summary, ledgerHash)</code></pre>
+  <ul>
+    <li>pure functionはDB/filesystem/network/current timeを直接参照しない。</li>
+    <li><code>scan_runs.metadata.coverageLedger</code>へ保存し、reportにledger hashを固定する。</li>
+    <li>
+      API/Web/report/zero-findingは同じsnapshotを読む。legacy runだけ既存projectionへfallback。
+    </li>
+    <li>zero findingsとzero gapsを別状態にする。</li>
+  </ul>
+  <h3 id="36-lifecycle-compatibility">3.6 Lifecycle, storage, compatibility</h3>
+  <ul>
+    <li>
+      R1は元repo/<code>.git</code>をmountせずfixed
+      revision/manifestからsnapshotを作る。
+    </li>
+    <li>
+      R3はrun network/volume、stub external service、no real credential、reset invariantを要求する。
+    </li>
+    <li>cleanup failureはquarantineしmanual cleanup actionを保存する。</li>
+    <li>
+      reaper用<code>scan_resource_leases</code>はrun/step/resource/provider/external
+      ID/state/receipt/timestampsを持つ。
+      migration名は<code>bun run db:generate</code>で生成する。
+    </li>
+    <li>flag offはv1 + v2-only schedule拒否。flag onはv2 writer + dual reader。</li>
+    <li>
+      rollbackはnew v2 schedulingだけ停止し、saved v2/evidenceを読める。unknown future
+      versionはfail-closed。
+    </li>
+  </ul>
+  <h2 id="4-delivery-ledger">4. Delivery and work-package ledger</h2>
+  <p>
+    status: <code>not_started | in_progress | blocked | done</code>。同じprimary
+    pathを変更しない最大2件だけ並行可能。 開始・終了時にこの表とSection 8を更新する。
+  </p>
+  <table>
+    <caption>
+      4.1 Executable work packages
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">ID</th>
+        <th scope="col">Status</th>
+        <th scope="col">Depends on</th>
+        <th scope="col">Deliverable</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>GC-00.1</td>
+        <td>done</td>
+        <td>none</td>
+        <td>capability/reason/ledger schema</td>
+      </tr>
+      <tr>
+        <td>GC-00.2</td>
+        <td>done</td>
+        <td>00.1</td>
+        <td>full-security derived ledger</td>
+      </tr>
+      <tr>
+        <td>GC-00.3</td>
+        <td>done</td>
+        <td>00.2</td>
+        <td>API/report/Web projection</td>
+      </tr>
+      <tr>
+        <td>GC-01.1</td>
+        <td>done</td>
+        <td>00.1</td>
+        <td>v1/v2 union/flag/reader/writer</td>
+      </tr>
+      <tr>
+        <td>GC-01.2</td>
+        <td>done</td>
+        <td>01.1</td>
+        <td>existing 6-kind registry</td>
+      </tr>
+      <tr>
+        <td>GC-01.3</td>
+        <td>in_progress</td>
+        <td>01.2</td>
+        <td>normalized result/cancel/cleanup</td>
+      </tr>
+      <tr>
+        <td>GC-02.1</td>
+        <td>done</td>
+        <td>01.1</td>
+        <td>R1 snapshot</td>
+      </tr>
+      <tr>
+        <td>GC-02.2</td>
+        <td>done</td>
+        <td>01.1</td>
+        <td>lease table/R3 provider</td>
+      </tr>
+      <tr>
+        <td>GC-02.3</td>
+        <td>done</td>
+        <td>02.1、02.2</td>
+        <td>reaper/quarantine evidence</td>
+      </tr>
+      <tr>
+        <td>GC-03.1</td>
+        <td>done</td>
+        <td>00.2</td>
+        <td>Semgrep applicability</td>
+      </tr>
+      <tr>
+        <td>GC-03.2</td>
+        <td>done</td>
+        <td>01.3</td>
+        <td>attestation/Cosign provider</td>
+      </tr>
+      <tr>
+        <td>GC-03.3</td>
+        <td>done</td>
+        <td>02.1、03.2</td>
+        <td>approved build recipe</td>
+      </tr>
+      <tr>
+        <td>GC-04.1</td>
+        <td>done</td>
+        <td>01.3、02.1</td>
+        <td>dynamic recipe/test adapter</td>
+      </tr>
+      <tr>
+        <td>GC-04.2</td>
+        <td>not_started</td>
+        <td>04.1</td>
+        <td>tier-1 sanitizer fixture</td>
+      </tr>
+      <tr>
+        <td>GC-04.3</td>
+        <td>in_progress</td>
+        <td>04.1</td>
+        <td>bounded fuzz negative test</td>
+      </tr>
+      <tr>
+        <td>GC-05.1</td>
+        <td>done</td>
+        <td>01.3</td>
+        <td>shared R2 target/budget</td>
+      </tr>
+      <tr>
+        <td>GC-05.2</td>
+        <td>done</td>
+        <td>05.1</td>
+        <td>auth lifecycle/redaction</td>
+      </tr>
+      <tr>
+        <td>GC-05.3</td>
+        <td>done</td>
+        <td>05.2</td>
+        <td>schema/authorization binding</td>
+      </tr>
+      <tr>
+        <td>GC-06.1</td>
+        <td>done</td>
+        <td>01.3、02.3</td>
+        <td>active v2 adapter</td>
+      </tr>
+      <tr>
+        <td>GC-06.2</td>
+        <td>done</td>
+        <td>01.3、02.3</td>
+        <td>business v2 adapter</td>
+      </tr>
+      <tr>
+        <td>GC-06.3</td>
+        <td>done</td>
+        <td>06.1、06.2</td>
+        <td>R3 negative E2E</td>
+      </tr>
+      <tr>
+        <td>GC-07.1</td>
+        <td>done</td>
+        <td>01.3</td>
+        <td>versioned reproduction spec</td>
+      </tr>
+      <tr>
+        <td>GC-07.2</td>
+        <td>done</td>
+        <td>03—06</td>
+        <td>finding-family adapters</td>
+      </tr>
+      <tr>
+        <td>GC-07.3</td>
+        <td>done</td>
+        <td>00.3、07.2</td>
+        <td>ledger sole-source switch</td>
+      </tr>
+      <tr>
+        <td>GC-08.1</td>
+        <td>not_started</td>
+        <td>03—07、Catalog PC-04</td>
+        <td>professional-full plan</td>
+      </tr>
+      <tr>
+        <td>GC-08.2</td>
+        <td>not_started</td>
+        <td>08.1</td>
+        <td>paired/real/clean qualification</td>
+      </tr>
+      <tr>
+        <td>GC-08.3</td>
+        <td>not_started</td>
+        <td>08.2</td>
+        <td>Phase 56/human handoff</td>
+      </tr>
+    </tbody>
+  </table>
+  <h3 id="42-merge-rules">4.2 Merge rules</h3>
+  <ol>
+    <li>各WPは原則1 PR。schema/engine/UIの無関係な変更を混ぜない。</li>
+    <li>schema-only PRにもreader/negative testを含める。</li>
+    <li>new kindはrunner/preflight/failure testまでhidden。</li>
+    <li>migrationはfresh DBと直前version upgradeをtest。</li>
+    <li>専用flow testを削除・弱化して共通testだけにしない。</li>
+    <li>第三者のdirty fileを破棄、stash、format-allしない。対象fileと重なる場合だけblocked。</li>
+  </ol>
+
+  <h2 id="5-slice-contracts">5. Slice execution contracts</h2>
+  <table>
+    <caption>
+      5.1 Files, implementation, and focused verification
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Slice</th>
+        <th scope="col">Required implementation</th>
+        <th scope="col">Primary paths</th>
+        <th scope="col">Focused verification</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>GC-00</td>
+        <td>
+          new schemas → pure ledger → full-security declarations → finalization/API/report/Web
+        </td>
+        <td>
+          <code>shared/schemas/</code
+          >、<code>scans/coverage/</code>、<code>reporting/</code>、Web
+          coverage
+        </td>
+        <td><code>bun test api/modules/scans/coverage api/modules/scans/reporting api/routes/scan-profiles.route.test.ts</code></td>
+      </tr>
+      <tr>
+        <td>GC-01</td>
+        <td>v1/v2 union/flag → existing registry → normalized lifecycle</td>
+        <td>plan schema/builder、step orchestrator、execute step、profile runner、env</td>
+        <td><code>bun test api/app/env.test.ts api/modules/scans/execution api/modules/scans/repositories.test.ts</code></td>
+      </tr>
+      <tr>
+        <td>GC-02</td>
+        <td>safe snapshot → lease transition → crash/timeout/cancel/restart reaper</td>
+        <td><code>execution/lifecycle/</code>、scan DB schema、generated migration</td>
+        <td><code>bun test api/modules/scans/execution/lifecycle api/modules/dast/*target-gateway.test.ts</code></td>
+      </tr>
+      <tr>
+        <td>GC-03</td>
+        <td>
+          Semgrep 4-input applicability → pinned offline-first Cosign → approved R1 recipe/binding
+        </td>
+        <td>
+          coverage、scanner tools/toolbox、<code>spec/security-capability/</code>、attestation
+          runner
+        </td>
+        <td><code>bun run verify:toolbox-provenance &amp;&amp; bun run verify:toolbox-offline</code></td>
+      </tr>
+      <tr>
+        <td>GC-04</td>
+        <td>built-in recipe only; existing tests; go-race/cargo-asan; Go/cargo fuzz budgets</td>
+        <td><code>api/modules/dynamic/</code>、dynamic schema/image/fixtures</td>
+        <td><code>bun test api/modules/dynamic tests/security-capability/dynamic</code></td>
+      </tr>
+      <tr>
+        <td>GC-05</td>
+        <td>shared R2 target/DNS/budget → auth state/redaction → endpoint/role binding</td>
+        <td>shared runtime target、DAST、API schema、DAST auth schema</td>
+        <td><code>bun run verify:dast-capability</code> + auth/authorization focused tests</td>
+      </tr>
+      <tr>
+        <td>GC-06</td>
+        <td>existing ActiveAssessment/ZAP and BusinessLogic adapters; R3 failure matrix</td>
+        <td>DAST active、runtime ZAP、business logic、active/business schemas</td>
+        <td><code>bun run test:zap-active:contract &amp;&amp; bun run test:business-logic</code></td>
+      </tr>
+      <tr>
+        <td>GC-07</td>
+        <td>binding-aware reproduction spec/adapters → all product views read stored ledger</td>
+        <td>reproductions、coverage/reporting、Web coverage/reporting</td>
+        <td><code>bun test api/modules/reproductions api/modules/scans/coverage api/modules/scans/reporting</code></td>
+      </tr>
+      <tr>
+        <td>GC-08</td>
+        <td>
+          one parent run/v2 plan; qualification verifier; Phase 56 input; no auto human approval
+        </td>
+        <td>canonical registry、E2E/qualification scripts/schema、claim handoff</td>
+        <td>
+          <code>verify:strict</code>、scanner E2E、heavy、clean checkout、closeout
+          verifier
+        </td>
+      </tr>
+    </tbody>
+  </table>
+  <h3 id="52-slice-specific-decisions">5.2 Slice-specific decisions</h3>
+  <ul>
+    <li>
+      GC-02 snapshot rejects <code>.git</code>、socket/device、escaping
+      symlink、file/byte budget超過。
+    </li>
+    <li>lease transition: <code>provisioning → active → cleaning → released</code>、failureはquarantined。</li>
+    <li>
+      GC-03 offline bundle/keyが既定。online transparency logは明示policyだけ。推測build禁止。
+    </li>
+    <li>
+      GC-04 user-managed command profileはlegacy/advancedとして残すがcommon profileから参照不可。
+    </li>
+    <li>GC-05 plan/resultはauth ref/binding hashのみ。anonymous fallback禁止。</li>
+    <li>GC-06 existing RoE/target/reset validatorを迂回する第二validator禁止。</li>
+    <li>
+      GC-07 <code>reproduced → still_present</code>。binding一致時だけ
+      <code>not_reproduced → fixed</code>、差異はinconclusive。
+    </li>
+    <li>GC-08 entry: GC-03—07 done、Catalog PC-04 done、existing profile regressionなし。</li>
+  </ul>
+  <h2 id="6-verification-defaults-completion">6. Verification, defaults, and completion</h2>
+  <h3 id="61-required-evidence">6.1 Required evidence layers</h3>
+  <table>
+    <caption>
+      6.1 Test layers
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Layer</th>
+        <th scope="col">Evidence</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Contract</td>
+        <td>all kind、version、reason、hash stability</td>
+      </tr>
+      <tr>
+        <td>Runner</td>
+        <td>preflight、timeout、cancel、redaction、cleanup</td>
+      </tr>
+      <tr>
+        <td>Failure</td>
+        <td>crash、malformed output、reset/network/disk/OOM</td>
+      </tr>
+      <tr>
+        <td>Paired</td>
+        <td>vulnerable detected、fixed non-detected、same inputs</td>
+      </tr>
+      <tr>
+        <td>Real scanner</td>
+        <td>pinned tool/image/data、raw artifact hash</td>
+      </tr>
+      <tr>
+        <td>Isolation</td>
+        <td>repo unchanged、no egress、limits、receipt</td>
+      </tr>
+      <tr>
+        <td>Product</td>
+        <td>API/CLI/Web/report share plan/ledger</td>
+      </tr>
+      <tr>
+        <td>Closeout</td>
+        <td>clean Linux、same commit、hashes、review</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    Every WP: focused
+    test、<code>bun run typecheck</code>、<code>bun run docs:check</code>。
+    Each slice close:
+    <code>test:api</code
+    >、<code>test:web</code>、関連capability。 Runner/tool/policy change:
+    <code>test:scanner-e2e</code
+    >。Docker/scanner/browser/fixture不足はskip-passにしない。
+  </p>
+  <h3 id="62-evidence-manifest">6.2 Evidence manifest</h3>
+  <p><code>artifacts/security-capability-gap/&lt;slice&gt;/evidence.v1.json</code>に次を保存する。</p>
+  <pre><code class="language-text">schemaVersion / sliceId / workPackageIds[]
+sourceRevision / sourceState
+planHashes[] / ledgerHashes[] / tool/image/policy/input digests[]
+testCommands[]: command, exitCode, time, logArtifactHash
+fixtures[]: vulnerableOutcome, fixedOutcome
+failureCases[]: expectedReason, actualReason, cleanupState
+cleanupReceipts[] / limitations[] / review</code></pre>
+  <ul>
+    <li>dirty sourceはdiagnosticのみ。command文字列だけでなくexit code/log hashを要求。</li>
+    <li>review decision欠落をtechnical passで補わない。</li>
+    <li>
+      runner missing、stale plan、timeout/cancel、malformed output、secret canary、cleanup
+      failure、evidence-less N/A、zero finding + missing stepをnegative testする。
+    </li>
+  </ul>
+  <h3 id="63-default-decisions">6.3 Default decisions for autonomous continuation</h3>
+  <ol>
+    <li>security boundary、fail-closed policy、evidence immutabilityを優先。</li>
+    <li>既存schema/repository/runnerをadapterで再利用し第二実装を作らない。</li>
+    <li>persisted contractはversion追加し既存field意味を変えない。</li>
+    <li>applicabilityを証明できなければunknown。N/Aを推測しない。</li>
+    <li>input/auth/RoE/lease/cleanup不足はdowngradeせずblocked/gap。</li>
+    <li>新dependencyより既存を優先し、security toolはtoolboxでdigest pin。</li>
+    <li>query/reaper不要のstateはJSON/artifactへ保存しtableを増やさない。</li>
+    <li>WP外refactor/renameをせず次候補へ記録。</li>
+    <li>dirty fileを破棄、stash、上書きしない。対象と重なる場合はblocked。</li>
+  </ol>
+  <p>
+    schema外部互換性、production active access、secret handling、data
+    deletion、claim基準変更が一意に決まらない時だけ maintainer判断を要求する。
+  </p>
+  <h3 id="64-definition-of-complete">6.4 Definition of complete</h3>
+  <pre><code class="language-text">technicalCompletion = met iff:
+  every required capability is covered
+  required_if_applicable is resolved; applicable ones are covered
+  no required step is failed/blocked/cancelled/not_executed
+  every required cleanup is completed
+  plan/ledger/input/policy/tool/evidence hashes are present</code></pre>
+  <p>
+    advisory gapはlimitationsに残し、completed_with_warningsにはできるがfull-coverage
+    claimには使わない。 technical completionとPhase 56 human approvalは別fieldで、自動変換しない。
+  </p>
+  <h3 id="65-risk-and-rollback">6.5 Risk and rollback</h3>
+  <ul>
+    <li>new kindはdefault hidden。qualification環境だけeligible。</li>
+    <li>R3は専用flow同等policy testまでmerge禁止。</li>
+    <li>rollbackはv2 schedulingだけ停止しhistorical dataを削除しない。</li>
+    <li>migration rollbackにdata deletionを使わずdual readerを先にdeploy。</li>
+  </ul>
+
+  <h2 id="7-first-work-package-runbook">7. First work package runbook — GC-00.1</h2>
+  <p>GC-00.1はschema/characterizationだけ。runtime、profile copy、UI、DB migrationを変更しない。</p>
+  <h3 id="71-entry">7.1 Entry</h3>
+  <pre><code class="language-text">git rev-parse HEAD
+git status --short
+bun run docs:check
+bun test api/modules/scans/coverage/source-sast-coverage.test.ts api/modules/scans/execution/resolved-profile.test.ts api/modules/scans/execution/scan-execution-plan-builder.test.ts</code></pre>
+  <ul>
+    <li>HEAD差異はSection 2.2を再確認。unrelated dirty fileは残す。</li>
+    <li>allowed diffと重なるdirty fileがあれば開始しない。</li>
+    <li>baseline failureは隠さずcommand/failure/既存判定をhandoff。</li>
+  </ul>
+  <h3 id="72-diff-order">7.2 Required diff in order</h3>
+  <ol>
+    <li>
+      <code>scan-capability.schema.ts</code>: 17
+      ID、requirement/applicability/execution/coverage。
+    </li>
+    <li>
+      <code>scan-reason-code.schema.ts</code>: existing
+      codeをrenameせずre-export可能なregistry。
+    </li>
+    <li><code>scan-coverage-ledger.schema.ts</code>: Section 3.5 v1 shape。</li>
+    <li>
+      <code>scan-profile.schema.ts</code>: optional
+      requirements。<code>coverageGaps</code>は00.2まで残す。
+    </li>
+    <li>unknown enum、duplicate capability、evidence-less N/Aをrejectするfocused test。</li>
+  </ol>
+  <pre><code class="language-text">Allowed files:
+shared/schemas/scan-capability.schema.{ts,test.ts}
+shared/schemas/scan-reason-code.schema.{ts,test.ts}
+shared/schemas/scan-coverage-ledger.schema.{ts,test.ts}
+shared/schemas/scan-profile.schema.{ts,test.ts}
+this plan</code></pre>
+  <h3 id="73-exit">7.3 Exit</h3>
+  <pre><code class="language-text">bun test shared/schemas/scan-capability.schema.test.ts shared/schemas/scan-reason-code.schema.test.ts shared/schemas/scan-coverage-ledger.schema.test.ts shared/schemas/scan-profile.schema.test.ts api/modules/scans/coverage/source-sast-coverage.test.ts api/modules/scans/execution/resolved-profile.test.ts
+bun run typecheck
+bun run docs:check
+git diff --check</code></pre>
+  <ul>
+    <li>17 IDはunique、unknown reject、duplicate requirement reject。</li>
+    <li>existing profilesはsame resolved hash/stepsでparse。</li>
+    <li>runtime/DB/API/Web behavior changeなし。</li>
+    <li>commands pass、Section 8 handoff更新。次はGC-00.2でGC-01へ先行しない。</li>
+  </ul>
+  <h2 id="8-handoff-review-relationships">8. Handoff, review closeout, and relationships</h2>
+  <h3 id="81-handoff">8.1 Handoff protocol</h3>
+  <p>中断・完了時にledger statusと次を更新し、チャットだけを継続情報にしない。</p>
+  <pre><code class="language-text">Handoff
+- Work package: GC-xx.y (status)
+- Baseline/current commit:
+- Goal completed:
+- Files and symbols changed:
+- Contract decisions made:
+- Tests passed: command + exit code
+- Tests not run/failed: command + reason
+- Evidence paths and hashes:
+- Unrelated working-tree changes preserved:
+- Remaining blocker/risk:
+- Exact next action: file, symbol, expected test</code></pre>
+  <ul>
+    <li>「ほぼ完了」「あとはテスト」でなく未実行commandを列挙。</li>
+    <li>temporary resourceはlease ID/state/manual cleanupを残す。</li>
+    <li>次担当はentry checkで現在状態を再確認。</li>
+  </ul>
+  <h3 id="82-review-closeout">8.2 Document-review closeout</h3>
+  <table>
+    <caption>
+      8.2 Findings resolved in revision 2
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Severity</th>
+        <th scope="col">Finding</th>
+        <th scope="col">Resolution</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Critical</td>
+        <td>Catalogとのcapability循環依存</td>
+        <td>本計画をcontract ownerに固定</td>
+      </tr>
+      <tr>
+        <td>Critical</td>
+        <td>v2保存/reader/flag/rollback未決定</td>
+        <td>union、JSON、single flag、compatibility固定</td>
+      </tr>
+      <tr>
+        <td>High</td>
+        <td>sliceが巨大でPR/次作業が不明</td>
+        <td>27 WP、dependency、statusへ分解</td>
+      </tr>
+      <tr>
+        <td>High</td>
+        <td>runner result/cancel/cleanup不足</td>
+        <td>normalized contractとfailure rule固定</td>
+      </tr>
+      <tr>
+        <td>High</td>
+        <td>authoritative path不明</td>
+        <td>path表、allowed diff、shim境界追加</td>
+      </tr>
+      <tr>
+        <td>High</td>
+        <td>acceptanceとcommand/evidence未接続</td>
+        <td>focused/closeout commandとmanifest追加</td>
+      </tr>
+      <tr>
+        <td>Medium</td>
+        <td>sanitizer/fuzz tier不明</td>
+        <td>tier-1 recipe/unsupported behavior固定</td>
+      </tr>
+      <tr>
+        <td>Medium</td>
+        <td>handoff形式なし</td>
+        <td>Section 8.1必須化</td>
+      </tr>
+    </tbody>
+  </table>
+  <h3 id="83-plan-relationships">8.3 Plan relationships</h3>
+  <table>
+    <caption>
+      8.3 Ownership
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Workstream</th>
+        <th scope="col">Owns</th>
+        <th scope="col">Must not duplicate</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>This plan</td>
+        <td>capability/runner/result/coverage/isolation/retest</td>
+        <td>public alias/claim approval</td>
+      </tr>
+      <tr>
+        <td>Profile Catalog</td>
+        <td>public profile/availability/legacy alias/launcher</td>
+        <td>capability ID/safety policy</td>
+      </tr>
+      <tr>
+        <td><a href="phase-56-capability-product-completion-plan.html">Phase 56</a></td>
+        <td>professional claim/authoritative approval/distribution</td>
+        <td>profile completion/step semantics</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    Profile Catalog
+    planがworkspaceにある場合は本計画schemaをimportする。未作成/移動済みでもGC-00/01は止めず、
+    PC-04完了だけGC-08.1 entryで確認する。
+  </p>
+  <h3 id="84-references">8.4 References</h3>
+  <ul>
+    <li>
+      <a href="https://owasp.org/www-project-web-security-testing-guide/stable/">OWASP WSTG</a>
+    </li>
+    <li>
+      <a href="https://www.zaproxy.org/docs/automate/automation-framework/"
+        >ZAP Automation Framework</a
+      >
+    </li>
+    <li><a href="https://csrc.nist.gov/pubs/sp/800/218/final">NIST SP 800-218 SSDF</a></li>
+    <li><a href="https://slsa.dev/spec/v1.2/provenance">SLSA v1.2 Provenance</a></li>
+    <li><a href="https://docs.sigstore.dev/cosign/verifying/verify/">Cosign verification</a></li>
+    <li><a href="https://cyclonedx.org/specification/overview/">CycloneDX overview</a></li>
+  </ul>
+</article>

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { scanCapabilityRequirementsSchema } from "./scan-capability.schema";
 import { scanTargetKindSchema } from "./scan-target.schema";
 
 export const profileToolFailurePolicySchema = z.enum([
@@ -197,6 +198,8 @@ export const scanProfileSchema = z.object({
 	supportedTargets: z.array(scanTargetKindSchema).optional(),
 	tools: z.array(profileToolEntrySchema),
 	steps: z.array(scanProfileStepSchema).optional(),
+	/** Declared capability contract; absent for legacy profiles. */
+	capabilityRequirements: scanCapabilityRequirementsSchema.optional(),
 	coverageGaps: z.array(z.string().min(1).max(100)).max(20).optional(),
 	/**
 	 * Strict profiles are release-grade contracts: every applicable capability

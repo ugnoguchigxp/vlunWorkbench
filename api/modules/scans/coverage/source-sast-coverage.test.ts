@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildScanProfiles } from "../profiles";
 import { resolveSourceSastCoverage } from "./source-sast-coverage";
+import { resolveSourceSastApplicability } from "./source-sast-applicability";
 
 describe("truthful source SAST coverage", () => {
   it("declares Semgrep as a required strict full-scan capability", () => {
@@ -8,7 +9,11 @@ describe("truthful source SAST coverage", () => {
       (candidate) => candidate.id === "full-security-scan",
     );
     expect(profile?.tools.map((tool) => tool.toolId)).toContain("semgrep");
-    expect(profile?.coverageGaps).toEqual([]);
+    expect(profile?.coverageGaps).toBeUndefined();
+    expect(profile?.capabilityRequirements).toContainEqual({
+      capabilityId: "source_sast",
+      requirement: "required_if_applicable",
+    });
     expect(resolveSourceSastCoverage(profile!)).toMatchObject({
       state: "applicable",
       coverageEffect: "gap",
@@ -29,7 +34,7 @@ describe("truthful source SAST coverage", () => {
       failurePolicy: "fail_profile",
       options: { config: "curated-sast-v1" },
     });
-    expect(profile?.coverageGaps).toEqual([]);
+    expect(profile?.coverageGaps).toBeUndefined();
     expect(resolveSourceSastCoverage(profile!)).toMatchObject({
       state: "applicable",
       coverageEffect: "gap",
@@ -60,6 +65,29 @@ describe("truthful source SAST coverage", () => {
       limitationCodes: [],
     });
   });
+
+	it("records an evidence-based N/A separately from an unexecuted scan", () => {
+		const profile = buildScanProfiles({ optionalAdapterIds: ["semgrep"] }).find(
+			(candidate) => candidate.id === "full-security-scan",
+		);
+		expect(
+			resolveSourceSastCoverage(
+				profile!,
+				[],
+				resolveSourceSastApplicability({
+					hasSourceFiles: false,
+					hasSupportedLanguage: false,
+					rulesetAvailable: true,
+					adapterAvailable: true,
+				}),
+			),
+		).toMatchObject({
+			applicability: "not_applicable",
+			state: "not_applicable",
+			coverageEffect: "covered",
+			limitationCodes: ["source_sast_no_supported_files"],
+		});
+	});
 
   it("keeps a gap when the required Semgrep step fails", () => {
     const profile = buildScanProfiles({

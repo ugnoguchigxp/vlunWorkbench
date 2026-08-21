@@ -120,6 +120,11 @@ RUN_ROOT="/workspace/repo"
 if [ -d "/workspace/workdir" ]; then
   cp -a /workspace/repo/. /workspace/workdir/
   RUN_ROOT="/workspace/workdir"
+  # Dynamic toolchains (notably Go race) execute temporary test binaries.
+  # Use the writable workdir rather than the read-only/noexec container /tmp.
+  mkdir -p "$RUN_ROOT/.vuln-workbench-tmp"
+  export TMPDIR="$RUN_ROOT/.vuln-workbench-tmp"
+  export GOCACHE="$RUN_ROOT/.vuln-workbench-tmp/go-cache"
 fi
 cd "$RUN_ROOT/$DYNAMIC_WORKING_DIRECTORY"
 
@@ -183,7 +188,7 @@ exit $EXIT_CODE
 	if (params.writableWorkdir) {
 		dockerArgs.push(
 			"--tmpfs",
-			"/workspace/workdir:rw,nosuid,nodev,size=512m,uid=65532,gid=65532",
+			"/workspace/workdir:rw,exec,nosuid,nodev,size=512m,uid=65532,gid=65532",
 		);
 	}
 	dockerArgs.push(

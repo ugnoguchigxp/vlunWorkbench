@@ -3,6 +3,7 @@ import {
 	type ScanProfile,
 	scanProfileSchema,
 } from "../../../../shared/schemas/scan-profile.schema";
+import { scanProfileResolutionSchema } from "../../../../shared/schemas/scan-profile-catalog.schema";
 import { canonicalJson } from "./diff/diff-scan-plan";
 
 export function hashResolvedProfile(profile: ScanProfile): string {
@@ -14,6 +15,13 @@ export function readStoredResolvedProfile(
 	expectedProfileId: string,
 ): ScanProfile | null {
 	const parsed = scanProfileSchema.safeParse(metadata?.resolvedProfile);
-	if (!parsed.success || parsed.data.id !== expectedProfileId) return null;
+	if (!parsed.success) return null;
+	const resolution = scanProfileResolutionSchema.safeParse(
+		metadata?.profileResolution,
+	);
+	if (resolution.success) {
+		return resolution.data.executionProfileId === parsed.data.id ? parsed.data : null;
+	}
+	if (parsed.data.id !== expectedProfileId) return null;
 	return parsed.data;
 }

@@ -89,6 +89,10 @@ export interface ProfileScanResult {
 	ok: boolean;
 	scanRunId: string;
 	profileId: string;
+	canonicalProfileId: string;
+	executionProfileId: string;
+	resultPolicy: "advisory" | "gate";
+	gateDecision: "not_requested" | "pass" | "fail" | "blocked";
 	status: "completed" | "failed";
 	profileOutcome:
 		| "completed"

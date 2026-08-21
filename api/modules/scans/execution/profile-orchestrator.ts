@@ -9,7 +9,13 @@ import {
 } from "../../project-capabilities/plugin-detector";
 import { ScanArtifactSink } from "./lifecycle/artifact-sink";
 import { ArtifactStorage } from "./lifecycle/artifact-storage";
+import {
+	materializeFullSourceSnapshot,
+	type FullSourceSnapshot,
+} from "./lifecycle/full-source-snapshot";
 import { aggregateRuntimeAssessmentCoverage } from "../coverage/runtime-assessment-coverage";
+import { buildCoverageLedger } from "../coverage/coverage-ledger";
+import { resolveSourceSastApplicability } from "../coverage/source-sast-applicability";
 import { resolveSourceSastCoverage } from "../coverage/source-sast-coverage";
 import {
 	buildDiffScanPlan,
@@ -24,9 +30,15 @@ import { resolveFullScanTarget } from "./full-scan-target";
 import { resolveGitDiff } from "./diff/git-diff-resolver";
 import { type ProfileScanResult, resolveProfileSteps } from "./profile-runner";
 import { executeProfileSteps } from "./profile-step-orchestrator";
-import { getProfileById } from "../profiles";
+import { normalizeProfileStepResult } from "./normalized-step-result";
 import { ArtifactRepository, ScanRepository } from "../repositories";
 import { hashResolvedProfile } from "./resolved-profile";
+import {
+	normalizeProfileResolutionInput,
+	resolveProfileSelection,
+} from "../profile-resolution";
+import { evaluateScanGate } from "./scan-result-policy";
+import { FindingRepository } from "../finding-repository";
 import {
 	applyExecutionPlanToSteps,
 	applyStrictProfileRequirements,
@@ -35,6 +47,7 @@ import {
 } from "./scan-execution-plan-builder";
 import { preflightBlocksExecution, runScanPreflight } from "./scan-preflight";
 import { resolveScanScope } from "../target-scope";
+import { staticScannerAdapterRegistry } from "../static-scanner-adapters";
 import {
 	normalizeToolExecutionConfig,
 	type ToolExecutionConfig,
@@ -54,16 +67,20 @@ export async function runProfileScan(params: {
 	imageRef?: string;
 	imageTar?: string;
 	executionPolicyMetadata?: Record<string, unknown>;
-	executionSurface?: "cli" | "web";
+	executionSurface?: "cli" | "web" | "security_oracle" | "nightworkers";
 	target?: ScanTarget;
 	expectedTargetDigest?: string;
 	consentProjectCodeExecution?: boolean;
 	preflightMode?: ScanPreflightMode;
 	expectedPreflightBindingHash?: string;
 	expectedPlanHash?: string;
+	expectedCatalogEntryHash?: string;
+	resultPolicy?: "advisory" | "gate";
+	allowExperimental?: boolean;
 	/** SHA-256 of an externally materialized immutable source archive. */
 	sourceSnapshotDigest?: string;
 	runtimeTargetProvider?: RuntimeTargetProvider;
+	executionPlanSchemaVersion?: 1 | 2;
 }): Promise<ProfileScanResult> {
 	if (
 		params.sourceSnapshotDigest !== undefined &&
@@ -80,27 +97,55 @@ export async function runProfileScan(params: {
 		params.repoPath = authorized.canonicalPath;
 	}
 
-	const profile = getProfileById(params.profileId);
-	if (!profile) {
-		throw new Error(`Profile not found: ${params.profileId}`);
+	const requestedTarget: ScanTarget = params.target ?? { kind: "full" };
+	const {
+		catalogEntry,
+		executionProfile: profile,
+		resolution,
+	} = resolveProfileSelection({
+		requestedProfileId: params.profileId,
+			surface: params.executionSurface ?? "cli",
+		target: requestedTarget,
+		providedInputKinds: normalizeProfileResolutionInput({
+			repoPath: params.repoPath,
+			imageRef: params.imageRef,
+			imageTar: params.imageTar,
+			autoStartPlan: Boolean(params.runtimeTargetProvider),
+			executionConsent: params.consentProjectCodeExecution,
+		}),
+		requestedResultPolicy: params.resultPolicy,
+		allowExperimental: params.allowExperimental,
+	});
+	if (
+		params.expectedCatalogEntryHash &&
+		params.expectedCatalogEntryHash !== resolution.catalogEntryHash
+	) {
+		throw new Error(
+			"catalog_entry_changed: profile catalog entry changed after preview",
+		);
 	}
 	const resolvedProfileHash = hashResolvedProfile(profile);
 	const initialSourceSastCoverage = resolveSourceSastCoverage(profile);
-	const requestedTarget: ScanTarget = params.target ?? { kind: "full" };
-	const supportedTargets = profile.supportedTargets ?? ["full"];
-	if (!supportedTargets.includes(requestedTarget.kind)) {
-		throw new Error(
-			`diff_target_not_supported: profile ${profile.id} does not support target ${requestedTarget.kind}`,
-		);
-	}
-	if (requestedTarget.kind === "full" && params.expectedTargetDigest) {
-		const currentTarget = await resolveFullScanTarget(
-			params.repoPath,
-			profile.scope,
-		);
-		if (currentTarget.digest !== params.expectedTargetDigest) {
-			throw new Error("target_changed: full target changed after preview");
+	let fullScanTarget: Awaited<ReturnType<typeof resolveFullScanTarget>> | null =
+		null;
+	if (requestedTarget.kind === "full") {
+		try {
+			fullScanTarget = await resolveFullScanTarget(
+				params.repoPath,
+				profile.scope,
+			);
+		} catch (error) {
+			// Existing non-Git projects remain scannable; immutable snapshots apply
+			// when a fixed source revision is available.
+			if (params.expectedTargetDigest) throw error;
 		}
+	}
+	if (
+		fullScanTarget &&
+		params.expectedTargetDigest &&
+		fullScanTarget.digest !== params.expectedTargetDigest
+	) {
+		throw new Error("target_changed: full target changed after preview");
 	}
 	const resolvedScope = await resolveScanScope({
 		repoPath: params.repoPath,
@@ -154,6 +199,10 @@ export async function runProfileScan(params: {
 
 	const initialMetadata = {
 		profileId: params.profileId,
+		canonicalProfileId: resolution.canonicalProfileId,
+		executionProfileId: resolution.executionProfileId,
+		profileResolution: resolution,
+		catalogEntry,
 		profileVersion: 1,
 		resolvedProfile: profile,
 		resolvedProfileHash,
@@ -214,6 +263,22 @@ export async function runProfileScan(params: {
 		eventType: "scan.started",
 		message: `Scan profile ${params.profileId} started.`,
 	});
+	await scanRepo.createScanEvent({
+		scanRunId: scanRun.id,
+		level: "info",
+		eventType: "profile.resolved",
+		message: `Resolved ${params.profileId} to ${resolution.executionProfileId}.`,
+		data: resolution,
+	});
+	if (resolution.migrationKind !== "canonical") {
+		await scanRepo.createScanEvent({
+			scanRunId: scanRun.id,
+			level: "info",
+			eventType: "profile.legacy_resolved",
+			message: `Legacy profile ${params.profileId} resolved to ${resolution.executionProfileId}.`,
+			data: resolution,
+		});
+	}
 
 	const scanPreflight = await runScanPreflight({
 		profile,
@@ -236,8 +301,9 @@ export async function runProfileScan(params: {
 		steps: profileSteps,
 		preflight: scanPreflight,
 		technologyRegistryDigest: technologyAnalysis.capabilityPlan.registryDigest,
-		sourceSnapshotDigest: params.sourceSnapshotDigest,
+		sourceSnapshotDigest: params.sourceSnapshotDigest ?? fullScanTarget?.digest,
 		runner: execution.runner,
+		schemaVersion: params.executionPlanSchemaVersion,
 	});
 	const executionPlanChanged = Boolean(
 		params.expectedPlanHash &&
@@ -288,6 +354,12 @@ export async function runProfileScan(params: {
 		preflightBlocksExecution(scanPreflight) ||
 		(profile.strictness === "strict" && executionPlanBlocks(executionPlan))
 	) {
+		const coverageLedger = buildCoverageLedger({
+			profile,
+			planHash: executionPlan.planHash,
+			derivedAt: new Date().toISOString(),
+			stepResults: [],
+		});
 		const terminationReason = executionPlanChanged
 			? "plan_changed"
 			: preflightBindingChanged
@@ -312,10 +384,13 @@ export async function runProfileScan(params: {
 				profileLimitationCodes: [
 					...new Set([
 						...(profile.coverageGaps ?? []),
+						...(coverageLedger?.entries.flatMap((entry) => entry.reasonCodes) ??
+							[]),
 						...scanPreflight.limitationCodes,
 						terminationReason,
 					]),
 				].sort(),
+				...(coverageLedger ? { coverageLedger } : {}),
 			},
 		});
 		await scanRepo.createScanEvent({
@@ -329,6 +404,10 @@ export async function runProfileScan(params: {
 			ok: false,
 			scanRunId: scanRun.id,
 			profileId: params.profileId,
+			canonicalProfileId: resolution.canonicalProfileId,
+			executionProfileId: resolution.executionProfileId!,
+			resultPolicy: resolution.resultPolicy,
+			gateDecision: "blocked",
 			status: "failed",
 			profileOutcome: "blocked",
 			runner: execution.runner,
@@ -339,6 +418,7 @@ export async function runProfileScan(params: {
 	}
 
 	let diffSnapshot: DiffSnapshot | null = null;
+	let fullSourceSnapshot: FullSourceSnapshot | null = null;
 	let diffManifestArtifactId: string | null = null;
 	if (diffPlan) {
 		try {
@@ -431,37 +511,77 @@ export async function runProfileScan(params: {
 			throw error;
 		}
 	}
+	if (fullScanTarget) {
+		try {
+			fullSourceSnapshot = await materializeFullSourceSnapshot({
+				repositoryPath: params.repoPath,
+				sourceRevision: fullScanTarget.sourceRevision,
+			});
+			await scanRepo.mergeScanRunMetadata(scanRun.id, {
+				fullSourceSnapshot: {
+					sourceRevision: fullSourceSnapshot.sourceRevision,
+					snapshotDigest: fullSourceSnapshot.snapshotDigest,
+				},
+			});
+		} catch (error) {
+			await scanRepo.updateScanRunStatus(scanRun.id, "failed", {
+				summary:
+					"Scan failed because the immutable source snapshot could not be created.",
+				metadata: {
+					...scanRun.metadata,
+					...initialMetadata,
+					terminationReason: "source_snapshot_materialization_failed",
+				},
+			});
+			throw error;
+		}
+	}
 
+	const executionResult = await (async () => {
+		try {
+			return await executeProfileSteps({
+				db: params.db,
+				projectId: params.projectId,
+				repoPath: fullSourceSnapshot?.projectPath ?? params.repoPath,
+				timeoutSec: params.timeoutSec,
+				createdByUserId: params.createdByUserId,
+				imageRef: params.imageRef,
+				imageTar: params.imageTar,
+				scanRepo,
+				scanRun,
+				profile,
+				profileSteps: applyExecutionPlanToSteps(profileSteps, executionPlan),
+				continueOnToolFailure,
+				diffPlan,
+				diffSnapshot,
+				sharesRuntimeTarget,
+				resolvedScope,
+				artifactStorage,
+				execution,
+				technologyAnalysis,
+				consentProjectCodeExecution:
+					params.consentProjectCodeExecution === true,
+				runtimeTargetProvider: params.runtimeTargetProvider,
+				scanPreflight,
+				executionPlan,
+			});
+		} finally {
+			await fullSourceSnapshot?.cleanup().catch(async () => {
+				await scanRepo.createScanEvent({
+					scanRunId: scanRun.id,
+					level: "warn",
+					eventType: "source_snapshot.cleanup_failed",
+					message: "Immutable source snapshot cleanup failed.",
+				});
+			});
+		}
+	})();
 	const {
 		toolResults,
 		stepResults,
 		profileFailingToolFailed,
 		optionalToolFailed,
-	} = await executeProfileSteps({
-		db: params.db,
-		projectId: params.projectId,
-		repoPath: params.repoPath,
-		timeoutSec: params.timeoutSec,
-		createdByUserId: params.createdByUserId,
-		imageRef: params.imageRef,
-		imageTar: params.imageTar,
-		scanRepo,
-		scanRun,
-		profile,
-		profileSteps: applyExecutionPlanToSteps(profileSteps, executionPlan),
-		continueOnToolFailure,
-		diffPlan,
-		diffSnapshot,
-		sharesRuntimeTarget,
-		resolvedScope,
-		artifactStorage,
-		execution,
-		technologyAnalysis,
-		consentProjectCodeExecution: params.consentProjectCodeExecution === true,
-		runtimeTargetProvider: params.runtimeTargetProvider,
-		scanPreflight,
-		executionPlan,
-	});
+	} = executionResult;
 
 	// Determine profile outcome
 	const runtimeAssessmentCoverage =
@@ -470,11 +590,36 @@ export async function runProfileScan(params: {
 		(step) =>
 			step.applicability === "applicable" && step.coverageEffect !== "covered",
 	);
-	const sourceSastCoverage = resolveSourceSastCoverage(profile, stepResults);
+	const semgrepCapability = technologyAnalysis.capabilityPlan.steps.find(
+		(step) => step.stepId === "semgrep",
+	);
+	const sourceSastApplicability = resolveSourceSastApplicability({
+		hasSourceFiles: technologyAnalysis.capabilityPlan.languages.length > 0,
+		hasSupportedLanguage:
+			technologyAnalysis.capabilityPlan.languages.length > 0,
+		rulesetAvailable: Boolean(semgrepCapability?.pluginIds.length),
+		adapterAvailable: staticScannerAdapterRegistry.has("semgrep"),
+	});
+	const sourceSastCoverage = resolveSourceSastCoverage(
+		profile,
+		stepResults,
+		sourceSastApplicability,
+	);
 	const sourceSastLimited = sourceSastCoverage?.coverageEffect === "gap";
+	const coverageLedger = buildCoverageLedger({
+		profile,
+		planHash: executionPlan.planHash,
+		derivedAt: new Date().toISOString(),
+		stepResults,
+	});
+	const normalizedStepResults = stepResults.map(normalizeProfileStepResult);
+	const ledgerLimited = Boolean(
+		coverageLedger?.entries.some((entry) => entry.coverageEffect !== "covered"),
+	);
 	const profileLimitationCodes = [
 		...new Set([
 			...(profile.coverageGaps ?? []),
+			...(coverageLedger?.entries.flatMap((entry) => entry.reasonCodes) ?? []),
 			...(sourceSastCoverage?.limitationCodes ?? []),
 			...scanPreflight.limitationCodes,
 		]),
@@ -490,7 +635,8 @@ export async function runProfileScan(params: {
 	} else if (
 		optionalToolFailed ||
 		runtimeCoverageLimited ||
-		sourceSastLimited
+		sourceSastLimited ||
+		ledgerLimited
 	) {
 		// required tools succeeded, but at least one optional tool failed
 		profileOutcome = "completed_with_warnings";
@@ -512,6 +658,12 @@ export async function runProfileScan(params: {
 		capabilityPlan: technologyAnalysis.capabilityPlan,
 		stepResults,
 	});
+	const gateEvaluation = evaluateScanGate({
+		resultPolicy: resolution.resultPolicy,
+		gateThreshold: resolution.gateSeverityThreshold,
+		profileOutcome,
+		findings: await new FindingRepository(params.db).listFindings(scanRun.id),
+	});
 
 	await scanRepo.updateScanRunStatus(scanRun.id, finalScanStatus, {
 		summary: summaryMsg,
@@ -519,13 +671,20 @@ export async function runProfileScan(params: {
 		metadata: {
 			...scanRun.metadata,
 			profileId: params.profileId,
+			canonicalProfileId: resolution.canonicalProfileId,
+			executionProfileId: resolution.executionProfileId,
+			profileResolution: resolution,
+			catalogEntry,
 			profileVersion: 1,
 			resolvedProfile: profile,
 			resolvedProfileHash,
 			profileLimitationCodes,
 			...(sourceSastCoverage ? { sourceSastCoverage } : {}),
+			...(coverageLedger ? { coverageLedger } : {}),
+			normalizedStepResults,
 			scope: resolvedScope,
 			profileOutcome,
+			gateEvaluation,
 			continueOnToolFailure,
 			runner: execution.runner,
 			toolOrder: profile.tools.map((t) => t.toolId),
@@ -547,18 +706,31 @@ export async function runProfileScan(params: {
 
 	await scanRepo.createScanEvent({
 		scanRunId: scanRun.id,
-		level: profileOutcome === "failed" ? "error" : "info",
+		level:
+			profileOutcome === "failed"
+				? "error"
+				: gateEvaluation.gateDecision === "fail"
+					? "warn"
+					: "info",
 		eventType: profileOutcome === "failed" ? "scan.failed" : "scan.completed",
 		message: summaryMsg,
+		data: { gateEvaluation },
 	});
 
-	const ok = profileOutcome !== "failed";
+	const ok =
+		profileOutcome !== "failed" &&
+		gateEvaluation.gateDecision !== "fail" &&
+		gateEvaluation.gateDecision !== "blocked";
 	const message = summaryMsg;
 
 	return {
 		ok,
 		scanRunId: scanRun.id,
 		profileId: params.profileId,
+		canonicalProfileId: resolution.canonicalProfileId,
+		executionProfileId: resolution.executionProfileId!,
+		resultPolicy: resolution.resultPolicy,
+		gateDecision: gateEvaluation.gateDecision,
 		status: finalScanStatus,
 		profileOutcome,
 		runner: execution.runner,

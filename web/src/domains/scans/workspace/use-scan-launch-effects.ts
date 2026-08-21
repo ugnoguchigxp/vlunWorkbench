@@ -2,9 +2,10 @@ import { useEffect, useRef } from "react";
 import {
 	fetchProjects,
 	fetchScanEvents,
-	fetchScanProfiles,
+	fetchScanProfileCatalog,
 	fetchScans,
 	type ScanTarget,
+	toLaunchableScanProfiles,
 } from "../../../api";
 import { buildSelectedScanTarget } from "./build-selected-scan-target";
 import { selectProgressScanRun } from "./scan-progress-model";
@@ -33,6 +34,9 @@ export function useScanLaunchEffects(scope: ScanLaunchEffectsScope) {
 		selectedProjectId,
 		selectedScanRunId,
 		setActiveScanEvents,
+		setCatalogEntries,
+		catalogDefaultProfileIds,
+		setCatalogDefaultProfileIds,
 		setDiffPreview,
 		setDiffPreviewError,
 		setDiffPreviewLoading,
@@ -43,8 +47,8 @@ export function useScanLaunchEffects(scope: ScanLaunchEffectsScope) {
 		setScanDetailTab,
 		setScanRuns,
 		setScanRunsLoading,
-		setScanTargetKind,
 		setSelectedProjectId,
+		setSelectedProfileId,
 		setSelectedScanRunId,
 	} = scope;
 
@@ -192,24 +196,60 @@ export function useScanLaunchEffects(scope: ScanLaunchEffectsScope) {
 
 	useEffect(() => {
 		if (!active) return;
-		void fetchScanProfiles().then(setProfiles).catch(console.error);
-	}, [active, setProfiles]);
+		let mounted = true;
+		void fetchScanProfileCatalog()
+			.then((catalog) => {
+				if (!mounted) return;
+				setCatalogEntries(catalog.catalogEntries);
+				setCatalogDefaultProfileIds(catalog.defaultProfileIds);
+				setSelectedProfileId(
+					(current) =>
+						current || catalog.defaultProfileIds[scanTargetKind] || "",
+				);
+				setProfiles(toLaunchableScanProfiles(catalog));
+			})
+			.catch((error) => {
+				if (!mounted) return;
+				setErrorText(
+					error instanceof Error
+						? error.message
+						: "スキャンプロファイルの読み込みに失敗しました。",
+				);
+			});
+		return () => {
+			mounted = false;
+		};
+	}, [
+		active,
+		scanTargetKind,
+		setCatalogDefaultProfileIds,
+		setCatalogEntries,
+		setErrorText,
+		setProfiles,
+		setSelectedProfileId,
+	]);
 
 	useEffect(() => {
 		const profile = profiles.find(
 			(item: { id: string; supportedTargets?: ScanTarget["kind"][] }) =>
 				item.id === selectedProfileId,
 		);
-		if (!profile) return;
+		if (!profile) {
+			const defaultProfile = catalogDefaultProfileIds[scanTargetKind];
+			if (defaultProfile) setSelectedProfileId(defaultProfile);
+			return;
+		}
 		const supported = profile.supportedTargets ?? ["full"];
 		if (supported.includes(scanTargetKind)) return;
-		const nextKind = supported.includes("full")
-			? "full"
-			: supported.includes("working_tree")
-				? "working_tree"
-				: supported[0];
-		if (nextKind) setScanTargetKind(nextKind);
-	}, [profiles, scanTargetKind, selectedProfileId, setScanTargetKind]);
+		const defaultProfile = catalogDefaultProfileIds[scanTargetKind];
+		if (defaultProfile) setSelectedProfileId(defaultProfile);
+	}, [
+		catalogDefaultProfileIds,
+		profiles,
+		scanTargetKind,
+		selectedProfileId,
+		setSelectedProfileId,
+	]);
 
 	const diffPreviewInputKey = JSON.stringify([
 		selectedProjectId,

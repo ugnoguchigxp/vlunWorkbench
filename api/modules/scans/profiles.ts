@@ -19,6 +19,7 @@ export {
 
 import { buildStaticScanProfiles } from "./static-scan-profiles";
 import { ZAP_ACTIVE_DEDICATED_PROFILES } from "./zap-active-profiles";
+import { buildCanonicalScanProfiles } from "./canonical-scan-profiles";
 
 export const SOURCE_BASELINE_SCOPE: ScanScopePolicy = {
 	intent: "source",
@@ -376,7 +377,28 @@ export function buildScanProfiles(params?: {
 				REQUIRED_ZAP_BASELINE_STEP,
 				REQUIRED_SCHEMATHESIS_STEP,
 			],
-			coverageGaps: [],
+			capabilityRequirements: [
+				{ capabilityId: "secret_detection", requirement: "required" },
+				{ capabilityId: "sca", requirement: "required" },
+				{ capabilityId: "iac_config", requirement: "required" },
+				{ capabilityId: "sbom", requirement: "required" },
+				{ capabilityId: "passive_dast", requirement: "required" },
+				{ capabilityId: "source_sast", requirement: "required_if_applicable" },
+				{
+					capabilityId: "api_schema_contract",
+					requirement: "required_if_applicable",
+				},
+				{ capabilityId: "provenance_integrity", requirement: "advisory" },
+				{ capabilityId: "artifact_container", requirement: "advisory" },
+				{ capabilityId: "dynamic_tests", requirement: "advisory" },
+				{ capabilityId: "sanitizer_fuzz", requirement: "advisory" },
+				{ capabilityId: "browser_client", requirement: "advisory" },
+				{ capabilityId: "authentication_session", requirement: "advisory" },
+				{ capabilityId: "authorization_matrix", requirement: "advisory" },
+				{ capabilityId: "active_dast", requirement: "advisory" },
+				{ capabilityId: "business_logic", requirement: "advisory" },
+				{ capabilityId: "remediation_retest", requirement: "advisory" },
+			],
 		},
 		{
 			id: "security-inventory-best-effort",
@@ -474,6 +496,24 @@ export function buildScanProfiles(params?: {
 }
 
 export const SCAN_PROFILES: ScanProfile[] = buildScanProfiles();
+
+/** Canonical profiles are intentionally separate from the frozen legacy list. */
+export function getCanonicalProfileById(id: string): ScanProfile | undefined {
+	const profile = buildCanonicalScanProfiles({
+		sourceScope: SOURCE_BASELINE_SCOPE,
+	}).find((candidate) => candidate.id === id && candidate.enabled);
+	if (profile) assertRuntimeAssessmentBudget(profile);
+	return profile;
+}
+
+export function listCanonicalProfiles(): ScanProfile[] {
+	return buildCanonicalScanProfiles({
+		sourceScope: SOURCE_BASELINE_SCOPE,
+	}).map((profile) => {
+		assertRuntimeAssessmentBudget(profile);
+		return profile;
+	});
+}
 
 export function getProfileById(id: string): ScanProfile | undefined {
 	const profile = SCAN_PROFILES.find((p) => p.id === id && p.enabled);

@@ -19,7 +19,13 @@ describe("scan profile dry run", () => {
       finalReportEnabled: true,
       automatedDiagnosticEnabled: true,
     });
-    expect(result.coverageGaps).toEqual([]);
+    expect(result.coverageGaps).toBeUndefined();
+    expect(result.coverageMeasurement).toBe("not_measured");
+    expect(result.capabilityRequirements).toEqual(
+      expect.arrayContaining([
+        { capabilityId: "secret_detection", requirement: "required" },
+      ]),
+    );
     expect(result.resolvedProfileHash).toMatch(/^sha256:[0-9a-f]{64}$/);
     expect(result.stepOrder).toContain("semgrep");
   });
@@ -40,7 +46,8 @@ describe("scan profile dry run", () => {
       finalReportEnabled: true,
       automatedDiagnosticEnabled: true,
     });
-    expect(result.coverageGaps).toEqual([]);
+    expect(result.coverageGaps).toBeUndefined();
+    expect(result.coverageMeasurement).toBe("not_measured");
     expect(result.stepOrder).toContain("semgrep");
   });
 

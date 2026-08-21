@@ -19,7 +19,12 @@ import {
 	resolveProfileSteps,
 	runProfileScan,
 } from "../modules/scans/profile-runner";
-import { getProfileById } from "../modules/scans/profiles";
+import {
+	normalizeProfileResolutionInput,
+	ProfileResolutionError,
+	resolveProfileSelection,
+} from "../modules/scans/profile-resolution";
+import { resolveDefaultCatalogProfileId } from "../modules/scans/profile-catalog";
 import {
 	ProjectResolutionError,
 	resolveProjectByPath,
@@ -45,6 +50,7 @@ import { SettingsRepository } from "../modules/settings/settings.repository";
 import { ProjectPathPolicyError } from "../security/project-path-policy";
 import { runCliAutomatedDiagnostic } from "./scan-profile-diagnostic";
 import { buildScanProfileDryRun } from "./scan-profile-dry-run";
+import { scanProfileExitCode } from "./scan-profile-exit-code";
 import { parseScanTargetOption } from "./scan-profile-options";
 
 const MAX_SCAN_STEP_TIMEOUT_SEC = 86_400;
@@ -68,7 +74,7 @@ function parseScanProfileArgs() {
 			"project-path": { type: "string" },
 			"workspace-target-grant-ref": { type: "string" },
 			"create-project": { type: "string", default: "false" },
-			profile: { type: "string", default: "baseline" },
+			profile: { type: "string" },
 			target: { type: "string", default: "full" },
 			base: { type: "string" },
 			head: { type: "string" },
@@ -76,6 +82,9 @@ function parseScanProfileArgs() {
 			"expected-target-digest": { type: "string" },
 			"expected-preflight-binding-hash": { type: "string" },
 			"expected-plan-hash": { type: "string" },
+			"expected-catalog-entry-hash": { type: "string" },
+			"result-policy": { type: "string" },
+			"allow-experimental": { type: "string", default: "false" },
 			preview: { type: "string", default: "false" },
 			step: { type: "string" },
 			"timeout-sec": { type: "string" },
@@ -125,7 +134,6 @@ async function main() {
 	const projectPath = argsValues["project-path"];
 	const workspaceTargetGrantRef = argsValues["workspace-target-grant-ref"];
 	const createProject = parseBooleanFlag(argsValues["create-project"], false);
-	const profileId = argsValues.profile;
 	let scanTarget: ScanTarget;
 	try {
 		scanTarget = parseScanTargetOption(argsValues);
@@ -137,6 +145,8 @@ async function main() {
 		});
 		process.exit(2);
 	}
+	const profileId =
+		argsValues.profile ?? resolveDefaultCatalogProfileId(scanTarget.kind);
 	const expectedTargetDigest = argsValues["expected-target-digest"] as
 		| string
 		| undefined;
@@ -173,6 +183,37 @@ async function main() {
 		});
 		process.exit(2);
 	}
+	const expectedCatalogEntryHash = argsValues["expected-catalog-entry-hash"] as
+		| string
+		| undefined;
+	if (
+		expectedCatalogEntryHash &&
+		!/^sha256:[0-9a-f]{64}$/.test(expectedCatalogEntryHash)
+	) {
+		writeResult({
+			ok: false,
+			status: "config_error",
+			message: "--expected-catalog-entry-hash must be a sha256: digest.",
+		});
+		process.exit(2);
+	}
+	const resultPolicy = argsValues["result-policy"] as
+		| "advisory"
+		| "gate"
+		| undefined;
+	if (
+		resultPolicy !== undefined &&
+		resultPolicy !== "advisory" &&
+		resultPolicy !== "gate"
+	) {
+		writeResult({
+			ok: false,
+			status: "config_error",
+			message: "--result-policy must be advisory or gate.",
+		});
+		process.exit(2);
+	}
+	const allowExperimental = argsValues["allow-experimental"] === "true";
 	const preview = argsValues.preview === "true";
 	const stepId = argsValues.step;
 	const timeoutSecStr = argsValues["timeout-sec"];
@@ -228,16 +269,35 @@ async function main() {
 		process.exit(2);
 	}
 
-	// Validate profile exists
-	const profile = getProfileById(profileId);
-	if (!profile) {
+	let selection: ReturnType<typeof resolveProfileSelection>;
+	try {
+		selection = resolveProfileSelection({
+			requestedProfileId: profileId,
+			surface: executionSurface,
+			target: scanTarget,
+			providedInputKinds: normalizeProfileResolutionInput({
+				repoPath: projectPath ?? "project-id",
+				imageRef,
+				imageTar,
+				executionConsent: consentProjectCodeExecution,
+			}),
+			requestedResultPolicy: resultPolicy,
+			allowExperimental,
+		});
+	} catch (error) {
 		writeResult({
 			ok: false,
-			status: "failed",
-			message: `Invalid profile: ${profileId}`,
+			status: "config_error",
+			message:
+				error instanceof ProfileResolutionError
+					? `${error.code}: ${error.message}`
+					: error instanceof Error
+						? error.message
+						: String(error),
 		});
-		process.exit(1);
+		process.exit(2);
 	}
+	const profile = selection.executionProfile;
 
 	const timeoutSec = timeoutSecStr
 		? Number.parseInt(timeoutSecStr, 10)
@@ -270,6 +330,8 @@ async function main() {
 			imageTar,
 			expectedPreflightBindingHash,
 			expectedPlanHash,
+			expectedCatalogEntryHash,
+			profileResolution: selection.resolution,
 		});
 		writeResult(dryRunResult);
 		process.exit(dryRunResult.ok === false ? 1 : 0);
@@ -390,6 +452,7 @@ async function main() {
 				technologyRegistryDigest:
 					technologyAnalysis.capabilityPlan.registryDigest,
 				runner: execution.runner,
+				schemaVersion: env.scanExecutionPlanV2 ? 2 : 1,
 			});
 			const dryRunResult = buildScanProfileDryRun({
 				profile,
@@ -404,6 +467,8 @@ async function main() {
 				preflight,
 				expectedPreflightBindingHash,
 				expectedPlanHash,
+				expectedCatalogEntryHash,
+				profileResolution: selection.resolution,
 				executionPlan,
 			});
 			writeResult(dryRunResult);
@@ -472,7 +537,11 @@ async function main() {
 			expectedTargetDigest,
 			expectedPreflightBindingHash,
 			expectedPlanHash,
+			expectedCatalogEntryHash,
+			resultPolicy,
+			allowExperimental,
 			consentProjectCodeExecution,
+			executionPlanSchemaVersion: env.scanExecutionPlanV2 ? 2 : 1,
 		});
 		const automatedDiagnostic =
 			(automatedDiagnosticEnabled || finalReportEnabled) &&
@@ -521,6 +590,10 @@ async function main() {
 			},
 			scanRunId: result.scanRunId,
 			profileId: result.profileId,
+			canonicalProfileId: result.canonicalProfileId,
+			executionProfileId: result.executionProfileId,
+			resultPolicy: result.resultPolicy,
+			gateDecision: result.gateDecision,
 			runner: result.runner,
 			status: result.status,
 			profileOutcome: result.profileOutcome,
@@ -548,8 +621,14 @@ async function main() {
 
 		writeResult(outputPayload);
 
-		if (!result.ok) {
-			process.exitCode = 1;
+		const exitCode = scanProfileExitCode({
+			executionSurface,
+			ok: result.ok,
+			resultPolicy: result.resultPolicy,
+			gateDecision: result.gateDecision,
+		});
+		if (exitCode !== 0) {
+			process.exitCode = exitCode;
 			return;
 		}
 	} catch (err) {

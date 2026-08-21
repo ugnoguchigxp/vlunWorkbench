@@ -52,8 +52,38 @@ export type ScanProfile = {
 	scope?: ScanProfileScope;
 	tools: ScanProfileTool[];
 	steps: ScanProfileStep[];
-	coverageGaps?: string[];
+	/** Profile declarations are not runtime coverage results. */
+	coverageMeasurement?: "not_measured";
+	capabilityRequirements?: Array<{
+		capabilityId: string;
+		requirement: "required" | "required_if_applicable" | "advisory";
+	}>;
 };
+
+export type ScanProfileCatalogEntry = {
+	id: string;
+	displayName: string;
+	description: string;
+	availability: "stable" | "experimental" | "planned" | "deprecated";
+	launchMode: "profile_orchestrator" | "dedicated_flow" | "unavailable";
+	supportedTargets: ScanTargetKind[];
+	strictness: "best_effort" | "strict";
+	capabilityRequirements: NonNullable<ScanProfile["capabilityRequirements"]>;
+	launchDestination?: string | null;
+	limitationCodes?: string[];
+};
+
+export type ScanProfileCatalogResponse = {
+	schemaVersion: number;
+	profiles: ScanProfile[];
+	catalogEntries: ScanProfileCatalogEntry[];
+	genericStartCatalogProfileIds: string[];
+	defaultProfileIds: Record<ScanTargetKind, string>;
+};
+
+export async function fetchScanProfileCatalog(): Promise<ScanProfileCatalogResponse> {
+	return requestJson<ScanProfileCatalogResponse>("/api/scan-profiles");
+}
 
 export type ToolSummary = {
 	toolId: string;
@@ -271,10 +301,32 @@ export type DiagnosticReport = {
 };
 
 export async function fetchScanProfiles(): Promise<ScanProfile[]> {
-	const data = await requestJson<{ profiles: ScanProfile[] }>(
-		"/api/scan-profiles",
-	);
-	return data.profiles;
+	const data = await fetchScanProfileCatalog();
+	return toLaunchableScanProfiles(data);
+}
+
+export function toLaunchableScanProfiles(
+	data: ScanProfileCatalogResponse,
+): ScanProfile[] {
+	if (!data.catalogEntries || !data.genericStartCatalogProfileIds) {
+		return data.profiles;
+	}
+	const genericIds = new Set(data.genericStartCatalogProfileIds);
+	return data.catalogEntries
+		.filter((entry) => genericIds.has(entry.id))
+		.map((entry) => ({
+			id: entry.id,
+			name: entry.displayName,
+			description: entry.description,
+			enabled: entry.availability === "stable",
+			strictness: entry.strictness,
+			defaultTimeoutSec: 600,
+			supportedTargets: entry.supportedTargets,
+			tools: [],
+			steps: [],
+			coverageMeasurement: "not_measured" as const,
+			capabilityRequirements: entry.capabilityRequirements,
+		}));
 }
 
 export async function startScan(
@@ -291,11 +343,14 @@ export async function startScan(
 		expectedTargetDigest?: string;
 		expectedPreflightBindingHash?: string;
 		expectedPlanHash?: string;
+		expectedCatalogEntryHash?: string;
+		resultPolicy?: "advisory" | "gate";
 	},
 ): Promise<{
 	scan: { id: string; status: string; profile: string };
 	runner?: "host" | "docker";
 	profileOutcome: string;
+	profileResolution?: Record<string, unknown>;
 	message?: string;
 	toolResults: ScanStartToolResult[];
 	stepResults?: ScanStartStepResult[];
@@ -310,19 +365,31 @@ export async function preflightScan(
 	projectId: string,
 	params: {
 		profile: string;
+		target?: ScanTarget;
+		resultPolicy?: "advisory" | "gate";
 		stepId?: string;
 		consentProjectCodeExecution?: boolean;
 		runner?: "host" | "docker";
 	},
-): Promise<ScanPreflightResult & { executionPlan: ScanExecutionPlan }> {
+): Promise<
+	ScanPreflightResult & {
+		executionPlan: ScanExecutionPlan;
+		profileResolution: { catalogEntryHash: string };
+	}
+> {
 	const data = await requestJson<{
 		preflight: ScanPreflightResult;
 		executionPlan: ScanExecutionPlan;
+		profileResolution: { catalogEntryHash: string };
 	}>(`/api/projects/${projectId}/scans/preflight`, {
 		method: "POST",
 		body: params,
 	});
-	return { ...data.preflight, executionPlan: data.executionPlan };
+	return {
+		...data.preflight,
+		executionPlan: data.executionPlan,
+		profileResolution: data.profileResolution,
+	};
 }
 
 export async function previewScan(
@@ -331,7 +398,9 @@ export async function previewScan(
 		profile: string;
 		target: Exclude<ScanTarget, { kind: "full" }>;
 	},
-): Promise<DiffScanPreview> {
+): Promise<
+	DiffScanPreview & { profileResolution: { catalogEntryHash: string } }
+> {
 	return requestJson(`/api/projects/${projectId}/scans/preview`, {
 		method: "POST",
 		body: params,

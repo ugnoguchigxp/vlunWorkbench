@@ -136,6 +136,7 @@ export function buildScanWorkspaceActions(scope: ScansActionScope) {
 			}
 			const preflight = await preflightScan(selectedProjectId, {
 				profile: selectedProfileId,
+				target,
 				consentProjectCodeExecution: scanProjectCodeExecutionConsent,
 			});
 			if (preflight.mode === "enforced" && preflight.status === "blocked") {
@@ -149,6 +150,7 @@ export function buildScanWorkspaceActions(scope: ScansActionScope) {
 				target,
 				expectedPreflightBindingHash: preflight.bindingHash,
 				expectedPlanHash: preflight.executionPlan.planHash,
+				expectedCatalogEntryHash: preflight.profileResolution.catalogEntryHash,
 				...(target.kind !== "full" && diffPreviewCurrent && diffPreview
 					? { expectedTargetDigest: diffPreview.target.targetDigest }
 					: {}),

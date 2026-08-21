@@ -1,3 +1,10 @@
+export { resolveSourceSastApplicability } from "./source-sast-applicability";
+export {
+	buildCoverageLedger,
+	readCoverageLedger,
+	type CoverageLedger,
+	type CoverageLedgerEntry,
+} from "./coverage-ledger";
 export {
 	buildCoverageResults,
 	ensureScanCoverageResults,

@@ -518,14 +518,16 @@ describe("Profile Runner Orchestration", () => {
     expect(await connection.db.select().from(scanReports)).toHaveLength(0);
   });
 
-  it("persists and reports the explicit source SAST gap", async () => {
+  it("persists and reports the derived source SAST gap", async () => {
     const mockProfile = {
       id: "full-security-scan",
       name: "Truthful Full Scan",
       description: "Full scan without an optional Semgrep adapter",
       enabled: true,
       defaultTimeoutSec: 100,
-      coverageGaps: ["source_sast_not_executed"],
+		capabilityRequirements: [
+			{ capabilityId: "source_sast", requirement: "required_if_applicable" },
+		],
       tools: [
         {
           toolId: "gitleaks",
@@ -573,7 +575,9 @@ describe("Profile Runner Orchestration", () => {
       expect.objectContaining({
         resolvedProfile: expect.objectContaining({
           id: "full-security-scan",
-          coverageGaps: ["source_sast_not_executed"],
+			capabilityRequirements: [
+				{ capabilityId: "source_sast", requirement: "required_if_applicable" },
+			],
         }),
         resolvedProfileHash: expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
         profileLimitationCodes: expect.arrayContaining([
@@ -584,6 +588,15 @@ describe("Profile Runner Orchestration", () => {
           coverageEffect: "gap",
           limitationCodes: ["source_sast_not_executed"],
         }),
+		coverageLedger: expect.objectContaining({
+			entries: [
+				expect.objectContaining({
+					capabilityId: "source_sast",
+					coverageEffect: "gap",
+					reasonCodes: ["source_sast_not_executed"],
+				}),
+			],
+		}),
       }),
     );
     getProfileSpy.mockRestore();

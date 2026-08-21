@@ -11,6 +11,7 @@ import {
 } from "../../db/schema";
 import { getProfileById } from "./profiles";
 import { readStoredResolvedProfile } from "./resolved-profile";
+import { scanProfileResolutionSchema } from "../../../shared/schemas/scan-profile-catalog.schema";
 
 export interface ToolSummary {
 	toolId: string;
@@ -62,6 +63,10 @@ export interface StepSummary {
 export interface ScanRunSummary {
 	scanRunId: string;
 	profileId: string;
+	canonicalProfileId?: string;
+	executionProfileId?: string;
+	resultPolicy?: "advisory" | "gate";
+	gateDecision?: "not_requested" | "pass" | "fail" | "blocked";
 	profileOutcome: string;
 	tools: ToolSummary[];
 	steps?: StepSummary[];
@@ -239,6 +244,18 @@ export async function buildScanRunSummary(
 	}
 
 	const metadataProfileOutcome = scanRun.metadata?.profileOutcome;
+	const profileResolution = scanProfileResolutionSchema.safeParse(
+		scanRun.metadata?.profileResolution,
+	);
+	const gateDecision =
+		scanRun.metadata?.gateEvaluation &&
+		typeof scanRun.metadata.gateEvaluation === "object" &&
+		["not_requested", "pass", "fail", "blocked"].includes(
+			String((scanRun.metadata.gateEvaluation as Record<string, unknown>).gateDecision),
+		)
+			? ((scanRun.metadata.gateEvaluation as Record<string, unknown>)
+					.gateDecision as ScanRunSummary["gateDecision"])
+			: undefined;
 	const profileOutcome =
 		(scanRun.profileOutcome !== "pending" && scanRun.profileOutcome) ||
 		(typeof metadataProfileOutcome === "string"
@@ -405,6 +422,14 @@ export async function buildScanRunSummary(
 	return {
 		scanRunId,
 		profileId: scanRun.profile,
+		...(profileResolution.success
+			? {
+					canonicalProfileId: profileResolution.data.canonicalProfileId,
+					executionProfileId: profileResolution.data.executionProfileId ?? undefined,
+					resultPolicy: profileResolution.data.resultPolicy,
+				}
+			: {}),
+		...(gateDecision ? { gateDecision } : {}),
 		profileOutcome,
 		tools,
 		steps,

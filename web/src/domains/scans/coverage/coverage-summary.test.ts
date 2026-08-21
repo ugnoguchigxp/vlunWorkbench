@@ -210,6 +210,43 @@ describe("buildCoverageSummary", () => {
 		});
 	});
 
+	it("projects uncovered capability ledger entries into coverage gaps", () => {
+		const summary = build({
+			scanRun: scanRun({
+				metadata: {
+					coverageLedger: {
+						schemaVersion: 1,
+						planHash: `sha256:${"a".repeat(64)}`,
+						derivedAt: now,
+						entries: [
+							{
+								capabilityId: "active_dast",
+								requirement: "required_if_applicable",
+								applicability: "applicable",
+								execution: "blocked",
+								coverageEffect: "gap",
+								reasonCodes: ["roe_not_approved"],
+								evidenceRefs: [],
+								limitations: ["Rules of engagement is required."],
+							},
+						],
+						summary: { covered: 0, partial: 0, gap: 1 },
+						ledgerHash: `sha256:${"b".repeat(64)}`,
+					},
+				},
+			}),
+		});
+
+		expect(summary.coverageGaps).toContainEqual({
+			id: "capability:active_dast",
+			status: "not_checked",
+			title: "active_dast",
+			summary: "roe_not_approved",
+			category: "active_dast",
+			attackSurfaceItemId: null,
+		});
+	});
+
 	it("uses the existing security check category when gap metadata has no category", () => {
 		const summary = build({
 			securityCheckResults: [

@@ -14,6 +14,7 @@ import {
 } from "./report-builder-helpers";
 import type { buildReportQuery } from "./report-builder-query";
 import { readPluginExecutionSummary } from "./report-builder-technology";
+import { scanProfileResolutionSchema } from "../../../../shared/schemas/scan-profile-catalog.schema";
 
 export function renderReportOverview(
 	scope: Awaited<ReturnType<typeof buildReportQuery>>,
@@ -52,6 +53,14 @@ export function renderReportOverview(
 			? metadataProfileOutcome
 			: null) ||
 		"N/A";
+	const profileResolution = scanProfileResolutionSchema.safeParse(
+		scanRun.metadata?.profileResolution,
+	);
+	const gateEvaluation =
+		scanRun.metadata?.gateEvaluation &&
+		typeof scanRun.metadata.gateEvaluation === "object"
+			? (scanRun.metadata.gateEvaluation as Record<string, unknown>)
+			: null;
 	const diffContext = readDiffReportContext(scanRun.metadata);
 	const technologySummary = readPluginExecutionSummary(scanRun.metadata);
 	const coverage = buildScanCoverageReadModel({
@@ -86,6 +95,16 @@ export function renderReportOverview(
 		`- **プロファイル結果:** ${toInlineText(profileOutcome.toUpperCase())}`,
 	);
 	lines.push(`- **状態:** ${toInlineText(scanRun.status)}`);
+	if (profileResolution.success) {
+		lines.push(
+			`- **Catalog profile:** requested=${toInlineText(profileResolution.data.requestedProfileId)}, canonical=${toInlineText(profileResolution.data.canonicalProfileId)}, execution=${toInlineText(profileResolution.data.executionProfileId ?? "none")}, policy=${toInlineText(profileResolution.data.resultPolicy)}`,
+		);
+	}
+	if (gateEvaluation) {
+		lines.push(
+			`- **Gate decision:** ${toInlineText(String(gateEvaluation.gateDecision ?? "unknown"))}`,
+		);
+	}
 	lines.push(`- **開始日時:** ${formatDateTime(scanRun.startedAt)}`);
 	lines.push(`- **完了日時:** ${formatDateTime(scanRun.completedAt)}`);
 	if (profileSteps.length > 0) {

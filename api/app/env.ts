@@ -144,6 +144,7 @@ const EnvSchema = z.object({
 	VULN_WORKBENCH_WEB_SCAN_QUEUE_LIMIT: optionalPositiveInteger,
 	VULN_WORKBENCH_WEB_SCAN_STEP_TIMEOUT_MAX_SEC: optionalPositiveInteger,
 	VULN_WORKBENCH_WEB_SCAN_WALL_CLOCK_TIMEOUT_SEC: optionalPositiveInteger,
+	VULN_WORKBENCH_SCAN_EXECUTION_PLAN_V2: optionalBoolean,
 	STATIC_INTELLIGENCE_ALLOWED_PROJECT_ROOTS: optionalTrimmedString,
 	STATIC_INTELLIGENCE_PROJECT_CREATION_POLICY: z
 		.enum(["registered_only", "create_within_allowed_roots"])
@@ -235,6 +236,8 @@ export type AppEnv = {
 	webScanQueueLimit: number;
 	webScanStepTimeoutMaxSec: number;
 	webScanWallClockTimeoutSec: number;
+	/** Optional for backward-compatible injected/test AppEnv fixtures. */
+	scanExecutionPlanV2?: boolean;
 	staticIntelligenceAllowedProjectRoots?: string[];
 	staticIntelligenceProjectCreationPolicy?:
 		| "registered_only"
@@ -436,6 +439,7 @@ export function readAppEnv(env: NodeJS.ProcessEnv = process.env): AppEnv {
 		webScanWallClockTimeoutSec:
 			parsed.VULN_WORKBENCH_WEB_SCAN_WALL_CLOCK_TIMEOUT_SEC ??
 			RUNTIME_SETTINGS_DEFAULTS.webScanWallClockTimeoutSec,
+		scanExecutionPlanV2: parsed.VULN_WORKBENCH_SCAN_EXECUTION_PLAN_V2 ?? false,
 		staticIntelligenceAllowedProjectRoots: parseAllowedProjectRoots(
 			parsed.STATIC_INTELLIGENCE_ALLOWED_PROJECT_ROOTS,
 		),

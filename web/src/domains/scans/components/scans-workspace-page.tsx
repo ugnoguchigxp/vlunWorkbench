@@ -19,6 +19,7 @@ import { ProjectDeleteDialog } from "./project-delete-dialog";
 import { ProjectRail } from "./project-rail";
 import { ScanDeleteDialog } from "./scan-delete-dialog";
 import { ScanLaunchCard } from "./scan-launch-card";
+import { ScanProfileCatalogList } from "./scan-profile-catalog-list";
 import { ScanOverviewTab } from "./scan-overview-tab";
 import { ScanProgressPanel } from "./scan-progress-panel";
 import { ScanReportWorkspace } from "./scan-report-workspace";
@@ -192,9 +193,16 @@ export function ScansWorkspacePage() {
 						onTargetChange={c.handleScanTargetKindChange}
 						onStart={() => void c.handleStartScanProfile()}
 					/>
-					{selectedProfile?.coverageGaps?.length ? (
+					<ScanProfileCatalogList
+						entries={c.catalogEntries}
+						genericStartProfileIds={c.profiles.map((profile) => profile.id)}
+					/>
+					{selectedProfile?.capabilityRequirements?.length ? (
 						<p className="workspace-coverage-notice">
-							未実行の診断範囲: {selectedProfile.coverageGaps.join(", ")}
+							実行前の診断要件:{" "}
+							{selectedProfile.capabilityRequirements
+								.map((entry) => entry.capabilityId)
+								.join(", ")}
 						</p>
 					) : null}
 					{!canStart && c.selectedProjectId ? (

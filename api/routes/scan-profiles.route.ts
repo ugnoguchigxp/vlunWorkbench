@@ -1,5 +1,10 @@
 import { Hono } from "hono";
 import { listProfiles } from "../modules/scans/profiles";
+import {
+	listGenericStartCatalogProfileIds,
+	listPublicCatalogEntries,
+	resolveDefaultCatalogProfileId,
+} from "../modules/scans/profile-catalog";
 import { scanProfileStepId } from "../modules/scans/scan-execution-plan-builder";
 import { resolveScanPreflightMode } from "../modules/scans/scan-preflight";
 
@@ -16,7 +21,8 @@ export function createScanProfilesRoute() {
 			strictness: p.strictness ?? "best_effort",
 			defaultTimeoutSec: p.defaultTimeoutSec,
 			supportedTargets: p.supportedTargets ?? ["full"],
-			coverageGaps: p.coverageGaps ?? [],
+			coverageMeasurement: "not_measured" as const,
+			capabilityRequirements: p.capabilityRequirements ?? [],
 			scope: p.scope
 				? {
 						intent: p.scope.intent,
@@ -52,7 +58,16 @@ export function createScanProfilesRoute() {
 			})),
 		}));
 		return c.json({
+			schemaVersion: 2,
 			profiles: sanitizedProfiles,
+			catalogEntries: listPublicCatalogEntries(),
+			genericStartCatalogProfileIds: listGenericStartCatalogProfileIds(),
+			defaultProfileIds: {
+				full: resolveDefaultCatalogProfileId("full"),
+				working_tree: resolveDefaultCatalogProfileId("working_tree"),
+				commit: resolveDefaultCatalogProfileId("commit"),
+				range: resolveDefaultCatalogProfileId("range"),
+			},
 			preflight: { schemaVersion: 1, mode: resolveScanPreflightMode() },
 		});
 	});

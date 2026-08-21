@@ -2,8 +2,8 @@ import { z } from "zod";
 
 export const sourceSastCoverageSchema = z.object({
 	capability: z.literal("source_sast"),
-	applicability: z.literal("applicable"),
-	state: z.enum(["applicable", "executed"]),
+	applicability: z.enum(["applicable", "not_applicable", "unknown"]),
+	state: z.enum(["applicable", "executed", "not_applicable", "unknown"]),
 	coverageEffect: z.enum(["covered", "gap"]),
 	stepId: z.literal("semgrep").nullable(),
 	engine: z.literal("semgrep").nullable(),

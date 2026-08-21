@@ -23,7 +23,12 @@ import {
 	resolveGitDiff,
 } from "../modules/scans/git-diff-resolver";
 import { resolveProfileSteps } from "../modules/scans/profile-runner";
-import { getProfileById } from "../modules/scans/profiles";
+import {
+	normalizeProfileResolutionInput,
+	ProfileResolutionError,
+	resolveProfileSelection,
+} from "../modules/scans/profile-resolution";
+import { resolveDefaultCatalogProfileId } from "../modules/scans/profile-catalog";
 import type { ProjectDeletionService } from "../modules/scans/project-deletion-service";
 import { isTemporaryProjectPath } from "../modules/scans/project-visibility";
 import type {
@@ -228,7 +233,10 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 			zValidator(
 				"json",
 				z.object({
-					profile: z.string().default("baseline"),
+					profile: z.string().optional(),
+					target: scanTargetSchema.default({ kind: "full" }),
+					resultPolicy: z.enum(["advisory", "gate"]).optional(),
+					allowExperimental: z.boolean().default(false).optional(),
 					stepId: z.string().optional(),
 					consentProjectCodeExecution: z.boolean().default(false).optional(),
 					runner: z.enum(["host", "docker"]).default("host").optional(),
@@ -247,10 +255,16 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 					throw new HttpError(500, "Scan runtime is not configured.");
 				}
 				const authorized = await resolveWebProjectPath(project.repoPath);
-				const profile = getProfileById(body.profile);
-				if (!profile) {
-					throw new HttpError(400, `Profile not found: ${body.profile}`);
-				}
+				const selectedProfileId =
+					body.profile ?? resolveDefaultCatalogProfileId(body.target.kind);
+				const selection = resolveWebProfileSelection({
+					profileId: selectedProfileId,
+					target: body.target,
+					resultPolicy: body.resultPolicy,
+					allowExperimental: body.allowExperimental,
+					consentProjectCodeExecution: body.consentProjectCodeExecution,
+				});
+				const profile = selection.executionProfile;
 				const policy = resolveScanExecutionPolicy({
 					env: deps.env,
 					surface: "web",
@@ -288,8 +302,13 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 					technologyRegistryDigest:
 						technologyAnalysis.capabilityPlan.registryDigest,
 					runner: execution.runner,
+					schemaVersion: deps.env?.scanExecutionPlanV2 ? 2 : 1,
 				});
-				return c.json({ preflight, executionPlan });
+				return c.json({
+					preflight,
+					executionPlan,
+					profileResolution: selection.resolution,
+				});
 			},
 		)
 		.post(
@@ -297,8 +316,10 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 			zValidator(
 				"json",
 				z.object({
-					profile: z.string().default("diff-source-baseline"),
+					profile: z.string().optional(),
 					target: scanTargetSchema,
+					resultPolicy: z.enum(["advisory", "gate"]).optional(),
+					allowExperimental: z.boolean().default(false).optional(),
 				}),
 			),
 			async (c) => {
@@ -311,22 +332,19 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 					throw new HttpError(403, "Forbidden");
 				}
 				const authorized = await resolveWebProjectPath(project.repoPath);
-				const profile = getProfileById(body.profile);
-				if (!profile) {
-					throw new HttpError(400, `Profile not found: ${body.profile}`);
-				}
+				const selectedProfileId =
+					body.profile ?? resolveDefaultCatalogProfileId(body.target.kind);
+				const selection = resolveWebProfileSelection({
+					profileId: selectedProfileId,
+					target: body.target,
+					resultPolicy: body.resultPolicy,
+					allowExperimental: body.allowExperimental,
+				});
+				const profile = selection.executionProfile;
 				if (body.target.kind === "full") {
 					throw new HttpError(
 						400,
 						"diff_target_not_supported: preview requires a non-full target.",
-					);
-				}
-				if (
-					!(profile.supportedTargets ?? ["full"]).includes(body.target.kind)
-				) {
-					throw new HttpError(
-						400,
-						`diff_target_not_supported: profile ${profile.id} does not support ${body.target.kind}.`,
 					);
 				}
 				try {
@@ -347,7 +365,10 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 							(entry) => entry.path,
 						),
 					});
-					return c.json(toDiffScanPreview(plan));
+					return c.json({
+						...toDiffScanPreview(plan),
+						profileResolution: selection.resolution,
+					});
 				} catch (error) {
 					if (error instanceof GitDiffResolutionError) {
 						throw new HttpError(400, `${error.code}: ${error.message}`);
@@ -361,7 +382,7 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 			zValidator(
 				"json",
 				z.object({
-					profile: z.string().default("baseline"),
+					profile: z.string().optional(),
 					target: scanTargetSchema.default({ kind: "full" }),
 					expectedTargetDigest: z
 						.string()
@@ -375,6 +396,12 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 						.string()
 						.regex(/^sha256:[0-9a-f]{64}$/)
 						.optional(),
+					expectedCatalogEntryHash: z
+						.string()
+						.regex(/^sha256:[0-9a-f]{64}$/)
+						.optional(),
+					resultPolicy: z.enum(["advisory", "gate"]).optional(),
+					allowExperimental: z.boolean().default(false).optional(),
 					continueOnToolFailure: z.boolean().default(true).optional(),
 					consentProjectCodeExecution: z.boolean().default(false).optional(),
 					timeoutSec: z
@@ -419,16 +446,24 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 					throw new HttpError(500, "Scan runtime is not configured.");
 				}
 				await resolveWebProjectPath(project.repoPath);
-				const profile = getProfileById(body.profile);
-				if (!profile) {
-					throw new HttpError(400, `Profile not found: ${body.profile}`);
-				}
+				const selectedProfileId =
+					body.profile ?? resolveDefaultCatalogProfileId(body.target.kind);
+				const selection = resolveWebProfileSelection({
+					profileId: selectedProfileId,
+					target: body.target,
+					resultPolicy: body.resultPolicy,
+					allowExperimental: body.allowExperimental,
+					imageRef: body.imageRef,
+					imageTar: body.imageTar,
+					consentProjectCodeExecution: body.consentProjectCodeExecution,
+				});
 				if (
-					!(profile.supportedTargets ?? ["full"]).includes(body.target.kind)
+					body.expectedCatalogEntryHash &&
+					body.expectedCatalogEntryHash !== selection.resolution.catalogEntryHash
 				) {
 					throw new HttpError(
-						400,
-						`diff_target_not_supported: profile ${profile.id} does not support ${body.target.kind}.`,
+						409,
+						"catalog_entry_changed: profile catalog entry changed after preview",
 					);
 				}
 				if (body.target.kind === "working_tree" && !body.expectedTargetDigest) {
@@ -450,16 +485,17 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 				});
 				const queued = await deps.scanRepository.createScanRun({
 					projectId,
-					profile: body.profile,
+					profile: selectedProfileId,
 					status: "queued",
 					createdByUserId: authUser.userId,
 					metadata: {
 						launchSource: "web",
+						profileResolution: selection.resolution,
 						finalReportRequest: {
 							requested: body.finalReport ?? true,
 							title:
 								body.reportTitle?.trim() ||
-								`${body.profile} 最終セキュリティレポート`,
+								`${selectedProfileId} 最終セキュリティレポート`,
 						},
 						executionPolicy: scanExecutionPolicyMetadata(policy),
 						requestedTarget: body.target,
@@ -467,13 +503,15 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 						expectedPreflightBindingHash:
 							body.expectedPreflightBindingHash ?? null,
 						expectedPlanHash: body.expectedPlanHash ?? null,
+						expectedCatalogEntryHash:
+							body.expectedCatalogEntryHash ?? selection.resolution.catalogEntryHash,
 					},
 				});
 				await deps.scanRepository.createScanEvent({
 					scanRunId: queued.id,
 					level: "info",
 					eventType: "scan.queued",
-					message: `Scan profile ${body.profile} queued.`,
+					message: `Scan profile ${selectedProfileId} queued.`,
 					data: { executionPolicy: scanExecutionPolicyMetadata(policy) },
 				});
 
@@ -488,7 +526,7 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 					"--project-id",
 					projectId,
 					"--profile",
-					body.profile,
+					selectedProfileId,
 					"--continue-on-tool-failure",
 					String(body.continueOnToolFailure ?? true),
 					"--consent-project-code-execution",
@@ -498,6 +536,8 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 					"--final-report",
 					String(body.finalReport ?? true),
 				];
+				if (body.resultPolicy) args.push("--result-policy", body.resultPolicy);
+				if (body.allowExperimental) args.push("--allow-experimental", "true");
 
 				if (body.timeoutSec !== undefined) {
 					args.push("--timeout-sec", String(body.timeoutSec));
@@ -520,6 +560,10 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 				if (body.expectedPlanHash) {
 					args.push("--expected-plan-hash", body.expectedPlanHash);
 				}
+				args.push(
+					"--expected-catalog-entry-hash",
+					body.expectedCatalogEntryHash ?? selection.resolution.catalogEntryHash,
+				);
 
 				try {
 					await deps.scanSupervisor.launch(queued.id, args);
@@ -531,7 +575,8 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 				}
 				return c.json(
 					{
-						scan: { id: queued.id, status: "queued", profile: body.profile },
+						scan: { id: queued.id, status: "queued", profile: selectedProfileId },
+						profileResolution: selection.resolution,
 						runner: policy.runner,
 						profileOutcome: "pending",
 						toolResults: [],
@@ -541,6 +586,37 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 				);
 			},
 		);
+}
+
+function resolveWebProfileSelection(params: {
+	profileId: string;
+	target: z.infer<typeof scanTargetSchema>;
+	resultPolicy?: "advisory" | "gate";
+	allowExperimental?: boolean;
+	imageRef?: string;
+	imageTar?: string;
+	consentProjectCodeExecution?: boolean;
+}) {
+	try {
+		return resolveProfileSelection({
+			requestedProfileId: params.profileId,
+			surface: "web",
+			target: params.target,
+			providedInputKinds: normalizeProfileResolutionInput({
+				repoPath: "web-project",
+				imageRef: params.imageRef,
+				imageTar: params.imageTar,
+				executionConsent: params.consentProjectCodeExecution,
+			}),
+			requestedResultPolicy: params.resultPolicy,
+			allowExperimental: params.allowExperimental,
+		});
+	} catch (error) {
+		if (error instanceof ProfileResolutionError) {
+			throw new HttpError(400, `${error.code}: ${error.message}`);
+		}
+		throw error;
+	}
 }
 
 function appendScanTargetArgs(

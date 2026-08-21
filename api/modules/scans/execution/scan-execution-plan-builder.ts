@@ -44,7 +44,9 @@ export function buildScanExecutionPlan(params: {
 	technologyRegistryDigest?: string | null;
 	sourceSnapshotDigest?: string | null;
 	runner?: "host" | "docker";
+	schemaVersion?: 1 | 2;
 }): ScanExecutionPlan {
+	const schemaVersion = params.schemaVersion ?? 1;
 	const strictness = params.profile.strictness ?? "best_effort";
 	const steps = params.steps.map((step) => {
 		const stepId = scanProfileStepId(step);
@@ -99,7 +101,6 @@ export function buildScanExecutionPlan(params: {
 		null;
 
 	const contract = {
-		schemaVersion: 1 as const,
 		projectId: params.projectId,
 		profileId: params.profile.id,
 		profileVersion: 1,
@@ -125,12 +126,64 @@ export function buildScanExecutionPlan(params: {
 		warningCodes,
 		steps,
 	};
+	const versionedContract =
+		schemaVersion === 2
+			? {
+					...contract,
+					schemaVersion: 2 as const,
+					capabilityRequirements: params.profile.capabilityRequirements ?? [],
+					safety: {
+						networkPolicy:
+							(params.runner ?? "host") === "docker"
+								? ("isolated" as const)
+								: ("allowlisted" as const),
+						approvalRequired: false,
+						approvalRef: null,
+					},
+					steps: steps.map((planned, index) => {
+						const sourceStep = params.steps[index];
+						const options = (
+							"options" in sourceStep ? sourceStep.options : undefined
+						) as { maxRequests?: number } | undefined;
+						return {
+							...planned,
+							inputBindingHash: hashPreflightValue(
+								canonicalJson({
+									stepId: planned.stepId,
+									applicability: planned.applicability,
+									readiness: planned.readiness,
+									evidenceRefs: planned.evidenceRefs,
+								}),
+							),
+							policyHash: hashPreflightValue(
+								canonicalJson({
+									required: planned.required,
+									requirement: planned.requirement,
+									runner: params.runner ?? "host",
+								}),
+							),
+							budget: {
+								timeoutSec:
+									sourceStep.timeoutSec ?? params.profile.defaultTimeoutSec,
+								maxRequests: options?.maxRequests ?? null,
+							},
+							cleanupRequirement: [
+								"dast",
+								"runtime_scanner",
+								"api_schema_scan",
+							].includes(planned.kind)
+								? ("required" as const)
+								: ("not_required" as const),
+						};
+					}),
+				}
+			: { ...contract, schemaVersion: 1 as const };
 
 	// Run identity and timestamps are audit attributes, not contract inputs. A
 	// preview and the subsequently created run must therefore produce one hash.
-	const planHash = hashPreflightValue(canonicalJson(contract));
+	const planHash = hashPreflightValue(canonicalJson(versionedContract));
 	return scanExecutionPlanSchema.parse({
-		...contract,
+		...versionedContract,
 		scanRunId: params.scanRunId,
 		createdAt: params.preflight.createdAt,
 		preflightHash: params.preflight.preflightHash,

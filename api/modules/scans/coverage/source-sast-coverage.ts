@@ -4,12 +4,17 @@ import {
 	sourceSastCoverageSchema,
 } from "../../../../shared/schemas/source-sast-coverage.schema";
 import type { ScanProfileStepResult } from "../execution/profile-runner";
+import {
+	resolveSourceSastApplicability,
+	type SourceSastApplicability,
+} from "./source-sast-applicability";
 
 export const SOURCE_SAST_NOT_EXECUTED = "source_sast_not_executed";
 
 export function resolveSourceSastCoverage(
 	profile: ScanProfile,
 	results?: ScanProfileStepResult[],
+	applicability?: SourceSastApplicability,
 ): SourceSastCoverage | null {
 	if (profile.id !== "full-security-scan") return null;
 	const semgrepStep = (profile.steps ?? []).find(
@@ -25,6 +30,38 @@ export function resolveSourceSastCoverage(
 			engine: null,
 			rulesetId: null,
 			limitationCodes: [SOURCE_SAST_NOT_EXECUTED],
+		};
+	}
+	const resolvedApplicability =
+		applicability ??
+		resolveSourceSastApplicability({
+			hasSourceFiles: true,
+			hasSupportedLanguage: true,
+			rulesetAvailable: true,
+			adapterAvailable: true,
+		});
+	if (resolvedApplicability.applicability === "not_applicable") {
+		return {
+			capability: "source_sast",
+			applicability: "not_applicable",
+			state: "not_applicable",
+			coverageEffect: "covered",
+			stepId: "semgrep",
+			engine: "semgrep",
+			rulesetId: "curated-sast-v1",
+			limitationCodes: resolvedApplicability.reasonCodes,
+		};
+	}
+	if (resolvedApplicability.applicability === "unknown") {
+		return {
+			capability: "source_sast",
+			applicability: "unknown",
+			state: "unknown",
+			coverageEffect: "gap",
+			stepId: "semgrep",
+			engine: "semgrep",
+			rulesetId: "curated-sast-v1",
+			limitationCodes: [],
 		};
 	}
 	const result = results?.find(
@@ -54,8 +91,12 @@ export function resolveSourceSastCoverage(
 		rulesetId: "curated-sast-v1",
 		limitationCodes:
 			results === undefined
-				? []
-				: [SOURCE_SAST_NOT_EXECUTED, ...(reasonCode ? [reasonCode] : [])],
+				? resolvedApplicability.reasonCodes
+				: [
+						SOURCE_SAST_NOT_EXECUTED,
+						...resolvedApplicability.reasonCodes,
+						...(reasonCode ? [reasonCode] : []),
+					],
 	};
 }
 

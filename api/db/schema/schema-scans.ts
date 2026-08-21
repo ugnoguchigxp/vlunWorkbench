@@ -89,6 +89,40 @@ export const scanExecutionPlans = sqliteTable(
 	}),
 );
 
+/**
+ * Durable ownership records for scan-created resources (containers, targets,
+ * and external sessions). Reapers use this table after a timeout or crash.
+ */
+export const scanResourceLeases = sqliteTable(
+	"scan_resource_leases",
+	{
+		id: id(),
+		scanRunId: text("scan_run_id")
+			.notNull()
+			.references(() => scanRuns.id, { onDelete: "cascade" }),
+		stepId: text("step_id").notNull(),
+		resourceType: text("resource_type").notNull(),
+		provider: text("provider").notNull(),
+		externalId: text("external_id").notNull(),
+		state: text("state").notNull(),
+		receipt: jsonObject("receipt"),
+		leaseExpiresAt: integer("lease_expires_at", { mode: "timestamp_ms" }),
+		releasedAt: integer("released_at", { mode: "timestamp_ms" }),
+		createdAt: timestampMs("created_at"),
+		updatedAt: timestampMs("updated_at"),
+	},
+	(table) => ({
+		scanRunIdx: index("scan_resource_leases_scan_run_idx").on(table.scanRunId),
+		activeIdx: index("scan_resource_leases_active_idx").on(
+			table.state,
+			table.leaseExpiresAt,
+		),
+		resourceUniqueIdx: uniqueIndex(
+			"scan_resource_leases_resource_unique_idx",
+		).on(table.provider, table.externalId),
+	}),
+);
+
 export const staticIntelligencePrepareJobs = sqliteTable(
 	"static_intelligence_prepare_jobs",
 	{

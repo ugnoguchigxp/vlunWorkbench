@@ -52,6 +52,21 @@ export function renderReportCoverage(scope: Scope): void {
 		controls: coverageResults,
 	});
 	const sourceSastCoverage = coverage.sourceSast;
+	const coverageLedger = coverage.ledger;
+	if (coverageLedger) {
+		lines.push(
+			`- **Capability ledger:** ${coverageLedger.entries.length} declared capabilities; plan=${coverageLedger.planHash}; ledger=${coverageLedger.ledgerHash}.`,
+		);
+		lines.push(
+			"| Capability | Requirement | Applicability | Execution | Coverage | Reason | Evidence |",
+		);
+		lines.push("| --- | --- | --- | --- | --- | --- | --- |");
+		for (const entry of coverageLedger.entries) {
+			lines.push(
+				`| ${escapeTableCell(entry.capabilityId)} | ${entry.requirement} | ${entry.applicability} | ${entry.execution} | ${entry.coverageEffect} | ${escapeTableCell(entry.reasonCodes.join(", ") || "-")} | ${entry.evidenceRefs.length} |`,
+			);
+		}
+	}
 	if (sourceSastCoverage) {
 		lines.push(
 			`- **Source SAST:** ${sourceSastCoverage.coverageEffect}; state=${sourceSastCoverage.state}; limitations=${sourceSastCoverage.limitationCodes.join(", ") || "none"}`,
@@ -295,17 +310,30 @@ export function renderReportCoverage(scope: Scope): void {
 					.join(", ")}.`,
 			);
 		}
-		const coverageGaps = stepResults.filter(
-			(item) =>
-				item.coverageEffect === "gap" ||
-				item.applicability === "not_applicable",
+		const ledgerGaps = coverageLedger?.entries.filter(
+			(entry) => entry.coverageEffect !== "covered",
 		);
-		if (coverageGaps.length > 0) {
-			lines.push("### Coverage gaps");
-			for (const gap of coverageGaps) {
-				lines.push(
-					`- ${escapeTableCell(String(gap.stepId ?? gap.toolId ?? gap.kind))}: ${escapeTableCell(String(gap.reasonCode ?? gap.error ?? "coverage gap"))}`,
+		const stepCoverageGaps = coverageLedger
+			? []
+			: stepResults.filter(
+					(item) =>
+						item.coverageEffect === "gap" ||
+						item.applicability === "not_applicable",
 				);
+		if ((ledgerGaps?.length ?? 0) > 0 || stepCoverageGaps.length > 0) {
+			lines.push("### Coverage gaps");
+			if (ledgerGaps) {
+				for (const gap of ledgerGaps) {
+					lines.push(
+						`- ${escapeTableCell(gap.capabilityId)}: ${escapeTableCell(gap.reasonCodes.join(", ") || "coverage gap")}`,
+					);
+				}
+			} else {
+				for (const gap of stepCoverageGaps) {
+					lines.push(
+						`- ${escapeTableCell(String(gap.stepId ?? gap.toolId ?? gap.kind))}: ${escapeTableCell(String(gap.reasonCode ?? gap.error ?? "coverage gap"))}`,
+					);
+				}
 			}
 			lines.push(
 				"Finding 0 件は、未実行・適用不能・認証要求を含む coverage gap と分けて解釈してください。",

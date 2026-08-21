@@ -14,6 +14,7 @@ import {
 	prepareSharedRuntimeTarget,
 	type SharedRuntimeTarget,
 } from "./shared-runtime-target";
+import { ScanResourceLeaseRepository } from "./lifecycle/scan-resource-lease-repository";
 
 function lifecycleOutcome(params: {
 	result: ScanProfileStepResult | undefined;
@@ -116,12 +117,28 @@ export async function executeProfileSteps(
 	const sharedRuntimeTarget: { current: SharedRuntimeTarget | null } = {
 		current: null,
 	};
+	const resourceLeases = new ScanResourceLeaseRepository(params.db);
+	let runtimeTargetLeaseId: string | null = null;
 	const ensureSharedRuntimeTarget = async () => {
-		sharedRuntimeTarget.current ??= await prepareSharedRuntimeTarget({
-			repoPath: params.repoPath,
-			consentProjectCodeExecution: params.consentProjectCodeExecution,
-			runtimeTargetProvider: params.runtimeTargetProvider,
-		});
+		if (!sharedRuntimeTarget.current) {
+			sharedRuntimeTarget.current = await prepareSharedRuntimeTarget({
+				repoPath: params.repoPath,
+				consentProjectCodeExecution: params.consentProjectCodeExecution,
+				runtimeTargetProvider: params.runtimeTargetProvider,
+			});
+			const lease = await resourceLeases.acquire({
+				scanRunId: scanRun.id,
+				stepId: "runtime-target",
+				resourceType: "runtime_target",
+				provider: params.runtimeTargetProvider ? "injected" : "local",
+				externalId: `${scanRun.id}:${sharedRuntimeTarget.current.origin}`,
+				receipt: { origin: sharedRuntimeTarget.current.origin },
+				leaseExpiresAt: new Date(
+					Date.now() + Math.max(profile.defaultTimeoutSec, 60) * 1_000,
+				),
+			});
+			runtimeTargetLeaseId = lease?.id ?? null;
+		}
 		return sharedRuntimeTarget.current;
 	};
 	let profileFailingToolFailed = false;
@@ -332,7 +349,34 @@ export async function executeProfileSteps(
 			}
 		}
 	} finally {
-		await sharedRuntimeTarget.current?.stop().catch(() => undefined);
+		if (sharedRuntimeTarget.current) {
+			try {
+				await sharedRuntimeTarget.current.stop();
+				if (runtimeTargetLeaseId) {
+					await resourceLeases.release(runtimeTargetLeaseId, {
+						stopped: true,
+					});
+				}
+			} catch (cleanupError) {
+				if (runtimeTargetLeaseId) {
+					await resourceLeases.quarantine(runtimeTargetLeaseId, {
+						reasonCode: "cleanup_failed",
+					});
+				}
+				await scanRepo.createScanEvent({
+					scanRunId: scanRun.id,
+					level: "warn",
+					eventType: "runtime_target.cleanup_failed",
+					message: "Runtime target cleanup failed; resource was quarantined.",
+					data: {
+						errorType:
+							cleanupError instanceof Error
+								? cleanupError.name
+								: "UnknownCleanupError",
+					},
+				});
+			}
+		}
 		await diffSnapshot?.cleanup().catch(async (cleanupError) => {
 			await scanRepo.createScanEvent({
 				scanRunId: scanRun.id,

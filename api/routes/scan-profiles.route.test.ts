@@ -11,6 +11,19 @@ describe("Scan Profiles Route", () => {
     expect(res.status).toBe(200);
 
     const body = await res.json();
+		expect(body.schemaVersion).toBe(2);
+		expect(body.catalogEntries).toHaveLength(12);
+		expect(body.genericStartCatalogProfileIds).toEqual([
+			"change-gate",
+			"source-assurance",
+			"runtime-passive",
+		]);
+		expect(body.defaultProfileIds).toEqual({
+			full: "source-assurance",
+			working_tree: "change-gate",
+			commit: "change-gate",
+			range: "change-gate",
+		});
     expect(body.preflight).toEqual({ schemaVersion: 1, mode: "enforced" });
     const profileIds = body.profiles.map((profile: any) => profile.id);
     expect(profileIds).toEqual(
@@ -103,7 +116,14 @@ describe("Scan Profiles Route", () => {
     const fullProfile = body.profiles.find(
       (profile: any) => profile.id === "full-security-scan",
     );
-    expect(fullProfile.coverageGaps).toEqual([]);
+    expect(fullProfile.coverageGaps).toBeUndefined();
+    expect(fullProfile.coverageMeasurement).toBe("not_measured");
+    expect(fullProfile.capabilityRequirements).toEqual(
+      expect.arrayContaining([
+        { capabilityId: "secret_detection", requirement: "required" },
+        { capabilityId: "source_sast", requirement: "required_if_applicable" },
+      ]),
+    );
     expect(fullProfile.strictness).toBe("strict");
     expect(fullProfile.steps.map((step: any) => step.stepId)).toEqual([
       "gitleaks",

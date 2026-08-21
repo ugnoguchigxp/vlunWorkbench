@@ -226,4 +226,43 @@ describe("scan execution plan compiler", () => {
 		expect(first.sourceSnapshotDigest).toBe("a".repeat(64));
 		expect(second.planHash).not.toBe(first.planHash);
 	});
+
+	it("writes v2 only when explicitly selected and preserves immutable bindings", () => {
+		const profile = buildScanProfiles().find(
+			(candidate) => candidate.id === "full-security-scan",
+		)!;
+		const v1 = buildScanExecutionPlan({
+			scanRunId: "00000000-0000-4000-8000-000000000001",
+			projectId: "00000000-0000-4000-8000-000000000002",
+			profile,
+			steps: profile.steps!,
+			preflight: preflight({ profileId: profile.id, stepId: "gitleaks", status: "ready" }),
+		});
+		const v2 = buildScanExecutionPlan({
+			scanRunId: "00000000-0000-4000-8000-000000000001",
+			projectId: "00000000-0000-4000-8000-000000000002",
+			profile,
+			steps: profile.steps!,
+			preflight: preflight({ profileId: profile.id, stepId: "gitleaks", status: "ready" }),
+			schemaVersion: 2,
+		});
+
+		expect(v1.schemaVersion).toBe(1);
+		expect(v2).toMatchObject({
+			schemaVersion: 2,
+			capabilityRequirements: expect.arrayContaining([
+				{ capabilityId: "secret_detection", requirement: "required" },
+			]),
+			steps: expect.arrayContaining([
+					expect.objectContaining({
+						stepId: "gitleaks",
+						cleanupRequirement: "not_required",
+						budget: { timeoutSec: profile.defaultTimeoutSec, maxRequests: null },
+						inputBindingHash: expect.stringMatching(/^sha256:/),
+						policyHash: expect.stringMatching(/^sha256:/),
+				}),
+			]),
+		});
+		expect(v2.planHash).not.toBe(v1.planHash);
+	});
 });

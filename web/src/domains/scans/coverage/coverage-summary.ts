@@ -1,4 +1,8 @@
 import type { SourceSastCoverage } from "../../../../../shared/schemas/source-sast-coverage.schema";
+import {
+	coverageLedgerSchema,
+	type CoverageLedger,
+} from "../../../../../shared/schemas/scan-coverage-ledger.schema";
 import type {
 	AttackSurfaceItem,
 	DiagnosticReport,
@@ -111,6 +115,7 @@ export function buildCoverageSummary(
 	if (!completedReports[0]) missingActions.push("generate_diagnostic_report");
 
 	const sourceSast = readSourceSastCoverageDisplay(input.scanRun?.metadata);
+	const coverageLedger = readCoverageLedgerDisplay(input.scanRun?.metadata);
 	const coverageGaps = scanSecurityCheckResults
 		.filter((result) => gapStatuses.has(result.status))
 		.map((result) => ({
@@ -121,13 +126,37 @@ export function buildCoverageSummary(
 			category: resolveCheckCategory(result, attackSurfaceById),
 			attackSurfaceItemId: result.attackSurfaceItemId,
 		}));
-	if (sourceSast?.coverageEffect === "gap") {
+	for (const entry of coverageLedger?.entries ?? []) {
+		if (entry.coverageEffect === "covered" || entry.capabilityId === "source_sast") {
+			continue;
+		}
+		coverageGaps.unshift({
+			id: `capability:${entry.capabilityId}`,
+			status: "not_checked",
+			title: entry.capabilityId,
+			summary: entry.reasonCodes.join(", ") || "capability coverage is incomplete",
+			category: entry.capabilityId,
+			attackSurfaceItemId: null,
+		});
+	}
+	if (
+		sourceSast?.coverageEffect === "gap" ||
+		coverageLedger?.entries.some(
+			(entry) =>
+				entry.capabilityId === "source_sast" &&
+				entry.coverageEffect !== "covered",
+		)
+	) {
+		const ledgerSourceSast = coverageLedger?.entries.find(
+			(entry) => entry.capabilityId === "source_sast",
+		);
 		coverageGaps.unshift({
 			id: "source-sast",
 			status: "not_checked",
 			title: "Source SAST",
 			summary:
-				sourceSast.limitationCodes.join(", ") ||
+				ledgerSourceSast?.reasonCodes.join(", ") ||
+				sourceSast?.limitationCodes.join(", ") ||
 				"source SAST was not executed for this scan",
 			category: "source_sast",
 			attackSurfaceItemId: null,
@@ -152,6 +181,16 @@ export function buildCoverageSummary(
 		latestDiagnosticReport: completedReports[0] ?? null,
 		missingActions,
 	};
+}
+
+function readCoverageLedgerDisplay(metadata: unknown): CoverageLedger | null {
+	if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
+		return null;
+	}
+	const parsed = coverageLedgerSchema.safeParse(
+		(metadata as Record<string, unknown>).coverageLedger,
+	);
+	return parsed.success ? parsed.data : null;
 }
 
 function resolveCheckCategory(
