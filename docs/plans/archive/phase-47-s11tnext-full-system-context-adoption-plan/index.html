@@ -1,0 +1,1072 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex,follow">
+    <title>Phase 47: S11tnext Full SystemContext Adoption Plan | vulnWorkbench</title>
+    <link rel="stylesheet" href="/vlunWorkbench/assets/css/spec-document.css">
+    <link rel="stylesheet" href="/vlunWorkbench/assets/css/plan-document.css">
+  </head>
+  <body>
+    <nav class="plan-document-links" aria-label="文書ナビゲーション">
+      <a href="/vlunWorkbench/plans/archive/?doc=phase-47-s11tnext-full-system-context-adoption-plan" target="_top">実装計画アーカイブへ</a>
+      <a href="/vlunWorkbench/" target="_top">vulnWorkbenchのLPへ戻る</a>
+    </nav>
+    <article lang="ja">
+  <h1 id="phase-47-s11tnext-full-systemcontext-adoption-plan">
+    Phase 47: S11tnext Full SystemContext Adoption Plan
+  </h1>
+  <h2 id="1-status">1. Status</h2>
+  <p>2026-07-24時点:</p>
+  <pre><code class="language-text">planning: complete
+implementation: complete
+verification: bun run verify passed
+vulnWorkbench baseline: 40a7676 feat: complete phase 46 release readiness
+s11tnext initial baseline: 0.1.0 / f2cfc11
+s11tnext current: 0.1.2
+</code></pre>
+  <p>
+    実装では7 system contextと3 user prompt context、生成Catalog pair、
+    role付きbinding、共通provider境界、manifestの保存/返却、 client
+    <code>system</code> role拒否、runtime size gate、CI stale-artifact
+    gateまでを導入した。
+  </p>
+  <p>
+    このPhaseは、vulnWorkbenchからLLM向けの固定SystemContextをすべて除去し、
+    <code>s11tnext</code>でauthoring、型生成、locale解決、安全なruntime値補間、内容識別、
+    監査manifestを一貫して扱うための全面移行計画である。
+  </p>
+  <p>
+    「全面採用」は、TOMLへ文章を移すだけでは完了としない。 すべての本番LLM
+    callが型付き<code>SystemContextInvocation</code>から作られ、
+    providerへ送った内容とmanifestを同じapplication operationで扱い、
+    監査可能な保存先またはresponse/logへ到達することを完了条件とする。
+  </p>
+  <h2 id="2-goals">2. Goals</h2>
+  <ul>
+    <li>本番TypeScriptからLLM向け固定SystemContextの自然言語本文を除去する。</li>
+    <li>すべてのSystemContext keyとruntime variableを生成型で検査する。</li>
+    <li>repository-authored指示とruntime由来データの信頼境界を明示する。</li>
+    <li>
+      providerへ送るSystemContextと、その<code>renderedHash</code>、locale、release
+      identityを 分離させない。
+    </li>
+    <li>prompt変更を通常のcode reviewと同じ精度でレビュー、検証、追跡できるようにする。</li>
+    <li>
+      Agentic Search、Chat、Finding Review、Scan Review、Report Summaryを
+      1つのCatalog運用へ統合する。
+    </li>
+    <li>
+      vulnWorkbenchでの実採用から見つかったs11tnextの問題を、 package改善backlogへ具体的に還元する。
+    </li>
+  </ul>
+  <h2 id="3-non-goals">3. Non-goals</h2>
+  <ul>
+    <li>dynamicなfinding bundle、scan bundle、conversation historyのTOML化。</li>
+    <li>user message serializerの全面置換。</li>
+    <li>UI文言の国際化。</li>
+    <li>provider SDKそのものの置換。</li>
+    <li>LLM出力schema、認可、tool execution policyをpromptだけで強制すること。</li>
+    <li>s11tnextのlocal checkoutをvulnWorkbenchの恒久dependencyにすること。</li>
+    <li>SystemContext移行と無関係なChat UIやReview UIの再設計。</li>
+  </ul>
+  <h2 id="4-current-inventory">4. Current Inventory</h2>
+  <p>本番でLLMへ送られる固定SystemContextは7種類ある。</p>
+  <table>
+    <caption>
+      4. Current Inventory
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">ID</th>
+        <th scope="col">Current definition</th>
+        <th scope="col">Current call site</th>
+        <th scope="col">Runtime data</th>
+        <th scope="col">Current locale</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>agentic-search</td>
+        <td><code>api/modules/agentic-search/system-context.ts</code></td>
+        <td>
+          <code>api/modules/agentic-search/agentic-search.service.ts</code>,
+          <code>api/modules/agentic-search/runner.ts</code>
+        </td>
+        <td>
+          <code>topK</code>,
+          <code>category</code>, user SystemContext
+        </td>
+        <td>ja-JP</td>
+      </tr>
+      <tr>
+        <td>chat-search-decision</td>
+        <td><code>api/modules/chat/chat.service.ts</code></td>
+        <td><code>api/modules/chat/chat.service.ts</code></td>
+        <td>none</td>
+        <td>en-US</td>
+      </tr>
+      <tr>
+        <td>chat-direct-answer</td>
+        <td><code>api/modules/chat/chat.service.ts</code></td>
+        <td><code>api/modules/chat/chat.service.ts</code></td>
+        <td>none</td>
+        <td>en-US</td>
+      </tr>
+      <tr>
+        <td>chat-grounded-answer</td>
+        <td><code>api/modules/chat/chat.service.ts</code></td>
+        <td><code>api/modules/chat/chat.service.ts</code></td>
+        <td>retrieved local context</td>
+        <td>en-US</td>
+      </tr>
+      <tr>
+        <td>finding-review</td>
+        <td><code>api/modules/reviews/finding-review-prompt.ts</code></td>
+        <td><code>api/modules/reviews/finding-review-runner.ts</code></td>
+        <td>none in system message</td>
+        <td>ja-JP</td>
+      </tr>
+      <tr>
+        <td>scan-review</td>
+        <td><code>api/modules/scans/scan-review-prompt.ts</code></td>
+        <td><code>api/modules/scans/scan-review-runner.ts</code></td>
+        <td>none in system message</td>
+        <td>ja-JP</td>
+      </tr>
+      <tr>
+        <td>report-summary</td>
+        <td><code>api/modules/scans/report-summary-prompt.ts</code></td>
+        <td><code>api/modules/scans/report-summary-runner.ts</code></td>
+        <td>none in system message</td>
+        <td>ja-JP</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>SystemContext以外のdynamic prompt assembly:</p>
+  <ul>
+    <li>finding evidence bundleは<code>buildUserMessage()</code>が組み立てる。</li>
+    <li>scan bundleは<code>buildScanReviewUserMessage()</code>がJSON化する。</li>
+    <li>report summary bundleは<code>buildReportSummaryUserMessage()</code>がJSON化する。</li>
+    <li>conversation historyはChat request messageとして渡される。</li>
+    <li>Agentic SearchのquestionはResponses APIのuser inputとして渡される。</li>
+  </ul>
+  <p>
+    これらは今回のTOML移行対象外だが、SystemContextの後段から
+    <code>system</code> roleを注入できないことは移行完了条件に含める。
+  </p>
+  <h2 id="5-security-and-correctness-findings">5. Security and Correctness Findings</h2>
+  <h3 id="51-client-controlled-system-role">5.1 Client-controlled system role</h3>
+  <p>
+    <code>shared/schemas/rag.schema.ts</code>のChat requestは
+    <code>system | user | assistant</code>を受け入れる。 ChatServiceはapplication-owned
+    system messageの後ろにclient messagesを連結するため、 API clientは追加の<code>system</code>
+    roleをproviderへ渡せる。
+  </p>
+  <p>S11tnextで先頭SystemContextを保護しても、この経路を残すと境界は閉じない。</p>
+  <p>固定方針:</p>
+  <ul>
+    <li>external Chat APIは<code>user | assistant</code>だけを受理する。</li>
+    <li>provider内部型とclient request型を分離する。</li>
+    <li>
+      ChatServiceでもdefense in depthとして<code>system</code>
+      roleを拒否する。
+    </li>
+    <li>
+      既存DBに<code>role = 'system'</code>が存在する場合、削除せずprovider
+      inputから除外し、 件数をmigration evidenceへ記録する。
+    </li>
+  </ul>
+  <h3 id="52-unbounded-runtime-systemcontext">5.2 Unbounded runtime SystemContext</h3>
+  <p>
+    <code>UpdateSystemContextSchema</code>は長さ制限のない<code>z.string()</code>である。
+    <code>category</code>にも実用上の長さ上限がなく、Chatのretrieved local
+    contextにも 全体文字数上限がない。
+  </p>
+  <p>
+    S11tnext 0.1.0はruntime variableのtypeだけを検査し、 文字数、byte数、数値範囲、JSON
+    depth、最終render長を制限しない。
+  </p>
+  <p>移行時のhost-side固定値:</p>
+  <pre><code class="language-text">user SystemContext: max 16,000 UTF-16 code units
+category: max 128 UTF-16 code units
+chat local context: max 50,000 UTF-16 code units
+rendered SystemContext: max 64,000 UTF-16 code units
+</code></pre>
+  <p>
+    上限超過は切り詰めず、保存時またはprovider call前にfail closedとする。 retrieval
+    contextだけは、fragment boundaryを保ったbudget-aware selectionへ変更し、
+    文字列の途中切断を避ける。
+  </p>
+  <h3 id="53-provider-abstraction-discards-identity">5.3 Provider abstraction discards identity</h3>
+  <p>
+    現在の<code>LlmProvider.chatCompletion(messages, options)</code>はraw string messageだけを受け取る。 S11tnext
+    invocationをcall siteで作っても、manifestをprovider executionと 同じ型境界で運べない。
+  </p>
+  <p>固定方針:</p>
+  <ul>
+    <li>既存provider interfaceのwire-format責務は維持する。</li>
+    <li>その上にapplication-owned <code>executeLlmCompletion()</code>を追加する。</li>
+    <li>
+      executorは<code>SystemContextInvocation</code>と<code>user | assistant</code>
+      messagesを受け取り、 rendered hashを検証してからsystem messageを先頭に1件だけ生成する。
+    </li>
+    <li>executorはprovider responseとmanifestを同時に返す。</li>
+    <li>本番moduleからの<code>LlmProvider.chatCompletion()</code>直接呼び出しを禁止する。</li>
+  </ul>
+  <p>
+    Codex SDK providerはrole別APIを持たずmessageを1本のMarkdownへ変換している。 このlaneではS11tnext
+    textが<code>### SYSTEM</code>の先頭blockに入ることをtestで固定する。
+    Azure/OpenAI-compatible laneではnative
+    <code>system</code> roleの先頭messageとして送る。
+  </p>
+  <h2 id="6-fixed-adoption-decisions">6. Fixed Adoption Decisions</h2>
+  <h3 id="61-package-and-versioning">6.1 Package and versioning</h3>
+  <ul>
+    <li>初期実装は<code>"s11tnext": "0.1.0"</code>をexact dependencyにする。</li>
+    <li>CLIは<code>"s11tnext-cli": "0.1.0"</code>をexact devDependencyにする。</li>
+    <li>RuntimeとCLIは常に同じexact versionへ更新する。</li>
+    <li>
+      <code>workspace:</code>, <code>file:</code>,
+      absolute path dependencyはmain branchで使用しない。
+    </li>
+    <li>package側修正が必要ならnpmへpatch/minorを公開し、公開tarball consumerとして検証する。</li>
+  </ul>
+  <h3 id="62-catalog-ownership">6.2 Catalog ownership</h3>
+  <pre><code class="language-toml">[keyspaces.agenticSearch]
+owner = "knowledge-workspace"
+
+[keyspaces.chat]
+owner = "knowledge-workspace"
+
+[keyspaces.reviews]
+owner = "security-review"
+
+[keyspaces.scans]
+owner = "security-review"
+</code></pre>
+  <p>
+    source localeは<code>ja-JP</code>とする。
+    既存Chatの英語挙動を維持するためChat contextだけ<code>en-US</code>
+    translationを持たせ、 Chat
+    callは<code>en-US</code>をfallbackなしでbindする。
+    その他は<code>ja-JP</code>をfallbackなしでbindする。
+  </p>
+  <p>
+    s11tnext 0.1.0ではrelease profileのrequired localeをkeyspace別に指定できないため、 production
+    profileは<code>["$source"]</code>とし、
+    Chatの<code>en-US</code>必須性はconsumer testで補完する。
+  </p>
+  <h3 id="63-runtime-trust-classification">6.3 Runtime trust classification</h3>
+  <table>
+    <caption>
+      6.3 Runtime trust classification
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Value</th>
+        <th scope="col">Classification</th>
+        <th scope="col">Encoding</th>
+        <th scope="col">Reason</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>topK</code></td>
+        <td>untrusted number</td>
+        <td>delimited + <code>json-value</code></td>
+        <td>request由来。数値型を維持する</td>
+      </tr>
+      <tr>
+        <td><code>category</code></td>
+        <td>untrusted string</td>
+        <td>delimited + <code>json-string</code></td>
+        <td>request由来</td>
+      </tr>
+      <tr>
+        <td>user SystemContext</td>
+        <td>untrusted string</td>
+        <td>delimited + <code>json-string</code></td>
+        <td>user-authoredだがSystemContext権限を持つoverlay</td>
+      </tr>
+      <tr>
+        <td>retrieved local context</td>
+        <td>untrusted string</td>
+        <td>delimited + <code>json-string</code></td>
+        <td>repository/document/tool由来</td>
+      </tr>
+      <tr>
+        <td>repository-authored fixed text</td>
+        <td>authored literal</td>
+        <td>no runtime variable</td>
+        <td>review済みsource</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    user SystemContextはinstructionとして意図的に権限を持つが、 raw
+    interpolationしてよいという意味ではない。
+    <code>untrusted</code>分類はauthorizationではなく、補間時の構造安全性を表すものとして扱う。
+  </p>
+  <h3 id="64-catalog-loading">6.4 Catalog loading</h3>
+  <ul>
+    <li>
+      <code>.s11tnext/catalog.json</code>と<code>.s11tnext/catalog.generated.ts</code>を両方commitする。
+    </li>
+    <li>serverではstatic JSON importを使用し、filesystem相対pathへ依存しない。</li>
+    <li>
+      <code>tsconfig.json</code>へ<code>resolveJsonModule</code>を追加する。
+    </li>
+    <li>
+      application startup時に<code>createAppCatalog()</code>を1回だけ実行し、
+      digest不整合は起動失敗とする。
+    </li>
+    <li>runtimeでTOMLやsource contextを読まない。</li>
+  </ul>
+  <h3 id="65-invocation-api">6.5 Invocation API</h3>
+  <p>
+    provider pathでは<code>catalog.bind()</code>だけを使用する。
+    <code>bindText()</code>と<code>createTextRenderer()</code>はmanifestを失うため使用禁止とする。
+  </p>
+  <p>
+    0.1.0の<code>bindRequest()</code>はrender traceを作れるが、 rendered
+    fragmentがfinal promptに含まれたことを証明しない。 今回の7 contextは1 provider callにつき1 final
+    contextへ平坦化し、 prompt composition用途には使用しない。
+  </p>
+  <h2 id="7-target-files">7. Target Files</h2>
+  <pre><code class="language-text">s11tnext.config.toml
+contexts/
+  agenticSearch/
+    system.context.toml
+  chat/
+    searchDecision.context.toml
+    directAnswer.context.toml
+    groundedAnswer.context.toml
+  reviews/
+    findingReview.context.toml
+  scans/
+    scanReview.context.toml
+    reportSummary.context.toml
+.s11tnext/
+  catalog.json
+  catalog.generated.ts
+api/system-context/
+  catalog.ts
+  bindings.ts
+  llm-execution.ts
+  audit.ts
+  catalog.test.ts
+  llm-execution.test.ts
+</code></pre>
+  <p>削除対象:</p>
+  <pre><code class="language-text">api/modules/agentic-search/system-context.ts
+api/modules/agentic-search/system-context.test.ts
+</code></pre>
+  <p>次のprompt fileはuser message serializerだけを残す。</p>
+  <pre><code class="language-text">api/modules/reviews/finding-review-prompt.ts
+api/modules/scans/scan-review-prompt.ts
+api/modules/scans/report-summary-prompt.ts
+</code></pre>
+  <p><code>api/modules/chat/chat.service.ts</code>内の3つのsystem prompt builderは削除する。</p>
+  <h2 id="8-catalog-design">8. Catalog Design</h2>
+  <h3 id="81-agenticsearchsystem">8.1 <code>agenticSearch.system</code></h3>
+  <p>Sections:</p>
+  <pre><code class="language-text">role.identity             instruction / must / prompt
+retrieval.default-policy  tool-contract / must / prompt
+retrieval.evidence-policy tool-contract / must / prompt
+answer.language-policy    instruction / must / prompt
+answer.citation-policy    instruction / must / prompt
+answer.style-policy       instruction / should / prompt
+retrieval.runtime-facts   runtime-fact / should / prompt
+user.system-overlay       overlay / should / prompt
+</code></pre>
+  <p>Variables:</p>
+  <pre><code class="language-text">topK: number
+category: string
+userSystemContext: string
+</code></pre>
+  <p>
+    0.1.0にはoptional variable/conditional sectionがないため、 空のuser
+    SystemContextでも空文字を持つdelimited blockを出力する。 この差分はgolden
+    testとcanaryで明示的に承認する。
+  </p>
+  <h3 id="82-chatsearchdecision">8.2 <code>chat.searchDecision</code></h3>
+  <p>Sections:</p>
+  <pre><code class="language-text">decision.role
+decision.default
+decision.search-required-cases
+decision.query-contract
+decision.output-contract
+</code></pre>
+  <p>
+    既存英語文を<code>en-US</code> translationとして保持する。 source
+    textとして意味等価な日本語を持つ。
+  </p>
+  <h3 id="83-chatdirectanswer">8.3 <code>chat.directAnswer</code></h3>
+  <p>Sections:</p>
+  <pre><code class="language-text">answer.role
+answer.no-retrieval
+answer.uncertainty-policy
+answer.artifact-contract
+answer.style-policy
+</code></pre>
+  <p>既存英語文を<code>en-US</code> translationとして保持する。</p>
+  <h3 id="84-chatgroundedanswer">8.4 <code>chat.groundedAnswer</code></h3>
+  <p>Sections:</p>
+  <pre><code class="language-text">answer.role
+answer.evidence-policy
+answer.citation-policy
+answer.artifact-contract
+answer.style-policy
+evidence.local-context
+</code></pre>
+  <p>Variable:</p>
+  <pre><code class="language-text">localContext: untrusted string
+</code></pre>
+  <p>
+    retrieved Markdownはinstruction本文と同じtrust levelにしない。 S11tnext delimiterとJSON
+    encodingによる表現変更を意図したsecurity差分として扱う。
+  </p>
+  <h3 id="85-reviewsfindingreview">8.5 <code>reviews.findingReview</code></h3>
+  <p>Sections:</p>
+  <pre><code class="language-text">review.role
+review.evidence-boundary
+review.language-policy
+review.output-envelope
+review.output-contract
+review.enum-contract
+</code></pre>
+  <p>
+    system context内のJSON exampleは初回移行では保持し、挙動を変えない。 provider
+    <code>outputSchema</code>とZod schemaとの重複は別sliceで解消可否を判断する。
+  </p>
+  <h3 id="86-scansscanreview">8.6 <code>scans.scanReview</code></h3>
+  <p>Sections:</p>
+  <pre><code class="language-text">review.role
+review.language-policy
+review.evidence-boundary
+review.decision-boundary
+review.grouping-policy
+review.handoff-policy
+review.filtered-scope-policy
+review.zero-finding-policy
+review.output-envelope
+review.output-contract
+review.enum-contract
+</code></pre>
+  <p>
+    既存の長いJSON exampleを1 sectionへ押し込まず、 意味単位に分割してreview diffを読みやすくする。
+  </p>
+  <h3 id="87-scansreportsummary">8.7 <code>scans.reportSummary</code></h3>
+  <p>Sections:</p>
+  <pre><code class="language-text">summary.role
+summary.language-policy
+summary.evidence-boundary
+summary.output-envelope
+summary.output-contract
+</code></pre>
+  <h2 id="9-application-integration">9. Application Integration</h2>
+  <h3 id="91-catalog-module">9.1 Catalog module</h3>
+  <p><code>api/system-context/catalog.ts</code>は次だけを担当する。</p>
+  <ul>
+    <li>generated artifactのstatic import。</li>
+    <li><code>createAppCatalog()</code>によるstartup validation。</li>
+    <li>typed catalog singletonのexport。</li>
+    <li>production binding keyの定数化。</li>
+  </ul>
+  <p>自然言語本文、fallback判断、provider callは持たない。</p>
+  <h3 id="92-llm-executor">9.2 LLM executor</h3>
+  <p>概念interface:</p>
+  <pre><code class="language-ts">type ApplicationChatMessage = {
+  role: "user" | "assistant";
+  content: string;
+};
+
+type ExecutedLlmCompletion = {
+  response: LlmResponse;
+  systemContextManifest: SystemContextInvocation["manifest"];
+};
+
+executeLlmCompletion({
+  provider,
+  systemContext,
+  messages,
+  options,
+}): Promise&lt;ExecutedLlmCompletion&gt;;
+</code></pre>
+  <p>executorの責務:</p>
+  <ol>
+    <li><code>verifyRenderedHash()</code>でtextとmanifestの対応を検証する。</li>
+    <li>rendered textの64,000文字上限を検査する。</li>
+    <li>
+      client/application messagesに<code>system</code>
+      roleがないことを検査する。
+    </li>
+    <li>provider wire messageの先頭にsystem messageを1件だけ追加する。</li>
+    <li>provider responseとmanifestを同時に返す。</li>
+  </ol>
+  <h3 id="93-agentic-search">9.3 Agentic Search</h3>
+  <p>
+    Responses API laneは既存の<code>instructions</code> fieldを維持する。
+    <code>AgenticSearchRequest.systemContext: string</code>は
+    <code>systemContext: SystemContextInvocation</code>へ変更するか、
+    Runnerの引数を<code>instructions</code>とmanifestのpair型へ変更する。
+  </p>
+  <p>
+    Runnerはprovider call直前にrendered hashを検証する。 Agentic
+    resultにはcontentを含まないmanifestを追加し、 route completion
+    logへ<code>key</code>, <code>catalogDigest</code>,
+    <code>renderedHash</code>,
+    <code>resolvedLocale</code>を記録する。
+  </p>
+  <h3 id="94-audit-persistence">9.4 Audit persistence</h3>
+  <table>
+    <caption>
+      9.4 Audit persistence
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Flow</th>
+        <th scope="col">Persistence</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Chat</td>
+        <td>assistant message <code>metadata.systemContexts[]</code></td>
+      </tr>
+      <tr>
+        <td>Chat retrieval</td>
+        <td><code>retrievalLogs.context.systemContexts[]</code></td>
+      </tr>
+      <tr>
+        <td>Finding Review</td>
+        <td><code>finding_reviews.output.systemContext</code></td>
+      </tr>
+      <tr>
+        <td>Scan Review</td>
+        <td><code>scan_reviews.output.systemContext</code></td>
+      </tr>
+      <tr>
+        <td>Report Summary</td>
+        <td>returned build metadata and report artifact metadata</td>
+      </tr>
+      <tr>
+        <td>Agentic Search</td>
+        <td>API result manifest + structured completion log</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    manifestにはruntime値とrendered textを追加しない。 user SystemContext、retrieved
+    context、bundle本文を新しい監査fieldへ複製しない。
+  </p>
+  <h2 id="10-implementation-slices">10. Implementation Slices</h2>
+  <h3 id="slice-0-baseline-and-golden-fixtures">Slice 0: Baseline and Golden Fixtures</h3>
+  <p>Priority: P0</p>
+  <p>Changes:</p>
+  <ul>
+    <li>7つの現行SystemContext outputをtest fixtureとして保存する。</li>
+    <li>runtime値を持つ2 contextは通常値、空値、境界攻撃文字列を保存する。</li>
+    <li>current test、typecheck、build結果をPhase 47 evidenceへ保存する。</li>
+    <li>DB内<code>messages.role = 'system'</code>件数をread-onlyで記録する。</li>
+  </ul>
+  <p>Acceptance:</p>
+  <ul>
+    <li>すべての本番SystemContext call siteがinventoryに対応する。</li>
+    <li>fixtureにsecret、absolute path、実データを含めない。</li>
+    <li>baseline failureがある場合、移行failureと混同しない。</li>
+  </ul>
+  <p>Verification:</p>
+  <pre><code class="language-bash">git status --short
+git rev-parse HEAD
+bun run typecheck
+bun run test
+bun run build
+rg -n 'role: "system"|instructions:|SystemPrompt|SystemContext' api shared web
+</code></pre>
+  <h3 id="slice-1-package-and-authoring-foundation">Slice 1: Package and Authoring Foundation</h3>
+  <p>Priority: P0</p>
+  <p>Changes:</p>
+  <ul>
+    <li>exact Runtime/CLI dependenciesを追加する。</li>
+    <li><code>s11tnext.config.toml</code>、7つのcontext source、生成物を追加する。</li>
+    <li>package scriptsを追加する。</li>
+  </ul>
+  <pre><code class="language-json">{
+  "s11tnext:lint": "s11tnext lint --release-profile production",
+  "s11tnext:build": "s11tnext build --release-profile production",
+  "s11tnext:check": "s11tnext build --check --release-profile production"
+}
+</code></pre>
+  <ul>
+    <li>
+      <code>scripts/verify.ts</code>でtypecheckより前に<code>bun run s11tnext:check</code>を実行する。
+    </li>
+  </ul>
+  <p>Acceptance:</p>
+  <ul>
+    <li>7 keyが生成型へ現れる。</li>
+    <li>Runtime/CLI versionが一致する。</li>
+    <li>generated pairの片方だけを変更するとcheckが失敗する。</li>
+    <li>clean checkoutから生成結果が一致する。</li>
+  </ul>
+  <p>Verification:</p>
+  <pre><code class="language-bash">bun run s11tnext:lint
+bun run s11tnext:build
+bun run s11tnext:check
+bun run typecheck
+git diff --exit-code -- .s11tnext
+</code></pre>
+  <h3 id="slice-2-typed-catalog-and-provider-executor">
+    Slice 2: Typed Catalog and Provider Executor
+  </h3>
+  <p>Priority: P0</p>
+  <p>Changes:</p>
+  <ul>
+    <li>Catalog singleton、locale binding、LLM executorを追加する。</li>
+    <li>client message型とprovider message型を分離する。</li>
+    <li>executorのhash、ordering、size、role boundary testを追加する。</li>
+    <li>provider mock helperをexecutor経由へ更新する。</li>
+  </ul>
+  <p>Acceptance:</p>
+  <ul>
+    <li>system messageは常に先頭1件。</li>
+    <li>hash不一致、system role混入、size超過はprovider call前に失敗する。</li>
+    <li>manifestがprovider responseと同じreturn valueに含まれる。</li>
+    <li>provider implementationはs11tnext packageへ直接依存しない。</li>
+  </ul>
+  <h3 id="slice-3-agentic-search-migration">Slice 3: Agentic Search Migration</h3>
+  <p>Priority: P0</p>
+  <p>Changes:</p>
+  <ul>
+    <li><code>buildAgenticSystemContext()</code>をCatalog invocationへ置換する。</li>
+    <li>user SystemContextとruntime factsをuntrusted variableにする。</li>
+    <li>settings APIへ16,000文字上限を追加する。</li>
+    <li>categoryへ128文字上限を追加する。</li>
+    <li>manifestをresult/logへ伝播する。</li>
+    <li>legacy builderとtestを削除する。</li>
+  </ul>
+  <p>Acceptance:</p>
+  <ul>
+    <li>fixed instruction本文がAgentic TypeScriptから消える。</li>
+    <li>delimiter closing sequenceがescapedになる。</li>
+    <li>empty overlay差分がfixtureで承認される。</li>
+    <li>Agentic tool behaviorとcitation testが回帰しない。</li>
+  </ul>
+  <h3 id="slice-4-chat-migration-and-role-boundary-closure">
+    Slice 4: Chat Migration and Role Boundary Closure
+  </h3>
+  <p>Priority: P0</p>
+  <p>Changes:</p>
+  <ul>
+    <li>3つのChat system builderをCatalogへ置換する。</li>
+    <li>search decision callとfinal answer callをそれぞれ個別manifestで記録する。</li>
+    <li>external schemaを<code>user | assistant</code>へ制限する。</li>
+    <li>ChatServiceでもsystem roleを拒否する。</li>
+    <li>local contextへ50,000文字budgetを適用する。</li>
+    <li>assistant message/retrieval logへmanifest配列を保存する。</li>
+  </ul>
+  <p>Acceptance:</p>
+  <ul>
+    <li>APIからsystem roleを送ると400になる。</li>
+    <li>system roleをserviceへ直接渡してもproviderは呼ばれない。</li>
+    <li>searchなし、direct answer、local searchの全laneで正しいkeyが記録される。</li>
+    <li><code>en-US</code>がdirect matchし、fallbackを使用しない。</li>
+    <li>untrusted local contextがdelimiterを閉じられない。</li>
+  </ul>
+  <h3 id="slice-5-finding-review-migration">Slice 5: Finding Review Migration</h3>
+  <p>Priority: P1</p>
+  <p>Changes:</p>
+  <ul>
+    <li>fixed system promptを<code>reviews.findingReview</code>へ移す。</li>
+    <li>user message serializerは維持する。</li>
+    <li>routed provider callをexecutor経由にする。</li>
+    <li>completed review outputへmanifestを保存する。</li>
+    <li>failed reviewも可能な範囲でkey/digestをerror metadataへ残す。</li>
+  </ul>
+  <p>Acceptance:</p>
+  <ul>
+    <li>existing structured output、Japanese validation、fixture laneが維持される。</li>
+    <li>fixture-only laneはproviderを呼ばず、架空manifestを作らない。</li>
+    <li>provider laneだけに実際のmanifestが保存される。</li>
+  </ul>
+  <h3 id="slice-6-scan-review-migration">Slice 6: Scan Review Migration</h3>
+  <p>Priority: P1</p>
+  <p>Changes:</p>
+  <ul>
+    <li>fixed system promptを<code>scans.scanReview</code>へ移す。</li>
+    <li>user bundle serializerは維持する。</li>
+    <li>provider callとreview outputへmanifestを伝播する。</li>
+    <li>zero-finding、filtered finding、fixture laneを回帰testする。</li>
+  </ul>
+  <p>Acceptance:</p>
+  <ul>
+    <li>grouping、handoff、zero-finding policyがgolden fixtureと意味等価。</li>
+    <li>output schema parseとJapanese validationが維持される。</li>
+    <li>fixture laneに架空manifestを付けない。</li>
+  </ul>
+  <h3 id="slice-7-report-summary-migration">Slice 7: Report Summary Migration</h3>
+  <p>Priority: P1</p>
+  <p>Changes:</p>
+  <ul>
+    <li>fixed system promptを<code>scans.reportSummary</code>へ移す。</li>
+    <li>provider callをexecutor経由にする。</li>
+    <li>report build result、artifact metadata、CLI/Web response metadataへmanifestを伝播する。</li>
+  </ul>
+  <p>Acceptance:</p>
+  <ul>
+    <li>deterministic-only modeはCatalogをrenderしない。</li>
+    <li>LLM summary modeだけがmanifestを持つ。</li>
+    <li>Markdown本文へmanifest JSONを埋め込まない。</li>
+  </ul>
+  <h3 id="slice-8-remove-legacy-paths-and-enforce-full-adoption">
+    Slice 8: Remove Legacy Paths and Enforce Full Adoption
+  </h3>
+  <p>Priority: P0</p>
+  <p>Changes:</p>
+  <ul>
+    <li>legacy builder、unused import、互換wrapperを削除する。</li>
+    <li>
+      production codeでのdirect <code>LlmProvider.chatCompletion()</code>をlint/check
+      scriptで禁止する。
+    </li>
+    <li>production codeのliteral system messageをrepository checkで禁止する。</li>
+    <li>README、architecture map、release runbookを更新する。</li>
+    <li>full verificationとrepresentative provider canaryを実行する。</li>
+  </ul>
+  <p>Acceptance:</p>
+  <pre><code class="language-text">production fixed SystemContext in TypeScript: 0
+production direct LlmProvider.chatCompletion call outside executor: 0
+client-controlled system role: 0
+Catalog keys: 7
+LLM provider calls without manifest or explicit fixture bypass: 0
+stale generated artifacts: 0
+</code></pre>
+  <p>Verification:</p>
+  <pre><code class="language-bash">bun run s11tnext:check
+bun run typecheck
+bun run lint
+bun run format:check
+bun run test
+bun run build
+bun run verify
+rg -n 'role: "system"' api/modules api/routes api/cli api/app -g '!*.test.ts'
+rg -n '\\.chatCompletion\\(' api/modules api/routes api/cli api/app -g '!*.test.ts'
+rg -n 'build[A-Za-z]*SystemPrompt|buildAgenticSystemContext' api/modules api/routes api/cli api/app -g '!*.test.ts'
+</code></pre>
+  <h2 id="11-behavioral-validation">11. Behavioral Validation</h2>
+  <p>同一model/providerで次をbaseline/treatment比較する。</p>
+  <table>
+    <caption>
+      11. Behavioral Validation
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Scenario</th>
+        <th scope="col">Primary checks</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Agentic general knowledge</td>
+        <td>tool call 0、answer language</td>
+      </tr>
+      <tr>
+        <td>Agentic local fact</td>
+        <td>search_evidence first、citation validity</td>
+      </tr>
+      <tr>
+        <td>Agentic malicious overlay delimiter</td>
+        <td>boundary remains closed</td>
+      </tr>
+      <tr>
+        <td>Chat direct answer</td>
+        <td>search decision false、final text quality</td>
+      </tr>
+      <tr>
+        <td>Chat local context</td>
+        <td>selected evidence use、citation behavior</td>
+      </tr>
+      <tr>
+        <td>Finding review</td>
+        <td>schema parse、Japanese fields</td>
+      </tr>
+      <tr>
+        <td>Scan review with findings</td>
+        <td>grouping、handoff completeness</td>
+      </tr>
+      <tr>
+        <td>Scan review zero findings</td>
+        <td>no false safety claim</td>
+      </tr>
+      <tr>
+        <td>Report summary</td>
+        <td>schema parse、Markdown insertion</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    動的contextを安全にencodeするため、byte-for-byte同一は要求しない。 次は意図した差分として扱う。
+  </p>
+  <ul>
+    <li>trailing newline。</li>
+    <li>S11tnext delimiter。</li>
+    <li>JSON encoding。</li>
+    <li>empty optional overlayの空block。</li>
+    <li>manifest metadata追加。</li>
+  </ul>
+  <p>それ以外のinstruction欠落、enum変更、output schema drift、locale fallbackは回帰とする。</p>
+  <h2 id="12-rollback">12. Rollback</h2>
+  <ul>
+    <li>各sliceは1 flow単位でmerge可能にする。</li>
+    <li>runtime failure時にTOML sourceを読むfallbackは実装しない。</li>
+    <li>generated artifact invalid時は起動を継続しない。</li>
+    <li>rollbackは該当sliceのcommit revertとし、旧/new builderの長期feature flagは持たない。</li>
+    <li>
+      package regressionの場合はRuntime/CLIを同じ既知versionへ戻し、 そのversionでgenerated
+      pairを再生成する。
+    </li>
+    <li>
+      manifest field追加は既存JSON metadata内で行い、rollbackのためのDB migrationを不要にする。
+    </li>
+  </ul>
+  <h2 id="13-historical-s11tnext-010-product-feedback">
+    13. Historical S11tnext 0.1.0 Product Feedback
+  </h2>
+  <p>
+    以下は実採用の観点からの率直な評価である。
+    0.1.0は「小さな静的Catalogを安全にrenderする」用途にはよくできているが、
+    全面採用のauthoring、composition、policy、operationsまでを 一貫して快適にするには不足がある。
+  </p>
+  <p>
+    0.1.2では、message role、artifact v2、message hash、optional/conditional
+    authoring、<code>delimited-text</code>、keyspace-scoped locale、section
+    profile、 composition receipt、README/release hygieneが実装され、以下の主要指摘は解消した。
+    このsectionは0.1.0採用時の検証記録として残す。
+  </p>
+  <h3 id="131-high-priority">13.1 High priority</h3>
+  <table>
+    <caption>
+      13.1 High priority
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Problem</th>
+        <th scope="col">Why it matters</th>
+        <th scope="col">Current workaround</th>
+        <th scope="col">Suggested improvement</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>optional variable/conditional sectionがない</td>
+        <td>空overlay、任意context、feature-dependent instructionで空blockか重複keyが必要</td>
+        <td>空blockを許容</td>
+        <td>
+          optional variable、<code>omit_if_empty</code>、決定的なconditional
+          section
+        </td>
+      </tr>
+      <tr>
+        <td>runtime値のsize/range制約がない</td>
+        <td>untrusted値でtoken/cost/DoS budgetを破れる</td>
+        <td>host側Zodとrender上限</td>
+        <td>
+          <code>max_length</code>,
+          <code>max_bytes</code>, number range, JSON depth/size
+        </td>
+      </tr>
+      <tr>
+        <td>multiline untrusted textを可読なまま安全に補間できない</td>
+        <td>
+          <code>json-string</code>は改行を<code>\n</code>へ変換するため、retrieved
+          Markdownや長いuser contextの構造とLLM可読性が落ちる
+        </td>
+        <td>delimiter内のJSON stringを受け入れ、grounding品質をcanary監視</td>
+        <td>
+          delimiter終端だけをescapeし改行を保持する<code>delimited-text</code>
+          encoding、またはlength-prefixed text
+        </td>
+      </tr>
+      <tr>
+        <td>locale requirementがCatalog全体に一律</td>
+        <td>Chatだけen-US必須、Reviewはja-JP必須を表現できない</td>
+        <td>consumer test</td>
+        <td>release profileにkeyspace/context override</td>
+      </tr>
+      <tr>
+        <td>compositionでprovenance/taintが消える</td>
+        <td>
+          <code>bindRequest.p()</code>はstringを返し、別contextへ渡すと由来とtrustを失う
+        </td>
+        <td>final contextを1枚に平坦化</td>
+        <td>typed rendered fragmentとprovenance-aware composition</td>
+      </tr>
+      <tr>
+        <td><code>RequestAudit</code>はprovider送信内容を証明しない</td>
+        <td>render traceが最終promptへの包含を証明せず、監査訴求より弱い</td>
+        <td>host executorでfinal hash検証</td>
+        <td>provider submission envelope、final composite hash API</td>
+      </tr>
+      <tr>
+        <td><code>enforcement = schema/host</code>は実際には強制しない</td>
+        <td>field名がsecurity guaranteeに見え、誤用しやすい</td>
+        <td>すべてprompt扱いしhost testを別途持つ</td>
+        <td>documentation上でmetadataと明記、schema/host digest linkageまたは名称変更</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    特に<code>enforcement</code>は現状のままだと誤解を招く。 Runtimeはsection
+    metadataを保持して連結するだけで、 schemaやhost policyとの対応を検証しない。
+    「enforcement」という名前を使うなら、実体とのlinkが必要である。
+  </p>
+  <h3 id="132-medium-priority">13.2 Medium priority</h3>
+  <table>
+    <caption>
+      13.2 Medium priority
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Problem</th>
+        <th scope="col">Impact</th>
+        <th scope="col">Suggested improvement</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>
+          <code>trust</code>が補間安全性とinstruction
+          authorityを混同しやすい
+        </td>
+        <td>user-authored SystemContextの分類が直感に反する</td>
+        <td>
+          <code>interpolation_trust</code>への明確化、別<code>authority/origin</code>
+          metadata
+        </td>
+      </tr>
+      <tr>
+        <td>section metadataが毎回必須で冗長</td>
+        <td>長いpromptを分割するとTOML boilerplateが大きい</td>
+        <td>section defaults/profiles</td>
+      </tr>
+      <tr>
+        <td><code>optimizable</code>にRuntime上のconsumerがない</td>
+        <td>required fieldなのに意味が観測できない</td>
+        <td>optional化、optimizer contract、inspectでの利用</td>
+      </tr>
+      <tr>
+        <td>semantic diff commandがない</td>
+        <td>generated JSON diffではprompt reviewしづらい</td>
+        <td><code>s11tnext diff</code>でkey/section/locale/digest差分表示</td>
+      </tr>
+      <tr>
+        <td>watch modeがない</td>
+        <td>authoring loopが手動build依存</td>
+        <td><code>s11tnext build --watch</code></td>
+      </tr>
+      <tr>
+        <td>artifact loadingが手動かつ2-file pair</td>
+        <td>Bun/Vite/Nodeでimport方法が分かれ、deploy漏れが起きる</td>
+        <td>output strategyまたはgenerated loader、各runtime recipe</td>
+      </tr>
+      <tr>
+        <td>section単位のpartial translation不可</td>
+        <td>大きいcontextの翻訳rolloutがall-or-nothing</td>
+        <td>policyで許可するpartial coverage mode</td>
+      </tr>
+    </tbody>
+  </table>
+  <h3 id="133-immediate-release-hygiene">13.3 Immediate release hygiene</h3>
+  <ul>
+    <li>
+      npm 0.1.0公開後もroot/runtime/CLI READMEが 「npm registryから利用できない」と記載している。
+    </li>
+    <li>package publish成功とdocumentation stateが同じrelease gateで検証されていない。</li>
+    <li>
+      Bun/browser-compatibleを訴求する一方、Bun consumer fixtureと明示的support policyがない。
+    </li>
+  </ul>
+  <p>改善案:</p>
+  <ol>
+    <li>publish workflowでregistry verification後にREADMEのstale release markerを検査する。</li>
+    <li><code>examples/bun-basic</code>とisolated Bun consumer testを追加する。</li>
+    <li>Node/Bun/Viteごとのartifact loading例を追加する。</li>
+    <li>npm tarball READMEをpublish前にregistry-ready wordingで検査する。</li>
+  </ol>
+  <h3 id="134-findings-confirmed-by-this-implementation">
+    13.4 Findings confirmed by this implementation
+  </h3>
+  <ul>
+    <li>Bun 1.3.14上でRuntimeのstatic JSON import、typed factory、hash verificationは動作した。</li>
+    <li>CLIのlint/build/checkとatomicな2-file生成は速く、導入自体は素直だった。</li>
+    <li>
+      7 contextをsectionへ分割すると、必須の
+      <code>kind/severity/enforcement/optimizable</code>がかなりのboilerplateになる。
+    </li>
+    <li>
+      <code>json-string</code>でmultiline
+      Markdownをrenderすると、実際に改行が<code>\n</code>へescapeされた。
+      安全性は上がるが、既存promptの見た目と意味表現は同値ではない。
+    </li>
+    <li>
+      <code>enforcement = "schema"</code>は、hostが別途<code>outputSchema</code>を渡して初めて実体を持つ。
+      今回はFinding/Scan/Reportで明示的にlinkしたが、Catalog側は対応を検証できない。
+    </li>
+    <li>
+      <code>production.required_locales = ["$source"]</code>のままChatだけen-USを持たせられるが、
+      Chatのen-US欠落をrelease policyとして強制できずconsumer testが必要だった。
+    </li>
+  </ul>
+  <h2 id="14-package-improvement-sequencing">14. Package Improvement Sequencing</h2>
+  <p>vulnWorkbenchの全面採用を止めず、workaroundを局所化する。</p>
+  <pre><code class="language-text">s11tnext 0.1.x
+  - README/release hygiene
+  - Bun consumer verification
+  - documentation clarification
+
+s11tnext 0.1.2 adopted
+  - role-aware PromptInvocation
+  - artifact v2 and message hash
+  - optional/conditional authoring
+  - delimited-text
+  - scoped locale requirements
+  - section profiles
+  - enforcement semantics correction
+  - composition receipts
+
+later minor
+  - runtime size/range constraints
+  - provenance-aware composition
+  - semantic diff/watch/loader ergonomics
+</code></pre>
+  <p>
+    schema/artifact shapeを変える改善は、明示的な互換性例外として0.1.2へまとめ、
+    Runtime/CLI/generated artifactsを同時に更新する。 vulnWorkbenchで先行実験する場合も、main
+    branchへlocal package pathを残さない。
+  </p>
+  <h2 id="15-definition-of-done">15. Definition of Done</h2>
+  <p>Phase 47は次をすべて満たしたときだけ完了とする。</p>
+  <ol>
+    <li>
+      7つのsystem contextと3つのuser prompt
+      contextが<code>.context.toml</code>に存在する。
+    </li>
+    <li>生成型以外のstring keyでCatalogを呼んでいない。</li>
+    <li>本番TypeScriptに固定system/user prompt本文が残っていない。</li>
+    <li>
+      providerへ送るauthored messageはすべて<code>PromptInvocation</code>由来である。
+    </li>
+    <li>provider callごとのprompt manifestが保存、response、またはstructured logへ到達する。</li>
+    <li>external Chat APIはsystem roleを受理しない。</li>
+    <li>untrusted runtime値にdelimiter/raw bypassがない。</li>
+    <li>runtime値とrendered textのbudget gateがある。</li>
+    <li>Runtime/CLI versionが一致し、generated pairがcurrentである。</li>
+    <li>full verifyとrepresentative canaryがpassする。</li>
+    <li>s11tnext product feedbackがissueまたはrelease backlogとして追跡可能になっている。</li>
+  </ol>
+</article>
+  </body>
+</html>

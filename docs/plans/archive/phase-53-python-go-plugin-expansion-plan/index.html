@@ -1,0 +1,1433 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex,follow">
+    <title>Phase 53: Python / Go Plugin Expansion Implementation Plan | vulnWorkbench</title>
+    <link rel="stylesheet" href="/vlunWorkbench/assets/css/spec-document.css">
+    <link rel="stylesheet" href="/vlunWorkbench/assets/css/plan-document.css">
+  </head>
+  <body>
+    <nav class="plan-document-links" aria-label="文書ナビゲーション">
+      <a href="/vlunWorkbench/plans/archive/?doc=phase-53-python-go-plugin-expansion-plan" target="_top">実装計画アーカイブへ</a>
+      <a href="/vlunWorkbench/" target="_top">vulnWorkbenchのLPへ戻る</a>
+    </nav>
+    <article lang="ja">
+  <h1 id="phase-53-python--go-plugin-expansion-implementation-plan">
+    Phase 53: Python / Go Plugin Expansion Implementation Plan
+  </h1>
+  <p>
+    Status: Implemented locally on 2026-07-31. Release closeout remains blocked on the external
+    offline vulnerability database, toolbox image digest, target execution sandbox, and a
+    same-commit clean-checkout run; these are preserved as gaps rather than treated as successful
+    verification.
+  </p>
+  <p>Predecessor: <code>spec/phase-52-plugin-oriented-language-framework-refactoring-plan.md</code></p>
+  <p>Planning baseline commit: <code>44db27a1a88fcdd2e3535d7ef358f2cc874b0c72</code></p>
+  <p>Baseline date: 2026-07-31</p>
+  <p>Owner: vulnWorkbench maintainers</p>
+  <p>
+    Target: Phase 52で導入したversioned built-in plugin contractを使い、coreへ
+    言語固有分岐を増やさず、PythonとGoのSAST、offline SCA、project structure、 framework
+    detection、endpoint extractionを追加する。PythonのDAST start planは
+    安全に生成できる場合だけ追加し、sandbox未整備時はfail closedとする。 GoのDAST
+    auto-startは初期正式対応に含めない。
+  </p>
+  <h2 id="1-結論">1. 結論</h2>
+  <p>Phase 53では、次のbuilt-in pluginを追加する。</p>
+  <table>
+    <caption>
+      1. 結論
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Kind</th>
+        <th scope="col">Plugin ID</th>
+        <th scope="col">初期対象</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>language</td>
+        <td><code>language.python</code></td>
+        <td><code>.py</code>、Python Semgrep、最小構造解析</td>
+      </tr>
+      <tr>
+        <td>build system</td>
+        <td><code>build.python-requirements</code></td>
+        <td>固定versionの<code>requirements*.txt</code></td>
+      </tr>
+      <tr>
+        <td>framework</td>
+        <td><code>framework.python.fastapi</code></td>
+        <td>FastAPI endpoint、条件付きDAST start plan</td>
+      </tr>
+      <tr>
+        <td>framework</td>
+        <td><code>framework.python.flask</code></td>
+        <td>Flask endpoint、条件付きDAST start plan</td>
+      </tr>
+      <tr>
+        <td>framework</td>
+        <td><code>framework.python.django</code></td>
+        <td>Django endpoint、条件付きDAST start plan</td>
+      </tr>
+      <tr>
+        <td>language</td>
+        <td><code>language.go</code></td>
+        <td><code>.go</code>、Go Semgrep、最小構造解析</td>
+      </tr>
+      <tr>
+        <td>build system</td>
+        <td><code>build.go-modules</code></td>
+        <td><code>go.mod</code></td>
+      </tr>
+      <tr>
+        <td>framework</td>
+        <td><code>framework.go.net-http</code></td>
+        <td><code>net/http</code> endpoint</td>
+      </tr>
+      <tr>
+        <td>framework</td>
+        <td><code>framework.go.gin</code></td>
+        <td>Gin endpoint</td>
+      </tr>
+      <tr>
+        <td>framework</td>
+        <td><code>framework.go.echo</code></td>
+        <td>Echo endpoint</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>初期releaseでは、能力ごとのsupport tierを次のように固定する。</p>
+  <table>
+    <caption>
+      1. 結論
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">対象</th>
+        <th scope="col">SAST</th>
+        <th scope="col">SCA</th>
+        <th scope="col">Structure</th>
+        <th scope="col">Endpoint</th>
+        <th scope="col">DAST auto-start</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Python</td>
+        <td><code>verified</code>候補</td>
+        <td><code>partial</code></td>
+        <td><code>partial</code></td>
+        <td>framework別<code>partial</code></td>
+        <td>planのみ。sandbox未整備時は<code>gap</code></td>
+      </tr>
+      <tr>
+        <td>Go</td>
+        <td><code>verified</code>候補</td>
+        <td><code>partial</code></td>
+        <td><code>partial</code></td>
+        <td>framework別<code>partial</code></td>
+        <td><code>unsupported</code></td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    <code>verified</code>は本計画のrelease
+    gateを同一commitで通過して初めて付与する。 計画承認、plugin登録、scanner
+    dataの存在だけでは対応済みと表示しない。
+  </p>
+  <p>
+    PythonとGoを一括で「対応」と宣言しない。SAST、SCA、構造解析、endpoint、
+    DASTを独立したcapabilityとして判定し、<code>partial</code>、<code>gap</code>、<code>unsupported</code>を
+    reportとUIへそのまま伝える。
+  </p>
+  <h2 id="2-phase-52からの継承条件">2. Phase 52からの継承条件</h2>
+  <h3 id="21-hard-start-gate">2.1 Hard start gate</h3>
+  <p>production codeへ着手する前に、次を満たす。</p>
+  <ol>
+    <li>
+      Phase 52のplugin registry、plugin detection、capability report、 dependency provider、source
+      analyzer、endpoint contributionが意図した integration branchへ統合されている。
+    </li>
+    <li>次がbaseline commitで成功する。</li>
+  </ol>
+  <pre><code class="language-bash">bun run verify:phase-52-capability
+</code></pre>
+  <ol start="3">
+    <li>
+      Phase 52で未完了の次の項目を、完了扱いにしない。
+      <ul>
+        <li>toolbox image digestを伴う実scanner gate</li>
+        <li>offline vulnerability databaseを使ったvulnerable/fixed gate</li>
+        <li>pre-scan capability UI</li>
+        <li>enforced rolloutとlegacy fallback removal</li>
+        <li>same-commit clean checkout release closeout</li>
+        <li>target project code execution sandbox</li>
+      </ul>
+    </li>
+    <li>
+      Phase 53と無関係な未commit変更を分離し、baseline evidenceへ dirty working
+      treeであることを記録する。
+    </li>
+    <li>
+      Phase 53の追加によりPhase 52のregistry digestが変わることを許容するが、
+      変更前後のdigestとplugin一覧をevidenceへ保存する。
+    </li>
+  </ol>
+  <p>
+    静的能力の実装はtarget execution sandboxと独立して進めてよい。 Python
+    DASTの実行をsupportedとするrelease gateだけはsandbox完了後まで閉じる。
+  </p>
+  <h3 id="22-planning-baselineの現状">2.2 Planning baselineの現状</h3>
+  <p>
+    2026-07-31のread-only確認では、<code>bun run verify:phase-52-capability</code>は成功した。
+    ただしworking treeにはPhase 53と無関係な変更が存在するため、これは same-commit clean
+    checkoutのrelease evidenceではない。
+  </p>
+  <p>Phase 53の実装では既存変更を上書き、revert、commitへ混在させない。</p>
+  <h2 id="3-現行資産と不足している製品経路">3. 現行資産と不足している製品経路</h2>
+  <h3 id="31-再利用できる資産">3.1 再利用できる資産</h3>
+  <p>現行repositoryには次が存在する。</p>
+  <ul>
+    <li>Pythonのowned Semgrep rule: 8 rules</li>
+    <li>Goのowned Semgrep rule: 8 rules</li>
+    <li>PyPIのOSV vulnerable/fixed fixture</li>
+    <li>GoのOSV vulnerable/fixed fixture</li>
+    <li>FastAPI、Flask、Djangoのlegacy endpoint extractor</li>
+    <li><code>net/http</code>、Gin、Echoのlegacy endpoint extractor</li>
+    <li>上記frameworkを含むendpoint discovery benchmark</li>
+    <li>scanner-data manifest上のPyPI、Go offline database entry</li>
+  </ul>
+  <p>planning baselineで採取したhashは次のとおりである。</p>
+  <table>
+    <caption>
+      3.1 再利用できる資産
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Evidence</th>
+        <th scope="col">Digest</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Python Semgrep ruleset</td>
+        <td><code>sha256:ff8574338dbec9bb4db5784738b79d69bd655911d5e8da9aa9eeaa08d246df84</code></td>
+      </tr>
+      <tr>
+        <td>Go Semgrep ruleset</td>
+        <td><code>sha256:a6caaa0a915664b4b6545d5bb3080e9b427034f1a932f30cd7f32eb85d1146a6</code></td>
+      </tr>
+      <tr>
+        <td>Semgrep catalog</td>
+        <td><code>sha256:8eebb13a1a23abc3ed158f76c4b13ff4d08050ff2b09f9365df3ff02935410a4</code></td>
+      </tr>
+      <tr>
+        <td>scanner-data manifest</td>
+        <td><code>sha256:1676af8e62e415443cd0ff1cb802d0bae31c28f1ddc48b215db2e108849a34cd</code></td>
+      </tr>
+    </tbody>
+  </table>
+  <p>実装開始時に再計算し、差異があれば理由をbaseline evidenceへ記録する。</p>
+  <h3 id="32-不足している経路">3.2 不足している経路</h3>
+  <p>既存資産は次の理由でformal supportを意味しない。</p>
+  <ul>
+    <li>built-in registryにPython/Go pluginが登録されていない。</li>
+    <li>
+      <code>DependencyProvider.ecosystem</code>が<code>npm | Maven</code>に閉じている。
+    </li>
+    <li>
+      dependency input、diff applicability、profile materializationが Python/Go
+      pluginから導出されない。
+    </li>
+    <li>
+      <code>.py</code>、<code>.go</code>のproject structure analyzerとimport
+      resolverがない。
+    </li>
+    <li>
+      module
+      boundaryは<code>package.json</code>、<code>pom.xml</code>、Gradle
+      file中心である。
+    </li>
+    <li>
+      endpoint extractorはlegacy extension switchから直接呼ばれ、 detected
+      frameworkとの対応が保証されない。
+    </li>
+    <li>Python/GoのDAST start contractと安全境界が定義されていない。</li>
+    <li>scanner fixtureがprofile、report、UIまで通る証跡がない。</li>
+  </ul>
+  <h2 id="4-scope">4. Scope</h2>
+  <h3 id="41-in-scope">4.1 In scope</h3>
+  <ul>
+    <li>Python language plugin</li>
+    <li>Go language plugin</li>
+    <li>Python requirements dependency plugin</li>
+    <li>Go Modules dependency plugin</li>
+    <li>FastAPI、Flask、Django framework plugin</li>
+    <li><code>net/http</code>、Gin、Echo framework plugin</li>
+    <li>active language pluginで選択するPython/Go Semgrep ruleset</li>
+    <li>offline OSV inputのplugin-driven materialization</li>
+    <li>Python/Go source inventoryとbounded lexical analyzer</li>
+    <li>Python relative/absolute importの保守的resolver</li>
+    <li>Go module/importの保守的resolver</li>
+    <li>Python/Go package boundary推論</li>
+    <li>framework evidenceに基づくendpoint contribution選択</li>
+    <li>Python frameworkのvalidated DAST start plan</li>
+    <li>capability、coverage、limitation、applicabilityの保存と表示</li>
+    <li>diff scopeへのPython/Go manifest追加</li>
+    <li>shadow comparison、legacy fallbackの段階撤去</li>
+    <li>Phase 53専用fixture、benchmark、release evidence</li>
+  </ul>
+  <h3 id="42-non-goals">4.2 Non-goals</h3>
+  <ul>
+    <li>
+      scan中の<code>pip install</code>、<code>poetry install</code>、<code>uv sync</code>
+    </li>
+    <li>Python resolverによるlockfile自動生成</li>
+    <li>virtualenv、<code>site-packages</code>の既定scan</li>
+    <li><code>setup.py</code>またはtarget Python codeの実行</li>
+    <li>Poetry、Pipenv、uv、PDMの正式SCA対応</li>
+    <li>editable install、VCS dependency、private indexの解決</li>
+    <li>
+      scan中の<code>go get</code>、<code>go mod download</code>、<code>go list</code>
+    </li>
+    <li>Go module cacheまたは<code>vendor/</code>の既定scan</li>
+    <li>Go toolchainの自動download</li>
+    <li>OSV Go call analysis</li>
+    <li>Go applicationの汎用auto-start</li>
+    <li>Fiber、Tornado、Sanic、Starlette単体の正式対応</li>
+    <li>Django REST Frameworkのserializer/routerを含む完全意味解析</li>
+    <li>Django <code>include()</code>の完全展開</li>
+    <li>gRPC、GraphQL、WebSocket routeの完全抽出</li>
+    <li>auth/authz policyの意味推論</li>
+    <li>native tree-sitter bindingの新規導入</li>
+    <li>runtimeでの任意package plugin loading</li>
+    <li>external plugin marketplace</li>
+    <li>Python/Go以外の言語追加</li>
+    <li>mobile applicationのDAST</li>
+  </ul>
+  <h2 id="5-安全性と信頼境界">5. 安全性と信頼境界</h2>
+  <h3 id="51-静的解析">5.1 静的解析</h3>
+  <p>
+    language、build、framework detectorとsource analyzerは、inventoryと
+    size制限付きtextだけを読む。次を禁止する。
+  </p>
+  <ul>
+    <li>target repositoryのcode import</li>
+    <li>Python moduleのimportまたは実行</li>
+    <li>Go packageのbuildまたはtest</li>
+    <li>manifest hook、build script、generatorの実行</li>
+    <li>dependency installまたはnetwork resolution</li>
+    <li>target repositoryへのfile生成・更新</li>
+  </ul>
+  <p>
+    Python/Go analyzerは初期sliceではbounded lexical analysisとし、完全な compiler
+    frontend相当の精度を宣言しない。構文が複雑、生成済み、曖昧な場合は
+    推測でedgeを作らずdiagnosticを返す。
+  </p>
+  <h3 id="52-dast">5.2 DAST</h3>
+  <p>DAST start planはcommand candidateであり、実行権限ではない。</p>
+  <ul>
+    <li><code>requiresProjectCodeConsent: true</code></li>
+    <li><code>requestedNetwork: "none"</code></li>
+    <li>loopback bindのみ</li>
+    <li>central target lifecycleがport、readiness、timeout、停止を管理</li>
+    <li>
+      明示同意とsandboxがない場合は <code>project_code_execution_sandbox_required</code>でfail closed
+    </li>
+    <li>dependency不足を補うinstallは行わない</li>
+    <li>shell stringを生成せず、固定executableとargs配列を返す</li>
+  </ul>
+  <p>
+    Python DAST start planの追加によって、sandbox未整備状態をsupportedへ
+    昇格させない。Goは汎用的なbind address/port contractを安全に決められないため、
+    初期releaseではstart plan自体を提供しない。
+  </p>
+  <h2 id="6-plugin-contractの追加設計">6. Plugin contractの追加設計</h2>
+  <h3 id="61-api-version">6.1 API version</h3>
+  <p>
+    次の変更はadditiveに行い、persisted manifest schemaを壊さない限り
+    <code>pluginApiVersion: "1"</code>を維持する。
+  </p>
+  <ul>
+    <li>
+      <code>DependencyProvider.ecosystem</code>へ<code>PyPI</code>と<code>Go</code>を追加
+    </li>
+    <li>
+      unresolved reference
+      hintへ<code>python_import</code>と<code>go_import</code>を追加
+    </li>
+    <li>Python/Go analyzerとresolver contributionを登録</li>
+    <li>既存capability enumで表現可能なcontributionだけを使う</li>
+  </ul>
+  <p>
+    既存pluginのsource互換が壊れる、またはplugin manifestの必須fieldを増やす場合は、
+    そのsliceを停止しplugin API v2の別計画へ切り出す。
+  </p>
+  <h3 id="62-manifestとcontributionの整合性">6.2 Manifestとcontributionの整合性</h3>
+  <p>registry validationへ次を追加する。</p>
+  <ul>
+    <li>
+      Semgrep contributionがあれば<code>sast</code>宣言を要求する。
+    </li>
+    <li>
+      dependency providerがあれば<code>dependency_detection</code>と
+      <code>dependency_scan</code>宣言を要求する。
+    </li>
+    <li>source analyzerがあれば<code>project_structure</code>宣言を要求する。</li>
+    <li>endpoint extractorがあれば<code>endpoint_extraction</code>宣言を要求する。</li>
+    <li>start plannerがあれば<code>dast_start</code>宣言を要求する。</li>
+    <li>contributionがないcapability宣言は、明示的なdelegation根拠がなければrejectする。</li>
+    <li>plugin ID、detector ID、contribution IDの重複をrejectする。</li>
+  </ul>
+  <p>このvalidationはPython/Go専用にせず、fixture pluginで拡張性を検証する。</p>
+  <h3 id="63-deterministic-registry">6.3 Deterministic registry</h3>
+  <p>
+    <code>api/plugins/builtin/index.ts</code>へ明示importし、安定順序で登録する。 filesystem
+    discoveryや任意JavaScriptのdynamic importは導入しない。
+  </p>
+  <p>registry evidenceには次を含める。</p>
+  <ul>
+    <li>plugin ID、version、kind</li>
+    <li>dependency edge</li>
+    <li>declared capability</li>
+    <li>contribution ID</li>
+    <li>Semgrep digest</li>
+    <li>registry digest</li>
+  </ul>
+  <h2 id="7-python対応設計">7. Python対応設計</h2>
+  <h3 id="71-languagepython">7.1 <code>language.python</code></h3>
+  <p>
+    検出条件は<code>.py</code>
+    sourceの存在とする。<code>.pyi</code>はinventory対象に含めてもよいが、
+    初期analyzerの定義抽出対象からは分離し、stubをruntime entrypointと扱わない。
+  </p>
+  <p>contributionは次を持つ。</p>
+  <ul>
+    <li>Python owned Semgrep ruleset</li>
+    <li><code>.py</code> source analyzer</li>
+    <li>Python import reference hint</li>
+    <li>source detection evidence</li>
+  </ul>
+  <p>
+    Semgrepはactiveな<code>language.python</code>のrulesetだけをmaterializeする。
+    rule fileがrepositoryに存在することだけでPython SAST executedとは表示しない。
+  </p>
+  <h3 id="72-python-source-analyzer">7.2 Python source analyzer</h3>
+  <p>初期analyzerは、file size/time budget内で次を抽出する。</p>
+  <ul>
+    <li>
+      <code>import x</code>、<code>import x as y</code>
+    </li>
+    <li><code>from x import y</code></li>
+    <li>
+      <code>from .</code>、<code>from ..x</code>等のrelative import
+    </li>
+    <li>top-level class/function/async function</li>
+    <li>decorator名</li>
+    <li><code>if __name__ == "__main__"</code> entrypoint evidence</li>
+    <li>framework route extractionに必要なapp/router symbolの限定情報</li>
+  </ul>
+  <p>次は明示的なlimitationとする。</p>
+  <ul>
+    <li>dynamic import</li>
+    <li><code>sys.path</code>変更</li>
+    <li>namespace packageの完全解決</li>
+    <li>import hook</li>
+    <li>metaclass/decoratorの意味実行</li>
+    <li>re-export graphの完全展開</li>
+    <li>type inference</li>
+  </ul>
+  <p>
+    syntax error、encoding error、budget超過はfile単位diagnosticとし、scan全体を
+    成功扱いのまま黙って欠落させない。
+  </p>
+  <h3 id="73-python-import-resolution">7.3 Python import resolution</h3>
+  <p>resolverは次の順序で候補を作る。</p>
+  <ol>
+    <li>relative importの現在package基準</li>
+    <li>同一package内の<code>module.py</code></li>
+    <li><code>package/__init__.py</code></li>
+    <li>project root基準</li>
+    <li>明示的に検出した<code>src/</code> layout基準</li>
+  </ol>
+  <p>
+    複数候補が一致する場合は<code>ambiguous</code>、root外は<code>blocked</code>、stdlibまたは
+    third-partyと判定できるabsolute importは<code>external</code>とする。
+  </p>
+  <p>
+    <code>PYTHONPATH</code>、virtualenv、runtime
+    import結果を参照しない。namespace packageと src
+    layoutが曖昧な場合はconfidenceを下げ、diagnosticを残す。
+  </p>
+  <h3 id="74-buildpython-requirements">7.4 <code>build.python-requirements</code></h3>
+  <p>初期のprimary inputは次に限定する。</p>
+  <ul>
+    <li><code>requirements.txt</code></li>
+    <li><code>requirements-*.txt</code></li>
+    <li><code>requirements/*.txt</code></li>
+  </ul>
+  <p>
+    OSVへ渡せる正式対象は、少なくともpackage名と<code>==</code>による固定versionを
+    安全に抽出できるfileとする。次を含むfileは全体を誤ってcoveredとせず、
+    entryまたはfile単位のlimitationを生成する。
+  </p>
+  <ul>
+    <li>unpinned specifier</li>
+    <li>range specifier</li>
+    <li>environment marker</li>
+    <li>
+      <code>-r</code> /
+      <code>--requirement</code> include
+    </li>
+    <li>
+      <code>-c</code> / <code>--constraint</code>
+    </li>
+    <li>editable install</li>
+    <li>URL、VCS、local path</li>
+    <li>private index directive</li>
+    <li>hashだけではversionを確定できないentry</li>
+  </ul>
+  <p>
+    coverageは初期releaseで常に<code>partial</code>とし、少なくとも次を返す。
+  </p>
+  <pre><code class="language-text">python_requirements_pinned_entries_only
+dependency_resolution_not_performed
+transitive_dependency_provenance_unverified
+</code></pre>
+  <p>
+    <code>pyproject.toml</code>、<code>setup.cfg</code>、<code>setup.py</code>、<code>Pipfile</code>、<code>poetry.lock</code>、
+    <code>uv.lock</code>はframework/build evidenceまたはcompanion
+    inputとして検出してよい。 ただし、実OSV contract fixtureで入力形式と結果を検証するまで
+    <code>primaryGlobs</code>へ追加せず、SCA supported claimへ使わない。
+  </p>
+  <p>
+    <code>requirements*.txt</code>の追加・削除・内容変更はdependency diff
+    applicabilityを trueにする。commentや空白だけの変更を特別扱いする最適化は初期sliceでは行わない。
+  </p>
+  <h3 id="75-python-framework-detection">7.5 Python framework detection</h3>
+  <p>単一decoratorやfile名だけでframeworkをdetectedにしない。</p>
+  <table>
+    <caption>
+      7.5 Python framework detection
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Framework</th>
+        <th scope="col">必須 evidence</th>
+        <th scope="col">confidenceを上げるevidence</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>FastAPI</td>
+        <td><code>fastapi</code> dependency/import</td>
+        <td>
+          <code>FastAPI()</code>、<code>APIRouter()</code>、route decorator
+        </td>
+      </tr>
+      <tr>
+        <td>Flask</td>
+        <td><code>flask</code> dependency/import</td>
+        <td><code>Flask()</code>、Blueprint、route decorator</td>
+      </tr>
+      <tr>
+        <td>Django</td>
+        <td><code>django</code> dependency/import/config</td>
+        <td>
+          <code>manage.py</code>、settings、<code>urlpatterns</code>
+        </td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    dependency metadataとsource
+    evidenceの両方があれば<code>high</code>候補、どちらか一方だけなら
+    <code>medium</code>以下とする。framework間で証跡が重なる場合は複数pluginをactiveにできるが、
+    各extractorは自分のframework resultだけを返す。
+  </p>
+  <h3 id="76-python-endpoint-extraction">7.6 Python endpoint extraction</h3>
+  <p>
+    既存<code>extractPythonEndpoints</code>をframework
+    contributionでwrapし、次を分離する。
+  </p>
+  <ul>
+    <li>FastAPI contributionは<code>fastapi</code> resultだけ</li>
+    <li>Flask contributionは<code>flask</code> resultだけ</li>
+    <li>Django contributionは<code>django</code> resultだけ</li>
+  </ul>
+  <p>
+    legacy extension switchとのshadow comparisonを実施し、framework pluginが
+    activeでない<code>.py</code>を自動的にWeb endpoint
+    sourceとして扱わない。
+  </p>
+  <p>positive/negative fixtureに次を含める。</p>
+  <ul>
+    <li>literal pathとmethod</li>
+    <li>multiple methods</li>
+    <li>router/blueprint prefix</li>
+    <li>class/module prefix</li>
+    <li>decorator alias</li>
+    <li>commented-out route</li>
+    <li>string中の疑似decorator</li>
+    <li>dynamic path/method</li>
+    <li>Django nested <code>include()</code>の既知limitation</li>
+  </ul>
+  <p>
+    dynamicにしか決まらない値を推測で具体化しない。部分的にしか分からないendpointは
+    confidenceとlimitationを付与し、完全なrouteとして数えない。
+  </p>
+  <h3 id="77-python-dast-start-plan">7.7 Python DAST start plan</h3>
+  <p>frameworkとentrypoint evidenceが十分な場合だけ、次の候補を生成する。</p>
+  <table>
+    <caption>
+      7.7 Python DAST start plan
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Framework</th>
+        <th scope="col">Candidate</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>FastAPI</td>
+        <td><code>python3 -m uvicorn &lt;module&gt;:&lt;app&gt; --host 127.0.0.1 --port &lt;port&gt;</code></td>
+      </tr>
+      <tr>
+        <td>Flask</td>
+        <td><code>python3 -m flask --app &lt;module&gt;:&lt;app&gt; run --host 127.0.0.1 --port &lt;port&gt;</code></td>
+      </tr>
+      <tr>
+        <td>Django</td>
+        <td><code>python3 manage.py runserver 127.0.0.1:&lt;port&gt;</code></td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    <code>&lt;module&gt;</code>と<code>&lt;app&gt;</code>はinventory/source
+    evidenceから単一候補に確定できる場合だけ使う。
+    複数候補、factoryの動的引数、独自launcherしかない場合はplanを返さない。
+  </p>
+  <p>
+    plannerはdependency install、virtualenv作成、migration、collectstatic、database
+    初期化を行わない。Djangoのstart
+    planは<code>manage.py</code>がroot内に存在する場合だけ作る。
+  </p>
+  <p>
+    sandboxが未整備の期間は、plan generation testまでを合格対象とし、実行結果は
+    <code>gap</code>のままとする。実際のverified昇格には、sandbox内でのconsent、network deny、 loopback
+    bind、timeout、process tree停止、target非変更の証跡が必要である。
+  </p>
+  <h2 id="8-go対応設計">8. Go対応設計</h2>
+  <h3 id="81-languagego">8.1 <code>language.go</code></h3>
+  <p>検出条件は<code>.go</code> sourceの存在とする。次を分類する。</p>
+  <ul>
+    <li>production source</li>
+    <li><code>_test.go</code></li>
+    <li>generated file markerを持つsource</li>
+    <li>platform/build tag付きsource</li>
+  </ul>
+  <p>
+    generated fileとtest fileを黙って除外せず、inventoryへ分類を保存する。
+    entrypoint、endpoint、metricのどこで含めるかを明示する。
+  </p>
+  <p>contributionは次を持つ。</p>
+  <ul>
+    <li>Go owned Semgrep ruleset</li>
+    <li><code>.go</code> source analyzer</li>
+    <li>Go import reference hint</li>
+    <li>source detection evidence</li>
+  </ul>
+  <h3 id="82-go-source-analyzer">8.2 Go source analyzer</h3>
+  <p>初期analyzerはbounded lexical analysisで次を抽出する。</p>
+  <ul>
+    <li>package名</li>
+    <li>single/grouped import</li>
+    <li>import alias、blank import、dot import</li>
+    <li>type、function、method名</li>
+    <li>
+      <code>package main</code>と<code>func main()</code>
+      entrypoint evidence
+    </li>
+    <li><code>_test.go</code>、build tag、generated marker</li>
+    <li>framework route抽出に必要なcallの限定情報</li>
+  </ul>
+  <p>次はlimitationとする。</p>
+  <ul>
+    <li>build constraintの完全評価</li>
+    <li>code generation</li>
+    <li>type checking</li>
+    <li>interface dispatch</li>
+    <li>aliasを跨ぐ完全call graph</li>
+    <li>cgo</li>
+    <li>embedded filesystem内容の解析</li>
+  </ul>
+  <h3 id="83-go-import-resolution">8.3 Go import resolution</h3>
+  <p>
+    <code>go.mod</code>の<code>module</code>
+    directiveをbounded parserで読み、同一module prefixのimportを repository内pathへ解決する。
+  </p>
+  <ul>
+    <li>standard library importは<code>runtime_builtin</code>相当のexternal</li>
+    <li>module prefix外は<code>external_package</code></li>
+    <li>module prefix内で単一directoryに対応すれば<code>resolved</code></li>
+    <li>
+      <code>replace</code>、workspace、複数moduleで曖昧なら<code>ambiguous</code>またはdiagnostic
+    </li>
+    <li>root外pathは<code>blocked</code></li>
+  </ul>
+  <p>
+    <code>go list</code>やGo toolchainを呼ばない。nested
+    <code>go.mod</code>は独立module boundaryとし、
+    親moduleからの解決を安易に横断しない。
+  </p>
+  <h3 id="84-buildgo-modules">8.4 <code>build.go-modules</code></h3>
+  <p>
+    初期primary inputは<code>go.mod</code>、companion
+    inputは<code>go.sum</code>とする。
+  </p>
+  <p>
+    <code>go.mod</code>にはdirect dependencyとindirect
+    markerが存在しても、offline
+    <code>--no-resolve</code>で実際に証明できる範囲だけをcoverageへ反映する。初期releaseでは
+    次の理由で<code>partial</code>に固定する。
+  </p>
+  <pre><code class="language-text">go_mod_declared_dependencies_only
+dependency_resolution_not_performed
+transitive_dependency_provenance_unverified
+</code></pre>
+  <p>
+    <code>go.sum</code>はdownload contentのintegrity
+    evidenceであり、完全なdependency lockではない。 したがって、次の扱いとする。
+  </p>
+  <ul>
+    <li><code>go.mod</code>変更: dependency applicability = true</li>
+    <li><code>go.sum</code>変更: dependency evidence changed = true</li>
+    <li>
+      <code>go.sum</code>変更だけで<code>lockStateChanged = true</code>にはしない
+    </li>
+    <li><code>go.sum</code>だけのprojectをscannableとはしない</li>
+  </ul>
+  <p>
+    <code>replace</code>、<code>exclude</code>、local path、toolchain
+    directive、workspaceをfixtureで検証し、
+    解決できない対象はlimitationへ残す。<code>go mod download</code>やnetwork
+    resolutionで 不足を補わない。
+  </p>
+  <h3 id="85-go-framework-detection">8.5 Go framework detection</h3>
+  <table>
+    <caption>
+      8.5 Go framework detection
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Framework</th>
+        <th scope="col">必須 evidence</th>
+        <th scope="col">confidenceを上げるevidence</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>net/http</code></td>
+        <td>exact stdlib import</td>
+        <td>
+          <code>Handle</code> /
+          <code>HandleFunc</code> /
+          <code>ServeMux</code> call
+        </td>
+      </tr>
+      <tr>
+        <td>Gin</td>
+        <td>exact module/import evidence</td>
+        <td><code>gin.Default/New</code>とroute method call</td>
+      </tr>
+      <tr>
+        <td>Echo</td>
+        <td>exact module/import evidence</td>
+        <td><code>echo.New</code>とroute method call</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    単なる<code>Get</code>、<code>Post</code>、<code>Handle</code>というmethod名だけではdetectedにしない。
+    import aliasを限定的に追跡し、同名user packageをframeworkと誤認しないnegative fixtureを
+    必須にする。
+  </p>
+  <h3 id="86-go-endpoint-extraction">8.6 Go endpoint extraction</h3>
+  <p>
+    既存<code>extractGoEndpoints</code>をframework contributionでwrapし、framework
+    fieldで filterする。legacy extension switchとのshadow comparison後、active frameworkが
+    ない<code>.go</code>へのfallbackを削除する。
+  </p>
+  <p>fixtureには次を含める。</p>
+  <ul>
+    <li><code>http.HandleFunc</code></li>
+    <li>custom <code>ServeMux</code></li>
+    <li>Gin group prefix</li>
+    <li>Echo group prefix</li>
+    <li>import alias</li>
+    <li>receiver経由router</li>
+    <li>commented-out call</li>
+    <li>string中の疑似route</li>
+    <li>dynamic path/method</li>
+    <li>unrelated同名method</li>
+  </ul>
+  <h3 id="87-go-dastの扱い">8.7 Go DASTの扱い</h3>
+  <p>
+    初期正式対応では<code>startPlanners: []</code>とし、<code>dast_start</code>をdeclared
+    capabilityへ 含めない。
+  </p>
+  <p>
+    理由は、<code>go run</code>だけではapplication固有のhost/port、configuration、database、
+    startup side effectを安全かつ汎用的に決定できず、module/toolchain downloadを
+    誘発する可能性があるためである。
+  </p>
+  <p>後続phaseで検討する場合も、少なくとも次を別途証明する。</p>
+  <ul>
+    <li><code>GOTOOLCHAIN=local</code></li>
+    <li><code>GOPROXY=off</code></li>
+    <li>必要に応じ<code>CGO_ENABLED=0</code></li>
+    <li>build/cacheのsandbox内隔離</li>
+    <li>application固有port injection contract</li>
+    <li>network denyとtarget非変更</li>
+  </ul>
+  <p>これらはPhase 53のacceptance gateへ含めない。</p>
+  <h2 id="9-project-structureとmodule-boundary">9. Project structureとmodule boundary</h2>
+  <h3 id="91-inventory-classification">9.1 Inventory classification</h3>
+  <p>次をsourceとして分類する。</p>
+  <ul>
+    <li><code>.py</code></li>
+    <li>必要に応じ<code>.pyi</code>をstub sourceとして別分類</li>
+    <li><code>.go</code></li>
+  </ul>
+  <p>
+    未対応、budget超過、parse
+    failureをresourceへ落として<code>completed</code>と表示しない。 language
+    pluginがactiveなのにanalyzer coverageがないfileはcoverage gapとする。
+  </p>
+  <h3 id="92-packagemodule-boundary">9.2 Package/module boundary</h3>
+  <p>Pythonのboundary evidence候補:</p>
+  <ul>
+    <li><code>pyproject.toml</code></li>
+    <li><code>setup.cfg</code></li>
+    <li><code>setup.py</code></li>
+    <li><code>requirements*.txt</code></li>
+    <li>package markerの<code>__init__.py</code></li>
+    <li>明示的に検出した<code>src/</code> layout</li>
+  </ul>
+  <p>Goのboundary evidence候補:</p>
+  <ul>
+    <li><code>go.mod</code></li>
+    <li>nested <code>go.mod</code></li>
+    <li>
+      <code>go.work</code>はworkspace
+      evidenceとして検出するが、初期resolverはpartial
+    </li>
+  </ul>
+  <p>
+    manifestがroot直下にある場合もboundary metadataを失わないようにする。 既存TypeScript/Java
+    boundary推論をregressionさせない。
+  </p>
+  <h3 id="93-schema方針">9.3 Schema方針</h3>
+  <p>
+    project structure v2のlanguage fieldがstringで表現可能である限り、
+    Python/Go追加のためだけにschema versionを上げない。
+  </p>
+  <p>
+    legacy v1のenumがTypeScript/JavaScript中心であっても、Phase 53では大規模な v1
+    migrationを行わない。v1 projectorがPython/Goを表現できない場合は、
+    互換projectionのlimitationを記録し、v2を正式なcapability evidenceとする。
+  </p>
+  <h2 id="10-sastとscanner-data">10. SASTとscanner data</h2>
+  <h3 id="101-ruleset-selection">10.1 Ruleset selection</h3>
+  <p>
+    active language pluginのSemgrep contributionから、scanごとのrule manifestを
+    決定論的に組み立てる。
+  </p>
+  <ul>
+    <li>Python projectへGo rulesを暗黙投入しない。</li>
+    <li>Go projectへPython rulesを暗黙投入しない。</li>
+    <li>polyglot projectでは両language pluginがactiveなら両方を使う。</li>
+    <li>ruleset missing/digest mismatch時はstepをfailedまたはgapとし、0 finding成功にしない。</li>
+  </ul>
+  <h3 id="102-fixture-gate">10.2 Fixture gate</h3>
+  <p>各言語で次を用意する。</p>
+  <ul>
+    <li>ruleごとのvulnerable positive</li>
+    <li>safe/fixed pair</li>
+    <li>near-miss negative</li>
+    <li>syntax variation</li>
+    <li>multi-file profile fixture</li>
+  </ul>
+  <p>
+    既存8 ruleずつをcatalog validationへ含め、rule countとdigestをevidenceへ保存する。
+    findingの存在だけでなく、rule ID、file、line、severity normalization、deduplication、 report
+    persistenceまで検証する。
+  </p>
+  <h2 id="11-offline-scaとdependency-profile">11. Offline SCAとdependency profile</h2>
+  <h3 id="111-input-materialization">11.1 Input materialization</h3>
+  <p>
+    dependency providerが返すprimary/companion/exclude globだけをsandbox workspaceへcopyする。
+    元repositoryの相対pathを維持し、次を除外する。
+  </p>
+  <ul>
+    <li>
+      <code>.venv/**</code>、<code>venv/**</code>、<code>site-packages/**</code>
+    </li>
+    <li>Go module cache</li>
+    <li>build output、temporary cache</li>
+    <li>repository root外へのsymlink</li>
+  </ul>
+  <p>copy対象とhash、除外理由、coverage limitationをstep evidenceへ保存する。</p>
+  <h3 id="112-osv実行">11.2 OSV実行</h3>
+  <p>baselineはofflineかつno-resolveで実行する。</p>
+  <ul>
+    <li>vulnerability DBのnetwork updateをscan中に行わない。</li>
+    <li>Python dependency resolverを起動しない。</li>
+    <li>Go call analysisを有効にしない。</li>
+    <li>OSV CLI version、database digest、input hash、command policyを記録する。</li>
+  </ul>
+  <p>
+    実databaseを提供できないlocal環境ではfixture schema validationまでに留め、
+    vulnerable/fixedを実scan済みと宣言しない。
+  </p>
+  <h3 id="113-verdict">11.3 Verdict</h3>
+  <p>次を区別する。</p>
+  <ul>
+    <li>vulnerable dependency findingあり</li>
+    <li>scan完了、検証範囲内でfindingなし</li>
+    <li>inputなしでnot applicable</li>
+    <li>unpinned/unsupported inputによりpartial</li>
+    <li>databaseなし、toolなし、digest mismatchによるgap</li>
+    <li>scanner failure</li>
+  </ul>
+  <p>
+    <code>partial</code>または<code>gap</code>をclean zero-findingへ変換しない。
+  </p>
+  <h2 id="12-diffprofilereportui">12. Diff、profile、report、UI</h2>
+  <h3 id="121-diff-applicability">12.1 Diff applicability</h3>
+  <p>plugin dependency scopeから次を導出する。</p>
+  <ul>
+    <li>Python source変更はPython SAST/project structure applicabilityへ反映</li>
+    <li>Go source変更はGo SAST/project structure applicabilityへ反映</li>
+    <li><code>requirements*.txt</code>変更はPyPI SCA applicabilityへ反映</li>
+    <li><code>go.mod</code>変更はGo SCA applicabilityへ反映</li>
+    <li><code>go.sum</code>変更はdependency evidence changeとして反映</li>
+    <li>framework evidence file変更はendpoint/Application Model再計算へ反映</li>
+  </ul>
+  <p>
+    hard-coded global manifest listを追加するのではなく、active/detected pluginのscopeを
+    集約する。polyglot repositoryで一方の変更が他方のcoverageを誤って上書きしない。
+  </p>
+  <h3 id="122-profile-execution">12.2 Profile execution</h3>
+  <p>各step resultへ少なくとも次を保存する。</p>
+  <ul>
+    <li>detected plugin IDsとconfidence</li>
+    <li>applicable contribution IDs</li>
+    <li>materialized input pathsとhash</li>
+    <li>scanner/analyzer version</li>
+    <li>execution status</li>
+    <li>coverage effect</li>
+    <li>reason/limitation codes</li>
+    <li>registry/ruleset/database digest</li>
+  </ul>
+  <h3 id="123-reportui">12.3 Report/UI</h3>
+  <p>pre-scan capabilityとpost-scan evidenceを分ける。</p>
+  <ul>
+    <li>pre-scan: detected、予測applicability、必要同意、既知limitation</li>
+    <li>post-scan: executed、finding、coverage、failure/gap、使用digest</li>
+  </ul>
+  <p>表示例:</p>
+  <pre><code class="language-text">Python SAST: verified
+Python dependency scan: partial (pinned requirements only; no resolution)
+FastAPI endpoint discovery: partial
+Python DAST auto-start: unavailable (sandbox required)
+
+Go SAST: verified
+Go dependency scan: partial (declared go.mod dependencies only)
+Gin endpoint discovery: partial
+Go DAST auto-start: unsupported
+</code></pre>
+  <p>
+    scanner
+    dataがあるだけのcapabilityをpre-scanで<code>verified</code>と表示しない。
+  </p>
+  <h2 id="13-legacy移行">13. Legacy移行</h2>
+  <h3 id="131-shadow-mode">13.1 Shadow mode</h3>
+  <p>最初はlegacyとplugin経路を同一fixtureで実行し、次を比較する。</p>
+  <ul>
+    <li>endpoint countとnormalized endpoint identity</li>
+    <li>dependency input set</li>
+    <li>SAST selected rule set</li>
+    <li>project structure file/reference/module count</li>
+    <li>applicability reason</li>
+  </ul>
+  <p>差分はartifactへ記録し、expected improvementとregressionを分類する。</p>
+  <h3 id="132-enforced-mode">13.2 Enforced mode</h3>
+  <p>
+    language/framework pluginの検出とbenchmarkがgateを満たした後、Python/Goについて
+    plugin経路をprimaryにする。rollback flagはPhase 52の仕組みを再利用し、
+    Python/Go専用の永久flagを増やさない。
+  </p>
+  <h3 id="133-legacy-removal">13.3 Legacy removal</h3>
+  <p>
+    次をすべて満たした後に限り、<code>.py</code>、<code>.go</code>のlegacy
+    extension switch fallbackを削除する。
+  </p>
+  <ul>
+    <li>endpoint precision/recall gate</li>
+    <li>mixed-language fixture</li>
+    <li>framework未検出negative fixture</li>
+    <li>report/profile E2E</li>
+    <li>shadow mismatchの解消または承認済みlimitation化</li>
+    <li>rollback手順の確認</li>
+  </ul>
+  <p>extractor implementation自体は再利用してよい。削除対象はpluginを迂回するdispatchである。</p>
+  <h2 id="14-実装slice">14. 実装slice</h2>
+  <p>各sliceを独立PR相当の大きさとし、前sliceのgateを通してから次へ進む。</p>
+  <h3 id="slice-530-baseline-freezeとevidence">Slice 53.0: Baseline freezeとevidence</h3>
+  <p>変更:</p>
+  <ul>
+    <li>baseline commitとworking tree状態を記録</li>
+    <li>Phase 52 verificationを再実行</li>
+    <li>scanner-data、catalog、Python/Go ruleset hashを再計算</li>
+    <li>PyPI/Go fixtureとendpoint benchmarkの現状を記録</li>
+    <li>Phase 52未完了gateをPhase 53 evidenceへ継承</li>
+  </ul>
+  <p>成果物:</p>
+  <ul>
+    <li><code>spec/evidence/phase-53-python-go-baseline.json</code></li>
+    <li><code>.artifacts/benchmark/phase-53-capability.json</code>のschema</li>
+  </ul>
+  <p>Gate:</p>
+  <ul>
+    <li>baseline evidenceがmachine-readable</li>
+    <li>dirty treeまたは欠落external artifactを明記</li>
+    <li>scanner単体能力をformal supportへ誤昇格していない</li>
+  </ul>
+  <h3 id="slice-531-additive-contractとfixture-plugin">
+    Slice 53.1: Additive contractとfixture plugin
+  </h3>
+  <p>変更:</p>
+  <ul>
+    <li>
+      ecosystemへ<code>PyPI</code>、<code>Go</code>を追加
+    </li>
+    <li>
+      reference
+      hintへ<code>python_import</code>、<code>go_import</code>を追加
+    </li>
+    <li>manifest/contribution consistency validation</li>
+    <li>deterministic registry test拡張</li>
+    <li>Python/Goを模したfixture pluginでcontractを検証</li>
+  </ul>
+  <p>Gate:</p>
+  <ul>
+    <li>existing TypeScript/Java plugin testが無変更で成功</li>
+    <li>invalid contribution/manifest pairをreject</li>
+    <li>registry順序とdigestが複数runで一致</li>
+    <li>plugin API v1互換をcontract testで証明</li>
+  </ul>
+  <h3 id="slice-532-python-languagerequirements-scastructure">
+    Slice 53.2: Python language、requirements SCA、structure
+  </h3>
+  <p>変更:</p>
+  <ul>
+    <li><code>language.python</code></li>
+    <li><code>build.python-requirements</code></li>
+    <li>Python Semgrep contribution</li>
+    <li>Python inventory/analyzer/resolver/module boundary</li>
+    <li>dependency scope、materialization、diff applicability</li>
+    <li>PyPI fixtureのprofile integration</li>
+  </ul>
+  <p>Gate:</p>
+  <ul>
+    <li>Python Semgrep positive/fixed/negative</li>
+    <li>pinned requirements vulnerable/fixed actual offline gate</li>
+    <li>unpinned/include/URL/local path limitation gate</li>
+    <li>no install、no network、no target mutation</li>
+    <li>Python project structure golden fixture</li>
+    <li>TypeScript/Java regression成功</li>
+  </ul>
+  <h3 id="slice-533-go-languagego-modules-scastructure">
+    Slice 53.3: Go language、Go Modules SCA、structure
+  </h3>
+  <p>変更:</p>
+  <ul>
+    <li><code>language.go</code></li>
+    <li><code>build.go-modules</code></li>
+    <li>Go Semgrep contribution</li>
+    <li>Go inventory/analyzer/resolver/module boundary</li>
+    <li>
+      <code>go.mod</code>/<code>go.sum</code>
+      scopeとdiff semantics
+    </li>
+    <li>Go fixtureのprofile integration</li>
+  </ul>
+  <p>Gate:</p>
+  <ul>
+    <li>Go Semgrep positive/fixed/negative</li>
+    <li>go.mod vulnerable/fixed actual offline gate</li>
+    <li>replace/local path/nested module limitation gate</li>
+    <li>go.sum-only changeがlock stateを誤表示しない</li>
+    <li><code>go list</code>、download、call analysisを実行しない</li>
+    <li>Go project structure golden fixture</li>
+    <li>TypeScript/Java/Python regression成功</li>
+  </ul>
+  <h3 id="slice-534-framework-detectionとendpoint-contribution">
+    Slice 53.4: Framework detectionとendpoint contribution
+  </h3>
+  <p>変更:</p>
+  <ul>
+    <li>FastAPI、Flask、Django plugin</li>
+    <li><code>net/http</code>、Gin、Echo plugin</li>
+    <li>legacy extractorのframework contribution化</li>
+    <li>endpoint benchmark/negative fixture拡張</li>
+    <li>shadow comparison artifact</li>
+  </ul>
+  <p>Gate:</p>
+  <ul>
+    <li>framework detection positive/negative</li>
+    <li>Python/Go endpoint precision、recallともに0.90以上</li>
+    <li>TypeScript/Java endpoint metricをregressionさせない</li>
+    <li>framework未検出sourceをendpoint supportedと表示しない</li>
+    <li>dynamic/ambiguous routeを誤ってliteral routeにしない</li>
+  </ul>
+  <h3 id="slice-535-diffprofilereportui-integration">
+    Slice 53.5: Diff、profile、report、UI integration
+  </h3>
+  <p>変更:</p>
+  <ul>
+    <li>plugin-driven diff applicability</li>
+    <li>profile execution evidence</li>
+    <li>pre/post scan capability表示</li>
+    <li>polyglot projectのaggregation</li>
+    <li>partial/gap/unsupportedのUI表現</li>
+  </ul>
+  <p>Gate:</p>
+  <ul>
+    <li>Python-only、Go-only、polyglot fixture</li>
+    <li>source-only、manifest-only、companion-only diff fixture</li>
+    <li>partial/gapがzero-findingへ変換されない</li>
+    <li>API schema、persistence、UI round-trip</li>
+    <li>Phase 52 capability display regression成功</li>
+  </ul>
+  <h3 id="slice-536-python-dast-start-plan">Slice 53.6: Python DAST start plan</h3>
+  <p>変更:</p>
+  <ul>
+    <li>FastAPI/Flask/Django validated planner</li>
+    <li>entrypoint/app ambiguity diagnostics</li>
+    <li>consent、sandbox、readinessとの統合</li>
+    <li>Go DAST unsupported claim</li>
+  </ul>
+  <p>Gate:</p>
+  <ul>
+    <li>args配列とloopback bindのsnapshot</li>
+    <li>install/network/build補完を行わない</li>
+    <li>ambiguous projectではplanを返さない</li>
+    <li>sandbox未整備時に <code>project_code_execution_sandbox_required</code>でfail closed</li>
+    <li>target file hashが実行前後で一致</li>
+    <li>Goにはstart plannerが登録されない</li>
+  </ul>
+  <h3 id="slice-537-enforced-rolloutとrelease-closeout">
+    Slice 53.7: Enforced rolloutとrelease closeout
+  </h3>
+  <p>変更:</p>
+  <ul>
+    <li>shadow差分の解消</li>
+    <li>Python/Go plugin primary化</li>
+    <li>legacy extension dispatch削除</li>
+    <li>release evidence生成</li>
+    <li>計画書statusとsupport matrix更新</li>
+  </ul>
+  <p>Gate:</p>
+  <ul>
+    <li>clean checkout、same commitで全gate成功</li>
+    <li>toolbox image digest固定</li>
+    <li>offline vulnerability DB digest固定</li>
+    <li>registry/ruleset/catalog digest固定</li>
+    <li>rollback rehearsal</li>
+    <li>limitationsをrelease note/report/UIで一致させる</li>
+  </ul>
+  <h2 id="15-主な変更file-map">15. 主な変更file map</h2>
+  <p>
+    新規または主に変更するfileの想定は次のとおりである。実装時に責務が既存fileと
+    異なる場合は、無理にこのpathへ合わせずslice内で計画書を更新する。
+  </p>
+  <pre><code class="language-text">api/plugins/builtin/python/language.ts
+api/plugins/builtin/python/requirements.ts
+api/plugins/builtin/python/frameworks.ts
+api/plugins/builtin/go/language.ts
+api/plugins/builtin/go/modules.ts
+api/plugins/builtin/go/frameworks.ts
+api/plugins/builtin/index.ts
+
+api/modules/project-capabilities/plugin-contract.ts
+api/modules/project-capabilities/plugin-registry.ts
+
+api/modules/static-intelligence/project-structure/analyzers/python.ts
+api/modules/static-intelligence/project-structure/analyzers/go.ts
+api/modules/static-intelligence/project-structure/analyzers/registry.ts
+api/modules/static-intelligence/project-structure/resolution/resolver.ts
+api/modules/static-intelligence/project-structure/modules/infer-modules.ts
+
+api/modules/threat-models/endpoint-extractors/plugin-registry.ts
+api/modules/threat-models/endpoint-extractors/index.ts
+api/modules/threat-models/endpoint-extractors/python.ts
+api/modules/threat-models/endpoint-extractors/go.ts
+
+tests/security-capability/python/**
+tests/security-capability/go/**
+tests/security-capability/osv/PyPI/**
+tests/security-capability/osv/Go/**
+tests/security-capability/semgrep/python/**
+tests/security-capability/semgrep/go/**
+
+scripts/benchmark/endpoint-discovery.ts
+scripts/verify-phase-53-capability.ts
+spec/evidence/phase-53-python-go-baseline.json
+</code></pre>
+  <p>package scriptsへ次を追加する。</p>
+  <pre><code class="language-json">{
+  "verify:phase-53-capability": "bun run scripts/verify-phase-53-capability.ts"
+}
+</code></pre>
+  <p>
+    実際のscriptは内部で必要gateを順に呼び、各subcommand、digest、result、limitationを
+    <code>.artifacts/benchmark/phase-53-capability.json</code>へまとめる。単に既存testの終了codeを
+    集約するだけにしない。
+  </p>
+  <h2 id="16-fixture-matrix">16. Fixture matrix</h2>
+  <h3 id="161-python">16.1 Python</h3>
+  <table>
+    <caption>
+      16.1 Python
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Fixture</th>
+        <th scope="col">必須検証</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>minimal module</td>
+        <td>imports、function/class、module boundary</td>
+      </tr>
+      <tr>
+        <td>src layout</td>
+        <td>root/src package resolution</td>
+      </tr>
+      <tr>
+        <td>namespace/ambiguous</td>
+        <td>diagnosticとconfidence</td>
+      </tr>
+      <tr>
+        <td>pinned requirements</td>
+        <td>PyPI OSV vulnerable/fixed</td>
+      </tr>
+      <tr>
+        <td>unpinned/mixed requirements</td>
+        <td>partial coverage</td>
+      </tr>
+      <tr>
+        <td>recursive requirements</td>
+        <td>unsupported include limitation</td>
+      </tr>
+      <tr>
+        <td>FastAPI</td>
+        <td>detection、endpoint、start plan</td>
+      </tr>
+      <tr>
+        <td>Flask/Blueprint</td>
+        <td>detection、prefix、start plan</td>
+      </tr>
+      <tr>
+        <td>Django</td>
+        <td>urlpatterns、known limitation、start plan</td>
+      </tr>
+      <tr>
+        <td>non-web Python</td>
+        <td>framework false positiveなし</td>
+      </tr>
+    </tbody>
+  </table>
+  <h3 id="162-go">16.2 Go</h3>
+  <table>
+    <caption>
+      16.2 Go
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Fixture</th>
+        <th scope="col">必須検証</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>single module</td>
+        <td>package/import/function/main</td>
+      </tr>
+      <tr>
+        <td>nested module</td>
+        <td>boundaryとambiguous防止</td>
+      </tr>
+      <tr>
+        <td>go.mod vulnerable/fixed</td>
+        <td>Go OSV result</td>
+      </tr>
+      <tr>
+        <td>replace/local path</td>
+        <td>limitation、no root escape</td>
+      </tr>
+      <tr>
+        <td>go.sum-only diff</td>
+        <td>evidence change、not lock change</td>
+      </tr>
+      <tr>
+        <td>net/http</td>
+        <td>exact detectionとendpoint</td>
+      </tr>
+      <tr>
+        <td>Gin group</td>
+        <td>prefixとmethod</td>
+      </tr>
+      <tr>
+        <td>Echo group</td>
+        <td>prefixとmethod</td>
+      </tr>
+      <tr>
+        <td>unrelated router</td>
+        <td>false positiveなし</td>
+      </tr>
+      <tr>
+        <td>build tags/generated</td>
+        <td>classificationとlimitation</td>
+      </tr>
+    </tbody>
+  </table>
+  <h3 id="163-polyglot">16.3 Polyglot</h3>
+  <p>少なくとも次を用意する。</p>
+  <ul>
+    <li>TypeScript + Python</li>
+    <li>Java + Go</li>
+    <li>Python + Go</li>
+    <li>TypeScript + Java + Python + Go</li>
+    <li>nested Python package + nested Go module</li>
+  </ul>
+  <p>
+    各fixtureでplugin detection、rule selection、dependency input、module boundary、 endpoint
+    aggregation、report orderingが決定論的であることを確認する。
+  </p>
+  <h2 id="17-acceptance-criteria">17. Acceptance criteria</h2>
+  <p>Phase 53 implementation completeの条件:</p>
+  <ol>
+    <li>
+      <code>language.python</code>と<code>language.go</code>がdeterministic registryへ登録される。
+    </li>
+    <li>Python/Go SASTがactive plugin rulesetを使い、positive/fixed/negative fixtureを通る。</li>
+    <li>pinned requirementsとgo.modのoffline OSV vulnerable/fixedを実databaseで区別する。</li>
+    <li>SCA coverageを<code>partial</code>として正しく保存・表示する。</li>
+    <li>Python/Go sourceがresource扱いではなくanalyzed sourceとして計上される。</li>
+    <li>import/reference/module graphがgolden fixtureと一致し、曖昧さをdiagnostic化する。</li>
+    <li>
+      FastAPI、Flask、Django、<code>net/http</code>、Gin、Echoがframework
+      plugin経由でのみ endpoint contributionを提供する。
+    </li>
+    <li>Python/Go endpoint precision、recallが各0.90以上である。</li>
+    <li>Python DAST planは確実なentrypointでのみ生成し、sandboxなしでは実行しない。</li>
+    <li>Go DAST auto-startをunsupportedとして正直に表示する。</li>
+    <li>diff applicabilityがrequirements、go.mod、go.sumの意味を区別する。</li>
+    <li>partial、gap、unsupported、failureをclean successへ変換しない。</li>
+    <li>TypeScript/npm、Java/Maven/Gradle/Springの全gateがregressionなく成功する。</li>
+    <li>no network、no dependency install、no target mutationをtestで証明する。</li>
+    <li>clean checkoutの同一commitでPhase 52/53 verificationが成功する。</li>
+    <li>
+      toolbox image、OSV database、registry、ruleset、catalogのdigestをrelease evidenceへ保存する。
+    </li>
+  </ol>
+  <p>推奨release command:</p>
+  <pre><code class="language-bash">bun run verify:phase-52-capability
+bun run verify:phase-53-capability
+bun run scripts/benchmark/endpoint-discovery.ts
+git diff --check
+</code></pre>
+  <p>
+    external scanner databaseまたはsandboxがない環境では、該当gateをskip成功にせず
+    <code>gap</code>としてartifactへ残す。
+  </p>
+  <h2 id="18-rollback">18. Rollback</h2>
+  <p>
+    問題が発生した場合はPhase 52のplugin rollout controlを使い、Python/Go pluginを
+    registryから無効化できるようにする。
+  </p>
+  <ul>
+    <li>schema downgradeを必要としない。</li>
+    <li>persisted evidenceはunknown plugin IDとして破棄せず表示可能にする。</li>
+    <li>Python/Go plugin無効化時もTypeScript/Java scanは継続できる。</li>
+    <li>legacy fallback削除前はshadow/legacyへ戻せる。</li>
+    <li>legacy fallback削除後のrollbackは該当commitのrevertで行い、隠し分岐を残さない。</li>
+  </ul>
+  <p>
+    rollback時にも既存のPython/Go resultを0 findingへ書き換えない。plugin unavailableの
+    limitationを付与する。
+  </p>
+  <h2 id="19-完了時のsupport-claim">19. 完了時のsupport claim</h2>
+  <p>release gate通過後に許可するclaimは次に限定する。</p>
+  <ul>
+    <li>Python sourceに対するcurated SASTをverified fixture付きで実行できる。</li>
+    <li>
+      pinned <code>requirements*.txt</code>のdeclared
+      dependencyをofflineで部分検査できる。
+    </li>
+    <li>Pythonの最小project structureとFastAPI/Flask/Django endpointを部分抽出できる。</li>
+    <li>Python DASTはvalidated planとsandboxの両方を満たす場合だけ実行できる。</li>
+    <li>Go sourceに対するcurated SASTをverified fixture付きで実行できる。</li>
+    <li>
+      <code>go.mod</code>のdeclared dependencyをofflineで部分検査できる。
+    </li>
+    <li>
+      Goの最小project structureと<code>net/http</code>/Gin/Echo
+      endpointを部分抽出できる。
+    </li>
+    <li>Go applicationの汎用DAST auto-startには対応していない。</li>
+  </ul>
+  <p>次の表現は禁止する。</p>
+  <ul>
+    <li>「Python/Go完全対応」</li>
+    <li>「全Python dependencyを検査」</li>
+    <li>「go.sumにより完全lock済み」</li>
+    <li>「全framework routeを検出」</li>
+    <li>「Go DAST対応」</li>
+    <li>database、sandbox、digest gateなしの「verified」</li>
+  </ul>
+  <p>
+    Phase 53の目的は対応言語数を増やして見せることではない。追加pluginが既存coreへ
+    言語固有分岐を持ち込まず、実行可能範囲と未検証範囲を利用者へ正確に示すことを 完了条件とする。
+  </p>
+  <h2 id="20-実装結果">20. 実装結果</h2>
+  <p>
+    2026-07-31にSlice 53.0から53.6のproduction path、fixture、report/UI表示、 verification
+    artifact生成を実装した。Python/Go pluginはdeterministic registryへ
+    登録され、ruleset選択、dependency scope、diff applicability、project structure、 framework
+    endpoint、Python start planがplugin contributionから導出される。
+  </p>
+  <p>
+    <code>bun run verify:phase-53-capability</code>はlocal gateに成功し、結果を
+    <code>.artifacts/benchmark/phase-53-capability.json</code>へ保存する。endpoint benchmarkは
+    precision/recallともに1.00、Semgrep fixtureは45 rules、offline OSV contractは 9
+    ecosystemでnetwork request 0を確認した。
+  </p>
+  <p>
+    ただしlocal環境には実offline vulnerability databaseと固定toolbox image digestが なく、target
+    project code execution sandboxも未整備である。このためSCA実database gate、Python DAST実行、Slice
+    53.7のsame-commit clean checkoutは未達のままgapとして artifactへ保存する。Go DAST
+    auto-startは計画どおりunsupportedであり、plannerを 登録していない。
+  </p>
+</article>
+  </body>
+</html>

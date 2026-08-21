@@ -1,0 +1,1498 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex,follow">
+    <title>Phase 46: Security Release Readiness and Operational Hardening Plan | vulnWorkbench</title>
+    <link rel="stylesheet" href="/vlunWorkbench/assets/css/spec-document.css">
+    <link rel="stylesheet" href="/vlunWorkbench/assets/css/plan-document.css">
+  </head>
+  <body>
+    <nav class="plan-document-links" aria-label="文書ナビゲーション">
+      <a href="/vlunWorkbench/plans/archive/?doc=phase-46-security-release-readiness-plan" target="_top">実装計画アーカイブへ</a>
+      <a href="/vlunWorkbench/" target="_top">vulnWorkbenchのLPへ戻る</a>
+    </nav>
+    <article lang="ja">
+  <h1 id="phase-46-security-release-readiness-and-operational-hardening-plan">
+    Phase 46: Security Release Readiness and Operational Hardening Plan
+  </h1>
+  <h2 id="implementation-status">Implementation Status</h2>
+  <blockquote>
+    <p>
+      Update: the global Web/API project allowed-root restriction introduced in this phase was later
+      removed. Current registration accepts any existing, readable directory and stores its
+      canonical path.
+    </p>
+  </blockquote>
+  <p>
+    2026-07-24時点でlocal release rehearsalは完了し、判定は
+    <strong>CONDITIONAL GO</strong>。残るblockerは、現在のPhase 46 working treeをcommitし、
+    そのclean commitでpinned GitHub Actionsを成功させてfinal commit SHAを release
+    evidenceへ記録すること。
+  </p>
+  <p>検証結果は<code>spec/evidence/phase-46-release-readiness.md</code>を参照する。</p>
+  <h2 id="1-purpose">1. Purpose</h2>
+  <p>
+    この計画は、2026-07-23
+    のリポジトリ評価で確認したリリースブロッカーと改善事項をすべて解消し、vulnWorkbench
+    を「ローカル単一ユーザー前提の高機能プロトタイプ」から、明示した信頼境界の中で安全にリリース判断できる状態へ移行するためのもの。
+  </p>
+  <p>Phase 46 の主眼は新機能追加ではなく、次の境界を閉じることである。</p>
+  <ul>
+    <li>認証済みユーザーがホスト上の任意パスを project として登録・走査できない。</li>
+    <li>一般ユーザーがグローバル LLM 設定、外向き通信先、host credential を操作できない。</li>
+    <li>既知の High / Moderate dependency advisory を release gate が見逃さない。</li>
+    <li>
+      local hook に依存せず、すべての test file と security check が CI で再現可能に実行される。
+    </li>
+    <li>
+      CSP、proxy trust、API validation、secret persistence、artifact tracking が production policy
+      と一致する。
+    </li>
+    <li>
+      Docker image、frontend bundle、巨大 module、backup / restore、observability、governance
+      の弱点を段階的に閉じる。
+    </li>
+  </ul>
+  <p>
+    この計画は、既存の scanner-backed evidence、LLM handoff、Static Intelligence、SQLite
+    single-writer の責務境界を維持する。scanner や LLM の新機能は追加しない。
+  </p>
+  <h2 id="2-release-decision">2. Release Decision</h2>
+  <p>Phase 46 完了までは、次の release status とする。</p>
+  <pre><code class="language-text">local single-user development: allowed with documented limitations
+shared workstation deployment: blocked
+network-accessible multi-user deployment: blocked
+production release: blocked
+</code></pre>
+  <p>release block を解除できるのは、少なくとも次の Gate がすべて合格した場合だけである。</p>
+  <ol>
+    <li>Host Path Authorization Gate</li>
+    <li>LLM Administration and Outbound Network Gate</li>
+    <li>Dependency and Browser Security Gate</li>
+    <li>Complete Verification and CI Gate</li>
+    <li>Repository and Supply-chain Hygiene Gate</li>
+    <li>Operational Recovery Gate</li>
+  </ol>
+  <p>
+    性能改善や大規模 module 分割は P0 security gate の後に行う。ただし、Phase 46
+    全体の完了条件には含める。
+  </p>
+  <h2 id="3-current-baseline">3. Current Baseline</h2>
+  <p>評価時点の repository baseline:</p>
+  <pre><code class="language-text">commit: f681bb6 feat: harden scanning and persistence workflows
+TypeScript: 約 110,000 行
+source files: 330
+test files: 151
+test cases detected by source search: 839
+files over 500 lines: 46
+files over 1,000 lines: 10
+tracked artifact files: 739
+maintainers represented in git history: 1
+</code></pre>
+  <p>実行 baseline:</p>
+  <pre><code class="language-text">sqlite-write-boundary: pass
+typecheck: pass
+lint: pass
+format: fail (4 files)
+default test command: 389 tests pass
+production web build: pass with large-chunk warnings
+coverage command: pass, but only 764 lines are included
+bootstrap readiness: pass
+bun audit: 15 vulnerabilities
+  high: 5
+  moderate: 7
+  low: 3
+gitleaks history scan: 1 fixture-like finding
+</code></pre>
+  <p>
+    <code>bun test api</code> の一括実行は 340 tests が通った後、module mock と
+    DB facade mock が file 間で衝突し、連鎖的な failure を起こす。これは product failure
+    として数えないが、test isolation と test inventory の欠陥として扱う。
+  </p>
+  <p>実装前に baseline artifact を保存する。</p>
+  <pre><code class="language-bash">git status --short
+git rev-parse HEAD
+bun run typecheck
+bun run lint
+bun run format:check
+bun run test
+bun run test:coverage
+bun run build
+bun audit
+git ls-files artifacts | wc -l
+rg --files api web shared -g '*.test.ts' -g '*.test.tsx' | sort
+</code></pre>
+  <p>
+    baseline は <code>spec/evidence/phase-46-baseline.json</code> に machine-readable
+    に保存する。secret、absolute home path、API key、cookie、token は保存しない。
+  </p>
+  <h2 id="4-scope">4. Scope</h2>
+  <h3 id="41-in-scope">4.1 In Scope</h3>
+  <ul>
+    <li>Web project path allowed-root policy</li>
+    <li>Existing project path revalidation</li>
+    <li>macOS folder picker authorization</li>
+    <li>Global LLM settings RBAC</li>
+    <li>Wiki / shared source mutation RBAC</li>
+    <li>LLM outbound URL / DNS / redirect policy</li>
+    <li>Environment credential binding</li>
+    <li>Stored LLM API key encryption and migration</li>
+    <li>Dependency advisory remediation and release gate</li>
+    <li>CSP rollout</li>
+    <li>Trusted proxy and rate-limit key hardening</li>
+    <li>Complete test inventory and process isolation</li>
+    <li>Backend coverage baseline and ratcheting</li>
+    <li>CI workflows</li>
+    <li>Request validation and authorization matrix</li>
+    <li>Generated artifact tracking cleanup</li>
+    <li>Secret scan policy</li>
+    <li>Docker dependency pinning, checksum verification, SBOM, vulnerability scan</li>
+    <li>Frontend code splitting and bundle budget</li>
+    <li>Browser E2E and accessibility checks</li>
+    <li>Large module responsibility extraction</li>
+    <li>Structured logging, readiness, backup / restore, release runbook</li>
+    <li>SECURITY / CONTRIBUTING / CHANGELOG and supported-platform documentation</li>
+  </ul>
+  <h3 id="42-non-goals">4.2 Non-goals</h3>
+  <ul>
+    <li>New scanner integration</li>
+    <li>Public internet DAST expansion</li>
+    <li>SaaS billing, organization, team, or invitation model</li>
+    <li>Redis or distributed rate-limit backend</li>
+    <li>Patch auto-apply</li>
+    <li>LLM-driven free source exploration</li>
+    <li>SQLite replacement</li>
+    <li>UI redesign unrelated to accessibility or bundle reduction</li>
+    <li>Git history rewrite when no real credential is confirmed</li>
+    <li>All source filesへの一律 coverage 80% 強制</li>
+    <li>Windows Writer transport の全面実装</li>
+  </ul>
+  <h2 id="5-fixed-security-decisions">5. Fixed Security Decisions</h2>
+  <h3 id="51-project-path-handling-updated">5.1 Project Path Handling (Updated)</h3>
+  <ul>
+    <li>Browser/API は存在して読み取り可能な任意の directory を登録・走査できる。</li>
+    <li>登録時に <code>realpath</code> で canonical path を保存する。</li>
+    <li>scan 開始時にも path の存在、directory、read/execute access を再検証する。</li>
+    <li>global allowed-root 設定は使用しない。</li>
+    <li>direct CLI と Web-launched CLI は同じ path availability check を行う。</li>
+    <li>
+      existing project の path が利用不能な場合、record は削除せず scan を block して理由を返す。
+    </li>
+    <li>folder picker は admin only とする。</li>
+  </ul>
+  <h3 id="52-global-administration-model">5.2 Global Administration Model</h3>
+  <ul>
+    <li>
+      <code>admin</code> だけが LLM endpoint、task route、provider
+      health、Codex status の設定 surface を利用できる。
+    </li>
+    <li>
+      <code>admin</code> だけが shared wiki/source の
+      create/update/delete/reindex/blob push を実行できる。
+    </li>
+    <li>member は masked LLM 設定を含め管理 surface を読めない。</li>
+    <li>
+      member は設定済み route を通した finding review / scan review / report summary を利用できる。
+    </li>
+    <li>source/wiki の read/search は authenticated member に残す。</li>
+  </ul>
+  <h3 id="53-outbound-provider-policy">5.3 Outbound Provider Policy</h3>
+  <ul>
+    <li>
+      <code>openai</code> は既定で
+      <code>https://api.openai.com</code> だけを許可する。
+    </li>
+    <li>
+      <code>azure</code> は environment 由来 endpoint または operator
+      allowlist に一致する HTTPS host だけを許可する。
+    </li>
+    <li>
+      <code>openai-compatible</code> は
+      <code>LLM_PROVIDER_ALLOWED_HOSTS</code> に明示した HTTPS host だけを許可する。
+    </li>
+    <li><code>local</code> は loopback HTTP/HTTPS だけを許可する。</li>
+    <li>
+      URL userinfo、fragment、non-HTTP scheme、wildcard host、IPv4-mapped IPv6 bypass を拒否する。
+    </li>
+    <li>
+      public host は DNS 解決後に private、loopback、link-local、multicast、reserved、cloud metadata
+      range を拒否する。
+    </li>
+    <li>redirect は自動追跡せず、必要な場合は location を同じ policy で再検証する。</li>
+    <li>validation は保存時と request 直前の両方で行う。</li>
+  </ul>
+  <h3 id="54-environment-credential-binding">5.4 Environment Credential Binding</h3>
+  <ul>
+    <li>environment API key は environment から生成された provider identity にだけ使う。</li>
+    <li>stored endpoint が environment endpoint の ID を名乗るだけでは key fallback しない。</li>
+    <li>
+      key fallback には provider kind、canonical URL、environment endpoint identity
+      の一致を必要とする。
+    </li>
+    <li>health check と LLM request は同じ credential resolution policy を使う。</li>
+    <li>browser response、log、health history に key または authorization header を保存しない。</li>
+  </ul>
+  <h3 id="55-secret-at-rest">5.5 Secret at Rest</h3>
+  <ul>
+    <li>UI から保存した LLM API key は平文 SQLite column に新規保存しない。</li>
+    <li>AES-256-GCM、random nonce、endpoint ID/kind を AAD として暗号化する。</li>
+    <li>
+      production は <code>LLM_SETTINGS_ENCRYPTION_KEY</code> 未設定時に stored-secret provider
+      を利用できない。
+    </li>
+    <li>encryption key は 32-byte base64 とし、repository、DB、artifact に保存しない。</li>
+    <li>migration は dual-read / encrypted-write から開始し、検証後に plaintext を消去する。</li>
+  </ul>
+  <h3 id="56-proxy-and-browser-policy">5.6 Proxy and Browser Policy</h3>
+  <ul>
+    <li>
+      <code>TRUST_PROXY</code> の既定値は
+      <code>false</code>。
+    </li>
+    <li>
+      proxy header を使う場合は <code>TRUSTED_PROXY_CIDRS</code> に direct peer
+      が一致する必要がある。
+    </li>
+    <li>
+      production で <code>TRUST_PROXY=true</code> かつ trusted CIDR
+      が空なら起動を拒否する。
+    </li>
+    <li>CSP は report-only 観測後に enforcement へ移行する。</li>
+    <li>production で CSP 無効状態を許可しない。</li>
+  </ul>
+  <h2 id="6-target-architecture">6. Target Architecture</h2>
+  <p>新しい主要 component:</p>
+  <pre><code class="language-text">api/security/project-path-policy.ts
+  -&gt; canonicalize allowed roots
+  -&gt; authorize registration and execution surfaces
+  -&gt; explain blocked existing projects
+
+api/security/outbound-url-policy.ts
+  -&gt; parse and canonicalize provider URL
+  -&gt; DNS/IP classification
+  -&gt; redirect revalidation
+
+api/security/secret-crypto.ts
+  -&gt; encrypt/decrypt stored provider secrets
+  -&gt; key identity and rotation support
+
+api/security/authorization-policy.ts
+  -&gt; global administration policy
+  -&gt; route-level role helpers
+
+scripts/test-inventory.ts
+  -&gt; all test files belong to exactly one isolated shard
+
+scripts/verify.ts
+  -&gt; deterministic ordered local gate
+
+.github/workflows/verify.yml
+  -&gt; clean-checkout release-equivalent gate
+</code></pre>
+  <p>
+    既存の <code>api/modules/static-intelligence/path-boundary.ts</code> と DAST target validator の path/IP
+    classification は参考にするが、異なる trust domain を無理に一つの巨大 helper に統合しない。
+  </p>
+  <h2 id="7-implementation-slices">7. Implementation Slices</h2>
+  <h3 id="slice-0-freeze-baseline-and-repair-existing-verification">
+    Slice 0: Freeze Baseline and Repair Existing Verification
+  </h3>
+  <p>Priority: P0 Dependencies: none</p>
+  <p>Changes:</p>
+  <ol>
+    <li>4件の既存 format 差分を機械的に整形する。</li>
+    <li><code>spec/evidence/phase-46-baseline.json</code> を追加する。</li>
+    <li>verify の各 step が失敗時に step 名と command を保持する現仕様を維持する。</li>
+    <li>
+      baseline 取得時の <code>bun audit</code> と test inventory count
+      を記録する。
+    </li>
+    <li>Phase 46 の実装中は unrelated feature を同じ PR に入れない。</li>
+  </ol>
+  <p>Acceptance:</p>
+  <ul>
+    <li><code>bun run format:check</code> が clean checkout で成功する。</li>
+    <li><code>bun run verify</code> が format より後の step まで到達する。</li>
+    <li>baseline JSON は secret と absolute user path を含まない。</li>
+  </ul>
+  <p>Verification:</p>
+  <pre><code class="language-bash">bun run format:check
+bun run verify
+git diff --check
+</code></pre>
+  <p>Expected:</p>
+  <ul>
+    <li>format failure が解消する。</li>
+    <li>既存 product behavior の差分がない。</li>
+  </ul>
+  <p>Failure handling:</p>
+  <ul>
+    <li>formatter 以外の差分が混入した場合は Slice 0 から除外する。</li>
+    <li>
+      verify が別の既存 failure を返した場合は baseline defect として分類し、後続 slice
+      の成功に見せない。
+    </li>
+  </ul>
+  <p>Rollback:</p>
+  <ul>
+    <li>formatter-only diff と baseline artifact を戻せば元の状態へ戻る。</li>
+  </ul>
+  <h3 id="slice-1-host-project-path-authorization-historical-superseded">
+    Slice 1: Host Project Path Authorization (Historical; Superseded)
+  </h3>
+  <p>
+    This slice records the original implementation. The current behavior is defined in section 5.1
+    above.
+  </p>
+  <p>Priority: P0 release blocker Dependencies: Slice 0</p>
+  <p>Primary files:</p>
+  <ul>
+    <li><code>api/app/env.ts</code></li>
+    <li><code>api/config/appDefaults.ts</code></li>
+    <li><code>api/routes/projects.route.ts</code></li>
+    <li><code>api/modules/scans/profile-runner.ts</code></li>
+    <li><code>api/modules/scans/project-resolver.ts</code></li>
+    <li><code>shared/schemas/scan.schema.ts</code></li>
+    <li><code>.env.example</code></li>
+    <li><code>README.md</code></li>
+    <li><code>README.jp.md</code></li>
+  </ul>
+  <p>New files:</p>
+  <ul>
+    <li><code>api/security/project-path-policy.ts</code></li>
+    <li><code>api/security/project-path-policy.test.ts</code></li>
+    <li><code>scripts/audit-project-paths.ts</code></li>
+  </ul>
+  <p>Changes:</p>
+  <ol>
+    <li>
+      （後続変更で撤回）global project allowed-root 設定を parse、canonicalize、deduplicate する。
+    </li>
+    <li>root 自体が存在する directory であることを bootstrap/readiness で確認する。</li>
+    <li>
+      project registration で candidate の existence、directory、realpath、allowed-root containment
+      を確認する。
+    </li>
+    <li>
+      Web scan 起動前と <code>profile-runner</code> の execution surface claim
+      後に path を再検証する。
+    </li>
+    <li>symlink swap や root 外移動を scan 時の realpath 再検証で拒否する。</li>
+    <li><code>/api/projects/folder-picker</code> に admin middleware を適用する。</li>
+    <li>picker 結果が root 外なら path を返さず policy error にする。</li>
+    <li>
+      read-only audit CLI で existing project を <code>allowed</code> /
+      <code>blocked</code> /
+      <code>missing</code> に分類する。
+    </li>
+    <li>blocked project の record、scan history、artifact は削除しない。</li>
+    <li>UI は blocked reason を表示し、scan button を無効化する。</li>
+  </ol>
+  <p>Required tests:</p>
+  <ul>
+    <li>root と同じ path</li>
+    <li>root の正常な child</li>
+    <li>
+      sibling prefix confusion (<code>/repo-safe</code> vs
+      <code>/repo-safe-evil</code>)
+    </li>
+    <li><code>..</code> traversal</li>
+    <li>symlink escape</li>
+    <li>missing path</li>
+    <li>file path</li>
+    <li>multiple allowed roots</li>
+    <li>production empty roots</li>
+    <li>development default root</li>
+    <li>existing project が登録後に root 外 symlink へ変化</li>
+    <li>member folder picker rejection</li>
+    <li>admin picker success</li>
+    <li>Web-launched CLI revalidation</li>
+    <li>direct local CLI compatibility</li>
+  </ul>
+  <p>Acceptance:</p>
+  <ul>
+    <li>member が allowed roots 外の path を登録できない。</li>
+    <li>Web scan は登録済み record だけを信用せず毎回 path policy を通る。</li>
+    <li>production empty-root configuration は fail closed。</li>
+    <li>direct CLI の明示的な local operator workflow は維持される。</li>
+  </ul>
+  <p>Verification:</p>
+  <pre><code class="language-bash">bun test api/security/project-path-policy.test.ts
+bun test api/routes/projects.route.test.ts
+bun test api/modules/scans/profile-runner.test.ts
+bun run bootstrap:check -- --skip-port
+bun run typecheck
+</code></pre>
+  <p>Failure handling:</p>
+  <ul>
+    <li>
+      legitimate project が block された場合、policy を無効化して通さず、allowed root
+      設定を修正する。
+    </li>
+    <li>
+      canonicalization が platform 差で不安定な場合、Windows support を推測せず supported-platform
+      check を追加する。
+    </li>
+  </ul>
+  <p>Migration:</p>
+  <ol>
+    <li><code>scripts/audit-project-paths.ts</code> を enforcement 前に実行する。</li>
+    <li>legitimate existing project を含む最小 root を operator が設定する。</li>
+    <li>
+      audit が <code>blocked=0</code> になってから production enforcement
+      を有効化する。
+    </li>
+  </ol>
+  <p>Rollback:</p>
+  <ul>
+    <li>application version を戻し、旧 env を復元できる。</li>
+    <li>DB record の migration は行わないため data rollback は不要。</li>
+  </ul>
+  <h3 id="slice-2a-global-settings-and-shared-mutation-rbac">
+    Slice 2A: Global Settings and Shared Mutation RBAC
+  </h3>
+  <p>Priority: P0 release blocker Dependencies: Slice 0</p>
+  <p>Primary files:</p>
+  <ul>
+    <li><code>api/app/hono.ts</code></li>
+    <li><code>api/routes/settings.route.ts</code></li>
+    <li><code>api/routes/sources.route.ts</code></li>
+    <li><code>api/middleware/auth.ts</code></li>
+    <li><code>web/src/App.tsx</code></li>
+    <li><code>web/src/app-header.tsx</code></li>
+    <li><code>web/src/settings-panel.tsx</code></li>
+  </ul>
+  <p>Changes:</p>
+  <ol>
+    <li>LLM settings/status/health routes を admin-only group に分離する。</li>
+    <li>user-scoped system context routes は authenticated user のまま維持する。</li>
+    <li>shared source read routes と mutation routes を分離する。</li>
+    <li>source create/update/delete/folder mutation/reindex/blob publish を admin only にする。</li>
+    <li>member UI から LLM administration control と shared source mutation control を隠す。</li>
+    <li>UI 非表示だけに依存せず API middleware で拒否する。</li>
+    <li>authorization matrix test を追加する。</li>
+  </ol>
+  <p>Acceptance:</p>
+  <ul>
+    <li>member は global LLM document を read/update/health-check できない。</li>
+    <li>member は shared source を変更できない。</li>
+    <li>member は configured LLM route を使用する scan review 等を実行できる。</li>
+    <li>admin は従来の管理 workflow を維持できる。</li>
+  </ul>
+  <p>Verification:</p>
+  <pre><code class="language-bash">bun test api/routes/settings.route.test.ts
+bun test api/routes/sources.route.test.ts
+bun test api/middleware/auth.test.ts
+bun run typecheck
+</code></pre>
+  <p>Failure handling:</p>
+  <ul>
+    <li>
+      member workflow が global setting API response に依存していた場合、必要な非機密 capability
+      だけを専用 read model で返す。
+    </li>
+    <li>masked secret document 全体を member に戻す対応はしない。</li>
+  </ul>
+  <p>Rollback:</p>
+  <ul>
+    <li>route middleware と UI visibility change を同時に戻す。</li>
+    <li>data migration はない。</li>
+  </ul>
+  <h3 id="slice-2b-llm-outbound-network-and-credential-binding">
+    Slice 2B: LLM Outbound Network and Credential Binding
+  </h3>
+  <p>Priority: P0 release blocker Dependencies: Slice 2A</p>
+  <p>Primary files:</p>
+  <ul>
+    <li><code>api/modules/llm-settings/llm-settings.schema.ts</code></li>
+    <li><code>api/modules/llm-settings/provider-health.ts</code></li>
+    <li><code>api/providers/llmProviderFactory.ts</code></li>
+    <li><code>api/providers/openAiCompatibleProvider.ts</code></li>
+    <li><code>api/providers/AzureOpenAiProvider.ts</code></li>
+    <li><code>api/app/env.ts</code></li>
+  </ul>
+  <p>New files:</p>
+  <ul>
+    <li><code>api/security/outbound-url-policy.ts</code></li>
+    <li><code>api/security/outbound-url-policy.test.ts</code></li>
+    <li><code>api/providers/provider-credential-resolver.ts</code></li>
+    <li><code>api/providers/provider-credential-resolver.test.ts</code></li>
+  </ul>
+  <p>Changes:</p>
+  <ol>
+    <li>
+      endpoint URL を <code>z.string().url()</code> だけで済ませず、provider kind
+      policy で検証する。
+    </li>
+    <li>
+      DNS lookup を injectable dependency とし、保存時と request 時に address range を確認する。
+    </li>
+    <li>IPv4、IPv6、IPv4-mapped IPv6、decimal/octal/hex alias、localhost alias を test する。</li>
+    <li>fetch redirect を manual にし、Location を再検証する。</li>
+    <li>health check と completion request で共通 policy を使用する。</li>
+    <li>
+      environment key fallback を environment provider identity と canonical URL に bind する。
+    </li>
+    <li>arbitrary stored endpoint に OpenAI/Azure environment key を補完しない。</li>
+    <li>provider error に response body 全文や secret-bearing header を含めない。</li>
+    <li>URL policy failure を stable failure kind として API/UI に返す。</li>
+  </ol>
+  <p>Acceptance:</p>
+  <ul>
+    <li>member/admin が DB を操作できた場合でも environment key を任意 host へ送れない。</li>
+    <li>private network SSRF、metadata service、DNS rebinding、redirect escape が拒否される。</li>
+    <li>explicitly configured local loopback provider は development で動作する。</li>
+    <li>production policy は HTTP public endpoint を拒否する。</li>
+  </ul>
+  <p>Verification:</p>
+  <pre><code class="language-bash">bun test api/security/outbound-url-policy.test.ts
+bun test api/providers/provider-credential-resolver.test.ts
+bun test api/modules/llm-settings/provider-health.test.ts
+bun test api/providers/llmRouter.test.ts
+bun run typecheck
+</code></pre>
+  <p>Failure handling:</p>
+  <ul>
+    <li>
+      enterprise endpoint が block された場合は UI からの bypass を追加せず、operator-controlled
+      allowlist に追加する。
+    </li>
+    <li>DNS validation が利用環境で解決不能なら request を送らず explicit failure とする。</li>
+  </ul>
+  <p>Rollback:</p>
+  <ul>
+    <li>
+      old version へ戻す前に、new policy 下で追加された endpoint が旧 version で environment key
+      fallback を受けないことを確認する。
+    </li>
+    <li>unsafe endpoint が残る場合は disable してから rollback する。</li>
+  </ul>
+  <h3 id="slice-2c-encrypt-stored-llm-secrets">Slice 2C: Encrypt Stored LLM Secrets</h3>
+  <p>Priority: P0/P1 Dependencies: Slice 2A, Slice 2B</p>
+  <p>Primary files:</p>
+  <ul>
+    <li><code>api/db/schema.ts</code></li>
+    <li><code>api/modules/llm-settings/llm-settings.repository.ts</code></li>
+    <li><code>api/modules/llm-settings/secret-mask.ts</code></li>
+    <li><code>api/app/env.ts</code></li>
+    <li><code>api/cli/llm-route-repair.ts</code></li>
+  </ul>
+  <p>New files:</p>
+  <ul>
+    <li><code>api/security/secret-crypto.ts</code></li>
+    <li><code>api/security/secret-crypto.test.ts</code></li>
+    <li><code>api/cli/migrate-llm-secrets.ts</code></li>
+    <li>next available <code>drizzle/*_llm_secret_encryption.sql</code></li>
+  </ul>
+  <p>Data model:</p>
+  <pre><code class="language-text">api_key                  legacy plaintext, read-only during migration
+api_key_ciphertext       base64 ciphertext
+api_key_nonce            base64 random nonce
+api_key_auth_tag         base64 GCM tag
+api_key_key_id           non-secret key identity
+</code></pre>
+  <p>Changes:</p>
+  <ol>
+    <li>encrypted columns を追加する。</li>
+    <li>repository は encrypted secret を優先して読む。</li>
+    <li>new/updated secret は encrypted columns にだけ保存する。</li>
+    <li>
+      migration CLI は transactionally plaintext を暗号化し、verify 後に plaintext を null にする。
+    </li>
+    <li>migration CLI は dry-run、count、failure JSON を提供する。</li>
+    <li>production は key missing、wrong key、partial ciphertext を fail closed にする。</li>
+    <li>decrypted secret を log、error、health history、test snapshot に含めない。</li>
+    <li>key rotation は previous key で read、current key で rewrite できるようにする。</li>
+  </ol>
+  <p>Acceptance:</p>
+  <ul>
+    <li>new API key が SQLite plaintext search で見つからない。</li>
+    <li>legacy row は explicit migration 後に plaintext が null。</li>
+    <li>wrong key で provider request を実行しない。</li>
+    <li>masked-secret update は既存 ciphertext を保持する。</li>
+  </ul>
+  <p>Verification:</p>
+  <pre><code class="language-bash">bun test api/security/secret-crypto.test.ts
+bun test api/modules/llm-settings/llm-settings.repository.test.ts
+bun run db:migrate
+bun run llm-secrets:migrate -- --dry-run
+sqlite3 data/vuln-workbench.sqlite "select count(*) from llm_provider_endpoints where api_key is not null and api_key &lt;&gt; '';"
+</code></pre>
+  <p>Expected:</p>
+  <ul>
+    <li>migration 後の plaintext count は <code>0</code>。</li>
+    <li>encrypted provider route が正常に resolve される。</li>
+  </ul>
+  <p>Failure handling:</p>
+  <ul>
+    <li>encryption verify が1件でも失敗した場合は plaintext cleanup を行わない。</li>
+    <li>partial migration を完了扱いにしない。</li>
+  </ul>
+  <p>Rollback:</p>
+  <ul>
+    <li>plaintext cleanup 前は old application へ rollback 可能。</li>
+    <li>cleanup 後は encrypted-key backup と DB backup が揃わない限り old version へ戻さない。</li>
+    <li>destructive plaintext cleanup 前に Writer-consistent DB backup を必須とする。</li>
+  </ul>
+  <h3 id="slice-3a-dependency-advisory-remediation">Slice 3A: Dependency Advisory Remediation</h3>
+  <p>Priority: P0 release blocker Dependencies: Slice 0</p>
+  <p>Primary files:</p>
+  <ul>
+    <li><code>package.json</code></li>
+    <li><code>bun.lock</code></li>
+    <li>dependency override policy documentation</li>
+  </ul>
+  <p>Changes:</p>
+  <ol>
+    <li>Hono を advisory patched version 以上へ更新する。</li>
+    <li>Undici override を patched version 以上へ更新する。</li>
+    <li>
+      Mermaid/DOMPurify、MCP SDK tree、brace-expansion、fast-uri の patched resolution を確認する。
+    </li>
+    <li>unused vulnerable dependency がある場合は upgrade より削除を優先する。</li>
+    <li>override ごとに理由、owner、review date を documentation に記録する。</li>
+    <li><code>bun audit</code> JSON output を release gate で解析する。</li>
+    <li>High/Critical は zero tolerance とする。</li>
+    <li>Moderate allowlist は advisory ID、applicability、expiry date を必要とする。</li>
+  </ol>
+  <p>Acceptance:</p>
+  <ul>
+    <li><code>bun audit</code> が High/Critical 0。</li>
+    <li>Moderate は0、または期限付き documented exception のみ。</li>
+    <li>application tests と build が通る。</li>
+  </ul>
+  <p>Verification:</p>
+  <pre><code class="language-bash">bun install --frozen-lockfile
+bun audit
+bun run verify
+</code></pre>
+  <p>Failure handling:</p>
+  <ul>
+    <li>breaking upgrade を unrelated refactor と混ぜない。</li>
+    <li>audit suppression だけで dependency を残さない。</li>
+  </ul>
+  <p>Rollback:</p>
+  <ul>
+    <li>
+      <code>package.json</code> と
+      <code>bun.lock</code> を一緒に戻す。
+    </li>
+    <li>vulnerable version へ戻る rollback は production release には使用しない。</li>
+  </ul>
+  <h3 id="slice-3b-trusted-proxy-rate-limit-and-csp">
+    Slice 3B: Trusted Proxy, Rate Limit, and CSP
+  </h3>
+  <p>Priority: P1 security Dependencies: Slice 3A</p>
+  <p>Primary files:</p>
+  <ul>
+    <li><code>api/config/appDefaults.ts</code></li>
+    <li><code>api/app/env.ts</code></li>
+    <li><code>api/middleware/rate-limiter.ts</code></li>
+    <li><code>api/app/hono.ts</code></li>
+    <li><code>web/index.html</code></li>
+  </ul>
+  <p>Changes:</p>
+  <ol>
+    <li><code>TRUST_PROXY=false</code> を default にする。</li>
+    <li>
+      <code>TRUSTED_PROXY_CIDRS</code> を追加し、direct peer が trusted の場合だけ
+      forwarded header を使う。
+    </li>
+    <li>login limiter を IP に加えて normalized email でも制限する。</li>
+    <li>rate-limit response に <code>Retry-After</code> を付与する。</li>
+    <li>memory store が single-process policy であることを明記する。</li>
+    <li>CSP report-only mode を追加し、必要 directive を収集する。</li>
+    <li>inline script を排除し、可能な限り nonce 不要の static policy にする。</li>
+    <li>production では CSP enforcement を default にする。</li>
+    <li>Mermaid、worker、blob/data image の必要最小 directive を test/build で確認する。</li>
+    <li>
+      <code>frame-ancestors 'none'</code>、<code>object-src 'none'</code>、<code>base-uri 'self'</code>
+      を含める。
+    </li>
+  </ol>
+  <p>Acceptance:</p>
+  <ul>
+    <li>
+      direct client が <code>X-Forwarded-For</code> を変えて login limit
+      を回避できない。
+    </li>
+    <li>trusted proxy configuration は explicit。</li>
+    <li>production response に enforcing CSP がある。</li>
+    <li>login、Mermaid report、knowledge view、download が CSP 下で動作する。</li>
+  </ul>
+  <p>Verification:</p>
+  <pre><code class="language-bash">bun test api/middleware/rate-limiter.test.ts
+bun test api/app/env.test.ts
+bun test api/app/hono.test.ts
+bun run build
+</code></pre>
+  <p>Failure handling:</p>
+  <ul>
+    <li>CSP violation が出た場合は wildcard を追加せず、resource loading path を特定する。</li>
+    <li>
+      emergency rollback は enforcement から report-only までとし、production CSP 全無効化はしない。
+    </li>
+  </ul>
+  <p>Rollback:</p>
+  <ul>
+    <li>CSP は enforce -&gt; report-only へ戻せる。</li>
+    <li>proxy policy は default false を維持し、trusted CIDR 設定だけを戻す。</li>
+  </ul>
+  <h3 id="slice-4a-complete-test-inventory-and-isolation">
+    Slice 4A: Complete Test Inventory and Isolation
+  </h3>
+  <p>Priority: P1 release gate Dependencies: Slice 0</p>
+  <p>Primary files:</p>
+  <ul>
+    <li><code>package.json</code></li>
+    <li><code>vitest.config.ts</code></li>
+    <li><code>scripts/verify.ts</code></li>
+  </ul>
+  <p>New files:</p>
+  <ul>
+    <li><code>scripts/test-inventory.ts</code></li>
+    <li><code>scripts/run-api-test-shards.ts</code></li>
+    <li><code>tests/test-shards.json</code></li>
+  </ul>
+  <p>Changes:</p>
+  <ol>
+    <li>
+      repository 内の全 <code>*.test.ts</code> /
+      <code>*.test.tsx</code> を inventory する。
+    </li>
+    <li>各 test file は exactly one shard に所属させる。</li>
+    <li>duplicate と omission を CI failure にする。</li>
+    <li>Bun module mock が process 間で共有されないよう shard を別 process で起動する。</li>
+    <li>Web/shared pure tests は Vitest、Bun/SQLite tests は Bun test に固定する。</li>
+    <li>
+      auth、middleware、routes、providers、DB Writer、Static Intelligence を既定
+      <code>bun run test</code> に含める。
+    </li>
+    <li>timeout の長い CLI fixture は dedicated shard にする。</li>
+    <li>test command の exit code と summary を集約する。</li>
+  </ol>
+  <p>Suggested scripts:</p>
+  <pre><code class="language-text">test:inventory
+test:web
+test:api:unit
+test:api:db
+test:api:routes
+test:api:cli
+test:api:static-intelligence
+test:e2e
+test
+</code></pre>
+  <p>Acceptance:</p>
+  <ul>
+    <li>151件以上の current test files が omission/duplicate なしで実行される。</li>
+    <li>
+      <code>bun test api</code> の mock contamination を release signal
+      に使わない。
+    </li>
+    <li>test file 追加時に shard 未登録なら CI が失敗する。</li>
+    <li>default <code>bun run test</code> が全 shard を実行する。</li>
+  </ul>
+  <p>Verification:</p>
+  <pre><code class="language-bash">bun run test:inventory
+bun run test
+bun run test:inventory -- --assert-complete
+</code></pre>
+  <p>Failure handling:</p>
+  <ul>
+    <li>flaky test を skip して green にせず、quarantine shard と issue/expiry を必要とする。</li>
+    <li>test runner を一括置換しない。</li>
+  </ul>
+  <p>Rollback:</p>
+  <ul>
+    <li>old test command へ戻す場合も inventory check は残す。</li>
+  </ul>
+  <h3 id="slice-4b-meaningful-coverage-and-ci">Slice 4B: Meaningful Coverage and CI</h3>
+  <p>Priority: P1 release gate Dependencies: Slice 4A</p>
+  <p>New files:</p>
+  <ul>
+    <li><code>.github/workflows/verify.yml</code></li>
+    <li><code>.github/dependabot.yml</code></li>
+    <li><code>scripts/check-audit-policy.ts</code></li>
+    <li><code>scripts/check-bundle-budget.ts</code></li>
+  </ul>
+  <p>Changes:</p>
+  <ol>
+    <li>clean checkout で Bun version を固定する。</li>
+    <li>frozen lockfile install を使う。</li>
+    <li>
+      typecheck、lint、format、test inventory、all test shards、build、audit、secret scan、DB
+      boundary を CI job にする。
+    </li>
+    <li>
+      backend coverage を測定し、auth、path policy、outbound policy、artifact/path validation から
+      threshold を導入する。
+    </li>
+    <li>coverage denominator と included files を summary に表示する。</li>
+    <li>global 80% を即時要求せず、baseline を下回れない ratchet にする。</li>
+    <li>
+      branch protection が利用可能な repository では
+      <code>verify</code> job を required check にする。
+    </li>
+    <li>Dependabot PR は CI を通らない限り merge しない。</li>
+  </ol>
+  <p>Acceptance:</p>
+  <ul>
+    <li>local hook を bypass しても remote CI が release gate を実行する。</li>
+    <li>coverage report が全体 coverage と限定 coverage を誤認させない。</li>
+    <li>current security-critical modules に branch coverage threshold がある。</li>
+  </ul>
+  <p>Verification:</p>
+  <pre><code class="language-bash">bun run verify
+bun run test:coverage
+bun run check:audit
+bun run check:bundle
+</code></pre>
+  <p>Failure handling:</p>
+  <ul>
+    <li>CI-only failure は environment drift として再現 command を記録する。</li>
+    <li>threshold を下げて通さず、test または instrumentation を修正する。</li>
+  </ul>
+  <p>Rollback:</p>
+  <ul>
+    <li>
+      flaky external checks は non-blocking へ落とせるが、typecheck/test/audit High/Critical/DB
+      boundary を外さない。
+    </li>
+  </ul>
+  <h3 id="slice-5-api-validation-and-authorization-matrix">
+    Slice 5: API Validation and Authorization Matrix
+  </h3>
+  <p>Priority: P1 Dependencies: Slice 1, Slice 2A, Slice 2B</p>
+  <p>Primary files:</p>
+  <ul>
+    <li><code>api/routes/*.ts</code></li>
+    <li><code>shared/schemas/*.schema.ts</code></li>
+    <li><code>api/app/hono.ts</code></li>
+    <li><code>web/src/api.ts</code></li>
+  </ul>
+  <p>Changes:</p>
+  <ol>
+    <li>124 route handler の input surface を inventory する。</li>
+    <li>body、query、param がある route は shared/local Zod schema を持つ。</li>
+    <li>raw <code>c.req.json()</code> を expected schema parse に置換する。</li>
+    <li>UUID、limit、enum、URL、path、free-text size に upper bound を設定する。</li>
+    <li>route ごとに public/authenticated/member-owner/admin を表にする。</li>
+    <li>ownership check を repeated ad hoc lookup から typed helper へ寄せる。</li>
+    <li>response failure kind と HTTP status を統一する。</li>
+    <li>
+      frontend duplicate type は shared schema inference または generated read type
+      へ段階的に寄せる。
+    </li>
+  </ol>
+  <p>Acceptance:</p>
+  <ul>
+    <li>request input を未検証のまま command/path/network/config に渡す route がない。</li>
+    <li>authorization matrix と middleware wiring が test で一致する。</li>
+    <li>malformed JSON は一貫した 400 response。</li>
+    <li>ownership failure は object existence leakage を最小化する。</li>
+  </ul>
+  <p>Verification:</p>
+  <pre><code class="language-bash">rg -n 'c\.req\.json\(' api/routes
+bun test api/routes
+bun run typecheck
+bun run test
+</code></pre>
+  <p>Failure handling:</p>
+  <ul>
+    <li>shared schema 化が domain coupling を増やす場合は route-local schema を許可する。</li>
+    <li>response redesign をこの slice へ混ぜない。</li>
+  </ul>
+  <p>Rollback:</p>
+  <ul>
+    <li>
+      schema tightening は compatibility note を残し、必要なら一時的に旧 field alias を受ける。
+    </li>
+  </ul>
+  <h3 id="slice-6-repository-hygiene-secret-scanning-and-governance">
+    Slice 6: Repository Hygiene, Secret Scanning, and Governance
+  </h3>
+  <p>Priority: P1 Dependencies: Slice 4B</p>
+  <p>Primary files:</p>
+  <ul>
+    <li><code>.gitignore</code></li>
+    <li><code>.gitleaksignore</code></li>
+    <li><code>README.md</code></li>
+    <li><code>README.jp.md</code></li>
+  </ul>
+  <p>New files:</p>
+  <ul>
+    <li><code>SECURITY.md</code></li>
+    <li><code>CONTRIBUTING.md</code></li>
+    <li><code>CHANGELOG.md</code></li>
+    <li><code>scripts/check-artifact-tracking.ts</code></li>
+  </ul>
+  <p>Changes:</p>
+  <ol>
+    <li><code>artifacts/</code> の739 tracked filesを index から外す。</li>
+    <li>local runtime files 自体は削除しない。</li>
+    <li>permanent test fixture は <code>tests/fixtures/</code> へ明示的に移す。</li>
+    <li>tracked artifact count が0でない場合 CI failure にする。</li>
+    <li>gitleaks history/current scan を CI に追加する。</li>
+    <li>fixture false positive は fingerprint と理由を限定して suppress する。</li>
+    <li>
+      real secret が見つかった場合は先に revoke/rotate し、その後 history remediation を別判断する。
+    </li>
+    <li>SECURITY に supported versions、reporting、secret response、release policy を記載する。</li>
+    <li>CONTRIBUTING に test shard、format、artifact、migration policy を記載する。</li>
+    <li>CHANGELOG に security-impacting behavior change を記録する。</li>
+  </ol>
+  <p>Acceptance:</p>
+  <ul>
+    <li><code>git ls-files artifacts</code> が空。</li>
+    <li>fixture 以外の secret finding が0。</li>
+    <li>runtime artifacts は local に残り、test fixture は明示 directory にある。</li>
+    <li>new contributor が release gate を再現できる。</li>
+  </ul>
+  <p>Verification:</p>
+  <pre><code class="language-bash">git ls-files artifacts
+bun run check:artifact-tracking
+gitleaks git . --no-banner --redact
+bun run verify
+</code></pre>
+  <p>Failure handling:</p>
+  <ul>
+    <li>
+      artifact に唯一の再現 fixture がある場合は先に fixture directory へ移して test を更新する。
+    </li>
+    <li>user-owned local artifact を削除しない。</li>
+  </ul>
+  <p>Rollback:</p>
+  <ul>
+    <li>index cleanup は Git から復元可能。</li>
+    <li>local files は保持される。</li>
+    <li>real secret revoke は rollback しない。</li>
+  </ul>
+  <h3 id="slice-7-docker-and-build-supply-chain-hardening">
+    Slice 7: Docker and Build Supply-chain Hardening
+  </h3>
+  <p>Priority: P1 Dependencies: Slice 3A, Slice 4B</p>
+  <p>Primary files:</p>
+  <ul>
+    <li><code>docker/toolbox/Dockerfile</code></li>
+    <li><code>docker/dynamic/Dockerfile</code></li>
+    <li><code>scripts/build-toolbox-image.ts</code></li>
+    <li><code>scripts/build-dynamic-image.ts</code></li>
+    <li>Docker documentation</li>
+  </ul>
+  <p>Changes:</p>
+  <ol>
+    <li>base image を digest pin する。</li>
+    <li>downloaded scanner/runtime binary に SHA-256 verification を追加する。</li>
+    <li>
+      <code>curl | sh</code> を checksum-verifiable artifact install
+      に置換する。
+    </li>
+    <li>Bun、Rust、Node、Go、pytest を explicit version にする。</li>
+    <li>amd64/arm64 mapping を両 image で検証する。</li>
+    <li>
+      build context に <code>.env</code>、data、artifacts
+      が入らないことを check する。
+    </li>
+    <li>image SBOM を CycloneDX/SPDX で生成する。</li>
+    <li>Trivy image scan を CI/release gate にする。</li>
+    <li>High/Critical OS package finding を release block にする。</li>
+    <li>scanner version update procedure と checksum source を documentation に残す。</li>
+  </ol>
+  <p>Acceptance:</p>
+  <ul>
+    <li>network取得物はversionとchecksumで再現可能。</li>
+    <li>
+      Dockerfile に unpinned <code>latest</code>/<code>stable</code>
+      install がない。
+    </li>
+    <li>image は non-root、cap-drop、read-only runtime policy を維持する。</li>
+    <li>Docker socket は mount されない。</li>
+    <li>supported architecture の smoke test が通る。</li>
+  </ul>
+  <p>Verification:</p>
+  <pre><code class="language-bash">bun run docker:toolbox:build
+bun run docker:dynamic:build
+docker run --rm --network none vuln-workbench-toolbox:local semgrep --version
+trivy image --severity HIGH,CRITICAL --exit-code 1 vuln-workbench-toolbox:local
+trivy image --severity HIGH,CRITICAL --exit-code 1 vuln-workbench-dynamic:local
+</code></pre>
+  <p>Failure handling:</p>
+  <ul>
+    <li>
+      upstream が checksum を提供しない binary は release asset provenance
+      を別経路で検証するか採用を停止する。
+    </li>
+    <li>vulnerability exception は expiry と non-applicability evidence を必要とする。</li>
+  </ul>
+  <p>Rollback:</p>
+  <ul>
+    <li>previous known-good image digest を保持する。</li>
+    <li>vulnerable digest への rollback は production で許可しない。</li>
+  </ul>
+  <h3 id="slice-8-frontend-performance-browser-e2e-and-accessibility">
+    Slice 8: Frontend Performance, Browser E2E, and Accessibility
+  </h3>
+  <p>Priority: P2 release quality Dependencies: Slice 3B, Slice 4B, Slice 5</p>
+  <p>Primary files:</p>
+  <ul>
+    <li><code>web/src/App.tsx</code></li>
+    <li><code>web/src/router.tsx</code></li>
+    <li><code>web/src/api.ts</code></li>
+    <li>Mermaid-consuming views</li>
+    <li><code>vite.config.ts</code></li>
+  </ul>
+  <p>Changes:</p>
+  <ol>
+    <li>Mermaid と diagram type modules を report/chat/knowledge route 単位で lazy load する。</li>
+    <li>
+      legacy knowledge/search/chat/showcase surface を initial scan workflow bundle から分離する。
+    </li>
+    <li>frontend API client を domain 別 module に分割する。</li>
+    <li>
+      initial route bundle と route chunk の budget を
+      <code>check-bundle-budget</code> で固定する。
+    </li>
+    <li>
+      Playwright で login、project path rejection、member/admin boundary、scan result、report
+      preview を test する。
+    </li>
+    <li>
+      <code>@axe-core/playwright</code> 等で主要 route の serious/critical accessibility
+      violation を gate にする。
+    </li>
+    <li>keyboard navigation、focus return、dialog labeling、loading/error status を確認する。</li>
+    <li>production CSP 下で E2E を実行する。</li>
+  </ol>
+  <p>Initial budgets:</p>
+  <pre><code class="language-text">initial JS gzip: &lt;= 250 KiB
+single lazy chunk minified: &lt;= 500 KiB
+initial CSS gzip: &lt;= 35 KiB
+</code></pre>
+  <p>
+    budget が現在値から一度に到達不能な場合は、baseline、intermediate、target
+    の3段階を記録し、各PRで悪化を禁止する。
+  </p>
+  <p>Acceptance:</p>
+  <ul>
+    <li>Vite large-chunk warning が initial application path で解消する。</li>
+    <li>main scan route は Mermaid 全 renderer を事前ロードしない。</li>
+    <li>主要 user journey が browser test で再現される。</li>
+    <li>serious/critical a11y violation が0。</li>
+  </ul>
+  <p>Verification:</p>
+  <pre><code class="language-bash">bun run build
+bun run check:bundle
+bun run test:e2e
+</code></pre>
+  <p>Failure handling:</p>
+  <ul>
+    <li>arbitrary warning limit 引き上げで合格にしない。</li>
+    <li>snapshot だけで behavior test を置き換えない。</li>
+  </ul>
+  <p>Rollback:</p>
+  <ul>
+    <li>route-level lazy loading は個別 route ごとに戻せる。</li>
+    <li>bundle budget と E2E gate は残す。</li>
+  </ul>
+  <h3 id="slice-9-maintainability-refactors">Slice 9: Maintainability Refactors</h3>
+  <p>Priority: P2 Dependencies: Slices 1-5, Slice 8 API split</p>
+  <p>Primary targets:</p>
+  <pre><code class="language-text">web/src/api.ts
+web/src/domains/scans/use-scans-controller.ts
+api/modules/scans/profile-runner.ts
+api/app/hono.ts
+web/src/domains/projects/projects-domain.tsx
+api/modules/scans/report-builder.ts
+</code></pre>
+  <p>Changes:</p>
+  <ol>
+    <li>behavior characterization tests を先に追加する。</li>
+    <li>
+      <code>web/src/api.ts</code> を
+      auth/settings/projects/scans/static-intelligence/source domain client に分ける。
+    </li>
+    <li>
+      scan controller から query orchestration、mutation orchestration、derived view、polling state
+      を分離する。
+    </li>
+    <li>
+      profile runner から step executor、persistence lifecycle、report finalization を分離する。
+    </li>
+    <li>
+      Hono composition から middleware policy、route registration、runtime construction を分離する。
+    </li>
+    <li>report builder を section builder 単位に分ける。</li>
+    <li>circular import と public export boundary を static check する。</li>
+    <li>refactor PR で schema、prompt、workflow behavior を変更しない。</li>
+  </ol>
+  <p>Acceptance:</p>
+  <ul>
+    <li>対象6ファイルの責務が documentation に一致する。</li>
+    <li>touched production file に 1,500行超を残さない。</li>
+    <li>existing API contract と saved report snapshot が変わらない。</li>
+    <li>type cast / <code>any</code> が増えない。</li>
+  </ul>
+  <p>Verification:</p>
+  <pre><code class="language-bash">bun run test
+bun run typecheck
+bun run build
+git diff --stat
+</code></pre>
+  <p>Failure handling:</p>
+  <ul>
+    <li>behavior change が必要になった場合は refactor PR から分離する。</li>
+    <li>line count だけを目的に forwarding file を大量生成しない。</li>
+  </ul>
+  <p>Rollback:</p>
+  <ul>
+    <li>domain ごとの extraction PR を独立 revert 可能にする。</li>
+  </ul>
+  <h3 id="slice-10-operational-recovery-and-observability">
+    Slice 10: Operational Recovery and Observability
+  </h3>
+  <p>Priority: P2 release readiness Dependencies: Slice 4B, Slice 7</p>
+  <p>New/updated surfaces:</p>
+  <ul>
+    <li>structured application logger</li>
+    <li>request ID middleware</li>
+    <li>liveness/readiness diagnostics</li>
+    <li>Writer-consistent backup CLI</li>
+    <li>restore verification CLI</li>
+    <li>production deployment and rollback runbook</li>
+  </ul>
+  <p>Changes:</p>
+  <ol>
+    <li>
+      application log を structured JSON にし、request ID、event、level、duration、failure kind
+      を持たせる。
+    </li>
+    <li>
+      logs から API key、authorization、cookie、source snippet、absolute sensitive path を redact
+      する。
+    </li>
+    <li><code>/api/health</code> liveness と readiness を分離する。</li>
+    <li>
+      readiness は DB read、migration state、Writer compatibility、artifact root、configured
+      execution policy を確認する。
+    </li>
+    <li>backup は live SQLite file copy ではなく Writer-consistent mechanism を使う。</li>
+    <li>
+      restore は temporary location で integrity check、migration checksum、representative record
+      count を検証する。
+    </li>
+    <li>secret encryption key backup と DB backup の依存関係を runbook に記載する。</li>
+    <li>upgrade/rollback 手順に Writer protocol restart と migration compatibility を含める。</li>
+    <li>artifact retention、log retention、backup retention を設定化する。</li>
+    <li>supported platforms と unsupported Windows Writer transport を明記する。</li>
+  </ol>
+  <p>Acceptance:</p>
+  <ul>
+    <li>operator が deploy 前 readiness、backup、restore rehearsal、rollback可否を確認できる。</li>
+    <li>restore test が isolated temporary DB で成功する。</li>
+    <li>logs に secret がない。</li>
+    <li>health endpoint が internal configuration detail を anonymous user に返さない。</li>
+  </ul>
+  <p>Verification:</p>
+  <pre><code class="language-bash">bun run bootstrap:check -- --skip-port
+bun run db:writer:health
+bun run backup:create -- --output &lt;temporary-path&gt;
+bun run backup:verify -- --input &lt;temporary-path&gt;
+bun run test
+</code></pre>
+  <p>Failure handling:</p>
+  <ul>
+    <li>backup verify が失敗した場合は release を停止する。</li>
+    <li>readiness failure を liveness success で隠さない。</li>
+  </ul>
+  <p>Rollback:</p>
+  <ul>
+    <li>schema cleanup 後の rollback capability は backup verification がある場合だけ宣言する。</li>
+    <li>log format consumer がある場合は version field で compatibility を保つ。</li>
+  </ul>
+  <h3 id="slice-11-final-release-acceptance">Slice 11: Final Release Acceptance</h3>
+  <p>Priority: final gate Dependencies: Slices 0-10</p>
+  <p>Required clean-checkout commands:</p>
+  <pre><code class="language-bash">bun install --frozen-lockfile
+bun run bootstrap
+bun run bootstrap:check -- --skip-port
+bun run verify
+bun run test:inventory -- --assert-complete
+bun run test:coverage
+bun run test:e2e
+bun run check:audit
+bun run check:artifact-tracking
+bun run check:bundle
+gitleaks git . --no-banner --redact
+</code></pre>
+  <p>Required security scenarios:</p>
+  <ol>
+    <li>
+      member cannot register <code>/</code>, home, sibling prefix,
+      symlink escape.
+    </li>
+    <li>member cannot open folder picker.</li>
+    <li>existing project moved outside allowed root cannot scan.</li>
+    <li>member cannot read/update global LLM settings.</li>
+    <li>member cannot trigger provider health.</li>
+    <li>attacker endpoint cannot receive environment OpenAI/Azure key.</li>
+    <li>private IP、metadata IP、redirect escape、DNS rebind are rejected.</li>
+    <li>stored API key is not plaintext in SQLite.</li>
+    <li>spoofed X-Forwarded-For does not bypass login limiter.</li>
+    <li>production response has enforcing CSP.</li>
+    <li>all test files execute exactly once.</li>
+    <li>tracked runtime artifact count is zero.</li>
+    <li>High/Critical dependency and image advisory count is zero.</li>
+    <li>backup restore rehearsal succeeds.</li>
+  </ol>
+  <p>Release acceptance:</p>
+  <ul>
+    <li>all required commands return exit code 0.</li>
+    <li>documented exception has owner and expiry.</li>
+    <li>no P0/P1 TODO remains.</li>
+    <li>rollback instructions match actual migration state.</li>
+    <li>
+      final release report records commit SHA, dependency audit, image digest, test inventory count,
+      bundle budget, backup rehearsal result.
+    </li>
+  </ul>
+  <h2 id="8-implementation-order-and-pr-strategy">8. Implementation Order and PR Strategy</h2>
+  <p>Recommended PR sequence:</p>
+  <pre><code class="language-text">PR 46-00 baseline + format repair
+  -&gt; PR 46-01 project path authorization
+  -&gt; PR 46-02 global RBAC
+  -&gt; PR 46-03 outbound URL + credential binding
+  -&gt; PR 46-04 encrypted LLM secrets
+
+PR 46-05 dependency remediation
+  -&gt; PR 46-06 proxy + CSP
+
+PR 46-07 test inventory + isolation
+  -&gt; PR 46-08 coverage + CI
+  -&gt; PR 46-09 API validation matrix
+
+PR 46-10 artifact/governance cleanup
+PR 46-11 Docker supply-chain
+PR 46-12 frontend performance + E2E/a11y
+PR 46-13 maintainability refactors
+PR 46-14 operational recovery
+PR 46-15 final release evidence
+</code></pre>
+  <p>Parallel work is allowed only for:</p>
+  <ul>
+    <li>PR 46-01 and PR 46-05 after baseline</li>
+    <li>PR 46-07 and PR 46-05 after baseline</li>
+    <li>PR 46-10 and PR 46-11 after CI gate exists</li>
+  </ul>
+  <p>The following must remain sequential:</p>
+  <ul>
+    <li>RBAC -&gt; outbound policy -&gt; secret migration</li>
+    <li>test inventory -&gt; CI -&gt; API validation matrix</li>
+    <li>security behavior -&gt; maintainability refactor</li>
+    <li>backup verification -&gt; plaintext cleanup/final release</li>
+  </ul>
+  <p>
+    Each PR should be independently reviewable and revertable. P0 security fixes should not wait for
+    P2 refactors before merge.
+  </p>
+  <h2 id="9-coverage-matrix">9. Coverage Matrix</h2>
+  <table>
+    <caption>
+      9. Coverage Matrix
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Evaluation finding</th>
+        <th scope="col">Implemented by</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>arbitrary host project path</td>
+        <td>Slice 1</td>
+      </tr>
+      <tr>
+        <td>folder picker exposed to member</td>
+        <td>Slice 1</td>
+      </tr>
+      <tr>
+        <td>global LLM settings available to member</td>
+        <td>Slice 2A</td>
+      </tr>
+      <tr>
+        <td>shared wiki mutation available to member</td>
+        <td>Slice 2A</td>
+      </tr>
+      <tr>
+        <td>provider SSRF / private network access</td>
+        <td>Slice 2B</td>
+      </tr>
+      <tr>
+        <td>environment key exfiltration</td>
+        <td>Slice 2B</td>
+      </tr>
+      <tr>
+        <td>plaintext stored provider API key</td>
+        <td>Slice 2C</td>
+      </tr>
+      <tr>
+        <td>15 dependency vulnerabilities</td>
+        <td>Slice 3A</td>
+      </tr>
+      <tr>
+        <td><code>trustProxy=true</code> default</td>
+        <td>Slice 3B</td>
+      </tr>
+      <tr>
+        <td>login limiter spoofing</td>
+        <td>Slice 3B</td>
+      </tr>
+      <tr>
+        <td>CSP disabled</td>
+        <td>Slice 3B</td>
+      </tr>
+      <tr>
+        <td>verify blocked by format</td>
+        <td>Slice 0</td>
+      </tr>
+      <tr>
+        <td>tests omitted from default command</td>
+        <td>Slice 4A</td>
+      </tr>
+      <tr>
+        <td>all-API mock contamination</td>
+        <td>Slice 4A</td>
+      </tr>
+      <tr>
+        <td>misleading narrow coverage</td>
+        <td>Slice 4B</td>
+      </tr>
+      <tr>
+        <td>no CI</td>
+        <td>Slice 4B</td>
+      </tr>
+      <tr>
+        <td>incomplete request validation</td>
+        <td>Slice 5</td>
+      </tr>
+      <tr>
+        <td>repeated ownership logic</td>
+        <td>Slice 5</td>
+      </tr>
+      <tr>
+        <td>739 tracked artifacts</td>
+        <td>Slice 6</td>
+      </tr>
+      <tr>
+        <td>no remote secret-scan gate</td>
+        <td>Slice 6</td>
+      </tr>
+      <tr>
+        <td>no SECURITY/CONTRIBUTING/CHANGELOG</td>
+        <td>Slice 6</td>
+      </tr>
+      <tr>
+        <td>unverified Docker downloads</td>
+        <td>Slice 7</td>
+      </tr>
+      <tr>
+        <td>floating runtime installs</td>
+        <td>Slice 7</td>
+      </tr>
+      <tr>
+        <td>no image SBOM/security gate</td>
+        <td>Slice 7</td>
+      </tr>
+      <tr>
+        <td>1.65 MB initial JS / large chunks</td>
+        <td>Slice 8</td>
+      </tr>
+      <tr>
+        <td>no browser/component/a11y tests</td>
+        <td>Slice 8</td>
+      </tr>
+      <tr>
+        <td>oversized modules</td>
+        <td>Slice 9</td>
+      </tr>
+      <tr>
+        <td>console-oriented logging</td>
+        <td>Slice 10</td>
+      </tr>
+      <tr>
+        <td>weak readiness/backup/restore story</td>
+        <td>Slice 10</td>
+      </tr>
+      <tr>
+        <td>single-maintainer operational risk</td>
+        <td>Slices 4B, 6, 10</td>
+      </tr>
+      <tr>
+        <td>portability ambiguity</td>
+        <td>Slices 7, 10</td>
+      </tr>
+    </tbody>
+  </table>
+  <h2 id="10-release-metrics">10. Release Metrics</h2>
+  <p>Phase 46 completion metrics:</p>
+  <pre><code class="language-text">P0 open findings: 0
+P1 open findings: 0
+dependency High/Critical: 0
+container High/Critical: 0
+tracked artifacts: 0
+test inventory omissions: 0
+test inventory duplicates: 0
+default test command: all test files
+format/typecheck/lint/build: pass
+security-critical branch coverage: &gt;= 90%
+initial JS gzip: &lt;= 250 KiB or approved staged target with no regression
+serious/critical accessibility violations: 0
+backup restore rehearsal: pass
+</code></pre>
+  <h2 id="11-stop-conditions">11. Stop Conditions</h2>
+  <p>Implementationを停止して計画を更新する条件:</p>
+  <ul>
+    <li>allowed-root enforcement が legitimate project を安全に移行できない。</li>
+    <li>environment credential と stored endpoint identity を確実に区別できない。</li>
+    <li>secret migration の decrypt verification が1件でも失敗する。</li>
+    <li>dependency upgrade が scanner evidence format を変える。</li>
+    <li>
+      CSP enforcement に wildcardまたは<code>unsafe-eval</code>が必要になる。
+    </li>
+    <li>test inventory を完全にできないまま CI green にする必要が生じる。</li>
+    <li>artifact cleanup が唯一の再現証拠を失う。</li>
+    <li>Docker checksum provenance を取得できない。</li>
+    <li>backup restore rehearsal が失敗する。</li>
+    <li>maintainability refactor が security behavior を同時変更する。</li>
+    <li>rollback に必要な旧 key / DB backup / image digest がない。</li>
+  </ul>
+  <p>
+    Stop condition 発生時は、失敗した gate より後の release slice
+    を進めない。診断、修正、再検証を行い、結果を plan/evidence に反映する。
+  </p>
+  <h2 id="12-definition-of-done">12. Definition of Done</h2>
+  <p>Phase 46 は次をすべて満たした場合のみ完了とする。</p>
+  <ul>
+    <li>Host path は configured root と execution surface で認可される。</li>
+    <li>member/admin の global administration boundary が API と UI で一致する。</li>
+    <li>outbound provider は URL、DNS、redirect、credential binding policy を通る。</li>
+    <li>stored LLM secret は暗号化され、legacy plaintext が残らない。</li>
+    <li>dependency/browser/image advisory gate が合格する。</li>
+    <li>trusted proxy と CSP が production-safe default になる。</li>
+    <li>repository の全 test file が exactly once 実行される。</li>
+    <li>CI が clean checkout で local release gate を再現する。</li>
+    <li>API input と authorization matrix が検証済みである。</li>
+    <li>runtime artifacts が Git tracking から除外される。</li>
+    <li>Docker build provenance と SBOM が確認できる。</li>
+    <li>initial frontend bundle と accessibility が budget を満たす。</li>
+    <li>主要 oversized module が責務分割され、behavior regression がない。</li>
+    <li>structured logs、readiness、backup、restore、rollback runbook が実証される。</li>
+    <li>final release evidence が commit SHA と共に保存される。</li>
+  </ul>
+  <p>
+    この状態になって初めて、network-accessible multi-user deployment の release review を再開する。
+  </p>
+</article>
+  </body>
+</html>

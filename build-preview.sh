@@ -8,3 +8,7 @@ docker run --rm \
   -w /srv/jekyll \
   jekyll/jekyll:latest \
   sh -lc "bundle config set path vendor/bundle && bundle install && bundle exec jekyll build --config _config.yml,_config.local.yml"
+
+bun run "$ROOT_DIR/scripts/generate-pages-plan-archive.ts" \
+  --destination .preview \
+  --baseurl ""

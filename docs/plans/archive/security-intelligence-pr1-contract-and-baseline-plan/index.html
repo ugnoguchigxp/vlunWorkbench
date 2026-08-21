@@ -1,0 +1,382 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex,follow">
+    <title>PR 1: Security Intelligence Assessment Contract and Baseline | vulnWorkbench</title>
+    <link rel="stylesheet" href="/vlunWorkbench/assets/css/spec-document.css">
+    <link rel="stylesheet" href="/vlunWorkbench/assets/css/plan-document.css">
+  </head>
+  <body>
+    <nav class="plan-document-links" aria-label="文書ナビゲーション">
+      <a href="/vlunWorkbench/plans/archive/?doc=security-intelligence-pr1-contract-and-baseline-plan" target="_top">実装計画アーカイブへ</a>
+      <a href="/vlunWorkbench/" target="_top">vulnWorkbenchのLPへ戻る</a>
+    </nav>
+    <article lang="ja">
+  <h1 id="pr-1-security-intelligence-assessment-contract-and-baseline">
+    PR 1: Security Intelligence Assessment Contract and Baseline
+  </h1>
+  <h2 id="status">Status</h2>
+  <ul>
+    <li>Implementation: complete in working tree; pending PR creation and merge</li>
+    <li>Last reviewed: 2026-08-15</li>
+  </ul>
+  <h2 id="1-目的">1. 目的</h2>
+  <p>
+    3
+    repositoryが独立に実装しても意味がずれない、最小の<code>Security Intelligence Assessment v1</code>契約を固定する。runtime
+    behavior、database、既存integration APIは変更しない。
+  </p>
+  <p>
+    このPRの主要成果はTypeScript型ではなく、実行時schema、positive/negative
+    fixture、決定的なcanonical hashである。
+  </p>
+  <h2 id="2-scope">2. Scope</h2>
+  <h3 id="含む">含む</h3>
+  <ul>
+    <li>Assessment envelopeとclaim/verification/evidence/coverageのschema</li>
+    <li>DependencyとAuthorizationの最小payload</li>
+    <li>positive fixtureとrejectすべきnegative fixture</li>
+    <li>fixture検証とcanonical hash出力</li>
+    <li>consumer repositoryが同一契約を確認する方法</li>
+    <li>baseline evidence artifactのformat</li>
+  </ul>
+  <h3 id="含まない">含まない</h3>
+  <ul>
+    <li>scan runからassessmentを生成する処理</li>
+    <li>API route、DB table、UI、MCP tool</li>
+    <li>既存<code>nightworkers-security-scan-integration</code> contractの変更</li>
+    <li>default activation</li>
+  </ul>
+  <h2 id="3-proposed-files">3. Proposed files</h2>
+  <table>
+    <caption>
+      3. Proposed files
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">種別</th>
+        <th scope="col">Path</th>
+        <th scope="col">内容</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>New</td>
+        <td><code>shared/schemas/security-intelligence-assessment.schema.ts</code></td>
+        <td>v1 schemaとexport type</td>
+      </tr>
+      <tr>
+        <td>New</td>
+        <td><code>shared/schemas/security-intelligence-assessment-components.schema.ts</code></td>
+        <td>reusable leaf schemaとprivacy/path制約</td>
+      </tr>
+      <tr>
+        <td>New</td>
+        <td><code>shared/schemas/security-intelligence-assessment.schema.test.ts</code></td>
+        <td>contract invariantとnegative case</td>
+      </tr>
+      <tr>
+        <td>New</td>
+        <td><code>shared/security-intelligence-assessment-contract.ts</code></td>
+        <td>canonical JSONとsemantic assessment identity</td>
+      </tr>
+      <tr>
+        <td>New</td>
+        <td><code>shared/fixtures/security-intelligence-assessment-v1.ts</code></td>
+        <td>canonical positive fixtures</td>
+      </tr>
+      <tr>
+        <td>New</td>
+        <td><code>shared/fixtures/security-intelligence-assessment-v1-negative.ts</code></td>
+        <td>reject必須のnegative fixtures</td>
+      </tr>
+      <tr>
+        <td>New</td>
+        <td><code>scripts/verify-security-intelligence-contract.ts</code></td>
+        <td>fixture parse、canonicalize、hash出力</td>
+      </tr>
+      <tr>
+        <td>New</td>
+        <td><code>scripts/verify-security-intelligence-contract.test.ts</code></td>
+        <td>baseline driftと既存v1保全のtest</td>
+      </tr>
+      <tr>
+        <td>Change</td>
+        <td><code>package.json</code></td>
+        <td><code>verify:security-intelligence-contract</code> script</td>
+      </tr>
+      <tr>
+        <td>New</td>
+        <td><code>spec/evidence/security-intelligence-stage-0-baseline.json</code></td>
+        <td>contract version、fixture hash、検証結果</td>
+      </tr>
+      <tr>
+        <td>Change</td>
+        <td><code>spec/security-intelligence-initial-implementation-roadmap.md</code></td>
+        <td>実装後の実ファイル・commandへ同期</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    既存の<code>shared/schemas/assessment.schema.ts</code>はWeb assessment engagementとRules of
+    Engagementを表すため、再利用・改名しない。
+  </p>
+  <h2 id="4-contract-shape">4. Contract shape</h2>
+  <p>最小top-level shapeは次を想定する。実装時にはすべてZodでruntime validationする。</p>
+  <pre><code class="language-ts">type SecurityIntelligenceAssessmentV1 = {
+  contractVersion: "1";
+  assessmentRef: string;
+  producer: {
+    system: "vulnWorkbench";
+    version: string;
+  };
+  projectRef: string;
+  source: {
+    scanRunRef: string;
+    completedAt: string;
+  };
+  target: {
+    kind: "commit" | "diff" | "snapshot";
+    sourceRevision: string;
+    targetDigest: string;
+    baseRevision?: string;
+    headRevision?: string;
+    baseTargetDigest?: string;
+  };
+  scope: {
+    profileRef: string;
+    declaredInvariantRefs: string[];
+    threatModelRefs: string[];
+  };
+  outcome:
+    | "findings_observed"
+    | "no_findings_observed"
+    | "inconclusive"
+    | "unavailable";
+  claims: SecurityIntelligenceClaim[];
+  verifications: SecurityIntelligenceVerification[];
+  evidenceRefs: SecurityIntelligenceEvidenceRef[];
+  findingRefs: string[];
+  coverage: {
+    covered: string[];
+    gaps: string[];
+    limitationCodes: string[];
+  };
+  unknowns: string[];
+  residualRisk: string[];
+  generatedAt: string;
+};
+</code></pre>
+  <p>Schema invariantは少なくとも次を強制する。</p>
+  <ul>
+    <li>
+      <code>targetDigest</code>、<code>sourceRevision</code>、<code>assessmentRef</code>は空文字を許可しない。
+    </li>
+    <li>
+      各evidence
+      referenceは<code>scanRunRef</code>、<code>targetDigest</code>、artifact/result
+      digestを持ち、assessmentの<code>source</code>と<code>target</code>に一致する。
+    </li>
+    <li>
+      before/after比較のevidenceは<code>targetRole = assessment_target | base_target</code>で区別し、base側は<code>baseTargetDigest</code>へ一致させる。
+    </li>
+    <li>
+      producer
+      claimのoriginは<code>observed | inferred</code>だけを許可する。<code>declared</code>は参照として受け取ってもproducer
+      claimとして生成しない。
+    </li>
+    <li>
+      <code>verification.status = tested</code>には1件以上のevidence referenceを必須とする。
+    </li>
+    <li>
+      required verificationが<code>failed | unavailable</code>ならtop-level
+      outcomeを<code>no_findings_observed</code>にできない。
+    </li>
+    <li>
+      evidence referenceはopaque IDとdigestを持ち、local absolute pathやsource本文を持たない。
+    </li>
+    <li>
+      <code>no_findings_observed</code>は少なくとも1件の完了verificationと明示的coverageを必要とする。
+    </li>
+    <li>unknownやcoverage gapを空にしたことだけではcompleteを意味しない。</li>
+    <li>payload内のpathはproject-relative POSIX pathだけを許可する。</li>
+    <li>
+      version 1 parserはunknown top-level fieldをrejectするかstripするかを一意に定め、fixture
+      testで固定する。推奨はstrict rejectである。
+    </li>
+  </ul>
+  <h2 id="5-canonicalizationとhash">5. Canonicalizationとhash</h2>
+  <p>Cross-repository比較ではJavaScript objectの挿入順へ依存しないcanonical JSONを使う。</p>
+  <ul>
+    <li>object keyは辞書順へsortする。</li>
+    <li>意味上setである配列はschema生成側で安定sortする。</li>
+    <li>human-readable messageのlocale差をhash対象へ入れない。</li>
+    <li>
+      fixture hashはSHA-256を使用し、<code>contractVersion + fixtureName + canonicalPayload</code>を対象にする。
+    </li>
+    <li>
+      runtime assessmentのsemantic
+      digestは再生成時刻で変化しないよう<code>generatedAt</code>と<code>assessmentRef</code>を除外したcanonical
+      payloadから作る。<code>assessmentRef</code>はこのsemantic
+      digestから決定的に導出する。
+    </li>
+    <li>verifierはmachine-readable JSONをstdoutへ出し、失敗理由はstderrへ出す。</li>
+  </ul>
+  <p>例:</p>
+  <pre><code class="language-json">{
+  "contractVersion": "1",
+  "fixtures": [
+    { "name": "dependency-findings-observed", "sha256": "..." }
+  ],
+  "verified": true
+}
+</code></pre>
+  <h2 id="6-fixture-matrix">6. Fixture matrix</h2>
+  <h3 id="positive">Positive</h3>
+  <table>
+    <caption>
+      Positive
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Fixture</th>
+        <th scope="col">検証対象</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>dependency-findings-observed</code></td>
+        <td>Dependency change、OSV/Trivy evidence、finding refs</td>
+      </tr>
+      <tr>
+        <td><code>dependency-no-findings-observed</code></td>
+        <td>検査完了と明示coverageがあるzero finding</td>
+      </tr>
+      <tr>
+        <td><code>dependency-inconclusive</code></td>
+        <td>required tool failureまたはartifact欠落</td>
+      </tr>
+      <tr>
+        <td><code>dependency-unavailable</code></td>
+        <td>verification自体を実行できない状態と明示的なgap</td>
+      </tr>
+      <tr>
+        <td><code>authorization-shadow-observed</code></td>
+        <td>guarded/unguarded/unknownとsource refs</td>
+      </tr>
+      <tr>
+        <td><code>authorization-coverage-lost</code></td>
+        <td>beforeは解析済み、afterは解析不能</td>
+      </tr>
+    </tbody>
+  </table>
+  <h3 id="negative">Negative</h3>
+  <table>
+    <caption>
+      Negative
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Fixture</th>
+        <th scope="col">Reject理由</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>tested-without-evidence</code></td>
+        <td>testedの根拠がない</td>
+      </tr>
+      <tr>
+        <td><code>no-findings-with-required-failure</code></td>
+        <td>failureを成功へ畳み込んでいる</td>
+      </tr>
+      <tr>
+        <td><code>missing-target-revision</code></td>
+        <td>revision bindingがない</td>
+      </tr>
+      <tr>
+        <td><code>mismatched-evidence-target</code></td>
+        <td>evidenceのtarget digestがassessmentと異なる</td>
+      </tr>
+      <tr>
+        <td><code>absolute-path-evidence</code></td>
+        <td>private filesystem情報を含む</td>
+      </tr>
+      <tr>
+        <td><code>declared-producer-claim</code></td>
+        <td>producerがproject宣言を捏造している</td>
+      </tr>
+      <tr>
+        <td><code>finding-not-linked-to-verification-evidence</code></td>
+        <td>verificationのfindingが自身のevidenceに含まれない</td>
+      </tr>
+      <tr>
+        <td><code>unsafe-outcome-label</code></td>
+        <td><code>safe</code>等、契約外の表現</td>
+      </tr>
+      <tr>
+        <td><code>unknown-field</code></td>
+        <td>contract driftを検出する</td>
+      </tr>
+      <tr>
+        <td><code>semantic-assessment-ref-mismatch</code></td>
+        <td>payloadとsemantic identityが一致しない</td>
+      </tr>
+    </tbody>
+  </table>
+  <h2 id="7-実装順序">7. 実装順序</h2>
+  <ol>
+    <li>outcome、claim origin、verification status、evidence refのleaf schemaを作る。</li>
+    <li>top-level schemaとcross-field <code>superRefine</code>を作る。</li>
+    <li>negative fixture testを先に追加し、すべてrejectすることを確認する。</li>
+    <li>positive fixtureを追加し、canonicalization規則を固定する。</li>
+    <li>verifierとpackage scriptを追加する。</li>
+    <li>baseline JSONを生成し、同一commandの再実行で差分が出ないことを確認する。</li>
+    <li>
+      NightWorkers/contextStillへfixtureとhashを渡す。consumer implementationはこのPRへ含めない。
+    </li>
+  </ol>
+  <h2 id="8-acceptance-criteria">8. Acceptance criteria</h2>
+  <ul>
+    <li>すべてのpositive fixtureがparseできる。</li>
+    <li>
+      すべてのnegative fixtureが指定されたschemaまたは完全contract parserで期待したreason
+      codeを返してrejectされる。
+    </li>
+    <li>verifierを2回実行して同じSHA-256になる。</li>
+    <li>schemaから生成した型だけを使い、並行するhand-written interfaceを作らない。</li>
+    <li>既存<code>NIGHTWORKERS_SECURITY_SCAN_CONTRACT_VERSION</code>とfixture hashに差分がない。</li>
+    <li>payloadにsource本文、secret、絶対pathが存在しない。</li>
+    <li>typecheckとfocused testが通る。</li>
+  </ul>
+  <h2 id="9-verification-commands">9. Verification commands</h2>
+  <pre><code class="language-bash">bun test shared/schemas/security-intelligence-assessment.schema.test.ts
+bun test shared/schemas/nightworkers-security-scan-integration.schema.test.ts
+bun run verify:security-intelligence-contract
+bun run verify:security-intelligence-contract
+bun run typecheck
+git diff --check
+</code></pre>
+  <p>2回のverifier出力はbyte-for-byteで比較する。</p>
+  <h2 id="10-failureとrollback">10. Failureとrollback</h2>
+  <ul>
+    <li>
+      cross-field invariantが実装できなければfixture配布を止め、単なるTypeScript型で代替しない。
+    </li>
+    <li>canonical hashが非決定的ならsort規則を修正し、timestampをhash対象から除外する。</li>
+    <li>
+      rollbackは新規schema、fixture、script、package script、baseline
+      artifactのrevertだけで完了する。runtime behaviorには影響しない。
+    </li>
+  </ul>
+  <h2 id="11-merge-gate">11. Merge gate</h2>
+  <p>
+    NightWorkersとcontextStillの担当者がpositive fixtureをparseし、negative
+    fixtureをrejectできる見込みを確認する。少なくともNightWorkers側consumer
+    testの作業issueまたはPRが作成されるまで、PR 2の公開interfaceを確定しない。
+  </p>
+</article>
+  </body>
+</html>

@@ -1,0 +1,1753 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex,follow">
+    <title>vulnWorkbench スキャンワークスペース刷新 コンポーネント設計 | vulnWorkbench</title>
+    <link rel="stylesheet" href="/vlunWorkbench/assets/css/spec-document.css">
+    <link rel="stylesheet" href="/vlunWorkbench/assets/css/plan-document.css">
+  </head>
+  <body>
+    <nav class="plan-document-links" aria-label="文書ナビゲーション">
+      <a href="/vlunWorkbench/plans/archive/?doc=scan-workspace-component-design" target="_top">実装計画アーカイブへ</a>
+      <a href="/vlunWorkbench/" target="_top">vulnWorkbenchのLPへ戻る</a>
+    </nav>
+    <article lang="ja" data-spec-role="active-plan">
+  <h1 id="scan-workspace-component-design">
+    vulnWorkbench スキャンワークスペース刷新 コンポーネント設計
+  </h1>
+
+  <p>
+    この文書は、スキャン画面、登録済みプロジェクトの削除、LLM生成Markdownレポート、
+    初回自動展開するLLMコメントを、再利用可能でテスト可能なReactコンポーネントとして
+    実装するための設計を定義する。
+  </p>
+
+  <table>
+    <caption>
+      設計書の基本情報
+    </caption>
+    <tbody>
+      <tr>
+        <th scope="row">状態</th>
+        <td>実装設計確定</td>
+      </tr>
+      <tr>
+        <th scope="row">対象</th>
+        <td>Web版の <code>/scans</code> とプロジェクト削除API</td>
+      </tr>
+      <tr>
+        <th scope="row">基準日</th>
+        <td>2026-08-20</td>
+      </tr>
+      <tr>
+        <th scope="row">既存技術</th>
+        <td>React 19、TypeScript、TanStack Router、Hono、Drizzle、Marked</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2 id="review-result">ドキュメントレビュー結果</h2>
+  <p>
+    初版は画面構成と責務分割を説明できていたが、実装時に選択肢が残る箇所があった。
+    この版では以下を確定し、実装者が別案を検討しないで済む状態にする。
+  </p>
+  <table>
+    <caption>
+      初版で残っていた実装上の曖昧さと、この版で確定した内容
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">優先度</th>
+        <th scope="col">初版の不足</th>
+        <th scope="col">確定内容</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>P0</td>
+        <td>project削除中にscanや別runnerが動いている場合の扱いが不完全。</td>
+        <td>全project-owned active workを列挙し、一件でもあれば409で拒否する。</td>
+      </tr>
+      <tr>
+        <td>P0</td>
+        <td>DB cascade後に複数artifact rootへ残るファイルの削除方法が未確定。</td>
+        <td>削除manifestをDBへ保存し、project削除後にstorage別cleanup jobで除去する。</td>
+      </tr>
+      <tr>
+        <td>P1</td>
+        <td>
+          新しいtabと現行の <code>scanListTab</code>/<code>scanDetailTab</code>
+          の関係が不明。
+        </td>
+        <td>
+          URLの
+          <code>tab</code>
+          を正とし、移行adapterで旧状態へ写像してから旧状態を削除する。
+        </td>
+      </tr>
+      <tr>
+        <td>P1</td>
+        <td>report本文、LLMコメント、viewer stateの取得順序と失敗時表示が不明。</td>
+        <td>report選択後の取得順、API、状態表、stale response防止を固定する。</td>
+      </tr>
+      <tr>
+        <td>P1</td>
+        <td>migration名、既存reportの初期状態、repositoryの責務が未確定。</td>
+        <td>
+          <code>0031_project_deletion_cleanup_jobs.sql</code> と
+          <code>0032_scan_report_user_views.sql</code>
+          に分け、具体的なschema/repositoryを定義する。
+        </td>
+      </tr>
+      <tr>
+        <td>P1</td>
+        <td>変更ファイル一覧はあったが、commit可能な作業単位とgateが不足。</td>
+        <td>6つのwork packageへ分け、各packageに変更ファイル、テスト、完了条件を付ける。</td>
+      </tr>
+      <tr>
+        <td>P2</td>
+        <td>削除dialogや空状態の文言を実装者が決める必要があった。</td>
+        <td>画面文言とbutton状態を本文で固定する。</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3 id="implementation-non-negotiables">実装時に変更しない前提</h3>
+  <ol>
+    <li>新しいUI libraryを追加しない。React、Lucide、既存CSS変数と既存依存だけを使う。</li>
+    <li>
+      leaf componentからAPI、router、<code>useScans()</code> を呼ばない。
+    </li>
+    <li>
+      route search paramsへ <code>as never</code> や
+      <code>as any</code> を追加しない。
+    </li>
+    <li>
+      初回表示判定に
+      <code>localStorage</code>、<code>sessionStorage</code>、cookieを使わない。
+    </li>
+    <li>
+      project削除で <code>repoPath</code>、Git working tree、remote
+      repositoryを変更しない。
+    </li>
+    <li>旧画面と新画面をfeature flagで長期並行運用しない。work package 6で一度だけ切り替える。</li>
+    <li>この設計書にない機能追加は同じ変更へ含めない。</li>
+  </ol>
+
+  <h2 id="goals">目的</h2>
+  <ul>
+    <li>最初の3秒で「対象プロジェクト」「スキャン開始」「最新結果」を判別できる。</li>
+    <li>画面を大きな一枚のコンポーネントにせず、役割ごとの部品を組み合わせて構築する。</li>
+    <li>登録情報の削除と、ローカルリポジトリのファイル削除を明確に分離する。</li>
+    <li>LLM生成レポートを安全にレンダリングし、Markdownソースとの切り替えを可能にする。</li>
+    <li>LLMコメントをユーザーごと・レポートごとの初回閲覧時に必ず展開する。</li>
+    <li>既存のスキャン実行・診断・finding・report機能を失わず、段階的に移行できる。</li>
+  </ul>
+
+  <h2 id="non-goals">対象外</h2>
+  <ul>
+    <li>スキャナー実行ロジック、検出精度、LLMプロンプト自体の変更。</li>
+    <li>プロジェクトのアーカイブ、復元、ゴミ箱機能。</li>
+    <li>プロジェクト削除時のローカルディレクトリやGitHubリポジトリの削除。</li>
+    <li>既存の全スキャン関連コンポーネントを一度に削除する全面移行。</li>
+    <li>モバイル専用UI。狭い画面では一列へリフローするが、主対象はデスクトップとする。</li>
+  </ul>
+
+  <h2 id="reference-mockups">参照モック</h2>
+
+  <figure>
+    <a href="/vlunWorkbench/plans/assets/ui-mockups/scan-dashboard-redesign.png">
+      <img src="/vlunWorkbench/plans/assets/ui-mockups/scan-dashboard-redesign.png" alt="刷新後のスキャンダッシュボード">
+    </a>
+    <figcaption>
+      スキャン設定、最新結果、カバレッジ、優先対応を一つの視線順序に整理した画面。
+    </figcaption>
+  </figure>
+
+  <figure>
+    <a href="/vlunWorkbench/plans/assets/ui-mockups/project-delete-flow.png">
+      <img src="/vlunWorkbench/plans/assets/ui-mockups/project-delete-flow.png" alt="登録済みプロジェクトの削除フロー">
+    </a>
+    <figcaption>プロジェクトメニュー、対象名確認、完了通知からなる削除フロー。</figcaption>
+  </figure>
+
+  <figure>
+    <a href="/vlunWorkbench/plans/assets/ui-mockups/llm-report-first-view-accordion.png">
+      <img src="/vlunWorkbench/plans/assets/ui-mockups/llm-report-first-view-accordion.png" alt="初回自動展開するLLMコメント付きMarkdownレポート">
+    </a>
+    <figcaption>
+      初回閲覧ではLLMコメントを展開し、その下でMarkdown報告書を読むレポート画面。
+    </figcaption>
+  </figure>
+
+  <h2 id="design-decisions">設計判断</h2>
+  <ol>
+    <li>
+      <strong>既存コントローラーを境界として残す。</strong>
+      <code>ScansProvider</code> と
+      <code>useScansController</code> は移行中も維持する。
+      新しい表示コンポーネントがAPIを直接呼ばないよう、コンテナからpropsを渡す。
+    </li>
+    <li>
+      <strong>表示部品はContext非依存にする。</strong>
+      <code>useScans()</code>
+      を呼ぶのはページ、プロジェクト列、レポートの各コンテナまでとし、
+      カード、表、メニュー、ダイアログ、アコーディオンは純粋なpropsコンポーネントにする。
+    </li>
+    <li>
+      <strong>ルートを選択状態の正とする。</strong>
+      <code>projectId</code>、<code>scanRunId</code>、<code>tab</code>、<code>reportId</code>
+      は URL searchに保持する。再読み込みや共有URLでも同じ表示を復元する。
+    </li>
+    <li>
+      <strong>危険操作はサーバーでも確認する。</strong>
+      削除ダイアログの入力一致だけに依存せず、APIもプロジェクト名と所有者を検証する。
+      queued/runningのスキャンが存在する間は削除を拒否する。
+    </li>
+    <li>
+      <strong>初回表示はサーバーで永続化する。</strong>
+      <code>localStorage</code>
+      ではなく、ユーザーとレポートの組に閲覧済み時刻を保存する。 別ブラウザでも初回条件が一貫する。
+    </li>
+    <li>
+      <strong>Markdown表示は既存の安全化処理を再利用する。</strong>
+      raw HTMLと画像を無効化し、安全なURL schemeだけを許可する現行
+      <code>renderMarkdownToSafeHtml</code> を共通レンダラーへ抽出する。
+    </li>
+  </ol>
+
+  <h2 id="current-code-connections">現行コードとの接続点</h2>
+  <p>
+    実装開始時に広い探索を繰り返さないよう、最初に読むファイルと変更理由を固定する。
+    下表にないファイルは、import先またはテスト失敗から必要性が判明した場合だけ追加で読む。
+  </p>
+  <table>
+    <caption>
+      現行コードの接続点と、この刷新で行う変更
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">現行ファイル</th>
+        <th scope="col">現在の責務</th>
+        <th scope="col">この刷新での変更</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>web/src/domains/scans/scans-domain.tsx</code></td>
+        <td>toolbar、dashboard、DAST、workspaceを直列配置。</td>
+        <td>最終切替時に子を <code>ScansWorkspacePage</code> 一つへ置き換える。</td>
+      </tr>
+      <tr>
+        <td><code>web/src/domains/scans/use-scans-controller.ts</code></td>
+        <td>複数controller/effect/view modelを統合。</td>
+        <td>新しいproject delete/report workspace controllerの戻り値を合成する。</td>
+      </tr>
+      <tr>
+        <td><code>web/src/domains/scans/use-scans-base-controller.ts</code></td>
+        <td>project、scan、finding、reportと旧tabのlocal stateを保持。</td>
+        <td>移行中だけ旧tab adapterを残し、URL tab切替後に旧tab stateを削除する。</td>
+      </tr>
+      <tr>
+        <td><code>web/src/domains/scans/use-scan-target-effects.ts</code></td>
+        <td>選択scan/reportの取得とreport Markdown downloadを実行。</td>
+        <td>report取得effectを <code>use-report-workspace-controller.ts</code> へ移す。</td>
+      </tr>
+      <tr>
+        <td><code>web/src/domains/scans/scans-navigation-handlers.ts</code></td>
+        <td>dashboard actionを旧list/detail tabへ写像。</td>
+        <td>
+          URL searchを更新するtyped navigationへ置換する。既存テストも写像表に合わせて更新する。
+        </td>
+      </tr>
+      <tr>
+        <td><code>web/src/domains/scans/components/scans-toolbar.tsx</code></td>
+        <td>project選択、scan設定、開始、report actionを一つで表示。</td>
+        <td>
+          ロジックをViewModelへ移し、<code>ProjectRail</code> と
+          <code>ScanLaunchCard</code> へ分割する。
+        </td>
+      </tr>
+      <tr>
+        <td><code>web/src/domains/scans/components/diagnostic-dashboard.tsx</code></td>
+        <td>同一優先度の4groupを表示。</td>
+        <td>データ集計を再利用し、新しいoverview 3部品へ投影する。</td>
+      </tr>
+      <tr>
+        <td><code>web/src/domains/scans/components/report-detail-panel.tsx</code></td>
+        <td>report readinessとread-only MarkdownEditorを表示。</td>
+        <td>toolbar、LLM comment、viewer、outlineへ分割する。</td>
+      </tr>
+      <tr>
+        <td><code>web/src/components/markdown-editor.tsx</code></td>
+        <td>Markedの安全化設定とeditor/viewerを同居。</td>
+        <td>
+          安全化関数を
+          <code>safe-markdown.ts</code> へ抽出し、既存editorも同関数を使う。
+        </td>
+      </tr>
+      <tr>
+        <td><code>web/src/router.tsx</code></td>
+        <td><code>/scans</code> のprojectId/scanRunIdだけを型検証。</td>
+        <td>
+          tab、findingId、reportIdを含む <code>parseScansSearch</code> を追加する。
+        </td>
+      </tr>
+      <tr>
+        <td><code>web/src/api/scans.ts</code></td>
+        <td>project、scan、reportの型とAPI client。</td>
+        <td>delete、viewer state、workspace用response型を追加する。</td>
+      </tr>
+      <tr>
+        <td><code>web/src/api/core-request.ts</code></td>
+        <td>
+          HTTP失敗をmessageだけの標準 <code>Error</code> として送出。
+        </td>
+        <td>
+          status/code/detailsを保持する
+          <code>ApiRequestError</code> を追加し、削除UIが
+          400/404/409を型付きで分岐できるようにする。
+        </td>
+      </tr>
+      <tr>
+        <td><code>api/routes/projects.route.ts</code></td>
+        <td>project list/get/createとscan start。</td>
+        <td>
+          <code>DELETE /:projectId</code> を追加し、deletion serviceだけを呼ぶ。
+        </td>
+      </tr>
+      <tr>
+        <td><code>api/routes/scan-reports.route.ts</code></td>
+        <td>report metadata取得とMarkdown download。</td>
+        <td>viewer state GET/PUTを追加する。download契約は変更しない。</td>
+      </tr>
+      <tr>
+        <td><code>api/modules/scans/repositories.ts</code></td>
+        <td>ProjectRepositoryとScanRepository。</td>
+        <td>所有者付きproject削除とproject単位active scan queryを追加する。</td>
+      </tr>
+      <tr>
+        <td><code>api/modules/scans/artifact-storage.ts</code></td>
+        <td>scan artifactの保存、読み取り、個別削除。</td>
+        <td>run directory削除を追加し、共通path containment testを追加する。</td>
+      </tr>
+      <tr>
+        <td><code>api/db/schema/schema-scans.ts</code></td>
+        <td>project/scan/report/review schema。</td>
+        <td>report viewer stateとdeletion cleanup manifestを追加する。</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3 id="required-reading-order">実装者が読む順序</h3>
+  <ol>
+    <li>
+      <code>scans-domain.tsx</code> と
+      <code>router.tsx</code> で画面・route境界を把握する。
+    </li>
+    <li>
+      <code>use-scans-controller.ts</code> と
+      <code>use-scans-base-controller.ts</code> で公開状態を把握する。
+    </li>
+    <li>
+      <code>scans-toolbar.tsx</code>、<code>diagnostic-dashboard.tsx</code>、<code>report-detail-panel.tsx</code>
+      で移行元を確認する。
+    </li>
+    <li>
+      <code>projects.route.ts</code>、<code>scan-reports.route.ts</code>、各repositoryでAPI境界を確認する。
+    </li>
+    <li>
+      <code>schema-scans.ts</code> と最新migration
+      <code>0030</code> を確認し、<code>0031_project_deletion_cleanup_jobs.sql</code>
+      と <code>0032_scan_report_user_views.sql</code> をこの順に作る。
+    </li>
+  </ol>
+
+  <h2 id="component-tree">コンポーネント構成</h2>
+  <pre><code class="language-text">ScansDomainSection
+└── ScansWorkspacePage                         container
+    ├── ProjectRailContainer                  container
+    │   └── ProjectRail                       presentation
+    │       ├── ProjectSearchField
+    │       ├── ProjectListItem
+    │       │   └── ProjectActionsMenu
+    │       ├── AddProjectButton
+    │       ├── ProjectDeleteDialog           portal
+    │       └── ProjectDeleteToast            live region
+    └── ScanWorkspaceContainer                container
+        └── ScanWorkspace
+            ├── ScanWorkspaceHeader
+            ├── ScanLaunchCard
+            │   ├── ScanProfileField
+            │   ├── ScanTargetField
+            │   ├── ScanExecutionOptions
+            │   ├── ScanCoverageNotice
+            │   └── StartScanButton
+            ├── ScanContextBar
+            └── ScanTabs
+                ├── ScanOverviewTab
+                │   ├── LatestScanSummaryCard
+                │   │   └── SeverityDistribution
+                │   ├── CoverageSummaryCard
+                │   │   └── CoverageChecklist
+                │   └── PriorityFindingsTable
+                ├── ScanFindingsTab
+                ├── ScanCoverageTab
+                ├── ScanReportContainer       container
+                │   └── ScanReportWorkspace
+                │       ├── ReportToolbar
+                │       ├── LlmCommentAccordion
+                │       ├── MarkdownReportViewer
+                │       └── ReportOutline
+                └── ScanHistoryTab</code></pre>
+
+  <h3 id="container-boundaries">コンテナ境界</h3>
+  <table>
+    <caption>
+      データ取得と表示責務の境界
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">コンテナ</th>
+        <th scope="col">担当</th>
+        <th scope="col">担当しないこと</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>ScansWorkspacePage</code></td>
+        <td>URL選択状態、ページ全体のloading/error、主要ViewModelの組み立て</td>
+        <td>カード内の表示分岐、削除確認入力</td>
+      </tr>
+      <tr>
+        <td><code>ProjectRailContainer</code></td>
+        <td>検索、選択、メニュー、削除mutation、削除後のnavigation</td>
+        <td>スキャン実行、report取得</td>
+      </tr>
+      <tr>
+        <td><code>ScanWorkspaceContainer</code></td>
+        <td>プロファイル、対象、開始可否、scan tab、最新結果の選択</td>
+        <td>MarkdownのHTML化、dialogのfocus制御</td>
+      </tr>
+      <tr>
+        <td><code>ScanReportContainer</code></td>
+        <td>report、Markdown本文、LLMコメント、閲覧状態の取得と更新</td>
+        <td>Markdown要素の個別装飾、accordionのDOM構造</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2 id="component-catalog">コンポーネントカタログ</h2>
+  <table>
+    <caption>
+      新しいスキャンワークスペースを構成する主要コンポーネント
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">コンポーネント</th>
+        <th scope="col">責務</th>
+        <th scope="col">主な入力</th>
+        <th scope="col">状態</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>ProjectRail</code></td>
+        <td>登録済みプロジェクトの検索、選択、追加導線を表示する。</td>
+        <td>
+          <code>projects</code>、<code>selectedId</code>、各callback
+        </td>
+        <td>なし</td>
+      </tr>
+      <tr>
+        <td><code>ProjectListItem</code></td>
+        <td>名前、branch、provider、実行可否、選択状態を一行で表示する。</td>
+        <td><code>ProjectRailItemView</code></td>
+        <td>なし</td>
+      </tr>
+      <tr>
+        <td><code>ProjectActionsMenu</code></td>
+        <td>通常操作と削除操作を区切って表示する。</td>
+        <td>
+          <code>project</code>、<code>onDeleteRequest</code>
+        </td>
+        <td>open/closed、focus index</td>
+      </tr>
+      <tr>
+        <td><code>ProjectDeleteDialog</code></td>
+        <td>削除対象、削除されるDBデータ、残るローカルファイルを示し、名前一致を要求する。</td>
+        <td>
+          <code>project</code>、<code>busy</code>、<code>error</code>
+        </td>
+        <td>確認入力だけをローカル保持</td>
+      </tr>
+      <tr>
+        <td><code>ScanLaunchCard</code></td>
+        <td>profile、target、実行オプション、coverage gap、開始操作を一つにまとめる。</td>
+        <td><code>ScanLaunchViewModel</code></td>
+        <td>なし</td>
+      </tr>
+      <tr>
+        <td><code>ScanContextBar</code></td>
+        <td>選択scanの状態、日時、時間、検出数とscan切替を表示する。</td>
+        <td><code>ScanContextView</code></td>
+        <td>なし</td>
+      </tr>
+      <tr>
+        <td><code>ScanTabs</code></td>
+        <td>概要、検出結果、カバレッジ、レポート、履歴を切り替える。</td>
+        <td><code>activeTab</code>、件数、callback</td>
+        <td>URLが正。内部保持しない</td>
+      </tr>
+      <tr>
+        <td><code>LatestScanSummaryCard</code></td>
+        <td>最新scanの状態、実行時間、finding総数、severity分布を示す。</td>
+        <td><code>LatestScanSummaryView</code></td>
+        <td>なし</td>
+      </tr>
+      <tr>
+        <td><code>CoverageSummaryCard</code></td>
+        <td>finding件数と独立した診断coverageを示す。</td>
+        <td><code>CoverageSummaryView</code></td>
+        <td>なし</td>
+      </tr>
+      <tr>
+        <td><code>PriorityFindingsTable</code></td>
+        <td>高優先findingを最大3件だけ表示し、全件表示へつなぐ。</td>
+        <td>
+          <code>rows</code>、<code>onOpenFinding</code>
+        </td>
+        <td>なし</td>
+      </tr>
+      <tr>
+        <td><code>ReportToolbar</code></td>
+        <td>render/source切替、コピー、ダウンロード、生成時刻を表示する。</td>
+        <td><code>mode</code>、report metadata、callback</td>
+        <td>modeはcontainerが保持</td>
+      </tr>
+      <tr>
+        <td><code>LlmCommentAccordion</code></td>
+        <td>LLMコメントを初回に自動展開し、重大findingへの導線を提供する。</td>
+        <td>
+          <code>comment</code>、<code>initiallyExpanded</code>、callback
+        </td>
+        <td>expandedのみ。seenはサーバーが正</td>
+      </tr>
+      <tr>
+        <td><code>MarkdownReportViewer</code></td>
+        <td>安全化済みMarkdown HTMLまたはescape済みsourceを表示する。</td>
+        <td>
+          <code>markdown</code>、<code>mode</code>
+        </td>
+        <td>なし</td>
+      </tr>
+      <tr>
+        <td><code>ReportOutline</code></td>
+        <td>h2/h3見出しを抽出し、本文内アンカーへ移動する。</td>
+        <td>
+          <code>headings</code>、<code>activeHeadingId</code>
+        </td>
+        <td>現在位置だけ</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2 id="view-models">ViewModelとprops契約</h2>
+  <pre><code class="language-ts">type ScanWorkspaceTab =
+  | "overview"
+  | "findings"
+  | "coverage"
+  | "report"
+  | "history";
+
+type ProjectRailItemView = {
+  id: string;
+  displayName: string;
+  defaultBranch: string;
+  providerLabel: string | null;
+  pathStatus: "allowed" | "blocked" | "missing";
+  selected: boolean;
+};
+
+type ScanContextView = {
+  scanRunId: string;
+  status: "queued" | "running" | "completed" | "failed" | "cancelled";
+  startedAt: string | null;
+  durationSeconds: number | null;
+  findingCount: number;
+};
+
+type LlmCommentViewModel = {
+  headline: string;
+  summary: string;
+  priorityFinding: {
+    id: string;
+    severity: "critical" | "high" | "medium" | "low";
+    title: string;
+    location: string | null;
+  } | null;
+  secondaryNotes: string[];
+  generatedAt: string;
+};
+
+type ReportViewerState = {
+  llmCommentSeenAt: string | null;
+};
+
+type LlmCommentAccordionProps = {
+  comment: LlmCommentViewModel;
+  initiallyExpanded: boolean;
+  savingSeenState: boolean;
+  onOpenFinding: (findingId: string) =&gt; void;
+  onFirstClose: () =&gt; Promise&lt;boolean&gt;;
+};</code></pre>
+
+  <p>
+    ViewModelは <code>web/src/domains/scans/scans-workspace-view-model.ts</code> にまとめる。
+    severity集計、coverage表示、provider名推定、location短縮などをJSX内で行わない。
+    builder関数は同じ入力に対して同じ出力を返す純粋関数とし、単体テスト対象にする。
+  </p>
+
+  <h2 id="state-ownership">状態の所有権</h2>
+  <table>
+    <caption>
+      画面状態ごとの正となる保存場所
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">状態</th>
+        <th scope="col">正となる場所</th>
+        <th scope="col">例</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>画面選択</td>
+        <td>URL search</td>
+        <td>
+          <code>projectId</code>、<code>scanRunId</code>、<code>tab</code>、<code>reportId</code>
+        </td>
+      </tr>
+      <tr>
+        <td>永続データ</td>
+        <td>APIとDB</td>
+        <td>projects、scans、findings、reports、viewer state</td>
+      </tr>
+      <tr>
+        <td>実行中状態</td>
+        <td><code>useScansController</code></td>
+        <td>scan開始中、report取得中、delete送信中</td>
+      </tr>
+      <tr>
+        <td>一時UI状態</td>
+        <td>最も近いコンテナ</td>
+        <td>menu open、dialog open、確認入力、render/source mode</td>
+      </tr>
+      <tr>
+        <td>LLMコメント既読</td>
+        <td>DB</td>
+        <td><code>llmCommentSeenAt</code></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2 id="route-design">ルート設計</h2>
+  <pre><code class="language-text">/scans
+/scans?projectId=p-1
+/scans?projectId=p-1&amp;scanRunId=s-1&amp;tab=overview
+/scans?projectId=p-1&amp;scanRunId=s-1&amp;tab=findings&amp;findingId=f-1
+/scans?projectId=p-1&amp;scanRunId=s-1&amp;tab=report&amp;reportId=r-1</code></pre>
+
+  <pre><code class="language-ts">const scanWorkspaceTabs = [
+  "overview",
+  "findings",
+  "coverage",
+  "report",
+  "history",
+] as const;
+
+type ScanWorkspaceSearch = {
+  projectId?: string;
+  scanRunId?: string;
+  tab: (typeof scanWorkspaceTabs)[number];
+  findingId?: string;
+  reportId?: string;
+};</code></pre>
+
+  <ul>
+    <li>
+      <code>web/src/domains/scans/scans-route-search.ts</code>
+      にparse関数と型を置き、routerとテストから共用する。
+    </li>
+    <li>
+      不正または未指定の <code>tab</code> は
+      <code>overview</code> へ正規化する。
+    </li>
+    <li><code>projectId</code> がなければ、他のIDをすべて除去する。</li>
+    <li>
+      <code>scanRunId</code> がなければ、<code>findingId</code>
+      と <code>reportId</code> を除去する。
+    </li>
+    <li>
+      <code>tab !== "findings"</code> なら
+      <code>findingId</code> を除去する。
+    </li>
+    <li>
+      <code>tab !== "report"</code> なら
+      <code>reportId</code> を除去する。
+    </li>
+    <li>
+      project変更後、指定scanがprojectに属さなければ最新scanへ置換し、存在しなければscanRunIdを除去する。
+    </li>
+    <li>
+      reportが未指定なら、そのscanの最新completed reportを選ぶ。completed reportがなければreport
+      tabの空状態を表示する。
+    </li>
+    <li>
+      削除成功後は
+      <code>/scans</code> へ遷移し、削除済みIDをURLに残さない。
+    </li>
+  </ul>
+
+  <table>
+    <caption>
+      現行の画面内状態からURL tabへの一時的な写像
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">現行状態・操作</th>
+        <th scope="col">新しいURL tab</th>
+        <th scope="col">補助param</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>scanDetailTab="review"</code> かつfinding未選択</td>
+        <td><code>overview</code></td>
+        <td>なし</td>
+      </tr>
+      <tr>
+        <td><code>scanListTab="findings"</code> またはfindingを開く</td>
+        <td><code>findings</code></td>
+        <td><code>findingId</code></td>
+      </tr>
+      <tr>
+        <td>coverage dashboard action</td>
+        <td><code>coverage</code></td>
+        <td>なし</td>
+      </tr>
+      <tr>
+        <td><code>scanDetailTab="report"</code></td>
+        <td><code>report</code></td>
+        <td><code>reportId</code></td>
+      </tr>
+      <tr>
+        <td><code>scanListTab="runs"</code></td>
+        <td><code>history</code></td>
+        <td>なし</td>
+      </tr>
+      <tr>
+        <td><code>scanDetailTab="verification"</code></td>
+        <td><code>findings</code></td>
+        <td><code>findingId</code>。finding detail内のsubviewとして維持</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p>
+    work package 1ではadapterがURLから旧state setterを呼ぶ。work package 6で新画面へ切り替えた後、
+    <code>scanListTab</code>、<code>scanDetailTab</code>、<code>viewingReport</code>
+    とadapterを削除する。 URLと旧local
+    stateを双方向同期してはならない。移行中もURLから旧stateへの一方向だけにする。
+  </p>
+
+  <h2 id="project-deletion">プロジェクト削除設計</h2>
+
+  <h3 id="project-delete-ui-flow">UIフロー</h3>
+  <ol>
+    <li>選択プロジェクトの三点メニューを開く。</li>
+    <li>区切り線の下にある「プロジェクトを削除」を選ぶ。</li>
+    <li>ダイアログでproject名、branch、リポジトリを表示する。</li>
+    <li>
+      「scan履歴、finding、注釈、レポートは削除される」「ローカルのファイルは削除されない」を明記する。
+    </li>
+    <li>プロジェクト名と完全一致したときだけ削除ボタンを有効化する。</li>
+    <li>API成功後にproject一覧を更新し、選択を解除して完了toastを表示する。</li>
+  </ol>
+
+  <h3 id="ui-copy-contract">画面文言契約</h3>
+  <p>下表の文言をそのまま使用する。実装中の言い換えは行わず、文言変更は設計変更として扱う。</p>
+  <table>
+    <caption>
+      プロジェクト削除とLLMコメントで使用する固定文言
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">表示箇所</th>
+        <th scope="col">固定文言</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>project menu</td>
+        <td>「プロジェクト設定」「スキャン履歴」、区切り線、「プロジェクトを削除」</td>
+      </tr>
+      <tr>
+        <td>delete dialog title</td>
+        <td>「プロジェクト「{name}」を削除しますか？」</td>
+      </tr>
+      <tr>
+        <td>delete dialog body</td>
+        <td>
+          「この操作は取り消せません。スキャン履歴、検出結果、注釈、レポートを削除します。ローカルのリポジトリファイルは削除されません。」
+        </td>
+      </tr>
+      <tr>
+        <td>confirmation label</td>
+        <td>「確認のため {name} と入力してください」</td>
+      </tr>
+      <tr>
+        <td>dialog buttons</td>
+        <td>「キャンセル」「プロジェクトを削除」</td>
+      </tr>
+      <tr>
+        <td>success toast</td>
+        <td>「プロジェクト「{name}」を削除しました」</td>
+      </tr>
+      <tr>
+        <td>LLM accordion</td>
+        <td>
+          見出し「LLMのコメント」、badge「初回表示」、補足「重要な判断材料を確認してからレポートを読み進めてください」、操作「コメントを閉じる」
+        </td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3 id="project-delete-api">API契約</h3>
+  <pre><code class="language-http">DELETE /api/projects/:projectId
+Content-Type: application/json
+
+{
+  "confirmation": "Code"
+}
+
+200 OK
+{
+  "deletedProjectId": "p-1",
+  "deletedAt": "2026-08-20T12:30:00.000Z",
+  "artifactCleanup": "queued"
+}</code></pre>
+
+  <p>
+    request schemaは <code>z.object({ confirmation: z.string().min(1).max(200) })</code> とする。
+    project名との比較はtrimや大文字小文字変換を行わない完全一致とする。API clientは
+    <code>deleteProject(projectId, { confirmation })</code> を
+    <code>web/src/api/scans.ts</code> に追加する。
+  </p>
+
+  <h3 id="typed-api-error">Web APIエラー型</h3>
+  <pre><code class="language-ts">type ApiErrorBody = {
+  message: string;
+  code?: string;
+  details?: unknown;
+};
+
+export class ApiRequestError extends Error {
+  readonly status: number;
+  readonly code: string | null;
+  readonly details: unknown;
+}
+
+function isApiRequestError(error: unknown): error is ApiRequestError;</code></pre>
+  <p>
+    <code>web/src/api/core-request.ts</code> の
+    <code>requestJson</code> は、非2xx応答で
+    <code>ApiErrorBody</code> を安全にparseし、<code>ApiRequestError</code>
+    を送出する。JSONでない応答は 既存のfallback
+    messageを使い、<code>code=null</code>、<code>details=null</code>
+    とする。 <code>use-project-delete-controller.ts</code> は
+    <code>isApiRequestError</code>
+    でnarrowingし、statusとcodeの組み合わせだけでUI状態を決める。
+    <code>as any</code>、message文字列の部分一致、HTTP
+    clientの二重実装は禁止する。
+  </p>
+
+  <table>
+    <caption>
+      プロジェクト削除APIのエラーと画面挙動
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Status</th>
+        <th scope="col">条件</th>
+        <th scope="col">UI</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>400</td>
+        <td><code>PROJECT_CONFIRMATION_MISMATCH</code></td>
+        <td>入力欄直下にエラーを表示</td>
+      </tr>
+      <tr>
+        <td>403</td>
+        <td>所有者ではない</td>
+        <td>共通エラー。対象情報を追加表示しない</td>
+      </tr>
+      <tr>
+        <td>404</td>
+        <td>対象が存在しない</td>
+        <td>一覧を再取得してdialogを閉じる</td>
+      </tr>
+      <tr>
+        <td>409</td>
+        <td><code>PROJECT_HAS_ACTIVE_WORK</code></td>
+        <td>「実行中の処理を停止してから削除してください」</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3 id="project-delete-server">サーバー処理</h3>
+  <ol>
+    <li>routeはrequestをvalidateし、<code>ProjectDeletionService.deleteOwnedProject</code> だけを呼ぶ。</li>
+    <li>
+      serviceは
+      <code>projectId</code>
+      でprojectを読み、認証ユーザーの所有権を検証する。
+    </li>
+    <li>
+      requestの
+      <code>confirmation</code> と保存済みproject名を完全一致で検証する。
+    </li>
+    <li>transaction内でproject-owned active workを列挙し、一件でもあれば409を返す。</li>
+    <li>同じtransaction内でartifact cleanup manifestを作り、cleanup jobをpendingで保存する。</li>
+    <li>
+      <code>ProjectRepository.deleteOwnedProject</code> でproject行を削除し、transactionをcommitする。
+    </li>
+    <li>commit後に <code>ProjectArtifactCleanupRunner.enqueue(jobId)</code> を呼ぶ。</li>
+    <li>runnerはstorageごとのrun directoryを削除し、jobをcompletedにする。</li>
+    <li>cleanup失敗時もproject削除は取り消さず、jobをfailed/retryableとして保存する。</li>
+    <li>server起動時にpending/failed jobを再queueする。</li>
+  </ol>
+
+  <h3 id="active-work-guard">active work guard</h3>
+  <p>
+    次のproject-owned tableについて、statusが <code>queued</code> または
+    <code>running</code> の行を activeとして扱う。tableがscan
+    runを介してprojectへ属する場合はscanRunIdでjoinする。
+  </p>
+  <ul>
+    <li><code>scan_runs</code></li>
+    <li><code>static_intelligence_prepare_jobs</code></li>
+    <li>
+      <code>scan_reviews</code>、<code>scan_reports</code>、<code>scan_diagnostic_runs</code>
+    </li>
+    <li>
+      <code>dast_runs</code>、<code>dynamic_runs</code>、<code>reproduction_runs</code>
+    </li>
+    <li><code>active_assessment_runs</code></li>
+    <li>
+      <code>threat_model_runs</code>、<code>business_logic_runs</code>
+    </li>
+  </ul>
+  <p>
+    response detailsにはkindと件数だけを返し、process IDやcommandを返さない。guard queryは
+    <code>api/modules/scans/project-deletion-active-work.ts</code> に集約し、routeへSQLを置かない。
+  </p>
+
+  <h3 id="artifact-cleanup-manifest">artifact cleanup manifest</h3>
+  <pre><code class="language-ts">type ProjectArtifactCleanupManifest = {
+  scanRunIds: string[];
+  dastRunIds: string[];
+  dynamicRunIds: string[];
+  reproductionRunIds: string[];
+};</code></pre>
+  <p>
+    IDはproject削除前にDBから取得した値だけを使う。client入力や
+    <code>repoPath</code> をmanifestへ入れない。
+    <code>ArtifactStorage</code>、<code>DastArtifactStorage</code>、
+    <code>DynamicArtifactStorage</code>、<code>ReproductionArtifactStorage</code> に
+    <code>removeRunDirectory(runId)</code> を追加する。各methodはbase directoryからのpath
+    containmentを 検証してから <code>fs.rm(target, { recursive: true, force: true })</code> を行う。
+  </p>
+
+  <p>
+    project配下のDBデータは外部キーの <code>ON DELETE CASCADE</code> で削除する。
+    <code>repoPath</code> はcleanup
+    manifestへ含めず、ローカルのrepositoryには一切触れない。
+  </p>
+
+  <h2 id="llm-report">LLM Markdownレポート設計</h2>
+
+  <h3 id="report-data-source">データ源</h3>
+  <ul>
+    <li>
+      Markdown本文: completed <code>ScanReport</code> のreport artifact。
+    </li>
+    <li>
+      LLMコメント: 同じscanの最新completed
+      <code>ScanReview</code> からViewModelを組み立てる。
+    </li>
+    <li>
+      重大finding導線: <code>findingTriageHints</code> と実findingをIDで結合する。
+    </li>
+    <li>目次: Markdownをparseした見出しから生成し、LLMに目次生成を依頼しない。</li>
+  </ul>
+
+  <h3 id="report-load-contract">report workspaceの取得契約</h3>
+  <ol>
+    <li>URLの <code>reportId</code> からselected reportを決める。</li>
+    <li><code>GET /api/scan-reports/:id</code> でmetadataとownershipを確認する。</li>
+    <li>
+      statusがcompletedの場合だけ、既存
+      <code>GET /api/scan-reports/:id/download</code> からMarkdown本文を取得する。
+    </li>
+    <li>
+      同じscanの <code>scanReviews</code> から最新completed reviewを選び、LLM
+      comment ViewModelを組み立てる。
+    </li>
+    <li>LLM commentが存在する場合だけviewer stateを取得する。</li>
+    <li>3つのrequestはreportIdごとのrequest sequence番号を持ち、古いresponseを捨てる。</li>
+  </ol>
+
+  <table>
+    <caption>
+      report workspaceの画面状態と表示
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">条件</th>
+        <th scope="col">表示</th>
+        <th scope="col">操作</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>scan未選択</td>
+        <td>「スキャンを選択するとレポートを確認できます」</td>
+        <td>履歴tabへのlink</td>
+      </tr>
+      <tr>
+        <td>reportなし</td>
+        <td>「このスキャンのレポートはまだありません」</td>
+        <td>既存の生成可能条件を満たす場合だけ「レポートを生成」</td>
+      </tr>
+      <tr>
+        <td>queued/running</td>
+        <td>「レポートを生成中…」とstatus</td>
+        <td>なし。既存pollingで更新</td>
+      </tr>
+      <tr>
+        <td>failed</td>
+        <td>保存済み <code>errorMessage</code> の安全な要約</td>
+        <td>既存の再生成条件を満たす場合だけ再生成</td>
+      </tr>
+      <tr>
+        <td>completed・本文loading</td>
+        <td>toolbarとarticle skeleton</td>
+        <td>download buttonは有効、copyは無効</td>
+      </tr>
+      <tr>
+        <td>completed・本文取得失敗</td>
+        <td>「レポート本文を読み込めませんでした」</td>
+        <td>「再読み込み」とdownload</td>
+      </tr>
+      <tr>
+        <td>completed・LLM reviewなし</td>
+        <td>accordionを出さず「LLMコメントはまだ生成されていません」</td>
+        <td>report本文は通常表示</td>
+      </tr>
+      <tr>
+        <td>completed・全取得成功</td>
+        <td>comment accordion、Markdown本文、目次</td>
+        <td>render/source、copy、download</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3 id="llm-comment-view-model-builder">LLM comment ViewModelの決定規則</h3>
+  <ol>
+    <li>
+      reviewは <code>status === "completed"</code> のうち
+      <code>createdAt</code> が最新の一件を使う。
+    </li>
+    <li>
+      <code>headline</code> はcritical/high
+      findingがあれば「最優先で確認が必要な問題があります」、 なければ「LLMによる確認結果」とする。
+    </li>
+    <li>
+      <code>summary</code> は
+      <code>riskOverview</code>、次に
+      <code>summary</code> を使う。両方なければaccordionを出さない。
+    </li>
+    <li>
+      <code>priorityFinding</code> は
+      <code>findingTriageHints</code>
+      内のfindingIdが実findingに存在するものだけを候補にし、
+      critical、high、medium、low、infoの順、同一severityは配列順の最初を使う。
+    </li>
+    <li>
+      <code>secondaryNotes</code> は
+      <code>recommendedNextActions</code> の先頭2件だけを使う。
+    </li>
+    <li>存在しないfindingId、自由形式HTML、providerのraw outputを表示へ渡さない。</li>
+  </ol>
+
+  <h3 id="markdown-security">Markdown安全性</h3>
+  <ul>
+    <li>raw HTMLは描画しない。</li>
+    <li>画像は描画しない。</li>
+    <li>
+      linkは
+      <code>http:</code>、<code>https:</code>、<code>mailto:</code>
+      のみ許可する。
+    </li>
+    <li>
+      <code>Markdownソース</code> は
+      <code>textContent</code> 相当で表示し、HTMLとして挿入しない。
+    </li>
+    <li>外部linkは新規タブへ強制せず、既存のproduct policyに合わせる。</li>
+    <li>見出しIDは同一文書内で一意になる決定的sluggerを使う。</li>
+  </ul>
+
+  <p>
+    現行 <code>MarkdownEditor</code> から安全化関数を
+    <code>web/src/components/safe-markdown.ts</code> へ移し、
+    editorとviewerの両方が同じ関数を利用する。viewerは編集toolbarやtextareaを持たない。
+  </p>
+
+  <h2 id="llm-comment-accordion">LLMコメント初回表示</h2>
+
+  <h3 id="accordion-state-machine">状態遷移</h3>
+  <table>
+    <caption>
+      LLMコメントアコーディオンの状態遷移
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">状態</th>
+        <th scope="col">表示</th>
+        <th scope="col">遷移</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>loading</code></td>
+        <td>accordion header相当のskeleton。本文は表示しない</td>
+        <td>viewer state取得後にunseen/seenへ</td>
+      </tr>
+      <tr>
+        <td><code>unseen-expanded</code></td>
+        <td>「初回表示」badge付きで必ず展開</td>
+        <td>「コメントを閉じる」で既読保存</td>
+      </tr>
+      <tr>
+        <td><code>saving-seen</code></td>
+        <td>展開を維持し、close actionをdisabled</td>
+        <td>成功でseen-collapsed、失敗でunseen-expanded</td>
+      </tr>
+      <tr>
+        <td><code>seen-collapsed</code></td>
+        <td>一行headerのみ</td>
+        <td>header操作でseen-expandedへ</td>
+      </tr>
+      <tr>
+        <td><code>seen-expanded</code></td>
+        <td>再閲覧として展開。「初回表示」badgeなし</td>
+        <td>header操作でseen-collapsedへ</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p>
+    既読は画面を開いただけでは保存しない。ユーザーが「コメントを閉じる」を操作した時点で
+    <code>llmCommentSeenAt</code>
+    を保存する。通信失敗時は閉じず、次回も確実に表示する。
+  </p>
+
+  <h3 id="report-view-state-storage">閲覧状態の永続化</h3>
+  <pre><code class="language-sql">scan_report_user_views
+  report_id             TEXT NOT NULL REFERENCES scan_reports(id) ON DELETE CASCADE
+  user_id               TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE
+  llm_comment_seen_at   INTEGER NULL
+  created_at            INTEGER NOT NULL
+  updated_at            INTEGER NOT NULL
+  PRIMARY KEY (report_id, user_id)</code></pre>
+
+  <pre><code class="language-http">GET /api/scan-reports/:reportId/view-state
+
+200 OK
+{
+  "viewerState": {
+    "llmCommentSeenAt": null
+  }
+}
+
+PUT /api/scan-reports/:reportId/view-state
+Content-Type: application/json
+
+{
+  "llmCommentSeen": true
+}
+
+200 OK
+{
+  "viewerState": {
+    "llmCommentSeenAt": "2026-08-20T12:30:00.000Z"
+  }
+}</code></pre>
+
+  <ul>
+    <li>
+      PUTは
+      <code>llmCommentSeen: true</code> だけを受け入れ、falseによる既読解除は提供しない。
+    </li>
+    <li>GET/PUTとも既存 <code>checkReportOwnership</code> を必ず通す。</li>
+    <li>viewer rowがなければGETは200と <code>llmCommentSeenAt: null</code> を返す。</li>
+    <li>PUTはreportId/userIdのupsertとし、既読時刻がすでにあれば変更しない。</li>
+    <li>report削除時はviewer rowをcascade deleteする。</li>
+  </ul>
+
+  <h2 id="database-migrations">DB migration</h2>
+  <p>
+    migrationは機能境界ごとに2本へ分け、既存
+    <code>0030</code> の次へ追加する。 既存データのbackfillは行わない。
+  </p>
+
+  <h3 id="migration-0031">0031_project_deletion_cleanup_jobs.sql</h3>
+  <pre><code class="language-sql">CREATE TABLE project_deletion_cleanup_jobs (
+  id TEXT PRIMARY KEY NOT NULL,
+  owner_user_id TEXT,
+  project_id TEXT NOT NULL,
+  project_name TEXT NOT NULL,
+  manifest_json TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  attempt_count INTEGER NOT NULL DEFAULT 0,
+  last_error TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  completed_at INTEGER,
+  FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE SET NULL
+);
+
+CREATE INDEX project_deletion_cleanup_jobs_status_created_idx
+  ON project_deletion_cleanup_jobs(status, created_at);</code></pre>
+  <ul>
+    <li>
+      <code>project_id</code>
+      は削除済みprojectの監査用文字列であり、projectsへの外部キーを付けない。
+    </li>
+    <li>
+      <code>manifest_json</code> は
+      <code>ProjectArtifactCleanupManifest</code> としてschemaで型付けする。
+    </li>
+    <li>statusは <code>pending | running | completed | failed</code> だけをrepositoryで扱う。</li>
+    <li>failed jobは起動時にpendingへ戻さず、claim時にrunningへ更新してattemptを増やす。</li>
+  </ul>
+
+  <h3 id="migration-0032">0032_scan_report_user_views.sql</h3>
+  <pre><code class="language-sql">CREATE TABLE scan_report_user_views (
+  report_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  llm_comment_seen_at INTEGER,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (report_id, user_id),
+  FOREIGN KEY (report_id) REFERENCES scan_reports(id) ON DELETE CASCADE,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE INDEX scan_report_user_views_user_updated_idx
+  ON scan_report_user_views(user_id, updated_at);</code></pre>
+  <ul>
+    <li>既存reportはrowなしのため、LLM commentがある場合は初回未読として扱う。</li>
+    <li>timestampは既存schema helperのmillisecond形式を使う。</li>
+    <li><code>schema-contract.test.ts</code> のexport/table一覧へ2tableを追加する。</li>
+    <li>
+      <code>db:migrate</code>
+      の適用後に、同じDBへ再適用しても追加変更が発生しないことを確認する。
+    </li>
+  </ul>
+
+  <h2 id="file-plan">ファイル配置</h2>
+  <p>
+    以下が追加・変更対象の完全なmanifestである。work package内でこの一覧外のproduction
+    fileが必要になった場合は、 先に本節を更新して責務を記録する。
+  </p>
+  <pre><code class="language-text">spec/
+├── docs/active-plans/
+│   └── scan-workspace-component-design.html
+└── assets/ui-mockups/
+    ├── scan-dashboard-redesign.png
+    ├── project-delete-flow.png
+    └── llm-report-first-view-accordion.png
+
+web/src/
+├── router.tsx                                      [変更]
+├── styles.css                                     [変更]
+├── styles-scans.css                               [変更]
+├── api/
+│   ├── core-request.ts                            [変更]
+│   ├── core-request.test.ts                       [変更]
+│   └── scans.ts                                   [変更]
+├── components/
+│   ├── dialog.tsx                                 [追加]
+│   ├── menu.tsx                                   [追加]
+│   ├── toast-region.tsx                           [追加]
+│   ├── safe-markdown.ts                           [追加]
+│   └── safe-markdown.test.ts                      [追加]
+└── domains/scans/
+    ├── scans-domain.tsx                           [変更]
+    ├── scans-navigation-handlers.ts               [変更]
+    ├── scans-navigation-handlers.test.ts          [変更]
+    ├── scans-route-search.ts                      [追加]
+    ├── scans-route-search.test.ts                 [追加]
+    ├── scans-workspace-view-model.ts              [追加]
+    ├── scans-workspace-view-model.test.ts         [追加]
+    ├── use-scans-base-controller.ts               [変更]
+    ├── use-scans-controller.ts                    [変更]
+    ├── use-scan-target-effects.ts                 [変更]
+    ├── use-project-delete-controller.ts           [追加]
+    ├── use-project-delete-controller.test.ts      [追加]
+    ├── use-report-workspace-controller.ts         [追加]
+    ├── use-report-workspace-controller.test.ts    [追加]
+    └── components/
+        ├── scans-workspace-page.tsx                [追加]
+        ├── project-rail.tsx                        [追加]
+        ├── project-actions-menu.tsx                [追加]
+        ├── project-delete-dialog.tsx               [追加]
+        ├── scan-launch-card.tsx                    [追加]
+        ├── scan-context-bar.tsx                    [追加]
+        ├── scan-tabs.tsx                           [追加]
+        ├── scan-overview-tab.tsx                   [追加]
+        ├── latest-scan-summary-card.tsx            [追加]
+        ├── coverage-summary-card.tsx               [追加]
+        ├── priority-findings-table.tsx             [追加]
+        ├── scan-report-workspace.tsx               [追加]
+        ├── report-toolbar.tsx                      [追加]
+        ├── llm-comment-accordion.tsx               [追加]
+        ├── markdown-report-viewer.tsx              [追加]
+        └── report-outline.tsx                      [追加]
+
+api/
+├── app/
+│   ├── hono-runtime.ts                            [変更]
+│   └── hono-scan-routes.ts                        [変更]
+├── db/schema/
+│   ├── schema-scans.ts                            [変更]
+│   └── schema-contract.test.ts                    [変更]
+├── modules/
+│   ├── scans/
+│   │   ├── repositories.ts                        [変更]
+│   │   ├── artifact-storage.ts                    [変更]
+│   │   ├── artifact-storage.test.ts               [変更]
+│   │   ├── project-deletion-service.ts            [追加]
+│   │   ├── project-deletion-service.test.ts       [追加]
+│   │   ├── project-deletion-active-work.ts        [追加]
+│   │   ├── project-deletion-active-work.test.ts   [追加]
+│   │   ├── project-deletion-cleanup-repository.ts [追加]
+│   │   ├── project-artifact-cleanup-runner.ts     [追加]
+│   │   ├── project-artifact-cleanup-runner.test.ts[追加]
+│   │   ├── report-view-state-repository.ts        [追加]
+│   │   └── report-view-state-repository.test.ts   [追加]
+│   ├── dast/
+│   │   ├── dast-artifact-storage.ts               [変更]
+│   │   └── dast-artifact-storage.test.ts          [変更]
+│   ├── dynamic/
+│   │   ├── dynamic-artifact-storage.ts            [変更]
+│   │   └── dynamic-artifact-storage.test.ts       [変更]
+│   └── reproductions/
+│       ├── reproduction-artifact-storage.ts       [変更]
+│       └── reproduction-artifact-storage.test.ts  [追加]
+└── routes/
+    ├── projects.route.ts                          [変更]
+    ├── projects.route.test.ts                     [変更]
+    ├── scan-reports.route.ts                      [変更]
+    └── scan-reports.route.test.ts                 [変更]
+
+drizzle/
+├── 0031_project_deletion_cleanup_jobs.sql         [追加]
+└── 0032_scan_report_user_views.sql                [追加]
+
+tests/e2e/
+└── scan-workspace.spec.ts                         [追加]</code></pre>
+
+  <p>
+    genericな
+    <code>Dialog</code>、<code>Menu</code>、<code>ToastRegion</code>
+    だけを
+    <code>web/src/components</code>
+    に置く。scan固有の文言やデータ判断を共有部品へ入れない。 CSSは既存どおり
+    <code>web/src/styles-scans.css</code> を主対象とし、共通overlayだけを
+    <code>web/src/styles.css</code> に置く。
+  </p>
+
+  <h2 id="existing-component-migration">既存部品からの移行</h2>
+  <table>
+    <caption>
+      現行コンポーネントと新コンポーネントの対応
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">現行</th>
+        <th scope="col">移行先</th>
+        <th scope="col">扱い</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>ScansToolbar</code></td>
+        <td>
+          <code>ProjectRail</code> +
+          <code>ScanLaunchCard</code>
+        </td>
+        <td>実行条件と説明ロジックをViewModelへ移し、表示を分割</td>
+      </tr>
+      <tr>
+        <td><code>DiagnosticDashboard</code></td>
+        <td><code>ScanOverviewTab</code></td>
+        <td>同じ強さの4カードをやめ、最新結果とcoverageを優先</td>
+      </tr>
+      <tr>
+        <td><code>ScansSidebar</code></td>
+        <td>
+          <code>ScanContextBar</code> +
+          <code>ScanHistoryTab</code>
+        </td>
+        <td>常設履歴列をなくし、選択scanの文脈を上部へ移す</td>
+      </tr>
+      <tr>
+        <td><code>ReportDetailPanel</code></td>
+        <td><code>ScanReportWorkspace</code></td>
+        <td>toolbar、comment、viewer、outlineに分割</td>
+      </tr>
+      <tr>
+        <td>read-only <code>MarkdownEditor</code></td>
+        <td><code>MarkdownReportViewer</code></td>
+        <td>安全化処理だけを共有し、編集UIを除去</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p>
+    移行期間中は新旧を同じ画面に二重表示しない。新しい
+    <code>ScansWorkspacePage</code> が必要な機能を満たした段階で
+    <code>ScansDomainSection</code> の子を一度だけ切り替える。
+  </p>
+
+  <h2 id="responsive-design">レスポンシブ</h2>
+  <table>
+    <caption>
+      viewport幅ごとのレイアウト
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">幅</th>
+        <th scope="col">構成</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>1280px以上</td>
+        <td>project rail 288px + workspace。overviewは2列、reportは本文 + 目次。</td>
+      </tr>
+      <tr>
+        <td>960–1279px</td>
+        <td>project rail 240px。scan設定を2行にし、report目次を折りたたみ可能にする。</td>
+      </tr>
+      <tr>
+        <td>959px以下</td>
+        <td>project railを上部selectorへ変え、全カードを1列、目次は本文上部へ移す。</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2 id="accessibility">アクセシビリティ要件</h2>
+  <ul>
+    <li>
+      project menuは <code>aria-haspopup="menu"</code>、矢印キー、Escape、focus
+      returnに対応する。
+    </li>
+    <li>
+      delete dialogは <code>role="dialog"</code> と
+      <code>aria-modal="true"</code> を持ち、focus trapを行う。
+    </li>
+    <li>削除送信中はdialogを閉じず、重複送信を防ぐ。</li>
+    <li>
+      toastは <code>aria-live="polite"</code>。削除失敗はdialog内の
+      <code>role="alert"</code> で伝える。
+    </li>
+    <li>
+      tabsは
+      <code>tablist</code>、<code>tab</code>、<code>tabpanel</code>
+      と左右矢印操作に対応する。
+    </li>
+    <li>
+      accordion header全体をbuttonにし、<code>aria-expanded</code> と
+      <code>aria-controls</code> を設定する。
+    </li>
+    <li>severityは色だけで区別せず、「緊急」「高」などの文字を必ず併記する。</li>
+    <li>coverage図には数値とchecklistを併記し、図だけに情報を持たせない。</li>
+  </ul>
+
+  <h2 id="implementation-sequence">実装順序</h2>
+  <p>
+    work packageは番号順に実装し、各gateが通るまで次へ進まない。各packageは単独commit可能にする。
+    production fileと同じpackageで対応テストを追加する。
+  </p>
+
+  <h3 id="work-package-1">Work package 1: 型付きrouteと共通UI基盤</h3>
+  <ol>
+    <li>
+      <code>scans-route-search.ts</code> に
+      <code>ScanWorkspaceSearch</code>、parse、normalizeを実装し、
+      <code>router.tsx</code> はその関数だけを呼ぶ。
+    </li>
+    <li>
+      <code>scans-navigation-handlers.ts</code> をURL
+      search更新へ変更する。移行adapterはURLから旧setterへの 一方向に限定する。
+    </li>
+    <li>
+      <code>Dialog</code>、<code>Menu</code>、<code>ToastRegion</code>
+      を既存CSS変数で実装する。 scan固有の文言はpropsで受け取る。
+    </li>
+    <li>
+      <code>markdown-editor.tsx</code> から安全化処理を
+      <code>safe-markdown.ts</code> へ抽出し、 既存editorを新関数へつなぎ替える。
+    </li>
+    <li>
+      <code>core-request.ts</code> に
+      <code>ApiRequestError</code> とtype guardを追加し、既存API clientの
+      成功時契約を変えずに非2xx処理だけを置き換える。
+    </li>
+  </ol>
+  <p><strong>Gate:</strong></p>
+  <pre><code class="language-bash">bunx vitest run \
+  web/src/api/core-request.test.ts \
+  web/src/components/safe-markdown.test.ts \
+  web/src/domains/scans/scans-route-search.test.ts \
+  web/src/domains/scans/scans-navigation-handlers.test.ts
+bun run typecheck:app</code></pre>
+  <p>
+    deep linkをreloadしてproject/scan/tab/finding/reportが正規化後も復元され、既存Markdown
+    editorの表示が 変わらないことを完了条件とする。
+  </p>
+
+  <h3 id="work-package-2">Work package 2: ページ骨格とoverview</h3>
+  <ol>
+    <li>
+      <code>scans-workspace-view-model.ts</code> にproject、scan
+      launch、severity、coverage、priority findingの pure projectionを実装する。
+    </li>
+    <li>
+      <code>ProjectRail</code>、<code>ScanLaunchCard</code>、<code>ScanContextBar</code>、
+      <code>ScanTabs</code> をpresentation
+      componentとして作る。APIやrouterはimportしない。
+    </li>
+    <li>
+      overviewの3部品をViewModelだけから描画する。priority findingはseverity、confidence、stable
+      IDの順で sortして上位3件に固定する。
+    </li>
+    <li>
+      <code>ScansWorkspacePage</code> を組み立てるが、このpackageでは
+      <code>ScansDomainSection</code> へmountしない。
+    </li>
+    <li>
+      1280px、1024px、768pxのlayout ruleを <code>styles-scans.css</code> に実装する。
+    </li>
+  </ol>
+  <p><strong>Gate:</strong></p>
+  <pre><code class="language-bash">bunx vitest run \
+  web/src/domains/scans/scans-workspace-view-model.test.ts
+bun run typecheck:app
+bun run build:web</code></pre>
+  <p>
+    projectなし、scanなし、実行中、completed、failedのfixtureを描画でき、leaf componentが
+    <code>useScans</code>、<code>web/src/api</code>、TanStack
+    Routerをimportしていないことを完了条件とする。
+  </p>
+
+  <h3 id="work-package-3">Work package 3: プロジェクト削除</h3>
+  <ol>
+    <li><code>0031_project_deletion_cleanup_jobs.sql</code>、schema、cleanup repositoryを追加する。</li>
+    <li>
+      active work queryを
+      <code>project-deletion-active-work.ts</code> に実装し、本文で列挙した全tableを
+      queued/runningの同じ定義で検査する。
+    </li>
+    <li>
+      4つのartifact storageへ <code>removeRunDirectory</code> とcontainment
+      testを追加する。
+    </li>
+    <li>
+      deletion serviceを実装する。所有権、確認名、active work、manifest保存、project削除を一つの
+      transactionで行い、commit後だけcleanup runnerへenqueueする。
+    </li>
+    <li>
+      <code>hono-runtime.ts</code> でcleanup runnerを一度だけ生成して
+      <code>recover()</code> を呼び、
+      <code>hono-scan-routes.ts</code> からrouteへserviceを注入する。
+    </li>
+    <li>
+      DELETE route/client/controller/menu/dialog/toastを接続し、画面文言契約どおりに表示する。
+    </li>
+  </ol>
+  <p><strong>Gate:</strong></p>
+  <pre><code class="language-bash">bun test \
+  api/modules/scans/project-deletion-service.test.ts \
+  api/modules/scans/project-deletion-active-work.test.ts \
+  api/modules/scans/project-artifact-cleanup-runner.test.ts \
+  api/modules/scans/artifact-storage.test.ts \
+  api/modules/dast/dast-artifact-storage.test.ts \
+  api/modules/dynamic/dynamic-artifact-storage.test.ts \
+  api/modules/reproductions/reproduction-artifact-storage.test.ts \
+  api/routes/projects.route.test.ts
+bunx vitest run \
+  web/src/domains/scans/use-project-delete-controller.test.ts
+bun run db:boundary
+bun run typecheck:app</code></pre>
+  <p>
+    400/403/404/409、cascade、cleanup retryを確認し、削除前後でfixtureの
+    <code>repoPath</code> 配下がbyte単位で不変であることを完了条件とする。
+  </p>
+
+  <h3 id="work-package-4">Work package 4: Markdownレポート閲覧</h3>
+  <ol>
+    <li>
+      report metadata、本文download、最新completed reviewを
+      <code>use-report-workspace-controller.ts</code> の一つのrequest sequenceで取得する。
+    </li>
+    <li>project/scan/reportが変わるたびにsequence IDを増やし、古いresponseをstateへ反映しない。</li>
+    <li>
+      toolbar、render/source
+      viewer、Markdown見出し由来outlineを実装する。sourceはdownload本文と完全一致させる。
+    </li>
+    <li>
+      raw HTML、image、危険なschemeを無効にし、外部linkには
+      <code>rel="noreferrer noopener"</code> を設定する。
+    </li>
+    <li>本文の状態表にあるloading/empty/failed/successをすべて分岐し、空文字を成功扱いしない。</li>
+  </ol>
+  <p><strong>Gate:</strong></p>
+  <pre><code class="language-bash">bunx vitest run \
+  web/src/components/safe-markdown.test.ts \
+  web/src/domains/scans/use-report-workspace-controller.test.ts
+bun run typecheck:app
+bun run build:web</code></pre>
+  <p>
+    reportを高速に切り替えても旧本文が混入せず、render/source/downloadの本文が一致することを完了条件とする。
+  </p>
+
+  <h3 id="work-package-5">Work package 5: LLMコメントの初回強制表示</h3>
+  <ol>
+    <li>
+      <code>0032_scan_report_user_views.sql</code>、schema、repositoryを追加し、report/user単位で既読時刻をupsertする。
+    </li>
+    <li>viewer state GET/PUT routeとclientを追加し、両routeでreport ownershipを検証する。</li>
+    <li>
+      controllerは本文の状態機械どおりに <code>loading → unseen → saving → seen</code> を遷移させる。
+      PUT失敗時は展開状態を維持してretry actionを表示する。
+    </li>
+    <li>
+      <code>LlmCommentAccordion</code> はLLM
+      reviewがある場合だけ描画し、未読ではopen固定、保存成功後は 通常のaccordionに切り替える。
+    </li>
+    <li>見出し、badge、補足、閉じる操作は画面文言契約を使用する。</li>
+  </ol>
+  <p><strong>Gate:</strong></p>
+  <pre><code class="language-bash">bun test \
+  api/modules/scans/report-view-state-repository.test.ts \
+  api/routes/scan-reports.route.test.ts \
+  api/db/schema/schema-contract.test.ts
+bunx vitest run \
+  web/src/domains/scans/use-report-workspace-controller.test.ts
+bun run typecheck:app</code></pre>
+  <p>
+    同一ユーザー×reportでは初回だけ強制open、別ユーザーまたは別reportでは再び強制openになり、
+    他ユーザーのstateを読めないことを完了条件とする。
+  </p>
+
+  <h3 id="work-package-6">Work package 6: 切替と旧実装の除去</h3>
+  <ol>
+    <li>
+      <code>ScansDomainSection</code> の子を
+      <code>ScansWorkspacePage</code> 一つへ切り替える。
+    </li>
+    <li>
+      <code>scanListTab</code>、<code>scanDetailTab</code>、<code>viewingReport</code>、移行adapterと、
+      新画面から参照されなくなった旧presentation componentを削除する。
+    </li>
+    <li>
+      削除後に
+      <code>rg</code>
+      で旧state名のproduction参照が0件であることを確認する。
+    </li>
+    <li>
+      scan-workspace E2Eへ削除、deep link、report、初回LLM、keyboard、3 breakpointを追加する。
+    </li>
+    <li>全checkを通し、モック3枚と実画面を並べて視線順序と文言を確認する。</li>
+  </ol>
+  <p><strong>Gate:</strong></p>
+  <pre><code class="language-bash">bun run lint
+bun run typecheck
+bun run test:web
+bun run test:api
+bun run build:web
+bunx playwright test tests/e2e/scan-workspace.spec.ts
+bun run docs:check</code></pre>
+  <p>
+    gate失敗時は切替commitだけを戻し、旧
+    <code>ScansDomainSection</code> のcompositionを復元する。
+    2本のmigrationはadditiveなのでrollbackで削除しない。route復元、所有権、cascade監査、viewer
+    state、 3 breakpointのどれかが未確認ならreleaseしない。
+  </p>
+
+  <h2 id="test-plan">テスト計画</h2>
+  <h3 id="unit-tests">単体テスト</h3>
+  <ul>
+    <li>ViewModelのseverity集計、coverage分類、priority上位3件の安定した順序。</li>
+    <li>project名完全一致時だけ削除可能になるpredicate。</li>
+    <li>project/scan/report変更時のURL search正規化。</li>
+    <li>accordionのloading、unseen、saving、seen状態遷移。</li>
+    <li>Markdownのraw HTML、unsafe link、image無効化。</li>
+  </ul>
+
+  <h3 id="api-tests">APIテスト</h3>
+  <ul>
+    <li>所有projectのみ削除できる。</li>
+    <li>確認名不一致を400にする。</li>
+    <li>queued/running scanがあるprojectを409にする。</li>
+    <li>削除後にproject配下のscan、finding、review、report、viewer stateが残らない。</li>
+    <li>project削除後も <code>repoPath</code> の実ファイルが存在する。</li>
+    <li>他ユーザーのreport viewer stateを読み書きできない。</li>
+  </ul>
+
+  <h3 id="component-and-e2e-tests">コンポーネント・E2E</h3>
+  <ul>
+    <li>keyboardだけでproject menuを開き、削除dialogへ移動し、cancelできる。</li>
+    <li>削除成功後にURL、project一覧、toastが同期する。</li>
+    <li>各ユーザーがreportを初めて開くとLLMコメントが展開される。</li>
+    <li>「コメントを閉じる」後にreloadすると閉じた状態で始まる。</li>
+    <li>別reportを初めて開いた場合は再び展開される。</li>
+    <li>render/source切替で内容が変質せず、downloadしたMarkdownと一致する。</li>
+    <li>1280px、1024px、768pxで主要操作が隠れない。</li>
+  </ul>
+
+  <h2 id="acceptance-criteria">完了条件</h2>
+  <ol>
+    <li>モックの主要な視線順序を、独立したコンポーネントの組み合わせで再現できる。</li>
+    <li>leafコンポーネントが <code>useScans()</code> やAPIを直接呼ばない。</li>
+    <li>プロジェクト削除は名前確認とactive scan guardを通らなければ実行できない。</li>
+    <li>削除対象にローカルリポジトリのファイルが含まれない。</li>
+    <li>LLM Markdownレポートがrender/sourceの両方で安全に読める。</li>
+    <li>
+      LLMコメントはユーザー×レポートの初回だけ自動展開し、明示的に閉じた後は通常のaccordionになる。
+    </li>
+    <li>URL再読み込みでproject、scan、tab、report選択を復元できる。</li>
+    <li>単体、API、E2E、accessibilityの検証が通る。</li>
+  </ol>
+</article>
+  </body>
+</html>

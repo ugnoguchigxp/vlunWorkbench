@@ -1,0 +1,177 @@
+[
+  {
+    "title": "Finding Deduplication and Issue-grouped Handoff Implementation Plan",
+    "slug": "finding-deduplication-and-issue-grouping-implementation-plan",
+    "relativePath": "finding-deduplication-and-issue-grouping-implementation-plan.html",
+    "format": "html",
+    "url": "/vlunWorkbench/plans/archive/finding-deduplication-and-issue-grouping-implementation-plan/"
+  },
+  {
+    "title": "Git Diff Target Scan Implementation Plan",
+    "slug": "git-diff-target-scan-implementation-plan",
+    "relativePath": "git-diff-target-scan-implementation-plan.md",
+    "format": "markdown",
+    "url": "/vlunWorkbench/plans/archive/git-diff-target-scan-implementation-plan/"
+  },
+  {
+    "title": "Intelligence 4画面 UI 改修 実装計画書",
+    "slug": "intelligence-four-view-ui-implementation-plan",
+    "relativePath": "intelligence-four-view-ui-implementation-plan.md",
+    "format": "markdown",
+    "url": "/vlunWorkbench/plans/archive/intelligence-four-view-ui-implementation-plan/"
+  },
+  {
+    "title": "Intelligence Structure-First UI Rework Plan",
+    "slug": "intelligence-structure-first-ui-rework-plan",
+    "relativePath": "intelligence-structure-first-ui-rework-plan.md",
+    "format": "markdown",
+    "url": "/vlunWorkbench/plans/archive/intelligence-structure-first-ui-rework-plan/"
+  },
+  {
+    "title": "NightWorkers Project Security Scan Provider 実装計画",
+    "slug": "nightworkers-project-security-scan-provider-implementation-plan",
+    "relativePath": "nightworkers-project-security-scan-provider-implementation-plan.md",
+    "format": "markdown",
+    "url": "/vlunWorkbench/plans/archive/nightworkers-project-security-scan-provider-implementation-plan/"
+  },
+  {
+    "title": "Phase 46: Security Release Readiness and Operational Hardening Plan",
+    "slug": "phase-46-security-release-readiness-plan",
+    "relativePath": "phase-46-security-release-readiness-plan.md",
+    "format": "markdown",
+    "url": "/vlunWorkbench/plans/archive/phase-46-security-release-readiness-plan/"
+  },
+  {
+    "title": "Phase 47: S11tnext Full SystemContext Adoption Plan",
+    "slug": "phase-47-s11tnext-full-system-context-adoption-plan",
+    "relativePath": "phase-47-s11tnext-full-system-context-adoption-plan.md",
+    "format": "markdown",
+    "url": "/vlunWorkbench/plans/archive/phase-47-s11tnext-full-system-context-adoption-plan/"
+  },
+  {
+    "title": "Phase 48: Quality, Reliability, and Maintainability Hardening Plan",
+    "slug": "phase-48-quality-reliability-hardening-plan",
+    "relativePath": "phase-48-quality-reliability-hardening-plan.md",
+    "format": "markdown",
+    "url": "/vlunWorkbench/plans/archive/phase-48-quality-reliability-hardening-plan/"
+  },
+  {
+    "title": "Phase 49: Professional Web/API Assessment Capability Plan",
+    "slug": "phase-49-professional-web-api-assessment-capability-plan",
+    "relativePath": "phase-49-professional-web-api-assessment-capability-plan.md",
+    "format": "markdown",
+    "url": "/vlunWorkbench/plans/archive/phase-49-professional-web-api-assessment-capability-plan/"
+  },
+  {
+    "title": "Phase 50: Automated Professional Web/API Assessment Gap Closure Plan",
+    "slug": "phase-50-automated-professional-web-api-gap-closure-plan",
+    "relativePath": "phase-50-automated-professional-web-api-gap-closure-plan.md",
+    "format": "markdown",
+    "url": "/vlunWorkbench/plans/archive/phase-50-automated-professional-web-api-gap-closure-plan/"
+  },
+  {
+    "title": "Phase 51: DAST Coverage, Depth, and Verdict Hardening Plan",
+    "slug": "phase-51-dast-coverage-and-verdict-hardening-plan",
+    "relativePath": "phase-51-dast-coverage-and-verdict-hardening-plan.md",
+    "format": "markdown",
+    "url": "/vlunWorkbench/plans/archive/phase-51-dast-coverage-and-verdict-hardening-plan/"
+  },
+  {
+    "title": "Phase 52: Plugin-Oriented Language, Build-System, and Framework Refactoring Plan",
+    "slug": "phase-52-plugin-oriented-language-framework-refactoring-plan",
+    "relativePath": "phase-52-plugin-oriented-language-framework-refactoring-plan.md",
+    "format": "markdown",
+    "url": "/vlunWorkbench/plans/archive/phase-52-plugin-oriented-language-framework-refactoring-plan/"
+  },
+  {
+    "title": "Phase 53: Python / Go Plugin Expansion Implementation Plan",
+    "slug": "phase-53-python-go-plugin-expansion-plan",
+    "relativePath": "phase-53-python-go-plugin-expansion-plan.md",
+    "format": "markdown",
+    "url": "/vlunWorkbench/plans/archive/phase-53-python-go-plugin-expansion-plan/"
+  },
+  {
+    "title": "Phase 54: Release Trust and Product Value Realization Plan",
+    "slug": "phase-54-release-trust-and-product-value-realization-plan",
+    "relativePath": "phase-54-release-trust-and-product-value-realization-plan.md",
+    "format": "markdown",
+    "url": "/vlunWorkbench/plans/archive/phase-54-release-trust-and-product-value-realization-plan/"
+  },
+  {
+    "title": "Phase 54.4: Detection Effectiveness Improvement Plan",
+    "slug": "phase-54-detection-effectiveness-improvement-plan",
+    "relativePath": "phase-54-detection-effectiveness-improvement-plan.md",
+    "format": "markdown",
+    "url": "/vlunWorkbench/plans/archive/phase-54-detection-effectiveness-improvement-plan/"
+  },
+  {
+    "title": "Phase 55: Security Capability Hardening and Coverage Expansion Plan",
+    "slug": "phase-55-security-capability-hardening-plan",
+    "relativePath": "phase-55-security-capability-hardening-plan.md",
+    "format": "markdown",
+    "url": "/vlunWorkbench/plans/archive/phase-55-security-capability-hardening-plan/"
+  },
+  {
+    "title": "PR 1: Security Intelligence Assessment Contract and Baseline",
+    "slug": "security-intelligence-pr1-contract-and-baseline-plan",
+    "relativePath": "security-intelligence-pr1-contract-and-baseline-plan.md",
+    "format": "markdown",
+    "url": "/vlunWorkbench/plans/archive/security-intelligence-pr1-contract-and-baseline-plan/"
+  },
+  {
+    "title": "PR 2: Dependency Change Assessment Vertical Slice",
+    "slug": "security-intelligence-pr2-dependency-change-assessment-plan",
+    "relativePath": "security-intelligence-pr2-dependency-change-assessment-plan.md",
+    "format": "markdown",
+    "url": "/vlunWorkbench/plans/archive/security-intelligence-pr2-dependency-change-assessment-plan/"
+  },
+  {
+    "title": "PR 3: Authorization Boundary Shadow Observer",
+    "slug": "security-intelligence-pr3-authorization-boundary-shadow-plan",
+    "relativePath": "security-intelligence-pr3-authorization-boundary-shadow-plan.md",
+    "format": "markdown",
+    "url": "/vlunWorkbench/plans/archive/security-intelligence-pr3-authorization-boundary-shadow-plan/"
+  },
+  {
+    "title": "PR 4: NightWorkers Security Intelligence Integration — Legacy Plan",
+    "slug": "security-intelligence-pr4-nightworkers-pilot-plan",
+    "relativePath": "security-intelligence-pr4-nightworkers-pilot-plan.html",
+    "format": "html",
+    "url": "/vlunWorkbench/plans/archive/security-intelligence-pr4-nightworkers-pilot-plan/"
+  },
+  {
+    "title": "Project Intelligence Foundation Hardening Implementation Plan",
+    "slug": "project-intelligence-foundation-hardening-implementation-plan",
+    "relativePath": "project-intelligence-foundation-hardening-implementation-plan.md",
+    "format": "markdown",
+    "url": "/vlunWorkbench/plans/archive/project-intelligence-foundation-hardening-implementation-plan/"
+  },
+  {
+    "title": "Project-Wide Evaluation Remediation Implementation Plan",
+    "slug": "project-wide-evaluation-remediation-implementation-plan",
+    "relativePath": "project-wide-evaluation-remediation-implementation-plan.md",
+    "format": "markdown",
+    "url": "/vlunWorkbench/plans/archive/project-wide-evaluation-remediation-implementation-plan/"
+  },
+  {
+    "title": "Scan Execution Effectiveness and Truthfulness Remediation Plan",
+    "slug": "scan-execution-effectiveness-remediation-plan",
+    "relativePath": "scan-execution-effectiveness-remediation-plan.html",
+    "format": "html",
+    "url": "/vlunWorkbench/plans/archive/scan-execution-effectiveness-remediation-plan/"
+  },
+  {
+    "title": "vulnWorkbench v1.0.0",
+    "slug": "v1.0.0",
+    "relativePath": "v1.0.0.html",
+    "format": "html",
+    "url": "/vlunWorkbench/plans/archive/v1.0.0/"
+  },
+  {
+    "title": "vulnWorkbench スキャンワークスペース刷新 コンポーネント設計",
+    "slug": "scan-workspace-component-design",
+    "relativePath": "scan-workspace-component-design.html",
+    "format": "html",
+    "url": "/vlunWorkbench/plans/archive/scan-workspace-component-design/"
+  }
+]

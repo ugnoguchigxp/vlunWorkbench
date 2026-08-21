@@ -1,7 +1,7 @@
 {
   "name": "vulnWorkbench",
   "short_name": "vulnWorkbench",
-  "description": "vulnWorkbench は、スキャナーの結果と検証可能な証跡を束ねるローカルAppSecワークベンチです。",
+  "description": "vulnWorkbenchは、複数のセキュリティスキャナーによる検査結果と証跡をまとめ、何をどこまで調べたかが分かるレポートをローカル環境に残します。",
   "lang": "ja",
   "start_url": "/vlunWorkbench/",
   "scope": "/vlunWorkbench/",

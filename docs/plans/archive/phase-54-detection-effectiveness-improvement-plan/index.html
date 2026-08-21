@@ -1,0 +1,1604 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex,follow">
+    <title>Phase 54.4: Detection Effectiveness Improvement Plan | vulnWorkbench</title>
+    <link rel="stylesheet" href="/vlunWorkbench/assets/css/spec-document.css">
+    <link rel="stylesheet" href="/vlunWorkbench/assets/css/plan-document.css">
+  </head>
+  <body>
+    <nav class="plan-document-links" aria-label="文書ナビゲーション">
+      <a href="/vlunWorkbench/plans/archive/?doc=phase-54-detection-effectiveness-improvement-plan" target="_top">実装計画アーカイブへ</a>
+      <a href="/vlunWorkbench/" target="_top">vulnWorkbenchのLPへ戻る</a>
+    </nav>
+    <article lang="ja">
+  <h1 id="phase-544-detection-effectiveness-improvement-plan">
+    Phase 54.4: Detection Effectiveness Improvement Plan
+  </h1>
+  <p>
+    Archive status: Authoritative Linux OWASP/Juice Shop closeout completed. OSV、 claim
+    approval、holdout、remaining category work was transferred to
+    <code>spec/phase-56-capability-product-completion-plan.md</code>.
+  </p>
+  <p>
+    Status: Implemented locally through Slice 54.4-G on 2026-08-16; authoritative Linux CI closeout
+    and human claim approval pending
+  </p>
+  <p>Parent plan: <code>spec/phase-54-release-trust-and-product-value-realization-plan.md</code></p>
+  <p>Owner: vulnWorkbench maintainers</p>
+  <p>
+    Target: policyを変更せず、OWASP Benchmarkの精度とcategory recallを改善し、 Juice Shop 20
+    scenarioを実行可能な証拠へ接続する。改善が実測できない場合は
+    claimを<code>not_met</code>のまま保ち、原因をlimitationとして残す。
+  </p>
+  <h2 id="1-結論">1. 結論</h2>
+  <p>改善は必要であり、実行順は次で固定する。</p>
+  <ol>
+    <li>evaluation pathとprovenanceを正す。</li>
+    <li>OWASPのmapped safe false positiveを実測分類し、precision/FPRを改善する。</li>
+    <li>SQL injectionとtrust-boundaryのcategory recallを改善する。</li>
+    <li>Juice Shopの実行状態、証拠、fixed controlをversioned contractにする。</li>
+    <li>20 scenarioをすべて実行し、既存のproduction primitiveから最低12件を検出する。</li>
+    <li>
+      同一commitのclean checkoutで全gateを再実行し、別PRのhuman approval後にだけ professional
+      capability claimを変更する。
+    </li>
+  </ol>
+  <p>
+    Semgrep ruleを推測で変更しない。Juice Shop challengeが解けたことを、そのまま
+    製品の「検出」と数えない。raw result、normalized finding、scenario evidence、policy、
+    corpus、実装hashが追跡できない改善は採用しない。
+  </p>
+  <h3 id="11-実装結果2026-08-15">1.1 実装結果（2026-08-15）</h3>
+  <ul>
+    <li>
+      OWASP: TP 1,131 / FN 284 / TN 1,325 / FP 55、recall 0.7993、 precision 0.9536、FPR
+      0.0399、score 0.7594。
+    </li>
+    <li>OWASP category: SQLi recall 0.75、trust-boundary recall 0.9639。</li>
+    <li>
+      OWASP FP分類: mapped safe FP 0、unmapped cross-CWE 55。unmappedは除外せず overall FPへ残した。
+    </li>
+    <li>
+      Juice Shop（catalog 1.1.0 review後）: 20/20 scenario完了、17 TP / 3 FN / 20 TN / 0 FP、recall
+      0.85、precision 1.00、外部・public/production request 0、 credential leakage 0。
+    </li>
+    <li>
+      macOS上の実測はdiagnostic passであり、release claimには使用しない。
+      <code>.github/workflows/verify.yml</code>のUbuntu jobがpinned
+      imageをpreloadし、同一commit、 clean tree、Linux、全provenanceを再検証する。
+    </li>
+    <li>
+      professional capability claimは、OSV database、persisted passing run ID、Linux CI、 human
+      approvalが揃うまで<code>not_met</code>を維持する。
+    </li>
+  </ul>
+  <h3 id="12-same-commit-closeout実装2026-08-16">1.2 Same-commit closeout実装（2026-08-16）</h3>
+  <ul>
+    <li>
+      <code>phase-54:closeout</code>を追加し、clean Linux
+      checkout、事前artifact不在、source treeと benchmark
+      inputの実行前後hash一致を単一runnerで強制する。snapshot採取自体も
+      commit/index/statusを二重取得し、採取中の変更をrejectする。
+    </li>
+    <li>
+      OWASPはSemgrep
+      <code>1.171.0</code>のdigest固定imageを<code>--network none</code>、capability drop、
+      no-new-privilegesで実行する。container pathはboundedにhost corpusへ戻してから production Java
+      precision filterへ渡す。
+    </li>
+    <li>
+      OWASP runはoverall/category policyを満たしたfresh scanner runだけを一時SQLite DBへ
+      persistする。run ID、input/output hash、commit、toolbox image digest、policy、manifest、
+      corpus、全metricを統合verifierで照合する。
+    </li>
+    <li>
+      Juice Shopはauthoritative Linux、20/20 execution、全input/evidence hash、network/secret/
+      cleanup gateを同じrelease commitへ照合する。
+    </li>
+    <li>
+      closeout DBはconsistent backupを作成・integrity検証し、closeout report、OWASP/Juice raw
+      evidence、professional reportとともにGitHub Actions artifactへ保存する。backupはmigration
+      historyと単一OWASP run/metrics以外のtableが空であることも確認し、credentialを含む通常の
+      application recordが混入したDBをrelease evidenceにしない。
+    </li>
+    <li>
+      OWASP evidenceはcorpus相対pathとallowlist済みSemgrep fieldだけを保存し、source snippet、
+      metavariable content、host home pathを除外する。closeout対象はregular/non-hard-linked JSON、
+      file/total size、privacy、検証前後hashを再確認し、upload pathも必要な証跡だけに限定する。
+    </li>
+    <li>
+      closeout CI
+      jobは同じ<code>github.sha</code>の<code>verify</code>と<code>secret-scan</code>成功に依存し、そのcommitを
+      closeout reportへ照合する。独立job失敗時にauthoritative reportだけが成功する状態を許さない。
+    </li>
+    <li>
+      closeout中はpassing run IDをprofessional claim
+      generatorへ渡さず、claimを<code>not_met</code>に
+      固定する。claim変更とhuman approvalはC2の別PR境界を維持する。
+    </li>
+    <li>
+      localではdigest固定・network無効SemgrepでOWASP TP 1,131 / FN 284 / TN 1,325 / FP
+      55を再現し、<code>verify:strict</code>を完走した。Definition of
+      Doneのsame-commit項目は、 この実装を含むcommitのauthoritative Ubuntu
+      job成功後にだけ完了へ変更する。
+    </li>
+  </ul>
+  <h2 id="2-レビュー結果">2. レビュー結果</h2>
+  <h3 id="21-採用する判断">2.1 採用する判断</h3>
+  <ul>
+    <li>
+      OWASP overall recall <code>0.7088</code>はminimum
+      <code>0.70</code>を超えている。
+    </li>
+    <li>
+      OWASPの主なoverall未達はprecision <code>0.6946</code>、FPR
+      <code>0.3121</code>、score
+      <code>0.3967</code>である。
+    </li>
+    <li>policyを下げず、false positiveをrecall拡張より先に分類する。</li>
+    <li>
+      Juice Shopはeligible 20、category 9に対してexecuted 0であり、検出不能と 未実行を区別する。
+    </li>
+    <li>vulnerableとfixedを同じdetector pathで実行し、precisionを実測する。</li>
+    <li>
+      public/production targetへのactive
+      request、LLMだけの<code>confirmed</code>、未実行の
+      <code>not_applicable</code>化、unmapped CWEの除外を禁止する。
+    </li>
+  </ul>
+  <h3 id="22-修正した判断">2.2 修正した判断</h3>
+  <table>
+    <caption>
+      2.2 修正した判断
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">元の判断</th>
+        <th scope="col">レビュー結果</th>
+        <th scope="col">本計画での扱い</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Java所有ruleは14本</td>
+        <td>catalog上は13本</td>
+        <td>manifest/catalogから生成し、手書き数値を置かない</td>
+      </tr>
+      <tr>
+        <td>主因はESAPI sanitizer不足</td>
+        <td>
+          <code>encodeForSQL</code>、<code>getValidFileName</code>等はpinned corpusに現れない
+        </td>
+        <td>source/sink/safe-patternを実測分類してからruleを変える</td>
+      </tr>
+      <tr>
+        <td>XSSに<code>encodeForHTMLAttribute</code>等を追加</td>
+        <td>既にsanitizerとして定義済み</td>
+        <td>既実装の変更を計画から除外する</td>
+      </tr>
+      <tr>
+        <td>FP 441件を300件消すと全件TNへ移る</td>
+        <td>441件はmapped safe FP 353件とunmapped 88件に分かれる</td>
+        <td>unmappedを点数目的で消さず、mapped safe FPを300件以上減らす</td>
+      </tr>
+      <tr>
+        <td>overall recallが通ればrecall作業は後回しでよい</td>
+        <td>
+          SQLi <code>0.4669</code>、trustbound
+          <code>0.3494</code>がcategory gate未達
+        </td>
+        <td>precision改善後に最低+9 TP、+13 TPを別sliceで実施する</td>
+      </tr>
+      <tr>
+        <td>trustboundがFPRの主因になり得る</td>
+        <td>現runでは10/441件</td>
+        <td>FPR主対象ではなくcategory recall対象とする</td>
+      </tr>
+      <tr>
+        <td>Juice Shopはwriter接続だけ不足</td>
+        <td>status、provenance、orchestration、fixed controlも不足</td>
+        <td>measurement contractから作り直す</td>
+      </tr>
+      <tr>
+        <td>authorization matrixで認可4件を実行できる</td>
+        <td>matrixはread-only、2 actor、2 object、object pathを要求する</td>
+        <td>view-basket以外はbusiness/browser primitiveを使う</td>
+      </tr>
+      <tr>
+        <td>ZAP active 9 ruleはSQLi/XSS系</td>
+        <td>SQLi 2、XSS 2、その他5で、path traversal/SSRF ruleはない</td>
+        <td>rule catalogどおりに能力を表記する</td>
+      </tr>
+      <tr>
+        <td>owned business logic 8/8がlive検出の証拠</td>
+        <td>benchmark observationはfixture一覧から機械生成される</td>
+        <td>executor contractとしてのみ使い、live Juice evidenceと分離する</td>
+      </tr>
+      <tr>
+        <td>Reset Jimはreset token replay</td>
+        <td>
+          upstream
+          20.1.1は公開情報から推測可能な秘密の質問<code>Samuel</code>によるpassword
+          reset
+        </td>
+        <td>実際のreset POSTと変更後loginを実行する</td>
+      </tr>
+      <tr>
+        <td>Blockchain HypeはSSRF</td>
+        <td>
+          upstream challenge名は<code>Outdated Allowlist</code>で、obsolete crypto
+          URLへのredirect
+        </td>
+        <td>manual redirectを検証し、外部destinationへは追従しない</td>
+      </tr>
+      <tr>
+        <td>DockerでXSS 3件をvulnerableとして採点</td>
+        <td>
+          Reflected/API-only XSSはupstreamでDocker無効、DOM XSSはHTTP GETだけではDOM
+          sinkを実行していなかった
+        </td>
+        <td>
+          pinned Dockerで有効なConfidential Document、Exposed Metrics、Allowlist Bypassへ置換する
+        </td>
+      </tr>
+    </tbody>
+  </table>
+  <h2 id="3-source-of-truth">3. Source of truth</h2>
+  <p>判断の優先順位を次で固定する。</p>
+  <ol>
+    <li><code>spec/security-capability/benchmark-policy.v1.json</code></li>
+    <li><code>spec/security-capability/corpora.lock.json</code></li>
+    <li><code>spec/security-capability/juice-shop-ground-truth.v1.json</code></li>
+    <li>scanner/rule catalog、runner、normalizer、verifierの実装とtest</li>
+    <li>current runのraw artifactと再計算可能なmetrics</li>
+    <li>historical evidence</li>
+    <li>READMEや計画文書などの説明文</li>
+  </ol>
+  <p>
+    historical evidenceの数値はbaselineとして利用するが、HEADのpassing evidenceとは
+    扱わない。文章とmachine-readable artifactが矛盾する場合は、artifactを再計算し、
+    verifierを通った結果を正とする。
+  </p>
+  <h2 id="4-scope">4. Scope</h2>
+  <h3 id="41-in-scope">4.1 In scope</h3>
+  <ul>
+    <li>OWASP failure analysisのmapped/unmapped、rule contribution、overlap、TP impact分離</li>
+    <li>Java owned Semgrep ruleとpaired positive/negative fixtureの限定的変更</li>
+    <li>Juice Shop catalog/playbook/observation/reportのversioned schema</li>
+    <li>pinned Juice Shop containerのpreflight、prepare、scenario実行、cleanup</li>
+    <li>production lower-level runnerを再利用するbenchmark orchestrator</li>
+    <li>実行可能なfixed control fixture</li>
+    <li>evidence hash、commit、policy、corpus、scanner、playbook、implementationのprovenance</li>
+    <li>professional capability gateとartifact verifierの更新</li>
+    <li>Linux/Dockerでのsame-commit closeout</li>
+  </ul>
+  <h3 id="42-non-goals">4.2 Non-goals</h3>
+  <ul>
+    <li><code>benchmark-policy.v1.json</code>のminimum変更</li>
+    <li>unmapped observationの除外またはexpected CWEへの書き換え</li>
+    <li>community Semgrep packやFindSecBugs結果をowned Semgrep scoreへ合算すること</li>
+    <li>Juice Shop用のDB migrationまたは第二のpassing-run IDを本sliceへ追加すること</li>
+    <li>
+      Juice Shop challengeの成功をdetector
+      findingなしで<code>detected</code>にすること
+    </li>
+    <li>20 scenario専用の判定をproduct findingに見せかけること</li>
+    <li>public Juice Shop、production、第三者環境へのactive request</li>
+    <li>Docker socket mount、無制限rule/path/method、外部OAST service</li>
+    <li>LLM verdictによる<code>vulnerableDetected</code>の決定</li>
+    <li>Phase 54.5のreal-repository評価、SARIF、packagingの同時実装</li>
+    <li>本sliceだけを理由にclaimを<code>met</code>へ変更すること</li>
+  </ul>
+  <h2 id="5-confirmed-baseline">5. Confirmed baseline</h2>
+  <h3 id="51-owasp-overall">5.1 OWASP overall</h3>
+  <table>
+    <caption>
+      5.1 OWASP overall
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Metric</th>
+        <th scope="col" class="markdown-align-right">Current</th>
+        <th scope="col" class="markdown-align-right">Policy</th>
+        <th scope="col" class="markdown-align-right">Gap</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>TP</td>
+        <td class="markdown-align-right">1,003</td>
+        <td class="markdown-align-right">-</td>
+        <td class="markdown-align-right">-</td>
+      </tr>
+      <tr>
+        <td>FN</td>
+        <td class="markdown-align-right">412</td>
+        <td class="markdown-align-right">-</td>
+        <td class="markdown-align-right">-</td>
+      </tr>
+      <tr>
+        <td>TN</td>
+        <td class="markdown-align-right">972</td>
+        <td class="markdown-align-right">-</td>
+        <td class="markdown-align-right">-</td>
+      </tr>
+      <tr>
+        <td>FP</td>
+        <td class="markdown-align-right">441</td>
+        <td class="markdown-align-right">-</td>
+        <td class="markdown-align-right">-</td>
+      </tr>
+      <tr>
+        <td>Recall</td>
+        <td class="markdown-align-right">0.7088</td>
+        <td class="markdown-align-right">&gt;= 0.70</td>
+        <td class="markdown-align-right">pass</td>
+      </tr>
+      <tr>
+        <td>Precision</td>
+        <td class="markdown-align-right">0.6946</td>
+        <td class="markdown-align-right">&gt;= 0.80</td>
+        <td class="markdown-align-right">fail</td>
+      </tr>
+      <tr>
+        <td>FPR</td>
+        <td class="markdown-align-right">0.3121</td>
+        <td class="markdown-align-right">&lt;= 0.10</td>
+        <td class="markdown-align-right">fail</td>
+      </tr>
+      <tr>
+        <td>Score</td>
+        <td class="markdown-align-right">0.3967</td>
+        <td class="markdown-align-right">&gt;= 0.60</td>
+        <td class="markdown-align-right">fail</td>
+      </tr>
+    </tbody>
+  </table>
+  <h3 id="52-owasp-false-positive-accounting">5.2 OWASP false-positive accounting</h3>
+  <p>current raw resultとfailure analysisの対応は次のとおりである。</p>
+  <table>
+    <caption>
+      5.2 OWASP false-positive accounting
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Rule</th>
+        <th scope="col" class="markdown-align-right">Mapped safe FP</th>
+        <th scope="col" class="markdown-align-right">Unmapped cross-CWE</th>
+        <th scope="col" class="markdown-align-right">Reported contribution</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>java.xss-response-writer</code></td>
+        <td class="markdown-align-right">91</td>
+        <td class="markdown-align-right">88</td>
+        <td class="markdown-align-right">179</td>
+      </tr>
+      <tr>
+        <td><code>java.sql-injection</code></td>
+        <td class="markdown-align-right">88</td>
+        <td class="markdown-align-right">0</td>
+        <td class="markdown-align-right">88</td>
+      </tr>
+      <tr>
+        <td><code>java.path-traversal-file</code></td>
+        <td class="markdown-align-right">86</td>
+        <td class="markdown-align-right">0</td>
+        <td class="markdown-align-right">86</td>
+      </tr>
+      <tr>
+        <td><code>java.command-injection</code></td>
+        <td class="markdown-align-right">51</td>
+        <td class="markdown-align-right">0</td>
+        <td class="markdown-align-right">51</td>
+      </tr>
+      <tr>
+        <td><code>java.ldap-injection</code></td>
+        <td class="markdown-align-right">16</td>
+        <td class="markdown-align-right">0</td>
+        <td class="markdown-align-right">16</td>
+      </tr>
+      <tr>
+        <td><code>java.xpath-injection</code></td>
+        <td class="markdown-align-right">11</td>
+        <td class="markdown-align-right">0</td>
+        <td class="markdown-align-right">11</td>
+      </tr>
+      <tr>
+        <td><code>java.trust-boundary</code></td>
+        <td class="markdown-align-right">10</td>
+        <td class="markdown-align-right">0</td>
+        <td class="markdown-align-right">10</td>
+      </tr>
+      <tr>
+        <td>Total</td>
+        <td class="markdown-align-right">353</td>
+        <td class="markdown-align-right">88</td>
+        <td class="markdown-align-right">441</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    88件のunmappedは、path traversal testに対するCWE-79 findingである。corpusが 一つのexpected
+    CWEしか持たないため、別CWEの実在するfindingがFPとして数えられる
+    可能性がある。これを無条件に抑止すると製品検出を弱めるため、FPR達成計画には 含めない。
+  </p>
+  <p>
+    unmapped 88件を維持すると、FPR <code>&lt;= 0.10</code>にはmapped safe
+    FPを353件から53件以下へ 減らす必要がある。したがってprecision
+    workstreamの数値目標は「FPをおよそ300件」 ではなく、次で固定する。
+  </p>
+  <pre><code class="language-text">mappedSafeFalsePositive &lt;= 53
+unmappedCrossCwe is reported and is not filtered for score improvement
+overallFalsePositive &lt;= 141
+overallFalsePositiveRate &lt;= 0.10
+</code></pre>
+  <h3 id="53-owasp-category-recall">5.3 OWASP category recall</h3>
+  <p>ground truth positiveが20件以上あるapplicable categoryのうち、現在未達なのは次である。</p>
+  <table>
+    <caption>
+      5.3 OWASP category recall
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Category</th>
+        <th scope="col" class="markdown-align-right">Current</th>
+        <th scope="col" class="markdown-align-right">Minimum TP</th>
+        <th scope="col" class="markdown-align-right">Required gain</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>SQL injection</td>
+        <td class="markdown-align-right">127 / 272 = 0.4669</td>
+        <td class="markdown-align-right">136</td>
+        <td class="markdown-align-right">+9 TP</td>
+      </tr>
+      <tr>
+        <td>Trust boundary</td>
+        <td class="markdown-align-right">29 / 83 = 0.3494</td>
+        <td class="markdown-align-right">42</td>
+        <td class="markdown-align-right">+13 TP</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    precision-only changeではTPを1件も失わない。recall changeでは対象categoryのTPを増やし、 mapped
+    safe FP、unmapped、他category recallを悪化させない。
+  </p>
+  <h3 id="54-juice-shop">5.4 Juice Shop</h3>
+  <table>
+    <caption>
+      5.4 Juice Shop
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Item</th>
+        <th scope="col">Current state</th>
+        <th scope="col">Consequence</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Catalog</td>
+        <td>20 scenario、9 category</td>
+        <td>coverage minimumは満たす</td>
+      </tr>
+      <tr>
+        <td>Observation input</td>
+        <td>ファイル欠落を<code>[]</code>へ変換</td>
+        <td>executed 0、FN 20になる</td>
+      </tr>
+      <tr>
+        <td>Observation schema</td>
+        <td>booleansとevidence path/hashのみ</td>
+        <td>blocked/inconclusive/cleanupを表せない</td>
+      </tr>
+      <tr>
+        <td>Reset</td>
+        <td>pinned 20.1.1 container recreate実装あり</td>
+        <td>benchmarkとは未接続</td>
+      </tr>
+      <tr>
+        <td><code>resetSucceeded</code></td>
+        <td>metricsへ<code>true</code>をハードコード</td>
+        <td>reset実行の証拠にならない</td>
+      </tr>
+      <tr>
+        <td><code>networkRequests</code></td>
+        <td>metricsへ<code>0</code>をハードコード</td>
+        <td>isolationの証拠にならない</td>
+      </tr>
+      <tr>
+        <td>Fixed pairs</td>
+        <td>control説明文のみ</td>
+        <td>precisionの実行可能証拠にならない</td>
+      </tr>
+      <tr>
+        <td>ZAP</td>
+        <td>bounded active runnerあり</td>
+        <td>SQLi/XSSの一部だけに適用可能</td>
+      </tr>
+      <tr>
+        <td>Authorization</td>
+        <td>matrix runnerあり</td>
+        <td>read-only object matrixに限定される</td>
+      </tr>
+      <tr>
+        <td>Business logic</td>
+        <td>scenario executorあり</td>
+        <td>live playbookとstate observerがない</td>
+      </tr>
+      <tr>
+        <td>Browser</td>
+        <td>bounded Playwright adapterあり</td>
+        <td>DOM action/sink判定のscenario adapterがない</td>
+      </tr>
+    </tbody>
+  </table>
+  <h2 id="6-target-design">6. Target design</h2>
+  <h3 id="61-evidence-flow">6.1 Evidence flow</h3>
+  <figure>
+    <pre class="mermaid" data-spec-html-source="markdown">flowchart LR
+    C["Versioned catalog"] --&gt; P["Typed playbooks"]
+    P --&gt; O["Fail-closed orchestrator"]
+    O --&gt; V["Pinned vulnerable fixture"]
+    O --&gt; F["Executable fixed controls"]
+    V --&gt; R["Production runner results"]
+    F --&gt; R
+    R --&gt; E["Hashed scenario evidence"]
+    E --&gt; N["Observation v2"]
+    N --&gt; S["Deterministic scorer"]
+    S --&gt; I["Artifact integrity verifier"]
+    I --&gt; G["Professional capability gate"]
+</pre>
+    <figcaption>6.1 Evidence flow</figcaption>
+  </figure>
+  <p>
+    catalogはscenario identityとground truthを持つ。playbookはactor、entrypoint、runner、
+    budget、setup/cleanup、evidence kindを持つ。detector resultはproduction lower-level
+    primitiveの出力だけから作り、catalogのexpected vulnerabilityをdetectorへ渡さない。
+  </p>
+  <h3 id="62-juice-shop-scenario-state-contract">6.2 Juice Shop scenario state contract</h3>
+  <p>次の用語を混同しない。</p>
+  <ul>
+    <li>
+      <code>eligible</code>: versioned
+      catalogに存在し、policyの分母に含まれる。
+    </li>
+    <li>
+      <code>attempted</code>: preflightを通過し、runnerがscenarioを開始した。
+    </li>
+    <li>
+      <code>executed</code>:
+      vulnerableとfixedの両方が完了し、固有evidenceがあり、cleanupが成功した。
+    </li>
+    <li>
+      <code>detected</code>: production
+      detectorがscenario/CWEへ対応するfindingを出し、実行証拠を持つ。
+    </li>
+    <li><code>not_detected</code>: executedだが対応findingがない。</li>
+    <li>
+      <code>inconclusive</code>:
+      requestは実行したが、transport、auth、応答、oracleが信頼できない。
+    </li>
+    <li>
+      <code>blocked</code>: Docker、image、auth
+      fixture等が実行前に不足した。
+    </li>
+    <li><code>failed_cleanup</code>: cleanupまたはbaseline復元に失敗した。</li>
+  </ul>
+  <p>
+    observation v2は最低限、次を持つ。vulnerableとfixedは別々のexecution/evidenceを
+    持ち、一方の成功をもう一方へ流用しない。
+  </p>
+  <pre><code class="language-text">schemaVersion
+scenarioId
+runnerFamily
+scenarioStatus: completed | inconclusive | blocked | failed_cleanup
+vulnerable:
+  executionStatus
+  detection: detected | not_detected | not_scored
+  evidencePath / evidenceHash
+  normalizedFindingRefs
+fixed:
+  executionStatus
+  detection: detected | not_detected | not_scored
+  evidencePath / evidenceHash
+  normalizedFindingRefs
+lifecycle:
+  targetRequestCount
+  externalNetworkRequests
+  publicProductionRequests
+  prepareBaselineHash / cleanupBaselineHash
+  cleanupSucceeded
+limitationCodes
+</code></pre>
+  <p>release scoring ruleは次とする。</p>
+  <ol>
+    <li>
+      <code>executedScenarioCount</code>はvulnerable/fixed完了、evidence検証、cleanup成功をすべて 満たすscenarioだけを数える。
+    </li>
+    <li>
+      <code>blocked</code>、<code>inconclusive</code>、<code>failed_cleanup</code>をFN、TN、passへ変換しない。
+    </li>
+    <li>
+      1件でも未完了なら<code>measurementStatus</code>を<code>completed</code>にせず、release
+      gateをfail closedする。
+    </li>
+    <li>
+      20件すべて完了したときだけ、<code>not_detected</code>をFN、fixed側の<code>detected</code>をFPとして
+      authoritative metricsを確定する。
+    </li>
+    <li>
+      <code>detected</code>はnormalized production
+      findingがscenarioのpath/CWE mappingと実行証拠を 満たす場合だけ設定する。challenge solved
+      APIやground-truth labelだけでは設定しない。
+    </li>
+    <li>同じevidence hashをvulnerable/fixed間または複数scenario間で再利用しない。</li>
+  </ol>
+  <h3 id="63-provenance-contract">6.3 Provenance contract</h3>
+  <p>Juice Shop reportは既存DAST standard reportの形を再利用し、少なくとも次を含む。</p>
+  <ul>
+    <li><code>generatedAt</code></li>
+    <li><code>gitCommit</code></li>
+    <li><code>corpusVersion</code>、archive hash、image digest</li>
+    <li>benchmark policy version/hash</li>
+    <li>catalog hash</li>
+    <li>playbook tree hash</li>
+    <li>fixed-fixture tree hash</li>
+    <li>detector implementation tree hash</li>
+    <li>scanner manifest hash</li>
+    <li>toolbox image digest</li>
+    <li>observations hash</li>
+    <li>raw result/evidence bundle hash</li>
+    <li>per-scenario statusとlimitation</li>
+    <li>actual request count、public/production request count</li>
+    <li>credential canary leakage</li>
+    <li>prepare/reset/cleanup result</li>
+    <li>gate result</li>
+  </ul>
+  <p>
+    <code>.artifacts/benchmark/juice-shop-run.json</code>はattemptの成否にかかわらずtyped reportとして
+    生成する。<code>.artifacts/benchmark/juice-shop-metrics.json</code>は20件がcompleteした場合だけ authoritative
+    metricsとして生成する。missing observationを空配列へ変換しない。runを 開始していない場合はtyped
+    <code>not_executed</code>、dependency不足はtyped
+    <code>blocked</code>をrun reportへ 保存し、professional
+    verifierはmetrics欠落をgate falseとして扱う。
+  </p>
+  <h3 id="64-existing-primitive-reuse">6.4 Existing primitive reuse</h3>
+  <p>benchmark専用にscannerを再実装せず、次を直接再利用する。</p>
+  <ul>
+    <li>ZAP: <code>api/modules/runtime-scans/zap-active-runner.ts</code></li>
+    <li>container lifecycle: <code>api/modules/runtime-scans/container-fixture-reset.ts</code></li>
+    <li>authorization: <code>api/modules/dast/authorization-matrix-runner.ts</code></li>
+    <li>business logic: <code>api/modules/business-logic/business-logic-scenario-executor.ts</code></li>
+    <li>browser boundary: <code>api/modules/dast/playwright-browser-adapter.ts</code></li>
+    <li>target pinning/HTTP: <code>api/modules/dast/pinned-fetch.ts</code></li>
+    <li>score: <code>api/modules/benchmarks/metric-scorer.ts</code></li>
+    <li>evidence integrity: <code>scripts/professional-capability-artifact-verifier.ts</code></li>
+  </ul>
+  <p>
+    DB、route、UIを通す必要がないbenchmarkではlower-level pure runnerを使う。ただし request
+    scope、auth redaction、budget、cleanup、normalizationをproduction pathより弱めない。 DOM
+    action、outbound canary、file exposure等で新しいdetector logicが必要な場合は、
+    <code>scripts/benchmark/</code>へJuice専用oracleを実装しない。<code>api/modules/dast/</code>または
+    <code>api/modules/business-logic/</code>へ再利用可能なbounded production
+    primitiveとして追加し、 production contract testを通した後にbenchmark adapterから呼ぶ。business
+    logicの <code>observed</code>からfindingへの変換もproduction
+    runnerと共有し、benchmark側で別判定を持たない。
+  </p>
+  <h3 id="65-scenario-to-runner-map">6.5 Scenario-to-runner map</h3>
+  <table>
+    <caption>
+      6.5 Scenario-to-runner map
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Scenario</th>
+        <th scope="col">Execution/detection primitive</th>
+        <th scope="col">Current gap</th>
+        <th scope="col">Initial 12 candidate</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>juice-admin-section</code></td>
+        <td>business status invariantまたはbounded browser</td>
+        <td>static GETはcurrent matrix shapeに合わない</td>
+        <td>yes</td>
+      </tr>
+      <tr>
+        <td><code>juice-view-basket</code></td>
+        <td>authorization matrix</td>
+        <td>actor/object seedとlive evidence接続</td>
+        <td>yes</td>
+      </tr>
+      <tr>
+        <td><code>juice-forged-review</code></td>
+        <td>business owner-isolation scenario</td>
+        <td>write + cleanup playbook</td>
+        <td>yes</td>
+      </tr>
+      <tr>
+        <td><code>juice-forged-feedback</code></td>
+        <td>business actor-identity scenario</td>
+        <td>write + cleanup playbook</td>
+        <td>yes</td>
+      </tr>
+      <tr>
+        <td><code>juice-login-admin</code></td>
+        <td>ZAP 40018/40019</td>
+        <td>auth endpoint seed、path、observation adapter</td>
+        <td>yes</td>
+      </tr>
+      <tr>
+        <td><code>juice-login-bender</code></td>
+        <td>ZAP 40018/40019</td>
+        <td>同上</td>
+        <td>yes</td>
+      </tr>
+      <tr>
+        <td><code>juice-user-credentials</code></td>
+        <td>ZAP 40018/40019</td>
+        <td>search endpoint playbook</td>
+        <td>yes</td>
+      </tr>
+      <tr>
+        <td><code>juice-confidential-document</code></td>
+        <td>bounded HTTP sensitive-endpoint observer</td>
+        <td>confidential content fingerprint</td>
+        <td>yes</td>
+      </tr>
+      <tr>
+        <td><code>juice-exposed-metrics</code></td>
+        <td>bounded HTTP sensitive-endpoint observer</td>
+        <td>Prometheus content fingerprint</td>
+        <td>yes</td>
+      </tr>
+      <tr>
+        <td><code>juice-allowlist-bypass</code></td>
+        <td>manual redirect policy observer</td>
+        <td>disallowed origin + allowlisted substring</td>
+        <td>yes</td>
+      </tr>
+      <tr>
+        <td><code>juice-weak-password</code></td>
+        <td>business credential-policy scenario</td>
+        <td>ephemeral accountとpolicy observer</td>
+        <td>no</td>
+      </tr>
+      <tr>
+        <td><code>juice-reset-jim-password</code></td>
+        <td>knowledge-factor reset observer</td>
+        <td>reset POST + changed credential login + cleanup</td>
+        <td>yes</td>
+      </tr>
+      <tr>
+        <td><code>juice-captcha-bypass</code></td>
+        <td>business replay scenario</td>
+        <td>CAPTCHA state observer</td>
+        <td>no</td>
+      </tr>
+      <tr>
+        <td><code>juice-extra-language</code></td>
+        <td>bounded HTTP + production normalized finding</td>
+        <td>detector mapping未確認</td>
+        <td>no</td>
+      </tr>
+      <tr>
+        <td><code>juice-local-file-read</code></td>
+        <td>bounded HTTP/DAST</td>
+        <td>current ZAP allowlistにpath traversal ruleがない</td>
+        <td>no</td>
+      </tr>
+      <tr>
+        <td><code>juice-forgotten-developer-backup</code></td>
+        <td>bounded crawler/passive DAST</td>
+        <td>scenario-specific route/evidence接続</td>
+        <td>no</td>
+      </tr>
+      <tr>
+        <td><code>juice-negative-order</code></td>
+        <td>business numeric invariant</td>
+        <td>live basket seedとnumeric observer</td>
+        <td>yes</td>
+      </tr>
+      <tr>
+        <td><code>juice-zero-stars</code></td>
+        <td>business boundary invariant</td>
+        <td>feedback seed/cleanup</td>
+        <td>yes</td>
+      </tr>
+      <tr>
+        <td><code>juice-deluxe-fraud</code></td>
+        <td>business state transition</td>
+        <td>membership state observer</td>
+        <td>yes</td>
+      </tr>
+      <tr>
+        <td><code>juice-outdated-allowlist</code></td>
+        <td>manual redirect policy observer</td>
+        <td>obsolete destinationを追従せずLocationだけ検証</td>
+        <td>yes</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    initial candidateは12件だが、dry run前に検出済みとは表記しない。remaining 8も実際に
+    scenarioを実行し、production
+    detectorがfindingを出さなければ<code>not_detected</code>として
+    記録する。execution driver自身がground truthを読んでfindingを生成してはならない。
+  </p>
+  <h3 id="66-fixed-controls">6.6 Fixed controls</h3>
+  <p>
+    <code>tests/security-capability/juice-shop/paired-fixtures.json</code>の説明文だけでは不十分である。 family別のBun fixed
+    fixtureを<code>tests/security-capability/juice-shop/fixed-app/</code>へ作り、 同じplaybook contractとdetector
+    pathを実行する。
+  </p>
+  <p>fixed controlは次を満たす。</p>
+  <ul>
+    <li>scenarioと<code>controlId</code>が1対1で対応する。</li>
+    <li>method、actor count、state transition、evidence kindがvulnerable側と比較可能である。</li>
+    <li>fixed用の特別な「常に未検出」adapterを持たない。</li>
+    <li>fixed側にもrequest/evidence/cleanup hashを保存する。</li>
+    <li>20 pairすべてをcatalog checkerが検証する。</li>
+    <li>
+      TPが12の場合、precision
+      <code>&gt;= 0.80</code>を満たすFP上限は3件である。
+    </li>
+  </ul>
+  <h2 id="7-implementation-slices">7. Implementation slices</h2>
+  <h3 id="71-slice-544-a--baseline-and-analysis-contract">
+    7.1 Slice 54.4-A — Baseline and analysis contract
+  </h3>
+  <h4 id="changes">Changes</h4>
+  <ul>
+    <li>
+      <code>scripts/benchmark/owasp-failure-analysis.ts</code>へ次を追加する。
+      <ul>
+        <li>mapped safe / unmapped cross-CWEの分離</li>
+        <li>rule/category/source/sink/test ID別のunique contribution</li>
+        <li>overlapping findingとTP contribution</li>
+        <li>rule無効化を仮定した差分。ただしscore改善目的の自動無効化はしない</li>
+      </ul>
+    </li>
+    <li>
+      OWASP metricsへ<code>gitCommit</code>、policy hash、implementation
+      hashを追加する。
+    </li>
+    <li>現行baselineがTP/FN/TN/FPとreconcileしない場合はfailする。</li>
+  </ul>
+  <h4 id="tests">Tests</h4>
+  <ul>
+    <li>safe expected caseのmapped FP</li>
+    <li>vulnerable case上の別CWEをunmappedとして保持</li>
+    <li>同一ruleの重複をunique contributionへ二重計上しない</li>
+    <li>contribution合計とoverall FPがreconcileする</li>
+    <li>raw finding改ざんとhash mismatchを拒否する</li>
+  </ul>
+  <h4 id="exit">Exit</h4>
+  <ul>
+    <li>353 mapped / 88 unmapped / 441 overallを再現する。</li>
+    <li>rule変更なしでbaseline metricsが変わらない。</li>
+  </ul>
+  <h3 id="72-slice-544-b--owasp-precision">7.2 Slice 54.4-B — OWASP precision</h3>
+  <h4 id="procedure-per-safe-pattern-cluster">Procedure per safe-pattern cluster</h4>
+  <ol>
+    <li>analysis reportから代表test IDを選ぶ。</li>
+    <li>source、sink、branch、sanitizer、expected labelを人が確認する。</li>
+    <li>OWASP方言のnegative fixtureと、近接するpositive fixtureを追加する。</li>
+    <li>1 clusterだけruleを変更する。</li>
+    <li>Semgrep catalog testとfull OWASP benchmarkを再実行する。</li>
+    <li>TPが1件でも減る、unmappedだけを消す、他category recallが悪化する場合はrejectする。</li>
+    <li>mapped safe FPが減ったchangeだけを統合する。</li>
+  </ol>
+  <h4 id="priority">Priority</h4>
+  <p>
+    current mapped safe contribution順にXSS 91、SQLi 88、path traversal 86、command injection
+    51を調べる。上位3 ruleだけでは最大265件で、必要な300件へ届かないため、 command
+    injectionまたは下位ruleの改善も必要である。
+  </p>
+  <h4 id="exit-1">Exit</h4>
+  <ul>
+    <li>mapped safe FP <code>&lt;= 53</code></li>
+    <li>unmapped cross-CWEを明示し、scoreから除外していない</li>
+    <li>overall FP <code>&lt;= 141</code></li>
+    <li>
+      precision <code>&gt;= 0.80</code>、FPR
+      <code>&lt;= 0.10</code>、score
+      <code>&gt;= 0.60</code>
+    </li>
+    <li>overall/category TPはbaselineから減っていない</li>
+    <li>catalog positive recall 1.0、negative FP 0</li>
+  </ul>
+  <h3 id="73-slice-544-c--owasp-category-recall">7.3 Slice 54.4-C — OWASP category recall</h3>
+  <h4 id="changes-1">Changes</h4>
+  <ul>
+    <li>SQLi FNをsource/sink/flow別に分類し、最低9件の新規TPを得る。</li>
+    <li>trustbound FNをsource/session flow別に分類し、最低13件の新規TPを得る。</li>
+    <li>新しいsource/sinkごとにpositiveとnegative fixtureを同じchangeへ入れる。</li>
+    <li>trustboundをapplicabilityまたはoverall scoreから除外しない。</li>
+  </ul>
+  <h4 id="exit-2">Exit</h4>
+  <ul>
+    <li>SQLi recall <code>&gt;= 0.50</code></li>
+    <li>trustbound recall <code>&gt;= 0.50</code></li>
+    <li>mapped safe FP、unmapped、全既存passing categoryが悪化しない</li>
+    <li>OWASP overall/category gateがすべてpassする</li>
+  </ul>
+  <h3 id="74-slice-544-d--juice-measurement-v2">7.4 Slice 54.4-D — Juice measurement v2</h3>
+  <h4 id="expected-file-changes">Expected file changes</h4>
+  <ul>
+    <li><code>scripts/benchmark/juice-shop-observations.ts</code></li>
+    <li><code>scripts/benchmark/juice-shop-observations.test.ts</code></li>
+    <li><code>scripts/benchmark/juice-shop.ts</code></li>
+    <li><code>scripts/benchmark/measurement-status.ts</code></li>
+    <li><code>scripts/benchmark/all.ts</code></li>
+    <li><code>scripts/professional-capability-artifact-verifier.ts</code></li>
+    <li><code>scripts/verify-professional-capability.ts</code></li>
+    <li><code>shared/schemas/release-evidence.schema.ts</code>と対応test</li>
+  </ul>
+  <h4 id="changes-2">Changes</h4>
+  <ul>
+    <li>observation/reportをschema v2へ上げ、v1 historical artifactは再解釈しない。</li>
+    <li>missing、blocked、inconclusive、failed cleanupを分離する。</li>
+    <li>
+      <code>resetSucceeded</code>のハードコードを廃止する。曖昧な<code>networkRequests</code>はtarget
+      requestと external/public requestに分離し、bounded transport evidenceから算出する。
+    </li>
+    <li>catalogの全fieldをtyped schemaで検証する。</li>
+    <li>commitとsource tree hashをartifact verifierで照合する。</li>
+    <li>
+      <code>benchmark:all</code>がblockedをfailedやcompletedへ丸めないようにする。
+    </li>
+  </ul>
+  <h4 id="exit-3">Exit</h4>
+  <ul>
+    <li>missing observationsでrecall 0のcompleted metricsを生成しない。</li>
+    <li>blocked/inconclusive/cleanup failureのnegative testがfail closedする。</li>
+    <li>v1 historical evidenceのverificationが維持される。</li>
+  </ul>
+  <h3 id="75-slice-544-e--juice-orchestration-and-fixed-controls">
+    7.5 Slice 54.4-E — Juice orchestration and fixed controls
+  </h3>
+  <h4 id="expected-new-modules">Expected new modules</h4>
+  <ul>
+    <li><code>scripts/benchmark/juice-shop-runner.ts</code></li>
+    <li><code>scripts/benchmark/juice-shop-playbooks.ts</code></li>
+    <li><code>scripts/benchmark/juice-shop-evidence.ts</code></li>
+    <li><code>tests/security-capability/juice-shop/fixed-app/</code></li>
+    <li>family別playbook test</li>
+  </ul>
+  <p>
+    新しい検出能力はJuice固有oracleにせず、<code>security-probe-detector.ts</code>のgenericな
+    sensitive endpoint、password recovery、redirect policy primitiveと対応testへ実装する。
+  </p>
+  <h4 id="delivery-order">Delivery order</h4>
+  <ol>
+    <li>Linux、Docker、pinned image、port、toolbox digestをpreflightする。</li>
+    <li>shared fixture lockを取り、scenarioを直列実行する。</li>
+    <li>vulnerableとfixedのprepare/execute/evidence/cleanupを同じcontractで実行する。</li>
+    <li>authorization、business、bounded HTTP adapterを順に接続する。</li>
+    <li>20 scenarioのID、actor、entrypoint、evidence kind、control IDをcheckerで照合する。</li>
+    <li>cleanup失敗時は後続scenarioを停止し、fixtureをbusy/unknownとして残さない。</li>
+  </ol>
+  <h4 id="exit-4">Exit</h4>
+  <ul>
+    <li>executed 20/20</li>
+    <li>scenario固有evidence 20 pair以上</li>
+    <li>reset/cleanup success 20/20</li>
+    <li>public/production request 0</li>
+    <li>credential canary leakage 0</li>
+    <li>fixed control 20/20が実行可能</li>
+  </ul>
+  <h3 id="76-slice-544-f--juice-detection">7.6 Slice 54.4-F — Juice detection</h3>
+  <h4 id="first-tranche">First tranche</h4>
+  <ul>
+    <li>SQLi 3</li>
+    <li>authorization 4</li>
+    <li>business logic 3</li>
+    <li>sensitive endpoint 2、redirect policy 2、knowledge-factor reset 1</li>
+  </ul>
+  <p>
+    これら12件を優先するが、production findingとevidenceが得られた件数だけをTPとする。
+    既存primitiveで不足する場合は、既存ruleのallowlistを無制限に広げず、bounded adapterを
+    別changeとして追加する。
+  </p>
+  <h4 id="remaining-execution">Remaining execution</h4>
+  <p>
+    weak password、CAPTCHA、extra language、file access、numeric boundaryも実行する。
+    検出できない場合は<code>not_detected</code>とlimitationを保存し、分母から外さない。
+  </p>
+  <h4 id="exit-5">Exit</h4>
+  <ul>
+    <li>eligible <code>&gt;= 20</code></li>
+    <li>category <code>&gt;= 8</code>（current catalogは9）</li>
+    <li>executed <code>20/20</code></li>
+    <li>TP <code>&gt;= 12</code></li>
+    <li>recall <code>&gt;= 0.60</code></li>
+    <li>precision <code>&gt;= 0.80</code></li>
+    <li>TP 12の場合FP <code>&lt;= 3</code></li>
+  </ul>
+  <h3 id="77-slice-544-g--same-commit-closeout">7.7 Slice 54.4-G — Same-commit closeout</h3>
+  <ul>
+    <li>clean checkoutのLinux runnerで全benchmarkを再実行する。</li>
+    <li>source inputを実行前後にhashし、途中変更を拒否する。</li>
+    <li>
+      OWASP passing runをDBへpersistし、release commit、toolbox digest、policy、manifest、
+      corpus、metricsと照合する。
+    </li>
+    <li>Juice reportのcommitと全input hashをrelease commitへ照合する。</li>
+    <li>claim変更は別PRにし、raw/normalized差分とlimitationをhuman reviewerが承認する。</li>
+  </ul>
+  <h4 id="implemented-entrypoints">Implemented entrypoints</h4>
+  <ul>
+    <li><code>bun run phase-54:closeout</code></li>
+    <li><code>bun run verify:phase-54-closeout</code></li>
+    <li>
+      GitHub Actions <code>juice-shop-benchmark</code> job（既存check
+      IDを維持し、OWASP/Juice統合 closeoutへ拡張）
+    </li>
+  </ul>
+  <p>
+    CI jobはpinned corpusとSemgrep/Juice imageをpreloadし、一時DBをmigrationしてから
+    closeoutを実行する。既存artifact、dirty checkout、source/input drift、policy未達、 persisted
+    run不一致、non-authoritative Juice evidence、claim遷移をfail closedする。
+  </p>
+  <h2 id="8-safety-boundaries">8. Safety boundaries</h2>
+  <ul>
+    <li>
+      active
+      targetは<code>local</code>または<code>ephemeral</code>だけとする。
+    </li>
+    <li>Juice Shop imageはdigest pinし、benchmark中にpullしない。</li>
+    <li>
+      target origin、method、path、request budget、rate、durationをplaybookとRoEの両方で
+      allowlistする。
+    </li>
+    <li>shared Juice fixtureは直列実行し、同時利用を拒否する。</li>
+    <li>ZAP containerはinternal networkとbounded gatewayを使う。</li>
+    <li>Docker socketをscanner containerへmountしない。</li>
+    <li>
+      redirect
+      probeは<code>redirect: manual</code>でLocationだけを観測し、外部destinationへ追従しない。
+    </li>
+    <li>actor secretはauth storeまたはephemeral setupから得て、playbook/evidenceへ保存しない。</li>
+    <li>URL query、header、body、browser console、screenshotを既存redaction policyで処理する。</li>
+    <li>
+      evidenceはroot外path、symlink、余剰file、重複hash、16 MiB超過、hash mismatchを
+      拒否し、scenario、target、control、finding、request countをobservationへ結び付ける。
+    </li>
+    <li>
+      cleanupまたはbaseline
+      mismatchはfindingを破棄して<code>failed_cleanup</code>にする。
+    </li>
+    <li>LLMはsummaryを作れても、scenario statusとdetected flagを決定しない。</li>
+  </ul>
+  <h2 id="9-verification-matrix">9. Verification matrix</h2>
+  <table>
+    <caption>
+      9. Verification matrix
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Concern</th>
+        <th scope="col">Positive verification</th>
+        <th scope="col">Failure verification</th>
+        <th scope="col">Required evidence</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>OWASP accounting</td>
+        <td>mapped/unmapped合計が441</td>
+        <td>overlap、unknown CWE、tampered raw</td>
+        <td>failure analysis JSON</td>
+      </tr>
+      <tr>
+        <td>OWASP precision</td>
+        <td>safe clusterだけFP減少</td>
+        <td>TP減少、unmapped除外、category regression</td>
+        <td>before/after report</td>
+      </tr>
+      <tr>
+        <td>OWASP recall</td>
+        <td>SQLi/trustbound TP増加</td>
+        <td>FP増加、他category低下</td>
+        <td>category metrics</td>
+      </tr>
+      <tr>
+        <td>Catalog</td>
+        <td>20 ID、9 category、20 control</td>
+        <td>duplicate/missing/unknown runner</td>
+        <td>catalog check output</td>
+      </tr>
+      <tr>
+        <td>Preflight</td>
+        <td>Linux/Docker/image/browser available</td>
+        <td>missing Docker/image/digest</td>
+        <td>typed blocked report</td>
+      </tr>
+      <tr>
+        <td>Scope</td>
+        <td>local allowlisted requestのみ</td>
+        <td>public origin、path/method/budget超過</td>
+        <td>gateway evidence</td>
+      </tr>
+      <tr>
+        <td>Auth</td>
+        <td>actor別実行とredaction</td>
+        <td>wrong actor、expired auth、secret leak</td>
+        <td>redacted actor evidence</td>
+      </tr>
+      <tr>
+        <td>Vulnerable run</td>
+        <td>production runner findingあり</td>
+        <td>challenge solvedだけ</td>
+        <td>normalized finding reference</td>
+      </tr>
+      <tr>
+        <td>Fixed run</td>
+        <td>same detectorでfindingなし</td>
+        <td>fixed用short-circuit</td>
+        <td>fixed evidence bundle</td>
+      </tr>
+      <tr>
+        <td>State</td>
+        <td>completed 20/20</td>
+        <td>blocked/inconclusiveをFN化</td>
+        <td>observation v2</td>
+      </tr>
+      <tr>
+        <td>Cleanup</td>
+        <td>baseline hash一致</td>
+        <td>cleanup timeout/mismatch</td>
+        <td>prepare/cleanup hashes</td>
+      </tr>
+      <tr>
+        <td>Evidence</td>
+        <td>unique hash、root内、bounded、semantic binding</td>
+        <td>reuse、traversal、symlink、stale file、hash-valid semantic tamper</td>
+        <td>verifier result</td>
+      </tr>
+      <tr>
+        <td>Provenance</td>
+        <td>same commit/input hashes</td>
+        <td>stale/mixed artifact</td>
+        <td>release report</td>
+      </tr>
+      <tr>
+        <td>Claim</td>
+        <td>all gate + persisted OWASP run</td>
+        <td>missing run/human approval</td>
+        <td>approved claim PR</td>
+      </tr>
+    </tbody>
+  </table>
+  <h2 id="10-verification-commands">10. Verification commands</h2>
+  <h3 id="101-fast-contract-gate-per-change">10.1 Fast contract gate per change</h3>
+  <pre><code class="language-bash">bun test api/modules/benchmarks/metric-scorer.test.ts \
+  api/modules/benchmarks/owasp-benchmark-adapter.test.ts \
+  scripts/benchmark/juice-shop-observations.test.ts
+bun run test:semgrep:catalog
+bun run test:zap-active:contract
+bun run test:business-logic
+bun run test:security-capability
+</code></pre>
+  <h3 id="102-owasp-change-gate">10.2 OWASP change gate</h3>
+  <pre><code class="language-bash">bun run benchmark:owasp
+bun run benchmark:owasp:analyze
+bun run verify:professional-capability:report
+</code></pre>
+  <p>期待結果は対象mapped safe FPの減少、TP非減少、unmapped非除外である。</p>
+  <h3 id="103-juice-change-gate">10.3 Juice change gate</h3>
+  <pre><code class="language-bash">bun run benchmark:juice-shop
+bun run verify:dast-capability
+bun run verify:professional-capability:report
+</code></pre>
+  <p>
+    Linux/Dockerがない環境ではpassではなくblocked artifactを確認する。release candidateでは
+    blockedを許容しない。
+  </p>
+  <h3 id="104-final-gate">10.4 Final gate</h3>
+  <pre><code class="language-bash">bun install --frozen-lockfile
+bun run verify:strict
+bun run test:semgrep:catalog
+bun run benchmark:owasp
+bun run benchmark:owasp:analyze
+bun run benchmark:juice-shop
+bun run benchmark:business-logic
+bun run verify:dast-capability
+bun run verify:professional-capability
+bun run verify:clean-checkout
+</code></pre>
+  <h2 id="11-sub-pr-sequence">11. Sub-PR sequence</h2>
+  <p>parent planのPR 5と6を、次のreview単位へ分割する。</p>
+  <table>
+    <caption>
+      11. Sub-PR sequence
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Sub-PR</th>
+        <th scope="col">Content</th>
+        <th scope="col">Dependency</th>
+        <th scope="col">Must not include</th>
+        <th scope="col">Size</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>A1</td>
+        <td>OWASP accounting/provenance</td>
+        <td>none</td>
+        <td>rule変更</td>
+        <td>M</td>
+      </tr>
+      <tr>
+        <td>A2</td>
+        <td>XSS safe-pattern clusters</td>
+        <td>A1</td>
+        <td>SQL/path変更</td>
+        <td>M</td>
+      </tr>
+      <tr>
+        <td>A3</td>
+        <td>SQLi safe-pattern clusters</td>
+        <td>A1</td>
+        <td>recall拡張</td>
+        <td>M</td>
+      </tr>
+      <tr>
+        <td>A4</td>
+        <td>path/cmdi safe-pattern clusters</td>
+        <td>A1</td>
+        <td>policy変更</td>
+        <td>M</td>
+      </tr>
+      <tr>
+        <td>A5</td>
+        <td>residual mapped FP</td>
+        <td>A2-A4</td>
+        <td>unmapped suppression</td>
+        <td>S-M</td>
+      </tr>
+      <tr>
+        <td>A6</td>
+        <td>SQLi/trustbound recall</td>
+        <td>A2-A5</td>
+        <td>Juice infrastructure</td>
+        <td>M</td>
+      </tr>
+      <tr>
+        <td>J1</td>
+        <td>Juice observation/report v2</td>
+        <td>none</td>
+        <td>live detector追加</td>
+        <td>M</td>
+      </tr>
+      <tr>
+        <td>J2</td>
+        <td>orchestrator/preflight/evidence</td>
+        <td>J1</td>
+        <td>claim変更</td>
+        <td>L</td>
+      </tr>
+      <tr>
+        <td>J3</td>
+        <td>executable fixed controls</td>
+        <td>J1-J2</td>
+        <td>fixed short-circuit</td>
+        <td>L</td>
+      </tr>
+      <tr>
+        <td>J4</td>
+        <td>SQLi/authorization adapters</td>
+        <td>J2-J3</td>
+        <td>broad ZAP allowlist</td>
+        <td>L</td>
+      </tr>
+      <tr>
+        <td>J5</td>
+        <td>business/sensitive-endpoint adapters</td>
+        <td>J2-J3</td>
+        <td>external redirect追従</td>
+        <td>L</td>
+      </tr>
+      <tr>
+        <td>J6</td>
+        <td>remaining 8 execution adapters</td>
+        <td>J2-J5</td>
+        <td>denominator削減</td>
+        <td>L</td>
+      </tr>
+      <tr>
+        <td>C1</td>
+        <td>same-commit closeout</td>
+        <td>A6,J6</td>
+        <td>unrelated feature、claim変更</td>
+        <td>M</td>
+      </tr>
+      <tr>
+        <td>C2</td>
+        <td>human-approved claim change</td>
+        <td>C1 pass</td>
+        <td>scanner/evaluation変更</td>
+        <td>S</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    A streamとJ1-J3は並行可能である。同じrule fileまたはprofessional verifierを変更する
+    sub-PRはrebase後に全benchmarkを再実行する。
+  </p>
+  <h2 id="12-failure-handling-and-rollback">12. Failure handling and rollback</h2>
+  <table>
+    <caption>
+      12. Failure handling and rollback
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Trigger</th>
+        <th scope="col">Action</th>
+        <th scope="col">Rollback boundary</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Precision changeでTP減少</td>
+        <td>mergeしない、patternを狭める</td>
+        <td>対象rule + fixtureだけ</td>
+      </tr>
+      <tr>
+        <td>Unmappedだけ減ってscore改善</td>
+        <td>benchmark gamingとしてreject</td>
+        <td>normalization/rule change</td>
+      </tr>
+      <tr>
+        <td>Category recallでFP増加</td>
+        <td>source/sink拡張を分割または撤回</td>
+        <td>対象category rule</td>
+      </tr>
+      <tr>
+        <td>Observation v2でhistorical verifier破壊</td>
+        <td>versioned readerを分離</td>
+        <td>v2 reader/verifier</td>
+      </tr>
+      <tr>
+        <td>Docker/image不足</td>
+        <td>blocked report、release gate停止</td>
+        <td>runtime changeなし</td>
+      </tr>
+      <tr>
+        <td>Auth/setup不安定</td>
+        <td>scenarioをinconclusive、原因修正</td>
+        <td>actor/playbook</td>
+      </tr>
+      <tr>
+        <td>Cleanup/baseline失敗</td>
+        <td>後続停止、findingを採点しない</td>
+        <td>fixture lifecycle</td>
+      </tr>
+      <tr>
+        <td>Fixed controlが比較不能</td>
+        <td>precision claimを停止</td>
+        <td>対象control fixture</td>
+      </tr>
+      <tr>
+        <td>Public request/secret leakage</td>
+        <td>run失敗、artifact隔離、原因調査</td>
+        <td>network/redaction adapter</td>
+      </tr>
+      <tr>
+        <td>same-commit不一致</td>
+        <td>artifactを破棄し再実行</td>
+        <td>evidence only</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    historical evidenceは上書きしない。schema変更はadditive versionを使い、rollback時も old
+    artifactの意味を変更しない。
+  </p>
+  <h2 id="13-risks-and-mitigations">13. Risks and mitigations</h2>
+  <table>
+    <caption>
+      13. Risks and mitigations
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Risk</th>
+        <th scope="col">Impact</th>
+        <th scope="col">Mitigation</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>OWASP corpusへの過適合</td>
+        <td>実案件の検出低下</td>
+        <td>TP非減少、paired near-neighbor、後続real-repo shadow</td>
+      </tr>
+      <tr>
+        <td>Cross-CWE findingの誤抑止</td>
+        <td>製品能力低下</td>
+        <td>unmappedを独立表示し、点数目的で消さない</td>
+      </tr>
+      <tr>
+        <td>Fixed mini-appの非代表性</td>
+        <td>precision過大評価</td>
+        <td>actor/method/state/evidence contractをpair checkerで比較</td>
+      </tr>
+      <tr>
+        <td>Challenge labelのoracle化</td>
+        <td>recallの捏造</td>
+        <td>detectedはproduction normalized findingだけから生成</td>
+      </tr>
+      <tr>
+        <td>Shared fixture contamination</td>
+        <td>非決定的結果</td>
+        <td>serial lock、per-scenario recreate、baseline hash</td>
+      </tr>
+      <tr>
+        <td>Linux/Docker依存</td>
+        <td>local再現性低下</td>
+        <td>typed preflight、Linux release runnerをauthoritativeにする</td>
+      </tr>
+      <tr>
+        <td>Stateful authのflakiness</td>
+        <td>inconclusive増加</td>
+        <td>ephemeral actor、bounded retry、auth assertion、cleanup</td>
+      </tr>
+      <tr>
+        <td>ZAP scope拡張</td>
+        <td>安全境界の弱化</td>
+        <td>current allowlist維持、rule追加は独立security review</td>
+      </tr>
+      <tr>
+        <td>Artifact肥大化/secret混入</td>
+        <td>release不可</td>
+        <td>size limit、redaction、privacy verifier、hash bundle</td>
+      </tr>
+    </tbody>
+  </table>
+  <h2 id="14-definition-of-done">14. Definition of Done</h2>
+  <ul>
+    <li>
+      <input checked="" disabled="" type="checkbox"> policy versionとminimumを変更していない。
+    </li>
+    <li>
+      <input checked="" disabled="" type="checkbox"> OWASP mapped safe FPとunmapped
+      cross-CWEを別集計している。
+    </li>
+    <li>
+      <input checked="" disabled="" type="checkbox"> OWASP mapped safe FP
+      <code>&lt;= 53</code>、overall FP
+      <code>&lt;= 141</code>である。
+    </li>
+    <li>
+      <input checked="" disabled="" type="checkbox"> OWASP overall
+      recall/precision/FPR/scoreがすべてpolicyを満たす。
+    </li>
+    <li>
+      <input checked="" disabled="" type="checkbox"> SQLiとtrustboundを含むapplicable category
+      recallがpolicyを満たす。
+    </li>
+    <li>
+      <input checked="" disabled="" type="checkbox"> Semgrep catalog positive 1.0 / negative FP
+      0を維持する。
+    </li>
+    <li>
+      <input checked="" disabled="" type="checkbox"> Juice catalog 20件にtyped
+      playbookとexecutable fixed controlが1対1で存在する。
+    </li>
+    <li>
+      <input checked="" disabled="" type="checkbox"> Juice executed 20/20、cleanup 20/20である。
+    </li>
+    <li>
+      <input checked="" disabled="" type="checkbox"> Juice TP 12以上、recall 0.60以上、precision
+      0.80以上である。
+    </li>
+    <li>
+      <input checked="" disabled="" type="checkbox"> blocked/inconclusive/failed
+      cleanupを採点へ混入していない。
+    </li>
+    <li>
+      <input checked="" disabled="" type="checkbox"> challenge labelをdetected
+      flagのoracleに使っていない。
+    </li>
+    <li>
+      <input checked="" disabled="" type="checkbox"> public/production request、credential
+      leakage、evidence reuseが0である。
+    </li>
+    <li>
+      <input checked="" disabled="" type="checkbox">
+      raw、normalized、observation、metricsをhashで再計算できる。
+    </li>
+    <li>
+      <input disabled="" type="checkbox"> OWASPとJuice artifactが同じclean
+      commitへ結び付く（実装済み、authoritative Ubuntu artifact待ち）。
+    </li>
+    <li>
+      <input checked="" disabled="" type="checkbox"> regression benchmarkとfull
+      verificationがgreenである。
+    </li>
+    <li><input disabled="" type="checkbox"> claim変更が別PRでhuman approvalを受けている。</li>
+  </ul>
+  <h2 id="15-plan-quality-gate">15. Plan quality gate</h2>
+  <p>本計画自体を次のrubricでreviewする。95点未満なら実装へ進まない。</p>
+  <table>
+    <caption>
+      15. Plan quality gate
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Axis</th>
+        <th scope="col" class="markdown-align-right">Weight</th>
+        <th scope="col" class="markdown-align-right">Score</th>
+        <th scope="col">Reason</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Evidence and factual correctness</td>
+        <td class="markdown-align-right">20</td>
+        <td class="markdown-align-right">20</td>
+        <td>baseline、FP分解、category gapをsourceとartifactへ照合済み</td>
+      </tr>
+      <tr>
+        <td>Architecture and code traceability</td>
+        <td class="markdown-align-right">20</td>
+        <td class="markdown-align-right">19</td>
+        <td>
+          existing primitiveと変更予定fileを対応付けた。payload detailは安全上実装時reviewへ残す
+        </td>
+      </tr>
+      <tr>
+        <td>Work breakdown and dependencies</td>
+        <td class="markdown-align-right">15</td>
+        <td class="markdown-align-right">15</td>
+        <td>slice、dependency、parallel boundary、PR禁止事項を定義</td>
+      </tr>
+      <tr>
+        <td>Verification and acceptance</td>
+        <td class="markdown-align-right">20</td>
+        <td class="markdown-align-right">20</td>
+        <td>positive/failure test、数値exit、same-commit gateを定義</td>
+      </tr>
+      <tr>
+        <td>Security and fail-closed behavior</td>
+        <td class="markdown-align-right">10</td>
+        <td class="markdown-align-right">10</td>
+        <td>scope、auth、network、cleanup、evidence、LLM境界を定義</td>
+      </tr>
+      <tr>
+        <td>Rollback and risk management</td>
+        <td class="markdown-align-right">10</td>
+        <td class="markdown-align-right">9</td>
+        <td>triggerとrollback単位を定義。Linux live dry runは未実施</td>
+      </tr>
+      <tr>
+        <td>Clarity and decision traceability</td>
+        <td class="markdown-align-right">5</td>
+        <td class="markdown-align-right">5</td>
+        <td>元案の採否、source priority、用語を明示</td>
+      </tr>
+      <tr>
+        <td><strong>Total</strong></td>
+        <td class="markdown-align-right"><strong>100</strong></td>
+        <td class="markdown-align-right"><strong>98</strong></td>
+        <td><strong>95-point gate pass</strong></td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    残る2点は実装前に文章で埋めるものではない。各scenarioのbounded request detailに対する security
+    reviewと、authoritative Linux runnerでのdry run結果を得た時点で再評価する。
+  </p>
+</article>
+  </body>
+</html>

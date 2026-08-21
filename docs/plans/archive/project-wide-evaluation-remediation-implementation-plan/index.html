@@ -1,0 +1,1374 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex,follow">
+    <title>Project-Wide Evaluation Remediation Implementation Plan | vulnWorkbench</title>
+    <link rel="stylesheet" href="/vlunWorkbench/assets/css/spec-document.css">
+    <link rel="stylesheet" href="/vlunWorkbench/assets/css/plan-document.css">
+  </head>
+  <body>
+    <nav class="plan-document-links" aria-label="文書ナビゲーション">
+      <a href="/vlunWorkbench/plans/archive/?doc=project-wide-evaluation-remediation-implementation-plan" target="_top">実装計画アーカイブへ</a>
+      <a href="/vlunWorkbench/" target="_top">vulnWorkbenchのLPへ戻る</a>
+    </nav>
+    <article lang="ja">
+  <h1 id="project-wide-evaluation-remediation-implementation-plan">
+    Project-Wide Evaluation Remediation Implementation Plan
+  </h1>
+  <p>
+    Status: Completed for technical release; professional capability remains
+    <code>not_met</code>
+  </p>
+  <p>Planning baseline commit: <code>5a4df84</code></p>
+  <p>Baseline date: 2026-08-15</p>
+  <p>Owner: vulnWorkbench maintainers</p>
+  <p>
+    Target: 前回の多角評価で確認したrelease
+    blocker、保守性、検出能力、CI、運用、性能、継続性の改善を、同一commitの再現可能な証拠でcloseoutする。
+  </p>
+  <p>
+    Related plan:
+    <a href="/vlunWorkbench/plans/archive/?doc=phase-54-release-trust-and-product-value-realization-plan">Phase 54: Release Trust and Product Value Realization Plan</a>
+  </p>
+  <h2 id="closeout-summary">Closeout summary</h2>
+  <p>
+    The implementation completed every technical remediation slice without lowering an existing
+    policy threshold. The final measured state is:
+  </p>
+  <ul>
+    <li>
+      dependency audit: no blocking advisory; <code>nanoid</code> is fixed
+      at <code>3.3.18</code>;
+    </li>
+    <li>source-size violations: 0, including all three baseline offenders;</li>
+    <li>API test inventory: 252 files with 0 failures and 0 Writer leaks;</li>
+    <li>browser E2E: 14/14, with standard and optional Semgrep behavior separated;</li>
+    <li>critical API coverage: 22/22 thresholded targets passing;</li>
+    <li>
+      repository measurement: 584/654 production files instrumented, observed line coverage
+      74.2162%, with 70 uninstrumented files explicitly retained;
+    </li>
+    <li>
+      migration readiness: 28 migrations, fresh and one-version-behind upgrade passing, SQLite
+      integrity <code>ok</code>;
+    </li>
+    <li>
+      local runtime: all versioned policy gates passing with 0 workload errors or rejections under
+      the documented single-node boundary;
+    </li>
+    <li>
+      maintained containers: toolbox, dynamic, and Semgrep images build and pass the High/Critical
+      fixed-vulnerability gate; toolbox OSV and Trivy run with network mode
+      <code>none</code>;
+    </li>
+    <li>
+      owned real-scanner DAST: Nuclei, Schemathesis, and ZAP execute and pass their request-budget
+      gates;
+    </li>
+    <li>
+      maintainership: every critical domain has a primary role and the absent backup roles remain
+      explicitly <code>unassigned</code>.
+    </li>
+  </ul>
+  <p>
+    The professional capability claim remains <code>not_met</code>: OWASP
+    recall is 0.7088, precision 0.6946, false-positive rate 0.3121, and score 0.3967; Juice Shop has
+    20 eligible scenarios across 9 categories but 0 accepted runtime observations. This is a
+    truthful completion under the success metric that requires either passing thresholds or an
+    explicit <code>not_met</code> claim.
+  </p>
+  <h2 id="1-目的">1. 目的</h2>
+  <p>
+    この計画は、現行の強いsecurity boundary、evidence model、test
+    inventoryを維持したまま、前回評価で確認したすべての弱点を実装可能なsliceへ分解するための統合計画である。
+  </p>
+  <p>主な出口は次の6点である。</p>
+  <ol>
+    <li>現在失敗しているsource-size、dependency audit、contract、browser E2Eを復旧する。</li>
+    <li>optional scanner化後の契約、fixture、profile、E2Eの意味を一致させる。</li>
+    <li>secret scanとcontainer dependency更新を、他gateの成否に依存しない供給網管理へ変える。</li>
+    <li>coverageの対象範囲を明示し、全production sourceの未測定領域を継続的に縮小する。</li>
+    <li>
+      local single-node製品としての性能限界を測定し、remote/multi-node化の判断条件を固定する。
+    </li>
+    <li>検出能力、tagged release、maintainershipをPhase 54の未完了条件と統合してcloseoutする。</li>
+  </ol>
+  <p>
+    この計画の完了は、単に<code>verify</code>を一度通すことではない。clean
+    checkout、同一commit、固定toolchain、必要なDocker/corpusを使った検証結果が保存され、文書と実装が一致した状態を完了とする。
+  </p>
+  <h2 id="2-文書の位置付け">2. 文書の位置付け</h2>
+  <ul>
+    <li>現行コードと再現可能なtest結果を最優先の事実とする。</li>
+    <li>本書は、2026-08-15の多角評価で確認した改善項目の実行順とcloseout条件の正本とする。</li>
+    <li>
+      Phase 54の検出能力、SARIF、packaging、release
+      governanceの詳細設計は再利用し、本書で重複実装しない。
+    </li>
+    <li>
+      Phase 46〜54のhistorical evidenceは書き換えない。新しい結果はcurrent release
+      evidenceとして別に生成する。
+    </li>
+    <li>benchmark policyを下げて完了扱いにしない。未達は未達のまま明示する。</li>
+  </ul>
+  <h2 id="3-planning-baseline">3. Planning baseline</h2>
+  <h3 id="31-repository-state">3.1 Repository state</h3>
+  <ul>
+    <li>Branch: <code>main</code></li>
+    <li>Commit: <code>5a4df84</code></li>
+    <li>
+      Upstream state at planning time: <code>origin/main</code>より1 commit
+      ahead
+    </li>
+    <li>Runtime: Bun <code>1.3.14</code></li>
+    <li>Test inventory: 282 files（Vitest 40、Bun 242）</li>
+    <li>TypeScript規模: 約18万行</li>
+    <li>Production TypeScript files: 643前後</li>
+  </ul>
+  <h3 id="32-passing-evidence">3.2 Passing evidence</h3>
+  <table>
+    <caption>
+      3.2 Passing evidence
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Gate</th>
+        <th scope="col">Baseline result</th>
+        <th scope="col">Notes</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>bun run typecheck</code></td>
+        <td>pass</td>
+        <td>app/scriptsともstrict TypeScript</td>
+      </tr>
+      <tr>
+        <td><code>bun run lint</code></td>
+        <td>pass</td>
+        <td>production sourceに既知の<code>any</code>、TODOはなし</td>
+      </tr>
+      <tr>
+        <td><code>bun run format:check</code></td>
+        <td>pass</td>
+        <td>Biome format contractを満たす</td>
+      </tr>
+      <tr>
+        <td><code>bun run build</code></td>
+        <td>pass</td>
+        <td>Vite production build成功</td>
+      </tr>
+      <tr>
+        <td><code>bun run check:bundle</code></td>
+        <td>pass</td>
+        <td>initial JS/CSSとlargest chunkがbudget内</td>
+      </tr>
+      <tr>
+        <td><code>bun run check:override-docs</code></td>
+        <td>pass</td>
+        <td>14 overrideの文書対応は存在</td>
+      </tr>
+      <tr>
+        <td><code>bun run check:artifact-tracking</code></td>
+        <td>pass</td>
+        <td>tracked runtime artifactなし</td>
+      </tr>
+      <tr>
+        <td><code>bun run test:coverage</code></td>
+        <td>pass</td>
+        <td>selected Web lines 94.0%、critical API全targetが個別下限以上</td>
+      </tr>
+    </tbody>
+  </table>
+  <h3 id="33-failing-evidence">3.3 Failing evidence</h3>
+  <table>
+    <caption>
+      3.3 Failing evidence
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">ID</th>
+        <th scope="col">Gate</th>
+        <th scope="col">Baseline failure</th>
+        <th scope="col">Release impact</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>F1</td>
+        <td><code>bun run check:audit</code></td>
+        <td>
+          <code>nanoid 3.3.17</code>、GHSA-2v37-7h3g-55p8、patched
+          <code>3.3.18</code>
+        </td>
+        <td>Security Policyによりrelease block</td>
+      </tr>
+      <tr>
+        <td>F2</td>
+        <td><code>bun run verify:security-intelligence-contract</code></td>
+        <td>NightWorkers v1 fixture hash mismatch</td>
+        <td>pinned integration contractを証明できない</td>
+      </tr>
+      <tr>
+        <td>F3</td>
+        <td><code>bun run test:e2e</code></td>
+        <td>13件中1件、optional化されたSemgrep findingを標準profileで待機</td>
+        <td>strict gate fail</td>
+      </tr>
+      <tr>
+        <td>F4</td>
+        <td><code>bun run check:source-size</code></td>
+        <td>735、509、503行の3 production file</td>
+        <td>fast gateがtest前に停止</td>
+      </tr>
+      <tr>
+        <td>F5</td>
+        <td><code>bun run bootstrap:check -- --skip-port</code></td>
+        <td>local DBに<code>0028_finding_pagination_index.sql</code>が未適用</td>
+        <td>planning hostの運用readyではない</td>
+      </tr>
+    </tbody>
+  </table>
+  <h3 id="34-capability-baseline">3.4 Capability baseline</h3>
+  <ul>
+    <li>Professional capability claim: <code>not_met</code></li>
+    <li>OWASP Benchmark recall: <code>0.7088</code></li>
+    <li>OWASP Benchmark precision: <code>0.6946</code></li>
+    <li>OWASP Benchmark false-positive rate: <code>0.3121</code></li>
+    <li>Juice Shop eligible scenarios: 20</li>
+    <li>Juice Shop executed scenarios: 0</li>
+  </ul>
+  <p>
+    上記は欠陥を隠すために削除しない。policy thresholdを実測で満たした場合にだけclaimを変更する。
+  </p>
+  <h2 id="4-scope">4. Scope</h2>
+  <h3 id="41-in-scope">4.1 In scope</h3>
+  <ul>
+    <li>vulnerable dependency overrideとlockfile</li>
+    <li>NightWorkers v1 fixture/baseline contract</li>
+    <li>optional Semgrep profileと実DB browser E2E</li>
+    <li>source-size budgetを超えた3 production module</li>
+    <li>GitHub Actions secret scanの実行独立性</li>
+    <li>Docker base/tool dependencyの自動更新</li>
+    <li>selected coverageとrepository-wide coverageの区別</li>
+    <li>critical coverage対象の拡張手順</li>
+    <li>local API、SQLite Writer、scan admissionの性能測定</li>
+    <li>local single-node support boundaryの明文化</li>
+    <li>OWASP Benchmark precision/FPR改善とJuice Shop実行</li>
+    <li>tagged release、changelog、support policy、maintainership</li>
+    <li>planning hostのmigration readiness</li>
+  </ul>
+  <h3 id="42-non-goals">4.2 Non-goals</h3>
+  <ul>
+    <li>SQLiteからremote DBへの即時移行</li>
+    <li>multi-tenant SaaS化</li>
+    <li>scanner license境界を無視してSemgrepをcore toolboxへ戻すこと</li>
+    <li>benchmark thresholdの引き下げ</li>
+    <li>LLMだけによるfindingの<code>confirmed</code>昇格</li>
+    <li>production targetへのactive attack</li>
+    <li>source body、credential、absolute private pathをtelemetryへ送信すること</li>
+    <li>全production fileへ一度に一律80% coverageを要求すること</li>
+    <li>人員が存在しない状態で形式だけのapprovalを捏造すること</li>
+  </ul>
+  <h2 id="5-fixed-decisions">5. Fixed decisions</h2>
+  <h3 id="51-release-blocker-first">5.1 Release blocker first</h3>
+  <ul>
+    <li>Slice 0〜4のP0が完了するまで、新しいfeature sliceをrelease branchへ混在させない。</li>
+    <li>
+      <code>verify</code>の途中で止まった場合も、dependency audit、secret
+      scan、contract testの結果を個別に採取する。
+    </li>
+    <li>release blockerの修正PRは、無関係なrefactorやfeatureを含めない。</li>
+  </ul>
+  <h3 id="52-optional-semgrep-boundary">5.2 Optional Semgrep boundary</h3>
+  <ul>
+    <li>Semgrepはoptional adapterのまま維持する。</li>
+    <li>standard profileへSemgrepを暗黙に戻さない。</li>
+    <li>
+      Semgrep
+      findingを要求するtestは、<code>VULN_WORKBENCH_OPTIONAL_SCANNER_ADAPTERS=semgrep</code>と<code>semgrep-baseline</code>を明示する。
+    </li>
+    <li>
+      standard <code>baseline</code>の実DB
+      E2EはGitleaks/OSVのcontractを検証し、Semgrep findingを期待しない。
+    </li>
+  </ul>
+  <h3 id="53-nightworkers-v1-compatibility">5.3 NightWorkers v1 compatibility</h3>
+  <ul>
+    <li>schema versionは、wire shapeにbreaking changeがない限りv1を維持する。</li>
+    <li>
+      fixtureのSemgrepからGitleaksへの変更は、optional
+      adapter境界に合わせた意図的なexample変更として扱う。
+    </li>
+    <li>
+      baseline hashはblind regenerationしない。fixture diff、schema compatibility、consumer
+      testをreviewしたcommitでのみ更新する。
+    </li>
+    <li>
+      verifierの<code>unchanged</code>は「承認済みbaselineと一致」を意味し、historical
+      fixtureから一切変化していないという意味にはしない。
+    </li>
+  </ul>
+  <h3 id="54-source-size-policy">5.4 Source-size policy</h3>
+  <ul>
+    <li>3対象は期限なし例外へ登録せず、責務単位に分割して各production fileを500行未満にする。</li>
+    <li>
+      public export、CLI output、DB mutation順序、error kind、artifact cleanupをcharacterization
+      testで固定してから分割する。
+    </li>
+    <li>行数だけを移すwrapperや循環依存を作らない。</li>
+  </ul>
+  <h3 id="55-coverage-semantics">5.5 Coverage semantics</h3>
+  <ul>
+    <li>現在の94.0%はselected Web coverageであり、repository-wide coverageとは表記しない。</li>
+    <li>critical file coverageはsecurity boundaryのrelease gateとして維持する。</li>
+    <li>
+      repository-wide
+      coverageは最初にmeasurement-onlyで導入し、未測定領域を可視化してからratchetする。
+    </li>
+    <li>
+      include/exclude変更だけで数値を改善しない。production path追加とtest追加を同一PRにする。
+    </li>
+  </ul>
+  <h3 id="56-performance-and-scale-boundary">5.6 Performance and scale boundary</h3>
+  <ul>
+    <li>初期support boundaryはlocal、single application instance、single SQLite Writerとする。</li>
+    <li>
+      remote DB、distributed limiter、multi-node
+      writerはmeasurementで必要性が示されるまで実装しない。
+    </li>
+    <li>performance regressionは固定fixture、固定toolchain、記録されたhost classで比較する。</li>
+    <li>絶対SLOはSlice 7のbaseline PRでreviewし、以後versioned policyとして固定する。</li>
+  </ul>
+  <h3 id="57-claim-integrity">5.7 Claim integrity</h3>
+  <ul>
+    <li><code>benchmark-policy.v1.json</code>をPhase 54内で変更しない。</li>
+    <li>
+      OWASP、Juice Shopのいずれかが未達ならprofessional capability
+      claimは<code>not_met</code>を維持する。
+    </li>
+    <li>unavailable corpus、Docker、scanner dataをpassへ変換しない。</li>
+  </ul>
+  <h2 id="6-priority-and-dependency-map">6. Priority and dependency map</h2>
+  <table>
+    <caption>
+      6. Priority and dependency map
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Slice</th>
+        <th scope="col">Priority</th>
+        <th scope="col">Effort</th>
+        <th scope="col">Objective</th>
+        <th scope="col">Depends on</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>0</td>
+        <td>P0</td>
+        <td>S</td>
+        <td>baselineと変更凍結</td>
+        <td>none</td>
+      </tr>
+      <tr>
+        <td>1</td>
+        <td>P0</td>
+        <td>S</td>
+        <td>dependency advisory解消</td>
+        <td>0</td>
+      </tr>
+      <tr>
+        <td>2</td>
+        <td>P0</td>
+        <td>M</td>
+        <td>NightWorkers contract整合</td>
+        <td>0</td>
+      </tr>
+      <tr>
+        <td>3</td>
+        <td>P0</td>
+        <td>M</td>
+        <td>optional scanner E2E整合</td>
+        <td>2</td>
+      </tr>
+      <tr>
+        <td>4A</td>
+        <td>P0</td>
+        <td>M</td>
+        <td>exploration catalog分割</td>
+        <td>0</td>
+      </tr>
+      <tr>
+        <td>4B</td>
+        <td>P0</td>
+        <td>M</td>
+        <td>reproduction runner分割</td>
+        <td>0</td>
+      </tr>
+      <tr>
+        <td>4C</td>
+        <td>P0</td>
+        <td>M</td>
+        <td>Docker tool runner分割</td>
+        <td>0</td>
+      </tr>
+      <tr>
+        <td>5</td>
+        <td>P1</td>
+        <td>M</td>
+        <td>CIと供給網hardening</td>
+        <td>1〜4</td>
+      </tr>
+      <tr>
+        <td>6</td>
+        <td>P1</td>
+        <td>M</td>
+        <td>coverage scope拡張</td>
+        <td>3〜4</td>
+      </tr>
+      <tr>
+        <td>7</td>
+        <td>P2</td>
+        <td>L</td>
+        <td>performance baselineとscale gate</td>
+        <td>4、6</td>
+      </tr>
+      <tr>
+        <td>8</td>
+        <td>P1</td>
+        <td>XL</td>
+        <td>measured detection effectiveness</td>
+        <td>1〜5、Phase 54.4</td>
+      </tr>
+      <tr>
+        <td>9</td>
+        <td>P1</td>
+        <td>M</td>
+        <td>operations、tag、maintainership</td>
+        <td>1〜8</td>
+      </tr>
+      <tr>
+        <td>10</td>
+        <td>P0</td>
+        <td>M</td>
+        <td>same-commit closeout</td>
+        <td>selected release scope complete</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>Slice 4A〜4Cはfileが重ならないため並行可能である。Slice 8はP0 gate復旧後にのみ開始する。</p>
+  <h2 id="7-slice-0--baseline-and-change-freeze">7. Slice 0 — Baseline and change freeze</h2>
+  <h3 id="objective">Objective</h3>
+  <p>修正前の失敗を同じcommitから再現し、後続PRが何を直したか比較できるようにする。</p>
+  <h3 id="changes">Changes</h3>
+  <ul>
+    <li>current release evidenceをsource tree外の一時directoryへ生成する。</li>
+    <li>
+      commit、dirty state、Bun version、test inventory、failure ID、command、exit
+      code、durationを保存する。
+    </li>
+    <li>
+      F1〜F5を<code>failed</code>、環境不足のDocker/corpus検証を<code>blocked</code>として区別する。
+    </li>
+    <li><code>spec/evidence</code>のhistorical reportは編集しない。</li>
+  </ul>
+  <h3 id="acceptance">Acceptance</h3>
+  <ul>
+    <li>F1〜F5が同一baseline reportから参照できる。</li>
+    <li>credential、source body、absolute home pathを含まない。</li>
+    <li>baseline生成中にsource stateが変わった場合は失敗する。</li>
+  </ul>
+  <h3 id="verification">Verification</h3>
+  <pre><code class="language-bash">bun run phase-54:baseline
+bun run test:inventory -- --assert-complete
+git status --short
+git diff --check
+</code></pre>
+  <h3 id="failure-handling--rollback">Failure handling / rollback</h3>
+  <ul>
+    <li>
+      baseline採取中にHEADまたはworking treeが変わった場合はartifactを破棄し、clean
+      stateから再取得する。
+    </li>
+    <li>baselineの失敗を修正扱いにせず、Slice 1以降で個別に解消する。</li>
+  </ul>
+  <h2 id="8-slice-1--dependency-advisory-remediation">
+    8. Slice 1 — Dependency advisory remediation
+  </h2>
+  <h3 id="objective-1">Objective</h3>
+  <p>
+    <code>nanoid &lt; 3.3.18</code>をdependency graphから除去し、Security
+    Policyのrelease blockを解消する。
+  </p>
+  <h3 id="changes-1">Changes</h3>
+  <ul>
+    <li>
+      <code>package.json</code>の<code>overrides.nanoid</code>を<code>3.3.18</code>以上の互換patched
+      versionへ更新する。
+    </li>
+    <li>
+      <code>bun.lock</code>を更新し、全resolved
+      <code>nanoid</code> versionを確認する。
+    </li>
+    <li><code>docs/dependency-overrides.md</code>のversion、理由、review dateを更新する。</li>
+    <li>
+      PostCSS/Vite buildでcustom generator APIを直接使用していないことをdependency/applicability
+      noteへ記録する。
+    </li>
+  </ul>
+  <h3 id="acceptance-1">Acceptance</h3>
+  <ul>
+    <li><code>bun audit</code>にmoderate/high/critical findingが0件。</li>
+    <li>dependency treeに<code>nanoid &lt; 3.3.18</code>が存在しない。</li>
+    <li>Web build、bundle budget、selected coverageが非劣化。</li>
+    <li>override documentとpackage manifestが一致する。</li>
+  </ul>
+  <h3 id="verification-1">Verification</h3>
+  <pre><code class="language-bash">bun install --frozen-lockfile
+bun run check:audit
+bun run check:override-docs
+bun run build
+bun run check:bundle
+bun run test:web
+</code></pre>
+  <h3 id="failure-handling--rollback-1">Failure handling / rollback</h3>
+  <ul>
+    <li>patched overrideを古いvulnerable versionへ戻さない。</li>
+    <li>
+      transitive consumerが非互換なら、consumer upgradeまたはoverride removalでpatched
+      graphを作り直す。
+    </li>
+    <li>解決までreleaseはblockedのまま維持する。</li>
+  </ul>
+  <h2 id="9-slice-2--nightworkers-v1-contract-reconciliation">
+    9. Slice 2 — NightWorkers v1 contract reconciliation
+  </h2>
+  <h3 id="objective-2">Objective</h3>
+  <p>
+    optional Semgrep化に伴うfixture変更を、明示的にreviewされたv1-compatible contract
+    changeとして固定する。
+  </p>
+  <h3 id="changes-2">Changes</h3>
+  <ul>
+    <li><code>shared/fixtures/nightworkers-security-scan-integration-v1.ts</code>のpreview stepをGitleaks例として維持する。</li>
+    <li>Semgrep→Gitleaks diffがwire schemaを変更しないことをschema parse testで証明する。</li>
+    <li>NightWorkers consumer fixture/testが同じexampleを受理することを確認する。</li>
+    <li>
+      <code>security-intelligence-stage-0-baseline.json</code>のNightWorkers fixture hashを、reviewed
+      commitと変更理由付きで更新する。
+    </li>
+    <li>
+      verifier output/documentationで<code>unchanged</code>の意味を「approved
+      baseline matched」と明記する。
+    </li>
+  </ul>
+  <h3 id="acceptance-2">Acceptance</h3>
+  <ul>
+    <li>schema contract versionは1のまま。</li>
+    <li>baseline hash更新がfixtureの意図した差分だけに対応する。</li>
+    <li>positive/negative Security Intelligence assessment fixture hashは変化しない。</li>
+    <li>producer/consumer双方のv1 contract testがpassする。</li>
+  </ul>
+  <h3 id="verification-2">Verification</h3>
+  <pre><code class="language-bash">bun run verify:security-intelligence-contract
+bun test scripts/verify-security-intelligence-contract.test.ts
+bun test api/modules/integrations/nightworkers
+bun run integration:nightworkers:capabilities -- --project-path .
+git diff --check
+</code></pre>
+  <h3 id="failure-handling--rollback-2">Failure handling / rollback</h3>
+  <ul>
+    <li>consumer非互換が見つかった場合はbaselineを更新せず、fixture変更を戻す。</li>
+    <li>wire shapeの変更が必要ならv1 hash更新ではなくv2 contract計画へ分離する。</li>
+  </ul>
+  <h2 id="10-slice-3--optional-scanner-and-real-db-e2e-alignment">
+    10. Slice 3 — Optional scanner and real-DB E2E alignment
+  </h2>
+  <h3 id="objective-3">Objective</h3>
+  <p>
+    standard profileとoptional Semgrep profileの双方を、実DB・実API・実scan
+    processを通るE2Eで正しい意味に固定する。
+  </p>
+  <h3 id="changes-3">Changes</h3>
+  <ul>
+    <li>
+      現在のreal-DB testを二つのcontractへ分割する。
+      <ul>
+        <li>
+          standard <code>baseline</code>:
+          Gitleaks/OSVでscan完了、coverage、zero/non-zero result、automatic reportを確認。
+        </li>
+        <li>
+          optional <code>semgrep-baseline</code>: opt-in環境とfixture
+          binaryを使い、<code>E2E unsafe eval finding</code>を確認。
+        </li>
+      </ul>
+    </li>
+    <li>optional test serverにだけ<code>VULN_WORKBENCH_OPTIONAL_SCANNER_ADAPTERS=semgrep</code>を渡す。</li>
+    <li>
+      profile
+      catalogに<code>semgrep-baseline</code>がopt-in時だけ現れることをbrowser/API双方で確認する。
+    </li>
+    <li>Semgrep無効時にstandard profileへ暗黙追加されないnegative testを維持する。</li>
+    <li>
+      automatic diagnosticの最終状態を待ってからUI assertionを行い、polling途中の表示をfinal
+      resultと誤認しない。
+    </li>
+  </ul>
+  <h3 id="acceptance-3">Acceptance</h3>
+  <ul>
+    <li>Chromium E2Eが全件passする。</li>
+    <li>standard profileはSemgrep binaryの有無に依存しない。</li>
+    <li>optional profileはopt-inなしでは非表示・実行不能。</li>
+    <li>optional profileのfindingはproduction normalizer/repositoryを通る。</li>
+    <li>Axe serious/critical violationが0件。</li>
+  </ul>
+  <h3 id="verification-3">Verification</h3>
+  <pre><code class="language-bash">bun test api/modules/scans/static-scanner-adapter-registry.test.ts
+bun test api/modules/scans/nightworkers-profile-contract.test.ts
+bun run test:e2e
+</code></pre>
+  <h3 id="failure-handling--rollback-3">Failure handling / rollback</h3>
+  <ul>
+    <li>
+      flaky waitをtimeout延長だけで隠さない。scan/diagnosticのauthoritative persisted
+      stateをpollする。
+    </li>
+    <li>optional profile setupが不安定ならtestをskipせず、fixture process contractを修正する。</li>
+  </ul>
+  <h2 id="11-slice-4a--exploration-catalog-decomposition">
+    11. Slice 4A — Exploration catalog decomposition
+  </h2>
+  <h3 id="objective-4">Objective</h3>
+  <p>
+    <code>exploration-catalog.ts</code>を735行から500行未満へ分割し、ranking、projection、budgetの変更を独立reviewできるようにする。
+  </p>
+  <h3 id="proposed-boundary">Proposed boundary</h3>
+  <ul>
+    <li><code>exploration-catalog.ts</code>: public orchestrationとexportのみ</li>
+    <li><code>exploration-catalog-candidates.ts</code>: file/test candidate生成</li>
+    <li><code>exploration-catalog-ranking.ts</code>: priority、sort、reason code集約</li>
+    <li>
+      <code>exploration-catalog-projection.ts</code>: V1/V2 snapshot projectionとresult assembly
+    </li>
+    <li>
+      既存<code>exploration-catalog-policy.ts</code>: normalization、redaction、response budget
+      policy
+    </li>
+  </ul>
+  <h3 id="acceptance-4">Acceptance</h3>
+  <ul>
+    <li>全production fileが500行未満。</li>
+    <li>V1/V2 result schema、stable ordering、hash、budget、redactionが不変。</li>
+    <li>V2 language coverageとmodule ID semanticsが非劣化。</li>
+    <li>循環importがない。</li>
+  </ul>
+  <h3 id="verification-4">Verification</h3>
+  <pre><code class="language-bash">bun test \
+  api/modules/static-intelligence/exploration-catalog.test.ts \
+  api/modules/static-intelligence/exploration-catalog-v2.test.ts \
+  api/modules/static-intelligence/intelligence-exploration-catalog-cli.test.ts \
+  api/modules/static-intelligence/mcp-tools.test.ts
+bun run check:source-size
+bun run typecheck
+</code></pre>
+  <h3 id="failure-handling--rollback-4">Failure handling / rollback</h3>
+  <ul>
+    <li>
+      schema outputまたはcanonical orderingが変化した場合、抽出単位を戻してcharacterization
+      testを先に追加する。
+    </li>
+    <li>ranking改善を同じPRへ混ぜない。</li>
+  </ul>
+  <h2 id="12-slice-4b--reproduction-runner-decomposition">
+    12. Slice 4B — Reproduction runner decomposition
+  </h2>
+  <h3 id="objective-5">Objective</h3>
+  <p>
+    <code>reproduction-runner.ts</code>を509行から500行未満へ分割し、validation、execution、persistence、cleanupを明確にする。
+  </p>
+  <h3 id="proposed-boundary-1">Proposed boundary</h3>
+  <ul>
+    <li><code>reproduction-runner.ts</code>: public facadeとworkflow orchestration</li>
+    <li>
+      <code>reproduction-run-context.ts</code>: finding/project/profile解決とapplicability
+    </li>
+    <li>
+      <code>reproduction-execution.ts</code>: temp directory、command、sandbox execution
+    </li>
+    <li>
+      <code>reproduction-outcome.ts</code>: failure classification、evaluation、metadata
+    </li>
+  </ul>
+  <h3 id="acceptance-5">Acceptance</h3>
+  <ul>
+    <li>dry-run JSON、run status、failure kind、artifact metadataが不変。</li>
+    <li>timeout、Docker unavailable、invalid JSON、storage failureでtemp fileが残らない。</li>
+    <li>finding/project ownershipの解決順序を維持する。</li>
+    <li>全production fileが500行未満。</li>
+  </ul>
+  <h3 id="verification-5">Verification</h3>
+  <pre><code class="language-bash">bun test \
+  api/modules/reproductions/profiles.test.ts \
+  api/modules/reproductions/reproduction-runner.test.ts \
+  api/routes/reproductions.route.test.ts
+bun run check:source-size
+bun run typecheck
+</code></pre>
+  <h3 id="failure-handling--rollback-5">Failure handling / rollback</h3>
+  <ul>
+    <li>
+      persistence順序またはcleanup保証が変わった場合は抽出を戻し、failure-path
+      testを追加してから再分割する。
+    </li>
+  </ul>
+  <h2 id="13-slice-4c--docker-tool-runner-decomposition">
+    13. Slice 4C — Docker tool runner decomposition
+  </h2>
+  <h3 id="objective-6">Objective</h3>
+  <p>
+    <code>docker-tool-process-runner.ts</code>を503行から500行未満へ分割し、policy、argv生成、lifecycle、cleanupを独立検証できるようにする。
+  </p>
+  <h3 id="proposed-boundary-2">Proposed boundary</h3>
+  <ul>
+    <li><code>docker-tool-process-runner.ts</code>: process lifecycle orchestration</li>
+    <li><code>docker-tool-invocation-policy.ts</code>: binary/first-arg allowlist registration</li>
+    <li>
+      <code>docker-tool-command.ts</code>: mount、network、resource、argument rewrite
+    </li>
+    <li><code>docker-tool-cleanup.ts</code>: timeout、limit、container force removal</li>
+  </ul>
+  <h3 id="acceptance-6">Acceptance</h3>
+  <ul>
+    <li>repo mountはread-only、output/cacheだけread-write。</li>
+    <li>
+      default networkは<code>none</code>、resource limitは常時付与。
+    </li>
+    <li>stdout/stderr/result size超過、timeout、observer failureの意味が不変。</li>
+    <li>container name、provenance、cleanup eventが維持される。</li>
+    <li>全production fileが500行未満。</li>
+  </ul>
+  <h3 id="verification-6">Verification</h3>
+  <pre><code class="language-bash">bun test \
+  api/modules/scans/tools/tool-process-runner.test.ts \
+  api/modules/scans/tools/scanner-provenance.test.ts \
+  api/modules/reproductions/reproduction-runner.test.ts
+bun run test:coverage:critical
+bun run check:source-size
+bun run typecheck
+</code></pre>
+  <h3 id="failure-handling--rollback-6">Failure handling / rollback</h3>
+  <ul>
+    <li>Docker argv snapshotがsecurity boundaryを弱める場合はmergeしない。</li>
+    <li>cleanup regression時は新moduleだけを戻し、既存single-file implementationへ戻す。</li>
+  </ul>
+  <h2 id="14-slice-5--ci-and-supply-chain-hardening">
+    14. Slice 5 — CI and supply-chain hardening
+  </h2>
+  <h3 id="objective-7">Objective</h3>
+  <p>
+    fast/strict gateの失敗に関係なくsecret scanとdependency
+    monitoringが動作し、供給網の失敗を独立して観測できるようにする。
+  </p>
+  <h3 id="changes-4">Changes</h3>
+  <ul>
+    <li>
+      <code>verify.yml</code>のGitleaksを<code>verify</code>
+      job後の通常stepから独立した<code>secret-scan</code> jobへ移す。
+    </li>
+    <li>
+      <code>secret-scan</code>は<code>verify</code>失敗時にも実行し、checkout以外の不要なsetupへ依存させない。
+    </li>
+    <li>
+      workflowへ<code>concurrency</code>と<code>cancel-in-progress</code>を追加し、同一PRの古いstrict
+      runを停止する。
+    </li>
+    <li>
+      Dependabotへ次のDocker directoryを追加する。
+      <ul>
+        <li><code>/docker/toolbox</code></li>
+        <li><code>/docker/dynamic</code></li>
+        <li><code>/docker/plugins/semgrep</code></li>
+      </ul>
+    </li>
+    <li>
+      Docker base digest更新PRでもcontainer-security workflowが起動することをpath testで確認する。
+    </li>
+    <li>CI jobとactionは最小permission、commit SHA pinを維持する。</li>
+  </ul>
+  <h3 id="acceptance-7">Acceptance</h3>
+  <ul>
+    <li>
+      意図的に<code>verify</code>を失敗させたworkflow testでもsecret scan
+      jobが実行される。
+    </li>
+    <li>npm、GitHub Actions、3 Docker directoryがupdate対象になる。</li>
+    <li>container workflowはSBOMを生成し、High/Criticalをblockする。</li>
+    <li>strict failure、secret failure、container failureが別checkとして表示される。</li>
+  </ul>
+  <h3 id="verification-7">Verification</h3>
+  <pre><code class="language-bash">bun test scripts/verify-steps.test.ts
+bun run check:audit
+bun run check:artifact-tracking
+git diff --check
+</code></pre>
+  <p>CI上で次を確認する。</p>
+  <pre><code class="language-text">verify: pass
+secret-scan: pass
+container-security/toolbox: pass or explicitly blocked by environment
+container-security/dynamic: pass
+</code></pre>
+  <h3 id="failure-handling--rollback-7">Failure handling / rollback</h3>
+  <ul>
+    <li>secret scanをstrict job末尾へ戻さない。</li>
+    <li>Action互換問題時は独立jobを維持したままaction versionだけを前のpinned SHAへ戻す。</li>
+  </ul>
+  <h2 id="15-slice-6--coverage-scope-transparency-and-expansion">
+    15. Slice 6 — Coverage scope transparency and expansion
+  </h2>
+  <h3 id="objective-8">Objective</h3>
+  <p>
+    selected coverageを全体coverageと誤認させず、重要な未測定production pathを継続的に縮小する。
+  </p>
+  <h3 id="changes-5">Changes</h3>
+  <ul>
+    <li>coverage reportへ<code>scopeKind: selected_web | critical_api | repository_measurement</code>を付ける。</li>
+    <li>
+      全production TS/TSX fileと、coverage対象・critical
+      target・E2E-only・未測定の分類を出すinventory scriptを追加する。
+    </li>
+    <li>repository-wide V8 coverageをmeasurement-onlyで生成し、CI artifactとして保存する。</li>
+    <li>初期ratchetは、総率ではなく「未測定critical file数を増やさない」をgateにする。</li>
+    <li>
+      auth、outbound URL、project path、secret crypto、Docker runner、active DAST、integration
+      serviceのcritical thresholdは維持する。
+    </li>
+    <li>controller exclusionは対応E2E test IDをmanifestへ必須記録する。</li>
+  </ul>
+  <h3 id="acceptance-8">Acceptance</h3>
+  <ul>
+    <li>README、CI artifact、console outputが94.0%をselected Web coverageと明記する。</li>
+    <li>全production fileが四つのcoverage classificationのいずれかに属する。</li>
+    <li>unknown/unclassified production fileが0件。</li>
+    <li>新しいcritical production fileをtest/thresholdなしで追加するとgateが失敗する。</li>
+    <li>既存thresholdは下がらない。</li>
+  </ul>
+  <h3 id="verification-8">Verification</h3>
+  <pre><code class="language-bash">bun run test:coverage
+bun run test:e2e
+bun run test:inventory -- --assert-complete
+bun run verify
+</code></pre>
+  <h3 id="failure-handling--rollback-8">Failure handling / rollback</h3>
+  <ul>
+    <li>repository-wide数値が低いことを理由にexcludeを増やさない。</li>
+    <li>measurement collectorが不安定ならrelease threshold化せずartifact生成だけに戻す。</li>
+  </ul>
+  <h2 id="16-slice-7--performance-baseline-and-scale-decision-gate">
+    16. Slice 7 — Performance baseline and scale decision gate
+  </h2>
+  <h3 id="objective-9">Objective</h3>
+  <p>
+    local single-node用途での性能と資源境界を定量化し、最適化またはremote
+    architecture着手の判断根拠を作る。
+  </p>
+  <h3 id="workload">Workload</h3>
+  <ul>
+    <li>health/readiness endpoint</li>
+    <li>authenticated project/scan/finding list</li>
+    <li>SQLite Writer single mutation latency</li>
+    <li>4/16/64 concurrent Writer mutation latencyとqueue depth</li>
+    <li>scan admissionからchild process startまでの時間</li>
+    <li>10k finding pagination query</li>
+    <li>Static Intelligence current-generation read</li>
+    <li>automatic diagnostic queue admission（LLMはfixture provider）</li>
+  </ul>
+  <h3 id="changes-6">Changes</h3>
+  <ul>
+    <li><code>scripts/benchmark/local-runtime.ts</code>とversioned policy schemaを追加する。</li>
+    <li>hardware class、OS、Bun、SQLite、commit、fixture hashを結果へ保存する。</li>
+    <li>p50/p95/p99、throughput、max queue depth、error/rejection、RSSを記録する。</li>
+    <li>first baseline PRでabsolute SLOをreviewして固定する。</li>
+    <li>
+      subsequent PRでは少なくとも次をgateにする。
+      <ul>
+        <li>error/rejection 0</li>
+        <li>queue depthがhard maximumへ到達しない</li>
+        <li>p95が承認済みbaselineから20%以上悪化しない</li>
+        <li>RSSが承認済みbaselineから25%以上悪化しない</li>
+      </ul>
+    </li>
+    <li>
+      multi-node要求は、single-node
+      policy未達または実利用capacity不足のevidenceがある場合だけ別ADRへ進める。
+    </li>
+  </ul>
+  <h3 id="acceptance-9">Acceptance</h3>
+  <ul>
+    <li>同じhost classで3回実行し、中央値結果を生成できる。</li>
+    <li>benchmark dataにsource body、credential、absolute home pathがない。</li>
+    <li>Writer queue full、timeout、memory growthをpassへ丸めない。</li>
+    <li>support matrixにsingle-node上限と未対応条件が記載される。</li>
+  </ul>
+  <h3 id="verification-9">Verification</h3>
+  <pre><code class="language-bash">bun run scripts/benchmark/local-runtime.ts -- --repeat 3
+bun test api/db/writer
+bun test api/modules/scans/scan-process-supervisor.test.ts
+bun run check:artifact-tracking
+</code></pre>
+  <h3 id="failure-handling--rollback-9">Failure handling / rollback</h3>
+  <ul>
+    <li>flaky timingをtimeout拡大だけで解決しない。fixture、warm-up、host classを固定する。</li>
+    <li>thresholdが現実的でない場合は結果を削除せず、policy major changeとして旧新比較を残す。</li>
+  </ul>
+  <h2 id="17-slice-8--measured-detection-effectiveness">
+    17. Slice 8 — Measured detection effectiveness
+  </h2>
+  <h3 id="objective-10">Objective</h3>
+  <p>
+    professional capability claimの未達を、threshold変更ではなくscanner
+    precision、recall、実行証拠の改善で解消する。
+  </p>
+  <h3 id="relationship-to-phase-54">Relationship to Phase 54</h3>
+  <p>
+    実装詳細はPhase 54 Slice 54.4と54.5を正とする。本sliceは今回のcloseout
+    dependencyとして、その出口を固定する。
+  </p>
+  <h3 id="workstream-a--owasp-benchmark">Workstream A — OWASP Benchmark</h3>
+  <ul>
+    <li>false negative 412件、false positive 441件をCWE/rule/source別に分類する。</li>
+    <li>SQL injection、trust boundary、XSS等の弱いcategoryを優先する。</li>
+    <li>rule変更ごとにpositive recallとnegative false-positiveをpaired fixtureで確認する。</li>
+    <li>
+      optional Semgrep image、owned rule manifest、normalized resultのhashを同じrunへ結び付ける。
+    </li>
+    <li>overallだけでなくpolicy対象category recallを保存する。</li>
+  </ul>
+  <h3 id="workstream-b--juice-shop">Workstream B — Juice Shop</h3>
+  <ul>
+    <li>20 eligible scenarioをreset→execute→evidence→cleanupの順で実行する。</li>
+    <li>scenarioごとに一意のevidence artifactを要求する。</li>
+    <li>
+      cleanup failure、auth
+      failure、未実行は<code>blocked</code>または<code>failed</code>とし、observation済みにしない。
+    </li>
+    <li>credential canary leakage 0、production/public active request 0を維持する。</li>
+  </ul>
+  <h3 id="acceptance-10">Acceptance</h3>
+  <ul>
+    <li>OWASP recall <code>&gt;= 0.7</code></li>
+    <li>OWASP precision <code>&gt;= 0.8</code></li>
+    <li>OWASP false-positive rate <code>&lt;= 0.1</code></li>
+    <li>OWASP score <code>&gt;= 0.6</code></li>
+    <li>applicable category recallがpolicy minimum以上</li>
+    <li>Juice Shop eligible scenarios <code>&gt;= 20</code></li>
+    <li>Juice Shop categories <code>&gt;= 8</code></li>
+    <li>Juice Shop recall <code>&gt;= 0.6</code></li>
+    <li>Juice Shop precision <code>&gt;= 0.8</code></li>
+    <li>
+      threshold未達時はclaim <code>not_met</code>と具体的limitationを維持
+    </li>
+  </ul>
+  <h3 id="verification-10">Verification</h3>
+  <pre><code class="language-bash">bun run security-corpora:verify
+OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY=.cache/scanner-data/phase-50/osv \
+  bun run benchmark:all
+OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY=.cache/scanner-data/phase-50/osv \
+  bun run verify:professional-capability
+bun run verify:phase-50-evidence
+</code></pre>
+  <h3 id="failure-handling--rollback-10">Failure handling / rollback</h3>
+  <ul>
+    <li>precision改善でrecallがpolicy未満になったrule変更は戻す。</li>
+    <li>corpus/input hashが一致しないrunは比較対象から除外するが、失敗artifactは保持する。</li>
+    <li>claimを手動で<code>met</code>へ変更しない。</li>
+  </ul>
+  <h2 id="18-slice-9--operations-release-and-maintainership">
+    18. Slice 9 — Operations, release, and maintainership
+  </h2>
+  <h3 id="objective-11">Objective</h3>
+  <p>実装品質を再現可能な配布、support policy、複数人で継続可能な運用へ変換する。</p>
+  <h3 id="workstream-a--migration-readiness">Workstream A — Migration readiness</h3>
+  <ul>
+    <li>
+      planning
+      hostへ<code>bun run db:migrate</code>を実行し、<code>0028_finding_pagination_index.sql</code>を適用する。
+    </li>
+    <li>migration前にWriter-consistent backupを作成・検証する。</li>
+    <li>fresh DBとone-version-behind DBのupgrade testを維持する。</li>
+    <li>bootstrap checkがpending migrationを明示し、勝手にpass扱いしないことを確認する。</li>
+  </ul>
+  <h3 id="workstream-b--tagged-release">Workstream B — Tagged release</h3>
+  <ul>
+    <li>
+      既存公開releaseの有無を確認し、最初のtagを<code>v1.0.0</code>または修正release
+      <code>v1.0.1</code>のどちらにするかrelease decisionで固定する。
+    </li>
+    <li>
+      package version、tag、CHANGELOG、release evidence、container/toolbox digestを一致させる。
+    </li>
+    <li>Security Policyのsupported versionsを、実在するtagだけを参照する表へ変更する。</li>
+    <li>
+      tag作成前にclean-checkout strict、backup restore、container security、capability
+      stateを確認する。
+    </li>
+    <li>
+      professional capability <code>not_met</code>でもtechnical
+      releaseは可能だが、release noteにlimitationを残す。
+    </li>
+  </ul>
+  <h3 id="workstream-c--maintainership">Workstream C — Maintainership</h3>
+  <ul>
+    <li>
+      <code>docs/maintainership.md</code>へdomain、primary role、backup role、review
+      pathを記載する。
+    </li>
+    <li>
+      security boundary、DB writer、scanner runtime、release evidenceの変更はowner
+      review対象にする。
+    </li>
+    <li>
+      backup
+      maintainerが存在しないdomainは空欄を隠さず<code>unassigned</code>とし、bus-factor
+      riskとしてrelease reportへ残す。
+    </li>
+    <li>onboardingとしてarchitecture map、最小focused test、release drillを用意する。</li>
+    <li>
+      実在するbackup maintainerがrelease drillを完了した時だけbus factor改善を完了扱いにする。
+    </li>
+  </ul>
+  <h3 id="acceptance-11">Acceptance</h3>
+  <ul>
+    <li><code>bootstrap:check -- --skip-port</code>がpassする。</li>
+    <li>backup create/verifyとrestore drillがpassする。</li>
+    <li>package versionとGit tagが一致する。</li>
+    <li>tagが参照するcommitのcurrent release reportが全technical release gateを満たす。</li>
+    <li>Security Policyが存在しないreleaseをsupportedと宣言しない。</li>
+    <li>
+      critical
+      domainのownerまたは明示的<code>unassigned</code>状態が一覧化される。
+    </li>
+  </ul>
+  <h3 id="verification-11">Verification</h3>
+  <pre><code class="language-bash">bun run backup:create -- --output /absolute/secure/path/pre-upgrade.sqlite
+bun run backup:verify -- --input /absolute/secure/path/pre-upgrade.sqlite
+bun run db:migrate
+bun run bootstrap:check -- --skip-port
+bun run verify:clean-checkout -- HEAD
+git tag --points-at HEAD
+</code></pre>
+  <h3 id="failure-handling--rollback-11">Failure handling / rollback</h3>
+  <ul>
+    <li>
+      migration失敗時はapplicationを開始せず、検証済みbackupへisolated restoreして原因を調査する。
+    </li>
+    <li>
+      tag作成後にgate不備が見つかった場合、同じtagを付け替えず、新しいpatch versionで修正する。
+    </li>
+    <li>backup maintainer未確保を文書だけで解消扱いにしない。</li>
+  </ul>
+  <h2 id="19-slice-10--same-commit-closeout">19. Slice 10 — Same-commit closeout</h2>
+  <h3 id="objective-12">Objective</h3>
+  <p>
+    選択したrelease scopeを、clean checkoutと必要なexternal inputsを使って同一commitで証明する。
+  </p>
+  <h3 id="required-gates">Required gates</h3>
+  <pre><code class="language-bash">bun install --frozen-lockfile
+bun run bootstrap:check -- --skip-port
+bun run verify:strict
+bun run verify:security-capability
+bun run verify:phase-50-evidence
+bun run verify:phase-51-baseline
+bun run verify:dast-capability
+bun run verify:phase-54-baseline
+bun run verify:clean-checkout -- HEAD
+git diff --check
+</code></pre>
+  <p>Container releaseでは追加で実行する。</p>
+  <pre><code class="language-bash">bun run docker:toolbox:build
+bun run verify:toolbox-offline
+bun run benchmark:dast-real-scanners
+bun run verify:dast-real-scanners
+</code></pre>
+  <h3 id="acceptance-12">Acceptance</h3>
+  <ul>
+    <li>source-size violation 0。</li>
+    <li>moderate/high/critical dependency advisory 0、またはpolicy形式の期限付き例外のみ。</li>
+    <li>test inventory duplicate/missing 0。</li>
+    <li>unit/integration/contract/browser E2E failure 0。</li>
+    <li>selected Web/critical coverageが既存threshold以上。</li>
+    <li>secret scanがstrict jobとは独立してpass。</li>
+    <li>current release reportがHEAD、clean state、input hashes、command resultsへ結び付く。</li>
+    <li>technical release claimとprofessional capability claimが別々に正しく表現される。</li>
+    <li>未確認gateを<code>pass</code>として記録しない。</li>
+  </ul>
+  <h3 id="failure-handling--rollback-12">Failure handling / rollback</h3>
+  <ul>
+    <li>一つでもrequired gateがfailedならtagを作らない。</li>
+    <li>
+      Docker/corpus不足は<code>blocked</code>としてrelease
+      decisionへ上げ、無条件passへ変換しない。
+    </li>
+    <li>closeout後の変更は新しいrelease candidate commitとして全gateを再実行する。</li>
+  </ul>
+  <h2 id="20-pr-sequence">20. PR sequence</h2>
+  <table>
+    <caption>
+      20. PR sequence
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">PR</th>
+        <th scope="col">Scope</th>
+        <th scope="col">Must not include</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>1</td>
+        <td>baseline evidenceとfailure inventory</td>
+        <td>production behavior変更</td>
+      </tr>
+      <tr>
+        <td>2</td>
+        <td>nanoid patched overrideとlock/docs</td>
+        <td>unrelated dependency upgrade</td>
+      </tr>
+      <tr>
+        <td>3</td>
+        <td>NightWorkers v1 fixture/baseline reconciliation</td>
+        <td>v2 API設計</td>
+      </tr>
+      <tr>
+        <td>4</td>
+        <td>standard/optional scanner E2E分離</td>
+        <td>production profileへのSemgrep暗黙追加</td>
+      </tr>
+      <tr>
+        <td>5A</td>
+        <td>exploration catalog分割</td>
+        <td>ranking policy変更</td>
+      </tr>
+      <tr>
+        <td>5B</td>
+        <td>reproduction runner分割</td>
+        <td>profile behavior変更</td>
+      </tr>
+      <tr>
+        <td>5C</td>
+        <td>Docker runner分割</td>
+        <td>resource/network policy緩和</td>
+      </tr>
+      <tr>
+        <td>6</td>
+        <td>independent secret scan、Docker Dependabot、CI concurrency</td>
+        <td>scanner feature追加</td>
+      </tr>
+      <tr>
+        <td>7</td>
+        <td>coverage inventoryとscope labels</td>
+        <td>threshold引き下げ</td>
+      </tr>
+      <tr>
+        <td>8</td>
+        <td>local performance baselineとpolicy</td>
+        <td>remote DB migration</td>
+      </tr>
+      <tr>
+        <td>9A</td>
+        <td>OWASP category改善</td>
+        <td>benchmark threshold変更</td>
+      </tr>
+      <tr>
+        <td>9B</td>
+        <td>Juice Shop execution/evidence</td>
+        <td>claim status手動変更</td>
+      </tr>
+      <tr>
+        <td>10</td>
+        <td>migration、tag、support policy、maintainership</td>
+        <td>new feature</td>
+      </tr>
+      <tr>
+        <td>11</td>
+        <td>same-commit closeout</td>
+        <td>source変更</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>PR 5A〜5Cは並行可能である。PR 9A/9BはP0〜P1 gateがgreenになってから開始する。</p>
+  <h2 id="21-risk-register">21. Risk register</h2>
+  <table>
+    <caption>
+      21. Risk register
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Risk</th>
+        <th scope="col">Impact</th>
+        <th scope="col">Mitigation</th>
+        <th scope="col">Rollback trigger</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>baselineを機械的更新して契約回帰を隠す</td>
+        <td>external consumer break</td>
+        <td>fixture diffとconsumer testを必須化</td>
+        <td>consumer/schema mismatch</td>
+      </tr>
+      <tr>
+        <td>Semgrepをstandardへ戻してlicense境界を崩す</td>
+        <td>distribution/compliance risk</td>
+        <td>optional profile明示</td>
+        <td>core profileへの混入</td>
+      </tr>
+      <tr>
+        <td>file分割でcleanup/persistence順序が変わる</td>
+        <td>artifact leak、inconsistent state</td>
+        <td>characterization/failure-path test</td>
+        <td>output/status/hash drift</td>
+      </tr>
+      <tr>
+        <td>secret scanが他job失敗でskip</td>
+        <td>credential leak見逃し</td>
+        <td>independent job</td>
+        <td>skipped secret check</td>
+      </tr>
+      <tr>
+        <td>coverage数値だけ改善</td>
+        <td>未検査領域を隠す</td>
+        <td>file classificationとE2E link</td>
+        <td>exclude増加のみの差分</td>
+      </tr>
+      <tr>
+        <td>benchmark overfit</td>
+        <td>external efficacy非改善</td>
+        <td>category/negative fixture/real repo比較</td>
+        <td>precision/recall tradeoff違反</td>
+      </tr>
+      <tr>
+        <td>timing benchmark flaky</td>
+        <td>誤った性能判断</td>
+        <td>host class、warm-up、3 run median</td>
+        <td>variance policy超過</td>
+      </tr>
+      <tr>
+        <td>tagとartifact不一致</td>
+        <td>unreproducible release</td>
+        <td>same-commit report、immutable tag</td>
+        <td>post-tag source change</td>
+      </tr>
+      <tr>
+        <td>形式的CODEOWNERSでbus factorを隠す</td>
+        <td>operational continuityなし</td>
+        <td>実在backup drill</td>
+        <td>backup未割当</td>
+      </tr>
+    </tbody>
+  </table>
+  <h2 id="22-success-metrics">22. Success metrics</h2>
+  <h3 id="release-correctness">Release correctness</h3>
+  <ul>
+    <li><code>verify:strict</code> pass rate: 100% on release commit</li>
+    <li>clean-checkout pass: true</li>
+    <li>source-size violation: 0</li>
+    <li>blocking dependency advisory: 0</li>
+    <li>contract drift: 0</li>
+    <li>browser E2E failure: 0</li>
+    <li>skipped secret scan: 0</li>
+  </ul>
+  <h3 id="maintainability">Maintainability</h3>
+  <ul>
+    <li>3対象production file: each <code>&lt; 500</code> lines</li>
+    <li>unclassified production coverage file: 0</li>
+    <li>new critical file without threshold/test: 0</li>
+    <li>circular dependency introduced by refactor: 0</li>
+  </ul>
+  <h3 id="product-effectiveness">Product effectiveness</h3>
+  <ul>
+    <li>
+      OWASP and Juice Shop metrics:
+      <code>benchmark-policy.v1.json</code> minimum以上、またはclaim
+      <code>not_met</code>を維持
+    </li>
+    <li>credential canary leakage: 0</li>
+    <li>public/production active requests: 0</li>
+    <li>confirmed finding without executable evidence: 0</li>
+  </ul>
+  <h3 id="operations-and-sustainability">Operations and sustainability</h3>
+  <ul>
+    <li>pending migration: 0</li>
+    <li>verified backup/restore drill: pass</li>
+    <li>package/tag/release report version mismatch: 0</li>
+    <li>critical domain ownership state: 100% documented</li>
+    <li>
+      backup maintainer drill: completedまたはrisk <code>unassigned</code>を明示
+    </li>
+  </ul>
+  <h2 id="23-definition-of-done">23. Definition of Done</h2>
+  <ul>
+    <li>
+      <input checked="" disabled="" type="checkbox"> F1〜F5にそれぞれcloseout evidenceがある。
+    </li>
+    <li>
+      <input checked="" disabled="" type="checkbox">
+      <code>nanoid &lt; 3.3.18</code>がdependency graphに存在しない。
+    </li>
+    <li>
+      <input checked="" disabled="" type="checkbox"> NightWorkers v1 baseline更新がconsumer
+      compatibility testを伴う。
+    </li>
+    <li>
+      <input checked="" disabled="" type="checkbox"> standard/optional scanner
+      E2Eが分離され、全件passする。
+    </li>
+    <li>
+      <input checked="" disabled="" type="checkbox"> 3 large production fileが500行未満である。
+    </li>
+    <li>
+      <input checked="" disabled="" type="checkbox"> secret scanがstrict
+      failureに関係なく実行される。
+    </li>
+    <li>
+      <input checked="" disabled="" type="checkbox"> npm、GitHub Actions、Docker
+      dependenciesが自動更新対象である。
+    </li>
+    <li>
+      <input checked="" disabled="" type="checkbox"> selected coverageとrepository-wide
+      measurementが明確に区別される。
+    </li>
+    <li>
+      <input checked="" disabled="" type="checkbox"> local performance baselineとversioned
+      regression policyがある。
+    </li>
+    <li>
+      <input checked="" disabled="" type="checkbox"> benchmark
+      threshold未達を偽って<code>met</code>へ変更していない。
+    </li>
+    <li>
+      <input checked="" disabled="" type="checkbox"> planning hostとfresh/upgrade
+      fixtureのmigration readinessがpassする。
+    </li>
+    <li>
+      <input checked="" disabled="" type="checkbox"> 実在するtag、package
+      version、changelog、release reportが一致する。
+    </li>
+    <li>
+      <input checked="" disabled="" type="checkbox"> maintainershipの未割当riskが隠されていない。
+    </li>
+    <li>
+      <input checked="" disabled="" type="checkbox"> 同一commitのclean checkoutでrequired
+      gateが完了する。
+    </li>
+    <li>
+      <input checked="" disabled="" type="checkbox">
+      未実行・blocked・failedをpassとして記録していない。
+    </li>
+  </ul>
+</article>
+  </body>
+</html>

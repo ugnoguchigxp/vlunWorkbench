@@ -1,0 +1,1307 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex,follow">
+    <title>Intelligence 4画面 UI 改修 実装計画書 | vulnWorkbench</title>
+    <link rel="stylesheet" href="/vlunWorkbench/assets/css/spec-document.css">
+    <link rel="stylesheet" href="/vlunWorkbench/assets/css/plan-document.css">
+  </head>
+  <body>
+    <nav class="plan-document-links" aria-label="文書ナビゲーション">
+      <a href="/vlunWorkbench/plans/archive/?doc=intelligence-four-view-ui-implementation-plan" target="_top">実装計画アーカイブへ</a>
+      <a href="/vlunWorkbench/" target="_top">vulnWorkbenchのLPへ戻る</a>
+    </nav>
+    <article lang="ja">
+  <h1 id="intelligence-4画面-ui-改修-実装計画書">Intelligence 4画面 UI 改修 実装計画書</h1>
+  <h2 id="1-ステータス">1. ステータス</h2>
+  <ul>
+    <li>作成日: 2026-08-08</li>
+    <li>対象ベースライン: <code>56cf38f</code></li>
+    <li>対象画面: <code>/projects/:projectId/intelligence</code></li>
+    <li>状態: 実装完了、検証済み</li>
+    <li>方針: Intelligence のメインコンテンツを4つのタブ画面へ再編する</li>
+    <li>
+      対象タブ:
+      <ol>
+        <li>判断優先</li>
+        <li>調査ビュー</li>
+        <li>リスクマップ</li>
+        <li>ガイド方式</li>
+      </ol>
+    </li>
+  </ul>
+  <p>
+    この文書は実装順序、既存実装との対応、データ契約、テスト、受け入れ条件を固定する。実装中に要件変更が必要になった場合は、コードより先に本書の「固定仕様」または「決定事項」を更新する。
+  </p>
+  <p>実装結果（2026-08-08）:</p>
+  <ul>
+    <li>
+      URL連動の4タブ、各画面、Finding詳細・構造・Ontologyの遅延取得、Landscape補足取得、互換Decision保存を実装
+    </li>
+    <li>390px幅、URL履歴、基礎APIの再取得防止、重大・深刻なaxe違反なしをE2Eで確認</li>
+    <li>Project Overviewの既存E2Eを含む7件のブラウザテストが成功</li>
+    <li>TypeScript、Webテスト204件、lint、production buildが成功</li>
+  </ul>
+  <h2 id="2-目的">2. 目的</h2>
+  <p>
+    現在の Intelligence 画面は、生成状態、リスクファイル、証拠グラフ、構造、Agent Bundle、Ontology
+    Handoff、ソース状態、スキャン履歴が縦に連続しており、情報量は十分だが、次の判断や操作へ移るための視線移動が大きい。
+  </p>
+  <p>今回の改修では、同じ Intelligence データを利用目的ごとに4画面へ整理し、次を達成する。</p>
+  <ul>
+    <li>最初に「何を確認すべきか」が分かる</li>
+    <li>ファイル、Finding、Evidence の関係を追いやすい</li>
+    <li>プロジェクト全体のリスク偏在を把握しやすい</li>
+    <li>Finding を一件ずつ確認する利用者を迷わせない</li>
+    <li>既存の技術情報と機能を失わない</li>
+    <li>タブをURLで共有でき、ブラウザの戻る・進むが自然に動く</li>
+    <li>デスクトップと狭い画面の双方で横方向の探索負荷を抑える</li>
+  </ul>
+  <h2 id="3-固定するプロダクト仕様">3. 固定するプロダクト仕様</h2>
+  <h3 id="31-情報設計">3.1 情報設計</h3>
+  <p>Intelligence のメインコンテンツ先頭に、次のタブをこの順序で配置する。</p>
+  <table>
+    <caption>
+      3.1 情報設計
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">表示</th>
+        <th scope="col">URL値</th>
+        <th scope="col">役割</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>01 判断優先</code></td>
+        <td><code>priority</code></td>
+        <td>現状と優先対応を短時間で判断する</td>
+      </tr>
+      <tr>
+        <td><code>02 調査ビュー</code></td>
+        <td><code>investigate</code></td>
+        <td>ファイル、Finding、Evidence を掘り下げる</td>
+      </tr>
+      <tr>
+        <td><code>03 リスクマップ</code></td>
+        <td><code>landscape</code></td>
+        <td>モジュール単位のリスク分布を俯瞰する</td>
+      </tr>
+      <tr>
+        <td><code>04 ガイド方式</code></td>
+        <td><code>guided</code></td>
+        <td>一件ずつ手順に沿って確認する</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    タブは既存のプロジェクトナビゲーションより下、Intelligence
+    のメインコンテンツ内に置く。グローバルヘッダーやプロジェクトナビゲーションより上には配置しない。
+  </p>
+  <h3 id="32-ルーティング">3.2 ルーティング</h3>
+  <ul>
+    <li>既存パス <code>/projects/:projectId/intelligence</code> は変更しない。</li>
+    <li>任意の検索パラメータ <code>intelligenceView</code> を追加する。</li>
+    <li>
+      パラメータ省略時および未知の値では <code>priority</code> を表示する。
+    </li>
+    <li><code>scanRunId</code> はタブ切り替え後も保持する。</li>
+    <li>既存リンクとブックマークはそのまま「判断優先」を開く。</li>
+    <li>
+      タブは単なるローカルボタン状態ではなくリンクとして実装し、URL共有、再読み込み、戻る・進むに対応する。
+    </li>
+    <li>タブ切り替えだけでは、プロジェクトと選択済みスキャンの基礎データを再取得しない。</li>
+  </ul>
+  <p>URL例:</p>
+  <pre><code class="language-text">/projects/prj_123/intelligence?scanRunId=scan_456&amp;intelligenceView=investigate
+</code></pre>
+  <h3 id="33-既存ナビゲーションとの境界">3.3 既存ナビゲーションとの境界</h3>
+  <p>今回変更するのは Intelligence のメインコンテンツ部分である。次は変更しない。</p>
+  <ul>
+    <li>アプリ全体のグローバルナビゲーション</li>
+    <li>Project Detail の <code>Overview / Scans / Intelligence</code> ナビゲーション</li>
+    <li>プロジェクト切り替えの導線</li>
+    <li>Scan Workspace の基本ナビゲーション</li>
+  </ul>
+  <p>
+    現在 Intelligence 内にある
+    <code>Overview / Structure / Risk &amp; Evidence / Agent Context / Ontology Handoff / Source Health</code>
+    のアンカー型ナビゲーションは、4画面への移行完了後に削除する。
+  </p>
+  <h3 id="34-選択中スキャンと生成状態">3.4 選択中スキャンと生成状態</h3>
+  <ul>
+    <li>
+      選択中の <code>scanRunId</code>、generation、export、refresh
+      状態は4画面で共有する。
+    </li>
+    <li>スキャンを変更した場合は、そのスキャンに依存するタブ内選択をリセットする。</li>
+    <li>
+      Finding、構造、landscape 等の追加データは、<code>scanRunId</code> と
+      generation を含むキーでキャッシュする。
+    </li>
+    <li>Refresh 完了後は古い generation のタブ別キャッシュを破棄する。</li>
+    <li>タブごとの通信失敗は、そのタブ内で表示し、他タブの閲覧を妨げない。</li>
+  </ul>
+  <h3 id="35-finding-の判定に関する意味">3.5 Finding の判定に関する意味</h3>
+  <p>
+    既存の
+    <code>FindingDecision</code>
+    は互換性レコードであり、通常の正式なプロダクトフローはスキャン単位の LLM handoff
+    を中心としている。この意味をUI改修で暗黙に変更しない。
+  </p>
+  <ul>
+    <li>ガイド方式は「任意の確認支援フロー」とする。</li>
+    <li>既存の review と decision は表示する。</li>
+    <li>
+      Finding の判定保存は既存APIを使い、互換性レコードとして保存されることを画面上で明記する。
+    </li>
+    <li>
+      <code>needs_fix</code>、<code>false_positive</code>、<code>deferred</code>
+      への保存は確認フォームを経由する。
+    </li>
+    <li>理由は利用者が明示的に選び、必要に応じてコメントを入力する。</li>
+    <li>画面表示だけを根拠に理由を自動決定しない。</li>
+    <li>LLM review を自動実行しない。</li>
+    <li>既存のスキャン単位 handoff や Scan Workspace の導線は残す。</li>
+  </ul>
+  <h2 id="4-現在の実装ベースライン">4. 現在の実装ベースライン</h2>
+  <h3 id="41-画面構成">4.1 画面構成</h3>
+  <p>主な実装は次にある。</p>
+  <ul>
+    <li>
+      <code>web/src/domains/projects/project-overview-panels.tsx</code>
+      <ul>
+        <li>Project Detail 全体と <code>Overview / Scans / Intelligence</code> の切り替え</li>
+        <li>選択中スキャンのUI</li>
+      </ul>
+    </li>
+    <li>
+      <code>web/src/domains/projects/project-intelligence-panels.tsx</code>
+      <ul>
+        <li>現在の <code>IntelligenceView</code></li>
+        <li>サマリー、readiness、内部アンカー、各セクションの組み立て</li>
+      </ul>
+    </li>
+    <li>
+      <code>web/src/domains/projects/project-detail-sections.tsx</code>
+      <ul>
+        <li>Risk、Evidence Graph、Code Structure、Agent Bundle、Source Health、Scan Runs</li>
+      </ul>
+    </li>
+    <li>
+      <code>web/src/domains/projects/project-structure-panels.tsx</code>
+      <ul>
+        <li>Structure Explorer、Ontology Handoff、File Risk</li>
+      </ul>
+    </li>
+    <li>
+      <code>web/src/domains/projects/projects-domain.tsx</code>
+      <ul>
+        <li>ルート状態、基礎データ取得、refresh、Agent preview</li>
+      </ul>
+    </li>
+    <li>
+      <code>web/src/router.tsx</code>
+      <ul>
+        <li><code>/projects/$projectId/intelligence</code> の検索パラメータ検証</li>
+      </ul>
+    </li>
+    <li>
+      <code>web/src/styles-projects.css</code>
+      <ul>
+        <li>現行 Project / Intelligence のスタイル</li>
+      </ul>
+    </li>
+  </ul>
+  <h3 id="42-利用可能なデータとapi">4.2 利用可能なデータとAPI</h3>
+  <p>今回必要なデータの大半は既存契約で取得できる。</p>
+  <table>
+    <caption>
+      4.2 利用可能なデータとAPI
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">用途</th>
+        <th scope="col">既存契約・関数</th>
+        <th scope="col">主な利用画面</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>選択中スキャン、export、readiness、degraded reason</td>
+        <td><code>fetchProjectIntelligenceView</code></td>
+        <td>全画面</td>
+      </tr>
+      <tr>
+        <td>ファイルリスク、Finding node、Evidence graph</td>
+        <td><code>ProjectIntelligenceView.export</code></td>
+        <td>判断優先、調査ビュー、リスクマップ</td>
+      </tr>
+      <tr>
+        <td>モジュール、file refs、finding IDs</td>
+        <td><code>fetchProjectStructure</code></td>
+        <td>調査ビュー、リスクマップ</td>
+      </tr>
+      <tr>
+        <td>Finding 一覧</td>
+        <td><code>fetchScanFindings</code></td>
+        <td>調査ビュー、ガイド方式</td>
+      </tr>
+      <tr>
+        <td>Finding 詳細、Evidence、最新 review / decision</td>
+        <td><code>fetchFinding</code></td>
+        <td>調査ビュー、ガイド方式</td>
+      </tr>
+      <tr>
+        <td>review 履歴</td>
+        <td><code>fetchFindingReviews</code></td>
+        <td>ガイド方式</td>
+      </tr>
+      <tr>
+        <td>decision 履歴・保存</td>
+        <td>
+          <code>fetchFindingDecisions</code> /
+          <code>createFindingDecision</code>
+        </td>
+        <td>ガイド方式</td>
+      </tr>
+      <tr>
+        <td>landscape、coverage、remediation</td>
+        <td>
+          <code>fetchScanIntelligenceAgentQuery</code> の
+          <code>overview</code>
+        </td>
+        <td>リスクマップ</td>
+      </tr>
+      <tr>
+        <td>Agent Bundle</td>
+        <td>現行 Agent preview / query</td>
+        <td>判断優先の分析詳細</td>
+      </tr>
+      <tr>
+        <td>Ontology Handoff</td>
+        <td><code>fetchProjectOntologyHandoff</code></td>
+        <td>判断優先の分析詳細</td>
+      </tr>
+    </tbody>
+  </table>
+  <h3 id="43-再利用するロジック">4.3 再利用するロジック</h3>
+  <ul>
+    <li>
+      <code>web/src/domains/scans/decision-workflow.ts</code>
+      <ul>
+        <li><code>buildDecisionWorkflow</code></li>
+        <li>Evidence checklist</li>
+        <li>推奨理由、最新 review / decision の整理</li>
+      </ul>
+    </li>
+    <li><code>project-intelligence-readiness</code> 系の view model</li>
+    <li><code>project-intelligence-view-model</code> 系の既存集計</li>
+    <li>
+      <code>FileRiskSection</code>、<code>EvidenceGraphSection</code>、<code>StructureExplorer</code>
+      等の既存表示部品
+    </li>
+  </ul>
+  <p>
+    既存部品は最初から全面的に書き換えず、新しいタブコンテナから再利用し、画面ごとの役割が固まってから分割・縮小する。
+  </p>
+  <h2 id="5-スコープ">5. スコープ</h2>
+  <h3 id="51-対象">5.1 対象</h3>
+  <ul>
+    <li>4タブのURL連動シェル</li>
+    <li>4画面のメインコンテンツ</li>
+    <li>各画面用の純粋な view model</li>
+    <li>タブごとの遅延読込とキャッシュ</li>
+    <li>Loading、Empty、Degraded、Error 状態</li>
+    <li>レスポンシブ対応とアクセシビリティ</li>
+    <li>ガイド方式からの既存 decision 保存</li>
+    <li>単体、統合、E2Eテスト</li>
+    <li>旧 Intelligence 内部アンカーの撤去</li>
+  </ul>
+  <h3 id="52-対象外">5.2 対象外</h3>
+  <ul>
+    <li>新しいDBテーブル、schema migration</li>
+    <li>新しい scanner や Intelligence 生成処理</li>
+    <li>新しい chart library の導入</li>
+    <li>FindingDecision のドメイン上の位置づけ変更</li>
+    <li>review / decision の自動生成</li>
+    <li>外部エージェントへの自動送信</li>
+    <li>Project Overview、Scans、Scan Workspace の全面改修</li>
+    <li>グローバルナビゲーションの変更</li>
+    <li>既存 Intelligence API の破壊的変更</li>
+  </ul>
+  <h2 id="6-目標画面構成">6. 目標画面構成</h2>
+  <h3 id="61-共通シェル">6.1 共通シェル</h3>
+  <p>4画面で共通する領域は次に限定する。</p>
+  <ol>
+    <li>Intelligence 内タブ</li>
+    <li>選択中スキャンと生成日時の簡潔なコンテキスト</li>
+    <li>refresh の状態と操作</li>
+    <li>タブ固有コンテンツ</li>
+  </ol>
+  <p>
+    大きなサマリーや全 readiness
+    項目を全タブで繰り返さない。必要な情報は各画面の目的に合わせて配置する。
+  </p>
+  <p>概念構造:</p>
+  <pre><code class="language-text">Project navigation
+└─ Intelligence main
+   ├─ Scan context / refresh
+   ├─ Intelligence tabs
+   │  ├─ 01 判断優先
+   │  ├─ 02 調査ビュー
+   │  ├─ 03 リスクマップ
+   │  └─ 04 ガイド方式
+   └─ Active tab content
+</code></pre>
+  <h3 id="62-画面1-判断優先">6.2 画面1: 判断優先</h3>
+  <h4 id="目的">目的</h4>
+  <p>画面を開いて最初の30秒で、状態、優先箇所、次の行動を判断できるようにする。</p>
+  <h4 id="表示順">表示順</h4>
+  <ol>
+    <li>対応要否コールアウト</li>
+    <li>4つの主要指標</li>
+    <li>優先確認ファイル</li>
+    <li>Intelligence readiness の要約</li>
+    <li>分析詳細の折りたたみ</li>
+  </ol>
+  <h4 id="主要指標">主要指標</h4>
+  <ul>
+    <li>Risk: export に含まれる最大 severity と severity 別件数</li>
+    <li>Evidence: Evidence の有無・品質を既存契約のラベルで表示</li>
+    <li>Findings: Finding 総数と High / Critical 件数</li>
+    <li>Structure: 構造解析の利用可否と対象ファイル数</li>
+  </ul>
+  <p>
+    数値を生成できない場合は <code>0</code> にせず
+    <code>未生成</code> または
+    <code>取得不可</code> とする。既存APIが持たない割合やスコアは推測しない。
+  </p>
+  <h4 id="対応要否コールアウト">対応要否コールアウト</h4>
+  <p>次の明示的な状態だけを使用し、推測で「要対応」としない。</p>
+  <ul>
+    <li>generation / export が失敗または未生成</li>
+    <li>readiness が blocked / degraded</li>
+    <li><code>degradedReasons</code> が存在する</li>
+    <li>Critical / High Finding が存在する</li>
+    <li>既存 review が明示的な確認事項を返している</li>
+  </ul>
+  <p>複数条件がある場合は、重要度順に主メッセージを一つ、補足を最大二つ表示する。</p>
+  <h4 id="優先確認ファイル">優先確認ファイル</h4>
+  <ul>
+    <li>severity 降順</li>
+    <li>同一 severity は Finding 件数降順</li>
+    <li>さらに同値の場合は path 昇順</li>
+    <li>初期表示は上位5件</li>
+    <li>各行から調査ビューへ遷移し、対象ファイルを選択状態にする</li>
+    <li>
+      追加の選択検索パラメータを使う場合は
+      <code>file</code> ではなく衝突しにくい
+      <code>focusPath</code> とし、値を検証する
+    </li>
+  </ul>
+  <h4 id="分析詳細">分析詳細</h4>
+  <p>既存機能を失わないため、次を「分析詳細」配下に残す。</p>
+  <ul>
+    <li>Agent Bundle / Agent preview</li>
+    <li>Ontology Handoff</li>
+    <li>Source Health</li>
+    <li>Scan history</li>
+  </ul>
+  <p>これらは初期状態で閉じる。開いたときに初めて必要な追加データを取得する。</p>
+  <h3 id="63-画面2-調査ビュー">6.3 画面2: 調査ビュー</h3>
+  <h4 id="目的-1">目的</h4>
+  <p>リスクのあるファイルから Finding と Evidence へ段階的に移動し、原因を追跡できるようにする。</p>
+  <h4 id="レイアウト">レイアウト</h4>
+  <p>デスクトップでは2ペイン、狭い画面では1カラムの段階表示とする。</p>
+  <pre><code class="language-text">┌────────────────────┬──────────────────────────────┐
+│ File / Finding list│ Selected finding detail      │
+│ filters            │ summary, location, evidence  │
+│ risk files         │ graph/context, next action   │
+└────────────────────┴──────────────────────────────┘
+</code></pre>
+  <h4 id="左ペイン">左ペイン</h4>
+  <ul>
+    <li>severity filter</li>
+    <li>scanner filter</li>
+    <li>path text filter</li>
+    <li>リスクファイル一覧</li>
+    <li>選択ファイル内の Finding 一覧</li>
+    <li>選択件数と絞り込み結果件数</li>
+  </ul>
+  <p>
+    ファイルに複数の Finding があることを前提とし、ファイル選択と Finding 選択を別状態として持つ。
+  </p>
+  <h4 id="右ペイン">右ペイン</h4>
+  <ul>
+    <li>Finding title / rule / severity / scanner</li>
+    <li>file path と line</li>
+    <li>Finding description</li>
+    <li>Evidence checklist / evidence detail</li>
+    <li>Evidence Graph の対象部分</li>
+    <li>最新 review / decision の要約</li>
+    <li>Scan Workspace で開く導線</li>
+  </ul>
+  <p>
+    Finding 詳細は選択時に <code>fetchFinding(findingId)</code> で取得する。キャッシュは
+    Finding ID 単位とし、高速に選択を切り替えた場合の古いレスポンスで現在選択を上書きしない。
+  </p>
+  <h4 id="初期選択">初期選択</h4>
+  <ol>
+    <li>URLの有効な <code>focusPath</code> があれば対象ファイル</li>
+    <li>なければ優先順位が最も高いファイル</li>
+    <li>ファイル内で優先順位が最も高い Finding</li>
+  </ol>
+  <p>Finding がない場合は、Evidence Graph または構造情報のみを表示できる空状態にする。</p>
+  <p>
+    この画面では decision の更新を行わない。保存操作はガイド方式または既存 Scan Workspace
+    に集約する。
+  </p>
+  <h3 id="64-画面3-リスクマップ">6.4 画面3: リスクマップ</h3>
+  <h4 id="目的-2">目的</h4>
+  <p>リスクがどのモジュール・severity に偏っているかを俯瞰し、調査対象を絞る。</p>
+  <h4 id="レイアウト-1">レイアウト</h4>
+  <ol>
+    <li>全体のリスク要約</li>
+    <li>Module × Severity マトリクス</li>
+    <li>選択モジュール詳細</li>
+    <li>Coverage / Evidence / Remediation の要約</li>
+    <li>Structure Explorer の詳細表示</li>
+  </ol>
+  <h4 id="マトリクスの生成">マトリクスの生成</h4>
+  <p>新しい集計APIは追加せず、次をクライアントの純粋関数で結合する。</p>
+  <ul>
+    <li><code>ProjectStructureListResponse.modules[].risk.findingIds</code></li>
+    <li>
+      export graph の Finding node にある <code>sourceId</code> と
+      <code>severity</code>
+    </li>
+  </ul>
+  <p>セルの値は Finding 件数とする。色だけに依存せず、常に数値と severity ラベルを表示する。</p>
+  <p>並び順:</p>
+  <ul>
+    <li>行: Critical / High を持つモジュールを先頭、その後 Finding 総数降順、label 昇順</li>
+    <li>列: Critical / High / Medium / Low / Unknown</li>
+  </ul>
+  <h4 id="フォールバック">フォールバック</h4>
+  <ul>
+    <li>構造データが未生成の場合は、file risk を単位とする簡易マップへ切り替える。</li>
+    <li>
+      Finding が0件の場合は「安全」と断定せず、「現在の生成物では Finding がありません」と表示する。
+    </li>
+    <li>
+      Finding ID を graph node に解決できない場合は Unknown として集計し、欠損件数を注記する。
+    </li>
+  </ul>
+  <h4 id="landscape-bundle">Landscape bundle</h4>
+  <p>
+    Coverage、Evidence、Remediation は既存 Agent Query の
+    <code>overview</code> bundle に含まれる landscape を遅延取得する。
+  </p>
+  <ul>
+    <li>タブを初めて開いたときに取得</li>
+    <li>失敗してもマトリクスは表示する</li>
+    <li>再試行は該当カード内に置く</li>
+    <li>APIが返す定義とラベルをそのまま使用し、独自の割合を作らない</li>
+  </ul>
+  <h4 id="ドリルダウン">ドリルダウン</h4>
+  <p>
+    マトリクスのセルまたはモジュールを選択すると、対象モジュールの file refs と Finding
+    を表示する。「調査ビューで開く」から
+    <code>focusPath</code> を渡して移動できる。
+  </p>
+  <h3 id="65-画面4-ガイド方式">6.5 画面4: ガイド方式</h3>
+  <h4 id="目的-3">目的</h4>
+  <p>専門知識や画面理解に依存せず、Finding を一件ずつ確認できるようにする。</p>
+  <h4 id="レイアウト-2">レイアウト</h4>
+  <ol>
+    <li>進捗と対象件数</li>
+    <li>現在の Finding</li>
+    <li>確認ステップ</li>
+    <li>Evidence checklist</li>
+    <li>既存 review / decision</li>
+    <li>次へ、前へ、判定操作</li>
+  </ol>
+  <h4 id="キュー">キュー</h4>
+  <p>キューは同じ入力から常に同じ順序を返す純粋関数で生成する。</p>
+  <ol>
+    <li>decision 未登録を先にする</li>
+    <li>severity 降順</li>
+    <li>path 昇順</li>
+    <li>Finding ID 昇順</li>
+  </ol>
+  <p>フィルター:</p>
+  <ul>
+    <li>未確認のみ</li>
+    <li>severity</li>
+    <li>scanner</li>
+    <li>全件</li>
+  </ul>
+  <h4 id="確認ステップ">確認ステップ</h4>
+  <p><code>buildDecisionWorkflow</code> を再利用し、少なくとも次を順に表示する。</p>
+  <ol>
+    <li>Finding の内容と発生箇所を確認</li>
+    <li>Evidence の充足状態を確認</li>
+    <li>review / decision の既存情報を確認</li>
+    <li>Scan Workspace で追加確認、または互換 decision を保存</li>
+  </ol>
+  <h4 id="判定保存">判定保存</h4>
+  <p>UIラベルと既存値の対応は次とする。</p>
+  <table>
+    <caption>
+      判定保存
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">UIラベル</th>
+        <th scope="col">保存値</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>問題として確認</td>
+        <td><code>needs_fix</code></td>
+      </tr>
+      <tr>
+        <td>誤検知</td>
+        <td><code>false_positive</code></td>
+      </tr>
+      <tr>
+        <td>保留</td>
+        <td><code>deferred</code></td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    <code>accepted</code>
+    は既存値として表示・履歴参照は行うが、今回の主要アクションには追加しない。追加する場合は別途文言と利用目的を決定する。
+  </p>
+  <p>保存フロー:</p>
+  <ol>
+    <li>アクションを選択</li>
+    <li>確認フォームを開く</li>
+    <li>reason を明示選択</li>
+    <li>optional comment を入力</li>
+    <li>「互換 decision として保存」の説明を確認</li>
+    <li>保存</li>
+    <li>対象 Finding の詳細、履歴、進捗を再取得</li>
+  </ol>
+  <p>
+    二重送信を防止し、失敗はフォーム内に表示する。失敗時に次の Finding
+    へ自動移動しない。成功後も自動移動は行わず、結果を確認してから利用者が「次へ」を押す。
+  </p>
+  <h2 id="7-状態データ取得設計">7. 状態・データ取得設計</h2>
+  <h3 id="71-ルート状態">7.1 ルート状態</h3>
+  <p><code>ProjectRouteState</code> に次を追加する。</p>
+  <pre><code class="language-ts">type IntelligenceViewId =
+  | "priority"
+  | "investigate"
+  | "landscape"
+  | "guided";
+
+type ProjectRouteState = {
+  projectId: string;
+  tab: "list" | "overview" | "intelligence";
+  scanRunId: string | null;
+  intelligenceView: IntelligenceViewId;
+  focusPath: string | null;
+};
+</code></pre>
+  <p>
+    <code>focusPath</code>
+    は調査ビューとリスクマップのドリルダウンにのみ使う。長さ上限を設定し、不正な値は無視する。
+  </p>
+  <p>
+    基礎データの request key には <code>intelligenceView</code> と
+    <code>focusPath</code> を含めない。これらが変わっても
+    <code>fetchProjectIntelligenceView</code> と
+    <code>fetchScans</code> を再実行しないことをテストする。
+  </p>
+  <h3 id="72-取得タイミング">7.2 取得タイミング</h3>
+  <table>
+    <caption>
+      7.2 取得タイミング
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">データ</th>
+        <th scope="col">タイミング</th>
+        <th scope="col">キャッシュキー</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Project Intelligence view / scans</td>
+        <td>route の project / scan 変更時</td>
+        <td>projectId + scanRunId</td>
+      </tr>
+      <tr>
+        <td>structure</td>
+        <td>調査またはリスクマップ初回表示時</td>
+        <td>projectId + scanRunId + generation</td>
+      </tr>
+      <tr>
+        <td>findings</td>
+        <td>調査またはガイド初回表示時</td>
+        <td>scanRunId</td>
+      </tr>
+      <tr>
+        <td>finding detail</td>
+        <td>Finding 選択時</td>
+        <td>findingId</td>
+      </tr>
+      <tr>
+        <td>landscape bundle</td>
+        <td>リスクマップ初回表示時</td>
+        <td>scanRunId + generation</td>
+      </tr>
+      <tr>
+        <td>ontology handoff</td>
+        <td>分析詳細を開いた時</td>
+        <td>projectId + scanRunId + generation</td>
+      </tr>
+      <tr>
+        <td>agent preview</td>
+        <td>利用者が明示操作した時</td>
+        <td>scanRunId + mode + focus</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    タブ切り替え後に同じキーの成功データがあれば再利用する。エラーはキャッシュして固定せず、再試行できるようにする。
+  </p>
+  <h3 id="73-競合とキャンセル">7.3 競合とキャンセル</h3>
+  <ul>
+    <li>
+      <code>AbortController</code> または request sequence
+      を使い、古い要求の結果を無視する。
+    </li>
+    <li>scanRunId が変わったら Finding 選択とタブ固有 error をリセットする。</li>
+    <li>refresh 前の generation のレスポンスは画面へ反映しない。</li>
+    <li>decision 保存中は対象 Finding の操作だけを無効化し、タブ全体はブロックしない。</li>
+  </ul>
+  <h3 id="74-純粋な-view-model">7.4 純粋な view model</h3>
+  <p>JSX内に集計条件を散らさず、最低限次の純粋関数を作る。</p>
+  <ul>
+    <li>URL値から <code>IntelligenceViewId</code> への正規化</li>
+    <li>priority summary と priority files の生成</li>
+    <li>file → findings の index 生成</li>
+    <li>modules × severity matrix の生成</li>
+    <li>解決不能 Finding の集計</li>
+    <li>guided queue の並び替え</li>
+    <li>decision status と進捗の集計</li>
+  </ul>
+  <p>入力を immutable として扱い、同一入力で安定した結果を返す。</p>
+  <h2 id="8-実装ファイル構成">8. 実装ファイル構成</h2>
+  <p>既存の大きなファイルへ追記し続けず、画面単位に分割する。各ファイルは原則500行未満に保つ。</p>
+  <h3 id="81-追加候補">8.1 追加候補</h3>
+  <pre><code class="language-text">web/src/domains/projects/
+├─ project-intelligence-tabs.tsx
+├─ project-intelligence-priority-panel.tsx
+├─ project-intelligence-investigation-panel.tsx
+├─ project-intelligence-landscape-panel.tsx
+├─ project-intelligence-guided-panel.tsx
+├─ project-intelligence-tab-model.ts
+├─ project-intelligence-priority-model.ts
+├─ project-intelligence-landscape-model.ts
+├─ project-intelligence-guided-model.ts
+└─ use-intelligence-finding-detail.ts
+
+web/src/
+└─ styles-project-intelligence.css
+
+tests/e2e/
+└─ project-intelligence.spec.ts
+</code></pre>
+  <p>
+    必要以上にファイルを細分化せず、実装時に小さな model
+    は統合してよい。ただし4つの画面コンポーネントは分離する。
+  </p>
+  <h3 id="82-変更対象">8.2 変更対象</h3>
+  <ul>
+    <li>
+      <code>web/src/router.tsx</code>
+      <ul>
+        <li>
+          <code>intelligenceView</code> と
+          <code>focusPath</code> の search validation
+        </li>
+      </ul>
+    </li>
+    <li>
+      <code>web/src/domains/projects/projects-domain.tsx</code>
+      <ul>
+        <li>route parse、共有キャッシュ、タブ別遅延読込</li>
+      </ul>
+    </li>
+    <li>
+      <code>web/src/domains/projects/project-intelligence-panels.tsx</code>
+      <ul>
+        <li>現在の縦長画面を共通シェルへ縮小</li>
+      </ul>
+    </li>
+    <li>
+      <code>web/src/domains/projects/project-detail-sections.tsx</code>
+      <ul>
+        <li>既存セクションを再利用可能な粒度へ限定的に調整</li>
+      </ul>
+    </li>
+    <li>
+      <code>web/src/domains/projects/project-structure-panels.tsx</code>
+      <ul>
+        <li>選択状態や compact 表示に必要な props を追加</li>
+      </ul>
+    </li>
+    <li>
+      <code>web/src/main.tsx</code>
+      <ul>
+        <li>新しいCSSを分離する場合の import</li>
+      </ul>
+    </li>
+    <li>
+      <code>web/src/styles-projects.css</code>
+      <ul>
+        <li>旧内部アンカー用スタイルの削除</li>
+      </ul>
+    </li>
+  </ul>
+  <h2 id="9-アクセシビリティとレスポンシブ仕様">9. アクセシビリティとレスポンシブ仕様</h2>
+  <h3 id="91-タブ">9.1 タブ</h3>
+  <ul>
+    <li><code>&lt;nav aria-label="Intelligence views"&gt;</code> 内のリンクとして実装する。</li>
+    <li>選択中リンクに <code>aria-current="page"</code> を付与する。</li>
+    <li>Enter で遷移できる標準リンク動作を維持する。</li>
+    <li>focus ring を消さない。</li>
+    <li>色だけで選択状態を伝えず、border、背景、文字ウェイトを併用する。</li>
+    <li>
+      数字の
+      <code>01</code>
+      等は表示上残すが、スクリーンリーダー向けラベルは画面名を中心にする。
+    </li>
+  </ul>
+  <h3 id="92-狭い画面">9.2 狭い画面</h3>
+  <ul>
+    <li>390px幅でページ全体に横スクロールを発生させない。</li>
+    <li>
+      タブは画面幅に応じて2列または横スクロール可能なタブ列とする。横スクロールを採用する場合も、ページ全体ではなくタブ領域だけに限定する。
+    </li>
+    <li>
+      調査ビューの2ペインは1カラム化し、選択詳細へ移動したことが分かる見出しと「一覧へ戻る」を表示する。
+    </li>
+    <li>リスクマップの表は専用コンテナ内だけで横スクロールを許可し、先頭列を識別可能にする。</li>
+    <li>ガイド方式の主要操作は一列に積み、保存ボタンが画面外へはみ出さないようにする。</li>
+  </ul>
+  <h3 id="93-非視覚的表現">9.3 非視覚的表現</h3>
+  <ul>
+    <li>severity color には常にテキストラベルを併記する。</li>
+    <li>マトリクスセルに件数の accessible name を付ける。</li>
+    <li>
+      loading は <code>aria-busy</code>、非同期結果は必要な箇所だけ
+      <code>aria-live="polite"</code> を使う。
+    </li>
+    <li>error と入力項目を <code>aria-describedby</code> で関連付ける。</li>
+  </ul>
+  <h2 id="10-loading--empty--degraded--error">10. Loading / Empty / Degraded / Error</h2>
+  <p>各画面は次を明示的に実装する。</p>
+  <table>
+    <caption>
+      10. Loading / Empty / Degraded / Error
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">状態</th>
+        <th scope="col">共通挙動</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>スキャン未選択</td>
+        <td>スキャン選択または生成開始への導線を表示</td>
+      </tr>
+      <tr>
+        <td>Intelligence 未生成</td>
+        <td>空のダッシュボードを出さず、生成方法を表示</td>
+      </tr>
+      <tr>
+        <td>基礎データ loading</td>
+        <td>共通シェル内にレイアウトが跳ねない skeleton</td>
+      </tr>
+      <tr>
+        <td>タブ固有 loading</td>
+        <td>タブ内容のみ skeleton、タブ切り替えは可能</td>
+      </tr>
+      <tr>
+        <td>0 Findings</td>
+        <td>「現在の生成物では0件」と表現し、安全と断定しない</td>
+      </tr>
+      <tr>
+        <td>structure なし</td>
+        <td>file 単位フォールバックまたは生成案内</td>
+      </tr>
+      <tr>
+        <td>degraded</td>
+        <td>利用可能なデータを表示し、欠けた機能と理由を併記</td>
+      </tr>
+      <tr>
+        <td>タブ固有 error</td>
+        <td>タブ内再試行、他画面をブロックしない</td>
+      </tr>
+      <tr>
+        <td>refresh error</td>
+        <td>共通コンテキスト内に表示し、直前の成功データは残す</td>
+      </tr>
+      <tr>
+        <td>decision error</td>
+        <td>フォーム内に表示し、入力値を保持</td>
+      </tr>
+    </tbody>
+  </table>
+  <h2 id="11-実装スライス">11. 実装スライス</h2>
+  <p>
+    一つのスライスを実装、確認、コミット可能な単位にする。後続画面のために先行して大規模な抽象化をしない。
+  </p>
+  <h3 id="slice-0-ベースライン固定とfixture整備">Slice 0: ベースライン固定とfixture整備</h3>
+  <h4 id="変更">変更</h4>
+  <ul>
+    <li>現行 Intelligence の主要状態をスクリーンショットとテストで固定</li>
+    <li>既存API fixture を4画面で再利用できる形に整理</li>
+    <li>0件、degraded、structureなし、複数Findingのfixtureを用意</li>
+    <li>既存内部アンカーと各機能の移行先一覧をテストコメントまたは本書と対応付ける</li>
+  </ul>
+  <h4 id="受け入れ条件">受け入れ条件</h4>
+  <ul>
+    <li>現行機能の移行漏れを判定できるfixtureがある</li>
+    <li>正常系以外に最低3種類の状態を再現できる</li>
+    <li>実装前の既存テストが成功する</li>
+  </ul>
+  <h4 id="確認">確認</h4>
+  <pre><code class="language-bash">bunx vitest run web/src/domains/projects/project-intelligence-readiness.test.ts web/src/domains/projects/project-intelligence-view-model.test.ts
+bunx playwright test tests/e2e/project-overview.spec.ts
+</code></pre>
+  <h3 id="slice-1-url連動タブと共通シェル">Slice 1: URL連動タブと共通シェル</h3>
+  <h4 id="変更-1">変更</h4>
+  <ul>
+    <li><code>IntelligenceViewId</code> とtab definitionを追加</li>
+    <li>route search validationを追加</li>
+    <li>タブリンクをメインコンテンツ内に追加</li>
+    <li><code>scanRunId</code> の保持、default/fallback、戻る・進むを実装</li>
+    <li>4つの空 panel を共通シェルから切り替える</li>
+    <li>
+      基礎データ request key から <code>intelligenceView</code> /
+      <code>focusPath</code> を除外
+    </li>
+  </ul>
+  <h4 id="受け入れ条件-1">受け入れ条件</h4>
+  <ul>
+    <li>パラメータなしで判断優先が開く</li>
+    <li>各タブURLを直接開ける</li>
+    <li>タブ切り替えで <code>scanRunId</code> が失われない</li>
+    <li>browser back / forward で画面が戻る</li>
+    <li>タブ切り替えだけでは基礎APIを再取得しない</li>
+    <li>タブはプロジェクトナビゲーションより下にある</li>
+  </ul>
+  <h4 id="確認-1">確認</h4>
+  <ul>
+    <li>tab model の単体テスト</li>
+    <li>route search の単体または統合テスト</li>
+    <li>Playwright で deep link / history / API request count</li>
+  </ul>
+  <h3 id="slice-2-判断優先">Slice 2: 判断優先</h3>
+  <h4 id="変更-2">変更</h4>
+  <ul>
+    <li>priority summary の純粋関数</li>
+    <li>対応要否コールアウト</li>
+    <li>4指標</li>
+    <li>優先確認ファイル上位5件</li>
+    <li>compact readiness</li>
+    <li>「分析詳細」へ Agent / Ontology / Source / Scan history を移設</li>
+    <li>調査ビューへの <code>focusPath</code> 遷移</li>
+  </ul>
+  <h4 id="受け入れ条件-2">受け入れ条件</h4>
+  <ul>
+    <li>主要情報が初期viewportで把握できる</li>
+    <li>優先順位がseverity、件数、pathで安定する</li>
+    <li>未取得値を0として誤表示しない</li>
+    <li>degraded reason が隠れない</li>
+    <li>既存の技術情報へ引き続きアクセスできる</li>
+    <li>折りたたみを開くまで不要な追加取得をしない</li>
+  </ul>
+  <h4 id="確認-2">確認</h4>
+  <ul>
+    <li>priority model のtable-driven test</li>
+    <li>0件、欠損、degraded のcomponent test</li>
+    <li>keyboardで分析詳細を開閉できること</li>
+  </ul>
+  <h3 id="slice-3-調査ビュー">Slice 3: 調査ビュー</h3>
+  <h4 id="変更-3">変更</h4>
+  <ul>
+    <li>file / finding index の純粋関数</li>
+    <li>filter と選択状態</li>
+    <li>desktop 2ペイン / mobile 1カラム</li>
+    <li>Finding 詳細の遅延取得hookとキャッシュ</li>
+    <li>Evidence detail / graph の再利用</li>
+    <li>Scan Workspace への導線</li>
+    <li><code>focusPath</code> による初期選択</li>
+  </ul>
+  <h4 id="受け入れ条件-3">受け入れ条件</h4>
+  <ul>
+    <li>一つのファイルに複数Findingを表示できる</li>
+    <li>fileとFindingの選択が混同されない</li>
+    <li>選択変更時の古いレスポンスが表示を上書きしない</li>
+    <li>同じFindingを再選択しても不要な再取得をしない</li>
+    <li>filter後に選択対象が消えた場合、安全に次候補または空状態へ移る</li>
+    <li>mobileで一覧と詳細を往復できる</li>
+  </ul>
+  <h4 id="確認-3">確認</h4>
+  <ul>
+    <li>index / filter / initial selection の単体テスト</li>
+    <li>request race とcacheのhook test</li>
+    <li>Playwrightでfile→Finding→Evidenceの操作</li>
+  </ul>
+  <h3 id="slice-4-リスクマップ">Slice 4: リスクマップ</h3>
+  <h4 id="変更-4">変更</h4>
+  <ul>
+    <li>module × severity 集計の純粋関数</li>
+    <li>accessible matrix table</li>
+    <li>module detail と調査ビューへのドリルダウン</li>
+    <li>structure の遅延取得とfile fallback</li>
+    <li>landscape bundle の遅延取得、個別error / retry</li>
+    <li>Structure Explorer の詳細領域への移設</li>
+  </ul>
+  <h4 id="受け入れ条件-4">受け入れ条件</h4>
+  <ul>
+    <li>同じFindingを二重集計しない</li>
+    <li>severity不明と未解決IDを欠落させず表示する</li>
+    <li>structureなしでもfile単位で利用できる</li>
+    <li>landscape取得失敗時もリスクマップを閲覧できる</li>
+    <li>セルは色なしでも意味が分かる</li>
+    <li>選択モジュールから調査ビューへ移動できる</li>
+  </ul>
+  <h4 id="確認-4">確認</h4>
+  <ul>
+    <li>重複ID、不明severity、空module、欠損nodeの単体テスト</li>
+    <li>matrix keyboard / screen reader label のcomponent test</li>
+    <li>Playwrightでdrill-downとfallbackを確認</li>
+  </ul>
+  <h3 id="slice-5-ガイド方式">Slice 5: ガイド方式</h3>
+  <h4 id="変更-5">変更</h4>
+  <ul>
+    <li>guided queue / progress の純粋関数</li>
+    <li>Finding 詳細、review、decision の遅延取得</li>
+    <li><code>buildDecisionWorkflow</code> の再利用</li>
+    <li>前へ / 次へとfilter</li>
+    <li>decision確認フォーム</li>
+    <li><code>createFindingDecision</code> との接続</li>
+    <li>保存後の詳細、履歴、進捗再取得</li>
+  </ul>
+  <h4 id="受け入れ条件-5">受け入れ条件</h4>
+  <ul>
+    <li>未判定が先、severity順、path/id順で安定する</li>
+    <li>Evidence未取得を「Evidenceなし」と誤表示しない</li>
+    <li>reason未選択では保存できない</li>
+    <li>UIラベルが既存保存値へ正しく対応する</li>
+    <li>保存中の二重送信を防ぐ</li>
+    <li>保存失敗時に入力と現在位置を保持する</li>
+    <li>成功後に最新decisionと進捗が更新される</li>
+    <li>LLM reviewを自動実行しない</li>
+    <li>互換decisionであることを画面上で確認できる</li>
+  </ul>
+  <h4 id="確認-5">確認</h4>
+  <ul>
+    <li>queue / decision mapping / progress の単体テスト</li>
+    <li>confirmation / error / retry のcomponent test</li>
+    <li>PlaywrightでPOST payloadと成功・失敗を確認</li>
+  </ul>
+  <h3 id="slice-6-旧画面整理アクセシビリティレスポンシブ">
+    Slice 6: 旧画面整理、アクセシビリティ、レスポンシブ
+  </h3>
+  <h4 id="変更-6">変更</h4>
+  <ul>
+    <li>旧内部アンカーと不要になった重複サマリーを削除</li>
+    <li>未使用props、CSS、importを削除</li>
+    <li>390px、768px、1280pxのレイアウト調整</li>
+    <li>tab order、focus移動、aria属性、contrastを確認</li>
+    <li>reduced motion を尊重</li>
+  </ul>
+  <h4 id="受け入れ条件-6">受け入れ条件</h4>
+  <ul>
+    <li>既存機能の移行先がすべて残っている</li>
+    <li>ページ全体に意図しない横スクロールがない</li>
+    <li>キーボードだけで4画面と主要操作を利用できる</li>
+    <li>focusが見える</li>
+    <li>loading / error / save結果が適切に通知される</li>
+    <li>dead code と旧CSSが残っていない</li>
+  </ul>
+  <h4 id="確認-6">確認</h4>
+  <ul>
+    <li>Playwright の desktop / mobile viewport</li>
+    <li>
+      axe
+      等が既に依存関係にある場合は自動検査を追加。なければ今回だけのために新規依存を追加せず手動確認項目を残す
+    </li>
+    <li>browser console error がないこと</li>
+  </ul>
+  <h3 id="slice-7-統合検証とリリース準備">Slice 7: 統合検証とリリース準備</h3>
+  <h4 id="変更-7">変更</h4>
+  <ul>
+    <li>E2E fixtureの最終整理</li>
+    <li>API request回数とタブ遅延取得の確認</li>
+    <li>既存 Project Overview / Scan Workspace の回帰確認</li>
+    <li>文言、空状態、互換decision説明のレビュー</li>
+    <li>必要に応じて運用ドキュメントとスクリーンショットを更新</li>
+  </ul>
+  <h4 id="受け入れ条件-7">受け入れ条件</h4>
+  <ul>
+    <li>本書のDefinition of Doneを満たす</li>
+    <li>既存のProject / Scan導線に回帰がない</li>
+    <li>新しいbackend migrationなしでリリースできる</li>
+    <li>build、typecheck、lint、test、source-size checkが成功する</li>
+  </ul>
+  <h2 id="12-テスト計画">12. テスト計画</h2>
+  <h3 id="121-単体テスト">12.1 単体テスト</h3>
+  <p>新規テスト候補:</p>
+  <pre><code class="language-text">web/src/domains/projects/project-intelligence-tab-model.test.ts
+web/src/domains/projects/project-intelligence-priority-model.test.ts
+web/src/domains/projects/project-intelligence-investigation-model.test.ts
+web/src/domains/projects/project-intelligence-landscape-model.test.ts
+web/src/domains/projects/project-intelligence-guided-model.test.ts
+</code></pre>
+  <p>最低限のケース:</p>
+  <ul>
+    <li>正常なtab値、不明値、省略値</li>
+    <li>
+      <code>scanRunId</code> と
+      <code>focusPath</code> の保持
+    </li>
+    <li>severityの全値とunknown</li>
+    <li>同点時の安定ソート</li>
+    <li>Finding ID重複</li>
+    <li>graph node欠損</li>
+    <li>structureなし</li>
+    <li>Findings 0件</li>
+    <li>review / decisionあり・なし</li>
+    <li>decision UIラベルとpayloadの対応</li>
+  </ul>
+  <h3 id="122-コンポーネント統合テスト">12.2 コンポーネント・統合テスト</h3>
+  <ul>
+    <li>タブ切り替え時の表示と <code>aria-current</code></li>
+    <li>tab切り替えで基礎APIが再取得されない</li>
+    <li>タブ固有APIが初回表示まで呼ばれない</li>
+    <li>Finding選択のrace condition</li>
+    <li>degraded中も利用可能部分が表示される</li>
+    <li>error retryが対象カードだけを更新する</li>
+    <li>decisionフォームvalidation、double submit防止、入力保持</li>
+  </ul>
+  <h3 id="123-e2e">12.3 E2E</h3>
+  <p><code>tests/e2e/project-intelligence.spec.ts</code> を追加する。</p>
+  <p>主要シナリオ:</p>
+  <ol>
+    <li>パラメータなしで判断優先を表示</li>
+    <li>4タブを切り替え、URLとhistoryを確認</li>
+    <li>選択スキャンを保持</li>
+    <li>判断優先のリスクファイルから調査ビューへ移動</li>
+    <li>調査ビューでfile、Finding、Evidenceを選択</li>
+    <li>リスクマップからmodule / fileを掘り下げる</li>
+    <li>structureなしでfile fallbackを表示</li>
+    <li>ガイド方式でreasonを選択しdecisionを保存</li>
+    <li>decision POST失敗後に再試行</li>
+    <li>390pxで主要操作とスクロール範囲を確認</li>
+    <li>keyboardでタブと主要アクションを操作</li>
+    <li>タブ別APIの失敗が他タブへ波及しない</li>
+  </ol>
+  <p>既存 <code>tests/e2e/project-overview.spec.ts</code> は回帰テストとして維持する。</p>
+  <h3 id="124-検証コマンド">12.4 検証コマンド</h3>
+  <p>実装中の短いループ:</p>
+  <pre><code class="language-bash">bunx vitest run web/src/domains/projects/project-intelligence-*.test.ts
+bun run typecheck:app
+</code></pre>
+  <p>スライス完了時:</p>
+  <pre><code class="language-bash">bunx playwright test tests/e2e/project-intelligence.spec.ts
+bun run lint
+bun run format:check
+bun run check:source-size
+git diff --check
+</code></pre>
+  <p>最終確認:</p>
+  <pre><code class="language-bash">bun run typecheck
+bun run test
+bun run test:e2e -- tests/e2e/project-intelligence.spec.ts tests/e2e/project-overview.spec.ts
+bun run build
+bun run check:source-size
+git diff --check
+</code></pre>
+  <p>
+    環境依存で全E2Eを実行できない場合は、未実行理由と代替確認をPRへ明記する。失敗を既知問題として無条件に無視しない。
+  </p>
+  <h2 id="13-計測と非機能条件">13. 計測と非機能条件</h2>
+  <p>専用の分析基盤追加は今回の必須条件にしない。ブラウザのnetwork記録とテストで次を確認する。</p>
+  <ul>
+    <li>タブ切り替えだけで基礎Intelligence APIが再実行されない</li>
+    <li>未訪問タブ用のFinding detail / landscapeを取得しない</li>
+    <li>同一Findingの再選択でキャッシュが使われる</li>
+    <li>refresh後に新generationへ更新される</li>
+    <li>初期の判断優先で全詳細データを待たない</li>
+  </ul>
+  <p>既存のログ基盤でイベント記録が容易な場合のみ、次を追加候補とする。</p>
+  <ul>
+    <li>Intelligence tab opened</li>
+    <li>risk file drill-down</li>
+    <li>guided decision confirmation opened</li>
+    <li>guided decision saved / failed</li>
+  </ul>
+  <p>Finding本文、Evidence本文、path等の機微情報をanalytics payloadへ送らない。</p>
+  <h2 id="14-リスクと対策">14. リスクと対策</h2>
+  <table>
+    <caption>
+      14. リスクと対策
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">リスク</th>
+        <th scope="col">対策</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>4画面で同じデータ取得が重複する</td>
+        <td>scan/generation単位の共有キャッシュとrequest count test</td>
+      </tr>
+      <tr>
+        <td>タブ追加で基礎データが毎回reloadされる</td>
+        <td>route stateとrequest keyを分離し統合テストで固定</td>
+      </tr>
+      <tr>
+        <td>matrix集計でFindingを二重計上する</td>
+        <td>Finding IDをdedupeする純粋関数と重複fixture</td>
+      </tr>
+      <tr>
+        <td>古いFinding detailが選択を上書きする</td>
+        <td>abortまたはsequence guard</td>
+      </tr>
+      <tr>
+        <td>ガイド方式が正式な判定フローに見える</td>
+        <td>互換decision説明、確認フォーム、Scan Workspace導線を常設</td>
+      </tr>
+      <tr>
+        <td>既存のAgent/Ontology/Source機能が消える</td>
+        <td>判断優先の分析詳細へ明示的に移設しE2Eで確認</td>
+      </tr>
+      <tr>
+        <td>0件が安全の保証に見える</td>
+        <td>「現在の生成物では0件」という限定表現</td>
+      </tr>
+      <tr>
+        <td>色中心のrisk mapになる</td>
+        <td>ラベル、数値、accessible nameを必須化</td>
+      </tr>
+      <tr>
+        <td>CSSが既存画面へ波及する</td>
+        <td>Intelligence専用CSSと名前空間化したclass</td>
+      </tr>
+      <tr>
+        <td>コンポーネント肥大化</td>
+        <td>画面単位の分割、500行目安、純粋model分離</td>
+      </tr>
+    </tbody>
+  </table>
+  <h2 id="15-移行リリース手順">15. 移行・リリース手順</h2>
+  <ol>
+    <li>旧画面を残したまま共通シェルと判断優先を接続する。</li>
+    <li>各タブを一つずつ完成させ、完成していないタブを中途半端に公開しない。</li>
+    <li>4画面で既存機能の移行先が揃った時点で旧内部アンカーを削除する。</li>
+    <li>backend schema変更なし、既存URL互換ありを確認する。</li>
+    <li>desktop / mobileのスクリーンショット差分をレビューする。</li>
+    <li>decision文言と保存payloadをプロダクト・実装双方で確認する。</li>
+    <li>検証コマンドを完了してリリースする。</li>
+  </ol>
+  <p>
+    機能フラグは原則追加しない。改修中に長期間 main
+    へ段階マージする必要が生じた場合だけ、既存画面へ戻せる一時フラグを検討する。その場合もデフォルト挙動と削除期限を本書へ追記する。
+  </p>
+  <h2 id="16-definition-of-done">16. Definition of Done</h2>
+  <h3 id="情報設計">情報設計</h3>
+  <ul>
+    <li><input disabled="" type="checkbox"> Intelligence のメインコンテンツ内に4タブがある</li>
+    <li><input disabled="" type="checkbox"> タブがプロジェクトナビゲーションより上に出ない</li>
+    <li>
+      <input disabled="" type="checkbox">
+      <code>intelligenceView</code> 省略時は判断優先が開く
+    </li>
+    <li><input disabled="" type="checkbox"> タブURLを共有・再読み込みできる</li>
+    <li>
+      <input disabled="" type="checkbox">
+      <code>scanRunId</code> を保持し、戻る・進むが機能する
+    </li>
+  </ul>
+  <h3 id="判断優先">判断優先</h3>
+  <ul>
+    <li>
+      <input disabled="" type="checkbox">
+      状態、主要指標、優先ファイル、次の行動を短時間で把握できる
+    </li>
+    <li><input disabled="" type="checkbox"> 欠損値を0や安全として誤表示しない</li>
+    <li>
+      <input disabled="" type="checkbox"> 既存のAgent、Ontology、Source、Scan
+      historyへアクセスできる
+    </li>
+  </ul>
+  <h3 id="調査ビュー">調査ビュー</h3>
+  <ul>
+    <li><input disabled="" type="checkbox"> file、Finding、Evidenceの関係を段階的に追える</li>
+    <li><input disabled="" type="checkbox"> 複数Finding、filter、初期focusが正しく動く</li>
+    <li><input disabled="" type="checkbox"> 非同期選択のrace conditionがない</li>
+    <li><input disabled="" type="checkbox"> Scan Workspaceへの導線がある</li>
+  </ul>
+  <h3 id="リスクマップ">リスクマップ</h3>
+  <ul>
+    <li><input disabled="" type="checkbox"> module × severityを件数とラベルで把握できる</li>
+    <li><input disabled="" type="checkbox"> 不明・欠損データが隠れない</li>
+    <li><input disabled="" type="checkbox"> structureなしでもfile単位で利用できる</li>
+    <li><input disabled="" type="checkbox"> 調査ビューへドリルダウンできる</li>
+  </ul>
+  <h3 id="ガイド方式">ガイド方式</h3>
+  <ul>
+    <li>
+      <input disabled="" type="checkbox"> 一件ずつEvidenceと既存review / decisionを確認できる
+    </li>
+    <li><input disabled="" type="checkbox"> queue順序と進捗が安定している</li>
+    <li>
+      <input disabled="" type="checkbox"> reason必須の確認フォームを経て既存decisionを保存できる
+    </li>
+    <li><input disabled="" type="checkbox"> 保存の意味が互換レコードであると分かる</li>
+    <li><input disabled="" type="checkbox"> 自動LLM reviewや自動次送りを行わない</li>
+  </ul>
+  <h3 id="品質">品質</h3>
+  <ul>
+    <li><input disabled="" type="checkbox"> 390pxでページ全体に意図しない横スクロールがない</li>
+    <li><input disabled="" type="checkbox"> keyboardだけで主要操作を完了できる</li>
+    <li><input disabled="" type="checkbox"> severityを色だけで表現しない</li>
+    <li>
+      <input disabled="" type="checkbox"> Loading / Empty / Degraded / Errorを各画面で確認済み
+    </li>
+    <li><input disabled="" type="checkbox"> タブ切り替えで不要な基礎API再取得がない</li>
+    <li><input disabled="" type="checkbox"> 新規単体・統合・E2Eテストが成功する</li>
+    <li><input disabled="" type="checkbox"> 既存Project / Scanの回帰テストが成功する</li>
+    <li>
+      <input disabled="" type="checkbox"> typecheck、lint、format、build、source-size、diff
+      checkが成功する
+    </li>
+  </ul>
+  <h2 id="17-実装開始時の最初の作業">17. 実装開始時の最初の作業</h2>
+  <p>
+    実装は Slice 0 と Slice 1
+    から開始する。最初のPRでは、4画面すべての見た目を同時に作らず、次だけを完成させる。
+  </p>
+  <ol>
+    <li>route search contract</li>
+    <li>URL連動タブ</li>
+    <li>共通シェル</li>
+    <li>基礎APIを再取得しないことのテスト</li>
+    <li>空のタブpanelと既存画面の一時的な移設先</li>
+  </ol>
+  <p>この土台が安定した後、判断優先から順番に各画面を実装する。</p>
+</article>
+  </body>
+</html>

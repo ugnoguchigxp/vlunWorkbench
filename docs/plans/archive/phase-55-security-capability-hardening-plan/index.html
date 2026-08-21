@@ -1,0 +1,1304 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex,follow">
+    <title>Phase 55: Security Capability Hardening and Coverage Expansion Plan | vulnWorkbench</title>
+    <link rel="stylesheet" href="/vlunWorkbench/assets/css/spec-document.css">
+    <link rel="stylesheet" href="/vlunWorkbench/assets/css/plan-document.css">
+  </head>
+  <body>
+    <nav class="plan-document-links" aria-label="文書ナビゲーション">
+      <a href="/vlunWorkbench/plans/archive/?doc=phase-55-security-capability-hardening-plan" target="_top">実装計画アーカイブへ</a>
+      <a href="/vlunWorkbench/" target="_top">vulnWorkbenchのLPへ戻る</a>
+    </nav>
+    <article lang="ja">
+  <h1 id="phase-55-security-capability-hardening-and-coverage-expansion-plan">
+    Phase 55: Security Capability Hardening and Coverage Expansion Plan
+  </h1>
+  <p>
+    Archive status: Slices 55.0-55.2 completed on main. Remaining detection、language、 sandbox、LLM
+    quality、closeout work was transferred to <code>spec/phase-56-capability-product-completion-plan.md</code>.
+  </p>
+  <p>
+    Status: In Progress — Slices 55.0 and 55.1 passed on main; Slice 55.2 strict-verified locally,
+    CI pending
+  </p>
+  <p>Predecessors:</p>
+  <ul>
+    <li><code>spec/phase-54-release-trust-and-product-value-realization-plan.md</code></li>
+    <li><code>spec/phase-54-detection-effectiveness-improvement-plan.md</code></li>
+  </ul>
+  <p>Planning baseline commit: <code>45ef82d877f5c8413d4d3b7185175d8bdeb7a463</code></p>
+  <p>Baseline date: 2026-08-16</p>
+  <p>Owner: vulnWorkbench maintainers</p>
+  <p>
+    Target: Phase 54で実測可能になった診断能力を、既定scan経路で誤解なく利用できる
+    状態へ引き上げる。その後、未達category、多言語外部評価、sandboxed DAST、 LLM
+    review品質の順にcoverageを拡張し、各改善を再現可能な証跡へ結び付ける。
+  </p>
+  <h2 id="1-結論">1. 結論</h2>
+  <p>
+    Phase 55では新しいscannerを先に増やさない。現時点の最大課題は、実装済み能力と
+    既定profileで実際に実行される能力が一致していないこと、実行前提の不足がscan開始後
+    まで分からないこと、5言語対応のうち外部corpusで測定済みなのが実質Javaだけである ことにある。
+  </p>
+  <p>実装順は次で固定する。</p>
+  <ol>
+    <li>Phase 54のauthoritative evidenceを入口条件として固定し、Phase 55 baselineを採取する。</li>
+    <li>
+      <code>full-security-scan</code>でSAST実行またはcoverage
+      gapのどちらかを必ず記録する。
+    </li>
+    <li>scanner binary、database、container、browser、target startのpreflightを導入する。</li>
+    <li>OWASP Benchmarkの弱いcategoryとJuice Shopの3件の見逃しを改善する。</li>
+    <li>Java以外のsupported languageへversioned external/holdout評価を追加する。</li>
+    <li>Java/Python、次にGoのtarget startをsandbox内でだけ許可する。</li>
+    <li>LLM reviewを人手ラベル付きdatasetで測定し、説明品質をclaimから分離して管理する。</li>
+    <li>同一commitのLinux evidenceと生成documentationでPhase 55をcloseoutする。</li>
+  </ol>
+  <p>
+    <code>no findings observed</code>を<code>safe</code>へ変換しない。Semgrep
+    engineがないscanをSAST済みと 表示しない。benchmarkを通すためにpolicy threshold、分母、CWE
+    mappingを変更しない。 target project
+    codeをhostで実行しない。LLMだけを根拠にfindingを<code>confirmed</code>へ昇格しない。
+  </p>
+  <h2 id="2-phase-54との境界">2. Phase 54との境界</h2>
+  <p>Phase 54は次を所有する。</p>
+  <ul>
+    <li>OWASP Benchmark / Juice Shopのmeasurement contract</li>
+    <li>same-commit closeout runnerとrelease evidence</li>
+    <li>professional capability claimのpolicyとhuman approval境界</li>
+    <li>historical evidenceとcurrent release evidenceの分離</li>
+  </ul>
+  <p>Phase 55はPhase 54 artifactの意味を書き換えず、次だけを追加する。</p>
+  <ul>
+    <li>profile実行時のtruthful coverageとpreflight</li>
+    <li>Phase 54後に残るfalse negative / false positiveの改善</li>
+    <li>Java以外の外部またはholdout評価</li>
+    <li>target project code execution sandbox</li>
+    <li>evidence-constrained LLM reviewの品質測定</li>
+  </ul>
+  <p>
+    Phase 54のauthoritative Ubuntu closeoutが未完了の場合、Phase 55で許可するのは Slice
+    55.0のbaseline、schema設計、fixture設計、documentationだけとする。profile、
+    runtime、detectorに影響するproduction変更は入口gate完了後に開始する。professional
+    claimの<code>met</code>承認はPhase
+    55の開始条件ではなく、claim変更時だけ必要な独立gateとする。
+  </p>
+  <h2 id="3-planning-baseline">3. Planning baseline</h2>
+  <h3 id="31-現在の実測値">3.1 現在の実測値</h3>
+  <p>
+    Phase 54 local diagnostic evidenceは次を示している。ただしauthoritative Linux evidence
+    が同じ値を再現するまで、release claimではなくplanning inputとして扱う。
+  </p>
+  <table>
+    <caption>
+      3.1 現在の実測値
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Benchmark</th>
+        <th scope="col">Current local result</th>
+        <th scope="col">Remaining issue</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>OWASP overall</td>
+        <td>
+          recall <code>0.7993</code>、precision
+          <code>0.9536</code>、FPR
+          <code>0.0399</code>
+        </td>
+        <td>categoryごとの見逃しとpath traversalの誤検知</td>
+      </tr>
+      <tr>
+        <td>OWASP cmdi</td>
+        <td>recall <code>0.5952</code></td>
+        <td>source/sink variantの見逃し</td>
+      </tr>
+      <tr>
+        <td>OWASP hash</td>
+        <td>recall <code>0.6899</code></td>
+        <td>weak hash variantの見逃し</td>
+      </tr>
+      <tr>
+        <td>OWASP XSS</td>
+        <td>recall <code>0.6707</code></td>
+        <td>response sink / data-flow variantの見逃し</td>
+      </tr>
+      <tr>
+        <td>OWASP path traversal</td>
+        <td>
+          precision <code>0.6497</code>、FPR
+          <code>0.2895</code>
+        </td>
+        <td>cross-CWE observationとrule precision</td>
+      </tr>
+      <tr>
+        <td>Juice Shop</td>
+        <td>17 TP / 3 FN / 20 TN / 0 FP</td>
+        <td>forged feedback、CAPTCHA bypass、zero-stars</td>
+      </tr>
+      <tr>
+        <td>Owned business logic</td>
+        <td>8 TP / 0 FN / 8 TN / 0 FP</td>
+        <td>owned fixture外の一般化は未証明</td>
+      </tr>
+      <tr>
+        <td>Endpoint discovery</td>
+        <td>
+          recall <code>1.0</code>、precision
+          <code>1.0</code>、11 framework fixtures
+        </td>
+        <td>dynamic routeとreal repository coverageは未証明</td>
+      </tr>
+    </tbody>
+  </table>
+  <h3 id="32-既定経路のgap">3.2 既定経路のgap</h3>
+  <ul>
+    <li>
+      <code>baseline</code>はGitleaksとOSVを実行し、source
+      SASTを実行しない。
+    </li>
+    <li>
+      <code>full-security-scan</code>はGitleaks、OSV、Trivy、SBOM、passive
+      DAST、Nuclei、 ZAP baseline、Schemathesisを持つが、任意Semgrep adapterを自動参加させない。
+    </li>
+    <li>
+      Semgrep rulesetはJavaScript、TypeScript、Python、Java、Goの45 owned ruleを持つが、
+      engineは任意adapterでありcore toolboxへ含めない。
+    </li>
+    <li>
+      OSV manifestにdatabase bundleが宣言されていても、実行環境からdatabaseを読めない
+      状態をprofile開始前に説明できない。
+    </li>
+    <li>
+      npm-compatible project以外のauto target start planは生成できても、sandboxがないため
+      Java/Python project code executionをfail closedする。Goにはstart plannerがない。
+    </li>
+    <li>
+      LLM reviewはschema、evidence制約、fallbackをtestしているが、人手ground truthに対する
+      severity、false-positive assessment、evidence引用精度を測定していない。
+    </li>
+  </ul>
+  <h2 id="4-scope">4. Scope</h2>
+  <h3 id="41-in-scope">4.1 In scope</h3>
+  <ul>
+    <li>Phase 55 planning baselineとversioned acceptance evidence</li>
+    <li><code>full-security-scan</code>のconditional Semgrep参加</li>
+    <li>SAST未実行時のexplicit coverage gap</li>
+    <li>scanner / data / runtime / target start preflight</li>
+    <li>preflight resultの永続化、API、CLI、report、UI表示</li>
+    <li>OWASP弱点categoryとJuice Shop未検出scenarioの改善</li>
+    <li>regression防止用holdout / metamorphic fixture</li>
+    <li>JavaScript、TypeScript、Python、Goのversioned evaluation contract</li>
+    <li>Java / Python target start sandbox</li>
+    <li>後続sliceとしてのGo target start sandbox</li>
+    <li>LLM review quality dataset、runner、metrics、policy</li>
+    <li>manifest由来のcapability documentation</li>
+    <li>same-commit Linux closeout</li>
+  </ul>
+  <h3 id="42-non-goals">4.2 Non-goals</h3>
+  <ul>
+    <li>Semgrep engineのcore toolboxへの再配布</li>
+    <li>benchmark policy v1 thresholdの引き下げ</li>
+    <li>benchmark固有IDやchallenge labelを検出条件へ追加すること</li>
+    <li>arbitrary scanner commandまたはuser-supplied shell script</li>
+    <li>target repositoryへの設定、dependency、lockfile、script追加</li>
+    <li>host上でのJava、Python、Go project code実行</li>
+    <li>dependency downloadを伴うDAST auto start</li>
+    <li>public / production targetへのactive attack</li>
+    <li>unrestricted fuzzing</li>
+    <li>WebSocket、gRPC、SOAPの正式対応</li>
+    <li>network、cloud、AD、mobile、wireless、social engineering診断</li>
+    <li>LLMによるrepository自由探索</li>
+    <li>LLMだけによるfinding生成、severity確定、claim変更</li>
+    <li>patch自動適用</li>
+    <li>remote multi-tenant execution基盤</li>
+  </ul>
+  <h2 id="5-fixed-decisions">5. Fixed decisions</h2>
+  <ol>
+    <li>
+      <strong>Optional engine boundary</strong>: Semgrep
+      adapterは任意のまま維持する。engineが利用可能な
+      ときだけ<code>full-security-scan</code>へ参加させ、未導入を自動downloadで解決しない。
+    </li>
+    <li>
+      <strong>Truthful coverage</strong>: SASTが実行されない場合、scan/report/assessmentは
+      <code>source_sast_not_executed</code>を保存する。zero
+      findingをcoverageの代用にしない。
+    </li>
+    <li>
+      <strong>Required after selection</strong>: Semgrepを含むresolved
+      profileを開始した後は、Semgrep failureをoptional warningへ落とさず、該当SAST
+      stepをfailedまたはblockedにする。
+    </li>
+    <li>
+      <strong>Server-owned preflight</strong>:
+      readiness判定はserver/CLI側の永続化された結果を正とし、 Web UIだけの推測状態を増やさない。
+    </li>
+    <li>
+      <strong>No preflight network fetch</strong>:
+      preflightはbinary、version、digest、age、path、runtimeを
+      確認するだけとし、databaseやbrowserを暗黙にdownloadしない。
+    </li>
+    <li>
+      <strong>Policy stability</strong>:
+      <code>benchmark-policy.v1.json</code>は変更しない。Phase 55の改善目標は policy
+      v1の上に置くacceptanceであり、professional claimの意味を変えない。
+    </li>
+    <li>
+      <strong>Holdout before claim</strong>: owned positive/negative fixtureだけの改善をexternal
+      capability claimへ使わない。rule変更に使わないholdoutを別入力として固定する。
+    </li>
+    <li>
+      <strong>Sandbox before execution</strong>:
+      <code>requiresProjectCodeConsent</code>をfalseへ変えてsandbox不足を 回避しない。sandbox
+      runnerの証拠があるstart planだけを実行可能へ昇格する。
+    </li>
+    <li>
+      <strong>No package installation</strong>: sandboxは準備済みdependency、offline
+      cache、既存artifact
+      だけを利用する。不足時は<code>blocked</code>を返す。
+    </li>
+    <li>
+      <strong>LLM is review</strong>: LLM quality gateは保存済みfindingの説明品質を測る。scannerの
+      recall/precisionやfinding confirmationの代替にしない。
+    </li>
+    <li>
+      <strong>Separate approvals</strong>: capability claim、support tier、LLM quality
+      policyの変更は、 実装PRとは別のhuman approvalを必要とする。
+    </li>
+    <li>
+      <strong>Independent rollback</strong>: 各sliceはschema compatibilityを保ち、後続sliceをrevert
+      せず単独で無効化またはrevertできるようにする。
+    </li>
+  </ol>
+  <h2 id="6-dependency-map-and-pr-boundaries">6. Dependency map and PR boundaries</h2>
+  <figure>
+    <pre class="mermaid" data-spec-html-source="markdown">flowchart LR
+  A["55.0 Baseline and entry gate"] --&gt; B["55.1 Truthful SAST coverage"]
+  B --&gt; C["55.2 Scanner preflight"]
+  A --&gt; D["55.3 Detection regression improvement"]
+  D --&gt; E["55.4 Multi-language evaluation"]
+  C --&gt; F["55.5 Sandboxed DAST target runtime"]
+  C --&gt; G["55.6 LLM review quality"]
+  D --&gt; H["55.7 Same-commit closeout"]
+  E --&gt; H
+  F --&gt; H
+  G --&gt; H
+</pre>
+    <figcaption>6. Dependency map and PR boundaries</figcaption>
+  </figure>
+  <table>
+    <caption>
+      6. Dependency map and PR boundaries
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Priority</th>
+        <th scope="col">Slice / PR</th>
+        <th scope="col">Main result</th>
+        <th scope="col">Dependency</th>
+        <th scope="col">Effort</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>P0</td>
+        <td>55.0 baseline</td>
+        <td>Phase 54 bindingとPhase 55開始条件</td>
+        <td>Phase 54 closeout</td>
+        <td>S</td>
+      </tr>
+      <tr>
+        <td>P0</td>
+        <td>55.1 SAST coverage</td>
+        <td>full scanのSAST実行または明示gap</td>
+        <td>55.0</td>
+        <td>M</td>
+      </tr>
+      <tr>
+        <td>P0</td>
+        <td>55.2 preflight</td>
+        <td>scanner/data/runtime不足を実行前に判定</td>
+        <td>55.1</td>
+        <td>L</td>
+      </tr>
+      <tr>
+        <td>P1</td>
+        <td>55.3 detection</td>
+        <td>弱点categoryと3 scenarioの改善</td>
+        <td>55.0</td>
+        <td>L</td>
+      </tr>
+      <tr>
+        <td>P1</td>
+        <td>55.4 language eval</td>
+        <td>Java以外の再現可能な測定</td>
+        <td>55.3 contract</td>
+        <td>XL</td>
+      </tr>
+      <tr>
+        <td>P2</td>
+        <td>55.5 DAST sandbox</td>
+        <td>Java/Python、次にGoの隔離実行</td>
+        <td>55.2</td>
+        <td>XL</td>
+      </tr>
+      <tr>
+        <td>P2</td>
+        <td>55.6 LLM quality</td>
+        <td>人手ground truthによるreview測定</td>
+        <td>55.2</td>
+        <td>L</td>
+      </tr>
+      <tr>
+        <td>P0-P2</td>
+        <td>55.7 closeout</td>
+        <td>選択scopeのsame-commit証跡</td>
+        <td>selected slices</td>
+        <td>M</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    55.3は55.0完了後、55.1/55.2と並行実装できる。55.4のcorpus contractは55.3と
+    並行設計できるが、release thresholdは55.3のmetric semanticsを再利用してから固定する。
+    55.5と55.6は互いに依存しない。
+  </p>
+  <h2 id="7-shared-contracts">7. Shared contracts</h2>
+  <h3 id="71-preflight-state">7.1 Preflight state</h3>
+  <p>各checkはbooleanではなく次のstateを返す。</p>
+  <pre><code class="language-text">ready | blocked | not_applicable
+</code></pre>
+  <ul>
+    <li>
+      <code>ready</code>:
+      binary/data/runtimeの存在と整合性を実際に確認した。
+    </li>
+    <li>
+      <code>blocked</code>:
+      applicableだが、実行に必要な入力またはruntimeが不足・不整合・期限切れ。
+    </li>
+    <li><code>not_applicable</code>: project/profile/stepに適用されない。</li>
+  </ul>
+  <p>
+    未確認状態を<code>ready</code>にしない。optional
+    stepの<code>blocked</code>はprofile全体を必ず失敗させる
+    ものではないが、coverage gapとlimitationを残す。required
+    stepの<code>blocked</code>はscanner processを起動せずprofileをfail
+    closedする。
+  </p>
+  <h3 id="72-minimum-preflight-record">7.2 Minimum preflight record</h3>
+  <pre><code class="language-text">schemaVersion
+projectId
+profileId
+resolvedProfileHash
+sourceRevision
+createdAt
+checks[].id
+checks[].stepId
+checks[].required
+checks[].state
+checks[].reasonCode
+checks[].toolId
+checks[].observedVersion
+checks[].expectedVersion
+checks[].dataDigest
+checks[].dataGeneratedAt
+checks[].evidenceRefs
+summary.ready
+summary.blockedRequired
+summary.blockedOptional
+</code></pre>
+  <p>
+    recordへcredential、source body、snippet、absolute home pathを含めない。scanner version
+    stdoutはallowlist済みの正規化値だけを保存する。
+  </p>
+  <h3 id="73-coverage-state">7.3 Coverage state</h3>
+  <p>各capabilityは次を区別する。</p>
+  <pre><code class="language-text">declared -&gt; applicable -&gt; ready -&gt; executed -&gt; verified
+</code></pre>
+  <ul>
+    <li>manifest/ruleが存在するだけでは<code>executed</code>にしない。</li>
+    <li>preflight成功だけでは<code>verified</code>にしない。</li>
+    <li>
+      zero findingでもstepが完了しcoverage
+      evidenceがあれば<code>executed</code>にできる。
+    </li>
+    <li>
+      scanner失敗、database欠落、target未起動は<code>gap</code>または<code>blocked</code>としてreportする。
+    </li>
+  </ul>
+  <h3 id="74-improvement-evidence">7.4 Improvement evidence</h3>
+  <p>detector/rule変更は最低限、次を同一artifact setへ保存する。</p>
+  <pre><code class="language-text">baselineCommit
+candidateCommit
+policyHash
+corpusHash
+scannerManifestHash
+implementationHash
+rawResultHash
+normalizedFindingHash
+metricsBefore
+metricsAfter
+changedRuleIds
+suppressedFindingAudit
+limitations
+</code></pre>
+  <h2 id="8-slice-550--baseline-and-entry-gate">8. Slice 55.0 — Baseline and entry gate</h2>
+  <p>
+    Implementation status: Completed on main commit <code>7481a263e500fcf1b72ccc46fe0c0f470b5b959e</code> on
+    2026-08-16. The clean Ubuntu strict verify, repository coverage, secret scan, authoritative
+    Phase 54 closeout, strict Phase 55 entry, and container-security jobs passed for that same
+    commit. The committed planning baseline remains an immutable historical
+    <code>blocked</code> snapshot; the authoritative main result is the
+    production-slice entry decision.
+  </p>
+  <h3 id="objective">Objective</h3>
+  <p>
+    Phase 54のauthoritative resultとPhase 55の開始commitを固定し、後続PRの改善・回帰を
+    比較できる状態にする。
+  </p>
+  <h3 id="changes">Changes</h3>
+  <ul>
+    <li><code>spec/evidence/phase-55-baseline.json</code>を追加する。</li>
+    <li><code>scripts/phase-55-baseline.ts</code>とverifierを追加する。</li>
+    <li>
+      baselineへprofile inventory、scanner manifest hash、optional adapter状態、 professional report
+      summary、OWASP/Juice/OSV/business-logic/endpoint metric、 test inventory、unsupported
+      capabilityを保存する。
+    </li>
+    <li>
+      Phase 54 closeout artifactのcommit、input hash、gate stateを参照し、値を複製して
+      新しい意味へ変換しない。
+    </li>
+    <li>
+      authoritatively verifiedでないlocal
+      artifactは<code>diagnostic</code>として分離する。
+    </li>
+  </ul>
+  <h3 id="likely-change-areas">Likely change areas</h3>
+  <ul>
+    <li><code>scripts/phase-55-baseline.ts</code></li>
+    <li><code>scripts/verify-phase-55-baseline.ts</code></li>
+    <li><code>spec/evidence/phase-55-baseline.json</code></li>
+    <li><code>shared/schemas/release-evidence.schema.ts</code>（既存schemaで不足する場合のみ）</li>
+    <li><code>package.json</code></li>
+  </ul>
+  <h3 id="acceptance">Acceptance</h3>
+  <ul>
+    <li>baselineがclean commit、manifest hash、Phase 54 evidence refを持つ。</li>
+    <li>authoritativeとdiagnosticのmetricを混同しない。</li>
+    <li>source/snippet、credential、absolute home pathを含まない。</li>
+    <li>
+      Phase 54 gate未達時は、production
+      slice開始可否を<code>blocked</code>と記録する。
+    </li>
+    <li>baseline再生成時、決定的fieldが一致する。</li>
+  </ul>
+  <h3 id="verification">Verification</h3>
+  <pre><code class="language-bash">bun run phase-55:baseline
+bun run verify:phase-55-baseline
+bun run verify:phase-55-entry # clean Ubuntu + Docker only
+bun test shared/schemas/release-evidence.schema.test.ts
+git diff --check
+</code></pre>
+  <h3 id="rollback">Rollback</h3>
+  <p>baseline collectorだけをrevertする。Phase 54 artifact、policy、claim、metricを変更しない。</p>
+  <h2 id="9-slice-551--truthful-sast-coverage-in-default-workflows">
+    9. Slice 55.1 — Truthful SAST coverage in default workflows
+  </h2>
+  <p>
+    Implementation status: Completed on main commit <code>0b33643a0cb783fdf60fd0f137c7a79776deefa6</code> on
+    2026-08-16. Pull-request and post-merge main CI passed. The resolved profile and its digest are
+    stored with every scan, Semgrep becomes a required
+    <code>curated-sast-v1</code> step when its optional adapter is registered, and
+    otherwise <code>source_sast_not_executed</code> remains visible through profile
+    resolution, dry-run, stored coverage, reports, and the UI.
+  </p>
+  <h3 id="objective-1">Objective</h3>
+  <p>
+    <code>full-security-scan</code>が、Semgrep
+    SASTを実行したか、実行できなかったgapを記録したかの
+    どちらかになるようにし、「full」という表示と実際のsource analysisを一致させる。
+  </p>
+  <h3 id="changes-1">Changes</h3>
+  <ul>
+    <li>profile resolution時にoptional Semgrep adapterの登録状態を確認する。</li>
+    <li>
+      登録済みの場合、owned
+      <code>curated-sast-v1</code>
+      stepを<code>full-security-scan</code>へ追加する。
+    </li>
+    <li>
+      resolved profileへSemgrepを含めた後はrequired stepとして扱い、runtime failureを
+      <code>warn_and_continue</code>へ落とさない。
+    </li>
+    <li>
+      未登録の場合、既存profileの実行は許可するが、profile resolution、scan coverage、 final
+      reportへ<code>source_sast_not_executed</code>を記録する。
+    </li>
+    <li>
+      <code>baseline</code>、<code>source-baseline</code>は現在の軽量contractを維持し、自動的に重いSASTを
+      追加しない。UI説明へ「secret/SCA baseline」であることを明記する。
+    </li>
+    <li>scan profile API、CLI dry-run、report、UIが同じresolved profileを表示する。</li>
+    <li>profile IDは後方互換のため維持し、意味変更はresolved stepとlimitationで表現する。</li>
+  </ul>
+  <h3 id="likely-change-areas-1">Likely change areas</h3>
+  <ul>
+    <li><code>api/modules/scans/profiles.ts</code></li>
+    <li><code>api/modules/scans/profile-static-tool-selection.ts</code></li>
+    <li><code>api/modules/scans/optional-scanner-adapter-config.ts</code></li>
+    <li><code>api/modules/scans/runtime-assessment-coverage.ts</code></li>
+    <li><code>api/modules/scans/report-builder-coverage.ts</code></li>
+    <li><code>api/routes/scan-profiles.route.ts</code></li>
+    <li><code>web/src/domains/scans/</code></li>
+    <li>profile、coverage、reportのfocused tests</li>
+  </ul>
+  <h3 id="acceptance-1">Acceptance</h3>
+  <ul>
+    <li>
+      Semgrep有効時の<code>full-security-scan</code>に45 owned ruleのSAST
+      stepが含まれる。
+    </li>
+    <li>Semgrep無効時、scan/report/UIに<code>source_sast_not_executed</code>が残る。</li>
+    <li>SAST未実行のzero findingをsource code安全判定へ変換しない。</li>
+    <li>optional adapterのlicense/distribution境界を変更しない。</li>
+    <li><code>baseline</code>のtimeoutとtool構成を変更しない。</li>
+    <li>dry-run、実scan、stored coverage、reportのstep一覧が一致する。</li>
+  </ul>
+  <h3 id="verification-1">Verification</h3>
+  <pre><code class="language-bash">bun test api/modules/scans/profile-runner.test.ts
+bun test api/modules/scans/scan-semgrep.e2e.test.ts
+bun test api/modules/scans/runtime-assessment-coverage.test.ts
+bun test api/modules/scans/report-builder.test.ts
+bun test api/routes/scan-profiles.route.test.ts
+bun run security:capability:inventory
+bun run typecheck
+</code></pre>
+  <h3 id="rollout-and-rollback">Rollout and rollback</h3>
+  <ul>
+    <li>
+      最初のPRではruntime settingまたはrelease defaultによりconditional resolutionだけを
+      有効化し、Semgrep未登録環境をfailさせない。
+    </li>
+    <li>
+      scan時間、memory、failure率が許容範囲外ならSemgrep自動参加をrollbackし、
+      <code>source_sast_not_executed</code>表示は維持する。
+    </li>
+  </ul>
+  <h2 id="10-slice-552--scanner-and-runtime-preflight">
+    10. Slice 55.2 — Scanner and runtime preflight
+  </h2>
+  <p>
+    Implementation status: Implemented and strict-verified locally on 2026-08-16; pull-request CI
+    pending. The versioned server-owned result is persisted in scan metadata, shared by
+    CLI/API/report/UI, binds source/profile/execution/manifest/ versions/images/target plan, and
+    enforces required/optional admission without a network fetch. Generated capability documentation
+    and its verify drift gate are included in the same change.
+  </p>
+  <h3 id="objective-2">Objective</h3>
+  <p>scan開始後のtool failureを減らし、実行不能とno findingを明確に分離する。</p>
+  <h3 id="changes-2">Changes</h3>
+  <ul>
+    <li>versioned <code>ScanPreflightResult</code> schemaを追加する。</li>
+    <li>
+      resolved profileの各stepに対して次を確認する。
+      <ul>
+        <li>adapter登録とbinary version</li>
+        <li>scanner data manifestとexpected digest</li>
+        <li>OSV / Trivy databaseの実在、readability、age</li>
+        <li>Docker daemon、pinned image、platform compatibility</li>
+        <li>Semgrep owned rulesetのpathとcatalog integrity</li>
+        <li>Playwright browser availability</li>
+        <li>target start plan、required consent、sandbox availability</li>
+        <li>OpenAPI/GraphQL schema applicability</li>
+      </ul>
+    </li>
+    <li>preflightはscannerを本実行せず、外部network requestやdownloadを行わない。</li>
+    <li>
+      required checkが<code>blocked</code>ならscanner
+      processを起動せず、既存のfailed終端stateと <code>preflight_failed</code> reason
+      codeを保存する。新しいscan status enumは追加しない。
+    </li>
+    <li>
+      optional checkが<code>blocked</code>ならscanを継続し、coverage
+      gapを保存する。
+    </li>
+    <li>
+      preflight resultをSQLiteへ保存する。既存diagnostic tableで意味を保てない場合のみ、 additive
+      migrationを独立PRとして追加する。
+    </li>
+    <li>CLI dry-run、Web UI、scan reportが同じstored resultを読む。</li>
+    <li>reason codeごとに、設定画面、toolbox build、database prepare等のactionを提示する。</li>
+  </ul>
+  <h3 id="likely-change-areas-2">Likely change areas</h3>
+  <ul>
+    <li><code>shared/schemas/</code>のpreflight schema</li>
+    <li><code>api/modules/scans/scan-execution-policy.ts</code></li>
+    <li><code>api/modules/scans/profile-tool-provenance.ts</code></li>
+    <li><code>api/modules/scans/tools/scanner-provenance.ts</code></li>
+    <li><code>api/modules/scans/profile-orchestrator.ts</code></li>
+    <li><code>api/modules/scans/scan-preflight.test.ts</code>（新規）</li>
+    <li><code>api/modules/dast/target-preparer.ts</code></li>
+    <li><code>api/routes/diagnostics.route.ts</code></li>
+    <li><code>api/routes/scan-profiles.route.ts</code></li>
+    <li>
+      <code>api/db/schema.ts</code> /
+      <code>drizzle/</code>（必要な場合のみ）
+    </li>
+    <li><code>web/src/domains/scans/</code></li>
+  </ul>
+  <h3 id="acceptance-2">Acceptance</h3>
+  <ul>
+    <li>
+      OSV database未供給をscan前に<code>blocked</code>として検出する。
+    </li>
+    <li>
+      manifestが<code>ready</code>でもruntime
+      pathが読めない場合は<code>ready</code>にしない。
+    </li>
+    <li>required scanner不足時にscanner processを起動しない。</li>
+    <li>optional scanner不足時にprofile成功を偽装せずcoverage gapを残す。</li>
+    <li>preflightとscanの間でversion/digestが変化した場合、scan開始時に再検証して拒否する。</li>
+    <li>credential、source、absolute home pathを保存・表示しない。</li>
+  </ul>
+  <h3 id="verification-2">Verification</h3>
+  <pre><code class="language-bash">bun test api/modules/scans/scan-execution-policy.test.ts
+bun test api/modules/scans/tools/scanner-provenance.test.ts
+bun test api/modules/scans/profile-runner.test.ts
+bun test api/routes/diagnostics.route.test.ts
+bun run test:security-capability
+bun run typecheck
+</code></pre>
+  <h3 id="rollout-and-rollback-1">Rollout and rollback</h3>
+  <ul>
+    <li>最初はCLI dry-runとdiagnostic APIでshadow出力し、既存scan admissionを変更しない。</li>
+    <li>shadow evidenceでfalse blockが0件になった後、required checkだけenforceする。</li>
+    <li>rollback時はenforcementを無効化し、stored preflightとUI表示は診断情報として維持する。</li>
+  </ul>
+  <h2 id="11-slice-553--detection-regression-improvement">
+    11. Slice 55.3 — Detection regression improvement
+  </h2>
+  <h3 id="objective-3">Objective</h3>
+  <p>
+    Phase 54で可視化された弱いcategoryと3件のJuice Shop false negativeを、policyを変えず、
+    production detector pathと監査可能なsuppressionだけで改善する。
+  </p>
+  <h3 id="slice-553-a--failure-classification">Slice 55.3-A — Failure classification</h3>
+  <ul>
+    <li>
+      OWASP false negativeをsource、sink、sanitizer、branch、helper、framework patternで分類する。
+    </li>
+    <li>
+      path traversal false positiveをmapped safe、cross-CWE、rule attribution、duplicateに分類する。
+    </li>
+    <li>
+      Juice Shop 3 scenarioはrequest、response、persisted state、oracleのどこでsignalを失うか
+      を分類する。
+    </li>
+    <li>分類不能を除外せず<code>unknown</code>として残す。</li>
+  </ul>
+  <h3 id="slice-553-b--owasp-rule--precision-filter-changes">
+    Slice 55.3-B — OWASP rule / precision filter changes
+  </h3>
+  <ul>
+    <li>cmdi、hash、XSSの未検出variantを最小rule変更で追加する。</li>
+    <li>
+      path traversalはrule削除やbenchmark-specific ignoreではなく、reachable data-flow、 source/sink
+      compatibility、cross-CWE mappingを根拠にprecisionを改善する。
+    </li>
+    <li>suppressionはrule ID、finding ID、reason、source hashをaudit artifactへ保存する。</li>
+    <li>1つのsafe helperを同file内の別sinkへ一般化しない。</li>
+  </ul>
+  <h3 id="slice-553-c--juice-shop-detector-changes">Slice 55.3-C — Juice Shop detector changes</h3>
+  <ul>
+    <li>
+      forged feedbackはauthenticated identity、submitted identity、persisted ownerの差を観測する。
+    </li>
+    <li>
+      CAPTCHA bypassは同一challenge/answerの再利用を複数requestのdifferential signalで判定する。
+    </li>
+    <li>zero-starsはsubmitted value、persisted value、server validation結果を比較する。</li>
+    <li>challenge label、score API、catalog expected resultをdetectorへ入力しない。</li>
+    <li>vulnerable/fixedの両方を同じproduction detector pathへ通す。</li>
+  </ul>
+  <h3 id="slice-553-d--holdout-regression">Slice 55.3-D — Holdout regression</h3>
+  <ul>
+    <li>rule変更時に参照しないheld-out variantをcategoryごとに追加する。</li>
+    <li>
+      whitespace、helper、branch、framework wrapper、safe sanitizer、unrelated 200 response等の
+      metamorphic pairを含める。
+    </li>
+    <li>
+      detector authorがholdout expected resultを変更する場合、別reviewer approvalを必要とする。
+    </li>
+  </ul>
+  <h3 id="improvement-acceptance">Improvement acceptance</h3>
+  <p>次はprofessional policy v1を変更するものではなく、Phase 55 improvement gateとする。</p>
+  <table>
+    <caption>
+      Improvement acceptance
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Metric</th>
+        <th scope="col">Baseline</th>
+        <th scope="col">Phase 55 target</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>OWASP overall recall</td>
+        <td><code>0.7993</code></td>
+        <td>no regression</td>
+      </tr>
+      <tr>
+        <td>OWASP overall precision</td>
+        <td><code>0.9536</code></td>
+        <td>no regression</td>
+      </tr>
+      <tr>
+        <td>OWASP overall FPR</td>
+        <td><code>0.0399</code></td>
+        <td>no regression</td>
+      </tr>
+      <tr>
+        <td>cmdi recall</td>
+        <td><code>0.5952</code></td>
+        <td><code>&gt;= 0.70</code></td>
+      </tr>
+      <tr>
+        <td>hash recall</td>
+        <td><code>0.6899</code></td>
+        <td><code>&gt;= 0.70</code></td>
+      </tr>
+      <tr>
+        <td>XSS recall</td>
+        <td><code>0.6707</code></td>
+        <td><code>&gt;= 0.70</code></td>
+      </tr>
+      <tr>
+        <td>path traversal precision</td>
+        <td><code>0.6497</code></td>
+        <td><code>&gt;= 0.80</code></td>
+      </tr>
+      <tr>
+        <td>path traversal FPR</td>
+        <td><code>0.2895</code></td>
+        <td><code>&lt;= 0.10</code></td>
+      </tr>
+      <tr>
+        <td>Juice Shop</td>
+        <td>17/20 detected</td>
+        <td>20/20 detected、20/20 fixed non-detected</td>
+      </tr>
+      <tr>
+        <td>Holdout</td>
+        <td>not measured</td>
+        <td>vulnerable/fixed gate pass</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    category目標達成のために別categoryのrecallを2 percentage point超低下させない。低下した
+    場合はoverallがpassしてもregressionとして扱う。
+  </p>
+  <h3 id="verification-3">Verification</h3>
+  <pre><code class="language-bash">bun run test:detection-effectiveness
+bun run test:semgrep:catalog
+bun run benchmark:owasp
+bun run benchmark:owasp:analyze
+bun run benchmark:juice-shop
+bun run verify:juice-shop-release
+bun run verify:professional-capability:report
+</code></pre>
+  <h3 id="rollback-1">Rollback</h3>
+  <ul>
+    <li>rule、precision filter、detector、benchmark contractを同じPRへ混在させない。</li>
+    <li>metric regression時は該当rule/detector PRだけをrevertする。</li>
+    <li>
+      artifact、failure analysis、baselineは原因調査用に保持し、passing evidenceへ昇格しない。
+    </li>
+  </ul>
+  <h2 id="12-slice-554--multi-language-external-and-holdout-evaluation">
+    12. Slice 55.4 — Multi-language external and holdout evaluation
+  </h2>
+  <h3 id="objective-4">Objective</h3>
+  <p>
+    JavaScript、TypeScript、Python、Goについて、owned rule fixtureの100%だけでは分からない
+    実コードへの一般化を測定する。
+  </p>
+  <h3 id="slice-554-a--corpus-contract">Slice 55.4-A — Corpus contract</h3>
+  <ul>
+    <li>
+      各言語のcandidate corpusについてlicense、version、source digest、ground truth、
+      category、positive/negative数、重複、generated codeをreviewする。
+    </li>
+    <li>corpusをrule開発用training setとrelease holdoutへ分離する。</li>
+    <li>scanner rule source、test fixture、holdout corpusの同一file/hash混入をrejectする。</li>
+    <li>
+      external corpusが適切でない言語は、versioned owned holdoutとして明示し、
+      <code>external</code>と表記しない。
+    </li>
+    <li>networkなしでprepare/verifyできるlock fileを追加する。</li>
+  </ul>
+  <h3 id="slice-554-b--common-runner-and-scorer">Slice 55.4-B — Common runner and scorer</h3>
+  <ul>
+    <li>Java OWASP runnerと同じmetric semanticsを再利用する。</li>
+    <li>language固有normalizerの後に共通TP/FN/TN/FP scorerを置く。</li>
+    <li>unknown、unmapped、unsupported syntaxを分母から黙って除外しない。</li>
+    <li>category、rule、framework別のmetricsとraw/normalized hashを保存する。</li>
+    <li>timeout、memory、network request、unparsed resultを記録する。</li>
+  </ul>
+  <h3 id="slice-554-c--release-policy">Slice 55.4-C — Release policy</h3>
+  <ul>
+    <li>
+      最初のrunはdiagnosticであり、直ちに<code>verified</code>
+      tierへ昇格しない。
+    </li>
+    <li>
+      corpus adequacyとbaseline distributionをhuman reviewした後、language policyを versioned
+      fileとして別PRで追加する。
+    </li>
+    <li>
+      thresholdはbaseline結果に合わせて成功を作るのではなく、利用目的とfalse-positive review
+      capacityから決める。
+    </li>
+  </ul>
+  <h3 id="likely-change-areas-3">Likely change areas</h3>
+  <ul>
+    <li><code>spec/security-capability/</code>のlanguage corpus lock / policy</li>
+    <li><code>scripts/benchmark/</code>のcommon language runner / scorer</li>
+    <li><code>.artifacts/benchmark/</code>のout-of-tree evidence</li>
+    <li><code>scripts/verify-professional-capability.ts</code></li>
+    <li><code>shared/schemas/benchmark.schema.ts</code></li>
+    <li>CI capability job</li>
+  </ul>
+  <h3 id="acceptance-3">Acceptance</h3>
+  <ul>
+    <li>4言語それぞれでpositive/negativeの両方を測定する。</li>
+    <li>corpus、rule、implementation、raw、normalized、metricのhash chainを再検証できる。</li>
+    <li>owned fixtureとholdoutのhash overlapが0件である。</li>
+    <li>1言語のfailureが他言語のpassへ丸められない。</li>
+    <li>language未測定をproject全体のSAST verifiedとして表示しない。</li>
+  </ul>
+  <h3 id="verification-4">Verification</h3>
+  <pre><code class="language-bash">bun run security-corpora:verify
+bun run test:semgrep:catalog
+bun run test:security-capability
+bun run verify:professional-capability:report
+</code></pre>
+  <h3 id="rollback-2">Rollback</h3>
+  <p>
+    languageごとにrunner/policyを分離する。不適切なcorpusはその言語を<code>diagnostic</code>または
+    <code>blocked</code>へ戻し、Java evidenceや他言語policyを変更しない。
+  </p>
+  <h2 id="13-slice-555--sandboxed-dast-target-runtime">
+    13. Slice 55.5 — Sandboxed DAST target runtime
+  </h2>
+  <h3 id="objective-5">Objective</h3>
+  <p>
+    既存Java/Python start planと将来のGo start planを、host project code実行なしで bounded passive
+    DASTへ接続する。
+  </p>
+  <h3 id="slice-555-a--sandbox-contract">Slice 55.5-A — Sandbox contract</h3>
+  <p>sandbox runnerは最低限、次を強制する。</p>
+  <ul>
+    <li>digest-pinned image</li>
+    <li>non-root user</li>
+    <li>read-only project mount</li>
+    <li>separate writable tmpfs with byte limit</li>
+    <li><code>--cap-drop ALL</code></li>
+    <li><code>no-new-privileges</code></li>
+    <li>CPU、memory、memory-swap、PID、process timeout上限</li>
+    <li>Docker socket、host credential、LLM credential非mount</li>
+    <li>internal-only networkとbounded target gateway</li>
+    <li>public DNS / public IP / metadata endpointへのegress 0</li>
+    <li>stdout、stderr、artifact byte上限</li>
+    <li>start前後のproject tree hash一致</li>
+    <li>stop、container removal、network removal、tmpfs破棄</li>
+  </ul>
+  <h3 id="slice-555-b--java-and-python-enablement">Slice 55.5-B — Java and Python enablement</h3>
+  <ul>
+    <li>既存Spring Maven/Gradle、FastAPI/Flask/Django start planをsandbox requestへ変換する。</li>
+    <li>Maven/Gradle/Python dependency installを行わない。</li>
+    <li>
+      wrapper、offline cache、prepared
+      dependencyが不足する場合は<code>blocked</code>にする。
+    </li>
+    <li>readiness path、port、method、path、request budgetをcentral target lifecycleへ渡す。</li>
+    <li>explicit consentとRules of Engagementを維持する。</li>
+  </ul>
+  <h3 id="slice-555-c--go-enablement">Slice 55.5-C — Go enablement</h3>
+  <ul>
+    <li>net/http、Gin、Echoへdeterministic start plannerを追加する。</li>
+    <li>main packageが一意でないprojectは<code>target_start_ambiguous</code>にする。</li>
+    <li>
+      prepared module cacheまたはprebuilt
+      binaryがない場合はbuildを開始せず<code>blocked</code>にする。
+    </li>
+    <li>Go対応をJava/Pythonと同じPRへ含めない。</li>
+  </ul>
+  <h3 id="likely-change-areas-4">Likely change areas</h3>
+  <ul>
+    <li><code>api/modules/dast/target-preparer.ts</code></li>
+    <li><code>api/modules/dast/</code>のsandbox runner / lifecycle</li>
+    <li><code>api/modules/project-capabilities/</code>のstart plan contract</li>
+    <li><code>api/plugins/builtin/java/spring.ts</code></li>
+    <li><code>api/plugins/builtin/python/frameworks.ts</code></li>
+    <li><code>api/plugins/builtin/go/frameworks.ts</code></li>
+    <li><code>api/modules/dast/target-sandbox-runner.test.ts</code>（新規）</li>
+    <li>runtime settings、diagnostics、coverage、report</li>
+    <li>Docker fixtureとLinux integration tests</li>
+  </ul>
+  <h3 id="acceptance-4">Acceptance</h3>
+  <ul>
+    <li>Java/Python target processがhostでspawnされない。</li>
+    <li>project tree hashが実行前後で一致する。</li>
+    <li>external/public/metadata request、credential leakage、Docker socket exposureが0件。</li>
+    <li>cleanup failureをsuccessまたは<code>no_findings_observed</code>にしない。</li>
+    <li>sandbox不足時は既存の<code>project_code_execution_sandbox_required</code>を維持する。</li>
+    <li>Goは一意なstart planとprepared offline inputがある場合だけ実行する。</li>
+  </ul>
+  <h3 id="verification-5">Verification</h3>
+  <pre><code class="language-bash">bun test api/modules/dast/plugin-start-planner.test.ts
+bun test api/modules/dast/target-preparer.test.ts
+bun test api/modules/dast/container-target-gateway.test.ts
+bun run test:technology-plugins
+bun run test:security-capability
+bun run verify:strict
+</code></pre>
+  <p>
+    Linux Docker integrationではcontainer inspect、network inspect、project hash、cleanup後の
+    resource不在をartifactとして保存する。
+  </p>
+  <h3 id="rollout-and-rollback-2">Rollout and rollback</h3>
+  <ul>
+    <li>最初はfixture projectだけを許可し、real projectはdefault OFFにする。</li>
+    <li>Java/Pythonを個別feature flagでshadow rolloutする。</li>
+    <li>
+      sandbox escape、egress、mutation、cleanup failureが1件でもあれば該当languageを 即時default
+      OFFへ戻す。host executionへfallbackしない。
+    </li>
+  </ul>
+  <h2 id="14-slice-556--evidence-constrained-llm-review-quality">
+    14. Slice 55.6 — Evidence-constrained LLM review quality
+  </h2>
+  <h3 id="objective-6">Objective</h3>
+  <p>
+    LLMが利用可能かではなく、保存済みfindingを証跡から正しく説明・優先付けできるかを
+    測定し、deterministic reportとの差分と残余リスクを提示する。
+  </p>
+  <h3 id="slice-556-a--dataset-and-labels">Slice 55.6-A — Dataset and labels</h3>
+  <ul>
+    <li>
+      secret、SCA、SAST、misconfiguration、DAST、authorization、business logicから、 redacted
+      finding review caseをversion管理する。
+    </li>
+    <li>
+      各caseはinput bundle hash、allowed evidence refs、severity range、false-positive label、
+      remediation constraints、must-not-claimを持つ。
+    </li>
+    <li>source body、real credential、absolute path、private repository dataを含めない。</li>
+    <li>labelは最低2回の独立reviewまたはowner/reviewer sign-offを持つ。</li>
+  </ul>
+  <h3 id="slice-556-b--runner-and-metrics">Slice 55.6-B — Runner and metrics</h3>
+  <ul>
+    <li>deterministic fixture providerとlive opt-in providerを分離する。</li>
+    <li>
+      live evaluationはmodel、provider、prompt/schema version、temperature相当設定、token usage、
+      latencyを記録し、同じcaseを最低3回実行する。
+    </li>
+    <li>
+      次を測定する。
+      <ul>
+        <li>structured output validity</li>
+        <li>evidence ref validity</li>
+        <li>unsupported claim rate</li>
+        <li>severity agreement</li>
+        <li>false-positive assessment precision / recall</li>
+        <li>remediation constraint compliance</li>
+        <li>unknown / assumption disclosure</li>
+      </ul>
+    </li>
+    <li>promptやresponse本文をrelease artifactへ保存せず、redacted metricとhashだけを残す。</li>
+  </ul>
+  <h3 id="slice-556-c--quality-policy">Slice 55.6-C — Quality policy</h3>
+  <p>hard safety gateは次とする。</p>
+  <ul>
+    <li>schema-valid output: <code>100%</code></li>
+    <li>unknown evidence reference: <code>0</code></li>
+    <li>unsupported factual claim: <code>0</code></li>
+    <li>credential/source leakage: <code>0</code></li>
+    <li>deterministic fallback availability: <code>100%</code></li>
+  </ul>
+  <p>
+    severity agreementとfalse-positive assessmentはbaseline取得後、human reviewを経て versioned
+    policyへ追加する。最初の数値を通すためにlabelを変更しない。
+  </p>
+  <h3 id="likely-change-areas-5">Likely change areas</h3>
+  <ul>
+    <li><code>contexts/</code>のversioned review prompt/schema</li>
+    <li><code>shared/fixtures/</code>のredacted LLM quality cases</li>
+    <li><code>api/modules/scans/scan-review-bundle.ts</code></li>
+    <li><code>api/modules/scans/scan-review-output-validator.ts</code></li>
+    <li><code>api/modules/scans/scan-review-output-validator.test.ts</code>（新規）</li>
+    <li><code>scripts/benchmark/</code>のLLM review evaluator</li>
+    <li>opt-in CI / release evaluation workflow</li>
+  </ul>
+  <h3 id="acceptance-5">Acceptance</h3>
+  <ul>
+    <li>scanner findingとLLM assessmentを別metricとして表示する。</li>
+    <li>invalid evidence refやmust-not-claim違反を自動検出する。</li>
+    <li>
+      LLM failure時もdeterministic reportが<code>ready_with_limitations</code>で完了する。
+    </li>
+    <li>model/provider未設定をquality passにしない。</li>
+    <li>live model runを通常unit testの必須条件にしない。</li>
+  </ul>
+  <h3 id="verification-6">Verification</h3>
+  <pre><code class="language-bash">bun test api/modules/scans/scan-review-bundle.test.ts
+bun test api/modules/scans/scan-review-output-validator.test.ts
+bun test api/modules/scans/scan-diagnostic-runner.test.ts
+bun run verify:codex-live -- --model &lt;approved-model&gt;  # opt-in only
+</code></pre>
+  <h3 id="rollout-and-rollback-3">Rollout and rollback</h3>
+  <ul>
+    <li>quality evaluationは最初はreport-onlyとし、scan completionをblockしない。</li>
+    <li>policy gate導入は別PR・別承認とする。</li>
+    <li>model regression時はLLM routeを無効化し、deterministic reportへfallbackする。</li>
+  </ul>
+  <h2 id="15-slice-557--documentation-and-same-commit-closeout">
+    15. Slice 55.7 — Documentation and same-commit closeout
+  </h2>
+  <h3 id="objective-7">Objective</h3>
+  <p>
+    実装、profile inventory、runtime readiness、benchmark、support tier、説明文を同一commitの
+    証跡へ結び付ける。
+  </p>
+  <h3 id="changes-3">Changes</h3>
+  <ul>
+    <li>
+      capability tableをscanner manifest、profile inventory、preflight contract、language
+      policyから生成する。
+    </li>
+    <li>READMEにはofficial resultとlocal diagnostic resultを別欄で表示する。</li>
+    <li>generated documentation driftをCIで拒否する。</li>
+    <li>Phase 55 closeout runnerはclean Ubuntu checkoutで選択済みsliceのgateを実行する。</li>
+    <li>
+      release reportへPhase 54 evidence ref、Phase 55 baseline、profile hash、preflight summary、
+      language metrics、sandbox evidence、LLM quality summaryを保存する。
+    </li>
+    <li>
+      professional capability claim、language support tier、LLM quality gateの変更はそれぞれ
+      explicit human approvalがある場合だけ反映する。
+    </li>
+  </ul>
+  <h3 id="required-closeout-commands">Required closeout commands</h3>
+  <pre><code class="language-bash">bun run format:check
+bun run typecheck
+bun run test
+bun run test:e2e
+bun run test:security-capability
+bun run test:detection-effectiveness
+bun run verify:strict
+bun run verify:professional-capability:report
+bun run verify:phase-55-closeout
+git diff --check
+</code></pre>
+  <p>
+    Docker、corpus、offline database、browser、approved modelが必要なgateは、missing inputを
+    <code>passed</code>へ丸めず<code>blocked</code>としてreportする。Phase 55 release
+    scopeにrequiredなgateが <code>blocked</code>ならcloseoutを完了しない。
+  </p>
+  <h3 id="acceptance-6">Acceptance</h3>
+  <ul>
+    <li>selected sliceのrequired gateが同じclean commitでpassする。</li>
+    <li>generated docsとmanifest/profile/reportに差異がない。</li>
+    <li>old Phase 54 artifactを変更していない。</li>
+    <li>source/snippet、credential、absolute home pathをrelease artifactへ含めない。</li>
+    <li>claim changeがない場合も、未達を正確に表したrelease reportを生成できる。</li>
+  </ul>
+  <h3 id="rollback-3">Rollback</h3>
+  <p>
+    closeout failure時はclaim、support tier、default rolloutを進めない。実装済みsliceは
+    diagnosticまたはdefault OFFで保持できるが、passing release evidenceとして公開しない。
+  </p>
+  <h2 id="16-cross-cutting-verification-matrix">16. Cross-cutting verification matrix</h2>
+  <table>
+    <caption>
+      16. Cross-cutting verification matrix
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Risk</th>
+        <th scope="col">Positive verification</th>
+        <th scope="col">Negative verification</th>
+        <th scope="col">Release evidence</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>SAST未実行の誤表示</td>
+        <td>Semgrep step executed</td>
+        <td>adapter absentでexplicit gap</td>
+        <td>resolved profile + coverage</td>
+      </tr>
+      <tr>
+        <td>scanner input不足</td>
+        <td>ready preflight</td>
+        <td>DB/path/image欠落でblocked</td>
+        <td>preflight record</td>
+      </tr>
+      <tr>
+        <td>rule recall regression</td>
+        <td>vulnerable corpus TP</td>
+        <td>prior TP lossをreject</td>
+        <td>before/after metrics</td>
+      </tr>
+      <tr>
+        <td>rule precision regression</td>
+        <td>safe corpus TN</td>
+        <td>benchmark-specific suppression拒否</td>
+        <td>suppression audit</td>
+      </tr>
+      <tr>
+        <td>Juice overfitting</td>
+        <td>live vulnerable detection</td>
+        <td>fixed + holdout non-detection</td>
+        <td>scenario evidence hashes</td>
+      </tr>
+      <tr>
+        <td>corpus contamination</td>
+        <td>separate lock/digest</td>
+        <td>fixture/holdout hash overlap拒否</td>
+        <td>corpus verifier output</td>
+      </tr>
+      <tr>
+        <td>sandbox escape</td>
+        <td>internal fixture reachable</td>
+        <td>egress/socket/write拒否</td>
+        <td>inspect + hash artifact</td>
+      </tr>
+      <tr>
+        <td>cleanup failure</td>
+        <td>baseline restored</td>
+        <td>failed cleanupをsuccess拒否</td>
+        <td>lifecycle evidence</td>
+      </tr>
+      <tr>
+        <td>LLM hallucination</td>
+        <td>allowed evidence refs</td>
+        <td>unknown ref / must-not-claim拒否</td>
+        <td>redacted quality metrics</td>
+      </tr>
+      <tr>
+        <td>docs drift</td>
+        <td>generated table current</td>
+        <td>hand-edited mismatch拒否</td>
+        <td>documentation gate</td>
+      </tr>
+    </tbody>
+  </table>
+  <h2 id="17-definition-of-done">17. Definition of Done</h2>
+  <p>Phase 55全体の完了は、次をすべて満たした状態とする。</p>
+  <ul>
+    <li>
+      <code>full-security-scan</code>がSAST実行または明示的SAST gapを必ず記録する。
+    </li>
+    <li>required scanner/data/runtime不足が本実行前にfail closedする。</li>
+    <li>optional step不足がcoverage gapとしてreportされる。</li>
+    <li>OWASP improvement targetを満たし、他categoryに許容外回帰がない。</li>
+    <li>Juice Shop 20 vulnerable / 20 fixedとholdout regressionがpassする。</li>
+    <li>JavaScript、TypeScript、Python、Goの評価が再現可能で、未測定をverifiedと表示しない。</li>
+    <li>Java/Python target startがsandbox外で実行されない。</li>
+    <li>Go startは独立sliceで安全条件を満たした場合だけenabledになる。</li>
+    <li>LLM quality datasetでunknown evidence ref、unsupported claim、secret leakが0件である。</li>
+    <li>LLM未設定・失敗時のdeterministic report fallbackが維持される。</li>
+    <li>same-commit clean Ubuntu closeoutとprivacy verificationがpassする。</li>
+    <li>generated documentationがmanifest、profile、benchmark、support tierと一致する。</li>
+    <li>claimとdefault rolloutが実装PRとは別にhuman reviewされる。</li>
+  </ul>
+  <h2 id="18-stop-conditions">18. Stop conditions</h2>
+  <p>次のいずれかが発生したsliceはmergeまたはrolloutを停止する。</p>
+  <ul>
+    <li>policy threshold、分母、ground truthを実装都合で変更する必要が生じた。</li>
+    <li>benchmark固有label、test ID、challenge stateをdetectorが参照した。</li>
+    <li>Semgrep未導入環境が理由不明のprofile failureになった。</li>
+    <li>preflightがnetwork fetchまたは自動installを開始した。</li>
+    <li>target project codeがhostでspawnされた。</li>
+    <li>sandboxからpublic、metadata、Docker socket、host credentialへ到達できた。</li>
+    <li>project treeが実行後に変化した。</li>
+    <li>cleanup failureがpassing verdictになった。</li>
+    <li>LLMが存在しないevidenceを引用し、それをvalidatorが受理した。</li>
+    <li>source、snippet、credential、absolute home pathがrelease artifactへ含まれた。</li>
+    <li>
+      required gateが<code>blocked</code>のままclaimまたはsupport
+      tierを昇格しようとした。
+    </li>
+  </ul>
+  <p>
+    停止時は同じslice内で安全境界を弱めず、<code>blocked</code>または<code>not_met</code>を維持して別の
+    design decisionへ切り出す。
+  </p>
+  <h2 id="19-first-implementation-tranche">19. First implementation tranche</h2>
+  <p>最初のtrancheはSlice 55.0〜55.2に限定する。</p>
+  <table>
+    <caption>
+      19. First implementation tranche
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">PR</th>
+        <th scope="col">Scope</th>
+        <th scope="col">Merge gate</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>55.0</td>
+        <td>Phase 55 baseline、entry verifier、privacy check</td>
+        <td>Phase 54 bindingとbaseline再検証がpass</td>
+      </tr>
+      <tr>
+        <td>55.1</td>
+        <td>conditional Semgrep resolution、SAST gap、report/API/UI</td>
+        <td>adapter有無の両fixtureで実行stepとcoverageが一致</td>
+      </tr>
+      <tr>
+        <td>55.2-A</td>
+        <td>preflight schema、probe、shadow CLI/API</td>
+        <td>core scannerごとのready/blocked fixtureがpass</td>
+      </tr>
+      <tr>
+        <td>55.2-B</td>
+        <td>persistence、UI、required-step enforcement</td>
+        <td>既存profile fixtureとcore scanner pairでfalse block 0件</td>
+      </tr>
+      <tr>
+        <td>55.2-C</td>
+        <td>generated capability tableとdocs drift gate</td>
+        <td>manifest/profile/preflightからの再生成差分が0件</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    55.2-Bのfalse block判定には、Gitleaks、OSV、Trivy、任意Semgrepの各ready fixtureと missing
+    binary/data/path fixtureを最低1組ずつ含める。単一の開発machineで成功したこと
+    だけをenforcement開始条件にしない。
+  </p>
+  <p>
+    このtrancheではSemgrep rule、Juice Shop detector、sandbox、LLM promptを変更しない。
+    これにより、能力拡張より先に「何が実行されたか」「なぜ実行できなかったか」を
+    正確に説明できる基盤を完成させる。
+  </p>
+</article>
+  </body>
+</html>

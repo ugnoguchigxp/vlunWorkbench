@@ -1,0 +1,1645 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex,follow">
+    <title>Phase 50: Automated Professional Web/API Assessment Gap Closure Plan | vulnWorkbench</title>
+    <link rel="stylesheet" href="/vlunWorkbench/assets/css/spec-document.css">
+    <link rel="stylesheet" href="/vlunWorkbench/assets/css/plan-document.css">
+  </head>
+  <body>
+    <nav class="plan-document-links" aria-label="文書ナビゲーション">
+      <a href="/vlunWorkbench/plans/archive/?doc=phase-50-automated-professional-web-api-gap-closure-plan" target="_top">実装計画アーカイブへ</a>
+      <a href="/vlunWorkbench/" target="_top">vulnWorkbenchのLPへ戻る</a>
+    </nav>
+    <article lang="ja">
+  <h1 id="phase-50-automated-professional-webapi-assessment-gap-closure-plan">
+    Phase 50: Automated Professional Web/API Assessment Gap Closure Plan
+  </h1>
+  <p>Status: Implementation-ready draft; Section 20のhard start条件後にSlice 50.0を開始可能</p>
+  <p>Predecessor: <code>spec/phase-49-professional-web-api-assessment-capability-plan.md</code></p>
+  <p>Implementation baseline commit: <code>6a92f3c9fff4c399a0c08b4a26bf486526c31aa5</code></p>
+  <p>Baseline date: 2026-07-30</p>
+  <p>Owner: vulnWorkbench maintainers</p>
+  <p>
+    Target: Phase 49で残したscanner coverage、active DAST、外部benchmark、 business-logic
+    assessment、threat modelingの差を、人手の承認待ちなしで、
+    再現可能かつ測定可能な自動診断能力へ変換する。
+  </p>
+  <h2 id="1-結論と製品境界">1. 結論と製品境界</h2>
+  <p>
+    Phase 50は、単にtoolやruleの数を増やす計画ではない。次の5項目を、 versioned
+    contract、保存証跡、vulnerable/fixed fixture、数値gateを持つ 製品能力として実装する。
+  </p>
+  <ol>
+    <li>3ルールのSemgrep smoke setを、offline curated rulesetへ置き換える。</li>
+    <li>npm限定のOSV offline databaseを主要8 ecosystemへ拡張する。</li>
+    <li>ZAP active/API scanをdisposable environment専用profileとして実装する。</li>
+    <li>
+      OWASP BenchmarkとOWASP Juice Shop系fixtureでrecall、precision、 false-positive
+      rateを測定する。
+    </li>
+    <li>
+      source/API/runtime evidenceからapplication model、threat hypothesis、 business-logic
+      scenarioを自動生成し、実行可能なものを自動検証する。
+    </li>
+  </ol>
+  <p>Phase 50完了後に許可する表現は次とする。</p>
+  <blockquote>
+    <p>
+      vulnWorkbenchは、宣言済みの言語、ecosystem、Web/API protocol、 test
+      scenarioに対して、再現可能なSAST、SCA、active DAST、
+      authorization、business-logic検査、threat-model reviewを自動実行し、
+      測定済みのcoverageと限界を含む診断結果を出力する。
+    </p>
+  </blockquote>
+  <p>次の表現は引き続き禁止する。</p>
+  <ul>
+    <li>あらゆるプロ診断を完全代替する</li>
+    <li>未対応の言語、protocol、business domainも検査済みである</li>
+    <li>LLMが生成した未検証仮説を確認済み脆弱性として扱う</li>
+    <li>benchmark対象外のreal-world recallを保証する</li>
+    <li>network、cloud、AD、mobile、wireless、social engineeringを対象とする</li>
+  </ul>
+  <p>
+    <code>professionalAssessmentEquivalent</code>はglobal booleanとしてtrueにしない。
+    代わりに、release evidenceへ次のscope付きclaimを追加する。
+  </p>
+  <pre><code class="language-ts">type MeasuredCapabilityClaim = {
+  claimId: "measured-automated-web-api-assessment-v1";
+  status: "met" | "not_met";
+  scopeCatalogVersion: string;
+  benchmarkPolicyVersion: string;
+  passingBenchmarkRunId: string | null;
+  unsupportedCapabilities: string[];
+};
+</code></pre>
+  <h2 id="2-人手待ちを廃止する固定原則">2. 人手待ちを廃止する固定原則</h2>
+  <p>
+    production workflowでhuman approval、manual review、manual decisionを完了条件に
+    しない。ただし、LLMの推測を証跡の代用にもしない。
+  </p>
+  <p>診断対象は次の状態を必ず区別する。</p>
+  <table>
+    <caption>
+      2. 人手待ちを廃止する固定原則
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">状態</th>
+        <th scope="col">意味</th>
+        <th scope="col">finding生成</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>hypothesis</code></td>
+        <td>LLMまたはdeterministic ruleが生成した検査候補</td>
+        <td>不可</td>
+      </tr>
+      <tr>
+        <td><code>planned</code></td>
+        <td>schema、scope、budget、安全性を検証済み</td>
+        <td>不可</td>
+      </tr>
+      <tr>
+        <td><code>observed</code></td>
+        <td>実行証跡が期待する違反を示した</td>
+        <td>可</td>
+      </tr>
+      <tr>
+        <td><code>not_observed</code></td>
+        <td>実行したが違反を示さなかった</td>
+        <td>不可</td>
+      </tr>
+      <tr>
+        <td><code>inconclusive</code></td>
+        <td>timeout、5xx、cleanup失敗等で判定不能</td>
+        <td>不可</td>
+      </tr>
+      <tr>
+        <td><code>not_tested</code></td>
+        <td>unsupportedまたは安全なplanへ変換不能</td>
+        <td>不可</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>人手判断の代わりに、次の自動gateを使う。</p>
+  <ol>
+    <li>LLM outputのZod validation。</li>
+    <li>input bundle外のID、path、actor、asset参照を拒否するsemantic validation。</li>
+    <li>request method、path、origin、identity、budgetをRoEと照合するplan validation。</li>
+    <li>executable evidenceがないhypothesisをfindingへ昇格させない。</li>
+    <li>
+      LLM不在時はdeterministic modelとscenarioだけで完了し、
+      <code>completed_with_limitations</code>を出力する。
+    </li>
+    <li>
+      cleanupまたはenvironment resetが確認できないactive runは
+      <code>failed_cleanup</code>または<code>inconclusive</code>にする。
+    </li>
+  </ol>
+  <figure>
+    <pre class="mermaid" data-spec-html-source="markdown">flowchart LR
+  E["保存済み source/API/runtime evidence"] --&gt; M["Deterministic application model"]
+  M --&gt; H["LLM threat / business hypothesis"]
+  H --&gt; V["Semantic and RoE validator"]
+  V --&gt; P["Bounded executable scenario"]
+  P --&gt; X["Sandboxed execution"]
+  X --&gt; O["Observed / Not observed / Inconclusive"]
+  O --&gt; R["Deterministic report + evidence-constrained LLM review"]
+</pre>
+    <figcaption>2. 人手待ちを廃止する固定原則</figcaption>
+  </figure>
+  <h2 id="3-対象範囲とsupport-tier">3. 対象範囲とsupport tier</h2>
+  <h3 id="31-tier">3.1 Tier</h3>
+  <table>
+    <caption>
+      3.1 Tier
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Tier</th>
+        <th scope="col">意味</th>
+        <th scope="col">Phase 50 release gate</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>supported</code></td>
+        <td>benchmark、positive/negative fixture、offline data、normalizerが揃う</td>
+        <td>必須</td>
+      </tr>
+      <tr>
+        <td><code>experimental</code></td>
+        <td>scanner実行可能だがbenchmarkまたはfixtureが不足</td>
+        <td>limitation必須</td>
+      </tr>
+      <tr>
+        <td><code>unsupported</code></td>
+        <td>実行contractを提供しない</td>
+        <td><code>not_tested</code>表示</td>
+      </tr>
+    </tbody>
+  </table>
+  <h3 id="32-semgrep-supported-language">3.2 Semgrep supported language</h3>
+  <p>Phase 50の<code>curated-sast-v1</code>でsupportedとする言語:</p>
+  <ul>
+    <li>JavaScript</li>
+    <li>TypeScript</li>
+    <li>Python</li>
+    <li>Java</li>
+    <li>Go</li>
+  </ul>
+  <p>
+    Semgrep Community Editionのlocal/offline解析を前提とする。cross-file、
+    cross-function、framework固有のdeep analysisを実測せずsupported claimへ
+    含めない。これらが必要なcontrolは<code>experimental</code>または<code>not_tested</code>にする。
+  </p>
+  <p>次は初期状態をexperimentalとし、supported gateには数えない。</p>
+  <ul>
+    <li>C#</li>
+    <li>PHP</li>
+    <li>Ruby</li>
+    <li>Kotlin</li>
+    <li>Rust</li>
+    <li>Terraform</li>
+  </ul>
+  <h3 id="33-osv-supported-ecosystem">3.3 OSV supported ecosystem</h3>
+  <p>Phase 50でoffline supportedとするecosystem:</p>
+  <ul>
+    <li><code>npm</code></li>
+    <li><code>PyPI</code></li>
+    <li><code>Go</code></li>
+    <li><code>Maven</code></li>
+    <li><code>crates.io</code></li>
+    <li><code>NuGet</code></li>
+    <li><code>Packagist</code></li>
+    <li><code>RubyGems</code></li>
+  </ul>
+  <p>
+    databaseに存在しても、対象lockfileの抽出fixtureがないecosystemは supportedとして表示しない。
+  </p>
+  <h3 id="34-webapi-scope">3.4 Web/API scope</h3>
+  <p>supported:</p>
+  <ul>
+    <li>HTTP/HTTPS</li>
+    <li>HTML formとbrowser navigation</li>
+    <li>REST/OpenAPI 3.x</li>
+    <li>cookie、bearer、API keyを暗号化auth contextから注入する検査</li>
+    <li>declarative BOLA、BFLA、state transition、bounded transaction</li>
+    <li>localまたはephemeral targetに対するZAP active</li>
+  </ul>
+  <p>experimental:</p>
+  <ul>
+    <li>GraphQL query/mutation</li>
+    <li>multi-step browser-authenticated ZAP active</li>
+  </ul>
+  <p>unsupported:</p>
+  <ul>
+    <li>WebSocket</li>
+    <li>GraphQL subscription</li>
+    <li>gRPC</li>
+    <li>SOAP</li>
+    <li>arbitrary user-supplied scanner script</li>
+    <li>production targetへのactive attack</li>
+  </ul>
+  <h2 id="4-release-gate">4. Release gate</h2>
+  <p>
+    <code>measured-automated-web-api-assessment-v1</code>を<code>met</code>にするには、同じrelease commit、 toolbox image
+    digest、scanner-data manifest hash、corpus lock hashに対して 次をすべて満たす。
+  </p>
+  <table>
+    <caption>
+      4. Release gate
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Gate</th>
+        <th scope="col" class="markdown-align-right">必須値</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>owned/curated Semgrep rule tests</td>
+        <td class="markdown-align-right">positive recall 100%、negative false positive 0件</td>
+      </tr>
+      <tr>
+        <td>supported language fixture coverage</td>
+        <td class="markdown-align-right">各言語6 security family以上</td>
+      </tr>
+      <tr>
+        <td>curated Semgrep rule catalog</td>
+        <td class="markdown-align-right">40 rule ID以上、ただしrule数だけで合格にしない</td>
+      </tr>
+      <tr>
+        <td>OSV offline ecosystem matrix</td>
+        <td class="markdown-align-right">8/8 ecosystemでvulnerable/fixed fixture成功</td>
+      </tr>
+      <tr>
+        <td>offline scan network request</td>
+        <td class="markdown-align-right">0</td>
+      </tr>
+      <tr>
+        <td>OWASP Benchmark overall recall</td>
+        <td class="markdown-align-right">70%以上</td>
+      </tr>
+      <tr>
+        <td>OWASP Benchmark overall precision</td>
+        <td class="markdown-align-right">80%以上</td>
+      </tr>
+      <tr>
+        <td>OWASP Benchmark overall false-positive rate</td>
+        <td class="markdown-align-right">10%以下</td>
+      </tr>
+      <tr>
+        <td>OWASP Benchmark score <code>TPR - FPR</code></td>
+        <td class="markdown-align-right">0.60以上</td>
+      </tr>
+      <tr>
+        <td>OWASP Benchmark category recall</td>
+        <td class="markdown-align-right">ground truth 20件以上の各categoryで50%以上</td>
+      </tr>
+      <tr>
+        <td>Juice Shop eligible scenario</td>
+        <td class="markdown-align-right">20件以上、8 category以上</td>
+      </tr>
+      <tr>
+        <td>Juice Shop paired-fixture recall</td>
+        <td class="markdown-align-right">60%以上</td>
+      </tr>
+      <tr>
+        <td>Juice Shop paired-fixture precision</td>
+        <td class="markdown-align-right">80%以上</td>
+      </tr>
+      <tr>
+        <td>active cleanup/reset success</td>
+        <td class="markdown-align-right">100%</td>
+      </tr>
+      <tr>
+        <td>credential canary leakage</td>
+        <td class="markdown-align-right">0</td>
+      </tr>
+      <tr>
+        <td>public/production active request</td>
+        <td class="markdown-align-right">0</td>
+      </tr>
+      <tr>
+        <td>business-logic paired-fixture recall</td>
+        <td class="markdown-align-right">70%以上</td>
+      </tr>
+      <tr>
+        <td>business-logic paired-fixture precision</td>
+        <td class="markdown-align-right">80%以上</td>
+      </tr>
+      <tr>
+        <td>owned endpoint-discovery fixture recall</td>
+        <td class="markdown-align-right">90%以上</td>
+      </tr>
+      <tr>
+        <td>owned endpoint-discovery fixture precision</td>
+        <td class="markdown-align-right">90%以上</td>
+      </tr>
+      <tr>
+        <td>confirmed finding with no executable evidence</td>
+        <td class="markdown-align-right">0</td>
+      </tr>
+      <tr>
+        <td>clean checkout strict gate</td>
+        <td class="markdown-align-right">pass</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    初回benchmarkが閾値を下回った場合、baselineを合格扱いしない。
+    <code>limited_release_candidate</code>を維持し、rule、scenario、normalizerを改善する。
+  </p>
+  <p>
+    閾値変更は<code>benchmark-policy.json</code>のmajor version変更として扱い、変更理由と
+    新旧metric diffをrelease evidenceへ保存する。tool updateに合わせて閾値を 黙って下げない。
+  </p>
+  <h2 id="5-versioned-capability-artifacts">5. Versioned capability artifacts</h2>
+  <p>次をrepositoryへ追加する。</p>
+  <pre><code class="language-text">docker/toolbox/scanner-data/
+  scanner-data-manifest.json
+  semgrep-rules/
+    catalog.json
+    javascript/
+    typescript/
+    python/
+    java/
+    go/
+    vendor/
+      NOTICE.md
+  osv/
+    README.md
+
+spec/security-capability/
+  scope-catalog.v1.json
+  benchmark-policy.v1.json
+  corpora.lock.json
+  semgrep-rule-sources.lock.json
+  zap-active-policy.v1.yaml
+  zap-active-rule-catalog.v1.json
+  juice-shop-ground-truth.v1.json
+  business-logic-control-catalog.v1.json
+  threat-model-control-catalog.v1.json
+</code></pre>
+  <h3 id="51-corporalockjson">5.1 <code>corpora.lock.json</code></h3>
+  <pre><code class="language-ts">type CorpusLock = {
+  schemaVersion: 1;
+  corpora: Array&lt;{
+    id: "owasp-benchmark-java" | "owasp-juice-shop";
+    version: string;
+    sourceUrl: string;
+    sourceCommit: string;
+    archiveSha256: `sha256:${string}`;
+    image: string | null;
+    imageDigest: `sha256:${string}` | null;
+    license: string;
+    groundTruthSha256: `sha256:${string}`;
+  }&gt;;
+};
+</code></pre>
+  <p>
+    tagや<code>latest</code>だけを保存しない。update jobでsource
+    commit、archive、 container imageを取得してhashを検証し、benchmark run中はnetworkを無効にする。
+  </p>
+  <p>
+    初期lock候補はOWASP Benchmark Java 1.2とOWASP Juice Shop v20.1.1とする。 Slice 50.0でupstream
+    commit、archive SHA-256、expected-resultsまたはlocal ground-truth hash、Juice Shop image
+    digestを確定し、候補と一致しない場合は 理由をdecision recordへ残す。
+  </p>
+  <h3 id="52-scanner-data-manifest-v2">5.2 Scanner data manifest v2</h3>
+  <p>
+    現行manifest v1のtool単位entryではOSV ecosystemとSemgrep rule sourceを
+    個別に追跡できない。v2へ拡張する。
+  </p>
+  <pre><code class="language-ts">type ScannerDataManifestV2 = {
+  version: 2;
+  generatedAt: string;
+  manifestHash: `sha256:${string}`;
+  tools: Record&lt;string, {
+    version: string;
+    binaryDigest: `sha256:${string}` | null;
+    dataBundles: Array&lt;{
+      id: string;
+      kind: "ruleset" | "vulnerability-db" | "add-on" | "template";
+      sourceRef: string;
+      sourceCommit: string | null;
+      license: string;
+      generatedAt: string;
+      maxAgeHours: number;
+      digest: `sha256:${string}`;
+      coverage: string[];
+    }&gt;;
+  }&gt;;
+};
+</code></pre>
+  <p>
+    v1 readerは1 release cycle維持する。v1を読んだscanは
+    <code>ready_with_limitations</code>とする。
+  </p>
+  <h2 id="6-semgrep-curated-offline-ruleset">6. Semgrep curated offline ruleset</h2>
+  <h3 id="61-ruleset構成">6.1 Ruleset構成</h3>
+  <p>
+    defaultを<code>owned</code>から<code>curated-sast-v1</code>へ変更する。
+  </p>
+  <p><code>curated-sast-v1</code>は次の2層から構成する。</p>
+  <ol>
+    <li><code>owned-core</code>: vulnWorkbenchが直接保守するrules。</li>
+    <li>
+      <code>vendored-reviewed</code>: license確認済みのupstream ruleをfixed
+      commitから repositoryへvendorし、必要なfalse-positive修正を適用したrules。
+    </li>
+  </ol>
+  <p>
+    production scanでSemgrep registry
+    <code>auto</code>を使用しない。<code>auto</code>は引き続き 明示的exploratory
+    modeだけで許可し、release metricへ混ぜない。
+  </p>
+  <p>
+    Semgrep Community Edition rulesをvendorする場合はsource commitと
+    <code>LicenseRef-Semgrep-Rules-1.0</code>をsource lockへ記録し、license textを
+    <code>vendor/NOTICE.md</code>から参照可能にする。別licenseのruleを同じidentifierで 扱わない。
+  </p>
+  <p>各ruleに次のmetadataを必須とする。</p>
+  <pre><code class="language-yaml">metadata:
+  cwe: CWE-000
+  owasp:
+    - A00:0000
+  security-family: injection
+  confidence: high
+  source-kind: owned-core
+  source-ref: repo:path-or-upstream-commit
+  license: SPDX-ID-or-LicenseRef
+  rule-version: "1"
+  supported-frameworks:
+    - generic
+</code></pre>
+  <h3 id="62-security-family">6.2 Security family</h3>
+  <p>supported 5言語について、適用可能な次のfamilyをcatalog化する。</p>
+  <ul>
+    <li>command injection</li>
+    <li>SQL/NoSQL/LDAP/XPath injection</li>
+    <li>XSS/template injection</li>
+    <li>SSRF</li>
+    <li>path traversal/file access</li>
+    <li>unsafe deserialization</li>
+    <li>weak cryptography/hash/randomness</li>
+    <li>authentication/session misuse</li>
+    <li>authorization guard omission</li>
+    <li>dangerous process execution</li>
+    <li>insecure temporary file/permission</li>
+    <li>security logging and sensitive-data exposure</li>
+  </ul>
+  <p>言語に適用できないfamilyは理由付き<code>not_applicable</code>にする。</p>
+  <h3 id="63-rule-quality-contract">6.3 Rule quality contract</h3>
+  <p>各rule PRは次を同時に追加する。</p>
+  <ul>
+    <li><code>ruleid:</code> positive case 2件以上</li>
+    <li><code>ok:</code> negative case 2件以上</li>
+    <li>framework wrapperまたはsafe APIを使うhard negative 1件以上</li>
+    <li>CWE、message、remediation、source reference</li>
+    <li>normalized finding snapshot</li>
+    <li>stable fingerprint regression</li>
+  </ul>
+  <p>
+    <code>todoruleid</code>と<code>todook</code>はrelease gateで0件を要求する。
+  </p>
+  <p>検証command:</p>
+  <pre><code class="language-bash">semgrep --validate --config docker/toolbox/scanner-data/semgrep-rules
+semgrep --test \
+  --config docker/toolbox/scanner-data/semgrep-rules \
+  tests/security-capability/semgrep
+bun run test:semgrep:catalog
+</code></pre>
+  <h3 id="64-主な変更先">6.4 主な変更先</h3>
+  <ul>
+    <li><code>docker/toolbox/scanner-data/semgrep-rules/</code></li>
+    <li><code>scripts/prepare-scanner-data.ts</code></li>
+    <li><code>scripts/verify-toolbox-provenance.ts</code></li>
+    <li><code>api/modules/scans/tools/scanner-provenance.ts</code></li>
+    <li><code>api/modules/scans/tools/semgrep-runner.ts</code></li>
+    <li><code>api/modules/scans/normalizers/semgrep.ts</code></li>
+    <li><code>api/modules/scans/profiles.ts</code></li>
+    <li><code>tests/security-capability/semgrep/</code></li>
+  </ul>
+  <h3 id="65-受入条件">6.5 受入条件</h3>
+  <ul>
+    <li>supported 5言語すべてにpositive/negative fixtureがある。</li>
+    <li>catalogのrule ID、CWE、family、source、licenseが空でない。</li>
+    <li>duplicate rule IDがない。</li>
+    <li>rule tree、catalog、source lockのhashがmanifest v2に含まれる。</li>
+    <li>network disabled toolboxで全ruleが実行できる。</li>
+    <li>source line移動後もlogical fingerprintが安定する。</li>
+    <li>unsupported languageを「検査済み」と表示しない。</li>
+  </ul>
+  <h2 id="7-osv-multi-ecosystem-offline-database">7. OSV multi-ecosystem offline database</h2>
+  <h3 id="71-database取得">7.1 Database取得</h3>
+  <p>OSV公式offline directory構造をそのまま使う。</p>
+  <pre><code class="language-text">&lt;cache&gt;/osv-scanner/
+  npm/all.zip
+  PyPI/all.zip
+  Go/all.zip
+  Maven/all.zip
+  crates.io/all.zip
+  NuGet/all.zip
+  Packagist/all.zip
+  RubyGems/all.zip
+</code></pre>
+  <p>
+    <code>scanner-data:prepare</code>だけがnetworkを使用できる。各ecosystemの<code>all.zip</code>を staging
+    directoryへdownloadし、次を検証してからatomic renameする。
+  </p>
+  <ul>
+    <li>HTTPS source host allowlist</li>
+    <li>compressed fileと展開後entryのsize上限</li>
+    <li>zip-slip拒否</li>
+    <li>SHA-256</li>
+    <li>JSON parse</li>
+    <li>ecosystem名一致</li>
+    <li>record countが0でない</li>
+    <li>withdrawn recordを消さない</li>
+    <li>freshness 168時間以内</li>
+  </ul>
+  <p>
+    scanは<code>OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY</code>を固定し、<code>--offline</code>を使う。
+    <code>--offline-vulnerabilities</code>だけを使って他機能がnetworkへ接続できる状態にしない。 untrusted projectに対してpackage
+    managerやguided remediationを起動しない。
+  </p>
+  <h3 id="72-ecosystem-fixture">7.2 Ecosystem fixture</h3>
+  <p>各ecosystemに次を追加する。</p>
+  <pre><code class="language-text">tests/security-capability/osv/&lt;ecosystem&gt;/
+  vulnerable/
+  fixed/
+  expected.json
+</code></pre>
+  <p>
+    fixtureはlockfile/manifestをparseするだけで、install scriptを実行しない。
+    vulnerableとfixedで同一package familyを使い、expected OSV ID、alias、 affected/fixed
+    versionを固定する。
+  </p>
+  <h3 id="73-主な変更先">7.3 主な変更先</h3>
+  <ul>
+    <li><code>scripts/prepare-scanner-data.ts</code></li>
+    <li><code>scripts/verify-offline-toolbox.ts</code></li>
+    <li><code>docker/toolbox/Dockerfile</code></li>
+    <li><code>docker/toolbox/scanner-data/scanner-data-manifest.json</code></li>
+    <li><code>api/modules/scans/tools/osv-runner.ts</code></li>
+    <li><code>api/modules/scans/normalizers/osv.ts</code></li>
+    <li><code>tests/security-capability/osv/</code></li>
+    <li><code>docs/production-runbook.md</code></li>
+  </ul>
+  <h3 id="74-受入条件">7.4 受入条件</h3>
+  <ul>
+    <li>8 ecosystemすべてのDB entryに個別digest、record count、sourceRefがある。</li>
+    <li>vulnerable fixtureで期待OSV IDを検出する。</li>
+    <li>fixed fixtureで同じfindingを生成しない。</li>
+    <li>aliasesを重複findingにしない。</li>
+    <li><code>network=none</code>で8 ecosystem matrixが成功する。</li>
+    <li>database欠落、stale、digest mismatchはscan successにならない。</li>
+    <li>offline limitationであるMaven transitive resolution等をcoverageへ残す。</li>
+  </ul>
+  <h2 id="8-zap-activeapi-scan">8. ZAP active/API scan</h2>
+  <h3 id="81-実行方式">8.1 実行方式</h3>
+  <p>
+    <code>zap-full-scan.py</code>を直接使用せず、ZAP Automation Framework planを
+    typed builderから生成する。
+  </p>
+  <p>planのjob順序を固定する。</p>
+  <ol>
+    <li>environment/context</li>
+    <li>authenticationまたはgateway-side credential injection</li>
+    <li>OpenAPI importまたはbounded spider</li>
+    <li>passive scan wait</li>
+    <li>active scan policy</li>
+    <li>active scan</li>
+    <li>report</li>
+    <li>exit status</li>
+  </ol>
+  <p>
+    active scan policyは<code>defaultThreshold: Off</code>とし、versioned catalogで
+    明示許可したrule
+    IDだけを有効にする。初期strengthは<code>Low</code>、
+    thresholdは<code>Medium</code>とする。<code>High</code>、<code>Insane</code>をschemaで拒否する。
+  </p>
+  <h3 id="82-active-safety-contract">8.2 Active safety contract</h3>
+  <p>ZAP activeを許可するのは次をすべて満たす場合だけとする。</p>
+  <ul>
+    <li>engagement statusが<code>active</code></li>
+    <li>
+      environmentが<code>local</code>または<code>ephemeral</code>
+    </li>
+    <li>purposeが<code>internal</code></li>
+    <li>targetがloopback/privateかつpublic/metadata addressでない</li>
+    <li>active用RoEが未期限切れ</li>
+    <li>allowed method/pathがtarget scopeのsubset</li>
+    <li>reset strategyが構成済み</li>
+    <li>cumulative engagement request budgetにplan全体が収まる</li>
+    <li><code>VULN_WORKBENCH_ZAP_ACTIVE_ENABLED=true</code></li>
+  </ul>
+  <p>productionとshared stagingではfail-closedとする。</p>
+  <p>reset strategy:</p>
+  <pre><code class="language-ts">type ActiveResetStrategy =
+  | {
+      kind: "container_recreate";
+      fixtureId: string;
+      expectedBaselineHash: string;
+    }
+  | {
+      kind: "http_transaction";
+      seedRequests: ActiveRequest[];
+      cleanupRequests: ActiveRequest[];
+      baselineAssertions: ActiveAssertion[];
+    };
+</code></pre>
+  <p>arbitrary shell commandをreset strategyとして保存しない。</p>
+  <h3 id="83-gateway">8.3 Gateway</h3>
+  <p>
+    現行<code>container-target-gateway.ts</code>はGET/HEAD/OPTIONS固定である。 read-only
+    gatewayを変更せず、active専用gatewayを別classで追加する。
+  </p>
+  <p>active gatewayの責務:</p>
+  <ul>
+    <li>exact origin pinning</li>
+    <li>RoE method/path allowlist</li>
+    <li>query、redirect、request body上限</li>
+    <li>cumulative request budget</li>
+    <li>request rateとconcurrency上限</li>
+    <li>secret/transport header rejection</li>
+    <li>upstream response body上限</li>
+    <li>target redirectの再検証</li>
+    <li>ZAPへcredentialを返さずgateway側でauth contextを注入</li>
+    <li>request/response bodyをartifactへ保存しない</li>
+    <li>method/path/status/timing/request hashだけをevidence化</li>
+  </ul>
+  <p>credential canaryをZAP report、stdout、stderr、DB、artifact全体から検索する。</p>
+  <p>
+    初期supported authは、gateway側で注入できるcookie、bearer、API keyとする。 login
+    flowの再実行、CSRF token更新、browser authenticationが必要なtargetは experimentalとし、token
+    refreshを証跡制約付きplanへ変換できない場合は
+    <code>not_tested</code>にする。認証失敗を未検出扱いにしない。
+  </p>
+  <h3 id="84-初期resource-policy">8.4 初期resource policy</h3>
+  <table>
+    <caption>
+      8.4 初期resource policy
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">項目</th>
+        <th scope="col" class="markdown-align-right">上限</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Docker memory</td>
+        <td class="markdown-align-right">2 GiB</td>
+      </tr>
+      <tr>
+        <td>Docker CPU</td>
+        <td class="markdown-align-right">1.5</td>
+      </tr>
+      <tr>
+        <td>Docker PIDs</td>
+        <td class="markdown-align-right">256</td>
+      </tr>
+      <tr>
+        <td>ZAP threads per host</td>
+        <td class="markdown-align-right">1</td>
+      </tr>
+      <tr>
+        <td>gateway concurrency</td>
+        <td class="markdown-align-right">2</td>
+      </tr>
+      <tr>
+        <td>requests per second</td>
+        <td class="markdown-align-right">2</td>
+      </tr>
+      <tr>
+        <td>default total request budget</td>
+        <td class="markdown-align-right">500</td>
+      </tr>
+      <tr>
+        <td>absolute request budget</td>
+        <td class="markdown-align-right">2,000</td>
+      </tr>
+      <tr>
+        <td>default duration</td>
+        <td class="markdown-align-right">10分</td>
+      </tr>
+      <tr>
+        <td>absolute duration</td>
+        <td class="markdown-align-right">20分</td>
+      </tr>
+      <tr>
+        <td>response body forwarded</td>
+        <td class="markdown-align-right">1 MiB/request</td>
+      </tr>
+      <tr>
+        <td>report size</td>
+        <td class="markdown-align-right">64 MiB</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    上限を超えたrunは<code>inconclusive</code>または<code>failed_cleanup</code>とし、部分結果を
+    passing coverageに使わない。
+  </p>
+  <h3 id="85-profile">8.5 Profile</h3>
+  <ul>
+    <li><code>runtime-zap-active-lab</code></li>
+    <li><code>api-zap-active-lab</code></li>
+  </ul>
+  <p>既存profileへ暗黙に追加しない。UI/APIから明示選択し、server-side policyが 再検証する。</p>
+  <h3 id="86-主な変更先">8.6 主な変更先</h3>
+  <ul>
+    <li><code>shared/schemas/assessment.schema.ts</code></li>
+    <li><code>shared/schemas/dast.schema.ts</code></li>
+    <li><code>api/modules/dast/active-container-target-gateway.ts</code></li>
+    <li><code>api/modules/runtime-scans/zap-automation-plan.ts</code></li>
+    <li><code>api/modules/runtime-scans/zap-active-runner.ts</code></li>
+    <li><code>api/modules/runtime-scans/zap-active-policy.ts</code></li>
+    <li><code>api/modules/runtime-scans/zap-report-schema.ts</code></li>
+    <li><code>api/modules/runtime-scans/zap-normalizer.ts</code></li>
+    <li><code>api/modules/scans/profile-runtime-step-runner.ts</code></li>
+    <li><code>api/modules/scans/profiles.ts</code></li>
+    <li><code>tests/security-capability/zap-active/</code></li>
+  </ul>
+  <h3 id="87-受入条件">8.7 受入条件</h3>
+  <ul>
+    <li>public、production、expired RoE、missing resetをcontainer起動前に拒否する。</li>
+    <li>allowlist外method/pathをgatewayが拒否する。</li>
+    <li>disabled rule IDが発行したrequestをtest gatewayが検出して失敗させる。</li>
+    <li>vulnerable/fixed fixtureを区別する。</li>
+    <li>reset後のDB/state hashがbaselineと一致する。</li>
+    <li>cleanup/reset失敗時に次のactive runを同projectで開始しない。</li>
+    <li>credential canary leakageが0。</li>
+    <li>Docker networkからgateway以外へ接続できない。</li>
+  </ul>
+  <h2 id="9-external-benchmark-harness">9. External benchmark harness</h2>
+  <h3 id="91-benchmark-run-schema">9.1 Benchmark run schema</h3>
+  <p>migration <code>0023_security_capability_benchmarks.sql</code>を追加する。</p>
+  <pre><code class="language-ts">type SecurityCapabilityBenchmarkRun = {
+  id: string;
+  corpusId: string;
+  corpusVersion: string;
+  corpusDigest: string;
+  gitCommit: string;
+  toolboxImageDigest: string;
+  scannerManifestHash: string;
+  benchmarkPolicyVersion: string;
+  status: "queued" | "running" | "completed" | "failed" | "inconclusive";
+  startedAt: Date;
+  completedAt: Date | null;
+  metricsArtifactId: string | null;
+  errorCode: string | null;
+};
+
+type BenchmarkMetric = {
+  runId: string;
+  category: string;
+  truePositive: number;
+  falseNegative: number;
+  trueNegative: number;
+  falsePositive: number;
+  recall: number | null;
+  precision: number | null;
+  falsePositiveRate: number | null;
+  score: number | null;
+};
+</code></pre>
+  <h3 id="92-owasp-benchmark-adapter">9.2 OWASP Benchmark adapter</h3>
+  <p>expected-results CSVをground truthとしてparseする。</p>
+  <p>Semgrep findingは次の両方でtest caseへ対応付ける。</p>
+  <ul>
+    <li>repository-relative pathに含まれる<code>BenchmarkTestNNNNN</code></li>
+    <li>normalized CWE</li>
+  </ul>
+  <p>
+    pathだけまたはCWEだけの一致をTPにしない。unmapped findingはFP候補として 別集計し、parser
+    errorと区別する。
+  </p>
+  <p>
+    ZAP findingはURL pathのtest case IDとCWE/plugin mappingで対応付ける。
+    scorecard互換CSVとvulnWorkbench canonical metric JSONを両方生成する。
+  </p>
+  <p>
+    Semgrep、ZAP、全scannerのevidence unionについてmetricを別々に保存する。 Section 4のoverall
+    gateはunionだけでなく、<code>benchmark-policy.v1.json</code>で
+    scannerにapplicableと宣言したcategoryごとのgateにも適用する。
+    applicabilityからcategoryを外す変更はpolicy major変更とし、release reportへ
+    coverage減少として表示する。union結果だけで個別scannerのregressionを隠さない。
+  </p>
+  <h3 id="93-juice-shop-adapter">9.3 Juice Shop adapter</h3>
+  <p>
+    upstream Juice Shopはversioned image digestで起動する。
+    <code>juice-shop-ground-truth.v1.json</code>は次を保持する。
+  </p>
+  <pre><code class="language-ts">type JuiceShopScenario = {
+  id: string;
+  challengeKey: string;
+  category: string;
+  cwe: string[];
+  actors: string[];
+  entrypoints: string[];
+  expectedEvidenceKind: string;
+  scannerFamilies: Array&lt;"zap" | "authorization" | "business_logic"&gt;;
+  pairedFixedFixture: string;
+};
+</code></pre>
+  <p>
+    upstream applicationだけではnegative controlを作れないため、eligible scenario ごとに最小のpaired
+    fixed fixtureをrepositoryへ持つ。precisionはこのpairで 測定し、ground
+    truthにないalertを自動的に無視しない。
+  </p>
+  <h3 id="94-reproducibility">9.4 Reproducibility</h3>
+  <p>heavy benchmarkは次を保存する。</p>
+  <ul>
+    <li>corpus lock hash</li>
+    <li>expected-results hash</li>
+    <li>toolbox image digest</li>
+    <li>rule/DB/add-on manifest hash</li>
+    <li>raw scanner artifact hash</li>
+    <li>normalized finding snapshot hash</li>
+    <li>metric JSON hash</li>
+    <li>duration、peak memory、request count</li>
+    <li>reset/cleanup result</li>
+  </ul>
+  <p>run中はcorpus、scannerとも外部networkへ接続しない。</p>
+  <h3 id="95-commands">9.5 Commands</h3>
+  <pre><code class="language-bash">bun run security-corpora:prepare
+bun run security-corpora:verify
+bun run benchmark:owasp
+bun run benchmark:juice-shop
+bun run benchmark:business-logic
+bun run benchmark:all
+bun run verify:professional-capability
+</code></pre>
+  <p>
+    現行<code>test:security-capability:heavy</code>は<code>benchmark:all</code>のcompatibility
+    aliasにする。
+  </p>
+  <h3 id="96-主な変更先">9.6 主な変更先</h3>
+  <ul>
+    <li><code>scripts/security-corpora-prepare.ts</code></li>
+    <li><code>scripts/security-corpora-verify.ts</code></li>
+    <li><code>scripts/security-capability-heavy.ts</code></li>
+    <li><code>scripts/benchmark/owasp-benchmark.ts</code></li>
+    <li><code>scripts/benchmark/juice-shop.ts</code></li>
+    <li><code>scripts/benchmark/metric-scorer.ts</code></li>
+    <li><code>api/db/schema/schema-assessment.ts</code></li>
+    <li><code>api/modules/benchmarks/</code></li>
+    <li><code>spec/evidence/phase-50-*.json</code></li>
+  </ul>
+  <h3 id="97-受入条件">9.7 受入条件</h3>
+  <ul>
+    <li>wrong corpus hash、wrong expected-results versionを実行前に拒否する。</li>
+    <li>synthetic metric fixtureでTP/FN/TN/FP計算を検証する。</li>
+    <li>zero denominatorを0として偽装せず<code>null</code>にする。</li>
+    <li>same input digestでmetric JSONが一致する。</li>
+    <li>
+      benchmark failureをscanner regression、corpus failure、environment failure、 parser
+      failureへ分類する。
+    </li>
+    <li>release reportがpassing benchmark run IDを参照する。</li>
+  </ul>
+  <h2 id="10-automated-application-model-and-threat-modeling">
+    10. Automated application model and threat modeling
+  </h2>
+  <h3 id="101-application-model">10.1 Application model</h3>
+  <p>
+    source structure、route、OpenAPI、DB schema、auth middleware、scan evidenceから deterministic
+    application modelを生成する。
+  </p>
+  <pre><code class="language-ts">type ApplicationModel = {
+  version: 1;
+  projectId: string;
+  sourceFingerprint: string;
+  actors: ModelActor[];
+  assets: ModelAsset[];
+  entrypoints: ModelEntrypoint[];
+  trustBoundaries: ModelTrustBoundary[];
+  dataStores: ModelDataStore[];
+  dataFlows: ModelDataFlow[];
+  authorizationGuards: ModelAuthorizationGuard[];
+  stateMachines: ModelStateMachine[];
+  assumptions: ModelAssumption[];
+  evidenceRefs: ModelEvidenceRef[];
+  snapshotHash: string;
+};
+</code></pre>
+  <p>
+    全nodeとedgeにsource path/line、OpenAPI operation、DB table、runtime route等の evidence
+    referenceを最低1件要求する。証跡がないLLM生成nodeは
+    <code>unresolvedSuggestion</code>へ分離し、model本体へ入れない。
+  </p>
+  <p>初期endpoint extractor:</p>
+  <table>
+    <caption>
+      10.1 Application model
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Language</th>
+        <th scope="col">supported framework</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>JavaScript / TypeScript</td>
+        <td>Hono、Express、Fastify</td>
+      </tr>
+      <tr>
+        <td>Python</td>
+        <td>FastAPI、Flask、Django</td>
+      </tr>
+      <tr>
+        <td>Java</td>
+        <td>Spring MVC、JAX-RS</td>
+      </tr>
+      <tr>
+        <td>Go</td>
+        <td><code>net/http</code>、Gin、Echo</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    OpenAPI operation、static route、runtime observationをcanonical
+    <code>method + path template</code>へ正規化し、同一endpointへ統合する。sourceとOpenAPIが
+    矛盾する場合は一方を捨てず<code>model_conflict</code>にする。dynamic
+    stringで構築され、
+    安全に解決できないrouteは<code>unresolvedSuggestion</code>として<code>not_tested</code>へ結び付ける。
+  </p>
+  <p>
+    各frameworkにdeclared route ground truthを持つpositive/negative fixtureを追加し、 endpoint
+    discoveryのprecision/recallを測定する。
+  </p>
+  <h3 id="102-threat-hypothesis">10.2 Threat hypothesis</h3>
+  <p>OWASP Four Question Frameworkに沿って次を生成する。</p>
+  <pre><code class="language-ts">type ThreatHypothesis = {
+  id: string;
+  modelSnapshotHash: string;
+  title: string;
+  category:
+    | "spoofing"
+    | "tampering"
+    | "repudiation"
+    | "information_disclosure"
+    | "denial_of_service"
+    | "elevation_of_privilege"
+    | "business_logic";
+  actorIds: string[];
+  assetIds: string[];
+  entrypointIds: string[];
+  preconditions: string[];
+  expectedImpact: string;
+  evidenceRefs: ModelEvidenceRef[];
+  confidence: "high" | "medium" | "low";
+  validationKind:
+    | "authorization_matrix"
+    | "state_transition"
+    | "metamorphic"
+    | "bounded_transaction"
+    | "static_query"
+    | "unsupported";
+  status:
+    | "hypothesis"
+    | "planned"
+    | "observed"
+    | "not_observed"
+    | "inconclusive"
+    | "not_tested";
+};
+</code></pre>
+  <p>
+    LLMはcatalog外category、model外ID、scope外pathを追加できない。
+    criticalityは実行結果が出るまで<code>unknown</code>とする。
+  </p>
+  <h3 id="103-migration">10.3 Migration</h3>
+  <p><code>0024_application_threat_models.sql</code>:</p>
+  <ul>
+    <li><code>application_model_snapshots</code></li>
+    <li><code>threat_hypotheses</code></li>
+    <li><code>threat_model_runs</code></li>
+    <li><code>threat_model_evidences</code></li>
+  </ul>
+  <p>
+    project owner境界を全queryで強制する。model snapshotはimmutableとし、 source
+    fingerprintが変わった場合は新versionを作る。
+  </p>
+  <h3 id="104-主な変更先">10.4 主な変更先</h3>
+  <ul>
+    <li><code>shared/schemas/application-model.schema.ts</code></li>
+    <li><code>shared/schemas/threat-model.schema.ts</code></li>
+    <li><code>api/modules/threat-models/application-model-builder.ts</code></li>
+    <li><code>api/modules/threat-models/endpoint-extractors/</code></li>
+    <li><code>api/modules/threat-models/threat-hypothesis-runner.ts</code></li>
+    <li><code>api/modules/threat-models/threat-output-validator.ts</code></li>
+    <li><code>api/modules/threat-models/threat-model-repository.ts</code></li>
+    <li><code>api/routes/threat-models.route.ts</code></li>
+    <li><code>web/src/domains/threat-models/</code></li>
+  </ul>
+  <h3 id="105-受入条件">10.5 受入条件</h3>
+  <ul>
+    <li>same source fingerprintからsame deterministic model hashを生成する。</li>
+    <li>supported framework fixtureでendpoint precision/recall 90%以上を満たす。</li>
+    <li>arbitrary LLM model ID、finding ID、pathをsemantic validatorが拒否する。</li>
+    <li>evidenceのないnode/edgeをmodelへ保存しない。</li>
+    <li>LLM failureでもdeterministic modelとcatalog-based hypothesisを生成する。</li>
+    <li>source変更後に古いmodelをcurrentとして返さない。</li>
+    <li>model、hypothesis、reportにcredential/secretを含めない。</li>
+  </ul>
+  <h2 id="11-automated-business-logic-assessment">11. Automated business-logic assessment</h2>
+  <h3 id="111-対象control">11.1 対象control</h3>
+  <p>初期control catalog:</p>
+  <ul>
+    <li>owner isolation</li>
+    <li>role/operation separation</li>
+    <li>state transition bypass</li>
+    <li>replay/idempotency</li>
+    <li>duplicate submission</li>
+    <li>quantity、amount、priceの境界</li>
+    <li>negative/zero value</li>
+    <li>server-side calculated value tampering</li>
+    <li>sequence/order bypass</li>
+    <li>one-time token reuse</li>
+    <li>rate/quota bypass</li>
+    <li>cross-tenant reference substitution</li>
+  </ul>
+  <p>payment provider、配送、外部メール送信等の不可逆side effectは実行しない。</p>
+  <h3 id="112-scenario-schema">11.2 Scenario schema</h3>
+  <pre><code class="language-ts">type BusinessLogicScenario = {
+  id: string;
+  hypothesisId: string;
+  engagementId: string;
+  targetConfigId: string;
+  actors: Array&lt;{
+    actorId: string;
+    authContextId: string;
+  }&gt;;
+  preconditions: ScenarioAssertion[];
+  seed: ActiveRequest[];
+  actions: ActiveRequest[];
+  invariants: ScenarioInvariant[];
+  cleanup: ActiveRequest[];
+  maxRequests: number;
+  timeoutSec: number;
+  expectedBaselineHash: string | null;
+};
+</code></pre>
+  <p>許可するinvariant:</p>
+  <ul>
+    <li>status class comparison</li>
+    <li>response JSON primitive equality/inequality</li>
+    <li>owner-visible object count delta</li>
+    <li>state enum transition</li>
+    <li>bounded numeric delta</li>
+    <li>duplicate side-effect count</li>
+    <li>exact database fixture hash</li>
+  </ul>
+  <p>任意JavaScript、shell、SQL、正規表現DoSを起こせるassertionを保存しない。</p>
+  <h3 id="113-scenario-generation">11.3 Scenario generation</h3>
+  <ol>
+    <li>
+      deterministic application modelからactor、state machine、numeric field、 ownership
+      relationを抽出する。
+    </li>
+    <li>control catalogからcandidateを生成する。</li>
+    <li>LLMがprecondition、action、invariant候補を選択する。</li>
+    <li>semantic validatorがmodel ID、OpenAPI/schema、RoEと照合する。</li>
+    <li>full request budgetとcleanup budgetを予約する。</li>
+    <li>local/ephemeral targetで実行する。</li>
+    <li>invariant violationが観測された場合だけfindingを生成する。</li>
+    <li>cleanupとbaseline hashを確認する。</li>
+  </ol>
+  <h3 id="114-migration">11.4 Migration</h3>
+  <p><code>0025_business_logic_scenarios.sql</code>:</p>
+  <ul>
+    <li><code>business_logic_scenarios</code></li>
+    <li><code>business_logic_runs</code></li>
+    <li><code>business_logic_evidences</code></li>
+  </ul>
+  <p>
+    scenario planはhash付きimmutable JSONとして保存する。secret-bearing auth materialは
+    IDだけを保存する。
+  </p>
+  <h3 id="115-fixture">11.5 Fixture</h3>
+  <p>最低限、次のvulnerable/fixed pairを作る。</p>
+  <ul>
+    <li>cross-tenant order read/update</li>
+    <li>admin-only refund</li>
+    <li>order status skip</li>
+    <li>duplicate coupon redemption</li>
+    <li>negative quantity</li>
+    <li>client-controlled total price</li>
+    <li>one-time reset token replay</li>
+    <li>quota reset raceを直列化したdeterministic variant</li>
+  </ul>
+  <p>race conditionの初期実装はbounded concurrency 2、request 10件以下とする。</p>
+  <h3 id="116-受入条件">11.6 受入条件</h3>
+  <ul>
+    <li>8 scenario pairをvulnerable/fixedで区別する。</li>
+    <li>fixed fixtureで同じfindingを生成しない。</li>
+    <li>scenario外endpointへrequestしない。</li>
+    <li>incomplete cleanupをpassing resultにしない。</li>
+    <li>LLMが存在しなくてもcatalog-based scenarioを最低1件生成できる。</li>
+    <li>unsupported hypothesisをconfirmed findingにしない。</li>
+    <li>final reportにtested/not-tested business controlを明示する。</li>
+  </ul>
+  <h2 id="12-reporting-and-ui">12. Reporting and UI</h2>
+  <p>reportに次を追加する。</p>
+  <ul>
+    <li>measured capability claim</li>
+    <li>scanner language/ecosystem matrix</li>
+    <li>active DAST policy IDとrule catalog hash</li>
+    <li>benchmark run IDとmetric summary</li>
+    <li>application model snapshot hash</li>
+    <li>threat hypothesis status summary</li>
+    <li>business-logic control coverage</li>
+    <li>unsupported/not-tested reason</li>
+    <li>LLM availabilityとlimitation</li>
+  </ul>
+  <p>
+    LLM reviewはmetric、finding severity、verification outcomeを書き換えない。 LLM
+    namespaceにはcriticality rationale、business impact、priority proposal、
+    remediation、unknownsだけを保存する。
+  </p>
+  <p>UIは次の順で表示する。</p>
+  <ol>
+    <li>Confirmed observations</li>
+    <li>Inconclusive runs</li>
+    <li>Tested controls with no observed violation</li>
+    <li>Unvalidated threat hypotheses</li>
+    <li>Not tested / unsupported coverage</li>
+  </ol>
+  <p>仮説件数をfinding件数へ加算しない。</p>
+  <h2 id="13-実装slice">13. 実装slice</h2>
+  <table>
+    <caption>
+      13. 実装slice
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Slice</th>
+        <th scope="col">Priority</th>
+        <th scope="col">内容</th>
+        <th scope="col">前提</th>
+        <th scope="col" class="markdown-align-right">目安</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>50.0</td>
+        <td>P0</td>
+        <td>scope、schema、policy、feature flag固定</td>
+        <td>Phase 49</td>
+        <td class="markdown-align-right">4–6人日</td>
+      </tr>
+      <tr>
+        <td>50.1</td>
+        <td>P0</td>
+        <td>corpus lock、metric scorer、benchmark DB</td>
+        <td>50.0</td>
+        <td class="markdown-align-right">8–12人日</td>
+      </tr>
+      <tr>
+        <td>50.2</td>
+        <td>P1</td>
+        <td>Semgrep curated rulesetとfixture</td>
+        <td>50.0、50.1</td>
+        <td class="markdown-align-right">18–28人日</td>
+      </tr>
+      <tr>
+        <td>50.3</td>
+        <td>P1</td>
+        <td>OSV 8 ecosystem offline bundle</td>
+        <td>50.0</td>
+        <td class="markdown-align-right">7–11人日</td>
+      </tr>
+      <tr>
+        <td>50.4</td>
+        <td>P0</td>
+        <td>ZAP active policy、gateway、reset</td>
+        <td>50.0、50.1</td>
+        <td class="markdown-align-right">15–22人日</td>
+      </tr>
+      <tr>
+        <td>50.5</td>
+        <td>P1</td>
+        <td>application model</td>
+        <td>50.0</td>
+        <td class="markdown-align-right">10–15人日</td>
+      </tr>
+      <tr>
+        <td>50.6</td>
+        <td>P1</td>
+        <td>threat hypothesis pipeline</td>
+        <td>50.5</td>
+        <td class="markdown-align-right">10–16人日</td>
+      </tr>
+      <tr>
+        <td>50.7</td>
+        <td>P0</td>
+        <td>business-logic scenario executor</td>
+        <td>50.4–50.6</td>
+        <td class="markdown-align-right">18–28人日</td>
+      </tr>
+      <tr>
+        <td>50.8</td>
+        <td>P1</td>
+        <td>report、UI、coverage統合</td>
+        <td>50.2–50.7</td>
+        <td class="markdown-align-right">8–13人日</td>
+      </tr>
+      <tr>
+        <td>50.9</td>
+        <td>P0</td>
+        <td>external benchmark、ratchet、closeout</td>
+        <td>全slice</td>
+        <td class="markdown-align-right">8–12人日</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>合計: 106–163人日。</p>
+  <p>
+    50.2と50.3、50.5はschema contract固定後に並行可能。 50.4と50.7はactive gatewayを同時変更しない。
+  </p>
+  <h2 id="14-slice別definition-of-done">14. Slice別Definition of Done</h2>
+  <h3 id="141-slice-500">14.1 Slice 50.0</h3>
+  <ul>
+    <li>
+      <input disabled="" type="checkbox"> <code>scope-catalog.v1.json</code>を追加する。
+    </li>
+    <li>
+      <input disabled="" type="checkbox"> <code>benchmark-policy.v1.json</code>を追加する。
+    </li>
+    <li>
+      <input disabled="" type="checkbox"> manifest v2 schemaとv1 compatibility testを追加する。
+    </li>
+    <li><input disabled="" type="checkbox"> hypothesis/scenario schemaを追加する。</li>
+    <li><input disabled="" type="checkbox"> feature flagをproductionでfail-closedにする。</li>
+    <li><input disabled="" type="checkbox"> unsupported capabilityをcoverageへ反映する。</li>
+  </ul>
+  <h3 id="142-slice-501">14.2 Slice 50.1</h3>
+  <ul>
+    <li><input disabled="" type="checkbox"> corpus lockをhash検証できる。</li>
+    <li><input disabled="" type="checkbox"> benchmark run/metric migrationを適用できる。</li>
+    <li><input disabled="" type="checkbox"> synthetic TP/FN/TN/FP fixtureがpassする。</li>
+    <li><input disabled="" type="checkbox"> run input/output hashを保存する。</li>
+    <li><input disabled="" type="checkbox"> incomplete corpusをbenchmark passにしない。</li>
+  </ul>
+  <h3 id="143-slice-502">14.3 Slice 50.2</h3>
+  <ul>
+    <li><input disabled="" type="checkbox"> supported 5言語のrule catalogを満たす。</li>
+    <li>
+      <input disabled="" type="checkbox">
+      <code>semgrep --validate</code>と<code>semgrep --test</code>がpassする。
+    </li>
+    <li><input disabled="" type="checkbox"> positive recall 100%、negative FP 0件。</li>
+    <li><input disabled="" type="checkbox"> vendored source/license inventoryが完全である。</li>
+    <li>
+      <input disabled="" type="checkbox"> offline toolboxで同じfinding fingerprintを生成する。
+    </li>
+  </ul>
+  <h3 id="144-slice-503">14.4 Slice 50.3</h3>
+  <ul>
+    <li><input disabled="" type="checkbox"> OSV 8 ecosystem DBを個別hashで保存する。</li>
+    <li><input disabled="" type="checkbox"> vulnerable/fixed matrix 8/8がpassする。</li>
+    <li><input disabled="" type="checkbox"> offline runのnetwork accessが0。</li>
+    <li><input disabled="" type="checkbox"> stale/missing/tampered DBがfail-closedになる。</li>
+  </ul>
+  <h3 id="145-slice-504">14.5 Slice 50.4</h3>
+  <ul>
+    <li><input disabled="" type="checkbox"> ZAP Automation planをtyped builderから生成する。</li>
+    <li><input disabled="" type="checkbox"> explicit rule allowlist以外を無効化する。</li>
+    <li><input disabled="" type="checkbox"> active専用gatewayがmethod/path/budgetを強制する。</li>
+    <li><input disabled="" type="checkbox"> local/ephemeral以外を拒否する。</li>
+    <li><input disabled="" type="checkbox"> reset成功率100%、credential leakage 0。</li>
+  </ul>
+  <h3 id="146-slice-505507">14.6 Slice 50.5–50.7</h3>
+  <ul>
+    <li><input disabled="" type="checkbox"> application modelの全要素にevidence refがある。</li>
+    <li>
+      <input disabled="" type="checkbox"> supported frameworkのendpoint discovery
+      metricがgateを満たす。
+    </li>
+    <li><input disabled="" type="checkbox"> LLM外部参照をsemantic validatorが拒否する。</li>
+    <li><input disabled="" type="checkbox"> hypothesisとfindingが別table/stateである。</li>
+    <li><input disabled="" type="checkbox"> business-logic 8 pairを区別する。</li>
+    <li><input disabled="" type="checkbox"> cleanup/reset失敗をinconclusiveにする。</li>
+    <li><input disabled="" type="checkbox"> LLM不在時もdeterministic pipelineが完了する。</li>
+  </ul>
+  <h3 id="147-slice-508509">14.7 Slice 50.8–50.9</h3>
+  <ul>
+    <li><input disabled="" type="checkbox"> report/UIがhypothesisをfindingとして数えない。</li>
+    <li><input disabled="" type="checkbox"> OWASP Benchmark thresholdを満たす。</li>
+    <li><input disabled="" type="checkbox"> Juice Shop paired thresholdを満たす。</li>
+    <li><input disabled="" type="checkbox"> clean checkoutから全gateを再現する。</li>
+    <li><input disabled="" type="checkbox"> release evidenceが同一commit/digestを参照する。</li>
+    <li><input disabled="" type="checkbox"> READMEの制約記述を実測値へ更新する。</li>
+  </ul>
+  <h2 id="15-feature-flagとrollout">15. Feature flagとrollout</h2>
+  <p>追加するflag:</p>
+  <ul>
+    <li><code>VULN_WORKBENCH_CURATED_SAST_ENABLED</code></li>
+    <li><code>VULN_WORKBENCH_MULTI_ECOSYSTEM_OSV_ENABLED</code></li>
+    <li><code>VULN_WORKBENCH_ZAP_ACTIVE_ENABLED</code></li>
+    <li><code>VULN_WORKBENCH_THREAT_MODEL_ENABLED</code></li>
+    <li><code>VULN_WORKBENCH_BUSINESS_LOGIC_ENABLED</code></li>
+  </ul>
+  <p>rollout:</p>
+  <ol>
+    <li><code>disabled</code>: schema/migration/testだけを導入する。</li>
+    <li>
+      <code>shadow</code>:結果を保存するがrelease
+      readinessとfindingへ反映しない。
+    </li>
+    <li>
+      <code>measured</code>:benchmarkとcoverageへ反映するがdefault
+      profileに追加しない。
+    </li>
+    <li>
+      <code>enforced</code>:passing benchmarkを参照できる場合だけsupported
+      claimへ含める。
+    </li>
+  </ol>
+  <p>
+    ZAP activeは<code>enforced</code>後もdefault
+    profileへ追加しない。明示的active profileだけで 実行する。
+  </p>
+  <p>rollback:</p>
+  <ul>
+    <li>flagをfalseにしてnew executionを停止する。</li>
+    <li>migrationはappend-onlyとし、旧readerを1 release cycle維持する。</li>
+    <li>scanner-data/corpusは直前のdigestへ戻す。</li>
+    <li>
+      active run中のrollbackはrunner shutdown recoveryで
+      <code>failed_cleanup</code>として閉じる。
+    </li>
+  </ul>
+  <h2 id="16-ciとscheduled-verification">16. CIとscheduled verification</h2>
+  <p>PR必須:</p>
+  <pre><code class="language-bash">bun install --frozen-lockfile
+bun run verify:strict
+bun run test:security-capability
+bun run test:semgrep:catalog
+bun run test:osv:offline-fixtures
+bun run test:zap-active:contract
+bun run test:threat-model
+bun run test:business-logic
+</code></pre>
+  <p>corpus、scanner data、ZAP add-onを変更するPR:</p>
+  <pre><code class="language-bash">bun run benchmark:all
+bun run verify:professional-capability
+</code></pre>
+  <p>scheduled weekly:</p>
+  <ul>
+    <li>pinned corpusを使うfull benchmark</li>
+    <li>DB freshness check</li>
+    <li>metric drift diff</li>
+    <li>runtime/resource trend</li>
+    <li>credential canary search</li>
+  </ul>
+  <p>
+    corpus refresh jobだけnetworkを許可する。benchmark jobはprepared artifactを
+    downloadした後にscanner/target networkを隔離する。
+  </p>
+  <p>artifact retention:</p>
+  <ul>
+    <li>passing release metric: release lifetime</li>
+    <li>failed benchmark raw artifact: 30日</li>
+    <li>reportにはsecret-bearing request/responseを含めない</li>
+  </ul>
+  <h2 id="17-verification-inventory">17. Verification inventory</h2>
+  <p>追加command:</p>
+  <pre><code class="language-json">{
+  "test:semgrep:catalog": "bun run scripts/test-semgrep-catalog.ts",
+  "test:osv:offline-fixtures": "bun run scripts/test-osv-offline-fixtures.ts",
+  "test:zap-active:contract": "bun test api/modules/runtime-scans/zap-active-runner.test.ts api/modules/dast/active-container-target-gateway.test.ts",
+  "test:threat-model": "bun test api/modules/threat-models",
+  "test:business-logic": "bun test api/modules/business-logic tests/security-capability/business-logic",
+  "benchmark:owasp": "bun run scripts/benchmark/owasp-benchmark.ts",
+  "benchmark:juice-shop": "bun run scripts/benchmark/juice-shop.ts",
+  "benchmark:business-logic": "bun run scripts/benchmark/business-logic.ts",
+  "benchmark:all": "bun run scripts/benchmark/all.ts",
+  "verify:professional-capability": "bun run scripts/verify-professional-capability.ts"
+}
+</code></pre>
+  <p>test inventory checkerへ全test fileを登録し、duplicate executionを0に保つ。</p>
+  <h2 id="18-release-evidence">18. Release evidence</h2>
+  <p>追加する成果物:</p>
+  <ul>
+    <li><code>spec/evidence/phase-50-baseline.json</code></li>
+    <li><code>spec/evidence/phase-50-semgrep-capability.json</code></li>
+    <li><code>spec/evidence/phase-50-osv-capability.json</code></li>
+    <li><code>spec/evidence/phase-50-zap-active-capability.json</code></li>
+    <li><code>spec/evidence/phase-50-threat-business-capability.json</code></li>
+    <li><code>spec/evidence/phase-50-external-benchmark.json</code></li>
+    <li><code>spec/evidence/phase-50-release-report.json</code></li>
+  </ul>
+  <p>release reportは次を機械検証する。</p>
+  <ul>
+    <li>required owner/residual riskが空でない</li>
+    <li>passing benchmark runが同じrelease commitを参照する</li>
+    <li>corpus/toolbox/manifest hashが一致する</li>
+    <li>supported capabilityにpassing fixture/metricがある</li>
+    <li>unsupported capabilityを隠していない</li>
+    <li>human approvalがcompletion条件に含まれない</li>
+    <li>LLM-only hypothesisがconfirmed findingへ昇格していない</li>
+  </ul>
+  <h2 id="19-risk-register">19. Risk register</h2>
+  <table>
+    <caption>
+      19. Risk register
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Risk</th>
+        <th scope="col">Prevention</th>
+        <th scope="col">Detection</th>
+        <th scope="col">Failure behavior</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Semgrep rule数だけ増えてFPが増える</td>
+        <td>positive/negative pair、category gate</td>
+        <td>benchmark diff</td>
+        <td>supported claimを維持しない</td>
+      </tr>
+      <tr>
+        <td>vendored ruleのlicense不明</td>
+        <td>source lockとSPDX必須</td>
+        <td>catalog check</td>
+        <td>bundle build失敗</td>
+      </tr>
+      <tr>
+        <td>OSV DBが巨大化する</td>
+        <td>ecosystem allowlist、size budget</td>
+        <td>prepare metric</td>
+        <td>old verified bundleを維持</td>
+      </tr>
+      <tr>
+        <td>offline scanがnetworkへ接続する</td>
+        <td><code>--offline</code>、network none</td>
+        <td>egress canary</td>
+        <td>scan失敗</td>
+      </tr>
+      <tr>
+        <td>ZAPがscope外を攻撃する</td>
+        <td>active gateway、exact allowlist</td>
+        <td>blocked-request metric</td>
+        <td>run中止、inconclusive</td>
+      </tr>
+      <tr>
+        <td>active scanがstateを壊す</td>
+        <td>disposable target、reset contract</td>
+        <td>baseline hash</td>
+        <td>failed_cleanup、project lock</td>
+      </tr>
+      <tr>
+        <td>credentialがZAP artifactへ漏れる</td>
+        <td>gateway-side injection</td>
+        <td>canary search</td>
+        <td>artifact隔離、run失敗</td>
+      </tr>
+      <tr>
+        <td>benchmark parserがmetricを誤る</td>
+        <td>synthetic confusion matrix</td>
+        <td>golden snapshot</td>
+        <td>release gate失敗</td>
+      </tr>
+      <tr>
+        <td>LLMが架空のasset/pathを作る</td>
+        <td>input ID semantic validation</td>
+        <td>invalid-output test</td>
+        <td>hypothesis保存拒否</td>
+      </tr>
+      <tr>
+        <td>仮説をfindingと誤表示する</td>
+        <td>separate schema/table</td>
+        <td>API/UI contract test</td>
+        <td>report gate失敗</td>
+      </tr>
+      <tr>
+        <td>business scenarioが不可逆操作を行う</td>
+        <td>typed request/reset only</td>
+        <td>fixture state hash</td>
+        <td>active機能停止</td>
+      </tr>
+      <tr>
+        <td>external corpusに過適合する</td>
+        <td>owned pairと複数corpus</td>
+        <td>category drift</td>
+        <td>scope claimを限定</td>
+      </tr>
+    </tbody>
+  </table>
+  <h2 id="20-実装開始条件">20. 実装開始条件</h2>
+  <p>Slice 50.0開始前に満たすhard start条件:</p>
+  <ul>
+    <li><input disabled="" type="checkbox"> 本計画をcommitする。</li>
+    <li><input disabled="" type="checkbox"> worktreeがcleanである。</li>
+    <li>
+      <input disabled="" type="checkbox"> <code>bun install --frozen-lockfile</code>が成功する。
+    </li>
+    <li>
+      <input disabled="" type="checkbox"> <code>bun run verify:strict</code>が成功する。
+    </li>
+    <li>
+      <input disabled="" type="checkbox"> migration
+      <code>0023</code>–<code>0025</code>を予約する。
+    </li>
+  </ul>
+  <p>
+    active executionまたはsupported claimを有効化する前に、Slice 50.0で満たす capability preflight:
+  </p>
+  <ul>
+    <li>
+      <input disabled="" type="checkbox"> corpus/rule sourceのSPDX IDまたはcommitted license
+      text付き <code>LicenseRef-*</code>がversioned
+      allowlistに含まれ、unknownまたは禁止licenseが 自動gateで0件になる。
+    </li>
+    <li><input disabled="" type="checkbox"> corpus lockの初期versionとdigestを固定する。</li>
+    <li>
+      <input disabled="" type="checkbox"> benchmark実行に必要なdisk、memory、time
+      budgetをCIで確認する。
+    </li>
+  </ul>
+  <p>
+    ZAP active executionとsupported claimはcapability preflightをすべて満たすまで 有効化しない。
+  </p>
+  <h2 id="21-phase-50最終definition-of-done">21. Phase 50最終Definition of Done</h2>
+  <ul>
+    <li>
+      <input disabled="" type="checkbox"> Semgrep defaultが3-rule smoke
+      setではなく<code>curated-sast-v1</code>である。
+    </li>
+    <li><input disabled="" type="checkbox"> supported 5言語のrule/fixture/metricが揃う。</li>
+    <li><input disabled="" type="checkbox"> OSV offlineが8 ecosystemを検証済みである。</li>
+    <li>
+      <input disabled="" type="checkbox"> ZAP
+      activeがlocal/ephemeral、RoE、reset付きで実行できる。
+    </li>
+    <li><input disabled="" type="checkbox"> OWASP Benchmark metricが数値gateを満たす。</li>
+    <li><input disabled="" type="checkbox"> Juice Shop paired metricが数値gateを満たす。</li>
+    <li>
+      <input disabled="" type="checkbox"> application modelとthreat hypothesisが自動生成される。
+    </li>
+    <li>
+      <input disabled="" type="checkbox"> supported frameworkのendpoint
+      inventoryがsource/OpenAPI/runtime evidenceから 自動生成される。
+    </li>
+    <li><input disabled="" type="checkbox"> business-logic scenarioが自動生成・検証される。</li>
+    <li>
+      <input disabled="" type="checkbox"> confirmed findingは必ずscannerまたはexecutable
+      evidenceを持つ。
+    </li>
+    <li><input disabled="" type="checkbox"> LLM unavailableでもreport pipelineが停止しない。</li>
+    <li><input disabled="" type="checkbox"> completionにhuman approvalを要求しない。</li>
+    <li>
+      <input disabled="" type="checkbox"> clean
+      checkoutで<code>verify:professional-capability</code>がpassする。
+    </li>
+    <li>
+      <input disabled="" type="checkbox"> release evidenceが同一commit、corpus、toolbox
+      digestを参照する。
+    </li>
+    <li>
+      <input disabled="" type="checkbox">
+      README/UIがsupported、experimental、unsupportedを正確に表示する。
+    </li>
+  </ul>
+  <h2 id="22-公式仕様">22. 公式仕様</h2>
+  <ul>
+    <li><a href="https://docs.semgrep.dev/writing-rules/testing-rules">Semgrep rule tests</a></li>
+    <li><a href="https://docs.semgrep.dev/supported-languages">Semgrep supported languages</a></li>
+    <li>
+      <a href="https://google.github.io/osv-scanner/usage/offline-mode/">OSV-Scanner offline mode</a>
+    </li>
+    <li>
+      <a href="https://google.github.io/osv-scanner/supported-languages-and-lockfiles/">OSV-Scanner supported artifacts and manifests</a>
+    </li>
+    <li>
+      <a href="https://google.github.io/osv.dev/data/">OSV data sources and ecosystem dumps</a>
+    </li>
+    <li>
+      <a href="https://www.zaproxy.org/docs/automate/automation-framework/">ZAP Automation Framework</a>
+    </li>
+    <li>
+      <a href="https://www.zaproxy.org/docs/desktop/addons/automation-framework/job-ascanpolicy/">ZAP active scan policy</a>
+    </li>
+    <li><a href="https://owasp.org/www-project-benchmark/">OWASP Benchmark</a></li>
+    <li>
+      <a href="https://pwning.owasp-juice.shop/companion-guide/latest/part1/running.html">OWASP Juice Shop running guide</a>
+    </li>
+    <li>
+      <a href="https://owasp.org/www-project-threat-modeling/">OWASP Threat Modeling Project</a>
+    </li>
+  </ul>
+</article>
+  </body>
+</html>

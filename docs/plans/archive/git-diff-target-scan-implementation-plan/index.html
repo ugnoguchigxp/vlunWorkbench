@@ -1,0 +1,1544 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex,follow">
+    <title>Git Diff Target Scan Implementation Plan | vulnWorkbench</title>
+    <link rel="stylesheet" href="/vlunWorkbench/assets/css/spec-document.css">
+    <link rel="stylesheet" href="/vlunWorkbench/assets/css/plan-document.css">
+  </head>
+  <body>
+    <nav class="plan-document-links" aria-label="文書ナビゲーション">
+      <a href="/vlunWorkbench/plans/archive/?doc=git-diff-target-scan-implementation-plan" target="_top">実装計画アーカイブへ</a>
+      <a href="/vlunWorkbench/" target="_top">vulnWorkbenchのLPへ戻る</a>
+    </nav>
+    <article lang="ja">
+  <h1 id="git-diff-target-scan-implementation-plan">Git Diff Target Scan Implementation Plan</h1>
+  <h2 id="1-status">1. Status</h2>
+  <p>2026-07-29時点:</p>
+  <pre><code class="language-text">planning: complete
+implementation: complete
+code review hardening: complete
+baseline branch: main
+baseline commit: a0ed3224928ea51497cac9138b6906f55b1138a3
+working tree: dirty; unrelated user changes exist and must not be included
+</code></pre>
+  <p>実装完了時のverification:</p>
+  <pre><code class="language-text">API tests: 146 files, 0 failures
+Web tests: 22 files / 135 tests, 0 failures
+TypeScript typecheck: passed
+Biome lint: passed (warnings only)
+Web production build: passed
+git diff --check: passed
+Project verify (tests/build/audit/artifact tracking): passed
+</code></pre>
+  <p>
+    実装後レビューでは、literal pathspecと厳格なUTF-8 path解析、project境界を跨ぐ
+    rename、symlinkのscope bypass、working treeのpreview/launch間変更、非scan対象の
+    snapshot残留、scanner出力のtemporary path漏洩、OSVのmanifest-only実行、 unmapped
+    findingのcoverage表示、Web previewの競合、Git子processの終了処理を 追加でhardeningした。
+  </p>
+  <p>
+    この計画は、vulnWorkbenchの既存スキャナーをGit差分に対して実行できるようにする。 LLMやCodex
+    Securityを新しいscannerとして追加する計画ではない。
+  </p>
+  <p>実装は以下の7 sliceに分ける。</p>
+  <pre><code class="language-text">Slice 0  baselineと契約固定
+  -&gt; Slice 1  ScanTarget schema / Git diff resolver
+  -&gt; Slice 2  immutable snapshot / diff workspace
+  -&gt; Slice 3  profile orchestration / persistence
+  -&gt; Slice 4  Semgrep / Gitleaks / OSV / Trivy integration
+  -&gt; Slice 5  CLI / Web API preview and launch
+  -&gt; Slice 6  Web UI / report and coverage
+  -&gt; Slice 7  end-to-end verification / rollout
+</code></pre>
+  <p>
+    各sliceは独立してレビュー可能にする。後続sliceを先行実装せず、各sliceの
+    acceptanceとverificationが通ってから次へ進む。
+  </p>
+  <h2 id="2-purpose">2. Purpose</h2>
+  <p>利用者が次の対象だけをscanner-backed evidenceとして確認できるようにする。</p>
+  <ul>
+    <li>特定commitで変更されたファイル</li>
+    <li>base branchとhead branchの間で変更されたファイル</li>
+    <li>現在のworking treeで変更されたファイル</li>
+    <li>staged、unstaged、untrackedを含むcommit前の変更</li>
+  </ul>
+  <p>
+    差分解決、snapshot固定、scanner実行、artifact保存、coverage表示は
+    vulnWorkbenchが所有する。scanner固有のGit機能へ差分解決を分散させない。
+  </p>
+  <p>
+    この機能の実行経路はLLMを呼び出さない。finding review、scan review、 report
+    summaryなど既存の明示的なLLM操作は別操作のまま維持し、 diff scan完了を理由に自動起動しない。
+  </p>
+  <h2 id="3-fixed-product-semantics">3. Fixed Product Semantics</h2>
+  <h3 id="31-v1の意味">3.1 V1の意味</h3>
+  <p>V1のdiff scanは次の意味とする。</p>
+  <blockquote>
+    <p>Git差分に含まれるファイルを、変更後snapshotの内容でファイル単位に検査する。</p>
+  </blockquote>
+  <p>
+    V1は「この変更で新規に発生したfindingだけ」を保証しない。
+    変更されたファイルに以前から存在するfindingも返り得る。
+  </p>
+  <p>表示とAPIでは次の用語を使用する。</p>
+  <pre><code class="language-text">allowed:
+  差分対象
+  変更ファイル
+  差分関連finding
+  target-state dependency finding
+
+not allowed:
+  新規脆弱性
+  このcommitが導入した脆弱性
+  regression confirmed
+</code></pre>
+  <p>
+    base/head双方をscanして<code>introduced</code> /
+    <code>unchanged</code> /
+    <code>resolved</code>を判定する機能は V2候補とし、この計画には含めない。
+  </p>
+  <h3 id="32-path-scope">3.2 Path scope</h3>
+  <ul>
+    <li>diffはhunk単位ではなくfile単位で適用する。</li>
+    <li>modified fileはファイル全体をscanする。</li>
+    <li>added、modified、renamed、copied、type-changedをscan候補にする。</li>
+    <li>deleted pathはscanせず、coverage recordとして保持する。</li>
+    <li>rename/copyはold pathとnew pathをmanifestに保持し、new pathをscanする。</li>
+    <li>
+      binary、gitlink、symlink escape、size limit超過は黙って無視せず、 dispositionとreason
+      codeをmanifestに残す。
+    </li>
+    <li>profileの既存include/exclude policyとmandatory excludesを適用する。</li>
+    <li>
+      <code>.git/**</code>と<code>artifacts/**</code>をscan対象にしない。
+    </li>
+  </ul>
+  <h3 id="33-target-modes">3.3 Target modes</h3>
+  <pre><code class="language-ts">type ScanTarget =
+	| { kind: "full" }
+	| {
+			kind: "commit";
+			head: string;
+			base?: string;
+	  }
+	| {
+			kind: "range";
+			base: string;
+			head: string;
+	  }
+	| {
+			kind: "working_tree";
+			base?: string;
+			includeUntracked: boolean;
+	  };
+</code></pre>
+  <p>Target解決規則:</p>
+  <table>
+    <caption>
+      3.3 Target modes
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">kind</th>
+        <th scope="col">base</th>
+        <th scope="col">target state</th>
+        <th scope="col">changed paths</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>full</code></td>
+        <td>none</td>
+        <td>current project path</td>
+        <td>existing full scan</td>
+      </tr>
+      <tr>
+        <td><code>commit</code></td>
+        <td>explicit base、またはsingle parent</td>
+        <td>resolved head commit</td>
+        <td>base tree → head tree</td>
+      </tr>
+      <tr>
+        <td><code>range</code></td>
+        <td>merge-base(base, head)</td>
+        <td>resolved head commit</td>
+        <td>merge-base → head tree</td>
+      </tr>
+      <tr>
+        <td><code>working_tree</code></td>
+        <td>explicit base、既定<code>HEAD</code></td>
+        <td>frozen worktree snapshot</td>
+        <td>base tree → index/worktree/untracked</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>追加規則:</p>
+  <ul>
+    <li>refは<code>git rev-parse --verify &lt;ref&gt;^{commit}</code>相当でcommit SHAへ解決する。</li>
+    <li>自動<code>git fetch</code>を行わない。</li>
+    <li>refがlocal repositoryに存在しなければfail closedにする。</li>
+    <li>root commitのimplicit baseにはGit empty treeを使用する。</li>
+    <li>
+      merge commitの<code>commit</code> targetでbase未指定の場合は、
+      parentを推測せず<code>ambiguous_commit_parent</code>で拒否する。
+    </li>
+    <li>
+      <code>range</code>は文字列上の<code>base..head</code>ではなくmerge-baseを使用する。
+    </li>
+    <li>
+      <code>working_tree</code>はtracked staged/unstagedに加えて、
+      <code>includeUntracked=true</code>の場合のみuntracked non-ignored fileを含める。
+    </li>
+    <li>
+      conflict/unmerged pathがあればpreviewは返せるが、launchは
+      <code>unmerged_worktree</code>で拒否する。
+    </li>
+  </ul>
+  <h3 id="34-existing-scan-comparisonとの境界">3.4 Existing scan comparisonとの境界</h3>
+  <p>
+    既存のscan comparisonは、完了済みscan run間のfindingをfingerprint等で比較する。 Git diff
+    targetはscanner実行前の入力範囲を決める機能であり、両者を統合しない。
+  </p>
+  <pre><code class="language-text">Git diff target:
+  source input selection
+  before scanner execution
+
+Scan comparison:
+  finding comparison
+  after scanner execution
+</code></pre>
+  <p>diff scanを通常scanのbaseline comparisonへ自動選択しない。</p>
+  <h2 id="4-current-baseline">4. Current Baseline</h2>
+  <p>現在の実装:</p>
+  <ul>
+    <li>
+      <code>ScanProfile</code>にはsource / dependency manifest / artifact /
+      full deepの scope policyがあるが、Git targetはない。
+    </li>
+    <li>
+      <code>profile-orchestrator.ts</code>がscopeを解決し、同じ<code>repoPath</code>を各stepへ渡す。
+    </li>
+    <li>Semgrepは単一のrepository pathをtargetとして実行する。</li>
+    <li>
+      Gitleaksはsource scopeでtemporary scoped
+      workspaceを作り<code>--no-git</code>を使う。
+    </li>
+    <li>OSVはrepository pathを常にrecursive scanする。</li>
+    <li>Trivyはmodeとscopeに応じてrepositoryまたはscoped workspaceをscanする。</li>
+    <li>
+      <code>scan_runs.metadata</code>と<code>scan_artifacts</code>で追加provenanceを保存できる。
+    </li>
+    <li>Webのscan開始APIはprofileとrunner optionsを受け取るがtargetを持たない。</li>
+    <li>
+      Static Intelligenceにはdirty state hashの実装があるが、 scan input
+      snapshotを生成する責務はない。
+    </li>
+  </ul>
+  <p>実装開始時に次を実行し、既存failureと今回のfailureを分離する。</p>
+  <pre><code class="language-bash">git status --short
+git rev-parse HEAD
+bun run typecheck
+bun run lint
+bun run format:check
+bun run test
+bun run build
+</code></pre>
+  <p>baseline取得時に既存のdirty fileを整形、修正、stageしない。</p>
+  <h2 id="5-non-goals">5. Non-goals</h2>
+  <ul>
+    <li>LLM scanner、Codex Security、agentic scannerの統合</li>
+    <li>diff scan後のLLM review自動起動</li>
+    <li>hunk単位だけへのfinding filter</li>
+    <li>base/head両方のscanner実行によるintroduced/resolved判定</li>
+    <li>Git history全体のsecret audit</li>
+    <li>range中に追加され、headでは削除済みのsecret検出</li>
+    <li>remote refの自動fetch</li>
+    <li>pull request provider APIとの統合</li>
+    <li>repository checkoutのbranch切り替え</li>
+    <li>source repositoryへのtemporary worktree追加</li>
+    <li>DAST、Nuclei、ZAP、Schemathesisのdiff target実行</li>
+    <li>container image scanのdiff target実行</li>
+    <li>submoduleの自動clone/update</li>
+    <li>existing finding fingerprintの全面再設計</li>
+    <li>diff scanと無関係なprofile、runner、UIのリファクタリング</li>
+  </ul>
+  <h2 id="6-target-architecture">6. Target Architecture</h2>
+  <pre><code class="language-text">ScanTarget request
+  -&gt; GitDiffResolver
+       -&gt; resolve refs
+       -&gt; determine merge-base / parent
+       -&gt; parse NUL-delimited name-status
+       -&gt; add untracked entries
+       -&gt; apply project/profile scope
+  -&gt; DiffScanPlan
+       -&gt; normalized target
+       -&gt; deterministic DiffManifest
+       -&gt; per-tool applicability
+       -&gt; target digest
+  -&gt; DiffSnapshotBuilder
+       -&gt; immutable target tree
+       -&gt; overlay working-tree changes
+       -&gt; changed-files workspace
+       -&gt; verify snapshot digest
+  -&gt; ProfileOrchestrator
+       -&gt; persist target metadata and manifest artifact
+       -&gt; run applicable static steps
+       -&gt; record explicit skips/gaps
+  -&gt; Existing tool runners
+       -&gt; normalized findings
+       -&gt; target provenance metadata
+  -&gt; API / UI / reports
+       -&gt; target badge
+       -&gt; changed-file coverage
+       -&gt; limitations
+</code></pre>
+  <p>新規module:</p>
+  <pre><code class="language-text">shared/schemas/scan-target.schema.ts
+api/modules/scans/git-command.ts
+api/modules/scans/git-diff-resolver.ts
+api/modules/scans/git-diff-resolver.test.ts
+api/modules/scans/diff-scan-plan.ts
+api/modules/scans/diff-scan-plan.test.ts
+api/modules/scans/diff-snapshot.ts
+api/modules/scans/diff-snapshot.test.ts
+</code></pre>
+  <p>責務境界:</p>
+  <ul>
+    <li>
+      <code>git-command.ts</code>はstructured args、timeout、maxBuffer、error
+      mappingだけを持つ。
+    </li>
+    <li><code>git-diff-resolver.ts</code>はGit stateをread-onlyで解決する。</li>
+    <li>
+      <code>diff-scan-plan.ts</code>はscope、disposition、tool
+      applicability、digestを決める。
+    </li>
+    <li>
+      <code>diff-snapshot.ts</code>はtemporary filesystem
+      materializationとcleanupを所有する。
+    </li>
+    <li>scanner runnerはref、merge-base、working treeの意味を解釈しない。</li>
+    <li>orchestratorは一つのresolved planとsnapshotを全stepで共有する。</li>
+  </ul>
+  <h2 id="7-contracts">7. Contracts</h2>
+  <h3 id="71-resolved-target">7.1 Resolved target</h3>
+  <pre><code class="language-ts">type ResolvedScanTarget = {
+	kind: "commit" | "range" | "working_tree";
+	requested: ScanTarget;
+	gitRoot: string;
+	projectPrefix: string;
+	baseSha: string;
+	headSha: string | null;
+	mergeBaseSha: string | null;
+	includeUntracked: boolean;
+	targetDigest: string;
+	snapshotDigest: string | null;
+	changedFileCount: number;
+	scannableFileCount: number;
+};
+</code></pre>
+  <ul>
+    <li>API、DB、artifactへabsolute <code>gitRoot</code>を保存しない。</li>
+    <li>
+      <code>projectPrefix</code>はrepository-relative POSIX
+      pathとして保存できる。
+    </li>
+    <li><code>requested</code>にraw user pathを持たせない。</li>
+    <li>ref名は保存可能だが、実行identityにはresolved SHAを使う。</li>
+    <li>working treeはhead SHAを持たず、base SHAとsnapshot digestで識別する。</li>
+  </ul>
+  <h3 id="72-diff-manifest">7.2 Diff manifest</h3>
+  <pre><code class="language-ts">type DiffManifestEntry = {
+	status:
+		| "added"
+		| "modified"
+		| "deleted"
+		| "renamed"
+		| "copied"
+		| "type_changed"
+		| "unmerged"
+		| "untracked"
+		| "gitlink";
+	path: string;
+	oldPath?: string;
+	contentSha256?: string;
+	sizeBytes?: number;
+	binary: boolean;
+	inProfileScope: boolean;
+	disposition:
+		| "scan"
+		| "deleted"
+		| "excluded"
+		| "unsupported"
+		| "too_large";
+	reasonCode: string | null;
+};
+</code></pre>
+  <p>manifest全体:</p>
+  <pre><code class="language-ts">type DiffManifest = {
+	schemaVersion: 1;
+	target: Omit&lt;ResolvedScanTarget, "gitRoot"&gt;;
+	limits: {
+		maxFiles: number;
+		maxTotalBytes: number;
+		maxSingleFileBytes: number;
+	};
+	coverage: {
+		changed: number;
+		scannable: number;
+		deleted: number;
+		excluded: number;
+		unsupported: number;
+		tooLarge: number;
+	};
+	entries: DiffManifestEntry[];
+};
+</code></pre>
+  <p>manifest rules:</p>
+  <ul>
+    <li>
+      entriesは<code>path</code>,
+      <code>oldPath</code>,
+      <code>status</code>の順で安定sortする。
+    </li>
+    <li>JSON serializationは同じkey orderを使用する。</li>
+    <li>target digestはresolved targetとentriesのcanonical JSONから計算する。</li>
+    <li>manifestにfile content、diff hunk、secret値、absolute pathを保存しない。</li>
+    <li>working treeのcontent identityはSHA-256だけを保存する。</li>
+    <li>scanner用temporary pathを保存しない。</li>
+  </ul>
+  <h3 id="73-reason-codes">7.3 Reason codes</h3>
+  <p>Target resolution error:</p>
+  <pre><code class="language-text">not_a_git_repository
+git_ref_not_found
+ambiguous_commit_parent
+merge_base_not_found
+unmerged_worktree
+target_changed
+diff_target_too_large
+snapshot_materialization_failed
+snapshot_digest_mismatch
+</code></pre>
+  <p>Coverage / applicability:</p>
+  <pre><code class="language-text">no_changed_files
+no_relevant_files
+no_dependency_manifest_changed
+deleted_path
+profile_excluded
+binary_not_supported
+gitlink_not_materialized
+symlink_escape
+file_too_large
+diff_target_not_supported
+</code></pre>
+  <p>
+    errorとcoverage gapを同じstatusにしない。 ref failureやsnapshot mismatchはscan failure、
+    deleted/excluded/binaryはmanifest coverageとして扱う。
+  </p>
+  <h3 id="74-static-step-result">7.4 Static step result</h3>
+  <p>static toolにもruntime coverage stepと同じapplicability情報を持たせる。</p>
+  <pre><code class="language-ts">type DiffAwareToolResult = ToolResult &amp; {
+	applicability: "applicable" | "not_applicable";
+	reasonCode: string | null;
+	coverageEffect: "covered" | "partial" | "gap";
+	artifactIds?: string[];
+	metadata?: Record&lt;string, unknown&gt;;
+};
+</code></pre>
+  <p>既存full scanでは次をdefaultにする。</p>
+  <pre><code class="language-text">applicability=applicable
+reasonCode=null
+coverageEffect=completedならcovered、failedならgap
+</code></pre>
+  <p>diff scanでのmapping:</p>
+  <table>
+    <caption>
+      7.4 Static step result
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Condition</th>
+        <th scope="col">status</th>
+        <th scope="col">applicability</th>
+        <th scope="col">coverageEffect</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>applicable tool completed</td>
+        <td>completed</td>
+        <td>applicable</td>
+        <td>covered</td>
+      </tr>
+      <tr>
+        <td>no changed/relevant file</td>
+        <td>skipped</td>
+        <td>not_applicable</td>
+        <td>covered</td>
+      </tr>
+      <tr>
+        <td>no dependency manifest changed</td>
+        <td>skipped</td>
+        <td>not_applicable</td>
+        <td>covered</td>
+      </tr>
+      <tr>
+        <td>unsupported/too-large fileが一部存在</td>
+        <td>completed/skipped</td>
+        <td>applicableまたはnot_applicable</td>
+        <td>partial</td>
+      </tr>
+      <tr>
+        <td>applicable tool failed/unavailable</td>
+        <td>failed</td>
+        <td>applicable</td>
+        <td>gap</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    <code>required</code>はapplicable toolのfailure policyにだけ適用する。
+    not-applicable required toolをprofile failureにしない。
+  </p>
+  <h3 id="75-resource-limits">7.5 Resource limits</h3>
+  <p>V1の固定default:</p>
+  <pre><code class="language-text">max changed entries: 5,000
+max copied bytes: 512 MiB
+max single changed file: 20 MiB
+Git command timeout: 30 seconds
+Git stdout/stderr maxBuffer: 32 MiB
+</code></pre>
+  <ul>
+    <li>limit超過時に対象をtruncateしてcompletedにしない。</li>
+    <li>
+      changed entryまたはtotal bytes上限超過はlaunch前に
+      <code>diff_target_too_large</code>で拒否する。
+    </li>
+    <li>
+      single file上限超過はmanifestへ<code>too_large</code>として残し、
+      profile outcomeを<code>completed_with_warnings</code>にする。
+    </li>
+    <li>binary fileはscannerへ渡さずcoverage gapにする。</li>
+    <li>limit override用のWeb入力やCLI flagはV1に追加しない。</li>
+  </ul>
+  <h2 id="8-profile-and-tool-policy">8. Profile and Tool Policy</h2>
+  <h3 id="81-dedicated-profile">8.1 Dedicated profile</h3>
+  <p>既存profileの意味を変更せず、次を追加する。</p>
+  <pre><code class="language-text">id: diff-source-baseline
+category: focused
+supportedTargets:
+  - commit
+  - range
+  - working_tree
+tools:
+  - semgrep, required when applicable
+  - gitleaks, required when applicable
+  - osv, optional and conditional
+  - trivy, optional and conditional
+</code></pre>
+  <p>
+    <code>ScanProfile</code>へoptional
+    <code>supportedTargets</code>を追加する。
+    未指定profileは<code>["full"]</code>として扱う。
+  </p>
+  <ul>
+    <li>
+      <code>diff-source-baseline</code>に<code>full</code>を指定した場合はrejectする。
+    </li>
+    <li>
+      他profileにnon-full targetを指定した場合は
+      <code>diff_target_not_supported</code>でrejectする。
+    </li>
+    <li>DAST/runtime/image stepを含むprofileはV1でnon-full targetを許可しない。</li>
+    <li>toolがapplicableでない場合はfailureではなくstructured skipを記録する。</li>
+    <li>required toolがapplicableだが実行失敗した場合は従来どおりprofile failureにする。</li>
+  </ul>
+  <h3 id="82-tool-applicability">8.2 Tool applicability</h3>
+  <table>
+    <caption>
+      8.2 Tool applicability
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Tool</th>
+        <th scope="col">Applicable condition</th>
+        <th scope="col">Input</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Semgrep</td>
+        <td>scoped text sourceが1件以上</td>
+        <td>immutable full snapshot + explicit changed paths</td>
+      </tr>
+      <tr>
+        <td>Gitleaks</td>
+        <td>scoped text fileが1件以上</td>
+        <td>changed-files workspace + <code>--no-git</code></td>
+      </tr>
+      <tr>
+        <td>OSV</td>
+        <td>dependency manifest/lockfile変更あり</td>
+        <td>immutable full target snapshot</td>
+      </tr>
+      <tr>
+        <td>Trivy</td>
+        <td>scoped text fileが1件以上</td>
+        <td>changed-files workspace</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    dependency manifest/lockfile classifierは既存の
+    <code>DEPENDENCY_MANIFEST_SCOPE</code>と同じsource of truthを使う。 別の拡張子一覧をdiff
+    moduleへ複製しない。
+  </p>
+  <p>
+    dependency manifest/lockfileが変更された場合、Trivy用workspaceには 同じpackage
+    rootの認識済みmanifest/lockfileをcontext-only fileとして補う。 context-only fileはchanged
+    countに含めず、tool run metadataの <code>contextFileCount</code>へ記録する。
+  </p>
+  <h3 id="83-semgrep">8.3 Semgrep</h3>
+  <p>
+    <code>SemgrepRunnerOptions</code>へrepository-relative
+    <code>targetPaths</code>を追加する。
+  </p>
+  <ul>
+    <li>commandはsnapshot rootをcwd/repoPathにし、target pathをstructured argsで渡す。</li>
+    <li>
+      <code>--include</code> /
+      <code>--exclude</code> policyは維持する。
+    </li>
+    <li>
+      path数がOSのargv limitに近づく場合、勝手に複数tool runへ分割せず、 changed-files
+      workspaceを単一targetとして使用する。
+    </li>
+    <li>normalizerがtemporary snapshot pathをfindingへ残さないことをtestする。</li>
+    <li>whole-file scanであり、added line filterは行わない。</li>
+  </ul>
+  <h3 id="84-gitleaks">8.4 Gitleaks</h3>
+  <ul>
+    <li>changed-files workspaceだけを<code>--source</code>へ渡す。</li>
+    <li>常に<code>--no-git</code>を使用する。</li>
+    <li>raw artifact redactionを維持する。</li>
+    <li>deleted file、range途中で削除済みのsecret、Git historyは対象外と明記する。</li>
+    <li>changed fileの既存secretがfindingになることを許容する。</li>
+  </ul>
+  <h3 id="85-osv">8.5 OSV</h3>
+  <ul>
+    <li>
+      manifest/lockfile変更がない場合は実行せず、 <code>no_dependency_manifest_changed</code>でnot
+      applicableにする。
+    </li>
+    <li>manifest/lockfile変更がある場合は変更後のfull snapshotをrecursive scanする。</li>
+    <li>
+      findingは<code>target-state dependency finding</code>として扱い、 introduced
+      findingとは表示しない。
+    </li>
+    <li><code>dependencyMode=installed_tree</code>はdiff profileで使用しない。</li>
+    <li>base snapshotとの自動比較は行わない。</li>
+  </ul>
+  <h3 id="86-trivy">8.6 Trivy</h3>
+  <ul>
+    <li>changed-files workspaceを1回だけscanする。</li>
+    <li>profileの<code>scanners=["vuln", "secret", "misconfig"]</code>を維持する。</li>
+    <li>
+      dependency manifest/lockfile変更時は同じpackage rootのdependency companionを
+      context-onlyでworkspaceへ追加する。
+    </li>
+    <li>
+      context-only dependency file由来のfindingは
+      <code>diffRelation.kind="target_state_dependency"</code>として扱う。
+    </li>
+    <li>source repository全体へfallbackしない。</li>
+    <li>tool run metadataにchanged file count、context file count、 target digestを保存する。</li>
+  </ul>
+  <h2 id="9-persistence-and-provenance">9. Persistence and Provenance</h2>
+  <p>V1ではDB migrationを追加しない。</p>
+  <p><code>scan_runs.metadata</code>:</p>
+  <pre><code class="language-json">{
+  "target": {
+    "schemaVersion": 1,
+    "kind": "working_tree",
+    "baseSha": "...",
+    "headSha": null,
+    "mergeBaseSha": null,
+    "targetDigest": "...",
+    "snapshotDigest": "...",
+    "includeUntracked": true
+  },
+  "diffCoverage": {
+    "changed": 4,
+    "scannable": 3,
+    "deleted": 1,
+    "excluded": 0,
+    "unsupported": 0,
+    "tooLarge": 0
+  }
+}
+</code></pre>
+  <p>artifact:</p>
+  <pre><code class="language-text">kind: diff_manifest
+format: json
+filename: diff-manifest.json
+toolRunId: null
+</code></pre>
+  <p>必要な変更:</p>
+  <ul>
+    <li>
+      <code>shared/schemas/scan.schema.ts</code>のartifact
+      kindへ<code>diff_manifest</code>を追加する。
+    </li>
+    <li><code>web/src/api/scans.ts</code>のartifact unionへ同じkindを追加する。</li>
+    <li><code>ArtifactStorage.saveTextArtifact()</code>でcanonical JSONを保存する。</li>
+    <li><code>ArtifactRepository.createArtifact()</code>でscan-level artifactとして登録する。</li>
+  </ul>
+  <p>各finding metadataへ次を追加する。</p>
+  <pre><code class="language-json">{
+  "scanTarget": {
+    "kind": "commit",
+    "baseSha": "...",
+    "headSha": "...",
+    "targetDigest": "..."
+  },
+  "diffRelation": {
+    "kind": "changed_file",
+    "pathStatus": "modified"
+  }
+}
+</code></pre>
+  <ul>
+    <li>scannerがmanifest外のpathを返した場合はfindingを黙って保存しない。</li>
+    <li>
+      OSV/Trivy dependency findingはlocationがmanifest fileへ直接対応しない場合があるため、
+      <code>diffRelation.kind="target_state_dependency"</code>を許可する。
+    </li>
+    <li>unknown external pathはnormalization gapとしてtool metadataへ記録する。</li>
+  </ul>
+  <h2 id="10-snapshot-and-security-decisions">10. Snapshot and Security Decisions</h2>
+  <h3 id="101-committed-target">10.1 Committed target</h3>
+  <ul>
+    <li>source repositoryのcheckout、index、refsを変更しない。</li>
+    <li>system temporary directoryにlocal shared cloneを作る。</li>
+    <li><code>git clone --shared --no-checkout -- &lt;gitRoot&gt; &lt;temporaryPath&gt;</code>相当を structured argsで実行する。</li>
+    <li>resolved head SHAをdetached checkoutする。</li>
+    <li>scanner rootはsnapshot内のproject prefixとする。</li>
+    <li>source repositoryへ<code>git worktree add</code>しない。</li>
+    <li>submoduleをinit/updateしない。</li>
+  </ul>
+  <h3 id="102-working-tree-target">10.2 Working-tree target</h3>
+  <ol>
+    <li>base SHAをdetached snapshotへcheckoutする。</li>
+    <li>normalized manifest順にworking treeのcurrent fileをoverlayする。</li>
+    <li>deleted/renamed old pathをsnapshotから削除する。</li>
+    <li>enabledなuntracked fileをoverlayする。</li>
+    <li>file content hashとsizeを再計算する。</li>
+    <li>preview時の<code>expectedTargetDigest</code>がある場合は一致を確認する。</li>
+    <li>snapshot完成後にsnapshot digestを計算し、manifestへ固定する。</li>
+  </ol>
+  <p>copy中にsource fileが変わった場合:</p>
+  <ul>
+    <li>copy前後のstatだけで成功判定しない。</li>
+    <li>copied bytesのSHA-256とplan content SHA-256を比較する。</li>
+    <li>mismatchは<code>target_changed</code>としてsnapshotを破棄する。</li>
+    <li>scannerを開始しない。</li>
+  </ul>
+  <h3 id="103-filesystem-safety">10.3 Filesystem safety</h3>
+  <ul>
+    <li>
+      Git commandはshell文字列ではなく<code>spawn</code> /
+      <code>execFile</code> structured argsを使う。
+    </li>
+    <li>refをcommand optionとして補間せず、検証後にargsへ渡す。</li>
+    <li>pathspec前に<code>--</code>を使う。</li>
+    <li>
+      diff/name-statusは<code>-z</code>で取得し、改行、tab、quoteを含むpathを安全にparseする。
+    </li>
+    <li>output pathはproject-relative POSIX pathへ正規化する。</li>
+    <li>
+      <code>..</code>、absolute path、NULを含むnormalized
+      pathを拒否する。
+    </li>
+    <li>symlinkはlink自体を再現し、resolved targetがsnapshot外へ出るものをscanしない。</li>
+    <li>temporary directoryはscanのfinallyで削除する。</li>
+    <li>cleanup failureはscan artifactへpathを保存せずwarn eventだけを記録する。</li>
+    <li>diff manifestにdiff本文やsource bodyを保存しない。</li>
+  </ul>
+  <h2 id="11-cli-and-api-contract">11. CLI and API Contract</h2>
+  <h3 id="111-cli">11.1 CLI</h3>
+  <p>追加option:</p>
+  <pre><code class="language-text">--target full|commit|range|working-tree
+--base &lt;ref&gt;
+--head &lt;ref&gt;
+--include-untracked true|false
+--expected-target-digest &lt;sha256&gt;
+--preview true|false
+</code></pre>
+  <p>Examples:</p>
+  <pre><code class="language-bash"># commit
+bun run scan:profile -- \
+  --project-path . \
+  --profile diff-source-baseline \
+  --target commit \
+  --head abc123 \
+  --base abc123^
+
+# branch / PR-like range
+bun run scan:profile -- \
+  --project-path . \
+  --profile diff-source-baseline \
+  --target range \
+  --base origin/main \
+  --head HEAD
+
+# current working tree
+bun run scan:profile -- \
+  --project-path . \
+  --profile diff-source-baseline \
+  --target working-tree \
+  --base HEAD \
+  --include-untracked true
+
+# resolve only
+bun run scan:profile -- \
+  --project-path . \
+  --profile diff-source-baseline \
+  --target working-tree \
+  --preview true \
+  --json
+</code></pre>
+  <p>Validation:</p>
+  <ul>
+    <li><code>commit</code>はhead必須、base optional。</li>
+    <li><code>range</code>はbase/head必須。</li>
+    <li><code>working-tree</code>はhead禁止、base optional。</li>
+    <li>
+      <code>full</code>はbase/head/include-untracked/expected-target-digest禁止。
+    </li>
+    <li>incompatible optionはscan row作成前にexit code 2で返す。</li>
+    <li>previewはDB scan run、artifact、tool runを作らない。</li>
+    <li>preview JSONはresolved target、coverage、entries、tool applicabilityを返す。</li>
+  </ul>
+  <h3 id="112-web-api">11.2 Web API</h3>
+  <p>追加endpoint:</p>
+  <pre><code class="language-http">POST /api/projects/:projectId/scans/preview
+</code></pre>
+  <p>request:</p>
+  <pre><code class="language-json">{
+  "profile": "diff-source-baseline",
+  "target": {
+    "kind": "working_tree",
+    "base": "HEAD",
+    "includeUntracked": true
+  }
+}
+</code></pre>
+  <p>response:</p>
+  <pre><code class="language-json">{
+  "target": {
+    "kind": "working_tree",
+    "baseSha": "...",
+    "headSha": null,
+    "targetDigest": "..."
+  },
+  "coverage": {
+    "changed": 4,
+    "scannable": 3,
+    "deleted": 1,
+    "excluded": 0,
+    "unsupported": 0,
+    "tooLarge": 0
+  },
+  "entries": [],
+  "tools": []
+}
+</code></pre>
+  <p>既存scan start requestへ追加:</p>
+  <pre><code class="language-json">{
+  "profile": "diff-source-baseline",
+  "target": {
+    "kind": "working_tree",
+    "base": "HEAD",
+    "includeUntracked": true
+  },
+  "expectedTargetDigest": "..."
+}
+</code></pre>
+  <ul>
+    <li>preview/start双方でproject ownershipとallowed-root policyを再利用する。</li>
+    <li>previewはread-onlyだが任意host path探索を許さない。</li>
+    <li>queued scan metadataにrequested targetとexpected digestを保存する。</li>
+    <li>workerはtargetを再解決し、digest不一致ならscanを開始せずfailedにする。</li>
+    <li>CLI argsへtarget fieldを個別structured argsとして渡す。</li>
+    <li>request body全体をcommand line JSONとして渡さない。</li>
+    <li>API responseはabsolute repository pathとtemporary pathを返さない。</li>
+    <li>
+      preview responseはcontent SHA-256を返さず、path、status、disposition、 reason codeだけを返す。
+    </li>
+  </ul>
+  <h2 id="12-web-ui-and-report-contract">12. Web UI and Report Contract</h2>
+  <h3 id="121-launch-ui">12.1 Launch UI</h3>
+  <p><code>ScansToolbar</code>にprofile選択後のtarget selectorを追加する。</p>
+  <pre><code class="language-text">通常スキャン
+作業ツリー
+コミット
+ブランチ差分
+</code></pre>
+  <ul>
+    <li><code>diff-source-baseline</code>選択時だけnon-full targetを選択できる。</li>
+    <li>
+      working treeのdefault baseは<code>HEAD</code>、untrackedはdefault
+      true。
+    </li>
+    <li>commitはhead入力、base optional。</li>
+    <li>
+      rangeはbase default <code>project.defaultBranch</code>、head default
+      <code>HEAD</code>。
+    </li>
+    <li>start前にpreviewを実行する。</li>
+    <li>preview完了前はstart buttonを無効化する。</li>
+    <li>
+      working
+      treeが変わった場合は<code>target_changed</code>を表示し、再previewを要求する。
+    </li>
+    <li>changed file pathを最大100件表示し、残り件数を要約する。</li>
+    <li>excluded/deleted/unsupportedは別countとして表示する。</li>
+    <li>secret値、diff本文、source snippetをpreview表示しない。</li>
+  </ul>
+  <h3 id="122-scan-historydetail">12.2 Scan history/detail</h3>
+  <p>diff scanにはtarget badgeを表示する。</p>
+  <pre><code class="language-text">WORKTREE @ base a0ed322
+COMMIT abc1234
+RANGE origin/main...HEAD
+</code></pre>
+  <ul>
+    <li>raw refだけでなくresolved short SHAを表示する。</li>
+    <li>target digestを詳細欄で確認できる。</li>
+    <li>findingには「変更ファイルに関連」を表示する。</li>
+    <li>OSV/Trivy dependency findingには「変更後依存状態」を表示する。</li>
+    <li>「新規」と表示しない。</li>
+  </ul>
+  <h3 id="123-report-and-zero-finding-behavior">12.3 Report and zero-finding behavior</h3>
+  <p>reportへ<code>Diff Target and Coverage</code> sectionを追加する。</p>
+  <ul>
+    <li>target kind</li>
+    <li>resolved base/head/merge-base</li>
+    <li>changed/scannable/deleted/excluded/unsupported/too-large count</li>
+    <li>tool applicabilityとskip reason</li>
+    <li>whole-file scan semantics</li>
+    <li>V1ではintroduced-onlyを保証しない旨</li>
+  </ul>
+  <p>zero finding時:</p>
+  <ul>
+    <li>
+      <code>scannable &gt; 0</code>かつapplicable tool completedなら
+      「対象範囲ではfindingなし」とする。
+    </li>
+    <li>
+      <code>changed = 0</code>は「変更なし」とし、security clean claimにしない。
+    </li>
+    <li><code>scannable = 0</code>は「検査可能な変更なし」とする。</li>
+    <li>required applicable tool failureがある場合はzero-finding successにしない。</li>
+    <li>coverage gapがある場合はpartial coverageとして残す。</li>
+  </ul>
+  <h2 id="13-implementation-slices">13. Implementation Slices</h2>
+  <h3 id="slice-0-baseline-and-contract-freeze">Slice 0: Baseline and Contract Freeze</h3>
+  <p>Priority: P0 Dependencies: none</p>
+  <p>Changes:</p>
+  <ol>
+    <li>implementation開始commitとdirty filesを記録する。</li>
+    <li>current full scan dry-run outputをfixtureとして固定する。</li>
+    <li>
+      existing <code>baseline</code> profileのtool orderとmetadata
+      shapeをtestで固定する。
+    </li>
+    <li>diff scan terminologyとV1 limitationをこのspecから変更しない。</li>
+    <li>unrelated working-tree changesを実装commitに含めない。</li>
+  </ol>
+  <p>Primary files:</p>
+  <ul>
+    <li><code>api/modules/scans/profile-runner.test.ts</code></li>
+    <li><code>api/modules/scans/profile-orchestrator.ts</code></li>
+    <li><code>api/cli/scan-profile.ts</code></li>
+  </ul>
+  <p>Acceptance:</p>
+  <ul>
+    <li>target未指定時の既存scan behaviorが変わらない。</li>
+    <li>full scan dry-run outputに不要なdiff fieldを追加しない。</li>
+    <li>baseline failureがある場合はimplementation failureと混同しない。</li>
+  </ul>
+  <p>Verification:</p>
+  <pre><code class="language-bash">bun test api/modules/scans/profile-runner.test.ts
+bun run typecheck
+git diff --check
+</code></pre>
+  <p>Failure handling:</p>
+  <ul>
+    <li>existing test failureは修正せずbaselineとして記録する。</li>
+    <li>unrelated formatter差分をSlice 0へ混ぜない。</li>
+  </ul>
+  <h3 id="slice-1-scantarget-schema-and-git-diff-resolver">
+    Slice 1: ScanTarget Schema and Git Diff Resolver
+  </h3>
+  <p>Priority: P0 Dependencies: Slice 0</p>
+  <p>New files:</p>
+  <ul>
+    <li><code>shared/schemas/scan-target.schema.ts</code></li>
+    <li><code>api/modules/scans/git-command.ts</code></li>
+    <li><code>api/modules/scans/git-diff-resolver.ts</code></li>
+    <li><code>api/modules/scans/git-diff-resolver.test.ts</code></li>
+  </ul>
+  <p>Changes:</p>
+  <ol>
+    <li>request、resolved target、manifest entry、coverage schemaを追加する。</li>
+    <li>ref、parent、merge-base、empty treeを解決する。</li>
+    <li><code>git diff --name-status -z --find-renames --find-copies</code>をparseする。</li>
+    <li>
+      working treeでは<code>git diff &lt;base&gt; --</code>と
+      <code>git ls-files --others --exclude-standard -z</code>を統合する。
+    </li>
+    <li>project scope外pathを除外する。</li>
+    <li>deterministic orderingとtarget digestを実装する。</li>
+    <li>Git errorをstable reason codeへmappingする。</li>
+    <li>preview用tool-neutral planを返す。</li>
+  </ol>
+  <p>Required tests:</p>
+  <ul>
+    <li>normal single-parent commit</li>
+    <li>root commit</li>
+    <li>merge commit with/without explicit base</li>
+    <li>range with merge-base</li>
+    <li>diverged branch</li>
+    <li>staged only</li>
+    <li>unstaged only</li>
+    <li>staged + later unstaged edit</li>
+    <li>untracked included/excluded</li>
+    <li>ignored untracked excluded</li>
+    <li>added/modified/deleted/renamed/copied/type-changed</li>
+    <li>unmerged path</li>
+    <li>gitlink</li>
+    <li>path containing space/tab/newline/non-ASCII</li>
+    <li>invalid/missing ref</li>
+    <li>non-Git directory</li>
+    <li>nested project prefix</li>
+    <li>empty diff</li>
+    <li>stable ordering and digest</li>
+  </ul>
+  <p>Acceptance:</p>
+  <ul>
+    <li>resolverはsource repositoryを変更しない。</li>
+    <li>同じGit stateからbyte-identical canonical manifestを生成する。</li>
+    <li>ref解決失敗をempty diffとして返さない。</li>
+    <li>working treeのuntracked fileを設定どおり扱う。</li>
+  </ul>
+  <p>Verification:</p>
+  <pre><code class="language-bash">bun test api/modules/scans/git-diff-resolver.test.ts
+bun run typecheck
+bun run lint
+</code></pre>
+  <p>Failure handling:</p>
+  <ul>
+    <li>
+      Git version差でoutputが不安定な場合、human-readable parseへfallbackせず supported Git
+      versionを明示する。
+    </li>
+    <li>nested project prefixを安全に解決できない場合、root全体へ拡張せずrejectする。</li>
+  </ul>
+  <h3 id="slice-2-immutable-snapshot-and-changed-files-workspace">
+    Slice 2: Immutable Snapshot and Changed-files Workspace
+  </h3>
+  <p>Priority: P0 Dependencies: Slice 1</p>
+  <p>New files:</p>
+  <ul>
+    <li><code>api/modules/scans/diff-snapshot.ts</code></li>
+    <li><code>api/modules/scans/diff-snapshot.test.ts</code></li>
+  </ul>
+  <p>Modified files:</p>
+  <ul>
+    <li><code>api/modules/scans/target-scope.ts</code></li>
+    <li><code>api/modules/scans/target-scope.test.ts</code></li>
+  </ul>
+  <p>Changes:</p>
+  <ol>
+    <li>committed targetをtemporary detached shared cloneへmaterializeする。</li>
+    <li>working tree overlay、delete、rename、untracked copyを実装する。</li>
+    <li>profile scopeとmanifest dispositionからchanged-files workspaceを作る。</li>
+    <li>copy前後のcontent hashを確認する。</li>
+    <li>full snapshotとchanged-files workspaceを同じlifecycleでcleanupする。</li>
+    <li>repository-relative scanner path mappingを提供する。</li>
+    <li>snapshot digestとcopied byte countを返す。</li>
+    <li>symlink/gitlink/binary/large fileのpolicyを適用する。</li>
+  </ol>
+  <p>Required tests:</p>
+  <ul>
+    <li>source checkout branch/index/statusが変わらない</li>
+    <li>committed target content matches head</li>
+    <li>working overlay includes staged/unstaged/untracked</li>
+    <li>deleted/rename old path removed</li>
+    <li>file mutation during copy returns target_changed</li>
+    <li>symlink inside snapshot</li>
+    <li>symlink escape excluded</li>
+    <li>gitlink not materialized</li>
+    <li>temporary path cleanup on success/failure/cancel</li>
+    <li>no absolute temporary path in returned metadata</li>
+    <li>resource limit enforcement</li>
+  </ul>
+  <p>Acceptance:</p>
+  <ul>
+    <li>全scannerが同じimmutable snapshot generationを使用できる。</li>
+    <li>working treeをscannerが直接読む経路がない。</li>
+    <li>cleanup失敗を理由にsource repositoryを削除・変更しない。</li>
+  </ul>
+  <p>Verification:</p>
+  <pre><code class="language-bash">bun test api/modules/scans/diff-snapshot.test.ts
+bun test api/modules/scans/target-scope.test.ts
+bun run typecheck
+bun run lint
+</code></pre>
+  <p>Failure handling:</p>
+  <ul>
+    <li>
+      shared cloneがsupported environmentで利用できない場合、 source checkoutを使わず、safe archive
+      materializerを別実装する。
+    </li>
+    <li>snapshot mismatch時はscannerを起動せずscanをfailedにする。</li>
+  </ul>
+  <h3 id="slice-3-profile-orchestration-and-persistence">
+    Slice 3: Profile Orchestration and Persistence
+  </h3>
+  <p>Priority: P0 Dependencies: Slice 2</p>
+  <p>New files:</p>
+  <ul>
+    <li><code>api/modules/scans/diff-scan-plan.ts</code></li>
+    <li><code>api/modules/scans/diff-scan-plan.test.ts</code></li>
+  </ul>
+  <p>Modified files:</p>
+  <ul>
+    <li><code>shared/schemas/scan-profile.schema.ts</code></li>
+    <li><code>shared/schemas/scan.schema.ts</code></li>
+    <li><code>api/modules/scans/profiles.ts</code></li>
+    <li><code>api/modules/scans/profile-orchestrator.ts</code></li>
+    <li><code>api/modules/scans/profile-runner.ts</code></li>
+    <li><code>api/modules/scans/repositories.ts</code></li>
+    <li><code>api/modules/scans/artifact-storage.ts</code></li>
+    <li>related tests</li>
+  </ul>
+  <p>Changes:</p>
+  <ol>
+    <li>
+      <code>supportedTargets</code>と<code>diff-source-baseline</code>
+      profileを追加する。
+    </li>
+    <li>target resolutionをscan row claim後、tool run開始前に行う。</li>
+    <li>resolved targetとcoverageをscan metadataへ保存する。</li>
+    <li>
+      canonical <code>diff-manifest.json</code>をscan-level artifactとして保存する。
+    </li>
+    <li>tool applicabilityをstep execution前に決める。</li>
+    <li>
+      static <code>ToolResult</code>へapplicability、reason、coverage
+      effectを追加する。
+    </li>
+    <li>not-applicable stepをstructured skipとして保存する。</li>
+    <li>findingへtarget/diff relation metadataを付与する。</li>
+    <li>finallyでsnapshot lifecycleを閉じる。</li>
+    <li>cancel時にもsnapshot cleanupを行う。</li>
+    <li>full target pathは従来挙動を維持する。</li>
+  </ol>
+  <p>Required tests:</p>
+  <ul>
+    <li>unsupported profile + diff target rejected</li>
+    <li>diff profile + full target rejected</li>
+    <li>empty diff completes with explicit no_changed_files</li>
+    <li>no manifest change skips OSV/dependency Trivy</li>
+    <li>deleted-only diff creates coverage but no tool input</li>
+    <li>manifest artifact registration</li>
+    <li>queued scan target metadata preserved</li>
+    <li>required applicable tool failure still fails profile</li>
+    <li>not-applicable required tool does not fail profile</li>
+    <li>full baseline behavior unchanged</li>
+    <li>cleanup after tool failure/cancel</li>
+  </ul>
+  <p>Acceptance:</p>
+  <ul>
+    <li>scan runからtarget identityとcoverageを再構成できる。</li>
+    <li>manifest artifactとmetadataのtarget digestが一致する。</li>
+    <li>not applicableをsuccessfully scannedとして集計しない。</li>
+    <li>full scanにsnapshot作成costを追加しない。</li>
+  </ul>
+  <p>Verification:</p>
+  <pre><code class="language-bash">bun test api/modules/scans/profile-runner.test.ts
+bun test api/modules/scans/diff-scan-plan.test.ts
+bun test api/modules/scans/repositories.test.ts
+bun test api/modules/scans/artifact-storage.test.ts
+bun run typecheck
+</code></pre>
+  <p>Failure handling:</p>
+  <ul>
+    <li>metadataだけ保存されartifact登録が失敗した場合はscanを開始しない。</li>
+    <li>partial persistenceをcompleted scanとして残さない。</li>
+  </ul>
+  <h3 id="slice-4-static-scanner-integration">Slice 4: Static Scanner Integration</h3>
+  <p>Priority: P0 Dependencies: Slice 3</p>
+  <p>Modified files:</p>
+  <ul>
+    <li><code>api/modules/scans/tools/semgrep-runner.ts</code></li>
+    <li><code>api/modules/scans/tools/semgrep-runner.test.ts</code></li>
+    <li><code>api/modules/scans/tools/gitleaks-runner.ts</code></li>
+    <li><code>api/modules/scans/tools/gitleaks-runner.test.ts</code></li>
+    <li><code>api/modules/scans/tools/osv-runner.ts</code></li>
+    <li><code>api/modules/scans/tools/osv-runner.test.ts</code></li>
+    <li><code>api/modules/scans/tools/trivy-runner.ts</code></li>
+    <li><code>api/modules/scans/tools/trivy-runner.test.ts</code></li>
+    <li><code>api/modules/scans/profile-runner.ts</code></li>
+    <li>normalizer tests as needed</li>
+  </ul>
+  <p>Changes:</p>
+  <ol>
+    <li>Semgrepへexplicit changed pathまたはchanged workspaceを渡す。</li>
+    <li>Gitleaksをchanged workspace + <code>--no-git</code>へ固定する。</li>
+    <li>OSVをmanifest change時だけfull snapshotへ実行する。</li>
+    <li>Trivyをchanged workspaceへ実行し、dependency companionを補う。</li>
+    <li>scanner output pathをproject-relative pathへremapする。</li>
+    <li>manifest外findingをgapとして処理する。</li>
+    <li>tool run metadataへinput kind、target digest、file countを保存する。</li>
+    <li>Docker runnerでもsnapshot path mountが正しく置換されることを確認する。</li>
+  </ol>
+  <p>Required tests:</p>
+  <ul>
+    <li>exact command args and cwd for every tool</li>
+    <li>no source repository path passed as diff scan target</li>
+    <li>no secret-bearing environment variables</li>
+    <li>tool output contains no temporary absolute path</li>
+    <li>Semgrep modified-file finding</li>
+    <li>Gitleaks changed-file secret</li>
+    <li>OSV skipped/no manifest and executed/manifest changed</li>
+    <li>Trivy changed/context workspace and metadata</li>
+    <li>Docker path mapping</li>
+    <li>invalid JSON/tool unavailable/timeout behavior unchanged</li>
+  </ul>
+  <p>Acceptance:</p>
+  <ul>
+    <li>Semgrep/Gitleaksのwork量がchanged file scopeへ縮小する。</li>
+    <li>OSV/Trivy dependency resultをintroducedと誤表示しない。</li>
+    <li>existing raw artifact redactionを維持する。</li>
+    <li>tool commandにuser-controlled shell fragmentを追加しない。</li>
+  </ul>
+  <p>Verification:</p>
+  <pre><code class="language-bash">bun test api/modules/scans/tools/semgrep-runner.test.ts
+bun test api/modules/scans/tools/gitleaks-runner.test.ts
+bun test api/modules/scans/tools/osv-runner.test.ts
+bun test api/modules/scans/tools/trivy-runner.test.ts
+bun test api/modules/scans/profile-runner.test.ts
+bun run typecheck
+bun run lint
+</code></pre>
+  <p>Failure handling:</p>
+  <ul>
+    <li>
+      scannerが複数pathを安定して扱えない場合、source repository全体へfallbackせず changed-files
+      workspaceを使用する。
+    </li>
+    <li>
+      dependency resultのpath relationが不明な場合、source file findingへ偽装せず target-state
+      dependency relationを使用する。
+    </li>
+  </ul>
+  <h3 id="slice-5-cli-and-web-api">Slice 5: CLI and Web API</h3>
+  <p>Priority: P1 Dependencies: Slice 4</p>
+  <p>Modified files:</p>
+  <ul>
+    <li><code>api/cli/scan-profile.ts</code></li>
+    <li><code>api/modules/scans/profile-runner.test.ts</code></li>
+    <li><code>api/routes/projects.route.ts</code></li>
+    <li><code>api/routes/projects.route.test.ts</code></li>
+    <li><code>api/routes/scan-profiles.route.ts</code></li>
+    <li><code>api/routes/scan-profiles.route.test.ts</code></li>
+    <li><code>web/src/api/scans.ts</code></li>
+  </ul>
+  <p>Changes:</p>
+  <ol>
+    <li>CLI target options、validation、preview JSONを追加する。</li>
+    <li>scan profile APIへsupported targetsを返す。</li>
+    <li>project scan preview routeを追加する。</li>
+    <li>scan start bodyへtargetとexpected digestを追加する。</li>
+    <li>queued metadataへrequested targetを保存する。</li>
+    <li>supervisor argsへvalidated fieldを個別追加する。</li>
+    <li>preview/start双方へownership/path policyを適用する。</li>
+    <li>API errorへstable reason codeを返す。</li>
+  </ol>
+  <p>Required tests:</p>
+  <ul>
+    <li>every valid CLI mode</li>
+    <li>incompatible/missing CLI flags</li>
+    <li>preview creates no DB records</li>
+    <li>preview ownership rejection</li>
+    <li>preview path-policy rejection</li>
+    <li>preview output omits absolute paths</li>
+    <li>queued args contain resolved target options</li>
+    <li>target changed between preview and worker launch</li>
+    <li>legacy start body defaults to full</li>
+    <li>profile response exposes supported target modes</li>
+  </ul>
+  <p>Acceptance:</p>
+  <ul>
+    <li>CLIだけでcommit/range/working-tree scanを完了できる。</li>
+    <li>Web APIはpreview digestなしのworking-tree launchを拒否する。</li>
+    <li>legacy Web/API full scanが互換動作する。</li>
+  </ul>
+  <p>Verification:</p>
+  <pre><code class="language-bash">bun test api/modules/scans/security-oracle-cli.test.ts
+bun test api/routes/projects.route.test.ts
+bun test api/routes/scan-profiles.route.test.ts
+bun run typecheck
+bun run lint
+</code></pre>
+  <p>Failure handling:</p>
+  <ul>
+    <li>supervisor command生成に曖昧なserialized blobを使わない。</li>
+    <li>worker再解決のfailureをqueuedのまま残さずfailed eventへ確定する。</li>
+  </ul>
+  <h3 id="slice-6-web-ui-coverage-and-report">Slice 6: Web UI, Coverage, and Report</h3>
+  <p>Priority: P1 Dependencies: Slice 5</p>
+  <p>Modified files:</p>
+  <ul>
+    <li><code>web/src/domains/scans/components/scans-sidebar.tsx</code></li>
+    <li><code>web/src/domains/scans/use-scans-controller.ts</code></li>
+    <li><code>web/src/domains/scans/scans-context.tsx</code></li>
+    <li><code>web/src/domains/scans/components/run-card-list.tsx</code></li>
+    <li><code>web/src/domains/scans/components/scan-result-overview.tsx</code></li>
+    <li><code>web/src/domains/scans/coverage-summary.ts</code></li>
+    <li><code>api/modules/scans/report-builder.ts</code></li>
+    <li>related tests and styles</li>
+  </ul>
+  <p>New files:</p>
+  <ul>
+    <li><code>web/src/domains/scans/diff-target-display.ts</code></li>
+    <li><code>web/src/domains/scans/diff-target-display.test.ts</code></li>
+    <li><code>web/src/domains/scans/components/diff-target-preview.tsx</code></li>
+  </ul>
+  <p>Changes:</p>
+  <ol>
+    <li>target mode/ref/untracked stateをcontrollerへ追加する。</li>
+    <li>selected profile capabilityでtarget UIを制御する。</li>
+    <li>preview loading/error/stale stateを実装する。</li>
+    <li>start requestへpreview digestを渡す。</li>
+    <li>changed file/coverage previewを表示する。</li>
+    <li>scan history/detailへtarget badgeを表示する。</li>
+    <li>finding relation labelを表示する。</li>
+    <li>reportとzero-finding copyへdiff semanticsを反映する。</li>
+    <li>existing scan comparisonの「新規」とdiff relation表示を混同しない。</li>
+  </ol>
+  <p>Required tests:</p>
+  <ul>
+    <li>profile switch resets incompatible target</li>
+    <li>worktree default and untracked default</li>
+    <li>commit/range field validation</li>
+    <li>preview loading/error/success</li>
+    <li>target_changed requires refresh</li>
+    <li>start disabled without valid preview</li>
+    <li>changed entry truncation display</li>
+    <li>coverage copy for empty/deleted/excluded/partial</li>
+    <li>finding relation labels</li>
+    <li>legacy full scan UI unchanged</li>
+    <li>keyboard/label/accessibility behavior</li>
+  </ul>
+  <p>Acceptance:</p>
+  <ul>
+    <li>利用者が実行前に対象とgapを確認できる。</li>
+    <li>UIがdiff findingをnew findingと表示しない。</li>
+    <li>source/diff本文やsecretをpreviewへ表示しない。</li>
+    <li>target変更後に古いdigestで実行できない。</li>
+  </ul>
+  <p>Verification:</p>
+  <pre><code class="language-bash">bun run test:web -- web/src/domains/scans/diff-target-display.test.ts
+bun run test:web -- web/src/domains/scans/coverage-summary.test.ts
+bun run typecheck
+bun run lint
+bun run build
+</code></pre>
+  <p>Failure handling:</p>
+  <ul>
+    <li>preview failure時にfull scanへ自動fallbackしない。</li>
+    <li>stale previewでstart buttonを有効化しない。</li>
+  </ul>
+  <h3 id="slice-7-end-to-end-verification-and-rollout">
+    Slice 7: End-to-end Verification and Rollout
+  </h3>
+  <p>Priority: P0 release gate Dependencies: Slice 6</p>
+  <p>New files:</p>
+  <ul>
+    <li><code>api/modules/scans/scan-diff.e2e.test.ts</code></li>
+    <li>optional deterministic fixtures under existing test fixture conventions</li>
+  </ul>
+  <p>Changes:</p>
+  <ol>
+    <li>temporary Git repositoryをtest内で構築する。</li>
+    <li>commit/range/working-treeのknown findingsを実scanner mockで検証する。</li>
+    <li>host/docker execution metadataを検証する。</li>
+    <li>repeated executionのdeterminismを検証する。</li>
+    <li>cancellation/cleanup/failure recoveryを検証する。</li>
+    <li>READMEへの利用例追加は全gate通過後だけ行う。</li>
+  </ol>
+  <p>Required scenarios:</p>
+  <pre><code class="language-text">A: clean base commit
+B: source issue + secret added
+C: dependency manifest changed
+D: source issue fixed, file renamed, another file deleted
+working tree:
+  staged source edit
+  unstaged secret
+  untracked manifest
+  ignored file
+</code></pre>
+  <p>Acceptance matrix:</p>
+  <table>
+    <caption>
+      Slice 7: End-to-end Verification and Rollout
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Scenario</th>
+        <th scope="col">Expected</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>commit A→B</td>
+        <td>changed source/secret files scanned</td>
+      </tr>
+      <tr>
+        <td>range A...C</td>
+        <td>merge-base used; dependency scanners applicable</td>
+      </tr>
+      <tr>
+        <td>commit C→D</td>
+        <td>renamed new path scanned; deleted path coverage only</td>
+      </tr>
+      <tr>
+        <td>working tree</td>
+        <td>staged/unstaged/untracked included; ignored excluded</td>
+      </tr>
+      <tr>
+        <td>same commit twice</td>
+        <td>same target/manifest digest and deterministic finding order</td>
+      </tr>
+      <tr>
+        <td>edit after preview</td>
+        <td>launch fails with target_changed</td>
+      </tr>
+      <tr>
+        <td>no changes</td>
+        <td>completed with no_changed_files, not security-clean claim</td>
+      </tr>
+      <tr>
+        <td>tool unavailable</td>
+        <td>existing required/optional failure policy preserved</td>
+      </tr>
+      <tr>
+        <td>cancel</td>
+        <td>worker and temporary snapshot cleaned</td>
+      </tr>
+      <tr>
+        <td>full baseline</td>
+        <td>behavior and output contract remain compatible</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>Verification:</p>
+  <pre><code class="language-bash">bun test api/modules/scans/scan-diff.e2e.test.ts
+bun run test
+bun run typecheck
+bun run lint
+bun run format:check
+bun run build
+bun run verify
+git diff --check
+</code></pre>
+  <p>Release gate:</p>
+  <ul>
+    <li><code>bun run verify</code>がclean checkoutで成功する。</li>
+    <li>known limitationがREADMEとUI/reportに一致する。</li>
+    <li>diff scan経路でLLM requestが発生しない。</li>
+    <li>temporary snapshotとmanifestにsecret bodyが残らない。</li>
+    <li>source repositoryのbranch/index/worktreeが変更されない。</li>
+    <li>target/gap/tool provenanceをscan runから追跡できる。</li>
+  </ul>
+  <p>Failure handling:</p>
+  <ul>
+    <li>full scan regressionがあればdiff featureを有効化しない。</li>
+    <li>deterministic digest failureがあればWeb target previewを有効化しない。</li>
+    <li>
+      real scanner version差で契約が崩れる場合、silent fallbackせずsupported versionと readiness
+      failureを明示する。
+    </li>
+  </ul>
+  <h2 id="14-rollout">14. Rollout</h2>
+  <p>
+    専用profileとsliceのmerge順をrollout boundaryとして使用し、 V1専用のfeature flagは追加しない。
+  </p>
+  <p>段階:</p>
+  <ol>
+    <li>Slice 1のresolverとpreview data contractを内部moduleとしてmergeする。</li>
+    <li>Slice 2から4でCLI test fixtureからだけscanner integrationを検証する。</li>
+    <li>Slice 5でCLI preview、commit/range、working-tree scanを公開する。</li>
+    <li>Slice 5のAPI preview/start contract合格後にWeb clientから利用可能にする。</li>
+    <li>Slice 6のUIを公開する。</li>
+    <li>Slice 7 release gate合格後にREADMEへ一般利用手順を追加する。</li>
+  </ol>
+  <p>公開条件:</p>
+  <ul>
+    <li>Slice 7 release gate合格</li>
+    <li>host runnerとDocker runnerの双方でpath mapping確認</li>
+    <li>resource limitとcleanupのoperational evidence確認</li>
+    <li>preview/start TOCTOU test合格</li>
+    <li>full scan regressionなし</li>
+  </ul>
+  <p>rollback:</p>
+  <ul>
+    <li>
+      <code>diff-source-baseline</code>をAPI profile listから一時的に非表示にし、 non-full
+      target startを明示的に拒否する。
+    </li>
+    <li>existing diff scan history、findings、artifactは削除しない。</li>
+    <li>full scan profileとexisting report閲覧は継続する。</li>
+  </ul>
+  <h2 id="15-definition-of-done">15. Definition of Done</h2>
+  <p>すべて満たした場合だけimplementation completeとする。</p>
+  <ul>
+    <li>commit、range、working-treeを明示的なtargetとして選べる。</li>
+    <li>rangeはmerge-base semanticsを使用する。</li>
+    <li>working treeはstaged、unstaged、optional untrackedを固定snapshot化する。</li>
+    <li>source repositoryのcheckout、index、refsを変更しない。</li>
+    <li>全toolが同じresolved target generationを見る。</li>
+    <li>Semgrep/Gitleaksはchanged file scopeへ限定される。</li>
+    <li>OSV/Trivy dependency scanはmanifest変更時だけ実行される。</li>
+    <li>deleted/excluded/unsupported/too-largeがcoverageに残る。</li>
+    <li>diff manifestはcanonical、redacted、repository-relativeである。</li>
+    <li>preview/start間のtarget mutationを拒否する。</li>
+    <li>existing full scan behaviorを維持する。</li>
+    <li>UI/reportがintroduced findingを主張しない。</li>
+    <li>diff scanによってLLM処理を自動起動しない。</li>
+    <li>cleanup、cancel、timeout、tool unavailableを検証している。</li>
+    <li>targeted tests、full tests、typecheck、lint、format、build、verifyが成功する。</li>
+  </ul>
+  <h2 id="16-deferred-follow-ups">16. Deferred Follow-ups</h2>
+  <p>この計画の完了後に別specとして判断する。</p>
+  <ul>
+    <li>base/head双方をscanするfinding delta engine</li>
+    <li>line移動に強いfinding identity V2</li>
+    <li>introduced / unchanged / resolved / regressed classification</li>
+    <li>Gitleaks Git history range mode</li>
+    <li>pull request provider integration</li>
+    <li>changed-module dependency graphによるcontext expansion</li>
+    <li>submodule materialization policy</li>
+    <li>large diff operator override</li>
+    <li>indexed <code>scan_targets</code> table</li>
+  </ul>
+  <p>Deferred項目をV1 implementationへ混ぜない。</p>
+</article>
+  </body>
+</html>

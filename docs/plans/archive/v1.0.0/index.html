@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex,follow">
+    <title>vulnWorkbench v1.0.0 | vulnWorkbench</title>
+    <link rel="stylesheet" href="/vlunWorkbench/assets/css/spec-document.css">
+    <link rel="stylesheet" href="/vlunWorkbench/assets/css/plan-document.css">
+  </head>
+  <body>
+    <nav class="plan-document-links" aria-label="文書ナビゲーション">
+      <a href="/vlunWorkbench/plans/archive/?doc=v1.0.0" target="_top">実装計画アーカイブへ</a>
+      <a href="/vlunWorkbench/" target="_top">vulnWorkbenchのLPへ戻る</a>
+    </nav>
+    <article lang="en">
+  <h1 id="vulnworkbench-v100">vulnWorkbench v1.0.0</h1>
+  <p>
+    Status: technical release; professional capability claim
+    <code>not_met</code>
+  </p>
+  <p>
+    This technical release candidate provides the local AppSec evidence workflow, strict
+    authorization/network/secret boundaries, serialized SQLite writes, bounded scanner execution,
+    deterministic reporting, and optional evidence-constrained LLM diagnosis.
+  </p>
+  <p>
+    The professional measured-capability claim remains <code>not_met</code>.
+    The pinned OWASP Benchmark run has recall 0.7088, precision 0.6946, false-positive rate 0.3121,
+    and score 0.3967. Juice Shop has 20 eligible scenarios in 9 categories but no accepted runtime
+    observations. These limitations do not become a pass merely because the technical release gates
+    pass.
+  </p>
+  <p>
+    The release commit is accepted only after clean-checkout strict verification, verified
+    backup/restore, all three maintained container builds and security scans, offline toolbox
+    verification, real-scanner DAST evidence, and the capability report. Any later source change
+    requires a new patch release and a new immutable tag.
+  </p>
+</article>
+  </body>
+</html>

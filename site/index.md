@@ -1,7 +1,7 @@
 ---
 layout: default
-title: vulnWorkbench | 証跡を中心にしたローカルAppSecワークベンチ
-description: vulnWorkbenchは、複数のセキュリティスキャナー、検出結果、カバレッジ、再現証跡、レポートを一つのローカルワークフローにまとめます。
+title: 診断結果を証跡から確かめるローカルワークベンチ
+description: vulnWorkbenchは、複数のセキュリティスキャナーによる検査結果と証跡をまとめ、何をどこまで調べたかが分かるレポートをローカル環境に残します。
 permalink: /
 image: /assets/img/og-image.jpg
 body_class: lp-body
@@ -29,19 +29,22 @@ og_image_alt: vulnWorkbenchのセキュリティスキャン画面
     <div class="shell hero-shell">
       <header class="topbar">
         <a class="brand" href="{{ '/' | relative_url }}">vulnWorkbench</a>
-        <div class="chip">local-first / evidence-bound / fail-closed</div>
+        <div class="topbar-actions">
+          <a class="topbar-link" href="{{ '/plans/archive/' | relative_url }}">実装計画アーカイブ</a>
+          <div class="chip">ローカルを中心に運用 / 証跡に基づく / 異常時は停止</div>
+        </div>
       </header>
 
       <div class="hero-copy">
-        <p class="eyebrow">Local AppSec Evidence Workbench</p>
+        <p class="eyebrow">ローカルで使える脆弱性診断ワークベンチ</p>
         <h1>
-          脆弱性診断を、<br>
+          診断結果を、<br>
           証跡から<br>
-          判断する。
+          確かめる。
         </h1>
         <p class="lead">
-          vulnWorkbenchは、静的解析、依存関係、シークレット、DASTの結果を集約し、
-          検証可能な証跡とカバレッジを保ったまま、診断とレポートへつなぐローカルワークベンチです。
+          vulnWorkbenchは、ソースコードの静的解析、依存ライブラリ、埋め込まれた機密情報、動的検査（DAST）などの結果をまとめ、
+          何をどこまで調べたかが分かる証跡とともに、診断結果とレポートを残すローカルワークベンチです。
         </p>
         <div class="hero-actions">
           <a class="btn btn-primary" href="https://github.com/ugnoguchigxp/vlunWorkbench">GitHubで見る</a>
@@ -49,10 +52,10 @@ og_image_alt: vulnWorkbenchのセキュリティスキャン画面
         </div>
       </div>
 
-      <div class="status-strip" aria-label="vulnWorkbench capability highlights">
-        <div><strong>Scanner Orchestration</strong><span>bounded profiles and adapters</span></div>
-        <div><strong>Evidence Integrity</strong><span>findings, artifacts, coverage</span></div>
-        <div><strong>Deterministic Reports</strong><span>optional evidence-bound LLM review</span></div>
+      <div class="status-strip" aria-label="vulnWorkbenchの主な特徴">
+        <div><strong>複数のスキャナーを一括実行</strong><span>対象と制限をプロファイルで管理</span></div>
+        <div><strong>検出結果と証跡を保存</strong><span>検査範囲と未検証の範囲も記録</span></div>
+        <div><strong>再確認できるレポート</strong><span>必要に応じてAI（LLM）が証跡に基づきレビュー</span></div>
       </div>
     </div>
   </section>
@@ -60,13 +63,14 @@ og_image_alt: vulnWorkbenchのセキュリティスキャン画面
   <section class="section intro">
     <div class="shell section-grid">
       <div>
-        <p class="section-kicker">Why vulnWorkbench</p>
-        <h2>ツールの出力を、判断できる診断結果へ。</h2>
+        <p class="section-kicker">vulnWorkbenchが解決すること</p>
+        <h2>ツールの出力を、根拠をたどれる診断結果に。</h2>
       </div>
       <p class="section-lead">
-        セキュリティツールを増やすだけでは、実行できなかった検査、重複するfinding、
-        根拠の弱い要約が残ります。vulnWorkbenchは実行前のpreflightからartifact、coverage、
-        reportまでを同じscanに結び付け、観測できた事実と未検証領域を分けて表示します。
+        セキュリティツールを増やしても、実行できなかった検査や重複した指摘、
+        根拠を確かめにくい要約がばらばらに残っていては、結果を判断できません。
+        vulnWorkbenchは、実行前の条件確認から証跡の保存、検査範囲の記録、レポートの作成までを一回のスキャンに結び付けます。
+        確認できた事実と、まだ検証できていない範囲を分けて表示します。
       </p>
     </div>
   </section>
@@ -74,25 +78,25 @@ og_image_alt: vulnWorkbenchのセキュリティスキャン画面
   <section class="section">
     <div class="shell">
       <div class="section-heading">
-        <p class="section-kicker">Core Surfaces</p>
-        <h2>スキャン、証跡、レビューを一つの流れで扱う。</h2>
+        <p class="section-kicker">主な機能</p>
+        <h2>スキャンからレビューまで、一つの流れで管理。</h2>
       </div>
       <div class="cards">
         <article class="card">
-          <h3>Project & Profile</h3>
-          <p>ローカルprojectを登録し、対象と実行境界が明示されたprofileから診断を開始します。</p>
+          <h3>対象と実行内容を設定</h3>
+          <p>ローカルのプロジェクトを登録し、何をどこまで検査するかを定めたプロファイルから診断を始めます。</p>
         </article>
         <article class="card">
-          <h3>Scanner Aggregation</h3>
-          <p>Gitleaks、OSV-Scanner、Trivyなどの結果を共通finding contractへ正規化します。</p>
+          <h3>スキャナーの結果を統合</h3>
+          <p>Gitleaks、OSV-Scanner、Trivyなどの結果を、共通の形式にそろえます。</p>
         </article>
         <article class="card">
-          <h3>Coverage & Evidence</h3>
-          <p>実行済み、未実行、適用外、失敗を区別し、artifactとprovenanceを追跡します。</p>
+          <h3>検査範囲と証跡を保存</h3>
+          <p>実行済み、未実行、対象外、失敗を区別し、スキャナーの出力と情報の出どころを追跡できるようにします。</p>
         </article>
         <article class="card">
-          <h3>Report & Review</h3>
-          <p>決定論的レポートを必ず残し、必要な場合だけ証跡制約付きLLMレビューを重ねます。</p>
+          <h3>レポートとレビュー</h3>
+          <p>同じ入力から同じ内容を生成できるレポートを必ず残します。必要な場合だけ、AI（LLM）が保存した証跡に基づいて内容をレビューします。</p>
         </article>
       </div>
     </div>
@@ -101,15 +105,15 @@ og_image_alt: vulnWorkbenchのセキュリティスキャン画面
   <section class="section section-flow">
     <div class="shell">
       <div class="section-heading">
-        <p class="section-kicker">Assessment Flow</p>
-        <h2>対象登録からレポートまで、状態を失わない。</h2>
+        <p class="section-kicker">診断の流れ</p>
+        <h2>対象の登録からレポートまで、経過を記録。</h2>
       </div>
       <div class="flow">
-        <article class="flow-step"><span>01</span><p>Projectと対象範囲を登録</p></article>
-        <article class="flow-step"><span>02</span><p>Preflightで実行条件を検証</p></article>
-        <article class="flow-step"><span>03</span><p>Scannerを隔離・制限して実行</p></article>
-        <article class="flow-step"><span>04</span><p>Findingとevidenceを正規化</p></article>
-        <article class="flow-step"><span>05</span><p>Coverage付きreportを確認</p></article>
+        <article class="flow-step"><span>01</span><p>プロジェクトと検査範囲を登録</p></article>
+        <article class="flow-step"><span>02</span><p>検査を始められる状態か確認</p></article>
+        <article class="flow-step"><span>03</span><p>制限を設けてスキャナーを実行</p></article>
+        <article class="flow-step"><span>04</span><p>検出結果と証跡の形式を統一</p></article>
+        <article class="flow-step"><span>05</span><p>検査範囲が分かるレポートを確認</p></article>
       </div>
     </div>
   </section>
@@ -117,24 +121,24 @@ og_image_alt: vulnWorkbenchのセキュリティスキャン画面
   <section class="section">
     <div class="shell">
       <div class="section-heading">
-        <p class="section-kicker">Trust Boundary</p>
-        <h2>見つからなかったことを、安全だったことにしない。</h2>
+        <p class="section-kicker">診断結果の信頼性</p>
+        <h2>「検出なし」と「安全」を区別する。</h2>
       </div>
       <div class="compare">
         <article class="compare-box">
           <h3>断片的なスキャン運用</h3>
           <ul>
-            <li>scannerごとに結果と形式が分かれる</li>
-            <li>失敗や未実行が0件として見えやすい</li>
-            <li>要約から元の証跡を追いにくい</li>
+            <li>スキャナーごとに結果と形式がばらばら</li>
+            <li>失敗や未実行も「検出0件」に見えやすい</li>
+            <li>要約から元の証跡までたどりにくい</li>
           </ul>
         </article>
         <article class="compare-box active">
           <h3>vulnWorkbench</h3>
           <ul>
-            <li>scan、tool run、finding、artifactを関連付ける</li>
-            <li>coverage gapとinconclusiveを明示する</li>
-            <li>判断を保存済みevidenceへ結び付ける</li>
+            <li>スキャン、各ツールの実行、検出結果、出力ファイルを関連付けて保存</li>
+            <li>検査できなかった範囲と、結論を出せない結果を明示</li>
+            <li>判断と、その根拠になった証跡を結び付けて保存</li>
           </ul>
         </article>
       </div>
@@ -144,18 +148,18 @@ og_image_alt: vulnWorkbenchのセキュリティスキャン画面
   <section class="cta">
     <div class="shell">
       <div class="cta-panel">
-        <p class="section-kicker">Local-first by design</p>
-        <h2>診断結果を、再確認できる形で残す。</h2>
+        <p class="section-kicker">ローカルを中心に管理</p>
+        <h2>あとから確かめられる診断結果を残す。</h2>
         <p>
-          スキャナーの実行制御、artifact保存、カバレッジ、決定論的レポートを、
-          ローカル環境で一つのワークフローとして扱えます。
+          スキャナーの実行条件、出力ファイル、検査範囲、レポートを一つの流れで管理し、
+          ローカル環境に保存します。
         </p>
-        <a class="btn btn-primary" href="https://github.com/ugnoguchigxp/vlunWorkbench">GitHubプロジェクトを見る</a>
+        <a class="btn btn-primary" href="https://github.com/ugnoguchigxp/vlunWorkbench">GitHubで詳しく見る</a>
       </div>
     </div>
   </section>
 </main>
 
 <footer class="footer">
-  <div class="shell">vulnWorkbench · GitHub Pages + Jekyll</div>
+  <div class="shell">vulnWorkbench · ローカルで使える脆弱性診断ワークベンチ</div>
 </footer>

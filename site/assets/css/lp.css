@@ -88,6 +88,27 @@ a {
   gap: 16px;
 }
 
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.topbar-link {
+  padding: 6px 10px;
+  border: 1px solid rgba(219, 232, 224, 0.44);
+  border-radius: var(--radius);
+  color: #f7fbf8;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-decoration: none;
+  background: rgba(16, 25, 31, 0.48);
+}
+
+.topbar-link:hover {
+  background: rgba(20, 121, 111, 0.7);
+}
+
 .brand {
   text-decoration: none;
   font-size: 1.3rem;
@@ -444,6 +465,10 @@ h1 {
 
   .topbar {
     align-items: flex-start;
+  }
+
+  .topbar-actions {
+    justify-content: flex-end;
   }
 
   .chip {
