@@ -46,7 +46,7 @@ describe("ScanOverviewTab", () => {
 			const markup = render(status);
 
 			expect(markup).toContain(
-				"スキャン中です。検出結果は完了後に表示されます。",
+				"スキャン中です。収集済みの検出結果を随時更新します。",
 			);
 			expect(markup).not.toContain("検出結果はありません。");
 		},
@@ -56,6 +56,6 @@ describe("ScanOverviewTab", () => {
 		const markup = render("completed");
 
 		expect(markup).toContain("検出結果はありません。");
-		expect(markup).not.toContain("検出結果は完了後に表示されます。");
+		expect(markup).not.toContain("収集済みの検出結果を随時更新します。");
 	});
 });

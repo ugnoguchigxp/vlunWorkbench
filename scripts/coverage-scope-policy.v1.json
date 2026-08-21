@@ -199,6 +199,66 @@
 			"testId": "E2E-SCANS-EFFECTS",
 			"spec": "tests/e2e/release-readiness.spec.ts",
 			"title": "real DB optional Semgrep profile persists a finding and automatic report"
+		},
+		{
+			"path": "web/src/domains/scans/findings/use-finding-load-effects.ts",
+			"testId": "E2E-SCAN-FINDINGS-LOAD",
+			"spec": "tests/e2e/release-readiness.spec.ts",
+			"title": "real DB optional Semgrep profile persists a finding and automatic report"
+		},
+		{
+			"path": "web/src/domains/scans/findings/use-scan-findings-state.ts",
+			"testId": "E2E-SCAN-FINDINGS-STATE",
+			"spec": "tests/e2e/release-readiness.spec.ts",
+			"title": "real DB optional Semgrep profile persists a finding and automatic report"
+		},
+		{
+			"path": "web/src/domains/scans/findings/use-scan-findings-derived.ts",
+			"testId": "E2E-SCAN-FINDINGS-DERIVED",
+			"spec": "tests/e2e/release-readiness.spec.ts",
+			"title": "real DB optional Semgrep profile persists a finding and automatic report"
+		},
+		{
+			"path": "web/src/domains/scans/findings/use-scan-findings-effects.ts",
+			"testId": "E2E-SCAN-FINDINGS-EFFECTS",
+			"spec": "tests/e2e/release-readiness.spec.ts",
+			"title": "real DB optional Semgrep profile persists a finding and automatic report"
+		},
+		{
+			"path": "web/src/domains/scans/workspace/use-scan-launch-state.ts",
+			"testId": "E2E-SCAN-LAUNCH-STATE",
+			"spec": "tests/e2e/release-readiness.spec.ts",
+			"title": "real DB standard profile completes without invoking optional Semgrep"
+		},
+		{
+			"path": "web/src/domains/scans/workspace/use-scan-launch-effects.ts",
+			"testId": "E2E-SCAN-LAUNCH-EFFECTS",
+			"spec": "tests/e2e/release-readiness.spec.ts",
+			"title": "real DB standard profile completes without invoking optional Semgrep"
+		},
+		{
+			"path": "web/src/domains/scans/reporting/use-scan-reports-state.ts",
+			"testId": "E2E-SCAN-REPORTS-STATE",
+			"spec": "tests/e2e/release-readiness.spec.ts",
+			"title": "mocked scan workspace renders results, report preview, and history deletion"
+		},
+		{
+			"path": "web/src/domains/scans/reporting/use-scan-reports-effects.ts",
+			"testId": "E2E-SCAN-REPORTS-EFFECTS",
+			"spec": "tests/e2e/release-readiness.spec.ts",
+			"title": "mocked scan workspace renders results, report preview, and history deletion"
+		},
+		{
+			"path": "web/src/domains/scans/handoff/use-scan-diagnostics-state.ts",
+			"testId": "E2E-SCAN-DIAGNOSTICS-STATE",
+			"spec": "tests/e2e/release-readiness.spec.ts",
+			"title": "mocked scan workspace renders results, report preview, and history deletion"
+		},
+		{
+			"path": "web/src/domains/scans/handoff/use-scan-diagnostics-effects.ts",
+			"testId": "E2E-SCAN-DIAGNOSTICS-EFFECTS",
+			"spec": "tests/e2e/release-readiness.spec.ts",
+			"title": "mocked scan workspace renders results, report preview, and history deletion"
 		}
 	]
 }

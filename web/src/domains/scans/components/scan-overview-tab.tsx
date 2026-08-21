@@ -100,7 +100,7 @@ export function ScanOverviewTab({
 					</div>
 				) : scanActive ? (
 					<p className="workspace-empty" role="status">
-						スキャン中です。検出結果は完了後に表示されます。
+						スキャン中です。収集済みの検出結果を随時更新します。
 					</p>
 				) : (
 					<p className="workspace-empty">検出結果はありません。</p>

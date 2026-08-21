@@ -39,6 +39,16 @@ export default defineConfig({
 				"web/src/domains/scans/use-finding-load-effects.ts",
 				"web/src/domains/scans/use-scan-target-effects.ts",
 				"web/src/domains/scans/use-scans-effects.ts",
+				"web/src/domains/scans/findings/use-finding-load-effects.ts",
+				"web/src/domains/scans/findings/use-scan-findings-derived.ts",
+				"web/src/domains/scans/findings/use-scan-findings-effects.ts",
+				"web/src/domains/scans/findings/use-scan-findings-state.ts",
+				"web/src/domains/scans/handoff/use-scan-diagnostics-effects.ts",
+				"web/src/domains/scans/handoff/use-scan-diagnostics-state.ts",
+				"web/src/domains/scans/reporting/use-scan-reports-effects.ts",
+				"web/src/domains/scans/reporting/use-scan-reports-state.ts",
+				"web/src/domains/scans/workspace/use-scan-launch-effects.ts",
+				"web/src/domains/scans/workspace/use-scan-launch-state.ts",
 				// React context/view helpers are classified as unmeasured and exercised
 				// through browser flows, not the selected pure-model unit threshold.
 				"web/src/domains/scans/scans-context.tsx",

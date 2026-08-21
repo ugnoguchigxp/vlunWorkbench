@@ -14,12 +14,8 @@ import type {
 	RemediationPriority,
 	RemediationStatus,
 } from "../remediation-plan";
-import { useScansDerivedState } from "../scans-derived-controller";
-import type { useFindingLoadEffects } from "../use-finding-load-effects";
 import type { ScansControllerBaseScope } from "../use-scans-base-controller";
-
-type ScansFindingActionsScope = ScansControllerBaseScope &
-	ReturnType<typeof useFindingLoadEffects>;
+import { useScansDerivedState } from "./use-scan-findings-derived";
 
 const remediationStatuses: RemediationStatus[] = [
 	"not_started",
@@ -32,11 +28,14 @@ const remediationStatuses: RemediationStatus[] = [
 ];
 const remediationPriorities: RemediationPriority[] = ["p0", "p1", "p2", "p3"];
 
-export function useScansFindingActions(scope: ScansFindingActionsScope) {
+export function useScansFindingActions(scope: ScansControllerBaseScope) {
 	const {
 		actionQueueFilter,
 		allowProjectScriptsConsent,
 		attackSurfaceItems,
+		automatedDiagnostics,
+		baselineFindings,
+		baselineScanRunId,
 		commentInput,
 		decisionInput,
 		diagnosticReports,
@@ -316,6 +315,7 @@ export function useScansFindingActions(scope: ScansFindingActionsScope) {
 		selectedFindingDetails,
 		selectedFindingDastEvidence,
 		diagnosticReports,
+		automatedDiagnostics,
 		findingsViewMode,
 		selectedGroupId,
 		scanGroups,
@@ -329,6 +329,8 @@ export function useScansFindingActions(scope: ScansFindingActionsScope) {
 		scanReviews,
 		reports,
 		actionQueueFilter,
+		baselineFindings,
+		baselineScanRunId,
 	});
 	return {
 		actionQueueItems,
