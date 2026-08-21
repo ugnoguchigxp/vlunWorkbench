@@ -2,9 +2,12 @@ import { describe, expect, it } from "vitest";
 import type { CoverageLedger } from "../../../../shared/schemas/scan-coverage-ledger.schema";
 import type { ScanExecutionPlanV2 } from "../../../../shared/schemas/scan-execution-plan.schema";
 import { scanCapabilityIdSchema } from "../../../../shared/schemas/scan-capability.schema";
+import type { NormalizedProfileStepResult } from "../../../../shared/schemas/scan-profile-step-result.schema";
 import {
 	assessProfessionalRunGroup,
+	buildProfessionalRunGroupPhase56Handoff,
 	buildProfessionalRunGroupPlan,
+	qualifyProfessionalRunGroup,
 } from "./professional-run-group";
 
 const hash = (letter: string) => `sha256:${letter.repeat(64)}`;
@@ -81,6 +84,45 @@ function ledger(effect: "covered" | "gap"): CoverageLedger {
 	};
 }
 
+function fullyCoveredLedger(): CoverageLedger {
+	const entries = scanCapabilityIdSchema.options.map((capabilityId) => ({
+		capabilityId,
+		requirement: "required_if_applicable" as const,
+		applicability: "applicable" as const,
+		execution: "completed" as const,
+		coverageEffect: "covered" as const,
+		reasonCodes: [],
+		evidenceRefs: ["child:verified"],
+		limitations: [],
+	}));
+	return {
+		schemaVersion: 1,
+		planHash: hash("e"),
+		derivedAt: now,
+		entries,
+		summary: { covered: entries.length, partial: 0, gap: 0 },
+		ledgerHash: hash("3"),
+	};
+}
+
+function completedChildResults(): NormalizedProfileStepResult[] {
+	return scanCapabilityIdSchema.options.map((capabilityId) => ({
+		stepId: `step:${capabilityId}`,
+		kind: "static_tool",
+		adapter: "test-adapter",
+		required: true,
+		execution: "completed",
+		applicability: "applicable",
+		coverageEffect: "covered",
+		reasonCodes: [],
+		findingCount: 0,
+		evidenceRefs: [`evidence:${capabilityId}`],
+		artifactIds: [],
+		childRunRefs: [`capability:${capabilityId}`],
+		cleanupState: "not_required",
+	}));
+}
+
 describe("professional run group", () => {
 	it("builds a deterministic parent v2 contract and keeps human approval pending", () => {
 		const input = {
@@ -100,6 +142,14 @@ describe("professional run group", () => {
 			capabilityId: "secret_detection",
 			kind: "profile",
 		}),
+		);
+		expect(
+			first.children.find(
+				(child) => child.capabilityId === "secret_detection",
+			)?.inputBindingHash,
+		).not.toBe(
+			first.children.find((child) => child.capabilityId === "source_sast")
+				?.inputBindingHash,
 		);
 	});
 
@@ -125,10 +175,108 @@ describe("professional run group", () => {
 			catalogEntryHash: hash("9"),
 			createdAt: now,
 		});
-		expect(assessProfessionalRunGroup({ plan, ledger: ledger("gap"), childResults: [] })).toMatchObject({
+		expect(
+			assessProfessionalRunGroup({ plan, ledger: ledger("gap"), childResults: [] }),
+		).toMatchObject({
 			technicalCompletion: false,
 			humanApproval: "pending",
-			blockingCapabilityIds: ["secret_detection"],
+			blockingCapabilityIds: expect.arrayContaining(["secret_detection"]),
 		});
+	});
+
+	it("keeps human approval pending even after every professional capability is covered", () => {
+		const plan = buildProfessionalRunGroupPlan({
+			parentScanRunId: executionPlan.scanRunId,
+			executionPlan,
+			catalogEntryHash: hash("9"),
+			createdAt: now,
+		});
+		const assessment = assessProfessionalRunGroup({
+			plan,
+			ledger: fullyCoveredLedger(),
+			childResults: completedChildResults(),
+		});
+		expect(assessment).toMatchObject({
+			technicalCompletion: true,
+			humanApproval: "pending",
+			blockingCapabilityIds: [],
+		});
+		const qualification = qualifyProfessionalRunGroup({
+			plan,
+			ledger: fullyCoveredLedger(),
+			assessment,
+			qualifiedAt: now,
+		});
+		expect(qualification).toMatchObject({
+			technicalCompletion: true,
+			humanApproval: "pending",
+			qualifiedCapabilityIds: expect.arrayContaining(["active_dast"]),
+		});
+		expect(
+			buildProfessionalRunGroupPhase56Handoff({
+				qualification,
+				preparedAt: now,
+			}),
+		).toMatchObject({
+			status: "ready_for_human_review",
+			humanApproval: "pending",
+		});
+	});
+
+	it("requires bound child evidence even when the ledger says every capability is covered", () => {
+		const plan = buildProfessionalRunGroupPlan({
+			parentScanRunId: executionPlan.scanRunId,
+			executionPlan,
+			catalogEntryHash: hash("9"),
+			createdAt: now,
+		});
+		const assessment = assessProfessionalRunGroup({
+			plan,
+			ledger: fullyCoveredLedger(),
+			childResults: [],
+		});
+		expect(assessment).toMatchObject({
+			technicalCompletion: false,
+			incompleteChildIds: expect.arrayContaining(["capability:active_dast"]),
+		});
+	});
+
+	it("does not accept a coverage ledger derived from a different execution plan", () => {
+		const plan = buildProfessionalRunGroupPlan({
+			parentScanRunId: executionPlan.scanRunId,
+			executionPlan,
+			catalogEntryHash: hash("9"),
+			createdAt: now,
+		});
+		const mismatchedLedger = { ...fullyCoveredLedger(), planHash: hash("4") };
+		expect(
+			assessProfessionalRunGroup({
+				plan,
+				ledger: mismatchedLedger,
+				childResults: completedChildResults(),
+			}).technicalCompletion,
+		).toBe(false);
+	});
+
+	it("rejects qualification when a ledger gap or a binding mismatch remains", () => {
+		const plan = buildProfessionalRunGroupPlan({
+			parentScanRunId: executionPlan.scanRunId,
+			executionPlan,
+			catalogEntryHash: hash("9"),
+			createdAt: now,
+		});
+		const assessment = assessProfessionalRunGroup({
+			plan,
+			ledger: ledger("gap"),
+			childResults: [],
+		});
+		expect(() =>
+			qualifyProfessionalRunGroup({
+				plan,
+				ledger: ledger("gap"),
+				assessment,
+				qualifiedAt: now,
+			}),
+		).toThrow("professional_run_group_qualification_incomplete");
 	});
 });

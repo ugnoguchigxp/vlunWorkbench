@@ -64,25 +64,6 @@ export const BUILTIN_SECURITY_RECIPES: DynamicProfileTemplate[] = [
 			);
 		},
 	},
-	{
-		id: "cargo-fuzz-bounded",
-		displayName: "Cargo Bounded Fuzz",
-		dynamicKind: "fuzz",
-		commandJson: ["cargo", "fuzz", "run", "--", "-max_total_time=30"],
-		timeoutSec: 90,
-		network: "none",
-		writableWorkdir: true,
-		allowProjectScripts: false,
-		async isApplicable(repoPath) {
-			return (
-				(await exists(path.join(repoPath, "Cargo.toml"))) &&
-				(await exists(path.join(repoPath, "fuzz", "Cargo.toml"))) &&
-				(await exists(
-					path.join(repoPath, ".vuln-workbench", "enable-cargo-fuzz"),
-				))
-			);
-		},
-	},
 ];
 
 export async function resolveBuiltinSecurityRecipes(repoPath: string) {

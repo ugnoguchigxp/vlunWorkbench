@@ -19,6 +19,7 @@ import {
 import { closeTestDbConnection } from "../../../db/testing/connection";
 import { recordScannerE2EFailureObservation } from "../../../testing/scanner-e2e-failure-observation";
 import { runGitText } from "./diff/git-command";
+import { scanCapabilityIdSchema } from "../../../../shared/schemas/scan-capability.schema";
 import * as profileRunnerModule from "./profile-runner";
 import { runProfileScan } from "./profile-orchestrator";
 
@@ -601,6 +602,52 @@ describe("Profile Runner Orchestration", () => {
     );
     getProfileSpy.mockRestore();
   });
+
+	it("persists a professional parent contract only for a v2 full-security run", async () => {
+		const mockProfile = {
+			id: "full-security-scan",
+			name: "Professional parent fixture",
+			description: "Records the parent contract without auto-completing it.",
+			enabled: true,
+			strictness: "strict" as const,
+			defaultTimeoutSec: 100,
+			capabilityRequirements: scanCapabilityIdSchema.options.map(
+				(capabilityId) => ({
+					capabilityId,
+					requirement: "required_if_applicable" as const,
+				}),
+			),
+			tools: [{ toolId: "gitleaks", displayName: "Gitleaks", required: true, failurePolicy: "fail_profile" as const }],
+			steps: [{ kind: "static_tool" as const, toolId: "gitleaks", displayName: "Gitleaks", required: true, failurePolicy: "fail_profile" as const }],
+		};
+		const profilesModule = require("../profiles");
+		vi.spyOn(profilesModule, "getProfileById").mockReturnValue(mockProfile);
+		vi.spyOn(profileRunnerModule, "runToolIntoExistingScan").mockResolvedValue({
+			toolRunId: "professional-tool-run", findingCount: 0, exitCode: 0, elapsedMs: 10, artifactIds: [], diffUnmappedFindingCount: 0,
+		});
+
+		const result = await runProfileScan({
+			db: connection.db,
+			projectId,
+			profileId: "full-security-scan",
+			repoPath,
+			executionPlanSchemaVersion: 2,
+		});
+		const [scanRun] = await connection.db.select().from(scanRuns).where(eq(scanRuns.id, result.scanRunId));
+		expect(scanRun.metadata).toEqual(expect.objectContaining({
+			professionalRunGroupPlan: expect.objectContaining({
+				schemaVersion: 1,
+				humanReview: { required: true, status: "pending" },
+				children: expect.arrayContaining([
+					expect.objectContaining({ childId: "capability:active_dast" }),
+				]),
+			}),
+			professionalRunGroupAssessment: expect.objectContaining({
+				technicalCompletion: false,
+				humanApproval: "pending",
+			}),
+		}));
+	});
 
   it("should handle optional tool failure with completed_with_warnings status", async () => {
     const mockProfile = {

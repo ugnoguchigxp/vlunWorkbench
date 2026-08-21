@@ -24,14 +24,17 @@ type DynamicCliArgs = {
 };
 
 function writeResult(payload: Record<string, unknown>): void {
-	console.log(JSON.stringify(payload));
+	process.stdout.write(`${JSON.stringify(payload)}\n`);
 }
 
-async function main() {
+export async function main(
+	argv = process.argv.slice(2),
+	write = writeResult,
+): Promise<number> {
 	let argsValues: DynamicCliArgs;
 	try {
 		const parsed = parseArgs({
-			args: process.argv.slice(2),
+			args: argv,
 			options: {
 				"project-id": { type: "string" },
 				profile: { type: "string" },
@@ -52,13 +55,13 @@ async function main() {
 		});
 		argsValues = parsed.values as DynamicCliArgs;
 	} catch (err) {
-		writeResult({
+		write({
 			ok: false,
 			status: "failed",
 			outcome: "error",
 			message: `Failed to parse arguments: ${(err as Error).message}`,
 		});
-		process.exit(1);
+		return 1;
 	}
 
 	const projectId = argsValues["project-id"];
@@ -77,43 +80,43 @@ async function main() {
 	const dryRun = argsValues["dry-run"] === "true";
 
 	if (!projectId) {
-		writeResult({
+		write({
 			ok: false,
 			status: "failed",
 			outcome: "error",
 			message: "Missing required argument: --project-id is required.",
 		});
-		process.exit(1);
+		return 1;
 	}
 
 	if (!profileId) {
-		writeResult({
+		write({
 			ok: false,
 			status: "failed",
 			outcome: "error",
 			message: "Missing required argument: --profile is required.",
 		});
-		process.exit(1);
+		return 1;
 	}
 
 	if (runner !== "docker") {
-		writeResult({
+		write({
 			ok: false,
 			status: "failed",
 			outcome: "error",
 			message: "--runner must be docker. Host execution is not allowed.",
 		});
-		process.exit(1);
+		return 1;
 	}
 
 	if (network !== undefined && network !== "none" && network !== "default") {
-		writeResult({
+		write({
 			ok: false,
 			status: "failed",
 			outcome: "error",
 			message: "--network must be none or default.",
 		});
-		process.exit(1);
+		return 1;
 	}
 
 	const timeoutSec = timeoutSecStr
@@ -126,13 +129,13 @@ async function main() {
 			timeoutSec <= 0 ||
 			timeoutSec > MAX_DYNAMIC_TIMEOUT_SEC)
 	) {
-		writeResult({
+		write({
 			ok: false,
 			status: "failed",
 			outcome: "error",
 			message: `--timeout-sec must be an integer between 1 and ${MAX_DYNAMIC_TIMEOUT_SEC}.`,
 		});
-		process.exit(1);
+		return 1;
 	}
 
 	// Setup DB connection
@@ -175,8 +178,8 @@ async function main() {
 
 		if (dryRun) {
 			const dryResult = await runnerInstance.dryRun(runOptions);
-			writeResult(dryResult);
-			process.exit(0);
+			write(dryResult);
+			return 0;
 		}
 
 		// Perform execution
@@ -197,10 +200,10 @@ async function main() {
 			}
 		}
 
-		writeResult(runResult);
-		process.exit(0);
+		write(runResult);
+		return 0;
 	} catch (err) {
-		writeResult({
+		write({
 			ok: false,
 			status: "failed",
 			outcome: "error",
@@ -208,10 +211,14 @@ async function main() {
 				(err as Error).message ||
 				"An unexpected error occurred during dynamic execution",
 		});
-		process.exit(1);
+		return 1;
 	} finally {
 		dbConnection.sqlite.close(false);
 	}
 }
 
-main();
+if (import.meta.main) {
+	void main().then((exitCode) => {
+		process.exitCode = exitCode;
+	});
+}

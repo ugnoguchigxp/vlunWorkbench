@@ -98,6 +98,11 @@ const CAPABILITY_BINDINGS: Record<ScanCapabilityId, CapabilityBinding> = {
 	},
 };
 
+/** Shared binding source for parent orchestration; callers must not re-encode it. */
+export function capabilityStepIds(capabilityId: ScanCapabilityId): string[] {
+	return [...CAPABILITY_BINDINGS[capabilityId].stepIds];
+}
+
 export function buildCoverageLedger(params: {
 	profile: ScanProfile;
 	planHash: string;

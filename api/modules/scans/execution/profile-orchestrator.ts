@@ -48,6 +48,13 @@ import {
 import { preflightBlocksExecution, runScanPreflight } from "./scan-preflight";
 import { resolveScanScope } from "../target-scope";
 import { staticScannerAdapterRegistry } from "../static-scanner-adapters";
+import { getCatalogEntry, hashCatalogEntry } from "../profile-catalog";
+import {
+	assessProfessionalRunGroup,
+	buildProfessionalRunGroupPhase56Handoff,
+	buildProfessionalRunGroupPlan,
+	qualifyProfessionalRunGroup,
+} from "./professional-run-group";
 import {
 	normalizeToolExecutionConfig,
 	type ToolExecutionConfig,
@@ -317,10 +324,23 @@ export async function runProfileScan(params: {
 		planHash: executionPlan.planHash,
 		plan: executionPlan,
 	});
+	const professionalCatalogEntry = getCatalogEntry("professional-full");
+	const professionalRunGroupPlan =
+		executionPlan.schemaVersion === 2 &&
+		profile.id === "full-security-scan" &&
+		professionalCatalogEntry
+			? buildProfessionalRunGroupPlan({
+					parentScanRunId: scanRun.id,
+					executionPlan,
+					catalogEntryHash: hashCatalogEntry(professionalCatalogEntry),
+					createdAt: executionPlan.createdAt,
+				})
+			: null;
 	await scanRepo.mergeScanRunMetadata(scanRun.id, {
 		scanPreflight,
 		preflightBindingHash: scanPreflight.bindingHash,
 		executionPlan,
+		...(professionalRunGroupPlan ? { professionalRunGroupPlan } : {}),
 	});
 	await scanRepo.createScanEvent({
 		scanRunId: scanRun.id,
@@ -360,6 +380,14 @@ export async function runProfileScan(params: {
 			derivedAt: new Date().toISOString(),
 			stepResults: [],
 		});
+		const professionalRunGroupAssessment =
+			professionalRunGroupPlan && coverageLedger
+				? assessProfessionalRunGroup({
+						plan: professionalRunGroupPlan,
+						ledger: coverageLedger,
+						childResults: [],
+					})
+				: null;
 		const terminationReason = executionPlanChanged
 			? "plan_changed"
 			: preflightBindingChanged
@@ -391,6 +419,9 @@ export async function runProfileScan(params: {
 					]),
 				].sort(),
 				...(coverageLedger ? { coverageLedger } : {}),
+				...(professionalRunGroupAssessment
+					? { professionalRunGroupAssessment }
+					: {}),
 			},
 		});
 		await scanRepo.createScanEvent({
@@ -613,6 +644,29 @@ export async function runProfileScan(params: {
 		stepResults,
 	});
 	const normalizedStepResults = stepResults.map(normalizeProfileStepResult);
+	const professionalRunGroupAssessment =
+		professionalRunGroupPlan && coverageLedger
+			? assessProfessionalRunGroup({
+					plan: professionalRunGroupPlan,
+					ledger: coverageLedger,
+					childResults: normalizedStepResults,
+				})
+			: null;
+	const professionalRunGroupQualification =
+		professionalRunGroupAssessment?.technicalCompletion && coverageLedger
+			? qualifyProfessionalRunGroup({
+					plan: professionalRunGroupPlan!,
+					ledger: coverageLedger,
+					assessment: professionalRunGroupAssessment,
+					qualifiedAt: new Date().toISOString(),
+				})
+			: null;
+	const professionalRunGroupPhase56Handoff = professionalRunGroupQualification
+		? buildProfessionalRunGroupPhase56Handoff({
+				qualification: professionalRunGroupQualification,
+				preparedAt: new Date().toISOString(),
+			})
+		: null;
 	const ledgerLimited = Boolean(
 		coverageLedger?.entries.some((entry) => entry.coverageEffect !== "covered"),
 	);
@@ -681,6 +735,15 @@ export async function runProfileScan(params: {
 			profileLimitationCodes,
 			...(sourceSastCoverage ? { sourceSastCoverage } : {}),
 			...(coverageLedger ? { coverageLedger } : {}),
+			...(professionalRunGroupAssessment
+				? { professionalRunGroupAssessment }
+				: {}),
+			...(professionalRunGroupQualification
+				? { professionalRunGroupQualification }
+				: {}),
+			...(professionalRunGroupPhase56Handoff
+				? { professionalRunGroupPhase56Handoff }
+				: {}),
 			normalizedStepResults,
 			scope: resolvedScope,
 			profileOutcome,

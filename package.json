@@ -44,6 +44,7 @@
 		"baseline:scan-profile-catalog": "bun run scripts/scan-profile-catalog-baseline.ts --check",
 		"test:scan-profile-catalog-baseline": "bun test scripts/scan-profile-catalog-baseline.test.ts",
 		"test:scan-profile-catalog": "bun test scripts/scan-profile-catalog-baseline.test.ts api/modules/scans/canonical-scan-profiles.test.ts api/modules/scans/profile-catalog.test.ts api/modules/scans/profile-resolution.test.ts api/modules/scans/execution/scan-result-policy.test.ts api/cli/scan-profile-exit-code.test.ts",
+		"test:professional-run-group": "bun test api/modules/scans/execution/professional-run-group.test.ts api/modules/scans/execution/profile-runner.test.ts api/modules/scans/reporting/report-builder.test.ts api/modules/dynamic/dynamic-security-recipe.integration.test.ts",
 		"verify:scan-profile-catalog": "bun run scripts/verify-scan-profile-catalog-consolidation.ts",
 		"baseline:scan-execution-effectiveness": "bun run scripts/scan-execution-effectiveness-baseline.ts",
 		"test:web": "vitest run",

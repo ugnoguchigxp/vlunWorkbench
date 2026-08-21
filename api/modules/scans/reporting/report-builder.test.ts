@@ -439,6 +439,17 @@ describe("Report Builder", () => {
 				metadata: {
 					profileOutcome: "failed",
 					terminationReason: "preflight_failed",
+					professionalRunGroupAssessment: {
+						schemaVersion: 1,
+						parentScanRunId: scanRunId,
+						planHash: digest,
+						ledgerHash: digest,
+						technicalCompletion: false,
+						humanApproval: "pending",
+						blockingCapabilityIds: ["active_dast"],
+						incompleteChildIds: ["capability:active_dast"],
+						cleanupIncompleteChildIds: [],
+					},
 					executionPlan: {
 						schemaVersion: 1,
 						scanRunId,
@@ -541,6 +552,10 @@ describe("Report Builder", () => {
 		expect(report).toContain("Scan preflight");
 		expect(report).toContain(`Execution plan:** hash=${digest}`);
 		expect(report).toContain("Execution plan blockers:** scanner_data_missing");
+		expect(report).toContain(
+			"Professional run group:** technicalCompletion=false, humanApproval=pending, blockingCapabilities=active_dast",
+		);
+		expect(report).toContain("incompleteChildren=capability:active_dast");
 		expect(report).toContain("scanner_data_missing");
 		expect(report).toContain("prepare_scanner_database");
 		expect(report).toContain(

@@ -15,6 +15,7 @@ import {
 import type { buildReportQuery } from "./report-builder-query";
 import { readPluginExecutionSummary } from "./report-builder-technology";
 import { scanProfileResolutionSchema } from "../../../../shared/schemas/scan-profile-catalog.schema";
+import { professionalRunGroupAssessmentSchema } from "../../../../shared/schemas/professional-run-group.schema";
 
 export function renderReportOverview(
 	scope: Awaited<ReturnType<typeof buildReportQuery>>,
@@ -71,6 +72,10 @@ export function renderReportOverview(
 	const limitedSourceSast = sourceSastCoverage?.coverageEffect === "gap";
 	const scanPreflight = coverage.preflight;
 	const executionPlan = readStoredScanExecutionPlan(scanRun.metadata);
+	const professionalRunGroupAssessment =
+		professionalRunGroupAssessmentSchema.safeParse(
+			scanRun.metadata?.professionalRunGroupAssessment,
+		);
 	const limitedPreflight =
 		scanPreflight !== null && scanPreflight.status !== "ready";
 	const limitedTechnology =
@@ -158,6 +163,12 @@ export function renderReportOverview(
 				`- **Execution plan blockers:** ${executionPlan.blockerCodes.join(", ")}`,
 			);
 		}
+	}
+	if (professionalRunGroupAssessment.success) {
+		const assessment = professionalRunGroupAssessment.data;
+		lines.push(
+			`- **Professional run group:** technicalCompletion=${assessment.technicalCompletion}, humanApproval=${assessment.humanApproval}, blockingCapabilities=${assessment.blockingCapabilityIds.join(",") || "none"}, incompleteChildren=${assessment.incompleteChildIds.join(",") || "none"}, cleanupIncomplete=${assessment.cleanupIncompleteChildIds.join(",") || "none"}`,
+		);
 	}
 	lines.push("");
 

@@ -5,6 +5,7 @@ import {
 	type ScanProfileInputKind,
 	type ScanProfileResolution,
 	type ScanResultPolicy,
+	scanProfileCatalogEntrySchema,
 	scanProfileResolutionSchema,
 } from "../../../shared/schemas/scan-profile-catalog.schema";
 import type { ScanTarget } from "../../../shared/schemas/scan-target.schema";
@@ -139,7 +140,42 @@ export function resolveProfileSelection(params: {
 	}
 
 	const catalogEntry = getCatalogEntry(params.requestedProfileId);
-	if (!catalogEntry) throw new ProfileResolutionError("profile_not_found");
+	if (!catalogEntry) {
+		const executionProfile = getProfileById(params.requestedProfileId);
+		if (!executionProfile) {
+			throw new ProfileResolutionError("profile_not_found");
+		}
+		assertTarget(executionProfile, params.target);
+		const legacyEntry = buildUncataloguedLegacyEntry(executionProfile);
+		const resultPolicy = resolveResultPolicy(
+			legacyEntry.allowedResultPolicies,
+			legacyEntry.defaultResultPolicy,
+			params.requestedResultPolicy,
+		);
+		return {
+			catalogEntry: legacyEntry,
+			executionProfile,
+			resolution: scanProfileResolutionSchema.parse({
+				schemaVersion: 1,
+				requestedProfileId: params.requestedProfileId,
+				canonicalProfileId: legacyEntry.id,
+				executionProfileId: executionProfile.id,
+				executionVariantId: null,
+				catalogVersion: legacyEntry.catalogVersion,
+				catalogEntryHash: hashCatalogEntry(legacyEntry),
+				migrationKind: "legacy_preset",
+				launchMode: "profile_orchestrator",
+				availability: "deprecated",
+				strictness: executionProfile.strictness ?? "best_effort",
+				resultPolicy,
+				gateSeverityThreshold: null,
+				providedInputKinds: [...params.providedInputKinds],
+				launchability: "launchable",
+				reasonCodes: [],
+				warningCodes: ["legacy_catalog_entry_missing"],
+			}),
+		};
+	}
 	if (catalogEntry.availability === "planned") {
 		throw new ProfileResolutionError("profile_not_launchable");
 	}
@@ -192,6 +228,41 @@ export function resolveProfileSelection(params: {
 			warningCodes: [],
 		}),
 	};
+}
+
+function buildUncataloguedLegacyEntry(
+	profile: ScanProfile,
+): ScanProfileCatalogEntry {
+	return scanProfileCatalogEntrySchema.parse({
+		schemaVersion: 1,
+		id: profile.id,
+		catalogVersion: 1,
+		displayOrder: 99_999,
+		displayName: profile.name,
+		description: profile.description,
+		availability: "deprecated",
+		safetyClass: "mixed",
+		launchMode: "profile_orchestrator",
+		launchDestination: "scan_workspace",
+		strictness: profile.strictness ?? "best_effort",
+		defaultResultPolicy: "advisory",
+		allowedResultPolicies: ["advisory", "gate"],
+		gateSeverityThreshold: null,
+		supportedTargets: profile.supportedTargets ?? ["full"],
+		requiredInputs: [{ kind: "source_target", requirement: "required" }],
+		capabilityRequirements: profile.capabilityRequirements ?? [],
+		executionVariants: [
+			{
+				id: "legacy-execution",
+				executionProfileRef: profile.id,
+				requiredInputKinds: ["source_target"],
+				forbiddenInputKinds: [],
+			},
+		],
+		environmentRequirementCodes: [],
+		limitationCodes: [],
+		replacementProfileId: null,
+	});
 }
 
 function selectVariant(

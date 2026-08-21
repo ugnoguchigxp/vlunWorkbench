@@ -7,6 +7,7 @@ import { projects, users } from "../../db/schema";
 import { closeTestDbConnection } from "../../db/testing/connection";
 import { migrateTestDatabase } from "../../db/testing/migrate";
 import { DynamicRepository } from "./dynamic-repository";
+import { main } from "../../cli/dynamic-run";
 
 describe("Dynamic Run CLI", () => {
 	let connection: DbConnection;
@@ -14,9 +15,19 @@ describe("Dynamic Run CLI", () => {
 	let userId: string;
 	let projectId: string;
 	let dbFile: string;
+	let previousDatabaseUrl: string | undefined;
+
+	async function runCli(args: string[]) {
+		const outputs: Record<string, unknown>[] = [];
+		const exitCode = await main(args, (result) => outputs.push(result));
+		expect(outputs).toHaveLength(1);
+		return { exitCode, result: outputs[0] };
+	}
 
 	beforeEach(async () => {
 		dbFile = path.join(os.tmpdir(), `dynamic-cli-test-${Date.now()}-${crypto.randomUUID().slice(0, 8)}.sqlite`);
+		previousDatabaseUrl = process.env.DATABASE_URL;
+		process.env.DATABASE_URL = `file:${dbFile}`;
 		await migrateTestDatabase(`file:${dbFile}`);
 		connection = createDbConnection(`file:${dbFile}`);
 
@@ -65,13 +76,12 @@ describe("Dynamic Run CLI", () => {
 		await closeTestDbConnection(connection);
 		await fs.unlink(dbFile).catch(() => {});
 		vi.restoreAllMocks();
+		if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+		else process.env.DATABASE_URL = previousDatabaseUrl;
 	});
 
 	it("should parse argv and perform a dry run using dynamic-run CLI process", async () => {
-		const proc = Bun.spawnSync([
-			"bun",
-			"run",
-			"api/cli/dynamic-run.ts",
+		const proc = await runCli([
 			"--project-id",
 			projectId,
 			"--profile",
@@ -80,17 +90,10 @@ describe("Dynamic Run CLI", () => {
 			"docker",
 			"--dry-run",
 			"true",
-		], {
-			env: {
-				...process.env,
-				DATABASE_URL: `file:${dbFile}`,
-			}
-		});
+		]);
 
-		const stdout = proc.stdout.toString().trim();
-		const result = JSON.parse(stdout);
-
-		expect(proc.success).toBe(true);
+		expect(proc.exitCode).toBe(0);
+		const result = proc.result as { dryRun: boolean; profileId: string; command: string[] };
 		expect(result.dryRun).toBe(true);
 		expect(result.profileId).toBe("test-profile");
 		expect(result.command).toEqual(["bun", "test"]);
@@ -107,10 +110,7 @@ describe("Dynamic Run CLI", () => {
 			createdByUserId: userId,
 		});
 
-		const proc = Bun.spawnSync([
-			"bun",
-			"run",
-			"api/cli/dynamic-run.ts",
+		const proc = await runCli([
 			"--project-id",
 			projectId,
 			"--profile",
@@ -119,17 +119,10 @@ describe("Dynamic Run CLI", () => {
 			"docker",
 			"--dry-run",
 			"true",
-		], {
-			env: {
-				...process.env,
-				DATABASE_URL: `file:${dbFile}`,
-			}
-		});
+		]);
 
-		const stdout = proc.stdout.toString().trim();
-		const result = JSON.parse(stdout);
-
-		expect(proc.success).toBe(false);
+		expect(proc.exitCode).toBe(1);
+		const result = proc.result as { ok: boolean; message: string };
 		expect(result.ok).toBe(false);
 		expect(result.message).toContain("explicitly blacklisted");
 	});

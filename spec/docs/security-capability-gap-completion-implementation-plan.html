@@ -417,13 +417,13 @@ ProfileStepResult:
       </tr>
       <tr>
         <td>GC-04.2</td>
-        <td>not_started</td>
+        <td>done</td>
         <td>04.1</td>
         <td>tier-1 sanitizer fixture</td>
       </tr>
       <tr>
         <td>GC-04.3</td>
-        <td>in_progress</td>
+        <td>done</td>
         <td>04.1</td>
         <td>bounded fuzz negative test</td>
       </tr>
@@ -483,7 +483,7 @@ ProfileStepResult:
       </tr>
       <tr>
         <td>GC-08.1</td>
-        <td>not_started</td>
+        <td>done</td>
         <td>03—07、Catalog PC-04</td>
         <td>professional-full plan</td>
       </tr>
@@ -562,7 +562,10 @@ ProfileStepResult:
       </tr>
       <tr>
         <td>GC-04</td>
-        <td>built-in recipe only; existing tests; go-race/cargo-asan; Go/cargo fuzz budgets</td>
+        <td>
+          built-in recipe only; existing tests; go-race/cargo-asan; Go fuzz budget. Cargo fuzz
+          requires an explicit target-selection contract and remains a coverage gap.
+        </td>
         <td><code>api/modules/dynamic/</code>、dynamic schema/image/fixtures</td>
         <td><code>bun test api/modules/dynamic tests/security-capability/dynamic</code></td>
       </tr>
@@ -882,7 +885,36 @@ git diff --check</code></pre>
     planがworkspaceにある場合は本計画schemaをimportする。未作成/移動済みでもGC-00/01は止めず、
     PC-04完了だけGC-08.1 entryで確認する。
   </p>
-  <h3 id="84-references">8.4 References</h3>
+  <h3 id="84-current-handoff">8.4 Current implementation handoff</h3>
+  <ul>
+    <li>
+      GC-04.2/04.3: <code>tests/security-capability/go-race/</code> と
+      <code>go-fuzz/</code> のpaired fixtureを
+      <code>vuln-workbench-dynamic:local</code>、network none、non-root、read-only
+      rootfsで実行する。workdir tmpfsはrace/fuzz test binaryのため
+      <code>exec</code> を明示する。
+    </li>
+    <li>
+      GC-08.1: <code>full-security-scan</code> のv2 runは
+      <code>professionalRunGroupPlan</code> をmetadataへ保存する。17 capability欠落は
+      <code>professional_run_group_capabilities_missing</code> で拒否する。
+    </li>
+    <li>
+      GC-08.2: <code>professionalRunGroupAssessment</code> はledgerとcleanupから導出し、<code
+        >professionalRunGroupQualification</code
+      >
+      はtechnical completionがtrueのときだけ保存する。qualificationのhuman approvalは常に
+      <code>pending</code> である。
+    </li>
+    <li>
+      未完了: dedicated child engineを同一parent
+      runに実行・receipt化するscheduler、同一commitの全capability real qualification、Phase
+      56の人手approval
+      handoff。この不足のためcatalogの<code>professional-full</code>はplannedのまま維持する。
+    </li>
+    <li>次の検証: <code>bun run test:professional-run-group &amp;&amp; bun run typecheck &amp;&amp; bunx spec-html format spec/docs/security-capability-gap-completion-implementation-plan.html --check</code></li>
+  </ul>
+  <h3 id="85-references">8.5 References</h3>
   <ul>
     <li>
       <a href="https://owasp.org/www-project-web-security-testing-guide/stable/">OWASP WSTG</a>
