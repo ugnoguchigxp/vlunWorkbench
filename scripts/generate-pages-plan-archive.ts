@@ -368,10 +368,6 @@ function renderDocumentPage(document: ArchiveDocument): string {
     <link rel="stylesheet" href="${documentExtensionStylesheetUrl}">
   </head>
   <body>
-    <nav class="plan-document-links" aria-label="文書ナビゲーション">
-      <a href="${archiveUrl}?doc=${encodeURIComponent(document.slug)}" target="_top">実装計画アーカイブへ</a>
-      <a href="${homeUrl}" target="_top">vulnWorkbenchのLPへ戻る</a>
-    </nav>
     ${document.fragment}
   </body>
 </html>

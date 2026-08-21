@@ -30,7 +30,7 @@ og_image_alt: vulnWorkbenchのセキュリティスキャン画面
       <header class="topbar">
         <a class="brand" href="{{ '/' | relative_url }}">vulnWorkbench</a>
         <div class="topbar-actions">
-          <a class="topbar-link" href="{{ '/plans/archive/' | relative_url }}">実装計画アーカイブ</a>
+          <a class="topbar-link" href="{{ '/plans/archive/' | relative_url }}">設計書一覧</a>
           <div class="chip">ローカルを中心に運用 / 証跡に基づく / 異常時は停止</div>
         </div>
       </header>
@@ -48,6 +48,7 @@ og_image_alt: vulnWorkbenchのセキュリティスキャン画面
         </p>
         <div class="hero-actions">
           <a class="btn btn-primary" href="https://github.com/ugnoguchigxp/vlunWorkbench">GitHubで見る</a>
+          <a class="btn btn-secondary" href="{{ '/plans/archive/' | relative_url }}">設計書・実装計画を見る</a>
           <a class="btn btn-secondary" href="https://github.com/ugnoguchigxp/vlunWorkbench/blob/main/README.md">READMEを読む</a>
         </div>
       </div>
