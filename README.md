@@ -706,7 +706,7 @@ API and scan-module tests that import `bun:sqlite` must run through Bun:
 
 ```bash
 bun test api/modules/scans/scan-review-runner.test.ts
-bun test api/modules/scans/report-builder.test.ts
+bun test api/modules/scans/reporting/report-builder.test.ts
 ```
 
 The package `test` script and `scripts/verify.ts` already apply this split.

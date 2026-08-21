@@ -41,8 +41,11 @@ describe("Scan Profiles Route", () => {
     expect(sourceProfile.tools[0].options).toBeUndefined();
     expect(sourceProfile.steps[0]).toEqual(
       expect.objectContaining({
+        stepId: "gitleaks",
         kind: "static_tool",
+        adapter: "gitleaks",
         toolId: "gitleaks",
+        displayName: "Gitleaks Secret Detection",
       }),
     );
 
@@ -88,6 +91,8 @@ describe("Scan Profiles Route", () => {
     );
     expect(dastStep).toEqual(
       expect.objectContaining({
+        stepId: "dast:web-passive-standard",
+        adapter: "web-passive-standard",
         profileId: "web-passive-standard",
         target: { mode: "auto_project_start" },
         failurePolicy: "warn_and_continue",
@@ -100,5 +105,23 @@ describe("Scan Profiles Route", () => {
     );
     expect(fullProfile.coverageGaps).toEqual([]);
     expect(fullProfile.strictness).toBe("strict");
+    expect(fullProfile.steps.map((step: any) => step.stepId)).toEqual([
+      "gitleaks",
+      "osv",
+      "trivy",
+      "semgrep",
+      "sbom_export:trivy",
+      "dast:web-passive-standard",
+      "runtime_scanner:nuclei-safe",
+      "runtime_scanner:zap-baseline",
+      "api_schema_scan:schemathesis",
+    ]);
+    expect(fullProfile.steps.find((step: any) => step.stepId === "trivy")).toEqual(
+      expect.objectContaining({
+        kind: "static_tool",
+        adapter: "trivy",
+        displayName: "Trivy Deep Filesystem Scanner",
+      }),
+    );
   });
 });

@@ -17,10 +17,10 @@ import { useScanDeleteController } from "../use-scan-delete-controller";
 import { DastAssessmentPanel } from "./dast-assessment-panel";
 import { ProjectDeleteDialog } from "./project-delete-dialog";
 import { ProjectRail } from "./project-rail";
-import { ScanContextBar } from "./scan-context-bar";
 import { ScanDeleteDialog } from "./scan-delete-dialog";
 import { ScanLaunchCard } from "./scan-launch-card";
 import { ScanOverviewTab } from "./scan-overview-tab";
+import { ScanProgressPanel } from "./scan-progress-panel";
 import { ScanReportWorkspace } from "./scan-report-workspace";
 import { ScanTabs } from "./scan-tabs";
 
@@ -148,8 +148,14 @@ export function ScansWorkspacePage() {
 	const selectedProfile = c.profiles.find(
 		(profile) => profile.id === c.selectedProfileId,
 	);
+	const progressProfile = c.progressScanRun
+		? (c.profiles.find(
+				(profile) => profile.id === c.progressScanRun?.profile,
+			) ?? null)
+		: null;
 	const canStart =
 		Boolean(c.selectedProjectId && c.selectedProfileId) &&
+		!c.scanRunsLoading &&
 		(c.selectedProject?.pathPolicy === undefined ||
 			c.selectedProject.pathPolicy.status === "allowed");
 
@@ -196,7 +202,11 @@ export function ScansWorkspacePage() {
 							保存済みパスを読み取れないため、スキャンを実行できません。
 						</p>
 					) : null}
-					<ScanContextBar scan={c.selectedScanRun ?? null} />
+					<ScanProgressPanel
+						scan={c.progressScanRun}
+						profile={progressProfile}
+						events={c.progressScanEvents}
+					/>
 					<ScanTabs activeTab={activeTab} onChange={changeTab} />
 					{activeTab === "overview" ? (
 						<ScanOverviewTab
@@ -208,12 +218,7 @@ export function ScansWorkspacePage() {
 							}
 							selectedFindingId={c.selectedFindingId}
 							scanReviews={c.scanReviews}
-							generatingImprovementRequest={c.scanReviewLoading}
-							automaticDiagnosticRunning={c.automatedDiagnostics.some(
-								(diagnostic) =>
-									diagnostic.status === "queued" ||
-									diagnostic.status === "running",
-							)}
+							generatingImprovementRequest={c.improvementRequestLoading}
 							onSelectFinding={selectFinding}
 							onCloseFinding={closeFinding}
 							onGenerateImprovementRequest={generateImprovementRequest}

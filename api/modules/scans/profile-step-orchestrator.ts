@@ -1,23 +1,91 @@
-import { discoverRepositoryApiSchema } from "../api-schema-fuzz/schema-discovery";
 import type { PreparedRuntimeTarget } from "../dast/runtime-target-provider";
 import { prepareDastTargetWorkspace } from "../dast/target-preparer";
-import {
-	runDastStepIntoExistingScan,
-	runRuntimeScannerIntoExistingScan,
-	runSchemaScannerIntoExistingScan,
-	runToolIntoExistingScan,
-	type ScanProfileStepResult,
-	type ToolResult,
-} from "./profile-runner";
+import { executeProfileStep } from "./execution/execute-profile-step";
+import type { ScanProfileStepResult, ToolResult } from "./profile-runner";
 import type { ExecuteProfileStepsParams } from "./profile-step-orchestrator-types";
 import {
 	notApplicablePlannedStepResult,
 	preflightBlockedStepResult,
 } from "./profile-step-results";
 import { scanProfileStepId } from "./scan-execution-plan-builder";
-import { resolveStaticScannerDiffExecution } from "./static-scanner-adapter";
-import { staticScannerAdapterRegistry } from "./static-scanner-adapters";
-import { withMandatoryExcludes } from "./target-scope";
+import {
+	emitScanStepFinished,
+	emitScanStepStarted,
+} from "./scan-step-lifecycle-events";
+
+function lifecycleOutcome(params: {
+	result: ScanProfileStepResult | undefined;
+	plannedNotApplicable: boolean;
+	preflightBlocked: boolean;
+	skippedDueToPriorFailure: boolean;
+	fallbackReasonCode: string | null;
+}): {
+	outcome: "completed" | "failed" | "skipped" | "not_applicable" | "blocked";
+	findingCount: number;
+	reasonCode: string | null;
+} {
+	if (params.plannedNotApplicable) {
+		return {
+			outcome: "not_applicable",
+			findingCount: 0,
+			reasonCode: params.fallbackReasonCode,
+		};
+	}
+	if (params.preflightBlocked) {
+		return {
+			outcome: "blocked",
+			findingCount: 0,
+			reasonCode: params.fallbackReasonCode ?? "preflight_failed",
+		};
+	}
+	if (params.skippedDueToPriorFailure) {
+		return {
+			outcome: "skipped",
+			findingCount: 0,
+			reasonCode: "execution_failed",
+		};
+	}
+	if (!params.result) {
+		return {
+			outcome: "failed",
+			findingCount: 0,
+			reasonCode: params.fallbackReasonCode ?? "step_execution_aborted",
+		};
+	}
+	const result = params.result;
+	const reasonCode =
+		"reasonCode" in result
+			? (result.reasonCode ?? null)
+			: "limitationCodes" in result
+				? (result.limitationCodes?.[0] ?? null)
+				: null;
+	if (result.status === "completed") {
+		return {
+			outcome: "completed",
+			findingCount: result.findingCount,
+			reasonCode,
+		};
+	}
+	if (result.status === "failed") {
+		return {
+			outcome: "failed",
+			findingCount: result.findingCount,
+			reasonCode: reasonCode ?? "execution_failed",
+		};
+	}
+	if ("applicability" in result && result.applicability === "not_applicable") {
+		return {
+			outcome: "not_applicable",
+			findingCount: result.findingCount,
+			reasonCode,
+		};
+	}
+	return {
+		outcome: "skipped",
+		findingCount: result.findingCount,
+		reasonCode,
+	};
+}
 
 export async function executeProfileSteps(
 	params: ExecuteProfileStepsParams,
@@ -27,6 +95,7 @@ export async function executeProfileSteps(
 	profileFailingToolFailed: boolean;
 	optionalToolFailed: boolean;
 }> {
+	// ScanExecution: plan (caller) → executeProfileStep(adapter|dast|runtime) → persist lifecycle.
 	const {
 		scanRepo,
 		scanRun,
@@ -36,9 +105,6 @@ export async function executeProfileSteps(
 		diffPlan,
 		diffSnapshot,
 		sharesRuntimeTarget,
-		resolvedScope,
-		artifactStorage,
-		execution,
 	} = params;
 	const toolResults: ToolResult[] = [];
 	const stepResults: ScanProfileStepResult[] = [];
@@ -69,7 +135,7 @@ export async function executeProfileSteps(
 	);
 
 	try {
-		for (const step of profileSteps) {
+		for (const [stepIndex, step] of profileSteps.entries()) {
 			const resolvedTimeout =
 				step.timeoutSec ?? params.timeoutSec ?? profile.defaultTimeoutSec;
 			const failureFailsProfile =
@@ -80,457 +146,191 @@ export async function executeProfileSteps(
 			if (!planned) {
 				throw new Error(`execution_plan_step_missing:${stepId}`);
 			}
-			if (planned.applicability === "not_applicable") {
-				const reasonCode = planned.reasonCodes[0] ?? "not_applicable";
-				const result = notApplicablePlannedStepResult({
-					step,
-					stepId,
-					reasonCode,
-					executionPlanHash: params.executionPlan.planHash,
-				});
-				if (result.toolResult) toolResults.push(result.toolResult);
-				stepResults.push(result.stepResult);
-				await scanRepo.createScanEvent({
-					scanRunId: scanRun.id,
-					level: "info",
-					eventType: "tool.not_applicable",
-					message: `${stepId} is not applicable according to the execution plan.`,
-					data: {
-						reasonCode,
-						executionPlanHash: params.executionPlan.planHash,
-					},
-				});
-				continue;
-			}
-			const preflightReasonCodes =
-				params.scanPreflight.mode === "enforced" &&
-				planned.readiness === "blocked"
-					? planned.reasonCodes
-					: [];
-			if (preflightReasonCodes.length > 0) {
-				if (failureFailsProfile) profileFailingToolFailed = true;
-				else optionalToolFailed = true;
-				const result = preflightBlockedStepResult({
-					step,
-					stepId,
-					preflightReasonCodes,
-				});
-				if (result.toolResult) toolResults.push(result.toolResult);
-				stepResults.push(result.stepResult);
-				continue;
-			}
-
-			let toolRunId: string | null = null;
-			let findingCount = 0;
-			let stepArtifactIds: string[] = [];
-			let diffUnmappedFindingCount = 0;
-			let exitCode: number | null = null;
-			let status: "completed" | "failed" | "skipped" = "completed";
-			let error: string | null = null;
-
-			// Check if we should skip due to earlier profile-failing tool failure.
-			if (profileFailingToolFailed && !continueOnToolFailure) {
-				status = "skipped";
-				if (step.kind === "static_tool") {
-					const toolResult = {
-						toolId: step.toolId,
-						toolRunId: null,
-						required: step.required,
-						status,
-						findingCount: 0,
-						exitCode: null,
-						error: "Skipped due to previous profile-failing tool failure",
-						applicability: "applicable" as const,
-						reasonCode: "execution_failed",
-						coverageEffect: "gap" as const,
-						artifactIds: [],
-					};
-					toolResults.push(toolResult);
-					stepResults.push({ kind: "static_tool", ...toolResult });
-				} else if (step.kind === "dast") {
-					stepResults.push({
-						kind: "dast",
-						profileId: step.profileId,
-						required: step.required,
-						status,
-						outcome: null,
-						findingCount: 0,
-						dastRunId: null,
-						targetOrigin: null,
-						error: "Skipped due to previous profile-failing step failure",
-					});
-				} else {
-					stepResults.push({
-						kind: step.kind,
-						stepId,
-						adapter: "adapter" in step ? step.adapter : "unknown",
-						required: step.required,
-						status,
-						applicability: "not_applicable",
-						reasonCode: "execution_failed",
-						coverageEffect: "gap",
-						findingCount: 0,
-						error: "Skipped due to previous profile-failing step failure",
-					});
-				}
-				continue;
-			}
-
-			const diffApplicability =
-				step.kind === "static_tool" && diffPlan
-					? diffPlan.tools.find((tool) => tool.toolId === step.toolId)
-					: null;
-			if (
-				step.kind === "static_tool" &&
-				diffPlan &&
-				diffApplicability?.applicability === "not_applicable"
-			) {
-				const toolResult: ToolResult = {
-					toolId: step.toolId,
-					toolRunId: null,
-					required: step.required,
-					status: "skipped",
-					findingCount: 0,
-					exitCode: null,
-					error: null,
-					applicability: "not_applicable",
-					reasonCode: diffApplicability.reasonCode,
-					coverageEffect: diffApplicability.coverageEffect,
-					artifactIds: [],
-					metadata: {
-						targetDigest: diffPlan.target.targetDigest,
-					},
-				};
-				toolResults.push(toolResult);
-				stepResults.push({ kind: "static_tool", ...toolResult });
-				await scanRepo.createScanEvent({
-					scanRunId: scanRun.id,
-					level: "info",
-					eventType: "tool.not_applicable",
-					message: `${step.toolId} is not applicable to this diff target.`,
-					data: {
-						toolId: step.toolId,
-						reasonCode: diffApplicability.reasonCode,
-						targetDigest: diffPlan.target.targetDigest,
-					},
-				});
-				continue;
-			}
+			const lifecycleContext = {
+				scanRunId: scanRun.id,
+				step,
+				planned,
+				position: stepIndex + 1,
+				totalSteps: profileSteps.length,
+				planHash: params.executionPlan.planHash,
+			};
+			const resultStartIndex = stepResults.length;
+			let startedAtMs: number | null = null;
+			let plannedNotApplicable = false;
+			let preflightBlocked = false;
+			let skippedDueToPriorFailure = false;
+			let lifecycleReasonCode: string | null = null;
 
 			try {
-				if (
-					step.kind === "static_tool" ||
-					step.kind === "sbom_export" ||
-					step.kind === "container_image_scan"
-				) {
-					const toolId = step.kind === "static_tool" ? step.toolId : "trivy";
-					const scannerAdapter = staticScannerAdapterRegistry.require(toolId);
-					const diffExecution =
-						diffPlan && step.kind === "static_tool"
-							? resolveStaticScannerDiffExecution(
-									scannerAdapter,
-									diffPlan.scanPaths,
-								)
-							: null;
-					const diffInputKind =
-						diffExecution?.inputKind ?? scannerAdapter.manifest.diffInput;
-					const toolRepoPath =
-						diffPlan && step.kind === "static_tool"
-							? diffInputKind === "full_snapshot"
-								? diffSnapshot?.projectPath
-								: diffExecution?.workspace === "trivy"
-									? diffSnapshot?.trivyWorkspacePath
-									: diffSnapshot?.changedWorkspacePath
-							: params.repoPath;
-					if (!toolRepoPath) {
-						throw new Error(
-							"snapshot_materialization_failed: scanner input is unavailable",
-						);
-					}
-					const baseOptions = {
-						...(("options" in step ? step.options : undefined) ?? {}),
-						...(step.kind === "sbom_export" ? { mode: "fs-sbom" } : {}),
-						...(step.kind === "container_image_scan"
-							? {
-									mode: "image",
-									imageRef: params.imageRef,
-									imageTar: params.imageTar,
-								}
-							: {}),
-						scope: withMandatoryExcludes(profile.scope),
-						scopeSummary: resolvedScope,
-					};
-					const toolOptions = scannerAdapter.extendProfileOptions
-						? await scannerAdapter.extendProfileOptions({
-								options: baseOptions,
-								activeTechnologyPluginIds:
-									params.technologyAnalysis.capabilityPlan.activePluginIds,
-							})
-						: baseOptions;
-					const toolRes = await runToolIntoExistingScan({
-						db: params.db,
-						projectId: params.projectId,
-						scanRunId: scanRun.id,
-						toolId,
-						options: toolOptions,
-						artifactStorage,
-						timeoutSec: resolvedTimeout,
-						repoPath: toolRepoPath,
-						execution,
-						diffContext:
-							diffPlan && step.kind === "static_tool"
-								? {
-										target: diffPlan.target,
-										entries: diffPlan.manifest.entries,
-										targetPaths: diffExecution?.targetPaths,
-										inputKind: diffInputKind,
-										contextFileCount:
-											toolId === "trivy"
-												? diffSnapshot?.trivyContextFileCount
-												: 0,
-									}
-								: undefined,
-					});
-
-					toolRunId = toolRes.toolRunId;
-					findingCount = toolRes.findingCount;
-					exitCode = toolRes.exitCode;
-					stepArtifactIds = toolRes.artifactIds;
-					diffUnmappedFindingCount = toolRes.diffUnmappedFindingCount;
-					if (diffUnmappedFindingCount > 0) {
-						optionalToolFailed = true;
-					}
-					status = "completed";
-				} else if (step.kind === "dast") {
-					const target = sharesRuntimeTarget
-						? await ensureSharedRuntimeTarget()
-						: undefined;
-					const dastResult = await runDastStepIntoExistingScan({
-						db: params.db,
-						projectId: params.projectId,
-						scanRunId: scanRun.id,
+				if (planned.applicability === "not_applicable") {
+					plannedNotApplicable = true;
+					const reasonCode = planned.reasonCodes[0] ?? "not_applicable";
+					lifecycleReasonCode = reasonCode;
+					const result = notApplicablePlannedStepResult({
 						step,
-						repoPath: params.repoPath,
-						timeoutSec: resolvedTimeout,
-						createdByUserId: params.createdByUserId,
-						preparedAutoTarget: target,
-						artifactStorage,
-						consentProjectCodeExecution: params.consentProjectCodeExecution,
-					});
-					stepResults.push(dastResult);
-					findingCount = dastResult.findingCount;
-					status = dastResult.status;
-					error = dastResult.error;
-					if (dastResult.status === "failed") {
-						if (failureFailsProfile) {
-							profileFailingToolFailed = true;
-						} else {
-							optionalToolFailed = true;
-						}
-					} else if (dastResult.coverageStatus !== "covered") {
-						optionalToolFailed = true;
-					}
-					continue;
-				} else if (step.kind === "runtime_scanner") {
-					const target = await ensureSharedRuntimeTarget();
-					const runtimeOptions = step.options as
-						| { maxRequests?: number; rateLimitPerSec?: number }
-						| undefined;
-					const runtimeResult = await runRuntimeScannerIntoExistingScan({
-						db: params.db,
-						projectId: params.projectId,
-						scanRunId: scanRun.id,
-						adapter: step.adapter,
-						targetOrigin: target.origin,
-						artifactStorage,
-						timeoutSec: resolvedTimeout,
-						execution,
-						allowedPaths: target.targetConfig.allowedPathsJson,
-						excludedPaths: target.targetConfig.excludedPathsJson,
-						maxRequests: runtimeOptions?.maxRequests,
-						rateLimitPerSec: runtimeOptions?.rateLimitPerSec,
-					});
-					const runtimeFailed = Boolean(runtimeResult.error);
-					stepResults.push({
-						kind: step.kind,
 						stepId,
-						adapter: step.adapter,
-						required: step.required,
-						status: runtimeFailed ? "failed" : "completed",
-						applicability: "applicable",
-						reasonCode: runtimeResult.reasonCode ?? null,
-						coverageEffect: runtimeFailed ? "gap" : "covered",
-						findingCount: runtimeResult.findingCount,
-						error: runtimeResult.error ?? null,
-						artifactIds: runtimeResult.artifactIds,
-						metadata: runtimeResult.metadata,
+						reasonCode,
+						executionPlanHash: params.executionPlan.planHash,
 					});
-					if (runtimeFailed) {
-						if (failureFailsProfile) profileFailingToolFailed = true;
-						else optionalToolFailed = true;
-					}
+					if (result.toolResult) toolResults.push(result.toolResult);
+					stepResults.push(result.stepResult);
+					await scanRepo.createScanEvent({
+						scanRunId: scanRun.id,
+						level: "info",
+						eventType: "tool.not_applicable",
+						message: `${stepId} is not applicable according to the execution plan.`,
+						data: {
+							reasonCode,
+							executionPlanHash: params.executionPlan.planHash,
+						},
+					});
 					continue;
-				} else if (step.kind === "api_schema_scan") {
-					const discovery = await discoverRepositoryApiSchema(params.repoPath);
-					if (!discovery.applicable) {
+				}
+				const preflightReasonCodes =
+					params.scanPreflight.mode === "enforced" &&
+					planned.readiness === "blocked"
+						? planned.reasonCodes
+						: [];
+				if (preflightReasonCodes.length > 0) {
+					preflightBlocked = true;
+					lifecycleReasonCode = "preflight_failed";
+					if (failureFailsProfile) profileFailingToolFailed = true;
+					else optionalToolFailed = true;
+					const result = preflightBlockedStepResult({
+						step,
+						stepId,
+						preflightReasonCodes,
+					});
+					if (result.toolResult) toolResults.push(result.toolResult);
+					stepResults.push(result.stepResult);
+					continue;
+				}
+
+				// Check if we should skip due to earlier profile-failing tool failure.
+				if (profileFailingToolFailed && !continueOnToolFailure) {
+					skippedDueToPriorFailure = true;
+					const status = "skipped" as const;
+					if (step.kind === "static_tool") {
+						const toolResult = {
+							toolId: step.toolId,
+							toolRunId: null,
+							required: step.required,
+							status,
+							findingCount: 0,
+							exitCode: null,
+							error: "Skipped due to previous profile-failing tool failure",
+							applicability: "applicable" as const,
+							reasonCode: "execution_failed",
+							coverageEffect: "gap" as const,
+							artifactIds: [],
+						};
+						toolResults.push(toolResult);
+						stepResults.push({ kind: "static_tool", ...toolResult });
+					} else if (step.kind === "dast") {
+						stepResults.push({
+							kind: "dast",
+							profileId: step.profileId,
+							required: step.required,
+							status,
+							outcome: null,
+							findingCount: 0,
+							dastRunId: null,
+							targetOrigin: null,
+							error: "Skipped due to previous profile-failing step failure",
+						});
+					} else {
 						stepResults.push({
 							kind: step.kind,
 							stepId,
-							adapter: step.adapter,
-							required: step.required,
-							status: "skipped",
-							applicability: "not_applicable",
-							reasonCode: discovery.reasonCode ?? "schema_not_found",
-							coverageEffect: "gap",
-							findingCount: 0,
-							error: null,
-							artifactIds: [],
-						});
-						continue;
-					}
-					const target = await ensureSharedRuntimeTarget();
-					const schemaOptions = step.options as
-						| { maxRequests?: number; rateLimitPerSec?: number }
-						| undefined;
-					const schemaResult = await runSchemaScannerIntoExistingScan({
-						db: params.db,
-						projectId: params.projectId,
-						scanRunId: scanRun.id,
-						repoPath: params.repoPath,
-						targetOrigin: target.origin,
-						discovery,
-						artifactStorage,
-						timeoutSec: resolvedTimeout,
-						execution,
-						allowedPaths: target.targetConfig.allowedPathsJson,
-						excludedPaths: target.targetConfig.excludedPathsJson,
-						maxRequests: schemaOptions?.maxRequests,
-						rateLimitPerSec: schemaOptions?.rateLimitPerSec,
-					});
-					const notApplicable = !schemaResult.applicable;
-					const schemaFailed = Boolean(schemaResult.error);
-					stepResults.push({
-						kind: step.kind,
-						stepId,
-						adapter: step.adapter,
-						required: step.required,
-						status: notApplicable
-							? "skipped"
-							: schemaFailed
-								? "failed"
-								: "completed",
-						applicability: notApplicable ? "not_applicable" : "applicable",
-						reasonCode: schemaResult.reasonCode ?? null,
-						coverageEffect: notApplicable || schemaFailed ? "gap" : "covered",
-						findingCount: schemaResult.findingCount,
-						error: schemaResult.error ?? null,
-						artifactIds: schemaResult.artifactIds,
-						metadata: schemaResult.metadata,
-					});
-					if (schemaFailed && failureFailsProfile)
-						profileFailingToolFailed = true;
-					else if (schemaFailed) optionalToolFailed = true;
-					continue;
-				}
-			} catch (err: unknown) {
-				status = "failed";
-				error = err instanceof Error ? err.message : String(err);
-
-				if (failureFailsProfile) {
-					profileFailingToolFailed = true;
-				} else {
-					optionalToolFailed = true;
-				}
-				if (
-					step.kind === "runtime_scanner" ||
-					step.kind === "api_schema_scan"
-				) {
-					stepResults.push({
-						kind: step.kind,
-						stepId,
-						adapter: step.adapter,
-						required: step.required,
-						status: "failed",
-						applicability: "applicable",
-						reasonCode: error.includes("policy_rejected")
-							? "policy_rejected"
-							: "execution_failed",
-						coverageEffect: "gap",
-						findingCount: 0,
-						error,
-					});
-					continue;
-				}
-				if (step.kind === "dast") {
-					stepResults.push({
-						kind: "dast",
-						profileId: step.profileId,
-						required: step.required,
-						status: "failed",
-						outcome: "error",
-						findingCount: 0,
-						dastRunId: null,
-						targetOrigin: null,
-						error,
-					});
-					continue;
-				}
-			}
-
-			if (
-				step.kind !== "static_tool" &&
-				step.kind !== "sbom_export" &&
-				step.kind !== "container_image_scan"
-			)
-				throw new Error(`Unsupported profile step: ${stepId}`);
-			const toolResult = {
-				toolId: step.kind === "static_tool" ? step.toolId : "trivy",
-				toolRunId,
-				required: step.required,
-				status,
-				findingCount,
-				exitCode,
-				error,
-				applicability: "applicable" as const,
-				reasonCode: status === "failed" ? "execution_failed" : null,
-				coverageEffect:
-					status === "failed"
-						? ("gap" as const)
-						: diffUnmappedFindingCount > 0
-							? ("partial" as const)
-							: (diffApplicability?.coverageEffect ?? ("covered" as const)),
-				artifactIds: stepArtifactIds,
-				metadata: diffPlan
-					? {
-							targetDigest: diffPlan.target.targetDigest,
-							diffUnmappedFindingCount,
-						}
-					: undefined,
-			};
-			toolResults.push(toolResult);
-			stepResults.push(
-				step.kind === "static_tool"
-					? { kind: "static_tool", ...toolResult }
-					: {
-							kind: step.kind,
-							stepId,
-							adapter: step.adapter,
+							adapter: "adapter" in step ? step.adapter : "unknown",
 							required: step.required,
 							status,
-							applicability:
-								status === "completed" ? "applicable" : "not_applicable",
-							reasonCode:
-								status === "completed"
-									? null
-									: error?.includes("image_input_not_provided")
-										? "image_input_not_provided"
-										: "execution_failed",
-							coverageEffect: status === "completed" ? "covered" : "gap",
-							findingCount,
-							error,
-							artifactIds: stepArtifactIds,
+							applicability: "not_applicable",
+							reasonCode: "execution_failed",
+							coverageEffect: "gap",
+							findingCount: 0,
+							error: "Skipped due to previous profile-failing step failure",
+						});
+					}
+					continue;
+				}
+
+				const diffApplicability =
+					step.kind === "static_tool" && diffPlan
+						? diffPlan.tools.find((tool) => tool.toolId === step.toolId)
+						: null;
+				if (
+					step.kind === "static_tool" &&
+					diffPlan &&
+					diffApplicability?.applicability === "not_applicable"
+				) {
+					const toolResult: ToolResult = {
+						toolId: step.toolId,
+						toolRunId: null,
+						required: step.required,
+						status: "skipped",
+						findingCount: 0,
+						exitCode: null,
+						error: null,
+						applicability: "not_applicable",
+						reasonCode: diffApplicability.reasonCode,
+						coverageEffect: diffApplicability.coverageEffect,
+						artifactIds: [],
+						metadata: {
+							targetDigest: diffPlan.target.targetDigest,
 						},
-			);
+					};
+					toolResults.push(toolResult);
+					stepResults.push({ kind: "static_tool", ...toolResult });
+					await scanRepo.createScanEvent({
+						scanRunId: scanRun.id,
+						level: "info",
+						eventType: "tool.not_applicable",
+						message: `${step.toolId} is not applicable to this diff target.`,
+						data: {
+							toolId: step.toolId,
+							reasonCode: diffApplicability.reasonCode,
+							targetDigest: diffPlan.target.targetDigest,
+						},
+					});
+					continue;
+				}
+
+				startedAtMs = Date.now();
+				await emitScanStepStarted(scanRepo, lifecycleContext);
+				const executed = await executeProfileStep({
+					step,
+					stepId,
+					resolvedTimeout,
+					failureFailsProfile,
+					diffPlan,
+					diffSnapshot,
+					sharesRuntimeTarget,
+					ensureSharedRuntimeTarget,
+					scope: params,
+				});
+				toolResults.push(...executed.toolResults);
+				stepResults.push(...executed.stepResults);
+				if (executed.profileFailingToolFailed) {
+					profileFailingToolFailed = true;
+				}
+				if (executed.optionalToolFailed) {
+					optionalToolFailed = true;
+				}
+			} finally {
+				const details = lifecycleOutcome({
+					result: stepResults[resultStartIndex],
+					plannedNotApplicable,
+					preflightBlocked,
+					skippedDueToPriorFailure,
+					fallbackReasonCode: lifecycleReasonCode,
+				});
+				await emitScanStepFinished(scanRepo, lifecycleContext, {
+					...details,
+					durationMs:
+						startedAtMs === null ? null : Math.max(0, Date.now() - startedAtMs),
+				});
+			}
 		}
 	} finally {
 		const targetToStop = sharedRuntimeTarget as Awaited<

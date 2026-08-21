@@ -673,7 +673,7 @@ bunx vitest run web/src/domains/scans/report-quality.test.ts
 
 ```bash
 bun test api/modules/scans/scan-review-runner.test.ts
-bun test api/modules/scans/report-builder.test.ts
+bun test api/modules/scans/reporting/report-builder.test.ts
 ```
 
 package の `test` script と `scripts/verify.ts` はこの分離を反映しています。

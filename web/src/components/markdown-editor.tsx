@@ -5,6 +5,7 @@ import {
 	useMemo,
 	useRef,
 } from "react";
+import { MarkdownRenderer } from "./markdown-renderer";
 import { renderMarkdownToSafeHtml } from "./safe-markdown";
 
 type MarkdownEditorProps = {
@@ -33,7 +34,10 @@ export function MarkdownEditor({
 	className,
 }: MarkdownEditorProps) {
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
-	const safeHtml = useMemo(() => renderMarkdownToSafeHtml(value), [value]);
+	const safeHtml = useMemo(
+		() => (editable ? renderMarkdownToSafeHtml(value) : ""),
+		[editable, value],
+	);
 
 	const updateValue = useCallback(
 		(nextValue: string) => {
@@ -73,15 +77,12 @@ export function MarkdownEditor({
 
 	if (!editable) {
 		return (
-			<div
+			<MarkdownRenderer
+				markdown={value}
 				className={joinClassNames(
-					"markdown-surface",
-					"markdown-surface-viewer",
 					autoHeight && "markdown-surface-auto-height",
 					className,
 				)}
-				// biome-ignore lint/security/noDangerouslySetInnerHtml: raw HTML and unsafe links are disabled by the Marked renderer.
-				dangerouslySetInnerHTML={{ __html: safeHtml }}
 			/>
 		);
 	}
@@ -163,7 +164,7 @@ export function MarkdownEditor({
 					/>
 				</label>
 				<section
-					className="markdown-preview"
+					className="markdown-preview markdown-document"
 					aria-label="Markdown preview"
 					// biome-ignore lint/security/noDangerouslySetInnerHtml: raw HTML and unsafe links are disabled by the Marked renderer.
 					dangerouslySetInnerHTML={{ __html: safeHtml }}

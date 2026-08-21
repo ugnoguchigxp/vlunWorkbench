@@ -14,27 +14,24 @@ export type ScanProfileTool = {
 	timeoutSec?: number;
 };
 
-export type ScanProfileStep =
-	| {
-			kind: "static_tool";
-			toolId: string;
-			displayName: string;
-			required: boolean;
-			timeoutSec?: number;
-			failurePolicy: "fail_profile" | "warn_and_continue";
-	  }
-	| {
-			kind: "dast";
-			profileId:
-				| "http-baseline"
-				| "web-passive-standard"
-				| "authenticated-readonly-standard";
-			displayName: string;
-			required: boolean;
-			timeoutSec?: number;
-			failurePolicy: "fail_profile" | "warn_and_continue";
-			target: { mode: "auto_project_start" };
-	  };
+export type ScanProfileStep = {
+	stepId: string;
+	kind:
+		| "static_tool"
+		| "dast"
+		| "runtime_scanner"
+		| "sbom_export"
+		| "api_schema_scan"
+		| "container_image_scan";
+	adapter: string;
+	displayName: string;
+	required: boolean;
+	timeoutSec?: number;
+	failurePolicy: "fail_profile" | "warn_and_continue";
+	toolId?: string;
+	profileId?: string;
+	target?: { mode: "auto_project_start" };
+};
 
 export type ScanProfileScope = {
 	intent: "source" | "dependency_manifest" | "artifact" | "full_deep";
@@ -53,7 +50,7 @@ export type ScanProfile = {
 	supportedTargets?: ScanTargetKind[];
 	scope?: ScanProfileScope;
 	tools: ScanProfileTool[];
-	steps?: ScanProfileStep[];
+	steps: ScanProfileStep[];
 	coverageGaps?: string[];
 };
 

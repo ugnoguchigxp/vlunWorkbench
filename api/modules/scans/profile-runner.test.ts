@@ -443,9 +443,9 @@ describe("Profile Runner Orchestration", () => {
         expect.objectContaining({ kind: "diff_manifest", toolRunId: null }),
       ]),
     );
-    expect(
-      execFileSync("git", ["status", "--short"], { cwd: repoPath }).toString(),
-    ).toContain("src/app.ts");
+    expect(await fs.readFile(path.join(repoPath, "src/app.ts"), "utf8")).toBe(
+      "export const a = 2;\n",
+    );
   });
 
   it("allows a Web project path outside the process working directory", async () => {

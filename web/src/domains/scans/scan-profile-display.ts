@@ -134,6 +134,85 @@ export const TOOL_DISPLAY: Record<string, { name: string; purpose: string }> = {
 	},
 };
 
+export type ScanStepDisplay = {
+	name: string;
+	purpose: readonly string[];
+};
+
+export const SCAN_STEP_DISPLAY: Record<string, ScanStepDisplay> = {
+	gitleaks: {
+		name: "Gitleaks",
+		purpose: [
+			"Git 履歴やソースに含まれる API キー、トークン、認証情報を確認します。",
+		],
+	},
+	osv: {
+		name: "OSV-Scanner",
+		purpose: [
+			"manifest、lockfile、依存パッケージに含まれる既知の脆弱性を確認します。",
+		],
+	},
+	trivy: {
+		name: "Trivy",
+		purpose: [
+			"依存ライブラリ・OS パッケージの既知の脆弱性を確認します。",
+			"Docker・IaC などの危険な設定を確認します。",
+			"コードや設定ファイルに含まれるシークレットを確認します。",
+		],
+	},
+	semgrep: {
+		name: "Semgrep",
+		purpose: ["ソースコードの危険な実装パターンや脆弱な書き方を確認します。"],
+	},
+	"sbom_export:trivy": {
+		name: "Trivy SBOM",
+		purpose: [
+			"利用しているパッケージ、バージョン、依存関係を収集します。",
+			"CycloneDX 形式のソフトウェア構成表を生成します。",
+		],
+	},
+	"dast:http-baseline": {
+		name: "HTTP Baseline DAST",
+		purpose: [
+			"Web アプリの HTTP 応答、公開ルート、セキュリティヘッダーを受動的に確認します。",
+		],
+	},
+	"dast:web-passive-standard": {
+		name: "Web Passive Standard DAST",
+		purpose: [
+			"自動起動した Web アプリの HTTP 応答と受動的な異常を確認します。",
+		],
+	},
+	"dast:authenticated-readonly-standard": {
+		name: "Authenticated Read-only DAST",
+		purpose: [
+			"認証済みの読み取り専用操作に限定して HTTP の安全性を確認します。",
+		],
+	},
+	"runtime_scanner:nuclei-safe": {
+		name: "Nuclei Safe",
+		purpose: ["安全なテンプレートだけで公開 URL の既知の問題を確認します。"],
+	},
+	"runtime_scanner:zap-baseline": {
+		name: "ZAP Baseline",
+		purpose: ["Web アプリを変更せず、HTTP 通信から受動的な警告を確認します。"],
+	},
+	"api_schema_scan:schemathesis": {
+		name: "Schemathesis",
+		purpose: [
+			"OpenAPI または GraphQL の読み取り専用操作を確認します。",
+			"スキーマと実際のレスポンスの不整合を確認します。",
+		],
+	},
+	"container_image_scan:trivy": {
+		name: "Trivy Image Scan",
+		purpose: [
+			"コンテナイメージ内の OS・アプリ依存関係の既知の脆弱性を確認します。",
+			"コンテナイメージに含まれる設定やシークレットを確認します。",
+		],
+	},
+};
+
 export const TOOL_SUBTITLES: Record<string, string> = Object.fromEntries(
 	Object.entries(TOOL_DISPLAY).map(([id, display]) => [id, display.purpose]),
 );
@@ -156,6 +235,20 @@ export function getToolDisplay(id: string, fallbackName?: string) {
 		TOOL_DISPLAY[id] ?? {
 			name: fallbackName || id,
 			purpose: "この scan tool が出力した結果を確認します。",
+		}
+	);
+}
+
+export function getScanStepDisplay(
+	stepId: string,
+	adapter: string,
+	fallbackName: string,
+): ScanStepDisplay {
+	return (
+		SCAN_STEP_DISPLAY[stepId] ??
+		SCAN_STEP_DISPLAY[adapter] ?? {
+			name: fallbackName,
+			purpose: ["このスキャナーが設定された検査を実行しています。"],
 		}
 	);
 }

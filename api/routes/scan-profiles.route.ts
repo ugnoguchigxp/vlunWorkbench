@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { listProfiles } from "../modules/scans/profiles";
+import { scanProfileStepId } from "../modules/scans/scan-execution-plan-builder";
 import { resolveScanPreflightMode } from "../modules/scans/scan-preflight";
 
 export function createScanProfilesRoute() {
@@ -31,27 +32,24 @@ export function createScanProfilesRoute() {
 				required: t.required,
 				timeoutSec: t.timeoutSec,
 			})),
-			steps: p.steps?.map((step) => {
-				if (step.kind === "dast") {
-					return {
-						kind: step.kind,
-						profileId: step.profileId,
-						displayName: step.displayName,
-						required: step.required,
-						timeoutSec: step.timeoutSec,
-						failurePolicy: step.failurePolicy,
-						target: step.target,
-					};
-				}
-				return {
-					kind: step.kind,
-					toolId: step.kind === "static_tool" ? step.toolId : step.adapter,
-					displayName: step.displayName,
-					required: step.required,
-					timeoutSec: step.timeoutSec,
-					failurePolicy: step.failurePolicy,
-				};
-			}),
+			steps: (p.steps ?? []).map((step) => ({
+				stepId: scanProfileStepId(step),
+				kind: step.kind,
+				adapter:
+					step.kind === "static_tool"
+						? step.toolId
+						: step.kind === "dast"
+							? step.profileId
+							: step.adapter,
+				displayName: step.displayName,
+				required: step.required,
+				timeoutSec: step.timeoutSec,
+				failurePolicy: step.failurePolicy,
+				...(step.kind === "static_tool" ? { toolId: step.toolId } : {}),
+				...(step.kind === "dast"
+					? { profileId: step.profileId, target: step.target }
+					: {}),
+			})),
 		}));
 		return c.json({
 			profiles: sanitizedProfiles,

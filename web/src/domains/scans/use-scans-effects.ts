@@ -17,6 +17,7 @@ export function useScansEffects(scope: ScansControllerBaseScope) {
 	const {
 		active,
 		linkReviewDefaultFindingRef,
+		progressScanRun,
 		requestedProjectId,
 		requestedScanRunId,
 		selectedDecisionWorkflow,
@@ -29,6 +30,7 @@ export function useScansEffects(scope: ScansControllerBaseScope) {
 		scanRuns,
 		setAllDecisions,
 		setAllReviews,
+		setActiveScanEvents,
 		setCommentInput,
 		setDecisionInput,
 		setErrorText,
@@ -48,6 +50,7 @@ export function useScansEffects(scope: ScansControllerBaseScope) {
 		setScanEvents,
 		setScanReviews,
 		setScanRuns,
+		setScanRunsLoading,
 		setScanSummary,
 		setSelectedFindingDetails,
 		setSelectedFindingId,
@@ -162,12 +165,18 @@ export function useScansEffects(scope: ScansControllerBaseScope) {
 	}, [active, selectedProjectId, setScanRuns]);
 
 	useEffect(() => {
-		if (!active || !selectedProjectId) return;
+		if (!active || !selectedProjectId) {
+			setScanRunsLoading(false);
+			return;
+		}
+		let mounted = true;
 		setSelectedFindingId("");
 		setSelectedFindingDetails(null);
 		setScanDetailTab("review");
+		setScanRunsLoading(true);
 		void fetchScans(selectedProjectId)
 			.then((runs) => {
+				if (!mounted) return;
 				setScanRuns(runs);
 				setSelectedScanRunId(
 					runs.some((run) => run.id === requestedScanRunId)
@@ -180,13 +189,20 @@ export function useScansEffects(scope: ScansControllerBaseScope) {
 					setSelectedFindingDetails(null);
 				}
 			})
-			.catch((err) =>
+			.catch((err) => {
+				if (!mounted) return;
 				setErrorText(
 					err instanceof Error
 						? err.message
 						: "scan の読み込みに失敗しました。",
-				),
-			);
+				);
+			})
+			.finally(() => {
+				if (mounted) setScanRunsLoading(false);
+			});
+		return () => {
+			mounted = false;
+		};
 	}, [
 		active,
 		requestedScanRunId,
@@ -198,6 +214,7 @@ export function useScansEffects(scope: ScansControllerBaseScope) {
 		setSelectedFindingDetails,
 		setScanDetailTab,
 		setScanRuns,
+		setScanRunsLoading,
 	]);
 
 	const unselectedActiveScanIds = scanRuns
@@ -233,6 +250,34 @@ export function useScansEffects(scope: ScansControllerBaseScope) {
 		setScanRuns,
 		unselectedActiveScanIds,
 	]);
+
+	const progressScanRunId = progressScanRun?.id ?? "";
+	useEffect(() => {
+		if (
+			!active ||
+			!progressScanRunId ||
+			progressScanRunId === selectedScanRunId
+		) {
+			setActiveScanEvents([]);
+			return;
+		}
+		setActiveScanEvents([]);
+		let mounted = true;
+		const refreshProgressEvents = async () => {
+			try {
+				const events = await fetchScanEvents(progressScanRunId);
+				if (mounted) setActiveScanEvents(events);
+			} catch {
+				if (mounted) setActiveScanEvents([]);
+			}
+		};
+		void refreshProgressEvents();
+		const timer = setInterval(() => void refreshProgressEvents(), 1_500);
+		return () => {
+			mounted = false;
+			clearInterval(timer);
+		};
+	}, [active, progressScanRunId, selectedScanRunId, setActiveScanEvents]);
 
 	useEffect(() => {
 		if (!active || !selectedScanRunId) {

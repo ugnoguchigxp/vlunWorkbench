@@ -61,6 +61,7 @@ const scanReview = (overrides: Partial<ScanReview> = {}): ScanReview => ({
 	recommendedNextActions: [],
 	findingTriageHints: [],
 	confidenceNotes: [],
+	inputBundle: { generationKind: "improvement_request" },
 	output: {
 		improvementRequest: {
 			title: "Fix high risk finding",
@@ -144,6 +145,7 @@ const coverageSummary = (
 ): CoverageSummary => ({
 	scanRunId: "scan-1",
 	hasFindings: false,
+	sourceSast: null,
 	toolCoverage: [],
 	attackSurfaceCounts: {},
 	checkStatusCounts: {},

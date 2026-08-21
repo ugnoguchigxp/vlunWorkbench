@@ -32,6 +32,7 @@ export type ScanRun = {
 export type ScanEvent = {
 	id: string;
 	scanRunId: string;
+	seq: number;
 	level: "debug" | "info" | "warn" | "error";
 	eventType: string;
 	message: string;

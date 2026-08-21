@@ -3,7 +3,11 @@ import { nodeVitestFiles } from "./scripts/test-files";
 
 export default defineConfig({
 	test: {
-		include: ["web/**/*.test.ts", "shared/**/*.test.ts", ...nodeVitestFiles],
+		include: [
+			"web/**/*.test.{ts,tsx}",
+			"shared/**/*.test.{ts,tsx}",
+			...nodeVitestFiles,
+		],
 		coverage: {
 			provider: "v8",
 			reporter: ["text", "html"],
@@ -14,7 +18,7 @@ export default defineConfig({
 				"shared/report-sections.ts",
 			],
 			exclude: [
-				"**/*.test.ts",
+				"**/*.test.{ts,tsx}",
 				"**/*-controller.ts",
 				// These modules were extracted from the already-excluded React controller.
 				// Their browser orchestration is protected by Playwright, not unit coverage.

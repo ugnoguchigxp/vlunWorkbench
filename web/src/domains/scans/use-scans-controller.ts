@@ -1,13 +1,15 @@
+import { useScansFindingActions } from "./findings/scans-finding-actions";
+import { buildScanHandoffActions } from "./handoff/scans-handoff-actions";
+import { buildScanReportingActions } from "./reporting/scans-reporting-actions";
 import { buildScansControllerViewModel } from "./scans-controller-view-model";
-import { useScansFindingActions } from "./scans-finding-actions";
-import { buildScanLaunchActions } from "./scans-launch-actions";
+import { useFindingLoadEffects } from "./use-finding-load-effects";
+import { useScanTargetEffects } from "./use-scan-target-effects";
 import {
 	type ScansControllerBaseProps,
 	useScansControllerBase,
 } from "./use-scans-base-controller";
-import { useFindingLoadEffects } from "./use-finding-load-effects";
-import { useScanTargetEffects } from "./use-scan-target-effects";
 import { useScansEffects } from "./use-scans-effects";
+import { buildScanWorkspaceActions } from "./workspace/scans-workspace-actions";
 
 export type ScansDomainSectionProps = ScansControllerBaseProps;
 
@@ -18,16 +20,20 @@ export const useScansController = (props: ScansDomainSectionProps) => {
 		...useScanTargetEffects(baseScope),
 	};
 	const findingEffectsScope = useFindingLoadEffects(baseScope);
-	let launchScope: ReturnType<typeof buildScanLaunchActions> | null = null;
+	let workspaceScope: ReturnType<typeof buildScanWorkspaceActions> | null =
+		null;
+	let reportingScope: ReturnType<typeof buildScanReportingActions> | null =
+		null;
+	let handoffScope: ReturnType<typeof buildScanHandoffActions> | null = null;
 	let findingScope: ReturnType<typeof useScansFindingActions> | null = null;
 	const bridgeScope = {
 		...baseScope,
 		...effectsScope,
 		...findingEffectsScope,
 		reloadDiagnostics: (...args: [scanRunId?: string]) => {
-			if (!launchScope)
-				throw new Error("Scan launch actions are not initialized.");
-			return launchScope.reloadDiagnostics(...args);
+			if (!handoffScope)
+				throw new Error("Scan handoff actions are not initialized.");
+			return handoffScope.reloadDiagnostics(...args);
 		},
 		getReportQualityPreview: () => {
 			if (!findingScope)
@@ -36,11 +42,16 @@ export const useScansController = (props: ScansDomainSectionProps) => {
 		},
 	};
 	findingScope = useScansFindingActions(bridgeScope);
-	launchScope = buildScanLaunchActions({ ...bridgeScope, ...findingScope });
+	const actionScope = { ...bridgeScope, ...findingScope };
+	workspaceScope = buildScanWorkspaceActions(actionScope);
+	reportingScope = buildScanReportingActions(actionScope);
+	handoffScope = buildScanHandoffActions(actionScope);
 	return buildScansControllerViewModel({
 		...bridgeScope,
 		...findingScope,
-		...launchScope,
+		...workspaceScope,
+		...reportingScope,
+		...handoffScope,
 	});
 };
 

@@ -79,7 +79,7 @@ export function ScanLaunchCard({
 				disabled={disabled || isScanning}
 			>
 				<Play className="icon" />
-				{isScanning ? "実行中..." : "スキャンを開始"}
+				{isScanning ? "スキャン中" : "スキャンを開始"}
 			</Button>
 		</section>
 	);

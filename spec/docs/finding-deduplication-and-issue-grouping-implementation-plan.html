@@ -1,0 +1,1295 @@
+<article lang="ja" data-spec-role="active-plan">
+  <h1 id="finding-deduplication-and-issue-grouping-implementation-plan">
+    Finding Deduplication and Issue-grouped Handoff Implementation Plan
+  </h1>
+  <p>Status: Planned</p>
+  <p>Planning baseline commit: <code>9d8ae3e18b7956646400380dc6079693d54f0ee2</code></p>
+  <p>Planning baseline date: 2026-08-21</p>
+  <p>Owner: vulnWorkbench maintainers</p>
+  <p>
+    Target: 複数scannerが同じ問題を異なるrule、title、severityで検出した場合に、raw findingと証跡を
+    失わず、画面、レポート、件数、LLM改修指示書では<code>1 issue group = 1問題</code>として扱う。
+    自動統合に十分な根拠がないfindingは別問題のまま残す。
+  </p>
+
+  <h2 id="1-decision-and-release-boundary">1. 決定事項とリリース境界</h2>
+  <ol>
+    <li>
+      <code>findings</code
+      >と<code>finding_evidence</code>はscannerが保存したraw recordとして維持し、
+      重複排除を理由に削除、上書き、代表findingへの付け替えを行わない。
+    </li>
+    <li>
+      raw
+      findingの上位に永続化された<code>issue group</code>を追加し、全findingを必ず1つのgroupへ
+      所属させる。統合不能なfindingもmember 1件のsingleton groupとして表現する。
+    </li>
+    <li>
+      初回production releaseは決定論的matcherだけをcurrent snapshotとして使用する。
+      同じscan、同じ対象資産、一致または重なる位置、同じ脆弱性family、hard conflictなし、
+      という複合条件が揃った場合だけ自動統合する。
+    </li>
+    <li>
+      LLM意味判定は独立したshadow機能として実装できるが、UI、report、改修指示書のcurrent
+      snapshotには使用しない。production有効化は本計画のDefinition of Doneに含めない。
+    </li>
+    <li>
+      LLM改修指示書にはgroupごとのcanonical issueを1件だけ渡す。member findingの重複本文を渡さず、
+      scanner/rule/severity差、全member ID、重複を除いたevidence参照を補足する。
+    </li>
+  </ol>
+
+  <h3 id="11-required-release-r1">1.1 Required release R1</h3>
+  <p>
+    FG-00からFG-06までがこの計画で必ず完成させるproduction scopeである。R1完了時には、決定論的
+    groupingをUI、report、改修指示書が共通利用し、LLM providerがなくても全機能を利用できる。
+  </p>
+
+  <h3 id="12-optional-shadow-r2">1.2 Optional shadow R2</h3>
+  <p>
+    FG-07はCLIから明示実行するsemantic shadowである。結果と監査情報は保存するが、current selectorは
+    必ずdeterministic
+    runを選ぶ。semantic結果をproductionへ昇格する変更は、review済みcorpus、固定した precision
+    gate、運用時の無効化手段を含む別計画で行う。したがって、閾値を決める作業やsemantic
+    auto-mergeの有効化を本計画の実装者へ残さない。
+  </p>
+
+  <h2 id="2-terms-and-boundaries">2. 用語と責務境界</h2>
+  <dl>
+    <dt><code>raw finding</code></dt>
+    <dd>
+      scanner normalizerが既存<code>findings</code>
+      tableへ保存する検出事実。source tool、rule、title、
+      description、severity、location、fingerprint、metadataを所有する。
+    </dd>
+    <dt><code>dedupe identity</code></dt>
+    <dd>
+      scanner横断の候補抽出に使用するversion付きの正規化projection。raw
+      findingを読み出した時点で生成し、 raw metadataを書き換えない。group member
+      rowへ計算時snapshotを保存する。
+    </dd>
+    <dt><code>issue group</code></dt>
+    <dd>
+      同じscan内で実質同一と決定できた1件以上のraw findingを束ねる上位単位。UI、report、改修指示書の
+      default表示単位とする。
+    </dd>
+    <dt><code>representative finding</code></dt>
+    <dd>
+      group detailの初期表示、canonical title、canonical
+      descriptionの選択に使うmember。代表以外のmemberや evidenceを消す意味ではない。
+    </dd>
+    <dt><code>grouping run</code></dt>
+    <dd>
+      1つのscanのraw finding集合、algorithm version、判定結果を拘束したimmutable snapshot。
+      consumerはcurrent completed deterministic runだけを使用する。
+    </dd>
+    <dt><code>suppressed duplicate</code></dt>
+    <dd>
+      raw findingとして存在するが、default issue一覧では独立行を持たないsupporting member。
+      削除済み、false positive、または無効なfindingを意味しない。
+    </dd>
+  </dl>
+
+  <h2 id="3-current-baseline">3. Current baseline</h2>
+  <table>
+    <caption>
+      実装開始前の挙動と変更先
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Area</th>
+        <th scope="col">Current behavior</th>
+        <th scope="col">Required behavior</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>保存</td>
+        <td>
+          <code>findings.fingerprint</code>は存在するが、scan内またはscanner横断のunique
+          constraintはない。 static scanner
+          runnerの重複排除は1回のnormalizer出力内の同一fingerprintに限定される。
+        </td>
+        <td>raw保存は維持し、別tableのgroup snapshotで表示上の重複を抑える。</td>
+      </tr>
+      <tr>
+        <td>grouping</td>
+        <td>
+          <code>api/modules/scans/grouping-builder.ts</code>はdependency以外でrule ID、またはsource
+          toolと rule IDをgroup keyへ含めるため、scanner横断の意味的重複がほぼ別groupになる。
+        </td>
+        <td>scanner非依存identityと保守的matcherを使用し、判定根拠をmemberごとに保存する。</td>
+      </tr>
+      <tr>
+        <td>UI</td>
+        <td>grouped modeはfinding一覧をfilterするだけで、全groupを代表1行ずつ表示しない。</td>
+        <td>default issue一覧は1 group 1行とし、展開時だけraw memberを表示する。</td>
+      </tr>
+      <tr>
+        <td>report</td>
+        <td>
+          report本文とseverity countはraw finding基準で、group snapshotはappendixに限定される。
+        </td>
+        <td>本文はissue基準、appendixはraw基準とし、両方の件数を明記する。</td>
+      </tr>
+      <tr>
+        <td>改修指示書</td>
+        <td>
+          <code>ScanImprovementRequestRunner</code>は全raw findingを50件ごとにLLMへ渡し、
+          validatorは全raw finding IDのcoverageを要求する。
+        </td>
+        <td>
+          grouping後にissue単位でchunkし、LLMは各issueを1回だけ処理する。raw member coverageは
+          server側で展開・監査する。
+        </td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2 id="4-scope">4. Scope</h2>
+  <h3 id="41-in-scope">4.1 In scope</h3>
+  <ul>
+    <li>scanner横断dedupe identityの共通schema、family mapping、grouping-time projection</li>
+    <li>
+      deterministic candidate blocking、hard conflict、pair matching、complete-link clustering
+    </li>
+    <li>grouping run、issue group、member provenance、semantic pair decisionのSQLite永続化</li>
+    <li>current deterministic snapshotの選択、再計算、legacy scanのlazy backfillとCLI backfill</li>
+    <li><code>GET /api/scans/:scanRunId/groups</code>の互換拡張とgroup detail取得</li>
+    <li>scan workspaceのissue一覧、raw表示、member展開、dual count</li>
+    <li>Markdown report本文、summary count、raw appendix、snapshot stale判定</li>
+    <li>改修指示書のissue bundle、chunking、LLM契約、coverage、server-side finding ID展開</li>
+    <li>deterministic golden fixture、unit、repository、API、UI、report、LLM contract test</li>
+    <li>任意のsemantic shadow CLI、strict判定schema、監査保存、bounded実行</li>
+  </ul>
+
+  <h3 id="42-out-of-scope">4.2 Out of scope</h3>
+  <ul>
+    <li>raw findingまたはevidenceの削除、scanner severity/statusの書き換え</li>
+    <li>scanner rule tuning、scanner追加、scanner distribution変更</li>
+    <li>別scan run間のfinding比較または長期issue lifecycle統合</li>
+    <li>既存fingerprintのscanner横断identityへの置換</li>
+    <li>
+      normalizerが保存済みfindingへ<code>metadata.dedupeIdentity</code>を追加する変更
+    </li>
+    <li>finding review、human decision、reproduction、dynamic verificationのgroup単位への移行</li>
+    <li>group decisionを全member findingへ自動伝播すること</li>
+    <li>title embeddingだけで自動統合する汎用クラスタリング</li>
+    <li>raw secret、secret由来の可逆値、辞書攻撃可能な無鍵digestの保存</li>
+    <li>semantic shadow結果のproduction current snapshotへの昇格</li>
+  </ul>
+
+  <h2 id="5-invariants">5. Non-negotiable invariants</h2>
+  <ol>
+    <li><code>rawFindingCount = 全groupのmemberFindingIdsの合計</code>である。</li>
+    <li>completed grouping run内で、各raw findingは正確に1groupへ所属する。</li>
+    <li>representative findingは同じgroupのmemberでなければならない。</li>
+    <li><code>issueCount &lt;= rawFindingCount</code>であり、差がsuppressed countになる。</li>
+    <li>group severityはmember severityの最大値と一致する。</li>
+    <li>異なるscan run、asset kind、asset occurrenceをまたいで自動統合しない。</li>
+    <li>hard conflictまたはambiguousなpairをLLM scoreや推移律で統合しない。</li>
+    <li>
+      <code>uncertain</code>、timeout、provider
+      unavailable、budget超過は別groupへ倒す。
+    </li>
+    <li>grouping失敗を理由にfindingを非表示にしない。失敗時は全件singleton fallbackを返す。</li>
+    <li>同じ保存済み入力とalgorithm versionから、取得順に依存しない同一snapshotを作る。</li>
+    <li>LLMへ送るcontextと永続化payloadにraw secret、credential、auth query valueを含めない。</li>
+    <li>UI、report、改修指示書は同じcompleted grouping run IDとsnapshot hashを参照する。</li>
+  </ol>
+
+  <h2 id="6-target-flow">6. Target flow</h2>
+  <pre><code class="language-text">scanner raw output
+  -&gt; existing normalizer and persistence (unchanged)
+  -&gt; projectFindingDedupeIdentity(raw finding)
+  -&gt; candidate blocks by issue kind and asset occurrence
+  -&gt; deterministic pair decisions and hard-conflict rejection
+  -&gt; deterministic complete-link clustering
+  -&gt; publish immutable deterministic grouping run
+       -&gt; UI: one row per issue
+       -&gt; report: issue body + raw appendix
+       -&gt; improvement request: one issue per LLM input item
+       -&gt; raw finding detail/evidence: unchanged
+
+optional CLI only:
+  ambiguous deterministic pairs
+  -&gt; bounded semantic adjudication
+  -&gt; separate semantic shadow run and metrics
+  -&gt; never selected by R1 consumers
+</code></pre>
+  <p>
+    groupingはpresentation snapshotでありscanのtruthを変更しない。grouping失敗でscan
+    statusをfailedへ 変更しない。reportまたは改修指示書がsnapshotを使った場合は、run ID、finding set
+    hash、snapshot hash、 algorithm versionをoutput metadataへ保存する。
+  </p>
+
+  <h2 id="7-shared-contracts">7. Shared contracts and constants</h2>
+  <h3 id="71-dedupe-identity">7.1 Dedupe identity</h3>
+  <p>
+    <code>shared/schemas/finding-group.schema.ts</code>へ次のversion 1 schemaを追加する。
+    <code>projectFindingDedupeIdentity(finding)</code>が既存finding fieldsとmetadataから毎回生成し、
+    normalizerやraw finding rowは変更しない。
+  </p>
+  <pre><code class="language-typescript">type FindingDedupeIdentityV1 = {
+  version: 1;
+  issueKind: "dependency" | "secret" | "source" | "iac" | "web" | "api" |
+    "business_logic" | "unknown";
+  assetKey: string | null;
+  location: {
+    kind: "source" | "url" | "package" | "resource" | "unknown";
+    path: string | null;
+    startLine: number | null;
+    endLine: number | null;
+    startCol: number | null;
+    endCol: number | null;
+    method: string | null;
+    parameter: string | null;
+    resource: string | null;
+  };
+  familyKeys: string[];
+  advisoryIds: string[];
+  packageKey: string | null;
+  anchor: string | null;
+  limitations: string[];
+};</code></pre>
+  <ul>
+    <li>全string setはtrim、case normalization、重複除去、昇順sortを行う。</li>
+    <li>
+      pathはseparator、先頭<code>./</code>、workspace
+      prefixを正規化しproject-relativeにする。
+    </li>
+    <li>
+      URLはcredential、fragment、query valueを除き、origin、path、method、parameter名を分離する。
+    </li>
+    <li>
+      package keyはecosystem、package、installed version、manifest/target occurrenceを含める。
+    </li>
+    <li>advisory IDはprimary ID、aliasを大文字へ正規化する。一般rule IDはadvisoryへ混ぜない。</li>
+    <li><code>family:unknown</code>同士は一致根拠にしない。</li>
+    <li>secretはpath、range、detector familyだけを使い、secret本文またはそのdigestを作らない。</li>
+    <li>
+      identity作成時のschema
+      validation失敗はthrowせず<code>issueKind: unknown</code>へ倒す。
+    </li>
+  </ul>
+
+  <h3 id="72-engine-contracts">7.2 Engine contracts</h3>
+  <pre><code class="language-typescript">type FindingPairDecision = {
+  leftFindingId: string;       // lexical orderで小さいID
+  rightFindingId: string;
+  verdict: "same" | "different" | "ambiguous";
+  confidence: "exact" | "high" | "semantic_high" | "none";
+  method: "deterministic" | "semantic";
+  reasonCodes: string[];
+  comparisonHash: string;
+};
+
+type BuiltFindingGroup = {
+  stableKey: string;
+  representativeFindingId: string;
+  memberFindingIds: string[];
+  issueKind: FindingDedupeIdentityV1["issueKind"];
+  title: string;
+  description: string;
+  severity: FindingSeverity;
+  primaryLocation: FindingDedupeIdentityV1["location"];
+  sourceTools: string[];
+  matchConfidence: "exact" | "high" | "semantic_high" | "singleton";
+  reasonCodes: string[];
+};
+
+projectFindingDedupeIdentity(finding): FindingDedupeIdentityV1;
+decideFindingPair(left, right): FindingPairDecision;
+buildFindingGroups(findings, semanticDecisions?): BuiltFindingGroup[];</code></pre>
+  <p>production codeでは次の定数を1か所へ定義し、prompt、builder、validatorで共有する。</p>
+  <pre><code class="language-typescript">GROUPING_ALGORITHM_VERSION = "finding-dedupe-v1";
+GROUPING_WRITE_BATCH_SIZE = 250;
+GROUPING_RUNNING_STALE_MS = 15 * 60 * 1000;
+DETERMINISTIC_MAX_PAIR_COMPARISONS = 50000;
+IMPROVEMENT_ISSUE_CHUNK_SIZE = 50;
+MAX_EVIDENCE_PER_ISSUE = 6;
+MAX_SCANNER_SIGNALS_PER_ISSUE = 20;
+MAX_ISSUE_DESCRIPTION_CHARS = 400;
+MAX_EVIDENCE_SNIPPET_CHARS = 300;
+MAX_VISIBLE_IMPLEMENTATION_TASKS = 20;
+MAX_IMPLEMENTATION_TASKS = 30;
+MAX_IDS_PER_FALLBACK_TASK = 5000;
+SEMANTIC_MAX_PAIRS_PER_SCAN = 100;
+SEMANTIC_MAX_TITLE_CHARS = 200;
+SEMANTIC_MAX_DESCRIPTION_CHARS = 600;
+SEMANTIC_MAX_RATIONALE_CHARS = 300;</code></pre>
+
+  <h3 id="73-representative-and-canonical-fields">7.3 Representative and canonical fields</h3>
+  <p>representativeは次のstable sortの先頭とし、reviewやhuman decisionを参照しない。</p>
+  <ol>
+    <li>
+      confidence:
+      <code>runtime</code
+      >を<code>static</code>より前にする。
+    </li>
+    <li>severity: critical、high、medium、low、info、unknownの順にする。</li>
+    <li>
+      identity completeness: assetKey、具体的family、location、advisory/package
+      keyの非null項目数が多い順。
+    </li>
+    <li>sourceTool lowercase、ruleId、finding IDの昇順。</li>
+  </ol>
+  <ul>
+    <li>group severityは全memberの最大severityとする。</li>
+    <li>dependency titleは<code>{packageName}@{version}: {preferredAdvisoryId}</code>とする。</li>
+    <li>dependency以外のtitleとdescriptionはrepresentativeから取る。LLMに生成させない。</li>
+    <li>
+      stable keyはalgorithm versionとsorted member IDsのSHA-256であり、別run間の永続IDではない。
+    </li>
+  </ul>
+
+  <h2 id="8-persistence">8. Persistence and publish protocol</h2>
+  <h3 id="81-tables">8.1 Tables</h3>
+  <p>
+    <code>drizzle/0038_finding_issue_groups.sql</code>と
+    <code>api/db/schema/schema-scans.ts</code>へ次の4tableを追加する。JSON
+    columnはtext、timestampは既存規約の epoch millisecond integer、IDはtext UUIDとする。migration
+    SQLではdefault UUIDに依存せずIDを明示する。status、mode、role、verdict、confidenceにはSQL
+    <code>CHECK</code> constraintを付け、application
+    schemaと許容値を一致させる。
+  </p>
+  <table>
+    <caption>
+      table、必須column、constraint
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Table</th>
+        <th scope="col">Required columns</th>
+        <th scope="col">Constraints and indexes</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>finding_grouping_runs</code></td>
+        <td>
+          id、scan_run_id、status(running/completed/failed)、mode(deterministic/semantic)、
+          algorithm_version、finding_set_hash、semantic_decision_hash(default empty string)、
+          snapshot_hash(nullable until publish)、raw_finding_count、issue_count、suppressed_count、
+          ambiguous_count、provider、model、prompt_sequence_hash、limitations_json(default
+          []）、error、 started_at、completed_at、created_at、updated_at
+        </td>
+        <td>
+          scan deleteでcascade。completed lookup indexを
+          <code>(scan_run_id, mode, algorithm_version, finding_set_hash, completed_at)</code>へ作る。 runningだけを対象に
+          <code>(scan_run_id, mode, algorithm_version, finding_set_hash)</code> partial unique、completedだけを
+          対象に同keyとsemantic_decision_hashのpartial uniqueを作る。
+        </td>
+      </tr>
+      <tr>
+        <td><code>finding_issue_groups</code></td>
+        <td>
+          id、grouping_run_id、stable_key、representative_finding_id(nullable)、issue_kind、title、description、
+          severity、primary_location_json、match_confidence、source_tools_json、reason_codes_json、metadata_json、
+          created_at
+        </td>
+        <td>
+          run deleteでcascade、representative finding deleteでset null。
+          <code>(grouping_run_id, stable_key)</code> uniqueと、memberのcomposite FK用に
+          <code>(id, grouping_run_id)</code> uniqueを作る。
+        </td>
+      </tr>
+      <tr>
+        <td><code>finding_issue_group_members</code></td>
+        <td>
+          id、group_id、grouping_run_id、finding_id、role(representative/supporting)、match_method、
+          match_confidence、reason_codes_json、comparison_hash、identity_json、created_at
+        </td>
+        <td>
+          <code>(grouping_run_id, finding_id)</code> unique。
+          <code>(group_id, grouping_run_id)</code>はgroupの同一columnsを参照し、group/finding
+          deleteでcascade。
+        </td>
+      </tr>
+      <tr>
+        <td><code>finding_grouping_pair_decisions</code></td>
+        <td>
+          id、grouping_run_id、left_finding_id、right_finding_id、verdict、confidence、method、
+          reason_codes_json、rationale、comparison_hash、provider、model、prompt_sequence_hash、
+          response_content_sha256、created_at
+        </td>
+        <td>
+          run/finding deleteでcascade。
+          <code>(grouping_run_id, left_finding_id, right_finding_id)</code> unique。
+          repositoryで必ず<code>left_finding_id &lt; right_finding_id</code>へcanonicalizeする。semantic cache用に
+          <code>(comparison_hash, method, provider, model, prompt_sequence_hash, created_at)</code> indexを作る。
+        </td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    pair decision tableへ全candidate pairを保存してはならない。deterministic runでは各supporting
+    memberとrepresentativeのsame decisionだけをproof rowとして保存し、semantic
+    runでは実際にLLMへ送った 最大100 pairを保存する。different/ambiguousの総数はrun
+    countへ保存し、必要なら同じ入力から再計算する。 これによりpair row数はraw finding数とsemantic
+    budgetに対してboundedになる。
+  </p>
+  <p>
+    countの定義は固定する。<code>issue_count = group row数</code>、
+    <code>suppressed_count = raw_finding_count - issue_count</code>、
+    <code>ambiguous_count = ambiguousまたはbudget未評価となったcandidate pair数</code>である。
+    ambiguous countをfinding件数またはgroup件数として表示しない。
+  </p>
+
+  <h3 id="82-hashes">8.2 Hashes and current selection</h3>
+  <dl>
+    <dt><code>finding_set_hash</code></dt>
+    <dd>
+      current raw集合が変わったかを判定する。scan run IDと、finding
+      ID、fingerprint、sourceTool、ruleId、 severity、confidence、location、identity
+      projection、persisted title/descriptionのSHA-256をfinding ID順で canonical
+      JSON化してSHA-256にする。secret本文はそもそも保存済みfindingへ入れず、hash inputにも足さない。
+    </dd>
+    <dt><code>semantic_decision_hash</code></dt>
+    <dd>
+      semantic pair decisionのcanonical projectionをpair ID順にhashする。deterministic
+      runは空文字固定。
+    </dd>
+    <dt><code>snapshot_hash</code></dt>
+    <dd>
+      published group/member projection、counts、algorithm versionをgroup stable
+      key順にhashする。reportと 改修指示書の再現性、stale判定に使用する。
+    </dd>
+    <dt><code>comparison_hash</code></dt>
+    <dd>
+      algorithm version、ordered finding IDs、両identity、redact/truncate後のtitle/description SHA-256をcanonical
+      JSON化してhashする。semantic cacheは同じcomparison hash、provider、model、prompt sequence hashの
+      completed decisionだけを再利用する。
+    </dd>
+  </dl>
+  <p><code>selectCurrentDeterministic(scanRunId)</code>は次の順で選ぶ。</p>
+  <ol>
+    <li>現在のraw findingsから<code>finding_set_hash</code>を再計算する。</li>
+    <li>
+      status=completed、mode=deterministic、algorithm version=current、finding set
+      hash=currentのrunだけを検索する。
+    </li>
+    <li>複数ある場合はcompletedAt降順、ID降順の先頭を返す。</li>
+    <li>semantic run、古いfinding set hash、running/failed runは返さない。</li>
+  </ol>
+
+  <h3 id="83-writer-safe-publish">8.3 Writer-safe publish</h3>
+  <p>
+    file-backed DBでは<code>db.transaction(async callback)</code>を使用してはいけない。repositoryは
+    <code>writerClientForDatabase</code>でWriterの有無を判定し、file-backed DBでは
+    <code>atomicDrizzleBatch</code>、in-memory test
+    DBでは<code>runInProcessDbTransaction</code>内の同期
+    <code>.run()</code>を使用する。
+  </p>
+  <ol>
+    <li>同じactive keyのcompleted runがあればそれを返す。</li>
+    <li>
+      run rowをstatus=runningで作る。partial unique競合時は既存running/completed rowを再読する。
+    </li>
+    <li>
+      group、member、pair decisionを最大250 statementのatomic Writer batchへ分割して保存する。
+      running runはconsumerから見えないため、batch間にprocessが落ちても部分snapshotは使用されない。
+    </li>
+    <li>
+      repositoryでmember総数、一意membership、representative membership、severity、issue/suppressed
+      countを再読して検証する。
+    </li>
+    <li>
+      最後のatomic updateでsnapshot hash、counts、completedAtを設定しstatus=completedへpublishする。
+    </li>
+    <li>
+      例外時はerrorをredact/truncateしてstatus=failedへ更新する。15分以上のrunning
+      rowは次回ensureまたはCLIで failedへrecoveryする。failed
+      rowのchildはaudit用に残してよいがcurrentにはならない。
+    </li>
+  </ol>
+  <h2 id="9-deterministic-matching">9. Deterministic matching</h2>
+  <h3 id="91-candidate-blocking">9.1 Candidate blocking</h3>
+  <p>
+    全pairの総当たりを禁止する。まず<code>scanRunId + issueKind + assetKey</code>でblockを作り、同一block内だけを
+    比較する。assetKeyがnull、business_logic、unknownのfindingはsingletonにする。
+  </p>
+  <p>
+    block内candidate pairはfinding ID順で列挙し、scan全体で50,000比較を上限にする。上限後の未評価pairは
+    ambiguousとしてmergeせず、run limitationsへ<code>deterministic_pair_budget_exceeded</code>を追加する。
+    したがってbudget超過はduplicateを残すことはあってもfalse mergeやfinding非表示を起こさない。
+  </p>
+  <table>
+    <caption>
+      issue kind別の決定論的統合条件
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Kind</th>
+        <th scope="col">Candidate asset</th>
+        <th scope="col">same条件</th>
+        <th scope="col">hard conflict</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>dependency</td>
+        <td>manifest/target occurrence、ecosystem、package、installed version</td>
+        <td>advisory ID集合が交差する。OSV aliasとTrivy primary IDも同じ集合として扱う。</td>
+        <td>別occurrence、package、version、または既知advisory集合が非交差</td>
+      </tr>
+      <tr>
+        <td>secret</td>
+        <td>project-relative path、line/column range</td>
+        <td>両scannerにcolumnを含むexact rangeがあり、rangeが重なり、detector familyが同じ。</td>
+        <td>非重複range、異なるfamily、同じ行の別column token</td>
+      </tr>
+      <tr>
+        <td>source</td>
+        <td>project-relative path、rangeまたはnon-secret anchor</td>
+        <td>range/anchorが一致し、具体的family keyが同じ。</td>
+        <td>family不一致、別parameter、別source/sink trace</td>
+      </tr>
+      <tr>
+        <td>iac</td>
+        <td>path、resource/block、overlapping range</td>
+        <td>resourceと具体的policy familyが一致する。</td>
+        <td>別resource、異なる設定項目、別remediation</td>
+      </tr>
+      <tr>
+        <td>web/api</td>
+        <td>normalized origin/path、method、parameter</td>
+        <td>method、parameter、具体的weakness familyが一致する。</td>
+        <td>別parameter、別method、header subtypeまたはweakness family不一致</td>
+      </tr>
+      <tr>
+        <td>business_logic/unknown</td>
+        <td>candidateなし</td>
+        <td>なし。常にsingleton。</td>
+        <td>常に自動統合禁止</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    CWE一致、title類似、同じ行、同じseverity、同じremediationのいずれか1条件だけではsameにしない。
+    sameにもdifferentにも確定できないpairはambiguousにする。
+  </p>
+
+  <h3 id="92-family-mapping">9.2 Family mapping</h3>
+  <p>
+    <code>api/modules/scans/finding-dedupe-families.ts</code>へversion管理されたmappingを置く。
+    title/descriptionの自由文substringを主根拠にせず、既存rule ID、CWE、scanner metadataを優先する。
+  </p>
+  <ul>
+    <li>Semgrepは<code>metadata.risk.cweIds</code>とscanner metadataを使用する。</li>
+    <li>Trivy vulnerabilityはpurl、target、vulnerability IDを使用する。</li>
+    <li>OSVはmanifest path、package、version、primary ID、aliasesを使用する。</li>
+    <li>
+      Gitleaks/Trivy secretはdetector rule mappingを使うが、Trivyにcolumnがない場合はsameにしない。
+    </li>
+    <li>
+      Trivy config/Semgrep IaCはpath、resource/block metadata、policy familyが揃う場合だけ比較する。
+    </li>
+    <li>ZAP/NucleiはURL、method、parameter、CWE、template/plugin familyを使用する。</li>
+    <li>
+      mapping未登録ruleは<code>family:unknown</code>とし、unknown同士を一致扱いにしない。
+    </li>
+  </ul>
+
+  <h3 id="93-safe-clustering">9.3 Safe clustering</h3>
+  <p>推移律によるbridge mergeを避けるため、次のcomplete-link algorithmを固定する。</p>
+  <ol>
+    <li>findingsとpair keysをID昇順へsortし、最初は全件singleton groupとする。</li>
+    <li>group pairをsorted member ID列のlexical orderで列挙する。</li>
+    <li>2group間の全cross pairがverdict=sameの場合だけmerge可能とする。</li>
+    <li>merge可能な最初のgroup pairを統合して列挙をやり直す。merge不能になるまで繰り返す。</li>
+    <li>cross pairにdifferentまたはambiguousが1件でもあればmergeしない。</li>
+  </ol>
+
+  <h2 id="10-semantic-shadow">10. Semantic shadow contract</h2>
+  <p>
+    本節はFG-07を実装する場合だけ適用する。semantic
+    runnerはdeterministicでambiguousになったpairだけを 最大100件まで処理し、別modeのrunを作る。R1
+    consumer selectorはこのrunを読まない。
+  </p>
+  <pre><code class="language-json">{
+  "verdict": "same_issue|different_issue|uncertain",
+  "confidence": "high|medium|low",
+  "canonicalFamily": "family key or unknown",
+  "reasonCodes": ["same_root_cause", "same_remediation"],
+  "rationale": "保存済み入力だけに基づく300文字以下の説明"
+}</code></pre>
+  <ul>
+    <li>
+      <code>same_issue + high</code>だけをsemantic run内のsame decisionへ変換する。
+    </li>
+    <li>different_issue、uncertain、medium/low、timeout、invalid JSONはmergeしない。</li>
+    <li>deterministic hard conflictはLLMへ送らず、LLM結果でも上書きしない。</li>
+    <li>
+      titleとdescriptionはredact後にそれぞれ200/600文字へ切り、identity/locationとともに
+      <code>untrusted.json</code>として送る。raw artifact、repository
+      file、secret、credentialは送らない。
+    </li>
+    <li>
+      system promptでuntrusted scanner text内の命令を無視するよう指示し、strict schemaでparseする。
+    </li>
+    <li>
+      provider、model、prompt sequence hash、response content SHA-256、短いrationaleをpair
+      rowへ保存する。
+    </li>
+    <li>
+      route未設定/provider unavailable時、CLIはfailed
+      runを監査保存してnon-zero終了する。deterministic runは維持する。
+    </li>
+  </ul>
+  <p>
+    LLM task <code>finding_deduplication</code>を
+    <code>api/modules/llm-settings/llm-settings.schema.ts</code>のschema/policy、frontend task type/label、 system
+    context catalog/bindingへ追加する。contextは <code>contexts/scans/findingDeduplication.context.toml</code>と
+    <code>contexts/scans/findingDeduplicationInput.context.toml</code>の2つに分ける。
+  </p>
+
+  <h2 id="11-run-lifecycle-and-api">11. Run lifecycle and API</h2>
+  <h3 id="111-ensure-current">11.1 ensureCurrentDeterministic</h3>
+  <pre><code class="language-typescript">ensureCurrentDeterministic(scanRunId: string): Promise&lt;GroupingSnapshot&gt;;
+getSingletonFallback(scanRunId: string, limitation: string): Promise&lt;GroupingSnapshot&gt;;</code></pre>
+  <ul>
+    <li>
+      scan statusがcompleted、failed、cancelledならdeterministic snapshotをensureし永続化する。
+    </li>
+    <li>
+      scan statusがqueuedまたはrunningなら永続化せず、現在取得できるraw findingsのephemeral
+      singletonを返す。
+      runId/snapshotHashはnull、group IDは<code>singleton:{findingId}</code>、limitationは
+      <code>scan_not_terminal</code>とする。
+    </li>
+    <li>finding 0件のterminal scanもcounts=0のcompleted runを永続化する。</li>
+    <li>
+      groupingの計算/保存失敗時はephemeral
+      singletonを返し、limitationへ<code>grouping_failed</code>を入れる。
+    </li>
+    <li>raw集合が変わればfinding set hashが変わるため、古いrunをcurrentにしない。</li>
+  </ul>
+
+  <h3 id="112-groups-api">11.2 Groups API</h3>
+  <p>
+    <code>GET /api/scans/:scanRunId/groups</code>はownership確認後に
+    <code>ensureCurrentDeterministic</code>を呼ぶ。このGETがterminal legacy scanのdeterministic
+    cacheを idempotentに作成することは意図した挙動である。route内で独自groupingを再計算しない。
+  </p>
+  <pre><code class="language-json">{
+  "grouping": {
+    "runId": "uuid-or-null",
+    "runStatus": "completed|null",
+    "mode": "deterministic|singleton_fallback",
+    "algorithmVersion": "finding-dedupe-v1",
+    "findingSetHash": "sha256-or-null",
+    "snapshotHash": "sha256-or-null",
+    "rawFindingCount": 19,
+    "issueCount": 12,
+    "suppressedCount": 7,
+    "ambiguousCount": 2,
+    "limitations": []
+  },
+  "groups": [{
+    "id": "persisted uuid or singleton:finding-uuid",
+    "representativeFindingId": "finding uuid",
+    "memberFindingIds": ["finding uuid"],
+    "title": "canonical issue title",
+    "description": "canonical issue description",
+    "severity": "high",
+    "primaryLocation": {"path":"src/user.ts","startLine":84},
+    "issueKind": "source",
+    "sourceTools": ["semgrep", "other-scanner"],
+    "rawFindingCount": 3,
+    "suppressedCount": 2,
+    "matchConfidence": "exact|high|singleton",
+    "reasonCodes": ["same_asset", "overlapping_range", "same_family"]
+  }]
+}</code></pre>
+  <ul>
+    <li>
+      一覧response自身がrepresentative表示情報を持ち、paginated finding pageから再構成しない。
+    </li>
+    <li>
+      <code>GET /api/scans/:scanRunId/groups/:groupId</code>は同じownership checkを通し、group、全member raw
+      finding、member evidence、provenanceを返す。
+    </li>
+    <li>
+      current responseがsingleton fallbackの場合、detail endpointは<code>singleton:{findingId}</code>を解決し、
+      scan membership確認後にその1件のraw finding/evidenceを返す。
+    </li>
+    <li>
+      groupがscanのcurrent
+      snapshotに属さなければ404、他userのscanなら既存route規約の404/403を維持する。
+    </li>
+    <li>
+      既存groups response fieldはadditiveに維持し、削除が必要ならfrontend移行後の別cleanupにする。
+    </li>
+  </ul>
+  <h2 id="12-consumer-integration">12. Consumer integration</h2>
+  <h3 id="121-ui">12.1 Scan workspace</h3>
+  <ul>
+    <li>view stateを<code>issues | raw</code>とし、defaultはissuesにする。</li>
+    <li>
+      issues viewはgroups APIの全groupを1行ずつ表示する。finding paginationの現在pageへ依存しない。
+    </li>
+    <li>headerに<code>12 issues / 19 raw findings / 7 duplicates grouped</code>相当を表示する。</li>
+    <li>row clickはrepresentative findingを既存detail/action対象として選択する。</li>
+    <li>
+      member expansionから任意のraw memberを選択し、既存review、decision、evidence操作へ進める。
+    </li>
+    <li>group単位のdecision/review操作は追加しない。</li>
+    <li>
+      severity disagreement、source tools、reason codes、limitationsをgroup summaryへ表示する。
+    </li>
+    <li>singleton fallback時も全findingを表示し、grouping失敗を空状態として表示しない。</li>
+  </ul>
+
+  <h3 id="122-report">12.2 Report</h3>
+  <ul>
+    <li>Executive Summaryとseverity tableはissue count基準にする。</li>
+    <li>
+      main findings sectionは1group 1sectionとし、representative title/description/locationを使う。
+    </li>
+    <li>各sectionにscanner signals、member count、deduplicated evidence参照を付ける。</li>
+    <li>appendixは全raw finding ID、tool、rule、severity、group IDを列挙する。</li>
+    <li>headingでissue countとraw finding countを明示し、従来値との意味変更を隠さない。</li>
+    <li>
+      report metadataへgrouping run ID、finding set hash、snapshot hash、algorithm
+      versionを保存する。
+      <code>scan-finalization-service.ts</code>のcanonical report refresh判定へsnapshot
+      hash差分を加える。
+    </li>
+    <li>
+      ephemeral singletonしか得られない場合はraw基準reportを生成し、limitationを本文へ明記する。
+    </li>
+  </ul>
+
+  <h3 id="123-improvement-request">12.3 LLM improvement request</h3>
+  <p>
+    dedicated <code>ScanImprovementRequestRunner</code>だけをissue-firstへ変更する。
+    <code>generationKind = improvement_request</code>でないautomated diagnostic
+    reviewは本計画で変更しない。
+  </p>
+  <pre><code class="language-typescript">type ImprovementRequestIssueBundle = {
+  grouping: {
+    runId: string;
+    findingSetHash: string;
+    snapshotHash: string;
+    algorithmVersion: string;
+    rawFindingCount: number;
+    issueCount: number;
+  };
+  issues: Array&lt;{
+    issueId: string;
+    representativeFindingId: string;
+    memberFindingIds: string[];
+    title: string;
+    description: string;
+    severity: FindingSeverity;
+    location: FindingLocation;
+    familyKeys: string[];
+    scannerSignals: ScannerSignal[];
+    evidence: EvidenceReference[];
+    grouping: { confidence: string; reasonCodes: string[] };
+  }&gt;;
+};</code></pre>
+  <p>bundle作成規則を次のように固定する。</p>
+  <ol>
+    <li>completed scanだけを受け付け、current deterministic snapshotをensureする。</li>
+    <li>
+      ensure結果のrunId/snapshotHashがnullならLLMを呼ばず、<code>grouping_snapshot_unavailable</code>で生成を
+      明示的に失敗させる。raw findingの閲覧には影響させない。
+    </li>
+    <li>
+      issueをseverity、primary location、issue IDのstable orderへ並べ、50 issueごとにchunkする。
+    </li>
+    <li>同じissueのmemberを別chunkへ分割しない。</li>
+    <li>memberFindingIdsは全件保持し、scanner signalsはstable uniqueな先頭20件に制限する。</li>
+    <li>
+      evidenceは<code>(kind, artifactId, location projection, snippet hash)</code>で重複除去し、source-locationを
+      tool-outputより前にして先頭6件に制限する。snippetは300文字、descriptionは400文字へ切る。
+    </li>
+    <li>上限超過はbundle limitationsへ記録し、ID coverageは省略しない。</li>
+  </ol>
+
+  <h3 id="124-improvement-request-schema-compatibility">
+    12.4 Improvement request schema compatibility
+  </h3>
+  <p>
+    既存<code>scanImprovementRequestSchema</code>を破壊しない。priorityPlanとimplementationTasksへ
+    <code>issueIds: z.array(z.string().uuid()).max(5000).default([])</code>をadditiveに追加し、既存required
+    <code>findingIds</code
+    >を残す。これにより<code>scanReviewOutputSchema</code>と保存済みlegacy
+    outputを維持する。
+  </p>
+  <p>
+    LLM応答parse専用に<code>llmIssueImprovementRequestSchema</code>を追加する。このschemaは各plan/taskで
+    <code>issueIds</code
+    >をrequiredとし、<code>findingIds</code>を受け付けない。処理順は次で固定する。
+  </p>
+  <ol>
+    <li>LLM responseをstrict <code>llmIssueImprovementRequestSchema</code>でparseする。</li>
+    <li>unknown issue ID、bundle外evidence ID、全issue未coverageをrejectする。</li>
+    <li>serverがcurrent bundle manifestからissueIdsを全raw findingIdsへ展開する。</li>
+    <li>展開後のpublic objectを既存<code>scanImprovementRequestSchema</code>でparseする。</li>
+    <li>全raw finding coverageとissue/finding ID hashを検証してからpersistする。</li>
+  </ol>
+  <p>
+    chunk mergeは現行の上限を維持して次のように行う。各chunkは、そのchunkに含まれる全issueを
+    <code>implementationTasks.issueIds</code
+    >で最低1回coverしなければならない。chunk順、task順を維持して
+    title/body/issueIdsが同じtaskを重複除去し、先頭20taskを採用する。未coverage issueは最大5,000
+    IDごとの server-generated fallback
+    taskへまとめ、合計30task以内にする。fallback追加で30taskを超える場合はLLM
+    taskを捨て、全issueをfallback
+    taskだけで再構成する。それでも30taskを超える場合は永続化せず明示的に失敗する。
+    priorityPlanは先頭20件までとし、task coverageのsource of
+    truthには使用しない。最後に各taskのissueIdsを findingIdsへ展開するため、truncation後もraw
+    coverageを失わない。
+  </p>
+  <pre><code class="language-json">{
+  "coverage": {
+    "totalIssues": 12,
+    "coveredIssues": 12,
+    "totalFindings": 19,
+    "coveredFindings": 19,
+    "issueIdsHash": "sha256",
+    "findingIdsHash": "sha256"
+  }
+}</code></pre>
+  <ul>
+    <li>
+      frontend quality判定はissue coverageが存在すればそれを優先し、legacy recordでは既存finding
+      coverageへ fallbackする。
+    </li>
+    <li>Markdownはissue IDを主表示し、raw finding IDsはaudit appendixへ移す。</li>
+    <li>prompt変更対象は<code>contexts/scans/improvementRequest*.context.toml</code>だけとする。</li>
+    <li>
+      generic <code>scanReview.context.toml</code>、finding review、diagnostic
+      assessmentは変更しない。
+    </li>
+  </ul>
+
+  <h2 id="13-implementation-slices">13. Implementation slices</h2>
+  <p>以下の順序を固定し、前sliceのacceptanceが不合格なら次のconsumer切替へ進まない。</p>
+  <table>
+    <caption>
+      実装sliceとacceptance gate
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Slice</th>
+        <th scope="col">Implementation</th>
+        <th scope="col">Acceptance gate</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>FG-00 Baseline</td>
+        <td>変更前のfocused tests、typecheck、docs checkと代表scan raw countを記録する。</td>
+        <td>既存failを実装差分と誤認しないbaseline logが残る。</td>
+      </tr>
+      <tr>
+        <td>FG-01 Contract and persistence</td>
+        <td>
+          shared schema、migration、Drizzle schema、repository、hash、publish/recoveryを追加する。
+        </td>
+        <td>
+          migration、cascade、partial unique、unique membership、failed exclusion、Writer
+          batch、in-memory transaction testが通る。
+        </td>
+      </tr>
+      <tr>
+        <td>FG-02 Identity projection</td>
+        <td>
+          canonicalizer、family mapping、全既存scanner fieldからのgrouping-time
+          projectionを追加する。
+        </td>
+        <td>
+          raw row不変、secret非漏洩、path stability、alias normalization、unknown fail-safe
+          fixtureが通る。
+        </td>
+      </tr>
+      <tr>
+        <td>FG-03 Deterministic grouping</td>
+        <td>
+          blocking、pair matcher、hard conflicts、complete-link、representative、runnerを実装する。
+        </td>
+        <td>golden matrix、順序不変、bridge禁止、一意所属、count/hash invariantが通る。</td>
+      </tr>
+      <tr>
+        <td>FG-04 Lifecycle and API</td>
+        <td>
+          terminal/lifecycle処理、lazy ensure、CLI backfill、groups summary/detail APIを実装する。
+        </td>
+        <td>
+          legacy、running、zero finding、stale input、failure fallback、ownership testが通る。
+        </td>
+      </tr>
+      <tr>
+        <td>FG-05 UI and report</td>
+        <td>
+          issue default view、raw toggle、member detail、dual count、report
+          main/appendix/stale判定を実装する。
+        </td>
+        <td>UI/API/reportが同じrun/hash/countを示し、全raw evidenceへ到達できる。</td>
+      </tr>
+      <tr>
+        <td>FG-06 Improvement request</td>
+        <td>
+          issue bundle/chunk、dual schema、validators、raw expansion、prompt、frontend
+          rendererを実装する。
+        </td>
+        <td>1 issue 1 input item、全issue/raw coverage、境界上限、legacy render testが通る。</td>
+      </tr>
+      <tr>
+        <td>FG-07 Optional semantic shadow</td>
+        <td>新LLM task、bounded adjudicator、pair audit/cache、semantic CLI runを追加する。</td>
+        <td>
+          semantic runがcurrent consumerへ選ばれず、全failure caseでdeterministic
+          snapshotを維持する。
+        </td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2 id="14-file-plan">14. Expected file changes</h2>
+  <table>
+    <caption>
+      主要pathと完了責務
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Path</th>
+        <th scope="col">Responsibility</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>drizzle/0038_finding_issue_groups.sql</code></td>
+        <td>4table、foreign key、partial unique、lookup indexを追加する。</td>
+      </tr>
+      <tr>
+        <td><code>api/db/schema/schema-scans.ts</code></td>
+        <td>Drizzle table/relation/indexをmigrationと一致させる。</td>
+      </tr>
+      <tr>
+        <td><code>shared/schemas/finding-group.schema.ts</code></td>
+        <td>identity、pair、group、snapshot、API、semantic verdict schemaを定義する。</td>
+      </tr>
+      <tr>
+        <td><code>api/modules/scans/finding-dedupe-identity.ts</code></td>
+        <td>path、URL、package、advisory、locationのgrouping-time projectionを実装する。</td>
+      </tr>
+      <tr>
+        <td><code>api/modules/scans/finding-dedupe-families.ts</code></td>
+        <td>scanner rule/CWE/metadataから具体的familyへのversioned mappingを実装する。</td>
+      </tr>
+      <tr>
+        <td><code>api/modules/scans/finding-grouping-engine.ts</code></td>
+        <td>
+          blocking、pair decision、hard conflict、complete-link、representative
+          selectionを実装する。
+        </td>
+      </tr>
+      <tr>
+        <td><code>api/modules/scans/finding-grouping-repository.ts</code></td>
+        <td>
+          Writer-safe batch publish、in-memory transaction、read、validation、recoveryを実装する。
+        </td>
+      </tr>
+      <tr>
+        <td><code>api/modules/scans/finding-grouping-runner.ts</code></td>
+        <td>
+          hash、idempotency、ensureCurrent、singleton fallback、任意semantic lifecycleを実装する。
+        </td>
+      </tr>
+      <tr>
+        <td><code>api/modules/scans/grouping-builder.ts</code></td>
+        <td>既存caller向けfacadeとしてcurrent snapshotを返し、旧read-time groupingを廃止する。</td>
+      </tr>
+      <tr>
+        <td><code>api/routes/scans.route.ts</code>とroute tests</td>
+        <td>ownershipを維持したgroups summary/detail APIとlazy ensureを提供する。</td>
+      </tr>
+      <tr>
+        <td>
+          <code>api/modules/scans/summary-builder.ts</code
+          >、<code>api/modules/scans/reporting/report-builder-*.ts</code>、
+          <code>scan-finalization-service.ts</code>
+        </td>
+        <td>dual count、issue本文、raw appendix、snapshot metadata/stale判定を実装する。</td>
+      </tr>
+      <tr>
+        <td>
+          <code>api/modules/scans/handoff/scan-improvement-request-runner.ts</code>、
+          <code>scan-improvement-request-builder.ts</code>
+        </td>
+        <td>
+          issue bundle/chunk、strict LLM parse、coverage、raw expansion、persisted auditを実装する。
+        </td>
+      </tr>
+      <tr>
+        <td><code>shared/schemas/scan.schema.ts</code></td>
+        <td>public additive issueIdsとstrict LLM-only improvement request schemaを定義する。</td>
+      </tr>
+      <tr>
+        <td><code>contexts/scans/improvementRequest*.context.toml</code></td>
+        <td>finding list契約をissue list契約へ変更し、全issue coverageを指示する。</td>
+      </tr>
+      <tr>
+        <td>
+          <code>web/src/api/scans*.ts</code
+          >、<code>web/src/domains/scans/scans-derived-controller.ts</code>、
+          <code>web/src/domains/scans/findings/finding-detail-panel.tsx</code>
+        </td>
+        <td>group API型、issue table、member expansion、raw toggle、dual countを実装する。</td>
+      </tr>
+      <tr>
+        <td><code>web/src/domains/scans/handoff/scan-improvement-request.ts</code>とpanel/generator</td>
+        <td>issue-first quality/Markdownとlegacy finding-only表示を実装する。</td>
+      </tr>
+      <tr>
+        <td>
+          <code>api/cli/group-findings.ts</code>と<code>package.json</code>
+        </td>
+        <td>
+          <code>findings:group</code>のlegacy backfill、recompute、任意semantic
+          modeを追加する。
+        </td>
+      </tr>
+      <tr>
+        <td>
+          <code>api/modules/llm-settings/llm-settings.schema.ts</code>、
+          <code>web/src/api/core-types.ts</code>、<code>web/src/settings-panel-model.ts</code>、
+          <code>api/system-context/catalog.ts</code>、<code>bindings.ts</code>
+        </td>
+        <td>
+          FG-07実装時だけ<code>finding_deduplication</code>
+          task、policy、label、contextsを登録する。
+        </td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    normalizer fileは原則変更しない。projectionに必要なstructured fieldがraw
+    findingへ保存されていないことが fixtureで判明した場合だけ、そのscanner normalizerとheavy scanner
+    contract testを同じsliceへ追加する。 実装開始時に未commit変更を確認し、既存変更を上書きしない。
+  </p>
+  <h2 id="15-migration-and-compatibility">15. Migration and compatibility</h2>
+  <ul>
+    <li>migrationは新table追加のみとし、既存finding/evidence rowを更新しない。</li>
+    <li>migration直後はgrouping run 0件を正当な状態として扱う。</li>
+    <li>
+      legacy terminal scanはgroups API、report、改修指示書の最初のaccessでdeterministic
+      runをensureする。
+    </li>
+    <li>大量backfillは<code>bun run findings:group -- --mode deterministic</code>でscan単位に処理する。</li>
+    <li>
+      scan delete時はrun/group/member/pair decisionがcascadeし、project deletion cleanupを妨げない。
+    </li>
+    <li>既存groups API fieldはadditiveに維持し、frontend切替完了までは互換facadeから返す。</li>
+    <li>
+      保存済みimprovement requestのfindingIds-only
+      shapeをschema、quality判定、rendererで読み取れる。
+    </li>
+    <li>
+      新requestはissueIdsがLLM source of truth、findingIdsがserver-expanded audit fieldである。
+    </li>
+    <li>fingerprint index、scan comparison、finding-level review/decision schemaは変更しない。</li>
+  </ul>
+
+  <h2 id="16-verification">16. Verification</h2>
+  <h3 id="161-golden-matrix">16.1 Golden matrix</h3>
+  <table>
+    <caption>
+      最低限固定するsame/different/ambiguous case
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Case</th>
+        <th scope="col">Expected</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>同じmanifest/package/versionでOSVのGHSA aliasとTrivyのCVE primaryが交差</td>
+        <td>same issue</td>
+      </tr>
+      <tr>
+        <td>同じadvisoryでも別manifest/target occurrence</td>
+        <td>different issue</td>
+      </tr>
+      <tr>
+        <td>synthetic secret identity 2件が同じpath、両方exact column range、同じfamily</td>
+        <td>same issue</td>
+      </tr>
+      <tr>
+        <td>Gitleaksとcolumnを持たないTrivy secretが同じpath/line/family</td>
+        <td>ambiguous / separate</td>
+      </tr>
+      <tr>
+        <td>同じ行にあるcolumnの異なる2つのsecret</td>
+        <td>different issue</td>
+      </tr>
+      <tr>
+        <td>SemgrepとTrivy IaCが同じresource blockと具体的policy familyを指す</td>
+        <td>same issue</td>
+      </tr>
+      <tr>
+        <td>同じsource lineのSQL InjectionとXSS</td>
+        <td>different issue</td>
+      </tr>
+      <tr>
+        <td>A-B same、B-C same、A-C ambiguous</td>
+        <td>3件を1groupへbridge mergeしない</td>
+      </tr>
+      <tr>
+        <td>同じURLだがHTTP methodまたはparameterが異なる</td>
+        <td>different issue</td>
+      </tr>
+      <tr>
+        <td>location/CWE同一だがroot causeと具体的familyを確定できない</td>
+        <td>ambiguous / separate</td>
+      </tr>
+      <tr>
+        <td>semantic timeout、invalid JSON、route/provider unavailable</td>
+        <td>deterministic current snapshotを維持</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3 id="162-test-files-and-assertions">16.2 Test files and required assertions</h3>
+  <ul>
+    <li>
+      <code>finding-dedupe-identity.test.ts</code>: path/URL/alias/range/unknown
+      canonicalization、raw row不変、 secret/credential非漏洩
+    </li>
+    <li>
+      <code>finding-grouping-engine.test.ts</code>: 全golden case、hard conflict、input
+      order不変、bridge merge禁止、 representative順、severity max、stable hash
+    </li>
+    <li>
+      <code>finding-grouping-repository.test.ts</code>: migration、Writer batch、in-memory
+      transaction、partial unique、 composite membership、cascade、publish-last、stale
+      recovery、current selector
+    </li>
+    <li>
+      <code>finding-grouping-runner.test.ts</code>: zero/legacy/running/failed
+      scan、raw集合変更、race、singleton fallback
+    </li>
+    <li>
+      <code>api/routes/scans.route.test.ts</code>: ownership、lazy ensure、summary、detail
+      member/evidence、stale group 404
+    </li>
+    <li>
+      <code>web/src/domains/scans/findings/finding-detail-panel.test.ts</code>: 1group 1row、member展開、raw toggle、 severity
+      disagreement、empty/loading/fallback
+    </li>
+    <li>
+      <code>report-builder.test.ts</code>と<code>scan-finalization-service.test.ts</code>: dual
+      count、issue body、raw appendix、snapshot metadata、snapshot change refresh
+    </li>
+    <li>
+      <code>scan-improvement-request-runner.test.ts</code>: group before chunk、1 issue 1 input、50/51
+      boundary、 evidence/signal cap、strict ID validation、raw expansion、zero finding
+    </li>
+    <li>
+      <code>web/src/domains/scans/handoff/scan-improvement-request.test.ts</code>: issue coverage優先、legacy finding
+      fallback、issue-first Markdown、finding audit appendix
+    </li>
+    <li>
+      FG-07 tests: prompt injection text、strict JSON、unknown pair、100/101
+      budget、timeout、missing route、 semantic runがcurrentに選ばれないこと
+    </li>
+  </ul>
+
+  <h3 id="163-command-gates">16.3 Command gates</h3>
+  <p>FG-00で変更前に次を実行し、既存failureを記録する。</p>
+  <pre><code class="language-bash">bun test api/modules/scans/grouping-builder.test.ts
+bun test api/modules/scans/handoff/scan-improvement-request-runner.test.ts
+bun test api/modules/scans/reporting/report-builder.test.ts
+bun test api/modules/scans/scan-finalization-service.test.ts
+bunx vitest run web/src/domains/scans/findings/finding-detail-panel.test.ts
+bunx vitest run web/src/domains/scans/handoff/scan-improvement-request.test.ts
+bun run typecheck
+bun run docs:check
+</code></pre>
+  <p>各sliceでは対象testを実行し、R1完了gateでは次を実行する。</p>
+  <pre><code class="language-bash">bun run test
+bun run typecheck
+bun run lint
+bun run docs:check
+</code></pre>
+  <p>
+    新規testをtest inventoryへ登録する。normalizer output
+    contractを変更した場合だけ、対象scannerのheavy scanner E2Eを追加実行する。
+  </p>
+
+  <h2 id="17-failure-and-security">17. Failure and security</h2>
+  <ul>
+    <li>grouping run failureをscan failure、finding 0件、安全宣言へ変換しない。</li>
+    <li>不正または欠落identityはsingletonにし、title fallbackで自動統合しない。</li>
+    <li>
+      scanner title/descriptionはuntrusted dataとして扱い、semantic prompt内の命令に従わせない。
+    </li>
+    <li>LLM verdictはscanner fact、severity、status、review、human decisionを書き換えない。</li>
+    <li>group API/detail APIは既存scan ownership checkを必ず通す。</li>
+    <li>
+      candidate budget、prompt size、evidence count、description/snippet lengthの固定上限を守る。
+    </li>
+    <li>grouping auditにはraw secret、auth query value、cookie、token、credentialを含めない。</li>
+    <li>
+      同時再計算はpartial uniqueにより同じscan/mode/version/finding setで1 active runへ収束させる。
+    </li>
+    <li>batch途中のprocess停止ではrunning partial snapshotをconsumerへ公開しない。</li>
+    <li>scan deleteは全grouping dataをcascadeし、project deletion cleanupを妨げない。</li>
+  </ul>
+
+  <h2 id="18-definition-of-done">18. Definition of Done</h2>
+  <p>次の全項目を満たせばR1完成である。FG-07はR1完成条件ではない。</p>
+  <ol>
+    <li>
+      全raw findingとevidenceが変更前と同じIDで取得でき、raw
+      rowをmigration/backfillで更新していない。
+    </li>
+    <li>
+      全completed deterministic runでmembership、representative、severity、count
+      invariantが機械検証される。
+    </li>
+    <li>golden same caseが1group、different/ambiguous caseが別groupになり、bridge mergeしない。</li>
+    <li>scan input順、DB取得順、process再実行に依存せず同じsnapshot hashになる。</li>
+    <li>running scanまたはgrouping失敗時もsingleton fallbackで全findingが表示される。</li>
+    <li>scan workspaceのdefault一覧が1group 1行になり、raw viewと全member evidenceへ戻れる。</li>
+    <li>UI、summary、reportが同じrun ID、snapshot hash、issue/raw/suppressed countを示す。</li>
+    <li>report本文がissue単位、appendixがraw finding単位になり、snapshot変更で再生成される。</li>
+    <li>改修指示書LLM inputで各issueが1回だけ現れ、同じissueをchunk分割しない。</li>
+    <li>
+      strict issue ID validation後にserverが全raw finding IDsを展開し、dual coverageを検証する。
+    </li>
+    <li>
+      保存済みlegacy scan、legacy groups caller、findingIds-only improvement requestを閲覧できる。
+    </li>
+    <li>
+      secret leakage、prompt injection、cross-user access、race、partial publishのnegative
+      testが通る。
+    </li>
+    <li>focused tests、full test inventory、typecheck、lint、docs checkが通る。</li>
+    <li>
+      semantic modeはproduction current selectorから到達不能であり、LLM routeなしでもR1が動作する。
+    </li>
+  </ol>
+
+  <h2 id="19-implementation-handoff">19. Terra implementation handoff</h2>
+  <p>
+    実装はFG-00から順に行う。各sliceでschema、implementation、testsを同じ変更単位に含め、acceptance
+    gateを
+    通してから次へ進む。既存<code>grouping-builder.ts</code>のkey調整だけ、UIだけのfilter、promptだけの重複除去を
+    完了扱いにしない。永続化した同一deterministic
+    snapshotをUI、report、改修指示書の3consumerへ接続することが R1の中心である。
+  </p>
+  <p>
+    実装中に本書と既存型が衝突した場合は、raw finding不変、false merge回避、Writer-safe
+    publish、public schemaの backward
+    compatibilityを優先する。R1の挙動を変える未記載の選択肢が必要になった場合だけ実装を止めて仕様を
+    更新する。file分割、関数名の軽微な調整、test
+    fixtureの配置は、責務とacceptanceを変えない範囲で実装者が行ってよい。
+  </p>
+</article>

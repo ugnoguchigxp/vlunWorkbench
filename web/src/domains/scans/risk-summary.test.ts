@@ -107,6 +107,7 @@ describe("buildExecutiveRiskSummary", () => {
 			coverageSummary: {
 				scanRunId: "scan-1",
 				hasFindings: false,
+				sourceSast: null,
 				toolCoverage: [],
 				attackSurfaceCounts: {},
 				checkStatusCounts: {},

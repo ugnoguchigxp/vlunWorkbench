@@ -14,7 +14,6 @@ export function ScanOverviewTab({
 	selectedFindingId,
 	scanReviews,
 	generatingImprovementRequest,
-	automaticDiagnosticRunning,
 	onSelectFinding,
 	onCloseFinding,
 	onGenerateImprovementRequest,
@@ -26,7 +25,6 @@ export function ScanOverviewTab({
 	selectedFindingId: string;
 	scanReviews: ScanReview[];
 	generatingImprovementRequest: boolean;
-	automaticDiagnosticRunning: boolean;
 	onSelectFinding: (findingId: string) => void;
 	onCloseFinding: () => void;
 	onGenerateImprovementRequest: () => void;
@@ -37,6 +35,9 @@ export function ScanOverviewTab({
 		selectedScanRunId,
 		coverageGaps,
 	});
+	const scanActive =
+		view.selectedScan?.status === "queued" ||
+		view.selectedScan?.status === "running";
 	return (
 		<div className="workspace-overview" role="tabpanel">
 			<section
@@ -97,6 +98,10 @@ export function ScanOverviewTab({
 							</button>
 						))}
 					</div>
+				) : scanActive ? (
+					<p className="workspace-empty" role="status">
+						スキャン中です。検出結果は完了後に表示されます。
+					</p>
 				) : (
 					<p className="workspace-empty">検出結果はありません。</p>
 				)}
@@ -105,7 +110,6 @@ export function ScanOverviewTab({
 					findings={findings}
 					reviews={scanReviews}
 					generating={generatingImprovementRequest}
-					automaticDiagnosticRunning={automaticDiagnosticRunning}
 					onGenerate={onGenerateImprovementRequest}
 				/>
 			</section>

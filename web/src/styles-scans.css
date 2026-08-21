@@ -2720,6 +2720,10 @@
 .scan-handoff-markdown {
 	max-height: 38rem;
 	margin-top: 10px;
+	padding: clamp(16px, 3vw, 28px);
+	border: 1px solid var(--color-border);
+	border-radius: 10px;
+	background: var(--color-surface);
 	overflow: auto;
 }
 
@@ -3695,6 +3699,243 @@
 	color: var(--color-danger);
 }
 
+.workspace-scan-progress {
+	display: grid;
+	gap: 14px;
+	padding: 18px;
+	border: 1px solid var(--color-brand-border);
+	border-radius: 14px;
+	background: linear-gradient(
+		135deg,
+		var(--color-surface-muted),
+		var(--color-surface) 72%
+	);
+}
+
+.workspace-scan-progress-header,
+.workspace-scan-progress-meta {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+}
+
+.workspace-scan-progress-header {
+	justify-content: space-between;
+}
+
+.workspace-scan-progress-header > div:first-child {
+	display: grid;
+	gap: 2px;
+}
+
+.workspace-scan-progress-header > div:first-child > span,
+.workspace-scan-progress-meta time,
+.workspace-scan-progress-meta div > span {
+	color: var(--color-muted);
+	font-size: 0.78rem;
+}
+
+.workspace-scan-progress-header strong {
+	font-size: 1.05rem;
+}
+
+.workspace-scan-progress-meta {
+	justify-content: flex-end;
+	text-align: right;
+}
+
+.workspace-scan-progress-meta > div {
+	display: grid;
+	gap: 2px;
+}
+
+.workspace-scan-progress-summary {
+	display: grid;
+	grid-template-columns: minmax(15rem, 0.85fr) minmax(19rem, 1.15fr);
+	gap: 10px;
+}
+
+.workspace-scan-overall-progress,
+.workspace-scan-current-step {
+	position: relative;
+	display: grid;
+	gap: 7px;
+	min-width: 0;
+	padding: 13px 14px;
+	border: 1px solid var(--color-border);
+	border-radius: 10px;
+	background: var(--color-surface);
+}
+
+.workspace-scan-overall-progress > span,
+.workspace-scan-current-step > span {
+	color: var(--color-muted-strong);
+	font-size: 0.75rem;
+	font-weight: 800;
+	letter-spacing: 0.03em;
+}
+
+.workspace-scan-overall-progress strong,
+.workspace-scan-current-step strong {
+	font-size: 0.93rem;
+}
+
+.workspace-scan-progress-track {
+	height: 8px;
+	overflow: hidden;
+	border-radius: var(--radius-pill);
+	background: var(--color-brand-soft);
+}
+
+.workspace-scan-progress-track > span {
+	display: block;
+	height: 100%;
+	border-radius: inherit;
+	background: var(--color-brand);
+	transition: width 180ms ease-out;
+}
+
+.workspace-scan-current-step {
+	padding-right: 42px;
+	border-color: color-mix(
+		in srgb,
+		var(--color-warning) 35%,
+		var(--color-border)
+	);
+	background: color-mix(
+		in srgb,
+		var(--color-warning-surface) 48%,
+		var(--color-surface)
+	);
+}
+
+.workspace-scan-current-step ul {
+	display: grid;
+	gap: 3px;
+	margin: 0;
+	padding-left: 1rem;
+	color: var(--color-muted-strong);
+	font-size: 0.8rem;
+	line-height: 1.45;
+}
+
+.workspace-scan-current-spinner {
+	position: absolute;
+	top: 15px;
+	right: 15px;
+	width: 18px;
+	height: 18px;
+	color: var(--color-warning);
+	animation: workspace-scan-spin 0.9s linear infinite;
+}
+
+.workspace-scan-progress-steps {
+	display: grid;
+	grid-auto-columns: minmax(9rem, 1fr);
+	grid-auto-flow: column;
+	gap: 8px;
+	margin: 0;
+	padding: 1px;
+	overflow-x: auto;
+	list-style: none;
+	scrollbar-color: var(--color-brand-border) transparent;
+}
+
+.workspace-scan-progress-steps li {
+	position: relative;
+	display: grid;
+	grid-template-columns: auto 1fr;
+	gap: 3px 7px;
+	min-width: 0;
+	padding: 10px;
+	border: 1px solid var(--color-border);
+	border-radius: 9px;
+	background: var(--color-surface);
+	color: var(--color-muted);
+	font-size: 0.73rem;
+}
+
+.workspace-scan-progress-steps li strong {
+	grid-column: 1 / -1;
+	overflow: hidden;
+	color: var(--color-ink);
+	font-size: 0.82rem;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.workspace-scan-step-number {
+	color: var(--color-muted);
+	font-variant-numeric: tabular-nums;
+}
+
+.workspace-scan-step-icon {
+	justify-self: end;
+}
+
+.workspace-scan-step-icon svg {
+	width: 15px;
+	height: 15px;
+}
+
+.workspace-scan-progress-steps .state-running {
+	border-color: color-mix(
+		in srgb,
+		var(--color-warning) 52%,
+		var(--color-border)
+	);
+	background: var(--color-warning-surface);
+}
+
+.workspace-scan-progress-steps .state-running .workspace-scan-step-icon {
+	color: var(--color-warning);
+	animation: workspace-scan-spin 0.9s linear infinite;
+}
+
+.workspace-scan-progress-steps .state-completed {
+	border-color: color-mix(
+		in srgb,
+		var(--color-success) 35%,
+		var(--color-border)
+	);
+}
+
+.workspace-scan-progress-steps .state-completed .workspace-scan-step-icon {
+	color: var(--color-success);
+}
+
+.workspace-scan-progress-steps .state-failed,
+.workspace-scan-progress-steps .state-blocked {
+	border-color: var(--color-danger-border);
+	background: var(--color-danger-surface);
+}
+
+.workspace-scan-progress-steps .state-failed .workspace-scan-step-icon,
+.workspace-scan-progress-steps .state-blocked .workspace-scan-step-icon {
+	color: var(--color-danger);
+}
+
+.workspace-scan-progress-steps .state-skipped,
+.workspace-scan-progress-steps .state-not_applicable {
+	background: var(--color-surface-muted);
+}
+
+.workspace-scan-progress-loading,
+.workspace-scan-progress-latest {
+	margin: 0;
+	color: var(--color-muted);
+	font-size: 0.78rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.workspace-scan-progress-track > span,
+	.workspace-scan-current-spinner,
+	.workspace-scan-progress-steps .state-running .workspace-scan-step-icon {
+		animation: none;
+		transition: none;
+	}
+}
+
 .workspace-context-bar,
 .workspace-scan-context {
 	display: flex;
@@ -4453,6 +4694,17 @@
 	.workspace-report-toolbar {
 		align-items: stretch;
 		flex-direction: column;
+	}
+	.workspace-scan-progress-header,
+	.workspace-scan-progress-meta {
+		align-items: flex-start;
+		flex-direction: column;
+	}
+	.workspace-scan-progress-meta {
+		text-align: left;
+	}
+	.workspace-scan-progress-summary {
+		grid-template-columns: 1fr;
 	}
 	.workspace-page-header > p {
 		text-align: left;

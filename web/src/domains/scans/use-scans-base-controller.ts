@@ -29,11 +29,13 @@ import type {
 	SecurityCheckResult,
 } from "../../api";
 import { buildDecisionWorkflow } from "./decision-workflow";
-import { useAutomatedDiagnosticState } from "./use-automated-diagnostic-state";
 import type {
 	RemediationPriority,
 	RemediationStatus,
 } from "./remediation-plan";
+import { isScanLaunchInProgress } from "./scan-launch-state";
+import { selectProgressScanRun } from "./scan-progress-model";
+import { useAutomatedDiagnosticState } from "./use-automated-diagnostic-state";
 import { useDastController } from "./use-dast-controller";
 
 const DEFAULT_REPORT_OPTIONS = {
@@ -97,7 +99,9 @@ export const useScansControllerBase = ({
 	const [projectBrowseLoading, setProjectBrowseLoading] = useState(false);
 	const [showNewProjectModal, setShowNewProjectModal] = useState(false);
 	const [scanRuns, setScanRuns] = useState<ScanRun[]>([]);
+	const [scanRunsLoading, setScanRunsLoading] = useState(true);
 	const [scanEvents, setScanEvents] = useState<ScanEvent[]>([]);
+	const [activeScanEvents, setActiveScanEvents] = useState<ScanEvent[]>([]);
 	const [selectedScanRunId, setSelectedScanRunId] =
 		useState(requestedScanRunId);
 	const [scanListTab, setScanListTab] = useState<"runs" | "findings">("runs");
@@ -160,6 +164,8 @@ export const useScansControllerBase = ({
 	const [scanReviewFindingFilter, setScanReviewFindingFilter] =
 		useState<ScanReviewFindingFilter>("all");
 	const [scanReviews, setScanReviews] = useState<ScanReview[]>([]);
+	const [improvementRequestLoading, setImprovementRequestLoading] =
+		useState(false);
 	const automatedDiagnosticState = useAutomatedDiagnosticState();
 	const [reportPreviewContent, setReportPreviewContent] = useState<
 		string | null
@@ -262,10 +268,19 @@ export const useScansControllerBase = ({
 	const selectedPollingStatus = scanRuns.find(
 		(run) => run.id === selectedScanRunId,
 	)?.status;
+	const progressScanRun = selectProgressScanRun(
+		scanRuns,
+		selectedScanRunId,
+		selectedProjectId,
+	);
+	const progressScanEvents =
+		progressScanRun?.id === selectedScanRunId ? scanEvents : activeScanEvents;
+	const scanLaunchInProgress = isScanLaunchInProgress(isScanning, scanRuns);
 	const baseScope = {
 		...dast,
 		actionQueueFilter,
 		active,
+		activeScanEvents,
 		allDecisions,
 		allReviews,
 		allowProjectScriptsConsent,
@@ -302,11 +317,14 @@ export const useScansControllerBase = ({
 		findings,
 		findingsLoading,
 		findingsViewMode,
-		isScanning,
+		improvementRequestLoading,
+		isScanning: scanLaunchInProgress,
 		linkReviewDefaultFindingRef,
 		linkReviewInput,
 		location,
 		profiles,
+		progressScanEvents,
+		progressScanRun,
 		projectBrowseLoading,
 		projectCreateLoading,
 		projectDefaultBranch,
@@ -342,6 +360,7 @@ export const useScansControllerBase = ({
 		scanReviewLoading,
 		scanReviews,
 		scanRuns,
+		scanRunsLoading,
 		scanSummary,
 		scanTargetKind,
 		scanProjectCodeExecutionConsent,
@@ -363,6 +382,7 @@ export const useScansControllerBase = ({
 		setActionQueueFilter,
 		setAllDecisions,
 		setAllReviews,
+		setActiveScanEvents,
 		setAllowProjectScriptsConsent,
 		setAttackSurfaceItems,
 		setCommentInput,
@@ -390,6 +410,7 @@ export const useScansControllerBase = ({
 		setFindings,
 		setFindingsLoading,
 		setFindingsViewMode,
+		setImprovementRequestLoading,
 		setIsScanning,
 		setLinkReviewInput,
 		setProfiles,
@@ -424,6 +445,7 @@ export const useScansControllerBase = ({
 		setScanReviewLoading,
 		setScanReviews,
 		setScanRuns,
+		setScanRunsLoading,
 		setScanSummary,
 		setScanProjectCodeExecutionConsent,
 		setScanTargetKind,

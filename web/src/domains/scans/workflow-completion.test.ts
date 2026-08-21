@@ -203,6 +203,7 @@ describe("buildWorkflowCompletion", () => {
 			coverageSummary: {
 				scanRunId: "scan-1",
 				hasFindings: false,
+				sourceSast: null,
 				toolCoverage: [],
 				attackSurfaceCounts: {},
 				checkStatusCounts: {},
@@ -251,6 +252,7 @@ describe("buildWorkflowCompletion", () => {
 			coverageSummary: {
 				scanRunId: "scan-1",
 				hasFindings: false,
+				sourceSast: null,
 				toolCoverage: [],
 				attackSurfaceCounts: {},
 				checkStatusCounts: {},

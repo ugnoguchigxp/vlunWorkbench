@@ -19,7 +19,7 @@ import type {
 	SecurityCheckResult,
 } from "../../api";
 import { fetchScanFindings } from "../../api";
-import { buildCoverageSummary } from "./coverage-summary";
+import { buildCoverageSummary } from "./coverage/use-scans-coverage";
 import { buildDecisionGradeView } from "./decision-grade-view";
 import { buildProjectDiagnosticDashboard } from "./diagnostic-dashboard";
 import { buildEvidenceQuality } from "./evidence-quality";
