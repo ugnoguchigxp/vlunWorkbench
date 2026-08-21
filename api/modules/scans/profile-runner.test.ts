@@ -18,6 +18,7 @@ import {
 } from "../../db/schema";
 import { closeTestDbConnection } from "../../db/testing/connection";
 import { recordScannerE2EFailureObservation } from "../../testing/scanner-e2e-failure-observation";
+import { runGitText } from "./git-command";
 import * as profileRunnerModule from "./profile-runner";
 import { runProfileScan } from "./profile-runner";
 
@@ -372,6 +373,12 @@ describe("Profile Runner Orchestration", () => {
     );
     execFileSync("git", ["add", "-A"], { cwd: repoPath });
     execFileSync("git", ["commit", "-m", "base"], { cwd: repoPath });
+    const headSha = (
+      await runGitText({
+        cwd: repoPath,
+        args: ["rev-parse", "HEAD"],
+      })
+    ).trim();
 	await fs.writeFile(
 		path.join(repoPath, "src/app.ts"),
 		"export const a = 2;\n",
@@ -446,6 +453,20 @@ describe("Profile Runner Orchestration", () => {
     expect(await fs.readFile(path.join(repoPath, "src/app.ts"), "utf8")).toBe(
       "export const a = 2;\n",
     );
+    expect(
+      (
+        await runGitText({
+          cwd: repoPath,
+          args: ["rev-parse", "HEAD"],
+        })
+      ).trim(),
+    ).toBe(headSha);
+    expect(
+      await runGitText({
+        cwd: repoPath,
+        args: ["diff", "--name-only", "HEAD"],
+      }),
+    ).toContain("src/app.ts");
   });
 
   it("allows a Web project path outside the process working directory", async () => {

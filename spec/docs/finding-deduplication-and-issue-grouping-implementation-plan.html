@@ -35,7 +35,8 @@
     </li>
     <li>
       LLM改修指示書にはgroupごとのcanonical issueを1件だけ渡す。member findingの重複本文を渡さず、
-      scanner/rule/severity差、全member ID、重複を除いたevidence参照を補足する。
+      scanner/rule/severity差、member件数、重複を除いたevidence参照を補足する。全member
+      IDはserver-side audit manifestにだけ保存する。
     </li>
   </ol>
 
@@ -305,6 +306,8 @@ buildFindingGroups(findings, semanticDecisions?): BuiltFindingGroup[];</code></p
   <pre><code class="language-typescript">GROUPING_ALGORITHM_VERSION = "finding-dedupe-v1";
 GROUPING_WRITE_BATCH_SIZE = 250;
 GROUPING_RUNNING_STALE_MS = 15 * 60 * 1000;
+GROUPING_ACTIVE_WAIT_MS = 5000;
+GROUPING_ACTIVE_POLL_MS = 100;
 DETERMINISTIC_MAX_PAIR_COMPARISONS = 50000;
 IMPROVEMENT_ISSUE_CHUNK_SIZE = 50;
 MAX_EVIDENCE_PER_ISSUE = 6;
@@ -416,8 +419,8 @@ SEMANTIC_MAX_RATIONALE_CHARS = 300;</code></pre>
         <td>
           run/finding deleteでcascade。
           <code>(grouping_run_id, left_finding_id, right_finding_id)</code> unique。
-          repositoryで必ず<code>left_finding_id &lt; right_finding_id</code>へcanonicalizeする。semantic cache用に
-          <code>(comparison_hash, method, provider, model, prompt_sequence_hash, created_at)</code> indexを作る。
+          repositoryで必ず<code>left_finding_id &lt; right_finding_id</code>へcanonicalizeする。semantic
+          cache用に <code>(comparison_hash, method, provider, model, prompt_sequence_hash, created_at)</code> indexを作る。
         </td>
       </tr>
     </tbody>
@@ -432,8 +435,8 @@ SEMANTIC_MAX_RATIONALE_CHARS = 300;</code></pre>
   <p>
     countの定義は固定する。<code>issue_count = group row数</code>、
     <code>suppressed_count = raw_finding_count - issue_count</code>、
-    <code>ambiguous_count = ambiguousまたはbudget未評価となったcandidate pair数</code>である。
-    ambiguous countをfinding件数またはgroup件数として表示しない。
+    <code>ambiguous_count = ambiguousまたはbudget未評価となったcandidate pair数</code>である。 ambiguous
+    countをfinding件数またはgroup件数として表示しない。
   </p>
 
   <h3 id="82-hashes">8.2 Hashes and current selection</h3>
@@ -457,9 +460,9 @@ SEMANTIC_MAX_RATIONALE_CHARS = 300;</code></pre>
     </dd>
     <dt><code>comparison_hash</code></dt>
     <dd>
-      algorithm version、ordered finding IDs、両identity、redact/truncate後のtitle/description SHA-256をcanonical
-      JSON化してhashする。semantic cacheは同じcomparison hash、provider、model、prompt sequence hashの
-      completed decisionだけを再利用する。
+      algorithm version、ordered finding IDs、両identity、redact/truncate後のtitle/description
+      SHA-256をcanonical JSON化してhashする。semantic cacheは同じcomparison
+      hash、provider、model、prompt sequence hashの completed decisionだけを再利用する。
     </dd>
   </dl>
   <p><code>selectCurrentDeterministic(scanRunId)</code>は次の順で選ぶ。</p>
@@ -482,9 +485,15 @@ SEMANTIC_MAX_RATIONALE_CHARS = 300;</code></pre>
     <code>.run()</code>を使用する。
   </p>
   <ol>
+    <li>同じscanで15分以上経過したrunning runをstatus=failedへrecoveryする。</li>
     <li>同じactive keyのcompleted runがあればそれを返す。</li>
     <li>
-      run rowをstatus=runningで作る。partial unique競合時は既存running/completed rowを再読する。
+      run rowをstatus=runningで作る。partial
+      unique競合時は既存rowを100ms間隔、最大5秒再読し、completedなら
+      それを返す。5秒後もrunningならephemeral singletonと<code
+        >grouping_in_progress</code
+      >
+      limitationを返す。
     </li>
     <li>
       group、member、pair decisionを最大250 statementのatomic Writer batchへ分割して保存する。
@@ -510,8 +519,10 @@ SEMANTIC_MAX_RATIONALE_CHARS = 300;</code></pre>
     比較する。assetKeyがnull、business_logic、unknownのfindingはsingletonにする。
   </p>
   <p>
-    block内candidate pairはfinding ID順で列挙し、scan全体で50,000比較を上限にする。上限後の未評価pairは
-    ambiguousとしてmergeせず、run limitationsへ<code>deterministic_pair_budget_exceeded</code>を追加する。
+    block内candidate pairはfinding
+    ID順で列挙し、scan全体で50,000比較を上限にする。上限後の未評価pairは
+    ambiguousとしてmergeせず、run
+    limitationsへ<code>deterministic_pair_budget_exceeded</code>を追加する。
     したがってbudget超過はduplicateを残すことはあってもfalse mergeやfinding非表示を起こさない。
   </p>
   <table>
@@ -654,8 +665,8 @@ getSingletonFallback(scanRunId: string, limitation: string): Promise&lt;Grouping
     </li>
     <li>
       scan statusがqueuedまたはrunningなら永続化せず、現在取得できるraw findingsのephemeral
-      singletonを返す。
-      runId/snapshotHashはnull、group IDは<code>singleton:{findingId}</code>、limitationは
+      singletonを返す。 runId/snapshotHashはnull、group
+      IDは<code>singleton:{findingId}</code>、limitationは
       <code>scan_not_terminal</code>とする。
     </li>
     <li>finding 0件のterminal scanもcounts=0のcompleted runを永続化する。</li>
@@ -711,8 +722,9 @@ getSingletonFallback(scanRunId: string, limitation: string): Promise&lt;Grouping
       finding、member evidence、provenanceを返す。
     </li>
     <li>
-      current responseがsingleton fallbackの場合、detail endpointは<code>singleton:{findingId}</code>を解決し、
-      scan membership確認後にその1件のraw finding/evidenceを返す。
+      current responseがsingleton fallbackの場合、detail
+      endpointは<code>singleton:{findingId}</code>を解決し、 scan
+      membership確認後にその1件のraw finding/evidenceを返す。
     </li>
     <li>
       groupがscanのcurrent
@@ -776,10 +788,14 @@ getSingletonFallback(scanRunId: string, limitation: string): Promise&lt;Grouping
     rawFindingCount: number;
     issueCount: number;
   };
+  issueManifest: Array&lt;{
+    issueId: string;
+    memberFindingIds: string[];
+  }&gt;; // persisted audit only; promptへrenderしない
   issues: Array&lt;{
     issueId: string;
     representativeFindingId: string;
-    memberFindingIds: string[];
+    rawFindingCount: number;
     title: string;
     description: string;
     severity: FindingSeverity;
@@ -801,12 +817,20 @@ getSingletonFallback(scanRunId: string, limitation: string): Promise&lt;Grouping
       issueをseverity、primary location、issue IDのstable orderへ並べ、50 issueごとにchunkする。
     </li>
     <li>同じissueのmemberを別chunkへ分割しない。</li>
-    <li>memberFindingIdsは全件保持し、scanner signalsはstable uniqueな先頭20件に制限する。</li>
+    <li>
+      issueManifestは全memberFindingIdsを保持してpersistするがLLM
+      promptへrenderしない。promptのissue itemには
+      issueId、representativeFindingId、rawFindingCountだけを渡す。scanner signalsはstable
+      uniqueな先頭20件に 制限する。
+    </li>
     <li>
       evidenceは<code>(kind, artifactId, location projection, snippet hash)</code>で重複除去し、source-locationを
       tool-outputより前にして先頭6件に制限する。snippetは300文字、descriptionは400文字へ切る。
     </li>
-    <li>上限超過はbundle limitationsへ記録し、ID coverageは省略しない。</li>
+    <li>
+      上限超過はbundle limitationsへ記録する。raw ID
+      coverageはpromptではなくissueManifestで保証する。
+    </li>
   </ol>
 
   <h3 id="124-improvement-request-schema-compatibility">
@@ -1058,7 +1082,8 @@ getSingletonFallback(scanRunId: string, limitation: string): Promise&lt;Grouping
       <tr>
         <td>
           <code>api/modules/llm-settings/llm-settings.schema.ts</code>、
-          <code>web/src/api/core-types.ts</code>、<code>web/src/settings-panel-model.ts</code>、
+          <code>web/src/api/core-types.ts</code
+          >、<code>web/src/settings-panel-model.ts</code>、
           <code>api/system-context/catalog.ts</code>、<code>bindings.ts</code>
         </td>
         <td>

@@ -6,9 +6,6 @@ import {
 	fetchFindingReproductions,
 	fetchReproductionRunArtifacts,
 	fetchScanFindings,
-	generateDiagnosticReport,
-	runScanAttackSurfaceInventory,
-	runScanSecurityChecks,
 	triggerFindingDynamicRun,
 	triggerFindingReproduction,
 	triggerFindingReview,
@@ -22,9 +19,7 @@ import type { useFindingLoadEffects } from "../use-finding-load-effects";
 import type { ScansControllerBaseScope } from "../use-scans-base-controller";
 
 type ScansFindingActionsScope = ScansControllerBaseScope &
-	ReturnType<typeof useFindingLoadEffects> & {
-		reloadDiagnostics: (scanRunId?: string) => Promise<void>;
-	};
+	ReturnType<typeof useFindingLoadEffects>;
 
 const remediationStatuses: RemediationStatus[] = [
 	"not_started",
@@ -58,7 +53,6 @@ export function useScansFindingActions(scope: ScansFindingActionsScope) {
 		loadFindingDetails,
 		projects,
 		reasonInput,
-		reloadDiagnostics,
 		remediationDueDateInput,
 		remediationFixInput,
 		remediationOwnerInput,
@@ -83,7 +77,6 @@ export function useScansFindingActions(scope: ScansFindingActionsScope) {
 		selectedVerificationDataLoaded,
 		setCommentInput,
 		setDecisionSubmitLoading,
-		setDiagnosticLoading,
 		setDynamicError,
 		setDynamicLoading,
 		setDynamicRunArtifacts,
@@ -102,86 +95,6 @@ export function useScansFindingActions(scope: ScansFindingActionsScope) {
 		setReviewError,
 		setReviewLoading,
 	} = scope;
-	const runDiagnosticsForScan = async (scanRunId: string) => {
-		if (!scanRunId) return;
-		setDiagnosticLoading(true);
-		setErrorText(null);
-		try {
-			await runScanAttackSurfaceInventory(scanRunId);
-			await runScanSecurityChecks(scanRunId);
-			await reloadDiagnostics(scanRunId);
-		} catch (err) {
-			setErrorText(
-				err instanceof Error ? err.message : "診断の実行に失敗しました。",
-			);
-		} finally {
-			setDiagnosticLoading(false);
-		}
-	};
-
-	const handleRunDiagnostics = async () => {
-		if (!selectedScanRunId) return;
-		await runDiagnosticsForScan(selectedScanRunId);
-	};
-
-	const generateDiagnosticReportForScan = async (scanRunId: string) => {
-		if (!scanRunId) return;
-		setDiagnosticLoading(true);
-		setErrorText(null);
-		try {
-			await generateDiagnosticReport(scanRunId);
-			await reloadDiagnostics(scanRunId);
-		} catch (err) {
-			setErrorText(
-				err instanceof Error
-					? err.message
-					: "診断レポートの生成に失敗しました。",
-			);
-		} finally {
-			setDiagnosticLoading(false);
-		}
-	};
-
-	const handleGenerateDiagnosticReport = async () => {
-		if (!selectedScanRunId) return;
-		await generateDiagnosticReportForScan(selectedScanRunId);
-	};
-
-	const handleRunAttackSurfaceInventory = async () => {
-		if (!selectedScanRunId) return;
-		setDiagnosticLoading(true);
-		setErrorText(null);
-		try {
-			await runScanAttackSurfaceInventory(selectedScanRunId);
-			await reloadDiagnostics(selectedScanRunId);
-		} catch (err) {
-			setErrorText(
-				err instanceof Error
-					? err.message
-					: "攻撃面 inventory の実行に失敗しました。",
-			);
-		} finally {
-			setDiagnosticLoading(false);
-		}
-	};
-
-	const handleRunSecurityChecks = async () => {
-		if (!selectedScanRunId) return;
-		setDiagnosticLoading(true);
-		setErrorText(null);
-		try {
-			await runScanSecurityChecks(selectedScanRunId);
-			await reloadDiagnostics(selectedScanRunId);
-		} catch (err) {
-			setErrorText(
-				err instanceof Error
-					? err.message
-					: "セキュリティ検査の実行に失敗しました。",
-			);
-		} finally {
-			setDiagnosticLoading(false);
-		}
-	};
 
 	const handleTriggerReview = async () => {
 		if (!selectedFindingId) return;
@@ -426,11 +339,7 @@ export function useScansFindingActions(scope: ScansFindingActionsScope) {
 		filteredActionQueueItems,
 		findingWorkStatesById,
 		handleDecisionSubmit,
-		handleGenerateDiagnosticReport,
 		handleRemediationSubmit,
-		handleRunAttackSurfaceInventory,
-		handleRunDiagnostics,
-		handleRunSecurityChecks,
 		handleToggleDynamicRun,
 		handleToggleReproRun,
 		handleTriggerDynamic,
@@ -438,7 +347,6 @@ export function useScansFindingActions(scope: ScansFindingActionsScope) {
 		handleTriggerReview,
 		remediationPlanByFindingId,
 		reportQualityPreview,
-		runDiagnosticsForScan,
 		scanComparison,
 		selectedCoverageSummary,
 		selectedEvidenceQuality,

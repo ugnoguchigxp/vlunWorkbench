@@ -49,9 +49,9 @@
 | Capability | Owns | Start here | Must not own |
 | --- | --- | --- | --- |
 | ScanExecution | profile 解決、preflight、step 監督、artifact、supervisor、削除 | `api/modules/scans/profile-orchestrator.ts`, `scan-preflight.ts`, `scan-process-supervisor.ts`, `execution/` | finding 詳細 UI、Markdown 本文、improvementRequest |
-| ScannerAdapters | tool runner、normalize、adapter registry、license 境界 | `api/modules/scans/tools/`, `normalizers/` または `findings/normalizers/`, `static-scanner-adapter.ts`, `builtin-static-scanner-adapters.ts` | report / coverage / handoff の tool 専用分岐 |
+| ScannerAdapters | tool runner、normalize、adapter registry、license 境界 | `api/modules/scans/tools/`, `findings/normalizers/`（旧 `normalizers/` は再エクスポート）、`static-scanner-adapter.ts`, `builtin-static-scanner-adapters.ts` | report / coverage / handoff の tool 専用分岐 |
 | FindingsEvidence | 正規化 finding 永続化、evidence、finding 詳細 | `api/modules/scans/findings/`, `web/src/domains/scans/findings/` | profile 実行、scanner spawn |
-| Coverage | SAST 未実行、control catalog、step gap を一つの read model に集約 | `api/modules/scans/coverage/`, `web/src/domains/scans/coverage/` | scanner 実行そのもの |
+| Coverage | SAST 未実行、control catalog、runtime/DAST gap を一つの read model に集約 | `api/modules/scans/coverage/`, `web/src/domains/scans/coverage/` | scanner 実行そのもの |
 | Reporting | 決定論 Markdown と section 契約 | `api/modules/scans/reporting/`, `web/src/domains/scans/reporting/` | LLM をレポート本文の正にすること |
 | DiagnosticHandoff | scan review、improvementRequest、diagnostic readiness | `api/modules/scans/handoff/`, `web/src/domains/scans/handoff/` | CLI scanner 起動 |
 

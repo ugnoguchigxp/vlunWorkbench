@@ -4,6 +4,11 @@
 		"web/src/agentic-markdown.ts",
 		"web/src/domains/projects/*.ts",
 		"web/src/domains/scans/*.ts",
+		"web/src/domains/scans/coverage/*.ts",
+		"web/src/domains/scans/findings/*.ts",
+		"web/src/domains/scans/reporting/*.ts",
+		"web/src/domains/scans/handoff/*.ts",
+		"web/src/domains/scans/workspace/*.ts",
 		"shared/report-sections.ts"
 	],
 	"criticalSurfacePatterns": [
@@ -112,10 +117,34 @@
 			"title": "real DB optional Semgrep profile persists a finding and automatic report"
 		},
 		{
+			"path": "web/src/domains/scans/findings/scans-finding-actions.ts",
+			"testId": "E2E-SCAN-FINDINGS-ACTIONS",
+			"spec": "tests/e2e/release-readiness.spec.ts",
+			"title": "real DB optional Semgrep profile persists a finding and automatic report"
+		},
+		{
 			"path": "web/src/domains/scans/scans-launch-actions.ts",
 			"testId": "E2E-SCAN-LAUNCH-ACTIONS",
 			"spec": "tests/e2e/release-readiness.spec.ts",
 			"title": "real DB standard profile completes without invoking optional Semgrep"
+		},
+		{
+			"path": "web/src/domains/scans/workspace/scans-workspace-actions.ts",
+			"testId": "E2E-SCAN-WORKSPACE-ACTIONS",
+			"spec": "tests/e2e/release-readiness.spec.ts",
+			"title": "real DB standard profile completes without invoking optional Semgrep"
+		},
+		{
+			"path": "web/src/domains/scans/reporting/scans-reporting-actions.ts",
+			"testId": "E2E-SCAN-REPORTING-ACTIONS",
+			"spec": "tests/e2e/release-readiness.spec.ts",
+			"title": "mocked scan workspace renders results, report preview, and history deletion"
+		},
+		{
+			"path": "web/src/domains/scans/handoff/scans-handoff-actions.ts",
+			"testId": "E2E-SCAN-HANDOFF-ACTIONS",
+			"spec": "tests/e2e/release-readiness.spec.ts",
+			"title": "mocked scan workspace renders results, report preview, and history deletion"
 		},
 		{
 			"path": "web/src/domains/scans/use-automated-diagnostic-state.ts",
@@ -152,6 +181,18 @@
 			"testId": "E2E-SCANS-CONTROLLER",
 			"spec": "tests/e2e/release-readiness.spec.ts",
 			"title": "real DB standard profile completes without invoking optional Semgrep"
+		},
+		{
+			"path": "web/src/domains/scans/use-report-workspace-controller.ts",
+			"testId": "E2E-SCAN-REPORT-WORKSPACE-CONTROLLER",
+			"spec": "tests/e2e/release-readiness.spec.ts",
+			"title": "mocked scan workspace renders results, report preview, and history deletion"
+		},
+		{
+			"path": "web/src/domains/scans/reporting/use-report-workspace-controller.ts",
+			"testId": "E2E-SCAN-REPORTING-WORKSPACE-CONTROLLER",
+			"spec": "tests/e2e/release-readiness.spec.ts",
+			"title": "mocked scan workspace renders results, report preview, and history deletion"
 		},
 		{
 			"path": "web/src/domains/scans/use-scans-effects.ts",

@@ -1,6 +1,5 @@
+import { buildScanCoverageReadModel } from "../coverage/scan-coverage-read-model";
 import { readStoredScanExecutionPlan } from "../scan-execution-plan-builder";
-import { readStoredScanPreflight } from "../scan-preflight";
-import { readSourceSastCoverage } from "../source-sast-coverage";
 import {
 	escapeTableCell,
 	formatDateTime,
@@ -24,6 +23,7 @@ export function renderReportOverview(
 		allDastEvidence,
 		allDynamicRuns,
 		allReproRuns,
+		coverageResults,
 		decidedFindingCount,
 		expectedDastSteps,
 		includedFindings,
@@ -54,9 +54,13 @@ export function renderReportOverview(
 		"N/A";
 	const diffContext = readDiffReportContext(scanRun.metadata);
 	const technologySummary = readPluginExecutionSummary(scanRun.metadata);
-	const sourceSastCoverage = readSourceSastCoverage(scanRun.metadata);
+	const coverage = buildScanCoverageReadModel({
+		scanMetadata: scanRun.metadata,
+		controls: coverageResults,
+	});
+	const sourceSastCoverage = coverage.sourceSast;
 	const limitedSourceSast = sourceSastCoverage?.coverageEffect === "gap";
-	const scanPreflight = readStoredScanPreflight(scanRun.metadata);
+	const scanPreflight = coverage.preflight;
 	const executionPlan = readStoredScanExecutionPlan(scanRun.metadata);
 	const limitedPreflight =
 		scanPreflight !== null && scanPreflight.status !== "ready";

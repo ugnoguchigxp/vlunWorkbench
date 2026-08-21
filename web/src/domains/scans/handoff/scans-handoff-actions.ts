@@ -5,7 +5,10 @@ import {
 	fetchScanReports,
 	fetchScanReviews,
 	fetchScanSecurityChecks,
+	generateDiagnosticReport,
 	retryAutomatedScanDiagnostic,
+	runScanAttackSurfaceInventory,
+	runScanSecurityChecks,
 	triggerScanImprovementRequest,
 	triggerScanReview,
 } from "../../../api";
@@ -24,6 +27,7 @@ export function buildScanHandoffActions(scope: ScansActionScope) {
 		setAttackSurfaceItems,
 		setAutomatedDiagnosticLoading,
 		setAutomatedDiagnostics,
+		setDiagnosticLoading,
 		setDiagnosticReports,
 		setErrorText,
 		setImprovementRequestLoading,
@@ -142,6 +146,87 @@ export function buildScanHandoffActions(scope: ScansActionScope) {
 		setDiagnosticReports(diagnostic.reports);
 	};
 
+	const runDiagnosticsForScan = async (scanRunId: string) => {
+		if (!scanRunId) return;
+		setDiagnosticLoading(true);
+		setErrorText(null);
+		try {
+			await runScanAttackSurfaceInventory(scanRunId);
+			await runScanSecurityChecks(scanRunId);
+			await reloadDiagnostics(scanRunId);
+		} catch (err) {
+			setErrorText(
+				err instanceof Error ? err.message : "診断の実行に失敗しました。",
+			);
+		} finally {
+			setDiagnosticLoading(false);
+		}
+	};
+
+	const handleRunDiagnostics = async () => {
+		if (!selectedScanRunId) return;
+		await runDiagnosticsForScan(selectedScanRunId);
+	};
+
+	const generateDiagnosticReportForScan = async (scanRunId: string) => {
+		if (!scanRunId) return;
+		setDiagnosticLoading(true);
+		setErrorText(null);
+		try {
+			await generateDiagnosticReport(scanRunId);
+			await reloadDiagnostics(scanRunId);
+		} catch (err) {
+			setErrorText(
+				err instanceof Error
+					? err.message
+					: "診断レポートの生成に失敗しました。",
+			);
+		} finally {
+			setDiagnosticLoading(false);
+		}
+	};
+
+	const handleGenerateDiagnosticReport = async () => {
+		if (!selectedScanRunId) return;
+		await generateDiagnosticReportForScan(selectedScanRunId);
+	};
+
+	const handleRunAttackSurfaceInventory = async () => {
+		if (!selectedScanRunId) return;
+		setDiagnosticLoading(true);
+		setErrorText(null);
+		try {
+			await runScanAttackSurfaceInventory(selectedScanRunId);
+			await reloadDiagnostics(selectedScanRunId);
+		} catch (err) {
+			setErrorText(
+				err instanceof Error
+					? err.message
+					: "攻撃面 inventory の実行に失敗しました。",
+			);
+		} finally {
+			setDiagnosticLoading(false);
+		}
+	};
+
+	const handleRunSecurityChecks = async () => {
+		if (!selectedScanRunId) return;
+		setDiagnosticLoading(true);
+		setErrorText(null);
+		try {
+			await runScanSecurityChecks(selectedScanRunId);
+			await reloadDiagnostics(selectedScanRunId);
+		} catch (err) {
+			setErrorText(
+				err instanceof Error
+					? err.message
+					: "セキュリティ検査の実行に失敗しました。",
+			);
+		} finally {
+			setDiagnosticLoading(false);
+		}
+	};
+
 	const handleRetryAutomatedDiagnostic = async (
 		scanRunId = selectedScanRunId,
 	) => {
@@ -194,9 +279,15 @@ export function buildScanHandoffActions(scope: ScansActionScope) {
 	};
 
 	return {
+		generateDiagnosticReportForScan,
+		handleGenerateDiagnosticReport,
 		handleGenerateImprovementRequest,
 		handleRetryAutomatedDiagnostic,
+		handleRunAttackSurfaceInventory,
+		handleRunDiagnostics,
+		handleRunSecurityChecks,
 		handleTriggerScanReview,
 		reloadDiagnostics,
+		runDiagnosticsForScan,
 	};
 }

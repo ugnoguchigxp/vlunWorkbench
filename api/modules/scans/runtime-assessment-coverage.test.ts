@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { recordScannerE2EFailureObservation } from "../../testing/scanner-e2e-failure-observation";
+import { aggregateRuntimeAssessmentCoverage } from "./coverage/runtime-assessment-coverage";
 import type { ScanProfileStepResult } from "./profile-runner";
-import { aggregateRuntimeAssessmentCoverage } from "./runtime-assessment-coverage";
 
 describe("aggregateRuntimeAssessmentCoverage", () => {
 	it("keeps a ZAP gateway budget block as partial coverage", () => {

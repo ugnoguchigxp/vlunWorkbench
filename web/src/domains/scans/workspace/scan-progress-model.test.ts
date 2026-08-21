@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ScanEvent, ScanProfile, ScanRun } from "../../api";
+import type { ScanEvent, ScanProfile, ScanRun } from "../../../api";
 import {
 	buildScanProgressModel,
 	selectProgressScanRun,

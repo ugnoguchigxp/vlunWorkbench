@@ -8,7 +8,7 @@ import {
 	uniqueIndex,
 } from "drizzle-orm/sqlite-core";
 import { users } from "./schema-core";
-import { id, jsonObject, timestampMs } from "./schema-helpers";
+import { id, jsonArray, jsonObject, timestampMs } from "./schema-helpers";
 export const projects = sqliteTable(
 	"projects",
 	{
@@ -258,6 +258,173 @@ export const findingEvidences = sqliteTable(
 	},
 	(table) => ({
 		findingIdIdx: index("finding_evidence_finding_id_idx").on(table.findingId),
+	}),
+);
+
+/** Immutable deterministic (or shadow semantic) grouping snapshots for one scan. */
+export const findingGroupingRuns = sqliteTable(
+	"finding_grouping_runs",
+	{
+		id: id(),
+		scanRunId: text("scan_run_id")
+			.notNull()
+			.references(() => scanRuns.id, { onDelete: "cascade" }),
+		status: text("status").notNull(), // running, completed, failed
+		mode: text("mode").notNull(), // deterministic, semantic
+		algorithmVersion: text("algorithm_version").notNull(),
+		findingSetHash: text("finding_set_hash").notNull(),
+		semanticDecisionHash: text("semantic_decision_hash")
+			.notNull()
+			.default(""),
+		snapshotHash: text("snapshot_hash"),
+		rawFindingCount: integer("raw_finding_count").notNull().default(0),
+		issueCount: integer("issue_count").notNull().default(0),
+		suppressedCount: integer("suppressed_count").notNull().default(0),
+		ambiguousCount: integer("ambiguous_count").notNull().default(0),
+		provider: text("provider"),
+		model: text("model"),
+		promptSequenceHash: text("prompt_sequence_hash"),
+		limitations: jsonArray("limitations_json"),
+		error: text("error"),
+		startedAt: integer("started_at", { mode: "timestamp_ms" }),
+		completedAt: integer("completed_at", { mode: "timestamp_ms" }),
+		createdAt: timestampMs("created_at"),
+		updatedAt: timestampMs("updated_at"),
+	},
+	(table) => ({
+		scanRunIdx: index("finding_grouping_runs_scan_run_idx").on(
+			table.scanRunId,
+		),
+		completedLookupIdx: index(
+			"finding_grouping_runs_completed_lookup_idx",
+		).on(
+			table.scanRunId,
+			table.mode,
+			table.algorithmVersion,
+			table.findingSetHash,
+			table.completedAt,
+		),
+		activeUniqueIdx: uniqueIndex("finding_grouping_runs_active_unique_idx")
+			.on(
+				table.scanRunId,
+				table.mode,
+				table.algorithmVersion,
+				table.findingSetHash,
+			)
+			.where(sql`${table.status} = 'running'`),
+		completedUniqueIdx: uniqueIndex(
+			"finding_grouping_runs_completed_unique_idx",
+		)
+			.on(
+				table.scanRunId,
+				table.mode,
+				table.algorithmVersion,
+				table.findingSetHash,
+				table.semanticDecisionHash,
+			)
+			.where(sql`${table.status} = 'completed'`),
+	}),
+);
+
+export const findingIssueGroups = sqliteTable(
+	"finding_issue_groups",
+	{
+		id: id(),
+		groupingRunId: text("grouping_run_id")
+			.notNull()
+			.references(() => findingGroupingRuns.id, { onDelete: "cascade" }),
+		stableKey: text("stable_key").notNull(),
+		representativeFindingId: text("representative_finding_id").references(
+			() => findings.id,
+			{ onDelete: "set null" },
+		),
+		issueKind: text("issue_kind").notNull(),
+		title: text("title").notNull(),
+		description: text("description").notNull(),
+		severity: text("severity").notNull(),
+		primaryLocation: jsonObject("primary_location_json"),
+		matchConfidence: text("match_confidence").notNull(),
+		sourceTools: jsonArray("source_tools_json"),
+		reasonCodes: jsonArray("reason_codes_json"),
+		metadata: jsonObject("metadata_json"),
+		createdAt: timestampMs("created_at"),
+	},
+	(table) => ({
+		runStableKeyUniqueIdx: uniqueIndex(
+			"finding_issue_groups_run_stable_key_unique_idx",
+		).on(table.groupingRunId, table.stableKey),
+		runIdx: index("finding_issue_groups_run_idx").on(table.groupingRunId),
+	}),
+);
+
+export const findingIssueGroupMembers = sqliteTable(
+	"finding_issue_group_members",
+	{
+		id: id(),
+		groupId: text("group_id")
+			.notNull()
+			.references(() => findingIssueGroups.id, { onDelete: "cascade" }),
+		groupingRunId: text("grouping_run_id")
+			.notNull()
+			.references(() => findingGroupingRuns.id, { onDelete: "cascade" }),
+		findingId: text("finding_id")
+			.notNull()
+			.references(() => findings.id, { onDelete: "cascade" }),
+		role: text("role").notNull(), // representative, supporting
+		matchMethod: text("match_method").notNull(), // deterministic, singleton, semantic
+		matchConfidence: text("match_confidence").notNull(),
+		reasonCodes: jsonArray("reason_codes_json"),
+		comparisonHash: text("comparison_hash"),
+		identity: jsonObject("identity_json"),
+		createdAt: timestampMs("created_at"),
+	},
+	(table) => ({
+		runFindingUniqueIdx: uniqueIndex(
+			"finding_issue_group_members_run_finding_unique_idx",
+		).on(table.groupingRunId, table.findingId),
+		groupIdx: index("finding_issue_group_members_group_idx").on(
+			table.groupId,
+		),
+	}),
+);
+
+export const findingGroupingPairDecisions = sqliteTable(
+	"finding_grouping_pair_decisions",
+	{
+		id: id(),
+		groupingRunId: text("grouping_run_id")
+			.notNull()
+			.references(() => findingGroupingRuns.id, { onDelete: "cascade" }),
+		leftFindingId: text("left_finding_id")
+			.notNull()
+			.references(() => findings.id, { onDelete: "cascade" }),
+		rightFindingId: text("right_finding_id")
+			.notNull()
+			.references(() => findings.id, { onDelete: "cascade" }),
+		verdict: text("verdict").notNull(),
+		confidence: text("confidence").notNull(),
+		method: text("method").notNull(),
+		reasonCodes: jsonArray("reason_codes_json"),
+		rationale: text("rationale"),
+		comparisonHash: text("comparison_hash").notNull(),
+		provider: text("provider"),
+		model: text("model"),
+		promptSequenceHash: text("prompt_sequence_hash"),
+		responseContentSha256: text("response_content_sha256"),
+		createdAt: timestampMs("created_at"),
+	},
+	(table) => ({
+		runPairUniqueIdx: uniqueIndex(
+			"finding_grouping_pair_decisions_run_pair_unique_idx",
+		).on(table.groupingRunId, table.leftFindingId, table.rightFindingId),
+		semanticCacheIdx: index("finding_grouping_pair_decisions_cache_idx").on(
+			table.comparisonHash,
+			table.method,
+			table.provider,
+			table.model,
+			table.promptSequenceHash,
+			table.createdAt,
+		),
 	}),
 );
 

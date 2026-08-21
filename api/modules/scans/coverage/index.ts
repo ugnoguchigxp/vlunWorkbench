@@ -3,6 +3,11 @@ export {
 	ensureScanCoverageResults,
 } from "./control-coverage";
 export {
+	aggregateRuntimeAssessmentCoverage,
+	type RuntimeAssessmentCoverage,
+	type RuntimeStepCoverage,
+} from "./runtime-assessment-coverage";
+export {
 	buildScanCoverageReadModel,
 	type ScanCoverageControlResult,
 	type ScanCoverageReadModel,

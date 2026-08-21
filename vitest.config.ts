@@ -15,6 +15,11 @@ export default defineConfig({
 				"web/src/agentic-markdown.ts",
 				"web/src/domains/projects/*.ts",
 				"web/src/domains/scans/*.ts",
+				"web/src/domains/scans/coverage/*.ts",
+				"web/src/domains/scans/findings/*.ts",
+				"web/src/domains/scans/reporting/*.ts",
+				"web/src/domains/scans/handoff/*.ts",
+				"web/src/domains/scans/workspace/*.ts",
 				"shared/report-sections.ts",
 			],
 			exclude: [
@@ -24,7 +29,11 @@ export default defineConfig({
 				// Their browser orchestration is protected by Playwright, not unit coverage.
 				"web/src/domains/scans/scans-controller-view-model.ts",
 				"web/src/domains/scans/scans-finding-actions.ts",
+				"web/src/domains/scans/findings/scans-finding-actions.ts",
 				"web/src/domains/scans/scans-launch-actions.ts",
+				"web/src/domains/scans/workspace/scans-workspace-actions.ts",
+				"web/src/domains/scans/reporting/scans-reporting-actions.ts",
+				"web/src/domains/scans/handoff/scans-handoff-actions.ts",
 				"web/src/domains/scans/use-automated-diagnostic-state.ts",
 				"web/src/domains/scans/use-finding-load-effects.ts",
 				"web/src/domains/scans/use-scan-target-effects.ts",

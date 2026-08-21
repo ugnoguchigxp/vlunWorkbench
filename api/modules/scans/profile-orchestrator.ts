@@ -9,6 +9,8 @@ import {
 } from "../project-capabilities/plugin-detector";
 import { ScanArtifactSink } from "./artifact-sink";
 import { ArtifactStorage } from "./artifact-storage";
+import { aggregateRuntimeAssessmentCoverage } from "./coverage/runtime-assessment-coverage";
+import { resolveSourceSastCoverage } from "./coverage/source-sast-coverage";
 import {
 	buildDiffScanPlan,
 	canonicalJson,
@@ -22,7 +24,6 @@ import { executeProfileSteps } from "./profile-step-orchestrator";
 import { getProfileById } from "./profiles";
 import { ArtifactRepository, ScanRepository } from "./repositories";
 import { hashResolvedProfile } from "./resolved-profile";
-import { aggregateRuntimeAssessmentCoverage } from "./runtime-assessment-coverage";
 import {
 	applyExecutionPlanToSteps,
 	applyStrictProfileRequirements,
@@ -30,7 +31,6 @@ import {
 	executionPlanBlocks,
 } from "./scan-execution-plan-builder";
 import { preflightBlocksExecution, runScanPreflight } from "./scan-preflight";
-import { resolveSourceSastCoverage } from "./source-sast-coverage";
 import { resolveScanScope } from "./target-scope";
 import {
 	normalizeToolExecutionConfig,

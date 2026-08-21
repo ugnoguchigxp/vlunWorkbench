@@ -1,6 +1,10 @@
 import type { PreparedRuntimeTarget } from "../dast/runtime-target-provider";
 import { prepareDastTargetWorkspace } from "../dast/target-preparer";
 import { executeProfileStep } from "./execution/execute-profile-step";
+import {
+	emitScanStepFinished,
+	emitScanStepStarted,
+} from "./execution/scan-step-lifecycle-events";
 import type { ScanProfileStepResult, ToolResult } from "./profile-runner";
 import type { ExecuteProfileStepsParams } from "./profile-step-orchestrator-types";
 import {
@@ -8,10 +12,6 @@ import {
 	preflightBlockedStepResult,
 } from "./profile-step-results";
 import { scanProfileStepId } from "./scan-execution-plan-builder";
-import {
-	emitScanStepFinished,
-	emitScanStepStarted,
-} from "./scan-step-lifecycle-events";
 
 function lifecycleOutcome(params: {
 	result: ScanProfileStepResult | undefined;
@@ -162,6 +162,8 @@ export async function executeProfileSteps(
 			let lifecycleReasonCode: string | null = null;
 
 			try {
+				// Skip / not-applicable stay in the orchestrator so lifecycle
+				// events can be emitted without entering executeProfileStep.
 				if (planned.applicability === "not_applicable") {
 					plannedNotApplicable = true;
 					const reasonCode = planned.reasonCodes[0] ?? "not_applicable";
