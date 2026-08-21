@@ -2,12 +2,18 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { ScanScopePolicy } from "../../../../shared/schemas/scan-profile.schema";
-import type { ArtifactSaveResult, ArtifactStorage } from "../artifact-storage";
+import type {
+	ArtifactSaveResult,
+	ArtifactStorage,
+} from "../execution/lifecycle/artifact-storage";
 import {
 	normalizeScannerOutputText,
 	normalizeStructuredOutputPaths,
-} from "../diff-output-paths";
-import { redactJsonSecrets, redactSecrets } from "../normalizers/redaction";
+} from "../execution/diff/diff-output-paths";
+import {
+	redactJsonSecrets,
+	redactSecrets,
+} from "../findings/normalizers/redaction";
 import { createScopedWorkspace, getScopeSkipDirs } from "../target-scope";
 import {
 	checkToolVersion,

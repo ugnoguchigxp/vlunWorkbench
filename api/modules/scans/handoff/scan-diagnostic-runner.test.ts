@@ -19,7 +19,7 @@ import {
 } from "../../../db/schema";
 import type { LlmProvider } from "../../../providers/types";
 import { ScanReportRunner } from "../../reports/scan-report-runner";
-import { ArtifactStorage } from "../artifact-storage";
+import { ArtifactStorage } from "../execution/lifecycle/artifact-storage";
 import { ScanDiagnosticRunner } from "./scan-diagnostic-runner";
 import { ScanReviewRunner } from "./scan-review-runner";
 

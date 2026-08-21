@@ -1,5 +1,5 @@
 import { buildScanCoverageReadModel } from "../coverage/scan-coverage-read-model";
-import { readStoredScanExecutionPlan } from "../scan-execution-plan-builder";
+import { readStoredScanExecutionPlan } from "../execution/scan-execution-plan-builder";
 import {
 	escapeTableCell,
 	formatDateTime,

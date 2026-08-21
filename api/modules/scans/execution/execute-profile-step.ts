@@ -1,8 +1,8 @@
 import type { ScanProfileStep } from "../../../../shared/schemas/scan-profile.schema";
 import { discoverRepositoryApiSchema } from "../../api-schema-fuzz/schema-discovery";
 import type { PreparedRuntimeTarget } from "../../dast/runtime-target-provider";
-import type { DiffScanPlan } from "../diff-scan-plan";
-import type { DiffSnapshot } from "../diff-snapshot";
+import type { DiffScanPlan } from "./diff/diff-scan-plan";
+import type { DiffSnapshot } from "./diff/diff-snapshot";
 import {
 	runDastStepIntoExistingScan,
 	runRuntimeScannerIntoExistingScan,
@@ -10,8 +10,8 @@ import {
 	runToolIntoExistingScan,
 	type ScanProfileStepResult,
 	type ToolResult,
-} from "../profile-runner";
-import type { ExecuteProfileStepsParams } from "../profile-step-orchestrator-types";
+} from "./profile-runner";
+import type { ExecuteProfileStepsParams } from "./profile-step-orchestrator-types";
 import { resolveStaticScannerDiffExecution } from "../static-scanner-adapter";
 import { staticScannerAdapterRegistry } from "../static-scanner-adapters";
 import { withMandatoryExcludes } from "../target-scope";

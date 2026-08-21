@@ -402,7 +402,9 @@ function buildPersistedInputBundle(
 			chunkCount: bundles.length,
 		},
 		issueManifest,
-		issueIdsSha256: sha256(JSON.stringify(issueManifest.map((issue) => issue.issueId))),
+		issueIdsSha256: sha256(
+			JSON.stringify(issueManifest.map((issue) => issue.issueId)),
+		),
 		findingIdsSha256: sha256(
 			JSON.stringify(issueManifest.flatMap((issue) => issue.memberFindingIds)),
 		),

@@ -257,9 +257,9 @@ function buildQualityChecks(
 					? "対象 issue ID が参照されています。"
 					: referencedFindingCount > 0
 						? "対象 finding ID が参照されています。"
-					: hasCoverageScope
-						? "finding 0 件のカバレッジ確認として扱えます。"
-						: "対象 finding または zero-finding scope がありません。",
+						: hasCoverageScope
+							? "finding 0 件のカバレッジ確認として扱えます。"
+							: "対象 finding または zero-finding scope がありません。",
 		},
 		{
 			id: "tasks",
@@ -388,7 +388,7 @@ export function buildScanImprovementRequestMarkdown(
 							? `\nissue ID: ${task.issueIds.join(", ")}`
 							: task.findingIds.length
 								? `\nfinding ID: ${task.findingIds.join(", ")}`
-							: "";
+								: "";
 						return `### ${task.title}\n${task.body}${refs}`;
 					})
 					.join("\n\n")}`

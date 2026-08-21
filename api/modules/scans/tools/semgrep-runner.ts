@@ -5,12 +5,18 @@ import path from "node:path";
 import type { ScanScopePolicy } from "../../../../shared/schemas/scan-profile.schema";
 import type { SemgrepRuleContribution } from "../../project-capabilities/plugin-contract";
 import { isSafeRelativePluginPath } from "../../project-capabilities/path-patterns";
-import type { ArtifactSaveResult, ArtifactStorage } from "../artifact-storage";
-import { redactJsonSecrets, redactSecrets } from "../normalizers/redaction";
+import type {
+	ArtifactSaveResult,
+	ArtifactStorage,
+} from "../execution/lifecycle/artifact-storage";
+import {
+	redactJsonSecrets,
+	redactSecrets,
+} from "../findings/normalizers/redaction";
 import {
 	normalizeScannerOutputText,
 	normalizeStructuredOutputPaths,
-} from "../diff-output-paths";
+} from "../execution/diff/diff-output-paths";
 import { getScopeExcludeGlobs, getScopeIncludeGlobs } from "../target-scope";
 import {
 	checkToolVersion,

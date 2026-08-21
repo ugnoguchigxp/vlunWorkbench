@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 import { scannerDataManifestV2Schema } from "../../../../shared/schemas/security-capability.schema";
-import { canonicalJson } from "../diff-scan-plan";
+import { canonicalJson } from "../execution/diff/diff-scan-plan";
 import type { ToolExecutionConfig } from "./tool-process-runner";
 
 const scannerDataEntrySchema = z.object({

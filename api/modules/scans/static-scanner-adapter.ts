@@ -1,10 +1,10 @@
 import type { ScanScopePolicy } from "../../../shared/schemas/scan-profile.schema";
-import type { ArtifactStorage } from "./artifact-storage";
-import type { NormalizedFinding } from "./normalizers/fixture";
+import type { ArtifactStorage } from "./execution/lifecycle/artifact-storage";
+import type { NormalizedFinding } from "./findings/normalizers/fixture";
 import type {
 	CommonToolRunResult,
 	DiffToolExecutionContext,
-} from "./profile-runner";
+} from "./execution/profile-runner";
 import type {
 	ToolExecutionConfig,
 	ToolLifecycleEvent,

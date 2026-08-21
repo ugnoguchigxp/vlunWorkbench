@@ -1,6 +1,6 @@
 import type { ScanPreflightResult } from "../../../../shared/schemas/scan-preflight.schema";
 import type { SourceSastCoverage } from "../../../../shared/schemas/source-sast-coverage.schema";
-import { readStoredScanPreflight } from "../scan-preflight";
+import { readStoredScanPreflight } from "../execution/scan-preflight";
 import { readSourceSastCoverage } from "./source-sast-coverage";
 
 export type ScanCoverageControlResult = {

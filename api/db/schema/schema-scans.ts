@@ -273,9 +273,7 @@ export const findingGroupingRuns = sqliteTable(
 		mode: text("mode").notNull(), // deterministic, semantic
 		algorithmVersion: text("algorithm_version").notNull(),
 		findingSetHash: text("finding_set_hash").notNull(),
-		semanticDecisionHash: text("semantic_decision_hash")
-			.notNull()
-			.default(""),
+		semanticDecisionHash: text("semantic_decision_hash").notNull().default(""),
 		snapshotHash: text("snapshot_hash"),
 		rawFindingCount: integer("raw_finding_count").notNull().default(0),
 		issueCount: integer("issue_count").notNull().default(0),
@@ -292,12 +290,8 @@ export const findingGroupingRuns = sqliteTable(
 		updatedAt: timestampMs("updated_at"),
 	},
 	(table) => ({
-		scanRunIdx: index("finding_grouping_runs_scan_run_idx").on(
-			table.scanRunId,
-		),
-		completedLookupIdx: index(
-			"finding_grouping_runs_completed_lookup_idx",
-		).on(
+		scanRunIdx: index("finding_grouping_runs_scan_run_idx").on(table.scanRunId),
+		completedLookupIdx: index("finding_grouping_runs_completed_lookup_idx").on(
 			table.scanRunId,
 			table.mode,
 			table.algorithmVersion,
@@ -382,9 +376,7 @@ export const findingIssueGroupMembers = sqliteTable(
 		runFindingUniqueIdx: uniqueIndex(
 			"finding_issue_group_members_run_finding_unique_idx",
 		).on(table.groupingRunId, table.findingId),
-		groupIdx: index("finding_issue_group_members_group_idx").on(
-			table.groupId,
-		),
+		groupIdx: index("finding_issue_group_members_group_idx").on(table.groupId),
 	}),
 );
 

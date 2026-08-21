@@ -66,8 +66,14 @@ export const criticalCoverageTargets: readonly CriticalCoverageTarget[] = [
 		path: "api/modules/scans/handoff/scan-improvement-request-runner.ts",
 		minimum: 80,
 	},
-	{ path: "api/modules/scans/scan-process-supervisor.ts", minimum: 80 },
-	{ path: "api/modules/scans/web-scan-post-processing.ts", minimum: 90 },
+	{
+		path: "api/modules/scans/execution/scan-process-supervisor.ts",
+		minimum: 80,
+	},
+	{
+		path: "api/modules/scans/execution/web-scan-post-processing.ts",
+		minimum: 90,
+	},
 	{ path: "api/modules/scans/tools/docker-tool-cleanup.ts", minimum: 80 },
 	{
 		path: "api/modules/scans/tools/docker-tool-invocation-policy.ts",
@@ -103,7 +109,7 @@ export const criticalCoverageTests = [
 	"api/modules/reproductions/reproduction-runner.test.ts",
 	"api/modules/scans/handoff/scan-diagnostic-runner.test.ts",
 	"api/modules/scans/handoff/scan-improvement-request-runner.test.ts",
-	"api/modules/scans/scan-process-supervisor.test.ts",
-	"api/modules/scans/web-scan-post-processing.test.ts",
+	"api/modules/scans/execution/scan-process-supervisor.test.ts",
+	"api/modules/scans/execution/web-scan-post-processing.test.ts",
 	"api/modules/scans/tools/tool-process-runner.test.ts",
 ];

@@ -2,7 +2,7 @@ import type {
 	DastCoverageStatus,
 	DastCoverageSummary,
 } from "../../../../shared/schemas/dast-coverage.schema";
-import type { ScanProfileStepResult } from "../profile-runner";
+import type { ScanProfileStepResult } from "../execution/profile-runner";
 
 export type RuntimeStepCoverage = {
 	stepId: string;

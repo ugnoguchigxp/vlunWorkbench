@@ -36,7 +36,7 @@ describe("test file discovery", () => {
 		expect(
 			isVitestFile("api/modules/dast/playwright-browser-adapter.test.ts"),
 		).toBe(true);
-		expect(isVitestFile("api/modules/scans/profile-runner.test.ts")).toBe(false);
+		expect(isVitestFile("api/modules/scans/execution/profile-runner.test.ts")).toBe(false);
 	});
 });
 

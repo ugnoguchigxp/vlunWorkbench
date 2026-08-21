@@ -8,8 +8,8 @@ import {
 	toolRuns,
 } from "../../db/schema";
 
-export { ArtifactRepository } from "./artifact-repository";
-export { FindingRepository } from "./finding-repository";
+export { ArtifactRepository } from "./execution/lifecycle/artifact-repository";
+export { FindingRepository } from "./findings/finding-repository";
 
 /**
  * SQLite evaluates the nested json_set calls in one UPDATE statement, keeping

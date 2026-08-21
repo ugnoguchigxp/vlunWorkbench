@@ -1,4 +1,23 @@
 {
 	"largeFileThreshold": 600,
-	"entries": []
+	"entries": [
+		{
+			"path": "api/db/schema/schema-scans.ts",
+			"baselineLines": 711,
+			"allowedMaximum": 750,
+			"targetMaximum": 500,
+			"owner": "scans",
+			"reason": "Finding grouping tables landed in the scan schema; split remaining columns from scan-run tables.",
+			"reviewDate": "2026-09-21"
+		},
+		{
+			"path": "api/modules/scans/handoff/scan-improvement-request-builder.ts",
+			"baselineLines": 723,
+			"allowedMaximum": 750,
+			"targetMaximum": 500,
+			"owner": "scans",
+			"reason": "Issue-chunked improvement requests grew the builder; extract issue assembly from request serialization.",
+			"reviewDate": "2026-09-21"
+		}
+	]
 }

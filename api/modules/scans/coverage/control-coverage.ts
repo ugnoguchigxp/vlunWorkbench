@@ -3,7 +3,7 @@ import type { ScanCoverageResult } from "../../../../shared/schemas/assessment.s
 import type { AppDatabase } from "../../../db";
 import { AssessmentRepository } from "../../assessments/assessment-repository";
 import { COVERAGE_CATALOG } from "../../assessments/coverage-catalog";
-import { canonicalJson } from "../diff-scan-plan";
+import { canonicalJson } from "../execution/diff/diff-scan-plan";
 import {
 	buildScanRunSummary,
 	type StepSummary,

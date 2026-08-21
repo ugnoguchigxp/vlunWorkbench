@@ -9,12 +9,12 @@ import {
 } from "../../../../shared/schemas/finding-group.schema";
 import type { AppDatabase } from "../../../db";
 import { findingEvidences, findings } from "../../../db/schema";
-import { projectFindingDedupeIdentity } from "../finding-dedupe-identity";
+import { projectFindingDedupeIdentity } from "../findings/finding-dedupe-identity";
 import { redactSecrets } from "../findings/normalizers/redaction";
 import {
 	FindingGroupingRunner,
 	type GroupingSnapshotResult,
-} from "../finding-grouping-runner";
+} from "../findings/finding-grouping-runner";
 import { buildScanReviewBundle } from "./scan-review-bundle";
 
 type FindingRow = typeof findings.$inferSelect;
@@ -33,7 +33,9 @@ export type ImprovementRequestIssueBundle = {
 	summary: Awaited<ReturnType<typeof buildScanReviewBundle>>["summary"];
 	tools: Awaited<ReturnType<typeof buildScanReviewBundle>>["tools"];
 	artifacts: Awaited<ReturnType<typeof buildScanReviewBundle>>["artifacts"];
-	verification: Awaited<ReturnType<typeof buildScanReviewBundle>>["verification"];
+	verification: Awaited<
+		ReturnType<typeof buildScanReviewBundle>
+	>["verification"];
 	grouping: {
 		runId: string;
 		findingSetHash: string;
@@ -85,9 +87,9 @@ export async function buildImprovementRequestIssueBundles(
 	db: AppDatabase,
 	scanRunId: string,
 ): Promise<ImprovementRequestIssueBundle[]> {
-	const snapshot = await new FindingGroupingRunner(db).ensureCurrentDeterministic(
-		scanRunId,
-	);
+	const snapshot = await new FindingGroupingRunner(
+		db,
+	).ensureCurrentDeterministic(scanRunId);
 	if (
 		snapshot.grouping.runId === null ||
 		snapshot.grouping.snapshotHash === null ||
@@ -111,7 +113,9 @@ export async function buildImprovementRequestIssueBundles(
 			findingFilter: "all",
 		}),
 	]);
-	const byFindingId = new Map(rawFindings.map((finding) => [finding.id, finding]));
+	const byFindingId = new Map(
+		rawFindings.map((finding) => [finding.id, finding]),
+	);
 	const evidenceByFindingId = new Map<string, EvidenceRow[]>();
 	for (const evidence of evidenceRows) {
 		evidenceByFindingId.set(evidence.findingId, [
@@ -139,8 +143,9 @@ export async function buildImprovementRequestIssueBundles(
 		},
 		issueManifest: chunkIssues.map((issue) => ({
 			issueId: issue.issueId,
-			memberFindingIds: snapshot.groups.find((group) => group.id === issue.issueId)
-				?.findingIds ?? [],
+			memberFindingIds:
+				snapshot.groups.find((group) => group.id === issue.issueId)
+					?.findingIds ?? [],
 		})),
 		issues: chunkIssues,
 		limitations: snapshot.grouping.limitations,
@@ -234,9 +239,7 @@ function uniqueEvidence(
 		.flatMap((evidence) => {
 			const snippet = evidence.isSecret
 				? null
-				: redactSecrets(
-						truncate(evidence.snippet, MAX_EVIDENCE_SNIPPET_CHARS),
-					);
+				: redactSecrets(truncate(evidence.snippet, MAX_EVIDENCE_SNIPPET_CHARS));
 			const key = JSON.stringify({
 				kind: evidence.kind,
 				artifactId: evidence.artifactId,
@@ -245,18 +248,23 @@ function uniqueEvidence(
 			});
 			if (seen.has(key)) return [];
 			seen.add(key);
-			return [{
-				id: evidence.id,
-				kind: evidence.kind,
-				artifactId: evidence.artifactId,
-				location: evidence.location,
-				snippet,
-			}];
+			return [
+				{
+					id: evidence.id,
+					kind: evidence.kind,
+					artifactId: evidence.artifactId,
+					location: evidence.location,
+					snippet,
+				},
+			];
 		})
 		.slice(0, MAX_EVIDENCE_PER_ISSUE);
 }
 
-function compareIssues(left: ImprovementRequestIssue, right: ImprovementRequestIssue) {
+function compareIssues(
+	left: ImprovementRequestIssue,
+	right: ImprovementRequestIssue,
+) {
 	const rank = (severity: string) =>
 		({ critical: 0, high: 1, medium: 2, low: 3, info: 4, unknown: 5 })[
 			severity.toLowerCase() as "critical"

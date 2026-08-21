@@ -3,7 +3,7 @@ import type {
 	AutomatedDiagnosticReadiness,
 	AutomatedDiagnosticStatus,
 } from "../../../../shared/schemas/automated-diagnostic.schema";
-import { canonicalJson } from "../diff-scan-plan";
+import { canonicalJson } from "../execution/diff/diff-scan-plan";
 import type { ScanReviewBundle } from "./scan-review-bundle";
 
 export type DiagnosticJobResult = {

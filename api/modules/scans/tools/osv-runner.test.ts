@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { OsvRunner } from "./osv-runner";
-import { ArtifactStorage } from "../artifact-storage";
+import { ArtifactStorage } from "../execution/lifecycle/artifact-storage";
 
 describe("OsvRunner", () => {
 	let tempDir: string;

@@ -100,7 +100,8 @@ function ScanResultsBody() {
 					<div>
 						<h3 className="detail-section-title">検出された問題</h3>
 						<p className="scan-tool-purpose">
-							既定では重複を統合した issue を表示します。raw finding と証跡はいつでも確認できます。
+							既定では重複を統合した issue を表示します。raw finding
+							と証跡はいつでも確認できます。
 						</p>
 					</div>
 					<div className="finding-meta-row">
@@ -119,7 +120,8 @@ function ScanResultsBody() {
 							className={`demo-button secondary ${c.findingsViewMode === "list" ? "active" : ""}`}
 							onClick={() => c.setFindingsViewMode("list")}
 						>
-							Raw finding ({c.scanSummary?.totals.findingCount ?? c.findings.length})
+							Raw finding (
+							{c.scanSummary?.totals.findingCount ?? c.findings.length})
 						</button>
 					</div>
 				</div>
@@ -275,7 +277,8 @@ function IssueGroupsTable() {
 		}
 		return (
 			<div className="tree-info">
-				issue grouping を取得できませんでした。Raw finding 表示で確認してください。
+				issue grouping を取得できませんでした。Raw finding
+				表示で確認してください。
 			</div>
 		);
 	}
@@ -300,7 +303,8 @@ function IssueGroupsTable() {
 					<tbody>
 						{c.scanGroups.map((group) => {
 							const location = group.primaryLocation;
-							const path = typeof location.path === "string" ? location.path : "";
+							const path =
+								typeof location.path === "string" ? location.path : "";
 							const line =
 								typeof location.startLine === "string" ||
 								typeof location.startLine === "number"
@@ -328,7 +332,9 @@ function IssueGroupsTable() {
 									tabIndex={0}
 								>
 									<td>
-										<span className={`severity-badge ${getSeverityClass(group.severity)}`}>
+										<span
+											className={`severity-badge ${getSeverityClass(group.severity)}`}
+										>
 											{formatSeverityLabel(group.severity)}
 										</span>
 									</td>
@@ -356,7 +362,14 @@ function IssueGroupsTable() {
 									</td>
 									<td>{group.sourceTools.join(", ")}</td>
 									<td>
-										{path ? <code>{shortPath(path)}{line ? `:${line}` : ""}</code> : "位置なし"}
+										{path ? (
+											<code>
+												{shortPath(path)}
+												{line ? `:${line}` : ""}
+											</code>
+										) : (
+											"位置なし"
+										)}
 									</td>
 									<td>
 										{group.reasonCodes.join(", ") || "singleton"}

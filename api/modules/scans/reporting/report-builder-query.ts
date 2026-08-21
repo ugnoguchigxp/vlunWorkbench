@@ -27,7 +27,7 @@ import {
 } from "../../../db/schema";
 import { ensureScanCoverageResults } from "../../assessments/coverage-builder";
 import { getProfileById } from "../profiles";
-import { readStoredResolvedProfile } from "../resolved-profile";
+import { readStoredResolvedProfile } from "../execution/resolved-profile";
 import type { ReportBuilderOptions } from "./report-builder-helpers";
 import {
 	getBucketRank,

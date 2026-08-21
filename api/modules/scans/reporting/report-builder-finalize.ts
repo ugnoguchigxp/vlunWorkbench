@@ -1,6 +1,6 @@
 import type { DastCoverageSummary } from "../../../../shared/schemas/dast-coverage.schema";
 import type { AppDatabase } from "../../../db";
-import { buildGroupedFindings } from "../grouping-builder";
+import { buildGroupedFindings } from "../findings/grouping-builder";
 import type { createFindingGroupRenderer } from "./report-builder-findings";
 import type { ReportBuilderOptions } from "./report-builder-helpers";
 import {

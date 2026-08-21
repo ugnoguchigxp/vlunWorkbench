@@ -197,8 +197,9 @@ function expandIssueRequest(
 	const findingIdsByIssueId = new Map(
 		bundle.issueManifest.map((item) => [item.issueId, item.memberFindingIds]),
 	);
-	const expand = (issueIds: string[]) =>
-		[...new Set(issueIds.flatMap((id) => findingIdsByIssueId.get(id) ?? []))];
+	const expand = (issueIds: string[]) => [
+		...new Set(issueIds.flatMap((id) => findingIdsByIssueId.get(id) ?? [])),
+	];
 	return scanImprovementRequestSchema.parse({
 		...request,
 		priorityPlan: request.priorityPlan.map((plan) => ({
@@ -347,13 +348,17 @@ export function mergeIssueImprovementRequests(
 	requests: ScanImprovementRequest[],
 ): ScanImprovementRequest {
 	if (bundles.length !== requests.length || bundles.length === 0) {
-		throw new Error("Improvement request chunks do not match their issue bundles.");
+		throw new Error(
+			"Improvement request chunks do not match their issue bundles.",
+		);
 	}
 	const issueIds = bundles.flatMap((bundle) =>
 		bundle.issueManifest.map((item) => item.issueId),
 	);
 	if (new Set(issueIds).size !== issueIds.length) {
-		throw new Error("An issue appeared in more than one improvement request chunk.");
+		throw new Error(
+			"An issue appeared in more than one improvement request chunk.",
+		);
 	}
 	const findingIdsByIssueId = new Map(
 		bundles.flatMap((bundle) =>
@@ -361,7 +366,11 @@ export function mergeIssueImprovementRequests(
 		),
 	);
 	const tasks = buildIssueTasks(requests, issueIds, findingIdsByIssueId);
-	const plans = buildIssuePriorityPlans(requests, issueIds, findingIdsByIssueId);
+	const plans = buildIssuePriorityPlans(
+		requests,
+		issueIds,
+		findingIdsByIssueId,
+	);
 	const rawFindingCount = [...findingIdsByIssueId.values()].flat().length;
 	const projectName = bundles[0]?.project.name ?? "スキャン対象";
 	const scope = uniqueStrings(
@@ -436,7 +445,9 @@ function buildIssueTasks(
 		.flatMap((request) => request.implementationTasks)
 		.map((task) => ({
 			...task,
-			issueIds: [...new Set(task.issueIds ?? [])].filter((id) => allowed.has(id)),
+			issueIds: [...new Set(task.issueIds ?? [])].filter((id) =>
+				allowed.has(id),
+			),
 		}))
 		.filter((task) => issueIds.length === 0 || task.issueIds.length > 0);
 	const tasks = uniqueIssueTasks(candidates).slice(0, MAX_VISIBLE_TASKS);
@@ -487,7 +498,9 @@ function buildIssuePriorityPlans(
 		.flatMap((request) => request.priorityPlan)
 		.map((plan) => ({
 			...plan,
-			issueIds: [...new Set(plan.issueIds ?? [])].filter((id) => allowed.has(id)),
+			issueIds: [...new Set(plan.issueIds ?? [])].filter((id) =>
+				allowed.has(id),
+			),
 		}))
 		.filter((plan) => issueIds.length === 0 || plan.issueIds.length > 0)
 		.slice(0, 20)
@@ -520,7 +533,9 @@ function expandIssueIds(
 	issueIds: string[],
 	findingIdsByIssueId: Map<string, string[]>,
 ): string[] {
-	return [...new Set(issueIds.flatMap((id) => findingIdsByIssueId.get(id) ?? []))];
+	return [
+		...new Set(issueIds.flatMap((id) => findingIdsByIssueId.get(id) ?? [])),
+	];
 }
 
 function uniqueIssueTasks(

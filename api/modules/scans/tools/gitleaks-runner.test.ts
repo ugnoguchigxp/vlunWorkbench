@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ArtifactStorage } from "../artifact-storage";
+import { ArtifactStorage } from "../execution/lifecycle/artifact-storage";
 import { SOURCE_BASELINE_SCOPE } from "../profiles";
 import { GitleaksRunner } from "./gitleaks-runner";
 

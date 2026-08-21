@@ -3,7 +3,7 @@ import {
 	type SourceSastCoverage,
 	sourceSastCoverageSchema,
 } from "../../../../shared/schemas/source-sast-coverage.schema";
-import type { ScanProfileStepResult } from "../profile-runner";
+import type { ScanProfileStepResult } from "../execution/profile-runner";
 
 export const SOURCE_SAST_NOT_EXECUTED = "source_sast_not_executed";
 
