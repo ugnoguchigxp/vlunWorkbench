@@ -1,7 +1,7 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { FindingDescriptionMarkdown } from "./finding-detail-panel";
+import { FindingDescriptionMarkdown } from "./finding-detail-overview";
 
 describe("FindingDescriptionMarkdown", () => {
 	it("renders a long finding description as structured Markdown", () => {

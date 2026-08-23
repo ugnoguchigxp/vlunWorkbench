@@ -2110,6 +2110,123 @@
 	padding-left: 1.5rem;
 }
 
+.finding-detail-overview {
+	display: flex;
+	flex-direction: column;
+	gap: 20px;
+}
+
+.finding-detail-section {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+}
+
+.finding-detail-section .finding-description-markdown {
+	margin-top: 0;
+}
+
+.finding-location-value {
+	display: inline-flex;
+	align-items: baseline;
+	flex-wrap: wrap;
+	gap: 8px;
+	width: fit-content;
+	max-width: 100%;
+	padding: 10px 12px;
+	border: 1px solid var(--color-border);
+	border-radius: 8px;
+	background: var(--color-surface-muted);
+	color: var(--color-ink);
+	font-family: Menlo, Monaco, Consolas, "Courier New", monospace;
+	font-size: 13px;
+	overflow-wrap: anywhere;
+}
+
+.finding-location-method {
+	font-family: inherit;
+	font-weight: 700;
+	color: var(--color-brand-strong);
+}
+
+.finding-observation {
+	margin: 0;
+	padding: 14px;
+	overflow-x: auto;
+	border: 1px solid var(--color-code-border);
+	border-radius: 8px;
+	background: var(--color-code-bg);
+	color: var(--color-code-ink);
+	font-family: Menlo, Monaco, Consolas, "Courier New", monospace;
+	font-size: 12px;
+	line-height: 1.6;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+
+.finding-observation-note {
+	margin: 0;
+	color: var(--color-muted);
+	font-size: 12px;
+}
+
+.finding-technical-details {
+	border: 1px solid var(--color-border);
+	border-radius: 10px;
+	background: var(--color-surface-muted);
+}
+
+.finding-technical-details > summary {
+	cursor: pointer;
+	padding: 12px 14px;
+	font-weight: 700;
+	color: var(--color-ink);
+}
+
+.finding-technical-grid {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 12px;
+	margin: 0;
+	padding: 0 14px 14px;
+}
+
+.finding-technical-grid > div,
+.finding-artifact-list {
+	min-width: 0;
+}
+
+.finding-technical-grid dt,
+.finding-artifact-list dt {
+	color: var(--color-muted);
+	font-size: 12px;
+}
+
+.finding-technical-grid dd,
+.finding-artifact-list dd {
+	margin: 3px 0 0;
+	color: var(--color-ink);
+	overflow-wrap: anywhere;
+}
+
+.finding-artifact-list {
+	grid-column: 1 / -1;
+}
+
+.finding-artifact-list dd {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px 12px;
+}
+
+.finding-artifact-list a {
+	display: inline-flex;
+	align-items: center;
+	gap: 5px;
+	max-width: 100%;
+	overflow-wrap: anywhere;
+}
+
 .detail-section-title {
 	font-size: 14px;
 	font-weight: 700;
@@ -3292,6 +3409,10 @@
 
 	.dast-secret-field {
 		grid-column: auto;
+	}
+
+	.finding-technical-grid {
+		grid-template-columns: 1fr;
 	}
 }
 

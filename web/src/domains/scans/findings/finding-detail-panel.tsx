@@ -1,9 +1,5 @@
 import { X } from "lucide-react";
 import { useEffect, useRef } from "react";
-import { MarkdownEditor } from "../../../components/markdown-editor";
-import { DecisionSection } from "../components/decision-section";
-import { RemediationPlanSection } from "../components/remediation-plan-section";
-import { ReviewSection } from "../components/review-section";
 import { ScanResultOverview } from "../components/scan-result-overview";
 import { ScanSummaryPanel } from "../components/scan-summary-panel";
 import { VerificationSections } from "../components/verification-sections";
@@ -14,17 +10,9 @@ import { formatFindingTitle, formatSeverityLabel } from "../scan-display-copy";
 import { useScans } from "../scans-context";
 import { formatDateTime, getSeverityClass, shortPath } from "../scans-utils";
 import { actionQueueStateLabel, type FindingWorkState } from "../work-states";
-import {
-	DECISION_LABELS,
-	DECISION_STATE_LABELS,
-} from "./finding-detail-labels";
-import {
-	DecisionCompletenessSummary,
-	EvidenceChecklistPanel,
-	EvidenceQualityPanel,
-	ReportImpactPreview,
-	SourceEvidenceDetail,
-} from "./finding-evidence-panels";
+import { DECISION_LABELS } from "./finding-detail-labels";
+import { FindingDetailOverview } from "./finding-detail-overview";
+import { buildFindingDetailViewModel } from "./finding-detail-view-model";
 
 export function FindingDetailPanel({ onClose }: { onClose: () => void }) {
 	const c = useScans();
@@ -406,14 +394,20 @@ function FindingDetailDrawer({ onClose }: { onClose: () => void }) {
 		return () => document.removeEventListener("pointerdown", handlePointerDown);
 	}, [c.selectedFindingId, onClose]);
 	if (!c.selectedFindingId) return null;
-	const workflow = c.selectedDecisionWorkflow;
-	const finding = c.selectedFindingDetails?.finding;
-	const evidenceQuality = c.selectedEvidenceQuality;
-	const diffRelation = finding
-		? readDiffFindingRelationDisplay(finding.metadata)
-		: null;
-	const workState = finding
-		? (c.findingWorkStatesById.get(finding.id) ?? "ready_for_report")
+	const details =
+		c.selectedFindingDetails?.finding.id === c.selectedFindingId
+			? c.selectedFindingDetails
+			: null;
+	const headerFinding =
+		details?.finding ??
+		c.findings.find((finding) => finding.id === c.selectedFindingId) ??
+		null;
+	const overview = details
+		? buildFindingDetailViewModel({
+				finding: details.finding,
+				evidence: details.evidence,
+				projectRoot: c.selectedProject?.repoPath ?? null,
+			})
 		: null;
 	return (
 		<div className="scan-drawer-backdrop" role="presentation">
@@ -426,56 +420,18 @@ function FindingDetailDrawer({ onClose }: { onClose: () => void }) {
 			>
 				<header className="scan-drawer-header">
 					<div>
-						<h2 id="scan-finding-drawer-title">finding 詳細</h2>
-						<p>
-							検出内容、保存済み証跡、LLM レビュー、検証結果、handoff を使って、
-							次の LLM に渡す実装改善リスクを確認します。
-						</p>
-						{workflow ? (
-							<div className="drawer-decision-summary">
-								{finding ? (
-									<span
-										className={`severity-badge ${getSeverityClass(finding.severity)}`}
-									>
-										{formatSeverityLabel(finding.severity)}
-									</span>
-								) : null}
-								{workState ? (
-									<span className={`work-state-badge state-${workState}`}>
-										{formatFindingWorkState(workState)}
-									</span>
-								) : null}
-								{evidenceQuality ? (
-									<span
-										className={`evidence-quality-badge evidence-${evidenceQuality.level}`}
-									>
-										証跡: {evidenceQuality.label}
-									</span>
-								) : null}
-								{diffRelation ? (
-									<span
-										className={`diff-relation-badge relation-${diffRelation.kind}`}
-									>
-										{diffRelation.label}
-									</span>
-								) : null}
-								<span
-									className={`decision-workflow-state state-${workflow.decisionState}`}
-								>
-									{DECISION_STATE_LABELS[workflow.decisionState]}
-								</span>
-								<span
-									className={`decision-badge badge-${workflow.latestDecision?.decision ?? "open"}`}
-								>
-									互換:{" "}
-									{DECISION_LABELS[workflow.latestDecision?.decision ?? "open"]}
-								</span>
-								<span
-									className={`decision-badge badge-${workflow.reportImpact.bucket}`}
-								>
-									レポート: {workflow.reportImpact.label}
-								</span>
-							</div>
+						<h2 id="scan-finding-drawer-title">
+							{overview?.title ??
+								(headerFinding
+									? formatFindingTitle(headerFinding.title)
+									: "finding 詳細")}
+						</h2>
+						{headerFinding ? (
+							<span
+								className={`severity-badge ${getSeverityClass(headerFinding.severity)}`}
+							>
+								{formatSeverityLabel(headerFinding.severity)}
+							</span>
 						) : null}
 					</div>
 					<button
@@ -499,7 +455,7 @@ function FindingDetailDrawer({ onClose }: { onClose: () => void }) {
 						aria-selected={c.scanDetailTab === "review"}
 						onClick={() => c.setScanDetailTab("review")}
 					>
-						レビュー結果
+						概要
 					</button>
 					<button
 						type="button"
@@ -512,11 +468,11 @@ function FindingDetailDrawer({ onClose }: { onClose: () => void }) {
 					</button>
 				</div>
 				<div className="scan-drawer-body">
-					{c.selectedFindingDetails ? (
+					{details && overview ? (
 						c.scanDetailTab === "verification" ? (
 							<VerificationSections />
 						) : (
-							<FindingBody />
+							<FindingDetailOverview model={overview} />
 						)
 					) : (
 						<div className="tree-info">finding 詳細を読み込んでいます...</div>
@@ -524,48 +480,5 @@ function FindingDetailDrawer({ onClose }: { onClose: () => void }) {
 				</div>
 			</aside>
 		</div>
-	);
-}
-
-function FindingBody() {
-	const c = useScans();
-	const details = c.selectedFindingDetails;
-	if (!details) return null;
-	const finding = details.finding;
-	return (
-		<>
-			<div className="detail-section">
-				<div className="finding-meta-row">
-					<span
-						className={`severity-badge ${getSeverityClass(finding.severity)}`}
-					>
-						{formatSeverityLabel(finding.severity)}
-					</span>
-					<strong>検査ツール: {finding.sourceTool}</strong>
-					<code>ルール: {finding.ruleId}</code>
-				</div>
-				<h1>{formatFindingTitle(finding.title)}</h1>
-				<FindingDescriptionMarkdown value={finding.description} />
-			</div>
-			<RemediationPlanSection />
-			<DecisionCompletenessSummary />
-			<EvidenceQualityPanel />
-			<EvidenceChecklistPanel />
-			<ReviewSection />
-			<DecisionSection />
-			<SourceEvidenceDetail />
-			<ReportImpactPreview />
-		</>
-	);
-}
-
-export function FindingDescriptionMarkdown({ value }: { value: string }) {
-	return (
-		<MarkdownEditor
-			value={value}
-			editable={false}
-			autoHeight={true}
-			className="finding-description-markdown"
-		/>
 	);
 }
