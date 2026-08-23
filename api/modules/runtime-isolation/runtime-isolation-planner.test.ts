@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildRuntimeIsolationPlan } from "./runtime-isolation-planner";
 
 const digest = (letter: string) => `sha256:${letter.repeat(64)}`;
+const integrity = `sha512-${Buffer.alloc(64).toString("base64")}`;
 
 describe("buildRuntimeIsolationPlan", () => {
 	let root: string;
@@ -20,7 +21,7 @@ describe("buildRuntimeIsolationPlan", () => {
 					"": { name: "fixture" },
 					"node_modules/example": {
 						resolved: "https://registry.npmjs.org/example/-/example-1.0.0.tgz",
-						integrity: "sha512-fixture",
+						integrity,
 					},
 				},
 			}),
@@ -89,7 +90,7 @@ describe("buildRuntimeIsolationPlan", () => {
 			JSON.stringify({
 				lockfileVersion: 3,
 				packages: {
-					"node_modules/example": { resolved: "https://evil.example/a.tgz", integrity: "sha512-fixture" },
+					"node_modules/example": { resolved: "https://evil.example/a.tgz", integrity },
 				},
 			}),
 		);
@@ -103,5 +104,108 @@ describe("buildRuntimeIsolationPlan", () => {
 				inferTargetPlan,
 			}),
 		).resolves.toEqual({ status: "blocked", reasonCode: "runtime_dependency_lock_unsupported" });
+	});
+
+	it("blocks before target startup when a required scanner image is missing", async () => {
+		await expect(
+			buildRuntimeIsolationPlan({
+				profileId: "runtime-web-safe",
+				projection: projection(),
+				images,
+				dockerDaemonIdentityHash: digest("3"),
+				qualificationHash: digest("4"),
+				requiredScannerImageRoles: ["nuclei", "zap"],
+				inferTargetPlan,
+			}),
+		).resolves.toEqual({
+			status: "blocked",
+			reasonCode: "runtime_image_missing",
+		});
+	});
+
+	it("qualifies a text Bun lock and binds the Bun executable", async () => {
+		await fs.writeFile(
+			path.join(root, "bun.lock"),
+			`{
+				"lockfileVersion": 1,
+				"configVersion": 1,
+				"workspaces": { "": { "dependencies": { "example": "1.0.0", }, }, },
+				"packages": {
+					"example": ["example@1.0.0", "", {}, "sha512-${Buffer.alloc(64).toString("base64")}",],
+				},
+			}`,
+		);
+		const result = await buildRuntimeIsolationPlan({
+			profileId: "runtime-web-safe",
+			projection: projection(),
+			images,
+			dockerDaemonIdentityHash: digest("3"),
+			qualificationHash: digest("4"),
+			qualifiedDependencyAdapterIds: [
+				"npm-package-lock-v1",
+				"bun-lock-v1",
+			],
+			inferTargetPlan: async () => ({
+				...(await inferTargetPlan()),
+				packageManager: "bun" as const,
+				command: ["bun", "run", "start"],
+			}),
+		});
+		expect(result).toMatchObject({
+			status: "ready",
+			plan: {
+				dependency: { adapterId: "bun-lock-v1" },
+				start: { executable: "bun", args: ["--bun", "run", "start"] },
+			},
+		});
+	});
+
+	it("keeps Bun plans blocked when the image qualification is npm-only", async () => {
+		await fs.writeFile(
+			path.join(root, "bun.lock"),
+			`{"lockfileVersion":1,"workspaces":{"":{}},"packages":{"example":["example@1.0.0","",{},"sha512-${Buffer.alloc(64).toString("base64")}"]}}`,
+		);
+		await expect(
+			buildRuntimeIsolationPlan({
+				profileId: "runtime-web-safe",
+				projection: projection(),
+				images,
+				dockerDaemonIdentityHash: digest("3"),
+				qualificationHash: digest("4"),
+				qualifiedDependencyAdapterIds: ["npm-package-lock-v1"],
+				inferTargetPlan: async () => ({
+					...(await inferTargetPlan()),
+					packageManager: "bun" as const,
+					command: ["bun", "run", "start"],
+				}),
+			}),
+		).resolves.toEqual({
+			status: "blocked",
+			reasonCode: "runtime_dependency_adapter_unqualified",
+		});
+	});
+
+	it("defaults an omitted qualification contract to npm only", async () => {
+		await fs.writeFile(
+			path.join(root, "bun.lock"),
+			`{"lockfileVersion":1,"workspaces":{"":{}},"packages":{}}`,
+		);
+		await expect(
+			buildRuntimeIsolationPlan({
+				profileId: "runtime-web-safe",
+				projection: projection(),
+				images,
+				dockerDaemonIdentityHash: digest("3"),
+				qualificationHash: digest("4"),
+				inferTargetPlan: async () => ({
+					...(await inferTargetPlan()),
+					packageManager: "bun" as const,
+					command: ["bun", "run", "start"],
+				}),
+			}),
+		).resolves.toEqual({
+			status: "blocked",
+			reasonCode: "runtime_dependency_adapter_unqualified",
+		});
 	});
 });

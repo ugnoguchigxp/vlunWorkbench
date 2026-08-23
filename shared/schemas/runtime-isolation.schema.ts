@@ -1,6 +1,11 @@
 import { z } from "zod";
 import { sha256DigestSchema } from "./security-capability.schema";
 
+export const runtimeDependencyAdapterIdSchema = z.enum([
+	"npm-package-lock-v1",
+	"bun-lock-v1",
+]);
+
 export const runtimeDatabaseModeSchema = z.enum([
 	"none",
 	"sqlite_ephemeral",
@@ -43,7 +48,7 @@ export const runtimeTargetRecipeV1Schema = z
 	.object({
 		schemaVersion: z.literal(1),
 		startPlannerId: z.literal("build.npm"),
-		dependencyAdapterId: z.literal("npm-package-lock-v1"),
+		dependencyAdapterId: runtimeDependencyAdapterIdSchema,
 		database: z
 			.object({
 				mode: runtimeDatabaseModeSchema,
@@ -140,7 +145,7 @@ export const runtimeIsolationPlanV1Schema = z
 			.strict(),
 		dependency: z
 			.object({
-				adapterId: z.literal("npm-package-lock-v1"),
+				adapterId: runtimeDependencyAdapterIdSchema,
 				policyVersion: z.literal(1),
 				lockDigest: sha256DigestSchema,
 			})
@@ -148,7 +153,7 @@ export const runtimeIsolationPlanV1Schema = z
 		images: runtimeIsolationImageDigestsSchema,
 		start: z
 			.object({
-				executable: z.literal("npm"),
+				executable: z.enum(["npm", "bun"]),
 				args: z.array(z.string().min(1).max(200)).min(1).max(16),
 				port: z.literal(18080),
 				readinessPaths: z
@@ -184,7 +189,29 @@ export const runtimeIsolationPlanV1Schema = z
 		dockerDaemonIdentityHash: sha256DigestSchema,
 		qualificationHash: sha256DigestSchema,
 	})
-	.strict();
+	.strict()
+	.superRefine((value, context) => {
+		const expectedExecutable =
+			value.dependency.adapterId === "bun-lock-v1" ? "bun" : "npm";
+		if (value.start.executable !== expectedExecutable) {
+			context.addIssue({
+				code: "custom",
+				path: ["start", "executable"],
+				message: "Start executable must match the qualified dependency adapter",
+			});
+		}
+		const hasQualifiedRunShape =
+			value.dependency.adapterId === "bun-lock-v1"
+				? value.start.args[0] === "--bun" && value.start.args[1] === "run"
+				: value.start.args[0] === "run";
+		if (!hasQualifiedRunShape) {
+			context.addIssue({
+				code: "custom",
+				path: ["start", "args"],
+				message: "Start arguments must invoke a qualified package script",
+			});
+		}
+	});
 
 export const redactedRuntimeIsolationReceiptV1Schema = z
 	.object({
@@ -198,6 +225,9 @@ export const redactedRuntimeIsolationReceiptV1Schema = z
 	.strict();
 
 export type RuntimeDatabaseMode = z.infer<typeof runtimeDatabaseModeSchema>;
+export type RuntimeDependencyAdapterId = z.infer<
+	typeof runtimeDependencyAdapterIdSchema
+>;
 export type RuntimeDatabaseEnvironmentBinding = z.infer<
 	typeof runtimeDatabaseEnvironmentBindingSchema
 >;

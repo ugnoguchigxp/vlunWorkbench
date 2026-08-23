@@ -15,7 +15,10 @@ import {
 	mergeAutoConfiguredRuntimeIsolationSettings,
 	RuntimeIsolationAutoConfigError,
 } from "../modules/runtime-isolation/runtime-isolation-auto-config";
-import type { SettingsRepository } from "../modules/settings/settings.repository";
+import type {
+	SettingsRepository,
+	RuntimeSettingsUpdateOptions,
+} from "../modules/settings/settings.repository";
 import { resolveProviderCredential } from "../providers/provider-credential-resolver";
 
 const UpdateSystemContextSchema = z.object({
@@ -38,9 +41,12 @@ export function createSettingsRoute(deps: SettingsRouteDeps) {
 	const llmRepo = deps.llmSettingsRepository;
 	const autoConfigureRuntimeIsolation =
 		deps.autoConfigureRuntimeIsolation ?? autoConfigureLocalRuntimeIsolation;
-	const updateRuntimeSettings = async (input: unknown) => {
+	const updateRuntimeSettings = async (
+		input: unknown,
+		options?: RuntimeSettingsUpdateOptions,
+	) => {
 		const env = deps.runtimeEnv ?? readAppEnv();
-		const updated = await repo.updateRuntimeSettings(input, env);
+		const updated = await repo.updateRuntimeSettings(input, env, options);
 		if (deps.runtimeEnv) {
 			Object.assign(deps.runtimeEnv, await repo.resolveAppEnv(env));
 			await deps.onRuntimeSettingsUpdated?.(deps.runtimeEnv);
@@ -116,10 +122,13 @@ export function createSettingsRoute(deps: SettingsRouteDeps) {
 					...input
 				} = current;
 				return c.json(
-					await updateRuntimeSettings({
-						...input,
-						runtimeIsolation: mergedRuntimeIsolation,
-					}),
+					await updateRuntimeSettings(
+						{
+							...input,
+							runtimeIsolation: mergedRuntimeIsolation,
+						},
+						{ trustRuntimeIsolationQualification: true },
+					),
 				);
 			} catch (error) {
 				if (error instanceof RuntimeIsolationAutoConfigError) {

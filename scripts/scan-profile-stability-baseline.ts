@@ -2,9 +2,7 @@ import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { parseArgs } from "node:util";
-import {
-	SCAN_PROFILE_CATALOG,
-} from "../api/modules/scans/profile-catalog";
+import { SCAN_PROFILE_CATALOG } from "../api/modules/scans/profile-catalog";
 import type { ScanProfileCatalogEntry } from "../shared/schemas/scan-profile-catalog.schema";
 
 const BASELINE_PATH = path.join(
@@ -115,7 +113,8 @@ function experimentalInventory(): Omit<ExperimentalInventory, "evidence">[] {
 		{
 			profileId: "business-logic-lab",
 			executionEntry: "api/routes/business-logic.route.ts",
-			executionDefinition: "api/modules/business-logic/business-logic-runner.ts",
+			executionDefinition:
+				"api/modules/business-logic/business-logic-runner.ts",
 			testPath: "api/modules/business-logic/business-logic-runner.test.ts",
 			benchmarkPath: "scripts/benchmark/business-logic.ts",
 			knownLimitations: [
@@ -130,10 +129,7 @@ function experimentalInventory(): Omit<ExperimentalInventory, "evidence">[] {
 			executionDefinition: "api/modules/reproductions/reproduction-runner.ts",
 			testPath: "api/modules/reproductions/reproduction-runner.test.ts",
 			benchmarkPath: null,
-			knownLimitations: [
-				"experimental",
-				"original_safety_boundary_required",
-			],
+			knownLimitations: ["experimental", "original_safety_boundary_required"],
 		},
 	];
 }
@@ -164,7 +160,9 @@ async function evidenceFor(
 	};
 }
 
-async function verifyInventoryPaths(entry: Omit<ExperimentalInventory, "evidence">) {
+async function verifyInventoryPaths(
+	entry: Omit<ExperimentalInventory, "evidence">,
+) {
 	const paths = [
 		entry.executionEntry,
 		entry.executionDefinition,
@@ -239,7 +237,10 @@ async function main() {
 		sourceRevision: await gitRevision(),
 	});
 	if (values.write) {
-		await fs.writeFile(BASELINE_PATH, `${JSON.stringify(baseline, null, "\t")}\n`);
+		await fs.writeFile(
+			BASELINE_PATH,
+			`${JSON.stringify(baseline, null, "\t")}\n`,
+		);
 		return;
 	}
 	const stored = JSON.parse(

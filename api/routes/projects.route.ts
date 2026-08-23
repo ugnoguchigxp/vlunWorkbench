@@ -19,7 +19,10 @@ import {
 	buildRuntimeIsolationPreflight,
 	runtimeIsolationExecutionPlanBinding,
 } from "../modules/runtime-isolation/runtime-isolation-preflight";
-import type { RuntimeIsolationProviderFactory } from "../modules/runtime-isolation/runtime-isolation-provider-factory";
+import {
+	type RuntimeIsolationProviderFactory,
+	runtimeScannerImageRequirementsForSteps,
+} from "../modules/runtime-isolation/runtime-isolation-provider-factory";
 import {
 	buildDiffScanPlan,
 	toDiffScanPreview,
@@ -46,9 +49,11 @@ import type {
 	ProjectRepository,
 	ScanRepository,
 } from "../modules/scans/repositories";
+import type { ScanLaunchAttemptRepository } from "../modules/scans/execution/scan-launch-attempt-repository";
 import {
 	applyStrictProfileRequirements,
 	buildScanExecutionPlan,
+	scanProfileStepId,
 } from "../modules/scans/scan-execution-plan-builder";
 import {
 	executionConfigFromPolicy,
@@ -72,13 +77,18 @@ const ABSOLUTE_WEB_SCAN_STEP_TIMEOUT_MAX_SEC = 86_400;
 type ProjectsRouteDeps = {
 	projectRepository: ProjectRepository;
 	scanRepository?: ScanRepository;
+	scanLaunchAttemptRepository?: ScanLaunchAttemptRepository;
 	scanSupervisor?: ScanProcessSupervisor;
 	processCapacity?: WebProcessCapacity;
 	env?: AppEnv;
+	/** Reads the persisted runtime settings for each preflight/start request. */
+	resolveRuntimeEnv?: () => Promise<AppEnv>;
 	/** Undefined keeps lightweight route tests and legacy embedders unchanged. */
 	runtimeIsolationProviderFactory?: RuntimeIsolationProviderFactory | null;
 	/** Resolves current SQLite-backed settings for each preflight request. */
-	resolveRuntimeIsolationProviderFactory?: () => RuntimeIsolationProviderFactory | null;
+	resolveRuntimeIsolationProviderFactory?: (
+		env: AppEnv,
+	) => RuntimeIsolationProviderFactory | null;
 	projectDeletionService?: ProjectDeletionService;
 	resolveProjectPath?: typeof resolveProjectPath;
 	resolveFullScanTarget?: typeof resolveFullScanTarget;
@@ -94,9 +104,14 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 	const runtimeIsolationConfigured =
 		deps.resolveRuntimeIsolationProviderFactory !== undefined ||
 		deps.runtimeIsolationProviderFactory !== undefined;
-	const resolveRuntimeIsolationProviderFactory = () =>
+	const resolveRuntimeEnv = async () => {
+		if (deps.resolveRuntimeEnv) return await deps.resolveRuntimeEnv();
+		if (deps.env) return deps.env;
+		throw new HttpError(500, "Scan runtime is not configured.");
+	};
+	const resolveRuntimeIsolationProviderFactory = (env: AppEnv) =>
 		deps.resolveRuntimeIsolationProviderFactory
-			? deps.resolveRuntimeIsolationProviderFactory()
+			? deps.resolveRuntimeIsolationProviderFactory(env)
 			: (deps.runtimeIsolationProviderFactory ?? null);
 	const projectPathPolicyStatus = async (projectPath: string) => {
 		try {
@@ -284,9 +299,7 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 				if (project.ownerUserId !== authUser.userId) {
 					throw new HttpError(403, "Forbidden");
 				}
-				if (!deps.env) {
-					throw new HttpError(500, "Scan runtime is not configured.");
-				}
+				const runtimeEnv = await resolveRuntimeEnv();
 				const authorized = await resolveWebProjectPath(project.repoPath);
 				const selectedProfileId =
 					body.profile ?? resolveDefaultCatalogProfileId(body.target.kind);
@@ -304,7 +317,7 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 				});
 				const profile = selection.executionProfile;
 				const policy = resolveScanExecutionPolicy({
-					env: deps.env,
+					env: runtimeEnv,
 					surface: "web",
 					requestedRunner: body.runner,
 				});
@@ -344,7 +357,7 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 					]);
 				const previewScanRunId = randomUUID();
 				const runtimeIsolationProviderFactory =
-					resolveRuntimeIsolationProviderFactory();
+					resolveRuntimeIsolationProviderFactory(runtimeEnv);
 				const needsIsolatedRuntime = steps.some(
 					(step) =>
 						step.kind === "runtime_scanner" ||
@@ -377,6 +390,8 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 							scanRunId: previewScanRunId,
 							profileId: profile.id,
 							sourceSnapshot,
+							scannerImageRequirements:
+								runtimeScannerImageRequirementsForSteps(steps),
 						});
 					}
 					const basePreflight = await runScanPreflight({
@@ -395,6 +410,8 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 						attestationBundle: body.attestationBundle,
 						trustPolicy: body.trustPolicy,
 						targetPlan: runtimeTargetProvider?.plan,
+						runtimeDockerImages: runtimeTargetProvider?.preflightDockerImages,
+						runtimeScannerImages: runtimeTargetProvider?.runtimeScannerImages,
 						isolatedRuntimeProviderAvailable:
 							runtimeIsolationConfigured === false
 								? undefined
@@ -425,7 +442,7 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 						runner: execution.runner,
 						schemaVersion: runtimeIsolation
 							? 3
-							: deps.env.scanExecutionPlanV2
+							: runtimeEnv.scanExecutionPlanV2
 								? 2
 								: 1,
 						runtimeIsolation,
@@ -566,16 +583,14 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 					throw new HttpError(403, "Forbidden");
 				}
 
-				if (!deps.env) {
-					throw new HttpError(500, "Scan runtime is not configured.");
-				}
+				const runtimeEnv = await resolveRuntimeEnv();
 				if (
 					body.timeoutSec !== undefined &&
-					body.timeoutSec > deps.env.webScanStepTimeoutMaxSec
+					body.timeoutSec > runtimeEnv.webScanStepTimeoutMaxSec
 				) {
 					throw new HttpError(
 						400,
-						`timeoutSec must be at most ${deps.env.webScanStepTimeoutMaxSec}.`,
+						`timeoutSec must be at most ${runtimeEnv.webScanStepTimeoutMaxSec}.`,
 					);
 				}
 				if (!deps.scanRepository || !deps.scanSupervisor) {
@@ -596,11 +611,37 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 					trustPolicy: body.trustPolicy,
 					consentProjectCodeExecution: body.consentProjectCodeExecution,
 				});
+				const launchAttempt = deps.scanLaunchAttemptRepository
+					? await deps.scanLaunchAttemptRepository.create({
+							projectId,
+							requestedProfileId: selectedProfileId,
+							createdByUserId: authUser.userId,
+							profileVariantId: selection.resolution.executionVariantId,
+							catalogEntryHash: selection.resolution.catalogEntryHash,
+							sanitizedInputSummary: {
+								targetKind: body.target.kind,
+								hasImageRef: Boolean(body.imageRef),
+								hasImageTar: Boolean(body.imageTar),
+								hasAttestation: Boolean(
+									body.attestationSubject &&
+										body.attestationBundle &&
+										body.trustPolicy,
+								),
+							},
+						})
+					: null;
 				if (
 					body.expectedCatalogEntryHash &&
 					body.expectedCatalogEntryHash !==
 						selection.resolution.catalogEntryHash
 				) {
+					if (launchAttempt) {
+						await deps.scanLaunchAttemptRepository?.reject({
+							attemptId: launchAttempt.id,
+							readinessStatus: null,
+							reasonCodes: ["binding_changed"],
+						});
+					}
 					throw new HttpError(
 						409,
 						"catalog_entry_changed: profile catalog entry changed after preview",
@@ -619,7 +660,7 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 					);
 				}
 				const policy = resolveScanExecutionPolicy({
-					env: deps.env,
+					env: runtimeEnv,
 					surface: "web",
 					requestedRunner: body.runner,
 				});
@@ -639,6 +680,25 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 						},
 						executionPolicy: scanExecutionPolicyMetadata(policy),
 						requestedTarget: body.target,
+						// The runner creates the immutable execution plan after it has
+						// resolved the snapshot and runtime. Keep this non-authoritative
+						// display inventory at admission so the UI never has a 0/0 gap
+						// while that work is underway.
+						queuedProgressSteps: resolveProfileSteps({
+							steps: selection.executionProfile.steps,
+							tools: selection.executionProfile.tools,
+						}).map((step) => ({
+							stepId: scanProfileStepId(step),
+							kind: step.kind,
+							adapter:
+								step.kind === "static_tool"
+									? step.toolId
+									: step.kind === "dast"
+										? step.profileId
+										: step.adapter,
+							displayName: step.displayName,
+							required: step.required,
+						})),
 						expectedTargetDigest: body.expectedTargetDigest ?? null,
 						expectedPreflightBindingHash:
 							body.expectedPreflightBindingHash ?? null,
@@ -655,7 +715,13 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 					message: `Scan profile ${selectedProfileId} queued.`,
 					data: { executionPolicy: scanExecutionPolicyMetadata(policy) },
 				});
-
+				await deps.scanRepository.createScanEvent({
+					scanRunId: queued.id,
+					level: "info",
+					eventType: "scan.preflight.started",
+					message: "Preparing the target and verifying scan dependencies.",
+					data: { phase: "resource_preparation" },
+				});
 				const args = [
 					"bun",
 					"run",
@@ -717,10 +783,40 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 				try {
 					await deps.scanSupervisor.launch(queued.id, args);
 				} catch (error) {
+					const reasonCode =
+						error instanceof ProcessCapacityExceededError
+							? "runtime_capacity_exhausted"
+							: "driver_start_failed";
+					if (typeof deps.scanRepository.updateScanRunStatus === "function") {
+						await deps.scanRepository.updateScanRunStatus(queued.id, "failed", {
+							profileOutcome: "failed",
+							summary: reasonCode,
+						});
+						await deps.scanRepository.createScanEvent({
+							scanRunId: queued.id,
+							level: "error",
+							eventType: "scan.failed",
+							message: `Scan launch failed: ${reasonCode}.`,
+							data: { reasonCode },
+						});
+					}
+					if (launchAttempt) {
+						await deps.scanLaunchAttemptRepository?.reject({
+							attemptId: launchAttempt.id,
+							readinessStatus: null,
+							reasonCodes: [reasonCode],
+						});
+					}
 					if (error instanceof ProcessCapacityExceededError) {
 						throw new HttpError(429, error.message);
 					}
 					throw error;
+				}
+				if (launchAttempt) {
+					await deps.scanLaunchAttemptRepository?.admit({
+						attemptId: launchAttempt.id,
+						scanRunId: queued.id,
+					});
 				}
 				return c.json(
 					{

@@ -1,43 +1,30 @@
 import { getCleanEnv } from "../scans/tools/tool-process-runner";
-import { readBoundedProcessText } from "../scans/tools/bounded-process-output";
+import { runBoundedProcess } from "../processes/bounded-process-runner";
 import type { DockerRuntimeBundleRunner } from "./docker-runtime-bundle-lifecycle";
 
 const COMMAND_OUTPUT_LIMIT_BYTES = 1_048_576;
+const COMMAND_TIMEOUT_MS = 10 * 60_000;
 
 /** Executes lifecycle-owned Docker argv with a clean environment. */
-export function createDockerRuntimeCommandRunner(): DockerRuntimeBundleRunner {
+export function createDockerRuntimeCommandRunner(
+	limits: { timeoutMs?: number; outputLimitBytes?: number } = {},
+): DockerRuntimeBundleRunner {
 	return {
 		async run(argv, options) {
 			try {
-				const proc = Bun.spawn(argv, {
-					stdout: "pipe",
-					stderr: "pipe",
+				const result = await runBoundedProcess({
+					argv,
+					timeoutMs: limits.timeoutMs ?? COMMAND_TIMEOUT_MS,
+					outputLimitBytes:
+						limits.outputLimitBytes ?? COMMAND_OUTPUT_LIMIT_BYTES,
 					env: { ...getCleanEnv(), ...(options?.env ?? {}) },
 				});
-				let exceeded = false;
-				const stopForOutputLimit = () => {
-					exceeded = true;
-					proc.kill();
-				};
-				const [exitCode, stdout, stderr] = await Promise.all([
-					proc.exited,
-					readBoundedProcessText(
-						proc.stdout,
-						COMMAND_OUTPUT_LIMIT_BYTES,
-						stopForOutputLimit,
-					),
-					readBoundedProcessText(
-						proc.stderr,
-						COMMAND_OUTPUT_LIMIT_BYTES,
-						stopForOutputLimit,
-					),
-				]);
 				return {
-					exitCode: exceeded ? null : exitCode,
-					stdout: stdout.text,
-					stderr: exceeded
-						? `${stderr.text}\nruntime_bundle_command_output_limit_exceeded`
-						: stderr.text,
+					exitCode: result.exitCode,
+					stdout: result.stdout,
+					stderr: result.terminationReason
+						? `${result.stderr}\nruntime_bundle_command_${result.terminationReason}`
+						: result.stderr,
 				};
 			} catch (error) {
 				return {

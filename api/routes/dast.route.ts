@@ -25,7 +25,11 @@ import {
 	type ProjectRepository,
 	ScanRepository,
 } from "../modules/scans/repositories";
-import { buildDedicatedProfileAdmissionMetadata } from "../modules/scans/dedicated-profile-admission";
+import {
+	buildDedicatedProfileAdmissionMetadata,
+	createDedicatedLaunchAttempt,
+} from "../modules/scans/dedicated-profile-admission";
+import { ScanLaunchAttemptRepository } from "../modules/scans/execution/scan-launch-attempt-repository";
 import {
 	ProjectPathPolicyError,
 	resolveProjectPath,
@@ -42,6 +46,7 @@ type DastRouteDeps = {
 export function createDastRoute(deps: DastRouteDeps) {
 	const repo = new DastRepository(deps.db);
 	const scanRepository = new ScanRepository(deps.db);
+	const scanLaunchAttempts = new ScanLaunchAttemptRepository(deps.db);
 	const route = new Hono();
 
 	async function assertProjectOwner(projectId: string, userId: string) {
@@ -233,6 +238,17 @@ export function createDastRoute(deps: DastRouteDeps) {
 				throw new HttpError(400, validation.message);
 			}
 		}
+		const launchAttempt = parsed.data.catalogProfileId
+			? await createDedicatedLaunchAttempt({
+				repository: scanLaunchAttempts,
+				projectId,
+				createdByUserId: authUser.userId,
+				canonicalProfileId: parsed.data.catalogProfileId,
+				providedInputKinds: ["runtime_target", "auth_context_ref"],
+				expectedLaunchDestination: "dast_workspace",
+				sanitizedInputSummary: { dastProfileId: parsed.data.profileId },
+			})
+			: null;
 		const scanRunId = parsed.data.catalogProfileId
 			? (
 					await scanRepository.createScanRun({
@@ -252,6 +268,12 @@ export function createDastRoute(deps: DastRouteDeps) {
 					})
 				).id
 			: parsed.data.scanRunId;
+		if (launchAttempt && scanRunId) {
+			await scanLaunchAttempts.admit({
+				attemptId: launchAttempt.id,
+				scanRunId,
+			});
+		}
 		const { catalogProfileId: _catalogProfileId, ...runInput } = parsed.data;
 		try {
 			const cliResult = await executeDastCli({

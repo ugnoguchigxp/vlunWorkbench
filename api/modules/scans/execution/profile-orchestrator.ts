@@ -11,7 +11,10 @@ import {
 	buildRuntimeIsolationPreflight,
 	runtimeIsolationExecutionPlanBinding,
 } from "../../runtime-isolation/runtime-isolation-preflight";
-import type { RuntimeIsolationProviderFactory } from "../../runtime-isolation/runtime-isolation-provider-factory";
+import {
+	type RuntimeIsolationProviderFactory,
+	runtimeScannerImageRequirementsForSteps,
+} from "../../runtime-isolation/runtime-isolation-provider-factory";
 import { buildCoverageLedger } from "../coverage/coverage-ledger";
 import { aggregateRuntimeAssessmentCoverage } from "../coverage/runtime-assessment-coverage";
 import { resolveSourceSastApplicability } from "../coverage/source-sast-applicability";
@@ -354,6 +357,8 @@ export async function runProfileScan(params: {
 				scanRunId: scanRun.id,
 				profileId: profile.id,
 				sourceSnapshot: fullSourceSnapshot,
+				scannerImageRequirements:
+					runtimeScannerImageRequirementsForSteps(profileSteps),
 			});
 			runtimeProviderDispose = runtimeTargetProvider.dispose;
 			await scanRepo.mergeScanRunMetadata(scanRun.id, {
@@ -391,6 +396,8 @@ export async function runProfileScan(params: {
 		attestationBundle: params.attestationBundle,
 		trustPolicy: params.trustPolicy,
 		targetPlan: runtimeTargetProvider?.plan,
+		runtimeDockerImages: runtimeTargetProvider?.preflightDockerImages,
+		runtimeScannerImages: runtimeTargetProvider?.runtimeScannerImages,
 		isolatedRuntimeProviderAvailable: Boolean(runtimeTargetProvider),
 	});
 	const runtimeIsolationPlanning =

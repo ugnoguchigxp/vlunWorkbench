@@ -225,6 +225,14 @@ export class ScanRepository {
 		return existing;
 	}
 
+	async getExecutionPlan(scanRunId: string) {
+		return (
+			(await this.db.query.scanExecutionPlans.findFirst({
+				where: eq(scanExecutionPlans.scanRunId, scanRunId),
+			})) ?? null
+		);
+	}
+
 	async listActiveScanRuns() {
 		return await this.db.query.scanRuns.findMany({
 			where: or(eq(scanRuns.status, "queued"), eq(scanRuns.status, "running")),

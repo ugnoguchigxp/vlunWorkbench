@@ -14,7 +14,11 @@ import {
 } from "../modules/dynamic/dynamic-profiles";
 import { DynamicRepository } from "../modules/dynamic/dynamic-repository";
 import type { WebProcessCapacity } from "../modules/processes/web-process-capacity";
-import { buildDedicatedProfileAdmissionMetadata } from "../modules/scans/dedicated-profile-admission";
+import {
+	buildDedicatedProfileAdmissionMetadata,
+	createDedicatedLaunchAttempt,
+} from "../modules/scans/dedicated-profile-admission";
+import { ScanLaunchAttemptRepository } from "../modules/scans/execution/scan-launch-attempt-repository";
 import type {
 	FindingRepository,
 	ProjectRepository,
@@ -59,6 +63,7 @@ export function createDynamicRoute(deps: DynamicRouteDeps) {
 	const { db, findingRepository, projectRepository } = deps;
 	const repo = new DynamicRepository(db);
 	const scanRepository = deps.scanRepository ?? new ScanRepository(db);
+	const scanLaunchAttempts = new ScanLaunchAttemptRepository(db);
 	const route = new Hono();
 	const assertExecutionPath = async (repoPath: string) => {
 		try {
@@ -263,6 +268,15 @@ export function createDynamicRoute(deps: DynamicRouteDeps) {
 		const canonicalProfileId = canonicalDynamicProfileId(
 			parseResult.data.profileId,
 		);
+		const launchAttempt = await createDedicatedLaunchAttempt({
+			repository: scanLaunchAttempts,
+			projectId,
+			createdByUserId: authUser.userId,
+			canonicalProfileId,
+			providedInputKinds: ["source_target", "execution_consent"],
+			expectedLaunchDestination: "dynamic_workspace",
+			sanitizedInputSummary: { dynamicProfileId: parseResult.data.profileId },
+		});
 		const scan = await scanRepository.createScanRun({
 			projectId,
 			profile: canonicalProfileId,
@@ -279,6 +293,7 @@ export function createDynamicRoute(deps: DynamicRouteDeps) {
 				networkMode: parseResult.data.network ?? "none",
 			},
 		});
+		await scanLaunchAttempts.admit({ attemptId: launchAttempt.id, scanRunId: scan.id });
 		try {
 			const cliResult = await executeDynamicRunCli({
 				projectId,
@@ -389,6 +404,15 @@ export function createDynamicRoute(deps: DynamicRouteDeps) {
 		const canonicalProfileId = canonicalDynamicProfileId(
 			parseResult.data.profileId,
 		);
+		const launchAttempt = await createDedicatedLaunchAttempt({
+			repository: scanLaunchAttempts,
+			projectId: project.id,
+			createdByUserId: authUser.userId,
+			canonicalProfileId,
+			providedInputKinds: ["source_target", "execution_consent"],
+			expectedLaunchDestination: "dynamic_workspace",
+			sanitizedInputSummary: { dynamicProfileId: parseResult.data.profileId, findingBound: true },
+		});
 		const scan = await scanRepository.createScanRun({
 			projectId: project.id,
 			profile: canonicalProfileId,
@@ -406,6 +430,7 @@ export function createDynamicRoute(deps: DynamicRouteDeps) {
 				networkMode: parseResult.data.network ?? "none",
 			},
 		});
+		await scanLaunchAttempts.admit({ attemptId: launchAttempt.id, scanRunId: scan.id });
 		try {
 			const cliResult = await executeDynamicRunCli({
 				projectId: project.id,

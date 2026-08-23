@@ -62,6 +62,54 @@ export const scanRuns = sqliteTable(
 	}),
 );
 
+/**
+ * Audit record for every authenticated, project-authorized canonical launch
+ * request. Rejected requests intentionally have no scan run.
+ */
+export const scanLaunchAttempts = sqliteTable(
+	"scan_launch_attempts",
+	{
+		id: id(),
+		projectId: text("project_id")
+			.notNull()
+			.references(() => projects.id, { onDelete: "cascade" }),
+		requestedProfileId: text("requested_profile_id").notNull(),
+		canonicalProfileId: text("canonical_profile_id"),
+		profileVariantId: text("profile_variant_id"),
+		engineId: text("engine_id"),
+		status: text("status").notNull(), // received, rejected, admitted
+		readinessStatus: text("readiness_status"),
+		reasonCodes: jsonArray("reason_codes").notNull().default([]),
+		sanitizedInputSummary: jsonObject("sanitized_input_summary")
+			.notNull()
+			.default({}),
+		catalogEntryHash: text("catalog_entry_hash"),
+		readinessHash: text("readiness_hash"),
+		planHash: text("plan_hash"),
+		dependencyQualificationHash: text("dependency_qualification_hash"),
+		scanRunId: text("scan_run_id").references(() => scanRuns.id, {
+			onDelete: "set null",
+		}),
+		createdByUserId: text("created_by_user_id").references(() => users.id, {
+			onDelete: "set null",
+		}),
+		resolvedAt: integer("resolved_at", { mode: "timestamp_ms" }),
+		admittedAt: integer("admitted_at", { mode: "timestamp_ms" }),
+		rejectedAt: integer("rejected_at", { mode: "timestamp_ms" }),
+		createdAt: timestampMs("created_at"),
+	},
+	(table) => ({
+		projectCreatedIdx: index("scan_launch_attempts_project_created_idx").on(
+			table.projectId,
+			table.createdAt,
+		),
+		statusCreatedIdx: index("scan_launch_attempts_status_created_idx").on(
+			table.status,
+			table.createdAt,
+		),
+	}),
+);
+
 /** Immutable execution decision captured immediately after preflight. */
 export const scanExecutionPlans = sqliteTable(
 	"scan_execution_plans",

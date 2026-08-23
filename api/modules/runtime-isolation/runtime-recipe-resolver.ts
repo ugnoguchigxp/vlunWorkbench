@@ -5,6 +5,7 @@ import {
 	type RuntimeTargetRecipeV1,
 } from "../../../shared/schemas/runtime-isolation.schema";
 import type { DastTargetStartPlan } from "../dast/target-preparer";
+import { dependencyAdapterForPackageManager } from "./runtime-dependency-adapter";
 import { runtimeIsolationHash } from "./runtime-isolation-hash";
 
 const RECIPE_PATH = ".vuln-workbench/runtime-target.v1.json";
@@ -83,9 +84,12 @@ export async function resolveRuntimeTargetRecipe(params: {
 			reasonCode: "runtime_target_start_unavailable",
 		};
 	}
+	const dependencyAdapterId = dependencyAdapterForPackageManager(
+		targetPlan.packageManager,
+	);
 	if (
 		targetPlan.pluginId !== "build.npm" ||
-		targetPlan.packageManager !== "npm" ||
+		!dependencyAdapterId ||
 		targetPlan.requiresProjectCodeConsent
 	) {
 		return {
@@ -98,7 +102,7 @@ export async function resolveRuntimeTargetRecipe(params: {
 			const recipe: RuntimeTargetRecipeV1 = {
 				schemaVersion: 1,
 				startPlannerId: "build.npm",
-				dependencyAdapterId: "npm-package-lock-v1",
+				dependencyAdapterId,
 				database: { mode: "none", environmentBindings: [] },
 				readinessPaths: targetPlan.readinessPaths,
 			};
@@ -120,6 +124,12 @@ export async function resolveRuntimeTargetRecipe(params: {
 		};
 	}
 	const recipe = recipeFile.recipe;
+	if (recipe.dependencyAdapterId !== dependencyAdapterId) {
+		return {
+			status: "blocked",
+			reasonCode: "runtime_dependency_adapter_unqualified",
+		};
+	}
 	return {
 		status: "ready",
 		recipe,

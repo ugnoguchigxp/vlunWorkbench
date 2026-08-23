@@ -6,6 +6,8 @@ import { AssessmentRepository } from "../assessments/assessment-repository";
 import { ZapActiveAssessmentCoordinator } from "../runtime-scans/zap-active-assessment-coordinator";
 import type { ArtifactStorage } from "../scans/artifact-storage";
 import { buildDedicatedProfileAdmissionMetadata } from "../scans/dedicated-profile-admission";
+import { createDedicatedLaunchAttempt } from "../scans/dedicated-profile-admission";
+import { ScanLaunchAttemptRepository } from "../scans/execution/scan-launch-attempt-repository";
 import { FindingRepository, ScanRepository } from "../scans/repositories";
 import { ActiveAssessmentRepository } from "./active-assessment-repository";
 import {
@@ -24,6 +26,7 @@ export class ActiveAssessmentRunner {
 	private readonly activeRepository: ActiveAssessmentRepository;
 	private readonly dastRepository: DastRepository;
 	private readonly scanRepository: ScanRepository;
+	private readonly scanLaunchAttempts: ScanLaunchAttemptRepository;
 	private readonly findingRepository: FindingRepository;
 	private readonly zapActiveCoordinator: ZapActiveAssessmentCoordinator;
 	private readonly activeProjects = new Set<string>();
@@ -43,6 +46,7 @@ export class ActiveAssessmentRunner {
 		this.activeRepository = new ActiveAssessmentRepository(db);
 		this.dastRepository = new DastRepository(db);
 		this.scanRepository = new ScanRepository(db);
+		this.scanLaunchAttempts = new ScanLaunchAttemptRepository(db);
 		this.findingRepository = new FindingRepository(db);
 		this.zapActiveCoordinator = new ZapActiveAssessmentCoordinator(db, {
 			featureEnabled: deps.zapActiveEnabled === true,
@@ -138,6 +142,19 @@ export class ActiveAssessmentRunner {
 		if (plannedRequestCount > validatedTarget.maxRequests) {
 			throw new Error("target_request_budget_insufficient_for_plan");
 		}
+		const launchAttempt = await createDedicatedLaunchAttempt({
+			repository: this.scanLaunchAttempts,
+			projectId: params.projectId,
+			createdByUserId: params.createdByUserId,
+			canonicalProfileId: "active-technical-lab",
+			providedInputKinds: [
+				"disposable_target_ref",
+				"rules_of_engagement_ref",
+				"execution_consent",
+			],
+			expectedLaunchDestination: "dast_workspace",
+			sanitizedInputSummary: { requestKind: params.request.kind },
+		});
 		const scanRun = await this.scanRepository.createScanRun({
 			projectId: params.projectId,
 			profile: "active-technical-lab",
@@ -166,6 +183,10 @@ export class ActiveAssessmentRunner {
 					scope: "state-changing-active-assessment",
 				},
 			},
+		});
+		await this.scanLaunchAttempts.admit({
+			attemptId: launchAttempt.id,
+			scanRunId: scanRun.id,
 		});
 		const activeRun = await this.activeRepository.createRun({
 			projectId: params.projectId,

@@ -35,7 +35,10 @@ export function RuntimeSettingsPanel({ model }: { model: SettingsPanelModel }) {
 		? normalizeRuntimeSettingsResponse(rawRuntimeSettings)
 		: null;
 	const updateRuntimeIsolationSetting = (
-		key: keyof RuntimeSettingsResponse["runtimeIsolation"],
+		key: Exclude<
+			keyof RuntimeSettingsResponse["runtimeIsolation"],
+			"qualificationVersion"
+		>,
 		value: string,
 	) => {
 		if (!runtimeSettings) return;
@@ -207,8 +210,9 @@ export function RuntimeSettingsPanel({ model }: { model: SettingsPanelModel }) {
 						<div className="settings-form-field settings-field-wide">
 							<h3>Isolated runtime target</h3>
 							<small>
-								安全な実行時Web診断で使用するserver-owned設定です。イメージは
-								image@sha256:&lt;digest&gt;形式で固定してください。
+								安全な実行時Web診断で使用するserver-owned設定です。外部イメージは
+								image@sha256:&lt;digest&gt;、ローカルビルドは
+								sha256:&lt;image-id&gt;形式で固定してください。
 							</small>
 							<div className="actions">
 								<strong>
@@ -240,7 +244,11 @@ export function RuntimeSettingsPanel({ model }: { model: SettingsPanelModel }) {
 							</div>
 							<small>
 								Builds a digest-pinned image on this server, verifies the
-								required runtime capabilities, and saves all required fields.
+								required npm and Bun runtime capabilities, and saves all
+								required fields. Qualification contract: v
+								{runtimeSettings.runtimeIsolation.qualificationVersion}.
+								Changing a required image or qualification hash invalidates Bun
+								qualification; run auto-configuration again afterward.
 							</small>
 						</div>
 						<RuntimeIsolationTextSetting
@@ -397,7 +405,7 @@ function RuntimeIsolationTextSetting({
 	id,
 	label,
 	value,
-	placeholder = "image@sha256:...",
+	placeholder = "sha256:... / image@sha256:...",
 	onChange,
 }: {
 	id: string;

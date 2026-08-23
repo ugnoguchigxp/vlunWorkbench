@@ -10,6 +10,7 @@ import { useEffect, useState } from "react";
 import type { ScanEvent, ScanProfile, ScanRun } from "../../../api";
 import {
 	buildScanProgressModel,
+	isActiveScanRun,
 	type ScanProgressItem,
 } from "../scan-progress-model";
 
@@ -62,23 +63,30 @@ export function ScanProgressPanel({
 }) {
 	const model = buildScanProgressModel({ scan, profile, events });
 	const [now, setNow] = useState(() => Date.now());
+	const progressStartedAt = model?.scan.startedAt ?? null;
+	const progressActive = model ? isActiveScanRun(model.scan) : false;
 	useEffect(() => {
-		if (!model?.scan.startedAt) return;
+		if (!progressStartedAt || !progressActive) return;
 		setNow(Date.now());
 		const timer = globalThis.setInterval(() => setNow(Date.now()), 1_000);
 		return () => globalThis.clearInterval(timer);
-	}, [model?.scan.startedAt]);
+	}, [progressActive, progressStartedAt]);
 	if (!model) return null;
 
-	const elapsed = formatElapsed(model.scan.startedAt, now);
+	const elapsed = formatElapsed(
+		model.scan.startedAt,
+		isActiveScanRun(model.scan)
+			? now
+			: new Date(model.scan.completedAt ?? model.scan.updatedAt).getTime(),
+	);
 	const current = model.current;
 	const next = model.items.find((item) => item.state === "waiting") ?? null;
-	const focusStep = current ?? next;
+	const focusStep = current ?? (isActiveScanRun(model.scan) ? next : null);
 	return (
 		<section className="workspace-scan-progress" aria-label="スキャン進捗">
 			<header className="workspace-scan-progress-header">
 				<div>
-					<span>実行中のスキャン</span>
+					<span>スキャンの進捗</span>
 					<strong>{profile?.name ?? model.scan.profile}</strong>
 				</div>
 				<div className="workspace-scan-progress-meta">
@@ -115,8 +123,10 @@ export function ScanProgressPanel({
 				<div className="workspace-scan-current-step" aria-live="polite">
 					<span>
 						{current
-							? "このスキャナーの検査内容"
-							: "次に実行するスキャナーの検査内容"}
+							? "現在の工程内容"
+							: isActiveScanRun(model.scan)
+								? "次の工程内容"
+								: "完了時の工程状態"}
 					</span>
 					{focusStep ? (
 						<>
@@ -137,7 +147,9 @@ export function ScanProgressPanel({
 						<strong>
 							{model.scan.status === "queued"
 								? "スキャン開始を待っています"
-								: "次の工程を準備しています"}
+								: isActiveScanRun(model.scan)
+									? "次の工程を準備しています"
+									: "すべての工程が終了しました"}
 						</strong>
 					)}
 				</div>
@@ -145,22 +157,21 @@ export function ScanProgressPanel({
 
 			{model.loadingSteps ? (
 				<p className="workspace-scan-progress-loading">
-					工程情報を読み込み中です。
+					実行計画を確定しています。確定したスキャナー工程から順次追加します。
 				</p>
-			) : (
-				<ol className="workspace-scan-progress-steps">
-					{model.items.map((item, index) => (
-						<li key={item.stepId} className={`state-${item.state}`}>
-							<span className="workspace-scan-step-number">{index + 1}</span>
-							<span className="workspace-scan-step-icon">
-								<StepIcon state={item.state} />
-							</span>
-							<strong>{item.name}</strong>
-							<span>{stepStateLabels[item.state]}</span>
-						</li>
-					))}
-				</ol>
-			)}
+			) : null}
+			<ol className="workspace-scan-progress-steps">
+				{model.items.map((item, index) => (
+					<li key={item.stepId} className={`state-${item.state}`}>
+						<span className="workspace-scan-step-number">{index + 1}</span>
+						<span className="workspace-scan-step-icon">
+							<StepIcon state={item.state} />
+						</span>
+						<strong>{item.name}</strong>
+						<span>{stepStateLabels[item.state]}</span>
+					</li>
+				))}
+			</ol>
 			{model.latestUpdate ? (
 				<p className="workspace-scan-progress-latest">
 					直近の更新: {model.latestUpdate}

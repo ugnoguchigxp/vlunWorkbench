@@ -109,6 +109,7 @@ export type RuntimeSettingsResponse = {
 	webScanWallClockTimeoutSec: number;
 	codexSdkTimeoutMs: number;
 	runtimeIsolation: {
+		qualificationVersion: 1 | 2;
 		namespaceOwnerImage: string;
 		nodeImage: string;
 		materializerImage: string;

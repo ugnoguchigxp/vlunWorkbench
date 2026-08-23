@@ -101,13 +101,67 @@ export const scanExecutionPlanV3Schema = scanExecutionPlanV2Schema.extend({
 		.strict(),
 });
 
+export const scanExecutionStepV4Schema = scanExecutionPlanV2StepSchema.extend({
+	kind: z.enum([
+		"static_tool",
+		"dast",
+		"runtime_scanner",
+		"sbom_export",
+		"api_schema_scan",
+		"container_image_scan",
+		"attestation_verify",
+		"dynamic_test",
+		"sanitizer",
+		"fuzz",
+		"auth_session",
+		"active_transaction",
+		"authorization_matrix",
+		"zap_active",
+		"business_scenario",
+		"reproduction",
+		"child_profile",
+	]),
+});
+
+export const scanExecutionPlanV4Schema = scanExecutionPlanV2Schema.extend({
+	schemaVersion: z.literal(4),
+	canonicalProfileId: z.string().min(1).max(100),
+	profileVariantId: z.string().min(1).max(100),
+	engine: z.object({ id: z.string().min(1).max(100), version: z.literal(1) }),
+	inputBindingHash: sha256DigestSchema,
+	dependencyQualificationHash: sha256DigestSchema,
+	availabilityClaimHash: sha256DigestSchema.nullable(),
+	runtimeIsolation: scanExecutionPlanV3Schema.shape.runtimeIsolation.optional(),
+	progressContract: z.object({
+		phases: z
+			.array(
+				z.enum([
+					"queued",
+					"resource_preparation",
+					"target_preparation",
+					"scanner_execution",
+					"evidence_persistence",
+					"cleanup",
+					"terminal",
+				]),
+			)
+			.min(1)
+			.max(7),
+		totalStepCount: z.number().int().positive().max(64),
+		stepIds: z.array(z.string().min(1).max(160)).min(1).max(64),
+	}),
+	steps: z.array(scanExecutionStepV4Schema).min(1).max(64),
+});
+
 export const scanExecutionPlanSchema = z.discriminatedUnion("schemaVersion", [
 	scanExecutionPlanV1Schema,
 	scanExecutionPlanV2Schema,
 	scanExecutionPlanV3Schema,
+	scanExecutionPlanV4Schema,
 ]);
 
 export type ScanExecutionPlanV1 = z.infer<typeof scanExecutionPlanV1Schema>;
 export type ScanExecutionPlanV2 = z.infer<typeof scanExecutionPlanV2Schema>;
 export type ScanExecutionPlanV3 = z.infer<typeof scanExecutionPlanV3Schema>;
+export type ScanExecutionPlanV4 = z.infer<typeof scanExecutionPlanV4Schema>;
 export type ScanExecutionPlan = z.infer<typeof scanExecutionPlanSchema>;

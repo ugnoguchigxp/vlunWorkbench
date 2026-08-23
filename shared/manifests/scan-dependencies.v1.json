@@ -1,0 +1,108 @@
+{
+	"schemaVersion": 1,
+	"entries": [
+		{
+			"id": "scanner.gitleaks",
+			"kind": "host_binary",
+			"requirement": "required",
+			"probeId": "host_binary_version",
+			"configurationSource": { "kind": "built_in", "valueRef": "gitleaks" },
+			"platforms": ["linux/amd64", "linux/arm64", "darwin/arm64", "darwin/x64"]
+		},
+		{
+			"id": "scanner.osv",
+			"kind": "host_binary",
+			"requirement": "required",
+			"probeId": "host_binary_version",
+			"configurationSource": { "kind": "built_in", "valueRef": "osv-scanner" },
+			"platforms": ["linux/amd64", "linux/arm64", "darwin/arm64", "darwin/x64"]
+		},
+		{
+			"id": "scanner.trivy",
+			"kind": "host_binary",
+			"requirement": "required",
+			"probeId": "host_binary_version",
+			"configurationSource": { "kind": "built_in", "valueRef": "trivy" },
+			"platforms": ["linux/amd64", "linux/arm64", "darwin/arm64", "darwin/x64"]
+		},
+		{
+			"id": "scanner.semgrep",
+			"kind": "host_binary",
+			"requirement": "required_if_applicable",
+			"probeId": "host_binary_version",
+			"configurationSource": { "kind": "built_in", "valueRef": "semgrep" },
+			"platforms": ["linux/amd64", "linux/arm64", "darwin/arm64", "darwin/x64"]
+		},
+		{
+			"id": "scanner.cosign",
+			"kind": "host_binary",
+			"requirement": "required",
+			"probeId": "host_binary_version",
+			"configurationSource": { "kind": "built_in", "valueRef": "cosign" },
+			"platforms": ["linux/amd64", "linux/arm64", "darwin/arm64", "darwin/x64"]
+		},
+		{
+			"id": "docker.daemon",
+			"kind": "docker_daemon",
+			"requirement": "required",
+			"probeId": "docker_daemon_info",
+			"configurationSource": { "kind": "built_in", "valueRef": "docker" },
+			"platforms": ["linux/amd64", "linux/arm64", "darwin/arm64", "darwin/x64"]
+		},
+		{
+			"id": "scanner.nuclei",
+			"kind": "container_image",
+			"requirement": "required",
+			"probeId": "container_image_inspect",
+			"configurationSource": {
+				"kind": "runtime_setting",
+				"settingKey": "VULN_WORKBENCH_RUNTIME_NUCLEI_IMAGE"
+			},
+			"platforms": ["linux/amd64", "linux/arm64"]
+		},
+		{
+			"id": "scanner.zap",
+			"kind": "container_image",
+			"requirement": "required",
+			"probeId": "container_image_inspect",
+			"configurationSource": {
+				"kind": "runtime_setting",
+				"settingKey": "VULN_WORKBENCH_RUNTIME_ZAP_IMAGE"
+			},
+			"platforms": ["linux/amd64", "linux/arm64"]
+		},
+		{
+			"id": "scanner.schemathesis",
+			"kind": "container_image",
+			"requirement": "required",
+			"probeId": "container_image_inspect",
+			"configurationSource": {
+				"kind": "runtime_setting",
+				"settingKey": "VULN_WORKBENCH_RUNTIME_SCHEMATHESIS_IMAGE"
+			},
+			"platforms": ["linux/amd64", "linux/arm64"]
+		},
+		{
+			"id": "resource.workspace",
+			"kind": "filesystem",
+			"requirement": "required",
+			"probeId": "filesystem_read_write",
+			"configurationSource": {
+				"kind": "generated_resource",
+				"factoryId": "workspace"
+			},
+			"platforms": ["linux/amd64", "linux/arm64", "darwin/arm64", "darwin/x64"]
+		},
+		{
+			"id": "resource.network-port",
+			"kind": "network_port",
+			"requirement": "required_if_applicable",
+			"probeId": "network_port_lease",
+			"configurationSource": {
+				"kind": "generated_resource",
+				"factoryId": "runtime-port-lease"
+			},
+			"platforms": ["linux/amd64", "linux/arm64", "darwin/arm64", "darwin/x64"]
+		}
+	]
+}

@@ -28,6 +28,7 @@ describe("runtime isolation runtime config", () => {
 				db: {} as never,
 				env: {},
 				settings: {
+					qualificationVersion: 1,
 					namespaceOwnerImage: `owner@${digest}`,
 					nodeImage: `node@${digest}`,
 					materializerImage: `materializer@${digest}`,
@@ -51,6 +52,7 @@ describe("runtime isolation runtime config", () => {
 			loadRuntimeIsolationProviderFactory({
 				db: {} as never,
 				settings: {
+					qualificationVersion: 1,
 					namespaceOwnerImage: "owner:latest",
 					nodeImage: "",
 					materializerImage: "",
@@ -72,6 +74,7 @@ describe("runtime isolation runtime config", () => {
 	it("normalizes an invalid legacy AppEnv bootstrap to unavailable defaults", () => {
 		const settings = runtimeIsolationSettingsFromAppEnv({
 			runtimeIsolation: {
+				qualificationVersion: 1,
 				namespaceOwnerImage: "owner:latest",
 				nodeImage: `node@${digest}`,
 				materializerImage: "",

@@ -1,6 +1,7 @@
 import { zValidator } from "@hono/zod-validator";
 import { Hono } from "hono";
 import { z } from "zod";
+import { scanExecutionPlanSchema } from "../../shared/schemas/scan-execution-plan.schema";
 import {
 	createScanReportSchema,
 	createScanReviewSchema,
@@ -15,6 +16,7 @@ import type { FindingDecisionRepository } from "../modules/decisions/finding-dec
 import { ScanReportRunner } from "../modules/reports/scan-report-runner";
 import { FindingReviewRepository } from "../modules/reviews/finding-review-repository";
 import type { ArtifactStorage } from "../modules/scans/artifact-storage";
+import { projectScanProgress } from "../modules/scans/execution/scan-progress-projector";
 import { buildGroupedFindings } from "../modules/scans/grouping-builder";
 import { FindingGroupingRunner } from "../modules/scans/finding-grouping-runner";
 import type { ScanReportRepository } from "../modules/scans/report-repository";
@@ -148,6 +150,31 @@ export function createScansRoute(deps: ScansRouteDeps) {
 			await checkScanOwnership(scanRunId, authUser.userId);
 			const events = await scanRepository.listScanEvents(scanRunId);
 			return c.json({ events });
+		})
+		.get("/:scanRunId/progress", async (c) => {
+			const authUser = getAuthContextUser(c);
+			const scanRunId = c.req.param("scanRunId");
+			await checkScanOwnership(scanRunId, authUser.userId);
+			const storedPlan = await scanRepository.getExecutionPlan(scanRunId);
+			if (!storedPlan) throw new HttpError(409, "scan_plan_not_persisted");
+			const plan = scanExecutionPlanSchema.safeParse(storedPlan.plan);
+			if (!plan.success) throw new HttpError(409, "scan_plan_invalid");
+			const events = await scanRepository.listScanEvents(scanRunId);
+			return c.json({
+				progress: projectScanProgress({
+					runId: scanRunId,
+					planHash: storedPlan.planHash,
+					steps: plan.data.steps.map((step) => ({
+						stepId: step.stepId,
+						applicability: step.applicability,
+					})),
+					events: events.map((event) => ({
+						seq: event.seq,
+						eventType: event.eventType,
+						data: event.data,
+					})),
+				}),
+			});
 		})
 		.post("/:scanRunId/cancel", async (c) => {
 			const authUser = getAuthContextUser(c);

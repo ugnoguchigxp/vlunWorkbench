@@ -460,6 +460,7 @@ export function readAppEnv(env: NodeJS.ProcessEnv = process.env): AppEnv {
 			RUNTIME_SETTINGS_DEFAULTS.webScanWallClockTimeoutSec,
 		scanExecutionPlanV2: parsed.VULN_WORKBENCH_SCAN_EXECUTION_PLAN_V2 ?? false,
 		runtimeIsolation: {
+			qualificationVersion: runtimeIsolationDefaults.qualificationVersion,
 			namespaceOwnerImage:
 				parsed.VULN_WORKBENCH_RUNTIME_NAMESPACE_OWNER_IMAGE ??
 				runtimeIsolationDefaults.namespaceOwnerImage,

@@ -28,10 +28,19 @@ function successfulRunner() {
 			return result("daemon-id\t29.5.0\tlinux\tarm64\toverlayfs\t2\n");
 		}
 		if (argv.includes("{{json .RepoDigests}}")) {
-			return result(JSON.stringify([`node@${digest("a")}`]));
+			return result(
+				JSON.stringify([
+					argv.at(-1) === "oven/bun:1.3.14"
+						? `oven/bun@${digest("c")}`
+						: `node@${digest("a")}`,
+				]),
+			);
 		}
 		if (argv.includes("{{.Id}}\t{{.Os}}\t{{.Architecture}}")) {
 			return result(`${digest("b")}\tlinux\tarm64\n`);
+		}
+		if (argv.includes("{{.Id}}")) {
+			return result(`${digest("e")}\n`);
 		}
 		return result();
 	};
@@ -41,6 +50,7 @@ function successfulRunner() {
 describe("autoConfigureLocalRuntimeIsolation", () => {
 	it("preserves optional image settings while replacing auto-configured fields", () => {
 		const current = {
+			qualificationVersion: 1 as const,
 			namespaceOwnerImage: "",
 			nodeImage: "",
 			materializerImage: "",
@@ -57,6 +67,7 @@ describe("autoConfigureLocalRuntimeIsolation", () => {
 		};
 		const autoConfigured = {
 			...current,
+			qualificationVersion: 2 as const,
 			namespaceOwnerImage: `runtime@${digest("b")}`,
 			postgresImage: "",
 		};
@@ -64,6 +75,7 @@ describe("autoConfigureLocalRuntimeIsolation", () => {
 		expect(
 			mergeAutoConfiguredRuntimeIsolationSettings(current, autoConfigured),
 		).toMatchObject({
+			qualificationVersion: 2,
 			namespaceOwnerImage: `runtime@${digest("b")}`,
 			postgresImage: `postgres@${digest("a")}`,
 		});
@@ -78,7 +90,7 @@ describe("autoConfigureLocalRuntimeIsolation", () => {
 			idFactory: () => "f".repeat(80),
 		});
 
-		const pinnedImage = `vuln-workbench-runtime@${digest("b")}`;
+		const pinnedImage = digest("b");
 		expect(settings).toMatchObject({
 			namespaceOwnerImage: pinnedImage,
 			nodeImage: pinnedImage,
@@ -89,13 +101,32 @@ describe("autoConfigureLocalRuntimeIsolation", () => {
 		});
 		expect(settings.dockerDaemonIdentityHash).toMatch(/^sha256:[a-f0-9]{64}$/);
 		expect(settings.qualificationHash).toMatch(/^sha256:[a-f0-9]{64}$/);
+		expect(settings).toMatchObject({
+			nucleiImage: digest("e"),
+			zapImage: digest("e"),
+			schemathesisImage: digest("e"),
+		});
+		expect(calls).toContainEqual(["docker", "pull", "projectdiscovery/nuclei:latest"]);
+		expect(calls).toContainEqual(["docker", "pull", "zaproxy/zap-stable:latest"]);
+		expect(calls).toContainEqual([
+			"docker",
+			"pull",
+			"schemathesis/schemathesis:stable",
+		]);
 		expect(calls).toContainEqual(
 			expect.arrayContaining([
 				"build",
 				`BASE_IMAGE=node@${digest("a")}`,
+				`BUN_IMAGE=oven/bun@${digest("c")}`,
 				"/workspace/docker/runtime/Dockerfile",
 			]),
 		);
+		for (const call of calls.filter(
+			(argv) => argv[1] === "run" || argv[1] === "create",
+		)) {
+			expect(call).toContain("--memory");
+			expect(call).toContain("--pids-limit");
+		}
 		expect(calls).toContainEqual([
 			"docker",
 			"rm",
@@ -130,7 +161,10 @@ describe("autoConfigureLocalRuntimeIsolation", () => {
 				return result("daemon-id\t29.5.0\tlinux\tarm64\toverlayfs\t2\n");
 			}
 			if (argv.includes("{{json .RepoDigests}}")) {
-				return argv.at(-1) === "node:22-alpine"
+				if (argv.at(-1) === "oven/bun:1.3.14") {
+					return result(JSON.stringify([`oven/bun@${digest("d")}`]));
+				}
+				return argv.at(-1) === "node:22-bookworm-slim"
 					? result("", 1)
 					: result(
 							JSON.stringify([
@@ -140,6 +174,9 @@ describe("autoConfigureLocalRuntimeIsolation", () => {
 			}
 			if (argv.includes("{{.Id}}\t{{.Os}}\t{{.Architecture}}")) {
 				return result(`${digest("b")}\tlinux\tarm64\n`);
+			}
+			if (argv.includes("{{.Id}}")) {
+				return result(`${digest("e")}\n`);
 			}
 			return result();
 		};
@@ -153,10 +190,18 @@ describe("autoConfigureLocalRuntimeIsolation", () => {
 		expect(calls).toContainEqual(
 			expect.arrayContaining([
 				"build",
-				"BASE_IMAGE=vuln-workbench-dynamic:local",
+				`BASE_IMAGE=vuln-workbench-dynamic@${digest("c")}`,
+				`BUN_IMAGE=oven/bun@${digest("d")}`,
 			]),
 		);
-		expect(calls.some((argv) => argv[1] === "pull")).toBe(false);
+		expect(
+			calls.some(
+				(argv) =>
+					argv[1] === "pull" &&
+					(argv.at(-1) === "node:22-bookworm-slim" ||
+						argv.at(-1) === "oven/bun:1.3.14"),
+			),
+		).toBe(false);
 	});
 
 	it("cleans temporary Docker resources and returns no settings after qualification failure", async () => {
@@ -196,6 +241,29 @@ describe("autoConfigureLocalRuntimeIsolation", () => {
 			"rm",
 			"vuln-workbench-runtime:qualification-cleanup",
 		]);
+	});
+
+	it("does not save a qualification when temporary resource cleanup fails", async () => {
+		const { runner: baseRunner } = successfulRunner();
+		const runner: RuntimeIsolationAutoConfigRunner = async (argv, options) => {
+			if (
+				argv[1] === "rm" &&
+				argv.at(-1) === "vwb-runtime-qualification-cleanupfail-proxy"
+			) {
+				return result("", 1);
+			}
+			return await baseRunner(argv, options);
+		};
+
+		await expect(
+			autoConfigureLocalRuntimeIsolation({
+				runner,
+				repositoryRoot: "/workspace",
+				idFactory: () => "cleanupfail",
+			}),
+		).rejects.toMatchObject({
+			code: "runtime_isolation_qualification_cleanup_failed",
+		});
 	});
 
 	it("reports Docker unavailability without attempting a build", async () => {

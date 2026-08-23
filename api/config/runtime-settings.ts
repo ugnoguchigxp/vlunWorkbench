@@ -16,6 +16,7 @@ export const RUNTIME_SETTINGS_DEFAULTS = {
 	webScanWallClockTimeoutSec: 21_600,
 	codexSdkTimeoutMs: 600_000,
 	runtimeIsolation: {
+		qualificationVersion: 1,
 		namespaceOwnerImage: "",
 		nodeImage: "",
 		materializerImage: "",
@@ -32,13 +33,13 @@ export const RUNTIME_SETTINGS_DEFAULTS = {
 	},
 } as const;
 
-const digestPinnedImageSchema = z
+const immutableImageReferenceSchema = z
 	.string()
 	.trim()
 	.max(512)
 	.refine(
-		(value) => value === "" || /^[^\s@]+@sha256:[a-f0-9]{64}$/.test(value),
-		"Runtime isolation images must be empty or pinned as image@sha256:<64 lowercase hex characters>.",
+		(value) => value === "" || /^(?:[^\s@]+@)?sha256:[a-f0-9]{64}$/.test(value),
+		"Runtime isolation images must be empty, a local sha256:<image-id>, or pinned as image@sha256:<digest>.",
 	);
 
 const optionalSha256DigestSchema = z
@@ -50,24 +51,57 @@ const optionalSha256DigestSchema = z
 	);
 
 export const RuntimeIsolationSettingsSchema = z.object({
-	namespaceOwnerImage: digestPinnedImageSchema,
-	nodeImage: digestPinnedImageSchema,
-	materializerImage: digestPinnedImageSchema,
-	registryProxyImage: digestPinnedImageSchema,
-	probeImage: digestPinnedImageSchema,
-	httpExecutorImage: digestPinnedImageSchema,
+	qualificationVersion: z.union([z.literal(1), z.literal(2)]).default(1),
+	namespaceOwnerImage: immutableImageReferenceSchema,
+	nodeImage: immutableImageReferenceSchema,
+	materializerImage: immutableImageReferenceSchema,
+	registryProxyImage: immutableImageReferenceSchema,
+	probeImage: immutableImageReferenceSchema,
+	httpExecutorImage: immutableImageReferenceSchema,
 	dockerDaemonIdentityHash: optionalSha256DigestSchema,
 	qualificationHash: optionalSha256DigestSchema,
-	postgresImage: digestPinnedImageSchema,
-	mysqlImage: digestPinnedImageSchema,
-	nucleiImage: digestPinnedImageSchema,
-	zapImage: digestPinnedImageSchema,
-	schemathesisImage: digestPinnedImageSchema,
+	postgresImage: immutableImageReferenceSchema,
+	mysqlImage: immutableImageReferenceSchema,
+	nucleiImage: immutableImageReferenceSchema,
+	zapImage: immutableImageReferenceSchema,
+	schemathesisImage: immutableImageReferenceSchema,
 });
 
 export type RuntimeIsolationSettings = z.infer<
 	typeof RuntimeIsolationSettingsSchema
 >;
+
+const GENERATED_RUNTIME_IMAGE_KEYS = [
+	"namespaceOwnerImage",
+	"nodeImage",
+	"materializerImage",
+	"registryProxyImage",
+	"probeImage",
+	"httpExecutorImage",
+] as const satisfies ReadonlyArray<keyof RuntimeIsolationSettings>;
+
+/**
+ * Auto-configuration originally persisted a local image ID as
+ * `vuln-workbench-runtime@sha256:...`. Docker does not resolve that syntax for
+ * a locally built image. Migrate only the unmistakable generated six-role
+ * configuration to Docker's content-addressable `sha256:...` reference.
+ */
+export function normalizeLegacyLocalRuntimeImageReferences(
+	settings: RuntimeIsolationSettings,
+): RuntimeIsolationSettings {
+	const references = GENERATED_RUNTIME_IMAGE_KEYS.map((key) => settings[key]);
+	if (new Set(references).size !== 1) return settings;
+	const digest = /^vuln-workbench-runtime@(sha256:[a-f0-9]{64})$/.exec(
+		references[0] ?? "",
+	)?.[1];
+	if (!digest) return settings;
+	return {
+		...settings,
+		...Object.fromEntries(
+			GENERATED_RUNTIME_IMAGE_KEYS.map((key) => [key, digest]),
+		),
+	};
+}
 
 export const RUNTIME_ISOLATION_REQUIRED_SETTING_KEYS = [
 	"namespaceOwnerImage",
@@ -204,10 +238,17 @@ export function runtimeIsolationSettingsFromBootstrap(
 			const parsed = RuntimeIsolationSettingsSchema.shape[key].safeParse(
 				candidate[key],
 			);
-			return [key, parsed.success ? parsed.data : ""];
+			return [
+				key,
+				parsed.success
+					? parsed.data
+					: RUNTIME_SETTINGS_DEFAULTS.runtimeIsolation[key],
+			];
 		}),
 	);
-	return RuntimeIsolationSettingsSchema.parse(normalized);
+	return normalizeLegacyLocalRuntimeImageReferences(
+		RuntimeIsolationSettingsSchema.parse(normalized),
+	);
 }
 
 export type RuntimeSettingsResponse = RuntimeSettingsBase & {

@@ -5,6 +5,8 @@ let includeHeaders = false;
 let method = "GET";
 let maxTimeSeconds = 15;
 let maxFileSize = 1024 * 1024;
+let output = "-";
+let writeOut = "";
 let url = "";
 const headers = new Headers();
 
@@ -48,6 +50,16 @@ try {
 			index += 1;
 			continue;
 		}
+		if (arg === "-o" || arg === "--output") {
+			output = requireValue(arg, index);
+			index += 1;
+			continue;
+		}
+		if (arg === "-w" || arg === "--write-out") {
+			writeOut = requireValue(arg, index);
+			index += 1;
+			continue;
+		}
 		if (arg.startsWith("-")) throw new Error(`unsupported option ${arg}`);
 		if (url) throw new Error("multiple URLs are not supported");
 		url = arg;
@@ -58,6 +70,12 @@ try {
 	}
 	if (!Number.isSafeInteger(maxFileSize) || maxFileSize <= 0) {
 		throw new Error("invalid max file size");
+	}
+	if (output !== "-" && output !== "/dev/null") {
+		throw new Error("unsupported output path");
+	}
+	if (writeOut !== "" && writeOut !== "%{http_code}") {
+		throw new Error("unsupported write-out format");
 	}
 	const parsedUrl = new URL(url);
 	if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
@@ -72,7 +90,9 @@ try {
 	});
 	const chunks = [];
 	let totalBytes = 0;
-	if (response.body && method !== "HEAD") {
+	if (response.body && method !== "HEAD" && output === "/dev/null") {
+		await response.body.cancel();
+	} else if (response.body && method !== "HEAD") {
 		const reader = response.body.getReader();
 		while (true) {
 			const { done, value } = await reader.read();
@@ -104,6 +124,8 @@ try {
 		process.stdout.write(`content-length: ${body.length}\r\n\r\n`);
 	}
 	process.stdout.write(body);
+	if (writeOut === "%{http_code}")
+		process.stdout.write(String(response.status));
 } catch {
 	process.stderr.write("curl request failed\n");
 	process.exitCode = 1;

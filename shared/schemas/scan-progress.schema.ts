@@ -8,6 +8,16 @@ export const scanProgressStepKindSchema = z.enum([
 	"api_schema_scan",
 	"container_image_scan",
 	"attestation_verify",
+	"dynamic_test",
+	"sanitizer",
+	"fuzz",
+	"auth_session",
+	"active_transaction",
+	"authorization_matrix",
+	"zap_active",
+	"business_scenario",
+	"reproduction",
+	"child_profile",
 ]);
 export type ScanProgressStepKind = z.infer<typeof scanProgressStepKindSchema>;
 

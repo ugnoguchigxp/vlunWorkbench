@@ -12,6 +12,53 @@ const plan: RuntimeIsolationPlanV1 = {
 };
 
 describe("docker runtime target provider", () => {
+	it("exposes the exact required and optional images used by preflight", () => {
+		const provider = createDockerRuntimeTargetProvider({
+			scanRunId: "scan",
+			projectionPath: "/runtime/projection",
+			plan,
+			planHash: digest,
+			images: {
+				namespaceOwner: "owner",
+				nodeRuntime: "node",
+				materializer: "materializer",
+				registryProxy: "proxy",
+				probe: "probe",
+				httpExecutor: "http",
+				nuclei: "nuclei",
+			},
+			scannerImageRequirements: [
+				{ role: "nuclei", required: true },
+				{ role: "zap", required: false },
+			],
+			leaseRepository: {
+				acquire: async () => ({ id: "lease" }),
+				updateActiveReceipt: async () => null,
+				release: async () => null,
+				quarantine: async () => null,
+			},
+			runner: {
+				run: async () => ({ exitCode: 0, stdout: "", stderr: "" }),
+			},
+		});
+
+		expect(provider.runtimeScannerImages).toEqual({
+			"nuclei-safe": "nuclei",
+		});
+		expect(provider.preflightDockerImages).toContainEqual({
+			role: "scanner-nuclei",
+			stepId: "runtime_scanner:nuclei-safe",
+			image: "nuclei",
+			required: true,
+		});
+		expect(provider.preflightDockerImages).toContainEqual({
+			role: "scanner-zap",
+			stepId: "runtime_scanner:zap-baseline",
+			image: null,
+			required: false,
+		});
+	});
+
 	it("rejects a path other than the sanitized projection before Docker resources are created", async () => {
 		let calls = 0;
 		const provider = createDockerRuntimeTargetProvider({

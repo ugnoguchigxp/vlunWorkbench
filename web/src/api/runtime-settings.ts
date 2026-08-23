@@ -67,6 +67,7 @@ function normalizeRuntimeIsolationSettings(
 ): RuntimeIsolationSettings {
 	return {
 		...(settings ?? {}),
+		qualificationVersion: settings?.qualificationVersion === 2 ? 2 : 1,
 		namespaceOwnerImage: stringSetting(settings?.namespaceOwnerImage),
 		nodeImage: stringSetting(settings?.nodeImage),
 		materializerImage: stringSetting(settings?.materializerImage),

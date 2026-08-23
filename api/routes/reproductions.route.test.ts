@@ -88,6 +88,10 @@ describe("Reproductions Route", () => {
 			id: "scan-verification-1",
 		}),
 	};
+	const mockLaunchAttemptRepository = {
+		create: vi.fn().mockResolvedValue({ id: "attempt-1" }),
+		admit: vi.fn().mockResolvedValue({ id: "attempt-1" }),
+	};
 
 	const app = new Hono();
 	app.use("*", async (c, next) => {
@@ -107,6 +111,7 @@ describe("Reproductions Route", () => {
 			findingRepository: mockFindingRepo as any,
 			projectRepository: mockProjectRepo as any,
 			scanRepository: mockScanRepository as any,
+			scanLaunchAttemptRepository: mockLaunchAttemptRepository as any,
 			reproductionProfiles: createReproductionProfiles({
 				includeOptionalSemgrep: true,
 			}),

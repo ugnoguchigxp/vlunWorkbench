@@ -12,11 +12,47 @@ describe("materializeRuntimeSourceProjection", () => {
 		root = await fs.mkdtemp(path.join(os.tmpdir(), "runtime-projection-test-"));
 		snapshotPath = path.join(root, "snapshot");
 		await fs.mkdir(path.join(snapshotPath, "src"), { recursive: true });
+		await fs.mkdir(path.join(snapshotPath, "node_modules", "untrusted"), {
+			recursive: true,
+		});
+		await fs.mkdir(
+			path.join(snapshotPath, "packages", "app", "node_modules", "nested"),
+			{ recursive: true },
+		);
+		await fs.mkdir(path.join(snapshotPath, "packages", "app", "dist"), {
+			recursive: true,
+		});
+		await fs.mkdir(path.join(snapshotPath, "packages", "app", ".git"), {
+			recursive: true,
+		});
 		await fs.writeFile(path.join(snapshotPath, "src", "app.ts"), "export const ok = true;\n");
 		await fs.writeFile(path.join(snapshotPath, ".env"), "DATABASE_URL=secret-marker\n");
 		await fs.writeFile(path.join(snapshotPath, ".npmrc"), "//registry.example/:_authToken=secret-marker\n");
 		await fs.writeFile(path.join(snapshotPath, "data.sqlite"), "database-marker\n");
 		await fs.writeFile(path.join(snapshotPath, "socket.sock"), "socket-marker\n");
+		await fs.writeFile(
+			path.join(snapshotPath, "node_modules", "untrusted", "postinstall.js"),
+			"throw new Error('must not be projected');\n",
+		);
+		await fs.writeFile(
+			path.join(
+				snapshotPath,
+				"packages",
+				"app",
+				"node_modules",
+				"nested",
+				"postinstall.js",
+			),
+			"throw new Error('nested dependency must not be projected');\n",
+		);
+		await fs.writeFile(
+			path.join(snapshotPath, "packages", "app", "dist", "bundle.js"),
+			"generated();\n",
+		);
+		await fs.writeFile(
+			path.join(snapshotPath, "packages", "app", ".git", "config"),
+			"credential = must-not-be-projected\n",
+		);
 		await fs.symlink(path.join(snapshotPath, "src", "app.ts"), path.join(snapshotPath, "app-link"));
 	});
 
@@ -39,7 +75,17 @@ describe("materializeRuntimeSourceProjection", () => {
 				symlink: 1,
 			});
 			await expect(fs.readFile(path.join(projection.projectPath, "src", "app.ts"), "utf8")).resolves.toContain("ok");
-			for (const excluded of [".env", ".npmrc", "data.sqlite", "socket.sock", "app-link"]) {
+			for (const excluded of [
+				".env",
+				".npmrc",
+				"data.sqlite",
+				"socket.sock",
+				"app-link",
+				"node_modules",
+				"packages/app/node_modules",
+				"packages/app/dist",
+				"packages/app/.git",
+			]) {
 				await expect(fs.lstat(path.join(projection.projectPath, excluded))).rejects.toThrow();
 			}
 		} finally {

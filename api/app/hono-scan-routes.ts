@@ -30,6 +30,7 @@ import {
 	ScanRepository,
 } from "../modules/scans/repositories";
 import { ScanDeletionService } from "../modules/scans/scan-deletion-service";
+import { ScanLaunchAttemptRepository } from "../modules/scans/execution/scan-launch-attempt-repository";
 import { createAssessmentsRoute } from "../routes/assessments.route";
 import { createBusinessLogicRoute } from "../routes/business-logic.route";
 import { createDastRoute } from "../routes/dast.route";
@@ -42,6 +43,7 @@ import { createFindingsRoute } from "../routes/findings.route";
 import { createProjectsRoute } from "../routes/projects.route";
 import { createReproductionsRoute } from "../routes/reproductions.route";
 import { createScanProfilesRoute } from "../routes/scan-profiles.route";
+import { createScanLaunchesRoute } from "../routes/scan-launches.route";
 import { createScanReportsRoute } from "../routes/scan-reports.route";
 import { createScansRoute } from "../routes/scans.route";
 import { createStaticIntelligenceRoute } from "../routes/static-intelligence.route";
@@ -53,6 +55,9 @@ const distWebIndex = path.resolve(process.cwd(), "dist-web/index.html");
 export function registerScanRoutes(app: Hono, runtime: AppRuntime): void {
 	const projectRepository = new ProjectRepository(runtime.dbConnection.db);
 	const scanRepository = new ScanRepository(runtime.dbConnection.db);
+	const scanLaunchAttemptRepository = new ScanLaunchAttemptRepository(
+		runtime.dbConnection.db,
+	);
 	const artifactRepository = new ArtifactRepository(runtime.dbConnection.db);
 	const findingRepository = new FindingRepository(runtime.dbConnection.db);
 	const findingReviewRepository = new FindingReviewRepository(
@@ -157,18 +162,32 @@ export function registerScanRoutes(app: Hono, runtime: AppRuntime): void {
 		createProjectsRoute({
 			projectRepository,
 			scanRepository,
+			scanLaunchAttemptRepository,
 			scanSupervisor: runtime.scanSupervisor,
 			processCapacity: runtime.webProcessCapacity,
 			env: runtime.env,
-			resolveRuntimeIsolationProviderFactory: () =>
+			// Return a request-local snapshot. Reads must not mutate the shared
+			// bootstrap object because concurrent requests may resolve different
+			// persisted revisions in a different order.
+			resolveRuntimeEnv: async () =>
+				await runtime.settingsRepository.resolveAppEnv(runtime.env),
+			resolveRuntimeIsolationProviderFactory: (env) =>
 				loadRuntimeIsolationProviderFactory({
 					db: runtime.dbConnection.db,
-					settings: runtimeIsolationSettingsFromAppEnv(runtime.env),
+					settings: runtimeIsolationSettingsFromAppEnv(env),
 				}),
 			projectDeletionService,
 		}),
 	);
 	app.route("/api/scan-profiles", createScanProfilesRoute());
+	app.route(
+		"/api/projects",
+		createScanLaunchesRoute({
+			projectRepository,
+			resolveRuntimeEnv: async () =>
+				await runtime.settingsRepository.resolveAppEnv(runtime.env),
+		}),
+	);
 	app.route(
 		"/api/scans",
 		createScansRoute({

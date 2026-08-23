@@ -46,6 +46,8 @@
 		"baseline:scan-profile-stability": "bun run scripts/scan-profile-stability-baseline.ts --check",
 		"test:scan-profile-stability-baseline": "bun test scripts/scan-profile-stability-baseline.test.ts",
 		"verify:scan-profile-qualification": "bun run scripts/verify-scan-profile-stability-qualification.ts",
+		"verify:scan-profile-architecture": "bun run scripts/verify-scan-profile-architecture.ts",
+		"qualify:scan-profile:all": "bun run scripts/qualify-all-scan-profiles.ts",
 		"qualify:scan-profile": "bun run scripts/build-scan-profile-stability-qualification.ts",
 		"docker:qualification:build": "docker build -f docker/qualification/Dockerfile -t vuln-workbench-qualification:local .",
 		"qualify:scan-profile:docker": "bun run scripts/qualify-scan-profile-docker.ts",

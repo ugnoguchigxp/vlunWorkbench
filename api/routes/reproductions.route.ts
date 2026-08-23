@@ -19,7 +19,11 @@ import type {
 	ProjectRepository,
 } from "../modules/scans/repositories";
 import { ScanRepository } from "../modules/scans/repositories";
-import { buildDedicatedProfileAdmissionMetadata } from "../modules/scans/dedicated-profile-admission";
+import {
+	buildDedicatedProfileAdmissionMetadata,
+	createDedicatedLaunchAttempt,
+} from "../modules/scans/dedicated-profile-admission";
+import { ScanLaunchAttemptRepository } from "../modules/scans/execution/scan-launch-attempt-repository";
 import { resolveStoredScanSafetyBoundary } from "../modules/scans/profile-resolution";
 import {
 	ProjectPathPolicyError,
@@ -37,6 +41,7 @@ type ReproductionsRouteDeps = {
 	reproductionProfiles?: readonly ReproductionProfile[];
 	processCapacity?: WebProcessCapacity;
 	scanRepository?: ScanRepository;
+	scanLaunchAttemptRepository?: ScanLaunchAttemptRepository;
 };
 
 export function createReproductionsRoute(deps: ReproductionsRouteDeps) {
@@ -45,6 +50,8 @@ export function createReproductionsRoute(deps: ReproductionsRouteDeps) {
 		deps.reproductionProfiles ?? REPRODUCTION_PROFILES;
 	const repo = new ReproductionRepository(db);
 	const scanRepository = deps.scanRepository ?? new ScanRepository(db);
+	const scanLaunchAttempts =
+		deps.scanLaunchAttemptRepository ?? new ScanLaunchAttemptRepository(db);
 	const route = new Hono();
 	const assertExecutionPath = async (repoPath: string) => {
 		try {
@@ -203,6 +210,15 @@ export function createReproductionsRoute(deps: ReproductionsRouteDeps) {
 					"original_safety_boundary_required: original scan safety boundary is unavailable",
 				);
 			}
+			const launchAttempt = await createDedicatedLaunchAttempt({
+				repository: scanLaunchAttempts,
+				projectId: project.id,
+				createdByUserId: authUser.userId,
+				canonicalProfileId: "remediation-verification",
+				providedInputKinds: ["finding_ref"],
+				expectedLaunchDestination: "finding_verification",
+				sanitizedInputSummary: { reproductionProfileId: profileId },
+			});
 			const scan = await scanRepository.createScanRun({
 				projectId: project.id,
 				profile: "remediation-verification",
@@ -223,6 +239,10 @@ export function createReproductionsRoute(deps: ReproductionsRouteDeps) {
 					},
 					safetyBoundary: "docker-readonly-source",
 				},
+			});
+			await scanLaunchAttempts.admit({
+				attemptId: launchAttempt.id,
+				scanRunId: scan.id,
 			});
 
 			// Construct CLI arguments

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+	describeScanPreflightReason,
 	formatScanPreflightFailure,
 	readScanPreflightDisplay,
 } from "./scan-preflight-display";
@@ -7,6 +8,13 @@ import {
 const digest = `sha256:${"a".repeat(64)}`;
 
 describe("scan preflight display", () => {
+	it("gives the runtime setup action for an unavailable scanner image", () => {
+		expect(describeScanPreflightReason("docker_image_unavailable")).toMatchObject({
+			heading: expect.stringContaining("コンテナイメージ"),
+			nextAction: expect.stringContaining("ローカルRuntimeを自動設定"),
+		});
+	});
+
 	it("reads the persisted server-owned preflight result", () => {
 		const result = readScanPreflightDisplay({
 			scanPreflight: {

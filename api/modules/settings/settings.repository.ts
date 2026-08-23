@@ -4,7 +4,9 @@ import type { AppEnv } from "../../app/env";
 import {
 	applyRuntimeSettings,
 	missingRuntimeIsolationSettings,
+	normalizeLegacyLocalRuntimeImageReferences,
 	RUNTIME_SETTINGS_KEY,
+	type RuntimeIsolationSettings,
 	type RuntimeSettings,
 	RuntimeSettingsBaseSchema,
 	type RuntimeSettingsResponse,
@@ -22,6 +24,20 @@ import {
 
 const GLOBAL_SYSTEM_CONTEXT_KEY = "__global_system_context__";
 const LEGACY_KEYS = ["local", "global", "system"];
+const QUALIFICATION_BOUND_RUNTIME_KEYS = [
+	"namespaceOwnerImage",
+	"nodeImage",
+	"materializerImage",
+	"registryProxyImage",
+	"probeImage",
+	"httpExecutorImage",
+	"dockerDaemonIdentityHash",
+	"qualificationHash",
+] as const satisfies ReadonlyArray<keyof RuntimeIsolationSettings>;
+
+export type RuntimeSettingsUpdateOptions = {
+	trustRuntimeIsolationQualification?: boolean;
+};
 
 const PersistedRuntimeSettingsSchema = RuntimeSettingsBaseSchema.extend({
 	dastAuthKeySecret: z
@@ -210,6 +226,7 @@ export class SettingsRepository {
 	async updateRuntimeSettings(
 		input: unknown,
 		env: AppEnv,
+		options: RuntimeSettingsUpdateOptions = {},
 	): Promise<RuntimeSettingsResponse> {
 		const update = RuntimeSettingsUpdateSchema.parse(input);
 		const existing = await this.readRuntimeSettingsRecord();
@@ -231,8 +248,11 @@ export class SettingsRepository {
 		} = update;
 		const nextSettings = {
 			...base,
-			runtimeIsolation:
-				requestedRuntimeIsolation ?? current.settings.runtimeIsolation,
+			runtimeIsolation: runtimeIsolationForUpdate({
+				current: current.settings.runtimeIsolation,
+				requested: requestedRuntimeIsolation,
+				trustQualification: options.trustRuntimeIsolationQualification === true,
+			}),
 			...(secret ? { dastAuthKeySecret: secret } : {}),
 		};
 		const now = new Date();
@@ -258,12 +278,38 @@ export class SettingsRepository {
 	}
 }
 
+function runtimeIsolationForUpdate(params: {
+	current: RuntimeIsolationSettings;
+	requested: RuntimeIsolationSettings | undefined;
+	trustQualification: boolean;
+}): RuntimeIsolationSettings {
+	if (!params.requested) return params.current;
+	if (params.trustQualification) {
+		return normalizeLegacyLocalRuntimeImageReferences(params.requested);
+	}
+	const qualificationBindingChanged = QUALIFICATION_BOUND_RUNTIME_KEYS.some(
+		(key) => params.requested?.[key] !== params.current[key],
+	);
+	return normalizeLegacyLocalRuntimeImageReferences({
+		...params.requested,
+		qualificationVersion: qualificationBindingChanged
+			? 1
+			: params.current.qualificationVersion,
+	});
+}
+
 function parsePersistedRuntimeSettings(
 	settings: Record<string, unknown>,
 	env: AppEnv,
 ) {
 	if (Object.hasOwn(settings, "runtimeIsolation")) {
-		return PersistedRuntimeSettingsSchema.parse(settings);
+		const parsed = PersistedRuntimeSettingsSchema.parse(settings);
+		return {
+			...parsed,
+			runtimeIsolation: normalizeLegacyLocalRuntimeImageReferences(
+				parsed.runtimeIsolation,
+			),
+		};
 	}
 	return PersistedRuntimeSettingsSchema.parse({
 		...settings,

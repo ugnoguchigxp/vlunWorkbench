@@ -1,9 +1,20 @@
+import type { RuntimeIsolationPlanningResult } from "../runtime-isolation/runtime-isolation-planner";
+import type { DastFetch } from "./http-runner";
 import type {
 	DastTargetStartPlan,
 	PreparedDastTargetWorkspace,
 } from "./target-preparer";
-import type { DastFetch } from "./http-runner";
-import type { RuntimeIsolationPlanningResult } from "../runtime-isolation/runtime-isolation-planner";
+
+export type RuntimeScannerImages = Partial<
+	Record<"nuclei-safe" | "zap-baseline" | "schemathesis", string>
+>;
+
+export type RuntimePreflightDockerImage = {
+	role: string;
+	stepId: string;
+	image: string | null;
+	required: boolean;
+};
 
 /** A prepared target used by profile steps without exposing host process startup. */
 export type PreparedRuntimeTarget = Pick<
@@ -16,9 +27,7 @@ export type PreparedRuntimeTarget = Pick<
 	leaseManaged?: boolean;
 	/** Opaque lifecycle-owned Docker namespace for runtime scanners. */
 	runtimeNamespaceOwnerId?: string;
-	runtimeScannerImages?: Partial<
-		Record<"nuclei-safe" | "zap-baseline" | "schemathesis", string>
-	>;
+	runtimeScannerImages?: RuntimeScannerImages;
 	runtimeDastFetch?: DastFetch;
 };
 
@@ -27,6 +36,10 @@ export interface RuntimeTargetProvider {
 	plan?: DastTargetStartPlan;
 	/** Immutable isolation inputs produced from the sanitized source projection. */
 	runtimeIsolationPlanning?: RuntimeIsolationPlanningResult;
+	/** Exact images that preflight must verify before this provider can run. */
+	preflightDockerImages?: readonly RuntimePreflightDockerImage[];
+	/** Scanner images used for version/data checks and eventual execution. */
+	runtimeScannerImages?: RuntimeScannerImages;
 	/** Releases a sanitized projection if preflight blocks before target start. */
 	dispose?(): Promise<void>;
 	prepare(input: {

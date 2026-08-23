@@ -101,7 +101,7 @@ export function digestFromImageRef(image: string): string {
 }
 
 function isDigestImageRef(value: string | undefined): value is string {
-	return Boolean(value && /^[^\s@]+@sha256:[a-f0-9]{64}$/.test(value));
+	return Boolean(value && /^(?:[^\s@]+@)?sha256:[a-f0-9]{64}$/.test(value));
 }
 
 function requiredImage(

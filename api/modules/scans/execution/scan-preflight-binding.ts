@@ -5,11 +5,11 @@ import type {
 } from "../../../../shared/schemas/scan-preflight.schema";
 import type { ScanProfile } from "../../../../shared/schemas/scan-profile.schema";
 import type { DastTargetStartPlan } from "../../dast/target-preparer";
-import { canonicalJson } from "./diff/diff-scan-plan";
-import { hashResolvedProfile } from "./resolved-profile";
 import type { ScannerDataManifest } from "../tools/scanner-provenance";
 import { DEFAULT_DOCKER_IMAGE } from "../tools/tool-process-policy";
 import type { ToolExecutionConfig } from "../tools/tool-process-runner";
+import { canonicalJson } from "./diff/diff-scan-plan";
+import { hashResolvedProfile } from "./resolved-profile";
 
 export type DockerProbe = {
 	ready: boolean;
@@ -41,6 +41,7 @@ export function buildScanPreflightBinding(params: {
 		.filter((item) => item.kind === "docker_image")
 		.map((item) => ({
 			id: item.id,
+			expectedDigest: item.expectedDigest,
 			observedDigest: item.observedDigest,
 			observedPlatform: item.observedPlatform ?? null,
 			status: item.status,
@@ -132,9 +133,7 @@ export function dockerImageIsCompatible(
 		Boolean(daemon.platform) &&
 		image.platform === daemon.platform &&
 		(expectedDigest === null ||
-			(image.repoDigests ?? []).some((digest) =>
-				digest.endsWith(`@${expectedDigest}`),
-			))
+			imageMatchesExpectedDigest(image, expectedDigest))
 	);
 }
 
@@ -146,15 +145,25 @@ export function dockerImageReason(
 	if (!image.ready) return image.reasonCode;
 	if (
 		expectedDigest !== null &&
-		!(image.repoDigests ?? []).some((digest) =>
-			digest.endsWith(`@${expectedDigest}`),
-		)
+		!imageMatchesExpectedDigest(image, expectedDigest)
 	) {
 		return "docker_image_digest_mismatch";
 	}
 	return dockerImageIsCompatible(image, daemon, expectedDigest)
 		? null
 		: "docker_image_platform_incompatible";
+}
+
+function imageMatchesExpectedDigest(
+	image: DockerImageProbe,
+	expectedDigest: string,
+): boolean {
+	return (
+		image.imageId === expectedDigest ||
+		(image.repoDigests ?? []).some((digest) =>
+			digest.endsWith(`@${expectedDigest}`),
+		)
+	);
 }
 
 export function dockerImageEvidenceRefs(image: DockerImageProbe): string[] {

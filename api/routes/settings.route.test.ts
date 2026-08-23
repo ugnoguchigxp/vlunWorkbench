@@ -13,6 +13,7 @@ const digest = `sha256:${"a".repeat(64)}`;
 
 const completeRuntimeIsolation = {
 	...RUNTIME_SETTINGS_DEFAULTS.runtimeIsolation,
+	qualificationVersion: 2 as const,
 	namespaceOwnerImage: `vuln-workbench-runtime@${digest}`,
 	nodeImage: `vuln-workbench-runtime@${digest}`,
 	materializerImage: `vuln-workbench-runtime@${digest}`,
@@ -303,6 +304,7 @@ describe("Settings route authorization", () => {
 		expect(updateRuntimeSettings).toHaveBeenCalledWith(
 			expect.objectContaining({ runtimeIsolation: expectedRuntimeIsolation }),
 			runtimeEnv,
+			{ trustRuntimeIsolationQualification: true },
 		);
 		expect(updateRuntimeSettings.mock.calls[0]?.[0]).not.toHaveProperty(
 			"runtimeIsolationMissingFields",

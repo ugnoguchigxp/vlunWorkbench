@@ -34,10 +34,36 @@ describe("docker runtime bundle", () => {
 			envKeys: ["DATABASE_URL"],
 		});
 		expect(argv).toContain("container:private-owner-id");
-		expect(argv).toContain("type=volume,src=workspace-volume,dst=/workspace,rw");
+		expect(argv).toContain(
+			"type=volume,src=workspace-volume,dst=/workspace,volume-nocopy",
+		);
 		expect(argv).toContain("DATABASE_URL");
 		expect(argv.join(" ")).not.toContain(":/workspace/repo");
 		expect(argv.join(" ")).not.toContain("--publish");
+	});
+
+	it("uses the executable bound into a Bun isolation plan", () => {
+		const argv = buildTargetArgs({
+			dockerBin: "docker",
+			name: "target",
+			image: "example/runtime@sha256:abc",
+			namespaceOwnerId: "private-owner-id",
+			workspaceVolume: "workspace-volume",
+			bundleId: "bundle",
+			scanRunId: "scan",
+			start: {
+				executable: "bun",
+				args: ["--bun", "run", "dev"],
+				port: 18080,
+				readinessPaths: ["/"],
+			},
+			envKeys: [],
+		});
+		expect(argv.slice(-4)).toEqual(["bun", "--bun", "run", "dev"]);
+		expect(argv).toContain("BUN_BE_BUN=1");
+		expect(argv.find((value) => value.startsWith("PATH="))).toContain(
+			"/opt/vuln-workbench-bun-bin",
+		);
 	});
 
 	it("cleans containers before volumes and networks", async () => {

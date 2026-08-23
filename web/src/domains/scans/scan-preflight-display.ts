@@ -30,7 +30,7 @@ const reasonDisplays: Record<string, PreflightReasonDisplay> = {
 		heading: "依存関係を安全に再現できないため、スキャンを開始できませんでした",
 		cause: "実行対象の依存関係ロックファイルを安全に再現できません。",
 		nextAction:
-			"対応する package-lock.json を用意し、依存関係を固定してから再実行してください。",
+			"npm の package-lock.json、またはBunのテキスト形式 bun.lock で依存関係を固定してから再実行してください。",
 	},
 	runtime_database_provider_unqualified: {
 		heading:
@@ -70,7 +70,7 @@ const reasonDisplays: Record<string, PreflightReasonDisplay> = {
 		heading: "依存関係の準備方法が未対応のため、スキャンを開始できませんでした",
 		cause: "このプロジェクトの依存関係を安全に準備する方法は現在未対応です。",
 		nextAction:
-			"npm と対応する package-lock.json を使用する構成にしてから、もう一度実行してください。",
+			"npm と package-lock.json、またはBunとテキスト形式 bun.lock を使用する構成にしてから、もう一度実行してください。",
 	},
 	runtime_image_missing: {
 		heading:
@@ -119,6 +119,14 @@ const reasonDisplays: Record<string, PreflightReasonDisplay> = {
 		cause: "Docker を利用できません。",
 		nextAction:
 			"Docker を起動し、接続できることを確認してから再実行してください。",
+	},
+	docker_image_unavailable: {
+		heading:
+			"スキャナー用コンテナイメージが未準備のため、スキャンを開始できませんでした",
+		cause:
+			"この診断に必要な固定スキャナーイメージをDockerが見つけられません。",
+		nextAction:
+			"管理者が［設定］→［Runtime］で「ローカルRuntimeを自動設定」を実行し、Nuclei・ZAP・Schemathesisの準備が完了してから再実行してください。",
 	},
 	project_code_execution_consent_required: {
 		heading: "実行の同意がないため、スキャンを開始できませんでした",

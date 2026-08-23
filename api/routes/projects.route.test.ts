@@ -275,6 +275,52 @@ describe("Projects Route", () => {
 	);
 
 	it(
+		"resolves persisted runtime settings for every preflight request",
+		async () => {
+			const staleEnv = readAppEnv({ NODE_ENV: "test" });
+			staleEnv.scanExecutionMode = "docker";
+			staleEnv.scanDockerImage = "missing-stale-toolbox:image";
+			const resolveRuntimeEnv = vi.fn(async () => ({
+				...staleEnv,
+				scanExecutionMode: "host" as const,
+			}));
+			const liveSettingsApp = new Hono();
+			liveSettingsApp.use("*", async (c, next) => {
+				c.set("authUser", {
+					userId: "user-123",
+					email: "user@example.com",
+					role: "member",
+				});
+				await next();
+			});
+			liveSettingsApp.route(
+				"/",
+				createProjectsRoute({
+					projectRepository: mockProjectRepo as any,
+					env: staleEnv,
+					resolveRuntimeEnv,
+					resolveProjectPath: mockResolveProjectPath,
+				}),
+			);
+
+			const res = await liveSettingsApp.request(
+				`/${PREFLIGHT_PROJECT_ID}/scans/preflight`,
+				{
+					method: "POST",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify({ profile: "baseline", runner: "host" }),
+				},
+			);
+
+			expect(res.status).toBe(200);
+			const body = await res.json();
+			expect(body.executionPlan.orchestrator.runner).toBe("host");
+			expect(resolveRuntimeEnv).toHaveBeenCalledOnce();
+		},
+		15_000,
+	);
+
+	it(
 		"reports an unavailable isolated runtime before a runtime scan is queued",
 		async () => {
 			const resolveRuntimeIsolationProviderFactory = vi.fn(() => null);
@@ -484,6 +530,13 @@ describe("Projects Route", () => {
 				second.executionPlan.planHash,
 			);
 			expect(runtimeIsolationProviderFactory).toHaveBeenCalledTimes(2);
+			expect(runtimeIsolationProviderFactory).toHaveBeenCalledWith(
+				expect.objectContaining({
+					scannerImageRequirements: [
+						{ role: "schemathesis", required: true },
+					],
+				}),
+			);
 			expect(dispose).toHaveBeenCalledTimes(2);
 			expect(cleanupSourceSnapshot).toHaveBeenCalledTimes(2);
 		},
@@ -500,8 +553,12 @@ describe("Projects Route", () => {
 		expect(res.status).toBe(400);
 	});
 
-	it("uses the current step timeout maximum after runtime settings change", async () => {
-		const env = readAppEnv({ NODE_ENV: "test" });
+	it("resolves persisted runtime settings for every scan start request", async () => {
+		const staleEnv = readAppEnv({ NODE_ENV: "test" });
+		const resolveRuntimeEnv = vi.fn(async () => ({
+			...staleEnv,
+			webScanStepTimeoutMaxSec: 120,
+		}));
 		const liveSettingsApp = new Hono();
 		liveSettingsApp.use("*", async (c, next) => {
 			c.set("authUser", {
@@ -521,11 +578,11 @@ describe("Projects Route", () => {
 			"/",
 			createProjectsRoute({
 				projectRepository: mockProjectRepo as any,
-				env,
+				env: staleEnv,
+				resolveRuntimeEnv,
 				resolveProjectPath: mockResolveProjectPath,
 			}),
 		);
-		env.webScanStepTimeoutMaxSec = 120;
 
 		const res = await liveSettingsApp.request("/p-1/scans", {
 			method: "POST",
@@ -537,6 +594,7 @@ describe("Projects Route", () => {
 		expect(await res.json()).toEqual({
 			message: "timeoutSec must be at most 120.",
 		});
+		expect(resolveRuntimeEnv).toHaveBeenCalledOnce();
 	});
 
 	it("POST /:projectId/scans admits a queued scan and returns 202 without waiting", async () => {

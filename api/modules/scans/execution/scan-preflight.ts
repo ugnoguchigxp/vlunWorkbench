@@ -13,6 +13,10 @@ import type {
 	ScanProfileStep,
 } from "../../../../shared/schemas/scan-profile.schema";
 import { getDastProfile } from "../../dast/profiles";
+import type {
+	RuntimePreflightDockerImage,
+	RuntimeScannerImages,
+} from "../../dast/runtime-target-provider";
 import type { DastTargetStartPlan } from "../../dast/target-preparer";
 import { ZAP_STABLE_IMAGE } from "../../runtime-scans/zap-image-policy";
 import { buildProfileInputBindings } from "../attestation/attestation-inputs";
@@ -125,6 +129,10 @@ export async function runScanPreflight(params: {
 	attestationBundle?: string;
 	trustPolicy?: string;
 	targetPlan?: DastTargetStartPlan;
+	/** Exact digest-pinned images used by an injected isolated runtime. */
+	runtimeDockerImages?: readonly RuntimePreflightDockerImage[];
+	/** Scanner-specific images used for binary and data qualification. */
+	runtimeScannerImages?: RuntimeScannerImages;
 	/**
 	 * Runtime-capable profiles may only start a local target through the
 	 * isolated runtime provider.  This is deliberately separate from a target
@@ -228,19 +236,44 @@ export async function runScanPreflight(params: {
 		);
 	}
 
+	const isolatedRuntime = params.isolatedRuntimeProviderAvailable === true;
 	const needsToolboxDocker =
 		params.execution.runner === "docker" &&
-		params.steps.some((step) => step.kind !== "dast");
+		params.steps.some(
+			(step) =>
+				step.kind !== "dast" &&
+				(!isolatedRuntime ||
+					step.kind === "static_tool" ||
+					step.kind === "sbom_export" ||
+					step.kind === "container_image_scan" ||
+					step.kind === "attestation_verify"),
+		);
 	const zapSteps = params.steps.filter(
 		(step) =>
-			step.kind === "runtime_scanner" && step.adapter === "zap-baseline",
+			!isolatedRuntime &&
+			step.kind === "runtime_scanner" &&
+			step.adapter === "zap-baseline",
+	);
+	const runtimeDockerImages = (params.runtimeDockerImages ?? []).filter(
+		(image) =>
+			!image.stepId.startsWith("api_schema_scan:") ||
+			[...repositorySchemas.entries()].some(
+				([stepId, applicability]) =>
+					stepId === image.stepId && applicability.schemaPresent,
+			),
 	);
 	const dockerBin = params.execution.docker?.dockerBin ?? "docker";
 	const toolboxImage = params.execution.docker?.image ?? DEFAULT_DOCKER_IMAGE;
 	let dockerProbe: DockerProbe | null = null;
 	let toolboxImageProbe: DockerImageProbe | null = null;
 	let zapImageProbe: DockerImageProbe | null = null;
-	if (needsToolboxDocker || zapSteps.length > 0) {
+	const runtimeImageReadinessByStepId = new Map<string, boolean>();
+	if (
+		needsToolboxDocker ||
+		zapSteps.length > 0 ||
+		isolatedRuntime ||
+		runtimeDockerImages.length > 0
+	) {
 		dockerProbe = await dependencies.probeDocker(dockerBin);
 		const required =
 			params.steps.some(
@@ -249,7 +282,7 @@ export async function runScanPreflight(params: {
 					(params.execution.runner === "docker" ||
 						(step.kind === "runtime_scanner" &&
 							step.adapter === "zap-baseline")),
-			) ?? false;
+			) || runtimeDockerImages.some((image) => image.required);
 		checks.push(
 			check({
 				id: "runtime:docker-daemon",
@@ -289,7 +322,8 @@ export async function runScanPreflight(params: {
 					),
 					action: "build_toolbox_image",
 					expectedDigest: digestFromImageRef(toolboxImage),
-					observedDigest: toolboxImageProbe.digest,
+					observedDigest:
+						toolboxImageProbe.digest ?? toolboxImageProbe.imageId ?? null,
 					expectedPlatform: dockerProbe.platform,
 					observedPlatform: toolboxImageProbe.platform,
 					evidenceRefs: dockerImageEvidenceRefs(toolboxImageProbe),
@@ -319,12 +353,58 @@ export async function runScanPreflight(params: {
 					),
 					action: "pull_pinned_image",
 					expectedDigest: digestFromImageRef(ZAP_STABLE_IMAGE),
-					observedDigest: zapImageProbe.digest,
+					observedDigest: zapImageProbe.digest ?? zapImageProbe.imageId ?? null,
 					expectedPlatform: dockerProbe.platform,
 					observedPlatform: zapImageProbe.platform,
 					evidenceRefs: dockerImageEvidenceRefs(zapImageProbe),
 				}),
 			);
+		}
+		if (dockerProbe.ready && runtimeDockerImages.length > 0) {
+			const probes = new Map<string, DockerImageProbe>();
+			for (const runtimeImage of runtimeDockerImages) {
+				const expectedDigest = runtimeImage.image
+					? digestFromImageRef(runtimeImage.image)
+					: null;
+				let imageProbe: DockerImageProbe | null = null;
+				if (runtimeImage.image) {
+					imageProbe = probes.get(runtimeImage.image) ?? null;
+					if (!imageProbe) {
+						imageProbe = await dependencies.probeDockerImage(
+							dockerBin,
+							runtimeImage.image,
+						);
+						probes.set(runtimeImage.image, imageProbe);
+					}
+				}
+				const ready = Boolean(
+					imageProbe &&
+						dockerImageIsCompatible(imageProbe, dockerProbe, expectedDigest),
+				);
+				runtimeImageReadinessByStepId.set(
+					runtimeImage.stepId,
+					(runtimeImageReadinessByStepId.get(runtimeImage.stepId) ?? true) &&
+						ready,
+				);
+				checks.push(
+					check({
+						id: `runtime:docker-image:isolated:${runtimeImage.role}`,
+						stepId: runtimeImage.stepId,
+						kind: "docker_image",
+						required: runtimeImage.required,
+						ready,
+						reasonCode: imageProbe
+							? dockerImageReason(imageProbe, dockerProbe, expectedDigest)
+							: "runtime_image_missing",
+						action: "pull_pinned_image",
+						expectedDigest,
+						observedDigest: imageProbe?.digest ?? imageProbe?.imageId ?? null,
+						expectedPlatform: dockerProbe.platform,
+						observedPlatform: imageProbe?.platform ?? null,
+						evidenceRefs: imageProbe ? dockerImageEvidenceRefs(imageProbe) : [],
+					}),
+				);
+			}
 		}
 	}
 
@@ -458,27 +538,41 @@ export async function runScanPreflight(params: {
 			step.kind === "runtime_scanner" &&
 			step.adapter === "nuclei-safe"
 		) {
+			const runtimeImage = isolatedRuntime
+				? params.runtimeScannerImages?.[step.adapter]
+				: undefined;
+			const scannerExecution = isolatedRuntime
+				? {
+						...params.execution,
+						runner: "docker" as const,
+						docker: {
+							...params.execution.docker,
+							image: runtimeImage ?? toolboxImage,
+						},
+					}
+				: params.execution;
 			await addScannerChecks({
 				checks,
 				stepId,
 				required: step.required,
 				scannerId: step.adapter,
-				execution: params.execution,
+				execution: scannerExecution,
 				manifest,
 				manifestFailure,
 				dockerBin,
-				toolboxImage,
-				toolboxReady:
-					params.execution.runner !== "docker" ||
-					Boolean(
-						dockerProbe &&
-							toolboxImageProbe &&
-							dockerImageIsCompatible(
-								toolboxImageProbe,
-								dockerProbe,
-								digestFromImageRef(toolboxImage),
-							),
-					),
+				toolboxImage: runtimeImage ?? toolboxImage,
+				toolboxReady: isolatedRuntime
+					? (runtimeImageReadinessByStepId.get(stepId) ?? false)
+					: params.execution.runner !== "docker" ||
+						Boolean(
+							dockerProbe &&
+								toolboxImageProbe &&
+								dockerImageIsCompatible(
+									toolboxImageProbe,
+									dockerProbe,
+									digestFromImageRef(toolboxImage),
+								),
+						),
 				dependencies,
 			});
 		} else if (step.kind === "attestation_verify") {
@@ -561,10 +655,25 @@ export async function runScanPreflight(params: {
 						: "not_applicable",
 			});
 			if (applicable) {
-				const version = await dependencies.probeScannerVersion(
-					"schemathesis",
-					params.execution,
-				);
+				const runtimeImage = isolatedRuntime
+					? params.runtimeScannerImages?.schemathesis
+					: undefined;
+				const runtimeImageReady =
+					runtimeImageReadinessByStepId.get(stepId) ?? false;
+				const scannerExecution = runtimeImage
+					? {
+							...params.execution,
+							runner: "docker" as const,
+							docker: { ...params.execution.docker, image: runtimeImage },
+						}
+					: params.execution;
+				const version =
+					isolatedRuntime && (!runtimeImage || !runtimeImageReady)
+						? null
+						: await dependencies.probeScannerVersion(
+								"schemathesis",
+								scannerExecution,
+							);
 				checks.push(
 					buildVersionCheck(
 						stepId,

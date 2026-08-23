@@ -3870,11 +3870,11 @@
 
 .workspace-scan-progress-steps li strong {
 	grid-column: 1 / -1;
-	overflow: hidden;
 	color: var(--color-ink);
 	font-size: 0.82rem;
-	text-overflow: ellipsis;
-	white-space: nowrap;
+	line-height: 1.35;
+	overflow-wrap: anywhere;
+	white-space: normal;
 }
 
 .workspace-scan-step-number {

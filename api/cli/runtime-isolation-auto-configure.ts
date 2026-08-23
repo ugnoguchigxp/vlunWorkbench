@@ -29,6 +29,7 @@ try {
 	const updated = await repository.updateRuntimeSettings(
 		{ ...input, runtimeIsolation: mergedRuntimeIsolation },
 		env,
+		{ trustRuntimeIsolationQualification: true },
 	);
 	console.log(
 		JSON.stringify(

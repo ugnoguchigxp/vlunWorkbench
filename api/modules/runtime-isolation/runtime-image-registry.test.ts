@@ -30,6 +30,23 @@ describe("runtime image registry", () => {
 		})).toBeNull();
 	});
 
+	it("accepts a bare local image ID as an immutable Docker reference", () => {
+		const localImageId = `sha256:${"a".repeat(64)}`;
+		const registry = loadRuntimeImageRegistry({
+			VULN_WORKBENCH_RUNTIME_NAMESPACE_OWNER_IMAGE: localImageId,
+			VULN_WORKBENCH_RUNTIME_NODE_IMAGE: localImageId,
+			VULN_WORKBENCH_RUNTIME_MATERIALIZER_IMAGE: localImageId,
+			VULN_WORKBENCH_RUNTIME_REGISTRY_PROXY_IMAGE: localImageId,
+			VULN_WORKBENCH_RUNTIME_PROBE_IMAGE: localImageId,
+			VULN_WORKBENCH_RUNTIME_HTTP_EXECUTOR_IMAGE: localImageId,
+		});
+
+		expect(registry).toMatchObject({ nodeRuntime: localImageId });
+		expect(runtimePlanImages(registry!).nodeRuntimeImageDigest).toBe(
+			localImageId,
+		);
+	});
+
 	it("rejects digest-looking values that are not a single image reference", () => {
 		expect(
 			loadRuntimeImageRegistry({

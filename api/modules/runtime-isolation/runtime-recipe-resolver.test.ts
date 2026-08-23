@@ -33,6 +33,21 @@ describe("resolveRuntimeTargetRecipe", () => {
 		expect(result).toMatchObject({ status: "ready", recipe: { database: { mode: "none" } } });
 	});
 
+	it("selects the Bun lock adapter for a Bun start plan", async () => {
+		const result = await resolveRuntimeTargetRecipe({
+			projectionPath: root,
+			inferTargetPlan: async () => ({
+				...(await inferTargetPlan()),
+				packageManager: "bun" as const,
+				command: ["bun", "run", "start"],
+			}),
+		});
+		expect(result).toMatchObject({
+			status: "ready",
+			recipe: { dependencyAdapterId: "bun-lock-v1" },
+		});
+	});
+
 	it("requires an explicit recipe for a detected database", async () => {
 		await fs.writeFile(path.join(root, "package.json"), JSON.stringify({ dependencies: { pg: "1.0.0" } }));
 		await expect(resolveRuntimeTargetRecipe({ projectionPath: root, inferTargetPlan })).resolves.toEqual({
@@ -54,5 +69,31 @@ describe("resolveRuntimeTargetRecipe", () => {
 		);
 		const result = await resolveRuntimeTargetRecipe({ projectionPath: root, inferTargetPlan });
 		expect(result).toMatchObject({ status: "ready", recipe: { database: { mode: "postgres_ephemeral" } } });
+	});
+
+	it("rejects an explicit recipe for a different package manager", async () => {
+		await fs.mkdir(path.join(root, ".vuln-workbench"));
+		await fs.writeFile(
+			path.join(root, ".vuln-workbench", "runtime-target.v1.json"),
+			JSON.stringify({
+				schemaVersion: 1,
+				startPlannerId: "build.npm",
+				dependencyAdapterId: "npm-package-lock-v1",
+				database: { mode: "none", environmentBindings: [] },
+			}),
+		);
+		await expect(
+			resolveRuntimeTargetRecipe({
+				projectionPath: root,
+				inferTargetPlan: async () => ({
+					...(await inferTargetPlan()),
+					packageManager: "bun" as const,
+					command: ["bun", "run", "start"],
+				}),
+			}),
+		).resolves.toEqual({
+			status: "blocked",
+			reasonCode: "runtime_dependency_adapter_unqualified",
+		});
 	});
 });

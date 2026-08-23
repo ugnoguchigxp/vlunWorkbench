@@ -63,12 +63,14 @@ describe("ScanProgressPanel", () => {
 			<ScanProgressPanel scan={scan} profile={profile} events={[event]} />,
 		);
 		expect(markup).toContain('aria-label="スキャン進捗"');
-		expect(markup).toContain("このスキャナーの検査内容");
+		expect(markup).toContain("現在の工程内容");
 		expect(markup).toContain("依存ライブラリ・OS パッケージの既知の脆弱性");
 		expect(markup).toContain("実行中");
+		expect(markup).toContain("実行前チェックと隔離環境の準備");
+		expect(markup).toContain("結果の集計と完了処理");
 	});
 
-	it("does not render for completed scans", () => {
+	it("keeps completed scan progress visible", () => {
 		const markup = renderToStaticMarkup(
 			<ScanProgressPanel
 				scan={{ ...scan, status: "completed", completedAt: scan.createdAt }}
@@ -76,7 +78,9 @@ describe("ScanProgressPanel", () => {
 				events={[]}
 			/>,
 		);
-		expect(markup).toBe("");
+		expect(markup).toContain('aria-label="スキャン進捗"');
+		expect(markup).toContain("完了");
+		expect(markup).toContain("スキャンの進捗");
 	});
 
 	it("explains the first planned scanner while the scan is queued", () => {
@@ -87,8 +91,19 @@ describe("ScanProgressPanel", () => {
 				events={[]}
 			/>,
 		);
-		expect(markup).toContain("次に実行するスキャナーの検査内容");
+		expect(markup).toContain("次の工程内容");
+		expect(markup).toContain("実行前チェックと隔離環境の準備");
 		expect(markup).toContain("Trivy");
-		expect(markup).toContain("Docker・IaC などの危険な設定");
+		expect(markup).toContain("Docker・スキャナーイメージ・隔離設定");
+	});
+
+	it("keeps preparation visible while scanner steps are being resolved", () => {
+		const markup = renderToStaticMarkup(
+			<ScanProgressPanel scan={scan} profile={null} events={[]} />,
+		);
+		expect(markup).toContain("終了した工程 0 / 2");
+		expect(markup).toContain("実行前チェックと隔離環境の準備");
+		expect(markup).toContain("実行計画を確定しています");
+		expect(markup).not.toContain("工程情報を読み込み中です");
 	});
 });

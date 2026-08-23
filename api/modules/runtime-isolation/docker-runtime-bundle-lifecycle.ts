@@ -1,15 +1,15 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import type { RuntimeIsolationPlanV1 } from "../../../shared/schemas/runtime-isolation.schema";
-import type { RuntimeImageRegistry } from "./runtime-image-registry";
 import {
 	buildDatabaseArgs,
 	buildNamespaceOwnerArgs,
 	buildTargetArgs,
 	cleanupRuntimeBundle,
-	runtimeBundleLabels,
 	type PrivateRuntimeBundleChild,
 	type PrivateRuntimeBundleReceipt,
+	runtimeBundleLabels,
 } from "./docker-runtime-bundle";
+import type { RuntimeImageRegistry } from "./runtime-image-registry";
 
 type RuntimeBundleLease = { id: string } | null;
 
@@ -164,13 +164,23 @@ export async function startDockerRuntimeBundle(params: {
 			registryProxy,
 			"--network",
 			buildEgress,
+			"--user",
+			"1000:1000",
 			"--read-only",
 			"--cap-drop",
 			"ALL",
 			"--security-opt",
 			"no-new-privileges",
+			"--memory",
+			"256m",
+			"--memory-swap",
+			"256m",
+			"--cpus",
+			"0.5",
+			"--pids-limit",
+			"64",
 			"--tmpfs",
-			"/tmp:rw,nosuid,nodev,size=128m",
+			"/tmp:rw,nosuid,nodev,size=128m,uid=1000,gid=1000",
 			...runtimeBundleLabels({
 				bundleId,
 				scanRunId: params.scanRunId,
@@ -213,15 +223,25 @@ export async function startDockerRuntimeBundle(params: {
 			materializer,
 			"--network",
 			"none",
+			"--user",
+			"0:0",
 			"--read-only",
 			"--cap-drop",
 			"ALL",
 			"--security-opt",
 			"no-new-privileges",
+			"--memory",
+			"256m",
+			"--memory-swap",
+			"256m",
+			"--cpus",
+			"0.5",
+			"--pids-limit",
+			"64",
 			"--mount",
 			`type=bind,src=${params.projectionPath},dst=/source,readonly`,
 			"--mount",
-			`type=volume,src=${workspaceVolume},dst=/workspace,rw`,
+			`type=volume,src=${workspaceVolume},dst=/workspace,volume-nocopy`,
 			...runtimeBundleLabels({
 				bundleId,
 				scanRunId: params.scanRunId,
@@ -240,6 +260,11 @@ export async function startDockerRuntimeBundle(params: {
 		await execute([dockerBin, "start", materializer]);
 		await execute([dockerBin, "wait", materializer]);
 		const dependencyFetch = `${prefix}-dependency-fetch`;
+		const registryUrl = `http://${registryProxy}:4873`;
+		const dependencyInstall = dependencyInstallCommand(
+			params.plan,
+			registryUrl,
+		);
 		await execute([
 			dockerBin,
 			"create",
@@ -254,12 +279,20 @@ export async function startDockerRuntimeBundle(params: {
 			"ALL",
 			"--security-opt",
 			"no-new-privileges",
+			"--memory",
+			"1g",
+			"--memory-swap",
+			"1g",
+			"--cpus",
+			"1",
+			"--pids-limit",
+			"256",
 			"--tmpfs",
 			"/runtime-home:rw,nosuid,nodev,size=256m,uid=1000,gid=1000",
 			"--tmpfs",
 			"/runtime-tmp:rw,nosuid,nodev,size=256m,uid=1000,gid=1000",
 			"--mount",
-			`type=volume,src=${workspaceVolume},dst=/workspace,rw`,
+			`type=volume,src=${workspaceVolume},dst=/workspace,volume-nocopy`,
 			"--workdir",
 			"/workspace",
 			"--env",
@@ -267,24 +300,22 @@ export async function startDockerRuntimeBundle(params: {
 			"--env",
 			"TMPDIR=/runtime-tmp",
 			"--env",
-			`npm_config_registry=http://${registryProxy}:4873`,
+			`npm_config_registry=${registryUrl}`,
 			"--env",
 			"npm_config_ignore_scripts=true",
 			"--env",
 			"npm_config_audit=false",
 			"--env",
 			"npm_config_fund=false",
+			"--env",
+			`BUN_CONFIG_REGISTRY=${registryUrl}`,
 			...runtimeBundleLabels({
 				bundleId,
 				scanRunId: params.scanRunId,
 				role: "dependency-fetch",
 			}),
 			params.images.nodeRuntime,
-			"npm",
-			"ci",
-			"--ignore-scripts",
-			"--audit=false",
-			"--fund=false",
+			...dependencyInstall,
 		]);
 		await remember({
 			role: "dependency-fetch",
@@ -293,6 +324,7 @@ export async function startDockerRuntimeBundle(params: {
 		});
 		await execute([dockerBin, "start", dependencyFetch]);
 		await execute([dockerBin, "wait", dependencyFetch]);
+		await execute([dockerBin, "stop", registryProxy]);
 
 		const database = databaseEnvironment(params.plan);
 		if (
@@ -320,6 +352,13 @@ export async function startDockerRuntimeBundle(params: {
 			);
 			await remember({ role: "database", kind: "container", id: databaseName });
 			await execute([dockerBin, "start", databaseName]);
+			await execute(
+				databaseReadinessArgs({
+					dockerBin,
+					containerName: databaseName,
+					mode: params.plan.database.mode,
+				}),
+			);
 		}
 
 		const target = `${prefix}-target`;
@@ -340,7 +379,10 @@ export async function startDockerRuntimeBundle(params: {
 		await remember({ role: "target", kind: "container", id: target });
 		await execute([dockerBin, "start", target]);
 		const probe = `${prefix}-probe`;
-		const readinessPath = params.plan.start.readinessPaths[0] ?? "/";
+		const readinessUrls = params.plan.start.readinessPaths.map(
+			(readinessPath) =>
+				`http://127.0.0.1:${params.plan.start.port}${readinessPath}`,
+		);
 		await execute([
 			dockerBin,
 			"create",
@@ -348,26 +390,34 @@ export async function startDockerRuntimeBundle(params: {
 			probe,
 			"--network",
 			`container:${owner}`,
+			"--user",
+			"1000:1000",
 			"--read-only",
 			"--cap-drop",
 			"ALL",
 			"--security-opt",
 			"no-new-privileges",
+			"--memory",
+			"128m",
+			"--memory-swap",
+			"128m",
+			"--cpus",
+			"0.25",
+			"--pids-limit",
+			"32",
 			"--tmpfs",
-			"/tmp:rw,nosuid,nodev,size=32m",
+			"/tmp:rw,nosuid,nodev,size=32m,uid=1000,gid=1000",
 			...runtimeBundleLabels({
 				bundleId,
 				scanRunId: params.scanRunId,
 				role: "probe",
 			}),
 			params.images.probe,
-			"wget",
-			"-q",
-			"-T",
-			"10",
-			"-O",
-			"/dev/null",
-			`http://127.0.0.1:${params.plan.start.port}${readinessPath}`,
+			"sh",
+			"-ceu",
+			'attempt=0; while test "$attempt" -lt 60; do for url; do if status="$(curl -sS --max-time 5 --max-filesize 1024 -o /dev/null -w "%{http_code}" -X GET "$url")"; then case "$status" in [1-4][0-9][0-9]) exit 0;; esac; fi; done; attempt=$((attempt+1)); sleep 1; done; exit 1',
+			"vuln-workbench-readiness-probe",
+			...readinessUrls,
 		]);
 		await remember({ role: "probe", kind: "container", id: probe });
 		await execute([dockerBin, "start", probe]);
@@ -401,6 +451,47 @@ export async function startDockerRuntimeBundle(params: {
 		}
 		throw error;
 	}
+}
+
+function databaseReadinessArgs(params: {
+	dockerBin: string;
+	containerName: string;
+	mode: "postgres_ephemeral" | "mysql_ephemeral";
+}): string[] {
+	const readinessCommand =
+		params.mode === "postgres_ephemeral"
+			? "pg_isready -h 127.0.0.1 -p 15432"
+			: "mysqladmin ping --host=127.0.0.1 --port=13306 --silent";
+	return [
+		params.dockerBin,
+		"exec",
+		params.containerName,
+		"sh",
+		"-ceu",
+		`attempt=0; until ${readinessCommand} >/dev/null 2>&1; do attempt=$((attempt+1)); test "$attempt" -lt 60; sleep 1; done`,
+	];
+}
+
+function dependencyInstallCommand(
+	plan: RuntimeIsolationPlanV1,
+	registryUrl: string,
+): string[] {
+	if (plan.dependency.adapterId === "bun-lock-v1") {
+		return [
+			"bun",
+			"install",
+			"--frozen-lockfile",
+			"--ignore-scripts",
+			"--no-progress",
+			"--no-save",
+			"--backend=copyfile",
+			"--cache-dir=/workspace/.bun-cache",
+			"--network-concurrency=8",
+			"--registry",
+			registryUrl,
+		];
+	}
+	return ["npm", "ci", "--ignore-scripts", "--audit=false", "--fund=false"];
 }
 
 async function stopDockerRuntimeBundle(params: {

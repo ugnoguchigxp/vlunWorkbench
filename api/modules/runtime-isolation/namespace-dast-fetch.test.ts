@@ -15,6 +15,9 @@ describe("namespace DAST fetch", () => {
 		expect(response.status).toBe(200);
 		expect(await response.text()).toBe("ok");
 		expect(argv).toContain("container:vwb-123e4567-e89b-12d3-a456-426614174000-owner");
+		expect(argv).toContain("1000:1000");
+		expect(argv).toContain("--memory");
+		expect(argv).toContain("--pids-limit");
 		expect(argv.join(" ")).not.toContain("Bearer secret");
 		expect(env?.VWB_HEADER_0).toContain("Bearer secret");
 		const blocked = await fetchImpl("http://example.invalid/");

@@ -19,6 +19,16 @@ function plan(mode: RuntimeIsolationPlanV1["database"]["mode"] = "postgres_ephem
 	};
 }
 
+function bunPlan(): RuntimeIsolationPlanV1 {
+	const base = plan("none");
+	return {
+		...base,
+		dependency: { adapterId: "bun-lock-v1", policyVersion: 1, lockDigest: digest },
+		start: { executable: "bun", args: ["--bun", "run", "dev"], port: 18080, readinessPaths: ["/"] },
+		images: { ...base.images, databaseImageDigest: null },
+	};
+}
+
 describe("docker runtime bundle lifecycle", () => {
 	it("persists every created child before start and keeps database secrets out of argv and receipts", async () => {
 		const calls: Array<{ argv: string[]; env?: Record<string, string> }> = [];
@@ -42,9 +52,93 @@ describe("docker runtime bundle lifecycle", () => {
 		const databaseCall = calls.find((call) => call.argv.includes("postgres@sha256:a"));
 		expect(databaseCall?.argv.join(" ")).not.toContain("POSTGRES_PASSWORD=");
 		expect(databaseCall?.env?.POSTGRES_PASSWORD).toBeTruthy();
+		const databaseStartIndex = calls.findIndex(
+			(call) =>
+				call.argv[1] === "start" &&
+				call.argv.at(-1)?.endsWith("-database"),
+		);
+		const databaseReadyIndex = calls.findIndex(
+			(call) =>
+				call.argv[1] === "exec" && call.argv.join(" ").includes("pg_isready"),
+		);
+		const targetCreateIndex = calls.findIndex(
+			(call) =>
+				call.argv[1] === "create" &&
+				call.argv[call.argv.indexOf("--name") + 1]?.endsWith("-target"),
+		);
+		expect(databaseReadyIndex).toBeGreaterThan(databaseStartIndex);
+		expect(databaseReadyIndex).toBeLessThan(targetCreateIndex);
 		const serialized = JSON.stringify({ calls: calls.map((call) => call.argv), receipts });
 		expect(serialized).not.toContain(databaseCall?.env?.POSTGRES_PASSWORD ?? "not-a-secret");
 		await bundle.stop();
 		expect(calls.filter((call) => call.argv[1] === "rm").length).toBeGreaterThan(0);
+	});
+
+	it("installs Bun dependencies from the isolated proxy with scripts disabled", async () => {
+		const calls: string[][] = [];
+		const runtimePlan = bunPlan();
+		runtimePlan.start.readinessPaths = ["/not-ready", "/health"];
+		const bundle = await startDockerRuntimeBundle({
+			scanRunId: "scan-bun",
+			projectionPath: "/private/sanitized-projection",
+			plan: runtimePlan,
+			planHash: digest,
+			images: { namespaceOwner: "owner", nodeRuntime: "runtime", materializer: "materializer", registryProxy: "proxy", probe: "probe", httpExecutor: "http" },
+			leaseRepository: { acquire: async () => ({ id: "lease-bun" }), updateActiveReceipt: async () => null, release: async () => null, quarantine: async () => null },
+			runner: { run: async (argv) => { calls.push(argv); return { exitCode: 0, stdout: argv[1] === "wait" ? "0\n" : "", stderr: "" }; } },
+		});
+		const dependencyCall = calls.find((argv) =>
+			argv.some((value) => value.endsWith("-dependency-fetch")),
+		);
+		expect(dependencyCall?.join(" ")).toContain("bun install --frozen-lockfile --ignore-scripts");
+		expect(dependencyCall?.join(" ")).toContain("--registry http://");
+		expect(dependencyCall?.join(" ")).toContain(
+			"--cache-dir=/workspace/.bun-cache --network-concurrency=8",
+		);
+		expect(dependencyCall?.join(" ")).toContain("volume-nocopy");
+		for (const suffix of [
+			"-registry-proxy",
+			"-materializer",
+			"-dependency-fetch",
+			"-probe",
+		]) {
+			const createCall = calls.find(
+				(argv) =>
+					argv[1] === "create" &&
+					argv[argv.indexOf("--name") + 1]?.endsWith(suffix),
+			);
+			expect(createCall).toContain("--memory");
+			expect(createCall).toContain("--pids-limit");
+			if (suffix === "-materializer") {
+				expect(createCall).toContain("0:0");
+			}
+		}
+		const proxyStopIndex = calls.findIndex(
+			(argv) => argv[1] === "stop" && argv.at(-1)?.endsWith("-registry-proxy"),
+		);
+		const targetCreateIndex = calls.findIndex(
+			(argv) =>
+				argv[1] === "create" &&
+				argv[argv.indexOf("--name") + 1]?.endsWith("-target"),
+		);
+		expect(proxyStopIndex).toBeGreaterThan(-1);
+		expect(proxyStopIndex).toBeLessThan(targetCreateIndex);
+		const targetCall = calls.find(
+			(argv) => argv.includes("runtime") && argv.at(-4) === "bun",
+		);
+		expect(targetCall?.slice(-4)).toEqual(["bun", "--bun", "run", "dev"]);
+		const probeCall = calls.find((argv) =>
+			argv.some((value) => value.endsWith("-probe")),
+		);
+		const probeScript = probeCall?.find((value) =>
+			value.includes("for url"),
+		);
+		expect(probeScript).toContain('"$url"');
+		expect(probeScript).toContain("[1-4][0-9][0-9]");
+		expect(probeCall?.slice(-2)).toEqual([
+			"http://127.0.0.1:18080/not-ready",
+			"http://127.0.0.1:18080/health",
+		]);
+		await bundle.stop();
 	});
 });

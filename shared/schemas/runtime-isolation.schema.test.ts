@@ -36,6 +36,16 @@ describe("runtime isolation schemas", () => {
 		).toThrow();
 	});
 
+	it("binds Bun recipes and plans to the Bun executable", () => {
+		const recipe = runtimeTargetRecipeV1Schema.parse({
+			schemaVersion: 1,
+			startPlannerId: "build.npm",
+			dependencyAdapterId: "bun-lock-v1",
+			database: { mode: "none", environmentBindings: [] },
+		});
+		expect(recipe.dependencyAdapterId).toBe("bun-lock-v1");
+	});
+
 	it("requires all runtime plan hashes and never accepts arbitrary network settings", () => {
 		const plan = {
 			schemaVersion: 1,
@@ -72,5 +82,28 @@ describe("runtime isolation schemas", () => {
 		};
 		expect(runtimeIsolationPlanV1Schema.parse(plan).network.kind).toBe("container_namespace");
 		expect(() => runtimeIsolationPlanV1Schema.parse({ ...plan, network: { kind: "host" } })).toThrow();
+		expect(() =>
+			runtimeIsolationPlanV1Schema.parse({
+				...plan,
+				dependency: { ...plan.dependency, adapterId: "bun-lock-v1" },
+			}),
+		).toThrow();
+		expect(() =>
+			runtimeIsolationPlanV1Schema.parse({
+				...plan,
+				start: { ...plan.start, args: ["exec", "server.js"] },
+			}),
+		).toThrow();
+		expect(
+			runtimeIsolationPlanV1Schema.parse({
+				...plan,
+				dependency: { ...plan.dependency, adapterId: "bun-lock-v1" },
+				start: {
+					...plan.start,
+					executable: "bun",
+					args: ["--bun", "run", "start"],
+				},
+			}).start.executable,
+		).toBe("bun");
 	});
 });

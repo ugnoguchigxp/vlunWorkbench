@@ -92,6 +92,7 @@ describe("SettingsRepository runtime settings", () => {
 		const env = readAppEnv({});
 		const digest = `sha256:${"a".repeat(64)}`;
 		const runtimeIsolation = {
+			qualificationVersion: 1 as const,
 			namespaceOwnerImage: `owner@${digest}`,
 			nodeImage: `node@${digest}`,
 			materializerImage: `materializer@${digest}`,
@@ -154,6 +155,56 @@ describe("SettingsRepository runtime settings", () => {
 		expect(legacyClientSave.runtimeIsolationConfigured).toBe(true);
 	});
 
+	it("migrates the legacy auto-configured local image syntax on read", async () => {
+		const digest = `sha256:${"a".repeat(64)}`;
+		const legacyImage = `vuln-workbench-runtime@${digest}`;
+		await connection.db.insert(runtimeSettings).values({
+			id: "global",
+			settings: {
+				scanExecutionMode: "docker",
+				allowHostScannerExecution: false,
+				scanDockerImage: "scanner:stable",
+				dockerMemory: "2g",
+				dockerCpus: 2,
+				dockerPidsLimit: 512,
+				scannerStdoutLimitBytes: 64 * 1024 * 1024,
+				scannerStderrLimitBytes: 8 * 1024 * 1024,
+				webProcessConcurrency: 2,
+				webScanQueueLimit: 32,
+				webScanStepTimeoutMaxSec: 3_600,
+				webScanWallClockTimeoutSec: 21_600,
+				codexSdkTimeoutMs: 600_000,
+				runtimeIsolation: {
+					qualificationVersion: 1,
+					namespaceOwnerImage: legacyImage,
+					nodeImage: legacyImage,
+					materializerImage: legacyImage,
+					registryProxyImage: legacyImage,
+					probeImage: legacyImage,
+					httpExecutorImage: legacyImage,
+					dockerDaemonIdentityHash: digest,
+					qualificationHash: digest,
+					postgresImage: "",
+					mysqlImage: "",
+					nucleiImage: "",
+					zapImage: "",
+					schemathesisImage: "",
+				},
+			},
+		});
+
+		const repository = new SettingsRepository(connection.db);
+		const response = await repository.getRuntimeSettings(readAppEnv({}));
+		const resolved = await repository.resolveAppEnv(readAppEnv({}));
+
+		expect(response.runtimeIsolation).toMatchObject({
+			namespaceOwnerImage: digest,
+			nodeImage: digest,
+			httpExecutorImage: digest,
+		});
+		expect(resolved.runtimeIsolation?.registryProxyImage).toBe(digest);
+	});
+
 	it("uses legacy environment isolation for a persisted record created before the field existed", async () => {
 		const digest = `sha256:${"b".repeat(64)}`;
 		const env = readAppEnv(runtimeIsolationEnvironment(digest));
@@ -182,6 +233,65 @@ describe("SettingsRepository runtime settings", () => {
 			qualificationHash: digest,
 		});
 		expect(resolved.runtimeIsolationConfigured).toBe(true);
+	});
+
+	it("allows only the trusted local qualification flow to upgrade Bun capability", async () => {
+		const repo = new SettingsRepository(connection.db);
+		const env = readAppEnv({});
+		const digestA = `sha256:${"a".repeat(64)}`;
+		const digestB = `sha256:${"b".repeat(64)}`;
+		const runtimeIsolation = {
+			qualificationVersion: 2 as const,
+			namespaceOwnerImage: `runtime@${digestA}`,
+			nodeImage: `runtime@${digestA}`,
+			materializerImage: `runtime@${digestA}`,
+			registryProxyImage: `runtime@${digestA}`,
+			probeImage: `runtime@${digestA}`,
+			httpExecutorImage: `runtime@${digestA}`,
+			dockerDaemonIdentityHash: digestA,
+			qualificationHash: digestA,
+			postgresImage: "",
+			mysqlImage: "",
+			nucleiImage: "",
+			zapImage: "",
+			schemathesisImage: "",
+		};
+		const update = {
+			scanExecutionMode: "docker" as const,
+			allowHostScannerExecution: false,
+			scanDockerImage: "scanner:stable",
+			dockerMemory: "2g",
+			dockerCpus: 1.5,
+			dockerPidsLimit: 256,
+			scannerStdoutLimitBytes: 32 * 1024 * 1024,
+			scannerStderrLimitBytes: 4 * 1024 * 1024,
+			webProcessConcurrency: 2,
+			webScanQueueLimit: 32,
+			webScanStepTimeoutMaxSec: 3_600,
+			webScanWallClockTimeoutSec: 21_600,
+			codexSdkTimeoutMs: 300_000,
+			runtimeIsolation,
+		};
+
+		const untrustedUpgrade = await repo.updateRuntimeSettings(update, env);
+		expect(untrustedUpgrade.runtimeIsolation.qualificationVersion).toBe(1);
+
+		const trustedUpgrade = await repo.updateRuntimeSettings(update, env, {
+			trustRuntimeIsolationQualification: true,
+		});
+		expect(trustedUpgrade.runtimeIsolation.qualificationVersion).toBe(2);
+
+		const changedImage = await repo.updateRuntimeSettings(
+			{
+				...update,
+				runtimeIsolation: {
+					...runtimeIsolation,
+					nodeImage: `runtime@${digestB}`,
+				},
+			},
+			env,
+		);
+		expect(changedImage.runtimeIsolation.qualificationVersion).toBe(1);
 	});
 
 	it("fails closed instead of rejecting the settings page for an invalid legacy bootstrap", async () => {

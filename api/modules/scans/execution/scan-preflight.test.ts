@@ -358,6 +358,260 @@ describe("scan preflight", () => {
     );
   });
 
+	it("checks the exact isolated scanner image instead of the toolbox image", async () => {
+		const selected = profile("runtime-web-safe");
+		const nucleiStep = selected.steps?.find(
+			(step) =>
+				step.kind === "runtime_scanner" && step.adapter === "nuclei-safe",
+		);
+		expect(nucleiStep).toBeDefined();
+		const image = `scanner-nuclei@${DIGEST}`;
+		const probeDockerImage = vi.fn(async () => ({
+			ready: true,
+			digest: null,
+			repoDigests: [],
+			imageId: DIGEST,
+			platform: "linux/amd64",
+			reasonCode: null,
+		}));
+		const probeScannerVersion = vi.fn(async () => "nuclei 3.11.1");
+		const result = await runScanPreflight({
+			profile: selected,
+			steps: [nucleiStep!],
+			repoPath: "/redacted/project",
+			execution: {
+				runner: "docker",
+				docker: { image: "unused-toolbox:local" },
+			},
+			mode: "enforced",
+			isolatedRuntimeProviderAvailable: true,
+			runtimeDockerImages: [
+				{
+					role: "scanner-nuclei",
+					stepId: "runtime_scanner:nuclei-safe",
+					image,
+					required: true,
+				},
+			],
+			runtimeScannerImages: { "nuclei-safe": image },
+			dependencies: dependencies({
+				loadManifest: async () => ({
+					...manifest(),
+					tools: {
+						...manifest().tools,
+						"nuclei-safe": {
+							version: "3.11.1",
+							dataKind: "template",
+							state: "ready",
+							path: null,
+							runtimePath: "/opt/vuln-workbench/nuclei-safe-templates",
+							digest: DIGEST,
+						},
+					},
+				}),
+				probeDockerImage,
+				probeScannerVersion,
+			}),
+		});
+
+		expect(result.limitationCodes).not.toContain("docker_image_unavailable");
+		expect(probeDockerImage).toHaveBeenCalledOnce();
+		expect(probeDockerImage).toHaveBeenCalledWith("docker", image);
+		expect(probeScannerVersion).toHaveBeenCalledWith(
+			"nuclei-safe",
+			expect.objectContaining({
+				docker: expect.objectContaining({ image }),
+			}),
+		);
+	});
+
+	it("checks Schemathesis in the exact isolated scanner image", async () => {
+		const selected = profile("api-schema-readonly");
+		const schemaStep = selected.steps?.find(
+			(step) => step.kind === "api_schema_scan",
+		);
+		expect(schemaStep).toBeDefined();
+		const image = DIGEST;
+		const probeDockerImage = vi.fn(async () => ({
+			ready: true,
+			digest: null,
+			repoDigests: [],
+			imageId: DIGEST,
+			platform: "linux/amd64",
+			reasonCode: null,
+		}));
+		const probeScannerVersion = vi.fn(async () => "schemathesis 4.0.0");
+
+		await runScanPreflight({
+			profile: selected,
+			steps: [schemaStep!],
+			repoPath: "/redacted/project",
+			execution: { runner: "host" },
+			mode: "enforced",
+			consentProjectCodeExecution: true,
+			isolatedRuntimeProviderAvailable: true,
+			runtimeDockerImages: [
+				{
+					role: "scanner-schemathesis",
+					stepId: "api_schema_scan:schemathesis",
+					image,
+					required: true,
+				},
+			],
+			runtimeScannerImages: { schemathesis: image },
+			dependencies: dependencies({
+				discoverRepositorySchema: async () => true,
+				probeDockerImage,
+				probeScannerVersion,
+			}),
+		});
+
+		expect(probeDockerImage).toHaveBeenCalledOnce();
+		expect(probeDockerImage).toHaveBeenCalledWith("docker", image);
+		expect(probeScannerVersion).toHaveBeenCalledWith(
+			"schemathesis",
+			expect.objectContaining({
+				runner: "docker",
+				docker: expect.objectContaining({ image }),
+			}),
+		);
+	});
+
+	it("does not fall back to a host scanner when an isolated image is missing", async () => {
+		const selected = profile("runtime-web-safe");
+		const nucleiStep = selected.steps?.find(
+			(step) =>
+				step.kind === "runtime_scanner" && step.adapter === "nuclei-safe",
+		);
+		expect(nucleiStep).toBeDefined();
+		const probeScannerVersion = vi.fn(async () => "nuclei 3.11.1");
+
+		const result = await runScanPreflight({
+			profile: selected,
+			steps: [nucleiStep!],
+			repoPath: "/redacted/project",
+			execution: { runner: "host" },
+			mode: "enforced",
+			consentProjectCodeExecution: true,
+			isolatedRuntimeProviderAvailable: true,
+			runtimeDockerImages: [
+				{
+					role: "scanner-nuclei",
+					stepId: "runtime_scanner:nuclei-safe",
+					image: null,
+					required: true,
+				},
+			],
+			dependencies: dependencies({
+				loadManifest: async () => ({
+					...manifest(),
+					tools: {
+						...manifest().tools,
+						"nuclei-safe": {
+							version: "3.11.1",
+							dataKind: "template",
+							state: "ready",
+							path: null,
+							runtimePath:
+								"/opt/vuln-workbench/nuclei-safe-templates",
+							digest: DIGEST,
+						},
+					},
+				}),
+				probeScannerVersion,
+			}),
+		});
+
+		expect(result.status).toBe("blocked");
+		expect(result.limitationCodes).toContain("runtime_image_missing");
+		expect(probeScannerVersion).not.toHaveBeenCalled();
+	});
+
+	it("blocks before startup when the exact isolated image is unavailable", async () => {
+		const selected = profile("runtime-http-check");
+		const result = await runScanPreflight({
+			profile: selected,
+			steps: selected.steps!,
+			repoPath: "/redacted/project",
+			execution: { runner: "docker", docker: { image: "unused:local" } },
+			mode: "enforced",
+			isolatedRuntimeProviderAvailable: true,
+			runtimeDockerImages: [
+				{
+					role: "node-runtime",
+					stepId: `profile:${selected.id}`,
+					image: `runtime@${DIGEST}`,
+					required: true,
+				},
+			],
+			dependencies: dependencies({
+				probeDockerImage: async () => ({
+					ready: false,
+					digest: null,
+					platform: null,
+					reasonCode: "docker_image_unavailable",
+				}),
+			}),
+		});
+
+		expect(result.status).toBe("blocked");
+		expect(result.limitationCodes).toContain("docker_image_unavailable");
+		expect(result.checks).toContainEqual(
+			expect.objectContaining({
+				id: "runtime:docker-image:isolated:node-runtime",
+				status: "blocked",
+			}),
+		);
+	});
+
+	it("binds preflight evidence to the exact local image ID", async () => {
+		const selected = profile("runtime-http-check");
+		const run = async (image: string) =>
+			await runScanPreflight({
+				profile: selected,
+				steps: selected.steps!,
+				repoPath: "/redacted/project",
+				execution: { runner: "host" },
+				mode: "enforced",
+				consentProjectCodeExecution: true,
+				isolatedRuntimeProviderAvailable: true,
+				runtimeDockerImages: [
+					{
+						role: "node-runtime",
+						stepId: `profile:${selected.id}`,
+						image,
+						required: true,
+					},
+				],
+				dependencies: dependencies({
+					probeDockerImage: async (_dockerBin, probedImage) => ({
+						ready: true,
+						digest: null,
+						repoDigests: [],
+						imageId: probedImage,
+						platform: "linux/amd64",
+						reasonCode: null,
+					}),
+				}),
+			});
+		const firstImage = `sha256:${"a".repeat(64)}`;
+		const secondImage = `sha256:${"b".repeat(64)}`;
+
+		const first = await run(firstImage);
+		const second = await run(secondImage);
+
+		expect(first.binding.dockerImagesHash).not.toBe(
+			second.binding.dockerImagesHash,
+		);
+		expect(first.checks).toContainEqual(
+			expect.objectContaining({
+				expectedDigest: firstImage,
+				observedDigest: firstImage,
+				status: "ready",
+			}),
+		);
+	});
+
 	it("keeps normal strict scans independent from the protected-CI qualification artifact", async () => {
     const selected = profile("api-schema-readonly");
     const result = await runScanPreflight({

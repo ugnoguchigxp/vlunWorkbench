@@ -101,6 +101,8 @@ export function buildTargetArgs(params: {
 	start: RuntimeIsolationPlanV1["start"];
 	envKeys: string[];
 }): string[] {
+	const bunPath =
+		"/opt/vuln-workbench-bun-bin:/usr/local/cargo/bin:/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
 	return [
 		params.dockerBin,
 		"create",
@@ -130,7 +132,7 @@ export function buildTargetArgs(params: {
 		"--tmpfs",
 		"/runtime-data:rw,nosuid,nodev,size=512m,uid=1000,gid=1000",
 		"--mount",
-		`type=volume,src=${params.workspaceVolume},dst=/workspace,rw`,
+		`type=volume,src=${params.workspaceVolume},dst=/workspace,volume-nocopy`,
 		"--workdir",
 		"/workspace",
 		"--env",
@@ -149,10 +151,13 @@ export function buildTargetArgs(params: {
 		"PORT=18080",
 		"--env",
 		"VULN_WORKBENCH_EPHEMERAL_RUNTIME=1",
+		...(params.start.executable === "bun"
+			? ["--env", `PATH=${bunPath}`, "--env", "BUN_BE_BUN=1"]
+			: []),
 		...params.envKeys.flatMap((key) => ["--env", key]),
 		...runtimeBundleLabels({ ...params, role: "target" }),
 		params.image,
-		"npm",
+		params.start.executable,
 		...params.start.args,
 	];
 }

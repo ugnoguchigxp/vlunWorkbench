@@ -14,7 +14,11 @@ import {
 	validateDastTargetConfig,
 } from "../dast/target-validator";
 import { canonicalJson } from "../scans/diff-scan-plan";
-import { buildDedicatedProfileAdmissionMetadata } from "../scans/dedicated-profile-admission";
+import {
+	buildDedicatedProfileAdmissionMetadata,
+	createDedicatedLaunchAttempt,
+} from "../scans/dedicated-profile-admission";
+import { ScanLaunchAttemptRepository } from "../scans/execution/scan-launch-attempt-repository";
 import { FindingRepository, ScanRepository } from "../scans/repositories";
 import { BusinessLogicRepository } from "./business-logic-repository";
 import {
@@ -27,6 +31,7 @@ export class BusinessLogicRunner {
 	private readonly business: BusinessLogicRepository;
 	private readonly dast: DastRepository;
 	private readonly scans: ScanRepository;
+	private readonly scanLaunchAttempts: ScanLaunchAttemptRepository;
 	private readonly findings: FindingRepository;
 	private readonly activeProjects = new Set<string>();
 
@@ -42,6 +47,7 @@ export class BusinessLogicRunner {
 		this.business = new BusinessLogicRepository(db);
 		this.dast = new DastRepository(db);
 		this.scans = new ScanRepository(db);
+		this.scanLaunchAttempts = new ScanLaunchAttemptRepository(db);
 		this.findings = new FindingRepository(db);
 	}
 
@@ -123,6 +129,20 @@ export class BusinessLogicRunner {
 				}),
 			);
 		}
+		const launchAttempt = await createDedicatedLaunchAttempt({
+			repository: this.scanLaunchAttempts,
+			projectId: params.projectId,
+			createdByUserId: params.ownerUserId,
+			canonicalProfileId: "business-logic-lab",
+			providedInputKinds: [
+				"disposable_target_ref",
+				"scenario_ref",
+				"rules_of_engagement_ref",
+				"execution_consent",
+			],
+			expectedLaunchDestination: "business_logic_workspace",
+			sanitizedInputSummary: { stateChanging: true },
+		});
 		const scan = await this.scans.createScanRun({
 			projectId: params.projectId,
 			profile: "business-logic-lab",
@@ -147,6 +167,10 @@ export class BusinessLogicRunner {
 					scope: "state-changing-business-logic-assessment",
 				},
 			},
+		});
+		await this.scanLaunchAttempts.admit({
+			attemptId: launchAttempt.id,
+			scanRunId: scan.id,
 		});
 		const run = await this.business.createRun({
 			scenarioId: saved.id,

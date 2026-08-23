@@ -120,7 +120,7 @@ export function buildPreflightCheck(params: {
 }
 
 export function digestFromImageRef(image: string): string | null {
-	const match = image.match(/@(sha256:[a-f0-9]{64})$/);
+	const match = image.match(/(?:^|@)(sha256:[a-f0-9]{64})$/);
 	return match?.[1] ?? null;
 }
 

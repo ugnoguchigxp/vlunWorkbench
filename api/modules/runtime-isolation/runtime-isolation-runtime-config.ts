@@ -2,6 +2,7 @@ import type { AppEnv } from "../../app/env";
 import {
 	type RuntimeIsolationSettings,
 	RuntimeIsolationSettingsSchema,
+	normalizeLegacyLocalRuntimeImageReferences,
 	runtimeIsolationSettingsFromBootstrap,
 } from "../../config/runtime-settings";
 import type { AppDatabase } from "../../db";
@@ -10,6 +11,9 @@ import { ScanResourceLeaseRepository } from "../scans/execution/lifecycle/scan-r
 import { createDockerRuntimeCommandRunner } from "./docker-runtime-command-runner";
 import { loadRuntimeImageRegistry } from "./runtime-image-registry";
 import { createRuntimeIsolationProviderFactory } from "./runtime-isolation-provider-factory";
+
+const NPM_ADAPTER = "npm-package-lock-v1" as const;
+const BUN_ADAPTER = "bun-lock-v1" as const;
 
 const digest = /^sha256:[a-f0-9]{64}$/;
 
@@ -28,7 +32,9 @@ export function loadRuntimeIsolationProviderFactory(params: {
 		params.settings ?? runtimeIsolationSettingsFromEnvironment(env),
 	);
 	if (!parsedSettings.success) return null;
-	const settings = parsedSettings.data;
+	const settings = normalizeLegacyLocalRuntimeImageReferences(
+		parsedSettings.data,
+	);
 	const images = loadRuntimeImageRegistry(runtimeImageEnvironment(settings));
 	const dockerDaemonIdentityHash = settings.dockerDaemonIdentityHash;
 	const qualificationHash = settings.qualificationHash;
@@ -43,6 +49,10 @@ export function loadRuntimeIsolationProviderFactory(params: {
 		images,
 		dockerDaemonIdentityHash,
 		qualificationHash,
+		qualifiedDependencyAdapterIds:
+			settings.qualificationVersion >= 2
+				? [NPM_ADAPTER, BUN_ADAPTER]
+				: [NPM_ADAPTER],
 		inferTargetPlan: inferDastTargetStartPlan,
 		leaseRepository: new ScanResourceLeaseRepository(params.db),
 		runner: createDockerRuntimeCommandRunner(),
@@ -58,8 +68,9 @@ export function runtimeIsolationSettingsFromAppEnv(
 
 function runtimeIsolationSettingsFromEnvironment(
 	env: Record<string, string | undefined>,
-): Record<string, string> {
+): Record<string, string | number> {
 	return {
+		qualificationVersion: 1,
 		namespaceOwnerImage: env.VULN_WORKBENCH_RUNTIME_NAMESPACE_OWNER_IMAGE ?? "",
 		nodeImage: env.VULN_WORKBENCH_RUNTIME_NODE_IMAGE ?? "",
 		materializerImage: env.VULN_WORKBENCH_RUNTIME_MATERIALIZER_IMAGE ?? "",
