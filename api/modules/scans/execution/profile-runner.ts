@@ -42,7 +42,7 @@ export type DastStepResult = {
 	kind: "dast";
 	profileId: string;
 	required: boolean;
-	status: "completed" | "failed" | "skipped";
+	status: "completed" | "failed" | "skipped" | "blocked";
 	outcome: string | null;
 	verdict?: string | null;
 	coverageStatus?: "covered" | "partial" | "gap" | null;
@@ -52,6 +52,8 @@ export type DastStepResult = {
 	dastRunId: string | null;
 	targetOrigin: string | null;
 	error: string | null;
+	reasonCode?: string | null;
+	artifactIds?: string[];
 	autoTarget?: {
 		scriptName: string;
 		command: string[];
@@ -71,7 +73,7 @@ export type CoverageStepResult = {
 	stepId: string;
 	adapter: string;
 	required: boolean;
-	status: "completed" | "failed" | "skipped";
+	status: "completed" | "failed" | "skipped" | "blocked";
 	applicability: "applicable" | "not_applicable";
 	reasonCode: string | null;
 	coverageEffect: "covered" | "partial" | "gap";

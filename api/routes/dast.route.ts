@@ -240,14 +240,14 @@ export function createDastRoute(deps: DastRouteDeps) {
 		}
 		const launchAttempt = parsed.data.catalogProfileId
 			? await createDedicatedLaunchAttempt({
-				repository: scanLaunchAttempts,
-				projectId,
-				createdByUserId: authUser.userId,
-				canonicalProfileId: parsed.data.catalogProfileId,
-				providedInputKinds: ["runtime_target", "auth_context_ref"],
-				expectedLaunchDestination: "dast_workspace",
-				sanitizedInputSummary: { dastProfileId: parsed.data.profileId },
-			})
+					repository: scanLaunchAttempts,
+					projectId,
+					createdByUserId: authUser.userId,
+					canonicalProfileId: parsed.data.catalogProfileId,
+					providedInputKinds: ["runtime_target", "auth_context_ref"],
+					expectedLaunchDestination: "dast_workspace",
+					sanitizedInputSummary: { dastProfileId: parsed.data.profileId },
+				})
 			: null;
 		const scanRunId = parsed.data.catalogProfileId
 			? (

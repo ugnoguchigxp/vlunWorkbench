@@ -123,8 +123,7 @@ const reasonDisplays: Record<string, PreflightReasonDisplay> = {
 	docker_image_unavailable: {
 		heading:
 			"スキャナー用コンテナイメージが未準備のため、スキャンを開始できませんでした",
-		cause:
-			"この診断に必要な固定スキャナーイメージをDockerが見つけられません。",
+		cause: "この診断に必要な固定スキャナーイメージをDockerが見つけられません。",
 		nextAction:
 			"管理者が［設定］→［Runtime］で「ローカルRuntimeを自動設定」を実行し、Nuclei・ZAP・Schemathesisの準備が完了してから再実行してください。",
 	},

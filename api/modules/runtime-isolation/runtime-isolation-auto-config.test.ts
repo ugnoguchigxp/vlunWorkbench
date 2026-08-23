@@ -3,6 +3,7 @@ import type { BoundedProcessResult } from "../processes/bounded-process-runner";
 import {
 	autoConfigureLocalRuntimeIsolation,
 	mergeAutoConfiguredRuntimeIsolationSettings,
+	pruneStaleLocalRuntimeImages,
 	type RuntimeIsolationAutoConfigRunner,
 } from "./runtime-isolation-auto-config";
 
@@ -48,6 +49,25 @@ function successfulRunner() {
 }
 
 describe("autoConfigureLocalRuntimeIsolation", () => {
+	it("prunes only dangling generations of the project runtime image", async () => {
+		const runner = vi.fn().mockResolvedValue(result());
+
+		await expect(pruneStaleLocalRuntimeImages({ runner })).resolves.toBe(true);
+		expect(runner).toHaveBeenCalledWith(
+			[
+				"docker",
+				"image",
+				"prune",
+				"--force",
+				"--filter",
+				"dangling=true",
+				"--filter",
+				"label=org.opencontainers.image.title=vuln-workbench isolated runtime",
+			],
+			{ timeoutMs: 30_000, outputLimitBytes: 4 * 1024 * 1024 },
+		);
+	});
+
 	it("preserves optional image settings while replacing auto-configured fields", () => {
 		const current = {
 			qualificationVersion: 1 as const,

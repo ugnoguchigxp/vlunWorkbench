@@ -102,6 +102,7 @@ export const scanArtifactKindSchema = z.enum([
 	"sbom",
 	"dast_raw_result",
 	"diagnostic_report",
+	"runtime_diagnostic",
 ]);
 export type ScanArtifactKind = z.infer<typeof scanArtifactKindSchema>;
 

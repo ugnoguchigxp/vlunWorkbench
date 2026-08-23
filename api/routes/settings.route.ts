@@ -13,11 +13,12 @@ import { checkLlmProviderHealth } from "../modules/llm-settings/provider-health"
 import {
 	autoConfigureLocalRuntimeIsolation,
 	mergeAutoConfiguredRuntimeIsolationSettings,
+	pruneStaleLocalRuntimeImages,
 	RuntimeIsolationAutoConfigError,
 } from "../modules/runtime-isolation/runtime-isolation-auto-config";
 import type {
-	SettingsRepository,
 	RuntimeSettingsUpdateOptions,
+	SettingsRepository,
 } from "../modules/settings/settings.repository";
 import { resolveProviderCredential } from "../providers/provider-credential-resolver";
 
@@ -31,6 +32,7 @@ type SettingsRouteDeps = {
 	runtimeEnv?: AppEnv;
 	onRuntimeSettingsUpdated?: (env: AppEnv) => void | Promise<void>;
 	autoConfigureRuntimeIsolation?: typeof autoConfigureLocalRuntimeIsolation;
+	pruneRuntimeIsolationImages?: typeof pruneStaleLocalRuntimeImages;
 };
 
 export function createSettingsRoute(deps: SettingsRouteDeps) {
@@ -41,6 +43,8 @@ export function createSettingsRoute(deps: SettingsRouteDeps) {
 	const llmRepo = deps.llmSettingsRepository;
 	const autoConfigureRuntimeIsolation =
 		deps.autoConfigureRuntimeIsolation ?? autoConfigureLocalRuntimeIsolation;
+	const pruneRuntimeIsolationImages =
+		deps.pruneRuntimeIsolationImages ?? pruneStaleLocalRuntimeImages;
 	const updateRuntimeSettings = async (
 		input: unknown,
 		options?: RuntimeSettingsUpdateOptions,
@@ -121,15 +125,19 @@ export function createSettingsRoute(deps: SettingsRouteDeps) {
 					runtimeIsolationMissingFields: _runtimeMissingFields,
 					...input
 				} = current;
-				return c.json(
-					await updateRuntimeSettings(
-						{
-							...input,
-							runtimeIsolation: mergedRuntimeIsolation,
-						},
-						{ trustRuntimeIsolationQualification: true },
-					),
+				const updated = await updateRuntimeSettings(
+					{
+						...input,
+						runtimeIsolation: mergedRuntimeIsolation,
+					},
+					{ trustRuntimeIsolationQualification: true },
 				);
+				if (!(await pruneRuntimeIsolationImages())) {
+					console.warn(
+						"Stale local runtime Docker images could not be pruned.",
+					);
+				}
+				return c.json(updated);
 			} catch (error) {
 				if (error instanceof RuntimeIsolationAutoConfigError) {
 					return c.json(

@@ -1,1 +1,6 @@
-{"schemaVersion":1,"profileId":"change-gate","policyId":"change-gate-v2","caseIds":["vulnerable","fixed","missing-dependency","cleanup"]}
+{
+	"schemaVersion": 1,
+	"profileId": "change-gate",
+	"policyId": "change-gate-v2",
+	"caseIds": ["vulnerable", "fixed", "missing-dependency", "cleanup"]
+}

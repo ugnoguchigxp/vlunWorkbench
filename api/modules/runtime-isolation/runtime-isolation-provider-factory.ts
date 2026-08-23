@@ -91,6 +91,12 @@ export function createRuntimeIsolationProviderFactory(params: {
 		const projection = await materializeRuntimeSourceProjection({
 			snapshot: input.sourceSnapshot,
 		});
+		let disposed = false;
+		const dispose = async () => {
+			if (disposed) return;
+			disposed = true;
+			await projection.cleanup();
+		};
 		try {
 			const scannerImageRequirements =
 				input.scannerImageRequirements ??
@@ -115,7 +121,7 @@ export function createRuntimeIsolationProviderFactory(params: {
 			if (planning.status === "blocked") {
 				return {
 					runtimeIsolationPlanning: planning,
-					dispose: async () => await projection.cleanup(),
+					dispose,
 					async prepare() {
 						throw new Error(planning.reasonCode);
 					},
@@ -137,31 +143,26 @@ export function createRuntimeIsolationProviderFactory(params: {
 				runtimeIsolationPlanning: planning,
 				preflightDockerImages: provider.preflightDockerImages,
 				runtimeScannerImages: provider.runtimeScannerImages,
-				dispose: async () => await projection.cleanup(),
+				dispose,
 				async prepare(prepareInput) {
-					try {
-						const target = await provider.prepare({
-							...prepareInput,
-							repoPath: projection.projectPath,
-						});
-						return {
-							...target,
-							stop: async () => {
-								try {
-									await target.stop();
-								} finally {
-									await projection.cleanup();
-								}
-							},
-						};
-					} catch (error) {
-						await projection.cleanup().catch(() => undefined);
-						throw error;
-					}
+					const target = await provider.prepare({
+						...prepareInput,
+						repoPath: projection.projectPath,
+					});
+					return {
+						...target,
+						stop: async () => {
+							try {
+								await target.stop();
+							} finally {
+								await dispose();
+							}
+						},
+					};
 				},
 			};
 		} catch (error) {
-			await projection.cleanup().catch(() => undefined);
+			await dispose().catch(() => undefined);
 			throw error;
 		}
 	};

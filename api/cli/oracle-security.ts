@@ -441,10 +441,17 @@ function compactText(value: string, maxLength: number) {
 }
 
 function summarizeCoverage(stepResults: ProfileScanResult["stepResults"]) {
-	const coverage = { completed: 0, skipped: 0, failed: 0, gaps: [] } as {
+	const coverage = {
+		completed: 0,
+		skipped: 0,
+		failed: 0,
+		blocked: 0,
+		gaps: [],
+	} as {
 		completed: number;
 		skipped: number;
 		failed: number;
+		blocked: number;
 		gaps: Array<{ code: string; message: string }>;
 	};
 	for (const step of stepResults) {

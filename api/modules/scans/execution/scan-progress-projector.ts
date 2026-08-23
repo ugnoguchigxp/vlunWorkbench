@@ -9,8 +9,8 @@ type ProgressEvent = {
 	data: Record<string, unknown>;
 };
 
-export type ScanProgressSnapshotV2 = {
-	schemaVersion: 2;
+export type ScanProgressSnapshotV3 = {
+	schemaVersion: 3;
 	runId: string;
 	planHash: string;
 	currentPhase:
@@ -23,7 +23,14 @@ export type ScanProgressSnapshotV2 = {
 		| "terminal";
 	steps: Array<{
 		stepId: string;
-		status: "pending" | "running" | "completed" | "failed" | "not_applicable";
+		status:
+			| "pending"
+			| "running"
+			| "completed"
+			| "failed"
+			| "skipped"
+			| "blocked"
+			| "not_applicable";
 		completedUnits: number | null;
 		totalUnits: number | null;
 		safeMessage: string | null;
@@ -33,11 +40,11 @@ export type ScanProgressSnapshotV2 = {
 	lastEventSeq: number;
 };
 
-type ProjectedStepStatus = ScanProgressSnapshotV2["steps"][number]["status"];
+type ProjectedStepStatus = ScanProgressSnapshotV3["steps"][number]["status"];
 
 function phaseForEvent(
 	eventType: string,
-): ScanProgressSnapshotV2["currentPhase"] | null {
+): ScanProgressSnapshotV3["currentPhase"] | null {
 	if (eventType === "scan.queued") return "queued";
 	if (eventType === "scan.started") return "resource_preparation";
 	if (eventType === "scan.cleanup.started") return "cleanup";
@@ -58,7 +65,7 @@ export function projectScanProgress(params: {
 	planHash: string;
 	steps: PlanStep[];
 	events: ProgressEvent[];
-}): ScanProgressSnapshotV2 {
+}): ScanProgressSnapshotV3 {
 	if (params.steps.length === 0)
 		throw new Error("scan_progress_plan_has_no_steps");
 	const statuses = new Map<string, ProjectedStepStatus>(
@@ -73,7 +80,7 @@ export function projectScanProgress(params: {
 		),
 	);
 	const messages = new Map<string, string | null>();
-	let currentPhase: ScanProgressSnapshotV2["currentPhase"] = "queued";
+	let currentPhase: ScanProgressSnapshotV3["currentPhase"] = "queued";
 	let lastEventSeq = 0;
 	for (const event of params.events) {
 		lastEventSeq = Math.max(lastEventSeq, event.seq);
@@ -92,7 +99,11 @@ export function projectScanProgress(params: {
 					? "completed"
 					: outcome === "not_applicable"
 						? "not_applicable"
-						: "failed",
+						: outcome === "blocked"
+							? "blocked"
+							: outcome === "skipped"
+								? "skipped"
+								: "failed",
 			);
 			messages.set(
 				stepId,
@@ -110,7 +121,7 @@ export function projectScanProgress(params: {
 		safeMessage: messages.get(step.stepId) ?? null,
 	}));
 	return {
-		schemaVersion: 2,
+		schemaVersion: 3,
 		runId: params.runId,
 		planHash: params.planHash,
 		currentPhase,

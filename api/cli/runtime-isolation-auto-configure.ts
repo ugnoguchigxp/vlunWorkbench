@@ -3,6 +3,7 @@ import { createDbConnection } from "../db";
 import {
 	autoConfigureLocalRuntimeIsolation,
 	mergeAutoConfiguredRuntimeIsolationSettings,
+	pruneStaleLocalRuntimeImages,
 } from "../modules/runtime-isolation/runtime-isolation-auto-config";
 import { SettingsRepository } from "../modules/settings/settings.repository";
 
@@ -31,6 +32,9 @@ try {
 		env,
 		{ trustRuntimeIsolationQualification: true },
 	);
+	if (!(await pruneStaleLocalRuntimeImages())) {
+		console.warn("Stale local runtime Docker images could not be pruned.");
+	}
 	console.log(
 		JSON.stringify(
 			{

@@ -1,1 +1,6 @@
-{"schemaVersion":1,"profileId":"release-artifact","policyId":"release-artifact-v2","caseIds":["filesystem","image-ref","image-tar","hash-drift","cleanup"]}
+{
+	"schemaVersion": 1,
+	"profileId": "release-artifact",
+	"policyId": "release-artifact-v2",
+	"caseIds": ["filesystem", "image-ref", "image-tar", "hash-drift", "cleanup"]
+}

@@ -113,7 +113,9 @@ export async function createDedicatedLaunchAttempt(params: {
 		providedInputKinds: params.providedInputKinds,
 		expectedLaunchDestination: params.expectedLaunchDestination,
 	});
-	const canonicalProfileId = canonicalProfileIdSchema.parse(admission.profileId);
+	const canonicalProfileId = canonicalProfileIdSchema.parse(
+		admission.profileId,
+	);
 	const definition = getScanProfileDefinition(canonicalProfileId);
 	return await params.repository.create({
 		projectId: params.projectId,

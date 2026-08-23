@@ -17,7 +17,9 @@ type ScanLaunchesRouteDeps = {
 	resolveRuntimeEnv: () => Promise<AppEnv>;
 };
 
-function runtimeDependencySettings(env: AppEnv): Record<string, string | undefined> {
+function runtimeDependencySettings(
+	env: AppEnv,
+): Record<string, string | undefined> {
 	return {
 		VULN_WORKBENCH_RUNTIME_NUCLEI_IMAGE:
 			env.runtimeIsolation?.nucleiImage || undefined,

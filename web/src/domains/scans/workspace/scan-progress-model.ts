@@ -120,7 +120,8 @@ function initialItems(
 	);
 	const queuedProgressSteps = Array.isArray(scan.metadata.queuedProgressSteps)
 		? scan.metadata.queuedProgressSteps.flatMap((value) => {
-				if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+				if (!value || typeof value !== "object" || Array.isArray(value))
+					return [];
 				const step = value as Record<string, unknown>;
 				if (
 					typeof step.stepId !== "string" ||
@@ -153,7 +154,7 @@ function initialItems(
 					required: step.required,
 				};
 			})
-		: profile?.steps ?? queuedProgressSteps;
+		: (profile?.steps ?? queuedProgressSteps);
 	return definitions.map((step) => {
 		const display = getScanStepDisplay(
 			step.stepId,

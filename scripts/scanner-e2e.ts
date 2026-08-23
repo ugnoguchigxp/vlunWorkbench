@@ -29,6 +29,10 @@ import { scannerE2ECaseIdentityHash } from "../api/modules/scans/scanner-e2e-qua
 import { scanPreflightResultSchema } from "../shared/schemas/scan-preflight.schema";
 import { scannerE2EFullProfileEvidenceSchema } from "../shared/schemas/scanner-e2e-full-profile.schema";
 import { scannerE2EEvidenceBundleV2Schema } from "../shared/schemas/scanner-e2e-v2.schema";
+import {
+	retainOnlyScannerE2EPinnedImage,
+	scannerE2EPinnedTag,
+} from "./docker-image-retention";
 import { canonicalJson, sha256 } from "./scanner-e2e-case-registry";
 import { normalizedFullProfileRun } from "./scanner-e2e-full-profile-lib";
 import { loadScannerE2ECaseRegistryV2 } from "./scanner-e2e-v2-case-registry";
@@ -114,7 +118,7 @@ async function resolveImmutableDockerImage(params: {
 	if (inspected.exitCode !== 0 || !/^sha256:[a-f0-9]{64}$/.test(imageId)) {
 		throw new Error(`scanner_e2e_toolbox_image_unavailable:${params.image}`);
 	}
-	const pinnedTag = `vuln-workbench-scanner-e2e-pinned:${imageId.slice("sha256:".length, "sha256:".length + 24)}`;
+	const pinnedTag = scannerE2EPinnedTag(imageId);
 	const tagged = await command(
 		["docker", "image", "tag", imageId, pinnedTag],
 		params.env,
@@ -122,6 +126,11 @@ async function resolveImmutableDockerImage(params: {
 	if (tagged.exitCode !== 0) {
 		throw new Error(`scanner_e2e_toolbox_image_pin_failed:${imageId}`);
 	}
+	await retainOnlyScannerE2EPinnedImage({
+		keepTag: pinnedTag,
+		env: params.env,
+		command,
+	});
 	return { reference: pinnedTag, digest: imageId };
 }
 

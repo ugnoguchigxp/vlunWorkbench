@@ -279,7 +279,7 @@ function observeStep(stepId: string, result: ScanProfileStepResult) {
 
 function knownReasonCodes(
 	codes: string[],
-	status: "completed" | "failed" | "skipped",
+	status: "completed" | "failed" | "skipped" | "blocked",
 ): ScanReasonCode[] {
 	const known = codes.flatMap((code) => {
 		const parsed = scanReasonCodeSchema.safeParse(code);

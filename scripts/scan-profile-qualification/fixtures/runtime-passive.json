@@ -1,1 +1,6 @@
-{"schemaVersion":1,"profileId":"runtime-passive","policyId":"runtime-passive-v2","caseIds":["vulnerable","fixed","missing-image","step-failure","cleanup"]}
+{
+	"schemaVersion": 1,
+	"profileId": "runtime-passive",
+	"policyId": "runtime-passive-v2",
+	"caseIds": ["vulnerable", "fixed", "missing-image", "step-failure", "cleanup"]
+}

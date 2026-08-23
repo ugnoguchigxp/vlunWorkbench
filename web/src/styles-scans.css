@@ -4023,6 +4023,9 @@
 
 .workspace-scan-progress-steps .state-running .workspace-scan-step-icon {
 	color: var(--color-warning);
+}
+
+.workspace-scan-progress-steps .state-running .workspace-scan-step-icon svg {
 	animation: workspace-scan-spin 0.9s linear infinite;
 }
 
@@ -4064,7 +4067,7 @@
 @media (prefers-reduced-motion: reduce) {
 	.workspace-scan-progress-track > span,
 	.workspace-scan-current-spinner,
-	.workspace-scan-progress-steps .state-running .workspace-scan-step-icon {
+	.workspace-scan-progress-steps .state-running .workspace-scan-step-icon svg {
 		animation: none;
 		transition: none;
 	}

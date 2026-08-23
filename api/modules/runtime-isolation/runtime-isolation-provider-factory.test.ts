@@ -251,4 +251,27 @@ describe("runtime isolation provider factory", () => {
 			await fs.rm(root, { recursive: true, force: true });
 		}
 	});
+
+	it("keeps the projection until the run-level owner disposes a failed preparation", async () => {
+		const root = await fs.mkdtemp(path.join(os.tmpdir(), "runtime-provider-factory-failure-"));
+		try {
+			await fs.writeFile(path.join(root, "package.json"), JSON.stringify({ scripts: { start: "node server.js" } }));
+			await fs.writeFile(path.join(root, "package-lock.json"), JSON.stringify({ lockfileVersion: 3, packages: { "": { name: "sample" } } }));
+			const factory = createRuntimeIsolationProviderFactory({
+				images: { namespaceOwner: image("owner"), nodeRuntime: image("node"), materializer: image("materializer"), registryProxy: image("proxy"), probe: image("probe"), httpExecutor: image("http") },
+				dockerDaemonIdentityHash: digest, qualificationHash: digest,
+				inferTargetPlan: async ({ repoPath, port }) => ({ pluginId: "build.npm", repoPath, scriptName: "start", script: "node server.js", packageManager: "npm", command: ["npm", "run", "start"], env: {}, requiresProjectCodeConsent: false, port, origin: `http://127.0.0.1:${port}`, readinessPaths: ["/"], warnings: [] }),
+				leaseRepository: { acquire: async () => ({ id: "lease" }), updateActiveReceipt: async () => null, release: async () => null, quarantine: async () => null },
+				runner: { run: async () => ({ exitCode: 1, stdout: "", stderr: "create failed" }) },
+			});
+			const provider = await factory({ scanRunId: "scan", profileId: "runtime-web-safe", sourceSnapshot: { projectPath: root, snapshotDigest: "c".repeat(64), rootPath: root, sourceRevision: "c".repeat(40), cleanup: async () => {} } });
+			const projectionPath = provider.plan?.repoPath;
+			await expect(provider.prepare({ repoPath: root, readinessTimeoutMs: 1_000, consentProjectCodeExecution: true })).rejects.toThrow();
+			await expect(fs.access(projectionPath ?? "")).resolves.toBeNull();
+			await provider.dispose?.();
+			await expect(fs.access(projectionPath ?? "")).rejects.toThrow();
+		} finally {
+			await fs.rm(root, { recursive: true, force: true });
+		}
+	});
 });

@@ -10,10 +10,7 @@ import {
 	preflightBlockedStepResult,
 } from "./profile-step-results";
 import { scanProfileStepId } from "./scan-execution-plan-builder";
-import {
-	prepareSharedRuntimeTarget,
-	type SharedRuntimeTarget,
-} from "./shared-runtime-target";
+import { RuntimeTargetSession } from "./shared-runtime-target";
 import { ScanResourceLeaseRepository } from "./lifecycle/scan-resource-lease-repository";
 
 function lifecycleOutcome(params: {
@@ -76,6 +73,13 @@ function lifecycleOutcome(params: {
 			reasonCode: reasonCode ?? "execution_failed",
 		};
 	}
+	if (result.status === "blocked") {
+		return {
+			outcome: "blocked",
+			findingCount: result.findingCount,
+			reasonCode: reasonCode ?? "runtime_target_unavailable",
+		};
+	}
 	if ("applicability" in result && result.applicability === "not_applicable") {
 		return {
 			outcome: "not_applicable",
@@ -114,34 +118,32 @@ export async function executeProfileSteps(
 	const executionSteps = new Map(
 		params.executionPlan.steps.map((planned) => [planned.stepId, planned]),
 	);
-	const sharedRuntimeTarget: { current: SharedRuntimeTarget | null } = {
-		current: null,
-	};
+	const runtimeTargetSession = new RuntimeTargetSession({
+		repoPath: params.repoPath,
+		consentProjectCodeExecution: params.consentProjectCodeExecution,
+		runtimeTargetProvider: params.runtimeTargetProvider,
+	});
 	const resourceLeases = new ScanResourceLeaseRepository(params.db);
 	let runtimeTargetLeaseId: string | null = null;
 	const ensureSharedRuntimeTarget = async () => {
-		if (!sharedRuntimeTarget.current) {
-			sharedRuntimeTarget.current = await prepareSharedRuntimeTarget({
-				repoPath: params.repoPath,
-				consentProjectCodeExecution: params.consentProjectCodeExecution,
-				runtimeTargetProvider: params.runtimeTargetProvider,
-			});
-			const lease = sharedRuntimeTarget.current.leaseManaged
+		const target = await runtimeTargetSession.ensure();
+		if (!runtimeTargetLeaseId) {
+			const lease = target.leaseManaged
 				? null
 				: await resourceLeases.acquire({
 						scanRunId: scanRun.id,
 						stepId: "runtime-target",
 						resourceType: "runtime_target",
 						provider: params.runtimeTargetProvider ? "injected" : "local",
-						externalId: `${scanRun.id}:${sharedRuntimeTarget.current.origin}`,
-						receipt: { origin: sharedRuntimeTarget.current.origin },
+						externalId: `${scanRun.id}:${target.origin}`,
+						receipt: { origin: target.origin },
 						leaseExpiresAt: new Date(
 							Date.now() + Math.max(profile.defaultTimeoutSec, 60) * 1_000,
 						),
 					});
 			runtimeTargetLeaseId = lease?.id ?? null;
 		}
-		return sharedRuntimeTarget.current;
+		return target;
 	};
 	let profileFailingToolFailed = false;
 	let optionalToolFailed = Boolean(
@@ -222,6 +224,20 @@ export async function executeProfileSteps(
 					});
 					if (result.toolResult) toolResults.push(result.toolResult);
 					stepResults.push(result.stepResult);
+					continue;
+				}
+
+				const runtimeFailure = runtimeTargetSession.getFailure();
+				if (requiresRuntimeTarget(step) && runtimeFailure) {
+					lifecycleReasonCode = "runtime_target_unavailable";
+					const blocked = runtimeBlockedStepResult({
+						step,
+						stepId,
+						error: runtimeFailure.message,
+						artifactIds: runtimeFailure.diagnosticArtifactIds,
+					});
+					if (blocked.toolResult) toolResults.push(blocked.toolResult);
+					stepResults.push(blocked.stepResult);
 					continue;
 				}
 
@@ -355,9 +371,9 @@ export async function executeProfileSteps(
 		executionError = error;
 	}
 	let cleanupFailed = false;
-	if (sharedRuntimeTarget.current) {
+	if (runtimeTargetSession.getState() !== "idle") {
 		try {
-			await sharedRuntimeTarget.current.stop();
+			await runtimeTargetSession.dispose();
 			if (runtimeTargetLeaseId) {
 				await resourceLeases.release(runtimeTargetLeaseId, {
 					stopped: true,
@@ -400,5 +416,65 @@ export async function executeProfileSteps(
 		stepResults,
 		profileFailingToolFailed,
 		optionalToolFailed,
+	};
+}
+
+function requiresRuntimeTarget(
+	step: import("../../../../shared/schemas/scan-profile.schema").ScanProfileStep,
+): step is Exclude<
+	import("../../../../shared/schemas/scan-profile.schema").ScanProfileStep,
+	{ kind: "static_tool" }
+> {
+	return (
+		step.kind === "dast" ||
+		step.kind === "runtime_scanner" ||
+		step.kind === "api_schema_scan"
+	);
+}
+
+function runtimeBlockedStepResult(params: {
+	step: Exclude<
+		import("../../../../shared/schemas/scan-profile.schema").ScanProfileStep,
+		{ kind: "static_tool" }
+	>;
+	stepId: string;
+	error: string;
+	artifactIds: string[];
+}): { toolResult: ToolResult | null; stepResult: ScanProfileStepResult } {
+	const common = {
+		status: "blocked" as const,
+		findingCount: 0,
+		error: params.error,
+	};
+	if (params.step.kind === "dast")
+		return {
+			toolResult: null,
+			stepResult: {
+				kind: "dast",
+				profileId: params.step.profileId,
+				required: params.step.required,
+				...common,
+				outcome: null,
+				coverageStatus: "gap",
+				limitationCodes: ["runtime_target_unavailable"],
+				reasonCode: "runtime_target_unavailable",
+				artifactIds: params.artifactIds,
+				dastRunId: null,
+				targetOrigin: null,
+			},
+		};
+	return {
+		toolResult: null,
+		stepResult: {
+			kind: params.step.kind,
+			stepId: params.stepId,
+			adapter: params.step.adapter,
+			required: params.step.required,
+			...common,
+			applicability: "applicable",
+			reasonCode: "runtime_target_unavailable",
+			coverageEffect: "gap",
+			artifactIds: params.artifactIds,
+		},
 	};
 }

@@ -38,6 +38,7 @@ const ROLE_LOCATION: Record<
 	sbom: { subDir: "sbom", extension: "json" },
 	dast_raw_result: { subDir: "dast", extension: "json" },
 	diagnostic_report: { subDir: "diagnostic", extension: "md" },
+	runtime_diagnostic: { subDir: "runtime", extension: "json" },
 };
 
 /**

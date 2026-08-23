@@ -136,7 +136,10 @@ export function createDockerRuntimeTargetProvider(params: {
 			if (!input.consentProjectCodeExecution) {
 				throw new Error("project_code_execution_consent_required");
 			}
-			const bundle = await startDockerRuntimeBundle(params);
+			const bundle = await startDockerRuntimeBundle({
+				...params,
+				readinessTimeoutMs: input.readinessTimeoutMs,
+			});
 			return {
 				origin: bundle.origin,
 				targetConfig: {

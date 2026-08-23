@@ -1,1 +1,11 @@
-{"schemaVersion":1,"profileId":"professional-full","policyId":"professional-full-v2","caseIds":["qualified-children","child-failure","r3-excluded","review-pending"]}
+{
+	"schemaVersion": 1,
+	"profileId": "professional-full",
+	"policyId": "professional-full-v2",
+	"caseIds": [
+		"qualified-children",
+		"child-failure",
+		"r3-excluded",
+		"review-pending"
+	]
+}

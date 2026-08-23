@@ -293,7 +293,10 @@ export function createDynamicRoute(deps: DynamicRouteDeps) {
 				networkMode: parseResult.data.network ?? "none",
 			},
 		});
-		await scanLaunchAttempts.admit({ attemptId: launchAttempt.id, scanRunId: scan.id });
+		await scanLaunchAttempts.admit({
+			attemptId: launchAttempt.id,
+			scanRunId: scan.id,
+		});
 		try {
 			const cliResult = await executeDynamicRunCli({
 				projectId,
@@ -411,7 +414,10 @@ export function createDynamicRoute(deps: DynamicRouteDeps) {
 			canonicalProfileId,
 			providedInputKinds: ["source_target", "execution_consent"],
 			expectedLaunchDestination: "dynamic_workspace",
-			sanitizedInputSummary: { dynamicProfileId: parseResult.data.profileId, findingBound: true },
+			sanitizedInputSummary: {
+				dynamicProfileId: parseResult.data.profileId,
+				findingBound: true,
+			},
 		});
 		const scan = await scanRepository.createScanRun({
 			projectId: project.id,
@@ -430,7 +436,10 @@ export function createDynamicRoute(deps: DynamicRouteDeps) {
 				networkMode: parseResult.data.network ?? "none",
 			},
 		});
-		await scanLaunchAttempts.admit({ attemptId: launchAttempt.id, scanRunId: scan.id });
+		await scanLaunchAttempts.admit({
+			attemptId: launchAttempt.id,
+			scanRunId: scan.id,
+		});
 		try {
 			const cliResult = await executeDynamicRunCli({
 				projectId: project.id,

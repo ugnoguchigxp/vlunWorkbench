@@ -22,15 +22,15 @@ export function createDockerRuntimeCommandRunner(
 				return {
 					exitCode: result.exitCode,
 					stdout: result.stdout,
-					stderr: result.terminationReason
-						? `${result.stderr}\nruntime_bundle_command_${result.terminationReason}`
-						: result.stderr,
+					stderr: result.stderr,
+					terminationReason: result.terminationReason,
 				};
 			} catch (error) {
 				return {
 					exitCode: null,
 					stdout: "",
 					stderr: error instanceof Error ? error.message : String(error),
+					terminationReason: null,
 				};
 			}
 		},

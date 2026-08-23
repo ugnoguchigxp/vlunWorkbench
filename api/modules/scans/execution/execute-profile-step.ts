@@ -1,6 +1,7 @@
 import type { ScanProfileStep } from "../../../../shared/schemas/scan-profile.schema";
 import { discoverRepositoryApiSchema } from "../../api-schema-fuzz/schema-discovery";
 import type { PreparedRuntimeTarget } from "../../dast/runtime-target-provider";
+import { RuntimeTargetPreparationError } from "../../runtime-isolation/runtime-failure";
 import {
 	CosignAttestationProvider,
 	isCosignVersionSafe,
@@ -56,8 +57,13 @@ export async function executeProfileStep(params: {
 		if (!runner) throw new Error(`Unsupported profile step: ${stepId}`);
 		return await runner(params);
 	} catch (err: unknown) {
-		const error = err instanceof Error ? err.message : String(err);
-		const failed = failureDelta(step, stepId, error, failureFailsProfile);
+		const failed = await failureDelta(
+			step,
+			stepId,
+			err,
+			failureFailsProfile,
+			params.scope,
+		);
 		if (failed) return failed;
 		throw err;
 	}
@@ -92,12 +98,27 @@ export const profileStepRunnerRegistry: Record<
 	attestation_verify: executeAttestationStep,
 };
 
-function failureDelta(
+async function failureDelta(
 	step: ScanProfileStep,
 	stepId: string,
-	error: string,
+	error: unknown,
 	failureFailsProfile: boolean,
-): ProfileStepExecution | null {
+	scope: ExecuteProfileStepsParams,
+): Promise<ProfileStepExecution | null> {
+	const runtimeFailure =
+		error instanceof RuntimeTargetPreparationError ? error : null;
+	const diagnosticArtifactIds = runtimeFailure?.input.evidence
+		? await persistRuntimeDiagnostic(scope, runtimeFailure).catch(() => [])
+		: [];
+	runtimeFailure?.attachDiagnosticArtifactIds(diagnosticArtifactIds);
+	const errorMessage =
+		runtimeFailure?.message ??
+		(error instanceof Error ? error.message : String(error));
+	const reasonCode =
+		runtimeFailure?.input.reasonCode ??
+		(errorMessage.includes("policy_rejected")
+			? "policy_rejected"
+			: "execution_failed");
 	const flags = {
 		optionalToolFailed: !failureFailsProfile,
 		profileFailingToolFailed: failureFailsProfile,
@@ -118,12 +139,11 @@ function failureDelta(
 					required: step.required,
 					status: "failed",
 					applicability: "applicable",
-					reasonCode: error.includes("policy_rejected")
-						? "policy_rejected"
-						: "execution_failed",
+					reasonCode,
 					coverageEffect: "gap",
 					findingCount: 0,
-					error,
+					error: errorMessage,
+					artifactIds: diagnosticArtifactIds,
 				},
 			],
 		};
@@ -139,10 +159,12 @@ function failureDelta(
 					required: step.required,
 					status: "failed",
 					outcome: "error",
+					reasonCode,
 					findingCount: 0,
 					dastRunId: null,
 					targetOrigin: null,
-					error,
+					error: errorMessage,
+					artifactIds: diagnosticArtifactIds,
 				},
 			],
 		};
@@ -160,7 +182,7 @@ function failureDelta(
 			status: "failed",
 			findingCount: 0,
 			exitCode: null,
-			error,
+			error: errorMessage,
 			applicability: "applicable",
 			reasonCode: "execution_failed",
 			coverageEffect: "gap",
@@ -180,18 +202,46 @@ function failureDelta(
 								required: step.required,
 								status: "failed",
 								applicability: "not_applicable",
-								reasonCode: error.includes("image_input_not_provided")
+								reasonCode: errorMessage.includes("image_input_not_provided")
 									? "image_input_not_provided"
 									: "execution_failed",
 								coverageEffect: "gap",
 								findingCount: 0,
-								error,
-								artifactIds: [],
+								error: errorMessage,
+								artifactIds: diagnosticArtifactIds,
 							},
 						],
 		};
 	}
 	return null;
+}
+
+async function persistRuntimeDiagnostic(
+	scope: ExecuteProfileStepsParams,
+	failure: RuntimeTargetPreparationError,
+): Promise<string[]> {
+	const evidence = failure.input.evidence;
+	if (!evidence) return [];
+	const sink = new ScanArtifactSink(
+		scope.artifactStorage,
+		new ArtifactRepository(scope.db),
+		{
+			scanRunId: scope.scanRun.id,
+			kind: "scan",
+			id: `runtime-${evidence.bundleId}`,
+		},
+	);
+	const artifact = await sink.saveText({
+		role: "runtime_diagnostic",
+		format: "json",
+		content: JSON.stringify(evidence, null, 2),
+		metadata: {
+			schemaVersion: evidence.schemaVersion,
+			reasonCode: failure.input.reasonCode,
+			redacted: evidence.redacted,
+		},
+	});
+	return [artifact.id];
 }
 
 async function executeAttestationStep(params: {

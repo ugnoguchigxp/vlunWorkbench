@@ -272,6 +272,7 @@ describe("Settings route authorization", () => {
 		const autoConfigureRuntimeIsolation = vi
 			.fn()
 			.mockResolvedValue(completeRuntimeIsolation);
+		const pruneRuntimeIsolationImages = vi.fn().mockResolvedValue(true);
 		const app = new Hono();
 		app.use("*", async (c, next) => {
 			c.set("authUser", {
@@ -291,6 +292,7 @@ describe("Settings route authorization", () => {
 				} as never,
 				runtimeEnv,
 				autoConfigureRuntimeIsolation,
+				pruneRuntimeIsolationImages,
 			}),
 		);
 
@@ -301,6 +303,7 @@ describe("Settings route authorization", () => {
 
 		expect(response.status).toBe(200);
 		expect(autoConfigureRuntimeIsolation).toHaveBeenCalledOnce();
+		expect(pruneRuntimeIsolationImages).toHaveBeenCalledOnce();
 		expect(updateRuntimeSettings).toHaveBeenCalledWith(
 			expect.objectContaining({ runtimeIsolation: expectedRuntimeIsolation }),
 			runtimeEnv,

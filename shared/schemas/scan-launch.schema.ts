@@ -231,24 +231,22 @@ function previewBranch(
 }
 
 /** Profile ID selects the only partial input shape it may preview. */
-export const scanLaunchPreviewRequestSchema = z.union(
-	[
-		previewBranch("change-gate", sourceInput.partial()),
-		previewBranch("source-assurance", sourceInput.partial()),
-		previewBranch("dependency-supply-chain", attestationInput.partial()),
-		previewBranch("release-artifact", previewInput),
-		previewBranch("dynamic-verification", builtinDynamicInput.partial()),
-		previewBranch("sanitizer-fuzz-lab", builtinDynamicInput.partial()),
-		previewBranch("custom-dynamic-lab", customDynamicInput.partial()),
-		previewBranch("runtime-passive", runtimeInput.partial()),
-		previewBranch("authenticated-web", authenticatedInput.partial()),
-		previewBranch("api-readonly", apiInput.partial()),
-		previewBranch("active-technical-lab", activeInput.partial()),
-		previewBranch("business-logic-lab", businessInput.partial()),
-		previewBranch("remediation-verification", remediationInput.partial()),
-		previewBranch("professional-full", professionalInput.partial()),
-	] as unknown as [z.ZodTypeAny, z.ZodTypeAny, ...z.ZodTypeAny[]],
-);
+export const scanLaunchPreviewRequestSchema = z.union([
+	previewBranch("change-gate", sourceInput.partial()),
+	previewBranch("source-assurance", sourceInput.partial()),
+	previewBranch("dependency-supply-chain", attestationInput.partial()),
+	previewBranch("release-artifact", previewInput),
+	previewBranch("dynamic-verification", builtinDynamicInput.partial()),
+	previewBranch("sanitizer-fuzz-lab", builtinDynamicInput.partial()),
+	previewBranch("custom-dynamic-lab", customDynamicInput.partial()),
+	previewBranch("runtime-passive", runtimeInput.partial()),
+	previewBranch("authenticated-web", authenticatedInput.partial()),
+	previewBranch("api-readonly", apiInput.partial()),
+	previewBranch("active-technical-lab", activeInput.partial()),
+	previewBranch("business-logic-lab", businessInput.partial()),
+	previewBranch("remediation-verification", remediationInput.partial()),
+	previewBranch("professional-full", professionalInput.partial()),
+] as unknown as [z.ZodTypeAny, z.ZodTypeAny, ...z.ZodTypeAny[]]);
 /** The runtime schema above is the authority; this keeps route consumers
  * typed despite Zod's heterogeneous-union inference limitation. */
 export type ScanLaunchPreviewRequest = {

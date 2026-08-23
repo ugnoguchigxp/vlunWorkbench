@@ -16,6 +16,8 @@ const BUN_IMAGE_TAG = "oven/bun:1.3.14";
 const LOCAL_FALLBACK_BASE_IMAGE_TAG = "vuln-workbench-dynamic:local";
 const RUNTIME_IMAGE_LOCAL_TAG = "vuln-workbench-runtime:local";
 const RUNTIME_IMAGE_REPOSITORY = "vuln-workbench-runtime";
+const RUNTIME_IMAGE_TITLE_LABEL =
+	"org.opencontainers.image.title=vuln-workbench isolated runtime";
 /** Mutable tags are used only by this admin-triggered preparation operation.
  * They are replaced with Docker content IDs before settings are persisted. */
 const SCANNER_IMAGE_TAGS = {
@@ -90,6 +92,24 @@ export function autoConfigureLocalRuntimeIsolation(
 	});
 	activeAutoConfiguration = tracked;
 	return tracked;
+}
+
+export async function pruneStaleLocalRuntimeImages(
+	params: {
+		dockerBin?: string;
+		runner?: RuntimeIsolationAutoConfigRunner;
+	} = {},
+): Promise<boolean> {
+	return await cleanupCommand(params.runner ?? defaultRunner, [
+		params.dockerBin ?? "docker",
+		"image",
+		"prune",
+		"--force",
+		"--filter",
+		"dangling=true",
+		"--filter",
+		`label=${RUNTIME_IMAGE_TITLE_LABEL}`,
+	]);
 }
 
 async function performLocalRuntimeIsolationAutoConfiguration(params: {
@@ -525,7 +545,12 @@ async function performLocalRuntimeIsolationAutoConfiguration(params: {
 async function prepareRuntimeScannerImages(
 	runner: RuntimeIsolationAutoConfigRunner,
 	dockerBin: string,
-): Promise<Pick<RuntimeIsolationSettings, "nucleiImage" | "zapImage" | "schemathesisImage">> {
+): Promise<
+	Pick<
+		RuntimeIsolationSettings,
+		"nucleiImage" | "zapImage" | "schemathesisImage"
+	>
+> {
 	const images = await Promise.all(
 		Object.entries(SCANNER_IMAGE_TAGS).map(async ([role, tag]) => {
 			await checkedCommand(

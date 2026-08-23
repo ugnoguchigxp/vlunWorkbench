@@ -1,1 +1,6 @@
-{"schemaVersion":1,"profileId":"source-assurance","policyId":"source-assurance-v2","caseIds":["vulnerable","fixed","missing-dependency","cleanup"]}
+{
+	"schemaVersion": 1,
+	"profileId": "source-assurance",
+	"policyId": "source-assurance-v2",
+	"caseIds": ["vulnerable", "fixed", "missing-dependency", "cleanup"]
+}

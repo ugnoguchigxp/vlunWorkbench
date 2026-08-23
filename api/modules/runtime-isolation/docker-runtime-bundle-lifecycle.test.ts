@@ -130,15 +130,62 @@ describe("docker runtime bundle lifecycle", () => {
 		const probeCall = calls.find((argv) =>
 			argv.some((value) => value.endsWith("-probe")),
 		);
+		expect(probeCall).toContain("node");
+		expect(probeCall).not.toContain("sh");
 		const probeScript = probeCall?.find((value) =>
-			value.includes("for url"),
+			value.includes("AbortSignal.timeout"),
 		);
-		expect(probeScript).toContain('"$url"');
-		expect(probeScript).toContain("[1-4][0-9][0-9]");
+		expect(probeScript).toContain("response.status>=100&&response.status<500");
+		expect(probeScript).toContain("JSON.stringify({attempts:attempt,results})");
+		expect(probeScript).toContain("const deadline=Date.now()+30000");
+		expect(probeScript).toContain("await response.body?.cancel()");
 		expect(probeCall?.slice(-2)).toEqual([
 			"http://127.0.0.1:18080/not-ready",
 			"http://127.0.0.1:18080/health",
 		]);
 		await bundle.stop();
+	});
+
+	it("preserves redacted readiness diagnostics before cleaning a failed bundle", async () => {
+		const calls: string[][] = [];
+		let released = false;
+		await expect(startDockerRuntimeBundle({
+			scanRunId: "scan-failure", projectionPath: "/private/projection", plan: plan("none"), planHash: digest,
+			images: { namespaceOwner: "owner", nodeRuntime: "runtime", materializer: "materializer", registryProxy: "proxy", probe: "probe", httpExecutor: "http" },
+			leaseRepository: { acquire: async () => ({ id: "lease-failure" }), updateActiveReceipt: async () => null, release: async () => { released = true; }, quarantine: async () => null },
+			runner: { run: async (argv) => {
+				calls.push(argv);
+				if (argv[1] === "wait" && argv.at(-1)?.endsWith("-probe")) return { exitCode: 0, stdout: "1\n", stderr: "not ready password=super-secret" };
+				if (argv[1] === "logs") return { exitCode: 0, stdout: argv.at(-1)?.endsWith("-probe") ? '{"attempts":5,"results":["http_503"]}\n' : "token=super-secret\nserver boot failed", stderr: "" };
+				if (argv[1] === "inspect") return { exitCode: 0, stdout: "exited|1|false", stderr: "" };
+				return { exitCode: 0, stdout: argv[1] === "wait" ? "0\n" : "", stderr: "" };
+			} },
+			readinessTimeoutMs: 5_000,
+		})).rejects.toMatchObject({
+			input: expect.objectContaining({
+				reasonCode: "runtime_target_readiness_timeout",
+				evidence: expect.objectContaining({
+					readiness: expect.objectContaining({ attempts: 5, paths: [{ path: "/", lastResult: "http_503" }] }),
+				}),
+			}),
+		});
+		expect(released).toBe(true);
+		expect(calls.some((argv) => argv[1] === "logs")).toBe(true);
+	});
+
+	it("preserves the preparation failure when cleanup quarantine also fails", async () => {
+		await expect(startDockerRuntimeBundle({
+			scanRunId: "scan-cleanup", projectionPath: "/private/projection", plan: plan("none"), planHash: digest,
+			images: { namespaceOwner: "owner", nodeRuntime: "runtime", materializer: "materializer", registryProxy: "proxy", probe: "probe", httpExecutor: "http" },
+			leaseRepository: { acquire: async () => ({ id: "lease-cleanup" }), updateActiveReceipt: async () => null, release: async () => null, quarantine: async () => { throw new Error("quarantine unavailable"); } },
+			runner: { run: async (argv) => {
+				if (argv[1] === "wait" && argv.at(-1)?.endsWith("-probe")) return { exitCode: 0, stdout: "1\n", stderr: "not ready" };
+				if (argv[1] === "rm") return { exitCode: 1, stdout: "", stderr: "cleanup failed" };
+				return { exitCode: 0, stdout: argv[1] === "wait" ? "0\n" : "", stderr: "" };
+			} },
+		})).rejects.toMatchObject({
+			input: expect.objectContaining({ reasonCode: "runtime_target_readiness_timeout" }),
+			cleanupFailure: expect.objectContaining({ input: expect.objectContaining({ reasonCode: "runtime_cleanup_failed" }) }),
+		});
 	});
 });
