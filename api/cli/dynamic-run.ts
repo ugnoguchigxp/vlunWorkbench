@@ -105,13 +105,13 @@ export async function main(
 		});
 		return 1;
 	}
-	if (!dryRun && !scanRunId) {
+	if (!dryRun && !consentProjectCodeExecution) {
 		write({
 			ok: false,
 			status: "failed",
 			outcome: "error",
 			message:
-				"--scan-run-id is required for execution so Dynamic resources have a recoverable parent lease.",
+				"--consent-project-code-execution true is required for dynamic execution.",
 		});
 		return 1;
 	}
@@ -125,13 +125,13 @@ export async function main(
 		});
 		return 1;
 	}
-	if (!dryRun && !consentProjectCodeExecution) {
+	if (!dryRun && !scanRunId) {
 		write({
 			ok: false,
 			status: "failed",
 			outcome: "error",
 			message:
-				"--consent-project-code-execution true is required for dynamic execution.",
+				"--scan-run-id is required for execution so Dynamic resources have a recoverable parent lease.",
 		});
 		return 1;
 	}

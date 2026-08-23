@@ -1,18 +1,27 @@
+import { createHash } from "node:crypto";
 import type { Dirent } from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { cleanupTemporaryPaths } from "../scans/execution/lifecycle/temporary-path-cleanup";
+import { parseOpenApiDocument } from "./openapi-document";
+import {
+	MAX_STRICT_JSON_BYTES,
+	parseStrictJsonDocument,
+	readStrictJsonDocument,
+} from "./strict-json-document";
 
 const FILE_CANDIDATES = [
 	"openapi.json",
-	"openapi.yaml",
-	"openapi.yml",
 	"swagger.json",
-	"swagger.yaml",
-	"swagger.yml",
 	"api/openapi.json",
 	"docs/openapi.json",
+];
+const YAML_FILE_CANDIDATES = [
+	"openapi.yaml",
+	"openapi.yml",
+	"swagger.yaml",
+	"swagger.yml",
 ];
 const HTTP_CANDIDATES = ["/openapi.json", "/swagger.json", "/v3/api-docs"];
 const API_SOURCE_EXTENSIONS = new Set([
@@ -52,9 +61,10 @@ export type SchemaDiscoveryResult = {
 	apiDetected: boolean;
 	apiEvidencePaths: string[];
 	schemaPath: string | null;
+	schemaDigest?: string;
 	cleanupPath?: string;
 	source: "repository" | "target" | null;
-	reasonCode: "schema_not_found" | "authentication_required" | null;
+	reasonCode: string | null;
 };
 
 async function collectApiEvidencePaths(params: {
@@ -133,18 +143,48 @@ export async function discoverRepositoryApiSchema(
 	for (const candidate of FILE_CANDIDATES) {
 		const candidatePath = path.resolve(repoPath, candidate);
 		try {
-			const stat = await fs.stat(candidatePath);
-			if (stat.isFile())
+			const document = await readStrictJsonDocument(candidatePath, repoPath);
+			parseOpenApiDocument(document);
+			const bytes = await fs.readFile(candidatePath);
+			return {
+				applicable: true,
+				apiDetected: true,
+				apiEvidencePaths: [candidate],
+				schemaPath: candidatePath,
+				schemaDigest: `sha256:${createHash("sha256").update(bytes).digest("hex")}`,
+				source: "repository",
+				reasonCode: null,
+			};
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code !== "ENOENT")
 				return {
-					applicable: true,
+					applicable: false,
 					apiDetected: true,
 					apiEvidencePaths: [candidate],
-					schemaPath: candidatePath,
-					source: "repository",
-					reasonCode: null,
+					schemaPath: null,
+					source: null,
+					reasonCode:
+						error instanceof Error
+							? error.message.split(":")[0]
+							: "openapi_schema_required",
+				};
+			// bounded candidate lookup intentionally ignores missing files
+		}
+	}
+	for (const candidate of YAML_FILE_CANDIDATES) {
+		try {
+			const stat = await fs.lstat(path.resolve(repoPath, candidate));
+			if (stat.isFile() || stat.isSymbolicLink())
+				return {
+					applicable: false,
+					apiDetected: true,
+					apiEvidencePaths: [candidate],
+					schemaPath: null,
+					source: null,
+					reasonCode: "openapi_yaml_not_qualified",
 				};
 		} catch {
-			// bounded candidate lookup intentionally ignores missing files
+			// missing YAML candidates are expected
 		}
 	}
 	const apiEvidence = await detectRepositoryApiEvidence(repoPath);
@@ -181,9 +221,12 @@ export async function discoverTargetApiSchema(params: {
 				};
 			if (!response.ok) continue;
 			const body = await response.text();
+			const bytes = new TextEncoder().encode(body);
+			if (bytes.byteLength > MAX_STRICT_JSON_BYTES) continue;
 			let parsed: unknown;
 			try {
-				parsed = JSON.parse(body);
+				parsed = parseStrictJsonDocument(bytes);
+				parseOpenApiDocument(parsed);
 			} catch {
 				continue;
 			}
@@ -196,6 +239,7 @@ export async function discoverTargetApiSchema(params: {
 				apiDetected: true,
 				apiEvidencePaths: [candidate],
 				schemaPath: tempPath,
+				schemaDigest: `sha256:${createHash("sha256").update(bytes).digest("hex")}`,
 				cleanupPath: path.dirname(tempPath),
 				source: "target",
 				reasonCode: null,

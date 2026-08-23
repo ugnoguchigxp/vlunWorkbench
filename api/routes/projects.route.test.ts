@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { readAppEnv } from "../app/env";
 import { HttpError } from "../modules/auth/errors";
 import { ProcessCapacityExceededError } from "../modules/processes/web-process-capacity";
+import type { RuntimeIsolationProviderFactory } from "../modules/runtime-isolation/runtime-isolation-provider-factory";
 import { ProjectPathPolicyError } from "../security/project-path-policy";
 import { createProjectsRoute } from "./projects.route";
 
@@ -271,6 +272,222 @@ describe("Projects Route", () => {
 			);
 		},
 		15_000,
+	);
+
+	it(
+		"reports an unavailable isolated runtime before a runtime scan is queued",
+		async () => {
+			const resolveRuntimeIsolationProviderFactory = vi.fn(() => null);
+			const runtimeApp = new Hono();
+			runtimeApp.use("*", async (c, next) => {
+				c.set("authUser", {
+					userId: "user-123",
+					email: "user@example.com",
+					role: "member",
+				});
+				await next();
+			});
+			runtimeApp.route(
+				"/",
+				createProjectsRoute({
+					projectRepository: mockProjectRepo as any,
+					env: readAppEnv({ NODE_ENV: "test" }),
+					resolveProjectPath: mockResolveProjectPath,
+					resolveRuntimeIsolationProviderFactory,
+				}),
+			);
+
+			const res = await runtimeApp.request(
+				`/${PREFLIGHT_PROJECT_ID}/scans/preflight`,
+				{
+					method: "POST",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify({
+						profile: "runtime-passive",
+						runner: "host",
+						consentProjectCodeExecution: true,
+					}),
+				},
+			);
+
+			expect(res.status).toBe(200);
+			const body = await res.json();
+			expect(body.preflight).toMatchObject({
+				status: "blocked",
+				limitationCodes: expect.arrayContaining([
+					"runtime_isolation_provider_unavailable",
+				]),
+			});
+			expect(body.preflight.checks).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({
+						kind: "sandbox_availability",
+						status: "blocked",
+						reasonCode: "runtime_isolation_provider_unavailable",
+					}),
+				]),
+			);
+			expect(body.executionPlan.blockerCodes).toContain(
+				"runtime_isolation_provider_unavailable",
+			);
+			expect(resolveRuntimeIsolationProviderFactory).toHaveBeenCalledOnce();
+		},
+		30_000,
+	);
+
+	it(
+		"builds a stable V3 preview when the isolated runtime is configured",
+		async () => {
+			const digest = `sha256:${"c".repeat(64)}`;
+			const dispose = vi.fn(async () => undefined);
+			const cleanupSourceSnapshot = vi.fn(async () => undefined);
+			const runtimeIsolationProviderFactory = vi.fn(
+				async (
+					input: Parameters<RuntimeIsolationProviderFactory>[0],
+				) => ({
+					plan: {
+						pluginId: "build.npm",
+						repoPath: input.sourceSnapshot.projectPath,
+						scriptName: "start",
+						script: "node server.js",
+						packageManager: "npm" as const,
+						command: ["npm", "run", "start"],
+						env: {},
+						requiresProjectCodeConsent: false,
+						port: 18080,
+						origin: "http://127.0.0.1:18080",
+						readinessPaths: ["/"],
+						warnings: [],
+					},
+					runtimeIsolationPlanning: {
+						status: "ready" as const,
+						planHash: digest,
+						plan: {
+							schemaVersion: 1 as const,
+							profileId: input.profileId,
+							source: {
+								sourceSnapshotDigest: `sha256:${input.sourceSnapshot.snapshotDigest}`,
+								runtimeProjectionDigest: digest,
+								projectionPolicyVersion: 1 as const,
+							},
+							recipe: {
+								recipeHash: digest,
+								startPlannerId: "build.npm" as const,
+							},
+							dependency: {
+								adapterId: "npm-package-lock-v1" as const,
+								policyVersion: 1 as const,
+								lockDigest: digest,
+							},
+							images: {
+								namespaceOwnerImageDigest: digest,
+								nodeRuntimeImageDigest: digest,
+								materializerImageDigest: digest,
+								registryProxyImageDigest: digest,
+								probeImageDigest: digest,
+								httpExecutorImageDigest: digest,
+								databaseImageDigest: null,
+								scannerImageDigests: { nuclei: digest, zap: digest },
+							},
+							start: {
+								executable: "npm" as const,
+								args: ["run", "start"],
+								port: 18080 as const,
+								readinessPaths: ["/"],
+							},
+							database: {
+								mode: "none" as const,
+								policyVersion: 1 as const,
+								bindings: [],
+							},
+							environment: { policyVersion: 1 as const },
+							network: {
+								kind: "container_namespace" as const,
+								policyVersion: 1 as const,
+							},
+							limits: {
+								policyVersion: 1 as const,
+								targetMemoryMiB: 1024 as const,
+								targetPids: 256 as const,
+							},
+							cleanup: {
+								required: true as const,
+								policyVersion: 1 as const,
+							},
+							dockerDaemonIdentityHash: digest,
+							qualificationHash: digest,
+						},
+					},
+					dispose,
+					prepare: async () => {
+						throw new Error("preview must not start a runtime target");
+					},
+				}),
+			);
+			const runtimeApp = new Hono();
+			runtimeApp.use("*", async (c, next) => {
+				c.set("authUser", {
+					userId: "user-123",
+					email: "user@example.com",
+					role: "member",
+				});
+				await next();
+			});
+			runtimeApp.route(
+				"/",
+				createProjectsRoute({
+					projectRepository: mockProjectRepo as any,
+					env: readAppEnv({ NODE_ENV: "test" }),
+					resolveProjectPath: mockResolveProjectPath,
+					runtimeIsolationProviderFactory,
+					resolveFullScanTarget: async () => ({
+						digest: "d".repeat(64),
+						sourceRevision: "e".repeat(40),
+						changedFileCount: 0,
+						scopeContentDigest: "f".repeat(64),
+					}),
+					materializeScopedSourceSnapshot: async () => ({
+						rootPath: process.cwd(),
+						projectPath: process.cwd(),
+						sourceRevision: "e".repeat(40),
+						snapshotDigest: "f".repeat(64),
+						cleanup: cleanupSourceSnapshot,
+					}),
+				}),
+			);
+			const request = () =>
+				runtimeApp.request(`/${PREFLIGHT_PROJECT_ID}/scans/preflight`, {
+					method: "POST",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify({
+						profile: "api-readonly",
+						allowExperimental: true,
+						consentProjectCodeExecution: true,
+					}),
+				});
+
+			const firstResponse = await request();
+			const secondResponse = await request();
+			expect(firstResponse.status).toBe(200);
+			expect(secondResponse.status).toBe(200);
+			const first = await firstResponse.json();
+			const second = await secondResponse.json();
+			expect(first.preflight).toMatchObject({
+				schemaVersion: 2,
+				binding: { runtimeIsolation: { status: "ready" } },
+			});
+			expect(first.executionPlan).toMatchObject({
+				schemaVersion: 3,
+				runtimeIsolation: { planHash: digest },
+			});
+			expect(first.executionPlan.planHash).toBe(
+				second.executionPlan.planHash,
+			);
+			expect(runtimeIsolationProviderFactory).toHaveBeenCalledTimes(2);
+			expect(dispose).toHaveBeenCalledTimes(2);
+			expect(cleanupSourceSnapshot).toHaveBeenCalledTimes(2);
+		},
+		60_000,
 	);
 
 	it("POST /:projectId/scans rejects a step timeout above the configured maximum", async () => {

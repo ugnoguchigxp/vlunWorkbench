@@ -5,7 +5,10 @@ import type { ScanTarget } from "../../shared/schemas/scan-target.schema";
 import { readAppEnv } from "../app/env";
 import { createDbConnection } from "../db";
 import { resolveWorkspaceTargetGrantPath } from "../modules/integrations/nightworkers/nightworkers-workspace-target-grant-cli";
-import { loadRuntimeIsolationProviderFactory } from "../modules/runtime-isolation/runtime-isolation-runtime-config";
+import {
+	loadRuntimeIsolationProviderFactory,
+	runtimeIsolationSettingsFromAppEnv,
+} from "../modules/runtime-isolation/runtime-isolation-runtime-config";
 import { analyzeProjectCapabilities } from "../modules/project-capabilities/plugin-detector";
 import { ArtifactStorage } from "../modules/scans/artifact-storage";
 import {
@@ -563,6 +566,7 @@ async function main() {
 			runtimeTargetProviderFactory:
 				loadRuntimeIsolationProviderFactory({
 					db: dbConnection.db,
+					settings: runtimeIsolationSettingsFromAppEnv(env),
 				}) ?? undefined,
 			executionPlanSchemaVersion: env.scanExecutionPlanV2 ? 2 : 1,
 		});

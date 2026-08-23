@@ -8,9 +8,9 @@ import {
 } from "./profile-catalog";
 
 describe("scan profile catalog", () => {
-	test("has 12 canonical entries and maps all legacy definitions", () => {
+	test("has 14 canonical entries and maps all legacy definitions", () => {
 		validateScanProfileCatalog();
-		expect(listPublicCatalogEntries()).toHaveLength(12);
+		expect(listPublicCatalogEntries()).toHaveLength(14);
 		expect(SCAN_PROFILE_LEGACY_ASSOCIATIONS).toHaveLength(23);
 		expect(getLegacyProfileAssociation("runtime-zap-active-lab")).toEqual(
 			expect.objectContaining({ canonicalProfileId: "active-technical-lab" }),

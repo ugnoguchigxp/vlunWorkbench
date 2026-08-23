@@ -1,4 +1,14 @@
-import { KeyRound, RefreshCw, Save, SlidersHorizontal } from "lucide-react";
+import {
+	KeyRound,
+	RefreshCw,
+	Save,
+	SlidersHorizontal,
+	WandSparkles,
+} from "lucide-react";
+import {
+	normalizeRuntimeSettingsResponse,
+	type RuntimeSettingsResponse,
+} from "./api";
 import type { SettingsPanelModel } from "./settings-panel";
 import { formatDateTime } from "./settings-panel-model";
 import { Button, SelectInput, TextInput } from "./ui";
@@ -11,14 +21,31 @@ const toNumber = (value: string, fallback: number): number => {
 export function RuntimeSettingsPanel({ model }: { model: SettingsPanelModel }) {
 	const {
 		isAdmin,
-		runtimeSettings,
+		runtimeSettings: rawRuntimeSettings,
 		runtimeSaving,
 		runtimeGeneratingDastAuthKey,
+		runtimeAutoConfiguring,
 		updateRuntimeSetting,
 		handleSaveRuntimeSettings,
 		handleGenerateDastAuthKey,
+		handleAutoConfigureRuntimeIsolation,
 	} = model;
 	if (!isAdmin) return null;
+	const runtimeSettings = rawRuntimeSettings
+		? normalizeRuntimeSettingsResponse(rawRuntimeSettings)
+		: null;
+	const updateRuntimeIsolationSetting = (
+		key: keyof RuntimeSettingsResponse["runtimeIsolation"],
+		value: string,
+	) => {
+		if (!runtimeSettings) return;
+		updateRuntimeSetting({
+			runtimeIsolation: {
+				...runtimeSettings.runtimeIsolation,
+				[key]: value,
+			},
+		});
+	};
 
 	return (
 		<section className="panel">
@@ -31,7 +58,7 @@ export function RuntimeSettingsPanel({ model }: { model: SettingsPanelModel }) {
 					type="button"
 					variant="primary"
 					onClick={() => void handleSaveRuntimeSettings()}
-					disabled={!runtimeSettings || runtimeSaving}
+					disabled={!runtimeSettings || runtimeSaving || runtimeAutoConfiguring}
 				>
 					<Save className="icon" />
 					<span>Save</span>
@@ -178,6 +205,135 @@ export function RuntimeSettingsPanel({ model }: { model: SettingsPanelModel }) {
 							}
 						/>
 						<div className="settings-form-field settings-field-wide">
+							<h3>Isolated runtime target</h3>
+							<small>
+								安全な実行時Web診断で使用するserver-owned設定です。イメージは
+								image@sha256:&lt;digest&gt;形式で固定してください。
+							</small>
+							<div className="actions">
+								<strong>
+									{runtimeSettings.runtimeIsolationConfigured
+										? "Configured"
+										: `Not configured (${runtimeSettings.runtimeIsolationMissingFields.length} required fields missing)`}
+								</strong>
+								<Button
+									type="button"
+									variant="secondary"
+									onClick={() => void handleAutoConfigureRuntimeIsolation()}
+									disabled={
+										runtimeSaving ||
+										runtimeGeneratingDastAuthKey ||
+										runtimeAutoConfiguring
+									}
+								>
+									{runtimeAutoConfiguring ? (
+										<RefreshCw className="icon animate-spin" />
+									) : (
+										<WandSparkles className="icon" />
+									)}
+									<span>
+										{runtimeAutoConfiguring
+											? "Building and verifying..."
+											: "Auto-configure local runtime"}
+									</span>
+								</Button>
+							</div>
+							<small>
+								Builds a digest-pinned image on this server, verifies the
+								required runtime capabilities, and saves all required fields.
+							</small>
+						</div>
+						<RuntimeIsolationTextSetting
+							id="runtime-isolation-namespace-owner-image"
+							label="Namespace owner image"
+							value={runtimeSettings.runtimeIsolation.namespaceOwnerImage}
+							onChange={(value) =>
+								updateRuntimeIsolationSetting("namespaceOwnerImage", value)
+							}
+						/>
+						<RuntimeIsolationTextSetting
+							id="runtime-isolation-node-image"
+							label="Node runtime image"
+							value={runtimeSettings.runtimeIsolation.nodeImage}
+							onChange={(value) =>
+								updateRuntimeIsolationSetting("nodeImage", value)
+							}
+						/>
+						<RuntimeIsolationTextSetting
+							id="runtime-isolation-materializer-image"
+							label="Materializer image"
+							value={runtimeSettings.runtimeIsolation.materializerImage}
+							onChange={(value) =>
+								updateRuntimeIsolationSetting("materializerImage", value)
+							}
+						/>
+						<RuntimeIsolationTextSetting
+							id="runtime-isolation-registry-proxy-image"
+							label="Registry proxy image"
+							value={runtimeSettings.runtimeIsolation.registryProxyImage}
+							onChange={(value) =>
+								updateRuntimeIsolationSetting("registryProxyImage", value)
+							}
+						/>
+						<RuntimeIsolationTextSetting
+							id="runtime-isolation-probe-image"
+							label="Readiness probe image"
+							value={runtimeSettings.runtimeIsolation.probeImage}
+							onChange={(value) =>
+								updateRuntimeIsolationSetting("probeImage", value)
+							}
+						/>
+						<RuntimeIsolationTextSetting
+							id="runtime-isolation-http-executor-image"
+							label="HTTP executor image"
+							value={runtimeSettings.runtimeIsolation.httpExecutorImage}
+							onChange={(value) =>
+								updateRuntimeIsolationSetting("httpExecutorImage", value)
+							}
+						/>
+						<RuntimeIsolationTextSetting
+							id="runtime-isolation-docker-identity"
+							label="Docker daemon identity hash"
+							placeholder="sha256:..."
+							value={runtimeSettings.runtimeIsolation.dockerDaemonIdentityHash}
+							onChange={(value) =>
+								updateRuntimeIsolationSetting("dockerDaemonIdentityHash", value)
+							}
+						/>
+						<RuntimeIsolationTextSetting
+							id="runtime-isolation-qualification"
+							label="Qualification hash"
+							placeholder="sha256:..."
+							value={runtimeSettings.runtimeIsolation.qualificationHash}
+							onChange={(value) =>
+								updateRuntimeIsolationSetting("qualificationHash", value)
+							}
+						/>
+						<details className="settings-form-field settings-field-wide">
+							<summary>Optional database and scanner images</summary>
+							<div className="settings-form-grid">
+								{(
+									[
+										["postgresImage", "PostgreSQL image"],
+										["mysqlImage", "MySQL image"],
+										["nucleiImage", "Nuclei image"],
+										["zapImage", "ZAP image"],
+										["schemathesisImage", "Schemathesis image"],
+									] as const
+								).map(([key, label]) => (
+									<RuntimeIsolationTextSetting
+										key={key}
+										id={`runtime-isolation-${key}`}
+										label={label}
+										value={runtimeSettings.runtimeIsolation[key]}
+										onChange={(value) =>
+											updateRuntimeIsolationSetting(key, value)
+										}
+									/>
+								))}
+							</div>
+						</details>
+						<div className="settings-form-field settings-field-wide">
 							<label htmlFor="runtime-dast-auth-key">
 								DAST auth encryption key
 							</label>
@@ -209,7 +365,11 @@ export function RuntimeSettingsPanel({ model }: { model: SettingsPanelModel }) {
 									type="button"
 									variant="secondary"
 									onClick={() => void handleGenerateDastAuthKey()}
-									disabled={runtimeSaving || runtimeGeneratingDastAuthKey}
+									disabled={
+										runtimeSaving ||
+										runtimeGeneratingDastAuthKey ||
+										runtimeAutoConfiguring
+									}
 								>
 									<RefreshCw className="icon" />
 									<span>
@@ -230,6 +390,32 @@ export function RuntimeSettingsPanel({ model }: { model: SettingsPanelModel }) {
 				<div className="tree-info">Loading runtime settings...</div>
 			)}
 		</section>
+	);
+}
+
+function RuntimeIsolationTextSetting({
+	id,
+	label,
+	value,
+	placeholder = "image@sha256:...",
+	onChange,
+}: {
+	id: string;
+	label: string;
+	value: string;
+	placeholder?: string;
+	onChange: (value: string) => void;
+}) {
+	return (
+		<div className="settings-form-field">
+			<label htmlFor={id}>{label}</label>
+			<TextInput
+				id={id}
+				value={value}
+				placeholder={placeholder}
+				onChange={(event) => onChange(event.target.value)}
+			/>
+		</div>
 	);
 }
 

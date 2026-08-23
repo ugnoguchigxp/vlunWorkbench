@@ -4,7 +4,10 @@ import {
 	APP_CONFIG_DEFAULTS,
 	SECURITY_CAPABILITY_DEFAULTS,
 } from "../config/appDefaults";
-import { RUNTIME_SETTINGS_DEFAULTS } from "../config/runtime-settings";
+import {
+	RUNTIME_SETTINGS_DEFAULTS,
+	type RuntimeIsolationSettings,
+} from "../config/runtime-settings";
 import { AGENTIC_SEARCH_DEFAULTS } from "../modules/agentic-search/constants";
 import {
 	normalizeOpenAiBaseUrl,
@@ -145,6 +148,19 @@ const EnvSchema = z.object({
 	VULN_WORKBENCH_WEB_SCAN_STEP_TIMEOUT_MAX_SEC: optionalPositiveInteger,
 	VULN_WORKBENCH_WEB_SCAN_WALL_CLOCK_TIMEOUT_SEC: optionalPositiveInteger,
 	VULN_WORKBENCH_SCAN_EXECUTION_PLAN_V2: optionalBoolean,
+	VULN_WORKBENCH_RUNTIME_NAMESPACE_OWNER_IMAGE: optionalTrimmedString,
+	VULN_WORKBENCH_RUNTIME_NODE_IMAGE: optionalTrimmedString,
+	VULN_WORKBENCH_RUNTIME_MATERIALIZER_IMAGE: optionalTrimmedString,
+	VULN_WORKBENCH_RUNTIME_REGISTRY_PROXY_IMAGE: optionalTrimmedString,
+	VULN_WORKBENCH_RUNTIME_PROBE_IMAGE: optionalTrimmedString,
+	VULN_WORKBENCH_RUNTIME_HTTP_EXECUTOR_IMAGE: optionalTrimmedString,
+	VULN_WORKBENCH_RUNTIME_DOCKER_DAEMON_IDENTITY_HASH: optionalTrimmedString,
+	VULN_WORKBENCH_RUNTIME_QUALIFICATION_HASH: optionalTrimmedString,
+	VULN_WORKBENCH_RUNTIME_POSTGRES_IMAGE: optionalTrimmedString,
+	VULN_WORKBENCH_RUNTIME_MYSQL_IMAGE: optionalTrimmedString,
+	VULN_WORKBENCH_RUNTIME_NUCLEI_IMAGE: optionalTrimmedString,
+	VULN_WORKBENCH_RUNTIME_ZAP_IMAGE: optionalTrimmedString,
+	VULN_WORKBENCH_RUNTIME_SCHEMATHESIS_IMAGE: optionalTrimmedString,
 	STATIC_INTELLIGENCE_ALLOWED_PROJECT_ROOTS: optionalTrimmedString,
 	STATIC_INTELLIGENCE_PROJECT_CREATION_POLICY: z
 		.enum(["registered_only", "create_within_allowed_roots"])
@@ -238,6 +254,8 @@ export type AppEnv = {
 	webScanWallClockTimeoutSec: number;
 	/** Optional for backward-compatible injected/test AppEnv fixtures. */
 	scanExecutionPlanV2?: boolean;
+	/** SQLite-backed server-owned configuration for isolated runtime targets. */
+	runtimeIsolation?: RuntimeIsolationSettings;
 	staticIntelligenceAllowedProjectRoots?: string[];
 	staticIntelligenceProjectCreationPolicy?:
 		| "registered_only"
@@ -337,6 +355,7 @@ export function readAppEnv(env: NodeJS.ProcessEnv = process.env): AppEnv {
 	const databaseUrl = normalizeSqliteDatabaseUrl(
 		parsed.DATABASE_URL ?? APP_CONFIG_DEFAULTS.databaseUrl,
 	);
+	const runtimeIsolationDefaults = RUNTIME_SETTINGS_DEFAULTS.runtimeIsolation;
 	return {
 		nodeEnv: parsed.NODE_ENV,
 		host: parsed.HOST ?? APP_CONFIG_DEFAULTS.host,
@@ -440,6 +459,47 @@ export function readAppEnv(env: NodeJS.ProcessEnv = process.env): AppEnv {
 			parsed.VULN_WORKBENCH_WEB_SCAN_WALL_CLOCK_TIMEOUT_SEC ??
 			RUNTIME_SETTINGS_DEFAULTS.webScanWallClockTimeoutSec,
 		scanExecutionPlanV2: parsed.VULN_WORKBENCH_SCAN_EXECUTION_PLAN_V2 ?? false,
+		runtimeIsolation: {
+			namespaceOwnerImage:
+				parsed.VULN_WORKBENCH_RUNTIME_NAMESPACE_OWNER_IMAGE ??
+				runtimeIsolationDefaults.namespaceOwnerImage,
+			nodeImage:
+				parsed.VULN_WORKBENCH_RUNTIME_NODE_IMAGE ??
+				runtimeIsolationDefaults.nodeImage,
+			materializerImage:
+				parsed.VULN_WORKBENCH_RUNTIME_MATERIALIZER_IMAGE ??
+				runtimeIsolationDefaults.materializerImage,
+			registryProxyImage:
+				parsed.VULN_WORKBENCH_RUNTIME_REGISTRY_PROXY_IMAGE ??
+				runtimeIsolationDefaults.registryProxyImage,
+			probeImage:
+				parsed.VULN_WORKBENCH_RUNTIME_PROBE_IMAGE ??
+				runtimeIsolationDefaults.probeImage,
+			httpExecutorImage:
+				parsed.VULN_WORKBENCH_RUNTIME_HTTP_EXECUTOR_IMAGE ??
+				runtimeIsolationDefaults.httpExecutorImage,
+			dockerDaemonIdentityHash:
+				parsed.VULN_WORKBENCH_RUNTIME_DOCKER_DAEMON_IDENTITY_HASH ??
+				runtimeIsolationDefaults.dockerDaemonIdentityHash,
+			qualificationHash:
+				parsed.VULN_WORKBENCH_RUNTIME_QUALIFICATION_HASH ??
+				runtimeIsolationDefaults.qualificationHash,
+			postgresImage:
+				parsed.VULN_WORKBENCH_RUNTIME_POSTGRES_IMAGE ??
+				runtimeIsolationDefaults.postgresImage,
+			mysqlImage:
+				parsed.VULN_WORKBENCH_RUNTIME_MYSQL_IMAGE ??
+				runtimeIsolationDefaults.mysqlImage,
+			nucleiImage:
+				parsed.VULN_WORKBENCH_RUNTIME_NUCLEI_IMAGE ??
+				runtimeIsolationDefaults.nucleiImage,
+			zapImage:
+				parsed.VULN_WORKBENCH_RUNTIME_ZAP_IMAGE ??
+				runtimeIsolationDefaults.zapImage,
+			schemathesisImage:
+				parsed.VULN_WORKBENCH_RUNTIME_SCHEMATHESIS_IMAGE ??
+				runtimeIsolationDefaults.schemathesisImage,
+		},
 		staticIntelligenceAllowedProjectRoots: parseAllowedProjectRoots(
 			parsed.STATIC_INTELLIGENCE_ALLOWED_PROJECT_ROOTS,
 		),

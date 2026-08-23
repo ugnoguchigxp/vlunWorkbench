@@ -38,6 +38,10 @@ export type ContainerTargetGatewayOptions = {
 	containerAccess?: boolean;
 	maxResponseBytes?: number;
 	maxTotalResponseBytes?: number;
+	exactOperations?: ReadonlyArray<{
+		method: "GET" | "HEAD" | "OPTIONS";
+		pathTemplate: string;
+	}>;
 };
 
 export type PreparedContainerTargetGateway = {
@@ -51,6 +55,10 @@ export type PreparedContainerTargetGateway = {
 		redirectBlockedResponses: number;
 		responseBytesRead: number;
 		responseBodyTruncatedResponses: number;
+		operationMetrics?: Record<
+			string,
+			{ attempted: number; forwarded: number; blocked: number }
+		>;
 	};
 	stop: () => Promise<void>;
 };
@@ -147,6 +155,59 @@ function wait(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function decodedPathSegments(requestTarget: string): string[] | null {
+	const rawPath = requestTarget.split("?", 1)[0];
+	if (
+		!rawPath.startsWith("/") ||
+		rawPath.startsWith("//") ||
+		rawPath.includes("//") ||
+		/%(?:2f|5c|00)/i.test(rawPath)
+	)
+		return null;
+	const result: string[] = [];
+	for (const rawSegment of rawPath.split("/").slice(1)) {
+		let segment: string;
+		try {
+			segment = decodeURIComponent(rawSegment);
+		} catch {
+			return null;
+		}
+		if (
+			segment === "." ||
+			segment === ".." ||
+			segment.includes("/") ||
+			segment.includes("\\") ||
+			segment.includes("\0")
+		)
+			return null;
+		result.push(segment);
+	}
+	return result;
+}
+
+function matchingExactOperation(
+	requestTarget: string,
+	method: string,
+	operations: NonNullable<ContainerTargetGatewayOptions["exactOperations"]>,
+) {
+	const actual = decodedPathSegments(requestTarget);
+	if (!actual) return null;
+	return (
+		operations.find((operation) => {
+			if (operation.method !== method) return false;
+			const expected = operation.pathTemplate.split("/").slice(1);
+			return (
+				expected.length === actual.length &&
+				expected.every((segment, index) =>
+					/^\{[^{}]+\}$/.test(segment)
+						? actual[index].length > 0
+						: segment === actual[index],
+				)
+			);
+		}) ?? null
+	);
+}
+
 export async function prepareContainerTargetGateway(
 	options: ContainerTargetGatewayOptions,
 ): Promise<PreparedContainerTargetGateway> {
@@ -169,6 +230,12 @@ export async function prepareContainerTargetGateway(
 		redirectBlockedResponses: 0,
 		responseBytesRead: 0,
 		responseBodyTruncatedResponses: 0,
+		operationMetrics: Object.fromEntries(
+			(options.exactOperations ?? []).map((operation) => [
+				`${operation.method} ${operation.pathTemplate}`,
+				{ attempted: 0, forwarded: 0, blocked: 0 },
+			]),
+		),
 	};
 	const maxResponseBytes = options.maxResponseBytes ?? 1024 * 1024;
 	const maxTotalResponseBytes =
@@ -199,13 +266,36 @@ export async function prepareContainerTargetGateway(
 	const server = http.createServer(async (req, res) => {
 		if (closed) return sendText(res, 503);
 		const method = (req.method ?? "GET").toUpperCase();
+		const requestTarget = req.url ?? "/";
+		const matchedOperation = options.exactOperations
+			? matchingExactOperation(requestTarget, method, options.exactOperations)
+			: null;
+		const operationMetric = matchedOperation
+			? metrics.operationMetrics?.[
+					`${matchedOperation.method} ${matchedOperation.pathTemplate}`
+				]
+			: null;
+		if (operationMetric) operationMetric.attempted += 1;
 		if (!READ_ONLY_METHODS.has(method)) {
 			metrics.methodBlockedRequests++;
+			if (operationMetric) operationMetric.blocked += 1;
 			return sendText(res, 405);
 		}
-		const requestTarget = req.url ?? "/";
 		if (!requestTarget.startsWith("/") || requestTarget.startsWith("//")) {
 			return sendText(res, 400);
+		}
+		if (
+			req.headers["x-http-method-override"] !== undefined ||
+			req.headers["x-method-override"] !== undefined ||
+			req.headers["x-http-method"] !== undefined
+		) {
+			metrics.methodBlockedRequests++;
+			if (operationMetric) operationMetric.blocked += 1;
+			return sendText(res, 405);
+		}
+		if (options.exactOperations && !matchedOperation) {
+			metrics.pathBlockedRequests++;
+			return sendText(res, 404);
 		}
 		const incoming = new URL(requestTarget, "http://gateway.invalid");
 		if (
@@ -220,6 +310,7 @@ export async function prepareContainerTargetGateway(
 		}
 		if (reservedRequests >= options.maxRequests) {
 			metrics.budgetBlockedRequests++;
+			if (operationMetric) operationMetric.blocked += 1;
 			res.writeHead(204, {
 				...securityHeaders(),
 				"X-Vuln-Workbench-Gateway": "budget-blocked",
@@ -240,6 +331,7 @@ export async function prepareContainerTargetGateway(
 			return sendText(res, 503);
 		}
 		metrics.forwardedRequests++;
+		if (operationMetric) operationMetric.forwarded += 1;
 		const upstreamUrl = new URL(
 			incoming.pathname + incoming.search,
 			upstreamOrigin,

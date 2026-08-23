@@ -1,19 +1,23 @@
 import fs from "node:fs/promises";
+import path from "node:path";
 import type { AppDatabase } from "../../../db";
 import type { SchemaDiscoveryResult } from "../../api-schema-fuzz/schema-discovery";
-import { runSchemathesisReadonly } from "../../api-schema-fuzz/schemathesis-runner";
+import {
+	loadOpenApiReadonlyOperationPolicy,
+	runSchemathesisReadonly,
+} from "../../api-schema-fuzz/schemathesis-runner";
 import {
 	type PreparedContainerTargetGateway,
 	prepareContainerTargetGateway,
 } from "../../dast/container-target-gateway";
-import { ScanArtifactSink } from "./lifecycle/artifact-sink";
-import type { ArtifactStorage } from "./lifecycle/artifact-storage";
 import {
 	ArtifactRepository,
 	FindingRepository,
 	ScanRepository,
 } from "../repositories";
 import type { ToolExecutionConfig } from "../tools/tool-process-runner";
+import { ScanArtifactSink } from "./lifecycle/artifact-sink";
+import type { ArtifactStorage } from "./lifecycle/artifact-storage";
 
 export async function runSchemaScannerIntoExistingScan(params: {
 	db: AppDatabase;
@@ -85,9 +89,19 @@ export async function runSchemaScannerIntoExistingScan(params: {
 				}
 			: params.execution;
 	let result: Awaited<ReturnType<typeof runSchemathesisReadonly>> | null = null;
+	let operationPolicy: Awaited<
+		ReturnType<typeof loadOpenApiReadonlyOperationPolicy>
+	> | null = null;
 	let gateway: PreparedContainerTargetGateway | null = null;
 	let executionError: unknown = null;
 	try {
+		const loadedOperationPolicy = await loadOpenApiReadonlyOperationPolicy(
+			discovery.schemaPath,
+			discovery.source === "repository"
+				? params.repoPath
+				: path.dirname(discovery.schemaPath),
+		);
+		operationPolicy = loadedOperationPolicy;
 		if (!params.runtimeNamespaceOwnerId)
 			gateway = await prepareContainerTargetGateway({
 				upstreamOrigin: params.targetOrigin,
@@ -97,6 +111,10 @@ export async function runSchemaScannerIntoExistingScan(params: {
 				rateLimitPerSec: params.rateLimitPerSec ?? 2,
 				dockerBin: params.execution?.docker?.dockerBin,
 				containerAccess: runtimeExecution?.runner === "docker",
+				exactOperations: loadedOperationPolicy.operations.map((operation) => ({
+					method: operation.method,
+					pathTemplate: `${loadedOperationPolicy.basePath === "/" ? "" : loadedOperationPolicy.basePath}${operation.pathTemplate}`,
+				})),
 			});
 		result = await runSchemathesisReadonly({
 			scanRunId: params.scanRunId,
@@ -114,6 +132,7 @@ export async function runSchemaScannerIntoExistingScan(params: {
 			storage: scopedStorage,
 			execution: runtimeExecution,
 			timeoutSec: params.timeoutSec,
+			operationPolicy: loadedOperationPolicy,
 		});
 	} catch (error) {
 		executionError = error;
@@ -188,6 +207,8 @@ export async function runSchemaScannerIntoExistingScan(params: {
 				error: result.error,
 				artifactIds,
 				gatewayMetrics: gateway?.metrics() ?? null,
+				operationPolicyHash: operationPolicy?.policyHash ?? null,
+				schemaSnapshotDigest: operationPolicy?.schemaSnapshotDigest ?? null,
 			},
 		});
 		return {
@@ -196,7 +217,10 @@ export async function runSchemaScannerIntoExistingScan(params: {
 			findingCount: 0,
 			artifactIds,
 			error: result.error ?? "execution_failed",
-			metadata: { gatewayMetrics: gateway?.metrics() ?? null },
+			metadata: {
+				gatewayMetrics: gateway?.metrics() ?? null,
+				operationPolicyHash: operationPolicy?.policyHash ?? null,
+			},
 		};
 	}
 	for (const finding of result.findings) {
@@ -231,6 +255,9 @@ export async function runSchemaScannerIntoExistingScan(params: {
 			findingCount: result.findings.length,
 			schemaSource: discovery.source,
 			gatewayMetrics: gateway?.metrics() ?? null,
+			operationPolicyHash: operationPolicy?.policyHash ?? null,
+			schemaSnapshotDigest: operationPolicy?.schemaSnapshotDigest ?? null,
+			selectedOperationCount: operationPolicy?.operations.length ?? 0,
 		},
 	});
 	return {
@@ -238,6 +265,9 @@ export async function runSchemaScannerIntoExistingScan(params: {
 		toolRunId: toolRun.id,
 		findingCount: result.findings.length,
 		artifactIds,
-		metadata: { gatewayMetrics: gateway?.metrics() ?? null },
+		metadata: {
+			gatewayMetrics: gateway?.metrics() ?? null,
+			operationPolicyHash: operationPolicy?.policyHash ?? null,
+		},
 	};
 }

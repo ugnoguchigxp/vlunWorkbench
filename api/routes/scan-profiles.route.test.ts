@@ -12,7 +12,7 @@ describe("Scan Profiles Route", () => {
 
     const body = await res.json();
 		expect(body.schemaVersion).toBe(2);
-		expect(body.catalogEntries).toHaveLength(12);
+		expect(body.catalogEntries).toHaveLength(14);
 		expect(body.genericStartCatalogProfileIds).toEqual([
 			"change-gate",
 			"source-assurance",

@@ -14,7 +14,7 @@ import {
 	validateDastTargetConfig,
 } from "../dast/target-validator";
 import { canonicalJson } from "../scans/diff-scan-plan";
-import { buildDedicatedProfileMetadata } from "../scans/profile-resolution";
+import { buildDedicatedProfileAdmissionMetadata } from "../scans/dedicated-profile-admission";
 import { FindingRepository, ScanRepository } from "../scans/repositories";
 import { BusinessLogicRepository } from "./business-logic-repository";
 import {
@@ -129,8 +129,9 @@ export class BusinessLogicRunner {
 			status: "running",
 			createdByUserId: params.ownerUserId,
 			metadata: {
-				...buildDedicatedProfileMetadata({
+				...buildDedicatedProfileAdmissionMetadata({
 					canonicalProfileId: "business-logic-lab",
+					expectedLaunchDestination: "business_logic_workspace",
 					providedInputKinds: [
 						"disposable_target_ref",
 						"scenario_ref",

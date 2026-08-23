@@ -1,12 +1,13 @@
+import type { RuntimeIsolationPlanV1 } from "../../../shared/schemas/runtime-isolation.schema";
+import type { ScanExecutionPlanV3 } from "../../../shared/schemas/scan-execution-plan.schema";
 import type {
 	ScanPreflightCheck,
 	ScanPreflightResultV1,
 	ScanPreflightResultV2,
 } from "../../../shared/schemas/scan-preflight.schema";
 import { scanPreflightResultV2Schema } from "../../../shared/schemas/scan-preflight.schema";
-import type { RuntimeIsolationPlanV1 } from "../../../shared/schemas/runtime-isolation.schema";
-import type { RuntimeIsolationPlanningResult } from "./runtime-isolation-planner";
 import { runtimeIsolationHash } from "./runtime-isolation-hash";
+import type { RuntimeIsolationPlanningResult } from "./runtime-isolation-planner";
 
 export function buildRuntimeIsolationPreflight(params: {
 	base: ScanPreflightResultV1;
@@ -47,7 +48,10 @@ export function buildRuntimeIsolationPreflight(params: {
 			ready: params.planning.status === "ready",
 			reasonCode:
 				params.planning.status === "ready" ? null : params.planning.reasonCode,
-			action: "create_runtime_recipe",
+			action:
+				params.planning.status === "ready"
+					? "create_runtime_recipe"
+					: runtimeIsolationActionForReason(params.planning.reasonCode),
 		}),
 	);
 	if (params.planning.status === "ready") {
@@ -126,6 +130,38 @@ export function buildRuntimeIsolationPreflight(params: {
 			preflightHash: undefined,
 		}),
 	});
+}
+
+function runtimeIsolationActionForReason(
+	reasonCode: string,
+): ScanPreflightCheck["action"] {
+	if (reasonCode === "runtime_dependency_lock_unsupported") {
+		return "use_supported_npm_lock";
+	}
+	if (
+		reasonCode === "runtime_image_missing" ||
+		reasonCode === "runtime_database_provider_unqualified"
+	) {
+		return "run_runtime_isolation_qualification";
+	}
+	return "create_runtime_recipe";
+}
+
+export function runtimeIsolationExecutionPlanBinding(
+	planning: RuntimeIsolationPlanningResult | undefined,
+): ScanExecutionPlanV3["runtimeIsolation"] | undefined {
+	if (planning?.status !== "ready") return undefined;
+	return {
+		planHash: planning.planHash,
+		qualificationHash: planning.plan.qualificationHash,
+		sourceSnapshotDigest: planning.plan.source.sourceSnapshotDigest,
+		projectionDigest: planning.plan.source.runtimeProjectionDigest,
+		recipeHash: planning.plan.recipe.recipeHash,
+		dependencyLockDigest: planning.plan.dependency.lockDigest,
+		dockerDaemonIdentityHash: planning.plan.dockerDaemonIdentityHash,
+		imageDigests: runtimeIsolationImageDigests(planning.plan.images),
+		databaseMode: planning.plan.database.mode,
+	};
 }
 
 function check(input: {

@@ -25,7 +25,7 @@ import {
 	type ProjectRepository,
 	ScanRepository,
 } from "../modules/scans/repositories";
-import { buildDedicatedProfileMetadata } from "../modules/scans/profile-resolution";
+import { buildDedicatedProfileAdmissionMetadata } from "../modules/scans/dedicated-profile-admission";
 import {
 	ProjectPathPolicyError,
 	resolveProjectPath,
@@ -241,8 +241,9 @@ export function createDastRoute(deps: DastRouteDeps) {
 						status: "running",
 						createdByUserId: authUser.userId,
 						metadata: {
-							...buildDedicatedProfileMetadata({
+							...buildDedicatedProfileAdmissionMetadata({
 								canonicalProfileId: "authenticated-web",
+								expectedLaunchDestination: "dast_workspace",
 								providedInputKinds: ["runtime_target", "auth_context_ref"],
 							}),
 							dastProfileId: parsed.data.profileId,

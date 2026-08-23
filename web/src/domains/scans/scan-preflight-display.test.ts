@@ -66,9 +66,12 @@ describe("scan preflight display", () => {
 				}),
 			],
 		});
-		expect(formatScanPreflightFailure(result!)).toBe(
-			"scan preflight failed: osv [osv]: scanner_data_missing (expected version 2.4.0, observed unavailable, expected digest sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa, observed digest unavailable, action prepare_scanner_database)",
-		);
+		const message = formatScanPreflightFailure(result!);
+		expect(message).toContain("スキャンを開始できませんでした");
+		expect(message).toContain("脆弱性データが見つかりません");
+		expect(message).toContain("スキャナーデータを準備または更新");
+		expect(message).toContain("scanner_data_missing");
+		expect(message).not.toContain("expected digest");
 	});
 
 	it("rejects a UI-only or malformed readiness guess", () => {

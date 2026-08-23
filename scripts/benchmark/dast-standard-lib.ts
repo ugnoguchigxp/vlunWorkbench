@@ -19,7 +19,10 @@ const groundTruthPath =
 	"spec/security-capability/dast-standard-ground-truth.v1.json";
 const fixtureRoot = "tests/security-capability/dast-standard/app";
 const implementationInputs = [
+	"api/modules/api-schema-fuzz",
 	"api/modules/dast",
+	"api/modules/runtime-scans",
+	"api/modules/scans/tools",
 	"api/modules/scans/coverage/runtime-assessment-coverage.ts",
 	"shared/schemas/dast-coverage.schema.ts",
 	"shared/schemas/dast.schema.ts",

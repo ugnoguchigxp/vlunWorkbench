@@ -15,7 +15,78 @@ export const RUNTIME_SETTINGS_DEFAULTS = {
 	webScanStepTimeoutMaxSec: 3_600,
 	webScanWallClockTimeoutSec: 21_600,
 	codexSdkTimeoutMs: 600_000,
+	runtimeIsolation: {
+		namespaceOwnerImage: "",
+		nodeImage: "",
+		materializerImage: "",
+		registryProxyImage: "",
+		probeImage: "",
+		httpExecutorImage: "",
+		dockerDaemonIdentityHash: "",
+		qualificationHash: "",
+		postgresImage: "",
+		mysqlImage: "",
+		nucleiImage: "",
+		zapImage: "",
+		schemathesisImage: "",
+	},
 } as const;
+
+const digestPinnedImageSchema = z
+	.string()
+	.trim()
+	.max(512)
+	.refine(
+		(value) => value === "" || /^[^\s@]+@sha256:[a-f0-9]{64}$/.test(value),
+		"Runtime isolation images must be empty or pinned as image@sha256:<64 lowercase hex characters>.",
+	);
+
+const optionalSha256DigestSchema = z
+	.string()
+	.trim()
+	.refine(
+		(value) => value === "" || /^sha256:[a-f0-9]{64}$/.test(value),
+		"Runtime isolation verification hashes must be empty or use sha256:<64 lowercase hex characters>.",
+	);
+
+export const RuntimeIsolationSettingsSchema = z.object({
+	namespaceOwnerImage: digestPinnedImageSchema,
+	nodeImage: digestPinnedImageSchema,
+	materializerImage: digestPinnedImageSchema,
+	registryProxyImage: digestPinnedImageSchema,
+	probeImage: digestPinnedImageSchema,
+	httpExecutorImage: digestPinnedImageSchema,
+	dockerDaemonIdentityHash: optionalSha256DigestSchema,
+	qualificationHash: optionalSha256DigestSchema,
+	postgresImage: digestPinnedImageSchema,
+	mysqlImage: digestPinnedImageSchema,
+	nucleiImage: digestPinnedImageSchema,
+	zapImage: digestPinnedImageSchema,
+	schemathesisImage: digestPinnedImageSchema,
+});
+
+export type RuntimeIsolationSettings = z.infer<
+	typeof RuntimeIsolationSettingsSchema
+>;
+
+export const RUNTIME_ISOLATION_REQUIRED_SETTING_KEYS = [
+	"namespaceOwnerImage",
+	"nodeImage",
+	"materializerImage",
+	"registryProxyImage",
+	"probeImage",
+	"httpExecutorImage",
+	"dockerDaemonIdentityHash",
+	"qualificationHash",
+] as const satisfies ReadonlyArray<keyof RuntimeIsolationSettings>;
+
+export function missingRuntimeIsolationSettings(
+	settings: RuntimeIsolationSettings,
+): string[] {
+	return RUNTIME_ISOLATION_REQUIRED_SETTING_KEYS.filter(
+		(key) => settings[key].length === 0,
+	);
+}
 
 const dockerMemorySchema = z
 	.string()
@@ -81,6 +152,9 @@ export const RuntimeSettingsBaseSchema = z.object({
 		.max(86_400)
 		.default(RUNTIME_SETTINGS_DEFAULTS.webScanWallClockTimeoutSec),
 	codexSdkTimeoutMs: z.number().int().min(1_000).max(3_600_000),
+	runtimeIsolation: RuntimeIsolationSettingsSchema.default(
+		RUNTIME_SETTINGS_DEFAULTS.runtimeIsolation,
+	),
 });
 
 const dastAuthEncryptionKeySchema = z
@@ -104,17 +178,44 @@ export const RuntimeSettingsSchema = RuntimeSettingsBaseSchema.extend({
 		.default([]),
 });
 
-export const RuntimeSettingsUpdateSchema = RuntimeSettingsBaseSchema.extend({
+export const RuntimeSettingsUpdateSchema = RuntimeSettingsBaseSchema.omit({
+	runtimeIsolation: true,
+}).extend({
+	// Older clients do not send this field. Omission must preserve the current
+	// SQLite or legacy bootstrap value rather than resetting it to empty.
+	runtimeIsolation: RuntimeIsolationSettingsSchema.optional(),
 	dastAuthEncryptionKey: optionalDastAuthEncryptionKeySchema,
 });
 
 export type RuntimeSettingsBase = z.infer<typeof RuntimeSettingsBaseSchema>;
 export type RuntimeSettings = z.infer<typeof RuntimeSettingsSchema>;
 
+/** Keeps invalid legacy environment entries fail-closed without hiding valid ones. */
+export function runtimeIsolationSettingsFromBootstrap(
+	settings: RuntimeIsolationSettings | undefined,
+): RuntimeIsolationSettings {
+	const candidate = settings ?? RUNTIME_SETTINGS_DEFAULTS.runtimeIsolation;
+	const normalized = Object.fromEntries(
+		(
+			Object.keys(RUNTIME_SETTINGS_DEFAULTS.runtimeIsolation) as Array<
+				keyof RuntimeIsolationSettings
+			>
+		).map((key) => {
+			const parsed = RuntimeIsolationSettingsSchema.shape[key].safeParse(
+				candidate[key],
+			);
+			return [key, parsed.success ? parsed.data : ""];
+		}),
+	);
+	return RuntimeIsolationSettingsSchema.parse(normalized);
+}
+
 export type RuntimeSettingsResponse = RuntimeSettingsBase & {
 	dastAuthEncryptionKey: "";
 	dastAuthEncryptionKeyConfigured: boolean;
 	dastAuthEncryptionKeySource: "environment" | "settings" | "none";
+	runtimeIsolationConfigured: boolean;
+	runtimeIsolationMissingFields: string[];
 	updatedAt: string | null;
 };
 
@@ -149,6 +250,9 @@ export function runtimeSettingsFromAppEnv(env: AppEnv): RuntimeSettings {
 			env.webScanWallClockTimeoutSec ??
 			RUNTIME_SETTINGS_DEFAULTS.webScanWallClockTimeoutSec,
 		codexSdkTimeoutMs: env.codexSdkTimeoutMs,
+		runtimeIsolation: runtimeIsolationSettingsFromBootstrap(
+			env.runtimeIsolation,
+		),
 		dastAuthEncryptionKey: env.dastAuthEncryptionKey,
 		dastAuthPreviousEncryptionKeys: env.dastAuthPreviousEncryptionKeys ?? [],
 	});
@@ -173,6 +277,7 @@ export function applyRuntimeSettings(
 		webScanStepTimeoutMaxSec: settings.webScanStepTimeoutMaxSec,
 		webScanWallClockTimeoutSec: settings.webScanWallClockTimeoutSec,
 		codexSdkTimeoutMs: settings.codexSdkTimeoutMs,
+		runtimeIsolation: settings.runtimeIsolation,
 		dastAuthEncryptionKey: settings.dastAuthEncryptionKey,
 		dastAuthPreviousEncryptionKeys: settings.dastAuthPreviousEncryptionKeys,
 	};

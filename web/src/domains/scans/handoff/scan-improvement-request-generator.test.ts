@@ -120,12 +120,16 @@ describe("ScanImprovementRequestGenerator", () => {
 		const markup = render([review(1, 1)]);
 		expect(markup).toContain("指示書を再生成");
 		expect(markup).toContain("指示書をコピー");
-		expect(markup).toContain("依頼指示書をプレビュー");
+		expect(markup).toContain('aria-label="改修依頼指示書"');
 		expect(markup).toContain("<h1>セキュリティ改修依頼</h1>");
 		expect(markup).toContain("<h2>実装タスク</h2>");
 		expect(markup).toContain("<pre><code class=\"language-bash\">bun test");
 		expect(markup).not.toContain("# セキュリティ改修依頼");
-		expect(markup).toContain("<h2>対象 finding 一覧（1 件）</h2>");
+		expect(markup).not.toContain("依頼指示書をプレビュー");
+		expect(markup).not.toContain("引き継ぎ品質");
+		expect(markup).not.toContain("対象 finding 一覧");
+		expect(markup).not.toContain(findingId);
+		expect(markup).not.toContain("codex / gpt-5");
 		expect(markup).not.toContain("<script");
 	});
 

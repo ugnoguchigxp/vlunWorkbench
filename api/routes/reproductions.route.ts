@@ -19,10 +19,8 @@ import type {
 	ProjectRepository,
 } from "../modules/scans/repositories";
 import { ScanRepository } from "../modules/scans/repositories";
-import {
-	buildDedicatedProfileMetadata,
-	resolveStoredScanSafetyBoundary,
-} from "../modules/scans/profile-resolution";
+import { buildDedicatedProfileAdmissionMetadata } from "../modules/scans/dedicated-profile-admission";
+import { resolveStoredScanSafetyBoundary } from "../modules/scans/profile-resolution";
 import {
 	ProjectPathPolicyError,
 	resolveProjectPath,
@@ -211,8 +209,9 @@ export function createReproductionsRoute(deps: ReproductionsRouteDeps) {
 				status: "running",
 				createdByUserId: authUser.userId,
 				metadata: {
-					...buildDedicatedProfileMetadata({
+					...buildDedicatedProfileAdmissionMetadata({
 						canonicalProfileId: "remediation-verification",
+						expectedLaunchDestination: "finding_verification",
 						providedInputKinds: ["finding_ref"],
 					}),
 					findingId,

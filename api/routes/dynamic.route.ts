@@ -14,7 +14,7 @@ import {
 } from "../modules/dynamic/dynamic-profiles";
 import { DynamicRepository } from "../modules/dynamic/dynamic-repository";
 import type { WebProcessCapacity } from "../modules/processes/web-process-capacity";
-import { buildDedicatedProfileMetadata } from "../modules/scans/profile-resolution";
+import { buildDedicatedProfileAdmissionMetadata } from "../modules/scans/dedicated-profile-admission";
 import type {
 	FindingRepository,
 	ProjectRepository,
@@ -28,6 +28,16 @@ import { parseCliJsonObject, runBoundedCliProcess } from "./cli-process-bridge";
 
 const DYNAMIC_CLI_OUTPUT_LIMIT_BYTES = 1024 * 1024;
 const DYNAMIC_CLI_TIMEOUT_MS = 12 * 60 * 1000;
+
+function canonicalDynamicProfileId(profileId: string) {
+	const template = DYNAMIC_PROFILE_TEMPLATES.find(
+		(entry) => entry.id === profileId,
+	);
+	if (!template) return "custom-dynamic-lab";
+	return template.dynamicKind === "test"
+		? "dynamic-verification"
+		: "sanitizer-fuzz-lab";
+}
 
 type DynamicRouteDeps = {
 	db: AppDatabase;
@@ -250,14 +260,18 @@ export function createDynamicRoute(deps: DynamicRouteDeps) {
 			profileId: parseResult.data.profileId,
 			createdByUserId: authUser.userId,
 		});
+		const canonicalProfileId = canonicalDynamicProfileId(
+			parseResult.data.profileId,
+		);
 		const scan = await scanRepository.createScanRun({
 			projectId,
-			profile: "dynamic-verification",
+			profile: canonicalProfileId,
 			status: "running",
 			createdByUserId: authUser.userId,
 			metadata: {
-				...buildDedicatedProfileMetadata({
-					canonicalProfileId: "dynamic-verification",
+				...buildDedicatedProfileAdmissionMetadata({
+					canonicalProfileId,
+					expectedLaunchDestination: "dynamic_workspace",
 					providedInputKinds: ["source_target", "execution_consent"],
 				}),
 				dynamicProfileId: parseResult.data.profileId,
@@ -372,14 +386,18 @@ export function createDynamicRoute(deps: DynamicRouteDeps) {
 			profileId: parseResult.data.profileId,
 			createdByUserId: authUser.userId,
 		});
+		const canonicalProfileId = canonicalDynamicProfileId(
+			parseResult.data.profileId,
+		);
 		const scan = await scanRepository.createScanRun({
 			projectId: project.id,
-			profile: "dynamic-verification",
+			profile: canonicalProfileId,
 			status: "running",
 			createdByUserId: authUser.userId,
 			metadata: {
-				...buildDedicatedProfileMetadata({
-					canonicalProfileId: "dynamic-verification",
+				...buildDedicatedProfileAdmissionMetadata({
+					canonicalProfileId,
+					expectedLaunchDestination: "dynamic_workspace",
 					providedInputKinds: ["source_target", "execution_consent"],
 				}),
 				findingId,

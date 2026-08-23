@@ -75,6 +75,7 @@ export function buildSchemathesisReadonlyCommand(
 	schemaPath: string,
 	targetOrigin: string,
 	outputPath: string,
+	operationPathRegex?: string,
 ): string[] {
 	if (
 		!/^https?:\/\/(?:127\.0\.0\.1|host\.docker\.internal)(?::\d+)?$/.test(
@@ -98,6 +99,12 @@ export function buildSchemathesisReadonlyCommand(
 		"20",
 		"--rate-limit",
 		"2/s",
+		"--max-redirects",
+		"0",
+		"--request-timeout",
+		"10",
+		"--request-retries",
+		"0",
 		"--generation-deterministic",
 		"--include-method",
 		"GET",
@@ -105,6 +112,7 @@ export function buildSchemathesisReadonlyCommand(
 		"HEAD",
 		"--include-method",
 		"OPTIONS",
+		...(operationPathRegex ? ["--include-path-regex", operationPathRegex] : []),
 		"--report",
 		"ndjson",
 		"--report-ndjson-path",

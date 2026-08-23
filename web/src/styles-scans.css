@@ -2704,36 +2704,14 @@
 	justify-content: flex-end;
 }
 
-.scan-handoff-preview {
-	border-top: 1px solid var(--color-border);
-	padding-top: 10px;
-}
-
-.scan-handoff-preview > summary {
-	width: fit-content;
-	color: var(--color-brand-strong);
-	font-size: 13px;
-	font-weight: 800;
-	cursor: pointer;
-}
-
 .scan-handoff-markdown {
-	max-height: 38rem;
 	margin-top: 10px;
 	padding: clamp(16px, 3vw, 28px);
 	border: 1px solid var(--color-border);
 	border-radius: 10px;
 	background: var(--color-surface);
-	overflow: auto;
 }
 
-.scan-handoff-quality {
-	display: grid;
-	grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-	gap: 8px;
-}
-
-.scan-handoff-quality-item,
 .scan-review-failure,
 .decision-audit-details,
 .scan-review-filter {
@@ -2743,32 +2721,10 @@
 	padding: 8px;
 	min-width: 0;
 }
-
-.scan-handoff-quality-item {
-	display: flex;
-	align-items: flex-start;
-	gap: 8px;
-}
-
-.scan-handoff-quality-item.status-ready .icon {
-	color: var(--color-success);
-}
-
-.scan-handoff-quality-item.status-partial .icon {
-	color: var(--color-warning);
-}
-
-.scan-handoff-quality-item.status-missing .icon {
-	color: var(--color-danger);
-}
-
-.scan-handoff-quality-item span,
 .scan-review-failure span {
 	min-width: 0;
 }
 
-.scan-handoff-quality-item strong,
-.scan-handoff-quality-item small,
 .scan-review-failure strong,
 .scan-review-failure span,
 .scan-review-failure code {
@@ -2777,8 +2733,6 @@
 	line-height: 1.35;
 	overflow-wrap: anywhere;
 }
-
-.scan-handoff-quality-item small,
 .scan-review-failure span {
 	color: var(--color-muted);
 }
@@ -4081,6 +4035,104 @@
 	gap: 14px;
 }
 
+.workspace-scan-failure {
+	display: grid;
+	grid-column: 1 / -1;
+	gap: 12px;
+	padding: 18px 20px;
+	border: 1px solid var(--color-danger-border);
+	border-radius: 13px;
+	background: color-mix(
+		in srgb,
+		var(--color-danger-surface) 76%,
+		var(--color-surface)
+	);
+	box-shadow: 0 8px 24px rgb(153 27 27 / 0.08);
+}
+
+.workspace-scan-failure header {
+	display: flex;
+	align-items: flex-start;
+	gap: 11px;
+}
+
+.workspace-scan-failure header > svg {
+	flex: 0 0 auto;
+	width: 22px;
+	height: 22px;
+	margin-top: 2px;
+	color: var(--color-danger);
+}
+
+.workspace-scan-failure header span {
+	color: var(--color-danger);
+	font-size: 0.72rem;
+	font-weight: 900;
+	letter-spacing: 0.08em;
+}
+
+.workspace-scan-failure h2,
+.workspace-scan-failure p,
+.workspace-scan-failure dl {
+	margin: 0;
+}
+
+.workspace-scan-failure h2 {
+	margin-top: 2px;
+	font-size: 1.06rem;
+	line-height: 1.4;
+}
+
+.workspace-scan-failure-action {
+	display: grid;
+	gap: 3px;
+	padding: 11px 13px;
+	border-left: 3px solid var(--color-danger);
+	border-radius: 4px 8px 8px 4px;
+	background: var(--color-surface);
+}
+
+.workspace-scan-failure-action strong {
+	font-size: 0.78rem;
+}
+
+.workspace-scan-failure-assurance {
+	color: var(--color-muted-strong);
+	font-size: 0.84rem;
+	font-weight: 700;
+}
+
+.workspace-scan-failure details {
+	font-size: 0.78rem;
+}
+
+.workspace-scan-failure summary {
+	width: fit-content;
+	color: var(--color-muted-strong);
+	font-weight: 750;
+	cursor: pointer;
+}
+
+.workspace-scan-failure dl {
+	display: grid;
+	grid-template-columns: max-content minmax(0, 1fr);
+	gap: 5px 10px;
+	margin-top: 9px;
+	padding: 10px 12px;
+	border: 1px solid var(--color-border);
+	border-radius: 8px;
+	background: var(--color-surface);
+}
+
+.workspace-scan-failure dt {
+	color: var(--color-muted);
+}
+
+.workspace-scan-failure dd {
+	min-width: 0;
+	overflow-wrap: anywhere;
+}
+
 .workspace-results-summary,
 .workspace-findings-section {
 	display: grid;
@@ -4155,6 +4207,19 @@
 	background: var(--color-warning);
 }
 
+.workspace-coverage-status.unknown {
+	background: color-mix(
+		in srgb,
+		var(--color-danger-surface) 56%,
+		var(--color-surface)
+	);
+	color: var(--color-danger);
+}
+
+.workspace-coverage-status.unknown strong {
+	background: var(--color-danger);
+}
+
 .workspace-results-summary-content {
 	display: grid;
 	grid-template-columns: minmax(11rem, 0.65fr) minmax(0, 2.35fr);
@@ -4169,6 +4234,20 @@
 	min-width: 0;
 	padding: 6px 28px 6px 4px;
 	border-right: 1px solid var(--color-border);
+}
+
+.workspace-results-unavailable {
+	display: grid;
+	place-items: center;
+	min-height: 78px;
+	padding: 12px;
+	border: 1px dashed var(--color-danger-border);
+	border-radius: 9px;
+	background: var(--color-danger-surface);
+	color: var(--color-muted-strong);
+	font-size: 0.84rem;
+	font-weight: 700;
+	text-align: center;
 }
 
 .workspace-result-total strong {

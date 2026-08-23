@@ -30,6 +30,9 @@ describe("readAppEnv", () => {
 			RUNTIME_SETTINGS_DEFAULTS.webScanWallClockTimeoutSec,
 		);
 		expect(env.scanExecutionPlanV2).toBe(false);
+		expect(env.runtimeIsolation).toEqual(
+			RUNTIME_SETTINGS_DEFAULTS.runtimeIsolation,
+		);
 		expect(env.jwtAccessExpiresIn).toBe("1d");
 		expect(env.jwtRefreshExpiresIn).toBe("7d");
 		expect(env.scanExecutionMode).toBeUndefined();
@@ -68,6 +71,19 @@ describe("readAppEnv", () => {
 		expect(env.dastStandardV2Default).toBe(true);
 		expect(env.threatModelEnabled).toBe(false);
 		expect(env.businessLogicEnabled).toBe(false);
+	});
+
+	it("keeps legacy runtime isolation environment values as bootstrap defaults", () => {
+		const digest = `sha256:${"a".repeat(64)}`;
+		const env = readAppEnv({
+			VULN_WORKBENCH_RUNTIME_NAMESPACE_OWNER_IMAGE: `owner@${digest}`,
+			VULN_WORKBENCH_RUNTIME_QUALIFICATION_HASH: digest,
+		});
+		expect(env.runtimeIsolation).toMatchObject({
+			namespaceOwnerImage: `owner@${digest}`,
+			qualificationHash: digest,
+			nodeImage: "",
+		});
 	});
 
 	it("normalizes the outbound LLM provider host allowlist", () => {

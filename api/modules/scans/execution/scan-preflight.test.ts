@@ -2,13 +2,13 @@ import { describe, expect, it, vi } from "vitest";
 import type { ScanProfile } from "../../../../shared/schemas/scan-profile.schema";
 import { recordScannerE2EFailureObservation } from "../../../testing/scanner-e2e-failure-observation";
 import { buildScanProfiles } from "../profiles";
+import type { ScannerDataManifest } from "../tools/scanner-provenance";
 import {
   preflightBlocksExecution,
 	resolveScanPreflightMode,
   runScanPreflight,
   type ScanPreflightDependencies,
 } from "./scan-preflight";
-import type { ScannerDataManifest } from "../tools/scanner-provenance";
 
 const NOW = new Date("2026-08-16T00:00:00.000Z");
 const DIGEST = `sha256:${"a".repeat(64)}`;
@@ -111,6 +111,34 @@ describe("scan preflight", () => {
 				id: "profile:api-schema-readonly:runtime-isolation-provider",
 				status: "blocked",
 				reasonCode: "runtime_isolation_provider_unavailable",
+			}),
+		);
+	});
+
+	it("requires explicit project-code consent even when the isolated provider owns the sandbox", async () => {
+		const selected = profile("runtime-web-safe");
+		const dastStep = selected.steps?.find((step) => step.kind === "dast");
+		expect(dastStep).toBeDefined();
+		const result = await runScanPreflight({
+			profile: selected,
+			steps: [dastStep!],
+			repoPath: "/redacted/project",
+			execution: { runner: "host" },
+			isolatedRuntimeProviderAvailable: true,
+			dependencies: dependencies(),
+		});
+
+		expect(result.checks).toContainEqual(
+			expect.objectContaining({
+				kind: "project_code_consent",
+				status: "blocked",
+				reasonCode: "project_code_execution_consent_required",
+			}),
+		);
+		expect(result.checks).toContainEqual(
+			expect.objectContaining({
+				kind: "sandbox_availability",
+				status: "ready",
 			}),
 		);
 	});

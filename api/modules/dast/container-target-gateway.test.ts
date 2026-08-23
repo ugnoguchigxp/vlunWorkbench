@@ -55,6 +55,30 @@ describe("container target gateway", () => {
 		await gateway.stop();
 	});
 
+	it("enforces segment-exact operation policies and rejects encoded bypasses", async () => {
+		const upstream = http.createServer((_req, res) => res.end("ok"));
+		const port = await listen(upstream);
+		const gateway = await prepareContainerTargetGateway({
+			upstreamOrigin: `http://127.0.0.1:${port}`,
+			allowedPaths: ["/"],
+			excludedPaths: [],
+			maxRequests: 10,
+			rateLimitPerSec: 100,
+			exactOperations: [{ method: "GET", pathTemplate: "/api/users/{id}" }],
+		});
+		expect((await fetch(`${gateway.hostOrigin}/api/users/one`)).status).toBe(200);
+		expect((await fetch(`${gateway.hostOrigin}/api/users`)).status).toBe(404);
+		expect((await fetch(`${gateway.hostOrigin}/api/users/one/extra`)).status).toBe(404);
+		expect((await fetch(`${gateway.hostOrigin}/api/users%2fone`)).status).toBe(404);
+		expect((await fetch(`${gateway.hostOrigin}/api/users/one`, { headers: { "x-http-method-override": "POST" } })).status).toBe(405);
+		expect(gateway.metrics().operationMetrics?.["GET /api/users/{id}"]).toEqual({
+			attempted: 2,
+			forwarded: 1,
+			blocked: 1,
+		});
+		await gateway.stop();
+	});
+
 	it("rewrites same-origin redirects and blocks external redirects", async () => {
 		const upstream = http.createServer((req, res) => {
 			if (req.url === "/same") {

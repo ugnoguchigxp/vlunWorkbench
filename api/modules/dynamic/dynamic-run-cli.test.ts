@@ -2,12 +2,12 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { main } from "../../cli/dynamic-run";
 import { createDbConnection, type DbConnection } from "../../db";
 import { projects, users } from "../../db/schema";
 import { closeTestDbConnection } from "../../db/testing/connection";
 import { migrateTestDatabase } from "../../db/testing/migrate";
 import { DynamicRepository } from "./dynamic-repository";
-import { main } from "../../cli/dynamic-run";
 
 describe("Dynamic Run CLI", () => {
 	let connection: DbConnection;
@@ -16,6 +16,7 @@ describe("Dynamic Run CLI", () => {
 	let projectId: string;
 	let dbFile: string;
 	let previousDatabaseUrl: string | undefined;
+	let previousDynamicImage: string | undefined;
 
 	async function runCli(args: string[]) {
 		const outputs: Record<string, unknown>[] = [];
@@ -27,7 +28,9 @@ describe("Dynamic Run CLI", () => {
 	beforeEach(async () => {
 		dbFile = path.join(os.tmpdir(), `dynamic-cli-test-${Date.now()}-${crypto.randomUUID().slice(0, 8)}.sqlite`);
 		previousDatabaseUrl = process.env.DATABASE_URL;
+		previousDynamicImage = process.env.VULN_WORKBENCH_DYNAMIC_IMAGE;
 		process.env.DATABASE_URL = `file:${dbFile}`;
+		process.env.VULN_WORKBENCH_DYNAMIC_IMAGE = `dynamic@sha256:${"a".repeat(64)}`;
 		await migrateTestDatabase(`file:${dbFile}`);
 		connection = createDbConnection(`file:${dbFile}`);
 
@@ -78,6 +81,9 @@ describe("Dynamic Run CLI", () => {
 		vi.restoreAllMocks();
 		if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL;
 		else process.env.DATABASE_URL = previousDatabaseUrl;
+		if (previousDynamicImage === undefined)
+			delete process.env.VULN_WORKBENCH_DYNAMIC_IMAGE;
+		else process.env.VULN_WORKBENCH_DYNAMIC_IMAGE = previousDynamicImage;
 	});
 
 	it("should parse argv and perform a dry run using dynamic-run CLI process", async () => {

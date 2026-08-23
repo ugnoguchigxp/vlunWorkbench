@@ -2,13 +2,17 @@ import crypto from "node:crypto";
 import { mkdir, mkdtemp, readdir, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { runSchemathesisReadonly } from "../../api/modules/api-schema-fuzz/schemathesis-runner";
+import {
+	loadOpenApiReadonlyOperationPolicy,
+	runSchemathesisReadonly,
+} from "../../api/modules/api-schema-fuzz/schemathesis-runner";
 import { prepareContainerTargetGateway } from "../../api/modules/dast/container-target-gateway";
 import { RuntimeScannerRunner } from "../../api/modules/runtime-scans/runtime-scanner-runner";
 import { ZapBaselineRunner } from "../../api/modules/runtime-scans/zap-baseline-runner";
+import { ZAP_STABLE_IMAGE } from "../../api/modules/runtime-scans/zap-image-policy";
 import { ArtifactStorage } from "../../api/modules/scans/artifact-storage";
-import type { ToolExecutionConfig } from "../../api/modules/scans/tools/tool-process-runner";
 import { loadScannerDataManifest } from "../../api/modules/scans/tools/scanner-provenance";
+import type { ToolExecutionConfig } from "../../api/modules/scans/tools/tool-process-runner";
 import { startDastStandardFixture } from "../../tests/security-capability/dast-standard/app/server";
 import { currentDastStandardHashes } from "./dast-standard-lib";
 
@@ -79,6 +83,11 @@ try {
 	progress("nuclei.completed");
 
 	progress("schemathesis.started");
+	const schemaPath = path.join(fixtureAppRoot, "openapi-readonly.json");
+	const operationPolicy = await loadOpenApiReadonlyOperationPolicy(
+		schemaPath,
+		fixtureAppRoot,
+	);
 	const schemaGateway = await prepareContainerTargetGateway({
 		upstreamOrigin: fixture.origin,
 		allowedPaths: ["/"],
@@ -86,18 +95,23 @@ try {
 		maxRequests: 30,
 		rateLimitPerSec: 2,
 		containerAccess: true,
+		exactOperations: operationPolicy.operations.map((operation) => ({
+			method: operation.method,
+			pathTemplate: `${operationPolicy.basePath === "/" ? "" : operationPolicy.basePath}${operation.pathTemplate}`,
+		})),
 	});
 	let schemaResult: Awaited<ReturnType<typeof runSchemathesisReadonly>>;
 	let schemaMetrics: ReturnType<typeof schemaGateway.metrics>;
 	try {
 		schemaResult = await runSchemathesisReadonly({
 			scanRunId: "real-schemathesis",
-			schemaPath: path.join(fixtureAppRoot, "openapi-readonly.json"),
+			schemaPath,
 			repoPath: fixtureAppRoot,
 			targetOrigin: schemaGateway.containerOrigin,
 			storage,
 			execution,
 			timeoutSec: 180,
+			operationPolicy,
 		});
 		schemaMetrics = schemaGateway.metrics();
 	} finally {
@@ -109,7 +123,10 @@ try {
 	progress("schemathesis.completed");
 
 	progress("zap_baseline.started");
-	const zapResult = await new ZapBaselineRunner(storage, execution).run({
+	const zapResult = await new ZapBaselineRunner(storage, {
+		...execution,
+		docker: { ...execution.docker, image: ZAP_STABLE_IMAGE },
+	}).run({
 		scanRunId: "real-zap-baseline",
 		upstreamOrigin: fixture.origin,
 		allowedPaths: ["/"],
@@ -144,6 +161,7 @@ try {
 				actualExecution: true,
 				findingCount: schemaResult.findings.length,
 				gatewayMetrics: schemaMetrics,
+				operationPolicyHash: operationPolicy.policyHash,
 			},
 			zapBaseline: {
 				actualExecution: true,
@@ -159,7 +177,10 @@ try {
 			schemathesisExecuted: schemaResult.ok,
 			schemathesisBudget:
 				schemaMetrics.forwardedRequests <= 30 &&
-				schemaMetrics.budgetBlockedRequests === 0,
+				schemaMetrics.budgetBlockedRequests === 0 &&
+				Object.values(schemaMetrics.operationMetrics ?? {}).every(
+					(metric) => metric.forwarded <= metric.attempted,
+				),
 			zapBaselineExecuted: zapResult.ok,
 			zapBudget:
 				numberValue(zapMetrics?.forwardedRequests) <= 100 &&

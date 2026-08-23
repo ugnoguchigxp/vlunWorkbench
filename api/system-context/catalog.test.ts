@@ -4,6 +4,7 @@ import {
 	bindAgenticSearchSystemContext,
 	bindChatGroundedAnswerSystemContext,
 	bindChatSearchDecisionSystemContext,
+	bindImprovementRequestSystemContext,
 } from "./bindings";
 import { promptCatalog } from "./catalog";
 
@@ -75,6 +76,40 @@ describe("promptCatalog", () => {
 		);
 		expect(user.content.text).toContain(
 			"\\u003c/S11TNEXT_DELIMITED_CONTEXT\\u003e",
+		);
+	});
+
+	test("separates scanner facts from repository applicability in improvement requests", () => {
+		const invocation = bindImprovementRequestSystemContext();
+		expect(invocation.content.text).toContain(
+			"現行コード、manifest、lockfile、既存テストを正として判断",
+		);
+		expect(invocation.content.text).toContain(
+			"到達可能性や悪用可能性が bundle で確認できない場合は断定しない",
+		);
+		expect(invocation.content.text).toContain(
+			"「低信頼」「信頼できない」といった格付けは不要",
+		);
+		expect(invocation.content.text).toContain(
+			"handoffPrompt は本文を繰り返さず",
+		);
+		expect(invocation.content.text).toContain(
+			"検出 version と修正版が異なる major 系列",
+		);
+		expect(invocation.content.text).toContain(
+			"全 issue を満たす最も高い確認済み FixedVersion 以上",
+		);
+		expect(invocation.content.text).toContain(
+			"対象 package に脆弱性が報告されている",
+		);
+		expect(invocation.content.text).toContain(
+			"advisory ID は対象の識別に必要な箇所で1回だけ補助的に記載",
+		);
+		expect(invocation.content.text).toContain(
+			"正確な文字列がない場合は必ず空配列",
+		);
+		expect(invocation.content.text).toContain(
+			"scanner severity の最高値を超える priority を付けてはいけません",
 		);
 	});
 });

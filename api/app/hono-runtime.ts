@@ -23,8 +23,12 @@ import { SearchEvidenceCollector } from "../modules/rag/search-evidence";
 import { ScanReportRunner } from "../modules/reports/scan-report-runner";
 import { ReproductionArtifactStorage } from "../modules/reproductions/reproduction-artifact-storage";
 import { RuntimeBundleLeaseJanitor } from "../modules/runtime-isolation/runtime-bundle-lease-janitor";
-import { loadRuntimeIsolationProviderFactory } from "../modules/runtime-isolation/runtime-isolation-runtime-config";
+import {
+	loadRuntimeIsolationProviderFactory,
+	runtimeIsolationSettingsFromAppEnv,
+} from "../modules/runtime-isolation/runtime-isolation-runtime-config";
 import { ArtifactStorage } from "../modules/scans/artifact-storage";
+import { ScanResourceLeaseRepository } from "../modules/scans/execution/lifecycle/scan-resource-lease-repository";
 import { ProjectArtifactCleanupRunner } from "../modules/scans/project-artifact-cleanup-runner";
 import { ProjectDeletionCleanupRepository } from "../modules/scans/project-deletion-cleanup-repository";
 import { ScanReportRepository } from "../modules/scans/report-repository";
@@ -37,7 +41,6 @@ import { ScanImprovementRequestRunner } from "../modules/scans/scan-improvement-
 import { ScanProcessSupervisor } from "../modules/scans/scan-process-supervisor";
 import { ScanReviewRepository } from "../modules/scans/scan-review-repository";
 import { ScanReviewRunner } from "../modules/scans/scan-review-runner";
-import { ScanResourceLeaseRepository } from "../modules/scans/execution/lifecycle/scan-resource-lease-repository";
 import { finalizeWebScanAfterDiagnostic } from "../modules/scans/web-scan-post-processing";
 import { SettingsRepository } from "../modules/settings/settings.repository";
 import { SourceRepository } from "../modules/sources/source.repository";
@@ -85,8 +88,10 @@ export type AppRuntime = {
 		NightworkersWorkspaceTargetGrantJanitor,
 		"stop"
 	>;
-	runtimeBundleLeaseJanitor: Pick<RuntimeBundleLeaseJanitor, "stop">;
-	dynamicBundleLeaseJanitor: Pick<DynamicBundleLeaseJanitor, "stop">;
+	runtimeBundleLeaseJanitor: Pick<RuntimeBundleLeaseJanitor, "stop"> &
+		Partial<Pick<RuntimeBundleLeaseJanitor, "start">>;
+	dynamicBundleLeaseJanitor: Pick<DynamicBundleLeaseJanitor, "stop"> &
+		Partial<Pick<DynamicBundleLeaseJanitor, "start">>;
 	agenticSearchService: {
 		run(input: {
 			query: string;
@@ -388,13 +393,17 @@ async function createRuntime(): Promise<AppRuntime> {
 	const runtimeBundleLeaseJanitor = new RuntimeBundleLeaseJanitor(
 		new ScanResourceLeaseRepository(dbConnection.db),
 	);
-	if (loadRuntimeIsolationProviderFactory({ db: dbConnection.db })) {
+	const runtimeIsolationProviderFactory = loadRuntimeIsolationProviderFactory({
+		db: dbConnection.db,
+		settings: runtimeIsolationSettingsFromAppEnv(env),
+	});
+	if (runtimeIsolationProviderFactory) {
 		await runtimeBundleLeaseJanitor.start();
 	}
 	const dynamicBundleLeaseJanitor = new DynamicBundleLeaseJanitor(
 		new ScanResourceLeaseRepository(dbConnection.db),
 	);
-	if (loadRuntimeIsolationProviderFactory({ db: dbConnection.db })) {
+	if (runtimeIsolationProviderFactory) {
 		await dynamicBundleLeaseJanitor.start();
 	}
 

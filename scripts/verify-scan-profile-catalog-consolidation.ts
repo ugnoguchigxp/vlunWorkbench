@@ -12,7 +12,7 @@ const baseline = await buildScanProfileCatalogBaseline({
 });
 const errors: string[] = [];
 
-if (SCAN_PROFILE_CATALOG.length !== 12)
+if (SCAN_PROFILE_CATALOG.length !== 14)
 	errors.push("catalog_entry_count_invalid");
 const baseLegacyVariant = baseline.variants.find(
 	(variant) => variant.optionalAdapterIds.length === 0,

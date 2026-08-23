@@ -35,6 +35,9 @@ export const scanProfileLaunchDestinationSchema = z.enum([
 	"finding_verification",
 	"professional_run_group",
 ]);
+export type ScanProfileLaunchDestination = z.infer<
+	typeof scanProfileLaunchDestinationSchema
+>;
 export const scanProfileInputKindSchema = z.enum([
 	"source_target",
 	"image_ref",

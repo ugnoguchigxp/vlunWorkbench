@@ -9,20 +9,30 @@ import type { AppEnv } from "../app/env";
 import { requireAdmin } from "../middleware/auth";
 import { getAuthContextUser } from "../modules/auth/context";
 import { HttpError } from "../modules/auth/errors";
+import type { RuntimeTargetProvider } from "../modules/dast/runtime-target-provider";
 import {
 	ProcessCapacityExceededError,
 	type WebProcessCapacity,
 } from "../modules/processes/web-process-capacity";
 import { analyzeProjectCapabilities } from "../modules/project-capabilities/plugin-detector";
 import {
+	buildRuntimeIsolationPreflight,
+	runtimeIsolationExecutionPlanBinding,
+} from "../modules/runtime-isolation/runtime-isolation-preflight";
+import type { RuntimeIsolationProviderFactory } from "../modules/runtime-isolation/runtime-isolation-provider-factory";
+import {
 	buildDiffScanPlan,
 	toDiffScanPreview,
 } from "../modules/scans/diff-scan-plan";
 import {
+	type FullSourceSnapshot,
+	materializeScopedSourceSnapshot,
+} from "../modules/scans/execution/lifecycle/full-source-snapshot";
+import { resolveFullScanTarget } from "../modules/scans/full-scan-target";
+import {
 	GitDiffResolutionError,
 	resolveGitDiff,
 } from "../modules/scans/git-diff-resolver";
-import { resolveFullScanTarget } from "../modules/scans/full-scan-target";
 import { resolveDefaultCatalogProfileId } from "../modules/scans/profile-catalog";
 import {
 	normalizeProfileResolutionInput,
@@ -47,6 +57,7 @@ import {
 } from "../modules/scans/scan-execution-policy";
 import { runScanPreflight } from "../modules/scans/scan-preflight";
 import type { ScanProcessSupervisor } from "../modules/scans/scan-process-supervisor";
+import { resolveScanScope } from "../modules/scans/target-scope";
 import { normalizeToolExecutionConfig } from "../modules/scans/tools/tool-process-runner";
 import {
 	ProjectPathPolicyError,
@@ -64,13 +75,29 @@ type ProjectsRouteDeps = {
 	scanSupervisor?: ScanProcessSupervisor;
 	processCapacity?: WebProcessCapacity;
 	env?: AppEnv;
+	/** Undefined keeps lightweight route tests and legacy embedders unchanged. */
+	runtimeIsolationProviderFactory?: RuntimeIsolationProviderFactory | null;
+	/** Resolves current SQLite-backed settings for each preflight request. */
+	resolveRuntimeIsolationProviderFactory?: () => RuntimeIsolationProviderFactory | null;
 	projectDeletionService?: ProjectDeletionService;
 	resolveProjectPath?: typeof resolveProjectPath;
+	resolveFullScanTarget?: typeof resolveFullScanTarget;
+	materializeScopedSourceSnapshot?: typeof materializeScopedSourceSnapshot;
 };
 
 export function createProjectsRoute(deps: ProjectsRouteDeps) {
 	const repo = deps.projectRepository;
 	const resolvePath = deps.resolveProjectPath ?? resolveProjectPath;
+	const resolveFullTarget = deps.resolveFullScanTarget ?? resolveFullScanTarget;
+	const materializeSourceSnapshot =
+		deps.materializeScopedSourceSnapshot ?? materializeScopedSourceSnapshot;
+	const runtimeIsolationConfigured =
+		deps.resolveRuntimeIsolationProviderFactory !== undefined ||
+		deps.runtimeIsolationProviderFactory !== undefined;
+	const resolveRuntimeIsolationProviderFactory = () =>
+		deps.resolveRuntimeIsolationProviderFactory
+			? deps.resolveRuntimeIsolationProviderFactory()
+			: (deps.runtimeIsolationProviderFactory ?? null);
 	const projectPathPolicyStatus = async (projectPath: string) => {
 		try {
 			await resolvePath(projectPath);
@@ -294,28 +321,71 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 				);
 				const fullTargetPromise =
 					body.target.kind === "full"
-						? resolveFullScanTarget(
-								authorized.canonicalPath,
-								profile.scope,
-							).catch((error) => {
-								if (
-									error instanceof GitDiffResolutionError &&
-									error.code === "not_a_git_repository"
-								) {
-									return null;
-								}
-								throw error;
-							})
+						? resolveFullTarget(authorized.canonicalPath, profile.scope).catch(
+								(error) => {
+									if (
+										error instanceof GitDiffResolutionError &&
+										error.code === "not_a_git_repository"
+									) {
+										return null;
+									}
+									throw error;
+								},
+							)
 						: Promise.resolve(null);
-				const [technologyAnalysis, fullTarget, preflight] = await Promise.all([
-					analyzeProjectCapabilities(authorized.canonicalPath),
-					fullTargetPromise,
-					runScanPreflight({
+				const [technologyAnalysis, fullTarget, resolvedScope] =
+					await Promise.all([
+						analyzeProjectCapabilities(authorized.canonicalPath),
+						fullTargetPromise,
+						resolveScanScope({
+							repoPath: authorized.canonicalPath,
+							scope: profile.scope,
+						}),
+					]);
+				const previewScanRunId = randomUUID();
+				const runtimeIsolationProviderFactory =
+					resolveRuntimeIsolationProviderFactory();
+				const needsIsolatedRuntime = steps.some(
+					(step) =>
+						step.kind === "runtime_scanner" ||
+						step.kind === "api_schema_scan" ||
+						step.kind === "dast",
+				);
+				let sourceSnapshot: FullSourceSnapshot | null = null;
+				let runtimeTargetProvider: RuntimeTargetProvider | null = null;
+				try {
+					if (
+						needsIsolatedRuntime &&
+						fullTarget &&
+						runtimeIsolationProviderFactory
+					) {
+						sourceSnapshot = await materializeSourceSnapshot({
+							repositoryPath: authorized.canonicalPath,
+							sourceRevision: fullTarget.sourceRevision,
+							scope: resolvedScope.scope,
+						});
+						if (
+							fullTarget.scopeContentDigest &&
+							sourceSnapshot.snapshotDigest !== fullTarget.scopeContentDigest
+						) {
+							throw new HttpError(
+								409,
+								"target_changed: scoped target changed during preview",
+							);
+						}
+						runtimeTargetProvider = await runtimeIsolationProviderFactory({
+							scanRunId: previewScanRunId,
+							profileId: profile.id,
+							sourceSnapshot,
+						});
+					}
+					const basePreflight = await runScanPreflight({
 						profile,
 						steps,
 						projectId,
 						repoPath: authorized.canonicalPath,
 						execution,
+						mode: profile.strictness === "strict" ? "enforced" : undefined,
 						consentProjectCodeExecution:
 							body.consentProjectCodeExecution === true,
 						allowDirtySource: body.target.kind === "working_tree",
@@ -324,25 +394,54 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 						attestationSubject: body.attestationSubject,
 						attestationBundle: body.attestationBundle,
 						trustPolicy: body.trustPolicy,
-					}),
-				]);
-				const executionPlan = buildScanExecutionPlan({
-					scanRunId: randomUUID(),
-					projectId,
-					profile,
-					steps,
-					preflight,
-					technologyRegistryDigest:
-						technologyAnalysis.capabilityPlan.registryDigest,
-					sourceSnapshotDigest: fullTarget?.digest,
-					runner: execution.runner,
-					schemaVersion: deps.env?.scanExecutionPlanV2 ? 2 : 1,
-				});
-				return c.json({
-					preflight,
-					executionPlan,
-					profileResolution: selection.resolution,
-				});
+						targetPlan: runtimeTargetProvider?.plan,
+						isolatedRuntimeProviderAvailable:
+							runtimeIsolationConfigured === false
+								? undefined
+								: Boolean(runtimeTargetProvider),
+					});
+					const runtimeIsolationPlanning =
+						runtimeTargetProvider?.runtimeIsolationPlanning;
+					const preflight = runtimeIsolationPlanning
+						? buildRuntimeIsolationPreflight({
+								base: basePreflight,
+								planning: runtimeIsolationPlanning,
+								networkReady: true,
+								cleanupReady: true,
+							})
+						: basePreflight;
+					const runtimeIsolation = runtimeIsolationExecutionPlanBinding(
+						runtimeIsolationPlanning,
+					);
+					const executionPlan = buildScanExecutionPlan({
+						scanRunId: previewScanRunId,
+						projectId,
+						profile,
+						steps,
+						preflight,
+						technologyRegistryDigest:
+							technologyAnalysis.capabilityPlan.registryDigest,
+						sourceSnapshotDigest: fullTarget?.digest,
+						runner: execution.runner,
+						schemaVersion: runtimeIsolation
+							? 3
+							: deps.env.scanExecutionPlanV2
+								? 2
+								: 1,
+						runtimeIsolation,
+					});
+					return c.json({
+						preflight,
+						executionPlan,
+						profileResolution: selection.resolution,
+					});
+				} finally {
+					try {
+						await runtimeTargetProvider?.dispose?.();
+					} finally {
+						await sourceSnapshot?.cleanup();
+					}
+				}
 			},
 		)
 		.post(

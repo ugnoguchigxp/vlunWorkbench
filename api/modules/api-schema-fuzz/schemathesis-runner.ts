@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -6,13 +7,50 @@ import type {
 	ArtifactSaveResult,
 	ArtifactStorage,
 } from "../scans/artifact-storage";
+import { cleanupTemporaryPaths } from "../scans/execution/lifecycle/temporary-path-cleanup";
 import {
 	checkToolVersion,
 	runToolProcess,
 	type ToolExecutionConfig,
 } from "../scans/tools/tool-process-runner";
-import { cleanupTemporaryPaths } from "../scans/execution/lifecycle/temporary-path-cleanup";
+import { evaluateApiReadonlyPolicy } from "./api-readonly-policy";
+import { parseOpenApiDocument } from "./openapi-document";
+import {
+	buildOpenApiReadonlyOperationPolicy,
+	type OpenApiReadonlyOperationPolicyV1,
+} from "./openapi-readonly-operation-policy";
 import { normalizeSchemathesis } from "./schemathesis-normalizer";
+import {
+	parseStrictJsonDocument,
+	readStrictJsonDocumentBytes,
+} from "./strict-json-document";
+
+const sha256 = (value: Uint8Array) =>
+	`sha256:${createHash("sha256").update(value).digest("hex")}`;
+
+function operationPathRegex(
+	policy: ReturnType<typeof buildOpenApiReadonlyOperationPolicy>,
+) {
+	const escapeRegex = (value: string) =>
+		value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+	const paths = policy.operations.map((operation) => {
+		const fullPath = `${policy.basePath === "/" ? "" : policy.basePath}${operation.pathTemplate}`;
+		return escapeRegex(fullPath).replace(/\\\{[^{}]+\\\}/g, "[^/]+");
+	});
+	return `^(?:${[...new Set(paths)].sort().join("|")})$`;
+}
+
+export async function loadOpenApiReadonlyOperationPolicy(
+	schemaPath: string,
+	snapshotRoot: string,
+) {
+	const bytes = await readStrictJsonDocumentBytes(schemaPath, snapshotRoot);
+	const schema = parseStrictJsonDocument(bytes);
+	return buildOpenApiReadonlyOperationPolicy(
+		parseOpenApiDocument(schema),
+		sha256(bytes),
+	);
+}
 
 export async function runSchemathesisReadonly(params: {
 	scanRunId: string;
@@ -22,6 +60,7 @@ export async function runSchemathesisReadonly(params: {
 	storage: ArtifactStorage;
 	execution?: ToolExecutionConfig;
 	timeoutSec?: number;
+	operationPolicy?: OpenApiReadonlyOperationPolicyV1;
 }): Promise<{
 	ok: boolean;
 	toolVersion: string | null;
@@ -32,6 +71,50 @@ export async function runSchemathesisReadonly(params: {
 	exitCode: number | null;
 	error?: string;
 }> {
+	let schema: unknown;
+	let schemaBytes: Uint8Array;
+	try {
+		schemaBytes = await readStrictJsonDocumentBytes(
+			params.schemaPath,
+			params.repoPath ?? path.dirname(params.schemaPath),
+		);
+		schema = parseStrictJsonDocument(schemaBytes);
+	} catch {
+		return {
+			ok: false,
+			toolVersion: null,
+			findings: [],
+			exitCode: null,
+			error: "openapi_schema_required",
+		};
+	}
+	const policy = evaluateApiReadonlyPolicy(schema);
+	if (!policy.ok) {
+		return {
+			ok: false,
+			toolVersion: null,
+			findings: [],
+			exitCode: null,
+			error: policy.reasonCode,
+		};
+	}
+	const parsedDocument = parseOpenApiDocument(schema);
+	const derivedOperationPolicy = buildOpenApiReadonlyOperationPolicy(
+		parsedDocument,
+		sha256(schemaBytes),
+	);
+	if (
+		params.operationPolicy &&
+		params.operationPolicy.policyHash !== derivedOperationPolicy.policyHash
+	)
+		return {
+			ok: false,
+			toolVersion: null,
+			findings: [],
+			exitCode: null,
+			error: "openapi_operation_policy_mismatch",
+		};
+	const operationPolicy = params.operationPolicy ?? derivedOperationPolicy;
 	const version = await checkToolVersion("st", ["--version"], {
 		execution: params.execution,
 	});
@@ -52,6 +135,7 @@ export async function runSchemathesisReadonly(params: {
 				params.schemaPath,
 				params.targetOrigin,
 				outputPath,
+				operationPathRegex(operationPolicy),
 			),
 			{
 				execution: params.execution,

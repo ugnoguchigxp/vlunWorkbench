@@ -7,6 +7,11 @@ import {
 	analyzeProjectCapabilities,
 	buildPluginExecutionSummary,
 } from "../../project-capabilities/plugin-detector";
+import {
+	buildRuntimeIsolationPreflight,
+	runtimeIsolationExecutionPlanBinding,
+} from "../../runtime-isolation/runtime-isolation-preflight";
+import type { RuntimeIsolationProviderFactory } from "../../runtime-isolation/runtime-isolation-provider-factory";
 import { buildCoverageLedger } from "../coverage/coverage-ledger";
 import { aggregateRuntimeAssessmentCoverage } from "../coverage/runtime-assessment-coverage";
 import { resolveSourceSastApplicability } from "../coverage/source-sast-applicability";
@@ -45,8 +50,8 @@ import {
 	materializeScopedSourceSnapshot,
 } from "./lifecycle/full-source-snapshot";
 import {
-	type ProfileInputSnapshot,
 	materializeProfileInputSnapshot,
+	type ProfileInputSnapshot,
 } from "./lifecycle/profile-input-snapshot";
 import { normalizeProfileStepResult } from "./normalized-step-result";
 import {
@@ -65,10 +70,6 @@ import {
 	executionPlanBlocks,
 } from "./scan-execution-plan-builder";
 import { preflightBlocksExecution, runScanPreflight } from "./scan-preflight";
-import {
-	buildRuntimeIsolationPreflight,
-	runtimeIsolationImageDigests,
-} from "../../runtime-isolation/runtime-isolation-preflight";
 import { hashProfileInputs } from "./scan-preflight-binding";
 import { evaluateScanGate } from "./scan-result-policy";
 
@@ -102,11 +103,7 @@ export async function runProfileScan(params: {
 	/** SHA-256 of an externally materialized immutable source archive. */
 	sourceSnapshotDigest?: string;
 	runtimeTargetProvider?: RuntimeTargetProvider;
-	runtimeTargetProviderFactory?: (input: {
-		scanRunId: string;
-		profileId: string;
-		sourceSnapshot: FullSourceSnapshot;
-	}) => Promise<RuntimeTargetProvider>;
+	runtimeTargetProviderFactory?: RuntimeIsolationProviderFactory;
 	executionPlanSchemaVersion?: 1 | 2 | 3;
 }): Promise<ProfileScanResult> {
 	if (
@@ -352,19 +349,31 @@ export async function runProfileScan(params: {
 			fullSourceSnapshot = null;
 			throw new Error("target_changed: scoped target changed before execution");
 		}
-		runtimeTargetProvider = await params.runtimeTargetProviderFactory({
-			scanRunId: scanRun.id,
-			profileId: profile.id,
-			sourceSnapshot: fullSourceSnapshot,
-		});
-		runtimeProviderDispose = runtimeTargetProvider.dispose;
-		await scanRepo.mergeScanRunMetadata(scanRun.id, {
-			fullSourceSnapshot: {
-				sourceRevision: fullSourceSnapshot.sourceRevision,
-				snapshotDigest: fullSourceSnapshot.snapshotDigest,
-				snapshotKind: "scoped_worktree",
-			},
-		});
+		try {
+			runtimeTargetProvider = await params.runtimeTargetProviderFactory({
+				scanRunId: scanRun.id,
+				profileId: profile.id,
+				sourceSnapshot: fullSourceSnapshot,
+			});
+			runtimeProviderDispose = runtimeTargetProvider.dispose;
+			await scanRepo.mergeScanRunMetadata(scanRun.id, {
+				fullSourceSnapshot: {
+					sourceRevision: fullSourceSnapshot.sourceRevision,
+					snapshotDigest: fullSourceSnapshot.snapshotDigest,
+					snapshotKind: "scoped_worktree",
+				},
+			});
+		} catch (error) {
+			try {
+				await runtimeTargetProvider?.dispose?.();
+			} finally {
+				await fullSourceSnapshot.cleanup();
+				fullSourceSnapshot = null;
+				runtimeTargetProvider = undefined;
+				runtimeProviderDispose = undefined;
+			}
+			throw error;
+		}
 	}
 
 	const baseScanPreflight = await runScanPreflight({
@@ -386,6 +395,9 @@ export async function runProfileScan(params: {
 	});
 	const runtimeIsolationPlanning =
 		runtimeTargetProvider?.runtimeIsolationPlanning;
+	const runtimeIsolation = runtimeIsolationExecutionPlanBinding(
+		runtimeIsolationPlanning,
+	);
 	const scanPreflight = runtimeIsolationPlanning
 		? buildRuntimeIsolationPreflight({
 				base: baseScanPreflight,
@@ -407,29 +419,8 @@ export async function runProfileScan(params: {
 		technologyRegistryDigest: technologyAnalysis.capabilityPlan.registryDigest,
 		sourceSnapshotDigest: params.sourceSnapshotDigest ?? fullScanTarget?.digest,
 		runner: execution.runner,
-		schemaVersion: runtimeIsolationPlanning
-			? 3
-			: params.executionPlanSchemaVersion,
-		runtimeIsolation:
-			runtimeIsolationPlanning?.status === "ready"
-				? {
-						planHash: runtimeIsolationPlanning.planHash,
-						qualificationHash: runtimeIsolationPlanning.plan.qualificationHash,
-						sourceSnapshotDigest:
-							runtimeIsolationPlanning.plan.source.sourceSnapshotDigest,
-						projectionDigest:
-							runtimeIsolationPlanning.plan.source.runtimeProjectionDigest,
-						recipeHash: runtimeIsolationPlanning.plan.recipe.recipeHash,
-						dependencyLockDigest:
-							runtimeIsolationPlanning.plan.dependency.lockDigest,
-						dockerDaemonIdentityHash:
-							runtimeIsolationPlanning.plan.dockerDaemonIdentityHash,
-						imageDigests: runtimeIsolationImageDigests(
-							runtimeIsolationPlanning.plan.images,
-						),
-						databaseMode: runtimeIsolationPlanning.plan.database.mode,
-					}
-				: undefined,
+		schemaVersion: runtimeIsolation ? 3 : params.executionPlanSchemaVersion,
+		runtimeIsolation,
 	});
 	const executionPlanChanged = Boolean(
 		params.expectedPlanHash &&

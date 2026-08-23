@@ -1,0 +1,26 @@
+{
+	"schemaVersion": 1,
+	"profileId": "dynamic-verification",
+	"policyId": "dynamic-verification-stable-v1",
+	"caseIds": [
+		"bun:pass",
+		"bun:fail",
+		"bun:no-tests",
+		"npm:pass",
+		"npm:fail",
+		"npm:no-tests",
+		"pytest:pass",
+		"pytest:fail",
+		"pytest:no-tests",
+		"cargo:pass",
+		"cargo:fail",
+		"cargo:no-tests",
+		"go:pass",
+		"go:fail",
+		"go:no-tests",
+		"dependency-mismatch",
+		"escape",
+		"runtime-fault",
+		"cleanup"
+	]
+}

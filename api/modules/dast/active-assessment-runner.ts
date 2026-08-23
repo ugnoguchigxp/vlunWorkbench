@@ -5,7 +5,7 @@ import type { AppDatabase } from "../../db";
 import { AssessmentRepository } from "../assessments/assessment-repository";
 import { ZapActiveAssessmentCoordinator } from "../runtime-scans/zap-active-assessment-coordinator";
 import type { ArtifactStorage } from "../scans/artifact-storage";
-import { buildDedicatedProfileMetadata } from "../scans/profile-resolution";
+import { buildDedicatedProfileAdmissionMetadata } from "../scans/dedicated-profile-admission";
 import { FindingRepository, ScanRepository } from "../scans/repositories";
 import { ActiveAssessmentRepository } from "./active-assessment-repository";
 import {
@@ -144,8 +144,9 @@ export class ActiveAssessmentRunner {
 			status: "running",
 			createdByUserId: params.createdByUserId,
 			metadata: {
-				...buildDedicatedProfileMetadata({
+				...buildDedicatedProfileAdmissionMetadata({
 					canonicalProfileId: "active-technical-lab",
+					expectedLaunchDestination: "dast_workspace",
 					providedInputKinds: [
 						"disposable_target_ref",
 						"rules_of_engagement_ref",

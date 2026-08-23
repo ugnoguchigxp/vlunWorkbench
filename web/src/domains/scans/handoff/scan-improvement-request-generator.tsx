@@ -23,9 +23,6 @@ export function ScanImprovementRequestGenerator({
 	onGenerate,
 }: ScanImprovementRequestGeneratorProps) {
 	const view = buildScanImprovementRequestView(reviews);
-	const sourceReview = reviews.find(
-		(review) => review.id === view.sourceReviewId,
-	);
 	const runningReview = reviews.find(
 		(review) =>
 			review.status === "running" &&
@@ -99,16 +96,7 @@ export function ScanImprovementRequestGenerator({
 					<code>{failure.rawError}</code>
 				</div>
 			) : null}
-			<ScanImprovementRequestPanel
-				view={view}
-				completedAt={sourceReview?.completedAt}
-				providerLabel={
-					sourceReview
-						? `${sourceReview.provider} / ${sourceReview.model}`
-						: null
-				}
-				findings={findings}
-			/>
+			<ScanImprovementRequestPanel view={view} />
 		</section>
 	);
 }

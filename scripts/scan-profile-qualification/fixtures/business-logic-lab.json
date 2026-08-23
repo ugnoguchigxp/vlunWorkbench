@@ -1,0 +1,22 @@
+{
+	"schemaVersion": 1,
+	"profileId": "business-logic-lab",
+	"policyId": "business-logic-lab-stable-v1",
+	"caseIds": [
+		"forged-review:vulnerable",
+		"forged-review:fixed",
+		"captcha-bypass:vulnerable",
+		"captcha-bypass:fixed",
+		"negative-order:vulnerable",
+		"negative-order:fixed",
+		"zero-stars:vulnerable",
+		"zero-stars:fixed",
+		"deluxe-fraud:vulnerable",
+		"deluxe-fraud:fixed",
+		"actor-mismatch",
+		"observer-missing",
+		"invariant-fault",
+		"reset",
+		"scenario-fault"
+	]
+}

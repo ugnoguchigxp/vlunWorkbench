@@ -23,7 +23,12 @@ import type {
 	SystemContextResponse,
 	WebSearchResult,
 } from "./core-types";
+import {
+	normalizeRuntimeSettingsResponse,
+	type RuntimeSettingsResponseInput,
+} from "./runtime-settings";
 
+export type { ApiErrorBody } from "./core-request";
 export {
 	ApiRequestError,
 	isApiRequestError,
@@ -32,8 +37,11 @@ export {
 	requestVoid,
 	UNAUTHORIZED_EVENT_NAME,
 } from "./core-request";
-export type { ApiErrorBody } from "./core-request";
 export type * from "./core-types";
+export {
+	normalizeRuntimeSettingsResponse,
+	RUNTIME_ISOLATION_REQUIRED_SETTING_KEYS,
+} from "./runtime-settings";
 
 const pageEndpoint = (slug: string): string =>
 	`/api/sources/pages/${encodeSlug(slug)}`;
@@ -73,25 +81,44 @@ export async function updateSystemContext(
 }
 
 export async function fetchRuntimeSettings(): Promise<RuntimeSettingsResponse> {
-	return requestJson("/api/settings/runtime");
+	const settings = await requestJson<RuntimeSettingsResponseInput>(
+		"/api/settings/runtime",
+	);
+	return normalizeRuntimeSettingsResponse(settings);
 }
 
 export async function updateRuntimeSettings(
 	settings: RuntimeSettingsUpdate,
 ): Promise<RuntimeSettingsResponse> {
-	return requestJson("/api/settings/runtime", {
-		method: "PUT",
-		body: settings,
-	});
+	const updated = await requestJson<RuntimeSettingsResponseInput>(
+		"/api/settings/runtime",
+		{
+			method: "PUT",
+			body: settings,
+		},
+	);
+	return normalizeRuntimeSettingsResponse(updated);
 }
 
 export async function generateDastAuthEncryptionKey(
 	settings: RuntimeSettingsUpdate,
 ): Promise<RuntimeSettingsResponse> {
-	return requestJson("/api/settings/runtime/dast-auth-key/generate", {
-		method: "POST",
-		body: settings,
-	});
+	const updated = await requestJson<RuntimeSettingsResponseInput>(
+		"/api/settings/runtime/dast-auth-key/generate",
+		{
+			method: "POST",
+			body: settings,
+		},
+	);
+	return normalizeRuntimeSettingsResponse(updated);
+}
+
+export async function autoConfigureRuntimeIsolation(): Promise<RuntimeSettingsResponse> {
+	const updated = await requestJson<RuntimeSettingsResponseInput>(
+		"/api/settings/runtime/isolation/auto-configure",
+		{ method: "POST" },
+	);
+	return normalizeRuntimeSettingsResponse(updated);
 }
 
 export async function fetchLlmSettings(): Promise<LlmSettingsResponse> {

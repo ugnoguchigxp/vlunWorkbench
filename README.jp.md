@@ -286,7 +286,7 @@ bun run scan:profile -- --project-path /path/to/repo --profile container-image-s
 
 `full-security-scan` は既存 static tool、CycloneDX SBOM、coverage-awareなWeb Passive Standard DAST、Nuclei safe、ZAP baseline、schema が検出できた場合の Schemathesis を順に実行します。Nuclei は固定 safe template set、ZAP は passive baseline、Schemathesis は credential を渡さず GET/HEAD/OPTIONS に限定します。runtimeの計画上限は合計250 requestです。schema 不在、通信失敗、認証失敗、budget打ち切りは「脆弱性なし」ではなく coverage gap / limitation として出力します。
 
-ローカルtargetを自動起動するruntime profileは、host processを起動しません。有効化には、digest固定のserver-owned runtime image（namespace owner、Node、materializer、registry proxy、probe、HTTP executor）と、現在のDocker daemon identity hash、同一契約のqualification hashを環境変数で設定します。いずれかが無い・mutable imageである・qualificationが一致しない環境ではruntime profileはpreflightでblockedになります。target、DB sidecar、DAST/Nuclei/ZAP/Schemathesisは同じ使い捨てcontainer namespaceで動き、host networkや既存DBへは接続しません。
+ローカルtargetを自動起動するruntime profileは、host processを起動しません。有効化には、管理者がSettings > Runtime Settingsで、digest固定のserver-owned runtime image（namespace owner、Node、materializer、registry proxy、probe、HTTP executor）と、現在のDocker daemon identity hash、同一契約のqualification hashを設定します。設定はSQLiteへ保存され、次回のpreviewとscanから使用されます。いずれかが無い・mutable imageである環境ではruntime profileはpreflightでblockedになります。target、DB sidecar、DAST/Nuclei/ZAP/Schemathesisは同じ使い捨てcontainer namespaceで動き、host networkや既存DBへは接続しません。
 
 dynamic verificationも、server-ownedかつdigest固定の`VULN_WORKBENCH_DYNAMIC_IMAGE`を必須とします。request/CLIのimage指定はこの値と完全一致する場合だけ受理し、mutableまたは未認定のimageはsource snapshotの作成前にblockedになります。
 

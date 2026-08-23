@@ -373,9 +373,13 @@ export async function runScanPreflight(params: {
 				}),
 			);
 			if (targetPlan) {
+				const isolatedRuntimeTarget =
+					requiresIsolatedRuntime &&
+					params.isolatedRuntimeProviderAvailable === true;
+				const consentRequired =
+					targetPlan.requiresProjectCodeConsent || isolatedRuntimeTarget;
 				const consentReady =
-					!targetPlan.requiresProjectCodeConsent ||
-					params.consentProjectCodeExecution === true;
+					!consentRequired || params.consentProjectCodeExecution === true;
 				checks.push(
 					check({
 						id: `${stepId}:project-code-consent`,
@@ -389,7 +393,8 @@ export async function runScanPreflight(params: {
 						action: "grant_project_code_consent",
 					}),
 				);
-				const sandboxReady = !targetPlan.requiresProjectCodeConsent;
+				const sandboxReady =
+					isolatedRuntimeTarget || !targetPlan.requiresProjectCodeConsent;
 				checks.push(
 					check({
 						id: `${stepId}:sandbox`,

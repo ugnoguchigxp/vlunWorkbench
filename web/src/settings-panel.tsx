@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+	autoConfigureRuntimeIsolation,
 	type CodexStatusResponse,
 	checkLlmProviderHealth,
 	fetchCodexStatus,
@@ -12,7 +13,9 @@ import {
 	type LlmSettingsResponse,
 	type LlmTask,
 	type LlmTaskRoute,
+	normalizeRuntimeSettingsResponse,
 	type RuntimeSettingsResponse,
+	type RuntimeSettingsUpdate,
 	updateLlmSettings,
 	updateRuntimeSettings,
 	updateSystemContext,
@@ -47,6 +50,7 @@ export function useSettingsPanelModel({
 	const [runtimeSaving, setRuntimeSaving] = useState(false);
 	const [runtimeGeneratingDastAuthKey, setRuntimeGeneratingDastAuthKey] =
 		useState(false);
+	const [runtimeAutoConfiguring, setRuntimeAutoConfiguring] = useState(false);
 	const [selectedEndpointId, setSelectedEndpointId] = useState<string | null>(
 		null,
 	);
@@ -218,7 +222,7 @@ export function useSettingsPanelModel({
 	};
 
 	const updateRuntimeSetting = (
-		patch: Partial<Omit<RuntimeSettingsResponse, "updatedAt">>,
+		patch: Partial<RuntimeSettingsUpdate>,
 	): void => {
 		setRuntimeSettings((current) =>
 			current ? { ...current, ...patch } : current,
@@ -383,12 +387,15 @@ export function useSettingsPanelModel({
 		setRuntimeSaving(true);
 		setErrorText(null);
 		try {
+			const normalized = normalizeRuntimeSettingsResponse(runtimeSettings);
 			const {
 				updatedAt: _updatedAt,
 				dastAuthEncryptionKeyConfigured: _configured,
 				dastAuthEncryptionKeySource: _source,
+				runtimeIsolationConfigured: _runtimeConfigured,
+				runtimeIsolationMissingFields: _runtimeMissingFields,
 				...input
-			} = runtimeSettings;
+			} = normalized;
 			setRuntimeSettings(await updateRuntimeSettings(input));
 		} catch (error) {
 			setErrorText(
@@ -406,12 +413,15 @@ export function useSettingsPanelModel({
 		setRuntimeGeneratingDastAuthKey(true);
 		setErrorText(null);
 		try {
+			const normalized = normalizeRuntimeSettingsResponse(runtimeSettings);
 			const {
 				updatedAt: _updatedAt,
 				dastAuthEncryptionKeyConfigured: _configured,
 				dastAuthEncryptionKeySource: _source,
+				runtimeIsolationConfigured: _runtimeConfigured,
+				runtimeIsolationMissingFields: _runtimeMissingFields,
 				...input
-			} = runtimeSettings;
+			} = normalized;
 			setRuntimeSettings(await generateDastAuthEncryptionKey(input));
 		} catch (error) {
 			setErrorText(
@@ -421,6 +431,22 @@ export function useSettingsPanelModel({
 			);
 		} finally {
 			setRuntimeGeneratingDastAuthKey(false);
+		}
+	};
+
+	const handleAutoConfigureRuntimeIsolation = async () => {
+		setRuntimeAutoConfiguring(true);
+		setErrorText(null);
+		try {
+			setRuntimeSettings(await autoConfigureRuntimeIsolation());
+		} catch (error) {
+			setErrorText(
+				error instanceof Error
+					? error.message
+					: "Failed to auto-configure the isolated runtime.",
+			);
+		} finally {
+			setRuntimeAutoConfiguring(false);
 		}
 	};
 
@@ -485,9 +511,11 @@ export function useSettingsPanelModel({
 		runtimeSettings,
 		runtimeSaving,
 		runtimeGeneratingDastAuthKey,
+		runtimeAutoConfiguring,
 		updateRuntimeSetting,
 		handleSaveRuntimeSettings,
 		handleGenerateDastAuthKey,
+		handleAutoConfigureRuntimeIsolation,
 	};
 }
 

@@ -339,6 +339,13 @@ describe("ScanImprovementRequestRunner", () => {
 				chunkCount: 1,
 			},
 			improvementRequest: {
+				verificationCommands: [],
+				constraints: expect.arrayContaining([
+					expect.stringContaining(
+						"現行コード、manifest、lockfile、既存テストを正",
+					),
+					expect.stringContaining("Scanner 原文は参考データ"),
+				]),
 				implementationTasks: [
 					expect.objectContaining({ findingIds: [findingUuid] }),
 				],

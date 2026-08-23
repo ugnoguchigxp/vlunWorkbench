@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { scanCapabilityIdSchema } from "../../../../shared/schemas/scan-capability.schema";
 import { createDbConnection, type DbConnection } from "../../../db";
 import {
   findings,
@@ -18,11 +19,10 @@ import {
 } from "../../../db/schema";
 import { closeTestDbConnection } from "../../../db/testing/connection";
 import { recordScannerE2EFailureObservation } from "../../../testing/scanner-e2e-failure-observation";
-import { runGitText } from "./diff/git-command";
-import { scanCapabilityIdSchema } from "../../../../shared/schemas/scan-capability.schema";
-import * as profileRunnerModule from "./profile-runner";
-import { runProfileScan } from "./profile-orchestrator";
 import type { RuntimeTargetProvider } from "../../dast/runtime-target-provider";
+import { runGitText } from "./diff/git-command";
+import { runProfileScan } from "./profile-orchestrator";
+import * as profileRunnerModule from "./profile-runner";
 
 describe("Profile Runner Orchestration", () => {
   let tempDir: string;
@@ -238,6 +238,78 @@ describe("Profile Runner Orchestration", () => {
 				executionPlan: expect.objectContaining({
 					schemaVersion: 3,
 					runtimeIsolation: expect.objectContaining({ planHash: digest }),
+				}),
+			}),
+		);
+	});
+
+	it("persists a blocked isolation plan as preflight evidence without starting the target", async () => {
+		await fs.writeFile(
+			path.join(repoPath, "package.json"),
+			JSON.stringify({ scripts: { start: "node server.js" } }),
+		);
+		execFileSync("git", ["init"], { cwd: repoPath });
+		execFileSync("git", ["add", "."], { cwd: repoPath });
+		execFileSync(
+			"git",
+			[
+				"-c",
+				"user.email=runtime@example.invalid",
+				"-c",
+				"user.name=Runtime Test",
+				"commit",
+				"-m",
+				"runtime fixture",
+			],
+			{ cwd: repoPath },
+		);
+		const prepare = vi.fn(async () => {
+			throw new Error("blocked provider must not prepare a target");
+		});
+		const dispose = vi.fn(async () => undefined);
+		const provider: RuntimeTargetProvider = {
+			runtimeIsolationPlanning: {
+				status: "blocked",
+				reasonCode: "runtime_dependency_lock_unsupported",
+			},
+			prepare,
+			dispose,
+		};
+
+		const result = await runProfileScan({
+			db: connection.db,
+			projectId,
+			profileId: "runtime-web-safe",
+			repoPath,
+			runtimeTargetProviderFactory: async () => provider,
+			executionPlanSchemaVersion: 2,
+		});
+
+		expect(result).toMatchObject({
+			ok: false,
+			status: "failed",
+			profileOutcome: "blocked",
+		});
+		expect(prepare).not.toHaveBeenCalled();
+		expect(dispose).toHaveBeenCalledTimes(1);
+		const [scanRun] = await connection.db
+			.select()
+			.from(scanRuns)
+			.where(eq(scanRuns.id, result.scanRunId));
+		expect(scanRun.metadata).toEqual(
+			expect.objectContaining({
+				terminationReason: "preflight_failed",
+				scanPreflight: expect.objectContaining({
+					schemaVersion: 2,
+					limitationCodes: expect.arrayContaining([
+						"runtime_dependency_lock_unsupported",
+					]),
+				}),
+				executionPlan: expect.objectContaining({
+					schemaVersion: 2,
+					blockerCodes: expect.arrayContaining([
+						"runtime_dependency_lock_unsupported",
+					]),
 				}),
 			}),
 		);

@@ -10,6 +10,11 @@ import { readCodexStatus } from "../modules/llm-settings/codex-status";
 import type { LlmSettingsRepository } from "../modules/llm-settings/llm-settings.repository";
 import { LlmSettingsDocumentSchema } from "../modules/llm-settings/llm-settings.schema";
 import { checkLlmProviderHealth } from "../modules/llm-settings/provider-health";
+import {
+	autoConfigureLocalRuntimeIsolation,
+	mergeAutoConfiguredRuntimeIsolationSettings,
+	RuntimeIsolationAutoConfigError,
+} from "../modules/runtime-isolation/runtime-isolation-auto-config";
 import type { SettingsRepository } from "../modules/settings/settings.repository";
 import { resolveProviderCredential } from "../providers/provider-credential-resolver";
 
@@ -21,6 +26,8 @@ type SettingsRouteDeps = {
 	settingsRepository: SettingsRepository;
 	llmSettingsRepository?: LlmSettingsRepository;
 	runtimeEnv?: AppEnv;
+	onRuntimeSettingsUpdated?: (env: AppEnv) => void | Promise<void>;
+	autoConfigureRuntimeIsolation?: typeof autoConfigureLocalRuntimeIsolation;
 };
 
 export function createSettingsRoute(deps: SettingsRouteDeps) {
@@ -29,11 +36,14 @@ export function createSettingsRoute(deps: SettingsRouteDeps) {
 	}
 	const repo = deps.settingsRepository;
 	const llmRepo = deps.llmSettingsRepository;
+	const autoConfigureRuntimeIsolation =
+		deps.autoConfigureRuntimeIsolation ?? autoConfigureLocalRuntimeIsolation;
 	const updateRuntimeSettings = async (input: unknown) => {
 		const env = deps.runtimeEnv ?? readAppEnv();
 		const updated = await repo.updateRuntimeSettings(input, env);
 		if (deps.runtimeEnv) {
 			Object.assign(deps.runtimeEnv, await repo.resolveAppEnv(env));
+			await deps.onRuntimeSettingsUpdated?.(deps.runtimeEnv);
 		}
 		return updated;
 	};
@@ -87,6 +97,40 @@ export function createSettingsRoute(deps: SettingsRouteDeps) {
 					}),
 				),
 		)
+		.post("/runtime/isolation/auto-configure", async (c) => {
+			try {
+				const runtimeIsolation = await autoConfigureRuntimeIsolation();
+				const env = deps.runtimeEnv ?? readAppEnv();
+				const current = await repo.getRuntimeSettings(env);
+				const mergedRuntimeIsolation =
+					mergeAutoConfiguredRuntimeIsolationSettings(
+						current.runtimeIsolation,
+						runtimeIsolation,
+					);
+				const {
+					updatedAt: _updatedAt,
+					dastAuthEncryptionKeyConfigured: _keyConfigured,
+					dastAuthEncryptionKeySource: _keySource,
+					runtimeIsolationConfigured: _runtimeConfigured,
+					runtimeIsolationMissingFields: _runtimeMissingFields,
+					...input
+				} = current;
+				return c.json(
+					await updateRuntimeSettings({
+						...input,
+						runtimeIsolation: mergedRuntimeIsolation,
+					}),
+				);
+			} catch (error) {
+				if (error instanceof RuntimeIsolationAutoConfigError) {
+					return c.json(
+						{ message: error.message, code: error.code },
+						error.status,
+					);
+				}
+				throw error;
+			}
+		})
 		.get("/llm", async (c) => {
 			if (!llmRepo) {
 				return c.json({

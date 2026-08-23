@@ -29,4 +29,17 @@ describe("runtime image registry", () => {
 			VULN_WORKBENCH_RUNTIME_HTTP_EXECUTOR_IMAGE: ref("executor", "f"),
 		})).toBeNull();
 	});
+
+	it("rejects digest-looking values that are not a single image reference", () => {
+		expect(
+			loadRuntimeImageRegistry({
+				VULN_WORKBENCH_RUNTIME_NAMESPACE_OWNER_IMAGE: `${ref("owner", "a")}\n${ref("other", "a")}`,
+				VULN_WORKBENCH_RUNTIME_NODE_IMAGE: ref("node", "b"),
+				VULN_WORKBENCH_RUNTIME_MATERIALIZER_IMAGE: ref("materializer", "c"),
+				VULN_WORKBENCH_RUNTIME_REGISTRY_PROXY_IMAGE: ref("proxy", "d"),
+				VULN_WORKBENCH_RUNTIME_PROBE_IMAGE: ref("probe", "e"),
+				VULN_WORKBENCH_RUNTIME_HTTP_EXECUTOR_IMAGE: ref("executor", "f"),
+			}),
+		).toBeNull();
+	});
 });

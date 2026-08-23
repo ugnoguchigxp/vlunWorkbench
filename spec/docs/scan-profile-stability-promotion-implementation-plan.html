@@ -1,0 +1,3282 @@
+<article lang="ja" data-spec-role="active-plan">
+  <h1 id="scan-profile-stability-promotion-implementation-plan">
+    Scan Profile Stability Promotion Implementation Plan
+  </h1>
+  <p>
+    Status: In progress — completed foundations recorded; remaining packages implementation-ready
+  </p>
+  <p>
+    Planning baseline commit:
+    <code>f1e614a53cf6e478b80c57ddc52713c5c20aae71</code>
+  </p>
+  <p>Baseline date: 2026-08-22</p>
+  <p>Plan revision: 3</p>
+  <p>Last reviewed: 2026-08-22</p>
+  <p>Owner: vulnWorkbench maintainers</p>
+  <p>
+    Target: 現在<code>experimental</code>のscan
+    profileを、表示だけでなく実行契約、検出品質、 安全境界、failure
+    semantics、cleanup、同一commitのqualification evidenceまで完成させ、
+    根拠を持って段階的に<code>stable</code>へ昇格する。
+  </p>
+  <p>
+    Normative rule: high-level summaryと、revision 3で追加した実装状況、RD decision、schema例、state
+    mapping、policy ceiling、work-package stop
+    gateが衝突する場合は、後者の具体的contractを優先する。実装者は未決事項を
+    profileごとに独自補完せず、本書を改訂してから実装する。
+  </p>
+
+  <h2 id="implementation-status">0. Current implementation status and remaining work</h2>
+  <p>
+    この節は2026-08-22時点の実装状況の正本である。<strong>完了</strong>のpackageは再実装しない。
+    <strong>部分実装</strong
+    >は記載した残作業を完了するまで昇格対象にしない。qualificationはCIを使わず、
+    ローカルDockerでsourceをread-only、networkをnone、artifact directoryだけをwrite
+    mountして実行する。
+  </p>
+  <table>
+    <caption>
+      0.1 Completed work and the remaining implementation tasks
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Package</th>
+        <th scope="col">Status</th>
+        <th scope="col">Implemented result / remaining task</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>SP-00</td>
+        <td>完了</td>
+        <td>catalog baseline inventory、hash verification、変更検出testを実装済み。</td>
+      </tr>
+      <tr>
+        <td>SP-01a</td>
+        <td>完了</td>
+        <td>
+          canonical JSON、qualification/promotion schema、builder、verifier、Docker qualification
+          image/wrapper、negative testを実装済み。
+        </td>
+      </tr>
+      <tr>
+        <td>SP-01b</td>
+        <td>部分実装</td>
+        <td>
+          profile別case registry・fixture manifest、case集合・3回反復・metric・repeatability
+          evaluator、qualification/promotion verifierへのpolicy接続を実装済み。実ツールE2E
+          receipt生成が残る。
+        </td>
+      </tr>
+      <tr>
+        <td>SP-02</td>
+        <td>完了</td>
+        <td>
+          dedicated route共通のcatalog/input/safety admissionとresolution envelopeを実装済み。
+        </td>
+      </tr>
+      <tr>
+        <td>SP-10–SP-12</td>
+        <td>部分実装</td>
+        <td>
+          strict duplicate-safe JSON parser、internal fragment ref解決、deterministic
+          OperationPolicyV1、segment-exact gateway、Schemathesis共有policy、per-operation gateway
+          metrics、実Docker benchmarkを実装済み。profile別fixture matrix、2環境 qualification
+          receipt、promotionが残る。
+        </td>
+      </tr>
+      <tr>
+        <td>SP-20–SP-22</td>
+        <td>未着手</td>
+        <td>
+          Gitleaks、OSV-Scanner、Trivy、Semgrepのimmutable snapshot comparator、preview/start
+          binding、4 scanner E2Eとqualificationを実装する。
+        </td>
+      </tr>
+      <tr>
+        <td>SP-30–SP-32</td>
+        <td>部分実装</td>
+        <td>
+          dynamic catalogは通常test、sanitizer/fuzz、customを分離済み。5 dependency adapter、offline
+          immutable bundle、real runtime E2E、escape/qualificationが残る。
+        </td>
+      </tr>
+      <tr>
+        <td>SP-40–SP-42</td>
+        <td>部分実装</td>
+        <td>
+          auth readiness/policy helperはある。実route/runnerへの接続、RoE、exact-origin gateway、5
+          auth kind E2E、qualificationが残る。
+        </td>
+      </tr>
+      <tr>
+        <td>SP-50–SP-52</td>
+        <td>部分実装</td>
+        <td>
+          route admissionはある。system-owned target lease、reset/quarantine、3 active
+          variantの実adapter、E2E/qualificationが残る。
+        </td>
+      </tr>
+      <tr>
+        <td>SP-60–SP-62</td>
+        <td>部分実装</td>
+        <td>
+          route admissionはある。Scenario V2、observer/actor/reset validator、5 Juice Shop
+          adapterとfixed corpus、human review/E2E/qualificationが残る。
+        </td>
+      </tr>
+      <tr>
+        <td>SP-70</td>
+        <td>未着手</td>
+        <td>
+          各profileのqualification完了後に、catalog/UI/API/CLI/report/docsのstable表示変更、ローカルDocker
+          receipt保存、rollback rehearsalを実装する。
+        </td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    次に開始できる作業はSP-01bのprofile別実ツールE2E receiptである。SP-20はSP-01bの実ツールE2E
+    receipt完了後に開始する。
+    availabilityを<code>stable</code>へ変える作業は、該当profileの末尾package（SP-12、SP-22、SP-32、SP-42、SP-52、SP-62）とSP-70を完了するまで開始しない。
+  </p>
+
+  <h2 id="1-executive-decision">1. Executive decision</h2>
+  <p>
+    現行コードのまま<code>availability</code>だけを<code>stable</code>へ変更してよい
+    experimental profileはない。実行経路は存在するが、profileが公称する範囲と実装範囲の差、
+    profile単位のrelease qualification不足、古いcommitへ結び付いたbenchmark evidenceが残る。
+  </p>
+  <p>
+    昇格作業は次の4 waveに分ける。waveの件数は固定仕様ではなく、各profileが個別のexit gateを
+    満たした場合だけ進める。あるprofileの失敗を、同じwaveの別profileの昇格で相殺しない。
+  </p>
+  <table>
+    <caption>
+      1.1 Promotion waves
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Wave</th>
+        <th scope="col">Profile</th>
+        <th scope="col">Decision</th>
+        <th scope="col">Required scope correction</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>A</td>
+        <td><code>api-readonly</code></td>
+        <td>最優先のstable候補</td>
+        <td>
+          最初の昇格ではOpenAPI 3.0/3.1 JSONとSwagger 2.0 JSONのread-only operationに限定する。
+        </td>
+      </tr>
+      <tr>
+        <td>A</td>
+        <td><code>remediation-verification</code></td>
+        <td>静的scanner限定でstable候補</td>
+        <td>Gitleaks、OSV-Scanner、Trivy、Semgrep findingの再検証に限定する。</td>
+      </tr>
+      <tr>
+        <td>B</td>
+        <td><code>dynamic-verification</code></td>
+        <td>通常test execution部分をstable候補</td>
+        <td>sanitizer/fuzzと任意保存configを別のexperimental profileへ分離する。</td>
+      </tr>
+      <tr>
+        <td>C</td>
+        <td><code>authenticated-web</code></td>
+        <td>認証E2E完了後のstable候補</td>
+        <td>対応するauth kindと認証成功判定を明示する。</td>
+      </tr>
+      <tr>
+        <td>D</td>
+        <td><code>active-technical-lab</code></td>
+        <td>R3 isolation qualification後の候補</td>
+        <td>system-owned disposable targetとreset receiptを実体として保証する。</td>
+      </tr>
+      <tr>
+        <td>D</td>
+        <td><code>business-logic-lab</code></td>
+        <td>scenario execution engineとしての候補</td>
+        <td>包括的な自動検出ではなく、人が定義したscenarioの検証基盤に限定する。</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    全waveがexit gateを満たした場合のcatalogは14 entry（stable 11、experimental 2、planned
+    1）になる。 experimentalとして意図的に残すのは<code>sanitizer-fuzz-lab</code>と
+    <code>custom-dynamic-lab</code
+    >、plannedは<code>professional-full</code>である。これは目標状態であり、
+    qualification未達のprofileを件数合わせでstableにする指示ではない。
+  </p>
+
+  <h3 id="12-review-decisions">1.2 Review decisions fixed by revision 3</h3>
+  <p>
+    この節の決定は実装時に再選択しない。変更が必要な場合は、実装中の暗黙変更ではなく、本計画の改訂として
+    理由、影響profile、migration、再qualification範囲を記録する。
+  </p>
+  <table>
+    <caption>
+      1.2 Decisions that remove implementation ambiguity
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">ID</th>
+        <th scope="col">Decision</th>
+        <th scope="col">Implementation consequence</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>RD-01</td>
+        <td>qualification receiptはruntime DBへ保存しない。</td>
+        <td>
+          ローカルDocker qualificationの生成物とrelease evidence
+          directoryへ保存する。runtimeはcatalogと実行時preflightだけを信頼し、
+          receiptを認可入力として読み込まない。
+        </td>
+      </tr>
+      <tr>
+        <td>RD-02</td>
+        <td>既存stable 5 profileは本計画で遡及qualificationしない。</td>
+        <td>
+          baselineとの差分で<code>experimental -&gt; stable</code>になったentryだけをpromotion
+          verifierの対象にする。 既存stableの再認定は別のhardening taskで扱う。
+        </td>
+      </tr>
+      <tr>
+        <td>RD-03</td>
+        <td>receiptは1 profile・1 candidate commit・1実行環境につき1件とする。</td>
+        <td>
+          promotion manifestが必要環境のreceiptを集約する。初期必須環境は
+          <code>linux/x64 + linux/amd64 container</code>と
+          <code>darwin/arm64 + linux/arm64 container</code>である。それ以外は
+          <code>profile_platform_not_qualified</code>で起動前にblockedとする。
+        </td>
+      </tr>
+      <tr>
+        <td>RD-04</td>
+        <td>
+          <code>api-readonly</code>の初回stable範囲は自己完結したJSON
+          schemaだけとする。
+        </td>
+        <td>
+          OpenAPI 3.0.x/3.1.x JSONとSwagger 2.0 JSONを受理する。OpenAPI
+          3.2、YAML、GraphQL、AsyncAPI、外部file/network
+          <code>$ref</code>は受理しない。内部fragment
+          <code>$ref</code>だけを解決する。
+        </td>
+      </tr>
+      <tr>
+        <td>RD-05</td>
+        <td>API path許可はprefix一致ではなく、schema operationのsegment一致とする。</td>
+        <td>
+          literal
+          segmentは完全一致、<code>{parameter}</code>は1個の非空segmentだけに一致する。encoded
+          slash、 backslash、dot segment、二重slash、壊れたpercent encodingをgatewayで拒否する。
+        </td>
+      </tr>
+      <tr>
+        <td>RD-06</td>
+        <td>修正確認はpreview/startの2段階APIにする。</td>
+        <td>
+          previewがoriginal/retest bindingと比較plan hashを返し、startはそのhashとcurrent source
+          snapshot digestの一致を必須にする。既存reproduction APIはlegacy互換入口として残す。
+        </td>
+      </tr>
+      <tr>
+        <td>RD-07</td>
+        <td>古いfindingのprovenanceを推測でbackfillしない。</td>
+        <td>
+          必須bindingがないfindingは<code>original_execution_identity_missing</code>でnot_applicableとする。
+          legacy実行の「見つからない」は修正済み判定に使わない。
+        </td>
+      </tr>
+      <tr>
+        <td>RD-08</td>
+        <td><code>not_reproduced</code>でfindingを自動closeしない。</td>
+        <td>
+          comparableな結果だけを<code>resolved_candidate</code>にし、人または既存の承認flowが確定するまで
+          finding statusを変更しない。
+        </td>
+      </tr>
+      <tr>
+        <td>RD-09</td>
+        <td>stableな動的検証はsystem-owned組み込みtest templateだけを受理する。</td>
+        <td>
+          sanitizer/fuzzは<code>sanitizer-fuzz-lab</code>、任意保存command/configは
+          <code>custom-dynamic-lab</code>としてexperimentalに分離する。
+        </td>
+      </tr>
+      <tr>
+        <td>RD-10</td>
+        <td>認証transactionとscan trafficの安全指標を分離する。</td>
+        <td>
+          allowlisted login
+          flow内のPOST等は<code>authenticationTransactionRequests</code>へ計上する。 認証後scan
+          trafficのstate-changing requestは0を必須とする。
+        </td>
+      </tr>
+      <tr>
+        <td>RD-11</td>
+        <td>stableは「すべての入力で実行成功」を意味しない。</td>
+        <td>
+          applicability不足はnot_applicable、必要な対応環境不足はblocked、実行後障害はfailed/inconclusiveへ
+          統一し、0 findingのcompletedへ変換しない。
+        </td>
+      </tr>
+      <tr>
+        <td>RD-12</td>
+        <td>availability変更commitは対象profileの実行scopeを同時に広げない。</td>
+        <td>
+          実装とclaim修正をexperimentalのまま先にmergeし、その後のpromotion
+          commitはavailability、表示、 opt-in、qualification policy bindingだけを変更する。
+        </td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2 id="2-scope-and-non-goals">2. Scope and non-goals</h2>
+  <h3 id="21-in-scope">2.1 In scope</h3>
+  <ul>
+    <li>experimental profileごとの公称capabilityと実装capabilityの一致</li>
+    <li>profile単位のversioned qualification schema、builder、verifier、Docker receipt</li>
+    <li>orchestrator flowとdedicated flowに共通するcatalog admission contract</li>
+    <li>脆弱版／修正版、negative、fault injection、repeatabilityのE2E</li>
+    <li>scanner、rule、database、container image、source snapshotのimmutable binding</li>
+    <li>安全境界、secret redaction、cleanup、rollbackのpromotion gate</li>
+    <li>catalog、API、CLI、Web、report、coverage表示の段階的切替</li>
+  </ul>
+
+  <h3 id="22-non-goals">2.2 Non-goals</h3>
+  <ul>
+    <li><code>professional-full</code>の実装または昇格。本計画とは別計画で扱う。</li>
+    <li>
+      外部またはproduction targetへのactive scan対応。R3はinternal disposable targetだけを扱う。
+    </li>
+    <li>一つのscannerや一つのfixtureを「包括的なプロ診断」と表示すること。</li>
+    <li>すべての言語、framework、認証方式、databaseを一度にsupport対象へ加えること。</li>
+    <li>
+      stable昇格とsafety classの混同。stableなR3 profileはあり得るが、R3の承認要件は緩和しない。
+    </li>
+    <li>環境不足時にfallbackでhost実行すること。stableでもpreflightは正当にblockedを返せる。</li>
+    <li>
+      既存legacy profile IDの削除。安全性と成熟度を分けるscope narrowingは行うが、historic
+      runは当時の catalog hash/copyで表示し、新IDへの履歴書換えはしない。
+    </li>
+  </ul>
+
+  <h2 id="3-current-baseline">3. Current baseline and evidence audit</h2>
+  <h3 id="31-catalog-baseline">3.1 Catalog baseline</h3>
+  <p>planning baselineのpublic catalogは12 entryである。</p>
+  <ul>
+    <li>
+      stable 5件:
+      <code>change-gate</code>、<code>source-assurance</code>、
+      <code>dependency-supply-chain</code>、<code>release-artifact</code>、
+      <code>runtime-passive</code>
+    </li>
+    <li>
+      experimental 6件:
+      <code>dynamic-verification</code>、<code>authenticated-web</code>、
+      <code>api-readonly</code>、<code>active-technical-lab</code>、
+      <code>business-logic-lab</code>、<code>remediation-verification</code>
+    </li>
+    <li>planned 1件: <code>professional-full</code></li>
+  </ul>
+  <p>
+    authoritative catalogは<code>api/modules/scans/profile-catalog.ts</code>、execution definitionは
+    <code>api/modules/scans/profiles.ts</code>、generic resolutionは
+    <code>api/modules/scans/profile-resolution.ts</code>にある。
+  </p>
+
+  <h3 id="32-profile-gap-audit">3.2 Profile gap audit</h3>
+  <table>
+    <caption>
+      3.1 Experimental profile findings
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Profile</th>
+        <th scope="col">Implemented path</th>
+        <th scope="col">Promotion blocker</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>api-readonly</code></td>
+        <td>
+          repository schema discovery、local target起動、bounded gateway、Schemathesisの
+          GET/HEAD/OPTIONS filter、artifact/finding保存
+        </td>
+        <td>
+          catalogはOpenAPI/GraphQLを公称するがGraphQL query/mutationの識別はない。
+          AsyncAPIらしき文書もschema候補になり得る。実scanner evidenceは実行とbudget中心で、
+          vulnerable/fixed detection qualityをprofile単位で証明していない。
+        </td>
+      </tr>
+      <tr>
+        <td><code>remediation-verification</code></td>
+        <td>
+          finding選択、original parent boundary確認、Docker再実行、artifact保存、
+          reproduced/not_reproduced/inconclusive/error判定
+        </td>
+        <td>
+          対応scannerはGitleaks、OSV、Trivy、optional Semgrepだけである。 original
+          runとretestのtool/rule/data/image digest一致がstable contractになっていない。
+        </td>
+      </tr>
+      <tr>
+        <td><code>dynamic-verification</code></td>
+        <td>
+          Bun/npm/pytest/Cargo/Go test、Go race、Cargo ASan、bounded Go fuzz、Docker隔離、 resource
+          limit、runtime source projection、bundle lease、artifact、cleanup receipt
+        </td>
+        <td>
+          通常testとsanitizer/fuzzが一つのmaturity labelに混在する。fuzzはGo中心で、
+          sanitizerもmarkerとtoolchain依存である。supported matrixの実Docker qualificationがない。
+        </td>
+      </tr>
+      <tr>
+        <td><code>authenticated-web</code></td>
+        <td>
+          encrypted auth context、identity role binding、Playwright、passive DAST、 canonical scan
+          row、bounded target policy
+        </td>
+        <td>
+          全宣言auth kindのreal E2E、logged-in/logged-outの証明、session expiry、 auth failure
+          false-pass、secret canaryを同一commitでqualifyしていない。
+        </td>
+      </tr>
+      <tr>
+        <td><code>active-technical-lab</code></td>
+        <td>
+          explicit consent、internal/localまたはephemeral engagement、RoE、request budget、
+          transaction、authorization matrix、ZAP active、reset policy
+        </td>
+        <td>
+          engagement metadataだけでなく、system-owned target leaseと実targetの破棄・再生成を
+          全variantで証明する必要がある。古いZAP evidenceは現在commitへ結び付かない。
+        </td>
+      </tr>
+      <tr>
+        <td><code>business-logic-lab</code></td>
+        <td>
+          actor auth、RoE、scenario DSL、state observer、bounded request、runtime
+          evidence、finding保存
+        </td>
+        <td>
+          8 vulnerable/fixed pairのowned corpusはあるが、artifactにGit commit bindingがなく、
+          実アプリscenarioとreset/cleanupのrelease qualificationが不足する。
+        </td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3 id="33-evidence-freshness">3.3 Evidence freshness</h3>
+  <table>
+    <caption>
+      3.2 Existing evidence disposition
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Evidence</th>
+        <th scope="col">Observed binding</th>
+        <th scope="col">Disposition</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>.artifacts/benchmark/dast-standard-metrics.json</code></td>
+        <td><code>d808f6c65a0c8f74dec013abf8dba3509486241e</code></td>
+        <td>設計参考には使えるが、planning baselineのpromotion receiptには使わない。</td>
+      </tr>
+      <tr>
+        <td><code>.artifacts/benchmark/dast-real-scanners.json</code></td>
+        <td><code>2ce055f859a0fb3c349e897aea2230af80051510</code></td>
+        <td>real tool起動の参考証跡。current profile qualificationとして再生成する。</td>
+      </tr>
+      <tr>
+        <td><code>spec/evidence/phase-50-zap-active-capability.json</code></td>
+        <td><code>dbc4bf46cfe57f4d5dd5d783d4b0777322fa4fe2</code>、tier experimental</td>
+        <td>active safety contractのbaseline。stable promotionには再実行が必要。</td>
+      </tr>
+      <tr>
+        <td><code>.artifacts/benchmark/business-logic-metrics.json</code></td>
+        <td>8 pair、overall recall/precision 1.0、Git commit fieldなし</td>
+        <td>algorithm fixtureとして維持し、release qualificationを別に生成する。</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    古いevidenceを削除する必要はない。ただしpromotion verifierはcandidate commit、catalog entry
+    hash、 implementation tree digestの一致しないevidenceを必ず拒否する。
+  </p>
+
+  <h2 id="4-stable-contract">4. Stable contract</h2>
+  <h3 id="41-meaning">4.1 Meaning of stable</h3>
+  <p><code>stable</code>は次のすべてを意味する。</p>
+  <ul>
+    <li>公称する入力、capability、対象、limitationが実装と一致する。</li>
+    <li>supported environmentでは同じ入力に対して再現可能なexecution planを生成する。</li>
+    <li>required capabilityが欠落、失敗、不明の場合にpassまたはcompleteへ誤分類しない。</li>
+    <li>tool failure、invalid output、timeout、cancel、cleanup failureを区別して保存する。</li>
+    <li>安全境界違反を実targetへのrequest前に拒否する。</li>
+    <li>
+      finding、artifact、coverage、limitation、result policyを同じcanonical profileへ結び付ける。
+    </li>
+    <li>supported scope外は明示的にnot_applicableまたはblockedとし、暗黙fallbackしない。</li>
+  </ul>
+
+  <h3 id="42-absolute-safety-gates">4.2 Absolute safety gates</h3>
+  <p>次の値はprofileごと、platformごとにすべて0でなければならない。</p>
+  <table>
+    <caption>
+      4.1 Non-negotiable safety metrics
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Metric</th>
+        <th scope="col">Required value</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>publicまたはproduction targetへの未承認request</td>
+        <td>0</td>
+      </tr>
+      <tr>
+        <td>
+          read-only/passive profileのscan phaseからstate-changing methodがupstreamへ到達
+          （認証profileのallowlisted login transactionは別計上）
+        </td>
+        <td>0</td>
+      </tr>
+      <tr>
+        <td>credential/secret canaryのlog、artifact、finding、event漏洩</td>
+        <td>0</td>
+      </tr>
+      <tr>
+        <td>host repositoryの内容またはGit status変化</td>
+        <td>0</td>
+      </tr>
+      <tr>
+        <td>owned container、network、listener、temporary pathのcleanup漏れ</td>
+        <td>0</td>
+      </tr>
+      <tr>
+        <td>required tool failure、全transport failure、invalid outputのfalse pass</td>
+        <td>0</td>
+      </tr>
+      <tr>
+        <td>catalog/preflight/plan/input hash不一致後に開始したrun</td>
+        <td>0</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3 id="43-quality-gates">4.3 Quality and operation gates</h3>
+  <ul>
+    <li>supported contractのpositive/negative fixture coverageを100%にする。</li>
+    <li>各finding detectorはvulnerable/fixed pairを持ち、false-fixedを0にする。</li>
+    <li>同一candidate commitで3回連続実行し、normalized resultとcleanup verdictが一致する。</li>
+    <li>
+      support対象platformをqualificationに列挙し、未検証platformをstable supportと表示しない。
+    </li>
+    <li>
+      各profileの最大request、rate、timeout、memory、CPU、artifact sizeをpolicyとして固定する。
+    </li>
+    <li>release branchではprofile qualification verifierをrequired checkにする。</li>
+  </ul>
+  <table>
+    <caption>
+      4.2 Initial stable policy ceilings
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Profile</th>
+        <th scope="col">Request / time ceiling</th>
+        <th scope="col">Resource / byte ceiling</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>api-readonly</code></td>
+        <td>100 requests、2 requests/sec、120 sec wall time</td>
+        <td>schema 5 MiB、response 1 MiB/件・64 MiB/run</td>
+      </tr>
+      <tr>
+        <td><code>remediation-verification</code></td>
+        <td>1 scanner invocation、900 sec wall time</td>
+        <td>2 CPU、2 GiB、artifact 100 MiB、network none</td>
+      </tr>
+      <tr>
+        <td><code>dynamic-verification</code></td>
+        <td>template既定120/180 sec、hard cap 300 sec</td>
+        <td>2 CPU、2 GiB、256 PIDs、artifact 100 MiB、network none</td>
+      </tr>
+      <tr>
+        <td><code>authenticated-web</code></td>
+        <td>scan 100 requests・2/sec・120 sec、login transaction 5 requests</td>
+        <td>response 1 MiB/件・64 MiB/run、trace 100 MiB</td>
+      </tr>
+      <tr>
+        <td><code>active-technical-lab</code></td>
+        <td>2,000 requests hard cap、2/sec、1,200 sec。RoEが常に下限を選ぶ</td>
+        <td>2 CPU、4 GiB、artifact 250 MiB</td>
+      </tr>
+      <tr>
+        <td><code>business-logic-lab</code></td>
+        <td>100 requests/scenario、20 scenarios/run、2/sec、1,200 sec/scenario</td>
+        <td>2 CPU、4 GiB、artifact 250 MiB</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    ceilingは<code>profile-stability-policy.ts</code>のversioned
+    constantを唯一のsourceとし、catalog copy、route default、runner hard
+    capへ重複定義しない。既存target/RoE limitがこれより小さい場合は常に小さい値を使う。
+    ceiling変更はpolicy hash変更と全該当profileの再qualificationを必要とする。
+  </p>
+
+  <h3 id="44-status-and-reason-semantics">4.4 Status and reason-code semantics</h3>
+  <p>
+    routeごとに独自の成功／失敗語彙を増やさない。preflight、run lifecycle、security
+    resultを別fieldにし、 HTTP statusだけから診断結果を推測しない。
+  </p>
+  <table>
+    <caption>
+      4.3 Canonical state mapping
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Layer</th>
+        <th scope="col">Allowed values</th>
+        <th scope="col">Rule</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Preflight</td>
+        <td><code>ready | blocked | not_applicable</code></td>
+        <td>
+          <code>blocked</code
+          >と<code>not_applicable</code>ではrun rowを作らない。両者とも1個以上の
+          reason codeを必須とする。
+        </td>
+      </tr>
+      <tr>
+        <td>Run lifecycle</td>
+        <td><code>queued | running | completed | failed | cancelled</code></td>
+        <td>
+          required
+          tool、parser、artifact、cleanupが失敗したrunは<code>completed</code>にしない。
+        </td>
+      </tr>
+      <tr>
+        <td>Security verdict</td>
+        <td><code>findings_present | no_findings | inconclusive</code></td>
+        <td>
+          lifecycleが<code>completed</code>の場合だけ前2値を許可する。比較不能、coverage不足、observer不能は
+          <code>inconclusive</code>とする。
+        </td>
+      </tr>
+      <tr>
+        <td>Qualification verdict</td>
+        <td><code>passed | failed | blocked</code></td>
+        <td>
+          <code>passed</code
+          >だけがpromotion可能。環境不足は<code>blocked</code>でありpassではない。
+        </td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    既存<code>shared/schemas/scan-reason-code.schema.ts</code>のenum/registryへ追加する。少なくとも
+    <code>profile_platform_not_qualified</code>、<code>required_capability_missing</code>、
+    <code>openapi_schema_required</code>、<code>openapi_yaml_not_qualified</code>、
+    <code>openapi_version_not_qualified</code>、
+    <code>openapi_external_ref_rejected</code>、<code>openapi_callback_not_qualified</code>、
+    <code>no_unauthenticated_readonly_operations</code>、<code>original_execution_identity_missing</code>、
+    <code>comparison_identity_mismatch</code>、<code>legacy_custom_reproduction_not_supported</code>、
+    <code>custom_dynamic_config_not_stable</code>、
+    <code>authentication_assertion_required</code>、<code>target_authorization_required</code>、
+    <code>target_lease_required</code
+    >、<code>target_reset_failed</code>を含める。API、Web、CLI、reportは
+    同じcodeを保存し、表示文言だけをlocale別mappingから生成する。未知codeはpass扱いせず
+    <code>unknown_reason_code</code>として表示する。
+  </p>
+  <table>
+    <caption>
+      4.4 Required reason-code registry entries
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Code</th>
+        <th scope="col">Category / effect</th>
+        <th scope="col">Disposition / action key</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>profile_platform_not_qualified</code></td>
+        <td>readiness / gap</td>
+        <td>blocked / qualify_platform</td>
+      </tr>
+      <tr>
+        <td><code>required_capability_missing</code></td>
+        <td>readiness / gap</td>
+        <td>blocked / provide_required_capability</td>
+      </tr>
+      <tr>
+        <td><code>openapi_schema_required</code></td>
+        <td>applicability / gap</td>
+        <td>blocked / configure_api_schema</td>
+      </tr>
+      <tr>
+        <td><code>openapi_yaml_not_qualified</code></td>
+        <td>readiness / gap</td>
+        <td>blocked / provide_openapi_json</td>
+      </tr>
+      <tr>
+        <td><code>openapi_version_not_qualified</code></td>
+        <td>readiness / gap</td>
+        <td>blocked / use_supported_openapi_version</td>
+      </tr>
+      <tr>
+        <td><code>openapi_external_ref_rejected</code></td>
+        <td>policy / gap</td>
+        <td>blocked / bundle_openapi_refs</td>
+      </tr>
+      <tr>
+        <td><code>openapi_callback_not_qualified</code></td>
+        <td>policy / gap</td>
+        <td>blocked / remove_callbacks_or_use_experimental</td>
+      </tr>
+      <tr>
+        <td><code>no_unauthenticated_readonly_operations</code></td>
+        <td>applicability / gap</td>
+        <td>not_applicable / use_authenticated_web_profile</td>
+      </tr>
+      <tr>
+        <td><code>original_execution_identity_missing</code></td>
+        <td>applicability / gap</td>
+        <td>not_applicable / run_new_source_scan</td>
+      </tr>
+      <tr>
+        <td><code>comparison_identity_mismatch</code></td>
+        <td>execution / gap</td>
+        <td>inconclusive / restore_original_scanner_binding</td>
+      </tr>
+      <tr>
+        <td><code>legacy_custom_reproduction_not_supported</code></td>
+        <td>policy / gap</td>
+        <td>blocked / use_stable_verification_preview</td>
+      </tr>
+      <tr>
+        <td><code>custom_dynamic_config_not_stable</code></td>
+        <td>policy / gap</td>
+        <td>blocked / use_experimental_dynamic_lab</td>
+      </tr>
+      <tr>
+        <td><code>no_tests_collected</code></td>
+        <td>coverage / gap</td>
+        <td>inconclusive / add_test_cases</td>
+      </tr>
+      <tr>
+        <td><code>authentication_assertion_required</code></td>
+        <td>readiness / gap</td>
+        <td>blocked / configure_auth_readiness</td>
+      </tr>
+      <tr>
+        <td><code>target_authorization_required</code></td>
+        <td>policy / gap</td>
+        <td>blocked / approve_target_authorization</td>
+      </tr>
+      <tr>
+        <td><code>target_lease_required</code></td>
+        <td>readiness / gap</td>
+        <td>blocked / provision_runtime_bundle</td>
+      </tr>
+      <tr>
+        <td><code>target_reset_failed</code></td>
+        <td>cleanup / gap</td>
+        <td>failed / inspect_quarantined_resource</td>
+      </tr>
+      <tr>
+        <td><code>business_logic_v2_required</code></td>
+        <td>readiness / gap</td>
+        <td>blocked / migrate_scenario_v2</td>
+      </tr>
+      <tr>
+        <td><code>unknown_reason_code</code></td>
+        <td>execution / gap</td>
+        <td>inconclusive / update_client_and_registry</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    実装時は各entryを既存<code>scanReasonCodeDefinitionSchema</code>でparseし、enumとregistry
+    keyの 双方向完全一致testを追加する。
+  </p>
+
+  <h3 id="45-final-catalog-copy">4.5 Final catalog copy and limitations</h3>
+  <table>
+    <caption>
+      4.5 Required public contract after each promotion
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Profile / display name</th>
+        <th scope="col">Description</th>
+        <th scope="col">Limitation codes</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>api-readonly</code><br />OpenAPI読み取り専用API診断</td>
+        <td>
+          隔離起動したlocal targetへ、OpenAPI/Swagger
+          JSONで宣言されたGET/HEAD/OPTIONSだけを検証します。
+        </td>
+        <td>
+          <code>openapi_3_0_3_1_json_only</code
+          >、<code>openapi_3_2_not_supported</code>、<code>graphql_not_supported</code>、<code>callbacks_not_supported</code>、<code>authenticated_operations_not_covered</code>、<code>node_npm_runtime_only</code>、<code>local_isolated_target_only</code>、<code
+            >http_method_safe_only</code
+          >
+        </td>
+      </tr>
+      <tr>
+        <td><code>remediation-verification</code><br />静的検出の修正確認</td>
+        <td>
+          元のscanner条件を固定し、Gitleaks、OSV-Scanner、Trivy、Semgrepのfindingを隔離snapshotで再確認します。
+        </td>
+        <td>
+          <code>static_scanners_only</code
+          >、<code>legacy_findings_not_verifiable</code>、<code
+            >human_close_required</code
+          >
+        </td>
+      </tr>
+      <tr>
+        <td><code>dynamic-verification</code><br />隔離動的テスト</td>
+        <td>
+          固定済み依存関係と組み込みtemplateを使い、repositoryの通常testをnetworkなしの使い捨て環境で実行します。
+        </td>
+        <td>
+          <code>builtin_templates_only</code
+          >、<code>locked_dependencies_only</code>、<code
+            >executes_repository_code</code
+          >
+        </td>
+      </tr>
+      <tr>
+        <td><code>authenticated-web</code><br />認証付きパッシブWeb診断</td>
+        <td>
+          認証前後を検証したsessionで、許可済み非production targetのpassive Web診断を実行します。
+        </td>
+        <td>
+          <code>authorized_non_production_targets_only</code
+          >、<code>differential_auth_required</code>、<code>same_origin_resources_only</code>、<code>login_transaction_may_change_state</code>、<code
+            >passive_scan_phase_only</code
+          >
+        </td>
+      </tr>
+      <tr>
+        <td><code>active-technical-lab</code><br />隔離Active技術診断</td>
+        <td>
+          system-ownedの使い捨てtargetへ、RoEで許可したactive
+          variantを実行し、終了後にtargetをresetします。
+        </td>
+        <td>
+          <code>system_owned_disposable_target_only</code
+          >、<code>qualified_target_templates_only</code>、<code>reset_required</code>、<code
+            >roe_required</code
+          >
+        </td>
+      </tr>
+      <tr>
+        <td><code>business-logic-lab</code><br />ビジネスロジック・シナリオ検証</td>
+        <td>人が定義したactor、操作、invariantを使い、使い捨てtargetでscenarioを検証します。</td>
+        <td>
+          <code>human_authored_scenarios_only</code
+          >、<code>qualified_target_templates_only</code>、<code>human_review_required</code>、<code
+            >not_comprehensive_discovery</code
+          >
+        </td>
+      </tr>
+      <tr>
+        <td><code>sanitizer-fuzz-lab</code><br />Sanitizer・ファズ診断ラボ</td>
+        <td>組み込みsanitizer/fuzz recipeを実験的機能として実行します。</td>
+        <td><code>experimental_runtime_matrix</code></td>
+      </tr>
+      <tr>
+        <td><code>custom-dynamic-lab</code><br />任意動的実行ラボ</td>
+        <td>利用者が保存したcommand/configを実験的機能として隔離実行します。</td>
+        <td>
+          <code>user_defined_execution</code>、<code
+            >experimental_runtime_matrix</code
+          >
+        </td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    前6 rowのavailabilityは各waveのqualification後だけstableにする。後2
+    rowは本計画ではexperimentalのままとする。 display name、description、limitation
+    codeはcatalogをsource of truthとし、Webに別copyをhard-codeしない。
+  </p>
+
+  <h2 id="5-qualification-contract">5. Qualification contract</h2>
+  <h3 id="51-schema">5.1 Schema</h3>
+  <p>
+    <code>shared/schemas/scan-profile-stability-qualification.schema.ts</code>を作成し、
+    <code>scanProfileStabilityQualificationV1Schema</code>を定義する。最低限、次を持たせる。
+  </p>
+  <pre><code class="language-json">{
+  "schemaVersion": 1,
+  "qualificationId": "sha256:...",
+  "profileId": "api-readonly",
+  "candidateAvailability": "stable",
+  "candidateCommit": "0123456789abcdef0123456789abcdef01234567",
+  "sourceTreeDigest": "sha256:...",
+  "catalogEntryHash": "sha256:...",
+  "hashAlgorithms": {
+    "qualification": "rfc8785-sha256-v1",
+    "catalogEntry": "scan-profile-catalog-hash-v1",
+    "sourceTree": "git-tree-list-sha256-v1"
+  },
+  "executionDefinitionHashes": ["sha256:..."],
+  "policyHashes": ["sha256:..."],
+  "scannerManifestHash": "sha256:...",
+  "executionEnvironment": {
+    "hostOs": "linux",
+    "hostArch": "x64",
+    "containerPlatform": "linux/amd64",
+    "dockerServerVersion": "...",
+    "toolVersions": {},
+    "imageDigests": {},
+    "databaseDigests": {}
+  },
+  "tests": [
+    {
+      "testId": "api-readonly:vulnerable:1",
+      "caseId": "api-readonly:vulnerable",
+      "repetition": 1,
+      "redactedArgv": ["bun", "run", "..."],
+      "exitCode": 0,
+      "durationMs": 1000,
+      "stdoutDigest": "sha256:...",
+      "stderrDigest": "sha256:...",
+      "artifactRefs": ["gateway-metrics-1"],
+      "verdict": "passed"
+    }
+  ],
+  "artifacts": [
+    {
+      "artifactId": "gateway-metrics-1",
+      "kind": "gateway_metrics",
+      "relativePath": "evidence/gateway-metrics-1.json",
+      "byteLength": 1000,
+      "sha256": "sha256:...",
+      "secretScanPassed": true
+    }
+  ],
+  "metrics": {"policyId": "api-readonly-stable-v1", "values": {}},
+  "safety": {
+    "unauthorizedExternalRequests": 0,
+    "stateChangingScanRequests": 0,
+    "unauthorizedAuthenticationTransactionRequests": 0,
+    "secretLeaks": 0,
+    "hostMutations": 0,
+    "resourceLeaks": 0,
+    "falsePasses": 0
+  },
+  "repeatability": {
+    "requiredRunCount": 3,
+    "groups": [
+      {
+        "caseId": "api-readonly:vulnerable",
+        "normalizedResultHashes": ["sha256:...", "sha256:...", "sha256:..."],
+        "cleanupReceiptHashes": ["sha256:...", "sha256:...", "sha256:..."],
+        "consistent": true
+      }
+    ]
+  },
+  "reviews": [],
+  "limitations": [],
+  "verdict": "passed"
+}</code></pre>
+  <p>
+    <code>candidateCommit</code>は40文字のlowercase Git SHA、digestは
+    <code>sha256:</code>に64文字のlowercase
+    hexとする。<code>sourceTreeDigest</code>は candidate
+    commitの<code>git ls-tree -r --full-tree</code>からpath、mode、object IDをUTF-8 byte順に
+    並べてSHA-256化し、dirty
+    fileや生成artifactを含めない。<code>qualificationId</code>は同field自身を
+    除いたcanonical JSONのSHA-256とする。
+  </p>
+  <p>
+    qualification/policy/manifestには新しい<code>shared/canonical-json.ts</code>のRFC
+    8785実装を使う。既存 catalog entry hashはhistoric
+    run互換のため現行<code>scan-profile-catalog-hash-v1</code>を維持し、新しい
+    canonicalizerで再計算しない。hash fieldごとのalgorithm
+    IDをreceiptへ必須化し、algorithmの暗黙切替を拒否する。
+  </p>
+  <p>
+    <code>tests</code>はprofile policyが宣言する全case IDを3
+    repetitionずつ持ち、
+    <code>artifacts</code
+    >の参照先が存在しなければならない。argvとoutput本文にはsecretを残さず、argvは server-owned
+    command identityのredacted表現、stdout/stderrはdigestだけを保存する。
+    <code>metrics</code>はprofile IDでdiscriminateするstrict
+    schemaとし、未知metricや欠落metricを許可しない。 repeatability group内のnormalized result
+    hashとcleanup verdictは3件一致を要求する。timestamp/duration、UUID、 container
+    ID等の非決定値はnormalized resultに含めない。
+  </p>
+  <p>
+    <code>reviews</code>
+    entryは<code>kind</code>、platform user
+    IDのSHA-256、decision、decidedAt、reviewed artifact refs、candidate
+    commitを持ち、生の氏名/emailを持たない。R3とbusiness logic policyは1件以上の
+    <code>security_reviewer</code> decision=approvedを要求する。それ以外のPR
+    approvalはrepository branch protectionで検証し、receipt内reviewの代替にしない。
+  </p>
+  <p>
+    secret、absolute home path、生のrequest/response body、Docker socket pathをschemaで禁止する。
+    artifact pathはrepository-relativeまたはqualification run directory-relativeに限定する。
+  </p>
+
+  <h3 id="52-promotion-manifest">5.2 Promotion manifest and storage</h3>
+  <p>
+    profileごとのreceiptを次のpromotion manifestへ集約する。配列順はenvironment key順、JSON key順は
+    RFC 8785準拠のproject canonicalizerで固定し、manifest自身もhash検証する。
+  </p>
+  <pre><code class="language-json">{
+  "schemaVersion": 1,
+  "candidateCommit": "0123456789abcdef0123456789abcdef01234567",
+  "promotions": [
+    {
+      "profileId": "api-readonly",
+      "fromAvailability": "experimental",
+      "toAvailability": "stable",
+      "requiredEnvironments": [
+        "linux/x64+linux/amd64",
+        "darwin/arm64+linux/arm64"
+      ],
+      "qualificationReceiptHashes": ["sha256:...", "sha256:..."]
+    }
+  ],
+  "verdict": "passed"
+}</code></pre>
+  <ul>
+    <li>
+      Docker qualificationの出力は
+      <code>.artifacts/scan-profile-stability/&lt;candidateCommit&gt;/&lt;profileId&gt;/&lt;environment&gt;/qualification.v1.json</code>
+      とする。
+    </li>
+    <li>
+      manifestは同candidate directory直下の<code>promotion-manifest.v1.json</code>へ出力する。
+    </li>
+    <li>
+      Docker imageは<code>vuln-workbench-qualification:local</code>とし、candidate commitとimage
+      digestをreceiptへ保存する。外部artifact serviceやGitHub APIは使わない。
+    </li>
+    <li>
+      qualificationは開発者のDocker daemon上で実行する。sourceはread-only mount、artifact
+      directoryだけを write mount、container
+      networkは<code>none</code>とする。host
+      OS別の自動runnerは要求しない。
+    </li>
+    <li>
+      container imageはplatform別manifest digestをreceiptへ保存する。multi-arch tagが同じでも、
+      <code>linux/amd64</code
+      >と<code>linux/arm64</code>のchild digest一致を要求しない。
+    </li>
+    <li>
+      manifestとreceiptはローカルの<code>.artifacts/scan-profile-stability/</code>に保持し、必要なら利用者が
+      release assetへ手動添付する。保存の正本を外部artifact serviceにしない。
+    </li>
+    <li>
+      <code>spec/evidence/scan-profile-stability/</code>にはschema、取得手順、release asset
+      URL、hashだけを置く。 candidate commitを変えるreceipt本体を後続commitで権威化しない。
+    </li>
+  </ul>
+
+  <h3 id="53-builder-and-verifier">5.3 Builder and verifier</h3>
+  <ul>
+    <li><code>scripts/build-scan-profile-stability-qualification.ts</code>はclean candidate checkoutだけを受理する。</li>
+    <li>
+      <code>scripts/verify-scan-profile-stability-qualification.ts</code>はschema parseだけでなく、 hash再計算、test
+      command identity、artifact byte hash、catalog status、zero safety metricsを検証する。
+    </li>
+    <li>
+      verifierは自分自身のnegative testを持ち、field削除、hash改変、別commit replayを拒否する。
+    </li>
+    <li>
+      checked-in templateをrelease evidenceとして扱わない。Docker containerがcandidate
+      commitのread-only mount上で 生成したreceiptを正本とし、同一byteを必要に応じてrelease
+      assetへ手動複製する。
+    </li>
+    <li>
+      <code>scripts/verify-scan-profile-promotions.ts</code>はcatalogでstableへ変わったentryごとに、
+      同じcandidate commitのpassed receiptを要求する。
+    </li>
+  </ul>
+
+  <h3 id="54-promotion-sequence">5.4 Exact promotion sequence</h3>
+  <ol>
+    <li>
+      実装、claim、limitation、testを<code>experimental</code>のままmergeする。
+    </li>
+    <li>
+      promotion branchではavailability、表示badge、experimental opt-in、qualification policy
+      bindingだけを変更する。 実行code、schema、scanner imageを同commitで変更した場合はpromotion
+      verifierが拒否する。
+    </li>
+    <li>
+      Docker qualificationはそのcandidate SHAのclean checkoutでreceiptとpromotion
+      manifestを生成する。
+    </li>
+    <li>
+      Docker実行ごとのreceiptをSHAで集約し、<code>verify:scan-profile-promotions</code>がcatalog
+      diff、candidate commit、entry hash、receipt hash、全verdictを再検証する。
+    </li>
+    <li>
+      verifier passとmaintainer approval後にmergeし、必要に応じて利用者が同artifactをrelease
+      assetへ添付する。
+    </li>
+    <li>一つでもblocked/failed/missingならavailability変更をmergeしない。</li>
+  </ol>
+
+  <h3 id="55-dedicated-admission">5.5 Dedicated-flow admission</h3>
+  <p>
+    generic orchestratorだけでなく、dynamic、authenticated DAST、active assessment、business logic、
+    reproductionのrouteもserver-owned catalog resolverを通す。単なる
+    <code>buildDedicatedProfileMetadata</code>呼び出しだけをadmissionとは見なさない。
+  </p>
+  <ul>
+    <li>canonical profile ID、catalog entry hash、provided input kindsをrouteで解決する。</li>
+    <li>
+      availability、launch destination、safety class、required inputの不一致をrun
+      row作成前に拒否する。
+    </li>
+    <li>resolved envelopeをdedicated runとcanonical scan rowの両方へ保存する。</li>
+    <li>preview/startがあるflowはexpected hashでbindする。</li>
+    <li>historic direct APIは互換入口として残し、内部で同じresolverを使う。</li>
+  </ul>
+  <pre><code class="language-json">{
+  "schemaVersion": 1,
+  "profileId": "api-readonly",
+  "surface": "api",
+  "launchDestination": "scan_workspace",
+  "availability": "stable",
+  "safetyClass": "R1",
+  "catalogVersion": 2,
+  "catalogEntryHash": "sha256:...",
+  "requiredInputKinds": ["source_target"],
+  "providedInputKinds": ["source_target"],
+  "executionEnvironmentKey": "darwin/arm64+linux/arm64",
+  "executionPlanHash": "sha256:...",
+  "admittedAt": "2026-08-22T00:00:00.000Z"
+}</code></pre>
+  <p>
+    上記<code>DedicatedProfileResolutionEnvelopeV1</code>は既存scan/runのmetadata JSONへ保存し、DB
+    columnは追加しない。routeはclientからcanonical
+    fieldを受理せず、server側で作成する。previewを持つflowでは
+    <code>catalogEntryHash</code
+    >と<code>executionPlanHash</code>だけをexpected値としてclientへ返し、start時に
+    timing-safe比較する。historic rowにenvelopeがない場合は表示のみ許可し、stable
+    qualification集計から除外する。
+  </p>
+  <p>
+    例の<code>catalogVersion=2</code>はplanning
+    baselineのV1に対する最初のsemantic変更を示す。serialized catalog
+    entryの追加、削除、claim、availability、input、safety
+    policyを変更するcommitごとにversionをちょうど1増やす。 display-only
+    CSS変更では増やさない。並行branchはmerge前にcurrent mainへrebaseし、同じversionを再利用しない。
+  </p>
+
+  <h3 id="56-qualification-policy-registry">5.6 Qualification policy registry</h3>
+  <table>
+    <caption>
+      5.1 Required policy plugins
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Policy ID</th>
+        <th scope="col">Required case groups</th>
+        <th scope="col">Profile-specific pass metrics</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>api-readonly-stable-v1</code></td>
+        <td>
+          OpenAPI 3.0/3.1・Swagger 2.0 vulnerable+fixed、operation/path bypass、tool/fault/cleanup
+        </td>
+        <td>
+          operation selection coverage 100%、false negative/positive 0、state-changing scan request
+          0
+        </td>
+      </tr>
+      <tr>
+        <td><code>remediation-verification-stable-v1</code></td>
+        <td>Gitleaks/OSV/Trivy/Semgrep vulnerable+fixed、identity mismatch、fault/legacy</td>
+        <td>supported scanner coverage 4/4、false fixed 0、mismatch inconclusive 100%</td>
+      </tr>
+      <tr>
+        <td><code>dynamic-verification-stable-v1</code></td>
+        <td>5 adapter pass/fail/no-tests、dependency mismatch、escape/fault/cleanup</td>
+        <td>
+          adapter coverage 5/5、outcome classification 100%、execution external request/host
+          mutation 0
+        </td>
+      </tr>
+      <tr>
+        <td><code>authenticated-web-stable-v1</code></td>
+        <td>5 auth kind valid/invalid/expired、differential readiness、redirect/login/fault</td>
+        <td>
+          auth kind coverage 5/5、false authenticated 0、scan state-changing/out-of-scope/secret
+          leak 0
+        </td>
+      </tr>
+      <tr>
+        <td><code>active-technical-lab-stable-v1</code></td>
+        <td>3 variant vulnerable/fixed/reset/fault、RoE/budget bypass</td>
+        <td>variant coverage 3/3、RoE escape 0、reset/cleanup leak 0、security review approved</td>
+      </tr>
+      <tr>
+        <td><code>business-logic-lab-stable-v1</code></td>
+        <td>5 real scenario vulnerable/fixed、actor/observer/invariant/reset/fault</td>
+        <td>
+          scenario coverage 5/5、false positive/fixed 0、unreviewed final finding 0、security review
+          approved
+        </td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    registryはprofile IDからpolicy IDを一意に引く。policy IDをrequestから受理しない。policy
+    pluginが宣言するcase ID集合とreceipt testsのcase
+    ID集合は完全一致を要求し、余分な成功caseで欠落caseを相殺しない。
+  </p>
+
+  <h2 id="6-wave-a-api-readonly">6. Wave A1 — api-readonly</h2>
+  <h3 id="61-contract">6.1 Product contract</h3>
+  <p>最初のstable contractを次へ限定する。</p>
+  <ul>
+    <li>
+      schema format: UTF-8のOpenAPI 3.0.0〜3.0.4 JSON、3.1.0〜3.1.2 JSON、またはSwagger 2.0 JSON
+    </li>
+    <li>schema source: immutable source snapshot内のregular file</li>
+    <li>
+      reference: 同一document内のJSON Pointer
+      <code>#/...</code>だけ。file、URL、network
+      <code>$ref</code>は禁止
+    </li>
+    <li>HTTP method: schemaに明示されたGET、HEAD、OPTIONSだけ</li>
+    <li>
+      authentication: effective
+      <code>security</code>
+      requirementが未指定または空のoperationだけ。credentialは受理しない
+    </li>
+    <li>
+      target: baselineで実装済みの<code>npm-package-lock-v1</code> dependency adapterと
+      <code>build.npm</code> target startにより、systemが同じscan用に起動した
+      isolated local target
+    </li>
+    <li>network: scannerからはbounded gatewayだけへ接続可能</li>
+    <li>result: Schemathesis contract failureをnormalized findingとして保存</li>
+  </ul>
+  <p>
+    GraphQLとAsyncAPIはこのwaveではsupport対象外とする。GraphQLを将来加える場合、HTTP methodではなく
+    parsed operation
+    typeが<code>query</code>であることを証明し、mutation/subscriptionをgateway前に拒否する
+    独立variantとqualificationを必要とする。
+  </p>
+  <p>
+    root <code>webhooks</code>またはoperation
+    <code>callbacks</code>を含むschemaは
+    <code>openapi_callback_not_qualified</code
+    >でblockedとする。認証必須operationはpolicyから除外し、reportへ
+    <code>authenticated_operations_not_covered</code>を表示する。選択可能operationが0件なら
+    <code>no_unauthenticated_readonly_operations</code>でnot_applicableとする。
+  </p>
+  <p>
+    OpenAPI 3.2以降とYAMLは初回stable scopeへ含めない。3.2以降は
+    <code>openapi_version_not_qualified</code>、repositoryにYAML候補しかない場合は
+    <code>openapi_yaml_not_qualified</code>、API source evidenceがあるのにsupported
+    schemaがない場合は <code>openapi_schema_required</code>でblockedとする。API source
+    evidence自体がないrepositoryでは
+    not_applicableとする。JSON化fallbackや古い<code>js-yaml</code>依存への暗黙fallbackは実装しない。
+  </p>
+
+  <h3 id="62-operation-policy">6.2 Operation policy V1</h3>
+  <pre><code class="language-json">{
+  "schemaVersion": 1,
+  "schemaSnapshotDigest": "sha256:...",
+  "basePath": "/api",
+  "operations": [
+    {
+      "method": "GET",
+      "pathTemplate": "/users/{userId}",
+      "operationId": "getUser"
+    }
+  ],
+  "maxRequests": 100,
+  "rateLimitPerSecond": 2,
+  "requestTimeoutMs": 10000,
+  "runTimeoutMs": 120000,
+  "maxRedirects": 0,
+  "maxPathBytes": 8192,
+  "maxPathSegmentBytes": 2048,
+  "maxQueryParameters": 50,
+  "maxQueryValueBytes": 4096,
+  "maxQueryBytes": 16384,
+  "maxRequestHeaderBytes": 16384,
+  "maxResponseBytes": 1048576,
+  "maxTotalResponseBytes": 67108864,
+  "policyHash": "sha256:..."
+}</code></pre>
+  <ul>
+    <li>
+      operationはmethod、pathTemplate、operationIdの順にsortし、重複method/pathをparse errorにする。
+    </li>
+    <li>
+      operation-level
+      <code>security</code
+      >があればrootより優先し、未指定または空配列だけを選択する。 security
+      schemeを推測したheader/tokenで満たさない。
+    </li>
+    <li>
+      OAS3の<code>servers</code>は未指定または変数・query・fragmentを含まない単一のrelative
+      pathだけを受理する。 Swagger
+      2は<code>basePath</code>だけを使う。schemaのhost/schemeをtarget
+      originに使わない。
+    </li>
+    <li>
+      pathをraw/decodedの両方で検査し、literal
+      segmentは完全一致、parameterは1個の非空segmentにだけ一致する。 percent encoded
+      slash/backslash、dot segment、二重slash、NUL、壊れたencodingを拒否する。
+    </li>
+    <li>
+      queryはroute selectionに使わないが、schema
+      property、個数、1値byte、合計byteのpolicy上限を適用する。
+      <code>X-HTTP-Method-Override</code>等のmethod override
+      headerはscanner入力から除去し、受信時も拒否する。
+    </li>
+    <li>
+      redirectは追従せず、3xxを観測結果として保存する。gatewayのupstream originはsystem-owned
+      targetに固定する。
+    </li>
+    <li>
+      HTTP methodがsafeでもapplicationがGETで副作用を実装している可能性は否定できない。reportに
+      <code>http_method_safe_only</code> limitationを常に表示する。
+    </li>
+  </ul>
+
+  <h3 id="63-changes">6.3 Changes</h3>
+  <ol>
+    <li>
+      <code>strict-json-document.ts</code>を作成し、5 MiB読込上限、duplicate object
+      key、lone surrogate、 prototype key、trailing
+      dataを拒否する。<code>JSON.parse</code>単独で最後のduplicate
+      keyを採用しない。
+    </li>
+    <li>
+      <code>api/modules/api-schema-fuzz/openapi-document.ts</code>を作成し、OpenAPI/Swagger version、 operation
+      method/path、server base pathをstrictにparseする。
+    </li>
+    <li>
+      internal JSON Pointerは最大解決depth 64、合計10,000 reference、cycle拒否とし、path
+      parameterが宣言と 一致しないoperationを受理しない。
+    </li>
+    <li>
+      <code>schema-discovery.ts</code>からAsyncAPIの受理を除き、JSONだけをstrict
+      parserで検証する。
+    </li>
+    <li>
+      repository candidateをregular file、snapshot内realpath、size limit、content digestへbindする。
+    </li>
+    <li>
+      <code>openapi-readonly-operation-policy.ts</code>を作成し、read-only operationのexact method/path
+      allowlistとpolicy hashを生成する。
+    </li>
+    <li>
+      Schemathesisのmethod filterとbounded gatewayのallowlistを同じpolicy objectから生成する。
+    </li>
+    <li>
+      commandへ<code>--include-method GET/HEAD/OPTIONS</code>、<code>--rate-limit 2/s</code>、
+      <code>--max-redirects 0</code
+      >、<code>--request-timeout 10</code>、<code>--request-retries 0</code>を明示し、
+      gatewayの100 request hard capを最終境界にする。tool/image versionをpolicy receiptへbindする。
+    </li>
+    <li>
+      schemaに定義されないpath、encoded path escape、redirect、method override headerを拒否する。
+    </li>
+    <li>gateway metricsへmethod/path別attempted、forwarded、blocked countを追加する。</li>
+    <li>catalog表示を「OpenAPI読み取り専用診断」へ変更し、GraphQL claimを削除する。</li>
+  </ol>
+
+  <h3 id="64-tests">6.4 Tests</h3>
+  <ul>
+    <li>
+      全supported version string、OpenAPI 3.0/3.1とSwagger 2.0のreal schema、内部fragment
+      <code>$ref</code>のpositive parser test
+    </li>
+    <li>
+      OpenAPI 3.2、YAML、AsyncAPI、GraphQL SDL、webhook/callback、破損schema、file/URL
+      <code>$ref</code>、symlink、oversize、複数base pathのnegative test
+    </li>
+    <li>
+      schemaに明示されたGET/HEAD/OPTIONSだけがfixtureへ到達し、未宣言safe methodと
+      POST/PUT/PATCH/DELETEが0件であるgateway test
+    </li>
+    <li>
+      root/operation security継承、secured operation除外、選択operation 0件のstatus/reason test
+    </li>
+    <li>
+      prefix collision、encoded slash/backslash、dot segment、二重slash、method override、redirectの
+      bypass regression test
+    </li>
+    <li>vulnerable/fixed API pairでnormalized findingの有無を比較するreal Schemathesis E2E</li>
+    <li>
+      tool unavailable、exit 2以上、invalid NDJSON、timeout、gateway cleanup failureのfalse-pass
+      test
+    </li>
+    <li>3回repeatでnormalized finding hashとoperation coverageが一致するtest</li>
+  </ul>
+  <pre><code class="language-bash">bun test api/modules/api-schema-fuzz \
+  api/modules/scans/execution/profile-schema-step-runner.test.ts \
+  api/modules/dast/container-target-gateway.test.ts
+bun run benchmark:dast-real-scanners
+bun run verify:dast-real-scanners
+bun run qualify:scan-profile -- api-readonly
+  </code></pre>
+
+  <h3 id="65-exit">6.5 Exit gate</h3>
+  <ul>
+    <li>全supported schema formatのoperation selection coverageが100%。</li>
+    <li>upstreamへ到達したstate-changing requestが0。</li>
+    <li>vulnerable fixture findingを検出し、fixed fixtureで同findingを出さない。</li>
+    <li>schema/tool/target/cleanup失敗をcompleted/passへしない。</li>
+    <li>candidate commitのqualification receiptがpassed。</li>
+    <li>
+      以上の後だけcatalogをstableへ変更し、Webの<code>allowExperimental</code>特例を削除する。
+    </li>
+  </ul>
+
+  <h2 id="7-wave-a-remediation">7. Wave A2 — remediation-verification</h2>
+  <h3 id="71-contract">7.1 Product contract</h3>
+  <p>
+    stable contractは「静的scanner findingの修正確認」とする。対応source toolは
+    Gitleaks、OSV-Scanner、Trivy、Semgrepである。DAST、dynamic/fuzz、authorization matrix、 business
+    logic findingは本waveではnot_applicableとする。
+  </p>
+  <p>
+    findingにoriginal scan ID、versioned finding fingerprint、source snapshot digest、execution plan
+    hash、 scanner binding hashがすべて存在する場合だけeligibleとする。Semgrepはoriginal
+    runが実行済みでrule bundle digestを持つ場合だけ対象とし、「optional
+    scannerが現在有効」というだけではeligibleにしない。
+  </p>
+  <p>
+    catalog required
+    inputは現行の<code>finding_ref</code>に<code>source_target</code>を追加し、両方requiredとする。
+    stable対象の4 scannerはいずれもsourceを実行しないため、catalog safety
+    classは<code>R0</code>へ変更する。 legacy custom
+    image/network実行を同じstable IDへ残さない。
+  </p>
+
+  <h3 id="72-api-contract">7.2 API contract</h3>
+  <p>既存GET endpointは維持し、POSTを次のように分ける。</p>
+  <table>
+    <caption>
+      7.1 Verification endpoints
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Endpoint</th>
+        <th scope="col">Contract</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>POST /findings/:findingId/verifications/preview</code></td>
+        <td>
+          <code>profileId</code>と
+          <code>sourceTarget: {kind:"working_tree"}|{kind:"commit",revision}</code>を受け、eligibility、original
+          binding、current snapshot digest、catalog entry hash、comparison plan
+          hashを返す。runは作らない。
+        </td>
+      </tr>
+      <tr>
+        <td><code>POST /findings/:findingId/verifications</code></td>
+        <td>
+          preview入力に<code>expectedSourceSnapshotDigest</code>、<code>expectedCatalogEntryHash</code>、
+          <code>expectedComparisonPlanHash</code>を加えて開始する。不一致は409
+          <code>stale_verification_preview</code>でrunを作らない。
+        </td>
+      </tr>
+      <tr>
+        <td><code>POST /findings/:findingId/reproductions</code></td>
+        <td>
+          legacy互換。safeな既存requestはserver-owned image/network noneへ正規化し、
+          <code>legacyUnbound=true</code>を保存する。custom image、network
+          default、resource overrideを指定したrequestは 422
+          <code>legacy_custom_reproduction_not_supported</code>で拒否する。negative resultを
+          <code>resolved_candidate</code>へ昇格させず、新UI/CLIからは使用しない。
+        </td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    preview/start schemaは<code>additionalProperties: false</code>とし、stable
+    endpointではclient指定の
+    <code>dockerImage</code
+    >、<code>network</code>、<code>memory</code>、<code>cpus</code>、任意commandを受理しない。
+    qualified image digest、network none、timeout/resource limitはserver-owned profile
+    policyから選ぶ。 working treeはstart時に既存full-source snapshot機構でimmutable temporary
+    projectionへ変換し、snapshot 完成後にhost repositoryをrunnerへmountしない。
+  </p>
+  <p>
+    legacy endpointもcustom execution overrideを黙って無視しない。fieldが存在する場合は422で拒否し、
+    safe default requestだけを互換実行する。これによりstable catalog IDの全production
+    pathをR0/network noneに揃える。
+  </p>
+  <pre><code class="language-json">{
+  "schemaVersion": 2,
+  "profileId": "gitleaks-recheck",
+  "original": {
+    "scanRunId": "uuid",
+    "findingFingerprint": "...",
+    "findingIdentityVersion": 1,
+    "sourceSnapshotDigest": "sha256:...",
+    "executionPlanHash": "sha256:...",
+    "scannerBindingHash": "sha256:...",
+    "safetyClass": "R0"
+  },
+  "retest": {
+    "sourceTarget": {"kind": "working_tree"},
+    "sourceSnapshotDigest": "sha256:...",
+    "executionPlanHash": "sha256:..."
+  },
+  "comparison": {
+    "scannerId": "gitleaks",
+    "matchingAlgorithmVersion": 2,
+    "requiredScannerBindingHash": "sha256:...",
+    "policyHash": "sha256:..."
+  },
+  "comparisonPlanHash": "sha256:..."
+}</code></pre>
+  <p>
+    original/retestのsource snapshot digestとexecution plan
+    hashは異なってよい。修正差分を検証するための正常な差である。
+    一致を要求するのはtool/rule/database/image/normalizerから成るscanner bindingとmatching algorithm
+    versionである。
+    <code>comparisonPlanHash</code>は同fieldを除くV2 objectのRFC 8785 SHA-256とする。
+  </p>
+
+  <h3 id="73-changes">7.3 Changes</h3>
+  <ol>
+    <li>
+      catalog descriptionを静的scanner限定へ変更し、
+      <code>static_scanners_only</code> limitationを追加する。
+    </li>
+    <li>
+      <code>reproduction-binding.schema.ts</code>を拡張し、original scan ID、finding fingerprint、
+      source snapshot digest、tool version、rule/data digest、image digest、safety
+      boundaryを必須化する。
+    </li>
+    <li>
+      retest入力をcurrent immutable source snapshotへbindし、host repositoryを直接mountしない。
+    </li>
+    <li>Docker image tagだけの指定をstable flowで拒否し、qualified digestを使う。</li>
+    <li>
+      originalとretestのscanner
+      conditionが異なる場合、<code>not_reproduced</code>ではなく
+      <code>inconclusive</code>とする。
+    </li>
+    <li>matching keyをscanner別にversion化し、rule-only matchをfixed判定に使わない。</li>
+    <li>raw output parse失敗、artifact欠落、scanner errorをfalse fixedにしない。</li>
+    <li>
+      resultへ<code>comparable</code>、<code>comparisonReasonCodes</code>、binding
+      hashを保存する。
+    </li>
+    <li>
+      comparison outcomeとfinding
+      lifecycleを分離し、comparableな<code>not_observed</code>は
+      <code>resolved_candidate</code>を作るだけにする。findingのcloseは行わない。
+    </li>
+  </ol>
+
+  <h4 id="scanner-comparison-identity">Scanner comparison identity</h4>
+  <table>
+    <caption>
+      7.2 Required original/retest identity
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Scanner</th>
+        <th scope="col">Finding match identity</th>
+        <th scope="col">Execution identity that must match</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Gitleaks</td>
+        <td>
+          original normalized fingerprint version、rule ID、secret-free content hash、normalized
+          path
+        </td>
+        <td>tool version、rule bundle digest、image digest</td>
+      </tr>
+      <tr>
+        <td>OSV-Scanner</td>
+        <td>vulnerability ID、ecosystem、package、installed version、manifest path</td>
+        <td>tool version、OSV database snapshot digest、image digest</td>
+      </tr>
+      <tr>
+        <td>Trivy</td>
+        <td>target kind、vulnerability ID、package、installed version、artifact/manifest path</td>
+        <td>tool version、vulnerability DB digest、policy digest、image digest</td>
+      </tr>
+      <tr>
+        <td>Semgrep</td>
+        <td>rule ID、normalized path、versioned syntactic fingerprint</td>
+        <td>tool version、rule bundle digest、engine mode、image digest</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    上表のidentityは新しいheuristicで再構成せず、original scanが保存したversioned
+    normalizer出力を使う。 一項目でも欠けるlegacy
+    findingはRD-07を適用する。retestでtool/database/rule/imageを自動更新しない。
+  </p>
+
+  <h3 id="74-tests">7.4 Tests</h3>
+  <ul>
+    <li>4 scannerそれぞれのreproduced/not_reproduced pair</li>
+    <li>rule ID同一・path/package不一致をreproducedにしないnegative test</li>
+    <li>
+      scanner version、rule digest、database digest、image digest不一致をinconclusiveにするtest
+    </li>
+    <li>invalid output、timeout、cancel、artifact save failure、cleanup failureのtest</li>
+    <li>original R0/R1/R2/R3 boundaryを弱めるretest requestの拒否test</li>
+    <li>finding/project/owner/parent scanのcross-tenant差し替え拒否test</li>
+    <li>preview後のworking tree、catalog、profile policy変更を409で拒否するrace test</li>
+    <li>legacy endpointのnegative resultがfinding statusを変更しないregression test</li>
+  </ul>
+  <pre><code class="language-bash">bun test api/modules/reproductions api/routes/reproductions.route.test.ts \
+  shared/schemas/reproduction-binding.schema.test.ts
+bun run qualify:scan-profile -- remediation-verification
+</code></pre>
+
+  <h3 id="75-outcome-mapping">7.5 Outcome mapping</h3>
+  <table>
+    <caption>
+      7.3 Verification outcome mapping
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Observation</th>
+        <th scope="col">Comparable</th>
+        <th scope="col">Stored result</th>
+        <th scope="col">Finding effect</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>同じfindingを観測</td>
+        <td>true</td>
+        <td><code>observed</code></td>
+        <td>変更なし</td>
+      </tr>
+      <tr>
+        <td>同じfindingを観測しない</td>
+        <td>true</td>
+        <td><code>not_observed</code></td>
+        <td><code>resolved_candidate</code>を追加、closeしない</td>
+      </tr>
+      <tr>
+        <td>binding/coverage不一致</td>
+        <td>false</td>
+        <td><code>inconclusive</code></td>
+        <td>変更なし</td>
+      </tr>
+      <tr>
+        <td>scanner/parser/artifact/cleanup失敗</td>
+        <td>false</td>
+        <td>
+          <code>error</code>、run
+          <code>failed</code>
+        </td>
+        <td>変更なし</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3 id="76-exit">7.6 Exit gate</h3>
+  <ul>
+    <li>supported 4 scannerのvulnerable/fixed pairが全件期待どおり。</li>
+    <li>false fixedが0。</li>
+    <li>comparison condition不一致が必ずinconclusive。</li>
+    <li>network none、secret leak 0、host mutation 0、cleanup leak 0。</li>
+    <li>report/UIが静的scanner限定を明示する。</li>
+    <li>candidate commitのqualification receiptがpassed。</li>
+  </ul>
+
+  <h2 id="8-wave-b-dynamic">8. Wave B — dynamic profile split</h2>
+  <h3 id="81-catalog-change">8.1 Catalog change</h3>
+  <p>entry-level availabilityではtestとfuzzの成熟度差を表現できないため、profileを次へ分ける。</p>
+  <table>
+    <caption>
+      8.1 Dynamic split
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">ID</th>
+        <th scope="col">Availability target</th>
+        <th scope="col">Allowed dynamic kind</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>dynamic-verification</code></td>
+        <td>stable候補</td>
+        <td>
+          <code>test</code>のみ。表示名を「隔離動的テスト」へ変更する。
+        </td>
+      </tr>
+      <tr>
+        <td><code>sanitizer-fuzz-lab</code></td>
+        <td>experimental</td>
+        <td>
+          <code>sanitizer</code>または<code
+            >fuzz</code
+          >
+        </td>
+      </tr>
+      <tr>
+        <td><code>custom-dynamic-lab</code></td>
+        <td>experimental</td>
+        <td>
+          user保存済みcommand/config。<code>test</code>、<code>sanitizer</code>、<code>fuzz</code>のいずれもstable
+          entryへ流用しない。
+        </td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    件数を増やすことが目的ではない。異なる安全性・対応範囲・成熟度を一つのラベルへ隠さないための
+    分割である。historic dynamic runとAPI contractはcanonical metadataで継続表示する。
+  </p>
+  <ul>
+    <li>
+      <code>dynamic-verification</code>: required inputsは
+      <code>source_target</code
+      >、<code>execution_consent</code>。required capabilityは
+      <code>dynamic_tests</code>だけとする。
+    </li>
+    <li>
+      <code>sanitizer-fuzz-lab</code>: 同じrequired inputs、required capabilityは
+      <code>sanitizer_fuzz</code>。built-in security recipeだけを受理する。
+    </li>
+    <li>
+      <code>custom-dynamic-lab</code>: 同じrequired
+      inputs、<code>dynamic_tests</code>と
+      <code>sanitizer_fuzz</code>はadvisory。saved config
+      IDを追加で必要とするが、新しいgeneric input kindは 作らずdedicated request
+      fieldとしてadmission hashへ含める。
+    </li>
+  </ul>
+
+  <h3 id="82-supported-template-matrix">8.2 Stable template matrix</h3>
+  <p>
+    <code>dynamic-verification</code>は次の5個のsystem-owned template
+    IDだけを受理する。command、timeout、 network、artifact
+    patternをrequestで上書きできない。applicability条件を満たさないtemplateは
+    <code>required_capability_missing</code>でblockedとし、別templateへ自動fallbackしない。
+  </p>
+  <table>
+    <caption>
+      8.2 Built-in stable test adapters
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Template</th>
+        <th scope="col">Fixed command</th>
+        <th scope="col">Required immutable dependency input</th>
+        <th scope="col">Execution rule</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>bun-test</code></td>
+        <td><code>bun test</code></td>
+        <td>
+          <code>bun.lock</code
+          >または<code>bun.lockb</code>とqualified dependency bundle digest
+        </td>
+        <td>materialization後network none</td>
+      </tr>
+      <tr>
+        <td><code>npm-test</code></td>
+        <td><code>npm test</code></td>
+        <td>
+          <code>package-lock.json</code>lockfileVersion 2/3、test script、qualified
+          dependency bundle digest
+        </td>
+        <td>project-script consent必須、materialization後network none</td>
+      </tr>
+      <tr>
+        <td><code>pytest</code></td>
+        <td><code>pytest -q</code></td>
+        <td>
+          全requirementがexact
+          versionとhashを持つ<code>requirements.txt</code>、qualified wheel bundle
+          digest
+        </td>
+        <td>hashのないrequirement/VCS/path dependencyを拒否、network none</td>
+      </tr>
+      <tr>
+        <td><code>cargo-test</code></td>
+        <td><code>cargo test --locked --offline</code></td>
+        <td>
+          <code>Cargo.lock</code
+          >、repository内<code>vendor/</code>、source replacement config
+        </td>
+        <td>vendor treeをsnapshot digestへ含め、network none</td>
+      </tr>
+      <tr>
+        <td><code>go-test</code></td>
+        <td><code>go test -mod=vendor ./...</code></td>
+        <td>
+          <code>go.sum</code
+          >、<code>vendor/modules.txt</code>、vendor tree
+        </td>
+        <td><code>GOTOOLCHAIN=local</code>、network none</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    Bun/npm/Pythonのdependency materializationはtest containerの外で、既存runtime bundle
+    leaseと承認済みproxy policyを通して行う。bundleにはlock digest、resolved package digest、source
+    URI class、image digestを保存する。 materialization時のnetwork requestはscan
+    trafficと分けて計測し、未承認originを0にする。Cargo/Goは初回stableでは repository
+    vendoringを必須とし、registry/module download機能を追加しない。
+  </p>
+
+  <h3 id="83-changes">8.3 Changes</h3>
+  <ol>
+    <li>
+      dynamic routeでcatalog IDとselected
+      templateの<code>dynamicKind</code>整合を検証する。
+    </li>
+    <li>supported test templateをBun、npm、pytest、Cargo、Goへ固定する。</li>
+    <li>dependency materializationをlockfileとqualified runtime image digestへbindする。</li>
+    <li>network noneを既定かつstableでは必須にする。network defaultはexperimentalのままにする。</li>
+    <li>sourceはimmutable projectionへコピーし、host repositoryをread-write mountしない。</li>
+    <li>
+      project script consent、command allowlist、resource limit、artifact globをplan hashへ含める。
+    </li>
+    <li>process kill後にowned containerとtemporary workspaceをbounded cleanupする。</li>
+    <li>
+      template launchは常に<code>execute_repository_code</code> consentを要求する。
+      <code>npm-test</code>は追加で<code
+        >allow_project_scripts</code
+      >
+      consentを要求する。
+    </li>
+    <li>
+      saved config IDを選んだrunはdynamic
+      kindに関係なく<code>custom-dynamic-lab</code>へ解決し、
+      <code>dynamic-verification</code> metadataを保存しない。
+    </li>
+  </ol>
+
+  <h3 id="84-outcome-mapping">8.4 Outcome mapping</h3>
+  <ul>
+    <li>test process exit 0かつrequired artifact parse成功: run completed / no_findings</li>
+    <li>adapterが識別したtest assertion failure: run completed / findings_present</li>
+    <li>
+      tool missing、dependency mismatch、output parse不能、timeout、artifact/cleanup失敗: run failed
+      / inconclusive
+    </li>
+    <li>
+      testが0件の場合: run completed / inconclusive、<code>no_tests_collected</code>
+    </li>
+  </ul>
+
+  <h3 id="85-tests-and-exit">8.5 Tests and exit gate</h3>
+  <ul>
+    <li>5 supported test templateのactual Docker E2E</li>
+    <li>
+      network access、Docker socket、host path、symlink、device、setuid、fork bomb相当のnegative
+      fixture
+    </li>
+    <li>timeout、SIGTERM相当、runner crash後のcontainer/workspace cleanup</li>
+    <li>host Git status/digest不変、environment secret canary 0、external request 0</li>
+    <li>test profileがsanitizer/fuzz templateを受理せず、逆方向も拒否する。</li>
+    <li>saved custom configがstable canonical IDを保存しないroute/repository test</li>
+    <li>lock/bundle mismatch、hashなしPython requirement、missing vendor treeのblocked test</li>
+    <li>各supported templateを3回繰り返し、normalized outcomeが一致する。</li>
+    <li>
+      <code>dynamic-verification</code>だけのqualification
+      receiptがpassed後にstableへ変更する。
+    </li>
+  </ul>
+
+  <h2 id="9-wave-c-authenticated-web">9. Wave C — authenticated-web</h2>
+  <h3 id="91-contract">9.1 Supported authentication contract</h3>
+  <p>
+    <code>shared/schemas/dast-auth.schema.ts</code>が公開するbearer token、named header、basic auth、
+    cookie set、Playwright storage stateをqualification対象とする。login flowを指定する場合は、
+    differential readiness checkとlogin request policyの成功をscan開始条件にする。
+  </p>
+  <p>
+    stable inputはowner確認済みsaved targetと、有効な
+    <code>rules_of_engagement_ref</code>の組み合わせに限定する。engagement
+    environmentがproductionのtargetは blockedとする。auth
+    context、target、authorizationは同じproject/ownerでなければならない。
+  </p>
+  <p>
+    catalog required
+    inputsは<code>runtime_target</code>、<code>auth_context_ref</code>、
+    <code>rules_of_engagement_ref</code
+    >の3件をすべてrequiredとする。<code>runDastRequestSchema</code>へ
+    <code>engagementId</code
+    >を追加し、target/auth/engagementのproject・owner・originをrun row作成前に照合する。
+  </p>
+
+  <h3 id="92-auth-readiness-v1">9.2 Authentication readiness V1</h3>
+  <p>
+    既存<code>successAssertions</code>はlegacy表示用に維持し、stable起動には次の
+    <code>readinessChecks</code>を1件以上要求する。
+  </p>
+  <pre><code class="language-json">{
+  "schemaVersion": 1,
+  "checks": [
+    {
+      "path": "/account",
+      "authenticated": {"expectedStatuses": [200], "requiredSelector": "[data-user-id]"},
+      "unauthenticated": {"expectedStatuses": [401, 403], "redirectPathPattern": "/login"}
+    }
+  ],
+  "loginRequestPolicy": [
+    {"method": "GET", "path": "/login"},
+    {"method": "POST", "path": "/session"}
+  ],
+  "maxAuthenticationTransactions": 5
+}</code></pre>
+  <ul>
+    <li>認証情報なしの新規browser contextでunauthenticated条件を先に確認する。</li>
+    <li>別の新規contextへauth materialを適用し、同じpathでauthenticated条件を確認する。</li>
+    <li>両方が成功し、status/selector/redirectの少なくとも1項目が異なる場合だけreadyとする。</li>
+    <li>
+      login flowがHTTP
+      requestを発生させる場合、全method/pathが<code>loginRequestPolicy</code>に完全一致しなければ
+      login前gatewayで拒否する。state-changing methodがある場合はRoEに同じoperationを要求する。
+    </li>
+    <li>
+      login transaction終了後はgatewayをscan modeへ切替え、GET/HEAD/OPTIONS以外を拒否する。
+      認証transactionとscan requestのcounterを混ぜない。
+    </li>
+  </ul>
+
+  <h3 id="93-changes">9.3 Changes</h3>
+  <ol>
+    <li>
+      <code>authenticated-rules-of-engagement.ts</code>を作り、既存engagement/scope/RoE
+      schemaを再利用する。 environmentはlocal/ephemeral/staging、productionは禁止する。active
+      runnerの internal+local/ephemeral制約を緩和・共用変更せず、authenticated
+      profile専用validatorにする。
+    </li>
+    <li>auth contextごとにversioned authentication readiness resultを生成する。</li>
+    <li>logged-inとlogged-outの両方を識別できない設定をstable flowで拒否する。</li>
+    <li>認証前後のroute coverage差を保存し、認証失敗を0 findingの成功にしない。</li>
+    <li>session expiryと再認証の上限を設定し、無限login loopを防ぐ。</li>
+    <li>auth materialをbrowser/scanner childの必要最小環境へだけ渡す。</li>
+    <li>redirectとorigin変更時にAuthorization/Cookieを転送しない。</li>
+    <li>
+      cookie domainはtarget hostname完全一致、storage stateのoriginはtarget
+      origin完全一致だけを受理する。 parent domain、wildcard、追加origin、expired cookieをstable
+      preflightで拒否する。
+    </li>
+    <li>raw browser trace、ZAP artifact、stdout/stderrを共通secret canary scannerへ通す。</li>
+    <li>supported auth kind、成功判定、coverage、limitationをreportへ表示する。</li>
+    <li>
+      stable requestではhost runner、custom Docker image、network overrideを拒否し、pinned Chromium
+      imageと server-owned gateway bundleだけを使う。
+    </li>
+  </ol>
+
+  <h4 id="authenticated-network-topology">Authenticated scan network topology</h4>
+  <pre><code class="language-text">Chromium/scanner container
+  -- only attached to auth-scan internal Docker network --&gt;
+authenticated egress gateway container
+  -- exact origin + DNS/IP pin + TLS verification + RoE --&gt;
+authorized non-production target</code></pre>
+  <ul>
+    <li>
+      browser/scanner containerはinternal
+      networkだけへ接続し、gateway以外のIP/portへrouteを持たない。
+    </li>
+    <li>
+      gatewayだけをinternal networkとbounded egress networkへ接続し、Docker
+      socket/capabilityを渡さない。
+    </li>
+    <li>
+      target hostnameをrun開始時に解決してIP setを固定し、connect前にもhostname/IP
+      classを再検証する。Host/SNIは target originに固定し、TLS検証を無効化しない。
+    </li>
+    <li>
+      gatewayは同一originのresourceだけを転送する。redirectと第三者CDN/APIは拒否し、
+      <code>same_origin_resources_only</code> limitationを表示する。
+    </li>
+    <li>
+      bundle container/networkは既存resource leaseへ登録し、gateway counter、DNS/IP digest、cleanup
+      receiptを保存する。 host Playwrightへのfallbackは実装しない。
+    </li>
+  </ul>
+
+  <h3 id="94-tests-and-exit">9.4 Tests and exit gate</h3>
+  <ul>
+    <li>5 auth kindそれぞれのreal login fixtureとinvalid/expired credential fixture</li>
+    <li>認証済みrouteが到達可能で、未認証routeとの差がevidence化される。</li>
+    <li>
+      認証失敗、browser unavailable、session expiry、redirect
+      out-of-scopeがinconclusiveまたはfailed。
+    </li>
+    <li>
+      scan phaseのstate-changing upstream request 0、未承認login request 0、secret leak 0、
+      out-of-scope request 0。
+    </li>
+    <li>
+      login flow POSTはallowlisted authentication
+      transactionだけに計上され、同じPOSTをcrawl/scannerから 発生させた場合はgatewayが拒否する。
+    </li>
+    <li>3回repeatとcandidate commit qualificationがpassed。</li>
+  </ul>
+
+  <h2 id="10-wave-d-active">10. Wave D1 — active-technical-lab</h2>
+  <h3 id="101-dependency">10.1 Dependency</h3>
+  <p>
+    baseline commitで実装された<code>api/modules/runtime-isolation/</code>と
+    <code>scan-resource-lease-repository.ts</code>のtarget ownership、network namespace、database
+    isolation、 resource lease、cleanup receiptを再利用する。設計根拠は
+    <code>runtime-target-database-isolation-implementation-plan.html</code>にある。metadata上の
+    <code>purpose=internal</code
+    >または<code>environment=ephemeral</code>だけではstable条件を満たさない。
+  </p>
+
+  <h3 id="102-changes">10.2 Changes</h3>
+  <p>
+    requestの<code>disposable_target_ref</code>はsystem-owned target
+    template/configを選ぶ参照であり、実containerや lease IDではない。共通admissionがtarget
+    config/RoE/consentを確認してcanonical scan rowを作った後、serverが runtime
+    bundleをprovisionし、そのscan runへleaseを結び付ける。provision失敗時はrunをfailedへ終端する。
+  </p>
+  <p>
+    初回stableで受理するtarget adapterはbaselineの<code>npm-package-lock-v1</code> +
+    <code>build.npm</code> target startと、qualification
+    registryにdigest登録したproject-owned fixture image templateだけとする。任意Docker
+    image、任意start command、
+    未認定language/runtimeは<code>required_capability_missing</code>でblockedとする。
+  </p>
+  <ol>
+    <li>
+      active runは既存<code>scan_resource_leases</code>の
+      <code>provider=docker-runtime-isolation</code>、<code>resourceType=runtime_bundle</code>、
+      <code>state=active</code>、未期限切れ、同一scan
+      runのleaseだけを受理する。client指定lease IDは受理しない。
+    </li>
+    <li>
+      RoEのexact origin/method/path、request budget、rate、time windowをexecution plan
+      hashへ含める。
+    </li>
+    <li>transaction、authorization matrix、ZAP activeを独立variantとしてqualificationする。</li>
+    <li>各variantに実行前baseline、実行後cleanup、reset後baselineのstate hashを要求する。</li>
+    <li>cleanup/resetが失敗したtargetをquarantineし、同projectの次runを拒否する。</li>
+    <li>
+      ZAP automation
+      planを<code>-autocheck</code>相当で事前検証し、policy/image
+      digestをbindする。
+    </li>
+    <li>cancel/shutdown/restart recoveryでもunresolved cleanupを残さない。</li>
+  </ol>
+
+  <h3 id="103-active-state-machine">10.3 Target lifecycle and variant policy</h3>
+  <p>
+    lifecycleは<code>provisioning -&gt; ready -&gt; running -&gt; resetting -&gt;
+      released</code>とする。
+    provision、execution、reset、cleanupのどこで失敗しても
+    <code>quarantined</code
+    >へ遷移する。released/quarantinedからactiveへ戻す遷移は作らない。DB lease stateは既存の
+    <code>active | released | quarantined</code>を使い、細粒度stateはprivate receiptへ保存する。
+  </p>
+  <table>
+    <caption>
+      10.1 Variant safety contract
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Variant</th>
+        <th scope="col">Allowed traffic</th>
+        <th scope="col">Required state evidence</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>authorization_matrix</code></td>
+        <td>GET/HEAD/OPTIONSだけ。actor/object matrixのexact path。state-changing budget 0</td>
+        <td>baseline、post-run、reset後hash。差分がある場合はfailed/quarantined</td>
+      </tr>
+      <tr>
+        <td><code>transaction</code></td>
+        <td>RoEに列挙したexact method/path/body schemaと1 transaction単位budget</td>
+        <td>transaction前後observer、compensationまたはfixture reset、reset後baseline一致</td>
+      </tr>
+      <tr>
+        <td><code>zap_active</code></td>
+        <td>ZAP planから抽出しRoEと交差したoperationだけ。総request/rate/time budget必須</td>
+        <td>ZAP plan digest、前後observer、container/DB再生成receipt、baseline一致</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    private lease receiptはbundle ID、target image digest、DB seed digest、network ID hash、created
+    resource label、 baseline/reset/cleanup receipt hashを持つ。secret、Docker socket、host absolute
+    path、raw container IDはpublic API、 event、reportへ返さない。run完了条件はreset
+    hash一致かつlease releasedであり、scan finding保存成功だけではない。
+  </p>
+
+  <h3 id="104-tests-and-exit">10.4 Tests and exit gate</h3>
+  <ul>
+    <li>3 variantすべてのreal disposable target E2E</li>
+    <li>RoE外method/path/origin、budget超過、期限切れengagementのrequest到達0</li>
+    <li>vulnerable/fixed/reset failure pairとartifact byte verification</li>
+    <li>kill、Docker daemon error、DB error、gateway error後のquarantine/recovery test</li>
+    <li>public/production request 0、secret leak 0、resource leak 0</li>
+    <li>全variantのqualificationがpassedするまでentry全体をstableにしない。</li>
+  </ul>
+
+  <h2 id="11-wave-d-business">11. Wave D2 — business-logic-lab</h2>
+  <h3 id="111-contract">11.1 Product contract</h3>
+  <p>
+    stable化する場合の保証対象は、human-authored scenarioを安全かつ再現可能に実行し、指定された
+    invariant violationをevidence化するengineである。未知のbusiness logicを自動発見するprofileとは
+    表示しない。自動で0 findingだったことを人手診断完了と扱わない。
+  </p>
+  <p>
+    targetはSection 10.2のqualified target template/lease contractを共用する。Scenario
+    V2が有効でも、target templateがqualification registryにない場合はprofileを起動しない。
+  </p>
+
+  <h3 id="112-changes">11.2 Changes</h3>
+  <ol>
+    <li>表示名を「ビジネスロジック・シナリオ検証」へ変更する。</li>
+    <li>
+      既存V1を互換維持し、<code>businessLogicScenarioV2Schema</code>へ1件以上のprecondition、system-owned
+      state observer ID、invariant、cleanup、actorごとのexpected role ID、reset policyを必須化する。
+    </li>
+    <li>
+      scenario plan hashへactor/auth binding、target lease、RoE、request bodiesのredacted
+      digestを含める。
+    </li>
+    <li>baseline observer unavailableをcompletedにせずinconclusiveにする。</li>
+    <li>run前後のstate reset receiptをactive profileと共通化する。</li>
+    <li>reportへexecuted scenario一覧、未実行scenario、human review requiredを表示する。</li>
+  </ol>
+
+  <h3 id="113-scenario-v2-contract">11.3 Scenario V2 stable contract</h3>
+  <p>
+    V2はV1の全fieldに<code>schemaVersion: 2</code>と次を追加する。stable
+    routeはV2だけを受理し、V1と自動生成
+    scenarioは<code>business_logic_v2_required</code>でblockedとする。
+  </p>
+  <pre><code class="language-json">{
+  "schemaVersion": 2,
+  "actors": [
+    {"actorId": "buyer-a", "authContextId": "uuid", "expectedRoleId": "buyer"}
+  ],
+  "stateObservers": [
+    {"observerId": "order-total-v1", "subject": "order:fixture-order"}
+  ],
+  "resetPolicy": {"kind": "recreate_runtime_bundle"},
+  "humanReview": {"required": true}
+}</code></pre>
+  <ul>
+    <li>
+      V2はactors、preconditions、stateObservers、actions、invariants、cleanupを各1件以上、
+      <code>expectedBaselineHash</code
+      >をnon-null、<code>humanReview.required</code>をliteral trueにする。
+    </li>
+    <li>
+      observer IDはserver registryに存在するversioned
+      adapterだけを許可し、任意URL/commandを受理しない。
+    </li>
+    <li>全precondition/invariantのsubjectは1個以上のobserverへ解決できなければならない。</li>
+    <li>
+      request actorはactorsに存在し、auth contextのidentity
+      roleとexpectedRoleIdが一致しなければならない。
+    </li>
+    <li>
+      state-changing actionはRoEのexact operationとrequest
+      budgetへ含め、cleanup分のbudgetを予約する。
+    </li>
+    <li>
+      cleanup request成功だけではreset成功としない。runtime bundle再生成後のbaseline hash一致とlease
+      releaseを要求する。
+    </li>
+    <li>
+      invariant violationはreview status <code>pending</code>でfinding
+      candidateを作る。review accepted/rejectedまでfindingを確定せず、0
+      candidateでも「人手診断完了」と表示しない。
+    </li>
+  </ul>
+
+  <h3 id="114-release-corpus">11.4 Required release corpus</h3>
+  <p>
+    現在の20件のJuice Shop catalogから、初回stable qualificationに次の5
+    scenarioを固定する。「5件追加」ではなく、 既存ground truthとplaybookをScenario V2
+    adapterへ接続する作業である。
+  </p>
+  <ul>
+    <li><code>juice-forged-review</code> — cross-actor ownership invariant</li>
+    <li><code>juice-captcha-bypass</code> — replay/anti-automation invariant</li>
+    <li><code>juice-negative-order</code> — bounded numeric invariant</li>
+    <li><code>juice-zero-stars</code> — input/business rule invariant</li>
+    <li><code>juice-deluxe-fraud</code> — invalid state transition invariant</li>
+  </ul>
+  <p>
+    各scenarioに、pinned Juice Shop vulnerable imageでviolationを観測するcaseと、project-owned fixed
+    fixture serviceで同じrequest sequenceを拒否しbaselineを維持するcaseを用意する。image
+    digest、ground-truth digest、 V2 scenario digest、observer digest、fixed fixture source
+    digestをreceiptへ保存する。既存8 synthetic pairはunit/ regression
+    corpusとして維持するが、上記real-application gateの代替にはしない。
+  </p>
+
+  <h3 id="115-tests-and-exit">11.5 Tests and exit gate</h3>
+  <ul>
+    <li>現在の8 owned vulnerable/fixed pairを維持する。</li>
+    <li>Section 11.4の5 scenarioをvulnerable/fixed runtimeで実行する。</li>
+    <li>
+      actor取り違え、object取り違え、invariant反転、observer failure、cleanup failureのnegative test
+    </li>
+    <li>finding without executable evidence 0、false positive 0、false fixed 0</li>
+    <li>state reset、secret redaction、resource cleanupのabsolute gateを満たす。</li>
+    <li>candidate commitのqualification receiptとhuman reviewがpassed。</li>
+  </ul>
+
+  <h2 id="12-implementation-work-packages">12. Implementation work packages</h2>
+  <h3 id="121-execution-protocol">12.1 Execution protocol</h3>
+  <ol>
+    <li>
+      SP-00開始時にcurrent mainから専用branch/worktreeを作る。推奨名は
+      <code>codex/scan-profile-stability-sp-xx</code>、worktreeはrepository
+      root外の明示pathとし、既存rootの dirty fileを移動・削除しない。
+    </li>
+    <li>
+      planning baselineは本書headerのcommit、execution
+      baselineはSP-00開始時commitとして別に記録する。 current mainが進んでいればbaseline
+      inventory/hashを再生成するが、差分を黙って無視しない。
+    </li>
+    <li>
+      unit/integration testはpackage worktreeで実行する。project
+      code、dynamic、DAST、active/business E2Eは worktree自体をtargetとして直接実行せず、immutable
+      source/runtime projectionとowned Docker bundleだけで実行する。
+    </li>
+    <li>
+      一つのimplementation PRは一つのSP
+      packageまたは切り離せないschema+consumerに限定する。次packageへ進む前に package stop
+      gate、<code>git diff --check</code>、対象test、typecheckを完了する。
+    </li>
+    <li>
+      promotion PRはRD-12のとおり別に作り、implementation差分を含めない。qualification outputは
+      <code>.artifacts/</code>へ置き、source commitへ混入させない。
+    </li>
+    <li>
+      E2E後はlease cleanup/reaperとDocker label inventoryでowned resource
+      0を確認する。cleanup不能なら手動削除で passにせずquarantined evidenceを残し、次のactive
+      packageを開始しない。
+    </li>
+  </ol>
+  <table>
+    <caption>
+      12.1 Ordered work packages
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">ID</th>
+        <th scope="col">Work</th>
+        <th scope="col">Depends on</th>
+        <th scope="col">Next permitted work</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>SP-00</td>
+        <td>baseline inventory、claim/evidence hash固定、dirty worktree分類</td>
+        <td>なし</td>
+        <td>SP-01</td>
+      </tr>
+      <tr>
+        <td>SP-01</td>
+        <td>qualification schema、builder、verifier、negative tests</td>
+        <td>SP-00</td>
+        <td>SP-02、SP-10、SP-20</td>
+      </tr>
+      <tr>
+        <td>SP-02</td>
+        <td>dedicated-flow catalog admissionとresolution envelope</td>
+        <td>SP-01</td>
+        <td>SP-30、SP-40、SP-50、SP-60</td>
+      </tr>
+      <tr>
+        <td>SP-10</td>
+        <td>OpenAPI parserとexact read-only operation policy</td>
+        <td>SP-01</td>
+        <td>SP-11</td>
+      </tr>
+      <tr>
+        <td>SP-11</td>
+        <td>gateway/Schemathesis共有policy、status/reason統合</td>
+        <td>SP-10</td>
+        <td>SP-12</td>
+      </tr>
+      <tr>
+        <td>SP-12</td>
+        <td>api-readonly real E2E、qualification、promotion</td>
+        <td>SP-11</td>
+        <td>Wave A1 closeout</td>
+      </tr>
+      <tr>
+        <td>SP-20</td>
+        <td>static scope、preview/start schema、immutable comparison binding</td>
+        <td>SP-01</td>
+        <td>SP-21</td>
+      </tr>
+      <tr>
+        <td>SP-21</td>
+        <td>4 scanner comparator、snapshot runner、outcome mapping</td>
+        <td>SP-20</td>
+        <td>SP-22</td>
+      </tr>
+      <tr>
+        <td>SP-22</td>
+        <td>4 scanner E2E、qualification、promotion</td>
+        <td>SP-21</td>
+        <td>Wave A2 closeout</td>
+      </tr>
+      <tr>
+        <td>SP-30</td>
+        <td>dynamic testとsanitizer/fuzzのcatalog/route分離</td>
+        <td>SP-02</td>
+        <td>SP-31</td>
+      </tr>
+      <tr>
+        <td>SP-31</td>
+        <td>5 dependency adapterとimmutable runtime bundle</td>
+        <td>SP-30</td>
+        <td>SP-32</td>
+      </tr>
+      <tr>
+        <td>SP-32</td>
+        <td>5 runtime test E2E、escape tests、dynamic promotion</td>
+        <td>SP-31</td>
+        <td>Wave B closeout</td>
+      </tr>
+      <tr>
+        <td>SP-40</td>
+        <td>auth readiness schema、origin/login transaction/RoE policy</td>
+        <td>SP-02</td>
+        <td>SP-41</td>
+      </tr>
+      <tr>
+        <td>SP-41</td>
+        <td>differential readiness、gateway mode、secret-safe runner</td>
+        <td>SP-40</td>
+        <td>SP-42</td>
+      </tr>
+      <tr>
+        <td>SP-42</td>
+        <td>5 auth kind E2E、qualification、promotion</td>
+        <td>SP-41</td>
+        <td>Wave C closeout</td>
+      </tr>
+      <tr>
+        <td>SP-50</td>
+        <td>system-owned runtime bundle leaseとreset/quarantine統合</td>
+        <td>SP-02、runtime isolation plan</td>
+        <td>SP-51</td>
+      </tr>
+      <tr>
+        <td>SP-51</td>
+        <td>3 active variantのpolicy/state evidence統一</td>
+        <td>SP-50</td>
+        <td>SP-52</td>
+      </tr>
+      <tr>
+        <td>SP-52</td>
+        <td>3 active variant qualification、promotion</td>
+        <td>SP-51</td>
+        <td>Wave D1 closeout</td>
+      </tr>
+      <tr>
+        <td>SP-60</td>
+        <td>Scenario V2 schema、observer/actor/reset validation</td>
+        <td>SP-02、target lease</td>
+        <td>SP-61</td>
+      </tr>
+      <tr>
+        <td>SP-61</td>
+        <td>5 Juice Shop adapterとfixed fixture corpus</td>
+        <td>SP-60、SP-50</td>
+        <td>SP-62</td>
+      </tr>
+      <tr>
+        <td>SP-62</td>
+        <td>real E2E、human review gate、qualification、promotion</td>
+        <td>SP-61</td>
+        <td>Wave D2 closeout</td>
+      </tr>
+      <tr>
+        <td>SP-70</td>
+        <td>全consumer表示、docs、release receipt、rollback rehearsal</td>
+        <td>対象waveのqualification</td>
+        <td>対象profile release</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    SP-10とSP-20はSP-01後に並行可能である。SP-30、SP-40、SP-50、SP-60はSP-02を必要とする。
+    SP-50とSP-60はtarget lease/reset
+    contractを共有するため、別実装を作らない。各promotionは必ず末尾の qualification
+    packageまで完了してからSP-70へ進む。
+  </p>
+
+  <h3 id="122-sp-00-baseline">12.2 SP-00 — Promotion baseline</h3>
+  <h4 id="sp-00-changes">Changes</h4>
+  <ol>
+    <li>作業開始時にclean checkout、current commit、platform、catalog hashを記録する。</li>
+    <li>
+      <code>spec/security-capability/scan-profile-stability-baseline.v1.json</code>を作成し、12 catalog
+      entryのavailability、claim、capability requirement、launch destination、safety
+      classを固定する。
+    </li>
+    <li>
+      experimental 6 profileについて、実行入口、実行definition、test、benchmark、evidence
+      path、evidence commit、既知limitationをmachine-readable inventoryにする。
+    </li>
+    <li>
+      未追跡または他taskの変更がある場合はbaselineへ混入させず、ownerと対象pathをhandoffへ記録する。
+    </li>
+  </ol>
+  <h4 id="sp-00-tests">Tests</h4>
+  <ul>
+    <li>catalog entryの追加、削除、availability、claim変更でbaseline verifierが失敗する。</li>
+    <li>evidence fileのmissing、commit field欠落、hash改変を検出する。</li>
+    <li>legacy definition数やcanonical associationを既存catalog verifierと二重管理しない。</li>
+  </ul>
+  <h4 id="sp-00-exit">Exit gate</h4>
+  <ul>
+    <li>全experimental profileが一意なinventory entryを持つ。</li>
+    <li>既存evidenceがpromotion eligibleかreference onlyか分類される。</li>
+    <li>baseline verifier、catalog verifier、test inventoryがpassする。</li>
+  </ul>
+
+  <h3 id="123-sp-01-qualification">12.3 SP-01 — Qualification infrastructure</h3>
+  <h4 id="sp-01-changes">Changes</h4>
+  <ol>
+    <li>Section 5.1のV1 schemaとJSON Schema exportを実装する。</li>
+    <li>profile共通safety metric evaluatorとprofile別metric plugin interfaceを実装する。</li>
+    <li>
+      builderはtest subprocessをbounded timeout/outputで実行し、artifactをrun
+      directory内へ保存する。
+    </li>
+    <li>
+      verifierはartifact byte、source tree、catalog entry、policy、scanner manifestを再hashする。
+    </li>
+    <li>
+      candidate commit、ローカルDocker image digest、実行host platformをrelease receiptへbindする。
+    </li>
+    <li>
+      package scriptとして<code>qualify:scan-profile</code>、
+      <code>verify:scan-profile-qualification</code>、
+      <code>verify:scan-profile-promotions</code>を追加する。
+    </li>
+  </ol>
+  <h4 id="sp-01-tests">Tests</h4>
+  <ul>
+    <li>valid fixtureを受理し、field欠落、余分なfield、secret、absolute pathを拒否する。</li>
+    <li>改変artifact、別commit replay、別profile receipt、catalog hash不一致を拒否する。</li>
+    <li>safety metricが1件でも非0ならverdictをpassedにできない。</li>
+    <li>
+      command失敗、timeout、output超過、builder interruptionでpartial receiptをrelease
+      eligibleにしない。
+    </li>
+  </ul>
+  <h4 id="sp-01-exit">Exit gate</h4>
+  <ul>
+    <li>builderが一つのtest-only fixture profileについて再検証可能なreceiptを生成する。</li>
+    <li>verifier negative testが全件passする。</li>
+    <li>stable変更があるのにreceiptがないfixture commitをpromotion verifierが拒否する。</li>
+  </ul>
+
+  <h3 id="124-sp-02-dedicated-admission">12.4 SP-02 — Dedicated-flow admission</h3>
+  <h4 id="sp-02-changes">Changes</h4>
+  <ol>
+    <li>
+      <code>api/modules/scans/dedicated-profile-admission.ts</code>を作成し、catalog entry、surface、
+      destination、input kinds、availability、safety classを一度に検証する。
+    </li>
+    <li>dynamic、DAST、active、business logic、reproduction routeを同moduleへ移行する。</li>
+    <li>run row作成前のadmission resultと、保存後のresolution envelopeを同じhashへbindする。</li>
+    <li>experimental opt-in、execution consent、RoE、target leaseを別のbooleanへ混同しない。</li>
+    <li>dedicated child row作成失敗時にcanonical scan rowをrunningのまま残さない。</li>
+  </ol>
+  <h4 id="sp-02-tests">Tests</h4>
+  <ul>
+    <li>
+      別destination、入力不足、availability不許可、catalog hash変更をrun row作成前に拒否する。
+    </li>
+    <li>legacy direct routeでも同じcanonical/resolution metadataを保存する。</li>
+    <li>cross-project/cross-owner resource IDをadmission前後の両方で拒否する。</li>
+    <li>child creation、queue admission、CLI launch失敗時にcanonical statusをfailedへ終端する。</li>
+  </ul>
+  <h4 id="sp-02-exit">Exit gate</h4>
+  <ul>
+    <li>5 dedicated flowすべてが共通admissionを通る。</li>
+    <li>admissionなしにcanonical experimental/stable IDのrun rowを作るproduction pathが0。</li>
+    <li>API/Web/CLIの同一入力が同じresolution hashを返す。</li>
+  </ul>
+
+  <h3 id="125-profile-package-cards">12.5 Profile package execution cards</h3>
+  <p>
+    Terraは各rowを一つのreview可能な変更単位として完了する。Stop
+    gateが満たせない場合は次rowへ進まず、 availabilityを変更せず、reason
+    codeと実行済みcommandをhandoffへ記録する。
+  </p>
+  <table>
+    <caption>
+      12.2 Exact deliverable and stop gate by package
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">ID</th>
+        <th scope="col">Required deliverable</th>
+        <th scope="col">Required verification</th>
+        <th scope="col">Stop gate</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>SP-10</td>
+        <td>
+          duplicate-safe JSON parser、internal
+          <code>$ref</code> resolver、OperationPolicyV1、reason code
+        </td>
+        <td>
+          parser/policy unit、duplicate key・5 MiB・symlink・external ref・cycle/depth・path bypass
+          tests
+        </td>
+        <td>同じschema byteから常に同じsorted operation policy/hashが生成される</td>
+      </tr>
+      <tr>
+        <td>SP-11</td>
+        <td>
+          Schemathesis filterとgatewayを同じpolicy objectへ接続し、per-operation metricsを保存
+        </td>
+        <td>undeclared method/path、redirect、encoded bypass、tool failure integration tests</td>
+        <td>scannerからgatewayを迂回するnetwork pathが0、state-changing scan request到達0</td>
+      </tr>
+      <tr>
+        <td>SP-12</td>
+        <td>vulnerable/fixed fixture、2環境receipt、promotion-only catalog commit</td>
+        <td>3 repeat、artifact byte/hash、rollback、UI/API/report snapshot</td>
+        <td>両required environment manifest passedでなければpromotionしない</td>
+      </tr>
+      <tr>
+        <td>SP-20</td>
+        <td>preview/start strict schema、original/retest binding V2、legacy route marker</td>
+        <td>missing provenance、stale preview、cross-owner、extra field、legacy negative tests</td>
+        <td>unbound findingから<code>resolved_candidate</code>を作るpathが0</td>
+      </tr>
+      <tr>
+        <td>SP-21</td>
+        <td>
+          4 scanner comparator、full-source snapshot、server-owned image/policy、outcome mapping
+        </td>
+        <td>scanner別identity、version/DB/rule mismatch、parser/artifact/cleanup fault tests</td>
+        <td>false fixed 0、host mount/mutation 0、network request 0</td>
+      </tr>
+      <tr>
+        <td>SP-22</td>
+        <td>4 scanner vulnerable/fixed corpus、2環境receipt、promotion-only commit</td>
+        <td>scannerごと3 repeat、report limitation、finding non-auto-close test</td>
+        <td>optional Semgrepを含む全4 adapterがpassedしなければpromotionしない</td>
+      </tr>
+      <tr>
+        <td>SP-30</td>
+        <td>
+          3 canonical ID、built-in/sanitizer/custom admission、historic metadata migration表示
+        </td>
+        <td>全template/configのrouting matrix test、catalog/hash/version snapshot</td>
+        <td>saved custom configがstable IDへ解決されるproduction pathが0</td>
+      </tr>
+      <tr>
+        <td>SP-31</td>
+        <td>Section 8.2の5 dependency adapter、bundle digest/lease、offline executor</td>
+        <td>lock mismatch、unhashed requirement、missing vendor、proxy escape、cleanup tests</td>
+        <td>execution containerのnetwork request 0、unbound dependency byte 0</td>
+      </tr>
+      <tr>
+        <td>SP-32</td>
+        <td>5 adapter pass/fail/no-test fixture、escape corpus、2環境receipt、promotion commit</td>
+        <td>actual Docker E2E、3 repeat、host digest、secret canary、kill/reaper tests</td>
+        <td>5 adapterのいずれかがblockedならprofile全体をpromotionしない</td>
+      </tr>
+      <tr>
+        <td>SP-40</td>
+        <td>
+          readiness V1 schema、cookie/storage origin policy、loginRequestPolicy、target
+          authorization input
+        </td>
+        <td>auth schema matrix、parent/wildcard origin、expired context、RoE mismatch tests</td>
+        <td>differential checkまたはtarget authorizationなしでstable preflight readyにならない</td>
+      </tr>
+      <tr>
+        <td>SP-41</td>
+        <td>
+          unauth/auth二context probe、login/scan gateway mode、secret redaction、reauth ceiling
+        </td>
+        <td>
+          login POST allow/scan POST deny、cross-origin redirect、expiry mid-run、canary tests
+        </td>
+        <td>認証失敗を0 finding completedへするpathが0、secret leak 0</td>
+      </tr>
+      <tr>
+        <td>SP-42</td>
+        <td>5 auth kind real fixture、2環境receipt、promotion-only commit</td>
+        <td>valid/invalid/expiredを各auth kindで3 repeat、coverage difference verification</td>
+        <td>5 auth kindと全absolute gateがpassedしなければpromotionしない</td>
+      </tr>
+      <tr>
+        <td>SP-50</td>
+        <td>
+          runtime bundle lease admission、private receipt、reset/release/quarantine state machine
+        </td>
+        <td>expired/wrong-owner/wrong-provider lease、kill、daemon/DB/reset fault tests</td>
+        <td>metadataだけのephemeral targetを受理するpathが0、unresolved lease 0</td>
+      </tr>
+      <tr>
+        <td>SP-51</td>
+        <td>authorization_matrix/transaction/zap_activeのvariant policyと共通state evidence</td>
+        <td>variant別RoE/budget/path/method、baseline/reset、ZAP autocheck tests</td>
+        <td>RoE外request到達0、reset hash不一致をcompletedにするpathが0</td>
+      </tr>
+      <tr>
+        <td>SP-52</td>
+        <td>3 variant real disposable target corpus、2環境receipt、promotion commit</td>
+        <td>vulnerable/fixed/faultをvariantごと3 repeat、reaper recovery</td>
+        <td>3 variantの全receipt passedまでentry全体をpromotionしない</td>
+      </tr>
+      <tr>
+        <td>SP-60</td>
+        <td>Scenario V2、observer registry、actor-role/subject/reset semantic validator</td>
+        <td>V1 reject、unknown observer、actor mismatch、unobserved invariant、budget tests</td>
+        <td>任意command/URL observer 0、observerなしのsecurity verdict 0</td>
+      </tr>
+      <tr>
+        <td>SP-61</td>
+        <td>Section 11.4の5 adapter、fixed fixture service、pinned corpus manifest</td>
+        <td>各vulnerable/fixed pair、ground truth hash、reset/secret/fault tests</td>
+        <td>real vulnerable appとfixed fixtureの両方を実行できないscenarioはsupport対象から外す</td>
+      </tr>
+      <tr>
+        <td>SP-62</td>
+        <td>human review pending/accept/reject、2環境receipt、promotion commit</td>
+        <td>自動close防止、未実行scenario表示、3 repeat、review audit tests</td>
+        <td>5 scenario receiptとhuman approverがpassedでなければpromotionしない</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3 id="126-sp-70-closeout">12.6 SP-70 — Promotion closeout</h3>
+  <h4 id="sp-70-changes">Changes</h4>
+  <ol>
+    <li>対象profileのclaim、availability、limitation、UI copyを同一commitで更新する。</li>
+    <li>Webのexperimental badge/opt-inとAPI/CLIのopt-in requirementを対象profileだけから外す。</li>
+    <li>support platform、input variant、known limitationをoperator documentationへ追加する。</li>
+    <li>
+      Docker receipt path、candidate commit、verdict、human approverをrelease recordへ保存する。
+    </li>
+    <li>experimentalへ戻すrollback commitまたは機械的patchを事前に検証する。</li>
+  </ol>
+  <h4 id="sp-70-tests">Tests</h4>
+  <ul>
+    <li>catalog/API/CLI/Web/reportのavailability snapshotが一致する。</li>
+    <li>昇格profileはexperimental opt-inなしで起動し、未昇格profileは引き続きopt-inを要求する。</li>
+    <li>rollback後もhistoric runが当時のcatalog hashと表示名を維持する。</li>
+    <li>
+      receiptのprofile IDまたはcommitを差し替えたpromotionをlocal promotion verifierが拒否する。
+    </li>
+  </ul>
+  <h4 id="sp-70-exit">Exit gate</h4>
+  <ul>
+    <li>対象profileのPer-profile DoDを全件満たす。</li>
+    <li>required local Docker qualificationとhuman approvalがcandidate commitへ結び付く。</li>
+    <li>rollback rehearsalがpassし、release後monitoring queryが用意される。</li>
+  </ul>
+
+  <h2 id="13-file-change-manifest">13. File change manifest</h2>
+  <table>
+    <caption>
+      13.1 Required file-level work
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Action</th>
+        <th scope="col">Path</th>
+        <th scope="col">Responsibility</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Create</td>
+        <td>
+          <code>spec/security-capability/scan-profile-stability-baseline.v1.json</code>
+        </td>
+        <td>SP-00のcatalog、claim、evidence eligibility baseline</td>
+      </tr>
+      <tr>
+        <td>Create</td>
+        <td>
+          <code>shared/schemas/scan-profile-stability-qualification.schema.ts</code>
+        </td>
+        <td>qualification receipt V1、promotion manifest V1、secret/path制約</td>
+      </tr>
+      <tr>
+        <td>Create</td>
+        <td><code>shared/canonical-json.ts</code></td>
+        <td>RFC 8785 canonical JSONとofficial vector tests。既存catalog hashは移行しない</td>
+      </tr>
+      <tr>
+        <td>Modify</td>
+        <td><code>shared/schemas/scan-reason-code.schema.ts</code></td>
+        <td>Section 4.4の共通reason codeとregistry action/message key</td>
+      </tr>
+      <tr>
+        <td>Create</td>
+        <td>
+          <code>api/modules/scans/qualification/profile-stability-policy.ts</code>
+        </td>
+        <td>common absolute gateとprofile-specific metric評価</td>
+      </tr>
+      <tr>
+        <td>Create</td>
+        <td>
+          <code>scripts/build-scan-profile-stability-qualification.ts</code>
+        </td>
+        <td>candidate commit上のevidence builder</td>
+      </tr>
+      <tr>
+        <td>Create</td>
+        <td>
+          <code>scripts/scan-profile-qualification/case-registry.ts</code>
+        </td>
+        <td>Section 5.6のpolicy ID、required case ID、fixture、metric plugin mapping</td>
+      </tr>
+      <tr>
+        <td>Create</td>
+        <td><code>scripts/scan-profile-qualification/fixtures/</code></td>
+        <td>profile別vulnerable/fixed/fault/escape fixture。生成物ではなくsourceだけをcommit</td>
+      </tr>
+      <tr>
+        <td>Create</td>
+        <td>
+          <code>scripts/verify-scan-profile-stability-qualification.ts</code>
+        </td>
+        <td>byte/hash/test/commit/verdict再検証</td>
+      </tr>
+      <tr>
+        <td>Create</td>
+        <td><code>scripts/verify-scan-profile-promotions.ts</code></td>
+        <td>catalog availability変更とDocker receiptの結合</td>
+      </tr>
+      <tr>
+        <td>Create</td>
+        <td>
+          <code>docker/qualification/Dockerfile</code>、<code>scripts/qualify-scan-profile-docker.ts</code>
+        </td>
+        <td>
+          networkなし・source read-onlyのlocal Docker qualification、receipt出力、manifest verify
+        </td>
+      </tr>
+      <tr>
+        <td>Modify</td>
+        <td><code>api/modules/scans/profile-catalog.ts</code></td>
+        <td>claim修正、dynamic split、qualification後のavailability変更</td>
+      </tr>
+      <tr>
+        <td>Modify</td>
+        <td><code>api/modules/scans/profile-resolution.ts</code></td>
+        <td>promotion-aware resolutionとdedicated admission共有</td>
+      </tr>
+      <tr>
+        <td>Create</td>
+        <td><code>api/modules/scans/dedicated-profile-admission.ts</code></td>
+        <td>dedicated route共通のcatalog/input/safety admission</td>
+      </tr>
+      <tr>
+        <td>Create</td>
+        <td>
+          <code>api/modules/api-schema-fuzz/strict-json-document.ts</code>
+        </td>
+        <td>bounded duplicate-safe JSON parser</td>
+      </tr>
+      <tr>
+        <td>Create</td>
+        <td><code>api/modules/api-schema-fuzz/openapi-document.ts</code></td>
+        <td>strict OpenAPI/Swagger parse</td>
+      </tr>
+      <tr>
+        <td>Create</td>
+        <td>
+          <code>api/modules/api-schema-fuzz/openapi-readonly-operation-policy.ts</code>
+        </td>
+        <td>exact method/path allowlistとpolicy hash</td>
+      </tr>
+      <tr>
+        <td>Modify</td>
+        <td><code>api/modules/api-schema-fuzz/schema-discovery.ts</code></td>
+        <td>OpenAPI限定、snapshot/size/digest validation</td>
+      </tr>
+      <tr>
+        <td>Modify</td>
+        <td><code>api/modules/runtime-scans/command-contracts.ts</code></td>
+        <td>Schemathesis filterをoperation policyから構築</td>
+      </tr>
+      <tr>
+        <td>Modify</td>
+        <td>
+          <code>api/modules/scans/execution/profile-schema-step-runner.ts</code>
+        </td>
+        <td>gatewayとscannerの同一policy binding</td>
+      </tr>
+      <tr>
+        <td>Modify</td>
+        <td><code>shared/schemas/reproduction-binding.schema.ts</code></td>
+        <td>V1互換維持、V2 original/retest comparability fields</td>
+      </tr>
+      <tr>
+        <td>Modify</td>
+        <td><code>shared/schemas/reproduction.schema.ts</code></td>
+        <td>strict preview/start request/responseとlegacy requestの分離</td>
+      </tr>
+      <tr>
+        <td>Modify</td>
+        <td><code>api/routes/reproductions.route.ts</code></td>
+        <td>preview/start binding、legacy route marker、stale 409</td>
+      </tr>
+      <tr>
+        <td>Modify</td>
+        <td><code>api/modules/reproductions/profiles.ts</code></td>
+        <td>scanner別exact comparison contract</td>
+      </tr>
+      <tr>
+        <td>Modify</td>
+        <td><code>api/modules/reproductions/reproduction-runner.ts</code></td>
+        <td>immutable snapshot、digest-bound image、inconclusive semantics</td>
+      </tr>
+      <tr>
+        <td>Modify</td>
+        <td><code>api/modules/dynamic/dynamic-profiles.ts</code></td>
+        <td>testとsanitizer/fuzz templateの分離</td>
+      </tr>
+      <tr>
+        <td>Create</td>
+        <td>
+          <code>api/modules/dynamic/stable-test-dependency-adapters.ts</code>
+        </td>
+        <td>5 lock/vendor adapter、bundle identity、blocked reasons</td>
+      </tr>
+      <tr>
+        <td>Modify</td>
+        <td><code>api/modules/dynamic/dynamic-runner.ts</code></td>
+        <td>built-in stable admission、bundle/snapshot/plan binding、outcome mapping</td>
+      </tr>
+      <tr>
+        <td>Modify</td>
+        <td><code>api/modules/dynamic/dynamic-docker-executor.ts</code></td>
+        <td>read-only dependency bundle mount、offline env、2 CPU/2 GiB/256 PID hard policy</td>
+      </tr>
+      <tr>
+        <td>Modify</td>
+        <td>
+          <code>docker/dynamic/Dockerfile</code>、<code>docker/dynamic/README.md</code>
+        </td>
+        <td>amd64/arm64 pinned toolchains、offline adapter paths、documented version一致</td>
+      </tr>
+      <tr>
+        <td>Modify</td>
+        <td><code>api/routes/dynamic.route.ts</code></td>
+        <td>catalog IDとdynamic kind admission</td>
+      </tr>
+      <tr>
+        <td>Modify</td>
+        <td><code>api/modules/dast/dast-runner.ts</code></td>
+        <td>authentication readiness、false-pass防止、coverage比較</td>
+      </tr>
+      <tr>
+        <td>Modify</td>
+        <td><code>shared/schemas/dast-auth.schema.ts</code></td>
+        <td>readiness V1、login request policy、legacy success assertion compatibility</td>
+      </tr>
+      <tr>
+        <td>Modify</td>
+        <td>
+          <code>shared/schemas/dast.schema.ts</code>、<code>api/routes/dast.route.ts</code>
+        </td>
+        <td>authenticated-webのrequired engagement IDとstrict target/auth/RoE admission</td>
+      </tr>
+      <tr>
+        <td>Modify</td>
+        <td><code>api/modules/dast/auth-target-policy.ts</code></td>
+        <td>exact cookie/storage origin、target authorization、expiry validation</td>
+      </tr>
+      <tr>
+        <td>Create</td>
+        <td>
+          <code>api/modules/dast/authenticated-rules-of-engagement.ts</code>
+        </td>
+        <td>local/ephemeral/staging専用RoE validator。active R3 policyは変更しない</td>
+      </tr>
+      <tr>
+        <td>Create</td>
+        <td><code>api/modules/dast/authenticated-egress-gateway.ts</code></td>
+        <td>dual-network exact-origin proxy、login/scan mode、DNS/IP pin、bounded metrics</td>
+      </tr>
+      <tr>
+        <td>Create</td>
+        <td>
+          <code>docker/dast-browser/Dockerfile</code>、<code>docker/dast-egress-gateway/Dockerfile</code>
+        </td>
+        <td>amd64/arm64のpinned Chromium/scannerとminimal gateway image</td>
+      </tr>
+      <tr>
+        <td>Modify</td>
+        <td>
+          <code>api/modules/runtime-isolation/docker-runtime-bundle-lifecycle.ts</code>
+        </td>
+        <td>
+          authenticated gateway/browser bundleとactive/business reset receiptの共通lease integration
+        </td>
+      </tr>
+      <tr>
+        <td>Modify</td>
+        <td><code>api/modules/dast/active-assessment-runner.ts</code></td>
+        <td>target lease、variant receipt、quarantine</td>
+      </tr>
+      <tr>
+        <td>Modify</td>
+        <td>
+          <code>api/modules/business-logic/business-logic-runner.ts</code>
+        </td>
+        <td>state baseline/reset、scenario qualification metadata</td>
+      </tr>
+      <tr>
+        <td>Modify</td>
+        <td><code>shared/schemas/business-logic.schema.ts</code></td>
+        <td>V1互換維持、Scenario V2 actor/observer/reset/human-review contract</td>
+      </tr>
+      <tr>
+        <td>Create</td>
+        <td>
+          <code>api/modules/business-logic/scenario-observer-registry.ts</code>
+        </td>
+        <td>system-owned versioned observer adapterとsubject resolution</td>
+      </tr>
+      <tr>
+        <td>Modify</td>
+        <td><code>scripts/benchmark/juice-shop-playbooks.ts</code></td>
+        <td>Section 11.4の5 Scenario V2 adapterとfixed fixture binding</td>
+      </tr>
+      <tr>
+        <td>Create</td>
+        <td>
+          <code>scripts/scan-profile-qualification/fixtures/business-logic/fixed-service.ts</code>
+        </td>
+        <td>5 scenarioと同じAPI sequenceを安全に拒否するproject-owned fixed fixture</td>
+      </tr>
+
+      <tr>
+        <td>Modify</td>
+        <td>
+          <code>web/src/domains/scans/workspace/scans-workspace-actions.ts</code>
+        </td>
+        <td>stable後のexperimental opt-in削除とdedicated hash送信</td>
+      </tr>
+      <tr>
+        <td>Modify</td>
+        <td><code>web/src/api/runtime-scans-reproduction.ts</code></td>
+        <td>remediation preview/start client、stale preview/error mapping</td>
+      </tr>
+      <tr>
+        <td>Modify</td>
+        <td><code>web/src/api/runtime-scans-dynamic.ts</code></td>
+        <td>3 canonical dynamic IDとbuilt-in/custom launch contract</td>
+      </tr>
+      <tr>
+        <td>Modify</td>
+        <td>
+          <code>web/src/domains/scans/components/scan-profile-input-fields.tsx</code>
+        </td>
+        <td>reason/action、limitation、consent、authorization、supported template表示</td>
+      </tr>
+
+      <tr>
+        <td>Modify</td>
+        <td><code>package.json</code></td>
+        <td>test/qualify/verify scripts</td>
+      </tr>
+      <tr>
+        <td>Create</td>
+        <td><code>spec/evidence/scan-profile-stability/README.html</code></td>
+        <td>Docker receipt取得、保存、検証、retention手順</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    qualificationはローカルDocker artifact、resolution envelopeは既存metadata JSON、leaseは既存
+    <code>scan_resource_leases</code>を使うため、本計画固有のDB
+    migrationは作らない。実装中に新columnが必要と 判明した場合は、このmanifestとrollback/data
+    migration testを先に改訂してから追加する。
+  </p>
+
+  <h2 id="14-test-and-docker-strategy">14. Test and local Docker strategy</h2>
+  <h3 id="141-test-layers">14.1 Test layers</h3>
+  <table>
+    <caption>
+      14.1 Required layers
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Layer</th>
+        <th scope="col">Purpose</th>
+        <th scope="col">Promotion requirement</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Schema/unit</td>
+        <td>input、policy、state transition、normalization</td>
+        <td>全件pass</td>
+      </tr>
+      <tr>
+        <td>Route/integration</td>
+        <td>owner、catalog admission、run row、failure mapping</td>
+        <td>全件pass</td>
+      </tr>
+      <tr>
+        <td>Real tool E2E</td>
+        <td>pinned scanner/imageを実行しartifact byteを検証</td>
+        <td>supported variant全件pass</td>
+      </tr>
+      <tr>
+        <td>Vulnerable/fixed</td>
+        <td>false negative、false positive、false fixedの計測</td>
+        <td>profile-specific gateをpass</td>
+      </tr>
+      <tr>
+        <td>Fault injection</td>
+        <td>timeout、kill、invalid output、DB/storage/cleanup failure</td>
+        <td>false pass 0、resource leak 0</td>
+      </tr>
+      <tr>
+        <td>Repeatability</td>
+        <td>normalized result、coverage、cleanupの再現性</td>
+        <td>3連続run一致</td>
+      </tr>
+      <tr>
+        <td>Release receipt</td>
+        <td>candidate commitとDocker receiptの結合</td>
+        <td>verifier pass</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3 id="142-required-commands">14.2 Common required commands</h3>
+  <pre><code class="language-bash">bun run test:inventory -- --assert-complete
+bun run typecheck
+bun run lint
+bun run format:check
+bun run docs:check
+bun run test:scan-profile-catalog
+bun run verify:scan-profile-catalog
+bun run test:web
+bun run test:api
+bun run test:security-capability
+bun run verify:scan-profile-promotions
+bun run docker:qualification:build
+# Docker-only qualification: source read-only / network none / artifacts writable
+bun run qualify:scan-profile:docker -- --unsigned unsigned.json --artifactRoot .artifacts/scan-profile-stability --out qualification.v1.json
+git diff --check
+</code></pre>
+  <p>
+    profile-specific heavy E2Eは上記に追加する。promotion receiptはcommand
+    labelだけでなく、正規化した argv、exit code、bounded stdout/stderr hash、artifact
+    hashを保持する。
+  </p>
+
+  <h2 id="15-rollout-and-rollback">15. Rollout and rollback</h2>
+  <h3 id="151-rollout">15.1 Rollout</h3>
+  <ol>
+    <li>claimとlimitationを先に修正し、experimentalのままqualificationを実行する。</li>
+    <li>candidate branchでavailabilityをstableへ変更し、Dockerでpromotion verifierを実行する。</li>
+    <li>Web/API/CLIの表示とopt-inを同じcommitで変更する。</li>
+    <li>
+      最初のreleaseではsupport platformとinput variantを明示し、未検証variantを起動不能にする。
+    </li>
+    <li>
+      release後のrun outcome、blocked reason、cleanup failure、false-pass reportをprofile
+      ID別に監視する。
+    </li>
+  </ol>
+
+  <h3 id="152-rollback">15.2 Rollback</h3>
+  <ul>
+    <li>rollbackはcatalog availabilityをexperimentalへ戻すだけで実行definitionを削除しない。</li>
+    <li>historic stable runの表示は当時のcatalog entry hashとresolution envelopeを使う。</li>
+    <li>新規runだけにexperimental opt-inを再要求する。</li>
+    <li>qualification failureを隠すためにlimitationやrequired capabilityを弱めない。</li>
+    <li>resource leakまたはunauthorized requestを1件でも確認した場合は即時rollback条件とする。</li>
+  </ul>
+
+  <h2 id="16-definition-of-done">16. Definition of Done</h2>
+  <h3 id="161-profile-dod">16.1 Per-profile DoD</h3>
+  <ul>
+    <li>公称scopeと実装scopeが一致し、非対応範囲がUI/API/reportに表示される。</li>
+    <li>profile-specific positive/negative/fault/repeat E2Eが全件passする。</li>
+    <li>Section 4.2のabsolute safety metricsがすべて0。</li>
+    <li>scanner/runtime/input/policy/catalogのhash bindingが保存される。</li>
+    <li>required failureをpassまたはcompleteへ誤分類しない。</li>
+    <li>candidate commitのqualification receiptがverifierをpassする。</li>
+    <li>catalog、API、CLI、Web、report、docsが同じavailabilityを返す。</li>
+    <li>rollback testがpassする。</li>
+  </ul>
+
+  <h3 id="162-plan-dod">16.2 Plan DoD</h3>
+  <ul>
+    <li>Wave Aの2 profileが限定scopeでstable。</li>
+    <li>dynamic testとsanitizer/fuzzのmaturityが分離される。</li>
+    <li>Wave B以降は各独立gateを満たしたprofileだけがstable。</li>
+    <li>experimentalを残すprofileに具体的なpromotion blockerが表示される。</li>
+    <li><code>professional-full</code>は本計画の結果だけでは昇格しない。</li>
+    <li>全promotion receiptがcandidate commitとDocker image digestへ結び付く。</li>
+  </ul>
+
+  <h3 id="163-handoff-template">16.3 Terra handoff template</h3>
+  <pre><code class="language-text">Work package: SP-xx
+Status: completed | blocked
+Candidate commit / worktree state:
+Profile IDs affected:
+Claim changes:
+Files created:
+Files updated:
+Commands executed and exit codes:
+Qualification receipt paths:
+Safety metric summary:
+Known limitations:
+Rollback verified: yes | no
+Unresolved blockers:
+Next permitted work package:
+</code></pre>
+  <p>
+    <code>Unresolved blockers</code>が空でない場合、availabilityを変更しない。
+    testがpassしていてもqualification receiptがない状態をcompletedと報告しない。
+  </p>
+
+  <h2 id="17-plan-relationships">17. Plan relationships</h2>
+  <ul>
+    <li>
+      <a href="scan-profile-catalog-consolidation-implementation-plan.html"
+        >Scan Profile Catalog Consolidation Implementation Plan</a
+      >はcatalogとlaunch integrationの完了記録である。本計画はexperimental entryの製品成熟度を扱う。
+    </li>
+    <li>
+      <a href="runtime-target-database-isolation-implementation-plan.html"
+        >Runtime Target Database Isolation Implementation Plan</a
+      >の実装はbaseline commitに含まれる。Wave Dはそのprovider/leaseを再利用し、active/business
+      variantでの reset qualificationを追加する。別providerを新設しない。
+    </li>
+    <li>
+      professional-full計画は、本計画でstableになった個別profileをrun groupへ組み込めるが、
+      human-led reviewや全体coverageを本計画から推論しない。
+    </li>
+  </ul>
+
+  <h2 id="18-normative-references">18. Normative references and design consequences</h2>
+  <ul>
+    <li>
+      <a href="https://owaspsamm.org/model/verification/security-testing/"
+        >OWASP SAMM — Security Testing</a
+      >: automated baselineとapplication/business logicを理解したmanual expert testingを分離し、
+      business-logic profileの自動実行を包括診断と表示しない。
+    </li>
+    <li>
+      <a href="https://owaspsamm.org/model/verification/security-testing/stream-a/"
+        >OWASP SAMM — Scalable Baseline</a
+      >: 広い未検証coverageより、限定範囲を信頼できる精度で検出し、false positive/negativeを計測して
+      段階的に拡張する。
+    </li>
+    <li>
+      <a href="https://owaspsamm.org/model/verification/requirements-driven-testing/stream-a/"
+        >OWASP SAMM — Control Verification</a
+      >: 修正済みsecurity bugを回帰testへ組み込み、expected pass/failとして継続実行する。
+    </li>
+    <li>
+      <a href="https://csrc.nist.gov/pubs/sp/800/115/final">NIST SP 800-115</a>: intrusive
+      testでは事前のscope、assumption、limitation、risk、Rules of Engagementを固定する。
+    </li>
+    <li>
+      <a href="https://www.zaproxy.org/docs/desktop/addons/automation-framework/authentication/"
+        >ZAP Automation Framework — Authentication</a
+      >: auth methodだけでなくverificationとauthentication statisticsをE2Eで確認する。
+    </li>
+    <li>
+      <a href="https://spec.openapis.org/oas/">OpenAPI Initiative — Published OAS versions</a>:
+      初回stable
+      contractを2.0、3.0.0〜3.0.4、3.1.0〜3.1.2へ固定し、3.2.0は別qualificationまで拒否する。
+    </li>
+    <li>
+      <a href="https://www.rfc-editor.org/rfc/rfc6901.html">RFC 6901 — JSON Pointer</a>:
+      自己完結schemaで許可するinternal fragment referenceのparse/evaluationを独自記法にしない。
+    </li>
+    <li>
+      <a href="https://www.rfc-editor.org/rfc/rfc8785.html"
+        >RFC 8785 — JSON Canonicalization Scheme</a
+      >: receipt、policy、manifestのhash前canonical JSONをruntime依存のproperty順にしない。
+    </li>
+    <li>
+      <a href="https://schemathesis.readthedocs.io/en/stable/reference/cli/"
+        >Schemathesis CLI filtering</a
+      >: exact method filter、rate limit、request timeout、retry 0、redirect 0を明示し、read-only
+      operation contractをscannerとgatewayで共有する。
+    </li>
+    <li>
+      <a href="https://google.github.io/oss-fuzz/">OSS-Fuzz documentation</a>: fuzzを通常test
+      executionと同一成熟度にせず、harness、engine、sanitizer、継続実行を独立してqualifyする。
+    </li>
+    <li>
+      <a
+        href="https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/00-Introduction_and_Objectives/"
+        >OWASP Web Security Testing Guide v4.2</a
+      >: testing objective、scope、positive/negative requirement、reportingをprofile
+      contractへ反映する。
+    </li>
+  </ul>
+</article>

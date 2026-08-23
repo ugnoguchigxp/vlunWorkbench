@@ -1,10 +1,11 @@
-import type { FullSourceSnapshot } from "../scans/execution/lifecycle/full-source-snapshot";
 import type { RuntimeTargetProvider } from "../dast/runtime-target-provider";
-import { createDockerRuntimeTargetProvider } from "./docker-runtime-target-provider";
+import type { DastTargetStartPlan } from "../dast/target-preparer";
+import type { FullSourceSnapshot } from "../scans/execution/lifecycle/full-source-snapshot";
 import type {
 	DockerRuntimeBundleRunner,
 	RuntimeBundleLeaseRepository,
 } from "./docker-runtime-bundle-lifecycle";
+import { createDockerRuntimeTargetProvider } from "./docker-runtime-target-provider";
 import type { RuntimeImageRegistry } from "./runtime-image-registry";
 import { runtimePlanImages } from "./runtime-image-registry";
 import {
@@ -12,7 +13,12 @@ import {
 	type QualifiedRuntimeImages,
 } from "./runtime-isolation-planner";
 import { materializeRuntimeSourceProjection } from "./runtime-source-projection";
-import type { DastTargetStartPlan } from "../dast/target-preparer";
+
+export type RuntimeIsolationProviderFactory = (input: {
+	scanRunId: string;
+	profileId: string;
+	sourceSnapshot: FullSourceSnapshot;
+}) => Promise<RuntimeTargetProvider>;
 
 /**
  * The only supported construction path for a local runtime provider. It
@@ -31,11 +37,7 @@ export function createRuntimeIsolationProviderFactory(params: {
 	leaseRepository: RuntimeBundleLeaseRepository;
 	runner: DockerRuntimeBundleRunner;
 	dockerBin?: string;
-}): (input: {
-	scanRunId: string;
-	profileId: string;
-	sourceSnapshot: FullSourceSnapshot;
-}) => Promise<RuntimeTargetProvider> {
+}): RuntimeIsolationProviderFactory {
 	return async (input) => {
 		const projection = await materializeRuntimeSourceProjection({
 			snapshot: input.sourceSnapshot,
@@ -50,7 +52,13 @@ export function createRuntimeIsolationProviderFactory(params: {
 				inferTargetPlan: params.inferTargetPlan,
 			});
 			if (planning.status === "blocked") {
-				throw new Error(planning.reasonCode);
+				return {
+					runtimeIsolationPlanning: planning,
+					dispose: async () => await projection.cleanup(),
+					async prepare() {
+						throw new Error(planning.reasonCode);
+					},
+				};
 			}
 			const provider = createDockerRuntimeTargetProvider({
 				scanRunId: input.scanRunId,

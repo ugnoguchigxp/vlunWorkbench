@@ -15,6 +15,10 @@ import { emitNightworkersSecurityIntelligenceTelemetry } from "../modules/integr
 import { NightworkersWorkspaceTargetGrantRepository } from "../modules/integrations/nightworkers/nightworkers-workspace-target-grant.repository";
 import { NightworkersWorkspaceTargetGrantService } from "../modules/integrations/nightworkers/nightworkers-workspace-target-grant.service";
 import { FindingReviewRepository } from "../modules/reviews/finding-review-repository";
+import {
+	loadRuntimeIsolationProviderFactory,
+	runtimeIsolationSettingsFromAppEnv,
+} from "../modules/runtime-isolation/runtime-isolation-runtime-config";
 import { ArtifactStorage } from "../modules/scans/artifact-storage";
 import { ProjectDeletionService } from "../modules/scans/project-deletion-service";
 import { ScanReportRepository } from "../modules/scans/report-repository";
@@ -156,6 +160,11 @@ export function registerScanRoutes(app: Hono, runtime: AppRuntime): void {
 			scanSupervisor: runtime.scanSupervisor,
 			processCapacity: runtime.webProcessCapacity,
 			env: runtime.env,
+			resolveRuntimeIsolationProviderFactory: () =>
+				loadRuntimeIsolationProviderFactory({
+					db: runtime.dbConnection.db,
+					settings: runtimeIsolationSettingsFromAppEnv(runtime.env),
+				}),
 			projectDeletionService,
 		}),
 	);

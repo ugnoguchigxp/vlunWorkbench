@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { loadRuntimeIsolationProviderFactory } from "./runtime-isolation-runtime-config";
+import {
+	loadRuntimeIsolationProviderFactory,
+	runtimeIsolationSettingsFromAppEnv,
+} from "./runtime-isolation-runtime-config";
 
 const digest = `sha256:${"d".repeat(64)}`;
 
@@ -17,5 +20,78 @@ describe("runtime isolation runtime config", () => {
 			VULN_WORKBENCH_RUNTIME_QUALIFICATION_HASH: digest,
 		};
 		expect(loadRuntimeIsolationProviderFactory({ db: {} as never, env })).toBeTypeOf("function");
+	});
+
+	it("loads the provider from SQLite-backed runtime settings without environment variables", () => {
+		expect(
+			loadRuntimeIsolationProviderFactory({
+				db: {} as never,
+				env: {},
+				settings: {
+					namespaceOwnerImage: `owner@${digest}`,
+					nodeImage: `node@${digest}`,
+					materializerImage: `materializer@${digest}`,
+					registryProxyImage: `proxy@${digest}`,
+					probeImage: `probe@${digest}`,
+					httpExecutorImage: `http@${digest}`,
+					dockerDaemonIdentityHash: digest,
+					qualificationHash: digest,
+					postgresImage: "",
+					mysqlImage: "",
+					nucleiImage: "",
+					zapImage: "",
+					schemathesisImage: "",
+				},
+			}),
+		).toBeTypeOf("function");
+	});
+
+	it("fails closed for mutable images stored in runtime settings", () => {
+		expect(
+			loadRuntimeIsolationProviderFactory({
+				db: {} as never,
+				settings: {
+					namespaceOwnerImage: "owner:latest",
+					nodeImage: "",
+					materializerImage: "",
+					registryProxyImage: "",
+					probeImage: "",
+					httpExecutorImage: "",
+					dockerDaemonIdentityHash: "",
+					qualificationHash: "",
+					postgresImage: "",
+					mysqlImage: "",
+					nucleiImage: "",
+					zapImage: "",
+					schemathesisImage: "",
+				},
+			}),
+		).toBeNull();
+	});
+
+	it("normalizes an invalid legacy AppEnv bootstrap to unavailable defaults", () => {
+		const settings = runtimeIsolationSettingsFromAppEnv({
+			runtimeIsolation: {
+				namespaceOwnerImage: "owner:latest",
+				nodeImage: `node@${digest}`,
+				materializerImage: "",
+				registryProxyImage: "",
+				probeImage: "",
+				httpExecutorImage: "",
+				dockerDaemonIdentityHash: "",
+				qualificationHash: "",
+				postgresImage: "",
+				mysqlImage: "",
+				nucleiImage: "",
+				zapImage: "",
+				schemathesisImage: "",
+			},
+		});
+
+		expect(settings).toMatchObject({
+			namespaceOwnerImage: "",
+			nodeImage: `node@${digest}`,
+			dockerDaemonIdentityHash: "",
+		});
 	});
 });

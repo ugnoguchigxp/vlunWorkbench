@@ -17,6 +17,19 @@ function migrate(connection: DbConnection): void {
 	}
 }
 
+function runtimeIsolationEnvironment(digest: string): NodeJS.ProcessEnv {
+	return {
+		VULN_WORKBENCH_RUNTIME_NAMESPACE_OWNER_IMAGE: `owner@${digest}`,
+		VULN_WORKBENCH_RUNTIME_NODE_IMAGE: `node@${digest}`,
+		VULN_WORKBENCH_RUNTIME_MATERIALIZER_IMAGE: `materializer@${digest}`,
+		VULN_WORKBENCH_RUNTIME_REGISTRY_PROXY_IMAGE: `proxy@${digest}`,
+		VULN_WORKBENCH_RUNTIME_PROBE_IMAGE: `probe@${digest}`,
+		VULN_WORKBENCH_RUNTIME_HTTP_EXECUTOR_IMAGE: `http@${digest}`,
+		VULN_WORKBENCH_RUNTIME_DOCKER_DAEMON_IDENTITY_HASH: digest,
+		VULN_WORKBENCH_RUNTIME_QUALIFICATION_HASH: digest,
+	};
+}
+
 describe("SettingsRepository runtime settings", () => {
 	let connection: DbConnection;
 
@@ -72,6 +85,145 @@ describe("SettingsRepository runtime settings", () => {
 			webScanWallClockTimeoutSec: 7_200,
 			codexSdkTimeoutMs: 300_000,
 		});
+	});
+
+	it("persists runtime isolation configuration in SQLite and applies it to AppEnv", async () => {
+		const repo = new SettingsRepository(connection.db);
+		const env = readAppEnv({});
+		const digest = `sha256:${"a".repeat(64)}`;
+		const runtimeIsolation = {
+			namespaceOwnerImage: `owner@${digest}`,
+			nodeImage: `node@${digest}`,
+			materializerImage: `materializer@${digest}`,
+			registryProxyImage: `proxy@${digest}`,
+			probeImage: `probe@${digest}`,
+			httpExecutorImage: `http@${digest}`,
+			dockerDaemonIdentityHash: digest,
+			qualificationHash: digest,
+			postgresImage: "",
+			mysqlImage: "",
+			nucleiImage: "",
+			zapImage: "",
+			schemathesisImage: "",
+		};
+
+		const saved = await repo.updateRuntimeSettings(
+			{
+				scanExecutionMode: "docker",
+				allowHostScannerExecution: false,
+				scanDockerImage: "scanner:stable",
+				dockerMemory: "2g",
+				dockerCpus: 1.5,
+				dockerPidsLimit: 256,
+				scannerStdoutLimitBytes: 32 * 1024 * 1024,
+				scannerStderrLimitBytes: 4 * 1024 * 1024,
+				webProcessConcurrency: 2,
+				webScanQueueLimit: 32,
+				webScanStepTimeoutMaxSec: 3_600,
+				webScanWallClockTimeoutSec: 21_600,
+				codexSdkTimeoutMs: 300_000,
+				runtimeIsolation,
+			},
+			env,
+		);
+
+		expect(saved).toMatchObject({
+			runtimeIsolation,
+			runtimeIsolationConfigured: true,
+			runtimeIsolationMissingFields: [],
+		});
+		expect((await repo.resolveAppEnv(env)).runtimeIsolation).toEqual(
+			runtimeIsolation,
+		);
+
+		const legacyClientSave = await repo.updateRuntimeSettings(
+			{
+				scanExecutionMode: "host",
+				allowHostScannerExecution: true,
+				scanDockerImage: "scanner:stable",
+				dockerMemory: "3g",
+				dockerCpus: 2,
+				dockerPidsLimit: 512,
+				scannerStdoutLimitBytes: 64 * 1024 * 1024,
+				scannerStderrLimitBytes: 8 * 1024 * 1024,
+				codexSdkTimeoutMs: 600_000,
+			},
+			env,
+		);
+		expect(legacyClientSave.runtimeIsolation).toEqual(runtimeIsolation);
+		expect(legacyClientSave.runtimeIsolationConfigured).toBe(true);
+	});
+
+	it("uses legacy environment isolation for a persisted record created before the field existed", async () => {
+		const digest = `sha256:${"b".repeat(64)}`;
+		const env = readAppEnv(runtimeIsolationEnvironment(digest));
+		await connection.db.insert(runtimeSettings).values({
+			id: "global",
+			settings: {
+				scanExecutionMode: "docker",
+				allowHostScannerExecution: false,
+				scanDockerImage: "scanner:stable",
+				dockerMemory: "2g",
+				dockerCpus: 2,
+				dockerPidsLimit: 512,
+				scannerStdoutLimitBytes: 64 * 1024 * 1024,
+				scannerStderrLimitBytes: 8 * 1024 * 1024,
+				codexSdkTimeoutMs: 600_000,
+			},
+		});
+
+		const resolved = await new SettingsRepository(
+			connection.db,
+		).getRuntimeSettings(env);
+		expect(resolved.runtimeIsolation).toMatchObject({
+			namespaceOwnerImage: `owner@${digest}`,
+			httpExecutorImage: `http@${digest}`,
+			dockerDaemonIdentityHash: digest,
+			qualificationHash: digest,
+		});
+		expect(resolved.runtimeIsolationConfigured).toBe(true);
+	});
+
+	it("fails closed instead of rejecting the settings page for an invalid legacy bootstrap", async () => {
+		const env = readAppEnv({
+			...runtimeIsolationEnvironment(`sha256:${"c".repeat(64)}`),
+			VULN_WORKBENCH_RUNTIME_NAMESPACE_OWNER_IMAGE: "owner:latest",
+		});
+
+		const resolved = await new SettingsRepository(
+			connection.db,
+		).getRuntimeSettings(env);
+		expect(resolved.runtimeIsolationConfigured).toBe(false);
+		expect(resolved.runtimeIsolation.namespaceOwnerImage).toBe("");
+		expect(resolved.runtimeIsolation.nodeImage).toMatch(/^node@sha256:/);
+		expect(resolved.runtimeIsolationMissingFields).toEqual([
+			"namespaceOwnerImage",
+		]);
+	});
+
+	it("rejects mutable runtime isolation images before persistence", async () => {
+		const repo = new SettingsRepository(connection.db);
+		const env = readAppEnv({});
+		await expect(
+			repo.updateRuntimeSettings(
+				{
+					scanExecutionMode: "docker",
+					allowHostScannerExecution: false,
+					scanDockerImage: "scanner:stable",
+					dockerMemory: "2g",
+					dockerCpus: 2,
+					dockerPidsLimit: 512,
+					scannerStdoutLimitBytes: 64 * 1024 * 1024,
+					scannerStderrLimitBytes: 8 * 1024 * 1024,
+					codexSdkTimeoutMs: 600_000,
+					runtimeIsolation: {
+						...env.runtimeIsolation!,
+						namespaceOwnerImage: "owner:latest",
+					},
+				},
+				env,
+			),
+		).rejects.toThrow(/image@sha256/);
 	});
 
 	it("rejects Web process limits outside the supported range", async () => {
