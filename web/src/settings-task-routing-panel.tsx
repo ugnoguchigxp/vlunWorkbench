@@ -1,17 +1,18 @@
 import { ArrowDown, ArrowUp, Plus, Save, X } from "lucide-react";
 import type { LlmThinkingDepth } from "./api";
-import { Button, SelectInput } from "./ui";
+import type { SettingsPanelModel } from "./settings-panel";
 import {
 	ensureRoutes,
 	fallbackKey,
 	isThinkingModel,
 	parseTargetKey,
 	targetKey,
+	taskDescriptions,
 	taskLabels,
 	thinkingDepthOptions,
 	withThinkingDepth,
 } from "./settings-panel-model";
-import type { SettingsPanelModel } from "./settings-panel";
+import { Button, SelectInput } from "./ui";
 
 export function TaskRoutingPanel({ model }: { model: SettingsPanelModel }) {
 	const {
@@ -30,7 +31,10 @@ export function TaskRoutingPanel({ model }: { model: SettingsPanelModel }) {
 		<>
 			<section className="panel">
 				<div className="panel-header">
-					<h2>Task Routing</h2>
+					<div>
+						<h2>タスクルーティング</h2>
+						<small>タスクごとのモデルとフォールバックを設定します。</small>
+					</div>
 					<div className="actions">
 						<Button
 							type="button"
@@ -49,7 +53,7 @@ export function TaskRoutingPanel({ model }: { model: SettingsPanelModel }) {
 							<div className="route-card-header">
 								<div>
 									<div className="route-task">{taskLabels[route.task]}</div>
-									<small>{route.task}</small>
+									<small>{taskDescriptions[route.task]}</small>
 								</div>
 								<div className="actions">
 									<Button

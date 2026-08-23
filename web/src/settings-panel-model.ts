@@ -39,19 +39,27 @@ export const thinkingDepthOptions: Array<{
 	value: "" | LlmThinkingDepth;
 	label: string;
 }> = [
-	{ value: "", label: "Auto" },
-	{ value: "low", label: "Low" },
-	{ value: "medium", label: "Medium" },
-	{ value: "high", label: "High" },
-	{ value: "very_high", label: "Very high" },
+	{ value: "", label: "自動" },
+	{ value: "low", label: "低" },
+	{ value: "medium", label: "中" },
+	{ value: "high", label: "高" },
+	{ value: "very_high", label: "最高" },
 ];
 
 export const taskLabels: Record<LlmTask, string> = {
-	finding_review: "Finding Review",
-	scan_review: "Scan Review",
-	evidence_context: "Evidence Context",
-	agentic_search: "Agentic Search",
-	report_summary: "Report Summary",
+	finding_review: "Findingレビュー",
+	scan_review: "スキャンレビュー",
+	evidence_context: "証拠コンテキスト",
+	agentic_search: "エージェント検索",
+	report_summary: "レポート要約",
+};
+
+export const taskDescriptions: Record<LlmTask, string> = {
+	finding_review: "個別Findingの証拠と修正要否をレビューします",
+	scan_review: "スキャン全体の結果と改善点をレビューします",
+	evidence_context: "Findingに関連する証拠コンテキストを生成します",
+	agentic_search: "Knowledgeを使用した検索応答を生成します",
+	report_summary: "診断レポートの要約を生成します",
 };
 
 export type SettingsPanelProps = {
@@ -64,7 +72,7 @@ export type SettingsPanelProps = {
 	onSystemContextTextChange: (value: string) => void;
 	onSystemContextSaved: (systemContext: string, updatedAt: string) => void;
 	onSystemContextSavingChange: (saving: boolean) => void;
-	setErrorText: (message: string | null) => void;
+	onDirtyChange: (dirty: boolean) => void;
 };
 
 export const formatDateTime = (value: string | null | undefined): string => {
@@ -72,6 +80,54 @@ export const formatDateTime = (value: string | null | undefined): string => {
 	const date = new Date(value);
 	if (Number.isNaN(date.getTime())) return value;
 	return date.toLocaleString();
+};
+
+export const sameJson = (left: unknown, right: unknown): boolean =>
+	JSON.stringify(left) === JSON.stringify(right);
+
+export const toLlmSettingsInput = (settings: LlmSettingsResponse) => ({
+	providerEndpoints: settings.providerEndpoints,
+	taskRoutes: ensureRoutes(settings.taskRoutes),
+});
+
+export type ProviderStatus = {
+	label:
+		| "無効"
+		| "認証が必要"
+		| "アダプターを利用できません"
+		| "接続済み"
+		| "未設定"
+		| "接続エラー"
+		| "未確認";
+	tone: "ok" | "warning" | "error" | "neutral";
+};
+
+export const deriveProviderStatus = (
+	endpoint: LlmProviderEndpoint,
+	codexStatus: CodexStatusResponse | null,
+	health?: { ok: boolean },
+): ProviderStatus => {
+	if (!endpoint.enabled) return { label: "無効", tone: "neutral" };
+	if (endpoint.kind === "codex") {
+		if (!codexStatus) return { label: "未確認", tone: "neutral" };
+		if (!codexStatus.authenticated)
+			return { label: "認証が必要", tone: "warning" };
+		if (!codexStatus.executableAdapterAvailable) {
+			return { label: "アダプターを利用できません", tone: "error" };
+		}
+		return { label: "接続済み", tone: "ok" };
+	}
+	const missingRequired =
+		(endpoint.kind === "azure" && !endpoint.endpoint?.trim()) ||
+		((endpoint.kind === "openai" ||
+			endpoint.kind === "openai-compatible" ||
+			endpoint.kind === "local") &&
+			!endpoint.baseUrl?.trim()) ||
+		endpoint.models.length === 0;
+	if (missingRequired) return { label: "未設定", tone: "warning" };
+	if (health?.ok) return { label: "接続済み", tone: "ok" };
+	if (health) return { label: "接続エラー", tone: "error" };
+	return { label: "未確認", tone: "neutral" };
 };
 
 const createId = (): string =>
@@ -126,13 +182,13 @@ export const ensureCodexEndpoint = (
 	return {
 		...settings,
 		providerEndpoints: [
-			...settings.providerEndpoints.filter(
-				(endpoint) => endpoint.kind !== "codex",
-			),
 			{
 				...codexEndpoint,
 				models,
 			},
+			...settings.providerEndpoints.filter(
+				(endpoint) => endpoint.kind !== "codex",
+			),
 		],
 	};
 };

@@ -15,6 +15,7 @@ import {
 	parseOptionalModuleId,
 } from "./domains/projects/project-intelligence-tab-model";
 import { parseScansSearch } from "./domains/scans/scans-route-search";
+import { parseSettingsSearch } from "./settings-route-search";
 import { DesignSystemProvider } from "./showcase-settings-context";
 import { parseShowcaseTableSearch } from "./showcase-table-search";
 
@@ -61,6 +62,7 @@ const searchRoute = createRoute({
 const settingsRoute = createRoute({
 	getParentRoute: () => rootRoute,
 	path: "/settings",
+	validateSearch: parseSettingsSearch,
 	component: renderAppView("settings"),
 });
 

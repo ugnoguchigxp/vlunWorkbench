@@ -197,7 +197,7 @@ test("project path validation and member/admin boundaries hold through a browser
 	).toBe(403);
 
 	await page.goto("/settings");
-	await expect(page.getByRole("heading", { name: "System Context" })).toBeVisible();
+	await expect(page.getByRole("heading", { name: "概要" })).toBeVisible();
 	await expect(
 		page.getByRole("heading", { name: "LLM Providers" }),
 	).toHaveCount(0);

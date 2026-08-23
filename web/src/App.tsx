@@ -2,13 +2,13 @@ import { useNavigate } from "@tanstack/react-router";
 import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import {
 	type AuthUser,
-	type SourceHealth,
 	fetchMe,
 	fetchSourceCategories,
 	fetchSourceHealth,
 	fetchSystemContext,
 	login,
 	logout,
+	type SourceHealth,
 	UNAUTHORIZED_EVENT_NAME,
 } from "./api";
 import { AppHeader } from "./app-header";
@@ -92,6 +92,7 @@ export function App({ view }: AppProps) {
 		string | null
 	>(null);
 	const [systemContextSaving, setSystemContextSaving] = useState(false);
+	const [settingsDirty, setSettingsDirty] = useState(false);
 
 	const loadHealth = async () => {
 		const [source, app] = await Promise.all([
@@ -197,11 +198,17 @@ export function App({ view }: AppProps) {
 	};
 
 	const handleLogout = async () => {
+		if (
+			settingsDirty &&
+			!window.confirm("未保存の変更があります。ログアウトしますか？")
+		)
+			return;
 		await withBusy(async () => {
 			await logout();
 			setAuthUser(null);
 			setSystemContextText("");
 			setSystemContextUpdatedAt(null);
+			setSettingsDirty(false);
 			await navigate({ to: "/chat" });
 		});
 	};
@@ -295,7 +302,7 @@ export function App({ view }: AppProps) {
 									setSystemContextUpdatedAt(updatedAt);
 								}}
 								onSystemContextSavingChange={setSystemContextSaving}
-								setErrorText={setErrorText}
+								onDirtyChange={setSettingsDirty}
 							/>
 						) : null}
 						{authUser.role === "admin" && view === "admin" ? (

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { LlmSettingsResponse } from "./api";
 import {
+	deriveProviderStatus,
 	ensureCodexEndpoint,
 	ensureRoutes,
 	formatModelDisplayNames,
@@ -59,6 +60,34 @@ describe("settings panel model", () => {
 			kind: "codex",
 			enabled: true,
 			models: ["gpt-5-codex"],
+		});
+	});
+
+	it("derives a conservative provider status", () => {
+		const endpoint = {
+			id: "local",
+			name: "Local",
+			kind: "local" as const,
+			enabled: true,
+			baseUrl: "",
+			models: ["qwen3"],
+		} as LlmSettingsResponse["providerEndpoints"][number];
+		expect(deriveProviderStatus(endpoint, null)).toMatchObject({
+			label: "未設定",
+		});
+		expect(deriveProviderStatus({ ...endpoint, baseUrl: "http://localhost" }, null, { ok: true })).toMatchObject({ label: "接続済み" });
+	});
+
+	it("does not present an unavailable Codex status request as an authentication failure", () => {
+		const endpoint = {
+			id: "codex-default",
+			name: "Codex SDK",
+			kind: "codex" as const,
+			enabled: true,
+			models: ["gpt-5-codex"],
+		} as LlmSettingsResponse["providerEndpoints"][number];
+		expect(deriveProviderStatus(endpoint, null)).toMatchObject({
+			label: "未確認",
 		});
 	});
 });
