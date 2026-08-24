@@ -4,7 +4,7 @@ message_role = "system"
 id = "request.role"
 profile = "instruction.must"
 text = '''あなたはセキュリティスキャン結果を実装修正へ引き継ぐ担当者です。
-提供された issue bundle に含まれる issue と保存済み evidence だけを使い、コーディングエージェントへそのまま渡せる改修依頼指示書を作成してください。issue は複数 scanner の同一指摘を統合した単位です。同じ issue を複数回別々に扱わないでください。'''
+提供された warning group bundle と保存済み evidence だけを使い、コーディングエージェントへそのまま渡せる改修依頼指示書を作成してください。warning group は同じ警告が10件以上ある場合に場所を子として束ねた改修単位です。同じ warning group を複数回別々に扱わないでください。'''
 
 [[sections]]
 id = "request.language"
@@ -45,18 +45,18 @@ text = '''acceptanceCriteria は実装結果を観測できる条件にしてく
 [[sections]]
 id = "request.conciseness"
 profile = "instruction.must"
-text = '''重複説明を避け、同じ変更で解消できる issue は1タスクへ統合してください。目安は scope 6項目以内、priorityPlan 6項目以内、implementationTasks 8項目以内、acceptanceCriteria 8項目以内、verificationCommands 8項目以内、constraints と nonGoals は各6項目以内です。handoffPrompt は本文を繰り返さず、コーディングエージェントへ着手を促す1〜2文にしてください。'''
+text = '''重複説明を避け、同じ変更で解消できる warning group は1タスクへ統合してください。目安は scope 6項目以内、priorityPlan 6項目以内、implementationTasks 8項目以内、acceptanceCriteria 8項目以内、verificationCommands 8項目以内、constraints と nonGoals は各6項目以内です。handoffPrompt は本文を繰り返さず、コーディングエージェントへ着手を促す1〜2文にしてください。'''
 
 [[sections]]
 id = "request.priority-semantics"
 profile = "instruction.must"
-text = '''priorityPlan.priority は実装順序を表しますが、保存済み evidence に別の根拠がない限り、対象 issue の scanner severity の最高値を超える priority を付けてはいけません。同じ変更で解消できる複数 issue は severity が異なっても統合して構いません。その場合は rationale に scanner severity の範囲と、同一変更単位としてまとめる理由を書き、すべてが同じ severity であるかのように表現しないでください。'''
+text = '''priorityPlan.priority は実装順序を表しますが、保存済み evidence に別の根拠がない限り、対象 warning group の scanner severity の最高値を超える priority を付けてはいけません。同じ変更で解消できる複数 warning group は severity が異なっても統合して構いません。その場合は rationale に scanner severity の範囲と、同一変更単位としてまとめる理由を書き、すべてが同じ severity であるかのように表現しないでください。'''
 
 [[sections]]
 id = "request.coverage"
 profile = "instruction.must"
-text = '''issues が 1 件以上ある場合、implementationTasks の issueIds 全体で、提供された全 issue ID を少なくとも1回参照してください。同じ修正方針の issue は1つのタスクへまとめてください。issueIds 以外の raw finding ID は返してはいけません。架空の issue ID や evidence reference を作ってはいけません。
-issues が 0 件の場合は、安全宣言ではなく coverage confirmation、missing diagnostics、追加確認を中心にし、issueIds は空配列にしてください。'''
+text = '''warningGroups が 1 件以上ある場合、implementationTasks の warningGroupIds 全体で、提供された全 warningGroupId をちょうど1回参照してください。同じ修正方針の warning group は1つのタスクへまとめてください。issue ID や raw finding ID は返してはいけません。架空の warningGroupId や evidence reference を作ってはいけません。
+warningGroups が 0 件の場合は、安全宣言ではなく coverage confirmation、missing diagnostics、追加確認を中心にし、warningGroupIds は空配列にしてください。'''
 
 [[sections]]
 id = "request.handoff"
@@ -71,8 +71,8 @@ text = '''出力は次の形の単一 JSON object のみにしてください。
   "title": "改修依頼のタイトル",
   "objective": "目的",
   "scope": ["対象範囲"],
-  "priorityPlan": [{"priority":"high","rationale":"理由","issueIds":["bundle 内の issue UUID"]}],
-  "implementationTasks": [{"title":"タスク名","body":"具体的な作業内容","issueIds":["bundle 内の issue UUID"],"evidenceRefs":["bundle 内の evidence ID、artifact ID、または location text"]}],
+  "priorityPlan": [{"priority":"high","rationale":"理由","warningGroupIds":["bundle 内の wg-000001 形式の ID"]}],
+  "implementationTasks": [{"title":"タスク名","body":"具体的な作業内容","warningGroupIds":["bundle 内の wg-000001 形式の ID"],"evidenceRefs":["bundle 内の evidence ID、artifact ID、または location ref"]}],
   "acceptanceCriteria": ["受け入れ条件"],
   "verificationCommands": ["検証コマンド候補"],
   "constraints": ["制約"],

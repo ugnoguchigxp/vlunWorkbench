@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ScanImprovementRequest } from "../../../../shared/schemas/scan.schema";
 import { createDbConnection, type DbConnection } from "../../../db";
 import {
+	findingEvidences,
 	findings,
 	projects,
 	scanReviews,
@@ -90,17 +91,17 @@ function request(ids: string[], suffix: string): ScanImprovementRequest {
 	};
 }
 
-function issueRequest(issueIds: string[], suffix: string) {
+function warningGroupRequest(warningGroupIds: string[], suffix: string) {
 	return {
 		title: `改修依頼 ${suffix}`,
 		objective: "保存済み証跡に基づき、検出結果を修正する。",
 		scope: ["このチャンクに含まれる issue を対象にする。"],
-		priorityPlan: issueIds.length
+		priorityPlan: warningGroupIds.length
 			? [
 					{
-						priority: "high",
-						rationale: "重大度の高い検出結果を優先する。",
-						issueIds,
+						priority: "low",
+						rationale: "保存済み重大度を超えない順序で対応する。",
+						warningGroupIds,
 					},
 				]
 			: [],
@@ -108,7 +109,7 @@ function issueRequest(issueIds: string[], suffix: string) {
 			{
 				title: `検出結果を修正する ${suffix}`,
 				body: "保存済み証跡を確認し、実装修正と回帰テストを追加する。",
-				issueIds,
+				warningGroupIds,
 				evidenceRefs: [],
 			},
 		],
@@ -120,13 +121,17 @@ function issueRequest(issueIds: string[], suffix: string) {
 	};
 }
 
-function issueIdsFromPrompt(messages: Array<{ content: string }>): string[] {
+function warningGroupIdsFromPrompt(
+	messages: Array<{ content: string }>,
+): string[] {
 	return [
 		...new Set(
 			messages.flatMap((message) =>
-				[...message.content.matchAll(/"issueId"\s*:\s*"([0-9a-f-]{36})"/gi)].map(
-					(match) => match[1] as string,
-				),
+				[
+					...message.content.matchAll(
+						/"warningGroupId"\s*:\s*"(wg-\d{6})"/g,
+					),
+				].map((match) => match[1] as string),
 			),
 		),
 	];
@@ -306,7 +311,9 @@ describe("ScanImprovementRequestRunner", () => {
 		const provider: LlmProvider = {
 			chatCompletion: vi.fn(async (messages) => ({
 				id: "improvement-response",
-				content: JSON.stringify(issueRequest(issueIdsFromPrompt(messages), "全件")),
+				content: JSON.stringify(
+					warningGroupRequest(warningGroupIdsFromPrompt(messages), "全件"),
+				),
 			})),
 		};
 		const runner = new ScanImprovementRequestRunner(connection.db, provider);
@@ -323,6 +330,7 @@ describe("ScanImprovementRequestRunner", () => {
 		expect(row?.inputBundle).toMatchObject({
 			generationKind: "improvement_request",
 			limits: {
+				totalWarningGroups: 1,
 				totalIssues: 1,
 				totalFindings: 1,
 				includedIssues: 1,
@@ -332,6 +340,8 @@ describe("ScanImprovementRequestRunner", () => {
 		expect(row?.output).toMatchObject({
 			generationKind: "improvement_request",
 			coverage: {
+				totalWarningGroups: 1,
+				coveredWarningGroups: 1,
 				totalIssues: 1,
 				coveredIssues: 1,
 				totalFindings: 1,
@@ -349,6 +359,39 @@ describe("ScanImprovementRequestRunner", () => {
 				implementationTasks: [
 					expect.objectContaining({ findingIds: [findingUuid] }),
 				],
+			},
+		});
+	});
+
+	it("uses saved severity when the provider omits the priority plan", async () => {
+		await connection.db
+			.update(findings)
+			.set({ severity: "low" })
+			.where(eq(findings.id, findingUuid));
+		const provider: LlmProvider = {
+			chatCompletion: vi.fn(async (messages) => {
+				const generated = warningGroupRequest(
+					warningGroupIdsFromPrompt(messages),
+					"優先度なし",
+				);
+				generated.priorityPlan = [];
+				return {
+					id: "improvement-response-without-priority",
+					content: JSON.stringify(generated),
+				};
+			}),
+		};
+		const runner = new ScanImprovementRequestRunner(connection.db, provider);
+
+		const completed = await (
+			await runner.start(scanRunId, { createdByUserId: userId })
+		).completion;
+
+		expect(completed.ok).toBe(true);
+		const row = await connection.db.query.scanReviews.findFirst();
+		expect(row?.output).toMatchObject({
+			improvementRequest: {
+				priorityPlan: [expect.objectContaining({ priority: "low" })],
 			},
 		});
 	});
@@ -408,7 +451,10 @@ describe("ScanImprovementRequestRunner", () => {
 				return {
 					id: "deduplicated-issue-response",
 					content: JSON.stringify(
-						issueRequest(issueIdsFromPrompt(messages), "重複統合"),
+						warningGroupRequest(
+							warningGroupIdsFromPrompt(messages),
+							"重複統合",
+						),
 					),
 				};
 				},
@@ -422,10 +468,12 @@ describe("ScanImprovementRequestRunner", () => {
 
 		expect(completed.ok).toBe(true);
 		expect(provider.chatCompletion).toHaveBeenCalledTimes(1);
-		expect(issueIdsFromPrompt([{ content: promptContent }])).toHaveLength(1);
+		expect(
+			warningGroupIdsFromPrompt([{ content: promptContent }]),
+		).toHaveLength(1);
 		expect(
 			[findingUuid, duplicate.id].filter((id) => promptContent.includes(id)),
-		).toHaveLength(1);
+		).toHaveLength(0);
 		const row = await connection.db.query.scanReviews.findFirst();
 		expect(row?.output).toMatchObject({
 			coverage: { totalIssues: 1, totalFindings: 2 },
@@ -441,13 +489,13 @@ describe("ScanImprovementRequestRunner", () => {
 
 	it("deduplicates simultaneous generation requests for the same scan", async () => {
 		let resolveProvider!: (response: LlmResponse) => void;
-		let capturedIssueIds: string[] = [];
+		let capturedWarningGroupIds: string[] = [];
 		const providerResponse = new Promise<LlmResponse>((resolve) => {
 			resolveProvider = resolve;
 		});
 		const provider: LlmProvider = {
 			chatCompletion: vi.fn((messages) => {
-				capturedIssueIds = issueIdsFromPrompt(messages);
+				capturedWarningGroupIds = warningGroupIdsFromPrompt(messages);
 				return providerResponse;
 			}),
 		};
@@ -462,7 +510,9 @@ describe("ScanImprovementRequestRunner", () => {
 		expect(provider.chatCompletion).toHaveBeenCalledTimes(1);
 		resolveProvider({
 			id: "deduplicated-response",
-			content: JSON.stringify(issueRequest(capturedIssueIds, "重複防止")),
+			content: JSON.stringify(
+				warningGroupRequest(capturedWarningGroupIds, "重複防止"),
+			),
 		});
 		const [firstResult, secondResult] = await Promise.all([
 			first.completion,
@@ -510,13 +560,13 @@ describe("ScanImprovementRequestRunner", () => {
 
 	it("waits for active generation during shutdown", async () => {
 		let resolveProvider!: (response: LlmResponse) => void;
-		let capturedIssueIds: string[] = [];
+		let capturedWarningGroupIds: string[] = [];
 		const providerResponse = new Promise<LlmResponse>((resolve) => {
 			resolveProvider = resolve;
 		});
 		const runner = new ScanImprovementRequestRunner(connection.db, {
 			chatCompletion: vi.fn((messages) => {
-				capturedIssueIds = issueIdsFromPrompt(messages);
+				capturedWarningGroupIds = warningGroupIdsFromPrompt(messages);
 				return providerResponse;
 			}),
 		});
@@ -532,7 +582,9 @@ describe("ScanImprovementRequestRunner", () => {
 
 		resolveProvider({
 			id: "shutdown-response",
-			content: JSON.stringify(issueRequest(capturedIssueIds, "終了待機")),
+			content: JSON.stringify(
+				warningGroupRequest(capturedWarningGroupIds, "終了待機"),
+			),
 		});
 		await expect(started.completion).resolves.toMatchObject({ ok: true });
 		await shutdown;
@@ -548,7 +600,7 @@ describe("ScanImprovementRequestRunner", () => {
 		const extraFindings = await connection.db
 			.insert(findings)
 			.values(
-				Array.from({ length: 50 }, (_, index) => ({
+				Array.from({ length: 120 }, (_, index) => ({
 					scanRunId,
 					projectId: scanRun.projectId,
 					sourceTool: "semgrep",
@@ -570,13 +622,18 @@ describe("ScanImprovementRequestRunner", () => {
 			.returning();
 		const orderedIds = [findingUuid, ...extraFindings.map((finding) => finding.id)];
 		let callIndex = 0;
+		const promptLengths: number[] = [];
 		const provider: LlmProvider = {
 			chatCompletion: vi.fn(async (messages) => {
 				callIndex += 1;
+				promptLengths.push(messages.at(-1)?.content.length ?? 0);
 				return {
 					id: `chunk-${callIndex}`,
 					content: JSON.stringify(
-						issueRequest(issueIdsFromPrompt(messages), `分割 ${callIndex}`),
+						warningGroupRequest(
+							warningGroupIdsFromPrompt(messages),
+							`分割 ${callIndex}`,
+						),
 					),
 				};
 			}),
@@ -589,7 +646,9 @@ describe("ScanImprovementRequestRunner", () => {
 		const completed = await started.completion;
 
 		expect(completed.ok).toBe(true);
-		expect(provider.chatCompletion).toHaveBeenCalledTimes(2);
+		expect(provider.chatCompletion).toHaveBeenCalledTimes(callIndex);
+		expect(callIndex).toBeGreaterThan(1);
+		expect(promptLengths.every((length) => length <= 48_000)).toBe(true);
 		const row = await connection.db.query.scanReviews.findFirst();
 		const output = row?.output as
 			| {
@@ -598,8 +657,8 @@ describe("ScanImprovementRequestRunner", () => {
 			  }
 			| undefined;
 		expect(output?.coverage).toMatchObject({
-			totalFindings: 51,
-			chunkCount: 2,
+			totalFindings: 121,
+			chunkCount: callIndex,
 		});
 		expect(
 			new Set(
@@ -608,5 +667,233 @@ describe("ScanImprovementRequestRunner", () => {
 				) ?? [],
 			),
 		).toEqual(new Set(orderedIds));
+	});
+
+	it("persists safe prompt-budget metrics without calling the provider", async () => {
+		const now = new Date("2026-08-21T00:00:00.000Z");
+		const [scanRun] = await connection.db
+			.select()
+			.from(scanRuns)
+			.where(eq(scanRuns.id, scanRunId));
+		await connection.db.insert(findings).values(
+			Array.from({ length: 10 }, (_, index) => ({
+				scanRunId,
+				projectId: scanRun.projectId,
+				sourceTool: "gitleaks",
+				ruleId: "generic-api-key",
+				title: "Generic API key",
+				description: "認証情報らしき値です。",
+				severity: "high" as const,
+				confidence: "static" as const,
+				status: "open" as const,
+				primaryLocation: {
+					path: `secrets/${"x".repeat(8_000)}-${index}.env`,
+					startLine: index + 1,
+				},
+				fingerprint: `oversized-secret-${index}`,
+				createdAt: now,
+				updatedAt: now,
+			})),
+		);
+		const provider: LlmProvider = { chatCompletion: vi.fn() };
+		const runner = new ScanImprovementRequestRunner(connection.db, provider);
+
+		const started = await runner.start(scanRunId, {
+			createdByUserId: userId,
+		});
+		const completed = await started.completion;
+
+		expect(started.status).toBe("failed");
+		expect(completed).toMatchObject({
+			ok: false,
+			status: "failed",
+			error: expect.stringContaining(
+				"improvement_request_prompt_budget_exceeded",
+			),
+		});
+		expect(provider.chatCompletion).not.toHaveBeenCalled();
+		const row = await connection.db.query.scanReviews.findFirst();
+		expect(row?.inputBundle).toMatchObject({
+			generationKind: "improvement_request",
+			failure: {
+				code: "improvement_request_prompt_budget_exceeded",
+				metrics: {
+					hardLimit: 60_000,
+					compressionTier: 2,
+				},
+			},
+		});
+	});
+
+	it("completes a 314-issue request with one 130-location secret parent", async () => {
+		const now = new Date("2026-08-21T00:00:00.000Z");
+		const [scanRun] = await connection.db
+			.select()
+			.from(scanRuns)
+			.where(eq(scanRuns.id, scanRunId));
+		const secretFindings = await connection.db
+			.insert(findings)
+			.values(
+				Array.from({ length: 130 }, (_, index) => ({
+					scanRunId,
+					projectId: scanRun.projectId,
+					sourceTool: "gitleaks",
+					ruleId: "generic-api-key",
+					title: "Generic API key",
+					description: "SECRET_SENTINEL must never reach the prompt",
+					severity: "high" as const,
+					confidence: "static" as const,
+					status: "open" as const,
+					primaryLocation: {
+						path: `secrets/file-${String(index).padStart(3, "0")}.env`,
+						startLine: index + 1,
+					},
+					fingerprint: `secret-${index}`,
+					createdAt: now,
+					updatedAt: now,
+				})),
+			)
+			.returning();
+		const distinctFindings = await connection.db
+			.insert(findings)
+			.values(
+				Array.from({ length: 183 }, (_, index) => ({
+					scanRunId,
+					projectId: scanRun.projectId,
+					sourceTool: "semgrep",
+					ruleId: `security.distinct.${index}`,
+					title: `個別警告 ${index}`,
+					description: "保存済みの個別警告です。".repeat(8),
+					severity: "medium" as const,
+					confidence: "static" as const,
+					status: "open" as const,
+					primaryLocation: {
+						path: `src/distinct-${String(index).padStart(3, "0")}.ts`,
+						startLine: index + 1,
+					},
+					fingerprint: `distinct-${index}`,
+					createdAt: now,
+					updatedAt: now,
+				})),
+			)
+			.returning();
+		const allFindings = [
+			{ id: findingUuid, secret: false },
+			...secretFindings.map((finding) => ({ id: finding.id, secret: true })),
+			...distinctFindings.map((finding) => ({
+				id: finding.id,
+				secret: false,
+			})),
+		];
+		await connection.db.insert(findingEvidences).values(
+			allFindings.flatMap((finding, findingIndex) =>
+				Array.from({ length: 3 }, (_, evidenceIndex) => ({
+					findingId: finding.id,
+					kind: evidenceIndex === 0 ? "source-location" : "tool-output",
+					title: `保存済み証跡 ${evidenceIndex}`,
+					location: {
+						path: `evidence/${findingIndex}.txt`,
+						startLine: evidenceIndex + 1,
+					},
+					snippet: finding.secret
+						? "SECRET_SENTINEL"
+						: `保存済み証跡の本文 ${findingIndex}-${evidenceIndex} `.repeat(12),
+					createdAt: now,
+				})),
+			),
+		);
+		const promptLengths: number[] = [];
+		const promptTexts: string[] = [];
+		let callIndex = 0;
+		const provider: LlmProvider = {
+			chatCompletion: vi.fn(async (messages) => {
+				callIndex += 1;
+				const prompt = messages.at(-1)?.content ?? "";
+				promptLengths.push(prompt.length);
+				promptTexts.push(prompt);
+				return {
+					id: `fixture-314-${callIndex}`,
+					content: JSON.stringify(
+						warningGroupRequest(
+							warningGroupIdsFromPrompt(messages),
+							`314件 ${callIndex}`,
+						),
+					),
+				};
+			}),
+		};
+		const runner = new ScanImprovementRequestRunner(connection.db, provider);
+
+		const completed = await (
+			await runner.start(scanRunId, { createdByUserId: userId })
+		).completion;
+
+		expect(completed.ok).toBe(true);
+		expect(callIndex).toBeGreaterThan(1);
+		expect(promptLengths.every((length) => length <= 48_000)).toBe(true);
+		expect(promptTexts.join("\n")).not.toContain("SECRET_SENTINEL");
+		expect(promptTexts.join("\n")).not.toContain(findingUuid);
+		const row = await connection.db.query.scanReviews.findFirst();
+		expect(row?.inputBundle).toMatchObject({
+			limits: {
+				totalWarningGroups: 185,
+				totalIssues: 314,
+				totalFindings: 314,
+				includedWarningGroups: 185,
+				includedIssues: 314,
+			},
+			rollup: {
+				rollupParentCount: 1,
+				locationChildCount: 314,
+			},
+		});
+		const output = row?.output as
+			| {
+					coverage?: Record<string, number>;
+					warningGroups?: Array<{
+						kind: string;
+						occurrenceCount: number;
+						locations: unknown[];
+					}>;
+					promptAudits?: Array<{
+						warningGroupCount: number;
+						renderedChars: number;
+						compressionTier: number;
+					}>;
+					improvementRequest?: ScanImprovementRequest;
+			  }
+			| undefined;
+		expect(output?.coverage).toMatchObject({
+			totalWarningGroups: 185,
+			coveredWarningGroups: 185,
+			totalIssues: 314,
+			coveredIssues: 314,
+			totalFindings: 314,
+			coveredFindings: 314,
+		});
+		expect(output?.promptAudits).toHaveLength(callIndex);
+		expect(
+			output?.promptAudits?.every(
+				(audit) =>
+					audit.warningGroupCount > 0 && audit.renderedChars <= 60_000,
+			),
+		).toBe(true);
+		expect(
+			output?.warningGroups?.find((group) => group.kind === "rollup"),
+		).toMatchObject({ occurrenceCount: 130, locations: { length: 130 } });
+		expect(
+			new Set(
+				output?.improvementRequest?.implementationTasks.flatMap(
+					(task) => task.findingIds,
+				) ?? [],
+			).size,
+		).toBe(314);
+		expect(
+			new Set(
+				output?.improvementRequest?.implementationTasks.flatMap(
+					(task) => task.warningGroupIds ?? [],
+				) ?? [],
+			).size,
+		).toBe(185);
 	});
 });

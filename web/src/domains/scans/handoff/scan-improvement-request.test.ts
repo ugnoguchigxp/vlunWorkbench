@@ -219,6 +219,56 @@ describe("buildScanImprovementRequestView", () => {
 		expect(markdown).not.toContain(evidenceId);
 	});
 
+	it("reads the saved warning-group location appendix", () => {
+		const view = buildScanImprovementRequestView([
+			review({
+				generationKind: "improvement_request",
+				improvementRequest: request(),
+				warningGroups: [
+					{
+						warningGroupId: "wg-000001",
+						kind: "rollup",
+						issueKind: "source",
+						title: "同じ警告",
+						severity: "high",
+						severityCounts: { high: 12 },
+						occurrenceCount: 12,
+						rawFindingCount: 12,
+						locationCount: 12,
+						locations: [
+							{
+								ref: "src/a.ts:10",
+								severity: "high",
+								path: "src/a.ts",
+								startLine: 10,
+								endLine: 12,
+								startCol: 2,
+								endCol: 8,
+								resource: null,
+								method: null,
+								parameter: null,
+							},
+						],
+					},
+				],
+			}),
+		]);
+
+		expect(view.warningGroups).toEqual([
+				expect.objectContaining({
+					warningGroupId: "wg-000001",
+					locationCount: 12,
+					locations: [
+						expect.objectContaining({
+							path: "src/a.ts",
+							startLine: 10,
+							endLine: 12,
+						}),
+					],
+			}),
+		]);
+	});
+
 	it("missing verificationCommands returns partial", () => {
 		const view = buildScanImprovementRequestView([
 			review({ improvementRequest: request({ verificationCommands: [] }) }),
@@ -410,9 +460,126 @@ describe("buildScanImprovementRequestMarkdown", () => {
 		expect(markdown).not.toContain("rule`id");
 		expect(markdown).not.toContain("src/`file.ts:1");
 	});
+
+	it("renders one warning parent with code-formatted child locations", () => {
+		const boundRequest = request();
+		boundRequest.implementationTasks[0]!.warningGroupIds = ["wg-000001"];
+		const markdown = buildScanImprovementRequestMarkdown(boundRequest, [], [
+			{
+				warningGroupId: "wg-000001",
+				kind: "rollup",
+				issueKind: "source",
+				title: "[危険](https://attacker.example)",
+				severity: "high",
+				severityCounts: { high: 3 },
+				occurrenceCount: 3,
+				rawFindingCount: 3,
+				locationCount: 3,
+				locations: [
+					{ ref: "src/a.ts:10", severity: "high" },
+					{ ref: "src/`b`.ts:20", severity: "high" },
+					{ ref: "`src/c.ts:30", severity: "high" },
+				],
+			},
+		]);
+
+		expect(markdown).toContain("## 警告と対象場所");
+		expect(markdown).toContain("`wg-000001`");
+		expect(markdown).toContain("対象警告: `wg-000001`");
+		expect(markdown).toContain("`src/a.ts:10`");
+		expect(markdown).toContain("``src/`b`.ts:20``");
+		expect(markdown).toContain("`` `src/c.ts:30 ``");
+		expect(markdown).not.toContain("[危険](https://attacker.example)");
+	});
+
+	it("uses a compact appendix when the full Markdown would exceed 60000 characters", () => {
+		const locations = Array.from({ length: 200 }, (_, index) => ({
+			ref: `src/${"very-long-path-".repeat(40)}${index}.ts:10`,
+			severity: "high",
+		}));
+		const markdown = buildScanImprovementRequestMarkdown(request(), [], [
+			{
+				warningGroupId: "wg-000001",
+				kind: "rollup",
+				issueKind: "source",
+				title: "同じ警告",
+				severity: "high",
+				severityCounts: { high: 200 },
+				occurrenceCount: 200,
+				rawFindingCount: 200,
+				locationCount: 200,
+				locations,
+			},
+		]);
+
+		expect(markdown.length).toBeLessThanOrEqual(60_000);
+		expect(markdown).toContain("ほか 180 件");
+		expect(markdown).toContain("完全な一覧は同時に保存されたJSONを参照");
+	});
+
+	it("keeps a hundreds-of-groups appendix within the Markdown budget", () => {
+		const warningGroups = Array.from({ length: 400 }, (_, index) => ({
+			warningGroupId: `wg-${String(index + 1).padStart(6, "0")}`,
+			kind: "singleton" as const,
+			issueKind: "source",
+			title: `警告 ${index} ${"長いタイトル".repeat(80)}`,
+			severity: "medium",
+			severityCounts: { medium: 1 },
+			occurrenceCount: 1,
+			rawFindingCount: 1,
+			locationCount: 1,
+			locations: [
+				{
+					ref: `src/${"long-path-".repeat(80)}${index}.ts:10`,
+					severity: "medium",
+				},
+			],
+		}));
+
+		const markdown = buildScanImprovementRequestMarkdown(
+			request(),
+			[],
+			warningGroups,
+		);
+
+		expect(markdown.length).toBeLessThanOrEqual(60_000);
+		expect(markdown).toContain("完全な一覧は同時に保存されたJSONを参照");
+	});
+
+	it("does not silently omit the JSON appendix notice when the body exceeds the target", () => {
+		const markdown = buildScanImprovementRequestMarkdown(
+			request({ objective: "長".repeat(60_000) }),
+			[],
+			[
+				{
+					warningGroupId: "wg-000001",
+					kind: "singleton",
+					issueKind: "source",
+					title: "警告",
+					severity: "low",
+					severityCounts: { low: 1 },
+					occurrenceCount: 1,
+					rawFindingCount: 1,
+					locationCount: 1,
+					locations: [{ ref: "src/a.ts:1", severity: "low" }],
+				},
+			],
+		);
+
+		expect(markdown).toContain("本文だけで上限目標を超えたため");
+		expect(markdown).toContain("完全な一覧は同時に保存されたJSONを参照");
+	});
 });
 
 describe("classifyScanReviewFailure", () => {
+	it("categorizes prompt budget errors before generic validation", () => {
+		expect(
+			classifyScanReviewFailure(
+				"improvement_request_prompt_budget_exceeded: renderedChars=60001",
+			)?.category,
+		).toBe("prompt_budget_failure");
+	});
+
 	it("categorizes provider errors", () => {
 		expect(
 			classifyScanReviewFailure("llm_provider_execution_failed: 503")?.category,

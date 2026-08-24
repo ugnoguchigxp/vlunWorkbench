@@ -1,4 +1,16 @@
 import type { Finding, ScanImprovementRequest, ScanReview } from "../../../api";
+import {
+	appendWarningGroupAppendix,
+	readScanImprovementWarningGroups,
+	type ScanImprovementWarningGroup,
+} from "./scan-improvement-warning-appendix";
+
+export {
+	classifyScanReviewFailure,
+	type ScanReviewFailureCategory,
+	type ScanReviewFailureView,
+} from "./scan-review-failure";
+export type { ScanImprovementWarningGroup } from "./scan-improvement-warning-appendix";
 
 export type ScanImprovementRequestQualityCheck = {
 	id:
@@ -22,6 +34,7 @@ export type ScanImprovementRequestView = {
 	objective: string;
 	handoffPrompt: string;
 	request: ScanImprovementRequest | null;
+	warningGroups: ScanImprovementWarningGroup[];
 	qualityChecks: ScanImprovementRequestQualityCheck[];
 	qualityScore: {
 		total: number;
@@ -50,20 +63,6 @@ export type ScanImprovementRequestView = {
 	};
 };
 
-export type ScanReviewFailureCategory =
-	| "provider_failure"
-	| "json_schema_validation_failure"
-	| "japanese_language_validation_failure"
-	| "bundle_reference_violation"
-	| "unknown";
-
-export type ScanReviewFailureView = {
-	category: ScanReviewFailureCategory;
-	label: string;
-	rawError: string;
-	nextAction: string;
-};
-
 const emptyView = (
 	reason = "completed scan review の improvementRequest がありません。",
 ): ScanImprovementRequestView => ({
@@ -73,6 +72,7 @@ const emptyView = (
 	objective: "",
 	handoffPrompt: "",
 	request: null,
+	warningGroups: [],
 	readiness: "missing",
 	qualityScore: {
 		total: 0,
@@ -538,6 +538,7 @@ export function buildScanImprovementRequestView(
 		objective: request.objective,
 		handoffPrompt: request.handoffPrompt,
 		request,
+		warningGroups: readScanImprovementWarningGroups(selected.review),
 		qualityChecks: checks,
 		qualityScore: scoreScanImprovementRequest(request, coverage),
 		readiness,
@@ -555,6 +556,7 @@ const section = (title: string, body: string | string[]): string => {
 export function buildScanImprovementRequestMarkdown(
 	request: ScanImprovementRequest,
 	_findings: Finding[] = [],
+	warningGroups: ScanImprovementWarningGroup[] = [],
 ): string {
 	const parts = [
 		`# ${request.title}`,
@@ -567,7 +569,14 @@ export function buildScanImprovementRequestMarkdown(
 			: "",
 		request.implementationTasks.length > 0
 			? `## 実装タスク\n${request.implementationTasks
-					.map((task) => `### ${task.title}\n${task.body}`)
+					.map((task) => {
+						const warningGroupIds = task.warningGroupIds ?? [];
+						const binding =
+							warningGroupIds.length > 0
+								? `\n\n対象警告: ${warningGroupIds.map((id) => `\`${id}\``).join(", ")}`
+								: "";
+						return `### ${task.title}\n${task.body}${binding}`;
+					})
 					.join("\n\n")}`
 			: "",
 		section("受け入れ条件", request.acceptanceCriteria),
@@ -577,53 +586,6 @@ export function buildScanImprovementRequestMarkdown(
 		section("制約", request.constraints),
 		section("非ゴール", request.nonGoals),
 	];
-	return `${parts.filter(hasText).join("\n\n")}\n`;
-}
-
-export function classifyScanReviewFailure(
-	error: string | null | undefined,
-): ScanReviewFailureView | null {
-	if (!error) return null;
-	if (
-		error.includes("llm_structured_output_validation_failed") &&
-		error.includes("Japanese review text is required")
-	) {
-		return {
-			category: "japanese_language_validation_failure",
-			label: "日本語検証エラー",
-			rawError: error,
-			nextAction: "scan review を再実行してください。",
-		};
-	}
-	if (error.includes("llm_provider_execution_failed")) {
-		return {
-			category: "provider_failure",
-			label: "Provider 実行エラー",
-			rawError: error,
-			nextAction: "provider route/API key を確認してから再実行してください。",
-		};
-	}
-	if (error.includes("referenced findings not in bundle")) {
-		return {
-			category: "bundle_reference_violation",
-			label: "Bundle 参照エラー",
-			rawError: error,
-			nextAction: "現在の scan bundle で scan review を再実行してください。",
-		};
-	}
-	if (/json|schema|validation/i.test(error)) {
-		return {
-			category: "json_schema_validation_failure",
-			label: "JSON/schema 検証エラー",
-			rawError: error,
-			nextAction:
-				"再実行し、続く場合は prompt/schema の不一致を確認してください。",
-		};
-	}
-	return {
-		category: "unknown",
-		label: "不明なエラー",
-		rawError: error,
-		nextAction: "raw error を確認してください。",
-	};
+	const body = parts.filter(hasText).join("\n\n");
+	return appendWarningGroupAppendix(body, warningGroups);
 }

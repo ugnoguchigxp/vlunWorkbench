@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import { z } from "zod";
 import {
-	llmIssueImprovementRequestSchema,
+	llmWarningGroupImprovementRequestSchema,
 	type ScanImprovementRequest,
 	scanReviewOutputSchema,
 } from "../../../../shared/schemas/scan.schema";
@@ -18,7 +18,6 @@ import { executePromptCompletion } from "../../../system-context/llm-execution";
 import { ScanRepository } from "../repositories";
 import {
 	mergeIssueImprovementRequests,
-	parseIssueChunkImprovementRequest,
 	StructuredImprovementRequestError,
 } from "./scan-improvement-request-builder";
 import {
@@ -26,6 +25,8 @@ import {
 	toImprovementRequestPromptBundle,
 	type ImprovementRequestIssueBundle,
 } from "./scan-improvement-issue-bundle";
+import { ImprovementRequestPromptBudgetError } from "./scan-improvement-prompt-budget";
+import { parseWarningGroupChunkImprovementRequest } from "./scan-improvement-warning-request";
 import { ScanReviewRepository } from "./scan-review-repository";
 
 type RunnerDeps = {
@@ -243,9 +244,12 @@ export class ScanImprovementRequestRunner {
 			for (const bundle of params.bundles) {
 				generated.push(await this.generateChunk(params.provider, bundle));
 			}
-			const request = mergeIssueImprovementRequests(
+			const request = attachWarningGroupBindings(
+				mergeIssueImprovementRequests(
+					params.bundles,
+					generated.map((item) => item.request),
+				),
 				params.bundles,
-				generated.map((item) => item.request),
 			);
 			const totalFindings = params.bundles[0]?.grouping.rawFindingCount ?? 0;
 			const totalIssues = params.bundles[0]?.grouping.issueCount ?? 0;
@@ -273,27 +277,40 @@ export class ScanImprovementRequestRunner {
 			const findingIds = params.bundles.flatMap((bundle) =>
 				bundle.issueManifest.flatMap((issue) => issue.memberFindingIds),
 			);
+			const warningGroupIds = params.bundles.flatMap((bundle) =>
+				bundle.warningGroupManifest.map((group) => group.warningGroupId),
+			);
 			await this.reviewRepository.updateReview(params.reviewId, "completed", {
 				...output,
 				output: {
 					...output,
 					generationKind: "improvement_request",
 					coverage: {
+						totalWarningGroups: warningGroupIds.length,
+						coveredWarningGroups: warningGroupIds.length,
 						totalIssues,
 						coveredIssues: issueIds.length,
 						totalFindings,
 						coveredFindings: findingIds.length,
 						chunkCount: params.bundles.length,
+						warningGroupIdsSha256: sha256(JSON.stringify(warningGroupIds)),
 						issueIdsSha256: sha256(JSON.stringify(issueIds)),
 						findingIdsSha256: sha256(JSON.stringify(findingIds)),
 					},
+					warningGroups: buildWarningGroupAppendix(params.bundles),
 					...(params.providerRouting
 						? { providerRouting: params.providerRouting }
 						: {}),
-					promptAudits: generated.map((item) => ({
+					promptAudits: generated.map((item, index) => ({
 						promptMessages: item.audit.promptMessages,
 						promptSequenceHash: item.audit.promptSequenceHash,
 						responseContentSha256: item.responseContentSha256,
+						warningGroupCount:
+							params.bundles[index]?.grouping.warningGroupCount ?? 0,
+						renderedChars:
+							params.bundles[index]?.promptBudget.renderedChars ?? 0,
+						compressionTier:
+							params.bundles[index]?.promptBudget.maxCompressionTier ?? 0,
 					})),
 				},
 			});
@@ -326,10 +343,10 @@ export class ScanImprovementRequestRunner {
 			],
 			options: {
 				temperature: 0.1,
-				outputSchema: z.toJSONSchema(llmIssueImprovementRequestSchema),
+				outputSchema: z.toJSONSchema(llmWarningGroupImprovementRequestSchema),
 			},
 		});
-		const request = parseIssueChunkImprovementRequest(
+		const request = parseWarningGroupChunkImprovementRequest(
 			execution.response.content,
 			bundle,
 		);
@@ -357,9 +374,8 @@ export class ScanImprovementRequestRunner {
 			provider: "unresolved",
 			model: "unresolved",
 			status: "failed",
-			inputBundle: params.inputBundle ?? {
-				generationKind: "improvement_request",
-			},
+			inputBundle:
+				params.inputBundle ?? buildStartFailureInputBundle(params.error),
 			createdByUserId: params.createdByUserId,
 		});
 		await this.reviewRepository.updateReview(review.id, "failed", {
@@ -379,6 +395,19 @@ export class ScanImprovementRequestRunner {
 	}
 }
 
+function buildStartFailureInputBundle(error: unknown): Record<string, unknown> {
+	if (error instanceof ImprovementRequestPromptBudgetError) {
+		return {
+			generationKind: "improvement_request",
+			failure: {
+				code: error.code,
+				metrics: error.metrics,
+			},
+		};
+	}
+	return { generationKind: "improvement_request" };
+}
+
 function buildPersistedInputBundle(
 	bundles: ImprovementRequestIssueBundle[],
 ): Record<string, unknown> {
@@ -389,19 +418,50 @@ function buildPersistedInputBundle(
 		})),
 	);
 	const first = bundles[0];
+	const warningGroupManifest = bundles.flatMap((bundle) =>
+		bundle.warningGroupManifest.map((group) => ({
+			warningGroupId: group.warningGroupId,
+			stableKey: group.stableKey,
+			issueIds: group.issueIds,
+			memberFindingIds: group.memberFindingIds,
+			locationCount: group.locations.length,
+			severity: group.severity,
+		})),
+	);
 	return {
 		generationKind: "improvement_request",
 		scanRun: first?.scanRun,
 		project: first?.project,
 		grouping: first?.grouping,
+		rollup: first?.rollup,
+		promptBudget: {
+			targetChars: first?.promptBudget.targetChars ?? 0,
+			hardChars: first?.promptBudget.hardChars ?? 0,
+			maxRenderedChars: Math.max(
+				0,
+				...bundles.map((bundle) => bundle.promptBudget.renderedChars),
+			),
+			chunkRenderedChars: bundles.map(
+				(bundle) => bundle.promptBudget.renderedChars,
+			),
+			maxCompressionTier: Math.max(
+				0,
+				...bundles.map((bundle) => bundle.promptBudget.maxCompressionTier),
+			),
+		},
 		limits: {
+			totalWarningGroups: first?.grouping.totalWarningGroupCount ?? 0,
 			totalIssues: first?.grouping.issueCount ?? 0,
 			totalFindings: first?.grouping.rawFindingCount ?? 0,
+			includedWarningGroups: warningGroupManifest.length,
 			includedIssues: issueManifest.length,
-			chunkSize: 50,
 			chunkCount: bundles.length,
 		},
+		warningGroupManifest,
 		issueManifest,
+		warningGroupIdsSha256: sha256(
+			JSON.stringify(warningGroupManifest.map((group) => group.warningGroupId)),
+		),
 		issueIdsSha256: sha256(
 			JSON.stringify(issueManifest.map((issue) => issue.issueId)),
 		),
@@ -409,6 +469,103 @@ function buildPersistedInputBundle(
 			JSON.stringify(issueManifest.flatMap((issue) => issue.memberFindingIds)),
 		),
 	};
+}
+
+function buildWarningGroupAppendix(bundles: ImprovementRequestIssueBundle[]) {
+	return bundles.flatMap((bundle) => {
+		const manifestById = new Map(
+			bundle.warningGroupManifest.map((entry) => [entry.warningGroupId, entry]),
+		);
+		return bundle.warningGroups.map((group) => {
+			const manifest = manifestById.get(group.warningGroupId);
+			if (!manifest) {
+				throw new Error(
+					`warning_group_appendix_manifest_missing:${group.warningGroupId}`,
+				);
+			}
+			return {
+				warningGroupId: group.warningGroupId,
+				kind: group.kind,
+				issueKind: group.issueKind,
+				title: group.title,
+				severity: group.severity,
+				severityCounts: group.severityCounts,
+				occurrenceCount: group.occurrenceCount,
+				rawFindingCount: group.rawFindingCount,
+				locationCount: manifest.locations.length,
+				locations: manifest.locations,
+			};
+		});
+	});
+}
+
+function attachWarningGroupBindings(
+	request: ScanImprovementRequest,
+	bundles: ImprovementRequestIssueBundle[],
+): ScanImprovementRequest {
+	const severityByWarningGroupId = new Map(
+		bundles.flatMap((bundle) =>
+			bundle.warningGroupManifest.map(
+				(group) => [group.warningGroupId, group.severity] as const,
+			),
+		),
+	);
+	const warningGroupIdByIssueId = new Map(
+		bundles.flatMap((bundle) =>
+			bundle.warningGroupManifest.flatMap((group) =>
+				group.issueIds.map(
+					(issueId) => [issueId, group.warningGroupId] as const,
+				),
+			),
+		),
+	);
+	const expand = (issueIds: string[] | undefined) => [
+		...new Set(
+			(issueIds ?? []).flatMap((issueId) => {
+				const warningGroupId = warningGroupIdByIssueId.get(issueId);
+				return warningGroupId ? [warningGroupId] : [];
+			}),
+		),
+	];
+	return {
+		...request,
+		priorityPlan: request.priorityPlan.map((plan) => {
+			const warningGroupIds = expand(plan.issueIds);
+			return {
+				...plan,
+				priority: clampPriorityToSavedSeverity(
+					plan.priority,
+					warningGroupIds,
+					severityByWarningGroupId,
+				),
+				warningGroupIds,
+			};
+		}),
+		implementationTasks: request.implementationTasks.map((task) => ({
+			...task,
+			warningGroupIds: expand(task.issueIds),
+		})),
+	};
+}
+
+function clampPriorityToSavedSeverity(
+	priority: ScanImprovementRequest["priorityPlan"][number]["priority"],
+	warningGroupIds: string[],
+	severityByWarningGroupId: ReadonlyMap<string, string>,
+): ScanImprovementRequest["priorityPlan"][number]["priority"] {
+	if (warningGroupIds.length === 0) return priority;
+	const rank = { critical: 0, high: 1, medium: 2, low: 3 } as const;
+	const savedMaximum = warningGroupIds
+		.map((id) => severityByWarningGroupId.get(id))
+		.map((severity) =>
+			severity === "critical" || severity === "high" || severity === "medium"
+				? severity
+				: "low",
+		)
+		.sort((left, right) => rank[left] - rank[right])[0];
+	return savedMaximum && rank[priority] < rank[savedMaximum]
+		? savedMaximum
+		: priority;
 }
 
 function formatError(error: unknown): string {

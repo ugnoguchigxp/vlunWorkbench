@@ -1,7 +1,10 @@
 import { createHash } from "node:crypto";
 import { inArray } from "drizzle-orm";
 import {
-	IMPROVEMENT_ISSUE_CHUNK_SIZE,
+	IMPROVEMENT_PROMPT_HARD_CHARS,
+	IMPROVEMENT_PROMPT_TARGET_CHARS,
+	IMPROVEMENT_WARNING_ROLLUP_THRESHOLD,
+	IMPROVEMENT_WARNING_ROLLUP_VERSION,
 	MAX_EVIDENCE_PER_ISSUE,
 	MAX_EVIDENCE_SNIPPET_CHARS,
 	MAX_ISSUE_DESCRIPTION_CHARS,
@@ -9,12 +12,23 @@ import {
 } from "../../../../shared/schemas/finding-group.schema";
 import type { AppDatabase } from "../../../db";
 import { findingEvidences, findings } from "../../../db/schema";
+import { bindImprovementRequestUserMessage } from "../../../system-context/bindings";
 import { projectFindingDedupeIdentity } from "../findings/finding-dedupe-identity";
 import { redactSecrets } from "../findings/normalizers/redaction";
 import {
 	FindingGroupingRunner,
 	type GroupingSnapshotResult,
 } from "../findings/finding-grouping-runner";
+import {
+	ImprovementRequestPromptBudgetError,
+	packImprovementWarningGroups,
+} from "./scan-improvement-prompt-budget";
+import {
+	buildImprovementWarningGroups,
+	type ImprovementWarningGroupManifestEntry,
+	type ImprovementWarningGroupPrompt,
+	toImprovementWarningGroupPrompt,
+} from "./scan-improvement-warning-group";
 import { buildScanReviewBundle } from "./scan-review-bundle";
 
 type FindingRow = typeof findings.$inferSelect;
@@ -28,14 +42,40 @@ export class GroupingSnapshotUnavailableError extends Error {
 }
 
 export type ImprovementRequestIssueBundle = {
-	scanRun: Awaited<ReturnType<typeof buildScanReviewBundle>>["scanRun"];
-	project: Awaited<ReturnType<typeof buildScanReviewBundle>>["project"];
-	summary: Awaited<ReturnType<typeof buildScanReviewBundle>>["summary"];
-	tools: Awaited<ReturnType<typeof buildScanReviewBundle>>["tools"];
-	artifacts: Awaited<ReturnType<typeof buildScanReviewBundle>>["artifacts"];
-	verification: Awaited<
-		ReturnType<typeof buildScanReviewBundle>
-	>["verification"];
+	scanRun: {
+		id: string;
+		projectId: string;
+		profile: string;
+		status: string;
+		profileOutcome: string;
+		summary: string | null;
+	};
+	project: {
+		id: string;
+		name: string;
+		defaultBranch: string;
+	};
+	summary: {
+		totals: Record<string, unknown>;
+	};
+	tools: Array<{
+		id: string;
+		toolName: string;
+		toolVersion: string | null;
+		status: string;
+		exitCode: number | null;
+	}>;
+	artifacts: Array<{
+		id: string;
+		toolRunId: string | null;
+		kind: string;
+		format: string;
+	}>;
+	verification: {
+		reproductions: VerificationSummary;
+		dynamicRuns: VerificationSummary;
+		dastRuns: VerificationSummary;
+	};
 	grouping: {
 		runId: string;
 		findingSetHash: string;
@@ -45,11 +85,39 @@ export type ImprovementRequestIssueBundle = {
 		issueCount: number;
 		chunkOffset: number;
 		chunkCount: number;
+		warningGroupOffset: number;
+		warningGroupCount: number;
+		totalWarningGroupCount: number;
 	};
 	/** Persisted audit only. It is deliberately omitted from the LLM prompt. */
 	issueManifest: Array<{ issueId: string; memberFindingIds: string[] }>;
+	/** Persisted audit only. It is deliberately omitted from the LLM prompt. */
+	warningGroupManifest: ImprovementWarningGroupManifestEntry[];
+	/** Server-side validation only. It is deliberately omitted from the LLM prompt. */
 	issues: ImprovementRequestIssue[];
+	warningGroups: ImprovementWarningGroupPrompt[];
+	rollup: {
+		version: string;
+		threshold: number;
+		warningGroupCount: number;
+		rollupParentCount: number;
+		singletonCount: number;
+		locationChildCount: number;
+		manifestHash: string;
+	};
+	promptBudget: {
+		targetChars: number;
+		hardChars: number;
+		renderedChars: number;
+		maxCompressionTier: number;
+	};
 	limitations: string[];
+};
+
+type VerificationSummary = {
+	total: number;
+	statusCounts: Record<string, number>;
+	outcomeCounts: Record<string, number>;
 };
 
 export type ImprovementRequestIssue = {
@@ -73,6 +141,11 @@ export type ImprovementRequestIssue = {
 		location: Record<string, unknown> | null;
 		snippet: string | null;
 	}>;
+	identity: {
+		issueKind: ReturnType<typeof projectFindingDedupeIdentity>["issueKind"];
+		packageKey: string | null;
+		advisoryIds: string[];
+	};
 	grouping: {
 		confidence: "exact" | "high" | "singleton";
 		reasonCodes: string[];
@@ -80,8 +153,9 @@ export type ImprovementRequestIssue = {
 };
 
 /**
- * Creates prompt-sized, issue-first chunks from one immutable grouping snapshot.
- * A raw finding is never used as the chunk boundary, so a group cannot be split.
+ * Creates prompt-sized warning-group chunks from one immutable grouping snapshot.
+ * A raw finding or location child is never used as a chunk boundary, so one
+ * warning parent cannot be split across provider calls.
  */
 export async function buildImprovementRequestIssueBundles(
 	db: AppDatabase,
@@ -127,37 +201,230 @@ export async function buildImprovementRequestIssueBundles(
 		buildIssue(group, byFindingId, evidenceByFindingId),
 	);
 	const orderedIssues = [...issues].sort(compareIssues);
-	const chunks = chunk(orderedIssues, IMPROVEMENT_ISSUE_CHUNK_SIZE);
-	const { findings: _rawFindings, limits: _rawLimits, ...sharedContext } = base;
-	return chunks.map((chunkIssues, index) => ({
-		...sharedContext,
-		grouping: {
-			runId: snapshot.grouping.runId as string,
-			findingSetHash: snapshot.grouping.findingSetHash as string,
-			snapshotHash: snapshot.grouping.snapshotHash as string,
-			algorithmVersion: snapshot.grouping.algorithmVersion,
-			rawFindingCount: snapshot.grouping.rawFindingCount,
-			issueCount: snapshot.grouping.issueCount,
-			chunkOffset: index * IMPROVEMENT_ISSUE_CHUNK_SIZE,
-			chunkCount: chunks.length,
-		},
-		issueManifest: chunkIssues.map((issue) => ({
-			issueId: issue.issueId,
-			memberFindingIds:
-				snapshot.groups.find((group) => group.id === issue.issueId)
-					?.findingIds ?? [],
-		})),
-		issues: chunkIssues,
-		limitations: snapshot.grouping.limitations,
+	const allIssueManifest = snapshot.groups.map((group) => ({
+		issueId: group.id,
+		memberFindingIds: group.findingIds,
 	}));
+	const memberFindingIdsByIssueId = new Map(
+		allIssueManifest.map((entry) => [entry.issueId, entry.memberFindingIds]),
+	);
+	const warningGroupResult = buildImprovementWarningGroups(
+		orderedIssues,
+		memberFindingIdsByIssueId,
+	);
+	const warningGroups = warningGroupResult.groups.map(
+		toImprovementWarningGroupPrompt,
+	);
+	const sharedContext = compactSharedContext(base);
+	const rollup = {
+		version: IMPROVEMENT_WARNING_ROLLUP_VERSION,
+		threshold: IMPROVEMENT_WARNING_ROLLUP_THRESHOLD,
+		warningGroupCount: warningGroups.length,
+		rollupParentCount: warningGroupResult.rollupParentCount,
+		singletonCount: warningGroupResult.singletonCount,
+		locationChildCount: warningGroupResult.locationChildCount,
+		manifestHash: warningGroupResult.manifestHash,
+	};
+	const render = (
+		chunkGroups: ImprovementWarningGroupPrompt[],
+		warningGroupOffset: number,
+		_chunkIndex: number,
+		chunkCount: number,
+	) =>
+		bindImprovementRequestUserMessage({
+			...sharedContext,
+			grouping: {
+				runId: snapshot.grouping.runId,
+				findingSetHash: snapshot.grouping.findingSetHash,
+				snapshotHash: snapshot.grouping.snapshotHash,
+				algorithmVersion: snapshot.grouping.algorithmVersion,
+				rawFindingCount: snapshot.grouping.rawFindingCount,
+				issueCount: snapshot.grouping.issueCount,
+				chunkOffset: 999_999,
+				chunkCount,
+				warningGroupOffset,
+				warningGroupCount: chunkGroups.length,
+				totalWarningGroupCount: warningGroups.length,
+			},
+			warningGroups: chunkGroups,
+			rollup,
+			promptBudget: {
+				targetChars: IMPROVEMENT_PROMPT_TARGET_CHARS,
+				hardChars: IMPROVEMENT_PROMPT_HARD_CHARS,
+				renderedChars: 999_999,
+				maxCompressionTier: maximumCompressionTier(chunkGroups),
+			},
+			limitations: snapshot.grouping.limitations,
+		}).content.text;
+	const packed = packImprovementWarningGroups({ warningGroups, render });
+	const issueById = new Map(
+		orderedIssues.map((issue) => [issue.issueId, issue]),
+	);
+	const issueManifestById = new Map(
+		allIssueManifest.map((entry) => [entry.issueId, entry]),
+	);
+	let issueOffset = 0;
+	return packed.map((chunk, index) => {
+		const warningGroupIds = new Set(
+			chunk.warningGroups.map((group) => group.warningGroupId),
+		);
+		const warningGroupManifest = warningGroupResult.manifest.filter((entry) =>
+			warningGroupIds.has(entry.warningGroupId),
+		);
+		const issueIds = warningGroupManifest.flatMap((entry) => entry.issueIds);
+		const chunkIssues = issueIds.map((issueId) => {
+			const issue = issueById.get(issueId);
+			if (!issue) throw new Error(`warning_group_issue_missing:${issueId}`);
+			return issue;
+		});
+		const issueManifest = issueIds.map((issueId) => {
+			const entry = issueManifestById.get(issueId);
+			if (!entry)
+				throw new Error(`warning_group_issue_manifest_missing:${issueId}`);
+			return entry;
+		});
+		const bundle = withStableRenderedChars({
+			...sharedContext,
+			grouping: {
+				runId: snapshot.grouping.runId as string,
+				findingSetHash: snapshot.grouping.findingSetHash as string,
+				snapshotHash: snapshot.grouping.snapshotHash as string,
+				algorithmVersion: snapshot.grouping.algorithmVersion,
+				rawFindingCount: snapshot.grouping.rawFindingCount,
+				issueCount: snapshot.grouping.issueCount,
+				chunkOffset: issueOffset,
+				chunkCount: packed.length,
+				warningGroupOffset: chunk.warningGroupOffset,
+				warningGroupCount: chunk.warningGroups.length,
+				totalWarningGroupCount: warningGroups.length,
+			},
+			issueManifest,
+			warningGroupManifest,
+			issues: chunkIssues,
+			warningGroups: chunk.warningGroups,
+			rollup,
+			promptBudget: {
+				targetChars: IMPROVEMENT_PROMPT_TARGET_CHARS,
+				hardChars: IMPROVEMENT_PROMPT_HARD_CHARS,
+				renderedChars: 0,
+				maxCompressionTier: maximumCompressionTier(chunk.warningGroups),
+			},
+			limitations: snapshot.grouping.limitations,
+		});
+		issueOffset += issueIds.length;
+		if (bundle.promptBudget.renderedChars > IMPROVEMENT_PROMPT_HARD_CHARS) {
+			throw new ImprovementRequestPromptBudgetError({
+				chunk: index,
+				renderedChars: bundle.promptBudget.renderedChars,
+				hardLimit: IMPROVEMENT_PROMPT_HARD_CHARS,
+				largestWarningGroupLocations: Math.max(
+					0,
+					...bundle.warningGroups.map((group) => group.locationSummary.total),
+				),
+				compressionTier: bundle.promptBudget.maxCompressionTier,
+			});
+		}
+		return bundle;
+	});
 }
 
 /** Removes server-side raw finding membership before binding untrusted prompt JSON. */
 export function toImprovementRequestPromptBundle(
 	bundle: ImprovementRequestIssueBundle,
-): Omit<ImprovementRequestIssueBundle, "issueManifest"> {
-	const { issueManifest: _issueManifest, ...promptBundle } = bundle;
+): Omit<
+	ImprovementRequestIssueBundle,
+	"issueManifest" | "warningGroupManifest" | "issues"
+> {
+	const {
+		issueManifest: _issueManifest,
+		warningGroupManifest: _warningGroupManifest,
+		issues: _issues,
+		...promptBundle
+	} = bundle;
 	return promptBundle;
+}
+
+function compactSharedContext(
+	base: Awaited<ReturnType<typeof buildScanReviewBundle>>,
+): Pick<
+	ImprovementRequestIssueBundle,
+	"scanRun" | "project" | "summary" | "tools" | "artifacts" | "verification"
+> {
+	return {
+		scanRun: {
+			id: base.scanRun.id,
+			projectId: base.scanRun.projectId,
+			profile: base.scanRun.profile,
+			status: base.scanRun.status,
+			profileOutcome: base.scanRun.profileOutcome,
+			summary: truncate(base.scanRun.summary, 500) || null,
+		},
+		project: base.project,
+		summary: { totals: base.summary.totals as Record<string, unknown> },
+		tools: base.tools.map((tool) => ({
+			id: tool.id,
+			toolName: tool.toolName,
+			toolVersion: tool.toolVersion,
+			status: tool.status,
+			exitCode: tool.exitCode,
+		})),
+		artifacts: base.artifacts.map((artifact) => ({
+			id: artifact.id,
+			toolRunId: artifact.toolRunId,
+			kind: artifact.kind,
+			format: artifact.format,
+		})),
+		verification: {
+			reproductions: summarizeVerification(base.verification.reproductions),
+			dynamicRuns: summarizeVerification(base.verification.dynamicRuns),
+			dastRuns: summarizeVerification(base.verification.dastRuns),
+		},
+	};
+}
+
+function summarizeVerification(
+	rows: Array<{ status: string; outcome?: string | null }>,
+): VerificationSummary {
+	const statusCounts: Record<string, number> = {};
+	const outcomeCounts: Record<string, number> = {};
+	for (const row of rows) {
+		statusCounts[row.status] = (statusCounts[row.status] ?? 0) + 1;
+		if (row.outcome) {
+			outcomeCounts[row.outcome] = (outcomeCounts[row.outcome] ?? 0) + 1;
+		}
+	}
+	return { total: rows.length, statusCounts, outcomeCounts };
+}
+
+function maximumCompressionTier(
+	groups: ImprovementWarningGroupPrompt[],
+): number {
+	return groups.reduce(
+		(maximum, group) => Math.max(maximum, group.compressionTier),
+		0,
+	);
+}
+
+function withStableRenderedChars(
+	bundle: ImprovementRequestIssueBundle,
+): ImprovementRequestIssueBundle {
+	let renderedChars = 0;
+	let candidate = bundle;
+	for (let attempt = 0; attempt < 4; attempt += 1) {
+		candidate = {
+			...bundle,
+			promptBudget: { ...bundle.promptBudget, renderedChars },
+		};
+		const next = bindImprovementRequestUserMessage(
+			toImprovementRequestPromptBundle(candidate),
+		).content.text.length;
+		if (next === renderedChars) return candidate;
+		renderedChars = next;
+	}
+	return {
+		...bundle,
+		promptBudget: { ...bundle.promptBudget, renderedChars },
+	};
 }
 
 function buildIssue(
@@ -196,6 +463,11 @@ function buildIssue(
 				})),
 			),
 		),
+		identity: {
+			issueKind: identity.issueKind,
+			packageKey: identity.packageKey,
+			advisoryIds: identity.advisoryIds,
+		},
 		grouping: {
 			confidence: group.matchConfidence,
 			reasonCodes: group.reasonCodes,
@@ -275,13 +547,6 @@ function compareIssues(
 	const rightPath = String(right.location.path ?? "");
 	const path = leftPath.localeCompare(rightPath);
 	return path !== 0 ? path : left.issueId.localeCompare(right.issueId);
-}
-
-function chunk<T>(values: T[], size: number): T[][] {
-	if (values.length === 0) return [[]];
-	return Array.from({ length: Math.ceil(values.length / size) }, (_, index) =>
-		values.slice(index * size, (index + 1) * size),
-	);
 }
 
 function truncate(value: string | null | undefined, max: number): string {

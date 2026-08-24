@@ -52,8 +52,7 @@ export function ScanImprovementRequestGenerator({
 					<span className="scan-review-context-label">検出結果を一括整理</span>
 					<h3>LLMへの改修依頼指示書</h3>
 					<p>
-						重複を統合した issue
-						と保存済み証跡をまとめ、実装担当のLLMへ渡せる指示書を生成します。
+						10件以上の同じ警告は親と対象場所にまとめ、保存済み証跡から実装担当のLLMへ渡せる指示書を生成します。
 					</p>
 				</div>
 				<Button

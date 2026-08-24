@@ -441,12 +441,14 @@ export type ScanImprovementRequest = {
 		rationale: string;
 		findingIds: string[];
 		issueIds?: string[];
+		warningGroupIds?: string[];
 	}>;
 	implementationTasks: Array<{
 		title: string;
 		body: string;
 		findingIds: string[];
 		issueIds?: string[];
+		warningGroupIds?: string[];
 		evidenceRefs: string[];
 	}>;
 	acceptanceCriteria: string[];

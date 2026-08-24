@@ -19,7 +19,11 @@ export function ScanImprovementRequestPanel({
 	);
 	const request = view.request;
 	if (!view.available || !request) return null;
-	const markdown = buildScanImprovementRequestMarkdown(request);
+	const markdown = buildScanImprovementRequestMarkdown(
+		request,
+		[],
+		view.warningGroups,
+	);
 	const copyHandoffPrompt = async () => {
 		if (typeof navigator === "undefined" || !navigator.clipboard) {
 			setCopyStatus("failed");
@@ -37,7 +41,18 @@ export function ScanImprovementRequestPanel({
 		const url = URL.createObjectURL(blob);
 		const anchor = document.createElement("a");
 		anchor.href = url;
-		anchor.download = `${view.title || "scan-handoff"}.md`;
+		anchor.download = `${safeExportName(view.title)}.md`;
+		anchor.click();
+		URL.revokeObjectURL(url);
+	};
+	const exportWarningGroups = () => {
+		const blob = new Blob([JSON.stringify(view.warningGroups, null, 2)], {
+			type: "application/json;charset=utf-8",
+		});
+		const url = URL.createObjectURL(blob);
+		const anchor = document.createElement("a");
+		anchor.href = url;
+		anchor.download = `${safeExportName(view.title)}-warning-locations.json`;
 		anchor.click();
 		URL.revokeObjectURL(url);
 	};
@@ -56,6 +71,16 @@ export function ScanImprovementRequestPanel({
 					<Download className="icon" />
 					Markdown 出力
 				</Button>
+				{view.warningGroups.length > 0 ? (
+					<Button
+						type="button"
+						variant="secondary"
+						onClick={exportWarningGroups}
+					>
+						<Download className="icon" />
+						場所一覧 JSON
+					</Button>
+				) : null}
 			</div>
 			{copyStatus === "failed" ? (
 				<p className="workspace-inline-error" role="status">
@@ -69,4 +94,16 @@ export function ScanImprovementRequestPanel({
 			/>
 		</section>
 	);
+}
+
+function safeExportName(value: string): string {
+	const withoutControlCharacters = Array.from(value, (character) =>
+		character.charCodeAt(0) < 32 ? "-" : character,
+	).join("");
+	const normalized = withoutControlCharacters
+		.replaceAll(/[<>:"/\\|?*]+/g, "-")
+		.replaceAll(/\s+/g, " ")
+		.trim()
+		.slice(0, 80);
+	return normalized || "scan-handoff";
 }

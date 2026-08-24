@@ -151,4 +151,19 @@ describe("ScanImprovementRequestGenerator", () => {
 		expect(markup).not.toContain("指示書を生成中");
 		expect(markup).not.toContain("改修タスクと受け入れ条件を作成しています");
 	});
+
+	it("shows prompt budget failures as an input-size error", () => {
+		const failed = {
+			...review(0, 314),
+			status: "failed" as const,
+			output: undefined,
+			errorMessage:
+				"improvement_request_prompt_budget_exceeded: renderedChars=60001 hardLimit=60000",
+		};
+		const markup = render([failed]);
+
+		expect(markup).toContain("入力サイズ超過");
+		expect(markup).toContain("警告の圧縮後も上限を超えました");
+		expect(markup).not.toContain("不明なエラー");
+	});
 });

@@ -298,6 +298,8 @@ export type CreateFindingDecisionInput = z.infer<
 >;
 
 // --- Scan Review ---
+const warningGroupIdSchema = z.string().regex(/^wg-\d{6}$/);
+
 export const scanImprovementRequestSchema = z.object({
 	title: z.string().min(1).max(200),
 	objective: z.string().min(1).max(2000),
@@ -310,6 +312,8 @@ export const scanImprovementRequestSchema = z.object({
 				findingIds: z.array(z.string().uuid()).max(5000),
 				/** Source issue IDs for new issue-first requests; finding IDs remain audit data. */
 				issueIds: z.array(z.string().uuid()).max(5000).optional(),
+				/** Safe parent IDs used to correlate compact warning appendices. */
+				warningGroupIds: z.array(warningGroupIdSchema).max(5000).optional(),
 			}),
 		)
 		.max(20),
@@ -321,6 +325,8 @@ export const scanImprovementRequestSchema = z.object({
 				findingIds: z.array(z.string().uuid()).max(5000),
 				/** Source issue IDs for new issue-first requests; finding IDs remain audit data. */
 				issueIds: z.array(z.string().uuid()).max(5000).optional(),
+				/** Safe parent IDs used to correlate compact warning appendices. */
+				warningGroupIds: z.array(warningGroupIdSchema).max(5000).optional(),
 				evidenceRefs: z.array(z.string().min(1).max(200)).max(50),
 			}),
 		)
@@ -376,6 +382,49 @@ export const llmIssueImprovementRequestSchema = z
 	.strict();
 export type LlmIssueImprovementRequest = z.infer<
 	typeof llmIssueImprovementRequestSchema
+>;
+
+/**
+ * Compact LLM contract for improvement-request warning groups. The server maps
+ * these short IDs back to saved issue/finding membership after validation.
+ */
+export const llmWarningGroupImprovementRequestSchema = z
+	.object({
+		title: z.string().min(1).max(200),
+		objective: z.string().min(1).max(2000),
+		scope: z.array(z.string().min(1).max(1000)).max(20),
+		priorityPlan: z
+			.array(
+				z
+					.object({
+						priority: z.enum(["critical", "high", "medium", "low"]),
+						rationale: z.string().min(1).max(1000),
+						warningGroupIds: z.array(warningGroupIdSchema).max(5000),
+					})
+					.strict(),
+			)
+			.max(20),
+		implementationTasks: z
+			.array(
+				z
+					.object({
+						title: z.string().min(1).max(200),
+						body: z.string().min(1).max(2000),
+						warningGroupIds: z.array(warningGroupIdSchema).max(5000),
+						evidenceRefs: z.array(z.string().min(1).max(200)).max(50),
+					})
+					.strict(),
+			)
+			.max(30),
+		acceptanceCriteria: z.array(z.string().min(1).max(1000)).max(20),
+		verificationCommands: z.array(z.string().min(1).max(500)).max(20),
+		constraints: z.array(z.string().min(1).max(1000)).max(20),
+		nonGoals: z.array(z.string().min(1).max(1000)).max(20),
+		handoffPrompt: z.string().min(1).max(6000),
+	})
+	.strict();
+export type LlmWarningGroupImprovementRequest = z.infer<
+	typeof llmWarningGroupImprovementRequestSchema
 >;
 
 export const scanReviewFindingFilterSchema = z

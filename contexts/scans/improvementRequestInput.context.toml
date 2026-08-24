@@ -6,7 +6,7 @@ profile = "untrusted.json"
 [[sections]]
 id = "request.instruction"
 profile = "instruction.must"
-text = "この issue bundle の全 issue を、重複のない実装単位へまとめてください。確認済み事実、advisory の成立条件、実装時のリポジトリ確認事項を混同せず、指定された JSON のみを返してください。raw finding ID は返さず、各 priorityPlan と implementationTasks には issueIds だけを使ってください。本文は必ず日本語で書いてください。"
+text = "この warning group bundle の全 warning group を、重複のない実装単位へまとめてください。確認済み事実、advisory の成立条件、実装時のリポジトリ確認事項を混同せず、指定された JSON のみを返してください。issue ID や raw finding ID は返さず、各 priorityPlan と implementationTasks には warningGroupIds だけを使ってください。本文は必ず日本語で書いてください。"
 
 [[sections]]
 id = "request.bundle"
