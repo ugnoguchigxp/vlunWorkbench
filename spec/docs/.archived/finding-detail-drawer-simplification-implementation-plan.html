@@ -1,0 +1,680 @@
+<article lang="ja" data-spec-role="archived-plan">
+  <h1 id="finding-detail-drawer-simplification-implementation-plan">
+    Finding詳細Drawer簡素化 実装計画書
+  </h1>
+
+  <h2 id="status">1. ステータス</h2>
+  <ul>
+    <li>作成日: 2026-08-24</li>
+    <li>最終レビュー日: 2026-08-24</li>
+    <li>対象ベースライン: <code>1fcf734134f4e3d5d91dc3601a05e0280644d8ff</code></li>
+    <li>対象画面: Scansのfinding詳細Drawer</li>
+    <li>状態: Implemented and archived — 2026-08-24</li>
+    <li>主対象: React / TypeScript / CSSによる表示専用の簡素化</li>
+    <li>公開API・DB migration・scanner変更: なし</li>
+  </ul>
+  <p>
+    この文書は、finding詳細Drawerを「検出された問題、重大度、検出位置、保存済みの観測事実を
+    確認する画面」へ整理するための規範仕様である。実装担当は、本文に記載していない値や機能を
+    補わず、Work Package 0から順番に実装する。
+  </p>
+
+  <h3 id="review-conclusion">1.1 ドキュメントレビューの結論</h3>
+  <p>
+    改訂前の計画は目的と対象外が妥当だった一方、相対URLとsource pathの判定、evidenceの選択順、
+    表示modelとUIの責務、既存Markdown componentの移設、testの所有範囲に実装判断が残っていた。
+    本改訂では、その判断を3章の規範仕様と4章の実装順序へ集約した。
+  </p>
+  <ul>
+    <li>画像内の例示値を実データとして固定表示しない。</li>
+    <li>値を取得できない項目は推測せず、項目自体を表示しない。</li>
+    <li>既存の検証tab以外に、新しい検証導線を作らない。</li>
+    <li>review・Decisionの非表示に伴う通信やcontrollerの整理は行わない。</li>
+    <li>API responseとモックアップが競合する場合は、保存済みAPI responseを優先する。</li>
+  </ul>
+
+  <h3 id="baseline-verification">1.2 変更前ベースライン</h3>
+  <table>
+    <caption>
+      2026-08-24時点の確認結果
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">確認</th>
+        <th scope="col">結果</th>
+        <th scope="col">実装後の扱い</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>finding-detail-panel.test.ts</code></td>
+        <td>2 tests passed</td>
+        <td>Markdownの安全性と構造化表示を維持する。</td>
+      </tr>
+      <tr>
+        <td><code>bun run build:web</code></td>
+        <td>成功</td>
+        <td>実装後も成功を必須とする。</td>
+      </tr>
+      <tr>
+        <td><code>bun run typecheck:app</code></td>
+        <td>別タスクの設定画面変更により失敗</td>
+        <td>既知の設定画面エラー以外を増やさない。既知エラー解消後は全体成功を必須とする。</td>
+      </tr>
+      <tr>
+        <td><code>GET /api/findings/:findingId</code></td>
+        <td>finding、evidence、latestReview、latestDecisionを返す</td>
+        <td>response契約を変更しない。</td>
+      </tr>
+      <tr>
+        <td>verification data</td>
+        <td>既存の「検証」tab選択時に取得する</td>
+        <td>取得タイミングと既存UIを変更しない。</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3 id="worktree-guard">1.3 作業ツリー保護</h3>
+  <p>
+    実装開始時に<code>git status --short</code>を採取する。特に
+    <code>web/src/styles-scans.css</code
+    >には先行するspinner修正があるため、Drawer用selectorだけを
+    編集し、無関係な差分を整形・rollback・上書きしない。設定画面、runtime isolation、scanner
+    scriptの既存変更は本タスクの対象外とする。
+  </p>
+
+  <h2 id="use-when">2. Use when</h2>
+  <p>次の条件をすべて満たす変更に本計画を使用する。</p>
+  <ul>
+    <li>finding詳細Drawerの概要表示を簡素化する。</li>
+    <li>利用者がfinding名、重大度、検出位置を最初のviewportで確認できるようにする。</li>
+    <li>source findingでは、保存済みの場合だけプロジェクト相対pathと行番号を表示する。</li>
+    <li>Web findingでは、保存済みの場合だけoriginを除いたURL pathとHTTP methodを表示する。</li>
+    <li>保存済みevidenceに具体的な観測値がある場合だけ、一件を短く表示する。</li>
+    <li>review、修正管理、Decision、report workflowをDrawerの概要から外す。</li>
+  </ul>
+
+  <h3 id="reference-mockup">2.1 参照モックアップ</h3>
+  <figure>
+    <a href="../../assets/ui-mockups/finding-detail-drawer-simplified.png">
+      <img
+        src="../../assets/ui-mockups/finding-detail-drawer-simplified.png"
+        alt="脆弱性内容、重大度、検出事実を中心に整理したfinding詳細Drawer案"
+      />
+    </a>
+    <figcaption>情報階層と視覚密度だけを参照する。画像内の値と操作は実装仕様ではない。</figcaption>
+  </figure>
+  <p>次の画像要素は実装しない。</p>
+  <ul>
+    <li>
+      <code>GET /</code>、CSP
+      header、tool確度など、画像内の例示値の固定表示。
+    </li>
+    <li>新規の「検証タブで確認」button。</li>
+    <li>実データがない場合の「観測済み」「未検証」などの推測状態。</li>
+    <li>scanner responseに存在しないfinding固有の影響説明。</li>
+  </ul>
+
+  <h2 id="normative-specification">3. 規範仕様</h2>
+
+  <h3 id="component-boundaries">3.1 Component境界</h3>
+  <table>
+    <caption>
+      変更するcomponentと責務
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">ファイル</th>
+        <th scope="col">責務</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>web/src/domains/scans/findings/finding-detail-view-model.ts</code></td>
+        <td>新規。保存済みfindingとevidenceから表示専用modelを構築する純粋関数。</td>
+      </tr>
+      <tr>
+        <td><code>web/src/domains/scans/findings/finding-detail-overview.tsx</code></td>
+        <td>新規。表示専用modelだけをpropsで受ける概要component。</td>
+      </tr>
+      <tr>
+        <td><code>web/src/domains/scans/findings/finding-detail-panel.tsx</code></td>
+        <td>Drawer、header、tab、loadingを組み立て、表示専用modelをoverviewへ渡す。</td>
+      </tr>
+      <tr>
+        <td><code>web/src/styles-scans.css</code></td>
+        <td>overview、location、observation、technical detailsの局所style。</td>
+      </tr>
+    </tbody>
+  </table>
+  <ul>
+    <li>
+      <code>FindingDescriptionMarkdown</code
+      >は<code>finding-detail-overview.tsx</code>へ移し、既存の
+      Markdown安全性testのimport先も変更する。
+    </li>
+    <li>
+      <code>FindingDetailDrawer</code>は、詳細取得後に
+      <code>buildFindingDetailViewModel</code
+      >を一度呼び、その戻り値をheaderとoverviewで共有する。
+    </li>
+    <li>
+      <code>projectRoot</code
+      >には<code>c.selectedProject?.repoPath ?? null</code>を渡す。
+    </li>
+    <li>
+      詳細取得前のheaderは、<code>c.findings</code>から<code>selectedFindingId</code>に一致するfindingを探し、
+      titleとseverityだけを先行表示する。一覧にもなければtitleを「finding 詳細」とする。
+    </li>
+    <li>
+      review、Decision、remediation、report、handoffのcomponent、API、state、loaderは削除・変更しない。
+    </li>
+  </ul>
+
+  <h3 id="view-model-contract">3.2 表示model契約</h3>
+  <pre><code class="language-ts">export type FindingDetailViewModel = {
+  title: string;
+  description: string;
+  severity: Finding["severity"];
+  location:
+    | { kind: "web"; path: string; method: string | null }
+    | { kind: "source"; path: string; line: number | null }
+    | null;
+  observation: {
+    text: string;
+    truncated: boolean;
+  } | null;
+  technical: {
+    sourceTool: string;
+    ruleId: string;
+    toolConfidence: string | null;
+    cweIds: string[];
+    wascIds: string[];
+    artifacts: Array&lt;{
+      id: string;
+      label: string;
+      href: string;
+    }&gt;;
+  };
+};
+
+export function buildFindingDetailViewModel(input: {
+  finding: Finding;
+  evidence: readonly FindingEvidence[];
+  projectRoot: string | null;
+}): FindingDetailViewModel;</code></pre>
+  <ul>
+    <li>関数はReact、DOM、network、controllerへ依存しない。</li>
+    <li>入力objectを変更しない。</li>
+    <li>
+      不正な任意値は<code>null</code>または空配列へ落とし、例外でDrawer全体を失敗させない。
+    </li>
+    <li>titleは<code>formatFindingTitle</code>で既存の日本語表示を再利用する。</li>
+    <li>severityの昇格・降格、priorityへの変換、CVSS計算は行わない。</li>
+  </ul>
+
+  <h3 id="location-derivation">3.3 検出位置の導出</h3>
+  <p>
+    evidenceは<code>createdAt</code>昇順、同値なら<code>id</code>昇順に並べる。locationは次の順で
+    最初に安全に解釈できた一件だけを採用する。
+  </p>
+  <ol>
+    <li>evidenceの<code>location.url</code>にあるHTTP(S) URL。</li>
+    <li><code>primaryLocation.url</code>にあるHTTP(S) URL。</li>
+    <li>
+      <code>kind === "url"</code
+      >または<code>origin</code>を持つlocationの<code>path</code>。
+    </li>
+    <li>HTTP(S) URLになっている<code>primaryLocation.path</code>。</li>
+    <li>Web scannerの<code>primaryLocation.path</code>。</li>
+    <li><code>primaryLocation</code>のsource path。</li>
+    <li><code>source-location</code> evidenceのsource path。</li>
+  </ol>
+
+  <h4 id="web-location">3.3.1 Web location</h4>
+  <p>
+    Web
+    scanner判定は、lowercase化した<code>sourceTool</code>が次のいずれかの場合に限る。
+  </p>
+  <pre><code class="language-ts">const WEB_FINDING_TOOLS = new Set([
+  "zap-baseline",
+  "nuclei-safe",
+  "zap-active",
+  "dast-http",
+  "dast-browser",
+  "schemathesis",
+  "business-logic",
+  "authorization-matrix",
+]);</code></pre>
+  <ul>
+    <li>
+      絶対URLは<code>http:</code>または<code>https:</code>だけを受け入れる。
+    </li>
+    <li>
+      表示値は<code>pathname || "/"</code>とし、origin、credential、query、fragmentを捨てる。
+    </li>
+    <li>
+      相対URLは<code>new URL(value, "http://scope.invalid")</code>で解析し、得たpathnameを既存の
+      <code>normalizeRelativeHttpPath</code>で検証する。
+    </li>
+    <li>
+      <code>{ kind: "url", origin, path }</code
+      >ではoriginを表示せず、pathだけを同じ規則で検証する。
+    </li>
+    <li>
+      methodは、採用したlocationの<code>method</code>、次に<code>finding.metadata.method</code>を読む。
+      1〜16文字の英字またはhyphenだけを受け入れてuppercase化する。
+    </li>
+    <li>保存済みmethodがない場合に<code>GET</code>を補完しない。</li>
+    <li>Web scannerのpathをWeb locationとして解釈できなければ、source pathへfallbackしない。</li>
+  </ul>
+
+  <h4 id="source-location">3.3.2 Source location</h4>
+  <ul>
+    <li>
+      同じlocation内では<code>path</code>、<code>file</code>、<code>uri</code>の順に読む。
+    </li>
+    <li>
+      slashを<code>/</code>へ統一し、先頭の<code>./</code>と各<code>.</code>segmentを除去する。
+    </li>
+    <li>空値、制御文字、<code>..</code>segmentを含む値は拒否する。</li>
+    <li>相対pathは末尾を省略せず、プロジェクト相対path全体を表示する。</li>
+    <li>
+      UnixまたはWindows形式の絶対pathは、同じ規則で正規化した<code>projectRoot</code>と一致するか、
+      <code>projectRoot + "/"</code
+      >で始まる場合だけ相対化する。範囲外なら非表示にする。
+    </li>
+    <li>
+      <code>file://</code>
+      URIはURLとして解析してから、同じprojectRoot境界を適用する。
+    </li>
+    <li>
+      行番号は採用したlocationの<code>startLine</code>、次に<code>line</code>を読む。
+    </li>
+    <li>numberまたは10進整数文字列から得た正の整数だけを表示する。</li>
+    <li>既存の<code>shortPath</code>は使用しない。</li>
+  </ul>
+
+  <h3 id="description-observation">3.4 検出内容と観測値</h3>
+  <h4 id="description-rules">3.4.1 検出内容</h4>
+  <ul>
+    <li><code>finding.description</code>を正とし、DB値を変更しない。</li>
+    <li>
+      既存のread-only <code>MarkdownEditor</code>を使い、unsafe HTMLとunsafe
+      linkの除去を維持する。
+    </li>
+    <li>
+      <code>sourceTool</code
+      >が<code>zap-baseline</code>または<code>zap-active</code>の場合だけ、最初の
+      <code>\n\nSolution:</code>以降を表示用descriptionから除外する。
+    </li>
+    <li>除外前の部分が空になる場合は元descriptionを使う。</li>
+    <li>自動翻訳、LLM要約、影響説明、修正案を追加しない。</li>
+  </ul>
+
+  <h4 id="observation-rules">3.4.2 検出した事実</h4>
+  <ol>
+    <li>
+      source locationでは<code>source-location</code>、Web
+      locationでは<code>tool-output</code>、locationなしでは
+      <code>source-location</code>を優先する。
+    </li>
+    <li>優先kindに非空snippetがなければ、もう一方のkindを確認する。</li>
+    <li><code>scan-log</code>は観測値として使用しない。</li>
+    <li>
+      tool-output snippetがJSON
+      objectで、非空の<code>evidence</code>文字列を持つ場合はその値だけを使う。
+    </li>
+    <li>
+      JSON解析に失敗した場合、または<code>evidence</code>がない場合は元snippetを使う。
+    </li>
+    <li>前後の空白を除去し、descriptionと完全一致する値は重複表示しない。</li>
+    <li>
+      Unicode文字単位で先頭2,000文字を上限とする。超過時は<code>truncated: true</code>を返し、UIに
+      「先頭2,000文字を表示」と明記する。
+    </li>
+    <li>観測値がなければ空cardや「不明」を表示せず、sectionを省略する。</li>
+  </ol>
+
+  <h3 id="technical-details">3.5 技術詳細</h3>
+  <p>
+    通常の読み順を妨げないよう、native
+    <code>details</code>を閉じた状態で表示する。
+  </p>
+  <ul>
+    <li>source toolとrule IDは常に表示する。</li>
+    <li>
+      ZAPの<code>metadata.zapConfidenceLabel</code>は、<code>False Positive</code>、<code>Low</code>、
+      <code>Medium</code
+      >、<code>High</code>、<code>Confirmed</code>のいずれかだけを
+      「ツール確度（scanner申告）」として表示する。
+    </li>
+    <li><code>finding.confidence === "static"</code>をtool確度や真陽性確率として表示しない。</li>
+    <li>
+      CWEは<code>metadata.cweId</code>と<code>metadata.risk.cweIds</code>、WASCは
+      <code>metadata.wascId</code
+      >から、非空文字列または正数を文字列化して重複排除する。
+    </li>
+    <li>
+      artifactは整列済みevidenceから<code>artifactId</code>単位で重複排除し、最初のtitleをlabelに使う。
+      空titleは<code>artifact ${artifactId.slice(0, 8)}</code>とする。
+    </li>
+    <li>hrefは既存の<code>/api/scans/${scanRunId}/artifacts/${artifactId}/download</code>を使用する。</li>
+    <li>観測値として選ばなかったsnippet、metadata JSON全体、fingerprint、内部IDは表示しない。</li>
+  </ul>
+
+  <h3 id="ui-contract">3.6 UI契約</h3>
+  <ol>
+    <li>Header: finding title、重大度badge、close button。</li>
+    <li>Tabs: 「概要」「検証」。</li>
+    <li>概要の必須section: 「検出内容」。</li>
+    <li>条件付きsection: 「検出位置」。</li>
+    <li>条件付きsection: 「検出した事実」。</li>
+    <li>折りたたみsection: 「技術詳細」。</li>
+  </ol>
+  <ul>
+    <li>finding titleと重大度はDrawer内で一度だけ表示する。</li>
+    <li>headerの汎用説明文を削除する。</li>
+    <li>
+      内部state値<code>review</code>は変更せず、tab
+      labelだけを「レビュー結果」から「概要」へ変える。
+    </li>
+    <li>既存の「検証」tabと<code>VerificationSections</code>は変更しない。</li>
+    <li>新しい「検証タブで確認」button、自動遷移、availability badgeを追加しない。</li>
+    <li>Drawer幅、backdrop、外側click、close button、dialog semanticsを維持する。</li>
+    <li>
+      <code>aria-labelledby</code>はfinding titleの見出しを参照し、close buttonの
+      <code>aria-label="finding 詳細を閉じる"</code>を維持する。
+    </li>
+  </ul>
+
+  <h3 id="removed-ui">3.7 Drawerから外すUI</h3>
+  <p>
+    <code>finding-detail-panel.tsx</code>のrender treeから次を外し、未使用importを削除する。
+  </p>
+  <ul>
+    <li><code>RemediationPlanSection</code></li>
+    <li><code>DecisionCompletenessSummary</code></li>
+    <li><code>EvidenceQualityPanel</code></li>
+    <li><code>EvidenceChecklistPanel</code></li>
+    <li><code>ReviewSection</code></li>
+    <li><code>DecisionSection</code></li>
+    <li><code>SourceEvidenceDetail</code></li>
+    <li><code>ReportImpactPreview</code></li>
+  </ul>
+  <p>
+    上記componentのファイル、review・Decision・remediationのAPI、
+    <code>use-finding-load-effects.ts</code>の履歴取得とreview polling、controller
+    stateは変更しない。
+  </p>
+
+  <h3 id="css-contract">3.8 CSS契約</h3>
+  <p>次の新規classだけを追加し、既存の広域selectorを変更しない。</p>
+  <ul>
+    <li><code>.finding-detail-overview</code>: column layout、gap 20px。</li>
+    <li><code>.finding-detail-section</code>: section wrapper。</li>
+    <li>
+      <code>.finding-location-value</code>:
+      monospace、<code>overflow-wrap: anywhere</code>。
+    </li>
+    <li><code>.finding-observation</code>: code background、局所的な横scroll。</li>
+    <li><code>.finding-observation-note</code>: truncate時の補足。</li>
+    <li><code>.finding-technical-details</code>: border付きnative details。</li>
+    <li><code>.finding-technical-grid</code>: desktopは2列、760px以下は1列。</li>
+    <li><code>.finding-artifact-list</code>: linkの折り返し。</li>
+  </ul>
+  <p>
+    色、border、surface、inkは既存CSS custom propertyを使う。新しい固定色、animation、Drawer幅変更は
+    追加しない。Drawer全体の横scrollは禁止し、code block内だけ横scrollを許可する。
+  </p>
+
+  <h2 id="workflow">4. Workflow</h2>
+
+  <h3 id="wp0">Work Package 0: ベースライン固定</h3>
+  <ol>
+    <li><code>git status --short</code>を保存し、対象外の変更を記録する。</li>
+    <li>現行Drawerのdesktop screenshotを取得する。</li>
+    <li>
+      対象findingのAPI responseからtitle、severity、primaryLocation、evidence、metadataを記録する。
+    </li>
+    <li>1.2のtest、typecheck、build結果を再実行し、差異があれば実装前に記録する。</li>
+  </ol>
+  <p>完了条件: 既存failureと利用可能な実データを区別できる。</p>
+
+  <h3 id="wp1">Work Package 1: 表示model</h3>
+  <ol>
+    <li><code>finding-detail-view-model.ts</code>とunit testを追加する。</li>
+    <li>evidenceの安定sortと3.3のlocation優先順位を実装する。</li>
+    <li>Web URL、relative URL、source path、lineを3.3の規則で正規化する。</li>
+    <li>3.4のdescription分離とobservation選択を実装する。</li>
+    <li>3.5のtool confidence、CWE、WASC、artifact linkを構築する。</li>
+  </ol>
+  <p>完了条件: JSXを使わず、任意値の欠落・型不一致・不正URLでも例外を投げない。</p>
+
+  <h3 id="wp2">Work Package 2: Overview component</h3>
+  <ol>
+    <li><code>finding-detail-overview.tsx</code>とSSR testを追加する。</li>
+    <li><code>FindingDescriptionMarkdown</code>を移し、既存testのimportを更新する。</li>
+    <li>3.6の順序で必須・条件付きsectionとtechnical detailsをrenderする。</li>
+    <li>任意値がない場合に空heading、空card、placeholderをrenderしない。</li>
+    <li>禁止文言、管理系badge、未実装buttonがないことをtestで固定する。</li>
+  </ol>
+  <p>完了条件: Overview単体で表示順、条件表示、禁止項目を検証できる。</p>
+
+  <h3 id="wp3">Work Package 3: Drawer接続</h3>
+  <ol>
+    <li>詳細取得前のheader fallbackと詳細取得後の表示model構築を実装する。</li>
+    <li>headerをtitleとseverityだけへ簡素化する。</li>
+    <li>
+      tab labelを「概要」へ変更し、state値<code>review</code>を維持する。
+    </li>
+    <li>既存<code>FindingBody</code>をOverview componentへ置き換える。</li>
+    <li>3.7のUIをrender treeから外し、未使用importを削除する。</li>
+    <li>検証tab、close、外側click、loadingが回帰していないことを確認する。</li>
+  </ol>
+  <p>完了条件: Drawer概要に管理・LLM・report workflow情報がなく、検証tabは現状どおり動く。</p>
+
+  <h3 id="wp4">Work Package 4: Visualとaccessibility</h3>
+  <ol>
+    <li>3.8のclassだけを<code>styles-scans.css</code>へ追加する。</li>
+    <li>desktop、760px、390pxでlayoutを確認する。</li>
+    <li>長いsource path、URL path、2,000文字の観測値でoverflowを確認する。</li>
+    <li>keyboardでclose、tab、detailsを操作できることを確認する。</li>
+    <li>既存spinner修正を含む対象外のCSS差分を保持する。</li>
+  </ol>
+  <p>完了条件: 最初のviewportでtitle、severity、検出内容、存在する場合はlocationを確認できる。</p>
+
+  <h3 id="wp5">Work Package 5: Closeout</h3>
+  <ol>
+    <li>5章の自動testを実行する。</li>
+    <li>typecheckで既知の設定画面エラー以外が増えていないことを確認する。</li>
+    <li>Web buildと<code>git diff --check</code>を実行する。</li>
+    <li>変更後screenshotを取得し、5.5の受け入れ条件を目視確認する。</li>
+    <li>
+      <code>git status --short</code>で対象外ファイルが増えていないことを確認する。
+    </li>
+  </ol>
+  <p>完了条件: 検証結果と既存failureを分けて完了報告へ記録できる。</p>
+
+  <h2 id="verification">5. Verification</h2>
+
+  <h3 id="view-model-tests">5.1 表示model unit test</h3>
+  <table>
+    <caption>
+      必須ケース
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">ケース</th>
+        <th scope="col">期待結果</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Semgrepの相対pathとstartLine</td>
+        <td>path全体とlineを保持する。</td>
+      </tr>
+      <tr>
+        <td>lineだけを持つsource location</td>
+        <td>正の整数をlineとして採用する。</td>
+      </tr>
+      <tr>
+        <td>projectRoot配下の絶対path</td>
+        <td>root prefixを除去する。</td>
+      </tr>
+      <tr>
+        <td>projectRoot外の絶対path</td>
+        <td>locationを<code>null</code>にする。</td>
+      </tr>
+      <tr>
+        <td><code>file://</code> URI</td>
+        <td>projectRoot境界を適用する。</td>
+      </tr>
+      <tr>
+        <td>ZAP absolute URL</td>
+        <td>origin、query、fragmentを除いたpathを返す。</td>
+      </tr>
+      <tr>
+        <td>DASTのkind/origin/path</td>
+        <td>pathをWeb locationとして返す。</td>
+      </tr>
+      <tr>
+        <td>business-logicの相対URL</td>
+        <td>Web locationとして返す。</td>
+      </tr>
+      <tr>
+        <td>Web scannerの不正path</td>
+        <td>source pathへfallbackせず<code>null</code>にする。</td>
+      </tr>
+      <tr>
+        <td>method欠損</td>
+        <td><code>GET</code>を補完しない。</td>
+      </tr>
+      <tr>
+        <td>ZAP JSON snippet</td>
+        <td><code>evidence</code>だけを観測値にする。</td>
+      </tr>
+      <tr>
+        <td>壊れたJSON snippet</td>
+        <td>元snippetを使用し、例外を投げない。</td>
+      </tr>
+      <tr>
+        <td>2,001文字のsnippet</td>
+        <td>2,000文字と<code>truncated: true</code>を返す。</td>
+      </tr>
+      <tr>
+        <td>descriptionと同じsnippet</td>
+        <td>observationを<code>null</code>にする。</td>
+      </tr>
+      <tr>
+        <td>ZAPのSolution suffix</td>
+        <td>表示descriptionからだけ除去する。</td>
+      </tr>
+      <tr>
+        <td>ZAP以外のSolution文字列</td>
+        <td>descriptionを変更しない。</td>
+      </tr>
+      <tr>
+        <td>CWE/WASCの重複と型不一致</td>
+        <td>有効値だけを重複なしで返す。</td>
+      </tr>
+      <tr>
+        <td>同一artifact ID</td>
+        <td>最初の一件だけを返す。</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3 id="component-tests">5.2 Overview SSR test</h3>
+  <ul>
+    <li>検出内容、location、observation、technical detailsが規定順でrenderされる。</li>
+    <li>Markdown heading、strong、code、listが構造化される。</li>
+    <li>active HTMLとunsafe linkがrenderされない。</li>
+    <li>任意値欠損時に対応headingと空cardがrenderされない。</li>
+    <li>artifact IDがある場合だけdownload linkがrenderされる。</li>
+    <li>truncate時だけ「先頭2,000文字を表示」がrenderされる。</li>
+    <li>
+      「LLM」「レビュー履歴」「修正計画」「優先度」「担当」「期限」「Decision」
+      「レポート作成可能」「証跡:」「/100」が概要にrenderされない。
+    </li>
+    <li>「検証タブで確認」buttonがrenderされない。</li>
+  </ul>
+  <p>
+    dialog、close button、tabはOverview
+    componentの責務ではないため、このtestへ混在させず5.3で確認する。
+  </p>
+
+  <h3 id="regression-manual-tests">5.3 Regressionと手動確認</h3>
+  <ul>
+    <li>Drawer headerのtitleとseverityが重複しない。</li>
+    <li>close button、Drawer外clickを含む既存close挙動を変更していない。</li>
+    <li>「概要」「検証」のtab切替が動作する。</li>
+    <li>検証tabを選んだ時だけ既存verification data loadが動作する。</li>
+    <li>dialog titleとclose buttonのaccessible nameが維持される。</li>
+    <li>finding一覧、Issue grouping、Action Queue、report画面が変更されていない。</li>
+    <li>desktop、760px、390pxでDrawer全体に横scrollが発生しない。</li>
+  </ul>
+
+  <h3 id="commands">5.4 実行command</h3>
+  <pre><code class="language-sh">bunx vitest run web/src/domains/scans/findings/finding-detail-view-model.test.ts
+bunx vitest run web/src/domains/scans/findings/finding-detail-overview.test.tsx
+bunx vitest run web/src/domains/scans/findings/finding-detail-panel.test.ts
+bunx vitest run web/src/domains/scans/scans-navigation-handlers.test.ts
+bun run typecheck:app
+bun run build:web
+git diff --check</code></pre>
+  <p>
+    typecheckが1.2の設定画面エラーで失敗する場合は、出力を変更前baselineと比較し、finding
+    Drawer関連の 新規errorがないことを確認する。対象外errorを本タスクで修正しない。
+  </p>
+
+  <h3 id="acceptance-criteria">5.5 受け入れ条件</h3>
+  <ol>
+    <li>Drawer内でfinding titleと重大度が一度だけ表示される。</li>
+    <li>概要の主表示が検出内容、検出位置、観測値に限定されている。</li>
+    <li>source findingで、保存済みの安全なプロジェクト相対pathと行番号を表示できる。</li>
+    <li>Web findingで、保存済みURLからoriginを除いたpathnameを表示できる。</li>
+    <li>保存されていないmethod、path、観測値、tool確度を推測表示しない。</li>
+    <li>重大度とtool確度を別の概念として表示する。</li>
+    <li>LLM review、Decision、修正計画、優先度、担当、期限が表示されない。</li>
+    <li>証跡score、強い・弱いbadge、report readiness、handoff不足情報が表示されない。</li>
+    <li>「検証タブで確認」など新しい未実装buttonが追加されていない。</li>
+    <li>既存の検証tab、loading、close、dialog semanticsが回帰していない。</li>
+    <li>API、DB、loader、controller、scanner normalizerに差分がない。</li>
+    <li>390pxからdesktopまで横崩れせず、長い値が規定どおり収まる。</li>
+    <li>関連testとWeb buildが成功し、本変更由来のtype errorがない。</li>
+  </ol>
+
+  <h2 id="avoid">6. Avoid</h2>
+  <ul>
+    <li>LLM review、review履歴、review生成buttonをDrawerへ残す、または追加する。</li>
+    <li>状態、優先度、担当、期限、修正方針をDrawerへ残す。</li>
+    <li>Decision、report分類、report readiness、handoff情報をDrawerへ残す。</li>
+    <li>独自の証跡scoreをscanner confidenceとして表示する。</li>
+    <li>保存されていないURL、method、source path、line、観測値を推測する。</li>
+    <li>Web scannerの不正なpathをsource pathとして表示する。</li>
+    <li>モックアップの例示値をhard-codeする。</li>
+    <li>新しい検証button、自動遷移、verification APIを追加する。</li>
+    <li>review・Decision履歴取得やpollingを、UI非表示のついでに削除する。</li>
+    <li>component、API route、DB columnを未使用という理由だけで削除する。</li>
+    <li>
+      <code>as any</code>、新しい依存package、feature flag、backend
+      fallbackを追加する。
+    </li>
+    <li>
+      既存<code>shortPath</code>を変更し、finding一覧などDrawer外へ影響を広げる。
+    </li>
+    <li>対象外の設定画面、scanner、runtime isolation、spinner差分を修正・整形・rollbackする。</li>
+  </ul>
+
+  <h2 id="definition-of-done">7. Definition of Done</h2>
+  <ul>
+    <li>Work Package 0〜5を順番に完了している。</li>
+    <li>5.5の受け入れ条件をすべて確認している。</li>
+    <li>変更前後のscreenshotで情報密度と読み順を比較している。</li>
+    <li>実データ由来のsource pathとWeb relative URLをそれぞれ一件以上確認している。</li>
+    <li>禁止項目と未実装buttonがDrawerに存在しない。</li>
+    <li>test、typecheck判定、build、diff checkの結果を完了報告へ記載している。</li>
+    <li>対象外ファイルを編集していない。</li>
+  </ul>
+</article>

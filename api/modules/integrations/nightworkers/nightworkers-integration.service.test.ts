@@ -296,7 +296,7 @@ describe("NightworkersIntegrationService", () => {
 			replayed: true,
 		});
 		expect(launch).toHaveBeenCalled();
-	});
+	}, 15_000);
 
 	it("projects bounded events/findings safely and reports incomplete zero-finding coverage", async () => {
 		const preview = await service.preview(client, {

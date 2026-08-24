@@ -355,11 +355,16 @@ describe("GitleaksRunner", () => {
 		});
 		await fs.writeFile(path.join(tempDir, "src", "app.ts"), "export {};\n");
 		await fs.writeFile(
+			path.join(tempDir, ".gitleaks.toml"),
+			"[extend]\nuseDefault = true\n",
+		);
+		await fs.writeFile(
 			path.join(tempDir, "node_modules", "pkg", "index.js"),
 			"module.exports = {};\n",
 		);
 
 		let scanSource = "";
+		let scanConfig = "";
 		vi.spyOn(Bun, "spawn").mockImplementation((args) => {
 			if (args[0] === "gitleaks" && args[1] === "version") {
 				return {
@@ -380,6 +385,8 @@ describe("GitleaksRunner", () => {
 
 			const sourceIdx = args.indexOf("--source");
 			scanSource = sourceIdx === -1 ? "" : (args[sourceIdx + 1] as string);
+			const configIdx = args.indexOf("--config");
+			scanConfig = configIdx === -1 ? "" : (args[configIdx + 1] as string);
 			const outputIdx = args.indexOf("--report-path");
 			const writePromise =
 				outputIdx !== -1 && args[outputIdx + 1]
@@ -408,10 +415,88 @@ describe("GitleaksRunner", () => {
 		expect(result.ok).toBe(true);
 		expect(scanSource).toBeTruthy();
 		expect(path.resolve(scanSource)).not.toBe(path.resolve(tempDir));
+		expect(scanConfig).toBe(path.join(scanSource, ".gitleaks.toml"));
 		expect(result.executionMetadata?.scopeWorkspace).toEqual({
 			applied: true,
-			copiedFiles: 1,
+			copiedFiles: 2,
 		});
+	});
+
+	it("uses the mounted repository as the Docker working directory", async () => {
+		await fs.writeFile(
+			path.join(tempDir, ".gitleaks.toml"),
+			"[extend]\nuseDefault = true\n",
+		);
+		let dockerArgs: string[] = [];
+		vi.spyOn(Bun, "spawn").mockImplementation((args) => {
+			dockerArgs = [...(args as string[])];
+			const isVersion = dockerArgs.includes("version");
+			const outputMount = dockerArgs.find(
+				(arg) => arg.includes(":/workspace/out:rw"),
+			);
+			const outputDirectory = outputMount?.split(":/workspace/out:rw")[0];
+			const writePromise =
+				!isVersion && outputDirectory
+					? fs.writeFile(path.join(outputDirectory, "gitleaks-output.json"), "[]")
+					: Promise.resolve();
+			return {
+				exited: writePromise.then(() => 0),
+				stdout: new Response(isVersion ? "8.30.1\n" : "").body,
+				stderr: new Response("").body,
+			} as any;
+		});
+
+		const result = await new GitleaksRunner(storage, {
+			runner: "docker",
+			docker: { image: "toolbox:test", networkMode: "none" },
+		}).run("scan-docker", tempDir, { preScoped: true });
+
+		expect(result.ok).toBe(true);
+		expect(dockerArgs).toContain("--workdir");
+		expect(dockerArgs).toContain("/workspace/repo");
+		expect(dockerArgs).toContain(".");
+		expect(dockerArgs).toContain("/workspace/repo/.gitleaks.toml");
+	});
+
+	it("mounts an immutable config beside a pre-scoped diff workspace", async () => {
+		const changedWorkspace = path.join(tempDir, "changed");
+		const targetSnapshot = path.join(tempDir, "target");
+		await fs.mkdir(changedWorkspace);
+		await fs.mkdir(targetSnapshot);
+		const configPath = path.join(targetSnapshot, ".gitleaks.toml");
+		await fs.writeFile(configPath, "[extend]\nuseDefault = true\n");
+		let dockerArgs: string[] = [];
+		vi.spyOn(Bun, "spawn").mockImplementation((args) => {
+			dockerArgs = [...(args as string[])];
+			const isVersion = dockerArgs.includes("version");
+			const outputMount = dockerArgs.find((arg) =>
+				arg.includes(":/workspace/out:rw"),
+			);
+			const outputDirectory = outputMount?.split(":/workspace/out:rw")[0];
+			const writePromise =
+				!isVersion && outputDirectory
+					? fs.writeFile(path.join(outputDirectory, "gitleaks-output.json"), "[]")
+					: Promise.resolve();
+			return {
+				exited: writePromise.then(() => 0),
+				stdout: new Response(isVersion ? "8.30.1\n" : "").body,
+				stderr: new Response("").body,
+			} as any;
+		});
+
+		const result = await new GitleaksRunner(storage, {
+			runner: "docker",
+			docker: { image: "toolbox:test", networkMode: "none" },
+		}).run("scan-diff", changedWorkspace, {
+			preScoped: true,
+			configPath,
+		});
+
+		expect(result.ok).toBe(true);
+		expect(dockerArgs).toContain("/workspace/inputs/.gitleaks.toml");
+		expect(
+			dockerArgs.some((arg) => arg.endsWith(":/workspace/inputs/.gitleaks.toml:ro")),
+		).toBe(true);
 	});
 
 	it("uses no-git for a pre-scoped diff workspace and normalizes paths", async () => {

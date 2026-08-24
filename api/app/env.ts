@@ -138,6 +138,7 @@ const EnvSchema = z.object({
 	SCAN_EXECUTION_MODE: optionalScanExecutionMode,
 	ALLOW_HOST_SCANNER_EXECUTION: optionalBoolean,
 	SCAN_DOCKER_IMAGE: optionalTrimmedString,
+	VULN_WORKBENCH_MAVEN_RESOLVER_IMAGE: optionalTrimmedString,
 	VULN_WORKBENCH_DOCKER_MEMORY: optionalTrimmedString,
 	VULN_WORKBENCH_DOCKER_CPUS: z.coerce.number().positive().optional(),
 	VULN_WORKBENCH_DOCKER_PIDS_LIMIT: optionalPositiveInteger,
@@ -243,6 +244,7 @@ export type AppEnv = {
 	scanExecutionMode?: "host" | "docker";
 	allowHostScannerExecution?: boolean;
 	scanDockerImage?: string;
+	mavenResolverImage?: string;
 	dockerMemory?: string;
 	dockerCpus?: number;
 	dockerPidsLimit?: number;
@@ -432,6 +434,7 @@ export function readAppEnv(env: NodeJS.ProcessEnv = process.env): AppEnv {
 		allowHostScannerExecution:
 			parsed.ALLOW_HOST_SCANNER_EXECUTION ?? parsed.NODE_ENV !== "production",
 		scanDockerImage: parsed.SCAN_DOCKER_IMAGE,
+		mavenResolverImage: parsed.VULN_WORKBENCH_MAVEN_RESOLVER_IMAGE,
 		dockerMemory:
 			parsed.VULN_WORKBENCH_DOCKER_MEMORY ??
 			RUNTIME_SETTINGS_DEFAULTS.dockerMemory,

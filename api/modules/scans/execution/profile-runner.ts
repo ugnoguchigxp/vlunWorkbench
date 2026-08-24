@@ -13,6 +13,7 @@ import { buildMarkdownReport } from "../reporting/report-builder";
 import { ScanReportRepository } from "../reporting/report-repository";
 import { ArtifactRepository } from "../repositories";
 import type { ToolExecutionConfig } from "../tools/tool-process-runner";
+import type { ScanArtifactRole } from "./lifecycle/artifact-sink";
 import type { ArtifactStorage } from "./lifecycle/artifact-storage";
 
 export interface ToolResult {
@@ -140,6 +141,12 @@ export type CommonToolRunResult = {
 	};
 	stdoutArtifact?: { path: string; sha256: string; sizeBytes: number };
 	stderrArtifact?: { path: string; sha256: string; sizeBytes: number };
+	additionalArtifacts?: Array<{
+		role: ScanArtifactRole;
+		format: string;
+		saved: { path: string; sha256: string; sizeBytes: number };
+		metadata?: Record<string, unknown>;
+	}>;
 	error?: string;
 	executionMetadata?: Record<string, unknown>;
 };

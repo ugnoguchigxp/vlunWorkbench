@@ -83,6 +83,7 @@ describe("canonical scan profiles", () => {
 				required: true,
 				requirement: "required_if_applicable",
 				failurePolicy: "fail_profile",
+				timeoutSec: 1_800,
 			});
 		}
 	});

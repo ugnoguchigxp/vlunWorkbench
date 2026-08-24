@@ -24,6 +24,7 @@ export const scanPreflightCheckKindSchema = z.enum([
 	"target_start_plan",
 	"project_code_consent",
 	"sandbox_availability",
+	"scanner_applicability",
 	"api_schema_applicability",
 	"browser_runtime",
 	"scanner_e2e_qualification",
@@ -38,6 +39,8 @@ export const scanPreflightCheckKindSchema = z.enum([
 export const scanPreflightActionSchema = z.enum([
 	"configure_scanner_adapter",
 	"build_toolbox_image",
+	"build_maven_resolver_image",
+	"use_docker_runner",
 	"prepare_scanner_database",
 	"start_docker_daemon",
 	"pull_pinned_image",

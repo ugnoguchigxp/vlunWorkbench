@@ -53,6 +53,7 @@ import {
 	materializeScopedSourceSnapshot,
 } from "./lifecycle/full-source-snapshot";
 import {
+	bindNonFileProfileInputs,
 	materializeProfileInputSnapshot,
 	type ProfileInputSnapshot,
 } from "./lifecycle/profile-input-snapshot";
@@ -107,6 +108,9 @@ export async function runProfileScan(params: {
 	runtimeTargetProvider?: RuntimeTargetProvider;
 	runtimeTargetProviderFactory?: RuntimeIsolationProviderFactory;
 	executionPlanSchemaVersion?: 1 | 2 | 3;
+	dependencyResolutionMode?: "offline" | "registry";
+	mavenResolverImage?: string;
+	mavenResolutionConfig?: unknown;
 }): Promise<ProfileScanResult> {
 	if (
 		params.sourceSnapshotDigest !== undefined &&
@@ -196,6 +200,8 @@ export async function runProfileScan(params: {
 		scope: profile.scope,
 	});
 	const technologyAnalysis = await analyzeProjectCapabilities(params.repoPath);
+	const mavenProjectDetected =
+		technologyAnalysis.capabilityPlan.activePluginIds.includes("build.maven");
 	const selectedProfileSteps = resolveProfileSteps({
 		steps: profile.steps,
 		tools: profile.tools,
@@ -224,6 +230,9 @@ export async function runProfileScan(params: {
 						(entry) => entry.path,
 					),
 				});
+	const mavenResolutionApplicable =
+		diffPlan?.tools.find((tool) => tool.toolId === "osv")?.applicability !==
+		"not_applicable";
 	const sharesRuntimeTarget =
 		profileSteps.some(
 			(step) =>
@@ -282,6 +291,10 @@ export async function runProfileScan(params: {
 		...(params.sourceSnapshotDigest
 			? { sourceSnapshotDigest: params.sourceSnapshotDigest }
 			: {}),
+		dependencyResolution: {
+			mode: params.dependencyResolutionMode ?? "offline",
+			mavenProjectDetected,
+		},
 	};
 
 	// CLI/oracle callers create a running row; Web jobs atomically claim a queued row.
@@ -401,6 +414,14 @@ export async function runProfileScan(params: {
 		slsaPolicy: params.slsaPolicy,
 		authContextId: params.authContextId,
 		identityRole: params.identityRole,
+		dependencyResolutionMode: params.dependencyResolutionMode ?? "offline",
+		mavenResolverImage: params.mavenResolverImage,
+		mavenResolutionConfig: params.mavenResolutionConfig,
+		mavenProjectDetected,
+		mavenResolutionApplicable,
+		staticScannerPaths:
+			diffPlan?.scanPaths ??
+			technologyAnalysis.context.inventory.map((entry) => entry.path),
 		targetPlan: runtimeTargetProvider?.plan,
 		runtimeDockerImages: runtimeTargetProvider?.preflightDockerImages,
 		runtimeScannerImages: runtimeTargetProvider?.runtimeScannerImages,
@@ -493,6 +514,7 @@ export async function runProfileScan(params: {
 		const coverageLedger = buildCoverageLedger({
 			profile,
 			planHash: executionPlan.planHash,
+			plannedSteps: executionPlan.steps,
 			derivedAt: new Date().toISOString(),
 			stepResults: [],
 		});
@@ -569,8 +591,28 @@ export async function runProfileScan(params: {
 		});
 		if (
 			profileInputSnapshot &&
-			hashProfileInputs(profileInputSnapshot.bindings) !==
-				scanPreflight.binding.profileInputsHash
+			hashProfileInputs(
+				bindNonFileProfileInputs(profileInputSnapshot.bindings, {
+					authContextId: params.authContextId,
+					identityRole: params.identityRole,
+					dependencyResolutionMode:
+						params.dependencyResolutionMode ?? "offline",
+					mavenResolutionConfigDigest:
+						scanPreflight.checks.find(
+							(check) => check.id === "static_tool:osv:maven-resolution-config",
+						)?.observedDigest ?? undefined,
+					mavenResolutionSourceDigest:
+						scanPreflight.checks.find(
+							(check) => check.id === "static_tool:osv:maven-resolution-source",
+						)?.observedDigest ?? undefined,
+					mavenResolverImageId: scanPreflight.checks
+						.find((check) => check.id === "runtime:docker-image:maven-resolver")
+						?.evidenceRefs.find((reference) =>
+							reference.startsWith("docker-image-id:"),
+						)
+						?.slice("docker-image-id:".length),
+				}),
+			) !== scanPreflight.binding.profileInputsHash
 		) {
 			throw new Error("profile_input_changed_after_preflight");
 		}
@@ -793,6 +835,11 @@ export async function runProfileScan(params: {
 					authContextRepository: params.authContextRepository,
 					authContextId: params.authContextId,
 					identityRole: params.identityRole,
+					dependencyResolutionMode:
+						params.dependencyResolutionMode ?? "offline",
+					mavenResolverImage: params.mavenResolverImage,
+					mavenResolutionConfig: params.mavenResolutionConfig,
+					mavenProjectDetected,
 					imageRef: params.imageRef,
 					imageTar: params.imageTar,
 					attestationSubject: params.attestationSubject,
@@ -907,6 +954,7 @@ export async function runProfileScan(params: {
 	const coverageLedger = buildCoverageLedger({
 		profile,
 		planHash: executionPlan.planHash,
+		plannedSteps: executionPlan.steps,
 		derivedAt: new Date().toISOString(),
 		stepResults,
 	});

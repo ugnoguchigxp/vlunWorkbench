@@ -39,6 +39,7 @@ export const scanReasonCodeSchema = z.enum([
 	"source_sast_ruleset_unavailable",
 	"source_sast_adapter_unavailable",
 	"capability_not_integrated",
+	"capability_not_executed",
 	"no_changed_files",
 	"no_relevant_files",
 	"no_dependency_manifest_changed",
@@ -231,6 +232,12 @@ export const scanReasonCodeRegistry = {
 		coverageEffect: "gap",
 		action: "integrate_capability",
 		messageKey: "capability_not_integrated",
+	},
+	capability_not_executed: {
+		category: "execution",
+		coverageEffect: "gap",
+		action: "rerun_scan",
+		messageKey: "capability_not_executed",
 	},
 	no_changed_files: {
 		category: "applicability",

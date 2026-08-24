@@ -8,11 +8,23 @@ import {
 const digest = `sha256:${"a".repeat(64)}`;
 
 describe("scan preflight display", () => {
-	it("gives the runtime setup action for an unavailable scanner image", () => {
+	it("does not prescribe unrelated runtime scanners for an unavailable image", () => {
 		expect(describeScanPreflightReason("docker_image_unavailable")).toMatchObject({
 			heading: expect.stringContaining("コンテナイメージ"),
-			nextAction: expect.stringContaining("ローカルRuntimeを自動設定"),
+			nextAction: expect.stringContaining("対象イメージ"),
 		});
+		expect(
+			describeScanPreflightReason("docker_image_unavailable").nextAction,
+		).not.toMatch(/Nuclei|ZAP|Schemathesis/);
+	});
+
+	it("gives a source scanner image action when the blocked check identifies it", () => {
+		const display = describeScanPreflightReason(
+			"docker_image_unavailable",
+			"build_toolbox_image",
+		);
+		expect(display.nextAction).toContain("スキャナー用コンテナイメージ");
+		expect(display.nextAction).not.toContain("ローカルRuntimeを自動設定");
 	});
 
 	it("reads the persisted server-owned preflight result", () => {

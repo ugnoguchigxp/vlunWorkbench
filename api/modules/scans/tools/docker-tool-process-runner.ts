@@ -35,6 +35,10 @@ const CONTAINER_OUT_PATH = "/workspace/out";
 const CONTAINER_CACHE_PATH = "/workspace/cache";
 const CONTAINER_INPUT_PATH = "/workspace/inputs";
 
+export function resolveDockerToolCacheDirectory(toolCacheDir: string): string {
+	return path.join(path.resolve(toolCacheDir), "vuln-workbench-toolbox-cache");
+}
+
 export async function runDockerToolProcess(
 	binaryName: string,
 	args: string[],
@@ -74,10 +78,7 @@ export async function runDockerToolProcess(
 
 	const outDir = options.outputPath ? path.dirname(options.outputPath) : null;
 	const cacheDir = docker.toolCacheDir
-		? path.join(
-				path.resolve(docker.toolCacheDir),
-				"vuln-workbench-toolbox-cache",
-			)
+		? resolveDockerToolCacheDirectory(docker.toolCacheDir)
 		: undefined;
 	if (outDir) {
 		await fs.mkdir(outDir, { recursive: true });
@@ -409,7 +410,9 @@ function buildDockerRunArgs(params: {
 		"PATH=/usr/local/bin:/usr/bin:/bin",
 		...(params.binaryName === "vwb-schemathesis-readonly-gateway"
 			? ["--workdir", "/tmp"]
-			: []),
+			: params.binaryName === "gitleaks" && params.repoPath
+				? ["--workdir", CONTAINER_REPO_PATH]
+				: []),
 		"--entrypoint",
 		dockerEntrypointFor(params.binaryName),
 	];

@@ -9,9 +9,16 @@ describe("scan reason code registry", () => {
 	it("covers every declared code with a secret-safe operator action", () => {
 		expect(Object.keys(scanReasonCodeRegistry)).toEqual(scanReasonCodeSchema.options);
 		expect(getScanReasonCodeDefinition("cleanup_failed")).toMatchObject({
-		category: "cleanup",
-		coverageEffect: "gap",
-	});
+			category: "cleanup",
+			coverageEffect: "gap",
+		});
+		expect(
+			getScanReasonCodeDefinition("capability_not_executed"),
+		).toMatchObject({
+			category: "execution",
+			coverageEffect: "gap",
+			action: "rerun_scan",
+		});
 	});
 
 	it("rejects unregistered reason codes", () => {

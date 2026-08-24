@@ -607,7 +607,9 @@ describe("Projects Route", () => {
 			releaseLaunch = resolve;
 		});
 		const scanSupervisor = {
-			launch: vi.fn(async () => releaseLaunch?.()),
+			launch: vi.fn(async (_scanRunId: string, _args: string[]) =>
+				releaseLaunch?.(),
+			),
 		};
 		const scanApp = new Hono();
 		scanApp.use("*", async (c, next) => {
@@ -651,9 +653,17 @@ describe("Projects Route", () => {
 				}),
 			}),
 		);
+		const launchedArgs = scanSupervisor.launch.mock.calls[0]?.[1];
+		expect(launchedArgs?.slice(0, 4)).toEqual([
+			"bun",
+			"--no-env-file",
+			"run",
+			"api/cli/scan-profile.ts",
+		]);
 		expect(scanSupervisor.launch).toHaveBeenCalledWith(
 			"s-queued",
 			expect.arrayContaining([
+				"--no-env-file",
 				"--scan-run-id",
 				"s-queued",
 				"--expected-preflight-binding-hash",

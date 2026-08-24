@@ -114,6 +114,29 @@ export function ScanProfileInputFields() {
 					)}
 				</div>
 			) : null}
+			{profile.id === "source-assurance" ? (
+				<div className="scan-profile-input-grid">
+					<label htmlFor="source-assurance-dependency-resolution">
+						<span>Maven依存関係の診断方式</span>
+						<SelectInput
+							id="source-assurance-dependency-resolution"
+							value={c.dependencyResolutionMode}
+							onChange={(event) =>
+								c.setDependencyResolutionMode(
+									event.target.value as "offline" | "registry",
+								)
+							}
+						>
+							<option value="offline">オフライン（既定）</option>
+							<option value="registry">Maven推移依存を取得して診断</option>
+						</SelectInput>
+					</label>
+					<p className="scan-safety-note">
+						取得を選ぶと、Maven resolver専用コンテナだけがMaven
+						Centralへ接続します。
+					</p>
+				</div>
+			) : null}
 			{profile.id === "release-artifact" ? <ReleaseInputs /> : null}
 			{profile.id === "dynamic-verification" ? (
 				<div className="scan-profile-input-grid">

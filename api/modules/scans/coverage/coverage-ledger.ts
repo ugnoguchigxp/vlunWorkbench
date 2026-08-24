@@ -9,10 +9,8 @@ import {
 	type CoverageLedgerEntry,
 	coverageLedgerSchema,
 } from "../../../../shared/schemas/scan-coverage-ledger.schema";
-import type {
-	ScanProfile,
-	ScanProfileStep,
-} from "../../../../shared/schemas/scan-profile.schema";
+import type { ScanProfile } from "../../../../shared/schemas/scan-profile.schema";
+import type { ScanExecutionPlan } from "../../../../shared/schemas/scan-execution-plan.schema";
 import {
 	type ScanReasonCode,
 	scanReasonCodeSchema,
@@ -28,6 +26,8 @@ type CapabilityBinding = {
 	stepIds: string[];
 	missingReasonCode: ScanReasonCode;
 };
+
+type PlannedStep = ScanExecutionPlan["steps"][number];
 
 const CAPABILITY_BINDINGS: Record<ScanCapabilityId, CapabilityBinding> = {
 	secret_detection: {
@@ -110,13 +110,14 @@ export function capabilityStepIds(capabilityId: ScanCapabilityId): string[] {
 export function buildCoverageLedger(params: {
 	profile: ScanProfile;
 	planHash: string;
+	plannedSteps: readonly PlannedStep[];
 	derivedAt: string;
 	stepResults?: ScanProfileStepResult[];
 }): CoverageLedger | null {
 	const requirements = params.profile.capabilityRequirements;
 	if (!requirements || requirements.length === 0) return null;
-	const plannedStepIds = new Set(
-		(params.profile.steps ?? []).map(scanProfileStepId),
+	const plannedStepsById = new Map(
+		params.plannedSteps.map((step) => [step.stepId, step]),
 	);
 	const resultsByStepId = new Map(
 		(params.stepResults ?? []).map((result) => [
@@ -125,7 +126,7 @@ export function buildCoverageLedger(params: {
 		]),
 	);
 	const entries = requirements.map((requirement) =>
-		buildEntry(requirement, plannedStepIds, resultsByStepId),
+		buildEntry(requirement, plannedStepsById, resultsByStepId),
 	);
 	const summary = { covered: 0, partial: 0, gap: 0 };
 	for (const entry of entries) {
@@ -153,14 +154,15 @@ export function readCoverageLedger(
 
 function buildEntry(
 	requirement: ScanCapabilityRequirementEntry,
-	plannedStepIds: Set<string>,
+	plannedStepsById: Map<string, PlannedStep>,
 	resultsByStepId: Map<string, ScanProfileStepResult>,
 ): CoverageLedgerEntry {
 	const binding = CAPABILITY_BINDINGS[requirement.capabilityId];
-	const matchingStepIds = binding.stepIds.filter((stepId) =>
-		plannedStepIds.has(stepId),
-	);
-	if (matchingStepIds.length === 0) {
+	const matchingSteps = binding.stepIds.flatMap((stepId) => {
+		const step = plannedStepsById.get(stepId);
+		return step ? [step] : [];
+	});
+	if (matchingSteps.length === 0) {
 		return {
 			capabilityId: requirement.capabilityId,
 			requirement: requirement.requirement,
@@ -172,21 +174,48 @@ function buildEntry(
 			limitations: ["No profile step is bound to this capability."],
 		};
 	}
-	const results = matchingStepIds
-		.map((stepId) => ({ stepId, result: resultsByStepId.get(stepId) }))
+	const results = matchingSteps
+		.map((step) => ({
+			stepId: step.stepId,
+			result: resultsByStepId.get(step.stepId),
+		}))
 		.filter(
 			(item): item is { stepId: string; result: ScanProfileStepResult } =>
 				item.result !== undefined,
 		);
-	if (results.length !== matchingStepIds.length) {
+	if (results.length !== matchingSteps.length) {
+		const allNotApplicable = matchingSteps.every(
+			(step) => step.applicability === "not_applicable",
+		);
+		if (allNotApplicable) {
+			return {
+				capabilityId: requirement.capabilityId,
+				requirement: requirement.requirement,
+				applicability: "not_applicable",
+				execution: "not_executed",
+				coverageEffect: "covered",
+				reasonCodes: knownPlanReasonCodes(matchingSteps),
+				evidenceRefs: unique(
+					matchingSteps.flatMap((step) => [
+						`plan-step:${step.stepId}`,
+						...step.evidenceRefs,
+					]),
+				),
+				limitations: unique(matchingSteps.flatMap((step) => step.reasonCodes)),
+			};
+		}
 		return {
 			capabilityId: requirement.capabilityId,
 			requirement: requirement.requirement,
 			applicability: "applicable",
 			execution: "not_executed",
 			coverageEffect: "gap",
-			reasonCodes: [binding.missingReasonCode],
-			evidenceRefs: matchingStepIds.map((stepId) => `plan-step:${stepId}`),
+			reasonCodes: [
+				requirement.capabilityId === "source_sast"
+					? "source_sast_not_executed"
+					: "capability_not_executed",
+			],
+			evidenceRefs: matchingSteps.map((step) => `plan-step:${step.stepId}`),
 			limitations: ["At least one planned step has no persisted result."],
 		};
 	}
@@ -229,6 +258,17 @@ function buildEntry(
 			observations.flatMap((observation) => observation.limitations),
 		),
 	};
+}
+
+function knownPlanReasonCodes(steps: readonly PlannedStep[]): ScanReasonCode[] {
+	return unique(
+		steps.flatMap((step) =>
+			step.reasonCodes.flatMap((code) => {
+				const parsed = scanReasonCodeSchema.safeParse(code);
+				return parsed.success ? [parsed.data] : [];
+			}),
+		),
+	);
 }
 
 function observeStep(stepId: string, result: ScanProfileStepResult) {
@@ -292,14 +332,6 @@ function knownReasonCodes(
 	return known.length > 0 || status === "completed"
 		? unique(known)
 		: ["execution_failed"];
-}
-
-function scanProfileStepId(step: ScanProfileStep): string {
-	return step.kind === "static_tool"
-		? step.toolId
-		: step.kind === "dast"
-			? `dast:${step.profileId}`
-			: `${step.kind}:${step.adapter}`;
 }
 
 function scanResultStepId(result: ScanProfileStepResult): string {

@@ -1,8 +1,12 @@
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import type { ScanProfile } from "../../../../shared/schemas/scan-profile.schema";
 import { recordScannerE2EFailureObservation } from "../../../testing/scanner-e2e-failure-observation";
 import { buildScanProfiles } from "../profiles";
 import type { ScannerDataManifest } from "../tools/scanner-provenance";
+import { buildScanExecutionPlan } from "./scan-execution-plan-builder";
 import {
   preflightBlocksExecution,
 	resolveScanPreflightMode,
@@ -58,10 +62,10 @@ function dependencies(
     probeDockerImage: async () => ({
       ready: true,
       digest: DIGEST,
+	  imageId: DIGEST,
       platform: "linux/amd64",
       reasonCode: null,
     }),
-    probeDockerRuntimePath: async () => true,
     inferTargetPlan: async ({ repoPath }) => ({
       pluginId: "build.npm",
       repoPath,
@@ -94,6 +98,284 @@ function profile(id = "baseline"): ScanProfile {
 }
 
 describe("scan preflight", () => {
+	it("binds a registry Maven resolution config and dedicated resolver image", async () => {
+		const repositoryPath = await fs.mkdtemp(
+			path.join(os.tmpdir(), "maven-preflight-"),
+		);
+		try {
+			await fs.writeFile(
+				path.join(repositoryPath, "pom.xml"),
+				"<project><modelVersion>4.0.0</modelVersion></project>",
+			);
+			const selected = profile("full-security-scan");
+			const osvStep = selected.steps?.find(
+				(step) => step.kind === "static_tool" && step.toolId === "osv",
+			);
+			const probeDockerImage = vi.fn(async (_dockerBin, image: string) => ({
+				ready: true,
+				digest: null,
+				repoDigests: [],
+				imageId: image.includes("resolver") ? DIGEST : DIGEST,
+				platform: "linux/amd64",
+				reasonCode: null,
+			}));
+
+			const result = await runScanPreflight({
+				profile: selected,
+				steps: [osvStep!],
+				repoPath: repositoryPath,
+				execution: {
+					runner: "docker",
+					docker: { image: "toolbox:local", networkMode: "none" },
+				},
+				dependencyResolutionMode: "registry",
+				mavenResolverImage: "maven-resolver:local",
+				mavenProjectDetected: true,
+				dependencies: dependencies({ probeDockerImage }),
+			});
+
+			expect(result.checks).toContainEqual(
+				expect.objectContaining({
+					id: "static_tool:osv:maven-resolution-config",
+					stepId: "osv",
+					status: "ready",
+				}),
+			);
+			expect(result.checks).toContainEqual(
+				expect.objectContaining({
+					id: "static_tool:osv:maven-resolution-source",
+					stepId: "osv",
+					status: "ready",
+					observedDigest: expect.stringMatching(/^sha256:/),
+				}),
+			);
+			expect(result.checks).toContainEqual(
+				expect.objectContaining({
+					id: "runtime:docker-image:maven-resolver",
+					status: "ready",
+					observedDigest: DIGEST,
+				}),
+			);
+			expect(result.binding.profileInputsHash).toMatch(/^sha256:/);
+			expect(probeDockerImage).toHaveBeenCalledWith(
+				"docker",
+				"maven-resolver:local",
+			);
+		} finally {
+			await fs.rm(repositoryPath, { recursive: true, force: true });
+		}
+	});
+
+	it("blocks the OSV execution-plan step when Maven inputs are unsafe", async () => {
+		const repositoryPath = await fs.mkdtemp(
+			path.join(os.tmpdir(), "maven-preflight-invalid-"),
+		);
+		try {
+			await fs.writeFile(path.join(repositoryPath, "pom.xml"), "<project/>");
+			await fs.mkdir(path.join(repositoryPath, ".mvn"));
+			await fs.writeFile(
+				path.join(repositoryPath, ".mvn", "jvm.config"),
+				"-javaagent:untrusted.jar",
+			);
+			const selected = profile("full-security-scan");
+			const osvStep = selected.steps?.find(
+				(step) => step.kind === "static_tool" && step.toolId === "osv",
+			)!;
+			const preflight = await runScanPreflight({
+				profile: selected,
+				steps: [osvStep],
+				repoPath: repositoryPath,
+				execution: {
+					runner: "docker",
+					docker: { image: "toolbox:local", networkMode: "none" },
+				},
+				dependencyResolutionMode: "registry",
+				mavenResolverImage: "maven-resolver:local",
+				mavenProjectDetected: true,
+				dependencies: dependencies(),
+			});
+			const plan = buildScanExecutionPlan({
+				scanRunId: "11111111-1111-4111-8111-111111111111",
+				projectId: "22222222-2222-4222-8222-222222222222",
+				profile: selected,
+				steps: [osvStep],
+				preflight,
+				runner: "docker",
+			});
+
+			expect(preflight.checks).toContainEqual(
+				expect.objectContaining({
+					id: "static_tool:osv:maven-resolution-config",
+					stepId: "osv",
+					status: "blocked",
+					reasonCode: "maven_project_extensions_unsupported",
+				}),
+			);
+			expect(plan.steps).toContainEqual(
+					expect.objectContaining({
+						stepId: "osv",
+						readiness: "blocked",
+						reasonCodes: expect.arrayContaining([
+							"maven_project_extensions_unsupported",
+						]),
+				}),
+			);
+		} finally {
+			await fs.rm(repositoryPath, { recursive: true, force: true });
+		}
+	});
+
+	it("blocks registry resolution before execution when the scanner runner is host", async () => {
+		const repositoryPath = await fs.mkdtemp(
+			path.join(os.tmpdir(), "maven-preflight-host-"),
+		);
+		try {
+			await fs.writeFile(path.join(repositoryPath, "pom.xml"), "<project/>");
+			const selected = profile("full-security-scan");
+			const osvStep = selected.steps?.find(
+				(step) => step.kind === "static_tool" && step.toolId === "osv",
+			)!;
+			const result = await runScanPreflight({
+				profile: selected,
+				steps: [osvStep],
+				repoPath: repositoryPath,
+				execution: { runner: "host" },
+				dependencyResolutionMode: "registry",
+				mavenResolverImage: "maven-resolver:local",
+				mavenProjectDetected: true,
+				dependencies: dependencies(),
+			});
+			expect(result.checks).toContainEqual(
+				expect.objectContaining({
+					id: "static_tool:osv:maven-resolution-runner",
+					stepId: "osv",
+					status: "blocked",
+					reasonCode: "maven_registry_resolution_requires_docker",
+				}),
+			);
+		} finally {
+			await fs.rm(repositoryPath, { recursive: true, force: true });
+		}
+	});
+
+	it("does not require the Maven resolver for a diff where OSV is not applicable", async () => {
+		const selected = profile("full-security-scan");
+		const osvStep = selected.steps?.find(
+			(step) => step.kind === "static_tool" && step.toolId === "osv",
+		)!;
+		const probeDocker = vi.fn(dependencies().probeDocker);
+		const probeDockerImage = vi.fn(dependencies().probeDockerImage);
+
+		const result = await runScanPreflight({
+			profile: selected,
+			steps: [osvStep],
+			repoPath: "/redacted/project",
+			execution: { runner: "host" },
+			dependencyResolutionMode: "registry",
+			mavenProjectDetected: true,
+			mavenResolutionApplicable: false,
+			dependencies: dependencies({ probeDocker, probeDockerImage }),
+		});
+
+		expect(
+			result.checks.some((item) => item.id.includes("maven-resolution")),
+		).toBe(false);
+		expect(
+			result.checks.some((item) => item.id.includes("maven-resolver")),
+		).toBe(false);
+		expect(probeDocker).not.toHaveBeenCalled();
+		expect(probeDockerImage).not.toHaveBeenCalled();
+	});
+
+	it("marks zizmor not applicable before probing scanner data or version", async () => {
+		const selected = profile("full-security-scan");
+		const zizmorStep = selected.steps?.find(
+			(step) => step.kind === "static_tool" && step.toolId === "zizmor",
+		);
+		expect(zizmorStep).toBeDefined();
+		const probeScannerVersion = vi.fn(async () => "zizmor 1.29.0");
+
+		const result = await runScanPreflight({
+			profile: selected,
+			steps: [zizmorStep!],
+			repoPath: "/redacted/project",
+			execution: { runner: "host" },
+			staticScannerPaths: ["src/main/java/example/App.java"],
+			dependencies: dependencies({ probeScannerVersion }),
+		});
+
+		expect(result.checks).toContainEqual(
+			expect.objectContaining({
+				id: "zizmor:applicability",
+				status: "not_applicable",
+				reasonCode: "no_auditable_github_actions_inputs",
+			}),
+		);
+		expect(result.checks.some((item) => item.id === "zizmor:scanner-data")).toBe(false);
+		expect(result.checks.some((item) => item.id === "zizmor:binary-version")).toBe(false);
+		expect(probeScannerVersion).not.toHaveBeenCalled();
+	});
+
+	it("does not require Docker or the toolbox when zizmor is the only N/A step", async () => {
+		const selected = profile("full-security-scan");
+		const zizmorStep = selected.steps?.find(
+			(step) => step.kind === "static_tool" && step.toolId === "zizmor",
+		)!;
+		const probeDocker = vi.fn(dependencies().probeDocker);
+		const probeDockerImage = vi.fn(dependencies().probeDockerImage);
+
+		const result = await runScanPreflight({
+			profile: selected,
+			steps: [zizmorStep],
+			repoPath: "/redacted/project",
+			execution: {
+				runner: "docker",
+				docker: { image: "toolbox:local", networkMode: "none" },
+			},
+			staticScannerPaths: ["src/main/java/example/App.java"],
+			dependencies: dependencies({ probeDocker, probeDockerImage }),
+		});
+
+		expect(result.status).toBe("ready");
+		expect(probeDocker).not.toHaveBeenCalled();
+		expect(probeDockerImage).not.toHaveBeenCalled();
+	});
+
+	it("keeps zizmor applicable when an auditable workflow exists", async () => {
+		const selected = profile("full-security-scan");
+		const zizmorStep = selected.steps?.find(
+			(step) => step.kind === "static_tool" && step.toolId === "zizmor",
+		);
+		const readyManifest = manifest();
+		readyManifest.tools.zizmor = {
+			version: "1.29.0",
+			dataKind: "binary",
+			state: "ready",
+			path: null,
+			runtimePath: null,
+			digest: null,
+		};
+
+		const result = await runScanPreflight({
+			profile: selected,
+			steps: [zizmorStep!],
+			repoPath: "/redacted/project",
+			execution: { runner: "host" },
+			staticScannerPaths: [".github/workflows/security.yml"],
+			dependencies: dependencies({
+				loadManifest: async () => readyManifest,
+				probeScannerVersion: async () => "zizmor 1.29.0",
+			}),
+		});
+
+		expect(result.checks).toContainEqual(
+			expect.objectContaining({
+				id: "zizmor:applicability",
+				status: "ready",
+			}),
+		);
+		expect(result.checks.some((item) => item.id === "zizmor:binary-version")).toBe(true);
+	});
 	it("blocks runtime-capable profiles before execution when no isolated provider was injected", async () => {
 		const selected = profile("api-schema-readonly");
 		const result = await runScanPreflight({
@@ -270,28 +552,30 @@ describe("scan preflight", () => {
 		});
   });
 
-  it("does not trust a ready manifest when the Docker runtime path is unreadable", async () => {
-    const selected = profile();
-    const result = await runScanPreflight({
-      profile: selected,
-      steps: selected.tools.map((tool) => ({
-        kind: "static_tool" as const,
-        ...tool,
-      })),
-      repoPath: "/redacted/project",
-      execution: {
-        runner: "docker",
-        docker: { image: "toolbox:local", networkMode: "none" },
-      },
-      mode: "enforced",
-      dependencies: dependencies({
-        probeDockerRuntimePath: async (_bin, _image, runtimePath) =>
-          !runtimePath.endsWith("/osv"),
-      }),
-    });
-    expect(result.limitationCodes).toContain("scanner_data_runtime_unreadable");
-    expect(result.status).toBe("blocked");
-  });
+	it("does not run scanner binaries during Docker preflight", async () => {
+		const selected = profile();
+		const probeScannerVersion = vi.fn(async () => "unexpected");
+		const result = await runScanPreflight({
+			profile: selected,
+			steps: selected.tools.map((tool) => ({
+				kind: "static_tool" as const,
+				...tool,
+			})),
+			repoPath: "/redacted/project",
+			execution: {
+				runner: "docker",
+				docker: { image: "toolbox:local", networkMode: "none" },
+			},
+			mode: "enforced",
+			dependencies: dependencies({ probeScannerVersion }),
+		});
+
+		expect(result.status).toBe("ready");
+		expect(probeScannerVersion).not.toHaveBeenCalled();
+		expect(
+			result.checks.some((item) => item.kind === "binary_version"),
+		).toBe(false);
+	});
 
   it("blocks a scanner whose observed version differs from the manifest", async () => {
     const selected = profile();
@@ -324,10 +608,7 @@ describe("scan preflight", () => {
       profile: selected,
       steps: [nucleiStep!],
       repoPath: "/redacted/project",
-      execution: {
-        runner: "docker",
-        docker: { image: "toolbox:local", networkMode: "default" },
-      },
+      execution: { runner: "host" },
       mode: "enforced",
       dependencies: dependencies({
         loadManifest: async () => ({
@@ -358,7 +639,7 @@ describe("scan preflight", () => {
     );
   });
 
-	it("checks the exact isolated scanner image instead of the toolbox image", async () => {
+		it("inspects the exact isolated scanner image without running its binary", async () => {
 		const selected = profile("runtime-web-safe");
 		const nucleiStep = selected.steps?.find(
 			(step) =>
@@ -417,15 +698,15 @@ describe("scan preflight", () => {
 		expect(result.limitationCodes).not.toContain("docker_image_unavailable");
 		expect(probeDockerImage).toHaveBeenCalledOnce();
 		expect(probeDockerImage).toHaveBeenCalledWith("docker", image);
-		expect(probeScannerVersion).toHaveBeenCalledWith(
-			"nuclei-safe",
-			expect.objectContaining({
-				docker: expect.objectContaining({ image }),
-			}),
-		);
+			expect(probeScannerVersion).not.toHaveBeenCalled();
+			expect(
+				result.checks.some(
+					(item) => item.id === "runtime_scanner:nuclei-safe:binary-version",
+				),
+			).toBe(false);
 	});
 
-	it("checks Schemathesis in the exact isolated scanner image", async () => {
+	it("inspects the exact isolated Schemathesis image without running it", async () => {
 		const selected = profile("api-schema-readonly");
 		const schemaStep = selected.steps?.find(
 			(step) => step.kind === "api_schema_scan",
@@ -442,7 +723,7 @@ describe("scan preflight", () => {
 		}));
 		const probeScannerVersion = vi.fn(async () => "schemathesis 4.0.0");
 
-		await runScanPreflight({
+		const result = await runScanPreflight({
 			profile: selected,
 			steps: [schemaStep!],
 			repoPath: "/redacted/project",
@@ -468,13 +749,12 @@ describe("scan preflight", () => {
 
 		expect(probeDockerImage).toHaveBeenCalledOnce();
 		expect(probeDockerImage).toHaveBeenCalledWith("docker", image);
-		expect(probeScannerVersion).toHaveBeenCalledWith(
-			"schemathesis",
-			expect.objectContaining({
-				runner: "docker",
-				docker: expect.objectContaining({ image }),
-			}),
-		);
+		expect(probeScannerVersion).not.toHaveBeenCalled();
+		expect(
+			result.checks.some(
+				(item) => item.id === "api_schema_scan:schemathesis:binary-version",
+			),
+		).toBe(false);
 	});
 
 	it("does not fall back to a host scanner when an isolated image is missing", async () => {

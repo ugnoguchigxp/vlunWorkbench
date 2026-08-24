@@ -1,8 +1,11 @@
+import { afterEach, describe, expect, it } from "bun:test";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "bun:test";
-import { materializeProfileInputSnapshot } from "./profile-input-snapshot";
+import {
+	bindNonFileProfileInputs,
+	materializeProfileInputSnapshot,
+} from "./profile-input-snapshot";
 
 describe("materializeProfileInputSnapshot", () => {
 	const roots: string[] = [];
@@ -39,5 +42,29 @@ describe("materializeProfileInputSnapshot", () => {
 			/^dist\/image\.tar@sha256:[a-f0-9]{64}$/,
 		);
 		await snapshot.cleanup();
+	});
+
+	it("reconstructs non-file preflight inputs when validating a snapshot", () => {
+		expect(
+			bindNonFileProfileInputs(
+				{ imageTar: "dist/image.tar@sha256:abc" },
+				{
+					authContextId: "auth-1",
+					identityRole: "administrator",
+					dependencyResolutionMode: "registry",
+					mavenResolutionConfigDigest: "sha256:config",
+					mavenResolutionSourceDigest: "sha256:source",
+					mavenResolverImageId: "sha256:image",
+				},
+			),
+		).toEqual({
+			imageTar: "dist/image.tar@sha256:abc",
+			authContextId: "auth-1",
+			identityRole: "administrator",
+			dependencyResolutionMode: "registry",
+			mavenResolutionConfigDigest: "sha256:config",
+			mavenResolutionSourceDigest: "sha256:source",
+			mavenResolverImageId: "sha256:image",
+		});
 	});
 });

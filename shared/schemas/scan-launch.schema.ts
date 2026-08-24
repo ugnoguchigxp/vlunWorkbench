@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { runActiveAssessmentRequestSchema } from "./active-assessment.schema";
+import { dependencyResolutionSchema } from "./maven-resolution.schema";
 import {
 	canonicalProfileIdSchema,
 	scanReadinessStatusSchema,
@@ -23,7 +24,14 @@ const imageRefSchema = z
 	.string()
 	.regex(/^[a-z0-9][a-z0-9./:_-]*@sha256:[a-f0-9]{64}$/);
 
-const sourceInput = z.object({ kind: z.literal("source_target") }).strict();
+const sourceInput = z
+	.object({
+		kind: z.literal("source_target"),
+		dependencyResolution: dependencyResolutionSchema.optional().default({
+			mode: "offline",
+		}),
+	})
+	.strict();
 const attestationInput = z
 	.object({
 		kind: z.literal("offline_attestation"),

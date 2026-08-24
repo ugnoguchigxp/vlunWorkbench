@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { ScanExecutionPlan } from "../../../../shared/schemas/scan-execution-plan.schema";
 import type { ScanProfile } from "../../../../shared/schemas/scan-profile.schema";
 import type { ScanProfileStepResult } from "../execution/profile-runner";
 import { buildCoverageLedger } from "./coverage-ledger";
@@ -11,10 +12,8 @@ const profile: ScanProfile = {
 	description: "A deterministic coverage fixture.",
 	enabled: true,
 	defaultTimeoutSec: 60,
-	tools: [],
-	steps: [
+	tools: [
 		{
-			kind: "static_tool",
 			toolId: "gitleaks",
 			displayName: "Gitleaks",
 			required: true,
@@ -26,6 +25,18 @@ const profile: ScanProfile = {
 		{ capabilityId: "authentication_session", requirement: "advisory" },
 	],
 };
+
+const plannedGitleaks = {
+	stepId: "gitleaks",
+	kind: "static_tool",
+	adapter: "gitleaks",
+	required: true,
+	applicability: "applicable",
+	readiness: "ready",
+	requirement: "required_if_applicable",
+	reasonCodes: [],
+	evidenceRefs: [],
+} satisfies ScanExecutionPlan["steps"][number];
 
 const completedGitleaks: ScanProfileStepResult = {
 	kind: "static_tool",
@@ -47,6 +58,7 @@ describe("coverage ledger", () => {
 		const params = {
 			profile,
 			planHash: DIGEST,
+			plannedSteps: [plannedGitleaks],
 			derivedAt: "2026-08-21T00:00:00.000Z",
 			stepResults: [completedGitleaks],
 		};
@@ -74,12 +86,54 @@ describe("coverage ledger", () => {
 		const ledger = buildCoverageLedger({
 			profile,
 			planHash: DIGEST,
+			plannedSteps: [plannedGitleaks],
 			derivedAt: "2026-08-21T00:00:00.000Z",
 			stepResults: [],
 		});
-		expect(ledger?.entries.find((entry) => entry.capabilityId === "secret_detection")).toMatchObject({
+		expect(
+			ledger?.entries.find(
+				(entry) => entry.capabilityId === "secret_detection",
+			),
+		).toMatchObject({
 			execution: "not_executed",
 			coverageEffect: "gap",
+			reasonCodes: ["capability_not_executed"],
+			evidenceRefs: ["plan-step:gitleaks"],
+		});
+	});
+
+	it("uses plan applicability when execution stops before a result is persisted", () => {
+		const ledger = buildCoverageLedger({
+			profile: {
+				...profile,
+				capabilityRequirements: [
+					{
+						capabilityId: "cicd_workflow_integrity",
+						requirement: "required_if_applicable",
+					},
+				],
+			},
+			planHash: DIGEST,
+			plannedSteps: [
+				{
+					...plannedGitleaks,
+					stepId: "zizmor",
+					adapter: "zizmor",
+					applicability: "not_applicable",
+					required: false,
+					reasonCodes: ["no_auditable_github_actions_inputs"],
+				},
+			],
+			derivedAt: "2026-08-21T00:00:00.000Z",
+			stepResults: [],
+		});
+
+		expect(ledger?.entries[0]).toMatchObject({
+			capabilityId: "cicd_workflow_integrity",
+			applicability: "not_applicable",
+			execution: "not_executed",
+			coverageEffect: "covered",
+			evidenceRefs: ["plan-step:zizmor"],
 		});
 	});
 
@@ -104,6 +158,14 @@ describe("coverage ledger", () => {
 		const ledger = buildCoverageLedger({
 			profile: supplyChainProfile,
 			planHash: DIGEST,
+			plannedSteps: [
+				{
+					...plannedGitleaks,
+					stepId: "attestation_verify:cosign",
+					kind: "attestation_verify",
+					adapter: "cosign",
+				},
+			],
 			derivedAt: "2026-08-21T00:00:00.000Z",
 			stepResults: [
 				{

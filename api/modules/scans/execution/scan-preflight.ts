@@ -25,7 +25,6 @@ import {
 } from "../attestation/attestation-inputs";
 import {
 	COSIGN_SAFE_VERSION_REQUIREMENT,
-	COSIGN_TRUSTED_ROOT_CONTAINER_PATH,
 	isCosignVersionSafe,
 	parseCosignVersion,
 } from "../attestation/cosign-attestation-provider";
@@ -34,10 +33,12 @@ import {
 	parseSlsaVerifierVersion,
 	SLSA_VERIFIER_VERSION,
 } from "../attestation/slsa-provenance-provider";
+import { loadMavenResolutionConfig } from "../maven/maven-resolution-config";
 import {
 	type AnyScannerE2EQualification,
 	checkScannerE2EQualification,
 } from "../scanner-e2e-qualification";
+import { resolveStaticScannerApplicability } from "../static-scanner-adapter";
 import { staticScannerAdapterRegistry } from "../static-scanner-adapters";
 import { inspectScopedFiles } from "../target-scope";
 import type { ScannerDataManifest } from "../tools/scanner-provenance";
@@ -74,11 +75,6 @@ export type ScanPreflightDependencies = {
 		dockerBin: string,
 		image: string,
 	) => Promise<DockerImageProbe>;
-	probeDockerRuntimePath: (
-		dockerBin: string,
-		image: string,
-		runtimePath: string,
-	) => Promise<boolean>;
 	inferTargetPlan: (params: {
 		repoPath: string;
 		consentProjectCodeExecution: boolean;
@@ -153,6 +149,14 @@ export async function runScanPreflight(params: {
 	slsaPolicy?: string;
 	authContextId?: string;
 	identityRole?: string;
+	dependencyResolutionMode?: "offline" | "registry";
+	mavenResolverImage?: string;
+	mavenResolutionConfig?: unknown;
+	mavenProjectDetected?: boolean;
+	/** False when a diff plan proves that OSV is not applicable to this target. */
+	mavenResolutionApplicable?: boolean;
+	/** Full repository inventory for full scans, or scan paths for diff scans. */
+	staticScannerPaths?: readonly string[];
 	targetPlan?: DastTargetStartPlan;
 	/** Exact digest-pinned images used by an injected isolated runtime. */
 	runtimeDockerImages?: readonly RuntimePreflightDockerImage[];
@@ -214,7 +218,80 @@ export async function runScanPreflight(params: {
 		slsaPolicy: params.slsaPolicy,
 		authContextId: params.authContextId,
 		identityRole: params.identityRole,
+		dependencyResolutionMode: params.dependencyResolutionMode ?? "offline",
 	};
+	const needsMavenResolver =
+		params.dependencyResolutionMode === "registry" &&
+		params.mavenProjectDetected === true &&
+		params.mavenResolutionApplicable !== false &&
+		params.steps.some(
+			(step) => step.kind === "static_tool" && step.toolId === "osv",
+		);
+	let mavenResolverInputFailure: string | null = null;
+	const mavenConfigEvidence = "repository:pom.xml";
+	let mavenConfigDigest: string | null = null;
+	let mavenSourceDigest: string | null = null;
+	if (needsMavenResolver) {
+		checks.push(
+			check({
+				id: "static_tool:osv:maven-resolution-runner",
+				stepId: "osv",
+				kind: "sandbox_availability",
+				required: true,
+				ready: params.execution.runner === "docker",
+				reasonCode:
+					params.execution.runner === "docker"
+						? null
+						: "maven_registry_resolution_requires_docker",
+				action: "use_docker_runner",
+			}),
+		);
+		try {
+			const resolved = await loadMavenResolutionConfig(
+				params.repoPath,
+				params.mavenResolutionConfig,
+			);
+			mavenConfigDigest = resolved.configDigest;
+			mavenSourceDigest = resolved.sourceDigest;
+			profileInputBindings.mavenResolutionConfigDigest = mavenConfigDigest;
+			profileInputBindings.mavenResolutionSourceDigest = mavenSourceDigest;
+		} catch (error) {
+			mavenResolverInputFailure = safeReasonCode(
+				error,
+				"maven_resolution_config_invalid",
+			);
+		}
+		checks.push(
+			check({
+				id: "static_tool:osv:maven-resolution-config",
+				stepId: "osv",
+				kind: "profile_input",
+				required: true,
+				ready: mavenResolverInputFailure === null,
+				reasonCode: mavenResolverInputFailure,
+				action: "provide_profile_input",
+				observedDigest: mavenConfigDigest,
+				evidenceRefs:
+					mavenResolverInputFailure === null ? [mavenConfigEvidence] : [],
+			}),
+		);
+		checks.push(
+			check({
+				id: "static_tool:osv:maven-resolution-source",
+				stepId: "osv",
+				kind: "profile_input",
+				required: true,
+				ready: mavenResolverInputFailure === null,
+				reasonCode: mavenResolverInputFailure,
+				action: "provide_profile_input",
+				observedDigest: mavenSourceDigest,
+				evidenceRefs:
+					mavenSourceDigest === null
+						? []
+						: [`maven-resolution-source:${mavenSourceDigest}`],
+			}),
+		);
+	}
 	const sourceRevision = await dependencies.resolveSourceRevision(
 		params.repoPath,
 	);
@@ -268,10 +345,36 @@ export async function runScanPreflight(params: {
 	}
 
 	const isolatedRuntime = params.isolatedRuntimeProviderAvailable === true;
+	const staticApplicabilityByStepId = new Map<
+		string,
+		ReturnType<typeof resolveStaticScannerApplicability>
+	>();
+	if (params.staticScannerPaths) {
+		for (const step of params.steps) {
+			if (
+				step.kind !== "static_tool" &&
+				step.kind !== "sbom_export" &&
+				step.kind !== "container_image_scan"
+			) {
+				continue;
+			}
+			const scannerId = step.kind === "static_tool" ? step.toolId : "trivy";
+			const adapter = staticScannerAdapterRegistry.get(scannerId);
+			if (!adapter?.resolveApplicability) continue;
+			staticApplicabilityByStepId.set(
+				scanStepId(step),
+				resolveStaticScannerApplicability(adapter, params.staticScannerPaths),
+			);
+		}
+	}
+	const stepIsApplicable = (step: ScanProfileStep) =>
+		staticApplicabilityByStepId.get(scanStepId(step))?.applicability !==
+		"not_applicable";
 	const needsToolboxDocker =
 		params.execution.runner === "docker" &&
 		params.steps.some(
 			(step) =>
+				stepIsApplicable(step) &&
 				step.kind !== "dast" &&
 				(!isolatedRuntime ||
 					step.kind === "static_tool" ||
@@ -298,22 +401,25 @@ export async function runScanPreflight(params: {
 	let dockerProbe: DockerProbe | null = null;
 	let toolboxImageProbe: DockerImageProbe | null = null;
 	let zapImageProbe: DockerImageProbe | null = null;
-	const runtimeImageReadinessByStepId = new Map<string, boolean>();
 	if (
 		needsToolboxDocker ||
+		needsMavenResolver ||
 		zapSteps.length > 0 ||
 		isolatedRuntime ||
 		runtimeDockerImages.length > 0
 	) {
 		dockerProbe = await dependencies.probeDocker(dockerBin);
 		const required =
+			needsMavenResolver ||
 			params.steps.some(
 				(step) =>
 					step.required &&
+					stepIsApplicable(step) &&
 					(params.execution.runner === "docker" ||
 						(step.kind === "runtime_scanner" &&
 							step.adapter === "zap-baseline")),
-			) || runtimeDockerImages.some((image) => image.required);
+			) ||
+			runtimeDockerImages.some((image) => image.required);
 		checks.push(
 			check({
 				id: "runtime:docker-daemon",
@@ -339,7 +445,8 @@ export async function runScanPreflight(params: {
 					stepId: `profile:${params.profile.id}`,
 					kind: "docker_image",
 					required: params.steps.some(
-						(step) => step.required && step.kind !== "dast",
+						(step) =>
+							step.required && stepIsApplicable(step) && step.kind !== "dast",
 					),
 					ready: dockerImageIsCompatible(
 						toolboxImageProbe,
@@ -360,6 +467,56 @@ export async function runScanPreflight(params: {
 					evidenceRefs: dockerImageEvidenceRefs(toolboxImageProbe),
 				}),
 			);
+		}
+		if (dockerProbe.ready && needsMavenResolver) {
+			const resolverImage = params.mavenResolverImage;
+			const resolverImageProbe = resolverImage
+				? await dependencies.probeDockerImage(dockerBin, resolverImage)
+				: null;
+			const expectedDigest = resolverImage
+				? digestFromImageRef(resolverImage)
+				: null;
+			const ready = Boolean(
+				resolverImage &&
+					resolverImageProbe?.imageId &&
+					dockerImageIsCompatible(
+						resolverImageProbe,
+						dockerProbe,
+						expectedDigest,
+					),
+			);
+			checks.push(
+				check({
+					id: "runtime:docker-image:maven-resolver",
+					stepId: "osv",
+					kind: "docker_image",
+					required: true,
+					ready,
+					reasonCode: !resolverImage
+						? "maven_resolver_image_not_configured"
+						: resolverImageProbe && !resolverImageProbe.imageId
+							? "maven_resolver_image_id_unavailable"
+							: resolverImageProbe
+								? dockerImageReason(
+										resolverImageProbe,
+										dockerProbe,
+										expectedDigest,
+									)
+								: "maven_resolver_image_unavailable",
+					action: "build_maven_resolver_image",
+					expectedDigest,
+					observedDigest:
+						resolverImageProbe?.digest ?? resolverImageProbe?.imageId ?? null,
+					expectedPlatform: dockerProbe.platform,
+					observedPlatform: resolverImageProbe?.platform ?? null,
+					evidenceRefs: resolverImageProbe
+						? dockerImageEvidenceRefs(resolverImageProbe)
+						: [],
+				}),
+			);
+			if (resolverImageProbe?.imageId) {
+				profileInputBindings.mavenResolverImageId = resolverImageProbe.imageId;
+			}
 		}
 		if (dockerProbe.ready && zapSteps.length > 0) {
 			zapImageProbe = await dependencies.probeDockerImage(
@@ -411,11 +568,6 @@ export async function runScanPreflight(params: {
 				const ready = Boolean(
 					imageProbe &&
 						dockerImageIsCompatible(imageProbe, dockerProbe, expectedDigest),
-				);
-				runtimeImageReadinessByStepId.set(
-					runtimeImage.stepId,
-					(runtimeImageReadinessByStepId.get(runtimeImage.stepId) ?? true) &&
-						ready,
 				);
 				checks.push(
 					check({
@@ -541,6 +693,30 @@ export async function runScanPreflight(params: {
 				}),
 			);
 			if (adapter) {
+				const applicability = staticApplicabilityByStepId.get(stepId) ?? null;
+				if (applicability && adapter.resolveApplicability) {
+					checks.push({
+						id: `${stepId}:applicability`,
+						stepId,
+						kind: "scanner_applicability",
+						required: step.required,
+						status:
+							applicability.applicability === "applicable"
+								? "ready"
+								: "not_applicable",
+						reasonCode: applicability.reasonCode,
+						action: null,
+						scannerId,
+						observedVersion: null,
+						expectedVersion: null,
+						expectedDigest: null,
+						observedDigest: null,
+						dataState: null,
+						dataGeneratedAt: null,
+						evidenceRefs: applicability.evidenceRefs ?? [],
+					});
+					if (applicability.applicability === "not_applicable") continue;
+				}
 				await addScannerChecks({
 					checks,
 					stepId,
@@ -549,19 +725,6 @@ export async function runScanPreflight(params: {
 					execution: params.execution,
 					manifest,
 					manifestFailure,
-					dockerBin,
-					toolboxImage,
-					toolboxReady:
-						params.execution.runner !== "docker" ||
-						Boolean(
-							dockerProbe &&
-								toolboxImageProbe &&
-								dockerImageIsCompatible(
-									toolboxImageProbe,
-									dockerProbe,
-									digestFromImageRef(toolboxImage),
-								),
-						),
 					dependencies,
 				});
 			}
@@ -590,20 +753,6 @@ export async function runScanPreflight(params: {
 				execution: scannerExecution,
 				manifest,
 				manifestFailure,
-				dockerBin,
-				toolboxImage: runtimeImage ?? toolboxImage,
-				toolboxReady: isolatedRuntime
-					? (runtimeImageReadinessByStepId.get(stepId) ?? false)
-					: params.execution.runner !== "docker" ||
-						Boolean(
-							dockerProbe &&
-								toolboxImageProbe &&
-								dockerImageIsCompatible(
-									toolboxImageProbe,
-									dockerProbe,
-									digestFromImageRef(toolboxImage),
-								),
-						),
 				dependencies,
 			});
 		} else if (step.kind === "attestation_verify") {
@@ -667,21 +816,13 @@ export async function runScanPreflight(params: {
 				const scannerId = step.adapter;
 				if (step.adapter === "cosign") {
 					const entry = manifest?.tools.cosign;
-					let dataReady = Boolean(entry && entry.state === "ready");
+					const dataReady = Boolean(entry && entry.state === "ready");
 					let reasonCode = manifestFailure;
 					if (!reasonCode && !entry) reasonCode = "scanner_data_entry_missing";
 					if (!reasonCode && entry?.state === "missing")
 						reasonCode = "scanner_data_missing";
 					if (!reasonCode && entry?.state === "stale")
 						reasonCode = "scanner_data_stale";
-					if (dataReady && params.execution.runner === "docker") {
-						dataReady = await dependencies.probeDockerRuntimePath(
-							dockerBin,
-							toolboxImage,
-							COSIGN_TRUSTED_ROOT_CONTAINER_PATH,
-						);
-						if (!dataReady) reasonCode = "scanner_data_runtime_unreadable";
-					}
 					checks.push(
 						check({
 							id: `${stepId}:scanner-data`,
@@ -703,38 +844,40 @@ export async function runScanPreflight(params: {
 						}),
 					);
 				}
-				const version = await dependencies.probeScannerVersion(
-					scannerId,
-					params.execution,
-				);
-				const versionReady =
-					step.adapter === "cosign"
-						? isCosignVersionSafe(version)
-						: parseSlsaVerifierVersion(version) === SLSA_VERIFIER_VERSION;
-				const observedSemanticVersion =
-					step.adapter === "cosign"
-						? parseCosignVersion(version)?.join(".")
-						: parseSlsaVerifierVersion(version);
-				checks.push(
-					check({
-						id: `${stepId}:binary-version`,
-						stepId,
-						kind: "binary_version",
-						required: step.required,
-						ready: versionReady,
-						reasonCode: version
-							? "scanner_version_vulnerable"
-							: "scanner_binary_unavailable",
-						action: "build_toolbox_image",
+				if (params.execution.runner !== "docker") {
+					const version = await dependencies.probeScannerVersion(
 						scannerId,
-						observedVersion: observedSemanticVersion ?? version,
-						expectedVersion:
-							step.adapter === "cosign"
-								? COSIGN_SAFE_VERSION_REQUIREMENT
-								: SLSA_VERIFIER_VERSION,
-						evidenceRefs: version ? [`scanner-version:${scannerId}`] : [],
-					}),
-				);
+						params.execution,
+					);
+					const versionReady =
+						step.adapter === "cosign"
+							? isCosignVersionSafe(version)
+							: parseSlsaVerifierVersion(version) === SLSA_VERIFIER_VERSION;
+					const observedSemanticVersion =
+						step.adapter === "cosign"
+							? parseCosignVersion(version)?.join(".")
+							: parseSlsaVerifierVersion(version);
+					checks.push(
+						check({
+							id: `${stepId}:binary-version`,
+							stepId,
+							kind: "binary_version",
+							required: step.required,
+							ready: versionReady,
+							reasonCode: version
+								? "scanner_version_vulnerable"
+								: "scanner_binary_unavailable",
+							action: "build_toolbox_image",
+							scannerId,
+							observedVersion: observedSemanticVersion ?? version,
+							expectedVersion:
+								step.adapter === "cosign"
+									? COSIGN_SAFE_VERSION_REQUIREMENT
+									: SLSA_VERIFIER_VERSION,
+							evidenceRefs: version ? [`scanner-version:${scannerId}`] : [],
+						}),
+					);
+				}
 			}
 			if (
 				step.adapter === "slsa-verifier" &&
@@ -788,8 +931,6 @@ export async function runScanPreflight(params: {
 				const runtimeImage = isolatedRuntime
 					? params.runtimeScannerImages?.schemathesis
 					: undefined;
-				const runtimeImageReady =
-					runtimeImageReadinessByStepId.get(stepId) ?? false;
 				const scannerExecution = runtimeImage
 					? {
 							...params.execution,
@@ -797,22 +938,21 @@ export async function runScanPreflight(params: {
 							docker: { ...params.execution.docker, image: runtimeImage },
 						}
 					: params.execution;
-				const version =
-					isolatedRuntime && (!runtimeImage || !runtimeImageReady)
-						? null
-						: await dependencies.probeScannerVersion(
-								"schemathesis",
-								scannerExecution,
-							);
-				checks.push(
-					buildVersionCheck(
-						stepId,
-						step.required,
+				if (scannerExecution.runner !== "docker") {
+					const version = await dependencies.probeScannerVersion(
 						"schemathesis",
-						version,
-						null,
-					),
-				);
+						scannerExecution,
+					);
+					checks.push(
+						buildVersionCheck(
+							stepId,
+							step.required,
+							"schemathesis",
+							version,
+							null,
+						),
+					);
+				}
 			}
 		} else if (step.kind === "dast") {
 			const dastProfile = getDastProfile(step.profileId);

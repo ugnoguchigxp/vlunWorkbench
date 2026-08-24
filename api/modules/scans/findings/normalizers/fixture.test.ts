@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { generateFingerprint, normalizeFixture } from "./fixture";
-import { redactSecrets } from "./redaction";
+import { redactJsonSecrets, redactSecrets } from "./redaction";
 
 describe("Fixture Normalizer", () => {
 	it("should parse and normalize valid fixture results", () => {
@@ -116,6 +116,56 @@ describe("Fixture Normalizer", () => {
 			expect(redacted).toContain("Authorization: [REDACTED]");
 			expect(redacted).toContain("Cookie: [REDACTED]");
 			expect(redacted).toContain('"x-api-key":"[REDACTED]"');
+		});
+	});
+
+	describe("redactJsonSecrets", () => {
+		it("redacts quoted authorization matches without corrupting JSON escaping", () => {
+			const input = {
+				Match:
+					'curl -H "Authorization: Basic headerTokenValue123" --data "{\\"quoted\\":true}" https://example.test',
+			};
+
+			const redacted = redactJsonSecrets(input);
+
+			expect(redacted.Match).toContain("Authorization: [REDACTED]");
+			expect(redacted.Match).toContain('{\\"quoted\\":true}');
+			expect(redacted.Match).not.toContain("headerTokenValue123");
+			expect(() => JSON.parse(JSON.stringify(redacted))).not.toThrow();
+		});
+
+		it("preserves nested JSON values while redacting only string leaves", () => {
+			const input = {
+				results: [
+					{
+						headers: ["Authorization: Bearer headerTokenValue123"],
+						count: 3,
+						enabled: true,
+						optional: null,
+					},
+				],
+			};
+
+			expect(redactJsonSecrets(input)).toEqual({
+				results: [
+					{
+						headers: ["Authorization: [REDACTED]"],
+						count: 3,
+						enabled: true,
+						optional: null,
+					},
+				],
+			});
+		});
+
+		it("supports every top-level JSON primitive without changing its type", () => {
+			expect(
+				redactJsonSecrets("Authorization: Bearer headerTokenValue123"),
+			).toBe("Authorization: [REDACTED]");
+			expect(redactJsonSecrets(null)).toBeNull();
+			expect(redactJsonSecrets(42)).toBe(42);
+			expect(redactJsonSecrets(true)).toBe(true);
+			expect(redactJsonSecrets(undefined)).toBeUndefined();
 		});
 	});
 });

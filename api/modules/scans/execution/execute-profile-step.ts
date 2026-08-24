@@ -509,6 +509,15 @@ async function executeAdapterStep(params: {
 					"image tar",
 				)
 			: undefined;
+	const mavenResolverImageCheck = scope.scanPreflight.checks.find(
+		(check) => check.id === "runtime:docker-image:maven-resolver",
+	);
+	const mavenResolverImageId = mavenResolverImageCheck?.evidenceRefs
+		.find((reference) => reference.startsWith("docker-image-id:"))
+		?.slice("docker-image-id:".length);
+	const mavenResolverImageDigest = mavenResolverImageCheck?.evidenceRefs
+		.find((reference) => reference.startsWith("docker-image:"))
+		?.slice("docker-image:".length);
 	const baseOptions = {
 		...(("options" in step ? step.options : undefined) ?? {}),
 		...(step.kind === "sbom_export" ? { mode: "fs-sbom" } : {}),
@@ -518,6 +527,28 @@ async function executeAdapterStep(params: {
 					imageRef: scope.imageRef,
 					imageTar: resolvedImageTar,
 				}
+			: {}),
+		...(toolId === "osv"
+			? {
+					dependencyResolutionMode: scope.mavenProjectDetected
+						? scope.dependencyResolutionMode
+						: "offline",
+					mavenResolverImage: scope.mavenResolverImage,
+					mavenResolverImageId,
+					mavenResolverImageDigest,
+					mavenResolutionConfigDigest:
+						scope.scanPreflight.checks.find(
+							(check) => check.id === "static_tool:osv:maven-resolution-config",
+						)?.observedDigest ?? undefined,
+					mavenResolutionSourceDigest:
+						scope.scanPreflight.checks.find(
+							(check) => check.id === "static_tool:osv:maven-resolution-source",
+						)?.observedDigest ?? undefined,
+					mavenResolutionConfig: scope.mavenResolutionConfig,
+				}
+			: {}),
+		...(toolId === "gitleaks" && diffSnapshot
+			? { configPath: path.join(diffSnapshot.projectPath, ".gitleaks.toml") }
 			: {}),
 		scope: withMandatoryExcludes(scope.profile.scope),
 		scopeSummary: scope.resolvedScope,

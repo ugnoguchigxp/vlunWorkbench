@@ -18,6 +18,22 @@ describe("scan launch schemas", () => {
 		expect((parsed as { profileId: string }).profileId).toBe("runtime-passive");
 	});
 
+	test("defaults source dependency resolution to offline and accepts registry mode", () => {
+		const preview = scanLaunchPreviewRequestSchema.parse({
+			schemaVersion: 1,
+			profileId: "source-assurance",
+			target: { kind: "full" },
+			input: { kind: "source_target" },
+		}) as { input: { dependencyResolution: { mode: string } } };
+		expect(preview.input.dependencyResolution.mode).toBe("offline");
+		expect(
+			isCompleteScanLaunchInput("source-assurance", {
+				kind: "source_target",
+				dependencyResolution: { mode: "registry" },
+			}),
+		).toBe(true);
+	});
+
 	test("rejects a partial input from another profile", () => {
 		expect(
 			scanLaunchPreviewRequestSchema.safeParse({

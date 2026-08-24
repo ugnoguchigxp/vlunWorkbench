@@ -1,8 +1,22 @@
-<article lang="ja" data-spec-role="active-plan">
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex,follow">
+    <title>Security Capability Gap Completion Implementation Plan | vulnWorkbench</title>
+    <link rel="stylesheet" href="/vlunWorkbench/assets/css/spec-document.css">
+    <link rel="stylesheet" href="/vlunWorkbench/assets/css/plan-document.css">
+  </head>
+  <body>
+    <article lang="ja" data-spec-role="archived-plan">
   <h1 id="security-capability-gap-completion-implementation-plan">
     Security Capability Gap Completion Implementation Plan
   </h1>
-  <p>Status: Reviewed — Ready for implementation</p>
+  <p>
+    Status: Superseded after implementation; remaining campaign scope transferred and archived —
+    2026-08-24
+  </p>
   <p>Plan revision: <code>2</code></p>
   <p>Planning baseline commit: <code>b7e8be17601c9cad97335de188048c5979415098</code></p>
   <p>Baseline and review date: 2026-08-21</p>
@@ -52,8 +66,7 @@
       active ZAP、authorization matrix、business logic、dynamic、reproductionは専用flowを持つ。
     </li>
     <li>
-      <code>full-security-scan.coverageGaps</code
-      >は空だが、auth、active、business、dynamic、retestを実行しない。
+      <code>full-security-scan.coverageGaps</code>は空だが、auth、active、business、dynamic、retestを実行しない。
       P0で固定空配列を廃止し、capability requirementと実測結果からledgerを導出する。
     </li>
   </ul>
@@ -531,8 +544,7 @@ ProfileStepResult:
           new schemas → pure ledger → full-security declarations → finalization/API/report/Web
         </td>
         <td>
-          <code>shared/schemas/</code
-          >、<code>scans/coverage/</code>、<code>reporting/</code>、Web
+          <code>shared/schemas/</code>、<code>scans/coverage/</code>、<code>reporting/</code>、Web
           coverage
         </td>
         <td><code>bun test api/modules/scans/coverage api/modules/scans/reporting api/routes/scan-profiles.route.test.ts</code></td>
@@ -672,10 +684,8 @@ ProfileStepResult:
     Every WP: focused
     test、<code>bun run typecheck</code>、<code>bun run docs:check</code>。
     Each slice close:
-    <code>test:api</code
-    >、<code>test:web</code>、関連capability。 Runner/tool/policy change:
-    <code>test:scanner-e2e</code
-    >。Docker/scanner/browser/fixture不足はskip-passにしない。
+    <code>test:api</code>、<code>test:web</code>、関連capability。 Runner/tool/policy change:
+    <code>test:scanner-e2e</code>。Docker/scanner/browser/fixture不足はskip-passにしない。
   </p>
   <h3 id="62-evidence-manifest">6.2 Evidence manifest</h3>
   <p><code>artifacts/security-capability-gap/&lt;slice&gt;/evidence.v1.json</code>に次を保存する。</p>
@@ -874,7 +884,7 @@ git diff --check</code></pre>
         <td>capability ID/safety policy</td>
       </tr>
       <tr>
-        <td><a href="phase-56-capability-product-completion-plan.html">Phase 56</a></td>
+        <td><a href="https://github.com/ugnoguchigxp/vlunWorkbench/blob/main/spec/docs/phase-56-capability-product-completion-plan.html">Phase 56</a></td>
         <td>professional claim/authoritative approval/distribution</td>
         <td>profile completion/step semantics</td>
       </tr>
@@ -900,9 +910,7 @@ git diff --check</code></pre>
       <code>professional_run_group_capabilities_missing</code> で拒否する。
     </li>
     <li>
-      GC-08.2: <code>professionalRunGroupAssessment</code> はledgerとcleanupから導出し、<code
-        >professionalRunGroupQualification</code
-      >
+      GC-08.2: <code>professionalRunGroupAssessment</code> はledgerとcleanupから導出し、<code>professionalRunGroupQualification</code>
       はtechnical completionがtrueのときだけ保存する。qualificationのhuman approvalは常に
       <code>pending</code> である。
     </li>
@@ -920,9 +928,7 @@ git diff --check</code></pre>
       <a href="https://owasp.org/www-project-web-security-testing-guide/stable/">OWASP WSTG</a>
     </li>
     <li>
-      <a href="https://www.zaproxy.org/docs/automate/automation-framework/"
-        >ZAP Automation Framework</a
-      >
+      <a href="https://www.zaproxy.org/docs/automate/automation-framework/">ZAP Automation Framework</a>
     </li>
     <li><a href="https://csrc.nist.gov/pubs/sp/800/218/final">NIST SP 800-218 SSDF</a></li>
     <li><a href="https://slsa.dev/spec/v1.2/provenance">SLSA v1.2 Provenance</a></li>
@@ -930,3 +936,5 @@ git diff --check</code></pre>
     <li><a href="https://cyclonedx.org/specification/overview/">CycloneDX overview</a></li>
   </ul>
 </article>
+  </body>
+</html>

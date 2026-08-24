@@ -1,5 +1,15 @@
 import type { ScanScopePolicy } from "../../../../shared/schemas/scan-profile.schema";
 import type { AppDatabase } from "../../../db";
+import {
+	ArtifactRepository,
+	FindingRepository,
+	ScanRepository,
+} from "../repositories";
+import {
+	normalizeToolExecutionConfig,
+	type ToolExecutionConfig,
+	type ToolLifecycleEvent,
+} from "../tools/tool-process-runner";
 import { ScanArtifactSink } from "./lifecycle/artifact-sink";
 import type { ArtifactStorage } from "./lifecycle/artifact-storage";
 import {
@@ -14,16 +24,6 @@ import {
 	bindObservedToolProvenance,
 	prepareToolProvenance,
 } from "./profile-tool-provenance";
-import {
-	ArtifactRepository,
-	FindingRepository,
-	ScanRepository,
-} from "../repositories";
-import {
-	normalizeToolExecutionConfig,
-	type ToolExecutionConfig,
-	type ToolLifecycleEvent,
-} from "../tools/tool-process-runner";
 
 export async function runToolIntoExistingScan(params: {
 	db: AppDatabase;
@@ -244,6 +244,18 @@ export async function runToolIntoExistingScan(params: {
 			});
 			stderrArtifactId = stderrRecord.id;
 			artifactIds.push(stderrRecord.id);
+		}
+
+		for (const additional of runResult.additionalArtifacts ?? []) {
+			const record = await artifactSink.registerSaved(additional);
+			artifactIds.push(record.id);
+			await scanRepo.createScanEvent({
+				scanRunId: params.scanRunId,
+				level: "info",
+				eventType: "artifact.registered",
+				message: `${additional.role} artifact registered: ${additional.saved.path}`,
+				data: { artifactId: record.id, role: additional.role },
+			});
 		}
 
 		// Check if run completed successfully

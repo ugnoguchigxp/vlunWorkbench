@@ -1,8 +1,8 @@
 import type { ScanPreflightCheck } from "../../../../shared/schemas/scan-preflight.schema";
 import type { ScanProfileStep } from "../../../../shared/schemas/scan-profile.schema";
-import type { ScanPreflightDependencies } from "./scan-preflight";
 import type { ScannerDataManifest } from "../tools/scanner-provenance";
 import type { ToolExecutionConfig } from "../tools/tool-process-runner";
+import type { ScanPreflightDependencies } from "./scan-preflight";
 
 const ANSI_ESCAPE_SEQUENCE = new RegExp(
 	`${String.fromCharCode(27)}\\[[0-?]*[ -/]*[@-~]`,
@@ -17,32 +17,16 @@ export async function addScannerChecks(params: {
 	execution: ToolExecutionConfig;
 	manifest: ScannerDataManifest | null;
 	manifestFailure: string | null;
-	dockerBin: string;
-	toolboxImage: string;
-	toolboxReady: boolean;
 	dependencies: ScanPreflightDependencies;
 }) {
 	const entry = params.manifest?.tools[params.scannerId];
-	let dataReady = Boolean(entry && entry.state === "ready");
+	const dataReady = Boolean(entry && entry.state === "ready");
 	let reasonCode = params.manifestFailure;
 	if (!reasonCode && !entry) reasonCode = "scanner_data_entry_missing";
 	if (!reasonCode && entry?.state === "missing")
 		reasonCode = "scanner_data_missing";
 	if (!reasonCode && entry?.state === "stale")
 		reasonCode = "scanner_data_stale";
-	if (
-		dataReady &&
-		params.execution.runner === "docker" &&
-		entry?.runtimePath &&
-		params.toolboxReady
-	) {
-		dataReady = await params.dependencies.probeDockerRuntimePath(
-			params.dockerBin,
-			params.toolboxImage,
-			entry.runtimePath,
-		);
-		if (!dataReady) reasonCode = "scanner_data_runtime_unreadable";
-	}
 	params.checks.push(
 		buildPreflightCheck({
 			id: `${params.stepId}:scanner-data`,
@@ -63,7 +47,10 @@ export async function addScannerChecks(params: {
 				: [],
 		}),
 	);
-	if (params.execution.runner === "docker" && !params.toolboxReady) return;
+	// Docker preflight is intentionally process-free. Image identity and
+	// platform were already inspected; binary identity is verified immediately
+	// before the real scanner invocation.
+	if (params.execution.runner === "docker") return;
 	const version = await params.dependencies.probeScannerVersion(
 		params.scannerId,
 		params.execution,

@@ -199,10 +199,12 @@ describe("readAppEnv", () => {
 			JWT_SECRET: "x".repeat(32),
 			SCAN_EXECUTION_MODE: "docker",
 			SCAN_DOCKER_IMAGE: "scanner:test",
+			VULN_WORKBENCH_MAVEN_RESOLVER_IMAGE: "maven-resolver:test",
 		});
 		expect(env.scanExecutionMode).toBe("docker");
 		expect(env.allowHostScannerExecution).toBe(false);
 		expect(env.scanDockerImage).toBe("scanner:test");
+		expect(env.mavenResolverImage).toBe("maven-resolver:test");
 		expect(env.zapActiveEnabled).toBe(false);
 	});
 

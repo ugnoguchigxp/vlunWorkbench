@@ -1,0 +1,1906 @@
+<article lang="ja" data-spec-role="archived-plan">
+  <h1 id="settings-screen-redesign-implementation-plan">設定画面再設計 実装計画書</h1>
+
+  <h2 id="1-status">1. ステータス</h2>
+  <ul>
+    <li>作成日: 2026-08-23</li>
+    <li>対象ベースライン: <code>1fcf734134f4e3d5d91dc3601a05e0280644d8ff</code></li>
+    <li>対象画面: <code>/settings</code></li>
+    <li>状態: Implemented and archived — 2026-08-24</li>
+    <li>レビュー日: 2026-08-24</li>
+    <li>実装引き継ぎ状態: Complete</li>
+    <li>主対象: React / TypeScript / CSSによるフロントエンド再構成</li>
+    <li>API・DB migration: 変更しない</li>
+  </ul>
+  <p>
+    この文書は、承認済みモックアップを既存の設定機能へ接続するための固定仕様、変更境界、
+    実装順序、テスト、受け入れ条件を定義する。実装中に情報設計または権限境界を変更する必要が
+    生じた場合は、コードより先に本書を更新する。
+  </p>
+  <p>
+    実装完了日: 2026-08-24。URL連携、権限別カテゴリ、カテゴリ検索、Runtime 3分割、
+    resource別の未保存状態、離脱確認、responsive shell、対象unit testとbrowser E2Eを実装した。
+  </p>
+
+  <h3 id="11-terra-handoff">1.1 Terra向け実装引き継ぎ</h3>
+  <p>
+    Terraは、本書のWork Package 0から順に実装する。各Work Packageの完了条件と対象testが
+    成功するまで次へ進まない。記載のないbackend変更、共通UIの全面整理、命名変更は行わない。
+    実装中の既定判断は次で固定する。
+  </p>
+  <ul>
+    <li>新しい確認事項がなければ、ユーザーへ質問せず本書の固定仕様を採用する。</li>
+    <li>
+      既存API responseとモックアップが競合する場合は、responseの意味を優先して表示を調整する。
+    </li>
+    <li>既存機能の移設先が不明に見える場合は、7.8と7.9の対応表を正とする。</li>
+    <li>変更対象外のtest failureは修正せず、再現commandと失敗内容を報告する。</li>
+    <li>
+      <code>as any</code>、新しい依存package、feature flag、backend
+      fallbackを追加しない。
+    </li>
+  </ul>
+
+  <h3 id="12-worktree-guard">1.2 作業ツリー保護</h3>
+  <p>
+    計画書レビュー時点で、次のファイルにはユーザー所有の変更がある。設定画面実装では編集、
+    rollback、整形を行わない。特に<code>api/routes/settings.route.ts</code>は読取専用とし、
+    frontendは現在のAPI契約へ合わせる。
+  </p>
+  <ul>
+    <li><code>api/cli/runtime-isolation-auto-configure.ts</code></li>
+    <li><code>api/modules/runtime-isolation/runtime-isolation-auto-config.ts</code></li>
+    <li><code>api/modules/runtime-isolation/runtime-isolation-auto-config.test.ts</code></li>
+    <li><code>api/routes/settings.route.ts</code></li>
+    <li><code>api/routes/settings.route.test.ts</code></li>
+    <li><code>package.json</code></li>
+    <li><code>scripts/scanner-e2e.ts</code></li>
+    <li><code>scripts/docker-image-retention.ts</code>と対応test</li>
+    <li><code>web/src/styles-scans.css</code></li>
+  </ul>
+  <p>
+    作業開始時と各Work
+    Package終了時に<code>git status --short</code>を確認し、上記以外にも
+    ユーザー変更が増えていれば同様に保護する。本計画自身、仕様書index、承認済みモックアップは
+    この設定画面タスクの成果物として扱う。
+  </p>
+
+  <h3 id="13-review-verdict">1.3 レビュー結果</h3>
+  <p>
+    文書レビューで、routeの所有位置、provider状態の判定、Runtime全fieldの移設先、dirty比較、
+    即時Runtime操作、離脱確認、E2E fixtureを固定した。実装開始を妨げる未決定のプロダクト仕様はない。
+    Terraは追加のデザイン判断を行わずWork Package 0から開始できる。
+  </p>
+
+  <h2 id="2-conclusion">2. 結論</h2>
+  <p>
+    現在の設定画面は、Runtime、System Context、Runtime Settings、LLM Providers、Task
+    Routingを一つの長い縦画面に配置している。既存機能は保たれているが、目的の設定を探すまでの
+    スクロール量が多く、保存対象と管理者専用領域も把握しにくい。
+  </p>
+  <p>
+    改修後は、<strong
+      >URLと連動する設定カテゴリを左側に固定し、右側には選択中のカテゴリだけを 表示する</strong
+    >。既存APIと保存単位は維持し、画面の分割、状態表示、文言、レスポンシブ対応を
+    フロントエンド内で実現する。
+  </p>
+  <ol>
+    <li>カテゴリと権限を型付きの設定レジストリへ集約する。</li>
+    <li><code>/settings?section=...</code>を選択状態の正とする。</li>
+    <li>共通シェル、概要、検索、保存状態を先に実装する。</li>
+    <li>既存パネルをカテゴリ単位へ移し、Runtime Settingsだけを3領域へ分割する。</li>
+    <li>管理者・一般ユーザー、狭い画面、キーボード操作、既存APIを回帰検証する。</li>
+  </ol>
+
+  <h2 id="3-goals">3. 目的</h2>
+  <ul>
+    <li>設定画面を開いて3秒以内に、目的のカテゴリと現在の主要状態を判別できる。</li>
+    <li>一画面に一つの設定カテゴリだけを表示し、長い縦スクロールを解消する。</li>
+    <li>URL共有、再読み込み、ブラウザの戻る・進むで同じカテゴリを復元する。</li>
+    <li>一般ユーザーに管理者専用設定や検索結果を表示せず、管理者APIも呼ばない。</li>
+    <li>未保存、保存中、保存済み、入力エラー、通信失敗を区別して表示する。</li>
+    <li>既存のLLM provider、task route、runtime、system context機能を失わない。</li>
+    <li>390px幅からデスクトップまで、横スクロールなしで主要操作を完了できる。</li>
+  </ul>
+
+  <h2 id="4-non-goals">4. 対象外</h2>
+  <ul>
+    <li>設定API、SQLite schema、暗号化方式、権限middlewareの変更。</li>
+    <li>新しいLLM provider種別、task種別、scanner設定項目の追加。</li>
+    <li>グローバルナビゲーションまたは他画面の全面的な日本語化。</li>
+    <li>汎用i18n frameworkの導入。</li>
+    <li>provider healthの自動定期監視。</li>
+    <li>設定値の自動保存。</li>
+    <li>モックアップに含まれないテーマ切り替えやユーザープロフィール設定。</li>
+  </ul>
+
+  <h2 id="5-reference-mockup">5. 参照モックアップ</h2>
+  <figure>
+    <a href="../../assets/ui-mockups/settings-redesign.png">
+      <img
+        src="../../assets/ui-mockups/settings-redesign.png"
+        alt="カテゴリナビゲーションとAI・モデル設定を表示した設定画面再設計案"
+      />
+    </a>
+    <figcaption>
+      承認済みの設定画面再設計案。既存のグローバルナビゲーションと配色を維持し、
+      設定カテゴリ、選択中カテゴリ、接続状態、編集フォーム、保存状態を一つの視線順序に整理する。
+    </figcaption>
+  </figure>
+  <p>
+    モックアップは情報設計と視覚優先順位の基準であり、表示する状態値は実データから導出する。
+    モックアップ上の「接続済み」などの例示値を固定文言として実装しない。
+  </p>
+
+  <h2 id="6-current-baseline">6. 現在の実装ベースライン</h2>
+  <table>
+    <caption>
+      現行ファイルと責務
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">ファイル</th>
+        <th scope="col">現在の責務</th>
+        <th scope="col">改修時の扱い</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>web/src/settings-panel.tsx</code></td>
+        <td>LLM、Runtime、接続確認、保存処理を一つのhookへ集約。</td>
+        <td>API操作の正として維持し、resource別loading・error・dirty状態を追加する。</td>
+      </tr>
+      <tr>
+        <td><code>web/src/settings-panel-view.tsx</code></td>
+        <td>全パネルを縦に直列配置。</td>
+        <td>設定シェルと選択カテゴリの組み立てへ置き換える。</td>
+      </tr>
+      <tr>
+        <td><code>web/src/settings-llm-providers-panel.tsx</code></td>
+        <td>Codex状態、provider一覧、provider編集。</td>
+        <td>Codexを含む統一provider一覧と単一の編集領域へ再構成する。</td>
+      </tr>
+      <tr>
+        <td><code>web/src/settings-task-routing-panel.tsx</code></td>
+        <td>5 taskのprimary / fallback model編集。</td>
+        <td>独立カテゴリとして既存ロジックを再利用する。</td>
+      </tr>
+      <tr>
+        <td><code>web/src/settings-runtime-panel.tsx</code></td>
+        <td>実行方式、resource limit、runtime isolation、DAST keyを一括表示。</td>
+        <td>スキャン実行、セキュリティ、詳細設定の3表示パネルへ分割する。</td>
+      </tr>
+      <tr>
+        <td><code>web/src/settings-panel-model.ts</code></td>
+        <td>provider、model、routeの純粋な変換と表示ラベル。</td>
+        <td>既存関数を維持し、状態表示とdirty判定用の純粋関数を追加する。</td>
+      </tr>
+      <tr>
+        <td><code>web/src/router.tsx</code></td>
+        <td><code>/settings</code>を検索パラメータなしで表示。</td>
+        <td>
+          <code>section</code>の検証とroute
+          componentへの受け渡しを追加する。
+        </td>
+      </tr>
+      <tr>
+        <td><code>web/src/styles.css</code></td>
+        <td>共通スタイルと設定画面固有スタイルが混在。</td>
+        <td>
+          共通tokenは残し、設定固有selectorを<code>styles-settings.css</code>へ移す。
+        </td>
+      </tr>
+      <tr>
+        <td><code>tests/e2e/release-readiness.spec.ts</code></td>
+        <td>一般ユーザーの設定画面と管理者API境界を確認。</td>
+        <td>カテゴリ権限、deep link、アクセシビリティの回帰を追加する。</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3 id="61-existing-contracts">6.1 維持する既存契約</h3>
+  <ul>
+    <li><code>GET /api/settings/llm</code>と更新APIは管理者専用のまま維持する。</li>
+    <li>
+      <code>GET /api/settings/runtime</code
+      >と更新・鍵生成・自動設定APIは管理者専用のまま維持する。
+    </li>
+    <li>System Contextは現在のユーザー単位の取得・更新契約を維持する。</li>
+    <li>Codex statusとprovider healthは既存APIから取得し、推測値で代用しない。</li>
+    <li>LLM providerとtask routeは同じ<code>updateLlmSettings</code>で保存する。</li>
+    <li>Runtime isolationの正規化とfail-closed判定は既存関数を再利用する。</li>
+  </ul>
+
+  <h2 id="7-fixed-product-specification">7. 固定するプロダクト仕様</h2>
+
+  <h3 id="71-information-architecture">7.1 情報設計</h3>
+  <table>
+    <caption>
+      設定カテゴリと既存機能の対応
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">表示名</th>
+        <th scope="col"><code>section</code></th>
+        <th scope="col">権限</th>
+        <th scope="col">収容する既存機能</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>概要</td>
+        <td><code>overview</code></td>
+        <td>全ユーザー</td>
+        <td>app health、service、Git branch / commit、利用可能な設定の要約。</td>
+      </tr>
+      <tr>
+        <td>AI・モデル</td>
+        <td><code>ai-models</code></td>
+        <td>管理者</td>
+        <td>Codex SDK、generic provider、model、credential、provider health。</td>
+      </tr>
+      <tr>
+        <td>タスクルーティング</td>
+        <td><code>task-routing</code></td>
+        <td>管理者</td>
+        <td>5 taskのprimary model、thinking depth、fallback順序。</td>
+      </tr>
+      <tr>
+        <td>スキャン実行</td>
+        <td><code>scan-execution</code></td>
+        <td>管理者</td>
+        <td>host / Docker、Docker image、memory、CPU、PID limit。</td>
+      </tr>
+      <tr>
+        <td>システムコンテキスト</td>
+        <td><code>system-context</code></td>
+        <td>全ユーザー</td>
+        <td>Agentic Search Promptと最終更新日時。</td>
+      </tr>
+      <tr>
+        <td>セキュリティ</td>
+        <td><code>security</code></td>
+        <td>管理者</td>
+        <td>runtime isolation、資格状態、必須image / hash、DAST暗号鍵。</td>
+      </tr>
+      <tr>
+        <td>詳細設定</td>
+        <td><code>advanced</code></td>
+        <td>管理者</td>
+        <td>stdout / stderr limit、concurrency、queue、timeout、任意scanner / DB image。</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    カテゴリ順序はモックアップどおり固定する。一般ユーザーには管理者専用カテゴリと
+    「管理者」badgeを表示しない。表示だけを隠す実装にはせず、該当APIも呼ばない。
+  </p>
+  <p>
+    現行<code>TaskRoutingPanel</code>にはcomponent内のadmin
+    guardがなく、member画面にも空のcardが 出る可能性がある。一方、LLM settings
+    APIはserverで管理者専用である。新画面では
+    タスクルーティングを管理者専用に揃える。これは意図した権限表示の修正であり、回帰ではない。
+  </p>
+  <p><code>web/src/settings-navigation-model.ts</code>のレジストリ値は次で固定する。</p>
+  <table>
+    <caption>
+      設定レジストリの表示値
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">ID</th>
+        <th scope="col">Icon</th>
+        <th scope="col">説明</th>
+        <th scope="col">検索keyword</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>overview</code></td>
+        <td><code>House</code></td>
+        <td>アプリと設定の状態を確認します</td>
+        <td>状態、サービス、Git、更新</td>
+      </tr>
+      <tr>
+        <td><code>ai-models</code></td>
+        <td><code>BrainCircuit</code></td>
+        <td>診断・レビューに使用するプロバイダーとモデルを管理します</td>
+        <td>AI、LLM、Codex、OpenAI、モデル、APIキー、接続</td>
+      </tr>
+      <tr>
+        <td><code>task-routing</code></td>
+        <td><code>GitFork</code></td>
+        <td>タスクごとのモデルとフォールバックを設定します</td>
+        <td>タスク、ルーティング、primary、fallback、thinking</td>
+      </tr>
+      <tr>
+        <td><code>scan-execution</code></td>
+        <td><code>Play</code></td>
+        <td>スキャナーの実行方式とDockerリソースを設定します</td>
+        <td>スキャン、実行、host、Docker、CPU、メモリ、PID</td>
+      </tr>
+      <tr>
+        <td><code>system-context</code></td>
+        <td><code>MessageSquareText</code></td>
+        <td>エージェント検索で使用するコンテキストを編集します</td>
+        <td>システム、コンテキスト、Agentic Search、prompt</td>
+      </tr>
+      <tr>
+        <td><code>security</code></td>
+        <td><code>ShieldCheck</code></td>
+        <td>隔離実行環境とDAST暗号鍵を管理します</td>
+        <td>セキュリティ、isolation、image、hash、DAST、暗号鍵</td>
+      </tr>
+      <tr>
+        <td><code>advanced</code></td>
+        <td><code>SlidersHorizontal</code></td>
+        <td>処理上限、タイムアウト、任意イメージを設定します</td>
+        <td>詳細、limit、queue、timeout、scanner、database</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    レジストリ型は<code>id</code>、<code>label</code>、<code>description</code>、
+    <code>keywords</code
+    >、<code>adminOnly</code>、<code>showAdminBadge</code>、<code>icon</code>を必須とする。
+    labelとadminOnlyは7.1の表を使用し、別ファイルで再定義しない。
+  </p>
+  <p>
+    <code>showAdminBadge</code
+    >はモックアップどおり<code>scan-execution</code>、
+    <code>security</code
+    >、<code>advanced</code>だけをtrueにする。
+    <code>ai-models</code
+    >と<code>task-routing</code>もadminOnlyだがbadgeは表示しない。
+  </p>
+
+  <h3 id="72-routing">7.2 URLとカテゴリ選択</h3>
+  <ul>
+    <li>既存パス<code>/settings</code>は変更しない。</li>
+    <li>任意の検索パラメータ<code>section</code>を追加する。</li>
+    <li>
+      <code>overview</code>はURLから省略し、canonical
+      URLを<code>/settings</code>とする。
+    </li>
+    <li>
+      省略時と未知の値では<code>overview</code>を表示し、未知の値を別の文字列へcoerceしない。
+    </li>
+    <li>
+      カテゴリ項目はbuttonのlocal
+      stateではなく、<code>Link</code>として実装する。
+    </li>
+    <li>カテゴリ移動はブラウザ履歴へ追加し、戻る・進むで選択を復元する。</li>
+    <li>
+      一般ユーザーが管理者専用sectionへ直接アクセスした場合は、管理者APIを呼ばず、
+      <code>replace: true</code
+      >で<code>/settings</code>へ戻す。
+    </li>
+    <li>provider選択、検索語、折りたたみ状態は画面内の一時状態とし、URLには保存しない。</li>
+  </ul>
+  <p>URL例:</p>
+  <pre><code class="language-text">/settings?section=ai-models
+/settings?section=system-context
+</code></pre>
+  <p>新規<code>web/src/settings-route-search.ts</code>の公開契約は次で固定する。</p>
+  <pre><code class="language-ts">export const settingsSectionIds = [
+  "overview",
+  "ai-models",
+  "task-routing",
+  "scan-execution",
+  "system-context",
+  "security",
+  "advanced",
+] as const;
+
+export type SettingsSectionId = (typeof settingsSectionIds)[number];
+export type SettingsSearch = { section?: Exclude&lt;SettingsSectionId, "overview"&gt; };
+
+export function parseSettingsSearch(
+  search: Record&lt;string, unknown&gt;,
+): SettingsSearch;
+export function resolveSettingsSection(search: SettingsSearch): SettingsSectionId;
+export function buildSettingsSectionSearch(section: SettingsSectionId): SettingsSearch;
+</code></pre>
+  <ul>
+    <li>
+      <code>parseSettingsSearch</code
+      >は既知値だけを返し、<code>overview</code>と未知値は<code>{}</code>に正規化する。
+    </li>
+    <li>
+      <code>resolveSettingsSection</code
+      >は<code>search.section ?? "overview"</code>を返す。
+    </li>
+    <li>
+      <code>buildSettingsSectionSearch("overview")</code
+      >は<code>{}</code>を返す。
+    </li>
+    <li>
+      <code>settingsRoute</code
+      >へ<code>validateSearch: parseSettingsSearch</code>を追加する。
+      <code>App</code>へsection propは追加しない。
+    </li>
+    <li>
+      <code>SettingsPanel</code
+      >内で<code>useSearch({ from: "/settings" })</code>と
+      <code>useNavigate({ from: "/settings" })</code>を使う。route hookは子panelへ分散させない。
+    </li>
+  </ul>
+
+  <h3 id="73-shell">7.3 共通シェル</h3>
+  <ol>
+    <li>
+      既存のグローバルヘッダーを変更せず、<code>Settings</code>のactive表示を維持する。
+    </li>
+    <li>ページ見出し「設定」と説明文を表示する。</li>
+    <li>デスクトップでは左に240pxのカテゴリnav、右に選択中panelを置く。</li>
+    <li>panel見出し右端には、そのカテゴリに必要なprimary actionだけを一つ置く。</li>
+    <li>保存操作がない概要ではprimary actionを表示しない。</li>
+    <li>ページ下部に、現在のカテゴリに対応する保存状態を表示する。</li>
+  </ol>
+  <table>
+    <caption>
+      カテゴリ見出しのprimary action
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">カテゴリ</th>
+        <th scope="col">Primary action</th>
+        <th scope="col">保存resource</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>概要</td>
+        <td>なし</td>
+        <td>なし</td>
+      </tr>
+      <tr>
+        <td>AI・モデル</td>
+        <td>変更を保存</td>
+        <td>LLM settings全体</td>
+      </tr>
+      <tr>
+        <td>タスクルーティング</td>
+        <td>変更を保存</td>
+        <td>LLM settings全体</td>
+      </tr>
+      <tr>
+        <td>スキャン実行</td>
+        <td>変更を保存</td>
+        <td>Runtime settings全体</td>
+      </tr>
+      <tr>
+        <td>システムコンテキスト</td>
+        <td>変更を保存</td>
+        <td>System Context</td>
+      </tr>
+      <tr>
+        <td>セキュリティ</td>
+        <td>変更を保存</td>
+        <td>Runtime settings全体</td>
+      </tr>
+      <tr>
+        <td>詳細設定</td>
+        <td>変更を保存</td>
+        <td>Runtime settings全体</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    既存panel内にある重複Save buttonは削除する。接続確認、自動設定、鍵生成、provider追加・削除は
+    secondary actionとして本文内に残す。
+  </p>
+
+  <h3 id="74-settings-search">7.4 設定検索</h3>
+  <ul>
+    <li>検索対象は設定値ではなく、静的なカテゴリ名、説明、項目keywordだけとする。</li>
+    <li>secret、token、system context本文を検索indexへ含めない。</li>
+    <li>検索結果は現在のユーザーが閲覧できるカテゴリだけに限定する。</li>
+    <li>対象は7件の静的レジストリだけなのでdebounceを追加せず、入力ごとに同期filterする。</li>
+    <li>
+      結果を選択すると対応する<code>section</code>へ遷移し、検索語をクリアする。
+    </li>
+    <li>0件時は「該当する設定はありません」を表示する。</li>
+    <li>
+      結果は検索欄直下の<code>ul</code>にLinkとして表示し、独自combobox
+      roleを実装しない。
+    </li>
+    <li><kbd>Escape</kbd>で結果を閉じ、入力欄には常時可視のlabelを付ける。</li>
+  </ul>
+
+  <h3 id="75-overview">7.5 概要</h3>
+  <p>概要は設定値の編集画面にせず、既存データから次の状態だけを短く表示する。</p>
+  <ul>
+    <li>アプリ状態、service名、Git branch、commit。</li>
+    <li>管理者の場合は、LLM provider数、Codex利用可否、runtime isolation設定状態。</li>
+    <li>System Contextの最終更新日時。</li>
+    <li>注意が必要な状態から対応カテゴリへ移動するリンク。</li>
+  </ul>
+  <p>
+    providerの接続状態は、Codex statusまたは利用者が実行したhealth checkだけを根拠にする。
+    endpointが入力済みという理由だけで「接続済み」と表示しない。
+  </p>
+
+  <h3 id="76-ai-models">7.6 AI・モデル</h3>
+  <ul>
+    <li>Codex SDKとgeneric providerを同じ一覧に表示する。</li>
+    <li>初回選択はCodex SDK。Codexが存在しない場合は最初のproviderとする。</li>
+    <li>一覧行にはprovider名、種別、enabled状態、確認済みhealth状態を表示する。</li>
+    <li>Codexは既存の認証元、model source、detected models、adapter状態を表示する。</li>
+    <li>generic providerは既存のkind別入力項目を維持する。</li>
+    <li>新規providerは保存完了までhealth checkを無効化する。</li>
+    <li>
+      provider設定に未保存変更がある間もhealth checkを無効化し、「保存後に確認できます」と表示する。
+    </li>
+    <li>provider削除は対象名を示す確認を経てdraftから除外し、保存時に確定する。</li>
+    <li>model select labelの詳細入力は折りたたみ可能な「表示名の詳細設定」に置く。</li>
+  </ul>
+  <table>
+    <caption>
+      Provider種別ごとの編集field
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">種別</th>
+        <th scope="col">表示・編集するfield</th>
+        <th scope="col">固定事項</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>codex</code></td>
+        <td>
+          <code>enabled</code
+          >、<code>apiKey</code>、<code
+            >models</code
+          >
+        </td>
+        <td>
+          <code>name</code>は「Codex
+          SDK」のread-only、<code>kind</code>は変更不可。
+        </td>
+      </tr>
+      <tr>
+        <td><code>azure</code></td>
+        <td>
+          <code>name</code
+          >、<code>kind</code>、<code>enabled</code>、<code>endpoint</code>、<code>apiVersion</code>、<code>apiKey</code>、<code>models</code>、<code
+            >modelDisplayNames</code
+          >
+        </td>
+        <td><code>endpoint</code>と1件以上のmodelを必須とする。</td>
+      </tr>
+      <tr>
+        <td>
+          <code>openai</code> /
+          <code>openai-compatible</code> /
+          <code>local</code>
+        </td>
+        <td>
+          <code>name</code
+          >、<code>kind</code>、<code>enabled</code>、<code>baseUrl</code>、<code>apiKey</code>、<code>models</code>、<code
+            >modelDisplayNames</code
+          >
+        </td>
+        <td><code>baseUrl</code>と1件以上のmodelを必須とする。</td>
+      </tr>
+      <tr>
+        <td><code>bedrock</code></td>
+        <td>
+          <code>name</code
+          >、<code>kind</code>、<code>enabled</code>、<code>region</code>、<code>apiKey</code>、<code>models</code>、<code
+            >modelDisplayNames</code
+          >
+        </td>
+        <td>既存frontendどおり1件以上のmodelを必須とし、それ以外の必須条件を追加しない。</td>
+      </tr>
+    </tbody>
+  </table>
+  <ul>
+    <li>
+      <code>defaultModelCapability</code
+      >と<code>modelCapabilities</code>はUIへ新設せず、draftと保存payloadで保持する。
+    </li>
+    <li>
+      <code>models</code
+      >は現行どおりカンマ区切りの<code>TextInput</code>で複数編集する。
+      モックアップの単一selectへ縮退させず、labelを「利用可能なモデル」、helperを「カンマ区切りで入力」にする。
+    </li>
+    <li>
+      APIが返すsecret sentinel <code>********</code>はそのままpassword
+      fieldへ保持する。 sentinelを別値へ変換せず、利用者が新しい値を入力した場合だけ置換する。
+    </li>
+    <li>provider一覧の順序はCodexを先頭とし、その後はAPIのgeneric provider順を維持する。</li>
+    <li>
+      新規providerは末尾へ追加して選択し、削除後はCodex、次のgeneric、未選択の順でfallbackする。
+    </li>
+    <li>
+      provider削除確認はnative
+      confirm「プロバイダー『名前』を削除しますか？」を使用し、独自dialogを追加しない。
+    </li>
+    <li>
+      現行<code>selectedEndpointId</code> /
+      <code>selectedEndpoint</code>を
+      <code>selectedProviderId</code> /
+      <code>selectedProvider</code>へ置き換え、Codexも選択可能にする。 generic
+      providerだけが必要な処理では<code>selectedProvider.kind !== "codex"</code>でnarrowingする。
+    </li>
+  </ul>
+  <table>
+    <caption>
+      Provider状態の優先判定
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">優先順位</th>
+        <th scope="col">条件</th>
+        <th scope="col">表示</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>1</td>
+        <td><code>enabled === false</code></td>
+        <td>無効</td>
+      </tr>
+      <tr>
+        <td>2</td>
+        <td>Codexで<code>authenticated === false</code></td>
+        <td>認証が必要</td>
+      </tr>
+      <tr>
+        <td>3</td>
+        <td>Codexで<code>executableAdapterAvailable === false</code></td>
+        <td>アダプターを利用できません</td>
+      </tr>
+      <tr>
+        <td>4</td>
+        <td>Codexが認証済みかつadapter利用可能</td>
+        <td>接続済み</td>
+      </tr>
+      <tr>
+        <td>5</td>
+        <td>generic providerに必須field不足</td>
+        <td>未設定</td>
+      </tr>
+      <tr>
+        <td>6</td>
+        <td>最新health resultが<code>ok</code></td>
+        <td>接続済み</td>
+      </tr>
+      <tr>
+        <td>7</td>
+        <td>最新health resultが失敗</td>
+        <td>接続エラー</td>
+      </tr>
+      <tr>
+        <td>8</td>
+        <td>上記以外</td>
+        <td>未確認</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    この判定は<code>deriveProviderStatus</code>として<code>settings-panel-model.ts</code>へ置き、
+    一覧、概要、component testから同じ関数を使う。
+  </p>
+  <p>
+    generic providerのhealth resultは、現行frontendが取得した現在の画面session内だけで保持する。
+    再読み込み後は「未確認」へ戻し、永続化済みhealth履歴を読む新APIは追加しない。
+  </p>
+
+  <h3 id="77-task-routing">7.7 タスクルーティング</h3>
+  <ul>
+    <li>既存の5 taskと内部値を変更しない。</li>
+    <li>表示名、用途説明、primary model、thinking、fallbackを一つのcardにまとめる。</li>
+    <li>fallbackの追加、削除、順序変更をキーボードで操作できるbuttonとして維持する。</li>
+    <li>
+      重複endpoint ID、provider名なし、generic providerのmodelなし、Codex認証・adapter不備、 Azure
+      endpointなし、OpenAI系base URLなし、存在しない・無効なprovider参照という
+      現行validationをpanel内に表示する。primary未設定は現行どおりerrorにしない。
+    </li>
+    <li>AI・モデルと同じLLM settings draftを利用し、保存APIも共通のままとする。</li>
+  </ul>
+  <table>
+    <caption>
+      Taskの固定表示名
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">内部値</th>
+        <th scope="col">表示名</th>
+        <th scope="col">説明</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>finding_review</code></td>
+        <td>Findingレビュー</td>
+        <td>個別Findingの証拠と修正要否をレビューします</td>
+      </tr>
+      <tr>
+        <td><code>scan_review</code></td>
+        <td>スキャンレビュー</td>
+        <td>スキャン全体の結果と改善点をレビューします</td>
+      </tr>
+      <tr>
+        <td><code>evidence_context</code></td>
+        <td>証拠コンテキスト</td>
+        <td>Findingに関連する証拠コンテキストを生成します</td>
+      </tr>
+      <tr>
+        <td><code>agentic_search</code></td>
+        <td>エージェント検索</td>
+        <td>Knowledgeを使用した検索応答を生成します</td>
+      </tr>
+      <tr>
+        <td><code>report_summary</code></td>
+        <td>レポート要約</td>
+        <td>診断レポートの要約を生成します</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    Thinking表示は<code>Auto / Low / Medium / High / Very high</code>を
+    <code>自動 / 低 / 中 / 高 / 最高</code>へ変換し、送信値は変更しない。
+  </p>
+
+  <h3 id="78-runtime-sections">7.8 Runtime設定の分割</h3>
+  <p>
+    <code>RuntimeSettingsResponse</code>と更新payloadは分割しない。3つのpanelは同じ
+    <code>runtimeSettings</code>
+    draftを部分編集し、保存時は既存の完全なpayloadを送信する。
+  </p>
+  <ul>
+    <li>スキャン実行: 日常的に確認するexecution modeとDocker resourceを表示する。</li>
+    <li>セキュリティ: runtime isolationの資格状態、必須image / hash、DAST keyを表示する。</li>
+    <li>詳細設定: process limit、queue、timeout、任意imageを表示する。</li>
+    <li>
+      自動設定とDAST key生成は即時にサーバーへ保存する既存動作を維持し、通常の保存と区別する。
+    </li>
+    <li>自動設定中は、3つのRuntimeカテゴリの競合操作を無効化する。</li>
+    <li>不足中の必須field数とfield名は、既存のfail-closed応答を根拠に表示する。</li>
+  </ul>
+  <table>
+    <caption>
+      RuntimeSettingsResponse全fieldの移設先
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Field</th>
+        <th scope="col">カテゴリ</th>
+        <th scope="col">表示</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>scanExecutionMode</code></td>
+        <td>スキャン実行</td>
+        <td>select</td>
+      </tr>
+      <tr>
+        <td><code>allowHostScannerExecution</code></td>
+        <td>スキャン実行</td>
+        <td>checkbox / switch</td>
+      </tr>
+      <tr>
+        <td><code>scanDockerImage</code></td>
+        <td>スキャン実行</td>
+        <td>text input</td>
+      </tr>
+      <tr>
+        <td><code>dockerMemory</code></td>
+        <td>スキャン実行</td>
+        <td>text input</td>
+      </tr>
+      <tr>
+        <td><code>dockerCpus</code></td>
+        <td>スキャン実行</td>
+        <td>number input、step 0.25</td>
+      </tr>
+      <tr>
+        <td><code>dockerPidsLimit</code></td>
+        <td>スキャン実行</td>
+        <td>number input</td>
+      </tr>
+      <tr>
+        <td><code>scannerStdoutLimitBytes</code></td>
+        <td>詳細設定</td>
+        <td>number input</td>
+      </tr>
+      <tr>
+        <td><code>scannerStderrLimitBytes</code></td>
+        <td>詳細設定</td>
+        <td>number input</td>
+      </tr>
+      <tr>
+        <td><code>webProcessConcurrency</code></td>
+        <td>詳細設定</td>
+        <td>number input</td>
+      </tr>
+      <tr>
+        <td><code>webScanQueueLimit</code></td>
+        <td>詳細設定</td>
+        <td>number input</td>
+      </tr>
+      <tr>
+        <td><code>webScanStepTimeoutMaxSec</code></td>
+        <td>詳細設定</td>
+        <td>number input</td>
+      </tr>
+      <tr>
+        <td><code>webScanWallClockTimeoutSec</code></td>
+        <td>詳細設定</td>
+        <td>number input</td>
+      </tr>
+      <tr>
+        <td><code>codexSdkTimeoutMs</code></td>
+        <td>詳細設定</td>
+        <td>number input</td>
+      </tr>
+      <tr>
+        <td><code>runtimeIsolation.qualificationVersion</code></td>
+        <td>セキュリティ</td>
+        <td>read-only status</td>
+      </tr>
+      <tr>
+        <td><code>runtimeIsolation.namespaceOwnerImage</code></td>
+        <td>セキュリティ</td>
+        <td>text input</td>
+      </tr>
+      <tr>
+        <td><code>runtimeIsolation.nodeImage</code></td>
+        <td>セキュリティ</td>
+        <td>text input</td>
+      </tr>
+      <tr>
+        <td><code>runtimeIsolation.materializerImage</code></td>
+        <td>セキュリティ</td>
+        <td>text input</td>
+      </tr>
+      <tr>
+        <td><code>runtimeIsolation.registryProxyImage</code></td>
+        <td>セキュリティ</td>
+        <td>text input</td>
+      </tr>
+      <tr>
+        <td><code>runtimeIsolation.probeImage</code></td>
+        <td>セキュリティ</td>
+        <td>text input</td>
+      </tr>
+      <tr>
+        <td><code>runtimeIsolation.httpExecutorImage</code></td>
+        <td>セキュリティ</td>
+        <td>text input</td>
+      </tr>
+      <tr>
+        <td><code>runtimeIsolation.dockerDaemonIdentityHash</code></td>
+        <td>セキュリティ</td>
+        <td>text input</td>
+      </tr>
+      <tr>
+        <td><code>runtimeIsolation.qualificationHash</code></td>
+        <td>セキュリティ</td>
+        <td>text input</td>
+      </tr>
+      <tr>
+        <td><code>runtimeIsolation.postgresImage</code></td>
+        <td>詳細設定</td>
+        <td>text input</td>
+      </tr>
+      <tr>
+        <td><code>runtimeIsolation.mysqlImage</code></td>
+        <td>詳細設定</td>
+        <td>text input</td>
+      </tr>
+      <tr>
+        <td><code>runtimeIsolation.nucleiImage</code></td>
+        <td>詳細設定</td>
+        <td>text input</td>
+      </tr>
+      <tr>
+        <td><code>runtimeIsolation.zapImage</code></td>
+        <td>詳細設定</td>
+        <td>text input</td>
+      </tr>
+      <tr>
+        <td><code>runtimeIsolation.schemathesisImage</code></td>
+        <td>詳細設定</td>
+        <td>text input</td>
+      </tr>
+      <tr>
+        <td><code>runtimeIsolationConfigured</code></td>
+        <td>セキュリティ</td>
+        <td>read-only status</td>
+      </tr>
+      <tr>
+        <td><code>runtimeIsolationMissingFields</code></td>
+        <td>セキュリティ</td>
+        <td>read-only list</td>
+      </tr>
+      <tr>
+        <td><code>dastAuthEncryptionKey</code></td>
+        <td>セキュリティ</td>
+        <td>password input</td>
+      </tr>
+      <tr>
+        <td><code>dastAuthEncryptionKeyConfigured</code></td>
+        <td>セキュリティ</td>
+        <td>read-only status</td>
+      </tr>
+      <tr>
+        <td><code>dastAuthEncryptionKeySource</code></td>
+        <td>セキュリティ</td>
+        <td>read-only status</td>
+      </tr>
+      <tr>
+        <td><code>updatedAt</code></td>
+        <td>3カテゴリ共通</td>
+        <td>保存状態の補助表示</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    表の全fieldを<code>runtimeFieldSection</code>という型付き対応表へ定義する必要はないが、
+    component testでは上記input fieldが一度ずつrenderされることを確認する。read-only fieldを
+    <code>RuntimeSettingsUpdate</code>へ混入させない既存のdestructureを維持する。
+  </p>
+  <h4 id="781-runtime-immediate-actions">7.8.1 即時Runtime操作の競合防止</h4>
+  <ul>
+    <li>
+      <code>autoConfigureRuntimeIsolation</code>はrequest
+      bodyを送らずserver上の現在値を更新するため、
+      <code>runtimeDirty</code
+      >中はbuttonを無効化する。未保存draftを破棄して実行する選択肢は追加しない。
+    </li>
+    <li>
+      <code>generateDastAuthEncryptionKey</code>はRuntime
+      draft全体を送信するため、意図しない同時保存を
+      防ぐ目的で<code>runtimeDirty</code>中はbuttonを無効化する。
+    </li>
+    <li>両buttonのhelper textは「先に変更を保存してください」とする。</li>
+    <li>通常保存の成功後にのみ両buttonを有効化する。</li>
+    <li>即時操作の成功responseはRuntimeのdraftとbaselineの両方へ設定し、dirtyを解除する。</li>
+    <li>即時操作の失敗時はdraftとbaselineを変更せず、Security panel内にerrorを表示する。</li>
+  </ul>
+
+  <h3 id="79-save-state">7.9 保存状態と画面遷移</h3>
+  <ul>
+    <li>取得または保存に成功した値をresourceごとのbaseline snapshotとして保持する。</li>
+    <li>LLM、Runtime、System Contextごとにdirty状態を純粋関数で導出する。</li>
+    <li>変更なしでは保存buttonを無効化し、「すべての変更は保存済み」と表示する。</li>
+    <li>変更ありでは「未保存の変更があります」と表示する。</li>
+    <li>
+      保存中はbutton labelと<code>aria-busy</code>を更新し、二重送信を防ぐ。
+    </li>
+    <li>保存成功後にbaselineを更新し、serverが返した正規化済み値を表示する。</li>
+    <li>保存失敗時はdraftを保持し、再試行できる状態にする。</li>
+    <li>
+      カテゴリ間移動ではdraftを破棄しない。同じresourceを共有する別カテゴリへ移動しても保持する。
+    </li>
+    <li>設定画面から離れる操作は7.9.1の離脱確認で保護する。</li>
+  </ul>
+  <p>比較対象は表示用response全体ではなく、既存APIへ送るcanonical inputとする。</p>
+  <pre><code class="language-ts">type LlmSettingsInput = Pick&lt;
+  LlmSettingsResponse,
+  "providerEndpoints" | "taskRoutes"
+&gt;;
+
+function toLlmSettingsInput(value: LlmSettingsResponse): LlmSettingsInput;
+function toRuntimeSettingsInput(
+  value: RuntimeSettingsResponse,
+): RuntimeSettingsUpdate;
+
+const llmProviderDirty = !sameJson(
+  draft.providerEndpoints,
+  baseline.providerEndpoints,
+);
+const taskRoutingDirty = !sameJson(
+  ensureRoutes(draft.taskRoutes),
+  ensureRoutes(baseline.taskRoutes),
+);
+const llmDirty = llmProviderDirty || taskRoutingDirty;
+const runtimeDirty = !sameJson(
+  toRuntimeSettingsInput(runtimeDraft),
+  toRuntimeSettingsInput(runtimeBaseline),
+);
+const systemContextDirty = systemContextText !== savedSystemContextText;
+const settingsDirty = llmDirty || runtimeDirty || systemContextDirty;
+</code></pre>
+  <ul>
+    <li>
+      <code>sameJson</code
+      >はこの既存のJSON互換設定型に限り<code>JSON.stringify</code>比較を使う。
+    </li>
+    <li>
+      <code>updatedAt</code
+      >とRuntimeのread-only派生fieldはdirty比較から除外する。
+    </li>
+    <li>
+      <code>********</code>を含むmasked secretもserver
+      responseの一部として比較し、特別に空文字へ変換しない。
+    </li>
+    <li>load成功時はdraftとbaselineを同じ正規化済みresponseから設定する。</li>
+    <li>save成功時はserver responseからdraftとbaselineを同時に更新する。</li>
+    <li>
+      <code>savedSystemContextText</code
+      >はmount時と<code>systemContextUpdatedAt</code>変更時だけ
+      <code>systemContextText</code
+      >へ同期し、入力中のprop変更ではbaselineを動かさない。
+    </li>
+    <li>AI・モデルとタスクルーティングの保存buttonは、どちらもLLM draft全体を保存する。</li>
+    <li>
+      <code>llmProviderDirty</code
+      >だけの時は「AI・モデルに未保存の変更があります」、
+      <code>taskRoutingDirty</code
+      >だけの時は「タスクルーティングに未保存の変更があります」、
+      両方なら「AI・モデルとタスクルーティングに未保存の変更があります」と表示する。
+    </li>
+    <li>
+      provider
+      healthを無効化するのは<code>llmProviderDirty</code>であり、routeだけのdirtyでは無効化しない。
+    </li>
+  </ul>
+  <h4 id="791-leave-guard">7.9.1 離脱確認</h4>
+  <ul>
+    <li>
+      <code>SettingsPanelProps</code
+      >へ<code>onDirtyChange: (dirty: boolean) =&gt; void</code>を追加する。
+    </li>
+    <li>
+      <code>App</code
+      >は<code>settingsDirty</code>を保持し、SettingsPanelのmount終了時にfalseへ戻す。
+    </li>
+    <li>
+      <code>SettingsPanel</code
+      >は<code>useBlocker</code>を一度だけ使用する。
+      <code>current.pathname</code
+      >と<code>next.pathname</code>が共に<code>/settings</code>ならblockしない。
+    </li>
+    <li>
+      dirty中に別pathnameへ移動する場合は、native
+      confirm「未保存の変更があります。設定画面を離れますか？」を 表示し、cancel時だけblockする。
+    </li>
+    <li>
+      <code>enableBeforeUnload</code
+      >は<code>settingsDirty</code>と同じ条件にする。
+    </li>
+    <li>
+      Logoutはnavigation blockerより先にSettingsPanelがunmountする可能性があるため、
+      <code>App.handleLogout</code>でも同じ文言を確認し、cancel時はlogout
+      APIを呼ばない。
+    </li>
+    <li>確認dialogの独自componentはこの計画では追加しない。</li>
+  </ul>
+
+  <h3 id="710-loading-errors">7.10 Loading、Empty、Error</h3>
+  <ul>
+    <li>LLMとRuntimeは別々に取得し、一方の失敗で他方を非表示にしない。</li>
+    <li>初回loadingは対象panel内に「設定を読み込んでいます…」と表示し、skeletonは追加しない。</li>
+    <li>取得失敗は対象resource内に再試行button付きで表示する。</li>
+    <li>provider 0件は「プロバイダーがありません」と追加buttonを表示する。</li>
+    <li>global errorは既存の認証失効・session errorだけに使用する。</li>
+  </ul>
+  <p><code>useSettingsPanelModel</code>へ追加する状態とloaderは次で固定する。</p>
+  <table>
+    <caption>
+      Resource別の状態と取得単位
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Resource</th>
+        <th scope="col">状態</th>
+        <th scope="col">Loader</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>LLM settings</td>
+        <td>
+          <code>llmSettings</code
+          >、<code>llmBaseline</code>、<code>llmLoading</code>、<code>llmSaving</code>、<code
+            >llmError</code
+          >
+        </td>
+        <td><code>loadLlmResource</code></td>
+      </tr>
+      <tr>
+        <td>Codex status</td>
+        <td>
+          <code>codexStatus</code
+          >、<code>codexLoading</code>、<code
+            >codexError</code
+          >
+        </td>
+        <td>
+          <code>loadLlmResource</code>内で並列取得、再確認時は<code
+            >reloadCodexStatus</code
+          >
+        </td>
+      </tr>
+      <tr>
+        <td>Runtime</td>
+        <td>
+          <code>runtimeSettings</code
+          >、<code>runtimeBaseline</code>、<code>runtimeLoading</code>、<code>runtimeSaving</code>、<code
+            >runtimeError</code
+          >
+        </td>
+        <td><code>loadRuntimeResource</code></td>
+      </tr>
+      <tr>
+        <td>System Context</td>
+        <td>
+          既存props、<code>savedSystemContextText</code>、<code
+            >systemContextError</code
+          >
+        </td>
+        <td>取得は既存<code>App.loadSystemContext</code>を維持</td>
+      </tr>
+    </tbody>
+  </table>
+  <ul>
+    <li>
+      管理者だけがLLMとRuntimeのloaderをmount時に一度ずつ開始する。カテゴリ選択では再取得しない。
+    </li>
+    <li>
+      <code>loadLlmResource</code
+      >は<code>fetchLlmSettings</code>と<code>fetchCodexStatus</code>を
+      <code>Promise.allSettled</code>で並列実行する。
+    </li>
+    <li>
+      LLM settings成功・Codex失敗時もprovider editorを表示し、Codex status
+      cardだけにerrorと再確認buttonを出す。
+    </li>
+    <li>
+      LLM settings失敗時はprovider
+      editorを出さず、AI・モデルとタスクルーティングに再試行buttonを出す。
+    </li>
+    <li>Runtime失敗はRuntime 3カテゴリだけに影響させる。</li>
+    <li>
+      Codex再確認成功時は<code>ensureCodexEndpoint</code>をdraftとbaselineの両方へ適用し、
+      detected modelの追加だけでdirtyにならないようにする。
+    </li>
+    <li>
+      設定resourceの取得・保存errorには<code>setErrorText</code>を使わずpanel内errorを使う。
+      401は既存<code>UNAUTHORIZED_EVENT_NAME</code>でApp全体へ通知される。
+    </li>
+  </ul>
+
+  <h3 id="711-language">7.11 文言</h3>
+  <ul>
+    <li>設定画面内の見出し、label、説明、状態、操作は日本語へ統一する。</li>
+    <li>API値、provider名、model名、image digest、環境変数名は原文を維持する。</li>
+    <li>英語enumを日本語labelへ変換しても、送信値は変更しない。</li>
+    <li>省略語には最初の説明を付け、技術的なhashやimage入力では例をhelper textに置く。</li>
+  </ul>
+
+  <h3 id="712-responsive-accessibility">7.12 レスポンシブとアクセシビリティ</h3>
+  <ul>
+    <li>
+      <code>nav aria-label="設定カテゴリ"</code
+      >を使用し、選択項目へ<code>aria-current="page"</code>を付ける。
+    </li>
+    <li>デスクトップでは左navをstickyにし、本文だけが長くなる構造にする。</li>
+    <li>
+      desktop gridは<code>240px minmax(0, 1fr)</code>、provider
+      cardは<code>minmax(240px, 320px) minmax(0, 1fr)</code>とする。
+    </li>
+    <li>
+      sticky
+      navは64pxのtopbarと16pxの余白を避け、<code>top: 80px</code>とする。
+    </li>
+    <li>900px以下では左navを上部のcategory selectへ置き換える。</li>
+    <li>providerの2列構成とformの2列構成は、900px以下で1列へ変更する。</li>
+    <li>390px幅でviewport横スクロールを発生させない。</li>
+    <li>状態は色だけに依存せず、iconと文言を併記する。</li>
+    <li>icon-only buttonにはアクセス可能な名前とtitleを付ける。</li>
+    <li>focus順序は検索、カテゴリ、見出しaction、本文field、補助actionの順にする。</li>
+    <li>主要操作はキーボードだけで完了できる。</li>
+    <li>prefers-reduced-motionで不要なanimationを停止する。</li>
+    <li>
+      色は既存の<code>--color-page</code>、<code>--color-surface</code>、<code>--color-border</code>、<code>--color-brand</code>、<code>--color-brand-soft</code>を使用し、新しいbrand
+      colorを追加しない。
+    </li>
+  </ul>
+
+  <h2 id="8-architecture">8. 実装アーキテクチャ</h2>
+  <p>画面、状態、APIの責務は次の境界で分ける。</p>
+  <pre><code class="language-text">/settings?section=ai-models
+└─ SettingsPanel
+   ├─ useSettingsPanelModel
+   │  ├─ LLM settings draft / baseline / load / save
+   │  ├─ Runtime settings draft / baseline / load / save
+   │  └─ System Context draft / baseline / save
+   └─ SettingsPanelView
+      └─ SettingsShell
+         ├─ SettingsSearch
+         ├─ SettingsNavigation
+         └─ selected section panel
+</code></pre>
+  <ol>
+    <li><strong>URLがカテゴリ選択の正。</strong> 再読み込み可能なnavigationとする。</li>
+    <li>
+      <strong>設定レジストリが情報設計の正。</strong>
+      label、説明、keyword、icon、adminOnlyを重複定義しない。
+    </li>
+    <li><strong>hookがmutationの正。</strong> 表示componentからAPIを直接呼ばない。</li>
+    <li>
+      <strong>controllerの大規模分割は行わない。</strong>
+      既存の<code>SettingsPanelModel</code>を各panelへ渡す形を維持し、この変更ではdomain
+      hookや
+      Contextを新設しない。必要な純粋関数だけを<code>settings-panel-model.ts</code>へ追加する。
+    </li>
+    <li>
+      <strong>API型を維持する。</strong>
+      表示都合の別payloadや<code>as any</code>を追加しない。
+    </li>
+    <li>
+      <strong>server stateをstatusの正とする。</strong>
+      接続、資格、更新日時をfrontendだけで捏造しない。
+    </li>
+  </ol>
+  <h3 id="81-component-contracts">8.1 Component契約</h3>
+  <p>
+    <code>SettingsPanelProps</code
+    >の最終形は、既存propsから<code>setErrorText</code>を削除し、次を追加する。
+  </p>
+  <pre><code class="language-ts">type SettingsPanelProps = {
+  isAdmin: boolean;
+  appHealth: AppHealth | null;
+  sourceHealth: SourceHealth | null;
+  systemContextText: string;
+  systemContextUpdatedAt: string | null;
+  systemContextSaving: boolean;
+  onSystemContextTextChange: (value: string) =&gt; void;
+  onSystemContextSaved: (systemContext: string, updatedAt: string) =&gt; void;
+  onSystemContextSavingChange: (saving: boolean) =&gt; void;
+  onDirtyChange: (dirty: boolean) =&gt; void;
+};
+</code></pre>
+  <p>
+    <code>SettingsPanel</code>がroute
+    search、権限fallback、離脱確認、model生成を所有する。
+    <code>SettingsPanelView</code>はactive
+    sectionをswitchし、選択したpanel一つだけをrenderする。
+    既存の各編集panelは<code>{ model: SettingsPanelModel }</code>を受け取る形を維持する。
+  </p>
+  <pre><code class="language-ts">type SettingsShellProps = {
+  activeSection: SettingsSectionId;
+  isAdmin: boolean;
+  searchQuery: string;
+  onSearchQueryChange: (value: string) =&gt; void;
+  onSearchDismiss: () =&gt; void;
+  children: ReactNode;
+};
+</code></pre>
+  <ul>
+    <li><code>SettingsShell</code>はAPI状態やdraftを受け取らない。</li>
+    <li>
+      <code>SettingsPanelView</code
+      >が<code>searchQuery</code>のlocal stateだけを所有し、modelへ追加しない。
+    </li>
+    <li>カテゴリLinkはレジストリと<code>buildSettingsSectionSearch</code>から生成する。</li>
+    <li>section panelのswitchにdefault branchを置き、型上の想定外では概要を返す。</li>
+    <li>
+      既存<code>Button</code>、<code>TextInput</code>、<code>SelectInput</code>、<code>TextArea</code>を再利用する。
+    </li>
+    <li>
+      汎用SwitchやBadgeを<code>ui.tsx</code>へ追加せず、設定画面内のsemantic
+      HTMLとCSSで表現する。
+    </li>
+  </ul>
+
+  <h2 id="9-file-plan">9. ファイル別変更計画</h2>
+  <table>
+    <caption>
+      追加・変更するファイル
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">ファイル</th>
+        <th scope="col">操作</th>
+        <th scope="col">内容</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>web/src/settings-route-search.ts</code></td>
+        <td>追加</td>
+        <td><code>SettingsSectionId</code>、既知値判定、default、search parser。</td>
+      </tr>
+      <tr>
+        <td><code>web/src/settings-navigation-model.ts</code></td>
+        <td>追加</td>
+        <td>カテゴリレジストリ、権限filter、検索、説明、keyword。</td>
+      </tr>
+      <tr>
+        <td><code>web/src/settings-shell.tsx</code></td>
+        <td>追加</td>
+        <td>ページ見出し、検索、desktop nav、mobile select、content領域。</td>
+      </tr>
+      <tr>
+        <td><code>web/src/settings-overview-panel.tsx</code></td>
+        <td>追加</td>
+        <td>既存healthと設定resourceの要約、注意状態の導線。</td>
+      </tr>
+      <tr>
+        <td><code>web/src/settings-system-context-panel.tsx</code></td>
+        <td>追加</td>
+        <td>現行System Context formを独立panelへ移す。</td>
+      </tr>
+      <tr>
+        <td><code>web/src/settings-runtime-fields.tsx</code></td>
+        <td>追加</td>
+        <td>Runtimeのtext / number fieldとruntime isolation更新helper。</td>
+      </tr>
+      <tr>
+        <td><code>web/src/settings-scan-execution-panel.tsx</code></td>
+        <td>追加</td>
+        <td>実行方式、host許可、Docker imageとresource。</td>
+      </tr>
+      <tr>
+        <td><code>web/src/settings-security-panel.tsx</code></td>
+        <td>追加</td>
+        <td>runtime isolation必須field、資格状態、DAST暗号鍵。</td>
+      </tr>
+      <tr>
+        <td><code>web/src/settings-advanced-panel.tsx</code></td>
+        <td>追加</td>
+        <td>process limit、queue、timeout、任意image。</td>
+      </tr>
+      <tr>
+        <td><code>web/src/settings-runtime-panel.tsx</code></td>
+        <td>削除</td>
+        <td>3つの新Runtime panelへ全fieldとhelperを移した後に削除する。</td>
+      </tr>
+      <tr>
+        <td><code>web/src/settings-panel.tsx</code></td>
+        <td>変更</td>
+        <td>
+          route hook、権限fallback、resource別load/error/baseline/dirty/retry、離脱確認を追加。
+        </td>
+      </tr>
+      <tr>
+        <td><code>web/src/settings-panel-view.tsx</code></td>
+        <td>変更</td>
+        <td>直列配置を廃止し、sectionごとのpanel選択へ置き換える。</td>
+      </tr>
+      <tr>
+        <td><code>web/src/settings-llm-providers-panel.tsx</code></td>
+        <td>変更</td>
+        <td>統一provider一覧、状態card、日本語文言、詳細設定の整理。</td>
+      </tr>
+      <tr>
+        <td><code>web/src/settings-task-routing-panel.tsx</code></td>
+        <td>変更</td>
+        <td>カテゴリ見出し、説明、validation、save状態へ合わせる。</td>
+      </tr>
+      <tr>
+        <td><code>web/src/settings-panel-model.ts</code></td>
+        <td>変更</td>
+        <td>status導出、draft比較、provider初期選択の純粋関数。</td>
+      </tr>
+      <tr>
+        <td><code>web/src/router.tsx</code></td>
+        <td>変更</td>
+        <td>
+          <code>/settings</code
+          >へ<code>validateSearch</code>だけを追加する。
+        </td>
+      </tr>
+      <tr>
+        <td><code>web/src/App.tsx</code></td>
+        <td>変更</td>
+        <td>
+          <code>settingsDirty</code
+          >、<code>onDirtyChange</code>、Logout離脱確認を追加し、SettingsPanelへの
+          <code>setErrorText</code>受け渡しを削除する。
+        </td>
+      </tr>
+      <tr>
+        <td><code>web/src/styles-settings.css</code></td>
+        <td>追加</td>
+        <td>設定シェル、nav、provider、status、responsive専用スタイル。</td>
+      </tr>
+      <tr>
+        <td><code>web/src/styles.css</code></td>
+        <td>変更</td>
+        <td>
+          <code>.settings-*</code
+          >、<code>.llm-*</code>、<code>.codex-*</code>、
+          <code>.endpoint-*</code
+          >、<code>.provider-*</code>、<code>.route-*</code>と対応media
+          ruleを移す。
+          <code>.panel</code
+          >、<code>.actions</code>、<code>.form-stack</code>、<code>.meta-list</code>は残す。
+        </td>
+      </tr>
+      <tr>
+        <td><code>web/src/main.tsx</code></td>
+        <td>変更</td>
+        <td><code>styles-settings.css</code>を読み込む。</td>
+      </tr>
+      <tr>
+        <td><code>web/src/settings-route-search.test.ts</code></td>
+        <td>追加</td>
+        <td>既知値、unknown、overview省略、URL builder。</td>
+      </tr>
+      <tr>
+        <td><code>web/src/settings-navigation-model.test.ts</code></td>
+        <td>追加</td>
+        <td>順序、admin filter、検索keyword、secret非検索。</td>
+      </tr>
+      <tr>
+        <td><code>web/src/settings-panel-model.test.ts</code></td>
+        <td>変更</td>
+        <td>provider status、baseline比較、既存normalizeの回帰。</td>
+      </tr>
+      <tr>
+        <td><code>web/src/settings-panel-view.test.tsx</code></td>
+        <td>追加</td>
+        <td>カテゴリ別render、権限、保存状態、loading / error / empty。</td>
+      </tr>
+      <tr>
+        <td><code>web/src/settings-llm-providers-panel.test.tsx</code></td>
+        <td>追加</td>
+        <td>Codex / generic field、status優先順位、masked secret、health disabled。</td>
+      </tr>
+      <tr>
+        <td><code>web/src/settings-task-routing-panel.test.tsx</code></td>
+        <td>追加</td>
+        <td>5 task、thinking、fallback、validation、保存payload。</td>
+      </tr>
+      <tr>
+        <td><code>web/src/settings-runtime-panel.test.tsx</code></td>
+        <td>追加・変更</td>
+        <td>新しい3panelを対象に更新し、legacy responseと全field所属を回帰確認する。</td>
+      </tr>
+      <tr>
+        <td><code>tests/e2e/settings.spec.ts</code></td>
+        <td>追加</td>
+        <td>admin / member、URL履歴、保存、検索、390px、axe。</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    <code>settings-runtime-panel.tsx</code>は新panelへの移行完了後に削除する。移行途中では
+    再export adapterを置かず、同じ変更内でimport先とテストを切り替える。
+  </p>
+  <h3 id="91-write-boundary">9.1 書き込み境界と停止条件</h3>
+  <p>
+    Terraが編集してよい範囲は、9の表にあるfrontend、test、本計画書だけとする。
+    <code>spec/index.html</code
+    >とモックアップは既に登録済みのため、リンク切れ修正以外では変更しない。
+  </p>
+  <p>次のいずれかが起きた場合は推測で範囲を広げず、作業を止めて報告する。</p>
+  <ul>
+    <li>既存API responseだけでは7の表示状態を作れない。</li>
+    <li>設定保存にbackend schemaまたはmigration変更が必要になる。</li>
+    <li>ユーザー所有の変更と同じ行を編集しなければ実装できない。</li>
+    <li>新しいpackage依存が必要になる。</li>
+    <li>
+      全field所属testを型安全に作れず、<code>as any</code>が必要になる。
+    </li>
+    <li>対象test以外の失敗が3回連続して同じ外部要因で再現する。</li>
+  </ul>
+  <p>
+    停止報告には、失敗command、最初のerror、影響するWork Package、変更済みファイル、
+    安全に継続できる代替案を含める。
+  </p>
+
+  <h2 id="10-work-packages">10. 実装順序</h2>
+
+  <h3 id="wp0">Work Package 0: ベースライン固定</h3>
+  <ol>
+    <li><code>git status --short</code>を保存し、1.2の保護対象と照合する。</li>
+    <li>
+      管理者と一般ユーザーで現行<code>/settings</code>のスクリーンショットを採取する。
+      保存先は<code>.artifacts/settings-redesign/before-admin.png</code>と
+      <code>.artifacts/settings-redesign/before-member.png</code>とする。 local
+      loginまたはserverを利用できない場合は、理由をbaseline記録へ残し、既存component / E2Eの
+      結果を代替baselineとして続行する。ここではユーザーへ確認を求めない。
+    </li>
+    <li>既存provider、route、runtime、system contextの表示項目を7.6から7.9の表と照合する。</li>
+    <li>次のbaseline commandを順に実行する。</li>
+  </ol>
+  <pre><code class="language-sh">bunx vitest run \
+  web/src/settings-panel-model.test.ts \
+  web/src/settings-runtime-panel.test.tsx \
+  web/src/api/runtime-settings.test.ts
+bun run typecheck:app
+bun run build:web
+</code></pre>
+  <ol>
+    <li>
+      E2E環境が利用可能なら、既存member境界testを実行する。環境要因で実行できない場合は、
+      failureをbaseline記録へ残し、Work Package 7までに再実行する。
+    </li>
+  </ol>
+  <pre><code class="language-sh">bunx playwright test tests/e2e/release-readiness.spec.ts \
+  --grep "project path validation and member/admin boundaries"
+</code></pre>
+  <p>完了条件: 変更後に比較できる画面・テスト・項目対応表が揃っている。</p>
+
+  <h3 id="wp1">Work Package 1: Routeと設定レジストリ</h3>
+  <ol>
+    <li>
+      <code>SettingsSectionId</code
+      >と<code>parseSettingsSearch</code>を追加する。
+    </li>
+    <li>カテゴリlabel、説明、keyword、adminOnlyをレジストリへ定義する。</li>
+    <li>
+      routerで<code>section</code>を検証し、SettingsPanel内のroute
+      hookから読む。
+    </li>
+    <li>unknown値と権限外値のfallbackを実装する。</li>
+    <li>parser、権限filter、検索のunit testを追加する。</li>
+  </ol>
+  <pre><code class="language-sh">bunx vitest run \
+  web/src/settings-route-search.test.ts \
+  web/src/settings-navigation-model.test.ts
+bun run typecheck:app
+</code></pre>
+  <p>完了条件: URLだけで選択カテゴリが決まり、権限外APIを呼ばない。</p>
+
+  <h3 id="wp2">Work Package 2: 共通シェル、概要、System Context</h3>
+  <ol>
+    <li>ページ見出し、検索、desktop nav、mobile select、content shellを実装する。</li>
+    <li>RuntimeとGitの既存meta表示を概要へ移す。</li>
+    <li>System Contextを独立panelへ移し、保存動作を接続する。</li>
+    <li>選択中panel以外がDOMへ出ないことをrender testで確認する。</li>
+  </ol>
+  <pre><code class="language-sh">bunx vitest run web/src/settings-panel-view.test.tsx
+bun run typecheck:app
+</code></pre>
+  <p>完了条件: 一般ユーザーが概要とSystem Contextを利用でき、管理者項目は見えない。</p>
+
+  <h3 id="wp3">Work Package 3: AI・モデル</h3>
+  <ol>
+    <li>Codexを含むprovider一覧のview modelを作る。</li>
+    <li>Codex status cardとgeneric provider editorをモックアップの構造へ合わせる。</li>
+    <li>追加、削除、enabled、kind別field、model、credential、表示名を接続する。</li>
+    <li>保存前health checkの誤表示を防ぐ。</li>
+    <li>loading、empty、error、validationを追加する。</li>
+  </ol>
+  <pre><code class="language-sh">bunx vitest run \
+  web/src/settings-panel-model.test.ts \
+  web/src/settings-llm-providers-panel.test.tsx
+bun run typecheck:app
+</code></pre>
+  <p>完了条件: 既存provider機能を一つのカテゴリ内で完了でき、接続状態が実データと一致する。</p>
+
+  <h3 id="wp4">Work Package 4: タスクルーティング</h3>
+  <ol>
+    <li>既存route cardを独立カテゴリへ移す。</li>
+    <li>用途説明と日本語labelを追加する。</li>
+    <li>primary、thinking、fallback追加・削除・並べ替えを回帰確認する。</li>
+    <li>AI・モデルへの関連リンクを追加する。</li>
+  </ol>
+  <pre><code class="language-sh">bunx vitest run \
+  web/src/settings-panel-model.test.ts \
+  web/src/settings-task-routing-panel.test.tsx
+bun run typecheck:app
+</code></pre>
+  <p>完了条件: 5 taskすべてを編集でき、既存validationと保存payloadが変わらない。</p>
+
+  <h3 id="wp5">Work Package 5: Runtime設定の分割</h3>
+  <ol>
+    <li>共有field部品を抽出する。</li>
+    <li>スキャン実行、セキュリティ、詳細設定へfieldを移す。</li>
+    <li>同じRuntime draftを3panelから更新する。</li>
+    <li>自動設定、鍵生成、通常保存のbusy状態を相互に排他する。</li>
+    <li>legacy response正規化と不足field表示の既存testを移植する。</li>
+  </ol>
+  <pre><code class="language-sh">bunx vitest run \
+  web/src/settings-runtime-panel.test.tsx \
+  web/src/api/runtime-settings.test.ts
+bun run typecheck:app
+</code></pre>
+  <p>
+    完了条件:
+    <code>RuntimeSettingsResponse</code>の全fieldが重複・欠落なく一つのカテゴリへ所属する。
+  </p>
+
+  <h3 id="wp6">Work Package 6: 保存状態とresource分離</h3>
+  <ol>
+    <li>LLM、Runtime、System Contextのbaseline snapshotを追加する。</li>
+    <li>dirty、saving、saved、errorをresource単位で導出する。</li>
+    <li>LLMとRuntimeの初回loadを独立させる。</li>
+    <li>保存失敗後もdraftを保持し、retryできることを確認する。</li>
+    <li>画面離脱確認を追加し、カテゴリ移動では表示しない。</li>
+  </ol>
+  <pre><code class="language-sh">bunx vitest run \
+  web/src/settings-panel-model.test.ts \
+  web/src/settings-panel-view.test.tsx
+bun run typecheck:app
+</code></pre>
+  <p>完了条件: 保存状態が正しく、通信失敗やカテゴリ移動で入力を失わない。</p>
+
+  <h3 id="wp7">Work Package 7: Visual、responsive、accessibility</h3>
+  <ol>
+    <li>既存design tokenを使って<code>styles-settings.css</code>を実装する。</li>
+    <li>1573×1000でモックアップと情報階層を比較する。</li>
+    <li>900px以下でnavとformを1列化する。</li>
+    <li>390pxで横スクロール、clipping、操作不能がないことを確認する。</li>
+    <li>keyboard、focus、accessible name、status semantics、axeを確認する。</li>
+  </ol>
+  <pre><code class="language-sh">bunx playwright test tests/e2e/settings.spec.ts
+bunx playwright test tests/e2e/release-readiness.spec.ts \
+  --grep "project path validation and member/admin boundaries"
+bun run build:web
+</code></pre>
+  <p>完了条件: モックアップの主要構造を満たし、serious / criticalなaxe違反がない。</p>
+
+  <h3 id="wp8">Work Package 8: Closeout</h3>
+  <ol>
+    <li>型検査、対象Vitest、E2E、build、docs checkを実行する。</li>
+    <li>既存設定項目の対応表を再確認し、欠落がないことを記録する。</li>
+    <li>
+      最終スクリーンショットを<code>.artifacts/settings-redesign/after-admin.png</code>、
+      <code>after-member.png</code
+      >、<code>after-mobile-390.png</code>へ保存する。
+    </li>
+    <li>本書の状態、実装結果、検証結果を更新する。</li>
+  </ol>
+  <pre><code class="language-sh">bun run typecheck:app
+bunx biome check \
+  web/src/App.tsx \
+  web/src/router.tsx \
+  web/src/main.tsx \
+  web/src/settings-*.ts \
+  web/src/settings-*.tsx \
+  web/src/styles-settings.css \
+  tests/e2e/settings.spec.ts
+bun run test:web
+bunx playwright test tests/e2e/settings.spec.ts
+bun run build:web
+bun run docs:check
+git diff --check
+</code></pre>
+  <p>
+    ユーザー所有の変更を巻き込むため、<code>bun run format</code>やrepository全体への
+    <code>biome --write</code
+    >は実行しない。formatが必要な場合は9の対象ファイルだけに限定する。
+  </p>
+
+  <h2 id="11-test-plan">11. テスト計画</h2>
+  <table>
+    <caption>
+      検証レイヤーと確認内容
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">レイヤー</th>
+        <th scope="col">主な確認</th>
+        <th scope="col">実行例</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Pure unit</td>
+        <td>section parser、権限filter、検索、status、dirty、provider初期選択。</td>
+        <td><code>bunx vitest run web/src/settings-*-model.test.ts</code></td>
+      </tr>
+      <tr>
+        <td>Component</td>
+        <td>選択panelだけの表示、admin badge、field所属、button disabled、error / empty。</td>
+        <td><code>bunx vitest run web/src/settings-*.test.tsx</code></td>
+      </tr>
+      <tr>
+        <td>Existing regression</td>
+        <td>Runtime legacy response、LLM route normalization、member API 403。</td>
+        <td><code>bun run test:web</code></td>
+      </tr>
+      <tr>
+        <td>E2E desktop</td>
+        <td>deep link、戻る・進む、検索、編集、保存、health、runtime action。</td>
+        <td><code>bunx playwright test tests/e2e/settings.spec.ts</code></td>
+      </tr>
+      <tr>
+        <td>E2E permission</td>
+        <td>一般ユーザーのカテゴリ・検索結果・API call境界。</td>
+        <td><code>bunx playwright test tests/e2e/release-readiness.spec.ts</code></td>
+      </tr>
+      <tr>
+        <td>E2E responsive / a11y</td>
+        <td>390px、keyboard、focus、serious / critical axe violation。</td>
+        <td><code>bunx playwright test tests/e2e/settings.spec.ts</code></td>
+      </tr>
+      <tr>
+        <td>Build gate</td>
+        <td>TypeScript、production bundle、document構造。</td>
+        <td><code>bun run typecheck &amp;&amp; bun run build:web &amp;&amp; bun run docs:check</code></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3 id="110-test-fixture-policy">11.0 Test fixture方針</h3>
+  <ul>
+    <li>
+      repositoryに<code>@testing-library/react</code>はないため追加しない。純粋関数はVitest、
+      静的componentは<code>renderToStaticMarkup</code>、interactionとhook orchestrationは
+      Playwrightで検証する。
+    </li>
+    <li>
+      Linkを含む<code>SettingsPanelView</code>の静的testは、
+      <code>createMemoryHistory</code>、最小route
+      tree、<code>RouterProvider</code>で囲み、
+      <code>await router.load()</code>後にrenderする。production
+      routerをtest用に変更しない。
+    </li>
+    <li>
+      <code>tests/e2e/settings.spec.ts</code
+      >は<code>page.route("**/api/**")</code>で設定APIをmockし、
+      provider保存、Runtime保存、鍵生成、自動設定を実環境へ送信しない。
+    </li>
+    <li>
+      admin fixtureはLLM、Codex、Runtime、health、system context、app health、source
+      healthを全て固定値で返す。
+    </li>
+    <li>member fixtureはLLM、Codex、Runtime routeへのrequestが発生した時点でtestを失敗させる。</li>
+    <li>
+      PUT / POST mockはrequest
+      bodyを記録し、responseへ<code>updatedAt</code>を付けて返す。
+    </li>
+    <li>
+      save失敗caseは最初のPUTだけ500を返し、2回目を成功させる。1回目の後もinput
+      valueが残ることを確認する。
+    </li>
+    <li>
+      Runtime field所属はDOM文言だけでなく、3カテゴリを順に開いて各inputのaccessible labelが一度だけ
+      現れることをcomponent testで確認する。
+    </li>
+    <li>
+      実serverの権限境界は既存<code>release-readiness.spec.ts</code>だけで確認し、
+      新E2Eから実設定を変更しない。
+    </li>
+  </ul>
+
+  <h3 id="111-e2e-scenarios">11.1 必須E2Eシナリオ</h3>
+  <ol>
+    <li>管理者が<code>/settings</code>を開くと概要を表示する。</li>
+    <li><code>?section=ai-models</code>の再読み込みでAI・モデルを復元する。</li>
+    <li>カテゴリ移動後、戻る・進むで表示が復元される。</li>
+    <li>検索結果からタスクルーティングへ移動できる。</li>
+    <li>provider変更で未保存表示になり、保存後に保存済みへ戻る。</li>
+    <li>保存失敗時に入力値を保持し、再試行できる。</li>
+    <li>Runtimeの3カテゴリで同じdraftが維持される。</li>
+    <li>Runtime dirty中は自動設定とDAST key生成が無効になり、保存後に有効化される。</li>
+    <li>カテゴリ移動では離脱確認が出ず、別画面への移動とLogoutでは確認が出る。</li>
+    <li>
+      masked API keyを変更せず保存した時、PUT
+      bodyに<code>********</code>が維持される。
+    </li>
+    <li>一般ユーザーには概要とSystem Contextだけが表示される。</li>
+    <li>一般ユーザーの検索結果に管理者カテゴリが出ない。</li>
+    <li>一般ユーザーが管理者sectionへdeep linkしても管理者APIを呼ばない。</li>
+    <li>390px幅で全カテゴリ、保存、provider選択を操作できる。</li>
+    <li>主要フローにserious / criticalなaxe違反がない。</li>
+  </ol>
+
+  <h2 id="12-acceptance-criteria">12. 受け入れ条件</h2>
+  <ol>
+    <li>モックアップと同じ「上部見出し、検索、カテゴリnav、単一panel」の構造になっている。</li>
+    <li>7カテゴリが定義どおりの順序、権限、URL値で動作する。</li>
+    <li>現行設定項目が一つも失われず、重複表示もない。</li>
+    <li>既存API、DB、暗号化、権限middlewareに破壊的変更がない。</li>
+    <li>一般ユーザーが管理者専用カテゴリと検索結果を閲覧できない。</li>
+    <li>URL共有、再読み込み、戻る・進むが動作する。</li>
+    <li>未保存、保存中、保存済み、保存失敗を区別できる。</li>
+    <li>接続・資格・更新状態がserver responseと一致し、推測値を表示しない。</li>
+    <li>Runtime dirty中に、自動設定または鍵生成でdraftを失わない。</li>
+    <li>masked secretをfrontendが空文字や固定の別表現へ変換しない。</li>
+    <li>一般ユーザーのsessionではLLM、Codex、Runtime API requestが0件である。</li>
+    <li>390pxで横スクロールがなく、keyboardだけで主要操作を完了できる。</li>
+    <li>対象unit / component / E2E、typecheck、build、docs checkが成功する。</li>
+  </ol>
+
+  <h2 id="13-risk-and-mitigation">13. リスクと対策</h2>
+  <table>
+    <caption>
+      主要リスクと対策
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">リスク</th>
+        <th scope="col">対策</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Runtime field分割時の欠落。</td>
+        <td>
+          型の全key対応表とcomponent testで、全fieldが一度だけ表示・送信されることを確認する。
+        </td>
+      </tr>
+      <tr>
+        <td>LLM providerとrouteの共有draftが利用者に分かりにくい。</td>
+        <td>
+          両カテゴリで同じ保存状態を表示し、保存APIが両方を保存することをhelper textで明示する。
+        </td>
+      </tr>
+      <tr>
+        <td>未保存値に対するhealth checkが古いserver値を検査する。</td>
+        <td>
+          <code>llmProviderDirty</code>または未作成providerではhealth
+          checkを無効化する。
+        </td>
+      </tr>
+      <tr>
+        <td>権限外sectionのdeep linkで管理者APIが発火する。</td>
+        <td>fetch effectより前にsection accessを解決し、member E2Eでrequestを監視する。</td>
+      </tr>
+      <tr>
+        <td>resourceを一括取得すると、一件の失敗で画面全体が使えない。</td>
+        <td>LLMとRuntimeを独立loadし、resource単位でerrorとretryを持つ。</td>
+      </tr>
+      <tr>
+        <td>日本語化でAPI値まで変更される。</td>
+        <td>label mappingとenum valueを分離し、送信payloadのsnapshot testを追加する。</td>
+      </tr>
+      <tr>
+        <td>設定固有CSSの移動で他画面が崩れる。</td>
+        <td>
+          共通selectorは<code>styles.css</code>へ残し、<code>.settings-*</code>だけを移す。
+        </td>
+      </tr>
+      <tr>
+        <td>Runtime自動設定が未保存draftをserver値で上書きする。</td>
+        <td>
+          <code>runtimeDirty</code
+          >中は即時操作を無効化し、保存後だけ実行可能にする。
+        </td>
+      </tr>
+      <tr>
+        <td>Codex status再取得でdetected modelsがdirty扱いになる。</td>
+        <td>再取得結果をLLM draftとbaselineの両方へ同じようにmergeする。</td>
+      </tr>
+      <tr>
+        <td>Logout時にSettingsPanelが先にunmountして離脱確認が消える。</td>
+        <td>
+          <code>App</code>にもdirtyを通知し、logout
+          APIの前に同じ確認を行う。
+        </td>
+      </tr>
+      <tr>
+        <td>既存のユーザー変更を整形または上書きする。</td>
+        <td>
+          1.2と9.1のwrite boundaryを守り、各Work
+          Packageで<code>git status</code>を確認する。
+        </td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2 id="14-rollout-rollback">14. 切り替えとRollback</h2>
+  <ul>
+    <li>長期feature flagは追加しない。</li>
+    <li>Work Package 1から6は同じbranchで段階的に検証し、旧直列画面との二重表示は行わない。</li>
+    <li>
+      最終切り替えは<code>SettingsPanelView</code>の組み立て変更として一度だけ行う。
+    </li>
+    <li>APIと保存payloadを維持するため、問題発生時は表示componentとCSSだけを旧構成へ戻せる。</li>
+    <li>rollback時も新規に保存された設定値は既存API形式のため失われない。</li>
+  </ul>
+
+  <h2 id="15-completion-checklist">15. 完了チェックリスト</h2>
+  <ul>
+    <li>参照モックアップと情報構造を比較した。</li>
+    <li>全設定項目の所属表に欠落・重複がない。</li>
+    <li>admin / memberの表示とAPI境界を確認した。</li>
+    <li>unknown / unauthorized sectionのfallbackを確認した。</li>
+    <li>検索がsecretや設定値を対象にしていない。</li>
+    <li>dirty / saving / saved / errorを確認した。</li>
+    <li>provider healthが未保存値を検査しない。</li>
+    <li>Runtime自動設定とDAST key生成の排他を確認した。</li>
+    <li>Runtime全fieldが7.8の所属先に一度だけ存在する。</li>
+    <li>masked secret sentinelがload / saveで維持される。</li>
+    <li>別画面、beforeunload、Logoutの離脱確認を確認した。</li>
+    <li>member sessionの管理者API requestが0件である。</li>
+    <li>1.2のユーザー変更を編集していない。</li>
+    <li>390px、keyboard、axeを確認した。</li>
+    <li>typecheck、対象test、E2E、build、docs checkが成功した。</li>
+    <li>本書へ実装結果と検証結果を追記した。</li>
+  </ul>
+</article>

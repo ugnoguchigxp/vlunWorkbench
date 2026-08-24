@@ -1,16 +1,17 @@
 import { zValidator } from "@hono/zod-validator";
 import { Hono } from "hono";
 import {
+	type ScanLaunchPreviewRequest,
 	scanLaunchPreviewRequestSchema,
 	scanLaunchPreviewSchema,
-	type ScanLaunchPreviewRequest,
 } from "../../shared/schemas/scan-launch.schema";
 import type { AppEnv } from "../app/env";
 import { getAuthContextUser } from "../modules/auth/context";
 import { HttpError } from "../modules/auth/errors";
+import { analyzeProjectCapabilities } from "../modules/project-capabilities/plugin-detector";
+import { evaluateScanReadiness } from "../modules/scans/execution/scan-readiness-service";
 import { getScanProfileDefinition } from "../modules/scans/profile-definitions";
 import type { ProjectRepository } from "../modules/scans/repositories";
-import { evaluateScanReadiness } from "../modules/scans/execution/scan-readiness-service";
 
 type ScanLaunchesRouteDeps = {
 	projectRepository: ProjectRepository;
@@ -22,6 +23,7 @@ function runtimeDependencySettings(
 ): Record<string, string | undefined> {
 	return {
 		SCAN_DOCKER_IMAGE: env.scanDockerImage,
+		VULN_WORKBENCH_MAVEN_RESOLVER_IMAGE: env.mavenResolverImage,
 		VULN_WORKBENCH_RUNTIME_NUCLEI_IMAGE:
 			env.runtimeIsolation?.nucleiImage || undefined,
 		VULN_WORKBENCH_RUNTIME_ZAP_IMAGE:
@@ -45,7 +47,7 @@ function setupActions(reasonCodes: string[]) {
 		: [];
 }
 
-/** Canonical, side-effect-free admission preview for every catalog profile. */
+/** Canonical admission preview for every catalog profile. */
 export function createScanLaunchesRoute(deps: ScanLaunchesRouteDeps) {
 	return new Hono().post(
 		"/:projectId/scan-launches/preview",
@@ -59,12 +61,27 @@ export function createScanLaunchesRoute(deps: ScanLaunchesRouteDeps) {
 				throw new HttpError(403, "Forbidden");
 			}
 			const request = c.req.valid("json") as ScanLaunchPreviewRequest;
+			const sourceInput = request.input as {
+				kind?: string;
+				dependencyResolution?: { mode?: string };
+			};
+			const registryResolutionRequested =
+				request.profileId === "source-assurance" &&
+				sourceInput.kind === "source_target" &&
+				sourceInput.dependencyResolution?.mode === "registry";
+			const technologyAnalysis = registryResolutionRequested
+				? await analyzeProjectCapabilities(project.repoPath)
+				: null;
 			const readiness = await evaluateScanReadiness({
 				profileId: request.profileId,
 				target: request.target,
 				input: request.input,
 				settings: runtimeDependencySettings(await deps.resolveRuntimeEnv()),
 				workspacePath: project.repoPath,
+				mavenProjectDetected:
+					technologyAnalysis?.capabilityPlan.activePluginIds.includes(
+						"build.maven",
+					) ?? false,
 			});
 			const definition = getScanProfileDefinition(request.profileId);
 			const response = scanLaunchPreviewSchema.parse({

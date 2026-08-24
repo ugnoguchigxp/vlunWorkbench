@@ -7,6 +7,13 @@
     "url": "/vlunWorkbench/plans/archive/finding-deduplication-and-issue-grouping-implementation-plan/"
   },
   {
+    "title": "Finding詳細Drawer簡素化 実装計画書",
+    "slug": "finding-detail-drawer-simplification-implementation-plan",
+    "relativePath": "finding-detail-drawer-simplification-implementation-plan.html",
+    "format": "html",
+    "url": "/vlunWorkbench/plans/archive/finding-detail-drawer-simplification-implementation-plan/"
+  },
+  {
     "title": "Git Diff Target Scan Implementation Plan",
     "slug": "git-diff-target-scan-implementation-plan",
     "relativePath": "git-diff-target-scan-implementation-plan.md",
@@ -154,11 +161,60 @@
     "url": "/vlunWorkbench/plans/archive/project-wide-evaluation-remediation-implementation-plan/"
   },
   {
+    "title": "Runtime Scan Execution Reliability Implementation Plan",
+    "slug": "runtime-scan-execution-reliability-implementation-plan",
+    "relativePath": "runtime-scan-execution-reliability-implementation-plan.html",
+    "format": "html",
+    "url": "/vlunWorkbench/plans/archive/runtime-scan-execution-reliability-implementation-plan/"
+  },
+  {
+    "title": "Runtime Target Database Isolation Implementation Plan",
+    "slug": "runtime-target-database-isolation-implementation-plan",
+    "relativePath": "runtime-target-database-isolation-implementation-plan.html",
+    "format": "html",
+    "url": "/vlunWorkbench/plans/archive/runtime-target-database-isolation-implementation-plan/"
+  },
+  {
     "title": "Scan Execution Effectiveness and Truthfulness Remediation Plan",
     "slug": "scan-execution-effectiveness-remediation-plan",
     "relativePath": "scan-execution-effectiveness-remediation-plan.html",
     "format": "html",
     "url": "/vlunWorkbench/plans/archive/scan-execution-effectiveness-remediation-plan/"
+  },
+  {
+    "title": "Scan Profile Capability Adoption and Optional Scanner Implementation Plan",
+    "slug": "scan-profile-capability-adoption-implementation-plan",
+    "relativePath": "scan-profile-capability-adoption-implementation-plan.html",
+    "format": "html",
+    "url": "/vlunWorkbench/plans/archive/scan-profile-capability-adoption-implementation-plan/"
+  },
+  {
+    "title": "Scan Profile Catalog Consolidation Implementation Plan",
+    "slug": "scan-profile-catalog-consolidation-implementation-plan",
+    "relativePath": "scan-profile-catalog-consolidation-implementation-plan.html",
+    "format": "html",
+    "url": "/vlunWorkbench/plans/archive/scan-profile-catalog-consolidation-implementation-plan/"
+  },
+  {
+    "title": "Scan Profile Execution Architecture Migration Plan",
+    "slug": "scan-profile-execution-architecture-migration-plan",
+    "relativePath": "scan-profile-execution-architecture-migration-plan.html",
+    "format": "html",
+    "url": "/vlunWorkbench/plans/archive/scan-profile-execution-architecture-migration-plan/"
+  },
+  {
+    "title": "Scan Profile Stability Promotion Implementation Plan",
+    "slug": "scan-profile-stability-promotion-implementation-plan",
+    "relativePath": "scan-profile-stability-promotion-implementation-plan.html",
+    "format": "html",
+    "url": "/vlunWorkbench/plans/archive/scan-profile-stability-promotion-implementation-plan/"
+  },
+  {
+    "title": "Security Capability Gap Completion Implementation Plan",
+    "slug": "security-capability-gap-completion-implementation-plan",
+    "relativePath": "security-capability-gap-completion-implementation-plan.html",
+    "format": "html",
+    "url": "/vlunWorkbench/plans/archive/security-capability-gap-completion-implementation-plan/"
   },
   {
     "title": "vulnWorkbench v1.0.0",
@@ -173,5 +229,12 @@
     "relativePath": "scan-workspace-component-design.html",
     "format": "html",
     "url": "/vlunWorkbench/plans/archive/scan-workspace-component-design/"
+  },
+  {
+    "title": "設定画面再設計 実装計画書",
+    "slug": "settings-screen-redesign-implementation-plan",
+    "relativePath": "settings-screen-redesign-implementation-plan.html",
+    "format": "html",
+    "url": "/vlunWorkbench/plans/archive/settings-screen-redesign-implementation-plan/"
   }
 ]

@@ -154,7 +154,7 @@ describe("scan profile input preflight", () => {
 		expect(result.limitationCodes).toContain("scanner_version_vulnerable");
 	});
 
-	it("checks Cosign in the selected core toolbox image", async () => {
+	it("inspects the selected toolbox image without running Cosign", async () => {
 		const probeScannerVersion = vi.fn(async () => "GitVersion: v3.1.3");
 		const result = await runScanPreflight({
 			profile,
@@ -174,22 +174,12 @@ describe("scan profile input preflight", () => {
 		});
 
 		expect(result.status).toBe("ready");
-		expect(probeScannerVersion).toHaveBeenCalledWith(
-			"cosign",
-			expect.objectContaining({
-				runner: "docker",
-				docker: expect.objectContaining({
-					image: "vuln-workbench-toolbox:test",
-				}),
-			}),
-		);
-		expect(result.checks).toContainEqual(
-			expect.objectContaining({
-				kind: "binary_version",
-				scannerId: "cosign",
-				observedVersion: "3.1.3",
-			}),
-		);
+		expect(probeScannerVersion).not.toHaveBeenCalled();
+		expect(
+			result.checks.some(
+				(item) => item.kind === "binary_version" && item.scannerId === "cosign",
+			),
+		).toBe(false);
 	});
 
 	it("blocks Docker SLSA verification until Sigstore trust-root network is explicit", async () => {
@@ -303,7 +293,6 @@ function dependencies(): ScanPreflightDependencies {
 			platform: "linux/amd64",
 			reasonCode: null,
 		}),
-		probeDockerRuntimePath: async () => true,
 		inferTargetPlan: async () => {
 			throw new Error("not expected");
 		},

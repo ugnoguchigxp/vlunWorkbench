@@ -372,6 +372,7 @@ export async function startScan(
 		slsaPolicy?: string;
 		authContextId?: string;
 		identityRole?: string;
+		dependencyResolution?: { mode: "offline" | "registry" };
 		target?: ScanTarget;
 		expectedTargetDigest?: string;
 		expectedPreflightBindingHash?: string;
@@ -414,6 +415,7 @@ export async function preflightScan(
 		slsaPolicy?: string;
 		authContextId?: string;
 		identityRole?: string;
+		dependencyResolution?: { mode: "offline" | "registry" };
 	},
 ): Promise<
 	ScanPreflightResult & {

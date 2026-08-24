@@ -2,8 +2,14 @@ import { constants as fsConstants } from "node:fs";
 import fs from "node:fs/promises";
 import manifestJson from "../../../../shared/manifests/scan-dependencies.v1.json";
 import { scanDependencyManifestSchema } from "../../../../shared/schemas/scan-dependency-manifest.schema";
+import { getCleanEnv, runToolProcess } from "../tools/tool-process-runner";
+import {
+	type DockerProbeCommandRunner,
+	inspectDockerImageWithRecovery,
+} from "./docker-image-preflight-probe";
 
 const manifest = scanDependencyManifestSchema.parse(manifestJson);
+const PROBE_OUTPUT_LIMIT = 4096;
 
 export type DependencyProbeResult = {
 	id: string;
@@ -11,10 +17,7 @@ export type DependencyProbeResult = {
 	reasonCode: string | null;
 };
 
-type CommandRunner = (
-	command: string,
-	args: string[],
-) => Promise<{ exitCode: number }>;
+type CommandRunner = DockerProbeCommandRunner;
 
 function imageRefForEntry(params: {
 	configurationSource: (typeof manifest.entries)[number]["configurationSource"];
@@ -38,7 +41,9 @@ function validConfiguredImageRef(params: {
 }): boolean {
 	if (
 		params.configurationSource.kind === "runtime_setting" &&
-		params.configurationSource.settingKey === "SCAN_DOCKER_IMAGE"
+		(params.configurationSource.settingKey === "SCAN_DOCKER_IMAGE" ||
+			params.configurationSource.settingKey ===
+				"VULN_WORKBENCH_MAVEN_RESOLVER_IMAGE")
 	) {
 		return /^[a-zA-Z0-9][a-zA-Z0-9._/:@-]{0,511}$/.test(params.image);
 	}
@@ -46,8 +51,9 @@ function validConfiguredImageRef(params: {
 }
 
 /**
- * Small, side-effect-free admission probe. It deliberately never pulls an
- * image; a missing image becomes docker_image_unavailable before a run exists.
+ * Local-image admission probe. It never pulls, builds, or starts a container.
+ * Resource Saver recovery may create and immediately remove one without
+ * starting it.
  */
 export async function probeDependency(params: {
 	id: string;
@@ -66,12 +72,16 @@ export async function probeDependency(params: {
 		};
 	const run =
 		params.run ??
-		(async (command, args) => {
-			const proc = Bun.spawn([command, ...args], {
-				stdout: "ignore",
-				stderr: "ignore",
+		(async (command, args, timeoutSec = 10) => {
+			return await runToolProcess(command, args, {
+				execution: { runner: "host" },
+				timeoutSec,
+				outputLimits: {
+					stdoutBytes: PROBE_OUTPUT_LIMIT,
+					stderrBytes: PROBE_OUTPUT_LIMIT,
+				},
+				env: getCleanEnv(),
 			});
-			return { exitCode: await proc.exited };
 		});
 	if (entry.probeId === "docker_daemon_info") {
 		const result = await run("docker", ["info"]);
@@ -118,11 +128,11 @@ export async function probeDependency(params: {
 				reasonCode: "docker_image_unavailable",
 			};
 		}
-		const result = await run("docker", ["image", "inspect", image]);
+		const result = await inspectDockerImageWithRecovery("docker", image, run);
 		return {
 			id: entry.id,
-			ready: result.exitCode === 0,
-			reasonCode: result.exitCode === 0 ? null : "docker_image_unavailable",
+			ready: result.available,
+			reasonCode: result.reasonCode,
 		};
 	}
 	if (entry.probeId === "filesystem_read_write") {

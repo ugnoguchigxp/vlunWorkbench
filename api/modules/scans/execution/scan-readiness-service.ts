@@ -1,10 +1,10 @@
 import { createHash } from "node:crypto";
+import { isCompleteScanLaunchInput } from "../../../../shared/schemas/scan-launch.schema";
 import type {
 	CanonicalProfileId,
 	ScanReadinessStatus,
 } from "../../../../shared/schemas/scan-profile-definition.schema";
 import type { ScanTarget } from "../../../../shared/schemas/scan-target.schema";
-import { isCompleteScanLaunchInput } from "../../../../shared/schemas/scan-launch.schema";
 import {
 	type OptionalScannerSelection,
 	optionalScannerSelection,
@@ -83,8 +83,9 @@ function variantFor(params: {
 }
 
 /**
- * Read-only admission evaluation. The caller supplies current runtime settings;
- * image probes never pull or build resources.
+ * Admission evaluation using the caller's current runtime settings. Image
+ * probes never pull, build, or start images. Docker Desktop may require a
+ * transient create/remove pair to leave Resource Saver mode.
  */
 export async function evaluateScanReadiness(params: {
 	profileId: CanonicalProfileId;
@@ -93,6 +94,7 @@ export async function evaluateScanReadiness(params: {
 	settings?: Record<string, string | undefined>;
 	runDependencyProbe?: Parameters<typeof probeDependency>[0]["run"];
 	workspacePath?: string;
+	mavenProjectDetected?: boolean;
 	optionalScannerSelections?: Partial<
 		Record<"semgrep", OptionalScannerSelection>
 	>;
@@ -129,8 +131,15 @@ export async function evaluateScanReadiness(params: {
 		reasons.push("profile_variant_missing");
 	}
 	if (readiness === "ready") {
-		const selectedDependencyIds =
-			variant?.dependencyIds ?? definition.dependencyIds;
+		const selectedDependencyIds = [
+			...new Set([
+				...(variant?.dependencyIds ?? definition.dependencyIds),
+				...(isMavenRegistryResolution(params.input) &&
+				params.mavenProjectDetected !== false
+					? ["resolver.maven"]
+					: []),
+			]),
+		];
 		const dependencyRequirements = new Map(
 			dependencyRequirementsFor(selectedDependencyIds).map((entry) => [
 				entry.id,
@@ -200,4 +209,14 @@ export async function evaluateScanReadiness(params: {
 				? hash({ ...binding, stepIds: selectedStepIds })
 				: null,
 	};
+}
+
+function isMavenRegistryResolution(input: Record<string, unknown>): boolean {
+	const resolution = input.dependencyResolution;
+	return (
+		resolution !== null &&
+		typeof resolution === "object" &&
+		"mode" in resolution &&
+		resolution.mode === "registry"
+	);
 }

@@ -40,7 +40,7 @@ export const javaLanguagePlugin: TechnologyPluginV1 = {
 			rulesetId: "curated-sast-v1",
 			path: "java/owned-core.yml",
 			digest:
-				"sha256:fa0e42bfec4528e29410f76e100b330a20f5e3bfe8d2f2c22e505379c96fdf7a",
+				"sha256:e2daef6c25507eda2dfd9ded6324300242c484dc81192ad8cf1f9f77449de3f4",
 			language: "java",
 		},
 	],

@@ -112,6 +112,7 @@ function parseScanProfileArgs() {
 			memory: { type: "string" },
 			cpus: { type: "string" },
 			"tool-cache-dir": { type: "string" },
+			"dependency-resolution": { type: "string", default: "offline" },
 			"image-ref": { type: "string" },
 			"image-tar": { type: "string" },
 			"attestation-subject": { type: "string" },
@@ -252,6 +253,20 @@ async function main() {
 	const slsaPolicy = argsValues["slsa-policy"];
 	const authContextId = argsValues["auth-context-id"];
 	const identityRole = argsValues["identity-role"];
+	const dependencyResolutionMode = argsValues["dependency-resolution"] as
+		| "offline"
+		| "registry";
+	if (
+		dependencyResolutionMode !== "offline" &&
+		dependencyResolutionMode !== "registry"
+	) {
+		writeResult({
+			ok: false,
+			status: "config_error",
+			message: "--dependency-resolution must be offline or registry.",
+		});
+		process.exit(2);
+	}
 	if (Boolean(authContextId) !== Boolean(identityRole)) {
 		writeResult({
 			ok: false,
@@ -481,6 +496,27 @@ async function main() {
 					stepId,
 				}),
 			);
+			const technologyAnalysis =
+				await analyzeProjectCapabilities(effectiveRepoPath);
+			const dryRunDiffPlan =
+				scanTarget.kind === "full"
+					? null
+					: buildDiffScanPlan({
+							resolved: await resolveGitDiff({
+								projectPath: effectiveRepoPath,
+								target: scanTarget,
+								scope: profile.scope,
+							}),
+							tools: steps.flatMap((candidate) =>
+								candidate.kind === "static_tool" ? [candidate] : [],
+							),
+							detectedPluginIds: technologyAnalysis.detections
+								.filter((detection) => detection.detected)
+								.map((detection) => detection.pluginId),
+							projectInventoryPaths: technologyAnalysis.context.inventory.map(
+								(entry) => entry.path,
+							),
+						});
 			const preflight = await runScanPreflight({
 				profile,
 				steps,
@@ -498,9 +534,20 @@ async function main() {
 				slsaPolicy,
 				authContextId,
 				identityRole,
+				dependencyResolutionMode,
+				mavenResolverImage: env.mavenResolverImage,
+				mavenResolutionConfig: project.metadata?.mavenResolutionConfig,
+				mavenProjectDetected:
+					technologyAnalysis.capabilityPlan.activePluginIds.includes(
+						"build.maven",
+					),
+				mavenResolutionApplicable:
+					dryRunDiffPlan?.tools.find((tool) => tool.toolId === "osv")
+						?.applicability !== "not_applicable",
+				staticScannerPaths:
+					dryRunDiffPlan?.scanPaths ??
+					technologyAnalysis.context.inventory.map((entry) => entry.path),
 			});
-			const technologyAnalysis =
-				await analyzeProjectCapabilities(effectiveRepoPath);
 			const executionPlan = buildScanExecutionPlan({
 				scanRunId: randomUUID(),
 				projectId: project.id,
@@ -598,6 +645,9 @@ async function main() {
 			authContextRepository,
 			authContextId,
 			identityRole,
+			dependencyResolutionMode,
+			mavenResolverImage: env.mavenResolverImage,
+			mavenResolutionConfig: project.metadata?.mavenResolutionConfig,
 			executionSurface,
 			target: scanTarget,
 			expectedTargetDigest,

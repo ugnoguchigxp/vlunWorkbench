@@ -122,10 +122,10 @@ const reasonDisplays: Record<string, PreflightReasonDisplay> = {
 	},
 	docker_image_unavailable: {
 		heading:
-			"スキャナー用コンテナイメージが未準備のため、スキャンを開始できませんでした",
-		cause: "この診断に必要な固定スキャナーイメージをDockerが見つけられません。",
+			"必要なコンテナイメージが未準備のため、スキャンを開始できませんでした",
+		cause: "この診断に必要な固定コンテナイメージが Docker に見つかりません。",
 		nextAction:
-			"管理者が［設定］→［Runtime］で「ローカルRuntimeを自動設定」を実行し、Nuclei・ZAP・Schemathesisの準備が完了してから再実行してください。",
+			"技術情報で対象イメージを確認し、その固定イメージを準備してから再実行してください。",
 	},
 	project_code_execution_consent_required: {
 		heading: "実行の同意がないため、スキャンを開始できませんでした",
@@ -157,8 +157,13 @@ export function describeScanPreflightReason(
 	reasonCode: string | null | undefined,
 	action?: ScanPreflightCheck["action"],
 ): PreflightReasonDisplay {
-	if (reasonCode && reasonDisplays[reasonCode])
-		return reasonDisplays[reasonCode];
+	if (reasonCode && reasonDisplays[reasonCode]) {
+		const display = reasonDisplays[reasonCode];
+		const actionDisplay = action ? actionDisplays[action] : null;
+		return reasonCode === "docker_image_unavailable" && actionDisplay
+			? { ...display, nextAction: actionDisplay }
+			: display;
+	}
 	return {
 		heading: "実行前チェックで問題が見つかりました",
 		cause: "実行前チェックを完了できませんでした。",

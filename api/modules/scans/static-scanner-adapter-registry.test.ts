@@ -3,6 +3,7 @@ import { ArtifactStorage } from "./artifact-storage";
 import { selectStaticTool } from "./profile-static-tool-selection";
 import { prepareToolProvenance } from "./profile-tool-provenance";
 import {
+  resolveStaticScannerApplicability,
   resolveStaticScannerDiffExecution,
   type StaticScannerAdapter,
 } from "./static-scanner-adapter";
@@ -119,6 +120,34 @@ describe("StaticScannerAdapterRegistry", () => {
         provenance: { runtimePath: null },
       }),
     ).toThrow("scanner_adapter_runtime_config_missing:semgrep");
+  });
+
+  it("classifies zizmor from the same full and diff path predicate", () => {
+    const adapter = createStaticScannerAdapterRegistry().require("zizmor");
+
+    expect(
+      resolveStaticScannerApplicability(adapter, ["src/Main.java"]),
+    ).toEqual({
+      applicability: "not_applicable",
+      reasonCode: "no_auditable_github_actions_inputs",
+    });
+    expect(
+      resolveStaticScannerApplicability(adapter, [
+        ".github/workflows/security.yml",
+        ".github/actions/setup/action.yaml",
+        "action.yml",
+        ".pre-commit-config.yaml",
+      ]),
+    ).toMatchObject({
+      applicability: "applicable",
+      reasonCode: null,
+      evidenceRefs: [
+        "repository-path:.github/workflows/security.yml",
+        "repository-path:.github/actions/setup/action.yaml",
+        "repository-path:action.yml",
+        "repository-path:.pre-commit-config.yaml",
+      ],
+    });
   });
 
   it("runs a newly registered adapter without changing the core selector", async () => {

@@ -28,6 +28,7 @@ export function buildScanWorkspaceActions(scope: ScansActionScope) {
 		attestationSubject,
 		supplyChainVerifier,
 		continueOnToolFailure,
+		dependencyResolutionMode,
 		dastAuthStatusPath,
 		dastAuthContexts,
 		dastBearerToken,
@@ -345,6 +346,14 @@ export function buildScanWorkspaceActions(scope: ScansActionScope) {
 				target,
 				consentProjectCodeExecution: scanProjectCodeExecutionConsent,
 				allowExperimental: selectedProfileId === "api-readonly",
+				...(selectedProfileId === "source-assurance"
+					? {
+							dependencyResolution: { mode: dependencyResolutionMode },
+							...(dependencyResolutionMode === "registry"
+								? { runner: "docker" as const }
+								: {}),
+						}
+					: {}),
 				...(apiAuthContext
 					? {
 							authContextId: apiAuthContext.id,
@@ -372,6 +381,14 @@ export function buildScanWorkspaceActions(scope: ScansActionScope) {
 				consentProjectCodeExecution: scanProjectCodeExecutionConsent,
 				target,
 				allowExperimental: selectedProfileId === "api-readonly",
+				...(selectedProfileId === "source-assurance"
+					? {
+							dependencyResolution: { mode: dependencyResolutionMode },
+							...(dependencyResolutionMode === "registry"
+								? { runner: "docker" as const }
+								: {}),
+						}
+					: {}),
 				...(apiAuthContext
 					? {
 							authContextId: apiAuthContext.id,

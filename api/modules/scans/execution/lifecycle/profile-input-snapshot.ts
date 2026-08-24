@@ -13,6 +13,28 @@ export type ProfileInputSnapshot = {
 	cleanup: () => Promise<void>;
 };
 
+export function bindNonFileProfileInputs(
+	bindings: ProfileInputBindings,
+	params: {
+		authContextId?: string;
+		identityRole?: string;
+		dependencyResolutionMode: "offline" | "registry";
+		mavenResolutionConfigDigest?: string;
+		mavenResolutionSourceDigest?: string;
+		mavenResolverImageId?: string;
+	},
+): ProfileInputBindings {
+	return {
+		...bindings,
+		authContextId: params.authContextId,
+		identityRole: params.identityRole,
+		dependencyResolutionMode: params.dependencyResolutionMode,
+		mavenResolutionConfigDigest: params.mavenResolutionConfigDigest,
+		mavenResolutionSourceDigest: params.mavenResolutionSourceDigest,
+		mavenResolverImageId: params.mavenResolverImageId,
+	};
+}
+
 export async function materializeProfileInputSnapshot(params: {
 	repositoryPath: string;
 	imageRef?: string;

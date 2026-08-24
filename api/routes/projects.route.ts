@@ -3,6 +3,7 @@ import path from "node:path";
 import { zValidator } from "@hono/zod-validator";
 import { Hono } from "hono";
 import { z } from "zod";
+import { dependencyResolutionSchema } from "../../shared/schemas/maven-resolution.schema";
 import { createProjectSchema } from "../../shared/schemas/scan.schema";
 import { scanTargetSchema } from "../../shared/schemas/scan-target.schema";
 import type { AppEnv } from "../app/env";
@@ -292,6 +293,9 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 					slsaPolicy: z.string().min(1).max(500).optional(),
 					authContextId: z.string().uuid().optional(),
 					identityRole: z.string().min(1).max(100).optional(),
+					dependencyResolution: dependencyResolutionSchema.optional().default({
+						mode: "offline",
+					}),
 				}),
 			),
 			async (c) => {
@@ -364,7 +368,15 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 								},
 							)
 						: Promise.resolve(null);
-				const [technologyAnalysis, fullTarget, resolvedScope] =
+				const resolvedDiffPromise =
+					body.target.kind === "full"
+						? Promise.resolve(null)
+						: resolveGitDiff({
+								projectPath: authorized.canonicalPath,
+								target: body.target,
+								scope: profile.scope,
+							});
+				const [technologyAnalysis, fullTarget, resolvedScope, resolvedDiff] =
 					await Promise.all([
 						analyzeProjectCapabilities(authorized.canonicalPath),
 						fullTargetPromise,
@@ -372,7 +384,22 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 							repoPath: authorized.canonicalPath,
 							scope: profile.scope,
 						}),
+						resolvedDiffPromise,
 					]);
+				const diffPlan = resolvedDiff
+					? buildDiffScanPlan({
+							resolved: resolvedDiff,
+							tools: steps.flatMap((candidate) =>
+								candidate.kind === "static_tool" ? [candidate] : [],
+							),
+							detectedPluginIds: technologyAnalysis.detections
+								.filter((detection) => detection.detected)
+								.map((detection) => detection.pluginId),
+							projectInventoryPaths: technologyAnalysis.context.inventory.map(
+								(entry) => entry.path,
+							),
+						})
+					: null;
 				const previewScanRunId = randomUUID();
 				const runtimeIsolationProviderFactory =
 					resolveRuntimeIsolationProviderFactory(runtimeEnv);
@@ -431,6 +458,19 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 						slsaPolicy: body.slsaPolicy,
 						authContextId: body.authContextId,
 						identityRole: body.identityRole,
+						dependencyResolutionMode: body.dependencyResolution.mode,
+						mavenResolverImage: runtimeEnv.mavenResolverImage,
+						mavenResolutionConfig: project.metadata?.mavenResolutionConfig,
+						mavenProjectDetected:
+							technologyAnalysis.capabilityPlan.activePluginIds.includes(
+								"build.maven",
+							),
+						mavenResolutionApplicable:
+							diffPlan?.tools.find((tool) => tool.toolId === "osv")
+								?.applicability !== "not_applicable",
+						staticScannerPaths:
+							diffPlan?.scanPaths ??
+							technologyAnalysis.context.inventory.map((entry) => entry.path),
 						targetPlan: runtimeTargetProvider?.plan,
 						runtimeDockerImages: runtimeTargetProvider?.preflightDockerImages,
 						runtimeScannerImages: runtimeTargetProvider?.runtimeScannerImages,
@@ -592,6 +632,9 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 					slsaPolicy: z.string().min(1).max(500).optional(),
 					authContextId: z.string().uuid().optional(),
 					identityRole: z.string().min(1).max(100).optional(),
+					dependencyResolution: dependencyResolutionSchema.optional().default({
+						mode: "offline",
+					}),
 					finalReport: z.boolean().default(true).optional(),
 					reportTitle: z.string().optional(),
 				}),
@@ -671,6 +714,7 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 										body.slsaProvenance &&
 										body.slsaPolicy,
 								),
+								dependencyResolutionMode: body.dependencyResolution.mode,
 							},
 						})
 					: null;
@@ -768,7 +812,9 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 					data: { phase: "resource_preparation" },
 				});
 				const args = [
+					// Managed workers must inherit the server's configuration snapshot.
 					"bun",
+					"--no-env-file",
 					"run",
 					"api/cli/scan-profile.ts",
 					"--scan-run-id",
@@ -787,6 +833,8 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 					policy.runner,
 					"--final-report",
 					String(body.finalReport ?? true),
+					"--dependency-resolution",
+					body.dependencyResolution.mode,
 				];
 				if (body.resultPolicy) args.push("--result-policy", body.resultPolicy);
 				if (body.allowExperimental) args.push("--allow-experimental", "true");

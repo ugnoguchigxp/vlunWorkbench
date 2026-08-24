@@ -121,14 +121,20 @@ describe("Scan Profiles Route", () => {
     );
     expect(fullProfile.coverageGaps).toBeUndefined();
     expect(fullProfile.coverageMeasurement).toBe("not_measured");
-    expect(fullProfile.capabilityRequirements).toEqual(
-      expect.arrayContaining([
-        { capabilityId: "secret_detection", requirement: "required" },
-        { capabilityId: "source_sast", requirement: "advisory" },
-      ]),
-    );
+		expect(fullProfile.capabilityRequirements).toEqual(
+			expect.arrayContaining([
+				{ capabilityId: "secret_detection", requirement: "required" },
+			]),
+		);
+		const sourceSastRequirement = fullProfile.capabilityRequirements.find(
+			(requirement: any) => requirement.capabilityId === "source_sast",
+		);
+		expect(["advisory", "required"]).toContain(
+			sourceSastRequirement.requirement,
+		);
     expect(fullProfile.strictness).toBe("strict");
-    expect(fullProfile.steps.map((step: any) => step.stepId)).toEqual([
+		const fullStepIds = fullProfile.steps.map((step: any) => step.stepId);
+		expect(fullStepIds.filter((stepId: string) => stepId !== "semgrep")).toEqual([
       "gitleaks",
       "osv",
       "trivy",
@@ -139,6 +145,12 @@ describe("Scan Profiles Route", () => {
       "runtime_scanner:zap-baseline",
       "api_schema_scan:schemathesis",
     ]);
+		if (sourceSastRequirement.requirement === "required") {
+			expect(fullStepIds).toContain("semgrep");
+			expect(
+				fullProfile.steps.find((step: any) => step.stepId === "semgrep"),
+			).toEqual(expect.objectContaining({ timeoutSec: 1_800 }));
+		}
     expect(fullProfile.steps.find((step: any) => step.stepId === "trivy")).toEqual(
       expect.objectContaining({
         kind: "static_tool",

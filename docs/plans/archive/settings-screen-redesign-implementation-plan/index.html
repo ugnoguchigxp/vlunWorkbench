@@ -1,4 +1,15 @@
-<article lang="ja" data-spec-role="active-plan">
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex,follow">
+    <title>設定画面再設計 実装計画書 | vulnWorkbench</title>
+    <link rel="stylesheet" href="/vlunWorkbench/assets/css/spec-document.css">
+    <link rel="stylesheet" href="/vlunWorkbench/assets/css/plan-document.css">
+  </head>
+  <body>
+    <article lang="ja" data-spec-role="archived-plan">
   <h1 id="settings-screen-redesign-implementation-plan">設定画面再設計 実装計画書</h1>
 
   <h2 id="1-status">1. ステータス</h2>
@@ -6,7 +17,7 @@
     <li>作成日: 2026-08-23</li>
     <li>対象ベースライン: <code>1fcf734134f4e3d5d91dc3601a05e0280644d8ff</code></li>
     <li>対象画面: <code>/settings</code></li>
-    <li>状態: Implemented</li>
+    <li>状態: Implemented and archived — 2026-08-24</li>
     <li>レビュー日: 2026-08-24</li>
     <li>実装引き継ぎ状態: Complete</li>
     <li>主対象: React / TypeScript / CSSによるフロントエンド再構成</li>
@@ -79,9 +90,7 @@
     スクロール量が多く、保存対象と管理者専用領域も把握しにくい。
   </p>
   <p>
-    改修後は、<strong
-      >URLと連動する設定カテゴリを左側に固定し、右側には選択中のカテゴリだけを 表示する</strong
-    >。既存APIと保存単位は維持し、画面の分割、状態表示、文言、レスポンシブ対応を
+    改修後は、<strong>URLと連動する設定カテゴリを左側に固定し、右側には選択中のカテゴリだけを 表示する</strong>。既存APIと保存単位は維持し、画面の分割、状態表示、文言、レスポンシブ対応を
     フロントエンド内で実現する。
   </p>
   <ol>
@@ -116,11 +125,8 @@
 
   <h2 id="5-reference-mockup">5. 参照モックアップ</h2>
   <figure>
-    <a href="../assets/ui-mockups/settings-redesign.png">
-      <img
-        src="../assets/ui-mockups/settings-redesign.png"
-        alt="カテゴリナビゲーションとAI・モデル設定を表示した設定画面再設計案"
-      />
+    <a href="/vlunWorkbench/plans/assets/ui-mockups/settings-redesign.png">
+      <img src="/vlunWorkbench/plans/assets/ui-mockups/settings-redesign.png" alt="カテゴリナビゲーションとAI・モデル設定を表示した設定画面再設計案">
     </a>
     <figcaption>
       承認済みの設定画面再設計案。既存のグローバルナビゲーションと配色を維持し、
@@ -202,8 +208,7 @@
   <ul>
     <li><code>GET /api/settings/llm</code>と更新APIは管理者専用のまま維持する。</li>
     <li>
-      <code>GET /api/settings/runtime</code
-      >と更新・鍵生成・自動設定APIは管理者専用のまま維持する。
+      <code>GET /api/settings/runtime</code>と更新・鍵生成・自動設定APIは管理者専用のまま維持する。
     </li>
     <li>System Contextは現在のユーザー単位の取得・更新契約を維持する。</li>
     <li>Codex statusとprovider healthは既存APIから取得し、推測値で代用しない。</li>
@@ -341,17 +346,13 @@
   </table>
   <p>
     レジストリ型は<code>id</code>、<code>label</code>、<code>description</code>、
-    <code>keywords</code
-    >、<code>adminOnly</code>、<code>showAdminBadge</code>、<code>icon</code>を必須とする。
+    <code>keywords</code>、<code>adminOnly</code>、<code>showAdminBadge</code>、<code>icon</code>を必須とする。
     labelとadminOnlyは7.1の表を使用し、別ファイルで再定義しない。
   </p>
   <p>
-    <code>showAdminBadge</code
-    >はモックアップどおり<code>scan-execution</code>、
-    <code>security</code
-    >、<code>advanced</code>だけをtrueにする。
-    <code>ai-models</code
-    >と<code>task-routing</code>もadminOnlyだがbadgeは表示しない。
+    <code>showAdminBadge</code>はモックアップどおり<code>scan-execution</code>、
+    <code>security</code>、<code>advanced</code>だけをtrueにする。
+    <code>ai-models</code>と<code>task-routing</code>もadminOnlyだがbadgeは表示しない。
   </p>
 
   <h3 id="72-routing">7.2 URLとカテゴリ選択</h3>
@@ -372,8 +373,7 @@
     <li>カテゴリ移動はブラウザ履歴へ追加し、戻る・進むで選択を復元する。</li>
     <li>
       一般ユーザーが管理者専用sectionへ直接アクセスした場合は、管理者APIを呼ばず、
-      <code>replace: true</code
-      >で<code>/settings</code>へ戻す。
+      <code>replace: true</code>で<code>/settings</code>へ戻す。
     </li>
     <li>provider選択、検索語、折りたたみ状態は画面内の一時状態とし、URLには保存しない。</li>
   </ul>
@@ -403,25 +403,20 @@ export function buildSettingsSectionSearch(section: SettingsSectionId): Settings
 </code></pre>
   <ul>
     <li>
-      <code>parseSettingsSearch</code
-      >は既知値だけを返し、<code>overview</code>と未知値は<code>{}</code>に正規化する。
+      <code>parseSettingsSearch</code>は既知値だけを返し、<code>overview</code>と未知値は<code>{}</code>に正規化する。
     </li>
     <li>
-      <code>resolveSettingsSection</code
-      >は<code>search.section ?? "overview"</code>を返す。
+      <code>resolveSettingsSection</code>は<code>search.section ?? "overview"</code>を返す。
     </li>
     <li>
-      <code>buildSettingsSectionSearch("overview")</code
-      >は<code>{}</code>を返す。
+      <code>buildSettingsSectionSearch("overview")</code>は<code>{}</code>を返す。
     </li>
     <li>
-      <code>settingsRoute</code
-      >へ<code>validateSearch: parseSettingsSearch</code>を追加する。
+      <code>settingsRoute</code>へ<code>validateSearch: parseSettingsSearch</code>を追加する。
       <code>App</code>へsection propは追加しない。
     </li>
     <li>
-      <code>SettingsPanel</code
-      >内で<code>useSearch({ from: "/settings" })</code>と
+      <code>SettingsPanel</code>内で<code>useSearch({ from: "/settings" })</code>と
       <code>useNavigate({ from: "/settings" })</code>を使う。route hookは子panelへ分散させない。
     </li>
   </ul>
@@ -550,10 +545,7 @@ export function buildSettingsSectionSearch(section: SettingsSectionId): Settings
       <tr>
         <td><code>codex</code></td>
         <td>
-          <code>enabled</code
-          >、<code>apiKey</code>、<code
-            >models</code
-          >
+          <code>enabled</code>、<code>apiKey</code>、<code>models</code>
         </td>
         <td>
           <code>name</code>は「Codex
@@ -563,10 +555,7 @@ export function buildSettingsSectionSearch(section: SettingsSectionId): Settings
       <tr>
         <td><code>azure</code></td>
         <td>
-          <code>name</code
-          >、<code>kind</code>、<code>enabled</code>、<code>endpoint</code>、<code>apiVersion</code>、<code>apiKey</code>、<code>models</code>、<code
-            >modelDisplayNames</code
-          >
+          <code>name</code>、<code>kind</code>、<code>enabled</code>、<code>endpoint</code>、<code>apiVersion</code>、<code>apiKey</code>、<code>models</code>、<code>modelDisplayNames</code>
         </td>
         <td><code>endpoint</code>と1件以上のmodelを必須とする。</td>
       </tr>
@@ -577,20 +566,14 @@ export function buildSettingsSectionSearch(section: SettingsSectionId): Settings
           <code>local</code>
         </td>
         <td>
-          <code>name</code
-          >、<code>kind</code>、<code>enabled</code>、<code>baseUrl</code>、<code>apiKey</code>、<code>models</code>、<code
-            >modelDisplayNames</code
-          >
+          <code>name</code>、<code>kind</code>、<code>enabled</code>、<code>baseUrl</code>、<code>apiKey</code>、<code>models</code>、<code>modelDisplayNames</code>
         </td>
         <td><code>baseUrl</code>と1件以上のmodelを必須とする。</td>
       </tr>
       <tr>
         <td><code>bedrock</code></td>
         <td>
-          <code>name</code
-          >、<code>kind</code>、<code>enabled</code>、<code>region</code>、<code>apiKey</code>、<code>models</code>、<code
-            >modelDisplayNames</code
-          >
+          <code>name</code>、<code>kind</code>、<code>enabled</code>、<code>region</code>、<code>apiKey</code>、<code>models</code>、<code>modelDisplayNames</code>
         </td>
         <td>既存frontendどおり1件以上のmodelを必須とし、それ以外の必須条件を追加しない。</td>
       </tr>
@@ -598,12 +581,10 @@ export function buildSettingsSectionSearch(section: SettingsSectionId): Settings
   </table>
   <ul>
     <li>
-      <code>defaultModelCapability</code
-      >と<code>modelCapabilities</code>はUIへ新設せず、draftと保存payloadで保持する。
+      <code>defaultModelCapability</code>と<code>modelCapabilities</code>はUIへ新設せず、draftと保存payloadで保持する。
     </li>
     <li>
-      <code>models</code
-      >は現行どおりカンマ区切りの<code>TextInput</code>で複数編集する。
+      <code>models</code>は現行どおりカンマ区切りの<code>TextInput</code>で複数編集する。
       モックアップの単一selectへ縮退させず、labelを「利用可能なモデル」、helperを「カンマ区切りで入力」にする。
     </li>
     <li>
@@ -950,8 +931,7 @@ export function buildSettingsSectionSearch(section: SettingsSectionId): Settings
     <li>
       <code>autoConfigureRuntimeIsolation</code>はrequest
       bodyを送らずserver上の現在値を更新するため、
-      <code>runtimeDirty</code
-      >中はbuttonを無効化する。未保存draftを破棄して実行する選択肢は追加しない。
+      <code>runtimeDirty</code>中はbuttonを無効化する。未保存draftを破棄して実行する選択肢は追加しない。
     </li>
     <li>
       <code>generateDastAuthEncryptionKey</code>はRuntime
@@ -1009,12 +989,10 @@ const settingsDirty = llmDirty || runtimeDirty || systemContextDirty;
 </code></pre>
   <ul>
     <li>
-      <code>sameJson</code
-      >はこの既存のJSON互換設定型に限り<code>JSON.stringify</code>比較を使う。
+      <code>sameJson</code>はこの既存のJSON互換設定型に限り<code>JSON.stringify</code>比較を使う。
     </li>
     <li>
-      <code>updatedAt</code
-      >とRuntimeのread-only派生fieldはdirty比較から除外する。
+      <code>updatedAt</code>とRuntimeのread-only派生fieldはdirty比較から除外する。
     </li>
     <li>
       <code>********</code>を含むmasked secretもserver
@@ -1023,17 +1001,13 @@ const settingsDirty = llmDirty || runtimeDirty || systemContextDirty;
     <li>load成功時はdraftとbaselineを同じ正規化済みresponseから設定する。</li>
     <li>save成功時はserver responseからdraftとbaselineを同時に更新する。</li>
     <li>
-      <code>savedSystemContextText</code
-      >はmount時と<code>systemContextUpdatedAt</code>変更時だけ
-      <code>systemContextText</code
-      >へ同期し、入力中のprop変更ではbaselineを動かさない。
+      <code>savedSystemContextText</code>はmount時と<code>systemContextUpdatedAt</code>変更時だけ
+      <code>systemContextText</code>へ同期し、入力中のprop変更ではbaselineを動かさない。
     </li>
     <li>AI・モデルとタスクルーティングの保存buttonは、どちらもLLM draft全体を保存する。</li>
     <li>
-      <code>llmProviderDirty</code
-      >だけの時は「AI・モデルに未保存の変更があります」、
-      <code>taskRoutingDirty</code
-      >だけの時は「タスクルーティングに未保存の変更があります」、
+      <code>llmProviderDirty</code>だけの時は「AI・モデルに未保存の変更があります」、
+      <code>taskRoutingDirty</code>だけの時は「タスクルーティングに未保存の変更があります」、
       両方なら「AI・モデルとタスクルーティングに未保存の変更があります」と表示する。
     </li>
     <li>
@@ -1044,26 +1018,21 @@ const settingsDirty = llmDirty || runtimeDirty || systemContextDirty;
   <h4 id="791-leave-guard">7.9.1 離脱確認</h4>
   <ul>
     <li>
-      <code>SettingsPanelProps</code
-      >へ<code>onDirtyChange: (dirty: boolean) =&gt; void</code>を追加する。
+      <code>SettingsPanelProps</code>へ<code>onDirtyChange: (dirty: boolean) =&gt; void</code>を追加する。
     </li>
     <li>
-      <code>App</code
-      >は<code>settingsDirty</code>を保持し、SettingsPanelのmount終了時にfalseへ戻す。
+      <code>App</code>は<code>settingsDirty</code>を保持し、SettingsPanelのmount終了時にfalseへ戻す。
     </li>
     <li>
-      <code>SettingsPanel</code
-      >は<code>useBlocker</code>を一度だけ使用する。
-      <code>current.pathname</code
-      >と<code>next.pathname</code>が共に<code>/settings</code>ならblockしない。
+      <code>SettingsPanel</code>は<code>useBlocker</code>を一度だけ使用する。
+      <code>current.pathname</code>と<code>next.pathname</code>が共に<code>/settings</code>ならblockしない。
     </li>
     <li>
       dirty中に別pathnameへ移動する場合は、native
       confirm「未保存の変更があります。設定画面を離れますか？」を 表示し、cancel時だけblockする。
     </li>
     <li>
-      <code>enableBeforeUnload</code
-      >は<code>settingsDirty</code>と同じ条件にする。
+      <code>enableBeforeUnload</code>は<code>settingsDirty</code>と同じ条件にする。
     </li>
     <li>
       Logoutはnavigation blockerより先にSettingsPanelがunmountする可能性があるため、
@@ -1097,43 +1066,30 @@ const settingsDirty = llmDirty || runtimeDirty || systemContextDirty;
       <tr>
         <td>LLM settings</td>
         <td>
-          <code>llmSettings</code
-          >、<code>llmBaseline</code>、<code>llmLoading</code>、<code>llmSaving</code>、<code
-            >llmError</code
-          >
+          <code>llmSettings</code>、<code>llmBaseline</code>、<code>llmLoading</code>、<code>llmSaving</code>、<code>llmError</code>
         </td>
         <td><code>loadLlmResource</code></td>
       </tr>
       <tr>
         <td>Codex status</td>
         <td>
-          <code>codexStatus</code
-          >、<code>codexLoading</code>、<code
-            >codexError</code
-          >
+          <code>codexStatus</code>、<code>codexLoading</code>、<code>codexError</code>
         </td>
         <td>
-          <code>loadLlmResource</code>内で並列取得、再確認時は<code
-            >reloadCodexStatus</code
-          >
+          <code>loadLlmResource</code>内で並列取得、再確認時は<code>reloadCodexStatus</code>
         </td>
       </tr>
       <tr>
         <td>Runtime</td>
         <td>
-          <code>runtimeSettings</code
-          >、<code>runtimeBaseline</code>、<code>runtimeLoading</code>、<code>runtimeSaving</code>、<code
-            >runtimeError</code
-          >
+          <code>runtimeSettings</code>、<code>runtimeBaseline</code>、<code>runtimeLoading</code>、<code>runtimeSaving</code>、<code>runtimeError</code>
         </td>
         <td><code>loadRuntimeResource</code></td>
       </tr>
       <tr>
         <td>System Context</td>
         <td>
-          既存props、<code>savedSystemContextText</code>、<code
-            >systemContextError</code
-          >
+          既存props、<code>savedSystemContextText</code>、<code>systemContextError</code>
         </td>
         <td>取得は既存<code>App.loadSystemContext</code>を維持</td>
       </tr>
@@ -1144,8 +1100,7 @@ const settingsDirty = llmDirty || runtimeDirty || systemContextDirty;
       管理者だけがLLMとRuntimeのloaderをmount時に一度ずつ開始する。カテゴリ選択では再取得しない。
     </li>
     <li>
-      <code>loadLlmResource</code
-      >は<code>fetchLlmSettings</code>と<code>fetchCodexStatus</code>を
+      <code>loadLlmResource</code>は<code>fetchLlmSettings</code>と<code>fetchCodexStatus</code>を
       <code>Promise.allSettled</code>で並列実行する。
     </li>
     <li>
@@ -1178,8 +1133,7 @@ const settingsDirty = llmDirty || runtimeDirty || systemContextDirty;
   <h3 id="712-responsive-accessibility">7.12 レスポンシブとアクセシビリティ</h3>
   <ul>
     <li>
-      <code>nav aria-label="設定カテゴリ"</code
-      >を使用し、選択項目へ<code>aria-current="page"</code>を付ける。
+      <code>nav aria-label="設定カテゴリ"</code>を使用し、選択項目へ<code>aria-current="page"</code>を付ける。
     </li>
     <li>デスクトップでは左navをstickyにし、本文だけが長くなる構造にする。</li>
     <li>
@@ -1242,8 +1196,7 @@ const settingsDirty = llmDirty || runtimeDirty || systemContextDirty;
   </ol>
   <h3 id="81-component-contracts">8.1 Component契約</h3>
   <p>
-    <code>SettingsPanelProps</code
-    >の最終形は、既存propsから<code>setErrorText</code>を削除し、次を追加する。
+    <code>SettingsPanelProps</code>の最終形は、既存propsから<code>setErrorText</code>を削除し、次を追加する。
   </p>
   <pre><code class="language-ts">type SettingsPanelProps = {
   isAdmin: boolean;
@@ -1277,8 +1230,7 @@ const settingsDirty = llmDirty || runtimeDirty || systemContextDirty;
   <ul>
     <li><code>SettingsShell</code>はAPI状態やdraftを受け取らない。</li>
     <li>
-      <code>SettingsPanelView</code
-      >が<code>searchQuery</code>のlocal stateだけを所有し、modelへ追加しない。
+      <code>SettingsPanelView</code>が<code>searchQuery</code>のlocal stateだけを所有し、modelへ追加しない。
     </li>
     <li>カテゴリLinkはレジストリと<code>buildSettingsSectionSearch</code>から生成する。</li>
     <li>section panelのswitchにdefault branchを置き、型上の想定外では概要を返す。</li>
@@ -1385,16 +1337,14 @@ const settingsDirty = llmDirty || runtimeDirty || systemContextDirty;
         <td><code>web/src/router.tsx</code></td>
         <td>変更</td>
         <td>
-          <code>/settings</code
-          >へ<code>validateSearch</code>だけを追加する。
+          <code>/settings</code>へ<code>validateSearch</code>だけを追加する。
         </td>
       </tr>
       <tr>
         <td><code>web/src/App.tsx</code></td>
         <td>変更</td>
         <td>
-          <code>settingsDirty</code
-          >、<code>onDirtyChange</code>、Logout離脱確認を追加し、SettingsPanelへの
+          <code>settingsDirty</code>、<code>onDirtyChange</code>、Logout離脱確認を追加し、SettingsPanelへの
           <code>setErrorText</code>受け渡しを削除する。
         </td>
       </tr>
@@ -1407,13 +1357,10 @@ const settingsDirty = llmDirty || runtimeDirty || systemContextDirty;
         <td><code>web/src/styles.css</code></td>
         <td>変更</td>
         <td>
-          <code>.settings-*</code
-          >、<code>.llm-*</code>、<code>.codex-*</code>、
-          <code>.endpoint-*</code
-          >、<code>.provider-*</code>、<code>.route-*</code>と対応media
+          <code>.settings-*</code>、<code>.llm-*</code>、<code>.codex-*</code>、
+          <code>.endpoint-*</code>、<code>.provider-*</code>、<code>.route-*</code>と対応media
           ruleを移す。
-          <code>.panel</code
-          >、<code>.actions</code>、<code>.form-stack</code>、<code>.meta-list</code>は残す。
+          <code>.panel</code>、<code>.actions</code>、<code>.form-stack</code>、<code>.meta-list</code>は残す。
         </td>
       </tr>
       <tr>
@@ -1470,8 +1417,7 @@ const settingsDirty = llmDirty || runtimeDirty || systemContextDirty;
   <h3 id="91-write-boundary">9.1 書き込み境界と停止条件</h3>
   <p>
     Terraが編集してよい範囲は、9の表にあるfrontend、test、本計画書だけとする。
-    <code>spec/index.html</code
-    >とモックアップは既に登録済みのため、リンク切れ修正以外では変更しない。
+    <code>spec/index.html</code>とモックアップは既に登録済みのため、リンク切れ修正以外では変更しない。
   </p>
   <p>次のいずれかが起きた場合は推測で範囲を広げず、作業を止めて報告する。</p>
   <ul>
@@ -1525,8 +1471,7 @@ bun run build:web
   <h3 id="wp1">Work Package 1: Routeと設定レジストリ</h3>
   <ol>
     <li>
-      <code>SettingsSectionId</code
-      >と<code>parseSettingsSearch</code>を追加する。
+      <code>SettingsSectionId</code>と<code>parseSettingsSearch</code>を追加する。
     </li>
     <li>カテゴリlabel、説明、keyword、adminOnlyをレジストリへ定義する。</li>
     <li>
@@ -1638,8 +1583,7 @@ bun run build:web
     <li>既存設定項目の対応表を再確認し、欠落がないことを記録する。</li>
     <li>
       最終スクリーンショットを<code>.artifacts/settings-redesign/after-admin.png</code>、
-      <code>after-member.png</code
-      >、<code>after-mobile-390.png</code>へ保存する。
+      <code>after-member.png</code>、<code>after-mobile-390.png</code>へ保存する。
     </li>
     <li>本書の状態、実装結果、検証結果を更新する。</li>
   </ol>
@@ -1660,8 +1604,7 @@ git diff --check
 </code></pre>
   <p>
     ユーザー所有の変更を巻き込むため、<code>bun run format</code>やrepository全体への
-    <code>biome --write</code
-    >は実行しない。formatが必要な場合は9の対象ファイルだけに限定する。
+    <code>biome --write</code>は実行しない。formatが必要な場合は9の対象ファイルだけに限定する。
   </p>
 
   <h2 id="11-test-plan">11. テスト計画</h2>
@@ -1730,8 +1673,7 @@ git diff --check
       routerをtest用に変更しない。
     </li>
     <li>
-      <code>tests/e2e/settings.spec.ts</code
-      >は<code>page.route("**/api/**")</code>で設定APIをmockし、
+      <code>tests/e2e/settings.spec.ts</code>は<code>page.route("**/api/**")</code>で設定APIをmockし、
       provider保存、Runtime保存、鍵生成、自動設定を実環境へ送信しない。
     </li>
     <li>
@@ -1848,8 +1790,7 @@ git diff --check
       <tr>
         <td>Runtime自動設定が未保存draftをserver値で上書きする。</td>
         <td>
-          <code>runtimeDirty</code
-          >中は即時操作を無効化し、保存後だけ実行可能にする。
+          <code>runtimeDirty</code>中は即時操作を無効化し、保存後だけ実行可能にする。
         </td>
       </tr>
       <tr>
@@ -1904,3 +1845,5 @@ git diff --check
     <li>本書へ実装結果と検証結果を追記した。</li>
   </ul>
 </article>
+  </body>
+</html>

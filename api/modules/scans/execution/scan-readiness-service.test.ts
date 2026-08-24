@@ -118,4 +118,74 @@ describe("scan readiness service", () => {
 		expect(preferred.readiness).toBe("ready");
 		expect(disabled.planHash).not.toBe(preferred.planHash);
 	});
+
+	test("requires the dedicated Maven resolver image only for registry resolution", async () => {
+		const calls: Array<{ command: string; args: string[] }> = [];
+		const common = {
+			profileId: "source-assurance" as const,
+			target: { kind: "full" as const },
+			optionalScannerSelections: { semgrep: "disabled" as const },
+			workspacePath: process.cwd(),
+			mavenProjectDetected: true,
+			runDependencyProbe: async (command: string, args: string[]) => {
+				calls.push({ command, args });
+				return { exitCode: 0 };
+			},
+		};
+		const offline = await evaluateScanReadiness({
+			...common,
+			input: { kind: "source_target", dependencyResolution: { mode: "offline" } },
+		});
+		expect(offline.readiness).toBe("ready");
+		expect(
+			calls.some((call) => call.args.includes("maven-resolver:test")),
+		).toBe(false);
+
+		const missing = await evaluateScanReadiness({
+			...common,
+			input: {
+				kind: "source_target",
+				dependencyResolution: { mode: "registry" },
+			},
+		});
+		expect(missing).toMatchObject({
+			readiness: "blocked_environment",
+			reasonCodes: ["docker_image_unavailable"],
+		});
+
+		const registry = await evaluateScanReadiness({
+			...common,
+			input: {
+				kind: "source_target",
+				dependencyResolution: { mode: "registry" },
+			},
+			settings: {
+				VULN_WORKBENCH_MAVEN_RESOLVER_IMAGE: "maven-resolver:test",
+			},
+		});
+		expect(registry.readiness).toBe("ready");
+		expect(
+			calls.some(
+				(call) =>
+					call.command === "docker" &&
+					call.args[0] === "image" &&
+					call.args[1] === "inspect" &&
+					call.args.at(-1) === "maven-resolver:test",
+			),
+		).toBe(true);
+
+		calls.length = 0;
+		const nonMaven = await evaluateScanReadiness({
+			...common,
+			mavenProjectDetected: false,
+			input: {
+				kind: "source_target",
+				dependencyResolution: { mode: "registry" },
+			},
+		});
+		expect(nonMaven.readiness).toBe("ready");
+		expect(calls.some((call) => call.args.includes("maven-resolver:test"))).toBe(
+			false,
+		);
+	});
 });

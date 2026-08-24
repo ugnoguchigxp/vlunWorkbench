@@ -25,6 +25,7 @@ export const gitleaksScannerAdapter: StaticScannerAdapter = {
 			run: (input) =>
 				runner.run(input.scanRunId, input.repoPath, {
 					timeoutSec: input.timeoutSec,
+					configPath: input.options.configPath as string | undefined,
 					scope: input.scope,
 					preScoped: input.diffContext?.inputKind === "changed_workspace",
 					normalizePathsRelativeTo: input.diffContext
@@ -60,6 +61,24 @@ export const osvScannerAdapter: StaticScannerAdapter = {
 						| "manifest"
 						| "installed_tree"
 						| undefined,
+					dependencyResolutionMode: input.options.dependencyResolutionMode as
+						| "offline"
+						| "registry"
+						| undefined,
+					mavenResolverImage: input.options.mavenResolverImage as
+						| string
+						| undefined,
+					mavenResolverImageId: input.options.mavenResolverImageId as
+						| string
+						| undefined,
+					mavenResolverImageDigest: input.options.mavenResolverImageDigest as
+						| string
+						| null
+						| undefined,
+					mavenResolutionConfigDigest: input.options
+						.mavenResolutionConfigDigest as string | undefined,
+					mavenResolutionSourceDigest: input.options
+						.mavenResolutionSourceDigest as string | undefined,
 					normalizePathsRelativeTo: input.diffContext
 						? input.repoPath
 						: undefined,
@@ -125,6 +144,21 @@ export const zizmorScannerAdapter: StaticScannerAdapter = {
 		distribution: "core",
 		dockerAllowedFirstArgs: ["--version", "--offline"],
 		diffInput: "full_snapshot",
+	},
+	resolveApplicability: ({ scanPaths }) => {
+		const workflowPaths = scanPaths.filter(isZizmorInputPath);
+		return workflowPaths.length > 0
+			? {
+					applicability: "applicable",
+					reasonCode: null,
+					evidenceRefs: workflowPaths
+						.slice(0, 10)
+						.map((workflowPath) => `repository-path:${workflowPath}`),
+				}
+			: {
+					applicability: "not_applicable",
+					reasonCode: "no_auditable_github_actions_inputs",
+				};
 	},
 	resolveDiffExecution: ({ scanPaths }) => {
 		const workflowPaths = scanPaths.filter(isZizmorInputPath);

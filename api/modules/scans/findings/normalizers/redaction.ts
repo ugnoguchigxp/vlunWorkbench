@@ -27,10 +27,17 @@ export function redactSecrets(text: string): string {
 	return redacted;
 }
 
+const SENSITIVE_JSON_KEY =
+	/^(?:authorization|proxy-authorization|cookie|set-cookie|key|pass|password|secret|token|api_key|apikey|private_key|x-api-key|x-auth-token|x-csrf-token)$/i;
+
 export function redactJsonSecrets<T>(value: T): T {
-	const serialized = JSON.stringify(value);
+	const serialized = JSON.stringify(value, (key, nestedValue) => {
+		if (typeof nestedValue !== "string") return nestedValue;
+		if (SENSITIVE_JSON_KEY.test(key)) return "[REDACTED]";
+		return redactSecrets(nestedValue);
+	});
 	if (serialized === undefined) {
 		return value;
 	}
-	return JSON.parse(redactSecrets(serialized)) as T;
+	return JSON.parse(serialized) as T;
 }

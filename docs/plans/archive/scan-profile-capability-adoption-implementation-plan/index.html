@@ -1,10 +1,21 @@
-<article lang="ja" data-spec-role="active-plan">
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex,follow">
+    <title>Scan Profile Capability Adoption and Optional Scanner Implementation Plan | vulnWorkbench</title>
+    <link rel="stylesheet" href="/vlunWorkbench/assets/css/spec-document.css">
+    <link rel="stylesheet" href="/vlunWorkbench/assets/css/plan-document.css">
+  </head>
+  <body>
+    <article lang="ja" data-spec-role="archived-plan">
   <h1 id="scan-profile-capability-adoption-implementation-plan">
     Scan Profile Capability Adoption and Optional Scanner Implementation Plan
   </h1>
   <p>
-    Status: Implemented — launchable scan profile scope complete; professional campaign remains
-    planned/unavailable by design
+    Status: Implemented and archived — launchable scan profile scope complete; professional campaign
+    remains planned/unavailable by design
   </p>
   <p>Planning baseline commit: <code>c0b399dc2d45268b04ac256227c2f02c38175d9e</code></p>
   <p>Baseline date: 2026-08-24</p>
@@ -37,8 +48,7 @@
     <strong>最重要の非回帰条件</strong>
     <p>
       Semgrepが未導入、未設定、または実行不能でも、<code>change-gate</code>と
-      <code>source-assurance</code
-      >はGitleaks、OSV-Scanner、Trivyで実行できなければならない。
+      <code>source-assurance</code>はGitleaks、OSV-Scanner、Trivyで実行できなければならない。
       Semgrepを明示的にmust-run指定した場合だけ、Semgrepの欠落を起動blockerにできる。
     </p>
   </aside>
@@ -56,9 +66,7 @@
   </ul>
   <p>
     共通Execution Plan、event ledger、engine driver、cleanup、qualificationの基盤設計は
-    <a href="./scan-profile-execution-architecture-migration-plan.html"
-      >Scan Profile Execution Architecture Migration Plan</a
-    >を引き続き正本とする。本書はその実行基盤を置き換えず、optional scannerとproduct分類の
+    <a href="/vlunWorkbench/plans/archive/?doc=scan-profile-execution-architecture-migration-plan">Scan Profile Execution Architecture Migration Plan</a>を引き続き正本とする。本書はその実行基盤を置き換えず、optional scannerとproduct分類の
     要件を追加する。
   </p>
   <p>
@@ -74,8 +82,7 @@
   <h2 id="1-executive-decision">1. Executive decision</h2>
   <ol>
     <li>
-      <code>change-gate</code
-      >と<code>source-assurance</code>の成立条件は、組み込み済みの
+      <code>change-gate</code>と<code>source-assurance</code>の成立条件は、組み込み済みの
       Gitleaks、OSV-Scanner、Trivyとする。Semgrep
       SASTは追加coverageであり、既定では成立条件にしない。
     </li>
@@ -133,8 +140,7 @@
       <tr>
         <td>O-04</td>
         <td>
-          <code>professional-full</code
-          >がscanとして起動できず、campaignとしてのみ再導入可能になる。
+          <code>professional-full</code>がscanとして起動できず、campaignとしてのみ再導入可能になる。
         </td>
         <td>launch拒否test、catalog contract、legacy compatibility test</td>
       </tr>
@@ -172,8 +178,7 @@
         <td>BF-02</td>
         <td>
           canonical source profileはSemgrep有効時にstepを
-          <code>required: true</code
-          >、<code>fail_profile</code>として追加する。
+          <code>required: true</code>、<code>fail_profile</code>として追加する。
         </td>
         <td>preferredとrequiredでstep failure policyを分ける。</td>
       </tr>
@@ -409,9 +414,7 @@
           <code>required: false</code>、<code>warn_and_continue</code>
         </td>
         <td>
-          成功時<code>covered</code>、失敗時<code
-            >gap</code
-          >
+          成功時<code>covered</code>、失敗時<code>gap</code>
         </td>
       </tr>
       <tr>
@@ -435,8 +438,7 @@
   <p>
     profileのprocess statusとcapability coverageを分離する。core scannerが完了し、preferred
     Semgrepが欠落または失敗したrunは、profile自体を<code>completed</code>にできるが、
-    <code>source_sast</code
-    >をcoveredとしてはならない。UI、report、APIはこの二つを混ぜない。
+    <code>source_sast</code>をcoveredとしてはならない。UI、report、APIはこの二つを混ぜない。
   </p>
   <p>
     optional scannerのbinary、container image、rule bundleは本体のcore distributionへ混在させない。
@@ -556,8 +558,7 @@
   </p>
   <p>
     Exit gate: core dependencyがreadyなら、Semgrep無効またはpreferred/unavailableの
-    <code>change-gate</code
-    >と<code>source-assurance</code>がreadyを返すこと。
+    <code>change-gate</code>と<code>source-assurance</code>がreadyを返すこと。
   </p>
 
   <h3 id="sp-02">SP-02 — Optional Semgrep execution and reporting</h3>
@@ -733,10 +734,7 @@
       <tr>
         <td>Profile definition</td>
         <td>
-          <code>profile-catalog.ts</code
-          >、<code>profile-definitions.ts</code>、<code
-            >canonical-scan-profiles.ts</code
-          >
+          <code>profile-catalog.ts</code>、<code>profile-definitions.ts</code>、<code>canonical-scan-profiles.ts</code>
         </td>
         <td>分類、claim、variant dependency、Semgrep step policy</td>
       </tr>
@@ -758,8 +756,7 @@
       <tr>
         <td>Consumer</td>
         <td>
-          <code>web/src/api/scans-execution.ts</code
-          >、<code>web/src/domains/scans/</code>、CLI、NightWorkers
+          <code>web/src/api/scans-execution.ts</code>、<code>web/src/domains/scans/</code>、CLI、NightWorkers
         </td>
         <td>分類表示、coverage表示、専用destination、互換維持</td>
       </tr>
@@ -1051,28 +1048,24 @@
   <h2 id="13-references">13. References</h2>
   <ul>
     <li>
-      <a href="./scan-profile-execution-architecture-migration-plan.html"
-        >Scan Profile Execution Architecture Migration Plan</a
-      >
+      <a href="/vlunWorkbench/plans/archive/?doc=scan-profile-execution-architecture-migration-plan">Scan Profile Execution Architecture Migration Plan</a>
     </li>
     <li>
-      <a href="./scan-profile-catalog-consolidation-implementation-plan.html"
-        >Scan Profile Catalog Consolidation Implementation Plan</a
-      >
+      <a href="/vlunWorkbench/plans/archive/?doc=scan-profile-catalog-consolidation-implementation-plan">Scan Profile Catalog Consolidation Implementation Plan</a>
     </li>
-    <li><a href="../decisions/scanner-adapters.html">Scanner Adapters</a></li>
-    <li><a href="../decisions/third-party-scanners.html">Third-party Scanner Distribution</a></li>
+    <li><a href="https://github.com/ugnoguchigxp/vlunWorkbench/blob/main/spec/decisions/scanner-adapters.html">Scanner Adapters</a></li>
     <li>
-      <a href="https://semgrep.dev/docs/contributing/semgrep-philosophy"
-        >Semgrep CE documentation</a
-      >
+      <a href="https://github.com/ugnoguchigxp/vlunWorkbench/blob/main/spec/decisions/third-party-scanners.html">Third-party Scanner Distribution</a>
     </li>
     <li>
-      <a href="https://schemathesis.readthedocs.io/en/stable/reference/cli/"
-        >Schemathesis CLI reference</a
-      >
+      <a href="https://semgrep.dev/docs/contributing/semgrep-philosophy">Semgrep CE documentation</a>
+    </li>
+    <li>
+      <a href="https://schemathesis.readthedocs.io/en/stable/reference/cli/">Schemathesis CLI reference</a>
     </li>
     <li><a href="https://github.com/testssl/testssl.sh">testssl.sh</a></li>
     <li><a href="https://llvm.org/docs/LibFuzzer.html">LLVM libFuzzer documentation</a></li>
   </ul>
 </article>
+  </body>
+</html>

@@ -65,6 +65,9 @@ export function useScanLaunchState() {
 	const [diffPreviewError, setDiffPreviewError] = useState<string | null>(null);
 	const diffPreviewRequestIdRef = useRef(0);
 	const [continueOnToolFailure, setContinueOnToolFailure] = useState(true);
+	const [dependencyResolutionMode, setDependencyResolutionMode] = useState<
+		"offline" | "registry"
+	>("offline");
 	const [scanProjectCodeExecutionConsent, setScanProjectCodeExecutionConsent] =
 		useState(false);
 	const [showRunScanForm, setShowRunScanForm] = useState(false);
@@ -76,6 +79,7 @@ export function useScanLaunchState() {
 		catalogEntries,
 		catalogDefaultProfileIds,
 		continueOnToolFailure,
+		dependencyResolutionMode,
 		diffBaseRef,
 		diffHeadRef,
 		diffIncludeUntracked,
@@ -110,6 +114,7 @@ export function useScanLaunchState() {
 		setCatalogEntries,
 		setCatalogDefaultProfileIds,
 		setContinueOnToolFailure,
+		setDependencyResolutionMode,
 		setDiffBaseRef,
 		setDiffHeadRef,
 		setDiffIncludeUntracked,

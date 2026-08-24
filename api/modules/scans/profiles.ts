@@ -164,6 +164,7 @@ const OPTIONAL_SEMGREP_TOOL = {
 	displayName: "Semgrep Static Analysis (optional engine)",
 	required: true,
 	failurePolicy: "fail_profile" as const,
+	timeoutSec: 1_800,
 	options: { config: "curated-sast-v1" },
 };
 

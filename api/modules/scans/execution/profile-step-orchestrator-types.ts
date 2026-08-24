@@ -23,6 +23,10 @@ export type ExecuteProfileStepsParams = {
 	authContextRepository?: DastAuthContextRepository;
 	authContextId?: string;
 	identityRole?: string;
+	dependencyResolutionMode: "offline" | "registry";
+	mavenResolverImage?: string;
+	mavenResolutionConfig?: unknown;
+	mavenProjectDetected: boolean;
 	imageRef?: string;
 	imageTar?: string;
 	attestationSubject?: string;
