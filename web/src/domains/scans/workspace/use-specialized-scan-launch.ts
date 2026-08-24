@@ -19,8 +19,13 @@ export function useSpecializedScanLaunch(params: {
 	const [imageRef, setImageRef] = useState("");
 	const [imageTar, setImageTar] = useState("");
 	const [attestationSubject, setAttestationSubject] = useState("");
+	const [supplyChainVerifier, setSupplyChainVerifier] = useState<
+		"cosign" | "slsa"
+	>("cosign");
 	const [attestationBundle, setAttestationBundle] = useState("");
 	const [trustPolicy, setTrustPolicy] = useState("");
+	const [slsaProvenance, setSlsaProvenance] = useState("");
+	const [slsaPolicy, setSlsaPolicy] = useState("");
 	const [projectDynamicProfiles, setProjectDynamicProfiles] = useState<
 		DynamicProfileConfig[]
 	>([]);
@@ -52,8 +57,11 @@ export function useSpecializedScanLaunch(params: {
 		setImageRef("");
 		setImageTar("");
 		setAttestationSubject("");
+		setSupplyChainVerifier("cosign");
 		setAttestationBundle("");
 		setTrustPolicy("");
+		setSlsaProvenance("");
+		setSlsaPolicy("");
 		setSelectedProjectDynamicProfileId("");
 		setSelectedAssessmentEngagementId("");
 		setActiveAssessmentPlanJson("");
@@ -136,11 +144,14 @@ export function useSpecializedScanLaunch(params: {
 		assessmentEngagements,
 		attestationBundle,
 		attestationSubject,
+		supplyChainVerifier,
 		businessLogicScenarios,
 		destructiveScanConsent,
 		dynamicProfileTemplates,
 		imageRef,
 		imageTar,
+		slsaPolicy,
+		slsaProvenance,
 		projectDynamicProfiles,
 		releaseInputKind,
 		selectedAssessmentEngagementId,
@@ -149,10 +160,13 @@ export function useSpecializedScanLaunch(params: {
 		setActiveAssessmentPlanJson,
 		setAttestationBundle,
 		setAttestationSubject,
+		setSupplyChainVerifier,
 		setDestructiveScanConsent,
 		setImageRef,
 		setImageTar,
 		setReleaseInputKind,
+		setSlsaPolicy,
+		setSlsaProvenance,
 		setSelectedAssessmentEngagementId,
 		setSelectedBusinessLogicScenarioId,
 		setSelectedProjectDynamicProfileId,

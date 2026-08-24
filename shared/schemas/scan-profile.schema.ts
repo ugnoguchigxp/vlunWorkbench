@@ -33,6 +33,9 @@ export const profileToolEntrySchema = z.object({
 	toolId: z.string(),
 	displayName: z.string(),
 	required: z.boolean(),
+	requirement: z
+		.enum(["required_if_applicable", "advisory", "inventory"])
+		.optional(),
 	timeoutSec: z.number().int().positive().optional(),
 	options: z.record(z.string(), z.unknown()).optional(),
 	failurePolicy: profileToolFailurePolicySchema,
@@ -109,6 +112,7 @@ export type CoverageEffect = z.infer<typeof coverageEffectSchema>;
 const scannerStepBaseSchema = profileToolEntrySchema.pick({
 	displayName: true,
 	required: true,
+	requirement: true,
 	timeoutSec: true,
 	failurePolicy: true,
 });
@@ -177,11 +181,18 @@ export type ContainerImageScanStep = z.infer<
 	typeof containerImageScanStepSchema
 >;
 
-export const attestationVerifyStepSchema = scannerStepBaseSchema.extend({
-	kind: z.literal("attestation_verify"),
-	adapter: z.literal("cosign"),
-	target: z.object({ mode: z.literal("repository_relative_files") }),
-});
+export const attestationVerifyStepSchema = z.discriminatedUnion("adapter", [
+	scannerStepBaseSchema.extend({
+		kind: z.literal("attestation_verify"),
+		adapter: z.literal("cosign"),
+		target: z.object({ mode: z.literal("repository_relative_files") }),
+	}),
+	scannerStepBaseSchema.extend({
+		kind: z.literal("attestation_verify"),
+		adapter: z.literal("slsa-verifier"),
+		target: z.object({ mode: z.literal("repository_relative_files") }),
+	}),
+]);
 export type AttestationVerifyStep = z.infer<typeof attestationVerifyStepSchema>;
 
 export const scanProfileStepSchema = z.discriminatedUnion("kind", [

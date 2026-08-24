@@ -19,11 +19,21 @@ import type {
 } from "../../dast/runtime-target-provider";
 import type { DastTargetStartPlan } from "../../dast/target-preparer";
 import { ZAP_STABLE_IMAGE } from "../../runtime-scans/zap-image-policy";
-import { buildProfileInputBindings } from "../attestation/attestation-inputs";
+import {
+	buildProfileInputBindings,
+	resolveSlsaProvenanceInputPaths,
+} from "../attestation/attestation-inputs";
 import {
 	COSIGN_SAFE_VERSION_REQUIREMENT,
+	COSIGN_TRUSTED_ROOT_CONTAINER_PATH,
 	isCosignVersionSafe,
+	parseCosignVersion,
 } from "../attestation/cosign-attestation-provider";
+import {
+	loadSlsaProvenancePolicy,
+	parseSlsaVerifierVersion,
+	SLSA_VERIFIER_VERSION,
+} from "../attestation/slsa-provenance-provider";
 import {
 	type AnyScannerE2EQualification,
 	checkScannerE2EQualification,
@@ -73,12 +83,16 @@ export type ScanPreflightDependencies = {
 		repoPath: string;
 		consentProjectCodeExecution: boolean;
 	}) => Promise<DastTargetStartPlan>;
-	discoverRepositorySchema: (repoPath: string) => Promise<
+	discoverRepositorySchema: (
+		repoPath: string,
+		options?: { includeAuthenticatedOperations?: boolean },
+	) => Promise<
 		| boolean
 		| {
 				schemaPresent: boolean;
 				apiDetected: boolean;
 				evidenceRefs?: string[];
+				reasonCode?: string | null;
 		  }
 	>;
 	probeBrowser: () => Promise<string | null>;
@@ -95,6 +109,7 @@ type RepositorySchemaApplicability = {
 	schemaPresent: boolean;
 	apiDetected: boolean;
 	evidenceRefs: string[];
+	reasonCode: string | null;
 };
 
 function normalizeRepositorySchemaApplicability(
@@ -103,10 +118,16 @@ function normalizeRepositorySchemaApplicability(
 	>,
 ): RepositorySchemaApplicability {
 	return typeof discovered === "boolean"
-		? { schemaPresent: discovered, apiDetected: false, evidenceRefs: [] }
+		? {
+				schemaPresent: discovered,
+				apiDetected: false,
+				evidenceRefs: [],
+				reasonCode: discovered ? null : "schema_not_found",
+			}
 		: {
 				schemaPresent: discovered.schemaPresent,
 				apiDetected: discovered.apiDetected,
+				reasonCode: discovered.reasonCode ?? null,
 				evidenceRefs: (discovered.evidenceRefs ?? []).slice(
 					0,
 					SCAN_PREFLIGHT_EVIDENCE_REF_LIMIT,
@@ -128,6 +149,10 @@ export async function runScanPreflight(params: {
 	attestationSubject?: string;
 	attestationBundle?: string;
 	trustPolicy?: string;
+	slsaProvenance?: string;
+	slsaPolicy?: string;
+	authContextId?: string;
+	identityRole?: string;
 	targetPlan?: DastTargetStartPlan;
 	/** Exact digest-pinned images used by an injected isolated runtime. */
 	runtimeDockerImages?: readonly RuntimePreflightDockerImage[];
@@ -185,6 +210,10 @@ export async function runScanPreflight(params: {
 		attestationSubject: params.attestationSubject,
 		attestationBundle: params.attestationBundle,
 		trustPolicy: params.trustPolicy,
+		slsaProvenance: params.slsaProvenance,
+		slsaPolicy: params.slsaPolicy,
+		authContextId: params.authContextId,
+		identityRole: params.identityRole,
 	};
 	const sourceRevision = await dependencies.resolveSourceRevision(
 		params.repoPath,
@@ -231,7 +260,9 @@ export async function runScanPreflight(params: {
 		repositorySchemas.set(
 			scanStepId(step),
 			normalizeRepositorySchemaApplicability(
-				await dependencies.discoverRepositorySchema(params.repoPath),
+				await dependencies.discoverRepositorySchema(params.repoPath, {
+					includeAuthenticatedOperations: Boolean(params.authContextId),
+				}),
 			),
 		);
 	}
@@ -578,12 +609,23 @@ export async function runScanPreflight(params: {
 		} else if (step.kind === "attestation_verify") {
 			let inputFailure: string | null = null;
 			try {
-				if (
-					!params.attestationSubject ||
-					!params.attestationBundle ||
-					!params.trustPolicy
-				) {
+				if (!params.attestationSubject)
 					throw new Error("attestation_input_missing");
+				if (step.adapter === "cosign") {
+					if (!params.attestationBundle || !params.trustPolicy) {
+						throw new Error("attestation_input_missing");
+					}
+				} else {
+					if (!params.slsaProvenance || !params.slsaPolicy) {
+						throw new Error("attestation_input_missing");
+					}
+					const paths = await resolveSlsaProvenanceInputPaths({
+						repoPath: params.repoPath,
+						subject: params.attestationSubject,
+						provenance: params.slsaProvenance,
+						policy: params.slsaPolicy,
+					});
+					await loadSlsaProvenancePolicy(paths.policyPath);
 				}
 				Object.assign(
 					profileInputBindings,
@@ -592,6 +634,8 @@ export async function runScanPreflight(params: {
 						attestationSubject: params.attestationSubject,
 						attestationBundle: params.attestationBundle,
 						trustPolicy: params.trustPolicy,
+						slsaProvenance: params.slsaProvenance,
+						slsaPolicy: params.slsaPolicy,
 					}),
 				);
 			} catch (error) {
@@ -608,26 +652,110 @@ export async function runScanPreflight(params: {
 					action: "provide_profile_input",
 				}),
 			);
-			const version = await dependencies.probeScannerVersion("cosign", {
-				runner: "host",
-			});
-			checks.push(
-				check({
-					id: `${stepId}:binary-version`,
-					stepId,
-					kind: "binary_version",
-					required: step.required,
-					ready: isCosignVersionSafe(version),
-					reasonCode: version
-						? "scanner_version_vulnerable"
-						: "scanner_binary_unavailable",
-					action: "build_toolbox_image",
-					scannerId: "cosign",
-					observedVersion: version,
-					expectedVersion: COSIGN_SAFE_VERSION_REQUIREMENT,
-					evidenceRefs: version ? ["scanner-version:cosign"] : [],
-				}),
-			);
+			const attestationToolboxReady =
+				params.execution.runner !== "docker" ||
+				Boolean(
+					dockerProbe &&
+						toolboxImageProbe &&
+						dockerImageIsCompatible(
+							toolboxImageProbe,
+							dockerProbe,
+							digestFromImageRef(toolboxImage),
+						),
+				);
+			if (attestationToolboxReady) {
+				const scannerId = step.adapter;
+				if (step.adapter === "cosign") {
+					const entry = manifest?.tools.cosign;
+					let dataReady = Boolean(entry && entry.state === "ready");
+					let reasonCode = manifestFailure;
+					if (!reasonCode && !entry) reasonCode = "scanner_data_entry_missing";
+					if (!reasonCode && entry?.state === "missing")
+						reasonCode = "scanner_data_missing";
+					if (!reasonCode && entry?.state === "stale")
+						reasonCode = "scanner_data_stale";
+					if (dataReady && params.execution.runner === "docker") {
+						dataReady = await dependencies.probeDockerRuntimePath(
+							dockerBin,
+							toolboxImage,
+							COSIGN_TRUSTED_ROOT_CONTAINER_PATH,
+						);
+						if (!dataReady) reasonCode = "scanner_data_runtime_unreadable";
+					}
+					checks.push(
+						check({
+							id: `${stepId}:scanner-data`,
+							stepId,
+							kind: "scanner_data",
+							required: step.required,
+							ready: dataReady,
+							reasonCode,
+							action: "prepare_scanner_database",
+							scannerId,
+							expectedVersion: entry?.version ?? null,
+							expectedDigest: entry?.digest ?? null,
+							observedDigest: dataReady ? (entry?.digest ?? null) : null,
+							dataState: entry?.state ?? null,
+							dataGeneratedAt: entry?.generatedAt ?? null,
+							evidenceRefs: manifest
+								? [`scanner-manifest:${manifest.manifestHash}`]
+								: [],
+						}),
+					);
+				}
+				const version = await dependencies.probeScannerVersion(
+					scannerId,
+					params.execution,
+				);
+				const versionReady =
+					step.adapter === "cosign"
+						? isCosignVersionSafe(version)
+						: parseSlsaVerifierVersion(version) === SLSA_VERIFIER_VERSION;
+				const observedSemanticVersion =
+					step.adapter === "cosign"
+						? parseCosignVersion(version)?.join(".")
+						: parseSlsaVerifierVersion(version);
+				checks.push(
+					check({
+						id: `${stepId}:binary-version`,
+						stepId,
+						kind: "binary_version",
+						required: step.required,
+						ready: versionReady,
+						reasonCode: version
+							? "scanner_version_vulnerable"
+							: "scanner_binary_unavailable",
+						action: "build_toolbox_image",
+						scannerId,
+						observedVersion: observedSemanticVersion ?? version,
+						expectedVersion:
+							step.adapter === "cosign"
+								? COSIGN_SAFE_VERSION_REQUIREMENT
+								: SLSA_VERIFIER_VERSION,
+						evidenceRefs: version ? [`scanner-version:${scannerId}`] : [],
+					}),
+				);
+			}
+			if (
+				step.adapter === "slsa-verifier" &&
+				params.execution.runner === "docker"
+			) {
+				const networkReady = params.execution.docker?.networkMode === "default";
+				checks.push(
+					check({
+						id: `${stepId}:sigstore-trust-root-network`,
+						stepId,
+						kind: "runtime_network_isolation",
+						required: step.required,
+						ready: networkReady,
+						reasonCode: networkReady
+							? null
+							: "slsa_trust_root_network_required",
+						action: "allow_slsa_trust_root_network",
+						evidenceRefs: ["network:sigstore-tuf"],
+					}),
+				);
+			}
 		} else if (step.kind === "api_schema_scan") {
 			const schema = repositorySchemas.get(stepId);
 			if (!schema) throw new Error(`api_schema_discovery_missing:${stepId}`);
@@ -644,7 +772,9 @@ export async function runScanPreflight(params: {
 					required:
 						step.required && (applicable || missingSchemaForDetectedApi),
 					ready: applicable,
-					reasonCode: applicable ? null : "schema_not_found",
+					reasonCode: applicable
+						? null
+						: (schema.reasonCode ?? "schema_not_found"),
 					action: "configure_api_schema",
 					evidenceRefs: schema.evidenceRefs,
 				}),

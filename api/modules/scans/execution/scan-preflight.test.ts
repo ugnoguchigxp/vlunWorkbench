@@ -707,6 +707,30 @@ describe("scan preflight", () => {
 		expect(schemaCheck?.evidenceRefs).toEqual(evidenceRefs.slice(0, 10));
 	});
 
+	it("preserves a qualified schema rejection reason in preflight", async () => {
+		const selected = profile("api-schema-readonly");
+		const result = await runScanPreflight({
+			profile: selected,
+			steps: selected.steps!,
+			repoPath: "/redacted/project",
+			execution: { runner: "host" },
+			mode: "enforced",
+			dependencies: dependencies({
+				discoverRepositorySchema: async () => ({
+					schemaPresent: false,
+					apiDetected: true,
+					evidenceRefs: ["api-source:openapi.json"],
+					reasonCode: "openapi_version_not_qualified",
+				}),
+			}),
+		});
+
+		expect(result).toMatchObject({
+			status: "blocked",
+			limitationCodes: ["openapi_version_not_qualified"],
+		});
+	});
+
   it("can enforce the verified scanner qualification as an explicit deployment admission control", async () => {
     const selected = profile("api-schema-readonly");
     const result = await runScanPreflight({

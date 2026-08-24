@@ -9,7 +9,10 @@ import {
 	applyDastStandardRollout,
 	assertRuntimeAssessmentBudget,
 } from "./dast-profile-rollout";
-import { isOptionalScannerAdapterEnabled } from "./optional-scanner-adapter-config";
+import {
+	type OptionalScannerSelection,
+	optionalScannerSelection,
+} from "./optional-scanner-adapter-config";
 import { buildPluginDependencyManifestScope } from "./plugin-dependency-scope";
 
 export {
@@ -164,12 +167,87 @@ const OPTIONAL_SEMGREP_TOOL = {
 	options: { config: "curated-sast-v1" },
 };
 
+const REQUIRED_ZIZMOR_TOOL = {
+	toolId: "zizmor",
+	displayName: "zizmor CI Workflow Security",
+	required: true,
+	requirement: "required_if_applicable" as const,
+	failurePolicy: "fail_profile" as const,
+};
+
+const SLSA_SUPPLY_CHAIN_PROFILE: ScanProfile = {
+	id: "dependency-supply-chain-slsa",
+	name: "依存関係・SLSA provenance保証",
+	description:
+		"OSV依存関係診断、Trivy CycloneDX SBOM生成、slsa-verifierによる成果物provenanceのsource・builder・ref検証を実行します。",
+	category: "focused",
+	enabled: true,
+	strictness: "strict",
+	defaultTimeoutSec: 900,
+	scope: DEPENDENCY_MANIFEST_SCOPE,
+	supportedTargets: ["full"],
+	tools: [
+		{
+			toolId: "osv",
+			displayName: "OSV Dependency Scanner",
+			required: true,
+			failurePolicy: "fail_profile",
+			options: { dependencyMode: "manifest" },
+		},
+	],
+	steps: [
+		{
+			kind: "static_tool",
+			toolId: "osv",
+			displayName: "OSV Dependency Scanner",
+			required: true,
+			failurePolicy: "fail_profile",
+			options: { dependencyMode: "manifest" },
+		},
+		SBOM_STEP,
+		{
+			kind: "attestation_verify",
+			adapter: "slsa-verifier",
+			displayName: "SLSA Provenance Policy Verification",
+			required: true,
+			failurePolicy: "fail_profile",
+			target: { mode: "repository_relative_files" },
+		},
+	],
+	capabilityRequirements: [
+		{ capabilityId: "sca", requirement: "required" },
+		{ capabilityId: "sbom", requirement: "required" },
+		{ capabilityId: "provenance_integrity", requirement: "required" },
+	],
+	coverageGaps: [],
+};
+
 export function buildScanProfiles(params?: {
 	optionalAdapterIds?: readonly string[];
 }): ScanProfile[] {
-	const semgrepProfileEnabled = params?.optionalAdapterIds
-		? params.optionalAdapterIds.includes("semgrep")
-		: isOptionalScannerAdapterEnabled("semgrep");
+	const semgrepSelection: OptionalScannerSelection = params?.optionalAdapterIds
+		? optionalScannerSelection("semgrep", {
+				preferredIds: params.optionalAdapterIds,
+				requiredIds: [],
+			})
+		: optionalScannerSelection("semgrep");
+	const semgrepProfileEnabled = semgrepSelection !== "disabled";
+	const fullSecuritySemgrepTools = semgrepProfileEnabled
+		? [
+				{
+					...OPTIONAL_SEMGREP_TOOL,
+					required: semgrepSelection === "required",
+					requirement:
+						semgrepSelection === "required"
+							? ("required_if_applicable" as const)
+							: ("advisory" as const),
+					failurePolicy:
+						semgrepSelection === "required"
+							? ("fail_profile" as const)
+							: ("warn_and_continue" as const),
+				},
+			]
+		: [];
 	return [
 		...buildStaticScanProfiles({
 			SOURCE_BASELINE_SCOPE,
@@ -317,7 +395,7 @@ export function buildScanProfiles(params?: {
 			id: "full-security-scan",
 			name: "総合セキュリティ診断",
 			description:
-				"詳細な静的診断とbounded passive DASTを合わせて、Webアプリの広めの診断証跡を収集します。active attackは実行しません。",
+				"詳細な静的診断、GitHub Actions workflow保証、bounded passive DASTを合わせて、Webアプリの広めの診断証跡を収集します。active attackは実行しません。",
 			category: "detailed",
 			enabled: true,
 			strictness: "strict",
@@ -344,7 +422,8 @@ export function buildScanProfiles(params?: {
 					failurePolicy: "fail_profile",
 					options: { scanners: ["vuln", "secret", "misconfig"] },
 				},
-				OPTIONAL_SEMGREP_TOOL,
+				REQUIRED_ZIZMOR_TOOL,
+				...fullSecuritySemgrepTools,
 			],
 			steps: [
 				{
@@ -370,7 +449,11 @@ export function buildScanProfiles(params?: {
 					failurePolicy: "fail_profile",
 					options: { scanners: ["vuln", "secret", "misconfig"] },
 				},
-				{ kind: "static_tool" as const, ...OPTIONAL_SEMGREP_TOOL },
+				{ kind: "static_tool" as const, ...REQUIRED_ZIZMOR_TOOL },
+				...fullSecuritySemgrepTools.map((tool) => ({
+					kind: "static_tool" as const,
+					...tool,
+				})),
 				SBOM_STEP,
 				REQUIRED_AUTO_STANDARD_DAST_STEP,
 				REQUIRED_NUCLEI_SAFE_STEP,
@@ -381,9 +464,17 @@ export function buildScanProfiles(params?: {
 				{ capabilityId: "secret_detection", requirement: "required" },
 				{ capabilityId: "sca", requirement: "required" },
 				{ capabilityId: "iac_config", requirement: "required" },
+				{
+					capabilityId: "cicd_workflow_integrity",
+					requirement: "required_if_applicable",
+				},
 				{ capabilityId: "sbom", requirement: "required" },
 				{ capabilityId: "passive_dast", requirement: "required" },
-				{ capabilityId: "source_sast", requirement: "required_if_applicable" },
+				{
+					capabilityId: "source_sast",
+					requirement:
+						semgrepSelection === "required" ? "required" : "advisory",
+				},
 				{
 					capabilityId: "api_schema_contract",
 					requirement: "required_if_applicable",
@@ -399,6 +490,9 @@ export function buildScanProfiles(params?: {
 				{ capabilityId: "business_logic", requirement: "advisory" },
 				{ capabilityId: "remediation_retest", requirement: "advisory" },
 			],
+			coverageGaps: semgrepProfileEnabled
+				? []
+				: ["source_sast_adapter_not_available"],
 		},
 		{
 			id: "security-inventory-best-effort",
@@ -518,6 +612,7 @@ export function listCanonicalProfiles(): ScanProfile[] {
 }
 
 export function getProfileById(id: string): ScanProfile | undefined {
+	if (id === SLSA_SUPPLY_CHAIN_PROFILE.id) return SLSA_SUPPLY_CHAIN_PROFILE;
 	const profile = SCAN_PROFILES.find((p) => p.id === id && p.enabled);
 	const rolledOut = profile
 		? applyDastStandardRollout({

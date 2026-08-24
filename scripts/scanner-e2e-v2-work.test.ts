@@ -18,6 +18,11 @@ test("collects counters from structured artifacts, persisted coverage, and immut
 	await fs.mkdir(source, { recursive: true });
 	await fs.writeFile(path.join(source, "package.json"), JSON.stringify({ dependencies: { a: "1" }, devDependencies: { b: "1" } }));
 	await fs.writeFile(path.join(source, "source.ts"), "export const value = 1;\n");
+	await fs.mkdir(path.join(source, ".github/workflows"), { recursive: true });
+	await fs.writeFile(
+		path.join(source, ".github/workflows/verify.yml"),
+		"name: verify\non: push\njobs: {}\n",
+	);
 	await fs.writeFile(path.join(source, "openapi.yaml"), "paths:\n  /health:\n    get:\n      operationId: getHealth\n");
 	const rawPath = path.join(artifactRoot, "run/owners/tool-run/tool/raw/raw_result.json");
 	await fs.mkdir(path.dirname(rawPath), { recursive: true });
@@ -53,6 +58,21 @@ test("collects counters from structured artifacts, persisted coverage, and immut
 		dastRuns: [],
 	});
 	expect(semgrep).toMatchObject({ filesScanned: 1, parseErrors: 0 });
+	await fs.writeFile(rawPath, JSON.stringify([{ ident: "test" }]));
+	const zizmor = await observeScannerE2EWork({
+		caseId: "zizmor-workflow",
+		sourcePath: source,
+		artifactRoot,
+		artifacts: [
+			{
+				kind: "raw_result",
+				path: "run/owners/tool-run/tool/raw/raw_result.json",
+			},
+		],
+		toolRuns: [],
+		dastRuns: [],
+	});
+	expect(zizmor).toEqual({ workflowsScanned: 1, findingsProduced: 1 });
 	const schema = await observeScannerE2EWork({
 		caseId: "schemathesis-readonly",
 		sourcePath: source,

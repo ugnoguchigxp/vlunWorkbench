@@ -1,18 +1,23 @@
 {
 	"schemaVersion": 1,
-	"generatedAt": "2026-08-21T12:16:59.771Z",
-	"sourceRevision": "d808f6c65a0c8f74dec013abf8dba3509486241e",
+	"generatedAt": "2026-08-24T03:40:20.384Z",
+	"sourceRevision": "c0b399dc2d45268b04ac256227c2f02c38175d9e",
 	"variants": [
 		{
 			"optionalAdapterIds": [],
 			"definitionCount": 22,
 			"enabledCount": 20,
-			"disabledIds": ["api-zap-active-lab", "runtime-zap-active-lab"],
+			"disabledIds": [
+				"api-zap-active-lab",
+				"runtime-zap-active-lab"
+			],
 			"profiles": [
 				{
 					"id": "agent-output",
 					"enabled": true,
-					"supportedTargets": ["full"],
+					"supportedTargets": [
+						"full"
+					],
 					"strictness": "best_effort",
 					"defaultTimeoutSec": 600,
 					"executionFingerprint": "sha256:6df8558d452431f3be608c3782ee0b6e855c01530f813f222633a8a8a0cb29c9",
@@ -26,7 +31,9 @@
 				{
 					"id": "baseline",
 					"enabled": true,
-					"supportedTargets": ["full"],
+					"supportedTargets": [
+						"full"
+					],
 					"strictness": "best_effort",
 					"defaultTimeoutSec": 600,
 					"executionFingerprint": "sha256:269663aa8717207c62a41b351287a01cb25bcffef6831df3bb93fc99727a44e6",
@@ -48,7 +55,9 @@
 				{
 					"id": "source-baseline",
 					"enabled": true,
-					"supportedTargets": ["full"],
+					"supportedTargets": [
+						"full"
+					],
 					"strictness": "best_effort",
 					"defaultTimeoutSec": 600,
 					"executionFingerprint": "sha256:6df8558d452431f3be608c3782ee0b6e855c01530f813f222633a8a8a0cb29c9",
@@ -62,7 +71,11 @@
 				{
 					"id": "diff-source-baseline",
 					"enabled": true,
-					"supportedTargets": ["commit", "range", "working_tree"],
+					"supportedTargets": [
+						"commit",
+						"range",
+						"working_tree"
+					],
 					"strictness": "best_effort",
 					"defaultTimeoutSec": 600,
 					"executionFingerprint": "sha256:acbc73399722366da952ecd23e4a41fc38d38876d4a84b04466b2fb282d90159",
@@ -80,7 +93,11 @@
 				{
 					"id": "diff-basic-security",
 					"enabled": true,
-					"supportedTargets": ["commit", "range", "working_tree"],
+					"supportedTargets": [
+						"commit",
+						"range",
+						"working_tree"
+					],
 					"strictness": "best_effort",
 					"defaultTimeoutSec": 900,
 					"executionFingerprint": "sha256:1bb0192a337057cbcccb17ab872bf9bb0d932b9d496b772a3b2a556b22bae534",
@@ -94,7 +111,9 @@
 				{
 					"id": "basic-security",
 					"enabled": true,
-					"supportedTargets": ["full"],
+					"supportedTargets": [
+						"full"
+					],
 					"strictness": "best_effort",
 					"defaultTimeoutSec": 900,
 					"executionFingerprint": "sha256:58774f36fa0b255bb73d656cf84e96f9a35bd4bc963a4fc1015635d379c27a16",
@@ -108,7 +127,9 @@
 				{
 					"id": "dependency-manifest",
 					"enabled": true,
-					"supportedTargets": ["full"],
+					"supportedTargets": [
+						"full"
+					],
 					"strictness": "best_effort",
 					"defaultTimeoutSec": 600,
 					"executionFingerprint": "sha256:6a40687d1055aa8ce3a18bf4780af090c4529b6f87f8f3a62217e671c40310ef",
@@ -122,7 +143,9 @@
 				{
 					"id": "artifact",
 					"enabled": true,
-					"supportedTargets": ["full"],
+					"supportedTargets": [
+						"full"
+					],
 					"strictness": "best_effort",
 					"defaultTimeoutSec": 900,
 					"executionFingerprint": "sha256:845f85784685de6484423fcb5b0758b74280a526c28ea28f4220e29241887836",
@@ -136,7 +159,9 @@
 				{
 					"id": "full-deep",
 					"enabled": true,
-					"supportedTargets": ["full"],
+					"supportedTargets": [
+						"full"
+					],
 					"strictness": "best_effort",
 					"defaultTimeoutSec": 1200,
 					"executionFingerprint": "sha256:c2473b1fe2af5c98d2425305ffd9feedae2c927d380faa97445234ce32fc6667",
@@ -150,7 +175,9 @@
 				{
 					"id": "detailed-security",
 					"enabled": true,
-					"supportedTargets": ["full"],
+					"supportedTargets": [
+						"full"
+					],
 					"strictness": "best_effort",
 					"defaultTimeoutSec": 1200,
 					"executionFingerprint": "sha256:c2473b1fe2af5c98d2425305ffd9feedae2c927d380faa97445234ce32fc6667",
@@ -164,7 +191,9 @@
 				{
 					"id": "web-app-baseline",
 					"enabled": true,
-					"supportedTargets": ["full"],
+					"supportedTargets": [
+						"full"
+					],
 					"strictness": "best_effort",
 					"defaultTimeoutSec": 900,
 					"executionFingerprint": "sha256:d389e95759caf2b5e0c7e4b6c14474030fa986c42d1e3af7907a0f165f59089d",
@@ -178,7 +207,9 @@
 				{
 					"id": "runtime-web-safe",
 					"enabled": true,
-					"supportedTargets": ["full"],
+					"supportedTargets": [
+						"full"
+					],
 					"strictness": "strict",
 					"defaultTimeoutSec": 900,
 					"executionFingerprint": "sha256:e3439a690584aeb42c901335a95263bf7daff2ad56f0d6b06d2bba5a5de97dab",
@@ -192,7 +223,9 @@
 				{
 					"id": "sbom-inventory",
 					"enabled": true,
-					"supportedTargets": ["full"],
+					"supportedTargets": [
+						"full"
+					],
 					"strictness": "strict",
 					"defaultTimeoutSec": 600,
 					"executionFingerprint": "sha256:f993a0433c3bff1dde27ad5110034ad52150334a0bff4e1bd2673cda8b86964b",
@@ -206,7 +239,9 @@
 				{
 					"id": "api-schema-readonly",
 					"enabled": true,
-					"supportedTargets": ["full"],
+					"supportedTargets": [
+						"full"
+					],
 					"strictness": "strict",
 					"defaultTimeoutSec": 600,
 					"executionFingerprint": "sha256:1594f249450d049a6622fab2fbc0c7acfc0d1fc38eb19cc4e077cebff2a6210e",
@@ -220,7 +255,9 @@
 				{
 					"id": "container-image-security",
 					"enabled": true,
-					"supportedTargets": ["full"],
+					"supportedTargets": [
+						"full"
+					],
 					"strictness": "strict",
 					"defaultTimeoutSec": 600,
 					"executionFingerprint": "sha256:c336dc2b0f8c779f6bb3893aa6b75ea4fe6c2efc0a3596d879adfa8cb7ada800",
@@ -234,7 +271,9 @@
 				{
 					"id": "runtime-zap-baseline",
 					"enabled": true,
-					"supportedTargets": ["full"],
+					"supportedTargets": [
+						"full"
+					],
 					"strictness": "strict",
 					"defaultTimeoutSec": 600,
 					"executionFingerprint": "sha256:536f821e9527eab8e775b8dd6048e43e34782a50d7558c66020560b8498fd64d",
@@ -248,7 +287,9 @@
 				{
 					"id": "runtime-http-check",
 					"enabled": true,
-					"supportedTargets": ["full"],
+					"supportedTargets": [
+						"full"
+					],
 					"strictness": "strict",
 					"defaultTimeoutSec": 180,
 					"executionFingerprint": "sha256:cb2241ad5823de35924d3f262c6f7e41836173fcd6c6cc6a5814aa8bc5d33a09",
@@ -262,10 +303,12 @@
 				{
 					"id": "full-security-scan",
 					"enabled": true,
-					"supportedTargets": ["full"],
+					"supportedTargets": [
+						"full"
+					],
 					"strictness": "strict",
 					"defaultTimeoutSec": 1200,
-					"executionFingerprint": "sha256:fa885fbbd8e78daf970ba62100a58731c9eff0396e56795b51a2cb70d70d6abe",
+					"executionFingerprint": "sha256:fd78fa8240514a809dc4320fd199708af4d2bf5def08dfda14ab773346e4fd16",
 					"knownConsumers": [
 						{
 							"kind": "none",
@@ -276,7 +319,9 @@
 				{
 					"id": "security-inventory-best-effort",
 					"enabled": true,
-					"supportedTargets": ["full"],
+					"supportedTargets": [
+						"full"
+					],
 					"strictness": "best_effort",
 					"defaultTimeoutSec": 900,
 					"executionFingerprint": "sha256:0927a9d66b25b51fbec54a15fbdadaa8494ef64b59c29dd5dc60ce4d4e7805fb",
@@ -290,7 +335,9 @@
 				{
 					"id": "secrets-dependencies-runtime",
 					"enabled": true,
-					"supportedTargets": ["full"],
+					"supportedTargets": [
+						"full"
+					],
 					"strictness": "best_effort",
 					"defaultTimeoutSec": 900,
 					"executionFingerprint": "sha256:d305d9b2228c8a2a00596e33ab42c010b9c2c06e8a0eb35cc91343d668345c0f",
@@ -304,7 +351,9 @@
 				{
 					"id": "runtime-zap-active-lab",
 					"enabled": false,
-					"supportedTargets": ["full"],
+					"supportedTargets": [
+						"full"
+					],
 					"strictness": "best_effort",
 					"defaultTimeoutSec": 1200,
 					"executionFingerprint": "sha256:98a8d67fb3d44238794ccc614558ba93ad7b36e9c0fbfb59a2b2c70b28c2172c",
@@ -318,7 +367,9 @@
 				{
 					"id": "api-zap-active-lab",
 					"enabled": false,
-					"supportedTargets": ["full"],
+					"supportedTargets": [
+						"full"
+					],
 					"strictness": "best_effort",
 					"defaultTimeoutSec": 1200,
 					"executionFingerprint": "sha256:98a8d67fb3d44238794ccc614558ba93ad7b36e9c0fbfb59a2b2c70b28c2172c",
@@ -332,15 +383,22 @@
 			]
 		},
 		{
-			"optionalAdapterIds": ["semgrep"],
+			"optionalAdapterIds": [
+				"semgrep"
+			],
 			"definitionCount": 23,
 			"enabledCount": 21,
-			"disabledIds": ["api-zap-active-lab", "runtime-zap-active-lab"],
+			"disabledIds": [
+				"api-zap-active-lab",
+				"runtime-zap-active-lab"
+			],
 			"profiles": [
 				{
 					"id": "agent-output",
 					"enabled": true,
-					"supportedTargets": ["full"],
+					"supportedTargets": [
+						"full"
+					],
 					"strictness": "best_effort",
 					"defaultTimeoutSec": 600,
 					"executionFingerprint": "sha256:6df8558d452431f3be608c3782ee0b6e855c01530f813f222633a8a8a0cb29c9",
@@ -354,7 +412,9 @@
 				{
 					"id": "baseline",
 					"enabled": true,
-					"supportedTargets": ["full"],
+					"supportedTargets": [
+						"full"
+					],
 					"strictness": "best_effort",
 					"defaultTimeoutSec": 600,
 					"executionFingerprint": "sha256:269663aa8717207c62a41b351287a01cb25bcffef6831df3bb93fc99727a44e6",
@@ -376,7 +436,9 @@
 				{
 					"id": "source-baseline",
 					"enabled": true,
-					"supportedTargets": ["full"],
+					"supportedTargets": [
+						"full"
+					],
 					"strictness": "best_effort",
 					"defaultTimeoutSec": 600,
 					"executionFingerprint": "sha256:6df8558d452431f3be608c3782ee0b6e855c01530f813f222633a8a8a0cb29c9",
@@ -390,7 +452,11 @@
 				{
 					"id": "diff-source-baseline",
 					"enabled": true,
-					"supportedTargets": ["commit", "range", "working_tree"],
+					"supportedTargets": [
+						"commit",
+						"range",
+						"working_tree"
+					],
 					"strictness": "best_effort",
 					"defaultTimeoutSec": 600,
 					"executionFingerprint": "sha256:acbc73399722366da952ecd23e4a41fc38d38876d4a84b04466b2fb282d90159",
@@ -408,7 +474,11 @@
 				{
 					"id": "diff-basic-security",
 					"enabled": true,
-					"supportedTargets": ["commit", "range", "working_tree"],
+					"supportedTargets": [
+						"commit",
+						"range",
+						"working_tree"
+					],
 					"strictness": "best_effort",
 					"defaultTimeoutSec": 900,
 					"executionFingerprint": "sha256:1bb0192a337057cbcccb17ab872bf9bb0d932b9d496b772a3b2a556b22bae534",
@@ -422,7 +492,9 @@
 				{
 					"id": "basic-security",
 					"enabled": true,
-					"supportedTargets": ["full"],
+					"supportedTargets": [
+						"full"
+					],
 					"strictness": "best_effort",
 					"defaultTimeoutSec": 900,
 					"executionFingerprint": "sha256:58774f36fa0b255bb73d656cf84e96f9a35bd4bc963a4fc1015635d379c27a16",
@@ -436,7 +508,9 @@
 				{
 					"id": "dependency-manifest",
 					"enabled": true,
-					"supportedTargets": ["full"],
+					"supportedTargets": [
+						"full"
+					],
 					"strictness": "best_effort",
 					"defaultTimeoutSec": 600,
 					"executionFingerprint": "sha256:6a40687d1055aa8ce3a18bf4780af090c4529b6f87f8f3a62217e671c40310ef",
@@ -450,7 +524,9 @@
 				{
 					"id": "artifact",
 					"enabled": true,
-					"supportedTargets": ["full"],
+					"supportedTargets": [
+						"full"
+					],
 					"strictness": "best_effort",
 					"defaultTimeoutSec": 900,
 					"executionFingerprint": "sha256:845f85784685de6484423fcb5b0758b74280a526c28ea28f4220e29241887836",
@@ -464,7 +540,9 @@
 				{
 					"id": "full-deep",
 					"enabled": true,
-					"supportedTargets": ["full"],
+					"supportedTargets": [
+						"full"
+					],
 					"strictness": "best_effort",
 					"defaultTimeoutSec": 1200,
 					"executionFingerprint": "sha256:c2473b1fe2af5c98d2425305ffd9feedae2c927d380faa97445234ce32fc6667",
@@ -478,7 +556,9 @@
 				{
 					"id": "detailed-security",
 					"enabled": true,
-					"supportedTargets": ["full"],
+					"supportedTargets": [
+						"full"
+					],
 					"strictness": "best_effort",
 					"defaultTimeoutSec": 1200,
 					"executionFingerprint": "sha256:c2473b1fe2af5c98d2425305ffd9feedae2c927d380faa97445234ce32fc6667",
@@ -492,7 +572,9 @@
 				{
 					"id": "semgrep-baseline",
 					"enabled": true,
-					"supportedTargets": ["full"],
+					"supportedTargets": [
+						"full"
+					],
 					"strictness": "best_effort",
 					"defaultTimeoutSec": 600,
 					"executionFingerprint": "sha256:c75c49392a7aef12512a353f06e5e507fd8d3ad63538a0596b695ee811f0e76f",
@@ -506,7 +588,9 @@
 				{
 					"id": "web-app-baseline",
 					"enabled": true,
-					"supportedTargets": ["full"],
+					"supportedTargets": [
+						"full"
+					],
 					"strictness": "best_effort",
 					"defaultTimeoutSec": 900,
 					"executionFingerprint": "sha256:d389e95759caf2b5e0c7e4b6c14474030fa986c42d1e3af7907a0f165f59089d",
@@ -520,7 +604,9 @@
 				{
 					"id": "runtime-web-safe",
 					"enabled": true,
-					"supportedTargets": ["full"],
+					"supportedTargets": [
+						"full"
+					],
 					"strictness": "strict",
 					"defaultTimeoutSec": 900,
 					"executionFingerprint": "sha256:e3439a690584aeb42c901335a95263bf7daff2ad56f0d6b06d2bba5a5de97dab",
@@ -534,7 +620,9 @@
 				{
 					"id": "sbom-inventory",
 					"enabled": true,
-					"supportedTargets": ["full"],
+					"supportedTargets": [
+						"full"
+					],
 					"strictness": "strict",
 					"defaultTimeoutSec": 600,
 					"executionFingerprint": "sha256:f993a0433c3bff1dde27ad5110034ad52150334a0bff4e1bd2673cda8b86964b",
@@ -548,7 +636,9 @@
 				{
 					"id": "api-schema-readonly",
 					"enabled": true,
-					"supportedTargets": ["full"],
+					"supportedTargets": [
+						"full"
+					],
 					"strictness": "strict",
 					"defaultTimeoutSec": 600,
 					"executionFingerprint": "sha256:1594f249450d049a6622fab2fbc0c7acfc0d1fc38eb19cc4e077cebff2a6210e",
@@ -562,7 +652,9 @@
 				{
 					"id": "container-image-security",
 					"enabled": true,
-					"supportedTargets": ["full"],
+					"supportedTargets": [
+						"full"
+					],
 					"strictness": "strict",
 					"defaultTimeoutSec": 600,
 					"executionFingerprint": "sha256:c336dc2b0f8c779f6bb3893aa6b75ea4fe6c2efc0a3596d879adfa8cb7ada800",
@@ -576,7 +668,9 @@
 				{
 					"id": "runtime-zap-baseline",
 					"enabled": true,
-					"supportedTargets": ["full"],
+					"supportedTargets": [
+						"full"
+					],
 					"strictness": "strict",
 					"defaultTimeoutSec": 600,
 					"executionFingerprint": "sha256:536f821e9527eab8e775b8dd6048e43e34782a50d7558c66020560b8498fd64d",
@@ -590,7 +684,9 @@
 				{
 					"id": "runtime-http-check",
 					"enabled": true,
-					"supportedTargets": ["full"],
+					"supportedTargets": [
+						"full"
+					],
 					"strictness": "strict",
 					"defaultTimeoutSec": 180,
 					"executionFingerprint": "sha256:cb2241ad5823de35924d3f262c6f7e41836173fcd6c6cc6a5814aa8bc5d33a09",
@@ -604,10 +700,12 @@
 				{
 					"id": "full-security-scan",
 					"enabled": true,
-					"supportedTargets": ["full"],
+					"supportedTargets": [
+						"full"
+					],
 					"strictness": "strict",
 					"defaultTimeoutSec": 1200,
-					"executionFingerprint": "sha256:fa885fbbd8e78daf970ba62100a58731c9eff0396e56795b51a2cb70d70d6abe",
+					"executionFingerprint": "sha256:7a8325b580eacc5ad9e275dc05b6664916cb0c2021dd11ac2a33453d31aad24c",
 					"knownConsumers": [
 						{
 							"kind": "none",
@@ -618,7 +716,9 @@
 				{
 					"id": "security-inventory-best-effort",
 					"enabled": true,
-					"supportedTargets": ["full"],
+					"supportedTargets": [
+						"full"
+					],
 					"strictness": "best_effort",
 					"defaultTimeoutSec": 900,
 					"executionFingerprint": "sha256:0927a9d66b25b51fbec54a15fbdadaa8494ef64b59c29dd5dc60ce4d4e7805fb",
@@ -632,7 +732,9 @@
 				{
 					"id": "secrets-dependencies-runtime",
 					"enabled": true,
-					"supportedTargets": ["full"],
+					"supportedTargets": [
+						"full"
+					],
 					"strictness": "best_effort",
 					"defaultTimeoutSec": 900,
 					"executionFingerprint": "sha256:d305d9b2228c8a2a00596e33ab42c010b9c2c06e8a0eb35cc91343d668345c0f",
@@ -646,7 +748,9 @@
 				{
 					"id": "runtime-zap-active-lab",
 					"enabled": false,
-					"supportedTargets": ["full"],
+					"supportedTargets": [
+						"full"
+					],
 					"strictness": "best_effort",
 					"defaultTimeoutSec": 1200,
 					"executionFingerprint": "sha256:98a8d67fb3d44238794ccc614558ba93ad7b36e9c0fbfb59a2b2c70b28c2172c",
@@ -660,7 +764,9 @@
 				{
 					"id": "api-zap-active-lab",
 					"enabled": false,
-					"supportedTargets": ["full"],
+					"supportedTargets": [
+						"full"
+					],
 					"strictness": "best_effort",
 					"defaultTimeoutSec": 1200,
 					"executionFingerprint": "sha256:98a8d67fb3d44238794ccc614558ba93ad7b36e9c0fbfb59a2b2c70b28c2172c",

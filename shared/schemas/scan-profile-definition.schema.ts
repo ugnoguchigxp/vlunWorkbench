@@ -19,7 +19,6 @@ export const canonicalProfileIdSchema = z.enum([
 	"active-technical-lab",
 	"business-logic-lab",
 	"remediation-verification",
-	"professional-full",
 ]);
 export type CanonicalProfileId = z.infer<typeof canonicalProfileIdSchema>;
 
@@ -30,7 +29,6 @@ export const executionEngineIdSchema = z.enum([
 	"passive-runtime",
 	"controlled-active",
 	"replay",
-	"run-group",
 ]);
 export type ExecutionEngineId = z.infer<typeof executionEngineIdSchema>;
 
@@ -56,8 +54,30 @@ export const scanProfileDefinitionVariantSchema = z
 			.regex(
 				/^scripts\/scan-profile-qualification\/fixtures\/[a-z0-9-]+\.json$/,
 			),
+		dependencyIds: z
+			.array(z.string().min(1).max(160))
+			.min(1)
+			.max(32)
+			.optional(),
 	})
-	.strict();
+	.strict()
+	.superRefine((value, context) => {
+		for (const [field, entries] of [
+			["stepIds", value.stepIds],
+			["dependencyIds", value.dependencyIds ?? []],
+		] as const) {
+			const seen = new Set<string>();
+			for (const [index, entry] of entries.entries()) {
+				if (seen.has(entry))
+					context.addIssue({
+						code: z.ZodIssueCode.custom,
+						path: [field, index],
+						message: `${field} must not contain duplicates.`,
+					});
+				seen.add(entry);
+			}
+		}
+	});
 export type ScanProfileDefinitionVariant = z.infer<
 	typeof scanProfileDefinitionVariantSchema
 >;
@@ -76,5 +96,38 @@ export const scanProfileDefinitionSchema = z
 		variants: z.array(scanProfileDefinitionVariantSchema).min(1).max(8),
 		dependencyIds: z.array(z.string().min(1).max(160)).min(1).max(32),
 	})
-	.strict();
+	.strict()
+	.superRefine((value, context) => {
+		const variantIds = new Set<string>();
+		const dependencyIds = new Set(value.dependencyIds);
+		for (const [index, variant] of value.variants.entries()) {
+			if (variantIds.has(variant.id))
+				context.addIssue({
+					code: z.ZodIssueCode.custom,
+					path: ["variants", index, "id"],
+					message: "Variant IDs must be unique.",
+				});
+			variantIds.add(variant.id);
+			for (const [dependencyIndex, dependencyId] of (
+				variant.dependencyIds ?? []
+			).entries()) {
+				if (!dependencyIds.has(dependencyId))
+					context.addIssue({
+						code: z.ZodIssueCode.custom,
+						path: ["variants", index, "dependencyIds", dependencyIndex],
+						message: "Variant dependencies must be declared by the profile.",
+					});
+			}
+		}
+		const seenDependencyIds = new Set<string>();
+		for (const [index, dependencyId] of value.dependencyIds.entries()) {
+			if (seenDependencyIds.has(dependencyId))
+				context.addIssue({
+					code: z.ZodIssueCode.custom,
+					path: ["dependencyIds", index],
+					message: "Dependency IDs must be unique.",
+				});
+			seenDependencyIds.add(dependencyId);
+		}
+	});
 export type ScanProfileDefinition = z.infer<typeof scanProfileDefinitionSchema>;

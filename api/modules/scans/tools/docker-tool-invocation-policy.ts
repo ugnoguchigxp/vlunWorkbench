@@ -4,6 +4,10 @@ const DOCKER_TOOL_ALLOWLIST: Record<string, Set<string>> = {
 	trivy: new Set(["--version", "fs", "image"]),
 	nuclei: new Set(["--version", "-version", "-u"]),
 	st: new Set(["run", "--version"]),
+	"vwb-schemathesis-readonly-gateway": new Set(["run"]),
+	cosign: new Set(["version", "verify-blob-attestation"]),
+	"slsa-verifier": new Set(["version", "verify-artifact"]),
+	zizmor: new Set(["--version", "--offline"]),
 };
 
 const DOCKER_ENTRYPOINTS: Record<string, string> = {};

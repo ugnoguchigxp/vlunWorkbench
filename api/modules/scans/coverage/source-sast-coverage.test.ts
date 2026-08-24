@@ -4,24 +4,26 @@ import { resolveSourceSastCoverage } from "./source-sast-coverage";
 import { resolveSourceSastApplicability } from "./source-sast-applicability";
 
 describe("truthful source SAST coverage", () => {
-  it("declares Semgrep as a required strict full-scan capability", () => {
+	it("keeps a truthful gap when Semgrep is disabled", () => {
     const profile = buildScanProfiles({ optionalAdapterIds: [] }).find(
       (candidate) => candidate.id === "full-security-scan",
     );
-    expect(profile?.tools.map((tool) => tool.toolId)).toContain("semgrep");
-    expect(profile?.coverageGaps).toBeUndefined();
+		expect(profile?.tools.map((tool) => tool.toolId)).not.toContain("semgrep");
+		expect(profile?.coverageGaps).toContain(
+			"source_sast_adapter_not_available",
+		);
     expect(profile?.capabilityRequirements).toContainEqual({
       capabilityId: "source_sast",
-      requirement: "required_if_applicable",
+			requirement: "advisory",
     });
     expect(resolveSourceSastCoverage(profile!)).toMatchObject({
       state: "applicable",
       coverageEffect: "gap",
-      limitationCodes: [],
+			limitationCodes: ["source_sast_not_executed"],
     });
   });
 
-  it("makes Semgrep a required full-scan step when the adapter is enabled", () => {
+	it("adds Semgrep as a preferred advisory step when enabled", () => {
     const profile = buildScanProfiles({
       optionalAdapterIds: ["semgrep"],
     }).find((candidate) => candidate.id === "full-security-scan");
@@ -30,20 +32,21 @@ describe("truthful source SAST coverage", () => {
         candidate.kind === "static_tool" && candidate.toolId === "semgrep",
     );
     expect(step).toMatchObject({
-      required: true,
-      failurePolicy: "fail_profile",
+			required: false,
+			requirement: "advisory",
+			failurePolicy: "warn_and_continue",
       options: { config: "curated-sast-v1" },
     });
-    expect(profile?.coverageGaps).toBeUndefined();
+		expect(profile?.coverageGaps).toEqual([]);
     expect(resolveSourceSastCoverage(profile!)).toMatchObject({
       state: "applicable",
       coverageEffect: "gap",
       stepId: "semgrep",
-      limitationCodes: [],
+      limitationCodes: ["source_sast_not_executed"],
     });
   });
 
-  it("marks source SAST covered only after the required step completes", () => {
+	it("marks source SAST covered only after the preferred step completes", () => {
     const profile = buildScanProfiles({
       optionalAdapterIds: ["semgrep"],
     }).find((candidate) => candidate.id === "full-security-scan");
@@ -52,7 +55,7 @@ describe("truthful source SAST coverage", () => {
         kind: "static_tool",
         toolId: "semgrep",
         toolRunId: "tool-run",
-        required: true,
+			required: false,
         status: "completed",
         findingCount: 0,
         exitCode: 0,
@@ -89,7 +92,7 @@ describe("truthful source SAST coverage", () => {
 		});
 	});
 
-  it("keeps a gap when the required Semgrep step fails", () => {
+	it("keeps a gap when the preferred Semgrep step fails", () => {
     const profile = buildScanProfiles({
       optionalAdapterIds: ["semgrep"],
     }).find((candidate) => candidate.id === "full-security-scan");
@@ -98,7 +101,7 @@ describe("truthful source SAST coverage", () => {
         kind: "static_tool",
         toolId: "semgrep",
         toolRunId: "tool-run",
-        required: true,
+			required: false,
         status: "failed",
         findingCount: 0,
         exitCode: 2,

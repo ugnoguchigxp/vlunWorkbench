@@ -1,6 +1,7 @@
 import type { ScanExecutionPlan } from "../../../../shared/schemas/scan-execution-plan.schema";
 import type { ScanPreflightResult } from "../../../../shared/schemas/scan-preflight.schema";
 import type { AppDatabase } from "../../../db";
+import type { DastAuthContextRepository } from "../../dast/auth-context-repository";
 import type { RuntimeTargetProvider } from "../../dast/runtime-target-provider";
 import type { ProjectCapabilityAnalysis } from "../../project-capabilities/plugin-detector";
 import type { getProfileById } from "../profiles";
@@ -19,11 +20,16 @@ export type ExecuteProfileStepsParams = {
 	profileInputRepoPath: string;
 	timeoutSec?: number;
 	createdByUserId?: string | null;
+	authContextRepository?: DastAuthContextRepository;
+	authContextId?: string;
+	identityRole?: string;
 	imageRef?: string;
 	imageTar?: string;
 	attestationSubject?: string;
 	attestationBundle?: string;
 	trustPolicy?: string;
+	slsaProvenance?: string;
+	slsaPolicy?: string;
 	scanRepo: ScanRepository;
 	scanRun: { id: string };
 	profile: NonNullable<ReturnType<typeof getProfileById>>;

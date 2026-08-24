@@ -39,7 +39,7 @@ export const professionalRunGroupPlanSchema = z
 				}),
 			)
 			.min(1)
-			.max(17),
+			.max(18),
 		humanReview: z.object({
 			required: z.literal(true),
 			status: z.literal("pending"),
@@ -88,7 +88,7 @@ export const professionalRunGroupQualificationSchema = z.object({
 	ledgerHash: sha256DigestSchema,
 	technicalCompletion: z.literal(true),
 	humanApproval: z.literal("pending"),
-	qualifiedCapabilityIds: z.array(scanCapabilityIdSchema).min(1).max(17),
+	qualifiedCapabilityIds: z.array(scanCapabilityIdSchema).min(1).max(18),
 	qualificationHash: sha256DigestSchema,
 });
 export type ProfessionalRunGroupQualification = z.infer<

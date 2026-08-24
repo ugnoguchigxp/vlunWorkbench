@@ -32,6 +32,7 @@ import {
 import { ScanDeletionService } from "../modules/scans/scan-deletion-service";
 import { ScanLaunchAttemptRepository } from "../modules/scans/execution/scan-launch-attempt-repository";
 import { createAssessmentsRoute } from "../routes/assessments.route";
+import { createAssessmentCampaignsRoute } from "../routes/assessment-campaigns.route";
 import { createBusinessLogicRoute } from "../routes/business-logic.route";
 import { createDastRoute } from "../routes/dast.route";
 import { createDastAuthRoute } from "../routes/dast-auth.route";
@@ -180,6 +181,7 @@ export function registerScanRoutes(app: Hono, runtime: AppRuntime): void {
 		}),
 	);
 	app.route("/api/scan-profiles", createScanProfilesRoute());
+	app.route("/api/assessment-campaigns", createAssessmentCampaignsRoute());
 	app.route(
 		"/api/projects",
 		createScanLaunchesRoute({

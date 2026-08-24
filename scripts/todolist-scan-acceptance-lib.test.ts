@@ -34,6 +34,7 @@ describe("todolist scanner acceptance target", () => {
       "osv-installed-tree",
       "trivy-fs",
       "semgrep",
+      "zizmor",
       "sbom",
       "schemathesis-no-schema",
       "schemathesis-readonly",

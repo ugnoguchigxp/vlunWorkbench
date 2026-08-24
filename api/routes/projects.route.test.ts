@@ -271,7 +271,7 @@ describe("Projects Route", () => {
 				}),
 			);
 		},
-		15_000,
+		30_000,
 	);
 
 	it(

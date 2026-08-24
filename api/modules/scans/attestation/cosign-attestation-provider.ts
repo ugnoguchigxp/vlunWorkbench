@@ -1,9 +1,8 @@
-import crypto from "node:crypto";
-import fs from "node:fs/promises";
 import {
-	attestationReceiptSchema,
 	type AttestationReceipt,
+	attestationReceiptSchema,
 } from "../../../../shared/schemas/attestation-receipt.schema";
+import { sha256File } from "./attestation-inputs";
 
 type CommandRunner = (params: {
 	binary: string;
@@ -12,6 +11,10 @@ type CommandRunner = (params: {
 }) => Promise<{ ok: boolean; exitCode: number | null }>;
 
 export const COSIGN_SAFE_VERSION_REQUIREMENT = ">=2.6.5 <3.0.0 or >=3.1.3";
+export const COSIGN_TRUSTED_ROOT_CONTAINER_PATH =
+	"/opt/vuln-workbench/scanner-data/sigstore-trusted-root.json";
+export const COSIGN_TRUSTED_ROOT_REPOSITORY_PATH =
+	"docker/toolbox/scanner-data/sigstore-trusted-root.json";
 
 export function parseCosignVersion(
 	value: string | null | undefined,
@@ -50,11 +53,13 @@ export class CosignAttestationProvider {
 		subjectPath: string;
 		bundlePath: string;
 		trustPolicyPath: string;
+		trustedRootPath: string;
+		timeoutSec?: number;
 	}): Promise<AttestationReceipt> {
 		const [subjectDigest, bundleDigest, trustPolicyDigest] = await Promise.all([
-			digestFile(params.subjectPath),
-			digestFile(params.bundlePath),
-			digestFile(params.trustPolicyPath),
+			sha256File(params.subjectPath),
+			sha256File(params.bundlePath),
+			sha256File(params.trustPolicyPath),
 		]);
 		let reasonCode: AttestationReceipt["reasonCode"] =
 			"attestation_verification_failed";
@@ -64,8 +69,6 @@ export class CosignAttestationProvider {
 				binary: "cosign",
 				args: [
 					"verify-blob-attestation",
-					"--offline",
-					"--new-bundle-format=true",
 					"--check-claims=true",
 					"--type",
 					"slsaprovenance1",
@@ -73,9 +76,11 @@ export class CosignAttestationProvider {
 					params.bundlePath,
 					"--key",
 					params.trustPolicyPath,
+					"--trusted-root",
+					params.trustedRootPath,
 					params.subjectPath,
 				],
-				timeoutSec: 60,
+				timeoutSec: params.timeoutSec ?? 60,
 			});
 			verified = result.ok && result.exitCode === 0;
 			reasonCode = verified ? "verified" : "attestation_verification_failed";
@@ -94,9 +99,4 @@ export class CosignAttestationProvider {
 			verifiedAt: this.now().toISOString(),
 		});
 	}
-}
-
-async function digestFile(filePath: string): Promise<string> {
-	const bytes = await fs.readFile(filePath);
-	return `sha256:${crypto.createHash("sha256").update(bytes).digest("hex")}`;
 }

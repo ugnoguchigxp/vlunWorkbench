@@ -4,12 +4,14 @@ import { parseArgs } from "node:util";
 import type { ScanTarget } from "../../shared/schemas/scan-target.schema";
 import { readAppEnv } from "../app/env";
 import { createDbConnection } from "../db";
+import { DastAuthContextCrypto } from "../modules/dast/auth-context-crypto";
+import { DastAuthContextRepository } from "../modules/dast/auth-context-repository";
 import { resolveWorkspaceTargetGrantPath } from "../modules/integrations/nightworkers/nightworkers-workspace-target-grant-cli";
+import { analyzeProjectCapabilities } from "../modules/project-capabilities/plugin-detector";
 import {
 	loadRuntimeIsolationProviderFactory,
 	runtimeIsolationSettingsFromAppEnv,
 } from "../modules/runtime-isolation/runtime-isolation-runtime-config";
-import { analyzeProjectCapabilities } from "../modules/project-capabilities/plugin-detector";
 import { ArtifactStorage } from "../modules/scans/artifact-storage";
 import {
 	buildDiffScanPlan,
@@ -115,6 +117,10 @@ function parseScanProfileArgs() {
 			"attestation-subject": { type: "string" },
 			"attestation-bundle": { type: "string" },
 			"trust-policy": { type: "string" },
+			"slsa-provenance": { type: "string" },
+			"slsa-policy": { type: "string" },
+			"auth-context-id": { type: "string" },
+			"identity-role": { type: "string" },
 			json: { type: "boolean", default: false },
 		},
 		strict: true,
@@ -242,6 +248,19 @@ async function main() {
 	const attestationSubject = argsValues["attestation-subject"];
 	const attestationBundle = argsValues["attestation-bundle"];
 	const trustPolicy = argsValues["trust-policy"];
+	const slsaProvenance = argsValues["slsa-provenance"];
+	const slsaPolicy = argsValues["slsa-policy"];
+	const authContextId = argsValues["auth-context-id"];
+	const identityRole = argsValues["identity-role"];
+	if (Boolean(authContextId) !== Boolean(identityRole)) {
+		writeResult({
+			ok: false,
+			status: "config_error",
+			message:
+				"--auth-context-id and --identity-role must be provided together.",
+		});
+		process.exit(2);
+	}
 	if (imageRef && imageTar) {
 		writeResult({
 			ok: false,
@@ -292,6 +311,9 @@ async function main() {
 				attestationSubject,
 				attestationBundle,
 				trustPolicy,
+				slsaProvenance,
+				slsaPolicy,
+				authContextRef: authContextId,
 				executionConsent: consentProjectCodeExecution,
 			}),
 			requestedResultPolicy: resultPolicy,
@@ -374,6 +396,19 @@ async function main() {
 		const env = await new SettingsRepository(dbConnection.db).resolveAppEnv(
 			startupEnv,
 		);
+		const authContextRepository = authContextId
+			? (() => {
+					if (!env.dastAuthEncryptionKey)
+						throw new Error("dast_auth_encryption_key_required");
+					return new DastAuthContextRepository(
+						dbConnection?.db as NonNullable<typeof dbConnection>["db"],
+						new DastAuthContextCrypto(
+							env.dastAuthEncryptionKey,
+							env.dastAuthPreviousEncryptionKeys,
+						),
+					);
+				})()
+			: undefined;
 		const executionPolicy = resolveScanExecutionPolicy({
 			env,
 			surface: executionSurface,
@@ -459,6 +494,10 @@ async function main() {
 				attestationSubject,
 				attestationBundle,
 				trustPolicy,
+				slsaProvenance,
+				slsaPolicy,
+				authContextId,
+				identityRole,
 			});
 			const technologyAnalysis =
 				await analyzeProjectCapabilities(effectiveRepoPath);
@@ -554,6 +593,11 @@ async function main() {
 			attestationSubject,
 			attestationBundle,
 			trustPolicy,
+			slsaProvenance,
+			slsaPolicy,
+			authContextRepository,
+			authContextId,
+			identityRole,
 			executionSurface,
 			target: scanTarget,
 			expectedTargetDigest,

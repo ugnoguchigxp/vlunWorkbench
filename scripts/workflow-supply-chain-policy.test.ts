@@ -66,6 +66,25 @@ describe("workflow supply-chain policy", () => {
 		expect(workflow).not.toContain("trivyignores:");
 	});
 
+	test("builds the patched Cosign release into the core toolbox", async () => {
+		const [toolbox, semgrepPlugin] = await Promise.all([
+			readRepositoryFile("docker/toolbox/Dockerfile"),
+			readRepositoryFile("docker/plugins/semgrep/Dockerfile"),
+		]);
+		expect(toolbox).toContain("ARG COSIGN_VERSION=3.1.3");
+		expect(toolbox).toContain(
+			"ARG COSIGN_SOURCE_COMMIT=11926fa5bbbbde47e88fc006b625a17769b743b2",
+		);
+		expect(toolbox).toContain(
+			"ARG COSIGN_SOURCE_SHA256=3a718446bac51466efff6853639e1ca108b456ecbf07cd92938f548715d22d6b",
+		);
+		expect(toolbox).toContain(
+			'vuln-workbench.scanner.cosign.license="Apache-2.0"',
+		);
+		expect(toolbox).not.toContain("semgrep==");
+		expect(semgrepPlugin).toContain("semgrep==${SEMGREP_VERSION}");
+	});
+
 	test("runs the strict Phase 55 entry with pinned benchmark images and persisted evidence", async () => {
 		const [workflow, phase55Entry] = await Promise.all([
 			readRepositoryFile(".github/workflows/verify.yml"),

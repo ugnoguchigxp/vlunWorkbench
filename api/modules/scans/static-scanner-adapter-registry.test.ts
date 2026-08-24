@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { ArtifactStorage } from "./artifact-storage";
-import { prepareToolProvenance } from "./profile-tool-provenance";
 import { selectStaticTool } from "./profile-static-tool-selection";
+import { prepareToolProvenance } from "./profile-tool-provenance";
 import {
   resolveStaticScannerDiffExecution,
   type StaticScannerAdapter,
@@ -51,6 +51,7 @@ describe("StaticScannerAdapterRegistry", () => {
       "gitleaks",
       "osv",
       "trivy",
+      "zizmor",
       "semgrep",
     ]);
     expect(registry.require("semgrep").manifest.distribution).toBe("optional");

@@ -29,6 +29,7 @@ const caseIds = [
   "osv-installed-tree",
   "trivy-filesystem",
   "semgrep-source",
+  "zizmor-workflow",
   "trivy-sbom",
   "trivy-image",
   "passive-dast",
@@ -52,6 +53,7 @@ function qualification(
       "osv-installed-tree": DIGEST,
       "trivy-filesystem": DIGEST,
       "semgrep-source": DIGEST,
+      "zizmor-workflow": DIGEST,
       "trivy-sbom": DIGEST,
       "passive-dast": DIGEST,
       "nuclei-safe": DIGEST,
@@ -151,7 +153,7 @@ describe("scanner E2E qualification", () => {
 	it("rejects a duplicate or partial case map before a profile can be admitted", () => {
 		const incomplete = qualification({
 			qualifiedCaseIds: Array.from(
-				{ length: 12 },
+				{ length: 13 },
 				() => "gitleaks-source",
 			),
 		});

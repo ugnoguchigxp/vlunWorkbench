@@ -38,6 +38,10 @@ const CAPABILITY_BINDINGS: Record<ScanCapabilityId, CapabilityBinding> = {
 		stepIds: ["semgrep"],
 		missingReasonCode: "source_sast_not_executed",
 	},
+	cicd_workflow_integrity: {
+		stepIds: ["zizmor"],
+		missingReasonCode: "capability_not_integrated",
+	},
 	sca: { stepIds: ["osv"], missingReasonCode: "capability_not_integrated" },
 	iac_config: {
 		stepIds: ["trivy"],
@@ -48,7 +52,7 @@ const CAPABILITY_BINDINGS: Record<ScanCapabilityId, CapabilityBinding> = {
 		missingReasonCode: "capability_not_integrated",
 	},
 	provenance_integrity: {
-		stepIds: ["attestation_verify:cosign"],
+		stepIds: ["attestation_verify:cosign", "attestation_verify:slsa-verifier"],
 		missingReasonCode: "capability_not_integrated",
 	},
 	artifact_container: {

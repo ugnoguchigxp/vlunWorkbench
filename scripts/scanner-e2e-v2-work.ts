@@ -54,6 +54,11 @@ export async function observeScannerE2EWork(params: {
 				candidates: arrayAt(raw, "results").length,
 			};
 		}
+		case "zizmor-workflow":
+			return {
+				workflowsScanned: await countWorkflowFiles(params.sourcePath),
+				findingsProduced: Array.isArray(raw) ? raw.length : 0,
+			};
 		case "trivy-sbom": {
 			const components = arrayAt(raw, "components");
 			return {
@@ -171,6 +176,14 @@ async function observePackageWork(sourcePath: string) {
 
 async function countSourceFiles(sourcePath: string): Promise<number> {
 	return (await findFiles(sourcePath, () => true)).length;
+}
+
+async function countWorkflowFiles(sourcePath: string): Promise<number> {
+	return (
+		await findFiles(sourcePath, (relative) =>
+			/^\.github\/workflows\/.+\.ya?ml$/i.test(relative),
+		)
+	).length;
 }
 
 async function countReadonlyOperations(sourcePath: string): Promise<number> {

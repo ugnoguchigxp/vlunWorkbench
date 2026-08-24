@@ -30,6 +30,8 @@ export const scannerE2EWorkCounterNameSchema = z.enum([
 	"rulesLoaded",
 	"parseErrors",
 	"candidates",
+	"workflowsScanned",
+	"findingsProduced",
 	"components",
 	"dependencyRelationships",
 	"prodComponents",
@@ -80,7 +82,7 @@ export const scannerE2ECaseV2Schema = z.object({
 
 export const scannerE2ECaseRegistryV2Schema = z.object({
 	schemaVersion: z.literal(2),
-	cases: z.array(scannerE2ECaseV2Schema).length(12),
+	cases: z.array(scannerE2ECaseV2Schema).length(13),
 });
 
 const scannerE2EArtifactEvidenceV2Schema = z.object({
@@ -165,8 +167,8 @@ export const scannerE2EEvidenceBundleV2Schema = z.object({
 		.strict(),
 	toolboxImageDigest: sha256DigestSchema,
 	// The harness permits a partial bundle for local `--only` diagnostics. The
-	// release verifier separately requires the exact canonical 12-case set.
-	evidence: z.array(scannerE2EEvidenceV2Schema).min(1).max(12),
+	// release verifier separately requires the exact canonical case set.
+	evidence: z.array(scannerE2EEvidenceV2Schema).min(1).max(13),
 });
 
 export type ScannerE2ECaseV2 = z.infer<typeof scannerE2ECaseV2Schema>;

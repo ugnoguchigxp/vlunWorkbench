@@ -31,6 +31,12 @@ const tools: ProfileToolEntry[] = [
 		required: false,
 		failurePolicy: "warn_and_continue",
 	},
+	{
+		toolId: "zizmor",
+		displayName: "zizmor",
+		required: true,
+		failurePolicy: "fail_profile",
+	},
 ];
 
 describe("diff scan plan", () => {
@@ -79,6 +85,22 @@ describe("diff scan plan", () => {
 		expect(plan.tools.find((tool) => tool.toolId === "semgrep")).toMatchObject({
 			applicability: "applicable",
 			reasonCode: null,
+		});
+		expect(plan.tools.find((tool) => tool.toolId === "zizmor")).toMatchObject({
+			applicability: "not_applicable",
+			reasonCode: "no_relevant_files",
+		});
+	});
+
+	it("runs zizmor only when a GitHub Actions definition changed", () => {
+		const plan = buildDiffScanPlan({
+			resolved: resolved([entry(".github/workflows/ci.yml")]),
+			tools,
+		});
+		expect(plan.tools.find((tool) => tool.toolId === "zizmor")).toMatchObject({
+			applicability: "applicable",
+			reasonCode: null,
+			changedFileCount: 1,
 		});
 	});
 

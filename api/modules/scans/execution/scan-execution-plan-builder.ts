@@ -33,6 +33,10 @@ function uniqueSorted(values: Array<string | null | undefined>): string[] {
 	].sort();
 }
 
+function declaredStepRequirement(step: ScanProfileStep) {
+	return "requirement" in step ? step.requirement : undefined;
+}
+
 /**
  * Compile the immutable execution contract after preflight. Execution must use
  * this plan instead of recomputing required/applicable decisions per step.
@@ -61,7 +65,14 @@ export function buildScanExecutionPlan(params: {
 			(check) => check.status === "not_applicable",
 		);
 		const blocked = checks.some((check) => check.status === "blocked");
-		const required = strictness === "strict" ? !notApplicable : step.required;
+		const declaredRequirement = declaredStepRequirement(step);
+		const advisory =
+			declaredRequirement === "advisory" || declaredRequirement === "inventory";
+		const required = advisory
+			? false
+			: strictness === "strict"
+				? !notApplicable
+				: step.required;
 
 		return {
 			stepId,
@@ -78,9 +89,11 @@ export function buildScanExecutionPlan(params: {
 				: checks.length === 0
 					? ("unchecked" as const)
 					: ("ready" as const),
-			requirement: required
-				? ("required_if_applicable" as const)
-				: ("advisory" as const),
+			requirement:
+				declaredRequirement ??
+				(required
+					? ("required_if_applicable" as const)
+					: ("advisory" as const)),
 			reasonCodes: uniqueSorted(checks.map((check) => check.reasonCode)),
 			evidenceRefs: uniqueSorted(checks.flatMap((check) => check.evidenceRefs)),
 		};
@@ -226,11 +239,16 @@ export function applyStrictProfileRequirements(
 	steps: ScanProfileStep[],
 ): ScanProfileStep[] {
 	if (profile.strictness !== "strict") return steps;
-	return steps.map((step) => ({
-		...step,
-		required: true,
-		failurePolicy: "fail_profile" as const,
-	}));
+	return steps.map((step) =>
+		declaredStepRequirement(step) === "advisory" ||
+		declaredStepRequirement(step) === "inventory"
+			? step
+			: {
+					...step,
+					required: true,
+					failurePolicy: "fail_profile" as const,
+				},
+	);
 }
 
 export function executionPlanBlocks(plan: ScanExecutionPlan): boolean {

@@ -128,6 +128,91 @@ describe("Tool process runner Docker backend", () => {
 		expect(capturedArgs).toContain("ALL");
 	});
 
+	it("does not rewrite scanner flags when the target is the current directory", async () => {
+		let capturedArgs: string[] = [];
+		vi.spyOn(Bun, "spawn").mockImplementation((args) => {
+			capturedArgs = [...args];
+			return {
+				exited: Promise.resolve(0),
+				stdout: streamText("[]"),
+				stderr: streamText(""),
+			} as any;
+		});
+
+		const repoPath = process.cwd();
+		const result = await runToolProcess(
+			"zizmor",
+			["--offline", "--format=json-v1", repoPath],
+			{
+				repoPath,
+				execution: { runner: "docker", docker: { networkMode: "none" } },
+			},
+		);
+
+		expect(result).toMatchObject({ ok: true, exitCode: 0 });
+		expect(capturedArgs).toContain("--offline");
+		expect(capturedArgs).toContain("--format=json-v1");
+		expect(capturedArgs).toContain("/workspace/repo");
+		expect(capturedArgs).not.toContain("/workspace/repo/--offline");
+	});
+
+	it("runs Cosign attestation verification from the core toolbox without network access", async () => {
+		const repoPath = await fs.mkdtemp(path.join(os.tmpdir(), "cosign-runner-"));
+		const subjectPath = path.join(repoPath, "dist", "subject.bin");
+		const bundlePath = path.join(repoPath, "attestations", "bundle.json");
+		const keyPath = path.join(repoPath, "security", "cosign.pub");
+		await Promise.all([
+			fs.mkdir(path.dirname(subjectPath), { recursive: true }),
+			fs.mkdir(path.dirname(bundlePath), { recursive: true }),
+			fs.mkdir(path.dirname(keyPath), { recursive: true }),
+		]);
+		await Promise.all([
+			fs.writeFile(subjectPath, "subject"),
+			fs.writeFile(bundlePath, "{}"),
+			fs.writeFile(keyPath, "public-key"),
+		]);
+
+		let capturedArgs: string[] = [];
+		vi.spyOn(Bun, "spawn").mockImplementation((args) => {
+			capturedArgs = [...args];
+			return {
+				exited: Promise.resolve(0),
+				stdout: streamText("Verified OK"),
+				stderr: streamText(""),
+			} as any;
+		});
+
+		const result = await runToolProcess(
+			"cosign",
+			[
+				"verify-blob-attestation",
+				"--bundle",
+				bundlePath,
+				"--key",
+				keyPath,
+				subjectPath,
+			],
+			{
+				repoPath,
+				execution: {
+					runner: "docker",
+					docker: { image: "vuln-workbench-toolbox:test" },
+				},
+			},
+		);
+
+		expect(result).toMatchObject({ ok: true, exitCode: 0 });
+		expect(capturedArgs).toContain("/usr/local/bin/cosign");
+		expect(capturedArgs).toContain("none");
+		expect(capturedArgs).toContain("--read-only");
+		expect(capturedArgs).toContain(`${repoPath}:/workspace/repo:ro`);
+		expect(capturedArgs).toContain("/workspace/repo/dist/subject.bin");
+		expect(capturedArgs).toContain("/workspace/repo/attestations/bundle.json");
+		expect(capturedArgs).toContain("/workspace/repo/security/cosign.pub");
+
+		await fs.rm(repoPath, { recursive: true, force: true });
+	});
+
 	it("rejects Docker input files that would collide in the container", async () => {
 		const firstDir = await fs.mkdtemp(path.join(os.tmpdir(), "tool-input-a-"));
 		const secondDir = await fs.mkdtemp(path.join(os.tmpdir(), "tool-input-b-"));
@@ -253,6 +338,37 @@ describe("Tool process runner Docker backend", () => {
 		expect(capturedArgs).toContain(`container:${owner}`);
 		expect(capturedArgs).toContain("http://127.0.0.1:18080");
 		expect(capturedArgs).not.toContain("host.docker.internal");
+	});
+
+	it("runs the Schemathesis gateway from writable tmp on a read-only root", async () => {
+		let capturedArgs: string[] = [];
+		vi.spyOn(Bun, "spawn").mockImplementation((args) => {
+			capturedArgs = [...args];
+			return {
+				exited: Promise.resolve(0),
+				stdout: streamText(""),
+				stderr: streamText(""),
+			} as any;
+		});
+
+		await runToolProcess(
+			"vwb-schemathesis-readonly-gateway",
+			[
+				"run",
+				"/workspace/inputs/policy.json",
+				"--",
+				"run",
+				"/workspace/inputs/openapi.json",
+				"--url",
+				"http://127.0.0.1:18080",
+			],
+			{ execution: { runner: "docker" } },
+		);
+
+		expect(capturedArgs).toContain("--read-only");
+		const workdirIndex = capturedArgs.indexOf("--workdir");
+		expect(workdirIndex).toBeGreaterThan(-1);
+		expect(capturedArgs[workdirIndex + 1]).toBe("/tmp");
 	});
 
 	it("fails docker version checks clearly when docker is unavailable", async () => {

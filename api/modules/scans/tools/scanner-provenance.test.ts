@@ -139,6 +139,16 @@ describe("scanner provenance", () => {
 		);
 	});
 
+	it("hashes a locked scanner data file by its bytes", async () => {
+		const root = await fs.mkdtemp(path.join(os.tmpdir(), "scanner-data-file-"));
+		tempRoots.push(root);
+		const trustedRoot = path.join(root, "trusted-root.json");
+		await fs.writeFile(trustedRoot, "{\"trusted\":true}\n");
+		expect(await hashTree(trustedRoot)).toBe(
+			"sha256:89de26c0daa8011ba50c71e343d6fdc7f73e4ea484cc15b3bf69d84ee8a29ecd",
+		);
+	});
+
 	it("reads v1 for one release cycle with reproducibility limitations", async () => {
 		const root = await fs.mkdtemp(path.join(os.tmpdir(), "scanner-data-v1-"));
 		tempRoots.push(root);

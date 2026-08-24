@@ -24,16 +24,23 @@ export const scanProfileSafetyClassSchema = z.enum([
 export const scanProfileLaunchModeSchema = z.enum([
 	"profile_orchestrator",
 	"dedicated_flow",
-	"run_group",
 	"unavailable",
 ]);
+export const scanProfileExperienceKindSchema = z.enum([
+	"scanner_preset",
+	"assessment_workflow",
+	"lab",
+	"advanced_runner",
+]);
+export type ScanProfileExperienceKind = z.infer<
+	typeof scanProfileExperienceKindSchema
+>;
 export const scanProfileLaunchDestinationSchema = z.enum([
 	"scan_workspace",
 	"dynamic_workspace",
 	"dast_workspace",
 	"business_logic_workspace",
 	"finding_verification",
-	"professional_run_group",
 ]);
 export type ScanProfileLaunchDestination = z.infer<
 	typeof scanProfileLaunchDestinationSchema
@@ -49,6 +56,8 @@ export const scanProfileInputKindSchema = z.enum([
 	"attestation_subject",
 	"attestation_bundle",
 	"trust_policy",
+	"slsa_provenance",
+	"slsa_policy",
 	"disposable_target_ref",
 	"rules_of_engagement_ref",
 	"scenario_ref",
@@ -76,7 +85,35 @@ export const scanProfileExecutionVariantSchema = z
 		requiredInputKinds: z.array(scanProfileInputKindSchema).max(16),
 		forbiddenInputKinds: z.array(scanProfileInputKindSchema).max(16),
 	})
-	.strict();
+	.strict()
+	.superRefine((value, context) => {
+		const required = new Set<string>();
+		for (const [index, kind] of value.requiredInputKinds.entries()) {
+			if (required.has(kind))
+				context.addIssue({
+					code: z.ZodIssueCode.custom,
+					path: ["requiredInputKinds", index],
+					message: "Required input kinds must be unique.",
+				});
+			required.add(kind);
+		}
+		const forbidden = new Set<string>();
+		for (const [index, kind] of value.forbiddenInputKinds.entries()) {
+			if (forbidden.has(kind))
+				context.addIssue({
+					code: z.ZodIssueCode.custom,
+					path: ["forbiddenInputKinds", index],
+					message: "Forbidden input kinds must be unique.",
+				});
+			if (required.has(kind))
+				context.addIssue({
+					code: z.ZodIssueCode.custom,
+					path: ["forbiddenInputKinds", index],
+					message: "An input kind cannot be both required and forbidden.",
+				});
+			forbidden.add(kind);
+		}
+	});
 
 export const scanProfileCatalogEntrySchema = z
 	.object({
@@ -86,6 +123,7 @@ export const scanProfileCatalogEntrySchema = z
 		displayOrder: z.number().int().nonnegative(),
 		displayName: z.string().min(1).max(160),
 		description: z.string().min(1).max(1000),
+		experienceKind: scanProfileExperienceKindSchema,
 		availability: scanProfileAvailabilitySchema,
 		safetyClass: scanProfileSafetyClassSchema,
 		launchMode: scanProfileLaunchModeSchema,
@@ -111,7 +149,107 @@ export const scanProfileCatalogEntrySchema = z
 		limitationCodes: z.array(z.string().min(1).max(100)).max(32),
 		replacementProfileId: catalogIdSchema.nullable(),
 	})
-	.strict();
+	.strict()
+	.superRefine((value, context) => {
+		for (const [field, entries] of [
+			["allowedResultPolicies", value.allowedResultPolicies],
+			["supportedTargets", value.supportedTargets],
+			["environmentRequirementCodes", value.environmentRequirementCodes],
+			["limitationCodes", value.limitationCodes],
+		] as const) {
+			const seen = new Set<string>();
+			for (const [index, entry] of entries.entries()) {
+				if (seen.has(entry))
+					context.addIssue({
+						code: z.ZodIssueCode.custom,
+						path: [field, index],
+						message: `${field} must not contain duplicates.`,
+					});
+				seen.add(entry);
+			}
+		}
+
+		const declaredInputs = new Set<
+			(typeof value.requiredInputs)[number]["kind"]
+		>();
+		const requiredInputs = new Set<
+			(typeof value.requiredInputs)[number]["kind"]
+		>();
+		for (const [index, input] of value.requiredInputs.entries()) {
+			if (declaredInputs.has(input.kind))
+				context.addIssue({
+					code: z.ZodIssueCode.custom,
+					path: ["requiredInputs", index, "kind"],
+					message: "Input kinds must be declared once.",
+				});
+			declaredInputs.add(input.kind);
+			if (input.requirement === "required") requiredInputs.add(input.kind);
+		}
+
+		const variantIds = new Set<string>();
+		for (const [index, variant] of value.executionVariants.entries()) {
+			if (variantIds.has(variant.id))
+				context.addIssue({
+					code: z.ZodIssueCode.custom,
+					path: ["executionVariants", index, "id"],
+					message: "Execution variant IDs must be unique.",
+				});
+			variantIds.add(variant.id);
+			for (const field of [
+				"requiredInputKinds",
+				"forbiddenInputKinds",
+			] as const) {
+				for (const [inputIndex, kind] of variant[field].entries())
+					if (!declaredInputs.has(kind))
+						context.addIssue({
+							code: z.ZodIssueCode.custom,
+							path: ["executionVariants", index, field, inputIndex],
+							message: "Variant inputs must be declared by the profile.",
+						});
+			}
+			for (const kind of requiredInputs)
+				if (!variant.requiredInputKinds.includes(kind))
+					context.addIssue({
+						code: z.ZodIssueCode.custom,
+						path: ["executionVariants", index, "requiredInputKinds"],
+						message: `Required profile input is missing from the variant: ${kind}.`,
+					});
+		}
+
+		if (!value.allowedResultPolicies.includes(value.defaultResultPolicy))
+			context.addIssue({
+				code: z.ZodIssueCode.custom,
+				path: ["defaultResultPolicy"],
+				message: "Default result policy must be allowed.",
+			});
+		if (
+			value.allowedResultPolicies.includes("gate") &&
+			value.gateSeverityThreshold === null
+		)
+			context.addIssue({
+				code: z.ZodIssueCode.custom,
+				path: ["gateSeverityThreshold"],
+				message: "Gate-enabled profiles require a severity threshold.",
+			});
+		if (
+			(value.launchMode === "unavailable") !==
+			(value.launchDestination === null)
+		)
+			context.addIssue({
+				code: z.ZodIssueCode.custom,
+				path: ["launchDestination"],
+				message: "Launch destination must match launch mode.",
+			});
+		if (
+			(value.launchMode === "profile_orchestrator") !==
+			value.executionVariants.length > 0
+		)
+			context.addIssue({
+				code: z.ZodIssueCode.custom,
+				path: ["executionVariants"],
+				message: "Only orchestrated profiles may declare execution variants.",
+			});
+	});
 export type ScanProfileCatalogEntry = z.infer<
 	typeof scanProfileCatalogEntrySchema
 >;

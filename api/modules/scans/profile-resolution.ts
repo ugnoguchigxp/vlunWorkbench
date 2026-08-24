@@ -11,6 +11,7 @@ import type { ScanTarget } from "../../../shared/schemas/scan-target.schema";
 import { canonicalJson } from "./execution/diff/diff-scan-plan";
 import {
 	getCatalogEntry,
+	getCatalogEntryForResolution,
 	getLegacyProfileAssociation,
 	hashCatalogEntry,
 } from "./profile-catalog";
@@ -53,6 +54,8 @@ export function normalizeProfileResolutionInput(params: {
 	attestationSubject?: string;
 	attestationBundle?: string;
 	trustPolicy?: string;
+	slsaProvenance?: string;
+	slsaPolicy?: string;
 	disposableTargetRef?: string;
 	rulesOfEngagementRef?: string;
 	scenarioRef?: string;
@@ -75,6 +78,8 @@ export function normalizeProfileResolutionInput(params: {
 	if (params.attestationSubject) inputKinds.push("attestation_subject");
 	if (params.attestationBundle) inputKinds.push("attestation_bundle");
 	if (params.trustPolicy) inputKinds.push("trust_policy");
+	if (params.slsaProvenance) inputKinds.push("slsa_provenance");
+	if (params.slsaPolicy) inputKinds.push("slsa_policy");
 	if (params.disposableTargetRef) inputKinds.push("disposable_target_ref");
 	if (params.rulesOfEngagementRef) inputKinds.push("rules_of_engagement_ref");
 	if (params.scenarioRef) inputKinds.push("scenario_ref");
@@ -99,7 +104,9 @@ export function resolveProfileSelection(params: {
 		params.requestedProfileId,
 	);
 	if (legacyAssociation) {
-		const catalogEntry = getCatalogEntry(legacyAssociation.canonicalProfileId);
+		const catalogEntry = getCatalogEntryForResolution(
+			legacyAssociation.canonicalProfileId,
+		);
 		const executionProfile = getProfileById(params.requestedProfileId);
 		if (!catalogEntry || !executionProfile?.enabled) {
 			throw new ProfileResolutionError("profile_not_launchable");
@@ -293,7 +300,7 @@ export function resolveStoredScanSafetyBoundary(scan: {
 		scan.profile,
 	].filter((value): value is string => typeof value === "string");
 	for (const candidateId of candidateIds) {
-		const direct = getCatalogEntry(candidateId);
+		const direct = getCatalogEntryForResolution(candidateId);
 		if (direct) {
 			return {
 				canonicalProfileId: direct.id,
@@ -302,7 +309,7 @@ export function resolveStoredScanSafetyBoundary(scan: {
 		}
 		const association = getLegacyProfileAssociation(candidateId);
 		const catalogEntry = association
-			? getCatalogEntry(association.canonicalProfileId)
+			? getCatalogEntryForResolution(association.canonicalProfileId)
 			: undefined;
 		if (catalogEntry) {
 			return {
@@ -315,7 +322,7 @@ export function resolveStoredScanSafetyBoundary(scan: {
 }
 
 function selectVariant(
-	entry: NonNullable<ReturnType<typeof getCatalogEntry>>,
+	entry: ScanProfileCatalogEntry,
 	providedInputKinds: readonly ScanProfileInputKind[],
 ) {
 	const provided = new Set(providedInputKinds);

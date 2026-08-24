@@ -2,7 +2,10 @@ import type {
 	ScanProfile,
 	ScanScopePolicy,
 } from "../../../shared/schemas/scan-profile.schema";
-import { isOptionalScannerAdapterEnabled } from "./optional-scanner-adapter-config";
+import {
+	type OptionalScannerSelection,
+	optionalScannerSelection,
+} from "./optional-scanner-adapter-config";
 
 const OPTIONAL_SEMGREP_TOOL = {
 	toolId: "semgrep",
@@ -11,6 +14,24 @@ const OPTIONAL_SEMGREP_TOOL = {
 	failurePolicy: "fail_profile" as const,
 	options: { config: "curated-sast-v1" },
 };
+
+function semgrepTool(selection: OptionalScannerSelection) {
+	if (selection === "disabled") return [];
+	return [
+		{
+			...OPTIONAL_SEMGREP_TOOL,
+			required: selection === "required",
+			requirement:
+				selection === "required"
+					? ("required_if_applicable" as const)
+					: ("advisory" as const),
+			failurePolicy:
+				selection === "required"
+					? ("fail_profile" as const)
+					: ("warn_and_continue" as const),
+		},
+	];
+}
 
 function sourceSastRequirement(enabled: boolean) {
 	return enabled
@@ -32,10 +53,18 @@ export function buildCanonicalScanProfiles(params: {
 	sourceScope: ScanScopePolicy;
 	dependencyScope?: ScanScopePolicy;
 	semgrepEnabled?: boolean;
+	semgrepSelection?: OptionalScannerSelection;
 }): ScanProfile[] {
-	const semgrepEnabled =
-		params.semgrepEnabled ?? isOptionalScannerAdapterEnabled("semgrep");
-	const sourceSastTool = semgrepEnabled ? [OPTIONAL_SEMGREP_TOOL] : [];
+	const semgrepSelection =
+		params.semgrepSelection ??
+		(params.semgrepEnabled === undefined
+			? optionalScannerSelection("semgrep")
+			: params.semgrepEnabled
+				? "preferred"
+				: "disabled");
+	const sourceSastTool = semgrepTool(semgrepSelection);
+	const semgrepEnabled = semgrepSelection !== "disabled";
+	const semgrepRequired = semgrepSelection === "required";
 	return [
 		{
 			id: "change-gate",
@@ -69,13 +98,24 @@ export function buildCanonicalScanProfiles(params: {
 					failurePolicy: "fail_profile",
 					options: { scanners: ["vuln", "secret", "misconfig"] },
 				},
+				{
+					toolId: "zizmor",
+					displayName: "zizmor Changed CI Workflow Security",
+					required: true,
+					requirement: "required_if_applicable",
+					failurePolicy: "fail_profile",
+				},
 				...sourceSastTool,
 			],
 			capabilityRequirements: [
 				{ capabilityId: "secret_detection", requirement: "required" },
 				{ capabilityId: "sca", requirement: "required" },
 				{ capabilityId: "iac_config", requirement: "required" },
-				...sourceSastRequirement(semgrepEnabled),
+				{
+					capabilityId: "cicd_workflow_integrity",
+					requirement: "required_if_applicable",
+				},
+				...sourceSastRequirement(semgrepRequired),
 			],
 			coverageGaps: semgrepEnabled ? [] : ["source_sast_adapter_not_available"],
 		},
@@ -110,13 +150,24 @@ export function buildCanonicalScanProfiles(params: {
 					failurePolicy: "fail_profile",
 					options: { scanners: ["vuln", "secret", "misconfig"] },
 				},
+				{
+					toolId: "zizmor",
+					displayName: "zizmor CI Workflow Security",
+					required: true,
+					requirement: "required_if_applicable",
+					failurePolicy: "fail_profile",
+				},
 				...sourceSastTool,
 			],
 			capabilityRequirements: [
 				{ capabilityId: "secret_detection", requirement: "required" },
 				{ capabilityId: "sca", requirement: "required" },
 				{ capabilityId: "iac_config", requirement: "required" },
-				...sourceSastRequirement(semgrepEnabled),
+				{
+					capabilityId: "cicd_workflow_integrity",
+					requirement: "required_if_applicable",
+				},
+				...sourceSastRequirement(semgrepRequired),
 			],
 			coverageGaps: semgrepEnabled ? [] : ["source_sast_adapter_not_available"],
 		},

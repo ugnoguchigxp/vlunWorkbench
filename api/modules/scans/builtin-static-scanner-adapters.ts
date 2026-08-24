@@ -1,10 +1,12 @@
 import { normalizeGitleaks } from "./normalizers/gitleaks";
 import { normalizeOsv } from "./normalizers/osv";
 import { normalizeTrivy } from "./normalizers/trivy";
+import { normalizeZizmor } from "./normalizers/zizmor";
 import type { StaticScannerAdapter } from "./static-scanner-adapter";
 import { GitleaksRunner } from "./tools/gitleaks-runner";
 import { OsvRunner } from "./tools/osv-runner";
 import { TrivyRunner } from "./tools/trivy-runner";
+import { ZizmorRunner } from "./tools/zizmor-runner";
 
 export const gitleaksScannerAdapter: StaticScannerAdapter = {
 	manifest: {
@@ -114,8 +116,55 @@ export const trivyScannerAdapter: StaticScannerAdapter = {
 	defaultCommand: () => "trivy fs",
 };
 
+export const zizmorScannerAdapter: StaticScannerAdapter = {
+	manifest: {
+		id: "zizmor",
+		displayName: "zizmor GitHub Actions Security",
+		binaryName: "zizmor",
+		upstreamLicense: "MIT",
+		distribution: "core",
+		dockerAllowedFirstArgs: ["--version", "--offline"],
+		diffInput: "full_snapshot",
+	},
+	resolveDiffExecution: ({ scanPaths }) => {
+		const workflowPaths = scanPaths.filter(isZizmorInputPath);
+		return {
+			inputKind: "full_snapshot",
+			targetPaths: workflowPaths.length > 0 ? workflowPaths : undefined,
+		};
+	},
+	createRunner: ({ artifactStorage, execution }) => {
+		const runner = new ZizmorRunner(artifactStorage, execution);
+		return {
+			checkVersion: () => runner.checkVersion(),
+			run: (input) =>
+				runner.run(input.scanRunId, input.repoPath, {
+					timeoutSec: input.timeoutSec,
+					targetPaths: input.diffContext?.targetPaths,
+					normalizePathsRelativeTo: input.diffContext
+						? input.repoPath
+						: undefined,
+					onLifecycleEvent: input.onLifecycleEvent,
+				}),
+		};
+	},
+	normalize: normalizeZizmor,
+	defaultCommand: () => "zizmor --offline --format=json-v1",
+};
+
+export function isZizmorInputPath(value: string): boolean {
+	const normalized = value.replaceAll("\\", "/").replace(/^\.\//, "");
+	return (
+		/^\.github\/workflows\/.+\.ya?ml$/i.test(normalized) ||
+		/^\.github\/actions\/.+\/action\.ya?ml$/i.test(normalized) ||
+		/^action\.ya?ml$/i.test(normalized) ||
+		/^\.pre-commit-config\.ya?ml$/i.test(normalized)
+	);
+}
+
 export const BUILTIN_STATIC_SCANNER_ADAPTERS = [
 	gitleaksScannerAdapter,
 	osvScannerAdapter,
 	trivyScannerAdapter,
+	zizmorScannerAdapter,
 ] as const;

@@ -61,11 +61,12 @@ export type ScanProfile = {
 	}>;
 	availability?: "stable" | "experimental" | "planned" | "deprecated";
 	safetyClass?: "R0" | "R1" | "R2" | "R3" | "mixed";
-	launchMode?:
-		| "profile_orchestrator"
-		| "dedicated_flow"
-		| "run_group"
-		| "unavailable";
+	launchMode?: "profile_orchestrator" | "dedicated_flow" | "unavailable";
+	experienceKind?:
+		| "scanner_preset"
+		| "assessment_workflow"
+		| "lab"
+		| "advanced_runner";
 	requiredInputs?: Array<{
 		kind: string;
 		requirement: "required" | "required_if_applicable" | "advisory";
@@ -76,13 +77,14 @@ export type ScanProfileCatalogEntry = {
 	id: string;
 	displayName: string;
 	description: string;
+	experienceKind:
+		| "scanner_preset"
+		| "assessment_workflow"
+		| "lab"
+		| "advanced_runner";
 	availability: "stable" | "experimental" | "planned" | "deprecated";
 	safetyClass: "R0" | "R1" | "R2" | "R3" | "mixed";
-	launchMode:
-		| "profile_orchestrator"
-		| "dedicated_flow"
-		| "run_group"
-		| "unavailable";
+	launchMode: "profile_orchestrator" | "dedicated_flow" | "unavailable";
 	supportedTargets: ScanTargetKind[];
 	strictness: "best_effort" | "strict";
 	capabilityRequirements: NonNullable<ScanProfile["capabilityRequirements"]>;
@@ -332,10 +334,7 @@ export function toLaunchableScanProfiles(
 		return data.profiles;
 	}
 	return data.catalogEntries
-		.filter(
-			(entry) =>
-				entry.id !== "professional-full" && entry.launchMode !== "unavailable",
-		)
+		.filter((entry) => entry.launchMode !== "unavailable")
 		.map((entry) => ({
 			id: entry.id,
 			name: entry.displayName,
@@ -351,6 +350,7 @@ export function toLaunchableScanProfiles(
 			availability: entry.availability,
 			safetyClass: entry.safetyClass,
 			launchMode: entry.launchMode,
+			experienceKind: entry.experienceKind,
 			requiredInputs: entry.requiredInputs,
 		}));
 }
@@ -368,6 +368,10 @@ export async function startScan(
 		attestationSubject?: string;
 		attestationBundle?: string;
 		trustPolicy?: string;
+		slsaProvenance?: string;
+		slsaPolicy?: string;
+		authContextId?: string;
+		identityRole?: string;
 		target?: ScanTarget;
 		expectedTargetDigest?: string;
 		expectedPreflightBindingHash?: string;
@@ -406,6 +410,10 @@ export async function preflightScan(
 		attestationSubject?: string;
 		attestationBundle?: string;
 		trustPolicy?: string;
+		slsaProvenance?: string;
+		slsaPolicy?: string;
+		authContextId?: string;
+		identityRole?: string;
 	},
 ): Promise<
 	ScanPreflightResult & {

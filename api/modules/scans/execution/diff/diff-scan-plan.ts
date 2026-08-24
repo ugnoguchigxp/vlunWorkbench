@@ -13,9 +13,10 @@ import {
 	dependencyProvidersForPaths,
 	detectAffectedPluginsFromPaths,
 } from "../../../project-capabilities/plugin-detector";
-import { DIFF_SCAN_LIMITS, type ResolvedGitDiff } from "./git-diff-resolver";
+import { isZizmorInputPath } from "../../builtin-static-scanner-adapters";
 import { DEPENDENCY_MANIFEST_SCOPE } from "../../profiles";
 import { matchesScopePath } from "../../target-scope";
+import { DIFF_SCAN_LIMITS, type ResolvedGitDiff } from "./git-diff-resolver";
 
 export type DiffScanPlan = {
 	resolved: ResolvedGitDiff;
@@ -160,17 +161,22 @@ function buildToolApplicability(params: {
 		params.coverage.unsupported > 0 || params.coverage.tooLarge > 0;
 	const noChanges = params.coverage.changed === 0;
 	const dependencyTool = params.toolId === "osv";
+	const workflowTool = params.toolId === "zizmor";
+	const workflowChanged = params.scanPaths.some(isZizmorInputPath);
 	const applicable =
 		!noChanges &&
 		params.scanPaths.length > 0 &&
-		(!dependencyTool || params.dependencyChanged);
+		(!dependencyTool || params.dependencyChanged) &&
+		(!workflowTool || workflowChanged);
 	const reasonCode = applicable
 		? null
 		: noChanges
 			? "no_changed_files"
 			: dependencyTool && !params.dependencyChanged
 				? "no_dependency_manifest_changed"
-				: "no_relevant_files";
+				: workflowTool && !workflowChanged
+					? "no_relevant_files"
+					: "no_relevant_files";
 	const coverageEffect = dependencyTool
 		? worstCoverageEffect(
 				params.dependencyCoverageEffect,
@@ -189,7 +195,9 @@ function buildToolApplicability(params: {
 				? params.scanPaths.filter((path) =>
 						matchesScopePath(path, DEPENDENCY_MANIFEST_SCOPE),
 					).length
-				: params.scanPaths.length
+				: workflowTool
+					? params.scanPaths.filter(isZizmorInputPath).length
+					: params.scanPaths.length
 			: 0,
 		contextFileCount: 0,
 	};

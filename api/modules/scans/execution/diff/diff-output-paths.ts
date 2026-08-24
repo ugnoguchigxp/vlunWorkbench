@@ -6,6 +6,7 @@ const PATH_KEYS = new Set([
 	"target",
 	"sourcepath",
 	"manifestpath",
+	"verbatim_path",
 ]);
 
 export function normalizeStructuredOutputPaths(

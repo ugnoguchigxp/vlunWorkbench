@@ -121,7 +121,7 @@ describe("scanner E2E v2 evidence verifier", () => {
 			artifactRoot: path.join(temporaryDirectory!, "storage"),
 			verifyTargetSnapshot: false,
 		});
-		expect(Object.keys(verified.evidenceHashes)).toHaveLength(12);
+		expect(Object.keys(verified.evidenceHashes)).toHaveLength(13);
 	});
 
 	test("rejects a process-only work claim", async () => {

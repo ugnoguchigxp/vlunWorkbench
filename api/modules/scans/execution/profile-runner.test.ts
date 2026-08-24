@@ -5,7 +5,6 @@ import os from "node:os";
 import path from "node:path";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { scanCapabilityIdSchema } from "../../../../shared/schemas/scan-capability.schema";
 import { createDbConnection, type DbConnection } from "../../../db";
 import {
   findings,
@@ -806,7 +805,7 @@ describe("Profile Runner Orchestration", () => {
     getProfileSpy.mockRestore();
   });
 
-	it("persists a professional parent contract only for a v2 full-security run", async () => {
+	it("keeps legacy full-security runs separate from professional campaigns", async () => {
 		const mockProfile = {
 			id: "full-security-scan",
 			name: "Professional parent fixture",
@@ -814,12 +813,9 @@ describe("Profile Runner Orchestration", () => {
 			enabled: true,
 			strictness: "strict" as const,
 			defaultTimeoutSec: 100,
-			capabilityRequirements: scanCapabilityIdSchema.options.map(
-				(capabilityId) => ({
-					capabilityId,
-					requirement: "required_if_applicable" as const,
-				}),
-			),
+			capabilityRequirements: [
+				{ capabilityId: "secret_detection" as const, requirement: "required" as const },
+			],
 			tools: [{ toolId: "gitleaks", displayName: "Gitleaks", required: true, failurePolicy: "fail_profile" as const }],
 			steps: [{ kind: "static_tool" as const, toolId: "gitleaks", displayName: "Gitleaks", required: true, failurePolicy: "fail_profile" as const }],
 		};
@@ -837,19 +833,15 @@ describe("Profile Runner Orchestration", () => {
 			executionPlanSchemaVersion: 2,
 		});
 		const [scanRun] = await connection.db.select().from(scanRuns).where(eq(scanRuns.id, result.scanRunId));
-		expect(scanRun.metadata).toEqual(expect.objectContaining({
-			professionalRunGroupPlan: expect.objectContaining({
-				schemaVersion: 1,
-				humanReview: { required: true, status: "pending" },
-				children: expect.arrayContaining([
-					expect.objectContaining({ childId: "capability:active_dast" }),
-				]),
+		expect(scanRun.metadata).toEqual(
+			expect.objectContaining({
+				canonicalProfileId: "legacy-full-security-scan",
 			}),
-			professionalRunGroupAssessment: expect.objectContaining({
-				technicalCompletion: false,
-				humanApproval: "pending",
-			}),
-		}));
+		);
+		expect(scanRun.metadata).not.toHaveProperty("professionalRunGroupPlan");
+		expect(scanRun.metadata).not.toHaveProperty(
+			"professionalRunGroupAssessment",
+		);
 	});
 
   it("should handle optional tool failure with completed_with_warnings status", async () => {

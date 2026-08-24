@@ -1,0 +1,761 @@
+<article lang="ja" data-spec-role="concept">
+  <h1 id="project-intelligence-ui-evolution-concept">Project Intelligence UI Evolution Concept</h1>
+
+  <h2 id="status">Status</h2>
+  <ul>
+    <li>Status: Proposed concept</li>
+    <li>Date: 2026-08-24</li>
+    <li>Owner: <code>vulnWorkbench</code></li>
+    <li>
+      Scope:
+      既存の<code>Projects &gt; Project &gt; Intelligence</code>を、SecurityやOntologyとの相互作用を扱えるUIへ発展させる
+    </li>
+    <li>
+      Related concept:
+      <a href="./project-intelligence-ontology-evolution-roadmap.html"
+        >Project Intelligence and Ontology Evolution Roadmap</a
+      >
+    </li>
+    <li>
+      Related concept:
+      <a href="./security-intelligence-integration-concept.html"
+        >Security Intelligence Integration Concept</a
+      >
+    </li>
+    <li>
+      Related concept:
+      <a href="./static-intelligence-layer-concept.html">Static Intelligence Layer Concept</a>
+    </li>
+    <li>Baseline plan: <code>docs/plans/archive/intelligence-structure-first-ui-rework-plan</code></li>
+  </ul>
+
+  <p>
+    本書は、既存実装を置き換える新画面の提案ではない。現在のProject
+    Intelligenceを土台として、複数の観測結果とProject文脈を重ねるためのUI拡張を定義する。後続の実装計画では、本書の段階分けと責務境界を入力として、API、read
+    model、migration、testを具体化する。
+  </p>
+
+  <h2 id="1-decision">1. Decision</h2>
+  <p>
+    <strong>Primary Navigationへ新しいIntelligenceメニューは追加しない。</strong>
+    Project Intelligenceの入口は、現在と同じ<code>Projects &gt; Project &gt; Intelligence</code>とする。
+  </p>
+
+  <pre><code class="language-text">Primary navigation
+Projects | Scans | Knowledge | Chat | Search | Settings
+
+Project navigation
+Overview | Scans | Intelligence
+
+Project Intelligence
+構造サマリー | モジュール | 関係マップ | Ontology連携
+</code></pre>
+
+  <p>
+    既存4タブは、それぞれProject構造、構造単位、関係、外部連携という明確な責務を持つ。このため、Overview、Explore、Assessments、Contextなどの類似タブを新設しない。相互作用によって増える情報は、既存画面へ<strong>Projection</strong>として重ねる。
+  </p>
+  <p>
+    ここでいうProjectionとは、Security、Architecture、Change、Testなどの観測をProject構造へ対応付けた派生表示である。元のFindingやOntology
+    Entityを書き換えるものではない。
+  </p>
+
+  <h2 id="2-verified-baseline">2. Verified Baseline</h2>
+  <p>本コンセプトは、次の既存実装を前提とする。</p>
+
+  <table>
+    <caption>
+      1. Existing UI and responsibility
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Area</th>
+        <th scope="col">Current route / UI</th>
+        <th scope="col">既に存在する責務</th>
+        <th scope="col">本書での扱い</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Project Overview</td>
+        <td><code>/projects/:projectId</code></td>
+        <td>Scan状態とIntelligence状態、Recent Scans、次のaction</td>
+        <td>入口として維持する。横断dashboardを別に作らない</td>
+      </tr>
+      <tr>
+        <td>Project Intelligence</td>
+        <td><code>/projects/:projectId/intelligence</code></td>
+        <td>generation context、構造、module、relationship、Ontology handoff</td>
+        <td>本コンセプトの拡張対象</td>
+      </tr>
+      <tr>
+        <td>Scans</td>
+        <td><code>/scans?projectId=...&amp;scanRunId=...</code></td>
+        <td>実行、Finding、Evidence、Coverage、Review、Report</td>
+        <td>Securityの正本として維持する</td>
+      </tr>
+      <tr>
+        <td>Ontology連携</td>
+        <td>Project Intelligence内の既存タブ</td>
+        <td>handoff readiness、provenance、候補payload、Agent Bundle preview</td>
+        <td>相互作用とconflictの可視化を追加する</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p>既存のProject Intelligenceには、すでに次が実装されている。</p>
+  <ul>
+    <li>
+      <strong>構造サマリー:</strong> structure readiness、metrics、module候補、analysis
+      coverage、Security evidence overlay
+    </li>
+    <li>
+      <strong>モジュール:</strong> master-detail、filter、entrypoint、依存方向、package、exported
+      symbol、関連fileとrisk overlay
+    </li>
+    <li>
+      <strong>関係マップ:</strong> module dependency、typed reference、evidence
+      graph、選択moduleの詳細
+    </li>
+    <li>
+      <strong>Ontology連携:</strong> canonical ownershipとの境界、handoff
+      payload、参照、verification candidate、MCP pull command
+    </li>
+    <li>
+      <strong>Generation Context:</strong> generation ID、status、生成日時、source
+      scan、readiness、refresh、Scan Workspaceへの導線
+    </li>
+  </ul>
+
+  <p>
+    このbaselineにより、「新しいProject Intelligence
+    Home」「独立Explore」「独立Context」「Finding一覧の複製」は追加価値にならない。後続実装は既存機能との差分だけを対象にする。
+  </p>
+
+  <h2 id="3-responsibility-boundaries">3. Responsibility Boundaries</h2>
+
+  <table>
+    <caption>
+      2. Ownership boundary
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Area</th>
+        <th scope="col">Owns</th>
+        <th scope="col">Does not own</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Scans</td>
+        <td>Scan Run、Finding、raw Evidence、Coverage、scanner severity、review、report</td>
+        <td>Project全体の意味、canonical Ontology、複数sourceの統合優先度</td>
+      </tr>
+      <tr>
+        <td>Project Intelligence</td>
+        <td>Project構造read model、関係、Projection、文脈付き評価、handoff候補、provenance</td>
+        <td>Findingの正本、Scan実行、canonical Ontologyの直接編集</td>
+      </tr>
+      <tr>
+        <td>Ontology consumer / owner</td>
+        <td>採用済みEntity、Relation、意味、宣言、invariant、revision</td>
+        <td>個々のScanner結果や未検証candidateの自動採用</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p>
+    Project
+    Intelligenceは、SecurityとOntologyの中間にあるコピー層ではなく、両者を参照して判断可能な形へ投影する接続面である。
+  </p>
+
+  <figure>
+    <pre class="mermaid" data-spec-html-source="markdown">flowchart LR
+    O[&quot;Ontology owner\ncanonical meaning / revision&quot;]
+    PI[&quot;Project Intelligence\nstructure / projections / provenance&quot;]
+    S[&quot;Scans\nrun / finding / evidence&quot;]
+
+    O -- &quot;entity / relation / invariant&quot; --&gt; PI
+    S -- &quot;finding / evidence / coverage&quot; --&gt; PI
+    PI -- &quot;candidate / conflict / supporting observation&quot; --&gt; O
+    PI -- &quot;precise deep link&quot; --&gt; S
+    S -- &quot;subject-focused deep link&quot; --&gt; PI
+</pre>
+    <figcaption>正本を維持したまま相互作用を可視化する</figcaption>
+  </figure>
+
+  <h2 id="4-ui-goals">4. UI Goals</h2>
+  <ol>
+    <li>Security Scan単体の実行・確認・報告を、Project Intelligenceなしでも完結させる。</li>
+    <li>Scannerの結果と、Project文脈を加えた結果の差を一目で説明する。</li>
+    <li>Ontology由来の意味がどのProjectionに使われたかを追跡可能にする。</li>
+    <li>Security観測から生まれたOntology候補を、自動採用せずにhandoffできるようにする。</li>
+    <li>同じsubjectをScansとProject Intelligenceの間で往復しても、選択状態を失わない。</li>
+    <li>source不足、解析失敗、stale、snapshot不一致を、単なる「データなし」にまとめない。</li>
+  </ol>
+
+  <h2 id="5-target-information-architecture">5. Target Information Architecture</h2>
+
+  <h3 id="51-existing-navigation">5.1 Existing navigation is retained</h3>
+  <p>
+    Primary Navigation、Project Navigation、既存routeは維持する。Project一覧とProject
+    Overviewが入口として機能しているため、Intelligence専用の横断Homeは設けない。
+  </p>
+
+  <h3 id="52-tab-policy">5.2 Tab policy</h3>
+
+  <table>
+    <caption>
+      3. Tab evolution
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Tab</th>
+        <th scope="col">現在の中心</th>
+        <th scope="col">追加するUI</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>構造サマリー</td>
+        <td>構造、coverage、module、Security evidence overlay</td>
+        <td>Enrichment Delta、capability別readiness、重要な相互作用</td>
+      </tr>
+      <tr>
+        <td>モジュール</td>
+        <td>module単位の構造と証跡</td>
+        <td>Projection Inspector、semantic claim、文脈付きsecurity/architecture signal</td>
+      </tr>
+      <tr>
+        <td>関係マップ</td>
+        <td>依存、typed reference、evidence graph</td>
+        <td>Structure / Security / Architecture / Semantic Lens</td>
+      </tr>
+      <tr>
+        <td>Ontology連携</td>
+        <td>candidate handoff、provenance、Agent Bundle</td>
+        <td>consumed / produced / conflictの双方向trace</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p>
+    初期段階では4タブを増やさない。変更前後のgeneration比較が実装された時だけ、<strong>変更影響</strong>を第5タブとして追加できる。比較データがない状態で空のタブを先に置かない。
+  </p>
+
+  <h2 id="6-generation-context">6. Generation Context and Source Readiness</h2>
+  <p>
+    画面上部の既存Generation Contextを、単一Scanの選択欄から、Project
+    Snapshotと複数capabilityの状態を確認できるstripへ段階的に拡張する。
+  </p>
+
+  <pre><code class="language-text">┌ Project Intelligence ──────────────────────────────────────────────┐
+│ Snapshot 8f31…  main@a3c9e2   Generated 14:32   [Change snapshot] │
+│ Structure Ready  Security Ready  Semantic Degraded  Handoff Ready │
+│ Source scan: run-1842                          [Details] [Refresh] │
+└────────────────────────────────────────────────────────────────────┘
+</code></pre>
+
+  <h3 id="61-header-behavior">6.1 Behavior</h3>
+  <ul>
+    <li>選択中のProject、revision、generation、生成日時を常に確認できる。</li>
+    <li>
+      現在の<code>Intelligence source</code>選択は、backend移行中も互換UIとして残す。
+    </li>
+    <li>将来はScan RunではなくProject Snapshot / Intelligence Generationを主選択にする。</li>
+    <li>Security Scanは複数inputの一つとしてsource欄に表示する。</li>
+    <li>
+      <code>Details</code
+      >はdrawerまたはpopoverで開き、専用Sources画面は作らない。
+    </li>
+  </ul>
+
+  <h3 id="62-capability-details">6.2 Capability Details</h3>
+  <p>capabilityごとに、少なくとも次を表示する。</p>
+  <ul>
+    <li>status: ready / stale / degraded / missing / failed / unsupported</li>
+    <li>producerとversion</li>
+    <li>対象revisionまたはsnapshot</li>
+    <li>生成日時とfreshness</li>
+    <li>coverageと既知のlimitation</li>
+    <li>再生成または正本へ移動するaction</li>
+  </ul>
+
+  <h2 id="7-structure-summary">7. 構造サマリー: Enrichment Delta</h2>
+  <p>
+    既存の構造サマリーへ、元の観測結果とProject文脈による追加判断を並べる<strong
+      >Enrichment Delta</strong
+    >を加える。Security件数を再集計するdashboardではなく、「統合によって何が新たに分かったか」を示す。
+  </p>
+
+  <pre><code class="language-text">Enrichment Delta
+┌ Base observation ───────────────┬ Project Intelligence added ────────────┐
+│ Finding: SQL injection          │ Reachable from public endpoint         │
+│ Scanner severity: High          │ Crosses trust boundary                 │
+│ Confidence: 0.91                │ Touches customer-data resource         │
+│ Evidence: 3 locations           │ Contextual priority: Immediate         │
+│ [Open in Scan Workspace]        │ Why: 3 claims / 5 relations            │
+└─────────────────────────────────┴────────────────────────────────────────┘
+</code></pre>
+
+  <h3 id="71-invariants">7.1 Display invariants</h3>
+  <ul>
+    <li>
+      <code>scannerSeverity</code
+      >、<code>scannerConfidence</code>、Finding statusは変更しない。
+    </li>
+    <li>
+      派生値は<code>contextualPriority</code>、<code>reachability</code>、<code>blastRadius</code>、<code>boundaryCrossing</code>など別fieldで表示する。
+    </li>
+    <li>各派生値から、入力したFinding、Relation、Semantic Claimへ辿れる。</li>
+    <li>Project文脈が利用できない場合でも、base observationは表示できる。</li>
+    <li>「影響なし」と「未観測」と「解析不能」を別状態にする。</li>
+  </ul>
+
+  <h3 id="72-summary-cards">7.2 Summary cards</h3>
+  <p>既存metricsを置き換えず、その下に少数のinteraction cardを追加する。</p>
+  <ul>
+    <li><strong>Context-raised priority:</strong> 文脈により優先度が上がった観測</li>
+    <li><strong>Boundary crossings:</strong> trust / domain boundaryを横断する経路</li>
+    <li><strong>Semantic conflicts:</strong> 宣言と観測が矛盾している候補</li>
+    <li><strong>Unresolved coverage:</strong> 判断に必要だが観測できていない範囲</li>
+  </ul>
+  <p>cardは詳細一覧を複製せず、該当moduleまたは関係マップをfilter済みで開く。</p>
+
+  <h2 id="8-module-projection-inspector">8. モジュール: Projection Inspector</h2>
+  <p>
+    既存のmodule
+    master-detailへ、選択subjectに関する複数ProjectionをまとめるInspectorを追加する。独立したExploreタブは設けない。
+  </p>
+
+  <pre><code class="language-text">┌ Modules ───────────┬ Existing module detail ───────────┬ Projection Inspector ┐
+│ auth               │ Entrypoints                       │ Subject               │
+│ billing  selected  │ Inbound / Outbound                │ Security              │
+│ catalog            │ Packages / Symbols / Files        │ Architecture          │
+│ ...                │ Reasons / Evidence                │ Semantic claims       │
+│                    │                                   │ Provenance / Unknowns │
+└────────────────────┴───────────────────────────────────┴──────────────────────┘
+</code></pre>
+
+  <h3 id="81-inspector-sections">8.1 Inspector sections</h3>
+  <ol>
+    <li><strong>Subject:</strong> stable ID、種類、module、file / symbol、対象snapshot</li>
+    <li>
+      <strong>Security:</strong> 関連Finding、reachability、sensitive resource、base severityとの差
+    </li>
+    <li><strong>Architecture:</strong> fan-in / fan-out、boundary crossing、cycle、blast radius</li>
+    <li>
+      <strong>Semantic:</strong> entity候補、relation候補、declared / observed /
+      inferred、confidence
+    </li>
+    <li>
+      <strong>Evidence and provenance:</strong> source
+      ref、producer、freshness、coverage、limitation
+    </li>
+    <li><strong>Actions:</strong> Scan Workspace、関係マップ、Ontology連携の該当箇所へ移動</li>
+  </ol>
+
+  <h3 id="82-inspector-behavior">8.2 Behavior</h3>
+  <ul>
+    <li>desktopでは右pane、狭い画面ではbottom sheetまたはfull-width detailとして表示する。</li>
+    <li>選択subjectをURLへ保存し、reloadと共有後も復元する。</li>
+    <li>利用できないProjectionはpane全体を消さず、理由と次actionを表示する。</li>
+    <li>Findingのreviewやstatus変更はInspector内で行わず、Scansへ遷移する。</li>
+    <li>Ontology Entityのcanonical編集はInspector内で行わず、handoff候補として扱う。</li>
+  </ul>
+
+  <h2 id="9-relationship-lenses">9. 関係マップ: Projection Lenses</h2>
+  <p>
+    既存のmodule dependencyとevidence graphを維持し、同じbounded
+    subgraphへ表示内容を重ねるLensを追加する。Lensは別々のGraphを作る機能ではない。
+  </p>
+
+  <table>
+    <caption>
+      4. Relationship lenses
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Lens</th>
+        <th scope="col">Purpose</th>
+        <th scope="col">Examples</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Structure</td>
+        <td>現在の標準表示。構造と依存を理解する</td>
+        <td>imports、calls、contains、module dependency</td>
+      </tr>
+      <tr>
+        <td>Security</td>
+        <td>FindingがProject構造のどこへ到達するかを見る</td>
+        <td>entrypoint、data flow、sink、trust boundary、evidence</td>
+      </tr>
+      <tr>
+        <td>Architecture</td>
+        <td>構造上の影響と境界違反を見る</td>
+        <td>cycle、unexpected dependency、fan-out、blast radius</td>
+      </tr>
+      <tr>
+        <td>Semantic</td>
+        <td>Ontologyの意味と観測構造の対応を見る</td>
+        <td>candidate entity、declared relation、conflict、unmapped subject</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3 id="91-lens-rules">9.1 Lens rules</h3>
+  <ul>
+    <li>defaultはStructureとし、既存の探索体験を変えない。</li>
+    <li>Graphは選択subject周辺のbounded subgraphとして取得する。</li>
+    <li>node / edgeの意味を色だけに依存させず、label、shape、legendを併用する。</li>
+    <li>List / Tableで同等の関係を確認できるようにする。</li>
+    <li>Lens切替後も選択subject、depth、filterを可能な範囲で維持する。</li>
+    <li>複数Lensの同時表示は初期scope外とし、視覚的な過密を避ける。</li>
+  </ul>
+
+  <h2 id="10-ontology-interaction">10. Ontology連携: Reciprocal Interaction</h2>
+  <p>
+    既存のhandoff画面に、Project
+    IntelligenceとOntologyの双方向の関係を示す。新しいContextタブは作らず、Agent Bundleとhandoff
+    payloadは現在のタブに残す。
+  </p>
+
+  <h3 id="101-consumed">10.1 Consumed from Ontology</h3>
+  <p>Project Intelligenceが判断に使用したsemantic inputを表示する。</p>
+  <ul>
+    <li>Entity / Relation / Invariant ref</li>
+    <li>canonical revision</li>
+    <li>使用したProjectionと派生結果</li>
+    <li>snapshotとの整合状態</li>
+    <li>staleまたはconflict時の影響範囲</li>
+  </ul>
+
+  <h3 id="102-produced">10.2 Produced for Ontology</h3>
+  <p>Securityや構造解析から生まれたcandidateを表示する。</p>
+  <ul>
+    <li>candidate typeとstable subject ref</li>
+    <li>observed / derived / inferredの区別</li>
+    <li>supporting evidenceとproducer</li>
+    <li>confidence、limitations、conflict</li>
+    <li>handoff readinessとverification候補</li>
+  </ul>
+
+  <h3 id="103-no-auto-promotion">10.3 No automatic promotion</h3>
+  <p>
+    candidateはcanonical
+    Ontologyへ自動昇格しない。UI上のactionは「採用」ではなく、候補payloadの確認、export、consumer側での検証に限定する。canonical側の変更結果は次generationで再取得する。
+  </p>
+
+  <h2 id="11-cross-navigation">11. Scansとの双方向Cross-navigation</h2>
+  <p>
+    現在はProject IntelligenceからScan Workspaceへ移動できる。一方、Scansから同じsubjectのProject
+    Intelligenceへ戻る精密な導線は不足している。これを優先して補う。
+  </p>
+
+  <h3 id="111-scans-to-intelligence">11.1 Scans to Project Intelligence</h3>
+  <p>Finding detailへ<code>View in Project Intelligence</code>を追加する。</p>
+  <ul>
+    <li>
+      対応moduleが一意なら<code>モジュール</code>を開き、Projection
+      InspectorでFindingを選択する。
+    </li>
+    <li>経路情報があるなら<code>関係マップ</code>をSecurity Lensで開く。</li>
+    <li>対応付けが複数なら候補一覧を表示し、暗黙に一つへ決めない。</li>
+    <li>Intelligence未生成なら、Findingを保持したまま生成actionを提示する。</li>
+  </ul>
+
+  <h3 id="112-intelligence-to-scans">11.2 Project Intelligence to Scans</h3>
+  <p>既存のScan Workspace導線を、可能な限りFindingまたはEvidence単位へ精密化する。</p>
+  <ul>
+    <li>ProjectとScan Runを固定する。</li>
+    <li>Finding fingerprintまたはstable finding refで該当detailを選択する。</li>
+    <li>元Findingが削除または再生成されている場合は、近似一致へ黙って移動しない。</li>
+    <li>snapshot不一致の場合は遷移前または遷移先で明示する。</li>
+  </ul>
+
+  <h3 id="113-round-trip">11.3 Round-trip invariant</h3>
+  <p>
+    Scans → Project Intelligence → Scansと往復した際、Project、source
+    Scan、Finding、subject、generationの選択を可能な限り維持する。相互作用のUI価値は、この往復が成立して初めて得られる。
+  </p>
+
+  <h2 id="12-change-impact">12. Later Option: 変更影響</h2>
+  <p>
+    変更影響は既存4タブと異なる時間軸を扱うため、将来の第5タブ候補とする。ただし、Project
+    SnapshotとGenerationの比較契約が成立するまで実装しない。
+  </p>
+
+  <pre><code class="language-text">構造サマリー | モジュール | 関係マップ | 変更影響 | Ontology連携
+                                                ^ later phase only
+</code></pre>
+
+  <h3 id="121-change-ui">12.1 UI</h3>
+  <ul>
+    <li>base generationとtarget generationを明示的に選択する。</li>
+    <li>module / relation / semantic claim / security contextの追加、削除、変更を分ける。</li>
+    <li>raw diffではなく、影響を受けるsubjectと根拠経路を表示する。</li>
+    <li>「観測が消えた」と「問題が解消した」を区別する。</li>
+    <li>変更前後のsource coverage差を常に併記する。</li>
+  </ul>
+
+  <h3 id="122-entry-conditions">12.2 Entry conditions</h3>
+  <ul>
+    <li>
+      Intelligence Generationが<code>scanRunId</code>から独立して識別できる。
+    </li>
+    <li>両generationが同一Projectの比較可能なsnapshotを参照する。</li>
+    <li>stable subject IDとrelation IDが定義されている。</li>
+    <li>source coverageの差を取得できる。</li>
+  </ul>
+
+  <h2 id="13-primary-flows">13. Primary User Flows</h2>
+
+  <h3 id="131-finding-flow">13.1 FindingからProject文脈を確認する</h3>
+  <ol>
+    <li>ユーザーがScansでFindingとraw Evidenceを確認する。</li>
+    <li><code>View in Project Intelligence</code>を選ぶ。</li>
+    <li>関係マップがSecurity Lensと対象subjectを保持して開く。</li>
+    <li>reachability、boundary、resource、semantic meaningを確認する。</li>
+    <li>Projection Inspectorでbase resultとEnrichment Deltaを比較する。</li>
+    <li>reviewやstatus変更が必要なら、同じFindingを選択したScansへ戻る。</li>
+  </ol>
+
+  <h3 id="132-module-flow">13.2 Moduleから複数の観測を確認する</h3>
+  <ol>
+    <li>ユーザーがProject Intelligenceのモジュールタブでmoduleを選ぶ。</li>
+    <li>既存の構造detailを確認する。</li>
+    <li>Projection InspectorでSecurity、Architecture、Semanticを順に確認する。</li>
+    <li>関係の根拠が必要なら、選択を保持したまま関係マップへ移動する。</li>
+    <li>raw findingまたはcanonical meaningが必要なら、それぞれの正本へ移動する。</li>
+  </ol>
+
+  <h3 id="133-ontology-flow">13.3 Security観測をOntology候補としてhandoffする</h3>
+  <ol>
+    <li>Security観測が既存Entityと対応する、または新しい意味候補を示す。</li>
+    <li>Project Intelligenceがcandidateとsupporting evidenceを生成する。</li>
+    <li>Ontology連携タブでconfidence、conflict、provenanceを確認する。</li>
+    <li>consumerへcandidate payloadを渡し、canonical側で検証する。</li>
+    <li>更新済みrevisionを次generationが入力として取り込み、使用箇所を表示する。</li>
+  </ol>
+
+  <h2 id="14-state-model">14. State and Error Model</h2>
+  <p>Project全体とcapabilityごとの状態を分離する。</p>
+
+  <table>
+    <caption>
+      5. Required states
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">State</th>
+        <th scope="col">Meaning</th>
+        <th scope="col">UI behavior</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>available</td>
+        <td>選択generationで利用可能</td>
+        <td>通常表示</td>
+      </tr>
+      <tr>
+        <td>stale</td>
+        <td>新しいsource revisionが存在する</td>
+        <td>現在の内容を残し、対象revisionとrefresh actionを示す</td>
+      </tr>
+      <tr>
+        <td>degraded</td>
+        <td>一部capabilityまたはcoverageが不足</td>
+        <td>利用可能範囲と不足範囲を分ける</td>
+      </tr>
+      <tr>
+        <td>missing</td>
+        <td>必要sourceが存在しない</td>
+        <td>必要条件と取得actionを示す</td>
+      </tr>
+      <tr>
+        <td>failed</td>
+        <td>生成処理が失敗</td>
+        <td>base sourceを隠さず、retryと診断情報を示す</td>
+      </tr>
+      <tr>
+        <td>unsupported</td>
+        <td>対象projectまたはsourceがcapability非対応</td>
+        <td>missingと区別し、無効なretryを出さない</td>
+      </tr>
+      <tr>
+        <td>snapshot_mismatch</td>
+        <td>sourceのrevisionが一致しない</td>
+        <td>統合値を生成せず、比較対象を明示する</td>
+      </tr>
+      <tr>
+        <td>not_observed</td>
+        <td>対象範囲を観測できていない</td>
+        <td>「該当なし」と表現しない</td>
+      </tr>
+      <tr>
+        <td>conflict</td>
+        <td>宣言、観測、推論が矛盾</td>
+        <td>勝者を暗黙に決めず、双方のrefを示す</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2 id="15-url-and-data-contract">15. URL and Data Contract Direction</h2>
+
+  <h3 id="151-route">15.1 Route</h3>
+  <p>既存routeを維持する。</p>
+  <pre><code class="language-text">/projects/:projectId/intelligence
+</code></pre>
+
+  <h3 id="152-query-state">15.2 Query state</h3>
+  <p>既存queryとの互換性を保ちながら拡張する。</p>
+  <pre><code class="language-text">Existing:
+  scanRunId
+  intelligenceView=overview|modules|relationships|handoff
+  focusPath
+  moduleId
+
+Candidates:
+  generationId
+  lens=structure|security|architecture|semantic
+  subjectId
+  findingRef
+  compareToGenerationId   # later phase only
+</code></pre>
+
+  <h3 id="153-identity-migration">15.3 Identity migration</h3>
+  <p>
+    現在のIntelligence GenerationはScan Runを起点としている。将来の統合では、Project
+    Snapshot、Observation Batch、Intelligence Generationを分離し、Scanをoptional
+    inputとして扱える必要がある。
+  </p>
+  <p>
+    UIを先に切り替えず、backendのidentityとread
+    modelが成立してから、<code>scanRunId</code>中心のselectorを<code>generationId</code>中心へ移行する。移行中は両者の対応を明示し、暗黙にlatestを選ばない。
+  </p>
+
+  <h3 id="154-minimum-read-model">15.4 Minimum Projection read model</h3>
+  <pre><code class="language-text">ProjectionResult
+  generationId
+  projectSnapshotRef
+  subjectRef
+  capability
+  baseObservationRefs[]
+  semanticInputRefs[]
+  derivedSignals[]
+  confidence
+  coverage
+  freshness
+  limitations[]
+  conflicts[]
+  producer
+</code></pre>
+
+  <p>
+    <code>derivedSignals</code>はbase
+    resultを上書きせず、計算根拠を参照できることを必須とする。field名とAPI分割は後続実装計画で確定する。
+  </p>
+
+  <h2 id="16-responsive-accessibility">16. Responsive and Accessibility</h2>
+  <ul>
+    <li>390px幅でもProject、generation、主要status、primary actionを確認できる。</li>
+    <li>Projection Inspectorは右pane固定にせず、小画面で独立detailへ変形する。</li>
+    <li>Graphだけを唯一の探索手段にせず、table / listを提供する。</li>
+    <li>keyboardでtab、module、subject、Lens、Inspector sectionを移動できる。</li>
+    <li>statusとLensを色だけで区別しない。</li>
+    <li>drawer / dialogはfocus trap、close、focus returnを備える。</li>
+    <li>大量nodeを一括描画せず、depthと件数budgetを明示する。</li>
+  </ul>
+
+  <h2 id="17-delivery-stages">17. Delivery Stages</h2>
+
+  <h3 id="stage-1">Stage 1: Boundary and navigation completion</h3>
+  <ul>
+    <li>Primary Navigationと既存4タブを維持する。</li>
+    <li>ScansからProject Intelligenceへのreverse deep linkを追加する。</li>
+    <li>Generation Contextにcapability readinessとsource detailsを追加する。</li>
+    <li>stable subject / finding refとURL stateを定義する。</li>
+  </ul>
+
+  <h3 id="stage-2">Stage 2: Enrichment Delta and Inspector</h3>
+  <ul>
+    <li>構造サマリーへEnrichment Deltaを追加する。</li>
+    <li>モジュールへProjection Inspectorを追加する。</li>
+    <li>base observationとderived signalの表示境界を固定する。</li>
+    <li>provenance、coverage、unknown stateを表示する。</li>
+  </ul>
+
+  <h3 id="stage-3">Stage 3: Relationship lenses and Ontology interaction</h3>
+  <ul>
+    <li>関係マップへSecurity / Architecture / Semantic Lensを段階追加する。</li>
+    <li>Ontology連携へconsumed / produced / conflict traceを追加する。</li>
+    <li>bounded subgraph APIとtable fallbackを実装する。</li>
+  </ul>
+
+  <h3 id="stage-4">Stage 4: Generation independence</h3>
+  <ul>
+    <li>Project Snapshot、Observation Batch、Generationのidentityを分離する。</li>
+    <li>Security Scanをoptional observation sourceへ移行する。</li>
+    <li>selectorとroute queryを<code>generationId</code>中心へ移行する。</li>
+  </ul>
+
+  <h3 id="stage-5">Stage 5: Change impact, if justified</h3>
+  <ul>
+    <li>比較契約とstable identityが成立した後に限り、第5タブを追加する。</li>
+    <li>2つのgeneration、coverage、source revisionを固定して差分を計算する。</li>
+  </ul>
+
+  <h2 id="18-non-goals">18. Non-goals</h2>
+  <ul>
+    <li>Primary Navigationへの新しいIntelligenceメニュー追加</li>
+    <li><code>/intelligence</code>という新しい横断Homeの追加</li>
+    <li>ScansのFinding一覧、review、reportをProject Intelligenceへ複製すること</li>
+    <li>既存のモジュール／関係マップと重複するExploreタブの追加</li>
+    <li>既存のAgent Bundleと重複するContextタブの追加</li>
+    <li>Security FindingとArchitecture signalを混在させたAssessments一覧の追加</li>
+    <li>Security未実行を理由にProject Intelligence全体を利用不能にすること</li>
+    <li>Semantic candidateのcanonical Ontologyへの自動昇格</li>
+    <li>Scanner severityやFinding statusの上書き</li>
+    <li>全Project、全Entity、全Evidenceを一度に描画するGraph browser</li>
+  </ul>
+
+  <h2 id="19-acceptance-criteria">19. Concept Acceptance Criteria</h2>
+  <ol>
+    <li>新しいPrimary Navigation itemを追加せず、既存routeから全機能へ到達できる。</li>
+    <li>既存4タブの責務が維持され、追加UIがどのタブに属するか明確である。</li>
+    <li>Security ScanはProject IntelligenceとOntologyがなくても単体で完結する。</li>
+    <li>base Findingと文脈付き派生値が視覚的・データ的に区別される。</li>
+    <li>すべての主要な派生値からsource refとproducerへ辿れる。</li>
+    <li>ScansとProject Intelligenceの相互deep linkで選択subjectを維持できる。</li>
+    <li>Ontology inputの使用箇所と、Ontology向けcandidateの双方を確認できる。</li>
+    <li>SecurityまたはSemantic capabilityが欠けても、利用可能な構造情報を表示できる。</li>
+    <li>missing、failed、stale、unsupported、not observed、snapshot mismatchを区別できる。</li>
+    <li>
+      既存Project Intelligenceのzero finding、legacy
+      URL、retry、mobile、accessibilityの動作を壊さない。
+    </li>
+    <li>変更影響タブは、比較可能なGeneration契約が成立するまで追加されない。</li>
+  </ol>
+
+  <h2 id="20-implementation-plan-inputs">20. Inputs Required for a Future Implementation Plan</h2>
+  <p>実装計画を作成する際は、少なくとも次を決定する。</p>
+  <ol>
+    <li>stable subject ID、finding ref、relation IDの形式とlifecycle</li>
+    <li>Project SnapshotとScan Runのrevision整合規則</li>
+    <li>Projection producerのplugin contractとreadiness contract</li>
+    <li>base observationとderived signalを分けるAPI response</li>
+    <li>既存<code>scanRunId</code>queryとの互換期間とmigration</li>
+    <li>Projection Inspectorのdesktop / mobile component境界</li>
+    <li>Lensごとのbounded graph queryとbudget</li>
+    <li>Scansとのround-trip deep link contract</li>
+    <li>Ontology consumerとのcandidate / revision / conflict protocol</li>
+    <li>既存E2Eを維持した追加test matrix</li>
+  </ol>
+
+  <p>
+    最初の実装計画はStage 1とStage 2だけを対象にする。Stage 3以降は、Projection read modelとstable
+    referenceが実データで検証できてから別planとして起票する。
+  </p>
+</article>

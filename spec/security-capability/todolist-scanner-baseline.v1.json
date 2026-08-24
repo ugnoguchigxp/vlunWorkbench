@@ -1,26 +1,79 @@
 {
-  "schemaVersion": 1,
-  "reviewStatus": "reviewed",
-  "reviewedAt": "2026-08-21T00:00:00.000Z",
-  "reviewedEvidenceApplicationCommit": "9cc83f97087a20efcd33662072f922fa0818e421",
-  "sourceEvidenceSha256": "sha256:15ea90598fb6b200502eb621125a56cf4f1b4582b686734adec47c1734920276",
-  "target": {
-    "repository": "todolist",
-    "commit": "d87bfdd9f29aa64e484a0c4d1ad02956136dc6b0",
-    "snapshotSha256": "sha256:6303521d5a45798444a2048a2477a66003e10b3deb381879908df90a5a50adac"
-  },
-  "cases": [
-    { "caseId": "gitleaks-source", "findingCount": 0, "normalizedEvidenceHash": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945" },
-    { "caseId": "osv-manifest", "findingCount": 15, "normalizedEvidenceHash": "sha256:a83b6e24be0d5b357c45cf2b253b5ffd90b80632b559fb3c52d3e38025f4456f" },
-    { "caseId": "osv-installed-tree", "findingCount": 15, "normalizedEvidenceHash": "sha256:050c229312fc796f59294fc57e488c69b134df8d8c16c3e3e61a8e5ce7afbb57" },
-    { "caseId": "trivy-filesystem", "findingCount": 8, "normalizedEvidenceHash": "sha256:300d7dddf3c0f1ca0ec5c151bd7d85699d68562fcdb6decaf9add4ac7ed56c47" },
-    { "caseId": "semgrep-source", "findingCount": 5, "normalizedEvidenceHash": "sha256:9eec20bb86de5536581dd836475338fcabc5ed5564f339913617a47c7963cfdd" },
-    { "caseId": "trivy-sbom", "findingCount": 0, "normalizedEvidenceHash": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945" },
-    { "caseId": "schemathesis-not-applicable", "findingCount": 0, "normalizedEvidenceHash": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945" },
-    { "caseId": "schemathesis-readonly", "findingCount": 0, "normalizedEvidenceHash": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945" },
-    { "caseId": "passive-dast", "findingCount": 0, "normalizedEvidenceHash": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945" },
-    { "caseId": "nuclei-safe", "findingCount": 0, "normalizedEvidenceHash": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945" },
-    { "caseId": "zap-baseline", "findingCount": 5, "normalizedEvidenceHash": "sha256:d5e80ea97ae6420bdaa74619771a753cb542dba1ac1b48d512cfeecb8ab6e869" },
-    { "caseId": "trivy-image", "findingCount": 116, "normalizedEvidenceHash": "sha256:4c61cf0f470d2f6ca3debabdb0f2f7f50fc3afa928451794b8be7001338499a7" }
-  ]
+	"schemaVersion": 1,
+	"reviewStatus": "reviewed",
+	"reviewedAt": "2026-08-21T00:00:00.000Z",
+	"reviewedEvidenceApplicationCommit": "9cc83f97087a20efcd33662072f922fa0818e421",
+	"sourceEvidenceSha256": "sha256:15ea90598fb6b200502eb621125a56cf4f1b4582b686734adec47c1734920276",
+	"target": {
+		"repository": "todolist",
+		"commit": "d87bfdd9f29aa64e484a0c4d1ad02956136dc6b0",
+		"snapshotSha256": "sha256:6303521d5a45798444a2048a2477a66003e10b3deb381879908df90a5a50adac"
+	},
+	"cases": [
+		{
+			"caseId": "gitleaks-source",
+			"findingCount": 0,
+			"normalizedEvidenceHash": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+		},
+		{
+			"caseId": "osv-manifest",
+			"findingCount": 15,
+			"normalizedEvidenceHash": "sha256:a83b6e24be0d5b357c45cf2b253b5ffd90b80632b559fb3c52d3e38025f4456f"
+		},
+		{
+			"caseId": "osv-installed-tree",
+			"findingCount": 15,
+			"normalizedEvidenceHash": "sha256:050c229312fc796f59294fc57e488c69b134df8d8c16c3e3e61a8e5ce7afbb57"
+		},
+		{
+			"caseId": "trivy-filesystem",
+			"findingCount": 8,
+			"normalizedEvidenceHash": "sha256:300d7dddf3c0f1ca0ec5c151bd7d85699d68562fcdb6decaf9add4ac7ed56c47"
+		},
+		{
+			"caseId": "semgrep-source",
+			"findingCount": 5,
+			"normalizedEvidenceHash": "sha256:9eec20bb86de5536581dd836475338fcabc5ed5564f339913617a47c7963cfdd"
+		},
+		{
+			"caseId": "zizmor-workflow",
+			"findingCount": 4,
+			"normalizedEvidenceHash": "sha256:df26b8b5e1a147deda40b7098d039771f21e4f284aee7ab2a3bbaaa1c668d4de"
+		},
+		{
+			"caseId": "trivy-sbom",
+			"findingCount": 0,
+			"normalizedEvidenceHash": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+		},
+		{
+			"caseId": "schemathesis-not-applicable",
+			"findingCount": 0,
+			"normalizedEvidenceHash": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+		},
+		{
+			"caseId": "schemathesis-readonly",
+			"findingCount": 0,
+			"normalizedEvidenceHash": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+		},
+		{
+			"caseId": "passive-dast",
+			"findingCount": 0,
+			"normalizedEvidenceHash": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+		},
+		{
+			"caseId": "nuclei-safe",
+			"findingCount": 0,
+			"normalizedEvidenceHash": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+		},
+		{
+			"caseId": "zap-baseline",
+			"findingCount": 5,
+			"normalizedEvidenceHash": "sha256:d5e80ea97ae6420bdaa74619771a753cb542dba1ac1b48d512cfeecb8ab6e869"
+		},
+		{
+			"caseId": "trivy-image",
+			"findingCount": 116,
+			"normalizedEvidenceHash": "sha256:4c61cf0f470d2f6ca3debabdb0f2f7f50fc3afa928451794b8be7001338499a7"
+		}
+	]
 }

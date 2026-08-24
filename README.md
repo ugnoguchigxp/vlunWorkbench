@@ -288,15 +288,33 @@ bun run scan:profile -- --project-path /path/to/repo --profile runtime-web-safe 
 bun run scan:profile -- --project-path /path/to/repo --profile sbom-inventory --json
 bun run scan:profile -- --project-path /path/to/repo --profile api-schema-readonly --json
 bun run scan:profile -- --project-path /path/to/repo --profile container-image-security --image-ref local/app:tag --json
+bun run scan:profile -- --project-path /path/to/repo --profile dependency-supply-chain \
+  --attestation-subject dist/app.tar.gz \
+  --attestation-bundle attestations/app.bundle.json \
+  --trust-policy security/cosign.pub --json
+bun run scan:profile -- --project-path /path/to/repo --profile dependency-supply-chain \
+  --runner docker --network default \
+  --attestation-subject dist/app.tar.gz \
+  --slsa-provenance attestations/app.intoto.jsonl \
+  --slsa-policy security/slsa-policy.json --json
 ```
 
-`full-security-scan` runs the existing static tools, CycloneDX SBOM, coverage-aware Web Passive Standard DAST, Nuclei safe, ZAP baseline, and Schemathesis only when a schema is discovered. Nuclei uses the pinned safe template set; ZAP is Docker-only passive baseline through a bounded local gateway; Schemathesis sends no credentials and limits methods to GET/HEAD/OPTIONS. The planned runtime allocations are bounded to 250 requests in total. Missing schema, failed transport, authentication failure, or budget exhaustion is reported as a coverage gap or limitation, not as “no vulnerabilities.”
+`full-security-scan` is the deprecated legacy composite preset; it is not the `professional-full` campaign. It runs the existing static tools, CycloneDX SBOM, coverage-aware Web Passive Standard DAST, Nuclei safe, ZAP baseline, and Schemathesis only when a qualified schema is discovered. Nuclei uses the pinned safe template set; ZAP is Docker-only passive baseline through a bounded local gateway. Schemathesis accepts bounded JSON/YAML OpenAPI and Query-only GraphQL SDL. OpenAPI is restricted to GET/HEAD/OPTIONS; GraphQL permits POST only through a gateway that parses the request and rejects Mutation/Subscription. An optional saved auth context is injected by the gateway from a read-only temporary policy file and never placed in scanner argv. Missing schema, failed transport, authentication failure, or budget exhaustion is reported as a coverage gap or limitation, not as “no vulnerabilities.”
 
 Runtime profiles that auto-start a local target never start a host process. An administrator configures digest-pinned, server-owned runtime images (namespace owner, Node, materializer, registry proxy, probe, and HTTP executor), the current Docker daemon identity hash, and the qualification hash in Settings > Runtime Settings. The settings are stored in SQLite and apply to the next preview and scan. If any item is missing or mutable, preflight blocks the runtime profile. The target, DB sidecar, passive DAST, Nuclei, ZAP, and Schemathesis run in one disposable container namespace and cannot use the host network or an existing database.
 
 Dynamic verification likewise requires the server-owned, digest-pinned `VULN_WORKBENCH_DYNAMIC_IMAGE` setting. Request and CLI image overrides may only repeat that exact value; mutable or unqualified images are blocked before a source snapshot is created.
 
-For strict `full-security-scan` runs from the Web UI, set Runtime Settings to the `Docker` scanner execution mode and use `vuln-workbench-toolbox-semgrep:local`. The core `vuln-workbench-toolbox:local` image intentionally excludes the separately licensed Semgrep engine and therefore cannot satisfy the full-profile preflight by itself.
+Strict `full-security-scan` runs use the core toolbox by default. Semgrep is
+added to that profile only when the optional adapter is explicitly enabled; in
+that case, select `vuln-workbench-toolbox-semgrep:local` as the Docker scanner
+image. Cosign 3.1.3, zizmor 1.29.0, slsa-verifier 2.7.1, and Schemathesis
+4.24.2 are included in the core toolbox. zizmor is applicable only to GitHub
+Actions definitions and runs offline. slsa-verifier is an alternative to
+Cosign, not an additional mandatory duplicate: select it when source, builder,
+and ref semantics must be verified. Cosign uses a manifest-locked production
+Sigstore trusted root from the toolbox and verifies local bundles with Docker
+networking disabled; it does not require a CI job or a runtime TUF download.
 
 For a standalone ZAP run, use `bun run scan:zap-baseline -- --project-path /path/to/local-project --create-project true --json`. It uses the pinned `zaproxy/zap-stable@sha256:8d387b1a63e3425beef4846e39719f5af2a787753af2d8b6558c6257d7a577a2` image (ZAP `2.17.0`), sends at most 20 target requests at 2 requests/second by default, and returns a non-zero CLI status when the ZAP execution or target preflight fails. ZAP Baseline spiders passive GET/HEAD resources; it does not run active attacks or authenticated scans.
 
@@ -309,11 +327,23 @@ bun run scan:osv -- --project-id <project-id>
 bun run scan:trivy -- --project-id <project-id>
 bun run scan:sbom -- --project-id <project-id>
 bun run scan:trivy-image -- --project-id <project-id> --image-ref local/app:tag
+bun run scan:cosign -- --project-path /path/to/repo \
+  --attestation-subject dist/app.tar.gz \
+  --attestation-bundle attestations/app.bundle.json \
+  --trust-policy security/cosign.pub
+bun run scan:zizmor -- --project-path /path/to/repo
+bun run scan:slsa -- --project-path /path/to/repo \
+  --attestation-subject dist/app.tar.gz \
+  --slsa-provenance attestations/app.intoto.jsonl \
+  --slsa-policy security/slsa-policy.json
 ```
 
 When explicitly enabled, the optional Semgrep adapter uses the repository-owned,
 tree-hashed `curated-sast-v1` catalog by default: 45 rules, five languages, and at least six security families per
 language. Its release fixtures contain 90 positive and 90 negative annotations.
+`VULN_WORKBENCH_OPTIONAL_SCANNER_ADAPTERS=semgrep` is a preferred, non-blocking
+selection. Use `VULN_WORKBENCH_REQUIRED_SCANNER_ADAPTERS=semgrep` only for a
+must-run policy that should block admission when Semgrep is unavailable.
 Pass `--config auto` only for an exploratory registry run; that run is recorded
 as non-reproducible and the automatic report remains ready with limitations.
 The LGPL engine is not included in the core toolbox or standard profiles; see

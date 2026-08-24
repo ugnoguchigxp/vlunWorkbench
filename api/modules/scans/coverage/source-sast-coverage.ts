@@ -16,7 +16,12 @@ export function resolveSourceSastCoverage(
 	results?: ScanProfileStepResult[],
 	applicability?: SourceSastApplicability,
 ): SourceSastCoverage | null {
-	if (profile.id !== "full-security-scan") return null;
+	if (
+		!["full-security-scan", "change-gate", "source-assurance"].includes(
+			profile.id,
+		)
+	)
+		return null;
 	const semgrepStep = (profile.steps ?? []).find(
 		(step) => step.kind === "static_tool" && step.toolId === "semgrep",
 	);
@@ -91,7 +96,7 @@ export function resolveSourceSastCoverage(
 		rulesetId: "curated-sast-v1",
 		limitationCodes:
 			results === undefined
-				? resolvedApplicability.reasonCodes
+				? [SOURCE_SAST_NOT_EXECUTED, ...resolvedApplicability.reasonCodes]
 				: [
 						SOURCE_SAST_NOT_EXECUTED,
 						...resolvedApplicability.reasonCodes,

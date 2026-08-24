@@ -26,8 +26,10 @@ export function buildScanWorkspaceActions(scope: ScansActionScope) {
 		activeAssessmentPlanJson,
 		attestationBundle,
 		attestationSubject,
+		supplyChainVerifier,
 		continueOnToolFailure,
 		dastAuthStatusPath,
+		dastAuthContexts,
 		dastBearerToken,
 		dastIdentityRole,
 		dastProfileConfigs,
@@ -58,6 +60,8 @@ export function buildScanWorkspaceActions(scope: ScansActionScope) {
 		selectedReproProfile,
 		selectedProjectId,
 		selectedScanRunId,
+		slsaPolicy,
+		slsaProvenance,
 		setDiffBaseRef,
 		setDiffHeadRef,
 		setDiffPreview,
@@ -89,7 +93,6 @@ export function buildScanWorkspaceActions(scope: ScansActionScope) {
 		setDastBearerToken,
 		setSelectedDastAuthContextId,
 		setSelectedDastTargetId,
-		timeoutSec,
 		trustPolicy,
 	} = scope;
 
@@ -167,13 +170,7 @@ export function buildScanWorkspaceActions(scope: ScansActionScope) {
 	};
 
 	const handleStartScanProfile = async () => {
-		if (
-			isScanning ||
-			!selectedProjectId ||
-			!selectedProfileId ||
-			timeoutSec <= 0
-		)
-			return;
+		if (isScanning || !selectedProjectId || !selectedProfileId) return;
 		const project = projects.find(
 			(item: { id: string; pathPolicy?: { status?: string } }) =>
 				item.id === selectedProjectId,
@@ -185,6 +182,12 @@ export function buildScanWorkspaceActions(scope: ScansActionScope) {
 		setIsScanning(true);
 		setErrorText(null);
 		try {
+			const apiAuthContext =
+				selectedProfileId === "api-readonly" && selectedDastAuthContextId
+					? dastAuthContexts.find(
+							(context) => context.id === selectedDastAuthContextId,
+						)
+					: undefined;
 			if (selectedProfileId === "dynamic-verification") {
 				if (!scanProjectCodeExecutionConsent) {
 					throw new Error("Docker隔離環境でのコード実行に同意してください。");
@@ -197,7 +200,6 @@ export function buildScanWorkspaceActions(scope: ScansActionScope) {
 					consentProjectCodeExecution: true,
 					runner: "docker",
 					network: "none",
-					timeoutSec: Math.min(timeoutSec, 300),
 				});
 				await completeDedicatedLaunch(result.scanRunId);
 				return;
@@ -343,6 +345,12 @@ export function buildScanWorkspaceActions(scope: ScansActionScope) {
 				target,
 				consentProjectCodeExecution: scanProjectCodeExecutionConsent,
 				allowExperimental: selectedProfileId === "api-readonly",
+				...(apiAuthContext
+					? {
+							authContextId: apiAuthContext.id,
+							identityRole: apiAuthContext.identityRole,
+						}
+					: {}),
 				...(selectedProfileId === "release-artifact" &&
 				releaseInputKind === "image_ref"
 					? { imageRef: requiredValue(imageRef, "Image ref") }
@@ -362,9 +370,14 @@ export function buildScanWorkspaceActions(scope: ScansActionScope) {
 				profile: selectedProfileId,
 				continueOnToolFailure,
 				consentProjectCodeExecution: scanProjectCodeExecutionConsent,
-				timeoutSec,
 				target,
 				allowExperimental: selectedProfileId === "api-readonly",
+				...(apiAuthContext
+					? {
+							authContextId: apiAuthContext.id,
+							identityRole: apiAuthContext.identityRole,
+						}
+					: {}),
 				...(selectedProfileId === "release-artifact" &&
 				releaseInputKind === "image_ref"
 					? { imageRef: requiredValue(imageRef, "Image ref") }
@@ -424,14 +437,21 @@ export function buildScanWorkspaceActions(scope: ScansActionScope) {
 		}
 
 		function requireAttestationInputs() {
-			return {
-				attestationSubject: requiredValue(
-					attestationSubject,
-					"検証対象ファイル",
-				),
-				attestationBundle: requiredValue(attestationBundle, "Cosign bundle"),
-				trustPolicy: requiredValue(trustPolicy, "検証用公開鍵"),
-			};
+			const subject = requiredValue(attestationSubject, "検証対象ファイル");
+			return supplyChainVerifier === "slsa"
+				? {
+						attestationSubject: subject,
+						slsaProvenance: requiredValue(slsaProvenance, " SLSA provenance"),
+						slsaPolicy: requiredValue(slsaPolicy, "SLSA期待値ポリシー"),
+					}
+				: {
+						attestationSubject: subject,
+						attestationBundle: requiredValue(
+							attestationBundle,
+							"Cosign bundle",
+						),
+						trustPolicy: requiredValue(trustPolicy, "検証用公開鍵"),
+					};
 		}
 
 		async function completeDedicatedLaunch(scanRunId?: string) {

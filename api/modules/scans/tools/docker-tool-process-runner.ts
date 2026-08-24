@@ -331,7 +331,11 @@ function rewriteToolArgs(
 		if (paths.repoPath && path.resolve(arg) === path.resolve(paths.repoPath)) {
 			return CONTAINER_REPO_PATH;
 		}
-		if (paths.repoPath && isPathInside(arg, paths.repoPath)) {
+		if (
+			paths.repoPath &&
+			path.isAbsolute(arg) &&
+			isPathInside(arg, paths.repoPath)
+		) {
 			return `${CONTAINER_REPO_PATH}/${path.relative(paths.repoPath, arg)}`;
 		}
 		if (
@@ -403,6 +407,9 @@ function buildDockerRunArgs(params: {
 		"HOME=/tmp",
 		"--env",
 		"PATH=/usr/local/bin:/usr/bin:/bin",
+		...(params.binaryName === "vwb-schemathesis-readonly-gateway"
+			? ["--workdir", "/tmp"]
+			: []),
 		"--entrypoint",
 		dockerEntrypointFor(params.binaryName),
 	];

@@ -1,16 +1,25 @@
+import path from "node:path";
 import type { ScanProfileStep } from "../../../../shared/schemas/scan-profile.schema";
 import { discoverRepositoryApiSchema } from "../../api-schema-fuzz/schema-discovery";
 import type { PreparedRuntimeTarget } from "../../dast/runtime-target-provider";
 import { RuntimeTargetPreparationError } from "../../runtime-isolation/runtime-failure";
 import {
+	resolveAttestationInputPaths,
+	resolveRepositoryRelativeFile,
+	resolveSlsaProvenanceInputPaths,
+} from "../attestation/attestation-inputs";
+import {
+	COSIGN_TRUSTED_ROOT_CONTAINER_PATH,
+	COSIGN_TRUSTED_ROOT_REPOSITORY_PATH,
 	CosignAttestationProvider,
 	isCosignVersionSafe,
 	parseCosignVersion,
 } from "../attestation/cosign-attestation-provider";
 import {
-	resolveAttestationInputPaths,
-	resolveRepositoryRelativeFile,
-} from "../attestation/attestation-inputs";
+	parseSlsaVerifierVersion,
+	SLSA_VERIFIER_VERSION,
+	SlsaProvenanceProvider,
+} from "../attestation/slsa-provenance-provider";
 import { ArtifactRepository } from "../repositories";
 import { resolveStaticScannerDiffExecution } from "../static-scanner-adapter";
 import { staticScannerAdapterRegistry } from "../static-scanner-adapters";
@@ -255,6 +264,9 @@ async function executeAttestationStep(params: {
 	if (step.kind !== "attestation_verify") {
 		throw new Error(`Unsupported profile step: ${stepId}`);
 	}
+	if (step.adapter === "slsa-verifier") {
+		return executeSlsaAttestationStep({ ...params, step });
+	}
 	if (
 		!scope.attestationSubject ||
 		!scope.attestationBundle ||
@@ -263,7 +275,7 @@ async function executeAttestationStep(params: {
 		throw new Error("attestation_input_missing");
 	}
 	const observedCosignVersion = await checkToolVersion("cosign", ["version"], {
-		execution: { runner: "host" },
+		execution: scope.execution,
 	});
 	if (!isCosignVersionSafe(observedCosignVersion)) {
 		throw new Error("scanner_version_vulnerable:cosign");
@@ -290,14 +302,22 @@ async function executeAttestationStep(params: {
 	const provider = new CosignAttestationProvider(
 		async ({ binary, args, timeoutSec }) => {
 			const result = await runToolProcess(binary, args, {
-				execution: { runner: "host" },
+				execution: scope.execution,
+				repoPath: scope.profileInputRepoPath,
 				timeoutSec: Math.min(timeoutSec, params.resolvedTimeout),
 				env: getCleanEnv(),
 			});
 			return { ok: result.ok, exitCode: result.exitCode };
 		},
 	);
-	const receipt = await provider.verify(paths);
+	const receipt = await provider.verify({
+		...paths,
+		trustedRootPath:
+			scope.execution.runner === "docker"
+				? COSIGN_TRUSTED_ROOT_CONTAINER_PATH
+				: path.resolve(process.cwd(), COSIGN_TRUSTED_ROOT_REPOSITORY_PATH),
+		timeoutSec: params.resolvedTimeout,
+	});
 	const sink = new ScanArtifactSink(
 		scope.artifactStorage,
 		new ArtifactRepository(scope.db),
@@ -307,7 +327,11 @@ async function executeAttestationStep(params: {
 		role: "raw_result",
 		format: "json",
 		content: JSON.stringify(receipt, null, 2),
-		metadata: { adapter: "cosign", offline: true },
+		metadata: {
+			adapter: "cosign",
+			offline: true,
+			trustedRoot: "pinned-scanner-data",
+		},
 	});
 	const failed = !receipt.verified;
 	return {
@@ -325,6 +349,109 @@ async function executeAttestationStep(params: {
 				findingCount: 0,
 				error: failed
 					? "Cosign could not verify the supplied attestation."
+					: null,
+				artifactIds: [artifact.id],
+				metadata: { receipt },
+			},
+		],
+		profileFailingToolFailed: failed && params.failureFailsProfile,
+		optionalToolFailed: failed && !params.failureFailsProfile,
+	};
+}
+
+async function executeSlsaAttestationStep(params: {
+	step: Extract<ScanProfileStep, { kind: "attestation_verify" }>;
+	stepId: string;
+	failureFailsProfile: boolean;
+	resolvedTimeout: number;
+	scope: ExecuteProfileStepsParams;
+}): Promise<ProfileStepExecution> {
+	const { step, stepId, scope } = params;
+	if (
+		step.adapter !== "slsa-verifier" ||
+		!scope.attestationSubject ||
+		!scope.slsaProvenance ||
+		!scope.slsaPolicy
+	) {
+		throw new Error("attestation_input_missing");
+	}
+	if (
+		scope.execution.runner === "docker" &&
+		scope.execution.docker?.networkMode !== "default"
+	) {
+		throw new Error("slsa_trust_root_network_required");
+	}
+	const observedVersion = await checkToolVersion("slsa-verifier", ["version"], {
+		execution: scope.execution,
+	});
+	if (parseSlsaVerifierVersion(observedVersion) !== SLSA_VERIFIER_VERSION) {
+		throw new Error("scanner_version_mismatch:slsa-verifier");
+	}
+	const preflightVersion = scope.scanPreflight.checks.find(
+		(check) =>
+			check.stepId === stepId &&
+			check.kind === "binary_version" &&
+			check.scannerId === "slsa-verifier",
+	)?.observedVersion;
+	if (
+		preflightVersion &&
+		parseSlsaVerifierVersion(preflightVersion) !==
+			parseSlsaVerifierVersion(observedVersion)
+	) {
+		throw new Error("scanner_version_mismatch:slsa-verifier");
+	}
+	const paths = await resolveSlsaProvenanceInputPaths({
+		repoPath: scope.profileInputRepoPath,
+		subject: scope.attestationSubject,
+		provenance: scope.slsaProvenance,
+		policy: scope.slsaPolicy,
+	});
+	const provider = new SlsaProvenanceProvider(
+		async ({ binary, args, timeoutSec }) => {
+			const result = await runToolProcess(binary, args, {
+				execution: scope.execution,
+				repoPath: scope.profileInputRepoPath,
+				timeoutSec: Math.min(timeoutSec, params.resolvedTimeout),
+				env: getCleanEnv(),
+			});
+			return { ok: result.ok, exitCode: result.exitCode };
+		},
+	);
+	const receipt = await provider.verify({
+		...paths,
+		timeoutSec: params.resolvedTimeout,
+	});
+	const sink = new ScanArtifactSink(
+		scope.artifactStorage,
+		new ArtifactRepository(scope.db),
+		{ scanRunId: scope.scanRun.id, kind: "scan", id: "slsa-provenance" },
+	);
+	const artifact = await sink.saveText({
+		role: "raw_result",
+		format: "json",
+		content: JSON.stringify(receipt, null, 2),
+		metadata: {
+			adapter: "slsa-verifier",
+			offline: false,
+			trustRootRefresh: "sigstore-tuf",
+		},
+	});
+	const failed = !receipt.verified;
+	return {
+		toolResults: [],
+		stepResults: [
+			{
+				kind: "attestation_verify",
+				stepId,
+				adapter: "slsa-verifier",
+				required: step.required,
+				status: failed ? "failed" : "completed",
+				applicability: "applicable",
+				reasonCode: failed ? "attestation_verification_failed" : null,
+				coverageEffect: failed ? "gap" : "covered",
+				findingCount: 0,
+				error: failed
+					? "slsa-verifier could not verify the artifact provenance against the supplied policy."
 					: null,
 				artifactIds: [artifact.id],
 				metadata: { receipt },
@@ -608,7 +735,9 @@ async function executeSchemaStep(params: {
 	if (step.kind !== "api_schema_scan") {
 		throw new Error(`Unsupported profile step: ${stepId}`);
 	}
-	const discovery = await discoverRepositoryApiSchema(params.scope.repoPath);
+	const discovery = await discoverRepositoryApiSchema(params.scope.repoPath, {
+		includeAuthenticatedOperations: Boolean(params.scope.authContextId),
+	});
 	if (!discovery.applicable) {
 		return {
 			toolResults: [],
@@ -644,6 +773,7 @@ async function executeSchemaStep(params: {
 	const schemaResult = await runSchemaScannerIntoExistingScan({
 		db: params.scope.db,
 		projectId: params.scope.projectId,
+		createdByUserId: params.scope.createdByUserId ?? undefined,
 		scanRunId: params.scope.scanRun.id,
 		repoPath: params.scope.repoPath,
 		targetOrigin: target.origin,
@@ -657,6 +787,9 @@ async function executeSchemaStep(params: {
 		rateLimitPerSec: schemaOptions?.rateLimitPerSec,
 		runtimeNamespaceOwnerId: target.runtimeNamespaceOwnerId,
 		runtimeImage: target.runtimeScannerImages?.schemathesis,
+		authContextRepository: params.scope.authContextRepository,
+		authContextId: params.scope.authContextId,
+		identityRole: params.scope.identityRole,
 	});
 	const notApplicable = !schemaResult.applicable;
 	const schemaFailed = Boolean(schemaResult.error);

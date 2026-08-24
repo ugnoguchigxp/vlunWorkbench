@@ -9,8 +9,8 @@ import {
 describe("scan profile definitions", () => {
 	test("covers every public catalog profile exactly once", () => {
 		assertScanProfileDefinitionIntegrity();
-		expect(SCAN_PROFILE_DEFINITIONS).toHaveLength(14);
-		expect(new Set(SCAN_PROFILE_DEFINITIONS.map((entry) => entry.id)).size).toBe(14);
+		expect(SCAN_PROFILE_DEFINITIONS).toHaveLength(13);
+		expect(new Set(SCAN_PROFILE_DEFINITIONS.map((entry) => entry.id)).size).toBe(13);
 		expect(new Set(SCAN_PROFILE_CATALOG.map((entry) => entry.id))).toEqual(
 			new Set(SCAN_PROFILE_DEFINITIONS.map((entry) => entry.id)),
 		);
@@ -31,5 +31,17 @@ describe("scan profile definitions", () => {
 		expect(getScanProfileDefinition("runtime-passive")).toMatchObject({
 			engineId: "passive-runtime",
 		});
+	});
+
+	test("probes only the selected supply-chain verifier", () => {
+		const definition = getScanProfileDefinition("dependency-supply-chain");
+		expect(
+			definition.variants.find((variant) => variant.id === "offline-attestation")
+				?.dependencyIds,
+		).toContain("scanner.cosign");
+		expect(
+			definition.variants.find((variant) => variant.id === "slsa-provenance")
+				?.dependencyIds,
+		).toContain("scanner.slsa-verifier");
 	});
 });

@@ -55,6 +55,120 @@ describe("container target gateway", () => {
 		await gateway.stop();
 	});
 
+	it("allows only Query operations through the GraphQL POST exception", async () => {
+		const seen: string[] = [];
+		const upstream = http.createServer((req, res) => {
+			let body = "";
+			req.setEncoding("utf8");
+			req.on("data", (chunk) => {
+				body += chunk;
+			});
+			req.on("end", () => {
+				seen.push(body);
+				res.end("ok");
+			});
+		});
+		const port = await listen(upstream);
+		const gateway = await prepareContainerTargetGateway({
+			upstreamOrigin: `http://127.0.0.1:${port}`,
+			allowedPaths: ["/graphql"],
+			excludedPaths: [],
+			maxRequests: 10,
+			rateLimitPerSec: 100,
+			exactOperations: [{ method: "POST", pathTemplate: "/graphql" }],
+			graphqlQueryOnly: {
+				pathTemplate: "/graphql",
+				maxRequestBytes: 1024,
+			},
+		});
+		const query = await fetch(`${gateway.hostOrigin}/graphql`, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ query: "query { health }" }),
+		});
+		expect(query.status).toBe(200);
+		const mutation = await fetch(`${gateway.hostOrigin}/graphql`, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ query: "mutation { reset }" }),
+		});
+		expect(mutation.status).toBe(400);
+		const extensions = await fetch(`${gateway.hostOrigin}/graphql`, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({
+				query: "query { health }",
+				extensions: { persistedQuery: { sha256Hash: "canary" } },
+			}),
+		});
+		expect(extensions.status).toBe(400);
+		const duplicate = await fetch(`${gateway.hostOrigin}/graphql`, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: '{"query":"mutation { reset }","query":"query { health }"}',
+		});
+		expect(duplicate.status).toBe(400);
+		expect(seen).toHaveLength(1);
+		expect(gateway.metrics()).toMatchObject({
+			forwardedRequests: 1,
+			graphqlBlockedRequests: 3,
+		});
+		await gateway.stop();
+	});
+
+	it("injects trusted auth only toward the upstream target", async () => {
+		const seen: Array<string | undefined> = [];
+		const upstream = http.createServer((req, res) => {
+			seen.push(req.headers["x-test-token"] as string | undefined);
+			res.end("ok");
+		});
+		const port = await listen(upstream);
+		const gateway = await prepareContainerTargetGateway({
+			upstreamOrigin: `http://127.0.0.1:${port}`,
+			allowedPaths: ["/"],
+			excludedPaths: [],
+			maxRequests: 1,
+			rateLimitPerSec: 100,
+			upstreamRequestHeaders: { "X-Test-Token": "secret-canary" },
+		});
+		await fetch(gateway.hostOrigin, {
+			headers: { "x-test-token": "scanner-controlled" },
+		});
+		expect(seen).toEqual(["secret-canary"]);
+		await gateway.stop();
+	});
+
+	it("rejects case-insensitive duplicate trusted auth headers", async () => {
+		await expect(
+			prepareContainerTargetGateway({
+				upstreamOrigin: "http://127.0.0.1:1",
+				allowedPaths: ["/"],
+				excludedPaths: [],
+				maxRequests: 1,
+				rateLimitPerSec: 1,
+				containerAccess: false,
+				upstreamRequestHeaders: {
+					Authorization: "Bearer one",
+					authorization: "Bearer two",
+				},
+			}),
+		).rejects.toThrow("target_gateway_auth_header_duplicate");
+	});
+
+	it("rejects prototype-sensitive trusted header names", async () => {
+		await expect(
+			prepareContainerTargetGateway({
+				upstreamOrigin: "http://127.0.0.1:1",
+				allowedPaths: ["/"],
+				excludedPaths: [],
+				maxRequests: 1,
+				rateLimitPerSec: 1,
+				containerAccess: false,
+				upstreamRequestHeaders: JSON.parse('{"__proto__":"secret"}'),
+			}),
+		).rejects.toThrow("target_gateway_auth_header_not_allowed");
+	});
+
 	it("enforces segment-exact operation policies and rejects encoded bypasses", async () => {
 		const upstream = http.createServer((_req, res) => res.end("ok"));
 		const port = await listen(upstream);
@@ -69,13 +183,49 @@ describe("container target gateway", () => {
 		expect((await fetch(`${gateway.hostOrigin}/api/users/one`)).status).toBe(200);
 		expect((await fetch(`${gateway.hostOrigin}/api/users`)).status).toBe(404);
 		expect((await fetch(`${gateway.hostOrigin}/api/users/one/extra`)).status).toBe(404);
-		expect((await fetch(`${gateway.hostOrigin}/api/users%2fone`)).status).toBe(404);
+		expect((await fetch(`${gateway.hostOrigin}/api/users%2fone`)).status).toBe(400);
 		expect((await fetch(`${gateway.hostOrigin}/api/users/one`, { headers: { "x-http-method-override": "POST" } })).status).toBe(405);
 		expect(gateway.metrics().operationMetrics?.["GET /api/users/{id}"]).toEqual({
 			attempted: 2,
 			forwarded: 1,
 			blocked: 1,
 		});
+		await gateway.stop();
+	});
+
+	it("enforces path, query, method-override, and header budgets", async () => {
+		const upstream = http.createServer((_req, res) => res.end("ok"));
+		const port = await listen(upstream);
+		const gateway = await prepareContainerTargetGateway({
+			upstreamOrigin: `http://127.0.0.1:${port}`,
+			allowedPaths: ["/"],
+			excludedPaths: [],
+			maxRequests: 10,
+			rateLimitPerSec: 100,
+			exactOperations: [{ method: "GET", pathTemplate: "/api/{id}" }],
+			requestLimits: {
+				maxPathBytes: 100,
+				maxPathSegmentBytes: 4,
+				maxQueryParameters: 2,
+				maxQueryValueBytes: 4,
+				maxQueryBytes: 100,
+				maxRequestHeaderBytes: 16_384,
+			},
+		});
+		expect(
+			(await fetch(`${gateway.hostOrigin}/api/okay?a=1234&b=1`)).status,
+		).toBe(200);
+		expect((await fetch(`${gateway.hostOrigin}/api/longer`)).status).toBe(400);
+		expect(
+			(await fetch(`${gateway.hostOrigin}/api/okay?a=12345`)).status,
+		).toBe(400);
+		expect(
+			(await fetch(`${gateway.hostOrigin}/api/okay?a=1&b=2&c=3`)).status,
+		).toBe(400);
+		expect(
+			(await fetch(`${gateway.hostOrigin}/api/okay?_method=DELETE`)).status,
+		).toBe(400);
+		expect(gateway.metrics().requestLimitBlockedRequests).toBe(4);
 		await gateway.stop();
 	});
 

@@ -197,6 +197,7 @@ describe("Dynamic Runner", () => {
 		expect(dryResult.profileId).toBe("test-profile-1");
 		expect(dryResult.dynamicKind).toBe("test");
 		expect(dryResult.command).toEqual(["bun", "test"]);
+		expect(dryResult.timeoutSec).toBe(120);
 		expect(dryResult.writableWorkdir).toBe(true);
 	});
 

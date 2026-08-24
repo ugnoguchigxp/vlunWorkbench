@@ -1,7 +1,7 @@
 {
   "version": 2,
   "generatedAt": "2026-08-20T15:54:47.022Z",
-  "manifestHash": "sha256:b1cbafc73502bc86d3bf624a1f9548385afff5e7db4000995ac552dc8701d594",
+  "manifestHash": "sha256:083e5b1fc55bd2eac620af5785a138a2746690fd07093ce537767b2a729400c2",
   "tools": {
     "semgrep": {
       "version": "1.171.0",
@@ -49,6 +49,45 @@
       "runtimePath": null,
       "state": "ready",
       "dataBundles": []
+    },
+    "zizmor": {
+      "version": "1.29.0",
+      "binaryDigest": null,
+      "runtimePath": null,
+      "state": "ready",
+      "dataBundles": []
+    },
+    "slsa-verifier": {
+      "version": "2.7.1",
+      "binaryDigest": null,
+      "runtimePath": null,
+      "state": "ready",
+      "dataBundles": []
+    },
+    "cosign": {
+      "version": "3.1.3",
+      "binaryDigest": null,
+      "runtimePath": "/opt/vuln-workbench/scanner-data/sigstore-trusted-root.json",
+      "state": "ready",
+      "dataBundles": [
+        {
+          "id": "sigstore-production-trusted-root-v1",
+          "kind": "add-on",
+          "sourceRef": "sigstore-tuf:production",
+          "sourceCommit": null,
+          "license": "NOASSERTION",
+          "generatedAt": "2026-08-24T00:00:00.000Z",
+          "maxAgeHours": 8760,
+          "digest": "sha256:8fc40bfc11dcc042f5fa8fa1ab19b1f98f5deef0665455dceb6698c865a0fc3f",
+          "coverage": [
+            "rekor-transparency-log",
+            "fulcio-signing-certificate",
+            "certificate-transparency-log",
+            "timestamp-authority"
+          ],
+          "path": "sigstore-trusted-root.json"
+        }
+      ]
     },
     "osv": {
       "version": "2.4.0",

@@ -124,6 +124,51 @@ export function buildSchemathesisReadonlyCommand(
 	];
 }
 
+export function buildSchemathesisGraphqlReadonlyCommand(
+	schemaPath: string,
+	targetUrl: string,
+	outputPath: string,
+): string[] {
+	if (
+		!/^https?:\/\/(?:127\.0\.0\.1|host\.docker\.internal)(?::\d+)?\/graphql$/.test(
+			targetUrl,
+		)
+	) {
+		throw new Error(
+			"Schemathesis GraphQL scan requires the qualified loopback GraphQL endpoint.",
+		);
+	}
+	return [
+		"run",
+		schemaPath,
+		"--url",
+		targetUrl,
+		"--workers",
+		"1",
+		"--max-examples",
+		"20",
+		"--max-failures",
+		"20",
+		"--rate-limit",
+		"2/s",
+		"--max-redirects",
+		"0",
+		"--request-timeout",
+		"10",
+		"--request-retries",
+		"0",
+		"--generation-deterministic",
+		"--report",
+		"ndjson",
+		"--report-ndjson-path",
+		outputPath,
+		"--output-sanitize",
+		"true",
+		"--output-truncate",
+		"true",
+	];
+}
+
 export function buildTrivySbomCommand(
 	outputPath: string,
 	repoPath: string,

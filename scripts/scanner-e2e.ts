@@ -326,6 +326,7 @@ function canonicalCaseId(id: string): string {
 			"osv-installed-tree": "osv-installed-tree",
 			"trivy-fs": "trivy-filesystem",
 			semgrep: "semgrep-source",
+			zizmor: "zizmor-workflow",
 			sbom: "trivy-sbom",
 			"trivy-image": "trivy-image",
 			"passive-dast": "passive-dast",

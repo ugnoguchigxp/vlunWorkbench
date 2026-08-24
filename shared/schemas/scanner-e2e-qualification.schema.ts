@@ -10,7 +10,7 @@ export const scannerE2EQualificationSchema = z.object({
 	executionHash: sha256DigestSchema,
 	caseEvidenceHashes: z.record(z.string(), sha256DigestSchema),
 	caseScannerIdentityHashes: z.record(z.string(), sha256DigestSchema),
-	qualifiedCaseIds: z.array(z.string().min(1).max(100)).length(12),
+	qualifiedCaseIds: z.array(z.string().min(1).max(100)).length(13),
 });
 
 export type ScannerE2EQualification = z.infer<

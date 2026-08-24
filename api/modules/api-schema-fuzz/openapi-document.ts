@@ -159,7 +159,10 @@ function validatePath(pathTemplate: string) {
 	return new Set(parameters);
 }
 
-export function parseOpenApiDocument(document: unknown): ParsedOpenApiDocument {
+export function parseOpenApiDocument(
+	document: unknown,
+	options: { includeAuthenticatedOperations?: boolean } = {},
+): ParsedOpenApiDocument {
 	const root = record(document);
 	if (!root) throw new Error("openapi_schema_required");
 	const format = qualifiedVersion(root);
@@ -197,7 +200,12 @@ export function parseOpenApiDocument(document: unknown): ParsedOpenApiDocument {
 				operation.security === undefined ? rootSecurity : operation.security;
 			if (security !== undefined && !Array.isArray(security))
 				throw new Error("openapi_security_invalid");
-			if (Array.isArray(security) && security.length > 0) continue;
+			if (
+				Array.isArray(security) &&
+				security.length > 0 &&
+				options.includeAuthenticatedOperations !== true
+			)
+				continue;
 			const key = `${method.toUpperCase()} ${pathTemplate}`;
 			if (operationKeys.has(key))
 				throw new Error("openapi_operation_duplicate");

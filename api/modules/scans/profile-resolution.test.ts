@@ -103,6 +103,31 @@ describe("profile resolution", () => {
 		});
 	});
 
+	test("selects SLSA semantic provenance verification without stacking Cosign", () => {
+		const resolved = resolveProfileSelection({
+			requestedProfileId: "dependency-supply-chain",
+			surface: "cli",
+			target: { kind: "full" },
+			providedInputKinds: normalizeProfileResolutionInput({
+				repoPath: "/tmp/project",
+				attestationSubject: "dist/app.tar.gz",
+				slsaProvenance: "attestations/app.intoto.jsonl",
+				slsaPolicy: "security/slsa-policy.json",
+			}),
+		});
+		expect(resolved.resolution).toMatchObject({
+			executionProfileId: "dependency-supply-chain-slsa",
+			executionVariantId: "slsa-provenance",
+		});
+		expect(
+			resolved.executionProfile.steps?.filter(
+				(step) => step.kind === "attestation_verify",
+			),
+		).toEqual([
+			expect.objectContaining({ adapter: "slsa-verifier" }),
+		]);
+	});
+
 	test("rejects disabled legacy active profiles before a run can be created", () => {
 		for (const requestedProfileId of [
 			"runtime-zap-active-lab",

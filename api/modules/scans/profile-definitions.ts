@@ -1,12 +1,12 @@
 import dependencyManifest from "../../../shared/manifests/scan-dependencies.v1.json";
+import { scanDependencyManifestSchema } from "../../../shared/schemas/scan-dependency-manifest.schema";
 import {
-	canonicalProfileIdSchema,
 	type CanonicalProfileId,
+	canonicalProfileIdSchema,
 	type ScanProfileDefinition,
 	scanProfileDefinitionSchema,
 } from "../../../shared/schemas/scan-profile-definition.schema";
-import { scanDependencyManifestSchema } from "../../../shared/schemas/scan-dependency-manifest.schema";
-import { SCAN_PROFILE_CATALOG, getCatalogEntry } from "./profile-catalog";
+import { getCatalogEntry, SCAN_PROFILE_CATALOG } from "./profile-catalog";
 
 type DefinitionSeed = Omit<
 	ScanProfileDefinition,
@@ -27,6 +27,7 @@ const SEEDS: DefinitionSeed[] = [
 					"source:gitleaks",
 					"source:osv",
 					"source:trivy",
+					"source:zizmor",
 					"source:semgrep",
 				],
 				qualificationFixture: fixture("change-gate"),
@@ -36,6 +37,7 @@ const SEEDS: DefinitionSeed[] = [
 			"scanner.gitleaks",
 			"scanner.osv",
 			"scanner.trivy",
+			"scanner.zizmor",
 			"scanner.semgrep",
 			"resource.workspace",
 		],
@@ -50,6 +52,7 @@ const SEEDS: DefinitionSeed[] = [
 					"source:gitleaks",
 					"source:osv",
 					"source:trivy",
+					"source:zizmor",
 					"source:semgrep",
 				],
 				qualificationFixture: fixture("source-assurance"),
@@ -59,6 +62,7 @@ const SEEDS: DefinitionSeed[] = [
 			"scanner.gitleaks",
 			"scanner.osv",
 			"scanner.trivy",
+			"scanner.zizmor",
 			"scanner.semgrep",
 			"resource.workspace",
 		],
@@ -71,12 +75,30 @@ const SEEDS: DefinitionSeed[] = [
 				id: "offline-attestation",
 				stepIds: ["deps:osv", "sbom:trivy", "attestation:cosign"],
 				qualificationFixture: fixture("dependency-supply-chain"),
+				dependencyIds: [
+					"scanner.osv",
+					"scanner.trivy",
+					"scanner.cosign",
+					"resource.workspace",
+				],
+			},
+			{
+				id: "slsa-provenance",
+				stepIds: ["deps:osv", "sbom:trivy", "attestation:slsa-verifier"],
+				qualificationFixture: fixture("dependency-supply-chain"),
+				dependencyIds: [
+					"scanner.osv",
+					"scanner.trivy",
+					"scanner.slsa-verifier",
+					"resource.workspace",
+				],
 			},
 		],
 		dependencyIds: [
 			"scanner.osv",
 			"scanner.trivy",
 			"scanner.cosign",
+			"scanner.slsa-verifier",
 			"resource.workspace",
 		],
 	},
@@ -191,11 +213,6 @@ const SEEDS: DefinitionSeed[] = [
 				stepIds: ["api:schemathesis-readonly"],
 				qualificationFixture: fixture("api-readonly"),
 			},
-			{
-				id: "configured-schema",
-				stepIds: ["api:schemathesis-readonly"],
-				qualificationFixture: fixture("api-readonly"),
-			},
 		],
 		dependencyIds: [
 			"docker.daemon",
@@ -246,18 +263,6 @@ const SEEDS: DefinitionSeed[] = [
 				id: "reproduction-replay",
 				stepIds: ["reproduction:replay"],
 				qualificationFixture: fixture("remediation-verification"),
-			},
-		],
-		dependencyIds: ["resource.workspace"],
-	},
-	{
-		id: "professional-full",
-		engineId: "run-group",
-		variants: [
-			{
-				id: "qualified-child-group",
-				stepIds: ["child:profile"],
-				qualificationFixture: fixture("professional-full"),
 			},
 		],
 		dependencyIds: ["resource.workspace"],
@@ -323,6 +328,13 @@ export function assertScanProfileDefinitionIntegrity(): void {
 				throw new Error(
 					`profile_variant_has_no_steps:${definition.id}:${variant.id}`,
 				);
+			}
+			for (const dependencyId of variant.dependencyIds ?? []) {
+				if (!dependencyIds.has(dependencyId)) {
+					throw new Error(
+						`profile_variant_dependency_missing:${definition.id}:${variant.id}:${dependencyId}`,
+					);
+				}
 			}
 		}
 	}

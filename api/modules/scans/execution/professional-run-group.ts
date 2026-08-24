@@ -1,6 +1,9 @@
 import crypto from "node:crypto";
 import type { CoverageLedger } from "../../../../shared/schemas/scan-coverage-ledger.schema";
-import { scanCapabilityIdSchema } from "../../../../shared/schemas/scan-capability.schema";
+import {
+	scanCapabilityIdSchema,
+	type ScanCapabilityId,
+} from "../../../../shared/schemas/scan-capability.schema";
 import { capabilityStepIds } from "../coverage/coverage-ledger";
 import type { ScanExecutionPlanV2 } from "../../../../shared/schemas/scan-execution-plan.schema";
 import type { NormalizedProfileStepResult } from "../../../../shared/schemas/scan-profile-step-result.schema";
@@ -16,9 +19,13 @@ import {
 } from "../../../../shared/schemas/professional-run-group.schema";
 import { canonicalJson } from "./diff/diff-scan-plan";
 
-const childKindByCapability: Record<string, ProfessionalRunGroupChildKind> = {
+const childKindByCapability: Record<
+	ScanCapabilityId,
+	ProfessionalRunGroupChildKind
+> = {
 	secret_detection: "profile",
 	source_sast: "profile",
+	cicd_workflow_integrity: "profile",
 	sca: "profile",
 	iac_config: "profile",
 	sbom: "profile",

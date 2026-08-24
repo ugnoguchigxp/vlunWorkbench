@@ -1,12 +1,12 @@
 import type { AppEnv } from "../../../app/env";
-import type { ToolExecutionConfig } from "../tools/tool-process-runner";
 import { RUNTIME_SETTINGS_DEFAULTS } from "../../../config/runtime-settings";
+import type { ToolExecutionConfig } from "../tools/tool-process-runner";
 
 export type ScanExecutionSurface = "web" | "cli" | "security_oracle";
 
 export type ResolvedScanExecutionPolicy = {
 	runner: "host" | "docker";
-	networkMode: "none";
+	networkMode: "none" | "default";
 	dockerImage: string | null;
 	source: "default" | "configured" | "request";
 	hostExecutionExplicitlyAllowed: boolean;
@@ -42,6 +42,8 @@ export function resolveScanExecutionPolicy(params: {
 		>;
 	surface: ScanExecutionSurface;
 	requestedRunner?: "host" | "docker";
+	/** Explicitly selected SLSA verification needs Sigstore TUF trust-root refresh. */
+	allowSlsaTrustRootNetwork?: boolean;
 }): ResolvedScanExecutionPolicy {
 	const configuredRunner = params.env.scanExecutionMode;
 	const requestMaySelectRunner = params.surface !== "security_oracle";
@@ -68,7 +70,10 @@ export function resolveScanExecutionPolicy(params: {
 
 	return {
 		runner,
-		networkMode: "none",
+		networkMode:
+			runner === "docker" && params.allowSlsaTrustRootNetwork === true
+				? "default"
+				: "none",
 		dockerImage:
 			runner === "docker" ? (params.env.scanDockerImage ?? null) : null,
 		source,

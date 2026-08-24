@@ -43,7 +43,7 @@ export const coverageLedgerSchema = z
 		schemaVersion: z.literal(1),
 		planHash: sha256DigestSchema,
 		derivedAt: z.string().datetime(),
-		entries: z.array(coverageLedgerEntrySchema).max(17),
+		entries: z.array(coverageLedgerEntrySchema).max(18),
 		summary: z.object({
 			covered: z.number().int().nonnegative(),
 			partial: z.number().int().nonnegative(),

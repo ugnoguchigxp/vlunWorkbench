@@ -20,6 +20,7 @@ export const scanReasonCodeSchema = z.enum([
 	"image_source_unreachable",
 	"attestation_input_missing",
 	"attestation_verification_failed",
+	"slsa_trust_root_network_required",
 	"target_start_not_supported",
 	"target_unreachable_from_container",
 	"preflight_failed",
@@ -116,6 +117,12 @@ export const scanReasonCodeRegistry = {
 		coverageEffect: "gap",
 		action: "inspect_attestation_and_trust_policy",
 		messageKey: "attestation_verification_failed",
+	},
+	slsa_trust_root_network_required: {
+		category: "readiness",
+		coverageEffect: "gap",
+		action: "allow_slsa_trust_root_network",
+		messageKey: "slsa_trust_root_network_required",
 	},
 	target_start_not_supported: {
 		category: "applicability",

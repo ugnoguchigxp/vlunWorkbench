@@ -66,6 +66,21 @@ function preflight(params: {
 }
 
 describe("scan execution plan compiler", () => {
+	it("keeps an explicitly advisory Semgrep step optional in a strict profile", () => {
+		const profile = buildScanProfiles({ optionalAdapterIds: ["semgrep"] }).find(
+			(candidate) => candidate.id === "full-security-scan",
+		)!;
+		const steps = applyStrictProfileRequirements(profile, profile.steps!);
+		const semgrep = steps.find(
+			(step) => step.kind === "static_tool" && step.toolId === "semgrep",
+		);
+		expect(semgrep).toMatchObject({
+			required: false,
+			requirement: "advisory",
+			failurePolicy: "warn_and_continue",
+		});
+	});
+
   it("upgrades strict applicable steps to required and blocks missing readiness", () => {
     const profile = buildScanProfiles().find(
       (candidate) => candidate.id === "api-schema-readonly",

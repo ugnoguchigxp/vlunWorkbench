@@ -41,7 +41,9 @@ type OracleStatus =
 	| "runtime_error";
 
 function writeResult(payload: OracleResult): void {
-	console.log(JSON.stringify(securityOracleResultSchema.parse(payload)));
+	process.stdout.write(
+		`${JSON.stringify(securityOracleResultSchema.parse(payload))}\n`,
+	);
 }
 
 function failureResult(params: {

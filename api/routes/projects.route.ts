@@ -31,6 +31,7 @@ import {
 	type FullSourceSnapshot,
 	materializeScopedSourceSnapshot,
 } from "../modules/scans/execution/lifecycle/full-source-snapshot";
+import type { ScanLaunchAttemptRepository } from "../modules/scans/execution/scan-launch-attempt-repository";
 import { resolveFullScanTarget } from "../modules/scans/full-scan-target";
 import {
 	GitDiffResolutionError,
@@ -49,7 +50,6 @@ import type {
 	ProjectRepository,
 	ScanRepository,
 } from "../modules/scans/repositories";
-import type { ScanLaunchAttemptRepository } from "../modules/scans/execution/scan-launch-attempt-repository";
 import {
 	applyStrictProfileRequirements,
 	buildScanExecutionPlan,
@@ -288,12 +288,26 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 					attestationSubject: z.string().min(1).max(500).optional(),
 					attestationBundle: z.string().min(1).max(500).optional(),
 					trustPolicy: z.string().min(1).max(500).optional(),
+					slsaProvenance: z.string().min(1).max(500).optional(),
+					slsaPolicy: z.string().min(1).max(500).optional(),
+					authContextId: z.string().uuid().optional(),
+					identityRole: z.string().min(1).max(100).optional(),
 				}),
 			),
 			async (c) => {
 				const authUser = getAuthContextUser(c);
 				const projectId = c.req.param("projectId");
 				const body = c.req.valid("json");
+				if (Boolean(body.authContextId) !== Boolean(body.identityRole))
+					throw new HttpError(
+						400,
+						"authContextId and identityRole must be provided together.",
+					);
+				if (body.authContextId && body.profile !== "api-readonly")
+					throw new HttpError(
+						400,
+						"authContextId is supported only by api-readonly.",
+					);
 				const project = await repo.findById(projectId);
 				if (!project) throw new HttpError(404, "Project not found");
 				if (project.ownerUserId !== authUser.userId) {
@@ -314,12 +328,16 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 					attestationSubject: body.attestationSubject,
 					attestationBundle: body.attestationBundle,
 					trustPolicy: body.trustPolicy,
+					slsaProvenance: body.slsaProvenance,
+					slsaPolicy: body.slsaPolicy,
+					authContextId: body.authContextId,
 				});
 				const profile = selection.executionProfile;
 				const policy = resolveScanExecutionPolicy({
 					env: runtimeEnv,
 					surface: "web",
 					requestedRunner: body.runner,
+					allowSlsaTrustRootNetwork: Boolean(body.slsaProvenance),
 				});
 				const execution = normalizeToolExecutionConfig(
 					executionConfigFromPolicy(policy),
@@ -409,6 +427,10 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 						attestationSubject: body.attestationSubject,
 						attestationBundle: body.attestationBundle,
 						trustPolicy: body.trustPolicy,
+						slsaProvenance: body.slsaProvenance,
+						slsaPolicy: body.slsaPolicy,
+						authContextId: body.authContextId,
+						identityRole: body.identityRole,
 						targetPlan: runtimeTargetProvider?.plan,
 						runtimeDockerImages: runtimeTargetProvider?.preflightDockerImages,
 						runtimeScannerImages: runtimeTargetProvider?.runtimeScannerImages,
@@ -566,6 +588,10 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 					attestationSubject: z.string().min(1).max(500).optional(),
 					attestationBundle: z.string().min(1).max(500).optional(),
 					trustPolicy: z.string().min(1).max(500).optional(),
+					slsaProvenance: z.string().min(1).max(500).optional(),
+					slsaPolicy: z.string().min(1).max(500).optional(),
+					authContextId: z.string().uuid().optional(),
+					identityRole: z.string().min(1).max(100).optional(),
 					finalReport: z.boolean().default(true).optional(),
 					reportTitle: z.string().optional(),
 				}),
@@ -574,6 +600,16 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 				const authUser = getAuthContextUser(c);
 				const projectId = c.req.param("projectId");
 				const body = c.req.valid("json");
+				if (Boolean(body.authContextId) !== Boolean(body.identityRole))
+					throw new HttpError(
+						400,
+						"authContextId and identityRole must be provided together.",
+					);
+				if (body.authContextId && body.profile !== "api-readonly")
+					throw new HttpError(
+						400,
+						"authContextId is supported only by api-readonly.",
+					);
 
 				const project = await repo.findById(projectId);
 				if (!project) {
@@ -609,6 +645,9 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 					attestationSubject: body.attestationSubject,
 					attestationBundle: body.attestationBundle,
 					trustPolicy: body.trustPolicy,
+					slsaProvenance: body.slsaProvenance,
+					slsaPolicy: body.slsaPolicy,
+					authContextId: body.authContextId,
 					consentProjectCodeExecution: body.consentProjectCodeExecution,
 				});
 				const launchAttempt = deps.scanLaunchAttemptRepository
@@ -626,6 +665,11 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 									body.attestationSubject &&
 										body.attestationBundle &&
 										body.trustPolicy,
+								),
+								hasSlsaProvenance: Boolean(
+									body.attestationSubject &&
+										body.slsaProvenance &&
+										body.slsaPolicy,
 								),
 							},
 						})
@@ -663,6 +707,7 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 					env: runtimeEnv,
 					surface: "web",
 					requestedRunner: body.runner,
+					allowSlsaTrustRootNetwork: Boolean(body.slsaProvenance),
 				});
 				const queued = await deps.scanRepository.createScanRun({
 					projectId,
@@ -758,6 +803,15 @@ export function createProjectsRoute(deps: ProjectsRouteDeps) {
 					args.push("--attestation-bundle", body.attestationBundle);
 				}
 				if (body.trustPolicy) args.push("--trust-policy", body.trustPolicy);
+				if (body.slsaProvenance) {
+					args.push("--slsa-provenance", body.slsaProvenance);
+				}
+				if (body.slsaPolicy) args.push("--slsa-policy", body.slsaPolicy);
+				if (policy.networkMode === "default") args.push("--network", "default");
+				if (body.authContextId && body.identityRole) {
+					args.push("--auth-context-id", body.authContextId);
+					args.push("--identity-role", body.identityRole);
+				}
 				if (body.reportTitle) {
 					args.push("--report-title", body.reportTitle);
 				}
@@ -847,6 +901,9 @@ function resolveWebProfileSelection(params: {
 	attestationSubject?: string;
 	attestationBundle?: string;
 	trustPolicy?: string;
+	slsaProvenance?: string;
+	slsaPolicy?: string;
+	authContextId?: string;
 	consentProjectCodeExecution?: boolean;
 }) {
 	try {
@@ -861,6 +918,9 @@ function resolveWebProfileSelection(params: {
 				attestationSubject: params.attestationSubject,
 				attestationBundle: params.attestationBundle,
 				trustPolicy: params.trustPolicy,
+				slsaProvenance: params.slsaProvenance,
+				slsaPolicy: params.slsaPolicy,
+				authContextRef: params.authContextId,
 				executionConsent: params.consentProjectCodeExecution,
 			}),
 			requestedResultPolicy: params.resultPolicy,

@@ -5,7 +5,7 @@ import { buildScanProfileDryRun } from "./scan-profile-dry-run";
 const DIGEST = `sha256:${"a".repeat(64)}`;
 
 describe("scan profile dry run", () => {
-  it("returns the strict SAST contract from profile resolution", () => {
+  it("keeps the core dry run valid when optional Semgrep is disabled", () => {
     const profiles = buildScanProfiles({ optionalAdapterIds: [] });
     expect(profiles.some((candidate) => candidate.id === "semgrep-baseline")).toBe(
       false,
@@ -27,10 +27,14 @@ describe("scan profile dry run", () => {
       ]),
     );
     expect(result.resolvedProfileHash).toMatch(/^sha256:[0-9a-f]{64}$/);
-    expect(result.stepOrder).toContain("semgrep");
+    expect(result.capabilityRequirements).toContainEqual({
+      capabilityId: "source_sast",
+      requirement: "advisory",
+    });
+    expect(result.stepOrder).not.toContain("semgrep");
   });
 
-  it("keeps Semgrep in the profile regardless of old optional adapter flags", () => {
+  it("adds Semgrep when the optional adapter is preferred", () => {
     const profiles = buildScanProfiles({
       optionalAdapterIds: ["semgrep"],
     });

@@ -67,7 +67,6 @@ export function useScanLaunchState() {
 	const [continueOnToolFailure, setContinueOnToolFailure] = useState(true);
 	const [scanProjectCodeExecutionConsent, setScanProjectCodeExecutionConsent] =
 		useState(false);
-	const [timeoutSec, setTimeoutSec] = useState(600);
 	const [showRunScanForm, setShowRunScanForm] = useState(false);
 	const [isScanning, setIsScanning] = useState(false);
 
@@ -137,10 +136,8 @@ export function useScanLaunchState() {
 		setSelectedScanRunId,
 		setShowNewProjectModal,
 		setShowRunScanForm,
-		setTimeoutSec,
 		showNewProjectModal,
 		showRunScanForm,
-		timeoutSec,
 	};
 }
 

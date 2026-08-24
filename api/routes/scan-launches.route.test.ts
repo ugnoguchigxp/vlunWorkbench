@@ -29,7 +29,7 @@ describe("canonical scan launch preview route", () => {
 		}),
 	);
 
-	test("returns an unavailable canonical profile without creating a run", async () => {
+	test("rejects a campaign ID at the scan preview boundary", async () => {
 		const response = await app.request("/project-1/scan-launches/preview", {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
@@ -40,21 +40,14 @@ describe("canonical scan launch preview route", () => {
 				input: {},
 			}),
 		});
-		expect(response.status).toBe(200);
-		const body = await response.json();
-		expect(body.preview).toMatchObject({
-			profileId: "professional-full",
-			engineId: "run-group",
-			readiness: "unavailable",
-			reasonCodes: ["profile_unavailable"],
-		});
+		expect(response.status).toBe(400);
 	});
 
 	test("does not disclose previews for another project owner", async () => {
 		const response = await app.request("/other/scan-launches/preview", {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ schemaVersion: 1, profileId: "professional-full", target: { kind: "full" }, input: {} }),
+			body: JSON.stringify({ schemaVersion: 1, profileId: "source-assurance", target: { kind: "full" }, input: {} }),
 		});
 		expect(response.status).toBe(404);
 	});

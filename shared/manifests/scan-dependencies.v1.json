@@ -35,11 +35,36 @@
 		},
 		{
 			"id": "scanner.cosign",
-			"kind": "host_binary",
+			"kind": "container_image",
 			"requirement": "required",
-			"probeId": "host_binary_version",
-			"configurationSource": { "kind": "built_in", "valueRef": "cosign" },
-			"platforms": ["linux/amd64", "linux/arm64", "darwin/arm64", "darwin/x64"]
+			"probeId": "container_image_inspect",
+			"configurationSource": {
+				"kind": "runtime_setting",
+				"settingKey": "SCAN_DOCKER_IMAGE"
+			},
+			"platforms": ["linux/amd64", "linux/arm64"]
+		},
+		{
+			"id": "scanner.zizmor",
+			"kind": "container_image",
+			"requirement": "required_if_applicable",
+			"probeId": "container_image_inspect",
+			"configurationSource": {
+				"kind": "runtime_setting",
+				"settingKey": "SCAN_DOCKER_IMAGE"
+			},
+			"platforms": ["linux/amd64", "linux/arm64"]
+		},
+		{
+			"id": "scanner.slsa-verifier",
+			"kind": "container_image",
+			"requirement": "required",
+			"probeId": "container_image_inspect",
+			"configurationSource": {
+				"kind": "runtime_setting",
+				"settingKey": "SCAN_DOCKER_IMAGE"
+			},
+			"platforms": ["linux/amd64", "linux/arm64"]
 		},
 		{
 			"id": "docker.daemon",

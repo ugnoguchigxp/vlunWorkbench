@@ -6,25 +6,34 @@ import {
 } from "./resolved-profile";
 
 describe("stored resolved scan profiles", () => {
-  it("keeps the strict Semgrep requirement in the resolved profile", () => {
+  it("binds optional Semgrep enablement into the resolved profile", () => {
     const withoutSemgrep = buildScanProfiles({ optionalAdapterIds: [] }).find(
       (profile) => profile.id === "full-security-scan",
     )!;
     const withSemgrep = buildScanProfiles({
       optionalAdapterIds: ["semgrep"],
     }).find((profile) => profile.id === "full-security-scan")!;
-    expect(hashResolvedProfile(withoutSemgrep)).toBe(
+    expect(hashResolvedProfile(withoutSemgrep)).not.toBe(
       hashResolvedProfile(withSemgrep),
     );
     const stored = readStoredResolvedProfile(
       { resolvedProfile: withoutSemgrep },
       "full-security-scan",
     );
-    expect(stored?.coverageGaps).toBeUndefined();
+    expect(stored?.coverageGaps).toContain(
+      "source_sast_adapter_not_available",
+    );
     expect(stored?.capabilityRequirements).toContainEqual({
       capabilityId: "source_sast",
-      requirement: "required_if_applicable",
+      requirement: "advisory",
     });
+		expect(withSemgrep.tools).toContainEqual(
+			expect.objectContaining({
+				toolId: "semgrep",
+				required: false,
+				failurePolicy: "warn_and_continue",
+			}),
+		);
   });
 
   it("rejects a stored profile with the wrong id", () => {

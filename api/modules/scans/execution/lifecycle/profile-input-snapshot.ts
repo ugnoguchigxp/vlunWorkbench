@@ -3,8 +3,8 @@ import os from "node:os";
 import path from "node:path";
 import {
 	buildProfileInputBindings,
-	resolveRepositoryRelativeFile,
 	type ProfileInputBindings,
+	resolveRepositoryRelativeFile,
 } from "../../attestation/attestation-inputs";
 
 export type ProfileInputSnapshot = {
@@ -20,12 +20,16 @@ export async function materializeProfileInputSnapshot(params: {
 	attestationSubject?: string;
 	attestationBundle?: string;
 	trustPolicy?: string;
+	slsaProvenance?: string;
+	slsaPolicy?: string;
 }): Promise<ProfileInputSnapshot | null> {
 	const files = [
 		[params.imageTar, "image tar"],
 		[params.attestationSubject, "subject"],
 		[params.attestationBundle, "bundle"],
 		[params.trustPolicy, "trust policy"],
+		[params.slsaProvenance, "SLSA provenance"],
+		[params.slsaPolicy, "SLSA policy"],
 	].filter((entry): entry is [string, string] => Boolean(entry[0]));
 	if (files.length === 0) return null;
 

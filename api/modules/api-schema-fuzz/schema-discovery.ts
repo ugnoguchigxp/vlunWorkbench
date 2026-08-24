@@ -4,11 +4,13 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { cleanupTemporaryPaths } from "../scans/execution/lifecycle/temporary-path-cleanup";
+import { readApiSchemaDocument } from "./api-schema-document";
+import { parseGraphqlReadonlySchema } from "./graphql-readonly-policy";
 import { parseOpenApiDocument } from "./openapi-document";
 import {
 	MAX_STRICT_JSON_BYTES,
 	parseStrictJsonDocument,
-	readStrictJsonDocument,
+	readStrictJsonDocumentBytes,
 } from "./strict-json-document";
 
 const FILE_CANDIDATES = [
@@ -22,6 +24,11 @@ const YAML_FILE_CANDIDATES = [
 	"openapi.yml",
 	"swagger.yaml",
 	"swagger.yml",
+];
+const GRAPHQL_FILE_CANDIDATES = [
+	"schema.graphql",
+	"graphql/schema.graphql",
+	"api/schema.graphql",
 ];
 const HTTP_CANDIDATES = ["/openapi.json", "/swagger.json", "/v3/api-docs"];
 const API_SOURCE_EXTENSIONS = new Set([
@@ -46,6 +53,78 @@ const IGNORED_SOURCE_DIRECTORIES = new Set([
 const MAX_API_EVIDENCE_FILES = 500;
 const MAX_API_EVIDENCE_BYTES = 256 * 1024;
 
+async function readBoundedUtf8File(
+	filePath: string,
+	maxBytes: number,
+): Promise<string | null> {
+	const handle = await fs.open(filePath, "r").catch(() => null);
+	if (!handle) return null;
+	try {
+		const stat = await handle.stat();
+		if (!stat.isFile() || stat.size > maxBytes) return null;
+		const bytes = Buffer.alloc(stat.size);
+		let offset = 0;
+		while (offset < bytes.length) {
+			const { bytesRead } = await handle.read(
+				bytes,
+				offset,
+				bytes.length - offset,
+				offset,
+			);
+			if (bytesRead === 0) return null;
+			offset += bytesRead;
+		}
+		const trailing = Buffer.alloc(1);
+		if ((await handle.read(trailing, 0, 1, bytes.length)).bytesRead > 0)
+			return null;
+		try {
+			return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+		} catch {
+			return null;
+		}
+	} finally {
+		await handle.close();
+	}
+}
+
+export async function readBoundedSchemaResponse(
+	response: Response,
+	maxBytes = MAX_STRICT_JSON_BYTES,
+): Promise<Uint8Array> {
+	const contentLength = response.headers.get("content-length");
+	if (
+		contentLength &&
+		/^\d+$/.test(contentLength) &&
+		Number(contentLength) > maxBytes
+	) {
+		await response.body?.cancel().catch(() => undefined);
+		throw new Error("api_schema_response_size_exceeded");
+	}
+	if (!response.body) return new Uint8Array();
+	const reader = response.body.getReader();
+	const chunks: Uint8Array[] = [];
+	let total = 0;
+	try {
+		while (true) {
+			const next = await reader.read();
+			if (next.done) break;
+			total += next.value.byteLength;
+			if (total > maxBytes)
+				throw new Error("api_schema_response_size_exceeded");
+			chunks.push(next.value);
+		}
+	} finally {
+		await reader.cancel().catch(() => undefined);
+	}
+	const result = new Uint8Array(total);
+	let offset = 0;
+	for (const chunk of chunks) {
+		result.set(chunk, offset);
+		offset += chunk.byteLength;
+	}
+	return result;
+}
+
 /**
  * This is intentionally a conservative source-evidence probe, not framework
  * detection. A package dependency alone is insufficient: the strict API
@@ -61,6 +140,7 @@ export type SchemaDiscoveryResult = {
 	apiDetected: boolean;
 	apiEvidencePaths: string[];
 	schemaPath: string | null;
+	schemaKind: "openapi" | "graphql" | null;
 	schemaDigest?: string;
 	cleanupPath?: string;
 	source: "repository" | "target" | null;
@@ -106,12 +186,8 @@ async function collectApiEvidencePaths(params: {
 			continue;
 		}
 		state.sourceFilesRead += 1;
-		const source = await fs.readFile(entryPath, "utf8").catch(() => null);
-		if (
-			source !== null &&
-			source.length <= MAX_API_EVIDENCE_BYTES &&
-			API_ROUTE_EVIDENCE.test(source)
-		) {
+		const source = await readBoundedUtf8File(entryPath, MAX_API_EVIDENCE_BYTES);
+		if (source !== null && API_ROUTE_EVIDENCE.test(source)) {
 			paths.push(path.relative(params.root, entryPath));
 		}
 	}
@@ -139,18 +215,33 @@ function looksLikeApiSchema(value: unknown): boolean {
 
 export async function discoverRepositoryApiSchema(
 	repoPath: string,
+	options: { includeAuthenticatedOperations?: boolean } = {},
 ): Promise<SchemaDiscoveryResult> {
-	for (const candidate of FILE_CANDIDATES) {
+	for (const candidate of [
+		...FILE_CANDIDATES,
+		...YAML_FILE_CANDIDATES,
+		...GRAPHQL_FILE_CANDIDATES,
+	]) {
 		const candidatePath = path.resolve(repoPath, candidate);
 		try {
-			const document = await readStrictJsonDocument(candidatePath, repoPath);
-			parseOpenApiDocument(document);
-			const bytes = await fs.readFile(candidatePath);
+			const schemaKind = candidate.endsWith(".graphql")
+				? ("graphql" as const)
+				: ("openapi" as const);
+			let bytes: Uint8Array;
+			if (schemaKind === "graphql") {
+				bytes = await readStrictJsonDocumentBytes(candidatePath, repoPath);
+				parseGraphqlReadonlySchema(bytes);
+			} else {
+				const loaded = await readApiSchemaDocument(candidatePath, repoPath);
+				bytes = loaded.bytes;
+				parseOpenApiDocument(loaded.document, options);
+			}
 			return {
 				applicable: true,
 				apiDetected: true,
 				apiEvidencePaths: [candidate],
 				schemaPath: candidatePath,
+				schemaKind,
 				schemaDigest: `sha256:${createHash("sha256").update(bytes).digest("hex")}`,
 				source: "repository",
 				reasonCode: null,
@@ -162,6 +253,7 @@ export async function discoverRepositoryApiSchema(
 					apiDetected: true,
 					apiEvidencePaths: [candidate],
 					schemaPath: null,
+					schemaKind: null,
 					source: null,
 					reasonCode:
 						error instanceof Error
@@ -171,28 +263,13 @@ export async function discoverRepositoryApiSchema(
 			// bounded candidate lookup intentionally ignores missing files
 		}
 	}
-	for (const candidate of YAML_FILE_CANDIDATES) {
-		try {
-			const stat = await fs.lstat(path.resolve(repoPath, candidate));
-			if (stat.isFile() || stat.isSymbolicLink())
-				return {
-					applicable: false,
-					apiDetected: true,
-					apiEvidencePaths: [candidate],
-					schemaPath: null,
-					source: null,
-					reasonCode: "openapi_yaml_not_qualified",
-				};
-		} catch {
-			// missing YAML candidates are expected
-		}
-	}
 	const apiEvidence = await detectRepositoryApiEvidence(repoPath);
 	return {
 		applicable: false,
 		apiDetected: apiEvidence.detected,
 		apiEvidencePaths: apiEvidence.paths,
 		schemaPath: null,
+		schemaKind: null,
 		source: null,
 		reasonCode: "schema_not_found",
 	};
@@ -201,8 +278,10 @@ export async function discoverRepositoryApiSchema(
 export async function discoverTargetApiSchema(params: {
 	targetOrigin: string;
 	fetchImpl?: (input: URL, init?: RequestInit) => Promise<Response>;
+	includeAuthenticatedOperations?: boolean;
 }): Promise<SchemaDiscoveryResult> {
 	const fetchImpl = params.fetchImpl ?? fetch;
+	const authRequiredCandidates: string[] = [];
 	for (const candidate of HTTP_CANDIDATES) {
 		let tempRoot: string | null = null;
 		try {
@@ -210,35 +289,35 @@ export async function discoverTargetApiSchema(params: {
 				new URL(candidate, params.targetOrigin),
 				{ method: "GET", redirect: "manual" },
 			);
-			if (response.status === 401 || response.status === 403)
-				return {
-					applicable: false,
-					apiDetected: false,
-					apiEvidencePaths: [],
-					schemaPath: null,
-					source: null,
-					reasonCode: "authentication_required",
-				};
-			if (!response.ok) continue;
-			const body = await response.text();
-			const bytes = new TextEncoder().encode(body);
-			if (bytes.byteLength > MAX_STRICT_JSON_BYTES) continue;
+			if (response.status === 401 || response.status === 403) {
+				authRequiredCandidates.push(candidate);
+				await response.body?.cancel().catch(() => undefined);
+				continue;
+			}
+			if (!response.ok) {
+				await response.body?.cancel().catch(() => undefined);
+				continue;
+			}
+			const bytes = await readBoundedSchemaResponse(response);
 			let parsed: unknown;
 			try {
 				parsed = parseStrictJsonDocument(bytes);
-				parseOpenApiDocument(parsed);
+				parseOpenApiDocument(parsed, {
+					includeAuthenticatedOperations: params.includeAuthenticatedOperations,
+				});
 			} catch {
 				continue;
 			}
 			if (!looksLikeApiSchema(parsed)) continue;
 			tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "vuln-schema-"));
 			const tempPath = path.join(tempRoot, "openapi.json");
-			await fs.writeFile(tempPath, body, "utf8");
+			await fs.writeFile(tempPath, bytes);
 			return {
 				applicable: true,
 				apiDetected: true,
 				apiEvidencePaths: [candidate],
 				schemaPath: tempPath,
+				schemaKind: "openapi",
 				schemaDigest: `sha256:${createHash("sha256").update(bytes).digest("hex")}`,
 				cleanupPath: path.dirname(tempPath),
 				source: "target",
@@ -254,11 +333,22 @@ export async function discoverTargetApiSchema(params: {
 			// bounded probe; the caller records a coverage gap if no candidate works
 		}
 	}
+	if (authRequiredCandidates.length > 0)
+		return {
+			applicable: false,
+			apiDetected: true,
+			apiEvidencePaths: authRequiredCandidates,
+			schemaPath: null,
+			schemaKind: null,
+			source: null,
+			reasonCode: "authentication_required",
+		};
 	return {
 		applicable: false,
 		apiDetected: false,
 		apiEvidencePaths: [],
 		schemaPath: null,
+		schemaKind: null,
 		source: null,
 		reasonCode: "schema_not_found",
 	};
@@ -272,11 +362,15 @@ export async function discoverApiSchema(params: {
 	repoPath: string;
 	targetOrigin?: string;
 	fetchImpl?: (input: URL, init?: RequestInit) => Promise<Response>;
+	includeAuthenticatedOperations?: boolean;
 }): Promise<SchemaDiscoveryResult> {
-	const repository = await discoverRepositoryApiSchema(params.repoPath);
+	const repository = await discoverRepositoryApiSchema(params.repoPath, {
+		includeAuthenticatedOperations: params.includeAuthenticatedOperations,
+	});
 	if (repository.applicable || !params.targetOrigin) return repository;
 	return await discoverTargetApiSchema({
 		targetOrigin: params.targetOrigin,
 		fetchImpl: params.fetchImpl,
+		includeAuthenticatedOperations: params.includeAuthenticatedOperations,
 	});
 }

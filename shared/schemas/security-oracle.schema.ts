@@ -42,6 +42,7 @@ export const securityOracleResultSchema = z
 						completed: z.number().int().nonnegative(),
 						skipped: z.number().int().nonnegative(),
 						failed: z.number().int().nonnegative(),
+						blocked: z.number().int().nonnegative(),
 						gaps: z.array(
 							z
 								.object({

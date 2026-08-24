@@ -48,7 +48,12 @@ export const defaultScanPreflightDependencies: ScanPreflightDependencies = {
 	probeScannerVersion: async (scannerId, execution) => {
 		if (scannerId === "cosign") {
 			return await checkToolVersion("cosign", ["version"], {
-				execution: { runner: "host" },
+				execution,
+			});
+		}
+		if (scannerId === "slsa-verifier") {
+			return await checkToolVersion("slsa-verifier", ["version"], {
+				execution,
 			});
 		}
 		if (scannerId === "nuclei-safe") {
@@ -155,11 +160,15 @@ export const defaultScanPreflightDependencies: ScanPreflightDependencies = {
 		return result.ok && result.exitCode === 0;
 	},
 	inferTargetPlan: (params) => inferDastTargetStartPlan(params),
-	discoverRepositorySchema: async (repoPath) => {
-		const discovery = await discoverApiSchema({ repoPath });
+	discoverRepositorySchema: async (repoPath, options) => {
+		const discovery = await discoverApiSchema({
+			repoPath,
+			includeAuthenticatedOperations: options?.includeAuthenticatedOperations,
+		});
 		return {
 			schemaPresent: discovery.applicable,
 			apiDetected: discovery.apiDetected,
+			reasonCode: discovery.reasonCode,
 			evidenceRefs: discovery.apiEvidencePaths.map(
 				(candidate) => `api-source:${candidate}`,
 			),

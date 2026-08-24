@@ -1,6 +1,15 @@
 import { z } from "zod";
 import { httpOriginSchema, relativeHttpPathSchema } from "./http-target.schema";
 
+const safeHeaderValueSchema = z
+	.string()
+	.min(1)
+	.max(16_384)
+	.refine(
+		(value) => !/[\r\n]/.test(value),
+		"Header value cannot contain CR/LF.",
+	);
+
 export const dastAuthKindSchema = z.enum([
 	"bearer_token",
 	"named_header",
@@ -11,7 +20,7 @@ export const dastAuthKindSchema = z.enum([
 
 const bearerPayloadSchema = z.object({
 	kind: z.literal("bearer_token"),
-	token: z.string().min(1).max(16_384),
+	token: safeHeaderValueSchema,
 });
 const headerPayloadSchema = z.object({
 	kind: z.literal("named_header"),
@@ -21,17 +30,25 @@ const headerPayloadSchema = z.object({
 		.refine(
 			(value) =>
 				![
+					"__proto__",
+					"constructor",
+					"prototype",
 					"host",
 					"content-length",
+					"content-type",
 					"cookie",
+					"proxy-authorization",
 					"transfer-encoding",
 					"connection",
 					"upgrade",
 					"te",
 					"trailer",
+					"x-http-method",
+					"x-http-method-override",
+					"x-method-override",
 				].includes(value.toLowerCase()),
 		),
-	value: z.string().min(1).max(16_384),
+	value: safeHeaderValueSchema,
 });
 const basicPayloadSchema = z.object({
 	kind: z.literal("basic_auth"),
@@ -43,8 +60,16 @@ const cookiePayloadSchema = z.object({
 	cookies: z
 		.array(
 			z.object({
-				name: z.string().min(1).max(500),
-				value: z.string().min(1).max(16_384),
+				name: z
+					.string()
+					.min(1)
+					.max(500)
+					.regex(/^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/),
+				value: z
+					.string()
+					.min(1)
+					.max(16_384)
+					.regex(/^[\x21\x23-\x2B\x2D-\x3A\x3C-\x5B\x5D-\x7E]+$/),
 				domain: z.string().max(500).optional(),
 				path: relativeHttpPathSchema.optional(),
 				secure: z.boolean().optional(),

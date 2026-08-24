@@ -1,12 +1,20 @@
 import { createHash } from "node:crypto";
-import type { ScanTarget } from "../../../../shared/schemas/scan-target.schema";
 import type {
 	CanonicalProfileId,
 	ScanReadinessStatus,
 } from "../../../../shared/schemas/scan-profile-definition.schema";
+import type { ScanTarget } from "../../../../shared/schemas/scan-target.schema";
+import { isCompleteScanLaunchInput } from "../../../../shared/schemas/scan-launch.schema";
+import {
+	type OptionalScannerSelection,
+	optionalScannerSelection,
+} from "../optional-scanner-adapter-config";
 import { getCatalogEntry, hashCatalogEntry } from "../profile-catalog";
 import { getScanProfileDefinition } from "../profile-definitions";
-import { probeDependency } from "./dependency-registry";
+import {
+	dependencyRequirementsFor,
+	probeDependency,
+} from "./dependency-registry";
 import { canonicalJson } from "./diff/diff-scan-plan";
 
 export type ScanReadinessPreview = {
@@ -14,6 +22,7 @@ export type ScanReadinessPreview = {
 	variantId: string | null;
 	readiness: ScanReadinessStatus;
 	reasonCodes: string[];
+	warningCodes: string[];
 	catalogEntryHash: string;
 	readinessHash: string;
 	planHash: string | null;
@@ -42,22 +51,21 @@ function variantFor(params: {
 			) ?? null
 		);
 	}
+	if (params.profileId === "dependency-supply-chain") {
+		return (
+			definition.variants.find((variant) =>
+				params.input.kind === "slsa_provenance"
+					? variant.id === "slsa-provenance"
+					: variant.id === "offline-attestation",
+			) ?? null
+		);
+	}
 	if (params.profileId === "sanitizer-fuzz-lab") {
 		return (
 			definition.variants.find(
 				(variant) =>
 					variant.id ===
 					(params.input.dynamicKind === "fuzz" ? "fuzz" : "sanitizer"),
-			) ?? null
-		);
-	}
-	if (params.profileId === "api-readonly") {
-		const source = params.input.schemaSource as { mode?: string } | undefined;
-		return (
-			definition.variants.find(
-				(variant) =>
-					variant.id ===
-					(source?.mode === "configured" ? "configured-schema" : "auto-schema"),
 			) ?? null
 		);
 	}
@@ -84,12 +92,20 @@ export async function evaluateScanReadiness(params: {
 	input: Record<string, unknown>;
 	settings?: Record<string, string | undefined>;
 	runDependencyProbe?: Parameters<typeof probeDependency>[0]["run"];
+	workspacePath?: string;
+	optionalScannerSelections?: Partial<
+		Record<"semgrep", OptionalScannerSelection>
+	>;
 }): Promise<ScanReadinessPreview> {
 	const catalog = getCatalogEntry(params.profileId);
 	const definition = getScanProfileDefinition(params.profileId);
 	if (!catalog) throw new Error(`profile_catalog_missing:${params.profileId}`);
 	const catalogEntryHash = hashCatalogEntry(catalog);
+	const semgrepSelection =
+		params.optionalScannerSelections?.semgrep ??
+		optionalScannerSelection("semgrep");
 	const reasons: string[] = [];
+	const warnings: string[] = [];
 	let readiness: ScanReadinessStatus = "ready";
 	if (
 		catalog.availability === "planned" ||
@@ -100,26 +116,56 @@ export async function evaluateScanReadiness(params: {
 	} else if (!catalog.supportedTargets.includes(params.target.kind)) {
 		readiness = "not_applicable";
 		reasons.push("profile_target_not_supported");
-	} else if (!params.input.kind) {
+	} else if (!isCompleteScanLaunchInput(params.profileId, params.input)) {
 		readiness = "needs_input";
 		reasons.push("profile_input_missing");
 	}
 	const variant = variantFor(params);
+	const selectedStepIds = (variant?.stepIds ?? []).filter(
+		(stepId) => stepId !== "source:semgrep" || semgrepSelection !== "disabled",
+	);
 	if (readiness === "ready" && !variant) {
 		readiness = "needs_input";
 		reasons.push("profile_variant_missing");
 	}
 	if (readiness === "ready") {
+		const selectedDependencyIds =
+			variant?.dependencyIds ?? definition.dependencyIds;
+		const dependencyRequirements = new Map(
+			dependencyRequirementsFor(selectedDependencyIds).map((entry) => [
+				entry.id,
+				entry.requirement,
+			]),
+		);
+		const applicableDependencyIds = selectedDependencyIds.filter(
+			(id) => id !== "scanner.semgrep" || semgrepSelection !== "disabled",
+		);
 		const probeResults = await Promise.all(
-			definition.dependencyIds.map((id) =>
+			applicableDependencyIds.map((id) =>
 				probeDependency({
 					id,
 					settings: params.settings,
 					run: params.runDependencyProbe,
+					workspacePath: params.workspacePath,
 				}),
 			),
 		);
-		const failed = probeResults.filter((result) => !result.ready);
+		const failed = probeResults.filter(
+			(result) =>
+				!result.ready &&
+				(dependencyRequirements.get(result.id) === "required" ||
+					(result.id === "scanner.semgrep" && semgrepSelection === "required")),
+		);
+		const nonBlockingFailed = probeResults.filter(
+			(result) => !result.ready && !failed.includes(result),
+		);
+		warnings.push(
+			...nonBlockingFailed.map((result) =>
+				result.id === "scanner.semgrep"
+					? "optional_scanner_unavailable:semgrep"
+					: `dependency_unavailable:${result.id}`,
+			),
+		);
 		if (failed.length > 0) {
 			readiness = "blocked_environment";
 			reasons.push(
@@ -133,10 +179,12 @@ export async function evaluateScanReadiness(params: {
 		profileId: params.profileId,
 		target: params.target,
 		input: params.input,
+		optionalScannerSelections: { semgrep: semgrepSelection },
 		catalogEntryHash,
 		variantId: variant?.id ?? null,
 		readiness,
 		reasons: [...new Set(reasons)].sort(),
+		warnings: [...new Set(warnings)].sort(),
 	};
 	const readinessHash = hash(binding);
 	return {
@@ -144,11 +192,12 @@ export async function evaluateScanReadiness(params: {
 		variantId: variant?.id ?? null,
 		readiness,
 		reasonCodes: binding.reasons,
+		warningCodes: binding.warnings,
 		catalogEntryHash,
 		readinessHash,
 		planHash:
 			readiness === "ready"
-				? hash({ ...binding, stepIds: variant?.stepIds })
+				? hash({ ...binding, stepIds: selectedStepIds })
 				: null,
 	};
 }

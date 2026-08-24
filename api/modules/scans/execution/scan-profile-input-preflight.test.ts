@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ScanProfile } from "../../../../shared/schemas/scan-profile.schema";
 import type { ScannerDataManifest } from "../tools/scanner-provenance";
 import {
@@ -47,6 +47,23 @@ const artifactProfile: ScanProfile = {
 	steps: [],
 };
 
+const slsaProfile: ScanProfile = {
+	...profile,
+	id: "slsa-input-test",
+	name: "SLSA input test",
+	description: "SLSA input test",
+	steps: [
+		{
+			kind: "attestation_verify",
+			adapter: "slsa-verifier",
+			displayName: "slsa-verifier",
+			required: true,
+			failurePolicy: "fail_profile",
+			target: { mode: "repository_relative_files" },
+		},
+	],
+};
+
 describe("scan profile input preflight", () => {
 	let root: string;
 
@@ -58,6 +75,16 @@ describe("scan profile input preflight", () => {
 			fs.writeFile(path.join(root, "inputs", "subject-b.bin"), "b"),
 			fs.writeFile(path.join(root, "inputs", "bundle.json"), "{}"),
 			fs.writeFile(path.join(root, "inputs", "cosign.pub"), "public-key"),
+			fs.writeFile(path.join(root, "inputs", "artifact.intoto.jsonl"), "{}"),
+			fs.writeFile(
+				path.join(root, "inputs", "slsa-policy.json"),
+				JSON.stringify({
+					schemaVersion: 1,
+					sourceUri: "github.com/example/project",
+					builderId: "https://github.com/example/project/.github/workflows/release.yml@refs/heads/main",
+					sourceRef: { kind: "tag", value: "v1.0.0" },
+				}),
+			),
 		]);
 	});
 
@@ -127,6 +154,91 @@ describe("scan profile input preflight", () => {
 		expect(result.limitationCodes).toContain("scanner_version_vulnerable");
 	});
 
+	it("checks Cosign in the selected core toolbox image", async () => {
+		const probeScannerVersion = vi.fn(async () => "GitVersion: v3.1.3");
+		const result = await runScanPreflight({
+			profile,
+			steps: profile.steps ?? [],
+			repoPath: root,
+			execution: {
+				runner: "docker",
+				docker: { image: "vuln-workbench-toolbox:test" },
+			},
+			attestationSubject: "inputs/subject-a.bin",
+			attestationBundle: "inputs/bundle.json",
+			trustPolicy: "inputs/cosign.pub",
+			dependencies: {
+				...dependencies(),
+				probeScannerVersion,
+			},
+		});
+
+		expect(result.status).toBe("ready");
+		expect(probeScannerVersion).toHaveBeenCalledWith(
+			"cosign",
+			expect.objectContaining({
+				runner: "docker",
+				docker: expect.objectContaining({
+					image: "vuln-workbench-toolbox:test",
+				}),
+			}),
+		);
+		expect(result.checks).toContainEqual(
+			expect.objectContaining({
+				kind: "binary_version",
+				scannerId: "cosign",
+				observedVersion: "3.1.3",
+			}),
+		);
+	});
+
+	it("blocks Docker SLSA verification until Sigstore trust-root network is explicit", async () => {
+		const result = await runScanPreflight({
+			profile: slsaProfile,
+			steps: slsaProfile.steps ?? [],
+			repoPath: root,
+			execution: {
+				runner: "docker",
+				docker: { image: "vuln-workbench-toolbox:test", networkMode: "none" },
+			},
+			attestationSubject: "inputs/subject-a.bin",
+			slsaProvenance: "inputs/artifact.intoto.jsonl",
+			slsaPolicy: "inputs/slsa-policy.json",
+			dependencies: {
+				...dependencies(),
+				probeScannerVersion: async () => "GitVersion: v2.7.1",
+			},
+		});
+
+		expect(result.status).toBe("blocked");
+		expect(result.checks).toContainEqual(
+			expect.objectContaining({
+				reasonCode: "slsa_trust_root_network_required",
+				action: "allow_slsa_trust_root_network",
+			}),
+		);
+	});
+
+	it("accepts local SLSA inputs in Docker with the explicit trust-root network", async () => {
+		const result = await runScanPreflight({
+			profile: slsaProfile,
+			steps: slsaProfile.steps ?? [],
+			repoPath: root,
+			execution: {
+				runner: "docker",
+				docker: { image: "vuln-workbench-toolbox:test", networkMode: "default" },
+			},
+			attestationSubject: "inputs/subject-a.bin",
+			slsaProvenance: "inputs/artifact.intoto.jsonl",
+			slsaPolicy: "inputs/slsa-policy.json",
+			dependencies: {
+				...dependencies(),
+				probeScannerVersion: async () => "GitVersion: v2.7.1",
+			},
+		});
+		expect(result.status).toBe("ready");
+	});
+
 	it("blocks a filesystem artifact profile when no build output exists", async () => {
 		const result = await runScanPreflight({
 			profile: artifactProfile,
@@ -161,7 +273,20 @@ function dependencies(): ScanPreflightDependencies {
 		snapshotDate: "2026-08-21",
 		manifestHash: DIGEST,
 		legacyManifest: false,
-		tools: {},
+		tools: {
+			cosign: {
+				version: "3.1.3",
+				dataKind: "add-on",
+				state: "ready",
+				path: "sigstore-trusted-root.json",
+				runtimePath:
+					"/opt/vuln-workbench/scanner-data/sigstore-trusted-root.json",
+				digest: DIGEST,
+				generatedAt: "2026-08-21T00:00:00.000Z",
+				maxAgeHours: 8760,
+				coverage: ["rekor-transparency-log"],
+			},
+		},
 	};
 	return {
 		loadManifest: async () => manifest,

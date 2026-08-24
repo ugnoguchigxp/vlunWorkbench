@@ -1,3 +1,5 @@
+import { constants as fsConstants } from "node:fs";
+import fs from "node:fs/promises";
 import manifestJson from "../../../../shared/manifests/scan-dependencies.v1.json";
 import { scanDependencyManifestSchema } from "../../../../shared/schemas/scan-dependency-manifest.schema";
 
@@ -30,6 +32,19 @@ function imageRefForEntry(params: {
 	return null;
 }
 
+function validConfiguredImageRef(params: {
+	image: string;
+	configurationSource: (typeof manifest.entries)[number]["configurationSource"];
+}): boolean {
+	if (
+		params.configurationSource.kind === "runtime_setting" &&
+		params.configurationSource.settingKey === "SCAN_DOCKER_IMAGE"
+	) {
+		return /^[a-zA-Z0-9][a-zA-Z0-9._/:@-]{0,511}$/.test(params.image);
+	}
+	return /@sha256:[a-f0-9]{64}$/.test(params.image);
+}
+
 /**
  * Small, side-effect-free admission probe. It deliberately never pulls an
  * image; a missing image becomes docker_image_unavailable before a run exists.
@@ -38,6 +53,7 @@ export async function probeDependency(params: {
 	id: string;
 	settings?: Record<string, string | undefined>;
 	run?: CommandRunner;
+	workspacePath?: string;
 }): Promise<DependencyProbeResult> {
 	const entry = manifest.entries.find(
 		(candidate) => candidate.id === params.id,
@@ -89,7 +105,13 @@ export async function probeDependency(params: {
 			configurationSource: entry.configurationSource,
 			settings: params.settings ?? {},
 		});
-		if (!image || !/@sha256:[a-f0-9]{64}$/.test(image)) {
+		if (
+			!image ||
+			!validConfiguredImageRef({
+				image,
+				configurationSource: entry.configurationSource,
+			})
+		) {
 			return {
 				id: entry.id,
 				ready: false,
@@ -103,7 +125,43 @@ export async function probeDependency(params: {
 			reasonCode: result.exitCode === 0 ? null : "docker_image_unavailable",
 		};
 	}
-	return { id: entry.id, ready: true, reasonCode: null };
+	if (entry.probeId === "filesystem_read_write") {
+		if (!params.workspacePath)
+			return {
+				id: entry.id,
+				ready: false,
+				reasonCode: "workspace_unavailable",
+			};
+		try {
+			const stat = await fs.stat(params.workspacePath);
+			await fs.access(
+				params.workspacePath,
+				fsConstants.R_OK | fsConstants.W_OK,
+			);
+			return {
+				id: entry.id,
+				ready: stat.isDirectory(),
+				reasonCode: stat.isDirectory() ? null : "workspace_unavailable",
+			};
+		} catch {
+			return {
+				id: entry.id,
+				ready: false,
+				reasonCode: "workspace_unavailable",
+			};
+		}
+	}
+	if (entry.probeId === "network_port_lease")
+		return {
+			id: entry.id,
+			ready: false,
+			reasonCode: "resource_probe_deferred",
+		};
+	return {
+		id: entry.id,
+		ready: false,
+		reasonCode: "dependency_probe_not_implemented",
+	};
 }
 
 export function dependencyRequirementsFor(ids: readonly string[]) {

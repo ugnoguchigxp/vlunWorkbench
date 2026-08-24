@@ -45,21 +45,60 @@ try {
 		],
 		{ stdio: "inherit" },
 	);
-	run([
-		...common,
-		"osv-scanner",
-		"scan",
-		"source",
-		"--offline",
-		"--no-resolve",
-		"--format",
-		"json",
-		"--output-file",
-		"/workspace/out/osv.json",
-		"-L",
-		"bun.lock",
-		".",
-	]);
+	const coreScannerVersions = Object.fromEntries(
+		(
+			[
+				["gitleaks", ["gitleaks", "version"]],
+				["cosign", ["cosign", "version"]],
+				["zizmor", ["zizmor", "--version"]],
+				["slsa-verifier", ["slsa-verifier", "version"]],
+				["schemathesis", ["st", "--version"]],
+			] satisfies Array<[string, string[]]>
+		).map(([scannerId, command]) => [
+			scannerId,
+			execFileSync(
+				"docker",
+				["run", "--rm", "--network", "none", image, ...command],
+				{ encoding: "utf8" },
+			).trim(),
+		]),
+	);
+	run(
+		[
+			...common,
+			"gitleaks",
+			"detect",
+			"--source",
+			"scripts/scan-profile-qualification/fixtures",
+			"--no-git",
+			"--report-format",
+			"json",
+			"--report-path",
+			"/workspace/out/gitleaks.json",
+			"--redact",
+		],
+		undefined,
+		[0, 1],
+	);
+	run(
+		[
+			...common,
+			"osv-scanner",
+			"scan",
+			"source",
+			"--offline",
+			"--no-resolve",
+			"--format",
+			"json",
+			"--output-file",
+			"/workspace/out/osv.json",
+			"-L",
+			"bun.lock",
+			".",
+		],
+		undefined,
+		[0, 1],
+	);
 	run([
 		...common,
 		"trivy",
@@ -77,6 +116,19 @@ try {
 		"/workspace/out/trivy.json",
 		".",
 	]);
+	run(
+		[
+			...common,
+			"zizmor",
+			"--offline",
+			"--format=json-v1",
+			"--no-progress",
+			"--color=never",
+			"--no-exit-codes",
+			"/workspace/repo/.github/workflows",
+		],
+		path.join(outputRoot, "zizmor.json"),
+	);
 	const manifest = JSON.parse(
 		execFileSync(
 			"docker",
@@ -92,9 +144,42 @@ try {
 			{ encoding: "utf8" },
 		),
 	);
+	const cosignTrustedRootPath =
+		manifest.tools?.cosign?.runtimePath ??
+		"/opt/vuln-workbench/scanner-data/sigstore-trusted-root.json";
+	const cosignTrustedRootDigest = `sha256:${
+		execFileSync(
+			"docker",
+			[
+				"run",
+				"--rm",
+				"--network",
+				"none",
+				image,
+				"sha256sum",
+				cosignTrustedRootPath,
+			],
+			{ encoding: "utf8" },
+		)
+			.trim()
+			.split(/\s+/)[0]
+	}`;
+	const expectedCosignTrustedRootDigest =
+		manifest.tools?.cosign?.dataBundles?.find(
+			(bundle: { id?: string }) =>
+				bundle.id === "sigstore-production-trusted-root-v1",
+		)?.digest;
+	if (
+		!expectedCosignTrustedRootDigest ||
+		expectedCosignTrustedRootDigest !== cosignTrustedRootDigest
+	) {
+		throw new Error(
+			`cosign_trusted_root_digest_mismatch:${expectedCosignTrustedRootDigest ?? "missing"}:${cosignTrustedRootDigest}`,
+		);
+	}
 	const outputs = Object.fromEntries(
 		await Promise.all(
-			["osv", "trivy"].map(async (toolId) => {
+			["gitleaks", "osv", "trivy", "zizmor"].map(async (toolId) => {
 				const bytes = await readFile(path.join(outputRoot, `${toolId}.json`));
 				JSON.parse(bytes.toString("utf8"));
 				return [toolId, { ok: true, outputBytes: bytes.byteLength }];
@@ -111,9 +196,11 @@ try {
 			{ encoding: "utf8" },
 		).trim(),
 		manifestHash: manifest.manifestHash,
+		cosignTrustedRootDigest,
 		networkMode: "none",
 		resourceLimits: { memory: "4g", cpus: "2", pids: 512 },
 		excludedCoreTools: { semgrep: true },
+		coreScannerVersions,
 		outputs,
 	};
 	const artifactPath = path.resolve(".artifacts/offline-toolbox-matrix.json");
@@ -124,9 +211,19 @@ try {
 	await rm(outputRoot, { recursive: true, force: true });
 }
 
-function run(command: string[], stdoutPath?: string) {
-	const output = execFileSync(command[0], command.slice(1), {
-		stdio: stdoutPath ? ["ignore", "pipe", "inherit"] : "inherit",
-	});
-	if (stdoutPath) writeFileSync(stdoutPath, output);
+function run(
+	command: string[],
+	stdoutPath?: string,
+	acceptedExitCodes: number[] = [0],
+) {
+	try {
+		const output = execFileSync(command[0], command.slice(1), {
+			stdio: stdoutPath ? ["ignore", "pipe", "inherit"] : "inherit",
+		});
+		if (stdoutPath) writeFileSync(stdoutPath, output);
+	} catch (error) {
+		const status = (error as { status?: number }).status;
+		if (status === undefined || !acceptedExitCodes.includes(status))
+			throw error;
+	}
 }

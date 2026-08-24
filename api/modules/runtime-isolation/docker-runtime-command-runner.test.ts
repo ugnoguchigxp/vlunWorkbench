@@ -11,6 +11,7 @@ describe("Docker runtime command runner", () => {
 		]);
 
 		expect(result.exitCode).toBeNull();
+		expect(result.terminationReason).toBe("timeout");
 		expect(result.stderr).toContain("runtime_bundle_command_timeout");
 	});
 });

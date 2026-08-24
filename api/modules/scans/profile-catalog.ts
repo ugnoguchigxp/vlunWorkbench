@@ -31,8 +31,9 @@ export const SCAN_PROFILE_CATALOG = [
 		id: "change-gate",
 		displayOrder: 10,
 		displayName: "変更差分セキュリティゲート",
+		experienceKind: "scanner_preset",
 		description:
-			"変更範囲をGitleaks、OSV-Scanner、Trivyと、有効化済みのSemgrepで確認します。",
+			"変更範囲をGitleaks、OSV-Scanner、Trivy、zizmorと、有効化済みのSemgrepで確認します。zizmorはCI workflow変更時だけ適用します。",
 		availability: "stable",
 		safetyClass: "R0",
 		launchMode: "profile_orchestrator",
@@ -48,6 +49,10 @@ export const SCAN_PROFILE_CATALOG = [
 			{ capabilityId: "sca", requirement: "required_if_applicable" },
 			{ capabilityId: "iac_config", requirement: "required_if_applicable" },
 			{ capabilityId: "source_sast", requirement: "required_if_applicable" },
+			{
+				capabilityId: "cicd_workflow_integrity",
+				requirement: "required_if_applicable",
+			},
 		]),
 		executionVariants: [
 			{
@@ -65,8 +70,9 @@ export const SCAN_PROFILE_CATALOG = [
 		id: "source-assurance",
 		displayOrder: 20,
 		displayName: "ソースセキュリティ保証",
+		experienceKind: "scanner_preset",
 		description:
-			"リポジトリ全体をGitleaks、OSV-Scanner、Trivyと、有効化済みのSemgrepで確認します。",
+			"リポジトリ全体をGitleaks、OSV-Scanner、Trivy、zizmorと、有効化済みのSemgrepで確認します。zizmorはCI workflowの権限・注入・参照固定を検査します。",
 		availability: "stable",
 		safetyClass: "R0",
 		launchMode: "profile_orchestrator",
@@ -82,6 +88,10 @@ export const SCAN_PROFILE_CATALOG = [
 			{ capabilityId: "sca", requirement: "required" },
 			{ capabilityId: "iac_config", requirement: "required" },
 			{ capabilityId: "source_sast", requirement: "required_if_applicable" },
+			{
+				capabilityId: "cicd_workflow_integrity",
+				requirement: "required_if_applicable",
+			},
 		]),
 		executionVariants: [
 			{
@@ -99,8 +109,9 @@ export const SCAN_PROFILE_CATALOG = [
 		id: "dependency-supply-chain",
 		displayOrder: 30,
 		displayName: "依存関係・サプライチェーン保証",
+		experienceKind: "scanner_preset",
 		description:
-			"OSV-Scannerで依存関係、TrivyでCycloneDX SBOM、Cosignで署名付きSLSA provenanceと成果物digestの整合性を確認します。",
+			"OSV-Scannerで依存関係、TrivyでCycloneDX SBOMを確認し、Cosignのオフライン署名束検証またはslsa-verifierのsource・builder・ref検証を選択して実行します。",
 		availability: "stable",
 		safetyClass: "R0",
 		launchMode: "profile_orchestrator",
@@ -113,8 +124,10 @@ export const SCAN_PROFILE_CATALOG = [
 		requiredInputs: [
 			{ kind: "source_target", requirement: "required" },
 			{ kind: "attestation_subject", requirement: "required" },
-			{ kind: "attestation_bundle", requirement: "required" },
-			{ kind: "trust_policy", requirement: "required" },
+			{ kind: "attestation_bundle", requirement: "required_if_applicable" },
+			{ kind: "trust_policy", requirement: "required_if_applicable" },
+			{ kind: "slsa_provenance", requirement: "required_if_applicable" },
+			{ kind: "slsa_policy", requirement: "required_if_applicable" },
 		],
 		capabilityRequirements: capabilities([
 			{ capabilityId: "sca", requirement: "required" },
@@ -131,17 +144,29 @@ export const SCAN_PROFILE_CATALOG = [
 					"attestation_bundle",
 					"trust_policy",
 				],
-				forbiddenInputKinds: [],
+				forbiddenInputKinds: ["slsa_provenance", "slsa_policy"],
+			},
+			{
+				id: "slsa-provenance",
+				executionProfileRef: "dependency-supply-chain-slsa",
+				requiredInputKinds: [
+					"source_target",
+					"attestation_subject",
+					"slsa_provenance",
+					"slsa_policy",
+				],
+				forbiddenInputKinds: ["attestation_bundle", "trust_policy"],
 			},
 		],
-		environmentRequirementCodes: ["cosign_required"],
-		limitationCodes: [],
+		environmentRequirementCodes: ["cosign_or_slsa_verifier_required"],
+		limitationCodes: ["slsa_verifier_requires_sigstore_trust_root_network"],
 		replacementProfileId: null,
 	}),
 	catalogEntry({
 		id: "release-artifact",
 		displayOrder: 40,
 		displayName: "リリース成果物・コンテナ診断",
+		experienceKind: "scanner_preset",
 		description:
 			"Trivy等で既存のビルド成果物またはdigest固定済みコンテナイメージを確認します。",
 		availability: "stable",
@@ -190,9 +215,10 @@ export const SCAN_PROFILE_CATALOG = [
 	catalogEntry({
 		id: "dynamic-verification",
 		displayOrder: 50,
-		displayName: "動的検証・ファズ",
+		displayName: "動的テスト検証",
+		experienceKind: "assessment_workflow",
 		description:
-			"隔離されたworkspaceで動的テストまたはsanitizer/fuzzを実行します。",
+			"隔離されたworkspaceでproject承認済みの標準テストを実行します。sanitizer/fuzzは専用Labで扱います。",
 		availability: "experimental",
 		safetyClass: "R1",
 		launchMode: "dedicated_flow",
@@ -208,17 +234,17 @@ export const SCAN_PROFILE_CATALOG = [
 		],
 		capabilityRequirements: capabilities([
 			{ capabilityId: "dynamic_tests", requirement: "required" },
-			{ capabilityId: "sanitizer_fuzz", requirement: "advisory" },
 		]),
 		executionVariants: [],
 		environmentRequirementCodes: ["isolated_workspace_required"],
-		limitationCodes: [],
+		limitationCodes: ["standard_test_templates_only"],
 		replacementProfileId: null,
 	}),
 	catalogEntry({
 		id: "sanitizer-fuzz-lab",
 		displayOrder: 55,
 		displayName: "Sanitizer・ファズ診断ラボ",
+		experienceKind: "lab",
 		description:
 			"組み込みsanitizer/fuzz recipeを実験的な隔離環境で実行します。",
 		availability: "experimental",
@@ -243,6 +269,7 @@ export const SCAN_PROFILE_CATALOG = [
 		id: "custom-dynamic-lab",
 		displayOrder: 56,
 		displayName: "任意動的実行ラボ",
+		experienceKind: "advanced_runner",
 		description: "保存済みcommand/configを実験的な隔離環境で実行します。",
 		availability: "experimental",
 		safetyClass: "R1",
@@ -266,6 +293,7 @@ export const SCAN_PROFILE_CATALOG = [
 		id: "runtime-passive",
 		displayOrder: 60,
 		displayName: "安全な実行時Web診断",
+		experienceKind: "scanner_preset",
 		description: "自動起動したローカル対象へbounded passive DASTを実行します。",
 		availability: "stable",
 		safetyClass: "R2",
@@ -302,6 +330,7 @@ export const SCAN_PROFILE_CATALOG = [
 		id: "authenticated-web",
 		displayOrder: 70,
 		displayName: "認証付きWeb診断",
+		experienceKind: "assessment_workflow",
 		description: "認証contextを用いる専用DAST workflowです。",
 		availability: "experimental",
 		safetyClass: "R2",
@@ -323,15 +352,16 @@ export const SCAN_PROFILE_CATALOG = [
 		]),
 		executionVariants: [],
 		environmentRequirementCodes: ["auth_context_required"],
-		limitationCodes: [],
+		limitationCodes: ["oauth_oidc_mfa_not_covered"],
 		replacementProfileId: null,
 	}),
 	catalogEntry({
 		id: "api-readonly",
 		displayOrder: 80,
 		displayName: "読み取り専用API診断",
+		experienceKind: "scanner_preset",
 		description:
-			"OpenAPI/GraphQLを検出し、読み取り専用operationに限定して確認します。",
+			"qualification済みのOpenAPIまたはQuery-only GraphQL schemaを検出し、任意の認証contextをgateway境界で適用して読み取り専用operationに限定します。",
 		availability: "experimental",
 		safetyClass: "R2",
 		launchMode: "profile_orchestrator",
@@ -344,6 +374,7 @@ export const SCAN_PROFILE_CATALOG = [
 		requiredInputs: [{ kind: "source_target", requirement: "required" }],
 		capabilityRequirements: capabilities([
 			{ capabilityId: "api_schema_contract", requirement: "required" },
+			{ capabilityId: "authentication_session", requirement: "advisory" },
 		]),
 		executionVariants: [
 			{
@@ -354,13 +385,14 @@ export const SCAN_PROFILE_CATALOG = [
 			},
 		],
 		environmentRequirementCodes: ["schema_required"],
-		limitationCodes: [],
+		limitationCodes: ["graphql_query_only", "api_auth_header_context_only"],
 		replacementProfileId: null,
 	}),
 	catalogEntry({
 		id: "active-technical-lab",
 		displayOrder: 90,
 		displayName: "Active技術診断ラボ",
+		experienceKind: "lab",
 		description:
 			"RoEとreset可能な使い捨てtargetを必須とするactive DAST workflowです。",
 		availability: "experimental",
@@ -390,6 +422,7 @@ export const SCAN_PROFILE_CATALOG = [
 		id: "business-logic-lab",
 		displayOrder: 100,
 		displayName: "ビジネスロジック診断ラボ",
+		experienceKind: "lab",
 		description:
 			"シナリオと使い捨てtargetを使うビジネスロジック専用workflowです。",
 		availability: "experimental",
@@ -420,6 +453,7 @@ export const SCAN_PROFILE_CATALOG = [
 		id: "remediation-verification",
 		displayOrder: 110,
 		displayName: "修正確認",
+		experienceKind: "assessment_workflow",
 		description: "findingと元の安全境界を引き継いで修正を再検証します。",
 		availability: "experimental",
 		safetyClass: "mixed",
@@ -439,68 +473,49 @@ export const SCAN_PROFILE_CATALOG = [
 		limitationCodes: ["original_safety_boundary_required"],
 		replacementProfileId: null,
 	}),
-	catalogEntry({
-		id: "professional-full",
-		displayOrder: 120,
-		displayName: "プロフェッショナル総合診断",
-		description:
-			"全applicable capabilityと人手レビューをまとめるrun groupです。",
-		availability: "planned",
-		safetyClass: "mixed",
-		launchMode: "unavailable",
-		launchDestination: null,
-		strictness: "strict",
-		defaultResultPolicy: "advisory",
-		allowedResultPolicies: [...ALL_RESULT_POLICIES],
-		gateSeverityThreshold: "high",
-		supportedTargets: ["full"],
-		requiredInputs: [{ kind: "source_target", requirement: "required" }],
-		capabilityRequirements: capabilities([
-			{
-				capabilityId: "secret_detection",
-				requirement: "required_if_applicable",
-			},
-			{ capabilityId: "source_sast", requirement: "required_if_applicable" },
-			{ capabilityId: "sca", requirement: "required_if_applicable" },
-			{ capabilityId: "iac_config", requirement: "required_if_applicable" },
-			{ capabilityId: "sbom", requirement: "required_if_applicable" },
-			{
-				capabilityId: "provenance_integrity",
-				requirement: "required_if_applicable",
-			},
-			{
-				capabilityId: "artifact_container",
-				requirement: "required_if_applicable",
-			},
-			{ capabilityId: "dynamic_tests", requirement: "required_if_applicable" },
-			{ capabilityId: "sanitizer_fuzz", requirement: "required_if_applicable" },
-			{ capabilityId: "passive_dast", requirement: "required_if_applicable" },
-			{ capabilityId: "browser_client", requirement: "required_if_applicable" },
-			{
-				capabilityId: "authentication_session",
-				requirement: "required_if_applicable",
-			},
-			{
-				capabilityId: "api_schema_contract",
-				requirement: "required_if_applicable",
-			},
-			{
-				capabilityId: "authorization_matrix",
-				requirement: "required_if_applicable",
-			},
-			{ capabilityId: "active_dast", requirement: "required_if_applicable" },
-			{ capabilityId: "business_logic", requirement: "required_if_applicable" },
-			{
-				capabilityId: "remediation_retest",
-				requirement: "required_if_applicable",
-			},
-		]),
-		executionVariants: [],
-		environmentRequirementCodes: ["professional_run_group_not_integrated"],
-		limitationCodes: ["human_review_required"],
-		replacementProfileId: null,
-	}),
 ] as const;
+
+const LEGACY_FULL_SECURITY_CATALOG_ENTRY = catalogEntry({
+	id: "legacy-full-security-scan",
+	displayOrder: 1_000,
+	displayName: "従来の総合セキュリティスキャン",
+	experienceKind: "advanced_runner",
+	description:
+		"互換維持のために残す従来の複合scan presetです。professional campaignと同等ではありません。",
+	availability: "deprecated",
+	safetyClass: "mixed",
+	launchMode: "profile_orchestrator",
+	launchDestination: "scan_workspace",
+	strictness: "strict",
+	defaultResultPolicy: "advisory",
+	allowedResultPolicies: [...ALL_RESULT_POLICIES],
+	gateSeverityThreshold: "high",
+	supportedTargets: ["full"],
+	requiredInputs: [{ kind: "source_target", requirement: "required" }],
+	capabilityRequirements: capabilities([
+		{ capabilityId: "secret_detection", requirement: "required" },
+		{ capabilityId: "source_sast", requirement: "advisory" },
+		{ capabilityId: "sca", requirement: "required" },
+		{ capabilityId: "iac_config", requirement: "required" },
+		{ capabilityId: "sbom", requirement: "required" },
+		{ capabilityId: "passive_dast", requirement: "required" },
+		{
+			capabilityId: "api_schema_contract",
+			requirement: "required_if_applicable",
+		},
+	]),
+	executionVariants: [
+		{
+			id: "legacy-composite",
+			executionProfileRef: "full-security-scan",
+			requiredInputKinds: ["source_target"],
+			forbiddenInputKinds: [],
+		},
+	],
+	environmentRequirementCodes: [],
+	limitationCodes: ["legacy_execution_preserved"],
+	replacementProfileId: "source-assurance",
+});
 
 const LEGACY_ASSOCIATIONS = [
 	["agent-output", "source-assurance"],
@@ -521,7 +536,7 @@ const LEGACY_ASSOCIATIONS = [
 	["container-image-security", "release-artifact"],
 	["runtime-zap-baseline", "runtime-passive"],
 	["runtime-http-check", "runtime-passive"],
-	["full-security-scan", "professional-full"],
+	["full-security-scan", "legacy-full-security-scan"],
 	["security-inventory-best-effort", "source-assurance"],
 	["secrets-dependencies-runtime", "runtime-passive"],
 	["runtime-zap-active-lab", "active-technical-lab"],
@@ -634,7 +649,10 @@ export function validateScanProfileCatalog(): void {
 			);
 		}
 		legacyIds.add(association.legacyProfileId);
-		if (!ids.has(association.canonicalProfileId)) {
+		if (
+			!ids.has(association.canonicalProfileId) &&
+			association.canonicalProfileId !== LEGACY_FULL_SECURITY_CATALOG_ENTRY.id
+		) {
 			throw new Error(
 				`scan_profile_catalog_unknown_canonical_association:${association.legacyProfileId}`,
 			);
@@ -674,6 +692,14 @@ export function getCatalogEntry(
 	id: string,
 ): ScanProfileCatalogEntry | undefined {
 	return SCAN_PROFILE_CATALOG.find((entry) => entry.id === id);
+}
+
+export function getCatalogEntryForResolution(
+	id: string,
+): ScanProfileCatalogEntry | undefined {
+	return id === LEGACY_FULL_SECURITY_CATALOG_ENTRY.id
+		? LEGACY_FULL_SECURITY_CATALOG_ENTRY
+		: getCatalogEntry(id);
 }
 
 export function getLegacyProfileAssociation(

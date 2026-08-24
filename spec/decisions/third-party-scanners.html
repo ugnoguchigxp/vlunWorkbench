@@ -36,6 +36,37 @@
         <td>source commit and source archive SHA-256 pinned; built with the pinned Go toolchain</td>
       </tr>
       <tr>
+        <td>Cosign <code>3.1.3</code></td>
+        <td>offline verification of signed SLSA provenance and subject digest bindings</td>
+        <td>Apache-2.0 (upstream)</td>
+        <td>
+          source commit <code>11926fa5bbbbde47e88fc006b625a17769b743b2</code> and source archive SHA-256
+          pinned; built into the core toolbox with its LICENSE and COPYRIGHT files
+        </td>
+      </tr>
+      <tr>
+        <td>zizmor <code>1.29.0</code></td>
+        <td>
+          GitHub Actions workflow/action permissions, injection, and reference-pinning analysis
+        </td>
+        <td>MIT (upstream)</td>
+        <td>
+          release binaries and LICENSE checksum pinned for amd64/arm64; core toolbox execution uses
+          <code>--offline</code> and requires neither a CI job nor GitHub
+          credentials
+        </td>
+      </tr>
+      <tr>
+        <td>slsa-verifier <code>2.7.1</code></td>
+        <td>local artifact provenance signature plus expected source, builder, and source ref</td>
+        <td>Apache-2.0 (upstream)</td>
+        <td>
+          source commit <code>ea584f4502babc6f60d9bc799dbbb13c1caa9ee6</code> and archive SHA-256 pinned;
+          built into the core toolbox. Sigstore TUF trust-root refresh requires an explicit network
+          exception for this variant only
+        </td>
+      </tr>
+      <tr>
         <td>OSV-Scanner <code>2.4.0</code></td>
         <td>lockfile / manifest dependency analysis</td>
         <td>Apache-2.0 (upstream)</td>
@@ -46,7 +77,7 @@
       </tr>
       <tr>
         <td>
-          Nuclei engine <code>v3.11.0</code> / owned safe template set
+          Nuclei engine <code>v3.11.1</code> / owned safe template set
         </td>
         <td>safe, allowlisted loopback web templates</td>
         <td>MIT (upstream)</td>
@@ -76,25 +107,42 @@
       </tr>
       <tr>
         <td>Schemathesis <code>4.24.2</code></td>
-        <td>bounded read-only API schema checks</td>
+        <td>bounded read-only JSON/YAML OpenAPI and Query-only GraphQL schema checks</td>
         <td>MIT (upstream; Python dependencies require inventory)</td>
-        <td>pinned in toolbox</td>
+        <td>
+          pinned in toolbox; isolated execution uses the repository-owned namespace gateway so
+          authentication material is mounted as an ephemeral policy file rather than passed in argv
+        </td>
+      </tr>
+      <tr>
+        <td>testssl.sh <code>3.2.4</code>（spikeのみ、未採用）</td>
+        <td>TLS protocol、cipher、certificate診断の候補</td>
+        <td>GPL-2.0 (upstream)</td>
+        <td>
+          core toolboxへは同梱しない。外部分離adapterとしても、現在の自動起動targetがHTTPSを
+          提供せず、raw TLS connectionの総数を既存HTTP gatewayで強制できないため採用gateを
+          未達と判定した。<code>runtime-passive</code>はTLS診断をclaimしない。
+        </td>
       </tr>
     </tbody>
   </table>
   <p>
     Source URLs: <a href="https://pypi.org/project/semgrep/1.171.0/">Semgrep</a>,
     <a href="https://github.com/gitleaks/gitleaks/releases/tag/v8.30.1">Gitleaks</a>,
+    <a href="https://github.com/sigstore/cosign/releases/tag/v3.1.3">Cosign</a>,
+    <a href="https://github.com/zizmorcore/zizmor/releases/tag/v1.29.0">zizmor</a>,
+    <a href="https://github.com/slsa-framework/slsa-verifier/releases/tag/v2.7.1">slsa-verifier</a>,
     <a href="https://github.com/google/osv-scanner/releases/tag/v2.4.0">OSV-Scanner</a>,
-    <a href="https://github.com/projectdiscovery/nuclei/releases/tag/v3.11.0">Nuclei</a>,
+    <a href="https://github.com/projectdiscovery/nuclei/releases/tag/v3.11.1">Nuclei</a>,
     <a href="https://github.com/projectdiscovery/nuclei-templates/releases/tag/v10.4.4"
       >Nuclei templates</a
     >, <a href="https://hub.docker.com/r/zaproxy/zap-stable/tags">ZAP image</a>,
     <a href="https://pypi.org/project/schemathesis/4.24.2/">Schemathesis</a>,
-    <a href="https://github.com/aquasecurity/trivy/releases/tag/v0.72.0">Trivy</a>.
+    <a href="https://github.com/aquasecurity/trivy/releases/tag/v0.72.0">Trivy</a>,
+    <a href="https://github.com/testssl/testssl.sh/releases/tag/v3.2.4">testssl.sh</a>.
   </p>
   <p>
-    Verification date: 2026-07-30. This file records the distribution gate, not a legal conclusion.
+    Verification date: 2026-08-24. This file records the distribution gate, not a legal conclusion.
     Before shipping a toolbox or image, record the exact dependency license/NOTICE inventory and
     checksum output. Automatic template, add-on, vulnerability database, or registry credential
     updates are not part of a scan.
@@ -135,10 +183,11 @@
     is treated the same way. No third-party community rules are redistributed by this repository.
   </p>
   <p>
-    The toolbox rebuilds Gitleaks, OSV-Scanner, and Nuclei from checksum-verified release source
-    with Go 1.26.5. Trivy 0.72.0 is rebuilt by <code>scripts/build-toolbox-image.ts</code> with
-    patched containerd, gRPC, and ORAS dependencies before it is copied into the final image. CI
-    performs the same source build in the Docker <code>trivy-binary</code> stage.
+    The toolbox rebuilds Gitleaks, OSV-Scanner, Nuclei, Cosign, and slsa-verifier from
+    checksum-verified release source with Go 1.26.6. Trivy 0.72.0 is rebuilt by
+    <code>scripts/build-toolbox-image.ts</code> with patched containerd, gRPC, and ORAS dependencies
+    before it is copied into the final image. CI performs the same source build in the Docker
+    <code>trivy-binary</code> stage.
   </p>
   <p>
     Exception owner: vulnWorkbench maintainers. The following four time-bounded exceptions expire on

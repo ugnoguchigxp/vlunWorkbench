@@ -19,6 +19,7 @@ import type {
 	DastAuthIdentity,
 } from "./auth-context-crypto";
 import { assertAuthSecretTargetsOrigin } from "./auth-target-policy";
+import { normalizeDastOrigin } from "./target-validator";
 
 export class DastAuthContextRepository {
 	constructor(
@@ -195,6 +196,67 @@ export class DastAuthContextRepository {
 				},
 				identityFor(row),
 			),
+		);
+		await this.assertSecretTarget(
+			params.projectId,
+			params.targetConfigId,
+			payload,
+		);
+		await this.audit(row, "used", params.actorUserId ?? null);
+		return {
+			context: {
+				...sanitizeContext(row),
+				loginFlow: dastLoginActionSchema.array().parse(row.loginFlow),
+				successAssertions: dastAuthSuccessAssertionSchema
+					.array()
+					.parse(row.successAssertions),
+			},
+			secret: payload,
+		};
+	}
+
+	async decryptForOriginUse(params: {
+		id: string;
+		projectId: string;
+		targetOrigin: string;
+		identityRole: string;
+		actorUserId?: string;
+	}) {
+		const crypto = this.currentCrypto();
+		const row = await this.findOwned(params.id, params.projectId);
+		if (!row) throw new Error("DAST auth context not found.");
+		if (row.identityRole !== params.identityRole)
+			throw new Error("DAST auth context identity does not match the target.");
+		const target = await this.db.query.dastTargetConfigs.findFirst({
+			where: and(
+				eq(dastTargetConfigs.id, row.targetConfigId),
+				eq(dastTargetConfigs.projectId, params.projectId),
+			),
+		});
+		if (
+			!target ||
+			normalizeDastOrigin(target.normalizedOrigin) !==
+				normalizeDastOrigin(params.targetOrigin)
+		)
+			throw new Error("DAST auth context identity does not match the target.");
+		if (row.status !== "active")
+			throw new Error("DAST auth context is revoked.");
+		if (row.expiresAt.getTime() <= Date.now())
+			throw new Error("DAST auth context is expired.");
+		const payload = dastAuthSecretPayloadSchema.parse(
+			crypto.decrypt(
+				{
+					ciphertext: row.secretCiphertext,
+					nonce: row.secretNonce,
+					authTag: row.secretAuthTag,
+					keyId: row.secretKeyId,
+				},
+				identityFor(row),
+			),
+		);
+		assertAuthSecretTargetsOrigin(
+			payload,
+			normalizeDastOrigin(params.targetOrigin),
 		);
 		await this.audit(row, "used", params.actorUserId ?? null);
 		return {

@@ -3,6 +3,8 @@ import path from "node:path";
 import type { AppDatabase } from "../../../db";
 import type { SchemaDiscoveryResult } from "../../api-schema-fuzz/schema-discovery";
 import {
+	type ApiReadonlyOperationPolicy,
+	loadGraphqlReadonlyOperationPolicy,
 	loadOpenApiReadonlyOperationPolicy,
 	runSchemathesisReadonly,
 } from "../../api-schema-fuzz/schemathesis-runner";
@@ -10,6 +12,8 @@ import {
 	type PreparedContainerTargetGateway,
 	prepareContainerTargetGateway,
 } from "../../dast/container-target-gateway";
+import { apiAuthHeadersFor, redactSecretText } from "../../dast/auth-material";
+import type { DastAuthContextRepository } from "../../dast/auth-context-repository";
 import {
 	ArtifactRepository,
 	FindingRepository,
@@ -22,6 +26,7 @@ import type { ArtifactStorage } from "./lifecycle/artifact-storage";
 export async function runSchemaScannerIntoExistingScan(params: {
 	db: AppDatabase;
 	projectId: string;
+	createdByUserId?: string;
 	scanRunId: string;
 	repoPath: string;
 	targetOrigin: string;
@@ -35,6 +40,9 @@ export async function runSchemaScannerIntoExistingScan(params: {
 	rateLimitPerSec?: number;
 	runtimeNamespaceOwnerId?: string;
 	runtimeImage?: string;
+	authContextRepository?: DastAuthContextRepository;
+	authContextId?: string;
+	identityRole?: string;
 }): Promise<{
 	applicable: boolean;
 	reasonCode?: string;
@@ -45,6 +53,10 @@ export async function runSchemaScannerIntoExistingScan(params: {
 	metadata?: Record<string, unknown>;
 }> {
 	const discovery = params.discovery;
+	if (Boolean(params.authContextId) !== Boolean(params.identityRole))
+		throw new Error("api_auth_context_and_identity_role_required");
+	if (params.authContextId && !params.authContextRepository)
+		throw new Error("api_auth_context_repository_unavailable");
 	if (!discovery.applicable || !discovery.schemaPath)
 		return {
 			applicable: false,
@@ -65,6 +77,13 @@ export async function runSchemaScannerIntoExistingScan(params: {
 		metadata: {
 			schemaSource: discovery.source,
 			schemaPath: discovery.schemaPath,
+			auth: params.authContextId
+				? {
+						contextId: params.authContextId,
+						identityRole: params.identityRole,
+						mode: "gateway_injected",
+					}
+				: { mode: "anonymous" },
 		},
 	});
 	const scopedStorage = params.artifactStorage.forToolRun(
@@ -89,19 +108,39 @@ export async function runSchemaScannerIntoExistingScan(params: {
 				}
 			: params.execution;
 	let result: Awaited<ReturnType<typeof runSchemathesisReadonly>> | null = null;
-	let operationPolicy: Awaited<
-		ReturnType<typeof loadOpenApiReadonlyOperationPolicy>
-	> | null = null;
+	let operationPolicy: ApiReadonlyOperationPolicy | null = null;
 	let gateway: PreparedContainerTargetGateway | null = null;
 	let executionError: unknown = null;
 	try {
-		const loadedOperationPolicy = await loadOpenApiReadonlyOperationPolicy(
-			discovery.schemaPath,
+		const schemaKind = discovery.schemaKind ?? "openapi";
+		const snapshotRoot =
 			discovery.source === "repository"
 				? params.repoPath
-				: path.dirname(discovery.schemaPath),
-		);
+				: path.dirname(discovery.schemaPath);
+		const loadedOperationPolicy =
+			schemaKind === "graphql"
+				? await loadGraphqlReadonlyOperationPolicy(
+						discovery.schemaPath,
+						snapshotRoot,
+					)
+				: await loadOpenApiReadonlyOperationPolicy(
+						discovery.schemaPath,
+						snapshotRoot,
+						{
+							includeAuthenticatedOperations: Boolean(params.authContextId),
+						},
+					);
 		operationPolicy = loadedOperationPolicy;
+		const authMaterial = params.authContextId
+			? await params.authContextRepository?.decryptForOriginUse({
+					id: params.authContextId,
+					projectId: params.projectId,
+					targetOrigin: params.targetOrigin,
+					identityRole: params.identityRole as string,
+					actorUserId: params.createdByUserId,
+				})
+			: undefined;
+		const upstreamRequestHeaders = apiAuthHeadersFor(authMaterial?.secret);
 		if (!params.runtimeNamespaceOwnerId)
 			gateway = await prepareContainerTargetGateway({
 				upstreamOrigin: params.targetOrigin,
@@ -111,10 +150,34 @@ export async function runSchemaScannerIntoExistingScan(params: {
 				rateLimitPerSec: params.rateLimitPerSec ?? 2,
 				dockerBin: params.execution?.docker?.dockerBin,
 				containerAccess: runtimeExecution?.runner === "docker",
-				exactOperations: loadedOperationPolicy.operations.map((operation) => ({
-					method: operation.method,
-					pathTemplate: `${loadedOperationPolicy.basePath === "/" ? "" : loadedOperationPolicy.basePath}${operation.pathTemplate}`,
-				})),
+				exactOperations:
+					"endpointPath" in loadedOperationPolicy
+						? [
+								{
+									method: "POST" as const,
+									pathTemplate: loadedOperationPolicy.endpointPath,
+								},
+							]
+						: loadedOperationPolicy.operations.map((operation) => ({
+								method: operation.method,
+								pathTemplate: `${loadedOperationPolicy.basePath === "/" ? "" : loadedOperationPolicy.basePath}${operation.pathTemplate}`,
+							})),
+				graphqlQueryOnly:
+					"endpointPath" in loadedOperationPolicy
+						? {
+								pathTemplate: loadedOperationPolicy.endpointPath,
+								maxRequestBytes: loadedOperationPolicy.maxRequestBytes,
+							}
+						: undefined,
+				requestLimits: {
+					maxPathBytes: loadedOperationPolicy.maxPathBytes,
+					maxPathSegmentBytes: loadedOperationPolicy.maxPathSegmentBytes,
+					maxQueryParameters: loadedOperationPolicy.maxQueryParameters,
+					maxQueryValueBytes: loadedOperationPolicy.maxQueryValueBytes,
+					maxQueryBytes: loadedOperationPolicy.maxQueryBytes,
+					maxRequestHeaderBytes: loadedOperationPolicy.maxRequestHeaderBytes,
+				},
+				upstreamRequestHeaders,
 			});
 		result = await runSchemathesisReadonly({
 			scanRunId: params.scanRunId,
@@ -132,7 +195,17 @@ export async function runSchemaScannerIntoExistingScan(params: {
 			storage: scopedStorage,
 			execution: runtimeExecution,
 			timeoutSec: params.timeoutSec,
+			schemaKind,
 			operationPolicy: loadedOperationPolicy,
+			includeAuthenticatedOperations: Boolean(authMaterial),
+			sanitizeOutput: (value) => redactSecretText(value, authMaterial?.secret),
+			namespaceGateway: params.runtimeNamespaceOwnerId
+				? {
+						upstreamRequestHeaders,
+						maxRequests: params.maxRequests ?? 30,
+						rateLimitPerSec: params.rateLimitPerSec ?? 2,
+					}
+				: undefined,
 		});
 	} catch (error) {
 		executionError = error;
@@ -257,7 +330,12 @@ export async function runSchemaScannerIntoExistingScan(params: {
 			gatewayMetrics: gateway?.metrics() ?? null,
 			operationPolicyHash: operationPolicy?.policyHash ?? null,
 			schemaSnapshotDigest: operationPolicy?.schemaSnapshotDigest ?? null,
-			selectedOperationCount: operationPolicy?.operations.length ?? 0,
+			selectedOperationCount:
+				operationPolicy && "operations" in operationPolicy
+					? operationPolicy.operations.length
+					: operationPolicy
+						? 1
+						: 0,
 		},
 	});
 	return {

@@ -21,6 +21,7 @@ function runtimeDependencySettings(
 	env: AppEnv,
 ): Record<string, string | undefined> {
 	return {
+		SCAN_DOCKER_IMAGE: env.scanDockerImage,
 		VULN_WORKBENCH_RUNTIME_NUCLEI_IMAGE:
 			env.runtimeIsolation?.nucleiImage || undefined,
 		VULN_WORKBENCH_RUNTIME_ZAP_IMAGE:
@@ -63,6 +64,7 @@ export function createScanLaunchesRoute(deps: ScanLaunchesRouteDeps) {
 				target: request.target,
 				input: request.input,
 				settings: runtimeDependencySettings(await deps.resolveRuntimeEnv()),
+				workspacePath: project.repoPath,
 			});
 			const definition = getScanProfileDefinition(request.profileId);
 			const response = scanLaunchPreviewSchema.parse({
@@ -72,6 +74,7 @@ export function createScanLaunchesRoute(deps: ScanLaunchesRouteDeps) {
 				engineId: definition.engineId,
 				readiness: readiness.readiness,
 				reasonCodes: readiness.reasonCodes,
+				warningCodes: readiness.warningCodes,
 				setupActions: setupActions(readiness.reasonCodes),
 				resolvedTargetDigest: null,
 				catalogEntryHash: readiness.catalogEntryHash,

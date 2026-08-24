@@ -61,6 +61,10 @@ try {
 		{ recursive: true },
 	);
 	await cp(
+		path.join(sourceRoot, "sigstore-trusted-root.json"),
+		path.join(stagedOutput, "sigstore-trusted-root.json"),
+	);
+	await cp(
 		path.join(sourceRoot, "..", "nuclei-safe-templates"),
 		path.join(stagedOutput, "nuclei-safe-templates"),
 		{ recursive: true },
@@ -149,6 +153,39 @@ try {
 	);
 
 	const tools = structuredClone(template.tools);
+	const cosignTrustedRootPath = path.join(
+		stagedOutput,
+		"sigstore-trusted-root.json",
+	);
+	const cosignTrustedRootDigest = await sha256File(cosignTrustedRootPath);
+	const lockedCosignTrustedRoot = template.tools.cosign?.dataBundles.find(
+		(bundle) => bundle.id === "sigstore-production-trusted-root-v1",
+	);
+	if (
+		template.tools.cosign?.state === "ready" &&
+		lockedCosignTrustedRoot &&
+		lockedCosignTrustedRoot.digest !== cosignTrustedRootDigest &&
+		!allowRefresh
+	) {
+		throw new Error(
+			`scanner_data_lock_mismatch:cosign-trusted-root:${cosignTrustedRootDigest}`,
+		);
+	}
+	if (tools.cosign) {
+		tools.cosign = {
+			...tools.cosign,
+			state: "ready",
+			dataBundles: tools.cosign.dataBundles.map((bundle) =>
+				bundle.id === "sigstore-production-trusted-root-v1"
+					? {
+							...bundle,
+							digest: cosignTrustedRootDigest,
+							path: "sigstore-trusted-root.json",
+						}
+					: bundle,
+			),
+		};
+	}
 	const sourceLockDigest = await sha256File(
 		"spec/security-capability/semgrep-rule-sources.lock.json",
 	);

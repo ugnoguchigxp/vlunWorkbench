@@ -3,6 +3,7 @@ import { z } from "zod";
 export const scanCapabilityIdSchema = z.enum([
 	"secret_detection",
 	"source_sast",
+	"cicd_workflow_integrity",
 	"sca",
 	"iac_config",
 	"sbom",
@@ -61,7 +62,7 @@ export type ScanCapabilityRequirementEntry = z.infer<
 /** A profile may declare a capability only once. */
 export const scanCapabilityRequirementsSchema = z
 	.array(scanCapabilityRequirementEntrySchema)
-	.max(17)
+	.max(18)
 	.superRefine((entries, context) => {
 		const seen = new Set<string>();
 		for (const [index, entry] of entries.entries()) {

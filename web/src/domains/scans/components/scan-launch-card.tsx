@@ -17,6 +17,13 @@ const availabilityLabels = {
 	deprecated: "（廃止予定）",
 } as const;
 
+const experienceGroups = [
+	{ kind: "scanner_preset", label: "自動スキャン" },
+	{ kind: "assessment_workflow", label: "専用ワークフロー" },
+	{ kind: "lab", label: "Lab" },
+	{ kind: "advanced_runner", label: "高度な実行" },
+] as const;
+
 export function ScanLaunchCard({
 	profiles,
 	selectedProfileId,
@@ -58,12 +65,24 @@ export function ScanLaunchCard({
 					onChange={(event) => onProfileChange(event.target.value)}
 					disabled={disabled}
 				>
-					{profiles.map((item) => (
-						<option key={item.id} value={item.id}>
-							{item.name}
-							{item.availability ? availabilityLabels[item.availability] : ""}
-						</option>
-					))}
+					{experienceGroups.map((group) => {
+						const items = profiles.filter(
+							(item) =>
+								(item.experienceKind ?? "scanner_preset") === group.kind,
+						);
+						return items.length > 0 ? (
+							<optgroup key={group.kind} label={group.label}>
+								{items.map((item) => (
+									<option key={item.id} value={item.id}>
+										{item.name}
+										{item.availability
+											? availabilityLabels[item.availability]
+											: ""}
+									</option>
+								))}
+							</optgroup>
+						) : null;
+					})}
 				</SelectInput>
 			</label>
 			<label htmlFor="scan-workspace-target">

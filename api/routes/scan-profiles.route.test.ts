@@ -12,7 +12,10 @@ describe("Scan Profiles Route", () => {
 
     const body = await res.json();
 		expect(body.schemaVersion).toBe(2);
-		expect(body.catalogEntries).toHaveLength(14);
+		expect(body.catalogEntries).toHaveLength(13);
+		expect(
+			body.catalogEntries.some((entry: any) => entry.id === "professional-full"),
+		).toBe(false);
 		expect(body.genericStartCatalogProfileIds).toEqual([
 			"change-gate",
 			"source-assurance",
@@ -121,7 +124,7 @@ describe("Scan Profiles Route", () => {
     expect(fullProfile.capabilityRequirements).toEqual(
       expect.arrayContaining([
         { capabilityId: "secret_detection", requirement: "required" },
-        { capabilityId: "source_sast", requirement: "required_if_applicable" },
+        { capabilityId: "source_sast", requirement: "advisory" },
       ]),
     );
     expect(fullProfile.strictness).toBe("strict");
@@ -129,7 +132,7 @@ describe("Scan Profiles Route", () => {
       "gitleaks",
       "osv",
       "trivy",
-      "semgrep",
+      "zizmor",
       "sbom_export:trivy",
       "dast:web-passive-standard",
       "runtime_scanner:nuclei-safe",

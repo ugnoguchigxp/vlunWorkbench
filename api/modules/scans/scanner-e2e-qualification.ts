@@ -42,6 +42,7 @@ const CASE_SCANNER_IDS: Record<string, string | null> = {
 	"osv-installed-tree": "osv",
 	"trivy-filesystem": "trivy",
 	"semgrep-source": "semgrep",
+	"zizmor-workflow": "zizmor",
 	"trivy-sbom": "trivy",
 	"trivy-image": "trivy",
 	"passive-dast": null,
@@ -232,6 +233,7 @@ function requiredCaseIdsFor(steps: ScanProfileStep[]): string[] {
 		if (step.kind === "static_tool") {
 			if (step.toolId === "gitleaks") caseIds.add("gitleaks-source");
 			if (step.toolId === "semgrep") caseIds.add("semgrep-source");
+			if (step.toolId === "zizmor") caseIds.add("zizmor-workflow");
 			if (step.toolId === "osv") {
 				caseIds.add(
 					step.options?.dependencyMode === "installed_tree"

@@ -2,12 +2,23 @@ import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { buildSchemathesisReadonlyCommand } from "../runtime-scans/command-contracts";
+import { canonicalJson } from "../../../shared/canonical-json";
+import {
+	buildSchemathesisGraphqlReadonlyCommand,
+	buildSchemathesisReadonlyCommand,
+} from "../runtime-scans/command-contracts";
 import type {
 	ArtifactSaveResult,
 	ArtifactStorage,
 } from "../scans/artifact-storage";
 import { cleanupTemporaryPaths } from "../scans/execution/lifecycle/temporary-path-cleanup";
+import { readApiSchemaDocument } from "./api-schema-document";
+import {
+	buildGraphqlReadonlyOperationPolicy,
+	type GraphqlReadonlyOperationPolicyV1,
+	loadGraphqlReadonlyOperationPolicy,
+	parseGraphqlReadonlySchema,
+} from "./graphql-readonly-policy";
 import {
 	checkToolVersion,
 	runToolProcess,
@@ -20,10 +31,8 @@ import {
 	type OpenApiReadonlyOperationPolicyV1,
 } from "./openapi-readonly-operation-policy";
 import { normalizeSchemathesis } from "./schemathesis-normalizer";
-import {
-	parseStrictJsonDocument,
-	readStrictJsonDocumentBytes,
-} from "./strict-json-document";
+import { redactSecrets } from "../scans/normalizers/redaction";
+import { readStrictJsonDocumentBytes } from "./strict-json-document";
 
 const sha256 = (value: Uint8Array) =>
 	`sha256:${createHash("sha256").update(value).digest("hex")}`;
@@ -43,13 +52,100 @@ function operationPathRegex(
 export async function loadOpenApiReadonlyOperationPolicy(
 	schemaPath: string,
 	snapshotRoot: string,
+	options: { includeAuthenticatedOperations?: boolean } = {},
 ) {
-	const bytes = await readStrictJsonDocumentBytes(schemaPath, snapshotRoot);
-	const schema = parseStrictJsonDocument(bytes);
+	const { bytes, document: schema } = await readApiSchemaDocument(
+		schemaPath,
+		snapshotRoot,
+	);
 	return buildOpenApiReadonlyOperationPolicy(
-		parseOpenApiDocument(schema),
+		parseOpenApiDocument(schema, options),
 		sha256(bytes),
 	);
+}
+
+export { loadGraphqlReadonlyOperationPolicy };
+
+export type ApiReadonlyOperationPolicy =
+	| OpenApiReadonlyOperationPolicyV1
+	| GraphqlReadonlyOperationPolicyV1;
+
+function isGraphqlOperationPolicy(
+	policy: ApiReadonlyOperationPolicy,
+): policy is GraphqlReadonlyOperationPolicyV1 {
+	return "endpointPath" in policy;
+}
+
+export function operationPoliciesMatch(
+	provided: ApiReadonlyOperationPolicy,
+	derived: ApiReadonlyOperationPolicy,
+): boolean {
+	return (
+		isGraphqlOperationPolicy(provided) === isGraphqlOperationPolicy(derived) &&
+		canonicalJson(provided) === canonicalJson(derived)
+	);
+}
+
+export function sanitizeSchemathesisOutput(
+	value: string,
+	sanitizeKnownValues?: (value: string) => string,
+): string {
+	return redactSecrets(sanitizeKnownValues?.(value) ?? value);
+}
+
+export function buildSchemathesisNamespaceGatewayPolicy(params: {
+	targetOrigin: string;
+	operationPolicy: ApiReadonlyOperationPolicy;
+	upstreamRequestHeaders: Readonly<Record<string, string>>;
+	maxRequests: number;
+	rateLimitPerSec: number;
+}) {
+	const { operationPolicy } = params;
+	const operations = isGraphqlOperationPolicy(operationPolicy)
+		? [
+				{
+					method: "POST" as const,
+					pathTemplate: operationPolicy.endpointPath,
+				},
+			]
+		: operationPolicy.operations.map((operation) => ({
+				method: operation.method,
+				pathTemplate: `${operationPolicy.basePath === "/" ? "" : operationPolicy.basePath}${operation.pathTemplate}`,
+			}));
+	return {
+		schemaVersion: 1 as const,
+		upstreamOrigin: params.targetOrigin,
+		operations,
+		graphqlQueryOnly: isGraphqlOperationPolicy(operationPolicy),
+		graphqlEndpointPath: isGraphqlOperationPolicy(operationPolicy)
+			? operationPolicy.endpointPath
+			: null,
+		authHeaders: params.upstreamRequestHeaders,
+		maxRequests: params.maxRequests,
+		rateLimitPerSecond: params.rateLimitPerSec,
+		requestTimeoutSeconds: 10,
+		maxRequestBytes: isGraphqlOperationPolicy(operationPolicy)
+			? operationPolicy.maxRequestBytes
+			: 1_048_576,
+		maxPathBytes: operationPolicy.maxPathBytes,
+		maxPathSegmentBytes: operationPolicy.maxPathSegmentBytes,
+		maxQueryParameters: operationPolicy.maxQueryParameters,
+		maxQueryValueBytes: operationPolicy.maxQueryValueBytes,
+		maxQueryBytes: operationPolicy.maxQueryBytes,
+		maxRequestHeaderBytes: operationPolicy.maxRequestHeaderBytes,
+		maxResponseBytes: operationPolicy.maxResponseBytes,
+		maxTotalResponseBytes: operationPolicy.maxTotalResponseBytes,
+	};
+}
+
+export function buildSchemathesisNamespaceGatewayInvocation(
+	policyPath: string,
+	command: string[],
+) {
+	return {
+		binaryName: "vwb-schemathesis-readonly-gateway",
+		args: ["run", policyPath, "--", ...command],
+	};
 }
 
 export async function runSchemathesisReadonly(params: {
@@ -60,7 +156,15 @@ export async function runSchemathesisReadonly(params: {
 	storage: ArtifactStorage;
 	execution?: ToolExecutionConfig;
 	timeoutSec?: number;
-	operationPolicy?: OpenApiReadonlyOperationPolicyV1;
+	schemaKind?: "openapi" | "graphql";
+	operationPolicy?: ApiReadonlyOperationPolicy;
+	namespaceGateway?: {
+		upstreamRequestHeaders: Readonly<Record<string, string>>;
+		maxRequests: number;
+		rateLimitPerSec: number;
+	};
+	includeAuthenticatedOperations?: boolean;
+	sanitizeOutput?: (value: string) => string;
 }): Promise<{
 	ok: boolean;
 	toolVersion: string | null;
@@ -71,48 +175,56 @@ export async function runSchemathesisReadonly(params: {
 	exitCode: number | null;
 	error?: string;
 }> {
-	let schema: unknown;
-	let schemaBytes: Uint8Array;
+	const schemaKind = params.schemaKind ?? "openapi";
+	let derivedOperationPolicy: ApiReadonlyOperationPolicy;
 	try {
-		schemaBytes = await readStrictJsonDocumentBytes(
-			params.schemaPath,
-			params.repoPath ?? path.dirname(params.schemaPath),
-		);
-		schema = parseStrictJsonDocument(schemaBytes);
-	} catch {
+		if (schemaKind === "graphql") {
+			const schemaBytes = await readStrictJsonDocumentBytes(
+				params.schemaPath,
+				params.repoPath ?? path.dirname(params.schemaPath),
+			);
+			parseGraphqlReadonlySchema(schemaBytes);
+			derivedOperationPolicy = buildGraphqlReadonlyOperationPolicy(
+				sha256(schemaBytes),
+			);
+		} else {
+			const loaded = await readApiSchemaDocument(
+				params.schemaPath,
+				params.repoPath ?? path.dirname(params.schemaPath),
+			);
+			const policy = evaluateApiReadonlyPolicy(loaded.document, {
+				includeAuthenticatedOperations: params.includeAuthenticatedOperations,
+			});
+			if (!policy.ok) throw new Error(policy.reasonCode);
+			derivedOperationPolicy = buildOpenApiReadonlyOperationPolicy(
+				parseOpenApiDocument(loaded.document, {
+					includeAuthenticatedOperations: params.includeAuthenticatedOperations,
+				}),
+				sha256(loaded.bytes),
+			);
+		}
+	} catch (error) {
 		return {
 			ok: false,
 			toolVersion: null,
 			findings: [],
 			exitCode: null,
-			error: "openapi_schema_required",
+			error:
+				error instanceof Error
+					? error.message.split(":")[0]
+					: `${schemaKind}_schema_required`,
 		};
 	}
-	const policy = evaluateApiReadonlyPolicy(schema);
-	if (!policy.ok) {
-		return {
-			ok: false,
-			toolVersion: null,
-			findings: [],
-			exitCode: null,
-			error: policy.reasonCode,
-		};
-	}
-	const parsedDocument = parseOpenApiDocument(schema);
-	const derivedOperationPolicy = buildOpenApiReadonlyOperationPolicy(
-		parsedDocument,
-		sha256(schemaBytes),
-	);
 	if (
 		params.operationPolicy &&
-		params.operationPolicy.policyHash !== derivedOperationPolicy.policyHash
+		!operationPoliciesMatch(params.operationPolicy, derivedOperationPolicy)
 	)
 		return {
 			ok: false,
 			toolVersion: null,
 			findings: [],
 			exitCode: null,
-			error: "openapi_operation_policy_mismatch",
+			error: `${schemaKind}_operation_policy_mismatch`,
 		};
 	const operationPolicy = params.operationPolicy ?? derivedOperationPolicy;
 	const version = await checkToolVersion("st", ["--version"], {
@@ -127,27 +239,68 @@ export async function runSchemathesisReadonly(params: {
 			error: "tool_unavailable",
 		};
 	const dir = await fs.mkdtemp(path.join(os.tmpdir(), "schemathesis-run-"));
-	const outputPath = path.join(dir, "schemathesis.ndjson");
+	const policyDir = path.join(dir, "policy");
+	const outputDir = path.join(dir, "output");
+	await Promise.all([
+		fs.mkdir(policyDir, { mode: 0o700 }),
+		fs.mkdir(outputDir, { mode: 0o700 }),
+	]);
+	const outputPath = path.join(outputDir, "schemathesis.ndjson");
 	try {
+		const command = isGraphqlOperationPolicy(operationPolicy)
+			? buildSchemathesisGraphqlReadonlyCommand(
+					params.schemaPath,
+					`${params.targetOrigin}${operationPolicy.endpointPath}`,
+					outputPath,
+				)
+			: buildSchemathesisReadonlyCommand(
+					params.schemaPath,
+					params.targetOrigin,
+					outputPath,
+					operationPathRegex(operationPolicy),
+				);
+		let gatewayPolicyPath: string | undefined;
+		if (params.namespaceGateway) {
+			gatewayPolicyPath = path.join(policyDir, "readonly-gateway-policy.json");
+			await fs.writeFile(
+				gatewayPolicyPath,
+				JSON.stringify(
+					buildSchemathesisNamespaceGatewayPolicy({
+						targetOrigin: params.targetOrigin,
+						operationPolicy,
+						...params.namespaceGateway,
+					}),
+				),
+				// The 0700 parent protects the secret on the host. The bind-mounted
+				// file itself must be readable by the fixed non-root container UID.
+				{ encoding: "utf8", mode: 0o644 },
+			);
+		}
+		const gatewayInvocation = gatewayPolicyPath
+			? buildSchemathesisNamespaceGatewayInvocation(gatewayPolicyPath, command)
+			: null;
 		const result = await runToolProcess(
-			"st",
-			buildSchemathesisReadonlyCommand(
-				params.schemaPath,
-				params.targetOrigin,
-				outputPath,
-				operationPathRegex(operationPolicy),
-			),
+			gatewayInvocation?.binaryName ?? "st",
+			gatewayInvocation?.args ?? command,
 			{
 				execution: params.execution,
 				timeoutSec: params.timeoutSec,
 				outputPath,
 				repoPath: params.repoPath,
-				inputPaths: [params.schemaPath],
+				inputPaths: [
+					params.schemaPath,
+					...(gatewayPolicyPath ? [gatewayPolicyPath] : []),
+				],
 			},
 		);
 		let raw: unknown = [];
 		try {
-			raw = (await fs.readFile(outputPath, "utf8"))
+			const sanitizedOutput = sanitizeSchemathesisOutput(
+				await fs.readFile(outputPath, "utf8"),
+				params.sanitizeOutput,
+			);
+			await fs.writeFile(outputPath, sanitizedOutput, "utf8");
+			raw = sanitizedOutput
 				.split("\n")
 				.filter(Boolean)
 				.map((line) => JSON.parse(line));
@@ -165,11 +318,27 @@ export async function runSchemathesisReadonly(params: {
 			outputPath,
 			"schemathesis.ndjson",
 		);
-		const stdoutArtifact = result.stdout
-			? await params.storage.saveLog(params.scanRunId, "stdout", result.stdout)
+		const sanitizedStdout = sanitizeSchemathesisOutput(
+			result.stdout,
+			params.sanitizeOutput,
+		);
+		const sanitizedStderr = sanitizeSchemathesisOutput(
+			result.stderr,
+			params.sanitizeOutput,
+		);
+		const stdoutArtifact = sanitizedStdout
+			? await params.storage.saveLog(
+					params.scanRunId,
+					"stdout",
+					sanitizedStdout,
+				)
 			: undefined;
-		const stderrArtifact = result.stderr
-			? await params.storage.saveLog(params.scanRunId, "stderr", result.stderr)
+		const stderrArtifact = sanitizedStderr
+			? await params.storage.saveLog(
+					params.scanRunId,
+					"stderr",
+					sanitizedStderr,
+				)
 			: undefined;
 		return {
 			ok: result.ok && (result.exitCode === 0 || result.exitCode === 1),

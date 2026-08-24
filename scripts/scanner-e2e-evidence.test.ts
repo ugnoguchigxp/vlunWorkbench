@@ -75,7 +75,7 @@ describe("scanner E2E evidence verifier", () => {
       evidencePath: await writeEvidence(),
     });
 
-    expect(Object.keys(verified.evidenceHashes)).toHaveLength(12);
+    expect(Object.keys(verified.evidenceHashes)).toHaveLength(13);
   });
 
   test("rejects a partial bundle before it can qualify a strict scanner build", async () => {

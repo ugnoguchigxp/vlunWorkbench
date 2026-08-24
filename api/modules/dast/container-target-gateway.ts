@@ -2,6 +2,8 @@ import { execFile } from "node:child_process";
 import http from "node:http";
 import os from "node:os";
 import { promisify } from "node:util";
+import { isGraphqlQueryOnlyPayload } from "../api-schema-fuzz/graphql-readonly-policy";
+import { parseStrictJsonDocument } from "../api-schema-fuzz/strict-json-document";
 import { closeHttpServerBounded } from "./http-server-cleanup";
 import { isPathAllowed, normalizeDastOrigin } from "./target-validator";
 
@@ -27,6 +29,18 @@ const HOP_BY_HOP_HEADERS = new Set([
 	"transfer-encoding",
 	"upgrade",
 ]);
+const BLOCKED_UPSTREAM_INJECTION_HEADERS = new Set([
+	...HOP_BY_HOP_HEADERS,
+	"__proto__",
+	"constructor",
+	"host",
+	"content-length",
+	"content-type",
+	"prototype",
+	"x-http-method",
+	"x-http-method-override",
+	"x-method-override",
+]);
 
 export type ContainerTargetGatewayOptions = {
 	upstreamOrigin: string;
@@ -39,9 +53,22 @@ export type ContainerTargetGatewayOptions = {
 	maxResponseBytes?: number;
 	maxTotalResponseBytes?: number;
 	exactOperations?: ReadonlyArray<{
-		method: "GET" | "HEAD" | "OPTIONS";
+		method: "GET" | "HEAD" | "OPTIONS" | "POST";
 		pathTemplate: string;
 	}>;
+	graphqlQueryOnly?: {
+		pathTemplate: string;
+		maxRequestBytes: number;
+	};
+	upstreamRequestHeaders?: Readonly<Record<string, string>>;
+	requestLimits?: {
+		maxPathBytes: number;
+		maxPathSegmentBytes: number;
+		maxQueryParameters: number;
+		maxQueryValueBytes: number;
+		maxQueryBytes: number;
+		maxRequestHeaderBytes: number;
+	};
 };
 
 export type PreparedContainerTargetGateway = {
@@ -51,7 +78,9 @@ export type PreparedContainerTargetGateway = {
 		forwardedRequests: number;
 		budgetBlockedRequests: number;
 		methodBlockedRequests: number;
+		graphqlBlockedRequests?: number;
 		pathBlockedRequests: number;
+		requestLimitBlockedRequests?: number;
 		redirectBlockedResponses: number;
 		responseBytesRead: number;
 		responseBodyTruncatedResponses: number;
@@ -64,6 +93,15 @@ export type PreparedContainerTargetGateway = {
 };
 
 type Metrics = ReturnType<PreparedContainerTargetGateway["metrics"]>;
+
+const DEFAULT_REQUEST_LIMITS = {
+	maxPathBytes: 8192,
+	maxPathSegmentBytes: 2048,
+	maxQueryParameters: 50,
+	maxQueryValueBytes: 4096,
+	maxQueryBytes: 16384,
+	maxRequestHeaderBytes: 16384,
+} as const;
 
 function securityHeaders(): Record<string, string> {
 	return {
@@ -208,25 +246,192 @@ function matchingExactOperation(
 	);
 }
 
+async function readBoundedRequestBody(
+	req: http.IncomingMessage,
+	maxBytes: number,
+): Promise<Uint8Array | null> {
+	const contentLength = req.headers["content-length"];
+	if (
+		typeof contentLength !== "string" ||
+		!/^\d+$/.test(contentLength) ||
+		Number(contentLength) > maxBytes
+	) {
+		req.resume();
+		return null;
+	}
+	const expectedBytes = Number(contentLength);
+	const chunks: Uint8Array[] = [];
+	let total = 0;
+	for await (const rawChunk of req) {
+		const chunk =
+			typeof rawChunk === "string"
+				? new TextEncoder().encode(rawChunk)
+				: new Uint8Array(rawChunk);
+		total += chunk.byteLength;
+		if (total > expectedBytes) {
+			req.destroy();
+			return null;
+		}
+		chunks.push(chunk);
+	}
+	if (total !== expectedBytes) return null;
+	const body = new Uint8Array(total);
+	let offset = 0;
+	for (const chunk of chunks) {
+		body.set(chunk, offset);
+		offset += chunk.byteLength;
+	}
+	return body;
+}
+
+function normalizeRequestLimits(
+	limits: ContainerTargetGatewayOptions["requestLimits"],
+) {
+	const resolved = { ...DEFAULT_REQUEST_LIMITS, ...limits };
+	for (const [name, maximum] of Object.entries(DEFAULT_REQUEST_LIMITS)) {
+		const value = resolved[name as keyof typeof resolved];
+		if (!Number.isInteger(value) || value < 1 || value > maximum)
+			throw new Error(`target_gateway_${name}_invalid`);
+	}
+	if (resolved.maxPathSegmentBytes > resolved.maxPathBytes)
+		throw new Error("target_gateway_path_segment_limit_invalid");
+	return resolved;
+}
+
+function decodeQueryComponent(value: string): string | null {
+	try {
+		return decodeURIComponent(value.replaceAll("+", " "));
+	} catch {
+		return null;
+	}
+}
+
+function requestWithinLimits(
+	req: http.IncomingMessage,
+	requestTarget: string,
+	limits: ReturnType<typeof normalizeRequestLimits>,
+	upstreamRequestHeaders: Readonly<Record<string, string>>,
+): boolean {
+	if (requestTarget.includes("#")) return false;
+	const separator = requestTarget.indexOf("?");
+	const rawPath =
+		separator === -1 ? requestTarget : requestTarget.slice(0, separator);
+	const rawQuery = separator === -1 ? "" : requestTarget.slice(separator + 1);
+	if (
+		Buffer.byteLength(rawPath) > limits.maxPathBytes ||
+		Buffer.byteLength(rawQuery) > limits.maxQueryBytes
+	)
+		return false;
+	const segments = decodedPathSegments(rawPath);
+	if (
+		!segments ||
+		segments.some(
+			(segment) => Buffer.byteLength(segment) > limits.maxPathSegmentBytes,
+		)
+	)
+		return false;
+	const parameters = rawQuery ? rawQuery.split("&") : [];
+	if (parameters.length > limits.maxQueryParameters) return false;
+	for (const parameter of parameters) {
+		const equals = parameter.indexOf("=");
+		const rawName = equals === -1 ? parameter : parameter.slice(0, equals);
+		const rawValue = equals === -1 ? "" : parameter.slice(equals + 1);
+		const name = decodeQueryComponent(rawName);
+		const value = decodeQueryComponent(rawValue);
+		if (
+			name === null ||
+			value === null ||
+			Buffer.byteLength(value) > limits.maxQueryValueBytes ||
+			[
+				"_method",
+				"x-http-method",
+				"x-http-method-override",
+				"x-method-override",
+			].includes(name.toLowerCase())
+		)
+			return false;
+	}
+	const headerBytes =
+		2 +
+		req.rawHeaders.reduce(
+			(total, value) => total + Buffer.byteLength(value) + 2,
+			0,
+		) +
+		Object.entries(upstreamRequestHeaders).reduce(
+			(total, [name, value]) =>
+				total + Buffer.byteLength(name) + Buffer.byteLength(value) + 4,
+			0,
+		);
+	return headerBytes <= limits.maxRequestHeaderBytes;
+}
+
+function isQualifiedGraphqlRequest(
+	body: Uint8Array,
+	contentType: string | undefined,
+): boolean {
+	if (!/^application\/json(?:\s*;|$)/i.test(contentType ?? "")) return false;
+	let parsed: unknown;
+	try {
+		parsed = parseStrictJsonDocument(body);
+	} catch {
+		return false;
+	}
+	if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+		return false;
+	return isGraphqlQueryOnlyPayload(parsed);
+}
+
+function validatedUpstreamHeaders(
+	headers: ContainerTargetGatewayOptions["upstreamRequestHeaders"],
+): Readonly<Record<string, string>> {
+	if (!headers) return {};
+	const result: Record<string, string> = {};
+	for (const [name, value] of Object.entries(headers)) {
+		const normalized = name.toLowerCase();
+		if (
+			!/^[a-z0-9!#$%&'*+.^_`|~-]+$/.test(normalized) ||
+			BLOCKED_UPSTREAM_INJECTION_HEADERS.has(normalized)
+		)
+			throw new Error("target_gateway_auth_header_not_allowed");
+		if (/[\r\n]/.test(name) || /[\r\n]/.test(value))
+			throw new Error("target_gateway_auth_header_invalid");
+		if (Object.hasOwn(result, normalized))
+			throw new Error("target_gateway_auth_header_duplicate");
+		result[normalized] = value;
+	}
+	return result;
+}
+
 export async function prepareContainerTargetGateway(
 	options: ContainerTargetGatewayOptions,
 ): Promise<PreparedContainerTargetGateway> {
 	const upstreamOrigin = isSafeLoopbackOrigin(options.upstreamOrigin);
-	if (!Number.isInteger(options.maxRequests) || options.maxRequests < 1) {
-		throw new Error("maxRequests must be a positive integer");
+	const upstreamRequestHeaders = validatedUpstreamHeaders(
+		options.upstreamRequestHeaders,
+	);
+	if (
+		!Number.isInteger(options.maxRequests) ||
+		options.maxRequests < 1 ||
+		options.maxRequests > 1000
+	) {
+		throw new Error("maxRequests must be between 1 and 1000");
 	}
 	if (
 		!Number.isFinite(options.rateLimitPerSec) ||
-		options.rateLimitPerSec <= 0
+		options.rateLimitPerSec <= 0 ||
+		options.rateLimitPerSec > 100
 	) {
-		throw new Error("rateLimitPerSec must be positive");
+		throw new Error("rateLimitPerSec must be between 0 and 100");
 	}
+	const requestLimits = normalizeRequestLimits(options.requestLimits);
 	const bindAddress = await selectBindAddress(options);
 	const metrics: Metrics = {
 		forwardedRequests: 0,
 		budgetBlockedRequests: 0,
 		methodBlockedRequests: 0,
+		graphqlBlockedRequests: 0,
 		pathBlockedRequests: 0,
+		requestLimitBlockedRequests: 0,
 		redirectBlockedResponses: 0,
 		responseBytesRead: 0,
 		responseBodyTruncatedResponses: 0,
@@ -276,12 +481,29 @@ export async function prepareContainerTargetGateway(
 				]
 			: null;
 		if (operationMetric) operationMetric.attempted += 1;
-		if (!READ_ONLY_METHODS.has(method)) {
+		const isGraphqlPost =
+			method === "POST" &&
+			options.graphqlQueryOnly !== undefined &&
+			matchedOperation?.pathTemplate === options.graphqlQueryOnly?.pathTemplate;
+		if (!READ_ONLY_METHODS.has(method) && !isGraphqlPost) {
 			metrics.methodBlockedRequests++;
 			if (operationMetric) operationMetric.blocked += 1;
 			return sendText(res, 405);
 		}
 		if (!requestTarget.startsWith("/") || requestTarget.startsWith("//")) {
+			return sendText(res, 400);
+		}
+		if (
+			!requestWithinLimits(
+				req,
+				requestTarget,
+				requestLimits,
+				upstreamRequestHeaders,
+			)
+		) {
+			metrics.requestLimitBlockedRequests =
+				(metrics.requestLimitBlockedRequests ?? 0) + 1;
+			if (operationMetric) operationMetric.blocked += 1;
 			return sendText(res, 400);
 		}
 		if (
@@ -307,6 +529,23 @@ export async function prepareContainerTargetGateway(
 		) {
 			metrics.pathBlockedRequests++;
 			return sendText(res, 404);
+		}
+		let requestBody: string | undefined;
+		if (isGraphqlPost) {
+			const body = await readBoundedRequestBody(
+				req,
+				options.graphqlQueryOnly?.maxRequestBytes ?? 0,
+			);
+			if (
+				!body ||
+				!isQualifiedGraphqlRequest(body, req.headers["content-type"])
+			) {
+				metrics.graphqlBlockedRequests =
+					(metrics.graphqlBlockedRequests ?? 0) + 1;
+				if (operationMetric) operationMetric.blocked += 1;
+				return sendText(res, 400);
+			}
+			requestBody = new TextDecoder().decode(body);
 		}
 		if (reservedRequests >= options.maxRequests) {
 			metrics.budgetBlockedRequests++;
@@ -356,6 +595,8 @@ export async function prepareContainerTargetGateway(
 			if (Array.isArray(value)) headers.set(name, value.join(", "));
 			else if (value !== undefined) headers.set(name, value);
 		}
+		for (const [name, value] of Object.entries(upstreamRequestHeaders))
+			headers.set(name, value);
 		headers.set("host", new URL(upstreamOrigin).host);
 		const controller = new AbortController();
 		activeControllers.add(controller);
@@ -364,6 +605,7 @@ export async function prepareContainerTargetGateway(
 			const response = await fetch(upstreamUrl, {
 				method,
 				headers,
+				body: requestBody,
 				redirect: "manual",
 				signal: controller.signal,
 			});

@@ -19,6 +19,7 @@ const CASE_IDS = [
 	"osv-installed-tree",
 	"trivy-filesystem",
 	"semgrep-source",
+	"zizmor-workflow",
 	"trivy-sbom",
 	"trivy-image",
 	"passive-dast",

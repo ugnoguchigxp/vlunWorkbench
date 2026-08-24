@@ -11,6 +11,15 @@ describe("strict OpenAPI document", () => {
 		expect(parsed.operations).toEqual([{ method: "GET", pathTemplate: "/users/{id}", operationId: "getUser" }]);
 		const first = buildOpenApiReadonlyOperationPolicy(parsed, sha("schema"));
 		expect(buildOpenApiReadonlyOperationPolicy(parsed, sha("schema"))).toEqual(first);
+		expect(
+			parseOpenApiDocument(
+				{ openapi, servers: [{ url: "/api" }], security: [{ bearer: [] }], paths: { "/users/{id}": { parameters: [{ in: "path", name: "id", required: true }], get: { operationId: "getUser", security: [] }, head: { security: [{ bearer: [] }] }, post: {} } } },
+				{ includeAuthenticatedOperations: true },
+			).operations,
+		).toEqual([
+			{ method: "GET", pathTemplate: "/users/{id}", operationId: "getUser" },
+			{ method: "HEAD", pathTemplate: "/users/{id}", operationId: "HEAD /users/{id}" },
+		]);
 	});
 
 	it("supports Swagger 2 and internal parameter references", () => {

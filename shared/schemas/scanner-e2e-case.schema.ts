@@ -7,6 +7,7 @@ export const SCANNER_E2E_CASE_IDS = [
 	"osv-installed-tree",
 	"trivy-filesystem",
 	"semgrep-source",
+	"zizmor-workflow",
 	"trivy-sbom",
 	"trivy-image",
 	"passive-dast",
@@ -21,6 +22,7 @@ export const scannerE2EModeSchema = z.enum([
 	"manifest",
 	"installed_tree",
 	"filesystem",
+	"workflow",
 	"sbom",
 	"image",
 	"passive_dast",
@@ -44,7 +46,7 @@ export const scannerE2ECaseSchema = z.object({
 
 export const scannerE2ECaseRegistrySchema = z.object({
 	schemaVersion: z.literal(1),
-	cases: z.array(scannerE2ECaseSchema).length(12),
+	cases: z.array(scannerE2ECaseSchema).length(13),
 });
 
 export type ScannerE2ECase = z.infer<typeof scannerE2ECaseSchema>;

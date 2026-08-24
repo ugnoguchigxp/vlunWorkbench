@@ -10,7 +10,7 @@ import {
 	scannerE2ECaseRegistrySchema,
 } from "../shared/schemas/scanner-e2e-case.schema";
 
-/** This list is a release gate: replacing a capability with another 12-case set is invalid. */
+/** This list is a release gate: replacing a capability with another case set is invalid. */
 export const CANONICAL_SCANNER_E2E_CASE_IDS = SCANNER_E2E_CASE_IDS;
 
 export function scannerE2EContractPath() {
@@ -39,7 +39,9 @@ export function sha256(value: string): string {
  */
 export function productionScannerE2ECaseIds(): string[] {
 	const caseIds = new Set<string>();
-	for (const profile of buildScanProfiles().filter((entry) => entry.enabled)) {
+	for (const profile of buildScanProfiles({
+		optionalAdapterIds: ["semgrep"],
+	}).filter((entry) => entry.enabled)) {
 		const steps: ScanProfileStep[] =
 			profile.steps ??
 			profile.tools.map((tool) => ({ kind: "static_tool" as const, ...tool }));
@@ -51,7 +53,7 @@ export function productionScannerE2ECaseIds(): string[] {
 		.list()
 		.map((adapter) => adapter.manifest.id)
 		.sort();
-	const requiredAdapters = ["gitleaks", "osv", "semgrep", "trivy"];
+	const requiredAdapters = ["gitleaks", "osv", "semgrep", "trivy", "zizmor"];
 	if (adapterIds.join(",") !== requiredAdapters.join(",")) {
 		throw new Error(
 			`scanner_e2e_static_adapter_inventory_mismatch:${adapterIds.join(",")}`,
@@ -68,6 +70,7 @@ export function caseIdsForProductionStep(step: ScanProfileStep): string[] {
 	if (step.kind === "static_tool") {
 		if (step.toolId === "gitleaks") return ["gitleaks-source"];
 		if (step.toolId === "semgrep") return ["semgrep-source"];
+		if (step.toolId === "zizmor") return ["zizmor-workflow"];
 		if (step.toolId === "trivy") return ["trivy-filesystem"];
 		if (step.toolId === "osv") {
 			return [
@@ -112,7 +115,9 @@ function profileStepId(step: ScanProfileStep): string {
 }
 
 function validateContractBindings(registry: ScannerE2ECaseRegistry): void {
-	const profiles = buildScanProfiles().filter((profile) => profile.enabled);
+	const profiles = buildScanProfiles({
+		optionalAdapterIds: ["semgrep"],
+	}).filter((profile) => profile.enabled);
 	for (const entry of registry.cases) {
 		const profile = profiles.find(
 			(candidate) => candidate.id === entry.profileId,

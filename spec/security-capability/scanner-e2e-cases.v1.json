@@ -1,17 +1,122 @@
 {
-  "schemaVersion": 1,
-  "cases": [
-    { "id": "gitleaks-source", "scannerId": "gitleaks", "mode": "source", "profileId": "full-security-scan", "stepId": "gitleaks", "expectedArtifactRoles": ["raw_result"], "expectedVerdict": "passed" },
-    { "id": "osv-manifest", "scannerId": "osv", "mode": "manifest", "profileId": "baseline", "stepId": "osv", "expectedArtifactRoles": ["raw_result"], "expectedVerdict": "passed" },
-    { "id": "osv-installed-tree", "scannerId": "osv", "mode": "installed_tree", "profileId": "full-security-scan", "stepId": "osv", "expectedArtifactRoles": ["raw_result"], "expectedVerdict": "passed" },
-    { "id": "trivy-filesystem", "scannerId": "trivy", "mode": "filesystem", "profileId": "full-security-scan", "stepId": "trivy", "expectedArtifactRoles": ["raw_result"], "expectedVerdict": "passed" },
-    { "id": "semgrep-source", "scannerId": "semgrep", "mode": "source", "profileId": "full-security-scan", "stepId": "semgrep", "expectedArtifactRoles": ["raw_result"], "expectedVerdict": "passed" },
-    { "id": "trivy-sbom", "scannerId": "trivy", "mode": "sbom", "profileId": "sbom-inventory", "stepId": "sbom_export:trivy", "expectedArtifactRoles": ["sbom"], "expectedVerdict": "passed" },
-    { "id": "trivy-image", "scannerId": "trivy", "mode": "image", "profileId": "container-image-security", "stepId": "container_image_scan:trivy", "expectedArtifactRoles": ["raw_result"], "expectedVerdict": "passed" },
-    { "id": "passive-dast", "scannerId": "dast", "mode": "passive_dast", "profileId": "runtime-web-safe", "stepId": "dast:web-passive-standard", "expectedArtifactRoles": ["dast_raw_result"], "expectedVerdict": "passed" },
-    { "id": "nuclei-safe", "scannerId": "nuclei-safe", "mode": "runtime", "profileId": "runtime-web-safe", "stepId": "runtime_scanner:nuclei-safe", "expectedArtifactRoles": ["raw_result"], "expectedVerdict": "passed" },
-    { "id": "zap-baseline", "scannerId": "zap-baseline", "mode": "runtime", "profileId": "runtime-web-safe", "stepId": "runtime_scanner:zap-baseline", "expectedArtifactRoles": ["raw_result"], "expectedVerdict": "passed" },
-    { "id": "schemathesis-not-applicable", "scannerId": "schemathesis", "mode": "schema_not_applicable", "profileId": "api-schema-readonly", "stepId": "api_schema_scan:schemathesis", "expectedArtifactRoles": [], "expectedVerdict": "not_applicable" },
-    { "id": "schemathesis-readonly", "scannerId": "schemathesis", "mode": "schema_readonly", "profileId": "api-schema-readonly", "stepId": "api_schema_scan:schemathesis", "expectedArtifactRoles": ["raw_result"], "expectedVerdict": "passed" }
-  ]
+	"schemaVersion": 1,
+	"cases": [
+		{
+			"id": "gitleaks-source",
+			"scannerId": "gitleaks",
+			"mode": "source",
+			"profileId": "full-security-scan",
+			"stepId": "gitleaks",
+			"expectedArtifactRoles": ["raw_result"],
+			"expectedVerdict": "passed"
+		},
+		{
+			"id": "osv-manifest",
+			"scannerId": "osv",
+			"mode": "manifest",
+			"profileId": "baseline",
+			"stepId": "osv",
+			"expectedArtifactRoles": ["raw_result"],
+			"expectedVerdict": "passed"
+		},
+		{
+			"id": "osv-installed-tree",
+			"scannerId": "osv",
+			"mode": "installed_tree",
+			"profileId": "full-security-scan",
+			"stepId": "osv",
+			"expectedArtifactRoles": ["raw_result"],
+			"expectedVerdict": "passed"
+		},
+		{
+			"id": "trivy-filesystem",
+			"scannerId": "trivy",
+			"mode": "filesystem",
+			"profileId": "full-security-scan",
+			"stepId": "trivy",
+			"expectedArtifactRoles": ["raw_result"],
+			"expectedVerdict": "passed"
+		},
+		{
+			"id": "semgrep-source",
+			"scannerId": "semgrep",
+			"mode": "source",
+			"profileId": "full-security-scan",
+			"stepId": "semgrep",
+			"expectedArtifactRoles": ["raw_result"],
+			"expectedVerdict": "passed"
+		},
+		{
+			"id": "zizmor-workflow",
+			"scannerId": "zizmor",
+			"mode": "workflow",
+			"profileId": "full-security-scan",
+			"stepId": "zizmor",
+			"expectedArtifactRoles": ["raw_result"],
+			"expectedVerdict": "passed"
+		},
+		{
+			"id": "trivy-sbom",
+			"scannerId": "trivy",
+			"mode": "sbom",
+			"profileId": "sbom-inventory",
+			"stepId": "sbom_export:trivy",
+			"expectedArtifactRoles": ["sbom"],
+			"expectedVerdict": "passed"
+		},
+		{
+			"id": "trivy-image",
+			"scannerId": "trivy",
+			"mode": "image",
+			"profileId": "container-image-security",
+			"stepId": "container_image_scan:trivy",
+			"expectedArtifactRoles": ["raw_result"],
+			"expectedVerdict": "passed"
+		},
+		{
+			"id": "passive-dast",
+			"scannerId": "dast",
+			"mode": "passive_dast",
+			"profileId": "runtime-web-safe",
+			"stepId": "dast:web-passive-standard",
+			"expectedArtifactRoles": ["dast_raw_result"],
+			"expectedVerdict": "passed"
+		},
+		{
+			"id": "nuclei-safe",
+			"scannerId": "nuclei-safe",
+			"mode": "runtime",
+			"profileId": "runtime-web-safe",
+			"stepId": "runtime_scanner:nuclei-safe",
+			"expectedArtifactRoles": ["raw_result"],
+			"expectedVerdict": "passed"
+		},
+		{
+			"id": "zap-baseline",
+			"scannerId": "zap-baseline",
+			"mode": "runtime",
+			"profileId": "runtime-web-safe",
+			"stepId": "runtime_scanner:zap-baseline",
+			"expectedArtifactRoles": ["raw_result"],
+			"expectedVerdict": "passed"
+		},
+		{
+			"id": "schemathesis-not-applicable",
+			"scannerId": "schemathesis",
+			"mode": "schema_not_applicable",
+			"profileId": "api-schema-readonly",
+			"stepId": "api_schema_scan:schemathesis",
+			"expectedArtifactRoles": [],
+			"expectedVerdict": "not_applicable"
+		},
+		{
+			"id": "schemathesis-readonly",
+			"scannerId": "schemathesis",
+			"mode": "schema_readonly",
+			"profileId": "api-schema-readonly",
+			"stepId": "api_schema_scan:schemathesis",
+			"expectedArtifactRoles": ["raw_result"],
+			"expectedVerdict": "passed"
+		}
+	]
 }

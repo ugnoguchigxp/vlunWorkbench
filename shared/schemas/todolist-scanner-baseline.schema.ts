@@ -25,11 +25,11 @@ export const todolistScannerBaselineSchema = z
 					})
 					.strict(),
 			)
-			.length(12),
+			.length(13),
 	})
 	.strict()
 	.superRefine((value, context) => {
-		if (new Set(value.cases.map((entry) => entry.caseId)).size !== 12) {
+		if (new Set(value.cases.map((entry) => entry.caseId)).size !== 13) {
 			context.addIssue({
 				code: z.ZodIssueCode.custom,
 				message: "baseline case IDs must be unique",

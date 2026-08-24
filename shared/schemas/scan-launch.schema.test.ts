@@ -1,5 +1,9 @@
-import { describe, expect, test } from "bun:test";
-import { scanLaunchPreviewRequestSchema, scanLaunchStartRequestSchema } from "./scan-launch.schema";
+import { describe, expect, test } from "vitest";
+import {
+	isCompleteScanLaunchInput,
+	scanLaunchPreviewRequestSchema,
+	scanLaunchStartRequestSchema,
+} from "./scan-launch.schema";
 
 const digest = `sha256:${"a".repeat(64)}`;
 
@@ -19,6 +23,14 @@ describe("scan launch schemas", () => {
 			scanLaunchPreviewRequestSchema.safeParse({
 				schemaVersion: 1,
 				profileId: "source-assurance",
+				target: { kind: "full" },
+				input: { kind: "authenticated_web", identityRole: "reader" },
+			}).success,
+		).toBe(false);
+		expect(
+			scanLaunchPreviewRequestSchema.safeParse({
+				schemaVersion: 1,
+				profileId: "release-artifact",
 				target: { kind: "full" },
 				input: { kind: "authenticated_web", identityRole: "reader" },
 			}).success,
@@ -43,5 +55,46 @@ describe("scan launch schemas", () => {
 				input: { kind: "authenticated_web" },
 			}).success,
 		).toBe(false);
+	});
+
+	test("rejects the unimplemented configured API schema source", () => {
+		expect(
+			scanLaunchPreviewRequestSchema.safeParse({
+				schemaVersion: 1,
+				profileId: "api-readonly",
+				target: { kind: "full" },
+				input: {
+					kind: "api_readonly",
+					runtime: { mode: "auto_project_runtime" },
+					schemaSource: {
+						mode: "configured",
+						schemaRef: "00000000-0000-4000-8000-000000000000",
+						expectedSchemaHash: digest,
+					},
+				},
+			}).success,
+		).toBe(false);
+	});
+
+	test("validates complete readiness input with the start contract", () => {
+		expect(
+			isCompleteScanLaunchInput("runtime-passive", {
+				kind: "auto_project_runtime",
+			}),
+		).toBe(false);
+		expect(
+			isCompleteScanLaunchInput("runtime-passive", {
+				kind: "auto_project_runtime",
+				executionConsent: true,
+			}),
+		).toBe(true);
+		expect(
+			isCompleteScanLaunchInput("sanitizer-fuzz-lab", {
+				kind: "builtin_dynamic",
+				dynamicProfileId: "rust-sanitizer",
+				dynamicKind: "fuzz",
+				executionConsent: true,
+			}),
+		).toBe(true);
 	});
 });

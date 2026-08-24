@@ -17,7 +17,6 @@ const profileIds = [
 	"active-technical-lab",
 	"business-logic-lab",
 	"remediation-verification",
-	"professional-full",
 ] as const;
 
 function entry(id: (typeof profileIds)[number]): ScanProfileCatalogEntry {
@@ -25,18 +24,16 @@ function entry(id: (typeof profileIds)[number]): ScanProfileCatalogEntry {
 		id,
 		displayName: id,
 		description: id,
-		availability: id === "professional-full" ? "planned" : "stable",
+		experienceKind: "scanner_preset",
+		availability: "stable",
 		safetyClass: "R0",
-		launchMode:
-			id === "professional-full"
-				? "unavailable"
-				: [
+		launchMode: [
 						"dynamic-verification",
 						"authenticated-web",
 						"active-technical-lab",
 						"business-logic-lab",
 						"remediation-verification",
-					].includes(id)
+				].includes(id)
 					? "dedicated_flow"
 					: "profile_orchestrator",
 		supportedTargets: ["full"],
@@ -47,7 +44,7 @@ function entry(id: (typeof profileIds)[number]): ScanProfileCatalogEntry {
 }
 
 describe("launchable scan profile catalog", () => {
-	it("uses one selector for all implemented profiles and withholds professional-full", () => {
+	it("uses one selector for all scan profiles", () => {
 		const response: ScanProfileCatalogResponse = {
 			schemaVersion: 2,
 			profiles: [],
@@ -61,7 +58,7 @@ describe("launchable scan profile catalog", () => {
 			},
 		};
 		expect(toLaunchableScanProfiles(response).map((profile) => profile.id)).toEqual(
-			profileIds.filter((id) => id !== "professional-full"),
+			profileIds,
 		);
 	});
 });

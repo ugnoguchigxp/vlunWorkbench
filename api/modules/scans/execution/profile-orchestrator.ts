@@ -2,6 +2,7 @@ import type { ScanPreflightMode } from "../../../../shared/schemas/scan-prefligh
 import type { ScanTarget } from "../../../../shared/schemas/scan-target.schema";
 import type { AppDatabase } from "../../../db";
 import { resolveProjectPath } from "../../../security/project-path-policy";
+import type { DastAuthContextRepository } from "../../dast/auth-context-repository";
 import type { RuntimeTargetProvider } from "../../dast/runtime-target-provider";
 import {
 	analyzeProjectCapabilities,
@@ -20,7 +21,6 @@ import { aggregateRuntimeAssessmentCoverage } from "../coverage/runtime-assessme
 import { resolveSourceSastApplicability } from "../coverage/source-sast-applicability";
 import { resolveSourceSastCoverage } from "../coverage/source-sast-coverage";
 import { FindingRepository } from "../finding-repository";
-import { getCatalogEntry, hashCatalogEntry } from "../profile-catalog";
 import {
 	normalizeProfileResolutionInput,
 	resolveProfileSelection,
@@ -57,12 +57,6 @@ import {
 	type ProfileInputSnapshot,
 } from "./lifecycle/profile-input-snapshot";
 import { normalizeProfileStepResult } from "./normalized-step-result";
-import {
-	assessProfessionalRunGroup,
-	buildProfessionalRunGroupPhase56Handoff,
-	buildProfessionalRunGroupPlan,
-	qualifyProfessionalRunGroup,
-} from "./professional-run-group";
 import { type ProfileScanResult, resolveProfileSteps } from "./profile-runner";
 import { executeProfileSteps } from "./profile-step-orchestrator";
 import { hashResolvedProfile } from "./resolved-profile";
@@ -86,12 +80,17 @@ export async function runProfileScan(params: {
 	continueOnToolFailure?: boolean;
 	timeoutSec?: number;
 	createdByUserId?: string | null;
+	authContextRepository?: DastAuthContextRepository;
+	authContextId?: string;
+	identityRole?: string;
 	execution?: ToolExecutionConfig;
 	imageRef?: string;
 	imageTar?: string;
 	attestationSubject?: string;
 	attestationBundle?: string;
 	trustPolicy?: string;
+	slsaProvenance?: string;
+	slsaPolicy?: string;
 	executionPolicyMetadata?: Record<string, unknown>;
 	executionSurface?: "cli" | "web" | "security_oracle" | "nightworkers";
 	target?: ScanTarget;
@@ -140,6 +139,9 @@ export async function runProfileScan(params: {
 			attestationSubject: params.attestationSubject,
 			attestationBundle: params.attestationBundle,
 			trustPolicy: params.trustPolicy,
+			slsaProvenance: params.slsaProvenance,
+			slsaPolicy: params.slsaPolicy,
+			authContextRef: params.authContextId,
 			autoStartPlan: Boolean(
 				params.runtimeTargetProvider || params.runtimeTargetProviderFactory,
 			),
@@ -395,6 +397,10 @@ export async function runProfileScan(params: {
 		attestationSubject: params.attestationSubject,
 		attestationBundle: params.attestationBundle,
 		trustPolicy: params.trustPolicy,
+		slsaProvenance: params.slsaProvenance,
+		slsaPolicy: params.slsaPolicy,
+		authContextId: params.authContextId,
+		identityRole: params.identityRole,
 		targetPlan: runtimeTargetProvider?.plan,
 		runtimeDockerImages: runtimeTargetProvider?.preflightDockerImages,
 		runtimeScannerImages: runtimeTargetProvider?.runtimeScannerImages,
@@ -441,23 +447,10 @@ export async function runProfileScan(params: {
 		planHash: executionPlan.planHash,
 		plan: executionPlan,
 	});
-	const professionalCatalogEntry = getCatalogEntry("professional-full");
-	const professionalRunGroupPlan =
-		executionPlan.schemaVersion === 2 &&
-		profile.id === "full-security-scan" &&
-		professionalCatalogEntry
-			? buildProfessionalRunGroupPlan({
-					parentScanRunId: scanRun.id,
-					executionPlan,
-					catalogEntryHash: hashCatalogEntry(professionalCatalogEntry),
-					createdAt: executionPlan.createdAt,
-				})
-			: null;
 	await scanRepo.mergeScanRunMetadata(scanRun.id, {
 		scanPreflight,
 		preflightBindingHash: scanPreflight.bindingHash,
 		executionPlan,
-		...(professionalRunGroupPlan ? { professionalRunGroupPlan } : {}),
 	});
 	await scanRepo.createScanEvent({
 		scanRunId: scanRun.id,
@@ -503,14 +496,6 @@ export async function runProfileScan(params: {
 			derivedAt: new Date().toISOString(),
 			stepResults: [],
 		});
-		const professionalRunGroupAssessment =
-			professionalRunGroupPlan && coverageLedger
-				? assessProfessionalRunGroup({
-						plan: professionalRunGroupPlan,
-						ledger: coverageLedger,
-						childResults: [],
-					})
-				: null;
 		const terminationReason = executionPlanChanged
 			? "plan_changed"
 			: preflightBindingChanged
@@ -542,9 +527,6 @@ export async function runProfileScan(params: {
 					]),
 				].sort(),
 				...(coverageLedger ? { coverageLedger } : {}),
-				...(professionalRunGroupAssessment
-					? { professionalRunGroupAssessment }
-					: {}),
 			},
 		});
 		await scanRepo.createScanEvent({
@@ -582,6 +564,8 @@ export async function runProfileScan(params: {
 			attestationSubject: params.attestationSubject,
 			attestationBundle: params.attestationBundle,
 			trustPolicy: params.trustPolicy,
+			slsaProvenance: params.slsaProvenance,
+			slsaPolicy: params.slsaPolicy,
 		});
 		if (
 			profileInputSnapshot &&
@@ -806,11 +790,16 @@ export async function runProfileScan(params: {
 						profileInputSnapshot?.rootPath ?? params.repoPath,
 					timeoutSec: params.timeoutSec,
 					createdByUserId: params.createdByUserId,
+					authContextRepository: params.authContextRepository,
+					authContextId: params.authContextId,
+					identityRole: params.identityRole,
 					imageRef: params.imageRef,
 					imageTar: params.imageTar,
 					attestationSubject: params.attestationSubject,
 					attestationBundle: params.attestationBundle,
 					trustPolicy: params.trustPolicy,
+					slsaProvenance: params.slsaProvenance,
+					slsaPolicy: params.slsaPolicy,
 					scanRepo,
 					scanRun,
 					profile,
@@ -922,31 +911,6 @@ export async function runProfileScan(params: {
 		stepResults,
 	});
 	const normalizedStepResults = stepResults.map(normalizeProfileStepResult);
-	const professionalRunGroupAssessment =
-		professionalRunGroupPlan && coverageLedger
-			? assessProfessionalRunGroup({
-					plan: professionalRunGroupPlan,
-					ledger: coverageLedger,
-					childResults: normalizedStepResults,
-				})
-			: null;
-	const professionalRunGroupQualification =
-		professionalRunGroupPlan &&
-		professionalRunGroupAssessment?.technicalCompletion &&
-		coverageLedger
-			? qualifyProfessionalRunGroup({
-					plan: professionalRunGroupPlan,
-					ledger: coverageLedger,
-					assessment: professionalRunGroupAssessment,
-					qualifiedAt: new Date().toISOString(),
-				})
-			: null;
-	const professionalRunGroupPhase56Handoff = professionalRunGroupQualification
-		? buildProfessionalRunGroupPhase56Handoff({
-				qualification: professionalRunGroupQualification,
-				preparedAt: new Date().toISOString(),
-			})
-		: null;
 	const ledgerLimited = Boolean(
 		coverageLedger?.entries.some((entry) => entry.coverageEffect !== "covered"),
 	);
@@ -1015,15 +979,6 @@ export async function runProfileScan(params: {
 			profileLimitationCodes,
 			...(sourceSastCoverage ? { sourceSastCoverage } : {}),
 			...(coverageLedger ? { coverageLedger } : {}),
-			...(professionalRunGroupAssessment
-				? { professionalRunGroupAssessment }
-				: {}),
-			...(professionalRunGroupQualification
-				? { professionalRunGroupQualification }
-				: {}),
-			...(professionalRunGroupPhase56Handoff
-				? { professionalRunGroupPhase56Handoff }
-				: {}),
 			normalizedStepResults,
 			scope: resolvedScope,
 			profileOutcome,

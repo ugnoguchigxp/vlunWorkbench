@@ -55,6 +55,21 @@ export function ScanProfileInputFields() {
 			) : null}
 			{profile.id === "dependency-supply-chain" ? (
 				<div className="scan-profile-input-grid">
+					<label htmlFor="supply-chain-verifier">
+						<span>provenance検証方式</span>
+						<SelectInput
+							id="supply-chain-verifier"
+							value={c.supplyChainVerifier}
+							onChange={(event) =>
+								c.setSupplyChainVerifier(
+									event.target.value as "cosign" | "slsa",
+								)
+							}
+						>
+							<option value="cosign">Cosign（オフライン署名束）</option>
+							<option value="slsa">slsa-verifier（source/builder/ref）</option>
+						</SelectInput>
+					</label>
 					<RelativePathInput
 						id="attestation-subject"
 						label="検証対象ファイル"
@@ -62,20 +77,41 @@ export function ScanProfileInputFields() {
 						onChange={c.setAttestationSubject}
 						placeholder="dist/app.tar.gz"
 					/>
-					<RelativePathInput
-						id="attestation-bundle"
-						label="Cosign SLSA provenance bundle"
-						value={c.attestationBundle}
-						onChange={c.setAttestationBundle}
-						placeholder="attestations/app.bundle.json"
-					/>
-					<RelativePathInput
-						id="trust-policy"
-						label="検証用公開鍵"
-						value={c.trustPolicy}
-						onChange={c.setTrustPolicy}
-						placeholder="security/cosign.pub"
-					/>
+					{c.supplyChainVerifier === "cosign" ? (
+						<>
+							<RelativePathInput
+								id="attestation-bundle"
+								label="Cosign SLSA provenance bundle"
+								value={c.attestationBundle}
+								onChange={c.setAttestationBundle}
+								placeholder="attestations/app.bundle.json"
+							/>
+							<RelativePathInput
+								id="trust-policy"
+								label="検証用公開鍵"
+								value={c.trustPolicy}
+								onChange={c.setTrustPolicy}
+								placeholder="security/cosign.pub"
+							/>
+						</>
+					) : (
+						<>
+							<RelativePathInput
+								id="slsa-provenance"
+								label="SLSA provenance"
+								value={c.slsaProvenance}
+								onChange={c.setSlsaProvenance}
+								placeholder="attestations/app.intoto.jsonl"
+							/>
+							<RelativePathInput
+								id="slsa-policy"
+								label="SLSA期待値ポリシー"
+								value={c.slsaPolicy}
+								onChange={c.setSlsaPolicy}
+								placeholder="security/slsa-policy.json"
+							/>
+						</>
+					)}
 				</div>
 			) : null}
 			{profile.id === "release-artifact" ? <ReleaseInputs /> : null}
@@ -112,6 +148,27 @@ export function ScanProfileInputFields() {
 						onChange={c.setScanProjectCodeExecutionConsent}
 						label="破棄可能なソースsnapshotからローカル対象を起動することに同意します"
 					/>
+					{profile.id === "api-readonly" ? (
+						<label htmlFor="api-readonly-auth-context">
+							<span>認証コンテキスト（任意）</span>
+							<SelectInput
+								id="api-readonly-auth-context"
+								value={c.selectedDastAuthContextId}
+								onChange={(event) =>
+									c.setSelectedDastAuthContextId(event.target.value)
+								}
+							>
+								<option value="">匿名で実行</option>
+								{c.dastAuthContexts
+									.filter((item) => item.status === "active")
+									.map((item) => (
+										<option key={item.id} value={item.id}>
+											{item.label} — {item.identityRole}
+										</option>
+									))}
+							</SelectInput>
+						</label>
+					) : null}
 				</div>
 			) : null}
 			{profile.id === "authenticated-web" ? <AuthenticatedInputs /> : null}

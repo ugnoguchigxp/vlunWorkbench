@@ -236,6 +236,7 @@ async function main() {
 													process.cwd(),
 													"spec/security-capability/todolist-readonly-openapi.v1.yaml",
 												),
+												schemaKind: "openapi",
 												source: "repository",
 												reasonCode: null,
 											},

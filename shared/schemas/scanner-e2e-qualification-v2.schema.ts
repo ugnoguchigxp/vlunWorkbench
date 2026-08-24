@@ -25,7 +25,7 @@ export const scannerE2EQualificationV2Schema = z.object({
 		z.string(),
 		z.array(scannerE2EAssertionIdSchema).min(1).max(32),
 	),
-	qualifiedCaseIds: z.array(z.string().min(1).max(100)).length(12),
+	qualifiedCaseIds: z.array(z.string().min(1).max(100)).length(13),
 	individualEvidenceSha256: sha256DigestSchema,
 	repeatEvidenceSha256: sha256DigestSchema,
 	fullProfileEvidenceSha256: sha256DigestSchema,
@@ -33,7 +33,7 @@ export const scannerE2EQualificationV2Schema = z.object({
 	fullProfileNormalizedEvidenceHash: sha256DigestSchema,
 	canonicalFinalReportHashes: z
 		.record(z.string().min(1).max(100), sha256DigestSchema)
-		.refine((value) => Object.keys(value).length === 14),
+		.refine((value) => Object.keys(value).length === 15),
 });
 
 export type ScannerE2EQualificationV2 = z.infer<

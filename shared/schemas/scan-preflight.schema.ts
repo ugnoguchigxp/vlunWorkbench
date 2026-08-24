@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { sha256DigestSchema } from "./security-capability.schema";
 import { runtimeDatabaseModeSchema } from "./runtime-isolation.schema";
+import { sha256DigestSchema } from "./security-capability.schema";
 
 export const SCAN_PREFLIGHT_EVIDENCE_REF_LIMIT = 10;
 
@@ -52,6 +52,7 @@ export const scanPreflightActionSchema = z.enum([
 	"create_runtime_recipe",
 	"use_supported_npm_lock",
 	"run_runtime_isolation_qualification",
+	"allow_slsa_trust_root_network",
 ]);
 
 export const scanPreflightCheckSchema = z.object({

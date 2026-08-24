@@ -40,6 +40,13 @@ export const TODOLIST_ACCEPTANCE_PROFILES = [
 		expectedArtifactKinds: ["raw_result"],
 	},
 	{
+		id: "zizmor",
+		profile: "full-security-scan",
+		step: "zizmor",
+		requiresTarget: false,
+		expectedArtifactKinds: ["raw_result"],
+	},
+	{
 		id: "sbom",
 		profile: "sbom-inventory",
 		step: "sbom_export:trivy",

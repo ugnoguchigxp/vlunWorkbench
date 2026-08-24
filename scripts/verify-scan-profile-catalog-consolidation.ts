@@ -1,7 +1,8 @@
+import { listAssessmentCampaignCatalogEntries } from "../api/modules/scans/assessment-campaign-catalog";
 import {
+	listGenericStartCatalogProfileIds,
 	SCAN_PROFILE_CATALOG,
 	SCAN_PROFILE_LEGACY_ASSOCIATIONS,
-	listGenericStartCatalogProfileIds,
 } from "../api/modules/scans/profile-catalog";
 import { resolveProfileSelection } from "../api/modules/scans/profile-resolution";
 import { buildScanProfileCatalogBaseline } from "./scan-profile-catalog-baseline";
@@ -12,7 +13,12 @@ const baseline = await buildScanProfileCatalogBaseline({
 });
 const errors: string[] = [];
 
-if (SCAN_PROFILE_CATALOG.length !== 14)
+if (
+	SCAN_PROFILE_CATALOG.length !== 13 ||
+	listAssessmentCampaignCatalogEntries().filter(
+		(campaign) => campaign.id === "professional-full",
+	).length !== 1
+)
 	errors.push("catalog_entry_count_invalid");
 const baseLegacyVariant = baseline.variants.find(
 	(variant) => variant.optionalAdapterIds.length === 0,

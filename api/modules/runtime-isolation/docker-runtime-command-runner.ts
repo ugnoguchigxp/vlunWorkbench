@@ -1,9 +1,15 @@
 import { getCleanEnv } from "../scans/tools/tool-process-runner";
-import { runBoundedProcess } from "../processes/bounded-process-runner";
+import {
+	runBoundedProcess,
+	type BoundedProcessTerminationReason,
+} from "../processes/bounded-process-runner";
 import type { DockerRuntimeBundleRunner } from "./docker-runtime-bundle-lifecycle";
 
 const COMMAND_OUTPUT_LIMIT_BYTES = 1_048_576;
 const COMMAND_TIMEOUT_MS = 10 * 60_000;
+
+const terminationDiagnostic = (reason: BoundedProcessTerminationReason) =>
+	`runtime_bundle_command_${reason}`;
 
 /** Executes lifecycle-owned Docker argv with a clean environment. */
 export function createDockerRuntimeCommandRunner(
@@ -22,7 +28,9 @@ export function createDockerRuntimeCommandRunner(
 				return {
 					exitCode: result.exitCode,
 					stdout: result.stdout,
-					stderr: result.stderr,
+					stderr: result.terminationReason
+						? terminationDiagnostic(result.terminationReason)
+						: result.stderr,
 					terminationReason: result.terminationReason,
 				};
 			} catch (error) {

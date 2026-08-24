@@ -13,16 +13,18 @@ afterEach(async () => {
 });
 
 describe("Cosign attestation provider", () => {
-	it("uses an offline-only command and emits digest-only receipt evidence", async () => {
+	it("uses the Cosign v3 command and emits digest-only receipt evidence", async () => {
 		const root = await fs.mkdtemp(path.join(os.tmpdir(), "vwb-cosign-"));
 		roots.push(root);
 		const subjectPath = path.join(root, "subject");
 		const bundlePath = path.join(root, "bundle");
 		const trustPolicyPath = path.join(root, "key");
+		const trustedRootPath = path.join(root, "trusted-root.json");
 		await Promise.all([
 			fs.writeFile(subjectPath, "subject"),
 			fs.writeFile(bundlePath, "bundle"),
 			fs.writeFile(trustPolicyPath, "key"),
+			fs.writeFile(trustedRootPath, "{}"),
 		]);
 		const commandRunner = vi.fn().mockResolvedValue({ ok: true, exitCode: 0 });
 		const provider = new CosignAttestationProvider(
@@ -30,19 +32,28 @@ describe("Cosign attestation provider", () => {
 			() => new Date("2026-08-21T00:00:00.000Z"),
 		);
 
-		const receipt = await provider.verify({ subjectPath, bundlePath, trustPolicyPath });
+		const receipt = await provider.verify({
+			subjectPath,
+			bundlePath,
+			trustPolicyPath,
+			trustedRootPath,
+			timeoutSec: 900,
+		});
 		expect(commandRunner).toHaveBeenCalledWith(
-			expect.objectContaining({
-				binary: "cosign",
-				args: expect.arrayContaining([
-					"verify-blob-attestation",
-					"--offline",
-					"--new-bundle-format=true",
-					"--check-claims=true",
-					"slsaprovenance1",
-				]),
-			}),
+				expect.objectContaining({
+					binary: "cosign",
+					timeoutSec: 900,
+					args: expect.arrayContaining([
+						"verify-blob-attestation",
+						"--check-claims=true",
+						"slsaprovenance1",
+						"--trusted-root",
+						trustedRootPath,
+					]),
+				}),
 		);
+		expect(commandRunner.mock.calls[0]?.[0].args).not.toContain("--offline");
+		expect(commandRunner.mock.calls[0]?.[0].args).not.toContain("--new-bundle-format=true");
 		expect(receipt).toMatchObject({ offline: true, verified: true, reasonCode: "verified" });
 		expect(receipt.subjectDigest).toMatch(/^sha256:/);
 	});
