@@ -1,0 +1,110 @@
+<article lang="ja">
+  <h1 id="semantic-handoff-validation-plan-template">Semantic Handoff Validation Plan Skeleton</h1>
+  <ul>
+    <li>Status: Candidate plan skeleton / not approved for implementation</li>
+    <li>Priority candidate: P0</li>
+    <li>Primary owner candidate: vulnWorkbench static-intelligence producer</li>
+    <li>Semantica clue: SHACL generation and ontology validation lifecycle</li>
+    <li>
+      Detailed plan:
+      <a href="../../docs/semantic-handoff-validation-implementation-plan.html"
+        >Semantic Handoff Validation Implementation Plan</a
+      >
+    </li>
+  </ul>
+
+  <h2 id="purpose">1. Purpose</h2>
+  <p>
+    ontology handoffを公開する直前に、JSON shapeだけでは検出できないgraph-wideな意味制約を検証し、
+    machine-readableな違反一覧をproducerとconsumerへ返す。
+  </p>
+
+  <h2 id="current-evidence">2. Current Evidence</h2>
+  <ul>
+    <li><code>shared/schemas/static-intelligence.schema.ts</code>はnode / edgeの型をZodで検証する。</li>
+    <li>
+      現状はedge endpointの実在、domain / range、ID一意性をschema contractとして包括検証しない。
+    </li>
+    <li><code>api/modules/static-intelligence/evidence-graph.ts</code>はdeterministic graphを生成する。</li>
+    <li>
+      <code>ontology-handoff.ts</code>とmanifestはhash、generation、source
+      refを既に持つ。
+    </li>
+    <li>
+      <code>semantic-query.ts</code
+      >の結果は<code>candidateOnly: true</code>である。
+    </li>
+  </ul>
+
+  <h2 id="scope">3. Scope</h2>
+  <ul>
+    <li>node IDとedge IDの一意性、およびedge endpointの参照整合性</li>
+    <li>edge kindごとの許可されたsource / target kind</li>
+    <li>evidence、artifact、module、source refの存在とrevision整合性</li>
+    <li>semantic-only candidateがconfirmed / observedへ昇格していないこと</li>
+    <li>manifest generation、content hash、freshness、readinessの整合性</li>
+  </ul>
+  <h3 id="non-goals">3.1 Non-goals</h3>
+  <ul>
+    <li>RDFをcanonical storageへすること、triple storeを導入すること</li>
+    <li>vulnWorkbenchへcanonical ontology ownershipを移すこと</li>
+    <li>scanner adapterまたはfinding detection logicを変更すること</li>
+  </ul>
+
+  <h2 id="contract-sketch">4. Contract Sketch</h2>
+  <pre><code class="language-typescript">type ValidationViolation = {
+  code: string;
+  severity: "error" | "warning";
+  focusRef: string;
+  path?: string;
+  message: string;
+  sourceRefs: string[];
+};
+
+type ValidationReport = {
+  conforms: boolean;
+  ontologyContractVersion: string;
+  violations: ValidationViolation[];
+  checkedAt: string;
+};</code></pre>
+  <p>
+    report shapeは
+    <a href="https://www.w3.org/TR/shacl/">W3C SHACL</a>
+    のconformance / result modelを参考にするが、初期実装をRDFへ拘束しない。
+  </p>
+
+  <h2 id="implementation-options">5. Implementation Options</h2>
+  <ol>
+    <li><strong>A:</strong> TypeScriptの専用validatorでgraph-wide ruleを明示する。</li>
+    <li><strong>B:</strong> JSON Schema / Zodへcustom semantic rule registryを追加する。</li>
+    <li>
+      <strong>C:</strong> JSONをRDFへexportするadapterを作り、SHACL engineを検証用途だけに使う。
+    </li>
+  </ol>
+  <p>初期候補はA。Cはinteroperability需要が確認された後のadapter候補とする。</p>
+
+  <h2 id="verification">6. Verification and Exit Evidence</h2>
+  <ul>
+    <li>各ruleにvalid / invalid fixtureを1件以上持つ。</li>
+    <li>同一inputとversionから同じreport orderingとhashが得られる。</li>
+    <li>error時はhandoff publishを止め、warning時の挙動はpolicyで固定する。</li>
+    <li>NightWorkersが未知のviolation codeを安全に表示または無視できる。</li>
+    <li>既存wire contractとの互換性とperformance budgetを記録する。</li>
+  </ul>
+
+  <h2 id="open-questions">7. Open Questions</h2>
+  <ul>
+    <li>publishを止めるerrorと、診断だけを出すwarningの境界は何か。</li>
+    <li>domain / range ruleはどのpackageを正本にするか。</li>
+    <li>consumer固有ruleをproducer validationへ含めるか、consumer側へ分離するか。</li>
+    <li>SHACL export adapterを必要とする具体的consumerは存在するか。</li>
+  </ul>
+
+  <h2 id="next-discovery">8. Next Discovery Checklist</h2>
+  <ul>
+    <li>現行graph fixtureから想定違反を棚卸しする。</li>
+    <li>node / edge kindのdomain-range matrix案を作る。</li>
+    <li>validation reportをhandoffへ追加した場合のNightWorkers compatibilityを調べる。</li>
+    <li>prototype前にGO / NO-GOとrollback条件を決める。</li>
+  </ul>
+</article>

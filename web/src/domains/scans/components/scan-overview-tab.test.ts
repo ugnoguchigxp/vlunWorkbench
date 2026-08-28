@@ -63,6 +63,16 @@ describe("ScanOverviewTab", () => {
 		expect(markup).not.toContain("収集済みの検出結果を随時更新します。");
 	});
 
+	it("offers a selection-free download for all findings in the selected scan", () => {
+		const markup = render("completed");
+
+		expect(markup).toContain("結果をダウンロード");
+		expect(markup).toContain(
+			'href="/api/scans/scan-1/findings/download"',
+		);
+		expect(markup).toContain("download");
+	});
+
 	it("explains a pre-execution failure without presenting zero findings as safe", () => {
 		const markup = render("failed", {
 			summary: "Scan failed because the execution plan changed after preview.",
@@ -83,6 +93,7 @@ describe("ScanOverviewTab", () => {
 		expect(markup).toContain("カバレッジ</span><strong>未確定");
 		expect(markup).toContain("runtime_isolation_provider_unavailable");
 		expect(markup).not.toContain("検出結果はありません。");
+		expect(markup).not.toContain("結果をダウンロード");
 	});
 
 	it("keeps the execution message available when no structured reason code exists", () => {

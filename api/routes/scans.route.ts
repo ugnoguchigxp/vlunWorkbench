@@ -1,11 +1,11 @@
 import { zValidator } from "@hono/zod-validator";
 import { Hono } from "hono";
 import { z } from "zod";
-import { scanExecutionPlanSchema } from "../../shared/schemas/scan-execution-plan.schema";
 import {
 	createScanReportSchema,
 	createScanReviewSchema,
 } from "../../shared/schemas/scan.schema";
+import { scanExecutionPlanSchema } from "../../shared/schemas/scan-execution-plan.schema";
 import type { AppDatabase } from "../db";
 import { AssessmentRepository } from "../modules/assessments/assessment-repository";
 import { buildCoverageResults } from "../modules/assessments/coverage-builder";
@@ -17,8 +17,12 @@ import { ScanReportRunner } from "../modules/reports/scan-report-runner";
 import { FindingReviewRepository } from "../modules/reviews/finding-review-repository";
 import type { ArtifactStorage } from "../modules/scans/artifact-storage";
 import { projectScanProgress } from "../modules/scans/execution/scan-progress-projector";
-import { buildGroupedFindings } from "../modules/scans/grouping-builder";
 import { FindingGroupingRunner } from "../modules/scans/finding-grouping-runner";
+import {
+	buildFindingTextExport,
+	buildFindingTextExportFilename,
+} from "../modules/scans/findings/finding-text-export";
+import { buildGroupedFindings } from "../modules/scans/grouping-builder";
 import type { ScanReportRepository } from "../modules/scans/report-repository";
 import type {
 	ArtifactRepository,
@@ -114,6 +118,31 @@ export function createScansRoute(deps: ScansRouteDeps) {
 			throw new HttpError(403, "Forbidden");
 		}
 		return scan;
+	}
+
+	async function listAllScanFindings(scanRunId: string) {
+		const items: Awaited<
+			ReturnType<FindingRepository["listFindingsPage"]>
+		>["items"] = [];
+		const seenCursors = new Set<string>();
+		let cursor: string | undefined;
+		do {
+			const page = await findingRepository.listFindingsPage(scanRunId, {
+				limit: 100,
+				...(cursor ? { cursor } : {}),
+			});
+			items.push(...page.items);
+			cursor = page.nextCursor ?? undefined;
+			if (cursor) {
+				if (seenCursors.has(cursor)) {
+					throw new Error(
+						"Finding export pagination returned a repeated cursor.",
+					);
+				}
+				seenCursors.add(cursor);
+			}
+		} while (cursor);
+		return items;
 	}
 
 	return new Hono()
@@ -228,6 +257,19 @@ export function createScansRoute(deps: ScansRouteDeps) {
 			return c.body(content, 200, {
 				"Content-Type": `${contentType}; charset=utf-8`,
 				"Content-Disposition": `attachment; filename="${filename}"`,
+			});
+		})
+		.get("/:scanRunId/findings/download", async (c) => {
+			const authUser = getAuthContextUser(c);
+			const scanRunId = c.req.param("scanRunId");
+			const scan = await checkScanOwnership(scanRunId, authUser.userId);
+			const findings = await listAllScanFindings(scanRunId);
+			const content = buildFindingTextExport(scan, findings);
+			const filename = buildFindingTextExportFilename(scanRunId);
+			return c.body(content, 200, {
+				"Content-Type": "text/plain; charset=utf-8",
+				"Content-Disposition": `attachment; filename="${filename}"`,
+				"X-Content-Type-Options": "nosniff",
 			});
 		})
 		.get(

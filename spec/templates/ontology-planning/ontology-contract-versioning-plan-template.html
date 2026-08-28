@@ -1,0 +1,107 @@
+<article lang="ja">
+  <h1 id="ontology-contract-versioning-plan-template">
+    Ontology Contract Versioning Plan Skeleton
+  </h1>
+  <ul>
+    <li>Status: Candidate plan skeleton / not approved for implementation</li>
+    <li>Priority candidate: P1</li>
+    <li>Primary owner candidate: shared producer-consumer contract maintainers</li>
+    <li>Semantica clue: version storage, comparison, change management, migration lifecycle</li>
+  </ul>
+
+  <h2 id="purpose">1. Purpose</h2>
+  <p>
+    content hashやgenerationとは別に、ontology contractの意味変更をversionとcanonical diffで表す。
+    vulnWorkbenchとNightWorkersがconsumer-firstまたはdual-readで安全に移行できる契約を用意する。
+  </p>
+
+  <h2 id="current-evidence">2. Current Evidence</h2>
+  <ul>
+    <li>knowledge source manifestはwire version、generation、export hash、content hashを持つ。</li>
+    <li>hashはcontentの差を示せるが、追加・互換・破壊的変更の意味分類は示さない。</li>
+    <li>NightWorkersはvulnWorkbench handoff v1をconsumer schemaへ反映している。</li>
+    <li>
+      長期ロードマップはshared contracts、canonicalization、validation、diff、deterministic
+      projectionを要求する。
+    </li>
+    <li>独立Ontology Coreはapprovalやmulti-producer mergeが必要になるStage 4まで前倒ししない。</li>
+  </ul>
+
+  <h2 id="scope">3. Scope</h2>
+  <ul>
+    <li>wire versionとsemantic ontology contract versionの区別</li>
+    <li>entity kind、edge kind、claim field、constraint、vocabulary mappingのcanonical diff</li>
+    <li>additive、compatible、deprecated、breakingのchange classification</li>
+    <li>consumer capability negotiation、dual-read期間、fixture-based migration</li>
+    <li>versionごとのvalidator / canonicalizer / projection behavior</li>
+  </ul>
+  <h3 id="non-goals">3.1 Non-goals</h3>
+  <ul>
+    <li>単なるfinding content更新ごとにcontract versionを上げること</li>
+    <li>Stage 4条件を満たす前に独立ontology serviceを作ること</li>
+    <li>breaking changeをversion番号だけで安全とみなすこと</li>
+  </ul>
+
+  <h2 id="contract-sketch">4. Contract Sketch</h2>
+  <pre><code class="language-typescript">type OntologyContractDescriptor = {
+  wireVersion: string;
+  ontologyContractVersion: string;
+  vocabularyVersions: Record&lt;string, string&gt;;
+  canonicalizationVersion: string;
+};
+
+type OntologyContractDiff = {
+  from: string;
+  to: string;
+  classification: "additive" | "compatible" | "deprecated" | "breaking";
+  changes: Array&lt;{ path: string; kind: string; migrationHint?: string }&gt;;
+};</code></pre>
+
+  <h2 id="implementation-options">5. Implementation Options</h2>
+  <ol>
+    <li><strong>A:</strong> handoffへcontract descriptorを追加し、repo内libraryでdiffする。</li>
+    <li>
+      <strong>B:</strong> <code>project-ontology-contracts</code>共有packageへschema /
+      canonicalizer / diffを分離する。
+    </li>
+    <li><strong>C:</strong> revision / approval / mergeを持つ独立Ontology Core serviceへ移す。</li>
+  </ol>
+  <p>
+    Aから開始し、複数producer / consumerでrelease
+    cycleを共有する必要が出た時点でBを評価する。CはStage 4 gate対象とする。
+  </p>
+
+  <h2 id="migration-sequence">6. Candidate Migration Sequence</h2>
+  <ol>
+    <li>新旧contractのgolden fixtureとdiff expectationを固定する。</li>
+    <li>NightWorkersが新descriptorをoptionalに読める状態へ先行更新する。</li>
+    <li>vulnWorkbenchが新旧互換のhandoffをpublishする。</li>
+    <li>unknown version telemetryとrollback条件を確認する。</li>
+    <li>deprecation期間後に旧contract writeを停止する。</li>
+  </ol>
+
+  <h2 id="verification">7. Verification and Exit Evidence</h2>
+  <ul>
+    <li>同一contractから同じcanonical representationとdiff orderingが得られる。</li>
+    <li>additive / breakingのpositive、negative fixtureを両repositoryで共有する。</li>
+    <li>unknown major versionはfail-safeで拒否し、unknown optional fieldは安全に扱う。</li>
+    <li>upgrade / downgrade / rollbackをfixtureで再現できる。</li>
+    <li>content hash変更とcontract version変更を独立して説明できる。</li>
+  </ul>
+
+  <h2 id="open-questions">8. Open Questions</h2>
+  <ul>
+    <li>semantic versionのmajor / minor / patchを何の変更へ割り当てるか。</li>
+    <li>vocabulary mapping versionをcontract versionへ含めるか、外部参照にするか。</li>
+    <li>共有packageのrelease ownerと互換性support期間は誰が持つか。</li>
+    <li>historical handoffをどのversionまで再読込可能にするか。</li>
+  </ul>
+
+  <h2 id="next-discovery">9. Next Discovery Checklist</h2>
+  <ul>
+    <li>現行v1 contractのcanonical descriptorを手作業で作る。</li>
+    <li>過去のschema変更をadditive / breakingへ分類し、分類規則を試す。</li>
+    <li>NightWorkersのunknown field / version behaviorをfixtureで確認する。</li>
+    <li>Stage 4 triggerが未充足であることをGO判断時に再確認する。</li>
+  </ul>
+</article>

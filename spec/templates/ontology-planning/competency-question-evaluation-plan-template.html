@@ -1,0 +1,106 @@
+<article lang="ja">
+  <h1 id="competency-question-evaluation-plan-template">
+    Competency Question Evaluation Plan Skeleton
+  </h1>
+  <ul>
+    <li>Status: Candidate plan skeleton / not approved for implementation</li>
+    <li>Priority candidate: P1 cross-cutting; baseline work may start before other P1 plans</li>
+    <li>Primary owner candidate: ontology contract / consumer integration maintainers</li>
+    <li>Semantica clue: competency question registry and ontology quality evaluation</li>
+  </ul>
+
+  <h2 id="purpose">1. Purpose</h2>
+  <p>
+    ontologyを「大きいgraph」や「新しいschema」で評価せず、consumerが必要な問いへ正確・決定的・
+    provenance付きで答えられるかをregression suiteにする。他の5計画の価値判定にも共通利用する。
+  </p>
+
+  <h2 id="current-evidence">2. Current Evidence</h2>
+  <ul>
+    <li>
+      semantic queryは候補検索を提供するが、answerabilityをproduct contractとして測っていない。
+    </li>
+    <li>read model resolverはreadinessを返せるため、回答不能理由を区別する土台がある。</li>
+    <li>
+      graph、community、manifest、handoffに個別testはあるが、consumer
+      question単位の横断評価は限定的である。
+    </li>
+    <li>
+      Semanticaのcompetency
+      question機能は参考になるが、現行実装の単純なkeyword判定をacceptance根拠には使わない。
+    </li>
+  </ul>
+
+  <h2 id="scope">3. Scope</h2>
+  <ul>
+    <li>question ID、対象persona、必要fact、期待回答、許容不能理由のregistry</li>
+    <li>golden project / scan fixtureと期待provenance</li>
+    <li>exact queryまたはdeterministic evaluatorによるanswerability判定</li>
+    <li>coverage、orphan reference、freshness、candidate leakage、latencyのmetric</li>
+    <li>contract変更前後のregression report</li>
+  </ul>
+  <h3 id="non-goals">3.1 Non-goals</h3>
+  <ul>
+    <li>自然言語keyword matchだけで回答可能と判定すること</li>
+    <li>LLMの流暢さをontology correctnessの代理metricにすること</li>
+    <li>すべての将来queryを初回から列挙すること</li>
+  </ul>
+
+  <h2 id="initial-questions">4. Initial Competency Questions</h2>
+  <ol>
+    <li>このfindingを支持するevidence、scanner、artifactは何か。</li>
+    <li>このfindingが影響するmoduleまたはfileは何か。根拠は何か。</li>
+    <li>この関係はobserved factか、deterministic derivedか、semantic candidateか。</li>
+    <li>欠落、stale、revision不一致のevidenceはあるか。</li>
+    <li>2つのscan revision間で、何が追加・削除・変更されたか。</li>
+    <li>同じCWE / CVE / dependencyに属するfindingは何か。そのmapping strengthは何か。</li>
+  </ol>
+
+  <h2 id="evaluation-sketch">5. Evaluation Sketch</h2>
+  <pre><code class="language-typescript">type CompetencyQuestionCase = {
+  id: string;
+  question: string;
+  fixtureRef: string;
+  requiredFacts: string[];
+  expectedAnswerRefs: string[];
+  expectedProvenanceRefs: string[];
+  allowedUnavailableReasons: string[];
+};</code></pre>
+  <p>
+    metric候補はanswerability rate、provenance coverage、false confirmation count、orphan count、p95
+    query latencyとする。
+  </p>
+
+  <h2 id="implementation-options">6. Implementation Options</h2>
+  <ol>
+    <li><strong>A:</strong> TypeScript fixtureと既存query APIを使うdeterministic test suite。</li>
+    <li><strong>B:</strong> machine-readable question catalogと複数consumer adapter。</li>
+    <li><strong>C:</strong>自然言語questionを補助的に評価するLLM judge。正本判定には使わない。</li>
+  </ol>
+  <p>Aでbaselineを作り、複数consumerが必要になった段階でBへ広げる。</p>
+
+  <h2 id="verification">7. Verification and Exit Evidence</h2>
+  <ul>
+    <li>各questionがexpected answerだけでなくprovenanceとassertion kindも検証する。</li>
+    <li>unknown / not-ready / absent / staleを混同しない。</li>
+    <li>semantic candidateがconfirmed answerへ混入するnegative fixtureを持つ。</li>
+    <li>contract変更PRでbefore / after結果を再現できる。</li>
+    <li>metric改善がpayload増加やlatency悪化を隠さない。</li>
+  </ul>
+
+  <h2 id="open-questions">8. Open Questions</h2>
+  <ul>
+    <li>最初のpersonaは人間reviewer、coding agent、NightWorkersのどれか。</li>
+    <li>expected answerをentity IDで固定するか、semantic propertyで固定するか。</li>
+    <li>fixtureをsyntheticとreal sanitized caseのどちらで構成するか。</li>
+    <li>answerabilityをrelease gateへ昇格する閾値は何か。</li>
+  </ul>
+
+  <h2 id="next-discovery">9. Next Discovery Checklist</h2>
+  <ul>
+    <li>上記6問を現行APIで手動回答し、欠落factと探索手順を記録する。</li>
+    <li>現行baselineのanswerability / provenance coverageを測る。</li>
+    <li>P0計画で追加するfieldがどのquestionを改善するかmatrix化する。</li>
+    <li>release gate化はbaselineと安定性を確認してから判断する。</li>
+  </ul>
+</article>

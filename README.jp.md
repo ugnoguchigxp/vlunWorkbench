@@ -1,448 +1,321 @@
 # vulnWorkbench
 
-[![Bun](https://img.shields.io/badge/Bun-%23000000.svg?style=for-the-badge&logo=bun&logoColor=white)](https://bun.sh/)
-[![Hono](https://img.shields.io/badge/Hono-%23E36022.svg?style=for-the-badge&logo=hono&logoColor=white)](https://hono.dev/)
-[![React](https://img.shields.io/badge/React-%2320232a.svg?style=for-the-badge&logo=react&logoColor=%2361DAFB)](https://react.dev/)
-[![SQLite](https://img.shields.io/badge/SQLite-%2307405e.svg?style=for-the-badge&logo=sqlite&logoColor=white)](https://www.sqlite.org/)
-[![TypeScript](https://img.shields.io/badge/TypeScript-%23007ACC.svg?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
-[![MIT License](https://img.shields.io/badge/License-MIT-green.svg?style=for-the-badge)](LICENSE.md)
+[![Bun](https://img.shields.io/badge/Bun-1.3.14-black?logo=bun)](https://bun.sh/)
+[![Hono](https://img.shields.io/badge/Hono-4.x-E36002?logo=hono)](https://hono.dev/)
+[![React](https://img.shields.io/badge/React-19-20232a?logo=react)](https://react.dev/)
+[![SQLite](https://img.shields.io/badge/SQLite-local-07405e?logo=sqlite)](https://www.sqlite.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE.md)
 
 [English](README.md) | 日本語
 
-vulnWorkbench は、スキャナー出力を証跡付き診断結果と実装可能なレポートへ自動変換するローカル脆弱性ワークベンチです。
+vulnWorkbenchは、複数のセキュリティスキャナーによる検査結果を一か所に集め、根拠をたどれるレポートとして残すローカルアプリです。ソースコード、依存ライブラリ、設定ファイル、実行中のWebアプリなどを検査し、「何が見つかったか」だけでなく「どこまで検査できたか」「何が未確認か」も記録します。
 
-このプロダクトは、LLM がリポジトリを自由に探索して finding を発明する前提ではありません。重い証跡生成は CLI スキャナー、sandbox reproduction、dynamic check、DAST が担当します。scan 完了後、自動パイプラインが scanner の決定論的な事実を保持したまま、保存済み finding を証跡制約付き LLM で評価し、統合 Markdown report を出力します。LLM 出力には criticality、誤検知可能性、exploitability、業務影響、優先度、修正案、証跡参照、仮定、不明点、implementation handoff が含まれます。
+ここでいう**ワークベンチ**は、単体のスキャナーではなく、検査の準備、実行、結果の整理、再確認、レポート作成までを同じ画面とデータベースで扱う作業台という意味です。
 
-Human `Decision` record は任意の互換・監査注釈として残っています。診断、review、report 生成、retry、export の完了条件にはなりません。現在の主経路は次の通りです。
+> [!IMPORTANT]
+> vulnWorkbenchは、専門家によるペネトレーションテストの代替ではありません。ペネトレーションテストとは、攻撃者の立場でシステムへ侵入できるかを総合的に調べる診断です。v1.0.0の検証証跡では、専門的な自動診断能力に関する総合判定は`not_met`（基準未達）のままです。詳しくは[現在確認できている限界](#現在確認できている限界)を参照してください。
+
+## なぜ作ったか
+
+スキャナーを何種類も使うと、出力形式がばらばらになり、失敗した検査まで「問題なし」に見えることがあります。AIによる要約だけを読む運用では、元の出力を確認しにくく、AIがどの事実を根拠にしたのかも曖昧になりがちです。
+
+vulnWorkbenchは、次の順序を崩さないように作られています。
 
 ```text
-local project
-  -> CLI scanners / reproduction / dynamic / DAST
-  -> normalized findings, evidence, artifacts, events
-  -> deterministic consolidated report
-  -> automatic evidence-constrained LLM criticality assessment
-  -> final Markdown report / implementation handoff
+ローカルのプロジェクト
+  → 実行前の条件確認
+  → スキャナーによる検査と証跡の保存
+  → 共通形式への変換
+  → 保存済みデータから作る基本レポート
+  → 必要に応じたLLMレビュー
+  → 修正担当者へ渡せるレポートと作業依頼
 ```
 
-LLM route が利用不能、または構造化出力が拒否された場合も、deterministic report は明示的な limitation code 付きで完了します。認可、active scan の許可、credential、network policy、resource limit は引き続き server 側の安全契約であり、LLM へ委譲しません。
+**証跡**は、判断の根拠になったスキャナー出力、ログ、対象ファイルの位置、実行条件などです。**LLM**（Large Language Model、大規模言語モデル）は文章を理解・生成するAIですが、このアプリではリポジトリを自由に探索させません。LLMが読むのは、アプリが保存して範囲を制限した検出結果と証跡だけです。
 
-これはプロによるペネトレーションテストの完全代替ではありません。Phase 50の
-versioned assetには、任意Semgrep adapter向けの5言語45本のoffline rule、8 ecosystemの
-prepared OSV database、明示選択式のdisposable target向けZAP active profile、
-deterministic application/threat model、bounded business-logic scenarioが
-含まれます。一方、現在のmeasured capability claimは`not_met`です。固定済み
-OWASP Benchmarkの実測値はrecall `0.7088`、precision `0.6946`、false-positive
-rate `0.3121`であり、固定済みJuice Shop catalogはeligible 20 scenarioに対して
-実行証跡がまだありません。認証付き検査は設定済みroute、identity、object、
-operationだけを対象とします。network、cloud、AD、mobile、wireless、social
-engineering、browser authentication、production active attack、無制限fuzzingは
-experimentalまたはプロダクト境界外です。
-
-vulnWorkbench は、隣接する coding-agent system 向けの Static Intelligence source でもあります。scanner-backed diagnostic evidence、軽量な code structure facts、file risk、semantic candidates、risk communities、guardrail material、read-only MCP tools を公開します。ただし、これは source layer です。NightWorkers は ontology、task compilation、queue admission、implementation、verification orchestration を担当し、contextStill は generalized knowledge、reusable procedure、retrieval を担当します。
+LLMを設定していない場合や、LLMの応答が所定の形式に合わなかった場合も、スキャナーの事実から作る基本レポートは残ります。その場合は、AIレビューを完了できなかった理由が制限事項として記録されます。
 
 ## できること
 
-- ローカルリポジトリを project として登録します。
-- core の Gitleaks、OSV、Trivy adapter と、明示的に有効化した任意 scanner、scan profile、DAST、reproduction、dynamic verification を bounded CLI path で実行します。
-- raw artifact、正規化済み finding、evidence、scan event、review、report、diagnostic をローカル SQLite に保存します。
-- 保存済みデータだけから scan review bundle を作ります。
-- finding review、scan review、report summary を LLM task route に基づいて実行します。
-- scan 成功後に scan-level criticality 診断と最終 report 生成を自動実行します。
-- scan-level の `improvementRequest` / handoff prompt を生成し、実装作業へ渡せる形にします。
-- executive risk summary、workflow completion、evidence quality、scan comparison、report readiness、zero-finding coverage、action queue などの decision-grade signal を表示します。
-- deterministic section と任意の LLM summary を含む Markdown report を出力します。
-- 保存済み診断証跡から Static Intelligence export、agent-query bundle、semantic search index、risk community、security landscape summary、guardrail material を生成します。
-- TypeScript / JavaScript project から redacted lightweight code structure snapshot を抽出します。対象は file、import、export、package edge、route / handler / schema / worker / test / config tag です。
-- discovery、manifest、evidence bundle、verification command candidate、guardrail material、code structure snapshot の read-only Static Intelligence MCP surface を提供します。
+- ローカルにあるリポジトリをプロジェクトとして登録する。
+- 検査目的に合わせたスキャンプロファイルを選び、複数のスキャナーをまとめて実行する。
+- Gitのコミット、ブランチ間の差分、コミット前の作業ツリーだけを対象にする。
+- 各ツールの出力を、重大度、検出位置、根拠を持つ共通の「検出結果」へ変換する。
+- 検査済み、未実行、対象外、失敗を区別し、検査範囲を記録する。
+- 過去のスキャンと比較し、新規・継続・悪化した問題を確認する。
+- 保存済みの検出結果を、AIの要約を含まないテキストとしてダウンロードする。
+- 根拠の強さ、誤検知の可能性、悪用のしやすさ、業務への影響、修正案をLLMで整理する。
+- Markdown形式のレポートと、別の開発担当者やコーディングエージェントへ渡す修正依頼を作る。Markdownは、見出しや表を普通のテキストで表せる文書形式です。コーディングエージェントは、依頼に沿ってコードを調査・変更するAIツールを指します。
+- ソースコード本文を渡さずに、ファイル構成やモジュール間の関係を外部エージェントへ公開する。
 
-## プロダクト境界
+**スキャンプロファイル**とは、対象範囲、使うツール、制限時間、失敗時の扱いをまとめた実行メニューです。利用者がスキャナーごとの細かな引数を毎回組み立てなくても、同じ条件で検査を繰り返せます。
 
-vulnWorkbench は、証跡生成と LLM による解釈を明確に分離します。
+## 最初に動かす
 
-| 領域 | 責務 |
-| --- | --- |
-| CLI tools | scanner output、log、artifact、deterministic evidence を生成する。 |
-| Normalizers | tool output を安定した finding / evidence record に変換する。 |
-| Reproduction / dynamic / DAST | bounded な runtime confirmation signal を追加する。 |
-| LLM review | 保存済み証跡から criticality と remediation を自動評価し、implementation handoff instruction を作る。 |
-| Static Intelligence | scanner-backed evidence、code structure facts、semantic candidate、community、landscape、guardrail material を read model として公開する。 |
-| Read-only MCP | DB table access、scanner execution、verification execution、contextStill mutation なしで、外部 agent が Static Intelligence bundle を発見・取得できるようにする。 |
-| Reports | risk、evidence quality、handoff status、verification、coverage を Markdown にまとめる。 |
-| Human Decision | 任意の互換・監査 record。必須の triage gate ではない。 |
+### 必要なもの
 
-非ゴール:
+- [Bun](https://bun.sh/) 1.3.14
+- ローカルで動かすためのターミナル
+- 実際にスキャンする場合は、選んだプロファイルが使うスキャナー、またはDocker
 
-- LLM による自由形式のリポジトリ監査。
-- patch の自動適用。
-- 外部承認 workflow。
-- finding 0 件を安全証明として扱うこと。
-- scan-level LLM handoff が存在するのに、human `Decision` 未入力を通常 blocker として扱うこと。
-- scanner、artifact、reproduction、verification の裏付けなしに、code structure facts、semantic similarity、LLM review text を confirmed vulnerability evidence として扱うこと。
-- MCP を contextStill registration、NightWorkers task creation、scanner execution、verification command execution の write path として使うこと。
-- 外部corpusの性能値と対象固有business workflowのcoverageなしに、プロ診断と
-  同等だと主張すること。
+Bunは、TypeScriptの実行、パッケージの導入、テストを一つで扱う実行環境です。このリポジトリはBun 1.3.14で検証されています。
 
-## 主な UI ワークフロー
+開発環境では、スキャナーをホスト、つまり自分のPC上で直接実行する設定が初期値です。たとえば`baseline`プロファイルには`gitleaks`と`osv-scanner`が必要です。Dockerを選ぶ場合は、スキャナーをまとめたツールボックスイメージを先に用意します。
 
-1. ローカル project を登録します。
-2. static scan profile または個別 scanner を実行します。
-3. deterministic report と証跡制約付き LLM 診断の自動完了を待ちます。
-4. finding、evidence、scanner artifact、criticality、業務影響、修正案、仮定、不明点、limitation code を確認します。
-5. 自動生成された handoff quality check を確認します。
-   - objective
-   - scope
-   - finding reference または zero-finding coverage scope
-   - implementation tasks
-   - acceptance criteria
-   - verification commands
-   - non-goals
-   - saved-context limitation
-6. handoff prompt を直接使うか、統合 Markdown report を export します。
-7. 自動診断 readiness を確認します。
-   - `ready`
-   - `ready_with_limitations`
-   - `failed`
-8. 必要な場合だけ、失敗または limitation 付きの LLM / report stage を retry します。
-9. legacy report readiness view では次の状態も表示されます。
-   - `submission_ready`
-   - `internal_review`
-   - `incomplete`
-manual finding review と `Decision` record は任意注釈であり、この workflow を block しません。Report controls には、これらの注釈に対する互換 filter が残る場合があります。
-
-## Quick Start
-
-fresh clone からの推奨手順:
+### セットアップ
 
 ```bash
-bun install
+git clone https://github.com/ugnoguchigxp/vlunWorkbench.git
+cd vulnWorkbench
+bun install --frozen-lockfile
 bun run bootstrap
 bun run dev
 ```
 
-`bun run bootstrap` は、必要に応じて `.env` を `.env.example` から作成し、SQLite migration を適用し、local admin user を作成または確認し、login URL と credential を表示します。2回目以降の実行では、既存 admin password は既定で保持されます。
+`bun run bootstrap`が行うのは次の3点です。
 
-開発サーバー:
+1. `.env`がなければ`.env.example`をコピーする。
+2. SQLiteのマイグレーションを適用する。マイグレーションとは、保存済みデータを残したままデータベースの構造を更新する処理です。
+3. ローカル管理者`admin@example.com`を作成または確認し、初回は生成したパスワードを表示する。
 
-```text
-http://localhost:29831
-```
-
-bootstrap 時に local admin password を再発行する場合:
+ブラウザで[http://localhost:29831](http://localhost:29831)を開き、コマンドに表示されたメールアドレスとパスワードでログインしてください。2回目以降の`bootstrap`は、既存の管理者パスワードを変更しません。変更したい場合だけ次を実行します。
 
 ```bash
 bun run bootstrap -- --reset-admin-password
 ```
 
-bootstrap 後の local readiness を確認する場合:
+セットアップ後の状態は、次のコマンドで確認できます。`.env`、データベース、管理者、ポート、SQLite拡張機能、スキャナーの有無を検査します。
 
 ```bash
 bun run bootstrap:check
 ```
 
-より細かく制御したい場合は、手動 setup も使えます。
+スキャナーが見つからないという`WARN`は、Webアプリ自体の起動失敗ではありません。ただし、そのスキャナーを使うプロファイルは実行できません。
 
-```bash
-cp .env.example .env
-bun run db:migrate
-bun run db:seed
-```
+### 画面から最初のスキャンを行う
 
-`bun run db:seed` は local admin user `admin@example.com` を作成または更新します。password を指定しない場合は、生成された password が JSON で出力されます。
+1. **Projects**で対象リポジトリの絶対パスを登録します。macOSでは管理者だけがフォルダ選択画面を使えます。
+2. **Scans**で登録したプロジェクトを選びます。
+3. まず`baseline`を選び、実行前チェックを確認します。
+4. スキャンを開始し、ツールごとの進行状況と検出結果を確認します。
+5. LLMを使う場合は、**Settings > AI・モデル**で接続先を、**Settings > タスクルーティング**で用途ごとのモデルを設定します。
+6. レポートを開き、検査範囲、制限事項、根拠、修正案を確認します。
 
-```bash
-SEED_ADMIN_PASSWORD='<password>' bun run db:seed
-printf '%s\n' '<password>' | bun run db:seed -- --password-stdin
-bun run db:seed -- --keep-existing-password
-```
+**実行前チェック（preflight）**は、必要なスキャナー、入力ファイル、Dockerイメージ、権限、対象範囲がそろっているかを、実際の検査前に確かめる処理です。必須条件が欠けていれば、問題のある状態で検査を始めずに停止します。
 
-### SQLite Writer プロセス
+## 結果の読み方と保存内容
 
-ファイル DB への SQLite 書込みは、DB ごとに1つの Writer プロセスが直列化します。Web server、CLI、worker はそれぞれ読取り専用接続を持ちますが、Drizzle の `insert`、`update`、`delete` はすべて Unix socket 上の Writer Client を経由します。Client は最初の更新時に Writer を遅延起動します。`bun run db:writer` で明示起動することもでき、migration も同じ Writer 境界を使います。
+スキャナーが報告した1件の候補を、このプロジェクトでは**finding（検出結果）**と呼びます。findingは脆弱性の確定判定ではありません。誤検知、つまり実際には問題ではない候補も含まれます。
 
-DB ファイルはプロセスロックで保護されるため、2つ目の Writer は別の書込み接続を開かず失敗します。通常の Writer request は更新文だけを受け付け、読取りは各プロセス内、migration DDL は migration 操作だけに限定されます。稼働中の instance は `bun run db:writer:health`、production code に別の SQLite 書込み経路が増えていないかは `bun run db:boundary` で検査できます。
+保存する情報は、役割ごとに分かれています。
 
-Writer に接続できない場合、mutation は直接接続へ fallback せず失敗します。Client は記録された process が存在しない stale lock を除去し、owner 情報のない lock も5秒経過後に回復します。`<database-path>.writer-lock` を手動削除する前に、health command と OS の process 確認で Writer が動いていないことを確認してください。
-
-Writer protocol versionをまたぐupgradeではWriterを再起動してください。Clientは互換性を推測せず、古いWriterとの接続を拒否します。Migration履歴にはSHA-256 checksumを記録し、適用済みmigration fileの後からの変更を拒否します。
-
-## LLM Routing
-
-LLM work は task route によって実行先が決まります。重要な task は次の通りです。
-
-| Task | 用途 |
+| 情報 | 何を表すか |
 | --- | --- |
-| `finding_review` | 1件の finding と保存済み evidence をレビューする。 |
-| `scan_review` | scan-level risk summary と implementation handoff を生成する。 |
-| `report_summary` | 生成済み report に任意の LLM summary を追加する。 |
+| Scan run | 1回のスキャン全体。対象、プロファイル、開始・終了時刻、成否を持ちます。 |
+| Tool run | スキャン内で行った各スキャナーの実行。終了コード、ログ、使用バージョンを持ちます。 |
+| Finding | スキャナーが検出した問題候補。重大度、規則、場所、重複判定に使う識別子を持ちます。 |
+| Evidence | findingの根拠。該当位置、短い抜粋、再現情報などです。 |
+| Artifact | スキャナーの生出力、ログ、生成したレポートなどのファイルです。 |
+| Coverage | どの観点を検査できたか、未実行や対象外が残っていないかを表します。 |
+| Review | 保存済みデータを基にしたLLMまたは人の評価です。スキャナーの原本は書き換えません。 |
 
-設定は UI から行うか、CLI で修復できます。
+同じ入力から同じ構成を作れる基本レポートを、コード上では**deterministic report**と呼んでいます。ここでのdeterministic（決定的）は、保存済みの同じレコードを使えば見出しや集計方法が変わらない、という意味です。LLMが生成した文章まで毎回同一になるという意味ではありません。
 
-```bash
-bun run api/cli/llm-route-repair.ts -- \
-  --provider <provider-endpoint-id> \
-  --model <model-name> \
-  --tasks finding_review,scan_review,report_summary
-```
+検出が0件でも、安全だとは判定しません。必要なスキャナーが失敗した場合や、対象範囲が不足した場合は、`inconclusive`（結論を出せない）または`not_tested`（未検査）として扱います。
 
-起動前または信頼境界に関わる環境変数:
+## 主なスキャナー
 
-| Variable | 目的 |
+| ツール | このプロジェクトでの役割 |
 | --- | --- |
-| `DATABASE_URL` | SQLite database path。既定は `file:./data/vuln-workbench.sqlite`。 |
-| `JWT_SECRET` | JWT signing secret。production では必ず変更する。 |
-| `APP_URL` | public app origin と cookie/CORS の基準。 |
-| `CORS_ORIGINS` | 追加で許可する origin。 |
+| Gitleaks | ソースや履歴に、APIキーやパスワードなどの機密情報が混入していないかを探します。 |
+| OSV-Scanner | 利用しているライブラリの名前とバージョンを、既知の脆弱性データベースと照合します。これはSCA（Software Composition Analysis、依存部品の検査）に当たります。 |
+| Trivy | 依存ライブラリ、コンテナイメージ、機密情報、設定ミスを調べ、SBOMも作成します。 |
+| zizmor | GitHub Actionsの権限、外部処理の参照固定、入力値の扱いなど、CI設定の危険な書き方を調べます。CIは、テストやビルドを自動実行する仕組みです。 |
+| Semgrep | コードの書き方を規則と照合するSASTです。SAST（Static Application Security Testing、静的解析）は、アプリを起動せずにソースコードを調べる方法です。標準では無効です。 |
+| Nuclei | 安全性を確認したテンプレートだけを使い、起動中のWebアプリへ少数のHTTPリクエストを送ります。 |
+| ZAP Baseline | Webページをたどり、通信内容を受動的に調べます。Baseline実行では攻撃用リクエストを送りません。 |
+| Schemathesis | OpenAPIまたはGraphQLの仕様を読み、読み取り専用のAPI操作に限って応答を確認します。APIは、プログラム同士が機能やデータをやり取りする入口です。OpenAPIは、その入口や入力形式を記述する仕様です。GraphQLのQueryは、データを読むための操作です。 |
+| Cosign / slsa-verifier | 配布物の署名や来歴を確認します。来歴（provenance）は、誰がどのソースとビルド手順から成果物を作ったかを示す記録です。SLSA（Supply-chain Levels for Software Artifacts）は、その来歴やビルド工程の信頼性を段階的に確認する枠組みです。 |
 
-LLM endpoint、model、task routing、暗号化されたprovider credentialは
-**Settings > LLM Providers**で管理します。従来のOpenAI/Azure環境変数は、
-既存環境との互換性を保つbootstrap値として利用できます。
-scannerの実行方式、host実行許可、Docker imageとresource上限、scanner出力上限、
-Codex SDK timeoutは **Settings > Runtime Settings** で設定し、検証後にSQLiteへ
-保存されます。従来の環境変数は、既存環境からの移行互換性のため、Runtime
-Settingsを最初に保存するまでの初期値としてのみ利用されます。
-認証DASTの暗号化キーも同画面で入力または自動生成できます。この値はAPIでは
-write-onlyとして扱われ、SQLiteへの保存前に`JWT_SECRET`を使ってラップされます。
-環境変数で管理する場合は、従来どおり`DAST_AUTH_ENCRYPTION_KEY`を利用できます。
-通常調整しないcapability rolloutの既定値はrelease policyとして
-`api/config/appDefaults.ts`に集約しています。
+**SBOM**（Software Bill of Materials、ソフトウェア部品表）は、アプリに含まれるライブラリとバージョンの一覧です。問題を直接検出するレポートではなく、影響を受ける部品を後から調べるための台帳として使います。
 
-LLM API key は host 側に置きます。scanner container や scan 対象 project に LLM credential を渡してはいけません。Docker scanではmemory、CPU、memory-swap、PID上限を常に適用し、stdout、stderr、構造化結果fileが設定byte上限を超えた場合は失敗として扱います。
-
-### Codex SDK live contract test
-
-Codex SDK の実モデル疎通は通常の `bun run test` / `bun run verify` には含まれません。
-次の opt-in command だけが、指定modelで課金対象の Codex turn を1回実行します。
+Semgrepはライセンスと配布境界を分けるため、標準ツールボックスには含めていません。利用する場合は専用イメージを作り、環境変数で明示的に有効化します。
 
 ```bash
-VULN_WORKBENCH_CODEX_LIVE=1 \
-bun run verify:codex-live -- \
-  --model <利用可能なモデル>
+bun run docker:plugin:semgrep:build
+VULN_WORKBENCH_OPTIONAL_SCANNER_ADAPTERS=semgrep bun run dev
 ```
 
-実行には `OPENAI_API_KEY` または `CODEX_API_KEY` が必要です。個人の
-`~/.codex` auth cache は再利用せず、一時 `HOME` / `CODEX_HOME` と空の
-read-only working directory を使用します。成功時はmodel、duration、token usage、
-thread ID、validation結果などの非機密metadataだけを出力し、prompt、response本文、
-credentialは出力しません。
-既定timeoutは180秒で、`--timeout-ms`により1,000〜300,000ミリ秒の範囲で変更できます。
+`OPTIONAL`で有効化したSemgrepが使えない場合は、制限事項を残して処理を続けます。必須にする場合は`VULN_WORKBENCH_REQUIRED_SCANNER_ADAPTERS=semgrep`を使います。
 
-## CLI Workflows
+DockerでSemgrepを動かす場合は、**Settings > スキャン実行**のイメージを`vuln-workbench-toolbox-semgrep:local`へ変更してください。ホスト実行を選ぶ場合は、PC上で`semgrep`コマンドを実行できる必要があります。
 
-### 外部 agent 向け Security Oracle
+## よく使うスキャンプロファイル
 
-外部 orchestrator は、別 DB の内部 ID ではなく repository path を渡します。
-CLI は vulnWorkbench 側の project を解決または作成し、stdout に JSON object
-を 1 件だけ返します。
-外部 contract は意図的に path-only です。scan profile、review policy、output
-format、timeout は呼び出し元から渡さず、vulnWorkbench 側が決めます。
+| プロファイルID | 用途 |
+| --- | --- |
+| `baseline` | GitleaksとOSV-Scannerで、機密情報と依存ライブラリを短時間で確認します。 |
+| `basic-security` | `baseline`にTrivyを加え、設定ミスも確認します。 |
+| `change-gate` | コミットや作業中の差分を厳格に検査します。High以上の問題を変更の合否判定に使う設定です。 |
+| `source-assurance` | リポジトリ全体をGitleaks、OSV-Scanner、Trivy、zizmorで確認します。Semgrepは有効化時だけ加わります。 |
+| `dependency-supply-chain` | 依存関係、SBOM、成果物の署名または来歴を確認します。 |
+| `runtime-web-safe` | 隔離して起動したWebアプリへ、受動的DAST、Nuclei、ZAP Baselineを実行します。 |
+| `api-schema-readonly` | OpenAPIまたはQueryだけのGraphQL APIを、読み取り操作に限定して確認します。 |
+| `container-image-security` | 既に存在するコンテナイメージまたはイメージファイルをTrivyで検査します。自動ビルドはしません。 |
+| `full-security-scan` | 静的検査、SBOM、受動的なWeb検査をまとめた旧来の総合プロファイルです。能動的な攻撃は行いません。 |
 
-利用可能な scan が得られた後、Oracle は設定済みの `scan_review` route を実行し、
-保存された handoff prompt を `review.improvementRequest` として返します。review route
-未設定または失敗は成功に見せず `inconclusive` になり、high / critical finding が
-ある場合は `security_action_required` が優先されます。
+**DAST**（Dynamic Application Security Testing、動的検査）は、起動中のアプリへHTTPリクエストを送り、実際の応答を調べる方法です。受動的（passive）な検査は、通常の閲覧に近いリクエストと応答の観察を中心にします。能動的（active）な検査は、異常な入力や状態変更を伴うため、別の許可と安全対策が必要です。
+
+安定版と実験版を含む正式なプロファイル一覧は、[スキャン能力表](spec/generated/security-capability-table.html)と`api/modules/scans/profile-catalog.ts`で確認できます。
+
+## Dockerでスキャナーを動かす
+
+ホストへ各スキャナーを導入したくない場合は、標準ツールをまとめたDockerイメージを作れます。ビルド時は固定したソースとチェックサムを検証し、オフライン用の脆弱性データもイメージへ入れます。チェックサムは、ダウンロードした内容が想定したファイルと一致するかを確かめる値です。
 
 ```bash
-bun run oracle:security -- --project-path /path/to/repo
+bun run docker:toolbox:build
 ```
 
-### Profile Scan
+その後、**Settings > スキャン実行**で実行方式を`docker`、イメージを`vuln-workbench-toolbox:local`に設定します。Docker実行では、初期値としてネットワークを切り、メモリ4 GiB、CPU 2、PID 512の上限を付けます。PIDは、コンテナ内で同時に存在できるプロセス数です。
 
-Web UI から開始した scan は `queued` として受理され、HTTP 202 を返します。UI は
-保存済み scan state を poll し、取消もできます。終端状態は `scan_runs` が正です。
-server 再起動時は古い Web-owned queued/running scan だけを failed に回復し、独立した
-CLI scan は書き換えません。
+Webアプリを自動起動する実行時プロファイルには、さらに専用の隔離環境が必要です。次のコマンドはDockerの状態を確認し、固定したイメージIDと検証ハッシュをSQLiteへ保存します。
+
+```bash
+bun run runtime-isolation:auto-configure
+```
+
+この隔離環境は、対象アプリ、必要なデータベース、HTTP検査ツールを使い捨てのコンテナ名前空間へ入れます。コンテナ名前空間とは、ネットワークやプロセスをホストと分離するDockerの境界です。現時点で自動起動の対象として検証されている依存解決方式は、`package-lock.json`を使うnpmと、Bunのロックファイルを使う構成です。
+
+## CLIから使う
+
+### 基本スキャン
+
+パスから初回登録し、そのまま`baseline`を実行する例です。
 
 ```bash
 bun run scan:profile -- \
-  --project-id <project-id> \
+  --project-path /path/to/repository \
+  --create-project true \
   --profile baseline \
   --timeout-sec 600 \
   --report-output report.md
 ```
 
-直接 CLI から実行した scan でも、自動診断は既定で有効です。LLM が成功した場合、
-`--report-output` には LLM 評価を含む report が出力され、失敗時は limitation を記録した
-deterministic report が出力されます。scanner のみを意図する場合に限り
-`--automated-diagnostic false` を指定してください。
+CLIスキャンは、初期値で自動診断と最終レポート作成まで待ちます。LLMが使えなければ、制限事項付きの基本レポートを`report.md`へ書きます。スキャナーの実行だけに限定する場合は`--automated-diagnostic false`を指定します。
 
-`baseline` は基本的な static profile です。より広い static coverage が必要な場合:
+### Git差分のスキャン
+
+コミット前の変更内容を確認する場合は、まずプレビューで対象ファイルと対象内容のSHA-256を確認します。SHA-256は、内容が変わると別の値になる識別用ハッシュです。
 
 ```bash
 bun run scan:profile -- \
-  --project-id <project-id> \
-  --profile detailed-security \
-  --timeout-sec 1200 \
-  --report-output detailed-report.md
+  --project-path /path/to/repository \
+  --profile change-gate \
+  --target working-tree \
+  --base HEAD \
+  --include-untracked true \
+  --preview true
 ```
 
-Phase 41 の focused profile は、対象 repository に dependency・設定・script を追加せず、bounded な CLI / Docker 実行だけで追加証跡を生成します。
+`--target commit`は1コミット、`--target range`は2つのGit参照の間、`--target working-tree`は未コミットの変更を対象にします。差分ファイルの全体を検査するため、見つかった問題がその差分で新たに作られたとは限りません。
 
-```bash
-bun run scan:profile -- --project-path /path/to/repo --profile runtime-web-safe --json
-bun run scan:profile -- --project-path /path/to/repo --profile sbom-inventory --json
-bun run scan:profile -- --project-path /path/to/repo --profile api-schema-readonly --json
-bun run scan:profile -- --project-path /path/to/repo --profile container-image-security --image-ref local/app:tag --json
-```
-
-`full-security-scan` は既存 static tool、CycloneDX SBOM、coverage-awareなWeb Passive Standard DAST、Nuclei safe、ZAP baseline、schema が検出できた場合の Schemathesis を順に実行します。Nuclei は固定 safe template set、ZAP は passive baseline、Schemathesis は credential を渡さず GET/HEAD/OPTIONS に限定します。runtimeの計画上限は合計250 requestです。schema 不在、通信失敗、認証失敗、budget打ち切りは「脆弱性なし」ではなく coverage gap / limitation として出力します。
-
-ローカルtargetを自動起動するruntime profileは、host processを起動しません。有効化には、管理者がSettings > Runtime Settingsで、digest固定のserver-owned runtime image（namespace owner、Node、materializer、registry proxy、probe、HTTP executor）と、現在のDocker daemon identity hash、同一契約のqualification hashを設定します。設定はSQLiteへ保存され、次回のpreviewとscanから使用されます。いずれかが無い・mutable imageである環境ではruntime profileはpreflightでblockedになります。target、DB sidecar、DAST/Nuclei/ZAP/Schemathesisは同じ使い捨てcontainer namespaceで動き、host networkや既存DBへは接続しません。
-
-dynamic verificationも、server-ownedかつdigest固定の`VULN_WORKBENCH_DYNAMIC_IMAGE`を必須とします。request/CLIのimage指定はこの値と完全一致する場合だけ受理し、mutableまたは未認定のimageはsource snapshotの作成前にblockedになります。
-
-Web UIから厳格な`full-security-scan`を実行する環境では、Runtime SettingsのScanner executionを`Docker`、Docker imageを`vuln-workbench-toolbox-semgrep:local`に設定します。core toolboxにはライセンス分離されたSemgrep engineが含まれないため、`vuln-workbench-toolbox:local`のままでは総合診断のpreflightを通過しません。
-
-### Individual Scanners
-
-```bash
-bun run scan:semgrep -- --project-id <project-id>
-bun run scan:gitleaks -- --project-id <project-id>
-bun run scan:osv -- --project-id <project-id>
-bun run scan:trivy -- --project-id <project-id>
-bun run scan:sbom -- --project-id <project-id>
-bun run scan:trivy-image -- --project-id <project-id> --image-ref local/app:tag
-```
-
-任意Semgrep adapterを明示的に有効化した場合は、リポジトリ所有・tree hash 済みの`curated-sast-v1`を
-使用します。内訳は5言語45 rule、各言語6 security family以上で、release
-fixtureはpositive 90件、negative 90件です。registryを使う探索実行は
-`--config auto`を明示し、その実行は再現不能として記録され、自動レポートも
-制限付きreadyになります。
-LGPL engineはcore toolboxにも標準profileにも含めません。導入方法とadapter
-契約は[`spec/decisions/scanner-adapters.html`](spec/decisions/scanner-adapters.html)を参照してください。
-
-### 実測security capability
-
-固定済みcorpusとoffline scanner dataを準備・検証してから外部gateを実行します。
-
-```bash
-bun run scanner-data:prepare -- .cache/scanner-data/phase-50
-bun run security-corpora:prepare
-bun run security-corpora:verify
-OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY=.cache/scanner-data/phase-50/osv \
-  bun run benchmark:all
-OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY=.cache/scanner-data/phase-50/osv \
-  bun run verify:professional-capability
-```
-
-結果は`.artifacts/professional-capability-release-report.json`へ保存されます。
-全gateの合格に加え、`VULN_WORKBENCH_PASSING_BENCHMARK_RUN_ID`が永続化済みpassing
-run UUIDを参照する場合だけclaimを`met`にできます。観測不足、null denominator、
-stale/tampered data、cleanup失敗、passing run未指定のいずれかがあれば
-`not_met`のままです。
-
-ZAP activeは既定profileには含まれません。実行には
-`runtime-zap-active-lab`または`api-zap-active-lab`の明示選択、feature flag、
-有効なinternal Rules of Engagement、local/ephemeral private target、method/path
-budget、reset contractが必要です。runnerはLinux Dockerのinternal networkと
-bounded gatewayを使い、credentialをZAPへ返しません。browser login/token refreshと
-production targetは対象外です。
-
-### Scan Review / Handoff
-
-```bash
-bun run review:scan -- \
-  --scan-run-id <scan-run-id> \
-  --task scan_review
-```
-
-Scan review は `scan_reviews.output` に structured output を保存します。ここに `improvementRequest` が含まれます。
-
-UI では handoff scope を選べます。
-
-- all findings
-- high / critical
-- weak or missing evidence
-- new or regressed
-
-### Reproduction
-
-```bash
-bun run repro:finding -- \
-  --finding-id <finding-id> \
-  --profile gitleaks-recheck
-```
-
-### Dynamic Verification
-
-```bash
-bun run dynamic:run -- \
-  --project-id <project-id> \
-  --profile bun-test \
-  --scan-run-id <dynamic-verification-scan-run-id>
-```
-
-### DAST
-
-auto-target mode は、project metadata から可能な場合に local target を起動します。
-
-```bash
-bun run scan:dast -- \
-  --project-id <project-id> \
-  --profile web-passive-standard \
-  --auto-target true
-```
-
-保存済み target を指定する場合:
-
-```bash
-bun run scan:dast -- \
-  --project-id <project-id> \
-  --target-config-id <target-config-id> \
-  --profile web-passive-standard
-```
-
-標準DASTはconfigured/source/OpenAPI/HTML/redirect/common probeから
-same-origin route inventoryを作り、depth、request、response byte、durationの
-上限を強制します。execution status、verdict、coverageは別々に保存されます。
-finding 0件でもcoverageが`covered`でなければ`no_findings_observed`にはならず、
-`inconclusive`または`not_tested`になります。旧`http-baseline`は明示指定時だけ
-利用できます。
-
-認証済みread-only実行では
-`--profile authenticated-readonly-standard --auth-context-id <id>
---identity-role <role>`を指定し、保存contextにURL/selector/statusの成功assertionを
-必須とします。credentialは暗号化され、read APIからは返りません。owned
-vulnerable/fixed gateは次で確認できます。
-
-```bash
-bun run verify:phase-51-baseline
-bun run verify:dast-capability
-```
-
-### Report Export
+### レポートを作り直す
 
 ```bash
 bun run report:scan -- \
   --scan-run-id <scan-run-id> \
   --format markdown \
-  --title "セキュリティレポート" \
   --summary-mode deterministic \
   --output report.md
 ```
 
-LLM summary 付き:
+LLMによる短い要約を追加する場合は、`--summary-mode deterministic_with_llm_summary`を使います。
+
+### データベースをバックアップする
 
 ```bash
-bun run report:scan -- \
-  --scan-run-id <scan-run-id> \
-  --summary-mode deterministic_with_llm_summary \
-  --output report-with-summary.md
+bun run backup:create -- --output backups/vuln-workbench.sqlite
+bun run backup:verify -- --input backups/vuln-workbench.sqlite
 ```
 
-Report include control:
+バックアップの検証では、SQLiteファイルとして開けるか、必要な整合性を保っているかを確認します。暗号化して保存したLLMの認証情報を復元するには、データベースとは別に`LLM_SETTINGS_ENCRYPTION_KEY`も保管してください。
+
+## LLMの設定と役割
+
+管理者は**Settings > AI・モデル**で接続先とモデルを登録し、**Settings > タスクルーティング**で用途ごとのモデルを選びます。タスクルーティングとは、「検出結果のレビューはこのモデル、検索は別のモデル」のように処理の種類と接続先を対応させる設定です。
+
+| タスク | 用途 |
+| --- | --- |
+| `finding_review` | 1件の検出結果と、その証跡を詳しく確認する。 |
+| `scan_review` | スキャン全体の優先順位、誤検知の可能性、修正順序、引き継ぎ文を作る。 |
+| `report_summary` | 既存の基本レポートへ短いAI要約を追加する。 |
+| `evidence_context` | 保存済み証跡を、後続処理が読みやすい形に整理する。 |
+| `agentic_search` | ローカルのナレッジ情報を複数手順で検索する。 |
+
+保存するAPIキーはAES-256-GCMで暗号化します。AES-256-GCMは、内容を読めなくする暗号化と、改ざん検知を同時に行う方式です。利用前に次のような32バイトの鍵を作り、`.env`の`LLM_SETTINGS_ENCRYPTION_KEY`へ設定してください。
 
 ```bash
---include-false-positives true|false
---include-deferred true|false
---include-undecided true|false
+openssl rand -base64 32
 ```
 
-### Static Intelligence
+この鍵はデータベースへ保存されません。失うと、データベース内のAPIキーを復号できなくなります。スキャナー用コンテナや検査対象のプロジェクトへ、LLMのAPIキーを渡す設計にはなっていません。
 
-Static Intelligence command は、coding agent と sibling system 向けの CLI-first source contract です。
+## 保存先と構成
 
-登録済み scan の primary persisted generation を生成します。code structure snapshot と Static Intelligence export は同じ `generationId` で versioning され、Project Intelligence、manifest、MCP は同じ世代を読みます。
+初期設定では、主要な記録を`data/vuln-workbench.sqlite`、スキャナー出力やレポートを`artifacts/scans/`へ保存します。いずれも実行時に生まれるデータであり、Gitへコミットする対象ではありません。
+
+ファイル型SQLiteへの書き込みは、1データベースにつき1つの**Writerプロセス**に集約します。SQLiteは1ファイルで動くデータベースです。複数のWeb処理やCLIが同時に直接書き込むと競合しやすいため、読み取りは各処理が行い、追加・更新・削除だけをWriterが順番に処理します。
+
+```bash
+bun run db:writer:health
+bun run db:boundary
+```
+
+Writerへ接続できない場合、アプリは直接書き込みへ切り替えず、処理を失敗させます。現在サポートしているのは、1台のマシン上で動く1つのアプリと1つのWriterです。複数台から同じデータベースへ書き込む構成や、外部のリモートデータベースには対応していません。
+
+主なディレクトリは次の通りです。
+
+| パス | 内容 |
+| --- | --- |
+| `api/app/` | Honoを使ったHTTPサーバーの組み立てと起動処理。HonoはTypeScript向けの軽量Webフレームワークです。 |
+| `api/routes/` | ログイン、プロジェクト、スキャン、レポートなどのAPI入口。 |
+| `api/modules/scans/` | プロファイル、スキャナー実行、結果変換、証跡、レポートの中心処理。 |
+| `api/modules/runtime-isolation/` | Webアプリを使い捨てDocker環境で起動するための検証と実行処理。 |
+| `api/modules/static-intelligence/` | コード構造や検査結果を、外部エージェント向けの読み取りデータへ変換する処理。 |
+| `web/src/` | Reactで作られた画面。Reactは画面を部品単位で組み立てるライブラリです。 |
+| `shared/schemas/` | API、データベース、画面で共有するデータ形式と検証規則。 |
+| `drizzle/` | SQLiteの変更履歴。DrizzleはTypeScriptからデータベースを扱うためのライブラリです。 |
+| `contexts/` | LLMへ渡す固定メッセージの原稿。 |
+| `spec/` | 製品仕様、設計判断、検証証跡。 |
+| `scripts/` | セットアップ、テスト、ビルド、検証用コマンド。 |
+
+## 対応技術
+
+組み込みの技術検出プラグインは、プロジェクト内のファイルから言語、依存関係の管理方法、Webフレームワークを判定します。ここでいうプラグインは、外部コードを自由に実行する拡張機能ではなく、リポジトリに同梱した検出規則と解析処理です。
+
+| 言語・環境 | 現在の主な対応 |
+| --- | --- |
+| TypeScript中心 | npm互換の依存関係、Hono、Express、Fastify、TypeScript/JavaScriptの構造解析とSemgrep規則。 |
+| Java | Maven、Gradle、Spring Boot / Spring MVC、コード構造とAPI入口の抽出。 |
+| Python | requirements系の依存関係、FastAPI、Flask、Django。構造解析には動的importを完全には追えない制限があります。 |
+| Go | Go Modules、標準`net/http`、Gin、Echo。ビルド条件や型検査を完全には再現しない字句解析です。 |
+
+言語を検出できることと、そのプロジェクトを自動起動してすべての動的検査を行えることは同じではありません。実行前チェックに表示された対応範囲を、各スキャンの正しい記録として扱ってください。
+
+## Static IntelligenceとMCP
+
+vulnWorkbenchは、保存済みの診断結果と軽量なコード構造を、外部のコーディングエージェントへ渡せます。この読み取り用データを**Static Intelligence**と呼びます。ソースコード本文ではなく、ファイル名、ファイル間の参照、外部へ公開している関数、パッケージ間の関係、API入口、検出結果の参照などを公開します。
+
+**MCP**（Model Context Protocol）は、AIアプリと外部ツールが決められた形式で情報をやり取りするための通信規約です。付属のMCPサーバーは、原則として読み取り専用です。準備コマンドだけはバックグラウンド処理を登録しますが、セキュリティスキャンや修正コマンドを勝手に実行しません。
+
+```bash
+bun run mcp:static-intelligence -- --list-tools
+bun run mcp:static-intelligence -- --smoke
+```
+
+MCPからパスを指定して読むには、`.env`の`STATIC_INTELLIGENCE_ALLOWED_PROJECT_ROOTS`へ許可する親ディレクトリの絶対パスを設定します。空のままではすべて拒否するため、意図せず別のディレクトリを公開しません。
+
+生成データをCLIで作る例です。
 
 ```bash
 bun run intelligence:build -- \
@@ -451,323 +324,74 @@ bun run intelligence:build -- \
   --pretty true
 ```
 
-Project Intelligence の Refresh Analysis は selected scan の derived generation だけを更新します。scanner、review、verification command、report、context registration、task creation は実行しません。
+**semantic search（意味検索）**は、単語が完全一致しなくても文章の意味が近い候補を探す方法です。埋め込みモデルは、文章の意味を比較できる数値の並びへ変換するAIモデルです。`--include-semantic false`なら、この外部モデルを使わずに構造情報と検査結果だけを生成します。
 
-scanner-backed evidence と file risk を export します。
+NightWorkersとの連携APIも実装されていますが、初期状態では無効です。連携先が担当するのはタスク作成や修正作業であり、vulnWorkbenchの役割は診断証跡を提供するところまでです。
 
-```bash
-bun run intelligence:export -- --scan-run-id <scan-run-id>
-```
+## 安全のために制限していること
 
-現行の Project Structure snapshot を抽出します。
+- APIはログイン必須で、プロジェクトは所有者ごとに分離します。管理者だけが利用できる設定とユーザー管理があります。
+- コマンドはシェル文字列ではなく、実行ファイルと引数の配列として組み立てます。
+- Docker実行ではメモリ、CPU、PID、標準出力、標準エラー、実行時間に上限を設けます。
+- スキャナー用コンテナ、再現環境、動的検証環境、DAST環境へDockerソケットを渡しません。
+- 公開インターネット上の宛先を通常のDAST対象として受け付けません。ループバックまたはプライベートネットワークも明示的な許可が必要です。
+- Active DASTは本番環境を拒否します。RoE、有効期限、許可するHTTPメソッドとパス、リクエスト上限、初期状態へ戻す手順が必要です。
+- RoE（Rules of Engagement、実施規則）は、どの環境へ、いつ、どの操作を、何回まで行ってよいかを記録した許可条件です。
+- LLMへ送る文章では、機密値を可能な範囲で伏せ、保存済み証跡の外にある事実を見たように書かせません。
+- Static Intelligenceはソース本文や任意の文字列を公開せず、候補情報と参照だけを返します。
 
-```bash
-bun run intelligence:project-structure -- \
-  --project-path <project-path> \
-  --output project-structure.json
-```
+本番相当の環境で動かす前に、少なくとも`JWT_SECRET`を開発用の初期値から変更し、HTTPS、Cookie、CORS、信頼するプロキシ、LLM認証情報の暗号鍵を構成してください。`JWT_SECRET`は、ログイン状態を示すトークンがアプリの発行したものかを確かめる署名鍵です。CORSは、どのWebサイトからAPIを呼べるかを制限する仕組みです。詳しい運用条件は[SECURITY.md](SECURITY.md)にあります。
 
-agent-facing query bundle を取得します。
+## 現在確認できている限界
 
-```bash
-bun run intelligence:agent-query -- \
-  --scan-run-id <scan-run-id> \
-  --kind project_overview
+バージョン管理された[Phase 55の検証証跡](spec/evidence/phase-55-diagnostic-professional-capability.json)では、総合判定は`not_met`です。OWASP Benchmarkの全体値は、再現率0.7993、適合率0.9536、誤検知率0.0399でした。
 
-bun run intelligence:agent-query -- \
-  --scan-run-id <scan-run-id> \
-  --kind evidence_bundle \
-  --finding-id <finding-id>
+- **再現率（recall）**は、用意した脆弱な例のうち、実際に検出できた割合です。
+- **適合率（precision）**は、検出した項目のうち、正しい検出だった割合です。
+- **誤検知率（false-positive rate）**は、安全な例を誤って問題ありと判定した割合です。
 
-bun run intelligence:agent-query -- \
-  --scan-run-id <scan-run-id> \
-  --kind verification_commands
-```
+数値だけでは総合合格になりません。証跡では、OSVの検証ゲートと、Linux上の正式なJuice Shop実行証跡が合格条件を満たしていません。Juice Shopは、Webセキュリティの検証に使われる意図的に脆弱なテストアプリです。また、合格した一連の測定を指す`passingBenchmarkRunId`も未設定です。
 
-candidate knowledge source と guardrail material を発見・取得します。
+現在の主な対象外・制限は次の通りです。
 
-```bash
-bun run intelligence:knowledge-source -- --scan-run-id <scan-run-id>
-bun run intelligence:guardrail-material -- --scan-run-id <scan-run-id>
-```
+- ネットワーク機器、クラウド設定、Active Directory、モバイルアプリ、無線、ソーシャルエンジニアリング。
+- ブラウザ操作を伴う複雑な認証を使ったZAP Active Scan。
+- 本番環境への能動的な攻撃や、制限のないファジング。
+- 任意のスキャナースクリプトを無制限に実行する仕組み。
+- 複数台構成、リモートデータベース、複数Writer。
+- 「検出0件」を安全の証明として扱うこと。
+- 自動修正や、修正コードの適用。アプリが作るのは修正依頼と検証候補までです。
 
-LLM や MCP client を介さず、MCP と同じ persisted project-exploration
-catalog contract を CLI から取得します。
+**ファジング**は、大量の予期しない入力を与えて異常を探す方法です。このプロジェクトにも制限付きの実験プロファイルはありますが、標準診断には含めていません。
 
-```bash
-bun run intelligence:exploration-catalog -- \
-  --scan-run-id <scan-run-id> \
-  --generation-id <generation-id> \
-  --path api/routes/example.ts \
-  --term routing \
-  --term schema
-```
+## 開発と検証
 
-focus を複数指定する場合は `--path`、`--module-id`、`--term` を繰り返します。
-stdout には machine-readable JSON を一件だけ出力し、repository の scan や mutation は行いません。
-
-Static Intelligence MCP wrapper を確認します。
+通常の変更確認には次を使います。
 
 ```bash
-bun run mcp:static-intelligence -- --list-tools
-bun run mcp:static-intelligence -- --smoke
-```
-
-`STATIC_INTELLIGENCE_ALLOWED_PROJECT_ROOTS` に、MCPから参照可能なrepository rootの親ディレクトリをカンマ区切りの絶対パスで設定してください。未設定時はfail-closedです。
-`STATIC_INTELLIGENCE_PROJECT_CREATION_POLICY`の既定値は`registered_only`です。明示的に管理されたfixtureまたはonboarding環境だけ`create_within_allowed_roots`を使用します。MCP requestからこのpolicyを上書きすることはできません。
-
-副作用を持つ明示的なActionは次の1つだけです。
-
-- `vuln_prepare_project_intelligence({ projectPath })`
-
-このActionは永続prepare jobをqueueへ追加し、background workerがstructure-only source recordとStatic Intelligence generationをpublishします。Semgrep、Gitleaks、OSV、Trivyなどの外部security scannerは起動しません。同じcanonical path・同じsource fingerprintの同時要求は1jobへ集約され、fresh generationは再利用されます。
-
-以下はすべてread-only Queryです。
-
-- `vuln_get_project_intelligence_status`
-- `vuln_list_knowledge_sources`
-- `vuln_get_knowledge_source_manifest`
-- `vuln_get_guardrail_material`
-- `vuln_get_evidence_bundle`
-- `vuln_get_verification_commands`
-- `vuln_get_project_structure_snapshot`
-- `vuln_get_project_exploration_catalog`
-
-path-first Queryはcanonicalな `{ projectPath }` をstrictに要求し、symlink aliasと内部ID selectorを拒否します。current sourceのreadではready prepare jobに記録されたexact generationを選択し、過去のlatest generationは`stale`としてのみ公開します。未準備なら `not_prepared` と次のActionを返し、Query自身はproject、scan、prepare job、generationを作りません。finding指定は `projectPath + findingFingerprint` を使用し、曖昧なfingerprintは `AMBIGUOUS_FINDING` になります。raw artifact body / evidence snippetは公開しません。
-
-`vuln_get_project_exploration_catalog` の `focus.paths`、`focus.modules`、`focus.terms` は任意です。deterministicかつboundedなcandidateだけを返し、source bodyを公開しません。運用とNightWorkers側の受け入れ条件は [NightWorkers path-first MCP handoff](spec/decisions/nightworkers-static-intelligence-mcp.html) を参照してください。
-
-## API Surface
-
-| Method | Path | 目的 |
-| --- | --- | --- |
-| `GET` | `/api/health` | health check。 |
-| `POST` | `/api/auth/login` | login して httpOnly cookie を設定する。 |
-| `POST` | `/api/auth/refresh` | refresh token rotation。 |
-| `GET` | `/api/auth/me` | 現在の user。 |
-| `GET` | `/api/projects` | project 一覧。 |
-| `POST` | `/api/projects` | local repository project 登録。 |
-| `POST` | `/api/projects/:projectId/scans` | app から scan profile を実行する。 |
-| `GET` | `/api/scans?projectId=<id>` | scan run 一覧。 |
-| `GET` | `/api/scans/:scanRunId` | scan run detail。 |
-| `GET` | `/api/scans/:scanRunId/findings` | latest review / decision metadata 付き finding。 |
-| `GET` | `/api/scans/:scanRunId/artifacts` | scan artifact。 |
-| `GET` | `/api/scans/:scanRunId/reviews` | scan-level review と handoff output。 |
-| `POST` | `/api/scans/:scanRunId/reviews` | scan-level LLM review を実行する。 |
-| `GET` | `/api/scans/:scanRunId/diagnostics` | 自動診断の status、readiness、provenance hash、limitation。 |
-| `POST` | `/api/scans/:scanRunId/diagnostics/retry` | retry 可能な失敗または limitation 付き自動診断を再実行する。 |
-| `POST` | `/api/scans/:scanRunId/reports` | Markdown report を生成する。 |
-| `GET` | `/api/scan-reports/:reportId` | report metadata。 |
-| `GET` | `/api/scan-reports/:reportId/download` | 生成済み Markdown report を download する。 |
-| `GET` | `/api/findings/:findingId` | finding detail と evidence。 |
-| `GET` | `/api/findings/:findingId/reviews` | finding-level review history。 |
-| `POST` | `/api/findings/:findingId/reviews` | finding-level LLM review。 |
-| `GET` | `/api/finding-reviews/:reviewId` | finding review detail。 |
-| `GET` | `/api/findings/:findingId/decisions` | 任意の互換 Decision history。 |
-| `POST` | `/api/findings/:findingId/decisions` | 任意の互換 Decision record。 |
-| `GET` | `/api/finding-decisions/:decisionId` | Decision record detail。 |
-| `GET` | `/api/findings/:findingId/reproductions` | reproduction history。 |
-| `POST` | `/api/findings/:findingId/reproductions` | reproduction run。 |
-| `GET` | `/api/projects/:projectId/dynamic-runs` | dynamic verification history。 |
-| `POST` | `/api/projects/:projectId/dynamic-runs` | dynamic verification。 |
-| `GET` | `/api/projects/:projectId/dast-runs` | DAST history。 |
-| `POST` | `/api/projects/:projectId/dast-runs` | DAST run。 |
-| `GET` | `/api/settings/llm` | LLM provider / task-route settings。 |
-
-Protected endpoint には auth cookie が必要です。frontend は 401 を受けると `/api/auth/refresh` を一度試し、成功した場合だけ元の request を再実行します。
-
-## Architecture
-
-| Path | 役割 |
-| --- | --- |
-| `api/app/` | Hono app composition、server bootstrap、runtime env parsing。 |
-| `api/db/schema.ts` | project、scan、finding、review、decision、report、DAST、reproduction、dynamic verification、settings の SQLite/Drizzle schema。 |
-| `api/routes/` | HTTP route layer。 |
-| `api/cli/` | scan、review、report、diagnostic、migration、seed、auth の CLI entrypoint。 |
-| `api/modules/scans/` | scan runner、normalizer、bundle、report、repository、artifact storage。 |
-| `api/modules/reviews/` | finding review bundle / runner。 |
-| `api/system-context/` | 型付き S11tnext prompt catalog binding、provider execution、prompt-message audit identity。 |
-| `contexts/` | `system` / `user` provider message の authoring source。 |
-| `api/modules/dast/` | DAST target preparation、runner、repository、normalization。 |
-| `api/modules/reproductions/` | sandboxed reproduction profile と execution。 |
-| `api/modules/dynamic/` | dynamic verification profile と execution。 |
-| `api/modules/llm-settings/` | provider endpoint と task route persistence。 |
-| `api/modules/static-intelligence/` | Static Intelligence export、semantic search、agent query、risk community、security landscape、guardrail material、MCP tool、code structure extraction。 |
-| `api/providers/` | Azure / OpenAI-compatible / Codex provider adapter と router。 |
-| `shared/schemas/` | 共有 Zod schema。 |
-| `shared/report-sections.ts` | UI と builder で共有する report section contract。 |
-| `web/src/domains/scans/` | scan UI domain、view model、decision-grade helper、panel。 |
-| `drizzle/` | SQL migration。 |
-| `spec/` | product concept と実装計画。 |
-| `scripts/verify.ts` | repository verification pipeline。 |
-
-legacy の knowledge / search / chat file も残っていますが、現在の product center は scan evidence、LLM handoff、report readiness です。Static Intelligence はその上に agent-facing source layer を追加するものであり、scanner evidence を置き換えたり、vulnWorkbench を implementation executor にしたりするものではありません。
-
-## Decision-Grade Models
-
-frontend では、可能な限り pure derivation logic を React state から分離しています。
-
-| Helper | 責務 |
-| --- | --- |
-| `scan-improvement-request.ts` | `improvementRequest` の type-safe extraction と quality check。 |
-| `decision-grade-view.ts` | scan-level executive summary、workflow、comparison、report preview の aggregation。 |
-| `risk-summary.ts` | executive risk band、score、key driver、recommended focus。 |
-| `workflow-completion.ts` | completion stage、checklist、next best action。 |
-| `evidence-quality.ts` | evidence strength と data completeness。 |
-| `scan-comparison.ts` | baseline comparison と match confidence。 |
-| `report-quality.ts` | report readiness、submission level、generation warning、section state。 |
-
-この分離は意図的です。component は derived model を表示し、raw `scan_reviews.output` を直接 parse したり、report readiness を ad hoc に再解釈したりしない方針です。
-
-## Security Boundary
-
-- command は shell string ではなく structured args として組み立てます。
-- runtime artifact は artifact storage path に隔離します。
-- scanner output は LLM review / report 利用前に normalize / redact します。
-- secret value は finding、log、artifact、LLM-facing context で必要に応じて redact します。
-- Docker-based toolbox、reproduction、dynamic、DAST flow は Docker socket を mount しません。
-- scan 対象 project environment に LLM provider credential を渡してはいけません。
-- DAST は local target または明示的に設定した target に限定します。
-- dynamic / reproduction / fuzzing-style check は profile、timeout、artifact policy によって bounded にします。
-- LLM review は保存済み scan / finding / evidence context を使います。bundle に含まれない raw repository file、web page、log、runtime state を見たかのように書いてはいけません。
-- Static Intelligence export と MCP output は candidate-only read model です。raw artifact body、evidence snippet、private root path、secret value を agent-facing payload に含めてはいけません。
-- Code structure snapshot は file path、import/export facts、content hash、package name、tag を含みます。source code body や任意の string literal は含めず、snapshot enrichment は scan project と一致する場合だけ受け入れます。
-
-## Development
-
-```bash
-bun run bootstrap
-bun run bootstrap:check
-bun run s11tnext:check
-bun run typecheck
-bun run lint
-bun run format
-bun run test
-bun run build
 bun run verify
+```
+
+`verify`は、SQLiteへの書き込み経路、LLM用メッセージ、型、静的解析、整形、仕様書、テスト、Webビルド、依存関係の監査、生成物の混入を順番に確認します。
+
+リリース前の厳格な確認では、カバレッジ、ブラウザE2E、DAST能力の検証も含む次のコマンドを使います。E2E（End-to-End）テストは、ブラウザ操作からAPI、データ保存までを通して確認するテストです。
+
+```bash
 bun run verify:strict
+git diff --check
 ```
 
-`bun run verify` は高速なlocal gateです。commit済みのS11tnext catalog pairを確認してから、
-typecheck、lint、format check、test、build、bundle、audit、artifact trackingを実行します。
-`bun run verify:strict` はcloseout gateで、さらにWeb/critical coverageとbrowser E2Eを実行します。
+テストの実行環境は2種類です。画面や純粋なTypeScript処理はVitest、`bun:sqlite`を使うAPI処理はBunのテストランナーで動かします。`bun run test`は、この振り分けを自動で行います。
 
-LLMへ送る固定のsystem/userメッセージは`contexts/**/*.context.toml`で管理します。変更時は
-`bun run s11tnext:lint`、`bun run s11tnext:build`を実行し、
-`.s11tnext/catalog.json`と`.s11tnext/catalog.generated.ts`を同時にcommitしてください。
-provider経路では生成された`invocation.role`を使用し、監査には本文を複製せず
-`messageHash`と`promptSequenceHash`を保存します。
-
-Static Intelligence source contract については、fixture gate も使います。
+仕様書は`spec/`にあり、索引は[spec/index.html](spec/index.html)です。
 
 ```bash
-bun run fixture:static-intelligence-source
+bun run docs
+bun run docs:check
 ```
 
-期待結果は、stdout に `ok: true` の JSON object が1件だけ出ること、MCP tool name が揃っていること、redaction check が通ること、hash / material id が安定していること、final output に temp path や unsafe marker string が含まれないことです。失敗した場合は、MCP / knowledge-source surface に依存する前に failed check 名を確認します。
+コントリビューションの条件は[CONTRIBUTING.md](CONTRIBUTING.md)、変更履歴は[CHANGELOG.md](CHANGELOG.md)、脆弱性の連絡方法は[SECURITY.md](SECURITY.md)を参照してください。
 
-### Test Runner Split
+## ライセンス
 
-`bun:sqlite` を import しない frontend/domain test は Vitest で直接実行できます。
-
-```bash
-bunx vitest run web/src/domains/scans/report-quality.test.ts
-```
-
-`bun:sqlite` を import する API / scan-module test は Bun 経由で実行してください。
-
-```bash
-bun test api/modules/scans/scan-review-runner.test.ts
-bun test api/modules/scans/reporting/report-builder.test.ts
-```
-
-package の `test` script と `scripts/verify.ts` はこの分離を反映しています。
-
-## Git 差分ターゲットスキャン
-
-`diff-source-baseline` profileでは、commit、merge-baseを使うrange、現在の
-working treeで変更されたファイルを対象にできます。変更可能なworking treeは、
-実行前にpreviewで対象digestを固定します。
-
-```bash
-bun run scan:profile -- \
-  --project-path . \
-  --profile diff-source-baseline \
-  --target working-tree \
-  --base HEAD \
-  --include-untracked true \
-  --preview true
-```
-
-commitは`--target commit --head <ref>`、branch相当のrangeは
-`--target range --base <ref> --head <ref>`を使用します。Scans UIにも同じ
-target選択、coverage preview、target digest表示があります。
-
-V1はresolved target snapshotにある変更ファイルをwhole-fileで検査します。
-そのためfindingは変更ファイルまたは変更後の依存状態に関連しますが、選択した
-commitがfindingを新規導入したことは証明しません。削除、除外、binary、未対応、
-size上限超過のpathはcoverage recordとして残ります。diff scanを理由にLLM
-reviewが自動実行されることはありません。
-
-## NightWorkers Security Scan Provider
-
-feature flag配下の`/api/integrations/nightworkers/v1` APIで、NightWorkersから
-scope付きproject security scan、再開可能なevent、redaction済みfinding、
-非同期Markdown reportを利用できます。integration認証には専用のhash保存
-bearer credentialを使用し、browser cookieは受け付けません。
-
-migration順序、credentialの作成・rotation・revoke、canary、monitoring、
-rollbackは
-[NightWorkers security scan provider runbook](spec/decisions/nightworkers-security-scan-provider-runbook.html)
-に従ってください。
-
-## Operational Checks
-
-migration の適用:
-
-```bash
-bun run db:migrate
-```
-
-local SQLite に `finding_decisions.metadata` migration が適用済みか確認する場合:
-
-```bash
-sqlite3 data/vuln-workbench.sqlite "select count(*) from pragma_table_info('finding_decisions') where name='metadata';"
-```
-
-期待値:
-
-```text
-1
-```
-
-`artifacts/` 配下の scan / reproduction / DAST / dynamic / report output は生成データであり、commit しません。commit 前に tracked artifact state を確認します。
-
-```bash
-git ls-files artifacts
-git diff --cached --name-only -- artifacts
-```
-
-## Concept と進行中の計画書
-
-`spec/index.html`を仕様書のcanonical indexとして使用します。security/releaseの
-active completion planは`spec/docs/active-plans/phase-56-capability-product-completion-plan.html`です。
-長期conceptとintegration pilotはindex内で別に分類します。
-
-設計書・運用文書・証跡の正本は`spec/`配下のHTMLです。
-
-完了または置換された実装計画書は`spec/docs/.archived/`へ移します。この隠しディレクトリは
-LLMの通常探索対象に含めず、明示的な履歴監査を依頼された場合だけ参照します。
-
-## GitHub Pages
-
-ランディングページの正本は`site/`配下です。`docs/`はGitHub Pagesの公開ルートとして
-生成する成果物なので、直接編集しません。previewと公開用成果物は次のコマンドで生成します。
-
-```bash
-./build-preview.sh
-./build-dist.sh
-```
-
-公開用buildには`/vlunWorkbench`のbase pathが入ります。公開前に
-`bash scripts/run-lighthouse.sh`を実行し、生成結果を検証してください。
+vulnWorkbench本体は[MIT License](LICENSE.md)で公開しています。連携する各スキャナーとDockerイメージには、それぞれのライセンスが適用されます。

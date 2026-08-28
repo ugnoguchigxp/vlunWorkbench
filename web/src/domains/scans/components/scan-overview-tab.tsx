@@ -1,3 +1,4 @@
+import { Download } from "lucide-react";
 import type { Finding, ScanReview, ScanRun } from "../../../api";
 import { buildScanFailureDisplay } from "../scan-failure-display";
 import {
@@ -110,13 +111,25 @@ export function ScanOverviewTab({
 			<section className="workspace-findings-section">
 				<div className="workspace-section-heading">
 					<h2>検出結果一覧</h2>
-					<span>
-						{scanResultsUnavailable
-							? "—"
-							: scanIncomplete
-								? `${findings.length} 件（暫定）`
-								: `${findings.length} 件`}
-					</span>
+					<div className="workspace-section-actions">
+						<span>
+							{scanResultsUnavailable
+								? "—"
+								: scanIncomplete
+									? `${findings.length} 件（暫定）`
+									: `${findings.length} 件`}
+						</span>
+						{view.selectedScan && !scanResultsUnavailable ? (
+							<a
+								className="ds-button demo-button secondary workspace-results-download"
+								href={`/api/scans/${encodeURIComponent(view.selectedScan.id)}/findings/download`}
+								download
+							>
+								<Download size={14} aria-hidden="true" />
+								結果をダウンロード
+							</a>
+						) : null}
+					</div>
 				</div>
 				{findings.length ? (
 					<div className="workspace-findings-list">

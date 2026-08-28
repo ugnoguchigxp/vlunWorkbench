@@ -1,0 +1,100 @@
+<article lang="ja">
+  <h1 id="claim-provenance-plan-template">Claim Provenance Plan Skeleton</h1>
+  <ul>
+    <li>Status: Candidate plan skeleton / not approved for implementation</li>
+    <li>Priority candidate: P0</li>
+    <li>
+      Primary owner candidate: fact producer for observed lineage; inference owner for derived
+      lineage
+    </li>
+    <li>Semantica clue: entity / relationship / property-level lineage and confidence</li>
+  </ul>
+
+  <h2 id="purpose">1. Purpose</h2>
+  <p>
+    node、edge、community、将来のderived
+    claimが、どのsource、revision、generator、ruleから生じたかを
+    consumerが機械的に追跡できるようにする。説明可能性だけでなく、stale判定、再計算、監査の基礎にする。
+  </p>
+
+  <h2 id="current-evidence">2. Current Evidence</h2>
+  <ul>
+    <li>manifestとontology handoffはsource ref、generation、content hashを持つ。</li>
+    <li>
+      evidence graphはdeterministicだが、各edge /
+      communityの導出ruleを統一contractで公開していない。
+    </li>
+    <li>
+      長期ロードマップは<code>ObservedClaim</code>にsource、confidence、coverage、validForRevisionを要求する。
+    </li>
+    <li>NightWorkers側の将来contractにもgeneric provenance recordのseedがある。</li>
+  </ul>
+
+  <h2 id="scope">3. Scope</h2>
+  <ul>
+    <li>observed、deterministic derived、semantic candidate、LLM interpretationの区別</li>
+    <li>producer / generator nameとversion、rule ID、source artifact / entity reference</li>
+    <li>generatedAt、validForRevision、confidence、coverageの表現</li>
+    <li>同一provenanceのdeduplicationとcanonical hashing</li>
+  </ul>
+  <h3 id="non-goals">3.1 Non-goals</h3>
+  <ul>
+    <li>confidenceをtruth scoreとして使うこと</li>
+    <li>LLM解釈を宣言済みまたは観測済みclaimへ自動昇格すること</li>
+    <li>PROV-O準拠のためだけにstorageをRDFへ変更すること</li>
+  </ul>
+
+  <h2 id="contract-sketch">4. Contract Sketch</h2>
+  <pre><code class="language-typescript">type ClaimProvenance = {
+  provenanceId: string;
+  assertionKind:
+    | "observed"
+    | "deterministic_derived"
+    | "semantic_candidate"
+    | "llm_interpretation";
+  generator: { name: string; version: string; ruleId?: string };
+  sourceRefs: string[];
+  generatedAt: string;
+  validForRevision: string;
+  confidence?: number;
+  coverage?: { kind: string; value: number };
+};</code></pre>
+  <p>
+    role namingとlineage関係は
+    <a href="https://www.w3.org/TR/prov-o/">W3C PROV-O</a>
+    を参照する。ただしwire contractはこのプロジェクトのJSON利用者を優先する。
+  </p>
+
+  <h2 id="implementation-options">5. Implementation Options</h2>
+  <ol>
+    <li><strong>A:</strong> node / edge / claimへ共通provenance fieldをinlineで持たせる。</li>
+    <li><strong>B:</strong> normalized provenance ledgerをmanifestへ置き、各対象はID参照する。</li>
+    <li><strong>C:</strong>内部JSONを維持し、PROV-O export adapterを別途提供する。</li>
+  </ol>
+  <p>Bを基本候補とし、payload sizeと参照解決コストをfixtureでAと比較する。</p>
+
+  <h2 id="verification">6. Verification and Exit Evidence</h2>
+  <ul>
+    <li>すべてのderived edge / community / claimからsourceまで辿れる。</li>
+    <li>同一input、generator version、ruleからprovenance IDとhashが決定的に生成される。</li>
+    <li>revision不一致とsource欠落をvalidationが検出する。</li>
+    <li>model-facing projectionへsecret、不要なabsolute path、raw sensitive dataを出さない。</li>
+    <li>confidence欠落と0を区別し、値の意味をproducer単位で定義する。</li>
+  </ul>
+
+  <h2 id="open-questions">7. Open Questions</h2>
+  <ul>
+    <li>edge生成ruleとcommunity生成ruleを同じprovenance typeで表せるか。</li>
+    <li>sourceRefsはentity ID、artifact path、content hashのどれを必須にするか。</li>
+    <li>provenance ledgerのretentionとredaction ownershipはどこか。</li>
+    <li>producer間でconfidence scaleを共通化するか、opaqueに扱うか。</li>
+  </ul>
+
+  <h2 id="next-discovery">8. Next Discovery Checklist</h2>
+  <ul>
+    <li>現行manifest / graph / community fieldのlineage coverage表を作る。</li>
+    <li>典型finding 3件をsource artifactまで手作業でtraceし、不足fieldを記録する。</li>
+    <li>inlineとledgerのpayload / lookup比較を行う。</li>
+    <li>PROV-O exportが必要なconsumerを確認してからadapterを判断する。</li>
+  </ul>
+</article>

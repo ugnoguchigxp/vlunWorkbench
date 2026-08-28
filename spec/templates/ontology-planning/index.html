@@ -1,0 +1,131 @@
+<article lang="ja">
+  <h1 id="ontology-planning-templates">Ontology Planning Templates</h1>
+  <ul>
+    <li>Status: Planning skeletons</li>
+    <li>Date: 2026-08-28</li>
+    <li>Authority: 調査・詳細設計の入口。実装着手、schema変更、依存追加を承認しない。</li>
+    <li>
+      Parent direction:
+      <a href="../../concepts/project-intelligence-ontology-evolution-roadmap.html"
+        >Project Intelligence and Ontology Evolution Roadmap</a
+      >
+    </li>
+  </ul>
+
+  <h2 id="purpose">1. Purpose</h2>
+  <p>
+    vulnWorkbenchのontology handoffとSemanticaの設計を比較して得た6つの候補を、
+    後から個別に深掘りできる計画雛形として分離する。各文書は単独で、目的、現状根拠、
+    scope、実装候補、検証条件、未決事項を確認できるようにする。
+  </p>
+  <p>
+    Semanticaは設計上の手がかりであり、採用済みdependencyではない。調査基準は
+    <a
+      href="https://github.com/semantica-agi/semantica/tree/cce5ea177cbac29a526effa546219c48f8ec36f4"
+      >Semantica commit cce5ea1</a
+    >、公式の <a href="https://docs.getsemantica.ai/reference/ontology/">Ontology</a>、
+    <a href="https://docs.getsemantica.ai/reference/provenance/">Provenance</a>、
+    <a href="https://docs.getsemantica.ai/reference/reasoning/">Reasoning</a>
+    documentationとする。
+  </p>
+
+  <h2 id="fixed-boundaries">2. Fixed Boundaries</h2>
+  <ul>
+    <li>vulnWorkbenchは観測されたstructure / security / CI factとprovenanceを公開する。</li>
+    <li>NightWorkersはtask / run scoped projection、限定推論、executionを所有する。</li>
+    <li>
+      canonical meaning、claim approval、conflict resolutionは将来のOntology Coreの責務候補である。
+    </li>
+    <li>semantic result、embedding、LLM interpretationをobserved factへ自動昇格しない。</li>
+    <li>
+      RDF化、triple store導入、Semantica runtime依存、schema変更は各計画のGO判断まで行わない。
+    </li>
+    <li>既存ロードマップのStage entry gateとrollout decisionが、この雛形群より優先する。</li>
+  </ul>
+
+  <h2 id="plan-map">3. Plan Map</h2>
+  <table>
+    <caption>
+      候補、優先度、主な依存関係
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Priority</th>
+        <th scope="col">Plan</th>
+        <th scope="col">主な成果候補</th>
+        <th scope="col">依存</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>P0</td>
+        <td>
+          <a href="./semantic-handoff-validation-plan-template.html">Semantic Handoff Validation</a>
+        </td>
+        <td>publish時のgraph-wide validation report</td>
+        <td>現行handoff contract</td>
+      </tr>
+      <tr>
+        <td>P0</td>
+        <td><a href="./claim-provenance-plan-template.html">Claim Provenance</a></td>
+        <td>node / edge / derived claimの追跡可能性</td>
+        <td>identity、revision、source ref</td>
+      </tr>
+      <tr>
+        <td>P1</td>
+        <td>
+          <a href="./security-vocabulary-alignment-plan-template.html"
+            >Security Vocabulary Alignment</a
+          >
+        </td>
+        <td>CWE / CVE / CAPEC等のversioned alignment</td>
+        <td>provenance shape、normalization boundary</td>
+      </tr>
+      <tr>
+        <td>P1</td>
+        <td>
+          <a href="./ontology-contract-versioning-plan-template.html"
+            >Ontology Contract Versioning</a
+          >
+        </td>
+        <td>semantic version、canonical diff、migration contract</td>
+        <td>validation対象とclaim boundary</td>
+      </tr>
+      <tr>
+        <td>P1横断</td>
+        <td>
+          <a href="./competency-question-evaluation-plan-template.html">Competency Questions</a>
+        </td>
+        <td>answerabilityとqualityのregression suite</td>
+        <td>各計画のbaselineとして先行可能</td>
+      </tr>
+      <tr>
+        <td>P2</td>
+        <td>
+          <a href="./explainable-rule-inference-plan-template.html">Explainable Rule Inference</a>
+        </td>
+        <td>NightWorkers側の限定・説明可能なderived claim</td>
+        <td>validated / versioned fact、provenance</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2 id="working-order">4. Suggested Working Order</h2>
+  <ol>
+    <li>competency questionを少数固定し、現行baselineを測る。</li>
+    <li>semantic handoff validationとclaim provenanceをP0 discoveryとして並行検討する。</li>
+    <li>security vocabulary alignmentで外部識別子と同値性の強さを固定する。</li>
+    <li>contract version / diffでproducer-consumer migrationを固定する。</li>
+    <li>最後にNightWorkersで限定rule inferenceを試験する。</li>
+  </ol>
+
+  <h2 id="shared-decision-gate">5. Shared Decision Gate</h2>
+  <p>各計画をactive planへ昇格する前に、最低限次を記録する。</p>
+  <ul>
+    <li>owner、対象Stage、entry / exit gate、対象外、rollback条件</li>
+    <li>現行fixtureでのbaselineと、改善を判定するmetric</li>
+    <li>vulnWorkbench / target repository / Ontology Core / NightWorkersの責務分担</li>
+    <li>wire compatibility、migration順、失敗時のfail-safe挙動</li>
+    <li>Semanticaから借りる設計原則と、借りないruntime機能</li>
+  </ul>
+</article>

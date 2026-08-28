@@ -20,7 +20,15 @@ describe("Scans Route", () => {
 	const mockScanRepo = {
 		findById: vi.fn().mockImplementation(async (id: string) => {
 			if (id === "s-1") {
-				return { id: "s-1", projectId: "p-1", status: "completed" };
+				return {
+					id: "s-1",
+					projectId: "p-1",
+					profile: "baseline",
+					status: "completed",
+					startedAt: new Date("2026-08-28T00:00:00.000Z"),
+					completedAt: new Date("2026-08-28T00:01:00.000Z"),
+					createdAt: new Date("2026-08-28T00:00:00.000Z"),
+				};
 			}
 			return null;
 		}),
@@ -280,6 +288,81 @@ describe("Scans Route", () => {
 		expect(mockFindingReviewRepo.findLatestReviewsForFindings).toHaveBeenCalledWith([
 			"f-1",
 		]);
+	});
+
+	it("downloads every stored finding as one TOML-like text attachment", async () => {
+		mockFindingRepo.listFindingsPage.mockClear();
+		mockFindingRepo.listFindingsPage
+			.mockResolvedValueOnce({
+				items: [
+					{
+						id: "f-1",
+						sourceTool: "Semgrep",
+						ruleId: "rule-1",
+						title: "First finding",
+						description: "Scanner output one",
+						severity: "high",
+						confidence: "static",
+						status: "open",
+						primaryLocation: { path: "src/one.ts", startLine: 10 },
+						fingerprint: "fingerprint-1",
+						metadata: { scanner: "semgrep" },
+						createdAt: new Date("2026-08-28T00:00:05.000Z"),
+						updatedAt: new Date("2026-08-28T00:00:05.000Z"),
+					},
+				],
+				nextCursor: "f-1",
+			})
+			.mockResolvedValueOnce({
+				items: [
+					{
+						id: "f-2",
+						sourceTool: "Trivy",
+						ruleId: "CVE-2026-0001",
+						title: "Second finding",
+						description: "Scanner output two",
+						severity: "critical",
+						confidence: "static",
+						status: "open",
+						primaryLocation: null,
+						fingerprint: "fingerprint-2",
+						metadata: {},
+						createdAt: new Date("2026-08-28T00:00:06.000Z"),
+						updatedAt: new Date("2026-08-28T00:00:06.000Z"),
+					},
+				],
+				nextCursor: null,
+			});
+
+		const res = await app.request("/s-1/findings/download");
+		const text = await res.text();
+
+		expect(res.status).toBe(200);
+		expect(res.headers.get("content-type")).toBe("text/plain; charset=utf-8");
+		expect(res.headers.get("content-disposition")).toBe(
+			'attachment; filename="scan-results-s-1.txt"',
+		);
+		expect(text).toContain("finding_count = 2");
+		expect(text.match(/\[\[findings\]\]/g)).toHaveLength(2);
+		expect(text).toContain('source_tool = "Semgrep"');
+		expect(text).toContain('source_tool = "Trivy"');
+		expect(text).not.toContain("latestDecision");
+		expect(text).not.toContain("latestReview");
+		expect(mockFindingRepo.listFindingsPage).toHaveBeenNthCalledWith(1, "s-1", {
+			limit: 100,
+		});
+		expect(mockFindingRepo.listFindingsPage).toHaveBeenNthCalledWith(2, "s-1", {
+			limit: 100,
+			cursor: "f-1",
+		});
+	});
+
+	it("checks scan ownership before exporting findings", async () => {
+		mockFindingRepo.listFindingsPage.mockClear();
+		const res = await app.request("/missing/findings/download");
+
+		expect(res.status).toBe(404);
+		expect(mockFindingRepo.listFindingsPage).not.toHaveBeenCalled();
 	});
 
 	it("GET /:scanRunId/findings rejects an invalid pagination cursor", async () => {
