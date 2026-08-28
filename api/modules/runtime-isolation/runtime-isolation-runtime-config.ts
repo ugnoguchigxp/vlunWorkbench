@@ -1,12 +1,12 @@
 import type { AppEnv } from "../../app/env";
 import {
+	normalizeLegacyLocalRuntimeImageReferences,
 	type RuntimeIsolationSettings,
 	RuntimeIsolationSettingsSchema,
-	normalizeLegacyLocalRuntimeImageReferences,
 	runtimeIsolationSettingsFromBootstrap,
 } from "../../config/runtime-settings";
 import type { AppDatabase } from "../../db";
-import { inferDastTargetStartPlan } from "../dast/target-preparer";
+import { inspectDastTargetStartPlan } from "../dast/target-preparer";
 import { ScanResourceLeaseRepository } from "../scans/execution/lifecycle/scan-resource-lease-repository";
 import { createDockerRuntimeCommandRunner } from "./docker-runtime-command-runner";
 import { loadRuntimeImageRegistry } from "./runtime-image-registry";
@@ -53,7 +53,8 @@ export function loadRuntimeIsolationProviderFactory(params: {
 			settings.qualificationVersion >= 2
 				? [NPM_ADAPTER, BUN_ADAPTER]
 				: [NPM_ADAPTER],
-		inferTargetPlan: inferDastTargetStartPlan,
+		inferTargetPlan: ({ repoPath, port }) =>
+			inspectDastTargetStartPlan({ repoPath, port }),
 		leaseRepository: new ScanResourceLeaseRepository(params.db),
 		runner: createDockerRuntimeCommandRunner(),
 		dockerBin: env.VULN_WORKBENCH_DOCKER_BIN,

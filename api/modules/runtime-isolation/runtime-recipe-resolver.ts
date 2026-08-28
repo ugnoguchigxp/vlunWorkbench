@@ -1,8 +1,8 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import {
-	runtimeTargetRecipeV1Schema,
 	type RuntimeTargetRecipeV1,
+	runtimeTargetRecipeV1Schema,
 } from "../../../shared/schemas/runtime-isolation.schema";
 import type { DastTargetStartPlan } from "../dast/target-preparer";
 import { dependencyAdapterForPackageManager } from "./runtime-dependency-adapter";
@@ -81,7 +81,11 @@ export async function resolveRuntimeTargetRecipe(params: {
 	if (!targetPlan) {
 		return {
 			status: "blocked",
-			reasonCode: "runtime_target_start_unavailable",
+			reasonCode: (await hasUnsupportedRuntimeAdapterEvidence(
+				params.projectionPath,
+			))
+				? "runtime_dependency_adapter_unqualified"
+				: "runtime_target_start_unavailable",
 		};
 	}
 	const dependencyAdapterId = dependencyAdapterForPackageManager(
@@ -136,6 +140,28 @@ export async function resolveRuntimeTargetRecipe(params: {
 		recipeHash: runtimeIsolationHash(recipe),
 		targetPlan,
 	};
+}
+
+async function hasUnsupportedRuntimeAdapterEvidence(
+	root: string,
+): Promise<boolean> {
+	const unsupportedManifests = [
+		"pom.xml",
+		"build.gradle",
+		"build.gradle.kts",
+		"requirements.txt",
+		"pyproject.toml",
+		"Pipfile",
+		"poetry.lock",
+	] as const;
+	return await Promise.any(
+		unsupportedManifests.map(async (relativePath) => {
+			await fs.access(path.join(root, relativePath));
+			return true;
+		}),
+	)
+		.then(() => true)
+		.catch(() => false);
 }
 
 async function readRecipe(

@@ -1,6 +1,6 @@
 import path from "node:path";
 import AxeBuilder from "@axe-core/playwright";
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Page, test } from "./test";
 
 const adminCredentials = {
 	email: "admin-e2e@example.com",
@@ -24,7 +24,10 @@ async function login(
 
 async function registerFixtureProject(
 	page: Page,
-	fixtureDirectory: "fixture-project" | "fixture-project-semgrep",
+	fixtureDirectory:
+		| "fixture-project"
+		| "fixture-project-semgrep"
+		| "fixture-project-maven-war",
 ): Promise<{ id: string; repoPath: string }> {
 	await page.goto("/scans");
 	const fixtureProjectPath = path.resolve(
@@ -55,9 +58,11 @@ async function registerFixtureProject(
 async function startProfileScan(
 	page: Page,
 	projectId: string,
-	profileId: "baseline" | "semgrep-baseline",
+	profileId: "source-assurance",
 ): Promise<string> {
-	await page.getByLabel("スキャンプロファイル").selectOption(profileId);
+	await page
+		.getByLabel("スキャンプロファイル", { exact: true })
+		.selectOption(profileId);
 	const scanResponsePromise = page.waitForResponse(
 		(response) =>
 			response.request().method() === "POST" &&
@@ -222,7 +227,7 @@ test("mocked scan workspace renders results, report preview, and history deletio
 	const scan = {
 		id: "scan-e2e",
 		projectId: project.id,
-		profile: "baseline",
+		profile: "source-assurance",
 		status: "completed",
 		startedAt: timestamp,
 		completedAt: timestamp,
@@ -303,15 +308,43 @@ test("mocked scan workspace renders results, report preview, and history deletio
 		if (path === "/api/projects") return json({ projects: [project] });
 		if (path === "/api/scan-profiles")
 			return json({
+				schemaVersion: 1,
 				profiles: [
 					{
-						id: "baseline",
-						name: "Baseline",
+						id: "source-assurance",
+						name: "ソースセキュリティ保証",
 						description: "E2E profile",
+						enabled: true,
+						defaultTimeoutSec: 600,
+						supportedTargets: ["full"],
 						tools: [],
 						steps: [],
 					},
 				],
+				catalogEntries: [
+					{
+						id: "source-assurance",
+						displayName: "ソースセキュリティ保証",
+						description: "E2E profile",
+						experienceKind: "scanner_preset",
+						availability: "stable",
+						safetyClass: "R0",
+						launchMode: "profile_orchestrator",
+						supportedTargets: ["full"],
+						strictness: "strict",
+						capabilityRequirements: [],
+						requiredInputs: [
+							{ kind: "source_target", requirement: "required" },
+						],
+					},
+				],
+				genericStartCatalogProfileIds: ["source-assurance"],
+				defaultProfileIds: {
+					full: "source-assurance",
+					working_tree: "source-assurance",
+					commit: "source-assurance",
+					range: "source-assurance",
+				},
 			});
 		if (path === `/api/scans/${scan.id}/findings`)
 			return json({ findings: [finding] });
@@ -363,20 +396,26 @@ test("mocked scan workspace renders results, report preview, and history deletio
 	await projectFolder.click();
 	await expect(projectFolder).toHaveAttribute("aria-expanded", "false");
 	await expect(
-		page.getByRole("button", { name: "baseline のスキャン履歴を操作" }),
+		page.getByRole("button", {
+			name: "source-assurance のスキャン履歴を操作",
+		}),
 	).toHaveCount(0);
 	await projectFolder.click();
 	await expect(projectFolder).toHaveAttribute("aria-expanded", "true");
 	await expect(
-		page.getByRole("button", { name: "baseline のスキャン履歴を操作" }),
+		page.getByRole("button", {
+			name: "source-assurance のスキャン履歴を操作",
+		}),
 	).toBeVisible();
 	await page
-		.getByRole("button", { name: "baseline のスキャン履歴を操作" })
+		.getByRole("button", {
+			name: "source-assurance のスキャン履歴を操作",
+		})
 		.click();
 	await page.getByRole("menuitem", { name: "履歴を削除" }).click();
 	await expect(
 		page.getByRole("heading", {
-			name: "「baseline」のスキャン履歴を削除しますか？",
+			name: "「source-assurance」のスキャン履歴を削除しますか？",
 		}),
 	).toBeVisible();
 	await page.getByRole("button", { name: "履歴を削除" }).click();
@@ -429,8 +468,77 @@ test("real DB standard profile completes without invoking optional Semgrep", asy
 	);
 	expect(reportResponse.ok()).toBe(true);
 	expect(await reportResponse.text()).toContain(
-		"今回のスキャン範囲では、対応が必要な指摘事項は発見されませんでした。",
+		"finding 0 is not a proof of safety",
 	);
+});
+
+test("Maven Spring MVC WAR is rejected before a runtime scan is queued", async ({
+	page,
+}) => {
+	test.setTimeout(60_000);
+	await login(page, adminCredentials);
+	const project = await registerFixtureProject(
+		page,
+		"fixture-project-maven-war",
+	);
+	await page
+		.getByLabel("スキャンプロファイル", { exact: true })
+		.selectOption("runtime-passive");
+	await page
+		.getByLabel(
+			"破棄可能なソースsnapshotからローカル対象を起動することに同意します",
+		)
+		.check();
+
+	let queuedRuntimeScans = 0;
+	page.on("request", (request) => {
+		if (
+			request.method() === "POST" &&
+			new URL(request.url()).pathname === `/api/projects/${project.id}/scans`
+		) {
+			queuedRuntimeScans += 1;
+		}
+	});
+	const preflightResponse = page.waitForResponse(
+		(response) =>
+			response.request().method() === "POST" &&
+			new URL(response.url()).pathname ===
+				`/api/projects/${project.id}/scans/preflight`,
+	);
+	await page.getByRole("button", { name: "スキャンを開始" }).click();
+	const response = await preflightResponse;
+	expect(response.status()).toBe(200);
+	const body = (await response.json()) as {
+		preflight: {
+			status: string;
+			limitationCodes: string[];
+			checks: Array<{ reasonCode: string | null; status: string }>;
+		};
+	};
+	expect(body.preflight).toMatchObject({
+		status: "blocked",
+		limitationCodes: expect.arrayContaining([
+			"runtime_dependency_adapter_unqualified",
+		]),
+	});
+	expect(body.preflight.checks).toEqual(
+		expect.arrayContaining([
+			expect.objectContaining({
+				status: "blocked",
+				reasonCode: "runtime_dependency_adapter_unqualified",
+			}),
+		]),
+	);
+	await expect(page.locator(".status.error")).toContainText(
+		"Maven、Gradle、Python、WAR配備型",
+	);
+	await expect(page.locator(".status.error")).toContainText(
+		"ソースセキュリティ保証",
+	);
+	await expect(page.locator(".status.error")).toContainText(
+		"runtime_dependency_adapter_unqualified",
+	);
+	await expect.poll(() => queuedRuntimeScans).toBe(0);
 });
 
 test("real DB optional Semgrep profile persists a finding and automatic report", async ({
@@ -444,10 +552,10 @@ test("real DB optional Semgrep profile persists a finding and automatic report",
 	);
 	await expect(
 		page
-			.getByLabel("スキャンプロファイル")
-			.locator('option[value="semgrep-baseline"]'),
+			.getByLabel("スキャンプロファイル", { exact: true })
+			.locator('option[value="source-assurance"]'),
 	).toHaveCount(1);
-	const scanId = await startProfileScan(page, project.id, "semgrep-baseline");
+	const scanId = await startProfileScan(page, project.id, "source-assurance");
 	await waitForCompletedScan(page, scanId);
 
 	await page.goto(`/scans?projectId=${project.id}&scanRunId=${scanId}`);

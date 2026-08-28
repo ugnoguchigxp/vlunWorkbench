@@ -64,13 +64,14 @@ const reasonDisplays: Record<string, PreflightReasonDisplay> = {
 		heading: "起動方法を特定できないため、スキャンを開始できませんでした",
 		cause: "診断対象を隔離環境で起動する方法を特定できません。",
 		nextAction:
-			"package.json の start スクリプトまたは .vuln-workbench/runtime-target.v1.json を設定してから、もう一度実行してください。",
+			"対象ルートの package.json に dast、dev、start、serve、preview のいずれかのスクリプトを設定してから、もう一度実行してください。",
 	},
 	runtime_dependency_adapter_unqualified: {
-		heading: "依存関係の準備方法が未対応のため、スキャンを開始できませんでした",
-		cause: "このプロジェクトの依存関係を安全に準備する方法は現在未対応です。",
+		heading: "隔離実行方式が未対応のため、スキャンを開始できませんでした",
+		cause:
+			"この診断の隔離実行は、現在ルートの package.json と npm またはBunの固定ロックファイルを使用するプロジェクトに対応しています。",
 		nextAction:
-			"npm と package-lock.json、またはBunとテキスト形式 bun.lock を使用する構成にしてから、もう一度実行してください。",
+			"Maven、Gradle、Python、WAR配備型の場合は package.json を追加せず、現時点では「ソースセキュリティ保証」を選択してください。実行時診断が必要な場合は、固定実行イメージ、検証済みの依存解決、外部接続しない診断用DBを備えた隔離アダプターの追加が必要です。",
 	},
 	runtime_image_missing: {
 		heading:
@@ -184,7 +185,14 @@ export function formatScanPreflightFailure(
 		const display = describeScanPreflightReason(reasonCode);
 		return `スキャンを開始できませんでした。${display.cause}${display.nextAction}${reasonCode ? `（原因コード: ${reasonCode}）` : ""}`;
 	}
-	const primary = blocked.find((check) => check.required) ?? blocked[0];
+	const primary =
+		blocked.find(
+			(check) =>
+				check.required &&
+				Boolean(check.reasonCode && reasonDisplays[check.reasonCode]),
+		) ??
+		blocked.find((check) => check.required) ??
+		blocked[0];
 	const display = describeScanPreflightReason(
 		primary.reasonCode,
 		primary.action,

@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { inArray } from "drizzle-orm";
 import {
+	IMPROVEMENT_DEPENDENCY_ROLLUP_THRESHOLD,
 	IMPROVEMENT_PROMPT_HARD_CHARS,
 	IMPROVEMENT_PROMPT_TARGET_CHARS,
 	IMPROVEMENT_WARNING_ROLLUP_THRESHOLD,
@@ -99,6 +100,7 @@ export type ImprovementRequestIssueBundle = {
 	rollup: {
 		version: string;
 		threshold: number;
+		dependencyThreshold: number;
 		warningGroupCount: number;
 		rollupParentCount: number;
 		singletonCount: number;
@@ -219,6 +221,7 @@ export async function buildImprovementRequestIssueBundles(
 	const rollup = {
 		version: IMPROVEMENT_WARNING_ROLLUP_VERSION,
 		threshold: IMPROVEMENT_WARNING_ROLLUP_THRESHOLD,
+		dependencyThreshold: IMPROVEMENT_DEPENDENCY_ROLLUP_THRESHOLD,
 		warningGroupCount: warningGroups.length,
 		rollupParentCount: warningGroupResult.rollupParentCount,
 		singletonCount: warningGroupResult.singletonCount,

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { ScanPreflightResult } from "../../../../shared/schemas/scan-preflight.schema";
 import {
 	describeScanPreflightReason,
 	formatScanPreflightFailure,
@@ -25,6 +26,46 @@ describe("scan preflight display", () => {
 		);
 		expect(display.nextAction).toContain("スキャナー用コンテナイメージ");
 		expect(display.nextAction).not.toContain("ローカルRuntimeを自動設定");
+	});
+
+	it("does not tell an unsupported Maven or WAR target to add package.json", () => {
+		const display = describeScanPreflightReason(
+			"runtime_dependency_adapter_unqualified",
+		);
+		expect(display.heading).toContain("隔離実行方式");
+		expect(display.nextAction).toContain("Maven");
+		expect(display.nextAction).toContain("WAR");
+		expect(display.nextAction).toContain("package.json を追加せず");
+		expect(display.nextAction).toContain("ソースセキュリティ保証");
+		expect(display.nextAction).toContain("診断用DB");
+	});
+
+	it("prefers a specific runtime blocker over a generic target-plan failure", () => {
+		const message = formatScanPreflightFailure({
+			checks: [
+				{
+					required: true,
+					status: "blocked",
+					reasonCode: "target_start_plan_unavailable",
+					action: "configure_target_start_plan",
+				},
+				{
+					required: true,
+					status: "blocked",
+					reasonCode: "runtime_dependency_adapter_unqualified",
+					action: "create_runtime_recipe",
+				},
+			],
+			limitationCodes: [
+				"runtime_dependency_adapter_unqualified",
+				"target_start_plan_unavailable",
+			],
+		} as ScanPreflightResult);
+
+		expect(message).toContain("Maven");
+		expect(message).toContain("ソースセキュリティ保証");
+		expect(message).toContain("runtime_dependency_adapter_unqualified");
+		expect(message).not.toContain("target_start_plan_unavailable");
 	});
 
 	it("reads the persisted server-owned preflight result", () => {

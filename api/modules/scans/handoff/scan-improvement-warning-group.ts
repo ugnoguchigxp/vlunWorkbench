@@ -1,5 +1,6 @@
 import type { FindingIssueKind } from "../../../../shared/schemas/finding-group.schema";
 import {
+	IMPROVEMENT_DEPENDENCY_ROLLUP_THRESHOLD,
 	IMPROVEMENT_WARNING_ROLLUP_THRESHOLD,
 	IMPROVEMENT_WARNING_ROLLUP_VERSION,
 	MAX_WARNING_GROUP_EVIDENCE,
@@ -145,7 +146,11 @@ export function buildImprovementWarningGroups(
 	for (const [key, bucket] of [...buckets.entries()].sort(([left], [right]) =>
 		left.localeCompare(right),
 	)) {
-		if (bucket.length >= IMPROVEMENT_WARNING_ROLLUP_THRESHOLD) {
+		const threshold =
+			bucket[0]?.identity.issueKind === "dependency"
+				? IMPROVEMENT_DEPENDENCY_ROLLUP_THRESHOLD
+				: IMPROVEMENT_WARNING_ROLLUP_THRESHOLD;
+		if (bucket.length >= threshold) {
 			candidates.push({
 				stableKey: canonicalJsonHash({
 					version: IMPROVEMENT_WARNING_ROLLUP_VERSION,

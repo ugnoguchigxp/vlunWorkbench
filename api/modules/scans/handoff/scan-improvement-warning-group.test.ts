@@ -66,6 +66,27 @@ describe("improvement request warning rollup", () => {
 		expect(result.manifest[0]?.memberFindingIds).toHaveLength(10);
 	});
 
+	it("rolls up two exact dependency advisory duplicates", () => {
+		const issues = Array.from({ length: 2 }, (_, index) =>
+			issue(index + 1, {
+				identity: {
+					issueKind: "dependency",
+					packageKey: "maven:org.springframework:spring-webmvc@5.3.20",
+					advisoryIds: ["CVE-2022-22965", "GHSA-36P3-WJMG-H94X"],
+				},
+			}),
+		);
+		const result = buildImprovementWarningGroups(issues, members(issues));
+
+		expect(result.groups).toHaveLength(1);
+		expect(result.groups[0]).toMatchObject({
+			kind: "rollup",
+			issueKind: "dependency",
+			occurrenceCount: 2,
+		});
+		expect(result.manifest[0]?.issueIds).toHaveLength(2);
+	});
+
 	it("rolls 130 secret issues without exposing saved snippets", () => {
 		const secret = "AKIA1234567890ABCDEF";
 		const unrecognizedSecret = "opaque-value-that-redaction-does-not-recognize";
@@ -148,7 +169,7 @@ describe("improvement request warning rollup", () => {
 	});
 
 	it("keeps dependency advisories with different identities separate", () => {
-		const issues = Array.from({ length: 10 }, (_, index) =>
+		const issues = Array.from({ length: 2 }, (_, index) =>
 			issue(index + 1, {
 				identity: {
 					issueKind: "dependency",
@@ -159,7 +180,7 @@ describe("improvement request warning rollup", () => {
 		);
 		const result = buildImprovementWarningGroups(issues, members(issues));
 
-		expect(result.groups).toHaveLength(10);
+		expect(result.groups).toHaveLength(2);
 		expect(result.rollupParentCount).toBe(0);
 	});
 

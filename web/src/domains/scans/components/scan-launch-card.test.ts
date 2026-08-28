@@ -34,4 +34,12 @@ describe("ScanLaunchCard", () => {
 		expect(markup).toContain("スキャンを開始");
 		expect(markup).not.toContain("スキャン中");
 	});
+
+	it("shows an accessible help action beside the profile selector", () => {
+		const markup = render(false);
+
+		expect(markup).toContain(
+			'aria-label="スキャンプロファイルと搭載スキャナーの説明を開く"',
+		);
+	});
 });

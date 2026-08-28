@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { inspectDastTargetStartPlan } from "../dast/target-preparer";
 import { resolveRuntimeTargetRecipe } from "./runtime-recipe-resolver";
 
 describe("resolveRuntimeTargetRecipe", () => {
@@ -53,6 +54,59 @@ describe("resolveRuntimeTargetRecipe", () => {
 		await expect(resolveRuntimeTargetRecipe({ projectionPath: root, inferTargetPlan })).resolves.toEqual({
 			status: "blocked",
 			reasonCode: "runtime_database_recipe_required",
+		});
+	});
+
+	it("keeps a package-only project without a start plan classified as unavailable", async () => {
+		await fs.writeFile(path.join(root, "package.json"), JSON.stringify({}));
+		await expect(
+			resolveRuntimeTargetRecipe({
+				projectionPath: root,
+				inferTargetPlan: async () => {
+					throw new Error("no start plan");
+				},
+			}),
+		).resolves.toEqual({
+			status: "blocked",
+			reasonCode: "runtime_target_start_unavailable",
+		});
+	});
+
+	it("classifies a Maven Spring WAR as an unsupported runtime adapter", async () => {
+		await fs.writeFile(
+			path.join(root, "package.json"),
+			JSON.stringify({ scripts: { test: "vitest" } }),
+		);
+		await fs.writeFile(
+			path.join(root, "pom.xml"),
+			[
+				"<project>",
+				"<packaging>war</packaging>",
+				"<dependencies><dependency>",
+				"<groupId>org.springframework</groupId>",
+				"<artifactId>spring-webmvc</artifactId>",
+				"</dependency></dependencies>",
+				"</project>",
+			].join(""),
+		);
+		await fs.mkdir(path.join(root, "src", "main", "java", "example"), {
+			recursive: true,
+		});
+		await fs.writeFile(
+			path.join(root, "src", "main", "java", "example", "Controller.java"),
+			'package example; @Controller class Controller { @RequestMapping("/") void index() {} }',
+		);
+		await fs.writeFile(path.join(root, "mvnw"), "#!/bin/sh\n");
+
+		await expect(
+			resolveRuntimeTargetRecipe({
+				projectionPath: root,
+				inferTargetPlan: ({ repoPath, port }) =>
+					inspectDastTargetStartPlan({ repoPath, port }),
+			}),
+		).resolves.toEqual({
+			status: "blocked",
+			reasonCode: "runtime_dependency_adapter_unqualified",
 		});
 	});
 

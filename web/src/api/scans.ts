@@ -466,9 +466,11 @@ export type ScanReviewFindingFilter =
 
 export async function fetchScanReviews(
 	scanRunId: string,
+	signal?: AbortSignal,
 ): Promise<ScanReview[]> {
 	const data = await requestJson<{ reviews: ScanReview[] }>(
 		`/api/scans/${scanRunId}/reviews`,
+		{ signal },
 	);
 	return [...data.reviews].sort(
 		(a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),

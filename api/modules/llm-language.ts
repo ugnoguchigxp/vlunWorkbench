@@ -1,6 +1,10 @@
 const JAPANESE_TEXT_RE =
 	/[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}]/u;
 
+export function hasJapaneseText(value: string): boolean {
+	return JAPANESE_TEXT_RE.test(value);
+}
+
 export function assertJapaneseTextFields(
 	output: Record<string, unknown>,
 	paths: string[],
@@ -9,10 +13,10 @@ export function assertJapaneseTextFields(
 		const value = getPath(output, path);
 		if (Array.isArray(value)) {
 			return value.some(
-				(item) => typeof item === "string" && !JAPANESE_TEXT_RE.test(item),
+				(item) => typeof item === "string" && !hasJapaneseText(item),
 			);
 		}
-		return typeof value === "string" && !JAPANESE_TEXT_RE.test(value);
+		return typeof value === "string" && !hasJapaneseText(value);
 	});
 	if (missing.length > 0) {
 		throw new Error(

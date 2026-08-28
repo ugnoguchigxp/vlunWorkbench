@@ -1,7 +1,7 @@
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import {
 	inferDastTargetStartPlan,
 	prepareDastTargetWorkspace,
@@ -21,7 +21,7 @@ describe("plugin DAST start planner", () => {
 	it("requires explicit consent for a Maven Spring start plan", async () => {
 		await write(
 			"pom.xml",
-			"<project><dependency>org.springframework.boot:spring-boot-starter-web</dependency></project>",
+			"<project><dependency>org.springframework.boot:spring-boot-starter-web</dependency><build><plugins><plugin><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>",
 		);
 		await write(
 			"src/main/java/example/App.java",
@@ -66,6 +66,26 @@ describe("plugin DAST start planner", () => {
 			}),
 		).rejects.toThrow("project_code_execution_sandbox_required");
 		expect(spawnCalled).toBe(false);
+	});
+
+	it("does not invent a Spring Boot command for a Spring MVC WAR", async () => {
+		await write(
+			"pom.xml",
+			"<project><packaging>war</packaging><dependency>org.springframework:spring-webmvc</dependency></project>",
+		);
+		await write(
+			"src/main/java/example/Controller.java",
+			'package example; @Controller class Controller { @RequestMapping("/") void index() {} }',
+		);
+		await write("mvnw", "#!/bin/sh\n");
+
+		await expect(
+			inferDastTargetStartPlan({
+				repoPath: root,
+				port: 18080,
+				consentProjectCodeExecution: true,
+			}),
+		).rejects.toThrow("no registered framework start plan");
 	});
 
 	it("produces an offline Gradle plan without executing or mutating Gradle", async () => {

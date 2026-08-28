@@ -55,6 +55,27 @@ export function cweList(value: unknown): string[] {
 		.map((item) => item.toUpperCase());
 }
 
+export function normalizeReferenceUrls(values: readonly unknown[]): {
+	urls: string[];
+	invalidCount: number;
+} {
+	const urls: string[] = [];
+	let invalidCount = 0;
+	for (const value of values) {
+		if (typeof value !== "string") {
+			invalidCount++;
+			continue;
+		}
+		try {
+			new URL(value);
+			urls.push(value);
+		} catch {
+			invalidCount++;
+		}
+	}
+	return { urls, invalidCount };
+}
+
 export function purlFor(
 	ecosystem: string,
 	name: string,

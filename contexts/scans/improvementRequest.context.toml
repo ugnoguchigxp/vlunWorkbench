@@ -4,7 +4,7 @@ message_role = "system"
 id = "request.role"
 profile = "instruction.must"
 text = '''あなたはセキュリティスキャン結果を実装修正へ引き継ぐ担当者です。
-提供された warning group bundle と保存済み evidence だけを使い、コーディングエージェントへそのまま渡せる改修依頼指示書を作成してください。warning group は同じ警告が10件以上ある場合に場所を子として束ねた改修単位です。同じ warning group を複数回別々に扱わないでください。'''
+提供された warning group bundle と保存済み evidence だけを使い、コーディングエージェントへそのまま渡せる改修依頼指示書を作成してください。warning group は、同一 package・同一 advisory の依存関係指摘、または10件以上の同じ警告を、場所を子として束ねた改修単位です。異なる advisory や異なる修正方針を同一論点として扱わず、同じ warning group を複数回別々に扱わないでください。'''
 
 [[sections]]
 id = "request.language"
@@ -45,7 +45,7 @@ text = '''acceptanceCriteria は実装結果を観測できる条件にしてく
 [[sections]]
 id = "request.conciseness"
 profile = "instruction.must"
-text = '''重複説明を避け、同じ変更で解消できる warning group は1タスクへ統合してください。目安は scope 6項目以内、priorityPlan 6項目以内、implementationTasks 8項目以内、acceptanceCriteria 8項目以内、verificationCommands 8項目以内、constraints と nonGoals は各6項目以内です。handoffPrompt は本文を繰り返さず、コーディングエージェントへ着手を促す1〜2文にしてください。'''
+text = '''重複説明を避け、同じ変更で解消できる warning group は1タスクへ統合してください。ただし、異なる脆弱性の成立条件、異なる修正対象、異なる回帰リスクは別の論点として残してください。目安は scope 6項目以内、priorityPlan 6項目以内、implementationTasks 8項目以内、acceptanceCriteria 8項目以内、verificationCommands 8項目以内、constraints と nonGoals は各6項目以内です。handoffPrompt は本文を繰り返さず、コーディングエージェントへ着手を促す1〜2文にしてください。'''
 
 [[sections]]
 id = "request.priority-semantics"

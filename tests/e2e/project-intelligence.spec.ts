@@ -1,5 +1,5 @@
 import AxeBuilder from "@axe-core/playwright";
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Page, test } from "./test";
 
 const timestamp = "2026-08-08T02:20:53.000Z";
 const generationId = "00000000-0000-4000-8000-000000000010";

@@ -85,6 +85,57 @@ describe("parseWarningGroupChunkImprovementRequest", () => {
 		});
 	});
 
+	it("replaces a non-Japanese scope with a deterministic saved-bundle scope", () => {
+		const generated = response();
+		generated.scope = ["Only the supplied warning groups are in scope."];
+
+		const parsed = parseWarningGroupChunkImprovementRequest(
+			JSON.stringify(generated),
+			bundle(),
+		);
+
+		expect(parsed.scope).toEqual([
+			"このチャンクに保存された警告グループ 2 件を対象にします。",
+		]);
+	});
+
+	it("still rejects non-Japanese issue-specific remediation text", () => {
+		const generated = response();
+		generated.implementationTasks[0]!.body = "Fix all supplied warnings.";
+
+		expect(() =>
+			parseWarningGroupChunkImprovementRequest(
+				JSON.stringify(generated),
+				bundle(),
+			),
+		).toThrow(/Japanese review text is required/);
+	});
+
+	it("adds an evidence-constrained fallback task for an omitted warning group", () => {
+		const incomplete = response();
+		incomplete.implementationTasks[0]!.warningGroupIds = ["wg-000001"];
+		incomplete.implementationTasks[0]!.evidenceRefs = [evidenceId];
+
+		const parsed = parseWarningGroupChunkImprovementRequest(
+			JSON.stringify(incomplete),
+			bundle(),
+		);
+
+		expect(parsed.implementationTasks).toHaveLength(2);
+		expect(parsed.implementationTasks[1]).toMatchObject({
+			title: "未割当の警告グループを確認して修正する",
+			warningGroupIds: ["wg-000002"],
+			issueIds: [issueId2],
+			findingIds: [findingId2],
+			evidenceRefs: ["src/b.ts:20"],
+		});
+		expect(
+			parsed.implementationTasks.flatMap(
+				(task) => task.warningGroupIds ?? [],
+			),
+		).toEqual(["wg-000001", "wg-000002"]);
+	});
+
 	it("rejects unknown warning group IDs", () => {
 		const invalid = response();
 		invalid.implementationTasks[0]!.warningGroupIds = ["wg-999999"];

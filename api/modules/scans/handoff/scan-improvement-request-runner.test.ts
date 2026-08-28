@@ -15,6 +15,7 @@ import {
 } from "../../../db/schema";
 import type { LlmProvider, LlmResponse } from "../../../providers/types";
 import {
+	mergeIssueImprovementRequests,
 	parseChunkImprovementRequest,
 	StructuredImprovementRequestError,
 } from "./scan-improvement-request-builder";
@@ -22,6 +23,7 @@ import {
 	mergeScanImprovementRequests,
 	ScanImprovementRequestRunner,
 } from "./scan-improvement-request-runner";
+import type { ImprovementRequestIssueBundle } from "./scan-improvement-issue-bundle";
 import type { ScanReviewBundle } from "./scan-review-bundle";
 
 function applyMigrations(connection: DbConnection) {
@@ -88,6 +90,49 @@ function request(ids: string[], suffix: string): ScanImprovementRequest {
 		constraints: ["保存済み context だけを根拠にする。"],
 		nonGoals: ["新しい scanner の追加は対象外とする。"],
 		handoffPrompt: "保存済み証跡に基づいて検出結果を修正してください。",
+	};
+}
+
+function issueBundle(index: number): ImprovementRequestIssueBundle {
+	return {
+		project: {
+			id: "project-1",
+			name: "対象プロジェクト",
+			defaultBranch: "main",
+		},
+		issueManifest: [
+			{
+				issueId: findingId(10_000 + index),
+				memberFindingIds: [findingId(20_000 + index)],
+			},
+		],
+	} as unknown as ImprovementRequestIssueBundle;
+}
+
+function issueRequest(
+	index: number,
+	taskText: { title: string; body: string },
+): ScanImprovementRequest {
+	const issueId = findingId(10_000 + index);
+	const memberFindingId = findingId(20_000 + index);
+	return {
+		...request([memberFindingId], `論点 ${index}`),
+		priorityPlan: [
+			{
+				priority: "medium",
+				rationale: "保存済みの重大度と修正単位に基づいて対応する。",
+				issueIds: [issueId],
+				findingIds: [memberFindingId],
+			},
+		],
+		implementationTasks: [
+			{
+				...taskText,
+				issueIds: [issueId],
+				findingIds: [memberFindingId],
+				evidenceRefs: [],
+			},
+		],
 	};
 }
 
@@ -190,6 +235,56 @@ describe("mergeScanImprovementRequests", () => {
 				findingIds: ids,
 			}),
 		]);
+	});
+});
+
+describe("mergeIssueImprovementRequests", () => {
+	it("merges repeated remediation text while retaining every issue", () => {
+		const bundles = [issueBundle(1), issueBundle(2)];
+		const sharedTask = {
+			title: "同じ依存関係を更新する",
+			body: "同一の依存関係を安全な版へ更新し、回帰テストを行う。",
+		};
+		const merged = mergeIssueImprovementRequests(bundles, [
+			issueRequest(1, sharedTask),
+			issueRequest(2, sharedTask),
+		]);
+
+		expect(merged.implementationTasks).toHaveLength(1);
+		expect(merged.implementationTasks[0]).toMatchObject({
+			title: sharedTask.title,
+			issueIds: [findingId(10_001), findingId(10_002)],
+			findingIds: [findingId(20_001), findingId(20_002)],
+		});
+	});
+
+	it("samples the full task range when distinct remediation exceeds the display limit", () => {
+		const bundles = Array.from({ length: 25 }, (_, index) =>
+			issueBundle(index + 1),
+		);
+		const requests = Array.from({ length: 25 }, (_, index) =>
+			issueRequest(index + 1, {
+				title: `異なる修正論点 ${index + 1}`,
+				body: `異なる成立条件 ${index + 1} を確認して個別に修正する。`,
+			}),
+		);
+
+		const merged = mergeIssueImprovementRequests(bundles, requests);
+		const titles = merged.implementationTasks.map((task) => task.title);
+
+		expect(titles).toContain("異なる修正論点 1");
+		expect(titles).toContain("異なる修正論点 25");
+		expect(
+			new Set(
+				merged.implementationTasks.flatMap((task) => task.issueIds ?? []),
+			),
+		).toEqual(
+			new Set(
+				bundles.flatMap((item) =>
+					item.issueManifest.map((entry) => entry.issueId),
+				),
+			),
+		);
 	});
 });
 

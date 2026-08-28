@@ -3758,6 +3758,49 @@
 	font-weight: 700;
 }
 
+.scan-workspace-profile-field {
+	display: grid;
+	gap: 6px;
+	min-width: 0;
+	color: var(--color-muted-strong);
+	font-size: 0.78rem;
+	font-weight: 700;
+}
+
+.scan-workspace-profile-label {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+}
+
+.scan-profile-help-trigger {
+	display: inline-grid;
+	width: 23px;
+	height: 23px;
+	place-items: center;
+	padding: 0;
+	border: 1px solid var(--color-brand-border);
+	border-radius: 999px;
+	background: var(--color-surface);
+	color: var(--color-brand-strong);
+	cursor: pointer;
+}
+
+.scan-profile-help-trigger svg {
+	width: 15px;
+	height: 15px;
+}
+
+.scan-profile-help-trigger:hover {
+	background: var(--color-brand-soft);
+	border-color: var(--color-brand);
+}
+
+.scan-profile-help-trigger:focus-visible {
+	outline: 3px solid var(--color-focus-ring);
+	outline-offset: 1px;
+}
+
 .scan-profile-inputs {
 	display: grid;
 	grid-column: 1 / -1;
@@ -3973,6 +4016,11 @@
 	overflow-x: auto;
 	list-style: none;
 	scrollbar-color: var(--color-brand-border) transparent;
+}
+
+.workspace-scan-progress-steps:focus-visible {
+	outline: 3px solid var(--color-focus-ring);
+	outline-offset: 2px;
 }
 
 .workspace-scan-progress-steps li {
@@ -4786,6 +4834,282 @@
 .workspace-dialog > h2 {
 	margin: 0 0 16px;
 }
+
+.workspace-dialog.scan-profile-help-dialog {
+	position: relative;
+	width: min(100%, 56rem);
+	max-height: min(92vh, 54rem);
+}
+
+.scan-profile-help-dialog > h2 {
+	padding-right: 42px;
+}
+
+.scan-profile-help {
+	display: grid;
+	gap: 24px;
+}
+
+.scan-profile-help-close {
+	position: absolute;
+	top: 16px;
+	right: 16px;
+	display: inline-grid;
+	width: 32px;
+	height: 32px;
+	place-items: center;
+	padding: 0;
+	border: 1px solid var(--color-border);
+	border-radius: 8px;
+	background: var(--color-surface);
+	color: var(--color-muted);
+	cursor: pointer;
+}
+
+.scan-profile-help-close svg {
+	width: 17px;
+	height: 17px;
+}
+
+.scan-profile-help-close:hover {
+	border-color: var(--color-brand-border);
+	background: var(--color-brand-soft);
+	color: var(--color-brand-strong);
+}
+
+.scan-profile-help-intro {
+	margin: -4px 0 0;
+	color: var(--color-muted);
+	font-size: 0.88rem;
+	line-height: 1.65;
+}
+
+.scan-profile-help-section {
+	display: grid;
+	gap: 12px;
+}
+
+.scan-profile-help-heading {
+	display: flex;
+	align-items: end;
+	justify-content: space-between;
+	gap: 16px;
+}
+
+.scan-profile-help-heading h3 {
+	margin: 0;
+	font-size: 1rem;
+}
+
+.scan-profile-help-heading > p {
+	margin: 0;
+	color: var(--color-muted);
+	font-size: 0.78rem;
+	text-align: right;
+}
+
+.scan-profile-help-selector {
+	display: grid;
+	grid-template-columns: minmax(10rem, 0.4fr) minmax(15rem, 1fr);
+	align-items: center;
+	gap: 12px;
+	color: var(--color-muted-strong);
+	font-size: 0.8rem;
+	font-weight: 700;
+}
+
+.scan-profile-help-overview {
+	display: grid;
+	gap: 14px;
+	padding: 16px;
+	border: 1px solid var(--color-brand-border);
+	border-radius: 12px;
+	background: color-mix(
+		in srgb,
+		var(--color-brand-soft) 55%,
+		var(--color-surface)
+	);
+}
+
+.scan-profile-help-overview > header {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 16px;
+}
+
+.scan-profile-help-overview h4 {
+	margin: 0;
+	font-size: 1rem;
+}
+
+.scan-profile-help-overview header p,
+.scan-profile-help-facts p,
+.scan-profile-help-used-scanners > p {
+	margin: 4px 0 0;
+	color: var(--color-muted);
+	font-size: 0.82rem;
+	line-height: 1.55;
+}
+
+.scan-profile-help-badges {
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: flex-end;
+	gap: 6px;
+}
+
+.scan-profile-help-badges span,
+.scan-profile-scanner-used-badge {
+	padding: 4px 7px;
+	border: 1px solid var(--color-brand-border);
+	border-radius: 999px;
+	background: var(--color-surface);
+	color: var(--color-brand-strong);
+	font-size: 0.69rem;
+	font-weight: 800;
+	white-space: nowrap;
+}
+
+.scan-profile-help-facts {
+	display: grid;
+	grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+	gap: 10px;
+}
+
+.scan-profile-help-facts > div,
+.scan-profile-help-used-scanners {
+	padding: 11px 12px;
+	border: 1px solid var(--color-border);
+	border-radius: 9px;
+	background: var(--color-surface);
+	font-size: 0.8rem;
+}
+
+.scan-profile-help-facts ul,
+.scan-profile-scanner-detail ul {
+	margin: 6px 0 0;
+	padding-left: 1.15rem;
+	color: var(--color-muted);
+	line-height: 1.55;
+}
+
+.scan-profile-help-used-scanners ul {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 7px;
+	margin: 8px 0 0;
+	padding: 0;
+	list-style: none;
+}
+
+.scan-profile-help-used-scanners li {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	padding: 5px 8px;
+	border: 1px solid var(--color-border);
+	border-radius: 7px;
+	background: var(--color-surface-muted);
+	font-size: 0.75rem;
+	font-weight: 700;
+}
+
+.scan-profile-help-used-scanners small {
+	color: var(--color-muted);
+	font-size: 0.68rem;
+	font-weight: 500;
+}
+
+.scan-profile-scanner-list {
+	display: grid;
+	gap: 8px;
+}
+
+.scan-profile-scanner-list details {
+	border: 1px solid var(--color-border);
+	border-radius: 10px;
+	background: var(--color-surface);
+	overflow: hidden;
+}
+
+.scan-profile-scanner-list details.is-used {
+	border-color: var(--color-brand-border);
+}
+
+.scan-profile-scanner-list summary {
+	display: grid;
+	grid-template-columns: auto minmax(9rem, 0.42fr) minmax(14rem, 1fr) auto;
+	align-items: center;
+	gap: 10px;
+	padding: 12px 13px;
+	cursor: pointer;
+	list-style: none;
+}
+
+.scan-profile-scanner-list summary::-webkit-details-marker {
+	display: none;
+}
+
+.scan-profile-scanner-list summary::before {
+	content: "›";
+	display: inline-grid;
+	width: 18px;
+	height: 18px;
+	place-items: center;
+	color: var(--color-muted);
+	font-size: 1.1rem;
+	transition: transform 120ms ease;
+}
+
+.scan-profile-scanner-list details[open] summary::before {
+	transform: rotate(90deg);
+}
+
+.scan-profile-scanner-list summary:hover {
+	background: var(--color-surface-muted);
+}
+
+.scan-profile-scanner-name {
+	display: grid;
+	gap: 2px;
+}
+
+.scan-profile-scanner-name strong {
+	color: var(--color-ink);
+	font-size: 0.86rem;
+}
+
+.scan-profile-scanner-name small,
+.scan-profile-scanner-summary {
+	color: var(--color-muted);
+	font-size: 0.74rem;
+	line-height: 1.45;
+}
+
+.scan-profile-scanner-detail {
+	display: grid;
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+	gap: 10px;
+	padding: 0 13px 13px 41px;
+}
+
+.scan-profile-scanner-detail > div {
+	padding: 11px 12px;
+	border-radius: 8px;
+	background: var(--color-surface-muted);
+	font-size: 0.76rem;
+}
+
+.scan-profile-scanner-detail p {
+	margin: 5px 0 0;
+	color: var(--color-muted);
+	line-height: 1.55;
+}
+
+.scan-profile-scanner-detail li + li {
+	margin-top: 4px;
+}
 .workspace-delete-dialog-body {
 	display: grid;
 	gap: 14px;
@@ -5020,5 +5344,34 @@
 	}
 	.workspace-findings-list button small {
 		grid-column: 2;
+	}
+	.scan-profile-help-heading,
+	.scan-profile-help-overview > header {
+		align-items: flex-start;
+		flex-direction: column;
+	}
+	.scan-profile-help-heading > p {
+		text-align: left;
+	}
+	.scan-profile-help-selector,
+	.scan-profile-help-facts,
+	.scan-profile-scanner-detail {
+		grid-template-columns: 1fr;
+	}
+	.scan-profile-help-badges {
+		justify-content: flex-start;
+	}
+	.scan-profile-scanner-list summary {
+		grid-template-columns: auto minmax(0, 1fr) auto;
+	}
+	.scan-profile-scanner-summary {
+		grid-column: 2 / -1;
+	}
+	.scan-profile-scanner-used-badge {
+		grid-column: 3;
+		grid-row: 1;
+	}
+	.scan-profile-scanner-detail {
+		padding-left: 41px;
 	}
 }

@@ -137,6 +137,7 @@ export const useScansControllerBase = ({
 		active,
 		scanRuns: launch.scanRuns,
 		selectedScanRunId: launch.selectedScanRunId,
+		setErrorText,
 		setReports: reports.setReports,
 		setSelectedReport: reports.setSelectedReport,
 	});

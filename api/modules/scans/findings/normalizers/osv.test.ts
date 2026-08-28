@@ -107,6 +107,50 @@ describe("OSV Normalizer", () => {
 		expect(mapOsvSeverity(vuln3)).toBe("unknown");
 	});
 
+	it("keeps findings when an upstream advisory contains malformed references", () => {
+		const normalized = normalizeOsv({
+			results: [
+				{
+					source: { path: "pom.xml", type: "lockfile" },
+					packages: [
+						{
+							package: {
+								name: "org.springframework.security:spring-security-web",
+								version: "4.0.0.RELEASE",
+								ecosystem: "Maven",
+							},
+							vulnerabilities: [
+								{
+									id: "GHSA-293q-567p-wmwq",
+									references: [
+										{
+											type: "ADVISORY",
+											url: "https://nvd.nist.gov/vuln/detail/CVE-2026-47838",
+										},
+										{
+											type: "PACKAGE",
+											url: "spring-projects/spring-security",
+										},
+										{ type: "PACKAGE", url: null },
+									],
+								},
+							],
+						},
+					],
+				},
+			],
+		});
+
+		expect(normalized).toHaveLength(1);
+		const risk = normalized[0].metadata?.risk as { references: string[] };
+		expect(risk.references).toEqual([
+			"https://nvd.nist.gov/vuln/detail/CVE-2026-47838",
+		]);
+		expect(normalized[0].metadata?.normalizationDiagnostics).toEqual({
+			invalidReferenceCount: 2,
+		});
+	});
+
 	it("should parse empty results successfully", () => {
 		const normalized = normalizeOsv({ results: [] });
 		expect(normalized).toEqual([]);

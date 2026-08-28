@@ -900,7 +900,7 @@
               "segments": [
                 {
                   "type": "literal",
-                  "value": "あなたはセキュリティスキャン結果を実装修正へ引き継ぐ担当者です。\n提供された issue bundle に含まれる issue と保存済み evidence だけを使い、コーディングエージェントへそのまま渡せる改修依頼指示書を作成してください。issue は複数 scanner の同一指摘を統合した単位です。同じ issue を複数回別々に扱わないでください。"
+                  "value": "あなたはセキュリティスキャン結果を実装修正へ引き継ぐ担当者です。\n提供された warning group bundle と保存済み evidence だけを使い、コーディングエージェントへそのまま渡せる改修依頼指示書を作成してください。warning group は、同一 package・同一 advisory の依存関係指摘、または10件以上の同じ警告を、場所を子として束ねた改修単位です。異なる advisory や異なる修正方針を同一論点として扱わず、同じ warning group を複数回別々に扱わないでください。"
                 }
               ]
             },
@@ -991,7 +991,7 @@
               "segments": [
                 {
                   "type": "literal",
-                  "value": "重複説明を避け、同じ変更で解消できる issue は1タスクへ統合してください。目安は scope 6項目以内、priorityPlan 6項目以内、implementationTasks 8項目以内、acceptanceCriteria 8項目以内、verificationCommands 8項目以内、constraints と nonGoals は各6項目以内です。handoffPrompt は本文を繰り返さず、コーディングエージェントへ着手を促す1〜2文にしてください。"
+                  "value": "重複説明を避け、同じ変更で解消できる warning group は1タスクへ統合してください。ただし、異なる脆弱性の成立条件、異なる修正対象、異なる回帰リスクは別の論点として残してください。目安は scope 6項目以内、priorityPlan 6項目以内、implementationTasks 8項目以内、acceptanceCriteria 8項目以内、verificationCommands 8項目以内、constraints と nonGoals は各6項目以内です。handoffPrompt は本文を繰り返さず、コーディングエージェントへ着手を促す1〜2文にしてください。"
                 }
               ]
             },
@@ -1004,7 +1004,7 @@
               "segments": [
                 {
                   "type": "literal",
-                  "value": "priorityPlan.priority は実装順序を表しますが、保存済み evidence に別の根拠がない限り、対象 issue の scanner severity の最高値を超える priority を付けてはいけません。同じ変更で解消できる複数 issue は severity が異なっても統合して構いません。その場合は rationale に scanner severity の範囲と、同一変更単位としてまとめる理由を書き、すべてが同じ severity であるかのように表現しないでください。"
+                  "value": "priorityPlan.priority は実装順序を表しますが、保存済み evidence に別の根拠がない限り、対象 warning group の scanner severity の最高値を超える priority を付けてはいけません。同じ変更で解消できる複数 warning group は severity が異なっても統合して構いません。その場合は rationale に scanner severity の範囲と、同一変更単位としてまとめる理由を書き、すべてが同じ severity であるかのように表現しないでください。"
                 }
               ]
             },
@@ -1017,7 +1017,7 @@
               "segments": [
                 {
                   "type": "literal",
-                  "value": "issues が 1 件以上ある場合、implementationTasks の issueIds 全体で、提供された全 issue ID を少なくとも1回参照してください。同じ修正方針の issue は1つのタスクへまとめてください。issueIds 以外の raw finding ID は返してはいけません。架空の issue ID や evidence reference を作ってはいけません。\nissues が 0 件の場合は、安全宣言ではなく coverage confirmation、missing diagnostics、追加確認を中心にし、issueIds は空配列にしてください。"
+                  "value": "warningGroups が 1 件以上ある場合、implementationTasks の warningGroupIds 全体で、提供された全 warningGroupId をちょうど1回参照してください。同じ修正方針の warning group は1つのタスクへまとめてください。issue ID や raw finding ID は返してはいけません。架空の warningGroupId や evidence reference を作ってはいけません。\nwarningGroups が 0 件の場合は、安全宣言ではなく coverage confirmation、missing diagnostics、追加確認を中心にし、warningGroupIds は空配列にしてください。"
                 }
               ]
             },
@@ -1043,16 +1043,16 @@
               "segments": [
                 {
                   "type": "literal",
-                  "value": "出力は次の形の単一 JSON object のみにしてください。markdown code block で囲んでも構いません。\n{\n  \"title\": \"改修依頼のタイトル\",\n  \"objective\": \"目的\",\n  \"scope\": [\"対象範囲\"],\n  \"priorityPlan\": [{\"priority\":\"high\",\"rationale\":\"理由\",\"issueIds\":[\"bundle 内の issue UUID\"]}],\n  \"implementationTasks\": [{\"title\":\"タスク名\",\"body\":\"具体的な作業内容\",\"issueIds\":[\"bundle 内の issue UUID\"],\"evidenceRefs\":[\"bundle 内の evidence ID、artifact ID、または location text\"]}],\n  \"acceptanceCriteria\": [\"受け入れ条件\"],\n  \"verificationCommands\": [\"検証コマンド候補\"],\n  \"constraints\": [\"制約\"],\n  \"nonGoals\": [\"非ゴール\"],\n  \"handoffPrompt\": \"別 LLM に渡せる依頼文\"\n}"
+                  "value": "出力は次の形の単一 JSON object のみにしてください。markdown code block で囲んでも構いません。\n{\n  \"title\": \"改修依頼のタイトル\",\n  \"objective\": \"目的\",\n  \"scope\": [\"対象範囲\"],\n  \"priorityPlan\": [{\"priority\":\"high\",\"rationale\":\"理由\",\"warningGroupIds\":[\"bundle 内の wg-000001 形式の ID\"]}],\n  \"implementationTasks\": [{\"title\":\"タスク名\",\"body\":\"具体的な作業内容\",\"warningGroupIds\":[\"bundle 内の wg-000001 形式の ID\"],\"evidenceRefs\":[\"bundle 内の evidence ID、artifact ID、または location ref\"]}],\n  \"acceptanceCriteria\": [\"受け入れ条件\"],\n  \"verificationCommands\": [\"検証コマンド候補\"],\n  \"constraints\": [\"制約\"],\n  \"nonGoals\": [\"非ゴール\"],\n  \"handoffPrompt\": \"別 LLM に渡せる依頼文\"\n}"
                 }
               ]
             }
           ],
-          "artifactHash": "sha256:59812ef123ada5b8576196dcd0666546b48653ea660babd66f9ce28c4727edf7"
+          "artifactHash": "sha256:8adcc053acbe6942210fddd5c628855bd7b7140e37b8ce49cb7e07f8e675544e"
         }
       },
-      "definitionHash": "sha256:bf7917f31d852cdf468503599f7f683363af4363cc93d2e522c51d543f196978",
-      "releaseDigest": "sha256:e01621e249db6d2ad8b456b867e1425d3ee0a4dc0a52bbe530b1ba3675f0585f"
+      "definitionHash": "sha256:1150a6741c5df2de1be3b4c8991c2121fc5404f5275bb557e74bab1b00966ac3",
+      "releaseDigest": "sha256:758d5e349041af7c07aedecd345e8912e3793c90b052ec6caaae7a26932de54b"
     },
     "scans.improvementRequestInput": {
       "key": "scans.improvementRequestInput",
@@ -1084,7 +1084,7 @@
               "segments": [
                 {
                   "type": "literal",
-                  "value": "この issue bundle の全 issue を、重複のない実装単位へまとめてください。確認済み事実、advisory の成立条件、実装時のリポジトリ確認事項を混同せず、指定された JSON のみを返してください。raw finding ID は返さず、各 priorityPlan と implementationTasks には issueIds だけを使ってください。本文は必ず日本語で書いてください。"
+                  "value": "この warning group bundle の全 warning group を、重複のない実装単位へまとめてください。確認済み事実、advisory の成立条件、実装時のリポジトリ確認事項を混同せず、指定された JSON のみを返してください。issue ID や raw finding ID は返さず、各 priorityPlan と implementationTasks には warningGroupIds だけを使ってください。本文は必ず日本語で書いてください。"
                 }
               ]
             },
@@ -1106,11 +1106,11 @@
               ]
             }
           ],
-          "artifactHash": "sha256:bd4d9353dc7739e89e8f8fe68cd631fb9b6a3d3c947f126ca8cef53abb93944d"
+          "artifactHash": "sha256:27612b7f2f08203159edfbab499d983bbc19bc30d2f5f8022e8a198dbd103fed"
         }
       },
-      "definitionHash": "sha256:18b05953e46c1cfbd0065acc0216cf592e36e6252d9ec62ef2c42cbc40f282c6",
-      "releaseDigest": "sha256:ace34b91e87298a579893a78498a19cda5b54aa69378db2cf68c0228e0d2eb68"
+      "definitionHash": "sha256:cdb7e338412f0eddb0f80b26a4bc25d704d98dd0b30db0b19c7c528880ebedba",
+      "releaseDigest": "sha256:57037650c79e13e2abb55f3bf833ed9cfd548d5a14225f973273b70ba54d3943"
     },
     "scans.reportSummary": {
       "key": "scans.reportSummary",
@@ -1490,5 +1490,5 @@
       "releaseDigest": "sha256:7c47ef1b8f5ae3e49e80c825fcc6eaaa93d801423b119dc395f6952979880a6e"
     }
   },
-  "catalogDigest": "sha256:e6f2422a251e868b5c9d045b824ea7c1cf40e8b6be7c6644d051b59a9dd2e2f6"
+  "catalogDigest": "sha256:8a5b2be7b1983b8c9d25a8f64a8705e86e7ddedeec927ee215846a30c838c045"
 }

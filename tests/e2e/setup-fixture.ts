@@ -12,9 +12,19 @@ const artifactRoot = path.resolve(
 	process.env.SCAN_ARTIFACT_ROOT ?? ".tmp/e2e/artifacts",
 );
 const fixtureProjectRoot = path.resolve("tests/e2e/fixtures/project");
-const fixtureProjectPaths = [
-	path.join(projectRoot, "fixture-project"),
-	path.join(projectRoot, "fixture-project-semgrep"),
+const fixtureProjects = [
+	{
+		source: fixtureProjectRoot,
+		destination: path.join(projectRoot, "fixture-project"),
+	},
+	{
+		source: fixtureProjectRoot,
+		destination: path.join(projectRoot, "fixture-project-semgrep"),
+	},
+	{
+		source: path.resolve("tests/e2e/fixtures/maven-war-project"),
+		destination: path.join(projectRoot, "fixture-project-maven-war"),
+	},
 ];
 const fixtureBinRoot = path.resolve("tests/e2e/fixtures/bin");
 
@@ -27,8 +37,8 @@ for (const filename of [
 }
 await Promise.all([
 	rm(artifactRoot, { recursive: true, force: true }),
-	...fixtureProjectPaths.map((fixtureProjectPath) =>
-		rm(fixtureProjectPath, { recursive: true, force: true }),
+	...fixtureProjects.map((fixture) =>
+		rm(fixture.destination, { recursive: true, force: true }),
 	),
 ]);
 await Promise.all([
@@ -38,12 +48,12 @@ await Promise.all([
 	mkdir(artifactRoot, { recursive: true }),
 ]);
 await Promise.all(
-	fixtureProjectPaths.map((fixtureProjectPath) =>
-		cp(fixtureProjectRoot, fixtureProjectPath, { recursive: true }),
+	fixtureProjects.map((fixture) =>
+		cp(fixture.source, fixture.destination, { recursive: true }),
 	),
 );
 await Promise.all(
-	["semgrep", "gitleaks", "osv-scanner"].map((filename) =>
+	["semgrep", "gitleaks", "osv-scanner", "trivy", "zizmor"].map((filename) =>
 		chmod(path.join(fixtureBinRoot, filename), 0o755),
 	),
 );
@@ -70,6 +80,31 @@ async function run(command: string[]): Promise<void> {
 	}
 }
 
+async function initializeFixtureRepository(projectPath: string): Promise<void> {
+	await run(["git", "init", "--initial-branch=main", projectPath]);
+	await run([
+		"git",
+		"-C",
+		projectPath,
+		"config",
+		"user.email",
+		"e2e@example.invalid",
+	]);
+	await run([
+		"git",
+		"-C",
+		projectPath,
+		"config",
+		"user.name",
+		"vulnWorkbench E2E",
+	]);
+	await run(["git", "-C", projectPath, "add", "."]);
+	await run(["git", "-C", projectPath, "commit", "-m", "Create E2E fixture"]);
+}
+
+for (const fixture of fixtureProjects) {
+	await initializeFixtureRepository(fixture.destination);
+}
 await run(["bun", "run", "db:migrate"]);
 await run([
 	"bun",

@@ -1,7 +1,8 @@
-import { Play } from "lucide-react";
-import type { ReactNode } from "react";
+import { CircleHelp, Play } from "lucide-react";
+import { type ReactNode, useState } from "react";
 import type { ScanProfile, ScanTargetKind } from "../../../api";
 import { Button, SelectInput } from "../../../ui";
+import { ScanProfileHelpDialog } from "./scan-profile-help-dialog";
 
 const targetLabels: Record<ScanTargetKind, string> = {
 	full: "リポジトリ全体",
@@ -45,6 +46,7 @@ export function ScanLaunchCard({
 	onStart: () => void;
 	children?: ReactNode;
 }) {
+	const [showProfileHelp, setShowProfileHelp] = useState(false);
 	const profile = profiles.find((item) => item.id === selectedProfileId);
 	const targets = profile?.supportedTargets ?? ["full"];
 	return (
@@ -57,8 +59,19 @@ export function ScanLaunchCard({
 						"プロジェクトを選択してスキャン条件を設定します。"}
 				</p>
 			</div>
-			<label htmlFor="scan-workspace-profile">
-				<span>スキャンプロファイル</span>
+			<div className="scan-workspace-profile-field">
+				<div className="scan-workspace-profile-label">
+					<label htmlFor="scan-workspace-profile">スキャンプロファイル</label>
+					<button
+						type="button"
+						className="scan-profile-help-trigger"
+						aria-label="スキャンプロファイルと搭載スキャナーの説明を開く"
+						title="スキャンプロファイルと搭載スキャナーの説明"
+						onClick={() => setShowProfileHelp(true)}
+					>
+						<CircleHelp aria-hidden="true" />
+					</button>
+				</div>
 				<SelectInput
 					id="scan-workspace-profile"
 					value={selectedProfileId}
@@ -84,7 +97,7 @@ export function ScanLaunchCard({
 						) : null;
 					})}
 				</SelectInput>
-			</label>
+			</div>
 			<label htmlFor="scan-workspace-target">
 				<span>Scan target</span>
 				<SelectInput
@@ -112,6 +125,12 @@ export function ScanLaunchCard({
 				{isScanning ? "スキャン中" : "スキャンを開始"}
 			</Button>
 			{children}
+			<ScanProfileHelpDialog
+				open={showProfileHelp}
+				profiles={profiles}
+				selectedProfileId={selectedProfileId}
+				onClose={() => setShowProfileHelp(false)}
+			/>
 		</section>
 	);
 }

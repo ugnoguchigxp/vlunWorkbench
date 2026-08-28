@@ -6,9 +6,16 @@ type DialogProps = {
 	title: string;
 	children: ReactNode;
 	onClose: () => void;
+	className?: string;
 };
 
-export function Dialog({ open, title, children, onClose }: DialogProps) {
+export function Dialog({
+	open,
+	title,
+	children,
+	onClose,
+	className,
+}: DialogProps) {
 	const titleId = useId();
 	const contentRef = useRef<HTMLDivElement>(null);
 	const onCloseRef = useRef(onClose);
@@ -62,7 +69,9 @@ export function Dialog({ open, title, children, onClose }: DialogProps) {
 		<div className="workspace-dialog-backdrop" role="presentation">
 			<div
 				ref={contentRef}
-				className="workspace-dialog"
+				className={["workspace-dialog", className ?? ""]
+					.filter(Boolean)
+					.join(" ")}
 				role="dialog"
 				aria-modal="true"
 				aria-labelledby={titleId}

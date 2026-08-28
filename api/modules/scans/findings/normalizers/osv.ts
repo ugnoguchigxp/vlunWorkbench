@@ -1,6 +1,10 @@
 import crypto from "node:crypto";
 import { z } from "zod";
-import { deriveFindingPriority, purlFor } from "./finding-risk";
+import {
+	deriveFindingPriority,
+	normalizeReferenceUrls,
+	purlFor,
+} from "./finding-risk";
 import type { NormalizedFinding } from "./fixture";
 import { redactSecrets } from "./redaction";
 
@@ -22,9 +26,7 @@ export const osvVulnerabilitySchema = z.object({
 		})
 		.optional(),
 	aliases: z.array(z.string()).optional(),
-	references: z
-		.array(z.object({ type: z.string().optional(), url: z.string().url() }))
-		.optional(),
+	references: z.array(z.unknown()).nullish(),
 	affected: z
 		.array(
 			z.object({
@@ -79,6 +81,13 @@ export const osvSchema = z.object({
 });
 
 export type OsvInput = z.infer<typeof osvSchema>;
+
+function osvReferenceUrl(reference: unknown): unknown {
+	if (!reference || typeof reference !== "object" || !("url" in reference)) {
+		return reference;
+	}
+	return reference.url;
+}
 
 export function mapOsvSeverity(
 	vuln: z.infer<typeof osvVulnerabilitySchema>,
@@ -139,6 +148,9 @@ export function normalizeOsv(
 
 			const vulnerabilities = pkg.vulnerabilities || [];
 			for (const vuln of vulnerabilities) {
+				const referenceUrls = normalizeReferenceUrls(
+					(vuln.references ?? []).map(osvReferenceUrl),
+				);
 				const severity = mapOsvSeverity(vuln);
 				const fingerprint = generateOsvFingerprint(
 					vuln.id,
@@ -176,6 +188,13 @@ export function normalizeOsv(
 					fixedVersions,
 					ecosystem,
 					manifestPath,
+					...(referenceUrls.invalidCount > 0
+						? {
+								normalizationDiagnostics: {
+									invalidReferenceCount: referenceUrls.invalidCount,
+								},
+							}
+						: {}),
 					risk: {
 						cweIds: [],
 						advisoryAliases: vuln.aliases || [],
@@ -185,9 +204,7 @@ export function normalizeOsv(
 							baseScore: numericScore(entry.score),
 							source: "OSV",
 						})),
-						references: (vuln.references ?? []).map(
-							(reference) => reference.url,
-						),
+						references: referenceUrls.urls,
 						package: {
 							ecosystem,
 							name: pkgName,

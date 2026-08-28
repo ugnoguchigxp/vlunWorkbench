@@ -8,6 +8,10 @@ import { hasInventoryPath, inventoryPaths } from "../helpers";
 const PLUGIN_ID = "framework.java.spring";
 const SPRING_TEXT =
 	/(?:org\.springframework|org\.springframework\.boot|spring-boot|@(?:RestController|Controller|RequestMapping|GetMapping|PostMapping|PutMapping|PatchMapping|DeleteMapping)\b)/;
+const SPRING_BOOT_MAVEN_PLUGIN =
+	/<artifactId>\s*spring-boot-maven-plugin\s*<\/artifactId>/;
+const SPRING_BOOT_GRADLE_PLUGIN =
+	/(?:id\s*(?:\(\s*)?["']org\.springframework\.boot["']|org\.springframework\.boot\s*version)/;
 
 export const springFrameworkPlugin: TechnologyPluginV1 = {
 	manifest: {
@@ -123,12 +127,18 @@ export const springFrameworkPlugin: TechnologyPluginV1 = {
 		{
 			id: "start.framework.java.spring",
 			pluginId: PLUGIN_ID,
-			plan(context): DastStartPlanV1 | null {
+			async plan(context): Promise<DastStartPlanV1 | null> {
 				const active = new Set(context.activePluginIds);
-				if (active.has("build.gradle")) {
+				if (
+					active.has("build.gradle") &&
+					(await hasSpringBootBuildPlugin(context, "gradle"))
+				) {
 					return springGradlePlan(context);
 				}
-				if (active.has("build.maven")) {
+				if (
+					active.has("build.maven") &&
+					(await hasSpringBootBuildPlugin(context, "maven"))
+				) {
 					return springMavenPlan(context);
 				}
 				return null;
@@ -136,6 +146,34 @@ export const springFrameworkPlugin: TechnologyPluginV1 = {
 		},
 	],
 };
+
+async function hasSpringBootBuildPlugin(
+	context: Parameters<
+		(typeof springFrameworkPlugin.startPlanners)[number]["plan"]
+	>[0],
+	buildSystem: "maven" | "gradle",
+): Promise<boolean> {
+	const candidates = inventoryPaths(
+		context,
+		buildSystem === "maven"
+			? ["pom.xml", "**/pom.xml"]
+			: [
+					"build.gradle",
+					"build.gradle.kts",
+					"**/build.gradle",
+					"**/build.gradle.kts",
+				],
+	).slice(0, 50);
+	const marker =
+		buildSystem === "maven"
+			? SPRING_BOOT_MAVEN_PLUGIN
+			: SPRING_BOOT_GRADLE_PLUGIN;
+	for (const candidate of candidates) {
+		const content = await context.readText(candidate);
+		if (content.ok && marker.test(content.text)) return true;
+	}
+	return false;
+}
 
 function springMavenPlan(
 	context: Parameters<

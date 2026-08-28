@@ -93,33 +93,20 @@ export function buildScanHandoffActions(scope: ScansActionScope) {
 		setErrorText(null);
 		try {
 			const started = await triggerScanImprovementRequest(scanRunId);
+			const review = started.review;
+			if (review) {
+				setScanReviews((current) => [
+					review,
+					...current.filter((item) => item.id !== review.id),
+				]);
+			}
 			if (!started.result.ok) {
-				const reviews = await fetchScanReviews(scanRunId).catch(() => null);
-				if (reviews) setScanReviews(reviews);
 				throw new Error(
 					started.result.error ?? "改修依頼指示書を開始できませんでした。",
 				);
 			}
-
-			const deadline = Date.now() + SCAN_REVIEW_WAIT_TIMEOUT_MS;
-			while (true) {
-				const reviews = await fetchScanReviews(scanRunId);
-				setScanReviews(reviews);
-				const review = reviews.find(
-					(item) => item.id === started.result.reviewId,
-				);
-				if (review?.status === "completed") break;
-				if (review?.status === "failed") {
-					throw new Error(
-						review.errorMessage ?? "改修依頼指示書の生成に失敗しました。",
-					);
-				}
-				if (Date.now() >= deadline) {
-					throw new Error(
-						"改修依頼指示書の完了待機がタイムアウトしました。生成状態を確認してください。",
-					);
-				}
-				await wait(SCAN_REVIEW_POLL_INTERVAL_MS);
+			if (!review) {
+				throw new Error("改修依頼指示書の生成状態を取得できませんでした。");
 			}
 		} catch (error) {
 			setErrorText(

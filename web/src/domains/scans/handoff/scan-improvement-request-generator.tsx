@@ -52,7 +52,7 @@ export function ScanImprovementRequestGenerator({
 					<span className="scan-review-context-label">検出結果を一括整理</span>
 					<h3>LLMへの改修依頼指示書</h3>
 					<p>
-						10件以上の同じ警告は親と対象場所にまとめ、保存済み証跡から実装担当のLLMへ渡せる指示書を生成します。
+						同一package・同一advisoryの依存関係指摘と、10件以上の同じ警告を対象場所ごとにまとめ、異なる論点を残した指示書を生成します。
 					</p>
 				</div>
 				<Button

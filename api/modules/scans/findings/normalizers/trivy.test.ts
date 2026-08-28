@@ -138,6 +138,44 @@ describe("Trivy Normalizer", () => {
 		expect(mapTrivySeverity("UNKNOWN")).toBe("unknown");
 	});
 
+	it("keeps findings when an upstream advisory contains malformed references", () => {
+		const normalized = normalizeTrivy({
+			SchemaVersion: 2,
+			Results: [
+				{
+					Target: "pom.xml",
+					Class: "lang-pkgs",
+					Type: "pom",
+					Vulnerabilities: [
+						{
+							VulnerabilityID: "CVE-2026-47838",
+							PkgName: "org.springframework.security:spring-security-web",
+							InstalledVersion: "4.0.0.RELEASE",
+							PrimaryURL:
+								"https://avd.aquasec.com/nvd/cve-2026-47838",
+							References: [
+								"https://nvd.nist.gov/vuln/detail/CVE-2026-47838",
+								"https://nvd.nist.gov/vuln/detail/CVE-2026-47838",
+								"spring-projects/spring-security",
+								null,
+							],
+						},
+					],
+				},
+			],
+		});
+
+		expect(normalized).toHaveLength(1);
+		const risk = normalized[0].metadata?.risk as { references: string[] };
+		expect(risk.references).toEqual([
+			"https://avd.aquasec.com/nvd/cve-2026-47838",
+			"https://nvd.nist.gov/vuln/detail/CVE-2026-47838",
+		]);
+		expect(normalized[0].metadata?.normalizationDiagnostics).toEqual({
+			invalidReferenceCount: 2,
+		});
+	});
+
 	it("should parse empty Results successfully", () => {
 		const normalized = normalizeTrivy({ Results: [] });
 		expect(normalized).toEqual([]);

@@ -1,6 +1,10 @@
 import crypto from "node:crypto";
 import { z } from "zod";
-import { deriveFindingPriority, purlFor } from "./finding-risk";
+import {
+	deriveFindingPriority,
+	normalizeReferenceUrls,
+	purlFor,
+} from "./finding-risk";
 import type { NormalizedFinding } from "./fixture";
 import { redactSecrets } from "./redaction";
 
@@ -12,8 +16,8 @@ export const trivyVulnerabilitySchema = z.object({
 	Severity: z.string().optional().default(""),
 	Title: z.string().optional(),
 	Description: z.string().optional(),
-	PrimaryURL: z.string().optional(),
-	References: z.array(z.string().url()).optional(),
+	PrimaryURL: z.unknown().optional(),
+	References: z.array(z.unknown()).nullish(),
 	PkgIdentifier: z.object({ PURL: z.string().optional() }).optional(),
 	CVSS: z
 		.record(
@@ -129,6 +133,12 @@ export function normalizeTrivy(
 		// 1. Process Vulnerabilities
 		const vulnerabilities = res.Vulnerabilities || [];
 		for (const vuln of vulnerabilities) {
+			const referenceUrls = normalizeReferenceUrls([
+				...(vuln.PrimaryURL === undefined || vuln.PrimaryURL === null
+					? []
+					: [vuln.PrimaryURL]),
+				...(vuln.References ?? []),
+			]);
 			const severity = mapTrivySeverity(vuln.Severity);
 			const fingerprint = generateTrivyFingerprint(
 				vuln.VulnerabilityID,
@@ -148,17 +158,18 @@ export function normalizeTrivy(
 				fixedVersion: vuln.FixedVersion,
 				class: rClass,
 				type: rType,
+				...(referenceUrls.invalidCount > 0
+					? {
+							normalizationDiagnostics: {
+								invalidReferenceCount: referenceUrls.invalidCount,
+							},
+						}
+					: {}),
 				risk: {
 					cweIds: [],
 					advisoryAliases: [vuln.VulnerabilityID],
 					cvss: trivyCvss(vuln.CVSS),
-					references: Array.from(
-						new Set(
-							[vuln.PrimaryURL, ...(vuln.References ?? [])].filter(
-								(value): value is string => Boolean(value),
-							),
-						),
-					),
+					references: Array.from(new Set(referenceUrls.urls)),
 					package: {
 						ecosystem: rType,
 						name: vuln.PkgName,

@@ -4,9 +4,11 @@ import {
 	type ScanImprovementRequest,
 	scanImprovementRequestSchema,
 } from "../../../../shared/schemas/scan.schema";
-import { assertJapaneseTextFields } from "../../llm-language";
+import { assertJapaneseTextFields, hasJapaneseText } from "../../llm-language";
 import { StructuredImprovementRequestError } from "./scan-improvement-request-builder";
 import type { ImprovementRequestIssueBundle } from "./scan-improvement-issue-bundle";
+
+const MAX_IMPLEMENTATION_TASKS = 30;
 
 /**
  * Validates the compact warning-group response, then restores saved issue and
@@ -27,12 +29,102 @@ export function parseWarningGroupChunkImprovementRequest(
 			error instanceof Error ? error.message : String(error),
 		);
 	}
-	assertJapaneseRequest(request);
+	request = normalizeScope(request, bundle);
 	assertWarningGroupReferences(request, bundle);
+	request = completeMissingWarningGroupTasks(request, bundle);
+	assertJapaneseRequest(request);
 	assertWarningGroupTaskCoverage(request, bundle);
 	assertPrioritySemantics(request, bundle);
 	assertEvidenceReferences(request, bundle);
 	return expandWarningGroupRequest(request, bundle);
+}
+
+function completeMissingWarningGroupTasks(
+	request: LlmWarningGroupImprovementRequest,
+	bundle: ImprovementRequestIssueBundle,
+): LlmWarningGroupImprovementRequest {
+	const assigned = new Set(
+		request.implementationTasks.flatMap((task) => task.warningGroupIds),
+	);
+	const missing = bundle.warningGroupManifest
+		.map((item) => item.warningGroupId)
+		.filter((id) => !assigned.has(id));
+	if (missing.length === 0) return request;
+
+	const groupById = new Map(
+		bundle.warningGroups.map((group) => [group.warningGroupId, group]),
+	);
+	const evidenceRefs = [
+		...new Set(
+			missing.flatMap((id) => {
+				const group = groupById.get(id);
+				if (!group) return [];
+				return [
+					...group.representativeEvidence.flatMap((evidence) =>
+						[evidence.id, evidence.artifactId].filter(
+							(value): value is string => typeof value === "string",
+						),
+					),
+					...group.locations.map((location) => location.ref),
+				];
+			}),
+		),
+	].slice(0, 50);
+	const fallbackTask = {
+		title: "未割当の警告グループを確認して修正する",
+		body: "LLM が個別タスクへ割り当てなかった保存済み警告グループです。警告グループ付録と evidence を確認済み事実として扱い、脆弱性の成立条件と影響を実装時に確認したうえで、同じ修正方針ごとに最小の修正を行い、回帰テストと対象スキャナーの再実行で解消を確認してください。",
+		warningGroupIds: missing,
+		evidenceRefs,
+	};
+	if (request.implementationTasks.length < MAX_IMPLEMENTATION_TASKS) {
+		return {
+			...request,
+			implementationTasks: [...request.implementationTasks, fallbackTask],
+		};
+	}
+
+	const replaceIndex = request.implementationTasks.reduce(
+		(selected, task, index) => {
+			const selectedTask = request.implementationTasks.at(selected);
+			return !selectedTask ||
+				task.warningGroupIds.length > selectedTask.warningGroupIds.length
+				? index
+				: selected;
+		},
+		0,
+	);
+	const replaced = request.implementationTasks.at(replaceIndex);
+	if (!replaced) {
+		throw new StructuredImprovementRequestError(
+			"improvement request could not allocate a fallback implementation task",
+		);
+	}
+	const implementationTasks = [...request.implementationTasks];
+	implementationTasks[replaceIndex] = {
+		...fallbackTask,
+		warningGroupIds: [...new Set([...replaced.warningGroupIds, ...missing])],
+		evidenceRefs: [
+			...new Set([...replaced.evidenceRefs, ...evidenceRefs]),
+		].slice(0, 50),
+	};
+	return { ...request, implementationTasks };
+}
+
+function normalizeScope(
+	request: LlmWarningGroupImprovementRequest,
+	bundle: ImprovementRequestIssueBundle,
+): LlmWarningGroupImprovementRequest {
+	const japaneseScope = request.scope.filter(hasJapaneseText);
+	if (japaneseScope.length > 0) {
+		return { ...request, scope: japaneseScope };
+	}
+	const warningGroupCount = bundle.warningGroupManifest.length;
+	return {
+		...request,
+		scope: [
+			`このチャンクに保存された警告グループ ${warningGroupCount} 件を対象にします。`,
+		],
+	};
 }
 
 function extractJsonObject(content: string): string {

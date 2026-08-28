@@ -10,8 +10,8 @@ import {
 	startPlanPriority,
 } from "../project-capabilities/start-plan-selection";
 import {
-	packageManagerForStartPlan,
 	type DastPackageManager,
+	packageManagerForStartPlan,
 } from "./start-plan-package-manager";
 
 type PackageJson = {
@@ -194,6 +194,21 @@ export async function inferDastTargetStartPlan(params: {
 		readinessPaths: startPlan.readinessPaths,
 		warnings,
 	};
+}
+
+/**
+ * Resolves a start plan without authorizing project execution. Runtime
+ * isolation uses this read-only inspection to classify unsupported planners
+ * and dependency adapters before execution consent is evaluated separately.
+ */
+export async function inspectDastTargetStartPlan(params: {
+	repoPath: string;
+	port?: number;
+}): Promise<DastTargetStartPlan> {
+	return await inferDastTargetStartPlan({
+		...params,
+		consentProjectCodeExecution: true,
+	});
 }
 
 async function selectPluginStartPlan(params: {

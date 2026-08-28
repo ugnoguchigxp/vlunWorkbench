@@ -160,7 +160,12 @@ export function ScanProgressPanel({
 					実行計画を確定しています。確定したスキャナー工程から順次追加します。
 				</p>
 			) : null}
-			<ol className="workspace-scan-progress-steps">
+			<ol
+				className="workspace-scan-progress-steps"
+				/* biome-ignore lint/a11y/noNoninteractiveTabindex: The horizontally scrollable step list needs a keyboard focus target. */
+				tabIndex={0}
+				aria-label="スキャン工程一覧"
+			>
 				{model.items.map((item, index) => (
 					<li key={item.stepId} className={`state-${item.state}`}>
 						<span className="workspace-scan-step-number">{index + 1}</span>
