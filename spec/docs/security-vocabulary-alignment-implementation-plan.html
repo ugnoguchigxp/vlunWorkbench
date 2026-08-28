@@ -1,0 +1,2811 @@
+<article lang="ja" data-spec-role="active-plan">
+  <h1 id="security-vocabulary-alignment-implementation-plan">
+    Security Vocabulary Alignment Implementation Plan
+  </h1>
+  <ul>
+    <li>Status: Draft implementation plan</li>
+    <li>Implementation status: Not started</li>
+    <li>Date: 2026-08-28</li>
+    <li>Last reviewed: 2026-08-29</li>
+    <li>
+      Review status: document-level review complete; remaining product choices are explicit in §27
+    </li>
+    <li>Priority: P1 candidate</li>
+    <li>
+      GO requirement: normalization owner、Static Intelligence owner、Claim Provenance
+      owner、consumer ownerがentry gateとrollout floorを承認すること
+    </li>
+    <li>
+      Parent template:
+      <a href="../templates/ontology-planning/security-vocabulary-alignment-plan-template.html"
+        >Security Vocabulary Alignment Plan Skeleton</a
+      >
+    </li>
+    <li>
+      Parent direction:
+      <a href="../concepts/project-intelligence-ontology-evolution-roadmap.html"
+        >Project Intelligence and Ontology Evolution Roadmap</a
+      >
+    </li>
+    <li>
+      Preceding plan:
+      <a href="./claim-provenance-implementation-plan.html">Claim Provenance Implementation Plan</a>
+    </li>
+  </ul>
+
+  <h2 id="1-purpose">1. Purpose</h2>
+  <p>
+    scanner固有のrule、advisory、weakness、package identifierを、CWE、CVE、GHSA、CAPEC、OWASP Top
+    10、Package URL（purl）、CPEのversioned
+    namespaceへ決定的に投影する。同じidentifierの表記揺れを吸収しつつ、findingへの分類、component
+    identity、advisory alias、概念間alignmentを混同しないcontractを作る。
+  </p>
+  <p>
+    この計画はSecurity Vocabulary Alignmentだけを実装可能な粒度へ具体化する。Semantic Handoff
+    Validation、Claim Provenance v1、ontology contract diff、competency question、rule
+    inferenceの実装をやり直さない。Claim Provenance v1はpreceding
+    planの成果物を前提とし、そのcontractを変更せず、接続だけを明示的なv2 profileとして扱う。
+  </p>
+
+  <h2 id="2-target-outcome">2. Target Outcome</h2>
+  <pre><code class="language-text">persisted raw finding metadata + source tool/rule identity
+  -&gt; extract bounded raw vocabulary candidates
+  -&gt; normalize with a pinned authority registry and curated rule mapping registry
+  -&gt; preserve resolved and unresolved references separately
+  -&gt; assign references to findings by explicit semantic role
+  -&gt; keep cross-vocabulary alignment relation separate from assignment method
+  -&gt; persist one vocabulary projection inside the exact Static Intelligence export generation
+  -&gt; bind assignment and alignment lineage through Claim Provenance profile v2
+  -&gt; enable conservative same_cwe / same_cve / same_dependency communities
+  -&gt; publish a bounded descriptor and an exact, paginated read-only query
+</code></pre>
+  <ul>
+    <li>
+      同じ入力、registry version、authority snapshotから同じreference IDとassignment IDを得る。
+    </li>
+    <li>
+      unknown、malformed、未収載identifierをdropせず、bounded raw valueまたはhashとsource
+      pointerを残す。
+    </li>
+    <li>
+      <code>classified_as</code>相当のfinding
+      assignmentを<code>exact_match</code>と呼ばない。
+    </li>
+    <li>close / broad / narrow / related alignmentをfinding dedupeの根拠にしない。</li>
+    <li>runtime build、query、NightWorkers handoffで外部network lookupを行わない。</li>
+    <li>legacy generation、raw finding row、既存grouping snapshotをin-placeで書き換えない。</li>
+  </ul>
+
+  <h2 id="3-current-baseline">3. Current Baseline</h2>
+  <table>
+    <caption>
+      現行のsecurity identifier処理と不足
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Surface</th>
+        <th scope="col">Current behavior</th>
+        <th scope="col">Gap</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>finding-risk.schema.ts</code></td>
+        <td>
+          <code>cweIds</code
+          >、<code>advisoryAliases</code>、package / purlをrisk
+          metadataへ保持する。
+        </td>
+        <td>
+          authority release、reference validation、assignment evidence、mapping
+          version、unresolved状態がない。
+        </td>
+      </tr>
+      <tr>
+        <td><code>normalizers/finding-risk.ts</code></td>
+        <td>CWEをregex抽出し、ecosystem / name / versionからpurl文字列を組み立てる。</td>
+        <td>
+          CWE existenceを検証せず、purlのtype別canonicalizationを完全には実装していない。scoped
+          package等で独自組み立てが仕様とずれる余地がある。
+        </td>
+      </tr>
+      <tr>
+        <td>Semgrep / OSV / Trivy normalizer</td>
+        <td>
+          SemgrepはCWE、OSV / Trivyはadvisory aliasとpackage情報を異なるraw fieldから出力する。
+        </td>
+        <td>共通reference contractへ投影する単一境界がない。</td>
+      </tr>
+      <tr>
+        <td><code>finding-dedupe-families.ts</code></td>
+        <td>
+          CWE表記を<code>cwe:&lt;digits&gt;</code>へ、advisoryを大文字へ正規化する。
+        </td>
+        <td>risk schemaと別実装であり、authorityやmapping releaseを追えない。</td>
+      </tr>
+      <tr>
+        <td><code>finding-grouping-engine.ts</code></td>
+        <td>dependencyはsame asset + shared advisoryでexact mergeする。</td>
+        <td>
+          advisory namespace、alias由来、component canonicalizationのvalidation /
+          evidenceが不明である。
+        </td>
+      </tr>
+      <tr>
+        <td><code>static-intelligence-landscape.schema.ts</code></td>
+        <td>
+          <code>same_cwe</code
+          >、<code>same_cve</code>、<code
+            >same_dependency</code
+          >
+          basisを宣言済みである。
+        </td>
+        <td>community builderは3 basisを生成していない。</td>
+      </tr>
+      <tr>
+        <td><code>static-intelligence.schema.ts</code> / export</td>
+        <td>finding nodeはsource toolとrule IDを持つ。</td>
+        <td>resolved vocabulary、registry hash、coverage、unresolved referenceを公開しない。</td>
+      </tr>
+      <tr>
+        <td>Claim Provenance plan</td>
+        <td>profile v1はgraph、module、既存community basisのlineageを固定する。</td>
+        <td>vocabulary assignmentと新community basisは意図的に対象外である。</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3 id="31-baseline-tests">3.1 Baseline Test Evidence</h3>
+  <p>2026-08-28に関連7 test fileを変更前baselineとして実行した。</p>
+  <ul>
+    <li>全体: 39 tests中32 pass、7 fail</li>
+    <li>
+      CWE risk schema、Semgrep / OSV / Trivy normalizer、finding groupingの全unit testはpassした。
+    </li>
+    <li>community / landscape builderの11 unit testはpassした。</li>
+    <li>
+      community / landscape CLIの7 testsは既知のempty stdout failureでfailした。Claim
+      Provenance計画に記録された同じbaselineであり、本計画によるregressionではない。
+    </li>
+  </ul>
+  <pre><code class="language-shell">bun test \
+  shared/schemas/finding-risk.schema.test.ts \
+  api/modules/scans/findings/normalizers/finding-risk.test.ts \
+  api/modules/scans/findings/normalizers/semgrep.test.ts \
+  api/modules/scans/findings/normalizers/osv.test.ts \
+  api/modules/scans/findings/normalizers/trivy.test.ts \
+  api/modules/scans/findings/finding-grouping-engine.test.ts \
+  api/modules/static-intelligence/community-landscape.test.ts
+</code></pre>
+
+  <h2 id="4-fixed-decisions">4. Fixed Decisions</h2>
+  <ul>
+    <li>
+      raw finding rowとscanner adapter固有metadataはsource
+      evidenceとして維持し、migrationで書き換えない。
+    </li>
+    <li>
+      共通normalizationはscan ingestではなく、read-time / generation-timeのpure projectionに置く。
+    </li>
+    <li>
+      future ingestは同じpurl parser adapterをbest-effortで再利用できるが、canonical
+      vocabularyの正本にはしない。parse failureはraw ecosystem / name /
+      versionとdiagnosticを残してpurl=nullとし、scanを失敗させない。
+    </li>
+    <li>
+      authority registryとscanner rule mapping registryを分け、両方のhashからprojection input
+      hashを作る。
+    </li>
+    <li>finding assignmentのroleと、概念間alignment relationを別schemaにする。</li>
+    <li>
+      <code>derived_match</code
+      >をrelationにしない。derivedかどうかは<code>assignmentMethod</code>または
+      <code>alignmentMethod</code>で表す。
+    </li>
+    <li>initial active namespaceはCWE、CVE、GHSA、purlとする。</li>
+    <li>
+      CAPEC、OWASP Top 10、CPEはcontractとauthority registryへ含めるが、curated
+      mappingまたはsource-declared valueがある場合だけassignmentを生成する。外部推測で補完しない。
+    </li>
+    <li>CWE 4.20、CAPEC 3.9、OWASP Top 10:2025をinitial pinned catalog releaseとする。</li>
+    <li>
+      CVEはcontinuous identifier namespaceであり、CVE Record Format 5.2.0をidentifier
+      existenceのversionとして扱わない。
+    </li>
+    <li>CPE Naming 2.3 syntax validationとCPE dictionary membershipを別状態として扱う。</li>
+    <li>purlは仕様準拠parserを使い、独自string concatenationをcanonical identityに使わない。</li>
+    <li>
+      buildとqueryはofflineで完結し、external catalog updateはreviewed maintenance jobだけが行う。
+    </li>
+    <li>
+      same CWEだけでfindingをdedupeしない。CWE / CAPEC / OWASPはcandidate community用途に限定する。
+    </li>
+    <li>
+      CVE / GHSAでのv2 dedupeはsource-assertedまたはcurated advisory evidenceとsame exact versioned
+      purlを同時に要求し、legacy fallbackを使わない。
+    </li>
+    <li>semantic similarityまたはLLM提案をregistryへ自動commitしない。</li>
+    <li>
+      Static Intelligence export v1へoptional envelopeとして追加し、新artifact kindを増やさない。
+    </li>
+    <li>
+      export schemaを更新したreaderをwriterより先にreleaseする。writer有効化後のproducer
+      rollback先はそのreader版を下限とする。
+    </li>
+    <li>
+      Claim Provenance preceding planのv1 contract / reader / persister / 100,000件budgetをentry
+      dependencyとし、v1を変更せずassignment / alignment lineageをprofile v2で追加する。
+    </li>
+    <li>
+      security vocabulary writerをshadow以上にする前にClaim Provenance v1
+      artifactMode=requiredをproduction floorとし、vocabulary
+      projectionだけがledgerなしでpersistされる状態を作らない。
+    </li>
+    <li>full authority catalogやraw scanner payloadをmanifest、handoff、promptへinlineしない。</li>
+  </ul>
+
+  <h2 id="5-scope">5. Scope</h2>
+  <h3 id="51-in-scope">5.1 In Scope</h3>
+  <ul>
+    <li>7 namespaceのstrict authority registry</li>
+    <li>versioned、reviewed scanner rule mapping registry</li>
+    <li>resolved / unresolved reference、finding assignment、concept alignmentのstrict schema</li>
+    <li>CWE / CVE / GHSA identifier canonicalization</li>
+    <li>purl parserによるcomponent identity canonicalization</li>
+    <li>CAPEC / OWASP / CPEのexplicit-only projection</li>
+    <li>Static Intelligence export内のbounded vocabulary projection</li>
+    <li>same_cwe / same_cve / same_dependency candidate community</li>
+    <li>finding dedupe v2でのexact advisory + exact component identity利用</li>
+    <li>
+      Claim Provenance profile v2のassignment / alignment targetとbase / query-time rule catalog
+    </li>
+    <li>manifest / ontology handoffのbounded descriptor</li>
+    <li>findingまたはcanonical referenceを起点とするread-only paginated query</li>
+    <li>consumer-first、reader-first rollout、rollback floor、qualification evidence</li>
+  </ul>
+
+  <h3 id="52-non-goals">5.2 Non-goals</h3>
+  <ul>
+    <li>CWE / CAPEC / CPE full text、description、mitigation contentの再配布</li>
+    <li>NVD、CVE、OSV、GitHub Advisory Databaseへのruntime lookup</li>
+    <li>CVEとGHSAのaliasをnetworkなしに完全発見すること</li>
+    <li>CPEとpurlの一般的・双方向な自動変換</li>
+    <li>OWASP categoryからCWEへの逆推論</li>
+    <li>external vocabularyをcanonical truthまたはfinding confirmationとして扱うこと</li>
+    <li>RDF、OWL、SKOS serialization、SPARQL、triple store、Semantica runtime dependency</li>
+    <li>UI taxonomy browser、mapping authoring UI、human approval workflow</li>
+    <li>過去finding、grouping run、Static Intelligence generationの一括backfill</li>
+    <li>severity、priority、finding statusの自動変更</li>
+    <li>semantic embeddingでexact / close alignmentを確定すること</li>
+  </ul>
+
+  <h2 id="6-responsibility-boundary">6. Responsibility Boundary</h2>
+  <table>
+    <caption>
+      security vocabulary lifecycleの責務
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Layer</th>
+        <th scope="col">Owns</th>
+        <th scope="col">Must not own</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>scanner adapter</td>
+        <td>raw rule / advisory / package fieldのlossless extraction</td>
+        <td>cross-scanner canonical mapping</td>
+      </tr>
+      <tr>
+        <td>vulnWorkbench normalization boundary</td>
+        <td>registry、canonicalization、assignment、coverage、projection、query</td>
+        <td>external authority contentの無承認更新、canonical meaning approval</td>
+      </tr>
+      <tr>
+        <td>Claim Provenance</td>
+        <td>assignmentが使ったfinding field、registry entry、release hashのlineage</td>
+        <td>mapping correctnessの保証</td>
+      </tr>
+      <tr>
+        <td>target repository</td>
+        <td>必要ならrepository-owned補助宣言</td>
+        <td>observed scanner identifierの改ざん</td>
+      </tr>
+      <tr>
+        <td>future Ontology Core</td>
+        <td>cross-repository alignment approval、revision、conflict</td>
+        <td>scan ingest、task execution</td>
+      </tr>
+      <tr>
+        <td>NightWorkers</td>
+        <td>task-scoped exact queryの利用とbounded summary保持</td>
+        <td>registry更新、full catalog copy、mapping自動承認</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2 id="7-reference-basis">7. Reference Basis and Semantica Adoption Boundary</h2>
+  <p>外部仕様は計画作成時の手がかりであり、runtime dependencyではない。</p>
+  <ul>
+    <li>
+      <a
+        href="https://github.com/semantica-agi/semantica/blob/cce5ea177cbac29a526effa546219c48f8ec36f4/semantica/ontology/namespace_manager.py"
+        >Semantica NamespaceManager at commit cce5ea1</a
+      >: prefix registry、version-aware namespace、SKOS / OWL alignment predicate
+      catalogを参考にする。
+    </li>
+    <li>
+      <a href="https://docs.getsemantica.ai/reference/ontology/">Semantica Ontology reference</a>:
+      namespace管理を独立componentとして扱う考え方を参考にする。
+    </li>
+    <li>
+      <a href="https://cwe.mitre.org/data/archive.html">CWE 4.20 archive</a>と
+      <a href="https://capec.mitre.org/data/archive.html">CAPEC 3.9 archive</a>:
+      release番号と取得物hashを固定する。
+    </li>
+    <li>
+      <a href="https://github.com/CVEProject/cve-schema/releases/tag/v5.2.0"
+        >CVE Record Format 5.2.0 release</a
+      >: pinned record schema versionとcontinuous identifier namespaceを分離する。
+    </li>
+    <li>
+      <a href="https://github.com/github/advisory-database/blob/main/README.md#ghsa-ids"
+        >GitHub Advisory Database GHSA ID specification</a
+      >: prefix以外をlowercaseにするcanonical syntaxと許可文字集合を固定する。
+    </li>
+    <li>
+      <a href="https://owasp.org/Top10/2025/0x00_2025-Introduction/">OWASP Top 10:2025</a>: release
+      yearをidentifierの一部として保持する。
+    </li>
+    <li>
+      <a href="https://github.com/package-url/purl-spec/releases/tag/v1.0.0"
+        >Package URL specification v1.0.0</a
+      >: ECMA-427準拠のcore syntaxを固定し、type別canonicalizationとupstream test corpus
+      commitを別receiptで記録する。
+    </li>
+    <li>
+      <a
+        href="https://www.nist.gov/publications/common-platform-enumeration-naming-specification-version-23"
+        >CPE Naming 2.3</a
+      >: formatted stringのsyntax validationに使い、dictionary membershipとは区別する。
+    </li>
+  </ul>
+  <table>
+    <caption>
+      Semanticaから借りるものと借りないもの
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Borrow</th>
+        <th scope="col">Adaptation in vulnWorkbench</th>
+        <th scope="col">Do not borrow now</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>namespace registry</td>
+        <td>strict JSON registry + content hash + release metadata</td>
+        <td>dynamic runtime registration</td>
+      </tr>
+      <tr>
+        <td>stable, version-aware identifier generation</td>
+        <td>
+          authority semantic releaseとnormalization versionをidentityへ、registry release
+          hashをgeneration inputへ含める
+        </td>
+        <td>vulnWorkbench独自IRIの大量生成</td>
+      </tr>
+      <tr>
+        <td>SKOS exact / close / broad / narrow / relatedの区別</td>
+        <td>concept alignment専用enumとして保持する</td>
+        <td><code>owl:sameAs</code>による強い同一性の自動付与</td>
+      </tr>
+      <tr>
+        <td>reuse decisionの記録</td>
+        <td>mapping review metadataとrelease evidence</td>
+        <td>remote ontology import</td>
+      </tr>
+      <tr>
+        <td>coverage / completeness評価</td>
+        <td>namespace別resolved / unresolved / truncated count</td>
+        <td>generic ontology quality score</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2 id="8-semantic-model">8. Semantic Model</h2>
+  <h3 id="81-assignment-vs-alignment">8.1 Assignment Is Not Alignment</h3>
+  <table>
+    <caption>
+      混同してはいけない4つの関係
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Concept</th>
+        <th scope="col">Example</th>
+        <th scope="col">Contract</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>identifier normalization</td>
+        <td>
+          <code>cwe_79</code> -&gt;
+          <code>CWE-79</code>
+        </td>
+        <td>same identifierのcanonicalization</td>
+      </tr>
+      <tr>
+        <td>finding assignment</td>
+        <td>finding F has weakness CWE-79</td>
+        <td>role=<code>weakness</code></td>
+      </tr>
+      <tr>
+        <td>advisory alias</td>
+        <td>GHSA-X and CVE-Y are aliases according to a source</td>
+        <td>role=<code>advisory</code>の複数assignment + source binding</td>
+      </tr>
+      <tr>
+        <td>concept alignment</td>
+        <td>an OWASP category is broader than a CWE concept</td>
+        <td>SKOS-inspired alignment relation</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    assignmentは「findingにどの役割でreferenceが付くか」を表す。alignmentは2つのconcept
+    reference間の意味的な近さまたは広狭を表す。assignment
+    methodがdeterministicでも、relationがexactになるわけではない。
+  </p>
+  <ul>
+    <li>
+      <code>exact_match</code
+      >は同じ検索用途で置換可能なほど近い概念を表すが、object
+      identityや<code>owl:sameAs</code>を意味しない。
+    </li>
+    <li><code>close_match</code>は置換可能性を保証しない高い類似を表す。</li>
+    <li>
+      <code>broad_match</code>はtargetがsourceより広い概念であることを表す。
+    </li>
+    <li>
+      <code>narrow_match</code>はtargetがsourceより狭い概念であることを表す。
+    </li>
+    <li><code>related_match</code>は階層を主張しない関連を表す。</li>
+  </ul>
+
+  <h3 id="82-assurance-levels">8.2 Reference Validation and Assignment Evidence</h3>
+  <table>
+    <caption>
+      identifierの検証とfinding出典の強さを分離する
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Axis</th>
+        <th scope="col">Value</th>
+        <th scope="col">Meaning</th>
+        <th scope="col">Initial use</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>reference validation</td>
+        <td><code>authority_snapshot</code></td>
+        <td>pinned official catalog indexにidentifierが存在する。</td>
+        <td>CWE、CAPEC、OWASP</td>
+      </tr>
+      <tr>
+        <td>reference validation</td>
+        <td><code>spec_validated</code></td>
+        <td>pinned specification parserでcanonical formへ変換できた。</td>
+        <td>purl、CPE syntax</td>
+      </tr>
+      <tr>
+        <td>reference validation</td>
+        <td><code>syntax_only</code></td>
+        <td>syntaxは妥当だがauthority existenceをofflineで確認していない。</td>
+        <td>CVE / GHSA fallback、CPE dictionary未確認</td>
+      </tr>
+      <tr>
+        <td>assignment evidence</td>
+        <td><code>source_asserted</code></td>
+        <td>trusted scanner/advisory sourceがそのidentifierまたはaliasを明示した。</td>
+        <td>risk metadataのCWE / CVE / GHSA</td>
+      </tr>
+      <tr>
+        <td>assignment evidence</td>
+        <td><code>registry_curated</code></td>
+        <td>review済みmapping registry entryが明示的に参照した。</td>
+        <td>scanner rule mapping</td>
+      </tr>
+      <tr>
+        <td>assignment evidence</td>
+        <td><code>deterministic_projection</code></td>
+        <td>source fieldを決定的規則で変換したが、source自身のsemantic assertionではない。</td>
+        <td>rule ID syntax、package component projection</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    validationは共有referenceへ、evidenceはfindingごとのassignmentへ置く。同じCVE
+    referenceをsource-asserted
+    assignmentとsyntax-only由来のassignmentが共有しても、confidenceを混同しない。
+  </p>
+
+  <h2 id="9-contract-v1">9. Security Vocabulary Contract v1</h2>
+  <h3 id="91-primitives">9.1 Primitives</h3>
+  <pre><code class="language-typescript">const vocabularyNamespaceSchema = z.enum([
+  "cwe", "cve", "ghsa", "capec", "owasp_top10", "purl", "cpe"
+]);
+
+const vocabularyRoleSchema = z.enum([
+  "weakness", "advisory", "attack_pattern", "risk_category", "component"
+]);
+
+const referenceValidationSchema = z.enum([
+  "authority_snapshot", "spec_validated", "syntax_only"
+]);
+
+const assignmentEvidenceSchema = z.enum([
+  "source_asserted", "registry_curated", "deterministic_projection"
+]);
+
+const assignmentMethodSchema = z.enum([
+  "scanner_declared", "registry_curated",
+  "deterministic_identifier", "component_projection"
+]);
+
+const alignmentRelationSchema = z.enum([
+  "exact_match", "close_match", "broad_match",
+  "narrow_match", "related_match"
+]);
+
+const vocabularyReasonCodeSchema = z.enum([
+  "namespace_unknown", "identifier_empty", "identifier_invalid",
+  "identifier_not_in_snapshot", "identifier_deprecated",
+  "candidate_budget_exceeded", "source_path_budget_exceeded",
+  "source_value_unsupported", "sensitive_value_redacted", "purl_parse_failed",
+  "purl_type_unsupported", "component_identity_conflict",
+  "cpe_parse_failed", "cpe_dictionary_unverified",
+  "registry_entry_invalid", "registry_entry_conflict",
+  "registry_hash_mismatch", "registry_release_unsupported",
+  "reference_budget_exceeded", "assignment_budget_exceeded",
+  "alignment_budget_exceeded", "projection_size_exceeded",
+  "claim_record_budget_exceeded", "claim_binding_budget_exceeded",
+  "claim_provenance_unavailable", "claim_profile_mismatch",
+  "projection_hash_mismatch", "generation_mismatch", "rollout_disabled"
+]);</code></pre>
+
+  <h3 id="92-reference">9.2 Resolved and Unresolved Reference</h3>
+  <pre><code class="language-typescript">const vocabularyReferenceIdSchema = z.string().regex(/^vr_[a-f0-9]{64}$/);
+const unresolvedReferenceIdSchema = z.string().regex(/^vu_[a-f0-9]{64}$/);
+
+const resolvedVocabularyReferenceSchema = z.object({
+  status: z.literal("resolved"),
+  referenceId: vocabularyReferenceIdSchema,
+  namespace: vocabularyNamespaceSchema,
+  identifier: z.string().min(1).max(2_000),
+  canonicalUri: z.string().min(1).max(2_000),
+  authorityKey: z.string().regex(/^[a-z0-9_.-]+$/),
+  authorityRelease: z.string().min(1).max(100),
+  validation: referenceValidationSchema,
+  lifecycle: z.enum(["active", "deprecated", "reserved", "unknown"]),
+}).strict();
+
+const unresolvedVocabularyReferenceSchema = z.object({
+  status: z.literal("unresolved"),
+  unresolvedId: unresolvedReferenceIdSchema,
+  rawNamespace: z.string().min(1).max(64).optional(),
+  rawNamespaceHash: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+  rawIdentifier: z.string().min(1).max(200).optional(),
+  rawValueFingerprint: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+  fingerprintMode: z.enum(["value_sha256", "source_scoped_redaction"]),
+  normalizationVersion: z.string().min(1).max(100),
+  reasonCodes: z.array(vocabularyReasonCodeSchema).min(1).max(8),
+}).strict();</code></pre>
+  <ul>
+    <li>
+      rawNamespaceHashは常に保持し、safe token
+      patternと64文字上限を満たすnamespaceだけをliteralでも保持する。
+    </li>
+    <li>safe token patternと200文字上限を満たすraw identifierだけをliteralで保持する。</li>
+    <li>
+      rawIdentifierを省略できるのはempty、非string、制御文字、secret-like
+      value、200文字超過の場合だけとし、reason codeと整合させる。出典はassignmentのfindingId /
+      sourcePathsへ保持する。
+    </li>
+    <li>
+      secret-likeでないJSON
+      valueは型を問わず<code>shared/canonical-json.ts</code>の出力をhashし、fingerprintMode=<code>value_sha256</code>とする。empty
+      stringもcanonical JSON stringのsha256を使い、zero
+      sentinelを導入しない。canonical化不能valueはsource_scoped_redactionへ送る。
+    </li>
+    <li>
+      secret-like
+      valueは値自体をhashせず、findingId、sourcePath、rawNamespaceHash、normalizationVersionのdomain-separated
+      hashを source_scoped_redaction
+      fingerprintとして使う。同じsecretの辞書照合に使えるfingerprintを残さない。
+    </li>
+    <li>
+      resolved reference IDはnamespace、canonical identifier、authority key / releaseから生成する。
+    </li>
+    <li>canonical URIをnetwork availabilityの保証として扱わない。</li>
+  </ul>
+
+  <h3 id="93-assignment-and-alignment">9.3 Finding Assignment and Concept Alignment</h3>
+  <pre><code class="language-typescript">const sourcePointerSchema = z.string()
+  .max(512)
+  .regex(/^\/(?:[^/~]|~[01])*(?:\/(?:[^/~]|~[01])*)*$/);
+
+const findingVocabularyAssignmentSchema = z.object({
+  assignmentId: z.string().regex(/^va_[a-f0-9]{64}$/),
+  findingId: z.string().uuid(),
+  sourceTool: z.string().min(1).max(100),
+  ruleId: z.string().min(1).max(512),
+  role: vocabularyRoleSchema,
+  referenceId: z.union([vocabularyReferenceIdSchema, unresolvedReferenceIdSchema]),
+  method: assignmentMethodSchema,
+  evidence: assignmentEvidenceSchema,
+  sourcePaths: z.array(sourcePointerSchema).min(1).max(16),
+  normalizationVersion: z.string().min(1).max(100),
+  mappingEntryId: z.string().regex(/^map_[a-f0-9]{64}$/).optional(),
+}).strict();
+
+const vocabularyAlignmentSchema = z.object({
+  alignmentId: z.string().regex(/^al_[a-f0-9]{64}$/),
+  sourceReferenceId: vocabularyReferenceIdSchema,
+  targetReferenceId: vocabularyReferenceIdSchema,
+  relation: alignmentRelationSchema,
+  method: z.enum(["source_declared", "registry_curated"]),
+  mappingEntryId: z.string().regex(/^map_[a-f0-9]{64}$/),
+}).strict();</code></pre>
+  <ul>
+    <li>
+      <code>mappingEntryId</code>はsource tool / rule、role / target、relation /
+      methodだけを含むsemantic content hashから作る。owner、reviewer、label、evidence
+      URLは含めない。
+    </li>
+    <li>
+      <code>registry_curated</code>
+      assignmentはmappingEntryIdを必須とし、それ以外のmethodではfieldを禁止する。
+    </li>
+    <li>
+      scanner_declaredはsource_asserted、registry_curatedはregistry_curated、component_projectionはdeterministic_projectionを要求する。deterministic_identifierはsource
+      catalogに従い、semanticにtypedなadvisory fieldではsource_asserted、generic ruleId
+      syntaxではdeterministic_projectionを使う。
+    </li>
+    <li>alignmentのsourceとtargetが同じreference IDならinvalidとする。</li>
+    <li>同じpair / relation / mappingEntryIdを重複させない。</li>
+    <li>
+      inverse relationは自動materializeしない。query時にexact / close /
+      relatedは同relation、broadとnarrowは相互inverseという固定catalogで両endpointを検索するが、responseはpersisted
+      source / target / relationをrewriteせず返す。
+    </li>
+  </ul>
+
+  <h3 id="94-projection">9.4 Export Projection and Descriptor</h3>
+  <pre><code class="language-typescript">const securityVocabularyProjectionSchema = z.object({
+  version: z.literal("v1"),
+  profile: z.literal("static-intelligence-security-vocabulary-v1"),
+  generatedAt: z.string().datetime(),
+  registry: z.object({
+    authorityRegistryVersion: z.string().min(1).max(100),
+    mappingRegistryVersion: z.string().min(1).max(100),
+    normalizationVersion: z.string().min(1).max(100),
+    authorityRegistryHash: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+    mappingRegistryHash: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+    inputHash: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+  }).strict(),
+  references: z.array(resolvedVocabularyReferenceSchema).max(20_000),
+  unresolvedReferences: z.array(unresolvedVocabularyReferenceSchema).max(20_000),
+  assignments: z.array(findingVocabularyAssignmentSchema).max(25_000),
+  alignments: z.array(vocabularyAlignmentSchema).max(10_000),
+  summary: z.object({
+    findingCount: z.number().int().nonnegative(),
+    discoveredCandidateCount: z.number().int().nonnegative(),
+    processedCandidateCount: z.number().int().nonnegative(),
+    omittedCandidateCount: z.number().int().nonnegative(),
+    coveredFindingCount: z.number().int().nonnegative(),
+    unresolvedFindingCount: z.number().int().nonnegative(),
+    uncoveredFindingCount: z.number().int().nonnegative(),
+    componentConflictFindingCount: z.number().int().nonnegative(),
+    candidateAssignmentCount: z.number().int().nonnegative(),
+    referenceCount: z.number().int().nonnegative(),
+    unresolvedReferenceCount: z.number().int().nonnegative(),
+    assignmentCount: z.number().int().nonnegative(),
+    resolvedAssignmentCount: z.number().int().nonnegative(),
+    unresolvedAssignmentCount: z.number().int().nonnegative(),
+    omittedAssignmentCount: z.number().int().nonnegative(),
+    candidateAlignmentCount: z.number().int().nonnegative(),
+    alignmentCount: z.number().int().nonnegative(),
+    omittedAlignmentCount: z.number().int().nonnegative(),
+    resolvedAssignmentCountByNamespace: z.record(
+      vocabularyNamespaceSchema, z.number().int().nonnegative()
+    ),
+    assignmentCountByRole: z.record(
+      vocabularyRoleSchema, z.number().int().nonnegative()
+    ),
+  }).strict(),
+  status: z.enum(["available", "partial"]),
+  reasonCodes: z.array(vocabularyReasonCodeSchema).max(32),
+  projectionHash: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+}).strict();
+
+const securityVocabularyDescriptorSchema = z.discriminatedUnion("status", [
+  z.object({
+    version: z.literal("v1"),
+    profile: z.literal("static-intelligence-security-vocabulary-v1"),
+    status: z.enum(["available", "partial"]),
+    generationId: z.string().uuid(),
+    registryInputHash: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+    projectionHash: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+    summary: securityVocabularyProjectionSchema.shape.summary,
+    reasonCodes: z.array(vocabularyReasonCodeSchema).max(32),
+  }).strict(),
+  z.object({
+    version: z.literal("v1"),
+    profile: z.literal("static-intelligence-security-vocabulary-v1"),
+    status: z.enum(["missing", "invalid"]),
+    generationId: z.string().uuid(),
+    reasonCodes: z.array(vocabularyReasonCodeSchema).min(1).max(32),
+  }).strict(),
+]);</code></pre>
+  <p>
+    <code>staticIntelligenceExportV1Schema</code>へoptional
+    <code>securityVocabulary</code>を追加する。legacy
+    exportはfield欠落を許可し、新producerがprofile有効でpersistしたgenerationではfieldをexactly
+    1つ要求する。
+  </p>
+
+  <h3 id="95-cross-field-invariants">9.5 Cross-field Invariants</h3>
+  <ul>
+    <li>reference、unresolved reference、assignment、alignment IDはprojection内で一意である。</li>
+    <li>全assignmentのreferenceIdはresolvedまたはunresolved配列のexactly 1件を指す。</li>
+    <li>全alignment endpointはresolved referenceを指す。</li>
+    <li>
+      unresolved referenceは少なくとも1 assignment、resolved referenceは少なくとも1
+      assignmentまたはalignmentから到達可能とする。budget適用後のorphanを禁止する。
+    </li>
+    <li>assignment findingIdは同じexport graphに存在するfinding sourceIdを指す。</li>
+    <li>sourceTool / ruleIdは同じfinding nodeまたはpersisted source findingと一致する。</li>
+    <li>
+      全assignment / unresolved referenceのnormalizationVersionはprojection
+      registry.normalizationVersionと一致する。
+    </li>
+    <li>
+      fingerprintMode=source_scoped_redactionはrawIdentifierを禁止し、<code>sensitive_value_redacted</code>または<code>source_value_unsupported</code>とexactly
+      1件・sourcePaths length 1のassignmentを要求する。value_sha256はsource-scoped inputを禁止する。
+    </li>
+    <li>roleとnamespaceの組合せはprofile catalogで許可する。</li>
+    <li>
+      sourcePathsはUTF-16 code-unit順、重複なしとする。これはsource locatorなのでarray
+      indexを許可し、Claim Provenance target property pathとは別に検証する。
+    </li>
+    <li>
+      reference / assignment / alignment countとnamespace / role
+      countは配列から再計算した値と完全一致する。
+    </li>
+    <li>
+      candidateAssignmentCount = assignmentCount + omittedAssignmentCount、candidateAlignmentCount =
+      alignmentCount + omittedAlignmentCount、assignmentCount = resolvedAssignmentCount +
+      unresolvedAssignmentCountとする。
+    </li>
+    <li>discoveredCandidateCount = processedCandidateCount + omittedCandidateCountとする。</li>
+    <li>
+      candidateAssignmentCountはraw candidate budget適用・normalize / merge後かつassignment
+      budget前、candidateAlignmentCountはfinal
+      assignment集合確定後かつalignment固有budget前の値とする。
+    </li>
+    <li>
+      coveredFindingCountはresolved
+      assignmentを1件以上持つfinding、unresolvedFindingCountはresolvedを持たずunresolved
+      assignmentを1件以上持つfindingを数える。uncoveredFindingCountは残りを数え、3集合は排他的で合計がfindingCountと一致する。
+    </li>
+    <li>
+      componentConflictFindingCountはdistinct resolved versioned
+      purlを2件以上持つfindingから再計算し、1件以上ならstatus partial +
+      component_identity_conflictを要求する。
+    </li>
+    <li>zero finding exportはavailable、全count 0、reasonCodes空のprojectionを持てる。</li>
+    <li>
+      unresolved reference、deprecated assignment、component conflict、budget
+      omissionのいずれかがあればpartial + corresponding reasonを要求する。source_asserted CVE /
+      GHSAのsyntax_only validationとCPE dictionary未導入は、それだけではpartialにしない。
+    </li>
+    <li>partialは少なくとも1 reason codeを持ち、availableはreasonCodes空とする。</li>
+    <li>
+      unresolved referenceはidentifier / source /
+      parser系reasonだけ、projectionはidentifier_deprecated / component_identity_conflict / coverage
+      / budget / claim系reasonだけ、missing / invalid descriptorはrollout /
+      integrity系reasonだけを許可する。共通enumをそのまま全surfaceで受理しない。
+    </li>
+    <li>
+      registry_entry_invalid / registry_entry_conflict / registry_hash_mismatch /
+      registry_release_unsupportedはpartial projectionへ入れず、registry
+      loadまたはpublicationをinvalidにするfatal reasonとしてだけ使う。
+    </li>
+    <li>全配列はIDのUTF-16 code-unit順でcanonical sortし、duplicateを拒否する。</li>
+    <li>projectionHashはgeneratedAtとprojectionHashを除いたprojection全体から計算する。</li>
+  </ul>
+
+  <h2 id="10-authority-registry">10. Authority Registry Profile v1</h2>
+  <table>
+    <caption>
+      namespace別のcanonicalizationとinitial reference validation
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Namespace</th>
+        <th scope="col">Canonical identifier</th>
+        <th scope="col">Allowed role</th>
+        <th scope="col">Pinned basis</th>
+        <th scope="col">Reference validation</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>CWE</td>
+        <td><code>CWE-&lt;decimal&gt;</code>、leading zeroなし</td>
+        <td>weakness</td>
+        <td>CWE 4.20 minimal ID / lifecycle index</td>
+        <td>authority_snapshot</td>
+      </tr>
+      <tr>
+        <td>CVE</td>
+        <td><code>CVE-YYYY-NNNN...</code>、sequence 4〜19桁</td>
+        <td>advisory</td>
+        <td><code>cve-id-v1</code> continuous syntax profile</td>
+        <td>syntax_only</td>
+      </tr>
+      <tr>
+        <td>GHSA</td>
+        <td><code>GHSA-xxxx-xxxx-xxxx</code>、suffix lowercase</td>
+        <td>advisory</td>
+        <td><code>ghsa-id-v1</code> continuous syntax profile</td>
+        <td>syntax_only</td>
+      </tr>
+      <tr>
+        <td>CAPEC</td>
+        <td><code>CAPEC-&lt;decimal&gt;</code></td>
+        <td>attack_pattern</td>
+        <td>CAPEC 3.9 minimal ID / lifecycle index</td>
+        <td>authority_snapshot</td>
+      </tr>
+      <tr>
+        <td>OWASP Top 10</td>
+        <td><code>A01:2025</code>形式</td>
+        <td>risk_category</td>
+        <td>OWASP Top 10:2025 curated 10-entry index</td>
+        <td>authority_snapshot</td>
+      </tr>
+      <tr>
+        <td>purl</td>
+        <td>Package URL canonical string</td>
+        <td>component</td>
+        <td>purl-spec 1.0.0 + pinned parser / test corpus commit</td>
+        <td>spec_validated</td>
+      </tr>
+      <tr>
+        <td>CPE</td>
+        <td>CPE 2.3 formatted string</td>
+        <td>component</td>
+        <td>NISTIR 7695 syntax</td>
+        <td>spec_validated。dictionary membershipは未確認</td>
+      </tr>
+    </tbody>
+  </table>
+  <ul>
+    <li>
+      authority registryはprefix、canonical URI template、release、source URL、snapshot hashを持つ。
+    </li>
+    <li>
+      authorityReleaseはreference semanticsが変わるときだけ更新する。CVE / GHSAのcontinuous
+      namespaceは
+      <code>cve-id-v1</code> /
+      <code>ghsa-id-v1</code>を使い、receiptの取得時刻やdocumentation
+      commitだけではreference IDを変えない。
+    </li>
+    <li>
+      CWE / CVE / GHSA / CAPEC / OWASPのcanonical URIはallow-listed HTTPS
+      originとtemplateからだけ生成する。purlは<code>pkg:</code>
+      canonical identifier、CPEは <code>cpe:2.3:</code> formatted
+      stringをcanonical URIとして保持し、いずれもfetch対象にしない。
+    </li>
+    <li>CVE sequenceの存在確認をregexだけで主張しない。</li>
+    <li>
+      CWE /
+      CAPECはcase-insensitiveにprefixを読み、separatorはhyphen、underscore、空白だけを許容し、decimalをleading
+      zeroなしで出力する。
+    </li>
+    <li>
+      CVEはcase-insensitive入力を<code>CVE-YYYY-NNNN...</code>へ変換し、canonical
+      outputはpinned CVE Record Formatの
+      <code>^CVE-[0-9]{4}-[0-9]{4,19}$</code>を満たさなければならない。
+    </li>
+    <li>
+      GHSAはcase-insensitive入力を受けてもprefixをuppercase、suffixをlowercaseへ変換し、canonical
+      outputを<code>^GHSA(?:-[23456789cfghjmpqrvwx]{4}){3}$</code>とpinned official fixtureで検証する。
+    </li>
+    <li>OWASP Top 10:2025は<code>^A(0[1-9]|10):2025$</code>だけをresolvedにする。</li>
+    <li>
+      CPEの<code>*</code>と<code>-</code>を同一視しない。
+    </li>
+    <li>purlのversion欠落componentとversion付きcomponentをsame_dependency keyに混ぜない。</li>
+  </ul>
+
+  <h3 id="101-purl-parser-gate">10.1 Purl Parser Dependency Gate</h3>
+  <p>
+    initial candidateはofficial Package-URL
+    organizationの<code>packageurl-js</code>をexact
+    versionでpinする。導入前に、現在使うnpm、PyPI、Maven、Go、Cargo、Gemのupstream canonicalization
+    corpusをBun上で実行する。
+  </p>
+  <ul>
+    <li>supported type corpusが100% passしなければdependencyを追加しない。</li>
+    <li>
+      ecosystem aliasはsource-controlled tableでnpm→npm、PyPI→pypi、Maven→maven、Go→golang、Cargo /
+      crates.io→cargo、Gem / RubyGems→gemだけを初期許可する。unknown typeをlowercaseしただけでpurl
+      typeにしない。
+    </li>
+    <li>
+      scanner-provided purlは必ずparse / canonicalizeし、ecosystem / name /
+      versionから再構築したpurlと一致すればsourcePathsを集約する。異なる場合は両方を保持してcomponent_identity_conflictを付ける。
+    </li>
+    <li>
+      失敗時はpurlを<code>unresolved</code>として保持し、独自fallback
+      builderでresolvedを偽装しない。
+    </li>
+    <li>parserのregistry existence checkやnetwork APIはimportしない。</li>
+    <li>
+      dependency license、transitive dependency数、bundle impactをSlice 0 evidenceへ記録する。
+    </li>
+  </ul>
+
+  <h2 id="11-extraction-and-normalization">11. Extraction and Normalization Pipeline</h2>
+  <h3 id="111-source-candidates">11.1 Source Candidate Catalog</h3>
+  <table>
+    <caption>
+      initial extractorが読むpersisted field
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Source</th>
+        <th scope="col">JSON pointer / field</th>
+        <th scope="col">Role</th>
+        <th scope="col">Method</th>
+        <th scope="col">Evidence</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>risk metadata</td>
+        <td><code>/metadata/risk/cweIds/*</code></td>
+        <td>weakness</td>
+        <td>scanner_declared</td>
+        <td>source_asserted</td>
+      </tr>
+      <tr>
+        <td>risk metadata</td>
+        <td><code>/metadata/risk/advisoryAliases/*</code></td>
+        <td>advisory</td>
+        <td>scanner_declared</td>
+        <td>source_asserted</td>
+      </tr>
+      <tr>
+        <td>legacy advisory metadata</td>
+        <td>
+          <code>/metadata/advisoryId</code
+          >、<code>/metadata/vulnerabilityId</code>、
+          <code>/metadata/aliases/*</code>
+        </td>
+        <td>advisory</td>
+        <td>deterministic_identifier</td>
+        <td>source_asserted</td>
+      </tr>
+      <tr>
+        <td>rule ID</td>
+        <td><code>/ruleId</code> when CVE / GHSA syntax matches</td>
+        <td>advisory</td>
+        <td>deterministic_identifier</td>
+        <td>deterministic_projection</td>
+      </tr>
+      <tr>
+        <td>risk package purl</td>
+        <td><code>/metadata/risk/package/purl</code> when non-null</td>
+        <td>component</td>
+        <td>component_projection</td>
+        <td>deterministic_projection</td>
+      </tr>
+      <tr>
+        <td>risk package coordinates</td>
+        <td>
+          <code>/metadata/risk/package/ecosystem</code
+          >、<code>/metadata/risk/package/name</code>、<code
+            >/metadata/risk/package/version</code
+          >
+        </td>
+        <td>component</td>
+        <td>component_projection</td>
+        <td>deterministic_projection</td>
+      </tr>
+      <tr>
+        <td>legacy package coordinates</td>
+        <td>
+          <code>/metadata/ecosystem</code
+          >または<code>/metadata/type</code>、<code>/metadata/packageName</code>または<code>/metadata/package</code>、<code>/metadata/installedVersion</code>または<code
+            >/metadata/packageVersion</code
+          >
+        </td>
+        <td>component</td>
+        <td>component_projection</td>
+        <td>deterministic_projection</td>
+      </tr>
+      <tr>
+        <td>curated mapping registry</td>
+        <td>
+          <code>/sourceTool</code> +
+          <code>/ruleId</code>、exact registry item
+        </td>
+        <td>entry-defined</td>
+        <td>registry_curated</td>
+        <td>registry_curated</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    <code>*</code>は実装上のarray indexを表すが、persisted
+    assignmentのsourcePathsには実際のindexを入れる。source valueの順序はraw
+    evidenceであり、reference identityのhash inputには含めない。
+  </p>
+
+  <h3 id="112-precedence-and-conflict">11.2 Precedence and Conflict</h3>
+  <p>
+    extractorはcatalogに列挙したpointerだけを読み、1 findingあたり512 candidates、1 projection /
+    grouping runあたり100,000 candidatesを上限とする。finding ID、catalog order、array
+    indexの順で選び、超過分は値をmaterialize / hashせずcountだけ加算して
+    <code>candidate_budget_exceeded</code>でpartialにする。
+  </p>
+  <ol>
+    <li>同じfinding内のcandidateをsource pointer付きで全件抽出する。</li>
+    <li>
+      catalog対象valueにcanonical source pointerを作れない場合はunresolvedへ偽装せずprojection build
+      errorにする。
+    </li>
+    <li>各candidateをnamespace-specific normalizerへ渡す。</li>
+    <li>resolved / unresolvedをdeduplicateせずsource assignmentとして保持する。</li>
+    <li>
+      同一finding / role / reference / method / evidence /
+      mappingEntryIdへの複数sourceは複数assignmentにせず、最大16件の
+      sourcePathsへcanonical集約する。
+    </li>
+    <li>
+      registry mappingとscanner-declared
+      valueが異なるreferenceを示しても、role上複数値を持てるため自動的にconflict扱いせず、両assignmentをsource別に保持する。
+    </li>
+    <li>
+      同一referenceでもmethod / evidence /
+      mappingEntryIdが異なれば別assignmentを維持し、curated値でscanner値を上書きしない。
+    </li>
+    <li>
+      例外として同一findingにdistinct resolved versioned
+      purlが複数ある場合はcomponent_identity_conflictを付け、どれもsame_dependency /
+      finding-dedupe-v2へ使わない。
+    </li>
+  </ol>
+  <p>
+    sourcePathsが16件を超える場合はcanonical
+    sort後の先頭16件をassignmentへ保持し、projectionをpartialにして
+    <code>source_path_budget_exceeded</code>を付ける。Claim Provenance recordでは完全なsource
+    pointer集合へcommitするreference setを使い、assignment valueとlineageのsource
+    coverageを別々に検証する。
+  </p>
+  <p>
+    raw valueのliteral / value-derived hash判定は、最大depth 8、256 container entries、各string
+    4,096 UTF-16 code units、canonical JSON UTF-8 8 KiBのbounded
+    traversal内で行う。上限超過、cycle、non-plain object、unsupported scalarは値をhashせず<code
+      >source_scoped_redaction</code
+    >
+    + <code>source_value_unsupported</code>へ送る。bounded valueでもsensitive key / token
+    pattern検査をcanonical hashより先に行う。
+  </p>
+
+  <h2 id="12-mapping-registry-lifecycle">12. Mapping Registry Lifecycle</h2>
+  <h3 id="121-registry-shape">12.1 Registry Shape</h3>
+  <ul>
+    <li>
+      entry keyはexact <code>sourceTool</code> + exact
+      <code>ruleId</code>である。
+    </li>
+    <li>
+      tool / rule entry配下の各assignment / alignment itemが固有mappingEntryIdを持つ。1つのtool /
+      rule entry全体へ同じIDを使い回さない。
+    </li>
+    <li>regex、glob、substring mappingはprofile v1で禁止する。</li>
+    <li>
+      registryはmappingRegistryVersionを、各entryはowner、reviewer、reviewedAt、evidenceRefsを持つ。
+    </li>
+    <li>
+      evidenceRefsはallow-listed HTTPS URLまたはrepository-relative fixture refだけを許可する。
+    </li>
+    <li>
+      fixture refは<code>fixture:&lt;canonical-posix-path&gt;#&lt;case-id&gt;</code>形式とし、absolute
+      path、<code>..</code>、空segmentを拒否してCIで存在確認する。
+    </li>
+    <li>entryはassignmentとoptional concept alignmentを別配列に持つ。</li>
+    <li>
+      alignmentはmethodがsource_declaredでも必ずreview済みregistry
+      entryを経由する。このmethodはevidence sourceがrelationを明示したことを表し、raw
+      findingから無審査でalignmentを生成する許可ではない。
+    </li>
+    <li>
+      1 entryはreview済みの複数targetを最大16件まで持てる。同じsourceTool /
+      ruleIdのentry重複、同一semantic assignment / alignment重複、同じmappingEntryIdで異なるsemantic
+      payloadはregistry load時に拒否する。
+    </li>
+  </ul>
+
+  <h3 id="122-review-and-release">12.2 Review and Release</h3>
+  <ol>
+    <li>mapping candidateと代表raw fixtureをPRへ追加する。</li>
+    <li>schema、duplicate、authority membership、negative fixtureをCIで検証する。</li>
+    <li>security normalization owner以外のreviewer 1名がrelationとroleを確認する。</li>
+    <li>canonical JSON hashを更新し、semantic versionを上げる。</li>
+    <li>baseline corpusでassignment diffとcommunity diffを生成する。</li>
+    <li>unexpected mergeまたはexact relation増加があればreleaseを停止する。</li>
+  </ol>
+  <p>
+    owner / reviewer / evidenceRefsだけが変わりmapping semanticsが同じ場合もmappingRegistryVersion /
+    hashを更新するが、mappingEntryIdは維持する。既存generationを再解釈せず、新generationでのみ新hashを使う。
+  </p>
+
+  <h3 id="123-authority-update-job">12.3 Authority Snapshot Maintenance</h3>
+  <ul>
+    <li>maintenance commandは明示実行のみとし、application buildやqueryから呼ばない。</li>
+    <li>
+      download URL、取得時刻、HTTP metadata、raw sha256、parser version、output index
+      hashをreceiptへ記録する。
+    </li>
+    <li>
+      minimal indexはidentifier、lifecycle、canonical label hashだけを含み、full
+      descriptionを含めない。
+    </li>
+    <li>release diffでadded、deprecated、removed、status-changed countを出す。</li>
+    <li>
+      receipt / label hash / lifecycleだけの変更はauthorityRegistryVersion /
+      hashを更新する。authority semantic releaseが同じなら既存resolved reference IDは維持する。
+    </li>
+    <li>
+      removed identifierを即dropせず、新snapshotでdeprecated / unresolvedになる影響をreviewする。
+    </li>
+  </ul>
+
+  <h2 id="13-export-and-builder-architecture">13. Export and Builder Architecture</h2>
+  <h3 id="131-public-functions">13.1 Public Functions</h3>
+  <pre><code class="language-typescript">loadSecurityVocabularyRegistry(): LoadedSecurityVocabularyRegistry
+
+extractFindingVocabularyCandidates(finding): VocabularyCandidate[]
+
+normalizeVocabularyCandidate(candidate, registry):
+  | ResolvedVocabularyReference
+  | UnresolvedVocabularyReference
+
+buildSecurityVocabularyProjection({
+  bundle, registry, generatedAt,
+  claimCapacity: { recordSlots, bindingSlots }
+}): {
+  projection: SecurityVocabularyProjection;
+  provenanceDraft: VocabularyProvenanceDraft;
+}
+
+validateSecurityVocabularyProjection({ projection, exportPayload, registry }):
+  SecurityVocabularyValidationResult
+
+buildVocabularyRiskCommunities({ exportPayload, projection }): RiskCommunity[]
+</code></pre>
+  <ul>
+    <li>projectionとprovenance draftを同じpassで作り、後からsource fieldを推測しない。</li>
+    <li>normalizerはpureで、clock、network、DB、process environmentへ依存しない。</li>
+    <li>registryはbuild開始時に1回loadし、1 generation内でhot reloadしない。</li>
+    <li>projection generatedAtはexport generatedAtと一致させる。</li>
+  </ul>
+  <ol>
+    <li>
+      core graph / module payloadとpreceding Claim v1 draftを作り、v1 record /
+      binding予定数を確定する。
+    </li>
+    <li>
+      100,000上限の残存capacityをvocabulary builderへ渡し、assignment / alignmentとv2
+      draftを同時生成する。
+    </li>
+    <li>securityVocabularyをexportへattachし、projectionHashの後にexportHashを確定する。</li>
+    <li>
+      persisterのsource-state検証とgeneration ID確定後、v1 + vocabulary draftをprofile v2
+      ledgerとしてfinalizeする。
+    </li>
+  </ol>
+  <p>
+    exportはledgerHashを含まず、ledger
+    metadataだけがexportHashを参照する一方向依存にする。exportHashとledgerHashの循環参照を作らない。
+  </p>
+
+  <h3 id="132-export-placement">13.2 Export Placement</h3>
+  <ul>
+    <li><code>StaticIntelligenceExportV1.securityVocabulary</code>へprojectionを置く。</li>
+    <li>graph node metadata、file risk entry、finding titleへ同じreference配列を複製しない。</li>
+    <li>
+      vocabulary material builderはexport内のprojectionだけを読み、raw finding
+      metadataを再normalizeしない。
+    </li>
+    <li>
+      public community / landscape / agent query / guardrail callerはcommon publication
+      resolverがavailable / partialを返す場合だけvocabulary
+      materialをmergeする。fieldの存在だけで有効化しない。
+    </li>
+    <li>
+      shadow diff evaluatorだけがunpublished projectionを直接読み、結果をpublic response / manifest
+      / promptへ渡さない。
+    </li>
+    <li>
+      persisted shadow
+      exportは内部artifactとしてprojectionを含むが、<code>intelligence:export</code>、agent
+      export、download / read-model responseはcommon
+      resolverから公開用viewを作る。publishEnabled=falseでは
+      <code>securityVocabulary</code>を省いたlegacy-compatible payloadを返し、出力file
+      hashはその公開bytesから再計算する。
+    </li>
+    <li>
+      generation repositoryのraw payloadをpublic callerへ直接返さず、shadow
+      evaluatorとvalidatorだけがunpublished fieldを読める。
+    </li>
+    <li>live export pathはrollout modeに従いprojectionを作るが、revision-backedとは表示しない。</li>
+    <li>persisted generation queryだけがgeneration IDとClaim Provenance descriptorを返す。</li>
+  </ul>
+
+  <h3 id="133-budget-policy">13.3 Budget and Partial Policy</h3>
+  <ul>
+    <li>
+      raw candidateはper finding 512、per build 100,000を上限とし、assignment
+      budgetより先に適用する。
+    </li>
+    <li>
+      resolved references 20,000、unresolved references 20,000、assignments 25,000、alignments
+      10,000を上限とする。
+    </li>
+    <li>
+      assignmentのeffective上限は25,000、Claim Provenance v2 base ledgerの残存record
+      slots、残存binding
+      slotsの最小値とする。assignment選択後の残存slotsをalignmentへ割り当て、各objectからexactly 1
+      record + 1 whole-object bindingを作る。
+    </li>
+    <li>securityVocabulary envelopeのserialized sizeを4 MiB以下にする。</li>
+    <li>per finding assignment上限は32、per registry rule mapping上限は16とする。</li>
+    <li>truncationでraw finding、core graph、file risk、既存communityを削らない。</li>
+    <li>
+      same_* communityはprojectionに残った完全なassignmentだけから作り、欠落coverageをdegraded
+      reasonへ伝播する。
+    </li>
+  </ul>
+  <ol>
+    <li>
+      raw candidate budget内のsource candidateをnormalizeし、同一finding / role / reference / method
+      / evidence / mappingEntryIdのsourcePathsを集約する。
+    </li>
+    <li>finding ID、role、reference ID、method、assignment ID順へ並べる。</li>
+    <li>
+      per-finding 32、Claim record / binding capacity、total assignment 25,000の順に適用する。
+    </li>
+    <li>
+      残ったassignmentからresolved / unresolved
+      referenceを導出し、各20,000上限を超えるassignmentを後方から決定的に除外する。
+    </li>
+    <li>
+      assignment済みresolved referenceを少なくとも一方のendpointに持つregistry alignmentだけを1
+      hop抽出する。transitive closureは作らず、alignment / reference上限と残存Claim record / binding
+      slots内で選ぶ。
+    </li>
+    <li>orphan referenceを除去し、summaryとClaim draftを再計算する。</li>
+    <li>
+      size gateではまずalignmentなしで4 MiBに収まる最大canonical assignment prefixをbinary
+      searchし、そのassignment集合からeligible alignmentを再導出して、残容量へ収まる最大canonical
+      alignment prefixをbinary searchする。各trialでorphan、summary、Claim draftを再計算する。
+    </li>
+  </ol>
+  <p>
+    どの段階でも除外が発生したらomitted countとtyped reasonを残しstatusをpartialにする。4
+    MiBを満たすzero-assignment envelopeも作れない場合はprojection build failureとし、oversized
+    payloadをpersistしない。
+  </p>
+
+  <h2 id="14-community-and-grouping-policy">14. Community and Finding Grouping Policy</h2>
+  <h3 id="141-risk-community">14.1 Risk Community Eligibility</h3>
+  <table>
+    <caption>
+      新basisの生成条件
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Basis</th>
+        <th scope="col">Exact key</th>
+        <th scope="col">Minimum</th>
+        <th scope="col">Confidence</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>same_cwe</code></td>
+        <td>resolved CWE reference ID</td>
+        <td>2 findings</td>
+        <td>medium、candidate only</td>
+      </tr>
+      <tr>
+        <td><code>same_cve</code></td>
+        <td>resolved CVE reference ID</td>
+        <td>2 findings</td>
+        <td>
+          high when every finding has at least one source_asserted or registry_curated
+          assignment、otherwise medium
+        </td>
+      </tr>
+      <tr>
+        <td><code>same_dependency</code></td>
+        <td>spec-validated versioned purl reference ID</td>
+        <td>2 findings</td>
+        <td>high</td>
+      </tr>
+    </tbody>
+  </table>
+  <ul>
+    <li>unresolvedまたはlifecycle=deprecatedのassignmentからcommunityを作らない。</li>
+    <li>
+      profile v1ではexactを含むconcept alignmentをcommunity
+      membership拡張へ使わず、query表示だけに使う。
+    </li>
+    <li>versionなしpurlはsame_dependencyへ使わない。</li>
+    <li>component_identity_conflictを持つfindingはsame_dependencyから除外する。</li>
+    <li>CWE communityは同じissueを意味せず、candidateOnlyを維持する。</li>
+    <li>
+      vocabulary candidateは全legacy candidate
+      builderの後に追加する。finding集合が同じ場合はbasisをmergeし、legacy community ID /
+      titleを必ず維持する。
+    </li>
+    <li>
+      vocabulary-only community
+      IDは<code>community:vocabulary:&lt;basis&gt;:&lt;hash&gt;</code>とし、hashをreference ID + sorted finding
+      IDsから作る。複数vocabulary basisが同じ集合ならprofile basis order先頭のID / titleを維持する。
+    </li>
+    <li>initial community titleはcanonical identifierだけから作り、external labelを要求しない。</li>
+  </ul>
+
+  <h3 id="142-finding-dedupe-v2">14.2 Finding Dedupe v2</h3>
+  <p>
+    Finding Groupingはscan完了後にraw findingから独立してsnapshotを作るため、Static Intelligence
+    generationやそのexportを入力にしない。v2 runnerは同じsecurity vocabulary registry loaderとpure
+    normalizerをgrouping run開始時に1回だけ呼び、run中は固定した入力から最小dedupe
+    identityを投影する。
+  </p>
+  <pre><code class="language-typescript">type FindingDedupeIdentityV2 = {
+  version: 2;
+  issueKind: FindingIssueKind;
+  assetKey: string | null;
+  location: FindingDedupeLocation;
+  familyKeys: string[];
+  packageKey: string | null; // representative ranking / display only
+  anchor: string | null;
+  advisoryAssignments: Array&lt;{
+    referenceId: string;
+    namespace: "cve" | "ghsa";
+    identifier: string;
+    evidence: "source_asserted" | "registry_curated";
+  }&gt;;
+  component: {
+    status: "resolved" | "missing" | "invalid" | "versionless" | "conflict" | "incomplete";
+    referenceId: string | null; // resolved時だけversioned purl reference
+  };
+  registryInputHash: `sha256:${string}`;
+  normalizationVersion: string;
+  limitations: string[];
+};</code></pre>
+  <pre><code class="language-typescript">ensureCurrentDeterministic(scanRunId): Promise&lt;GroupingSnapshotResult&gt;
+// existing public v1 path; unchanged during shadow
+
+ensureVocabularyV2Shadow(scanRunId): Promise&lt;GroupingShadowComparisonResult&gt;
+// loads one registry context, builds/reuses a separate v2 run, compares with v1
+
+ensureSelectedDeterministic(scanRunId, sourceControlledSelection):
+  Promise&lt;GroupingSnapshotResult&gt;
+// promotion後だけv2をpublic selectionに使う; request/env overrideは禁止</code></pre>
+  <ul>
+    <li>
+      <code>GROUPING_ALGORITHM_VERSION</code
+      >を上書きせず、<code>finding-dedupe-v2</code>を追加する。
+    </li>
+    <li>v1 snapshotは読み続け、v2 runは別immutable snapshotとして保存する。</li>
+    <li>
+      advisoryAssignmentsはreferenceId / evidence順のunique配列とし、identifierは同じregistry
+      contextで解決したcanonical CVE / GHSAと一致させる。componentはstatus=resolvedのときだけpurl
+      referenceIdを持ち、それ以外はnullとする。
+    </li>
+    <li>
+      component resolvedは全component candidateが同じversioned
+      purlへ解決した場合、versionlessは同じvalid versionless
+      purlだけの場合、missingはcandidateなし、invalidはcandidateがあるがvalid
+      purlなし、conflictはdistinct / valid-invalid混在、incompleteはcandidate
+      budgetで完全性を確認できない場合とする。
+    </li>
+    <li>
+      v2のfinding set hashはsorted raw finding
+      projection、<code>finding-dedupe-v2</code>、registry input hash、normalization
+      versionから作る。同じraw findingでもregistry inputが変われば別run
+      identityになり、旧snapshotを再利用しない。
+    </li>
+    <li>
+      <code>finding_grouping_runs.vocabulary_registry_input_hash</code>へv2のregistry input
+      hashを保存し、v1はnullとする。v2 create / current lookup / wait /
+      publishの全経路で、列値とfinding set hashへ入れた値の一致を検証する。
+    </li>
+    <li>
+      v2 comparison hashは両FindingDedupeIdentityV2を、v2 snapshot hashはalgorithm version、finding
+      set hash、registry input hash、canonical groupsを含む。v1のcomparison / snapshot
+      hash関数と既存値は変更しない。
+    </li>
+    <li>
+      dependency exact mergeはshared resolved CVE / GHSA
+      advisory、両assignmentのevidenceがsource_assertedまたはregistry_curated、same exact
+      spec-validated versioned purlを同時に要求する。
+    </li>
+    <li>
+      v2 engineはissueKind=dependencyをgeneric assetKey判定より先に分岐し、legacy packageKey /
+      manifest assetをmerge条件にしない。packageKeyはrepresentative ranking /
+      display専用とする。dependency以外はassetKey、location、familyKeys、packageKey、anchorを使うv1
+      pair policyへ委譲し、同じraw finding pairのverdict / confidence / reasonを維持する。
+    </li>
+    <li>
+      v2 minimal projectorも11.2のcandidate / raw
+      value上限を使う。上限超過でadvisoryまたはcomponentの完全性を証明できないpairはdifferentではなくambiguousにする。
+    </li>
+    <li>
+      purlがない、versionがない、parseできない、またはadvisory
+      evidenceがdeterministic_projectionだけの場合、v2 verdictはambiguousとする。現行asset key +
+      advisory fallbackはv1 snapshotだけに残す。
+    </li>
+    <li>component_identity_conflictがあるpairもv2 verdictをambiguousにする。</li>
+    <li>CWE、CAPEC、OWASP、close / broad / narrow / related alignmentはmerge判断へ使わない。</li>
+    <li>
+      v1とv2のgroup count / pair verdict diffをshadowで測り、unexpected merge 0をpromotion
+      gateにする。
+    </li>
+    <li>
+      registry loadがcontext確定前に失敗した場合はv2
+      runを作らず、<code>v2_registry_unavailable</code>のshadow outcome /
+      metricだけを記録する。run作成後のidentity projection /
+      publish失敗はrunをfailedにする。必要identity不足のpairだけをambiguousにし、これらを混同しない。
+    </li>
+    <li>
+      shadow失敗はv1 snapshotの生成・選択・公開へ影響させない。promotion後はv2
+      unavailableを明示し、v1へ暗黙fallbackしない。
+    </li>
+  </ul>
+
+  <h2 id="15-identity-hash-and-provenance">15. Identity, Hash, and Claim Provenance</h2>
+  <h3 id="151-identity">15.1 Identity Inputs</h3>
+  <ul>
+    <li>reference IDへgeneratedAt、finding ID、source orderを含めない。</li>
+    <li>resolved reference IDはnamespace、canonical identifier、authority key / releaseを含む。</li>
+    <li>
+      unresolved reference IDはrawNamespaceHash、fingerprintMode、rawValueFingerprint、sorted reason
+      codes、normalization version、authority key / semantic releaseを含む。unknown
+      namespaceは固定sentinelを使う。source_scoped_redactionだけはfingerprintの入力を通じてfinding
+      ID / source pathへscopeする。
+    </li>
+    <li>
+      assignment IDはfinding ID、role、reference ID、method、evidence、normalization
+      versionを含む。registry_curatedの場合だけmappingEntryIdも含める。
+    </li>
+    <li>
+      alignment IDはnormalized source / target endpoint、relation、method、mappingEntryIdを含む。
+    </li>
+    <li>
+      exact / close / relatedのsymmetric relationはreference IDの辞書順へendpointを正規化する。broad
+      / narrowは方向を保持し、reverse duplicateをinverse catalogで拒否する。
+    </li>
+    <li>全hashは<code>shared/canonical-json.ts</code>とsha256を使う。</li>
+    <li>
+      normalizationVersionはcanonicalization規則とparser adapterのsource-controlled
+      profileであり、unrelated mapping
+      entry更新では変えない。出力意味が変わるときだけversionを上げる。
+    </li>
+    <li>
+      registry input hashはauthorityRegistryVersion / hash、mappingRegistryVersion /
+      hash、normalizationVersionのcanonical objectから作る。
+    </li>
+  </ul>
+
+  <h3 id="152-claim-profile-v2">15.2 Claim Provenance Profile v2</h3>
+  <p>
+    profile
+    v1はimmutableのまま残し、<code>static-intelligence-claim-provenance-v2</code>を新設する。v2はv1のrequired
+    target / ruleを包含し、次を追加する。
+  </p>
+  <ul>
+    <li>
+      target kinds: <code>vocabulary_assignment</code>、<code
+        >vocabulary_alignment</code
+      >
+    </li>
+    <li>
+      reference kinds:
+      <code>vocabulary_reference</code
+      >、<code>vocabulary_registry</code>、<code>vocabulary_assignment</code>、<code
+        >vocabulary_alignment</code
+      >
+    </li>
+    <li>
+      target refs: <code>vocabulary_assignment:&lt;assignmentId&gt;</code>、<code
+        >vocabulary_alignment:&lt;alignmentId&gt;</code
+      >
+    </li>
+    <li>
+      input
+      refsは<code>vocabulary_reference:&lt;referenceId&gt;</code>と<code>vocabulary_registry:&lt;authority|mapping&gt;:&lt;hash&gt;</code>形式に固定し、registry
+      refはcontentHash必須とする。
+    </li>
+    <li>各vocabulary assignmentにrecord 1件とrequired whole-object binding 1件を追加する。</li>
+    <li>
+      各vocabulary alignmentにもmapping receiptをsourceとするrecord 1件とrequired whole-object
+      binding 1件を追加する。
+    </li>
+    <li>
+      <code>/referenceId</code
+      >、<code>/role</code>、<code>/method</code>のproperty-level
+      bindingはprofile v2のrequired setへ含めず、whole-object value hashから検証する。
+    </li>
+    <li>
+      rule IDs:
+      <code>static_intelligence.vocabulary.scanner_declared.v1</code>、 <code>static_intelligence.vocabulary.registry_curated.v1</code>、
+      <code>static_intelligence.vocabulary.identifier_normalization.v1</code>、
+      <code>static_intelligence.vocabulary.component_projection.v1</code>
+    </li>
+    <li>
+      alignment rule IDs:
+      <code>static_intelligence.vocabulary.alignment.source_declared.v1</code>、
+      <code>static_intelligence.vocabulary.alignment.registry_curated.v1</code>
+    </li>
+    <li>
+      query-time community projection rules:
+      <code>static_intelligence.community.same_cwe.v1</code>、 <code>static_intelligence.community.same_cve.v1</code>、
+      <code>static_intelligence.community.same_dependency.v1</code>
+    </li>
+  </ul>
+  <table>
+    <caption>
+      Claim v2 vocabulary rule mapping
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Object / method</th>
+        <th scope="col">Assertion kind</th>
+        <th scope="col">Rule</th>
+        <th scope="col">Required inputs</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>assignment / scanner_declared</td>
+        <td>deterministic_derived</td>
+        <td><code>static_intelligence.vocabulary.scanner_declared.v1</code></td>
+        <td>finding row、exact source pointer、authority release</td>
+      </tr>
+      <tr>
+        <td>assignment / deterministic_identifier</td>
+        <td>deterministic_derived</td>
+        <td><code>static_intelligence.vocabulary.identifier_normalization.v1</code></td>
+        <td>finding row、exact source pointer、normalization profile</td>
+      </tr>
+      <tr>
+        <td>assignment / component_projection</td>
+        <td>deterministic_derived</td>
+        <td><code>static_intelligence.vocabulary.component_projection.v1</code></td>
+        <td>finding package fields、exact source pointers、purl profile</td>
+      </tr>
+      <tr>
+        <td>assignment / registry_curated</td>
+        <td>deterministic_derived</td>
+        <td><code>static_intelligence.vocabulary.registry_curated.v1</code></td>
+        <td>finding tool / rule、mapping receipt、authority release</td>
+      </tr>
+      <tr>
+        <td>alignment / source_declared</td>
+        <td>deterministic_derived</td>
+        <td><code>static_intelligence.vocabulary.alignment.source_declared.v1</code></td>
+        <td>mapping receipt、source evidence、both endpoints</td>
+      </tr>
+      <tr>
+        <td>alignment / registry_curated</td>
+        <td>deterministic_derived</td>
+        <td><code>static_intelligence.vocabulary.alignment.registry_curated.v1</code></td>
+        <td>mapping receipt、review evidence、both endpoints</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    vocabulary recordのsourceRefsはfinding rowと、curated mappingの場合だけregistry
+    receiptを持つ。inputRefsはsource JSON pointerとauthority release refを持つ。raw metadata
+    bodyやfull registry entryをledgerへコピーしない。
+  </p>
+  <p>
+    全vocabulary
+    recordはdeterministic_derivedとし、inputRefsを1件以上要求する。confidenceは付けず、coverageは参照したsource
+    pointer / mapping
+    evidence集合が完全ならcomplete、reference_setへcommitできない場合だけpartialとする。
+  </p>
+  <p>
+    base ledgerの100,000 record / 100,000 binding上限に対し、persist前に既存v1
+    countへassignmentとalignmentそれぞれ1件あたりrecord 1件 + whole-object binding
+    1件を加えて検査する。assignmentを先に選択し、alignmentは残存capacity内で選ぶ。超過分は決定的に切り詰めてprojectionをpartialにし、persistしたassignment
+    / alignmentについてrecordまたはrequired binding欠落が1件でもあればpublishしない。
+  </p>
+  <p>
+    same_cwe / same_cve / same_dependency community lineageはpreceding planどおりbase
+    ledgerへ入れず、community responseのClaim Provenance query-time
+    projectionへ追加する。projectionの2,000 record / 2,000 binding上限を超えてもbase
+    ledgerやvocabulary descriptorを変更せず、community lineageだけをpartial +
+    query_truncatedにする。
+  </p>
+  <p>
+    capacity計算とtruncationはprojectionHash / exportHashを確定する前のbuild
+    phaseで行う。persisterは完成済みprojectionを追加で切り詰めず、planned assignment / alignment /
+    record / binding countとfinal ledger countの不一致をintegrity failureとして拒否する。
+  </p>
+
+  <h3 id="153-provenance-gate">15.3 Provenance Gate</h3>
+  <ul>
+    <li>Claim Provenance v2 readerがない環境ではvocabulary writerをoffのままにする。</li>
+    <li>
+      shadow buildはpure projectionを評価できるが、revision-backed descriptorをpublishしない。
+    </li>
+    <li>
+      publishEnabled=trueはvalid v2 ledgerと、budget適用後にpersistした全vocabulary assignment /
+      alignmentに対するrequired binding coverage 100%を要求する。raw candidate coverage
+      100%を意味しない。
+    </li>
+    <li>
+      vocabulary partialだけで既存v1 ledgerをinvalidにしない。v2 capabilityだけをpartialにする。
+    </li>
+    <li>v2 ledgerを1件でもpersistした後はv1-only provenance readerへrollbackしない。</li>
+  </ul>
+
+  <h2 id="16-generation-and-rollout">16. Generation Lifecycle and Rollout</h2>
+  <h3 id="161-reader-first">16.1 Reader-first Compatibility</h3>
+  <p>
+    現行generation loaderはexport JSONをZod parseした後にexport hashを再計算する。旧schemaはunknown
+    fieldをstripするため、新writerが<code>securityVocabulary</code>を追加すると旧readerはhash
+    mismatchとしてgenerationを拒否する。このためoptional fieldでもreader-first releaseが必須である。
+  </p>
+  <ol>
+    <li>
+      new readerがoptional envelopeをparse・保持し、legacy exportも同じhashで読めるようにする。
+    </li>
+    <li>writer offのままreaderをproductionへdeployする。</li>
+    <li>rollback floorのversion / commitをrelease evidenceへ記録する。</li>
+    <li>その後だけwriter shadowを有効化する。</li>
+  </ol>
+
+  <h3 id="162-metadata-marker">16.2 Generation Marker</h3>
+  <ul>
+    <li>
+      vocabulary-enabled generationの全artifact metadata
+      <code>summary.securityVocabularyProfile</code>へprofile名を置く。
+    </li>
+    <li>
+      <code>summary.securityVocabularyRegistryInputHash</code>と <code>summary.securityVocabularyProjectionHash</code>、
+      <code>summary.securityVocabularyAssignmentCount</code>、
+      <code>summary.securityVocabularyAlignmentCount</code>をscalarで置く。
+    </li>
+    <li>Claim Provenance artifactがあるgenerationでは、そのmetadataも同じmarkerを持つ。</li>
+    <li>markerなし + export fieldなしはlegacyとしてvalidである。</li>
+    <li>
+      marker / export field / registry input hash / projection hash / artifact generation
+      identityの不一致はinvalidにする。
+    </li>
+    <li>
+      <code>sourceStateHash</code>へregistry input hashを混ぜず、別input
+      hashとして検証する。
+    </li>
+  </ul>
+
+  <h3 id="163-rollout-matrix">16.3 Rollout State Matrix</h3>
+  <table>
+    <caption>
+      source-controlled rollout state
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">projectionMode</th>
+        <th scope="col">publishEnabled</th>
+        <th scope="col">Generation behavior</th>
+        <th scope="col">Wire behavior</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>off</td>
+        <td>false</td>
+        <td>legacy export、内部buildなし</td>
+        <td>legacy wire</td>
+      </tr>
+      <tr>
+        <td>shadow</td>
+        <td>false</td>
+        <td>projectionをpersistし、v2 provenanceを検証する</td>
+        <td>全public surfaceはlegacy behavior、shadow evaluatorだけがdiffを記録する</td>
+      </tr>
+      <tr>
+        <td>required</td>
+        <td>false</td>
+        <td>projectionまたはv2 lineage失敗時にnew generationを拒否する</td>
+        <td>全public surfaceはlegacy behavior、build evidenceだけを記録する</td>
+      </tr>
+      <tr>
+        <td>required</td>
+        <td>true</td>
+        <td>valid projection + v2 provenanceを必須化する</td>
+        <td>descriptor、bundle、query、新communityを公開する</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    <code>projectionMode=off</code
+    >または<code>shadow</code>でpublishEnabled=trueはinvalid
+    configurationとして起動時に拒否する。rollout stateは環境変数やrequest
+    parameterではなくsource-controlled typed constantとtest injectionで管理する。
+  </p>
+  <p>
+    projectionMode=shadow / requiredはClaim Provenance artifactMode=requiredかつprofile v2
+    reader有効を要求する。条件を満たさないcross-profile combinationは起動時に拒否し、vocabulary
+    fieldだけを含む3-artifact generationへfallbackしない。
+  </p>
+
+  <h2 id="17-readiness-and-publication">17. Readiness and Publication</h2>
+  <h3 id="171-readiness">17.1 Readiness</h3>
+  <p>
+    <code>StaticIntelligenceReadiness</code>へoptional
+    <code>securityVocabulary</code>
+    capabilityを追加する。publishEnabled=falseではpublic build resultとlegacy manifestから省略する。
+  </p>
+  <table>
+    <caption>
+      capability status
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Condition</th>
+        <th scope="col">Status</th>
+        <th scope="col">Reason</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>projection / registry / v2 lineage valid、budget内</td>
+        <td>available</td>
+        <td>none</td>
+      </tr>
+      <tr>
+        <td>unresolved、deprecated、budget truncationあり</td>
+        <td>degraded</td>
+        <td>typed reason codes</td>
+      </tr>
+      <tr>
+        <td>legacy / rollout off</td>
+        <td>missing</td>
+        <td>rollout_disabledまたはprojection missing</td>
+      </tr>
+      <tr>
+        <td>hash、generation、registry、Claim profile mismatch</td>
+        <td>failed</td>
+        <td>integrity reason</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    vocabulary degradedだけでexisting core generation status、scanSummary degradedReasons、finding
+    severity、existing handoff validation statusを変えない。publishEnabled=true時のtop-level build
+    stageだけがpartialになり得る。
+  </p>
+
+  <h3 id="172-publication-resolver">17.2 Common Publication Resolver</h3>
+  <pre><code class="language-typescript">resolveSecurityVocabularyPublication({ generation }):
+  PublishedSecurityVocabularyView
+// source-controlled publishEnabledだけを読み、request inputでoverrideできない
+
+evaluateSecurityVocabularyShadow({ generation }):
+  InternalSecurityVocabularyEvaluation
+// build / qualification call siteだけへexportし、public router / CLIからimportしない</code></pre>
+  <ol>
+    <li>generation loaderがartifact / export hashとmetadata markerを検証する。</li>
+    <li>
+      vocabulary validatorがregistry input hash、projection hash、reference
+      graph、summaryを検証する。
+    </li>
+    <li>
+      Claim Provenance publication resolverがprofile v2とassignment / alignment value
+      hashを検証する。
+    </li>
+    <li>
+      common resolverがinternal descriptor stateをavailable / partial / missing /
+      invalidへ確定し、readinessへは既存enumへ写像する。
+    </li>
+    <li>
+      public resolverはpublishEnabled=falseなら、内部validation結果にかかわらずmissing +
+      rollout_disabledとlegacy-compatible export viewを返す。shadow
+      evaluatorだけが内部stateを観測する。
+    </li>
+    <li>
+      manifest、ontology handoff、public export / read model、vocabulary query、community
+      queryは同じresolver resultを再利用する。
+    </li>
+  </ol>
+  <p>surfaceごとにregistryをreloadしたり、statusを再判定したりしない。</p>
+
+  <h3 id="173-manifest-placement">17.3 Manifest and Handoff Placement</h3>
+  <ul>
+    <li>
+      knowledge source manifestへoptional
+      <code>securityVocabulary</code> descriptorを追加する。
+    </li>
+    <li>ontology handoffへ同じdescriptorを追加する。</li>
+    <li>manifest contentHashはdescriptorを含むが、projection配列やcatalog indexを含めない。</li>
+    <li>
+      available / partial時だけ<code>security_vocabulary_query</code> bundleを追加する。
+    </li>
+    <li>
+      bundle commandはscan run IDとgeneration IDを固定し、query focusだけをplaceholderにする。
+    </li>
+    <li>live exportまたはgeneration optionなしのmanifestではdescriptorを省略する。</li>
+  </ul>
+
+  <h2 id="18-query-contract">18. Read-only Query Contract</h2>
+  <h3 id="181-input">18.1 Input</h3>
+  <pre><code class="language-typescript">const securityVocabularyQueryInputSchema = z.object({
+  scanRunId: z.string().min(1),
+  generationId: z.string().uuid(),
+  focus: z.discriminatedUnion("kind", [
+    z.object({ kind: z.literal("finding"), findingId: z.string().uuid() }).strict(),
+    z.object({
+      kind: z.literal("reference"),
+      namespace: vocabularyNamespaceSchema,
+      identifier: z.string().min(1).max(2_000),
+    }).strict(),
+  ]),
+  includeAlignments: z.boolean().default(false),
+  limit: z.number().int().min(1).max(200).default(100),
+  cursor: z.string().max(512).optional(),
+}).strict();</code></pre>
+  <ul>
+    <li>exactly one focusを要求し、free-text queryを受けない。</li>
+    <li>
+      reference focusは対象generationのnormalizationVersionに対応するpure syntax
+      normalizerでcanonicalizeし、namespace + canonical
+      identifierをprojection内でlookupする。現在deploy中のauthority membershipへ読み替えない。
+    </li>
+    <li>
+      対象normalizationVersionをreaderがサポートしない場合は409とし、近似lookupへfallbackしない。
+    </li>
+    <li>
+      syntax-validだがprojectionにreferenceがない場合も200 + empty resultとし、authority
+      existenceをquery時に推測しない。
+    </li>
+    <li>finding focusがgeneration exportに存在しなければ404とする。</li>
+  </ul>
+
+  <h3 id="182-output">18.2 Output and Pagination</h3>
+  <pre><code class="language-typescript">type SecurityVocabularyCursorV1 = {
+  version: 1;
+  generationId: string;
+  projectionHash: string;
+  focusHash: string;
+  phase: "assignment" | "alignment";
+  lastRowId: string | null;
+  includeAlignments: boolean;
+  limit: number;
+};</code></pre>
+  <pre><code class="language-typescript">type SecurityVocabularyQueryResult = {
+  ok: true;
+  status: "completed";
+  projectionStatus: "available" | "partial";
+  generationId: string;
+  descriptor: Extract&lt;SecurityVocabularyDescriptor,
+    { status: "available" | "partial" }&gt;;
+  focus:
+    | { kind: "finding"; findingId: string }
+    | { kind: "reference"; referenceId: string | null;
+        namespace: VocabularyNamespace; identifier: string };
+  references: ResolvedVocabularyReference[];
+  unresolvedReferences: UnresolvedVocabularyReference[];
+  assignments: FindingVocabularyAssignment[];
+  alignments?: VocabularyAlignment[];
+  lineageStatus: "available" | "partial";
+  lineage: ClaimProvenanceProjection;
+  nextCursor: string | null;
+};</code></pre>
+  <ul>
+    <li>
+      result rowをassignment、alignmentの順に分け、各phase内をID順にしたkeyset
+      paginationとする。offset paginationを使わない。
+    </li>
+    <li>
+      cursorはgeneration ID、projection hash、canonical focus hash、phase、last row
+      ID、includeAlignments、limitを含むcanonical base64url payloadとする。
+    </li>
+    <li>
+      assignment途中でpageを閉じたcursorはphase=assignment + last assignment
+      IDとする。assignmentを全件返した地点でpageが埋まりalignmentが残る場合だけphase=alignment +
+      lastRowId=nullを許可する。alignmentを1件以上返した後はphase=alignment + last alignment
+      IDとする。
+    </li>
+    <li>
+      includeAlignments=falseでalignment phase、assignment phaseでlastRowId=null、row ID
+      prefixとphaseの不一致を400にする。
+    </li>
+    <li>
+      cursorのgeneration / projection / focus / includeAlignments / limit mismatch、unknown
+      phase、存在しないlast rowは400とする。
+    </li>
+    <li>
+      limitはassignment + alignment rowの合計へ適用し、1 responseは200 rows、400 references、1
+      MiB以下とする。
+    </li>
+    <li>
+      serialized 1 MiBをhard capとし、超える前のlast complete
+      rowでpageを閉じる。boundedな単一rowでも収まらなければprojection invalidとして409にする。
+    </li>
+    <li>
+      reference focusのalignmentはfocus endpointへ接続するもの、finding
+      focusのalignmentは当該findingのassignmentが参照するresolved endpointへ接続するものだけを返す。
+    </li>
+    <li>
+      reference focusがprojection内で一致した場合はrowが0件でもfocus
+      referenceをreferencesへ1件含め、一致しない場合だけreferenceId=null + 全配列emptyにする。
+    </li>
+    <li>
+      lineageは返したassignment / alignmentだけのbounded Claim Provenance projectionとし、empty
+      resultでもvalid empty projectionを返す。
+    </li>
+    <li>
+      vocabulary assignment / alignment lineageはprofile v2だけを返す。v1
+      ledgerからlineageを推測・合成しない。
+    </li>
+    <li>
+      raw reference inputをresponseへechoせず、focusにはcanonical
+      identifierと、projectionで一致した場合だけreference IDを返す。
+    </li>
+    <li>descriptorがpartialならprojectionStatusもpartialを維持し、availableへ昇格しない。</li>
+  </ul>
+
+  <h3 id="183-surfaces">18.3 CLI and HTTP</h3>
+  <pre><code class="language-shell">bun run intelligence:vocabulary -- \
+  --scan-run-id &lt;scan-run-id&gt; \
+  --generation-id &lt;generation-id&gt; \
+  --finding-id &lt;finding-id&gt;
+
+bun run intelligence:vocabulary -- \
+  --scan-run-id &lt;scan-run-id&gt; \
+  --generation-id &lt;generation-id&gt; \
+  --namespace cwe \
+  --identifier CWE-79
+</code></pre>
+  <p>
+    HTTPはread-only POST
+    <code>/projects/:projectId/intelligence/security-vocabulary/query</code>とし、identifierをURL pathやaccess logへ置かない。
+  </p>
+  <ul>
+    <li>owner mismatchは403、project / scan / generation mismatchは404とする。</li>
+    <li>invalid body / cursor / identifierは400とする。</li>
+    <li>feature unpublishedは固定404とする。</li>
+    <li>projection missing / invalidは409とし、raw invalid payloadを返さない。</li>
+    <li>
+      CLIはsuccess / emptyを0、invalid inputを2、missing / invalid projectionを3、unexpected
+      failureを1とする。
+    </li>
+    <li>
+      publishEnabled=falseではpublic CLIもexit 3 + rollout_disabledを返し、shadow
+      artifactを通常queryで読ませない。
+    </li>
+  </ul>
+
+  <h2 id="19-nightworkers-consumer-policy">19. NightWorkers Consumer Policy</h2>
+  <ul>
+    <li>legacy manifestのdescriptor欠落を許可する。</li>
+    <li>descriptorがある場合はstrict parseし、manifest generation IDとの一致を検証する。</li>
+    <li>available / partialだけをcapability summaryへ投影する。</li>
+    <li>invalid descriptorからquery commandを実行しない。</li>
+    <li>run artifact metadataには従来どおりmanifest全体を1回だけ保存する。</li>
+    <li>
+      descriptorを別metadata fieldへ複製せず、full projection、catalog、mapping
+      registryを保存しない。
+    </li>
+    <li>
+      task event / returnにはstatus、profile、registry input hash、counts、reason codesだけを出す。
+    </li>
+    <li>初期consumer changeではtask compilerによる自動vocabulary queryを追加しない。</li>
+    <li>mappingをagent promptで自動承認・修正しない。</li>
+  </ul>
+
+  <h2 id="20-file-by-file-change-plan">20. File-by-file Change Plan</h2>
+  <h3 id="201-vulnworkbench">20.1 vulnWorkbench</h3>
+  <table>
+    <caption>
+      producer / shared contract changes
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">File</th>
+        <th scope="col">Planned change</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>shared/schemas/security-vocabulary.schema.ts</code>（new）</td>
+        <td>
+          registry、reference、assignment、alignment、projection、descriptor、query
+          schemaを定義する。
+        </td>
+      </tr>
+      <tr>
+        <td><code>shared/schemas/security-vocabulary.schema.test.ts</code>（new）</td>
+        <td>strictness、union、cross-field invariant、limit、unsafe raw valueを検証する。</td>
+      </tr>
+      <tr>
+        <td><code>api/config/security-vocabulary/authorities.v1.json</code>（new）</td>
+        <td>7 namespaceのrelease、URI template、snapshot receiptを保持する。</td>
+      </tr>
+      <tr>
+        <td><code>api/config/security-vocabulary/mappings.v1.json</code>（new）</td>
+        <td>review済みexact tool / rule mappingを保持する。</td>
+      </tr>
+      <tr>
+        <td><code>api/config/security-vocabulary/snapshots/*.index.json</code>（new）</td>
+        <td>CWE / CAPEC / OWASPのminimal identifier / lifecycle indexを保持する。</td>
+      </tr>
+      <tr>
+        <td><code>api/modules/security-vocabulary/registry.ts</code>（new）</td>
+        <td>cwd非依存load、strict validation、canonical hash、conflict detectionを実装する。</td>
+      </tr>
+      <tr>
+        <td><code>api/modules/security-vocabulary/normalizers.ts</code>（new）</td>
+        <td>namespace-specific pure normalizerとunresolved projectionを実装する。</td>
+      </tr>
+      <tr>
+        <td><code>api/modules/security-vocabulary/sensitive-value.ts</code>（new）</td>
+        <td>bounded JSON traversal、sensitive key / token検出、value hash可否をpure判定する。</td>
+      </tr>
+      <tr>
+        <td><code>api/modules/security-vocabulary/finding-projector.ts</code>（new）</td>
+        <td>source candidate抽出、assignment merge、summary、budgetを実装する。</td>
+      </tr>
+      <tr>
+        <td><code>api/modules/security-vocabulary/publication.ts</code>（new）</td>
+        <td>projection / registry / provenanceを共通検証しdescriptorを返す。</td>
+      </tr>
+      <tr>
+        <td><code>api/modules/security-vocabulary/query.ts</code>（new）</td>
+        <td>exact focus、pagination、bounded lineage projectionを実装する。</td>
+      </tr>
+      <tr>
+        <td><code>api/modules/scans/findings/normalizers/finding-risk.ts</code></td>
+        <td>
+          <code>purlFor</code>をcanonical parser adapterへ置換し、legacy
+          behavior fixtureを固定する。
+        </td>
+      </tr>
+      <tr>
+        <td>
+          <code>api/modules/scans/findings/finding-dedupe-identity.ts</code> /
+          <code>api/modules/scans/findings/finding-dedupe-families.ts</code>
+        </td>
+        <td>
+          v2 projectionで共通normalizerを使い、v1
+          pathと<code>api/modules/scans/</code>直下のre-exportを残す。
+        </td>
+      </tr>
+      <tr>
+        <td><code>shared/schemas/finding-group.schema.ts</code></td>
+        <td>
+          FindingDedupeIdentityV2、v2 algorithm version、registry context、typed failure / ambiguity
+          reasonを追加する。
+        </td>
+      </tr>
+      <tr>
+        <td><code>api/modules/scans/findings/finding-grouping-rollout.ts</code>（new）</td>
+        <td>
+          v1 public / v2 shadow / v2 public selectionをsource-controlled unionで定義し、request /
+          environment overrideを禁止する。
+        </td>
+      </tr>
+      <tr>
+        <td>
+          <code>api/db/schema/schema-scans.ts</code> /
+          <code>drizzle/0041_finding_grouping_vocabulary_context.sql</code>（new）
+        </td>
+        <td>
+          grouping runへnullable
+          <code>vocabulary_registry_input_hash</code>を追加する。v1はnull、v2は必須とし、v2 finding
+          set hashへ同値を含めるため既存run unique keyの意味を維持する。
+        </td>
+      </tr>
+      <tr>
+        <td>
+          <code>api/modules/scans/findings/finding-grouping-engine.ts</code> /
+          <code>api/modules/scans/findings/finding-grouping-runner.ts</code> /
+          <code>api/modules/scans/findings/finding-grouping-repository.ts</code>
+        </td>
+        <td>
+          v2 runごとのregistry one-time load、minimal identity projection、registry-aware finding
+          set hash、pair policy、algorithm selection、v1 / v2 immutable run coexistence、shadow diff
+          persistenceを追加する。
+        </td>
+      </tr>
+      <tr>
+        <td><code>shared/schemas/static-intelligence.schema.ts</code></td>
+        <td>export v1へoptional securityVocabulary envelopeをreader-firstで追加する。</td>
+      </tr>
+      <tr>
+        <td><code>api/modules/static-intelligence/export-builder.ts</code></td>
+        <td>bundleからprojectionとprovenance draftを同じbuild passで生成する。</td>
+      </tr>
+      <tr>
+        <td>
+          <code>api/modules/static-intelligence/generation-types.ts</code> /
+          <code>api/modules/static-intelligence/generation-repository-types.ts</code> /
+          <code>api/modules/static-intelligence/generation-persister.ts</code>
+        </td>
+        <td>
+          summary marker、registry input / projection hash、Claim profile v2
+          finalizationを追加する。
+        </td>
+      </tr>
+      <tr>
+        <td><code>api/modules/static-intelligence/generation-repository.ts</code></td>
+        <td>legacy / vocabulary-enabled exportをlossless parseし、markerとhashを検証する。</td>
+      </tr>
+      <tr>
+        <td>
+          <code>api/modules/static-intelligence/build-service.ts</code> /
+          <code>api/modules/static-intelligence/build-service.test.ts</code>
+        </td>
+        <td>
+          registry load、Claim capacity preflight、projection / lineage stage、rollout
+          outcome、readinessをorchestrateする。
+        </td>
+      </tr>
+      <tr>
+        <td><code>api/modules/static-intelligence/security-vocabulary-rollout.ts</code>（new）</td>
+        <td>
+          projectionMode / publishEnabledのlegal matrixとproduction constant / test
+          injection境界を定義する。
+        </td>
+      </tr>
+      <tr>
+        <td>
+          <code>api/modules/static-intelligence/community-builder.ts</code> /
+          <code>api/modules/static-intelligence/community-builder-policy.ts</code>
+        </td>
+        <td>
+          3 basis builder、legacy ID優先merge、eligibility、ordering、partial
+          propagationを追加する。
+        </td>
+      </tr>
+      <tr>
+        <td>
+          <code>api/cli/intelligence-export.ts</code> /
+          <code>api/cli/intelligence-communities.ts</code> /
+          <code>api/cli/intelligence-landscape.ts</code> /
+          <code>api/modules/static-intelligence/agent-query.ts</code> /
+          <code>api/modules/static-intelligence/guardrail-material.ts</code>
+        </td>
+        <td>
+          共通publication resolverでexport fieldとvocabulary basisをgateし、published persisted
+          generationではClaim v2 query-time projection、shadow / legacy /
+          liveでは既存outputを維持する。export file hashは公開用bytesから計算する。
+        </td>
+      </tr>
+      <tr>
+        <td>
+          <code>shared/schemas/static-intelligence-claim-provenance.schema.ts</code> /
+          <code>api/modules/static-intelligence/claim-provenance-rules.ts</code>
+        </td>
+        <td>
+          v1を維持し、profile v2とvocabulary assignment / alignment target、base / query-time
+          rulesを追加する。
+        </td>
+      </tr>
+      <tr>
+        <td><code>shared/schemas/static-intelligence-module.schema.ts</code></td>
+        <td>optional readiness capabilityを追加する。</td>
+      </tr>
+      <tr>
+        <td><code>shared/schemas/static-intelligence-knowledge-source.schema.ts</code></td>
+        <td>optional descriptorとbundle kind / requirementsを追加する。</td>
+      </tr>
+      <tr>
+        <td>
+          <code>api/modules/static-intelligence/knowledge-source-manifest.ts</code> /
+          <code>api/modules/static-intelligence/ontology-handoff.ts</code> /
+          <code>api/modules/static-intelligence/read-model-resolver.ts</code>
+        </td>
+        <td>common resolver resultから同じdescriptorとbundleを投影する。</td>
+      </tr>
+      <tr>
+        <td><code>api/cli/intelligence-vocabulary.ts</code>（new）</td>
+        <td>strict args、single JSON output、exit code contractを実装する。</td>
+      </tr>
+      <tr>
+        <td><code>api/routes/static-intelligence.route.ts</code></td>
+        <td>read-only POST route、ownership、status mappingを追加する。</td>
+      </tr>
+      <tr>
+        <td><code>scripts/update-security-vocabulary-snapshots.ts</code>（new）</td>
+        <td>explicit maintenance download、receipt、minimal index、diffを生成する。</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3 id="202-nightworkers">20.2 NightWorkers Coordinated Change</h3>
+  <table>
+    <caption>
+      consumer-first changes
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">File area</th>
+        <th scope="col">Planned change</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>vulnWorkbench ontology handoff schema</td>
+        <td>optional descriptor、new bundle kind、legacy欠落をstrict unionで受理する。</td>
+      </tr>
+      <tr>
+        <td>handoff service</td>
+        <td>
+          generation matchを検証し、bounded capability summaryだけをevent / returnへ追加する。
+        </td>
+      </tr>
+      <tr>
+        <td>cross-repository fixture</td>
+        <td>legacy、available、partial、missing、invalid、generation mismatchを固定する。</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2 id="21-implementation-slices">21. Implementation Slices</h2>
+  <h3 id="slice-0">Slice 0: Baseline, Corpus, and Dependency Qualification</h3>
+  <ul>
+    <li>current 39-test baselineと7 CLI failureを固定する。</li>
+    <li>Semgrep / OSV / Trivyの代表positive / negative / malformed fixtureを各10件以上選ぶ。</li>
+    <li>CWE / CVE / GHSA / purlのraw field coverageをscan corpusから集計する。</li>
+    <li>purl parserをupstream corpusとBunでqualificationする。</li>
+    <li>export bytes、build duration、community count、grouping verdict countを採取する。</li>
+  </ul>
+  <p>
+    Exit: coverage gapと既知failureがmachine-readable evidenceになり、dependency GO /
+    NO-GOが記録される。
+  </p>
+
+  <h3 id="slice-1">Slice 1: Shared Contract and Offline Registry</h3>
+  <ul>
+    <li>strict schemas、authority registry、mapping registry、minimal indexesを追加する。</li>
+    <li>
+      pure normalizer、reference / assignment / alignment identity、redacted unresolved
+      fingerprintを実装する。
+    </li>
+    <li>
+      registry conflict、unsafe raw value、deprecated ID、purl invalidのnegative testsを追加する。
+    </li>
+    <li>production rollout defaultはoffのままにする。</li>
+  </ul>
+  <p>Exit: golden corpusから決定的projectionを作れ、production export / wireは不変である。</p>
+
+  <h3 id="slice-2">Slice 2: Consumer-first and Reader-first Floor</h3>
+  <ul>
+    <li>
+      entry条件としてClaim Provenance v1 contract / reader / persister / required record / binding
+      count fixtureがgreenであることを確認する。
+    </li>
+    <li>NightWorkersがoptional descriptor / bundle / Claim profile v2を読めるようにする。</li>
+    <li>vulnWorkbench export readerがoptional envelopeをstripせず保持する。</li>
+    <li>generation loaderがlegacyとnew fixtureのhashを正しく再計算する。</li>
+    <li>writer offのまま両consumerをdeployし、rollback floorをrelease receiptへ記録する。</li>
+  </ul>
+  <p>
+    Exit: legacy behavior不変、synthetic new exportを両readerが受理し、writerはまだ1件もnew
+    fieldを書いていない。
+  </p>
+
+  <h3 id="slice-3">Slice 3: Shadow Export Projection and Provenance v2</h3>
+  <ul>
+    <li>
+      entry条件としてClaim Provenance v1 artifactMode=requiredとprofile v2 lossless reader
+      floorのproduction deployを確認する。
+    </li>
+    <li>build serviceでprojection + provenance draftを生成する。</li>
+    <li>
+      v1 countからrecord / binding capacityをpreflightし、persisterでgeneration ID確定後にassignment
+      / alignmentを含むClaim Provenance v2 ledgerをfinalizeする。
+    </li>
+    <li>projectionMode shadow、publishEnabled falseでnew generationへpersistする。</li>
+    <li>common publication resolverを実装するがmanifest / HTTPへ出さない。</li>
+    <li>resolved rate、unresolved reasons、bytes、duration、v2 lineage coverageを測る。</li>
+  </ul>
+  <p>
+    Exit: representative corpusでassignment / alignment target lineage 100%、hash mismatch 0、4 MiB
+    budget内である。
+  </p>
+
+  <h3 id="slice-4">Slice 4: Community and Dedupe Shadow Integration</h3>
+  <ul>
+    <li>same_cwe / same_cve / same_dependency communitiesをprojectionから生成する。</li>
+    <li>
+      existing candidate merge、legacy community ID / title、deterministic orderingを維持する。
+    </li>
+    <li>new community lineageをClaim v2 query-time projectionへ追加し、base ledgerへ入れない。</li>
+    <li>
+      grouping runへregistry input hash列を追加し、v2
+      runnerがregistryをrun開始時に1回loadしてminimal identityとregistry-aware finding set
+      hashを作る。
+    </li>
+    <li>finding-dedupe-v2を独立shadow runとして保存し、v1とのpair verdict diffを記録する。</li>
+    <li>unexpected merge、CWE-only merge、versionless purl mergeをnegative testで禁止する。</li>
+  </ul>
+  <p>
+    Exit: new community precision fixture 100%、unexpected dedupe merge 0、既存community ordering
+    regression 0である。
+  </p>
+
+  <h3 id="slice-5">Slice 5: Descriptor and Exact Query Publication</h3>
+  <ul>
+    <li>manifest / handoff descriptorとbundleをconsumer-compatible orderで公開する。</li>
+    <li>CLIとread-only POST queryを追加する。</li>
+    <li>pagination、ownership、invalid projection、partial propagationを検証する。</li>
+    <li>NightWorkers summaryがfull projectionをcopyしないことをcross-repo fixtureで確認する。</li>
+  </ul>
+  <p>
+    Exit: required + publish enabledのqualification環境でwire
+    contract、auth、budget、lineageがgreenである。
+  </p>
+
+  <h3 id="slice-6">Slice 6: Enforcement Qualification</h3>
+  <ul>
+    <li>
+      shadow observation windowでregistry conflict、hash mismatch、budget exceed、query
+      errorを評価する。
+    </li>
+    <li>p95 build overhead、export size delta、community / dedupe diffを承認する。</li>
+    <li>projectionModeをrequiredへ上げる独立changeを作る。</li>
+    <li>finding-dedupe-v2 promotionはvocabulary publicationと別flag / decisionで行う。</li>
+  </ul>
+  <p>Exit: Definition of DoneとGO gateを満たし、rollback drill evidenceが揃う。</p>
+
+  <h2 id="22-migration-sequence">22. Migration Sequence and Stop Matrix</h2>
+  <ol>
+    <li>baseline / corpus / dependency qualification</li>
+    <li>pure contract / registry / normalizer</li>
+    <li>NightWorkers consumer tolerance</li>
+    <li>vulnWorkbench lossless reader + Claim v2 reader</li>
+    <li>reader versionsをproduction deployしrollback floorを確定</li>
+    <li>producer shadow persistence</li>
+    <li>community / dedupe shadow comparison</li>
+    <li>descriptor / query publication</li>
+    <li>required promotion</li>
+  </ol>
+  <table>
+    <caption>
+      Slice entry、verification、停止条件
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Slice</th>
+        <th scope="col">Entry</th>
+        <th scope="col">Verification</th>
+        <th scope="col">Stop</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>0</td>
+        <td>fixture owner確定</td>
+        <td>baseline evidence + dependency report</td>
+        <td>representative raw fieldsを再現できない</td>
+      </tr>
+      <tr>
+        <td>1</td>
+        <td>namespace / release決定済み</td>
+        <td>schema / golden / negative tests</td>
+        <td>same inputからnon-deterministic ID</td>
+      </tr>
+      <tr>
+        <td>2</td>
+        <td>vocabulary contract frozen、Claim Provenance v1 dependency green</td>
+        <td>legacy + synthetic new reader fixtures</td>
+        <td>old export hashまたはmanifest hashが変わる</td>
+      </tr>
+      <tr>
+        <td>3</td>
+        <td>reader floor deployed、Claim v1 artifact required</td>
+        <td>projection / marker / v2 ledger integrity</td>
+        <td>old readerへのrollbackが必要、lineage coverage &lt; 100%</td>
+      </tr>
+      <tr>
+        <td>4</td>
+        <td>shadow projection stable</td>
+        <td>community golden + v1/v2 diff</td>
+        <td>unexpected merge &gt; 0</td>
+      </tr>
+      <tr>
+        <td>5</td>
+        <td>consumer fixture released</td>
+        <td>wire / auth / pagination / non-copy tests</td>
+        <td>invalid descriptor公開、payload budget超過</td>
+      </tr>
+      <tr>
+        <td>6</td>
+        <td>observation window完了</td>
+        <td>SLO、rollback drill、owner sign-off</td>
+        <td>hash mismatch、security incident、precision gate未達</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    各Sliceは独立PRとする。Slice 3以降でvocabulary-enabled generationを1件でも書いた後、producer
+    rollback先はSlice 2のlossless reader floorより前へ戻せない。
+  </p>
+
+  <h2 id="23-test-plan">23. Test Plan</h2>
+  <h3 id="231-contract-tests">23.1 Contract and Registry Tests</h3>
+  <ul>
+    <li>all object strictness、unknown enum、missing required / forbidden field</li>
+    <li>reference / assignment / alignment ID golden vectors</li>
+    <li>summary equation、orphan / dangling ref、duplicate、noncanonical order</li>
+    <li>registry duplicate tool / rule、mappingEntryId semantic collision、invalid evidence URL</li>
+    <li>authority release / snapshot hash mismatchとreceipt-only update時のreference ID安定性</li>
+    <li>
+      unsafe raw namespace / identifier literal exclusion、value_sha256、source-scoped secret
+      redaction
+    </li>
+    <li>
+      source pointer 512文字境界、raw JSON depth / entry / string / byte境界、hash前secret検出
+    </li>
+  </ul>
+
+  <h3 id="232-normalization-tests">23.2 Namespace Normalization Tests</h3>
+  <ul>
+    <li>CWE case / separator / leading zero、unknown / deprecated ID</li>
+    <li>
+      CVE caseと4〜19桁sequence境界、GHSA mixed-case input / lowercase suffix / excluded alphabet
+    </li>
+    <li>CAPECとOWASP release-qualified identifiers</li>
+    <li>
+      purl scoped npm、percent encoding、qualifier ordering、Go→golang alias、unknown
+      type、versionless component
+    </li>
+    <li>scanner-provided purlとfield-derived purlの一致集約 / 不一致conflict</li>
+    <li>CPE 2.3 escaping、ANY / NA、malformed component count</li>
+    <li>same raw + registry input hash + normalization versionでbyte-identical output</li>
+  </ul>
+
+  <h3 id="233-projection-tests">23.3 Projection and Persistence Tests</h3>
+  <ul>
+    <li>Semgrep CWE、OSV GHSA/CVE alias、Trivy CVE/purlのgolden projection</li>
+    <li>scanner declarationとcurated mappingのmulti-assignment preservation</li>
+    <li>zero finding available projection</li>
+    <li>
+      candidate per-finding / total、assignment / reference / record / binding / alignment /
+      serialized budgetの適用順と全omitted count
+    </li>
+    <li>legacy export reader、new export reader、old hash stability</li>
+    <li>metadata marker missing / mixed / registry mismatch rejection</li>
+    <li>
+      Claim Provenance v2 assignment / alignment各1 record + 1 binding、capacity preflight、value
+      hash
+    </li>
+    <li>Claim v1 required mode未達 + vocabulary shadow / requiredの起動拒否</li>
+  </ul>
+
+  <h3 id="234-community-grouping-tests">23.4 Community and Grouping Tests</h3>
+  <ul>
+    <li>
+      same CWE medium candidate、same CVE assignment evidence別confidence、same versioned purl high
+    </li>
+    <li>unresolved / close / deprecated-only / versionless / conflicting purl exclusion</li>
+    <li>
+      same finding set basis merge、legacy ID / title preservation、vocabulary-only ID ordering
+    </li>
+    <li>CWE-only non-dedupe、same CVE different purl non-dedupe</li>
+    <li>source-asserted / curated CVEまたはGHSA + exact purl v2 dedupe</li>
+    <li>source / secret / IaC / web / API pairのv1-v2 verdict / confidence / reason equivalence</li>
+    <li>
+      purl missing / invalid / versionless / conflict / incompleteとdeterministic-only advisoryはv2
+      ambiguous、v1 fallback不変
+    </li>
+    <li>v1 / v2 snapshot coexistenceとalgorithm version selection</li>
+    <li>
+      v1 runのregistry hash null、v2 runのregistry hash必須、column / finding set hash context一致
+    </li>
+    <li>v2 comparison / snapshot hashのregistry context bindingとv1 hash golden不変</li>
+    <li>
+      same raw findings + same registry input / normalization versionで同じv2 runを再利用する。
+    </li>
+    <li>same raw findingsでもregistry inputが変われば別v2 runとなり、旧snapshotを再利用しない。</li>
+    <li>
+      v2 registry load / projection failureがtyped statusになり、v1 snapshotとpublic grouping
+      resultを変えない。
+    </li>
+    <li>community Claim v2 projection 2,000件境界とquery_truncated partial</li>
+    <li>
+      publishEnabled=falseでexport CLI / file、communities / landscape / agent query /
+      guardrailのpublic outputがbyte-equivalent legacy behaviorを維持する。
+    </li>
+  </ul>
+
+  <h3 id="235-query-wire-tests">23.5 Query, Wire, and Consumer Tests</h3>
+  <ul>
+    <li>
+      finding focus、2,000文字reference focus、canonical focus response、valid empty、invalid
+      identifier
+    </li>
+    <li>
+      stable two-phase keyset pagination、assignment→alignment null sentinel、cursor projection /
+      focus / phase / limit mismatch
+    </li>
+    <li>owner mismatch 403、project / scan / generation mismatch 404、missing / invalid 409</li>
+    <li>unpublished HTTP fixed 404 / CLI exit 3</li>
+    <li>manifest / handoff descriptor同一性とcontentHash</li>
+    <li>NightWorkers legacy tolerance、generation mismatch、full projection non-copy</li>
+  </ul>
+
+  <h3 id="236-verification-commands">23.6 Verification Commands</h3>
+  <pre><code class="language-shell">bun test shared/schemas/security-vocabulary.schema.test.ts
+bun test shared/schemas/static-intelligence-claim-provenance.schema.test.ts
+bun test api/modules/security-vocabulary
+bun test api/modules/scans/findings/finding-grouping-engine.test.ts
+bun test api/modules/static-intelligence/community-landscape.test.ts
+bun test api/modules/static-intelligence/build-service.test.ts
+bun test api/modules/static-intelligence/generation-repository.test.ts
+bun test api/modules/static-intelligence/knowledge-source-manifest.test.ts
+bun test api/routes/static-intelligence.route.test.ts
+bun run test:api
+bun run typecheck
+bun run lint
+bun run docs:check
+
+# NightWorkers repository
+bun run test -- run tests/vulnworkbench-ontology-handoff-vocabulary.test.ts
+</code></pre>
+  <p>
+    projectの実際のscript名が変わった場合はpackage.jsonを正本とする。full
+    suiteの既知failureと新規failureを分離し、未確認のtestをpass扱いしない。
+  </p>
+
+  <h2 id="24-security-privacy-performance-observability">
+    24. Security, Privacy, Performance, and Observability
+  </h2>
+  <h3 id="241-security">24.1 Security and Privacy</h3>
+  <ul>
+    <li>external URI template originをallow-listし、query時fetchを禁止する。</li>
+    <li>mapping registryのarbitrary path、command、template interpolationを禁止する。</li>
+    <li>
+      raw namespace / identifierをsecret classifierとlength / character gateへ通し、secret-like
+      valueは値由来hashも残さない。
+    </li>
+    <li>absolute project path、artifact body、evidence snippetをprojectionへ含めない。</li>
+    <li>query inputをlogへliteral出力せず、namespaceとidentifier hashだけをtelemetryへ送る。</li>
+    <li>snapshot maintenance downloadをchecksum / content-type / maximum bytesで制限する。</li>
+    <li>full catalog license / attribution requirementをrelease reviewへ含める。</li>
+  </ul>
+
+  <h3 id="242-performance">24.2 Performance Budgets</h3>
+  <ul>
+    <li>
+      raw candidateをper finding 512 / per build 100,000で打ち切り、bounded
+      traversal外のvalueをserialize / hashしない。
+    </li>
+    <li>normalizationはfinding + raw candidate数に対してO(n)、registry lookupはO(1) mapとする。</li>
+    <li>
+      payload size selectionはcanonical prefixのbinary searchでO(n log
+      n)以下とし、1件ずつ再serializeするO(n²) truncationを禁止する。
+    </li>
+    <li>
+      community groupingはreference IDごとのbucketでO(assignments log assignments)以下とする。
+    </li>
+    <li>
+      representative corpusのp95 build overheadを500 ms以下にする。baseline
+      p95が5秒以上のcorpusでは、これに加えてtotal
+      p95をbaselineの1.10倍以下にする。短時間fixtureの比率は判定に使わない。
+    </li>
+    <li>securityVocabulary envelopeは4 MiB、manifest descriptor deltaは4 KiB以下にする。</li>
+    <li>
+      query p95はlocal artifact load込み500 ms以下、response 1 MiB以下をqualification targetにする。
+    </li>
+    <li>authority indexesはprocess単位でimmutable cacheし、requestごとに再parseしない。</li>
+  </ul>
+
+  <h3 id="243-observability">24.3 Observability</h3>
+  <ul>
+    <li>projection status、duration、bytes、registry input hash prefix</li>
+    <li>namespace別resolved / unresolved / deprecated count</li>
+    <li>
+      discovered / processed / omitted candidate count、component conflict finding count、omitted
+      assignment / alignment count、Claim record / binding remaining slots
+    </li>
+    <li>reason code別failure count</li>
+    <li>new community basis別count / average size / max size</li>
+    <li>dedupe v1 / v2 same / different / ambiguous diff count</li>
+    <li>
+      v2 grouping registry input hash prefix、identity projection failure count、v2 snapshot reuse /
+      rebuild count
+    </li>
+    <li>publication invalid、query 400 / 404 / 409、cursor invalid count</li>
+    <li>identifier literal、raw mapping content、full hashesをmetric labelにしない。</li>
+  </ul>
+
+  <h2 id="25-rollback-plan">25. Rollback Plan</h2>
+  <h3 id="251-triggers">25.1 Triggers</h3>
+  <ul>
+    <li>unexpected finding mergeが1件以上</li>
+    <li>old / new readerのexport hash mismatch</li>
+    <li>registry conflictまたはauthority snapshot corruption</li>
+    <li>manifest / NightWorkers schema rejection</li>
+    <li>raw secret / absolute path / unbounded external content exposure</li>
+    <li>build / payload / query budget超過</li>
+    <li>v2 provenance assignment / alignment coverage欠落</li>
+    <li>v2 grouping runのregistry context欠落またはfinding set hash不一致</li>
+  </ul>
+
+  <h3 id="252-order">25.2 Rollback Order</h3>
+  <ol>
+    <li>finding-dedupe-v2 promotionをoffへ戻し、v1 selectionへ戻す。</li>
+    <li>
+      publishEnabledをfalseへ戻し、public exportからvocabulary fieldを除き、descriptor / bundle /
+      vocabulary queryを非公開にしてcommunity / landscape / agent query / guardrailをlegacy
+      basisへ戻す。
+    </li>
+    <li>projectionModeをshadowへ戻し、evidence採取を継続する。</li>
+    <li>必要ならprojectionModeをoffへ戻し、legacy export generationを再開する。</li>
+    <li>NightWorkersのoptional consumer toleranceとproducer reader floorは残す。</li>
+    <li>
+      既存vocabulary-enabled generationとv2 ledgerを削除・書換えず、read-only
+      evidenceとして保持する。
+    </li>
+  </ol>
+  <p>
+    new exportまたはv2 ledgerをpersistした後、producerをSlice 2より前へrollbackしない。authority /
+    mapping
+    registryだけを旧versionへ戻す場合も、新generationとして再buildし、既存generationを再解釈しない。
+  </p>
+
+  <h2 id="26-definition-of-done">26. Definition of Done</h2>
+  <ul>
+    <li>7 namespace contract、authority registry、mapping registryがstrict schemaを通る。</li>
+    <li>active 4 namespaceのgolden corpusが決定的reference / assignmentを生成する。</li>
+    <li>
+      unknown / invalid identifierをdropせず、safe valueはliteral + value fingerprint、secret-like /
+      unsupported valueはsource-scoped redaction fingerprintとsource bindingで観測できる。
+    </li>
+    <li>assignment roleとalignment relationが別contract / testで固定される。</li>
+    <li>legacy export / manifest / NightWorkers consumerが非劣化である。</li>
+    <li>reader-first floorがwriterより先にproduction deployされ、receiptがある。</li>
+    <li>projection / metadata / registry / Claim v2 hash invariantがgreenである。</li>
+    <li>
+      same_cwe / same_cve / same_dependency communityのpositive / negative fixtureがgreenである。
+    </li>
+    <li>CWE-only、close-match-only、different-component advisoryがauto-mergeされない。</li>
+    <li>
+      v2 grouping runがStatic Intelligence generation非依存でregistry
+      contextを固定し、registry変更時に旧runを再利用しない。
+    </li>
+    <li>
+      v2 grouping failure時もv1 snapshotが非劣化であり、promotion後に暗黙のv1 fallbackをしない。
+    </li>
+    <li>
+      public export / manifest / handoff / queryが同じpublication resolver resultを使い、shadow
+      fieldを漏えいしない。
+    </li>
+    <li>NightWorkersへfull projection / catalog / mapping registryをcopyしない。</li>
+    <li>security、payload、performance budgetとrollback drillを満たす。</li>
+    <li>
+      baselineの既知7 CLI
+      failureを新規regressionと混同せず、publication前には直接surfaceをgreenにする。
+    </li>
+    <li>全required verification commandの結果とcommitをrelease evidenceへ記録する。</li>
+  </ul>
+
+  <h2 id="27-open-decisions">27. Open Decisions and Proposed Defaults</h2>
+  <table>
+    <caption>
+      実装開始前に承認する残件
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Decision</th>
+        <th scope="col">Proposed default</th>
+        <th scope="col">Decision gate</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>purl parser</td>
+        <td>official <code>packageurl-js</code> exact pin</td>
+        <td>Slice 0 upstream corpus 100% pass、license / supply-chain review</td>
+      </tr>
+      <tr>
+        <td>initial mapping coverage</td>
+        <td>Semgrep / OSV / Trivy representative corpusを優先</td>
+        <td>各tool 10 positive + negative fixture</td>
+      </tr>
+      <tr>
+        <td>CPE dictionary</td>
+        <td>v1はsyntax only、dictionary snapshotを持たない</td>
+        <td>actual CPE consumer use caseが確認された後</td>
+      </tr>
+      <tr>
+        <td>CAPEC / OWASP automatic crosswalk</td>
+        <td>禁止、explicit curated mappingのみ</td>
+        <td>mapping ownerとprecision corpusができた後</td>
+      </tr>
+      <tr>
+        <td>finding-dedupe-v2 promotion</td>
+        <td>vocabulary publicationと別GO</td>
+        <td>unexpected merge 0 + rollback drill</td>
+      </tr>
+      <tr>
+        <td>rollback floor</td>
+        <td>lossless export reader + Claim v2 reader release</td>
+        <td>writer shadow enable前にcommit / versionを記録</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2 id="28-go-no-go-gate">28. GO / NO-GO Gate</h2>
+  <h3 id="281-go">28.1 GO</h3>
+  <ul>
+    <li>
+      normalization、Static Intelligence、Claim Provenance、consumer ownerが責務境界を承認した。
+    </li>
+    <li>authority release、registry owner、review processが確定した。</li>
+    <li>purl dependency gateまたはunresolved preservation方針が承認された。</li>
+    <li>consumer-first / reader-first release順とrollback floorがrelease planに入った。</li>
+    <li>
+      Claim Provenance v1 artifactMode=requiredがproductionでgreenであり、profile v2 reader
+      floorを先行deployできる。
+    </li>
+    <li>baseline corpus、precision gate、payload / performance budgetが測定可能である。</li>
+  </ul>
+
+  <h3 id="282-no-go">28.2 NO-GO</h3>
+  <ul>
+    <li>exact / close / classification / aliasを単一relationへ潰す必要がある。</li>
+    <li>runtime network lookupなしではbuildまたはqueryが完了しない。</li>
+    <li>old readerを先に更新できないままnew exportを書こうとしている。</li>
+    <li>Claim Provenance v1をin-placeで意味変更しようとしている。</li>
+    <li>CWEまたはsemantic similarityだけでfindingをauto-mergeする。</li>
+    <li>
+      v2 grouping runをregistry input hashなしで保存する、またはStatic Intelligence
+      generationへ実行時依存させる。
+    </li>
+    <li>
+      vocabulary publicationまたはgrouping algorithm selectionをrequest / environment
+      variableから変更可能にする。
+    </li>
+    <li>v2 dedupe unavailable時にlegacy asset / advisory fallbackへ暗黙に戻す。</li>
+    <li>secret-like raw valueから値由来hashを残す。</li>
+    <li>mapping review owner、authority receipt、negative corpusのいずれかがない。</li>
+  </ul>
+
+  <h2 id="29-implementation-handoff">29. Implementation Handoff</h2>
+  <p>
+    実装者はSlice
+    0から順に進め、各Sliceのentry、verification、stop条件をPR本文へ転記する。writer、publish、dedupe
+    promotionを同じPRで有効化しない。Security Vocabulary
+    Alignment以外のontology計画を混ぜず、各rollout changeは前段evidenceを明示的に参照する。
+  </p>
+</article>

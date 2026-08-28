@@ -1,0 +1,2651 @@
+<article lang="ja" data-spec-role="active-plan">
+  <h1 id="claim-provenance-implementation-plan">Claim Provenance Implementation Plan</h1>
+  <ul>
+    <li>Status: Draft implementation plan</li>
+    <li>Implementation status: Not started</li>
+    <li>Date: 2026-08-28</li>
+    <li>Priority: P0 candidate</li>
+    <li>GO requirement: 実装開始前にproducer owner、consumer owner、rollout gateの承認が必要</li>
+    <li>
+      Parent template:
+      <a href="../templates/ontology-planning/claim-provenance-plan-template.html"
+        >Claim Provenance Plan Skeleton</a
+      >
+    </li>
+    <li>
+      Parent direction:
+      <a href="../concepts/project-intelligence-ontology-evolution-roadmap.html"
+        >Project Intelligence and Ontology Evolution Roadmap</a
+      >
+    </li>
+    <li>
+      Preceding plan:
+      <a href="./semantic-handoff-validation-implementation-plan.html"
+        >Semantic Handoff Validation Implementation Plan</a
+      >
+    </li>
+  </ul>
+
+  <h2 id="1-purpose">1. Purpose</h2>
+  <p>
+    persisted Static Intelligence generationから公開されるgraph node、edge、module candidate、risk
+    community、および将来のclaimについて、どのsource、revision、producer、generator、rule、入力targetから生じたかを機械的に追跡できるようにする。lineageは説明表示だけでなく、stale判定、再計算、改ざん検知、監査、consumer側の安全な採否判断に使える形で保持する。
+  </p>
+  <p>
+    この計画はClaim Provenanceだけを実装可能な粒度へ具体化する。semantic handoff
+    validation、security vocabulary alignment、ontology contract versioning、competency
+    question、rule inferenceを同時に設計・実装しない。
+  </p>
+
+  <h2 id="2-target-outcome">2. Target Outcome</h2>
+  <pre><code class="language-text">source rows / persisted artifacts / semantic result
+  -&gt; build graph, module, or community and provenance draft together
+  -&gt; bind draft to exact source revision and generation
+  -&gt; canonicalize records and target bindings
+  -&gt; persist normalized provenance ledger beside the generation
+  -&gt; validate completeness and hashes
+  -&gt; publish only a bounded descriptor in handoff / manifest
+  -&gt; resolve one target's lineage through a bounded read-only query
+</code></pre>
+  <ul>
+    <li>
+      各targetはwhole-object bindingを最低1件持ち、profile指定の重要propertyはproperty
+      bindingも持つ。
+    </li>
+    <li>同じlineage内容はtarget間で1つのrecordへdeduplicateされ、targetはrecord IDを参照する。</li>
+    <li>observed、deterministic derived、semantic candidate、LLM interpretationを混同しない。</li>
+    <li>
+      同じrevision、producer version、generator version、rule、source、inputから同じprovenance
+      IDを生成する。
+    </li>
+    <li>
+      ledgerが欠落または不正でも既存generation artifactは失わないが、不正なledgerは公開しない。
+    </li>
+    <li>NightWorkersはmanifest descriptorを検証するが、full ledgerをtask eventへ複製しない。</li>
+    <li>
+      consumerはtarget refを指定して必要なlineageだけを取得し、raw artifactやraw
+      evidenceは取得しない。
+    </li>
+  </ul>
+
+  <h2 id="3-current-baseline">3. Current Baseline</h2>
+  <table>
+    <caption>
+      現行のlineage情報と不足
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Surface</th>
+        <th scope="col">Current behavior</th>
+        <th scope="col">Gap</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>generation-types.ts</code></td>
+        <td>
+          generation ID、typed source revision、source tree / state hash、snapshot / export /
+          content hashをartifact metadataに持つ。
+        </td>
+        <td>generation全体の出所は分かるが、個々のnode / edge / propertyへ結び付かない。</td>
+      </tr>
+      <tr>
+        <td><code>evidence-graph.ts</code></td>
+        <td>nodeにsourceId、edgeにevidenceRefsを持ち、IDと並びを決定的に生成する。</td>
+        <td>generator version、rule ID、revision、入力target、assertion kindを公開しない。</td>
+      </tr>
+      <tr>
+        <td><code>static-intelligence.schema.ts</code></td>
+        <td>node confidenceはstring、edge confidenceは0..1としてpayloadに含む。</td>
+        <td>confidenceの意味がproducer単位で定義されず、lineage confidenceとの区別がない。</td>
+      </tr>
+      <tr>
+        <td><code>community-builder.ts</code></td>
+        <td>communityにfinding、evidence、artifact、file、scanner、rule refとbasisを集約する。</td>
+        <td>
+          どのbasis builderが生成したか、merge前の候補、semantic query / indexの版を追えない。
+        </td>
+      </tr>
+      <tr>
+        <td><code>module-candidates.ts</code></td>
+        <td>project structureとfile riskからmoduleを決定的に投影し、reasonsを文字列で返す。</td>
+        <td>reasonsは表示用であり、source / rule / revisionへ解決できるcontractではない。</td>
+      </tr>
+      <tr>
+        <td><code>knowledge-source-manifest.ts</code></td>
+        <td>
+          exportHashとcontentHashをcanonical JSONから計算し、generation provenanceを公開する。
+        </td>
+        <td>target単位のledger descriptorとlineage query bundleがない。</td>
+      </tr>
+      <tr>
+        <td><code>shared/canonical-json.ts</code></td>
+        <td>RFC 8785互換のcanonical JSONと不正値拒否を実装済みである。</td>
+        <td>provenance record ID / ledger hashの共通primitiveとしてまだ利用していない。</td>
+      </tr>
+      <tr>
+        <td>NightWorkers handoff consumer</td>
+        <td>strict schemaでmanifestをparseし、manifest全体をrun artifact metadataへ保存する。</td>
+        <td>
+          provenance descriptorと新bundle
+          requirementをまだ理解しない。既存manifest保存形式を維持したまま、full
+          ledgerを混入させないconsumer変更が必要である。
+        </td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3 id="31-manual-trace-samples">3.1 Manual Trace Samples</h3>
+  <table>
+    <caption>
+      現行payloadを手作業で辿ったときに止まる地点
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Target</th>
+        <th scope="col">辿れる範囲</th>
+        <th scope="col">停止理由</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>finding:&lt;id&gt;</code> node</td>
+        <td>sourceIdからfinding row、metadataからscanner / ruleへ辿れる。</td>
+        <td>row snapshotのrevisionとnode生成ruleがbindingされていない。</td>
+      </tr>
+      <tr>
+        <td><code>stored_as:...</code> edge</td>
+        <td>evidence refとartifact nodeのsha256へ辿れる。</td>
+        <td>artifact欠落時の0.5を生成したruleとcoverage reasonがrecord化されていない。</td>
+      </tr>
+      <tr>
+        <td><code>community:semantic:...</code></td>
+        <td>finding / evidence / artifact refと低confidence表示へ辿れる。</td>
+        <td>semantic result、query hash、embedding model、threshold、merge activityを追えない。</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3 id="32-current-test-evidence">3.2 Current Test Evidence</h3>
+  <p>2026-08-28に関連6 test fileを変更前baselineとして実行した。</p>
+  <ul>
+    <li>全体: 59 tests中52 pass、7 fail</li>
+    <li>
+      export、generation repository、module candidate、community builder unit、manifest、canonical
+      JSONの52 testsはpassした。
+    </li>
+    <li>
+      community / landscape CLIの7
+      testsはspawn結果のstdoutが空になりfailした。builderの決定性testはpassしている。
+    </li>
+    <li>
+      NightWorkersのontology handoff schemaには直接一致するtest fileがなく、指定実行は0 testだった。
+    </li>
+  </ul>
+  <p>
+    7件のCLI failureは本計画作成前から再現するbaselineであり、provenance
+    regressionではない。ただしcommunity CLIとlineage queryは本計画の直接surfaceなので、Slice
+    0でspawn harnessの原因を切り分け、producer wire publish前にgreenへ戻す。NightWorkersにはconsumer
+    contract testを新設する。
+  </p>
+
+  <h2 id="4-fixed-decisions">4. Fixed Decisions</h2>
+  <ul>
+    <li>initial implementationはnormalized JSON ledgerとtarget bindingを採用する。</li>
+    <li>node / edge schemaへ同じprovenance objectをinline複製しない。</li>
+    <li>
+      ledgerは既存<code>scan_artifacts</code>とgeneration
+      lifecycleを再利用し、別DBを導入しない。
+    </li>
+    <li>RDF、PROV-O serializer、triple store、Semantica runtime dependencyを導入しない。</li>
+    <li>provenanceはtruth、approval、correctnessを保証しない。出所と処理経路だけを保証する。</li>
+    <li>
+      confidence欠落を0へ補完せず、既存target confidenceとprovenance confidenceを別fieldとして扱う。
+    </li>
+    <li>
+      global insertion-order hash chainを採用しない。record単位とledger単位のcontent-addressed
+      hashを使う。
+    </li>
+    <li>
+      raw source quote、raw evidence snippet、raw artifact body、secret、absolute
+      pathをledgerへ保存しない。
+    </li>
+    <li>
+      full ledgerをknowledge source manifest、NightWorkers task event、model promptへinlineしない。
+    </li>
+    <li>
+      persisted generationに結び付かないad hoc outputをrevision-backed lineageとして表示しない。
+    </li>
+    <li>
+      builderとlineageを別々に再計算せず、同じprojection passからpayloadとprovenance draftを作る。
+    </li>
+    <li>profile v1のrule ID、required target、property path、assertion kindはimmutableとする。</li>
+    <li>
+      base
+      recordは同一generationで一括finalizeするため、generatedAtはledgerに1回だけ持たせる。source固有時刻はtarget
+      / source artifactのfieldとして追跡し、deduplicated recordへ複製しない。
+    </li>
+    <li>
+      rule semanticsを変える場合はrule versionまたはprofileを更新し、既存record IDを再解釈しない。
+    </li>
+    <li>
+      consumer-first migrationを採用し、NightWorkersがoptional
+      descriptorを読める状態を先にreleaseする。
+    </li>
+    <li>
+      producer writerより先にtolerant readerをreleaseし、新artifact
+      kindをderivedとしてsourceStateHashから除外できるversionをrollback
+      floorにする。writer有効化後はそれ以前のproducer binaryへ戻さない。
+    </li>
+    <li>
+      artifactMode（off / shadow / required）とpublishEnabledを既存方針に合わせてsource-controlled
+      typed constantで管理する。未検証の環境変数やrequest inputから切り替えない。
+    </li>
+    <li>
+      Slice 1 / 2 merge時のproduction defaultはoffとし、graph + module
+      coverage後に別changeでshadowへ上げる。
+    </li>
+    <li>
+      legacy 3-artifact generationは読み続け、新規4-artifact generationへのin-place
+      backfillをしない。
+    </li>
+  </ul>
+
+  <h2 id="5-scope">5. Scope</h2>
+  <h3 id="51-in-scope">5.1 In Scope</h3>
+  <ul>
+    <li>
+      provenance reference、record、binding、ledger、descriptor、bounded queryのstrict Zod schema
+    </li>
+    <li>observed / deterministic derived / semantic candidate / LLM interpretationの分類</li>
+    <li>graph node 9種、edge 8種、module candidate、risk communityのprofile v1 mapping</li>
+    <li>重要propertyのproperty-level binding</li>
+    <li>record ID、ledger hash、projection hashのcanonicalization</li>
+    <li>generationと同じartifact lifecycleでのledger persistence、load、integrity check</li>
+    <li>build-time module bindingとquery-time community projectionのlineage fragment</li>
+    <li>knowledge source manifestとontology handoffへのbounded descriptor追加</li>
+    <li>target-scoped read-only CLI / API query</li>
+    <li>NightWorkersのoptional descriptor parsing、cross-field validation、bounded persistence</li>
+    <li>
+      unit、repository、route、CLI、cross-repository contract fixture、performance qualification
+    </li>
+  </ul>
+
+  <h3 id="52-non-goals">5.2 Non-goals</h3>
+  <ul>
+    <li>canonical claim approval、conflict resolution、human review workflow</li>
+    <li>PROV-O完全準拠、JSON-LD / Turtle export、SPARQL query</li>
+    <li>すべての表示用fieldにproperty provenanceを付けること</li>
+    <li>source rowごとの履歴DBまたはevent sourcing</li>
+    <li>既存scan artifact、finding、evidence schemaの全面再設計</li>
+    <li>confidenceのcross-producer calibrationまたはtruth score化</li>
+    <li>CWE / CVE / CAPEC / OWASP vocabulary alignment</li>
+    <li>inferred claimの新設またはNightWorkers rule engine</li>
+    <li>過去generationの一括backfill</li>
+    <li>NightWorkers task compilerからlineage queryを自動実行する新workflow</li>
+    <li>semantic handoff validation profile v1の無断変更</li>
+    <li>baselineで失敗したCLI以外の便乗修正</li>
+    <li>既存file storage / DB間に存在しないcross-resource crash transactionの新設</li>
+  </ul>
+
+  <h2 id="6-responsibility-boundary">6. Responsibility Boundary</h2>
+  <table>
+    <caption>
+      Claim Provenanceに関するowner
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Layer</th>
+        <th scope="col">Owns</th>
+        <th scope="col">Must not own</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>vulnWorkbench source adapter</td>
+        <td>source ref、content hash、observed assertionの分類</td>
+        <td>consumer task policy、canonical truth</td>
+      </tr>
+      <tr>
+        <td>vulnWorkbench projection builder</td>
+        <td>generator / rule、input ref、target binding、ledger persistence</td>
+        <td>source evidenceの書換え、human approval</td>
+      </tr>
+      <tr>
+        <td>NightWorkers</td>
+        <td>descriptor parse、target-scoped fetch、task/run内の利用判断</td>
+        <td>producer lineageの再生成、full ledger copy、canonical lifecycle</td>
+      </tr>
+      <tr>
+        <td>Future Ontology Core</td>
+        <td>cross-producer canonical claim、revision、conflict、approval</td>
+        <td>本計画の初期runtime dependency</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2 id="7-semantica-and-prov-o-adoption-boundary">7. Semantica and PROV-O Adoption Boundary</h2>
+  <p>
+    参考実装は
+    <a
+      href="https://github.com/semantica-agi/semantica/tree/cce5ea177cbac29a526effa546219c48f8ec36f4"
+      >Semantica commit cce5ea1</a
+    >の<a
+      href="https://github.com/semantica-agi/semantica/blob/cce5ea177cbac29a526effa546219c48f8ec36f4/docs/reference/provenance.md"
+      >Provenance reference</a
+    >、<a
+      href="https://github.com/semantica-agi/semantica/blob/cce5ea177cbac29a526effa546219c48f8ec36f4/semantica/provenance/schemas.py"
+      ><code>ProvenanceEntry</code></a
+    >、<a
+      href="https://github.com/semantica-agi/semantica/blob/cce5ea177cbac29a526effa546219c48f8ec36f4/semantica/provenance/manager.py"
+      ><code>ProvenanceManager</code></a
+    >である。役割名は<a href="https://www.w3.org/TR/prov-o/">W3C PROV-O</a>を参照する。
+  </p>
+  <table>
+    <caption>
+      借りる設計と借りない実装
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Borrow</th>
+        <th scope="col">vulnWorkbench mapping</th>
+        <th scope="col">Do not borrow now</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>entity / relationship / propertyを別targetとして追跡する。</td>
+        <td>target kind、target ref、optional property path</td>
+        <td>全targetへSemantica dataclassをそのままinlineする。</td>
+      </tr>
+      <tr>
+        <td>activity、agent、used entity、derived-fromを分離する。</td>
+        <td>producer、generator、sourceRefs、inputRefs</td>
+        <td>PROV-Oの全qualified relationを初期contractへ入れる。</td>
+      </tr>
+      <tr>
+        <td>source location、confidence、checksumをoptional metadataとして持つ。</td>
+        <td>redacted ref、typed confidence、record / ledger hash</td>
+        <td>source quote、absolute source path、raw metadataを保存する。</td>
+      </tr>
+      <tr>
+        <td>targetからlineage chainを取得する。</td>
+        <td>depth、record数、byte数を制限したread-only query</td>
+        <td>unbounded aggregate lineageまたはmodel promptへの全量投入</td>
+      </tr>
+      <tr>
+        <td>persistent storageとintegrity verificationを分離する。</td>
+        <td>既存generation artifact storageとcanonical hash</td>
+        <td>別SQLite、global mutable manager、挿入順hash chain</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    PROV-OのEntity / Activity /
+    Agent、<code>used</code>、<code>wasGeneratedBy</code>、<code>wasDerivedFrom</code>は概念対応に使う。wire
+    contractではproject固有のJSON名を用い、RDF IRIやreasonerを必須にしない。
+  </p>
+
+  <h2 id="8-claim-and-lineage-semantics">8. Claim and Lineage Semantics</h2>
+  <h3 id="81-assertion-kinds">8.1 Assertion Kinds</h3>
+  <table>
+    <caption>
+      profile v1のepistemic classification
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Kind</th>
+        <th scope="col">Meaning</th>
+        <th scope="col">Promotion rule</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>observed</code></td>
+        <td>保存済みrow / artifactが直接表す存在、状態、識別子</td>
+        <td>source ref必須。consumer成功では昇格しない。</td>
+      </tr>
+      <tr>
+        <td><code>deterministic_derived</code></td>
+        <td>固定ruleがobservedまたはderived inputから再計算できる投影</td>
+        <td>rule IDとinput ref必須。observedとは呼ばない。</td>
+      </tr>
+      <tr>
+        <td><code>semantic_candidate</code></td>
+        <td>embedding / semantic queryにより選択された候補</td>
+        <td>常にcandidate-only。observed / declaredへ自動昇格しない。</td>
+      </tr>
+      <tr>
+        <td><code>llm_interpretation</code></td>
+        <td>scan review等のLLM出力から投影した説明、command、関係</td>
+        <td>source reviewとgenerator fingerprint必須。observedへ自動昇格しない。</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3 id="82-provenance-is-not-truth">8.2 Provenance Is Not Truth</h3>
+  <ul>
+    <li>完全なlineageがあってもsourceが誤っていればclaimは誤り得る。</li>
+    <li><code>confidence=1</code>はtruth、approval、安全性を意味しない。</li>
+    <li>deterministic ruleの再現性はconfidenceではなくassertion kindとgenerator versionで表す。</li>
+    <li>coverageは観測範囲を表し、未観測領域の安全性を主張しない。</li>
+    <li>lineage欠落を空配列で成功扱いせず、missing / partial / invalidを明示する。</li>
+  </ul>
+
+  <h3 id="83-confidence-semantics">8.3 Confidence Semantics</h3>
+  <table>
+    <caption>
+      provenance confidenceのproducer内意味
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Semantics</th>
+        <th scope="col">Meaning</th>
+        <th scope="col">Profile rule</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>source_reported</code></td>
+        <td>source rowまたはtoolが明示した0..1値</td>
+        <td>source refとmethod catalog entryを必須とし、文字列confidenceを推測変換しない。</td>
+      </tr>
+      <tr>
+        <td><code>derivation_support</code></td>
+        <td>固定ruleが定義した入力充足度</td>
+        <td>formulaをrule catalogへ固定する。targetのconfidence fieldを自動コピーしない。</td>
+      </tr>
+      <tr>
+        <td><code>similarity</code></td>
+        <td>semantic providerが返した正規化済みsimilarity</td>
+        <td>semantic candidateだけに必須とし、model fingerprint、threshold、topKと結び付ける。</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    moduleやcommunity payloadの<code>confidence</code>はtarget
+    valueであり、property bindingの
+    <code>valueHash</code>で追跡する。provenance
+    confidenceへ同じ数値を複製する場合は、rule
+    catalogに独立した意味とmethodが定義されている場合だけ許可する。
+  </p>
+
+  <h3 id="84-coverage-semantics">8.4 Coverage Semantics</h3>
+  <ul>
+    <li>
+      <code>complete</code>はtotalCount必須かつobservedCountと同数とする。
+    </li>
+    <li>
+      <code>partial</code> /
+      <code>unknown</code>は固定reason
+      codeを必須とし、totalCountがある場合は<code>observedCount &lt;= totalCount</code>とする。
+    </li>
+    <li>coverage未設定は「このruleに件数coverageを適用しない」を意味し、unknownの代用にしない。</li>
+    <li>
+      source rowやartifactのretention切れは来歴refを削除せず、query結果でsource unavailableを示す。
+    </li>
+  </ul>
+
+  <h2 id="9-contract">9. Claim Provenance Contract v1</h2>
+  <h3 id="91-shared-schema">9.1 Shared Schema</h3>
+  <pre><code class="language-typescript">const sha256HexSchema = z.string().regex(/^[a-f0-9]{64}$/);
+const safeRefSchema = z.string().min(1).max(512)
+  .regex(/^[^\u0000-\u001f\u007f]+$/)
+  .refine((value) =&gt; value.trim() === value);
+const claimProvenanceAssertionKindSchema = z.enum([
+  "observed", "deterministic_derived",
+  "semantic_candidate", "llm_interpretation"
+]);
+const claimProvenanceTargetKindSchema = z.enum([
+  "graph_node", "graph_edge", "module", "community", "claim"
+]);
+const claimProvenanceReasonCodeSchema = z.enum([
+  "artifact_ref_unresolved", "source_identity_missing",
+  "semantic_source_identity_missing", "source_unavailable",
+  "rollout_disabled", "required_binding_missing", "reference_budget_exceeded",
+  "ledger_size_exceeded", "projection_size_exceeded", "record_budget_exceeded",
+  "binding_budget_exceeded", "query_truncated", "ledger_missing",
+  "artifact_hash_mismatch", "ledger_hash_mismatch",
+  "revision_mismatch", "generation_mismatch", "profile_mismatch",
+  "dangling_provenance_record", "source_state_changed",
+  "lineage_build_failed", "publication_value_mismatch"
+]);
+
+const claimProvenanceReferenceSchema = z.object({
+  kind: z.enum([
+    "project", "scan_run", "tool_run", "finding", "evidence",
+    "artifact", "file", "review", "verification", "snapshot",
+    "project_structure", "code_structure", "file_risk_entry",
+    "review_output", "semantic_query", "static_intelligence_export",
+    "graph_node", "graph_edge", "module", "community",
+    "semantic_result", "claim", "provenance_record", "reference_set", "redacted"
+  ]),
+  ref: safeRefSchema,
+  contentHash: sha256HexSchema.optional(),
+}).strict();
+
+const claimProvenanceConfidenceSchema = z.object({
+  value: z.number().min(0).max(1),
+  semantics: z.enum(["source_reported", "derivation_support", "similarity"]),
+  method: z.string().min(1).max(128),
+}).strict();
+
+const claimProvenanceCoverageSchema = z.object({
+  status: z.enum(["complete", "partial", "unknown"]),
+  observedCount: z.number().int().nonnegative(),
+  totalCount: z.number().int().nonnegative().optional(),
+  reasonCodes: z.array(claimProvenanceReasonCodeSchema).max(32),
+}).strict();
+
+const claimProvenanceRecordSchema = z.object({
+  provenanceId: z.string().regex(/^prov:sha256:[a-f0-9]{64}$/),
+  assertionKind: claimProvenanceAssertionKindSchema,
+  producer: z.object({
+    name: z.literal("vulnWorkbench"),
+    version: z.string().min(1).max(64),
+  }).strict(),
+  generator: z.object({
+    name: z.string().min(1).max(128),
+    version: z.string().min(1).max(64),
+    ruleId: z.string().regex(/^static_intelligence\.[a-z0-9_.-]+\.v[0-9]+$/),
+    semanticParameters: z.object({
+      minVectorScore: z.number().min(0).max(1),
+      topK: z.number().int().positive().max(1_000),
+    }).strict().optional(),
+  }).strict(),
+  validForRevision: z.object({
+    kind: z.enum(["git", "tree_hash_only"]),
+    value: sha256HexSchema,
+    head: z.string().min(1).max(128).optional(),
+    dirtyHash: sha256HexSchema.optional(),
+  }).strict(),
+  sourceRefs: z.array(claimProvenanceReferenceSchema).max(64),
+  inputRefs: z.array(claimProvenanceReferenceSchema).max(128),
+  confidence: claimProvenanceConfidenceSchema.optional(),
+  coverage: claimProvenanceCoverageSchema.optional(),
+}).strict();
+
+const claimProvenanceBindingSchema = z.object({
+  targetKind: claimProvenanceTargetKindSchema,
+  targetRef: safeRefSchema,
+  propertyPath: z.string().min(1).max(256).optional(),
+  valueHash: sha256HexSchema,
+  provenanceIds: z.array(
+    z.string().regex(/^prov:sha256:[a-f0-9]{64}$/)
+  ).min(1).max(16),
+}).strict();</code></pre>
+
+  <h3 id="92-ledger-and-descriptor">9.2 Ledger and Descriptor</h3>
+  <pre><code class="language-typescript">const claimProvenanceLedgerSchema = z.object({
+  version: z.literal("v1"),
+  profile: z.literal("static-intelligence-claim-provenance-v1"),
+  scope: z.literal("generation_handoff"),
+  generationId: z.string().uuid(),
+  projectId: z.string().min(1),
+  scanRunId: z.string().min(1),
+  generatedAt: z.string().datetime(),
+  validForRevision: claimProvenanceRecordSchema.shape.validForRevision,
+  records: z.array(claimProvenanceRecordSchema).max(100_000),
+  bindings: z.array(claimProvenanceBindingSchema).max(100_000),
+  summary: z.object({
+    recordCount: z.number().int().nonnegative(),
+    bindingCount: z.number().int().nonnegative(),
+    requiredBindingCount: z.number().int().nonnegative(),
+    coveredRequiredBindingCount: z.number().int().nonnegative(),
+    missingRequiredBindingCount: z.number().int().nonnegative(),
+    byAssertionKind: z.record(
+      claimProvenanceAssertionKindSchema,
+      z.number().int().nonnegative()
+    ),
+    byTargetKind: z.record(
+      claimProvenanceTargetKindSchema,
+      z.number().int().nonnegative()
+    ),
+    byCoverageStatus: z.object({
+      complete: z.number().int().nonnegative(),
+      partial: z.number().int().nonnegative(),
+      unknown: z.number().int().nonnegative(),
+      notApplicable: z.number().int().nonnegative(),
+    }).strict(),
+  }).strict(),
+  ledgerHash: sha256HexSchema,
+}).strict();
+
+const claimProvenanceDescriptorBaseSchema = z.object({
+  version: z.literal("v1"),
+  profile: z.literal("static-intelligence-claim-provenance-v1"),
+  scope: z.literal("generation_handoff"),
+  generationId: z.string().uuid(),
+}).strict();
+
+const claimProvenancePublishedDescriptorBaseSchema =
+  claimProvenanceDescriptorBaseSchema.extend({
+    ledgerRef: z.string().min(1).max(256),
+    ledgerHash: sha256HexSchema,
+    artifactContentHash: sha256HexSchema,
+    summary: claimProvenanceLedgerSchema.shape.summary,
+  });
+
+const claimProvenanceAvailableDescriptorSchema =
+  claimProvenancePublishedDescriptorBaseSchema.extend({
+    status: z.literal("available"),
+  });
+
+const claimProvenancePartialDescriptorSchema =
+  claimProvenancePublishedDescriptorBaseSchema.extend({
+    status: z.literal("partial"),
+    reasonCodes: z.array(claimProvenanceReasonCodeSchema).min(1).max(32),
+  });
+
+const claimProvenanceMissingDescriptorSchema =
+  claimProvenanceDescriptorBaseSchema.extend({
+    status: z.literal("missing"),
+    reasonCodes: z.array(claimProvenanceReasonCodeSchema).min(1).max(32),
+  });
+
+const claimProvenanceInvalidDescriptorSchema =
+  claimProvenanceDescriptorBaseSchema.extend({
+    status: z.literal("invalid"),
+    reasonCodes: z.array(claimProvenanceReasonCodeSchema).min(1).max(32),
+  });
+
+const claimProvenanceDescriptorSchema = z.discriminatedUnion("status", [
+  claimProvenanceAvailableDescriptorSchema,
+  claimProvenancePartialDescriptorSchema,
+  claimProvenanceMissingDescriptorSchema,
+  claimProvenanceInvalidDescriptorSchema,
+]);
+
+const claimProvenanceProjectionSchema = z.object({
+  version: z.literal("v1"),
+  profile: z.literal("static-intelligence-claim-provenance-v1"),
+  scope: z.enum(["community_result", "agent_query_result"]),
+  generationId: z.string().uuid(),
+  parentLedgerHash: sha256HexSchema,
+  records: z.array(claimProvenanceRecordSchema).max(2_000),
+  bindings: z.array(claimProvenanceBindingSchema).max(2_000),
+  summary: claimProvenanceLedgerSchema.shape.summary,
+  projectionHash: sha256HexSchema,
+}).strict();
+
+const claimProvenanceProjectionResultSchema = z.discriminatedUnion("status", [
+  z.object({
+    status: z.literal("available"),
+    projection: claimProvenanceProjectionSchema,
+  }).strict(),
+  z.object({
+    status: z.literal("partial"),
+    reasonCodes: z.array(claimProvenanceReasonCodeSchema).min(1).max(32),
+    projection: claimProvenanceProjectionSchema,
+  }).strict(),
+  z.object({
+    status: z.literal("missing"),
+    reasonCodes: z.array(claimProvenanceReasonCodeSchema).min(1).max(32),
+  }).strict(),
+  z.object({
+    status: z.literal("invalid"),
+    reasonCodes: z.array(claimProvenanceReasonCodeSchema).min(1).max(32),
+  }).strict(),
+]);</code></pre>
+  <p>
+    manifestとhandoffへ入れるのはdescriptorだけである。<code>records</code>と<code>bindings</code>はartifactまたはbounded
+    query responseから取得する。
+  </p>
+  <p>
+    base ledgerの<code>requiredBindingCount</code>はgeneration handoffに含むgraph node /
+    edge / moduleのwhole-object bindingとrequired property
+    bindingを対象にする。projectionのsummaryは、そのresponseが実際に返すcommunityまたはagent-query
+    targetのwhole-object / required property
+    bindingだけから再計算する。projectionの<code>parentLedgerHash</code>は検証済みbase
+    ledgerと完全一致し、bindingの<code>valueHash</code>は同じresponse内のtarget
+    valueと一致しなければならない。
+  </p>
+  <p>
+    projection summaryのrecord / binding countはprojection内の配列だけを数える。bindingがparent
+    ledgerのrecord IDを参照する場合、そのrecordをprojectionへ複製せず、projection record
+    countにも加えない。
+  </p>
+  <p>
+    reachable parent recordのpartial / unknown coverageはouter partial
+    envelopeのreasonCodesへ伝播するが、projection summaryのrecord / coverage countには加えない。
+  </p>
+  <p>
+    <code>byAssertionKind</code
+    >と<code>byCoverageStatus</code>はrecord数、
+    <code>byTargetKind</code>はbinding数を数え、zero件のenum
+    keyも省略せず0で出力する。
+  </p>
+  <p>
+    community / agent-query response rootの<code>claimProvenance</code>
+    envelope自体はwire compatibilityのためoptionalとする。new persisted-generation pathは必ず4
+    statusのいずれかを返し、legacy producerだけがfieldを省略できる。
+  </p>
+
+  <h3 id="93-cross-field-invariants">9.3 Cross-field Invariants</h3>
+  <ul>
+    <li>
+      observed
+      recordは<code>sourceRefs</code>を1件以上持ち、<code>inputRefs</code>は空にする。
+    </li>
+    <li>
+      deterministic derived、semantic candidate、LLM
+      interpretationは<code>inputRefs</code>を1件以上持つ。
+    </li>
+    <li>
+      semantic candidateのconfidence
+      semanticsは<code>similarity</code>だけを許可する。
+    </li>
+    <li>semantic candidateはconfidence自体も必須とし、欠落を0として扱わない。</li>
+    <li>
+      semantic candidateは<code>semantic_query</code> input、model / deployment
+      fingerprintを表すgenerator version、minVectorScore / topKを表す
+      <code>semanticParameters</code>を必須とする。それ以外のassertion
+      kindはsemanticParametersを持たない。
+    </li>
+    <li>
+      confidenceがない状態と<code>value=0</code>を区別する。default値を補わない。
+    </li>
+    <li>
+      <code>coverage.status=complete</code>はtotalCountを必須とし、observedCountと一致する。
+    </li>
+    <li>
+      <code>coverage.status=partial</code
+      >または<code>unknown</code>はreasonCodesを1件以上持つ。
+    </li>
+    <li>totalCountがある場合はobservedCount以上でなければならない。</li>
+    <li>git revisionはheadを必須とし、tree_hash_onlyはhead / dirtyHashを持たない。</li>
+    <li>recordとledgerのrevisionは完全一致する。</li>
+    <li>
+      generatorのrule IDはprofile v1のimmutable rule catalogに存在し、recordのassertion
+      kindと許可された組合せでなければならない。regexだけを通過したunknown ruleを受理しない。
+    </li>
+    <li>confidence methodとcoverage reason codeもrule catalogで許可された値だけを受理する。</li>
+    <li>
+      artifact / snapshot / static intelligence export / reference
+      set参照は<code>contentHash</code>を必須とする。
+    </li>
+    <li>
+      file refはproject-relative pathだけを許可し、absolute / external pathは
+      kindを<code>redacted</code>へ変えて<code>redacted:sha256:&lt;hash&gt;</code>形式にする。
+    </li>
+    <li>bindingの全provenance IDが同じledgerまたは明示されたparent ledgerのrecordに存在する。</li>
+    <li>
+      <code>provenance_record</code> input refは同じledger /
+      projectionまたは明示されたparent ledgerのrecord IDへ解決できなければならない。
+    </li>
+    <li>
+      provenance_record dependency graphのcycleはinvalidとし、query側cycle
+      detectionもdefense-in-depthで残す。
+    </li>
+    <li>
+      ledger / projection内の全recordは少なくとも1つのbindingから到達可能とし、orphan
+      recordをinvalidにする。
+    </li>
+    <li>同一target kind / target ref / property pathのbindingを重複させない。</li>
+    <li>
+      target refのprefixとproperty pathはtarget kind別のprofile catalogに一致させる。property
+      pathはRFC 6901 JSON Pointerとして有効でも、catalog外なら拒否する。
+    </li>
+    <li>
+      <code>valueHash</code>はwhole targetまたはproperty valueをcanonical
+      JSON化したhashと一致する。
+    </li>
+    <li>
+      records、bindings、sourceRefs、inputRefs、provenanceIds、reasonCodesはcanonical順かつ重複なしとし、loaderも非canonical
+      ledgerを拒否する。
+    </li>
+    <li>summaryはrecords / bindings / required binding profileから再計算した値と一致する。</li>
+    <li>
+      coveredRequiredBindingCount + missingRequiredBindingCountはrequiredBindingCountと一致する。
+    </li>
+    <li>
+      byAssertionKindとbyCoverageStatusの合計はrecordCount、byTargetKindの合計はbindingCountと一致する。
+    </li>
+    <li>
+      missingRequiredBindingCount、partial coverage、unknown coverageのいずれかが1以上ならdescriptor
+      statusを<code>partial</code>にする。すべて0の場合だけ<code>available</code>にする。
+    </li>
+    <li>
+      partial descriptorはsummaryから導出した固定reason codeを1件以上持ち、available
+      descriptorはreasonCodes fieldを持たない。
+    </li>
+    <li>published descriptorのledgerRef suffixはdescriptor generation IDと一致する。</li>
+    <li>
+      hash不一致、dangling provenance ID、revision不一致はunavailable
+      descriptorの<code>invalid</code>として扱い、ledgerRef、hash、summaryを公開しない。
+    </li>
+  </ul>
+
+  <h2 id="10-reference-and-redaction-policy">10. Reference and Redaction Policy</h2>
+  <table>
+    <caption>
+      source / input referenceの作り方
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Reference kind</th>
+        <th scope="col">Canonical ref</th>
+        <th scope="col">Sensitive handling</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>DB identity</td>
+        <td>
+          <code>finding:&lt;id&gt;</code
+          >、<code>evidence:&lt;id&gt;</code>等
+        </td>
+        <td>raw row内容を含めない。</td>
+      </tr>
+      <tr>
+        <td>artifact</td>
+        <td><code>artifact:&lt;id&gt;</code> + contentHash</td>
+        <td>path、body、storage URLを含めない。</td>
+      </tr>
+      <tr>
+        <td>provenance record</td>
+        <td><code>prov:sha256:&lt;record-hash&gt;</code></td>
+        <td>same ledger / projectionまたは明示されたparent ledger以外を参照しない。</td>
+      </tr>
+      <tr>
+        <td>file</td>
+        <td>安全なproject-relative path</td>
+        <td>absolute / external pathは<code>redacted:sha256:&lt;hash&gt;</code>へ置換する。</td>
+      </tr>
+      <tr>
+        <td>semantic query</td>
+        <td><code>semantic-query:sha256:&lt;query-and-filter-hash&gt;</code></td>
+        <td>raw query textをledgerへ入れない。</td>
+      </tr>
+      <tr>
+        <td>bounded aggregate</td>
+        <td>
+          <code>reference-set:&lt;kind&gt;:&lt;count&gt;:sha256:&lt;members-hash&gt;</code>
+        </td>
+        <td>
+          全memberのcanonical refをsortしてhash化し、member原文はtargetまたはcontent-addressed
+          source artifactから取得する。
+        </td>
+      </tr>
+      <tr>
+        <td>generator.version（reference外）</td>
+        <td>component versionまたはdeployment fingerprint</td>
+        <td>provider secret、endpoint、credential aliasを含めない。</td>
+      </tr>
+    </tbody>
+  </table>
+  <ul>
+    <li>refにNUL、改行、制御文字を許可しない。</li>
+    <li>refの先頭 / 末尾whitespaceと空白だけのrefを拒否し、validatorがsilent trimしない。</li>
+    <li>512文字を超えるrefはkindを保持したhash refへ置換し、切り詰めた原文を保存しない。</li>
+    <li>source ref配列はkind、ref、contentHashの順序keyでdeduplicate / sortする。</li>
+    <li>
+      source / input数がschema上限を超えるderived targetでは、完全なsorted member集合へcommitする
+      <code>reference_set</code>へ置換する。先頭N件だけを残すsilent
+      truncationは禁止する。
+    </li>
+    <li>
+      <code>reference_set</code>はmember集合がtarget valueまたはcontent-addressed
+      source artifactに存在する場合だけ使う。provenance record集合の省略には使わない。
+    </li>
+    <li>
+      finalizerは<code>reference_set</code>のcountとcontentHashを完全なcanonical
+      member集合から再計算する。
+    </li>
+    <li>reference_set ref末尾のhashとcontentHashは同じmember-set hashでなければならない。</li>
+    <li>redaction前の値はlog、telemetry、validation messageにも出さない。</li>
+    <li>
+      NightWorkers eventへはstatusとreason codeを保存し、available /
+      partial時だけledgerRef、hash、countを保存する。
+    </li>
+  </ul>
+
+  <h2 id="11-identity-and-hash-policy">11. Identity and Hash Policy</h2>
+  <h3 id="111-record-id">11.1 Record ID</h3>
+  <pre><code class="language-text">provenanceId
+  = "prov:sha256:"
+  + sha256(canonicalJson(record without provenanceId))
+</code></pre>
+  <ul>
+    <li>
+      provenance record、binding value、ledger、projectionのhashには
+      <code>shared/canonical-json.ts</code>だけを利用する。
+    </li>
+    <li>
+      <code>generation-types.ts</code
+      >と<code>knowledge-source-manifest.ts</code>の既存export / manifest hash実装はprofile
+      v1で置換しない。descriptor未付与fixtureの既存hashをgolden testで固定し、Claim
+      Provenance導入による無関係なhash migrationを避ける。
+    </li>
+    <li>record ID inputへgeneratedAt、generation ID、array挿入順を含めない。</li>
+    <li>
+      validForRevision、producer version、generator version、rule ID、source / input
+      refs、confidence、coverageは含める。
+    </li>
+    <li>同じsource revision上の再実行では同じrecord IDを得る。</li>
+    <li>ruleまたはrevisionが変われば、同じtargetでも別record IDになる。</li>
+    <li>
+      producer versionはroot <code>package.json</code>のrelease
+      versionを使う。version未取得を固定fallbackで隠さず、build failureにする。
+    </li>
+  </ul>
+
+  <h3 id="112-ledger-and-projection-hash">11.2 Ledger and Projection Hash</h3>
+  <ul>
+    <li>recordsはprovenance ID昇順にsortする。</li>
+    <li>
+      bindingsはtarget kind、target ref、property path、valueHashの順にsortし、provenance
+      IDsもsortする。
+    </li>
+    <li>
+      ledger
+      hashは<code>ledgerHash</code>と<code>generatedAt</code>を除くledgerから計算する。generation
+      IDを含むためgeneration-scopedである。
+    </li>
+    <li>artifact contentHashは保存bytes全体のhashであり、ledger hashと役割を混同しない。</li>
+    <li>
+      claim-provenance.jsonはfull ledgerをshared canonical
+      JSONでserializeし、末尾newlineを付けない。既存3 artifactのserializationは変更しない。
+    </li>
+    <li>
+      query-time projectionは<code>projectionHash</code>だけを除くprojection
+      object全体からhashを計算する。 version、profile、scope、generation
+      ID、parentLedgerHash、records、bindings、summaryを含める。
+    </li>
+    <li>
+      <code>localeCompare</code>やICU localeへ依存せず、UTF-16
+      code-unit比較を使う。
+    </li>
+    <li>
+      global sequence IDとprevious checksumは使わない。並列buildとreplayでhashが変わるためである。
+    </li>
+  </ul>
+
+  <h2 id="12-profile-v1-target-mapping">12. Profile v1 Target Mapping</h2>
+  <h3 id="121-graph-node-mapping">12.1 Graph Node Mapping</h3>
+  <table>
+    <caption>
+      node kindごとのassertionとsource
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Node kind</th>
+        <th scope="col">Assertion kind</th>
+        <th scope="col">Required source / input</th>
+        <th scope="col">Rule ID suffix</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>project</td>
+        <td>observed</td>
+        <td>project row</td>
+        <td><code>graph.node.project.v1</code></td>
+      </tr>
+      <tr>
+        <td>scan_run</td>
+        <td>observed</td>
+        <td>scan run row</td>
+        <td><code>graph.node.scan_run.v1</code></td>
+      </tr>
+      <tr>
+        <td>scanner</td>
+        <td>observedまたはdeterministic_derived</td>
+        <td>tool run。fallback時はfinding</td>
+        <td><code>graph.node.scanner.v1</code></td>
+      </tr>
+      <tr>
+        <td>finding</td>
+        <td>observed</td>
+        <td>finding row</td>
+        <td><code>graph.node.finding.v1</code></td>
+      </tr>
+      <tr>
+        <td>evidence</td>
+        <td>observed</td>
+        <td>evidence row</td>
+        <td><code>graph.node.evidence.v1</code></td>
+      </tr>
+      <tr>
+        <td>artifact</td>
+        <td>observed</td>
+        <td>artifact row + sha256</td>
+        <td><code>graph.node.artifact.v1</code></td>
+      </tr>
+      <tr>
+        <td>file</td>
+        <td>deterministic_derived</td>
+        <td>finding + evidence location</td>
+        <td><code>graph.node.file.v1</code></td>
+      </tr>
+      <tr>
+        <td>review</td>
+        <td>observed</td>
+        <td>completed review row</td>
+        <td><code>graph.node.review.v1</code></td>
+      </tr>
+      <tr>
+        <td>verification</td>
+        <td>llm_interpretation</td>
+        <td>review + improvement request item</td>
+        <td><code>graph.node.verification.v1</code></td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    scanner nodeがtool runとfinding fallbackの両方から同じIDへmergeされる場合、whole-object
+    bindingは複数record IDを持つ。sourceを1件へ上書きしない。
+  </p>
+
+  <h3 id="122-graph-edge-mapping">12.2 Graph Edge Mapping</h3>
+  <table>
+    <caption>
+      edge kindごとのlineage rule
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Edge kind</th>
+        <th scope="col">Assertion kind</th>
+        <th scope="col">Required input</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>has_scan</td>
+        <td>deterministic_derived</td>
+        <td>project + scan_run</td>
+      </tr>
+      <tr>
+        <td>detected_by</td>
+        <td>deterministic_derived</td>
+        <td>finding + scanner</td>
+      </tr>
+      <tr>
+        <td>evidenced_by</td>
+        <td>deterministic_derived</td>
+        <td>finding + evidence</td>
+      </tr>
+      <tr>
+        <td>located_in</td>
+        <td>deterministic_derived</td>
+        <td>finding + evidence location + file</td>
+      </tr>
+      <tr>
+        <td>stored_as</td>
+        <td>deterministic_derived</td>
+        <td>evidence + artifact ref</td>
+      </tr>
+      <tr>
+        <td>reviewed_by</td>
+        <td>deterministic_derived</td>
+        <td>scan_run + review</td>
+      </tr>
+      <tr>
+        <td>verified_by</td>
+        <td>llm_interpretation</td>
+        <td>scan_run + verification command</td>
+      </tr>
+      <tr>
+        <td>related_to</td>
+        <td>llm_interpretation</td>
+        <td>review + verification command</td>
+      </tr>
+    </tbody>
+  </table>
+  <ul>
+    <li>rule IDは<code>static_intelligence.graph.edge.&lt;kind&gt;.v1</code>とする。</li>
+    <li>
+      未解決artifactを指すstored_asはrecordを欠落させず、coverage partialとreason
+      <code>artifact_ref_unresolved</code>を付ける。
+    </li>
+    <li>edge confidenceはtarget propertyであり、record confidenceへ自動コピーしない。</li>
+  </ul>
+
+  <h3 id="123-module-mapping">12.3 Module Candidate Mapping</h3>
+  <ul>
+    <li>whole moduleは<code>deterministic_derived</code>とする。</li>
+    <li>
+      inputはcontent hash付きproject structure / static intelligence export、module identity、member
+      file / dependency / file risk / findingの集合である。
+    </li>
+    <li>
+      member集合がinputRefs上限を超える場合は、module target内の完全なmember集合へcommitする
+      <code>reference_set</code>を使う。member refの先頭N件だけを記録しない。
+    </li>
+    <li>rule IDはV2 projectionで<code>static_intelligence.module.project_structure_v2.v1</code>とする。</li>
+    <li>legacy path groupingは別rule <code>static_intelligence.module.path_grouping.v1</code>とする。</li>
+    <li>V2とlegacyを同じrecord IDにしない。</li>
+    <li>
+      <code>/confidence</code
+      >、<code>/reasons</code>、<code>/risk</code>へproperty
+      bindingを付ける。
+    </li>
+  </ul>
+
+  <h3 id="124-community-mapping">12.4 Risk Community Mapping</h3>
+  <table>
+    <caption>
+      community basisとassertion kind
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Basis</th>
+        <th scope="col">Assertion kind</th>
+        <th scope="col">Required input</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>same_file</td>
+        <td>deterministic_derived</td>
+        <td>file risk + findings</td>
+      </tr>
+      <tr>
+        <td>same_scanner_rule</td>
+        <td>deterministic_derived</td>
+        <td>finding scanner / rule fields</td>
+      </tr>
+      <tr>
+        <td>same_scanner</td>
+        <td>deterministic_derived</td>
+        <td>finding scanner fields</td>
+      </tr>
+      <tr>
+        <td>graph_connected</td>
+        <td>deterministic_derived</td>
+        <td>graph node / edge bindings</td>
+      </tr>
+      <tr>
+        <td>semantic</td>
+        <td>semantic_candidate</td>
+        <td>semantic result + findings + query hash</td>
+      </tr>
+    </tbody>
+  </table>
+  <ul>
+    <li>
+      merge後community bindingは<code>static_intelligence.community.merge.v1</code> recordを参照し、merge
+      recordの<code>provenance_record</code> inputから寄与した全basis
+      recordへ辿れるようにする。
+    </li>
+    <li>
+      寄与recordがinputRefs上限を超える場合は
+      <code>static_intelligence.lineage.aggregate.v1</code>の決定的なbalanced
+      treeを作り、各recordのfan-inを128以下にする。
+    </li>
+    <li>
+      semantic recordはembedding model / deployment fingerprintをgenerator version、minVectorScore /
+      topKをgenerator.semanticParameters、source content hashをinput refへ反映する。raw
+      queryは含めない。
+    </li>
+    <li>semantic source identity不足時はcoverage partialとし、observedへfallbackしない。</li>
+    <li>
+      finding集合がinputRefs上限を超える場合は、同じresponseのcommunity
+      targetに含まれる完全なfinding集合へcommitする
+      <code>reference_set</code>を使う。
+    </li>
+    <li>
+      <code>/basis</code
+      >、<code>/confidence</code>、<code>/summary</code>、<code>/suggestedReviewFocus</code>へproperty
+      bindingを付ける。
+    </li>
+  </ul>
+
+  <h3 id="125-future-claim-mapping">12.5 Future Claim Mapping</h3>
+  <p>
+    schemaは<code>claim</code> targetを予約するが、本計画ではclaim
+    builderを実装しない。claim targetをprofile v1 required countへ含めず、後続のExplainable Rule
+    Inference計画が別profileで追加する。v1のCLI / API query inputにもclaimを公開しない。
+  </p>
+
+  <h2 id="13-property-binding-policy">13. Property Binding Policy</h2>
+  <ul>
+    <li>whole-object bindingは全required targetで必須とする。</li>
+    <li>
+      whole-objectの<code>valueHash</code>はtarget全体、property
+      bindingの<code>valueHash</code>はexact property valueから計算する。
+    </li>
+    <li>property pathはRFC 6901 JSON Pointerを使い、array indexをprofile v1で禁止する。</li>
+    <li>targetの並び替えで変化するpathを作らない。</li>
+    <li>
+      property bindingはwhole-object bindingのrecord集合と同じか、そのsubsetでなければならない。
+    </li>
+    <li>unknown property pathをconsumerが推測でwhole-objectへfallbackしない。</li>
+    <li>表示用title / labelの全件追跡は初期required scopeにしない。</li>
+    <li>profile v1のrequired property集合を追加・削除する場合はprofile versionを更新する。</li>
+  </ul>
+
+  <h2 id="14-builder-architecture">14. Builder Architecture</h2>
+  <h3 id="141-public-functions">14.1 Public Functions</h3>
+  <pre><code class="language-typescript">buildDiagnosticEvidenceGraphMaterial(bundle, options)
+  -&gt; { graph, provenanceDraft }
+
+buildStaticIntelligenceExportMaterial(bundle, options)
+  -&gt; { exportPayload, provenanceDraft }
+
+buildStaticIntelligenceModuleCandidatesMaterial(input)
+  -&gt; { modules, provenanceDraft }
+
+buildRiskCommunityMaterial(exportPayload, options)
+  -&gt; { communities, provenanceDraft }
+
+finalizeStaticIntelligenceClaimProvenance({
+  generationIdentity,
+  drafts,
+  requiredTargets,
+}) -&gt; ClaimProvenanceLedger
+
+validateStaticIntelligenceClaimProvenanceStructure({ generation, ledger })
+  -&gt; ClaimProvenanceStructuralValidationResult
+
+resolveStaticIntelligenceClaimProvenancePublication({ generation })
+  -&gt; ClaimProvenancePublicationState
+
+queryStaticIntelligenceClaimProvenance({
+  generation,
+  targetKind,
+  targetRef,
+  propertyPath?,
+  maxDepth,
+}) -&gt; ClaimProvenanceQueryResult</code></pre>
+  <p>
+    既存<code>buildDiagnosticEvidenceGraph</code>、<code>buildStaticIntelligenceModuleCandidates</code>、<code>buildRiskCommunities</code>はcompatibility
+    wrapperとしてpayloadだけを返す。off modeのproduct buildは既存wrapperを維持し、shadow / required
+    modeだけmaterial APIを使ってpayloadとlineageを同じloopで生成する。
+  </p>
+
+  <h3 id="142-provenance-draft">14.2 Provenance Draft</h3>
+  <p>
+    graph / module / community builder時点ではgeneration IDとsource
+    revisionが未確定の場合があるため、builderはhash済みrecordではなくdraftを返す。draftはtarget、assertion
+    kind、rule、source / input ref、target
+    value、confidence、coverageだけを持ち、finalizerがrevisionを加えてrecord IDとvalue
+    hashを計算する。
+  </p>
+  <ul>
+    <li>module-global mutable collectorを使わない。</li>
+    <li>draft作成失敗を握りつぶしてpayloadだけ成功扱いにしない。</li>
+    <li>same targetへの複数sourceはdraft mergeでunionし、最後の1件で上書きしない。</li>
+    <li>payload生成後のreverse engineeringでsourceを推測しない。</li>
+    <li>testはpayloadのみwrapperとmaterial APIのpayloadが完全一致することを確認する。</li>
+  </ul>
+
+  <h3 id="143-query-time-projection">14.3 Query-time Projection</h3>
+  <p>
+    moduleはontology handoffの一部なのでbuild時にmaterialを作り、graphと共にbase
+    ledgerへ固定する。communityはquery条件やsemantic resultに依存するためbase
+    ledgerを改変せず、query-time projectionとして返す。
+  </p>
+  <ul>
+    <li>
+      base ledger
+      scopeは<code>generation_handoff</code>であり、graphとmoduleをrequired
+      targetにする。
+    </li>
+    <li>
+      ontology handoffで再計算したmoduleはbase
+      bindingのvalueHashと一致する場合だけ対応lineageを公開する。
+    </li>
+    <li>
+      deterministic / semantic community projectionはbase ledger hashをparentとして、追加records /
+      bindingsとprojection hashを返す。
+    </li>
+    <li>
+      projection statusは自身のrequired bindingsと、実際に参照するparent
+      recordsのcoverageから決める。parent
+      ledgerが別target理由でpartialでも一律partialへせず、reachableなpartial /
+      unknownだけを伝播する。
+    </li>
+    <li>
+      semantic communityはsemantic resultのsource identityが揃う場合だけlineageをavailableにする。
+    </li>
+    <li>
+      ad hoc live
+      exportから作ったcommunityは<code>claimProvenance.status="missing"</code>とし、revisionを推測しない。
+    </li>
+    <li>
+      community projectionはcommunityを返した同じresponseへ含める。後続requestでsemantic
+      contextを推測して再生成しない。
+    </li>
+    <li>
+      persisted agent-query
+      responseがprofile対象communityを0件返す場合は、baseがvalidならparentLedgerHashとzero
+      summaryを持つavailable empty projectionを返す。対象0件をmissingと扱わない。
+    </li>
+    <li>
+      projectionはrecords 2,000、bindings 2,000、serialized 2
+      MiBを上限とする。超過時はlineageだけをcanonical 順で切り、target payloadは切らず、partial
+      envelopeとrecord / binding / projection size reasonを返す。
+    </li>
+    <li>projection recordをbase ledger artifactへ追記しない。</li>
+  </ul>
+
+  <h3 id="144-finalization-boundary">14.4 Finalization and Persistence Boundary</h3>
+  <p>
+    現行persisterがgeneration IDを内部生成するため、ledgerをbuild serviceで先に確定しない。
+    <code>PersistStaticIntelligenceGenerationInput</code>へoptional
+    <code>claimProvenanceDraft</code>とtyped
+    <code>claimProvenanceArtifactMode</code>を追加し、persister内で次の順に処理する。
+  </p>
+  <ol>
+    <li>source bundleを再loadし、expectedSourceStateHashを既存処理どおり検証する。</li>
+    <li>
+      generation ID、source revision、既存3 payloadのserialized bytes / content hashを確定する。
+    </li>
+    <li>
+      source state一致後にdraftをfinalizeし、record ID、binding
+      valueHash、summary、ledgerHashを生成する。
+    </li>
+    <li>
+      ledgerをserializeし、claim provenance artifact contentHashとrole-specific metadataを生成する。
+    </li>
+    <li>modeに従い3件または4件を保存し、DB transactionへ進む。</li>
+  </ol>
+  <ul>
+    <li>
+      source state mismatchはprovenance degradationではなくgeneration全体の既存failureとする。
+    </li>
+    <li>build serviceはdraftを集約するが、generation IDやledgerHashを先取りしない。</li>
+    <li>
+      persister returnへbounded
+      <code>provenanceBuild</code>
+      outcome（status、reasonCodes、durationMs、optional artifact identity）を追加し、build
+      serviceは内部telemetryへ使う。public build resultの<code
+        >build_claim_provenance</code
+      >
+      stageへ投影するのはpublishEnabled=trueの場合だけとする。
+    </li>
+    <li>
+      <code>off</code>ではdraftをfinalizeせず3
+      artifact、<code>shadow</code>ではfinalize失敗をdegraded 3
+      artifact、<code>required</code>ではfinalize失敗をgeneration
+      failureにする。
+    </li>
+    <li>
+      query-time community projectionはloaded base ledger identityを使い、persisterを通さない。
+    </li>
+  </ul>
+
+  <h2 id="15-persistence-and-generation-lifecycle">15. Persistence and Generation Lifecycle</h2>
+  <h3 id="151-artifact-set">15.1 Artifact Set</h3>
+  <pre><code class="language-text">derived/static-intelligence/&lt;generationId&gt;/
+  project-structure.json
+  code-structure.json
+  static-intelligence.json
+  claim-provenance.json
+  </code></pre>
+  <ul>
+    <li>artifact kindは<code>static_intelligence_claim_provenance</code>とする。</li>
+    <li>
+      writerより先にこのkindを<code>STATIC_INTELLIGENCE_DERIVED_ARTIFACT_KINDS</code>へ追加し、source bundle /
+      sourceStateHash / candidate queryが未知source artifactとして扱わないtolerant
+      readerをreleaseする。
+    </li>
+    <li>
+      artifact roleは<code>claim_provenance</code>、schema
+      versionは<code>static-intelligence-claim-provenance-v1</code>とする。
+    </li>
+    <li>
+      common metadata schemaへclaim provenance role / schema versionとoptional
+      <code>ledgerHash</code>を追加する。ledgerHashはclaim provenance
+      roleだけに必須とし、他roleでは禁止する。
+    </li>
+    <li>
+      claim provenance metadataの既存scalar-only
+      summaryにはrecordCount、bindingCount、missingRequiredBindingCount、artifactBytesだけを置く。nested
+      <code>byAssertionKind</code>等はledger / descriptorにだけ置く。
+    </li>
+    <li>
+      profile markerはouter metadata fieldへ追加せず、全4 metadataの既存scalar-only
+      <code>summary.claimProvenanceProfile</code>と
+      <code>summary.claimProvenanceArtifactCount=1</code>へ置く。旧strict metadata schemaがcore 3
+      rowを引き続きparseでき、旧loaderは未知kindの4件目だけを無視できる形にする。
+    </li>
+    <li>既存<code>saveTextArtifactsAtomically</code>へ4件目として渡す。</li>
+    <li>
+      全contentとmetadataを事前validateしてからfileを保存し、4 rowは1つのDB
+      transactionで登録・件数確認してcommitする。
+    </li>
+    <li>
+      file保存失敗はstorageのatomic cleanupへ委ね、DB transaction失敗はrollback後に保存済み4
+      fileを削除する。捕捉可能な失敗後にorphan rowまたはorphan fileを残さない。
+    </li>
+    <li>
+      process crash時のfile / DB間整合性は既存3-artifact generationと同じ保証に留める。Claim
+      Provenanceだけのために別reconcilerや分散transactionを導入しない。
+    </li>
+    <li>
+      artifactModeは<code>off</code>、<code>shadow</code>、<code>required</code>の3値とする。
+    </li>
+    <li>
+      既存3 metadataのstatus / degradedReasonsはcore generationだけを表すためprovenance partial /
+      missing reasonを混ぜない。claim provenance artifact metadataと
+      <code>provenanceBuild</code> outcomeだけがprovenance degradationを持つ。
+    </li>
+    <li>
+      legacy metadataはsummary markerなし + provenance artifact
+      0件を許可する。markerが1件でもあればprovenance artifactをexactly 1要求する。
+    </li>
+    <li>
+      profile-enabled generationでは4 artifactすべてが同じsummary markerを持つ。mixed / unknown
+      marker、artifact count mismatch、4 artifact間のgeneration identity不一致をinvalidにする。
+    </li>
+    <li>
+      shadow modeのledger build失敗時はsummary markerを付けない3-artifact
+      generationとしてpersistし、build resultをdegradedにする。
+    </li>
+    <li>
+      required modeのledger build失敗時は新generation全体をpersistせず、last-known-good
+      generationを残す。
+    </li>
+    <li>同一generationのprovenance artifact重複はgeneration invalidとする。</li>
+    <li>
+      source state hashのinputからprovenance artifactを除外し、自己参照によるstale判定を防ぐ。
+    </li>
+  </ul>
+
+  <h3 id="152-load-and-integrity">15.2 Load and Integrity</h3>
+  <ul>
+    <li>artifact row sha256、metadata contentHash、実bytes hashの3値を一致させる。</li>
+    <li>metadata ledgerHash、ledger bodyのledgerHash、bodyからの再計算値を一致させる。</li>
+    <li>ledger generation / project / scan / revisionを他の3 artifact metadataと一致させる。</li>
+    <li>record ID、binding参照、canonical順、summaryを全件検証する。</li>
+    <li>
+      invalid provenance artifactはfull ledgerを返さず、generation本体はread-onlyでload可能に保つ。
+    </li>
+    <li>
+      load結果は<code>provenance</code>を<code>available</code>、<code>missing</code>、<code>invalid</code>のdiscriminated
+      unionで返す。invalid時はraw ledgerを返さない。
+    </li>
+    <li>
+      loaded stateのavailableは「ledgerをstructuralに読める」を意味し、published
+      descriptorのavailable / partialとは別である。publication resolverだけがdescriptor
+      statusを決める。
+    </li>
+    <li>
+      latest generation選択はcore 3
+      artifactの妥当性を基準にする。provenanceだけがinvalidでも古いgenerationへsilent
+      fallbackせず、最新core generationを<code>provenance=invalid</code>として返す。
+    </li>
+    <li>retention / deletionはgeneration artifact setと同じpolicyに従う。</li>
+  </ul>
+
+  <h3 id="153-two-layer-validation">15.3 Structural and Publication Validation</h3>
+  <ol>
+    <li>
+      repository loaderはschema、artifact / ledger hash、identity、record /
+      binding、summaryだけを検証し、structural provenance stateを返す。
+    </li>
+    <li>
+      共通publication resolverはpersisted exportのgraph targetと、persisted project structure /
+      exportから再計算したmodule targetをbinding valueHashへ照合する。
+    </li>
+    <li>
+      manifest、ontology handoff、base lineage
+      queryは同じresolver結果を再利用し、個別surfaceでstatusを再判定しない。
+    </li>
+  </ol>
+  <p>
+    publication target mismatchは<code>publication_value_mismatch</code>を持つinvalid
+    descriptorへ写像する。core generation自体は利用可能なままとし、Claim
+    Provenanceだけを公開しない。community projectionは同じresponseのtarget valueと直接照合する。
+  </p>
+
+  <h3 id="154-rollout-state-matrix">15.4 Rollout State Matrix</h3>
+  <table>
+    <caption>
+      source-controlled rollout stateと外部挙動
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">artifactMode</th>
+        <th scope="col">publishEnabled</th>
+        <th scope="col">Artifact behavior</th>
+        <th scope="col">Wire / query behavior</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>off</td>
+        <td>false</td>
+        <td>既存3 artifact、draft生成なし</td>
+        <td>descriptor / bundleを省略し、HTTP routeは404を返す。</td>
+      </tr>
+      <tr>
+        <td>shadow</td>
+        <td>false</td>
+        <td>成功時4 artifact、失敗時degraded 3 artifact</td>
+        <td>内部readiness / telemetryだけ。既存wireを維持し、HTTP routeは404を返す。</td>
+      </tr>
+      <tr>
+        <td>shadow</td>
+        <td>true</td>
+        <td>shadowと同じ</td>
+        <td>descriptorを公開し、available / partial時だけbundle / APIをadvertiseする。</td>
+      </tr>
+      <tr>
+        <td>required</td>
+        <td>true</td>
+        <td>ledger失敗時はnew generationを作らない。</td>
+        <td>valid generationのdescriptor / bundle / APIを公開する。</td>
+      </tr>
+      <tr>
+        <td>required</td>
+        <td>false</td>
+        <td>required persistenceを維持</td>
+        <td>consumer rollback時の緊急非公開状態</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    <code>artifactMode=off</code
+    >かつ<code>publishEnabled=true</code>はinvalid configurationとして起動時またはbuild
+    entryで拒否する。local descriptor CLIはtest /
+    diagnosis用に実装しても、publishEnabled=false時はmanifest bundleを出さず、HTTP
+    routeは固定404を返す。
+  </p>
+
+  <h2 id="16-readiness-and-publish-policy">16. Readiness and Publish Policy</h2>
+  <h3 id="161-readiness">16.1 Readiness</h3>
+  <p>
+    <code>StaticIntelligenceReadiness</code>へoptional
+    <code>claimProvenance</code> capabilityを追加する。legacy producer /
+    consumerを壊さず、内部buildは常にcapabilityを計算する。public build result、manifest、ontology
+    handoffへfield /
+    stageを投影するのはpublishEnabled=trueの場合だけとし、falseでは既存wireを維持する。
+  </p>
+  <table>
+    <caption>
+      ledger状態からreadinessへの写像
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Condition</th>
+        <th scope="col">Readiness</th>
+        <th scope="col">Publish when publishEnabled</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>artifactMode off</td>
+        <td>missing（rollout_disabled）</td>
+        <td>publishEnabled=trueとの組合せ自体を拒否</td>
+      </tr>
+      <tr>
+        <td>
+          structural / publication valid、missing required binding 0、partial / unknown coverage 0
+        </td>
+        <td>available</td>
+        <td>available descriptor</td>
+      </tr>
+      <tr>
+        <td>validだがmissing required bindingまたはpartial / unknown coverageが1以上</td>
+        <td>degraded</td>
+        <td>partial descriptor</td>
+      </tr>
+      <tr>
+        <td>legacy generation、artifactなし</td>
+        <td>missing</td>
+        <td>new producerはmissing unavailable descriptor、legacy producerはfield省略</td>
+      </tr>
+      <tr>
+        <td>hash / revision / binding invalid</td>
+        <td>failed</td>
+        <td>hash / summaryなしのinvalid unavailable descriptor</td>
+      </tr>
+      <tr>
+        <td>size / record budget超過（shadow）</td>
+        <td>degraded</td>
+        <td>partial ledgerを保存せずmissing unavailable descriptor</td>
+      </tr>
+      <tr>
+        <td>size / record budget超過（required）</td>
+        <td>new generationなし</td>
+        <td>buildを失敗させ、last-known-goodだけを維持</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    provenance missing / partial / invalidだけでcore generationまたはexisting ontology
+    handoffをfailedへ弱めない。Claim Provenance capabilityのstatusとdegraded
+    reasonだけを更新する。semantic handoff validationと統合する場合は既存validation profile
+    v1を黙って変更せず、新profileのGO判断を行う。
+  </p>
+  <p>
+    persisted <code>generation.status</code>は既存core
+    calculationを変更せず、provenanceを入力へ加えない。一方、top-level build resultは<code
+      >build_claim_provenance</code
+    >
+    stageを公開するpublishEnabled=true時に限り、stageがdegradedならpartialになり得る。この二つを同じstatusとして扱わない。
+  </p>
+
+  <h3 id="162-manifest-placement">16.2 Manifest and Handoff Placement</h3>
+  <ul>
+    <li>
+      knowledge source manifestへoptional
+      <code>claimProvenance</code> descriptorを追加する。
+    </li>
+    <li>
+      ontology handoffへ同じbase descriptorを追加し、manifestと同じpublication
+      resolver結果から作る。module valueHash mismatchをsurface別に再判定しない。
+    </li>
+    <li>
+      generation optionなしでlive exportからmanifestを作る既存callはdescriptorを省略する。persisted
+      generationを読むCLIではnew producerがavailable / partial / missing /
+      invalidのいずれかを必ず返す。
+    </li>
+    <li>manifest contentHashにはdescriptorを含めるが、full ledgerは含めない。</li>
+    <li>
+      descriptorがavailable / partialの場合だけavailable
+      bundleへ<code>claim_provenance</code>を追加する。
+    </li>
+    <li>
+      bundle
+      commandは<code>--scan-run-id</code>と<code>--generation-id</code>を固定し、
+      <code>--target-kind &lt;target-kind&gt;</code
+      >、<code>--target-ref &lt;target-ref&gt;</code>をplaceholderにする。
+    </li>
+    <li>
+      producer / NightWorkers双方のstrict <code>availableBundles.requires</code> schemaへ
+      <code>targetKind</code
+      >と<code>targetRef</code>を同じrelease
+      sequenceで追加する。propertyPathはoptional CLI argumentであり、required placeholderにしない。
+    </li>
+    <li>descriptorのgeneration IDはmanifest generation IDと一致しなければならない。</li>
+    <li>
+      descriptorのledgerRefはstorage pathではなく
+      <code>claim-provenance:&lt;generationId&gt;</code>形式のopaque bundle refとする。
+    </li>
+    <li>
+      descriptorの<code>artifactContentHash</code>はclaim provenance artifact metadata /
+      bytes hashと一致させ、manifest自体の<code>source.contentHash</code>と混同しない。
+    </li>
+  </ul>
+
+  <h2 id="17-lineage-query-contract">17. Lineage Query Contract</h2>
+  <h3 id="171-query-shape">17.1 Query Shape</h3>
+  <pre><code class="language-typescript">type ClaimProvenanceQueryInput = {
+  scanRunId: string;
+  generationId?: string;
+  targetKind: "graph_node" | "graph_edge" | "module";
+  targetRef: string;
+  propertyPath?: string;
+  maxDepth?: number; // default 3, max 8
+};
+
+type ClaimProvenanceQueryResult = {
+  ok: true;
+  status: "completed";
+  version: "v1";
+  generationId: string;
+  ledgerHash: string;
+  lineageStatus: "available" | "partial";
+  reasonCodes: ClaimProvenanceReasonCode[];
+  target: { targetKind: string; targetRef: string; propertyPath?: string };
+  bindings: ClaimProvenanceBinding[];
+  records: ClaimProvenanceRecord[];
+  sourceRefs: ClaimProvenanceReference[];
+  unavailableSourceRefs: ClaimProvenanceReference[];
+  truncated: boolean;
+  truncationReasons: Array&lt;
+    "max_depth" | "record_limit" | "source_ref_limit" | "byte_limit"
+  &gt;;
+};
+
+type ClaimProvenanceQueryFailure = {
+  ok: false;
+  status: "failed";
+  reason: "request_invalid" | "generation_missing" | "provenance_missing"
+    | "provenance_invalid" | "target_not_found" | "property_not_found";
+};</code></pre>
+
+  <h3 id="172-query-semantics">17.2 Query Semantics</h3>
+  <ul>
+    <li>target ref完全一致でlookupする。部分一致、substring、fuzzy lookupをしない。</li>
+    <li>property path指定時はexact bindingだけを返し、whole-objectへsilent fallbackしない。</li>
+    <li>
+      target未登録は<code>target_not_found</code>
+      failureを返し、空lineage成功にしない。
+    </li>
+    <li>
+      targetは存在するがexact property
+      bindingがない場合は<code>property_not_found</code>を返す。
+    </li>
+    <li>
+      rule catalogはinput ref kindを<code>provenance_record</code>、traversable
+      target、terminal sourceに分類する。provenance_recordは直接recordへ、traversable
+      refだけを対応target bindingへ辿り、terminal input refとsourceRefsで停止する。
+    </li>
+    <li>ref文字列のprefixからtraversable targetを推測せず、profile catalogの明示mappingを使う。</li>
+    <li>cycle detectionを行い、同じrecordを1回だけ返す。</li>
+    <li>
+      target bindingが直接指すrecordをdepth 0とし、provenance_recordまたはtarget
+      bindingを1回辿るごとにdepthを1増やす。provenance ID昇順のbreadth-first traversalを使う。
+    </li>
+    <li>records 200件、source refs 500件、serialized 1 MiBをhard limitとする。</li>
+    <li>
+      limit到達時は決定的な順序で切り、<code>truncated=true</code>とreasonを返す。
+    </li>
+    <li>truncationReasonsは固定enum順、重複なしで返す。</li>
+    <li>
+      reachable coverage partial / unknown、source unavailable、またはtruncationがあれば
+      <code>lineageStatus="partial"</code
+      >と固定reasonCodesを返す。いずれもなければavailableと空reasonCodesを返す。
+    </li>
+    <li>queryはDB / artifact readだけを行い、LLM、embedding provider、networkを呼ばない。</li>
+    <li>
+      ref先のrow / artifactがretention済みならref自体を残し、
+      <code>unavailableSourceRefs</code>へ追加する。lineage全体をnot foundにしない。
+    </li>
+    <li>
+      community lineageはcommunity / agent query response内のvalidated projectionから取得する。base
+      queryがsemantic contextを後から再生成しない。
+    </li>
+  </ul>
+
+  <h3 id="173-surfaces">17.3 Surfaces</h3>
+  <ul>
+    <li><code>intelligence:claim-provenance</code> CLIをbase ledger target向けに追加する。</li>
+    <li>
+      CLIはtarget-kind /
+      target-refを両方省略した場合だけdescriptorを返し、両方指定した場合だけlineageを返す。片方だけ、またはtargetなしproperty-pathはrequest_invalidとする。
+    </li>
+    <li>
+      CLI exit codeはsuccess 0、request / generation / provenance / target系failure 2、unexpected
+      storage / internal failure 1とし、全caseでstdoutへJSON objectを1つだけ出す。
+    </li>
+    <li>
+      descriptor-only modeはmissing / invalid descriptor自体を正常に観測できた結果なのでexit
+      0とする。target lineage modeでprovenance missing / invalidならexit 2とする。
+    </li>
+    <li>
+      read-onlyの
+      <code>POST /projects/:projectId/intelligence/claim-provenance/query</code>を追加し、scanRunId、optional
+      generationId、targetKind、targetRef、optional propertyPath / maxDepthをstrict JSON
+      bodyで受ける。targetRefをURL logへ載せないためGET queryにはしない。
+    </li>
+    <li>
+      existing static-intelligence routeと同じauthorization contractを使う。project
+      owner不一致は403、project / scan / generation missingまたはscan-project不一致は404へ写像する。
+    </li>
+    <li>
+      APIはrequest_invalidを400、target / property not foundを404、provenance missing /
+      invalidを409、success / truncated successを200へ写像し、固定reasonだけをresponseへ出す。
+    </li>
+    <li>
+      knowledge source bundle commandはscan / generation / base target placeholderを明示する。
+    </li>
+    <li>
+      communities / agent-query responseへ、返却communityだけを対象にしたbounded
+      projectionを追加する。
+    </li>
+    <li>初期releaseでは新MCP toolを必須にしない。CLI / APIの利用evidenceを確認して別判断する。</li>
+  </ul>
+
+  <h2 id="18-nightworkers-consumer-policy">18. NightWorkers Consumer Policy</h2>
+  <ul>
+    <li>
+      legacy
+      manifestのdescriptor欠落を許可し、<code>provenanceStatus=missing</code>として扱う。
+    </li>
+    <li>
+      descriptorがある場合はstrict parseし、generation IDとstatus別の必須 / 禁止fieldを検証する。
+    </li>
+    <li>
+      descriptor generation IDがmanifest generation
+      IDと違う場合は<code>schema_invalid</code>にする。
+    </li>
+    <li>status invalidのdescriptorからlineageをfetchしない。</li>
+    <li>available / partial descriptorはhandoffを直ちにcanonical truthへ昇格させない。</li>
+    <li>
+      現行互換のためrun artifact
+      metadataにはmanifest全体を従来どおり1回保存する。descriptorはmanifest内の1
+      fieldとして保持し、別fieldへ複製しない。full ledgerはmanifestにもmetadataにも保存しない。
+    </li>
+    <li>
+      run event / handoff returnにはstatus、reason codes、bundle kindsと、available /
+      partial時のledgerRef / hash / countsだけを追加する。records / bindingsを含めない。
+    </li>
+    <li>
+      <code>ontologyHandoffManifestResultSchema</code>のdescriptorと
+      <code>availableBundles.requires</code>をproducer fixtureと同じstrict shapeへ更新する。
+    </li>
+    <li>
+      初期consumer changeはdescriptor / bundleの受理までとし、handoff serviceからlineage
+      queryを自動実行しない。
+    </li>
+    <li>
+      将来task-specific callerを追加する場合も、明示targetのbounded
+      queryだけを使い、failure時はSecurity Oracle
+      evidenceの既存fallbackを維持する。これは別実装計画とする。
+    </li>
+    <li>NightWorkersがproducer ruleやrecord IDを再計算しない。</li>
+  </ul>
+
+  <h2 id="19-file-by-file-change-plan">19. File-by-file Change Plan</h2>
+  <h3 id="191-vulnworkbench">19.1 vulnWorkbench</h3>
+  <table>
+    <caption>
+      producer側の変更候補
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">File</th>
+        <th scope="col">Change</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>shared/schemas/static-intelligence-claim-provenance.schema.ts</code>（new）</td>
+        <td>
+          reference、record、value-hashed binding、ledger、descriptor、projection、query
+          contractを定義する。
+        </td>
+      </tr>
+      <tr>
+        <td><code>shared/schemas/static-intelligence-claim-provenance.schema.test.ts</code>（new）</td>
+        <td>strictness、cross-field invariant、limit、confidence欠落と0を検証する。</td>
+      </tr>
+      <tr>
+        <td><code>api/modules/static-intelligence/claim-provenance-rules.ts</code>（new）</td>
+        <td>profile、rule catalog、required target / property mappingを固定する。</td>
+      </tr>
+      <tr>
+        <td><code>api/modules/static-intelligence/claim-provenance-builder.ts</code>（new）</td>
+        <td>draft merge、record ID、binding、summary、ledger hash、validationを実装する。</td>
+      </tr>
+      <tr>
+        <td><code>api/modules/static-intelligence/claim-provenance-builder.test.ts</code>（new）</td>
+        <td>mapping、dedupe、ordering、hash、redaction、completenessを検証する。</td>
+      </tr>
+      <tr>
+        <td><code>api/modules/static-intelligence/claim-provenance-query.ts</code>（new）</td>
+        <td>target lookup、backward traversal、cycle / depth / byte limitを実装する。</td>
+      </tr>
+      <tr>
+        <td><code>api/modules/static-intelligence/claim-provenance-query.test.ts</code>（new）</td>
+        <td>
+          target / property not found、depth semantics、source unavailable、truncation、invalid
+          ledger拒否を検証する。
+        </td>
+      </tr>
+      <tr>
+        <td><code>evidence-graph.ts</code></td>
+        <td>graphとdraftを同じadd node / edge pathから返すmaterial APIを追加する。</td>
+      </tr>
+      <tr>
+        <td><code>export-builder.ts</code></td>
+        <td>export payloadとgraph provenance draftを返すmaterial APIを追加する。</td>
+      </tr>
+      <tr>
+        <td><code>module-candidates.ts</code></td>
+        <td>V2 / legacy ruleを分け、module / property binding draftを返す。</td>
+      </tr>
+      <tr>
+        <td>
+          <code>community-builder.ts</code>、<code>semantic-community-integration.ts</code>
+        </td>
+        <td>basis / merge / semantic sourceのdraftとprojection hash inputを保持する。</td>
+      </tr>
+      <tr>
+        <td><code>static-intelligence-search.schema.ts</code></td>
+        <td>semantic resultへsource content hash、query hash、generator fingerprintを追加する。</td>
+      </tr>
+      <tr>
+        <td>
+          <code>static-intelligence-agent-query.schema.ts</code>、<code>static-intelligence-landscape.schema.ts</code>
+        </td>
+        <td>
+          返却communityに対応するoptional provenance status envelopeとbounded projectionを追加する。
+        </td>
+      </tr>
+      <tr>
+        <td>
+          <code>agent-query.ts</code
+          >、<code>intelligence-communities.ts</code>、<code
+            >intelligence-landscape.ts</code
+          >
+        </td>
+        <td>persisted generationを選択し、communityと同じresponse内でprojectionを生成する。</td>
+      </tr>
+      <tr>
+        <td>
+          <code>generation-types.ts</code>、<code>generation-repository-types.ts</code>
+        </td>
+        <td>
+          Slice 2Aでprovenance kindのderived filterだけを先行追加する。Slice 2Bでrole /
+          schema、rollback-safe summary marker / ledgerHash、persist inputのdraft / mode、loaded
+          structural provenance stateを追加する。
+        </td>
+      </tr>
+      <tr>
+        <td>
+          <code>generation-persister.ts</code>、<code>generation-repository.ts</code>
+        </td>
+        <td>
+          source-state検証後のfinalize、off / shadow / required、4-file atomic save + DB
+          transaction、legacy / provenance-invalid core load、structural validationを追加する。
+        </td>
+      </tr>
+      <tr>
+        <td><code>generation-repository.test.ts</code></td>
+        <td>4件load、legacy 3件、missing / duplicate / corrupted ledger、cleanupを追加する。</td>
+      </tr>
+      <tr>
+        <td><code>build-service.ts</code></td>
+        <td>
+          graph / module draftを集約し、<code>build_claim_provenance</code> stage、rollout
+          mode、persist input、artifact result、readinessを追加する。ledger
+          identityはpersisterに確定させる。
+        </td>
+      </tr>
+      <tr>
+        <td><code>build-service.test.ts</code></td>
+        <td>
+          off / shadow success / shadow failure / required failureとprovenanceBuild outcome、publish
+          gate前後のpublic shape、source-state raceを検証する。
+        </td>
+      </tr>
+      <tr>
+        <td><code>claim-provenance-rollout.ts</code>（new）</td>
+        <td>
+          productionのartifactMode / publishEnabledとlegal combinationをsource-controlled
+          constantとして定義し、test injectionと分離する。
+        </td>
+      </tr>
+      <tr>
+        <td><code>claim-provenance-publication.ts</code>（new）</td>
+        <td>
+          structural stateとpersisted graph / recomputed module valueを照合し、manifest / handoff /
+          query共通のdescriptorを返す。
+        </td>
+      </tr>
+      <tr>
+        <td><code>claim-provenance-publication.test.ts</code>（new）</td>
+        <td>graph / module mismatch、surface間descriptor一致、core generation非破壊を検証する。</td>
+      </tr>
+      <tr>
+        <td><code>static-intelligence-module.schema.ts</code></td>
+        <td>optional claimProvenance readinessとhandoff descriptorを追加する。</td>
+      </tr>
+      <tr>
+        <td><code>static-intelligence-knowledge-source.schema.ts</code></td>
+        <td>descriptor、bundle kind、targetKind / targetRef requirementをstrictに追加する。</td>
+      </tr>
+      <tr>
+        <td><code>knowledge-source-manifest.ts</code></td>
+        <td>validated descriptorとbounded query commandをmanifestへ追加する。</td>
+      </tr>
+      <tr>
+        <td>
+          <code>ontology-handoff.ts</code>、<code>read-model-resolver.ts</code>
+        </td>
+        <td>
+          同じloaded generation / publication resolver resultを再利用し、二重load / 再判定を防ぐ。
+        </td>
+      </tr>
+      <tr>
+        <td><code>api/cli/intelligence-claim-provenance.ts</code>（new）</td>
+        <td>descriptorまたはsingle-target lineageをJSONで返す。</td>
+      </tr>
+      <tr>
+        <td><code>api/routes/static-intelligence.route.ts</code></td>
+        <td>owner-scoped query routeとinput limitsを追加する。</td>
+      </tr>
+      <tr>
+        <td><code>package.json</code></td>
+        <td><code>intelligence:claim-provenance</code> scriptを追加する。</td>
+      </tr>
+      <tr>
+        <td><code>scripts/static-intelligence-knowledge-source-fixture.ts</code></td>
+        <td>
+          descriptor / ledger hash / target trace / redactionのcross-process checkを追加する。
+        </td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3 id="192-nightworkers">19.2 NightWorkers Coordinated Consumer Change</h3>
+  <table>
+    <caption>
+      consumer側の変更候補
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">File</th>
+        <th scope="col">Change</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>shared/schemas/ontology-handoff.schema.ts</code></td>
+        <td>
+          optional descriptor、generation cross-field invariant、strict bundle targetKind /
+          targetRef requirementを追加する。
+        </td>
+      </tr>
+      <tr>
+        <td><code>api/modules/ontology/handoff/vulnworkbench-handoff.service.ts</code></td>
+        <td>
+          現行manifest artifact metadataを維持し、handoff event / returnへbounded descriptor
+          summaryだけを追加してinvalid / missingを区別する。
+        </td>
+      </tr>
+      <tr>
+        <td><code>tests/vulnworkbench-ontology-handoff-provenance.test.ts</code>（new）</td>
+        <td>
+          legacy、available、partial、invalid、generation mismatch、bundle requires、既存manifest
+          retention、full-ledger non-copyを検証する。
+        </td>
+      </tr>
+      <tr>
+        <td>cross-repository fixture</td>
+        <td>producer fixtureをNightWorkers schemaでparseするconsumer-owned testを追加する。</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2 id="20-implementation-slices">20. Implementation Slices</h2>
+  <h3 id="slice-0">Slice 0: Baseline and Fixture Lock</h3>
+  <ul>
+    <li>
+      graph node / edge、module、deterministic / semantic communityのgolden fixtureを固定する。
+    </li>
+    <li>3つのmanual traceをmachine-readable期待値にする。</li>
+    <li>
+      community / landscape CLIのempty stdout failureを切り分け、直接surfaceのtestをgreenにする。
+    </li>
+    <li>NightWorkers legacy manifest fixtureと新consumer test harnessを追加する。</li>
+    <li>export bytes、build time、manifest bytesのbaselineを記録する。</li>
+  </ul>
+  <p>Exit: baseline failureと新規regressionを区別でき、fixture identityがreview済みである。</p>
+
+  <h3 id="slice-1">Slice 1: Shared Contract and Pure Core</h3>
+  <ul>
+    <li>shared schema、rule catalog、draft、finalizer、validatorを実装する。</li>
+    <li>shared canonical JSONを使ってrecord ID / ledger hashを生成する。</li>
+    <li>redaction、strict limits、cross-field invariantをunit testする。</li>
+    <li>wire、DB、existing payloadを変更しない。</li>
+  </ul>
+  <p>
+    Exit: synthetic fixtureで完全ledgerとintentional partial / invalid ledgerを決定的に生成できる。
+  </p>
+
+  <h3 id="slice-2">Slice 2: Graph Material and Shadow Persistence</h3>
+  <ul>
+    <li>
+      Slice 2Aでnew artifact kindをderived filterへ追加するtolerant
+      readerだけをartifactMode=offでreleaseし、rollback floorとして記録する。
+    </li>
+    <li>
+      Slice 2A binaryがnew kind rowを無視してcore
+      generationをloadし、sourceStateHashを変えないrollback rehearsalを行う。
+    </li>
+    <li>graph / export material APIでpayloadとdraftを同じpassから生成する。</li>
+    <li>payload-only wrapperとの完全一致を確認する。</li>
+    <li>
+      Slice 2Bでrepositoryへ4-artifact support、rollback-safe summary marker、legacy 3-artifact
+      loadを実装する。
+    </li>
+    <li>
+      graph-only ledgerはtestでfinalizeするが、module coverageが揃うまでproduct
+      buildへpersistしない。
+    </li>
+    <li>
+      claimProvenance outcomeはinternal telemetryだけへ記録し、public build result / readiness /
+      stagesとwire descriptorはまだ変更しない。
+    </li>
+  </ul>
+  <p>
+    Exit: Slice 2A rollback floorがdeploy / rehearsal済みで、required graph bindingのmissing 0、hash
+    replay一致、repository corruption testがpassする。
+  </p>
+
+  <h3 id="slice-3">Slice 3: Module and Community Projection Lineage</h3>
+  <ul>
+    <li>module materialとrequired property bindingをbase ledgerへ追加する。</li>
+    <li>deterministic community basis / merge lineageを実装する。</li>
+    <li>semantic result identityとsemantic candidate lineageを実装する。</li>
+    <li>base ledgerをparentに持つquery-time projectionを実装する。</li>
+    <li>ad hoc / source identity不足をmissing / partialとして明示する。</li>
+    <li>graph + module coverageが揃ったledgerをshadow modeで4件目のartifactとしてpersistする。</li>
+    <li>shadow telemetryでrecord count、missing required binding count、bytes、durationを測る。</li>
+  </ul>
+  <p>
+    Exit: profile v1のgraph、module、emitted communityでrequired target / property
+    coverageが100%である。
+  </p>
+
+  <h3 id="slice-4">Slice 4: NightWorkers Consumer Tolerance</h3>
+  <ul>
+    <li>
+      optional descriptor、bundle target requirement schema、cross-field
+      validationを先行releaseする。
+    </li>
+    <li>legacy manifestをavailable + provenance missingとして維持する。</li>
+    <li>
+      schema-validなinvalid descriptorはprovenance invalidとして受理し、generation
+      mismatchやmalformed descriptorだけをschema_invalidへ写像する。
+    </li>
+    <li>
+      既存manifest artifact metadataが保持され、full ledgerがrun event / artifact
+      metadataへ混入しないtestを追加する。
+    </li>
+  </ul>
+  <p>Exit: legacyとnew fixtureを同じconsumer releaseが安全に処理できる。</p>
+
+  <h3 id="slice-5">Slice 5: Producer Descriptor and Bounded Query</h3>
+  <ul>
+    <li>manifest / ontology handoffへdescriptorを追加する。</li>
+    <li>manifest content hashとcross-repository fixtureを更新する。</li>
+    <li>CLI / API target queryを追加し、owner / depth / byte limitを強制する。</li>
+    <li>knowledge source available bundleを追加する。</li>
+    <li>NightWorkers new fixtureでdescriptorを受信する。</li>
+  </ul>
+  <p>
+    Exit: producer artifactからtarget lineageを取得でき、consumerは従来のmanifestとbounded
+    descriptor summaryだけを保持し、ledger本体を保持しない。
+  </p>
+
+  <h3 id="slice-6">Slice 6: Enforcement Qualification</h3>
+  <ul>
+    <li>
+      fixture、real scan、zero finding、missing artifact、dirty tree、semantic queryを反復する。
+    </li>
+    <li>performance / payload budgetを測る。</li>
+    <li>shadow telemetryでmissing required binding 0とinvalid 0を連続観測する。</li>
+    <li>rollback rehearsalとlegacy generation readを確認する。</li>
+    <li>GO gateを満たした後だけnew generationのledger artifactをrequiredにする。</li>
+  </ul>
+  <p>Exit: Definition of Doneを満たし、default publishを有効化できる。</p>
+
+  <h2 id="21-migration-sequence">21. Migration Sequence</h2>
+  <ol>
+    <li>vulnWorkbench Slice 0 / 1をmergeする。wireとartifact setは変更しない。</li>
+    <li>Slice 2A tolerant readerをartifactMode=offでreleaseし、rollback floorを固定する。</li>
+    <li>Slice 2A binaryでnew kind row / summary markerのrollback rehearsalを完了する。</li>
+    <li>Slice 2B writer supportをartifactMode=offでmergeする。</li>
+    <li>Slice 3完成後に別changeでartifactModeをshadowへ上げ、legacy generation loadを維持する。</li>
+    <li>NightWorkers Slice 4をmerge / releaseする。</li>
+    <li>
+      NightWorkers releaseがdescriptorとbundle target requirementを受理することをfixtureで確認する。
+    </li>
+    <li>vulnWorkbench Slice 5でoptional descriptorとqueryをpublishする。</li>
+    <li>Slice 6のevidenceが揃うまでledger欠落をhandoff failureへ昇格しない。</li>
+    <li>enforcement後もlegacy 3-artifact generationをreadableに保つ。</li>
+  </ol>
+  <p>
+    producerを先にrollbackしてもNightWorkersはoptional
+    field欠落を受理する。consumerを先にrollbackする場合はproducer descriptor publish
+    gateを先にOFFにしてdeployし、strict legacy consumerへ未知fieldを送らない。
+  </p>
+  <p>
+    claim provenance artifactを1件でも書いた後のproducer rollback先はSlice
+    2A以降に限定する。それ以前のbinaryはnew kindをsource
+    artifactとしてsourceStateHashへ混入させるため、supported rollback targetにしない。
+  </p>
+
+  <h3 id="211-slice-entry-stop-verification">
+    21.1 Slice Entry, Verification, and Stop Conditions
+  </h3>
+  <table>
+    <caption>
+      各Sliceを開始・完了・中断する判定
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Slice</th>
+        <th scope="col">Entry</th>
+        <th scope="col">Verification / Exit</th>
+        <th scope="col">Stop or Retry</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>0</td>
+        <td>producer / consumer ownerがfixture範囲を承認</td>
+        <td>baseline、golden hash、manual traceを保存</td>
+        <td>既存failureと新規failureを分離できなければ中断</td>
+      </tr>
+      <tr>
+        <td>1</td>
+        <td>Slice 0 fixture identityが固定済み</td>
+        <td>pure contract / hash / redaction testがgreen</td>
+        <td>identity非決定またはsensitive value混入なら修正後に再試行</td>
+      </tr>
+      <tr>
+        <td>2</td>
+        <td>Slice 1 contractがreview済み</td>
+        <td>Slice 2A rollback rehearsal、payload互換、transaction rollback、legacy loadがgreen</td>
+        <td>
+          rollback floor未deploy、sourceStateHash変化、orphan row / file、core load退行なら中断
+        </td>
+      </tr>
+      <tr>
+        <td>3</td>
+        <td>
+          Slice 2A rollback floor deploy済みかつ4-artifact repository supportがwire非公開でgreen
+        </td>
+        <td>graph / module required binding 100%、projection fixture green</td>
+        <td>missing binding、publication mismatch、budget超過はshadow継続せず修正</td>
+      </tr>
+      <tr>
+        <td>4</td>
+        <td>producer fixture shapeが凍結され、producer wireは未公開</td>
+        <td>NightWorkers legacy / new fixtureとmanifest retention testがgreen</td>
+        <td>schema mismatchまたは既存manifest lossならconsumer releaseを中断</td>
+      </tr>
+      <tr>
+        <td>5</td>
+        <td>Slice 4 consumer releaseがdeploy済み</td>
+        <td>cross-repository fixture、共通descriptor、bounded queryがgreen</td>
+        <td>surface差異、authorization contract退行、full-ledger copyならpublish gateをOFF</td>
+      </tr>
+      <tr>
+        <td>6</td>
+        <td>shadow sample数と観測期間を満たす</td>
+        <td>DoD、budget、rollback rehearsalをownerが承認</td>
+        <td>threshold超過時はrequired化せずSlice 3または5へ戻す</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2 id="22-test-plan">22. Test Plan</h2>
+  <h3 id="221-contract-and-identity-tests">22.1 Contract and Identity Tests</h3>
+  <ul>
+    <li>unknown field、invalid enum、control character、over-limit array / refを拒否する。</li>
+    <li>observed source欠落 / input混入、derived input欠落、git head欠落を拒否する。</li>
+    <li>regex-validでもcatalog外のrule IDとassertion kind不一致を拒否する。</li>
+    <li>
+      semantic candidateのquery ref、generator version、semanticParameters、similarity
+      confidence欠落と、非semantic recordのsemanticParameters混入を拒否する。
+    </li>
+    <li>confidence欠落と0をround-tripで区別する。</li>
+    <li>coverage completeのtotalCount欠落 / 不一致とobservedCount超過を拒否する。</li>
+    <li>catalog外のconfidence method / reason code / target prefix / property pathを拒否する。</li>
+    <li>非canonical順、duplicate ref / record / binding / provenance IDを拒否する。</li>
+    <li>同じsemantic recordをkey順、draft順、target順を変えて作ってもIDが同じになる。</li>
+    <li>revision、rule version、source hash、confidenceが変わるとrecord IDが変わる。</li>
+    <li>generatedAtとgeneration IDの差でrecord IDが変わらない。</li>
+    <li>
+      generatedAtだけの差はledgerHashを変えずartifactContentHashを変え、generation
+      ID差はledgerHashを変える。
+    </li>
+    <li>
+      target valueだけを変えるとbinding valueHashが変わり、lineage record自体が同じならrecord
+      IDは変わらない。
+    </li>
+    <li>同一generation inputから同じledger hashを得る。</li>
+    <li>同一ledgerからcanonical artifact bytesとartifactContentHashを再現できる。</li>
+    <li>
+      required whole-object / property binding欠落とpartial / unknown coverageがsummaryとdescriptor
+      statusへ反映される。
+    </li>
+    <li>available / partial descriptorだけがledger hash / summaryを持つ。</li>
+    <li>partialだけがbounded reasonCodesを必須とし、availableへのreasonCodes混入を拒否する。</li>
+    <li>missing / invalid descriptorがreasonCodesを持ち、ledgerRef / hash / summaryを持たない。</li>
+    <li>
+      published ledgerRefがclaim-provenance:&lt;generationId&gt;形式でidentity mismatchを拒否する。
+    </li>
+    <li>lone surrogate、NaN、Infinity、cycleをcanonicalizationが拒否する。</li>
+    <li>provenance_record dependency cycleをstructural validatorが拒否する。</li>
+    <li>どのbindingからも到達できないorphan recordを拒否する。</li>
+    <li>
+      上限超過のmember集合がsilent truncationされず、順序に依存しないreference set count /
+      hashを持つ。
+    </li>
+  </ul>
+
+  <h3 id="222-mapping-tests">22.2 Mapping Tests</h3>
+  <ul>
+    <li>node 9種、edge 8種のassertion kind、rule、source / input refをtable-driven testする。</li>
+    <li>scanner mergeで複数recordを保持する。</li>
+    <li>file unknownとunresolved stored_asをcoverage partialとして保持する。</li>
+    <li>verification node / edgeをLLM interpretationとして保持する。</li>
+    <li>V2 moduleとlegacy moduleで別rule IDを使う。</li>
+    <li>community mergeで寄与した全basisとmerge recordを保持する。</li>
+    <li>
+      merge inputが128件を超えてもbalanced aggregate
+      record経由で全basisへ辿れ、各fan-inが上限内になる。
+    </li>
+    <li>semantic communityでraw queryを含めず、query hashとmodel fingerprintを保持する。</li>
+    <li>required property pathにexact bindingがある。</li>
+  </ul>
+
+  <h3 id="223-persistence-tests">22.3 Persistence Tests</h3>
+  <ul>
+    <li>4 artifactを保存してrestart後にloadできる。</li>
+    <li>legacy 3 artifact generationをloadできる。</li>
+    <li>summary markerあり + provenance artifact欠落を検出する。</li>
+    <li>summary markerなし + provenance artifact欠落をlegacyとして受理する。</li>
+    <li>4 artifact間のmixed / unknown markerとartifact count mismatchをinvalidにする。</li>
+    <li>pre-change strict metadata schemaがnew core 3 metadataをparseできる。</li>
+    <li>Slice 2A readerがnew provenance kindをsource bundle / sourceStateHashから除外する。</li>
+    <li>provenance roleだけledgerHashが必須で、他roleへのledgerHash混入を拒否する。</li>
+    <li>
+      provenance artifactのmissing、duplicate、bytes hash mismatch、ledger hash mismatchを検出する。
+    </li>
+    <li>generation / project / scan / revision mismatchを検出する。</li>
+    <li>
+      4件目のwrite、DB insert、transaction内件数確認の各失敗時に全saved fileをcleanupし、orphan
+      rowを残さない。
+    </li>
+    <li>provenance artifact追加でsourceStateHashが変わらない。</li>
+    <li>invalid ledgerでも既存3 artifactを破壊しない。</li>
+    <li>
+      provenance partial / missingがcore 3 metadataとpersisted generation.statusを変えず、build
+      resultだけをpartialにできる。
+    </li>
+    <li>
+      最新core generationのprovenanceだけがinvalidでも古いgenerationへfallbackせず、最新generation +
+      invalid stateを返す。
+    </li>
+    <li>budget超過がshadowではdegraded 3 artifact、requiredでは新generation中止になる。</li>
+    <li>
+      artifactMode=off + publishEnabled=trueを拒否し、legal rollout matrixをtable-driven testする。
+    </li>
+  </ul>
+
+  <h3 id="224-query-and-wire-tests">22.4 Query and Wire Tests</h3>
+  <ul>
+    <li>whole target、property target、multi-source、depth traversalを取得できる。</li>
+    <li>
+      unknown targetを<code>target_not_found</code>、既知targetのunknown propertyを
+      <code>property_not_found</code>にする。
+    </li>
+    <li>depth 0 / 1の境界とprovenance ID昇順breadth-first traversalを固定する。</li>
+    <li>traversable target refだけを辿り、snapshot等のterminal input refをsourceRefsへ返す。</li>
+    <li>retention済みsource refを保持し、unavailableSourceRefsへ分類する。</li>
+    <li>
+      reachable coverage / source availability / truncationからtarget-scoped
+      lineageStatusを決定する。
+    </li>
+    <li>cycle、depth、record、source ref、byte limitで決定的にtruncateする。</li>
+    <li>
+      existing route contractどおりproject owner不一致を403、project / scan / generation
+      missingとscan-project不一致を404へ写像する。
+    </li>
+    <li>
+      request invalid 400、target / property 404、provenance missing / invalid 409を固定する。
+    </li>
+    <li>manifest / handoff descriptorが同じhash / summaryを持つ。</li>
+    <li>descriptor artifactContentHashがmetadata contentHash / artifact bytes hashと一致する。</li>
+    <li>module再計算値とbase binding valueHashのmismatchをinvalidにする。</li>
+    <li>
+      graph / module publication mismatchを共通resolverが検出し、manifest / handoff /
+      queryで同じreasonを返す。
+    </li>
+    <li>community responseが返却communityだけのprojectionを含み、parent ledger hashを検証する。</li>
+    <li>
+      new persisted community pathがavailable / partial / missing / invalid
+      envelopeを必ず返し、legacy responseだけがfield省略を許す。
+    </li>
+    <li>
+      projection record / binding / byte budget超過がtarget payloadを変えずpartial envelopeになる。
+    </li>
+    <li>eligible community 0件のpersisted responseがavailable empty projectionを返す。</li>
+    <li>
+      reachable parent coverageだけがprojection statusへ伝播し、無関係なpartial targetを伝播しない。
+    </li>
+    <li>manifest contentHashがdescriptor変更で変わり、generatedAtだけでは変わらない。</li>
+    <li>descriptorなし既存fixtureのexport / manifest hashが導入前goldenから変わらない。</li>
+    <li>generationなしlive manifestはdescriptorを省略し、persisted CLIはdescriptorを必ず返す。</li>
+    <li>
+      publishEnabled=falseでpublic build result / readiness / stagesとmanifest wireが変わらず、HTTP
+      routeが固定404を返す。
+    </li>
+    <li>available / partial時だけclaim_provenance bundleとstrict target requirementsを返す。</li>
+    <li>CLI stdoutが常に1つのJSON object、diagnosticがstderrになる。</li>
+    <li>
+      descriptor-only missing / invalidはexit 0、target lineage missing / invalidはexit 2になる。
+    </li>
+    <li>serialized query / manifestにmarker secret、absolute path、raw evidenceがない。</li>
+  </ul>
+
+  <h3 id="225-consumer-tests">22.5 NightWorkers Consumer Tests</h3>
+  <ul>
+    <li>legacy descriptorなしmanifestを受理する。</li>
+    <li>available / partial descriptorを受理し、statusを区別する。</li>
+    <li>generation mismatch、malformed hash、unknown fieldを拒否する。</li>
+    <li>claim_provenance bundleのtargetKind / targetRef requirementをstrict parseする。</li>
+    <li>statusにかかわらずhandoff serviceがlineage queryを自動実行しない。</li>
+    <li>persisted run eventにrecords / bindingsが含まれない。</li>
+    <li>
+      既存manifest全体がartifact metadataに従来どおり1回保存され、descriptorを重複保存しない。
+    </li>
+    <li>producer-owned fixtureをconsumer-owned schemaでparseする。</li>
+    <li>handoff unavailable時の既存Security Oracle fallbackを維持する。</li>
+  </ul>
+
+  <h3 id="226-verification-commands">22.6 Verification Commands</h3>
+  <pre><code class="language-bash">bun test \
+  shared/schemas/static-intelligence-claim-provenance.schema.test.ts \
+  shared/canonical-json.test.ts \
+  api/modules/static-intelligence/claim-provenance-builder.test.ts \
+  api/modules/static-intelligence/claim-provenance-publication.test.ts \
+  api/modules/static-intelligence/claim-provenance-query.test.ts \
+  api/modules/static-intelligence/build-service.test.ts \
+  api/modules/static-intelligence/export-builder.test.ts \
+  api/modules/static-intelligence/generation-repository.test.ts \
+  api/modules/static-intelligence/module-candidates.test.ts \
+  api/modules/static-intelligence/community-landscape.test.ts \
+  api/modules/static-intelligence/knowledge-source-manifest.test.ts \
+  api/routes/static-intelligence.route.test.ts
+
+bun run typecheck
+bun run intelligence:knowledge-source:fixture
+bun run docs:check
+
+# NightWorkers repository
+bun run test -- run tests/vulnworkbench-ontology-handoff-provenance.test.ts
+bun run typecheck</code></pre>
+
+  <h2 id="23-security-privacy-and-abuse-resistance">23. Security, Privacy, and Abuse Resistance</h2>
+  <ul>
+    <li>lineage queryは既存project / scan owner authorizationを通す。</li>
+    <li>target refとproperty pathは長さ制限し、regex backtrackingへ依存しない。</li>
+    <li>API target refはJSON bodyで受け、access logのURL / query stringへ記録しない。</li>
+    <li>artifact pathをclient inputから直接組み立てず、repositoryでgeneration IDから解決する。</li>
+    <li>ledgerRefをfilesystem pathとして解釈しない。</li>
+    <li>raw evidence、artifact body、LLM prompt / response、secretをrecord metadataへ入れない。</li>
+    <li>validation exception textをwireへ出さず、固定reason codeへ変換する。</li>
+    <li>lineage traversalはcycle、depth、record、byte budgetを強制する。</li>
+    <li>hashはintegrity checkであり、signatureまたはtrusted attestationとして表示しない。</li>
+    <li>
+      source deletion / retention要求はgeneration artifact set全体へ適用し、orphan
+      ledgerを残さない。
+    </li>
+  </ul>
+
+  <h2 id="24-performance-and-payload-budget">24. Performance and Payload Budget</h2>
+  <ul>
+    <li>draft生成は既存builder loop内で行い、追加complexityをO(targets + refs)にする。</li>
+    <li>finalizeはrecord / binding sortを含みO(N log N)、working memoryはO(N)とする。</li>
+    <li>shadow fixtureでbuild wall timeの増加をbaseline比20%以内にする。</li>
+    <li>ledger bytesはexport bytesの2倍以内かつ64 MiB未満をqualification targetにする。</li>
+    <li>
+      budget超過時はpartial ledgerを保存しない。shadowはbounded reason
+      code付きdegraded、requiredはnew generation失敗とする。
+    </li>
+    <li>manifest descriptorは8 KiB未満、NightWorkers event追加分は4 KiB未満とする。</li>
+    <li>single-target queryはp95 100 ms以内、serialized 1 MiB未満をlocal fixture targetにする。</li>
+    <li>
+      source availabilityはkindごとにbatch lookupし、ref単位のN+1 DB / storage callを作らない。
+    </li>
+    <li>community / agent-query provenance projectionはserialized 2 MiB未満とする。</li>
+    <li>
+      full ledgerを毎requestでparseし続けないよう、request-local validated ledgerを再利用する。
+    </li>
+    <li>性能値はmachine、fixture、target / record countと共に保存する。</li>
+  </ul>
+
+  <h2 id="25-observability">25. Observability</h2>
+  <ul>
+    <li><code>claim_provenance_build_total{status}</code></li>
+    <li><code>claim_provenance_record_count{assertion_kind}</code></li>
+    <li><code>claim_provenance_binding_count{target_kind}</code></li>
+    <li><code>claim_provenance_missing_required_binding_count{target_kind}</code></li>
+    <li><code>claim_provenance_coverage_record_count{status}</code></li>
+    <li><code>claim_provenance_build_duration_ms</code></li>
+    <li><code>claim_provenance_ledger_bytes</code></li>
+    <li><code>claim_provenance_publication_validation_total{status}</code></li>
+    <li><code>claim_provenance_persistence_cleanup_total{status}</code></li>
+    <li><code>claim_provenance_query_total{status,truncated}</code></li>
+    <li><code>claim_provenance_consumer_descriptor_total{status}</code></li>
+  </ul>
+  <p>
+    metric labelへproject ID、scan ID、target ref、file path、rule input、model
+    deployment名を入れない。debug logもcount、profile、bounded reason codeだけを記録する。
+  </p>
+
+  <h2 id="26-rollback-plan">26. Rollback Plan</h2>
+  <h3 id="261-triggers">26.1 Rollback Triggers</h3>
+  <ul>
+    <li>valid generationがprovenance artifact追加によりload不能になる。</li>
+    <li>record IDまたはledger hashが同一inputで不安定になる。</li>
+    <li>raw path、evidence、secretがledger / manifest / eventへ出る。</li>
+    <li>
+      missing required binding、invalid ledger、consumer schema failureがqualification
+      thresholdを超える。
+    </li>
+    <li>build / payload budgetを継続して超える。</li>
+    <li>NightWorkers fallbackまたはhandoff availabilityが非劣化条件を破る。</li>
+  </ul>
+
+  <h3 id="262-order">26.2 Rollback Order</h3>
+  <ol>
+    <li>source-controlled producer descriptor publish gateをOFFにしてdeployする。</li>
+    <li>manifest bundle省略とHTTP route固定404を確認する。local diagnostic CLIは残す。</li>
+    <li>artifactModeをrequiredからshadowへ戻し、ledger失敗時の3-artifact generationを許可する。</li>
+    <li>必要ならartifactModeをoffへ戻し、draft / ledger build自体を停止する。</li>
+    <li>NightWorkers optional schema supportは害がなければ残す。</li>
+  </ol>
+  <p>
+    rollbackで既存generation artifactを削除しない。保存済みprovenance artifactはgeneration
+    retentionに従いread-onlyで保持し、producerが再publishしない。producer binaryはSlice 2A rollback
+    floorより前へ戻さない。
+  </p>
+
+  <h2 id="27-definition-of-done">27. Definition of Done</h2>
+  <ul>
+    <li>
+      base ledgerのgraph node / edge / moduleと、各response projectionのemitted
+      communityについてwhole-object binding coverageが100%である。
+    </li>
+    <li>required property binding coverageが100%である。</li>
+    <li>observed、deterministic、semantic、LLMの分類fixtureがreviewされている。</li>
+    <li>同一inputでrecord ID / ledger hashが決定的である。</li>
+    <li>revision、rule、source変更で期待どおりidentityが変わる。</li>
+    <li>legacy 3-artifactとnew 4-artifact generationを両方loadできる。</li>
+    <li>
+      Slice 2A tolerant readerがnew kindをsourceStateHashへ混入させず、rollback
+      floorとしてdeploy済みである。
+    </li>
+    <li>provenance-only corruptionでlatest core generation selectionが変わらない。</li>
+    <li>hash / revision / dangling binding corruptionを検出し、不正ledgerを公開しない。</li>
+    <li>
+      graph / module valueHashを共通publication resolverが検証し、全surfaceが同じdescriptorを返す。
+    </li>
+    <li>捕捉可能な4-artifact persistence失敗後にorphan DB row / fileが残らない。</li>
+    <li>descriptorなし既存fixtureのexport / manifest hashが導入前から変わらない。</li>
+    <li>manifest / handoffはdescriptorだけを公開し、full ledgerをinlineしない。</li>
+    <li>single-target base queryがboundedで、unknown / truncated / invalidを明示する。</li>
+    <li>community lineageが同じresponseのvalidated projectionから取得できる。</li>
+    <li>
+      NightWorkersがlegacy / new manifestとstrict bundle
+      requirementsを処理し、既存manifest保存を維持しつつfull ledgerを複製しない。
+    </li>
+    <li>raw evidence、artifact body、absolute path、secretのleak testがpassする。</li>
+    <li>baseline 7 CLI failureを解消またはowner承認済みの独立known issueへ分離する。</li>
+    <li>関連test、typecheck、cross-repository fixture、docs checkがpassする。</li>
+    <li>performance / payload budgetを満たすevidenceが保存される。</li>
+    <li>rollback rehearsalとconsumer-first migrationが完了する。</li>
+  </ul>
+
+  <h2 id="28-open-decisions">28. Open Decisions and Proposed Defaults</h2>
+  <table>
+    <caption>
+      実装開始前にownerが確定する項目
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Decision</th>
+        <th scope="col">Proposed default</th>
+        <th scope="col">Decision owner</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Producer owner</td>
+        <td>Static Intelligence generation / artifact owner</td>
+        <td>vulnWorkbench maintainer</td>
+      </tr>
+      <tr>
+        <td>Consumer owner</td>
+        <td>ontology handoff service owner</td>
+        <td>NightWorkers maintainer</td>
+      </tr>
+      <tr>
+        <td>Producer rollback floor</td>
+        <td>Slice 2A tolerant-reader releaseのexact version / commitをdeployment recordへ固定</td>
+        <td>vulnWorkbench release owner</td>
+      </tr>
+      <tr>
+        <td>New generation enforcement</td>
+        <td>shadow 2週間または50 generationでmissing required binding / invalid 0を確認後</td>
+        <td>producer + consumer owner</td>
+      </tr>
+      <tr>
+        <td>Standalone community / landscape CLI</td>
+        <td>
+          generation ID optional、未指定時はlatest core-valid generationを使い、provenance
+          invalidでも古いgenerationへfallbackしない。
+        </td>
+        <td>Static Intelligence owner</td>
+      </tr>
+      <tr>
+        <td>Past generation backfill</td>
+        <td>行わない。再buildされたgenerationだけledgerを持つ。</td>
+        <td>data retention owner</td>
+      </tr>
+      <tr>
+        <td>PROV-O export adapter</td>
+        <td>初期releaseでは作らず、実consumer要求を別decisionで確認する。</td>
+        <td>Ontology Core owner candidate</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2 id="29-go-no-go-gate">29. GO / NO-GO Gate</h2>
+  <h3 id="291-go">29.1 GO</h3>
+  <ul>
+    <li>producer / consumer ownerとsource-controlled rollout gate ownerが決まっている。</li>
+    <li>Slice 0 fixtureとtarget / property coverage matrixが承認されている。</li>
+    <li>shared contractとprofile v1 rule catalogが承認されている。</li>
+    <li>Slice 2A tolerant readerのrollback floorがdeployされ、new kind除外を実証している。</li>
+    <li>legacy generation readとconsumer-first release手順が実証されている。</li>
+    <li>redaction、payload、performance budgetの測定方法が固定されている。</li>
+  </ul>
+
+  <h3 id="292-no-go">29.2 NO-GO</h3>
+  <ul>
+    <li>source row / artifactからrequired targetへ安全なrefを作れない。</li>
+    <li>payloadとlineageを別passで推測する実装しか成立しない。</li>
+    <li>full ledgerをmanifestまたはNightWorkers eventへ複製する必要がある。</li>
+    <li>raw evidence / path / secretを保存しないとlineageを表現できない。</li>
+    <li>legacy 3-artifact generationを壊さずに4-artifact setへ移行できない。</li>
+    <li>missing required binding、hash不安定、性能超過がshadow qualificationで解消しない。</li>
+  </ul>
+
+  <h2 id="30-implementation-handoff">30. Implementation Handoff</h2>
+  <p>
+    実装開始時はSlice 0だけを最初の作業単位とする。fixture、manual trace期待値、CLI
+    baseline、NightWorkers consumer harnessがreviewされるまでSlice
+    1以降へ進まない。各Sliceは独立PRとし、Claim Provenance以外のontology計画を混ぜない。
+  </p>
+  <p>
+    Semantic Handoff Validationが未実装でもSlice 0〜5は進められる。両計画を接続する場合は、Claim
+    Provenanceのledger validatorを先に安定させたうえで、別のvalidation profile / rollout
+    decisionとして扱う。
+  </p>
+</article>
