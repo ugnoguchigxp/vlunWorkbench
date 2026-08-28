@@ -244,7 +244,7 @@
 		"@types/react-dom": "19.2.3",
 		"@types/sanitize-html": "^2.16.1",
 		"@vitejs/plugin-react": "6.0.2",
-		"@vitest/coverage-v8": "4.1.8",
+		"@vitest/coverage-v8": "4.1.11",
 		"drizzle-kit": "0.31.10",
 		"mermaid": "11.16.1",
 		"s11tnext-cli": "0.1.2",
