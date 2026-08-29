@@ -1,0 +1,2717 @@
+<article lang="ja" data-spec-role="active-plan">
+  <h1 id="competency-question-evaluation-implementation-plan">
+    Competency Question Evaluation Implementation Plan
+  </h1>
+  <ul>
+    <li>Status: Draft implementation plan</li>
+    <li>Implementation status: Not started</li>
+    <li>Date: 2026-08-29</li>
+    <li>Last reviewed: 2026-08-29</li>
+    <li>
+      Review status: implementation-plan deepening complete; remaining product choices are explicit
+      in §26
+    </li>
+    <li>Priority: P1 cross-cutting</li>
+    <li>
+      GO requirement: Static Intelligence owner、shared contract owner、CI ownerが§9のactive
+      baseline、§15の判定規則、§21のrelease gateを承認すること
+    </li>
+    <li>
+      Parent template:
+      <a href="../templates/ontology-planning/competency-question-evaluation-plan-template.html"
+        >Competency Question Evaluation Plan Skeleton</a
+      >
+    </li>
+    <li>
+      Parent direction:
+      <a href="../concepts/project-intelligence-ontology-evolution-roadmap.html"
+        >Project Intelligence and Ontology Evolution Roadmap</a
+      >
+    </li>
+    <li>
+      Related implementation plans:
+      <a href="./semantic-handoff-validation-implementation-plan.html"
+        >Semantic Handoff Validation</a
+      >、 <a href="./claim-provenance-implementation-plan.html">Claim Provenance</a>、
+      <a href="./security-vocabulary-alignment-implementation-plan.html"
+        >Security Vocabulary Alignment</a
+      >、
+      <a href="./ontology-contract-versioning-implementation-plan.html"
+        >Ontology Contract Versioning</a
+      >
+    </li>
+  </ul>
+
+  <h2 id="1-purpose">1. Purpose</h2>
+  <p>
+    Static Intelligenceのontologyを、node数、edge数、schema
+    field数ではなく、consumerが必要とする問いへ
+    <strong>正しいfact、provenance、assertion kind、利用不能理由</strong
+    >を決定的に返せるかで評価する。question、fixture、期待atom、adapter、判定結果をsource
+    control下のversioned profileとして管理し、ontologyまたはconsumer
+    queryの変更をquestion単位の回帰として検出する。
+  </p>
+  <p>
+    本計画が実装するのはCompetency Question Evaluationだけである。semantic handoff validator、claim
+    ledger、security vocabulary mapping、ontology contract diff、scan instance
+    diffを再実装しない。未実装の能力を必要とする問いは<code>planned_dependency</code>として可視化し、active
+    baselineの合否分母へ入れない。
+  </p>
+
+  <h2 id="2-target-outcome">2. Target Outcome</h2>
+  <pre><code class="language-text">source-controlled evaluation profile
+  -&gt; validate question registry and dependency state
+  -&gt; build a synthetic generation with fixed identities
+  -&gt; execute closed, deterministic adapters over production services
+  -&gt; normalize answers into assertion-aware atoms
+  -&gt; compare required / allowed / forbidden atoms and unavailable reasons
+  -&gt; enforce provenance and candidate-only safety invariants
+  -&gt; aggregate non-masking metrics by question and capability
+  -&gt; emit a canonical machine-readable regression report
+  -&gt; compare the report with the reviewed baseline profile
+  -&gt; gate ontology and query changes after an advisory stabilization period
+</code></pre>
+  <ul>
+    <li>
+      同じprofileとfixtureから同じcase
+      resultと<code>evaluationHash</code>を生成し、同じenforcement
+      policyを加えた時だけ同じ<code>reportHash</code>を生成する。
+    </li>
+    <li>自然言語questionの語句ではなく、stable question IDとclosed adapter IDで評価を実行する。</li>
+    <li>
+      semantic candidateは存在してもよいが、observed / deterministic required factを満たせない。
+    </li>
+    <li>
+      factの出自を示す<code>assertionKind</code>と、consumerがどう扱うべきかを示す
+      <code>consumerBoundary</code>を別軸で検証する。
+    </li>
+    <li>
+      empty answer、expected unavailable、unexpected unavailable、incorrect answerを区別する。
+    </li>
+    <li>1件のunsafe confirmationを平均点で隠さず、case単位でreleaseをfailさせる。</li>
+    <li>planned questionは不足能力を説明するが、active answerabilityを水増しも低下もさせない。</li>
+  </ul>
+
+  <h2 id="3-current-baseline">3. Current Baseline</h2>
+  <table>
+    <caption>
+      現行surfaceとCompetency Question評価への利用可否
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Surface</th>
+        <th scope="col">Current behavior</th>
+        <th scope="col">Evaluation gap</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>static-intelligence-agent-query.schema.ts</code></td>
+        <td>
+          6 query kind、finding / evidence / artifact / file / community / semantic
+          candidate等のresult kind、source
+          ref、<code>candidateOnly</code>を公開する。
+        </td>
+        <td>
+          question ID、期待fact、assertion kind別の充足条件、固定unavailable reasonを持たない。
+        </td>
+      </tr>
+      <tr>
+        <td>
+          <code>agent-query.ts</code> /
+          <code>agent-query-support.ts</code>
+        </td>
+        <td>
+          exact filter、evidence bundle、risk context、related findingをproduction
+          serviceとして構築し、raw snippetを除外する。
+        </td>
+        <td>
+          result全体はcandidate-onlyであり、<code>observed</code> /
+          <code>deterministic_derived</code> /
+          <code>semantic_candidate</code>の明示contractは未実装である。
+        </td>
+      </tr>
+      <tr>
+        <td><code>semantic-query.ts</code></td>
+        <td>semantic search resultを常にcandidateとして返し、exact refとscoreを保持する。</td>
+        <td>candidateがconfirmed answerを満たしていないことを横断的に検証するgateがない。</td>
+      </tr>
+      <tr>
+        <td><code>read-model-resolver.ts</code></td>
+        <td>
+          export、file risk、evidence graph、semantic index、agent bundle、ontology
+          handoffのreadinessを available / stale / degraded / missing / failedへ分類する。
+        </td>
+        <td>
+          <code>reasonCodes</code>が自由文字列で、question-level unavailable
+          contractへ正規化されていない。
+        </td>
+      </tr>
+      <tr>
+        <td>service / route / MCP tests</td>
+        <td>個別queryとreadinessのpositive / negative behaviorを検証する。</td>
+        <td>一つのconsumer questionを複数surfaceのfactとprovenanceで評価するprofileがない。</td>
+      </tr>
+      <tr>
+        <td>community / landscape</td>
+        <td>deterministicな候補集合を構築し、agent queryへ補助contextを渡す。</td>
+        <td>候補集合をexact factと誤認しないことをquestion-levelで保証していない。</td>
+      </tr>
+      <tr>
+        <td>scan revision / vocabulary</td>
+        <td>単一scanの選択と一部rule / CWE文字列は存在する。</td>
+        <td>
+          2 scan instance間のdata diffと、正規化済みCWE / CVE / dependency mapping strength
+          queryはない。
+        </td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3 id="31-baseline-test-evidence">3.1 Baseline Test Evidence</h3>
+  <p>
+    2026-08-29に関連7 test fileを変更前baselineとして実行し、同日のdocument
+    reviewでも再実行した。2回とも同じ pass / fail内訳を再現した。
+  </p>
+  <ul>
+    <li>全体: 72 tests中60 pass、12 fail</li>
+    <li>
+      agent query service、semantic community integration、read model
+      resolver、MCP、routeの対象testはpassした。
+    </li>
+    <li>
+      <code>community-landscape.test.ts</code>のCLI 7 testsと
+      <code>intelligence-agent-query-cli.test.ts</code>の5 testsは、spawn後のstdoutが空になりJSON
+      EOFでfailした。
+    </li>
+    <li>
+      12 failureは本計画作成前から再現する同種のCLI baselineである。新しいevaluation
+      CLIを追加する前に Slice 0で共通原因を切り分け、baseline allowlistを設けず解消する。
+    </li>
+  </ul>
+  <pre><code class="language-shell">bun test \
+  api/modules/static-intelligence/agent-query.test.ts \
+  api/modules/static-intelligence/community-landscape.test.ts \
+  api/modules/static-intelligence/semantic-community-integration.test.ts \
+  api/modules/static-intelligence/read-model-resolver.test.ts \
+  api/modules/static-intelligence/intelligence-agent-query-cli.test.ts \
+  api/modules/static-intelligence/mcp-tools.test.ts \
+  api/routes/static-intelligence.route.test.ts
+</code></pre>
+
+  <h2 id="4-fixed-decisions">4. Fixed Decisions</h2>
+  <ol>
+    <li>
+      初期personaは<code>coding_agent</code>とする。現行agent
+      query、route、MCPに最も具体的なread surfaceがあり、human
+      reviewerとNightWorkers用adapterはconsumer contractが確定してから追加する。
+    </li>
+    <li>
+      初期実装はOption A、すなわちTypeScriptのclosed registry、synthetic fixture、既存production
+      service adapter、deterministic evaluatorとする。汎用question authoring serviceは作らない。
+    </li>
+    <li>
+      question
+      textは人間向け説明であり、制御入力にしない。<code>questionId</code>、
+      <code>adapterId</code>、typed input、expected atomだけが実行を決める。
+    </li>
+    <li>
+      expected answerはdisplay textやresponse全体のsnapshotではなく、stable source ref、semantic
+      property、assertion kind、provenance refの集合で固定する。
+    </li>
+    <li>
+      baseline fixtureはsynthetic dataだけで構成する。sanitized real fixtureはidentityとredaction
+      policyを別reviewで確定した後にadvisory profileへ追加する。
+    </li>
+    <li>
+      evaluatorはtest / CI専用で開始し、product API、MCP tool、DB table、browser UIを追加しない。
+    </li>
+    <li>
+      current responseに明示assertion kindがない間は、closed adapter
+      mappingでnormalizationする。Claim Provenance
+      profileが公開された後は明示fieldを正本とし、adapter推定を削除する。
+    </li>
+    <li>
+      現行agent queryのfinding / evidence / artifactがsource-backedでも、consumer boundaryは
+      <code>candidate_only</code>のまま維持する。assertion
+      kindを<code>observed</code>へ分類しても確認済み
+      conclusionへの昇格を意味しない。
+    </li>
+    <li>
+      active questionは現在のproduction
+      surfaceで決定的に評価できる問いだけとする。依存機能待ちの問いは
+      <code>planned_dependency</code>にし、active denominatorへ入れない。
+    </li>
+    <li>
+      case passはrequired atom、forbidden atom、provenance、unavailable reason、safety
+      invariantの全条件を case単位で満たした場合だけとする。aggregate scoreでcase
+      failureを相殺しない。
+    </li>
+    <li>
+      semantic provider、LLM、network、production database、wall
+      clock、localeにCI結果を依存させない。
+    </li>
+    <li>
+      evaluation / report hashからgeneratedAt、duration、host、absolute path、run
+      IDを除外する。performance metadataはnon-canonical completed payload fieldへ分離する。
+    </li>
+    <li>
+      safety
+      invariantは導入時からblockingにする。answerabilityとlatencyの一般gateはadvisory期間後に昇格する。
+    </li>
+  </ol>
+
+  <h2 id="5-scope">5. Scope</h2>
+  <h3 id="51-in-scope">5.1 In Scope</h3>
+  <ul>
+    <li>versioned evaluation profile、stable question / case ID、dependency state</li>
+    <li>coding agent向けactive baseline 4問とplanned dependency 2問</li>
+    <li>fixed identityを持つsynthetic project / scan / graph / readiness fixture</li>
+    <li>agent query、semantic candidate、readinessを正規化するclosed adapter</li>
+    <li>required / allowed / forbidden answer atomとexpected unavailable reason</li>
+    <li>
+      assertion kind、provenance、orphan reference、candidate leakage、sensitive data leakageの検証
+    </li>
+    <li>case result、metric、gap、evaluation / report hashを持つcanonical JSON report</li>
+    <li>strict CLI、unit / integration / contract / mutation / benchmark tests</li>
+    <li>advisoryからblockingへ移すCI rollout、rollback、変更管理</li>
+  </ul>
+
+  <h3 id="52-non-goals">5.2 Non-goals</h3>
+  <ul>
+    <li>自然言語questionからquery planを生成すること</li>
+    <li>LLM judge、embedding similarity、回答の流暢さを正本判定に使うこと</li>
+    <li>Semantica runtimeまたはPython evaluation stackをdependencyへ追加すること</li>
+    <li>product query response schemaへquestion resultを追加すること</li>
+    <li>questionをruntimeで作成・編集・削除するAPIまたはUI</li>
+    <li>semantic handoff validation、claim lineage、vocabulary mappingのrule実装</li>
+    <li>2 scan instance間のfinding data diff engine</li>
+    <li>ontology contract semantic diffの再実装</li>
+    <li>production dataをCI fixtureとして読み込むこと</li>
+    <li>平均coverageの上昇だけをontology品質の証明とすること</li>
+  </ul>
+
+  <h2 id="6-responsibility-boundary">6. Responsibility Boundary</h2>
+  <table>
+    <caption>
+      関連計画との所有権
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Capability</th>
+        <th scope="col">Owning plan / component</th>
+        <th scope="col">This plan consumes</th>
+        <th scope="col">This plan owns</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Exact agent query</td>
+        <td>Current Static Intelligence service</td>
+        <td>finding、evidence、artifact、file refとdegraded reason</td>
+        <td>question-specific normalizationとexpectation comparison</td>
+      </tr>
+      <tr>
+        <td>Semantic candidates</td>
+        <td>Current semantic query / community</td>
+        <td><code>candidateOnly</code> resultとrelated refs</td>
+        <td>candidateがconfirmed required factを満たさないsafety gate</td>
+      </tr>
+      <tr>
+        <td>Readiness</td>
+        <td>Current read model resolver</td>
+        <td>capability status、reason codes、revision context</td>
+        <td>fixed unavailable reasonへのadapter mappingとexpected outcome</td>
+      </tr>
+      <tr>
+        <td>Handoff validity</td>
+        <td>Semantic Handoff Validation</td>
+        <td>将来のimmutable report / rule ID</td>
+        <td>reportを必要とするcaseとquestion pass / fail</td>
+      </tr>
+      <tr>
+        <td>Assertion lineage</td>
+        <td>Claim Provenance</td>
+        <td>将来のclaim kind、derivation、source refs</td>
+        <td>assertion kind別のexpected atomとleakage check</td>
+      </tr>
+      <tr>
+        <td>Security mapping</td>
+        <td>Security Vocabulary Alignment</td>
+        <td>将来のterm ID、mapping predicate、strength</td>
+        <td>CQ-006のcase catalogと回答品質判定</td>
+      </tr>
+      <tr>
+        <td>Semantic contract change</td>
+        <td>Ontology Contract Versioning</td>
+        <td>将来のcontract version、hash、capability descriptor</td>
+        <td>contract候補に対するquestion regression report</td>
+      </tr>
+      <tr>
+        <td>Scan instance diff</td>
+        <td>未計画のdata diff capability</td>
+        <td>将来のadded / removed / modified finding contract</td>
+        <td>CQ-005をplannedのまま保持し、暗黙実装しないこと</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2 id="7-semantica-reference-boundary">7. Semantica Reference Boundary</h2>
+  <p>
+    比較対象は調査時に固定したSemantica commit
+    <code>cce5ea177cbac29a526effa546219c48f8ec36f4</code>とする。moving branchの挙動を実装根拠にしない。
+  </p>
+  <ul>
+    <li>
+      Source:
+      <a
+        href="https://github.com/semantica-agi/semantica/blob/cce5ea177cbac29a526effa546219c48f8ec36f4/semantica/ontology/competency_questions.py"
+        >competency_questions.py</a
+      >
+    </li>
+    <li>
+      Source:
+      <a
+        href="https://github.com/semantica-agi/semantica/blob/cce5ea177cbac29a526effa546219c48f8ec36f4/semantica/ontology/ontology_evaluator.py"
+        >ontology_evaluator.py</a
+      >
+    </li>
+    <li>
+      Documentation:
+      <a
+        href="https://github.com/semantica-agi/semantica/blob/cce5ea177cbac29a526effa546219c48f8ec36f4/docs/modules.md"
+        >modules.md</a
+      >、
+      <a
+        href="https://github.com/semantica-agi/semantica/blob/cce5ea177cbac29a526effa546219c48f8ec36f4/docs/reference/ontology.md"
+        >ontology.md</a
+      >
+    </li>
+  </ul>
+  <table>
+    <caption>
+      Semanticaから採用する概念と採用しない実装
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Semantica clue</th>
+        <th scope="col">Decision</th>
+        <th scope="col">vulnWorkbench adaptation</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Competency questionをontologyのfunctional requirementとして管理する</td>
+        <td>Adopt</td>
+        <td>stable ID、persona、priority、capability dependencyを持つversioned registryにする。</td>
+      </tr>
+      <tr>
+        <td>questionをontology elementへtraceする</td>
+        <td>Adapt</td>
+        <td>
+          名前一致ではなく、adapter ID、required atom、source / provenance refへ明示traceする。
+        </td>
+      </tr>
+      <tr>
+        <td>answerable / unanswerable、category / priority別report</td>
+        <td>Adapt</td>
+        <td>7 case outcomeとpreflight failureを分離し、question / capability別に集計する。</td>
+      </tr>
+      <tr>
+        <td>coverage、completeness、gap、suggestion</td>
+        <td>Adapt</td>
+        <td>
+          case pass、provenance coverage、orphan、candidate leakage、sensitive data
+          leakage、unexpected unavailableを測る。
+        </td>
+      </tr>
+      <tr>
+        <td>evaluation runの記録とbaseline comparison</td>
+        <td>Adopt concept only</td>
+        <td>CI artifactとevaluation hashで比較し、初期段階ではSQLite履歴DBを導入しない。</td>
+      </tr>
+      <tr>
+        <td>question語とclass / property名のkeyword matchでanswerableを判定する</td>
+        <td>Reject</td>
+        <td>typed production adapterを実行し、exact expected atomとprovenanceを検証する。</td>
+      </tr>
+      <tr>
+        <td>mutableな<code>answerable</code> boolean</td>
+        <td>Reject</td>
+        <td>input registryをimmutableにし、run resultを別valueとして返す。</td>
+      </tr>
+      <tr>
+        <td>自由形式metadataとtimestampを含むreport</td>
+        <td>Reject for canonical result</td>
+        <td>strict bounded schemaを使い、runtime metadataはhash対象外envelopeへ分離する。</td>
+      </tr>
+      <tr>
+        <td>aggregate coverageだけで合否を表す</td>
+        <td>Reject as release gate</td>
+        <td>
+          unsafe confirmation、candidate leakage、orphan、sensitive data leakageを件数0のhard
+          invariantにする。
+        </td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    pinned sourceとdocumentationのAPI /
+    metric名には差があるため、Semanticaのtypeやsignatureを互換contractとして
+    copyしない。採るのはquestion registry、trace、coverage / gap
+    report、regressionという設計上の手がかりである。
+  </p>
+
+  <h2 id="8-terminology-and-truth-model">8. Terminology and Truth Model</h2>
+  <dl>
+    <dt>Question</dt>
+    <dd>consumerが必要とする安定した能力。人間向けquestion textとstable IDを持つ。</dd>
+    <dt>Case</dt>
+    <dd>questionを特定fixture、typed input、expected atomへ具体化した実行単位。</dd>
+    <dt>Answer atom</dt>
+    <dd>一つのfactまたはavailability assertionをstable refとassertion kindで表した正規形。</dd>
+    <dt>Observed</dt>
+    <dd>
+      scanner result、persisted evidence、artifact、source file等のsource
+      recordから直接運ばれたfact。
+    </dd>
+    <dt>Deterministic derived</dt>
+    <dd>固定ruleと入力refsから再現可能に導出したfile risk、readiness、graph relation等のfact。</dd>
+    <dt>Semantic candidate</dt>
+    <dd>embedding、community、類似性等から提案された未確認候補。confirmed factではない。</dd>
+    <dt>Consumer boundary</dt>
+    <dd>
+      normalized answer全体の利用境界。agent
+      query由来は<code>candidate_only</code>、readiness判定は
+      <code>readiness_status</code>とし、factの出自を示すassertion
+      kindとは分離する。
+    </dd>
+    <dt>Unavailable</dt>
+    <dd>必要能力またはdataがないため回答を確定できず、fixed reason codeで説明できる状態。</dd>
+    <dt>Unsafe confirmation</dt>
+    <dd>
+      candidateまたはprovenance不足のatomをobserved / deterministic required
+      factとして受理した状態。
+    </dd>
+    <dt>Planned dependency</dt>
+    <dd>問いは有効だが、所有計画のproduction contractが未実装でcaseをactive化できない状態。</dd>
+  </dl>
+
+  <h2 id="9-question-registry">9. Question Registry</h2>
+  <p>
+    初期profile IDは<code>static-intelligence-competency-baseline</code>、versionは
+    <code>1.0.0</code>とする。question
+    IDはversionを含めず、一度割り当てた意味へ別の問いを再割り当てしない。
+  </p>
+  <pre><code class="language-typescript">const questionStatusSchema = z.enum([
+  "active",
+  "planned_dependency",
+  "retired",
+]);
+
+const adapterIdSchema = z.enum([
+  "agent_evidence_bundle_v1",
+  "agent_risk_context_v1",
+  "assertion_boundary_v1",
+  "readiness_projection_v1",
+  "scan_revision_diff_v1",
+  "security_vocabulary_relation_v1",
+]);
+
+const competencyCapabilityIdSchema = z.enum([
+  "agent_evidence_bundle",
+  "agent_risk_context",
+  "assertion_origin_boundary",
+  "readiness_projection",
+  "ontology_handoff_module_basis",
+  "claim_provenance_profile",
+  "scan_instance_diff",
+  "security_vocabulary_mapping",
+]);
+
+const dependencyPlanIdSchema = z.enum([
+  "semantic-handoff-validation",
+  "claim-provenance",
+  "security-vocabulary-alignment",
+  "ontology-contract-versioning",
+  "scan-instance-diff-unowned",
+]);
+
+const competencyQuestionDefinitionSchema = z.object({
+  questionId: z.string().regex(/^CQ-[0-9]{3}$/),
+  questionText: z.string().min(1).max(240),
+  persona: z.literal("coding_agent"),
+  priority: z.enum(["P0", "P1", "P2"]),
+  status: questionStatusSchema,
+  adapterId: adapterIdSchema,
+  requiredCapabilities: z.array(competencyCapabilityIdSchema).max(16),
+  dependencyPlanIds: z.array(dependencyPlanIdSchema).max(8),
+  owner: z.enum(["static_intelligence", "ontology_contract", "consumer_integration"]),
+  replacementQuestionId: z.string().regex(/^CQ-[0-9]{3}$/).optional(),
+  retirementReason: z.string().min(1).max(240).optional(),
+}).strict();
+
+const competencyEvaluationProfileSchema = z.object({
+  schemaVersion: z.literal("static-intelligence-competency-profile-v1"),
+  profileId: z.literal("static-intelligence-competency-baseline"),
+  profileVersion: semanticVersionSchema,
+  canonicalizationProfile: z.literal("rfc8785-shared-v1"),
+  questions: z.array(competencyQuestionDefinitionSchema).min(1).max(128),
+  cases: z.array(competencyQuestionCaseSchema).max(1024),
+  changeReceipt: z.object({
+    previousProfileVersion: semanticVersionSchema,
+    previousProfileHash: sha256Schema,
+    declaredBump: z.enum(["patch", "minor", "major"]),
+    changeKinds: z.array(z.enum([
+      "activate_question",
+      "retire_question",
+      "add_active_case",
+      "remove_active_case",
+      "change_expectation",
+      "change_assertion_mapping",
+      "change_quality_policy",
+      "change_hard_violation_semantics",
+      "change_fixture_semantics",
+    ])).min(1).max(16),
+    affectedQuestionIds: z.array(z.string().regex(/^CQ-[0-9]{3}$/)).max(128),
+    affectedCaseIds: z.array(z.string().regex(/^CQ-[0-9]{3}-CASE-[0-9]{3}$/)).max(1024),
+    rationale: z.string().min(1).max(1000),
+    approvalRefs: z.array(boundedRefSchema).min(3).max(8),
+  }).strict().optional(),
+  qualityPolicy: z.object({
+    requiredCaseConformanceBasisPoints: z.literal(10000),
+    minimumFullAnswerabilityBasisPoints: z.literal(8421),
+    minimumPartialAnswerabilityBasisPoints: z.literal(8947),
+    requiredProvenanceCoverageBasisPoints: z.literal(10000),
+    maxFalseConfirmationCount: z.literal(0),
+    maxCandidateLeakageCount: z.literal(0),
+    maxOrphanReferenceCount: z.literal(0),
+    maxSensitiveDataLeakCount: z.literal(0),
+    maxUnexpectedUnavailableCount: z.literal(0),
+  }).strict(),
+}).strict();
+</code></pre>
+  <p>
+    code excerptでは§10の<code>competencyQuestionCaseSchema</code>を先に宣言してからprofile
+    schemaへ渡す。 profileはquestionだけでなくcaseとquality policyを含む唯一のhash
+    inputであり、別fileの暗黙thresholdを参照しない。
+  </p>
+  <h3 id="91-profile-canonicalization">9.1 Profile Canonicalization</h3>
+  <ol>
+    <li>strict parseと全invariant検証を完了してからhash用valueを作る。</li>
+    <li>questionsをquestion ID、casesをcase IDのcode-point ascending順へ正規化する。</li>
+    <li>
+      capabilities、dependency plan IDs、atom refs、reason codes等のset-like
+      arrayは重複をerrorにしてから同じ comparatorでsortする。answer
+      orderに意味があるarrayはsortしない。
+    </li>
+    <li>
+      <code>shared/canonical-json.ts</code
+      >でserializeし、SHA-256を<code>profileHash</code>とする。
+    </li>
+    <li>source fileの挿入順、object key順、locale、wall clockをprofile hashへ影響させない。</li>
+  </ol>
+
+  <h3 id="92-registry-invariants">9.2 Registry Invariants</h3>
+  <ul>
+    <li>profile ID / version、question ID、case ID、fixture ID、adapter IDは重複不可とする。</li>
+    <li>
+      <code>active</code> questionは1件以上のactive caseを必須とする。
+    </li>
+    <li>
+      profile全体で<code>expectedAvailability="answered"</code>のactive caseを1件以上、required
+      atomを1件以上 必須とし、answerability / provenance metricの0 denominatorを禁止する。
+    </li>
+    <li>
+      <code>planned_dependency</code>は1件以上のdependency plan /
+      capabilityを必須とする。
+    </li>
+    <li>
+      <code>retired</code> questionを削除せず、replacement
+      IDまたはretirement reasonを保持する。
+    </li>
+    <li>
+      <code>retired</code>はactive
+      caseを0件とし、<code>retirementReason</code>を必須にする。replacementがある場合は
+      registry内の別questionへ解決し、replacement cycleを禁止する。
+    </li>
+    <li>
+      active / planned questionでは<code>replacementQuestionId</code>と
+      <code>retirementReason</code>を禁止する。
+    </li>
+    <li>question text、label、説明文をadapter selectionやexpected answer生成に使わない。</li>
+    <li>unknown question / adapter / statusはskipせずprofile validationをfailさせる。</li>
+    <li>registryは最大128 questions、active casesは最大1,024件とする。</li>
+    <li>
+      active化、retire、adapter semantics変更、required capability変更はowner reviewを必須とする。
+    </li>
+    <li>
+      baseline
+      1.0.0では<code>changeReceipt</code>を禁止する。1.0.0以後のprofileは直前のreview済みversion
+      / hashを exactに参照するreceiptを必須とし、履歴を飛ばせない。
+    </li>
+    <li>
+      comparatorが導出するminimum
+      bumpを<code>declaredBump</code>で弱められない。affected
+      IDsはcurrentまたはprevious profileへ解決し、change kind、diff、approval
+      refsと一致しなければpreflight failureとする。
+    </li>
+  </ul>
+
+  <h2 id="10-case-and-fixture-contract">10. Case and Fixture Contract</h2>
+  <pre><code class="language-typescript">const assertionKindSchema = z.enum([
+  "observed",
+  "deterministic_derived",
+  "semantic_candidate",
+]);
+
+const answerAtomSchema = z.object({
+  atomKind: z.enum([
+    "finding_ref",
+    "evidence_ref",
+    "artifact_ref",
+    "file_ref",
+    "scanner_ref",
+    "rule_ref",
+    "readiness",
+    "relationship",
+  ]),
+  subjectRef: boundedRefSchema,
+  predicate: boundedPredicateSchema,
+  objectRef: boundedRefSchema.optional(),
+  value: boundedScalarSchema.optional(),
+  assertionKind: assertionKindSchema,
+  provenanceRefs: z.array(boundedRefSchema).max(32),
+}).strict();
+
+const caseExpectationSchema = z.object({
+  requiredAtoms: z.array(answerAtomSchema).max(256),
+  allowedAtoms: z.array(answerAtomSchema).max(256),
+  forbiddenAtoms: z.array(answerAtomSchema).max(256),
+  requiredUnavailableReasons: z.array(unavailableReasonSchema).max(16),
+  allowedUnavailableReasons: z.array(unavailableReasonSchema).max(16),
+  expectedConsumerBoundary: z.enum(["candidate_only", "readiness_status"]),
+  expectedAvailability: z.enum([
+    "answered",
+    "answered_with_expected_gaps",
+    "unavailable",
+  ]),
+  requireCompleteAnswerSet: z.literal(true),
+}).strict();
+
+const competencyQuestionCaseSchema = z.object({
+  caseId: z.string().regex(/^CQ-[0-9]{3}-CASE-[0-9]{3}$/),
+  questionId: z.string().regex(/^CQ-[0-9]{3}$/),
+  fixtureId: z.string().min(1).max(120),
+  input: adapterInputSchema,
+  expectation: caseExpectationSchema,
+  rationale: z.string().min(1).max(500),
+}).strict();
+</code></pre>
+  <p>
+    <code>adapterInputSchema</code>は1個のcatch-all
+    objectにせず、<code>adapterId</code>と対応する discriminated
+    unionにする。たとえばevidence bundleは<code>findingId</code>、readinessは
+    <code>projectId</code>とfixture stateだけを受ける。arbitrary
+    query、path、URL、SQL、embedding providerは受けない。
+  </p>
+  <pre><code class="language-typescript">const activeAdapterInputSchema = z.discriminatedUnion("adapterId", [
+  z.object({
+    adapterId: z.literal("agent_evidence_bundle_v1"),
+    findingRef: boundedRefSchema,
+  }).strict(),
+  z.object({
+    adapterId: z.literal("agent_risk_context_v1"),
+    findingRef: boundedRefSchema,
+  }).strict(),
+  z.object({
+    adapterId: z.literal("assertion_boundary_v1"),
+    findingRef: boundedRefSchema,
+    relationFixtureId: z.string().min(1).max(120),
+  }).strict(),
+  z.object({
+    adapterId: z.literal("readiness_projection_v1"),
+    readinessVariantId: z.string().min(1).max(120),
+  }).strict(),
+]);
+</code></pre>
+  <p>
+    case inputのadapter IDは参照先questionのadapter IDと一致しなければならない。planned
+    adapterのinput variantはactive caseが0件の間は追加せず、questionをactive化するprofile
+    MAJORでschemaと実装を同時追加する。
+  </p>
+
+  <h3 id="101-synthetic-fixture-profile">10.1 Synthetic Fixture Profile</h3>
+  <p>
+    fixture
+    IDは<code>static-intelligence-cq-baseline-v1</code>とし、以下を固定値で構築する。UUID、scan
+    revision、source ref、path、scanner、rule IDはfixture codeに明示し、実行ごとに生成しない。
+  </p>
+  <ul>
+    <li>project 1件、scan revision 2件。ただし初期active casesは単一revisionだけを読む。</li>
+    <li>
+      finding 3件: exact evidenceあり、evidence欠落、semantic-only related candidateの各状態。
+    </li>
+    <li>evidence 3件、artifact 2件、source file 3件、scanner 2種、rule 3種。</li>
+    <li>same-file / same-rule relationと、fixed embeddingから得るsemantic candidate 1件。</li>
+    <li>available / missing / stale / revision mismatchを作るreadiness variant。</li>
+    <li>
+      raw snippet、secret-like canary、absolute
+      pathを入力へ置き、outputに出ないことをnegative検証する。
+    </li>
+    <li>
+      <code>generatedAt</code>、source revision、content hash、embedding
+      vectorを固定し、wall clockとexternal providerを参照しない。
+    </li>
+  </ul>
+  <p>
+    DB-backed production service testでは明示IDをinsertする。pure evaluator testでは同じfixture
+    builderが返す normalized source recordsを使う。期待値をproduction
+    responseから自動更新する<code>--update</code>機能は作らない。
+  </p>
+  <p>
+    <code>fixtureHash</code>はDB rowやSQLite
+    fileをhashせず、builder入力となるstrict
+    <code>CompetencyFixtureManifestV1</code>を正本にする。manifestはfixture ID、fixed
+    timestamps、project / scan identity、source records、graph relations、readiness variants、fixed
+    embedding vectorsを持つ。set-like arrayを
+    code-point順へ正規化し、<code>shared/canonical-json.ts</code>でserializeしてSHA-256を生成する。DB
+    seed後はmanifestの全stable refsがproduction exportへ一度ずつ解決することをassertする。
+  </p>
+
+  <h3 id="102-atom-comparison">10.2 Atom Comparison</h3>
+  <ul>
+    <li>
+      answer atom比較の前に<code>consumerBoundary</code>がcase
+      expectationと一致することを検証する。
+    </li>
+    <li>atom identityはkind、subject、predicate、object / value、assertion kindのtupleとする。</li>
+    <li>provenance refsはset比較し、最低限必要なrefsがすべて含まれることを要求する。</li>
+    <li>
+      actual unavailable reasonsは<code>requiredUnavailableReasons</code>を全て含み、
+      <code>allowedUnavailableReasons</code>の部分集合でなければならない。初期19
+      casesでは両配列を同値にしてexact matchとする。
+    </li>
+    <li>required unavailable reasonはallowedにも存在しなければならず、両配列の重複を禁止する。</li>
+    <li>
+      <code>requiredAtoms</code
+      >は全件必要、<code>forbiddenAtoms</code>は1件でも存在すればfailとする。
+    </li>
+    <li>
+      <code>allowedAtoms</code>は存在してもよいoptional atomsであり、required
+      atomsを重複登録しない。forbidden atomsはrequired / allowedのどちらとも重複できない。
+    </li>
+    <li>
+      <code>requireCompleteAnswerSet=true</code
+      >では<code>requiredAtoms ∪ allowedAtoms</code>外のatomもfailとする。初期19
+      casesは全てtrueに固定する。 falseを必要とするadvisory discoveryは別schema /
+      profileとし、baseline release profileでは表現できなくする。
+    </li>
+    <li>title、summary、message、scoreの丸め値、配列入力順はatom identityへ含めない。</li>
+  </ul>
+  <h3 id="103-availability-invariants">10.3 Availability Invariants</h3>
+  <table>
+    <caption>
+      expected availabilityとexpectation shapeの対応
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Expected availability</th>
+        <th scope="col">Required atoms</th>
+        <th scope="col">Required unavailable reasons</th>
+        <th scope="col">Valid output</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>answered</code></td>
+        <td>1件以上</td>
+        <td>0件</td>
+        <td>required atomsを満たし、unavailable reasonが0件</td>
+      </tr>
+      <tr>
+        <td><code>answered_with_expected_gaps</code></td>
+        <td>1件以上</td>
+        <td>1件以上</td>
+        <td>required atomsとrequired reasonsを満たす</td>
+      </tr>
+      <tr>
+        <td><code>unavailable</code></td>
+        <td>0件</td>
+        <td>1件以上</td>
+        <td>answer atomが0件でrequired reasonsを満たす</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    上記shapeに反するcaseは実行前にprofile validationをfailさせる。expected
+    gapを理由なしでpassさせたり、完全回答へ unavailable reasonを混在させたりしない。
+  </p>
+
+  <h2 id="11-adapter-contract">11. Adapter Contract</h2>
+  <pre><code class="language-typescript">type CompetencyAdapterContext = Readonly&lt;{
+  fixture: CompetencyFixture;
+  services: CompetencyEvaluationServices;
+}&gt;;
+
+type NormalizedAnswer = Readonly&lt;{
+  atoms: readonly AnswerAtom[];
+  unavailableReasons: readonly UnavailableReasonCode[];
+  sourceRefs: readonly string[];
+  consumerBoundary: "candidate_only" | "readiness_status";
+}&gt;;
+
+type CompetencyAdapter = (
+  input: AdapterInput,
+  context: CompetencyAdapterContext,
+) =&gt; Promise&lt;NormalizedAnswer&gt;;
+</code></pre>
+  <ol>
+    <li>
+      adapter registryはclosed
+      <code>switch</code>とし、filesystemやdynamic
+      importから実装を選ばない。
+    </li>
+    <li>adapterは既存service functionを呼び、routeまたはMCPを内部loopbackで呼ばない。</li>
+    <li>route / MCP parityは既存contract testsで別途検証し、evaluatorの責務へ重複させない。</li>
+    <li>adapterは入力responseをmutateせず、bounded normalized atomだけを返す。</li>
+    <li>
+      agent query adapterは全result itemの<code>candidateOnly=true</code>を検証して
+      <code>consumerBoundary="candidate_only"</code>を返す。欠落またはfalseはfail closedにする。
+    </li>
+    <li>
+      readiness adapterだけは<code>consumerBoundary="readiness_status"</code>を返し、agent
+      queryの候補境界と 混在させない。
+    </li>
+    <li>current free-form degraded reasonは§12の固定mapping tableで正規化する。</li>
+    <li>
+      unknown item kind、unknown reason、schema parse failureは空集合へ落とさずfail closedにする。
+    </li>
+    <li>raw internal error、SQL、stack、absolute pathをresultへ含めない。</li>
+  </ol>
+
+  <h3 id="111-temporary-assertion-mapping">11.1 Temporary Assertion Mapping</h3>
+  <table>
+    <caption>
+      Claim Provenance導入前のclosed mapping
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Current result source</th>
+        <th scope="col">Normalized assertion kind</th>
+        <th scope="col">Condition</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>persisted finding / evidence / artifact / exact file ref</td>
+        <td><code>observed</code></td>
+        <td>
+          stable source refが存在し、fixture source recordへ解決できること。agent queryのconsumer
+          boundaryはcandidate-onlyのまま。
+        </td>
+      </tr>
+      <tr>
+        <td>file risk / readiness / exact graph relation</td>
+        <td><code>deterministic_derived</code></td>
+        <td>closed basis codeと全input provenance refが存在すること</td>
+      </tr>
+      <tr>
+        <td><code>semantic_candidate</code> item / semantic community relation</td>
+        <td><code>semantic_candidate</code></td>
+        <td>semantic originとして分類し、observed / derived expectationを満たさないこと。</td>
+      </tr>
+      <tr>
+        <td>unknown item / unknown basis</td>
+        <td>mapping不可</td>
+        <td><code>ADAPTER_UNMAPPED_ASSERTION_SOURCE</code>でcase fail</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    このmappingはontologyの新しい真実を作らず、evaluation内だけの暫定分類である。
+    <code>assertionKind="observed"</code>はsource record由来という意味であり、現行agent
+    queryの <code>candidateOnly=true</code>を解除しない。Claim
+    Provenanceの明示profileが利用可能になった時点でCQ-003を 拡張し、推定mappingを削除するmigration
+    testを必須とする。
+  </p>
+
+  <h2 id="12-outcome-and-reason-codes">12. Outcome and Reason Codes</h2>
+  <h3 id="121-case-outcomes">12.1 Case Outcomes</h3>
+  <table>
+    <caption>
+      case resultの排他的分類
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Outcome</th>
+        <th scope="col">Meaning</th>
+        <th scope="col">Case verdict</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>answered</code></td>
+        <td>required / forbidden / provenance / completeness条件を全て満たす。</td>
+        <td>pass</td>
+      </tr>
+      <tr>
+        <td><code>answered_with_expected_gaps</code></td>
+        <td>
+          required atomsは満たすが、一部の期待facetが固定unavailable
+          reason付きで欠ける。caseがこのavailabilityを 明示した場合だけ許可する。
+        </td>
+        <td>pass。full answerability numeratorへ含めず、partial numeratorへ含める。</td>
+      </tr>
+      <tr>
+        <td><code>unavailable_expected</code></td>
+        <td>answer atomはなく、許可された固定理由だけを返す。</td>
+        <td>pass。ただしfull / partial answerability numeratorへ含めない。</td>
+      </tr>
+      <tr>
+        <td><code>unavailable_unexpected</code></td>
+        <td>未許可または不足した理由で回答できない。</td>
+        <td>fail</td>
+      </tr>
+      <tr>
+        <td><code>incorrect</code></td>
+        <td>required欠落、forbidden存在、unexpected atom、provenance不足のいずれか。</td>
+        <td>fail</td>
+      </tr>
+      <tr>
+        <td><code>unsafe_confirmation</code></td>
+        <td>
+          consumer boundaryが欠落・弱化した、またはsemantic candidate / 根拠不足atomがobserved /
+          deterministic required factを満たした。
+        </td>
+        <td>hard fail</td>
+      </tr>
+      <tr>
+        <td><code>adapter_failed</code></td>
+        <td>adapterがschema violation、unknown mapping、bounded runtime failureを返した。</td>
+        <td>hard fail</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    profile、policy、fixture、case expectationの不正はcase outcomeへ変換しない。preflight
+    failureとしてcaseを1件も 実行せず、§16のfailure
+    payloadを返す。<code>adapter_failed</code>はpreflight通過後にproduction
+    adapterが contractどおりのanswerを作れなかった場合だけに使う。
+  </p>
+
+  <h3 id="122-unavailable-reasons">12.2 Unavailable Reason Codes</h3>
+  <p>初期allowed setは以下に固定し、consumerはmessage文字列をparseしない。</p>
+  <ul>
+    <li><code>SCAN_MISSING</code></li>
+    <li><code>GENERATION_MISSING</code></li>
+    <li><code>GENERATION_INVALID</code></li>
+    <li><code>SOURCE_STATE_UNAVAILABLE</code></li>
+    <li><code>SOURCE_STATE_CHANGED</code></li>
+    <li><code>SOURCE_REVISION_UNAVAILABLE</code></li>
+    <li><code>SOURCE_REVISION_CHANGED</code></li>
+    <li><code>SEMANTIC_SOURCE_UNAVAILABLE</code></li>
+    <li><code>SEMANTIC_INDEX_UNAVAILABLE</code></li>
+    <li><code>SEMANTIC_INDEX_MISSING</code></li>
+    <li><code>SEMANTIC_INDEX_STALE</code></li>
+    <li><code>SEMANTIC_INDEX_PARTIAL</code></li>
+    <li><code>EVIDENCE_GRAPH_EMPTY</code></li>
+    <li><code>MODULE_CANDIDATES_MISSING</code></li>
+    <li><code>FINDING_NOT_FOUND</code></li>
+    <li><code>EVIDENCE_NOT_FOUND</code></li>
+    <li><code>ARTIFACT_NOT_FOUND</code></li>
+    <li><code>FILE_CONTEXT_NOT_FOUND</code></li>
+    <li><code>DEPENDENCY_NOT_IMPLEMENTED</code></li>
+  </ul>
+  <p>
+    現行のfree-form reasonから固定codeへのmappingはexact match tableとunit
+    testで管理する。未知のreasonは
+    <code>ADAPTER_UNMAPPED_UNAVAILABLE_REASON</code>というevaluation failure reasonに変換し、allowed
+    unavailableとして扱わない。raw reasonはcanonical reportへ載せない。
+  </p>
+  <p>
+    CQ-004のようにreadiness自体を問うcaseでは、missing / stale reasonは
+    <code>readiness</code>
+    atomの期待valueであり、evaluatorの回答不能ではない。この場合のoutcomeは
+    <code>answered</code
+    >とする。<code>unavailableReasons</code>はadapterがquestionへの回答を構築できない時だけ使う。
+  </p>
+
+  <h3 id="123-current-reason-normalization">12.3 Current Reason Normalization</h3>
+  <table>
+    <caption>
+      現行service stateからevaluation reasonへのclosed mapping
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Current source</th>
+        <th scope="col">Normalized reason</th>
+        <th scope="col">Mapping rule</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>typed invalid-request error for requested finding</td>
+        <td><code>FINDING_NOT_FOUND</code></td>
+        <td>error messageをparseせずerror classとrequested IDで判定</td>
+      </tr>
+      <tr>
+        <td>finding exists、evidence refs 0</td>
+        <td><code>EVIDENCE_NOT_FOUND</code></td>
+        <td>query graphのclosed relation countから導出</td>
+      </tr>
+      <tr>
+        <td>finding exists、artifact refs 0</td>
+        <td><code>ARTIFACT_NOT_FOUND</code></td>
+        <td>query graphのclosed relation countから導出</td>
+      </tr>
+      <tr>
+        <td>finding exists、file refs 0</td>
+        <td><code>FILE_CONTEXT_NOT_FOUND</code></td>
+        <td>query graphのclosed relation countから導出</td>
+      </tr>
+      <tr>
+        <td>
+          <code>scan_missing</code> /
+          <code>generation_missing</code> /
+          <code>generation_invalid</code>
+        </td>
+        <td>同名UPPER_SNAKE_CASE</td>
+        <td>exact code mapping</td>
+      </tr>
+      <tr>
+        <td>
+          <code>source_state_unavailable</code> /
+          <code>source_state_changed</code> /
+          <code>source_revision_unavailable</code> /
+          <code>source_revision_changed</code>
+        </td>
+        <td>同名UPPER_SNAKE_CASE</td>
+        <td>state hash差とsource revision差を統合しない</td>
+      </tr>
+      <tr>
+        <td>
+          <code>semantic_source_unavailable</code> /
+          <code>semantic_index_unavailable</code> /
+          <code>semantic_index_missing</code> /
+          <code>semantic_index_stale</code> /
+          <code>semantic_index_partial</code>
+        </td>
+        <td>同名UPPER_SNAKE_CASE</td>
+        <td>failed / missing / stale / degradedを保ったexact mapping</td>
+      </tr>
+      <tr>
+        <td>
+          <code>evidence_graph_empty</code> /
+          <code>module_candidates_missing</code>
+        </td>
+        <td>同名UPPER_SNAKE_CASE</td>
+        <td>capability固有reasonをgeneric missingへ潰さない</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    scan summary由来のreview / redaction reasonはこの初期question profileのunavailable
+    reasonではない。CQ-004へ 取り込む場合はfixed source codeを別profile
+    revisionで列挙する。<code>includes</code>やprefixによる曖昧mappingを
+    追加しない。
+  </p>
+
+  <h2 id="13-initial-question-inventory">13. Initial Question Inventory</h2>
+  <table>
+    <caption>
+      profile 1.0.0のquestion state
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">ID</th>
+        <th scope="col">Question</th>
+        <th scope="col">Initial state</th>
+        <th scope="col">Adapter / minimum cases</th>
+        <th scope="col">Boundary</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>CQ-001</code></td>
+        <td>このfindingを支持するevidence、scanner、artifactは何か。</td>
+        <td><code>active</code></td>
+        <td><code>agent_evidence_bundle_v1</code> / 4</td>
+        <td>exact positive、artifact欠落、finding不在、redaction</td>
+      </tr>
+      <tr>
+        <td><code>CQ-002</code></td>
+        <td>このfindingが影響するmoduleまたはfileは何か。根拠は何か。</td>
+        <td><code>active</code> for file facet</td>
+        <td><code>agent_risk_context_v1</code> / 4</td>
+        <td>file refとbasisをactive化し、module facetはhandoff計画待ち</td>
+      </tr>
+      <tr>
+        <td><code>CQ-003</code></td>
+        <td>この関係はobserved、deterministic derived、semantic candidateのどれか。</td>
+        <td><code>active</code> safety subset</td>
+        <td><code>assertion_boundary_v1</code> / 5</td>
+        <td>candidate leakage negativeをactive化し、full claim taxonomyはProvenance待ち</td>
+      </tr>
+      <tr>
+        <td><code>CQ-004</code></td>
+        <td>欠落、stale、revision不一致のevidenceはあるか。</td>
+        <td><code>active</code></td>
+        <td><code>readiness_projection_v1</code> / 6</td>
+        <td>available、missing、stale、source change、revision change、failed</td>
+      </tr>
+      <tr>
+        <td><code>CQ-005</code></td>
+        <td>2つのscan revision間で何が追加・削除・変更されたか。</td>
+        <td><code>planned_dependency</code></td>
+        <td><code>scan_revision_diff_v1</code> / 0 active</td>
+        <td>Ontology Contract diffはdata diffではない。別ownerのinstance diff契約が必要。</td>
+      </tr>
+      <tr>
+        <td><code>CQ-006</code></td>
+        <td>同じCWE / CVE / dependencyのfindingとmapping strengthは何か。</td>
+        <td><code>planned_dependency</code></td>
+        <td><code>security_vocabulary_relation_v1</code> / 0 active</td>
+        <td>Security Vocabulary Alignmentのexact mapping profile公開後にactive化</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    初期active baselineは最低19 casesとする。CQ-002 / CQ-003の部分active化はquestion definitionへ
+    <code>activeFacets</code>を追加して曖昧に表さず、case rationaleとrequired
+    capabilityを明示する。full facetをactive化する時は新case追加とprofile major reviewを行う。
+  </p>
+
+  <h3 id="131-active-case-catalog">13.1 Active Case Catalog</h3>
+  <p>
+    次の19件をprofile 1.0.0の最小case setとする。表中のrefはfixture内のstable symbolic
+    refであり、実装時に explicit UUID / pathへ一意に解決する。agent query casesのconsumer boundaryは
+    <code>candidate_only</code
+    >、CQ-004は<code>readiness_status</code>である。
+  </p>
+  <table>
+    <caption>
+      active baseline casesと期待結果
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Case ID</th>
+        <th scope="col">Fixture input</th>
+        <th scope="col">Required result</th>
+        <th scope="col">Expected availability / safety</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>CQ-001-CASE-001</code></td>
+        <td><code>finding:f-001</code> full evidence bundle</td>
+        <td>
+          <code>evidence:e-001</code
+          >、<code>artifact:a-001</code>、<code>scanner:semgrep</code>とsource
+          provenance
+        </td>
+        <td><code>answered</code>、unexpected atom 0</td>
+      </tr>
+      <tr>
+        <td><code>CQ-001-CASE-002</code></td>
+        <td><code>finding:f-002</code>、evidenceあり / artifactなし</td>
+        <td>
+          <code>evidence:e-002</code>、<code
+            >scanner:trivy</code
+          >
+        </td>
+        <td>
+          <code>answered_with_expected_gaps</code> /
+          <code>ARTIFACT_NOT_FOUND</code>
+        </td>
+      </tr>
+      <tr>
+        <td><code>CQ-001-CASE-003</code></td>
+        <td><code>finding:f-404</code></td>
+        <td>answer atom 0</td>
+        <td>
+          <code>unavailable_expected</code> /
+          <code>FINDING_NOT_FOUND</code>
+        </td>
+      </tr>
+      <tr>
+        <td><code>CQ-001-CASE-004</code></td>
+        <td><code>finding:f-003</code>、snippet / secret canaryを持つsource</td>
+        <td>
+          <code>evidence:e-003</code
+          >、<code>artifact:a-002</code>、scanner ref。canary valueはatom /
+          reportに0件。
+        </td>
+        <td><code>answered</code>、redaction hard invariant</td>
+      </tr>
+      <tr>
+        <td><code>CQ-002-CASE-001</code></td>
+        <td><code>finding:f-001</code></td>
+        <td>
+          <code>file:src/auth.ts</code>、predicate
+          <code>affects_file</code>、finding / evidence provenance
+        </td>
+        <td><code>answered</code>、observed origin</td>
+      </tr>
+      <tr>
+        <td><code>CQ-002-CASE-002</code></td>
+        <td><code>finding:f-001</code> risk context</td>
+        <td>
+          same-file related <code>finding:f-002</code>、basis
+          <code>same_file</code>、両finding refs
+        </td>
+        <td><code>answered</code>、deterministic derived origin</td>
+      </tr>
+      <tr>
+        <td><code>CQ-002-CASE-003</code></td>
+        <td><code>finding:f-001</code>、same-rule candidateが別fileに存在</td>
+        <td><code>file:src/auth.ts</code>だけをaffected fileとして要求</td>
+        <td>
+          <code>answered</code
+          >。<code>file:src/deps.ts</code>を<code>affects_file</code>として返すことをforbid
+        </td>
+      </tr>
+      <tr>
+        <td><code>CQ-002-CASE-004</code></td>
+        <td><code>finding:f-003</code>、file associationなし</td>
+        <td>affected file atom 0</td>
+        <td>
+          <code>unavailable_expected</code> /
+          <code>FILE_CONTEXT_NOT_FOUND</code>
+        </td>
+      </tr>
+      <tr>
+        <td><code>CQ-003-CASE-001</code></td>
+        <td><code>evidence:e-001</code> source relation</td>
+        <td><code>assertionKind=observed</code>、source provenance</td>
+        <td><code>answered</code>、consumer boundaryはcandidate-only</td>
+      </tr>
+      <tr>
+        <td><code>CQ-003-CASE-002</code></td>
+        <td><code>finding:f-001</code> same-file relation</td>
+        <td><code>assertionKind=deterministic_derived</code>、basis / input refs</td>
+        <td><code>answered</code></td>
+      </tr>
+      <tr>
+        <td><code>CQ-003-CASE-003</code></td>
+        <td><code>finding:f-001</code> same-rule relation</td>
+        <td><code>assertionKind=deterministic_derived</code>、rule / finding refs</td>
+        <td><code>answered</code></td>
+      </tr>
+      <tr>
+        <td><code>CQ-003-CASE-004</code></td>
+        <td><code>finding:f-001</code> semantic-only relation</td>
+        <td><code>assertionKind=semantic_candidate</code>、candidate-only boundary</td>
+        <td>
+          <code>answered</code>、observed / derived classificationをforbid
+        </td>
+      </tr>
+      <tr>
+        <td><code>CQ-003-CASE-005</code></td>
+        <td>exact relationとsemantic relationが同じtargetを返す</td>
+        <td>origin別に2 atomsを保持し、それぞれのprovenanceを保持</td>
+        <td>
+          <code>answered</code>。semantic atomによるexact atomのdeduplicate
+          / 置換をforbid
+        </td>
+      </tr>
+      <tr>
+        <td><code>CQ-004-CASE-001</code></td>
+        <td>全required capability available</td>
+        <td><code>readiness:available</code>、generation / scan refs</td>
+        <td><code>answered</code></td>
+      </tr>
+      <tr>
+        <td><code>CQ-004-CASE-002</code></td>
+        <td>selected scanは存在するがgenerationなし</td>
+        <td>
+          <code>readiness:missing</code> /
+          <code>GENERATION_MISSING</code>
+        </td>
+        <td><code>answered</code>。reasonはanswer atom value。</td>
+      </tr>
+      <tr>
+        <td><code>CQ-004-CASE-003</code></td>
+        <td>semantic index rowなし</td>
+        <td>
+          <code>readiness:missing</code> /
+          <code>SEMANTIC_INDEX_MISSING</code>
+        </td>
+        <td><code>answered</code></td>
+      </tr>
+      <tr>
+        <td><code>CQ-004-CASE-004</code></td>
+        <td>semantic index revisionがcurrent scanより古い</td>
+        <td>
+          <code>readiness:stale</code> /
+          <code>SEMANTIC_INDEX_STALE</code>
+        </td>
+        <td><code>answered</code></td>
+      </tr>
+      <tr>
+        <td><code>CQ-004-CASE-005</code></td>
+        <td>source state hash changed</td>
+        <td>
+          <code>readiness:stale</code> /
+          <code>SOURCE_STATE_CHANGED</code>
+        </td>
+        <td><code>answered</code>、revision changeとの混同をforbid</td>
+      </tr>
+      <tr>
+        <td><code>CQ-004-CASE-006</code></td>
+        <td>source revision changed、source state hash同一</td>
+        <td>
+          <code>readiness:stale</code> /
+          <code>SOURCE_REVISION_CHANGED</code>
+        </td>
+        <td><code>answered</code>、source changeとの混同をforbid</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    fixed adapterまたは現行serviceが上記stateを表現できない場合、期待値を弱めずSlice 0
+    discoveryへ戻る。そのcaseを silently skipしたりplannedへ落としたりせず、current
+    gapとowner判断を本計画のrevisionとして記録する。
+  </p>
+
+  <h2 id="14-evaluator-algorithm">14. Evaluator Algorithm</h2>
+  <ol>
+    <li>
+      profileとfixtureをstrict schemaでparseし、size / uniqueness / referential
+      integrityを検証する。
+    </li>
+    <li>questionをquestion ID、caseをcase IDのcode-point ascending順に並べる。</li>
+    <li>
+      active caseだけをcase ID順に逐次実行し、planned / retiredは実行せずdependency
+      summaryへ載せる。
+    </li>
+    <li>closed adapterを実行し、responseをschema parseしてnormalized atomsへ変換する。</li>
+    <li>
+      全atomのsource / provenance refがfixtureまたはproduction response ref
+      setに存在するか検証する。
+    </li>
+    <li>
+      expected consumer boundaryとagent queryのcandidate-only
+      invariantを先に評価し、違反時は他の一致に関係なく unsafe confirmationとする。
+    </li>
+    <li>
+      <code>expectedAvailability</code>に従い、atom 0のunavailable、required
+      atomを伴うexpected gaps、完全answerの3状態を排他的に判定する。
+    </li>
+    <li>unavailable reasonがある場合、atomとの同時存在policyとallowed reasonを検証する。</li>
+    <li>required / allowed / forbidden atomとprovenance setを比較する。</li>
+    <li>case outcomeと固定failure reasonを生成する。</li>
+    <li>
+      question / capability別metricを計算し、hard invariantとprofile quality policyからevaluation
+      statusを決める。
+    </li>
+    <li>
+      enforcement policyを適用してCI verdictを決め、canonical reportとhash対象外run
+      metadataを生成する。
+    </li>
+  </ol>
+  <p>
+    canonical orderingに<code>localeCompare</code>を使わず、UTF-16 code unit
+    comparatorまたはshared canonical comparatorを使う。production
+    responseの順序が意味を持たない箇所はsetへ正規化し、環境locale差を吸収する。
+  </p>
+  <p>
+    1 runは専用temporary DBまたはrollback可能なtest
+    transactionを使い、別runとstateを共有しない。profile / fixture / policy
+    invalid時はcaseを1件も実行しない。個別adapter
+    failure時は残りcaseをboundedに評価して全gapをreportするが、evaluationはhard nonconformant、CI
+    verdictは必ずfailedとする。case timeoutは2秒、初期suite
+    timeoutは10秒とし、timeoutをunavailableへ変換しない。
+  </p>
+
+  <h2 id="15-metrics-and-verdict">15. Metrics and Verdict</h2>
+  <h3 id="151-metric-definitions">15.1 Metric Definitions</h3>
+  <pre><code class="language-typescript">type MetricRatio = Readonly&lt;{
+  numerator: number;
+  denominator: number;
+  basisPoints: number;
+}&gt;;
+</code></pre>
+  <p>
+    rate metricはfloating-point値だけを返さず、numerator / positive denominatorと
+    <code>basisPoints=Math.round(numerator * 10000 / denominator)</code>を返す。100% gateはnumeratorと denominatorのexact
+    equalityで判定し、表示用basis pointsで合否を決めない。
+  </p>
+  <table>
+    <caption>
+      profile 1.0.0で計算するmetric
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Metric</th>
+        <th scope="col">Definition</th>
+        <th scope="col">Gate</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>caseConformanceRate</code></td>
+        <td>
+          passしたactive cases / active cases。answered with expected gapsとexpected unavailable
+          passも含む。
+        </td>
+        <td>blocking移行後100%</td>
+      </tr>
+      <tr>
+        <td><code>fullAnswerabilityRate</code></td>
+        <td>
+          <code>answered</code> / 全active cases。expected gaps /
+          unavailableも分母に含め、plannedは除外する。
+        </td>
+        <td>profile 1.0.0 baseline 16 / 19 = 8,421 bpsから低下不可</td>
+      </tr>
+      <tr>
+        <td><code>partialAnswerabilityRate</code></td>
+        <td>
+          <code>answered</code> +
+          <code>answered_with_expected_gaps</code> / 全active cases。
+        </td>
+        <td>profile 1.0.0 baseline 17 / 19 = 8,947 bpsから低下不可</td>
+      </tr>
+      <tr>
+        <td><code>provenanceCoverage</code></td>
+        <td>必要provenanceを満たしたrequired atoms / required atoms。</td>
+        <td>100%</td>
+      </tr>
+      <tr>
+        <td><code>falseConfirmationCount</code></td>
+        <td>
+          expected consumer boundaryの欠落・弱化、または未解決atomをsource-backed required
+          factとして受理した件数。
+        </td>
+        <td>常に0</td>
+      </tr>
+      <tr>
+        <td><code>candidateLeakageCount</code></td>
+        <td>semantic candidateがobserved / deterministic atomへ昇格した件数。</td>
+        <td>常に0</td>
+      </tr>
+      <tr>
+        <td><code>orphanReferenceCount</code></td>
+        <td>source / provenance refがfixture source setへ解決できない件数。</td>
+        <td>常に0</td>
+      </tr>
+      <tr>
+        <td><code>sensitiveDataLeakCount</code></td>
+        <td>
+          fixture canary、raw snippet、absolute pathがnormalized
+          answerまたはreport候補へ到達した件数。
+        </td>
+        <td>常に0</td>
+      </tr>
+      <tr>
+        <td><code>unexpectedUnavailableCount</code></td>
+        <td>許可されていない理由または理由なしでunavailableとなったcase数。</td>
+        <td>blocking移行後0</td>
+      </tr>
+      <tr>
+        <td><code>plannedDependencyCount</code></td>
+        <td>planned question数。active denominatorへ含めない。</td>
+        <td>informational、増加時owner review</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3 id="152-verdict-precedence">15.2 Verdict Precedence</h3>
+  <pre><code class="language-typescript">const evaluationViolationSchema = z.discriminatedUnion("severity", [
+  z.object({
+    severity: z.literal("hard"),
+    kind: z.enum([
+      "ADAPTER_FAILED",
+      "UNSAFE_CONFIRMATION",
+      "FALSE_CONFIRMATION",
+      "CANDIDATE_LEAKAGE",
+      "ORPHAN_REFERENCE",
+      "SENSITIVE_DATA_LEAK",
+    ]),
+    questionId: questionIdSchema.optional(),
+    caseId: caseIdSchema.optional(),
+  }).strict(),
+  z.object({
+    severity: z.literal("quality"),
+    kind: z.enum([
+      "CASE_CONFORMANCE_BELOW_POLICY",
+      "FULL_ANSWERABILITY_BELOW_POLICY",
+      "PARTIAL_ANSWERABILITY_BELOW_POLICY",
+      "PROVENANCE_COVERAGE_BELOW_POLICY",
+      "UNEXPECTED_UNAVAILABLE",
+    ]),
+    questionId: questionIdSchema.optional(),
+    caseId: caseIdSchema.optional(),
+  }).strict(),
+]);
+</code></pre>
+  <ol>
+    <li>
+      profile / fixture / enforcement policy invalidはpreflight failureとし、evaluation
+      statusを生成しない。
+    </li>
+    <li>
+      adapter failure、unsafe confirmation、hard invariant違反が1件でもあれば
+      <code>evaluationStatus="nonconformant"</code>、violation
+      severityを<code>hard</code>とする。
+    </li>
+    <li>
+      hard violationはないがquality
+      threshold未達なら<code>evaluationStatus="nonconformant"</code>、severityを
+      <code>quality</code>とする。
+    </li>
+    <li>全条件を満たす場合だけ<code>evaluationStatus="conformant"</code>とする。</li>
+  </ol>
+  <p>
+    question / capability平均、weighted score、P1 / P2の相殺はrelease
+    verdictへ使わない。category集計はgapの所在を 説明するためだけに使う。
+  </p>
+
+  <h3 id="153-enforcement-policy">15.3 Enforcement Policy</h3>
+  <p>
+    evaluation結果とCI enforcementを分離する。quality policyはprofileに属し、advisory /
+    blockingのrollout stateは次のsource-controlled policyに属する。CLI引数、environment variable、PR
+    branchからmodeを上書きしない。
+  </p>
+  <p>
+    このenforcement verdictはcorrectnessだけを扱う。wall-clock latencyとmemoryはnon-deterministic
+    run metadataであるためevaluation / report hashとverdictへ混ぜず、§23の別benchmark receipt /
+    required checkでgateする。
+  </p>
+  <pre><code class="language-typescript">const competencyEvaluationEnforcementPolicySchema = z.object({
+  schemaVersion: z.literal("static-intelligence-competency-enforcement-v1"),
+  policyId: z.literal("static-intelligence-competency-ci"),
+  policyVersion: semanticVersionSchema,
+  profileId: z.literal("static-intelligence-competency-baseline"),
+  profileVersion: semanticVersionSchema,
+  profileHash: sha256Schema,
+  fixtureId: z.literal("static-intelligence-cq-baseline-v1"),
+  fixtureHash: sha256Schema,
+  mode: z.enum(["advisory", "blocking"]),
+  hardViolationsAlwaysBlock: z.literal(true),
+  hardViolationKinds: z.tuple([
+    z.literal("ADAPTER_FAILED"),
+    z.literal("UNSAFE_CONFIRMATION"),
+    z.literal("FALSE_CONFIRMATION"),
+    z.literal("CANDIDATE_LEAKAGE"),
+    z.literal("ORPHAN_REFERENCE"),
+    z.literal("SENSITIVE_DATA_LEAK"),
+  ]),
+  promotionRequirements: z.object({
+    minimumObservationDays: z.literal(14),
+    minimumConsecutiveMainRuns: z.literal(20),
+    maximumFlakeCount: z.literal(0),
+  }).strict(),
+  promotionReceipt: z.object({
+    observedFrom: isoDateSchema,
+    observedThrough: isoDateSchema,
+    consecutiveMainRuns: z.number().int().min(20),
+    flakeCount: z.literal(0),
+    runEvidence: z.array(z.object({
+      commitSha: z.string().regex(/^[0-9a-f]{40,64}$/),
+      evaluationArtifactRef: boundedRefSchema,
+      benchmarkReceiptRef: boundedRefSchema,
+    }).strict()).min(20).max(40),
+    approvalRefs: z.array(boundedRefSchema).min(3).max(8),
+  }).strict().optional(),
+  performanceBudget: z.object({
+    pureCaseP95Ms: z.literal(10),
+    serviceAdapterCaseP95Ms: z.literal(250),
+    fullSuiteMs: z.literal(10000),
+    incrementalHeapMiB: z.literal(128),
+    reportMiB: z.literal(4),
+  }).strict(),
+}).strict();
+</code></pre>
+  <table>
+    <caption>
+      evaluation statusとCI verdictの対応
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Evaluation</th>
+        <th scope="col">Policy mode</th>
+        <th scope="col">CI verdict</th>
+        <th scope="col">Exit</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>conformant</td>
+        <td>advisory / blocking</td>
+        <td><code>passed</code></td>
+        <td>0</td>
+      </tr>
+      <tr>
+        <td>nonconformant、hard violationあり</td>
+        <td>advisory / blocking</td>
+        <td><code>failed</code></td>
+        <td>2</td>
+      </tr>
+      <tr>
+        <td>nonconformant、quality violationだけ</td>
+        <td>advisory</td>
+        <td><code>passed_with_advisories</code></td>
+        <td>0</td>
+      </tr>
+      <tr>
+        <td>nonconformant、quality violationだけ</td>
+        <td>blocking</td>
+        <td><code>failed</code></td>
+        <td>2</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    hard violation kindはshared readonly tupleを正本とし、policy
+    authorが追加・削除・severity変更できない。変更にはprofile MAJOR、policy MAJOR、security owner
+    approvalを同時に要求する。
+  </p>
+  <p>
+    advisory policyでは<code>promotionReceipt</code>を禁止し、blocking
+    policyでは必須にする。通常preflightはdate差14日以上、 consecutive runs 20以上、run
+    evidence件数との一致、commit / artifact / approval refsの重複0を検証する。artifact
+    内容とcommit連続性はpromotion PRの専用verifierがlocal CI artifactsから検証する。
+  </p>
+  <p>
+    <code>runEvidence</code>はoldest-to-newestの意味付き配列でありcanonical
+    sortしない。verifierは各commitが直前commitの descendantであること、evaluation completed
+    payloadの<code>sourceRevision</code>を
+    <code>kind="git"</code>に限定してcommitが一致すること、benchmark receiptの
+    <code>environment.commitSha</code
+    >も同じcommitを指すこと、両artifactがhash検証を通ることを要求する。
+    <code>sourceRevision.kind="unavailable"</code>はpromotion evidenceとして拒否する。main
+    runのないcommitが間に 存在してもよいが、failed / skipped evaluation runを連続成功数へ含めない。
+  </p>
+  <p>
+    advisoryからblockingへの変更はprofile bumpではなくenforcement policy versionの変更で行い、14日 /
+    20 runsの artifact IDs、profile hash、fixture hash、owner
+    approvalsを同じPRへ添付する。policyがpinするprofile / fixtureと
+    実行対象が一致しない場合はpreflight failureとする。
+  </p>
+
+  <h2 id="16-report-contract">16. Report Contract</h2>
+  <pre><code class="language-typescript">type CompetencyEvaluationReportV1 = Readonly&lt;{
+  schemaVersion: "static-intelligence-competency-evaluation-v1";
+  profile: {
+    id: "static-intelligence-competency-baseline";
+    version: string;
+    profileHash: string;
+    fixtureId: string;
+    fixtureHash: string;
+  };
+  evaluationStatus: "conformant" | "nonconformant";
+  questions: readonly QuestionEvaluationResult[];
+  plannedDependencies: readonly PlannedDependencyResult[];
+  metrics: CompetencyEvaluationMetrics;
+  violations: readonly EvaluationViolation[];
+  evaluationHash: string;
+  enforcement: {
+    policyId: "static-intelligence-competency-ci";
+    policyVersion: string;
+    policyHash: string;
+    mode: "advisory" | "blocking";
+    verdict: "passed" | "passed_with_advisories" | "failed";
+  };
+  reportHash: string;
+}&gt;;
+
+type CompetencyEvaluationCompletedV1 = Readonly&lt;{
+  ok: true;
+  status: "completed";
+  report: CompetencyEvaluationReportV1;
+  generatedAt: string;
+  durationMs: number;
+  runtime: "bun";
+  runtimeVersion: string;
+  sourceRevision: { kind: "git"; commitSha: string } | { kind: "unavailable" };
+}&gt;;
+
+type CompetencyEvaluationSummaryV1 = Readonly&lt;{
+  ok: true;
+  status: "completed";
+  summary: {
+    profileId: "static-intelligence-competency-baseline";
+    profileVersion: string;
+    profileHash: string;
+    fixtureHash: string;
+    policyVersion: string;
+    policyHash: string;
+    evaluationStatus: "conformant" | "nonconformant";
+    enforcementVerdict: "passed" | "passed_with_advisories" | "failed";
+    activeQuestionCount: number;
+    activeCaseCount: number;
+    plannedDependencyCount: number;
+    violationCounts: Readonly&lt;Record&lt;EvaluationViolationKind, number&gt;&gt;;
+    evaluationHash: string;
+    reportHash: string;
+  };
+  generatedAt: string;
+  durationMs: number;
+  runtime: "bun";
+  runtimeVersion: string;
+  sourceRevision: { kind: "git"; commitSha: string } | { kind: "unavailable" };
+}&gt;;
+
+type CompetencyEvaluationFailureV1 = Readonly&lt;{
+  ok: false;
+  status: "failed";
+  phase: "arguments" | "preflight" | "runtime";
+  reasonCode: CompetencyEvaluationFailureReasonCode;
+  message: string;
+}&gt;;
+</code></pre>
+  <ul>
+    <li>
+      <code>evaluationHash</code>はprofile / fixture identity、question
+      results、planned dependencies、metrics、 violationsから生成し、enforcement policyとrun
+      metadataを含めない。
+    </li>
+    <li>
+      <code>reportHash</code
+      >はreportからreportHash自身を除いたvalueのSHA-256とし、policy descriptor、verdict、
+      evaluationHashを含める。
+    </li>
+    <li>profile / fixture / policy hashもshared canonical JSON profileから生成する。</li>
+    <li>
+      generatedAt、duration、runtime / version、source revisionはcompleted
+      payloadに置き、両hashへ含めない。
+    </li>
+    <li>
+      invalid args、profile / fixture / policy不正、report limit超過、初期化失敗はfixed failure
+      payloadを返し、completed reportへ偽装しない。
+    </li>
+    <li>
+      summaryはcase detailsを持たないが、full reportをmemory内で完成・検証した後に同じevaluation /
+      report hashを転記する。 summary専用の弱い評価経路を作らない。
+    </li>
+    <li>case resultは最大1,024、case当たりfailure reason 32、atom detail 256へ制限する。</li>
+    <li>
+      report JSONは4
+      MiBを上限とし、超過時はtruncateせず<code>REPORT_LIMIT_EXCEEDED</code>でfailする。
+    </li>
+    <li>
+      messageは固定文、refは相対かopaque IDにし、raw snippet / secret / absolute pathを禁止する。
+    </li>
+  </ul>
+
+  <h3 id="161-failure-reason-codes">16.1 Failure Reason Codes</h3>
+  <ul>
+    <li><code>ARGUMENTS_INVALID</code></li>
+    <li><code>PROFILE_INVALID</code></li>
+    <li><code>PROFILE_HASH_MISMATCH</code></li>
+    <li><code>FIXTURE_INVALID</code></li>
+    <li><code>FIXTURE_HASH_MISMATCH</code></li>
+    <li><code>POLICY_INVALID</code></li>
+    <li><code>POLICY_PROFILE_MISMATCH</code></li>
+    <li><code>POLICY_FIXTURE_MISMATCH</code></li>
+    <li><code>PROMOTION_RECEIPT_INVALID</code></li>
+    <li><code>DATABASE_INITIALIZATION_FAILED</code></li>
+    <li><code>EVALUATION_TIMEOUT</code></li>
+    <li><code>REPORT_LIMIT_EXCEEDED</code></li>
+    <li><code>INTERNAL_ERROR</code></li>
+  </ul>
+  <p>
+    arguments以外のschema / hash / receipt failureはpreflight、DB / timeout / report size /
+    unexpected errorはruntime phaseとする。failure reasonをcase unavailable
+    reasonへ変換せず、messageはreason codeごとの固定文にする。
+  </p>
+
+  <h3 id="162-comparison-contract">16.2 Baseline / Candidate Comparison</h3>
+  <p>
+    PR regression summaryはmutableな「latest artifact」を参照せず、CIがbase commitとcandidate
+    commitを別checkoutで同じ commandにより評価した2つのfull completed
+    payloadから生成する。comparator自身はDB、service、networkを呼ばない。
+  </p>
+  <ul>
+    <li>
+      両completed payload / reportをstrict parseし、report hashと内包するevaluation / profile /
+      fixture / policy hashを再検証する。
+    </li>
+    <li>
+      profile / fixture hashが同じ場合、stable question / case
+      IDごとのoutcome、violation、metricを比較する。durationやruntime versionなどのrun
+      metadataは差分へ表示してもcorrectness regression判定には使わない。
+    </li>
+    <li>
+      profileまたはfixture hashが異なる場合、共通case IDだけの結果比較と、added / removed /
+      status-changed IDsを分けて返す。 ID再利用は常にfailureとし、removed active
+      caseまたは期待条件緩和はvalid MAJOR change receiptがなければfailureとする。
+    </li>
+    <li>
+      期待条件緩和はrequired / forbidden atomまたはrequired reasonの削除、allowed atom /
+      reasonの追加、consumer boundaryの弱化、complete-answer requirementの解除、activeからplanned /
+      retiredへの変更として機械分類する。
+    </li>
+    <li>
+      policyだけが異なる場合、evaluation hashは一致を要求し、enforcement
+      verdict差を別fieldへ記録する。
+    </li>
+    <li>
+      valid change receiptがあるbreaking
+      changeは<code>approved_breaking_change</code>として通常regressionと分離し、receipt
+      refsとderived bumpをcomparison outputへ残す。
+    </li>
+    <li>base / candidateのBun version、fixture identity、command failureをsummaryから隠さない。</li>
+    <li>comparison JSONもstrict / boundedとし、question 128、case 1,024、4 MiB上限を適用する。</li>
+  </ul>
+  <p>
+    comparatorは<code>--baseline-payload</code> /
+    <code>--candidate-payload</code>でCI workspace内の明示fileを読むが、real project
+    dataを含まないevaluation completed payloadだけを許可する。pathをrealpath化し、CI artifact
+    root外、symlink、device fileを拒否する。
+  </p>
+
+  <h2 id="17-profile-versioning">17. Evaluation Profile Versioning</h2>
+  <table>
+    <caption>
+      profile versionの変更規則
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Bump</th>
+        <th scope="col">Allowed change</th>
+        <th scope="col">Examples</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>PATCH</td>
+        <td>合否と意味を変えない説明、link、固定messageの訂正</td>
+        <td>questionTextの誤字、rationale補足</td>
+      </tr>
+      <tr>
+        <td>MINOR</td>
+        <td>non-blocking planned question / advisory metric / fixture variantの追加</td>
+        <td>将来能力をplanned registryへ追加</td>
+      </tr>
+      <tr>
+        <td>MAJOR</td>
+        <td>
+          active denominator、required atom、assertion mapping、quality policy、hard violation
+          semanticsの変更
+        </td>
+        <td>planned questionのactive化、case削除、期待条件の緩和・強化</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    ontology contract versionとevaluation profile versionは別物である。contract candidateはexact
+    evaluation profile version / hashをpinして実行し、registryのlatestを暗黙選択しない。
+  </p>
+  <p>
+    fixture manifestを独立に書き換えない。fixture hash変更は必ずprofile変更と同じPRで行い、active
+    source record、ref、 readiness state、expected answerへ影響する変更はprofile
+    MAJOR、意味を変えない説明metadataだけはPATCH、planned-only variant追加はMINORとする。
+  </p>
+  <p>
+    1.0.0以後のreleaseはchange receiptを必須とし、previous hash、derived minimum bump、affected
+    IDs、rationale、3件以上の owner approval refsを検証する。receiptはbreaking
+    changeを自動的に安全にするものではなく、比較結果で通常regressionと
+    分離し、review済みの意図的変更であることを証明する。
+  </p>
+
+  <h3 id="171-enforcement-policy-versioning">17.1 Enforcement Policy Versioning</h3>
+  <ul>
+    <li>
+      PATCH: mode、budget、promotion条件を変えない説明 / approval ref訂正、またはprofile
+      PATCHへのexact pin更新。
+    </li>
+    <li>
+      MINOR: advisory-onlyな観測field追加、またはprofile MINORへのexact
+      pin更新。既存active判定を変えない。
+    </li>
+    <li>
+      MAJOR: advisory / blocking変更、profile MAJORへのpin更新、performance budget変更、hard
+      violation set / severity変更。
+    </li>
+    <li>
+      profileとpolicyを同時変更する場合、candidate profile hashを先に生成し、そのexact
+      hashをpolicyへpinしてから両方を atomicにreviewする。
+    </li>
+  </ul>
+
+  <h2 id="18-cli-contract">18. CLI Contract</h2>
+  <pre><code class="language-shell">bun run intelligence:competency-evaluation -- \
+  --profile static-intelligence-competency-baseline@1.0.0 \
+  --output summary
+
+bun run intelligence:competency-evaluation -- \
+  --profile static-intelligence-competency-baseline@1.0.0 \
+  --output report
+</code></pre>
+  <ul>
+    <li>引数はstrict allowlistとし、unknown / duplicate / missing optionを拒否する。</li>
+    <li>
+      arbitrary fixture path、production DB URL、project ID、scan ID、network
+      endpointを受け付けない。
+    </li>
+    <li>stdoutは成功・評価failureともsingle-line JSONと改行1個だけにする。</li>
+    <li>diagnosticはstderrへ出すが、stack、SQL、absolute path、raw answerを含めない。</li>
+    <li>
+      exit 0はpassed / passed_with_advisories、exit 2は評価regressionまたはinvalid args、exit
+      1はpreflight / runtime failure。
+    </li>
+    <li>
+      評価regression時も<code>ok=true</code>、<code>status=completed</code>、
+      選択output内のenforcement
+      verdictが<code>failed</code>であるpayloadをstdoutへ返す。
+    </li>
+    <li>
+      invalid argsは<code>ok=false</code> /
+      <code>phase=arguments</code> / exit 2、profile / fixture / policy
+      invalidは<code>phase=preflight</code> / exit 1とし、completed
+      reportを返さない。
+    </li>
+    <li>
+      <code>--output summary</code
+      >はCI用summary、<code>--output report</code>はbounded case
+      detailsを返す。enforcementの<code>mode</code>とは別fieldである。
+    </li>
+    <li>
+      main CI
+      artifactは<code>--output report</code>のstdoutをそのままcaptureする。summaryだけを保存してfull
+      reportを 破棄しない。
+    </li>
+    <li>
+      <code>--update</code>、question filter、skip、threshold
+      overrideは初期CLIへ追加しない。
+    </li>
+  </ul>
+
+  <h2 id="19-file-and-module-plan">19. File and Module Plan</h2>
+  <table>
+    <caption>
+      予定ファイルと責務
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">File</th>
+        <th scope="col">Change</th>
+        <th scope="col">Responsibility</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>shared/schemas/competency-question-evaluation.schema.ts</code></td>
+        <td>New</td>
+        <td>
+          strict profile / policy / report / summary / comparison / benchmark / failure / question /
+          case / atom / reason schemaとreadonly types
+        </td>
+      </tr>
+      <tr>
+        <td><code>shared/schemas/competency-question-evaluation.schema.test.ts</code></td>
+        <td>New</td>
+        <td>unknown field、limit、duplicate、invalid unionのnegative schema tests</td>
+      </tr>
+      <tr>
+        <td><code>api/modules/static-intelligence/competency-evaluation/catalog.ts</code></td>
+        <td>New</td>
+        <td>profile 1.0.0 question / case registry、normalization、profile hash</td>
+      </tr>
+      <tr>
+        <td><code>api/modules/static-intelligence/competency-evaluation/enforcement-policy.ts</code></td>
+        <td>New</td>
+        <td>
+          exact profile / fixture hashをpinするCI policy、mode、promotion requirements、policy hash
+        </td>
+      </tr>
+      <tr>
+        <td><code>api/modules/static-intelligence/competency-evaluation/fixtures.ts</code></td>
+        <td>New</td>
+        <td>fixed identity synthetic fixtureとDB seed helper</td>
+      </tr>
+      <tr>
+        <td><code>api/modules/static-intelligence/competency-evaluation/reason-codes.ts</code></td>
+        <td>New</td>
+        <td>current degraded / readiness reasonからfixed codeへのclosed mapping</td>
+      </tr>
+      <tr>
+        <td><code>api/modules/static-intelligence/competency-evaluation/adapters.ts</code></td>
+        <td>New</td>
+        <td>closed adapter registryとnormalized answer mapping</td>
+      </tr>
+      <tr>
+        <td><code>api/modules/static-intelligence/competency-evaluation/evaluator.ts</code></td>
+        <td>New</td>
+        <td>pure comparison、outcome、metric、evaluation status</td>
+      </tr>
+      <tr>
+        <td><code>api/modules/static-intelligence/competency-evaluation/report.ts</code></td>
+        <td>New</td>
+        <td>policy enforcement、canonical ordering、evaluation / report hash、bounded payload</td>
+      </tr>
+      <tr>
+        <td><code>api/modules/static-intelligence/competency-evaluation/*.test.ts</code></td>
+        <td>New</td>
+        <td>catalog、fixture、adapter、evaluator、mutation、determinism tests</td>
+      </tr>
+      <tr>
+        <td><code>api/cli/intelligence-competency-evaluation.ts</code></td>
+        <td>New</td>
+        <td>strict CLI、JSON stdout、exit code contract</td>
+      </tr>
+      <tr>
+        <td><code>api/modules/static-intelligence/intelligence-competency-evaluation-cli.test.ts</code></td>
+        <td>New</td>
+        <td>spawn、stdout / stderr、exit、deterministic hash tests</td>
+      </tr>
+      <tr>
+        <td><code>scripts/benchmark/competency-question-evaluation.ts</code></td>
+        <td>New</td>
+        <td>warmupと固定run数を持つadvisory latency benchmark</td>
+      </tr>
+      <tr>
+        <td><code>scripts/compare-competency-question-evaluation.ts</code></td>
+        <td>New</td>
+        <td>base / candidate full reportのhash再検証、stable-ID diff、bounded comparison JSON</td>
+      </tr>
+      <tr>
+        <td><code>scripts/compare-competency-question-evaluation.test.ts</code></td>
+        <td>New</td>
+        <td>same / changed profile、removed active case、policy-only差、path boundaryのtests</td>
+      </tr>
+      <tr>
+        <td><code>scripts/verify-competency-question-promotion.ts</code></td>
+        <td>New</td>
+        <td>
+          blocking policy候補の20 run evidence、commit連続性、evaluation / benchmark
+          artifacts、approvals検証
+        </td>
+      </tr>
+      <tr>
+        <td><code>scripts/verify-competency-question-promotion.test.ts</code></td>
+        <td>New</td>
+        <td>
+          不足run、重複commit、hash mismatch、flake、CI class混在、approval不足のnegative tests
+        </td>
+      </tr>
+      <tr>
+        <td><code>package.json</code></td>
+        <td>Modify</td>
+        <td>
+          <code>intelligence:competency-evaluation</code>、
+          <code>test:competency-question-evaluation</code>、
+          <code>benchmark:competency-question-evaluation</code>、
+          <code>compare:competency-question-evaluation</code>、
+          <code>verify:competency-question-promotion</code>
+        </td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    初期sliceでは<code>static-intelligence-agent-query.schema.ts</code>、route、MCP schema、DB
+    migrationを変更しない。 explicit assertion fieldやproduct-facing evaluation
+    endpointは、それぞれのowner planが必要性を承認した別変更とする。
+  </p>
+  <p>
+    test inventoryは<code>scripts/test-files.ts</code>の自動探索を使うためmanual
+    registryを追加しない。shared配下の schema testはVitest、api配下はBun
+    testへ自動分類され、<code>test:inventory -- --assert-complete</code>でexactly onceを検証する。
+  </p>
+
+  <h2 id="20-implementation-slices">20. Implementation Slices</h2>
+  <h3 id="slice-0-baseline-and-cli-stability">Slice 0 — Baseline and CLI Stability</h3>
+  <ol>
+    <li>§3.1の72 testsを再実行し、test name、exit code、stdout / stderr byte lengthを保存する。</li>
+    <li>
+      12 CLI failureが共通spawn harness、Bun entrypoint、process
+      lifecycleのどこで生じるか最小再現を作る。
+    </li>
+    <li>
+      共通原因ならshared harness / lifecycleだけを修正する。別原因ならagent-query
+      CLIを本計画のdirect dependencyとして 修正し、community business logicへ便乗変更しない。
+    </li>
+    <li>既存CLIのsingle JSON stdout、exit 0 / 1 / 2 contractを全対象でgreenにする。</li>
+    <li>
+      fixed identity fixtureの最小seedを作り、production serviceが期待refsを返すことを手動確認する。
+    </li>
+  </ol>
+  <p><strong>Exit gate:</strong> 72 / 72 pass、baseline allowlist 0、fixture ID再現性確認。</p>
+
+  <h3 id="slice-1-profile-and-schema">Slice 1 — Profile and Schema</h3>
+  <ol>
+    <li>
+      profile / enforcement / report / failureのshared strict schema、bounded types、closed
+      enumsを追加する。
+    </li>
+    <li>6 questions、active 4 / planned 2、最低19 active casesをcatalogへ登録する。</li>
+    <li>profile / fixture integrity validator、normalizer、canonical hashesを実装する。</li>
+    <li>
+      profile 1.0.0とbaseline fixtureのexact hashをpinするadvisory enforcement policy
+      1.0.0を追加する。
+    </li>
+    <li>
+      unknown field、duplicate ID、orphan question、invalid availability shape、retirement
+      cycle、active case 0、planned dependency 0、missing / stale change receipt、policy / profile
+      hash mismatch、policy / fixture hash mismatchのmutation testを追加する。
+    </li>
+  </ol>
+  <p>
+    <strong>Exit gate:</strong> profile 1.0.0がstrict parseを通り、各mutationが対応するfixed
+    reasonでpreflight failし、同じinputから同じprofile / fixture / policy hashが得られる。
+  </p>
+
+  <h3 id="slice-2-adapters-and-evaluator">Slice 2 — Adapters and Evaluator</h3>
+  <ol>
+    <li>
+      evidence bundle、risk context、assertion boundary、readinessの4 closed adapterを実装する。
+    </li>
+    <li>free-form degraded reasonとassertion sourceのclosed mappingを実装する。</li>
+    <li>
+      atom ref integrity、required / allowed / forbidden comparison、unavailable outcomeを実装する。
+    </li>
+    <li>
+      semantic candidate昇格、provenance欠落、unknown item、unknown reasonのnegative
+      casesを追加する。
+    </li>
+    <li>metric、violation severity、evaluation status precedenceをpure functionとして実装する。</li>
+  </ol>
+  <p>
+    <strong>Exit gate:</strong> active 19+ casesが期待outcomeを返し、全hard invariant mutationが必ず
+    hard violation付き<code>nonconformant</code>となる。planned
+    questionsはadapterを実行しない。
+  </p>
+
+  <h3 id="slice-3-report-and-cli">Slice 3 — Report and CLI</h3>
+  <ol>
+    <li>
+      evaluation statusへenforcement policyを適用し、canonical completed / failure
+      payloadを実装する。
+    </li>
+    <li>evaluation / report hashとnon-canonical run metadataを実装する。</li>
+    <li>summary / report outputとexit contractを持つCLIを追加する。</li>
+    <li>
+      異なるTZ、LANG、profile / fixture insertion orderでevaluation hashとreport hashが一致するspawn
+      testを追加する。
+    </li>
+    <li>
+      raw snippet、secret canary、absolute path、stackがstdout / stderrへ出ないことを検証する。
+    </li>
+    <li>
+      base / candidate report comparatorとsame-profile / changed-profile contract testsを追加する。
+    </li>
+    <li>package scriptsとCI artifact uploadを追加する。</li>
+  </ol>
+  <p>
+    <strong>Exit gate:</strong> success / regression / invalid args / runtime
+    failureのstdout、stderr、exit codeがcontract
+    testを通り、両hashが3環境条件で一致し、comparatorがremoved active caseとhash
+    mismatchを拒否する。
+  </p>
+
+  <h3 id="slice-4-advisory-and-blocking-rollout">Slice 4 — Advisory and Blocking Rollout</h3>
+  <ol>
+    <li>main CIで全case reportをadvisory artifactとして毎回生成する。</li>
+    <li>
+      unsafe confirmation、candidate leakage、orphan、sensitive data leakage、preflight
+      failureだけを初日から blockingにする。
+    </li>
+    <li>最低14日かつ20 consecutive main runsでhash / outcome / runtimeの安定性を観測する。</li>
+    <li>
+      benchmark receiptをmain CIでadvisory収集し、blocking promotion後は
+      <code>benchmark:competency-question-evaluation</code>をseparate required checkにする。
+    </li>
+    <li>
+      flake 0、P95 budget達成、active case owner承認後にcase conformanceをblockingへ昇格する。
+    </li>
+    <li>
+      blocking化はartifact IDsとapprovalを添付したenforcement policy version
+      updateとして実装し、profileを変更しない。
+    </li>
+    <li>
+      policy update前に<code>verify:competency-question-promotion</code>で20 run
+      evidenceを解決し、各commitのevaluation / benchmark hash、同一CI class、flake
+      0、日付範囲、approval refsを検証する。
+    </li>
+    <li>
+      ontology / query contract変更PRへbefore / after question summaryをrequired
+      checkとして追加する。
+    </li>
+  </ol>
+  <p>
+    <strong>Exit gate:</strong> §21のpromotion gateを全て満たし、rollback ownerと手順がrelease
+    checklistへ 登録される。
+  </p>
+
+  <h3 id="slice-5-dependent-question-activation">Slice 5 — Dependent Question Activation</h3>
+  <p>
+    初期implementation completionには含めず、各dependencyのentry gateを満たした時だけ別PRで行う。
+  </p>
+  <ul>
+    <li>CQ-002 module facet: validated ontology handoffのmodule ref / basis profileが公開済み。</li>
+    <li>CQ-003 full taxonomy: Claim Provenanceのclaim kindとderivation refが公開済み。</li>
+    <li>CQ-005: scan instance diffのowner、wire schema、identity policyが承認済み。</li>
+    <li>CQ-006: Security Vocabulary Alignmentのterm / mapping / strength profileが公開済み。</li>
+  </ul>
+
+  <h2 id="21-ci-and-release-gates">21. CI and Release Gates</h2>
+  <h3 id="211-required-commands">21.1 Required Commands</h3>
+  <pre><code class="language-shell">bun run typecheck
+bun run lint
+bun run docs:check
+bun run test:inventory -- --assert-complete
+bun run test:competency-question-evaluation
+bun test \
+  api/modules/static-intelligence/agent-query.test.ts \
+  api/modules/static-intelligence/community-landscape.test.ts \
+  api/modules/static-intelligence/semantic-community-integration.test.ts \
+  api/modules/static-intelligence/read-model-resolver.test.ts \
+  api/modules/static-intelligence/intelligence-agent-query-cli.test.ts \
+  api/modules/static-intelligence/mcp-tools.test.ts \
+  api/routes/static-intelligence.route.test.ts
+bun run intelligence:competency-evaluation -- \
+  --profile static-intelligence-competency-baseline@1.0.0 \
+  --output summary
+bun run test
+</code></pre>
+  <p>
+    <code>test:competency-question-evaluation</code>はshared schema testを
+    <code>bunx vitest run</code>、api / CLI
+    testsを<code>bun test</code>で実行する。shared testをBun
+    testへ直接渡さない。最後の<code>bun run test</code>は自動inventoryを含むfull
+    regression gateである。
+  </p>
+  <p>
+    PR CIではbase / candidate jobsがそれぞれ<code>--output report</code>をartifact
+    rootへcaptureした後、
+    <code>compare:competency-question-evaluation</code>へrootと2つの明示completed payload pathを渡す。local
+    required commandsでmutableなremote baselineをdownloadしない。
+  </p>
+
+  <h3 id="212-promotion-gate">21.2 Promotion Gate</h3>
+  <ul>
+    <li>全existing baseline testsと全new testsがpassし、skip / only / allowlistが0。</li>
+    <li>active case conformance 100%、provenance coverage 100%。</li>
+    <li>
+      false confirmation、candidate leakage、orphan、sensitive data leakage、unexpected
+      unavailableが0。
+    </li>
+    <li>同じprofile / fixture / policyの両hashがTZ / locale / insertion order差で一致する。</li>
+    <li>20 consecutive main runsかつ14日間でflake 0。</li>
+    <li>benchmark条件、Bun version、fixture hashを固定して§23 budget内。</li>
+    <li>benchmark receipt 20件が同じCI classでschema / hash verificationを通る。</li>
+    <li><code>verify:competency-question-promotion</code>がcandidate blocking policyへexit 0を返す。</li>
+    <li>reportにraw snippet、secret canary、absolute path、stackがない。</li>
+    <li>
+      base / candidate comparisonがhash検証を通り、未承認のactive case removal / expectation
+      weakeningと通常regressionが0。
+    </li>
+    <li>active / planned境界と各question ownerがreview済み。</li>
+  </ul>
+
+  <h3 id="213-no-go-conditions">21.3 NO-GO Conditions</h3>
+  <ul>
+    <li>CLI empty stdout baselineを未解決のまま新CLI testだけをallowlistする。</li>
+    <li>semantic candidateがrequired observed / deterministic factを満たす。</li>
+    <li>expected valueをcurrent responseから自動再生成する。</li>
+    <li>planned questionをpassまたはunavailable_expectedとしてactive denominatorへ混ぜる。</li>
+    <li>unknown reason / item / fieldをskipして評価を継続する。</li>
+    <li>fixtureまたはreportがproduction data、secret、raw snippetを含む。</li>
+    <li>aggregate rateが100%未満でもwarningだけでblocking rolloutを承認する。</li>
+  </ul>
+
+  <h2 id="22-test-plan">22. Test Plan</h2>
+  <table>
+    <caption>
+      test layerと必須証拠
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Layer</th>
+        <th scope="col">Required cases</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Schema</td>
+        <td>strictness、bounds、unknown enum、duplicate ID、invalid discriminant、report size</td>
+      </tr>
+      <tr>
+        <td>Catalog integrity</td>
+        <td>
+          active case存在、planned dependency存在、orphan case、retired replacement、hash stability
+        </td>
+      </tr>
+      <tr>
+        <td>Fixture</td>
+        <td>
+          manifest hash、fixed IDs、same seed output、manifest / DB ref parity、redaction
+          canary、readiness variants
+        </td>
+      </tr>
+      <tr>
+        <td>Adapter</td>
+        <td>
+          各current item kind、consumer boundary、reason mapping、unknown fail closed、source
+          response非mutation
+        </td>
+      </tr>
+      <tr>
+        <td>Evaluator</td>
+        <td>
+          required / allowed / forbidden、complete set、expected unavailable、evaluation /
+          enforcement precedence
+        </td>
+      </tr>
+      <tr>
+        <td>Safety mutation</td>
+        <td>
+          candidate昇格、candidateOnly欠落、provenance削除、orphan追加、assertion
+          kind改変、canary混入
+        </td>
+      </tr>
+      <tr>
+        <td>Production integration</td>
+        <td>agent service / semantic / readinessのactual outputから19+ casesを評価</td>
+      </tr>
+      <tr>
+        <td>Route / MCP regression</td>
+        <td>既存wire behaviorとcandidate-only contractが変わらない</td>
+      </tr>
+      <tr>
+        <td>CLI</td>
+        <td>
+          stdout、stderr、exit、invalid args、regression report、runtime failure、signal cleanup
+        </td>
+      </tr>
+      <tr>
+        <td>Comparison</td>
+        <td>
+          base / candidate hash、same / changed profile、policy-only change、active removal、path /
+          symlink boundary
+        </td>
+      </tr>
+      <tr>
+        <td>Determinism</td>
+        <td>TZ、LANG、insertion order、repeated run、parallel runで同一evaluation / report hash</td>
+      </tr>
+      <tr>
+        <td>Performance</td>
+        <td>warmup、30 runs、P50 / P95、max memory、report bytes</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2 id="23-performance-and-capacity">23. Performance and Capacity</h2>
+  <p>
+    performanceはcorrectnessから分離し、固定fixture、同一Bun major / minor、同一CI classで測る。DB
+    setupと migration時間、process startup、adapter execution、pure evaluationを別metricにする。
+  </p>
+  <ul>
+    <li>active cases: 初期19件以上、hard cap 1,024件</li>
+    <li>1 caseのnormalized atoms: 最大256件</li>
+    <li>pure normalize + compare: P95 10 ms / case以下</li>
+    <li>production service adapter: P95 250 ms / case以下（fixture setup除外）</li>
+    <li>初期full suite: process startup / DB setup込み10秒以下</li>
+    <li>incremental heap: 128 MiB以下</li>
+    <li>canonical report: 4 MiB以下</li>
+  </ul>
+  <p>
+    上記はenforcement policy 1.0.0がpinする初期budgetである。最初の20
+    runsで安定した実測値を記録し、環境差で継続的に破る場合は gateを無効化せず、fixture量はprofile
+    change、budgetはbenchmark証拠付きpolicy changeとしてowner reviewする。
+  </p>
+
+  <h3 id="231-benchmark-receipt">23.1 Benchmark Receipt</h3>
+  <pre><code class="language-typescript">type CompetencyEvaluationBenchmarkReceiptV1 = Readonly&lt;{
+  schemaVersion: "static-intelligence-competency-benchmark-v1";
+  profileHash: string;
+  fixtureHash: string;
+  policyHash: string;
+  environment: {
+    commitSha: string;
+    bunVersion: string;
+    ciClass: string;
+  };
+  measurement: {
+    warmupRuns: 5;
+    measuredRuns: 30;
+    pureCaseP50Ms: number;
+    pureCaseP95Ms: number;
+    serviceAdapterCaseP50Ms: number;
+    serviceAdapterCaseP95Ms: number;
+    fullSuiteP50Ms: number;
+    fullSuiteP95Ms: number;
+    incrementalHeapMiB: number;
+    reportBytes: number;
+  };
+  verdict: "passed" | "failed";
+  receiptHash: string;
+}&gt;;
+</code></pre>
+  <ul>
+    <li>
+      invalid commit SHA、負値、NaN、Infinity、warmup / run数差、profile / fixture / policy hash
+      mismatchを拒否する。
+    </li>
+    <li>
+      P95は30 measured valuesをascending sortし、nearest-rankのindex 29（1-based rank 29）で求める。
+    </li>
+    <li>receipt hashはreceiptHash自身を除くcanonical valueから生成する。</li>
+    <li>generatedAtとjob IDは外側metadataへ置き、receipt hashへ含めない。</li>
+    <li>
+      exit 0はbudget pass、exit 2はbudget violation、exit 1はinvalid input / runtime failureとする。
+    </li>
+    <li>
+      blocking promotion証拠には同じCI classのmain run receiptだけを数え、developer
+      laptopの値を混ぜない。
+    </li>
+  </ul>
+
+  <h2 id="24-security-privacy-and-observability">24. Security, Privacy, and Observability</h2>
+  <h3 id="241-security-and-privacy">24.1 Security and Privacy</h3>
+  <ul>
+    <li>初期evaluatorはsource-controlled synthetic fixture以外を読まない。</li>
+    <li>evaluation CLIはarbitrary path、URL、DB credential、provider keyを受けない。</li>
+    <li>
+      comparator / promotion verifierのfile inputは明示artifact root配下のregular
+      fileだけに限定し、realpath、symlink、size、 strict schema、hashをread前後で検証する。
+    </li>
+    <li>
+      raw snippet / content / secret / absolute pathをanswer atomとreport schemaで表現できなくする。
+    </li>
+    <li>
+      secret-like canaryをpositive fixtureへ入れ、stdout / stderr /
+      artifactに存在しないことをassertする。
+    </li>
+    <li>
+      failure messageはfixed codeとbounded refsだけにし、raw exceptionはprocess内部で破棄する。
+    </li>
+    <li>
+      CI artifact retentionと閲覧権限は既存test report policyに従い、production dataは載せない。
+    </li>
+  </ul>
+
+  <h3 id="242-observability">24.2 Observability</h3>
+  <ul>
+    <li>
+      CI summary: evaluation status、enforcement verdict / mode、profile / fixture / policy
+      versionとhash、active / planned count
+    </li>
+    <li>question summary: pass / fail / expected unavailable、fixed reason counts</li>
+    <li>safety summary: false confirmation、candidate leakage、orphan、sensitive data leakage</li>
+    <li>
+      performance envelope: duration、P50 / P95、report bytes。evaluation / report hash対象外。
+    </li>
+    <li>PR diff: before / after outcome、metric delta、追加 / active化 / retired question IDs</li>
+  </ul>
+  <p>
+    production runtime telemetry、user query logging、answer payload
+    loggingは初期scope外とする。CI-only evaluatorにprod metricを追加して監視範囲を暗黙拡大しない。
+  </p>
+
+  <h2 id="25-failure-and-rollback">25. Failure Handling and Rollback</h2>
+  <table>
+    <caption>
+      failure時の挙動
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Failure</th>
+        <th scope="col">Fail behavior</th>
+        <th scope="col">Rollback / recovery</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Profile / fixture / policy invalid</td>
+        <td>caseを実行せずhard fail</td>
+        <td>最後にreview済みのexact profile / fixture / policy hashへ戻す</td>
+      </tr>
+      <tr>
+        <td>Adapter unknown mapping</td>
+        <td>該当caseをadapter_failed、suiteをfailed</td>
+        <td>production changeをrevertするか、review済みadapter / profile majorを同時追加</td>
+      </tr>
+      <tr>
+        <td>Safety invariant violation</td>
+        <td>初日からmerge block</td>
+        <td>candidate昇格をrevert。gateをadvisoryへ下げない。</td>
+      </tr>
+      <tr>
+        <td>General answerability regression</td>
+        <td>advisory期間はartifact、blocking後はmerge block</td>
+        <td>query / ontology changeをrevertし、期待値変更で追認しない。</td>
+      </tr>
+      <tr>
+        <td>CLI / CI infrastructure flake</td>
+        <td>required check失敗</td>
+        <td>
+          最後のevaluator / CI変更をrevertする。原因が外部障害ならmergeを止め、hard safety
+          checkをadvisoryへ下げない。
+        </td>
+      </tr>
+      <tr>
+        <td>Performance budget regression</td>
+        <td>advisory期間は警告、promotion後はfail</td>
+        <td>
+          adapter / fixtureを最適化する。budget変更が必要ならbenchmark証拠付きpolicy
+          versionとしてreviewし、測定値だけを 削除しない。
+        </td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    初期実装はDB migration、product route、persisted generationを変更しないため、rollbackはpackage
+    script / CI checkと evaluator moduleのrevertで完了する。過去のCI
+    artifactは監査用に保持し、baseline reportを上書きしない。
+  </p>
+
+  <h2 id="26-open-decisions-with-proposed-defaults">26. Open Decisions with Proposed Defaults</h2>
+  <table>
+    <caption>
+      実装開始前に承認するproduct choices
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Decision</th>
+        <th scope="col">Proposed default</th>
+        <th scope="col">Reason</th>
+        <th scope="col">Approver</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Initial persona</td>
+        <td><code>coding_agent</code></td>
+        <td>現行agent query、route、MCPの実装・test証拠が最も揃う。</td>
+        <td>Static Intelligence owner</td>
+      </tr>
+      <tr>
+        <td>Expected answer identity</td>
+        <td>stable ref + predicate + assertion kind + provenance</td>
+        <td>display textとUUID単体の脆さを避け、意味と根拠を同時に固定できる。</td>
+        <td>Shared contract owner</td>
+      </tr>
+      <tr>
+        <td>Fixture source</td>
+        <td>synthetic only</td>
+        <td>secret / PII / source code漏えいを避け、identityとnegative stateを完全制御できる。</td>
+        <td>Security owner</td>
+      </tr>
+      <tr>
+        <td>Active baseline</td>
+        <td>CQ-001〜004、最低19 cases</td>
+        <td>現行serviceで実証可能。CQ-005 / 006を未実装のまま合否へ混ぜない。</td>
+        <td>Ontology contract owner</td>
+      </tr>
+      <tr>
+        <td>Gate promotion</td>
+        <td>14日かつ20 consecutive main runs、flake 0</td>
+        <td>単発成功ではCLI / environment determinismを証明できない。</td>
+        <td>CI owner</td>
+      </tr>
+      <tr>
+        <td>History storage</td>
+        <td>CI artifact only</td>
+        <td>初期規模で新DBとretention lifecycleを導入する必要がない。</td>
+        <td>CI owner</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    proposed defaultを変更する場合は、§4のfixed decision、§13のquestion
+    matrix、§15のmetric、§20のslice、§21の
+    gateを同じreviewで更新する。未決定のまま実装者へ委ねない。
+  </p>
+
+  <h2 id="27-definition-of-done">27. Definition of Done</h2>
+  <ul>
+    <li>profile 1.0.0、6 questions、最低19 active casesがsource control下にある。</li>
+    <li>
+      advisory enforcement policy 1.0.0がexact profile / fixture hash、hard violation
+      tuple、performance budgetをpinする。
+    </li>
+    <li>active 4 / planned 2の境界とdependency ownerがmachine-readableである。</li>
+    <li>
+      shared profile / policy / completed / failure schema、fixture、4
+      adapters、evaluator、canonical report、strict CLIが実装済み。
+    </li>
+    <li>
+      current agent query / semantic / readiness production servicesを通して全active
+      casesが再現する。
+    </li>
+    <li>case conformance / provenance coverage 100%、hard invariant全て0。</li>
+    <li>
+      candidate-only欠落、candidate昇格、orphan、provenance欠落、canary混入、unknown
+      mappingのmutation testsがfail closedを証明する。
+    </li>
+    <li>
+      test inventoryがnew testsをVitest / Bunへexactly onceで分類し、72 existing baseline
+      testsと全new testsがpassし、skip / allowlistが0。
+    </li>
+    <li>TZ / locale / insertion order差でevaluation / report hashが一致する。</li>
+    <li>security canaryがstdout / stderr / CI artifactへ出ない。</li>
+    <li>
+      14日かつ20 consecutive main runsのadvisory証拠、approval refs、blocking promotion
+      receiptがpolicyへ残る。
+    </li>
+    <li>
+      promotion verifierが20 run evidenceのcommit / evaluation / benchmark対応を再検証してexit
+      0を返す。
+    </li>
+    <li>ontology / query変更PRでbefore / after question resultを再現できる。</li>
+    <li>
+      base / candidate comparatorがfull reportsを再検証し、stable-ID diffをbounded JSONで返す。
+    </li>
+    <li>rollback手順が1回stagingで演習され、product DB / routeに残留変更がない。</li>
+  </ul>
+
+  <h2 id="28-go-no-go-checklist">28. GO / NO-GO Checklist</h2>
+  <h3 id="281-go">28.1 GO</h3>
+  <ul>
+    <li>§26の6 proposed defaultsを各ownerが承認した。</li>
+    <li>Slice 0で72 / 72 testsがpassした。</li>
+    <li>fixtureのexplicit IDs、redaction canary、semantic candidate stateがreview済み。</li>
+    <li>active casesが現行production serviceだけで回答可能である。</li>
+    <li>planned dependenciesにownerとactivation entry gateがある。</li>
+    <li>
+      profile / policy schema、hard violation tuple、preflight failure境界がowner review済み。
+    </li>
+    <li>CI artifact retentionとrequired check ownerが決まっている。</li>
+  </ul>
+
+  <h3 id="282-no-go">28.2 NO-GO</h3>
+  <ul>
+    <li>CLI baseline failureを「既知」として残したままevaluation CLIを追加する。</li>
+    <li>
+      answer expectationがquestion text、display label、LLM judge、current output
+      snapshotだけに依存する。
+    </li>
+    <li>candidate-onlyとconfirmed factを区別できない。</li>
+    <li>CQ-005をontology contract diffで代用する。</li>
+    <li>CQ-006をraw CWE / CVE文字列一致だけでactive化する。</li>
+    <li>production dataまたはsecretをfixture / reportへ持ち込む。</li>
+    <li>profile / expectation / enforcement policy変更のversionとowner reviewがない。</li>
+    <li>active case削除または期待条件緩和をvalid MAJOR change receiptなしでmergeする。</li>
+  </ul>
+
+  <h2 id="29-implementation-handoff">29. Implementation Handoff</h2>
+  <ol>
+    <li>PR 1: Slice 0のみ。CLI baseline root causeと72 / 72 green証拠を提出する。</li>
+    <li>
+      PR 2: Slice 1のみ。schema、catalog、fixture、advisory enforcement policy、hash、mutation
+      testsを提出する。
+    </li>
+    <li>PR 3: Slice 2のみ。4 adapters、evaluator、19+ case results、安全性mutationを提出する。</li>
+    <li>
+      PR 4: Slice 3のみ。report、CLI、package scripts、determinism / redaction testsを提出する。
+    </li>
+    <li>PR 5: Slice 4のみ。advisory CI、artifact、summary、promotion checklistを提出する。</li>
+    <li>
+      blocking promotion PR: 14日 / 20 runsの証拠、approval refs、promotion receipt、verifier exit 0
+      evidence、policy major updateだけを扱う。
+    </li>
+    <li>
+      dependent question activationはCQ IDごとに別PRとし、複数dependencyを一括active化しない。
+    </li>
+  </ol>
+  <p>
+    各PRは前sliceのexit gateを証拠としてlinkし、次sliceのproduction変更を先取りしない。特にPR
+    2でproduct route / MCP / DBを変更せず、PR 3で期待値をactual outputから自動生成せず、PR
+    4でgateを即blockingにしない。
+  </p>
+</article>
