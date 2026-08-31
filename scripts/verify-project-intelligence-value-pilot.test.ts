@@ -184,7 +184,7 @@ function completeRawReport(preRegistrationHash: string) {
 		protocolVersion: 1,
 		generatedAt: "2026-08-31T00:00:00.000Z",
 		decision: "GO",
-		decisionReasonCodes: [],
+		decisionReasonCodes: [] as string[],
 		preRegistrationHash,
 		preflightCanaryHash: HASH,
 		preflightEvidenceHash: HASH,
@@ -322,7 +322,7 @@ function sealedRegistration() {
 						: (["catalog", "baseline"] as const),
 			})),
 		},
-		retention: { rawEvidencePolicy: "LOCAL_OWNER_RETAINED" },
+		retention: { rawEvidencePolicy: "LOCAL_OWNER_RETAINED" as const },
 		approvals: { pilotOwner: "pilot-owner" },
 	};
 }

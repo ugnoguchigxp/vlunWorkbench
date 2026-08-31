@@ -2,49 +2,52 @@
   <h1 id="specification-index">Specification Index</h1>
   <p>このディレクトリの文書は、役割ごとのサブディレクトリに分け、次の優先順位で扱う。</p>
   <ul>
-    <li><code>docs/</code>: 実行中または完了条件が残る計画と実装設計</li>
+    <li><code>decisions/docs/</code>: 実行中または完了条件が残る計画と実装設計</li>
     <li>
-      <code>docs/.archived/</code>: 完了、置換、または後続計画へ移管済みの歴史的計画
+      <code>decisions/docs/.archived/</code>: 完了、置換、または後続計画へ移管済みの歴史的計画
     </li>
     <li><code>concepts/</code>: 長期的に参照するプロダクト境界と方向性</li>
     <li><code>decisions/</code>: 意思決定、運用契約、runbook、policy</li>
-    <li><code>templates/</code>: 証跡または意思決定の再利用可能な雛形</li>
+    <li>
+      <code>templates/</code>:
+      証跡・意思決定の再利用可能な雛形と、実装保留中の参照計画
+    </li>
   </ul>
   <h2 id="active-execution-plans">Active execution plans</h2>
   <ul>
     <li>
-      <a href="./docs/improvement-request-warning-rollup-implementation-plan.html"
+      <a href="./decisions/docs/project-intelligence-value-validation-paired-pilot-plan.html"
+        >Project Intelligence Value Validation Paired Pilot Plan</a
+      >
+    </li>
+    <li>
+      <a href="./decisions/docs/improvement-request-warning-rollup-implementation-plan.html"
         >Improvement Request Warning Rollup and Prompt Budget Implementation Plan</a
       >
     </li>
     <li>
-      <a href="./docs/phase-56-capability-product-completion-plan.html"
+      <a href="./decisions/docs/phase-56-capability-product-completion-plan.html"
         >Phase 56: Capability Claim and Product Completion Plan</a
       >
     </li>
     <li>
-      <a href="./docs/backend-scanner-todolist-hardening-test-plan.html"
+      <a href="./decisions/docs/backend-scanner-todolist-hardening-test-plan.html"
         >Backend Scanner Hardening and todolist Validation Plan</a
       >
     </li>
     <li>
-      <a href="./docs/scanner-hardening-archive-closeout-implementation-plan.html"
+      <a href="./decisions/docs/scanner-hardening-archive-closeout-implementation-plan.html"
         >Scanner Hardening Archive Closeout Implementation Plan</a
       >
     </li>
     <li>
-      <a href="./docs/.archived/scan-workspace-component-design.html"
+      <a href="./decisions/docs/.archived/scan-workspace-component-design.html"
         >Scan Workspace Component Design (archived)</a
       >
     </li>
     <li>
-      <a href="./docs/security-intelligence-initial-implementation-roadmap.html"
+      <a href="./decisions/docs/security-intelligence-initial-implementation-roadmap.html"
         >Security Intelligence Initial Implementation Roadmap</a
-      >
-    </li>
-    <li>
-      <a href="./docs/static-intelligence-coding-agent-consumer-companion-plan.html"
-        >Static Intelligence Coding Agent Consumer Companion Plan</a
       >
     </li>
   </ul>
@@ -66,13 +69,11 @@
     改修依頼生成時だけ同種警告を親、検出場所を子へ投影してprompt文字数上限内へ収める。
   </p>
   <p>このsubordinate planはPhase 56のclaim、UI、release scopeを変更しない。</p>
-  <h2 id="draft-implementation-plans">Draft implementation plans</h2>
-  <p>以下は実装可能な粒度まで具体化したdraftであり、GO判断前は実装着手を承認しない。</p>
+  <h2 id="parked-ontology-plans">Parked ontology plans</h2>
+  <p>以下は利用価値の検証待ちであり、実装可能な粒度であってもactive planとして扱わない。</p>
   <ul>
     <li>
-      <a href="./docs/semantic-handoff-validation-implementation-plan.html"
-        >Semantic Handoff Validation Implementation Plan</a
-      >
+      <a href="./templates/ontology-planning/index.html">Ontology Planning Catalog</a>
     </li>
   </ul>
   <h2 id="concepts">Concepts</h2>
@@ -154,7 +155,8 @@
       — Semantica比較から得た6候補の計画雛形
     </li>
     <li>
-      <a href="./docs/.archived/finding-deduplication-and-issue-grouping-implementation-plan.html"
+      <a
+        href="./decisions/docs/.archived/finding-deduplication-and-issue-grouping-implementation-plan.html"
         >Finding Deduplication and Issue-grouped Handoff Implementation Plan (archived)</a
       >
     </li>
@@ -184,7 +186,7 @@
   </p>
   <h2 id="archived-plans">Archived plans</h2>
   <p>
-    <code>spec/docs/.archived/</code>は完了、置換、またはactive
+    <code>spec/decisions/docs/.archived/</code>は完了、置換、またはactive
     backlogを後続計画へ移管した歴史的計画を
     保持する。archiveは「全ての構想を実装した」という意味ではない。未完了項目が後続計画へ
     明示的に移管された文書も含む。
@@ -192,58 +194,63 @@
   <p>通常の実装判断ではarchiveを参照せず、履歴監査またはevidence provenance確認時だけ読む。</p>
   <ul>
     <li>
-      <a href="./docs/.archived/finding-detail-drawer-simplification-implementation-plan.html"
+      <a
+        href="./decisions/docs/.archived/finding-detail-drawer-simplification-implementation-plan.html"
         >Finding詳細Drawer簡素化 実装計画書 (archived)</a
       >
     </li>
     <li>
-      <a href="./docs/.archived/settings-screen-redesign-implementation-plan.html"
+      <a href="./decisions/docs/.archived/settings-screen-redesign-implementation-plan.html"
         >設定画面再設計 実装計画書 (archived)</a
       >
     </li>
     <li>
-      <a href="./docs/.archived/runtime-scan-execution-reliability-implementation-plan.html"
+      <a
+        href="./decisions/docs/.archived/runtime-scan-execution-reliability-implementation-plan.html"
         >Runtime Scan Execution Reliability Implementation Plan (archived)</a
       >
     </li>
     <li>
-      <a href="./docs/.archived/scan-profile-execution-architecture-migration-plan.html"
+      <a href="./decisions/docs/.archived/scan-profile-execution-architecture-migration-plan.html"
         >Scan Profile Execution Architecture Migration Plan (archived)</a
       >
     </li>
     <li>
-      <a href="./docs/.archived/runtime-target-database-isolation-implementation-plan.html"
+      <a
+        href="./decisions/docs/.archived/runtime-target-database-isolation-implementation-plan.html"
         >Runtime Target Database Isolation Implementation Plan (archived)</a
       >
     </li>
     <li>
-      <a href="./docs/.archived/scan-profile-stability-promotion-implementation-plan.html"
+      <a href="./decisions/docs/.archived/scan-profile-stability-promotion-implementation-plan.html"
         >Scan Profile Stability Promotion Implementation Plan (archived)</a
       >
     </li>
     <li>
-      <a href="./docs/.archived/scan-profile-catalog-consolidation-implementation-plan.html"
+      <a
+        href="./decisions/docs/.archived/scan-profile-catalog-consolidation-implementation-plan.html"
         >Scan Profile Catalog Consolidation Implementation Plan (archived)</a
       >
     </li>
     <li>
-      <a href="./docs/.archived/scan-profile-capability-adoption-implementation-plan.html"
+      <a href="./decisions/docs/.archived/scan-profile-capability-adoption-implementation-plan.html"
         >Scan Profile Capability Adoption and Optional Scanner Implementation Plan (archived)</a
       >
     </li>
     <li>
-      <a href="./docs/.archived/security-capability-gap-completion-implementation-plan.html"
+      <a
+        href="./decisions/docs/.archived/security-capability-gap-completion-implementation-plan.html"
         >Security Capability Gap Completion Implementation Plan (archived)</a
       >
     </li>
     <li>
-      <a href="./docs/.archived/scan-execution-effectiveness-remediation-plan.html"
+      <a href="./decisions/docs/.archived/scan-execution-effectiveness-remediation-plan.html"
         >Scan Execution Effectiveness Remediation Plan (archived)</a
       >
     </li>
   </ul>
   <p>
     直近では、2026-08-21〜24に実装または後続計画へ移管済みとなったUI計画、scan profile計画、 runtime
-    isolation計画を<code>spec/docs/.archived/</code>へ移した。
+    isolation計画を<code>spec/decisions/docs/.archived/</code>へ移した。
   </p>
 </article>

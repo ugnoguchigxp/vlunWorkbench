@@ -1,35 +1,53 @@
-<article lang="ja" data-spec-role="active-plan">
+<article lang="ja" data-spec-role="template">
   <h1 id="security-vocabulary-alignment-implementation-plan">
     Security Vocabulary Alignment Implementation Plan
   </h1>
   <ul>
-    <li>Status: Draft implementation plan</li>
+    <li>Status: Parked reference plan; implementation not approved</li>
     <li>Implementation status: Not started</li>
     <li>Date: 2026-08-28</li>
-    <li>Last reviewed: 2026-08-29</li>
+    <li>Last reviewed: 2026-08-31</li>
     <li>
-      Review status: document-level review complete; remaining product choices are explicit in §27
-    </li>
-    <li>Priority: P1 candidate</li>
-    <li>
-      GO requirement: normalization owner、Static Intelligence owner、Claim Provenance
-      owner、consumer ownerがentry gateとrollout floorを承認すること
+      Review status: foundation / publication / candidate community / dedupe split complete;
+      production publication remains Claim Provenance-gated
     </li>
     <li>
-      Parent template:
-      <a href="../templates/ontology-planning/security-vocabulary-alignment-plan-template.html"
-        >Security Vocabulary Alignment Plan Skeleton</a
-      >
+      Priority: P1A offline foundation; P1B publication after Claim Provenance stable; P2 candidate
+      communities; P3 finding-dedupe-v2
+    </li>
+    <li>
+      Gate relationship: Stage 0 value evidence alone does not authorize this security-specific plan
+    </li>
+    <li>
+      Foundation GO requirement: normalization ownerとStatic Intelligence
+      ownerがnamespace、authority source、mapping review、golden corpusを承認すること
+    </li>
+    <li>
+      Publication GO requirement: Claim Provenance owner、producer owner、consumer ownerがprofile
+      v2、reader floor、lineage coverage、rollback floorを承認すること
+    </li>
+    <li>
+      Dedupe GO requirement: publication GOとは別に、finding ownerがprecision corpus、unexpected
+      merge 0、v1 rollback、algorithm selectionを承認すること
+    </li>
+    <li>
+      Planning catalog:
+      <a href="../../templates/ontology-planning/index.html">Ontology Planning Catalog</a>
     </li>
     <li>
       Parent direction:
-      <a href="../concepts/project-intelligence-ontology-evolution-roadmap.html"
+      <a href="../../concepts/project-intelligence-ontology-evolution-roadmap.html"
         >Project Intelligence and Ontology Evolution Roadmap</a
       >
     </li>
     <li>
-      Preceding plan:
+      Publication dependency:
       <a href="./claim-provenance-implementation-plan.html">Claim Provenance Implementation Plan</a>
+    </li>
+    <li>
+      Dependency rule: Slice 0–1のoffline foundationはClaim Provenanceを待たない。persisted
+      projection、public descriptor、community lineageはstable core ledgerとprofile v2
+      readerを待つ。finding-dedupe-v2はさらに別GOとし、 vocabulary publicationをblockしない。
     </li>
   </ul>
 
@@ -45,6 +63,15 @@
     Validation、Claim Provenance v1、ontology contract diff、competency question、rule
     inferenceの実装をやり直さない。Claim Provenance v1はpreceding
     planの成果物を前提とし、そのcontractを変更せず、接続だけを明示的なv2 profileとして扱う。
+  </p>
+  <p>
+    実装は四つのworkstreamへ分ける。<strong>Foundation</strong>はoffline
+    registry、normalizer、identity、 unresolved
+    preservationまで、<strong>Publication</strong>はClaim Provenance v2とreader-first projection /
+    descriptor / query、<strong>Candidate Community</strong>はrouting / grouping候補、
+    <strong>Finding Dedupe v2</strong>はfinding
+    identityを変え得る独立した高risk変更である。各workstreamは別DoD、
+    GO、rollbackを持ち、後二者を実装しなくてもcore vocabulary publicationを完了できる。
   </p>
 
   <h2 id="2-target-outcome">2. Target Outcome</h2>
@@ -178,6 +205,54 @@
   api/modules/static-intelligence/community-landscape.test.ts
 </code></pre>
 
+  <h3 id="32-dependency-and-workstream-boundary">3.2 Dependency and Workstream Boundary</h3>
+  <table>
+    <caption>
+      workstream別の依存、output、禁止事項
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Workstream</th>
+        <th scope="col">Entry dependency</th>
+        <th scope="col">Allowed output</th>
+        <th scope="col">Must not do</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>F0 Foundation</td>
+        <td>current raw finding fixtures、authority / mapping owner</td>
+        <td>schema、offline registry、pure normalizer、golden / negative corpus</td>
+        <td>export / DB / manifest / grouping behavior変更</td>
+      </tr>
+      <tr>
+        <td>P0 Publication</td>
+        <td>
+          Claim Provenance core DoD、artifactMode=required、profile v2 reader、consumer-first floor
+        </td>
+        <td>shadow projection、lineage、descriptor、bounded query</td>
+        <td>lineageなしprojection persistence、unknown profileの推測</td>
+      </tr>
+      <tr>
+        <td>C0 Candidate Community</td>
+        <td>P0 shadow stable、community owner、positive / negative precision corpus</td>
+        <td>candidate communityとquery-time lineage</td>
+        <td>finding merge、status / severity / task authority変更</td>
+      </tr>
+      <tr>
+        <td>D0 Finding Dedupe v2</td>
+        <td>P0とは独立したfinding owner GO、pairwise diff、v1 rollback drill</td>
+        <td>separate immutable v2 grouping runとshadow verdict</td>
+        <td>request override、implicit v1 fallback、CWE-only / similarity-only merge</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    Claim Provenanceが未安定でもF0は完了できる。P0以降はdependencyを満たすまで
+    <code>not_published</code>とし、Foundation artifactをrevision-backed consumer
+    outputとして表示しない。
+  </p>
+
   <h2 id="4-fixed-decisions">4. Fixed Decisions</h2>
   <ul>
     <li>
@@ -240,6 +315,18 @@
       security vocabulary writerをshadow以上にする前にClaim Provenance v1
       artifactMode=requiredをproduction floorとし、vocabulary
       projectionだけがledgerなしでpersistされる状態を作らない。
+    </li>
+    <li>
+      Foundation、core publication、candidate community、finding-dedupe-v2を別milestone / PR /
+      GOにする。 communityまたはdedupe未実装をcore publicationの未完了理由にしない。
+    </li>
+    <li>
+      candidate communityはfinding間の関連候補であり、finding identity、severity、status、task
+      adoptionを変更する authorityを持たない。
+    </li>
+    <li>
+      finding-dedupe-v2はvocabulary data modelの一部として自動有効化せず、保存形式、selection flag、
+      telemetry、rollbackをv1と分離する。
     </li>
     <li>full authority catalogやraw scanner payloadをmanifest、handoff、promptへinlineしない。</li>
   </ul>
@@ -2342,13 +2429,29 @@ bun run intelligence:vocabulary -- \
     budget内である。
   </p>
 
-  <h3 id="slice-4">Slice 4: Community and Dedupe Shadow Integration</h3>
+  <h3 id="slice-4a">Slice 4A: Candidate Community Shadow Integration</h3>
   <ul>
     <li>same_cwe / same_cve / same_dependency communitiesをprojectionから生成する。</li>
     <li>
       existing candidate merge、legacy community ID / title、deterministic orderingを維持する。
     </li>
     <li>new community lineageをClaim v2 query-time projectionへ追加し、base ledgerへ入れない。</li>
+    <li>
+      candidate communityからfinding identity、severity、status、dedupe verdict、task
+      adoptionを変更しない non-authority testを追加する。
+    </li>
+  </ul>
+  <p>
+    Exit: new community positive / negative precision fixture 100%、existing community ordering
+    regression 0、finding behavior diff 0である。Slice 4Bを実装しなくても完了できる。
+  </p>
+
+  <h3 id="slice-4b">Slice 4B: Finding Dedupe v2 Experiment（independent workstream）</h3>
+  <p>
+    Slice番号はfile plan上の分類であり、4BはSlice 2 / 3 / 4Aをentry dependencyにしない。Slice
+    1のregistry / normalizerが凍結され、finding ownerの独立GOを得た後に並行着手できる。
+  </p>
+  <ul>
     <li>
       grouping runへregistry input hash列を追加し、v2
       runnerがregistryをrun開始時に1回loadしてminimal identityとregistry-aware finding set
@@ -2358,8 +2461,8 @@ bun run intelligence:vocabulary -- \
     <li>unexpected merge、CWE-only merge、versionless purl mergeをnegative testで禁止する。</li>
   </ul>
   <p>
-    Exit: new community precision fixture 100%、unexpected dedupe merge 0、既存community ordering
-    regression 0である。
+    Exit: pairwise v1 / v2 diffがreview可能、unexpected merge 0、ambiguous caseはmerge 0、v1
+    selectionへのrollback drillがgreenである。v2 promotionはまだ行わない。
   </p>
 
   <h3 id="slice-5">Slice 5: Descriptor and Exact Query Publication</h3>
@@ -2374,17 +2477,31 @@ bun run intelligence:vocabulary -- \
     contract、auth、budget、lineageがgreenである。
   </p>
 
-  <h3 id="slice-6">Slice 6: Enforcement Qualification</h3>
+  <h3 id="slice-6a">Slice 6A: Core Vocabulary Enforcement Qualification</h3>
   <ul>
     <li>
       shadow observation windowでregistry conflict、hash mismatch、budget exceed、query
       errorを評価する。
     </li>
-    <li>p95 build overhead、export size delta、community / dedupe diffを承認する。</li>
+    <li>p95 build overhead、export size delta、projection / lineage diffを承認する。</li>
     <li>projectionModeをrequiredへ上げる独立changeを作る。</li>
-    <li>finding-dedupe-v2 promotionはvocabulary publicationと別flag / decisionで行う。</li>
   </ul>
-  <p>Exit: Definition of DoneとGO gateを満たし、rollback drill evidenceが揃う。</p>
+  <p>
+    Exit: Foundation / Core Publication DoDとPublication GOを満たし、rollback drill evidenceが揃う。
+    Slice 4A / 4Bのpromotionは完了条件に含めない。
+  </p>
+
+  <h3 id="slice-6b">Slice 6B: Community or Dedupe Promotion（optional）</h3>
+  <ul>
+    <li>candidate communityとfinding-dedupe-v2を別change、別flag、別owner sign-offで昇格する。</li>
+    <li>community promotionはcandidate-only authorityとfinding behavior diff 0を再検証する。</li>
+    <li>
+      dedupe promotionはproduction representative corpus、unexpected merge 0、ambiguous merge 0、v1
+      rollback drill、saved v2 run integrityを要求する。
+    </li>
+    <li>一方のfailureまたは未実装を他方とcore vocabulary publicationへ波及させない。</li>
+  </ul>
+  <p>Exit: 選択したworkstream固有のDoD / GOだけを満たし、他workstreamのstatusは不変である。</p>
 
   <h2 id="22-migration-sequence">22. Migration Sequence and Stop Matrix</h2>
   <ol>
@@ -2394,10 +2511,20 @@ bun run intelligence:vocabulary -- \
     <li>vulnWorkbench lossless reader + Claim v2 reader</li>
     <li>reader versionsをproduction deployしrollback floorを確定</li>
     <li>producer shadow persistence</li>
-    <li>community / dedupe shadow comparison</li>
     <li>descriptor / query publication</li>
-    <li>required promotion</li>
+    <li>core vocabulary required promotion</li>
+    <li>optional candidate community shadow / promotion</li>
+    <li>optional finding-dedupe-v2 experiment / promotion</li>
   </ol>
+  <pre><code class="language-text">Slice 0 -&gt; Slice 1 Foundation
+  ├─ Claim Provenance stable -&gt; Slice 2 -&gt; Slice 3 -&gt; Slice 5 -&gt; Slice 6A Core Publication
+  │                                  └─ Slice 4A -&gt; Slice 6B Candidate Community promotion
+  └─ finding owner GO ----------&gt; Slice 4B -&gt; Slice 6B Finding Dedupe v2 promotion
+</code></pre>
+  <p>
+    上のbranchが正本である。番号順の一括rolloutを意味せず、4BはPublication / Community
+    branchから独立してshadow experimentまで進められる。
+  </p>
   <table>
     <caption>
       Slice entry、verification、停止条件
@@ -2436,10 +2563,16 @@ bun run intelligence:vocabulary -- \
         <td>old readerへのrollbackが必要、lineage coverage &lt; 100%</td>
       </tr>
       <tr>
-        <td>4</td>
+        <td>4A</td>
         <td>shadow projection stable</td>
-        <td>community golden + v1/v2 diff</td>
-        <td>unexpected merge &gt; 0</td>
+        <td>community golden、candidate-only authority、finding behavior diff 0</td>
+        <td>unexpected community、finding / task behavior change</td>
+      </tr>
+      <tr>
+        <td>4B</td>
+        <td>finding owner GO、registry-aware grouping schema、v1 rollback floor</td>
+        <td>pairwise v1/v2 diff、unexpected / ambiguous merge 0</td>
+        <td>identity collision、implicit fallback、unreviewed merge &gt; 0</td>
       </tr>
       <tr>
         <td>5</td>
@@ -2448,17 +2581,92 @@ bun run intelligence:vocabulary -- \
         <td>invalid descriptor公開、payload budget超過</td>
       </tr>
       <tr>
-        <td>6</td>
+        <td>6A</td>
         <td>observation window完了</td>
-        <td>SLO、rollback drill、owner sign-off</td>
-        <td>hash mismatch、security incident、precision gate未達</td>
+        <td>core SLO、rollback drill、publication owner sign-off</td>
+        <td>hash mismatch、security incident、lineage / budget gate未達</td>
+      </tr>
+      <tr>
+        <td>6B</td>
+        <td>4Aまたは4B固有DoDと独立GO</td>
+        <td>選択workstreamのpromotion / rollback drill</td>
+        <td>他workstreamまたはcore publicationとのcoupled rollout</td>
       </tr>
     </tbody>
   </table>
   <p>
-    各Sliceは独立PRとする。Slice 3以降でvocabulary-enabled generationを1件でも書いた後、producer
-    rollback先はSlice 2のlossless reader floorより前へ戻せない。
+    各Sliceは独立PRとする。Slice 4Aと4B、Slice 6Aと6Bも同じPRへまとめない。Slice
+    3以降でvocabulary-enabled generationを1件でも書いた後、producer rollback先はSlice 2のlossless
+    reader floorより前へ戻せない。
   </p>
+
+  <h3 id="221-risk-register">22.1 Risk Register and Controls</h3>
+  <table>
+    <caption>
+      語彙正規化・公開・community・dedupeの主要risk
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Risk</th>
+        <th scope="col">Detection / threshold</th>
+        <th scope="col">Preventive control</th>
+        <th scope="col">Containment / rollback</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>classification、identity、alias、alignmentを同一relationへ潰す。</td>
+        <td>role / method / relation negative corpusの誤accept 1件以上</td>
+        <td>別schema、closed enum、exact / closeの非対称testを使う。</td>
+        <td>該当mapping entryをinactive化し、unresolvedへ戻してnew generationを作る。</td>
+      </tr>
+      <tr>
+        <td>authority / mapping snapshotのdriftまたはpoisoning</td>
+        <td>receipt、source URL、release、content hash不一致</td>
+        <td>offline pinned snapshot、two-owner review、no-overwrite registry releaseを使う。</td>
+        <td>publishをOFFにし、known-good registryでnew generationを再buildする。</td>
+      </tr>
+      <tr>
+        <td>secret-like identifierをliteralまたは安定hashとして残す。</td>
+        <td>secret corpusでraw value / value-derived hashを検出</td>
+        <td>source-scoped redaction fingerprintをnormalization / hash前に適用する。</td>
+        <td>query / descriptorをOFFにし、affected generationをread-only incident scopeにする。</td>
+      </tr>
+      <tr>
+        <td>Claim Provenance未整合のprojectionをrevision-backedとして公開する。</td>
+        <td>assignment / alignment lineage coverage &lt; 100%、profile / valueHash mismatch</td>
+        <td>Claim v2 publication resolverとcross-profile startup gateを必須にする。</td>
+        <td>publicationだけをOFFにしてFoundation / legacy exportを維持する。</td>
+      </tr>
+      <tr>
+        <td>candidate communityがfinding truthまたはtask authorityへ昇格する。</td>
+        <td>community有無でfinding status / severity / dedupe / task outputが変化</td>
+        <td>candidate-only type、consumer non-authority fixture、別C0 GOを使う。</td>
+        <td>community projectionをOFFにし、core vocabulary queryを維持する。</td>
+      </tr>
+      <tr>
+        <td>finding-dedupe-v2がfalse mergeまたはsilent fallbackを起こす。</td>
+        <td>unexpected / ambiguous merge &gt; 0、selection version不一致</td>
+        <td>
+          exact advisory + exact versioned purl、immutable v2 run、explicit algorithm
+          selectionを使う。
+        </td>
+        <td>v2 promotionだけをOFFにし、v1 snapshot selectionへ戻す。</td>
+      </tr>
+      <tr>
+        <td>deterministic truncation不足で入力順によりprojectionが変わる。</td>
+        <td>permutation testのhash差、omitted count / partial reason不一致</td>
+        <td>canonical sort後のbudget selection、全omitted count、partial reasonを必須にする。</td>
+        <td>required化せずshadowへ戻し、legacy public outputを維持する。</td>
+      </tr>
+      <tr>
+        <td>parser dependencyまたはruntime networkがavailability / supply chain riskになる。</td>
+        <td>lockfile drift、upstream corpus差、runtime network attempt</td>
+        <td>exact pin、license review、vendored fixture、network-deny testを使う。</td>
+        <td>parser pathをOFFにしてraw candidateをunresolvedとして保持する。</td>
+      </tr>
+    </tbody>
+  </table>
 
   <h2 id="23-test-plan">23. Test Plan</h2>
   <h3 id="231-contract-tests">23.1 Contract and Registry Tests</h3>
@@ -2564,11 +2772,17 @@ bun run intelligence:vocabulary -- \
   </ul>
 
   <h3 id="236-verification-commands">23.6 Verification Commands</h3>
+  <p>FoundationではClaim Provenance、community、dedupe testをentry requirementにしない。</p>
   <pre><code class="language-shell">bun test shared/schemas/security-vocabulary.schema.test.ts
-bun test shared/schemas/static-intelligence-claim-provenance.schema.test.ts
+bun test api/modules/security-vocabulary
+bun run typecheck
+bun run lint
+bun run docs:check
+</code></pre>
+  <p>Core Publicationでは次を追加する。</p>
+  <pre><code class="language-shell">bun test shared/schemas/static-intelligence-claim-provenance.schema.test.ts
 bun test api/modules/security-vocabulary
 bun test api/modules/scans/findings/finding-grouping-engine.test.ts
-bun test api/modules/static-intelligence/community-landscape.test.ts
 bun test api/modules/static-intelligence/build-service.test.ts
 bun test api/modules/static-intelligence/generation-repository.test.ts
 bun test api/modules/static-intelligence/knowledge-source-manifest.test.ts
@@ -2580,6 +2794,13 @@ bun run docs:check
 
 # NightWorkers repository
 bun run test -- run tests/vulnworkbench-ontology-handoff-vocabulary.test.ts
+</code></pre>
+  <p>Candidate Community / Finding Dedupe v2は選択したworkstreamだけを追加する。</p>
+  <pre><code class="language-shell"># Candidate Community
+bun test api/modules/static-intelligence/community-landscape.test.ts
+
+# Finding Dedupe v2
+bun test api/modules/scans/findings/finding-grouping-engine.test.ts
 </code></pre>
   <p>
     projectの実際のscript名が変わった場合はpackage.jsonを正本とする。full
@@ -2665,9 +2886,12 @@ bun run test -- run tests/vulnworkbench-ontology-handoff-vocabulary.test.ts
   <ol>
     <li>finding-dedupe-v2 promotionをoffへ戻し、v1 selectionへ戻す。</li>
     <li>
+      candidate community promotionをOFFにし、legacy community basis / orderingへ戻す。vocabulary
+      projectionとexact queryは維持する。
+    </li>
+    <li>
       publishEnabledをfalseへ戻し、public exportからvocabulary fieldを除き、descriptor / bundle /
-      vocabulary queryを非公開にしてcommunity / landscape / agent query / guardrailをlegacy
-      basisへ戻す。
+      vocabulary queryを非公開にする。
     </li>
     <li>projectionModeをshadowへ戻し、evidence採取を継続する。</li>
     <li>必要ならprojectionModeをoffへ戻し、legacy export generationを再開する。</li>
@@ -2684,6 +2908,7 @@ bun run test -- run tests/vulnworkbench-ontology-handoff-vocabulary.test.ts
   </p>
 
   <h2 id="26-definition-of-done">26. Definition of Done</h2>
+  <h3 id="261-foundation-dod">26.1 Foundation Definition of Done</h3>
   <ul>
     <li>7 namespace contract、authority registry、mapping registryがstrict schemaを通る。</li>
     <li>active 4 namespaceのgolden corpusが決定的reference / assignmentを生成する。</li>
@@ -2692,20 +2917,18 @@ bun run test -- run tests/vulnworkbench-ontology-handoff-vocabulary.test.ts
       unsupported valueはsource-scoped redaction fingerprintとsource bindingで観測できる。
     </li>
     <li>assignment roleとalignment relationが別contract / testで固定される。</li>
+    <li>production export / persistence / grouping behaviorがbyte-equivalentである。</li>
+    <li>
+      parser dependency、authority snapshot、mapping releaseのowner / receipt / hashが固定される。
+    </li>
+  </ul>
+  <p>Foundation DoDはClaim Provenance未実装でも完了できる。</p>
+
+  <h3 id="262-publication-dod">26.2 Core Publication Definition of Done</h3>
+  <ul>
     <li>legacy export / manifest / NightWorkers consumerが非劣化である。</li>
     <li>reader-first floorがwriterより先にproduction deployされ、receiptがある。</li>
     <li>projection / metadata / registry / Claim v2 hash invariantがgreenである。</li>
-    <li>
-      same_cwe / same_cve / same_dependency communityのpositive / negative fixtureがgreenである。
-    </li>
-    <li>CWE-only、close-match-only、different-component advisoryがauto-mergeされない。</li>
-    <li>
-      v2 grouping runがStatic Intelligence generation非依存でregistry
-      contextを固定し、registry変更時に旧runを再利用しない。
-    </li>
-    <li>
-      v2 grouping failure時もv1 snapshotが非劣化であり、promotion後に暗黙のv1 fallbackをしない。
-    </li>
     <li>
       public export / manifest / handoff / queryが同じpublication resolver resultを使い、shadow
       fieldを漏えいしない。
@@ -2717,6 +2940,31 @@ bun run test -- run tests/vulnworkbench-ontology-handoff-vocabulary.test.ts
       failureを新規regressionと混同せず、publication前には直接surfaceをgreenにする。
     </li>
     <li>全required verification commandの結果とcommitをrelease evidenceへ記録する。</li>
+  </ul>
+  <p>Core Publication DoDはCandidate CommunityとFinding Dedupe v2が未実装でも完了できる。</p>
+
+  <h3 id="263-community-dod">26.3 Candidate Community Definition of Done</h3>
+  <ul>
+    <li>
+      same_cwe / same_cve / same_dependency communityのpositive / negative fixtureがgreenである。
+    </li>
+    <li>CWE-only、close-match-only、different-component advisoryがfinding mergeを起こさない。</li>
+    <li>community有無でfinding identity、severity、status、dedupe、task adoptionが変わらない。</li>
+    <li>
+      query-time lineageがboundedで、community rollback後もcore projection / queryがgreenである。
+    </li>
+  </ul>
+
+  <h3 id="264-dedupe-dod">26.4 Finding Dedupe v2 Definition of Done</h3>
+  <ul>
+    <li>
+      v2 grouping runがStatic Intelligence generation非依存でregistry
+      contextを固定し、registry変更時に旧runを再利用しない。
+    </li>
+    <li>production representative corpusでunexpected / ambiguous mergeが0件である。</li>
+    <li>v2 failureを明示し、promotion後にv1へ暗黙fallbackしない。</li>
+    <li>v1 selectionへのrollback drillで保存済みv1 / v2 snapshotを変更しない。</li>
+    <li>dedupe promotionを戻してもcore vocabularyとcandidate communityのstatusが変わらない。</li>
   </ul>
 
   <h2 id="27-open-decisions">27. Open Decisions and Proposed Defaults</h2>
@@ -2766,22 +3014,46 @@ bun run test -- run tests/vulnworkbench-ontology-handoff-vocabulary.test.ts
   </table>
 
   <h2 id="28-go-no-go-gate">28. GO / NO-GO Gate</h2>
-  <h3 id="281-go">28.1 GO</h3>
+  <h3 id="281-foundation-go">28.1 Foundation GO</h3>
   <ul>
-    <li>
-      normalization、Static Intelligence、Claim Provenance、consumer ownerが責務境界を承認した。
-    </li>
+    <li>normalization、Static Intelligence ownerがF0責務境界とnon-wire scopeを承認した。</li>
     <li>authority release、registry owner、review processが確定した。</li>
     <li>purl dependency gateまたはunresolved preservation方針が承認された。</li>
+    <li>baseline corpus、negative corpus、redaction、determinismの判定方法が固定されている。</li>
+  </ul>
+
+  <h3 id="282-publication-go">28.2 Core Publication GO</h3>
+  <ul>
+    <li>Foundation DoDを満たし、production wire / grouping behaviorの差分が0である。</li>
     <li>consumer-first / reader-first release順とrollback floorがrelease planに入った。</li>
     <li>
       Claim Provenance v1 artifactMode=requiredがproductionでgreenであり、profile v2 reader
       floorを先行deployできる。
     </li>
-    <li>baseline corpus、precision gate、payload / performance budgetが測定可能である。</li>
+    <li>
+      assignment / alignment lineage coverage 100%、payload / performance budgetが測定可能である。
+    </li>
+    <li>
+      normalization、Static Intelligence、Claim Provenance、consumer ownerがpublicationを承認した。
+    </li>
   </ul>
 
-  <h3 id="282-no-go">28.2 NO-GO</h3>
+  <h3 id="283-community-go">28.3 Candidate Community GO</h3>
+  <ul>
+    <li>Core vocabulary shadow projectionが安定し、candidate community ownerが決まっている。</li>
+    <li>positive / negative precision corpusとcandidate-only authority testがgreenである。</li>
+    <li>finding / task behavior diff 0とcommunity-only rollbackを実証している。</li>
+  </ul>
+
+  <h3 id="284-dedupe-go">28.4 Finding Dedupe v2 GO</h3>
+  <ul>
+    <li>finding ownerがcore publication / communityとは別にpromotionを承認している。</li>
+    <li>exact advisory + exact versioned purlの根拠とregistry contextが全merged pairにある。</li>
+    <li>production representative corpusでunexpected / ambiguous merge 0を観測している。</li>
+    <li>explicit v1 / v2 selection、no implicit fallback、v1 rollback drillがgreenである。</li>
+  </ul>
+
+  <h3 id="285-no-go">28.5 NO-GO</h3>
   <ul>
     <li>exact / close / classification / aliasを単一relationへ潰す必要がある。</li>
     <li>runtime network lookupなしではbuildまたはqueryが完了しない。</li>
@@ -2799,13 +3071,24 @@ bun run test -- run tests/vulnworkbench-ontology-handoff-vocabulary.test.ts
     <li>v2 dedupe unavailable時にlegacy asset / advisory fallbackへ暗黙に戻す。</li>
     <li>secret-like raw valueから値由来hashを残す。</li>
     <li>mapping review owner、authority receipt、negative corpusのいずれかがない。</li>
+    <li>
+      Foundation、publication、community、dedupeを同じPR / rollout flag / completion claimへ束ねる。
+    </li>
+    <li>Claim Provenance未安定のままrevision-backed projectionをpersistまたはpublishする。</li>
   </ul>
 
   <h2 id="29-implementation-handoff">29. Implementation Handoff</h2>
   <p>
-    実装者はSlice
-    0から順に進め、各Sliceのentry、verification、stop条件をPR本文へ転記する。writer、publish、dedupe
+    実装者はFoundationのSlice 0 → 1を先に進め、その後は§22のbranchに従う。各Sliceのentry、
+    verification、stop条件をPR本文へ転記する。writer、publish、community、dedupe
     promotionを同じPRで有効化しない。Security Vocabulary
     Alignment以外のontology計画を混ぜず、各rollout changeは前段evidenceを明示的に参照する。
+  </p>
+  <p>
+    最初のPRはSlice 0、次はSlice 1だけとし、Claim Provenanceが未安定ならFoundation
+    DoDを記録して停止する。 Slice 4Aと4B、Slice 6Aと6Bは必ず別PRにする。Core Publication
+    completionはcommunity / dedupeを
+    <code>not_started</code
+    >または<code>not_promoted</code>のまま記録できる。
   </p>
 </article>

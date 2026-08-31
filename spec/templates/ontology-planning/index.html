@@ -1,22 +1,36 @@
-<article lang="ja">
-  <h1 id="ontology-planning-templates">Ontology Planning Templates</h1>
+<article lang="ja" data-spec-role="template">
+  <h1 id="ontology-planning-catalog">Ontology Planning Catalog</h1>
   <ul>
-    <li>Status: Planning skeletons</li>
-    <li>Date: 2026-08-28</li>
-    <li>Authority: 調査・詳細設計の入口。実装着手、schema変更、依存追加を承認しない。</li>
+    <li>Status: Six parked implementation plans and one candidate skeleton</li>
+    <li>Date: 2026-08-31</li>
+    <li>
+      Authority: 保留資料の置き場。paired value pilotがGOになるまで、実装着手、schema変更、
+      依存追加、<code>decisions/docs</code>への再昇格を承認しない。
+    </li>
     <li>
       Parent direction:
       <a href="../../concepts/project-intelligence-ontology-evolution-roadmap.html"
         >Project Intelligence and Ontology Evolution Roadmap</a
       >
     </li>
+    <li>
+      Active value gate:
+      <a href="../../decisions/docs/project-intelligence-value-validation-paired-pilot-plan.html"
+        >Project Intelligence Value Validation Paired Pilot Plan</a
+      >
+    </li>
+    <li>
+      Current gate state: runner and evaluator qualification are prepared, but the formal pilot is
+      <code>BLOCKED</code> until its sealed registration, isolated provider
+      canary, and READY preflight exist. This does not authorize any parked plan to resume.
+    </li>
   </ul>
 
   <h2 id="purpose">1. Purpose</h2>
   <p>
-    vulnWorkbenchのontology handoffとSemanticaの設計を比較して得た6つの候補を、
-    後から個別に深掘りできる計画雛形として分離する。各文書は単独で、目的、現状根拠、
-    scope、実装候補、検証条件、未決事項を確認できるようにする。
+    vulnWorkbenchのontology handoffに関する詳細化済みの6計画と、discovery中の候補雛形1件を
+    保管する。詳細計画は実装可能な粒度を持つが、利用価値が未検証のためactive
+    decisionから外している。 このカタログへの掲載は実装GOを意味しない。
   </p>
   <p>
     Semanticaは設計上の手がかりであり、採用済みdependencyではない。調査基準は
@@ -46,11 +60,11 @@
   <h2 id="plan-map">3. Plan Map</h2>
   <table>
     <caption>
-      候補、優先度、主な依存関係
+      保留状態、候補、主な依存関係
     </caption>
     <thead>
       <tr>
-        <th scope="col">Priority</th>
+        <th scope="col">State</th>
         <th scope="col">Plan</th>
         <th scope="col">主な成果候補</th>
         <th scope="col">依存</th>
@@ -58,23 +72,48 @@
     </thead>
     <tbody>
       <tr>
-        <td>P0</td>
+        <td>Active gate</td>
         <td>
-          <a href="./semantic-handoff-validation-plan-template.html">Semantic Handoff Validation</a>
+          <a
+            href="../../decisions/docs/project-intelligence-value-validation-paired-pilot-plan.html"
+            >Value Validation Paired Pilot</a
+          >
+        </td>
+        <td>既存Catalogによる探索・token削減と品質非劣化の実測</td>
+        <td>新しいontology機能なし</td>
+      </tr>
+      <tr>
+        <td>Parked</td>
+        <td>
+          <a href="./static-intelligence-coding-agent-consumer-companion-plan.html"
+            >Coding Agent Consumer Companion</a
+          >
+        </td>
+        <td>exact generation pinningとtask / runtimeへの限定投影</td>
+        <td>paired value pilot GO</td>
+      </tr>
+      <tr>
+        <td>Parked</td>
+        <td>
+          <a href="./semantic-handoff-validation-implementation-plan.html"
+            >Semantic Handoff Validation</a
+          >
         </td>
         <td>publish時のgraph-wide validation report</td>
         <td>現行handoff contract</td>
       </tr>
       <tr>
-        <td>P0</td>
-        <td><a href="./claim-provenance-plan-template.html">Claim Provenance</a></td>
+        <td>Parked</td>
+        <td>
+          <a href="./claim-provenance-implementation-plan.html">Claim Provenance</a>
+        </td>
         <td>node / edge / derived claimの追跡可能性</td>
         <td>identity、revision、source ref</td>
       </tr>
       <tr>
-        <td>P1</td>
+        <td>Parked</td>
         <td>
-          <a href="./security-vocabulary-alignment-plan-template.html"
+          <a href="./security-vocabulary-alignment-implementation-plan.html"
             >Security Vocabulary Alignment</a
           >
         </td>
@@ -82,9 +121,9 @@
         <td>provenance shape、normalization boundary</td>
       </tr>
       <tr>
-        <td>P1</td>
+        <td>Parked</td>
         <td>
-          <a href="./ontology-contract-versioning-plan-template.html"
+          <a href="./ontology-contract-versioning-implementation-plan.html"
             >Ontology Contract Versioning</a
           >
         </td>
@@ -92,15 +131,17 @@
         <td>validation対象とclaim boundary</td>
       </tr>
       <tr>
-        <td>P1横断</td>
+        <td>Parked</td>
         <td>
-          <a href="./competency-question-evaluation-plan-template.html">Competency Questions</a>
+          <a href="./competency-question-evaluation-implementation-plan.html"
+            >Competency Questions</a
+          >
         </td>
         <td>answerabilityとqualityのregression suite</td>
         <td>各計画のbaselineとして先行可能</td>
       </tr>
       <tr>
-        <td>P2</td>
+        <td>Skeleton</td>
         <td>
           <a href="./explainable-rule-inference-plan-template.html">Explainable Rule Inference</a>
         </td>
@@ -110,18 +151,33 @@
     </tbody>
   </table>
 
-  <h2 id="working-order">4. Suggested Working Order</h2>
+  <h2 id="reactivation-order">4. Reactivation Order</h2>
+  <p>以下はpaired value pilotがGOになった場合だけ使用する再検討順であり、現在の実装順ではない。</p>
   <ol>
-    <li>competency questionを少数固定し、現行baselineを測る。</li>
-    <li>semantic handoff validationとclaim provenanceをP0 discoveryとして並行検討する。</li>
-    <li>security vocabulary alignmentで外部識別子と同値性の強さを固定する。</li>
-    <li>contract version / diffでproducer-consumer migrationを固定する。</li>
-    <li>最後にNightWorkersで限定rule inferenceを試験する。</li>
+    <li>
+      <a href="../../decisions/docs/project-intelligence-value-validation-paired-pilot-plan.html"
+        >既存Catalogを使うpaired pilot</a
+      >を先に完了し、探索・完了・検証への効果を測る。
+    </li>
+    <li>GOの場合だけ、Consumer Companionの薄いvertical sliceを再評価する。</li>
+    <li>実際のhandoff不整合が観測された場合にSemantic Validationを再評価する。</li>
+    <li>
+      lineage利用が生じた後にClaim Provenance、具体的な識別子需要の後にVocabularyを再評価する。
+    </li>
+    <li>
+      複数versionとconsumer migrationが現実化した最後の段階でContract Versioningを再評価する。
+    </li>
+    <li>Explainable Rule Inferenceは反復利用の証拠が得られるまで雛形のまま維持する。</li>
   </ol>
 
   <h2 id="shared-decision-gate">5. Shared Decision Gate</h2>
-  <p>各計画をactive planへ昇格する前に、最低限次を記録する。</p>
+  <p>保留計画を<code>decisions/docs</code>へ戻す前に、最低限次を記録する。</p>
   <ul>
+    <li>
+      有効なpaired task 10組以上、Catalog実呼び出し、完了・検証の非劣化、誤project / revision / leak
+      0件を満たすvalue evidence
+    </li>
+    <li>探索回数またはtime-to-evidenceの測定可能な改善と、改善が計画機能へ結び付く説明</li>
     <li>owner、対象Stage、entry / exit gate、対象外、rollback条件</li>
     <li>現行fixtureでのbaselineと、改善を判定するmetric</li>
     <li>vulnWorkbench / target repository / Ontology Core / NightWorkersの責務分担</li>

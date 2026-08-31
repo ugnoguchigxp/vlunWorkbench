@@ -82,8 +82,8 @@ export function assertSealedPilotRegistration(value: unknown): void {
 		],
 		"pilot registration",
 	);
-	safePilotId(registration.pilotId);
-	if (/(?:^|[._-])draft(?:[._-]|$)/i.test(registration.pilotId)) {
+	const pilotId = safePilotId(registration.pilotId);
+	if (/(?:^|[._-])draft(?:[._-]|$)/i.test(pilotId)) {
 		throw new Error("A SEALED pilot registration cannot use a DRAFT pilot ID.");
 	}
 	assertRegistrationCommits(
@@ -819,6 +819,12 @@ function aggregateAttempts(
 		independentEvaluationComplete: evaluationsComplete,
 		measuredUsageComplete: telemetryComplete,
 	};
+	const catalogReplanMedian = median(
+		valid.map((attempt) => attempt.catalog.measurement.replanCount),
+	);
+	const baselineReplanMedian = median(
+		valid.map((attempt) => attempt.baseline.measurement.replanCount),
+	);
 	const valueGates = {
 		explorationReduction:
 			explorationReduction !== null && explorationReduction >= 0.2,
@@ -831,8 +837,9 @@ function aggregateAttempts(
 			catalogVerification >= baselineVerification &&
 			verificationRegressionCount === 0,
 		noReplanIncrease:
-			median(valid.map((attempt) => attempt.catalog.measurement.replanCount)) <=
-			median(valid.map((attempt) => attempt.baseline.measurement.replanCount)),
+			catalogReplanMedian !== null &&
+			baselineReplanMedian !== null &&
+			catalogReplanMedian <= baselineReplanMedian,
 	};
 	return {
 		decisionInput: {

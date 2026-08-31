@@ -3,7 +3,10 @@
     Project Intelligence Value Validation Paired Pilot Plan
   </h1>
   <ul>
-    <li>Status: Active pilot plan; formal execution BLOCKED by a non-bypassable host confinement prerequisite</li>
+    <li>
+      Status: Active pilot plan; formal execution BLOCKED by a non-bypassable host confinement
+      prerequisite
+    </li>
     <li>Date: 2026-08-31</li>
     <li>Last reviewed: 2026-08-31</li>
     <li>
@@ -14,10 +17,10 @@
       Implementation status: formal runner / evaluator / base-fail-positive-pass qualification /
       paired canary / READY preflight / evidence verifier are implemented. The 10 evaluator profiles
       have a locally generated READY qualification for the fixed target. A real Azure canary reached
-      native tool execution, but ended <code>needs_human</code> because this host cannot apply the
-      required workspace process confinement for <code>git diff --check</code>. Formal execution
-      remains BLOCKED until that safety prerequisite can produce a matching READY canary and READY
-      preflight artifact.
+      native tool execution, but ended <code>needs_human</code> because this
+      host cannot apply the required workspace process confinement for
+      <code>git diff --check</code>. Formal execution remains BLOCKED until that
+      safety prerequisite can produce a matching READY canary and READY preflight artifact.
     </li>
     <li>Scope: existing Project Exploration Catalog V2のconsumer value検証だけ</li>
     <li>Rollout owner: <code>NightWorkers</code></li>
@@ -622,13 +625,20 @@
       </tr>
       <tr>
         <td>Isolated provider</td>
-        <td>Ready: user-approved backupからimplementation Azure routeだけを0600のisolated fileへ抽出</td>
+        <td>
+          Ready: user-approved backupからimplementation Azure routeだけを0600のisolated fileへ抽出
+        </td>
         <td>operational SQLiteを参照せず、同じrouteで完走するcanary</td>
       </tr>
       <tr>
         <td>Canary / preflight</td>
-        <td>Azure native tool executionまで到達したが <code>needs_human</code></td>
-        <td>hostがworkspace confinementを実行可能にし、sealed registrationと同じcommit / fingerprintに結び付くREADY artifactsを再生成する</td>
+        <td>
+          Azure native tool executionまで到達したが <code>needs_human</code>
+        </td>
+        <td>
+          hostがworkspace confinementを実行可能にし、sealed registrationと同じcommit /
+          fingerprintに結び付くREADY artifactsを再生成する
+        </td>
       </tr>
       <tr>
         <td>Formal paired run</td>
@@ -917,8 +927,8 @@
       <code>spec/evidence/project-intelligence-value-pilot-registration-v2.draft.json</code>。formal inputやdecision evidenceには使わない
     </li>
     <li>
-      Sealed pre-registration: <code>spec/evidence/project-intelligence-value-pilot-registration-v2*.json</code>。
-      渡すのはcurrent producer / consumer / target commitと全fingerprintが一致する一件だけ
+      Sealed pre-registration: <code>spec/evidence/project-intelligence-value-pilot-registration-v2*.json</code>。 渡すのはcurrent
+      producer / consumer / target commitと全fingerprintが一致する一件だけ
     </li>
     <li>
       Evaluator qualification: local access-controlled
@@ -1021,9 +1031,9 @@
       gateの順に再計算し、手入力decisionとの不一致を拒否する。
     </li>
     <li>
-      sealed registrationはDRAFT status、zero
-      fingerprint、未割当pilot owner、owner-retained policy以外のretentionを拒否する。 result verifierはregistration
-      textのstrict hashとsealed shapeを確認してからraw resultをsanitizeする。
+      sealed registrationはDRAFT status、zero fingerprint、未割当pilot owner、owner-retained
+      policy以外のretentionを拒否する。 result verifierはregistration textのstrict hashとsealed
+      shapeを確認してからraw resultをsanitizeする。
     </li>
   </ul>
   <h3 id="124-raw-evidence-retention">12.4 Raw evidence retention</h3>
@@ -1036,10 +1046,13 @@
       outputが含まれ得るため、共有driveやrepositoryへcopyしない。
     </li>
     <li>
-      raw evidenceはownerだけが読めるlocal runtimeに保持する。自動削除日を設けず、削除が必要になった場合だけ
+      raw evidenceはownerだけが読めるlocal
+      runtimeに保持する。自動削除日を設けず、削除が必要になった場合だけ
       別の明示的な作業として対象と理由を記録する。
     </li>
-    <li>削除する場合は対象pilot ID、raw hash、削除日、ownerをsanitized destruction recordへ残す。</li>
+    <li>
+      削除する場合は対象pilot ID、raw hash、削除日、ownerをsanitized destruction recordへ残す。
+    </li>
   </ul>
 
   <h2 id="13-implementation-slices">13. Implementation Slices</h2>
@@ -1231,7 +1244,8 @@
       独立review済みとは扱わない。
     </li>
     <li>
-      flag OFF、MCP切断、active run 0、raw evidence permission / hash / owner-retained policyを確認する。
+      flag OFF、MCP切断、active run 0、raw evidence permission / hash / owner-retained
+      policyを確認する。
     </li>
     <li>Ontology Planning Catalogへdecisionだけをリンクし、計画を自動的にactiveへ戻さない。</li>
   </ol>
@@ -1461,8 +1475,8 @@ npm run evaluate:project-exploration:pilot -- \
     </li>
     <li>committed evidenceにsource body、secret、absolute path、internal IDがない。</li>
     <li>
-      feature flag OFF、MCP切断、active pilot run 0、raw evidence hash / permission /
-      owner-retained policyを確認している。
+      feature flag OFF、MCP切断、active pilot run 0、raw evidence hash / permission / owner-retained
+      policyを確認している。
     </li>
     <li>
       GOでもparked planを自動昇格せず、許可された次actionだけをdecision recordへ記載している。

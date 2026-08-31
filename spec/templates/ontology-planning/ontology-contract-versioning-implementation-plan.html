@@ -1,35 +1,41 @@
-<article lang="ja" data-spec-role="active-plan">
+<article lang="ja" data-spec-role="template">
   <h1 id="ontology-contract-versioning-implementation-plan">
     Ontology Contract Versioning Implementation Plan
   </h1>
   <ul>
-    <li>Status: Draft implementation plan</li>
+    <li>Status: Parked reference plan; implementation not approved</li>
     <li>Implementation status: Not started</li>
     <li>Date: 2026-08-29</li>
-    <li>Last reviewed: 2026-08-29</li>
+    <li>Last reviewed: 2026-08-31</li>
     <li>
-      Review status: formal document review complete; no unresolved document-level findings; owner
-      decisions remain explicit in §26
-    </li>
-    <li>Priority: P1 candidate</li>
-    <li>
-      GO requirement: Static Intelligence owner、shared contract owner、NightWorkers consumer
-      ownerがbaseline 1.0.0、change policy、reader floor、support windowを承認すること
+      Review status: bootstrap / publication split complete; feature-specific catalog activation and
+      production enforcement remain dependency-gated
     </li>
     <li>
-      Parent template:
-      <a href="../templates/ontology-planning/ontology-contract-versioning-plan-template.html"
-        >Ontology Contract Versioning Plan Skeleton</a
-      >
+      Priority: Last-stage bootstrap only after multiple published versions and consumer migration
+      need; P1 publication and enforcement
+    </li>
+    <li>
+      Bootstrap GO requirement: Static Intelligence ownerとNightWorkers consumer ownerが、現行の
+      production-visible surfaceだけを対象にしたbaseline inventoryとclosed / open
+      set分類を承認すること
+    </li>
+    <li>
+      Publication GO requirement: shared contract owner、producer owner、NightWorkers consumer
+      ownerがpublished release、reader floor、support policy、rollback floorを承認すること
+    </li>
+    <li>
+      Planning catalog:
+      <a href="../../templates/ontology-planning/index.html">Ontology Planning Catalog</a>
     </li>
     <li>
       Parent direction:
-      <a href="../concepts/project-intelligence-ontology-evolution-roadmap.html"
+      <a href="../../concepts/project-intelligence-ontology-evolution-roadmap.html"
         >Project Intelligence and Ontology Evolution Roadmap</a
       >
     </li>
     <li>
-      Preceding plans:
+      Planned catalog sources and publication dependencies:
       <a href="./semantic-handoff-validation-implementation-plan.html"
         >Semantic Handoff Validation Implementation Plan</a
       >、
@@ -38,6 +44,12 @@
       <a href="./security-vocabulary-alignment-implementation-plan.html"
         >Security Vocabulary Alignment Implementation Plan</a
       >
+    </li>
+    <li>
+      Dependency rule: 上記3計画はbootstrapの前提ではない。未実装中は
+      <code>status="planned"</code> /
+      <code>deferred_unimplemented</code>として扱い、各profileのowner
+      contractが実装・reviewされた後にだけcatalog sourceをactive化する。
     </li>
   </ul>
 
@@ -53,6 +65,14 @@
     Versioningだけを実装可能な粒度へ具体化する。先行3計画が所有するvalidator、claim
     ledger、vocabulary registryを再実装しない。先行contractのimmutable
     profileを参照し、profileの追加・削除・意味変更がontology contractへ与える影響だけを分類する。
+  </p>
+  <p>
+    実装は二つのtrackへ分ける。<strong>Bootstrap track</strong>は現行production-visible
+    contractだけをinventoryし、snapshot、hash、diff、version policyをproduct path外で完成させる。
+    <strong>Publication / Enforcement track</strong>はconsumer reader、generation
+    descriptor、release
+    governanceを追加する。Bootstrapは先行profileの実装を待たずに完了できるが、PublicationはStage 0
+    GO、baseline test green、consumer release windowを必須とする。
   </p>
 
   <h2 id="2-target-outcome">2. Target Outcome</h2>
@@ -71,6 +91,19 @@
   -&gt; let each consumer evaluate an explicit support policy
   -&gt; retain exact historical readers; never rewrite old generations in place
 </code></pre>
+  <p>Bootstrap trackの完了時点では、次の限定されたoutcomeを得る。</p>
+  <pre><code class="language-text">current production-visible schemas / builders / consumer fixtures
+  -&gt; closed coverage inventory
+  -&gt; baseline 1.0.0 candidate snapshot
+  -&gt; canonical hash and deterministic diff
+  -&gt; read-only verification in CI
+  -&gt; no descriptor publication and no persisted payload change
+</code></pre>
+  <p>
+    Publication / Enforcement trackは、bootstrap artifactとowner承認済みactive
+    profileだけを入力にし、 reader-first、shadow、optional、requiredの順で進める。planned
+    profileを推測でsnapshotへ追加しない。
+  </p>
   <ul>
     <li>同じcatalog inputからbyte-identical snapshot、hash、diffを生成する。</li>
     <li>同じversionに異なるsnapshotを登録できず、公開済みsnapshotを上書きできない。</li>
@@ -193,12 +226,27 @@
     <code>ontologyHandoffManifestResultSchema</code>はmanifest objectを
     <code>strict()</code>で検証し、handoff serviceはschema failureを
     <code>schema_invalid</code
-    >へ変換していた。現時点でdescriptor付きmanifestのpositive / negative testは存在しないため、Slice
-    3で専用testを追加するまでreader floorを満たしたとは扱わない。
+    >へ変換していた。現時点でdescriptor付きmanifestのpositive / negative
+    testは存在しないため、Publication P0で専用testを追加するまでreader floorを満たしたとは扱わない。
   </p>
 
   <h2 id="4-fixed-decisions">4. Fixed Decisions</h2>
   <ol>
+    <li>
+      Bootstrap trackとPublication / Enforcement trackは独立したmerge / revert単位にする。Bootstrap
+      completionはwire、artifact metadata、DB、manifest、handoff、NightWorkers runtime
+      behaviorを変更しない。
+    </li>
+    <li>
+      Semantic Handoff Validation、Claim Provenance、Security Vocabularyの未実装profileはplanned
+      sourceとし、 owner contract、immutable catalog view、positive / negative
+      fixtureが揃うまでactive adapterを作らない。
+    </li>
+    <li>
+      Bootstrap trackではconsumer support window、deprecation telemetry、remote commit
+      approvalをproduction gateにしない。これらはPublication
+      trackのevidenceと実consumer運用に基づいて確定する。
+    </li>
     <li>
       初期実装はvulnWorkbench repo内のlibraryとsource-controlled release
       artifactで行う。共有packageはStage 3 entry gate後、独立serviceはStage 4 mandatory
@@ -266,19 +314,26 @@
 
   <h2 id="5-scope">5. Scope</h2>
   <h3 id="51-in-scope">5.1 In Scope</h3>
+  <p><strong>Bootstrap track:</strong></p>
   <ul>
     <li>wire profile、generation identity、ontology semantic contractの用語と責務分離</li>
-    <li>baseline 1.0.0のnormalized snapshotとimmutable registry</li>
+    <li>現行production-visible surfaceだけを対象にしたbaseline 1.0.0 candidate snapshot</li>
+    <li>closed source registryとincluded / excluded / deferred coverage inventory</li>
     <li>
-      entity、edge、field、identity、constraint、validation、claim、vocabulary、capabilityのstable
-      element catalog
+      現行entity、edge、field、identity、constraint、capabilityのstable element
+      catalog。未実装validation、claim、 vocabulary profileはplanned sourceとしてのみ登録する。
     </li>
     <li>canonical JSON、snapshot hash、diff hash、registry integrity</li>
     <li>add / modify / deprecate / removeとpatch / minor / majorの決定的分類</li>
+    <li>product pathを変更しないsnapshot / diff / candidate verification CLIとCI check</li>
+  </ul>
+  <p><strong>Publication / Enforcement track:</strong></p>
+  <ul>
+    <li>owner承認済みactive profile adapterとimmutable published registry</li>
     <li>consumer support declarationとcompatibility evaluator</li>
     <li>export、manifest、ontology handoff、generation metadataへのdescriptor統合</li>
     <li>reader-first、consumer-first、dual-read、legacy cutoff、rollback</li>
-    <li>snapshot / diff / release verification CLIとCI gate</li>
+    <li>release evidence、append-only history、publication / enforcement CI gate</li>
     <li>vulnWorkbenchとNightWorkersのcross-repository golden fixture</li>
   </ul>
 
@@ -1501,8 +1556,8 @@ ontology-contract-performance-v1
     <li>
       base /
       candidateの両方にregistryがない期間は<code>pre_bootstrap</code>とし、release
-      / diff / evidence artifactがまだ0件であることを要求する。Slice 1 / 2のpure implementation
-      PRだけに許可し、一度でもregistryがbaseに現れた後はこのmodeへ戻れない。
+      / diff / evidence artifactがまだ0件であることを要求する。Bootstrap B1 / B2のpure
+      implementation PRだけに許可し、一度でもregistryがbaseに現れた後はこのmodeへ戻れない。
     </li>
     <li>
       通常PRではbase registryとcandidate registryをbyte-identicalにし、全historical
@@ -2850,6 +2905,54 @@ type OntologyContractCliResult = OntologyContractCliSuccess | OntologyContractCl
   </ul>
 
   <h2 id="19-file-plan">19. File-by-file Change Plan</h2>
+  <p>
+    Bootstrap B0–B2では、schema、catalog、inventory、snapshot、diff、strict JSON、read-only
+    verificationだけを追加する。既存export / manifest / generation /
+    handoffのwireやpersistenceを変更するfileは Publication
+    P0以降まで編集しない。各表のpublication-only fileはB2完了前に作成してはならない。
+  </p>
+  <table>
+    <caption>
+      track別のfile boundary
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Track</th>
+        <th scope="col">作成・変更してよい範囲</th>
+        <th scope="col">このtrackでは触らない範囲</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Bootstrap B0–B2</td>
+        <td>
+          shared schema / base catalog / source registry / inventory、pure snapshot / diff / version
+          policy / strict JSON、read-only snapshot / diff / candidate verification、fixture / unit
+          test、package script
+        </td>
+        <td>
+          compatibility / publication / config、release / qualification / evidence
+          writer、generation persistence、public surface、NightWorkers
+        </td>
+      </tr>
+      <tr>
+        <td>Publication P0</td>
+        <td>
+          compatibility evaluator、consumer support、release / qualification / evidence /
+          history、reader fixture、protected CI gate
+        </td>
+        <td>generation persistenceとpublic descriptor投影</td>
+      </tr>
+      <tr>
+        <td>Publication P1–P3</td>
+        <td>
+          publication / config、generation marker、resolver、manifest / handoff / route / MCP / CLI
+          projection、shadow / optional / required rollout
+        </td>
+        <td>未reviewのplanned profileをactive catalogへ昇格する変更</td>
+      </tr>
+    </tbody>
+  </table>
   <h3 id="191-new-files">19.1 New Files in vulnWorkbench</h3>
   <table>
     <caption>
@@ -3220,7 +3323,7 @@ type OntologyContractCliResult = OntologyContractCliSuccess | OntologyContractCl
   </ul>
 
   <h2 id="20-implementation-slices">20. Implementation Slices</h2>
-  <h3 id="slice-0">Slice 0: Baseline Inventory and Contract Freeze</h3>
+  <h3 id="bootstrap-b0">Bootstrap B0: Baseline Inventory and Contract Freeze</h3>
   <p>Goal: 現行意味面を変更せず1.0.0 snapshotのreview材料を作る。</p>
   <ol>
     <li>
@@ -3243,10 +3346,10 @@ type OntologyContractCliResult = OntologyContractCliSuccess | OntologyContractCl
   </ol>
   <p>
     Exit: coverage 100%、baseline snapshot / inventory review済み、既存behavior変更0、関連6 test
-    fileが全件green。CLI failureが残る間はSlice 3へ進まない。
+    fileが全件green。CLI failureが残る間はPublication P0へ進まない。
   </p>
 
-  <h3 id="slice-1">Slice 1: Pure Schema, Canonicalization, and Registry</h3>
+  <h3 id="bootstrap-b1">Bootstrap B1: Pure Schema, Canonicalization, and Registry</h3>
   <p>Goal: product pathへ接続せず、承認可能なbaseline release candidateを作る。</p>
   <ol>
     <li>
@@ -3269,7 +3372,7 @@ type OntologyContractCliResult = OntologyContractCliSuccess | OntologyContractCl
     candidateを承認済み。まだrelease registryへappendしない。
   </p>
 
-  <h3 id="slice-2">Slice 2: Diff and Version Policy</h3>
+  <h3 id="bootstrap-b2">Bootstrap B2: Diff and Version Policy</h3>
   <p>
     Goal: 全meaning-bearing pathのclassificationをclosed ruleで検証し、release writerをまだruntime /
     production registryへ接続せず完成させる。
@@ -3280,24 +3383,31 @@ type OntologyContractCliResult = OntologyContractCliSuccess | OntologyContractCl
     <li>unclassified pathとauthorによるunder-bumpをCIで拒否する。</li>
     <li>immutable adjacent diffとappend-only registryのvalidatorを実装する。</li>
     <li>
-      diff / verify-candidate / verify-release / qualification / evidence assembly / release
-      CLIを追加し、published snapshot / diff / registryはreleaseだけをwrite可能にする。
+      diff / verify-candidateとhistory verificationをread-only
+      CLIとして追加する。qualification、evidence assembly、published release writerはPublication
+      P0まで追加しない。
     </li>
     <li>
       base commit比較のhistory verifier / CLIを追加し、unchanged / bootstrap /
       append-oneとhistorical mutationをfixtureで検証する。
     </li>
     <li>
-      temporary fixture rootでbaseline / subsequent release、failure / crash
-      consistency、registry-last commit point、reviewed recoveryを検証する。
+      temporary fixture rootでbaseline / subsequent candidate、historical
+      mutation、failure時のno-writeを検証する。
     </li>
   </ol>
   <p>
     Exit: positive / negative classification matrix、exact next version、candidate result
-    hash、releaseの失敗 / crash consistencyがgreen。production registryはまだ作らない。
+    hash、read-only commandのno-write invariantがgreen。published registryとproduction
+    descriptorはまだ作らない。
+  </p>
+  <p>
+    Bootstrap completion: B0–B2のartifactとtestがreview済みで、現行payload bytesとruntime
+    behaviorが不変である。 この時点で本計画のbootstrap
+    milestoneを完了扱いにできる。先行profileの実装、NightWorkers release、14日観測を待たない。
   </p>
 
-  <h3 id="slice-3">Slice 3: Consumer-first Reader Floor</h3>
+  <h3 id="publication-p0">Publication P0: Consumer-first Reader Floor and Release Authoring</h3>
   <p>
     Goal: writerより先に両consumerをoptional descriptor対応へし、そのcommitを固定して1.0.0
     artifactを公開する。
@@ -3315,8 +3425,9 @@ type OntologyContractCliResult = OntologyContractCliSuccess | OntologyContractCl
       evidenceへ固定し、全pathとhashをoffline検証する。
     </li>
     <li>
-      protected merge workflowでNightWorkers exact reader commitのstatus checkとconsumer owner
-      review receiptを照合し、offline qualificationだけではmergeできないrequired gateにする。
+      cross-repository protected gateを利用できる場合はNightWorkers exact reader commitのstatus
+      checkとconsumer owner review
+      receiptを照合する。利用できない場合はPublicationをNO-GOとし、offline自己申告だけで代替しない。
     </li>
     <li>
       qualification / evidenceをreview・commitしたclean treeでrelease CLIが1.0.0 snapshot /
@@ -3332,7 +3443,7 @@ type OntologyContractCliResult = OntologyContractCliSuccess | OntologyContractCl
     fixtureを両repoがlosslessに読める。
   </p>
 
-  <h3 id="slice-4">Slice 4: Shadow Generation Integration</h3>
+  <h3 id="publication-p1">Publication P1: Shadow Generation Integration</h3>
   <p>Goal: public wireを変えず、production generationでcontract resolutionを観測する。</p>
   <ol>
     <li>
@@ -3349,7 +3460,7 @@ type OntologyContractCliResult = OntologyContractCliSuccess | OntologyContractCl
   </ol>
   <p>Exit: 14日間shadow failure 0、public / persisted diff 0、P95 budget内、全関連test green。</p>
 
-  <h3 id="slice-5">Slice 5: Optional Descriptor Publication</h3>
+  <h3 id="publication-p2">Publication P2: Optional Descriptor Publication</h3>
   <p>Goal: 新generationへdescriptorをpersistし、public surfaceへ同じdescriptorをpublishする。</p>
   <ol>
     <li>
@@ -3365,7 +3476,7 @@ type OntologyContractCliResult = OntologyContractCliSuccess | OntologyContractCl
     consistency 100%。
   </p>
 
-  <h3 id="slice-6">Slice 6: Required Enforcement and Release Drill</h3>
+  <h3 id="publication-p3">Publication P3: Required Enforcement and Release Drill</h3>
   <p>Goal: new writerをrequiredへ移し、minor / major migrationをfixtureで再現する。</p>
   <ol>
     <li>writerをrequiredへ上げ、新generationのdescriptor欠落をpersist前に拒否する。</li>
@@ -3402,31 +3513,31 @@ type OntologyContractCliResult = OntologyContractCliSuccess | OntologyContractCl
     </thead>
     <tbody>
       <tr>
-        <td>Slice 1 → 2</td>
+        <td>Bootstrap B1 → B2</td>
         <td>1.0.0 snapshot / hash approved</td>
         <td>candidate determinism</td>
         <td>catalog drift、nondeterministic hash</td>
       </tr>
       <tr>
-        <td>Slice 2 → 3</td>
+        <td>Bootstrap B2 → Publication P0</td>
         <td>all paths classified、under-bump rejected、1.0.0 candidate verified</td>
         <td>fixture coverage、candidate result hash、release fault test</td>
         <td>unclassified path、ambiguous rule、orphan / mutable release artifact</td>
       </tr>
       <tr>
-        <td>Reader floor → shadow</td>
+        <td>Publication P0 reader floor → P1 shadow</td>
         <td>1.0.0 release verified、both consumer commits deployed</td>
         <td>legacy / new lossless read</td>
         <td>hash mismatch、unknown field loss</td>
       </tr>
       <tr>
-        <td>shadow → optional</td>
+        <td>Publication P1 shadow → P2 optional</td>
         <td>14 days shadow failure 0、persisted / public diff 0</td>
         <td>descriptor consistency、latency</td>
         <td>persisted / public diff、shadow resolution failure</td>
       </tr>
       <tr>
-        <td>optional → required</td>
+        <td>Publication P2 optional → P3 required</td>
         <td>14 days incompatible 0、rollback drill</td>
         <td>missing descriptor、consumer rejection</td>
         <td>any unexplained incompatible / data loss</td>
@@ -3655,8 +3766,18 @@ type OntologyContractCliResult = OntologyContractCliSuccess | OntologyContractCl
   </ul>
 
   <h3 id="227-verification-commands">22.7 Verification Commands</h3>
+  <p>Bootstrap B0–B2ではrepository rootから次だけを実行する。</p>
   <pre><code class="language-shell">bun run docs:check
 bun run test:inventory -- --assert-complete
+bun run test:ontology-contract
+bun run ontology-contract:snapshot -- --check
+bun run ontology-contract:verify-candidate -- --version 1.0.0
+bun run typecheck
+bun run lint
+bun run test
+</code></pre>
+  <p>Publication P0以降では、対象unitに応じて次を追加する。</p>
+  <pre><code class="language-shell">bun run docs:check
 bun run test:ontology-contract
 bun test api/modules/static-intelligence/generation-repository.test.ts
 bun test api/modules/static-intelligence/knowledge-source-manifest.test.ts
@@ -3668,7 +3789,6 @@ bun run ontology-contract:qualify-baseline -- --version 1.0.0 --check
 bun run ontology-contract:qualify-reader -- --version 1.0.0 --consumer vulnworkbench --check
 bun run benchmark:ontology-contract -- --version 1.0.0 --check
 bun run ontology-contract:assemble-evidence -- --version 1.0.0 --check
-bun run ontology-contract:snapshot -- --check
 bun run ontology-contract:verify-candidate -- --version 1.0.0
 bun run ontology-contract:verify-release -- --version 1.0.0
 bun run ontology-contract:verify-history -- --base-commit aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
@@ -3818,193 +3938,182 @@ ontology_contract_deprecated_usage_total{consumer,deprecation_key}
   </p>
 
   <h2 id="25-definition-of-done">25. Definition of Done</h2>
+  <h3 id="251-bootstrap-dod">25.1 Bootstrap Definition of Done</h3>
   <ul>
-    <li>baseline 1.0.0の全element、hash、registry entryがowner review済みである。</li>
     <li>
-      active catalog sourceのcoverage keyが100%分類され、snapshot elementとincluded
-      inventoryが双方向に到達可能である。
+      現行production-visible surfaceだけを対象にしたbaseline 1.0.0 candidateがowner
+      review済みである。
     </li>
     <li>
-      wire / descriptor / semantic / generation / content hashの責務がschemaとdocsで一致する。
+      active sourceのcoverage keyが100%分類され、included elementとinventoryを双方向に辿れる。
     </li>
-    <li>同一catalogからbyte-identical snapshot、hash、diff order、change IDが得られる。</li>
+    <li>未実装profileはplanned / deferredで、active adapterやelementを先取りしていない。</li>
+    <li>同一catalogからbyte-identical snapshot、hash、diff order、change IDを再現できる。</li>
+    <li>全meaning-bearing pathにfixed classification ruleがあり、unclassified pathを拒否する。</li>
     <li>
-      shared enum constant / profile catalogとsnapshotに双方向driftがなく、field mutation
-      fixtureが全meaning-bearing pathを覆う。
-    </li>
-    <li>
-      全meaning-bearing pathにfixed classification ruleがあり、unclassified pathをCIで拒否する。
-    </li>
-    <li>patch / minor / major / noneのpositive / negative fixtureがgreenである。</li>
-    <li>
-      published snapshot / coverage inventory / adjacent diffはimmutableで、registryとのhash /
-      path不一致、同version / different hash、same hash / different versionを拒否する。
+      patch / minor / major / none、duplicate key、invalid UTF-8、trailing
+      tokenのfixtureがgreenである。
     </li>
     <li>
-      base / candidate history gateがhistorical bytes変更・削除・renameを拒否し、pre-bootstrap /
-      bootstrap / unchanged / append-oneだけを受理する。
+      read-only CLI / CI checkが既存fileを変更せず、現行payload bytesとruntime
+      behaviorも不変である。
     </li>
-    <li>duplicate key、invalid UTF-8、trailing tokenをstrict JSON parserがparse前に拒否する。</li>
+    <li>knowledge source CLIを含む関連baseline testがallowlistなしでgreenである。</li>
+  </ul>
+
+  <h3 id="252-publication-dod">25.2 Publication / Enforcement Definition of Done</h3>
+  <ul>
     <li>
-      qualification / evidence writerはversion-derivedな未作成review inputだけを書き、release
-      CLIだけがpublished snapshot / adjacent diff /
-      registryを書込む。全writerは失敗時に既存fileを変更しない。
-    </li>
-    <li>
-      vulnWorkbench / NightWorkersのreader-first floorとcross-repo
-      fixtureがgreenで、NightWorkersのstrict manifest
-      readerがdescriptor付きpayloadをlosslessに保持する。
+      owner承認済みprofileだけがactive catalog sourceになり、profile
+      catalogとsnapshotにdriftがない。
     </li>
     <li>
-      NightWorkers remote commit / approvalの真正性をprotected merge workflowがonline照合し、offline
-      release CLIの保証範囲と混同していない。
-    </li>
-    <li>off / shadow / optional / requiredのgeneration / publication matrixがgreenである。</li>
-    <li>
-      legacy cutoff後はrequired_only continuity floorがoff / shadow / optionalを拒否し、known-good
-      target rollbackでもdescriptor付きnew generationだけを生成する。
+      published snapshot、inventory、adjacent
+      diff、evidence、registryがimmutableかつappend-onlyである。
     </li>
     <li>
-      unknown major / hash / must_understand capabilityはfail closed、missing preferred /
-      unsupported may_ignoreはbounded degradedになる。
+      vulnWorkbench / NightWorkersのreader-first floorとcross-repository fixtureがgreenである。
     </li>
-    <li>knowledge source CLIを含む関連testがbaseline allowlistなしで全件greenである。</li>
-    <li>legacy generationのpayload / hashを変更せず、historical readerで読める。</li>
-    <li>security / size / latency budget、observability、rollback drillが完了している。</li>
-    <li>Stage 3 package / Stage 4 service trigger未充足をGO時点で再確認している。</li>
+    <li>
+      off / shadow / optional / requiredのgeneration / publication matrixとall-or-none
+      persistenceがgreenである。
+    </li>
+    <li>
+      unknown major / hash / must_understandはfail closed、unsupported may_ignoreはbounded
+      degradedになる。
+    </li>
+    <li>
+      legacy generationのpayload / hashを変更せず、version-specific historical readerで読める。
+    </li>
+    <li>
+      support policy、security / size / latency budget、observability、rollback
+      drillが承認済みである。
+    </li>
+    <li>
+      Stage 3 package / Stage 4 service trigger未充足を再確認し、premature
+      extractionを行っていない。
+    </li>
   </ul>
 
   <h2 id="26-open-decisions">26. Open Decisions and Proposed Defaults</h2>
   <table>
     <caption>
-      実装開始前にownerが確定する選択
+      trackごとにownerが確定する選択
     </caption>
     <thead>
       <tr>
+        <th scope="col">Track</th>
         <th scope="col">Decision</th>
         <th scope="col">Proposed default</th>
-        <th scope="col">Owner / deadline</th>
-        <th scope="col">If unresolved</th>
+        <th scope="col">Deadline / unresolved behavior</th>
       </tr>
     </thead>
     <tbody>
       <tr>
-        <td>baseline 1.0.0 element inventory</td>
+        <td>Bootstrap</td>
+        <td>baseline element inventory</td>
         <td>現行production-visible contractだけをfreeze</td>
-        <td>shared contract + consumer owner / Slice 0 exit</td>
-        <td>NO-GO</td>
+        <td>B0 exit。未承認ならB1へ進まない。</td>
       </tr>
       <tr>
+        <td>Bootstrap</td>
         <td>closed / open set classification</td>
         <td>現行enumとexhaustive consumer switchはclosed</td>
-        <td>producer + NightWorkers / Slice 0 exit</td>
-        <td>安全側でclosedとしてmajor判定</td>
+        <td>B0 exit。判定不能pathはunclassifiedとしてB2で拒否する。</td>
       </tr>
       <tr>
+        <td>Publication</td>
+        <td>profile activation</td>
+        <td>owner catalog、fixture、immutable profile IDが揃ったprofileだけactive化</td>
+        <td>P0 entry。未実装profileはplannedのままにする。</td>
+      </tr>
+      <tr>
+        <td>Publication</td>
         <td>legacy descriptor cutoff</td>
-        <td>required mode移行後90日、producer continuityを同時にrequired_onlyへ固定</td>
-        <td>consumer owner / Slice 6後の独立change</td>
-        <td>legacy acceptを維持し、required writerは継続可能</td>
+        <td>required安定後90日を候補とし、実usage evidenceで決定</td>
+        <td>P3後の独立change。未決定ならlegacy acceptを維持する。</td>
       </tr>
       <tr>
-        <td>historical reader support</td>
-        <td>current major + previous major、最低180日</td>
-        <td>shared contract owner / first major GO</td>
-        <td>old reader削除禁止</td>
+        <td>Publication</td>
+        <td>historical reader / deprecation window</td>
+        <td>current + previous major、最低180日 / minor 2回かつ90日を初期候補</td>
+        <td>first major / removal前。未決定ならreader削除とelement removalを禁止する。</td>
       </tr>
       <tr>
-        <td>deprecation window</td>
-        <td>後続minor 2回かつ90 UTC calendar days</td>
-        <td>shared contract owner / first deprecation</td>
-        <td>removal禁止</td>
+        <td>Publication</td>
+        <td>cross-repository approval gate</td>
+        <td>protected online checkでexact consumer commitとowner approvalを照合</td>
+        <td>P0 exit。利用不能ならPublicationをNO-GOにする。</td>
       </tr>
       <tr>
-        <td>contract release approval policy</td>
-        <td>
-          shared contract owner + vulnWorkbench producer owner + NightWorkers consumer
-          ownerの3者承認
-        </td>
-        <td>release owner / Slice 1 exit</td>
-        <td>registry append禁止</td>
-      </tr>
-      <tr>
-        <td>shared package extraction</td>
-        <td>見送る。</td>
-        <td>architecture owner / Stage 3 entry gate時</td>
-        <td>repo内libraryを継続</td>
-      </tr>
-      <tr>
-        <td>independent service extraction</td>
-        <td>見送る。</td>
-        <td>architecture owner / Stage 4 trigger時</td>
-        <td>runtime mutation機能を追加しない。</td>
+        <td>Architecture</td>
+        <td>shared package / independent service</td>
+        <td>Stage 3 / Stage 4 triggerまで見送る。</td>
+        <td>repo内libraryを継続し、runtime mutationを追加しない。</td>
       </tr>
     </tbody>
   </table>
 
   <h2 id="27-go-no-go">27. GO / NO-GO Gate</h2>
-  <h3 id="271-go">27.1 GO</h3>
+  <h3 id="271-bootstrap-go">27.1 Bootstrap GO</h3>
   <ul>
-    <li>先行3計画のprofile ownershipとimmutable boundaryがowner間で合意されている。</li>
-    <li>baseline 1.0.0 inventoryとstable element IDsが承認されている。</li>
+    <li>Stage 0 GOまたはarchitecture ownerによるquality-infrastructure例外が記録されている。</li>
     <li>
-      active source coverage 100%とbase / candidate append-only history checkをCIで実行できる。
+      baseline inventory scopeとstable element ID方針がproducer / consumer ownerに承認されている。
     </li>
-    <li>NightWorkers変更をconsumer-firstで行う担当とrelease windowが確保されている。</li>
-    <li>
-      protected CIがNightWorkers exact commit status / reviewをread-onlyで照合でき、required
-      checkとして設定されている。
-    </li>
-    <li>knowledge source CLIを含む関連baseline testが全件greenである。</li>
+    <li>現行consumerのclosed / open set behaviorをfixtureで確認できる。</li>
     <li>source-controlled snapshotを正本とし、runtime authoringを行わないことに合意している。</li>
+    <li>B0–B2がwire、persistence、runtime behaviorを変えないことをtestで保証できる。</li>
   </ul>
 
-  <h3 id="272-no-go">27.2 NO-GO</h3>
+  <h3 id="272-publication-go">27.2 Publication GO</h3>
   <ul>
-    <li>ontology contractへinstance dataやregistry receiptを含める要求が未整理である。</li>
-    <li>consumerのclosed / open set behaviorを確認できず、minor / major判定を固定できない。</li>
-    <li>writer-firstでdescriptorをpublishする必要がある。</li>
-    <li>NightWorkers remote evidenceをoffline自己申告fileだけで承認する必要がある。</li>
-    <li>公開済みsnapshotの上書き、old generationの再hash、in-place migrationが前提になる。</li>
+    <li>Bootstrap DoDと関連baseline testsがgreenである。</li>
     <li>
-      CIがbase commit objectを保持せず、historical artifact
-      mutationをcandidate自己検証だけで判定する。
+      active化するprofileのownership、immutable boundary、catalog view、fixtureが承認済みである。
     </li>
-    <li>Stage 4 workflowを同時実装する要求が混ざる。</li>
+    <li>NightWorkers consumer-first担当、release window、exact reader commitが確保されている。</li>
+    <li>protected cross-repository approval gateとrollback floorを実行できる。</li>
+    <li>descriptor publication、support policy、legacy continuityのownerが決まっている。</li>
+  </ul>
+
+  <h3 id="273-no-go">27.3 NO-GO</h3>
+  <ul>
+    <li>instance dataやregistry receiptをsemantic snapshotへ含める要求が未整理である。</li>
+    <li>planned profileを実装前にactive elementとしてfreezeする必要がある。</li>
+    <li>consumer behaviorを確認できず、minor / major分類を固定できない。</li>
+    <li>
+      writer-first publication、offline自己申告だけのremote approval、old
+      generation再hashが前提になる。
+    </li>
+    <li>CIがhistorical mutationをbase commitと比較できない。</li>
+    <li>Stage 4 workflow、shared service、runtime authoringを同じ変更へ含める要求がある。</li>
   </ul>
 
   <h2 id="28-implementation-handoff">28. Implementation Handoff</h2>
-  <p>実装担当は次の順序を変えない。</p>
   <ol>
+    <li>共通CLI baselineを独立fixでgreenにし、before / after test名と件数を保存する。</li>
     <li>
-      baseline testを再実行し、現行CLI failureをpreceding fixで解消する。knowledge source
-      CLIがgreenになるまでreader統合へ進まない。
+      Bootstrap B0で現行surfaceだけのsource registry、inventory、candidate snapshotをreviewする。
     </li>
     <li>
-      Slice 0でclosed source registryとcoverage inventoryを作り、active coverage 100%を証明してから
-      1.0.0を意味変更なしでfreezeする。
-    </li>
-    <li>
-      kind別strict schema、duplicate-key-aware parser、candidate snapshot / hashをproduct
+      B1でstrict schema、canonicalization、hash、no-write candidate verifierをproduct
       path外で完成させる。
     </li>
     <li>
-      diff classifierの全path coverage、version gate、base / candidate history gate、release
-      CLIを完成させ、1.0.0 candidateをverifyする。
+      B2でdiff classifierとhistory checkを完成させ、Bootstrap DoDを満たした時点でmilestoneを閉じる。
     </li>
     <li>
-      vulnWorkbenchとNightWorkersのlossless optional readerをcandidate fixtureに対して完成させる。
+      先行profileの実装を待つ間、planned sourceをactive化せず、runtime descriptor fileを変更しない。
     </li>
-    <li>
-      両reader commitとapprovalをevidenceへ固定し、1.0.0をpublish /
-      verifyしてからreaderをdeployする。
-    </li>
-    <li>shadow、optional、requiredを各gateと観測期間を満たして順に進める。</li>
+    <li>Publication GO後にだけP0 reader floorとrelease authoringへ進む。</li>
+    <li>P1 shadow、P2 optional、P3 requiredを別PR・別rollout decisionで進める。</li>
     <li>major removal前にdeprecation usage、support window、rollback readerを確認する。</li>
   </ol>
   <p>
-    各sliceは独立PRとし、schema / pure logic、consumer reader、producer
-    writer、publication、enforcementを一つのPRへまとめない。未解決decisionでclassificationやmigration
-    behaviorが変わる場合は、proposed defaultを黙って採用せずNO-GOとしてowner判断を求める。
+    BootstrapとPublicationを同じPRへまとめない。各trackの未解決decisionはproposed
+    defaultを黙って採用せず、 対応するGO
+    gateで停止する。Bootstrap完了はPublication完了を意味せず、Publication未着手を理由に candidate
+    snapshot / diff toolingを未完了扱いに戻さない。
   </p>
 </article>

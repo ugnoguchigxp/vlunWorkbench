@@ -1,28 +1,46 @@
-<article lang="ja" data-spec-role="active-plan">
+<article lang="ja" data-spec-role="template">
   <h1 id="claim-provenance-implementation-plan">Claim Provenance Implementation Plan</h1>
   <ul>
-    <li>Status: Draft implementation plan</li>
+    <li>Status: Parked reference plan; implementation not approved</li>
     <li>Implementation status: Not started</li>
     <li>Date: 2026-08-28</li>
-    <li>Priority: P0 candidate</li>
-    <li>GO requirement: 実装開始前にproducer owner、consumer owner、rollout gateの承認が必要</li>
+    <li>Last reviewed: 2026-08-31</li>
     <li>
-      Parent template:
-      <a href="../templates/ontology-planning/claim-provenance-plan-template.html"
-        >Claim Provenance Plan Skeleton</a
-      >
+      Review status: core provenance / Semantic Validation integration split complete; production
+      publication remains reader-first and rollout-gated
+    </li>
+    <li>
+      Priority: P0 core provenance only after Stage 0 GO and observed lineage-use need; P1 Semantic
+      Validation integration
+    </li>
+    <li>
+      Core GO requirement: producer owner、consumer owner、target / property coverage、rollback
+      floor、source-controlled rollout gateの承認が必要
+    </li>
+    <li>
+      Semantic Integration GO requirement: Claim Provenance core validatorが安定し、Semantic Handoff
+      Validation側の新profile、severity authority、failure effectが承認済みであること
+    </li>
+    <li>
+      Planning catalog:
+      <a href="../../templates/ontology-planning/index.html">Ontology Planning Catalog</a>
     </li>
     <li>
       Parent direction:
-      <a href="../concepts/project-intelligence-ontology-evolution-roadmap.html"
+      <a href="../../concepts/project-intelligence-ontology-evolution-roadmap.html"
         >Project Intelligence and Ontology Evolution Roadmap</a
       >
     </li>
     <li>
-      Preceding plan:
+      Optional integration dependency:
       <a href="./semantic-handoff-validation-implementation-plan.html"
         >Semantic Handoff Validation Implementation Plan</a
       >
+    </li>
+    <li>
+      Dependency rule: Semantic Handoff Validationはcore ledger、identity、persistence、bounded
+      queryの前提ではない。validation resultをclaim targetへ接続し、validation
+      statusへprovenance結果を反映する変更だけを独立integration trackとして後続させる。
     </li>
   </ul>
 
@@ -35,6 +53,13 @@
     この計画はClaim Provenanceだけを実装可能な粒度へ具体化する。semantic handoff
     validation、security vocabulary alignment、ontology contract versioning、competency
     question、rule inferenceを同時に設計・実装しない。
+  </p>
+  <p>
+    実装は二つのtrackへ分ける。<strong>Core Provenance track</strong>は現行graph、module、community
+    outputのlineageを同じprojection passで生成し、ledger、binding、persistence、bounded
+    queryを完成させる。<strong>Semantic Validation Integration track</strong>は、Semantic Handoff
+    Validationがowner承認済みprofileを公開した後に、そのresultを新target / ruleとして接続する。Core
+    trackはintegrationを待たず完了でき、既存validation profile v1を変更しない。
   </p>
 
   <h2 id="2-target-outcome">2. Target Outcome</h2>
@@ -189,6 +214,55 @@
     contract testを新設する。
   </p>
 
+  <h3 id="33-dependency-and-track-boundary">3.3 Dependency and Track Boundary</h3>
+  <table>
+    <caption>
+      先行実装への依存と着手可能範囲
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Work</th>
+        <th scope="col">Can start now</th>
+        <th scope="col">Required dependency</th>
+        <th scope="col">Blocked action</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Core contract / identity / redaction</td>
+        <td>Yes: Slice 0–1</td>
+        <td>current schema、canonical JSON、owner-approved coverage matrix</td>
+        <td>wire / persistence変更</td>
+      </tr>
+      <tr>
+        <td>Persistence / query / consumer descriptor</td>
+        <td>Yes: Slice 2–5 after reader floor</td>
+        <td>Stage 0 GO、CLI baseline green、producer / consumer rollback floor</td>
+        <td>required enforcement</td>
+      </tr>
+      <tr>
+        <td>Semantic Validation integration</td>
+        <td>No: contract fixtureだけ先に用意可能</td>
+        <td>
+          Semantic Handoff Validationのpublished profile、closed rule IDs、severity / failure
+          authority、consumer fixture
+        </td>
+        <td>既存profile v1変更、validation statusの自動昇格</td>
+      </tr>
+      <tr>
+        <td>Security Vocabulary extension</td>
+        <td>No: v2 reader fixtureだけ先に用意可能</td>
+        <td>Core ledger required安定、v2 profile owner contract</td>
+        <td>assignment / alignment recordのproduction persistence</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    「lineageを記録できること」と「claimが正しいこと」を別gateにする。Semantic
+    Validation未実装中もcore lineageは実装できるが、そのlineageをvalidation成功、security
+    finding確定、task採用の根拠へ昇格してはならない。
+  </p>
+
   <h2 id="4-fixed-decisions">4. Fixed Decisions</h2>
   <ul>
     <li>initial implementationはnormalized JSON ledgerとtarget bindingを採用する。</li>
@@ -248,6 +322,15 @@
     <li>
       legacy 3-artifact generationは読み続け、新規4-artifact generationへのin-place
       backfillをしない。
+    </li>
+    <li>
+      Core Provenance completionとSemantic Validation integration completionを別milestone / DoD /
+      GOにする。 integration未実装を理由にcore ledgerをpartial扱いせず、逆にcore
+      completionを理由にvalidation integration済みと表示しない。
+    </li>
+    <li>
+      provenance availability、coverage、confidenceをclaim truth、validation severity、security
+      confirmationへ自動変換しない。consumer policyは別のtyped decisionとして保持する。
     </li>
   </ul>
 
@@ -2157,7 +2240,38 @@ type ClaimProvenanceQueryFailure = {
     <li>rollback rehearsalとlegacy generation readを確認する。</li>
     <li>GO gateを満たした後だけnew generationのledger artifactをrequiredにする。</li>
   </ul>
-  <p>Exit: Definition of Doneを満たし、default publishを有効化できる。</p>
+  <p>Exit: Core Provenance Definition of Doneを満たし、default publishを有効化できる。</p>
+  <p>
+    Core milestone: Slice 0–6はSemantic Handoff Validationの実装有無にかかわらず完了できる。
+    この完了は現行graph / module / community lineageだけを対象とし、validation result
+    lineageやvalidation status連携を含まない。
+  </p>
+
+  <h3 id="semantic-integration-v0">
+    Semantic Integration V0: Validation Result Lineage（deferred extension）
+  </h3>
+  <ul>
+    <li>
+      Semantic Handoff Validationのowner承認済みprofileからtarget kind、rule ID、required
+      binding、failure effectをcopyせずimportする。
+    </li>
+    <li>
+      validation input / result / rule revisionを新しいimmutable provenance profileへ追加し、profile
+      v1をin-place変更しない。
+    </li>
+    <li>
+      provenance missing / partial / invalidをvalidation passへ補完せず、integration
+      capabilityだけをdegraded / unavailableにする。
+    </li>
+    <li>
+      producer / consumer byte-equivalent fixture、validation result valueHash、rollback to
+      core-onlyを検証する。
+    </li>
+  </ul>
+  <p>
+    Exit: Semantic Validation Integration DoDと専用GOを満たす。V0はCore Provenance
+    completionをblockしない。
+  </p>
 
   <h2 id="21-migration-sequence">21. Migration Sequence</h2>
   <ol>
@@ -2173,6 +2287,10 @@ type ClaimProvenanceQueryFailure = {
     <li>vulnWorkbench Slice 5でoptional descriptorとqueryをpublishする。</li>
     <li>Slice 6のevidenceが揃うまでledger欠落をhandoff failureへ昇格しない。</li>
     <li>enforcement後もlegacy 3-artifact generationをreadableに保つ。</li>
+    <li>
+      Semantic Handoff Validation profileが承認された後だけSemantic Integration
+      V0を別migrationとして追加する。
+    </li>
   </ol>
   <p>
     producerを先にrollbackしてもNightWorkersはoptional
@@ -2247,6 +2365,77 @@ type ClaimProvenanceQueryFailure = {
         <td>DoD、budget、rollback rehearsalをownerが承認</td>
         <td>threshold超過時はrequired化せずSlice 3または5へ戻す</td>
       </tr>
+      <tr>
+        <td>Semantic V0</td>
+        <td>Core DoD、Semantic Validation published profile、reader floor</td>
+        <td>valueHash、required binding、unknown profile、core-only rollback</td>
+        <td>profile推測、validation status昇格、core profile bytes差</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3 id="212-risk-register">21.2 Risk Register and Controls</h3>
+  <table>
+    <caption>
+      core / integrationの主要risk、検出、封じ込め
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Risk</th>
+        <th scope="col">Detection / threshold</th>
+        <th scope="col">Preventive control</th>
+        <th scope="col">Containment / rollback</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>誤ったtargetまたはpropertyへlineageをbindingする。</td>
+        <td>valueHash mismatch、required binding coverage &lt; 100%、golden trace差分</td>
+        <td>payloadとdraftを同じpassで生成し、closed target / property catalogを使う。</td>
+        <td>ledgerをinvalidとして非公開にし、core generationは維持する。</td>
+      </tr>
+      <tr>
+        <td>provenanceをtruth / approvalとしてconsumerが誤用する。</td>
+        <td>provenanceだけでvalidation pass、security finding、task採用が変わるfixture</td>
+        <td>
+          assertion kindとconsumer decisionを分離し、provenance-is-not-truth contract testを置く。
+        </td>
+        <td>integration capabilityをOFFにし、core lineage queryだけを残す。</td>
+      </tr>
+      <tr>
+        <td>derived artifactがsource identityへ自己参照し、generationが永続的にstaleになる。</td>
+        <td>provenance有無だけでsourceStateHash / generation IDが変化</td>
+        <td>derived-kind filterとold/new hash goldenをreader floorへ固定する。</td>
+        <td>artifactModeをoffへ戻し、Slice 2A readerより前へrollbackしない。</td>
+      </tr>
+      <tr>
+        <td>file / DB partial writeでorphan ledgerが残る。</td>
+        <td>fault injection後のrow / file差分が0でない。</td>
+        <td>既存atomic file batch + single transactionへ含め、finalizeをwrite前に完了する。</td>
+        <td>publish gateをOFFにし、今回の未参照artifactだけcleanupする。</td>
+      </tr>
+      <tr>
+        <td>raw evidence、path、secretがrecord、error、eventへ漏れる。</td>
+        <td>redaction corpusまたはbounded-output testでliteralを検出</td>
+        <td>
+          typed reference、pre-hash secret classification、fixed reason code、bounded queryを使う。
+        </td>
+        <td>
+          query / descriptor publicationを即時OFFにし、保存artifactをincident scopeとして隔離する。
+        </td>
+      </tr>
+      <tr>
+        <td>Semantic Validationとのschema skewで既存validation結果を再解釈する。</td>
+        <td>unknown profile / rule / valueHash、producer-consumer fixture hash差</td>
+        <td>新profile、reader-first、exact fixture hash、closed failure effectを必須にする。</td>
+        <td>Semantic Integration V0だけを無効化し、core profile v1を維持する。</td>
+      </tr>
+      <tr>
+        <td>ledger size / query fan-outがgeneration availabilityを圧迫する。</td>
+        <td>record / binding / bytes / P95 budget超過</td>
+        <td>deterministic bounds、balanced aggregate、target-scoped queryを使う。</td>
+        <td>required化せずshadowへ戻し、core artifact generationを継続する。</td>
+      </tr>
     </tbody>
   </table>
 
@@ -2290,6 +2479,14 @@ type ClaimProvenanceQueryFailure = {
     <li>lone surrogate、NaN、Infinity、cycleをcanonicalizationが拒否する。</li>
     <li>provenance_record dependency cycleをstructural validatorが拒否する。</li>
     <li>どのbindingからも到達できないorphan recordを拒否する。</li>
+    <li>
+      provenance available / completeだけではvalidation status、finding status、task
+      adoptionが変わらない。
+    </li>
+    <li>
+      Semantic Integrationはunknown profile / rule / failure effectを拒否し、core profile
+      v1のbytesとstatusを変えない。
+    </li>
     <li>
       上限超過のmember集合がsilent truncationされず、順序に依存しないreference set count /
       hashを持つ。
@@ -2439,6 +2636,15 @@ bun run docs:check
 # NightWorkers repository
 bun run test -- run tests/vulnworkbench-ontology-handoff-provenance.test.ts
 bun run typecheck</code></pre>
+  <p>Semantic Integration V0を実装する場合だけ次を追加し、core-only fixtureも同時に再実行する。</p>
+  <pre><code class="language-bash">bun test \
+  api/modules/static-intelligence/claim-provenance-semantic-validation.test.ts \
+  api/modules/static-intelligence/semantic-handoff-validation.test.ts
+
+# NightWorkers repository
+bun run test -- run \
+  tests/vulnworkbench-ontology-handoff-provenance.test.ts \
+  tests/vulnworkbench-semantic-validation-provenance.test.ts</code></pre>
 
   <h2 id="23-security-privacy-and-abuse-resistance">23. Security, Privacy, and Abuse Resistance</h2>
   <ul>
@@ -2527,6 +2733,7 @@ bun run typecheck</code></pre>
   </p>
 
   <h2 id="27-definition-of-done">27. Definition of Done</h2>
+  <h3 id="271-core-provenance-dod">27.1 Core Provenance Definition of Done</h3>
   <ul>
     <li>
       base ledgerのgraph node / edge / moduleと、各response projectionのemitted
@@ -2560,6 +2767,27 @@ bun run typecheck</code></pre>
     <li>関連test、typecheck、cross-repository fixture、docs checkがpassする。</li>
     <li>performance / payload budgetを満たすevidenceが保存される。</li>
     <li>rollback rehearsalとconsumer-first migrationが完了する。</li>
+  </ul>
+  <p>
+    Core DoDはSemantic Handoff ValidationまたはSecurity Vocabularyのprofileが未実装でも満たせる。
+    未実装profileは公開descriptorへ含めず、core coverageの分母にも入れない。
+  </p>
+
+  <h3 id="272-semantic-integration-dod">27.2 Semantic Validation Integration Definition of Done</h3>
+  <ul>
+    <li>
+      owner承認済みvalidation profile、rule catalog、target / binding contractを参照している。
+    </li>
+    <li>
+      validation input / result / revisionのwhole-objectとrequired property bindingが100%である。
+    </li>
+    <li>
+      unknown profile / rule、valueHash mismatch、missing lineageでvalidation passへ補完しない。
+    </li>
+    <li>producer / consumer fixtureがbyte-equivalentで、core-only rollbackがgreenである。</li>
+    <li>
+      profile v1、既存validation result、core generation selectionのbytes / behaviorが不変である。
+    </li>
   </ul>
 
   <h2 id="28-open-decisions">28. Open Decisions and Proposed Defaults</h2>
@@ -2617,7 +2845,7 @@ bun run typecheck</code></pre>
   </table>
 
   <h2 id="29-go-no-go-gate">29. GO / NO-GO Gate</h2>
-  <h3 id="291-go">29.1 GO</h3>
+  <h3 id="291-core-go">29.1 Core Provenance GO</h3>
   <ul>
     <li>producer / consumer ownerとsource-controlled rollout gate ownerが決まっている。</li>
     <li>Slice 0 fixtureとtarget / property coverage matrixが承認されている。</li>
@@ -2627,7 +2855,20 @@ bun run typecheck</code></pre>
     <li>redaction、payload、performance budgetの測定方法が固定されている。</li>
   </ul>
 
-  <h3 id="292-no-go">29.2 NO-GO</h3>
+  <h3 id="292-semantic-integration-go">29.2 Semantic Validation Integration GO</h3>
+  <ul>
+    <li>Core Provenance DoDを満たし、required ledgerとconsumer readerが安定している。</li>
+    <li>
+      Semantic Handoff Validation ownerがprofile ID、rule ID、target、required binding、severity /
+      failure authorityを承認している。
+    </li>
+    <li>
+      unknown / partial / invalid lineage時のvalidation behaviorとrollback ownerが決まっている。
+    </li>
+    <li>core-only / integrated両fixtureとcross-repository reader floorがgreenである。</li>
+  </ul>
+
+  <h3 id="293-no-go">29.3 NO-GO</h3>
   <ul>
     <li>source row / artifactからrequired targetへ安全なrefを作れない。</li>
     <li>payloadとlineageを別passで推測する実装しか成立しない。</li>
@@ -2635,6 +2876,11 @@ bun run typecheck</code></pre>
     <li>raw evidence / path / secretを保存しないとlineageを表現できない。</li>
     <li>legacy 3-artifact generationを壊さずに4-artifact setへ移行できない。</li>
     <li>missing required binding、hash不安定、性能超過がshadow qualificationで解消しない。</li>
+    <li>provenance availabilityだけでclaim truth、validation pass、security findingを確定する。</li>
+    <li>
+      Semantic Validationのprofile / rule / failure effectが未確定のままintegration
+      fieldを推測する。
+    </li>
   </ul>
 
   <h2 id="30-implementation-handoff">30. Implementation Handoff</h2>
@@ -2647,5 +2893,10 @@ bun run typecheck</code></pre>
     Semantic Handoff Validationが未実装でもSlice 0〜5は進められる。両計画を接続する場合は、Claim
     Provenanceのledger validatorを先に安定させたうえで、別のvalidation profile / rollout
     decisionとして扱う。
+  </p>
+  <p>
+    Slice 6のcore required化とSemantic Integration V0も別PR / 別GOにする。V0の前提が未成立ならcore
+    completionを記録したままintegrationを<code>not_published</code>で止め、仮のvalidation
+    targetやrule IDを作らない。
   </p>
 </article>
