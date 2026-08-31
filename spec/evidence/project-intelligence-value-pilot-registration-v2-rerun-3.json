@@ -1,0 +1,102 @@
+{
+  "schemaVersion": "project-intelligence-value-pilot-registration-v2",
+  "protocolVersion": 1,
+  "status": "SEALED",
+  "pilotId": "project-intelligence-value-2026-08-31-v4",
+  "commits": {
+    "producer": "1f5d4e4a976a9921d408ac523eb1cbeb2f3725cb",
+    "consumer": "058e788918c770b06ad1274b230f201ad7b356eb",
+    "target": "d87bfdd9f29aa64e484a0c4d1ad02956136dc6b0"
+  },
+  "fingerprints": {
+    "taskSet": "sha256:6bf07784b43d3e68609a5fbf6b34924200f8022e7c0fb44b0c0bb0388e5b7f73",
+    "evaluatorSet": "sha256:5c6bb0cdc247dc9866705dcd7797489fbb9e321b8921f5e62b1dd431d9f0b6b7",
+    "route": "sha256:b0cd0de24ab543641f6ef7b4d031769bc02ed93e511584d26723e3c3f2d6aee0",
+    "settings": "sha256:c880e45cf677f3daeba41dd8d9bfce99ccf2de145db7816271966d98803d594a",
+    "promptContract": "sha256:5835b6fdc82f55ac17482d64197b21c873f12c5461eaec6f79e14b14fe7f293b",
+    "toolManifest": "sha256:d793ed00f1ed45d32eff8af0c731c9c62c1dd34dc3d43aa52fe70d17ca0699a8"
+  },
+  "schedule": {
+    "cooldownSeconds": 30,
+    "maxAttemptsPerTask": 2,
+    "maxPairAttempts": 14,
+    "pairs": [
+      {
+        "taskId": "p01",
+        "order": [
+          "baseline",
+          "catalog"
+        ]
+      },
+      {
+        "taskId": "p02",
+        "order": [
+          "catalog",
+          "baseline"
+        ]
+      },
+      {
+        "taskId": "p03",
+        "order": [
+          "baseline",
+          "catalog"
+        ]
+      },
+      {
+        "taskId": "p04",
+        "order": [
+          "catalog",
+          "baseline"
+        ]
+      },
+      {
+        "taskId": "p05",
+        "order": [
+          "baseline",
+          "catalog"
+        ]
+      },
+      {
+        "taskId": "p06",
+        "order": [
+          "catalog",
+          "baseline"
+        ]
+      },
+      {
+        "taskId": "p07",
+        "order": [
+          "baseline",
+          "catalog"
+        ]
+      },
+      {
+        "taskId": "p08",
+        "order": [
+          "catalog",
+          "baseline"
+        ]
+      },
+      {
+        "taskId": "p09",
+        "order": [
+          "baseline",
+          "catalog"
+        ]
+      },
+      {
+        "taskId": "p10",
+        "order": [
+          "catalog",
+          "baseline"
+        ]
+      }
+    ]
+  },
+  "retention": {
+    "rawEvidencePolicy": "LOCAL_OWNER_RETAINED"
+  },
+  "approvals": {
+    "pilotOwner": "y.noguchi"
+  }
+}
