@@ -55,7 +55,10 @@ export function FindingDetailOverview({
 						<DetailItem label="CWE" value={model.technical.cweIds.join(", ")} />
 					) : null}
 					{model.technical.wascIds.length > 0 ? (
-						<DetailItem label="WASC" value={model.technical.wascIds.join(", ")} />
+						<DetailItem
+							label="WASC"
+							value={model.technical.wascIds.join(", ")}
+						/>
 					) : null}
 					{model.technical.artifacts.length > 0 ? (
 						<div className="finding-artifact-list">
