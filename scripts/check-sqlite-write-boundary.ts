@@ -16,12 +16,15 @@ const allowedBunSqliteImports = new Set([
 	"api/db/writer/internal/connection.ts",
 	// Backup verification opens an operator-selected snapshot read-only.
 	"api/operations/database-backup.ts",
+	// Scan-run integrity verification opens an evidence-selected snapshot read-only.
+	"scripts/verify-scan-run-integrity.ts",
 ]);
 const allowedDatabaseConstructors = new Set([
 	"api/db/index.ts",
 	"api/db/testing/connection.ts",
 	"api/db/writer/internal/connection.ts",
 	"api/operations/database-backup.ts",
+	"scripts/verify-scan-run-integrity.ts",
 ]);
 const allowedRawMutationFiles = new Set([
 	"api/db/testing/connection.ts",

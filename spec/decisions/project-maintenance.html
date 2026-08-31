@@ -1,0 +1,103 @@
+<article lang="ja" data-spec-role="decision-contract">
+  <h1 id="vulnworkbench-project-maintenance">vulnWorkbench Project Maintenance</h1>
+  <p>
+    この文書は、vulnWorkbench
+    の名称、ドキュメント、実行コマンド、診断境界を実装と同期するための保守メモです。
+  </p>
+  <h2 id="目的">目的</h2>
+  <ul>
+    <li>
+      <code>package.json</code>、README、画面タイトル、API service 名を
+      <code>vulnWorkbench</code> /
+      <code>vuln-workbench</code> に統一する。
+    </li>
+    <li>
+      README と <code>LLM_CONTEXT.md</code> に、現在の主 workflow である scan /
+      finding / evidence / automated diagnostic / report を記載する。
+    </li>
+    <li>
+      元テンプレート由来の knowledge / search / chat / showcase 機能は、主機能ではなく補助・legacy
+      surface として扱う。
+    </li>
+    <li>実装済みでない機能、または現状の安全境界を超える機能をドキュメントに書かない。</li>
+  </ul>
+  <h2 id="naming">Naming</h2>
+  <table>
+    <caption>
+      Naming
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Surface</th>
+        <th scope="col">Name</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Product display name</td>
+        <td><code>vulnWorkbench</code></td>
+      </tr>
+      <tr>
+        <td>npm/package name</td>
+        <td><code>vuln-workbench</code></td>
+      </tr>
+      <tr>
+        <td>Health service name</td>
+        <td><code>vuln-workbench</code></td>
+      </tr>
+      <tr>
+        <td>Browser title</td>
+        <td><code>vulnWorkbench</code></td>
+      </tr>
+      <tr>
+        <td>Default SQLite database</td>
+        <td><code>data/vuln-workbench.sqlite</code></td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    <code>hono-standard</code> はこのリポジトリの現在名として使わない。migration
+    目的の legacy storage key など、既存ユーザー状態を読むために必要な互換キーだけ例外として残せる。
+  </p>
+  <h2 id="documentation-boundary">Documentation Boundary</h2>
+  <p>README に書く内容は、次の実態に合わせる。</p>
+  <ul>
+    <li>CLI security tools が診断と raw evidence 生成を担当する。</li>
+    <li>
+      vulnWorkbench は実行制御、artifact 保存、正規化、deterministic report、証跡制約付き LLM
+      review、Markdown report を担当する。
+    </li>
+    <li>
+      人間の decision / review は任意の互換・監査注釈であり、通常 workflow の完了 gate にしない。
+    </li>
+    <li>
+      LLM は自由探索で脆弱性を探す主体ではなく、保存済み finding / evidence
+      をレビューする後段処理として扱う。
+    </li>
+    <li>
+      認可、credential、active scan 許可、network policy、resource limit は LLM で代替せず、server
+      policy で fail-closed にする。
+    </li>
+    <li>Reproduction / dynamic / DAST は bounded profile と Docker 隔離を前提に扱う。</li>
+    <li>DAST はローカル対象または明示的に保存した target config に限定する。</li>
+    <li>patch 自動適用は対象外として扱う。</li>
+  </ul>
+  <h2 id="update-checklist">Update Checklist</h2>
+  <p>名称や実態説明を直すときは、最低限次を確認する。</p>
+  <pre><code class="language-bash">rg -n &#39;hono-standard|Hono Standard|template|MVP対象外&#39; README.md LLM_CONTEXT.md docs package.json web/index.html api web/src .env.example
+rg -n &#39;vulnWorkbench|vuln-workbench&#39; README.md LLM_CONTEXT.md docs package.json web/index.html api web/src .env.example
+</code></pre>
+  <p>
+    <code>spec/phase-*</code>
+    は過去の計画や完了条件を含む履歴文書なので、現在説明を更新する目的だけで当時の文脈を書き換えない。
+  </p>
+  <h2 id="verification">Verification</h2>
+  <p>ドキュメント・メタデータのみの変更でも、次を最低限の確認にする。</p>
+  <pre><code class="language-bash">bun run format:check
+rg -n &#39;hono-standard|Hono Standard&#39; README.md LLM_CONTEXT.md docs package.json web/index.html api web/src .env.example
+</code></pre>
+  <p>
+    コード上の service 名、UI 表示、env default も変更した場合は、関連する focused test または
+    <code>bun run typecheck</code> を追加する。
+  </p>
+</article>

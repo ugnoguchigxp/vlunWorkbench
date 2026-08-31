@@ -1,0 +1,1061 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex,follow">
+    <title>Runtime Scan Execution Reliability Implementation Plan | vulnWorkbench</title>
+    <link rel="stylesheet" href="/vlunWorkbench/assets/css/spec-document.css">
+    <link rel="stylesheet" href="/vlunWorkbench/assets/css/plan-document.css">
+  </head>
+  <body>
+    <article lang="ja" data-spec-role="archived-plan">
+  <h1 id="runtime-scan-execution-reliability-implementation-plan">
+    Runtime Scan Execution Reliability Implementation Plan
+  </h1>
+  <p>Status: Implemented and archived — 2026-08-24</p>
+  <p>Plan revision: <code>2</code></p>
+  <p>Planning baseline commit: <code>1fcf734134f4e3d5d91dc3601a05e0280644d8ff</code></p>
+  <p>Observed failure date: 2026-08-23</p>
+  <p>Document date: 2026-08-24</p>
+  <p>Owner: vulnWorkbench maintainers</p>
+  <p>
+    Target: 「安全な実行時Web診断」をGolden Pathとして、runtime targetの準備、共有、診断、
+    cleanup、後続scannerの状態確定を一つのfail-closed lifecycleへ統合する。成功時は実機Dockerで
+    再現可能に完走し、失敗時は画面と保存証跡から最初の原因を特定できる状態にする。
+  </p>
+
+  <aside data-type="warning">
+    <strong>Workspace保護</strong>
+    <p>
+      baseline workspaceには利用者の未コミット変更と未追跡ファイルがある。実装者は開始時に Section
+      10.1のcheckpointを取り直し、既存差分をreset、checkout、stash、上書き、広範な
+      formatによって変更してはならない。同一ファイルで競合する場合は差分を読んで統合し、
+      判断不能なら停止して利用者へ確認する。
+    </p>
+  </aside>
+
+  <h2 id="0-document-authority">0. Document authority</h2>
+  <p>
+    本書はruntime scanのtarget lifecycle、Docker failure observability、runtime依存stepの
+    状態遷移、progress表示、実Docker稼働保証に関する実装正本である。以下の文書は引き続き有効だが、
+    上記事項で競合する場合は本書を優先する。
+  </p>
+  <ul>
+    <li>
+      <a href="/vlunWorkbench/plans/archive/?doc=scan-profile-execution-architecture-migration-plan">Scan Profile Execution Architecture Migration Plan</a>
+    </li>
+    <li>
+      <a href="/vlunWorkbench/plans/archive/?doc=runtime-target-database-isolation-implementation-plan">Runtime Target Database Isolation Implementation Plan</a>
+    </li>
+    <li>
+      <a href="/vlunWorkbench/plans/archive/?doc=scan-profile-stability-promotion-implementation-plan">Scan Profile Stability Promotion Implementation Plan</a>
+    </li>
+  </ul>
+  <p>
+    scanner rule、finding判定精度、active scanの安全規則、runtime imageのsupply-chain
+    qualificationは再設計しない。新しいprofile固有分岐、mutable image fallback、host execution
+    fallback、秘密情報を含むraw log保存は禁止する。
+  </p>
+
+  <h3 id="01-revision-2-review-closure">0.1 Revision 2 review closure</h3>
+  <table>
+    <caption>
+      0.1 Revision 1 review findings and resolutions
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Finding</th>
+        <th scope="col">Priority</th>
+        <th scope="col">Revision 2 resolution</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Docker lifecycleからeventとartifactを保存する接続点が未定義。</td>
+        <td>P0</td>
+        <td>
+          Section 6.4のrun-local observerと、redacted evidenceをerror経由で返すdata flowを固定する。
+        </td>
+      </tr>
+      <tr>
+        <td><code>runtime_diagnostic</code>がartifact schemaに存在しない。</td>
+        <td>P0</td>
+        <td>Section 6.5でschema、sink location、owner namespace、migration不要を固定する。</td>
+      </tr>
+      <tr>
+        <td>
+          既存step resultとprogress
+          snapshotが<code>blocked</code>を表現できない。
+        </td>
+        <td>P0</td>
+        <td>Section 5.3と7.2でresult unionとProgress V3を固定する。</td>
+      </tr>
+      <tr>
+        <td>診断artifactの回収、cleanup、永続化順序が曖昧。</td>
+        <td>P0</td>
+        <td>Section 6.3で回収をcleanup前、永続化をcleanup後に固定し、first failureを保持する。</td>
+      </tr>
+      <tr>
+        <td>管理者専用閲覧と既存project ownershipが競合する。</td>
+        <td>P1</td>
+        <td>
+          RBAC変更をscope外とし、既存project ownershipを維持する。通常運用はadmin
+          ownerを前提とする。
+        </td>
+      </tr>
+      <tr>
+        <td>cancelとworker crash時のcleanup責務が未定義。</td>
+        <td>P0</td>
+        <td>Section 7.4で通常終了はsession、強制終了はlease janitorを正本とする。</td>
+      </tr>
+      <tr>
+        <td>実Docker用package scriptが三つに分散していた。</td>
+        <td>P1</td>
+        <td>Section 10.2で単発とrepeatの二commandへ固定する。</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2 id="1-executive-decision">1. Executive decision</h2>
+  <p>今回の障害は三scannerの個別障害ではなく、共通runtime target lifecycleの障害である。</p>
+  <ol>
+    <li>共通runtime targetのreadiness確認が最初に失敗した。</li>
+    <li>失敗処理がprovider所有のruntime source projectionを早期削除した。</li>
+    <li>後続stepが同じproviderを再実行し、削除済みprojectionのmount作成で失敗した。</li>
+    <li>
+      Docker stderrとcontainer logを保存せずcleanupしたため、最初のprocess-level
+      causeを復元できなかった。
+    </li>
+  </ol>
+  <p>実装判断を次に固定する。</p>
+  <ol>
+    <li>一profile runにつき一つのruntime target sessionを持つ。</li>
+    <li>target準備はsingle-flightとし、成功または失敗を同じrun内で再利用する。</li>
+    <li>
+      共通依存の失敗後はdependent
+      stepを再実行せず<code>blocked</code>にする。
+    </li>
+    <li>cleanup前にbounded、redacted、access-controlledな診断証跡を保存する。</li>
+    <li>unit testとは別に実Docker acceptanceをrelease gateとする。</li>
+  </ol>
+
+  <h2 id="2-observed-baseline">2. Observed baseline and causal findings</h2>
+  <table>
+    <caption>
+      2.1 Failure evidence from the control-plane database
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Item</th>
+        <th scope="col">Observed value</th>
+        <th scope="col">Interpretation</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Scan run</td>
+        <td><code>77f3bd76-935e-4933-bcf7-280360be9b61</code></td>
+        <td>2026-08-23 23:37開始の<code>runtime-passive</code></td>
+      </tr>
+      <tr>
+        <td>Preflight</td>
+        <td><code>ready</code></td>
+        <td>daemon、platform、required image digestは解決済み</td>
+      </tr>
+      <tr>
+        <td>DAST</td>
+        <td><code>runtime_bundle_docker_command_failed:wait</code></td>
+        <td>targetとprobe作成後、readiness probeが非0終了</td>
+      </tr>
+      <tr>
+        <td>Nuclei</td>
+        <td><code>runtime_bundle_docker_command_failed:create</code></td>
+        <td>二回目のbundleがowner作成後、次のcreateで失敗</td>
+      </tr>
+      <tr>
+        <td>ZAP</td>
+        <td><code>runtime_bundle_docker_command_failed:create</code></td>
+        <td>三回目も同じ位置で失敗</td>
+      </tr>
+      <tr>
+        <td>Diagnostic</td>
+        <td>stderr、target log、probe logなし</td>
+        <td>最初のprocess-level causeは事後復元不能</td>
+      </tr>
+      <tr>
+        <td>Cleanup</td>
+        <td>三bundleとも<code>released</code></td>
+        <td>resourceは回収したが証跡を先に破棄した</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <table>
+    <caption>
+      2.2 Root-cause register
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">ID</th>
+        <th scope="col">Priority</th>
+        <th scope="col">Gap</th>
+        <th scope="col">Required outcome</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>RSR-G01</td>
+        <td>P0</td>
+        <td>
+          <code>prepare()</code>失敗時にprovider所有projectionを削除する。
+        </td>
+        <td>attempt resourceとprovider resourceの所有権を分離する。</td>
+      </tr>
+      <tr>
+        <td>RSR-G02</td>
+        <td>P0</td>
+        <td>共有target準備の失敗をcacheせず後続stepが再準備する。</td>
+        <td>single-flight sessionが成功・失敗を一度だけ確定する。</td>
+      </tr>
+      <tr>
+        <td>RSR-G03</td>
+        <td>P0</td>
+        <td><code>continueOnToolFailure</code>が共通依存障害にも適用される。</td>
+        <td>
+          dependent
+          stepを<code>blocked</code>にし独立stepだけ続行可能にする。
+        </td>
+      </tr>
+      <tr>
+        <td>RSR-G04</td>
+        <td>P0</td>
+        <td>Docker runnerが得たstderrをlifecycle errorが捨てる。</td>
+        <td>typed、redacted、boundedなfailure detailを保存する。</td>
+      </tr>
+      <tr>
+        <td>RSR-G05</td>
+        <td>P0</td>
+        <td>container logを回収せずcleanupする。</td>
+        <td>failure evidence collectionをcleanupの必須前工程にする。</td>
+      </tr>
+      <tr>
+        <td>RSR-G06</td>
+        <td>P1</td>
+        <td>readinessがexit、OOM、connection refusal、timeoutを区別しない。</td>
+        <td>actionableなreason codeとnext actionを返す。</td>
+      </tr>
+      <tr>
+        <td>RSR-G07</td>
+        <td>P1</td>
+        <td>UIが上流失敗を全工程の個別失敗として表示する。</td>
+        <td>first cause、blocked dependency、final outcomeを分離する。</td>
+      </tr>
+      <tr>
+        <td>RSR-G08</td>
+        <td>P0</td>
+        <td>実Docker success/failure lifecycleがrelease gateにない。</td>
+        <td>arm64を含むrepeatable acceptanceを追加する。</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2 id="3-scope">3. Scope and non-goals</h2>
+  <h3 id="31-in-scope">3.1 In scope</h3>
+  <ul>
+    <li>
+      <code>runtime-passive</code>とexecution profile
+      <code>runtime-web-safe</code>
+    </li>
+    <li>runtime source projectionの所有権とcleanup</li>
+    <li>Docker bundleの作成、readiness、failure evidence、cleanup</li>
+    <li>DAST、Nuclei、ZAP、Schemathesisが共有するruntime target session</li>
+    <li>scan event、step result、artifact、progress API、Web表示</li>
+    <li>unit、integration、実Docker acceptance、繰り返し実行検証</li>
+  </ul>
+  <h3 id="32-non-goals">3.2 Non-goals</h3>
+  <ul>
+    <li>scannerの検出ruleと判定アルゴリズムの変更</li>
+    <li>Docker Desktop設定の自動変更</li>
+    <li>host executionまたはmutable imageへのfallback</li>
+    <li>environment値、request body、header、cookieのraw保存</li>
+    <li>本改修専用の新しいartifact retention subsystem</li>
+  </ul>
+
+  <h2 id="4-closed-decisions">4. Closed implementation decisions</h2>
+  <table>
+    <caption>
+      4.1 Decisions implementers must not reopen implicitly
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">ID</th>
+        <th scope="col">Decision</th>
+        <th scope="col">Reason</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>RSR-D01</td>
+        <td>一runにつき一runtime target session。</td>
+        <td>同じtarget、namespace、source、plan hashを保証する。</td>
+      </tr>
+      <tr>
+        <td>RSR-D02</td>
+        <td>初期実装では自動retryしない。</td>
+        <td>再現性を優先し重複bundle作成を防ぐ。</td>
+      </tr>
+      <tr>
+        <td>RSR-D03</td>
+        <td>準備失敗後のdependent stepは<code>blocked</code>。</td>
+        <td>未実行をscanner failureと誤表示しない。</td>
+      </tr>
+      <tr>
+        <td>RSR-D04</td>
+        <td>
+          projectionはprovider
+          sessionが所有し<code>dispose()</code>だけが削除。
+        </td>
+        <td>一attemptの失敗でprofile-wide resourceを破棄しない。</td>
+      </tr>
+      <tr>
+        <td>RSR-D05</td>
+        <td>evidence回収失敗でもcleanupを継続。</td>
+        <td>診断失敗をresource leakの理由にしない。</td>
+      </tr>
+      <tr>
+        <td>RSR-D06</td>
+        <td>画面はredacted excerpt、全文は既存project ownerだけが取得できるartifact。</td>
+        <td>診断可能性と情報漏えい防止を両立する。</td>
+      </tr>
+      <tr>
+        <td>RSR-D07</td>
+        <td>diagnostic artifactはscan artifact lifecycleに従う。</td>
+        <td>独立retentionを増やさない。</td>
+      </tr>
+      <tr>
+        <td>RSR-D08</td>
+        <td>finalization成功とscan outcome成功を分離。</td>
+        <td>上流失敗を完了処理失敗と誤認させない。</td>
+      </tr>
+      <tr>
+        <td>RSR-D09</td>
+        <td>RBACの追加、拡張、削除を本改修へ含めない。</td>
+        <td>
+          通常運用はadmin accountがproject ownerである前提とし、runtime
+          reliabilityと権限再設計を分離する。
+        </td>
+      </tr>
+      <tr>
+        <td>RSR-D10</td>
+        <td>worker強制終了時の回収は永続lease receiptと既存janitorを正本とする。</td>
+        <td>
+          本改修でprocess supervisorからruntime providerへの新しいcancel transportを追加しない。
+        </td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2 id="5-runtime-target-session-contract">5. Runtime target session contract</h2>
+  <h3 id="51-state-machine">5.1 State machine</h3>
+  <pre><code>idle --ensure()--&gt; preparing
+preparing --resolved--&gt; ready
+preparing --rejected--&gt; failed
+ready --ensure()--&gt; same PreparedRuntimeTarget
+failed --ensure()--&gt; same RuntimeTargetPreparationError
+idle | ready | failed --dispose()--&gt; disposed
+disposed --ensure()--&gt; runtime_target_session_disposed
+disposed --dispose()--&gt; no-op</code></pre>
+  <p>実装interfaceを次に固定する。</p>
+  <pre><code>type RuntimeTargetSessionState =
+  | "idle"
+  | "preparing"
+  | "ready"
+  | "failed"
+  | "disposed";
+
+interface RuntimeTargetSession {
+  ensure(): Promise&lt;PreparedRuntimeTarget&gt;;
+  getState(): RuntimeTargetSessionState;
+  getFailure(): RuntimeTargetPreparationError | null;
+  dispose(): Promise&lt;void&gt;;
+}</code></pre>
+  <p>
+    <code>ensure()</code>は一つのPromiseを保持する。同時・連続callerがあってもproviderの
+    <code>prepare()</code>は一度だけ実行する。失敗はtyped
+    stateとして保持し、後続callerは同じ root failureを参照する。
+  </p>
+
+  <h3 id="52-resource-ownership">5.2 Resource ownership</h3>
+  <table>
+    <caption>
+      5.2 Ownership and cleanup boundary
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Resource</th>
+        <th scope="col">Owner</th>
+        <th scope="col">Created</th>
+        <th scope="col">Destroyed</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Full source snapshot</td>
+        <td>Profile orchestrator</td>
+        <td>profile前</td>
+        <td>outer finally</td>
+      </tr>
+      <tr>
+        <td>Runtime source projection</td>
+        <td>Runtime provider session</td>
+        <td>provider factory</td>
+        <td>provider <code>dispose()</code></td>
+      </tr>
+      <tr>
+        <td>Runtime bundle attempt</td>
+        <td>Docker bundle lifecycle</td>
+        <td>session <code>ensure()</code></td>
+        <td>stopまたはfailed-attempt cleanup</td>
+      </tr>
+      <tr>
+        <td>Shared prepared target</td>
+        <td>Runtime target session</td>
+        <td>first successful <code>ensure()</code></td>
+        <td>session <code>dispose()</code></td>
+      </tr>
+      <tr>
+        <td>Diagnostic artifacts</td>
+        <td>Scan artifact repository</td>
+        <td>failure evidence collection</td>
+        <td>scan artifact retention</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    providerの<code>prepare()</code>失敗時は、そのattemptのDocker
+    resourceだけをcleanupする。 provider構築失敗とouter
+    <code>dispose()</code>だけがprojection cleanupを行う。
+  </p>
+
+  <h3 id="53-dependent-steps">5.3 Dependent step semantics</h3>
+  <p>
+    <code>auto_project_start</code> DAST、runtime scanner、runtimeを使うAPI schema
+    scannerは同じ dependency
+    groupに属する。最初にsession準備を要求したstepで失敗した場合、そのstepは
+    <code>failed</code>、後続dependent
+    stepは<code>blocked</code>とする。後続resultは
+    <code>reasonCode=runtime_target_unavailable</code>、<code>blockedByStepId</code>、
+    <code>rootReasonCode</code>を持ち、scanner processを起動しない。独立static
+    stepだけが既存の <code>continueOnToolFailure</code>規則に従う。
+  </p>
+  <p>既存result unionを次の規則で拡張する。</p>
+  <pre><code>status: "completed" | "failed" | "skipped" | "blocked";
+reasonCode: string | null;
+blockedByStepId?: string | null;
+rootReasonCode?: string | null;
+diagnosticArtifactIds?: string[];</code></pre>
+  <ul>
+    <li>
+      <code>DastStepResult</code>へreason code、blocked relation、artifact
+      IDを追加する。
+    </li>
+    <li>
+      <code>CoverageStepResult</code>のstatusへ<code>blocked</code>を追加する。
+    </li>
+    <li>blocked stepをruntime coverageのattemptedまたはfailedへ加算しない。</li>
+    <li>
+      <code>failureDelta()</code>の文字列部分一致によるruntime failure判定をtyped
+      mapperへ置き換える。
+    </li>
+  </ul>
+  <p>
+    観測済みrunの期待結果はDASTが<code>failed</code>、NucleiとZAPが
+    <code>blocked</code>、bundle作成回数1、scanner process起動回数0である。
+  </p>
+
+  <h2 id="6-failure-contract">6. Failure and diagnostic contract</h2>
+  <h3 id="61-typed-error">6.1 Typed Docker error</h3>
+  <pre><code>type RuntimeDockerCommandError = Error &amp; {
+  code: RuntimeFailureReasonCode;
+  phase: RuntimeBundlePhase;
+  role: RuntimeBundleRole | null;
+  operation: RuntimeDockerOperation;
+  exitCode: number | null;
+  terminationReason: string | null;
+  stderrExcerpt: string | null;
+  stdoutExcerpt: string | null;
+  retryable: false;
+};</code></pre>
+  <p>Docker command errorはbundle cleanup後、sessionへ返す前に次の公開internal contractへ包む。</p>
+  <pre><code>class RuntimeTargetPreparationError extends Error {
+  reasonCode: RuntimeFailureReasonCode;
+  phase: RuntimeBundlePhase;
+  role: RuntimeBundleRole | null;
+  operation: RuntimeDockerOperation;
+  exitCode: number | null;
+  terminationReason: string | null;
+  safeExcerpt: string | null;
+  evidence: RuntimeFailureEvidence | null;
+  diagnosticArtifactIds: string[];
+  cleanupFailure: RuntimeDockerCommandError | null;
+}</code></pre>
+  <p>
+    lifecycleの<code>execute()</code>はargvからphaseを推測せず、callerがphase、role、operationを
+    渡す。error messageへ完全なargv、environment値、host absolute path、secretを含めない。
+  </p>
+
+  <h3 id="62-reason-codes">6.2 Stable reason codes</h3>
+  <table>
+    <caption>
+      6.2 Runtime failure classification
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Reason code</th>
+        <th scope="col">Condition</th>
+        <th scope="col">Next action</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>runtime_target_process_exited</code></td>
+        <td>readiness前にtarget終了</td>
+        <td>target logとstart commandを確認</td>
+      </tr>
+      <tr>
+        <td><code>runtime_target_readiness_timeout</code></td>
+        <td>期限内に許容HTTP statusなし</td>
+        <td>port、bind address、pathを確認</td>
+      </tr>
+      <tr>
+        <td><code>runtime_dependency_install_failed</code></td>
+        <td>dependency-fetch非0</td>
+        <td>lockfile、proxy、platformを確認</td>
+      </tr>
+      <tr>
+        <td><code>runtime_bind_mount_unavailable</code></td>
+        <td>projection mount拒否</td>
+        <td>projection lifecycleとfile sharingを確認</td>
+      </tr>
+      <tr>
+        <td><code>runtime_resource_exhausted</code></td>
+        <td>OOM、memory、pids、disk不足</td>
+        <td>Docker resourceとlimitを確認</td>
+      </tr>
+      <tr>
+        <td><code>runtime_container_create_failed</code></td>
+        <td>その他のcreate失敗</td>
+        <td>保存Docker診断を確認</td>
+      </tr>
+      <tr>
+        <td><code>runtime_target_unavailable</code></td>
+        <td>上流準備失敗で未実行</td>
+        <td>最初の失敗stepを確認</td>
+      </tr>
+      <tr>
+        <td><code>runtime_evidence_collection_failed</code></td>
+        <td>証跡の一部を回収不能</td>
+        <td>主原因とは別のlimitationとして表示</td>
+      </tr>
+      <tr>
+        <td><code>runtime_cleanup_failed</code></td>
+        <td>resource削除またはlease更新失敗</td>
+        <td>quarantined leaseを確認</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3 id="63-evidence-before-cleanup">6.3 Evidence before cleanup</h3>
+  <ol>
+    <li>最初のtyped failureを確定し、後続errorで上書きしない。</li>
+    <li>receiptに記録済みのcontainerだけを対象にする。</li>
+    <li>target、dependency-fetch、probe、scannerのbounded logを取得する。</li>
+    <li>state、exit code、OOMKilled、startedAt、finishedAt、image IDだけをinspectから取得する。</li>
+    <li>
+      redactorを通し、合計1
+      MiB以下の<code>RuntimeFailureEvidence</code>をメモリ上で確定する。
+    </li>
+    <li>証跡回収の成否にかかわらずDocker resourceをcleanupする。</li>
+    <li>leaseをreleasedまたはquarantinedへ確定する。</li>
+    <li>evidence付きtyped errorをsessionへ返す。</li>
+    <li>
+      sessionがartifactを一度だけ永続化し、最大4 KiBのsafe excerptとartifact IDをeventへ記録する。
+    </li>
+  </ol>
+  <p>
+    environment、mount元absolute path、raw inspect JSON、header、cookieは保存しない。回収はcontainer
+    cleanup前、永続化はcleanup後とする。artifact永続化の失敗は元reason codeを維持したまま
+    <code>runtime_evidence_collection_failed</code> limitationを追加する。
+  </p>
+
+  <h3 id="64-lifecycle-observer">6.4 Lifecycle observer and data flow</h3>
+  <p><code>RuntimeIsolationProviderFactory</code>のrun単位inputへ次のobserverを追加する。</p>
+  <pre><code>interface RuntimeTargetLifecycleObserver {
+  emit(event: RuntimeTargetLifecycleEvent): Promise&lt;void&gt;;
+  persistFailureEvidence(input: {
+    bundleId: string;
+    stepId: string;
+    evidence: RuntimeFailureEvidence;
+  }): Promise&lt;string[]&gt;;
+}</code></pre>
+  <p>
+    <code>profile-orchestrator</code>がScanRepository、ArtifactRepository、ArtifactStorageからobserverを 構築する。Docker
+    lifecycleへDB repositoryを直接渡さない。phase event保存に失敗してもcleanupを
+    続行し、scanを成功扱いにしない。evidence persistenceはfailed sessionごとに一度だけ実行する。
+  </p>
+
+  <h3 id="65-artifact-contract">6.5 Runtime diagnostic artifact</h3>
+  <p>
+    <code>scanArtifactKindSchema</code>と<code>ScanArtifactSink</code>のlocation mapへ
+    <code>runtime_diagnostic</code>を追加する。DB
+    columnはtextであるためmigrationは追加しない。
+    <code>scan_diagnostic_runs</code>は自動review
+    pipeline用であり、本contractでは使用しない。
+  </p>
+  <p>
+    ownerは<code>{ scanRunId, kind: "scan", id: "runtime-" + bundleId }</code>、filenameは
+    <code>runtime_diagnostic.json</code>とする。失敗bundleにつきartifactは一件だけ保存し、内容を次に固定する。
+  </p>
+  <pre><code>{
+  schemaVersion: 1,
+  bundleId: string,
+  stepId: string,
+  rootFailure: {
+    reasonCode: RuntimeFailureReasonCode,
+    phase: RuntimeBundlePhase,
+    role: RuntimeBundleRole | null,
+    operation: RuntimeDockerOperation,
+    exitCode: number | null
+  },
+  containers: Array&lt;{
+    role: RuntimeBundleRole,
+    status: string | null,
+    exitCode: number | null,
+    oomKilled: boolean | null,
+    stdout: string,
+    stderr: string,
+    truncated: boolean
+  }&gt;,
+  readiness: {
+    timeoutMs: number,
+    attempts: number,
+    paths: Array&lt;{ path: string, lastResult: string }&gt;
+  } | null,
+  redacted: true
+}</code></pre>
+  <p>
+    downloadは既存scan artifact routeとproject ownership
+    checkを使う。RBACやadmin横断閲覧を追加せず、 運用上はadmin accountがproject
+    ownerであることを前提とする。保持期間はscan artifact lifecycleに従う。
+  </p>
+
+  <h2 id="7-event-ui-contract">7. Event and UI contract</h2>
+  <h3 id="71-events">7.1 Runtime preparation events</h3>
+  <ul>
+    <li><code>runtime.target.preparation_started</code></li>
+    <li><code>runtime.target.phase_started</code></li>
+    <li><code>runtime.target.phase_finished</code></li>
+    <li><code>runtime.target.ready</code></li>
+    <li><code>runtime.target.failed</code></li>
+    <li><code>runtime.target.evidence_saved</code></li>
+    <li><code>runtime.target.cleanup_started</code></li>
+    <li><code>runtime.target.cleanup_finished</code></li>
+  </ul>
+  <p>
+    phaseはprojection、workspace、dependency_install、target_start、readiness、evidence、cleanupの
+    enumとする。<code>scan.step.finished</code>へoptionalな<code>blockedByStepId</code>、
+    <code>rootReasonCode</code>、<code>diagnosticArtifactIds</code>を後方互換で追加する。
+  </p>
+
+  <h3 id="72-progress-v3">7.2 Progress V3</h3>
+  <p>
+    既存<code>ScanProgressSnapshotV2</code>はblocked、skipped、runtime preparation
+    detailを表現できない。
+    <code>GET /api/scans/:scanRunId/progress</code>を次のV3へ切り替え、Web clientを同時更新する。
+  </p>
+  <pre><code>type ScanProgressStepStatus =
+  | "pending"
+  | "running"
+  | "completed"
+  | "failed"
+  | "blocked"
+  | "skipped"
+  | "not_applicable";
+
+type ScanProgressSnapshotV3 = {
+  schemaVersion: 3;
+  runId: string;
+  planHash: string;
+  currentPhase: ScanProgressPhase;
+  runtimeTarget: {
+    status:
+      | "not_required"
+      | "pending"
+      | "preparing"
+      | "ready"
+      | "failed"
+      | "cleaning"
+      | "cleaned";
+    phase: RuntimeBundlePhase | null;
+    safeMessage: string | null;
+    rootReasonCode: string | null;
+    diagnosticArtifactIds: string[];
+  };
+  steps: ScanProgressStepV3[];
+  completedStepCount: number;
+  terminalStepCount: number;
+  totalStepCount: number;
+  lastEventSeq: number;
+};</code></pre>
+  <p>
+    completed countはcompletedとnot_applicableだけ、terminal
+    countはcompleted、failed、blocked、skipped、 not_applicableを数える。画面の100%はterminal
+    countから計算し、成功判定には使用しない。
+  </p>
+
+  <h3 id="73-ui">7.3 Required presentation</h3>
+  <ul>
+    <li>実行準備の現在phase、完了phase、経過時間を表示する。</li>
+    <li>first causeをfailure panelの先頭に表示する。</li>
+    <li>blocked stepへ「共通対象を準備できなかったため未実行」と表示する。</li>
+    <li>project ownerにはdiagnostic artifact downloadとredacted excerptを表示する。</li>
+    <li>cleanup成功時はscan outcomeがfailedでも完了処理をcompletedと表示する。</li>
+    <li>cleanup失敗時だけ完了処理をfailedと表示する。</li>
+  </ul>
+
+  <h3 id="74-cancellation">7.4 Cancellation and worker crash</h3>
+  <p>
+    本改修ではprocess supervisorからruntime providerへ新しい<code>AbortSignal</code>
+    transportを追加しない。 正常終了、step failure、step
+    timeoutはsessionの<code>dispose()</code>で即時cleanupする。supervisorによる
+    強制終了またはworker crashでは、永続化済みbundle receiptと既存RuntimeBundleLeaseJanitorを回収の
+    正本とする。user cancellationはruntime failureへ変換せず、scan
+    statusは<code>cancelled</code>を維持する。
+  </p>
+  <p>
+    cancellation acceptanceはtest専用の短いlease TTLを使用し、janitorを明示実行してorphan
+    0を確認する。 productionのTTLをtest都合で短縮してはならない。
+  </p>
+
+  <h2 id="8-work-packages">8. Ordered work packages</h2>
+  <p>
+    番号順に実装し、各exit gateを満たすまで次へ進まない。各WPは修正前にcharacterization
+    testを追加する。
+  </p>
+
+  <h3 id="wp-00">WP-00 — Baseline and characterization</h3>
+  <p>対象: runtime bundle lifecycle、provider factory、profile step orchestratorのtest。</p>
+  <ol>
+    <li>HEAD、dirty file、Docker platformを記録する。</li>
+    <li>prepare失敗後のprojection早期cleanupを再現する。</li>
+    <li>後続stepがprepareを三回呼ぶ現状を再現する。</li>
+    <li>Docker stderrがerrorから失われる現状を再現する。</li>
+  </ol>
+  <p>Exit gate: 三つの構造問題をtestで再現し、既存差分を変更していない。</p>
+
+  <h3 id="wp-01">WP-01 — Typed failure and redaction</h3>
+  <p>対象:</p>
+  <ul>
+    <li><code>api/modules/runtime-isolation/docker-runtime-bundle-lifecycle.ts</code></li>
+    <li><code>api/modules/runtime-isolation/docker-runtime-command-runner.ts</code></li>
+    <li>
+      新規<code>runtime-failure.ts</code>、<code>runtime-diagnostic-redactor.ts</code>
+    </li>
+  </ul>
+  <ol>
+    <li>Section 6のtyped errorとreason mappingを実装する。</li>
+    <li>全Docker commandへphase、role、operationを指定する。</li>
+    <li>token、password、authorization、cookie、host pathをredactする。</li>
+    <li>cleanup errorがfirst failureを上書きしないようにする。</li>
+  </ol>
+  <p>Exit gate: injectionごとにreasonが一致し、secret fixtureがerror、event、snapshotへ出ない。</p>
+
+  <h3 id="wp-02">WP-02 — Failure evidence collection</h3>
+  <p>
+    対象: Docker bundle lifecycle、bundle receipt、
+    <code>shared/schemas/scan.schema.ts</code>、artifact storage/sink、新規
+    <code>api/modules/runtime-isolation/runtime-failure-evidence.ts</code>。
+  </p>
+  <ol>
+    <li>receiptにあるcontainerだけからlogとinspect allowlistを取得する。</li>
+    <li>cleanup前にbounded、redacted evidenceをメモリ上へ確定する。</li>
+    <li>cleanup後にobserverとScanArtifactSinkで一件のJSON artifactとして保存する。</li>
+    <li>evidence回収失敗をlimitationにしcleanupを継続する。</li>
+  </ol>
+  <p>Exit gate: cleanup後もexit、OOM、readiness causeを判定でき、secretとhost pathを含まない。</p>
+
+  <h3 id="wp-03">WP-03 — Session lifecycle and ownership</h3>
+  <p>対象:</p>
+  <ul>
+    <li><code>api/modules/runtime-isolation/runtime-isolation-provider-factory.ts</code></li>
+    <li><code>api/modules/runtime-isolation/docker-runtime-target-provider.ts</code></li>
+    <li><code>api/modules/scans/execution/shared-runtime-target.ts</code></li>
+    <li><code>api/modules/scans/execution/profile-step-orchestrator.ts</code></li>
+  </ul>
+  <ol>
+    <li>projection cleanupをprovider <code>dispose()</code>へ一本化する。</li>
+    <li>single-flight state machineを実装する。</li>
+    <li>
+      target <code>stop()</code>とprovider
+      <code>dispose()</code>をidempotentにする。
+    </li>
+    <li>failed sessionを再prepareせず同じroot failureを返す。</li>
+    <li>profile orchestratorでSection 6.4のobserverを構築し、sessionへ注入する。</li>
+  </ol>
+  <p>Exit gate: prepare最大一回、projection cleanup最大一回、bundle cleanupはattemptにつき一回。</p>
+
+  <h3 id="wp-04">WP-04 — Dependency-aware outcomes</h3>
+  <p>
+    対象: profile step orchestrator、execute-profile-step、step result、normalized
+    result、coverage。
+  </p>
+  <ol>
+    <li>runtime dependency groupをexecution planから導出する。</li>
+    <li>最初の準備失敗をfailed、後続dependent stepをblockedへ変換する。</li>
+    <li>blocked relationとroot reasonをevent、result、coverageへ伝播する。</li>
+    <li>blocked stepをattempted/failed scanner数へ加算しない。</li>
+  </ol>
+  <p>Exit gate: target失敗時にbundle 1、scanner process 0、failed 1、blocked 2となる。</p>
+
+  <h3 id="wp-05">WP-05 — Readiness classification</h3>
+  <p>対象: Docker bundle lifecycle、runtime target provider、shared target。</p>
+  <ol>
+    <li>
+      <code>readinessTimeoutMs</code>を1秒以上300秒以下へclampし、実際のdeadlineへ反映する。
+    </li>
+    <li>待機中にtarget stateを確認しprocess exitとOOMを即時分類する。</li>
+    <li>1秒ごとにprobeし、pathごとの最終HTTP statusまたはconnection resultを証跡化する。</li>
+    <li>query、fragment、credentialを除いたpathだけを保存する。</li>
+    <li>
+      connection refusalとHTTP 5xxはevidenceで区別し、安定reason codeはreadiness timeoutとする。
+    </li>
+  </ol>
+  <p>Exit gate: wrong port、early exit、OOM、slow successが固有reasonと所要時間を返す。</p>
+
+  <h3 id="wp-06">WP-06 — Events, API, and Web</h3>
+  <p>対象:</p>
+  <ul>
+    <li><code>shared/schemas/scan-progress.schema.ts</code></li>
+    <li><code>api/modules/scans/execution/scan-step-lifecycle-events.ts</code></li>
+    <li><code>api/routes/scans.route.ts</code></li>
+    <li><code>web/src/domains/scans/workspace/scan-progress-model.ts</code></li>
+    <li>
+      <code>scan-progress-panel.tsx</code>、<code>scan-failure-panel.tsx</code>
+    </li>
+  </ul>
+  <ol>
+    <li>runtime phase eventと後方互換readerを追加する。</li>
+    <li>Progress endpointとWeb clientをSection 7.2のV3へ同時更新する。</li>
+    <li>first cause、blocked relation、artifactをAPIへ公開する。</li>
+    <li>preparation phase、経過時間、cause、next actionを表示する。</li>
+    <li>finalizationとscan outcomeを分離する。</li>
+  </ol>
+  <p>
+    Exit gate: UIだけでfirst causeと未実行scannerを識別でき、別project artifactへアクセスできない。
+  </p>
+
+  <h3 id="wp-07">WP-07 — Real Docker acceptance</h3>
+  <p>対象: 新規acceptance scripts、runtime fixture、package scripts、qualification evidence。</p>
+  <ol>
+    <li>digest-pinned runtime、Nuclei、ZAP imageだけを使う。</li>
+    <li>正常fixtureとSection 9のnegative fixtureを実Dockerで実行する。</li>
+    <li>実行前後のvulnWorkbench label付きcontainer、network、volume差分を検証する。</li>
+    <li>同じprofileを三回連続実行しoutcome、reason、cleanupを比較する。</li>
+    <li>短いtest lease TTLでworker強制終了を再現し、janitor回収後のorphan 0を検証する。</li>
+    <li>commit、image digest、platform、daemon identityをevidenceへbindする。</li>
+  </ol>
+  <p>
+    Exit gate: arm64 Docker Desktopで三連続完走、negative case同一分類、orphan 0、secret leakage 0。
+  </p>
+
+  <h3 id="wp-08">WP-08 — Runtime profile family rollout</h3>
+  <ol>
+    <li><code>runtime-passive</code>のacceptanceを完了する。</li>
+    <li><code>api-readonly</code>のSchemathesisを同じsessionへ適合する。</li>
+    <li>他runtime profileをfamily単位で移行する。</li>
+    <li>stable claimを新しい実Docker evidenceへbindする。</li>
+    <li>旧profile固有prepare、retry、progress分岐を削除する。</li>
+  </ol>
+
+  <h2 id="9-test-matrix">9. Required test matrix</h2>
+  <table>
+    <caption>
+      9.1 Runtime lifecycle acceptance cases
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Case</th>
+        <th scope="col">Injection</th>
+        <th scope="col">First result</th>
+        <th scope="col">Dependent result</th>
+        <th scope="col">Evidence</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>RSR-A01</td>
+        <td>正常HTTP fixture</td>
+        <td>DAST completed</td>
+        <td>Nuclei/ZAP completed</td>
+        <td>shared bundle、cleanup receipt</td>
+      </tr>
+      <tr>
+        <td>RSR-A02</td>
+        <td>target即時終了</td>
+        <td><code>runtime_target_process_exited</code></td>
+        <td>blocked</td>
+        <td>exit code、target log</td>
+      </tr>
+      <tr>
+        <td>RSR-A03</td>
+        <td>wrong port</td>
+        <td><code>runtime_target_readiness_timeout</code></td>
+        <td>blocked</td>
+        <td>readiness summary</td>
+      </tr>
+      <tr>
+        <td>RSR-A04</td>
+        <td>dependency非0</td>
+        <td><code>runtime_dependency_install_failed</code></td>
+        <td>blocked</td>
+        <td>dependency stderr</td>
+      </tr>
+      <tr>
+        <td>RSR-A05</td>
+        <td>projection不存在</td>
+        <td><code>runtime_bind_mount_unavailable</code></td>
+        <td>blocked</td>
+        <td>redacted Docker stderr</td>
+      </tr>
+      <tr>
+        <td>RSR-A06</td>
+        <td>OOM fixture</td>
+        <td><code>runtime_resource_exhausted</code></td>
+        <td>blocked</td>
+        <td>OOMKilled=true</td>
+      </tr>
+      <tr>
+        <td>RSR-A07</td>
+        <td>Nucleiだけ非0</td>
+        <td>DAST completed、Nuclei failed</td>
+        <td>ZAP続行</td>
+        <td>scanner artifact</td>
+      </tr>
+      <tr>
+        <td>RSR-A08</td>
+        <td>evidence回収失敗</td>
+        <td>元reason維持</td>
+        <td>blocked</td>
+        <td>evidence limitation</td>
+      </tr>
+      <tr>
+        <td>RSR-A09</td>
+        <td>cleanup失敗</td>
+        <td>step outcome維持</td>
+        <td>finalization failed</td>
+        <td>quarantined lease</td>
+      </tr>
+      <tr>
+        <td>RSR-A10</td>
+        <td>三連続実行</td>
+        <td>三回同一分類</td>
+        <td>三回完走</td>
+        <td>orphan 0</td>
+      </tr>
+      <tr>
+        <td>RSR-A11</td>
+        <td>worker強制終了</td>
+        <td>scan cancelledまたはstale recovery</td>
+        <td>scanner outcomeを捏造しない</td>
+        <td>janitor実行後orphan 0</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2 id="10-definition-of-done">10. Definition of done and verification</h2>
+  <h3 id="101-checkpoint">10.1 Mandatory checkpoint</h3>
+  <pre><code>git rev-parse HEAD
+git status --short
+docker version --format '{{json .}}'
+docker info --format '{{json .}}'</code></pre>
+  <p>公開evidenceにはplatform、server version、daemon identity hashだけを正規化して保存する。</p>
+
+  <h3 id="102-commands">10.2 Verification commands</h3>
+  <pre><code>bun run typecheck
+bun test api/modules/runtime-isolation
+bun test api/modules/scans/execution/profile-step-orchestrator.test.ts
+bun test api/modules/scans/execution/scan-step-lifecycle-events.test.ts
+bunx vitest run web/src/domains/scans/workspace/scan-progress-model.test.ts
+bunx vitest run web/src/domains/scans/components/scan-progress-panel.test.tsx
+bun run verify:scan-profile-architecture
+bun run test:runtime-scan:docker
+bun run test:runtime-scan:docker:repeat
+bun run qualify:scan-profile:all
+bun run docs:check
+git diff --check</code></pre>
+  <p>
+    WP-07で<code>scripts/runtime-scan-docker-acceptance.ts</code>を追加する。単発commandは正常・全negative
+    caseを一巡し、repeat
+    commandは同じrunnerへ<code>--repeat 3</code>を渡す。mock合格を実Docker
+    evidenceとして扱わない。
+  </p>
+
+  <h3 id="103-dod">10.3 Completion checklist</h3>
+  <ol>
+    <li>runtime target prepareは一runで最大一回。</li>
+    <li>prepare failureでprojectionを早期削除しない。</li>
+    <li>first failure後にdependent scanner用bundleを作らない。</li>
+    <li>未実行scannerはfailedではなくblocked。</li>
+    <li>stderr、target log、probe logをcleanup前にbounded artifactへ保存。</li>
+    <li>event、artifact、UI、snapshotへsecretとhost pathが出ない。</li>
+    <li>target exit、timeout、mount、dependency、OOM、cleanupを区別。</li>
+    <li>finalizationとscan outcomeを別表示。</li>
+    <li><code>runtime-passive</code>が実Dockerで三回連続完走。</li>
+    <li>negative fixtureが三回同じfirst reasonを返す。</li>
+    <li>成功、失敗、cancel、timeout後のorphan resourceが0。</li>
+    <li>既存source profileとdedicated routeの回帰testが合格。</li>
+    <li>evidenceがcommit、image digest、platform、daemon identityへbind。</li>
+    <li>RBAC変更が差分へ含まれず、既存project ownership testが合格。</li>
+  </ol>
+
+  <h2 id="11-rollout-rollback">11. Rollout, rollback, and stop conditions</h2>
+  <h3 id="111-rollout">11.1 Rollout order</h3>
+  <ol>
+    <li>schemaとreaderの後方互換を先に入れる。</li>
+    <li>backend session lifecycleを有効化する。</li>
+    <li>Web progress表示を有効化する。</li>
+    <li><code>runtime-passive</code>の実Docker qualificationを更新する。</li>
+    <li>runtime profile familyへ横展開する。</li>
+  </ol>
+  <h3 id="112-rollback">11.2 Rollback rule</h3>
+  <p>
+    rollback時もhost executionやmutable imageへ戻さない。安全な実行を保証できない場合は対象profileを
+    <code>temporarily_unavailable</code>にし、既存run、event、artifactのreaderを維持する。
+  </p>
+  <h3 id="113-stop">11.3 Stop conditions</h3>
+  <ul>
+    <li>既存未コミット変更と同一行で意図不明な競合が発生した。</li>
+    <li>diagnostic artifactからsecretまたはhost private pathが検出された。</li>
+    <li>cleanup failure injection後にlabel付きresourceが回収不能になった。</li>
+    <li>成功のためhost executionまたはnetwork境界緩和が必要になった。</li>
+    <li>実Docker evidenceをimage digestまたはdaemon identityへbindできない。</li>
+  </ul>
+
+  <h2 id="12-terra-handoff">12. Terra implementation handoff checklist</h2>
+  <ol>
+    <li>Section 0、4、5、6、8、10を実装前に読む。</li>
+    <li>WP-00でfailureを再現し既存差分を保護する。</li>
+    <li>各WPの対象外へformatやrenameを広げない。</li>
+    <li>typed reason codeを文字列部分一致で判定しない。</li>
+    <li>error detailをsummaryだけに保存せずeventとartifactを正本にする。</li>
+    <li><code>scan_diagnostic_runs</code>をruntime failure evidenceへ流用しない。</li>
+    <li>RBAC、admin横断閲覧、role別UIを追加しない。</li>
+    <li>dependent stepをscanner failureとして生成しない。</li>
+    <li>mock testを実Docker稼働保証として報告しない。</li>
+    <li>Definition of doneを一項ずつevidenceへ対応付ける。</li>
+    <li>最後にdirty treeを確認し利用者の既存変更をcommitへ混ぜない。</li>
+  </ol>
+</article>
+  </body>
+</html>

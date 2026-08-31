@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { discoverTestFiles } from "./test-files";
+import { discoverTestFiles, isVitestFile } from "./test-files";
 
 const roots: string[] = [];
 
@@ -25,6 +25,18 @@ describe("test file discovery", () => {
 			"api/modules/artifacts/extract.test.ts",
 			"shared/example.test.ts",
 		]);
+	});
+
+	test("routes tests that need native bidirectional child pipes through Node", () => {
+		expect(
+			isVitestFile(
+				"api/modules/static-intelligence/static-intelligence-mcp-stdio.test.ts",
+			),
+		).toBe(true);
+		expect(
+			isVitestFile("api/modules/dast/playwright-browser-adapter.test.ts"),
+		).toBe(true);
+		expect(isVitestFile("api/modules/scans/execution/profile-runner.test.ts")).toBe(false);
 	});
 });
 

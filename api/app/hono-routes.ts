@@ -1,5 +1,9 @@
 import type { Hono } from "hono";
 import { requireAdmin, requireAuth } from "../middleware/auth";
+import {
+	loadRuntimeIsolationProviderFactory,
+	runtimeIsolationSettingsFromAppEnv,
+} from "../modules/runtime-isolation/runtime-isolation-runtime-config";
 import { createAdminUsersRoute } from "../routes/admin-users.route";
 import { createAgenticSearchRoute } from "../routes/agentic-search.route";
 import { createArtifactsRoute } from "../routes/artifacts.route";
@@ -11,6 +15,31 @@ import { createSettingsRoute } from "../routes/settings.route";
 import { createSourcesRoute } from "../routes/sources.route";
 
 import type { AppRuntime } from "./hono-runtime";
+
+type RuntimeIsolationJanitorRuntime = {
+	dbConnection: Pick<AppRuntime["dbConnection"], "db">;
+	runtimeBundleLeaseJanitor: Pick<
+		AppRuntime["runtimeBundleLeaseJanitor"],
+		"start"
+	>;
+	dynamicBundleLeaseJanitor: Pick<
+		AppRuntime["dynamicBundleLeaseJanitor"],
+		"start"
+	>;
+};
+
+export async function startRuntimeIsolationJanitorsIfConfigured(
+	runtime: RuntimeIsolationJanitorRuntime,
+	env: AppRuntime["env"],
+): Promise<void> {
+	const providerFactory = loadRuntimeIsolationProviderFactory({
+		db: runtime.dbConnection.db,
+		settings: runtimeIsolationSettingsFromAppEnv(env),
+	});
+	if (!providerFactory) return;
+	await runtime.runtimeBundleLeaseJanitor.start?.();
+	await runtime.dynamicBundleLeaseJanitor.start?.();
+}
 
 export function registerApplicationRoutes(
 	app: Hono,
@@ -305,6 +334,8 @@ export function registerApplicationRoutes(
 			settingsRepository: runtime.settingsRepository,
 			llmSettingsRepository: runtime.llmSettingsRepository,
 			runtimeEnv: runtime.env,
+			onRuntimeSettingsUpdated: async (env) =>
+				await startRuntimeIsolationJanitorsIfConfigured(runtime, env),
 		}),
 	);
 	app.route(

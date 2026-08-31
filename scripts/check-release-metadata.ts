@@ -20,7 +20,7 @@ const expectedTag = `v${packageManifest.version}`;
 const [changelog, securityPolicy, releaseNote, tagsAtHead] = await Promise.all([
 	readFile("CHANGELOG.md", "utf8"),
 	readFile("SECURITY.md", "utf8"),
-	readFile(`docs/releases/${expectedTag}.md`, "utf8"),
+	readFile(`spec/docs/.archived/${expectedTag}.html`, "utf8"),
 	git(["tag", "--points-at", "HEAD"]),
 ]);
 const errors: string[] = [];

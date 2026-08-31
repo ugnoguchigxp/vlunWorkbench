@@ -10,8 +10,8 @@ import {
 	startPlanPriority,
 } from "../project-capabilities/start-plan-selection";
 import {
-	packageManagerForStartPlan,
 	type DastPackageManager,
+	packageManagerForStartPlan,
 } from "./start-plan-package-manager";
 
 type PackageJson = {
@@ -196,6 +196,21 @@ export async function inferDastTargetStartPlan(params: {
 	};
 }
 
+/**
+ * Resolves a start plan without authorizing project execution. Runtime
+ * isolation uses this read-only inspection to classify unsupported planners
+ * and dependency adapters before execution consent is evaluated separately.
+ */
+export async function inspectDastTargetStartPlan(params: {
+	repoPath: string;
+	port?: number;
+}): Promise<DastTargetStartPlan> {
+	return await inferDastTargetStartPlan({
+		...params,
+		consentProjectCodeExecution: true,
+	});
+}
+
 async function selectPluginStartPlan(params: {
 	technology: Awaited<ReturnType<typeof analyzeProjectCapabilities>>;
 	repoPath: string;
@@ -364,7 +379,18 @@ async function stopProcess(proc: PreparedProcess): Promise<void> {
 	if (timer) clearTimeout(timer);
 	if (result === "timeout") {
 		proc.kill("SIGKILL");
-		await proc.exited.catch(() => undefined);
+		let killTimer: ReturnType<typeof setTimeout> | undefined;
+		const killed = await Promise.race([
+			proc.exited.then(
+				() => true,
+				() => false,
+			),
+			new Promise<false>((resolve) => {
+				killTimer = setTimeout(() => resolve(false), 3_000);
+			}),
+		]);
+		if (killTimer) clearTimeout(killTimer);
+		if (!killed) throw new Error("dast_target_process_cleanup_failed");
 	}
 }
 
@@ -411,9 +437,14 @@ export async function prepareDastTargetWorkspace(params: {
 	let stopped = false;
 	const stop = async (): Promise<void> => {
 		if (stopped) return;
+		const results = await Promise.allSettled([
+			stopProcess(proc),
+			fs.rm(runtimeHome, { recursive: true, force: true }),
+		]);
+		if (results.some((result) => result.status === "rejected")) {
+			throw new Error("dast_target_workspace_cleanup_failed");
+		}
 		stopped = true;
-		await stopProcess(proc).catch(() => undefined);
-		await fs.rm(runtimeHome, { recursive: true, force: true });
 	};
 	let ready = false;
 	try {

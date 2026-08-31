@@ -2,6 +2,10 @@ import crypto from "node:crypto";
 import http from "node:http";
 import type { DastAuthSecretPayload } from "../../../shared/schemas/dast-auth.schema";
 import { authHeadersFor } from "./auth-material";
+import {
+	awaitCleanupBounded,
+	closeHttpServerBounded,
+} from "./http-server-cleanup";
 import { isPathAllowed, normalizeDastOrigin } from "./target-validator";
 
 const SECRET_HEADERS = new Set([
@@ -273,20 +277,30 @@ export async function prepareActiveContainerTargetGateway(
 		server.listen(0, options.bindAddress ?? "127.0.0.1", () => resolve());
 	});
 	const address = server.address();
-	if (!address || typeof address === "string")
+	if (!address || typeof address === "string") {
+		await closeHttpServerBounded(server, "active_gateway_bind_cleanup_failed");
 		throw new Error("active_gateway_bind_failed");
+	}
 	const hostOrigin = `http://127.0.0.1:${address.port}`;
 	const containerOrigin = `http://${options.containerHost ?? "host.docker.internal"}:${address.port}`;
+	let stopPromise: Promise<void> | null = null;
 	return {
 		hostOrigin,
 		containerOrigin,
 		metrics: () => ({ ...metrics }),
 		stop: async () => {
-			if (closed) return;
-			closed = true;
-			for (const controller of controllers) controller.abort();
-			await new Promise<void>((resolve) => server.close(() => resolve()));
-			await Promise.allSettled([...evidenceTasks]);
+			if (!stopPromise) {
+				closed = true;
+				for (const controller of controllers) controller.abort();
+				stopPromise = (async () => {
+					await closeHttpServerBounded(server, "active_gateway_cleanup_failed");
+					await awaitCleanupBounded(
+						Promise.allSettled([...evidenceTasks]),
+						"active_gateway_evidence_cleanup_failed",
+					);
+				})();
+			}
+			await stopPromise;
 		},
 	};
 }

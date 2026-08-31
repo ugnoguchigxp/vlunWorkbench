@@ -1,0 +1,2125 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex,follow">
+    <title>Phase 51: DAST Coverage, Depth, and Verdict Hardening Plan | vulnWorkbench</title>
+    <link rel="stylesheet" href="/vlunWorkbench/assets/css/spec-document.css">
+    <link rel="stylesheet" href="/vlunWorkbench/assets/css/plan-document.css">
+  </head>
+  <body>
+    <article lang="ja">
+  <h1 id="phase-51-dast-coverage-depth-and-verdict-hardening-plan">
+    Phase 51: DAST Coverage, Depth, and Verdict Hardening Plan
+  </h1>
+  <p>
+    Status: Implemented in working tree; local product and capability gates pass. Linux real-ZAP,
+    Juice Shop 20-scenario, and same-commit release evidence remain release-environment gates.
+  </p>
+  <p>Predecessor: <code>spec/phase-50-automated-professional-web-api-gap-closure-plan.md</code></p>
+  <p>Implementation baseline commit: <code>75cb168ca67c7ef67d5b44b461dad932ec9cd4af</code></p>
+  <p>Baseline date: 2026-07-31</p>
+  <p>Owner: vulnWorkbench maintainers</p>
+  <p>
+    Target: 標準 DAST を単発の HTTP hardening check から、既知の到達対象を bounded
+    に探索し、未走査・通信失敗・認証失敗・budget 打ち切りを合格と
+    誤認せず、対象範囲と限界を定量表示できる Web/API assessment へ適正化する。
+  </p>
+  <h2 id="1-結論">1. 結論</h2>
+  <p>
+    Phase 51 では、標準 DAST に無制限の active attack を追加しない。 最初に修正すべきなのは、現在の
+    <code>http-baseline</code> が担っている範囲と
+    <code>passed</code> の意味が一致していないことである。
+  </p>
+  <p>実装順序を次に固定する。</p>
+  <ol>
+    <li>
+      失敗・未走査を <code>passed</code> にしない verdict contract
+      を導入する。
+    </li>
+    <li>既知 endpoint と runtime discovery を統合した bounded route inventory を作る。</li>
+    <li>
+      <code>maxDepth</code> と request budget を実際の crawler に適用する。
+    </li>
+    <li>passive check の対象 response と判定条件を限定し、誤検知を減らす。</li>
+    <li>authenticated read-only profile を API、CLI、UI から実用可能にする。</li>
+    <li>
+      HTTP、browser、ZAP baseline、Nuclei safe、Schemathesis の coverage を 同じ runtime assessment
+      として集約する。
+    </li>
+    <li>
+      ZAP active、authorization matrix、business-logic scenario は disposable target 専用の明示的な
+      active assessment として維持する。
+    </li>
+    <li>
+      実 scanner と vulnerable/fixed application fixture により、 DAST 固有の
+      recall、precision、route coverage を測定する。
+    </li>
+  </ol>
+  <p>
+    Phase 51 完了後も、<code>passed</code>
+    は「アプリケーションに脆弱性がない」を意味しない。 UI と report では次の表現を使用する。
+  </p>
+  <blockquote>
+    <p>
+      宣言済み範囲で計画された検査が完了し、今回の検査では finding が 観測されなかった。未対応
+      protocol、未到達 route、未実行 active scenario は limitation として別記する。
+    </p>
+  </blockquote>
+  <h2 id="2-現行-baseline">2. 現行 baseline</h2>
+  <h3 id="21-標準-scan-path">2.1 標準 scan path</h3>
+  <p>
+    現行の通常プロファイルが直接実行する DAST step は
+    <code>dast:http-baseline</code> である。
+  </p>
+  <ul>
+    <li>
+      <code>web-app-baseline</code>: optional
+      <code>http-baseline</code>
+    </li>
+    <li>
+      <code>runtime-web-safe</code>: optional
+      <code>http-baseline</code>、Nuclei safe、ZAP baseline
+    </li>
+    <li>
+      <code>runtime-http-check</code>: required
+      <code>http-baseline</code>
+    </li>
+    <li>
+      <code>full-security-scan</code>: optional
+      <code>http-baseline</code>、Nuclei safe、 ZAP baseline、Schemathesis
+      read-only
+    </li>
+  </ul>
+  <p>auto target は次の設定で作られる。</p>
+  <pre><code class="language-json">{
+  "allowedPaths": ["/"],
+  "maxDepth": 0,
+  "maxRequests": 20,
+  "rateLimitPerSec": 2,
+  "timeoutSec": 120
+}
+</code></pre>
+  <p>
+    profile config がない通常実行で <code>http-baseline</code> が作る候補は次の5
+    pathだけである。
+  </p>
+  <pre><code class="language-text">/
+/.env
+/openapi.json
+/swagger.json
+/debug
+</code></pre>
+  <p>
+    全 request は <code>GET</code> で、response body
+    は保存・解析せず破棄する。 <code>maxDepth</code> は target validation
+    から runner へ運ばれるが、HTTP と browser の 探索処理では使用されていない。全 DAST profile の
+    <code>crawlerEnabled</code> は
+    <code>false</code> であり、<code>form-baseline</code>
+    は disabled である。
+  </p>
+  <h3 id="22-現行-finding">2.2 現行 finding</h3>
+  <p><code>http-baseline</code> が生成する finding は次に限定される。</p>
+  <ul>
+    <li>5xx response</li>
+    <li>CSP、X-Frame-Options、X-Content-Type-Options の不足</li>
+    <li>Secure、HttpOnly、SameSite の不足した Cookie</li>
+    <li>wildcard CORS</li>
+    <li>
+      <code>/.env</code> または
+      <code>/debug</code> の 2xx response
+    </li>
+  </ul>
+  <p>現行実装には次の精度上の問題がある。</p>
+  <ul>
+    <li>404 や API JSON response にも HTML 向け security header 不足を適用し得る。</li>
+    <li>
+      SPA fallback が <code>/.env</code> に generic HTML 200 を返しても
+      exposed path と判定する。
+    </li>
+    <li>
+      local HTTP development target で Secure/HSTS を production 相当として 評価すると、deployment
+      context と合わない。
+    </li>
+    <li>
+      wildcard CORS の exploitability を credential mode、response sensitivity、 preflight behavior
+      と分離していない。
+    </li>
+    <li>browser console error は証跡として保存するが、脆弱性 finding とは区別されない。</li>
+  </ul>
+  <h3 id="23-現行-verdict">2.3 現行 verdict</h3>
+  <p>
+    現行 normalizer は finding が0件なら HTTP DAST を
+    <code>passed</code> にする。 request error、timeout、接続拒否は
+    response observation に残るだけで、 verdict gate に使われない。
+  </p>
+  <p>
+    baseline 調査では、5 request 全件が
+    <code>ECONNREFUSED</code> でも次の結果になった。
+  </p>
+  <pre><code class="language-json">{
+  "requestCount": 5,
+  "findingCount": 0,
+  "outcome": "passed"
+}
+</code></pre>
+  <p>
+    browser normalizer も route error、page error、failed request が存在しても 常に
+    <code>passed</code> を返す。Phase 51 の P0 はこの false-pass path
+    の除去である。
+  </p>
+  <h3 id="24-scanner-coverage">2.4 Scanner coverage</h3>
+  <ul>
+    <li>ZAP baseline は passive scan であり、active attack を実行しない。</li>
+    <li>
+      ZAP baseline gateway は
+      <code>GET</code>、<code>HEAD</code>、<code>OPTIONS</code>
+      のみ許可し、 既定20 requestで打ち切る。
+    </li>
+    <li>
+      owned Nuclei safe template は <code>/.env</code> exposure
+      の1件である。
+    </li>
+    <li>
+      Schemathesis は schema が見つかった場合だけ実行し、
+      <code>GET</code>、<code>HEAD</code>、<code>OPTIONS</code>
+      に限定される。
+    </li>
+    <li>
+      ZAP active は9 rule限定で実装済みだが、専用 profile、feature flag、 active RoE、disposable
+      target、reset contract が必要である。
+    </li>
+    <li>
+      authorization matrix と business-logic scenario は実装済みだが、 標準 scan launcher
+      から自動実行されない。
+    </li>
+  </ul>
+  <h3 id="25-capability-evidence">2.5 Capability evidence</h3>
+  <p>2026-07-30 の Phase 50 evidence では次の状態である。</p>
+  <ul>
+    <li>professional capability claim: <code>not_met</code></li>
+    <li>OWASP Benchmark result: Semgrep SAST による測定であり、DAST測定ではない</li>
+    <li>Juice Shop eligible scenario: 20</li>
+    <li>Juice Shop executed scenario: 0</li>
+    <li>ZAP active capability: contract test と事前作成 report fixture を中心に検証</li>
+    <li>browser-authenticated ZAP active: experimental</li>
+    <li>production active attack: unsupported</li>
+  </ul>
+  <h3 id="26-baseline-artifact">2.6 Baseline artifact</h3>
+  <p>Slice 51.0 で次を <code>spec/evidence/phase-51-dast-baseline.json</code> に保存する。</p>
+  <pre><code class="language-ts">type DastBaselineEvidence = {
+  schemaVersion: 1;
+  gitCommit: string;
+  generatedAt: string;
+  defaultProfiles: Array&lt;{
+    profileId: string;
+    dastSteps: string[];
+    required: boolean[];
+  }&gt;;
+  httpBaseline: {
+    candidatePathsWithoutConfig: string[];
+    crawlerEnabled: boolean;
+    maxDepthConsumedByRunner: boolean;
+    methods: string[];
+    responseBodyAnalyzed: boolean;
+  };
+  falsePassReproductions: Array&lt;{
+    caseId: string;
+    requestCount: number;
+    transportErrorCount: number;
+    currentOutcome: string;
+  }&gt;;
+  scannerCoverage: {
+    nucleiOwnedTemplateCount: number;
+    zapBaselineMode: "passive";
+    zapBaselineRequestBudget: number;
+    juiceShopExecutedScenarios: number;
+  };
+};
+</code></pre>
+  <p>secret、cookie value、Authorization header、absolute home path は保存しない。</p>
+  <h2 id="3-適正化の定義">3. 適正化の定義</h2>
+  <p>Phase 51 における「適正な標準 DAST」は、次の5条件をすべて満たすものとする。</p>
+  <table>
+    <caption>
+      3. 適正化の定義
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">軸</th>
+        <th scope="col">必須条件</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>到達範囲</td>
+        <td>known route inventory を作り、何件を計画・実行・未実行にしたか説明できる</td>
+      </tr>
+      <tr>
+        <td>検査深度</td>
+        <td>crawler depth、method、request、response size、duration の上限が実際に強制される</td>
+      </tr>
+      <tr>
+        <td>認証</td>
+        <td>未認証、認証成功、session失効、権限拒否を区別し、認証失敗を clean verdict にしない</td>
+      </tr>
+      <tr>
+        <td>判定</td>
+        <td>
+          finding 0件と coverage完了を別々に評価し、未走査・失敗を
+          <code>passed</code> にしない
+        </td>
+      </tr>
+      <tr>
+        <td>能力測定</td>
+        <td>DAST自身の route recall、check recall、precision を実 scanner fixture で測定する</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>標準 DAST は次を保証しない。</p>
+  <ul>
+    <li>未発見 endpoint を含むアプリケーション全体の完全走査</li>
+    <li>business domain 固有の不正操作の自動推論と完全検証</li>
+    <li>production target へのactive attack</li>
+    <li>WebSocket、gRPC、SOAP、GraphQL subscriptionの検査</li>
+    <li>multi-factor authentication、CAPTCHA、外部IdPの自動突破</li>
+    <li>scannerが対応しない0-day vulnerabilityの不存在</li>
+    <li>penetration testや専門家レビューの完全代替</li>
+  </ul>
+  <h2 id="4-scope">4. Scope</h2>
+  <h3 id="41-in-scope">4.1 In scope</h3>
+  <ul>
+    <li>DAST execution status、verdict、coverage status の分離</li>
+    <li>false-pass の除去</li>
+    <li>known route inventory</li>
+    <li>source/OpenAPI/configured route/runtime link/browser network の統合</li>
+    <li>same-origin bounded HTTP crawler</li>
+    <li><code>maxDepth</code> の実適用</li>
+    <li>aggregate request budget</li>
+    <li>redirect、query、response size、content type の制御</li>
+    <li>passive HTTP finding の精度改善</li>
+    <li>browser smoke の coverage 判定改善</li>
+    <li>authenticated read-only の API、CLI、UI 導線</li>
+    <li>ZAP baseline、Nuclei safe、Schemathesis の coverage aggregation</li>
+    <li>standard profile v2</li>
+    <li>DAST-specific benchmark</li>
+    <li>report、UI、event、diagnostic limitation</li>
+    <li>backward-compatible migration と段階 rollout</li>
+  </ul>
+  <h3 id="42-non-goals">4.2 Non-goals</h3>
+  <ul>
+    <li>public internet target の許可</li>
+    <li>production target へのactive scan</li>
+    <li>active scan の既定有効化</li>
+    <li>Docker socket mount</li>
+    <li>arbitrary Nuclei template や scanner script の実行</li>
+    <li>target repository への dependency、test account、fixture の自動追加</li>
+    <li>state-changing form の標準 crawler による自動送信</li>
+    <li>browser-authenticated ZAP active の supported 昇格</li>
+    <li>network/cloud/mobile/AD assessment</li>
+    <li>scan finding の自動修正</li>
+    <li>LLM hypothesis だけによる finding 生成</li>
+  </ul>
+  <h2 id="5-固定する安全境界">5. 固定する安全境界</h2>
+  <h3 id="51-target">5.1 Target</h3>
+  <ul>
+    <li>standard DAST は loopback target を既定とする。</li>
+    <li>private network は保存済み target の明示許可がある場合だけ read-only scan を許可する。</li>
+    <li>public、link-local、metadata service、wildcard host を拒否する。</li>
+    <li>validation 後の address pinning を維持し、redirect ごとに origin と path を再検証する。</li>
+    <li>target process に host LLM credential を渡さない。</li>
+  </ul>
+  <h3 id="52-method">5.2 Method</h3>
+  <p>標準 profile で許可する method は次だけとする。</p>
+  <pre><code class="language-text">GET
+HEAD
+OPTIONS
+</code></pre>
+  <p>
+    標準 crawler は form を inventory に記録するが、POST/PUT/PATCH/DELETE を
+    送信しない。state-changing request は active assessment とし、 RoE、disposable
+    target、seed、cleanup、reset contract を必須にする。
+  </p>
+  <h3 id="53-budget">5.3 Budget</h3>
+  <p>budget は scanner単位ではなく runtime assessment 全体でも強制する。</p>
+  <p>初期 <code>web-passive-standard</code> budget:</p>
+  <table>
+    <caption>
+      5.3 Budget
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">項目</th>
+        <th scope="col" class="markdown-align-right">上限</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>aggregate forwarded request</td>
+        <td class="markdown-align-right">250</td>
+      </tr>
+      <tr>
+        <td>owned crawler / passive checks</td>
+        <td class="markdown-align-right">100</td>
+      </tr>
+      <tr>
+        <td>ZAP baseline</td>
+        <td class="markdown-align-right">100</td>
+      </tr>
+      <tr>
+        <td>Nuclei safe</td>
+        <td class="markdown-align-right">20</td>
+      </tr>
+      <tr>
+        <td>Schemathesis read-only</td>
+        <td class="markdown-align-right">30</td>
+      </tr>
+      <tr>
+        <td>crawler depth</td>
+        <td class="markdown-align-right">2</td>
+      </tr>
+      <tr>
+        <td>discovered URL</td>
+        <td class="markdown-align-right">500</td>
+      </tr>
+      <tr>
+        <td>distinct query shape per path</td>
+        <td class="markdown-align-right">3</td>
+      </tr>
+      <tr>
+        <td>rate</td>
+        <td class="markdown-align-right">2 req/sec</td>
+      </tr>
+      <tr>
+        <td>concurrent request</td>
+        <td class="markdown-align-right">2</td>
+      </tr>
+      <tr>
+        <td>response body read</td>
+        <td class="markdown-align-right">1 MiB/response</td>
+      </tr>
+      <tr>
+        <td>response body total</td>
+        <td class="markdown-align-right">64 MiB</td>
+      </tr>
+      <tr>
+        <td>redirect hop</td>
+        <td class="markdown-align-right">5</td>
+      </tr>
+      <tr>
+        <td>wall clock</td>
+        <td class="markdown-align-right">600 sec</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    profile config はこれらを厳しくする方向だけ上書き可能とする。 上限緩和は versioned policy
+    の変更として扱う。
+  </p>
+  <h3 id="54-secret">5.4 Secret</h3>
+  <ul>
+    <li>default header に secret を保存しない。</li>
+    <li>auth context は既存の encrypted storage と target/role binding を使う。</li>
+    <li>URL query、artifact、console、network evidence で secret-like value をredactする。</li>
+    <li>authenticated response body は原則保存しない。</li>
+    <li>screenshot は既定無効とし、mask selector と sensitivity がある場合だけ許可する。</li>
+    <li>canary secret が artifact、report、logに残ったrunはfailedとする。</li>
+  </ul>
+  <h3 id="55-scanner">5.5 Scanner</h3>
+  <ul>
+    <li>ZAP image digest、rule catalog、Nuclei template tree hash を固定する。</li>
+    <li>ZAP baseline は passive のまま標準 profile に残す。</li>
+    <li>ZAP active は dedicated profile 以外から呼び出せないようにする。</li>
+    <li>full scan の名称だけで active attack を暗黙実行しない。</li>
+  </ul>
+  <h2 id="6-状態と-verdict-contract">6. 状態と verdict contract</h2>
+  <h3 id="61-3軸を分離する">6.1 3軸を分離する</h3>
+  <pre><code class="language-ts">type DastExecutionStatus =
+  | "queued"
+  | "running"
+  | "completed"
+  | "failed"
+  | "timed_out"
+  | "cancelled";
+
+type DastVerdict =
+  | "findings"
+  | "no_findings_observed"
+  | "inconclusive"
+  | "not_tested"
+  | "unknown_legacy";
+
+type DastCoverageStatus = "covered" | "partial" | "gap";
+</code></pre>
+  <ul>
+    <li>execution status は runner が終了したかを示す。</li>
+    <li>verdict は脆弱性観測結果を示す。</li>
+    <li>coverage status は計画した検査をどこまで実施できたかを示す。</li>
+  </ul>
+  <p>
+    <code>completed</code> と
+    <code>no_findings_observed</code> は同義ではない。 finding が存在しても coverage は
+    <code>partial</code> になり得る。
+  </p>
+  <h3 id="62-clean-verdict-gate">6.2 Clean verdict gate</h3>
+  <p>
+    <code>no_findings_observed</code> を許可するのは次をすべて満たす場合だけとする。
+  </p>
+  <ol>
+    <li>required seed route を100% attemptした。</li>
+    <li>actionable known route の90%以上を検査した。</li>
+    <li>transport error、timeout、runner error が0件である。</li>
+    <li>auth profile では login preflight と authenticated marker が成功した。</li>
+    <li>session refresh失敗が0件である。</li>
+    <li>request、response、duration budget が未検査routeを残していない。</li>
+    <li>required scanner step が全て valid structured output を返した。</li>
+    <li>out-of-scope redirect と blocked subresource を limitation として分類済みである。</li>
+    <li>artifact書き込みとnormalizationが成功した。</li>
+    <li>finding が0件である。</li>
+  </ol>
+  <h3 id="63-truth-table">6.3 Truth table</h3>
+  <table>
+    <caption>
+      6.3 Truth table
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">条件</th>
+        <th scope="col">Execution</th>
+        <th scope="col">Verdict</th>
+        <th scope="col">Coverage</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>全required check完了、finding 0</td>
+        <td>completed</td>
+        <td>no_findings_observed</td>
+        <td>covered</td>
+      </tr>
+      <tr>
+        <td>finding 1件以上、全check完了</td>
+        <td>completed</td>
+        <td>findings</td>
+        <td>covered</td>
+      </tr>
+      <tr>
+        <td>finding 1件以上、一部timeout</td>
+        <td>completed</td>
+        <td>findings</td>
+        <td>partial</td>
+      </tr>
+      <tr>
+        <td>finding 0、1件以上transport error</td>
+        <td>completed</td>
+        <td>inconclusive</td>
+        <td>partial</td>
+      </tr>
+      <tr>
+        <td>auth preflight失敗</td>
+        <td>completed</td>
+        <td>inconclusive</td>
+        <td>gap</td>
+      </tr>
+      <tr>
+        <td>budget枯渇でroute未実行</td>
+        <td>completed</td>
+        <td>inconclusive</td>
+        <td>partial</td>
+      </tr>
+      <tr>
+        <td>schema未発見でschema stepのみ未実行</td>
+        <td>completed</td>
+        <td>inconclusive</td>
+        <td>partial</td>
+      </tr>
+      <tr>
+        <td>target起動不能、request 0</td>
+        <td>failed</td>
+        <td>not_tested</td>
+        <td>gap</td>
+      </tr>
+      <tr>
+        <td>runner crash、artifact不正</td>
+        <td>failed</td>
+        <td>inconclusive</td>
+        <td>gap</td>
+      </tr>
+      <tr>
+        <td>user cancel</td>
+        <td>cancelled</td>
+        <td>inconclusive</td>
+        <td>partialまたはgap</td>
+      </tr>
+      <tr>
+        <td>Phase 51以前の履歴</td>
+        <td>保存済み値</td>
+        <td>unknown_legacy</td>
+        <td>gap</td>
+      </tr>
+    </tbody>
+  </table>
+  <h3 id="64-legacy-outcome">6.4 Legacy outcome</h3>
+  <p>既存 <code>dast_runs.outcome</code> と API consumer を一度に破壊しない。</p>
+  <ul>
+    <li>
+      <code>verdict</code> と
+      <code>coverageStatus</code> を新規保存する。
+    </li>
+    <li>
+      legacy <code>passed</code> は
+      <code>verdict=no_findings_observed &amp;&amp; coverageStatus=covered</code> の場合だけ出力する。
+    </li>
+    <li>
+      <code>finding 0 + partial</code> は legacy
+      <code>inconclusive</code> にmapする。
+    </li>
+    <li>
+      新規 UI、report、MCP/API response は
+      <code>verdict</code> をprimaryにする。
+    </li>
+    <li>
+      Phase 51 closeout後もDB read互換のため既存
+      <code>passed</code> rowは保持するが、
+      <code>verdict=unknown_legacy</code> として再解釈し、現在のclean baselineに数えない。
+    </li>
+  </ul>
+  <h2 id="7-coverage-model">7. Coverage model</h2>
+  <h3 id="71-route-inventory">7.1 Route inventory</h3>
+  <p>route inventory の source を次に固定する。</p>
+  <pre><code class="language-ts">type DastRouteSource =
+  | "configured"
+  | "readiness"
+  | "application_model"
+  | "openapi"
+  | "html_link"
+  | "html_form"
+  | "browser_network"
+  | "redirect"
+  | "common_probe";
+</code></pre>
+  <p>各routeは次を持つ。</p>
+  <pre><code class="language-ts">type DastRouteInventoryEntry = {
+  method: "GET" | "HEAD" | "OPTIONS";
+  path: string;
+  canonicalQueryShape: string[];
+  source: DastRouteSource;
+  depth: number;
+  required: boolean;
+  authMode: "anonymous" | "authenticated";
+  state:
+    | "discovered"
+    | "planned"
+    | "attempted"
+    | "succeeded"
+    | "denied_expected"
+    | "denied_unexpected"
+    | "blocked"
+    | "failed"
+    | "not_tested";
+  statusCode: number | null;
+  limitationCode: string | null;
+};
+</code></pre>
+  <h3 id="72-denominator">7.2 Denominator</h3>
+  <p>
+    Webアプリ全体の未知route数は計測できないため、coverage denominator を 「known actionable
+    route」と明示する。
+  </p>
+  <pre><code class="language-text">knownRouteCount
+actionableKnownRouteCount
+plannedRouteCount
+attemptedRouteCount
+successfulRouteCount
+failedRouteCount
+blockedRouteCount
+notTestedRouteCount
+requiredSeedCoverage
+actionableRouteCoverage
+</code></pre>
+  <p><code>actionableRouteCoverage</code> は次で計算する。</p>
+  <pre><code class="language-text">(succeeded + denied_expected) / actionableKnownRouteCount
+</code></pre>
+  <p>未知routeを含むapplication全体のcoverageとして表示してはならない。</p>
+  <h3 id="73-parameterized-route">7.3 Parameterized route</h3>
+  <ul>
+    <li>OpenAPI example/default/enum があるGET operationはbounded exampleを作れる。</li>
+    <li>
+      source extractorで得た <code>/users/:id</code>、<code>/users/{id}</code>
+      は、保存済みexampleまたは OpenAPI exampleがなければ
+      <code>not_tested: parameter_example_missing</code> とする。
+    </li>
+    <li>object ID を推測して列挙しない。</li>
+    <li>query value はartifactへ保存せず、key shapeだけをcoverageへ保存する。</li>
+    <li>secret-like query keyを持つURLは値をredactし、再queue時に値を引き継がない。</li>
+  </ul>
+  <h2 id="8-目標アーキテクチャ">8. 目標アーキテクチャ</h2>
+  <figure>
+    <pre class="mermaid" data-spec-html-source="markdown">flowchart LR
+  T["Validated local/private target"] --&gt; S["Seed collector"]
+  A["Application model"] --&gt; S
+  O["OpenAPI / configured routes"] --&gt; S
+  S --&gt; I["Canonical route inventory"]
+  I --&gt; C["Bounded same-origin crawler"]
+  C --&gt; I
+  I --&gt; H["HTTP passive checks"]
+  I --&gt; B["Authenticated browser read-only"]
+  I --&gt; Z["ZAP baseline passive"]
+  I --&gt; N["Owned Nuclei safe"]
+  I --&gt; Q["Schemathesis read-only"]
+  H --&gt; G["Coverage aggregator"]
+  B --&gt; G
+  Z --&gt; G
+  N --&gt; G
+  Q --&gt; G
+  G --&gt; V["Execution + verdict + coverage"]
+  V --&gt; R["Evidence / report / UI"]
+</pre>
+    <figcaption>8. 目標アーキテクチャ</figcaption>
+  </figure>
+  <h3 id="81-実行順">8.1 実行順</h3>
+  <ol>
+    <li>target config とexecution pathを検証する。</li>
+    <li>targetを起動しreadinessを確認する。</li>
+    <li>auth profileならlogin preflightを実行する。</li>
+    <li>configured route、application model、OpenAPIからseedを作る。</li>
+    <li>required seedを最初に検査する。</li>
+    <li>same-origin HTML link、redirect、browser networkからrouteを追加する。</li>
+    <li>budget内でdepth順、source優先順に検査する。</li>
+    <li>passive scanner stepを順番に実行する。</li>
+    <li>route inventoryとscanner step resultをcoverage aggregatorへ渡す。</li>
+    <li>findingとcoverageを別々にnormalizationする。</li>
+    <li>verdict truth tableを適用する。</li>
+    <li>artifact、evidence、event、reportを保存する。</li>
+  </ol>
+  <h3 id="82-優先順位">8.2 優先順位</h3>
+  <p>budget内でrouteを選ぶ順序:</p>
+  <ol>
+    <li>configured required route</li>
+    <li>auth marker route</li>
+    <li>OpenAPI required/read-only operation</li>
+    <li>application modelのparameter不要entrypoint</li>
+    <li>rootから到達したHTML link</li>
+    <li>browser networkで観測したsame-origin GET</li>
+    <li>redirect先</li>
+    <li>common probe</li>
+  </ol>
+  <p>common probeがbusiness routeを押し出してはならない。</p>
+  <h2 id="9-data-model-と-migration">9. Data model と migration</h2>
+  <h3 id="91-migration">9.1 Migration</h3>
+  <p>
+    実装開始時に次の空き番号を再確認し、現時点では
+    <code>drizzle/0026_dast_coverage_hardening.sql</code> を予定する。
+  </p>
+  <p><code>dast_runs</code> に追加:</p>
+  <pre><code class="language-text">verdict                  TEXT NULL
+coverage_status          TEXT NULL
+coverage_summary_json    TEXT NOT NULL DEFAULT '{}'
+limitation_codes_json    TEXT NOT NULL DEFAULT '[]'
+policy_id                TEXT NULL
+policy_hash              TEXT NULL
+</code></pre>
+  <p>新規 <code>dast_route_inventory</code>:</p>
+  <pre><code class="language-text">id
+dast_run_id
+project_id
+scan_run_id
+method
+path
+query_keys_json
+query_shape_hash
+source
+depth
+required
+auth_mode
+state
+status_code
+limitation_code
+metadata
+created_at
+updated_at
+</code></pre>
+  <p>index:</p>
+  <ul>
+    <li><code>(dast_run_id, state)</code></li>
+    <li><code>(dast_run_id, source)</code></li>
+    <li><code>(project_id, created_at)</code></li>
+    <li>unique <code>(dast_run_id, method, path, query_shape_hash, auth_mode)</code></li>
+  </ul>
+  <p>response body、query value、secret headerはtableへ保存しない。</p>
+  <h3 id="92-shared-schema">9.2 Shared schema</h3>
+  <p>主な変更先:</p>
+  <ul>
+    <li><code>shared/schemas/dast.schema.ts</code></li>
+    <li>new <code>shared/schemas/dast-coverage.schema.ts</code></li>
+    <li><code>shared/schemas/scan-profile.schema.ts</code></li>
+    <li><code>api/db/schema/schema-dast.ts</code></li>
+    <li><code>api/db/schema.ts</code></li>
+    <li><code>api/modules/dast/dast-repository.ts</code></li>
+  </ul>
+  <h3 id="93-migration-behavior">9.3 Migration behavior</h3>
+  <ul>
+    <li>existing rowは <code>verdict = NULL</code> のまま移行する。</li>
+    <li>
+      backfillで過去の <code>passed</code> をclean verdictへ昇格しない。
+    </li>
+    <li>APIはNULLを <code>unknown_legacy</code> として返す。</li>
+    <li>rollbackは新column/tableを読まない旧binaryへ戻せるforward-compatible形にする。</li>
+    <li>production backup/restore rehearsalをmigration gateに含める。</li>
+  </ul>
+  <h2 id="10-profile-redesign">10. Profile redesign</h2>
+  <h3 id="101-profile-inventory">10.1 Profile inventory</h3>
+  <table>
+    <caption>
+      10.1 Profile inventory
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Profile</th>
+        <th scope="col">目的</th>
+        <th scope="col">Crawler</th>
+        <th scope="col">Auth</th>
+        <th scope="col">Active</th>
+        <th scope="col">Default</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>http-baseline</code></td>
+        <td>互換用5-path smoke</td>
+        <td>no</td>
+        <td>optional header only</td>
+        <td>no</td>
+        <td>deprecated</td>
+      </tr>
+      <tr>
+        <td><code>web-passive-standard</code></td>
+        <td>bounded route discovery + passive assessment</td>
+        <td>depth 2</td>
+        <td>no</td>
+        <td>no</td>
+        <td>new standard</td>
+      </tr>
+      <tr>
+        <td><code>authenticated-readonly-standard</code></td>
+        <td>login後のbounded read-only assessment</td>
+        <td>depth 2</td>
+        <td>required</td>
+        <td>no</td>
+        <td>explicit opt-in</td>
+      </tr>
+      <tr>
+        <td><code>runtime-zap-baseline</code></td>
+        <td>isolated ZAP passive確認</td>
+        <td>ZAP spider</td>
+        <td>no</td>
+        <td>no</td>
+        <td>focused</td>
+      </tr>
+      <tr>
+        <td><code>runtime-zap-active-lab</code></td>
+        <td>disposable Web active assessment</td>
+        <td>policy依存</td>
+        <td>optional gateway injection</td>
+        <td>yes</td>
+        <td>explicit only</td>
+      </tr>
+      <tr>
+        <td><code>api-zap-active-lab</code></td>
+        <td>disposable API active assessment</td>
+        <td>OpenAPI-aware</td>
+        <td>optional gateway injection</td>
+        <td>yes</td>
+        <td>explicit only</td>
+      </tr>
+    </tbody>
+  </table>
+  <h3 id="102-default-scan-profile">10.2 Default scan profile</h3>
+  <p>移行後:</p>
+  <ul>
+    <li>
+      <code>web-app-baseline</code> は
+      <code>web-passive-standard</code> を使用する。
+    </li>
+    <li>
+      <code>runtime-http-check</code> は
+      <code>web-passive-standard</code> をrequiredで使用する。
+    </li>
+    <li>
+      <code>runtime-web-safe</code> は同じ runtime target と aggregate budget
+      を共有する。
+    </li>
+    <li>
+      <code>full-security-scan</code> は passive standard、Nuclei safe、ZAP baseline、
+      Schemathesis read-only を実行するがactive attackは実行しない。
+    </li>
+    <li>
+      DAST stepがoptionalな総合profileでも、未実行時はscan diagnosticを
+      <code>ready_with_limitations</code> にする。
+    </li>
+    <li>runtime専用profileではrequired DAST失敗をprofile failureにする。</li>
+  </ul>
+  <h3 id="103-scan-profile-schema">10.3 Scan profile schema</h3>
+  <p>
+    現行 <code>dastProfileStepSchema.profileId</code> は
+    <code>http-baseline</code> literalであるため、 versioned profile ID
+    unionへ拡張する。
+  </p>
+  <pre><code class="language-ts">profileId:
+  | "http-baseline"
+  | "web-passive-standard"
+  | "authenticated-readonly-standard";
+</code></pre>
+  <p>step options:</p>
+  <pre><code class="language-ts">{
+  maxDepth?: 0 | 1 | 2 | 3;
+  maxRequests?: number;
+  aggregateRequestBudget?: number;
+  maxDiscoveredUrls?: number;
+  maxResponseBytes?: number;
+  includeApplicationModelSeeds?: boolean;
+  includeOpenApiSeeds?: boolean;
+  includeBrowserNetworkSeeds?: boolean;
+}
+</code></pre>
+  <h2 id="11-bounded-discovery-と-crawler">11. Bounded discovery と crawler</h2>
+  <h3 id="111-components">11.1 Components</h3>
+  <p>new modules:</p>
+  <pre><code class="language-text">api/modules/dast/route-inventory.ts
+api/modules/dast/seed-collector.ts
+api/modules/dast/bounded-crawler.ts
+api/modules/dast/html-route-discovery.ts
+api/modules/dast/coverage-evaluator.ts
+api/modules/dast/request-budget.ts
+</code></pre>
+  <h3 id="112-canonicalization">11.2 Canonicalization</h3>
+  <ul>
+    <li>originはvalidated originと完全一致する。</li>
+    <li>fragmentを削除する。</li>
+    <li>pathは既存 <code>normalizeRelativeHttpPath</code> を使う。</li>
+    <li>
+      <code>allowedPathsJson</code> の配下だけをqueueし、<code>excludedPathsJson</code>
+      を常に優先する。
+    </li>
+    <li>path traversal、userinfo、non-HTTP schemeを拒否する。</li>
+    <li>query keyをsortし、valueはroute identityに含めない。</li>
+    <li>tracking parameterはdropする。</li>
+    <li>secret-like queryは値を保存しない。</li>
+    <li>trailing slashの扱いをpolicyで固定する。</li>
+    <li>duplicate routeはsource listをmergeする。</li>
+  </ul>
+  <h3 id="113-html-discovery">11.3 HTML discovery</h3>
+  <p>bounded body readerでHTMLだけを最大1 MiB読む。</p>
+  <p>収集対象:</p>
+  <ul>
+    <li><code>&lt;a href&gt;</code></li>
+    <li><code>&lt;link href&gt;</code> のnavigation対象だけ</li>
+    <li><code>&lt;form action method&gt;</code> はinventoryのみ</li>
+    <li>same-origin canonical redirect</li>
+  </ul>
+  <p>収集しないもの:</p>
+  <ul>
+    <li><code>mailto:</code></li>
+    <li><code>tel:</code></li>
+    <li><code>javascript:</code></li>
+    <li>data URL</li>
+    <li>download attribute付きlink</li>
+    <li>cross-origin URL</li>
+    <li>WebSocket URL</li>
+    <li>form body value</li>
+  </ul>
+  <p>script source自体はresource evidenceにできるが、navigation queueへ入れない。</p>
+  <h3 id="114-browser-network-discovery">11.4 Browser network discovery</h3>
+  <ul>
+    <li>document、fetch、xhrのsame-origin read-only requestだけを候補にする。</li>
+    <li>POST/PUT/PATCH/DELETEは観測記録だけ残し、標準profileで再送しない。</li>
+    <li>blocked third-party requestはfindingにしない。</li>
+    <li>
+      page error、console error、failed requestはreliability evidenceとして保持し、 coverage
+      limitationの原因にだけ使う。
+    </li>
+  </ul>
+  <h3 id="115-crawler-completion">11.5 Crawler completion</h3>
+  <p>次のいずれかでcrawlerを終了する。</p>
+  <ul>
+    <li>queue empty</li>
+    <li>maxDepth到達</li>
+    <li>aggregate request budget到達</li>
+    <li>max discovered URL到達</li>
+    <li>wall clock timeout</li>
+    <li>cancel</li>
+  </ul>
+  <p>
+    queue empty以外で終了し未実行actionable routeが残る場合、 coverageは
+    <code>partial</code>、verdictは少なくとも
+    <code>inconclusive</code> にする。
+  </p>
+  <h2 id="12-passive-check-の適正化">12. Passive check の適正化</h2>
+  <h3 id="121-header-applicability">12.1 Header applicability</h3>
+  <table>
+    <caption>
+      12.1 Header applicability
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Check</th>
+        <th scope="col">適用対象</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>CSP</td>
+        <td>2xx/3xx HTML document</td>
+      </tr>
+      <tr>
+        <td>frame protection</td>
+        <td>2xx/3xx HTML document</td>
+      </tr>
+      <tr>
+        <td>X-Content-Type-Options</td>
+        <td>browser-consumable active content</td>
+      </tr>
+      <tr>
+        <td>HSTS</td>
+        <td>HTTPS targetのみ</td>
+      </tr>
+      <tr>
+        <td>Referrer-Policy</td>
+        <td>HTML document</td>
+      </tr>
+      <tr>
+        <td>Permissions-Policy</td>
+        <td>HTML document、info severity</td>
+      </tr>
+      <tr>
+        <td>cache control</td>
+        <td>authenticated/sensitive-marked response</td>
+      </tr>
+      <tr>
+        <td>CORS</td>
+        <td>API responseとexplicit preflight observation</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>404、204、generic health responseにHTML向けheader不足を一律適用しない。</p>
+  <h3 id="122-cookie">12.2 Cookie</h3>
+  <ul>
+    <li>複数 <code>Set-Cookie</code> をRFC準拠parserで分離する。</li>
+    <li>cookie valueは保存しない。</li>
+    <li><code>HttpOnly</code> はsession-like cookieに適用する。</li>
+    <li><code>Secure</code> はHTTPS deployment contextで評価する。</li>
+    <li>SameSite未指定と明示値を区別する。</li>
+    <li>
+      <code>__Host-</code>、<code>__Secure-</code>
+      prefix整合性を検査する。
+    </li>
+    <li>
+      local HTTP targetではproduction cookie判定を
+      <code>transport_not_representative</code> limitationとして扱う。
+    </li>
+  </ul>
+  <h3 id="123-exposed-common-path">12.3 Exposed common path</h3>
+  <p><code>2xx</code> だけでfindingにしない。</p>
+  <ul>
+    <li>
+      <code>/.env</code>: assignment patternとsecret-like
+      keyの両方を要求する。
+    </li>
+    <li>
+      <code>/openapi.json</code>、<code>/swagger.json</code>:
+      valid schemaならinventory evidenceにする。
+    </li>
+    <li>
+      <code>/debug</code>: framework固有signatureまたはdebug
+      metadataを要求する。
+    </li>
+    <li>generic SPA HTML、login page、custom 200 error pageを除外する。</li>
+    <li>body hashとmatcher IDは保存できるがraw secret bodyは保存しない。</li>
+  </ul>
+  <h3 id="124-cors">12.4 CORS</h3>
+  <p>結果を次に分ける。</p>
+  <ul>
+    <li>wildcard without credentials: informational observation</li>
+    <li>reflected arbitrary origin</li>
+    <li>wildcard/reflect + credentials</li>
+    <li>unsafe preflight method/header allowance</li>
+    <li>unverified due to auth/response sensitivity</li>
+  </ul>
+  <p>exploitabilityを確認していないwildcardだけでhigh/critical findingを作らない。</p>
+  <h3 id="125-browser-evidence">12.5 Browser evidence</h3>
+  <ul>
+    <li>console/page errorを脆弱性findingへ自動変換しない。</li>
+    <li>
+      secret leakage、mixed content、blocked CSP、unsafe cross-origin response等の security
+      matcherがある場合だけfinding化する。
+    </li>
+    <li>security matcherがなくroute load自体に失敗した場合はcoverage limitationにする。</li>
+  </ul>
+  <h2 id="13-authenticated-read-only">13. Authenticated read-only</h2>
+  <h3 id="131-operational-path">13.1 Operational path</h3>
+  <p>次を同じrelease sliceで実装する。</p>
+  <ul>
+    <li>auth context作成・rotate・revoke UI</li>
+    <li>identity role選択</li>
+    <li>DAST profile configとのbinding</li>
+    <li>
+      CLI <code>--auth-context-id</code>、<code>--identity-role</code>
+    </li>
+    <li>API request field</li>
+    <li>run historyで使用したcontext IDとroleの非secret表示</li>
+  </ul>
+  <p>secretはcreate/rotate responseへ返さない。</p>
+  <h3 id="132-auth-preflight">13.2 Auth preflight</h3>
+  <p>auth contextに次を追加する。</p>
+  <pre><code class="language-ts">type AuthSuccessAssertion =
+  | { kind: "url"; pathPattern: string }
+  | { kind: "selector"; selector: string }
+  | { kind: "status"; path: string; expected: number[] };
+</code></pre>
+  <p>login flow後にassertionを1件以上満たさなければscanを開始しない。</p>
+  <h3 id="133-session-state">13.3 Session state</h3>
+  <ul>
+    <li>anonymous baselineとauthenticated preflightを区別する。</li>
+    <li>configured protected routeがloginへredirectした場合はauth失敗とする。</li>
+    <li>401/403後のrefreshはrun全体で1回だけ許可する。</li>
+    <li>
+      refresh後も401/403ならremaining routeを <code>not_tested: session_expired</code> とする。
+    </li>
+    <li>auth failureをfindingにしないがclean verdictにも含めない。</li>
+    <li>role間比較はauthorization matrixへ委譲する。</li>
+  </ul>
+  <h3 id="134-ui-safety">13.4 UI safety</h3>
+  <ul>
+    <li>secret inputは再表示しない。</li>
+    <li>screenshotは既定OFF。</li>
+    <li>private/authenticated response bodyをUIへ表示しない。</li>
+    <li>selectorとlogin flowはtarget scope validationを通す。</li>
+    <li>external IdP redirectはunsupportedとしてfail closedにする。</li>
+  </ul>
+  <h2 id="14-runtime-scanner-integration">14. Runtime scanner integration</h2>
+  <h3 id="141-shared-runtime-target">14.1 Shared runtime target</h3>
+  <p>
+    同一profile内のowned DAST、Nuclei、ZAP baseline、Schemathesisは、 同じprepared
+    target、normalized origin、route policy、aggregate budgetを共有する。
+    scannerごとに独立した上限を消費してaggregate上限を超えてはならない。
+  </p>
+  <h3 id="142-zap-baseline">14.2 ZAP baseline</h3>
+  <ul>
+    <li>passive modeを維持する。</li>
+    <li>spiderが発見したURLとgateway metricsをroute inventoryへimportする。</li>
+    <li>budget-blocked responseが1件でもあればcoverageをpartialにする。</li>
+    <li>401/403 preflightは <code>authentication_required</code> gapにする。</li>
+    <li>valid reportがないrunをfinding 0として完了しない。</li>
+    <li>real ZAP Docker fixtureをLinux CIで実行する。</li>
+  </ul>
+  <h3 id="143-nuclei-safe">14.3 Nuclei safe</h3>
+  <p>owned templateを段階的に増やす。初期必須family:</p>
+  <ol>
+    <li>exposed environment file</li>
+    <li>exposed source-control metadata</li>
+    <li>exposed API documentation</li>
+    <li>debug/actuator exposure</li>
+    <li>directory listing</li>
+    <li>unsafe CORS evidence</li>
+    <li>common backup file exposure</li>
+    <li>framework error disclosure</li>
+  </ol>
+  <p>
+    各templateに vulnerable/fixed fixture、body size上限、offline execution、
+    no-OAST、no-headless、no-code contractを要求する。 template数だけをrelease gateにしない。
+  </p>
+  <h3 id="144-schemathesis">14.4 Schemathesis</h3>
+  <ul>
+    <li>discovered OpenAPI sourceとhashをroute inventoryへ記録する。</li>
+    <li>GET/HEAD/OPTIONS operationだけを実行する。</li>
+    <li>write operationは <code>not_tested: write_operation_excluded</code> として数える。</li>
+    <li>schema parse failure、server error、example不足を別reason codeにする。</li>
+    <li>schema未発見を「API脆弱性なし」と表示しない。</li>
+  </ul>
+  <h3 id="145-coverage-aggregation">14.5 Coverage aggregation</h3>
+  <p>new module:</p>
+  <pre><code class="language-text">api/modules/scans/runtime-assessment-coverage.ts
+</code></pre>
+  <p>各stepは次を返す。</p>
+  <pre><code class="language-ts">type RuntimeStepCoverage = {
+  stepId: string;
+  applicability: "applicable" | "not_applicable";
+  coverageEffect: "covered" | "partial" | "gap";
+  planned: number;
+  attempted: number;
+  succeeded: number;
+  failed: number;
+  limitationCodes: string[];
+  requestCount: number;
+};
+</code></pre>
+  <h2 id="15-active-assessment-の境界">15. Active assessment の境界</h2>
+  <h3 id="151-維持するもの">15.1 維持するもの</h3>
+  <ul>
+    <li>explicit active engagement</li>
+    <li>internal purpose</li>
+    <li>local/ephemeral environment</li>
+    <li>finite start/expiry</li>
+    <li>exact origin/path/method</li>
+    <li>cumulative request budget</li>
+    <li>reset strategy</li>
+    <li>cleanup fail-closed</li>
+    <li>single active run per project</li>
+    <li>pinned nine-rule ZAP catalog</li>
+    <li>public/production rejection</li>
+  </ul>
+  <h3 id="152-標準profileとの関係">15.2 標準profileとの関係</h3>
+  <ul>
+    <li>standard passive resultからactive runを自動開始しない。</li>
+    <li>reportは「active未実行」をlimitationとして表示できる。</li>
+    <li>userが明示的にactive labを選ぶ場合だけsetup readinessを表示する。</li>
+    <li>
+      active findingはstandard passive findingと同じscan reportへ統合できるが、 profile ID、RoE
+      ID、reset resultを必ず保持する。
+    </li>
+  </ul>
+  <h3 id="153-active-ui">15.3 Active UI</h3>
+  <p>project security capability panelに、実行buttonではなく先にreadinessを表示する。</p>
+  <pre><code class="language-text">feature flag
+target disposable status
+engagement active/expiry
+allowed methods/paths
+request budget remaining
+reset strategy
+auth context availability
+Linux Docker availability
+</code></pre>
+  <p>全条件を満たした場合だけrun requestを作れる。</p>
+  <h2 id="16-reportinguiobservability">16. Reporting、UI、observability</h2>
+  <h3 id="161-terminology">16.1 Terminology</h3>
+  <p>禁止:</p>
+  <ul>
+    <li>「脆弱性なし」</li>
+    <li>「完全に安全」</li>
+    <li>partial/gap runに対する「合格」</li>
+    <li>active未実行なのに「総合DAST完了」</li>
+  </ul>
+  <p>使用:</p>
+  <ul>
+    <li>「対象範囲でfinding未観測」</li>
+    <li>「一部未走査」</li>
+    <li>「認証失敗により判定不能」</li>
+    <li>「request budget到達」</li>
+    <li>「active assessment未実行」</li>
+  </ul>
+  <h3 id="162-ui">16.2 UI</h3>
+  <p>DAST resultに次を表示する。</p>
+  <ul>
+    <li>execution status</li>
+    <li>verdict</li>
+    <li>coverage status</li>
+    <li>known / planned / attempted / successful route</li>
+    <li>crawler depth reached</li>
+    <li>request budget used / total</li>
+    <li>anonymous/authenticated</li>
+    <li>scanner step別coverage</li>
+    <li>limitation codes</li>
+    <li>finding count</li>
+    <li>artifact/evidence link</li>
+  </ul>
+  <p>
+    0 findingだけをgreen表示するのではなく、
+    <code>no_findings_observed + covered</code> の組み合わせだけをclean表示する。
+  </p>
+  <h3 id="163-report">16.3 Report</h3>
+  <p>deterministic reportに次を追加する。</p>
+  <pre><code class="language-markdown">## DAST scope and coverage
+
+- Verdict:
+- Coverage:
+- Known actionable routes:
+- Attempted routes:
+- Failed/not-tested routes:
+- Authentication:
+- Request budget:
+- Passive scanners:
+- Active assessment:
+- Limitations:
+</code></pre>
+  <h3 id="164-events-and-metrics">16.4 Events and metrics</h3>
+  <p>scan event:</p>
+  <pre><code class="language-text">dast.discovery.started
+dast.discovery.completed
+dast.auth.preflight_succeeded
+dast.auth.preflight_failed
+dast.budget.exhausted
+dast.coverage.partial
+dast.verdict.finalized
+</code></pre>
+  <p>runtime metrics:</p>
+  <ul>
+    <li>request count by scanner</li>
+    <li>response status class</li>
+    <li>transport error count</li>
+    <li>auth refresh count</li>
+    <li>discovered route by source</li>
+    <li>budget blocked count</li>
+    <li>response bytes read</li>
+    <li>duration</li>
+  </ul>
+  <p>metric labelにraw URL、token、cookie、query valueを入れない。</p>
+  <h2 id="17-benchmark-と-release-gate">17. Benchmark と release gate</h2>
+  <h3 id="171-owned-runtime-fixture">17.1 Owned runtime fixture</h3>
+  <p>new fixture:</p>
+  <pre><code class="language-text">tests/security-capability/dast-standard/
+  app/
+  ground-truth.json
+  vulnerable/
+  fixed/
+</code></pre>
+  <p>最低構成:</p>
+  <ul>
+    <li>public route 30件以上</li>
+    <li>depth 0/1/2/3</li>
+    <li>linked routeとunlinked source/OpenAPI route</li>
+    <li>SPA fallback</li>
+    <li>same-origin/internal redirect</li>
+    <li>external redirect</li>
+    <li>excluded route</li>
+    <li>parameterized route with/without example</li>
+    <li>anonymous route</li>
+    <li>authenticated route</li>
+    <li>session expiry</li>
+    <li>GET form</li>
+    <li>state-changing form</li>
+    <li>CORS vulnerable/fixed pair</li>
+    <li>cookie vulnerable/fixed pair</li>
+    <li>header vulnerable/fixed pair</li>
+    <li>exposed file vulnerable/fixed pair</li>
+    <li>debug disclosure vulnerable/fixed pair</li>
+  </ul>
+  <h3 id="172-dast-specific-metrics">17.2 DAST-specific metrics</h3>
+  <table>
+    <caption>
+      17.2 DAST-specific metrics
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Gate</th>
+        <th scope="col" class="markdown-align-right">必須値</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>required seed attempt</td>
+        <td class="markdown-align-right">100%</td>
+      </tr>
+      <tr>
+        <td>owned route discovery recall</td>
+        <td class="markdown-align-right">90%以上</td>
+      </tr>
+      <tr>
+        <td>owned route discovery precision</td>
+        <td class="markdown-align-right">95%以上</td>
+      </tr>
+      <tr>
+        <td>passive check recall</td>
+        <td class="markdown-align-right">90%以上</td>
+      </tr>
+      <tr>
+        <td>passive check precision</td>
+        <td class="markdown-align-right">95%以上</td>
+      </tr>
+      <tr>
+        <td>all-transport-error false pass</td>
+        <td class="markdown-align-right">0件</td>
+      </tr>
+      <tr>
+        <td>auth-failure false pass</td>
+        <td class="markdown-align-right">0件</td>
+      </tr>
+      <tr>
+        <td>budget-exhaustion false pass</td>
+        <td class="markdown-align-right">0件</td>
+      </tr>
+      <tr>
+        <td>finding without executable evidence</td>
+        <td class="markdown-align-right">0件</td>
+      </tr>
+      <tr>
+        <td>secret canary leakage</td>
+        <td class="markdown-align-right">0件</td>
+      </tr>
+      <tr>
+        <td>public/production request</td>
+        <td class="markdown-align-right">0件</td>
+      </tr>
+      <tr>
+        <td>active cleanup/reset success</td>
+        <td class="markdown-align-right">100%</td>
+      </tr>
+      <tr>
+        <td>fixture standard DAST duration</td>
+        <td class="markdown-align-right">300秒以内</td>
+      </tr>
+      <tr>
+        <td>aggregate request budget violation</td>
+        <td class="markdown-align-right">0件</td>
+      </tr>
+    </tbody>
+  </table>
+  <h3 id="173-real-scanner-gate">17.3 Real scanner gate</h3>
+  <p>fast PR gate:</p>
+  <ul>
+    <li>owned crawler fixture</li>
+    <li>HTTP normalizer vulnerable/fixed pair</li>
+    <li>authenticated Playwright fixture</li>
+    <li>ZAP/Nuclei command and policy contract</li>
+    <li>pre-generated report parser test</li>
+  </ul>
+  <p>Linux Docker integration gate:</p>
+  <ul>
+    <li>real ZAP baseline against owned fixture</li>
+    <li>real Nuclei safe against owned fixture</li>
+    <li>real Schemathesis against owned OpenAPI fixture</li>
+    <li>gateway metrics and request budget assertion</li>
+  </ul>
+  <p>scheduled isolated gate:</p>
+  <ul>
+    <li>real ZAP active against disposable vulnerable/fixed fixture</li>
+    <li>Juice Shop 20 eligible scenarioのevidence-bound実行</li>
+    <li>reset/cleanup確認</li>
+    <li>DAST-specific recall/precision report</li>
+  </ul>
+  <p>mock reportだけでreal scanner gateを合格にしない。</p>
+  <h3 id="174-juice-shop">17.4 Juice Shop</h3>
+  <p>既存policyを維持する。</p>
+  <table>
+    <caption>
+      17.4 Juice Shop
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Gate</th>
+        <th scope="col" class="markdown-align-right">必須値</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>eligible scenario</td>
+        <td class="markdown-align-right">20以上</td>
+      </tr>
+      <tr>
+        <td>category</td>
+        <td class="markdown-align-right">8以上</td>
+      </tr>
+      <tr>
+        <td>executed scenario</td>
+        <td class="markdown-align-right">eligibleの100%</td>
+      </tr>
+      <tr>
+        <td>recall</td>
+        <td class="markdown-align-right">60%以上</td>
+      </tr>
+      <tr>
+        <td>precision</td>
+        <td class="markdown-align-right">80%以上</td>
+      </tr>
+      <tr>
+        <td>evidence file hash verification</td>
+        <td class="markdown-align-right">100%</td>
+      </tr>
+      <tr>
+        <td>reset success</td>
+        <td class="markdown-align-right">100%</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    standard passive、authorization matrix、business logic、ZAP activeの
+    どのexecutorがscenarioを担当したかをobservationに保存する。
+  </p>
+  <h2 id="18-実装-slice">18. 実装 slice</h2>
+  <h3 id="181-slice-510-baseline-と-contract">18.1 Slice 51.0: Baseline と contract</h3>
+  <p>目的:</p>
+  <ul>
+    <li>現状を再現可能に固定する。</li>
+    <li>Phase 51 schema、policy、benchmark denominatorをversion管理する。</li>
+  </ul>
+  <p>変更:</p>
+  <ul>
+    <li><code>spec/evidence/phase-51-dast-baseline.json</code></li>
+    <li>new <code>spec/security-capability/dast-standard-policy.v1.json</code></li>
+    <li>new <code>spec/security-capability/dast-standard-ground-truth.v1.json</code></li>
+    <li>baseline生成script</li>
+    <li>false-pass regression test</li>
+  </ul>
+  <p>受入条件:</p>
+  <ul>
+    <li>
+      5 request全件errorが現行 <code>passed</code> になることをbaseline
+      evidenceに記録する。
+    </li>
+    <li>browser route errorの現行 verdictを記録する。</li>
+    <li>baseline commit、policy hash、fixture hashが一致する。</li>
+    <li>secret/absolute home pathがartifactに含まれない。</li>
+  </ul>
+  <p>検証:</p>
+  <pre><code class="language-bash">bun test api/modules/dast/http-runner.test.ts
+bun test api/modules/dast/browser-runner.test.ts
+bun run scripts/verify-phase-51-dast-baseline.ts
+</code></pre>
+  <h3 id="182-slice-511-verdict-fail-closed">18.2 Slice 51.1: Verdict fail-closed</h3>
+  <p>目的:</p>
+  <ul>
+    <li>false-passを最初に除去する。</li>
+  </ul>
+  <p>主な変更先:</p>
+  <ul>
+    <li><code>shared/schemas/dast.schema.ts</code></li>
+    <li><code>api/modules/dast/dast-normalizer.ts</code></li>
+    <li>new <code>api/modules/dast/coverage-evaluator.ts</code></li>
+    <li><code>api/modules/dast/dast-runner.ts</code></li>
+    <li><code>api/modules/scans/profile-dast-step-runner.ts</code></li>
+    <li><code>api/modules/scans/scan-diagnostic-runner.ts</code></li>
+    <li>migrationとrepository</li>
+  </ul>
+  <p>受入条件:</p>
+  <ul>
+    <li>全request errorは <code>inconclusive/partial</code>。</li>
+    <li>request 0は <code>not_tested/gap</code>。</li>
+    <li>browser route errorはclean verdictにならない。</li>
+    <li>findingあり+partial coverageはfindingを保持し、coverageもpartial。</li>
+    <li>legacy API mappingがdocumented truth tableと一致する。</li>
+    <li>reportがpartial runをpassed表示しない。</li>
+  </ul>
+  <p>検証:</p>
+  <pre><code class="language-bash">bun test api/modules/dast
+bun test api/modules/scans/scan-diagnostic-runner.test.ts
+bun test api/modules/scans/report-builder.test.ts
+</code></pre>
+  <h3 id="183-slice-512-route-inventory-と-bounded-crawler">
+    18.3 Slice 51.2: Route inventory と bounded crawler
+  </h3>
+  <p>目的:</p>
+  <ul>
+    <li><code>maxDepth</code> を実際の探索制御にする。</li>
+    <li>known route denominatorを保存する。</li>
+  </ul>
+  <p>主な変更先:</p>
+  <ul>
+    <li>new route inventory/crawler modules</li>
+    <li><code>api/modules/dast/http-runner.ts</code></li>
+    <li><code>api/modules/dast/browser-runner.ts</code></li>
+    <li><code>api/modules/dast/target-validator.ts</code></li>
+    <li><code>api/modules/threat-models/application-model-builder.ts</code></li>
+    <li><code>api/modules/api-schema-fuzz/schema-discovery.ts</code></li>
+    <li>repository/migration</li>
+  </ul>
+  <p>受入条件:</p>
+  <ul>
+    <li>depth 0/1/2/3 fixtureが設定どおり到達する。</li>
+    <li>cross-origin、excluded path、unsafe schemeはqueueへ入らない。</li>
+    <li>duplicate/query explosionが上限内に収まる。</li>
+    <li>common probeよりrequired routeが優先される。</li>
+    <li>budget終了時に未実行routeとreasonが保存される。</li>
+    <li>response body sizeとtotal sizeを超えない。</li>
+  </ul>
+  <p>検証:</p>
+  <pre><code class="language-bash">bun test api/modules/dast/bounded-crawler.test.ts
+bun test api/modules/dast/route-inventory.test.ts
+bun test tests/security-capability/dast-standard
+</code></pre>
+  <h3 id="184-slice-513-passive-check-precision">18.4 Slice 51.3: Passive check precision</h3>
+  <p>目的:</p>
+  <ul>
+    <li>response applicabilityとbody signatureを導入する。</li>
+  </ul>
+  <p>主な変更先:</p>
+  <ul>
+    <li><code>api/modules/dast/dast-normalizer.ts</code></li>
+    <li><code>api/modules/dast/http-runner.ts</code></li>
+    <li>new <code>api/modules/dast/passive-checks/</code></li>
+    <li><code>docker/toolbox/nuclei-safe-templates/</code></li>
+    <li><code>scripts/audit-nuclei-safe-templates.ts</code></li>
+  </ul>
+  <p>受入条件:</p>
+  <ul>
+    <li>SPA fallbackの<code>/.env</code>でfindingを作らない。</li>
+    <li>actual <code>.env</code> signatureを検出する。</li>
+    <li>404 JSONにCSP不足findingを作らない。</li>
+    <li>HTTP local targetでHSTS/Secureをproduction failureにしない。</li>
+    <li>CORS vulnerable/fixed pairを区別する。</li>
+    <li>Nuclei familyごとにvulnerable/fixed fixtureがある。</li>
+  </ul>
+  <p>検証:</p>
+  <pre><code class="language-bash">bun run scripts/audit-nuclei-safe-templates.ts
+bun test tests/security-capability/nuclei-*
+bun test tests/security-capability/dast-standard/passive-checks
+</code></pre>
+  <h3 id="185-slice-514-authenticated-read-only-operationalization">
+    18.5 Slice 51.4: Authenticated read-only operationalization
+  </h3>
+  <p>目的:</p>
+  <ul>
+    <li>実装済みauth contextとPlaywright adapterを利用可能な製品導線にする。</li>
+  </ul>
+  <p>主な変更先:</p>
+  <ul>
+    <li><code>shared/schemas/dast-auth.schema.ts</code></li>
+    <li><code>api/modules/dast/playwright-browser-adapter.ts</code></li>
+    <li><code>api/modules/dast/auth-context-repository.ts</code></li>
+    <li><code>api/routes/dast-auth.route.ts</code></li>
+    <li><code>api/routes/dast.route.ts</code></li>
+    <li><code>api/cli/scan-dast.ts</code></li>
+    <li><code>web/src/api/runtime-scans.ts</code></li>
+    <li><code>web/src/domains/scans/use-dast-controller.ts</code></li>
+    <li>DAST/auth UI components</li>
+  </ul>
+  <p>受入条件:</p>
+  <ul>
+    <li>create/rotate/revoke後にsecretをread APIが返さない。</li>
+    <li>URL/selector/status assertionでlogin successを確認できる。</li>
+    <li>wrong credential、login redirect、session expiryがinconclusiveになる。</li>
+    <li>protected routeを認証済みで走査できる。</li>
+    <li>screenshotはmask/sensitivityなしで保存できない。</li>
+    <li>artifact canary leakageが0。</li>
+  </ul>
+  <p>検証:</p>
+  <pre><code class="language-bash">bun test api/modules/dast/playwright-browser-adapter.test.ts
+bun test api/modules/dast/auth-context-repository.test.ts
+bun test api/routes/dast-auth.route.test.ts
+bun run test:e2e -- --grep "authenticated read-only DAST"
+</code></pre>
+  <h3 id="186-slice-515-standard-profile-v2-と-runtime-aggregation">
+    18.6 Slice 51.5: Standard profile v2 と runtime aggregation
+  </h3>
+  <p>目的:</p>
+  <ul>
+    <li>crawler、Nuclei、ZAP baseline、Schemathesisを同じcoverage modelで統合する。</li>
+  </ul>
+  <p>主な変更先:</p>
+  <ul>
+    <li><code>shared/schemas/scan-profile.schema.ts</code></li>
+    <li><code>api/modules/scans/profiles.ts</code></li>
+    <li><code>api/modules/scans/profile-step-orchestrator.ts</code></li>
+    <li><code>api/modules/scans/profile-dast-step-runner.ts</code></li>
+    <li><code>api/modules/scans/profile-runtime-step-runner.ts</code></li>
+    <li>new <code>api/modules/scans/runtime-assessment-coverage.ts</code></li>
+    <li>runtime scanner runner/gateway</li>
+  </ul>
+  <p>受入条件:</p>
+  <ul>
+    <li>aggregate request budgetを全step合計で超えない。</li>
+    <li>ZAP gateway budget blockがpartial coverageになる。</li>
+    <li>schema未発見がgapとして残る。</li>
+    <li>
+      optional DAST failureでもdiagnosticは<code>ready_with_limitations</code>になる。
+    </li>
+    <li>runtime専用required profileはrunner failure時にprofileを失敗させる。</li>
+    <li>full-security-scanがactive requestを送らない。</li>
+  </ul>
+  <p>検証:</p>
+  <pre><code class="language-bash">bun test api/modules/scans/profile-runner.test.ts
+bun test api/modules/scans/profile-step-orchestrator.test.ts
+bun test api/modules/runtime-scans
+bun run test:security-capability
+</code></pre>
+  <h3 id="187-slice-516-reportinguiactive-readiness">
+    18.7 Slice 51.6: Reporting、UI、active readiness
+  </h3>
+  <p>目的:</p>
+  <ul>
+    <li>userがfinding 0とcoverage完了を混同しない表示にする。</li>
+  </ul>
+  <p>主な変更先:</p>
+  <ul>
+    <li>report builder modules</li>
+    <li>scan summary/overview components</li>
+    <li>project security capability panel</li>
+    <li>runtime scan API types</li>
+    <li>localization/display model</li>
+  </ul>
+  <p>受入条件:</p>
+  <ul>
+    <li>verdict、coverage、route count、budget、auth、limitationを表示する。</li>
+    <li>partial/gap runをgreen passed表示しない。</li>
+    <li>legacy runを<code>unknown legacy coverage</code>と表示する。</li>
+    <li>active readinessを満たさない状態でrun buttonを有効にしない。</li>
+    <li>report snapshot testがterminology contractを満たす。</li>
+  </ul>
+  <p>検証:</p>
+  <pre><code class="language-bash">bun run test:web
+bun test api/modules/scans/report-builder.test.ts
+bun run test:e2e -- --grep "DAST coverage verdict"
+</code></pre>
+  <h3 id="188-slice-517-real-scanner-benchmark">18.8 Slice 51.7: Real scanner benchmark</h3>
+  <p>目的:</p>
+  <ul>
+    <li>mock/report parserではなく実scannerでDAST能力を測定する。</li>
+  </ul>
+  <p>変更:</p>
+  <ul>
+    <li>owned runtime vulnerable/fixed fixture</li>
+    <li>DAST metric scorer</li>
+    <li>Linux Docker integration workflow</li>
+    <li>scheduled Juice Shop workflow</li>
+    <li>Phase 51 release evidence verifier</li>
+  </ul>
+  <p>受入条件:</p>
+  <ul>
+    <li>Section 17の全gateを同一commit/policy/scanner hashで満たす。</li>
+    <li>Juice Shop 20 scenarioのevidence fileが存在する。</li>
+    <li>mock spawn resultをreal scanner metricへ混ぜない。</li>
+    <li>cleanup/reset失敗時はgate fail。</li>
+    <li>DASTとSAST metricを別々に表示する。</li>
+  </ul>
+  <p>検証:</p>
+  <pre><code class="language-bash">bun run benchmark:dast-standard
+bun run benchmark:juice-shop
+bun run verify:dast-capability
+</code></pre>
+  <h3 id="189-slice-518-rollout-と-closeout">18.9 Slice 51.8: Rollout と closeout</h3>
+  <p>目的:</p>
+  <ul>
+    <li>standard v2を安全に既定化し、旧profileを縮退する。</li>
+  </ul>
+  <p>変更:</p>
+  <ul>
+    <li>feature flag rollout</li>
+    <li>migration/backup/restore rehearsal</li>
+    <li>README/README.jp/runbook</li>
+    <li>release evidence</li>
+    <li>old profile deprecation notice</li>
+  </ul>
+  <p>受入条件:</p>
+  <ul>
+    <li>Section 23のDefinition of Doneを満たす。</li>
+    <li>clean checkoutでstrict verificationが成功する。</li>
+    <li>default profileが<code>web-passive-standard</code>を使用する。</li>
+    <li><code>http-baseline</code>は明示指定時だけ利用できる。</li>
+    <li>active scanの安全境界が回帰していない。</li>
+  </ul>
+  <h2 id="19-verification-inventory">19. Verification inventory</h2>
+  <h3 id="191-unit">19.1 Unit</h3>
+  <ul>
+    <li>URL/path/query canonicalization</li>
+    <li>queue priorityとdedupe</li>
+    <li>depth/request/response budget</li>
+    <li>redirect scope</li>
+    <li>coverage truth table</li>
+    <li>HTTP applicability</li>
+    <li>cookie parser</li>
+    <li>CORS matcher</li>
+    <li>exposed path signature</li>
+    <li>auth preflight/session refresh</li>
+    <li>legacy outcome mapping</li>
+  </ul>
+  <h3 id="192-integration">19.2 Integration</h3>
+  <ul>
+    <li>real local HTTP fixture</li>
+    <li>real Playwright login</li>
+    <li>route inventory persistence</li>
+    <li>shared target lifecycle</li>
+    <li>aggregate budget</li>
+    <li>scan diagnostic limitation</li>
+    <li>report rendering</li>
+    <li>API authorization</li>
+    <li>migration/backfill</li>
+  </ul>
+  <h3 id="193-docker">19.3 Docker</h3>
+  <ul>
+    <li>ZAP baseline real image</li>
+    <li>Nuclei real binary/template tree</li>
+    <li>Schemathesis real schema run</li>
+    <li>gateway request metrics</li>
+    <li>no Docker socket</li>
+    <li>no public egress</li>
+    <li>resource limit</li>
+    <li>timeout cleanup</li>
+  </ul>
+  <h3 id="194-full-commands">19.4 Full commands</h3>
+  <pre><code class="language-bash">git status --short
+git rev-parse HEAD
+bun run typecheck
+bun run lint
+bun run format:check
+bun run test
+bun run test:security-capability
+bun run test:zap-active:contract
+bun run benchmark:dast-standard
+bun run verify:dast-capability
+bun run verify:strict
+</code></pre>
+  <p>
+    <code>format:check</code> scriptは現状write/check semanticsを再確認し、
+    CIでmutationしないcommandを使用する。
+  </p>
+  <h2 id="20-rollout-と-backward-compatibility">20. Rollout と backward compatibility</h2>
+  <h3 id="201-feature-flags">20.1 Feature flags</h3>
+  <p>追加:</p>
+  <pre><code class="language-text">VULN_WORKBENCH_DAST_STANDARD_V2_ENABLED=false
+VULN_WORKBENCH_DAST_STANDARD_V2_DEFAULT=false
+</code></pre>
+  <p>既存:</p>
+  <pre><code class="language-text">VULN_WORKBENCH_ZAP_ACTIVE_ENABLED=false
+VULN_WORKBENCH_BUSINESS_LOGIC_ENABLED=false
+</code></pre>
+  <p>active flagsの既定値は変更しない。</p>
+  <h3 id="202-stages">20.2 Stages</h3>
+  <table>
+    <caption>
+      20.2 Stages
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Stage</th>
+        <th scope="col">動作</th>
+        <th scope="col">Exit</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>0</td>
+        <td>verdict fixのみ常時有効</td>
+        <td>false-pass regression pass</td>
+      </tr>
+      <tr>
+        <td>1</td>
+        <td>v2をshadow plan、requestは旧runのみ</td>
+        <td>route denominator差分を確認</td>
+      </tr>
+      <tr>
+        <td>2</td>
+        <td>v2 opt-in実行</td>
+        <td>owned fixture gate pass</td>
+      </tr>
+      <tr>
+        <td>3</td>
+        <td>runtime専用profileをv2既定</td>
+        <td>Docker integration gate pass</td>
+      </tr>
+      <tr>
+        <td>4</td>
+        <td>web-app/full profileをv2既定</td>
+        <td>p95 duration/budget/precision gate pass</td>
+      </tr>
+      <tr>
+        <td>5</td>
+        <td>old baselineをdeprecated</td>
+        <td>1 release cycleの互換期間完了</td>
+      </tr>
+    </tbody>
+  </table>
+  <h3 id="203-rollback">20.3 Rollback</h3>
+  <ul>
+    <li>default flagをfalseに戻して旧profileへ戻せる。</li>
+    <li>verdict schema/migrationは残し、false-pass behaviorへは戻さない。</li>
+    <li>new tableはrollback中も保持する。</li>
+    <li>active feature flagとRoEは変更しない。</li>
+    <li>benchmark failure時はv2 default化だけを止め、evidenceを破棄しない。</li>
+  </ul>
+  <h2 id="21-risk-register">21. Risk register</h2>
+  <table>
+    <caption>
+      21. Risk register
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Risk</th>
+        <th scope="col">Impact</th>
+        <th scope="col">Mitigation</th>
+        <th scope="col">Release gate</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>crawlerでrequest爆発</td>
+        <td>target負荷、scan timeout</td>
+        <td>canonicalization、depth、aggregate budget</td>
+        <td>budget violation 0</td>
+      </tr>
+      <tr>
+        <td>SPA fallback誤検知</td>
+        <td>false positive</td>
+        <td>body signature、content type、paired fixture</td>
+        <td>precision 95%以上</td>
+      </tr>
+      <tr>
+        <td>authenticated response漏えい</td>
+        <td>credential/data exposure</td>
+        <td>body非保存、redaction、canary</td>
+        <td>leakage 0</td>
+      </tr>
+      <tr>
+        <td>local devとproduction差</td>
+        <td>header/cookie誤評価</td>
+        <td>deployment context limitation</td>
+        <td>transport limitation表示</td>
+      </tr>
+      <tr>
+        <td>ZAP spiderがbudgetを消費</td>
+        <td>coverage不足</td>
+        <td>priority、100 request allocation、metrics</td>
+        <td>blockedならpartial</td>
+      </tr>
+      <tr>
+        <td>known route denominator過大</td>
+        <td>見かけのlow coverage</td>
+        <td>actionable分類、parameter reason</td>
+        <td>reason code 100%</td>
+      </tr>
+      <tr>
+        <td>known route denominator過小</td>
+        <td>見かけのhigh coverage</td>
+        <td>source/OpenAPI/runtime統合</td>
+        <td>owned recall 90%以上</td>
+      </tr>
+      <tr>
+        <td>auth flow不安定</td>
+        <td>flaky scan</td>
+        <td>declarative assertion、single retry</td>
+        <td>E2E安定率</td>
+      </tr>
+      <tr>
+        <td>optional step failureの隠蔽</td>
+        <td>false clean report</td>
+        <td>diagnostic limitation gate</td>
+        <td>false pass 0</td>
+      </tr>
+      <tr>
+        <td>real scanner CIが遅い</td>
+        <td>PR latency</td>
+        <td>fast/real/scheduledの分離</td>
+        <td>scheduled freshness</td>
+      </tr>
+      <tr>
+        <td>active scan誤起動</td>
+        <td>target破壊</td>
+        <td>dedicated profile、RoE、reset、flag</td>
+        <td>public/production 0</td>
+      </tr>
+      <tr>
+        <td>migration失敗</td>
+        <td>history loss</td>
+        <td>backup/restore rehearsal</td>
+        <td>restore pass</td>
+      </tr>
+    </tbody>
+  </table>
+  <h2 id="22-pr-分割と工数">22. PR 分割と工数</h2>
+  <p>1 PRに複数の大きな安全境界変更を混ぜない。</p>
+  <table>
+    <caption>
+      22. PR 分割と工数
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">PR</th>
+        <th scope="col">Slice</th>
+        <th scope="col" class="markdown-align-right">目安</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>1</td>
+        <td>51.0 baseline/policy</td>
+        <td class="markdown-align-right">2–3人日</td>
+      </tr>
+      <tr>
+        <td>2</td>
+        <td>51.1 verdict/schema/migration</td>
+        <td class="markdown-align-right">3–5人日</td>
+      </tr>
+      <tr>
+        <td>3</td>
+        <td>51.2 route inventory/crawler</td>
+        <td class="markdown-align-right">5–8人日</td>
+      </tr>
+      <tr>
+        <td>4</td>
+        <td>51.3 passive precision/Nuclei</td>
+        <td class="markdown-align-right">4–6人日</td>
+      </tr>
+      <tr>
+        <td>5</td>
+        <td>51.4 authenticated read-only</td>
+        <td class="markdown-align-right">5–8人日</td>
+      </tr>
+      <tr>
+        <td>6</td>
+        <td>51.5 profile/runtime aggregation</td>
+        <td class="markdown-align-right">4–6人日</td>
+      </tr>
+      <tr>
+        <td>7</td>
+        <td>51.6 report/UI</td>
+        <td class="markdown-align-right">3–5人日</td>
+      </tr>
+      <tr>
+        <td>8</td>
+        <td>51.7 real benchmark</td>
+        <td class="markdown-align-right">5–8人日</td>
+      </tr>
+      <tr>
+        <td>9</td>
+        <td>51.8 rollout/closeout</td>
+        <td class="markdown-align-right">2–4人日</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>合計目安: 33–53人日。</p>
+  <p>各PRは次を満たす。</p>
+  <ul>
+    <li>migrationとschema testを同じPRに含める。</li>
+    <li>behavior変更と受入testを同じPRに含める。</li>
+    <li>policy hashを変更したらrelease evidenceを更新する。</li>
+    <li>unrelated refactorを混ぜない。</li>
+    <li>generated artifactを追跡対象にしない。</li>
+    <li>capability claimをgate前に更新しない。</li>
+  </ul>
+  <h2 id="23-phase-51-definition-of-done">23. Phase 51 Definition of Done</h2>
+  <p>次をすべて満たすまでPhase 51を完了扱いにしない。</p>
+  <ul>
+    <li>
+      <input checked="" disabled="" type="checkbox"> 全transport errorのrunがclean
+      verdictにならない。
+    </li>
+    <li>
+      <input checked="" disabled="" type="checkbox"> browser route error/auth failure/budget
+      exhaustionがclean verdictにならない。
+    </li>
+    <li>
+      <input checked="" disabled="" type="checkbox">
+      execution、verdict、coverageが分離して保存・表示される。
+    </li>
+    <li>
+      <input checked="" disabled="" type="checkbox"> legacy
+      <code>passed</code> rowが現在のclean baselineに数えられない。
+    </li>
+    <li>
+      <input checked="" disabled="" type="checkbox">
+      <code>maxDepth</code> がcrawler behaviorを制御する。
+    </li>
+    <li>
+      <input checked="" disabled="" type="checkbox"> known route inventoryとsourceが保存される。
+    </li>
+    <li><input checked="" disabled="" type="checkbox"> required seed attemptが100%である。</li>
+    <li>
+      <input checked="" disabled="" type="checkbox"> owned route discovery recall
+      90%以上、precision 95%以上である。
+    </li>
+    <li>
+      <input checked="" disabled="" type="checkbox"> passive check recall 90%以上、precision
+      95%以上である。
+    </li>
+    <li>
+      <input checked="" disabled="" type="checkbox"> SPA fallback、404、development
+      HTTPの誤検知fixtureが通る。
+    </li>
+    <li>
+      <input checked="" disabled="" type="checkbox"> authenticated
+      read-onlyをAPI、CLI、UIから実行できる。
+    </li>
+    <li>
+      <input checked="" disabled="" type="checkbox"> auth secretがAPI
+      response、artifact、log、reportに漏れない。
+    </li>
+    <li>
+      <input checked="" disabled="" type="checkbox"> aggregate runtime request budgetを超えない。
+    </li>
+    <li>
+      <input checked="" disabled="" type="checkbox"> ZAP baseline budget blockがpartial
+      coverageになる。
+    </li>
+    <li>
+      <input checked="" disabled="" type="checkbox"> Nuclei safe各familyにvulnerable/fixed
+      fixtureがある。
+    </li>
+    <li>
+      <input disabled="" type="checkbox"> real ZAP/Nuclei/Schemathesis integration gateが通る。
+    </li>
+    <li>
+      <input disabled="" type="checkbox"> Juice Shop 20 scenarioがevidence-boundで実行される。
+    </li>
+    <li><input disabled="" type="checkbox"> active cleanup/reset successが100%である。</li>
+    <li>
+      <input checked="" disabled="" type="checkbox"> public/production active requestが0件である。
+    </li>
+    <li>
+      <input checked="" disabled="" type="checkbox"> report/UIが「脆弱性なし」と表現しない。
+    </li>
+    <li>
+      <input checked="" disabled="" type="checkbox"> missing/failed optional runtime
+      stepが<code>ready_with_limitations</code>になる。
+    </li>
+    <li>
+      <input checked="" disabled="" type="checkbox"> backup/restore/migration rehearsalが通る。
+    </li>
+    <li>
+      <input disabled="" type="checkbox"> <code>bun run verify:strict</code> がclean
+      checkoutで成功する。
+    </li>
+    <li>
+      <input disabled="" type="checkbox"> Phase 51 release evidenceが同一commit、policy hash、
+      scanner manifest hash、fixture hashを参照する。
+    </li>
+  </ul>
+  <p>2026-07-31 local closeout note:</p>
+  <ul>
+    <li>
+      owned DAST benchmark、full test、security capability、coverage、build、
+      E2E、backup/restore/migration rehearsalは成功した。
+    </li>
+    <li>real-scanner harnessではNucleiとSchemathesisの実行を確認した。</li>
+    <li>
+      pinned ZAP imageの取得がlocal Docker credential helperで完了せず、
+      real-scanner全体の証跡は未確定である。Linux CI gateは同一harnessと evidence hash
+      verifierを実行する。
+    </li>
+    <li>
+      Phase 50 evidence verifierは、参照release commit以後に non-evidence
+      commitが存在するためfail-closedした。Phase 51の same-commit release evidenceとJuice Shop 20
+      scenario evidenceは 実測後にのみ完了扱いとする。
+    </li>
+  </ul>
+  <h2 id="24-実装開始条件">24. 実装開始条件</h2>
+  <p>Slice 51.0開始前に次を確認する。</p>
+  <ol>
+    <li>baseline commitを固定する。</li>
+    <li>migration番号の競合がない。</li>
+    <li>owned runtime fixtureにのみactive payloadを送る。</li>
+    <li>Linux Docker integration runnerが利用可能である。</li>
+    <li>
+      <code>DAST_AUTH_ENCRYPTION_KEY</code> test keyの保管方法がCI secret policyと一致する。
+    </li>
+    <li>Juice Shop corpus digestとlicense/provenanceを固定する。</li>
+    <li><code>dast-standard-policy.v1.json</code> のownerを決める。</li>
+    <li>rollout flagのdefault falseを確認する。</li>
+  </ol>
+  <p>
+    開始条件を満たさない場合でもSlice 51.1のfalse-pass修正は延期しない。
+    false-pass修正は独立したP0として先行可能とする。
+  </p>
+  <h2 id="25-参照">25. 参照</h2>
+  <ul>
+    <li><code>api/modules/dast/profiles.ts</code></li>
+    <li><code>api/modules/dast/http-runner.ts</code></li>
+    <li><code>api/modules/dast/browser-runner.ts</code></li>
+    <li><code>api/modules/dast/dast-normalizer.ts</code></li>
+    <li><code>api/modules/dast/playwright-browser-adapter.ts</code></li>
+    <li><code>api/modules/dast/active-assessment-runner.ts</code></li>
+    <li><code>api/modules/runtime-scans/zap-baseline-runner.ts</code></li>
+    <li><code>api/modules/runtime-scans/zap-active-runner.ts</code></li>
+    <li><code>api/modules/scans/profiles.ts</code></li>
+    <li><code>api/modules/scans/profile-step-orchestrator.ts</code></li>
+    <li><code>shared/schemas/dast.schema.ts</code></li>
+    <li><code>shared/schemas/active-assessment.schema.ts</code></li>
+    <li><code>shared/schemas/scan-profile.schema.ts</code></li>
+    <li><code>spec/security-capability/benchmark-policy.v1.json</code></li>
+    <li><code>spec/security-capability/scope-catalog.v1.json</code></li>
+    <li><code>spec/evidence/phase-50-release-report.json</code></li>
+    <li><code>spec/evidence/phase-50-external-benchmark.json</code></li>
+    <li><code>spec/evidence/phase-50-zap-active-capability.json</code></li>
+    <li><code>README.md</code></li>
+    <li><code>docs/production-runbook.md</code></li>
+  </ul>
+</article>
+  </body>
+</html>

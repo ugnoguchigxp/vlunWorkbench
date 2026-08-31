@@ -7,6 +7,7 @@ import { NightworkersIntegrationError } from "./nightworkers-integration.errors"
 
 type ReportArtifact = {
 	path: string;
+	storageKey?: string | null;
 	sha256: string;
 	sizeBytes: number;
 };
@@ -21,9 +22,12 @@ export async function readNightworkersReportContent(params: {
 	}
 	let content: string;
 	try {
-		content = await params.storage.readTextArtifact(params.artifact.path, {
-			maxBytes: params.maxBytes,
-		});
+		content = await params.storage.readTextArtifact(
+			params.artifact.storageKey ?? params.artifact.path,
+			{
+				maxBytes: params.maxBytes,
+			},
+		);
 	} catch (error) {
 		if (error instanceof ArtifactSizeLimitError) {
 			throw reportTooLarge(params.maxBytes);

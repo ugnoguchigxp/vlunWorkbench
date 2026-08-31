@@ -20,6 +20,8 @@ import { StaticIntelligenceRepository } from "./repository";
 import { buildStaticIntelligenceKnowledgeSourceManifest } from "./knowledge-source-manifest";
 import type { StaticIntelligenceReadiness } from "../../../shared/schemas/static-intelligence-module.schema";
 
+const GIT_PROBE_TIMEOUT_MS = 30_000;
+
 export type StaticIntelligenceBuildStage = {
 	name:
 		| "validate_source"
@@ -420,12 +422,18 @@ export function probeSourceRevision(
 			cwd: projectPath,
 			encoding: "utf8",
 			stdio: ["ignore", "pipe", "ignore"],
+			maxBuffer: 1024 * 1024,
+			timeout: GIT_PROBE_TIMEOUT_MS,
+			killSignal: "SIGKILL",
 		}).trim();
 		if (!head) throw new Error("Git HEAD is empty.");
 		const dirty = execFileSync("git", ["status", "--porcelain=v1"], {
 			cwd: projectPath,
 			encoding: "utf8",
 			stdio: ["ignore", "pipe", "ignore"],
+			maxBuffer: 4 * 1024 * 1024,
+			timeout: GIT_PROBE_TIMEOUT_MS,
+			killSignal: "SIGKILL",
 		}).trim();
 		const dirtyHash = dirty
 			? buildDirtyStateHash(projectPath, dirty, sourceTreeHash)
@@ -457,6 +465,8 @@ function buildDirtyStateHash(
 			encoding: "utf8",
 			stdio: ["ignore", "pipe", "ignore"],
 			maxBuffer: 4 * 1024 * 1024,
+			timeout: GIT_PROBE_TIMEOUT_MS,
+			killSignal: "SIGKILL",
 		},
 	);
 	const untrackedOutput = execFileSync(
@@ -467,6 +477,8 @@ function buildDirtyStateHash(
 			encoding: "utf8",
 			stdio: ["ignore", "pipe", "ignore"],
 			maxBuffer: 1024 * 1024,
+			timeout: GIT_PROBE_TIMEOUT_MS,
+			killSignal: "SIGKILL",
 		},
 	);
 	const untracked = untrackedOutput
@@ -477,7 +489,8 @@ function buildDirtyStateHash(
 		.map((relativePath) => {
 			const absolutePath = `${projectPath}/${relativePath}`;
 			try {
-				const stat = fs.statSync(absolutePath);
+				const stat = fs.lstatSync(absolutePath);
+				if (stat.isSymbolicLink()) return `${relativePath}:symlink`;
 				if (!stat.isFile()) return `${relativePath}:non_file`;
 				if (stat.size > 1024 * 1024) {
 					return `${relativePath}:${stat.size}:${stat.mtimeMs}`;

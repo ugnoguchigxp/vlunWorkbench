@@ -3,12 +3,16 @@ import { z } from "zod";
 import type { AppEnv } from "../../app/env";
 import {
 	applyRuntimeSettings,
+	missingRuntimeIsolationSettings,
+	normalizeLegacyLocalRuntimeImageReferences,
 	RUNTIME_SETTINGS_KEY,
+	type RuntimeIsolationSettings,
 	type RuntimeSettings,
 	RuntimeSettingsBaseSchema,
 	type RuntimeSettingsResponse,
 	RuntimeSettingsSchema,
 	RuntimeSettingsUpdateSchema,
+	runtimeIsolationSettingsFromBootstrap,
 	runtimeSettingsFromAppEnv,
 } from "../../config/runtime-settings";
 import type { AppDatabase } from "../../db";
@@ -20,6 +24,20 @@ import {
 
 const GLOBAL_SYSTEM_CONTEXT_KEY = "__global_system_context__";
 const LEGACY_KEYS = ["local", "global", "system"];
+const QUALIFICATION_BOUND_RUNTIME_KEYS = [
+	"namespaceOwnerImage",
+	"nodeImage",
+	"materializerImage",
+	"registryProxyImage",
+	"probeImage",
+	"httpExecutorImage",
+	"dockerDaemonIdentityHash",
+	"qualificationHash",
+] as const satisfies ReadonlyArray<keyof RuntimeIsolationSettings>;
+
+export type RuntimeSettingsUpdateOptions = {
+	trustRuntimeIsolationQualification?: boolean;
+};
 
 const PersistedRuntimeSettingsSchema = RuntimeSettingsBaseSchema.extend({
 	dastAuthKeySecret: z
@@ -141,7 +159,7 @@ export class SettingsRepository {
 			};
 		}
 
-		const persisted = PersistedRuntimeSettingsSchema.parse(existing.settings);
+		const persisted = parsePersistedRuntimeSettings(existing.settings, env);
 		if (!persisted.dastAuthKeySecret) {
 			return {
 				settings: RuntimeSettingsSchema.parse({
@@ -175,11 +193,16 @@ export class SettingsRepository {
 			dastAuthPreviousEncryptionKeys: _previousKeys,
 			...settings
 		} = resolved.settings;
+		const runtimeIsolationMissingFields = missingRuntimeIsolationSettings(
+			settings.runtimeIsolation,
+		);
 		return {
 			...settings,
 			dastAuthEncryptionKey: "",
 			dastAuthEncryptionKeyConfigured: Boolean(dastAuthEncryptionKey),
 			dastAuthEncryptionKeySource: resolved.source,
+			runtimeIsolationConfigured: runtimeIsolationMissingFields.length === 0,
+			runtimeIsolationMissingFields,
 			updatedAt: updatedAt?.toISOString() ?? null,
 		};
 	}
@@ -203,12 +226,13 @@ export class SettingsRepository {
 	async updateRuntimeSettings(
 		input: unknown,
 		env: AppEnv,
+		options: RuntimeSettingsUpdateOptions = {},
 	): Promise<RuntimeSettingsResponse> {
 		const update = RuntimeSettingsUpdateSchema.parse(input);
 		const existing = await this.readRuntimeSettingsRecord();
 		const current = this.resolveRuntimeSettingsRecord(existing, env);
 		const persisted = existing
-			? PersistedRuntimeSettingsSchema.parse(existing.settings)
+			? parsePersistedRuntimeSettings(existing.settings, env)
 			: null;
 		const requestedKey = update.dastAuthEncryptionKey;
 		const secret = requestedKey
@@ -217,25 +241,32 @@ export class SettingsRepository {
 					env.jwtSecret,
 				)
 			: persisted?.dastAuthKeySecret;
-		const { dastAuthEncryptionKey: _requestedKey, ...base } = update;
+		const {
+			dastAuthEncryptionKey: _requestedKey,
+			runtimeIsolation: requestedRuntimeIsolation,
+			...base
+		} = update;
+		const nextSettings = {
+			...base,
+			runtimeIsolation: runtimeIsolationForUpdate({
+				current: current.settings.runtimeIsolation,
+				requested: requestedRuntimeIsolation,
+				trustQualification: options.trustRuntimeIsolationQualification === true,
+			}),
+			...(secret ? { dastAuthKeySecret: secret } : {}),
+		};
 		const now = new Date();
 		const [updated] = await this.db
 			.insert(runtimeSettings)
 			.values({
 				id: RUNTIME_SETTINGS_KEY,
-				settings: {
-					...base,
-					...(secret ? { dastAuthKeySecret: secret } : {}),
-				},
+				settings: nextSettings,
 				updatedAt: now,
 			})
 			.onConflictDoUpdate({
 				target: runtimeSettings.id,
 				set: {
-					settings: {
-						...base,
-						...(secret ? { dastAuthKeySecret: secret } : {}),
-					},
+					settings: nextSettings,
 					updatedAt: now,
 				},
 			})
@@ -245,6 +276,47 @@ export class SettingsRepository {
 			updated.updatedAt,
 		);
 	}
+}
+
+function runtimeIsolationForUpdate(params: {
+	current: RuntimeIsolationSettings;
+	requested: RuntimeIsolationSettings | undefined;
+	trustQualification: boolean;
+}): RuntimeIsolationSettings {
+	if (!params.requested) return params.current;
+	if (params.trustQualification) {
+		return normalizeLegacyLocalRuntimeImageReferences(params.requested);
+	}
+	const qualificationBindingChanged = QUALIFICATION_BOUND_RUNTIME_KEYS.some(
+		(key) => params.requested?.[key] !== params.current[key],
+	);
+	return normalizeLegacyLocalRuntimeImageReferences({
+		...params.requested,
+		qualificationVersion: qualificationBindingChanged
+			? 1
+			: params.current.qualificationVersion,
+	});
+}
+
+function parsePersistedRuntimeSettings(
+	settings: Record<string, unknown>,
+	env: AppEnv,
+) {
+	if (Object.hasOwn(settings, "runtimeIsolation")) {
+		const parsed = PersistedRuntimeSettingsSchema.parse(settings);
+		return {
+			...parsed,
+			runtimeIsolation: normalizeLegacyLocalRuntimeImageReferences(
+				parsed.runtimeIsolation,
+			),
+		};
+	}
+	return PersistedRuntimeSettingsSchema.parse({
+		...settings,
+		runtimeIsolation: runtimeIsolationSettingsFromBootstrap(
+			env.runtimeIsolation,
+		),
+	});
 }
 
 function rotateDastAuthKeys(

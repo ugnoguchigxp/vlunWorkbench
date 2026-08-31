@@ -24,6 +24,7 @@ export const VERIFY_STEPS: VerifyStep[] = [
 		label: "security-capability-docs",
 		command: ["bun", "run", "check:security-capability-docs"],
 	},
+	{ label: "spec-docs", command: ["bun", "run", "docs:check"] },
 	{ label: "test", command: ["bun", "run", "test"] },
 	{ label: "build", command: ["bun", "run", "build"] },
 	{ label: "bundle-budget", command: ["bun", "run", "check:bundle"] },

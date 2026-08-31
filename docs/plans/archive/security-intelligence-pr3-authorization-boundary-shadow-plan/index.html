@@ -1,0 +1,394 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex,follow">
+    <title>PR 3: Authorization Boundary Shadow Observer | vulnWorkbench</title>
+    <link rel="stylesheet" href="/vlunWorkbench/assets/css/spec-document.css">
+    <link rel="stylesheet" href="/vlunWorkbench/assets/css/plan-document.css">
+  </head>
+  <body>
+    <article lang="ja">
+  <h1 id="pr-3-authorization-boundary-shadow-observer">
+    PR 3: Authorization Boundary Shadow Observer
+  </h1>
+  <p>Status: Implemented; PR 3 targeted verification passed</p>
+  <h2 id="1-目的">1. 目的</h2>
+  <p>
+    route/entrypointとAuthorization guardの変化をrevision-boundに比較し、Security Intelligence
+    Assessmentへshadow observationとして追加する。
+  </p>
+  <p>
+    このPRはvulnerability verdict、finding生成、task blocking、merge
+    gateを行わない。解析精度とcoverage lossを計測するための観測器である。
+  </p>
+  <h2 id="2-shadowから始める理由">2. Shadowから始める理由</h2>
+  <p>
+    既存<code>ApplicationModel</code>にはentrypoint、<code>authorizationGuards</code>、evidence
+    reference、snapshot hashがある。一方で、現在のsnapshot
+    rowだけでは比較対象revisionとのbindingが十分ではなく、guard抽出には広いidentifier
+    heuristicが含まれる。
+  </p>
+  <p>その状態で「guard removed」をFindingへ直結すると、次を誤検知する。</p>
+  <ul>
+    <li>route自体が削除された</li>
+    <li>frameworkやmiddlewareの書き方が変わった</li>
+    <li>analyzerがafter revisionをparseできなかった</li>
+    <li>guard名に似た無関係identifierが存在した</li>
+    <li>route rename/moveでstable identityが失われた</li>
+  </ul>
+  <p>
+    したがって、まずexplicit target identityと解析状態を持つprojectionを作り、unknownとcoverage
+    lossを第一級状態として扱う。
+  </p>
+  <h2 id="3-初期support範囲">3. 初期support範囲</h2>
+  <ul>
+    <li>Language: TypeScript / JavaScript</li>
+    <li>Framework: 既存extractorが明示的に認識できるHono、Express、Fastifyの範囲</li>
+    <li>Boundary: HTTP route/handlerと、そのrouteへ適用される明示middleware/guard</li>
+    <li>Comparison: explicit before/after immutable snapshot</li>
+  </ul>
+  <p>
+    support外のlanguage/framework、動的route構築、runtime policy
+    engineは<code>unknown</code>またはcoverage
+    gapとする。文字列やLLMによる推測で補完しない。
+  </p>
+  <h2 id="4-proposed-files">4. Proposed files</h2>
+  <table>
+    <caption>
+      4. Proposed files
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">種別</th>
+        <th scope="col">Path</th>
+        <th scope="col">内容</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>New</td>
+        <td><code>shared/schemas/security-intelligence-authorization.schema.ts</code></td>
+        <td>revision-bound boundary snapshot/diff schema</td>
+      </tr>
+      <tr>
+        <td>New</td>
+        <td><code>shared/schemas/security-intelligence-authorization.schema.test.ts</code></td>
+        <td>strict validation、target binding test</td>
+      </tr>
+      <tr>
+        <td>New</td>
+        <td><code>api/modules/security-intelligence/authorization-boundary-projector.ts</code></td>
+        <td>ApplicationModel/source evidenceからsnapshot生成</td>
+      </tr>
+      <tr>
+        <td>New</td>
+        <td><code>api/modules/security-intelligence/authorization-boundary-source-analysis.ts</code></td>
+        <td>TypeScript AST解析とcheckout root非依存のsource正規化</td>
+      </tr>
+      <tr>
+        <td>New</td>
+        <td><code>api/modules/security-intelligence/authorization-boundary-projector.test.ts</code></td>
+        <td>framework fixtureとconfidence test</td>
+      </tr>
+      <tr>
+        <td>New</td>
+        <td><code>api/modules/security-intelligence/authorization-boundary-diff.ts</code></td>
+        <td>before/after比較pure function</td>
+      </tr>
+      <tr>
+        <td>New</td>
+        <td><code>api/modules/security-intelligence/authorization-boundary-diff.test.ts</code></td>
+        <td>classification table test</td>
+      </tr>
+      <tr>
+        <td>New</td>
+        <td><code>api/modules/security-intelligence/authorization-shadow-service.ts</code></td>
+        <td>immutable target load、assessmentへのshadow追加</td>
+      </tr>
+      <tr>
+        <td>New</td>
+        <td><code>api/modules/security-intelligence/authorization-shadow-service.test.ts</code></td>
+        <td>flag OFF、target binding、no finding test</td>
+      </tr>
+      <tr>
+        <td>New</td>
+        <td><code>api/cli/authorization-shadow-assessment.ts</code></td>
+        <td>flag既定OFFのread-only explicit CLI</td>
+      </tr>
+      <tr>
+        <td>New</td>
+        <td>colocated test fixture builders</td>
+        <td>small before/after sourceと明示guard association</td>
+      </tr>
+      <tr>
+        <td>New</td>
+        <td><code>spec/evidence/security-intelligence-authorization-shadow-baseline.json</code></td>
+        <td>fixture精度とcoverage結果</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    既存<code>ApplicationModel</code> schemaを破壊的に変更しない。revision
+    identityが必要なため、Security Intelligence専用wrapper/projected snapshotへ明示的に追加する。
+  </p>
+  <h2 id="5-snapshot-shape">5. Snapshot shape</h2>
+  <p><code>AuthorizationBoundarySnapshot</code>は少なくとも次を持つ。</p>
+  <ul>
+    <li><code>projectRef</code></li>
+    <li><code>target.sourceRevision</code></li>
+    <li><code>target.targetDigest</code></li>
+    <li><code>analyzer.name/version</code></li>
+    <li><code>analyzer.status = ready | degraded | unavailable</code></li>
+    <li><code>framework</code>とsupport level</li>
+    <li>stable endpoint identity</li>
+    <li>methodとnormalized route pattern</li>
+    <li>guard state: <code>guarded | unguarded | unknown</code></li>
+    <li>guard evidence: project-relative path、line/columnまたはopaque evidence ref</li>
+    <li>limitation codes</li>
+    <li>snapshot digest</li>
+  </ul>
+  <p>
+    stable endpoint identityは単純なline numberではなく、framework、HTTP method、normalized route
+    pattern、handler
+    identityから決定的に作る。identityが曖昧なら無理に対応付けず<code>unknown</code>にする。
+  </p>
+  <h2 id="6-extraction-policy">6. Extraction policy</h2>
+  <ul>
+    <li>ASTまたは既存extractorの明示構造を優先する。</li>
+    <li>
+      <code>authorize</code>、<code>guard</code>等のidentifier名だけを根拠にhigh-confidence
+      guardedとしない。
+    </li>
+    <li>app/router level middlewareは適用順序を考慮する。</li>
+    <li>source refはproject-relativeに正規化する。</li>
+    <li>parse failureを空のroute一覧として扱わない。</li>
+    <li>
+      before/afterでanalyzer versionまたはsupport levelが変わった場合、その影響をlimitationに残す。
+    </li>
+    <li>
+      LLM補助を将来追加してもoriginは<code>inferred</code>とし、deterministic
+      observationと混ぜない。
+    </li>
+  </ul>
+  <h2 id="7-diff-classification">7. Diff classification</h2>
+  <p>各boundaryは次のいずれかへ分類する。</p>
+  <table>
+    <caption>
+      7. Diff classification
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Classification</th>
+        <th scope="col">条件</th>
+        <th scope="col">初期挙動</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>introduced</code></td>
+        <td>afterに新しいendpointがありguard stateを観測可能</td>
+        <td>shadow observation</td>
+      </tr>
+      <tr>
+        <td><code>worsened</code></td>
+        <td>同一endpointが<code>guarded -&gt; unguarded</code></td>
+        <td>high-signal candidate、findingにはしない</td>
+      </tr>
+      <tr>
+        <td><code>unchanged</code></td>
+        <td>endpointとguard stateが安定</td>
+        <td>metricのみ</td>
+      </tr>
+      <tr>
+        <td><code>resolved</code></td>
+        <td><code>unguarded -&gt; guarded</code></td>
+        <td>positive observation</td>
+      </tr>
+      <tr>
+        <td><code>removed</code></td>
+        <td>endpoint自体がafterにない</td>
+        <td>guard removalとは扱わない</td>
+      </tr>
+      <tr>
+        <td><code>coverage_lost</code></td>
+        <td>before解析済み、after degraded/unavailable</td>
+        <td>failure signal。worsenedにしない</td>
+      </tr>
+      <tr>
+        <td><code>unknown</code></td>
+        <td>identity、middleware適用、解析結果が曖昧</td>
+        <td>decisionへ使わない</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    <code>worsened</code>は、before/after双方が同じanalyzer
+    contractで<code>ready</code>、stable identityが一致し、両方にsource
+    evidenceがある場合だけ生成する。
+  </p>
+  <h2 id="8-required-fixtures">8. Required fixtures</h2>
+  <table>
+    <caption>
+      8. Required fixtures
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Fixture</th>
+        <th scope="col">Expected</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>route-level guard removed</td>
+        <td><code>worsened</code></td>
+      </tr>
+      <tr>
+        <td>route-level guard added</td>
+        <td><code>resolved</code></td>
+      </tr>
+      <tr>
+        <td>guarded route unchanged</td>
+        <td><code>unchanged</code></td>
+      </tr>
+      <tr>
+        <td>new unguarded route</td>
+        <td>
+          <code>introduced</code> +
+          <code>unguarded</code>
+        </td>
+      </tr>
+      <tr>
+        <td>route deleted</td>
+        <td><code>removed</code>。guard removalではない</td>
+      </tr>
+      <tr>
+        <td>route renamed/moved</td>
+        <td>stable identity不成立なら<code>unknown</code></td>
+      </tr>
+      <tr>
+        <td>router-level middleware reordered</td>
+        <td>実際の適用関係に従う</td>
+      </tr>
+      <tr>
+        <td>unrelated <code>authorize</code> variable</td>
+        <td>guardedと判定しない</td>
+      </tr>
+      <tr>
+        <td>after parse failure</td>
+        <td><code>coverage_lost</code></td>
+      </tr>
+      <tr>
+        <td>unsupported framework</td>
+        <td><code>unknown</code> + limitation</td>
+      </tr>
+      <tr>
+        <td>same source with different absolute root</td>
+        <td>同じsnapshot digest</td>
+      </tr>
+      <tr>
+        <td>before/after target digest mismatch</td>
+        <td>hard failure</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>fixtureは1件ごとに小さなprojectとし、実repo snapshotを保存しない。</p>
+  <h2 id="9-runtime-behavior">9. Runtime behavior</h2>
+  <ul>
+    <li>feature flag既定値: OFF</li>
+    <li>explicit CLI/test invocation時だけ実行</li>
+    <li>finding tableへ書き込まない</li>
+    <li>scan outcomeを変更しない</li>
+    <li>NightWorkersへの既存responseへ追加しない</li>
+    <li>task/runをblockしない</li>
+    <li>candidateをcontextStillへ送信しない</li>
+  </ul>
+  <p>
+    PR 4のpilotではshadow observationをoptional sectionとして返せるが、Dependency
+    assessmentのoutcomeへ影響させない。
+  </p>
+  <p>
+    実装では既存Dependency assessment
+    builderを変更せず、独立した<code>runAuthorizationShadow</code>を追加した。これによりflag
+    OFF時の既存scan/assessment出力は構造上も不変である。CLIは次のように明示的に有効化した場合だけinput
+    JSONを読み、結果をstdoutへ返す。
+  </p>
+  <pre><code class="language-bash">bun run security-intelligence:authorization-shadow -- --enable --input authorization-shadow-input.json
+</code></pre>
+  <h2 id="10-evaluation-metrics">10. Evaluation metrics</h2>
+  <p>fixture以外に、許可されたpilot repositoryでmanual labelと比較する。</p>
+  <ul>
+    <li>supported route coverage</li>
+    <li>stable identity match rate</li>
+    <li>guarded/unguarded precision</li>
+    <li>false <code>worsened</code> count</li>
+    <li><code>unknown</code> rate</li>
+    <li><code>coverage_lost</code> rate</li>
+    <li>analyzer duration</li>
+    <li>path/source leakage count</li>
+  </ul>
+  <p>
+    初期目標はcoverage最大化ではない。false
+    <code>worsened</code>を抑え、解析不能を正直に表現できることを優先する。
+  </p>
+  <h2 id="11-実装順序">11. 実装順序</h2>
+  <ol>
+    <li>revision-bound snapshot schemaとnegative testを作る。</li>
+    <li>fixtureごとのexpected endpoint/guard stateを手動labelする。</li>
+    <li>projectorをframework 1つから実装する。</li>
+    <li>stable identityとpure diffを実装する。</li>
+    <li>
+      parse failure/unsupported
+      caseを<code>coverage_lost</code>/<code>unknown</code>へ通す。
+    </li>
+    <li>独立したshadow assessment serviceへ接続する。</li>
+    <li>feature flag OFFとno-side-effect testを追加する。</li>
+    <li>baseline metric artifactを生成する。</li>
+  </ol>
+  <h2 id="12-acceptance-criteria">12. Acceptance criteria</h2>
+  <ul>
+    <li>before/after両方がexplicit revision/digestを持つ。</li>
+    <li>route deletionをguard removalと誤認しない。</li>
+    <li>after解析失敗を<code>coverage_lost</code>として表現する。</li>
+    <li>identifier名だけのguard誤認fixtureが通る。</li>
+    <li><code>worsened</code>の全件がbefore/after evidence refを持つ。</li>
+    <li>feature flag OFFで既存scan outputがbyte-levelまたはschema-levelで不変である。</li>
+    <li>finding、task、knowledge storeへのwriteがない。</li>
+    <li>absolute rootが異なっても同じsourceから同じsnapshot digestを生成する。</li>
+  </ul>
+  <h2 id="13-verification-commands">13. Verification commands</h2>
+  <pre><code class="language-bash">bunx vitest run shared/schemas/security-intelligence-authorization.schema.test.ts
+bun test api/modules/security-intelligence/authorization-boundary-projector.test.ts
+bun test api/modules/security-intelligence/authorization-boundary-diff.test.ts
+bun test api/modules/security-intelligence/authorization-shadow-service.test.ts
+bun test api/modules/threat-models/application-model-builder.test.ts
+bun run typecheck
+git diff --check
+</code></pre>
+  <h2 id="14-failurerollbackstop-condition">14. Failure、rollback、stop condition</h2>
+  <ul>
+    <li>
+      revision-bound snapshotを作れない場合、既存ApplicationModelのlatest row比較へfallbackしない。
+    </li>
+    <li>
+      framework固有middleware
+      orderingを説明できない場合、そのframeworkをsupport対象から外し<code>unknown</code>にする。
+    </li>
+    <li>
+      false <code>worsened</code>がfixtureまたはmanual
+      labelで1件でも出た場合、NightWorkers上で警告表示しない。metric-onlyを維持する。
+    </li>
+    <li>
+      rollbackはfeature flagと新規observer filesのrevertで完了する。既存ApplicationModel
+      persistenceをmigrationしない設計にする。
+    </li>
+  </ul>
+  <h2 id="15-merge-gate">15. Merge gate</h2>
+  <p>
+    すべてのrequired fixtureが通り、feature flag OFF時に既存scan/integration
+    contractへ差分がないこと。精度が未達でも、<code>unknown</code>/<code>coverage_lost</code>として安全にdegradeしmetric収集だけ可能ならmergeできる。
+  </p>
+</article>
+  </body>
+</html>

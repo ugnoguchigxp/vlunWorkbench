@@ -23,6 +23,17 @@ export class DastArtifactStorage {
 		return path.resolve(this.baseDir, dastRunId);
 	}
 
+	private validateRunDirectory(dastRunId: string): string {
+		const runDir = this.getRunDir(dastRunId);
+		const relative = path.relative(this.baseDir, runDir);
+		if (relative.startsWith("..") || path.isAbsolute(relative) || !relative) {
+			throw new Error(
+				"Path traversal detected: DAST run directory is outside of artifact root.",
+			);
+		}
+		return runDir;
+	}
+
 	private validatePath(targetPath: string, dastRunId: string): void {
 		const runDir = this.getRunDir(dastRunId);
 		const resolvedTarget = path.resolve(targetPath);
@@ -119,6 +130,13 @@ export class DastArtifactStorage {
 
 	async readTextArtifact(relativePath: string): Promise<string> {
 		return (await this.readArtifact(relativePath)).toString("utf8");
+	}
+
+	async removeRunDirectory(dastRunId: string): Promise<void> {
+		await fs.rm(this.validateRunDirectory(dastRunId), {
+			recursive: true,
+			force: true,
+		});
 	}
 }
 

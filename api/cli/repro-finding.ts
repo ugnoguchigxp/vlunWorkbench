@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import { parseArgs } from "node:util";
+import { MAX_REPRODUCTION_TIMEOUT_SEC } from "../../shared/schemas/reproduction.schema";
 import { readAppEnv } from "../app/env";
 import { createDbConnection } from "../db";
 import { getReproductionProfileById } from "../modules/reproductions/profiles";
@@ -7,6 +8,7 @@ import { ReproductionRunner } from "../modules/reproductions/reproduction-runner
 
 type ReproCliArgs = {
 	"finding-id"?: string;
+	"scan-run-id"?: string;
 	profile?: string;
 	runner?: string;
 	"docker-bin"?: string;
@@ -31,6 +33,7 @@ async function main() {
 			args: process.argv.slice(2),
 			options: {
 				"finding-id": { type: "string" },
+				"scan-run-id": { type: "string" },
 				profile: { type: "string" },
 				runner: { type: "string", default: "docker" },
 				"docker-bin": { type: "string" },
@@ -60,6 +63,7 @@ async function main() {
 	}
 
 	const findingId = argsValues["finding-id"];
+	const scanRunId = argsValues["scan-run-id"];
 	const profileId = argsValues.profile;
 	const runner = argsValues.runner;
 	const dockerBin = argsValues["docker-bin"];
@@ -130,13 +134,14 @@ async function main() {
 		timeoutSec !== undefined &&
 		(!Number.isFinite(timeoutSec) ||
 			!Number.isInteger(timeoutSec) ||
-			timeoutSec <= 0)
+			timeoutSec <= 0 ||
+			timeoutSec > MAX_REPRODUCTION_TIMEOUT_SEC)
 	) {
 		writeResult({
 			ok: false,
 			status: "failed",
 			outcome: "error",
-			message: "--timeout-sec must be a positive integer.",
+			message: `--timeout-sec must be an integer between 1 and ${MAX_REPRODUCTION_TIMEOUT_SEC}.`,
 		});
 		process.exit(1);
 	}
@@ -154,6 +159,7 @@ async function main() {
 
 		const runOptions = {
 			findingId,
+			scanRunId,
 			profileId,
 			runner: "docker" as const,
 			dockerImage,

@@ -28,18 +28,36 @@ export function parseOwaspExpectedResults(csv: string): BenchmarkGroundTruth[] {
 	return results;
 }
 
-export function mapSemgrepFindingToObservation(finding: {
-	path: string;
-	cwe: string | number;
-	category: string;
-}): BenchmarkObservation | null {
+export function mapSemgrepFindingToObservation(
+	finding: {
+		path: string;
+		cwe: string | number;
+		category?: string;
+	},
+	categoryByCwe: ReadonlyMap<string, string>,
+): BenchmarkObservation | null {
 	const testId = finding.path.match(/BenchmarkTest\d{5}/)?.[0];
 	if (!testId) return null;
+	const cwe = normalizeCwe(finding.cwe);
 	return {
 		testId,
-		category: finding.category,
-		cwe: normalizeCwe(finding.cwe),
+		category: categoryByCwe.get(cwe) ?? "unmapped_cwe",
+		cwe,
 	};
+}
+
+export function buildOwaspCweCategoryMap(
+	groundTruth: BenchmarkGroundTruth[],
+): ReadonlyMap<string, string> {
+	const categoryByCwe = new Map<string, string>();
+	for (const entry of groundTruth) {
+		const previous = categoryByCwe.get(entry.cwe);
+		if (previous && previous !== entry.category) {
+			throw new Error(`ambiguous_owasp_cwe_category:${entry.cwe}`);
+		}
+		categoryByCwe.set(entry.cwe, entry.category);
+	}
+	return categoryByCwe;
 }
 
 function parseCsvLine(line: string): string[] {

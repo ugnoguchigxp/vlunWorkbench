@@ -1,15 +1,16 @@
-import { parseArgs } from "node:util";
 import fs from "node:fs/promises";
-import { createDbConnection } from "../db";
+import { parseArgs } from "node:util";
 import { readAppEnv } from "../app/env";
-import {
-	ProjectRepository,
-	ScanRepository,
-	ArtifactRepository,
-	FindingRepository,
-} from "../modules/scans/repositories";
+import { createDbConnection } from "../db";
+import { ScanArtifactSink } from "../modules/scans/artifact-sink";
 import { ArtifactStorage } from "../modules/scans/artifact-storage";
 import { normalizeFixture } from "../modules/scans/normalizers/fixture";
+import {
+	ArtifactRepository,
+	FindingRepository,
+	ProjectRepository,
+	ScanRepository,
+} from "../modules/scans/repositories";
 import { runCliAutomatedDiagnostic } from "./scan-profile-diagnostic";
 
 function writeResult(payload: Record<string, unknown>): void {
@@ -142,18 +143,18 @@ async function main() {
 		toolRunId = toolRun.id;
 
 		// Copy raw artifact to storage
-		const savedArtifact = await storage.saveRawArtifact(
-			scanRun.id,
-			artifactPath,
-		);
-		const rawArtifactRecord = await artifactRepo.createArtifact({
-			scanRunId: scanRun.id,
-			toolRunId,
-			kind: "raw_result",
+		const rawArtifactRecord = await new ScanArtifactSink(
+			storage,
+			artifactRepo,
+			{
+				scanRunId: scanRun.id,
+				kind: "tool-run",
+				id: toolRunId,
+			},
+		).saveFile({
+			role: "raw_result",
 			format,
-			path: savedArtifact.path,
-			sha256: savedArtifact.sha256,
-			sizeBytes: savedArtifact.sizeBytes,
+			sourcePath: artifactPath,
 		});
 		artifactIds.push(rawArtifactRecord.id);
 
@@ -161,7 +162,7 @@ async function main() {
 			scanRunId: scanRun.id,
 			level: "info",
 			eventType: "artifact.registered",
-			message: `Raw artifact registered: ${savedArtifact.path}`,
+			message: `Raw artifact registered: ${rawArtifactRecord.path}`,
 			data: { artifactId: rawArtifactRecord.id },
 		});
 
@@ -170,7 +171,7 @@ async function main() {
 			scanRunId: scanRun.id,
 			level: "info",
 			eventType: "artifact.parse_started",
-			message: `Parsing artifact: ${savedArtifact.path}`,
+			message: `Parsing artifact: ${rawArtifactRecord.path}`,
 		});
 
 		const content = await fs.readFile(artifactPath, "utf8");

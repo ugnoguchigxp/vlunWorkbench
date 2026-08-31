@@ -1,10 +1,11 @@
-import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createDbConnection, type DbConnection } from "../db";
-import { users } from "../db/schema";
+import { scanArtifacts, users } from "../db/schema";
 import { HttpError } from "../modules/auth/errors";
 import { ArtifactStorage } from "../modules/scans/artifact-storage";
 import {
@@ -118,6 +119,22 @@ describe("Diagnostics route", () => {
 		expect(downloadRes.status).toBe(200);
 		expect(await downloadRes.text()).toContain(
 			"Zero Finding Diagnostic Summary",
+		);
+		const [artifact] = await connection.db
+			.select()
+			.from(scanArtifacts)
+			.where(eq(scanArtifacts.id, created.artifactId));
+		if (!artifact) throw new Error("Expected diagnostic artifact");
+		await writeFile(
+			path.resolve(artifactRoot, artifact.storageKey ?? artifact.path),
+			"tampered",
+		);
+		const tamperedDownload = await app.request(
+			`/api/diagnostic-reports/${created.reportId}/download`,
+		);
+		expect(tamperedDownload.status).toBe(409);
+		expect((await tamperedDownload.json()).message).toBe(
+			"Diagnostic report artifact integrity mismatch",
 		);
 	});
 

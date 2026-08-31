@@ -16,6 +16,7 @@ import {
 	prepareActiveContainerTargetGateway,
 } from "../dast/active-container-target-gateway";
 import { redactSecretText } from "../dast/auth-material";
+import { runBoundedProcess } from "../processes/bounded-process-runner";
 import type {
 	ArtifactSaveResult,
 	ArtifactStorage,
@@ -24,6 +25,7 @@ import {
 	redactJsonSecrets,
 	redactSecrets,
 } from "../scans/normalizers/redaction";
+import { cleanupTemporaryPaths } from "../scans/execution/lifecycle/temporary-path-cleanup";
 import {
 	ZAP_ACTIVE_MAX_REPORT_BYTES,
 	ZAP_ACTIVE_POLICY_ID,
@@ -32,6 +34,8 @@ import { buildZapAutomationPlan } from "./zap-automation-plan";
 import { isPinnedZapImage, ZAP_STABLE_IMAGE } from "./zap-image-policy";
 import { normalizeZap } from "./zap-normalizer";
 import { parseZapReport, type ZapReport } from "./zap-report-schema";
+
+const ZAP_ACTIVE_PROCESS_OUTPUT_LIMIT_BYTES = 4 * 1024 * 1024;
 
 type SpawnResult = {
 	exitCode: number | null;
@@ -142,8 +146,6 @@ export class ZapActiveRunner {
 		) => void | Promise<void>;
 	}): Promise<ZapActiveRunResult> {
 		const dockerBin = this.options.dockerBin ?? "docker";
-		const tempDir = await mkdtemp(path.join(os.tmpdir(), "zap-active-run-"));
-		await chmod(tempDir, 0o700);
 		const reportFilename = "zap-active-report.json";
 		const plan = buildZapAutomationPlan({
 			contextName: "vuln-workbench-active",
@@ -153,6 +155,13 @@ export class ZapActiveRunner {
 			maxDurationMinutes: Math.ceil(params.durationSec / 60),
 			reportFilename,
 		});
+		const tempDir = await mkdtemp(path.join(os.tmpdir(), "zap-active-run-"));
+		try {
+			await chmod(tempDir, 0o700);
+		} catch (error) {
+			await cleanupTemporaryPaths([tempDir], "zap_active_temp_cleanup_failed");
+			throw error;
+		}
 		let network:
 			| { name: string; gatewayAddress: string; stop: () => Promise<void> }
 			| undefined;
@@ -402,26 +411,17 @@ async function spawnBounded(
 	args: string[],
 	timeoutSec: number,
 ): Promise<SpawnResult> {
-	const proc = Bun.spawn(args, { stdout: "pipe", stderr: "pipe" });
-	const stdout = proc.stdout
-		? new Response(proc.stdout).text()
-		: Promise.resolve("");
-	const stderr = proc.stderr
-		? new Response(proc.stderr).text()
-		: Promise.resolve("");
-	let timer: ReturnType<typeof setTimeout> | undefined;
-	const result = await Promise.race([
-		proc.exited.then((exitCode) => ({ exitCode, timedOut: false })),
-		new Promise<{ exitCode: null; timedOut: true }>((resolve) => {
-			timer = setTimeout(
-				() => resolve({ exitCode: null, timedOut: true }),
-				timeoutSec * 1000,
-			);
-		}),
-	]);
-	if (timer) clearTimeout(timer);
-	if (result.timedOut) proc.kill("SIGKILL");
-	return { ...result, stdout: await stdout, stderr: await stderr };
+	const result = await runBoundedProcess({
+		argv: args,
+		timeoutMs: timeoutSec * 1_000,
+		outputLimitBytes: ZAP_ACTIVE_PROCESS_OUTPUT_LIMIT_BYTES,
+	});
+	return {
+		exitCode: result.exitCode,
+		stdout: result.stdout,
+		stderr: result.stderr,
+		timedOut: result.terminationReason === "timeout",
+	};
 }
 
 function secretLeaked(

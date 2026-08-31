@@ -1,0 +1,145 @@
+<article lang="en">
+  <h1 id="phase-46-release-readiness-evidence">Phase 46 Release Readiness Evidence</h1>
+  <p>Date: 2026-07-24</p>
+  <p>Status: <strong>CONDITIONAL GO — clean-checkout CI and final commit SHA pending</strong></p>
+  <p>
+    This report records the local release rehearsal for the current Phase 46 working tree. The
+    source state is not yet represented by a commit, so
+    <code>f681bb616fe1f1d022f87c3b8f6ea2393b2bf0b4</code> is only the implementation baseline, not the final
+    release commit.
+  </p>
+  <h2 id="local-release-gates">Local release gates</h2>
+  <table>
+    <caption>
+      Local release gates
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Gate</th>
+        <th scope="col">Result</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>bun install --frozen-lockfile</code></td>
+        <td>PASS; 590 packages checked, no changes</td>
+      </tr>
+      <tr>
+        <td><code>bun run bootstrap</code></td>
+        <td>PASS; 15 migrations present, existing admin preserved</td>
+      </tr>
+      <tr>
+        <td><code>bun run bootstrap:check -- --skip-port</code></td>
+        <td>PASS</td>
+      </tr>
+      <tr>
+        <td><code>bun run verify</code></td>
+        <td>PASS</td>
+      </tr>
+      <tr>
+        <td>test inventory</td>
+        <td>PASS; 156 files, 20 Vitest and 136 Bun, no duplicates</td>
+      </tr>
+      <tr>
+        <td>web coverage</td>
+        <td>PASS; 91.90% statements, 81.15% branches, 93.97% lines</td>
+      </tr>
+      <tr>
+        <td>security-critical coverage</td>
+        <td>PASS; configured per-file thresholds satisfied</td>
+      </tr>
+      <tr>
+        <td>browser E2E / accessibility</td>
+        <td>PASS; 3 Chromium scenarios</td>
+      </tr>
+      <tr>
+        <td>dependency audit policy</td>
+        <td>PASS; 0 blocking advisories</td>
+      </tr>
+      <tr>
+        <td>tracked runtime artifacts</td>
+        <td>PASS; 0</td>
+      </tr>
+      <tr>
+        <td>bundle budget</td>
+        <td>PASS; initial JS 21,124 gzip bytes, initial CSS 27,557 gzip bytes</td>
+      </tr>
+      <tr>
+        <td>Git history secret scan</td>
+        <td>PASS; 42 commits scanned, no leaks</td>
+      </tr>
+      <tr>
+        <td>P0/P1 source TODO search</td>
+        <td>PASS; no open P0/P1 TODO marker</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    The largest generated JavaScript chunk is 800,711 bytes. It remains below the current staged
+    limit of 820,000 bytes but above the 500,000-byte target.
+  </p>
+  <h2 id="database-migration-and-recovery-rehearsal">Database migration and recovery rehearsal</h2>
+  <p>
+    The pre-migration database had 14 legacy migration records without checksums. Backup integrity
+    verification initially exposed that the verifier required a new
+    <code>checksum</code> column even for a legacy backup. The verifier now
+    detects the legacy table shape, reports unchecked legacy records explicitly, and still rejects
+    unknown migration filenames.
+  </p>
+  <p>Results:</p>
+  <ul>
+    <li>pre-migration backup: integrity PASS; 14 known legacy migrations;</li>
+    <li>migration <code>0015_llm_secret_encryption.sql</code>: applied successfully;</li>
+    <li>plaintext LLM secret dry run: 0 legacy plaintext rows;</li>
+    <li>post-migration backup: integrity PASS;</li>
+    <li>post-migration history: 15 of 15 migration checksums verified;</li>
+    <li>representative record counts matched before and after migration.</li>
+  </ul>
+  <p>The rehearsal backup is temporary local evidence and is not committed.</p>
+  <h2 id="container-supply-chain-rehearsal">Container supply-chain rehearsal</h2>
+  <p>Images:</p>
+  <ul>
+    <li>toolbox: <code>sha256:ae0676a598141bf630c6f9b0202260133cdc84f0fb2a107c4cd126e6a9ce65ce</code></li>
+    <li>dynamic: <code>sha256:93fe4665e118fc03e98765c724ca1d153432a2a74e8a8020e7bfc0c6b9c8fe51</code></li>
+  </ul>
+  <p>
+    Both images built successfully through the repository build scripts. CycloneDX SBOMs were
+    generated outside the repository:
+  </p>
+  <ul>
+    <li>toolbox SBOM SHA-256: <code>2f0a5a1db18d7fccf226efada4f245278cc5fbf99bd5539d66dbb17b50903bd6</code></li>
+    <li>dynamic SBOM SHA-256: <code>12bded4acbd064eb1044da85f3818ef1f3efd448b5cb4ae527823044f85bc4c2</code></li>
+  </ul>
+  <p>
+    High/Critical image scans pass after applying the four scoped, owned, and time-bounded
+    exceptions in <code>.trivyignore.yaml</code>. The exception rationale and
+    2026-10-24 expiry are documented in <code>spec/decisions/third-party-scanners.html</code>.
+  </p>
+  <p>
+    The direct Docker-only Trivy source-build stage exceeded the local Docker Desktop memory limit.
+    The repository&#39;s checksum-verified host build path completed and produced the toolbox image.
+    The clean Ubuntu CI container build must still confirm the Docker-only path.
+  </p>
+  <h2 id="security-scenario-coverage">Security scenario coverage</h2>
+  <p>The release suite covers:</p>
+  <ul>
+    <li>allowed-root, sibling-prefix, traversal, and symlink project path rejection;</li>
+    <li>
+      member/admin boundaries for project registration, folder selection, settings, health actions,
+      and shared source mutation;
+    </li>
+    <li>outbound URL, DNS, redirect, response-size, and credential-binding policy;</li>
+    <li>encrypted secret round-trip and endpoint identity binding;</li>
+    <li>untrusted forwarded-header rejection and enforcing production CSP;</li>
+    <li>exactly-once test inventory;</li>
+    <li>backup integrity and migration history validation;</li>
+    <li>browser login accessibility and admin/member behavior.</li>
+  </ul>
+  <h2 id="remaining-release-blocker">Remaining release blocker</h2>
+  <p>
+    The Phase 46 working tree must be committed and the pinned GitHub Actions workflows must pass
+    from that clean commit. After CI succeeds, replace the baseline SHA above with the final commit
+    SHA and change this decision from <code>CONDITIONAL GO</code> to
+    <code>GO</code>.
+  </p>
+</article>

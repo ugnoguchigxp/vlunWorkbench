@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import {
 	buildNucleiSafeCommand,
+	buildSchemathesisGraphqlReadonlyCommand,
 	buildSchemathesisReadonlyCommand,
 	buildTrivyImageCommand,
 	buildTrivySbomCommand,
@@ -14,6 +15,23 @@ describe("phase 41 scanner command contracts", () => {
 		expect(args).toContain("-disable-update-check");
 		expect(args).not.toContain("-headless");
 		expect(() => buildNucleiSafeCommand("https://example.com", "out", "templates")).toThrow();
+	});
+
+	test("builds a GraphQL command without opening non-query HTTP methods", () => {
+		const command = buildSchemathesisGraphqlReadonlyCommand(
+			"/out/schema.graphql",
+			"http://127.0.0.1:3000/graphql",
+			"/out/api.ndjson",
+		);
+		expect(command).toContain("/out/schema.graphql");
+		expect(command).not.toContain("--include-method");
+		expect(() =>
+			buildSchemathesisGraphqlReadonlyCommand(
+				"/out/schema.graphql",
+				"https://example.com/graphql",
+				"/out/api.ndjson",
+			),
+		).toThrow(/qualified loopback/);
 	});
 
 	test("keeps ZAP baseline passive and Schemathesis read-only", () => {

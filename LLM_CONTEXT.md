@@ -9,7 +9,7 @@
 - Backend app composition は `api/app/hono.ts`、server bootstrap は `api/app/server.ts`。
 - Frontend entry は `web/src/App.tsx`、router は `web/src/router.tsx`、API client は `web/src/api.ts`。
 - Auth 実装は `api/modules/auth/`、route は `api/routes/auth.route.ts`、login UI は `web/src/domains/auth/login-domain.tsx`。
-- Scan workflow は `api/modules/scans/`、CLI は `api/cli/scan-*.ts`、UI は `web/src/domains/scans/`。
+- Scan workflow は `api/modules/scans/`、CLI は `api/cli/scan-*.ts`、UI は `web/src/domains/scans/`。スキャナーは adapter 葉であり、能力ドメイン（実行 / 証跡 / カバレッジ / レポート / 改善出力）には切らない。
 - Reproduction / dynamic / DAST は Docker 隔離と bounded profile を前提に扱う。
 - Legacy knowledge / search / chat API は補助機能として残っているが、主 workflow は scan / finding / evidence / review / decision / report。
 - Package manager / runtime は Bun。dev server は `bunx --bun vite` で起動する。
@@ -26,7 +26,7 @@
 | `api/db/writer/` | Unix socket Writer client/server、FIFO write queue、single-writer lock |
 | `api/routes/` | auth、projects、scans、findings、reviews、decisions、reports、reproductions、dynamic、DAST routes |
 | `api/cli/` | scan/review/decision/report/reproduction/dynamic/DAST CLI entrypoints |
-| `api/modules/scans/` | scan profiles、tool runners、artifact storage、normalizers、report builder |
+| `api/modules/scans/` | scan capability root。所有は下表。新規 scanner は adapter + normalizer + fixture のみ |
 | `api/modules/reviews/` | LLM finding review workflow |
 | `api/modules/decisions/` | human decision persistence and workflow |
 | `api/modules/reproductions/` | sandbox reproduction runner and storage |
@@ -35,24 +35,47 @@
 | `api/modules/diagnostics/` | diagnostic checks and zero-finding report context |
 | `api/providers/` | LLM provider interfaces, Azure/OpenAI-compatible adapters, routing |
 | `shared/schemas/` | Zod schema and public API object types shared by api and web |
-| `web/src/domains/scans/` | primary scan workflow UI |
+| `web/src/domains/scans/` | scan workspace UI。scanner 別ルートは作らない |
 | `drizzle/` | SQL migrations |
 | `scripts/verify.ts` | verification pipeline |
-| `spec/` | Product concepts and active implementation plans |
-| `spec/.archived/` | Completed plans retained for history; do not load unless the user explicitly requests a historical audit |
+| `spec/` | Product concepts, decisions, policies, templates, and evidence |
+| `spec/docs/active-plans/` | Active implementation plans and designs with remaining completion conditions |
+| `spec/docs/.archived/` | Completed plans retained for history; do not load unless the user explicitly requests a historical audit |
+
+## Scan capability ownership
+
+スキャナー（Gitleaks / OSV / Trivy / Semgrep）はドメインではない。`StaticScannerAdapter` の葉としてだけ置く。分割単位はスキャン横断の能力である。
+
+| Capability | Owns | Start here | Must not own |
+| --- | --- | --- | --- |
+| ScanExecution | profile 解決、preflight、step 監督、artifact、supervisor、削除 | `api/modules/scans/execution/`（旧パスは再エクスポート） | finding 詳細 UI、Markdown 本文、improvementRequest |
+| ScannerAdapters | tool runner、normalize、adapter registry、license 境界 | `api/modules/scans/tools/`, `findings/normalizers/`（旧 `normalizers/` は再エクスポート）、`static-scanner-adapter.ts`, `builtin-static-scanner-adapters.ts` | report / coverage / handoff の tool 専用分岐 |
+| FindingsEvidence | 正規化 finding 永続化、evidence、grouping、finding 詳細 | `api/modules/scans/findings/`, `web/src/domains/scans/findings/` | profile 実行、scanner spawn |
+| Coverage | SAST 未実行、control catalog、runtime/DAST gap を一つの read model に集約 | `api/modules/scans/coverage/`, `web/src/domains/scans/coverage/` | scanner 実行そのもの |
+| Reporting | 決定論 Markdown と section 契約 | `api/modules/scans/reporting/`, `web/src/domains/scans/reporting/` | LLM をレポート本文の正にすること |
+| DiagnosticHandoff | scan review、improvementRequest、diagnostic readiness | `api/modules/scans/handoff/`, `web/src/domains/scans/handoff/` | CLI scanner 起動 |
+
+DAST / runtime-scans モジュールは独立のまま。ScanExecution だけがそれらを呼ぶ。NightWorkers 合成と static-intelligence、legacy chat/search はこの所有表の外。
+
+受け入れ条件: 新規 scanner 追加は adapter + normalizer + fixture のみ。report / coverage / handoff / finding-detail に tool 専用分岐を足したら戻す。
 
 ## Task Routing
 
 | Task | Start here | Usually also read | Defer unless touched |
 | --- | --- | --- | --- |
-| Change scan import/profile logic | `api/modules/scans/`, `api/cli/scan-*.ts` | `api/routes/scans.route.ts`, `shared/schemas/scans.schema.ts`, focused tests | frontend styling |
+| Change scan import/profile logic | `api/modules/scans/` ScanExecution, `api/cli/scan-*.ts` | `api/routes/scans.route.ts`, `shared/schemas/scans.schema.ts`, focused tests | frontend styling |
+| Change scanner adapter | `api/modules/scans/tools/`, `static-scanner-adapter.ts` | matching normalizer and fixture | report / coverage / handoff |
+| Change coverage | `api/modules/scans/coverage/` | report coverage renderer, Web coverage summary | tool runners |
+| Change deterministic report | `api/modules/scans/reporting/` | `shared/report-sections.ts`, report UI | scanner spawn |
+| Change improvement / diagnostic handoff | `api/modules/scans/handoff/` | `contexts/scans/`, scan review schema | DAST internals |
+| Change finding detail | `api/modules/scans/findings/`, `web/src/domains/scans/findings/` | `api/routes/findings.route.ts` | profile orchestrator |
 | Change finding review | `api/modules/reviews/`, `api/providers/` | `api/routes/reviews.route.ts`, `shared/schemas/reviews.schema.ts` | DAST/dynamic internals |
 | Change human decision | `api/modules/decisions/` | `api/routes/decisions.route.ts`, scan UI domain | tool runner internals |
 | Change reproduction/dynamic/DAST | matching `api/modules/*/` directory and CLI entrypoint | route tests, shared schema, Docker README if behavior changes | legacy knowledge routes |
 | Change scan UI | `web/src/domains/scans/` | `web/src/api.ts`, `web/src/styles-scans.css`, shared schema | backend runner implementation unless API changes |
 | Change auth/API shell | `api/routes/auth.route.ts`, `api/modules/auth/`, `api/middleware/auth.ts` | `web/src/api.ts`, `web/src/domains/auth/login-domain.tsx` | scan runner details |
 | Change env/config | `api/app/env.ts`, `api/config/appDefaults.ts`, `.env.example` | `drizzle.config.ts`, README environment table | unrelated frontend views |
-| Change docs/metadata | `README.md`, `package.json`, `LLM_CONTEXT.md`, `docs/` | source truth for mentioned commands and modules | behavior changes |
+| Change docs/metadata | `README.md`, `package.json`, `LLM_CONTEXT.md`, `spec/` | source truth for mentioned commands and modules | behavior changes |
 
 ## Implementation Contracts
 
@@ -60,6 +83,7 @@
 - File-backed SQLite mutation must go through `SqliteWriterClient`; do not add writable `bun:sqlite` connections outside `api/db/writer/internal/connection.ts`.
 - Keep `/api/*` on Hono and non-API paths on Vite/static frontend.
 - Treat CLI tools as evidence producers. Do not make LLMs freely inspect source to discover vulnerabilities.
+- Do not add scanner-specific domains (SemgrepDomain, TrivyDomain). Tool-specific code belongs in adapters, runners, and normalizers only.
 - Store raw artifacts where useful, but redact or minimize before LLM review and report output.
 - Build CLI commands as structured args, not shell strings.
 - Do not pass host LLM API keys into scan, reproduction, dynamic, or DAST target processes.

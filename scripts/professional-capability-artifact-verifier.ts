@@ -4,17 +4,23 @@ import path from "node:path";
 import { z } from "zod";
 import { scoreBenchmark } from "../api/modules/benchmarks/metric-scorer";
 import {
+	buildOwaspCweCategoryMap,
 	mapSemgrepFindingToObservation,
 	parseOwaspExpectedResults,
 } from "../api/modules/benchmarks/owasp-benchmark-adapter";
 import { canonicalJson } from "../api/modules/scans/diff-scan-plan";
 import { benchmarkMetricSchema } from "../shared/schemas/benchmark.schema";
 import {
+	gitCommit as benchmarkGitCommit,
+	sha256File,
+	sha256Tree,
+} from "./benchmark/benchmark-input-provenance";
+import {
 	isCompletedJuiceShopObservation,
+	type JuiceShopRunReport,
 	juiceShopObservationsSchema,
 	juiceShopRunReportSchema,
 	summarizeJuiceShopObservations,
-	type JuiceShopRunReport,
 	validateJuiceShopObservations,
 	verifyJuiceShopEvidenceFiles,
 } from "./benchmark/juice-shop-observations";
@@ -25,11 +31,6 @@ import {
 } from "./benchmark/juice-shop-playbooks";
 import { assessJuiceShopMeasurement } from "./benchmark/measurement-status";
 import { sanitizedSemgrepEvidenceArtifactSchema } from "./benchmark/owasp-benchmark-runtime";
-import {
-	gitCommit as benchmarkGitCommit,
-	sha256File,
-	sha256Tree,
-} from "./benchmark/benchmark-input-provenance";
 
 export type Metric = {
 	category: string;
@@ -192,13 +193,12 @@ export function assertOwaspMetricArtifactMatchesInputs(params: {
 				.strict(),
 		)
 		.parse(params.findings);
+	const expected = parseOwaspExpectedResults(params.expectedResultsCsv);
+	const categoryByCwe = buildOwaspCweCategoryMap(expected);
 	const observations = findings
-		.map(mapSemgrepFindingToObservation)
+		.map((finding) => mapSemgrepFindingToObservation(finding, categoryByCwe))
 		.filter((value) => value !== null);
-	const expectedScore = scoreBenchmark(
-		parseOwaspExpectedResults(params.expectedResultsCsv),
-		observations,
-	);
+	const expectedScore = scoreBenchmark(expected, observations);
 	const normalizedFindingSnapshotHash = sha256(
 		new TextEncoder().encode(canonicalJson(observations)),
 	);

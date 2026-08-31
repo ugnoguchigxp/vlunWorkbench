@@ -14,6 +14,11 @@ import {
 	validateDastTargetConfig,
 } from "../dast/target-validator";
 import { canonicalJson } from "../scans/diff-scan-plan";
+import {
+	buildDedicatedProfileAdmissionMetadata,
+	createDedicatedLaunchAttempt,
+} from "../scans/dedicated-profile-admission";
+import { ScanLaunchAttemptRepository } from "../scans/execution/scan-launch-attempt-repository";
 import { FindingRepository, ScanRepository } from "../scans/repositories";
 import { BusinessLogicRepository } from "./business-logic-repository";
 import {
@@ -26,6 +31,7 @@ export class BusinessLogicRunner {
 	private readonly business: BusinessLogicRepository;
 	private readonly dast: DastRepository;
 	private readonly scans: ScanRepository;
+	private readonly scanLaunchAttempts: ScanLaunchAttemptRepository;
 	private readonly findings: FindingRepository;
 	private readonly activeProjects = new Set<string>();
 
@@ -41,6 +47,7 @@ export class BusinessLogicRunner {
 		this.business = new BusinessLogicRepository(db);
 		this.dast = new DastRepository(db);
 		this.scans = new ScanRepository(db);
+		this.scanLaunchAttempts = new ScanLaunchAttemptRepository(db);
 		this.findings = new FindingRepository(db);
 	}
 
@@ -48,7 +55,10 @@ export class BusinessLogicRunner {
 		scenarioId: string;
 		projectId: string;
 		ownerUserId: string;
+		executionConsent: true;
 	}) {
+		if (params.executionConsent !== true)
+			throw new Error("business_logic_execution_consent_required");
 		if (this.activeProjects.has(params.projectId))
 			throw new Error("business_logic_project_busy");
 		if (await this.business.hasUnresolvedCleanup(params.projectId))
@@ -119,16 +129,48 @@ export class BusinessLogicRunner {
 				}),
 			);
 		}
+		const launchAttempt = await createDedicatedLaunchAttempt({
+			repository: this.scanLaunchAttempts,
+			projectId: params.projectId,
+			createdByUserId: params.ownerUserId,
+			canonicalProfileId: "business-logic-lab",
+			providedInputKinds: [
+				"disposable_target_ref",
+				"scenario_ref",
+				"rules_of_engagement_ref",
+				"execution_consent",
+			],
+			expectedLaunchDestination: "business_logic_workspace",
+			sanitizedInputSummary: { stateChanging: true },
+		});
 		const scan = await this.scans.createScanRun({
 			projectId: params.projectId,
-			profile: "active-lab:business-logic",
+			profile: "business-logic-lab",
 			status: "running",
 			createdByUserId: params.ownerUserId,
 			metadata: {
+				...buildDedicatedProfileAdmissionMetadata({
+					canonicalProfileId: "business-logic-lab",
+					expectedLaunchDestination: "business_logic_workspace",
+					providedInputKinds: [
+						"disposable_target_ref",
+						"scenario_ref",
+						"rules_of_engagement_ref",
+						"execution_consent",
+					],
+				}),
 				scenarioId: saved.id,
 				controlId: saved.controlId,
 				executableEvidenceRequired: true,
+				executionConsent: {
+					granted: true,
+					scope: "state-changing-business-logic-assessment",
+				},
 			},
+		});
+		await this.scanLaunchAttempts.admit({
+			attemptId: launchAttempt.id,
+			scanRunId: scan.id,
 		});
 		const run = await this.business.createRun({
 			scenarioId: saved.id,
@@ -303,6 +345,7 @@ export class BusinessLogicRunner {
 				result.status === "failed_cleanup" ? "failed" : "completed",
 				{
 					summary: `Business logic scenario ${result.status}.`,
+					profileOutcome: businessLogicProfileOutcome(result.status),
 					metadata: {
 						businessLogicRunId: run.id,
 						businessLogicStatus: result.status,
@@ -328,6 +371,7 @@ export class BusinessLogicRunner {
 				}),
 				this.scans.updateScanRunStatus(scan.id, "failed", {
 					summary: "Business logic execution failed; cleanup state is unknown.",
+					profileOutcome: "failed",
 					metadata: {
 						businessLogicRunId: run.id,
 						businessLogicStatus: "failed_cleanup",
@@ -338,6 +382,14 @@ export class BusinessLogicRunner {
 			throw error;
 		}
 	}
+}
+
+export function businessLogicProfileOutcome(
+	status: string,
+): "completed" | "incomplete" | "failed" {
+	if (status === "failed_cleanup") return "failed";
+	if (status === "observed" || status === "not_observed") return "completed";
+	return "incomplete";
 }
 
 async function readResponseTextBounded(

@@ -5,6 +5,7 @@ import {
 	dynamicMemoryLimitSchema,
 	MAX_DYNAMIC_TIMEOUT_SEC,
 } from "../../../shared/schemas/dynamic.schema";
+import { BUILTIN_SECURITY_RECIPES } from "./builtin-security-recipes";
 
 export interface DynamicProfileTemplate {
 	id: string;
@@ -117,6 +118,7 @@ export const DYNAMIC_PROFILE_TEMPLATES: DynamicProfileTemplate[] = [
 			return await fileExists(path.join(repoPath, "go.mod"));
 		},
 	},
+	...BUILTIN_SECURITY_RECIPES,
 ];
 
 async function fileExists(filePath: string): Promise<boolean> {

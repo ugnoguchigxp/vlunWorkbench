@@ -66,6 +66,25 @@ describe("workflow supply-chain policy", () => {
 		expect(workflow).not.toContain("trivyignores:");
 	});
 
+	test("builds the patched Cosign release into the core toolbox", async () => {
+		const [toolbox, semgrepPlugin] = await Promise.all([
+			readRepositoryFile("docker/toolbox/Dockerfile"),
+			readRepositoryFile("docker/plugins/semgrep/Dockerfile"),
+		]);
+		expect(toolbox).toContain("ARG COSIGN_VERSION=3.1.3");
+		expect(toolbox).toContain(
+			"ARG COSIGN_SOURCE_COMMIT=11926fa5bbbbde47e88fc006b625a17769b743b2",
+		);
+		expect(toolbox).toContain(
+			"ARG COSIGN_SOURCE_SHA256=3a718446bac51466efff6853639e1ca108b456ecbf07cd92938f548715d22d6b",
+		);
+		expect(toolbox).toContain(
+			'vuln-workbench.scanner.cosign.license="Apache-2.0"',
+		);
+		expect(toolbox).not.toContain("semgrep==");
+		expect(semgrepPlugin).toContain("semgrep==${SEMGREP_VERSION}");
+	});
+
 	test("runs the strict Phase 55 entry with pinned benchmark images and persisted evidence", async () => {
 		const [workflow, phase55Entry] = await Promise.all([
 			readRepositoryFile(".github/workflows/verify.yml"),
@@ -102,5 +121,33 @@ describe("workflow supply-chain policy", () => {
 		expect(closeout.indexOf("bun run db:migrate")).toBeLessThan(
 			closeout.indexOf("bun run verify:phase-55-entry"),
 		);
+	});
+
+	test("binds the real scanner and API-confirmed closeout receipt to the caller commit", async () => {
+		const [workflow, scannerWorkflow] = await Promise.all([
+			readRepositoryFile(".github/workflows/verify.yml"),
+			readRepositoryFile(".github/workflows/scanner-e2e-real.yml"),
+		]);
+		expect(workflow.match(/^  scanner-hardening-receipt:$/gm)).toHaveLength(1);
+		const scanner = jobBlock(workflow, "scanner-e2e-real");
+		const receipt = jobBlock(workflow, "scanner-hardening-receipt");
+		expect(scanner).toContain("needs: [verify]");
+		expect(scanner).toContain(
+			"target_repository: ${{ vars.TODOLIST_E2E_REPOSITORY }}",
+		);
+		expect(scanner).toContain(
+			"target_ref: d87bfdd9f29aa64e484a0c4d1ad02956136dc6b0",
+		);
+		expect(receipt).toContain("needs: [verify, scanner-e2e-real]");
+		expect(receipt).toContain(
+			"capture-scanner-hardening-branch-protection.ts",
+		);
+		expect(receipt).toContain("github.ref_protected");
+		expect(receipt).toContain("--require-protected");
+		expect(receipt).not.toContain("VWB_BRANCH_PROTECTION_CONFIRMED");
+		expect(scannerWorkflow).toContain(
+			'[[ "$TARGET_REF" == "d87bfdd9f29aa64e484a0c4d1ad02956136dc6b0" ]]',
+		);
+		expect(scannerWorkflow).toContain("bun run scanner-e2e:failure:verify");
 	});
 });

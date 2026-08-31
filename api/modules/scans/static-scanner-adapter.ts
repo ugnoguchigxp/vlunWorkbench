@@ -1,10 +1,10 @@
 import type { ScanScopePolicy } from "../../../shared/schemas/scan-profile.schema";
-import type { ArtifactStorage } from "./artifact-storage";
-import type { NormalizedFinding } from "./normalizers/fixture";
+import type { ArtifactStorage } from "./execution/lifecycle/artifact-storage";
 import type {
 	CommonToolRunResult,
 	DiffToolExecutionContext,
-} from "./profile-runner";
+} from "./execution/profile-runner";
+import type { NormalizedFinding } from "./findings/normalizers/fixture";
 import type {
 	ToolExecutionConfig,
 	ToolLifecycleEvent,
@@ -38,6 +38,18 @@ export type StaticScannerDiffExecution = {
 	targetPaths?: string[];
 };
 
+export type StaticScannerApplicability =
+	| {
+			applicability: "applicable";
+			reasonCode: null;
+			evidenceRefs?: string[];
+	  }
+	| {
+			applicability: "not_applicable";
+			reasonCode: string;
+			evidenceRefs?: string[];
+	  };
+
 export type StaticScannerRunInput = {
 	scanRunId: string;
 	repoPath: string;
@@ -55,6 +67,9 @@ export type StaticScannerRunner = {
 
 export type StaticScannerAdapter = {
 	readonly manifest: StaticScannerAdapterManifest;
+	resolveApplicability?(params: {
+		scanPaths: readonly string[];
+	}): StaticScannerApplicability;
 	resolveDiffExecution?(params: {
 		scanPaths: readonly string[];
 	}): StaticScannerDiffExecution;
@@ -78,6 +93,18 @@ export type StaticScannerAdapter = {
 	): NormalizedFinding[];
 	defaultCommand(options: Record<string, unknown>): string;
 };
+
+export function resolveStaticScannerApplicability(
+	adapter: StaticScannerAdapter,
+	scanPaths: readonly string[],
+): StaticScannerApplicability {
+	return (
+		adapter.resolveApplicability?.({ scanPaths }) ?? {
+			applicability: "applicable",
+			reasonCode: null,
+		}
+	);
+}
 
 export function resolveStaticScannerDiffExecution(
 	adapter: StaticScannerAdapter,

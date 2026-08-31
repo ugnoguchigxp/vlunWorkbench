@@ -1,0 +1,360 @@
+<article lang="ja">
+  <h1 id="pr-4-nightworkers-security-intelligence-integration--legacy-plan">
+    PR 4: NightWorkers Security Intelligence Integration — Legacy Plan
+  </h1>
+  <p>Status: SUPERSEDED — producer、consumer、post-assessment、shadow plumbingは実装済み</p>
+  <p>
+    この文書はPR 4当時の設計記録であり、paired Runや10-pair pilotを実行してはならない。
+    現在の実行契約は<code>security-intelligence-integrity-smoke-template.json</code>（v2）、現在の残作業は
+    NightWorkersの<code>security-intelligence-pilot-rollout-todo.md</code>を正とする。
+  </p>
+  <p>
+    Implementation baseline: PR 1 <code>538866f</code>、PR 2
+    <code>ca0205e</code>、PR 3 <code>5a4df84</code>
+  </p>
+  <h2 id="1-目的">1. 目的</h2>
+  <p>NightWorkersがtask/runに紐付くrevision-bound assessmentを取得できるようにする。</p>
+  <p>
+    このPRはdefault activationの判断を行わない。integrity evidenceを収集し、別のdecision recordでGO
+    / ITERATE / STOPを判断できる状態を作る。
+  </p>
+  <h2 id="2-integration-boundary">2. Integration boundary</h2>
+  <p>
+    既存<code>/api/integrations/nightworkers/v1</code>のscan contract version 1を変更しない。Security
+    Intelligence用に独立したversion空間を追加する。
+  </p>
+  <p>想定route:</p>
+  <pre><code class="language-text">GET /api/integrations/nightworkers/security-intelligence/v1/scans/:scanRunRef/assessment
+</code></pre>
+  <p>
+    routeは既存NightWorkers integration authentication、binding、owner/project
+    authorizationを再利用する。response bodyはPR 1のstrict assessment自体を変更せず、Dependency
+    assessmentとoptional Authorization stateを格納する独立versionのbundleである。
+  </p>
+  <p>
+    この分離により、既存consumerのstrict parserやcapability responseを壊さずpilot
+    consumerだけを追加できる。
+  </p>
+  <h2 id="3-proposed-vulnworkbench-files">3. Proposed vulnWorkbench files</h2>
+  <table>
+    <caption>
+      3. Proposed vulnWorkbench files
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">種別</th>
+        <th scope="col">Path</th>
+        <th scope="col">内容</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>New</td>
+        <td><code>api/modules/integrations/nightworkers/nightworkers-security-intelligence.routes.ts</code></td>
+        <td>独立version route</td>
+      </tr>
+      <tr>
+        <td>New</td>
+        <td><code>api/modules/integrations/nightworkers/nightworkers-security-intelligence.service.ts</code></td>
+        <td>auth後のassessment取得</td>
+      </tr>
+      <tr>
+        <td>New</td>
+        <td><code>api/modules/integrations/nightworkers/nightworkers-security-intelligence-projection.ts</code></td>
+        <td>contract validation、redaction、stable response</td>
+      </tr>
+      <tr>
+        <td>New</td>
+        <td><code>api/modules/integrations/nightworkers/nightworkers-security-intelligence-telemetry.ts</code></td>
+        <td>aggregate-only latency/payload metric</td>
+      </tr>
+      <tr>
+        <td>New</td>
+        <td><code>api/modules/integrations/nightworkers/nightworkers-security-intelligence.{service,routes,telemetry}.test.ts</code></td>
+        <td>auth、binding、state、redaction、metric</td>
+      </tr>
+      <tr>
+        <td>New</td>
+        <td><code>shared/schemas/nightworkers-security-intelligence.schema.ts</code></td>
+        <td>strict outer bundle / response contract</td>
+      </tr>
+      <tr>
+        <td>New</td>
+        <td><code>shared/schemas/nightworkers-security-intelligence-integrity-evidence.schema.ts</code></td>
+        <td>single-Run integrity evidence v2 contract</td>
+      </tr>
+      <tr>
+        <td>Change</td>
+        <td>integration route registration file</td>
+        <td>新route groupをmount</td>
+      </tr>
+      <tr>
+        <td>New</td>
+        <td><code>spec/evidence/security-intelligence-integrity-smoke-template.json</code></td>
+        <td>single-Run integrity evidence template</td>
+      </tr>
+      <tr>
+        <td>New</td>
+        <td><code>spec/templates/security-intelligence-pilot-decision-template.html</code></td>
+        <td>GO / ITERATE / STOP decision format</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    実装時は既存route registrationの実pathを確認し、同じ役割のfileがある場合は重複route
+    rootを作らない。
+  </p>
+  <h2 id="4-nightworkers側の並行pr">4. NightWorkers側の並行PR</h2>
+  <p>NightWorkersでは別PRとして次を実装する。</p>
+  <ul>
+    <li>PR 1 fixtureをparseするconsumer contract test</li>
+    <li>
+      task/runが<code>assessmentRef</code>、contract version、target
+      digestを保持するadapter
+    </li>
+    <li>explicit opt-in時だけassessment endpointを呼ぶclient</li>
+    <li>Dependency assessmentのsummary表示</li>
+    <li>Authorization observationのshadow表示またはtelemetry-only処理</li>
+    <li>evidence referenceのopaque link表示</li>
+    <li>unavailable/inconclusiveをsuccessへ畳み込まないUI/CLI表現</li>
+    <li>feature flagとinstant rollback</li>
+  </ul>
+  <p>
+    NightWorkersはassessmentを再判定しない。表示上のtask-specific
+    projectionを作る場合はoriginを<code>task_projection</code>として区別する。
+  </p>
+  <p>
+    contextStillはこのpilotのcritical
+    dependencyにしない。pilot後にvalidation済みcandidateの受け入れを試す。
+  </p>
+  <h2 id="5-requestresponse-behavior">5. Request/response behavior</h2>
+  <h3 id="preconditions">Preconditions</h3>
+  <ul>
+    <li>integration clientが既存read scopeを持つ</li>
+    <li>scan bindingがclientに属する</li>
+    <li>owner/project authorizationが一致する</li>
+    <li>scan runがassessment生成可能なterminal stateである</li>
+    <li>target identityとartifact bindingが検証できる</li>
+  </ul>
+  <h3 id="success">Success</h3>
+  <ul>
+    <li>HTTP 200</li>
+    <li>bodyはversioned success envelope内の<code>NightworkersSecurityIntelligenceBundle</code></li>
+    <li>
+      Dependency payloadと利用可能なAuthorization payloadは、それぞれstrictな<code
+        >SecurityIntelligenceAssessmentV1</code
+      >
+    </li>
+    <li>
+      <code>projectRef</code
+      >、<code>scanRunRef</code>、target digestがrequested bindingと一致
+    </li>
+    <li>Dependency sectionはPR 2の結果</li>
+    <li>
+      Authorization sectionは常に<code>disabled / unavailable / available</code>を明示し、flag
+      ONかつ利用可能な場合だけassessmentを含む
+    </li>
+    <li>
+      success/error
+      responseは<code>Cache-Control: private, no-store</code>、<code>Pragma: no-cache</code>、<code>Vary: Authorization</code>を返す
+    </li>
+    <li>
+      bundle payloadは<code>NIGHTWORKERS_SECURITY_INTELLIGENCE_MAX_RESPONSE_BYTES</code>（既定2 MiB）を超えた場合にfail
+      closedする
+    </li>
+  </ul>
+  <h3 id="not-ready--unavailable">Not ready / unavailable</h3>
+  <p>
+    既存scan integration error enumを拡張しない。新routeのresponse schema内で、未完了はHTTP
+    409の<code>assessment_not_ready</code>、生成不能はHTTP
+    422の<code>assessment_unavailable</code>として独立にversion管理する。
+  </p>
+  <p>
+    target mismatch、owner mismatch、binding mismatchはassessment
+    payloadを返さない。認可情報を漏らさない既存not-found behaviorへ揃える。
+  </p>
+  <h2 id="6-backward-compatibility-test">6. Backward compatibility test</h2>
+  <p>PR merge前に次を固定する。</p>
+  <ul>
+    <li>既存NightWorkers scan contract fixture hashが変わらない。</li>
+    <li>
+      existing capabilities、presets、scan create/status/findings/report responseが変わらない。
+    </li>
+    <li>新feature flag OFFで新routeはadvertiseされず、または明示的not enabledを返す。</li>
+    <li>
+      新routeの追加が既存scopeの意味を拡張しすぎない。必要なら新scopeは別migration/PRに分ける。
+    </li>
+    <li>strict old consumerが新fieldを受け取る経路を作らない。</li>
+  </ul>
+  <h2 id="7-historical-pilot-design-and-replacement">7. Historical pilot design and replacement</h2>
+  <p>
+    以下のpaired baseline designは採用しない。assessmentはpersisted scan
+    artifactのprojectionであり、
+    実装Runを複製するとモデル揺れ、費用、時間が増え、integrity検証の精度は上がらない。
+  </p>
+  <p>
+    現在は1 Task / 1 implementation Run / 1 canonical Evidence Subjectで、pre assessment → Security
+    Contract → implementation → post assessment → structured judgmentを確認する。 もう一方のruntime
+    laneはadapter / tool contract smokeだけを行う。
+  </p>
+  <h3 id="adopted-phase-a-single-run-integrity-smoke">
+    Adopted Phase A: single-Run integrity smoke
+  </h3>
+  <ul>
+    <li>1 repository、1 implementation Run</li>
+    <li>Dependency changeあり</li>
+    <li>assessment ref/evidence refを人手で解決確認</li>
+    <li>wrong project/revision、redaction、rollbackを確認</li>
+  </ul>
+  <h3 id="rejected-phase-b-paired-sample">Rejected Phase B: Paired sample</h3>
+  <p>
+    baseline / assessment-enabledの二重Runと10件sampleは実行しない。typed unavailable、 tool
+    failure、zero findingはfocused unit / contract scenarioでfail-closedを固定する。
+  </p>
+  <h3 id="evidence-unit">Evidence unit</h3>
+  <pre><code class="language-text">taskRef
+  taskRevisionSnapshotId / taskRevisionSnapshotDigest
+  runRef
+  evidenceSubjectRef
+  preBundleRef / preAssessmentRef
+  securityContractRef
+  postBundleRef / postAssessmentRef
+  finalJudgmentRef
+  projectRef
+  sourceRevision
+  targetDigest
+  selectedVerifications
+  selectedEvidenceRefs
+  unresolvedEvidenceRefs
+  evidenceResolution
+  outcome
+  primaryLane / secondaryLaneContractCheck
+  limitations
+</code></pre>
+  <p>
+    pre/postのtask、run、Evidence Subject、project、revision role、digestが一致しない場合は
+    安全性incidentとして停止する。
+  </p>
+  <h2 id="8-metrics">8. Metrics</h2>
+  <h3 id="safety--integrity">Safety / integrity</h3>
+  <ul>
+    <li>wrong project/revision binding count</li>
+    <li>unresolved evidence ref count</li>
+    <li>secret/absolute-path leakage count</li>
+    <li>required verification failureをsuccess表示したcount</li>
+    <li>contract parse failure count</li>
+  </ul>
+  <h3 id="cost--reliability">Cost / reliability</h3>
+  <ul>
+    <li>assessment build latency</li>
+    <li>endpoint request/error count</li>
+    <li>scan completion latencyへの影響</li>
+    <li>payload size</li>
+  </ul>
+  <p>telemetryにはsource本文、secret、raw filesystem pathを保存しない。</p>
+  <h2 id="9-decision-gates">9. Decision gates</h2>
+  <h3 id="capability-level-go候補">Capability-level GO候補</h3>
+  <ul>
+    <li>wrong project/revision、secret/path leakが0件</li>
+    <li>assessmentのevidence refが100%解決可能</li>
+    <li>required failureのsuccess誤表示が0件</li>
+    <li>既存scan completionへの重大regressionがない</li>
+    <li>rollback drillが成功する</li>
+  </ul>
+  <h3 id="iterate">ITERATE</h3>
+  <ul>
+    <li>integrity incidentはないが、unknown/inconclusiveが多い</li>
+    <li>useful signalはあるがlatencyまたはpayload costが高い</li>
+    <li>Authorization shadowの精度が不足している</li>
+  </ul>
+  <h3 id="stop">STOP</h3>
+  <ul>
+    <li>wrong revision/projectへassessmentを紐付ける</li>
+    <li>evidenceを再確認できない</li>
+    <li>secret/source/path leakが発生する</li>
+    <li>required failureを成功扱いする</li>
+    <li>既存scan contractまたは主要workflowを不安定化する</li>
+  </ul>
+  <p>
+    assessment consumer、post-assessment grant、candidate export、feedback export、shadow
+    retrievalを 別々に判断する。GO条件を満たしてもdefault ONにせず、別のdated activation
+    decisionを必要とする。
+  </p>
+  <h2 id="10-rollout-control">10. Rollout control</h2>
+  <ul>
+    <li>vulnWorkbench server flag: default OFF</li>
+    <li>NightWorkers consumer flag: default OFF</li>
+    <li>project allowlist: empty by default</li>
+    <li>dependency assessmentとauthorization shadowを別flagにする</li>
+    <li>kill switchは再deployなし、または最小のconfig rollbackで発動できること</li>
+    <li>flag OFF後も既存scan routeは影響を受けないこと</li>
+  </ul>
+  <p>
+    producer側は<code>NIGHTWORKERS_INTEGRATION_ENABLED</code>、<code>NIGHTWORKERS_SECURITY_INTELLIGENCE_ENABLED</code>、<code>NIGHTWORKERS_SECURITY_INTELLIGENCE_AUTHORIZATION_SHADOW_ENABLED</code>、<code>NIGHTWORKERS_SECURITY_INTELLIGENCE_ALLOWED_PROJECT_IDS</code>で制御する。payload上限は<code>NIGHTWORKERS_SECURITY_INTELLIGENCE_MAX_RESPONSE_BYTES</code>で制御する。
+  </p>
+  <h2 id="11-implementation-order">11. Implementation order</h2>
+  <ol>
+    <li>PR 1 fixtureを使うroute response contract testを追加する。</li>
+    <li>existing integration auth/binding middlewareで新routeを保護する。</li>
+    <li>PR 2 serviceをread-onlyで接続する。</li>
+    <li>not-ready/unavailable/mismatchのfailure mappingを実装する。</li>
+    <li>redactionとexisting v1 regression testを追加する。</li>
+    <li>server/consumer flagとallowlistを追加する。</li>
+    <li>NightWorkers consumer fixture testをgreenにする。</li>
+    <li>cross-repository fixture checkerを通す。</li>
+    <li>single-Run integrity smokeと1回のrollback drillを行う。</li>
+    <li>Stage 2 integrity PASS後に1-batch shadow smokeを行う。</li>
+    <li>decision templateからcapability別decision recordを作る。</li>
+  </ol>
+  <h2 id="12-acceptance-criteria">12. Acceptance criteria</h2>
+  <ul>
+    <li>enabled projectのterminal scanについてcontract-valid assessmentを取得できる。</li>
+    <li>running scanは成功payloadを返さない。</li>
+    <li>wrong owner/project/bindingは既存integrationと同等に拒否される。</li>
+    <li>existing NightWorkers v1 fixtureとroute testが不変で通る。</li>
+    <li>Security Intelligence v1のschemaと静的response fixtureがhash baselineで固定される。</li>
+    <li>flag OFFで既存workflowへobservableな差分がない。</li>
+    <li>responseはprivate/no-storeで、設定されたpayload上限を超えない。</li>
+    <li>assessmentからすべてのevidence refを解決できる。</li>
+    <li>single-Run integrity smokeとrollback drillが成功する。</li>
+    <li>integrity evidence artifactがsource本文/secret/raw pathなしで作成される。</li>
+  </ul>
+  <h2 id="13-verification-commands">13. Verification commands</h2>
+  <p>vulnWorkbench:</p>
+  <pre><code class="language-bash">bun test api/modules/integrations/nightworkers api/modules/security-intelligence api/app/env.test.ts
+bunx vitest run shared/schemas/nightworkers-security-intelligence.schema.test.ts shared/schemas/nightworkers-security-intelligence-pilot.schema.test.ts
+bunx vitest run shared/schemas/nightworkers-security-scan-integration.schema.test.ts shared/schemas/security-intelligence-assessment.schema.test.ts
+bun run verify:security-intelligence-contract
+bun run typecheck
+git diff --check
+</code></pre>
+  <p>NightWorkersでは、repository固有commandに加えて次の結果を必須にする。</p>
+  <ul>
+    <li>consumer fixture test</li>
+    <li>flag OFF regression test</li>
+    <li>wrong revision/project rejection test</li>
+    <li>inconclusive/unavailable rendering test</li>
+    <li>single-Run integrity evidence validation</li>
+  </ul>
+  <h2 id="14-failureとrollback">14. Failureとrollback</h2>
+  <ul>
+    <li>
+      integrity/safetyのSTOP条件が1件でも発生したら両repositoryのflagをOFFにし、pilotを停止する。
+    </li>
+    <li>
+      endpoint failure時に既存scan
+      resultへfallbackして「assessment成功」と表示しない。明示的unavailableとする。
+    </li>
+    <li>
+      rollbackはNightWorkers consumer flag OFF、vulnWorkbench route flag OFFの順で行う。既存scan
+      APIは残る。
+    </li>
+    <li>pilot dataは削除せず、機密情報を除いたfailure evidenceとしてdecision recordへ残す。</li>
+  </ul>
+  <h2 id="15-merge-gate">15. Merge gate</h2>
+  <p>
+    routeとconsumer codeはflag OFFでmerge可能だが、allowlist追加はsmokeのintegrity
+    checks完了後に行う。default activation、contextStill candidate emission、task
+    blockingはすべて後続PRとする。
+  </p>
+</article>

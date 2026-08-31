@@ -1,0 +1,881 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex,follow">
+    <title>Intelligence Structure-First UI Rework Plan | vulnWorkbench</title>
+    <link rel="stylesheet" href="/vlunWorkbench/assets/css/spec-document.css">
+    <link rel="stylesheet" href="/vlunWorkbench/assets/css/plan-document.css">
+  </head>
+  <body>
+    <article lang="ja">
+  <h1 id="intelligence-structure-first-ui-rework-plan">
+    Intelligence Structure-First UI Rework Plan
+  </h1>
+  <p>Status: Planned</p>
+  <h2 id="1-decision-summary">1. Decision summary</h2>
+  <p>
+    Project Intelligence を、Scan 結果の再表示画面から、Static Intelligence generation
+    に含まれる構造情報と外部 Ontology 連携候補を確認する画面へ戻す。
+  </p>
+  <p>新しい画面の中心は次とする。</p>
+  <ol>
+    <li>code structure facts</li>
+    <li>module candidates と依存関係</li>
+    <li>Diagnostic Evidence Graph と Scan evidence の重ね合わせ</li>
+    <li>NightWorkers への Ontology Handoff</li>
+  </ol>
+  <p>
+    Finding の一覧、個別詳細、review、decision の主導線は Scan Workspace が所有する。Intelligence は
+    Finding を構造上の文脈へ重ねるが、同じ review UI を再実装しない。
+  </p>
+  <h2 id="2-background-and-problem-statement">2. Background and problem statement</h2>
+  <p>現在の4画面は Finding を主語に設計されている。</p>
+  <table>
+    <caption>
+      2. Background and problem statement
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">現画面</th>
+        <th scope="col">主な内容</th>
+        <th scope="col">問題</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>判断優先</td>
+        <td>severity、Finding、優先ファイル</td>
+        <td>Scan summary と重複する</td>
+      </tr>
+      <tr>
+        <td>調査ビュー</td>
+        <td>Finding 一覧と詳細</td>
+        <td>Scan Workspace と重複する</td>
+      </tr>
+      <tr>
+        <td>リスクマップ</td>
+        <td>module × severity</td>
+        <td>Finding 0件では全セルが0になり、構造情報を活用できない</td>
+      </tr>
+      <tr>
+        <td>ガイド方式</td>
+        <td>Finding decision</td>
+        <td>Scan review/decision と重複する</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    実データでは Finding が0件でも、Project Structure generation に file inventory、module
+    candidates、typed references、entrypoints、package dependencies、readiness
+    が存在する。現UIは構造情報をリスク表示の補助に限定し、Ontology Handoff
+    を閉じた「分析詳細」の中へ移したため、利用可能な Intelligence が見えなくなっている。
+  </p>
+  <p>
+    テストも Finding を持つモックを中心としており、「構造データは豊富だが Finding
+    は0件」という実運用ケースを主要シナリオとして検証できていない。
+  </p>
+  <h2 id="3-product-boundary">3. Product boundary</h2>
+  <h3 id="31-responsibility-matrix">3.1 Responsibility matrix</h3>
+  <table>
+    <caption>
+      3.1 Responsibility matrix
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">領域</th>
+        <th scope="col">Scan Workspace</th>
+        <th scope="col">Project Intelligence</th>
+        <th scope="col">NightWorkers</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>scanner 実行と履歴</td>
+        <td>主担当</td>
+        <td>evidence source として参照</td>
+        <td>実行要求のみ</td>
+      </tr>
+      <tr>
+        <td>Finding 一覧・詳細</td>
+        <td>主担当</td>
+        <td>構造への overlay と件数のみ</td>
+        <td>task evidence として参照</td>
+      </tr>
+      <tr>
+        <td>review / decision</td>
+        <td>主担当</td>
+        <td>読み取り要約と Scan へのリンク</td>
+        <td>task判断へ利用</td>
+      </tr>
+      <tr>
+        <td>file / import / export facts</td>
+        <td>参照しない</td>
+        <td>主担当</td>
+        <td>code evidence として利用</td>
+      </tr>
+      <tr>
+        <td>module candidates</td>
+        <td>参照しない</td>
+        <td>主担当</td>
+        <td>canonical Ontology への候補入力</td>
+      </tr>
+      <tr>
+        <td>Diagnostic Evidence Graph</td>
+        <td>個別証跡を表示</td>
+        <td>関係性の read model を表示</td>
+        <td>planning context として利用</td>
+      </tr>
+      <tr>
+        <td>canonical Project Ontology</td>
+        <td>担当しない</td>
+        <td>担当しない</td>
+        <td>主担当</td>
+      </tr>
+      <tr>
+        <td>task compilation / queue</td>
+        <td>担当しない</td>
+        <td>担当しない</td>
+        <td>主担当</td>
+      </tr>
+    </tbody>
+  </table>
+  <h3 id="32-naming-rule">3.2 Naming rule</h3>
+  <ul>
+    <li>vulnWorkbench の構造出力は <code>モジュール候補</code> と呼ぶ。</li>
+    <li>
+      <code>Ontology</code> と断定せず、<code>Ontology連携</code>
+      または <code>Ontology Handoff</code> と表現する。
+    </li>
+    <li>Finding は画面上では <code>検出事項</code> と表現する。</li>
+    <li>
+      <code>安全</code>、<code>問題なし</code> は
+      Finding 0件の意味として使用しない。
+    </li>
+  </ul>
+  <h3 id="33-data-flow">3.3 Data flow</h3>
+  <figure>
+    <pre class="mermaid" data-spec-html-source="markdown">flowchart LR
+  G["Persisted Intelligence generation"] --&gt; S["Code structure facts"]
+  G --&gt; E["Diagnostic evidence"]
+  S --&gt; O["Structure overview"]
+  S --&gt; M["Module explorer"]
+  S --&gt; R["Relationship map"]
+  E --&gt; R
+  E --&gt; W["Scan Workspace"]
+  S --&gt; H["Ontology Handoff"]
+  E --&gt; H
+  H --&gt; N["NightWorkers Project Ontology"]
+</pre>
+    <figcaption>3.3 Data flow</figcaption>
+  </figure>
+  <p>
+    Scan Workspaceは個別証跡を扱い、Project Intelligenceは構造と関係を扱う。Handoffは候補を渡すread
+    modelであり、NightWorkers側の採用状態を表さない。
+  </p>
+  <h2 id="4-target-information-architecture">4. Target information architecture</h2>
+  <p>タブは4つを維持し、利用目的を次へ変更する。</p>
+  <table>
+    <caption>
+      4. Target information architecture
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">No.</th>
+        <th scope="col">表示</th>
+        <th scope="col">canonical URL値</th>
+        <th scope="col">役割</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>01</td>
+        <td>構造サマリー</td>
+        <td><code>overview</code></td>
+        <td>generation の状態とプロジェクト構造を短時間で把握する</td>
+      </tr>
+      <tr>
+        <td>02</td>
+        <td>モジュール</td>
+        <td><code>modules</code></td>
+        <td>module、file、entrypoint、symbol、dependency を探索する</td>
+      </tr>
+      <tr>
+        <td>03</td>
+        <td>関係マップ</td>
+        <td><code>relationships</code></td>
+        <td>module 間依存と Diagnostic Evidence の重なりを追う</td>
+      </tr>
+      <tr>
+        <td>04</td>
+        <td>Ontology連携</td>
+        <td><code>handoff</code></td>
+        <td>NightWorkers へ渡す候補、provenance、readiness を確認する</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>旧URL値は一リリース以上、互換 alias として受理する。</p>
+  <table>
+    <caption>
+      4. Target information architecture
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">legacy</th>
+        <th scope="col">canonical</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>priority</code></td>
+        <td><code>overview</code></td>
+      </tr>
+      <tr>
+        <td><code>investigate</code></td>
+        <td><code>modules</code></td>
+      </tr>
+      <tr>
+        <td><code>landscape</code></td>
+        <td><code>relationships</code></td>
+      </tr>
+      <tr>
+        <td><code>guided</code></td>
+        <td><code>handoff</code></td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    新しいリンクは canonical 値だけを生成する。legacy
+    値で開いた場合も同じ画面を表示し、次のタブ操作から canonical URL へ移行する。
+  </p>
+  <h2 id="5-shared-shell">5. Shared shell</h2>
+  <p>Project navigation より下に、次の順序で配置する。</p>
+  <ol>
+    <li>generation context</li>
+    <li>Intelligence tabs</li>
+    <li>active view</li>
+  </ol>
+  <h3 id="51-generation-context">5.1 Generation context</h3>
+  <p>Scan を主語にせず、永続化された generation を主語にする。</p>
+  <p>表示項目:</p>
+  <ul>
+    <li>generatedAt</li>
+    <li>generation status / freshness</li>
+    <li>source scan profile と completedAt</li>
+    <li>source tree hash の短縮表示</li>
+    <li>structure / evidence / handoff readiness の要約</li>
+    <li><code>Intelligenceを更新</code></li>
+    <li><code>Scan Workspaceで証跡を見る</code></li>
+  </ul>
+  <p>
+    現在の <code>Analysis scan</code> selector は
+    <code>Intelligence source</code> または
+    <code>分析スナップショット</code> へ変更する。各選択肢には scan
+    profile、完了日時、Intelligence generation の有無を表示し、generation がない scan
+    を選んだ場合は生成操作と理由を示す。
+  </p>
+  <h3 id="52-loading-and-refresh">5.2 Loading and refresh</h3>
+  <ul>
+    <li>GET で暗黙 refresh しない。</li>
+    <li>refresh 中も現在の generation は stale 表示付きで閲覧可能にする。</li>
+    <li>refresh 完了時だけ、新しい generationId へ切り替える。</li>
+    <li>
+      generationId が変わったら module 選択、file cursor、graph selection、tab-local error
+      を破棄する。
+    </li>
+  </ul>
+  <h2 id="6-view-01-構造サマリー">6. View 01: 構造サマリー</h2>
+  <h3 id="61-purpose">6.1 Purpose</h3>
+  <p>
+    30秒以内に「どこまで解析できているか」「どの構造が主要か」「外部連携へ渡せるか」を判断できるようにする。
+  </p>
+  <h3 id="62-content-order">6.2 Content order</h3>
+  <ol>
+    <li>readiness callout</li>
+    <li>structure metrics</li>
+    <li>module candidates preview</li>
+    <li>analysis coverage / diagnostics</li>
+    <li>security evidence overlay</li>
+    <li>next actions</li>
+  </ol>
+  <h3 id="63-metrics">6.3 Metrics</h3>
+  <ul>
+    <li>inventory files</li>
+    <li>analyzed files</li>
+    <li>module candidates</li>
+    <li>resolved / unresolved references</li>
+    <li>package dependencies</li>
+    <li>entrypoints</li>
+    <li>route / handler / schema / worker / test / config counts</li>
+    <li>scan evidence count</li>
+  </ul>
+  <p>
+    Finding 0件でも structure metrics を通常表示する。Finding 件数は metrics
+    の一つに留め、画面全体の empty state を決める条件にしない。
+  </p>
+  <h3 id="64-module-preview">6.4 Module preview</h3>
+  <ul>
+    <li>fileCount 降順で上位6件</li>
+    <li>label / pathPrefix</li>
+    <li>confidence と reason</li>
+    <li>entrypoint count</li>
+    <li>inbound / outbound module dependency count</li>
+    <li>risk overlay が存在する場合だけ severity と検出件数</li>
+    <li><code>モジュールで開く</code> から View 02 へ遷移</li>
+  </ul>
+  <h3 id="65-readiness-callout">6.5 Readiness callout</h3>
+  <p>優先順位:</p>
+  <ol>
+    <li>generation missing / failed</li>
+    <li>structure analysis failed</li>
+    <li>resolution / module inference degraded</li>
+    <li>handoff stale / degraded</li>
+    <li>available</li>
+  </ol>
+  <p>
+    Critical / High Finding は補足アラートに表示するが、structure readiness
+    の主メッセージを上書きしない。
+  </p>
+  <h2 id="7-view-02-モジュール">7. View 02: モジュール</h2>
+  <h3 id="71-purpose">7.1 Purpose</h3>
+  <p>Project Structure Snapshot を人が探索できる master-detail UI にする。</p>
+  <h3 id="72-layout">7.2 Layout</h3>
+  <p>Desktop:</p>
+  <pre><code class="language-text">┌────────────────────────┬─────────────────────────────────────┐
+│ Module list / filters  │ Selected module                     │
+│                        │ overview / dependencies / files     │
+└────────────────────────┴─────────────────────────────────────┘
+</code></pre>
+  <p>Narrow viewport では module list、selected module、files の順に1カラム化する。</p>
+  <h3 id="73-module-list">7.3 Module list</h3>
+  <p>検索対象:</p>
+  <ul>
+    <li>label</li>
+    <li>pathPrefix</li>
+    <li>role tag</li>
+    <li>entrypoint</li>
+    <li>package dependency</li>
+  </ul>
+  <p>フィルター:</p>
+  <ul>
+    <li>boundary / role</li>
+    <li>confidence band</li>
+    <li>analysis readiness</li>
+    <li>risk overlay の有無</li>
+  </ul>
+  <p>
+    各行には file count、entrypoint count、internal dependency count を必ず表示する。Finding
+    0件でも情報密度を維持する。
+  </p>
+  <h3 id="74-module-detail">7.4 Module detail</h3>
+  <ul>
+    <li>label / pathPrefix / confidence / reasons</li>
+    <li>role tags</li>
+    <li>entrypoint files</li>
+    <li>inbound module dependencies</li>
+    <li>outbound module dependencies</li>
+    <li>external package dependencies</li>
+    <li>exported symbols</li>
+    <li>module files</li>
+    <li>fileごとの language / analysis status / tags / reference count / export count</li>
+    <li>risk / evidence overlay がある file の印</li>
+  </ul>
+  <p>file body や secret は表示しない。</p>
+  <h3 id="75-url-state">7.5 URL state</h3>
+  <ul>
+    <li><code>moduleId</code>: selected module candidate</li>
+    <li><code>focusPath</code>: selected file</li>
+    <li>不正値または generation に存在しない値は無視する</li>
+    <li>初期選択は fileCount 最大、同値は pathPrefix 昇順</li>
+  </ul>
+  <h2 id="8-view-03-関係マップ">8. View 03: 関係マップ</h2>
+  <h3 id="81-purpose">8.1 Purpose</h3>
+  <p>module dependency と Diagnostic Evidence Graph を同じ構造文脈で確認する。</p>
+  <h3 id="82-default-relationship-view">8.2 Default relationship view</h3>
+  <p>初期表示は module dependency とする。</p>
+  <ul>
+    <li>node: module candidate</li>
+    <li>edge: internal dependency</li>
+    <li>node summary: files / entrypoints / confidence</li>
+    <li>optional overlay: max severity / finding count / evidence quality</li>
+  </ul>
+  <p>
+    専用 chart library は追加しない。最初の実装は accessible な隣接リストと relationship table
+    を主表示にし、CSS/SVG の簡易図は補助表示に限定する。
+  </p>
+  <h3 id="83-selected-module-context">8.3 Selected module context</h3>
+  <ul>
+    <li>inbound / outbound relationship</li>
+    <li>shared packages</li>
+    <li>affected files</li>
+    <li>entrypoints</li>
+    <li>unresolved references</li>
+    <li>risk overlay</li>
+    <li><code>モジュールで開く</code></li>
+    <li><code>Scan Workspaceで証跡を見る</code></li>
+  </ul>
+  <h3 id="84-diagnostic-evidence-mode">8.4 Diagnostic Evidence mode</h3>
+  <p>表示切り替えで次を確認できるようにする。</p>
+  <ul>
+    <li>finding -&gt; evidence</li>
+    <li>finding -&gt; file</li>
+    <li>finding -&gt; scanner / rule</li>
+    <li>finding -&gt; verification / artifact</li>
+    <li>file -&gt; module</li>
+  </ul>
+  <p>Evidence が0件の場合も module dependency view は利用可能とし、画面全体を empty にしない。</p>
+  <h3 id="85-accessibility">8.5 Accessibility</h3>
+  <ul>
+    <li>node / edge の情報は図だけに依存しない。</li>
+    <li>relationship table を常に提供する。</li>
+    <li>keyboard で module 選択と mode 切り替えができる。</li>
+    <li>色は overlay の補助にのみ使い、件数とラベルを併記する。</li>
+  </ul>
+  <h2 id="9-view-04-ontology連携">9. View 04: Ontology連携</h2>
+  <h3 id="91-purpose">9.1 Purpose</h3>
+  <p>vulnWorkbench の候補データが NightWorkers に取得可能かを、人が検証できる画面にする。</p>
+  <h3 id="92-boundary-message">9.2 Boundary message</h3>
+  <p>画面上部へ常時表示する。</p>
+  <blockquote>
+    <p>
+      vulnWorkbench は正式なProject
+      Ontologyを管理しません。ここでは、NightWorkersがOntologyへ採用・対応付けするための構造候補と診断証跡を確認します。
+    </p>
+  </blockquote>
+  <h3 id="93-content">9.3 Content</h3>
+  <ol>
+    <li>handoff readiness</li>
+    <li>generation provenance</li>
+    <li>consumer boundary</li>
+    <li>module candidate payload preview</li>
+    <li>graph summary</li>
+    <li>source refs</li>
+    <li>verification command candidates</li>
+    <li>manifest / MCP pull commands</li>
+    <li>degraded reasons</li>
+  </ol>
+  <h3 id="94-status-semantics">9.4 Status semantics</h3>
+  <ul>
+    <li><code>available</code>: persisted payload を取得できる</li>
+    <li><code>stale</code>: source state と generation が一致しない</li>
+    <li>
+      <code>degraded</code>: payload は取得できるが一部 capability が不足
+    </li>
+    <li><code>missing</code>: generation または必要bundleがない</li>
+    <li><code>failed</code>: generation/buildに失敗</li>
+  </ul>
+  <p>
+    <code>available</code> は NightWorkers
+    が実際に接続・採用済みである意味にはしない。外部 adoption は unknown と明記する。
+  </p>
+  <h3 id="95-actions">9.5 Actions</h3>
+  <ul>
+    <li>command copy</li>
+    <li>manifest copy</li>
+    <li>source refs copy</li>
+    <li>generation refresh</li>
+    <li>module selected state を View 02 と共有</li>
+  </ul>
+  <p>外部システムへの自動送信は行わない。</p>
+  <h2 id="10-api-and-data-contract-changes">10. API and data contract changes</h2>
+  <h3 id="101-reuse">10.1 Reuse</h3>
+  <p>次は既存契約を維持する。</p>
+  <ul>
+    <li><code>GET /api/projects/:projectId/intelligence</code></li>
+    <li><code>GET /api/projects/:projectId/intelligence/project-structure</code></li>
+    <li><code>GET /api/projects/:projectId/intelligence/ontology-handoff</code></li>
+    <li><code>GET /api/scans/:scanRunId/intelligence/agent-query</code></li>
+    <li><code>POST /api/projects/:projectId/intelligence/refresh</code></li>
+  </ul>
+  <h3 id="102-project-structure-query">10.2 Project structure query</h3>
+  <p>既存 <code>view=summary|files|references</code> を用途別に利用する。</p>
+  <ul>
+    <li>overview: <code>view=summary</code></li>
+    <li>
+      modules: <code>view=summary</code> + selected module の
+      <code>view=files</code>
+    </li>
+    <li>
+      relationships: <code>view=summary</code>、必要時だけ
+      <code>view=references</code>
+    </li>
+  </ul>
+  <p>次の bounded query を追加する。</p>
+  <pre><code class="language-ts">moduleId?: string;
+direction?: "inbound" | "outbound" | "both";
+</code></pre>
+  <ul>
+    <li>
+      <code>moduleId</code> は generation 内の module candidate ID
+      と完全一致させる。
+    </li>
+    <li><code>moduleId</code> は長さを制限し、存在しないIDは404とする。</li>
+    <li>
+      <code>direction</code> を
+      <code>moduleId</code> なしで指定した場合は400とする。
+    </li>
+    <li>files は module が所有する file paths で server-side filter する。</li>
+    <li>references は module file set に対する from/to で filter する。</li>
+    <li>cursor / limit は既存上限を維持する。</li>
+    <li>project ownership、scan ownership、generation pinning を維持する。</li>
+  </ul>
+  <p>クライアント側では、現在のoptional field中心の単一型を次へ分割する。</p>
+  <ul>
+    <li><code>ProjectStructureSummaryResponse</code></li>
+    <li><code>ProjectStructureFilesResponse</code></li>
+    <li><code>ProjectStructureReferencesResponse</code></li>
+  </ul>
+  <p>
+    API responseへ
+    <code>view</code>
+    discriminatorを追加し、itemsの内容を型で区別する。既存fieldの削除や意味変更は行わない。
+  </p>
+  <h3 id="103-client-state-separation">10.3 Client state separation</h3>
+  <p>現在の <code>useIntelligenceWorkspaceData</code> を resource ごとに分割する。</p>
+  <ul>
+    <li><code>useIntelligenceGeneration</code></li>
+    <li><code>useProjectStructureSummary</code></li>
+    <li><code>useProjectStructureFiles</code></li>
+    <li><code>useProjectRelationships</code></li>
+    <li><code>useOntologyHandoff</code></li>
+  </ul>
+  <p>
+    Finding/detail/decision state は Intelligence workspace hook から削除する。Scan
+    Workspace側の既存データ取得を利用し、Intelligence には戻さない。
+  </p>
+  <h3 id="104-cache-keys">10.4 Cache keys</h3>
+  <pre><code class="language-text">generation: projectId + scanRunId
+structure summary: projectId + scanRunId + generationId
+module files: projectId + generationId + moduleId + filters + cursor
+relationships: projectId + generationId + moduleId + direction + cursor
+handoff: projectId + scanRunId + generationId
+</code></pre>
+  <p>
+    古い request の完了で新しい selection を上書きしないよう、AbortController または request
+    sequence を維持する。
+  </p>
+  <h2 id="11-state-design">11. State design</h2>
+  <p>各 view は次を区別する。</p>
+  <ul>
+    <li>initial idle</li>
+    <li>loading without data</li>
+    <li>refreshing with stale data</li>
+    <li>available</li>
+    <li>degraded with usable data</li>
+    <li>empty by domain meaning</li>
+    <li>failed with retry</li>
+  </ul>
+  <h3 id="111-empty-state-rules">11.1 Empty state rules</h3>
+  <table>
+    <caption>
+      11.1 Empty state rules
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">条件</th>
+        <th scope="col">表示</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>generationなし</td>
+        <td>生成理由と <code>Intelligenceを生成</code></td>
+      </tr>
+      <tr>
+        <td>inventory 0</td>
+        <td>対象sourceがないことを説明</td>
+      </tr>
+      <tr>
+        <td>modules 0</td>
+        <td>file inventoryを表示し、module inference diagnosticsを示す</td>
+      </tr>
+      <tr>
+        <td>findings 0</td>
+        <td>structureを通常表示し、risk overlayだけ0件と示す</td>
+      </tr>
+      <tr>
+        <td>evidence 0</td>
+        <td>module dependencyを通常表示し、evidence overlayだけ未取得と示す</td>
+      </tr>
+      <tr>
+        <td>handoff null</td>
+        <td>missing bundle / generation の理由と再生成導線</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>Finding 0件を Intelligence 全体の empty state にしない。</p>
+  <h2 id="12-component-plan">12. Component plan</h2>
+  <h3 id="121-new-components">12.1 New components</h3>
+  <ul>
+    <li><code>project-intelligence-overview-panel.tsx</code></li>
+    <li><code>project-intelligence-module-panel.tsx</code></li>
+    <li><code>project-intelligence-relationship-panel.tsx</code></li>
+    <li><code>project-intelligence-handoff-panel.tsx</code></li>
+    <li><code>project-intelligence-generation-context.tsx</code></li>
+    <li><code>project-intelligence-structure-model.ts</code></li>
+    <li><code>project-intelligence-route-model.ts</code></li>
+  </ul>
+  <h3 id="122-reuse-and-refactor">12.2 Reuse and refactor</h3>
+  <ul>
+    <li>
+      <code>StructureExplorer</code> は module detail の表示ロジックを新しい module
+      panel へ移す。
+    </li>
+    <li>
+      <code>OntologyHandoffSection</code> は View 04 の主要コンテンツへ昇格し、日本語の
+      boundary 表示へ変更する。
+    </li>
+    <li>
+      <code>EvidenceGraphSection</code> は relationship panel の evidence mode へ移す。
+    </li>
+    <li>
+      <code>ReadinessStrip</code> は structure / handoff readiness
+      の要約として再利用する。
+    </li>
+    <li><code>SourceHealthSection</code> は overview の diagnostics に統合する。</li>
+  </ul>
+  <h3 id="123-remove-from-intelligence">12.3 Remove from Intelligence</h3>
+  <p>移行完了後、次の Intelligence 専用実装を削除する。</p>
+  <ul>
+    <li>Finding master-detail</li>
+    <li>guided Finding decision</li>
+    <li>Intelligence 専用 finding pagination</li>
+    <li>Finding queue / progress model</li>
+  </ul>
+  <p>Scan Workspace の同等機能は削除しない。</p>
+  <h3 id="124-existing-working-tree-changes">12.4 Existing working-tree changes</h3>
+  <p>
+    現在の未コミット変更は、現行Finding中心UIの文言とempty
+    stateを調整した暫定修正であり、新しいproduct baselineにはしない。
+  </p>
+  <ul>
+    <li>active / hoverを分離したCSSは新タブへ引き継ぐ。</li>
+    <li>
+      <code>Finding</code> を
+      <code>検出事項</code> とした日本語表記はrisk/evidence
+      overlayで維持する。
+    </li>
+    <li>廃止対象componentのempty stateやguided decision testは、新画面へ移植せず削除する。</li>
+    <li>実装開始時にworking treeの差分を再確認し、構造中心UIと無関係な変更を巻き込まない。</li>
+  </ul>
+  <h2 id="13-responsive-and-interaction-requirements">
+    13. Responsive and interaction requirements
+  </h2>
+  <ul>
+    <li>viewport 390px で page-level horizontal scroll を発生させない。</li>
+    <li>
+      module / relationship table はコンポーネント内スクロールまたは stacked cards に切り替える。
+    </li>
+    <li>tab labels は省略せず、狭い画面では2列または横スクロール可能な tablist とする。</li>
+    <li>active / hover / focus-visible を別表現にする。</li>
+    <li><code>aria-current="page"</code> は1件だけにする。</li>
+    <li>
+      master-detail selection は <code>aria-pressed</code> または適切な listbox
+      pattern を使う。
+    </li>
+    <li>loading、refreshing、error は status / alert を適切に分ける。</li>
+  </ul>
+  <h2 id="14-migration-slices">14. Migration slices</h2>
+  <h3 id="slice-a-contract-and-routing-foundation">Slice A: Contract and routing foundation</h3>
+  <ul>
+    <li>canonical view IDs と legacy alias parser</li>
+    <li><code>moduleId</code> route state</li>
+    <li>project-structure bounded module query</li>
+    <li>pure structure view models</li>
+    <li>API / route / model unit tests</li>
+  </ul>
+  <p>Exit gate:</p>
+  <ul>
+    <li>legacy URL 4種が対応する canonical view を表示する</li>
+    <li>generation切替で stale state が混入しない</li>
+    <li>ownership境界とlimit上限を維持する</li>
+  </ul>
+  <h3 id="slice-b-structure-overview">Slice B: Structure overview</h3>
+  <ul>
+    <li>generation context</li>
+    <li>structure-first metrics</li>
+    <li>module preview</li>
+    <li>coverage / diagnostics</li>
+    <li>security evidence overlay</li>
+  </ul>
+  <p>Exit gate:</p>
+  <ul>
+    <li>Finding 0件、modulesありの fixture で主要情報が表示される</li>
+    <li>Scan summaryだけを表示するカードが主役になっていない</li>
+  </ul>
+  <h3 id="slice-c-module-explorer">Slice C: Module explorer</h3>
+  <ul>
+    <li>module search / filter / selection</li>
+    <li>exact module files query</li>
+    <li>dependencies / entrypoints / packages / symbols</li>
+    <li>pagination and retry</li>
+  </ul>
+  <p>Exit gate:</p>
+  <ul>
+    <li>500件を超える file inventory でも bounded paging できる</li>
+    <li>deep link で module と file を再現できる</li>
+  </ul>
+  <h3 id="slice-d-relationship-map">Slice D: Relationship map</h3>
+  <ul>
+    <li>module adjacency model</li>
+    <li>accessible relationship table</li>
+    <li>selected module context</li>
+    <li>Diagnostic Evidence mode</li>
+    <li>Scan Workspaceへのevidence link</li>
+  </ul>
+  <p>Exit gate:</p>
+  <ul>
+    <li>Finding 0件でも dependency relation を探索できる</li>
+    <li>evidence edge がある fixture では module / file context へ辿れる</li>
+  </ul>
+  <h3 id="slice-e-ontology-handoff">Slice E: Ontology Handoff</h3>
+  <ul>
+    <li>handoffを主要タブへ移動</li>
+    <li>provenance / consumer boundary / commands</li>
+    <li>missing / stale / degraded / failed states</li>
+    <li>command copy feedback</li>
+  </ul>
+  <p>Exit gate:</p>
+  <ul>
+    <li>canonical Ontology を所有しないことが常時明示される</li>
+    <li>available と external adoption が混同されない</li>
+  </ul>
+  <h3 id="slice-f-legacy-removal-and-polish">Slice F: Legacy removal and polish</h3>
+  <ul>
+    <li>Intelligence Finding/decision componentsを撤去</li>
+    <li>obsolete CSS と testsを削除</li>
+    <li>UI copyを日本語へ統一</li>
+    <li>accessibility / responsive / full verification</li>
+  </ul>
+  <p>Exit gate:</p>
+  <ul>
+    <li>Scan WorkspaceのFinding/review/decisionに回帰がない</li>
+    <li>dead import、dead route state、unused CSS がない</li>
+  </ul>
+  <h2 id="15-test-strategy">15. Test strategy</h2>
+  <h3 id="151-pure-model-tests">15.1 Pure model tests</h3>
+  <ul>
+    <li>legacy -&gt; canonical view mapping</li>
+    <li>module sort and initial selection</li>
+    <li>inbound / outbound adjacency</li>
+    <li>confidence band / role filters</li>
+    <li>evidence node -&gt; file -&gt; module resolution</li>
+    <li>unresolved refs / missing module handling</li>
+  </ul>
+  <h3 id="152-api-tests">15.2 API tests</h3>
+  <ul>
+    <li>summary / files / references view</li>
+    <li>exact moduleId filtering</li>
+    <li>cursor / limit</li>
+    <li>invalid moduleId</li>
+    <li>mismatched project / scan / generation</li>
+    <li>stale generation pinning</li>
+    <li>empty structure generation</li>
+  </ul>
+  <h3 id="153-component-and-integration-tests">15.3 Component and integration tests</h3>
+  <ul>
+    <li>loading -&gt; available</li>
+    <li>available -&gt; refresh with stale data</li>
+    <li>module change during in-flight request</li>
+    <li>missing / degraded / failed readiness</li>
+    <li>copy success / failure</li>
+    <li>Finding 0件でも structure content が残る</li>
+  </ul>
+  <h3 id="154-e2e-scenarios">15.4 E2E scenarios</h3>
+  <p>最低限次の fixture を分ける。</p>
+  <ol>
+    <li>structure-rich / zero-findings</li>
+    <li>structure-rich / findings-and-evidence</li>
+    <li>degraded resolution</li>
+    <li>missing handoff</li>
+    <li>stale generation</li>
+  </ol>
+  <p>各fixtureで確認すること:</p>
+  <ul>
+    <li>4ビューのURL同期とbrowser back/forward</li>
+    <li>project base data の不要な再取得がない</li>
+    <li>selected generation の全API一致</li>
+    <li>390px layout</li>
+    <li>serious / critical axe violation なし</li>
+    <li>Scan Workspaceへのリンク</li>
+    <li>legacy URL compatibility</li>
+  </ul>
+  <h3 id="155-verification-commands">15.5 Verification commands</h3>
+  <pre><code class="language-bash">bun run lint
+bun run typecheck
+bun test web/src/domains/projects
+bun test api/routes/static-intelligence.route.test.ts
+bun run test:e2e -- tests/e2e/project-intelligence.spec.ts
+bun run verify
+</code></pre>
+  <h2 id="16-acceptance-criteria">16. Acceptance criteria</h2>
+  <ul>
+    <li>Intelligence の主要4画面が Scan の Finding review UI を複製していない。</li>
+    <li>Finding 0件でも file、module、reference、dependency、handoff が利用できる。</li>
+    <li>module candidate と canonical Ontology の違いがUIで明示される。</li>
+    <li>Overview から module、relationship、handoff へ一操作で移動できる。</li>
+    <li>module と relationship の選択状態をURLで共有できる。</li>
+    <li>generation provenance と freshness を全画面から確認できる。</li>
+    <li>data unavailable、zero、degraded、failed を混同しない。</li>
+    <li>legacy URLs が壊れない。</li>
+    <li>Scan Workspace の Finding、review、decision に回帰がない。</li>
+    <li>unit、API、E2E、accessibility、responsive、full verify が成功する。</li>
+  </ul>
+  <h2 id="17-risks-and-mitigations">17. Risks and mitigations</h2>
+  <table>
+    <caption>
+      17. Risks and mitigations
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Risk</th>
+        <th scope="col">Mitigation</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>large projectでfiles取得が重い</td>
+        <td>summary-first、moduleId filter、bounded pagination</td>
+      </tr>
+      <tr>
+        <td>graphを視覚化してaccessibilityが落ちる</td>
+        <td>table / adjacency listをprimaryにする</td>
+      </tr>
+      <tr>
+        <td>Ontologyを所有しているように見える</td>
+        <td><code>候補</code> と consumer boundary を常時表示</td>
+      </tr>
+      <tr>
+        <td>refresh中にgenerationが混在する</td>
+        <td>generationId pinning と cache key分離</td>
+      </tr>
+      <tr>
+        <td>risk情報を外すことでsecurity contextが弱くなる</td>
+        <td>risk/evidenceはoverlayとして維持</td>
+      </tr>
+      <tr>
+        <td>legacy URLやbookmarksが壊れる</td>
+        <td>alias parserとE2E compatibility</td>
+      </tr>
+      <tr>
+        <td>既存Finding UI削除で機能喪失する</td>
+        <td>Scan Workspaceの同等導線を先に回帰検証</td>
+      </tr>
+    </tbody>
+  </table>
+  <h2 id="18-completion-definition">18. Completion definition</h2>
+  <p>次をすべて満たした時点で改修完了とする。</p>
+  <ol>
+    <li>4つのstructure-first viewがproduction routeで利用できる。</li>
+    <li>structure-rich / zero-findings fixtureが主要E2Eとして成功する。</li>
+    <li>Ontology Handoffが折りたたみ内ではなく独立画面にある。</li>
+    <li>Intelligence専用Finding review/decision実装が撤去されている。</li>
+    <li>API queryがboundedでownership / generation境界を維持している。</li>
+    <li>responsive / accessibility gateが成功する。</li>
+    <li><code>bun run verify</code> が成功する。</li>
+    <li>文書と実装のview名、URL、責務境界が一致している。</li>
+  </ol>
+</article>
+  </body>
+</html>

@@ -1,0 +1,1489 @@
+<article lang="ja" data-spec-role="active-plan">
+  <h1 id="project-intelligence-value-validation-paired-pilot-plan">
+    Project Intelligence Value Validation Paired Pilot Plan
+  </h1>
+  <ul>
+    <li>
+      Status: Active pilot plan; formal execution BLOCKED by a non-bypassable host confinement
+      prerequisite
+    </li>
+    <li>Date: 2026-08-31</li>
+    <li>Last reviewed: 2026-08-31</li>
+    <li>
+      Document review: Three-pass review complete; implementation contract and operator commands
+      reconciled
+    </li>
+    <li>
+      Implementation status: formal runner / evaluator / base-fail-positive-pass qualification /
+      paired canary / READY preflight / evidence verifier are implemented. The 10 evaluator profiles
+      have a locally generated READY qualification for the fixed target. A real Azure canary reached
+      native tool execution, but ended <code>needs_human</code> because this
+      host cannot apply the required workspace process confinement for
+      <code>git diff --check</code>. Formal execution remains BLOCKED until that
+      safety prerequisite can produce a matching READY canary and READY preflight artifact.
+    </li>
+    <li>Scope: existing Project Exploration Catalog V2のconsumer value検証だけ</li>
+    <li>Rollout owner: <code>NightWorkers</code></li>
+    <li>Producer support owner: <code>vulnWorkbench</code></li>
+    <li>Decision approval: named pilot owner（単独パイロット。独立reviewを主張しない）</li>
+    <li>Default activation: OFFのまま</li>
+    <li>
+      Prior decision:
+      <a href="../project-intelligence-rollout-decision-2026-08-09.html"
+        >Project Intelligence rollout decision — INSUFFICIENT_EVIDENCE</a
+      >
+    </li>
+    <li>
+      Prior evidence:
+      <a href="../../evidence/project-intelligence-paired-pilot-2026-08-09.json"
+        >2026-08-09 paired pilot evidence</a
+      >
+    </li>
+    <li>
+      Value model:
+      <a href="../../concepts/project-scan-exploration-reduction-mcp-concept.html"
+        >Project Scan Exploration Reduction MCP Concept</a
+      >
+    </li>
+    <li>
+      Parked follow-up plans:
+      <a href="../../templates/ontology-planning/index.html">Ontology Planning Catalog</a>
+    </li>
+  </ul>
+
+  <h2 id="1-executive-decision">1. Executive Decision</h2>
+  <p>
+    この計画では新しいontology、graph、provenance、vocabulary、contract versioningを実装しない。
+    既に存在するProject Exploration Catalog V2とNightWorkersの専用consumerを使い、coding
+    agentの広い事前探索を小さなcatalog queryで置き換える価値があるかだけを判定する。
+  </p>
+  <p>
+    技術的な正しさはproducer testとMCP smokeで確認済みだが、2026-08-09のpilotでは正式catalog run
+    5件すべてがtool call前にprovider capacity
+    failureとなった。このため、現時点の判断は価値が低いという
+    <code>NO-GO</code
+    >ではなく、価値を測れていない<code>INSUFFICIENT_EVIDENCE</code>である。
+  </p>
+  <p>本計画の終了時には、必ず次のいずれか一つを記録する。</p>
+  <ul>
+    <li>
+      <code>GO</code>: 限定consumer
+      rolloutを検討する価値が実測された。
+    </li>
+    <li>
+      <code>NO-GO</code>: safety
+      incidentが発生した、または有効sampleを得たが価値・品質gateを満たさなかった。
+    </li>
+    <li>
+      <code>INSUFFICIENT_EVIDENCE</code>:
+      sample、telemetry、provider、実験統制の不足で価値を判定できなかった。
+    </li>
+  </ul>
+  <p>
+    <code>GO</code>であっても、default
+    ON、対象repository拡大、namespace移動、parked ontology
+    planの一括再開は承認しない。GO後の変更は別decisionと小さなvertical sliceを必要とする。
+  </p>
+
+  <h2 id="2-decision-question-and-hypothesis">2. Decision Question and Hypothesis</h2>
+  <h3 id="21-decision-question">2.1 Decision question</h3>
+  <p>
+    同じrepository revisionに対する構造解析結果を一度作り、coding agentが実装開始前に一回のbounded
+    catalog queryを使うと、task completionとverification品質を落とさずに、広いworkspace探索とinput
+    tokenを実際に減らせるか。
+  </p>
+  <h3 id="22-value-hypothesis">2.2 Value hypothesis</h3>
+  <blockquote>
+    Catalogは、変更候補を完全予測するものではない。agentが最初の有力なfile、module、related
+    test、verification
+    candidateへ到達するまでの不要なlist/search/readを減らす、revision-boundな探索目録である。
+  </blockquote>
+  <h3 id="23-null-hypothesis">2.3 Null hypothesis</h3>
+  <p>
+    Catalog callが通常探索へ追加されるだけ、候補の誤りでreplanが増える、またはcompletion /
+    verificationが悪化するなら、
+    現行Catalogにrollout価値はない。将来ontology機能を増やしてこの結果を説明してはならない。
+  </p>
+
+  <h2 id="3-authority-and-precedence">3. Authority and Precedence</h2>
+  <ol>
+    <li>実験の価値metricとprivacy boundaryは本計画を正本とする。</li>
+    <li>
+      path-first bindingとfail-open規則は
+      <a href="../nightworkers-static-intelligence-mcp.html"
+        >NightWorkers path-first Static Intelligence MCP handoff</a
+      >を維持する。
+    </li>
+    <li>
+      producer / consumer correctnessの実装根拠は
+      <a href="./.archived/project-intelligence-foundation-hardening-implementation-plan.md"
+        >Project Intelligence Foundation Hardening Implementation Plan</a
+      >を参照する。
+    </li>
+    <li>実コードと文書が矛盾する場合、実行を止めてbaselineを更新し、protocol versionを上げる。</li>
+    <li>実験中にgateやtask promptを結果に合わせて変更しない。</li>
+  </ol>
+
+  <h2 id="4-scope">4. Scope</h2>
+  <h3 id="41-in-scope">4.1 In scope</h3>
+  <ul>
+    <li>既存のProject Exploration Catalog V2 producerと3つの専用MCP tool</li>
+    <li>NightWorkers native API implementation laneの専用catalog adapter</li>
+    <li>Catalog armだけに適用するpilot-only tool exposure / call-before-exploration instruction</li>
+    <li>既存の固定10 taskとpaired pilot runner</li>
+    <li>
+      provider qualification、dedicated database、single-process lease、cooldown、bounded retry
+    </li>
+    <li>
+      NightWorkers用DBと分離した、明示的なvulnWorkbench pilot DBとregistered-only project binding
+    </li>
+    <li>baseline / catalog armのmatched comparisonとsanitized evidence生成</li>
+    <li>feature flag OFFへの復元、MCP切断、isolated runtime保存または安全な破棄</li>
+  </ul>
+  <p>
+    NightWorkersはproducer DB pathをMCP child environmentへ渡すだけで、DBを直接open / queryしない。
+    migration、project count、generation integrityの検証はvulnWorkbench-owned commandが行う。
+  </p>
+  <h3 id="42-out-of-scope">4.2 Out of scope</h3>
+  <ul>
+    <li>
+      Catalog / handoffのproduct wire schema field、graph relation、ranking
+      fact、LSP、embedding、Graph DB
+    </li>
+    <li>Claim Provenance、Security Vocabulary、Ontology Contract Versioning、rule inference</li>
+    <li>
+      Security Intelligence Assessmentの価値検証。これは既存のsecurity pilot evidenceで別判断する
+    </li>
+    <li>contextStillへのcandidate export、自動登録、自動昇格</li>
+    <li>default ON、全repository rollout、UI、namespace cleanup</li>
+    <li>model / provider比較benchmark、prompt最適化競争、offline recallのproduct gate化</li>
+    <li>task自動生成、自動承認、verification commandの無条件実行</li>
+  </ul>
+  <h3 id="43-claim-boundary-and-external-validity">4.3 Claim boundary and external validity</h3>
+  <ul>
+    <li>
+      このpilotが判定できるのは、固定target revision、固定10 task、固定native API lane、固定provider
+      / model におけるCatalogの利用価値だけである。
+    </li>
+    <li>他repository、他model、対話回答、review、security assessmentへ結果を一般化しない。</li>
+    <li>sample 10件から統計的有意性や全coding taskでの改善を主張しない。</li>
+    <li>
+      <code>GO</code
+      >は同じ境界内の限定rolloutを検討する根拠であり、product-wide valueの証明ではない。
+    </li>
+    <li>
+      Catalog
+      armでcallをprotocol上必須にするため、このpilotは「呼ばれた場合の効果」を測る。通常運用で自発的に呼ばれる割合は、
+      GO後の限定rolloutで別途測定する。
+    </li>
+  </ul>
+
+  <h2 id="5-current-baseline">5. Current Baseline</h2>
+  <table>
+    <caption>
+      現在利用できるものと、正式pilot前に残る差分
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Concern</th>
+        <th scope="col">Current state</th>
+        <th scope="col">Pilot delta</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Producer correctness</td>
+        <td>Catalog MCP componentはGO。bounded response、revision guard、redactionを検証済み</td>
+        <td>同じcommitでfocused verificationを再実行するだけ</td>
+      </tr>
+      <tr>
+        <td>Fixed task set</td>
+        <td><code>scripts/project-exploration-pilot/tasks.ts</code>に10 taskが存在</td>
+        <td>promptを変更せずhashをpre-registerする</td>
+      </tr>
+      <tr>
+        <td>Isolated launcher</td>
+        <td><code>scripts/run-project-exploration-paired-pilot.mjs</code>が専用runtime / DBを作る</td>
+        <td>formal runではruntime保持とpair単位checkpointを必須化する</td>
+      </tr>
+      <tr>
+        <td>Producer database boundary</td>
+        <td>
+          現行pilot MCP server設定はproducer
+          <code>DATABASE_URL</code>を明示せず、allowed rootとproject creation
+          policyだけを設定する
+        </td>
+        <td>
+          明示的な専用vulnWorkbench
+          DBを作り、targetを事前登録して<code>registered_only</code>で接続する
+        </td>
+      </tr>
+      <tr>
+        <td>Runner guards</td>
+        <td>clean target / consumer / producer、dedicated DB、runtime lease、cooldownが存在</td>
+        <td>provider canaryとsingle-owner確認をREADY gateへ追加する</td>
+      </tr>
+      <tr>
+        <td>Arm order</td>
+        <td>現在は全pairがbaseline先、catalog後</td>
+        <td>奇数 / 偶数pairで順序をcounterbalanceし、orderをevidenceへ保存する</td>
+      </tr>
+      <tr>
+        <td>Catalog usage</td>
+        <td>availabilityとcall telemetryはあるが、旧正式runのcallは0件</td>
+        <td>formal開始前canaryとformal catalog arm call rate 100%をgateにする</td>
+      </tr>
+      <tr>
+        <td>Decision report</td>
+        <td><code>scripts/project-exploration-pilot/report.ts</code>に主要gateがある</td>
+        <td>
+          call gate、attempt retention、paired statistic、sanitized commit projectionを追加する
+        </td>
+      </tr>
+      <tr>
+        <td>Token measurement</td>
+        <td>現在はrun全体のinput / cached inputを集計し、pre-mutation tokenを分離していない</td>
+        <td>usage recordの時刻とmutation boundaryを結び、measured non-cached tokenを追加する</td>
+      </tr>
+      <tr>
+        <td>Completion / verification</td>
+        <td>現在はrun statusとagent実行toolの最終結果を主に使う</td>
+        <td>modelから独立したpre-registered evaluatorを判定の正本にする</td>
+      </tr>
+      <tr>
+        <td>Consumer worktree</td>
+        <td>現時点ではNightWorkersに未commit差分がありformal preflightを満たさない</td>
+        <td>pilot変更をcommitまたは独立worktreeへ固定してから実行する</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2 id="6-prior-failure-to-precondition-matrix">6. Prior Failure to Precondition Matrix</h2>
+  <table>
+    <caption>
+      2026-08-09の不足理由を、再pilotの機械的な開始条件へ変換する
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Prior reason</th>
+        <th scope="col">Required control</th>
+        <th scope="col">Failure classification</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>minimum_pair_count_not_met</code></td>
+        <td>固定10 pairすべてを事前登録し、10 valid pair未満では価値判定しない</td>
+        <td><code>INSUFFICIENT_EVIDENCE</code></td>
+      </tr>
+      <tr>
+        <td><code>catalog_not_called</code></td>
+        <td>
+          非正式canaryでbroad exploration前のcatalog callを確認し、formal armではcall rate 100%
+        </td>
+        <td>formal開始前は<code>BLOCKED</code>、開始後はevidence不足</td>
+      </tr>
+      <tr>
+        <td><code>completion_evidence_missing</code></td>
+        <td>terminal statusとindependent acceptance結果が揃わないpairを成功sampleへ補完しない</td>
+        <td><code>INSUFFICIENT_EVIDENCE</code></td>
+      </tr>
+      <tr>
+        <td><code>verification_evidence_missing</code></td>
+        <td>
+          agent verificationとindependent verificationの双方が揃わないpairを成功sampleへ補完しない
+        </td>
+        <td><code>INSUFFICIENT_EVIDENCE</code></td>
+      </tr>
+      <tr>
+        <td><code>provider_capacity_failures</code></td>
+        <td>同じrouteでbaseline / catalog canaryを連続完了し、bounded retryとcooldownを固定する</td>
+        <td>infrastructure-invalid attemptとして保存</td>
+      </tr>
+      <tr>
+        <td><code>consumer_worktree_dirty</code></td>
+        <td>NightWorkers commitとdiff hashを固定し、dirty overrideをformal runで禁止する</td>
+        <td><code>BLOCKED</code></td>
+      </tr>
+      <tr>
+        <td><code>competing_nightworkers_process</code></td>
+        <td>
+          NightWorkers / vulnWorkbenchそれぞれに専用DBを用意し、isolated launcher、runtime lease、DB
+          owner PIDを固定する
+        </td>
+        <td>即時停止</td>
+      </tr>
+      <tr>
+        <td><code>pilot_database_run_loss</code></td>
+        <td>pairごとにraw DB保持、run ID inventory、sanitized JSON checkpointを作る</td>
+        <td>即時停止し、失われたattemptを記録</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2 id="7-experiment-design">7. Experiment Design</h2>
+  <h3 id="71-unit-of-comparison">7.1 Unit of comparison</h3>
+  <p>
+    一つのpairは、同じtask prompt digest（課題本文）、target repository HEAD、provider
+    endpoint、model、thinking depth、timeout、 runtime laneを使う2 runで構成する。各runは同じbase
+    commitから作る別worktreeで実行し、agent history、 tool output、mutationを共有しない。
+  </p>
+  <p>
+    route名だけで同一性を判断しない。非secret provider設定、prompt-construction contract、tool
+    manifest、runtime code、 evaluator profileからfingerprintを作り、両armとpre-registrationで
+    一致させる。taskとarmによって動的にrenderされるsystem prompt hashはarmごとのraw
+    evidenceへ残すが、 単一値として一致を要求しない。provider sessionはarmごとに新規作成し、
+    continuationやshared conversationを使わない。
+  </p>
+  <table>
+    <caption>
+      Pair arms
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Arm</th>
+        <th scope="col">Feature state</th>
+        <th scope="col">Tool policy</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Baseline</td>
+        <td>Project Exploration feature flag OFF</td>
+        <td>通常workspace探索だけ。catalog tool definitionをproviderへ送らない</td>
+      </tr>
+      <tr>
+        <td>Catalog</td>
+        <td>対象repositoryのrun開始時だけON</td>
+        <td>
+          availableならbroad exploration前にfocus-only catalogを一回呼び、その後は通常toolを使える
+        </td>
+      </tr>
+    </tbody>
+  </table>
+  <h3 id="72-task-set">7.2 Task set</h3>
+  <ul>
+    <li>既存の<code>PILOT_TASKS</code> 10件をそのまま使用する。</li>
+    <li>
+      第一候補targetは前回と同じ<code>todolist</code> commit
+      <code>d87bfdd9f29aa64e484a0c4d1ad02956136dc6b0</code>とする。このrevisionを取得できない、または task
+      qualificationが成立しない場合、current HEADへ黙って置換せず新しいprotocol / pilot IDを作る。
+    </li>
+    <li>
+      frontend、backend、shared contract、database、security policy、test / observabilityを含む。
+    </li>
+    <li>task文、acceptance criteria、順序scheduleのSHA-256をformal run前に保存する。</li>
+    <li>結果を見た後のtask削除、文面変更、容易な予備taskへの差替えを禁止する。</li>
+    <li>
+      実装箇所を直接pathで教えるtaskや、外部network availabilityが主因になるtaskを追加しない。
+    </li>
+    <li>
+      各taskにmodel非公開の<code>evaluatorProfileId</code>、verification
+      command、timeout、expected assertionを対応付ける。これらもpromptと同時にhash固定する。
+    </li>
+    <li>
+      Evaluatorはmodel terminal後に、固定cwd、環境変数allowlist、timeout、network policyで実行する。
+      stdout / stderrはbounded digestと必要なsanitized failure
+      summaryだけをcommitし、結果をagentへ戻して修正させない。
+    </li>
+    <li>
+      Acceptanceの正本となるfixture / assertionはassigned worktree外のcontroller-owned read-only
+      assetとしてhash固定する。 Agentが追加・変更したtestだけを根拠にpassしない。
+    </li>
+    <li>
+      選択したtarget commit上で各evaluatorが未実装状態を検出し、positive qualification
+      fixtureまたはowner確認済み reference worktreeで成功を検出できることをformal前に確認する。
+    </li>
+  </ul>
+  <h3 id="73-order-control">7.3 Order control</h3>
+  <ul>
+    <li>奇数pairはbaseline → catalog、偶数pairはcatalog → baselineとする。</li>
+    <li>pair member間とpair間のcooldown秒数をpre-registrationで固定する。</li>
+    <li>pairを並列実行しない。</li>
+    <li>provider routeを途中で切り替えた場合、その時点でprotocolを停止し別pilot IDにする。</li>
+    <li>
+      pilot用LLM settings fileをisolated
+      runtimeへcopyした後のhashを固定し、formal中の変更を拒否する。
+    </li>
+  </ul>
+  <h3 id="74-valid-pair">7.4 Valid pair</h3>
+  <p>次をすべて満たすpairだけを価値比較へ含める。</p>
+  <ul>
+    <li>
+      両armのbase ref、task prompt digest、route fingerprint、model、thinking depth、timeout、
+      prompt-construction contract、tool manifest、evaluator profileが一致する。task /
+      armごとに変化し得る 実行時system prompt hashは比較統制値ではなく、生証跡として保存する。
+    </li>
+    <li>両armが独立worktreeで開始し、開始時HEADとclean stateが一致する。</li>
+    <li>
+      両armのevent、時刻付きmeasured LLM usage、terminal status、agent
+      verification、独立evaluator結果が保存されている。
+    </li>
+    <li>
+      Catalog armでavailability pinが成功し、schema-validな専用toolをbroad exploration前にexactly
+      once呼んでいる。
+    </li>
+    <li>
+      task
+      outcomeが失敗または<code>needs_human</code>でも、実験統制が保たれていればvalidとする。
+    </li>
+  </ul>
+  <p>
+    providerが最初の有効応答前にcapacity failureとなった、run recordが失われた、routeがずれた等は
+    infrastructure-invalid attemptとして保存し、value sampleから除く。悪いtask
+    outcomeを理由に除外してはならない。
+  </p>
+  <h3 id="75-sample-rule">7.5 Sample rule</h3>
+  <ul>
+    <li>判定には10 valid pairが必要。</li>
+    <li>各taskは一つのvalid pairだけを持つ。</li>
+    <li>invalid attemptの再実行は同じtask / pair IDにattempt numberを付け、古いattemptを残す。</li>
+    <li>各taskにつき最大2 attempt、全体で最大14 pair attemptをstop-lossとする。</li>
+    <li>
+      最大attemptで10 valid pairへ届かなければ<code>INSUFFICIENT_EVIDENCE</code>とする。
+    </li>
+  </ul>
+  <h3 id="76-retry-and-resume-rules">7.6 Retry and resume rules</h3>
+  <ul>
+    <li>
+      provider内部のbounded retryは、model content、tool call、mutation
+      eventが一件も生成されていないretryable capacity
+      failureだけに許可する。回数とdelayをpre-registerし、全retryをraw evidenceへ残す。
+    </li>
+    <li>
+      contentまたはtool
+      event生成後のrunを同じarmとして再開しない。新しいworktreeとrunを持つ次attemptにする。
+    </li>
+    <li>resumeは完了済みpair境界からだけ行い、片方のarmだけを別protocol / routeで再利用しない。</li>
+    <li>
+      source、consumer、producer、task、evaluator、settings hashが変わった場合は新しいpilot
+      IDを発行する。
+    </li>
+    <li>
+      Catalog contract / parse failureはprovider retryへ畳み込まず、formal reliability
+      failureとして停止する。
+    </li>
+  </ul>
+  <h3 id="77-attempt-classification">7.7 Attempt classification</h3>
+  <table>
+    <caption>
+      失敗をvalue sampleから除くための事後判断を防ぐclosed classification
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Class</th>
+        <th scope="col">Examples</th>
+        <th scope="col">Decision treatment</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>safety_failure</code></td>
+        <td>wrong binding、privacy leak、operational DB access</td>
+        <td>sample数に関係なく<code>NO-GO</code></td>
+      </tr>
+      <tr>
+        <td><code>catalog_reliability_failure</code></td>
+        <td>READY後のdeterministic contract / parse failure、wrong schema result</td>
+        <td>sample数に関係なく<code>NO-GO</code></td>
+      </tr>
+      <tr>
+        <td><code>shared_infrastructure_failure</code></td>
+        <td>first response前のprovider capacity、process interruption、telemetry loss</td>
+        <td>
+          attemptを保持し、価値比較から除外。上限到達時は<code
+            >INSUFFICIENT_EVIDENCE</code
+          >
+        </td>
+      </tr>
+      <tr>
+        <td><code>task_outcome_failure</code></td>
+        <td>agent implementation失敗、independent evaluator fail、verification fail</td>
+        <td>valid pairに残してquality gateへ算入</td>
+      </tr>
+      <tr>
+        <td><code>protocol_failure</code></td>
+        <td>Catalog未呼出、route / task prompt / prompt-contract / order mismatch</td>
+        <td>attemptを保持し比較から除外。原因修正なしの再投入を禁止</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2 id="8-preflight">8. Preflight and READY Gate</h2>
+  <p>
+    formal pairを一件でも投入する前に、preflight
+    evidenceを<code>READY</code>にする。
+  </p>
+  <ol>
+    <li>
+      vulnWorkbench、NightWorkers、target repositoryのcommit SHAを固定し、全worktreeをcleanにする。
+    </li>
+    <li>
+      registration artifactのschema、task / evaluator / schedule hash、route / settings /
+      prompt-construction contract / tool manifest fingerprintを検証する。
+    </li>
+    <li>
+      NightWorkersのformal
+      runで<code>--allow-dirty-consumer</code>と<code>--allow-live-api</code>を禁止する。
+    </li>
+    <li>
+      isolated launcherが新しいNightWorkers専用DBを作り、runtime leaseを取得することを確認する。
+    </li>
+    <li>
+      明示的なvulnWorkbench pilot DBを新規作成し、target projectを事前登録する。MCP serverへその
+      <code>DATABASE_URL</code
+      >と<code>STATIC_INTELLIGENCE_PROJECT_CREATION_POLICY=registered_only</code>を渡す。
+    </li>
+    <li>
+      事前登録はexact target一件だけをallowlistにしたbootstrap MCP sessionで既存prepare
+      actionを一回使う。 bootstrap sessionを切断後、formal
+      sessionを<code>registered_only</code>で再接続し、project
+      countが一件であることを確認する。
+    </li>
+    <li>
+      NightWorkers / vulnWorkbenchの各pilot DBに対するowner processが意図した一つだけで、operational
+      DBとpath / inodeが異なることを記録する。
+    </li>
+    <li>feature flagの初期値がOFFで、abort後にもOFFへ戻ることをdrillする。</li>
+    <li>producerのprepare / status / catalog toolがexact nameで揃うことを確認する。</li>
+    <li>target HEADとcatalog source revisionが一致し、response hard capとredactionを満たす。</li>
+    <li>
+      固定10 taskの独立evaluatorがbase HEADで未達を検出し、positive qualificationで成功を検出する。
+      <code>scripts/qualify-project-exploration-pilot-evaluators.ts --manifest … --output …</code>が、worktree pathを
+      artifactへ出さず、この結果を再計算する。formal
+      runは<code>--evaluator-qualification</code>でそのREADY artifactを 必須入力にし、target
+      commit・全task・各profile fingerprint・base fail・positive pass・clean状態を再検証する。
+    </li>
+    <li>
+      Evaluator assetがtarget worktree外にあり、model toolから変更できないことをnegative testする。
+    </li>
+    <li>
+      同じrouteでbaseline canaryとcatalog canaryを一回ずつ完了する。NightWorkers runnerの
+      <code>--preflight-canary --output …</code>は正式10 task外の固定marker
+      taskを独立worktreeでpaired実行し、 commit・route・settings・prompt-construction contract・tool
+      manifest・exactly-one Catalog callをartifactへ固定する。
+    </li>
+    <li>
+      formal task setとは別のcanary taskで、catalog canaryがbroad exploration前にtoolをexactly
+      once呼び、 独立evaluatorまで到達する。
+    </li>
+    <li>raw DB、run inventory、sanitized reportを生成して再読込できることをdry-runする。</li>
+  </ol>
+  <p>
+    canaryはformal 10 pairへ含めない。いずれかが失敗した場合、formal
+    pilotは<code>BLOCKED</code>であり、
+    <code>NO-GO</code
+    >や<code>INSUFFICIENT_EVIDENCE</code>をまだ宣言しない。
+  </p>
+  <p>
+    READY artifactはchecklistの手動チェックではなく、commit / hash / tool list / evaluator
+    qualification / cleanup
+    drillを再計算するcommandの出力とする。READY発行後に入力が変わった場合は自動的に失効する。
+  </p>
+  <h3 id="81-current-readiness">8.1 Current readiness</h3>
+  <p>
+    <code>BLOCKED</code>はformal
+    runを開始していないpreflight状態であり、pilotの終端判断ではない。
+    <code>GO</code
+    >、<code>NO-GO</code>、<code>INSUFFICIENT_EVIDENCE</code>は、formal
+    attemptを 記録した後だけに使う。この区別により、準備不足を価値がないという結論へ誤変換しない。
+  </p>
+  <table>
+    <caption>
+      2026-08-31時点の開始可否
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Control</th>
+        <th scope="col">State</th>
+        <th scope="col">Formal開始前に必要な次の証跡</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Runner / measurement / sanitizer</td>
+        <td>Implemented and focused-test verified</td>
+        <td>変更後はregistered consumer commitへ固定する</td>
+      </tr>
+      <tr>
+        <td>Independent evaluator</td>
+        <td>10 taskでbase fail / positive passのREADY qualificationを生成済み</td>
+        <td>sealed target commitとcurrent evaluator fingerprintに対して再生成する</td>
+      </tr>
+      <tr>
+        <td>Registration</td>
+        <td>
+          <code>DRAFT</code>だけ。placeholder
+          fingerprintと未割当approvalはevidenceではない
+        </td>
+        <td>
+          named pilot owner、owner-retained policy、実測fingerprint、clean commitを持つ新規<code
+            >SEALED</code
+          >
+          artifact
+        </td>
+      </tr>
+      <tr>
+        <td>Isolated provider</td>
+        <td>
+          Ready: user-approved backupからimplementation Azure routeだけを0600のisolated fileへ抽出
+        </td>
+        <td>operational SQLiteを参照せず、同じrouteで完走するcanary</td>
+      </tr>
+      <tr>
+        <td>Canary / preflight</td>
+        <td>
+          Azure native tool executionまで到達したが <code>needs_human</code>
+        </td>
+        <td>
+          hostがworkspace confinementを実行可能にし、sealed registrationと同じcommit /
+          fingerprintに結び付くREADY artifactsを再生成する
+        </td>
+      </tr>
+      <tr>
+        <td>Formal paired run</td>
+        <td>Not started</td>
+        <td>上記すべてを満たしてから10 pairを逐次投入する</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    現在の<code>spec/evidence/project-intelligence-value-pilot-registration-v2.draft.json</code>は、 input
+    shapeをレビューするためのscaffoldである。これをrenameしてsealしたり、placeholderを埋めて
+    approvalを代替したりしてはならない。seal時は新しいartifactを作成し、ここに列挙した入力を再計算する。
+  </p>
+
+  <h2 id="9-metrics">9. Metrics and Exact Semantics</h2>
+  <p>
+    計測対象tool名はnative API tool manifestと同じclosed setへ固定する。探索は
+    <code>list_dir</code
+    >、<code>search_files</code>、<code>read_file</code>、Catalog
+    armでは <code>project_exploration_catalog</code>を含む。mutation boundaryは成功した
+    <code>apply_patch</code
+    >または<code>replace_content</code>の最初のeventとする。runtime manifestに新しい
+    exploration / mutation toolが増え、計測taxonomyが追随していないrunはevidence incompleteとする。
+  </p>
+  <table>
+    <caption>
+      Primary、guard、diagnostic metrics
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Metric</th>
+        <th scope="col">Role</th>
+        <th scope="col">Definition</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Pre-mutation exploratory tool calls</td>
+        <td>Primary</td>
+        <td>最初のsuccessful source mutationまでのlist、search、readとcatalog callの合計</td>
+      </tr>
+      <tr>
+        <td>Pre-mutation non-cached input tokens</td>
+        <td>Primary</td>
+        <td>
+          usage recordの<code>createdAt</code>がmutation
+          boundary以下のmeasured callについて、
+          <code>input - min(input, cached input)</code>を合計する。mutationなしはterminalまで。cache
+          tokenは別集計
+        </td>
+      </tr>
+      <tr>
+        <td>Unique files read before mutation</td>
+        <td>Supporting</td>
+        <td>project-relative source / test fileのdistinct count</td>
+      </tr>
+      <tr>
+        <td>Time to first relevant read</td>
+        <td>Supporting</td>
+        <td>
+          run開始から、agent terminal直後・evaluator実行前のgit
+          diffに含まれるfileのいずれかを最初に読むまで。 changed fileなしはnullのままにする
+        </td>
+      </tr>
+      <tr>
+        <td>Time to first mutation</td>
+        <td>Supporting</td>
+        <td>run開始から最初のsuccessful source mutationまで。mutationなしはterminal時刻まで</td>
+      </tr>
+      <tr>
+        <td>Completion</td>
+        <td>Quality guard</td>
+        <td>
+          modelから独立したpre-registered evaluatorがacceptance
+          criteriaを満たしたと判定した状態。run statusは補助情報
+        </td>
+      </tr>
+      <tr>
+        <td>Verification pass</td>
+        <td>Quality guard</td>
+        <td>
+          runnerがterminal後のworktreeでpre-registered commandを実行し、exit、stdout
+          digest、durationを保存した結果。
+          agent自身の<code>run_verification</code>結果は別metric
+        </td>
+      </tr>
+      <tr>
+        <td>Replan / correction count</td>
+        <td>Quality guard</td>
+        <td>
+          現行telemetryでは成功した<code>todo_list replace_plan</code>回数をreplan
+          proxyとする。Catalog起因の correctionはcatalog clue、後続read / mutation、reason
+          codeをowner reviewで別途根拠化する
+        </td>
+      </tr>
+      <tr>
+        <td>Catalog-before-broad-exploration</td>
+        <td>Protocol guard</td>
+        <td>Catalog armで最初のbroad list/searchより先に専用toolが呼ばれた割合</td>
+      </tr>
+      <tr>
+        <td>Catalog response bytes</td>
+        <td>Safety guard</td>
+        <td>model projectionのbyte数。全caseでcontract hard cap以下</td>
+      </tr>
+      <tr>
+        <td>Preparation cost</td>
+        <td>Diagnostic</td>
+        <td>generation build / reuse時間。1、5、10 task再利用時の償却値を併記</td>
+      </tr>
+      <tr>
+        <td>Changed-file recall@N</td>
+        <td>Diagnostic only</td>
+        <td>actual changed fileがcatalog top-Nへ含まれた割合。GO gateにしない</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    Authoritative conceptと既存reportに合わせ、Primary reductionは
+    <code>(median(baseline) - median(catalog)) / median(baseline)</code>で判定する。baseline medianが0、 measured
+    tokenが一件でも欠損、またはusage modeがestimated / mixedなら、そのPrimary
+    metricは判定不能である。
+  </p>
+  <p>
+    Robustness診断として、pairごとのabsolute difference、relative difference、改善 / 同値 /
+    悪化の件数、 arm order別、task category別結果も事前定義した同じreportへ出す。primary
+    gateを置き換えず、結果を見て有利な統計だけを選ばない。
+    このsampleからp値や一般的なmodel性能差を主張しない。
+  </p>
+
+  <h2 id="10-decision-gates">10. Decision Gates</h2>
+  <h3 id="101-hard-safety-and-integrity-gates">10.1 Hard safety and integrity gates</h3>
+  <p>
+    一件でも未達なら<code>GO</code>にできない。wrong binding、privacy
+    leak、operational DB接続等の safety
+    incidentはsample数に関係なく直ちに<code>NO-GO</code>とする。sample /
+    telemetry不足だけを
+    <code>INSUFFICIENT_EVIDENCE</code>に分類する。
+  </p>
+  <ul>
+    <li>10 valid pairと全attemptの記録がある。</li>
+    <li>
+      same base ref / task definition / route fingerprint / model / reasoning / timeout /
+      prompt-construction contract / tool manifest / evaluatorと独立worktreeが全pairで成立する。
+    </li>
+    <li>
+      Catalog armのschema-valid successful call countが各arm exactly
+      one、catalog-before-broad-exploration rateが100%である。
+    </li>
+    <li>formal attemptにunexpected Catalog contract / parse / transport failureが0件。</li>
+    <li>
+      NightWorkers / vulnWorkbench双方でoperational DB accessが0件。wrong project、wrong
+      revision、unsafe pathが0件で、model projectionまたはcommitted evidenceへのsource
+      body、secret、absolute path leakが0件。
+    </li>
+    <li>Catalog failureがtask failureへ伝播した件数が0件。</li>
+    <li>
+      independent completion / verification、measured usage、token、tool telemetryが全valid
+      armで揃う。
+    </li>
+    <li>
+      feature flagが終了・停止後にOFF、pilot MCP connectionが切断、active pilot runが0件である。
+    </li>
+  </ul>
+  <h3 id="102-value-gates">10.2 Value gates</h3>
+  <p><code>GO</code>には次をすべて満たす必要がある。</p>
+  <ul>
+    <li>pre-registered arm-median pre-mutation exploratory tool call reductionが20%以上。</li>
+    <li>pre-registered arm-median pre-mutation non-cached input token reductionが15%以上。</li>
+    <li>Catalog armのindependent evaluator completion countがbaseline armより少なくない。</li>
+    <li>Catalog armのindependent verification pass countがbaseline armより少なくない。</li>
+    <li>baseline pass / Catalog failとなるcompletion regression pairが0件。</li>
+    <li>baseline pass / Catalog failとなるverification regression pairが0件。</li>
+    <li>Catalog armのmedian replan countがbaseline armを超えない。</li>
+    <li>
+      v1ではcatalog clueと後続correctionの因果を機械的に判定しない。independent evaluator、
+      completion regression、verification regression、Catalog contract failureを観測可能なquality
+      gateとし、 decision recordでは相関を因果として書かない。観測されたwrong-file
+      mutationまたはverification omissionは safety / task
+      outcomeとしてattemptに残し、GOを正当化する材料にしない。
+    </li>
+  </ul>
+  <p>
+    time-to-first-relevant-read、time-to-first-mutation、unique file read、preparation
+    costは解釈を補助する。 Primary 2 metricが未達なのに、supporting
+    metricだけを理由に<code>GO</code>へ変更しない。
+  </p>
+  <h3 id="103-decision-matrix">10.3 Decision matrix</h3>
+  <p>decision writerは次の優先順位で判定し、下位条件で上位結果を上書きしない。</p>
+  <ol>
+    <li>
+      Safety incidentまたはdeterministic Catalog reliability
+      failureが一件以上なら、sample数に関係なく
+      <code>NO-GO</code>。
+    </li>
+    <li>
+      Safety / Catalog reliability failureはないがevidence
+      completenessが未達なら<code>INSUFFICIENT_EVIDENCE</code>。
+    </li>
+    <li>
+      Evidence completeで全value / quality
+      gateがpassなら<code>GO</code>。
+    </li>
+    <li>
+      Evidence completeで一つ以上のvalue / quality
+      gateがfailなら<code>NO-GO</code>。
+    </li>
+  </ol>
+  <table>
+    <caption>
+      Terminal decision
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Decision</th>
+        <th scope="col">Condition</th>
+        <th scope="col">Authorized next action</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>GO</code></td>
+        <td>Hard gateとvalue gateがすべてpass</td>
+        <td>対象task種別を限定したconsumer vertical sliceの別decisionを作る</td>
+      </tr>
+      <tr>
+        <td><code>NO-GO</code></td>
+        <td>
+          Safety incident、deterministic Catalog reliability failure、または10 valid
+          pair取得後にvalue / quality gateが未達
+        </td>
+        <td>flag OFFを維持し、ontology投資を再開しない。原因別の小さな診断だけ許可</td>
+      </tr>
+      <tr>
+        <td><code>INSUFFICIENT_EVIDENCE</code></td>
+        <td>
+          Safety / Catalog reliability failureなしで、10 valid
+          pair、telemetry、provider安定性、統制のいずれかが不足
+        </td>
+        <td>実験基盤だけを修正し、同じ価値仮説で再pilotする</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2 id="11-stop-and-rollback">11. Stop and Rollback</h2>
+  <p>次の事象を一件でも観測したら新しいpair投入を止める。</p>
+  <ul>
+    <li>wrong project / revision、source change後のstale clue、symlink / unsafe path</li>
+    <li>
+      source body、secret、absolute path、internal database IDのmodel projectionまたはcommit
+      evidenceへの混入
+    </li>
+    <li>run record、event、usage、verification evidenceの消失またはforeign-key failure</li>
+    <li>いずれかのpilot DBを所有する想定外process、runtime lease不整合、operational DBへの接続</li>
+    <li>feature flagがpair外repositoryやbaseline armでONになる</li>
+    <li>同じrouteで連続2回のprovider capacity failure、またはroute設定の途中変更</li>
+    <li>
+      Catalog armでtoolがexactly once呼ばれずbroad explorationへ進む、またはresult parseが失敗する
+    </li>
+    <li>target / consumer worktreeがrun中に変化する</li>
+  </ul>
+  <p>停止処理は次の順序で行う。</p>
+  <ol>
+    <li>新規run投入を停止し、進行中runを安全にterminalまたはcancelへ移す。</li>
+    <li>repository feature flagをOFFへ戻す。</li>
+    <li>pilot MCP serverをdisconnect / disableする。</li>
+    <li>raw DB、run ID inventory、stderr progress log、sanitized checkpointを保持する。</li>
+    <li>active pilot runが0件であることを確認する。</li>
+    <li>停止reason codeと再開に必要なcontrolをdecision evidenceへ記録する。</li>
+  </ol>
+  <p>
+    Safety incidentまたはdeterministic Catalog reliability failureによる停止は直ちに<code
+      >NO-GO</code
+    >
+    decisionへ進む。provider、telemetry、process等のshared
+    infrastructure停止は、保持したattemptを基に
+    <code>INSUFFICIENT_EVIDENCE</code
+    >または再開可能な<code>BLOCKED</code>として扱う。両者を同じreasonへ畳み込まない。
+  </p>
+
+  <h2 id="12-evidence-contract">12. Evidence Contract</h2>
+  <h3 id="121-artifacts">12.1 Artifacts</h3>
+  <ul>
+    <li>
+      Draft-only scaffold:
+      <code>spec/evidence/project-intelligence-value-pilot-registration-v2.draft.json</code>。formal inputやdecision evidenceには使わない
+    </li>
+    <li>
+      Sealed pre-registration: <code>spec/evidence/project-intelligence-value-pilot-registration-v2*.json</code>。 渡すのはcurrent
+      producer / consumer / target commitと全fingerprintが一致する一件だけ
+    </li>
+    <li>
+      Evaluator qualification: local access-controlled
+      <code>project-intelligence-value-pilot-evaluator-qualification-v1</code> artifact。pathをcommitせず、そのcontent
+      hashをREADY preflightへ入れる
+    </li>
+    <li>
+      Canary evidence: local access-controlled <code>project-intelligence-value-pilot-canary-v1</code> artifact
+    </li>
+    <li>Sanitized result: <code>spec/evidence/project-intelligence-value-paired-pilot-YYYY-MM-DD.json</code></li>
+    <li>READY evidence: <code>spec/evidence/project-intelligence-value-pilot-preflight-YYYY-MM-DD.json</code></li>
+    <li>Decision record: <code>spec/decisions/project-intelligence-value-pilot-decision-YYYY-MM-DD.html</code></li>
+    <li>
+      Raw isolated NightWorkers DB、vulnWorkbench pilot DB、worktree evaluation、progress log:
+      access-controlled local evidence、repositoryへcommitしない
+    </li>
+  </ul>
+  <h3 id="122-minimum-shape">12.2 Minimum committed shape</h3>
+  <pre><code class="language-json">{
+  "schemaVersion": "project-intelligence-value-paired-pilot-v2",
+  "pilotId": "...",
+  "protocolVersion": 1,
+  "decision": "GO | NO-GO | INSUFFICIENT_EVIDENCE",
+  "decisionReasonCodes": [],
+  "preRegistrationHash": "sha256:...",
+  "preflightCanaryHash": "sha256:...",
+  "preflightEvidenceHash": "sha256:...",
+  "rawEvidenceHash": "sha256:...",
+  "controls": {
+    "producerCommit": "...",
+    "consumerCommit": "...",
+    "targetCommit": "...",
+    "routeFingerprint": "sha256:...",
+    "settingsFingerprint": "sha256:...",
+    "promptContractFingerprint": "sha256:...",
+    "toolManifestFingerprint": "sha256:...",
+    "evaluatorSetFingerprint": "sha256:...",
+    "cleanSources": true,
+    "dedicatedDatabase": true,
+    "dedicatedProducerDatabase": true,
+    "featureFlagRestoredToOff": true,
+    "mcpDisconnected": true,
+    "activePilotRunCount": 0
+  },
+  "taskSet": [{ "id": "p01", "promptDigest": "sha256:...", "evaluatorProfileId": "..." }],
+  "attempts": [],
+  "validPairs": [],
+  "aggregate": {
+    "attemptCount": 10,
+    "validPairCount": 10,
+    "pairedReductions": {},
+    "qualityGuards": {},
+    "safetyIncidents": {},
+    "hardGates": {},
+    "valueGates": {}
+  },
+  "stopReasonCodes": []
+}</code></pre>
+  <h3 id="123-evidence-rules">12.3 Evidence rules</h3>
+  <ul>
+    <li>raw reportとcommitted reportを分け、commit前にstrict schemaで再parseする。</li>
+    <li>
+      Sanitizerはunknown field、duplicate JSON key、absolute path / secret-shaped nested
+      string、禁止IDをfail-closedで拒否する。 黙って削除してGO evidenceを生成しない。
+    </li>
+    <li>
+      absolute path、database path、worktree path、repository ID、MCP server
+      ID、task/run内部IDをcommitしない。
+    </li>
+    <li>
+      commit SHA、prompt / evaluator digest、route / settings / prompt-construction contract / tool
+      manifest fingerprint、 contract / schema version、sanitized reason codeは保持する。
+    </li>
+    <li>
+      <code>controls.promptContractFingerprint</code>は、clean consumer commitに結び付く
+      prompt-construction contract fingerprintを表す。task / armごとに変化し得る実行時system prompt
+      hashは各raw armにのみ残し、registrationやaggregateの同一値と誤認しない。pairの
+      <code>sameTaskPrompt</code>は共通の課題本文digestの一致を表し、Catalog
+      arm固有の protocol instructionとの完全一致を意味しない。
+    </li>
+    <li>
+      verifierは<code>sameTaskPrompt: true</code>を自己申告として扱わず、両armの
+      <code>taskPromptFingerprint</code>がpairのdigestに一致すること、
+      <code>sameBaseRef: true</code>なら両armのbase refが一致することを再検証する。
+    </li>
+    <li>
+      committed resultの<code>controls</code>はsanitizerのclosed
+      schemaに限る。DB owner processの確認は raw local
+      preflightの<code>activePilotRunsDrained</code>とisolated runtime
+      recordで行い、存在しない
+      <code>singleConsumerDatabaseOwner</code>のようなfieldをresultへ手書きしない。
+    </li>
+    <li>invalid attemptを削除せず、理由、順序、route、terminal statusを残す。</li>
+    <li>
+      集計値からvalid pair、valid pairからraw local run inventoryへ辿れるsanitized refとcontent
+      hashを持つ。 database内部IDだけを監査linkにしない。
+    </li>
+    <li>
+      decision writerはsafety precedence、evidence completeness、value
+      gateの順に再計算し、手入力decisionとの不一致を拒否する。
+    </li>
+    <li>
+      sealed registrationはDRAFT status、zero fingerprint、未割当pilot owner、owner-retained
+      policy以外のretentionを拒否する。 result verifierはregistration textのstrict hashとsealed
+      shapeを確認してからraw resultをsanitizeする。
+    </li>
+  </ul>
+  <h3 id="124-raw-evidence-retention">12.4 Raw evidence retention</h3>
+  <ul>
+    <li>
+      isolated runtime rootはownerだけが読めるpermissionで保存し、operational runtimeと分離する。
+    </li>
+    <li>
+      両pilot DBとworktreeにはpath、structure、source / tool
+      outputが含まれ得るため、共有driveやrepositoryへcopyしない。
+    </li>
+    <li>
+      raw evidenceはownerだけが読めるlocal
+      runtimeに保持する。自動削除日を設けず、削除が必要になった場合だけ
+      別の明示的な作業として対象と理由を記録する。
+    </li>
+    <li>
+      削除する場合は対象pilot ID、raw hash、削除日、ownerをsanitized destruction recordへ残す。
+    </li>
+  </ul>
+
+  <h2 id="13-implementation-slices">13. Implementation Slices</h2>
+  <p>
+    実装sliceの完了とformal executionの開始可否は別である。以下のstatusは2026-08-31時点の code /
+    artifact状態を示し、<code>Implemented</code>はvalue
+    <code>GO</code>を意味しない。
+  </p>
+  <h3 id="slice-0-protocol-and-owner-lock">Slice 0: Protocol and Owner Lock</h3>
+  <p>
+    Status: <code>PARTIAL</code> — fixed task / schedule /
+    evaluatorは実装済み、registrationはDRAFTのまま。
+  </p>
+  <ul>
+    <li>
+      本計画、10 task、arm order、route、timeouts、cooldown、retry、metric semanticsをfreezeする。
+    </li>
+    <li>
+      taskごとの独立evaluator、base-fail / positive-pass qualification、verification
+      timeoutをfreezeする。
+    </li>
+    <li>
+      vulnWorkbench / NightWorkers / target commit、non-secret provider settings projection、prompt
+      construction contract、tool manifest、evaluator setのfingerprintとownerをregistration
+      artifactへ記録する。
+    </li>
+    <li>NightWorkersの現在のdirty stateを解消し、formal pilot用branchまたはworktreeを固定する。</li>
+  </ul>
+  <p>Exit: registration hashが生成され、結果を見ずに再現可能なscheduleが承認済み。</p>
+
+  <h3 id="slice-1-runner-reliability-delta">Slice 1: Runner Reliability Delta</h3>
+  <p>
+    Status: <code>IMPLEMENTED</code> — formal controlsはfocused
+    testとarchitecture checkで確認済み。
+  </p>
+  <p>Owner: <code>NightWorkers</code></p>
+  <p>Primary files:</p>
+  <ul>
+    <li><code>scripts/run-project-exploration-paired-pilot.mjs</code></li>
+    <li><code>scripts/run-project-exploration-paired-pilot.ts</code></li>
+    <li><code>scripts/project-exploration-pilot/options.ts</code></li>
+    <li><code>scripts/project-exploration-pilot/tasks.ts</code></li>
+    <li><code>scripts/project-exploration-pilot/protocol-fingerprints.ts</code></li>
+    <li><code>scripts/describe-project-exploration-pilot-protocol.ts</code></li>
+    <li><code>scripts/project-exploration-pilot/registration.ts</code>（new）</li>
+    <li><code>scripts/project-exploration-pilot/evaluator.ts</code>（new）</li>
+    <li><code>tests/project-exploration-pilot-modules.test.ts</code></li>
+    <li><code>tests/runtime-database-access.test.ts</code></li>
+  </ul>
+  <ol>
+    <li>counterbalanced arm orderとattempt numberを追加する。</li>
+    <li>
+      <code>--producer-database</code>を必須化してpilot MCP server
+      envへ明示的に渡す。targetは事前登録し、 formal
+      modeでは<code>registered_only</code>以外を拒否する。
+    </li>
+    <li>
+      Exact targetだけを作成できるbootstrap MCP sessionと、作成を拒否するformal MCP
+      sessionを分け、session間で disconnectとproject count検証を行う。
+    </li>
+    <li>
+      same-route bounded provider retryを、content / tool event前のcapacity
+      failureだけに限定して全retryを記録する。
+    </li>
+    <li>
+      <code>--formal --registration --evaluator-qualification --canary-evidence --preflight-evidence</code> modeを追加し、 runtime保持、dirty/live
+      override禁止、registration hashとREADY qualification / canary / preflight一致を強制する。
+    </li>
+    <li>
+      Catalog armのpilot-only call
+      instructionをrunnerから固定注入し、baselineと通常runtimeへ漏れないことをtestする。
+    </li>
+    <li>
+      <code>evaluatorProfileId</code>、hidden fixture path、expected
+      assertion、reference resultをtask/model projectionへ含めないnegative testを追加する。
+    </li>
+    <li>pair終了ごとにrun inventoryとcheckpointをatomic writeする。</li>
+    <li>
+      resume時に既存attemptを上書きせず、exact commit / route / prompt-contract hashを照合する。
+    </li>
+    <li>
+      各arm terminal後にmodel sessionを閉じ、agent diff / status /
+      hashを先に保存してから独立evaluatorを対象worktreeで実行する。
+    </li>
+    <li>
+      evaluator実行後のdiffを別保存し、evaluator副作用をagent mutationやchanged-file
+      recallへ混ぜない。
+    </li>
+  </ol>
+  <p>Exit: process interruption後も完了済みattemptが残り、同じscheduleから安全にresumeできる。</p>
+
+  <h3 id="slice-2-measurement-and-evidence-v2">Slice 2: Measurement and Evidence v2</h3>
+  <p>
+    Status: <code>IMPLEMENTED</code> — strict raw-result sanitizerとpure
+    decision re-computationを含む。
+  </p>
+  <p>
+    Owner: <code>NightWorkers</code> measurement、<code
+      >vulnWorkbench</code
+    >
+    evidence verification
+  </p>
+  <p>Primary files:</p>
+  <ul>
+    <li><code>api/modules/ontology/exploration/project-exploration-measurement.ts</code></li>
+    <li><code>scripts/project-exploration-pilot/report.ts</code></li>
+    <li><code>tests/project-exploration-measurement.test.ts</code></li>
+    <li><code>tests/project-exploration-pilot-modules.test.ts</code></li>
+    <li><code>scripts/verify-project-intelligence-value-pilot.ts</code>（new）</li>
+    <li><code>scripts/seal-project-intelligence-value-pilot-registration.ts</code></li>
+    <li><code>scripts/verify-project-intelligence-value-pilot.test.ts</code>（new）</li>
+    <li><code>spec/evidence/</code>のregistration / preflight / result fixture</li>
+  </ul>
+  <ol>
+    <li>
+      timestamp付きusage recordをmutation eventへ結び、measured pre-mutation non-cached / cached
+      tokenを算出する。
+    </li>
+    <li>closed exploration / mutation tool taxonomyとruntime manifestのparity checkを追加する。</li>
+    <li>
+      authoritative arm median reductionに加え、pre-registered pair differenceとdirection
+      countをdiagnostic出力する。
+    </li>
+    <li>
+      exactly-one catalog call、independent evaluator、attempt retention、safety
+      precedence、zero-countをhard gateへ追加する。
+    </li>
+    <li>raw reportからpath / internal IDを除くstrict sanitized projectionを生成する。</li>
+    <li>
+      nested path / secret、duplicate key、unknown field、decision改ざん、raw hash不一致のnegative
+      fixtureを追加する。
+    </li>
+    <li>GO / NO-GO / INSUFFICIENT_EVIDENCEを同じpure decision functionで算出する。</li>
+  </ol>
+  <p>Exit: positive / negative / incomplete fixtureでdecisionが決定的に再計算できる。</p>
+
+  <h3 id="slice-3-preflight-and-canary">Slice 3: Preflight and Canary</h3>
+  <p>
+    Status: <code>PARTIAL</code> — controller-owned evaluator
+    qualificationはREADY。sealed inputsとisolated
+    providerがないため、canaryおよびpreflightは未実行。
+  </p>
+  <ul>
+    <li>producer / consumer focused testsとtarget repository verification baselineを保存する。</li>
+    <li>
+      dedicated consumer / producer DB、各DB owner、kill switch、MCP tool list、registered
+      project、revision matchを確認する。
+    </li>
+    <li>10 evaluatorのbase-fail / positive-pass qualificationと全fingerprint一致を確認する。</li>
+    <li>同じrouteで非正式baseline / catalog canaryを完了させる。</li>
+    <li>
+      catalog canaryのcall-before-exploration、completion、verification、evidence
+      round-tripを確認する。
+    </li>
+  </ul>
+  <p>
+    Exit: preflight artifactが<code>READY</code>。未達ならformal Slice
+    4へ進まない。
+  </p>
+
+  <h3 id="slice-4-formal-paired-pilot">Slice 4: Formal Paired Pilot</h3>
+  <p>
+    Status: <code>BLOCKED</code> — Section
+    8.1の開始条件が揃うまでpairを投入しない。
+  </p>
+  <ol>
+    <li>registrationに固定した順序でpairを逐次実行する。</li>
+    <li>
+      各arm後にfeature state、run status、usage、agent verification、独立evaluator、worktree
+      stateをcheckpointする。
+    </li>
+    <li>各pair後にraw DB内のrun / event / usage参照整合性を確認する。</li>
+    <li>停止条件がなければcooldown後に次pairへ進む。</li>
+    <li>10 valid pairまたはstop-loss到達で新規投入を終了する。</li>
+  </ol>
+  <p>Exit: 全attemptを含むraw evidenceとsanitized v2 resultがある。</p>
+
+  <h3 id="slice-5-decision-and-closeout">Slice 5: Decision and Closeout</h3>
+  <p>
+    Status: <code>NOT_STARTED</code> — formal raw
+    reportが存在しないため、terminal decisionは作成しない。
+  </p>
+  <ol>
+    <li>decision verifierでsafety precedence、completeness、hard / value gateを再計算する。</li>
+    <li>task category別結果とoutlierを記載するが、aggregate decisionを上書きしない。</li>
+    <li>GO / NO-GO / INSUFFICIENT_EVIDENCEのdecision recordを作る。</li>
+    <li>
+      named pilot ownerがsanitized evidence hashとdecision再計算結果を確認する。この単独パイロットは
+      独立review済みとは扱わない。
+    </li>
+    <li>
+      flag OFF、MCP切断、active run 0、raw evidence permission / hash / owner-retained
+      policyを確認する。
+    </li>
+    <li>Ontology Planning Catalogへdecisionだけをリンクし、計画を自動的にactiveへ戻さない。</li>
+  </ol>
+  <p>Exit: decision、根拠、次に許可される最小action、禁止事項が一つのrecordで確認できる。</p>
+
+  <h2 id="14-cross-repository-change-order">14. Cross-Repository Change Order</h2>
+  <ol>
+    <li>
+      NightWorkersでrunner、registration、independent evaluator、measurement v2を一つのpilot-only
+      PRとして実装する。
+    </li>
+    <li>
+      vulnWorkbenchでregistration / preflight / result schemaとpure decision
+      verifierを小さなevidence PRとして実装する。 Catalog producer behaviorは変更しない。
+    </li>
+    <li>
+      両repositoryのfocused testを通し、exact commitとcross-repository fixture hashを固定する。
+    </li>
+    <li>cleanなtarget commitと10 evaluatorをqualificationし、registrationをsealする。</li>
+    <li>READY preflightとcanaryを完了してからformal runを開始する。</li>
+    <li>sanitized resultをvulnWorkbenchでverifyし、別decision recordでpilotをcloseする。</li>
+  </ol>
+  <p>
+    PR間でschemaをcopyした場合はcanonical fixtureとSHA-256を固定し、consumer
+    testで照合する。NightWorkers PRを mergeするだけでrollout、default activation、ontology
+    plan再開を行わない。
+  </p>
+
+  <h2 id="15-verification-commands">15. Verification Commands</h2>
+  <h3 id="151-vulnworkbench">15.1 vulnWorkbench</h3>
+  <pre><code class="language-bash">DATABASE_URL=file:/local/path/to/vulnworkbench-pilot.sqlite bun run db:migrate
+bun test \
+  api/modules/static-intelligence/project-path-mcp.test.ts \
+  api/modules/static-intelligence/exploration-catalog.test.ts \
+  api/modules/static-intelligence/project-structure/builder.test.ts \
+  api/modules/static-intelligence/module-candidates.test.ts \
+  api/modules/static-intelligence/static-intelligence-mcp-server-cli.test.ts
+bun run typecheck
+bun test scripts/verify-project-intelligence-value-pilot.test.ts
+bun run docs:check
+</code></pre>
+  <h3 id="152-nightworkers">15.2 NightWorkers</h3>
+  <pre><code class="language-bash">node scripts/run-vitest.mjs run \
+  tests/project-exploration-source.service.test.ts \
+  tests/project-exploration-catalog-tool.test.ts \
+  tests/project-exploration-measurement.test.ts \
+  tests/project-exploration-run-pinning.test.ts \
+  tests/project-exploration-settings.service.test.ts \
+  tests/project-exploration-pilot-modules.test.ts \
+  tests/runtime-database-access.test.ts
+</code></pre>
+  <h3 id="153-pilot-command-shape">15.3 Pilot command shape</h3>
+  <p>
+    次はSlice 1完了後のtarget commandである。pathとsettings fileはlocal値を使い、committed
+    evidenceへ含めない。 canary、qualification、READY preflightは正式10 pairと別に完了し、formal
+    commandはそれぞれのcontent hashを再検証する。<code>&lt;sealed-pilot-id&gt;</code>はsealed
+    registrationの<code>pilotId</code>と完全一致させる。launcherが暗黙に追加する値へ依存せず、
+    全commandで<code>--dedicated-database</code>を明示する。
+  </p>
+  <pre><code class="language-bash"># NightWorkers: seal前にこのcommitのtask / evaluator / prompt-contract / tool-manifest値を取得する。
+# これはDBへ接続しないdescriptor commandだが、runtime import guardのためtest-only isolated DB値を明示する。
+NODE_ENV=test \
+DATABASE_URL=file:/local/path/to/protocol-inspection.sqlite \
+NIGHTWORKERS_DATABASE_ACCESS_SCOPE=isolated_test \
+NIGHTWORKERS_VITEST_DB_PATH=/local/path/to/protocol-inspection.sqlite \
+bun scripts/describe-project-exploration-pilot-protocol.ts
+
+# vulnWorkbench: DRAFTを編集・renameせず、観測済みのroute / settings fingerprintと承認値から新規SEALED artifactを作る。
+# 既存outputは上書きせず失敗する。
+bun scripts/seal-project-intelligence-value-pilot-registration.ts -- \
+  --pilot-id &lt;sealed-pilot-id&gt; \
+  --producer-commit &lt;vulnworkbench-commit&gt; \
+  --consumer-commit &lt;nightworkers-commit&gt; \
+  --target-commit d87bfdd9f29aa64e484a0c4d1ad02956136dc6b0 \
+  --task-set-fingerprint &lt;task-set-fingerprint&gt; \
+  --evaluator-set-fingerprint &lt;evaluator-set-fingerprint&gt; \
+  --route-fingerprint &lt;observed-route-fingerprint&gt; \
+  --settings-fingerprint &lt;observed-settings-fingerprint&gt; \
+  --prompt-contract-fingerprint &lt;prompt-contract-fingerprint&gt; \
+  --tool-manifest-fingerprint &lt;tool-manifest-fingerprint&gt; \
+  --pilot-owner &lt;named-owner&gt; \
+  --output spec/evidence/project-intelligence-value-pilot-registration-v2.json
+
+bun scripts/qualify-project-exploration-pilot-evaluators.ts -- \
+  --manifest /local/path/to/evaluator-qualification-manifest.json \
+  --output /local/path/to/evaluator-qualification.json
+
+npm run evaluate:project-exploration:pilot -- \
+  --preflight-canary \
+  --pilot-id &lt;sealed-pilot-id&gt; \
+  --llm-settings-path /local/path/to/pilot-llm-settings.json \
+  --repository-root /local/path/to/target-repository \
+  --producer-root /local/path/to/vulnWorkbench \
+  --producer-database /local/path/to/vulnworkbench-pilot.sqlite \
+  --dedicated-database \
+  --pair-count 1 \
+  --cooldown-seconds 30 \
+  --output /local/path/to/pilot-canary.json
+
+npm run evaluate:project-exploration:pilot -- \
+  --formal --preflight \
+  --pilot-id &lt;sealed-pilot-id&gt; \
+  --registration /local/path/to/registration.json \
+  --evaluator-qualification /local/path/to/evaluator-qualification.json \
+  --canary-evidence /local/path/to/pilot-canary.json \
+  --llm-settings-path /local/path/to/pilot-llm-settings.json \
+  --repository-root /local/path/to/target-repository \
+  --producer-root /local/path/to/vulnWorkbench \
+  --producer-database /local/path/to/vulnworkbench-pilot.sqlite \
+  --dedicated-database \
+  --pair-count 10 \
+  --cooldown-seconds 30 \
+  --preserve-isolated-runtime \
+  --output /local/path/to/pilot-preflight.json
+</code></pre>
+  <pre><code class="language-bash">npm run evaluate:project-exploration:pilot -- \
+  --formal \
+  --pilot-id &lt;sealed-pilot-id&gt; \
+  --registration /local/path/to/registration.json \
+  --evaluator-qualification /local/path/to/evaluator-qualification.json \
+  --canary-evidence /local/path/to/pilot-canary.json \
+  --preflight-evidence /local/path/to/pilot-preflight.json \
+  --llm-settings-path /local/path/to/pilot-llm-settings.json \
+  --repository-root /local/path/to/target-repository \
+  --producer-root /local/path/to/vulnWorkbench \
+  --producer-database /local/path/to/vulnworkbench-pilot.sqlite \
+  --dedicated-database \
+  --pair-count 10 \
+  --cooldown-seconds 30 \
+  --preserve-isolated-runtime \
+  --output /local/path/to/raw-pilot-report.json
+</code></pre>
+  <p>
+    <code>&lt;sealed-pilot-id&gt;</code>はDRAFT
+    scaffoldの<code>pilotId</code>を流用せず、新規の stable
+    IDを採番する。commandはregistration
+    artifactの値から生成し、formal開始後に手編集しない。現在の<code>.draft.json</code>はこのcommandの
+    <code>--registration</code>へ渡せない。retry、timeout、thinking
+    depthを変更する場合は新しいpilot IDとpre-registrationを必要とする。
+  </p>
+  <p>Formal run終了後、raw reportを直接commitせず、target verifierでsanitized resultを生成する。</p>
+  <pre><code class="language-bash">bun run scripts/verify-project-intelligence-value-pilot.ts -- \
+  --registration /local/path/to/current-sealed-registration.json \
+  --raw /local/path/to/raw-pilot-report.json \
+  --output spec/evidence/project-intelligence-value-paired-pilot-YYYY-MM-DD.json
+</code></pre>
+
+  <h2 id="16-timebox-and-opportunity-cost">16. Timebox and Opportunity Cost</h2>
+  <ul>
+    <li>
+      product feature変更は0。許可するコード変更はrunner、measurement、evidence verifierだけ。
+    </li>
+    <li>runner / evidence準備はNightWorkers 1 PR、vulnWorkbench 1小PRを上限とする。</li>
+    <li>formal実行は最大14 pair attempt。provider不安定性を無制限な再試行で隠さない。</li>
+    <li>このpilot中はparked ontology planを実装しない。</li>
+    <li>
+      pilot自体の準備が大規模consumer
+      refactorや新contractを必要とした場合、価値検証より先に投資が膨らんだと判断して停止する。
+    </li>
+  </ul>
+
+  <h2 id="17-reactivation-map">17. Reactivation Map</h2>
+  <table>
+    <caption>
+      Pilot decisionがparked planへ与える範囲
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Parked plan</th>
+        <th scope="col">GOで許可されること</th>
+        <th scope="col">GOだけでは許可されないこと</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Coding Agent Consumer Companion</td>
+        <td>一つのtask種別に限定した薄いvertical sliceの再評価</td>
+        <td>全task / runtime / closeout adoption</td>
+      </tr>
+      <tr>
+        <td>Semantic Handoff Validation</td>
+        <td>pilotで実際のsemantic inconsistencyが観測された場合のpure validator検討</td>
+        <td>wire enforcement、publication gate</td>
+      </tr>
+      <tr>
+        <td>Claim Provenance</td>
+        <td>lineage不足が利用判断を妨げたという証拠の収集</td>
+        <td>claim-level persistence / queryの実装</td>
+      </tr>
+      <tr>
+        <td>Security Vocabulary Alignment</td>
+        <td>なし。security-specific consumer value evidenceが別途必要</td>
+        <td>registry、community、dedupe統合</td>
+      </tr>
+      <tr>
+        <td>Ontology Contract Versioning</td>
+        <td>なし。複数versionとconsumer migration需要が別途必要</td>
+        <td>version registry、publication、enforcement</td>
+      </tr>
+      <tr>
+        <td>Explainable Rule Inference</td>
+        <td>なし</td>
+        <td>計画化と実装</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2 id="18-definition-of-done">18. Definition of Done</h2>
+  <p>次をすべて満たしたとき、この計画を完了できる。</p>
+  <ol>
+    <li>
+      protocol、task、evaluator、arm order、route / settings / prompt-construction contract / tool
+      fingerprintsが結果取得前にpre-registerされている。
+    </li>
+    <li>過去の8つの不足・停止要因が機械的なpreflight / stop conditionへ変換されている。</li>
+    <li>formal attemptが削除されず、valid / invalidの分類根拠を再確認できる。</li>
+    <li>
+      independent evaluatorが全armに対して実行され、agent自己申告と分離されたcompletion /
+      verificationがある。
+    </li>
+    <li>
+      Safety precedence、10 valid pairまたはstop-lossに基づいてterminal decisionが生成されている。
+    </li>
+    <li>
+      primary value、independent quality
+      guard、安全性、方向性診断、準備コストがbaselineと比較されている。
+    </li>
+    <li>committed evidenceにsource body、secret、absolute path、internal IDがない。</li>
+    <li>
+      feature flag OFF、MCP切断、active pilot run 0、raw evidence hash / permission / owner-retained
+      policyを確認している。
+    </li>
+    <li>
+      GOでもparked planを自動昇格せず、許可された次actionだけをdecision recordへ記載している。
+    </li>
+    <li>
+      decision recordが固定repository / task / lane / provider / model外へ結果を一般化していない。
+    </li>
+    <li>named pilot ownerが同じsanitized evidence hashとdecision再計算結果を確認している。</li>
+  </ol>
+</article>

@@ -1,11 +1,15 @@
+import { readBoundedDiagnostic } from "./process-diagnostics";
 import {
 	listSqliteWriterProcesses,
 	waitForNewSqliteWriterProcessesToExit,
 } from "./sqlite-writer-processes";
-import { readBoundedDiagnostic } from "./process-diagnostics";
 import { VERIFY_STEPS } from "./verify-steps";
+
+const repositoryRoot = process.cwd();
 const initialWriterPids = new Set(
-	(await listSqliteWriterProcesses()).map((process) => process.pid),
+	(await listSqliteWriterProcesses({ repositoryRoot })).map(
+		(process) => process.pid,
+	),
 );
 let failedExitCode: number | undefined;
 
@@ -42,8 +46,12 @@ for (const step of VERIFY_STEPS) {
 	break;
 }
 
-const writerLeaks =
-	await waitForNewSqliteWriterProcessesToExit(initialWriterPids);
+const writerLeaks = await waitForNewSqliteWriterProcessesToExit(
+	initialWriterPids,
+	{
+		repositoryRoot,
+	},
+);
 if (writerLeaks.length > 0) {
 	console.error("FAIL sqlite-writer-cleanup");
 	for (const writer of writerLeaks) {

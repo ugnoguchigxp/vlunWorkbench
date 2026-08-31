@@ -1,0 +1,2689 @@
+<article lang="ja" data-spec-role="archived-plan">
+  <h1 id="runtime-target-database-isolation-implementation-plan">
+    Runtime Target Database Isolation Implementation Plan
+  </h1>
+  <p>Status: Implemented and archived — 2026-08-24</p>
+  <p>Plan revision: <code>2</code></p>
+  <p>Planning baseline commit: <code>859b5a5a03d4da5b4ca684848c2369da387429be</code></p>
+  <p>Workspace observation date: 2026-08-22</p>
+  <p>Owner: vulnWorkbench maintainers</p>
+  <p>
+    Target: Git管理されたprojectのローカルtarget起動とdynamic testを、共有DB・開発DB・host
+    serviceへ到達できない使い捨て実行bundleへ移し、実行可否を利用者の同意ではなくsource、image、
+    database、network、cleanupの機械的な証明で決定する。
+  </p>
+  <p>
+    Planning baselineのworkspaceにはscan profile統合、snapshot、preflight、cleanupに関する
+    未コミット変更がある。本計画の実装開始時はSection 11.1のcheckpointを取り直し、既存差分を
+    破棄・上書き・旧構造へ巻き戻してはならない。
+  </p>
+  <p>
+    Normative rule: 本文中で以前のhigh-level記述と、Section 2.4、4、6、7の具体的なcontractが
+    衝突する場合は、revision 2で追加・更新した具体的contractを優先する。実装者は未決事項を
+    独自判断で補完せず、Section 2.4のclosed decisionと各work packageのstop conditionに従う。
+  </p>
+
+  <h2 id="1-conclusion">1. Conclusion</h2>
+  <p>
+    「破棄可能なsource snapshot」はoriginal working treeの保護には有効だが、target processが
+    snapshot内の<code>.env</code>や設定を読み、host
+    network経由で共有DBへ接続することまでは防がない。 したがって、同意checkboxはDB汚染を防ぐsecurity
+    boundaryとして扱わない。
+  </p>
+  <p>実装後のruntime executionは次の一経路に固定する。</p>
+  <ol>
+    <li>scanner入力とは別に、credential-bearing fileを除外したruntime source projectionを作る。</li>
+    <li>
+      project codeをhost processとして起動せず、digest固定されたserver-owned Node runtime
+      imageを使う。
+    </li>
+    <li>
+      <code>--network none</code>のnamespace ownerへtarget、ephemeral
+      DB、scannerを <code>--network container:&lt;owner&gt;</code>で参加させる。
+    </li>
+    <li>DB接続値はrunごとに生成し、target data storeはcontainer/tmpfs内だけに置く。</li>
+    <li>
+      preflight、execution plan、resource lease、cleanup receiptを同じisolation plan
+      hashへbindする。
+    </li>
+    <li>条件を証明できないproject、engine、Docker runtimeでは起動せず、fail-closedにする。</li>
+  </ol>
+  <p>
+    qualification完了後、<code>runtime-passive</code>と<code>api-readonly</code>からproject
+    code execution同意checkboxを削除する。<code>dynamic-verification</code>は同じruntime
+    source projectionと data isolation
+    contractへ移行した時点で同意checkboxを削除する。旧同意値は移行期間中に受理しても、 unsafe
+    executionを許可するauthorityとして使用しない。
+  </p>
+
+  <h3 id="11-terms-and-data-planes">1.1 Terms and data planes</h3>
+  <table>
+    <caption>
+      1.1 Terms
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Term</th>
+        <th scope="col">Meaning</th>
+        <th scope="col">Persistence rule</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Control-plane DB</td>
+        <td>vulnWorkbenchのscan run、event、finding、artifact、leaseを保存するDB</td>
+        <td>監査証跡として保存する。target application dataを保存しない。</td>
+      </tr>
+      <tr>
+        <td>Target data store</td>
+        <td>診断対象applicationがmigration、seed、test、通常処理で更新するDB</td>
+        <td>run専用の使い捨てresourceに限定し、終了時に破棄する。</td>
+      </tr>
+      <tr>
+        <td>Scanner source snapshot</td>
+        <td>SAST、secret detection、dependency scanへ渡す既存source snapshot</td>
+        <td>
+          <code>.env</code>を検査対象に含め得る。project code
+          executionには使わない。
+        </td>
+      </tr>
+      <tr>
+        <td>Runtime source projection</td>
+        <td>target起動またはtest実行専用にcredential-bearing fileを除外したcopy</td>
+        <td>run終了時に削除し、projection manifestだけをredacted evidenceとして残す。</td>
+      </tr>
+      <tr>
+        <td>Runtime execution bundle</td>
+        <td>network namespace owner、ephemeral DB、target、scanner、probeのresource集合</td>
+        <td>lease管理し、成功・失敗・cancel・timeout・crashでcleanupする。</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3 id="12-implementation-reader-contract">1.2 Implementation reader contract</h3>
+  <p>各work packageは次の順序で実装する。順序を入れ替えない。</p>
+  <ol>
+    <li>packageのcharacterization/negative testを追加し、修正前の挙動を固定する。</li>
+    <li>shared schemaとpure functionを先に変更し、型checkを通す。</li>
+    <li>Docker/process mutationより前にpreflightをblockedへ倒す。</li>
+    <li>providerとconsumerを接続し、unit/integration testを通す。</li>
+    <li>cleanup failure injectionとredaction testを通す。</li>
+    <li>package固有commandとSection 9.4の累積commandを実行する。</li>
+  </ol>
+  <p>
+    package内のすべてのexit gateを満たすまで次packageを開始しない。型errorを
+    <code>as any</code>、unchecked cast、optional
+    fallbackで回避しない。実装途中のproviderを有効化する feature
+    flag、UI、catalog変更は同じpackageへ混ぜない。
+  </p>
+
+  <h2 id="2-planning-baseline-and-gap-register">2. Planning baseline and gap register</h2>
+  <h3 id="21-current-facts">2.1 Current facts</h3>
+  <ul>
+    <li>
+      source scopeは<code>**/*</code>をincludeし、mandatory
+      excludeは主に<code>.git</code>、
+      <code>artifacts</code>、generated output、installed
+      dependencyである。Gitでignoreされた
+      <code>.env*</code>はruntime用copyから自動除外されない。
+    </li>
+    <li>
+      local target preparationはpackage/framework start planを推論し、許可されたplanを
+      <code>Bun.spawn</code>でhost上に起動できる。HOMEと代表的なenvironment
+      variableは差し替えるが、 filesystem、process、network namespaceはhostと共有する。
+    </li>
+    <li>
+      Bunは既定で<code>.env</code>、mode別<code>.env</code>、<code>.env.local</code>を読み込むため、
+      parent environmentから<code>DATABASE_URL</code>を除くだけではDB
+      credentialを遮断できない。
+    </li>
+    <li>
+      npm start plannerはproject scriptを選択しながら
+      <code>requiresProjectCodeConsent: false</code>を返す。preflightはこの値をsandbox availabilityの
+      代理として使うため、consent不要とisolation済みを区別できない。
+    </li>
+    <li>
+      Java/Python start planはhost sandbox不在時にfail-closedとなるが、production用の一般
+      <code>RuntimeTargetProvider</code>実装はWeb/CLI起動経路へ接続されていない。
+    </li>
+    <li>
+      dynamic executionはDocker、non-root、read-only rootfs、resource limit、既定network
+      noneを使う。 一方、original repositoryをread-only mountし、writable
+      workdirへ全内容をcopyするため、
+      <code>.env*</code>をtest processから不可視にするcontractはない。
+    </li>
+    <li>
+      <code>scan_resource_leases</code>、release/quarantine、expired lease
+      reaperが既にある。 新しいruntime resource lifecycleはこの仕組みを再利用できる。
+    </li>
+    <li>
+      execution plan v2はnetwork policy、approval、cleanup requirementを持つが、runtime source、
+      runtime/dependency image、DB provider、network namespace、cleanup
+      receiptを一つにbindするfieldはない。
+    </li>
+  </ul>
+
+  <h3 id="22-gap-register">2.2 Gap register</h3>
+  <table>
+    <caption>
+      2.2 Required remediations
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">ID</th>
+        <th scope="col">Priority</th>
+        <th scope="col">Gap</th>
+        <th scope="col">Required outcome</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>DBI-G01</td>
+        <td>P0</td>
+        <td><code>.env*</code>とcredential設定がruntime copyへ入る。</td>
+        <td>scanner snapshotとruntime projectionを分離し、runtime側だけで必ず除外する。</td>
+      </tr>
+      <tr>
+        <td>DBI-G02</td>
+        <td>P0</td>
+        <td>npm project codeをhost上で起動できる。</td>
+        <td>project codeのhost spawnを廃止し、Docker isolation providerだけを実行可能にする。</td>
+      </tr>
+      <tr>
+        <td>DBI-G03</td>
+        <td>P0</td>
+        <td>targetがhost/LAN/Internet上のDBへ到達できる。</td>
+        <td>network-none namespaceを共有し、target data planeに外向きrouteを持たせない。</td>
+      </tr>
+      <tr>
+        <td>DBI-G04</td>
+        <td>P0</td>
+        <td>DBの有無・engine・接続key・data pathがplanへbindされない。</td>
+        <td>typed runtime isolation recipe/plan/receiptを追加する。</td>
+      </tr>
+      <tr>
+        <td>DBI-G05</td>
+        <td>P0</td>
+        <td>consentとsandbox availabilityが同じbooleanから導出される。</td>
+        <td>Docker capabilityとisolation qualificationの実測値からpreflightを判定する。</td>
+      </tr>
+      <tr>
+        <td>DBI-G06</td>
+        <td>P1</td>
+        <td>runtime target、DB、scanner、temporary dataのcleanupが一つのleaseでは追跡できない。</td>
+        <td>
+          一つのbundle leaseへprivate child receiptを逐次保存し、label fallback付きで回収する。
+        </td>
+      </tr>
+      <tr>
+        <td>DBI-G07</td>
+        <td>P1</td>
+        <td>dynamic testはexternal DBへ接続しにくいが、credential fileを読んでlogへ出せる。</td>
+        <td>dynamicもsanitized projection、generated env、redaction contractを共有する。</td>
+      </tr>
+      <tr>
+        <td>DBI-G08</td>
+        <td>P1</td>
+        <td>UI checkboxが安全性を利用者判断へ委ねている。</td>
+        <td>機械的preflightへ置き換え、qualification後にcheckboxを削除する。</td>
+      </tr>
+      <tr>
+        <td>DBI-G09</td>
+        <td>P1</td>
+        <td>共有DB不変を証明するnegative E2Eがない。</td>
+        <td>canary DBへの到達・書き込み失敗とrow/hash不変をrelease gateにする。</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3 id="23-authoritative-code-paths">2.3 Authoritative code paths</h3>
+  <table>
+    <caption>
+      2.3 Current extension points
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Concern</th>
+        <th scope="col">Path</th>
+        <th scope="col">Current role</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Source scope/copy</td>
+        <td><code>api/modules/scans/target-scope.ts</code></td>
+        <td>scanner向けscopeとtemporary copy</td>
+      </tr>
+      <tr>
+        <td>Full source lifecycle</td>
+        <td><code>api/modules/scans/execution/lifecycle/full-source-snapshot.ts</code></td>
+        <td>scoped snapshot、digest、cleanup</td>
+      </tr>
+      <tr>
+        <td>Start plan</td>
+        <td><code>api/modules/project-capabilities/plugin-contract.ts</code></td>
+        <td><code>DastStartPlanV1</code>とplugin planner</td>
+      </tr>
+      <tr>
+        <td>Local target</td>
+        <td><code>api/modules/dast/target-preparer.ts</code></td>
+        <td>plan推論、host spawn、readiness、stop</td>
+      </tr>
+      <tr>
+        <td>Provider boundary</td>
+        <td><code>api/modules/dast/runtime-target-provider.ts</code></td>
+        <td>injected targetのprepare contract</td>
+      </tr>
+      <tr>
+        <td>Profile orchestration</td>
+        <td><code>api/modules/scans/execution/profile-orchestrator.ts</code></td>
+        <td>snapshot、preflight、plan、step、cleanup</td>
+      </tr>
+      <tr>
+        <td>Preflight</td>
+        <td><code>api/modules/scans/execution/scan-preflight.ts</code></td>
+        <td>target plan、consent、sandbox check</td>
+      </tr>
+      <tr>
+        <td>Execution plan</td>
+        <td><code>shared/schemas/scan-execution-plan.schema.ts</code></td>
+        <td>immutable plan v1/v2</td>
+      </tr>
+      <tr>
+        <td>Docker scanner</td>
+        <td><code>api/modules/scans/tools/docker-tool-process-runner.ts</code></td>
+        <td>scanner container、mount、network、limits</td>
+      </tr>
+      <tr>
+        <td>Dynamic Docker</td>
+        <td><code>api/modules/dynamic/dynamic-docker-executor.ts</code></td>
+        <td>test/sanitizer/fuzz container</td>
+      </tr>
+      <tr>
+        <td>Resource lifecycle</td>
+        <td><code>api/modules/scans/execution/lifecycle/scan-resource-lease-repository.ts</code></td>
+        <td>lease、release、quarantine、recovery</td>
+      </tr>
+      <tr>
+        <td>Web launcher</td>
+        <td><code>web/src/domains/scans/components/scan-profile-input-fields.tsx</code></td>
+        <td>runtime/dynamic consent表示</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3 id="24-review-findings-and-closed-decisions">2.4 Review findings and closed decisions</h3>
+  <table>
+    <caption>
+      2.4 Document-review findings resolved by revision 2
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">ID</th>
+        <th scope="col">Severity</th>
+        <th scope="col">Ambiguity found</th>
+        <th scope="col">Closed decision</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>DRV-01</td>
+        <td>P0</td>
+        <td>preflight/execution-plan schema versionを実装時に選ぶ余地があった。</td>
+        <td>
+          runtime stepには<code>ScanPreflightResultV2</code>と
+          <code>ScanExecutionPlanV3</code>を新設する。V1/V2 readerは変更しない。
+        </td>
+      </tr>
+      <tr>
+        <td>DRV-02</td>
+        <td>P0</td>
+        <td>
+          productionで<code>RuntimeTargetProvider</code>を誰が生成・注入するか不明だった。
+        </td>
+        <td>
+          <code>createRuntimeIsolationService</code>をCLI/Web previewのcomposition
+          rootから注入する。 provider省略時のhost
+          fallbackは削除し、<code>runtime_isolation_provider_unavailable</code>でblockedにする。
+        </td>
+      </tr>
+      <tr>
+        <td>DRV-03</td>
+        <td>P0</td>
+        <td>dependency install/build時のnetworkとDB保護が未定義だった。</td>
+        <td>
+          dependency inputだけを見せるinternal build networkとallowlisted proxyを使う。 project
+          source/build/startを実行するphaseはnetwork-noneで、DB値はephemeral providerだけが渡す。
+        </td>
+      </tr>
+      <tr>
+        <td>DRV-04</td>
+        <td>P0</td>
+        <td>built-in DASTとZAP gatewayがhost loopback/default bridgeを前提にしていた。</td>
+        <td>
+          namespace内gatewayとDocker-exec HTTP transportへ移す。
+          <code>runtime-web-safe</code
+          >のDAST/Nuclei/ZAP三stepが全移行するまでprofileをpromotionしない。
+        </td>
+      </tr>
+      <tr>
+        <td>DRV-05</td>
+        <td>P0</td>
+        <td>resourceごとのleaseとreverse dependency cleanupは現行table/reaperでは表現できない。</td>
+        <td>
+          一run bundleにつき一つの<code>runtime_bundle</code> leaseを取得し、child
+          resourceはreceiptとDocker labelで追跡する。 cleanup/reaperはbundle
+          providerが固定逆順でidempotentに実行する。
+        </td>
+      </tr>
+      <tr>
+        <td>DRV-06</td>
+        <td>P0</td>
+        <td>
+          runtime projection digestをpreflight後に作る順序ではimmutable bindingを証明できない。
+        </td>
+        <td>
+          runtime profileだけはscanner snapshot、runtime
+          projection、recipe解決をpreflight前へ移し、実digestをbindingへ含める。
+        </td>
+      </tr>
+      <tr>
+        <td>DRV-07</td>
+        <td>P1</td>
+        <td>DB engineの自動推論とenvironment key/value生成規則が曖昧だった。</td>
+        <td>
+          DB modeが<code>none</code>以外ならsource-controlled
+          recipeを必須にする。
+          bindingは許可済みkeyとvalue-kindの組だけで記述し、値はproviderが生成する。
+        </td>
+      </tr>
+      <tr>
+        <td>DRV-08</td>
+        <td>P1</td>
+        <td>全言語を一度に対応するよう読め、dependency preparationの完了条件が不明だった。</td>
+        <td>
+          V1 promotion対象はroot <code>package-lock.json</code>を持つnpm
+          projectとする。 Bun/pnpm/yarn/Python/Javaはplanner検出を維持するが、qualified
+          adapter完成までtruthful blockedとする。
+        </td>
+      </tr>
+      <tr>
+        <td>DRV-09</td>
+        <td>P1</td>
+        <td>
+          finding単位dynamic runはparent
+          <code>scan_run</code>なしでleaseを所有できる。
+        </td>
+        <td>
+          project/finding両routeで<code>dynamic-verification</code> parent
+          scanを先に作り、全dynamic bundle leaseをそのIDへbindする。
+        </td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3 id="25-current-symbol-call-flow">2.5 Current symbol call flow to replace</h3>
+  <pre><code class="language-text">Web start route
+  api/routes/projects.route.ts
+    -> child process: api/cli/scan-profile.ts
+      -> runProfileScan(...)
+        -> runScanPreflight(...)
+        -> executeProfileSteps(...)
+          -> prepareSharedRuntimeTarget(...)
+            -> provider.prepare(...) when injected
+            -> prepareDastTargetWorkspace(...) when omitted  [REMOVE FALLBACK]
+
+DAST step direct fallback
+  executeProfileStep(...)
+    -> runDastStepIntoExistingScan(...)
+      -> prepareDastTargetWorkspace(...) when prepared target omitted [REMOVE]
+
+Dynamic route
+  api/routes/dynamic.route.ts
+    -> DynamicRunner.run(... executionConsent: true)
+      -> executeDynamicDockerRun(... original repo mount) [REPLACE INPUT/BUNDLE]</code></pre>
+  <p>
+    new production call flowはSection 4.0に固定する。公開re-exportである
+    <code>api/modules/scans/profile-orchestrator.ts</code>と
+    <code>api/modules/scans/profile-step-orchestrator.ts</code>へ実装を重複させず、
+    <code>execution/</code>配下だけを変更する。
+  </p>
+
+  <h2 id="3-scope-and-non-negotiable-invariants">3. Scope and non-negotiable invariants</h2>
+  <h3 id="31-in-scope">3.1 In scope</h3>
+  <ul>
+    <li>Git revisionとworking-tree digestを解決できるprojectのfull target</li>
+    <li>
+      <code>runtime-passive</code
+      >と<code>api-readonly</code>のauto-start target
+    </li>
+    <li><code>dynamic-verification</code>のtest、sanitizer、bounded fuzz</li>
+    <li>DBなし、SQLite、PostgreSQL、MySQLのrun専用data store</li>
+    <li>
+      root <code>package-lock.json</code>を持つnpm projectのqualified dependency
+      preparationとtarget起動
+    </li>
+    <li>
+      Bun/pnpm/yarn/Python/Java start
+      plannerをhost実行不能にし、adapter未qualification時に理由付きblockedへ移すこと
+    </li>
+    <li>Docker runtime capability、image identity、network namespace、mount、resource limit</li>
+    <li>preflight、execution plan、run metadata、resource lease、report/UIへの結果投影</li>
+    <li>旧consent fieldのdeprecationとUI checkbox削除</li>
+  </ul>
+
+  <h3 id="32-out-of-scope">3.2 Out of scope</h3>
+  <ul>
+    <li>非Git projectのruntime起動</li>
+    <li>production、staging、shared development DBをread-onlyで再利用する例外</li>
+    <li>既存DBのdump、clone、masking、subset export</li>
+    <li>任意のDocker Compose、Kubernetes、remote Docker daemonの実行</li>
+    <li>Redis、MongoDB、Elasticsearch、message brokerを含む任意service graph</li>
+    <li>authenticated/active/business-logic labが参照する既存disposable target契約の再設計</li>
+    <li>vulnWorkbench control-plane DBの監査record削除</li>
+    <li>build system、dependency resolution、scanner自体の全面的な再実装</li>
+    <li>revision 2のV1 promotionにおけるBun/pnpm/yarn/Python/Java dependency adapterの実装</li>
+  </ul>
+
+  <h3 id="33-invariants">3.3 Non-negotiable invariants</h3>
+  <ol>
+    <li>project codeをhost processとして実行してはならない。</li>
+    <li>
+      runtime source projectionへ<code>.env*</code>、credential
+      file、host socketを入れてはならない。
+    </li>
+    <li>scanner snapshotのsecret detection coverageをruntime除外ルールで狭めてはならない。</li>
+    <li>target、DB、scannerのnetwork namespaceにexternal routeを作ってはならない。</li>
+    <li>
+      <code>host</code> network、default bridge、published port、host
+      gatewayを使用してはならない。
+    </li>
+    <li>Docker socket、host home、original repositoryのread-write mountを渡してはならない。</li>
+    <li>
+      DB credential、DSN、source absolute pathをplan、event、artifact、logへ保存してはならない。
+    </li>
+    <li>targetのdata mutationはrun専用data store以外で成功してはならない。</li>
+    <li>cleanup failureをwarningで済ませず、runをfailed/quarantinedにする。</li>
+    <li>consent booleanの値でisolation checkをreadyにしてはならない。</li>
+    <li>isolation plan hashがpreflight後に変化した場合は実行してはならない。</li>
+    <li>unsupportedまたはambiguousなdatabase requirementは推測せずblockedにする。</li>
+  </ol>
+
+  <h3 id="34-threat-model">3.4 Threat model</h3>
+  <table>
+    <caption>
+      3.4 Threats and controls
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Threat</th>
+        <th scope="col">Primary control</th>
+        <th scope="col">Required negative evidence</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>startup migration/seedが共有DBを更新する</td>
+        <td>generated ephemeral DSN + network-none namespace</td>
+        <td>canary DB row/hash不変</td>
+      </tr>
+      <tr>
+        <td>Bun/dotenvがsnapshotの<code>.env</code>を再読込する</td>
+        <td>runtime projection除外 + Bun adapter V1 blocked</td>
+        <td>container内でcredential markerが不存在</td>
+      </tr>
+      <tr>
+        <td>hard-coded host/LAN/public DBへ接続する</td>
+        <td><code>--network none</code> namespace</td>
+        <td>loopback以外のTCP/DNS probeが全失敗</td>
+      </tr>
+      <tr>
+        <td>testがoriginal SQLite fileを書き換える</td>
+        <td>original source read-only + generated tmpfs DB path</td>
+        <td>original file digest/mtime不変</td>
+      </tr>
+      <tr>
+        <td>targetがDocker daemonを操作する</td>
+        <td>Docker socket非mount、capability drop、non-root</td>
+        <td>mount/permission inspectionとsocket probe失敗</td>
+      </tr>
+      <tr>
+        <td>credentialがstdout/artifactへ流出する</td>
+        <td>credential file除外、generated secret redaction</td>
+        <td>artifact corpus secret marker scan 0件</td>
+      </tr>
+      <tr>
+        <td>cancel/crash後にDB/containerが残る</td>
+        <td>resource lease、reverse-order cleanup、reaper</td>
+        <td>Docker resource一覧0件またはquarantine receipt</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2 id="4-fixed-architecture-contracts">4. Fixed architecture contracts</h2>
+  <h3 id="40-normative-call-flow">4.0 Normative call flow and ownership</h3>
+  <pre><code class="language-text">preview / dry-run (project-process and Docker-mutation free; Docker inspect only)
+1. resolve Git full target and source revision
+2. materialize scanner source snapshot
+3. materialize sanitized runtime source projection from scanner snapshot
+4. resolve RuntimeTargetRecipeV1 and npm dependency plan
+5. build RuntimeIsolationPlanV1 and planHash
+6. run ScanPreflightResultV2; no bundle/container/DB is created
+7. build ScanExecutionPlanV3 and return both hashes
+8. cleanup preview snapshots before response
+
+start
+1. repeat steps 1-6 and compare expected binding/plan/catalog hashes
+2. persist ScanExecutionPlanV3
+3. acquire one runtime_bundle lease before first Docker mutation
+4. prepare dependency workspace on isolated build plane
+5. create network-none runtime bundle
+6. prepare ephemeral DB, then target, then readiness
+7. execute DAST/runtime/API/dynamic consumers through namespace connection
+8. cleanup runtime bundle in fixed reverse order and release/quarantine lease
+9. cleanup runtime projection/scanner snapshot and persist receipts
+10. only after cleanup receipt persistence may the run become completed</code></pre>
+  <p>責務は次の4 componentに限定する。</p>
+  <table>
+    <caption>
+      4.0 Component ownership
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Component</th>
+        <th scope="col">Public entry</th>
+        <th scope="col">May mutate</th>
+        <th scope="col">Must not do</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>RuntimeIsolationPlanner</code></td>
+        <td><code>plan(input)</code></td>
+        <td>temporary source copies、Docker inspect only</td>
+        <td>project code、dependency install、DB/container start</td>
+      </tr>
+      <tr>
+        <td><code>RuntimeWorkspacePreparer</code></td>
+        <td><code>prepare(plan, runtimeProjection, bundleContext)</code>（provider internal）</td>
+        <td>bundle-owned Docker volume、dependency proxy/fetch container</td>
+        <td>original repo write、host dependency cache mount、DB env受領</td>
+      </tr>
+      <tr>
+        <td><code>DockerRuntimeBundleProvider</code></td>
+        <td><code>prepare(plan, runtimeProjection)</code></td>
+        <td>lease、workspace、namespace、DB、target、HTTP executor/probe</td>
+        <td>host port publish、default/host network、raw request Docker option</td>
+      </tr>
+      <tr>
+        <td><code>PreparedIsolatedRuntimeTarget</code></td>
+        <td>
+          <code>openGateway(policy)</code> /
+          <code>stop()</code>
+        </td>
+        <td>bundle child resource、receipt</td>
+        <td>raw credential/DSN/container nameをconsumerへ公開</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3 id="41-separate-source-projections">4.1 Separate scanner and runtime source projections</h3>
+  <p>
+    generic
+    <code>target-scope.ts</code
+    >へ<code>.env*</code>のglobal excludeを追加しない。
+  </p>
+  <ul>
+    <li>
+      scanner source snapshotは現行scopeを維持し、Gitleaksなどがcredential-bearing
+      fileを検査できる。
+    </li>
+    <li>
+      新規<code>materializeRuntimeSourceProjection</code>はoriginal repoではなく、
+      <code>materializeScopedSourceSnapshot</code>が返した
+      <code>FullSourceSnapshot.projectPath</code>だけを入力にする。
+    </li>
+    <li>
+      policy constantは<code>RUNTIME_SOURCE_PROJECTION_POLICY_V1</code>とし、次のexact globを
+      <code>additionalScope.excludeGlobs</code>へ追加する:
+      <code>.env</code
+      >、<code>.env.*</code>、<code>**/.env</code>、<code>**/.env.*</code>、
+      <code>.npmrc</code
+      >、<code>**/.npmrc</code>、<code>.pypirc</code>、
+      <code>**/.pypirc</code
+      >、<code>.netrc</code>、<code>**/.netrc</code>、
+      <code>.aws/**</code
+      >、<code>**/.aws/**</code>、<code>.config/gcloud/**</code>、
+      <code>**/.config/gcloud/**</code
+      >、<code>*.pem</code>、<code>**/*.pem</code>、
+      <code>*.key</code
+      >、<code>**/*.key</code>、<code>*.p12</code>、<code>**/*.p12</code>、
+      <code>*.pfx</code
+      >、<code>**/*.pfx</code>、<code>*.db</code>、<code>**/*.db</code>、
+      <code>*.sqlite</code
+      >、<code>**/*.sqlite</code>、<code>*.sqlite3</code>、
+      <code>**/*.sqlite3</code
+      >、<code>*.sock</code>、<code>**/*.sock</code>。
+    </li>
+    <li>
+      <code>createScopedWorkspace</code>は現在internal symlinkをfileとしてcopyしないが、
+      policy testで全symlinkがprojectionに存在しないことを固定する。symlink追跡機能を追加しない。
+    </li>
+    <li>
+      return typeは
+      <code>{ rootPath, projectPath, sourceSnapshotDigest, projectionDigest, policyVersion: 1, includedFileCount, excludedCategoryCounts, cleanup }</code>
+      とする。<code>projectionDigest</code>はrelative path、file
+      modeの実行bit、bytesをpath順でhashする。
+    </li>
+    <li>
+      excluded path名はartifact/eventへ保存せず、category countだけを保存する。 runtime generated
+      configurationはprojection外のserver-owned temporary directoryで作るが、 raw
+      credentialを含むfileは作らず、Docker
+      <code>--env-file</code>も使用しない。
+    </li>
+    <li>
+      copy失敗時は作成途中rootを削除して<code>runtime_source_projection_failed</code>を返す。
+      cleanupはidempotentで、receipt persistence失敗を成功扱いにしない。
+    </li>
+  </ul>
+
+  <h3 id="42-runtime-isolation-recipe">4.2 Runtime isolation recipe</h3>
+  <p>
+    repositoryが明示設定を必要とする場合は<code>.vuln-workbench/runtime-target.v1.json</code>を使用する。
+    DB modeが<code>none</code>以外の場合は必須である。このfileはversion
+    control対象とし、credential、 hostname、port、DSN、image、Docker option、arbitrary
+    shellを禁止する。
+  </p>
+  <pre><code class="language-json">{
+  "schemaVersion": 1,
+  "startPlannerId": "start.npm.package-script",
+  "dependencyAdapterId": "npm-package-lock-v1",
+  "database": {
+    "mode": "postgres_ephemeral",
+    "environmentBindings": [
+      { "key": "DATABASE_URL", "valueKind": "url" }
+    ]
+  },
+  "readinessPaths": ["/api/health"]
+}</code></pre>
+  <ul>
+    <li>
+      <code>database.mode</code
+      >は<code>none</code>、<code>sqlite_ephemeral</code>、
+      <code>postgres_ephemeral</code
+      >、<code>mysql_ephemeral</code>だけを許可する。
+    </li>
+    <li>
+      <code>environmentBindings[].key</code>は
+      <code>DATABASE_URL</code
+      >、<code>DB_URL</code>、<code>POSTGRES_URL</code>、
+      <code>MYSQL_URL</code>、<code>SPRING_DATASOURCE_URL</code>、
+      <code>SPRING_DATASOURCE_USERNAME</code>、<code>SPRING_DATASOURCE_PASSWORD</code>、
+      <code>DB_HOST</code
+      >、<code>DB_PORT</code>、<code>DB_NAME</code>、
+      <code>DB_USER</code
+      >、<code>DB_PASSWORD</code>、<code>SQLITE_PATH</code>だけを許可する。
+    </li>
+    <li>
+      <code>valueKind</code
+      >は<code>url</code>、<code>jdbc_url</code>、<code>host</code>、
+      <code>port</code
+      >、<code>database</code>、<code>username</code>、<code>password</code>、
+      <code>file_path</code
+      >、<code>file_url</code>のenumとする。modeと両立しない組はschema
+      refinementで拒否する。
+    </li>
+    <li>
+      recipe不在時に許すのは、DB
+      indicatorが0件でplannerが一意な<code>database.mode=none</code>だけである。
+      dependency/設定からDB indicatorが1件でも検出された場合は
+      <code>runtime_database_recipe_required</code>、engine候補が複数なら
+      <code>runtime_database_mode_ambiguous</code>でblockedにする。
+    </li>
+    <li>
+      <code>dependencyAdapterId</code>はserver
+      registryに存在するIDだけを許可する。V1でreadyになれるのは root
+      <code>package-lock.json</code
+      >と整合する<code>npm-package-lock-v1</code>だけである。
+    </li>
+    <li>
+      <code>readinessPaths</code>は1〜5件、各値はquery/fragmentを持たないrelative
+      HTTP pathとし、 schema不在時はstart plannerのpathsを使う。target
+      portはrecipeで指定せず<code>18080</code>固定とする。
+    </li>
+    <li>
+      application startupがmigration/seedを行うことは許可するが、project-owned migration commandを
+      別host phaseとして実行しない。migration失敗はtarget readiness failureとしてbundle
+      cleanupへ進む。
+    </li>
+  </ul>
+  <p>
+    DB indicator検出はruntime projection
+    rootの<code>package.json</code>と次の既知config pathだけを読み、
+    source本文やignored fileをheuristic scanしない。
+  </p>
+  <table>
+    <caption>
+      4.2 Exact database indicators used only to require a recipe
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Candidate</th>
+        <th scope="col">Dependency/config indicator</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>PostgreSQL</td>
+        <td>
+          <code>pg</code>、<code
+            >postgres</code
+          >
+        </td>
+      </tr>
+      <tr>
+        <td>MySQL</td>
+        <td>
+          <code>mysql</code>、<code
+            >mysql2</code
+          >
+        </td>
+      </tr>
+      <tr>
+        <td>SQLite</td>
+        <td>
+          <code>sqlite3</code>、<code
+            >better-sqlite3</code
+          >
+        </td>
+      </tr>
+      <tr>
+        <td>Ambiguous ORM</td>
+        <td>
+          <code>@prisma/client</code
+          >、<code>prisma</code>、<code>sequelize</code>、
+          <code>typeorm</code
+          >、<code>knex</code>、<code>drizzle-orm</code>、
+          <code>prisma/schema.prisma</code
+          >、<code>drizzle.config.*</code>、
+          <code>knexfile.*</code
+          >、<code>ormconfig.*</code>、<code
+            >config/database.*</code
+          >
+        </td>
+      </tr>
+      <tr>
+        <td>Unsupported service candidate</td>
+        <td>
+          <code>mongodb</code
+          >、<code>mongoose</code>、<code>redis</code>、<code
+            >ioredis</code
+          >
+        </td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    dependencies/devDependenciesの両方を見る。indicator 0件ならrecipeなしのimplicit
+    <code>none</code>を許す。specific candidateが1種なら
+    <code>runtime_database_recipe_required</code>、複数・ambiguous・unsupported
+    candidateを含む場合は
+    <code>runtime_database_mode_ambiguous</code>でrecipeを要求する。明示recipeが
+    <code>none</code
+    >を選ぶことは許すが、起動時に未提供serviceを要求してreadiness失敗したprojectへ追加networkやhost
+    serviceを与えない。
+  </p>
+  <p>
+    parserは<code>runtimeTargetRecipeV1Schema.strict()</code>を使い、planner/adapter/environment
+    keyをenumで限定する。unknown
+    key、絶対path、<code>..</code>、control character、recipe内のraw
+    URL/hostname/port/credential valueを拒否する。canonical
+    JSONのSHA-256を<code>recipeHash</code>とし、raw
+    file内容はmetadataへ保存しない。
+  </p>
+  <p>resolved planのhash対象を次に固定する。</p>
+  <pre><code class="language-ts">type RuntimeIsolationPlanV1 = {
+  schemaVersion: 1;
+  profileId: ScanProfileId;
+  source: {
+    sourceSnapshotDigest: string;
+    runtimeProjectionDigest: string;
+    projectionPolicyVersion: 1;
+  };
+  recipe: { recipeHash: string; startPlannerId: string };
+  dependency: {
+    adapterId: "npm-package-lock-v1";
+    policyVersion: 1;
+    lockDigest: string;
+  };
+  images: {
+    namespaceOwnerImageDigest: string;
+    nodeRuntimeImageDigest: string;
+    materializerImageDigest: string;
+    registryProxyImageDigest: string;
+    probeImageDigest: string;
+    httpExecutorImageDigest: string;
+    scannerImageDigests: Readonly&lt;Record&lt;string, string&gt;&gt;;
+    databaseImageDigest: string | null;
+  };
+  start: {
+    executable: "npm";
+    args: readonly string[];
+    port: 18080;
+    readinessPaths: readonly string[];
+  };
+  database: {
+    mode: RuntimeDatabaseMode;
+    policyVersion: 1;
+    bindings: readonly RuntimeDatabaseEnvironmentBinding[];
+  };
+  environment: { policyVersion: 1 };
+  network: { kind: "container_namespace"; policyVersion: 1 };
+  limits: RuntimeBundleLimitsV1;
+  cleanup: { required: true; policyVersion: 1 };
+  dockerDaemonIdentityHash: string;
+  qualificationHash: string;
+};</code></pre>
+  <p>
+    <code>planHash</code>は上記objectだけのcanonical
+    SHA-256とする。<code>scanRunId</code>、bundle
+    UUID、timestamp、temporary/absolute path、Docker container ID、generated
+    credentialはpreview/startで変わるため planにもhashにも含めない。start
+    <code>args</code>はplannerが選んだpackage
+    scriptの固定argvであり、recipeから command文字列を受け取らない。
+  </p>
+
+  <h3 id="43-isolated-npm-dependency-preparation">4.3 Isolated npm dependency preparation plane</h3>
+  <p>
+    V1はproject固有imageをbuildしない。deployment設定でdigest固定されたNode runtime
+    imageをtargetとdependency fetchに使い、project
+    sourceと<code>node_modules</code>をrun専用volumeへ
+    materializeする。既存<code>ApprovedBuildRecipe</code>は別用途のattestation
+    contractなので拡張しない。 canonical hash helperの実装patternだけを再利用する。
+  </p>
+  <p>
+    providerがbundle leaseを取得した後、internal
+    <code>RuntimeWorkspacePreparer.prepare(plan, runtimeProjection, bundleContext)</code>を次の順序で実行する。
+    <code>runtimeProjection</code>はSection 4.1のhandleであり、project
+    pathとdigestを持つがplan/public
+    metadataへserializeしない。<code>bundleContext</code>はserver-generated
+    bundle/scan/lease ID、role label builder、<code>updateActiveReceipt</code>
+    callbackだけを持つ。
+  </p>
+  <ol>
+    <li>
+      runtime
+      projectionのrootに<code>package.json</code>と<code>package-lock.json</code>が各1件あること、
+      lockfileVersionが2または3であること、recipeのplanner/adapterと一致することを検証する。
+    </li>
+    <li>
+      lock内のresolved URLを走査し、schemeがHTTPS、hostが
+      <code>registry.npmjs.org</code>、URL credentialなし、root entryを除く全external
+      packageに integrityあり、
+      <code>git+</code
+      >/<code>file:</code>/<code>link:</code>/<code
+        >workspace:</code
+      >
+      dependencyなしを要求する。
+      違反は<code>runtime_dependency_lock_unsupported</code>でblockedにする。
+    </li>
+    <li>
+      bundle label付きの<code>dependency</code> volume、<code
+        >workspace</code
+      >
+      volume、internal build network、egress build
+      networkを作る。いずれも既存volume/networkを再利用しない。
+    </li>
+    <li>
+      server-owned materializer
+      containerを<code>--network none</code>で起動し、dependency volumeへpackage
+      manifest 2件だけをcopyする。original repo、runtime projection全体、host HOME、host package
+      cacheはmountしない。
+    </li>
+    <li>
+      digest固定allowlist proxyをinternal/egress build networkの両方へ接続する。proxyは
+      <code>registry.npmjs.org:443</code>へのCONNECTだけを許可し、request
+      body/headerをlogしない。 dependency fetch containerはinternal networkだけへ接続する。
+    </li>
+    <li>
+      digest固定Node imageをnon-root、<code>--cap-drop ALL</code>、
+      <code>--security-opt no-new-privileges</code>、read-only rootfs、tmpfs HOMEで起動する。
+      dependency volumeだけを<code>/workspace</code>へRW
+      mountし、次の固定argvをshellなしで実行する。 <code>npm ci --ignore-scripts --no-audit --no-fund --cache /workspace/.npm-cache</code>。
+      <code>HTTP_PROXY</code
+      >/<code>HTTPS_PROXY</code>はproxy、
+      <code>NO_PROXY</code
+      >は空、registryは<code>https://registry.npmjs.org/</code>へ固定する。
+    </li>
+    <li>
+      fetch完了後、fetch/proxy containerと両build networkを削除する。削除確認前にproject
+      sourceを扱う次phaseへ進まない。
+    </li>
+    <li>
+      server-owned
+      materializerを再度<code>--network none</code>で起動し、sanitized runtime
+      projectionとdependency volume内の<code>node_modules</code>をworkspace
+      volumeへcopyする。
+      <code>.npm-cache</code>はcopyしない。copy後manifestを作り、projection
+      digest、lock digest、 runtime image digest、dependency tree digestをworkspace
+      receiptへbindする。
+    </li>
+  </ol>
+  <p>
+    dependency phaseへDB environment、project
+    environment、request由来proxy/image/registryを渡さない。 lifecycle
+    scriptを必要とするpackage、native
+    buildのため<code>--ignore-scripts</code>で起動不能なproject、
+    monorepo/workspace、private registryはV1では
+    <code>runtime_dependency_adapter_unqualified</code>でblockedにする。失敗後にhost
+    <code>npm install</code>へfallbackしない。
+  </p>
+  <p>
+    全imageは<code>runtime-image-registry.ts</code>のplatform別
+    <code>repository@sha256:digest</code
+    >だけを使う。preflightは<code>docker image inspect</code>でlocal存在と
+    digest一致を確認し、scan/preview/start中に<code>docker pull</code>または<code>docker build</code>を行わない。
+    未配置は<code>runtime_image_missing</code>、digest不一致は
+    <code>runtime_image_digest_mismatch</code>でblockedにする。
+  </p>
+
+  <h3 id="44-network-namespace-bundle">4.4 Network-none namespace bundle</h3>
+  <p>
+    targetとDBの通信にはuser-defined bridgeを使わない。runごとにnamespace owner containerを
+    <code>--network none</code>で作り、残るcontainerを同じnetwork
+    stackへ参加させる。
+  </p>
+  <pre><code class="language-text">Docker daemon
+└─ namespace owner: --network none
+   ├─ database sidecar: --network container:&lt;owner&gt; 127.0.0.1:&lt;db-port&gt;
+   ├─ target:           --network container:&lt;owner&gt; 127.0.0.1:&lt;app-port&gt;
+   ├─ readiness probe:  --network container:&lt;owner&gt;
+   └─ scanner(s):       --network container:&lt;owner&gt; http://127.0.0.1:&lt;app-port&gt;</code></pre>
+  <ul>
+    <li>
+      namespace ownerはpinned minimal image、non-root、read-only rootfs、capabilityなしで起動する。
+    </li>
+    <li>target portとDB portをhostへpublishしない。</li>
+    <li>
+      <code>--add-host</code>、custom DNS、host network、default
+      bridgeを使用しない。
+    </li>
+    <li>
+      current host-based bounded crawler/readinessは、同じnamespaceへ参加するpinned scanner/probe
+      containerへ移す。runtime profileのためだけにhost TCP proxyを追加しない。
+    </li>
+    <li>
+      Docker runnerのnetwork型をstring enumからdiscriminated policyへ変更し、
+      <code>none</code>、scanner用offline、server-owned
+      <code>container_namespace</code>を区別する。requestから任意container
+      IDを受け付けない。
+    </li>
+    <li>
+      namespace owner IDはserver-generated leaseからのみ解決し、plan/eventにはdigestまたはopaque
+      external IDを保存する。container nameの再利用を許さない。
+    </li>
+    <li>
+      runtime側の固定portはtarget <code>18080</code>、PostgreSQL
+      <code>15432</code>、MySQL
+      <code>13306</code>とする。bundleごとにnetwork
+      namespaceが異なるためport探索を行わない。
+    </li>
+  </ul>
+  <pre><code class="language-ts">declare const serverOwnedNamespaceBrand: unique symbol;
+
+type InternalDockerNetworkPolicy =
+  | { kind: "none" }
+  | {
+      kind: "container_namespace";
+      bundleLeaseId: string;
+      namespaceRef: ServerOwnedNamespaceRef;
+    };
+
+type ServerOwnedNamespaceRef = {
+  readonly ownerContainerId: string;
+  readonly [serverOwnedNamespaceBrand]: true;
+};</code></pre>
+  <p>
+    <code>ServerOwnedNamespaceRef</code>はAPI/shared schemaへexportせず、bundle
+    providerが生成して Docker
+    runnerへ直接渡す。<code>bundleLeaseId</code>とrefの対応をrepositoryで再検証してから
+    <code>--network container:&lt;id&gt;</code>へ変換する。request JSON、plugin、recipe、saved
+    planから container IDを指定する経路を作らない。
+  </p>
+  <p>全runtime Docker resourceへ次のlabelを必須とする。</p>
+  <pre><code class="language-text">com.vuln-workbench.bundle=&lt;bundle UUID&gt;
+com.vuln-workbench.scan-run=&lt;scanRunId&gt;
+com.vuln-workbench.role=namespace-owner|build-internal-network|build-egress-network|
+  registry-proxy|dependency-fetch|materializer|dependency-volume|workspace-volume|
+  database|target|probe|http-executor|scanner</code></pre>
+  <table>
+    <caption>
+      4.4
+      <code>RuntimeBundleLimitsV1</code>
+      maxima
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Role</th>
+        <th scope="col">Memory</th>
+        <th scope="col">CPU</th>
+        <th scope="col">PIDs</th>
+        <th scope="col">Timeout/storage</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>namespace owner/proxy</td>
+        <td>128 MiB</td>
+        <td>0.25</td>
+        <td>64</td>
+        <td>bundle lifetime</td>
+      </tr>
+      <tr>
+        <td>materializer</td>
+        <td>256 MiB</td>
+        <td>0.5</td>
+        <td>64</td>
+        <td>120 sec</td>
+      </tr>
+      <tr>
+        <td>npm fetch</td>
+        <td>1 GiB</td>
+        <td>1.0</td>
+        <td>256</td>
+        <td>600 sec; lock max 10 MiB/10,000 entries</td>
+      </tr>
+      <tr>
+        <td>target</td>
+        <td>1 GiB</td>
+        <td>1.0</td>
+        <td>256</td>
+        <td>readiness 120 sec; writable tmpfs total 256 MiB</td>
+      </tr>
+      <tr>
+        <td>database</td>
+        <td>1 GiB</td>
+        <td>1.0</td>
+        <td>256</td>
+        <td>readiness 120 sec; data tmpfs 512 MiB</td>
+      </tr>
+      <tr>
+        <td>probe/HTTP executor</td>
+        <td>256 MiB</td>
+        <td>0.5</td>
+        <td>64</td>
+        <td>existing request budget以下</td>
+      </tr>
+      <tr>
+        <td>scanner</td>
+        <td>既存profile limit以下</td>
+        <td>既存profile limit以下</td>
+        <td>既存profile limit以下</td>
+        <td>既存step timeout/output limit以下</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    V1 constantより厳しいdeployment overrideは許すが、緩和はschema/policy
+    version更新と再qualificationを必須にする。 timeout/OOM/PID limit到達はphase failureとしてbundle
+    cleanupへ送る。
+  </p>
+  <ul>
+    <li>
+      long-lived child
+      containerは<code>--rm</code>を使わず、providerがIDをreceiptへ保存した後にstartする。
+      namespace ownerは<code>--network none --read-only --cap-drop ALL --security-opt
+      no-new-privileges</code>、non-root、pids/memory/CPU
+      limit付きで起動する。
+    </li>
+    <li>
+      targetはdigest固定Node image、workspace
+      volumeだけを<code>/workspace</code>へRW mountし、 working
+      directoryを<code>/workspace</code>へ固定する。original repo、Docker
+      socket、host path、 device、privileged、additional capabilityを受理しない。
+    </li>
+    <li>
+      invocation unit testはnormalized
+      argvに<code>--publish</code>、<code>-p</code>、
+      <code>--network host</code>、default
+      bridge、<code>--add-host</code>、
+      <code>/var/run/docker.sock</code>がないことをroleごとにassertする。
+    </li>
+  </ul>
+
+  <h3 id="45-ephemeral-database-providers">4.5 Ephemeral database providers</h3>
+  <table>
+    <caption>
+      4.5 Provider contract
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Mode</th>
+        <th scope="col">Storage</th>
+        <th scope="col">Connection</th>
+        <th scope="col">Milestone</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>none</code></td>
+        <td>DB resourceなし</td>
+        <td>known DB environment keyをunset</td>
+        <td>A</td>
+      </tr>
+      <tr>
+        <td><code>sqlite_ephemeral</code></td>
+        <td>target containerのrun専用tmpfs path</td>
+        <td>generated file URL/path</td>
+        <td>A</td>
+      </tr>
+      <tr>
+        <td><code>postgres_ephemeral</code></td>
+        <td>pinned DB image + tmpfs data directory</td>
+        <td>shared loopback + generated credential</td>
+        <td>B</td>
+      </tr>
+      <tr>
+        <td><code>mysql_ephemeral</code></td>
+        <td>pinned DB image + tmpfs data directory</td>
+        <td>shared loopback + generated credential</td>
+        <td>B</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>全providerは次のinterfaceを満たす。childごとのleaseは返さず、bundle receiptへ追記する。</p>
+  <pre><code class="language-ts">type RuntimeDatabaseProvider = {
+  plan(input: {
+    mode: RuntimeDatabaseMode;
+    bindings: RuntimeDatabaseEnvironmentBinding[];
+    imageRegistry: QualifiedRuntimeImageRegistry;
+  }): RuntimeDatabasePlan;
+  prepare(input: {
+    plan: RuntimeDatabasePlan;
+    bundleLeaseId: string;
+    namespaceRef: ServerOwnedNamespaceRef;
+  }): Promise&lt;{
+    targetEnvironment: ReadonlyMap&lt;string, SecretString&gt;;
+    privateResourceRefs: RuntimeBundleChildRef[];
+    publicReceipt: RedactedRuntimeDatabaseReceipt;
+    stop(): Promise&lt;RuntimeCleanupStepReceipt&gt;;
+  }&gt;;
+};</code></pre>
+  <ul>
+    <li>
+      <code>none</code>ではbindingsを空配列に限定する。target
+      environmentを空から構築するため、 known DB keyのunset用placeholderは渡さない。
+    </li>
+    <li>
+      <code>sqlite_ephemeral</code
+      >はtargetの<code>/runtime-data</code>をtmpfs mountし、fileを
+      <code>/runtime-data/app.sqlite</code>へ固定する。許可するvalueKindは
+      <code>file_path</code
+      >と<code>file_url</code>で、後者は
+      <code>file:/runtime-data/app.sqlite</code>を生成する。
+    </li>
+    <li>
+      <code>postgres_ephemeral</code>はserver registryのdigest固定imageを使い、data
+      directoryを tmpfsとする。argvで<code>listen_addresses=127.0.0.1</code>とport
+      <code>15432</code
+      >を固定し、<code>pg_isready</code>が成功してからtargetを作る。
+    </li>
+    <li>
+      <code>mysql_ephemeral</code>もdigest固定imageとtmpfsを使い、
+      <code>--bind-address=127.0.0.1 --port=13306</code>を固定する。 server-owned health
+      commandが成功してからtargetを作る。
+    </li>
+    <li>
+      username/databaseは<code>[a-z0-9_]</code>だけのrun固有値、passwordは128
+      bit以上の CSPRNG base64url値にする。Docker CLI argvへvalueを含めず、sanitized child-process
+      environmentとkey-only <code>--env KEY</code>で渡す。
+    </li>
+    <li>
+      receiptはengine、image digest、storage kind、environment key名、readiness結果だけを保存する。
+    </li>
+    <li>
+      SQLite original fileをcopyして初期dataに使わない。empty DBまたはversioned fixtureだけを使う。
+    </li>
+    <li>PostgreSQL/MySQL data directoryへhost volumeをmountしない。</li>
+    <li>DB readinessがtimeoutした場合、targetを起動せずbundle cleanupへ移る。</li>
+  </ul>
+  <p>
+    URLは<code>postgresql://</code>または<code>mysql://</code>、hostは
+    <code>127.0.0.1</code
+    >、port/database/user/passwordはprovider生成値から組み立てる。
+    recipeに記載されたkeyへvalueKindを1対1で展開し、同じkeyの重複、modeと不整合な
+    valueKind、生成不能なbindingは<code>runtime_database_binding_invalid</code>でpreflight
+    blockedとする。
+  </p>
+
+  <h3 id="46-runtime-environment">4.6 Runtime environment construction</h3>
+  <ul>
+    <li>
+      parent <code>process.env</code>を継承せず、固定base allowlistから作る。
+    </li>
+    <li>
+      base
+      environmentは<code>PATH</code>、<code>HOME=/runtime-home</code>、
+      <code>TMPDIR=/runtime-tmp</code>、<code>XDG_CACHE_HOME=/runtime-cache</code>、
+      <code>CI=1</code
+      >、<code>NODE_ENV=test</code>、<code>HOST=127.0.0.1</code>、
+      <code>PORT=18080</code
+      >、<code>VULN_WORKBENCH_EPHEMERAL_RUNTIME=1</code>だけとする。 writable directoryはtarget
+      container内tmpfsへ固定する。
+    </li>
+    <li>
+      V1のBun adapterはblockedである。Node/dotenvが使われても、runtime projectionに
+      <code>.env*</code>が存在しないことを防御境界とする。
+    </li>
+    <li>
+      plugin start planのenvironment valueはhost/port/modeなど非secretのallowlistだけを受理する。
+      database keyの値はdatabase providerだけが上書きできる。
+    </li>
+    <li>
+      start
+      plannerが追加できるkeyは<code>HOST</code>、<code>PORT</code>、
+      <code>NODE_ENV</code
+      >だけで、値は上記固定値との一致を要求する。database providerは recipeで宣言済みのDB
+      keyだけを最後に追加できる。
+    </li>
+    <li>
+      target argvは検証済みnpm package-script planから構築し、recipe文字列をshellへ渡さない。
+      dependency install、migration、seed用の別commandをstartup前に実行しない。
+    </li>
+    <li>
+      metadataへはenvironment key名とvalueKindだけを保存する。generated
+      secretをredactorへ実行前登録し、 stdout/stderr、Docker
+      error、event、artifactを永続化する前に置換する。secret値やそのhashは保存しない。
+    </li>
+  </ul>
+
+  <h3 id="47-preflight-and-binding">4.7 Preflight and immutable binding</h3>
+  <p>
+    shared
+    schemaへ<code>ScanPreflightResultV2</code>と<code>ScanExecutionPlanV3</code>を追加し、
+    V1/V2 saved record readerを残す。runtime stepを含む新規runは必ず新versionを書き、旧versionへ
+    runtime fieldをoptional追加して代用しない。
+  </p>
+  <table>
+    <caption>
+      4.7 Preflight checks
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Kind</th>
+        <th scope="col">Ready condition</th>
+        <th scope="col">Blocked reason examples</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>runtime_source_projection</code></td>
+        <td>policy versionとprojection manifestを生成可能</td>
+        <td><code>runtime_source_projection_failed</code></td>
+      </tr>
+      <tr>
+        <td><code>runtime_dependency_preparation</code></td>
+        <td>npm lock/adapter/proxy/runtime imageがqualified registryと一致</td>
+        <td><code>runtime_dependency_adapter_unqualified</code></td>
+      </tr>
+      <tr>
+        <td><code>runtime_database_isolation</code></td>
+        <td>database modeが一意でprovider/imageが利用可能</td>
+        <td><code>runtime_database_mode_ambiguous</code></td>
+      </tr>
+      <tr>
+        <td><code>runtime_network_isolation</code></td>
+        <td>network-none/container namespace qualificationがcurrent Docker identityと一致</td>
+        <td><code>runtime_network_namespace_unavailable</code></td>
+      </tr>
+      <tr>
+        <td><code>runtime_cleanup_capability</code></td>
+        <td>lease repositoryとreaperがready</td>
+        <td><code>runtime_cleanup_unavailable</code></td>
+      </tr>
+    </tbody>
+  </table>
+  <ul>
+    <li>
+      <code>project_code_consent</code>は新規runでemitしない。旧run
+      reader互換のenumだけを残す。
+    </li>
+    <li><code>sandbox_availability</code>をconsent flagから導出しない。</li>
+    <li>
+      V2
+      bindingは<code>sourceSnapshotDigest</code>、<code>runtimeProjectionDigest</code>、
+      <code>recipeHash</code
+      >、<code>dependencyLockDigest</code>、<code>runtimeIsolationPlanHash</code>、
+      <code>runtimeIsolationQualificationHash</code>、<code>dockerDaemonIdentityHash</code>、
+      role別image digestをrequiredで持つ。
+    </li>
+    <li>
+      V3 execution planは同じbindingを<code>runtimeIsolation</code>
+      envelopeへそのまま保存する。 start
+      requestはpreviewで返した<code>expectedRuntimeIsolationPlanHash</code>を必須とし、server側で
+      sourceから再計算した値とtiming-safe比較する。
+    </li>
+    <li>
+      preflight後にsource、recipe、image、Docker daemon identity、qualificationが変わった場合は
+      <code>runtime_isolation_binding_changed</code>で409/blockedにする。
+    </li>
+    <li>
+      previewはproject code、npm、DB、runtime bundleを起動しない。Docker daemon
+      <code>info</code
+      >/<code>image inspect</code>だけを許可し、container、volume、networkを作らない。
+    </li>
+    <li>
+      remediation actionは<code>create_runtime_recipe</code>、
+      <code>use_supported_npm_lock</code>、<code>start_local_docker</code>、
+      <code>run_runtime_isolation_qualification</code
+      >のenumに限定する。任意commandやcredentialを返さない。
+    </li>
+  </ul>
+  <p>
+    Docker identityは<code>docker info</code>からserver version、OS
+    type、architecture、kernel version、 rootless flag、security
+    optionsをcanonicalizeしてhashする。remote TCP/SSH daemonは
+    <code>runtime_docker_daemon_remote_unsupported</code>でblockedにする。preflightはcurrent
+    identity/hashと、 Section 9.3のverified qualification artifact、全local image
+    digestを毎回比較する。
+  </p>
+  <p>
+    circular hashを避けるため、qualification artifactはruntime plan hashを含めない。
+    <code>qualificationSubjectHash</code>はapplication commit、dirty-state digest、Docker
+    identity、platform、 image registry digest、schema/policy versions、qualification case contract
+    hashから先に計算する。 E2E resultを加えたartifact全体のcanonical
+    hashを<code>qualificationHash</code>とし、runtime planがその値をbindする。
+  </p>
+
+  <h3 id="48-runtime-provider-and-consumer-contract">
+    4.8 Runtime provider and scanner consumer contract
+  </h3>
+  <p>
+    <code>PreparedRuntimeTarget</code
+    >の単一<code>origin</code>はhost reachabilityを暗黙に要求するため、
+    server-owned namespace connectionへ置き換える。
+  </p>
+  <pre><code class="language-ts">type RuntimeNamespaceConnection = {
+  kind: "container_namespace";
+  bundleLeaseId: string;
+  targetOrigin: "http://127.0.0.1:18080";
+};
+
+type NamespaceHttpTransport = {
+  request(input: BoundedHttpRequest): Promise&lt;BoundedHttpResponse&gt;;
+  close(): Promise&lt;void&gt;;
+};
+
+type PreparedIsolatedRuntimeTarget = {
+  plan: RuntimeIsolationPlanV1;
+  connection: RuntimeNamespaceConnection;
+  targetConfig: BoundedRuntimeTargetConfig;
+  createHttpTransport(policy: BoundedHttpPolicy): Promise&lt;NamespaceHttpTransport&gt;;
+  publicReceipt: RedactedRuntimeIsolationReceipt;
+  stop(): Promise&lt;RuntimeCleanupReceipt&gt;;
+};</code></pre>
+  <ul>
+    <li>
+      built-in readiness/DAST HTTPはhost
+      <code>fetch</code>を使わず、namespace内のdigest固定 HTTP
+      executorへ<code>docker exec -i</code>でlength-prefixed JSON requestを渡す。
+      response size、redirect、request count、timeoutは既存bounded policy以下に制限する。
+    </li>
+    <li>
+      NucleiとSchemathesisはgeneric Docker runnerへ
+      <code>{ kind: "container_namespace", bundleLeaseId }</code>を渡す。runnerがprivate namespace refを解決する。
+    </li>
+    <li>
+      ZAP command builderは同じnetwork policyをrequired引数にし、current
+      <code>network: "default"</code
+      >と<code>host.docker.internal</code>追加をruntime pathから削除する。
+    </li>
+    <li>runtime stepごとにtargetを再起動せず、一つのbundleを共有する。</li>
+    <li>
+      <code>runDastStepIntoExistingScan</code>はprepared targetとHTTP
+      transportをrequiredにする。
+      provider未指定時の<code>prepareDastTargetWorkspace</code>呼出しを削除し、production/testとも
+      <code>runtime_isolation_provider_unavailable</code>を返すcontract testを置く。
+    </li>
+    <li>
+      <code>runtime-web-safe</code>はrequiredなDAST/Nuclei/ZAPの3
+      stepがすべて上記経路へ移り、 negative E2Eを通るまでstable promotionしない。host
+      originが必要な未移行adapterはblockedにする。
+    </li>
+  </ul>
+
+  <h3 id="49-resource-lifecycle-and-cleanup">4.9 Resource lifecycle and cleanup</h3>
+  <p>resource作成順とcleanup順を固定する。</p>
+  <pre><code class="language-text">prepare and receipt append
+1. acquire runtime_bundle lease
+2. dependency/workspace volumes and temporary build resources
+3. namespace owner
+4. ephemeral database
+5. target container
+6. readiness/http executor and scanner containers
+
+cleanup (fixed reverse dependency order)
+1. scanner/readiness/http-executor containers
+2. target container
+3. database container
+4. namespace owner container
+5. workspace/dependency volumes
+6. remaining build containers/networks
+7. generated host temp and runtime projection</code></pre>
+  <ul>
+    <li>
+      <code>scan_resource_leases</code>にはbundle全体で一つの
+      <code>resourceType=runtime_bundle</code> leaseだけをactiveとして保存する。
+      <code>externalId</code
+      >は<code>runtime-bundle:&lt;UUID&gt;</code>、ownerは必ず
+      <code>scanRunId</code>とする。
+    </li>
+    <li>
+      repositoryへ<code>updateActiveReceipt(leaseId, privateReceipt)</code>を追加し、Docker
+      resource作成直後かつstart前にprivate child ID、role、label、createdAtを追記する。 public run
+      metadataにはredacted receiptだけを投影する。
+    </li>
+    <li>
+      private receipt更新に失敗したresourceは即時削除する。削除も失敗した場合はbundle label
+      selectorを quarantine eventへ保存し、後続resourceを作らない。
+    </li>
+    <li>全cleanup成功時だけbundle leaseをresource-specific receipt付きでreleasedにする。</li>
+    <li>一つでもcleanupに失敗した場合はbundleをquarantinedとし、runをcompletedにしない。</li>
+    <li>
+      process crash後はexisting reaperがexpired
+      <code>runtime_bundle</code> leaseをproviderへ渡す。 providerはprivate
+      receiptとbundle label queryをmergeし、上記固定順でidempotentに回収する。 child
+      leaseやschema上のdependency graphは追加しない。
+    </li>
+    <li>
+      reaperが回収できないresourceはopaque IDとmanual command templateを管理者向けeventに残す。
+    </li>
+    <li>credential、DSN、absolute source pathをcleanup receiptへ含めない。</li>
+  </ul>
+
+  <h3 id="410-state-and-failure-contract">4.10 State and failure contract</h3>
+  <table>
+    <caption>
+      4.10 Required transitions and externally visible reasons
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Failure point</th>
+        <th scope="col">Run outcome</th>
+        <th scope="col">Lease outcome</th>
+        <th scope="col">Reason</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>projection/recipe/adapter/preflight</td>
+        <td>blocked; Docker mutation 0件</td>
+        <td>leaseなし</td>
+        <td>Section 4.11の該当code</td>
+      </tr>
+      <tr>
+        <td>preview/start binding drift</td>
+        <td>409 + blocked</td>
+        <td>leaseなし</td>
+        <td><code>runtime_isolation_binding_changed</code></td>
+      </tr>
+      <tr>
+        <td>dependency preparation/DB/target/readiness/scan</td>
+        <td>failed after cleanup</td>
+        <td>released if cleanup complete</td>
+        <td>phase固有reason</td>
+      </tr>
+      <tr>
+        <td>cancel/timeout</td>
+        <td>cancelled/failed after cleanup</td>
+        <td>released if cleanup complete</td>
+        <td>既存cancel/timeout reason</td>
+      </tr>
+      <tr>
+        <td>cleanup/receipt persistence</td>
+        <td>failed; completed禁止</td>
+        <td>quarantined</td>
+        <td><code>runtime_bundle_cleanup_incomplete</code></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3 id="411-reason-code-registry">4.11 Reason-code registry</h3>
+  <p>
+    実装者は次のcodeをshared enumへそのまま追加し、同義語を増やさない。detailはredacted
+    key/count/digestだけを持つ。
+  </p>
+  <table>
+    <caption>
+      4.11 Exact runtime isolation reasons
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Phase</th>
+        <th scope="col">Codes</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Source/recipe</td>
+        <td>
+          <code>runtime_source_projection_failed</code
+          >、<code>runtime_recipe_invalid</code>、
+          <code>runtime_database_recipe_required</code
+          >、<code>runtime_database_mode_ambiguous</code>、
+          <code>runtime_database_binding_invalid</code>
+        </td>
+      </tr>
+      <tr>
+        <td>Dependency/image</td>
+        <td>
+          <code>runtime_dependency_lock_unsupported</code>、
+          <code>runtime_dependency_adapter_unqualified</code>、
+          <code>runtime_dependency_preparation_failed</code
+          >、<code>runtime_image_missing</code>、
+          <code>runtime_image_digest_mismatch</code>
+        </td>
+      </tr>
+      <tr>
+        <td>Docker/qualification</td>
+        <td>
+          <code>runtime_isolation_provider_unavailable</code>、
+          <code>runtime_docker_daemon_remote_unsupported</code>、
+          <code>runtime_network_namespace_unavailable</code>、
+          <code>runtime_isolation_qualification_missing</code>、
+          <code>runtime_isolation_qualification_mismatch</code>、
+          <code>runtime_cleanup_unavailable</code>
+        </td>
+      </tr>
+      <tr>
+        <td>Database/target</td>
+        <td>
+          <code>runtime_database_provider_unqualified</code>、
+          <code>runtime_database_readiness_failed</code
+          >、<code>runtime_target_start_failed</code>、
+          <code>runtime_target_readiness_failed</code>
+        </td>
+      </tr>
+      <tr>
+        <td>Binding/lifecycle</td>
+        <td>
+          <code>runtime_isolation_binding_changed</code>、
+          <code>runtime_bundle_receipt_persistence_failed</code>、
+          <code>runtime_bundle_cleanup_incomplete</code>
+        </td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2 id="5-product-and-api-contract">5. Product and API contract</h2>
+  <h3 id="51-profile-behavior">5.1 Profile behavior</h3>
+  <table>
+    <caption>
+      5.1 User-visible behavior after rollout
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Profile</th>
+        <th scope="col">Consent UI</th>
+        <th scope="col">Execution condition</th>
+        <th scope="col">Blocked guidance</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>runtime-passive</code></td>
+        <td>削除</td>
+        <td>qualified isolated target + disposable data store</td>
+        <td>runtime recipe/image/DB modeを表示</td>
+      </tr>
+      <tr>
+        <td><code>api-readonly</code></td>
+        <td>削除</td>
+        <td>schema applicableかつ同じisolated target</td>
+        <td>schemaなしはN/A、isolation不足はblocked</td>
+      </tr>
+      <tr>
+        <td><code>dynamic-verification</code></td>
+        <td>DBI-11 promotion後に削除</td>
+        <td>sanitized projection + network none + optional ephemeral DB</td>
+        <td>dynamic recipe/data modeを表示</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    UIは「同意します」ではなく、「sourceとDBはrun終了時に破棄され、外部networkへ接続しません」という
+    observed policy summaryを表示する。summaryはcatalogの固定文言ではなくpreflight
+    resultから生成する。
+  </p>
+
+  <h3 id="52-api-compatibility">5.2 API and CLI compatibility</h3>
+  <ul>
+    <li>
+      <code>consentProjectCodeExecution</code>は一つの互換期間だけrequest
+      schemaで受理し、deprecated warningを返す。値はplan、preflight、execution
+      permissionへ影響させない。
+    </li>
+    <li>Web consumerはcompatibility period開始時にfield送信を止める。</li>
+    <li>CLI flagはdeprecated messageを出し、次のcontract majorで削除する。</li>
+    <li>
+      responseへ<code>runtimeIsolation</code>
+      summaryをadditiveに追加し、mode、database engine、 source projection policy、network
+      policy、cleanup statusをredacted表示する。
+    </li>
+    <li>
+      既存保存runの<code>project_code_consent</code>
+      checkとmetadataはreaderが継続表示できる。
+    </li>
+  </ul>
+
+  <h3 id="53-control-plane-persistence">5.3 Control-plane persistence boundary</h3>
+  <ul>
+    <li>scan run、event、lease、finding、artifactは監査目的でcontrol-plane DBへ保存する。</li>
+    <li>
+      target DBのtable、row、migration SQL、credential、raw DSNはcontrol-plane DBへ保存しない。
+    </li>
+    <li>
+      preflightでblockedとなったrunはtarget/DB resourceを作らず、blocked reasonだけを保存する。
+    </li>
+    <li>
+      test suiteはproduction control-plane DBを使わず、既存のisolated AppDatabase
+      fixtureを継続する。
+    </li>
+  </ul>
+
+  <h2 id="6-delivery-ledger">6. Delivery and work-package ledger</h2>
+  <table>
+    <caption>
+      6.1 Ordered work packages
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">ID</th>
+        <th scope="col">Scope</th>
+        <th scope="col">Depends on</th>
+        <th scope="col">Exit gate</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>DBI-00</td>
+        <td>characterization、disposable canary、baseline</td>
+        <td>none</td>
+        <td>unsafe call pathとafter-fix negative assertionをfixtureだけで再現</td>
+      </tr>
+      <tr>
+        <td>DBI-01</td>
+        <td>shared V1/V2/V3 schema、canonical hash、redaction types</td>
+        <td>DBI-00</td>
+        <td>schema/unit testとlegacy reader互換</td>
+      </tr>
+      <tr>
+        <td>DBI-02</td>
+        <td>runtime projection、recipe resolver、pure isolation planner</td>
+        <td>DBI-01</td>
+        <td>credential/DB file除外とtruthful adapter blocking</td>
+      </tr>
+      <tr>
+        <td>DBI-03</td>
+        <td>npm dependency preparation plane</td>
+        <td>DBI-02</td>
+        <td>allowlisted registry以外のegress 0件、lifecycle script 0件</td>
+      </tr>
+      <tr>
+        <td>DBI-04</td>
+        <td>preflight V2、execution plan V3、production composition</td>
+        <td>DBI-02</td>
+        <td>provider不在/driftはDocker mutation前にblocked</td>
+      </tr>
+      <tr>
+        <td>DBI-05</td>
+        <td>single bundle lease、namespace、receipt/reaper</td>
+        <td>DBI-04</td>
+        <td>crash/cancel/cleanup failureを含むidempotent回収</td>
+      </tr>
+      <tr>
+        <td>DBI-06</td>
+        <td>none/SQLite、Node target、readiness/HTTP transport</td>
+        <td>DBI-03, DBI-05</td>
+        <td>host spawn 0件、original SQLite/canary不変</td>
+      </tr>
+      <tr>
+        <td>DBI-07</td>
+        <td>DAST/Nuclei/ZAP/Schemathesis consumer migration</td>
+        <td>DBI-06</td>
+        <td><code>runtime-web-safe</code> required stepのhost gateway 0件</td>
+      </tr>
+      <tr>
+        <td>DBI-08</td>
+        <td>PostgreSQL/MySQL provider</td>
+        <td>DBI-06</td>
+        <td>migration/seedはephemeral sidecarだけを更新</td>
+      </tr>
+      <tr>
+        <td>DBI-09</td>
+        <td>dynamic-verification integration</td>
+        <td>DBI-08</td>
+        <td>parent scan、sanitized projection、same bundle contract</td>
+      </tr>
+      <tr>
+        <td>DBI-10</td>
+        <td>API/Web/CLI compatibilityとconsent UI削除</td>
+        <td>DBI-07, DBI-09</td>
+        <td>consent値はauthority 0%、policy summary表示</td>
+      </tr>
+      <tr>
+        <td>DBI-11</td>
+        <td>real E2E、qualification、promotion</td>
+        <td>DBI-08, DBI-10</td>
+        <td>same-commit evidence、canary mutation/resource leak 0件</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    Milestone AはDBI-00〜07で、npm +
+    DBなし/SQLiteの<code>runtime-web-safe</code>を安全に実行できる状態。 Milestone
+    BはDBI-08〜11で、service DB、dynamic、UI migration、promotionを閉じる。 feature
+    gateの既定値はDBI-11までoffであり、package未完了時はhost fallbackではなくblockedとする。
+  </p>
+
+  <h2 id="7-work-package-contracts">7. Work-package implementation cards</h2>
+  <h3 id="71-dbi-00-baseline">7.1 DBI-00 — Characterization and disposable canary</h3>
+  <p>
+    <strong>Files:</strong>
+    <code>tests/security-capability/runtime-db-isolation/fixtures/npm-mutating-target/</code>、 <code>api/modules/dast/target-preparer.test.ts</code>、
+    <code>api/modules/scans/execution/profile-orchestrator-cleanup.test.ts</code>。
+  </p>
+  <ol>
+    <li>
+      fixtureを一時Git repositoryとしてtest内で作り、ignored
+      <code>.env</code>へtest harnessだけが知る disposable PostgreSQL
+      canary DSNとsecret markerを入れる。startup scriptはcanaryへのINSERTを試みる。
+    </li>
+    <li>
+      canaryはtest専用Docker container + tmpfsで起動し、localhostのrandom published portは
+      characterization test processだけに渡す。開発/production DB設定を読み込まない。
+    </li>
+    <li>
+      修正前の<code>prepareDastTargetWorkspace</code>でmutation可能な事実を1本の明示的
+      characterization testへ隔離する。そのtest以外はunsafe functionを呼ばない。
+    </li>
+    <li>
+      source digest、canary schema/row/sentinel hash、Docker bundle label一覧、control-plane fixture
+      row countのbefore/after helperを作り、以後のE2Eで共用する。
+    </li>
+  </ol>
+  <p>
+    <strong>Exit:</strong> fixture以外のDBへ接続せずcharacterizationが再現でき、after-fix
+    assertionが canary不変を要求する。<strong>Stop:</strong> DSNがtest
+    fixture由来と証明できない場合はtestを実行しない。
+  </p>
+
+  <h3 id="72-dbi-01-schemas">7.2 DBI-01 — Shared schemas and hash contracts</h3>
+  <p>
+    <strong>Files:</strong> create <code>shared/schemas/runtime-isolation.schema.ts</code> and
+    <code>shared/schemas/runtime-isolation.schema.test.ts</code>; modify
+    <code>shared/schemas/scan-preflight.schema.ts</code> and
+    <code>shared/schemas/scan-execution-plan.schema.ts</code>。
+  </p>
+  <ol>
+    <li>
+      export
+      <code>runtimeTargetRecipeV1Schema</code>、<code>runtimeIsolationPlanV1Schema</code>、
+      <code>redactedRuntimeIsolationReceiptV1Schema</code>と、それぞれのinferred typeを追加する。
+    </li>
+    <li>
+      export
+      <code>scanPreflightResultV2Schema</code
+      >と<code>scanExecutionPlanV3Schema</code>を追加し、 runtime stepのbinding
+      fieldsをrequiredにする。existing V1/V2 schemasは意味を変えない。
+    </li>
+    <li>
+      canonical JSONはobject key sort、array order保持、UTF-8、undefined拒否でSHA-256化するpure
+      helperを追加する。 secret-bearing typeは<code>SecretString</code>としてAPI
+      schemaへexportしない。
+    </li>
+    <li>
+      strict unknown-key rejection、mode/binding refinement、legacy record read、new runtime
+      recordのfield欠落拒否、 property-order非依存hashをtable-driven testにする。
+    </li>
+  </ol>
+  <p>
+    <strong>Verify:</strong> <code>bun test shared/schemas/runtime-isolation.schema.test.ts</code> and existing
+    preflight/execution-plan schema tests。<strong>Stop:</strong> V1/V2 writerを変更する必要が出たら
+    migration decisionをmaintainer reviewへ戻し、optional castで通さない。
+  </p>
+
+  <h3 id="73-dbi-02-planning">7.3 DBI-02 — Projection, recipe resolution, and pure planning</h3>
+  <p>
+    <strong>Files:</strong> create <code>api/modules/runtime-isolation/runtime-source-projection.ts</code>、
+    <code>runtime-recipe-resolver.ts</code>、<code>runtime-isolation-planner.ts</code> and
+    colocated tests; modify <code>api/modules/project-capabilities/plugin-contract.ts</code> and npm planner tests。
+  </p>
+  <ol>
+    <li>
+      Section 4.1のexact policyで<code>materializeRuntimeSourceProjection</code>を実装し、partial
+      copyも
+      <code>finally</code>で削除する。scanner snapshot policyは変更しない。
+    </li>
+    <li>
+      <code>resolveRuntimeTargetRecipe</code>は明示file、planner candidate、DB
+      indicatorを入力に、 resolved recipeまたは単一blocked reasonを返すpure resolverにする。
+    </li>
+    <li>
+      <code>buildRuntimeIsolationPlan</code>はprojection/recipe/lock/image/qualification
+      digestだけを受け取り、 raw path/secretなしのplanとhashを返す。Docker/process/file
+      writeを行わない。
+    </li>
+    <li>
+      npm root package-lockだけをready
+      candidateにし、Bun/pnpm/yarn/Python/Javaは検出結果を保持したまま adapter-specific unqualified
+      reasonを返す。
+    </li>
+  </ol>
+  <p>
+    <strong>Verify:</strong> excluded marker/symlink/database fileがprojectionに0件、scanner
+    snapshotには secret fixtureが残ること、同じinputのplan hashが一致すること。<strong
+      >Stop:</strong
+    >
+    DB modeを推測で readyにするcase、absolute path/raw
+    recipeをplanへ入れるcaseが1件でもあれば次へ進まない。
+  </p>
+
+  <h3 id="74-dbi-03-dependencies">7.4 DBI-03 — npm dependency preparation</h3>
+  <p>
+    <strong>Files:</strong> create <code>api/modules/runtime-isolation/npm-runtime-workspace-preparer.ts</code>、
+    <code>runtime-registry-proxy-policy.ts</code>、<code>runtime-image-registry.ts</code> and
+    tests。
+  </p>
+  <ol>
+    <li>
+      <code>validateNpmPackageLockV1Input</code>でSection 4.3のroot/lock/resolved URL/integrity
+      ruleを実装する。 validation失敗時はDocker commandを1回も発行しない。
+    </li>
+    <li>
+      <code>NpmRuntimeWorkspacePreparer</code>へDocker command runner、qualified image
+      registry、clock、UUIDを constructor injectionし、各mutation後にrollback actionをstackへ積む。
+    </li>
+    <li>
+      build internal/egress network、proxy、fetch、materializerのargv builderをpure
+      functionとして分離する。 request/recipeからimage、registry、proxy、Docker argを受け取らない。
+    </li>
+    <li>
+      successful outputを<code>{ workspaceVolumeRef, dependencyTreeDigest, publicReceipt, cleanup }</code>へ限定し、 host pathとprivate
+      Docker IDをconsumerへ返さない。
+    </li>
+  </ol>
+  <p>
+    <strong>Verify:</strong> fake runnerで全argv/cleanup order、real Docker integrationでregistry
+    allowlist、 lifecycle script marker不存在、original repo/cache不変を確認する。
+    <strong>Stop:</strong> proxyを迂回したdirect DNS/TCPが1回でも成功する、または
+    <code>--ignore-scripts</code>を外す必要があるprojectはV1対象からblockedへ戻す。
+  </p>
+
+  <h3 id="75-dbi-04-preflight">7.5 DBI-04 — Preflight V2 and production composition</h3>
+  <p>
+    <strong>Files:</strong> modify <code>api/modules/scans/execution/scan-preflight.ts</code>、
+    <code>scan-preflight-binding.ts</code>、<code>scan-preflight-check-builders.ts</code>、
+    <code>profile-orchestrator.ts</code>、<code>api/cli/scan-profile.ts</code>、
+    <code>api/routes/projects.route.ts</code>; create
+    <code>api/modules/runtime-isolation/create-runtime-isolation-service.ts</code>。
+  </p>
+  <ol>
+    <li>
+      runtime profileのpreview/startだけをSection
+      4.0順へ変更し、projectionとrecipe解決をpreflight前に置く。 non-runtime
+      profileのsnapshot順序を変えない。
+    </li>
+    <li>
+      <code>runScanPreflight</code>はV2 checks/bindingを返し、runtime required
+      checkが一つでもreadyでなければ execution planとprovider mutationへ進ませない。
+    </li>
+    <li>
+      <code>createRuntimeIsolationService</code>をCLI/Web composition
+      rootで必ず生成・注入する。Docker未ready、 image
+      registry未設定、qualification不在はservice生成失敗ではなくtruthful blocked resultへ変換する。
+    </li>
+    <li>
+      <code>prepareSharedRuntimeTarget</code
+      >と<code>runDastStepIntoExistingScan</code>からprovider省略時のhost
+      fallbackを削除する。<code>target-preparer.ts</code>のhost
+      <code>Bun.spawn</code> pathはproduction exportから削除する。
+    </li>
+  </ol>
+  <p>
+    <strong>Verify:</strong> previewはproject process/npm/DB/bundle作成0件、provider omittedは
+    <code>runtime_isolation_provider_unavailable</code>、hash driftは409であること。
+    <strong>Stop:</strong> new runtime runがV1 preflight/V2 execution
+    planを書ける経路が残ったらmergeしない。
+  </p>
+
+  <h3 id="76-dbi-05-bundle">7.6 DBI-05 — Bundle lease, namespace, and recovery</h3>
+  <p>
+    <strong>Files:</strong> create <code>api/modules/runtime-isolation/docker-runtime-bundle.ts</code> and
+    <code>docker-runtime-bundle.test.ts</code>; modify
+    <code>api/modules/scans/execution/lifecycle/scan-resource-lease-repository.ts</code>、 its
+    test、<code>scan-resource-lease-reaper.ts</code>。
+  </p>
+  <ol>
+    <li>
+      repositoryへactive-state
+      compare付き<code>updateActiveReceipt</code>を追加する。released/quarantined
+      lease更新は no-opでなくtyped conflictにする。
+    </li>
+    <li>
+      <code>DockerRuntimeBundleProvider</code>はlease取得後だけDocker mutationし、Section 4.4
+      labelsとprivate receiptをresourceごとに保存する。child leaseは作らない。
+    </li>
+    <li>
+      namespace owner/ref resolver、role別Docker invocation builder、fixed reverse
+      cleanupを実装する。 public receipt serializerはprivate ID、path、env valueを除く。
+    </li>
+    <li>
+      reaperへ<code>resourceType=runtime_bundle</code>
+      handlerを登録し、receiptがpartial/invalidでもbundle label queryを fallback
+      inventoryとして使う。
+    </li>
+  </ol>
+  <p>
+    <strong>Verify:</strong> every create/start boundaryでcrash injectionし、次reaper
+    run後にlabelled resource 0件、 またはlease quarantinedを要求する。<strong>Stop:</strong> cleanup
+    failure時にrun completedへ遷移する既存callerを 同packageで塞げない場合はproviderをfeature
+    gateへ接続しない。
+  </p>
+
+  <h3 id="77-dbi-06-local-target">7.7 DBI-06 — None/SQLite and isolated Node target</h3>
+  <p>
+    <strong>Files:</strong> create <code>api/modules/runtime-isolation/runtime-database-provider.ts</code>、
+    <code>runtime-target-starter.ts</code>、<code>namespace-http-transport.ts</code> and
+    tests; modify <code>api/modules/dast/runtime-target-provider.ts</code>。
+  </p>
+  <ol>
+    <li>
+      none/SQLite plan/prepare mappingとtarget environment builderをSection 4.5/4.6どおり実装する。
+      known parent DB varsをunsetするのでなく、parent envを最初からcopyしない。
+    </li>
+    <li>
+      targetはworkspace volume、tmpfs、namespace ref、fixed image/start planだけからcreateする。
+      private receipt保存後にstartし、readiness timeout時はtarget logsをredact後bounded
+      captureする。
+    </li>
+    <li>
+      namespace HTTP executorと<code>NamespaceHttpTransport</code>を実装し、built-in
+      readinessをhost
+      <code>fetch</code>から移す。protocol parse
+      failure/oversize/timeoutではexecutorを破棄する。
+    </li>
+    <li>
+      npm fixtureのstartup writeがSQLite tmpfsでは成功する一方、ignored envのcanaryとoriginal
+      <code>*.sqlite</code> digest/mtimeが不変であることをE2Eにする。
+    </li>
+  </ol>
+  <p>
+    <strong>Exit:</strong> none/SQLiteでhost process、published port、host gateway、original mount
+    0件。 <strong>Stop:</strong> applicationがfixed
+    <code>HOST</code
+    >/<code>PORT</code>で起動できない場合は任意portを許可せず adapter
+    unqualifiedへ返す。
+  </p>
+
+  <h3 id="78-dbi-07-scanners">7.8 DBI-07 — Runtime scanner consumers</h3>
+  <p>
+    <strong>Files:</strong> modify <code>api/modules/scans/tools/tool-process-types.ts</code>、
+    <code>docker-tool-process-runner.ts</code>、 <code>api/modules/scans/execution/profile-dast-step-runner.ts</code>、
+    <code>profile-runtime-step-runner.ts</code>、<code>profile-schema-step-runner.ts</code>、
+    <code>api/modules/runtime-scans/runtime-scanner-runner.ts</code>、
+    <code>zap-baseline-runner.ts</code>、<code>api/modules/api-schema-fuzz/schemathesis-runner.ts</code> and
+    tests。
+  </p>
+  <ol>
+    <li>
+      internal Docker network policy/resolverを追加する。existing public
+      <code>networkMode</code>を利用するcallerに server-owned namespace
+      IDを渡せないことをtypeとtestで固定する。
+    </li>
+    <li>
+      built-in
+      DASTは<code>NamespaceHttpTransport</code>、Nuclei/Schemathesis/ZAPはnamespace Docker
+      policyを使う。 target URLはすべて<code>http://127.0.0.1:18080</code>とする。
+    </li>
+    <li>
+      runtime ZAP pathから<code>--add-host host.docker.internal:host-gateway</code>とdefault networkを削除する。
+      unrelated external/disposable-target profilesのbehaviorはこのpackageで変更しない。
+    </li>
+    <li>
+      <code>runtime-web-safe</code>のrequired 3 stepを同じprepared
+      bundleで順番に実行し、step failure後も bundle cleanupが一度だけ行われることをorchestrator
+      testで固定する。
+    </li>
+  </ol>
+  <p>
+    <strong>Verify:</strong> runtime testsのcaptured Docker argv/URLに
+    <code>host.docker.internal</code>、default network、published portが0件。
+    <strong>Stop:</strong> required scannerがhost
+    originを要求する間はprofileをstableへpromotionしない。
+  </p>
+
+  <h3 id="79-dbi-08-service-databases">7.9 DBI-08 — PostgreSQL and MySQL sidecars</h3>
+  <p>
+    <strong>Files:</strong> extend <code>api/modules/runtime-isolation/runtime-database-provider.ts</code> and tests; add
+    PostgreSQL/MySQL fixtures under <code>tests/security-capability/runtime-db-isolation/</code>。
+  </p>
+  <ol>
+    <li>
+      qualified image registryからplatform一致digestを解決し、Section 4.5のloopback bind、fixed
+      port、tmpfs、 key-only env injectionでDB containerを作る。
+    </li>
+    <li>
+      provider-owned readiness commandを同namespaceで実行し、ready前はtargetをcreateしない。
+      timeout/OOM/image mismatchはphase reason付きfailureとcleanupへ送る。
+    </li>
+    <li>
+      URL/JDBC/individual field bindingsのtable testを両engineで行い、secret redactor登録がtarget/DB
+      startより先であることをassertする。
+    </li>
+    <li>
+      startup migration/seedのpositive evidenceはephemeral DB rowのみから採り、raw
+      row/DSNをartifact化しない。 external canaryはbefore/after hashとconnection log 0件を要求する。
+    </li>
+  </ol>
+  <p>
+    <strong>Stop:</strong> DB imageにloopback bind/tmpfs/non-root
+    requirementを適用できないplatformは
+    <code>runtime_database_provider_unqualified</code>でblockedとし、bridge networkへ緩和しない。
+  </p>
+
+  <h3 id="710-dbi-09-dynamic">7.10 DBI-09 — Dynamic verification</h3>
+  <p>
+    <strong>Files:</strong> modify <code>api/routes/dynamic.route.ts</code>、
+    <code>api/modules/dynamic/dynamic-runner.ts</code>、
+    <code>dynamic-docker-executor.ts</code>、<code>shared/schemas/dynamic.schema.ts</code> and
+    tests。
+  </p>
+  <ol>
+    <li>
+      project/finding routeの両方で<code>dynamic-verification</code> parent scan
+      runを先に作り、その <code>scanRunId</code>をbundle lease
+      ownerへ渡す。findingだけをownerにしない。
+    </li>
+    <li>
+      original repository read-only mount + full copyをruntime projection + workspace
+      volumeへ置換する。 outputはserver-owned bounded output volumeだけから収集する。
+    </li>
+    <li>
+      recipeごとのDocker executionをnamespace policyへ移し、none/SQLite/PostgreSQL/MySQL
+      providerを共有する。 dynamic
+      requestの<code>network: default</code>はrejectする。
+    </li>
+    <li>
+      generated secret markerをstdout/stderr/artifact/control-plane
+      fixture全体でscanし、0件を要求する。 cancel/timeout時もparent scanとleaseを終端状態へ送る。
+    </li>
+  </ol>
+  <p>
+    <strong>Stop:</strong> dynamic recipeがInternet dependency、host tool、original
+    pathを必要とする場合は recipe単位blockedとし、consentで許可しない。
+  </p>
+
+  <h3 id="711-dbi-10-product">7.11 DBI-10 — API, CLI, and Web migration</h3>
+  <p>
+    <strong>Files:</strong> modify <code>api/routes/projects.route.ts</code>、
+    <code>api/cli/scan-profile.ts</code>、profile request/response schemas、
+    <code>web/src/domains/scans/components/scan-profile-input-fields.tsx</code> and related tests/catalog docs。
+  </p>
+  <ol>
+    <li>
+      preview responseへredacted isolation summary、plan hash、blocked
+      reason/actionを追加し、startでexpected hashを必須化する。
+    </li>
+    <li>
+      Webはruntime/dynamic consent checkboxとclient-side consent validationを削除し、observed policy
+      summaryと actionable blocked reasonを表示する。
+    </li>
+    <li>
+      API/CLIは<code>consentProjectCodeExecution</code>を互換期間だけparseしてdeprecated
+      warningを返すが、 true/false/omittedでpreflight/plan/provider call
+      countが同一になるtestを置く。
+    </li>
+    <li>saved legacy runは旧consent checkを表示可能にし、新規runへlegacy checkをemitしない。</li>
+  </ol>
+  <p>
+    <strong>Stop:</strong>
+    UI codeはDBI-11 qualification gateがreadyになるまで旧controlを表示するかprofileをblockedにし、
+    unqualifiedなlauncherからcheckboxを先に消さない。
+  </p>
+
+  <h3 id="712-dbi-11-qualification">7.12 DBI-11 — Qualification and promotion</h3>
+  <p>
+    <strong>Files:</strong> create <code>scripts/verify-runtime-db-isolation.ts</code>、
+    <code>spec/security-capability/runtime-db-isolation.v1.json</code>; modify package scripts and CI workflow。
+  </p>
+  <ol>
+    <li>
+      Linux CIとsupported Docker Desktop platformごとにnone/SQLite/PostgreSQL/MySQL/dynamicをclean
+      stateから2回実行する。
+    </li>
+    <li>
+      source/canary hash、canary connection logs、Docker label inventory、lease states、secret
+      corpus scanをcaseごとに検証する。
+    </li>
+    <li>
+      qualification JSONをapplication commit、dirty state、Docker identity、platform、全image
+      digest、policy/schema version、 case contract hashへbindし、verifierがcurrent
+      stateとの差を拒否する。
+    </li>
+    <li>
+      all required case通過後だけ<code>runtimeDatabaseIsolationV1</code>
+      allowlistをplatform/profile/engine単位で有効化する。 unsupported adapterはcatalog上もblocked
+      reasonを維持する。
+    </li>
+  </ol>
+  <p>
+    <strong>Exit:</strong> external connection success 0、canary mutation 0、original source
+    mutation 0、secret leak 0、 leaked Docker resource
+    0。いずれか不明/未実行はpassedではなくnot-qualifiedとする。
+  </p>
+
+  <h2 id="8-file-change-manifest">8. File change manifest</h2>
+  <table>
+    <caption>
+      8.1 Expected file-level changes; create colocated
+      <code>*.test.ts</code>
+      for every new module
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">WP</th>
+        <th scope="col">Operation</th>
+        <th scope="col">Path</th>
+        <th scope="col">Owned exports/change</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>01</td>
+        <td>Create</td>
+        <td><code>shared/schemas/runtime-isolation.schema.ts</code></td>
+        <td>recipe/plan/receipt schemas、canonical hash input types</td>
+      </tr>
+      <tr>
+        <td>01</td>
+        <td>Modify</td>
+        <td>
+          <code>shared/schemas/scan-preflight.schema.ts</code>、
+          <code>shared/schemas/scan-execution-plan.schema.ts</code>
+        </td>
+        <td>V2 preflight、V3 plan; legacy readers unchanged</td>
+      </tr>
+      <tr>
+        <td>02</td>
+        <td>Create</td>
+        <td>
+          <code>api/modules/runtime-isolation/runtime-source-projection.ts</code>、
+          <code>runtime-recipe-resolver.ts</code>、<code>runtime-isolation-planner.ts</code>
+        </td>
+        <td>projection、strict resolution、pure plan/hash</td>
+      </tr>
+      <tr>
+        <td>02</td>
+        <td>Modify</td>
+        <td><code>api/modules/project-capabilities/plugin-contract.ts</code> and npm planner</td>
+        <td>command inferenceとruntime qualification statusを分離</td>
+      </tr>
+      <tr>
+        <td>03</td>
+        <td>Create</td>
+        <td>
+          <code>api/modules/runtime-isolation/npm-runtime-workspace-preparer.ts</code>、
+          <code>runtime-registry-proxy-policy.ts</code>、<code>runtime-image-registry.ts</code>
+        </td>
+        <td>lock validation、isolated fetch、workspace receipt、pinned image lookup</td>
+      </tr>
+      <tr>
+        <td>04</td>
+        <td>Create</td>
+        <td><code>api/modules/runtime-isolation/create-runtime-isolation-service.ts</code></td>
+        <td>production dependency composition and unavailable result</td>
+      </tr>
+      <tr>
+        <td>04</td>
+        <td>Modify</td>
+        <td>
+          <code>api/modules/scans/execution/scan-preflight.ts</code>、
+          <code>scan-preflight-binding.ts</code
+          >、<code>scan-preflight-check-builders.ts</code>、
+          <code>profile-orchestrator.ts</code>
+        </td>
+        <td>runtime order、V2 checks/binding、V3 persistence</td>
+      </tr>
+      <tr>
+        <td>04</td>
+        <td>Modify</td>
+        <td>
+          <code>api/cli/scan-profile.ts</code
+          >、<code>api/routes/projects.route.ts</code>、
+          <code>api/modules/scans/execution/shared-runtime-target.ts</code>、
+          <code>api/modules/scans/execution/profile-dast-step-runner.ts</code>
+        </td>
+        <td>provider injection、expected hash、host fallback removal</td>
+      </tr>
+      <tr>
+        <td>04/06</td>
+        <td>Modify</td>
+        <td>
+          <code>api/modules/dast/target-preparer.ts</code>、
+          <code>api/modules/dast/runtime-target-provider.ts</code>
+        </td>
+        <td>host spawn削除、isolated provider/connection contract</td>
+      </tr>
+      <tr>
+        <td>05</td>
+        <td>Create</td>
+        <td><code>api/modules/runtime-isolation/docker-runtime-bundle.ts</code></td>
+        <td>namespace、labels、private/public receipt、cleanup</td>
+      </tr>
+      <tr>
+        <td>05</td>
+        <td>Modify</td>
+        <td>
+          <code>api/modules/scans/execution/lifecycle/scan-resource-lease-repository.ts</code>、
+          <code>scan-resource-lease-reaper.ts</code>
+        </td>
+        <td>
+          <code>updateActiveReceipt</code> and
+          <code>runtime_bundle</code> recovery handler
+        </td>
+      </tr>
+      <tr>
+        <td>06/08</td>
+        <td>Create</td>
+        <td>
+          <code>api/modules/runtime-isolation/runtime-database-provider.ts</code>、
+          <code>runtime-target-starter.ts</code>、<code>namespace-http-transport.ts</code>
+        </td>
+        <td>four DB modes、Node target、Docker-exec bounded HTTP</td>
+      </tr>
+      <tr>
+        <td>07</td>
+        <td>Modify</td>
+        <td>
+          <code>api/modules/scans/tools/tool-process-types.ts</code>、
+          <code>docker-tool-process-runner.ts</code>、runtime/schema/DAST step runners
+        </td>
+        <td>internal namespace policy and all runtime consumers</td>
+      </tr>
+      <tr>
+        <td>07</td>
+        <td>Modify</td>
+        <td>
+          <code>api/modules/runtime-scans/runtime-scanner-runner.ts</code>、
+          <code>zap-baseline-runner.ts</code>、
+          <code>api/modules/api-schema-fuzz/schemathesis-runner.ts</code>
+        </td>
+        <td>Nuclei/ZAP/Schemathesis namespace execution</td>
+      </tr>
+      <tr>
+        <td>09</td>
+        <td>Modify</td>
+        <td>
+          <code>api/routes/dynamic.route.ts</code>、
+          <code>api/modules/dynamic/dynamic-runner.ts</code>、
+          <code>dynamic-docker-executor.ts</code>、<code>shared/schemas/dynamic.schema.ts</code>
+        </td>
+        <td>parent scan、sanitized workspace、bundle network/data</td>
+      </tr>
+      <tr>
+        <td>10</td>
+        <td>Modify</td>
+        <td><code>web/src/domains/scans/components/scan-profile-input-fields.tsx</code> and consumers</td>
+        <td>consent removal、policy summary、blocked action</td>
+      </tr>
+      <tr>
+        <td>00–11</td>
+        <td>Create</td>
+        <td><code>tests/security-capability/runtime-db-isolation/</code></td>
+        <td>disposable canary、fixtures、real Docker integration/E2E</td>
+      </tr>
+      <tr>
+        <td>11</td>
+        <td>Create</td>
+        <td>
+          <code>scripts/verify-runtime-db-isolation.ts</code>、
+          <code>spec/security-capability/runtime-db-isolation.v1.json</code>
+        </td>
+        <td>same-commit qualification verifier/contract</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2 id="9-testing-and-evidence">9. Testing and evidence</h2>
+  <h3 id="91-required-test-layers">9.1 Required test layers</h3>
+  <table>
+    <caption>
+      9.1 Verification matrix
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Layer</th>
+        <th scope="col">Required cases</th>
+        <th scope="col">Evidence</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Schema/unit</td>
+        <td>recipe rejection、hash stability、redacted serialization</td>
+        <td>focused test output</td>
+      </tr>
+      <tr>
+        <td>Projection</td>
+        <td>
+          <code>.env*</code>、credential、DB file、symlink escape除外
+        </td>
+        <td>projection manifest/digest</td>
+      </tr>
+      <tr>
+        <td>Dependency preparation</td>
+        <td>lock rejection、registry allowlist、lifecycle script禁止、workspace digest</td>
+        <td>proxy/fetch receipt、egress probe log</td>
+      </tr>
+      <tr>
+        <td>Docker invocation</td>
+        <td>network none/container namespace、no publish、no socket、non-root、limits</td>
+        <td>normalized invocation receipt</td>
+      </tr>
+      <tr>
+        <td>Database provider</td>
+        <td>none、SQLite、PostgreSQL、MySQL、health failure、OOM</td>
+        <td>redacted provider receipt</td>
+      </tr>
+      <tr>
+        <td>Preflight</td>
+        <td>missing recipe/adapter/image/provider/qualification、binding drift</td>
+        <td>check list、binding hash</td>
+      </tr>
+      <tr>
+        <td>Lifecycle</td>
+        <td>success、step failure、timeout、cancel、process crash、reaper</td>
+        <td>lease transitions、cleanup receipt</td>
+      </tr>
+      <tr>
+        <td>Negative E2E</td>
+        <td>shared DB/host/LAN/public endpointへ接続・書き込み不可</td>
+        <td>canary before/after hash</td>
+      </tr>
+      <tr>
+        <td>Positive E2E</td>
+        <td>startup migration/seedがephemeral DBで成功し、scan完走</td>
+        <td>target readiness、request count、cleanup</td>
+      </tr>
+      <tr>
+        <td>Product</td>
+        <td>consentなし、policy summary、blocked guidance、legacy run表示</td>
+        <td>API/Web tests</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3 id="92-shared-db-canary">9.2 Shared DB canary contract</h3>
+  <ul>
+    <li>
+      canaryはtarget bundle外で起動し、targetが参照し得るmarker credentialをignored
+      <code>.env</code>へ置く。
+    </li>
+    <li>target startupとtestはcanary tableへのINSERT/UPDATEを試みるfixtureを含む。</li>
+    <li>実行前後でschema digest、row count、sentinel values、transaction log markerを比較する。</li>
+    <li>
+      接続失敗だけでなく、canaryにconnection attemptが到達していないことをserver logで確認する。
+    </li>
+    <li>canary自体の起動・cleanupをscan bundleの成功条件へ含めず、test harnessが独立管理する。</li>
+  </ul>
+
+  <h3 id="93-qualification-artifact">9.3 Qualification artifact</h3>
+  <p>qualificationは少なくとも次を含む。</p>
+  <pre><code class="language-text">runtime-db-isolation qualification v1
+- application commit
+- clean/dirty state
+- qualification contract hash
+- Docker daemon version/platform/identity
+- namespace qualification image digest
+- Node runtime/materializer/proxy/HTTP executor/scanner image digests
+- DB image digest(s)
+- runtime projection policy version/hash
+- dependency lock/tree digests
+- qualification subject/artifact hashes
+- cases: none/sqlite/postgres/mysql/dynamic
+- external connectivity attempts: 0 successful
+- shared DB mutations: 0
+- original source mutations: 0
+- secret marker leaks: 0
+- leaked resources: 0
+- cleanup/quarantine receipts
+- startedAt/completedAt</code></pre>
+  <p>
+    artifactはcurrent commitとcase contractへbindし、別commitや別Docker
+    identityの結果を再利用しない。
+  </p>
+  <p>
+    <code>runtime-db-isolation:qualify</code>はraw logとsecretsを除くJSONを既存ignored artifact
+    root配下の<code>runtime-db-isolation/qualification-v1.json</code>へatomic writeする。
+    <code>runtime-db-isolation:verify</code>はcontract schema、artifact SHA-256、current
+    commit/dirty state、Docker identity、local image
+    digestを再検証し、不一致時はnon-zeroで終了する。
+    <code>createRuntimeIsolationService</code>は起動時に同じverifierを呼び、passed
+    artifactだけをmemoryへloadする。 requestからartifact path/hashを指定させず、Docker
+    identityとimage digestは各preflightでも再比較する。
+  </p>
+
+  <h3 id="94-verification-commands">9.4 Verification commands</h3>
+  <p>実装後にpackage scriptを追加し、次をcanonical commandとする。</p>
+  <pre><code class="language-bash">bun run test:runtime-db-isolation:contract
+bun run test:runtime-db-isolation:integration
+bun run test:runtime-db-isolation:e2e
+bun run runtime-db-isolation:qualify
+bun run runtime-db-isolation:verify
+bun run test:scan-profile-catalog
+bun run test:professional-run-group
+bun run test:technology-plugins
+bun run typecheck
+bun run lint
+bun run docs:check</code></pre>
+  <p>
+    real Docker E2Eをunit testで代替しない。CIでDockerが使えない場合はsuccess扱いでskipせず、
+    qualification jobをnot-run/blockedとしてpromotionを止める。
+  </p>
+
+  <h2 id="10-rollout-and-rollback">10. Rollout and rollback</h2>
+  <h3 id="101-rollout-order">10.1 Rollout order</h3>
+  <ol>
+    <li>DBI-00のnegative fixtureとbaselineを先に固定する。</li>
+    <li>
+      DBI-01〜04を入れ、new schema/preflightをshadow計算する。host target
+      fallbackはこの時点で削除する。
+    </li>
+    <li>
+      DBI-03/05/06をfeature gate offで接続し、DBなし/SQLite bundleをexperimental qualificationする。
+    </li>
+    <li>
+      DBI-07完了後、Milestone A evidenceがあるplatformだけでruntime scannerをinternal
+      allowlistへ入れる。
+    </li>
+    <li>DBI-08/09でPostgreSQL/MySQLとdynamicを同じqualificationへ追加する。</li>
+    <li>DBI-10のcompatibility/UI codeをgate behindでdeployする。</li>
+    <li>
+      DBI-11 same-commit qualification後にprofile/engine allowlistを有効化し、consent
+      UIを非表示にする。
+    </li>
+    <li>一つのcompatibility period後にdeprecated API/CLI inputを削除する。</li>
+  </ol>
+
+  <h3 id="102-feature-gate">10.2 Feature gate</h3>
+  <ul>
+    <li>
+      single gate <code>runtimeDatabaseIsolationV1</code>でnew provider compositionを制御する。
+    </li>
+    <li>
+      gate disabled時はruntime auto-start profileをblockedにし、host
+      implementationへfallbackしない。
+    </li>
+    <li>
+      gate valueはbooleanでなくqualified platform/profile/DB engine tupleのserver-owned
+      allowlistとする。
+    </li>
+    <li>
+      rollbackはUI/API表示とprovider promotionを戻せるが、host project-code
+      executionを復活させない。
+    </li>
+  </ul>
+
+  <h3 id="103-data-and-schema-compatibility">10.3 Data/schema compatibility</h3>
+  <ul>
+    <li>
+      新しいreceiptはJSON metadataとexisting resource lease
+      receiptへ保存し、初期sliceでDDLを増やさない。
+    </li>
+    <li>V1/V2 saved recordはversion別readerで読み、新fieldを旧schemaへoptional追加しない。</li>
+    <li>
+      新規runtime runはV2 preflight/V3 planだけを書き、missing bindingをlegacy fallbackで補わない。
+    </li>
+    <li>credentialやDSNを一度でも保存したmigrationを作らない。</li>
+  </ul>
+
+  <h2 id="11-implementation-runbook">11. Implementation runbook</h2>
+  <h3 id="111-entry-checkpoint">11.1 Entry checkpoint</h3>
+  <ol>
+    <li><code>git status --short</code>とcurrent commitを保存する。</li>
+    <li>本計画のauthoritative pathがworkspace変更で移動していないか確認する。</li>
+    <li>既存のuncommitted fileを所有者不明として扱い、reset/checkout/overwriteしない。</li>
+    <li>DBI-00 fixture以外のproduction codeを変更する前にcharacterization testを通す。</li>
+    <li>current profile catalog、preflight、cleanupのfocused test resultをbaselineへ記録する。</li>
+  </ol>
+
+  <h3 id="112-first-change-order">11.2 First implementation order</h3>
+  <ol>
+    <li>Section 7.1のDBI-00だけを実施し、disposable canary以外を参照しないことを確認する。</li>
+    <li>DBI-01からDBI-11までledger順に、一packageずつtest-firstで実施する。</li>
+    <li>各packageでSection 7のfocused verifyとSection 9.4の既存累積commandを実行する。</li>
+    <li>Stop conditionに該当したらblocked reasonを実装し、scopeを広げて回避しない。</li>
+  </ol>
+
+  <h3 id="113-merge-rules">11.3 Merge rules</h3>
+  <ul>
+    <li>一つのPRでDBI work packageを二つ以上同時にcloseしない。</li>
+    <li>schema/contract変更とreal provider rolloutを同じreviewで自己承認しない。</li>
+    <li>checkboxを非表示にするpromotion PRはDBI-11 qualification artifactを参照する。</li>
+    <li>test skip、warning-only cleanup、host fallbackをtemporary workaroundとして入れない。</li>
+    <li>generated evidence、container ID、credentialをGitへcommitしない。</li>
+  </ul>
+
+  <h2 id="12-definition-of-done">12. Definition of Done</h2>
+  <h3 id="121-milestone-a">12.1 Milestone A</h3>
+  <ul>
+    <li>V1 ready対象はroot package-lock npm projectだけで、他adapterは理由付きblockedである。</li>
+    <li>DBなし/SQLite project codeはhost上で実行されない。</li>
+    <li>
+      runtime projectionに<code>.env*</code>、credential、original DB
+      fileが存在しない。
+    </li>
+    <li>target/scannerはnetwork-none namespace内で通信し、host/LAN/Internetへ到達できない。</li>
+    <li>original repositoryとcanary DBのbefore/after digestが一致する。</li>
+    <li>success/failure/cancel/timeout後のDocker resource leakが0件である。</li>
+    <li>preview/start中のDocker pull/buildとnpm lifecycle script実行が0件である。</li>
+    <li>runtime-web-safeのDAST/Nuclei/ZAPが同じnamespace bundleを使う。</li>
+    <li>runtime-passive/api-readonlyはnew providerがreadyな時だけ実行できる。</li>
+  </ul>
+
+  <h3 id="122-milestone-b">12.2 Milestone B</h3>
+  <ul>
+    <li>PostgreSQL/MySQL startup migration/seedがephemeral sidecarだけを更新する。</li>
+    <li>dynamic test/sanitizer/fuzzがsanitized projectionとsame isolation contractを使う。</li>
+    <li>credential markerがcontrol-plane DB、event、artifact、stdout/stderrへ出ない。</li>
+    <li>all consumerでconsent checkbox/inputが削除またはdeprecated read-onlyになっている。</li>
+    <li>same-commit qualification artifactがsupported platformごとに存在する。</li>
+    <li>unsupported platform/engineはtruthful blockedとなり、unsafe fallbackがない。</li>
+  </ul>
+
+  <h3 id="123-handoff-template">12.3 Handoff template</h3>
+  <pre><code class="language-text">Handoff
+- Work package: DBI-xx (status)
+- Baseline/current commit:
+- Existing dirty changes preserved:
+- Goal completed:
+- Files and symbols changed:
+- Runtime isolation contract version/hash:
+- Database modes covered:
+- Tests passed: command + exit code
+- Tests not run/failed: command + reason
+- Shared DB canary before/after:
+- Docker resources after cleanup:
+- Evidence paths and hashes:
+- Remaining blocker/risk:
+- Exact next action: file, symbol, expected test</code></pre>
+
+  <h2 id="13-plan-relationships-and-references">13. Plan relationships and references</h2>
+  <h3 id="131-plan-relationships">13.1 Plan relationships</h3>
+  <table>
+    <caption>
+      13.1 Ownership boundaries
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Plan</th>
+        <th scope="col">Owns</th>
+        <th scope="col">Relationship</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>This plan</td>
+        <td>runtime source/data/network isolation、consent廃止</td>
+        <td>runtime execution safetyのsource of truth</td>
+      </tr>
+      <tr>
+        <td>
+          <a href="scan-profile-catalog-consolidation-implementation-plan.html">Profile Catalog</a>
+        </td>
+        <td>public profile、required input、launcher</td>
+        <td>DBI-10でcatalog/UIを更新</td>
+      </tr>
+      <tr>
+        <td>
+          <a href="security-capability-gap-completion-implementation-plan.html">Gap Completion</a>
+        </td>
+        <td>capability、plan/result、lifecycle、qualification</td>
+        <td>
+          existing versioned plan/lease patternを再利用し、runtimeはV3/single bundle leaseへ拡張
+        </td>
+      </tr>
+      <tr>
+        <td>
+          <a href="../backend-scanner-todolist-hardening-test-plan.html">Scanner Hardening</a>
+        </td>
+        <td>immutable target、isolated acceptance、real E2E</td>
+        <td>canary/cleanup evidence patternを継承</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3 id="132-normative-references">13.2 Normative references</h3>
+  <ul>
+    <li>
+      <a href="https://bun.sh/docs/runtime/environment-variables"
+        >Bun environment variable loading</a
+      >
+    </li>
+    <li>
+      <a href="https://docs.docker.com/engine/network/drivers/none/">Docker none network driver</a>
+    </li>
+    <li>
+      <a href="https://docs.docker.com/engine/network/#container-networks"
+        >Docker container network namespace</a
+      >
+    </li>
+    <li><a href="https://docs.docker.com/engine/storage/tmpfs/">Docker tmpfs mounts</a></li>
+  </ul>
+  <p>
+    Docker tmpfsはplatformとswap設定に依存するため、「host
+    diskへ一切書かれない」というclaimには使わない。 本計画のclaimは、target data
+    storeがshared/original DBではなくrun専用resourceであり、cleanup対象であることに 限定する。
+  </p>
+</article>

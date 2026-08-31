@@ -1,0 +1,91 @@
+{
+  "schemaVersion": "security-intelligence-nightworkers-integrity-evidence-v2",
+  "smokeId": "integrity-smoke:replace-before-use",
+  "status": "not_started",
+  "contractVersion": 1,
+  "generatedAt": null,
+  "preflight": {
+    "repositoryCommits": {
+      "vulnWorkbench": null,
+      "nightWorkers": null,
+      "contextStill": null
+    },
+    "cleanWorkingTrees": {
+      "vulnWorkbench": false,
+      "nightWorkers": false,
+      "contextStill": false
+    },
+    "crossRepositoryFixtureDigests": {
+      "identityMapping": null,
+      "assessmentBundle": null,
+      "scanBindingCore": null,
+      "candidateBatch": null,
+      "feedbackBatch": null
+    },
+    "declarationScope": "transport_integrity_only"
+  },
+  "configuration": {
+    "vulnWorkbenchEndpointDefaultEnabled": false,
+    "nightWorkersConsumerDefaultEnabled": false,
+    "postAssessmentDefaultEnabled": false,
+    "candidateIngressDefaultEnabled": false,
+    "feedbackIngressDefaultEnabled": false,
+    "shadowRetrievalDefaultEnabled": false,
+    "allowedProjectCount": 0
+  },
+  "integrityRun": null,
+  "negativeChecks": {
+    "wrongProjectRejected": false,
+    "wrongRevisionRejected": false,
+    "wrongTargetDigestRejected": false,
+    "wrongEvidenceSubjectRejected": false,
+    "crossRunEvidenceRejected": false,
+    "requiredFailurePresentedAsFailure": false,
+    "unavailablePresentedAsUnavailable": false
+  },
+  "shadowSmoke": {
+    "status": "not_run",
+    "candidateBatchRef": null,
+    "candidateReceiptRef": null,
+    "feedbackBatchRef": null,
+    "feedbackReceiptRef": null,
+    "checks": {
+      "replayAccepted": false,
+      "idempotencyConflictRejected": false,
+      "outageRetriedWithoutLoss": false,
+      "duplicateFeedbackReplayed": false,
+      "crossScopeTokenRejected": false,
+      "knowledgeStateUnchanged": false,
+      "codingBehaviorUnaffected": false
+    }
+  },
+  "observations": {
+    "assessmentBuildLatencyMs": null,
+    "endpointRequestCount": null,
+    "unexpectedEndpointErrorCount": null,
+    "payloadSizeBytes": null
+  },
+  "privacyAssertions": {
+    "noSourceBody": false,
+    "noSecret": false,
+    "noAbsoluteFilesystemPath": false
+  },
+  "rollbackDrill": {
+    "nightWorkersConsumerDisabled": false,
+    "postAssessmentDisabled": false,
+    "candidateDispatcherDisabled": false,
+    "feedbackDispatcherDisabled": false,
+    "vulnWorkbenchEndpointDisabled": false,
+    "existingScanApiUnaffected": false,
+    "normalRunUnaffected": false
+  },
+  "capabilityDecisions": {
+    "assessmentConsumer": { "decision": "pending", "evidenceRefs": [] },
+    "postAssessmentGrant": { "decision": "pending", "evidenceRefs": [] },
+    "candidateExport": { "decision": "pending", "evidenceRefs": [] },
+    "feedbackExport": { "decision": "pending", "evidenceRefs": [] },
+    "shadowRetrieval": { "decision": "pending", "evidenceRefs": [] }
+  },
+  "defaultActivationAuthorized": false,
+  "stopReasonCodes": []
+}

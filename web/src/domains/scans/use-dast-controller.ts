@@ -91,6 +91,7 @@ export function useDastController({
 		setDastTargetOrigin("");
 		setLastAutoDastTargetOrigin(null);
 		setSelectedDastTargetId("");
+		setSelectedDastAuthContextId("");
 		if (!active || !selectedProjectId) {
 			setDastTargets([]);
 			setDastProfiles([]);
@@ -112,12 +113,14 @@ export function useDastController({
 				setDastProfileConfigs(profilesRes.configs);
 				setDastRuns(runs.dastRuns);
 				setDastAuthContexts(authContexts.authContexts);
-				setSelectedDastTargetId(
-					visibleTargets.find((target) => target.enabled)?.id ?? "",
-				);
+				const selectedTargetId =
+					visibleTargets.find((target) => target.enabled)?.id ?? "";
+				setSelectedDastTargetId(selectedTargetId);
 				setSelectedDastAuthContextId(
 					authContexts.authContexts.find(
-						(context) => context.status === "active",
+						(context) =>
+							context.status === "active" &&
+							context.targetConfigId === selectedTargetId,
 					)?.id ?? "",
 				);
 			})
@@ -146,14 +149,11 @@ export function useDastController({
 				context.targetConfigId === selectedDastTargetId &&
 				context.status === "active",
 		);
-		if (current) return;
-		const next = dastAuthContexts.find(
-			(context) =>
-				context.targetConfigId === selectedDastTargetId &&
-				context.status === "active",
-		);
-		setSelectedDastAuthContextId(next?.id ?? "");
-		if (next) setDastIdentityRole(next.identityRole);
+		if (current) {
+			setDastIdentityRole(current.identityRole);
+			return;
+		}
+		if (selectedDastAuthContextId) setSelectedDastAuthContextId("");
 	}, [dastAuthContexts, selectedDastAuthContextId, selectedDastTargetId]);
 
 	const refreshDastRuns = async () => {
@@ -446,10 +446,13 @@ export function useDastController({
 
 	return {
 		dastTargets,
+		setDastTargets,
 		dastProfiles,
 		dastProfileConfigs,
+		setDastProfileConfigs,
 		dastRuns,
 		dastAuthContexts,
+		setDastAuthContexts,
 		selectedDastTargetId,
 		setSelectedDastTargetId,
 		selectedDastProfileId,

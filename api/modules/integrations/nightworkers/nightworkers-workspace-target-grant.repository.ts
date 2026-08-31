@@ -27,10 +27,7 @@ import { isIntegrationScanCapacityConstraint } from "./nightworkers-integration-
 
 type MutationQuery = {
 	toSQL(): { sql: string; params: unknown[] };
-	then(
-		onfulfilled?: (value: unknown) => unknown,
-		onrejected?: (reason: unknown) => unknown,
-	): PromiseLike<unknown>;
+	run(): unknown;
 };
 
 const mutationTails = new WeakMap<object, Promise<void>>();
@@ -67,8 +64,8 @@ export class NightworkersWorkspaceTargetGrantRepository {
 			await writer.atomicDrizzleBatch(build(this.db));
 			return;
 		}
-		await runInProcessDbTransaction(this.db, async (transaction) => {
-			for (const query of build(transaction as AppDatabase)) await query;
+		runInProcessDbTransaction(this.db, (transaction) => {
+			for (const query of build(transaction as AppDatabase)) query.run();
 		});
 	}
 

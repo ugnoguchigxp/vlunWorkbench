@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { renderMarkdownToSafeHtml } from "./markdown-editor";
+import { renderMarkdownToSafeHtml } from "./safe-markdown";
 
 describe("renderMarkdownToSafeHtml", () => {
 	it("renders common report Markdown including tables", () => {

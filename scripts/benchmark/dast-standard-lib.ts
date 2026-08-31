@@ -10,8 +10,8 @@ import type {
 	ValidatedDastTarget,
 } from "../../api/modules/dast/types";
 import {
-	startDastStandardFixture,
 	type DastStandardFixtureMode,
+	startDastStandardFixture,
 } from "../../tests/security-capability/dast-standard/app/server";
 
 const policyPath = "spec/security-capability/dast-standard-policy.v1.json";
@@ -19,8 +19,11 @@ const groundTruthPath =
 	"spec/security-capability/dast-standard-ground-truth.v1.json";
 const fixtureRoot = "tests/security-capability/dast-standard/app";
 const implementationInputs = [
+	"api/modules/api-schema-fuzz",
 	"api/modules/dast",
-	"api/modules/scans/runtime-assessment-coverage.ts",
+	"api/modules/runtime-scans",
+	"api/modules/scans/tools",
+	"api/modules/scans/coverage/runtime-assessment-coverage.ts",
 	"shared/schemas/dast-coverage.schema.ts",
 	"shared/schemas/dast.schema.ts",
 	"shared/schemas/dast-auth.schema.ts",

@@ -1,0 +1,4119 @@
+<article lang="ja" data-spec-role="template">
+  <h1 id="ontology-contract-versioning-implementation-plan">
+    Ontology Contract Versioning Implementation Plan
+  </h1>
+  <ul>
+    <li>Status: Parked reference plan; implementation not approved</li>
+    <li>Implementation status: Not started</li>
+    <li>Date: 2026-08-29</li>
+    <li>Last reviewed: 2026-08-31</li>
+    <li>
+      Review status: bootstrap / publication split complete; feature-specific catalog activation and
+      production enforcement remain dependency-gated
+    </li>
+    <li>
+      Priority: Last-stage bootstrap only after multiple published versions and consumer migration
+      need; P1 publication and enforcement
+    </li>
+    <li>
+      Bootstrap GO requirement: Static Intelligence ownerとNightWorkers consumer ownerが、現行の
+      production-visible surfaceだけを対象にしたbaseline inventoryとclosed / open
+      set分類を承認すること
+    </li>
+    <li>
+      Publication GO requirement: shared contract owner、producer owner、NightWorkers consumer
+      ownerがpublished release、reader floor、support policy、rollback floorを承認すること
+    </li>
+    <li>
+      Planning catalog:
+      <a href="../../templates/ontology-planning/index.html">Ontology Planning Catalog</a>
+    </li>
+    <li>
+      Parent direction:
+      <a href="../../concepts/project-intelligence-ontology-evolution-roadmap.html"
+        >Project Intelligence and Ontology Evolution Roadmap</a
+      >
+    </li>
+    <li>
+      Planned catalog sources and publication dependencies:
+      <a href="./semantic-handoff-validation-implementation-plan.html"
+        >Semantic Handoff Validation Implementation Plan</a
+      >、
+      <a href="./claim-provenance-implementation-plan.html">Claim Provenance Implementation Plan</a
+      >、
+      <a href="./security-vocabulary-alignment-implementation-plan.html"
+        >Security Vocabulary Alignment Implementation Plan</a
+      >
+    </li>
+    <li>
+      Dependency rule: 上記3計画はbootstrapの前提ではない。未実装中は
+      <code>status="planned"</code> /
+      <code>deferred_unimplemented</code>として扱い、各profileのowner
+      contractが実装・reviewされた後にだけcatalog sourceをactive化する。
+    </li>
+  </ul>
+
+  <h2 id="1-purpose">1. Purpose</h2>
+  <p>
+    Static Intelligenceのwire schema version、generation identity、export / content
+    hashとは別に、consumerが依存するontologyの意味面を明示的なcontractとしてversion管理する。entity
+    kind、edge kind、field、identity、constraint、validation rule、claim rule、security vocabulary
+    semanticsの変更を、不変snapshotとcanonical diffで説明できる状態を作る。
+  </p>
+  <p>
+    この計画はOntology Contract
+    Versioningだけを実装可能な粒度へ具体化する。先行3計画が所有するvalidator、claim
+    ledger、vocabulary registryを再実装しない。先行contractのimmutable
+    profileを参照し、profileの追加・削除・意味変更がontology contractへ与える影響だけを分類する。
+  </p>
+  <p>
+    実装は二つのtrackへ分ける。<strong>Bootstrap track</strong>は現行production-visible
+    contractだけをinventoryし、snapshot、hash、diff、version policyをproduct path外で完成させる。
+    <strong>Publication / Enforcement track</strong>はconsumer reader、generation
+    descriptor、release
+    governanceを追加する。Bootstrapは先行profileの実装を待たずに完了できるが、PublicationはStage 0
+    GO、baseline test green、consumer release windowを必須とする。
+  </p>
+
+  <h2 id="2-target-outcome">2. Target Outcome</h2>
+  <pre><code class="language-text">source-controlled semantic catalogs
+  -&gt; build a normalized ontology contract snapshot
+  -&gt; validate stable element IDs and bounded semantics
+  -&gt; serialize with one canonical JSON profile
+  -&gt; hash a MAJOR.MINOR.PATCH candidate
+  -&gt; diff the registry head and candidate by stable element ID and semantic path
+  -&gt; derive required version bump from fixed reason codes
+  -&gt; verify declared version, deprecation policy, readers, approvals, and evidence
+  -&gt; stage immutable snapshot / coverage inventory / diff / evidence
+  -&gt; publish with registry-last commit point
+  -&gt; verify the published release in CI
+  -&gt; publish a bounded descriptor with each new generation
+  -&gt; let each consumer evaluate an explicit support policy
+  -&gt; retain exact historical readers; never rewrite old generations in place
+</code></pre>
+  <p>Bootstrap trackの完了時点では、次の限定されたoutcomeを得る。</p>
+  <pre><code class="language-text">current production-visible schemas / builders / consumer fixtures
+  -&gt; closed coverage inventory
+  -&gt; baseline 1.0.0 candidate snapshot
+  -&gt; canonical hash and deterministic diff
+  -&gt; read-only verification in CI
+  -&gt; no descriptor publication and no persisted payload change
+</code></pre>
+  <p>
+    Publication / Enforcement trackは、bootstrap artifactとowner承認済みactive
+    profileだけを入力にし、 reader-first、shadow、optional、requiredの順で進める。planned
+    profileを推測でsnapshotへ追加しない。
+  </p>
+  <ul>
+    <li>同じcatalog inputからbyte-identical snapshot、hash、diffを生成する。</li>
+    <li>同じversionに異なるsnapshotを登録できず、公開済みsnapshotを上書きできない。</li>
+    <li>contract hashの差を、決定的なchange listと必要なSemVer増分へ解決できる。</li>
+    <li>unknown major、未対応profile、required capability欠落は推測せずfail closedにする。</li>
+    <li>
+      legacy
+      generationは限定した移行期間だけ<code>pre-descriptor-wire-v1</code>としてdegradedに扱い、未証明のsemantic
+      versionを割り当てない。new writerではdescriptorを必須にする。
+    </li>
+    <li>
+      NightWorkersを先にlossless readerへ更新し、producer descriptor publishはその後に開始する。
+    </li>
+  </ul>
+
+  <h2 id="3-current-baseline">3. Current Baseline</h2>
+  <table>
+    <caption>
+      現行のversion・identity surfaceと不足
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Surface</th>
+        <th scope="col">Current behavior</th>
+        <th scope="col">Gap</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>static-intelligence.schema.ts</code></td>
+        <td>
+          exportは<code>version="v1"</code>、node kind 9種、edge kind
+          8種、project / scan / graph / handoffを持つ。
+        </td>
+        <td>
+          <code>v1</code
+          >はwire識別子であり、entityやedgeの意味変更を分類するsemantic versionではない。
+        </td>
+      </tr>
+      <tr>
+        <td><code>static-intelligence-knowledge-source.schema.ts</code></td>
+        <td>
+          manifest
+          v1は<code>schemaVersion="static-intelligence-export-v1"</code>、generation、exportHash、contentHashを持つ。
+        </td>
+        <td>内容差は検出できるが、その差がdata更新かcontract変更かを区別できない。</td>
+      </tr>
+      <tr>
+        <td><code>generation-types.ts</code> / repository</td>
+        <td>
+          artifact
+          format、schemaVersion、sourceTreeHash、sourceStateHash、snapshotRef、exportHashを検証する。
+        </td>
+        <td>semantic contract version / hashのgeneration-wide consistency検証がない。</td>
+      </tr>
+      <tr>
+        <td><code>static-intelligence-module.schema.ts</code></td>
+        <td>ontology handoffはgeneration、module、graph summary、consumer boundaryを持つ。</td>
+        <td>producerが使ったcontractとconsumerが対応するcapabilityを照合できない。</td>
+      </tr>
+      <tr>
+        <td><code>knowledge-source-manifest.ts</code></td>
+        <td>generatedAt等を除外してexport / manifestのhashを生成する。</td>
+        <td>
+          canonical JSON実装が<code>generation-types.ts</code>にも重複し、shared
+          canonical JSONとの同値性がrelease gateになっていない。
+        </td>
+      </tr>
+      <tr>
+        <td>先行3計画</td>
+        <td>
+          handoff validation、claim provenance、security vocabularyのimmutable
+          profileとconsumer-first rolloutを定義済みである。
+        </td>
+        <td>profile間の意味変更を一つのcontract releaseへ集約して説明するdiffがない。</td>
+      </tr>
+      <tr>
+        <td>
+          NightWorkers
+          <code>shared/schemas/ontology-handoff.schema.ts</code> /
+          <code>vulnworkbench-handoff.service.ts</code>
+        </td>
+        <td>
+          knowledge source manifest全体をstrict parseし、成功時はmanifestを
+          <code>ontology_handoff_manifest</code> artifactへ保存する。
+        </td>
+        <td>
+          現行schemaにontology contract descriptorがないため、producerが先にfieldを追加すると
+          <code>schema_invalid</code>へ落ちる。optional
+          readerとcompatibility判定が未実装である。
+        </td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3 id="31-baseline-tests">3.1 Baseline Test Evidence</h3>
+  <p>2026-08-29に関連6 test fileを変更前baselineとして実行した。</p>
+  <ul>
+    <li>全体: 53 tests中47 pass、6 fail</li>
+    <li>
+      generation repository、knowledge source manifest、read model resolver、module
+      candidate、routeの全対象testはpassした。
+    </li>
+    <li>
+      <code>intelligence-knowledge-source-cli.test.ts</code>の6 testsはempty stdout / JSON
+      EOFでfailした。先行計画にも記録済みの同一CLI
+      baselineであり、本計画の変更によるregressionではない。
+    </li>
+  </ul>
+  <pre><code class="language-shell">bun test \
+  api/modules/static-intelligence/generation-repository.test.ts \
+  api/modules/static-intelligence/knowledge-source-manifest.test.ts \
+  api/modules/static-intelligence/read-model-resolver.test.ts \
+  api/modules/static-intelligence/module-candidates.test.ts \
+  api/modules/static-intelligence/intelligence-knowledge-source-cli.test.ts \
+  api/routes/static-intelligence.route.test.ts
+</code></pre>
+  <p>
+    同日のcross-repository静的確認では、NightWorkersの
+    <code>ontologyHandoffManifestResultSchema</code>はmanifest objectを
+    <code>strict()</code>で検証し、handoff serviceはschema failureを
+    <code>schema_invalid</code
+    >へ変換していた。現時点でdescriptor付きmanifestのpositive / negative
+    testは存在しないため、Publication P0で専用testを追加するまでreader floorを満たしたとは扱わない。
+  </p>
+
+  <h2 id="4-fixed-decisions">4. Fixed Decisions</h2>
+  <ol>
+    <li>
+      Bootstrap trackとPublication / Enforcement trackは独立したmerge / revert単位にする。Bootstrap
+      completionはwire、artifact metadata、DB、manifest、handoff、NightWorkers runtime
+      behaviorを変更しない。
+    </li>
+    <li>
+      Semantic Handoff Validation、Claim Provenance、Security Vocabularyの未実装profileはplanned
+      sourceとし、 owner contract、immutable catalog view、positive / negative
+      fixtureが揃うまでactive adapterを作らない。
+    </li>
+    <li>
+      Bootstrap trackではconsumer support window、deprecation telemetry、remote commit
+      approvalをproduction gateにしない。これらはPublication
+      trackのevidenceと実consumer運用に基づいて確定する。
+    </li>
+    <li>
+      初期実装はvulnWorkbench repo内のlibraryとsource-controlled release
+      artifactで行う。共有packageはStage 3 entry gate後、独立serviceはStage 4 mandatory
+      trigger後に再評価する。
+    </li>
+    <li>
+      ontology contractは生成dataではなく、consumer-visibleな意味面の集合である。finding件数、graph
+      instance、registry receipt、timestamp、deployment metadataはsnapshotへ含めない。
+    </li>
+    <li>
+      baseline semantic
+      versionは<code>1.0.0</code>とする。wireの<code>v1</code>、descriptor
+      schemaの<code>v1</code>、semantic
+      versionの<code>1.0.0</code>を別fieldとして保持する。
+    </li>
+    <li>
+      snapshotはZod schemaをruntime introspectionして作らない。enum / profile
+      constantはZodとcatalogで同じreadonly constantを正本とし、field semanticsは明示catalogとschema
+      mutation fixtureを同じreview単位で管理する。
+    </li>
+    <li>
+      element
+      IDはversionを含まない。renameは旧IDのdeprecationと新IDのadditionで表し、同じIDへ別の意味を再割り当てしない。
+    </li>
+    <li>
+      change type、compatibility、required SemVer
+      bumpを別fieldにする。最終bumpは全changeの最大impactから機械導出し、author入力で弱められない。
+    </li>
+    <li>
+      consumerはSemVerのmajor一致だけではacceptしない。tested range、descriptor profile、required
+      capability、referenced profileを全て評価する。
+    </li>
+    <li>
+      historical generationはversion固有readerで読む。既存generationへのcontract
+      descriptor追加、hash再計算、data migrationを行わない。
+    </li>
+    <li>
+      shadow modeはcontractをmemory内で計算・検証し、bounded metrics / logだけを残す。artifact
+      metadata、export、manifest、handoff、DBへdescriptorやmarkerを永続化しない。
+    </li>
+    <li>
+      contract snapshot /
+      diffのcanonicalizationには<code>shared/canonical-json.ts</code>を使う。既存exportHash
+      / contentHashの実装置換はgolden parityが証明されるまで別変更として扱う。
+    </li>
+    <li>
+      rollout policyはtarget contract version / hashをexactにpinする。registryのlatest、request
+      parameter、environment variableからtarget releaseを暗黙選択しない。
+    </li>
+    <li>
+      catalog sourceはsource-controlledなclosed registryへ静的登録する。file存在確認、directory
+      scan、dynamic import、実装順による自動参加を禁止し、active sourceのadapter欠落はbuild
+      failureにする。
+    </li>
+    <li>
+      checked-in contract JSONはbyte上限を確認した後、duplicate-key-aware parserで読む。
+      <code>JSON.parse</code>後の再serializeだけでduplicate
+      keyを検出できるとはみなさない。
+    </li>
+    <li>
+      registry内部の自己整合性に加え、PR base commitとのappend-only history比較をrequired
+      checkにする。hashを再計算して過去releaseを書き換える攻撃・事故をcandidate単体の検証だけで見逃さない。
+    </li>
+  </ol>
+
+  <h2 id="5-scope">5. Scope</h2>
+  <h3 id="51-in-scope">5.1 In Scope</h3>
+  <p><strong>Bootstrap track:</strong></p>
+  <ul>
+    <li>wire profile、generation identity、ontology semantic contractの用語と責務分離</li>
+    <li>現行production-visible surfaceだけを対象にしたbaseline 1.0.0 candidate snapshot</li>
+    <li>closed source registryとincluded / excluded / deferred coverage inventory</li>
+    <li>
+      現行entity、edge、field、identity、constraint、capabilityのstable element
+      catalog。未実装validation、claim、 vocabulary profileはplanned sourceとしてのみ登録する。
+    </li>
+    <li>canonical JSON、snapshot hash、diff hash、registry integrity</li>
+    <li>add / modify / deprecate / removeとpatch / minor / majorの決定的分類</li>
+    <li>product pathを変更しないsnapshot / diff / candidate verification CLIとCI check</li>
+  </ul>
+  <p><strong>Publication / Enforcement track:</strong></p>
+  <ul>
+    <li>owner承認済みactive profile adapterとimmutable published registry</li>
+    <li>consumer support declarationとcompatibility evaluator</li>
+    <li>export、manifest、ontology handoff、generation metadataへのdescriptor統合</li>
+    <li>reader-first、consumer-first、dual-read、legacy cutoff、rollback</li>
+    <li>release evidence、append-only history、publication / enforcement CI gate</li>
+    <li>vulnWorkbenchとNightWorkersのcross-repository golden fixture</li>
+  </ul>
+
+  <h3 id="52-non-goals">5.2 Non-goals</h3>
+  <ul>
+    <li>finding、module、graph instanceのdata diffや履歴UI</li>
+    <li>RDF / OWL serialization、IRI namespace、reasoner、triple storeの導入</li>
+    <li>runtimeでcontract versionを作成・編集するAPI</li>
+    <li>ontology authoring、proposal、approval、merge、conflict resolution workflow</li>
+    <li>既存profileのrule、severity、target、vocabulary meaningの変更</li>
+    <li>old generationをnew contractへin-place変換するmigration engine</li>
+    <li>shared package、独立database、独立Ontology Core serviceの先行作成</li>
+    <li>version番号だけを根拠にした自動acceptや自動upgrade</li>
+  </ul>
+
+  <h2 id="6-responsibility-boundary">6. Responsibility Boundary</h2>
+  <table>
+    <caption>
+      計画間の所有権
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Area</th>
+        <th scope="col">Owning plan / component</th>
+        <th scope="col">This plan consumes</th>
+        <th scope="col">This plan owns</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Handoff validation</td>
+        <td>Semantic Handoff Validation</td>
+        <td><code>static-intelligence-ontology-handoff-v1</code>のrule ID、severity、ref normalization</td>
+        <td>profile elementのaddition / modification / removal classification</td>
+      </tr>
+      <tr>
+        <td>Claim lineage</td>
+        <td>Claim Provenance</td>
+        <td>
+          <code>static-intelligence-claim-provenance-v1</code> /
+          <code>v2</code>のtarget、reference、rule catalog
+        </td>
+        <td>profile参照とsemantic impact。record / ledgerの生成は所有しない。</td>
+      </tr>
+      <tr>
+        <td>Security vocabulary</td>
+        <td>Security Vocabulary Alignment</td>
+        <td>
+          <code>static-intelligence-security-vocabulary-v1</code>のrole、relation、evidence、normalization
+          profile
+        </td>
+        <td>
+          意味面のcontract element。authority receiptやregistry content更新だけではbumpしない。
+        </td>
+      </tr>
+      <tr>
+        <td>Generation persistence</td>
+        <td>Static Intelligence generation lifecycle</td>
+        <td>immutable artifact set、metadata、source state、hash validation</td>
+        <td>generation-wide contract descriptor consistency marker</td>
+      </tr>
+      <tr>
+        <td>Consumer support</td>
+        <td>各consumer repository</td>
+        <td>source-controlled support declaration</td>
+        <td>共通schema、pure evaluator、test fixture</td>
+      </tr>
+      <tr>
+        <td>Ontology revision lifecycle</td>
+        <td>将来のStage 4 Ontology Core</td>
+        <td>なし</td>
+        <td>この計画では扱わない。</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2 id="7-reference-basis">7. Reference Basis and Semantica Adoption Boundary</h2>
+  <p>
+    Semanticaは調査時点を固定するためcommit
+    <code>cce5ea177cbac29a526effa546219c48f8ec36f4</code>を参照する。
+    <a
+      href="https://github.com/semantica-agi/semantica/blob/cce5ea177cbac29a526effa546219c48f8ec36f4/semantica/change_management/ontology_version_manager.py"
+      >ontology_version_manager.py</a
+    >はontology versionとversion-less element IRI、version comparison、structural
+    diffを分離している。
+    <a
+      href="https://github.com/semantica-agi/semantica/blob/cce5ea177cbac29a526effa546219c48f8ec36f4/semantica/change_management/managers.py"
+      >managers.py</a
+    >はimmutable snapshot、SHA-256 checksum、比較、旧new graph keyの移行共存を示す。
+  </p>
+  <table>
+    <caption>
+      Semanticaからの採用・適応・不採用
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Semantica clue</th>
+        <th scope="col">Decision</th>
+        <th scope="col">vulnWorkbench adaptation</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>version-less element identity</td>
+        <td>Adopt</td>
+        <td>
+          versionを含まない<code>elementId</code>をrelease間で固定する。
+        </td>
+      </tr>
+      <tr>
+        <td>versioned immutable snapshot + checksum</td>
+        <td>Adopt</td>
+        <td>source-controlled canonical JSON releaseとSHA-256 hashに置き換える。</td>
+      </tr>
+      <tr>
+        <td>structural compare before migration</td>
+        <td>Adopt</td>
+        <td>normalized semantic element diffをrelease gateにする。</td>
+      </tr>
+      <tr>
+        <td>old / new key coexistence</td>
+        <td>Adapt</td>
+        <td>reader-first optional descriptorとversion-specific readerを使う。</td>
+      </tr>
+      <tr>
+        <td>RDF ontology / IRI / axiom diff</td>
+        <td>Do not adopt</td>
+        <td>JSON / Zod consumer contractに合わせたtyped element catalogを使う。</td>
+      </tr>
+      <tr>
+        <td>in-memory / SQLite mutable version storage</td>
+        <td>Do not adopt</td>
+        <td>review可能なrepository artifactを正本にし、runtime mutationを禁止する。</td>
+      </tr>
+      <tr>
+        <td>graph instance entity / relationship diff</td>
+        <td>Do not adopt</td>
+        <td>data diffとschema / semantics diffを混同しない。</td>
+      </tr>
+      <tr>
+        <td>automatic restore / migrate</td>
+        <td>Do not adopt</td>
+        <td>old generationを不変のまま保持し、reader選択で共存する。</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    version policyは<a href="https://semver.org/spec/v2.0.0.html">Semantic Versioning 2.0.0</a
+    >を基礎にする。public semantic
+    surfaceを明示したうえで、breakingをmajor、後方互換の追加とdeprecationをminor、documented
+    semantics内の後方互換bug fixをpatchへ割り当てる。diff pathは<a
+      href="https://www.rfc-editor.org/rfc/rfc6901"
+      >RFC 6901 JSON Pointer</a
+    >で表し、array indexを使わない。
+  </p>
+
+  <h2 id="8-semantic-boundary">8. Version and Identity Boundary</h2>
+  <table>
+    <caption>
+      変更の識別子と用途
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Identifier</th>
+        <th scope="col">Example</th>
+        <th scope="col">Changes when</th>
+        <th scope="col">Must not mean</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Wire version</td>
+        <td><code>static-intelligence-export-v1</code></td>
+        <td>JSON envelope / parse contractを別readerへ分けるとき</td>
+        <td>ontologyの意味version</td>
+      </tr>
+      <tr>
+        <td>Descriptor version</td>
+        <td><code>v1</code></td>
+        <td>descriptor自身のwire shapeが変わるとき</td>
+        <td>consumer-visible entity意味のversion</td>
+      </tr>
+      <tr>
+        <td>Ontology contract version</td>
+        <td><code>1.0.0</code></td>
+        <td>canonical semantic snapshotがreleaseされるとき</td>
+        <td>deployment / package / data generation version</td>
+      </tr>
+      <tr>
+        <td>Contract hash</td>
+        <td><code>sha256:&lt;64 lowercase hex&gt;</code></td>
+        <td>canonical snapshot byte列が変わるとき</td>
+        <td>互換性分類そのもの</td>
+      </tr>
+      <tr>
+        <td>Generation ID / source hashes</td>
+        <td>existing generation metadata</td>
+        <td>repository state、scan、projection inputが変わるとき</td>
+        <td>contract bump</td>
+      </tr>
+      <tr>
+        <td>Export / content hash</td>
+        <td>existing 64 hex hash</td>
+        <td>対象payload内容が変わるとき</td>
+        <td>変更理由やSemVer impact</td>
+      </tr>
+      <tr>
+        <td>Registry / authority version</td>
+        <td>vocabulary release / receipt</td>
+        <td>offline data sourceが更新されるとき</td>
+        <td>自動的なontology contract bump</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3 id="81-contract-inclusion-rule">8.1 Contract Inclusion Rule</h3>
+  <p>
+    「consumerのcontrol
+    flow、identity、validation結果、projection結果、または意味解釈が変わるか」をinclusion
+    testとする。yesならsemantic elementとしてsnapshotへ含め、noならoperational
+    metadataとして除外する。
+  </p>
+  <ul>
+    <li>
+      Include: node / edge kind、field presence / type / enum、identity input、canonicalization
+      rule、endpoint constraint、validation severity、claim target / rule、vocabulary role /
+      relation、fail-safe status、capability contract
+    </li>
+    <li>
+      Exclude: generatedAt、owner名、reviewer名、説明文、evidence URL、registry取得時刻、HTTP
+      metadata、counts、instance IDs、raw graph data、deployment fingerprint
+    </li>
+    <li>
+      Conditional: registry schemaやnormalization algorithmは含めるが、同じ意味を保ったauthority
+      snapshot / mapping receiptの更新は含めない。
+    </li>
+  </ul>
+
+  <h3 id="82-wire-only-change">8.2 Wire-only Change</h3>
+  <p>
+    JSON envelope、field名、serialization placementだけが変わり、§8.1のmeaning-bearing
+    surfaceが不変ならontology contract releaseを作らない。wire profileを別versionへ上げ、lossless
+    readerを先行配備し、runtime
+    descriptorの<code>wireProfiles</code>だけを切り替える。descriptor
+    v1のliteral profile IDでは新wireを表せないため、その場合はdescriptor
+    v2のreaderも先行配備する。descriptor field
+    自身を既存wireへ追加するbootstrapもこの扱いとし、baseline ontology contract
+    <code>1.0.0</code
+    >を不要に<code>1.1.0</code>へ上げない。
+  </p>
+  <p>
+    wire-only変更とsemantic変更を同じreleaseで行う場合は両方のgateを満たす。wire
+    profileが対応済みでもsemantic version / hashがunknownならacceptせず、semantic
+    contractが既知でもwire profileがunsupportedならacceptしない。
+  </p>
+
+  <h2 id="9-contract-v1">9. Ontology Contract v1</h2>
+  <h3 id="91-descriptor">9.1 Runtime Descriptor</h3>
+  <pre><code class="language-typescript">const semverSchema = z.string().regex(
+  /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/,
+);
+const sha256UrnSchema = z.string().regex(/^sha256:[a-f0-9]{64}$/);
+const profileIdSchema = z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9._-]*$/);
+
+const ontologyContractCapabilitySchema = z.object({
+  id: profileIdSchema,
+  profile: profileIdSchema,
+}).strict();
+const ontologyContractCapabilitiesSchema = z.array(ontologyContractCapabilitySchema)
+  .max(64).superRefine((values, context) =&gt; {
+    for (let index = 1; index &lt; values.length; index += 1) {
+      const previous = values[index - 1]!;
+      const current = values[index]!;
+      if (previous.id &gt; current.id || previous.id === current.id) {
+        context.addIssue({ code: "custom", message: "capability_not_sorted_unique" });
+        return;
+      }
+    }
+  });
+
+const ontologyContractDescriptorV1Schema = z.object({
+  version: z.literal("v1"),
+  contractId: z.literal("vulnworkbench.static-intelligence-ontology"),
+  contractVersion: semverSchema,
+  contractHash: sha256UrnSchema,
+  canonicalizationProfile: z.literal("ontology-contract-canonical-json-v1"),
+  wireProfiles: z.object({
+    export: z.literal("static-intelligence-export-v1"),
+    manifest: z.literal("static-intelligence-knowledge-source-manifest-v1"),
+    handoff: z.literal("static-intelligence-ontology-handoff-wire-v1"),
+  }).strict(),
+  capabilities: ontologyContractCapabilitiesSchema,
+}).strict();
+
+const ontologyContractArtifactMarkerV1Schema = z.object({
+  descriptorVersion: z.literal("v1"),
+  contractId: z.literal("vulnworkbench.static-intelligence-ontology"),
+  contractVersion: semverSchema,
+  contractHash: sha256UrnSchema,
+}).strict();</code></pre>
+  <pre><code class="language-typescript">const ontologyContractDescriptorTransportSchema = z.unknown().superRefine(
+  (value, context) =&gt; {
+    if (value === null || typeof value !== "object" || Array.isArray(value)) {
+      context.addIssue({ code: "custom", message: "descriptor_envelope_invalid" });
+      return;
+    }
+    const version = (value as Record&lt;string, unknown&gt;).version;
+    if (typeof version !== "string" || !profileIdSchema.safeParse(version).success) {
+      context.addIssue({ code: "custom", message: "descriptor_envelope_invalid" });
+      return;
+    }
+    if (!isBoundedJsonValue(value, {
+      maxDepth: 16, maxNodes: 4_096, maxObjectKeys: 256,
+    })) {
+      context.addIssue({ code: "custom", message: "descriptor_envelope_too_large" });
+      return;
+    }
+    let byteLength: number;
+    try {
+      byteLength = new TextEncoder().encode(canonicalJson(value)).byteLength;
+    } catch {
+      context.addIssue({ code: "custom", message: "descriptor_envelope_invalid" });
+      return;
+    }
+    if (byteLength &gt; 16 * 1024) {
+      context.addIssue({ code: "custom", message: "descriptor_envelope_too_large" });
+    }
+  },
+);</code></pre>
+  <ul>
+    <li>
+      descriptorはsnapshot全体を埋め込まず、version、hash、wire
+      profiles、有効capabilityだけを公開する。
+    </li>
+    <li>
+      <code>capabilities</code
+      >は<code>id</code>順にsortし、同じIDの重複を禁止する。
+    </li>
+    <li>
+      validation / claim / vocabularyが未実装のbaselineではcapabilityを宣言しない。各preceding
+      planのprofileがpublish可能になったreleaseで追加する。
+    </li>
+    <li>
+      runtime descriptorの各capabilityは同じcontract snapshotの<code
+        >capability</code
+      >
+      elementに存在し、そのelementの<code>capabilityId</code>がdescriptorの<code>id</code>、<code>profile</code>がdescriptorの<code>profile</code>と一致しなければならない。<code>elementId</code>をruntime
+      capability
+      IDとして公開しない。snapshotは利用可能な意味面、descriptorは当該generationで有効なsubsetを表す。
+    </li>
+    <li>
+      <code>static-intelligence-knowledge-source-manifest-v1</code
+      >と<code>static-intelligence-ontology-handoff-wire-v1</code>はdescriptor導入時に新設するwire profile
+      constantsである。現行payloadに同名fieldがあると仮定せず、既存<code
+        >version="v1"</code
+      >
+      shapeへのmappingをcontract testで固定する。handoff wire
+      IDへ<code>wire</code>を含め、Semantic Handoff Validationの<code
+        >static-intelligence-ontology-handoff-v1</code
+      >
+      profileと混同しない。
+    </li>
+    <li>descriptorにtimestamp、consumer名、environment、registry receiptを入れない。</li>
+    <li>descriptorの最大canonical JSON sizeは16 KiBとする。</li>
+    <li>
+      <code>isBoundedJsonValue</code
+      >は<code>strict-json.ts</code>のiterative traversalとし、再帰せずにdepth /
+      node / object-key、plain JSON type、cycleを検証してからcanonical JSONを呼ぶ。
+    </li>
+    <li>
+      producer buildは<code>ontologyContractDescriptorV1Schema</code>を使うが、export / manifest /
+      handoffのreader boundaryは<code>ontologyContractDescriptorTransportSchema</code>でplain object、bounded
+      version discriminator、16
+      KiBだけを先に検証してlosslessに保持する。その後versionでdispatchし、known v1をfull strict
+      parseする。unknown versionをv1 schema invalidへ潰さず、known v1のunknown / missing
+      fieldをforward-compatibleとして受理しない。artifact markerも同じenvelope → version-specific
+      strict parse順にする。
+    </li>
+    <li>
+      artifact metadataにはfull descriptorを複製せず、単一の
+      <code>ontologyContract</code> objectとしてmarkerを置く。version /
+      hashを独立optional fieldへ分けてpartial markerを表現可能にしない。
+    </li>
+  </ul>
+
+  <h3 id="92-snapshot">9.2 Canonical Snapshot</h3>
+  <pre><code class="language-typescript">const ontologyContractSnapshotV1Schema = z.object({
+  version: z.literal("v1"),
+  contractId: z.literal("vulnworkbench.static-intelligence-ontology"),
+  contractVersion: semverSchema,
+  canonicalizationProfile: z.literal("ontology-contract-canonical-json-v1"),
+  elements: z.array(ontologyContractElementSchema).max(10_000),
+}).strict();
+
+type OntologyContractElement =
+  | EntityKindElement
+  | EdgeKindElement
+  | FieldElement
+  | IdentityRuleElement
+  | ConstraintElement
+  | ValidationRuleElement
+  | ClaimRuleElement
+  | VocabularySemanticElement
+  | CapabilityElement;
+</code></pre>
+  <p>
+    elementは<code>kind</code>で判別するstrict discriminated
+    unionとする。共通fieldは次のとおりである。
+  </p>
+  <pre><code class="language-typescript">type ContractElementBase = {
+  kind:
+    | "entity_kind" | "edge_kind" | "field" | "identity_rule"
+    | "constraint" | "validation_rule" | "claim_rule"
+    | "vocabulary_semantic" | "capability";
+  elementId: string;             // version-less, globally unique
+  semanticRevision: string;      // machine-readable meaning revision
+  lifecycle: "active" | "deprecated";
+  replacementElementId?: string; // deprecated only
+  deprecatedSince?: string;       // SemVer, deprecated only
+};</code></pre>
+  <ul>
+    <li>
+      <code>elementId</code
+      >は最大160文字、<code>/^(entity_kind|edge_kind|field|identity_rule|constraint|validation_rule|claim_rule|vocabulary_semantic|capability)\.[a-z0-9]+(?:[._-][a-z0-9]+)*$/</code>に固定し、prefixと<code>kind</code>を一致させる。
+    </li>
+    <li>
+      例:
+      <code>entity_kind.finding</code
+      >、<code>edge_kind.evidenced_by</code>、<code>field.ontology_handoff.modules</code>、<code
+        >validation_rule.ontology.edge.target_exists</code
+      >
+    </li>
+    <li>element IDはversionやsource file pathを含めず、file移動で変わらない。</li>
+    <li>
+      <code>semanticRevision</code>は最大64文字のsource-controlled profile
+      IDとする。表示文言では検出できないmeaning変更を明示し、同じ概念のmajor
+      evolutionだけで更新する。無関係な概念への再利用はmajorでも禁止し、新IDを作る。
+    </li>
+    <li>
+      elementごとのsemantic payloadはkind別strict schemaで制限する。任意JSON、function
+      source、Zod内部表現、説明文hashを入れない。
+    </li>
+    <li>
+      <code>behaviorRevision</code>は最大64文字のsource-controlled profile
+      IDとし、commit SHA、package version、function source hashを使わない。
+    </li>
+  </ul>
+
+  <h3 id="93-element-semantics">9.3 Element Semantics</h3>
+  <table>
+    <caption>
+      element kind別のmeaning-bearing fields
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Kind</th>
+        <th scope="col">Required semantics</th>
+        <th scope="col">Not included</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>entity_kind</code></td>
+        <td>public name、identity rule ID、required / optional field IDs、kind field ID</td>
+        <td>instance count、label例</td>
+      </tr>
+      <tr>
+        <td><code>edge_kind</code></td>
+        <td>
+          public name、direction、allowed from / to entity IDs、multiplicity、identity rule ID、kind
+          field ID
+        </td>
+        <td>actual graph edges</td>
+      </tr>
+      <tr>
+        <td><code>field</code></td>
+        <td>
+          logical owner、RFC 6901 path、presence、value type、nullability、value setの<code
+            >open</code
+          >
+          / <code>closed</code>、enum value / referenced element IDs
+        </td>
+        <td>default display value、UI label</td>
+      </tr>
+      <tr>
+        <td><code>identity_rule</code></td>
+        <td>
+          domain separator、ordered input field IDs、normalization profile、behavior
+          revision、collision policy
+        </td>
+        <td>example IDs、runtime salt</td>
+      </tr>
+      <tr>
+        <td><code>constraint</code></td>
+        <td>
+          rule ID、applies-to IDs、predicate code、behavior revision、severity / blocking effect
+        </td>
+        <td>human message</td>
+      </tr>
+      <tr>
+        <td><code>validation_rule</code></td>
+        <td>profile、rule code、severity、focus kind、reference normalization</td>
+        <td>message wording</td>
+      </tr>
+      <tr>
+        <td><code>claim_rule</code></td>
+        <td>profile、target / reference kind、assertion kind、required binding paths</td>
+        <td>record count、generator deployment</td>
+      </tr>
+      <tr>
+        <td><code>vocabulary_semantic</code></td>
+        <td>
+          profile、namespace、assignment role、alignment relation、evidence method、normalization
+          profile
+        </td>
+        <td>authority entries、receipt URL / timestamp</td>
+      </tr>
+      <tr>
+        <td><code>capability</code></td>
+        <td>
+          capability ID、profile、required element IDs、<code
+            >must_understand</code
+          >
+          / <code>may_ignore</code>、publication / fallback effect
+        </td>
+        <td>consumer deployment state</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    表のfieldを実装者判断へ残さないため、kind別payloadは次のclosed shapeを正本とする。配列上限は
+    elementごと256、enumのknown valueだけ512とし、全ID参照はsnapshot内で解決する。
+  </p>
+  <pre><code class="language-typescript">const ontologyContractElementKindSchema = z.enum([
+  "entity_kind", "edge_kind", "field", "identity_rule", "constraint",
+  "validation_rule", "claim_rule", "vocabulary_semantic", "capability",
+]);
+const ontologyContractElementIdSchema = z.string().min(1).max(160).regex(
+  /^(entity_kind|edge_kind|field|identity_rule|constraint|validation_rule|claim_rule|vocabulary_semantic|capability)\.[a-z0-9]+(?:[._-][a-z0-9]+)*$/,
+);
+const ontologyContractJsonPointerSchema = z.string().max(512)
+  .regex(/^(?:|(?:\/(?:[^~/]|~[01])*)+)$/)
+  .refine((value) =&gt; !value.split("/").slice(1).some(
+    (segment) =&gt; /^(?:0|[1-9]\d*)$/.test(segment),
+  ));
+const scalarValueSchema = z.union([
+  z.string().max(256), z.number().finite(), z.boolean(),
+]);
+const codeUnitCompare = (left: string, right: string) =&gt;
+  left &lt; right ? -1 : left &gt; right ? 1 : 0;
+const scalarTypeRank = { boolean: 0, number: 1, string: 2 } as const;
+const compareCanonicalScalars = (
+  left: z.infer&lt;typeof scalarValueSchema&gt;,
+  right: z.infer&lt;typeof scalarValueSchema&gt;,
+) =&gt; {
+  const rankDelta = scalarTypeRank[typeof left] - scalarTypeRank[typeof right];
+  return rankDelta || codeUnitCompare(canonicalJson(left), canonicalJson(right));
+};
+
+function sortedUniqueArraySchema&lt;T&gt;(
+  item: z.ZodType&lt;T&gt;,
+  max: number,
+  compare: (left: T, right: T) =&gt; number,
+) {
+  return z.array(item).max(max).superRefine((values, context) =&gt; {
+    for (let index = 1; index &lt; values.length; index += 1) {
+      if (compare(values[index - 1]!, values[index]!) &gt;= 0) {
+        context.addIssue({ code: "custom", message: "array_not_sorted_unique" });
+        return;
+      }
+    }
+  });
+}
+
+const sortedUniqueElementIdsSchema = sortedUniqueArraySchema(
+  ontologyContractElementIdSchema, 256, codeUnitCompare,
+);
+const sortedUniqueProfileIdsSchema = sortedUniqueArraySchema(
+  profileIdSchema, 256, codeUnitCompare,
+);
+const sortedUniqueJsonPointersSchema = sortedUniqueArraySchema(
+  ontologyContractJsonPointerSchema, 256, codeUnitCompare,
+);
+const sortedUniqueScalarValuesSchema = sortedUniqueArraySchema(
+  scalarValueSchema, 512, compareCanonicalScalars,
+);
+const uniqueOrderedElementIdsSchema = z.array(ontologyContractElementIdSchema)
+  .min(1).max(32).superRefine((values, context) =&gt; {
+    if (new Set(values).size !== values.length) {
+      context.addIssue({ code: "custom", message: "sequence_contains_duplicate" });
+    }
+  });
+
+const contractElementBaseSchema = z.object({
+  kind: ontologyContractElementKindSchema,
+  elementId: ontologyContractElementIdSchema,
+  semanticRevision: profileIdSchema.max(64),
+  lifecycle: z.enum(["active", "deprecated"]),
+  replacementElementId: ontologyContractElementIdSchema.optional(),
+  deprecatedSince: semverSchema.optional(),
+});
+
+const entityKindElementSchema = contractElementBaseSchema.extend({
+  kind: z.literal("entity_kind"),
+  publicName: profileIdSchema,
+  identityRuleId: ontologyContractElementIdSchema,
+  kindFieldId: ontologyContractElementIdSchema,
+  requiredFieldIds: sortedUniqueElementIdsSchema,
+  optionalFieldIds: sortedUniqueElementIdsSchema,
+}).strict();
+
+const edgeKindElementSchema = contractElementBaseSchema.extend({
+  kind: z.literal("edge_kind"),
+  publicName: profileIdSchema,
+  direction: z.literal("directed"),
+  allowedFrom: sortedUniqueElementIdsSchema.min(1),
+  allowedTo: sortedUniqueElementIdsSchema.min(1),
+  multiplicity: z.object({
+    min: z.number().int().nonnegative(),
+    max: z.union([z.number().int().positive(), z.literal("many")]),
+  }).strict(),
+  identityRuleId: ontologyContractElementIdSchema,
+  kindFieldId: ontologyContractElementIdSchema,
+}).strict();
+
+const fieldElementSchema = contractElementBaseSchema.extend({
+  kind: z.literal("field"),
+  ownerElementId: ontologyContractElementIdSchema,
+  path: ontologyContractJsonPointerSchema,
+  presence: z.enum(["required", "optional"]),
+  valueType: z.enum([
+    "string", "boolean", "integer", "number", "timestamp",
+    "object", "array", "record",
+  ]),
+  nullable: z.boolean(),
+  valueSet: z.discriminatedUnion("openness", [
+    z.object({
+      openness: z.literal("closed"),
+      values: sortedUniqueScalarValuesSchema.min(1).max(512),
+    }).strict(),
+    z.object({
+      openness: z.literal("open"),
+      knownValues: sortedUniqueScalarValuesSchema.max(512),
+      unknownHandling: z.literal("preserve"),
+    }).strict(),
+  ]).optional(),
+  referencedElementIds: sortedUniqueElementIdsSchema,
+}).strict();
+
+const identityRuleElementSchema = contractElementBaseSchema.extend({
+  kind: z.literal("identity_rule"),
+  domainSeparator: profileIdSchema,
+  orderedInputFieldIds: uniqueOrderedElementIdsSchema,
+  normalizationProfile: profileIdSchema,
+  behaviorRevision: profileIdSchema.max(64),
+  collisionPolicy: z.literal("reject"),
+}).strict();
+
+const constraintElementSchema = contractElementBaseSchema.extend({
+  kind: z.literal("constraint"),
+  ruleCode: profileIdSchema,
+  appliesToElementIds: sortedUniqueElementIdsSchema.min(1),
+  predicateCode: profileIdSchema,
+  behaviorRevision: profileIdSchema.max(64),
+  severity: z.enum(["warning", "error"]),
+  blockingEffect: z.enum(["none", "publication", "generation"]),
+}).strict();
+
+const validationRuleElementSchema = contractElementBaseSchema.extend({
+  kind: z.literal("validation_rule"),
+  profile: profileIdSchema,
+  ruleCode: profileIdSchema,
+  severity: z.enum(["warning", "error"]),
+  focusKinds: sortedUniqueElementIdsSchema.min(1),
+  referenceNormalization: profileIdSchema,
+}).strict();
+
+const claimRuleElementSchema = contractElementBaseSchema.extend({
+  kind: z.literal("claim_rule"),
+  profile: profileIdSchema,
+  targetKinds: sortedUniqueElementIdsSchema.min(1),
+  referenceKinds: sortedUniqueElementIdsSchema,
+  assertionKinds: sortedUniqueProfileIdsSchema.min(1),
+  requiredBindingPaths: sortedUniqueJsonPointersSchema,
+}).strict();
+
+const vocabularySemanticElementSchema = contractElementBaseSchema.extend({
+  kind: z.literal("vocabulary_semantic"),
+  profile: profileIdSchema,
+  namespace: profileIdSchema,
+  assignmentRoles: sortedUniqueProfileIdsSchema,
+  alignmentRelations: sortedUniqueProfileIdsSchema,
+  evidenceMethods: sortedUniqueProfileIdsSchema,
+  normalizationProfile: profileIdSchema,
+}).strict();
+
+const capabilityElementSchema = contractElementBaseSchema.extend({
+  kind: z.literal("capability"),
+  capabilityId: profileIdSchema,
+  profile: profileIdSchema,
+  requiredElementIds: sortedUniqueElementIdsSchema.min(1),
+  understanding: z.enum(["must_understand", "may_ignore"]),
+  publicationEffect: z.enum(["base", "optional_projection"]),
+  fallbackEffect: z.enum(["reject_handoff", "disable_capability"]),
+}).strict();
+
+const ontologyContractElementSchema = z.discriminatedUnion("kind", [
+  entityKindElementSchema,
+  edgeKindElementSchema,
+  fieldElementSchema,
+  identityRuleElementSchema,
+  constraintElementSchema,
+  validationRuleElementSchema,
+  claimRuleElementSchema,
+  vocabularySemanticElementSchema,
+  capabilityElementSchema,
+]);
+</code></pre>
+  <ul>
+    <li>
+      graph node / edge kind集合のopen / closed判定は、各kind自身ではなく<code
+        >field.graph.nodes.kind</code
+      >
+      / <code>field.graph.edges.kind</code>のvalue-set policyを正本にする。
+    </li>
+    <li>
+      new elementがminorになれるのは、from snapshotのopen value setまたはoptional
+      capabilityからだけ参照され、既存active elementのrequired dependencyにならない場合に限る。
+    </li>
+    <li>
+      active lifecycleはreplacement / deprecatedSinceを禁止し、deprecatedは両方を必須にする。 first
+      deprecationの<code>deprecatedSince</code>はtarget release
+      versionと一致させる。 deprecated状態での新規追加、deprecated → active、kind変更を拒否する。
+    </li>
+    <li>
+      set semanticsの配列はUTF-16 code unit順でuniqueにする。
+      <code>orderedInputFieldIds</code>だけはsequence
+      semanticsとして入力順をhashへ保持し、重複だけを拒否する。
+    </li>
+    <li>
+      <code>field.valueSet</code>はscalar / enum fieldだけ、
+      <code>referencedElementIds</code>はreference意味を持つfieldだけに許可する。
+      ownerのrequired / optional field集合、field側のpresence / ownerを双方向に一致させる。
+      同一ownerでfield pathを重複させず、entity / edge kindのpublicNameもkind集合内でuniqueにする。
+    </li>
+    <li>
+      identity ruleのordered inputは、そのruleを参照するentity / edge ownerのfieldだけを許可する。
+      edge multiplicityのnumeric maxはmin以上でなければならない。
+    </li>
+    <li>
+      field pathはlogical owner objectをrootとするRFC 6901 pointerであり、raw
+      export全体をrootにしてarrayを横断しない。 たとえばgraph nodeのkind fieldはnode
+      ownerに対する<code>/kind</code>とし、
+      <code>/graph/nodes/0/kind</code>やwildcard pointerをcatalogへ保存しない。
+    </li>
+    <li>
+      value setはfield valueTypeと同じscalar typeだけを許可する。sortはboolean、number、stringのtype
+      rank後にcanonical scalar
+      bytesで比較し、<code>localeCompare</code>や文字列化だけの混在比較を使わない。
+    </li>
+    <li>
+      capabilityの<code>fallbackEffect</code>は
+      <code>must_understand → reject_handoff</code>、
+      <code>may_ignore → disable_capability</code>の組合せだけを許可する。
+    </li>
+    <li>
+      snapshot内の<code>capabilityId</code>はuniqueとし、runtime
+      descriptorとの結合keyにする。 capability
+      elementの<code>elementId</code>はcatalog内参照専用であり、両者の取り違えをfixtureで拒否する。
+      requiredElementIdsはactive elementだけを参照し、capability同士を参照する場合はself-reference /
+      cycleを禁止して最大8段とする。
+    </li>
+  </ul>
+  <p>
+    Zodのclosed shape検証後に<code>validateOntologyContractElementGraph()</code>を必ず実行し、kind
+    prefix、参照先kind、owner / presence双方向一致、owner内field pathとkind public
+    nameのunique性、identity input ownership、edge multiplicity、value type / value
+    set一致、lifecycle、same-kind replacement chain、capability ID / dependency /
+    fallbackのcross-element invariantをまとめて検証する。schema parseだけでsnapshotをvalidにしない。
+    issueは次のclosed code、<code>elementId</code>、RFC 6901
+    pathだけを持ち、code / elementId /
+    path順でunique、最大256件とする。257件目で<code>issue_limit_exceeded</code>を1件だけ追加して停止し、raw
+    valueやfree-text messageをrelease outputへ出さない。
+  </p>
+  <pre><code class="language-text">element_kind_prefix_mismatch
+element_reference_missing
+element_reference_kind_mismatch
+field_owner_presence_mismatch
+field_path_duplicate
+public_name_duplicate
+identity_input_owner_mismatch
+edge_multiplicity_invalid
+field_value_set_type_mismatch
+lifecycle_invalid
+replacement_chain_invalid
+capability_id_duplicate
+capability_dependency_invalid
+capability_fallback_invalid
+issue_limit_exceeded
+</code></pre>
+  <p>
+    from /
+    toが必要な<code>semantic_revision_not_updated</code>と<code>diff_rule_missing</code>はgraph
+    validatorではなくdiff / release validatorのissue codeとし、同じbounded issue
+    shapeとsort規則を使う。
+  </p>
+
+  <h3 id="94-baseline-100">9.4 Baseline 1.0.0</h3>
+  <p>
+    baselineは実装時点のproduction-visible
+    contractを手作業でinventoryし、現行codeとfixtureから再確認してfreezeする。plannedだが未実装の先行profileを1.0.0へ先取りしない。
+  </p>
+  <ul>
+    <li>export / manifest / ontology handoff v1のmeaning-bearing fieldとpresence</li>
+    <li>graph node kind 9種とedge kind 8種</li>
+    <li>module candidate、readiness status、consumer boundary</li>
+    <li>現行ID / hash / source reference normalizationでconsumerが依存する規則</li>
+    <li>
+      baseline作成時にcodeと意味catalogが一致しない箇所は、snapshotをcodeへ合わせて記録する。意味変更を同じPRへ混ぜない。
+    </li>
+    <li>
+      node / edge kind、status、profile、rule code等のenumはreadonly constantへ抽出し、Zod
+      schemaとcatalog adapterが同じconstantをimportする。field presence / typeはbaseline
+      fixtureをpath単位でmutateし、required remove、optional omit、valid / invalid
+      typeの期待結果を固定する。
+    </li>
+  </ul>
+
+  <h3 id="941-baseline-coverage">9.4.1 Release Coverage Contract</h3>
+  <p>
+    手作業inventoryの「見落とし0」を証明するため、snapshotとは別にcoverage inventoryを保存する。
+    schema / builder / consumer上のmeaning-bearing候補をadapterがstable
+    <code>coverageKey</code>へ変換し、各keyをincluded / excluded /
+    deferredのexactly 1件へ分類する。
+  </p>
+  <pre><code class="language-typescript">const ontologyContractCatalogSourceRegistryV1Schema = z.object({
+  version: z.literal("ontology-contract-source-registry-v1"),
+  sources: z.array(z.object({
+    sourceId: profileIdSchema,
+    adapterId: profileIdSchema,
+    status: z.enum(["active", "planned"]),
+    profile: profileIdSchema.optional(),
+  }).strict()).min(1).max(64),
+}).strict();
+
+const ontologyContractCoverageInventoryV1Schema = z.object({
+  version: z.literal("v1"),
+  contractVersion: semverSchema,
+  sourceRegistryVersion: z.literal("ontology-contract-source-registry-v1"),
+  activeSourceRegistryHash: sha256UrnSchema,
+  entries: z.array(z.object({
+    coverageKey: z.string().min(1).max(256)
+      .regex(/^[a-z0-9][a-z0-9._:/#-]*$/),
+    sourceId: profileIdSchema,
+    surface: z.enum([
+      "wire_field", "enum_member", "identity_rule", "constraint",
+      "validation_rule", "claim_rule", "vocabulary_semantic", "capability",
+    ]),
+    disposition: z.enum([
+      "included", "excluded_operational", "deferred_unimplemented",
+    ]),
+    elementIds: sortedUniqueElementIdsSchema,
+    reasonCode: z.enum([
+      "consumer_visible_semantics", "timestamp_only", "instance_data",
+      "deployment_metadata", "receipt_only", "planned_profile_not_active",
+    ]),
+  }).strict()).min(1).max(10_000),
+}).strict();
+</code></pre>
+  <ul>
+    <li>
+      source registryはsourceId順でuniqueにし、active sourceはclosed
+      <code>switch</code>からexactly 1 adapterへ解決する。planned
+      sourceはruntime importせず、active化そのものをcatalog
+      changeとしてreviewする。inventoryのactiveSourceRegistryHashはstatus=active
+      entryだけのnormalized projectionをcanonical hashした値と一致させる。
+    </li>
+    <li>
+      active source adapterが列挙するcoverage key集合とinventory key集合をexact一致させ、coverage
+      100%を要求する。exact一致の対象はactive sourceのincluded / excluded entriesであり、planned
+      sourceのdeferred entryを分母へ混ぜない。unknown / duplicate / missing keyはreleaseを拒否する。
+    </li>
+    <li>
+      <code>included</code>は1件以上のelement IDを必須、excluded /
+      deferredは0件を必須にする。
+      productionで既にconsumer-visibleなsurfaceをdeferredへ分類してはならない。
+    </li>
+    <li>
+      includedは<code>consumer_visible_semantics</code>、deferredは
+      <code>planned_profile_not_active</code>だけを許可する。excluded reasonは残る4
+      operational codeだけとし、entry sourceIdはsource registryに存在し、deferredはplanned
+      sourceだけを参照する。
+    </li>
+    <li>
+      初期acceptance countとしてnode kind 9、edge kind 8、readiness status 5、export / manifest /
+      ontology handoffの全public field、generation identity / hash ruleを照合する。
+      これは最終element countではなく、少なくとも欠落を検出する下限である。
+    </li>
+    <li>
+      versionごとのinventoryはreview evidenceでありcontract hashへ含めない。ただしrelease
+      verifierはsnapshotの全elementが 1件以上のincluded entryから到達可能で、included
+      entryの全elementがsnapshotへ存在することを双方向検証する。
+    </li>
+    <li>
+      planned entryの追加・削除・profile metadata変更だけではcurrent release
+      inventoryを書き換えず、ontology releaseも作らない。次のcandidate inventoryで必要ならdeferred
+      noteとして取り込む。planned → activeはactive projection hashとsnapshot
+      coverageを変えるため、同じPRでsemantic elementとcontract releaseを必須にする。
+    </li>
+    <li>
+      historical inventoryのsource parityは、そのrelease
+      evidenceの<code>catalogCommit</code>からread-onlyで取得した source
+      registryと照合する。current source registryを過去inventoryへ当て直さない。local commit
+      objectが欠落する shallow checkoutではnetwork fetchせずhistorical deep verificationをfail
+      closedにする。
+    </li>
+  </ul>
+
+  <h3 id="95-release-registry">9.5 Immutable Release Registry</h3>
+  <pre><code class="language-typescript">const ontologyContractReleaseSchema = z.object({
+  contractVersion: semverSchema,
+  contractHash: sha256UrnSchema,
+  previousVersion: semverSchema.nullable(),
+  snapshotPath: z.string().regex(/^releases\/[0-9]+\.[0-9]+\.[0-9]+\.json$/),
+  inventoryPath: z.string().regex(/^inventory\/[0-9]+\.[0-9]+\.[0-9]+\.json$/),
+  inventoryHash: sha256UrnSchema,
+  diffPath: z.string().regex(
+    /^diffs\/[0-9]+\.[0-9]+\.[0-9]+--[0-9]+\.[0-9]+\.[0-9]+\.json$/,
+  ).nullable(),
+  diffHash: sha256UrnSchema.nullable(),
+  releasedOn: z.string().date(),
+  releaseEvidencePath: z.string().max(256).regex(
+    /^evidence\/[0-9]+\.[0-9]+\.[0-9]+\.json$/,
+  ),
+  releaseEvidenceHash: sha256UrnSchema,
+}).strict();
+
+const ontologyContractRegistryV1Schema = z.object({
+  version: z.literal("v1"),
+  contractId: z.literal("vulnworkbench.static-intelligence-ontology"),
+  releases: z.array(ontologyContractReleaseSchema).min(1).max(1_000),
+}).strict();</code></pre>
+  <ul>
+    <li>releaseはSemVer昇順、version / hash / snapshotPath uniqueとする。</li>
+    <li>このcontractは1.0.0をpublic baselineとするため、major 0 releaseをregistryへ登録しない。</li>
+    <li>
+      1.0.0だけ<code>previousVersion=null</code>かつdiffPath /
+      diffHashをnullとする。以降は直前releaseをexactに参照し、<code>diffs/&lt;previous&gt;--&lt;current&gt;.json</code>とそのcanonical
+      diff hashを必須にする。
+    </li>
+    <li>
+      公開済みsnapshot / inventory / diff fileの内容変更・削除をCIで拒否し、新release
+      setの追加だけを許可する。
+    </li>
+    <li>
+      registryは末尾appendだけを許可し、既存entryのversion、hash、previousVersion、snapshot /
+      inventory / diff path、各hash、evidence path / hash、releasedOn変更や並べ替えを拒否する。
+    </li>
+    <li>
+      <code>releasedOn</code>はUTC calendar
+      dateとし、registry内でnon-decreasing、release作成時点の未来日禁止とする。snapshot
+      hashへは含めず、deprecationの90日window計算だけに使う。
+    </li>
+    <li>
+      <code>releaseEvidencePath</code> /
+      <code>releaseEvidenceHash</code>は監査用でsnapshot hashへ含めない。contract
+      root-relativeなstrict JSON evidenceをcanonical hashで固定し、任意URL、absolute
+      path、<code>..</code>を許可しない。evidenceにはcatalog
+      commit、owner approval、consumer reader commit、verification result hashを記録する。
+    </li>
+    <li>snapshot上限は4 MiB canonical JSON、element上限は10,000件とする。</li>
+    <li>
+      checked-in snapshot / inventory / diff / registry / evidence fileは2-space
+      indent、LF、末尾newlineありのdeterministic JSONとする。contractHash / diffHashはfile
+      bytesではなく、strict parse後のnormalized objectをcanonical JSON化したUTF-8
+      bytesから計算する。
+    </li>
+  </ul>
+
+  <h3 id="96-release-evidence">9.6 Immutable Release Evidence</h3>
+  <pre><code class="language-typescript">const gitCommitSchema = z.string().regex(
+  /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/,
+);
+const boundedEvidenceRefSchema = z.string().min(1).max(256)
+  .regex(/^[a-z0-9][a-z0-9._:/#-]*$/);
+
+const passedEvidenceCaseSchema = z.object({
+  testId: boundedEvidenceRefSchema,
+  status: z.literal("passed"),
+}).strict();
+
+const ontologyContractConsumerReaderEvidenceV1Schema = z.object({
+  version: z.literal("v1"),
+  contractVersion: semverSchema,
+  contractHash: sha256UrnSchema,
+  consumerId: z.enum(["vulnworkbench", "nightworkers"]),
+  repositoryId: z.enum(["vulnworkbench", "nightworkers"]),
+  readerCommit: gitCommitSchema,
+  upstreamCatalogCommit: gitCommitSchema,
+  fixtureHash: sha256UrnSchema,
+  commandSet: z.enum([
+    "vulnworkbench-ontology-contract-reader-v1",
+    "nightworkers-ontology-contract-reader-v1",
+  ]),
+  caseResults: z.array(passedEvidenceCaseSchema).min(1).max(512),
+  normalizedResultHash: sha256UrnSchema,
+  completedOn: z.string().date(),
+}).strict();
+
+const ontologyContractReleaseEvidenceV1Schema = z.object({
+  version: z.literal("v1"),
+  contractVersion: semverSchema,
+  contractHash: sha256UrnSchema,
+  catalogCommit: gitCommitSchema,
+  approvals: z.array(z.object({
+    role: z.enum([
+      "shared_contract_owner",
+      "vulnworkbench_producer_owner",
+      "nightworkers_consumer_owner",
+    ]),
+    principalId: profileIdSchema,
+    approvalRef: boundedEvidenceRefSchema,
+    approvedCatalogCommit: gitCommitSchema,
+  }).strict()).length(3),
+  consumerReaders: z.array(z.object({
+    consumerId: z.enum(["vulnworkbench", "nightworkers"]),
+    repositoryId: z.enum(["vulnworkbench", "nightworkers"]),
+    commit: gitCommitSchema,
+    fixtureHash: sha256UrnSchema,
+    qualificationPath: boundedEvidenceRefSchema,
+    qualificationHash: sha256UrnSchema,
+  }).strict()).length(2),
+  verification: z.object({
+    commandSet: z.literal("ontology-contract-release-v1"),
+    verifiedCommit: gitCommitSchema,
+    resultHash: sha256UrnSchema,
+    completedOn: z.string().date(),
+  }).strict(),
+  qualification: z.object({
+    baselineTestResultHash: sha256UrnSchema,
+    performanceResultHash: sha256UrnSchema,
+  }).strict(),
+}).strict();</code></pre>
+  <pre><code class="language-typescript">const ontologyContractBaselineTestEvidenceV1Schema = z.object({
+  version: z.literal("v1"),
+  contractVersion: semverSchema,
+  commandSet: z.literal("ontology-contract-baseline-v1"),
+  testedCommit: gitCommitSchema,
+  total: z.number().int().positive(),
+  passed: z.number().int().positive(),
+  failed: z.literal(0),
+  caseResults: z.array(passedEvidenceCaseSchema).min(1).max(2_048),
+  normalizedResultHash: sha256UrnSchema,
+  completedOn: z.string().date(),
+}).strict();
+
+const ontologyContractPerformanceEvidenceV1Schema = z.object({
+  version: z.literal("v1"),
+  contractVersion: semverSchema,
+  commandSet: z.literal("ontology-contract-performance-v1"),
+  testedCommit: gitCommitSchema,
+  fixtureHash: sha256UrnSchema,
+  runtime: z.literal("bun"),
+  runtimeVersion: z.string().min(1).max(64),
+  ciClass: profileIdSchema,
+  os: z.enum(["linux", "darwin"]),
+  arch: z.enum(["x64", "arm64"]),
+  cpuProfile: z.string().min(1).max(128),
+  warmupRuns: z.literal(5),
+  measuredRuns: z.literal(30),
+  samples: z.object({
+    snapshotMs: z.array(z.number().nonnegative()).length(30),
+    diffMs: z.array(z.number().nonnegative()).length(30),
+    diffPeakIncrementalRssMiB: z.array(z.number().nonnegative()).length(30),
+    descriptorMs: z.array(z.number().nonnegative()).length(30),
+    generationLoadMs: z.array(z.number().nonnegative()).length(30),
+  }).strict(),
+  metrics: z.object({
+    snapshotP95Ms: z.number().nonnegative(),
+    diffP95Ms: z.number().nonnegative(),
+    diffPeakIncrementalRssMiB: z.number().nonnegative(),
+    descriptorP95Ms: z.number().nonnegative(),
+    generationLoadP95Ms: z.number().nonnegative(),
+  }).strict(),
+  completedOn: z.string().date(),
+}).strict();</code></pre>
+  <p>
+    <code>commandSet</code>
+    literalはsource-controlledな<code>qualification-command-sets.v1.ts</code>のclosed
+    mapへ解決する。caseResultsのtestIdはrunner内のtest titleではなく、そのmapのstable command
+    IDである。各entryはexecutable、argv、repository-relative
+    cwd、timeoutを固定し、shellを介さず実行する。exit 0だけをpassedとし、stdout /
+    stderr文面、duration、実行順の揺れをnormalized resultへ含めない。実装開始時の正本は次とする。
+  </p>
+  <pre><code class="language-text">ontology-contract-baseline-v1
+  docs_check, inventory_complete, ontology_contract_tests,
+  static_intelligence_selected_tests, candidate_verify, typecheck, lint, full_test
+
+vulnworkbench-ontology-contract-reader-v1
+  generation_repository, manifest, read_model_resolver, module_candidates,
+  knowledge_source_cli, static_intelligence_route
+
+nightworkers-ontology-contract-reader-v1
+  ontology_contract_compatibility, vulnworkbench_ontology_handoff,
+  typecheck, lint, full_test
+
+ontology-contract-performance-v1
+  snapshot_10000, diff_10000, descriptor_compatibility, generation_load
+</code></pre>
+  <ul>
+    <li>
+      approvalsはrole順、consumerReadersはconsumerId順にsortし、各role / consumerをexactly
+      once要求する。consumerIdとrepositoryIdは同名pairだけを許可する。
+    </li>
+    <li>
+      consumer reader qualificationの<code>consumerId</code> /
+      <code>repositoryId</code> /
+      <code>readerCommit</code> /
+      <code>fixtureHash</code>はrelease
+      evidence側の対応entryとexact一致させる。commandSetもconsumer名と一致させ、caseResultsはtestId順でunique、全件passedを要求する。
+    </li>
+    <li>
+      全<code>approvedCatalogCommit</code>は<code>catalogCommit</code>と一致しなければならない。
+      approvalRefはPR review / protected approval receiptのopaque
+      IDとし、principal文字列だけを承認証跡にしない。
+    </li>
+    <li>
+      release時にevidenceのversion / hash、registryへ渡すevidence hash、承認後のcontract
+      inputと<code>catalogCommit</code>の差分0件をcross-checkする。evidence
+      fileやrelease artifact自身を同じcommit hashへ自己参照させない。
+    </li>
+    <li>
+      contract input差分はfixed source allowlistで判定する。shared schema constants、source
+      registry、coverage inventory、base / profile catalogs、snapshot / canonicalization / diff /
+      version policy / release validator / qualification command set / deprecation telemetry
+      mapを含み、reader implementation、evidence file、生成対象のsnapshot / diff /
+      registryは除外する。allowlist自身の変更も差分として拒否し、runtime import
+      graphから動的推測しない。
+    </li>
+    <li>
+      <code>catalogCommit</code>はlocal
+      repositoryでHEADのancestorとして解決できなければならない。shallow historyやmissing
+      objectをnetwork fetchで補わず、releaseをfail closedにする。
+    </li>
+    <li>
+      evidence file自身へself
+      hashを入れず、registryの<code>releaseEvidenceHash</code>を唯一の内容hashとする。
+    </li>
+    <li>
+      <code>verification.resultHash</code>は固定command順、exit code、canonical success
+      JSONをまとめたdomain-separated hashとし、candidate snapshot / diff /
+      bump等の決定的resultだけを含める。wall-clock log、performance値、absolute
+      path、stderrをinputへ含めない。
+    </li>
+    <li>
+      verification / baseline /
+      performanceの各commitは<code>catalogCommit</code>のdescendantで、release
+      実行HEADのancestorでなければならない。各commitからHEADまでのfixed contract
+      input差分は0件とし、別commitの結果を流用しない。
+    </li>
+    <li>
+      consumer reader evidenceは<code>evidence/&lt;version&gt;.consumer-vulnworkbench.json</code> /
+      <code>evidence/&lt;version&gt;.consumer-nightworkers.json</code>のstrict JSONとし、pathはconsumer
+      IDから導出して任意入力を許可しない。release validatorは参照fileの存在、schema、canonical
+      hash、contract version / hash、upstream catalog commit、reader commit、fixture hash、全case
+      passを照合する。vulnWorkbenchのcommitはlocal objectで検証し、NightWorkersのcommit / approval
+      refはcopy済みcross-repository qualification artifactでoffline検証する。
+    </li>
+    <li>
+      offline release CLIが暗号学的に証明できるのはcopy済みfileのhashとlocal
+      objectまでであり、NightWorkers remote
+      commitの存在やapprovalRefの真正性を証明したとは扱わない。 protected merge
+      workflowがNightWorkersのexact reader commitに対する必須status check
+      <code>ontology-contract-cross-repo-reader-v1</code>成功とconsumer owner review receiptをprovider
+      metadataで照合する。このonline governance gateが利用不能・不一致ならregistry
+      appendを含むrelease commitのmergeを承認せず、offline fileだけで代替しない。
+    </li>
+    <li>
+      baseline testとperformance qualificationは<code>evidence/&lt;version&gt;.baseline-tests.json</code> /
+      <code>evidence/&lt;version&gt;.performance.json</code>のstrict JSONへ保存し、そのcanonical
+      hashを<code>qualification</code>へ固定する。release
+      validatorは両fileの存在、schema、version、hash、全件pass / budget内を確認する。
+    </li>
+    <li>
+      baselineの<code>total</code> /
+      <code>passed</code>はcaseResults件数と一致させる。 normalized
+      resultはtest ID順でuniqueな全caseのID / pass-failだけをhashし、duration、temp path、runner
+      summary文を除外する。performance値はhash対象のevidenceへ残すが、同値再実行を要求せず§23.2のbudgetを再評価する。
+    </li>
+    <li>
+      P95はnearest-rank法で求め、30 measured runsではascending samplesの1-based rank 29を使う。
+      warmup sampleを分母へ含めず、ciClass / OS / arch / Bun
+      versionが異なる結果を同じqualificationへ混ぜない。validatorは4 latency metricsをraw
+      samplesから再計算し、
+      <code>diffPeakIncrementalRssMiB</code>は30
+      sampleのmaxと一致させる。aggregateだけをauthor入力として信用しない。
+    </li>
+    <li>
+      baselineは<code>total=passed</code>を要求する。全evidenceの<code>completedOn</code>は未来日およびreleaseの<code>releasedOn</code>より後を拒否する。
+    </li>
+  </ul>
+
+  <h3 id="97-history-integrity">9.7 Base / Candidate History Integrity</h3>
+  <p>
+    candidate treeだけのschema / hash検証では、過去snapshotを書き換えてregistry
+    hashも再計算する変更を検出できない。 そのため全PRで、CIが明示するlocal base commitとcandidate
+    working treeを比較するappend-only verifierを実行する。
+  </p>
+  <ol>
+    <li>
+      <code>--base-commit</code>は40 / 64 lowercase hexだけを受け、local
+      objectとして存在し、candidate HEADのancestorであることを確認する。environment variable、remote
+      latest、network fetchから暗黙選択しない。
+    </li>
+    <li>
+      base側のregistry / snapshot / inventory / diff / evidence
+      bytesは<code>git show</code>相当のread-only object
+      accessで読む。checkout切替やworking tree mutationを行わない。
+    </li>
+    <li>
+      base /
+      candidateの両方にregistryがない期間は<code>pre_bootstrap</code>とし、release
+      / diff / evidence artifactがまだ0件であることを要求する。Bootstrap B1 / B2のpure
+      implementation PRだけに許可し、一度でもregistryがbaseに現れた後はこのmodeへ戻れない。
+    </li>
+    <li>
+      通常PRではbase registryとcandidate registryをbyte-identicalにし、全historical
+      artifactの変更・削除・renameを0件にする。 current catalogがregistry tail
+      snapshotと異なる場合はcandidate releaseを同じPRへ含めない限りfailする。planned-only registry
+      metadataのようにnormalized snapshotへ影響しない変更はこの差分へ数えない。
+    </li>
+    <li>
+      release PRではcandidate registryがbase entriesを同順・同値のprefixとして保持し、exactly 1 tail
+      entryだけを追加することを要求する。過去artifactはbyte-identical、新規snapshot / coverage
+      inventory / adjacent diff / release evidence / qualification fileだけをtail
+      entryのversion-derived pathへ追加できる。
+    </li>
+    <li>
+      bootstrapはbaseにcontract registryが存在せず、candidateが1.0.0の1
+      entryだけを持つ場合に限定する。
+      baseに一部artifactが存在するambiguous状態は自動採用せずfailする。
+    </li>
+    <li>
+      verifier outputはmode、base / candidate registry hash、added paths、historical mutation
+      count、verified release versionを持つbounded JSONとし、historical mutationが1件でもあればexit
+      2にする。
+    </li>
+  </ol>
+  <p>
+    registry fileのcandidate replaceがreleaseのpublication commit pointである。snapshot / diff
+    rename後のcrashで 未参照fileが残ってもreaderは公開releaseとして扱わず、§17のreviewed
+    recovery手順でだけ除去する。 複数file更新全体をfilesystem atomicと呼ばない。
+  </p>
+
+  <h2 id="10-canonicalization">10. Canonicalization and Hashing</h2>
+  <ol>
+    <li>
+      raw file sizeをparse前に検証し、4 MiBを超えるsnapshot / inventory / diff / registry / evidence
+      inputを拒否する。
+    </li>
+    <li>
+      tokenizer段階でnesting depth 64、document token 1,000,000、single object key 1,024を上限にし、
+      schema / canonicalizationへ渡す前に過深・過密JSONを拒否する。
+    </li>
+    <li>
+      checked-in JSONは<code>parseOntologyContractJsonDocument</code>でtokenizeし、duplicate object
+      key、trailing token、comment、invalid UTF-8 /
+      escapeを<code>JSON.parse</code>前に拒否する。
+    </li>
+    <li>各source catalogとparsed JSON valueをstrict schemaでparseする。</li>
+    <li>element ID重複、dangling reference、lifecycle invariantを検証する。</li>
+    <li>set semanticsを持つarrayをelement kind別comparatorでsort / deduplicateする。</li>
+    <li>
+      snapshotの<code>elements</code>をuniqueな<code>elementId</code>のUTF-16
+      code unit順へsortする。
+    </li>
+    <li><code>shared/canonical-json.ts</code>でserializeする。</li>
+    <li>
+      UTF-8 bytesをSHA-256へ渡し、<code>sha256:</code> prefix付きlowercase
+      hexにする。
+    </li>
+    <li>snapshot schemaとregistry entryのversion / hashをcross-checkする。</li>
+    <li>
+      adjacent snapshotからdiffを再計算し、checked-in diffの全field、diffHash、registry
+      entryをexactにcross-checkする。
+    </li>
+    <li>
+      checked-in JSONをdeterministic pretty JSONへ再serializeし、raw bytesとexact比較する。duplicate
+      keyはparse step、非標準whitespace、key / array order driftはraw byte比較で拒否する。
+    </li>
+  </ol>
+  <ul>
+    <li>
+      Unicodeはcanonical JSON実装の規則に従い、lone
+      surrogate、NaN、Infinity、BigInt、cycleを拒否する。
+    </li>
+    <li>
+      object key orderはcanonical serializerへ任せ、array orderはbuilderが意味ごとに固定する。
+    </li>
+    <li>
+      sort comparatorに<code>localeCompare</code>を使わず、shared canonical
+      JSONと同じUTF-16 code unit順を使う。locale / ICU差でsnapshot / diff orderを変えない。
+    </li>
+    <li>undefinedを意味ある欠落として使わず、optional fieldはobjectから省略する。</li>
+    <li>
+      timestamp、file mtime、absolute path、hostname、locale、environment variableをhash
+      inputへ入れない。
+    </li>
+    <li>
+      existing <code>knowledge-source-manifest.ts</code> /
+      <code>generation-types.ts</code> canonicalizerの共通化は、全golden
+      hashが一致する専用testを先に追加してから別sliceで行う。contract導入の必須条件にしない。
+    </li>
+  </ul>
+
+  <h2 id="11-diff-contract">11. Canonical Diff Contract</h2>
+  <h3 id="111-schema">11.1 Diff Schema</h3>
+  <pre><code class="language-typescript">const ontologyContractChangeV1Schema = z.object({
+  changeId: sha256UrnSchema,
+  elementId: z.string().min(1).max(160),
+  elementKind: ontologyContractElementKindSchema,
+  operation: z.enum(["added", "modified", "deprecated", "removed"]),
+  path: ontologyContractJsonPointerSchema,
+  compatibility: z.enum([
+    "backward_compatible", "requires_capability", "breaking",
+  ]),
+  requiredBump: z.enum(["patch", "minor", "major"]),
+  reasonCode: ontologyContractChangeReasonCodeSchema,
+  beforeHash: sha256UrnSchema.optional(),
+  afterHash: sha256UrnSchema.optional(),
+  migrationHintCode: ontologyContractMigrationHintCodeSchema.optional(),
+}).strict();
+
+const ontologyContractReleaseRefV1Schema = z.object({
+  contractVersion: semverSchema,
+  contractHash: sha256UrnSchema,
+}).strict();
+
+const ontologyContractDiffV1Schema = z.object({
+  version: z.literal("v1"),
+  contractId: z.literal("vulnworkbench.static-intelligence-ontology"),
+  from: ontologyContractReleaseRefV1Schema,
+  to: ontologyContractReleaseRefV1Schema,
+  changes: z.array(ontologyContractChangeV1Schema).max(10_000),
+  summary: z.object({
+    patch: z.number().int().nonnegative(),
+    minor: z.number().int().nonnegative(),
+    major: z.number().int().nonnegative(),
+    requiredBump: z.enum(["none", "patch", "minor", "major"]),
+  }).strict(),
+  diffHash: sha256UrnSchema,
+}).strict();</code></pre>
+  <ul>
+    <li>
+      diffはforward comparison専用とし、<code>from &lt; to</code>を要求する。
+    </li>
+    <li>
+      checked-in adjacent diffのfrom / toはimmutable releaseだけを指す。read-only candidate
+      diffのfromはregistry release、toはcurrent catalogからbuildした未公開candidate
+      refとし、release成功後に同じbytesをimmutableにする。generationごとに変わるruntime capability
+      subsetやwire profileをdiff identityへ含めない。
+    </li>
+    <li>release verificationはregistry上のadjacent snapshotだけを対象にする。</li>
+    <li>任意version間のread-only compareはadjacent diffを合成せず、両snapshotから再計算する。</li>
+    <li>
+      <code>changeId</code>はcontract ID、from / to hash、element
+      ID、path、operation、reason code、before / after hashからdomain-separated hashで作る。
+    </li>
+    <li>
+      <code>diffHash</code
+      >は自身を除いたdiff全体から作る。timestampやfree-text hintを持たない。
+    </li>
+    <li>
+      addedは<code>afterHash</code>だけ、removedは<code>beforeHash</code>だけ、modified
+      /
+      deprecatedは両方を必須にする。その他の組合せをschemaの<code>superRefine</code>で拒否する。
+    </li>
+    <li>
+      before / after hashは<code>ontology-contract-change-value-v1</code> domain
+      separatorと、対象pathのnormalized comparison view上のJSON valueから作る。added / removed
+      elementはpathを空JSON Pointerとしてelement全体、modifiedはexact path値、atomic
+      deprecatedは<code>/lifecycle</code>のlifecycle objectをhashする。
+    </li>
+    <li>
+      operationとpathもcross-field検証し、added /
+      removedは空pointerだけ、modifiedは非空pointer、deprecatedは<code>/lifecycle</code>だけを許可する。
+    </li>
+  </ul>
+
+  <h3 id="112-diff-algorithm">11.2 Diff Algorithm</h3>
+  <p>
+    comparison前にsnapshot elementをdiff専用のclosed viewへ変換する。このviewではsnapshotのtop-level
+    <code>lifecycle</code
+    >、<code>replacementElementId</code>、<code>deprecatedSince</code>を
+    <code>lifecycle: { status, replacementElementId?, deprecatedSince? }</code>へまとめ、元の3
+    fieldは残さない。したがって<code>/lifecycle</code>は実在するatomic object
+    pathであり、before / after hashとpathの指す値がずれない。それ以外のfieldはsnapshot
+    schemaと同名を維持し、set semantics配列はstable IDをkeyにしたobjectへ投影して、array indexをJSON
+    Pointerへ出さない。
+  </p>
+  <ol>
+    <li>
+      from / to snapshotをそれぞれnormalized comparison viewへ変換し、<code
+        >elementId</code
+      >
+      mapへ正規化する。
+    </li>
+    <li>fromだけのIDをremoved、toだけのIDをadded、両方のIDをfield-by-field comparisonへ送る。</li>
+    <li>
+      同じelement
+      IDのlifecycleがactiveからdeprecatedへ変わる場合は<code>replacementElementId</code>と<code>deprecatedSince</code>を含む1件のatomic
+      deprecated changeにする。初回replacement指定を別のmodified changeへ展開しない。
+    </li>
+    <li>
+      classifierはhard invariant、lifecycle transition、kind-specific rule、generic
+      additionの順で評価する。constraint / validation / claim / vocabulary /
+      capabilityの追加をgeneric optional additionへ先に分類しない。
+    </li>
+    <li>
+      normalized comparison viewのraw path deltaを先に全件作り、target snapshot全体のreference
+      graphを使って分類する。たとえばoptional field追加ではfield
+      elementのadditionとownerの<code>optionalFieldIds</code>追加を同じ<code
+        >field_added_optional</code
+      >
+      policyで分類し、reference側を未分類または別impactへしない。各raw pathはexactly
+      once消費し、意図しないcoalescingを禁止する。
+    </li>
+    <li>
+      added elementはfrom snapshotのvalue-set policyとdependency graphを調べ、open setまたは<code
+        >may_ignore</code
+      >
+      capabilityだけから参照される場合に限りoptionalとする。
+    </li>
+    <li>
+      removed elementはregistry historyを遡り、deprecation release、support window、replacement
+      chainを検証する。現在のfrom / to snapshotだけでremovalを承認しない。
+    </li>
+    <li>kind別classifierがpath単位のreason code、compatibility、required bumpを返す。</li>
+    <li>
+      canonicalization semantics、claim requirement、vocabulary semantics、identity、edge
+      direction等、同一elementをbreakingに再解釈するreasonをemitした場合は<code>semanticRevision</code>更新も必須にする。open
+      enum追加やdeprecationのようにstructural
+      fieldだけで意味を完全に表せるminor変更では更新しない。更新漏れは<code>semantic_revision_not_updated</code>でrelease
+      validationをfailする。
+    </li>
+    <li>
+      unclassified pathが1件でもあれば<code>diff_rule_missing</code>でrelease
+      verificationをfailする。
+    </li>
+    <li>changesをelementId、path、operation、reasonCode順にsortする。</li>
+    <li>summaryをchangesから再計算し、declared version incrementと照合する。</li>
+  </ol>
+  <p>
+    JSON Pointerのpathはlogical object pathを使い、array indexを禁止する。set memberはescaped stable
+    IDをkeyのように表す。たとえば<code>/allowedTo/entity_kind.finding</code>とし、<code>/allowedTo/3</code>を使わない。
+    classifierは比較前にset semantics arrayをstable ID keyed objectへ投影し、このnormalized
+    comparison viewに対してpointerを解決する。raw snapshot arrayへこのpointerを直接適用しない。
+  </p>
+
+  <h3 id="113-reason-codes">11.3 Fixed Reason Codes</h3>
+  <pre><code class="language-text">element_added_optional
+element_deprecated
+element_removed
+element_semantics_changed
+field_added_optional
+field_added_required
+field_presence_relaxed
+field_presence_narrowed
+field_type_widened
+field_type_narrowed
+enum_value_added_open
+enum_value_added_closed
+enum_value_removed
+identity_input_changed
+canonicalization_behavior_fixed
+canonicalization_semantics_changed
+edge_endpoint_widened
+edge_endpoint_narrowed
+edge_direction_changed
+constraint_added_warning
+constraint_added_blocking
+constraint_removed
+validation_severity_relaxed
+validation_severity_strengthened
+claim_target_added_optional
+claim_requirement_changed
+vocabulary_semantic_added
+vocabulary_semantic_changed
+capability_added_optional
+capability_made_required
+lifecycle_replacement_changed
+</code></pre>
+  <table>
+    <caption>
+      reason codeから導出する互換性と最小version増分
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Reason code</th>
+        <th scope="col">Compatibility</th>
+        <th scope="col">Bump</th>
+        <th scope="col">Condition</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>element_added_optional</code></td>
+        <td>requires_capability</td>
+        <td>minor</td>
+        <td>open setまたは<code>may_ignore</code> capabilityでのみ許可</td>
+      </tr>
+      <tr>
+        <td><code>element_deprecated</code></td>
+        <td>backward_compatible</td>
+        <td>minor</td>
+        <td>
+          replacementと<code>deprecatedSince</code>を固定し、support
+          windowを開始する。
+        </td>
+      </tr>
+      <tr>
+        <td><code>element_removed</code></td>
+        <td>breaking</td>
+        <td>major</td>
+        <td>過去minorでのdeprecation evidenceが必須</td>
+      </tr>
+      <tr>
+        <td><code>element_semantics_changed</code></td>
+        <td>breaking</td>
+        <td>major</td>
+        <td>
+          <code>semanticRevision</code
+          >変更。無関係な概念への再利用はrelease自体を拒否する。
+        </td>
+      </tr>
+      <tr>
+        <td><code>field_added_optional</code></td>
+        <td>requires_capability</td>
+        <td>minor</td>
+        <td>reader-first floorが必須</td>
+      </tr>
+      <tr>
+        <td><code>field_added_required</code></td>
+        <td>breaking</td>
+        <td>major</td>
+        <td>old strict readerへの新field追加を含む。</td>
+      </tr>
+      <tr>
+        <td><code>field_presence_relaxed</code></td>
+        <td>breaking</td>
+        <td>major</td>
+        <td>required → optional / nullable</td>
+      </tr>
+      <tr>
+        <td><code>field_presence_narrowed</code></td>
+        <td>backward_compatible</td>
+        <td>minor</td>
+        <td>既存fieldのoptional → always present。意味削除を伴わない場合だけ。</td>
+      </tr>
+      <tr>
+        <td><code>field_type_widened</code></td>
+        <td>breaking</td>
+        <td>major</td>
+        <td>producerがold consumer未対応の値をemit可能になる。</td>
+      </tr>
+      <tr>
+        <td><code>field_type_narrowed</code></td>
+        <td>breaking</td>
+        <td>major</td>
+        <td>consumerが依存した既存値をemitしなくなる可能性がある。</td>
+      </tr>
+      <tr>
+        <td><code>enum_value_added_open</code></td>
+        <td>requires_capability</td>
+        <td>minor</td>
+        <td>unknown value handlingが既存contractで必須の場合だけ。</td>
+      </tr>
+      <tr>
+        <td><code>enum_value_added_closed</code></td>
+        <td>breaking</td>
+        <td>major</td>
+        <td>exhaustive consumer switchを破壊する。</td>
+      </tr>
+      <tr>
+        <td><code>enum_value_removed</code></td>
+        <td>breaking</td>
+        <td>major</td>
+        <td>既存意味の削除</td>
+      </tr>
+      <tr>
+        <td><code>identity_input_changed</code></td>
+        <td>breaking</td>
+        <td>major</td>
+        <td>domain separator、input順、normalizationの変更を含む。</td>
+      </tr>
+      <tr>
+        <td><code>canonicalization_behavior_fixed</code></td>
+        <td>backward_compatible</td>
+        <td>patch</td>
+        <td>documented semantics内のbug fixでbehavior revisionを更新する。</td>
+      </tr>
+      <tr>
+        <td><code>canonicalization_semantics_changed</code></td>
+        <td>breaking</td>
+        <td>major</td>
+        <td>documented output meaningまたはidentityが変わる。</td>
+      </tr>
+      <tr>
+        <td><code>edge_endpoint_widened</code></td>
+        <td>breaking</td>
+        <td>major</td>
+        <td>new from / to combinationをproducerがemit可能になる。</td>
+      </tr>
+      <tr>
+        <td><code>edge_endpoint_narrowed</code></td>
+        <td>breaking</td>
+        <td>major</td>
+        <td>既存combinationが消える。</td>
+      </tr>
+      <tr>
+        <td><code>edge_direction_changed</code></td>
+        <td>breaking</td>
+        <td>major</td>
+        <td>reverse edgeをnew optional edgeとして追加する場合は別IDを使う。</td>
+      </tr>
+      <tr>
+        <td><code>constraint_added_warning</code></td>
+        <td>backward_compatible</td>
+        <td>minor</td>
+        <td>conformance / publicationを変えないwarningのみ。</td>
+      </tr>
+      <tr>
+        <td><code>constraint_added_blocking</code></td>
+        <td>breaking</td>
+        <td>major</td>
+        <td>以前validだったpayloadを拒否する。</td>
+      </tr>
+      <tr>
+        <td><code>constraint_removed</code></td>
+        <td>breaking</td>
+        <td>major</td>
+        <td>以前emitされなかった形をconsumerが受け取り得る。</td>
+      </tr>
+      <tr>
+        <td><code>validation_severity_relaxed</code></td>
+        <td>breaking</td>
+        <td>major</td>
+        <td>以前unavailableだったhandoffが利用可能になる。</td>
+      </tr>
+      <tr>
+        <td><code>validation_severity_strengthened</code></td>
+        <td>breaking</td>
+        <td>major</td>
+        <td>以前利用可能だったhandoffを拒否する。</td>
+      </tr>
+      <tr>
+        <td><code>claim_target_added_optional</code></td>
+        <td>requires_capability</td>
+        <td>minor</td>
+        <td>既存required set不変かつnew profile / capabilityで追加する。</td>
+      </tr>
+      <tr>
+        <td><code>claim_requirement_changed</code></td>
+        <td>breaking</td>
+        <td>major</td>
+        <td>assertion kind、required target / binding、reference meaningの変更</td>
+      </tr>
+      <tr>
+        <td><code>vocabulary_semantic_added</code></td>
+        <td>requires_capability</td>
+        <td>minor</td>
+        <td>new optional profile、role、relation、namespace</td>
+      </tr>
+      <tr>
+        <td><code>vocabulary_semantic_changed</code></td>
+        <td>breaking</td>
+        <td>major</td>
+        <td>既存role、relation、evidence、normalizationの意味変更</td>
+      </tr>
+      <tr>
+        <td><code>capability_added_optional</code></td>
+        <td>requires_capability</td>
+        <td>minor</td>
+        <td>capability未対応時に既存surfaceを維持できる。</td>
+      </tr>
+      <tr>
+        <td><code>capability_made_required</code></td>
+        <td>breaking</td>
+        <td>major</td>
+        <td>old consumerをincompatibleにする。</td>
+      </tr>
+      <tr>
+        <td><code>lifecycle_replacement_changed</code></td>
+        <td>breaking</td>
+        <td>major</td>
+        <td>公開済みmigration targetを変える。</td>
+      </tr>
+    </tbody>
+  </table>
+  <ul>
+    <li>reason codeはclosed enumとし、code追加自体をdiff engine profileのreview対象にする。</li>
+    <li>message文字列やauthor指定classificationをcontrol flowへ使わない。</li>
+    <li>
+      同じIDのelement
+      kind変更、過去にremovedになったIDの再利用、deprecationなしの通常removalはclassification対象にせずrelease
+      validationを即時failする。
+    </li>
+    <li>
+      active → deprecated transitionではreplacement /
+      deprecatedSinceの初回設定を許可するが、公開後のreplacement変更は<code>lifecycle_replacement_changed</code>としてmajorにする。
+    </li>
+    <li>
+      migration
+      hintは<code>ignore_optional</code>、<code>dual_read</code>、<code>map_replacement</code>、<code>rebuild_generation</code>、<code>upgrade_reader</code>のclosed
+      enumとする。
+    </li>
+  </ul>
+
+  <h2 id="12-version-policy">12. Semantic Version Policy</h2>
+  <h3 id="121-major">12.1 Major</h3>
+  <p>次の変更は少なくともmajorを要求する。</p>
+  <ul>
+    <li>
+      active
+      elementの削除、同じ概念内での<code>semanticRevision</code>変更。無関係な意味へのID再割り当てはversion
+      bumpで許可せずreleaseを拒否する。
+    </li>
+    <li>required field追加、requiredからoptional、nullability変更</li>
+    <li>value type / enum / range / edge endpointのwideningまたはnarrowing</li>
+    <li>edge direction、identity input、domain separator、canonicalization semanticsの変更</li>
+    <li>warningからerror、non-blockingからblocking、fallback許可からfail closedへの変更</li>
+    <li>claim assertion kind、required target / binding、vocabulary role / relation意味の変更</li>
+    <li>既存capabilityをrequiredにする、旧profile readerで安全に無視できない追加</li>
+  </ul>
+
+  <h3 id="122-minor">12.2 Minor</h3>
+  <p>次の後方互換変更はminorを要求する。</p>
+  <ul>
+    <li>
+      old readerがlosslessに保持または明示的に無視できるoptional field / element / capability追加
+    </li>
+    <li>
+      open setへのentity / edge / enum追加。ただしconsumerがexhaustive switchを持つclosed
+      setならmajor
+    </li>
+    <li>non-blocking validation warning、optional claim target、new vocabulary semanticの追加</li>
+    <li>active elementのdeprecationとreplacement宣言</li>
+    <li>既存fieldをalways presentへ強める変更。ただし値の意味削除を伴う場合はmajorとする。</li>
+  </ul>
+
+  <h3 id="123-patch-and-none">12.3 Patch and No Release</h3>
+  <ul>
+    <li>
+      documented semanticsを変えず、誤ったdeterministic
+      outputだけを後方互換に修正する場合はpatchとする。修正behaviorを表すsource-controlled
+      <code>behaviorRevision</code>をsnapshotへ反映する。
+    </li>
+    <li>
+      patch fixはelement ID、identity input、persisted ID、enum / type、validation status、claim
+      assertion、vocabulary role、consumer control flowを変えてはならない。いずれかが変わる場合はbug
+      fix名目でもmajor ruleを適用する。
+    </li>
+    <li>
+      message、説明、evidence link、owner、review date、test追加だけならsnapshot不変でありcontract
+      releaseを作らない。
+    </li>
+    <li>registry receiptやgenerated dataだけが変わる場合もcontract releaseを作らない。</li>
+    <li>同じhashに別version、または同じversionに別hashを割り当てることを禁止する。</li>
+  </ul>
+
+  <h3 id="124-version-verification">12.4 Version Verification</h3>
+  <table>
+    <caption>
+      required bumpと許可するtarget version
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Required bump</th>
+        <th scope="col">From</th>
+        <th scope="col">Only valid next form</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>patch</td>
+        <td><code>X.Y.Z</code></td>
+        <td><code>X.Y.(Z+1)</code></td>
+      </tr>
+      <tr>
+        <td>minor</td>
+        <td><code>X.Y.Z</code></td>
+        <td><code>X.(Y+1).0</code></td>
+      </tr>
+      <tr>
+        <td>major</td>
+        <td><code>X.Y.Z</code></td>
+        <td><code>(X+1).0.0</code></td>
+      </tr>
+      <tr>
+        <td>none</td>
+        <td><code>X.Y.Z</code></td>
+        <td>new release禁止</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    初期profileではpre-releaseとbuild metadataを禁止する。releaseの飛び番を許さず、各adjacent
+    diffをreview可能にする。
+  </p>
+
+  <h2 id="13-capability-negotiation">13. Consumer Capability Contract</h2>
+  <h3 id="131-support-schema">13.1 Support Declaration</h3>
+  <pre><code class="language-typescript">const consumerOntologyContractSupportV1Schema = z.object({
+  version: z.literal("v1"),
+  consumerId: z.enum(["vulnworkbench", "nightworkers"]),
+  descriptorVersions: z.array(z.literal("v1")).min(1).max(4),
+  contractRanges: z.array(z.object({
+    major: z.number().int().positive().max(999),
+    minInclusive: semverSchema,
+    maxExclusive: semverSchema,
+    requiredCapabilities: z.array(ontologyContractCapabilitySchema).max(64),
+    supportedCapabilities: z.array(ontologyContractCapabilitySchema).max(64),
+    preferredCapabilities: z.array(ontologyContractCapabilitySchema).max(64),
+  }).strict()).min(1).max(4),
+  legacy: z.object({
+    acceptMissingDescriptor: z.boolean(),
+    compatibilityProfile: z.literal("pre-descriptor-wire-v1"),
+    exactWireProfiles: z.object({
+      export: z.literal("static-intelligence-export-v1"),
+      manifest: z.literal("static-intelligence-knowledge-source-manifest-v1"),
+      handoff: z.literal("static-intelligence-ontology-handoff-wire-v1"),
+    }).strict(),
+  }).strict(),
+}).strict();</code></pre>
+  <ul>
+    <li>
+      support declarationは各consumer repoでsource controlし、deployment introspectionやnetwork
+      handshakeへ依存しない。
+    </li>
+    <li>
+      各rangeは<code>minInclusive &lt; maxExclusive</code>、<code>minInclusive.major=major</code>とする。<code>maxExclusive</code>は同じmajor内または<code>(major+1).0.0</code>だけを許可し、rangeの重複、各range内capability配列の重複を禁止する。versionはexactly
+      1 rangeへだけmatchしなければならない。
+    </li>
+    <li>
+      contractRangesはmajor順でuniqueにし、1 majorにつきexactly 1
+      rangeだけを許可する。同じmajorを複数の disjoint
+      rangeへ分割せず、同majorでfloor未満は<code>contract_below_floor</code>、ceiling以上は
+      <code>contract_above_ceiling</code>へ一意に分類する。
+    </li>
+    <li>
+      各rangeのrequired / preferred capabilityは同じID /
+      profileでそのrangeのsupportedにも存在しなければならない。requiredはproducerに必須、supportedはconsumerが解釈可能、preferredは欠落時にdegradedとなる機能を表す。
+    </li>
+    <li>複数rangeによりactive majorとhistorical previous majorを同時に保持できる。</li>
+    <li>上限は「未テストの将来minorを盲目的にacceptしない」ため必須とする。</li>
+    <li>
+      range判定に加えてconsumerへ同期したimmutable release registryでversion / hash
+      pairを解決する。range内でもunknown hashはacceptしない。
+    </li>
+    <li>
+      descriptor
+      version、range、range内capabilityはschemaの<code>superRefine</code>でunique
+      / sortedを要求し、consumer repository間でbyte-stableなsupport declarationにする。
+    </li>
+    <li>
+      producerはNightWorkersのruntime状態を推測しない。descriptorをpublishし、consumerがlocal
+      policyで評価する。
+    </li>
+  </ul>
+
+  <h3 id="132-evaluation-result">13.2 Evaluation Result</h3>
+  <pre><code class="language-typescript">const ontologyContractObservedWireProfilesV1Schema = z.object({
+  export: profileIdSchema,
+  manifest: profileIdSchema,
+  handoff: profileIdSchema,
+}).strict();
+type OntologyContractObservedWireProfilesV1 = z.infer&lt;
+  typeof ontologyContractObservedWireProfilesV1Schema
+&gt;;
+
+type OntologyContractCompatibilityInputV1 = {
+  descriptor: unknown | null;
+  observedWireProfiles: OntologyContractObservedWireProfilesV1;
+  support: ConsumerOntologyContractSupportV1;       // startup-validated
+  registry: OntologyContractReleaseRegistryV1;     // startup-validated local copy
+  snapshotsByVersion: ReadonlyMap&lt;string, OntologyContractSnapshotV1&gt;;
+};</code></pre>
+  <p>
+    <code>observedWireProfiles</code
+    >はpayload内の自己申告ではなく、各surfaceで成功したstrict parser
+    adapterが固定値として渡す。support、registry、snapshotのinvalid stateはdeployment configuration
+    errorとしてservice readinessをfailさせ、payloadごとのcompatible / degradedへ丸めない。
+  </p>
+  <pre><code class="language-typescript">type OntologyContractCompatibilityResultV1 = {
+  version: "v1";
+  status: "compatible" | "degraded" | "incompatible";
+  descriptorVersion: "v1" | null;
+  effectiveContractVersion: string | null;
+  effectiveContractHash: string | null;
+  selectedRange: {
+    major: number;
+    minInclusive: string;
+    maxExclusive: string;
+  } | null;
+  legacyAssumed: boolean;
+  reasonCodes: Array&lt;
+    | "descriptor_missing_legacy_accepted"
+    | "descriptor_missing_legacy_rejected"
+    | "descriptor_invalid"
+    | "descriptor_version_unsupported"
+    | "contract_below_floor"
+    | "contract_above_ceiling"
+    | "contract_major_unsupported"
+    | "contract_hash_unknown"
+    | "wire_profile_unsupported"
+    | "required_capability_missing"
+    | "required_capability_profile_mismatch"
+    | "descriptor_capability_unsupported"
+    | "descriptor_capability_ignored"
+    | "preferred_capability_missing"
+  &gt;;
+};</code></pre>
+  <pre><code class="language-typescript">const compatibilityReasonPriority = [
+  "descriptor_missing_legacy_rejected",
+  "descriptor_missing_legacy_accepted",
+  "descriptor_invalid",
+  "descriptor_version_unsupported",
+  "wire_profile_unsupported",
+  "contract_major_unsupported",
+  "contract_below_floor",
+  "contract_above_ceiling",
+  "contract_hash_unknown",
+  "required_capability_missing",
+  "required_capability_profile_mismatch",
+  "descriptor_capability_unsupported",
+  "descriptor_capability_ignored",
+  "preferred_capability_missing",
+] as const;</code></pre>
+  <table>
+    <caption>
+      compatibility decision order
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Condition</th>
+        <th scope="col">Result</th>
+        <th scope="col">Behavior</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>descriptor missing + legacy window open + exact wire profiles</td>
+        <td>degraded</td>
+        <td>effective version / hashをnullのままにし、pre-descriptor readerとtelemetryを使う。</td>
+      </tr>
+      <tr>
+        <td>descriptor missing after cutoff</td>
+        <td>incompatible</td>
+        <td><code>descriptor_missing_legacy_rejected</code>を返し、ontology handoffを使わない。</td>
+      </tr>
+      <tr>
+        <td>descriptor present but strict schema invalid</td>
+        <td>incompatible</td>
+        <td><code>descriptor_invalid</code>だけを返し、legacyへfallbackしない。</td>
+      </tr>
+      <tr>
+        <td>descriptor / wire profile unsupported</td>
+        <td>incompatible</td>
+        <td>近似parseやfield dropへfallbackしない。</td>
+      </tr>
+      <tr>
+        <td>contract outside all tested ranges / unknown hash</td>
+        <td>incompatible</td>
+        <td>同じmajorでも拒否する。</td>
+      </tr>
+      <tr>
+        <td>required capability missing / profile mismatch</td>
+        <td>incompatible</td>
+        <td>対象projectionを使わない。</td>
+      </tr>
+      <tr>
+        <td>descriptorのmust_understand capabilityをconsumerがsupportしない。</td>
+        <td>incompatible</td>
+        <td>base handoffを含めて使わない。</td>
+      </tr>
+      <tr>
+        <td>descriptorのmay_ignore capabilityをconsumerがsupportしない。</td>
+        <td>degraded</td>
+        <td>snapshotのfallback effectどおりその機能だけ無視する。</td>
+      </tr>
+      <tr>
+        <td>preferred capability missing</td>
+        <td>degraded</td>
+        <td>base handoffは使い、preferred機能だけ無効化する。</td>
+      </tr>
+      <tr>
+        <td>all checks pass</td>
+        <td>compatible</td>
+        <td>version-specific validator / projectionへdispatchする。</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    resultのreasonCodesは固定priority順、unique、最大16件とする。human message、raw
+    descriptor、absolute pathをlogへ出さない。
+  </p>
+  <ol>
+    <li>
+      service起動時にsupport declaration、local registry、参照snapshotをstrict parseし、hash / sort
+      invariantを検証する。失敗時はevaluatorを呼ばずreadinessをfailさせる。
+    </li>
+    <li>
+      descriptor欠落ならlegacy policyだけを評価し、effective version / hash / selected
+      rangeをnullにする。この場合もobserved wire profileがlegacy exact setと一致しなければ
+      <code>wire_profile_unsupported</code>で拒否する。descriptorがある場合にlegacy
+      fallbackへ戻らない。
+    </li>
+    <li>
+      descriptor transport envelopeを検証し、malformed /
+      oversizeなら<code>descriptor_invalid</code>だけを返す。bounded version
+      discriminatorが未対応なら
+      <code>descriptor_version_unsupported</code>を返し、known v1だけをv1 strict
+      schemaでparseする。known
+      v1がinvalidなら<code>descriptor_invalid</code>とする。valid
+      descriptorのwireProfilesとparser adapterが渡したobserved wire
+      profilesのexact一致を確認し、不一致なら以降のsemantic評価を行わずincompatibleにする。
+    </li>
+    <li>
+      SemVerをparseして同major rangeを選ぶ。rangeがなければmajor unsupported、同major
+      rangeがあればfloor / ceilingを評価し、exactly 1 primary range reasonを返す。
+    </li>
+    <li>
+      registryでcontract version / hash pairをexact解決し、descriptor
+      capabilityをsnapshotのcapability elementへ結合する。unknown capability ID / profileはfail
+      closedにする。
+    </li>
+    <li>
+      required、must-understand、may-ignore、preferredをこの順で評価し、全reasonをfixed
+      priority順へsortする。 hard incompatible
+      reasonが1件でもあればstatusはincompatible、なければdegraded、reason 0件だけcompatibleにする。
+    </li>
+  </ol>
+
+  <h2 id="14-reader-and-migration">14. Reader, Deprecation, and Historical Migration Policy</h2>
+  <h3 id="141-version-specific-readers">14.1 Version-specific Readers</h3>
+  <ul>
+    <li>
+      wire profile reader、ontology contract compatibility evaluator、profile validatorを別dispatch
+      tableで管理する。
+    </li>
+    <li>
+      exact contract snapshot hashをregistryから解決できる場合だけversion-specific
+      behaviorへdispatchする。
+    </li>
+    <li>unknown hashを同じversionの既知snapshotへ丸めない。</li>
+    <li>
+      descriptor欠落legacyは<code>pre-descriptor-wire-v1</code>
+      readerへだけdispatchし、ontology contract 1.0.0 readerとして扱わない。
+    </li>
+    <li>old snapshot fileとreader fixtureはsupport window中削除しない。</li>
+    <li>
+      generationに保存されたdescriptorと現在のlatest contractを比較しても、old
+      payloadの意味をlatestへ再解釈しない。
+    </li>
+  </ul>
+
+  <h3 id="142-deprecation-window">14.2 Deprecation Window</h3>
+  <ul>
+    <li>element削除前に少なくとも1 minor releaseでdeprecatedにする。</li>
+    <li>
+      deprecationはreplacement IDと<code>deprecatedSince</code>を必須にする。
+    </li>
+    <li>
+      replacementは同じtarget snapshotに存在する同じkindのactive
+      elementを指し、self-reference、cycle、8段を超えるchainを拒否する。removal時もchain終端がactiveであることを再検証する。
+    </li>
+    <li>
+      default support windowはdeprecatedSince releaseより後に同一majorで2回のminor
+      incrementが公開済み、かつそのreleaseの<code>releasedOn</code>からremoval
+      releaseの<code>releasedOn</code>まで90 UTC calendar
+      days以上の両方を満たした時点とする。patch releaseはminor回数へ数えない。
+    </li>
+    <li>
+      removal GOにはvulnWorkbench / NightWorkers両方でdeprecated element
+      usageが連続14日0件、rollback reader保持、major release approvalを要求する。
+    </li>
+    <li>
+      security / correctness上の緊急時もrelease CLIはsupport
+      windowを黙って迂回しない。まず別のincident pathで危険なwriter /
+      capabilityを停止し、window免除が不可避なら本schemaとclassifierへ明示的なemergency evidence
+      contractを追加するreviewed changeを先に行う。ad hoc flagやsilent removalを許可しない。
+    </li>
+  </ul>
+
+  <h3 id="143-migration-policy">14.3 Migration Policy</h3>
+  <ul>
+    <li>
+      migration対象はconsumer code / fixture / declarationであり、persisted generation
+      dataではない。
+    </li>
+    <li>renameはdual-read期間にold / new elementを別IDで共存させる。</li>
+    <li>old write停止後もhistorical readerをsupport window中維持する。</li>
+    <li>
+      rollbackはdescriptor continuity floorを保ったままwriter targetをknown-good
+      contractへ戻し、新generationをそのcontractで再buildする。legacy cutoff後にunmarked
+      generationへ戻さない。
+    </li>
+    <li>inferred relationをmigrationでdeclaredへ昇格しない。</li>
+  </ul>
+
+  <h2 id="15-generation-integration">15. Generation and Artifact Integration</h2>
+  <h3 id="151-wire-placement">15.1 Descriptor Placement</h3>
+  <ul>
+    <li><code>StaticIntelligenceExportV1.ontologyContract?</code></li>
+    <li><code>StaticIntelligenceKnowledgeSourceManifest.ontologyContract?</code></li>
+    <li><code>StaticIntelligenceOntologyHandoff.ontologyContract?</code></li>
+    <li>
+      generation artifact metadata summary:
+      <code>ontologyContract?: OntologyContractArtifactMarkerV1</code>
+    </li>
+  </ul>
+  <p>
+    schema上optionalなのはmigrationのためである。<code>optional</code>でdescriptor
+    buildに成功したgenerationと<code>required</code>の全generationでは、exportと、そのgenerationに存在する全derived
+    artifact metadataにdescriptor / markerをexactly once要求する。manifest / handoffはpersisted
+    generationのdescriptorだけから投影し、current configから再生成しない。 wire readerのoptional
+    field型はtransport envelopeとしてlosslessに保持し、producer input / publication
+    resultへ昇格する前にversion-specific strict schemaを通す。
+  </p>
+
+  <h3 id="152-reader-first-risk">15.2 Reader-first Risk</h3>
+  <p>
+    現行exportはnon-strict Zod object、manifestとhandoffはstrict objectである。unknown
+    fieldをstripまたはrejectする旧readerへdescriptor付きpayloadを先に書くと、再serialize時のexportHash
+    mismatchやparse failureが起こり得る。したがって次をwriter開始前gateとする。
+  </p>
+  <ol>
+    <li>vulnWorkbench generation loaderがoptional descriptorをlosslessにparse / preserveする。</li>
+    <li>manifest / handoff readerがoptional descriptorを認識する。</li>
+    <li>
+      NightWorkersがoptional descriptorを認識し、snapshotで<code
+        >may_ignore</code
+      >
+      と宣言された未対応capabilityだけを安全に無視する。
+    </li>
+    <li>旧descriptor欠落generationのhashが一切変わらないgolden testを通す。</li>
+    <li>reader deploy commit / versionをrelease evidenceへ固定する。</li>
+  </ol>
+
+  <h3 id="153-consistency-invariants">15.3 Generation Consistency Invariants</h3>
+  <ul>
+    <li>
+      export descriptor、全artifact metadata marker、manifest、handoffのversion / hashは一致する。
+    </li>
+    <li>descriptorのcontract hashはregistryの同version snapshot hashに一致する。</li>
+    <li>descriptor capabilityはそのgenerationに実際にpersistされたprofileだけを宣言する。</li>
+    <li>
+      descriptor capabilityは同じcontract snapshotで宣言されたcapabilityのsubsetであり、ID /
+      profileがexactに一致する。
+    </li>
+    <li>exportHashはdescriptorを含むpersisted exportから計算する。</li>
+    <li>manifest contentHashもpublishされたdescriptorを含むmanifest contentから計算する。</li>
+    <li>mixed marker、unknown hash、capability artifact欠落はgeneration loadをfailさせる。</li>
+    <li>
+      optional fallbackはdescriptorと全metadata
+      markerがともに欠落したall-or-none状態だけをlegacyとして受理する。markerだけ、descriptorだけ、一部artifactだけの状態はlegacyへfallbackしない。
+    </li>
+    <li>legacy generationはdescriptor欠落のまま保持し、現在のdescriptorを注入しない。</li>
+  </ul>
+
+  <h3 id="154-rollout-modes">15.4 Rollout Modes</h3>
+  <pre><code class="language-typescript">type OntologyContractRolloutPolicy =
+  | { mode: "off"; descriptorContinuity: "legacy_allowed"; targetRelease: null }
+  | {
+      mode: "shadow" | "optional";
+      descriptorContinuity: "legacy_allowed";
+      targetRelease: {
+        contractVersion: string;
+        contractHash: `sha256:${string}`;
+      };
+    }
+  | {
+      mode: "required";
+      descriptorContinuity: "legacy_allowed" | "required_only";
+      targetRelease: {
+        contractVersion: string;
+        contractHash: `sha256:${string}`;
+      };
+    };</code></pre>
+  <table>
+    <caption>
+      producer rollout state
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Mode</th>
+        <th scope="col">Build / metadata</th>
+        <th scope="col">Export / manifest / handoff</th>
+        <th scope="col">Failure effect</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>off</td>
+        <td>contractを計算しない。</td>
+        <td>descriptorなし。</td>
+        <td>現行挙動。</td>
+      </tr>
+      <tr>
+        <td>shadow</td>
+        <td>snapshot解決、descriptor build、own compatibilityをmemory内で実行する。</td>
+        <td>新fieldをpublishしない。</td>
+        <td>
+          bounded telemetryのみ。artifact metadata / DBを変更せずgeneration本体をfailさせない。
+        </td>
+      </tr>
+      <tr>
+        <td>optional</td>
+        <td>成功時だけ新generationへdescriptor / markerをall-or-noneでpersistする。</td>
+        <td>成功時はdescriptorをpublishし、失敗時はunmarked legacy exportを維持する。</td>
+        <td>失敗時はgenerationを維持し、ontology handoffをlegacy / degraded扱いにする。</td>
+      </tr>
+      <tr>
+        <td>required</td>
+        <td>new generationでdescriptor必須。</td>
+        <td>descriptor欠落を公開しない。</td>
+        <td>contract invalidならgeneration persistenceを拒否する。</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    policyはdeployment target別のsource-controlled typed constantとtest
+    injectionだけで管理する。request parameter、tenant input、environment variable、registry
+    latest、descriptor内容からmode / target releaseを切り替えない。起動時にtarget version / hash
+    pairをregistryで解決できなければoffを除くmodeを拒否する。
+  </p>
+  <p>
+    optionalはdescriptor transport 1.0.0のcanary専用とし、baselineからのsemantic
+    change、新capability、新wire profileを同時に有効化しない。以降はcandidateに対するreader commit /
+    fixtureを先に固定し、release artifactをpublishしてexact targetをregistryで解決可能にし、reader
+    deployment、shadow、required writerの順に進める。legacy readのaccept / rejectは§13のconsumer
+    support declarationで別管理し、producer modeへ混ぜない。
+  </p>
+  <p>
+    <code>descriptorContinuity="required_only"</code>は、いずれかのactive consumerが
+    <code>acceptMissingDescriptor=false</code>になった後の不可逆なproducer safety
+    floorである。この状態では <code>off</code> /
+    <code>shadow</code> /
+    <code>optional</code>をschemaで表現できず、rollbackも
+    <code>required</code>のままprevious known-good releaseへexact
+    targetを戻す。descriptorを構築できない場合は generation persistenceを止め、読めないunmarked
+    generationを新規作成しない。<code>optional</code>は
+    continuityがlegacy_allowed、targetがexact 1.0.0、全active consumerがmissing
+    descriptorを受理する証跡がある場合だけ許可する。
+  </p>
+
+  <h2 id="16-publication">16. Readiness and Publication</h2>
+  <h3 id="161-publication-resolver">16.1 Common Publication Resolver</h3>
+  <p>
+    manifest、route、MCP、CLI、ontology handoffが別々にdescriptor
+    availabilityを判定しない。既存read-model resolver配下にpureなpublication
+    decisionを追加し、全surfaceが同じ結果を使う。
+  </p>
+  <pre><code class="language-typescript">type OntologyContractPublicationDecision =
+  | { status: "available"; descriptor: OntologyContractDescriptorV1 }
+  | { status: "disabled"; descriptor: null }
+  | { status: "legacy"; descriptor: null; reasonCode: "descriptor_missing_legacy" }
+  | { status: "unavailable"; descriptor: null; reasonCode:
+      | "contract_marker_mismatch"
+      | "contract_hash_unknown"
+      | "contract_snapshot_missing"
+      | "contract_capability_mismatch"
+      | "contract_consumer_incompatible" };
+</code></pre>
+  <ul>
+    <li>
+      persisted descriptorが存在する場合はcurrent producer
+      modeより先に検証し、validなら常に<code>available</code>とする。legacy_allowed期間にmodeを戻した場合も、またrequired_onlyでtarget
+      releaseを戻した場合も既存descriptorを隠さない。
+    </li>
+    <li>
+      descriptor / markerがall-absentの場合だけcurrent producer modeを参照し、off /
+      shadowなら<code>disabled</code>としてontology handoff
+      degradationへ数えない。off / shadow
+      modeはgenerationへpersistしないため、後から当時のmodeを推測しない。
+    </li>
+    <li>
+      shadowはdescriptor / markerを永続化しないため、public responseにshadow状態を持たせない。
+    </li>
+    <li>
+      optional /
+      requiredでall-absentを読む場合の<code>legacy</code>はhistorical
+      generationまたはoptional canary fallbackだけに使い、mixed markerやunknown
+      hashをlegacyへ丸めない。requiredで作るnew
+      generationのall-absentはpersist前gateにより存在してはならない。
+    </li>
+    <li>unavailable時もraw exception、path、snapshot内容を返さない。</li>
+    <li>
+      ontology handoff unavailableでも既存export / file risk / evidence graphを一律に失敗させない。
+    </li>
+    <li>required modeでpersist前検証に失敗した場合はgeneration全体をcommitしない。</li>
+  </ul>
+
+  <h3 id="162-readiness-reasons">16.2 Bounded Readiness Reasons</h3>
+  <pre><code class="language-text">ontology_contract_descriptor_missing
+ontology_contract_hash_unknown
+ontology_contract_marker_mismatch
+ontology_contract_snapshot_missing
+ontology_contract_capability_mismatch
+ontology_contract_consumer_incompatible
+</code></pre>
+  <p>
+    readiness reasonは既存<code>ontologyHandoff</code>
+    capabilityへ付ける。新しいtop-level readiness capabilityは増やさず、reasonCodesはfixed priority
+    order、unique、最大8件とする。off / shadowではontology contract reasonを追加せず、optional /
+    requiredでdescriptorを期待するgenerationだけを評価する。
+  </p>
+
+  <h2 id="17-cli-and-ci">17. CLI and CI Contract</h2>
+  <h3 id="171-commands">17.1 Commands</h3>
+  <pre><code class="language-shell">bun run ontology-contract:qualify-baseline -- \
+  --version 1.1.0 --catalog-commit aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+bun run ontology-contract:qualify-reader -- \
+  --version 1.1.0 --consumer vulnworkbench \
+  --catalog-commit aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+bun run benchmark:ontology-contract -- --version 1.1.0
+bun run ontology-contract:assemble-evidence -- \
+  --version 1.1.0 --catalog-commit aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+bun run ontology-contract:snapshot -- --check
+bun run ontology-contract:snapshot -- --candidate-version 1.1.0
+bun run ontology-contract:diff -- --from 1.0.0 --candidate-version 1.1.0
+bun run ontology-contract:diff -- --from 1.0.0 --to 1.1.0
+bun run ontology-contract:verify-candidate -- --from 1.0.0 --version 1.1.0
+bun run ontology-contract:verify-release -- --version 1.1.0
+bun run ontology-contract:verify-history -- --base-commit aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+bun run ontology-contract:release -- \
+  --version 1.1.0 \
+  --previous-version 1.0.0 \
+  --previous-hash sha256:0000000000000000000000000000000000000000000000000000000000000000 \
+  --released-on 2026-08-29
+</code></pre>
+  <ul>
+    <li>引数はunknown / duplicate / missing valueを拒否するstrict parserを使う。</li>
+    <li>stdoutは成功・失敗ともsingle JSON object + newlineに固定する。</li>
+    <li>
+      human diagnostic、stack trace、progressはstderrへ出し、secret / absolute pathを含めない。
+    </li>
+    <li>
+      成功exit 0、invalid arguments / contract / diff / qualification / evidence / history / policy
+      conflict / output budget failureは2、I/O / unexpected failureは1とする。
+    </li>
+    <li>
+      <code>snapshot</code> /
+      <code>diff</code>はread-onlyでartifactを変更しない。
+    </li>
+    <li>
+      coverage inventoryはreview対象のsource
+      inputとしてownerが作成する。<code>qualify-baseline</code>、<code>qualify-reader</code>、<code>benchmark:ontology-contract</code>はversionから導出した未作成qualification
+      pathだけを書き、<code>assemble-evidence</code>はそれらとapproval
+      receiptから未作成の<code>evidence/&lt;version&gt;.json</code>だけを組み立てる。全writerはtemp
+      fileをschema / hash検証後にatomic
+      renameし、既存pathをbyte-equivalentでも上書きしない。開始時のclean working treeとlocal
+      HEADを必須にし、tested / reader commitはHEADから導出して任意SHA引数で差し替えない。 catalog
+      commitはexplicit lowercase full SHAとして受け、local ancestor / fixed contract
+      input差分0件を検証する。
+    </li>
+    <li>
+      NightWorkers reader
+      qualificationは同repositoryの固定commandで生成・review・commitしたfileをproducer
+      PRへcopyする。assemble-evidenceはconsumer IDから導出したpath、upstream catalog commit、reader
+      commit、fixture hash、normalized result hashを照合し、network fetchや任意path入力を使わない。
+      producer
+      repoの<code>qualify-reader</code>は<code>--consumer vulnworkbench</code>だけを受け、それ以外を
+      <code>invalid_arguments</code>で拒否する。
+    </li>
+    <li>
+      <code>assemble-evidence</code>は3 roleそれぞれのprincipal ID / approval
+      refをrole別の必須flagでexactly once受け、repeat / unknown roleを拒否する。verification
+      commitは実行時HEADから導出し、その場で
+      verify-candidateを再実行する。approval、qualification、verificationの値を任意JSON
+      blobや任意file pathで注入させない。
+    </li>
+    <li>
+      各qualification / assembly
+      commandは<code>--check</code>を持つ。baseline /
+      readerは固定testを再実行して normalized resultを照合し、performanceは保存済みsample schema /
+      environment / budget、assemblyは全参照hashを再検証する。
+      <code>--check</code>はfilesystemを変更しない。
+    </li>
+    <li>
+      snapshotの<code>--check</code>はcurrent catalogとregistry
+      tailを照合し、<code>--candidate-version</code>は未公開snapshot全体をbounded JSON
+      resultとして返す。両modeを同時指定しない。published release chainのsnapshot / adjacent diff /
+      registryを書けるのは専用<code>release</code>
+      commandだけとし、CIでは実行しない。qualification / evidence writerはrelease chainへ触れない。
+    </li>
+    <li>
+      release commandはsnapshot、adjacent diff、更新後registryをtemp
+      directoryで生成・検証し、新規snapshot / diff targetまたは同名orphan
+      pathが1件でも既にあれば拒否する。snapshot、diffの順にrenameし、既存entryがbyte-equivalentなregistry
+      staged fileを最後にatomic
+      replaceする。失敗時は今回作成した未登録pathだけをcleanupし、既存releaseを変更しない。
+    </li>
+    <li>
+      staging directoryはcontract root直下へexclusive作成してtargetと同じfilesystemを保証し、release
+      lockもexclusive createする。file flush後にrenameし、platformがsupportする場合はparent
+      directoryもflushする。同時実行は1件だけを許可し、既存lockを自動破棄しない。
+    </li>
+    <li>
+      1.0.0以外は<code>--previous-version</code> /
+      <code>--previous-hash</code>を両方必須とし、registry
+      tailとのexact一致をrename前に検証する。1.0.0では両方を禁止し、registry
+      fileがまだ存在しないbootstrapだけを許可する。
+    </li>
+    <li>
+      coverage inventory
+      pathはversionから<code>inventory/&lt;version&gt;.json</code>へ導出する。release
+      commandはread-onlyでcoverage 100%、snapshot双方向traceability、canonical
+      hashを検証し、registry tailへpath / hashを記録する。
+    </li>
+    <li>
+      evidence pathはversionから<code>evidence/&lt;version&gt;.json</code>へ導出し、CLI
+      inputで差し替えない。 evidence fileはread-onlyでstrict parse / canonical
+      hash検証し、version、candidate snapshot
+      hash、<code>catalogCommit</code>以降のcontract input差分0件がrelease
+      inputと一致しなければ書込み前に拒否する。release開始時のworking
+      treeもcleanでなければならない。evidence hashはCLIがcanonical
+      contentから計算し、author入力を受けない。
+    </li>
+    <li>
+      evidenceが参照するbaseline test / performance / 両consumer reader qualification
+      fileもread-onlyで検証し、pathはversionとconsumer IDから導出してCLI inputで差し替えさせない。
+    </li>
+    <li>
+      起動時にregistry未参照の同名snapshot /
+      diffまたは既存lockを検出した場合は自動採用・上書き・削除せず<code>release_conflict</code>で停止する。operatorはregistry参照、hash、working
+      tree diff、lock owner process不在を確認し、crashで残った未登録file / lockだけをreviewed
+      cleanupで除去してから再実行する。
+    </li>
+    <li>
+      <code>verify-history</code>は§9.7のbase / candidate比較だけを行うread-only
+      commandとし、base commit object欠落、non-ancestor、historical bytes変更、registry prefix変更を
+      <code>history_invalid</code>で拒否する。
+    </li>
+  </ul>
+
+  <h3 id="172-output">17.2 Bounded Output</h3>
+  <pre><code class="language-typescript">type OntologyContractCliSuccess =
+  | { ok: true; status: "completed"; command: "snapshot"; result: {
+      mode: "check"; contractVersion: string; contractHash: string;
+      elementCount: number; verified: true;
+    } }
+  | { ok: true; status: "completed"; command: "snapshot"; result: {
+      mode: "candidate"; contractVersion: string; contractHash: string;
+      elementCount: number; snapshot: OntologyContractSnapshotV1;
+    } }
+  | { ok: true; status: "completed"; command: "diff"; result: OntologyContractDiffV1 }
+  | { ok: true; status: "completed"; command:
+      "qualify_baseline" | "qualify_reader" | "qualify_performance"; result: {
+      contractVersion: string; evidencePath: string; evidenceHash: string;
+      caseCount: number; verified: true;
+    } }
+  | { ok: true; status: "completed"; command: "assemble_evidence"; result: {
+      contractVersion: string; contractHash: string;
+      releaseEvidencePath: string; releaseEvidenceHash: string; verified: true;
+    } }
+  | { ok: true; status: "completed"; command: "verify_candidate"; result: {
+      contractVersion: string; contractHash: string; previousVersion: string | null;
+      inventoryHash: string;
+      requiredBump: "none" | "patch" | "minor" | "major";
+      resultHash: string; verified: true;
+    } }
+  | { ok: true; status: "completed"; command: "verify_release"; result: {
+      contractVersion: string; contractHash: string; previousVersion: string | null;
+      inventoryHash: string; releasedOn: string;
+      requiredBump: "none" | "patch" | "minor" | "major"; verified: true;
+    } }
+  | { ok: true; status: "completed"; command: "verify_history"; result: {
+      mode: "pre_bootstrap" | "unchanged" | "bootstrap" | "append_one";
+      baseRegistryHash: string | null; candidateRegistryHash: string | null;
+      addedPaths: string[]; historicalMutationCount: 0;
+      addedReleaseVersion: string | null; verified: true;
+    } }
+  | { ok: true; status: "completed"; command: "release"; result: {
+      contractVersion: string; contractHash: string; previousVersion: string | null;
+      diffHash: string | null; releaseEvidenceHash: string;
+      snapshotPath: string; inventoryPath: string; inventoryHash: string;
+      diffPath: string | null; registryAppended: true;
+    } };
+
+type OntologyContractCliFailure = {
+  ok: false;
+  status: "failed";
+  code:
+    | "invalid_arguments" | "snapshot_invalid" | "registry_invalid"
+    | "diff_invalid" | "version_bump_invalid" | "qualification_invalid"
+    | "release_evidence_invalid"
+    | "history_invalid"
+    | "release_conflict" | "output_budget_exceeded"
+    | "io_failed" | "unexpected_failure";
+  message: string;
+};
+
+type OntologyContractCliResult = OntologyContractCliSuccess | OntologyContractCliFailure;
+</code></pre>
+  <ul>
+    <li>
+      candidate snapshot / diffのcanonical artifactは4 MiB、single JSON stdoutはwrapper込み5
+      MiB、diffは10,000 changesを超える場合にfailし、silent truncateしない。
+    </li>
+    <li>CLI messageは固定文とし、raw catalog valuesをinterpolateしない。</li>
+    <li>
+      <code>verify_history.result.addedPaths</code>はroot-relative path順でunique、最大16件とする。
+      1 release
+      setが上限を超える場合はoutputをtruncateせず<code>output_budget_exceeded</code>でfailする。
+    </li>
+    <li>
+      <code>verify-candidate</code>はcurrent catalog、registry head、candidate
+      snapshot / coverage inventory / diff、declared bump、固定verification command
+      resultをread-onlyで検証し、evidenceへ保存するdeterministic result
+      hashを返す。1.0.0では<code>--from</code>を禁止する。
+    </li>
+    <li>
+      release CIはhistory integrity、snapshot check、registry integrity、adjacent diff、declared
+      bump、golden fixtureを順に実行する。
+    </li>
+  </ul>
+
+  <h2 id="18-consumer-policy">18. vulnWorkbench and NightWorkers Consumer Policy</h2>
+  <h3 id="181-vulnworkbench">18.1 vulnWorkbench</h3>
+  <ul>
+    <li>generation repositoryはdescriptorをlosslessに保存・読込・再hashする。</li>
+    <li>read model resolverはown support declarationでdescriptorを評価する。</li>
+    <li>unknown contractをlatest schemaへparseして成功扱いしない。</li>
+    <li>
+      public surfaceは共通publication decisionを使い、current configからdescriptorを上書きしない。
+    </li>
+  </ul>
+
+  <h3 id="182-nightworkers">18.2 NightWorkers</h3>
+  <ul>
+    <li>producer writerより先にdescriptor v1 optional readerをdeployする。</li>
+    <li>
+      <code>consumer-ontology-contract-support.v1.json</code>をsource controlし、tested rangeとrequired
+      capabilityを宣言する。
+    </li>
+    <li>
+      descriptorをtask promptへraw copyせず、compatibility statusとbounded
+      reasonだけをcompilerへ渡す。
+    </li>
+    <li>
+      incompatibleなontology handoffをtask generationへ使わず、既存fallback policyへ明示的に落とす。
+    </li>
+    <li>old / new contract fixtureを同じtest suiteでdual-readする。</li>
+  </ul>
+
+  <h3 id="183-cross-repository-fixtures">18.3 Cross-repository Fixtures</h3>
+  <ul>
+    <li>
+      producer repoを正本とする<code>ontology-contract-descriptor-v1.json</code>、1.0.0 snapshot
+      hash、compatible / incompatible handoff fixtureを用意する。
+    </li>
+    <li>NightWorkers側copyにはupstream commit SHAとfile hashを添える。</li>
+    <li>fixture drift checkを両repo CIに置き、network fetchはtest runtimeに行わない。</li>
+    <li>
+      shared package化はNightWorkers以外のconsumer採用とrelease
+      cadence分離が観測された時点でADRを作成して判断する。
+    </li>
+  </ul>
+
+  <h2 id="19-file-plan">19. File-by-file Change Plan</h2>
+  <p>
+    Bootstrap B0–B2では、schema、catalog、inventory、snapshot、diff、strict JSON、read-only
+    verificationだけを追加する。既存export / manifest / generation /
+    handoffのwireやpersistenceを変更するfileは Publication
+    P0以降まで編集しない。各表のpublication-only fileはB2完了前に作成してはならない。
+  </p>
+  <table>
+    <caption>
+      track別のfile boundary
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Track</th>
+        <th scope="col">作成・変更してよい範囲</th>
+        <th scope="col">このtrackでは触らない範囲</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Bootstrap B0–B2</td>
+        <td>
+          shared schema / base catalog / source registry / inventory、pure snapshot / diff / version
+          policy / strict JSON、read-only snapshot / diff / candidate verification、fixture / unit
+          test、package script
+        </td>
+        <td>
+          compatibility / publication / config、release / qualification / evidence
+          writer、generation persistence、public surface、NightWorkers
+        </td>
+      </tr>
+      <tr>
+        <td>Publication P0</td>
+        <td>
+          compatibility evaluator、consumer support、release / qualification / evidence /
+          history、reader fixture、protected CI gate
+        </td>
+        <td>generation persistenceとpublic descriptor投影</td>
+      </tr>
+      <tr>
+        <td>Publication P1–P3</td>
+        <td>
+          publication / config、generation marker、resolver、manifest / handoff / route / MCP / CLI
+          projection、shadow / optional / required rollout
+        </td>
+        <td>未reviewのplanned profileをactive catalogへ昇格する変更</td>
+      </tr>
+    </tbody>
+  </table>
+  <h3 id="191-new-files">19.1 New Files in vulnWorkbench</h3>
+  <table>
+    <caption>
+      新規file
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">File</th>
+        <th scope="col">Responsibility</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>shared/schemas/ontology-contract-versioning.schema.ts</code></td>
+        <td>
+          descriptor、snapshot、element union、diff、registry /
+          evidence、support、compatibilityのstrict schema
+        </td>
+      </tr>
+      <tr>
+        <td><code>shared/schemas/ontology-contract-versioning.schema.test.ts</code></td>
+        <td>bounds、unknown field、cross-field、negative contract test</td>
+      </tr>
+      <tr>
+        <td><code>shared/contracts/ontology-contract/base-catalog.v1.ts</code></td>
+        <td>shared schemaが所有するenum constantとwire semantic fieldの明示catalog</td>
+      </tr>
+      <tr>
+        <td><code>shared/contracts/ontology-contract/source-registry.v1.ts</code></td>
+        <td>active / planned catalog sourceとstatic adapter IDのclosed registry</td>
+      </tr>
+      <tr>
+        <td><code>shared/contracts/ontology-contract/inventory/1.0.0.json</code></td>
+        <td>全coverage keyのincluded / excluded / deferred判断とelement traceability</td>
+      </tr>
+      <tr>
+        <td><code>shared/contracts/ontology-contract/releases/1.0.0.json</code></td>
+        <td>baseline immutable canonical snapshot</td>
+      </tr>
+      <tr>
+        <td><code>shared/contracts/ontology-contract/diffs/*.json</code></td>
+        <td>previous → currentのimmutable adjacent canonical diffとrequired bump evidence</td>
+      </tr>
+      <tr>
+        <td><code>shared/contracts/ontology-contract/registry.v1.json</code></td>
+        <td>release chain、snapshot / diff hash・path、releasedOn、evidence path / hash</td>
+      </tr>
+      <tr>
+        <td><code>shared/contracts/ontology-contract/evidence/*.json</code></td>
+        <td>
+          catalog commit、owner approval、consumer reader、verification、baseline test / performance
+          qualificationのimmutable release evidence
+        </td>
+      </tr>
+      <tr>
+        <td><code>api/modules/static-intelligence/ontology-contract/catalog.ts</code></td>
+        <td>shared baseとAPI-owned validation / claim / vocabulary catalog viewの一方向集約</td>
+      </tr>
+      <tr>
+        <td><code>api/modules/static-intelligence/ontology-contract/strict-json.ts</code></td>
+        <td>byte limit、UTF-8、duplicate key、trailing tokenを検証するcontract JSON parser</td>
+      </tr>
+      <tr>
+        <td><code>api/modules/static-intelligence/ontology-contract/snapshot.ts</code></td>
+        <td>catalog normalize、invariant、canonical bytes、hash</td>
+      </tr>
+      <tr>
+        <td><code>api/modules/static-intelligence/ontology-contract/diff.ts</code></td>
+        <td>stable-ID structural diff、reason code、required bump</td>
+      </tr>
+      <tr>
+        <td><code>api/modules/static-intelligence/ontology-contract/version-policy.ts</code></td>
+        <td>SemVer parse / compare / exact next version verification</td>
+      </tr>
+      <tr>
+        <td><code>api/modules/static-intelligence/ontology-contract/compatibility.ts</code></td>
+        <td>consumer support pure evaluator</td>
+      </tr>
+      <tr>
+        <td><code>api/modules/static-intelligence/ontology-contract/publication.ts</code></td>
+        <td>generation markerとpublic descriptor decision</td>
+      </tr>
+      <tr>
+        <td><code>api/modules/static-intelligence/ontology-contract/config.ts</code></td>
+        <td>exact target release付きoff / shadow / optional / required policy validation</td>
+      </tr>
+      <tr>
+        <td><code>api/modules/static-intelligence/ontology-contract/release-inputs.ts</code></td>
+        <td>catalogCommit以降の変更を拒否するfixed contract source allowlist</td>
+      </tr>
+      <tr>
+        <td>
+          <code>api/modules/static-intelligence/ontology-contract/qualification-command-sets.v1.ts</code>
+        </td>
+        <td>
+          baseline / reader / performance command ID、executable、argv、cwd、timeoutのclosed map
+        </td>
+      </tr>
+      <tr>
+        <td>
+          <code>api/modules/static-intelligence/ontology-contract/deprecation-telemetry-keys.v1.ts</code>
+        </td>
+        <td>
+          最大64個のbounded metric key、deprecated element ID、retirement dateのsource-controlled
+          map
+        </td>
+      </tr>
+      <tr>
+        <td>
+          <code>api/modules/static-intelligence/ontology-contract/history.ts</code> /
+          <code>release.ts</code>
+        </td>
+        <td>base/candidate append-only比較と、registry-last release write / recovery invariant</td>
+      </tr>
+      <tr>
+        <td><code>api/modules/static-intelligence/ontology-contract/*.test.ts</code></td>
+        <td>
+          strict JSON、snapshot、diff、version、compatibility、history、release、publicationのpure /
+          fault-injection tests
+        </td>
+      </tr>
+      <tr>
+        <td><code>api/cli/ontology-contract-snapshot.ts</code></td>
+        <td>catalogとchecked-in snapshotのread-only parity check / bounded candidate output</td>
+      </tr>
+      <tr>
+        <td><code>api/cli/ontology-contract-diff.ts</code></td>
+        <td>read-only bounded diff JSON CLI</td>
+      </tr>
+      <tr>
+        <td><code>api/cli/ontology-contract-verify-release.ts</code></td>
+        <td>registry、adjacent diff、declared bump CI gate</td>
+      </tr>
+      <tr>
+        <td><code>api/cli/ontology-contract-verify-candidate.ts</code></td>
+        <td>未公開snapshot / diff / bump / verification result hashのread-only approval gate</td>
+      </tr>
+      <tr>
+        <td><code>api/cli/ontology-contract-verify-history.ts</code></td>
+        <td>explicit base commitとcandidate treeのappend-only immutable history gate</td>
+      </tr>
+      <tr>
+        <td>
+          <code>api/cli/ontology-contract-qualify-baseline.ts</code> /
+          <code>ontology-contract-qualify-reader.ts</code> /
+          <code>ontology-contract-assemble-evidence.ts</code>
+        </td>
+        <td>
+          version-derivedな新規qualification / release evidenceだけを作る、no-overwriteのreview
+          input writers
+        </td>
+      </tr>
+      <tr>
+        <td><code>api/cli/ontology-contract-release.ts</code></td>
+        <td>published snapshot / diff生成とappend-only registry updateの唯一のwrite entrypoint</td>
+      </tr>
+      <tr>
+        <td><code>scripts/benchmark/ontology-contract.ts</code></td>
+        <td>
+          10,000 element snapshot / diff / compatibilityのrepeatable qualificationとversion-derived
+          performance evidence writer
+        </td>
+      </tr>
+      <tr>
+        <td><code>spec/fixtures/ontology-contract/*.json</code></td>
+        <td>additive、deprecation、breaking、rollback、legacy golden fixtures</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3 id="192-modified-files">19.2 Modified Files in vulnWorkbench</h3>
+  <table>
+    <caption>
+      変更file
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">File</th>
+        <th scope="col">Change</th>
+        <th scope="col">Key test</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>shared/schemas/static-intelligence.schema.ts</code></td>
+        <td>
+          node / edge kind等をreadonly constantへ抽出し、exportへoptional descriptorを追加する。
+        </td>
+        <td>
+          catalog constant parity、legacy parse / hash unchanged、descriptor envelope lossless
+          round-trip / v1 strict dispatch
+        </td>
+      </tr>
+      <tr>
+        <td><code>shared/schemas/static-intelligence-knowledge-source.schema.ts</code></td>
+        <td>manifestへoptional descriptorを追加する。</td>
+        <td>strict outer reader、descriptor envelope preservation、content hash stability</td>
+      </tr>
+      <tr>
+        <td><code>shared/schemas/static-intelligence-module.schema.ts</code></td>
+        <td>ontology handoffへoptional descriptorを追加する。</td>
+        <td>legacy / compatible / unknown descriptor version / incompatible fixture</td>
+      </tr>
+      <tr>
+        <td><code>api/modules/static-intelligence/generation-types.ts</code></td>
+        <td>metadata summary marker helperとcross-artifact invariantを追加する。</td>
+        <td>mixed marker reject</td>
+      </tr>
+      <tr>
+        <td><code>api/modules/static-intelligence/generation-repository-types.ts</code></td>
+        <td>
+          persist input / loaded generationへoptional descriptor draft / persisted viewを追加する。
+        </td>
+        <td>legacy / descriptor-bearing type fixture</td>
+      </tr>
+      <tr>
+        <td><code>api/modules/static-intelligence/generation-persister.ts</code></td>
+        <td>
+          descriptor / markerをfile save前にfinalizeし、既存atomic 3-file batchとsingle multi-row DB
+          insertへall-or-noneで含める。初期required roleは
+          <code>project_structure</code> /
+          <code>structure</code> /
+          <code>export</code>の3件である。 role追加時はclosed required-role
+          constantとmarker completeness testを同じPRで更新する。
+        </td>
+        <td>pre-save validation、partial markerなし、cleanup failure evidence</td>
+      </tr>
+      <tr>
+        <td><code>api/modules/static-intelligence/generation-repository.ts</code></td>
+        <td>
+          lossless read、registry hash、generationに存在する全derived artifact metadata / export
+          consistencyを検証する。
+        </td>
+        <td>old / new exact round-trip</td>
+      </tr>
+      <tr>
+        <td><code>api/modules/static-intelligence/export-builder.ts</code></td>
+        <td>optional descriptor inputをbuilder boundaryで受ける。</td>
+        <td>mode matrix</td>
+      </tr>
+      <tr>
+        <td><code>api/modules/static-intelligence/knowledge-source-manifest.ts</code></td>
+        <td>persisted descriptorをmanifestへ投影し、hash inputへ含める。</td>
+        <td>generatedAt-independent、descriptor-sensitive hash</td>
+      </tr>
+      <tr>
+        <td><code>api/modules/static-intelligence/ontology-handoff.ts</code></td>
+        <td>persisted descriptorとpublication decisionをhandoffへ投影する。</td>
+        <td>shadow non-leak、unknown hash unavailable</td>
+      </tr>
+      <tr>
+        <td>
+          <code>api/modules/static-intelligence/read-model-resolver.ts</code> /
+          <code>api/modules/static-intelligence/read-model-types.ts</code>
+        </td>
+        <td>common publication / own consumer compatibility resultを追加する。</td>
+        <td>all public surfaces agree</td>
+      </tr>
+      <tr>
+        <td><code>api/modules/static-intelligence/build-service.ts</code></td>
+        <td>mode gate、descriptor resolution、failure effectを接続する。</td>
+        <td>off / shadow / optional / required</td>
+      </tr>
+      <tr>
+        <td>
+          <code>api/cli/intelligence-knowledge-source.ts</code> /
+          <code>api/modules/static-intelligence/mcp-tools.ts</code> /
+          <code>api/routes/static-intelligence.route.ts</code>
+        </td>
+        <td>
+          manifest / handoffを独自判定せず、persisted generationとcommon publication
+          decisionから同じdescriptor / readiness reasonを返す。
+        </td>
+        <td>CLI / MCP / route parity、shadow non-leak、incompatible bounded failure</td>
+      </tr>
+      <tr>
+        <td><code>package.json</code></td>
+        <td>
+          <code>ontology-contract:snapshot</code
+          >、<code>ontology-contract:diff</code>、
+          <code>ontology-contract:verify-candidate</code
+          >、<code>ontology-contract:verify-release</code>、
+          <code>ontology-contract:verify-history</code
+          >、<code>ontology-contract:qualify-baseline</code>、
+          <code>ontology-contract:qualify-reader</code>、
+          <code>ontology-contract:assemble-evidence</code>、
+          <code>ontology-contract:release</code>、
+          <code>test:ontology-contract</code
+          >、<code>benchmark:ontology-contract</code>を追加する。
+        </td>
+        <td>CLI contract</td>
+      </tr>
+      <tr>
+        <td><code>.github/workflows/verify.yml</code></td>
+        <td>
+          release set変更時だけNightWorkers exact commit status / review receiptを照合するprotected
+          required jobと、history / release verification jobを追加する。
+        </td>
+        <td>offline evidenceだけ、wrong commit、missing status / reviewでmerge check failure</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    descriptorは既存JSON payload / metadataへ追加するためDrizzle
+    migrationは作らない。現行persisterはartifact filesをatomic batchで保存してから1回のmulti-row
+    insertを行う。これを「DB transaction」と呼び替えず、descriptor検証をfile
+    save前に完了し、既存cleanup pathの成功 / 失敗をtestする。
+  </p>
+
+  <h3 id="193-preceding-profile-adapters">19.3 Preceding Profile Adapters</h3>
+  <p>
+    file存在を条件にadapterを自動参加させない。§9.4.1のsource registryで
+    <code>status="active"</code>へ変更したprofileだけをclosed import
+    mapへ登録し、各owner fileからimmutable catalog viewをexportする。active
+    adapterがimport不能ならsnapshot buildをfailする。API aggregatorはshared
+    baseをimportしてよいが、shared fileからAPI moduleをimportしない。Ontology Contract
+    builderが先行schemaをcopyしない。
+  </p>
+  <ul>
+    <li>validation: profile ID、rule code、severity、focus / ref normalization</li>
+    <li>claim: profile ID、target / reference / rule、required binding path</li>
+    <li>
+      vocabulary: profile ID、namespace、role、alignment relation、evidence / normalization profile
+    </li>
+    <li>
+      registry version / hash、receipt、mapping entry、record instanceはadapter outputから除外する。
+    </li>
+  </ul>
+
+  <h3 id="194-nightworkers-files">19.4 Coordinated NightWorkers Changes</h3>
+  <ul>
+    <li>
+      <code>shared/schemas/ontology-handoff.schema.ts</code>: manifest strict schemaへoptional descriptor
+      transport envelopeを追加し、legacy
+      payloadとdescriptor付きpayloadをlosslessにparseした後、version-specific strict
+      schemaへdispatchする。
+    </li>
+    <li>
+      <code>shared/contracts/ontology-contract/consumer-support.v1.json</code>: tested range、required / supported / preferred
+      capabilityとlegacy cutoff。
+    </li>
+    <li>
+      <code>shared/contracts/ontology-contract/registry.v1.json</code> / <code>releases/*.json</code>:
+      supported version / hash pairとcapability semanticsのoffline copy。
+    </li>
+    <li>
+      <code>api/modules/ontology/handoff/ontology-contract-compatibility.ts</code>: source-controlled supportとlocal
+      registryだけを使うpure evaluator。
+    </li>
+    <li>
+      <code>api/modules/ontology/handoff/vulnworkbench-handoff.service.ts</code>: manifest parse後に
+      compatibilityを評価し、artifactにはlossless manifest、run eventにはstatus / bounded
+      reasonだけを保存する。 incompatibleではavailable handoffを生成せず既存fail-safeへ落とす。
+    </li>
+    <li>
+      <code>tests/ontology-contract-compatibility.test.ts</code> / <code>tests/vulnworkbench-ontology-handoff.test.ts</code>:
+      legacy、known 1.0.0、unknown hash / major、capability mismatch、schema-invalid fixture。
+    </li>
+    <li>
+      <code>scripts/write-ontology-contract-reader-evidence.ts</code>: fixed test commandのcase ID / pass結果、reader
+      commit、upstream catalog commit、fixture hashをstrict qualification
+      JSONへ書く。version-derived pathだけを許可し、既存fileを上書きしない。
+    </li>
+    <li>
+      cross-repository fixture copyにはupstream vulnWorkbench commit / canonical file
+      hashを固定し、NightWorkers CIのdrift verifierでnetworkなしに照合する。
+    </li>
+  </ul>
+
+  <h2 id="20-implementation-slices">20. Implementation Slices</h2>
+  <h3 id="bootstrap-b0">Bootstrap B0: Baseline Inventory and Contract Freeze</h3>
+  <p>Goal: 現行意味面を変更せず1.0.0 snapshotのreview材料を作る。</p>
+  <ol>
+    <li>
+      現行schema、builders、validators、consumer fixturesからsemantic element inventoryを作る。
+    </li>
+    <li>
+      closed source registryとcoverage adapterを作り、全coverage keyをincluded / excluded /
+      deferredへexactly once分類する。
+    </li>
+    <li>
+      wire / data / operational metadataをinclusion testで除外し、node 9 / edge 8 / readiness
+      5と全public fieldの下限照合を通す。
+    </li>
+    <li>baseline 1.0.0 catalog、coverage inventory、snapshot fixture、expected hashを生成する。</li>
+    <li>vulnWorkbench / NightWorkers ownerがelement IDとclosed / open setをreviewする。</li>
+    <li>
+      現在failしている<code>intelligence-knowledge-source-cli.test.ts</code> 6件のempty stdout / JSON
+      EOF原因を本計画とは別のpreceding fixで解消し、同test fileをgreenにする。
+    </li>
+  </ol>
+  <p>
+    Exit: coverage 100%、baseline snapshot / inventory review済み、既存behavior変更0、関連6 test
+    fileが全件green。CLI failureが残る間はPublication P0へ進まない。
+  </p>
+
+  <h3 id="bootstrap-b1">Bootstrap B1: Pure Schema, Canonicalization, and Registry</h3>
+  <p>Goal: product pathへ接続せず、承認可能なbaseline release candidateを作る。</p>
+  <ol>
+    <li>
+      strict schemas、layer-safe catalog aggregator、snapshot builder、hash、registry
+      validatorを実装する。
+    </li>
+    <li>duplicate-key-aware strict JSON parserとsource registry closed dispatchを実装する。</li>
+    <li>
+      enum shared constant parity、field mutation fixture、determinism、bounds、dangling
+      reference、published snapshot mutation testを追加する。
+    </li>
+    <li>deterministic pretty JSON raw-byte checkとcanonical hash checkを分けて実装する。</li>
+    <li>
+      candidate snapshot outputとreleased snapshot parity checkを持つread-only CLI / CI
+      gateを追加する。
+    </li>
+  </ol>
+  <p>
+    Exit: same inputでbyte-identical candidate snapshot / hash、ownerが1.0.0
+    candidateを承認済み。まだrelease registryへappendしない。
+  </p>
+
+  <h3 id="bootstrap-b2">Bootstrap B2: Diff and Version Policy</h3>
+  <p>
+    Goal: 全meaning-bearing pathのclassificationをclosed ruleで検証し、release writerをまだruntime /
+    production registryへ接続せず完成させる。
+  </p>
+  <ol>
+    <li>stable ID diff、kind別classifier、reason code、change / diff hashを実装する。</li>
+    <li>patch / minor / major / no-release fixtureを作る。</li>
+    <li>unclassified pathとauthorによるunder-bumpをCIで拒否する。</li>
+    <li>immutable adjacent diffとappend-only registryのvalidatorを実装する。</li>
+    <li>
+      diff / verify-candidateとhistory verificationをread-only
+      CLIとして追加する。qualification、evidence assembly、published release writerはPublication
+      P0まで追加しない。
+    </li>
+    <li>
+      base commit比較のhistory verifier / CLIを追加し、unchanged / bootstrap /
+      append-oneとhistorical mutationをfixtureで検証する。
+    </li>
+    <li>
+      temporary fixture rootでbaseline / subsequent candidate、historical
+      mutation、failure時のno-writeを検証する。
+    </li>
+  </ol>
+  <p>
+    Exit: positive / negative classification matrix、exact next version、candidate result
+    hash、read-only commandのno-write invariantがgreen。published registryとproduction
+    descriptorはまだ作らない。
+  </p>
+  <p>
+    Bootstrap completion: B0–B2のartifactとtestがreview済みで、現行payload bytesとruntime
+    behaviorが不変である。 この時点で本計画のbootstrap
+    milestoneを完了扱いにできる。先行profileの実装、NightWorkers release、14日観測を待たない。
+  </p>
+
+  <h3 id="publication-p0">Publication P0: Consumer-first Reader Floor and Release Authoring</h3>
+  <p>
+    Goal: writerより先に両consumerをoptional descriptor対応へし、そのcommitを固定して1.0.0
+    artifactを公開する。
+  </p>
+  <ol>
+    <li>vulnWorkbench schema / repositoryをlossless optional readerへ更新する。</li>
+    <li>
+      NightWorkersの<code>ontology-handoff.schema.ts</code>、handoff service、support
+      declaration、local registry、compatibility evaluatorを実装・commitする。
+    </li>
+    <li>legacy missing、known 1.0.0、unknown major / hash / capability fixtureを両repoで通す。</li>
+    <li>
+      catalog commit、両consumer reader commit、fixture hash、3 owner approval、verify-candidate
+      resultをconsumer qualification / baseline / performance / release
+      evidenceへ固定し、全pathとhashをoffline検証する。
+    </li>
+    <li>
+      cross-repository protected gateを利用できる場合はNightWorkers exact reader commitのstatus
+      checkとconsumer owner review
+      receiptを照合する。利用できない場合はPublicationをNO-GOとし、offline自己申告だけで代替しない。
+    </li>
+    <li>
+      qualification / evidenceをreview・commitしたclean treeでrelease CLIが1.0.0 snapshot /
+      registryをpublishし、verify-releaseを通す。
+    </li>
+    <li>
+      final artifact hashがcandidateと一致することを確認して両readerをdeployし、rollback
+      floorを固定する。
+    </li>
+  </ol>
+  <p>
+    Exit: writer OFFのまま1.0.0 release verified、old payload hash不変、new descriptor
+    fixtureを両repoがlosslessに読める。
+  </p>
+
+  <h3 id="publication-p1">Publication P1: Shadow Generation Integration</h3>
+  <p>Goal: public wireを変えず、production generationでcontract resolutionを観測する。</p>
+  <ol>
+    <li>
+      build service、in-memory descriptor builder、publication resolver、shadow modeを接続する。
+    </li>
+    <li>
+      shadowがartifact metadata / DB / export / manifest / handoff / CLI / route /
+      MCPを一切変更しないtestを追加する。
+    </li>
+    <li>
+      target release resolution、descriptor build、own compatibilityのfailure reason
+      countを観測する。
+    </li>
+  </ol>
+  <p>Exit: 14日間shadow failure 0、public / persisted diff 0、P95 budget内、全関連test green。</p>
+
+  <h3 id="publication-p2">Publication P2: Optional Descriptor Publication</h3>
+  <p>Goal: 新generationへdescriptorをpersistし、public surfaceへ同じdescriptorをpublishする。</p>
+  <ol>
+    <li>
+      baseline 1.0.0だけをtargetにし、export、generation内の全derived artifact
+      metadata、manifest、handoffへdescriptorをall-or-noneで接続する。
+    </li>
+    <li>export / manifest hashのdescriptor sensitivityとlegacy stabilityを検証する。</li>
+    <li>optional failure時のall-absent legacy generationとsuccess generationをdual-readする。</li>
+    <li>NightWorkers compatible / degraded / incompatible routingをcanaryで確認する。</li>
+  </ol>
+  <p>
+    Exit: 14日間unknown / incompatible 0、partial marker 0、all descriptor-bearing public surfaces
+    consistency 100%。
+  </p>
+
+  <h3 id="publication-p3">Publication P3: Required Enforcement and Release Drill</h3>
+  <p>Goal: new writerをrequiredへ移し、minor / major migrationをfixtureで再現する。</p>
+  <ol>
+    <li>writerをrequiredへ上げ、新generationのdescriptor欠落をpersist前に拒否する。</li>
+    <li>
+      additive minor、deprecation minor、breaking majorと、legacy_allowed /
+      required_only両方のrollbackをstagingでdrillする。
+    </li>
+    <li>support window、usage telemetry、reader retentionを確認する。</li>
+    <li>
+      historical legacy
+      readerは維持し、<code>acceptMissingDescriptor=false</code>への切替はrequired
+      writer安定後90日を経た独立consumer changeとして実施する。
+    </li>
+    <li>
+      最初のactive consumer cutoffと同じcoordinated changeでproducer policyを
+      <code>descriptorContinuity="required_only"</code>へ上げ、off / shadow / optional configをnegative
+      testで拒否する。
+    </li>
+  </ol>
+  <p>Exit: DoD、rollback drill、owner sign-offが揃い、production required GO。</p>
+
+  <h2 id="21-migration-sequence">21. Migration Sequence and Stop Matrix</h2>
+  <table>
+    <caption>
+      rollout gate
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Transition</th>
+        <th scope="col">Entry evidence</th>
+        <th scope="col">Observe</th>
+        <th scope="col">Stop / rollback trigger</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Bootstrap B1 → B2</td>
+        <td>1.0.0 snapshot / hash approved</td>
+        <td>candidate determinism</td>
+        <td>catalog drift、nondeterministic hash</td>
+      </tr>
+      <tr>
+        <td>Bootstrap B2 → Publication P0</td>
+        <td>all paths classified、under-bump rejected、1.0.0 candidate verified</td>
+        <td>fixture coverage、candidate result hash、release fault test</td>
+        <td>unclassified path、ambiguous rule、orphan / mutable release artifact</td>
+      </tr>
+      <tr>
+        <td>Publication P0 reader floor → P1 shadow</td>
+        <td>1.0.0 release verified、both consumer commits deployed</td>
+        <td>legacy / new lossless read</td>
+        <td>hash mismatch、unknown field loss</td>
+      </tr>
+      <tr>
+        <td>Publication P1 shadow → P2 optional</td>
+        <td>14 days shadow failure 0、persisted / public diff 0</td>
+        <td>descriptor consistency、latency</td>
+        <td>persisted / public diff、shadow resolution failure</td>
+      </tr>
+      <tr>
+        <td>Publication P2 optional → P3 required</td>
+        <td>14 days incompatible 0、rollback drill</td>
+        <td>missing descriptor、consumer rejection</td>
+        <td>any unexplained incompatible / data loss</td>
+      </tr>
+      <tr>
+        <td>legacy accept → reject</td>
+        <td>
+          required writer 90 days stable、historical query inventory complete、required_only
+          rollback drill
+        </td>
+        <td>missing descriptor access、previous reader availability、producer continuity floor</td>
+        <td>active legacy consumer、telemetry gap、rollback reader unavailable</td>
+      </tr>
+      <tr>
+        <td>minor deprecation → major removal</td>
+        <td>support window elapsed、14 days usage 0</td>
+        <td>deprecated element access</td>
+        <td>active consumer、reader unavailable</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    gate期間は連続した観測期間とし、deploy failureやtelemetry
+    gapがあれば日数をresetする。現行knowledge source CLI failureと新しいcontract CLIのsingle JSON
+    contractは、どちらもReader floor開始前からgreenを必須にし、baseline allowlistを作らない。
+  </p>
+
+  <h2 id="22-test-plan">22. Test Plan</h2>
+  <h3 id="221-schema-tests">22.1 Schema and Invariant Tests</h3>
+  <ul>
+    <li>strict object unknown field reject、max length / count / size boundaries</li>
+    <li>invalid SemVer、leading zero、pre-release / build metadata reject</li>
+    <li>
+      duplicate / versioned element ID、dangling reference、replacement self / cycle / inactive
+      target / chain depth超過 reject
+    </li>
+    <li>
+      invalid / missing semanticRevision、element kind prefix mismatch、removed ID reuse reject
+    </li>
+    <li>active element with deprecation fields、deprecated without replacement reject</li>
+    <li>
+      deprecatedSince target version mismatch、new element already deprecated、deprecated →
+      active、owner / presence不一致、invalid capability fallback pair reject
+    </li>
+    <li>
+      kind別required field、invalid valueSet / reference combination、ordered identity input重複
+      reject
+    </li>
+    <li>
+      owner内field path / kind publicName重複、identity input owner不一致、edge max &lt;
+      min、cross-kind replacement、capability dependency cycle / depth超過 reject
+    </li>
+    <li>
+      duplicate capabilityId、descriptor IDとelementIdの誤結合、required /
+      preferredがsupportedに存在しない状態、unsorted arrays、unknown profile reject
+    </li>
+    <li>
+      registry chain gap、duplicate version / hash、missing snapshot、releasedOn逆行 /
+      release時future date、missing / mismatched adjacent diff、evidence path / hash mismatch reject
+    </li>
+    <li>
+      source registry duplicate / unsorted / active adapter missing、coverage key missing /
+      duplicate / unknown、 included orphan、production-visible deferred reject
+    </li>
+  </ul>
+
+  <h3 id="222-canonical-tests">22.2 Canonicalization and Hash Tests</h3>
+  <ul>
+    <li>object insertion order差、catalog file order差で同じsnapshot / hash</li>
+    <li>set array order差をnormalizeし、sequence semantics arrayは順序を保持する。</li>
+    <li>timestamp、owner、evidence path / hash変更でsnapshot hash不変</li>
+    <li>meaning-bearing field差でsnapshot hash変更</li>
+    <li>lone surrogate、NaN、Infinity、BigInt、undefined array、cycle reject</li>
+    <li>published 1.0.0 canonical bytes / hash golden</li>
+    <li>duplicate JSON key、non-deterministic pretty format、末尾newline / LF drift reject</li>
+    <li>
+      nested duplicate key、escaped-equivalent key、trailing token、comment、invalid UTF-8 reject
+    </li>
+    <li>locale / ICU差に依存しないUTF-16 code unit sort golden</li>
+    <li>enum shared constantとcatalog value setの双方向parity</li>
+    <li>
+      meaning-bearing fieldごとのrequired remove / optional omit / valid-invalid type mutation
+      fixture
+    </li>
+    <li>existing export / manifest legacy fixtureのhash不変</li>
+  </ul>
+
+  <h3 id="223-diff-tests">22.3 Diff and Version Tests</h3>
+  <ul>
+    <li>optional field / capability addition → minor</li>
+    <li>
+      optional field追加時のfield element / owner reference両pathが同じpolicyでexactly
+      once分類される。
+    </li>
+    <li>deprecation + replacement → minor</li>
+    <li>active → deprecatedをreplacement / deprecatedSince込みのatomic 1 changeとしてemit</li>
+    <li>公開後replacement変更とsemanticRevision変更 → major</li>
+    <li>breaking semantic reinterpretation reasonにsemanticRevision更新がないrelease reject</li>
+    <li>deprecation history / support windowなしのremoval reject</li>
+    <li>deprecation後minor 1 / 2回、releasedOn 89 / 90日、patchだけの境界fixture</li>
+    <li>active deprecation key 64 / 65件、removed keyの180日以内再利用 reject</li>
+    <li>required field、enum removal、identity input、edge direction変更 → major</li>
+    <li>compatible deterministic bug fix → patch</li>
+    <li>docs / evidence only → none and release reject</li>
+    <li>closed enum additionとopen enum additionの差</li>
+    <li>unclassified semantic path fail closed</li>
+    <li>same inputでchange order / changeId / diffHash一致</li>
+    <li>
+      root addition / removal、path modification、atomic deprecationのbefore / after hash golden
+    </li>
+    <li>checked-in adjacent diffとrecomputed diffのbyte / hash / registry exact parity</li>
+    <li>declared under-bump、over-bump、skipped version、same version / different hash reject</li>
+    <li>
+      base history pre-bootstrap / unchanged / bootstrap / append-one pass、historical snapshot /
+      evidence / registry prefixの edit / delete / rename、2 releases同時追加、non-ancestor base
+      reject
+    </li>
+  </ul>
+
+  <h3 id="224-generation-tests">22.4 Generation and Publication Tests</h3>
+  <ul>
+    <li>off / shadow / optional / required mode matrix</li>
+    <li>
+      shadowでartifact metadata / DB / export / manifest / handoff / route / CLI /
+      MCPがbyte-equivalent
+    </li>
+    <li>descriptor付きexport round-tripでexportHash一致</li>
+    <li>descriptor差でexportHash / manifest contentHash変更、generatedAtだけでは安定</li>
+    <li>all artifact marker / export descriptor mismatch reject</li>
+    <li>unknown registry hash、snapshot missing、capability artifact missing reject</li>
+    <li>
+      legacy_allowedでrequired → shadow / off rollback後もpersisted descriptor-bearing
+      generationはavailableを維持する。
+    </li>
+    <li>
+      required_onlyでshadow / off / optionalをconfig parse時に拒否し、requiredのtargetをprevious
+      known-goodへ戻したnew generationもdescriptorを必須にする。
+    </li>
+    <li>legacy generationへcurrent descriptorを注入しない。</li>
+    <li>
+      descriptor validation failureをfile save前に検出し、optionalはall-absent、requiredはsave call
+      0件
+    </li>
+  </ul>
+
+  <h3 id="225-consumer-tests">22.5 Consumer and Cross-repository Tests</h3>
+  <ul>
+    <li>
+      missing legacy descriptor → effective version nullでdegraded during window / incompatible
+      after cutoff
+    </li>
+    <li>
+      descriptor presentだがstrict invalidならlegacyへfallbackせず<code
+        >descriptor_invalid</code
+      >
+    </li>
+    <li>
+      bounded unknown descriptor versionは<code>descriptor_version_unsupported</code>、malformed /
+      oversize envelopeとinvalid known v1は<code>descriptor_invalid</code>
+    </li>
+    <li>parser adapterのobserved wire profileとdescriptor自己申告の不一致をreject</li>
+    <li>below floor、at floor、below ceiling、at ceiling</li>
+    <li>同じmajorのduplicate / disjoint range rejectと、range reason exactly one</li>
+    <li>same major unknown future minor reject</li>
+    <li>unknown major、unknown hash、wire profile mismatch reject</li>
+    <li>required capability missing / profile mismatch reject</li>
+    <li>required / supported / preferred capability invariantとmissing preferred → degraded</li>
+    <li>
+      active / previous major rangeが異なるcapability policyを選び、cross-range要求を混ぜない。
+    </li>
+    <li>unsupported must_understand → incompatible、unsupported may_ignore → degraded</li>
+    <li>effective version / hash / selected rangeとreason priorityのexact output</li>
+    <li>
+      NightWorkers strict legacy parse、descriptor付きlossless parse、unknown hash /
+      capabilityでavailable eventを生成しない。
+    </li>
+    <li>NightWorkers fallback receives bounded status / reason only</li>
+    <li>producer / consumer fixture hash drift check</li>
+  </ul>
+
+  <h3 id="226-cli-tests">22.6 CLI Tests</h3>
+  <ul>
+    <li>success / contract failure / runtime failureのexit code</li>
+    <li>stdout single JSON + newline、stderr separation</li>
+    <li>unknown / duplicate / missing args reject</li>
+    <li>
+      qualificationがclosed command ID / argvだけをshell=falseで実行し、unknown command、cwd
+      escape、timeoutをbounded failureにする。
+    </li>
+    <li>diff oversizeをsilent truncateせずfail</li>
+    <li><code>--check</code>がfilesystemを変更しない。</li>
+    <li>
+      read-only
+      commandと全<code>--check</code>がfilesystemを変更せず、qualification /
+      evidence / release writerが担当外pathまたは既存pathを上書きしない。
+    </li>
+    <li>
+      baseline / consumer caseResultsのsort、duplicate、count不一致、failed case、qualification path
+      / hash / commit / fixture driftを拒否する。
+    </li>
+    <li>release失敗時にregistryが未変更で、今回作成した未登録artifactだけをcleanupする。</li>
+    <li>
+      snapshot / adjacent diff / registryのrename順、orphan検出、再実行拒否をfault
+      injectionで検証する。
+    </li>
+    <li>
+      same-filesystem staging、exclusive lock、同時release 2件のうち1件だけ成功することを検証する。
+    </li>
+    <li>
+      baselineでprevious指定を拒否し、後続releaseでprevious欠落 / registry tail不一致を拒否する。
+    </li>
+    <li>
+      release evidenceのunknown field、version / snapshot hash / commit不一致、content hash
+      drift、baseline / performance qualification欠落、raw sampleからのP95 / peak
+      RSS再計算不一致・budget超過を拒否する。
+    </li>
+    <li>catalogCommit後のallowlisted input変更を拒否し、reader / evidenceだけの変更を許可する。</li>
+    <li>
+      verify-candidate result hashの再現性と、catalog / command result変更時のhash差を検証する。
+    </li>
+    <li>
+      verify-historyのmissing / non-ancestor base、historical
+      mutation、pre-bootstrap、bootstrap、append-one output / exitを検証する。
+    </li>
+    <li>stack、absolute path、raw element valueをerror outputへ出さない。</li>
+  </ul>
+
+  <h3 id="227-verification-commands">22.7 Verification Commands</h3>
+  <p>Bootstrap B0–B2ではrepository rootから次だけを実行する。</p>
+  <pre><code class="language-shell">bun run docs:check
+bun run test:inventory -- --assert-complete
+bun run test:ontology-contract
+bun run ontology-contract:snapshot -- --check
+bun run ontology-contract:verify-candidate -- --version 1.0.0
+bun run typecheck
+bun run lint
+bun run test
+</code></pre>
+  <p>Publication P0以降では、対象unitに応じて次を追加する。</p>
+  <pre><code class="language-shell">bun run docs:check
+bun run test:ontology-contract
+bun test api/modules/static-intelligence/generation-repository.test.ts
+bun test api/modules/static-intelligence/knowledge-source-manifest.test.ts
+bun test api/modules/static-intelligence/read-model-resolver.test.ts
+bun test api/modules/static-intelligence/module-candidates.test.ts
+bun test api/modules/static-intelligence/intelligence-knowledge-source-cli.test.ts
+bun test api/routes/static-intelligence.route.test.ts
+bun run ontology-contract:qualify-baseline -- --version 1.0.0 --check
+bun run ontology-contract:qualify-reader -- --version 1.0.0 --consumer vulnworkbench --check
+bun run benchmark:ontology-contract -- --version 1.0.0 --check
+bun run ontology-contract:assemble-evidence -- --version 1.0.0 --check
+bun run ontology-contract:verify-candidate -- --version 1.0.0
+bun run ontology-contract:verify-release -- --version 1.0.0
+bun run ontology-contract:verify-history -- --base-commit aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+bun run typecheck
+bun run lint
+bun run test
+</code></pre>
+  <p>NightWorkers coordinated PRではrepository rootから次を実行する。</p>
+  <pre><code class="language-shell">node scripts/run-vitest.mjs run \
+  tests/ontology-contract-compatibility.test.ts \
+  tests/vulnworkbench-ontology-handoff.test.ts
+node scripts/write-ontology-contract-reader-evidence.ts --version 1.0.0 --check
+bun run typecheck
+bun run lint
+bun run test
+</code></pre>
+  <p>
+    <code>test:ontology-contract</code>はshared canonical / schema testsを
+    <code>bunx vitest run</code>、API module / CLI
+    testsを<code>bun test</code>で実行する。Shared testsをBun
+    testへ直接渡さない。history commandのSHAはCIがcheckout済みbase commitを明示的に渡す。 knowledge
+    source CLIを含む関連testは全件greenを要求し、既知failureのままreader / writer
+    integrationを開始しない。最後の<code>bun run test</code>で自動inventoryを含むfull
+    regressionを通す。 NightWorkers側のexact verification commandとcommitはcross-repository release
+    evidenceへ記録する。
+  </p>
+
+  <h2 id="23-quality-attributes">23. Security, Privacy, Performance, and Observability</h2>
+  <h3 id="231-security">23.1 Security and Privacy</h3>
+  <ul>
+    <li>runtime / CLIでexternal network lookupを行わない。</li>
+    <li>
+      cross-repository online gateだけはread-only GitHub App credentialをNightWorkers commit status
+      / review metadataの取得に使い、release job以外へ渡さない。credential欠落、fork由来untrusted
+      context、API failureはbypassせずrequired check failureにする。取得値やtokenをartifact /
+      logへ保存しない。
+    </li>
+    <li>
+      qualification commandはclosed executable / argv
+      mapから<code>shell=false</code>でspawnし、approval ref、version、catalog
+      valueをshell commandへ連結しない。
+    </li>
+    <li>
+      snapshot / inventory / diff / evidence pathはcontract root-relative
+      allowlistから解決し、<code>..</code>、absolute path、symlink
+      escapeを拒否する。
+    </li>
+    <li>
+      snapshot / inventory / diff / registry / evidence parserへ4 MiB、element / entry / change
+      10,000件、nesting / token / object-key、string長のhard limitを適用する。
+    </li>
+    <li>catalogにraw evidence、secret、source snippet、absolute repository pathを含めない。</li>
+    <li>free-text migration instructionを実行しない。closed hint codeだけを表示する。</li>
+    <li>
+      consumer compatibility failureでraw snapshotやexception stackをpublic responseへ返さない。
+    </li>
+  </ul>
+
+  <h3 id="232-performance">23.2 Performance Budgets</h3>
+  <ul>
+    <li>10,000 elements / 4 MiB snapshotのbuild + hash: local CI P95 500 ms以内</li>
+    <li>
+      10,000 elements間diff: local CI P95 1,000 ms、warmed process baselineからのpeak incremental
+      RSS 128 MiB以内
+    </li>
+    <li>descriptor parse + compatibility evaluation: P95 2 ms以内</li>
+    <li>generation loadへの追加overhead: P95 5 ms以内</li>
+    <li>
+      registry / snapshotはprocess内でhash verified immutable cacheし、requestごとにfilesystem
+      scanしない。
+    </li>
+    <li>cache keyはcontract version + expected hashとし、mtimeだけを信用しない。</li>
+    <li>
+      qualificationは固定10,000-element fixtureで5 warmup + 30 measured runsを行い、P95、peak
+      RSS、runtime / CPU metadataをJSON evidenceへ保存する。単発wall-clock値でGO判定しない。
+    </li>
+  </ul>
+
+  <h3 id="233-observability">23.3 Observability</h3>
+  <pre><code class="language-text">ontology_contract_resolution_total{mode,status,reason}
+ontology_contract_consumer_compatibility_total{consumer,status,reason}
+ontology_contract_shadow_mismatch_total{reason}
+ontology_contract_build_duration_ms{operation}
+ontology_contract_diff_change_count{required_bump,reason}
+ontology_contract_deprecated_usage_total{consumer,deprecation_key}
+</code></pre>
+  <ul>
+    <li>
+      labelはfixed enumだけとし、version、hash、任意element ID、project IDをmetric labelへ入れない。
+    </li>
+    <li>
+      <code>deprecation_key</code>はactive deprecation catalogへsource-controlled
+      mapで割り当てた最大64個のfixed keyだけを許可し、raw element IDやrequest
+      valueを使わない。release verifierはdeprecated element集合とactive
+      mappingをexact一致させる。65件目のactive deprecationはreleaseを拒否し、removed
+      elementのentryはretiredOn付きで180日間保持してkeyを再利用しない。producer /
+      consumer別の日次countから§14.2の14日0件evidenceを作る。
+    </li>
+    <li>structured logへversion、hash prefix 12文字、status、bounded reason、countsを出す。</li>
+    <li>raw catalog value、full descriptor、project path、stack traceを通常logへ出さない。</li>
+    <li>
+      shadow / optional期間はdaily dashboardでmissing / mismatch / incompatibleとlatencyを確認する。
+    </li>
+  </ul>
+
+  <h2 id="24-rollback">24. Rollback Plan</h2>
+  <h3 id="241-triggers">24.1 Triggers</h3>
+  <ul>
+    <li>old payloadのexport / content hash regression</li>
+    <li>consumerでunknown field loss、parse failure、unsupported contract rejection</li>
+    <li>generation metadata / export / manifest / handoffのdescriptor mismatch</li>
+    <li>same catalogからnondeterministic snapshot / diff hash</li>
+    <li>unclassified change、誤ったminor判定、deprecated element利用継続</li>
+    <li>performance budget超過、shadowでのpersisted / public diff</li>
+  </ul>
+
+  <h3 id="242-order">24.2 Rollback Order</h3>
+  <ol>
+    <li>
+      <code>descriptorContinuity="legacy_allowed"</code>のbootstrap期間だけ、producer modeを
+      <code>required</code> → <code>shadow</code> →
+      <code>off</code
+      >の順で戻せる。<code>optional</code>へのrollbackもbaseline 1.0.0
+      descriptor transport期間だけに限定する。
+    </li>
+    <li>
+      <code>descriptorContinuity="required_only"</code>ではmodeをrequiredのまま維持し、target version /
+      hashだけをregistry上のprevious known-good releaseへ戻す。known-good
+      descriptorを構築できなければgeneration persistenceを停止し、descriptor欠落payloadを作らない。
+    </li>
+    <li>
+      NightWorkersとvulnWorkbenchのreaderは残し、障害releaseのsupport rangeも既存generation /
+      in-flight handoffのusageが0かつ通常support window終了までは削らない。新規writer
+      targetだけを先に戻す。
+    </li>
+    <li>障害contractでのnew writeを停止し、known-good contractでnew generationを再buildする。</li>
+    <li>
+      公開済みsnapshot / registry entry、old reader、historical generationを削除・上書きしない。
+    </li>
+    <li>誤releaseは同じversionを修正せず、適切なnew patch / minor / major releaseで訂正する。</li>
+  </ol>
+  <p>
+    rollback成功条件は障害versionのnew descriptor publish 0、known-good
+    descriptor付きhandoff成功、既存legacy handoffの継続可用性、hash mismatch
+    0である。required_onlyでは「descriptor publish 0」ではなく「障害version publish
+    0」を測る。rollback中もStage 4 serviceやin-place data migrationへ逃げない。
+  </p>
+
+  <h2 id="25-definition-of-done">25. Definition of Done</h2>
+  <h3 id="251-bootstrap-dod">25.1 Bootstrap Definition of Done</h3>
+  <ul>
+    <li>
+      現行production-visible surfaceだけを対象にしたbaseline 1.0.0 candidateがowner
+      review済みである。
+    </li>
+    <li>
+      active sourceのcoverage keyが100%分類され、included elementとinventoryを双方向に辿れる。
+    </li>
+    <li>未実装profileはplanned / deferredで、active adapterやelementを先取りしていない。</li>
+    <li>同一catalogからbyte-identical snapshot、hash、diff order、change IDを再現できる。</li>
+    <li>全meaning-bearing pathにfixed classification ruleがあり、unclassified pathを拒否する。</li>
+    <li>
+      patch / minor / major / none、duplicate key、invalid UTF-8、trailing
+      tokenのfixtureがgreenである。
+    </li>
+    <li>
+      read-only CLI / CI checkが既存fileを変更せず、現行payload bytesとruntime
+      behaviorも不変である。
+    </li>
+    <li>knowledge source CLIを含む関連baseline testがallowlistなしでgreenである。</li>
+  </ul>
+
+  <h3 id="252-publication-dod">25.2 Publication / Enforcement Definition of Done</h3>
+  <ul>
+    <li>
+      owner承認済みprofileだけがactive catalog sourceになり、profile
+      catalogとsnapshotにdriftがない。
+    </li>
+    <li>
+      published snapshot、inventory、adjacent
+      diff、evidence、registryがimmutableかつappend-onlyである。
+    </li>
+    <li>
+      vulnWorkbench / NightWorkersのreader-first floorとcross-repository fixtureがgreenである。
+    </li>
+    <li>
+      off / shadow / optional / requiredのgeneration / publication matrixとall-or-none
+      persistenceがgreenである。
+    </li>
+    <li>
+      unknown major / hash / must_understandはfail closed、unsupported may_ignoreはbounded
+      degradedになる。
+    </li>
+    <li>
+      legacy generationのpayload / hashを変更せず、version-specific historical readerで読める。
+    </li>
+    <li>
+      support policy、security / size / latency budget、observability、rollback
+      drillが承認済みである。
+    </li>
+    <li>
+      Stage 3 package / Stage 4 service trigger未充足を再確認し、premature
+      extractionを行っていない。
+    </li>
+  </ul>
+
+  <h2 id="26-open-decisions">26. Open Decisions and Proposed Defaults</h2>
+  <table>
+    <caption>
+      trackごとにownerが確定する選択
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Track</th>
+        <th scope="col">Decision</th>
+        <th scope="col">Proposed default</th>
+        <th scope="col">Deadline / unresolved behavior</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Bootstrap</td>
+        <td>baseline element inventory</td>
+        <td>現行production-visible contractだけをfreeze</td>
+        <td>B0 exit。未承認ならB1へ進まない。</td>
+      </tr>
+      <tr>
+        <td>Bootstrap</td>
+        <td>closed / open set classification</td>
+        <td>現行enumとexhaustive consumer switchはclosed</td>
+        <td>B0 exit。判定不能pathはunclassifiedとしてB2で拒否する。</td>
+      </tr>
+      <tr>
+        <td>Publication</td>
+        <td>profile activation</td>
+        <td>owner catalog、fixture、immutable profile IDが揃ったprofileだけactive化</td>
+        <td>P0 entry。未実装profileはplannedのままにする。</td>
+      </tr>
+      <tr>
+        <td>Publication</td>
+        <td>legacy descriptor cutoff</td>
+        <td>required安定後90日を候補とし、実usage evidenceで決定</td>
+        <td>P3後の独立change。未決定ならlegacy acceptを維持する。</td>
+      </tr>
+      <tr>
+        <td>Publication</td>
+        <td>historical reader / deprecation window</td>
+        <td>current + previous major、最低180日 / minor 2回かつ90日を初期候補</td>
+        <td>first major / removal前。未決定ならreader削除とelement removalを禁止する。</td>
+      </tr>
+      <tr>
+        <td>Publication</td>
+        <td>cross-repository approval gate</td>
+        <td>protected online checkでexact consumer commitとowner approvalを照合</td>
+        <td>P0 exit。利用不能ならPublicationをNO-GOにする。</td>
+      </tr>
+      <tr>
+        <td>Architecture</td>
+        <td>shared package / independent service</td>
+        <td>Stage 3 / Stage 4 triggerまで見送る。</td>
+        <td>repo内libraryを継続し、runtime mutationを追加しない。</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2 id="27-go-no-go">27. GO / NO-GO Gate</h2>
+  <h3 id="271-bootstrap-go">27.1 Bootstrap GO</h3>
+  <ul>
+    <li>Stage 0 GOまたはarchitecture ownerによるquality-infrastructure例外が記録されている。</li>
+    <li>
+      baseline inventory scopeとstable element ID方針がproducer / consumer ownerに承認されている。
+    </li>
+    <li>現行consumerのclosed / open set behaviorをfixtureで確認できる。</li>
+    <li>source-controlled snapshotを正本とし、runtime authoringを行わないことに合意している。</li>
+    <li>B0–B2がwire、persistence、runtime behaviorを変えないことをtestで保証できる。</li>
+  </ul>
+
+  <h3 id="272-publication-go">27.2 Publication GO</h3>
+  <ul>
+    <li>Bootstrap DoDと関連baseline testsがgreenである。</li>
+    <li>
+      active化するprofileのownership、immutable boundary、catalog view、fixtureが承認済みである。
+    </li>
+    <li>NightWorkers consumer-first担当、release window、exact reader commitが確保されている。</li>
+    <li>protected cross-repository approval gateとrollback floorを実行できる。</li>
+    <li>descriptor publication、support policy、legacy continuityのownerが決まっている。</li>
+  </ul>
+
+  <h3 id="273-no-go">27.3 NO-GO</h3>
+  <ul>
+    <li>instance dataやregistry receiptをsemantic snapshotへ含める要求が未整理である。</li>
+    <li>planned profileを実装前にactive elementとしてfreezeする必要がある。</li>
+    <li>consumer behaviorを確認できず、minor / major分類を固定できない。</li>
+    <li>
+      writer-first publication、offline自己申告だけのremote approval、old
+      generation再hashが前提になる。
+    </li>
+    <li>CIがhistorical mutationをbase commitと比較できない。</li>
+    <li>Stage 4 workflow、shared service、runtime authoringを同じ変更へ含める要求がある。</li>
+  </ul>
+
+  <h2 id="28-implementation-handoff">28. Implementation Handoff</h2>
+  <ol>
+    <li>共通CLI baselineを独立fixでgreenにし、before / after test名と件数を保存する。</li>
+    <li>
+      Bootstrap B0で現行surfaceだけのsource registry、inventory、candidate snapshotをreviewする。
+    </li>
+    <li>
+      B1でstrict schema、canonicalization、hash、no-write candidate verifierをproduct
+      path外で完成させる。
+    </li>
+    <li>
+      B2でdiff classifierとhistory checkを完成させ、Bootstrap DoDを満たした時点でmilestoneを閉じる。
+    </li>
+    <li>
+      先行profileの実装を待つ間、planned sourceをactive化せず、runtime descriptor fileを変更しない。
+    </li>
+    <li>Publication GO後にだけP0 reader floorとrelease authoringへ進む。</li>
+    <li>P1 shadow、P2 optional、P3 requiredを別PR・別rollout decisionで進める。</li>
+    <li>major removal前にdeprecation usage、support window、rollback readerを確認する。</li>
+  </ol>
+  <p>
+    BootstrapとPublicationを同じPRへまとめない。各trackの未解決decisionはproposed
+    defaultを黙って採用せず、 対応するGO
+    gateで停止する。Bootstrap完了はPublication完了を意味せず、Publication未着手を理由に candidate
+    snapshot / diff toolingを未完了扱いに戻さない。
+  </p>
+</article>

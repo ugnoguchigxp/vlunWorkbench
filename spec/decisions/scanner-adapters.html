@@ -1,0 +1,93 @@
+<article lang="en" data-spec-role="decision-contract">
+  <h1 id="scanner-adapters">Scanner adapters</h1>
+  <p>
+    vulnWorkbench separates scanner orchestration from scanner distribution. The core registry
+    accepts only adapters whose upstream engine is MIT or Apache-2.0. Engines under other or
+    proprietary licenses must use the optional adapter path and are disabled by default.
+  </p>
+  <h2 id="included-adapters">Included adapters</h2>
+  <table>
+    <caption>
+      Included adapters
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Adapter</th>
+        <th scope="col">Engine license</th>
+        <th scope="col">Distribution</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>gitleaks</code></td>
+        <td>MIT</td>
+        <td>core</td>
+      </tr>
+      <tr>
+        <td><code>osv</code></td>
+        <td>Apache-2.0</td>
+        <td>core</td>
+      </tr>
+      <tr>
+        <td><code>trivy</code></td>
+        <td>Apache-2.0</td>
+        <td>core</td>
+      </tr>
+      <tr>
+        <td><code>semgrep</code></td>
+        <td>LGPL-2.1-or-later</td>
+        <td>optional; engine not in core toolbox</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    The manifest, runner factory, normalized finding converter, default command, and Docker
+    first-argument allowlist form one <code>StaticScannerAdapter</code> contract.
+    <code>runToolIntoExistingScan</code> depends only on that contract; adding an adapter
+    does not require another tool-specific branch in the profile runner.
+  </p>
+  <h2 id="enable-the-semgrep-adapter">Enable the Semgrep adapter</h2>
+  <p>For host execution, install the Semgrep executable separately and opt in:</p>
+  <pre><code class="language-bash">VULN_WORKBENCH_OPTIONAL_SCANNER_ADAPTERS=semgrep bun run dev
+</code></pre>
+  <p>For Docker execution, build and select the separate adapter image:</p>
+  <pre><code class="language-bash">bun run docker:toolbox:build
+bun run docker:plugin:semgrep:build
+</code></pre>
+  <p>
+    Set the Runtime Settings scanner image to <code>vuln-workbench-toolbox-semgrep:local</code> and set
+    <code>VULN_WORKBENCH_OPTIONAL_SCANNER_ADAPTERS=semgrep</code>. This exposes the optional
+    <code>semgrep-baseline</code> scan profile and
+    <code>semgrep-path-recheck</code> reproduction profile.
+    <code>bun run scan:semgrep -- ...</code> is also an explicit opt-in CLI entry point.
+  </p>
+  <h2 id="add-another-adapter">Add another adapter</h2>
+  <ol>
+    <li>
+      Implement <code>StaticScannerAdapter</code> in
+      <code>api/plugins/scanners/</code>. Keep all tool-specific option mapping inside
+      <code>createRunner</code>.
+    </li>
+    <li>
+      Mark the manifest as <code>core</code> only for an MIT or Apache-2.0
+      engine. The registry rejects other licenses in that tier.
+    </li>
+    <li>
+      Add core adapters to <code>BUILTIN_STATIC_SCANNER_ADAPTERS</code>, or add non-core adapters to
+      the optional adapter map and require an explicit environment opt-in.
+    </li>
+    <li>
+      If Docker execution is supported, provide a separate image for non-core engines. The adapter
+      registry installs its narrow binary/first-argument execution policy when the adapter is
+      registered.
+    </li>
+    <li>
+      Add a profile only when it accurately reflects the adapter&#39;s availability; never add a
+      non-core adapter to a standard profile.
+    </li>
+  </ol>
+  <p>
+    Adapter source code is not a declaration that the external engine is redistributed. Record exact
+    engine and packaged-dependency licenses before publishing any optional image.
+  </p>
+</article>

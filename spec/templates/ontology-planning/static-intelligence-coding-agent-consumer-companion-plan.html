@@ -1,0 +1,1491 @@
+<article lang="ja" data-spec-role="template">
+  <h1 id="static-intelligence-coding-agent-consumer-companion-plan">
+    Static Intelligence Coding Agent Consumer Companion Plan
+  </h1>
+  <ul>
+    <li>Status: Parked reference plan; implementation not approved</li>
+    <li>
+      Implementation status: Partially implemented baseline; strict manifest reader and handoff
+      collector exist, task/run adoption is not started
+    </li>
+    <li>Date: 2026-08-20</li>
+    <li>Last reviewed: 2026-08-31</li>
+    <li>
+      Review status: current NightWorkers module layout and producer surfaces reconciled;
+      feature-specific capability adoption remains dependency-gated
+    </li>
+    <li>Priority: P0 consumer pinning only after Stage 0 GO; P1 feature-specific adoption</li>
+    <li>
+      GO requirement: Stage 0 single-Run integrity smoke、vulnWorkbench CLI baseline、consumer /
+      orchestration owner、exact generation pinning fixtureがgreenであること
+    </li>
+    <li>
+      Planning catalog:
+      <a href="../../templates/ontology-planning/index.html">Ontology Planning Catalog</a>
+    </li>
+    <li>
+      Parent direction:
+      <a href="../../concepts/project-intelligence-ontology-evolution-roadmap.html"
+        >Project Intelligence and Ontology Evolution Roadmap</a
+      >
+    </li>
+    <li>
+      Related producer plans:
+      <a href="./semantic-handoff-validation-implementation-plan.html"
+        >Semantic Handoff Validation</a
+      >、<a href="./claim-provenance-implementation-plan.html">Claim Provenance</a>、<a
+        href="./security-vocabulary-alignment-implementation-plan.html"
+        >Security Vocabulary Alignment</a
+      >、<a href="./ontology-contract-versioning-implementation-plan.html"
+        >Ontology Contract Versioning</a
+      >
+    </li>
+  </ul>
+  <h2 id="purpose">Purpose</h2>
+  <p>
+    この計画は、vulnWorkbench Phase 40 が提供する persisted Static Intelligence generation
+    を、NightWorkers の coding-agent Ontology / Task Compiler / runtime / closeout へ安全に接続する
+    consumer-side companion plan である。
+  </p>
+  <pre><code class="language-text">vulnWorkbench persisted generation
+  -&gt; source discovery
+  -&gt; generation selection and pinning
+  -&gt; code/security evidence adapter
+  -&gt; existing module Ontology mapping
+  -&gt; task compilation
+  -&gt; runtime context snapshot
+  -&gt; boundary / verification closeout
+  -&gt; rescan and feedback
+</code></pre>
+  <p>
+    この文書の想定 implementation repository は NightWorkers である。ただし NightWorkers
+    の現在の作業ツリーを変更せず、vulnWorkbench 側に cross-repository consumer contract
+    として保存する。
+  </p>
+  <h2 id="current-baseline">Current Baseline</h2>
+  <table>
+    <caption>
+      2026-08-29時点の実装済み範囲とgap
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Surface</th>
+        <th scope="col">Current behavior</th>
+        <th scope="col">Remaining gap</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>shared/schemas/ontology-handoff.schema.ts</code></td>
+        <td>NightWorkersがv1 manifestをstrict parseし、optional generationを受理する。</td>
+        <td>
+          capability別descriptor、lossless extension dispatch、cross-field generation整合がない。
+        </td>
+      </tr>
+      <tr>
+        <td><code>api/modules/ontology/handoff/vulnworkbench-handoff.service.ts</code></td>
+        <td>
+          <code>scanRunId</code>でknowledge source
+          CLIを実行し、manifest全体をrun artifactへ保存する。同じ run / scanのterminal
+          eventを再利用する。
+        </td>
+        <td>
+          event
+          summaryへ<code>generationId</code>、<code>snapshotRef</code>、<code>exportHash</code>を固定せず、planning
+          / runtime / closeoutへexact consumer refを渡していない。
+        </td>
+      </tr>
+      <tr>
+        <td><code>api/cli/intelligence-knowledge-source.ts</code></td>
+        <td>
+          <code>--scan-run-id</code>とoptional
+          <code>--generation-id</code>を受け、latest selection後もexact
+          generationを再取得できる。
+        </td>
+        <td>
+          spawn testのempty stdout baselineを解消し、consumer pinning fixtureを追加する必要がある。
+        </td>
+      </tr>
+      <tr>
+        <td><code>api/modules/ontology/runtime/ontology-runtime-context.ts</code></td>
+        <td>module context、boundary、verificationのbounded snapshotを持つ。</td>
+        <td>Static Intelligenceのpinned refとseparated code / security evidence sectionがない。</td>
+      </tr>
+      <tr>
+        <td>Task generation / run closeout / debug</td>
+        <td>既存のtask evidence、runtime event、boundary audit、read-only run queryを持つ。</td>
+        <td>
+          同一generation provenanceをtask、run、verification、rescanへ一貫して接続していない。
+        </td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    本計画は既存handoff collectorを作り直さない。collectorとstrict readerをmigration
+    baselineにし、exact generation pinning、bounded evidence adaptation、runtime / closeout
+    propagationだけを追加する。
+  </p>
+  <h2 id="position">Position</h2>
+  <p>この計画は次を置き換えない。</p>
+  <ul>
+    <li>NightWorkers の <code>.agent-ontology</code> module manifests</li>
+    <li><code>classify_goal</code></li>
+    <li><code>compile_module_context</code></li>
+    <li><code>check_boundary</code></li>
+    <li><code>get_verification_plan</code></li>
+    <li>Task Generation Ontology Evidence Bridge</li>
+    <li>runtime ontology context snapshot</li>
+    <li>boundary closeout audit</li>
+    <li>Review Mode の vulnWorkbench security diagnostic</li>
+  </ul>
+  <p>
+    追加するのは、vulnWorkbench Static Intelligence を既存 evidence layers へ接続する
+    adapter、generation pinning、task/run provenance、closeout feedback である。
+  </p>
+  <p>
+    本書の<code>task/run provenance</code>は、consumerがどのgenerationを選び、どのfinding
+    / evidenceを 採用したかというselection traceを指す。Claim Provenance planが所有するclaim
+    ledger、record ID、property bindingを意味せず、同contractを先取りしない。
+  </p>
+  <h2 id="core-decisions">Core Decisions</h2>
+  <ul>
+    <li>
+      current <code>ontology-handoff.schema.ts</code>と
+      <code>vulnworkbench-handoff.service.ts</code>をmigration baselineとし、同じ責務のparallel
+      serviceを作らない。
+    </li>
+    <li>
+      Static Intelligence source discovery と generation selection は supervisor / orchestration
+      layer の責務とし、worker coding agent が ad hoc に決めない。
+    </li>
+    <li>
+      generation selection は routing decision であり、provider capacity、queue admission、runtime
+      lane selection と分離する。
+    </li>
+    <li>
+      selected generationId は planning 時に固定し、同じ task/run の途中で latest generation
+      へ自動追従しない。
+    </li>
+    <li>
+      latest
+      selectionは1回だけ行い、得られた<code>scanRunId + generationId + snapshotRef + exportHash</code>をpersistする。planning以後のreadは<code>--generation-id</code>またはexact
+      MCP / API readだけを使う。
+    </li>
+    <li>
+      vulnWorkbench module candidates は <code>codeEvidence</code> に入れ、<code
+        >moduleManifest</code
+      >
+      source truth にしない。
+    </li>
+    <li>
+      canonical module ownership、invariants、forbidden mutations は NightWorkers manifest
+      が優先する。
+    </li>
+    <li>scanner-backed findings と code structure candidates を別 evidence layer に保つ。</li>
+    <li>
+      code structure、semantic similarity、risk community だけから security task を confirmed
+      finding として生成しない。
+    </li>
+    <li>
+      candidate verification commands はそのまま実行せず、repository verification plan と command
+      policy で選別する。
+    </li>
+    <li>
+      verification candidateはargv、source refs、finding IDs、selection statusを持つstructured
+      objectのまま task / runtime / closeoutへ渡し、prompt用string配列をsource of truthにしない。
+    </li>
+    <li>
+      consumer event / snapshotのreasonはclosed enumへ正規化する。producerのfree-form
+      message、unknown field、raw exceptionをtask policyやretry判断へ使わない。
+    </li>
+    <li>
+      NightWorkersのmodule / role boundaryを正本とし、ontology transportは
+      <code>api/modules/ontology</code>、run
+      adoptionは<code>api/modules/nightworkers/run-orchestration</code>、 task evidenceは既存task-generation
+      ownerへ置く。新しいgeneric <code>api/services/static-intelligence</code>階層を作らない。
+    </li>
+    <li>
+      Review Mode security diagnostic と Ontology context ingestion は activation policy を分ける。
+    </li>
+    <li>
+      end-to-end adoption validation は coding-agent platform / NightWorkers
+      の責務であり、vulnWorkbench browser E2E suite には含めない。
+    </li>
+  </ul>
+  <h2 id="responsibility-matrix">Responsibility Matrix</h2>
+  <table>
+    <caption>
+      Responsibility Matrix
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Area</th>
+        <th scope="col">vulnWorkbench</th>
+        <th scope="col">NightWorkers supervisor</th>
+        <th scope="col">Worker coding agent</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>scanner / structure generation</td>
+        <td>owns</td>
+        <td>requests bounded build when configured</td>
+        <td>does not reimplement</td>
+      </tr>
+      <tr>
+        <td>source discovery</td>
+        <td>exposes manifest/MCP</td>
+        <td>discovers configured source</td>
+        <td>uses pinned reference only</td>
+      </tr>
+      <tr>
+        <td>generation selection</td>
+        <td>exposes generations/readiness</td>
+        <td>selects and pins</td>
+        <td>does not switch latest</td>
+      </tr>
+      <tr>
+        <td>canonical Ontology</td>
+        <td>does not own</td>
+        <td>loads repository-owned manifests; owns task-scoped mapping / projection</td>
+        <td>follows runtime snapshot</td>
+      </tr>
+      <tr>
+        <td>task compilation</td>
+        <td>supplies candidates/evidence</td>
+        <td>adopts, groups, constrains</td>
+        <td>executes one compiled task</td>
+      </tr>
+      <tr>
+        <td>boundary decision</td>
+        <td>supplies affected paths/risk refs</td>
+        <td>applies <code>check_boundary</code></td>
+        <td>reports touched files/crossings</td>
+      </tr>
+      <tr>
+        <td>verification selection</td>
+        <td>supplies candidates</td>
+        <td>merges with canonical plan/policy</td>
+        <td>runs only authorized commands</td>
+      </tr>
+      <tr>
+        <td>security rescan</td>
+        <td>owns diagnostic CLI</td>
+        <td>schedules/invokes integration</td>
+        <td>reports need/result, does not fake evidence</td>
+      </tr>
+      <tr>
+        <td>feedback</td>
+        <td>creates new generation after rescan</td>
+        <td>stores run/closeout provenance</td>
+        <td>returns structured outcome</td>
+      </tr>
+    </tbody>
+  </table>
+  <h2 id="capability-extension-ownership">Capability Extension Ownership</h2>
+  <p>
+    本計画はproducer contractの意味を再実装しない。各feature planがtransport field、strict
+    schema、producer / consumer byte-equivalent fixtureを所有し、本計画は検証済みcapabilityをtask /
+    runへ採用するpolicyだけを所有する。
+  </p>
+  <table>
+    <caption>
+      feature-specific contractとconsumer adoptionの境界
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Capability</th>
+        <th scope="col">Owning plan</th>
+        <th scope="col">Companion consumes</th>
+        <th scope="col">Activation gate</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>semantic handoff validity</td>
+        <td>Semantic Handoff Validation</td>
+        <td>validated status、profile、bounded reason codes</td>
+        <td>failed handoffをtask contextへactivateしないconsumer fixture</td>
+      </tr>
+      <tr>
+        <td>claim lineage</td>
+        <td>Claim Provenance</td>
+        <td>descriptor summaryとexplicit target-scoped query ref</td>
+        <td>full ledger non-copyとowner-scoped bounded query fixture</td>
+      </tr>
+      <tr>
+        <td>security vocabulary</td>
+        <td>Security Vocabulary Alignment</td>
+        <td>resolved reference、mapping role / strength、partial status</td>
+        <td>raw string一致やsemantic candidateだけでtask / dedupeしないfixture</td>
+      </tr>
+      <tr>
+        <td>ontology compatibility</td>
+        <td>Ontology Contract Versioning</td>
+        <td>effective version / hash、compatibility status、bounded reason</td>
+        <td>known reader floorとunknown required capability fail-closed fixture</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    上記capabilityが未実装の間は<code>not_published</code>として表し、core
+    consumer pinningのGOを妨げない。 fieldやprofile
+    IDを本計画だけで先取りしない。複数capabilityを一つのconsumer PRで同時active化しない。
+  </p>
+  <h2 id="existing-nightworkers-evidence-model">Existing NightWorkers Evidence Model</h2>
+  <p>既存 <code>compile_module_context</code> は、次の evidence layers を分離する。</p>
+  <pre><code class="language-text">moduleManifest
+codeEvidence
+taskGenerationEvidence
+memoryEvidence
+llmSynthesis
+</code></pre>
+  <p>Static Intelligence は新しい source-truth layer を増やさず、次のように接続する。</p>
+  <pre><code class="language-text">moduleManifest
+  &lt;- unchanged canonical ownership
+
+codeEvidence
+  &lt;- repository-local extractor facts
+  &lt;- vulnWorkbench code structure/module candidates
+
+securityEvidence
+  &lt;- scanner-backed findings/evidence/verification candidates
+  &lt;- new separated section inside context/run snapshot
+
+taskGenerationEvidence
+  &lt;- goal/mission/task candidate hints
+
+memoryEvidence
+  &lt;- reusable lessons, only when not contradictory
+</code></pre>
+  <p>
+    <code>securityEvidence</code> は agent-facing contract 上で分離する。既存 core
+    evidence pack の内部実装上は
+    <code>codeEvidence.staticIntelligence</code> として保持してもよいが、scanner evidence と code
+    facts を同じ配列へ平坦化しない。
+  </p>
+  <h2 id="activation-policy">Activation Policy</h2>
+  <h3 id="ontology-planning-lane">Ontology planning lane</h3>
+  <ul>
+    <li>
+      current NightWorkers policy に従い、Ontology MCP が large/huge project または explicit project
+      config で有効な場合に使う。
+    </li>
+    <li>
+      Static Intelligence availability だけを理由に small project の Ontology を自動有効化しない。
+    </li>
+    <li>
+      explicit task / project setting で source を要求した場合は current file-scale policy の
+      override rules に従う。
+    </li>
+    <li>
+      Ontology disabled の場合、runtime は current disabled snapshot + fallback guidance
+      を維持する。
+    </li>
+  </ul>
+  <h3 id="security-review-lane">Security review lane</h3>
+  <ul>
+    <li>
+      <code>securityReview=true</code> の Review Run は Ontology enabled/disabled
+      と独立して vulnWorkbench scanner evidence を利用できる。
+    </li>
+    <li>
+      security diagnostic 完了後に scanRunId が得られた場合、supervisor は必要に応じて
+      <code>intelligence:build</code> を呼び、同じ scan の persisted generation
+      を作る。
+    </li>
+    <li>Ontology off を理由に scanner-backed security evidence を捨てない。</li>
+    <li>
+      Static Intelligence candidate material だけを理由に confirmed vulnerability finding
+      を作らない。
+    </li>
+  </ul>
+  <h3 id="general-implementation-lane">General implementation lane</h3>
+  <ul>
+    <li>recent usable source がなければ、manifest + repository-local code evidence で継続する。</li>
+    <li>source missing は run failure ではなく warning / unavailable evidence とする。</li>
+    <li>
+      security-sensitive task で source が stale の場合、current risk assertion
+      として使わず、refresh/rescanを planning blocker または explicit prerequisite にする。
+    </li>
+  </ul>
+  <h2 id="source-discovery-contract">Source Discovery Contract</h2>
+  <p>Add a consumer service conceptually equivalent to:</p>
+  <pre><code class="language-ts">type StaticIntelligenceSourceDiscovery = {
+  available: boolean;
+  sourceId: string | null;
+  projectId: string | null;
+  scanRunId: string | null;
+  latestGenerationId: string | null;
+  readiness: &quot;available&quot; | &quot;stale&quot; | &quot;degraded&quot; | &quot;missing&quot; | &quot;failed&quot;;
+  generatedAt: string | null;
+  sourceTreeHash: string | null;
+  exportHash: string | null;
+  reasonCodes: StaticIntelligenceConsumerReasonCode[];
+};
+</code></pre>
+  <p>Discovery rules:</p>
+  <ol>
+    <li>repository mapping は configured integration / manifest project identity から解決する。</li>
+    <li>NightWorkers は vulnWorkbench SQLite を直接読まない。</li>
+    <li>arbitrary filesystem path を MCP source discovery に渡さない。</li>
+    <li>
+      <code>vuln_list_knowledge_sources</code> または CLI manifest を primary discovery surface
+      とする。
+    </li>
+    <li>repository と source project の identity mismatch を unavailable とする。</li>
+    <li>source discovery は candidate set を返すだけで generation adoption を決めない。</li>
+    <li>unavailable source は structured warning にし、empty success にしない。</li>
+  </ol>
+  <h2 id="generation-selection-and-pinning">Generation Selection and Pinning</h2>
+  <pre><code class="language-ts">type StaticIntelligenceConsumerRef = {
+  sourceId: string;
+  projectId: string;
+  scanRunId: string;
+  generationId: string;
+  snapshotRef: string;
+  exportHash: string;
+  sourceTreeHash: string;
+  sourceStateHash: string;
+};
+
+type StaticIntelligenceSelectionReceipt = {
+  ref: StaticIntelligenceConsumerRef;
+  selectedAt: string;
+  selectionReason:
+    | &quot;latest_available&quot;
+    | &quot;explicit_generation&quot;
+    | &quot;review_scan_generation&quot;;
+};
+</code></pre>
+  <p>Selection rules:</p>
+  <ul>
+    <li>planning 時点で source discovery result から一つの generation を選ぶ。</li>
+    <li>explicit generationId がある場合は exact read を使う。</li>
+    <li>latest selection の場合も、選択直後に resolved generationId を保存する。</li>
+    <li>
+      identity refとselection
+      receiptを分離し、<code>selectedAt</code>やselection reasonをgeneration
+      equality、dedupe、snapshot hashへ含めない。
+    </li>
+    <li>
+      incomplete generation pair、schema failure、project mismatch、scan mismatch は採用しない。
+    </li>
+    <li><code>degraded</code> は warning 付きで採用可能。</li>
+    <li>
+      <code>stale</code> は historical evidence
+      としてのみ参照可能。current likely files / current risk assertion には使わない。
+    </li>
+    <li>security-sensitive task は stale generation を current gate evidence に使わない。</li>
+    <li>run 開始後に latest generation が変わっても pinned generation を維持する。</li>
+    <li>new generation を使うには task context recompile または new run を作る。</li>
+    <li>generation selection は queue capacity や provider availability を変更しない。</li>
+  </ul>
+  <h2 id="consumer-adapter-contract">Consumer Adapter Contract</h2>
+  <pre><code class="language-ts">type StaticIntelligenceConsumerReasonCode =
+  | "source_unavailable"
+  | "source_identity_mismatch"
+  | "generation_missing"
+  | "generation_invalid"
+  | "generation_stale"
+  | "producer_degraded"
+  | "producer_reason_unmapped"
+  | "module_mapping_ambiguous"
+  | "module_mapping_conflict"
+  | "verification_candidate_rejected";
+
+type StaticIntelligenceVerificationCandidate = {
+  candidateId: string;
+  argv: readonly string[];
+  sourceRefs: readonly string[];
+  findingIds: readonly string[];
+  selectionStatus: "candidate" | "selected" | "rejected" | "executed" | "skipped";
+  reasonCode: StaticIntelligenceConsumerReasonCode | null;
+};
+
+type StaticIntelligenceCapabilityState = {
+  capabilityId:
+    | "semantic_handoff_validation"
+    | "claim_provenance"
+    | "security_vocabulary"
+    | "ontology_contract";
+  status: "not_published" | "available" | "degraded" | "unsupported" | "invalid";
+  profile: string | null;
+  reasonCodes: readonly StaticIntelligenceConsumerReasonCode[];
+};
+
+type StaticIntelligenceConsumerEvidence = {
+  ref: StaticIntelligenceConsumerRef;
+  readiness: &quot;available&quot; | &quot;degraded&quot; | &quot;stale&quot;;
+  capabilities: readonly StaticIntelligenceCapabilityState[];
+  codeEvidence: {
+    modules: StaticIntelligenceModuleCandidate[];
+    likelyFiles: string[];
+    reasonCodes: StaticIntelligenceConsumerReasonCode[];
+  };
+  securityEvidence: {
+    findings: Array&lt;{
+      findingId: string;
+      severity: "critical" | "high" | "medium" | "low" | "info" | "unknown";
+      fileRefs: string[];
+      evidenceRefs: string[];
+      artifactRefs: string[];
+      scannerRefs: string[];
+      candidateOnly: true;
+    }&gt;;
+    verificationCandidates: StaticIntelligenceVerificationCandidate[];
+    reasonCodes: StaticIntelligenceConsumerReasonCode[];
+  };
+};
+</code></pre>
+  <p>Adapter rules:</p>
+  <ul>
+    <li>all file refs must be repository-relative.</li>
+    <li>
+      received absolute path makes the source invalid/degraded; consumer must not silently trim it
+      differently from producer.
+    </li>
+    <li>module candidates remain code evidence with confidence/reasons.</li>
+    <li>scanner finding must keep finding/evidence/artifact/scanner provenance.</li>
+    <li>candidate-only semantic/community results stay candidate-only.</li>
+    <li>raw artifact bodies and source contents are not loaded into the runtime snapshot.</li>
+    <li>large arrays are filtered after task scope is known.</li>
+    <li>generationId / snapshotRef / exportHash are retained through every projection.</li>
+    <li>
+      unknown producer reasonはliteralをtask
+      eventへcopyせず、<code>producer_reason_unmapped</code>へ正規化し、 producer manifest
+      artifact内だけにlosslessに保持する。
+    </li>
+    <li>
+      capability stateはcapability ID順、reason
+      code順にcanonicalizeし、同じgenerationから同じruntime snapshot hashを得る。
+    </li>
+  </ul>
+  <h2 id="ontology-mapping-contract">Ontology Mapping Contract</h2>
+  <p>Map module candidates to existing manifest ownership without mutating the manifest.</p>
+  <pre><code class="language-ts">type StaticIntelligenceOntologyMapping = {
+  candidateId: string;
+  pathPrefix: string;
+  outcome:
+    | &quot;matched&quot;
+    | &quot;ambiguous&quot;
+    | &quot;emerging&quot;
+    | &quot;conflict&quot;
+    | &quot;unmapped&quot;;
+  matchedModules: string[];
+  primaryModule: string | null;
+  confidence: number;
+  sourceRefs: string[];
+  reasonCodes: StaticIntelligenceConsumerReasonCode[];
+};
+</code></pre>
+  <p>Mapping priority:</p>
+  <ol>
+    <li><code>moduleManifest.ownedPaths</code></li>
+    <li><code>readMostlyPaths</code></li>
+    <li>explicit <code>allowedCrossModule</code></li>
+    <li>current <code>classify_goal</code> routing</li>
+    <li>Static Intelligence module candidate pathPrefix / edges / tags</li>
+  </ol>
+  <p>Rules:</p>
+  <ul>
+    <li>manifest-owned path match is authoritative.</li>
+    <li>Static Intelligence cannot create or rename a canonical module automatically.</li>
+    <li>
+      multiple manifest matches become <code>ambiguous</code> and require
+      task-scoped warning.
+    </li>
+    <li>
+      candidate outside all manifests becomes <code>emerging</code> or
+      <code>unmapped</code>, not confirmed ownership.
+    </li>
+    <li>
+      candidate contradicting manifest ownership becomes
+      <code>conflict</code>; manifest wins and warning remains visible.
+    </li>
+    <li>
+      <code>canonicalDomainSummary</code> does not include task-specific risk emphasis.
+    </li>
+    <li>
+      <code>taskScopedSummary</code> may include selected risk/evidence relevant to
+      the current goal.
+    </li>
+    <li>
+      LLM synthesis cannot turn <code>emerging</code>/<code
+        >ambiguous</code
+      >
+      into canonical ownership.
+    </li>
+  </ul>
+  <h2 id="task-compilation-responsibilities">Task Compilation Responsibilities</h2>
+  <p>The coding-agent platform owns adoption, grouping, ordering, and task boundaries.</p>
+  <h3 id="inputs-allowed">Inputs allowed</h3>
+  <ul>
+    <li>pinned consumer ref</li>
+    <li>matched module routing</li>
+    <li>scanner-backed findings/evidence</li>
+    <li>risk communities as grouping candidates</li>
+    <li>verification candidates</li>
+    <li>handoff acceptance criteria / non-goals</li>
+    <li>current Goal / Mission / TaskCandidate evidence</li>
+  </ul>
+  <h3 id="outputs">Outputs</h3>
+  <pre><code class="language-ts">type StaticIntelligenceTaskProvenance = {
+  ref: StaticIntelligenceConsumerRef;
+  findingIds: string[];
+  evidenceRefs: string[];
+  moduleCandidateIds: string[];
+  mappingOutcomes: Array&lt;StaticIntelligenceOntologyMapping["outcome"]&gt;;
+  capabilityIds: Array&lt;StaticIntelligenceCapabilityState["capabilityId"]&gt;;
+};
+</code></pre>
+  <p>Task rules:</p>
+  <ul>
+    <li>one finding does not automatically become one task.</li>
+    <li>group only when shared root cause / affected module / verification family is evidenced.</li>
+    <li>security-fix task requires scanner-backed finding/evidence or explicit human decision.</li>
+    <li>
+      code structure facts may influence scope and likely files, but cannot establish vulnerability.
+    </li>
+    <li>task objective and acceptance criteria preserve finding/evidence provenance.</li>
+    <li>verification candidates are not silently promoted to mandatory commands.</li>
+    <li>
+      project-wide constraints remain constraints; they do not become standalone module ownership.
+    </li>
+    <li>duplicate generation/exportHash must not create duplicate task candidates.</li>
+    <li>
+      stale generation cannot create a new current-security task without refresh/rescan
+      prerequisite.
+    </li>
+    <li>task compilation does not decide provider capacity or queue admission.</li>
+  </ul>
+  <h2 id="runtime-context-snapshot">Runtime Context Snapshot</h2>
+  <p>Extend the current ontology runtime snapshot with a concise separated section.</p>
+  <pre><code class="language-ts">type StaticIntelligenceRuntimeSnapshot = {
+  available: boolean;
+  readiness:
+    | &quot;available"
+    | &quot;degraded"
+    | &quot;stale"
+    | &quot;missing"
+    | &quot;failed"
+    | &quot;unavailable&quot;;
+  ref: StaticIntelligenceConsumerRef | null;
+  capabilities: readonly StaticIntelligenceCapabilityState[];
+  selectedModuleCandidateIds: string[];
+  selectedFindingIds: string[];
+  selectedEvidenceRefs: string[];
+  mappingReasonCodes: StaticIntelligenceConsumerReasonCode[];
+  securityReasonCodes: StaticIntelligenceConsumerReasonCode[];
+  verificationCandidates: StaticIntelligenceVerificationCandidate[];
+};
+</code></pre>
+  <p>Integration shape:</p>
+  <pre><code class="language-ts">type OntologyRuntimeContextSnapshotV2 = OntologyRuntimeContextSnapshot &amp; {
+  staticIntelligence: StaticIntelligenceRuntimeSnapshot;
+};
+</code></pre>
+  <p>Runtime rules:</p>
+  <ul>
+    <li>build snapshot before Codex/native runtime starts.</li>
+    <li>Codex lane and native API lane receive the same pinned ref and concise evidence.</li>
+    <li>
+      prompt gets primary/secondary modules, selected risk scope, warnings, verification candidates,
+      hashes; not full graph/snapshot.
+    </li>
+    <li>worker may use read-only MCP on demand only with pinned scanRunId + generationId.</li>
+    <li>worker does not call refresh/build from inside the run.</li>
+    <li>source unavailable does not fail the run; snapshot records unavailable + warning.</li>
+    <li>
+      source stale does not disappear; it remains visible as historical/untrusted-currentness
+      evidence.
+    </li>
+    <li>prompt budget limits selected files/findings/refs and links back to read-only tools.</li>
+  </ul>
+  <h2 id="worker-coding-agent-responsibilities">Worker Coding Agent Responsibilities</h2>
+  <p>The worker coding agent must:</p>
+  <ul>
+    <li>treat the runtime ontology snapshot as the boundary contract.</li>
+    <li>treat Static Intelligence module candidates as evidence, not ownership truth.</li>
+    <li>keep work within primary/secondary module paths or report crossing reason.</li>
+    <li>inspect pinned evidence refs when a security task depends on them.</li>
+    <li>avoid broad repository exploration when scoped structure/evidence is sufficient.</li>
+    <li>not expand scope merely because related risk exists outside the task.</li>
+    <li>run only verification commands authorized by task/runtime command policy.</li>
+    <li>report verification performed and skipped reasons.</li>
+    <li>return touched files and boundary crossing reasons for closeout audit.</li>
+    <li>distinguish remediated, deferred, not-applicable, and unverified findings.</li>
+  </ul>
+  <p>The worker coding agent must not:</p>
+  <ul>
+    <li>select another latest generation mid-run.</li>
+    <li>call scanner/build/refresh through an unapproved path.</li>
+    <li>treat semantic similarity as vulnerability proof.</li>
+    <li>rewrite canonical module manifests automatically.</li>
+    <li>suppress stale/degraded warnings.</li>
+    <li>claim a security issue fixed without verification/rescan evidence.</li>
+  </ul>
+  <h2 id="boundary-enforcement">Boundary Enforcement</h2>
+  <p>Existing <code>check_boundary</code> remains authoritative.</p>
+  <p>Static Intelligence affects boundary work only by:</p>
+  <ul>
+    <li>suggesting likely affected files/modules.</li>
+    <li>exposing evidence-backed cross-module relationships.</li>
+    <li>identifying risky files that may need declared secondary routing.</li>
+    <li>adding warning context for read-mostly/unknown paths.</li>
+  </ul>
+  <p>It does not:</p>
+  <ul>
+    <li>grant permission to edit a path.</li>
+    <li>override forbidden mutations.</li>
+    <li>convert a risk community into allowed cross-module scope.</li>
+  </ul>
+  <p>
+    Closeout must compare touched files against the pinned ontology snapshot and keep generation
+    provenance alongside the boundary decision.
+  </p>
+  <h2 id="verification-selection">Verification Selection</h2>
+  <p>Verification selection order:</p>
+  <ol>
+    <li>module manifest focused verification</li>
+    <li>repository-native verify/test contracts</li>
+    <li>task acceptance criteria</li>
+    <li>vulnWorkbench verification candidates</li>
+    <li>configured security rescan/oracle integration</li>
+  </ol>
+  <p>Rules:</p>
+  <ul>
+    <li>candidate command must be parsed as structured tokens where possible.</li>
+    <li>
+      reject destructive, external-network, secret-bearing, or out-of-repository commands unless
+      explicitly authorized by policy.
+    </li>
+    <li>dedupe equivalent commands.</li>
+    <li>
+      repository-native canonical verification is not removed because a vulnWorkbench command
+      exists.
+    </li>
+    <li>
+      security rescan is scheduled through supervisor integration, not invented in worker shell
+      steps.
+    </li>
+    <li>skipped verification needs an explicit reason.</li>
+    <li>scan result and repo test result remain separate evidence.</li>
+  </ul>
+  <h2 id="security-review-integration">Security Review Integration</h2>
+  <p>Current Review Mode diagnostic remains scanner execution entrypoint.</p>
+  <p>Target flow:</p>
+  <pre><code class="language-text">Review target
+  -&gt; oracle-security / configured vulnWorkbench diagnostic
+  -&gt; scanRunId
+  -&gt; intelligence:build for that scan when Static Intelligence context is needed
+  -&gt; pin generation
+  -&gt; map scanner-backed findings into Review findings
+  -&gt; implementation task / review decision
+  -&gt; repository verification
+  -&gt; configured vulnWorkbench rerun
+  -&gt; new scanRunId / generation
+</code></pre>
+  <p>Rules:</p>
+  <ul>
+    <li>old and new scan/generation remain distinct.</li>
+    <li>
+      before/after comparison uses finding/rule/path fingerprints and provenance, not mutable
+      replacement.
+    </li>
+    <li>Review Mode does not rerun vulnWorkbench inside the target repository worker context.</li>
+    <li>scanner-backed result remains primary security evidence.</li>
+    <li>Static Intelligence structure/communities improve routing and grouping only.</li>
+  </ul>
+  <h2 id="closeout-and-feedback-contract">Closeout and Feedback Contract</h2>
+  <pre><code class="language-ts">type StaticIntelligenceCloseoutEvidence = {
+  pinned: StaticIntelligenceConsumerRef | null;
+  usedFindingIds: string[];
+  usedEvidenceRefs: string[];
+  addressedFindingIds: string[];
+  deferredFindingIds: string[];
+  notApplicableFindingIds: string[];
+  boundaryDecision:
+    | &quot;within_boundary&quot;
+    | &quot;declared_crossing&quot;
+    | &quot;unexplained_crossing&quot;
+    | &quot;unavailable&quot;
+    | null;
+  verification: Array&lt;{
+    candidateId: string | null;
+    argv: string[];
+    source: &quot;manifest&quot; | &quot;repo&quot; | &quot;static_intelligence&quot; | &quot;security_rescan&quot;;
+    status: &quot;passed&quot; | &quot;failed&quot; | &quot;skipped&quot;;
+    reasonCode: StaticIntelligenceConsumerReasonCode | null;
+  }&gt;;
+  rescan: {
+    requested: boolean;
+    completed: boolean;
+    ref: StaticIntelligenceConsumerRef | null;
+    status: &quot;improved&quot; | &quot;unchanged&quot; | &quot;regressed&quot; | &quot;unavailable&quot; | null;
+  };
+  reasonCodes: StaticIntelligenceConsumerReasonCode[];
+};
+</code></pre>
+  <p>Feedback rules:</p>
+  <ul>
+    <li>persist closeout evidence in run context/events, not in prompt prose only.</li>
+    <li>never mutate the pinned generation.</li>
+    <li>rescan creates a new scan/generation reference.</li>
+    <li>boundary audit and security evidence outcomes remain separately inspectable.</li>
+    <li>
+      proposed ontology manifest change becomes reviewable candidate; no automatic manifest write.
+    </li>
+    <li>
+      reusable remediation/false-positive lessons may be distilled for contextStill only through its
+      candidate lifecycle.
+    </li>
+  </ul>
+  <h2 id="debug-and-observability">Debug and Observability</h2>
+  <p>Extend the existing read-only ontology debug report with a summary only.</p>
+  <pre><code class="language-ts">type StaticIntelligenceDebugSummary = {
+  available: boolean;
+  readiness: StaticIntelligenceRuntimeSnapshot["readiness"];
+  ref: StaticIntelligenceConsumerRef | null;
+  capabilityStates: readonly StaticIntelligenceCapabilityState[];
+  reasonCodes: readonly StaticIntelligenceConsumerReasonCode[];
+  mappingOutcomeCounts: Record&lt;StaticIntelligenceOntologyMapping["outcome"], number&gt;;
+  selectedFindingCount: number;
+  verificationCandidateCount: number;
+  closeoutRescanStatus: "improved" | "unchanged" | "regressed" | "unavailable" | null;
+};
+</code></pre>
+  <p>Debug report must not expose:</p>
+  <ul>
+    <li>raw source bodies</li>
+    <li>raw artifact bodies</li>
+    <li>full prompts/transcripts</li>
+    <li>private absolute paths</li>
+    <li>provider credentials</li>
+    <li>full structure payload</li>
+  </ul>
+  <p>Useful events:</p>
+  <pre><code class="language-text">static_intelligence.source_discovered
+static_intelligence.generation_pinned
+static_intelligence.ontology_mapped
+static_intelligence.runtime_snapshot
+static_intelligence.closeout_feedback
+</code></pre>
+  <h2 id="failure-and-degradation-policy">Failure and Degradation Policy</h2>
+  <table>
+    <caption>
+      Failure and Degradation Policy
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Condition</th>
+        <th scope="col">Consumer behavior</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>source unavailable</td>
+        <td>continue with manifest/local evidence; warning</td>
+      </tr>
+      <tr>
+        <td>generation missing</td>
+        <td>do not guess; optional refresh prerequisite</td>
+      </tr>
+      <tr>
+        <td>generation incomplete/corrupt</td>
+        <td>reject generation; do not fallback inside the same planning/run</td>
+      </tr>
+      <tr>
+        <td>project/scan mismatch</td>
+        <td>reject source</td>
+      </tr>
+      <tr>
+        <td>stale generation, general task</td>
+        <td>historical hints only; warning</td>
+      </tr>
+      <tr>
+        <td>stale generation, security-sensitive task</td>
+        <td>require refresh/rescan before current-risk claim</td>
+      </tr>
+      <tr>
+        <td>degraded code structure</td>
+        <td>use parsed subset; expose reasons</td>
+      </tr>
+      <tr>
+        <td>manifest mapping conflict</td>
+        <td>manifest wins; warning</td>
+      </tr>
+      <tr>
+        <td>ambiguous module mapping</td>
+        <td>task-scoped secondary/emerging warning; no ownership mutation</td>
+      </tr>
+      <tr>
+        <td>verification candidate unsafe</td>
+        <td>skip/reject with reason</td>
+      </tr>
+      <tr>
+        <td>rescan unavailable</td>
+        <td>do not claim security closure</td>
+      </tr>
+      <tr>
+        <td>semantic validation failed / ontology contract incompatible</td>
+        <td>do not activate ontology handoff; keep Security Oracle / local evidence fallback</td>
+      </tr>
+      <tr>
+        <td>optional capability not published / unsupported</td>
+        <td>
+          mark that capability unavailable; continue core pinned consumer without synthesizing its
+          data
+        </td>
+      </tr>
+      <tr>
+        <td>capability descriptor malformed or generation mismatch</td>
+        <td>mark capability invalid; do not downgrade to absent or query its data</td>
+      </tr>
+    </tbody>
+  </table>
+  <h2 id="implementation-units">Implementation Units</h2>
+  <h3 id="c0-baseline-and-owner-lock">C0: Baseline and Owner Lock</h3>
+  <ul>
+    <li>
+      current schema、handoff service、artifact/event shape、exact CLIをgolden
+      fixtureへ固定し、実装済み / 未実装を machine-readable checklistにする。
+    </li>
+    <li>
+      NightWorkersのconsumer、task-generation、runtime、closeout ownerとmodule boundaryを承認する。
+    </li>
+    <li>vulnWorkbench CLI empty stdoutとStage 0 smokeをpreceding gateとして記録する。</li>
+  </ul>
+  <p>
+    Exit: current handoff positive / schema-invalid / unavailable fixture、event / artifact
+    snapshot、owner matrixがreview済み。既存behaviorは変更しない。
+  </p>
+
+  <h3 id="c1-consumer-contract-and-exact-pinning">
+    C1: Consumer Contract and Exact Generation Pinning
+  </h3>
+  <p>Target files in NightWorkers:</p>
+  <ul>
+    <li><code>shared/schemas/ontology-handoff.schema.ts</code></li>
+    <li><code>shared/schemas/static-intelligence-consumer.schema.ts</code>（new）</li>
+    <li><code>api/modules/ontology/handoff/vulnworkbench-handoff.service.ts</code></li>
+    <li><code>api/modules/ontology/handoff/static-intelligence-generation-selector.ts</code>（new）</li>
+  </ul>
+  <ol>
+    <li>
+      latest manifestを1回だけ取得し、project / scan / generation cross-field identityを検証する。
+    </li>
+    <li>exact consumer refをplanning metadata、artifact、bounded eventへ同じ値で保存する。</li>
+    <li>
+      以後のreadで<code>--generation-id</code>を必須にし、same-run
+      latest切替を拒否する。
+    </li>
+    <li>disabled / unavailable / stale / degradedをclosed reason codeへ変換する。</li>
+  </ol>
+  <p>
+    Exit: latest selection後にnew generationが作られても、同じrunがpinned
+    generationだけを読み、artifact / event / returnのgenerationIdとhashが一致する。
+  </p>
+
+  <h3 id="c2-evidence-adapter-and-ontology-mapping">C2: Evidence Adapter and Ontology Mapping</h3>
+  <p>Target files:</p>
+  <ul>
+    <li><code>api/modules/ontology/handoff/static-intelligence-evidence-adapter.ts</code>（new）</li>
+    <li><code>api/modules/ontology/handoff/static-intelligence-ontology-mapper.ts</code>（new）</li>
+    <li><code>api/modules/ontology/runtime/ontology-runtime-context.ts</code></li>
+  </ul>
+  <ol>
+    <li>module / code factsとscanner-backed security evidenceを別sectionへ投影する。</li>
+    <li>
+      module candidatesをexisting manifestへmapし、matched / ambiguous / conflict /
+      unmappedを保持する。
+    </li>
+    <li>
+      verification candidateをstructured objectで保持し、command policy適用前に実行可能扱いしない。
+    </li>
+    <li>feature-specific capabilityはnot_publishedのままでもcore evidenceを構築できる。</li>
+  </ol>
+  <p>
+    Exit: manifest ownership上書き0、absolute path / raw body leak 0、code-fact-only confirmed
+    finding 0、 exact consumer ref loss 0。
+  </p>
+
+  <h3 id="c3-task-compilation-integration">C3: Task Compilation Integration</h3>
+  <p>Target areas:</p>
+  <ul>
+    <li>既存<code>api/modules/taskGeneration</code> evidence / metadata owner</li>
+    <li>Goal / Mission / TaskCandidate正本schema</li>
+  </ul>
+  <ol>
+    <li>pinned ref、finding / evidence refs、mapping outcomesをtask provenanceへ保存する。</li>
+    <li>scanner-backed evidenceまたは明示human decisionがないsecurity taskを拒否する。</li>
+    <li>
+      risk communityはgrouping candidateに限定し、canonical ownershipやfinding
+      confirmationにしない。
+    </li>
+    <li>generation / export hashをdedupe keyへ含め、同一sourceからduplicate taskを作らない。</li>
+  </ol>
+  <p>
+    Exit: adopted security taskのscanner / evidence coverage 100%、stale current-security task
+    0、provider / queue routing diff 0。
+  </p>
+
+  <h3 id="c4-runtime-snapshot-and-prompt-projection">C4: Runtime Snapshot and Prompt Projection</h3>
+  <p>Target files:</p>
+  <ul>
+    <li><code>api/modules/ontology/runtime/ontology-runtime-context.ts</code></li>
+    <li><code>api/modules/nightworkers/run-orchestration/start-task-run-evidence.ts</code></li>
+    <li><code>api/modules/nightworkers/run-orchestration/start-task-run-runtime-context.ts</code></li>
+    <li><code>api/modules/nightworkers/run-orchestration/start-task-run-prompt-snapshot.ts</code></li>
+  </ul>
+  <ol>
+    <li>runtime開始前にexact refとbounded selected evidenceをimmutable snapshotへ固定する。</li>
+    <li>Codex / native laneへ同じsnapshot digestとconsumer refを渡す。</li>
+    <li>promptにはsummaryだけを含め、full graph / manifest / raw descriptorを入れない。</li>
+    <li>worker readはpinned scanRunId + generationIdを要求し、refresh / buildを許可しない。</li>
+  </ol>
+  <p>Exit: lane間ref / hash差0、mid-run latest switch 0、unavailable fallback regression 0。</p>
+
+  <h3 id="c5-boundary-verification-and-closeout">C5: Boundary, Verification, and Closeout</h3>
+  <p>Target files:</p>
+  <ul>
+    <li><code>api/modules/nightworkers/run-orchestration/runtime-execution.ts</code></li>
+    <li>既存boundary / verification selection owner</li>
+    <li>closeout event schemaとtests</li>
+  </ul>
+  <ol>
+    <li>boundary auditへpinned refとmapping outcomeを付けるが、edit permissionは変更しない。</li>
+    <li>
+      verification candidateをpolicy-validate / dedupeし、selected / rejected / executed /
+      skippedを保存する。
+    </li>
+    <li>rescan結果をnew scan / generation refとして保存し、before refを変更しない。</li>
+    <li>security closure不能時はunverified / unavailableを明示し、成功へ補完しない。</li>
+  </ol>
+  <p>
+    Exit: unexplained boundary crossing、unsafe command execution、before-state overwriteが各0件。
+  </p>
+
+  <h3 id="c6-read-only-debug-surface">C6: Read-only Debug Surface</h3>
+  <ul>
+    <li><code>api/modules/nightworkers/nightworkers.run-query.service.ts</code>へbounded summaryを追加する。</li>
+    <li>
+      runtime snapshotを第一、bounded eventsをfallbackにし、full manifestはartifact参照だけを返す。
+    </li>
+    <li>generation、mapping、reason、verification、rescan statusをsupport向けに説明可能にする。</li>
+  </ul>
+  <p>
+    Exit: supportが採用 / 拒否したexact generationを説明でき、raw path / prompt / body leakが0件。
+  </p>
+
+  <h3 id="c7-feature-specific-capability-adoption">C7: Feature-specific Capability Adoption</h3>
+  <p>
+    Semantic Validation、Claim Provenance、Security Vocabulary、Ontology Contractごとに別PRで行う。
+    各PRはowning planのconsumer-first fixtureとreader floorをentry evidenceにし、Companionはtask /
+    runtime activation policyだけを追加する。複数capabilityを一括active化しない。
+  </p>
+  <p>
+    Exit: capabilityごとのavailable / degraded / unsupported / invalid / not_published
+    fixtureがgreenで、producer rule再実装、full ledger / catalog copy、raw descriptor
+    prompt投入が各0件。
+  </p>
+
+  <h3 id="c8-coding-agent-end-to-end-adoption-validation">
+    C8: Coding-Agent End-to-End Adoption Validation
+  </h3>
+  <p>This unit belongs to the coding-agent platform, not vulnWorkbench product/browser E2E.</p>
+  <p>Validate run-level scenarios:</p>
+  <ol>
+    <li>
+      available generation -&gt; mapped module -&gt; task-scoped context -&gt; run -&gt; boundary
+      audit.
+    </li>
+    <li>degraded structure -&gt; usable subset + visible warning.</li>
+    <li>stale security generation -&gt; refresh/rescan prerequisite.</li>
+    <li>manifest conflict -&gt; manifest wins + warning.</li>
+    <li>cross-module finding -&gt; declared secondary or unexplained crossing.</li>
+    <li>no Static Intelligence source -&gt; normal manifest/local-evidence fallback.</li>
+    <li>
+      Review security scan -&gt; build generation -&gt; fix -&gt; repo verify -&gt; rescan -&gt; new
+      generation.
+    </li>
+    <li>Codex lane and native API lane pin the same consumer ref.</li>
+    <li>
+      planning後にlatest generationが変わってもtask / run / closeoutはpinned generationを維持する。
+    </li>
+    <li>
+      not_published optional capabilityがcore evidence adoptionを壊さず、invalid required
+      capabilityはfail safeになる。
+    </li>
+  </ol>
+  <p>Evidence to record:</p>
+  <ul>
+    <li>source discovery outcome</li>
+    <li>selected generationId/exportHash</li>
+    <li>capability states and bounded reason codes</li>
+    <li>mapping outcomes</li>
+    <li>task provenance</li>
+    <li>runtime snapshot</li>
+    <li>touched files/boundary decision</li>
+    <li>verification results</li>
+    <li>before/after scan/generation refs</li>
+  </ul>
+  <p>
+    This is rollout/pilot validation and can use NightWorkers runtime fixtures, run events, and
+    ontology debug report. It is not a requirement to add Playwright/browser tests to vulnWorkbench.
+  </p>
+  <h2 id="consumer-verification-strategy">Consumer Verification Strategy</h2>
+  <p>Focused tests should cover:</p>
+  <pre><code class="language-text">source contract parsing
+generation exact selection
+latest-selection race and same-run idempotency
+artifact / event / task / runtime ref equality
+manifest mapping precedence
+candidate-only security semantics
+structured verification candidate preservation
+task provenance/dedup
+runtime lane parity
+boundary/verification closeout
+debug report fallback
+capability not-published / invalid / unsupported isolation
+redaction and bounded payload
+</code></pre>
+  <p>
+    Potential NightWorkers verification commands, adjusted to actual test locations at
+    implementation time:
+  </p>
+  <pre><code class="language-bash">node scripts/run-vitest.mjs run \
+  tests/vulnworkbench-ontology-handoff.test.ts \
+  tests/agent-ontology.test.ts \
+  tests/ontology-runtime-context-coverage.test.ts \
+  tests/start-task-run-workspace.test.ts \
+  tests/runtime-execution-extra-coverage.test.ts \
+  tests/services.run-query.test.ts \
+  tests/review-vulnworkbench.test.ts
+bun run typecheck
+bun run lint
+bun run verify
+</code></pre>
+  <p>
+    The consumer implementation must use the NightWorkers repository-native verification gate as the
+    final authority.
+  </p>
+  <p>vulnWorkbench producer fixture verification:</p>
+  <pre><code class="language-bash">bun test \
+  api/modules/static-intelligence/knowledge-source-manifest.test.ts \
+  api/modules/static-intelligence/intelligence-knowledge-source-cli.test.ts \
+  api/routes/static-intelligence.route.test.ts
+bun run typecheck
+bun run docs:check
+</code></pre>
+  <p>
+    producer / consumer fixtureはcanonical bytesとSHA-256を両repositoryに記録する。test
+    runtimeで相手repositoryや networkへfetchせず、copy元commitとhash
+    driftを各repositoryのCIで検証する。
+  </p>
+  <h2 id="cross-repository-completion-boundary">Cross-Repository Completion Boundary</h2>
+  <p>
+    vulnWorkbench Phase 40 can complete when producer contracts, persisted generations, read
+    surfaces, UI, and producer verification pass.
+  </p>
+  <p>Coding-agent adoption can complete only when:</p>
+  <ul>
+    <li>source discovery and generation pinning are implemented.</li>
+    <li>Static Intelligence is mapped into separated evidence layers.</li>
+    <li>existing manifests remain canonical.</li>
+    <li>task/run metadata preserves generation provenance.</li>
+    <li>Codex/native lanes consume the same pinned snapshot.</li>
+    <li>boundary and verification closeout include source provenance.</li>
+    <li>Review security flow can create and compare before/after generations.</li>
+    <li>coding-agent run-level adoption scenarios are validated.</li>
+  </ul>
+  <p>
+    Neither repository should claim end-to-end adoption complete based only on its local unit tests.
+  </p>
+  <h2 id="migration-sequence">Migration Sequence and Stop Matrix</h2>
+  <ol>
+    <li>C0でcurrent schema / service / event / artifact fixtureを固定する。</li>
+    <li>vulnWorkbench CLI baselineとStage 0 single-Run integrity smokeをgreenにする。</li>
+    <li>
+      C1でcurrent collectorをexact generation pinningへ拡張し、legacy manifestを継続受理する。
+    </li>
+    <li>
+      C2でcode / security evidenceをseparated adapterへ投影する。task / runtimeへはまだ渡さない。
+    </li>
+    <li>C3でtask provenance、C4でruntime snapshot、C5でcloseoutを順に接続する。</li>
+    <li>C6 debug surfaceで同じconsumer refとdecisionを説明可能にする。</li>
+    <li>C8 core adoption smokeを完了してから、C7 capabilityをplanごとに別PRでactive化する。</li>
+  </ol>
+  <table>
+    <caption>
+      tranche entry、verification、停止条件
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Transition</th>
+        <th scope="col">Entry evidence</th>
+        <th scope="col">Required verification</th>
+        <th scope="col">Stop / rollback trigger</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>C0 → C1</td>
+        <td>current fixture、owner matrix、CLI baseline green</td>
+        <td>legacy parse、schema-invalid、unavailable event</td>
+        <td>current artifact / event behaviorを再現できない</td>
+      </tr>
+      <tr>
+        <td>C1 → C2</td>
+        <td>exact ref persisted、same-run pinning test green</td>
+        <td>latest race、project / scan / generation mismatch、idempotent replay</td>
+        <td>latestへの暗黙切替、mixed artifact、full manifest event copy</td>
+      </tr>
+      <tr>
+        <td>C2 → C3 / C4</td>
+        <td>separated evidence、manifest precedence、redaction green</td>
+        <td>candidate-only、absolute path、structured verification fixture</td>
+        <td>code factがfinding / ownership truthへ昇格</td>
+      </tr>
+      <tr>
+        <td>C4 → C5 / C6</td>
+        <td>lane parityとbounded snapshot green</td>
+        <td>boundary authority、command policy、debug non-leak</td>
+        <td>worker refresh、unsafe command、prompt / path leak</td>
+      </tr>
+      <tr>
+        <td>Core → C7 capability</td>
+        <td>owning plan reader floorとbyte-equivalent fixture</td>
+        <td>capability-specific activation / rejection / rollback</td>
+        <td>producer semantics再実装、unknown required capability受理</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2 id="rollback-plan">Rollback Plan</h2>
+  <h3 id="rollback-triggers">Rollback Triggers</h3>
+  <ul>
+    <li>
+      同じrun内でpinned generationが変わる、またはartifact / event / runtimeのrefが一致しない。
+    </li>
+    <li>legacy manifest、Review security flow、Ontology-disabled fallbackが回帰する。</li>
+    <li>module candidateがcanonical ownershipを上書きする。</li>
+    <li>code fact / semantic candidateがconfirmed security findingとしてtask化される。</li>
+    <li>
+      unsafe verification、absolute path、raw body、secret、full descriptorがruntime / eventへ出る。
+    </li>
+    <li>feature-specific consumerがunknown required profileを利用可能として扱う。</li>
+  </ul>
+  <h3 id="rollback-order">Rollback Order</h3>
+  <ol>
+    <li>C7 capability activationを個別にOFFにし、core pinned ref / evidence pathは維持する。</li>
+    <li>C5 / C4 projectionを外し、existing runtime snapshotとSecurity Oracle fallbackへ戻す。</li>
+    <li>C3 task adoptionを外し、saved task provenanceはread-onlyで保持する。</li>
+    <li>C2 evidence adapterを非公開にし、current handoff artifact収集だけを残す。</li>
+    <li>
+      C1を戻す場合もnew readerとevent schemaは残し、current collector behaviorへ戻す。保存済みrun
+      event、artifact、 before / after scan refを書き換えない。
+    </li>
+  </ol>
+  <p>
+    rollback成功条件は、new task adoption 0、既存Review security flow成功、legacy handoff
+    parse成功、same-run ref mismatch 0、保存済みrun provenanceの変更0である。
+  </p>
+
+  <h2 id="open-decisions">Open Decisions and Proposed Defaults</h2>
+  <table>
+    <caption>
+      implementation開始前に確定する選択
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Decision</th>
+        <th scope="col">Proposed default</th>
+        <th scope="col">Owner / deadline</th>
+        <th scope="col">If unresolved</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>consumer ref source of truth</td>
+        <td>manifest artifact + bounded task/run projection。event単体を正本にしない。</td>
+        <td>ontology consumer owner / C1 entry</td>
+        <td>C1 NO-GO</td>
+      </tr>
+      <tr>
+        <td>latest selection timing</td>
+        <td>planningで1回。runtime開始後はexact generation only。</td>
+        <td>run orchestration owner / C1 exit</td>
+        <td>Static Intelligence adoptionをdisabledにする。</td>
+      </tr>
+      <tr>
+        <td>task adoption scope</td>
+        <td>scanner-backed findingとexplicit human decisionだけsecurity taskへ採用</td>
+        <td>task-generation owner / C3 entry</td>
+        <td>code evidenceをrouting hintだけに制限する。</td>
+      </tr>
+      <tr>
+        <td>verification representation</td>
+        <td>argv + refs + selection statusを正本、display stringはprojectionのみ</td>
+        <td>verification owner / C2 exit</td>
+        <td>candidateをruntimeへ渡さない。</td>
+      </tr>
+      <tr>
+        <td>feature capability activation</td>
+        <td>owning planごとに1 capability / 1 PR</td>
+        <td>producer + consumer owner / C7</td>
+        <td>not_publishedを維持する。</td>
+      </tr>
+      <tr>
+        <td>run event payload</td>
+        <td>exact ref、status、bounded reason / countsだけ。full manifestはartifactに1回保存。</td>
+        <td>persistence owner / C1 exit</td>
+        <td>new event emissionを開始しない。</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2 id="go-no-go">GO / NO-GO Gate</h2>
+  <h3 id="core-go">Core Consumer GO</h3>
+  <ul>
+    <li>Stage 0 integrity smokeとvulnWorkbench knowledge source CLI baselineがgreenである。</li>
+    <li>current strict schema / service / artifact / event fixtureがreview済みである。</li>
+    <li>consumer、task-generation、runtime、verification、closeout ownerが決まっている。</li>
+    <li>exact consumer ref、reason code、structured verification schemaが承認されている。</li>
+    <li>legacy、unavailable、Ontology-disabled、Review security fallbackを維持できる。</li>
+  </ul>
+  <h3 id="capability-go">Feature Capability GO</h3>
+  <ul>
+    <li>
+      owning producer planのconsumer-first reader floorとcross-repository fixtureがgreenである。
+    </li>
+    <li>producer profileをNightWorkersで再計算せず、bounded descriptor / queryだけを利用する。</li>
+    <li>capability単独のactivation、observability、rollback ownerが決まっている。</li>
+  </ul>
+  <h3 id="no-go">NO-GO</h3>
+  <ul>
+    <li>workerまたはtask compilerがlatest generationをad hocに選ぶ必要がある。</li>
+    <li>full graph、ledger、catalog、raw artifactをprompt / eventへcopyする必要がある。</li>
+    <li>current NightWorkers module / role boundaryを迂回するparallel serviceが必要になる。</li>
+    <li>producer contract未実装のcapabilityをconsumer側の推測で先取りする。</li>
+    <li>
+      code facts、semantic candidates、vocabulary relationだけでsecurity taskをconfirmed化する。
+    </li>
+    <li>unrelated dirty-tree changeを上書きしないとconsumer PRを作れない。</li>
+  </ul>
+
+  <h2 id="implementation-handoff">Implementation Handoff</h2>
+  <ol>
+    <li>最初のPRはC0だけとし、current baseline、owner matrix、fixture hashを提出する。</li>
+    <li>C1はtransport / exact pinningだけを扱い、task / runtime behaviorを変更しない。</li>
+    <li>C2はpure adapter / mappingとfixtureだけを扱い、task adoptionを開始しない。</li>
+    <li>C3、C4、C5、C6は別PRにし、各前段のexit evidenceをlinkする。</li>
+    <li>C8 core smoke後にだけC7へ進み、capabilityごとに別activation PRを作る。</li>
+  </ol>
+  <p>
+    Companion完了と各feature plan完了を混同しない。Core consumerはfeature capabilityが
+    <code>not_published</code>でも完了可能であり、feature adoptionはowning
+    planのDoDへ個別に記録する。
+  </p>
+  <h2 id="non-goals">Non-Goals</h2>
+  <ul>
+    <li>copying vulnWorkbench scanner/graph/index implementation into NightWorkers</li>
+    <li>NightWorkers direct reads of vulnWorkbench SQLite/artifact paths</li>
+    <li>auto-generating canonical manifests from module candidates</li>
+    <li>provider capacity or queue policy changes</li>
+    <li>enabling Ontology for every small project</li>
+    <li>letting worker agents refresh sources mid-run</li>
+    <li>treating risk communities/semantic candidates as findings</li>
+    <li>replacing Review Mode security diagnostic with Ontology context</li>
+    <li>adding vulnWorkbench browser E2E tests</li>
+    <li>storing raw source/artifact bodies in run context</li>
+    <li>
+      reimplementing producer validation、claim lineage、vocabulary normalization、contract diff
+    </li>
+    <li>activating all future ontology capabilities in one consumer release</li>
+  </ul>
+  <h2 id="review-checklist">Review Checklist</h2>
+  <ul>
+    <li><input disabled="" type="checkbox" /> discovery and generation selection are separate.</li>
+    <li>
+      <input disabled="" type="checkbox" /> selection and capacity/queue routing are separate.
+    </li>
+    <li><input disabled="" type="checkbox" /> generationId is pinned before runtime.</li>
+    <li><input disabled="" type="checkbox" /> exact generation reads are used during run.</li>
+    <li><input disabled="" type="checkbox" /> module candidates stay in code evidence.</li>
+    <li><input disabled="" type="checkbox" /> scanner evidence stays separate from code facts.</li>
+    <li><input disabled="" type="checkbox" /> manifest ownership wins conflicts.</li>
+    <li><input disabled="" type="checkbox" /> task compiler owns adoption/grouping/dedup.</li>
+    <li><input disabled="" type="checkbox" /> security task has scanner/evidence provenance.</li>
+    <li><input disabled="" type="checkbox" /> runtime snapshot is concise and lane-consistent.</li>
+    <li><input disabled="" type="checkbox" /> boundary checks remain authoritative.</li>
+    <li><input disabled="" type="checkbox" /> verification candidates are policy-validated.</li>
+    <li>
+      <input disabled="" type="checkbox" /> verification argv / refs / selection status remain
+      structured through closeout.
+    </li>
+    <li><input disabled="" type="checkbox" /> rescan creates a new generation.</li>
+    <li><input disabled="" type="checkbox" /> debug report is read-only and summary-shaped.</li>
+    <li>
+      <input disabled="" type="checkbox" /> Ontology-off does not disable Review security evidence.
+    </li>
+    <li>
+      <input disabled="" type="checkbox" /> coding-agent end-to-end validation stays outside
+      vulnWorkbench browser E2E.
+    </li>
+    <li>
+      <input disabled="" type="checkbox" /> feature capability ownership remains with each producer
+      plan and unknown capability fails safe.
+    </li>
+  </ul>
+  <h2 id="stop-conditions">Stop Conditions</h2>
+  <ul>
+    <li>consumer reads vulnWorkbench DB directly.</li>
+    <li>worker selects or refreshes latest generation mid-run.</li>
+    <li>Static Intelligence module candidate overrides canonical ownership.</li>
+    <li>code structure fact becomes confirmed security finding.</li>
+    <li>source mismatch is accepted to keep the run moving.</li>
+    <li>stale generation is treated as current security truth.</li>
+    <li>candidate command bypasses command policy.</li>
+    <li>structured verification candidate is flattened into a source-of-truth string array.</li>
+    <li>rescan overwrites pinned before-state provenance.</li>
+    <li>Ontology enablement is broadened solely because Static Intelligence exists.</li>
+    <li>consumer reimplements producer validation、lineage、vocabulary、version rules.</li>
+    <li>full manifest、graph、ledger、catalog、descriptor is copied into a run event or prompt.</li>
+    <li>implementation requires overwriting unrelated dirty-tree work in NightWorkers.</li>
+  </ul>
+  <h2 id="completion-definition">Completion Definition</h2>
+  <h3 id="core-completion">Core Consumer Completion</h3>
+  <p>
+    The core companion is complete when the coding-agent platform can discover and pin a
+    vulnWorkbench generation, map it into existing Ontology evidence without changing canonical
+    ownership, compile provenance-backed tasks, expose the same context to both runtime lanes, audit
+    boundaries, select safe verification, compare post-change rescan evidence, and report the full
+    chain through a read-only debug surface.
+  </p>
+  <ul>
+    <li>artifact、task、run、runtime、closeoutが同じconsumer refを保持する。</li>
+    <li>
+      code / security evidence separation、manifest precedence、candidate-only
+      boundaryがgreenである。
+    </li>
+    <li>legacy / unavailable / stale / degraded / Ontology-disabled fallbackが非劣化である。</li>
+    <li>
+      Codex / native lane parity、boundary audit、verification selection、before / after
+      rescanがgreenである。
+    </li>
+    <li>
+      raw payload / path / secret leak、mid-run latest switch、unsafe command
+      executionが各0件である。
+    </li>
+    <li>C0–C6 targeted tests、NightWorkers repository-native verify、C8 core smokeがpassする。</li>
+    <li>rollback drillでexisting Review security flowとsaved provenanceを維持できる。</li>
+  </ul>
+  <h3 id="feature-adoption-completion">Feature-specific Adoption Completion</h3>
+  <p>
+    Semantic Validation、Claim Provenance、Security Vocabulary、Ontology Contractは、owning
+    planのreader
+    floor、fixture、activation、rollbackが個別に完了した時だけadoptedと記録する。未実装capabilityが
+    <code>not_published</code>であることはCore Consumer Completionを妨げない。
+  </p>
+</article>

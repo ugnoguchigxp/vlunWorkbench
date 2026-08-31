@@ -2,12 +2,19 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { ScanScopePolicy } from "../../../../shared/schemas/scan-profile.schema";
-import type { ArtifactSaveResult, ArtifactStorage } from "../artifact-storage";
-import { redactJsonSecrets, redactSecrets } from "../normalizers/redaction";
 import {
 	normalizeScannerOutputText,
 	normalizeStructuredOutputPaths,
-} from "../diff-output-paths";
+} from "../execution/diff/diff-output-paths";
+import type {
+	ArtifactSaveResult,
+	ArtifactStorage,
+} from "../execution/lifecycle/artifact-storage";
+import { cleanupTemporaryPaths } from "../execution/lifecycle/temporary-path-cleanup";
+import {
+	redactJsonSecrets,
+	redactSecrets,
+} from "../findings/normalizers/redaction";
 import { createScopedWorkspace } from "../target-scope";
 import {
 	checkToolVersion,
@@ -34,6 +41,8 @@ export interface GitleaksRunnerOptions {
 	timeoutSec?: number;
 	scope?: ScanScopePolicy;
 	preScoped?: boolean;
+	/** Immutable repository config supplied separately from a diff workspace. */
+	configPath?: string;
 	normalizePathsRelativeTo?: string;
 	onLifecycleEvent?: (event: ToolLifecycleEvent) => Promise<void> | void;
 }
@@ -69,39 +78,77 @@ export class GitleaksRunner {
 
 		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "gitleaks-run-"));
 		const tempJsonPath = path.join(tempDir, "gitleaks-output.json");
-		const scopedWorkspace =
-			!options.preScoped &&
-			options.scope?.intent &&
-			options.scope.intent !== "full_deep"
-				? await createScopedWorkspace({
-						repoPath,
-						scope: options.scope,
-						prefix: path.join(os.tmpdir(), "gitleaks-scope-"),
-					})
-				: null;
+		let scopedWorkspace: Awaited<
+			ReturnType<typeof createScopedWorkspace>
+		> | null = null;
+		try {
+			if (
+				!options.preScoped &&
+				options.scope?.intent &&
+				options.scope.intent !== "full_deep"
+			) {
+				scopedWorkspace = await createScopedWorkspace({
+					repoPath,
+					scope: options.scope,
+					prefix: path.join(os.tmpdir(), "gitleaks-scope-"),
+				});
+			}
+		} catch (error) {
+			await cleanupTemporaryPaths(
+				[tempDir],
+				"gitleaks_workspace_cleanup_failed",
+			);
+			throw error;
+		}
 		const scanPath = scopedWorkspace?.path ?? repoPath;
+		const scannerSource = this.execution?.runner === "docker" ? "." : scanPath;
 
 		// Command: gitleaks detect --source <repoPath> --report-format json --report-path <tempJsonPath> --redact
 		const args = [
 			"detect",
 			"--source",
-			scanPath,
+			scannerSource,
 			"--report-format",
 			"json",
 			"--report-path",
 			tempJsonPath,
 			"--redact",
 		];
+		const repositoryConfigPath =
+			options.configPath ?? path.join(scanPath, ".gitleaks.toml");
+		const resolvedConfigPath = (await isRegularFile(repositoryConfigPath))
+			? repositoryConfigPath
+			: null;
+		if (resolvedConfigPath) {
+			// Gitleaks discovers its default config relative to the process working
+			// directory, which is not guaranteed to be the mounted repository when
+			// running in the toolbox container. Bind the repository-owned config
+			// explicitly so scoped and direct scans apply the same rules.
+			args.push("--config", resolvedConfigPath);
+		}
 		if (scopedWorkspace || options.preScoped) args.push("--no-git");
 
 		const startTime = Date.now();
-		const runResult = await runToolProcess("gitleaks", args, {
-			timeoutSec: options.timeoutSec,
-			execution: this.execution,
-			repoPath: scanPath,
-			outputPath: tempJsonPath,
-			onLifecycleEvent: options.onLifecycleEvent,
-		});
+		let runResult: Awaited<ReturnType<typeof runToolProcess>>;
+		try {
+			runResult = await runToolProcess("gitleaks", args, {
+				timeoutSec: options.timeoutSec,
+				execution: this.execution,
+				repoPath: scanPath,
+				inputPaths:
+					resolvedConfigPath && options.configPath
+						? [resolvedConfigPath]
+						: undefined,
+				outputPath: tempJsonPath,
+				onLifecycleEvent: options.onLifecycleEvent,
+			});
+		} catch (error) {
+			await cleanupTemporaryPaths(
+				[tempDir, scopedWorkspace?.path],
+				"gitleaks_workspace_cleanup_failed",
+			);
+			throw error;
+		}
 		const stdout = options.normalizePathsRelativeTo
 			? normalizeScannerOutputText(
 					runResult.stdout,
@@ -123,12 +170,10 @@ export class GitleaksRunner {
 		};
 
 		if (!runResult.ok) {
-			await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
-			if (scopedWorkspace) {
-				await fs
-					.rm(scopedWorkspace.path, { recursive: true, force: true })
-					.catch(() => {});
-			}
+			await cleanupTemporaryPaths(
+				[tempDir, scopedWorkspace?.path],
+				"gitleaks_workspace_cleanup_failed",
+			);
 			return {
 				ok: false,
 				exitCode: runResult.exitCode,
@@ -159,14 +204,10 @@ export class GitleaksRunner {
 		}
 
 		// Clean up temporary path
-		try {
-			await fs.rm(tempDir, { recursive: true, force: true });
-			if (scopedWorkspace) {
-				await fs.rm(scopedWorkspace.path, { recursive: true, force: true });
-			}
-		} catch {
-			// ignore cleanup error
-		}
+		await cleanupTemporaryPaths(
+			[tempDir, scopedWorkspace?.path],
+			"gitleaks_workspace_cleanup_failed",
+		);
 
 		// Gitleaks exit code 0 = no leaks, 1 = leaks found (both completed scans)
 		const isCompleted =
@@ -182,14 +223,20 @@ export class GitleaksRunner {
 					const tempOutDir = await fs.mkdtemp(
 						path.join(os.tmpdir(), "gitleaks-invalid-"),
 					);
-					const finalTempPath = path.join(tempOutDir, "gitleaks-result.json");
-					await fs.writeFile(finalTempPath, redactSecrets(rawJsonText));
-					rawJsonArtifact = await this.storage.saveRawArtifact(
-						scanRunId,
-						finalTempPath,
-						"gitleaks-result.json",
-					);
-					await fs.rm(tempOutDir, { recursive: true, force: true });
+					try {
+						const finalTempPath = path.join(tempOutDir, "gitleaks-result.json");
+						await fs.writeFile(finalTempPath, redactSecrets(rawJsonText));
+						rawJsonArtifact = await this.storage.saveRawArtifact(
+							scanRunId,
+							finalTempPath,
+							"gitleaks-result.json",
+						);
+					} finally {
+						await cleanupTemporaryPaths(
+							[tempOutDir],
+							"gitleaks_artifact_workspace_cleanup_failed",
+						);
+					}
 				}
 				if (stdout) {
 					stdoutArtifact = await this.storage.saveLog(
@@ -231,19 +278,24 @@ export class GitleaksRunner {
 			const tempOutDir = await fs.mkdtemp(
 				path.join(os.tmpdir(), "gitleaks-final-"),
 			);
-			const finalTempPath = path.join(tempOutDir, "gitleaks-result.json");
-			await fs.writeFile(
-				finalTempPath,
-				JSON.stringify(redactedRawJson, null, 2),
-			);
+			try {
+				const finalTempPath = path.join(tempOutDir, "gitleaks-result.json");
+				await fs.writeFile(
+					finalTempPath,
+					JSON.stringify(redactedRawJson, null, 2),
+				);
 
-			rawJsonArtifact = await this.storage.saveRawArtifact(
-				scanRunId,
-				finalTempPath,
-				"gitleaks-result.json",
-			);
-
-			await fs.rm(tempOutDir, { recursive: true, force: true });
+				rawJsonArtifact = await this.storage.saveRawArtifact(
+					scanRunId,
+					finalTempPath,
+					"gitleaks-result.json",
+				);
+			} finally {
+				await cleanupTemporaryPaths(
+					[tempOutDir],
+					"gitleaks_artifact_workspace_cleanup_failed",
+				);
+			}
 
 			if (stdout) {
 				stdoutArtifact = await this.storage.saveLog(
@@ -273,5 +325,13 @@ export class GitleaksRunner {
 			stderrArtifact,
 			executionMetadata,
 		};
+	}
+}
+
+async function isRegularFile(filePath: string): Promise<boolean> {
+	try {
+		return (await fs.lstat(filePath)).isFile();
+	} catch {
+		return false;
 	}
 }

@@ -17,6 +17,22 @@ describe("readAppEnv", () => {
 		expect(env.codexSdkTimeoutMs).toBe(
 			RUNTIME_SETTINGS_DEFAULTS.codexSdkTimeoutMs,
 		);
+		expect(env.webProcessConcurrency).toBe(
+			RUNTIME_SETTINGS_DEFAULTS.webProcessConcurrency,
+		);
+		expect(env.webScanQueueLimit).toBe(
+			RUNTIME_SETTINGS_DEFAULTS.webScanQueueLimit,
+		);
+		expect(env.webScanStepTimeoutMaxSec).toBe(
+			RUNTIME_SETTINGS_DEFAULTS.webScanStepTimeoutMaxSec,
+		);
+		expect(env.webScanWallClockTimeoutSec).toBe(
+			RUNTIME_SETTINGS_DEFAULTS.webScanWallClockTimeoutSec,
+		);
+		expect(env.scanExecutionPlanV2).toBe(false);
+		expect(env.runtimeIsolation).toEqual(
+			RUNTIME_SETTINGS_DEFAULTS.runtimeIsolation,
+		);
 		expect(env.jwtAccessExpiresIn).toBe("1d");
 		expect(env.jwtRefreshExpiresIn).toBe("7d");
 		expect(env.scanExecutionMode).toBeUndefined();
@@ -57,6 +73,19 @@ describe("readAppEnv", () => {
 		expect(env.businessLogicEnabled).toBe(false);
 	});
 
+	it("keeps legacy runtime isolation environment values as bootstrap defaults", () => {
+		const digest = `sha256:${"a".repeat(64)}`;
+		const env = readAppEnv({
+			VULN_WORKBENCH_RUNTIME_NAMESPACE_OWNER_IMAGE: `owner@${digest}`,
+			VULN_WORKBENCH_RUNTIME_QUALIFICATION_HASH: digest,
+		});
+		expect(env.runtimeIsolation).toMatchObject({
+			namespaceOwnerImage: `owner@${digest}`,
+			qualificationHash: digest,
+			nodeImage: "",
+		});
+	});
+
 	it("normalizes the outbound LLM provider host allowlist", () => {
 		const env = readAppEnv({
 			LLM_PROVIDER_ALLOWED_HOSTS: "LLM.EXAMPLE, azure.example ",
@@ -65,6 +94,13 @@ describe("readAppEnv", () => {
 			"llm.example",
 			"azure.example",
 		]);
+	});
+
+	it("parses the explicit execution plan v2 writer flag", () => {
+		expect(
+			readAppEnv({ VULN_WORKBENCH_SCAN_EXECUTION_PLAN_V2: "true" })
+				.scanExecutionPlanV2,
+		).toBe(true);
 	});
 
 	it("accepts an explicit Static Intelligence project creation policy", () => {
@@ -163,10 +199,12 @@ describe("readAppEnv", () => {
 			JWT_SECRET: "x".repeat(32),
 			SCAN_EXECUTION_MODE: "docker",
 			SCAN_DOCKER_IMAGE: "scanner:test",
+			VULN_WORKBENCH_MAVEN_RESOLVER_IMAGE: "maven-resolver:test",
 		});
 		expect(env.scanExecutionMode).toBe("docker");
 		expect(env.allowHostScannerExecution).toBe(false);
 		expect(env.scanDockerImage).toBe("scanner:test");
+		expect(env.mavenResolverImage).toBe("maven-resolver:test");
 		expect(env.zapActiveEnabled).toBe(false);
 	});
 
@@ -226,6 +264,20 @@ describe("readAppEnv", () => {
 		expect(env.cookieSameSite).toBe("none");
 		expect(env.securityHeadersMode).toBe("https");
 		expect(env.codexSdkTimeoutMs).toBe(900_000);
+	});
+
+	it("accepts Web process and scan deadline overrides", () => {
+		const env = readAppEnv({
+			VULN_WORKBENCH_WEB_PROCESS_CONCURRENCY: "4",
+			VULN_WORKBENCH_WEB_SCAN_QUEUE_LIMIT: "24",
+			VULN_WORKBENCH_WEB_SCAN_STEP_TIMEOUT_MAX_SEC: "1800",
+			VULN_WORKBENCH_WEB_SCAN_WALL_CLOCK_TIMEOUT_SEC: "7200",
+		});
+
+		expect(env.webProcessConcurrency).toBe(4);
+		expect(env.webScanQueueLimit).toBe(24);
+		expect(env.webScanStepTimeoutMaxSec).toBe(1_800);
+		expect(env.webScanWallClockTimeoutSec).toBe(7_200);
 	});
 
 	it("rejects SameSite none without secure cookies", () => {

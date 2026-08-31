@@ -1,9 +1,31 @@
-import { and, asc, eq, gt, inArray, or } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, or, sql } from "drizzle-orm";
 import { type AppDatabase, writerClientForDatabase } from "../../db";
-import { projects, scanEvents, scanRuns, toolRuns } from "../../db/schema";
+import {
+	projects,
+	scanEvents,
+	scanExecutionPlans,
+	scanRuns,
+	toolRuns,
+} from "../../db/schema";
 
-export { ArtifactRepository } from "./artifact-repository";
-export { FindingRepository } from "./finding-repository";
+export { ArtifactRepository } from "./execution/lifecycle/artifact-repository";
+export { FindingRepository } from "./findings/finding-repository";
+
+/**
+ * SQLite evaluates the nested json_set calls in one UPDATE statement, keeping
+ * the metadata merge atomic. json_patch cannot be used here: RFC 7396 treats
+ * nested nulls as delete instructions and corrupted persisted preflight data.
+ */
+function mergeJsonMetadata(metadata: Record<string, unknown>) {
+	let merged = sql`COALESCE(${scanRuns.metadata}, '{}')`;
+	for (const [key, value] of Object.entries(metadata)) {
+		const serialized = JSON.stringify(value);
+		if (serialized === undefined) continue;
+		const path = `$.${JSON.stringify(key)}`;
+		merged = sql`json_set(${merged}, ${path}, json(${serialized}))`;
+	}
+	return merged;
+}
 
 export class ProjectRepository {
 	constructor(private readonly db: AppDatabase) {}
@@ -105,6 +127,7 @@ export class ScanRepository {
 				projectId: params.projectId,
 				profile: params.profile,
 				status: params.status,
+				profileOutcome: params.status === "queued" ? "pending" : "running",
 				createdByUserId: params.createdByUserId ?? null,
 				startedAt: params.status === "queued" ? null : now,
 				metadata: params.metadata ?? {},
@@ -136,7 +159,7 @@ export class ScanRepository {
 				status: "running",
 				startedAt: now,
 				updatedAt: now,
-				metadata: { ...existing.metadata, ...(params.metadata ?? {}) },
+				metadata: mergeJsonMetadata(params.metadata ?? {}),
 			})
 			.where(and(eq(scanRuns.id, params.id), eq(scanRuns.status, "queued")))
 			.returning();
@@ -144,17 +167,70 @@ export class ScanRepository {
 	}
 
 	async mergeScanRunMetadata(id: string, metadata: Record<string, unknown>) {
-		const existing = await this.findById(id);
-		if (!existing) return null;
 		const [updated] = await this.db
 			.update(scanRuns)
 			.set({
-				metadata: { ...existing.metadata, ...metadata },
+				metadata: mergeJsonMetadata(metadata),
 				updatedAt: new Date(),
 			})
 			.where(eq(scanRuns.id, id))
 			.returning();
 		return updated ?? null;
+	}
+
+	async saveExecutionPlan(params: {
+		scanRunId: string;
+		projectId: string;
+		profileId: string;
+		strictness: "strict" | "best_effort";
+		planHash: string;
+		plan: Record<string, unknown>;
+	}) {
+		if (
+			params.plan.scanRunId !== params.scanRunId ||
+			params.plan.projectId !== params.projectId ||
+			params.plan.profileId !== params.profileId ||
+			params.plan.strictness !== params.strictness ||
+			params.plan.planHash !== params.planHash
+		) {
+			throw new Error("scan_execution_plan_identity_mismatch");
+		}
+		const [saved] = await this.db
+			.insert(scanExecutionPlans)
+			.values({
+				scanRunId: params.scanRunId,
+				projectId: params.projectId,
+				profileId: params.profileId,
+				strictness: params.strictness,
+				planHash: params.planHash,
+				plan: params.plan,
+				createdAt: new Date(),
+			})
+			.onConflictDoNothing({ target: scanExecutionPlans.scanRunId })
+			.returning();
+		if (saved) return saved;
+		const existing =
+			(await this.db.query.scanExecutionPlans.findFirst({
+				where: eq(scanExecutionPlans.scanRunId, params.scanRunId),
+			})) ?? null;
+		if (
+			!existing ||
+			existing.projectId !== params.projectId ||
+			existing.profileId !== params.profileId ||
+			existing.strictness !== params.strictness ||
+			existing.planHash !== params.planHash
+		) {
+			throw new Error("scan_execution_plan_immutable_conflict");
+		}
+		return existing;
+	}
+
+	async getExecutionPlan(scanRunId: string) {
+		return (
+			(await this.db.query.scanExecutionPlans.findFirst({
+				where: eq(scanExecutionPlans.scanRunId, scanRunId),
+			})) ?? null
+		);
 	}
 
 	async listActiveScanRuns() {
@@ -170,6 +246,15 @@ export class ScanRepository {
 			summary?: string | null;
 			completedAt?: Date | null;
 			metadata?: Record<string, unknown>;
+			profileOutcome?:
+				| "pending"
+				| "running"
+				| "completed"
+				| "completed_with_warnings"
+				| "blocked"
+				| "incomplete"
+				| "failed";
+			returnNullIfNotUpdated?: boolean;
 		},
 	) {
 		const now = new Date();
@@ -190,7 +275,10 @@ export class ScanRepository {
 			updateValues.completedAt = now;
 		}
 		if (options?.metadata !== undefined) {
-			updateValues.metadata = options.metadata;
+			updateValues.metadata = mergeJsonMetadata(options.metadata);
+		}
+		if (options?.profileOutcome !== undefined) {
+			updateValues.profileOutcome = options.profileOutcome;
 		}
 
 		const terminalStatuses = ["completed", "failed", "cancelled"];
@@ -210,7 +298,10 @@ export class ScanRepository {
 			.set(updateValues)
 			.where(transitionGuard)
 			.returning();
-		return updated ?? (await this.findById(id));
+		return (
+			updated ??
+			(options?.returnNullIfNotUpdated ? null : await this.findById(id))
+		);
 	}
 
 	async findById(id: string) {
@@ -222,14 +313,13 @@ export class ScanRepository {
 	}
 
 	async listScanRuns(projectId: string) {
-		return await this.db.query.scanRuns.findMany({
-			where: eq(scanRuns.projectId, projectId),
-		});
+		return await this.listScanRunsByProject(projectId);
 	}
 
 	async listScanRunsByProject(projectId: string) {
 		return await this.db.query.scanRuns.findMany({
 			where: eq(scanRuns.projectId, projectId),
+			orderBy: (fields, { desc }) => [desc(fields.createdAt), desc(fields.id)],
 		});
 	}
 

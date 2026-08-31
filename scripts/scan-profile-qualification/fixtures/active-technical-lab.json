@@ -1,0 +1,22 @@
+{
+	"schemaVersion": 1,
+	"profileId": "active-technical-lab",
+	"policyId": "active-technical-lab-stable-v1",
+	"caseIds": [
+		"authorization-matrix:vulnerable",
+		"authorization-matrix:fixed",
+		"authorization-matrix:reset",
+		"authorization-matrix:fault",
+		"transaction:vulnerable",
+		"transaction:fixed",
+		"transaction:reset",
+		"transaction:fault",
+		"zap-active:vulnerable",
+		"zap-active:fixed",
+		"zap-active:reset",
+		"zap-active:fault",
+		"roe-bypass",
+		"budget-bypass",
+		"cleanup"
+	]
+}

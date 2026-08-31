@@ -1,0 +1,18 @@
+{
+  "name": "vulnWorkbench",
+  "short_name": "vulnWorkbench",
+  "description": "vulnWorkbenchは、複数のセキュリティスキャナーによる検査結果と証跡をまとめ、何をどこまで調べたかが分かるレポートをローカル環境に残します。",
+  "lang": "ja",
+  "start_url": "/vlunWorkbench/",
+  "scope": "/vlunWorkbench/",
+  "display": "standalone",
+  "background_color": "#f5f7f4",
+  "theme_color": "#0f5f58",
+  "icons": [
+    {
+      "src": "/vlunWorkbench/assets/img/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}

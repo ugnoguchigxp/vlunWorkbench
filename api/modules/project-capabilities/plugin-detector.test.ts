@@ -1,7 +1,7 @@
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import type { TechnologyPluginV1 } from "./plugin-contract";
 import {
 	analyzeProjectCapabilities,
@@ -52,7 +52,7 @@ describe("project technology plugin detector", () => {
 	it("detects Java, Maven, and Spring without overstating dependency coverage", async () => {
 		await write(
 			"pom.xml",
-			`<project><dependencies><dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-web</artifactId></dependency></dependencies></project>`,
+			`<project><dependencies><dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-web</artifactId></dependency></dependencies><build><plugins><plugin><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>`,
 		);
 		await write(
 			"src/main/java/example/Controller.java",
@@ -106,6 +106,31 @@ describe("project technology plugin detector", () => {
 		expect(dependencyStep).toMatchObject({
 			coverageEffect: "gap",
 			reasonCode: "gradle_dependency_lock_missing",
+		});
+	});
+
+	it("does not claim a Spring Boot start capability for a Spring MVC WAR", async () => {
+		await write(
+			"pom.xml",
+			`<project><packaging>war</packaging><dependencies><dependency><groupId>org.springframework</groupId><artifactId>spring-webmvc</artifactId></dependency></dependencies></project>`,
+		);
+		await write(
+			"src/main/java/example/Controller.java",
+			'package example; @Controller class Controller { @RequestMapping("/") void index() {} }',
+		);
+
+		const analysis = await analyzeProjectCapabilities(root);
+
+		expect(analysis.capabilityPlan.activePluginIds).toContain(
+			"framework.java.spring",
+		);
+		expect(
+			analysis.capabilityPlan.steps.find(
+				(step) => step.stepId === "dast_start",
+			),
+		).toMatchObject({
+			applicability: "not_applicable",
+			reasonCode: "target_start_not_supported",
 		});
 	});
 

@@ -12,7 +12,10 @@ import {
 	type ProfileScanResult,
 	runProfileScan,
 } from "../modules/scans/profile-runner";
-import { getProfileById } from "../modules/scans/profiles";
+import {
+	normalizeProfileResolutionInput,
+	resolveProfileSelection,
+} from "../modules/scans/profile-resolution";
 import {
 	ProjectResolutionError,
 	resolveProjectByPath,
@@ -38,7 +41,9 @@ type OracleStatus =
 	| "runtime_error";
 
 function writeResult(payload: OracleResult): void {
-	console.log(JSON.stringify(securityOracleResultSchema.parse(payload)));
+	process.stdout.write(
+		`${JSON.stringify(securityOracleResultSchema.parse(payload))}\n`,
+	);
 }
 
 function failureResult(params: {
@@ -111,8 +116,17 @@ async function main(): Promise<number> {
 		return exitCodeFor(result);
 	}
 	const profileId = DEFAULT_ORACLE_PROFILE;
-	const profile = getProfileById(profileId);
-	if (!profile) {
+	const scanTarget = { kind: "full" } as const;
+	try {
+		resolveProfileSelection({
+			requestedProfileId: profileId,
+			surface: "security_oracle",
+			target: scanTarget,
+			providedInputKinds: normalizeProfileResolutionInput({
+				repoPath: projectPath,
+			}),
+		}).executionProfile;
+	} catch {
 		const result = failureResult({
 			status: "config_error",
 			code: "PROFILE_NOT_FOUND",
@@ -122,7 +136,6 @@ async function main(): Promise<number> {
 		writeResult(result);
 		return exitCodeFor(result);
 	}
-	const scanTarget = { kind: "full" } as const;
 	const expectedTargetDigest = undefined;
 	const findingLimit = DEFAULT_FINDING_LIMIT;
 
@@ -162,12 +175,7 @@ async function main(): Promise<number> {
 			continueOnToolFailure: true,
 			execution,
 			executionPolicyMetadata: scanExecutionPolicyMetadata(executionPolicy),
-			finalReport: {
-				enabled: true,
-				includeFalsePositives: true,
-				includeDeferred: true,
-				includeUndecided: true,
-			},
+			executionSurface: "security_oracle",
 		});
 
 		const findingRepo = new FindingRepository(dbConnection.db);
@@ -435,10 +443,17 @@ function compactText(value: string, maxLength: number) {
 }
 
 function summarizeCoverage(stepResults: ProfileScanResult["stepResults"]) {
-	const coverage = { completed: 0, skipped: 0, failed: 0, gaps: [] } as {
+	const coverage = {
+		completed: 0,
+		skipped: 0,
+		failed: 0,
+		blocked: 0,
+		gaps: [],
+	} as {
 		completed: number;
 		skipped: number;
 		failed: number;
+		blocked: number;
 		gaps: Array<{ code: string; message: string }>;
 	};
 	for (const step of stepResults) {

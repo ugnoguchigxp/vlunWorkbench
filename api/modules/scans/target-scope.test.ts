@@ -10,6 +10,7 @@ import {
 } from "./profiles";
 import {
 	createScopedWorkspace,
+	digestScopedFiles,
 	getScopeSkipDirs,
 	matchesScopePath,
 	resolveScanScope,
@@ -177,6 +178,23 @@ describe("scan target scope", () => {
 		} finally {
 			await fs.rm(workspace.path, { recursive: true, force: true });
 		}
+	});
+
+	it("changes the artifact digest only when in-scope artifact content changes", async () => {
+		const first = await digestScopedFiles({ repoPath, scope: ARTIFACT_SCOPE });
+		await fs.writeFile(path.join(repoPath, "src", "app.ts"), "changed\n");
+		const sourceChanged = await digestScopedFiles({
+			repoPath,
+			scope: ARTIFACT_SCOPE,
+		});
+		await fs.writeFile(path.join(repoPath, "dist", "bundle.js"), "changed\n");
+		const artifactChanged = await digestScopedFiles({
+			repoPath,
+			scope: ARTIFACT_SCOPE,
+		});
+
+		expect(sourceChanged).toBe(first);
+		expect(artifactChanged).not.toBe(first);
 	});
 
 	it("intersects primary and additional workspace scopes", async () => {

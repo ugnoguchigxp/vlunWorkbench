@@ -1,0 +1,6 @@
+{
+	"schemaVersion": 1,
+	"profileId": "dependency-supply-chain",
+	"policyId": "dependency-supply-chain-v2",
+	"caseIds": ["signed", "tampered", "missing-cosign", "cleanup"]
+}

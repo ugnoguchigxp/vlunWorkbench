@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { OsvRunner } from "./osv-runner";
-import { ArtifactStorage } from "../artifact-storage";
+import { ArtifactStorage } from "../execution/lifecycle/artifact-storage";
 
 describe("OsvRunner", () => {
 	let tempDir: string;
@@ -351,5 +351,58 @@ describe("OsvRunner", () => {
 		expect(result.ok).toBe(false);
 		expect(killCalled).toBe(true);
 		expect(result.error).toBe("osv-scanner execution timed out");
+	});
+
+	it("does not pass unrelated sensitive environment variables to osv-scanner", async () => {
+		const originalEnv = {
+			OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+			LLM_TOKEN: process.env.LLM_TOKEN,
+		};
+		process.env.OPENAI_API_KEY = "openai-secret";
+		process.env.LLM_TOKEN = "llm-secret";
+
+		let scannerEnv: Record<string, string> | undefined;
+		vi.spyOn(Bun, "spawn").mockImplementation((args, options) => {
+			if (args.includes("--version")) {
+				return {
+					exited: Promise.resolve(0),
+					stdout: new Response("1.5.0\n").body,
+					stderr: new Response("").body,
+				} as any;
+			}
+
+			scannerEnv = options?.env as Record<string, string>;
+			const outputMount = args.find((arg) =>
+				arg.endsWith(":/workspace/out:rw"),
+			) as string;
+			const outputDir = outputMount.slice(0, -":/workspace/out:rw".length);
+			return {
+				exited: fs
+					.writeFile(
+						path.join(outputDir, "osv-output.json"),
+						JSON.stringify({ results: [] }),
+					)
+					.then(() => 0),
+				stdout: new Response("").body,
+				stderr: new Response("").body,
+			} as any;
+		});
+
+		try {
+			const result = await new OsvRunner(storage, { runner: "docker" }).run(
+				"scan-123",
+				tempDir,
+			);
+			expect(result.ok).toBe(true);
+			expect(scannerEnv).toBeDefined();
+			expect(scannerEnv?.OPENAI_API_KEY).toBeUndefined();
+			expect(scannerEnv?.LLM_TOKEN).toBeUndefined();
+			expect(scannerEnv?.OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY).toBeTruthy();
+		} finally {
+			for (const [key, value] of Object.entries(originalEnv)) {
+				if (value === undefined) delete process.env[key];
+				else process.env[key] = value;
+			}
+		}
 	});
 });

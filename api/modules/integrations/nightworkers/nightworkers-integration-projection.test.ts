@@ -11,6 +11,7 @@ function completedReport() {
 		scanRunId: "scan-1",
 		artifactId: "artifact-1",
 		format: "markdown",
+		stage: "preliminary",
 		title: "Security report",
 		summary: null,
 		options: {
@@ -27,6 +28,7 @@ function completedReport() {
 		errorMessage: null,
 		retryable: null,
 		generatedByUserId: "user-1",
+		supersedesReportId: null,
 		startedAt: new Date("2026-07-30T00:00:01.000Z"),
 		completedAt: new Date("2026-07-30T00:00:02.000Z"),
 		createdAt: new Date("2026-07-30T00:00:00.000Z"),

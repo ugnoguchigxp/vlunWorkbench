@@ -1,0 +1,1038 @@
+<article lang="ja" data-spec-role="active-plan">
+  <h1 id="phase-56-capability-claim-and-product-completion-plan">
+    Phase 56: Capability Claim and Product Completion Plan
+  </h1>
+  <p>Status: Planned</p>
+  <p>Planning baseline commit: <code>049335952742e9243302d1a92b115caebc1ec948</code></p>
+  <p>Baseline date: 2026-08-16</p>
+  <p>Owner: vulnWorkbench maintainers</p>
+  <p>
+    Target: 最新mainで既に成立したsame-commit Linux closeout、truthful SAST coverage、 server-owned
+    preflight、Juice Shop 20/20を土台に、professional capability claim、
+    検出の一般化、製品主導線、交換形式、配布、保守性の主要残件を閉じる。
+  </p>
+  <h2 id="1-結論">1. 結論</h2>
+  <p>
+    Phase 56は、新しいscannerや診断領域を増やすphaseではない。現在の最大課題は、
+    実測済み能力がclaim、公開文書、製品入口へ完全には接続されていないことと、
+    外部・holdout・実repositoryでの一般化が不足していることである。
+  </p>
+  <p>実装順は次で固定する。</p>
+  <ol>
+    <li>current stateとmachine-readable evidenceのsource of truthを一本化する。</li>
+    <li>OSV offline evidenceをauthoritative closeoutへ接続し、claimの技術適格性を完成する。</li>
+    <li>
+      persisted run、same-commit report、protected human approvalを分離したclaim lifecycleを作る。
+    </li>
+    <li>README、release metadata、UI入口を現在の製品能力へ合わせる。</li>
+    <li>OWASP弱点category、holdout、多言語、実repository、LLM reviewを順に測定する。</li>
+    <li>sandbox、SARIF、CI exchange、packaging、i18nを製品化gateとして閉じる。</li>
+    <li>test不足と大規模moduleの依存境界を改善し、backup maintainer drillを実施する。</li>
+  </ol>
+  <p>
+    professional
+    claimは、技術gateを満たしただけでは<code>met</code>にしない。逆に、未対応の
+    enterprise機能や境界外診断を理由に、限定scopeのclaimを永久に<code>not_met</code>へ固定しない。
+  </p>
+  <h2 id="2-planning-baseline">2. Planning baseline</h2>
+  <h3 id="21-authoritative-facts">2.1 Authoritative facts</h3>
+  <p>
+    2026-08-16の最新mainについて、GitHub Actions run
+    <code>31944428118</code>はclean Ubuntu上で
+    <code>verify:strict</code>、secret scan、Phase 54 same-commit closeout、strict
+    Phase 55 entryを 成功させた。run
+    <code>31944428132</code>はcontainer-securityを成功させた。
+  </p>
+  <p>authoritative closeout artifactは次を示す。</p>
+  <table>
+    <caption>
+      2.1 Authoritative facts
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Gate / metric</th>
+        <th scope="col">Current state</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Release commit</td>
+        <td><code>049335952742e9243302d1a92b115caebc1ec948</code></td>
+      </tr>
+      <tr>
+        <td>Clean Linux checkout</td>
+        <td>passed</td>
+      </tr>
+      <tr>
+        <td>OWASP overall</td>
+        <td>
+          recall <code>0.7993</code>、precision
+          <code>0.9536</code>、FPR
+          <code>0.0399</code>、score
+          <code>0.7594</code>
+        </td>
+      </tr>
+      <tr>
+        <td>Juice Shop</td>
+        <td>20/20 vulnerable detected、20/20 fixed non-detected</td>
+      </tr>
+      <tr>
+        <td>Persisted OWASP run</td>
+        <td>present in isolated closeout database</td>
+      </tr>
+      <tr>
+        <td>Semgrep gate</td>
+        <td>passed</td>
+      </tr>
+      <tr>
+        <td>OSV professional gate</td>
+        <td>failed</td>
+      </tr>
+      <tr>
+        <td>Professional claim</td>
+        <td><code>not_met</code></td>
+      </tr>
+      <tr>
+        <td>Human claim approval</td>
+        <td>absent</td>
+      </tr>
+    </tbody>
+  </table>
+  <h3 id="22-completed-work-that-must-not-be-reopened">
+    2.2 Completed work that must not be reopened
+  </h3>
+  <ul>
+    <li>Phase 54 same-commit authoritative Linux closeout</li>
+    <li>Juice Shop forged feedback、CAPTCHA bypass、zero-starsを含む20/20 detection</li>
+    <li><code>full-security-scan</code>へのconditional Semgrep参加</li>
+    <li>Semgrep未実行時の<code>source_sast_not_executed</code>永続化とUI/report表示</li>
+    <li>scanner/data/runtime/target-plan preflightの永続化、CLI/API/report/UI共有、CI検証</li>
+    <li>
+      productionでdefaultまたはmissing
+      <code>JWT_SECRET</code>を拒否する起動guard
+    </li>
+    <li>host上のJava/Python project code executionを許可しないfail-closed境界</li>
+  </ul>
+  <p>これらはregression gateとして維持するが、Phase 56の新規実装項目として数えない。</p>
+  <h3 id="23-remaining-problem-set">2.3 Remaining problem set</h3>
+  <table>
+    <caption>
+      2.3 Remaining problem set
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Area</th>
+        <th scope="col">Remaining issue</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Claim</td>
+        <td>OSV gate false、claim reportへpassing run未接続、protected human approvalなし</td>
+      </tr>
+      <tr>
+        <td>Public truth</td>
+        <td>
+          READMEと<code>v1.0.0</code>がPhase 50値、official/local
+          diagnosticの分離なし
+        </td>
+      </tr>
+      <tr>
+        <td>Detection</td>
+        <td>cmdi/XSS/hash recall、path traversal precision、独立holdout不足</td>
+      </tr>
+      <tr>
+        <td>Generalization</td>
+        <td>JS/TS/Python/Go source SAST、business flow、dynamic routeの実repository評価なし</td>
+      </tr>
+      <tr>
+        <td>LLM quality</td>
+        <td>人手labelに対するseverity、FP判定、evidence引用精度未測定</td>
+      </tr>
+      <tr>
+        <td>Runtime</td>
+        <td>Java/Python sandbox未実装、Go start planner未実装</td>
+      </tr>
+      <tr>
+        <td>Product</td>
+        <td>
+          <code>/</code>とbrandがChat、security主経路とChat/RAG
+          runtimeが同一default surface
+        </td>
+      </tr>
+      <tr>
+        <td>Interop</td>
+        <td>SARIF 2.1 import/exportと汎用CI result envelopeなし</td>
+      </tr>
+      <tr>
+        <td>Distribution</td>
+        <td>fresh-clone/offline toolbox/release artifactの一体証跡なし</td>
+      </tr>
+      <tr>
+        <td>Sustainability</td>
+        <td>module肥大化、test gap、NightWorkers composition結合、bus factor 1</td>
+      </tr>
+    </tbody>
+  </table>
+  <h2 id="3-scope-boundary">3. Scope boundary</h2>
+  <h3 id="31-in-scope">3.1 In scope</h3>
+  <ul>
+    <li>OSV authoritative offline gateとprofessional claim lifecycle</li>
+    <li>official result / local diagnosticを分離したgenerated documentation</li>
+    <li>Scans中心のdefault product surface</li>
+    <li>OWASP弱点categoryとversioned holdout</li>
+    <li>JavaScript、TypeScript、Python、Goのsource SAST評価</li>
+    <li>consented real-repository business-flow / endpoint evaluation</li>
+    <li>evidence-constrained LLM review quality datasetとmetrics</li>
+    <li>Java/Python sandbox、独立sliceとしてのGo start planner</li>
+    <li>SARIF 2.1 import/exportとversioned CI result envelope</li>
+    <li>fresh-clone、migration、backup/restore、offline toolbox packaging</li>
+    <li>UI copy catalogと日本語/英語切替</li>
+    <li>focused test追加と大規模moduleの依存境界分割</li>
+    <li>maintainership/release drillとsource-of-truth整理</li>
+  </ul>
+  <h3 id="32-explicitly-deferred-or-outside-the-claim">
+    3.2 Explicitly deferred or outside the claim
+  </h3>
+  <ul>
+    <li>WebSocket、GraphQL subscription、gRPC、SOAPの正式対応</li>
+    <li>network、cloud、AD、mobile、wireless、social engineering診断</li>
+    <li>production targetへのactive attack</li>
+    <li>unrestricted fuzzingまたはarbitrary scanner script</li>
+    <li>browser login/token refreshを伴うZAP active</li>
+    <li>SSO、組織階層、remote DB、multi-node execution</li>
+    <li>C#、PHP、Ruby、Kotlin、Rust、Terraformのsupported tier昇格</li>
+    <li>public plugin marketplace</li>
+  </ul>
+  <p>
+    これらはsupport boundaryとして表示するが、Phase 56の未完了件数やrelease blockerへ
+    混入させない。需要と安全設計が揃った場合に独立phaseで扱う。
+  </p>
+  <h2 id="4-source-of-truth-and-evidence-rules">4. Source of truth and evidence rules</h2>
+  <p>判断の優先順位を次で固定する。</p>
+  <ol>
+    <li>current commitに結び付いたauthoritative CI artifactとverifier result</li>
+    <li>versioned policy、scope catalog、corpus/data/image lock</li>
+    <li>production implementationとfocused/negative test</li>
+    <li><code>spec/docs/active-plans/phase-56-capability-product-completion-plan.html</code></li>
+    <li>generated capability/release documentation</li>
+    <li>README、historical plan、historical evidence</li>
+  </ol>
+  <p>規則:</p>
+  <ul>
+    <li>historical evidenceは書き換えず、current claimの入力に流用しない。</li>
+    <li>
+      local runは<code>diagnostic</code>、Ubuntu protected
+      workflowは<code>authoritative</code>と保存する。
+    </li>
+    <li>missing、blocked、not measuredをpassへ変換しない。</li>
+    <li>generated docsはmachine-readable inputから生成し、手書き数値をsource of truthにしない。</li>
+    <li>archived planの未完了項目は、本計画へ明示的に移したものだけをactive backlogとする。</li>
+  </ul>
+  <h2 id="5-dependency-and-priority-map">5. Dependency and priority map</h2>
+  <figure>
+    <pre class="mermaid" data-spec-html-source="markdown">flowchart LR
+  A[&quot;56.0 State reset&quot;] --&gt; B[&quot;56.1 OSV closeout&quot;]
+  B --&gt; C[&quot;56.2 Claim approval lifecycle&quot;]
+  A --&gt; D[&quot;56.3 Public truth and product entry&quot;]
+  A --&gt; E[&quot;56.4 Detection and holdout&quot;]
+  E --&gt; F[&quot;56.5 Multi-language evaluation&quot;]
+  E --&gt; G[&quot;56.6 Real-repository evaluation&quot;]
+  A --&gt; H[&quot;56.7 LLM review quality&quot;]
+  A --&gt; I[&quot;56.8 Sandboxed target runtime&quot;]
+  D --&gt; J[&quot;56.9 SARIF and CI exchange&quot;]
+  B --&gt; K[&quot;56.10 Packaging and localization&quot;]
+  A --&gt; L[&quot;56.11 Architecture and tests&quot;]
+  C --&gt; M[&quot;56.12 Governance and closeout&quot;]
+  F --&gt; M
+  G --&gt; M
+  H --&gt; M
+  I --&gt; M
+  J --&gt; M
+  K --&gt; M
+  L --&gt; M
+</pre>
+    <figcaption>5. Dependency and priority map</figcaption>
+  </figure>
+  <table>
+    <caption>
+      5. Dependency and priority map
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Priority</th>
+        <th scope="col">Slice</th>
+        <th scope="col">Main result</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>P0</td>
+        <td>56.0</td>
+        <td>current state、active plan、archived planの整理</td>
+      </tr>
+      <tr>
+        <td>P0</td>
+        <td>56.1</td>
+        <td>OSVを含むauthoritative technical eligibility</td>
+      </tr>
+      <tr>
+        <td>P0</td>
+        <td>56.2</td>
+        <td>passing runとprotected approvalを持つclaim lifecycle</td>
+      </tr>
+      <tr>
+        <td>P0</td>
+        <td>56.3</td>
+        <td>正しい公開数値とScans中心の入口</td>
+      </tr>
+      <tr>
+        <td>P1</td>
+        <td>56.4</td>
+        <td>弱点category改善と独立holdout</td>
+      </tr>
+      <tr>
+        <td>P1</td>
+        <td>56.5</td>
+        <td>4言語のversioned source SAST評価</td>
+      </tr>
+      <tr>
+        <td>P1</td>
+        <td>56.6</td>
+        <td>実repositoryのbusiness/endpoint評価</td>
+      </tr>
+      <tr>
+        <td>P1</td>
+        <td>56.7</td>
+        <td>人手label付きLLM review品質</td>
+      </tr>
+      <tr>
+        <td>P2</td>
+        <td>56.8</td>
+        <td>sandbox内だけのJava/Python/Go target start</td>
+      </tr>
+      <tr>
+        <td>P2</td>
+        <td>56.9</td>
+        <td>SARIF 2.1とstable CI envelope</td>
+      </tr>
+      <tr>
+        <td>P2</td>
+        <td>56.10</td>
+        <td>再現可能な配布と日英UI</td>
+      </tr>
+      <tr>
+        <td>P2</td>
+        <td>56.11</td>
+        <td>test gapと依存境界の改善</td>
+      </tr>
+      <tr>
+        <td>P0-P2</td>
+        <td>56.12</td>
+        <td>governance、same-commit release、archive closeout</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    P0完了前にclaim表現、tag、default support tierを変更しない。P1/P2はP0のschemaと source-of-truth
+    contract確定後に並行実装できる。
+  </p>
+  <h2 id="6-cross-cutting-contracts">6. Cross-cutting contracts</h2>
+  <h3 id="61-claim-lifecycle">6.1 Claim lifecycle</h3>
+  <p>claim状態と技術適格性を分離する。</p>
+  <pre><code class="language-text">technicalEligibility: eligible | not_eligible | blocked
+claimStatus: met | not_met
+approvalStatus: approved | missing | rejected
+</code></pre>
+  <p><code>claimStatus=met</code>は次をすべて要求する。</p>
+  <ul>
+    <li>same release commitのclean Ubuntu run</li>
+    <li>Semgrep、OSV、OWASP、Juice Shop、business logic、endpoint gate pass</li>
+    <li>isolated DBへpersistしたpassing run ID</li>
+    <li>policy/corpus/scanner/toolbox/input/output hash一致</li>
+    <li>protected release environmentまたは同等の外部reviewer approval</li>
+    <li>approverが実装ownerと異なる</li>
+    <li>approvalがcandidate report hashとrelease commitを参照する</li>
+  </ul>
+  <p>
+    approvalをsource treeへ自己参照的にcommitしない。protected workflowのattestationとして
+    out-of-tree reportへ結合する。
+  </p>
+  <h3 id="62-evaluation-isolation">6.2 Evaluation isolation</h3>
+  <ul>
+    <li>training/analysis inputとholdoutを別lock/digestにする。</li>
+    <li>detector authorはholdout labelを同じ変更で更新しない。</li>
+    <li>external corpus、owned holdout、owned fixtureを表示上も分離する。</li>
+    <li>corpus間のfile/content hash overlapをverifierで拒否する。</li>
+    <li>real repositoryは明示consent、license確認、source非保存、local集計exportを要求する。</li>
+  </ul>
+  <h3 id="63-stable-machine-output">6.3 Stable machine output</h3>
+  <p>CI向けcommandはstdoutへversioned JSON objectを1件だけ返す。</p>
+  <pre><code class="language-text">schemaVersion
+command
+status: passed | failed | blocked | not_applicable
+releaseCommit
+profileId / resolvedProfileHash
+summary
+findingsRef
+coverage
+limitations
+artifactRefs
+inputHashes
+</code></pre>
+  <p>Markdown、SARIF、internal DB JSONをこのcontractの代替にしない。</p>
+  <h2 id="7-slice-560--current-state-reset">7. Slice 56.0 — Current-state reset</h2>
+  <h3 id="changes">Changes</h3>
+  <ul>
+    <li>本計画を唯一のactive security/release completion planにする。</li>
+    <li>
+      Phase 52、Phase 54、Phase 55の計画を<code>spec/docs/.archived/</code>へ移す。
+    </li>
+    <li>
+      <code>spec/index.html</code>をactive planning indexにし、concept、active
+      plan、historical plan、 evidenceの役割を分ける。
+    </li>
+    <li>Phase 54 historical baselineが宣言した過去path/hashは変更しない。</li>
+    <li>stale statusをcurrent factとして読むtest/doc linkを除去する。</li>
+  </ul>
+  <h3 id="acceptance">Acceptance</h3>
+  <ul>
+    <li>active phase planが本書1件である。</li>
+    <li>archive後にbroken repository referenceがない。</li>
+    <li>historical verifierが過去commitのblob/hashを引き続き検証できる。</li>
+    <li>
+      <code>rg</code>で旧plan pathを探した結果がhistorical
+      evidenceまたはarchive説明だけになる。
+    </li>
+  </ul>
+  <h3 id="verification">Verification</h3>
+  <pre><code class="language-bash">bun run verify:phase-54-baseline
+bun run verify:phase-55-baseline
+bun run check:security-capability-docs
+git diff --check
+</code></pre>
+  <h2 id="8-slice-561--osv-authoritative-technical-closeout">
+    8. Slice 56.1 — OSV authoritative technical closeout
+  </h2>
+  <h3 id="changes-1">Changes</h3>
+  <ul>
+    <li>authoritative workflowに明示的なscanner-data prepare stepを追加する。</li>
+    <li>
+      8 ecosystemのOSV databaseについてversion、digest、generatedAt、freshness、runtime path、
+      readabilityを検証する。
+    </li>
+    <li>
+      vulnerable/fixed matrixをnetwork
+      noneで実行し、<code>osv-offline-fixtures.json</code>を生成する。
+    </li>
+    <li>closeout reportへOSV artifact hash、database tree hash、ecosystem matrixを結び付ける。</li>
+    <li>
+      OSV prepare失敗、stale DB、runtime
+      unreadableを<code>blocked</code>にする。
+    </li>
+    <li>container-securityで作ったtoolboxとclaim jobのtoolbox digestを一致させる。</li>
+  </ul>
+  <h3 id="acceptance-1">Acceptance</h3>
+  <ul>
+    <li>
+      professional reportのOSV gateがauthoritative
+      Linuxで<code>true</code>になる。
+    </li>
+    <li>8 ecosystemすべてでvulnerable=true、fixed=false、network requests=0になる。</li>
+    <li>manifestだけがreadyでも実databaseが読めなければpassしない。</li>
+    <li>
+      OSV artifact欠落時にtechnical
+      eligibilityが<code>eligible</code>にならない。
+    </li>
+  </ul>
+  <h3 id="verification-1">Verification</h3>
+  <pre><code class="language-bash">bun run scanner-data:prepare -- .cache/scanner-data/phase-56
+OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY=.cache/scanner-data/phase-56/osv \
+  bun run test:osv:offline-fixtures
+bun run verify:toolbox-offline
+bun run verify:professional-capability:report
+</code></pre>
+  <h2 id="9-slice-562--persisted-run-and-protected-approval">
+    9. Slice 56.2 — Persisted run and protected approval
+  </h2>
+  <h3 id="changes-2">Changes</h3>
+  <ul>
+    <li>technical candidate生成とfinal claim発行を別workflow/jobにする。</li>
+    <li>
+      candidate jobはpassing OWASP runをisolated DBへ保存し、run IDをcandidate reportへ記録する。
+    </li>
+    <li>
+      final claim jobは同じSHAをcheckoutし、protected release environmentのapproval後に全gateを
+      再検証する。
+    </li>
+    <li>
+      final reportへapprover identity、approval source、approvedAt、candidate report hash、 release
+      commitを保存する。
+    </li>
+    <li>passing run IDはworkflow内部のtyped outputで渡し、任意user inputを信頼しない。</li>
+    <li>
+      claim verifierはapproverとimplementation ownerの同一性、stale approval、report hash差異を
+      拒否する。
+    </li>
+  </ul>
+  <h3 id="acceptance-2">Acceptance</h3>
+  <ul>
+    <li>
+      approvalなしではtechnical
+      eligibilityがeligibleでもclaimは<code>not_met</code>になる。
+    </li>
+    <li>
+      approval付きfinal workflowだけが<code>met</code>
+      reportを生成できる。
+    </li>
+    <li>DB backupからrun ID、metrics、input/output hashを再検証できる。</li>
+    <li>final reportはsource treeを変更しない。</li>
+    <li>claim変更PRと実装PRが分離される。</li>
+  </ul>
+  <h3 id="verification-2">Verification</h3>
+  <pre><code class="language-bash">bun run phase-54:closeout
+bun run verify:phase-54-closeout
+bun run verify:professional-capability
+bun run check:release-metadata
+</code></pre>
+  <h2 id="10-slice-563--public-truth-and-security-first-entry">
+    10. Slice 56.3 — Public truth and security-first entry
+  </h2>
+  <h3 id="changes-3">Changes</h3>
+  <ul>
+    <li>authoritative Linux resultとlocal diagnostic resultを別tableとして生成する。</li>
+    <li>READMEのPhase 50数値をgenerated current resultへ置き換える。</li>
+    <li>
+      <code>v1.0.0</code> tagは移動せず、次versionのrelease
+      noteを新規作成する。
+    </li>
+    <li>
+      <code>/</code>、brand
+      link、login後defaultを<code>/scans</code>へ変更する。
+    </li>
+    <li>
+      Projects / Scansをprimary navigation、Knowledge / Chat / Searchをsecondary surfaceにする。
+    </li>
+    <li>
+      default <code>security</code> product modeではChat/Search/Knowledge
+      routeとagentic/RAG runtimeを composeしない。必要な環境だけ<code
+        >extended</code
+      >
+      modeを明示選択する。
+    </li>
+    <li>scan reviewに必要なLLM routeはChat product surfaceから独立させる。</li>
+  </ul>
+  <h3 id="acceptance-3">Acceptance</h3>
+  <ul>
+    <li>fresh loginから2操作以内にscan開始へ到達できる。</li>
+    <li><code>/</code>とbrandがScansへ到達する。</li>
+    <li>READMEにofficial、diagnostic、limitations、evidence URL/hashが同時表示される。</li>
+    <li>security modeでChat/Search/Knowledge navigation、API、background runtimeが起動しない。</li>
+    <li>extended modeを無効にしてもscan review/report fallbackが動作する。</li>
+  </ul>
+  <h3 id="verification-3">Verification</h3>
+  <pre><code class="language-bash">bun run docs:security-capability
+bun run check:security-capability-docs
+bunx vitest run web/src/router.test.tsx web/src/app-header.test.tsx
+bun run test:e2e
+bun run check:release-metadata
+</code></pre>
+  <h2 id="11-slice-564--owasp-category-and-holdout-improvement">
+    11. Slice 56.4 — OWASP category and holdout improvement
+  </h2>
+  <h3 id="changes-4">Changes</h3>
+  <ul>
+    <li>cmdi、hash、XSSのfalse negativeをsource/sink/helper/branch/framework別に分類する。</li>
+    <li>
+      path traversalはcross-CWE attributionとreachable flowを分離し、実findingを単に抑止しない。
+    </li>
+    <li>changed ruleごとにsuppression auditとbefore/after artifactを保存する。</li>
+    <li>
+      whitespace、helper、branch、wrapper、safe sanitizerを含むheld-out metamorphic pairを追加する。
+    </li>
+    <li>current Juice Shop 20/20をnegative regression gateとして固定する。</li>
+  </ul>
+  <h3 id="acceptance-4">Acceptance</h3>
+  <table>
+    <caption>
+      Acceptance
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Metric</th>
+        <th scope="col" class="markdown-align-right">Minimum</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>OWASP overall recall / precision / FPR</td>
+        <td class="markdown-align-right">no regression from Phase 56 baseline</td>
+      </tr>
+      <tr>
+        <td>cmdi recall</td>
+        <td class="markdown-align-right"><code>&gt;= 0.70</code></td>
+      </tr>
+      <tr>
+        <td>hash recall</td>
+        <td class="markdown-align-right"><code>&gt;= 0.70</code></td>
+      </tr>
+      <tr>
+        <td>XSS recall</td>
+        <td class="markdown-align-right"><code>&gt;= 0.70</code></td>
+      </tr>
+      <tr>
+        <td>path traversal precision</td>
+        <td class="markdown-align-right"><code>&gt;= 0.80</code></td>
+      </tr>
+      <tr>
+        <td>path traversal FPR</td>
+        <td class="markdown-align-right"><code>&lt;= 0.10</code></td>
+      </tr>
+      <tr>
+        <td>Juice Shop</td>
+        <td class="markdown-align-right">20/20 vulnerable、20/20 fixed</td>
+      </tr>
+      <tr>
+        <td>Holdout</td>
+        <td class="markdown-align-right">vulnerable/fixed pass、fixture overlap 0</td>
+      </tr>
+    </tbody>
+  </table>
+  <h3 id="verification-4">Verification</h3>
+  <pre><code class="language-bash">bun run benchmark:owasp
+bun run benchmark:owasp:analyze
+bun run benchmark:juice-shop
+bun run test:detection-effectiveness
+bun run verify:professional-capability:report
+</code></pre>
+  <h2 id="12-slice-565--multi-language-source-sast-evaluation">
+    12. Slice 56.5 — Multi-language source SAST evaluation
+  </h2>
+  <h3 id="changes-5">Changes</h3>
+  <ul>
+    <li>
+      JavaScript、TypeScript、Python、Goごとにlicense、version、digest、ground truthを持つ external
+      corpusまたは明示的owned holdoutを選定する。
+    </li>
+    <li>Java OWASPと同じTP/FN/TN/FP semanticsを使うcommon runner/scorerを作る。</li>
+    <li>unsupported syntax、timeout、unmapped resultを黙って分母から除外しない。</li>
+    <li>初回runはdiagnosticとし、corpus adequacy review後に別PRでlanguage policyを追加する。</li>
+  </ul>
+  <h3 id="acceptance-5">Acceptance</h3>
+  <ul>
+    <li>4言語すべてでpositive/negativeを測定する。</li>
+    <li>corpus/rule/implementation/raw/normalized/metricsのhash chainを再計算できる。</li>
+    <li>owned fixtureとのhash overlapが0である。</li>
+    <li>未測定言語を<code>verified</code>と表示しない。</li>
+  </ul>
+  <h2 id="13-slice-566--real-repository-product-validation">
+    13. Slice 56.6 — Real-repository product validation
+  </h2>
+  <h3 id="changes-6">Changes</h3>
+  <ul>
+    <li>
+      consent、license、revision、language、framework、sizeを持つopt-in protocolをversion化する。
+    </li>
+    <li>最低3 repositoryかつ2言語以上でbusiness flowとendpoint discoveryを評価する。</li>
+    <li>
+      dynamic route、nested router、generated route、middleware ownership、negative routeを含める。
+    </li>
+    <li>
+      source/snippet/absolute pathをrelease artifactへ保存せず、redacted aggregateだけをexportする。
+    </li>
+    <li>
+      review yield、time-to-first-actionable-result、verification success、coverage gapを測定する。
+    </li>
+  </ul>
+  <h3 id="acceptance-6">Acceptance</h3>
+  <ul>
+    <li>owned business fixture 8件と実repository結果を別表示する。</li>
+    <li>endpoint fixture 11件と実repository結果を別表示する。</li>
+    <li>repository-specific tuningを一般claimへ混入させない。</li>
+    <li>
+      cohort不足時はsoftware releaseをblockせず、product-value
+      claimを<code>not_measured</code>にする。
+    </li>
+  </ul>
+  <h2 id="14-slice-567--evidence-constrained-llm-review-quality">
+    14. Slice 56.7 — Evidence-constrained LLM review quality
+  </h2>
+  <h3 id="changes-7">Changes</h3>
+  <ul>
+    <li>
+      secret、SCA、SAST、DAST、authorization、business logicのredacted caseをversion管理する。
+    </li>
+    <li>
+      各caseへallowed evidence refs、severity range、FP label、must-not-claim、remediation
+      constraintを付ける。
+    </li>
+    <li>labelは独立2 reviewまたはowner/reviewer sign-offを要求する。</li>
+    <li>deterministic providerとlive opt-in providerを分離し、live caseは最低3回実行する。</li>
+    <li>
+      severity agreement、FP precision/recall、evidence citation precision、unsupported claim
+      rateを測る。
+    </li>
+  </ul>
+  <h3 id="acceptance-7">Acceptance</h3>
+  <ul>
+    <li>
+      schema valid <code>100%</code>、unknown evidence ref
+      <code>0</code>、unsupported factual claim
+      <code>0</code>、leak
+      <code>0</code>。
+    </li>
+    <li>severity/FP thresholdはbaseline取得後の別policy PRで決める。</li>
+    <li>
+      model未設定・失敗時はdeterministic
+      reportが<code>ready_with_limitations</code>で完了する。
+    </li>
+    <li>LLM metricをscanner recall/precisionやfinding confirmationへ合算しない。</li>
+  </ul>
+  <h2 id="15-slice-568--sandboxed-target-runtime">15. Slice 56.8 — Sandboxed target runtime</h2>
+  <h3 id="changes-8">Changes</h3>
+  <ul>
+    <li>
+      digest-pinned、non-root、read-only mount、tmpfs limit、cap-drop、no-new-privileges、
+      CPU/memory/PID/timeout、internal-only networkを持つsandbox runnerを実装する。
+    </li>
+    <li>Java/Python start planをsandbox requestへ変換する。</li>
+    <li>
+      dependency installを行わず、prepared offline
+      input不足時は<code>blocked</code>にする。
+    </li>
+    <li>Go plannerは独立PRでnet/http、Gin、Echoを対象に追加する。</li>
+    <li>start前後tree hash、container/network cleanup、egress 0をartifact化する。</li>
+  </ul>
+  <h3 id="acceptance-8">Acceptance</h3>
+  <ul>
+    <li>target project processがhostでspawnされない。</li>
+    <li>public/metadata/Docker socket/host credentialへ到達できない。</li>
+    <li>cleanup failureをsuccessへ変換しない。</li>
+    <li>Go main ambiguityを<code>target_start_ambiguous</code>として拒否する。</li>
+  </ul>
+  <h2 id="16-slice-569--sarif-21-and-ci-exchange">16. Slice 56.9 — SARIF 2.1 and CI exchange</h2>
+  <h3 id="changes-9">Changes</h3>
+  <ul>
+    <li>SARIF 2.1.0 import/exportをversioned adapterとして追加する。</li>
+    <li>origin、tool identity、rule ID、location、fingerprint、artifact hashを保持する。</li>
+    <li>
+      imported severityだけでfindingを<code>confirmed</code>へ昇格しない。
+    </li>
+    <li>
+      path traversal、repository外URI、oversized log、duplicate result、unsupported
+      versionを拒否する。
+    </li>
+    <li>scan/profile/report/claim向けのstable JSON CI envelopeとexit-code policyを追加する。</li>
+  </ul>
+  <h3 id="acceptance-9">Acceptance</h3>
+  <ul>
+    <li>Semgrep、Gitleaks、Trivyのfixtureをloss-awareにround tripできる。</li>
+    <li>SARIF unknown fieldをboundedに無視し、既知security fieldの型不整合を拒否する。</li>
+    <li>GitHub、GitLab等の固有adapterなしで一般CIから結果を判定できる。</li>
+    <li>Markdown output変更がCI JSON contractを壊さない。</li>
+  </ul>
+  <h2 id="17-slice-5610--packaging-onboarding-and-localization">
+    17. Slice 56.10 — Packaging, onboarding, and localization
+  </h2>
+  <h3 id="changes-10">Changes</h3>
+  <ul>
+    <li>macOS/Ubuntu fresh-cloneを一つのversioned command sequenceへ統一する。</li>
+    <li>migration 0→current、one-version-behind、backup/create/verify/restoreをCIで実行する。</li>
+    <li>
+      toolbox image digest、embedded manifest、SBOM、provenance、license/NOTICEをrelease
+      artifactへ保存する。
+    </li>
+    <li>
+      third-party
+      corpus/imageを配布できない場合は取得・検証手順と<code>blocked</code>状態を明示する。
+    </li>
+    <li>144 npm scriptsと56 CLI entrypointを目的別top-level command/helpへ整理する。</li>
+    <li>UI copyをtyped catalogへ移し、日本語と英語を切替可能にする。日英混在を許可しない。</li>
+    <li>READMEをoverview、quick start、measured capability、advanced runbookへ分割する。</li>
+  </ul>
+  <h3 id="acceptance-10">Acceptance</h3>
+  <ul>
+    <li>clean macOS/Ubuntuでbootstrapからfirst measured scanまで同じ手順が成功する。</li>
+    <li>release bundleだけでoffline toolbox verificationが成功する。</li>
+    <li>helpから主要workflowへ2階層以内で到達できる。</li>
+    <li>ja/en双方でprimary workflowにmissing keyがない。</li>
+  </ul>
+  <h2 id="18-slice-5611--architecture-and-focused-tests">
+    18. Slice 56.11 — Architecture and focused tests
+  </h2>
+  <p>
+    scan backend、artifact integrity、preflight、scanner adapter、runtime/DASTの改修と
+    todolist固定targetによる個別・統合testは、
+    <a href="./backend-scanner-todolist-hardening-test-plan.html"
+      >Backend Scanner Hardening and todolist Validation Plan</a
+    >をsubordinate execution planとして使用する。UI更新は同planへ含めない。
+  </p>
+  <h3 id="changes-11">Changes</h3>
+  <ul>
+    <li>先にcharacterization testを追加し、その後にmodule boundaryを動かす。</li>
+    <li>
+      <code>api/modules/diagnostics</code>へrepository/check/report/inventoryのmodule-local
+      testを追加する。
+    </li>
+    <li>
+      admin-users、agentic-search、artifacts、business-logic、chat、finding-reviewsへroute
+      testを追加する。
+    </li>
+    <li>
+      Scans UIのlaunch、preflight、result、review、report、zero-findingをcomponent/E2Eで覆う。
+    </li>
+    <li>
+      <code>api/modules/scans</code
+      >をprofile/preflight/execution/finding/reportの依存方向へ分割する。
+    </li>
+    <li>
+      <code>static-intelligence</code>をinventory/generation/query/exportへ分割する。
+    </li>
+    <li>NightWorkersをapp compositionからintegration module factoryへ隔離する。</li>
+    <li>
+      plugin capabilityはcontributionから導出できるものを導出し、semantic
+      declarationだけを手書きに残す。
+    </li>
+  </ul>
+  <h3 id="acceptance-11">Acceptance</h3>
+  <ul>
+    <li>追加した6 routeすべてに認証/認可、invalid input、successの専用testがある。</li>
+    <li>diagnostics各submoduleにpositive/negative testがある。</li>
+    <li>scans/static-intelligence間に新しい循環依存がない。</li>
+    <li>app compositionがNightWorkers concrete repository/serviceを直接newしない。</li>
+    <li>plugin analyzer/extractor追加時に同じ能力を複数registryへ登録しない。</li>
+    <li>refactor前後でpublic API/schema/metric hashが意図せず変化しない。</li>
+  </ul>
+  <h2 id="19-slice-5612--governance-and-same-commit-closeout">
+    19. Slice 56.12 — Governance and same-commit closeout
+  </h2>
+  <h3 id="changes-12">Changes</h3>
+  <ul>
+    <li>
+      security、database、scanner、web、releaseのbackup
+      maintainerを実名または検証可能なidentityで割り当てる。
+    </li>
+    <li>
+      backup maintainerがbackup/restore、migration、strict、clean-checkout、release metadata
+      drillを実施する。
+    </li>
+    <li>
+      production runbookへ<code>NODE_ENV</code>誤設定の検出とdeployment
+      preflightを追加する。
+    </li>
+    <li>development bootstrapは既知共有JWT secretを再利用せず、local secretを生成・保持する。</li>
+    <li>selected scopeの全gateを同一clean Ubuntu commitへ結び付ける。</li>
+    <li>
+      source tree、artifact、approval、tag、release note、SBOMのhash/linkをfinal reportへ保存する。
+    </li>
+  </ul>
+  <h3 id="acceptance-12">Acceptance</h3>
+  <ul>
+    <li>backup maintainer 1名以上がrelease drillを独立完了する。</li>
+    <li>
+      production-like deploymentで<code>NODE_ENV!=production</code>を明示的に拒否できる。
+    </li>
+    <li>required gateに<code>blocked</code>があればcloseoutしない。</li>
+    <li>
+      <code>v1.0.0</code>を移動せず、新tagとpackage/release note/report
+      versionが一致する。
+    </li>
+    <li>release artifactにcredential、source snippet、absolute home pathがない。</li>
+  </ul>
+  <h2 id="20-pr-sequence">20. PR sequence</h2>
+  <table>
+    <caption>
+      20. PR sequence
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">PR</th>
+        <th scope="col">Scope</th>
+        <th scope="col">Must not include</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>56-A</td>
+        <td>state index、archive、baseline contract</td>
+        <td>runtime変更</td>
+      </tr>
+      <tr>
+        <td>56-B</td>
+        <td>OSV authoritative evidence</td>
+        <td>claim <code>met</code>変更</td>
+      </tr>
+      <tr>
+        <td>56-C</td>
+        <td>claim candidate/final approval workflow</td>
+        <td>detector変更</td>
+      </tr>
+      <tr>
+        <td>56-D</td>
+        <td>generated docs、README、home/brand</td>
+        <td>benchmark policy変更</td>
+      </tr>
+      <tr>
+        <td>56-E1..E4</td>
+        <td>OWASP categoryごとの改善</td>
+        <td>corpus threshold変更</td>
+      </tr>
+      <tr>
+        <td>56-F1..F4</td>
+        <td>language corpus/runner/policy</td>
+        <td>他言語の同時pass化</td>
+      </tr>
+      <tr>
+        <td>56-G</td>
+        <td>real repository protocol/metrics</td>
+        <td>private source保存</td>
+      </tr>
+      <tr>
+        <td>56-H</td>
+        <td>LLM dataset/runner、別policy PR</td>
+        <td>scanner verdict変更</td>
+      </tr>
+      <tr>
+        <td>56-I1/I2</td>
+        <td>Java/Python sandbox、Go planner</td>
+        <td>host fallback</td>
+      </tr>
+      <tr>
+        <td>56-J1/J2</td>
+        <td>SARIF、CI envelope</td>
+        <td>imported auto-confirmation</td>
+      </tr>
+      <tr>
+        <td>56-K</td>
+        <td>packaging/docs/i18n</td>
+        <td>enterprise機能</td>
+      </tr>
+      <tr>
+        <td>56-L1..L4</td>
+        <td>tests、module boundary、integration isolation</td>
+        <td>behavior変更の混在</td>
+      </tr>
+      <tr>
+        <td>56-M</td>
+        <td>governance、final closeout、new release</td>
+        <td>unrelated feature</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    各PRはbaseline、positive test、negative test、rollback条件を持つ。schema、migration、 runtime
+    default、claim、support tierの変更を同一PRへ混在させない。
+  </p>
+  <h2 id="21-required-closeout-commands">21. Required closeout commands</h2>
+  <pre><code class="language-bash">bun run format:check
+bun run typecheck
+bun run test
+bun run test:e2e
+bun run test:security-capability
+bun run test:detection-effectiveness
+bun run security-corpora:verify
+bun run verify:toolbox-offline
+bun run verify:strict
+bun run verify:professional-capability:report
+bun run check:release-metadata
+git diff --check
+</code></pre>
+  <p>
+    外部corpus、Docker、offline DB、browser、live model、human approverが必要なgateは、
+    missingをpassにせず<code>blocked</code>または<code>not_measured</code>として保存する。
+  </p>
+  <h2 id="22-definition-of-done">22. Definition of Done</h2>
+  <p>Phase 56のtechnical completion:</p>
+  <ul>
+    <li>
+      <input disabled="" type="checkbox" /> OSVを含む全technical claim gateがauthoritative
+      Linuxでpassする。
+    </li>
+    <li>
+      <input disabled="" type="checkbox" /> passing run IDと全provenance hashがisolated
+      DB/reportで一致する。
+    </li>
+    <li>
+      <input disabled="" type="checkbox" /> READMEとgenerated
+      docsがofficial/local/limitationsを正しく分離する。
+    </li>
+    <li>
+      <input disabled="" type="checkbox" />
+      <code>/</code>とbrandがScansへ到達し、security modeがdefault
+      surfaceになる。
+    </li>
+    <li><input disabled="" type="checkbox" /> OWASP弱点categoryとholdout targetを満たす。</li>
+    <li>
+      <input disabled="" type="checkbox" /> JS/TS/Python/Go評価で未測定をverifiedと表示しない。
+    </li>
+    <li>
+      <input disabled="" type="checkbox" /> real-repository business/endpoint metricsがowned
+      fixtureと分離される。
+    </li>
+    <li><input disabled="" type="checkbox" /> LLM review qualityが人手labelに対して測定される。</li>
+    <li>
+      <input disabled="" type="checkbox" /> Java/Python/Go target startがsandbox外で実行されない。
+    </li>
+    <li>
+      <input disabled="" type="checkbox" /> SARIF 2.1とstable CI envelopeがnegative
+      test付きで利用できる。
+    </li>
+    <li>
+      <input disabled="" type="checkbox" /> fresh-clone、migration、backup/restore、offline toolbox
+      gateがpassする。
+    </li>
+    <li>
+      <input disabled="" type="checkbox" /> diagnostics、6 route、Scans UIのfocused test
+      gapが閉じる。
+    </li>
+    <li>
+      <input disabled="" type="checkbox" /> selected scopeのsame-commit Ubuntu closeoutがpassする。
+    </li>
+  </ul>
+  <p>Professional claim completion:</p>
+  <ul>
+    <li>
+      <input disabled="" type="checkbox" /> technical
+      eligibilityが<code>eligible</code>である。
+    </li>
+    <li>
+      <input disabled="" type="checkbox" /> protected reviewer approvalがcandidate report
+      hashとrelease commitへ結び付く。
+    </li>
+    <li>
+      <input disabled="" type="checkbox" /> final
+      reportだけが<code>claimStatus=met</code>を持つ。
+    </li>
+    <li>
+      <input disabled="" type="checkbox" /> claim scopeとunsupported/deferred
+      boundaryを公開文書で明示する。
+    </li>
+  </ul>
+  <p>Sustainability completion:</p>
+  <ul>
+    <li>
+      <input disabled="" type="checkbox" /> backup maintainerが1名以上割り当てられrelease
+      drillを完了する。
+    </li>
+    <li><input disabled="" type="checkbox" /> active plan indexとarchiveに新旧混在がない。</li>
+    <li>
+      <input disabled="" type="checkbox" /> next versionのtag、package、release
+      note、report、SBOMが一致する。
+    </li>
+  </ul>
+  <h2 id="23-stop-conditions">23. Stop conditions</h2>
+  <p>次のいずれかが発生したsliceはmergeまたはrolloutを停止する。</p>
+  <ul>
+    <li>missing evidence、DB、corpus、runtime、approvalをpassへ丸めた。</li>
+    <li>benchmark threshold、ground truth、分母を実装結果に合わせて弱めた。</li>
+    <li>holdout labelをdetector変更と同じreview境界で変更した。</li>
+    <li>target project codeをhostでspawnした。</li>
+    <li>imported SARIFまたはLLM outputだけでfindingをconfirmedへ昇格した。</li>
+    <li>source、snippet、credential、absolute home pathをrelease artifactへ保存した。</li>
+    <li>security mode無効化によりscan review/reportのdeterministic fallbackが壊れた。</li>
+    <li>required gateがblockedのままclaim、support tier、tagを進めた。</li>
+  </ul>
+  <p>
+    停止時は安全境界やpolicyを弱めず、該当sliceをrollbackまたは<code>blocked</code>へ戻す。
+  </p>
+</article>

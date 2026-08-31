@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { requestJson, requestVoid } from "./core-request";
+import {
+	ApiRequestError,
+	isApiRequestError,
+	requestJson,
+	requestVoid,
+} from "./core-request";
 
 describe("core API request helpers", () => {
 	afterEach(() => {
@@ -51,5 +56,28 @@ describe("core API request helpers", () => {
 		await expect(requestJson("/api/projects")).rejects.toThrow(
 			"invalid request",
 		);
+	});
+
+	it("preserves the status, code and details of a structured error", async () => {
+		vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+			new Response(
+				JSON.stringify({
+					message: "Project still has active work",
+					code: "PROJECT_HAS_ACTIVE_WORK",
+					details: { count: 2 },
+				}),
+				{ status: 409, headers: { "content-type": "application/json" } },
+			),
+		);
+
+		const error = await requestJson("/api/projects/project-1").catch(
+			(error: unknown) => error,
+		);
+		expect(error).toBeInstanceOf(ApiRequestError);
+		expect(isApiRequestError(error)).toBe(true);
+		if (!isApiRequestError(error)) throw new Error("Expected ApiRequestError");
+		expect(error.status).toBe(409);
+		expect(error.code).toBe("PROJECT_HAS_ACTIVE_WORK");
+		expect(error.details).toEqual({ count: 2 });
 	});
 });

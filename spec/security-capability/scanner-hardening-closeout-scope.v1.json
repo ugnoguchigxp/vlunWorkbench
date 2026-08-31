@@ -1,0 +1,577 @@
+{
+	"schemaVersion": 1,
+	"changeSetBaseCommit": "40e77d31562d47bdf6225374e191219d81398b9a",
+	"planningBaselineCommit": "9cc83f97087a20efcd33662072f922fa0818e421",
+	"expectedBaselineChangeCount": 78,
+	"baselineInventory": [
+		{
+			"status": "modified",
+			"path": "api/cli/scan-profile-dry-run.test.ts",
+			"classification": "scanner_hardening",
+			"reasonCode": "scanner_test"
+		},
+		{
+			"status": "modified",
+			"path": "api/cli/scan-profile-dry-run.ts",
+			"classification": "scanner_hardening",
+			"reasonCode": "scanner_production"
+		},
+		{
+			"status": "modified",
+			"path": "api/cli/scan-profile.ts",
+			"classification": "scanner_hardening",
+			"reasonCode": "scanner_production"
+		},
+		{
+			"status": "modified",
+			"path": "api/db/index.ts",
+			"classification": "scanner_hardening",
+			"reasonCode": "scanner_production"
+		},
+		{
+			"status": "modified",
+			"path": "api/modules/api-schema-fuzz/schema-discovery.test.ts",
+			"classification": "scanner_hardening",
+			"reasonCode": "scanner_test"
+		},
+		{
+			"status": "modified",
+			"path": "api/modules/api-schema-fuzz/schema-discovery.ts",
+			"classification": "scanner_hardening",
+			"reasonCode": "scanner_production"
+		},
+		{
+			"status": "added",
+			"path": "api/modules/scans/profile-dast-step-runner.test.ts",
+			"classification": "scanner_hardening",
+			"reasonCode": "scanner_test"
+		},
+		{
+			"status": "modified",
+			"path": "api/modules/scans/profile-dast-step-runner.ts",
+			"classification": "scanner_hardening",
+			"reasonCode": "scanner_production"
+		},
+		{
+			"status": "modified",
+			"path": "api/modules/scans/profile-orchestrator.ts",
+			"classification": "scanner_hardening",
+			"reasonCode": "scanner_production"
+		},
+		{
+			"status": "modified",
+			"path": "api/modules/scans/profile-runner.test.ts",
+			"classification": "scanner_hardening",
+			"reasonCode": "scanner_test"
+		},
+		{
+			"status": "modified",
+			"path": "api/modules/scans/profile-runtime-step-runner.ts",
+			"classification": "scanner_hardening",
+			"reasonCode": "scanner_production"
+		},
+		{
+			"status": "modified",
+			"path": "api/modules/scans/profile-schema-step-runner.ts",
+			"classification": "scanner_hardening",
+			"reasonCode": "scanner_production"
+		},
+		{
+			"status": "modified",
+			"path": "api/modules/scans/profile-static-tool-runner.ts",
+			"classification": "scanner_hardening",
+			"reasonCode": "scanner_production"
+		},
+		{
+			"status": "added",
+			"path": "api/modules/scans/profile-tool-provenance.test.ts",
+			"classification": "scanner_hardening",
+			"reasonCode": "scanner_test"
+		},
+		{
+			"status": "modified",
+			"path": "api/modules/scans/profile-tool-provenance.ts",
+			"classification": "scanner_hardening",
+			"reasonCode": "scanner_production"
+		},
+		{
+			"status": "modified",
+			"path": "api/modules/scans/report-builder-overview.ts",
+			"classification": "scanner_hardening",
+			"reasonCode": "scanner_production"
+		},
+		{
+			"status": "modified",
+			"path": "api/modules/scans/report-builder.test.ts",
+			"classification": "scanner_hardening",
+			"reasonCode": "scanner_test"
+		},
+		{
+			"status": "modified",
+			"path": "api/modules/scans/repositories.test.ts",
+			"classification": "scanner_hardening",
+			"reasonCode": "scanner_test"
+		},
+		{
+			"status": "modified",
+			"path": "api/modules/scans/repositories.ts",
+			"classification": "scanner_hardening",
+			"reasonCode": "scanner_production"
+		},
+		{
+			"status": "modified",
+			"path": "api/modules/scans/scan-execution-plan-builder.test.ts",
+			"classification": "scanner_hardening",
+			"reasonCode": "scanner_test"
+		},
+		{
+			"status": "modified",
+			"path": "api/modules/scans/scan-execution-plan-builder.ts",
+			"classification": "scanner_hardening",
+			"reasonCode": "scanner_production"
+		},
+		{
+			"status": "modified",
+			"path": "api/modules/scans/scan-preflight-probes.ts",
+			"classification": "scanner_hardening",
+			"reasonCode": "scanner_production"
+		},
+		{
+			"status": "modified",
+			"path": "api/modules/scans/scan-preflight.test.ts",
+			"classification": "scanner_hardening",
+			"reasonCode": "scanner_test"
+		},
+		{
+			"status": "modified",
+			"path": "api/modules/scans/scan-preflight.ts",
+			"classification": "scanner_hardening",
+			"reasonCode": "scanner_production"
+		},
+		{
+			"status": "modified",
+			"path": "api/modules/scans/scan-review-bundle.test.ts",
+			"classification": "scanner_hardening",
+			"reasonCode": "scanner_test"
+		},
+		{
+			"status": "modified",
+			"path": "api/modules/scans/scan-review-bundle.ts",
+			"classification": "scanner_hardening",
+			"reasonCode": "scanner_production"
+		},
+		{
+			"status": "modified",
+			"path": "api/modules/scans/scanner-e2e-qualification.ts",
+			"classification": "scanner_hardening",
+			"reasonCode": "scanner_production"
+		},
+		{
+			"status": "added",
+			"path": "api/modules/scans/scanner-e2e-v2-qualification.test.ts",
+			"classification": "scanner_hardening",
+			"reasonCode": "scanner_test"
+		},
+		{
+			"status": "modified",
+			"path": "api/modules/scans/tools/trivy-runner.ts",
+			"classification": "scanner_hardening",
+			"reasonCode": "scanner_production"
+		},
+		{
+			"status": "modified",
+			"path": "api/routes/projects.route.test.ts",
+			"classification": "scanner_hardening",
+			"reasonCode": "scanner_test"
+		},
+		{
+			"status": "modified",
+			"path": "api/routes/projects.route.ts",
+			"classification": "scanner_hardening",
+			"reasonCode": "scanner_production"
+		},
+		{
+			"status": "modified",
+			"path": "api/routes/scan-profiles.route.test.ts",
+			"classification": "scanner_hardening",
+			"reasonCode": "scanner_test"
+		},
+		{
+			"status": "modified",
+			"path": "package.json",
+			"classification": "scanner_hardening",
+			"reasonCode": "scanner_contract"
+		},
+		{
+			"status": "added",
+			"path": "scripts/build-scanner-e2e-v2-qualification.ts",
+			"classification": "scanner_hardening",
+			"reasonCode": "scanner_contract"
+		},
+		{
+			"status": "added",
+			"path": "scripts/scan-execution-effectiveness-baseline-lib.test.ts",
+			"classification": "scanner_hardening",
+			"reasonCode": "scanner_test"
+		},
+		{
+			"status": "added",
+			"path": "scripts/scan-execution-effectiveness-baseline.ts",
+			"classification": "scanner_hardening",
+			"reasonCode": "scanner_evidence"
+		},
+		{
+			"status": "added",
+			"path": "scripts/scanner-e2e-full-profile-lib.ts",
+			"classification": "scanner_hardening",
+			"reasonCode": "scanner_contract"
+		},
+		{
+			"status": "added",
+			"path": "scripts/scanner-e2e-v2-case-registry.test.ts",
+			"classification": "scanner_hardening",
+			"reasonCode": "scanner_test"
+		},
+		{
+			"status": "added",
+			"path": "scripts/scanner-e2e-v2-case-registry.ts",
+			"classification": "scanner_hardening",
+			"reasonCode": "scanner_contract"
+		},
+		{
+			"status": "added",
+			"path": "scripts/scanner-e2e-v2-work.test.ts",
+			"classification": "scanner_hardening",
+			"reasonCode": "scanner_test"
+		},
+		{
+			"status": "added",
+			"path": "scripts/scanner-e2e-v2-work.ts",
+			"classification": "scanner_hardening",
+			"reasonCode": "scanner_evidence"
+		},
+		{
+			"status": "modified",
+			"path": "scripts/scanner-e2e.ts",
+			"classification": "scanner_hardening",
+			"reasonCode": "scanner_evidence"
+		},
+		{
+			"status": "modified",
+			"path": "scripts/todolist-scan-acceptance-lib.test.ts",
+			"classification": "scanner_hardening",
+			"reasonCode": "scanner_test"
+		},
+		{
+			"status": "modified",
+			"path": "scripts/todolist-scan-acceptance-lib.ts",
+			"classification": "scanner_hardening",
+			"reasonCode": "scanner_contract"
+		},
+		{
+			"status": "modified",
+			"path": "scripts/todolist-scan-acceptance.ts",
+			"classification": "scanner_hardening",
+			"reasonCode": "scanner_evidence"
+		},
+		{
+			"status": "added",
+			"path": "scripts/verify-scanner-e2e-full-profile-evidence.test.ts",
+			"classification": "scanner_hardening",
+			"reasonCode": "scanner_test"
+		},
+		{
+			"status": "added",
+			"path": "scripts/verify-scanner-e2e-full-profile-evidence.ts",
+			"classification": "scanner_hardening",
+			"reasonCode": "scanner_evidence"
+		},
+		{
+			"status": "added",
+			"path": "scripts/verify-scanner-e2e-repeatability.test.ts",
+			"classification": "scanner_hardening",
+			"reasonCode": "scanner_test"
+		},
+		{
+			"status": "added",
+			"path": "scripts/verify-scanner-e2e-repeatability.ts",
+			"classification": "scanner_hardening",
+			"reasonCode": "scanner_evidence"
+		},
+		{
+			"status": "added",
+			"path": "scripts/verify-scanner-e2e-v2-evidence.test.ts",
+			"classification": "scanner_hardening",
+			"reasonCode": "scanner_test"
+		},
+		{
+			"status": "added",
+			"path": "scripts/verify-scanner-e2e-v2-evidence.ts",
+			"classification": "scanner_hardening",
+			"reasonCode": "scanner_evidence"
+		},
+		{
+			"status": "modified",
+			"path": "shared/schemas/scan-execution-plan.schema.ts",
+			"classification": "scanner_hardening",
+			"reasonCode": "scanner_contract"
+		},
+		{
+			"status": "modified",
+			"path": "shared/schemas/scan-preflight.schema.ts",
+			"classification": "scanner_hardening",
+			"reasonCode": "scanner_contract"
+		},
+		{
+			"status": "added",
+			"path": "shared/schemas/scanner-e2e-full-profile.schema.ts",
+			"classification": "scanner_hardening",
+			"reasonCode": "scanner_contract"
+		},
+		{
+			"status": "added",
+			"path": "shared/schemas/scanner-e2e-qualification-v2.schema.ts",
+			"classification": "scanner_hardening",
+			"reasonCode": "scanner_contract"
+		},
+		{
+			"status": "added",
+			"path": "shared/schemas/scanner-e2e-v2.schema.ts",
+			"classification": "scanner_hardening",
+			"reasonCode": "scanner_contract"
+		},
+		{
+			"status": "renamed",
+			"previousPath": "spec/docs/scan-execution-effectiveness-remediation-plan.html",
+			"path": "spec/docs/.archived/scan-execution-effectiveness-remediation-plan.html",
+			"similarity": 100,
+			"classification": "scanner_hardening",
+			"reasonCode": "archive_move"
+		},
+		{
+			"status": "modified",
+			"path": "spec/docs/backend-scanner-todolist-hardening-test-plan.html",
+			"classification": "scanner_hardening",
+			"reasonCode": "scanner_documentation"
+		},
+		{
+			"status": "added",
+			"path": "spec/docs/scanner-hardening-archive-closeout-implementation-plan.html",
+			"classification": "scanner_hardening",
+			"reasonCode": "scanner_documentation"
+		},
+		{
+			"status": "added",
+			"path": "spec/evidence/scan-execution-effectiveness-baseline.json",
+			"classification": "scanner_hardening",
+			"reasonCode": "scanner_evidence"
+		},
+		{
+			"status": "modified",
+			"path": "spec/generated/security-capability-table.html",
+			"classification": "generated",
+			"reasonCode": "generated_security_capability"
+		},
+		{
+			"status": "modified",
+			"path": "spec/index.html",
+			"classification": "scanner_hardening",
+			"reasonCode": "scanner_documentation"
+		},
+		{
+			"status": "added",
+			"path": "spec/security-capability/scanner-e2e-cases.v2.json",
+			"classification": "scanner_hardening",
+			"reasonCode": "scanner_contract"
+		},
+		{
+			"status": "modified",
+			"path": "web/src/api/scans-execution.ts",
+			"classification": "separate_ui",
+			"reasonCode": "phase_56_ui_contract"
+		},
+		{
+			"status": "modified",
+			"path": "web/src/api/scans.ts",
+			"classification": "separate_ui",
+			"reasonCode": "phase_56_ui_contract"
+		},
+		{
+			"status": "modified",
+			"path": "web/src/domains/scans/components/workflow-completion-panel.tsx",
+			"classification": "separate_ui",
+			"reasonCode": "phase_56_ui_contract"
+		},
+		{
+			"status": "modified",
+			"path": "web/src/domains/scans/diagnostic-dashboard.test.ts",
+			"classification": "separate_ui",
+			"reasonCode": "phase_56_ui_contract"
+		},
+		{
+			"status": "modified",
+			"path": "web/src/domains/scans/diagnostic-dashboard.ts",
+			"classification": "separate_ui",
+			"reasonCode": "phase_56_ui_contract"
+		},
+		{
+			"status": "modified",
+			"path": "web/src/domains/scans/report-workspace-view-model.test.ts",
+			"classification": "separate_ui",
+			"reasonCode": "phase_56_ui_contract"
+		},
+		{
+			"status": "modified",
+			"path": "web/src/domains/scans/report-workspace-view-model.ts",
+			"classification": "separate_ui",
+			"reasonCode": "phase_56_ui_contract"
+		},
+		{
+			"status": "modified",
+			"path": "web/src/domains/scans/scan-preflight-display.test.ts",
+			"classification": "separate_ui",
+			"reasonCode": "phase_56_ui_contract"
+		},
+		{
+			"status": "modified",
+			"path": "web/src/domains/scans/scan-profile-display.test.ts",
+			"classification": "separate_ui",
+			"reasonCode": "phase_56_ui_contract"
+		},
+		{
+			"status": "modified",
+			"path": "web/src/domains/scans/scan-profile-display.ts",
+			"classification": "separate_ui",
+			"reasonCode": "phase_56_ui_contract"
+		},
+		{
+			"status": "modified",
+			"path": "web/src/domains/scans/scans-launch-actions.ts",
+			"classification": "separate_ui",
+			"reasonCode": "phase_56_ui_contract"
+		},
+		{
+			"status": "modified",
+			"path": "web/src/domains/scans/work-states.test.ts",
+			"classification": "separate_ui",
+			"reasonCode": "phase_56_ui_contract"
+		},
+		{
+			"status": "modified",
+			"path": "web/src/domains/scans/work-states.ts",
+			"classification": "separate_ui",
+			"reasonCode": "phase_56_ui_contract"
+		},
+		{
+			"status": "modified",
+			"path": "web/src/domains/scans/workflow-completion.test.ts",
+			"classification": "separate_ui",
+			"reasonCode": "phase_56_ui_contract"
+		},
+		{
+			"status": "modified",
+			"path": "web/src/domains/scans/workflow-completion.ts",
+			"classification": "separate_ui",
+			"reasonCode": "phase_56_ui_contract"
+		}
+	],
+	"allowedResidualPatterns": [
+		".github/workflows/scanner-e2e-real.yml",
+		".github/workflows/verify.yml",
+		"api/db/writer/fixtures/concurrent-client.ts",
+		"api/db/writer/writer.integration.test.ts",
+		"api/modules/api-schema-fuzz/**",
+		"api/modules/dast/**",
+		"api/modules/processes/**",
+		"api/modules/runtime-scans/zap-baseline-runner.test.ts",
+		"api/modules/scans/**",
+		"api/modules/static-intelligence/static-intelligence-mcp-stdio.test.ts",
+		"api/testing/scanner-e2e-failure-observation.ts",
+		"package.json",
+		"scripts/build-scanner-e2e-v2-qualification.ts",
+		"scripts/build-scanner-hardening-ci-receipt.ts",
+		"scripts/bun-test-lifecycle.ts",
+		"scripts/bun-test-subprocess-capture.ts",
+		"scripts/capture-scanner-hardening-branch-protection.ts",
+		"scripts/check-scanner-hardening-closeout-scope.test.ts",
+		"scripts/check-scanner-hardening-closeout-scope.ts",
+		"scripts/scanner-e2e-failure.test.ts",
+		"scripts/scanner-e2e-failure.ts",
+		"scripts/scanner-e2e-full-profile-lib.ts",
+		"scripts/scanner-e2e-v2-case-registry.test.ts",
+		"scripts/scanner-e2e-v2-case-registry.ts",
+		"scripts/scanner-e2e-v2-work.test.ts",
+		"scripts/scanner-e2e-v2-work.ts",
+		"scripts/scanner-e2e.ts",
+		"scripts/scanner-hardening-closeout.test.ts",
+		"scripts/scanner-hardening-closeout.ts",
+		"scripts/test-files.test.ts",
+		"scripts/test-files.ts",
+		"scripts/todolist-scan-acceptance-lib.test.ts",
+		"scripts/todolist-scan-acceptance-lib.ts",
+		"scripts/verify-scanner-e2e-failure-evidence.test.ts",
+		"scripts/verify-scanner-e2e-failure-evidence.ts",
+		"scripts/verify-scanner-e2e-full-profile-evidence.test.ts",
+		"scripts/verify-scanner-e2e-full-profile-evidence.ts",
+		"scripts/verify-scanner-e2e-repeatability.test.ts",
+		"scripts/verify-scanner-e2e-repeatability.ts",
+		"scripts/verify-scanner-e2e-v2-evidence.test.ts",
+		"scripts/verify-scanner-e2e-v2-evidence.ts",
+		"scripts/verify-scanner-e2e-v2-qualification.ts",
+		"scripts/verify-scanner-hardening-ci-receipt.test.ts",
+		"scripts/verify-scanner-hardening-ci-receipt.ts",
+		"scripts/verify-scanner-hardening-closeout.test.ts",
+		"scripts/verify-scanner-hardening-closeout.ts",
+		"scripts/verify-scanner-hardening-dod.test.ts",
+		"scripts/verify-scanner-hardening-dod.ts",
+		"scripts/verify-security-intelligence-integrity-evidence.test.ts",
+		"scripts/verify-security-intelligence-integrity-evidence.ts",
+		"scripts/verify-todolist-scanner-baseline.test.ts",
+		"scripts/verify-todolist-scanner-baseline.ts",
+		"scripts/workflow-supply-chain-policy.test.ts",
+		"shared/schemas/scanner-e2e-failure.schema.ts",
+		"shared/schemas/scanner-e2e-full-profile.schema.ts",
+		"shared/schemas/scanner-e2e-qualification-v2.schema.ts",
+		"shared/schemas/scanner-e2e-v2.schema.ts",
+		"shared/schemas/scanner-hardening-closeout.schema.ts",
+		"shared/schemas/scanner-hardening-dod.schema.ts",
+		"shared/schemas/scanner-hardening-receipt.schema.test.ts",
+		"shared/schemas/scanner-hardening-receipt.schema.ts",
+		"shared/schemas/todolist-scanner-baseline.schema.ts",
+		"shared/schemas/todolist-scan-target.schema.ts",
+		"spec/docs/.archived/scan-execution-effectiveness-remediation-plan.html",
+		"spec/docs/backend-scanner-todolist-hardening-test-plan.html",
+		"spec/docs/phase-56-capability-product-completion-plan.html",
+		"spec/docs/scanner-hardening-archive-closeout-implementation-plan.html",
+		"spec/evidence/scanner-hardening-archive-closeout.v1.json",
+		"spec/generated/security-capability-table.html",
+		"spec/index.html",
+		"spec/security-capability/scan-execution-remediation-closeout.v1.json",
+		"spec/security-capability/scanner-e2e-cases.v2.json",
+		"spec/security-capability/scanner-e2e-failure-cases.v1.json",
+		"spec/security-capability/scanner-hardening-closeout-scope.v1.json",
+		"spec/security-capability/scanner-hardening-dod.v1.json",
+		"spec/security-capability/todolist-scanner-baseline.v1.json",
+		"spec/security-capability/todolist-scan-target.v2.json",
+		"vitest.config.ts"
+	],
+	"excludedResidualPatterns": [
+		"artifacts/**",
+		"dist-web/**",
+		"dist/**",
+		"todolist/**",
+		"web/**"
+	],
+	"generatedPaths": [
+		{
+			"path": "spec/generated/security-capability-table.html",
+			"command": ["bun", "run", "docs:security-capability"]
+		}
+	],
+	"requiredResidualPaths": [
+		"scripts/check-scanner-hardening-closeout-scope.test.ts",
+		"scripts/check-scanner-hardening-closeout-scope.ts",
+		"shared/schemas/scanner-hardening-closeout.schema.ts",
+		"spec/security-capability/scanner-hardening-closeout-scope.v1.json"
+	]
+}

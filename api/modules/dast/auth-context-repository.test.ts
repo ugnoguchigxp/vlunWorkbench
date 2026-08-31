@@ -87,6 +87,81 @@ describe("DastAuthContextRepository", () => {
 		);
 	});
 
+	it("binds API use to the configured target origin", async () => {
+		const created = await repository.create({
+			projectId,
+			targetConfigId,
+			identityRole: "api-user",
+			label: "API user",
+			secret: { kind: "named_header", name: "X-Api-Key", value: "canary" },
+			loginFlow: [],
+			expiresAt: new Date(Date.now() + 60_000).toISOString(),
+			createdByUserId: userId,
+		});
+		await expect(
+			repository.decryptForOriginUse({
+				id: created.id,
+				projectId,
+				targetOrigin: "http://127.0.0.1:3000",
+				identityRole: "api-user",
+			}),
+		).resolves.toMatchObject({ secret: { value: "canary" } });
+		await expect(
+			repository.decryptForOriginUse({
+				id: created.id,
+				projectId,
+				targetOrigin: "http://127.0.0.1:3001",
+				identityRole: "api-user",
+			}),
+		).rejects.toThrow("does not match");
+	});
+
+	it("revalidates credential scope after a target origin changes", async () => {
+		const created = await repository.create({
+			projectId,
+			targetConfigId,
+			identityRole: "cookie-user",
+			label: "Cookie user",
+			secret: {
+				kind: "cookie_set",
+				cookies: [
+					{
+						name: "session",
+						value: "cookie-canary",
+						domain: "127.0.0.1",
+					},
+				],
+			},
+			loginFlow: [],
+			expiresAt: new Date(Date.now() + 60_000).toISOString(),
+			createdByUserId: userId,
+		});
+		await connection.db
+			.update(dastTargetConfigs)
+			.set({
+				origin: "http://localhost:3000",
+				normalizedOrigin: "http://localhost:3000",
+			})
+			.where(eq(dastTargetConfigs.id, targetConfigId));
+
+		await expect(
+			repository.decryptForOriginUse({
+				id: created.id,
+				projectId,
+				targetOrigin: "http://localhost:3000",
+				identityRole: "cookie-user",
+			}),
+		).rejects.toThrow("cookie_domain_out_of_scope");
+		await expect(
+			repository.decryptForUse({
+				id: created.id,
+				projectId,
+				targetConfigId,
+				identityRole: "cookie-user",
+			}),
+		).rejects.toThrow("cookie_domain_out_of_scope");
+	});
+
 	it("rejects revoked and expired credentials before use", async () => {
 		const expired = await repository.create({
 			projectId,

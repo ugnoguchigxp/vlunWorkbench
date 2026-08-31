@@ -1,13 +1,15 @@
-import { describe, expect, it, beforeEach, afterEach } from "vitest";
-import { readFileSync, readdirSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { eq } from "drizzle-orm";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createDbConnection, type DbConnection } from "../../db";
-import { users } from "../../db/schema";
+import { scanRuns, users } from "../../db/schema";
+import { recordScannerE2EFailureObservation } from "../../testing/scanner-e2e-failure-observation";
 import {
-	ProjectRepository,
-	ScanRepository,
 	ArtifactRepository,
 	FindingRepository,
+	ProjectRepository,
+	ScanRepository,
 } from "./repositories";
 
 describe("Scan Domain Repositories", () => {
@@ -188,6 +190,176 @@ describe("Scan Domain Repositories", () => {
 		expect(updatedTool?.exitCode).toBe(0);
 		expect(updatedTool?.toolVersion).toBe("2.17.0");
 		expect(updatedTool?.metadata).toMatchObject({ image: "zaproxy/zap-stable@sha256:example" });
+	});
+
+	it("preserves null-valued nested scan metadata during an atomic merge", async () => {
+		const project = await projectRepo.createProject({
+			ownerUserId: userId,
+			name: "Preflight metadata project",
+			repoPath: "/path/to/preflight-metadata",
+		});
+		const scanRun = await scanRepo.createScanRun({
+			projectId: project.id,
+			profile: "baseline",
+			status: "running",
+			metadata: { existing: { preserved: true } },
+		});
+
+		await scanRepo.mergeScanRunMetadata(scanRun.id, {
+			scanPreflight: {
+				sourceRevision: null,
+				sourceState: "unknown",
+				binding: { dockerImagesHash: null, sourceRevisionHash: null },
+			},
+		});
+
+		expect((await scanRepo.findById(scanRun.id))?.metadata).toEqual({
+			existing: { preserved: true },
+			scanPreflight: {
+				sourceRevision: null,
+				sourceState: "unknown",
+				binding: { dockerImagesHash: null, sourceRevisionHash: null },
+			},
+		});
+	});
+
+	it("keeps a scan execution plan immutable", async () => {
+		const project = await projectRepo.createProject({
+			ownerUserId: userId,
+			name: "Immutable execution plan project",
+			repoPath: "/path/to/immutable-plan",
+		});
+		const scanRun = await scanRepo.createScanRun({
+			projectId: project.id,
+			profile: "strict-profile",
+			status: "running",
+		});
+		const original = {
+			scanRunId: scanRun.id,
+			projectId: project.id,
+			planHash: `sha256:${"a".repeat(64)}`,
+			profileId: "strict-profile",
+			strictness: "strict",
+		};
+		const saved = await scanRepo.saveExecutionPlan({
+			scanRunId: scanRun.id,
+			projectId: project.id,
+			profileId: "strict-profile",
+			strictness: "strict",
+			planHash: original.planHash,
+			plan: original,
+		});
+		expect(saved.plan).toEqual(original);
+
+		const repeated = await scanRepo.saveExecutionPlan({
+			scanRunId: scanRun.id,
+			projectId: project.id,
+			profileId: "strict-profile",
+			strictness: "strict",
+			planHash: original.planHash,
+			plan: original,
+		});
+		expect(repeated.id).toBe(saved.id);
+
+		const changedHash = `sha256:${"b".repeat(64)}`;
+		await expect(
+			scanRepo.saveExecutionPlan({
+				scanRunId: scanRun.id,
+				projectId: project.id,
+				profileId: "strict-profile",
+				strictness: "strict",
+				planHash: changedHash,
+				plan: { ...original, planHash: changedHash },
+			}),
+		).rejects.toThrow("scan_execution_plan_immutable_conflict");
+	});
+
+	it("lists scan history newest first", async () => {
+		const project = await projectRepo.createProject({
+			ownerUserId: userId,
+			name: "Ordered scans",
+			repoPath: "/path/to/ordered-scans",
+		});
+		const older = await scanRepo.createScanRun({
+			projectId: project.id,
+			profile: "older",
+			status: "completed",
+		});
+		const newer = await scanRepo.createScanRun({
+			projectId: project.id,
+			profile: "newer",
+			status: "completed",
+		});
+		await connection.db
+			.update(scanRuns)
+			.set({ createdAt: new Date("2026-01-01T00:00:00.000Z") })
+			.where(eq(scanRuns.id, older.id));
+		await connection.db
+			.update(scanRuns)
+			.set({ createdAt: new Date("2026-01-02T00:00:00.000Z") })
+			.where(eq(scanRuns.id, newer.id));
+
+		expect(
+			(await scanRepo.listScanRunsByProject(project.id)).map((scan) => scan.id),
+		).toEqual([newer.id, older.id]);
+	});
+
+	it("reports a rejected active-to-terminal transition without overwriting the winner", async () => {
+		const project = await projectRepo.createProject({
+			ownerUserId: userId,
+			name: "Transition Project",
+			repoPath: "/path/to/transition-repo",
+		});
+		const scanRun = await scanRepo.createScanRun({
+			projectId: project.id,
+			profile: "baseline",
+			status: "queued",
+			createdByUserId: userId,
+		});
+		await scanRepo.updateScanRunStatus(scanRun.id, "completed");
+
+		const rejected = await scanRepo.updateScanRunStatus(scanRun.id, "failed", {
+			returnNullIfNotUpdated: true,
+		});
+
+		expect(rejected).toBeNull();
+		expect((await scanRepo.findById(scanRun.id))?.status).toBe("completed");
+	});
+
+	it("allows exactly one concurrent terminal transition and preserves metadata", async () => {
+		const project = await projectRepo.createProject({
+			ownerUserId: userId,
+			name: "Concurrent terminal transition",
+			repoPath: "/path/to/concurrent-terminal-transition",
+		});
+		const scanRun = await scanRepo.createScanRun({
+			projectId: project.id,
+			profile: "baseline",
+			status: "running",
+			createdByUserId: userId,
+			metadata: { preflightHash: "sha256:preserved" },
+		});
+
+		const [completed, failed] = await Promise.all([
+			scanRepo.updateScanRunStatus(scanRun.id, "completed", {
+				returnNullIfNotUpdated: true,
+				metadata: { completedBy: "left" },
+			}),
+			scanRepo.updateScanRunStatus(scanRun.id, "failed", {
+				returnNullIfNotUpdated: true,
+				metadata: { completedBy: "right" },
+			}),
+		]);
+		expect([completed, failed].filter((result) => result !== null)).toHaveLength(1);
+		const stored = await scanRepo.findById(scanRun.id);
+		expect(["completed", "failed"]).toContain(stored?.status);
+		expect(stored?.metadata).toMatchObject({
+			preflightHash: "sha256:preserved",
+		});
+		recordScannerE2EFailureObservation("FI-11", {
+			profileOutcome: "terminal",
+			reasonCodes: ["terminal_transition_conflict"],
+		});
 	});
 
 	it("should store scan artifacts, findings, and evidence", async () => {

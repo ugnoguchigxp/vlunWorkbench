@@ -5,13 +5,23 @@ import {
 	createScanReportSchema,
 	createScanReviewSchema,
 } from "../../shared/schemas/scan.schema";
+import { scanExecutionPlanSchema } from "../../shared/schemas/scan-execution-plan.schema";
 import type { AppDatabase } from "../db";
+import { AssessmentRepository } from "../modules/assessments/assessment-repository";
+import { buildCoverageResults } from "../modules/assessments/coverage-builder";
+import { coverageControlById } from "../modules/assessments/coverage-catalog";
 import { getAuthContextUser } from "../modules/auth/context";
 import { HttpError } from "../modules/auth/errors";
 import type { FindingDecisionRepository } from "../modules/decisions/finding-decision-repository";
-import { FindingReviewRepository } from "../modules/reviews/finding-review-repository";
 import { ScanReportRunner } from "../modules/reports/scan-report-runner";
+import { FindingReviewRepository } from "../modules/reviews/finding-review-repository";
 import type { ArtifactStorage } from "../modules/scans/artifact-storage";
+import { projectScanProgress } from "../modules/scans/execution/scan-progress-projector";
+import { FindingGroupingRunner } from "../modules/scans/finding-grouping-runner";
+import {
+	buildFindingTextExport,
+	buildFindingTextExportFilename,
+} from "../modules/scans/findings/finding-text-export";
 import { buildGroupedFindings } from "../modules/scans/grouping-builder";
 import type { ScanReportRepository } from "../modules/scans/report-repository";
 import type {
@@ -20,15 +30,14 @@ import type {
 	ProjectRepository,
 	ScanRepository,
 } from "../modules/scans/repositories";
+import type { ScanDeletionService } from "../modules/scans/scan-deletion-service";
 import { ScanDiagnosticRepository } from "../modules/scans/scan-diagnostic-repository";
 import type { ScanDiagnosticRunner } from "../modules/scans/scan-diagnostic-runner";
+import { ScanImprovementRequestRunner } from "../modules/scans/scan-improvement-request-runner";
 import type { ScanProcessSupervisor } from "../modules/scans/scan-process-supervisor";
 import { ScanReviewRepository } from "../modules/scans/scan-review-repository";
 import { ScanReviewRunner } from "../modules/scans/scan-review-runner";
 import { buildScanRunSummary } from "../modules/scans/summary-builder";
-import { AssessmentRepository } from "../modules/assessments/assessment-repository";
-import { buildCoverageResults } from "../modules/assessments/coverage-builder";
-import { coverageControlById } from "../modules/assessments/coverage-catalog";
 import type { LlmRouter } from "../providers/llmRouter";
 
 type ScansRouteDeps = {
@@ -47,8 +56,10 @@ type ScansRouteDeps = {
 	llmRouter?: LlmRouter;
 	scanSupervisor?: ScanProcessSupervisor;
 	scanReviewRunner?: Pick<ScanReviewRunner, "start">;
+	improvementRequestRunner?: Pick<ScanImprovementRequestRunner, "start">;
 	scanReportRunner?: Pick<ScanReportRunner, "start">;
 	scanDiagnosticRunner?: Pick<ScanDiagnosticRunner, "retry">;
+	scanDeletionService: Pick<ScanDeletionService, "deleteOwnedScan">;
 };
 
 const FindingsQuerySchema = z.object({
@@ -82,6 +93,12 @@ export function createScansRoute(deps: ScansRouteDeps) {
 			llmRouter,
 			reviewRepository: scanReviewRepository,
 		});
+	const improvementRequestRunner =
+		deps.improvementRequestRunner ??
+		new ScanImprovementRequestRunner(db, {
+			llmRouter,
+			reviewRepository: scanReviewRepository,
+		});
 	const scanReportRunner =
 		deps.scanReportRunner ??
 		new ScanReportRunner(db, {
@@ -101,6 +118,31 @@ export function createScansRoute(deps: ScansRouteDeps) {
 			throw new HttpError(403, "Forbidden");
 		}
 		return scan;
+	}
+
+	async function listAllScanFindings(scanRunId: string) {
+		const items: Awaited<
+			ReturnType<FindingRepository["listFindingsPage"]>
+		>["items"] = [];
+		const seenCursors = new Set<string>();
+		let cursor: string | undefined;
+		do {
+			const page = await findingRepository.listFindingsPage(scanRunId, {
+				limit: 100,
+				...(cursor ? { cursor } : {}),
+			});
+			items.push(...page.items);
+			cursor = page.nextCursor ?? undefined;
+			if (cursor) {
+				if (seenCursors.has(cursor)) {
+					throw new Error(
+						"Finding export pagination returned a repeated cursor.",
+					);
+				}
+				seenCursors.add(cursor);
+			}
+		} while (cursor);
+		return items;
 	}
 
 	return new Hono()
@@ -123,12 +165,45 @@ export function createScansRoute(deps: ScansRouteDeps) {
 			const scan = await checkScanOwnership(scanRunId, authUser.userId);
 			return c.json({ scan });
 		})
+		.delete("/:scanRunId", async (c) => {
+			const authUser = getAuthContextUser(c);
+			const result = await deps.scanDeletionService.deleteOwnedScan({
+				scanRunId: c.req.param("scanRunId"),
+				userId: authUser.userId,
+			});
+			return c.json(result);
+		})
 		.get("/:scanRunId/events", async (c) => {
 			const authUser = getAuthContextUser(c);
 			const scanRunId = c.req.param("scanRunId");
 			await checkScanOwnership(scanRunId, authUser.userId);
 			const events = await scanRepository.listScanEvents(scanRunId);
 			return c.json({ events });
+		})
+		.get("/:scanRunId/progress", async (c) => {
+			const authUser = getAuthContextUser(c);
+			const scanRunId = c.req.param("scanRunId");
+			await checkScanOwnership(scanRunId, authUser.userId);
+			const storedPlan = await scanRepository.getExecutionPlan(scanRunId);
+			if (!storedPlan) throw new HttpError(409, "scan_plan_not_persisted");
+			const plan = scanExecutionPlanSchema.safeParse(storedPlan.plan);
+			if (!plan.success) throw new HttpError(409, "scan_plan_invalid");
+			const events = await scanRepository.listScanEvents(scanRunId);
+			return c.json({
+				progress: projectScanProgress({
+					runId: scanRunId,
+					planHash: storedPlan.planHash,
+					steps: plan.data.steps.map((step) => ({
+						stepId: step.stepId,
+						applicability: step.applicability,
+					})),
+					events: events.map((event) => ({
+						seq: event.seq,
+						eventType: event.eventType,
+						data: event.data,
+					})),
+				}),
+			});
 		})
 		.post("/:scanRunId/cancel", async (c) => {
 			const authUser = getAuthContextUser(c);
@@ -164,13 +239,37 @@ export function createScansRoute(deps: ScansRouteDeps) {
 			if (!artifact) {
 				throw new HttpError(404, "Artifact not found");
 			}
-			const content = await artifactStorage.readTextArtifact(artifact.path);
-			const filename = artifact.path.split("/").pop() || "artifact";
+			const storageKey = artifact.storageKey ?? artifact.path;
+			const intact = await artifactStorage
+				.verifyArtifact(
+					storageKey,
+					{ sha256: artifact.sha256, sizeBytes: artifact.sizeBytes },
+					{ maxBytes: 64 * 1024 * 1024 },
+				)
+				.catch(() => false);
+			if (!intact) {
+				throw new HttpError(409, "Artifact integrity mismatch");
+			}
+			const content = await artifactStorage.readTextArtifact(storageKey);
+			const filename = storageKey.split("/").pop() || "artifact";
 			const contentType =
 				artifact.format === "json" ? "application/json" : "text/plain";
 			return c.body(content, 200, {
 				"Content-Type": `${contentType}; charset=utf-8`,
 				"Content-Disposition": `attachment; filename="${filename}"`,
+			});
+		})
+		.get("/:scanRunId/findings/download", async (c) => {
+			const authUser = getAuthContextUser(c);
+			const scanRunId = c.req.param("scanRunId");
+			const scan = await checkScanOwnership(scanRunId, authUser.userId);
+			const findings = await listAllScanFindings(scanRunId);
+			const content = buildFindingTextExport(scan, findings);
+			const filename = buildFindingTextExportFilename(scanRunId);
+			return c.body(content, 200, {
+				"Content-Type": "text/plain; charset=utf-8",
+				"Content-Disposition": `attachment; filename="${filename}"`,
+				"X-Content-Type-Options": "nosniff",
 			});
 		})
 		.get(
@@ -230,6 +329,18 @@ export function createScansRoute(deps: ScansRouteDeps) {
 			await checkScanOwnership(scanRunId, authUser.userId);
 			const grouped = await buildGroupedFindings(db, scanRunId);
 			return c.json(grouped);
+		})
+		.get("/:scanRunId/groups/:groupId", async (c) => {
+			const authUser = getAuthContextUser(c);
+			const scanRunId = c.req.param("scanRunId");
+			const groupId = c.req.param("groupId");
+			await checkScanOwnership(scanRunId, authUser.userId);
+			const detail = await new FindingGroupingRunner(db).getCurrentGroupDetail(
+				scanRunId,
+				groupId,
+			);
+			if (!detail) throw new HttpError(404, "Finding group not found");
+			return c.json(detail);
 		})
 		.get("/:scanRunId/reports", async (c) => {
 			const authUser = getAuthContextUser(c);
@@ -294,6 +405,41 @@ export function createScansRoute(deps: ScansRouteDeps) {
 				void started.completion.catch((error) => {
 					console.error(
 						`Scan review ${started.reviewId} background execution failed:`,
+						error,
+					);
+				});
+			}
+			const review = await scanReviewRepository.findById(started.reviewId);
+			return c.json(
+				{
+					review,
+					result: {
+						ok: started.status === "running",
+						reviewId: started.reviewId,
+						status: started.status,
+						error: started.error,
+					},
+				},
+				started.status === "running" ? 202 : 200,
+			);
+		})
+		.post("/:scanRunId/improvement-requests", async (c) => {
+			const authUser = getAuthContextUser(c);
+			const scanRunId = c.req.param("scanRunId");
+			const scan = await checkScanOwnership(scanRunId, authUser.userId);
+			if (scan.status !== "completed") {
+				throw new HttpError(
+					409,
+					"Improvement request requires a completed scan.",
+				);
+			}
+			const started = await improvementRequestRunner.start(scanRunId, {
+				createdByUserId: authUser.userId,
+			});
+			if (started.status === "running") {
+				void started.completion.catch((error) => {
+					console.error(
+						`Improvement request ${started.reviewId} background execution failed:`,
 						error,
 					);
 				});

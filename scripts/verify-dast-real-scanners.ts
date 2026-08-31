@@ -1,7 +1,8 @@
-import { readFile } from "node:fs/promises";
 import crypto from "node:crypto";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
+import { loadOpenApiReadonlyOperationPolicy } from "../api/modules/api-schema-fuzz/schemathesis-runner";
 import { loadScannerDataManifest } from "../api/modules/scans/tools/scanner-provenance";
 import { currentDastStandardHashes } from "./benchmark/dast-standard-lib";
 
@@ -16,6 +17,9 @@ const scannerSchema = z.object({
 	actualExecution: z.literal(true),
 	findingCount: z.number().int().min(0),
 	gatewayMetrics: gatewayMetricsSchema,
+});
+const schemathesisScannerSchema = scannerSchema.extend({
+	operationPolicyHash: hashSchema,
 });
 const reportSchema = z.object({
 	schemaVersion: z.literal(1),
@@ -46,7 +50,7 @@ const reportSchema = z.object({
 		.min(3),
 	scanners: z.object({
 		nuclei: scannerSchema,
-		schemathesis: scannerSchema,
+		schemathesis: schemathesisScannerSchema,
 		zapBaseline: scannerSchema,
 	}),
 	gates: z.record(z.string(), z.literal(true)),
@@ -57,11 +61,18 @@ const report = reportSchema.parse(
 		await readFile(".artifacts/benchmark/dast-real-scanners.json", "utf8"),
 	) as unknown,
 );
-const [currentHashes, scannerManifest, currentCommit] = await Promise.all([
-	currentDastStandardHashes(),
-	loadScannerDataManifest(),
-	gitCommit(),
-]);
+const [currentHashes, scannerManifest, currentCommit, operationPolicy] =
+	await Promise.all([
+		currentDastStandardHashes(),
+		loadScannerDataManifest(),
+		gitCommit(),
+		loadOpenApiReadonlyOperationPolicy(
+			path.resolve(
+				"tests/security-capability/dast-standard/app/openapi-readonly.json",
+			),
+			path.resolve("tests/security-capability/dast-standard/app"),
+		),
+	]);
 if (JSON.stringify(report.hashes) !== JSON.stringify(currentHashes)) {
 	throw new Error("dast_real_scanner_hash_mismatch");
 }
@@ -70,6 +81,12 @@ if (report.scannerManifestHash !== scannerManifest.manifestHash) {
 }
 if (report.gitCommit !== currentCommit) {
 	throw new Error("dast_real_scanner_commit_mismatch");
+}
+if (
+	report.scanners.schemathesis.operationPolicyHash !==
+	operationPolicy.policyHash
+) {
+	throw new Error("dast_real_scanner_operation_policy_mismatch");
 }
 if (!Object.values(report.gates).every(Boolean)) {
 	throw new Error("dast_real_scanner_gate_failed");

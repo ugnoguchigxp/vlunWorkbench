@@ -7,7 +7,9 @@ import {
 	assertAllowedDockerInvocation,
 	dockerEntrypointFor,
 } from "./docker-tool-invocation-policy";
+
 export { registerDockerToolInvocationPolicy } from "./docker-tool-invocation-policy";
+
 import {
 	errorMessage,
 	getCleanEnv,
@@ -22,7 +24,6 @@ import {
 	resolveProcessOutputLimits,
 } from "./tool-process-policy";
 import type {
-	DockerNetworkMode,
 	ProcessRunnerOptions,
 	ProcessRunnerResult,
 	ToolExecutionConfig,
@@ -32,6 +33,11 @@ import type {
 const CONTAINER_REPO_PATH = "/workspace/repo";
 const CONTAINER_OUT_PATH = "/workspace/out";
 const CONTAINER_CACHE_PATH = "/workspace/cache";
+const CONTAINER_INPUT_PATH = "/workspace/inputs";
+
+export function resolveDockerToolCacheDirectory(toolCacheDir: string): string {
+	return path.join(path.resolve(toolCacheDir), "vuln-workbench-toolbox-cache");
+}
 
 export async function runDockerToolProcess(
 	binaryName: string,
@@ -44,7 +50,9 @@ export async function runDockerToolProcess(
 	const docker = execution.docker ?? {};
 	const dockerBin = docker.dockerBin ?? "docker";
 	const image = docker.image ?? DEFAULT_DOCKER_IMAGE;
-	const networkMode = docker.networkMode ?? "none";
+	const networkMode = docker.runtimeNamespaceOwnerId
+		? runtimeNamespaceNetwork(docker.runtimeNamespaceOwnerId)
+		: (docker.networkMode ?? "none");
 	const startTime = Date.now();
 	const containerName = makeContainerName(binaryName);
 	const outputLimits = resolveProcessOutputLimits(options.outputLimits);
@@ -70,10 +78,7 @@ export async function runDockerToolProcess(
 
 	const outDir = options.outputPath ? path.dirname(options.outputPath) : null;
 	const cacheDir = docker.toolCacheDir
-		? path.join(
-				path.resolve(docker.toolCacheDir),
-				"vuln-workbench-toolbox-cache",
-			)
+		? resolveDockerToolCacheDirectory(docker.toolCacheDir)
 		: undefined;
 	if (outDir) {
 		await fs.mkdir(outDir, { recursive: true });
@@ -101,6 +106,22 @@ export async function runDockerToolProcess(
 		await fs.mkdir(cacheDir, { recursive: true });
 		await fs.chmod(cacheDir, 0o777).catch(() => {});
 	}
+	const inputPaths = await Promise.all(
+		(options.inputPaths ?? []).map(async (inputPath) => {
+			const resolved = path.resolve(inputPath);
+			const canonical = await fs.realpath(resolved);
+			if (!(await fs.stat(canonical)).isFile()) {
+				throw new Error("Docker tool input must be a file.");
+			}
+			return resolved;
+		}),
+	);
+	const inputBasenames = inputPaths.map((inputPath) =>
+		path.basename(inputPath),
+	);
+	if (new Set(inputBasenames).size !== inputBasenames.length) {
+		throw new Error("Docker tool inputs must have unique filenames.");
+	}
 
 	const dockerArgs = buildDockerRunArgs({
 		dockerBin,
@@ -111,11 +132,13 @@ export async function runDockerToolProcess(
 		cpus: docker.cpus,
 		pidsLimit: docker.pidsLimit,
 		toolCacheDir: cacheDir,
+		inputPaths,
 		repoPath: options.repoPath,
 		outputDir: outDir,
 		binaryName,
 		toolArgs: rewriteToolArgs(args, {
 			repoPath: options.repoPath,
+			inputPaths,
 			outputPath: options.outputPath,
 			binaryName,
 			networkMode,
@@ -125,10 +148,12 @@ export async function runDockerToolProcess(
 		image,
 		containerName,
 		networkMode,
+		runtimeNamespaceOwnerId: docker.runtimeNamespaceOwnerId ?? null,
 		mountMode: {
 			repo: options.repoPath ? "read-only" : "none",
 			output: outDir ? "read-write" : "none",
 			cache: cacheDir ? "read-write" : "none",
+			inputs: inputPaths.length > 0 ? "read-only" : "none",
 		},
 		resourceLimits: {
 			memory: docker.memory,
@@ -291,19 +316,27 @@ function rewriteToolArgs(
 	args: string[],
 	paths: {
 		repoPath?: string;
+		inputPaths?: string[];
 		outputPath?: string;
 		binaryName: string;
-		networkMode: DockerNetworkMode;
+		networkMode: string;
 	},
 ): string[] {
 	const rewrittenOutputPath = paths.outputPath
 		? `${CONTAINER_OUT_PATH}/${path.basename(paths.outputPath)}`
 		: null;
 	return args.map((arg) => {
+		if (paths.inputPaths?.includes(path.resolve(arg))) {
+			return `${CONTAINER_INPUT_PATH}/${path.basename(arg)}`;
+		}
 		if (paths.repoPath && path.resolve(arg) === path.resolve(paths.repoPath)) {
 			return CONTAINER_REPO_PATH;
 		}
-		if (paths.repoPath && isPathInside(arg, paths.repoPath)) {
+		if (
+			paths.repoPath &&
+			path.isAbsolute(arg) &&
+			isPathInside(arg, paths.repoPath)
+		) {
 			return `${CONTAINER_REPO_PATH}/${path.relative(paths.repoPath, arg)}`;
 		}
 		if (
@@ -335,11 +368,12 @@ function buildDockerRunArgs(params: {
 	dockerBin: string;
 	image: string;
 	containerName: string;
-	networkMode: DockerNetworkMode;
+	networkMode: string;
 	memory?: string;
 	cpus?: string;
 	pidsLimit?: number;
 	toolCacheDir?: string;
+	inputPaths?: string[];
 	repoPath?: string;
 	outputDir: string | null;
 	binaryName: string;
@@ -359,7 +393,7 @@ function buildDockerRunArgs(params: {
 		"ALL",
 		"--security-opt",
 		"no-new-privileges",
-		"--read-only",
+		...(params.binaryName === "trivy" ? [] : ["--read-only"]),
 		"--tmpfs",
 		"/tmp:rw,nosuid,nodev,size=2g",
 		"--memory",
@@ -374,9 +408,19 @@ function buildDockerRunArgs(params: {
 		"HOME=/tmp",
 		"--env",
 		"PATH=/usr/local/bin:/usr/bin:/bin",
+		...(params.binaryName === "vwb-schemathesis-readonly-gateway"
+			? ["--workdir", "/tmp"]
+			: params.binaryName === "gitleaks" && params.repoPath
+				? ["--workdir", CONTAINER_REPO_PATH]
+				: []),
 		"--entrypoint",
 		dockerEntrypointFor(params.binaryName),
 	];
+	// Trivy's offline database is baked into the image and it creates its
+	// per-scan fanal cache beside that database. The container is still
+	// non-root, capability-free, ephemeral, and has no writable host mount
+	// except the explicit output/cache mounts. All other scanners keep a
+	// read-only root filesystem.
 	if (process.platform === "linux" && params.networkMode === "default") {
 		args.push("--add-host", "host.docker.internal:host-gateway");
 	}
@@ -392,6 +436,12 @@ function buildDockerRunArgs(params: {
 			`${path.resolve(params.outputDir)}:${CONTAINER_OUT_PATH}:rw`,
 		);
 	}
+	for (const inputPath of params.inputPaths ?? []) {
+		args.push(
+			"-v",
+			`${inputPath}:${CONTAINER_INPUT_PATH}/${path.basename(inputPath)}:ro`,
+		);
+	}
 	if (params.toolCacheDir) {
 		args.push(
 			"-v",
@@ -400,6 +450,16 @@ function buildDockerRunArgs(params: {
 	}
 	args.push(params.image, ...params.toolArgs);
 	return args;
+}
+
+function runtimeNamespaceNetwork(ownerId: string): string {
+	// Lifecycle-owned names are generated as vwb-<uuid>-owner. Rejecting all
+	// other values prevents this internal escape hatch being repurposed to join
+	// an arbitrary container namespace.
+	if (!/^vwb-[0-9a-f-]{36}-owner$/.test(ownerId)) {
+		throw new Error("runtime_namespace_owner_invalid");
+	}
+	return `container:${ownerId}`;
 }
 
 function makeContainerName(binaryName: string): string {

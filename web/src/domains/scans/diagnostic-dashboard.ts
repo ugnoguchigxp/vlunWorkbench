@@ -167,7 +167,9 @@ export function buildProjectDiagnosticDashboard(
 		activeAutomatedDiagnostic?.status === "completed_with_limitations";
 	const completedScanReport = input.reports.some(
 		(report) =>
-			report.scanRunId === activeRun?.id && report.status === "completed",
+			report.scanRunId === activeRun?.id &&
+			report.status === "completed" &&
+			report.stage === "canonical_final",
 	);
 	const diagnosticCoverage = {
 		attackSurfaceItems: input.attackSurfaceItems.length,

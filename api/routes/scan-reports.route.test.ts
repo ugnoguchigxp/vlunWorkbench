@@ -88,6 +88,8 @@ describe("Scan Reports Route", () => {
 				kind: "report",
 				format: "markdown",
 				path: "reports/report-1.md",
+				sha256: "a".repeat(64),
+				sizeBytes: 25,
 				metadata: { reportId: "r-1" },
 			},
 			{
@@ -102,6 +104,8 @@ describe("Scan Reports Route", () => {
 				kind: "report",
 				format: "markdown",
 				path: "reports/missing.md",
+				sha256: "b".repeat(64),
+				sizeBytes: 25,
 				metadata: { reportId: "r-missing-file" },
 			},
 		]),
@@ -115,6 +119,7 @@ describe("Scan Reports Route", () => {
 	};
 
 	const mockArtifactStorage = {
+		verifyArtifact: vi.fn().mockResolvedValue(true),
 		readTextArtifact: vi.fn().mockImplementation(async (path: string) => {
 			if (path === "reports/missing.md") {
 				const err = new Error("missing file") as NodeJS.ErrnoException;
@@ -128,10 +133,18 @@ describe("Scan Reports Route", () => {
 			sha256: "sha-regenerated",
 			sizeBytes: 27,
 		}),
+		forOwner: vi.fn(),
 	};
+	mockArtifactStorage.forOwner.mockReturnValue(mockArtifactStorage);
 	const mockBuildMarkdownReport = vi
 		.fn()
 		.mockResolvedValue("# Regenerated Report Content");
+	const mockReportViewStateRepository = {
+		get: vi.fn().mockResolvedValue(null),
+		markLlmCommentSeen: vi.fn().mockResolvedValue({
+			llmCommentSeenAt: new Date("2026-08-20T12:30:00.000Z"),
+		}),
+	};
 
 	const app = new Hono();
 	app.use("*", async (c, next) => {
@@ -157,6 +170,7 @@ describe("Scan Reports Route", () => {
 			artifactRepository: mockArtifactRepo as any,
 			artifactStorage: mockArtifactStorage as any,
 			db: {} as any,
+			reportViewStateRepository: mockReportViewStateRepository as any,
 			buildMarkdownReport: mockBuildMarkdownReport as any,
 		}),
 	);
@@ -172,6 +186,23 @@ describe("Scan Reports Route", () => {
 		expect(body.report.id).toBe("r-1");
 	});
 
+	it("reads and acknowledges a report viewer state after ownership checks", async () => {
+		const before = await app.request("/r-1/viewer-state");
+		expect(before.status).toBe(200);
+		expect((await before.json()).viewerState.llmCommentSeenAt).toBeNull();
+
+		const acknowledge = await app.request("/r-1/viewer-state", {
+			method: "PUT",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ llmCommentSeen: true }),
+		});
+		expect(acknowledge.status).toBe(200);
+		expect(mockReportViewStateRepository.markLlmCommentSeen).toHaveBeenCalledWith(
+			"r-1",
+			"user-123",
+		);
+	});
+
 	it("GET /:id/download downloads completed report", async () => {
 		const res = await app.request("/r-1/download");
 		expect(res.status).toBe(200);
@@ -181,6 +212,13 @@ describe("Scan Reports Route", () => {
 		);
 		const body = await res.text();
 		expect(body).toBe("# Security Report Content");
+	});
+
+	it("GET /:id/download rejects a report whose content no longer matches metadata", async () => {
+		mockArtifactStorage.verifyArtifact.mockResolvedValueOnce(false);
+		const res = await app.request("/r-1/download");
+		expect(res.status).toBe(409);
+		expect((await res.json()).message).toBe("Report artifact integrity mismatch");
 	});
 
 	it("GET /:id/download regenerates a missing report artifact file", async () => {

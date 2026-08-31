@@ -1,0 +1,2543 @@
+<article lang="ja" data-spec-role="archived-plan">
+  <h1 id="scan-profile-execution-architecture-migration-plan">
+    Scan Profile Execution Architecture Migration Plan
+  </h1>
+  <p>Status: Implemented and archived — 2026-08-24</p>
+  <p>
+    Planning baseline commit:
+    <code>7a4b33b13149450a32a77dec320fed4ded801f7a</code>
+  </p>
+  <p>Baseline date: 2026-08-23</p>
+  <p>Plan revision: 2</p>
+  <p>Owner: vulnWorkbench maintainers</p>
+  <p>
+    Target: 「ソースセキュリティ保証」と「安全な実行時Web診断」をGolden Pathとして、 公開scan
+    profileを少数の共通実行engineへ移行し、定義、readiness、依存資格、Execution
+    Plan、進捗、cleanup、qualification evidenceを一つの契約で保証する。
+  </p>
+
+  <aside data-type="warning">
+    <strong>実装開始条件</strong>
+    <p>
+      本書の承認前にprofile別のpreflight分岐、frontend起動分岐、image fallback、個別progress
+      stateを追加しない。緊急修正が必要な場合も、到達不能なprofileを明示的に
+      <code>unavailable</code>へ変更する範囲に留める。
+    </p>
+  </aside>
+
+  <h2 id="0-document-authority">0. Document authority</h2>
+  <p>
+    本書はscan profileの「実行アーキテクチャ」と「稼働保証」に関する正本である。次の既存文書は、
+    catalogの目的・安全境界・個別capability・過去の判断を確認する参考資料として残すが、
+    実行経路、進捗、依存資格、qualificationの設計が本書と競合する場合は本書を優先する。
+  </p>
+  <ul>
+    <li>
+      <a href="./scan-profile-catalog-consolidation-implementation-plan.html"
+        >Scan Profile Catalog Consolidation Implementation Plan</a
+      >
+    </li>
+    <li>
+      <a href="./scan-profile-stability-promotion-implementation-plan.html"
+        >Scan Profile Stability Promotion Implementation Plan</a
+      >
+    </li>
+    <li>
+      <a href="./runtime-target-database-isolation-implementation-plan.html"
+        >Runtime Target and Database Isolation Implementation Plan</a
+      >
+    </li>
+  </ul>
+  <p>
+    本書はscannerの検出rule、脆弱性判定アルゴリズム、report UI全体、外部integrationを再設計しない。
+    それらは共通実行契約へ接続するconsumerまたはdriverとして扱う。
+  </p>
+
+  <h3 id="01-revision-2-normative-rule">0.1 Revision 2 normative rule</h3>
+  <p>
+    Revision 2では、Section 5.4、5.5、6.3、6.4、7、8、9.4、9.5、10、12を実装上の規範とする。
+    同じ事項を扱う高位の説明と規範節が競合した場合は規範節を優先する。実装者は未定義field、追加の
+    profile分岐、別のfile配置、別のstatus遷移を推測で追加しない。変更が必要な場合は、実装前に本書を改訂する。
+  </p>
+  <p>
+    planning baselineは上記commitである。ただし計画作成時のworkspaceには利用者の未commit変更がある。
+    WP-00はそれらをreset、checkout、stash、上書きせず、開始時HEADとdirty
+    file一覧を別artifactへ記録する。
+  </p>
+
+  <h3 id="02-review-finding-closure">0.2 Review finding closure</h3>
+  <table>
+    <caption>
+      0.2 Revision 1 review findings and Revision 2 resolutions
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Finding</th>
+        <th scope="col">Priority</th>
+        <th scope="col">Revision 2 resolution</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>profile固有の起動入力を表現できない。</td>
+        <td>P0</td>
+        <td>Section 5.4のdiscriminated requestとSection 9.5の14件matrixで入力を固定する。</td>
+      </tr>
+      <tr>
+        <td>Golden Pathよりdependency qualificationが後にある。</td>
+        <td>P0</td>
+        <td>WP-03AをWP-03より前へ置き、Golden Path依存だけを先に資格化する。</td>
+      </tr>
+      <tr>
+        <td>failure observabilityと稼働成功が混同されている。</td>
+        <td>P0</td>
+        <td>Section 9.4でconformance、failure、qualification successを別判定にする。</td>
+      </tr>
+      <tr>
+        <td>Dependency Manifestのkindが不足する。</td>
+        <td>P0</td>
+        <td>Section 7.1でservice、storage、credential、target、network、filesystemを追加する。</td>
+      </tr>
+      <tr>
+        <td>Web以外のconsumer migrationがない。</td>
+        <td>P1</td>
+        <td>WP-05をWeb、CLI、Oracle、NightWorkersの共通migration packageへ変更する。</td>
+      </tr>
+      <tr>
+        <td>professional-fullのchild schedulingが未定義。</td>
+        <td>P1</td>
+        <td>
+          Section 9.5とWP-60で既存parent contractを利用するchild preview/binding方式を固定する。
+        </td>
+      </tr>
+      <tr>
+        <td>planning baseline commitが誤っている。</td>
+        <td>P1</td>
+        <td>実際のHEADへ修正し、dirty treeは別artifactとして扱う。</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2 id="1-executive-decision">1. Executive decision</h2>
+  <p>
+    現在の問題を「14 profileに14種類の不具合がある」とは扱わない。公開catalog、legacy execution
+    definition、canonical execution definition、frontend dispatch、dedicated route、preflight、E2E
+    registry、stability baselineが異なるprofile集合を参照していることを構造的な原因とする。
+  </p>
+  <p>修正方針は次の4点に固定する。</p>
+  <ol>
+    <li>
+      profileを実装本体ではなく、単一の<code>ProfileDefinition</code>
+      registryに保存する宣言とする。
+    </li>
+    <li>14 profileを6種類の共通execution engineと1種類のrun-group coordinatorへ割り当てる。</li>
+    <li>
+      全profileを同じserver-side lifecycleと永続化event ledgerへ通す。dedicated
+      flowは例外経路ではなく engine driverとして接続する。
+    </li>
+    <li>
+      <code>stable</code
+      >を手動表示値ではなく、現在のsource、catalog、driver、image digest、platformに
+      対するqualification結果から導出するrelease claimへ変更する。
+    </li>
+  </ol>
+  <p>
+    既存profileを一括置換しない。まずGolden Path 2系統を新契約へ適合させ、DB状態、結果、event、
+    cleanupが既存の完了runと同等であることを確認してから、engine family単位で移行する。
+  </p>
+
+  <h2 id="2-baseline-and-findings">2. Planning baseline and structural findings</h2>
+  <h3 id="21-definition-baseline">2.1 Definition baseline</h3>
+  <table>
+    <caption>
+      2.1 Profileを表す現在の主要な集合
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">集合</th>
+        <th scope="col">件数</th>
+        <th scope="col">現在の役割</th>
+        <th scope="col">構造上の問題</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>公開catalog</td>
+        <td>14</td>
+        <td>名称、説明、安全区分、availability、入力</td>
+        <td>実行plan、progress step、driver readinessを持たない。</td>
+      </tr>
+      <tr>
+        <td>legacy execution definition</td>
+        <td>22</td>
+        <td>既存orchestratorが実行するprofile</td>
+        <td>公開profileと一対一ではなく、E2E registryの入力にもなっている。</td>
+      </tr>
+      <tr>
+        <td>canonical execution definition</td>
+        <td>3</td>
+        <td>新しいgeneric execution profile</td>
+        <td>公開catalogの全profileを表さない。</td>
+      </tr>
+      <tr>
+        <td>Web selector</td>
+        <td>13</td>
+        <td>planned以外を選択可能として表示</td>
+        <td>
+          <code>tools: []</code
+          >、<code>steps: []</code>で一律enabledになる。
+        </td>
+      </tr>
+      <tr>
+        <td>experimental stability inventory</td>
+        <td>6</td>
+        <td>experimental profileのpromotion準備</td>
+        <td>8件中2件がinventory外である。</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3 id="22-observed-failures">2.2 Observed failure patterns</h3>
+  <table>
+    <caption>
+      2.2 現在の設計で再発したfailure pattern
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">ID</th>
+        <th scope="col">観測</th>
+        <th scope="col">構造原因</th>
+        <th scope="col">本書での解決先</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>BF-01</td>
+        <td><code>docker_image_unavailable</code>で起動前に停止する。</td>
+        <td>image設定、host probe、process env、mutable fallbackが分散している。</td>
+        <td>Dependency ManifestとEnvironment Qualificationへ統合する。</td>
+      </tr>
+      <tr>
+        <td>BF-02</td>
+        <td>
+          実行中画面が<code>0 / 0</code>または工程読込中のままになる。
+        </td>
+        <td>dedicated flowが共通Execution Planとstep eventを生成しない。</td>
+        <td>全engineに共通plan/event contractを強制する。</td>
+      </tr>
+      <tr>
+        <td>BF-03</td>
+        <td>表示されるが正しいrouteへ到達できないprofileがある。</td>
+        <td>frontendがprofile IDごとの条件分岐でdispatchする。</td>
+        <td>server-generated launch contractへ置換する。</td>
+      </tr>
+      <tr>
+        <td>BF-04</td>
+        <td>
+          preflightが<code>ready</code>でも全stepが<code>execution_failed</code>になる。
+        </td>
+        <td>設定値の存在確認と、実adapterの起動可能性が一致していない。</td>
+        <td>qualified dependency bindingとadapter probeをadmissionへ含める。</td>
+      </tr>
+      <tr>
+        <td>BF-05</td>
+        <td>失敗runやtool runが診断に十分な粒度で残らない場合がある。</td>
+        <td>
+          Start attempt、preflight、driver execution、cleanupのtransaction境界が統一されていない。
+        </td>
+        <td>Launch Attemptとappend-only Run Ledgerを追加する。</td>
+      </tr>
+      <tr>
+        <td>BF-06</td>
+        <td>catalog上のstableと、現在環境での実行可能性が一致しない。</td>
+        <td>availabilityがqualification receiptから導出されない。</td>
+        <td>release qualification manifestからclaimを生成する。</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3 id="23-baseline-code-paths">2.3 Baseline code paths</h3>
+  <ul>
+    <li>公開catalog: <code>api/modules/scans/profile-catalog.ts</code></li>
+    <li>legacy/canonical execution定義: <code>api/modules/scans/profiles.ts</code></li>
+    <li>generic lifecycle: <code>api/modules/scans/execution/profile-orchestrator.ts</code></li>
+    <li>preflight: <code>api/modules/scans/execution/scan-preflight.ts</code></li>
+    <li>frontend profile変換: <code>web/src/api/scans-execution.ts</code></li>
+    <li>frontend dispatch: <code>web/src/domains/scans/workspace/scans-workspace-actions.ts</code></li>
+    <li>progress集約: <code>web/src/domains/scans/workspace/scan-progress-model.ts</code></li>
+    <li>E2E case registry: <code>scripts/scanner-e2e-case-registry.ts</code></li>
+    <li>promotion baseline: <code>scripts/scan-profile-stability-baseline.ts</code></li>
+  </ul>
+
+  <h2 id="3-scope-and-non-goals">3. Scope, non-goals, and prohibitions</h2>
+  <h3 id="31-in-scope">3.1 In scope</h3>
+  <ul>
+    <li>14件の公開scan profileと、それらが参照するlegacy execution definition。</li>
+    <li>Web、CLI、Security Oracle、NightWorkersからのprofile解決と起動。</li>
+    <li>readiness、preflight binding、Execution Plan、event、cleanup、terminal state。</li>
+    <li>Docker image、scanner binary、host capability、platformの依存資格。</li>
+    <li>profile/variant/engine単位のqualificationとavailability claim。</li>
+    <li>既存runとlegacy profile IDの互換読取。</li>
+  </ul>
+
+  <h3 id="32-non-goals">3.2 Non-goals</h3>
+  <ul>
+    <li>scanner ruleや脆弱性判定方式の全面的な変更。</li>
+    <li>R3 profileを安全条件未達の通常repositoryで強制実行すること。</li>
+    <li>全profileを全projectへ適用可能と見せること。</li>
+    <li>既存run metadataを破壊的に書き換えること。</li>
+    <li>professional-fullを単一の巨大execution profileとして実装すること。</li>
+    <li>この移行と無関係なreport、finding、integrationの再設計。</li>
+  </ul>
+
+  <h3 id="33-prohibitions">3.3 Prohibitions during migration</h3>
+  <ul>
+    <li>frontendへ新しいprofile ID条件分岐を追加しない。</li>
+    <li>profile固有のDocker image fallbackを追加しない。</li>
+    <li>
+      <code>:local</code
+      >、<code>:latest</code>などのmutable tagを実行bindingへ保存しない。
+    </li>
+    <li>
+      Execution Planを保存せずにrunを<code>running</code>へ遷移させない。
+    </li>
+    <li>
+      cleanup未完了またはreceipt未保存のrunを<code>completed</code>にしない。
+    </li>
+    <li>qualification未達のprofileを件数合わせでstableへ変更しない。</li>
+  </ul>
+
+  <h2 id="4-golden-path-contract">4. Golden Path contract</h2>
+  <h3 id="41-source-assurance-golden-path">4.1 Source Assurance Golden Path</h3>
+  <p>
+    「ソースセキュリティ保証」をR0 repository engineのreference implementationとする。既存の
+    Gitleaks、OSV-Scanner、Trivy、Semgrep applicability、immutable source snapshot、tool result、
+    finding import、cleanupを維持する。
+  </p>
+  <p>
+    Golden Path認定は「過去に一度完了した」ことではなく、同じfixture、binding、platformでSection
+    9.4のqualification successを3回連続して満たすことを条件とする。
+  </p>
+
+  <h3 id="42-runtime-passive-golden-path">4.2 Runtime Passive Golden Path</h3>
+  <p>
+    「安全な実行時Web診断」(<code>runtime-passive</code>)をR2 passive runtime
+    engineのreference implementationとする。runtime target準備、read-only HTTP DAST、Nuclei
+    safe、ZAP baseline、 runtime resource cleanupを共通planへ統合する。
+  </p>
+  <p>
+    このprofileは完了実績と失敗実績の両方があるため、現時点ではcertified Golden Pathではない。
+    <code>ready</code>判定後の全step failure、tool
+    run未生成、失敗証跡の保持を修正し、Section 9.4のqualification
+    successを3回連続で満たした時点でreference implementationとして固定する。
+  </p>
+
+  <h3 id="43-golden-path-limit">4.3 Golden Path coverage limit</h3>
+  <p>
+    上記2系統はR0とR2しか保証しない。R1とR3のpromotion前に、公開profileとは別の内部qualification
+    fixtureを追加する。
+  </p>
+  <ul>
+    <li>
+      R1 canary: networkなし、read-only source、制限付きartifact writeでtest commandを実行する。
+    </li>
+    <li>
+      R3 canary: system-owned disposable targetを変更し、reset receiptと初期状態復元を検証する。
+    </li>
+  </ul>
+
+  <h2 id="5-target-architecture">5. Target architecture</h2>
+  <h3 id="51-profile-definition">5.1 Single ProfileDefinition registry</h3>
+  <p>
+    新しい<code>ProfileDefinition</code>
+    registryを、公開表示と実行の唯一の正本とする。catalog、UI、 preflight、plan、E2E
+    registryはこの定義から生成または検証する。
+  </p>
+  <pre><code class="language-typescript">type ProfileDefinition = {
+  id: CanonicalProfileId;
+  availabilityPolicy: AvailabilityPolicy;
+  safetyClass: "R0" | "R1" | "R2" | "R3" | "mixed";
+  engineId: ExecutionEngineId;
+  inputSchema: VersionedInputSchema;
+  variants: ProfileVariantDefinition[];
+  applicability: ApplicabilityEvaluator;
+  readiness: ReadinessEvaluator;
+  dependencyManifest: DependencyRequirement[];
+  planFactory: ExecutionPlanFactory;
+  progressContract: ProgressContract;
+  cleanupContract: CleanupContract;
+  qualificationPolicy: QualificationPolicy;
+  legacyAssociations: LegacyProfileAssociation[];
+};</code></pre>
+  <p>
+    registry登録時に、ID一意性、engine存在、inputとvariantの整合、全stepのprogress定義、cleanup、
+    qualification policy、legacy
+    association重複を検証する。公開entryの不足はapplication起動時ではなく build/test時に失敗させる。
+  </p>
+
+  <h3 id="52-engine-families">5.2 Execution engine families</h3>
+  <table>
+    <caption>
+      5.2 Canonical profileから共通engineへの割当
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Engine</th>
+        <th scope="col">Safety</th>
+        <th scope="col">Profile</th>
+        <th scope="col">Reference / qualification target</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>repository</code></td>
+        <td>R0</td>
+        <td>
+          <code>change-gate</code>、<code
+            >source-assurance</code
+          >
+        </td>
+        <td>source-assurance Golden Path</td>
+      </tr>
+      <tr>
+        <td><code>supply-artifact</code></td>
+        <td>R0</td>
+        <td>
+          <code>dependency-supply-chain</code>、<code
+            >release-artifact</code
+          >
+        </td>
+        <td>signed fixture、image/tar fixture</td>
+      </tr>
+      <tr>
+        <td><code>isolated-code</code></td>
+        <td>R1</td>
+        <td>
+          <code>dynamic-verification</code
+          >、<code>sanitizer-fuzz-lab</code>、
+          <code>custom-dynamic-lab</code>
+        </td>
+        <td>R1 internal canary</td>
+      </tr>
+      <tr>
+        <td><code>passive-runtime</code></td>
+        <td>R2</td>
+        <td>
+          <code>runtime-passive</code
+          >、<code>api-readonly</code>、<code
+            >authenticated-web</code
+          >
+        </td>
+        <td>runtime-passive Golden Path</td>
+      </tr>
+      <tr>
+        <td><code>controlled-active</code></td>
+        <td>R3</td>
+        <td>
+          <code>active-technical-lab</code>、<code
+            >business-logic-lab</code
+          >
+        </td>
+        <td>R3 disposable-target canary</td>
+      </tr>
+      <tr>
+        <td><code>replay</code></td>
+        <td>mixed</td>
+        <td><code>remediation-verification</code></td>
+        <td>original-run safety binding fixture</td>
+      </tr>
+      <tr>
+        <td><code>run-group</code></td>
+        <td>mixed</td>
+        <td><code>professional-full</code></td>
+        <td>qualified child-run aggregation</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3 id="53-common-lifecycle">5.3 Common server-side lifecycle</h3>
+  <pre><code>Launch Attempt persisted
+  -&gt; Resolve ProfileDefinition and variant
+  -&gt; Evaluate applicability and project readiness
+  -&gt; Resolve qualified dependencies
+  -&gt; Compile immutable Execution Plan
+  -&gt; Persist plan and admission binding
+  -&gt; Mark run running
+  -&gt; Execute engine driver steps
+  -&gt; Append step and evidence events
+  -&gt; Cleanup resources and persist receipts
+  -&gt; Finalize run outcome</code></pre>
+  <p>
+    dedicated routeは上記lifecycleを迂回しない。既存のdynamic、DAST auth、active
+    assessment、business logic、reproduction runnerは、共通lifecycleが呼び出すdriver
+    adapterとして段階的に接続する。
+  </p>
+
+  <h3 id="54-normative-type-contracts">5.4 Normative type contracts</h3>
+  <p>
+    次の型を新しい共有契約とする。実装では<code>Record&lt;string, unknown&gt;</code>、未検証JSON、
+    <code>as any</code>でこの契約を迂回しない。既存v1〜v3
+    schemaは過去runのread compatibility用に残す。
+  </p>
+  <pre><code class="language-typescript">type CanonicalProfileId =
+  | "change-gate"
+  | "source-assurance"
+  | "dependency-supply-chain"
+  | "release-artifact"
+  | "dynamic-verification"
+  | "sanitizer-fuzz-lab"
+  | "custom-dynamic-lab"
+  | "runtime-passive"
+  | "authenticated-web"
+  | "api-readonly"
+  | "active-technical-lab"
+  | "business-logic-lab"
+  | "remediation-verification"
+  | "professional-full";
+
+type ExecutionEngineId =
+  | "repository"
+  | "supply-artifact"
+  | "isolated-code"
+  | "passive-runtime"
+  | "controlled-active"
+  | "replay"
+  | "run-group";
+
+type ReadinessStatus =
+  | "ready"
+  | "needs_input"
+  | "needs_setup"
+  | "not_applicable"
+  | "blocked_environment"
+  | "unavailable";
+
+type ScanLaunchCommonV1 = {
+  schemaVersion: 1;
+  target: ScanTarget;
+  resultPolicy?: "advisory" | "gate";
+  timeoutSec?: number;
+};
+
+type DeepPartialKnown&lt;T&gt; = T extends readonly (infer U)[]
+  ? readonly DeepPartialKnown&lt;U&gt;[]
+  : T extends object
+    ? { [K in keyof T]?: DeepPartialKnown&lt;T[K]&gt; }
+    : T;
+
+type ProfilePreviewInputById = {
+  [P in CanonicalProfileId]: DeepPartialKnown&lt;ProfileInputById[P]&gt;;
+};
+
+type ScanLaunchPreviewRequestV1 = {
+  [P in CanonicalProfileId]: ScanLaunchCommonV1 &amp; {
+    profileId: P;
+    input: ProfilePreviewInputById[P];
+  };
+}[CanonicalProfileId];
+
+type ScanLaunchStartRequestV1 = {
+  [P in CanonicalProfileId]: ScanLaunchCommonV1 &amp; {
+    profileId: P;
+    input: ProfileInputById[P];
+    expectedCatalogEntryHash: Sha256Digest;
+    expectedReadinessHash: Sha256Digest;
+    expectedPlanHash: Sha256Digest;
+    expectedTargetDigest: Sha256Digest;
+  };
+}[CanonicalProfileId];
+
+type ScanLaunchPreviewBaseV1 = {
+  schemaVersion: 1;
+  profileId: CanonicalProfileId;
+  engineId: ExecutionEngineId;
+  reasonCodes: string[];
+  setupActions: SetupAction[];
+  sanitizedInputSummary: Record&lt;string, string | boolean | number | null&gt;;
+  resolvedTargetDigest: Sha256Digest | null;
+  catalogEntryHash: Sha256Digest;
+  readinessHash: Sha256Digest;
+};
+
+type ScanLaunchPreviewV1 = ScanLaunchPreviewBaseV1 &amp; (
+  | { readiness: "ready"; variantId: string; plan: ScanExecutionPlanV4 }
+  | {
+      readiness: Exclude&lt;ReadinessStatus, "ready"&gt;;
+      variantId: string | null;
+      plan: null;
+    }
+);</code></pre>
+  <p>
+    request rootの<code>profileId</code>をdiscriminatorとするZod
+    discriminated unionを実装し、 Preview
+    schemaは各具体branchを<code>deepPartial().strict()</code>にし、既知fieldの不足だけを
+    <code>needs_input</code>へ変換する。unknown
+    field、型不正、無効なdiscriminatorはHTTP 400で拒否する。 Start schemaはSection
+    9.5の完全な<code>ProfileInputById</code>と一致させる。具体的なbranchは Section
+    9.5以外を追加しない。
+  </p>
+  <pre><code class="language-typescript">type ScanLaunchAcceptedV1 = {
+  schemaVersion: 1;
+  status: "admitted";
+  attemptId: Uuid;
+  runId: Uuid;
+  runStatus: "queued";
+  profileId: CanonicalProfileId;
+  variantId: string;
+  planHash: Sha256Digest;
+};
+
+type ScanLaunchRejectedV1 = {
+  schemaVersion: 1;
+  status: "rejected";
+  attemptId: Uuid;
+  readiness: ReadinessStatus | null;
+  reasonCodes: string[];
+  setupActions: SetupAction[];
+  retryable: boolean;
+};</code></pre>
+
+  <h4 id="541-execution-plan-v4">5.4.1 Execution Plan V4</h4>
+  <p>
+    dedicated
+    flowを含む新規runは<code>ScanExecutionPlanV4</code>を保存する。V4はV2の共通fieldを継承し、
+    V3の<code>runtimeIsolation</code>をoptionalにし、次を追加する。
+  </p>
+  <pre><code class="language-typescript">type ScanExecutionPlanV4 = ScanExecutionPlanV2 &amp; {
+  schemaVersion: 4;
+  canonicalProfileId: CanonicalProfileId;
+  profileVariantId: string;
+  engine: { id: ExecutionEngineId; version: 1 };
+  inputBindingHash: Sha256Digest;
+  dependencyQualificationHash: Sha256Digest;
+  availabilityClaimHash: Sha256Digest | null;
+  progressContract: ScanProgressContractV2;
+  runtimeIsolation?: ScanExecutionPlanV3["runtimeIsolation"];
+};</code></pre>
+  <p>
+    step kindは一つのschemaからplan、normalized result、progress eventへ再利用する。既存7種に
+    <code>dynamic_test</code
+    >、<code>sanitizer</code>、<code>fuzz</code>、
+    <code>auth_session</code>、<code>active_transaction</code>、
+    <code>authorization_matrix</code>、<code>zap_active</code>、
+    <code>business_scenario</code>、<code>reproduction</code>、
+    <code>child_profile</code>を追加する。3箇所へ別々のenumを複製しない。
+  </p>
+
+  <h4 id="542-driver-contract">5.4.2 Engine driver contract</h4>
+  <pre><code class="language-typescript">interface ScanExecutionEngine {
+  readonly id: ExecutionEngineId;
+  preview(context: Readonly&lt;ScanPreviewContext&gt;): Promise&lt;EnginePreview&gt;;
+  execute(context: Readonly&lt;AdmittedScanContext&gt;): Promise&lt;EngineResult&gt;;
+  cleanup(context: Readonly&lt;CleanupContext&gt;): Promise&lt;CleanupReceipt[]&gt;;
+}
+
+type EngineResult = {
+  stepResults: NormalizedProfileStepResult[];
+  coverageLedger: CoverageLedger;
+  evidenceRefs: string[];
+  profileOutcome: "completed" | "completed_with_warnings" | "failed";
+};</code></pre>
+  <ul>
+    <li><code>preview</code>はDB設定やproject fileを変更しない。</li>
+    <li>
+      <code>execute</code>は保存済みV4
+      planだけを実行し、applicabilityを再計算しない。
+    </li>
+    <li>
+      <code>execute</code>はrun statusを直接更新しない。common
+      lifecycleだけがstatusを更新する。
+    </li>
+    <li><code>cleanup</code>は冪等で、同じleaseへ複数回呼び出せる。</li>
+    <li>driverはprofile IDを条件分岐せず、registryから渡されたvariant contractを使用する。</li>
+  </ul>
+
+  <h3 id="55-api-db-and-file-contracts">5.5 API, DB, and file contracts</h3>
+  <h4 id="551-api-contract">5.5.1 API contract</h4>
+  <table>
+    <caption>
+      5.5.1 Canonical launch endpoints
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Endpoint</th>
+        <th scope="col">Request</th>
+        <th scope="col">Response and status</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>POST /api/projects/:projectId/scan-launches/preview</code></td>
+        <td><code>ScanLaunchPreviewRequestV1</code></td>
+        <td>200 + <code>ScanLaunchPreviewV1</code>。readinessに関係なく200。</td>
+      </tr>
+      <tr>
+        <td><code>POST /api/projects/:projectId/scan-launches</code></td>
+        <td><code>ScanLaunchStartRequestV1</code></td>
+        <td>
+          202 + <code>ScanLaunchAcceptedV1</code>、400/409/422/503 +
+          <code>ScanLaunchRejectedV1</code>。
+        </td>
+      </tr>
+      <tr>
+        <td><code>GET /api/projects/:projectId/scan-launch-attempts/:attemptId</code></td>
+        <td>なし</td>
+        <td>200 + sanitized attempt。project owner以外は404。</td>
+      </tr>
+      <tr>
+        <td><code>GET /api/projects/:projectId/scans/:runId/progress</code></td>
+        <td>なし</td>
+        <td>200 + <code>ScanProgressSnapshotV2</code>。project owner以外は404。</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    Startは最初に<code>{ schemaVersion, profileId }</code> envelopeだけをstrict
+    parseし、認証とproject
+    ownershipを確認してから完全bodyをparseする。envelope、認証、ownershipのいずれかが失敗した要求はHTTP監査だけに記録する。
+    それ以降のunknown profile、profile/input mismatch、admission
+    rejectはattemptを保存してから応答する。statusは 400 profile input invalid、409 binding
+    changed、422 needs input/setup/N/A/unavailable、503 environment blockに固定する。既存
+    <code>/scans/preflight</code
+    >、<code>/scans</code>、dedicated start
+    routeはmigration中だけcompatibility adapterとして新serviceを呼び、WP-70まで独自runを作らない。
+  </p>
+  <p>
+    Start admissionではcached qualification receiptとhashだけを検証し、image
+    pull/build、container起動、database作成、target起動を
+    行わない。receiptがmissing/staleならStart内で長時間probeせず409または503を返し、Preview再実行またはsetup
+    actionへ戻す。 admitted後の準備はV4 planのphase eventとして実行する。Start
+    responseのservice目標はp95 2秒以内とする。
+  </p>
+
+  <h4 id="552-setup-boundary">5.5.2 Setup boundary</h4>
+  <p>
+    canonical Start APIはauth context、DAST target、engagement、scenario、custom dynamic
+    configを作成・更新しない。 それらは既存setup APIで事前作成し、Start
+    inputにはIDとpreviewで計算したrevision hashを渡す。唯一の例外は
+    <code>runtime-passive</code
+    >と<code>api-readonly</code>のauto project runtimeであり、これはExecution
+    Plan上のleased resourceとして作成し、同じrunでcleanupする。
+  </p>
+  <p>
+    public Start
+    requestから<code>runner</code>、<code>dockerImage</code>、<code>network</code>を削除する。
+    execution engineとDependency Manifestだけがこれらを決める。compatibility
+    adapterは旧fieldを受理しても、
+    policyと異なる値を指定された場合は<code>legacy_execution_override_rejected</code>で拒否する。
+  </p>
+
+  <h4 id="553-db-contract">5.5.3 DB contract</h4>
+  <p>
+    migration <code>drizzle/0040_scan_launch_attempts.sql</code>と
+    <code>api/db/schema/schema-scans.ts</code>へ次のtableを追加する。
+  </p>
+  <pre><code class="language-typescript">scanLaunchAttempts = {
+  id: uuid primary key;
+  projectId: uuid not null references projects;
+  requestedProfileId: text not null;
+  canonicalProfileId: text nullable;
+  profileVariantId: text nullable;
+  engineId: text nullable;
+  status: "received" | "rejected" | "admitted";
+  readinessStatus: ReadinessStatus | null;
+  reasonCodesJson: string[];
+  sanitizedInputSummaryJson: object;
+  catalogEntryHash: text nullable;
+  readinessHash: text nullable;
+  planHash: text nullable;
+  dependencyQualificationHash: text nullable;
+  scanRunId: uuid nullable references scan_runs on delete set null;
+  createdByUserId: uuid nullable references users on delete set null;
+  createdAt: timestamp;
+  resolvedAt: timestamp nullable;
+  admittedAt: timestamp nullable;
+  rejectedAt: timestamp nullable;
+};</code></pre>
+  <ul>
+    <li>
+      index:
+      <code>(project_id, created_at)</code>、<code>(status, created_at)</code>。
+    </li>
+    <li>attemptにはtoken、header、command、absolute path、raw requestを保存しない。</li>
+    <li>
+      planは既存<code>scan_execution_plans</code>へ保存し、新規runごとに1行とする。
+    </li>
+    <li>
+      progress ledgerは既存<code>scan_events</code>、resource
+      ownershipは既存lease tableを使う。
+    </li>
+    <li>
+      admitted attempt、scan run、execution plan、queued eventはwriter transactionで一括作成する。
+    </li>
+  </ul>
+
+  <h4 id="554-file-responsibility-map">5.5.4 File responsibility map</h4>
+  <table>
+    <caption>
+      5.5.4 Files to create
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">File</th>
+        <th scope="col">Single responsibility</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>shared/schemas/scan-profile-definition.schema.ts</code></td>
+        <td>canonical ID、input union、readiness、definition schema。</td>
+      </tr>
+      <tr>
+        <td><code>shared/schemas/scan-launch.schema.ts</code></td>
+        <td>preview/start/attempt API schema。</td>
+      </tr>
+      <tr>
+        <td><code>shared/schemas/scan-execution-step.schema.ts</code></td>
+        <td>plan/result/progressで共有するstep kind。</td>
+      </tr>
+      <tr>
+        <td><code>shared/schemas/scan-dependency-manifest.schema.ts</code></td>
+        <td>Section 7のrequirement、version、source、probe、receipt schema。</td>
+      </tr>
+      <tr>
+        <td><code>shared/manifests/scan-dependencies.v1.json</code></td>
+        <td>profileが参照できるdependency IDとplatform別policyの正本。</td>
+      </tr>
+      <tr>
+        <td><code>shared/schemas/scan-profile-qualification-v2.schema.ts</code></td>
+        <td>全14 profile、success/failure purpose、current bindingを表すreceipt。</td>
+      </tr>
+      <tr>
+        <td><code>api/modules/scans/profile-definitions.ts</code></td>
+        <td>14件の唯一のProfileDefinition registry。</td>
+      </tr>
+      <tr>
+        <td><code>api/modules/scans/execution/scan-engine-registry.ts</code></td>
+        <td>7 engineの登録と一意解決。</td>
+      </tr>
+      <tr>
+        <td><code>api/modules/scans/execution/scan-readiness-service.ts</code></td>
+        <td>definition、input、dependencyからpreviewを生成。</td>
+      </tr>
+      <tr>
+        <td><code>api/modules/scans/execution/scan-launch-service.ts</code></td>
+        <td>attempt、binding照合、run/plan/event作成、driver dispatch。</td>
+      </tr>
+      <tr>
+        <td><code>api/modules/scans/execution/scan-launch-attempt-repository.ts</code></td>
+        <td>attemptのsanitized persistence。</td>
+      </tr>
+      <tr>
+        <td><code>api/modules/scans/execution/scan-progress-projector.ts</code></td>
+        <td>
+          V4 planとappend-only eventから<code>ScanProgressSnapshotV2</code>を再構築。
+        </td>
+      </tr>
+      <tr>
+        <td><code>api/modules/scans/execution/dependency-registry.ts</code></td>
+        <td>typed dependency manifestとprobe解決。</td>
+      </tr>
+      <tr>
+        <td><code>api/modules/scans/execution/engines/*.ts</code></td>
+        <td>Section 5.2のengineごとに1 driver。</td>
+      </tr>
+      <tr>
+        <td><code>api/routes/scan-launches.route.ts</code></td>
+        <td>canonical preview/start/attempt HTTP adapter。</td>
+      </tr>
+      <tr>
+        <td><code>scripts/verify-scan-profile-architecture.ts</code></td>
+        <td>registry、consumer、step、qualificationの完全性gate。</td>
+      </tr>
+      <tr>
+        <td><code>scripts/qualify-all-scan-profiles.ts</code></td>
+        <td>case registryから全profile qualificationを実行。</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>次の既存fileは責務を追加せず、新contractのconsumerまたはcompatibility adapterへ変更する。</p>
+  <ul>
+    <li>
+      <code>api/modules/scans/profile-catalog.ts</code>: registryから生成したread modelをexportする。
+    </li>
+    <li>
+      <code>api/modules/dynamic/dynamic-profiles.ts</code>: built-in dynamic
+      ID/kind/applicabilityの正本として維持し、<code>BuiltInDynamicProfileId</code>
+      schemaを生成する。
+    </li>
+    <li>
+      <code>shared/schemas/active-assessment.schema.ts</code>:
+      <code>RunActiveAssessmentRequest</code> unionの正本として再利用する。
+    </li>
+    <li>
+      <code>shared/schemas/scan-profile-stability-qualification.schema.ts</code>: V1 read compatibilityを残し、writerをV2へ移す。
+    </li>
+    <li><code>api/modules/scans/profiles.ts</code>: legacy read compatibilityだけを残す。</li>
+    <li>
+      <code>api/modules/scans/execution/professional-run-group.ts</code>: parent contractを維持し、child
+      schedulerをcommon launch serviceへ接続する。
+    </li>
+    <li>
+      <code>api/modules/scans/execution/profile-orchestrator.ts</code>: repository/passive
+      driverから再利用する処理へ縮小する。
+    </li>
+    <li>
+      <code>api/routes/projects.route.ts</code>: 旧preflight/startをcanonical
+      serviceへ委譲する。
+    </li>
+    <li>
+      <code>api/routes/dynamic.route.ts</code
+      >、<code>dast.route.ts</code>、<code>business-logic.route.ts</code>、<code>reproductions.route.ts</code>:
+      setup/read routeを維持し、startだけを委譲する。
+    </li>
+    <li><code>api/app/hono-scan-routes.ts</code>: canonical routeを登録する。</li>
+    <li><code>web/src/api/scans-execution.ts</code>: launch schemaのclientだけを持つ。</li>
+    <li><code>web/src/domains/scans/workspace/scans-workspace-actions.ts</code>: profile固有dispatchを削除する。</li>
+    <li><code>web/src/domains/scans/workspace/scan-progress-model.ts</code>: V4 planと共通eventだけを読む。</li>
+  </ul>
+
+  <h4 id="555-test-file-map">5.5.5 Required test files</h4>
+  <table>
+    <caption>
+      5.5.5 Test ownership
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">File</th>
+        <th scope="col">Required cases</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>shared/schemas/scan-launch.schema.test.ts</code></td>
+        <td>
+          14 complete Start branches、partial Preview、profile/input mismatch、unknown
+          field、secret/override rejection。
+        </td>
+      </tr>
+      <tr>
+        <td><code>shared/schemas/scan-dependency-manifest.schema.test.ts</code></td>
+        <td>
+          全kind/probe/source、mutable image、空setting、unsupported platform、secret evidence
+          rejection。
+        </td>
+      </tr>
+      <tr>
+        <td><code>api/modules/scans/profile-definitions.test.ts</code></td>
+        <td>14 ID一意、7 engine解決、variant/step/fixture完全性、zero-step rejection。</td>
+      </tr>
+      <tr>
+        <td><code>api/modules/scans/execution/scan-readiness-service.test.ts</code></td>
+        <td>Section 6.1 priority、全reason code、binding hash drift、Preview no-mutation。</td>
+      </tr>
+      <tr>
+        <td><code>api/modules/scans/execution/scan-launch-service.test.ts</code></td>
+        <td>
+          Section 6.3の全遷移、transaction rollback、new-run retry、driver status mutation
+          rejection。
+        </td>
+      </tr>
+      <tr>
+        <td><code>api/modules/scans/execution/scan-progress-projector.test.ts</code></td>
+        <td>全phase、0/N表示、reload再構築、seq gap/duplicate、terminal snapshot。</td>
+      </tr>
+      <tr>
+        <td><code>api/routes/scan-launches.route.test.ts</code></td>
+        <td>200/202/400/409/422/503、attempt visibility、ownership 404、sanitized response。</td>
+      </tr>
+      <tr>
+        <td><code>api/modules/scans/execution/engines/scan-engine-contract.test.ts</code></td>
+        <td>
+          7 engineを同じcontract suiteで実行し、plan-only execute、event、evidence、idempotent
+          cleanupを確認。
+        </td>
+      </tr>
+      <tr>
+        <td><code>web/src/domains/scans/workspace/scan-launch-contract.test.ts</code></td>
+        <td>schema form、setup action、single Start、1秒poll、tab復帰、0/0/推定percent禁止。</td>
+      </tr>
+      <tr>
+        <td><code>scripts/verify-scan-profile-architecture.test.ts</code></td>
+        <td>catalog/registry/Web/CLI/Oracle/NightWorkers/fixtureの14件一致と意図的欠落fixture。</td>
+      </tr>
+      <tr>
+        <td><code>scripts/qualify-all-scan-profiles.test.ts</code></td>
+        <td>successだけの3回算入、failure/N/A/warning除外、binding mismatch、manifest生成。</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2 id="6-readiness-and-admission">6. Readiness and admission contract</h2>
+  <h3 id="61-readiness-states">6.1 User-facing readiness states</h3>
+  <table>
+    <caption>
+      6.1 起動前状態
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">State</th>
+        <th scope="col">意味</th>
+        <th scope="col">Start操作</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>ready</code></td>
+        <td>現在のbindingに対する必須条件を満たす。</td>
+        <td>許可</td>
+      </tr>
+      <tr>
+        <td><code>needs_input</code></td>
+        <td>利用者が指定できる必須入力が不足している。</td>
+        <td>入力完了まで禁止</td>
+      </tr>
+      <tr>
+        <td><code>needs_setup</code></td>
+        <td>target、auth context、RoE、scenario等の設定が不足している。</td>
+        <td>設定導線を表示</td>
+      </tr>
+      <tr>
+        <td><code>not_applicable</code></td>
+        <td>schema、language、artifact等が対象projectに存在しない。</td>
+        <td>禁止。失敗runは作らない。</td>
+      </tr>
+      <tr>
+        <td><code>blocked_environment</code></td>
+        <td>Docker、image、binary、platform等の運用環境が未準備。</td>
+        <td>修復手順と原因codeを表示</td>
+      </tr>
+      <tr>
+        <td><code>unavailable</code></td>
+        <td>planned、非公開、または現releaseで未提供。</td>
+        <td>禁止</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    readiness responseはprofile ID、variant、input digest、dependency receipt、catalog hash、plan
+    hash、 runtime settings
+    hash、platformを含む<code>admissionBindingHash</code>へ結合する。Start時にhashが
+    一致しなければ<code>binding_changed</code>として再評価し、古いready判定を使用しない。
+  </p>
+  <p>
+    複数conditionが同時に成立する場合も<code>reasonCodes</code>には全件を含め、表示するreadinessは次の優先順で
+    1件に正規化する: <code>unavailable</code> → 入力なしでも確定できる<code
+      >not_applicable</code
+    >
+    → <code>needs_input</code> →
+    <code>needs_setup</code> → <code>blocked_environment</code> →
+    <code>ready</code>。 型不正とunknown
+    fieldはreadinessへ変換せず400とする。
+  </p>
+
+  <h3 id="62-launch-attempt-ledger">6.2 Launch Attempt and Run Ledger</h3>
+  <p>
+    StartボタンまたはAPI
+    start要求を受けた時点で<code>scan_launch_attempts</code>を作成する。preflight
+    block、profile解決失敗、binding
+    mismatch、driver起動失敗もattemptとして保持する。runを作成できた場合は
+    attemptとrunを関連付ける。
+  </p>
+  <p>最低限、次の情報を永続化する。</p>
+  <ul>
+    <li>requested/canonical profile ID、variant、engine ID。</li>
+    <li>readiness state、reason code、safe remediation action。</li>
+    <li>catalog、plan、dependency、inputのhash。</li>
+    <li>run IDまたはrun未作成理由。</li>
+    <li>created、admitted、rejected時刻。</li>
+  </ul>
+  <p>
+    event
+    ledgerはappend-onlyとし、UI表示用stateを別途真実源にしない。削除操作は既存の監査済み削除serviceを
+    通し、preflight失敗だけを暗黙に消去しない。
+  </p>
+
+  <h3 id="63-state-machine">6.3 Normative state machine</h3>
+  <table>
+    <caption>
+      6.3 Launch attempt、run、eventの状態遷移
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">契機</th>
+        <th scope="col">Attempt</th>
+        <th scope="col">Run</th>
+        <th scope="col">必須event / reason</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Preview</td>
+        <td>作成しない</td>
+        <td>作成しない</td>
+        <td>なし。read-only評価結果だけを返す。</td>
+      </tr>
+      <tr>
+        <td>認可・project ownership確認後の入力不正</td>
+        <td><code>rejected</code></td>
+        <td>作成しない</td>
+        <td><code>profile_input_invalid</code></td>
+      </tr>
+      <tr>
+        <td>
+          <code>needs_input</code> /
+          <code>needs_setup</code> /
+          <code>not_applicable</code>
+        </td>
+        <td><code>rejected</code></td>
+        <td>作成しない</td>
+        <td>readinessのreason code</td>
+      </tr>
+      <tr>
+        <td>
+          <code>blocked_environment</code> /
+          <code>unavailable</code>
+        </td>
+        <td><code>rejected</code></td>
+        <td>作成しない</td>
+        <td>dependencyまたはavailabilityのreason code</td>
+      </tr>
+      <tr>
+        <td>Preview bindingとStart bindingの不一致</td>
+        <td><code>rejected</code></td>
+        <td>作成しない</td>
+        <td><code>binding_changed</code></td>
+      </tr>
+      <tr>
+        <td>Admission成功</td>
+        <td><code>admitted</code></td>
+        <td><code>queued</code></td>
+        <td>V4 plan保存後に<code>scan.queued</code></td>
+      </tr>
+      <tr>
+        <td>driverが実行を受理</td>
+        <td><code>admitted</code></td>
+        <td><code>running</code></td>
+        <td><code>scan.started</code></td>
+      </tr>
+      <tr>
+        <td>必須step、driver、またはcleanupの失敗</td>
+        <td><code>admitted</code></td>
+        <td><code>failed</code></td>
+        <td>step terminal、cleanup receipt、<code>scan.failed</code></td>
+      </tr>
+      <tr>
+        <td>全必須step成功かつ全必須lease解放</td>
+        <td><code>admitted</code></td>
+        <td><code>completed</code></td>
+        <td>
+          <code>scan.cleanup.finished</code>後に<code
+            >scan.completed</code
+          >
+        </td>
+      </tr>
+    </tbody>
+  </table>
+  <ul>
+    <li>
+      <code>queued</code
+      >から<code>running</code>へは、保存済みV4 planなしに遷移しない。
+    </li>
+    <li>run statusはlifecycle serviceだけが更新し、driverとrouteは直接更新しない。</li>
+    <li>terminal runの再試行は同じrunを巻き戻さず、新しいattemptとrunを作成する。</li>
+    <li>
+      cleanup失敗時はleaseと再試行actionを保持し、<code>completed_with_warnings</code>へ緩和しない。
+    </li>
+  </ul>
+
+  <h3 id="64-reason-code-contract">6.4 Reason code and setup action contract</h3>
+  <p>
+    public
+    API、attempt、event、UIは次のcodeをそのまま使用し、<code>preflight_failed</code>、
+    <code>internal_error</code
+    >、<code>scan_unavailable</code>だけで原因を隠さない。未知の例外はserver
+    logのcorrelation IDへ結合し、 public reasonは最も近い下表のcodeへ正規化する。
+  </p>
+  <table>
+    <caption>
+      6.4 Normative reason codes
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Category</th>
+        <th scope="col">Reason codes</th>
+        <th scope="col">Setup action</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Definition / input</td>
+        <td>
+          <code>unknown_profile</code
+          >、<code>definition_integrity_failed</code>、<code>profile_input_invalid</code>、<code>profile_input_missing</code>、<code
+            >profile_not_applicable</code
+          >
+        </td>
+        <td><code>select_profile_input</code>またはmaintainer escalation</td>
+      </tr>
+      <tr>
+        <td>Binding</td>
+        <td>
+          <code>binding_changed</code
+          >、<code>target_digest_changed</code>、<code>config_revision_changed</code>、<code
+            >qualification_receipt_stale</code
+          >
+        </td>
+        <td><code>refresh_preview</code></td>
+      </tr>
+      <tr>
+        <td>Docker / tool</td>
+        <td>
+          <code>docker_daemon_unavailable</code
+          >、<code>docker_image_unavailable</code>、<code>docker_entrypoint_invalid</code>、<code>host_binary_unavailable</code>、<code
+            >platform_unsupported</code
+          >
+        </td>
+        <td>
+          <code>start_docker_daemon</code
+          >、<code>pull_pinned_image</code>、<code
+            >install_qualified_tool</code
+          >
+        </td>
+      </tr>
+      <tr>
+        <td>Shared service</td>
+        <td>
+          <code>artifact_store_unavailable</code
+          >、<code>credential_provider_unavailable</code>、<code>network_port_unavailable</code>、<code
+            >runtime_capacity_exhausted</code
+          >
+        </td>
+        <td>
+          <code>repair_shared_service</code>または<code
+            >retry_after_capacity</code
+          >
+        </td>
+      </tr>
+      <tr>
+        <td>Runtime / passive</td>
+        <td>
+          <code>runtime_recipe_missing</code
+          >、<code>runtime_recipe_ambiguous</code>、<code>runtime_target_unhealthy</code>、<code>api_schema_missing</code>、<code>api_schema_ambiguous</code>、<code
+            >api_schema_changed</code
+          >
+        </td>
+        <td>
+          <code>configure_runtime_recipe</code>または<code
+            >configure_api_schema</code
+          >
+        </td>
+      </tr>
+      <tr>
+        <td>Authentication</td>
+        <td>
+          <code>target_config_missing</code
+          >、<code>target_config_disabled</code>、<code>auth_context_missing</code>、<code>auth_context_expired</code>、<code>auth_context_changed</code>、<code
+            >identity_role_missing</code
+          >
+        </td>
+        <td>
+          <code>configure_scan_target</code>または<code
+            >configure_auth_context</code
+          >
+        </td>
+      </tr>
+      <tr>
+        <td>Active / business</td>
+        <td>
+          <code>execution_consent_missing</code
+          >、<code>engagement_missing</code>、<code>engagement_expired</code>、<code>disposable_target_required</code>、<code>reset_plan_missing</code>、<code>scenario_missing</code>、<code
+            >scenario_changed</code
+          >
+        </td>
+        <td>
+          <code>configure_engagement</code
+          >、<code>configure_scenario</code>、<code
+            >confirm_execution_consent</code
+          >
+        </td>
+      </tr>
+      <tr>
+        <td>Replay / group</td>
+        <td>
+          <code>finding_missing</code
+          >、<code>reproduction_unsupported</code>、<code>original_binding_changed</code>、<code>child_binding_changed</code>、<code
+            >child_not_ready</code
+          >
+        </td>
+        <td>
+          <code>select_supported_finding</code>または<code
+            >refresh_child_previews</code
+          >
+        </td>
+      </tr>
+      <tr>
+        <td>Execution / cleanup</td>
+        <td>
+          <code>driver_start_failed</code
+          >、<code>step_timeout</code>、<code>step_failed</code>、<code>evidence_invalid</code>、<code>cleanup_failed</code>、<code
+            >resource_lease_leaked</code
+          >
+        </td>
+        <td>
+          <code>retry_scan</code
+          >、<code>retry_cleanup</code>、またはoperator escalation
+        </td>
+      </tr>
+    </tbody>
+  </table>
+  <pre><code class="language-typescript">type SetupActionCode =
+  | "select_profile_input"
+  | "refresh_preview"
+  | "start_docker_daemon"
+  | "pull_pinned_image"
+  | "install_qualified_tool"
+  | "repair_shared_service"
+  | "retry_after_capacity"
+  | "configure_runtime_recipe"
+  | "configure_api_schema"
+  | "configure_scan_target"
+  | "configure_auth_context"
+  | "configure_engagement"
+  | "configure_scenario"
+  | "confirm_execution_consent"
+  | "select_supported_finding"
+  | "refresh_child_previews"
+  | "retry_scan"
+  | "retry_cleanup"
+  | "contact_operator"
+  | "contact_maintainer";
+
+type SetupAction = {
+  code: SetupActionCode;
+  labelKey: string;
+  href: string | null; // server-generated same-origin path only
+  requiresAdmin: boolean;
+};</code></pre>
+
+  <h2 id="7-dependency-qualification">7. Dependency and environment qualification</h2>
+  <h3 id="71-dependency-manifest">7.1 Dependency Manifest</h3>
+  <p>
+    scanner、runtime、database、browser、attestation toolを、設定keyやprocess envの暗黙参照ではなく
+    typed manifestで宣言する。
+  </p>
+  <pre><code class="language-typescript">type DependencyProbeId =
+  | "docker_daemon_info"
+  | "container_image_inspect"
+  | "container_entrypoint_dry_run"
+  | "host_binary_version"
+  | "process_health"
+  | "artifact_round_trip"
+  | "credential_metadata"
+  | "runtime_health"
+  | "network_port_lease"
+  | "filesystem_read_write"
+  | "platform_match";
+
+type VersionPolicy =
+  | { kind: "image_digest"; digest: Sha256Digest }
+  | { kind: "exact_version"; version: string }
+  | { kind: "semver_range"; range: string }
+  | { kind: "platform"; os: "linux" | "darwin"; arch: "x64" | "arm64" };
+
+type DependencyConfigurationSource =
+  | { kind: "built_in"; valueRef: string }
+  | { kind: "runtime_setting"; settingKey: string }
+  | { kind: "generated_resource"; factoryId: string };
+
+type DependencyRequirement = {
+  id: string;
+  kind:
+    | "container_image"
+    | "host_binary"
+    | "docker_daemon"
+    | "platform"
+    | "process_service"
+    | "artifact_store"
+    | "credential_provider"
+    | "runtime_target"
+    | "network_port"
+    | "filesystem";
+  requirement: "required" | "required_if_applicable" | "advisory";
+  versionPolicy: VersionPolicy;
+  configurationSource: DependencyConfigurationSource;
+  probeId: DependencyProbeId;
+  remediationActionCode: SetupActionCode;
+};</code></pre>
+  <ul>
+    <li>container imageはdigestで解決し、実run metadataにdigestを保存する。</li>
+    <li>host binaryを要求する場合はtoolbox imageのbuild actionを提示しない。</li>
+    <li>空設定をauto-configがそのまま正常値として保持しない。</li>
+    <li>
+      Docker daemon、image inspect、entrypoint probe、adapter dry-runを別checkとして記録する。
+    </li>
+    <li>process serviceは起動可能性、health endpoint、同時実行容量を別checkとして記録する。</li>
+    <li>artifact storeはwrite/read/delete probeを行い、資格確認用objectを必ず削除する。</li>
+    <li>
+      credential providerは秘密値そのものではなく、参照の存在、有効期限、scopeだけを確認する。
+    </li>
+    <li>runtime targetとnetwork portはadmission時にleaseし、Start bindingへlease IDを結合する。</li>
+    <li>秘密値、local path、tokenをprobe evidenceへ保存しない。</li>
+  </ul>
+  <table>
+    <caption>
+      7.1 Required dependency IDs
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Family</th>
+        <th scope="col">Exact IDs</th>
+        <th scope="col">Initial source</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Repository / artifact</td>
+        <td>
+          <code>scanner.gitleaks</code
+          >、<code>scanner.osv</code>、<code>scanner.trivy</code>、<code>scanner.semgrep</code>、<code
+            >scanner.cosign</code
+          >
+        </td>
+        <td>
+          既存static adapter/cosign version policy。host binaryまたは既存toolbox
+          imageの実際の実行形態と一致させる。
+        </td>
+      </tr>
+      <tr>
+        <td>Runtime base</td>
+        <td>
+          <code>docker.daemon</code
+          >、<code>runtime.namespace-owner</code>、<code>runtime.node</code>、<code>runtime.materializer</code>、<code>runtime.registry-proxy</code>、<code>runtime.probe</code>、<code>runtime.http-executor</code>、<code
+            >runtime.database</code
+          >
+        </td>
+        <td><code>api/modules/runtime-isolation/runtime-image-registry.ts</code>のruntime setting。</td>
+      </tr>
+      <tr>
+        <td>Runtime scanners</td>
+        <td>
+          <code>scanner.nuclei</code
+          >、<code>scanner.zap</code>、<code
+            >scanner.schemathesis</code
+          >
+        </td>
+        <td>
+          Nuclei/Schemathesisはruntime image
+          registry、ZAPは<code>zap-image-policy.ts</code>のdigest pin。
+        </td>
+      </tr>
+      <tr>
+        <td>Shared resources</td>
+        <td>
+          <code>service.artifact-store</code
+          >、<code>service.credential-provider</code>、<code>resource.network-port</code>、<code
+            >resource.workspace</code
+          >
+        </td>
+        <td>既存repository/providerとlease allocator。</td>
+      </tr>
+      <tr>
+        <td>R1 / R3</td>
+        <td>
+          <code>dynamic.&lt;builtInProfileId&gt;</code
+          >、<code>browser.playwright</code>、<code>target.disposable</code>、<code
+            >target.reset</code
+          >
+        </td>
+        <td>dynamic built-in registry、browser installer、engagement/target provider。</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    manifest entryは上表のIDを使用する。runtime settingを参照するentryはprocess
+    envを直接読まず、既存runtime settings serviceから取得する。container entryのresolved
+    valueがdigest pinでない、空、またはcurrent platform entryがない場合は
+    <code>docker_image_unavailable</code
+    >または<code>platform_unsupported</code>としてqualificationを失敗させる。
+  </p>
+
+  <h3 id="72-environment-receipt">7.2 Environment Qualification Receipt</h3>
+  <p>
+    environment qualificationはprofile startごとの重い実行にしない。依存manifest hash、image
+    digest、 platform、Docker server version、adapter
+    versionをkeyに短期receiptを生成し、変更時に無効化する。
+  </p>
+  <p>
+    receiptは「脆弱性scanが成功する」ことを保証せず、指定adapterを現在の環境で起動し、最小fixtureを処理し、
+    結果をparseできることを保証する。profile qualificationとは分離する。
+  </p>
+
+  <h2 id="8-plan-progress-cleanup">8. Execution Plan, progress, and cleanup</h2>
+  <h3 id="81-plan-contract">8.1 Execution Plan contract</h3>
+  <p>全runは実行開始前にversioned Execution Planを保存する。各stepは次を持つ。</p>
+  <ul>
+    <li>
+      <code>stepId</code>、driver adapter、目的、必須/任意、failure
+      policy。
+    </li>
+    <li>dependency binding、timeout、resource policy。</li>
+    <li>期待するartifact/evidence kind。</li>
+    <li>cleanup actionとcleanup必須条件。</li>
+  </ul>
+  <p>
+    profileに適用しないstepはplanから消さず、plan
+    compile時に<code>not_applicable</code>として確定させるか、
+    variantとして別planにする。進捗分母が実行中に変化しないことを保証する。
+  </p>
+
+  <h3 id="82-event-contract">8.2 Progress event contract</h3>
+  <p>全engineが最低限、次のeventを共通repositoryへ書き込む。</p>
+  <ul>
+    <li>
+      <code>scan.queued</code>、<code>scan.started</code>。
+    </li>
+    <li>
+      各phaseの<code>scan.phase.started</code>、<code>scan.phase.finished</code>。
+    </li>
+    <li>
+      <code>scan.readiness.evaluated</code>、<code>scan.plan.compiled</code>。
+    </li>
+    <li>
+      各stepの<code>scan.step.started</code>、<code>scan.step.progress</code>、<code>scan.step.finished</code>。
+    </li>
+    <li>
+      <code>scan.cleanup.started</code>、<code>scan.cleanup.finished</code>。
+    </li>
+    <li>
+      <code>scan.completed</code
+      >または<code>scan.failed</code>。
+    </li>
+  </ul>
+  <p>
+    eventには単調増加するseq、plan hash、step ID、reason code、timestampを含める。UIはprofile定義や
+    frontend timerではなく、保存済みplanとeventだけから進捗を再構築する。
+  </p>
+
+  <h4 id="821-progress-snapshot">8.2.1 Progress snapshot and UI rule</h4>
+  <pre><code class="language-typescript">type ScanProgressPhase =
+  | "queued"
+  | "resource_preparation"
+  | "target_preparation"
+  | "scanner_execution"
+  | "evidence_persistence"
+  | "cleanup"
+  | "terminal";
+
+type ScanProgressContractV2 = {
+  phases: readonly ScanProgressPhase[];
+  totalStepCount: number; // positive integer
+  stepIds: readonly string[]; // V4 planの順序と一致
+};
+
+type ScanProgressSnapshotV2 = {
+  schemaVersion: 2;
+  runId: Uuid;
+  planHash: Sha256Digest;
+  currentPhase: ScanProgressPhase;
+  phaseStatuses: Record&lt;ScanProgressPhase, "pending" | "running" | "completed" | "failed" | "not_applicable"&gt;;
+  steps: Array&lt;{
+    stepId: string;
+    status: "pending" | "running" | "completed" | "failed" | "not_applicable";
+    completedUnits: number | null;
+    totalUnits: number | null;
+    safeMessage: string | null;
+  }&gt;;
+  completedStepCount: number;
+  totalStepCount: number;
+  lastEventSeq: number;
+};</code></pre>
+  <ul>
+    <li>
+      admission時にV4 planを保存するため、queued/running
+      runの<code>totalStepCount</code>は必ず1以上になる。
+    </li>
+    <li>
+      runtime/container/database/port準備中は<code>target_preparation</code>または<code>resource_preparation</code>を表示し、scanner
+      stepは<code>0 / N</code>と表示する。
+    </li>
+    <li>
+      scannerが詳細unitを報告しない場合だけ<code>completedUnits</code>/<code>totalUnits</code>をnullにし、step
+      statusと経過時間は表示する。
+    </li>
+    <li>再読込後も<code>GET /api/projects/:projectId/scans/:runId/progress</code>で同じsnapshotを再構築する。</li>
+    <li>
+      Webはactive runを1秒間隔でpollし、tab復帰時に即時再取得し、terminal
+      snapshot受信後にpollを停止する。
+    </li>
+    <li>
+      <code>0 / 0</code
+      >、無根拠なpercent、frontend推定phaseは表示禁止とする。planのstepが0件ならdefinition integrity
+      failureとしてadmitしない。
+    </li>
+  </ul>
+
+  <h3 id="83-cleanup-contract">8.3 Cleanup contract</h3>
+  <ul>
+    <li>
+      作成したcontainer、network、volume、database、temporary workspaceをleaseとして記録する。
+    </li>
+    <li>terminal処理前に全必須leaseのrelease receiptを保存する。</li>
+    <li>cleanup失敗時はrunを成功扱いせず、resourceと再試行actionを安全に表示する。</li>
+    <li>process crash後に期限切れleaseを回収するreconcilerを用意する。</li>
+  </ul>
+
+  <h2 id="9-qualification-and-availability">9. Qualification and availability</h2>
+  <h3 id="91-five-level-guarantee">9.1 Five-level guarantee</h3>
+  <ol>
+    <li><strong>Definition integrity</strong>: registry entryが完全である。</li>
+    <li><strong>Environment qualification</strong>: dependency adapterを現在環境で起動できる。</li>
+    <li><strong>Profile qualification</strong>: profile claimを固定fixtureで再現できる。</li>
+    <li><strong>Project readiness</strong>: 現在projectで適用条件と入力条件を満たす。</li>
+    <li>
+      <strong>Per-run conformance</strong>: plan、event、evidence、cleanupがrunごとに整合する。
+    </li>
+  </ol>
+  <p>
+    「稼働保証」は、<code>ready</code>と判定されたprofileがadmissionされ、全工程を観測可能な状態で実行し、
+    lifecycle contractを満たしてterminal stateへ到達することを指す。検査claimの成功はSection 9.4の
+    qualification successを別途満たす必要がある。全projectで全profileを適用可能にする意味ではない。
+  </p>
+
+  <h3 id="92-qualification-matrix">9.2 Required qualification matrix</h3>
+  <p>各public profileとvariantに、該当する次のcaseを登録する。</p>
+  <table>
+    <caption>
+      9.2 Profile qualification case
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Case</th>
+        <th scope="col">期待結果</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>vulnerable fixture</td>
+        <td>期待findingとcoverageを生成する。</td>
+      </tr>
+      <tr>
+        <td>fixed fixture</td>
+        <td>対象findingを生成せず、検査実行証跡を残す。</td>
+      </tr>
+      <tr>
+        <td>not-applicable fixture</td>
+        <td><code>not_applicable</code>を起動前に返す。</td>
+      </tr>
+      <tr>
+        <td>missing input</td>
+        <td><code>needs_input</code>と入力fieldを返す。</td>
+      </tr>
+      <tr>
+        <td>missing dependency/image</td>
+        <td><code>blocked_environment</code>と修復actionを返す。</td>
+      </tr>
+      <tr>
+        <td>adapter timeout/crash</td>
+        <td>該当step failure、terminal run、cleanup receiptを残す。</td>
+      </tr>
+      <tr>
+        <td>cleanup failure</td>
+        <td>completedにせず、resource leaseを追跡可能にする。</td>
+      </tr>
+      <tr>
+        <td>UI-to-API launch</td>
+        <td>catalog inputから正しいengine/variantへ到達する。</td>
+      </tr>
+      <tr>
+        <td>three-run repeatability</td>
+        <td>同じbindingでSection 9.4のqualification successを3回連続して満たす。</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3 id="93-derived-availability">9.3 Derived availability</h3>
+  <p>
+    qualification receiptはruntime DBの認可入力にしない。release evidenceとして保存し、promotion
+    manifestが profile、variant、commit、catalog hash、driver hash、dependency
+    digest、platform、case resultを集約する。
+    build/release時にmanifestを検証し、配布catalogのavailability claimを生成する。
+  </p>
+  <ul>
+    <li>
+      <code>stable</code>: 必須platformと必須caseのcurrent receiptが揃う。
+    </li>
+    <li>
+      <code>experimental</code>: engineは存在するが、claimまたはplatform
+      qualificationが不足する。
+    </li>
+    <li><code>planned</code>: driverまたは安全境界が未完成で起動不可。</li>
+    <li>
+      <code>deprecated</code>: replacementとusage evidenceに基づく移行期間中。
+    </li>
+  </ul>
+
+  <h3 id="94-success-semantics">9.4 Success semantics and qualification counting</h3>
+  <p>次の3つを同じ「成功」という語で扱わない。</p>
+  <ul>
+    <li>
+      <strong>Lifecycle conformance:</strong> success/failureを問わず、plan、event、terminal
+      state、cleanupが整合する。
+    </li>
+    <li>
+      <strong>Failure observability:</strong> 意図的なmissing
+      dependency、timeout、crash等が具体的reasonで終了する。
+    </li>
+    <li>
+      <strong>Qualification success:</strong>
+      profileが掲げる検査claimを実scannerと固定fixtureで完遂する。
+    </li>
+  </ul>
+  <p>
+    repeatabilityとstable promotionに数えるのは、qualification caseの
+    <code>purpose="qualification_success"</code>で次をすべて満たすrunだけとする。
+  </p>
+  <ol>
+    <li>
+      run statusが<code>completed</code>、profile
+      outcomeが<code>completed</code>である。
+    </li>
+    <li>
+      全required stepが<code>completed</code>、全required coverage
+      itemが<code>covered</code>である。
+    </li>
+    <li>profile policyが要求するevidenceとartifactが1件以上あり、digest検証に成功している。</li>
+    <li>全必須cleanup receiptが成功し、active leaseが0件である。</li>
+    <li>
+      実行したdependency digest、plan hash、input binding hashがqualification bindingと一致する。
+    </li>
+    <li>許可されていないwarning、false pass、secret leak、host mutationが0件である。</li>
+  </ol>
+  <p>
+    <code>completed_with_warnings</code>は運用上のterminal
+    stateとして保持するが、初期の許可warning listは空とし、qualification
+    successには数えない。failure fixtureは <code>purpose="failure_observability"</code>、N/A
+    fixtureは<code>purpose="readiness_classification"</code>とし、
+    lifecycleを満たしても3回連続成功やpromotionの分子へ入れない。
+  </p>
+  <pre><code class="language-typescript">type QualificationCasePurposeV2 =
+  | "qualification_success"
+  | "failure_observability"
+  | "readiness_classification"
+  | "safety_negative";
+
+type ScanProfileQualificationCaseV2 = {
+  schemaVersion: 2;
+  profileId: CanonicalProfileId;
+  variantId: string;
+  caseId: string;
+  purpose: QualificationCasePurposeV2;
+  input: ProfileInputById[CanonicalProfileId];
+  expectedReadiness: ReadinessStatus;
+  expectedStepIds: string[];
+  expectedFindingIds: string[];
+  expectedReasonCodes: string[];
+  fixtureManifest: RepoRelativePath;
+};</code></pre>
+
+  <h3 id="95-profile-run-contract-matrix">9.5 Normative 14-profile Run Contract Matrix</h3>
+  <p>
+    この節はprofile実装の受入仕様である。入力field、variant、step
+    ID、readiness、cleanup、fixtureを実装者判断で
+    追加・省略しない。変更が必要な場合は、先に共有schemaと本表を同じPRで改訂する。
+  </p>
+  <pre><code class="language-typescript">type ProfileInputById = {
+  "change-gate": { kind: "source_target" };
+  "source-assurance": { kind: "source_target" };
+  "dependency-supply-chain": {
+    kind: "offline_attestation";
+    subject: { path: RepoRelativePath; expectedSha256: Sha256Digest };
+    bundle: { path: RepoRelativePath; expectedSha256: Sha256Digest };
+    trustPolicy: { path: RepoRelativePath; expectedSha256: Sha256Digest };
+  };
+  "release-artifact":
+    | { kind: "filesystem_artifact" }
+    | { kind: "container_image_ref"; imageRef: DigestPinnedImageRef }
+    | { kind: "container_image_tar"; imageTarPath: RepoRelativePath; expectedSha256: Sha256Digest };
+  "dynamic-verification": {
+    kind: "builtin_dynamic"; dynamicProfileId: BuiltInDynamicProfileId; executionConsent: true;
+  };
+  "sanitizer-fuzz-lab": {
+    kind: "builtin_dynamic"; dynamicProfileId: BuiltInDynamicProfileId; executionConsent: true;
+  };
+  "custom-dynamic-lab": {
+    kind: "custom_dynamic"; dynamicConfigRef: Uuid; expectedConfigHash: Sha256Digest; executionConsent: true;
+  };
+  "runtime-passive": { kind: "auto_project_runtime"; executionConsent: true };
+  "authenticated-web": {
+    kind: "authenticated_web";
+    targetConfigRef: Uuid; expectedTargetHash: Sha256Digest;
+    authContextRef: Uuid; expectedAuthContextHash: Sha256Digest;
+    identityRole: string;
+  };
+  "api-readonly": {
+    kind: "api_readonly";
+    runtime: { mode: "auto_project_runtime" };
+    schemaSource:
+      | { mode: "auto" }
+      | { mode: "configured"; schemaRef: Uuid; expectedSchemaHash: Sha256Digest };
+  };
+  "active-technical-lab": {
+    kind: "active_assessment"; executionConsent: true; request: RunActiveAssessmentRequest;
+  };
+  "business-logic-lab": {
+    kind: "business_logic"; scenarioRef: Uuid; expectedScenarioHash: Sha256Digest; executionConsent: true;
+  };
+  "remediation-verification": {
+    kind: "remediation"; findingRef: Uuid; reproductionProfileId: ReproductionProfileId;
+    expectedOriginalBindingHash: Sha256Digest;
+  };
+  "professional-full": {
+    kind: "professional";
+    children: Array&lt;{ profileId: Exclude&lt;CanonicalProfileId, "professional-full"&gt;; previewBindingHash: Sha256Digest }&gt;;
+    activeScope: { includeR3: false } | { includeR3: true; executionConsent: true };
+  };
+};</code></pre>
+  <p>
+    rootの<code>target</code>は、<code>change-gate</code>だけ
+    <code>commit</code
+    >、<code>range</code>、<code>working_tree</code>を許可し、他13
+    profileは
+    <code>full</code>だけを許可する。targetのref解決結果とworking-tree
+    snapshotは
+    <code>expectedTargetDigest</code
+    >へ結合する。<code>RepoRelativePath</code>はabsolute
+    path、<code>..</code>、backslashを拒否、
+    <code>DigestPinnedImageRef</code
+    >は<code>name@sha256:...</code>だけを許可する。UUID参照は同一projectへのownership、
+    enabled state、revision hash一致をreadinessで検証する。秘密値、command、image
+    overrideはinputへ追加しない。
+  </p>
+  <table>
+    <caption>
+      9.5 ProfileDefinition実装表
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Profile / variant</th>
+        <th scope="col">Readinessと固定step</th>
+        <th scope="col">Cleanupとqualification</th>
+        <th scope="col">移行元</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>
+          <code>change-gate</code><br /><code
+            >source-diff</code
+          >
+        </td>
+        <td>
+          repository target、base/head解決、source
+          snapshot、Gitleaks/OSV/Trivyを必須とする。Semgrepは検出言語に適用時だけrequired。
+          stepは<code>source:gitleaks</code>、<code>source:osv</code>、<code>source:trivy</code>、
+          <code>source:semgrep</code>。N/Aもplan compile時に固定する。
+        </td>
+        <td>
+          snapshotとtool workspaceを解放する。vulnerable/fixed/missing dependencyを
+          <code>scripts/scan-profile-qualification/fixtures/change-gate.json</code>で3回実行する。
+        </td>
+        <td><code>api/modules/scans/canonical-scan-profiles.ts</code>のchange-gate definition。</td>
+      </tr>
+      <tr>
+        <td>
+          <code>source-assurance</code><br /><code
+            >source-full</code
+          >
+        </td>
+        <td>
+          revision解決と全source
+          snapshotを必須とする。stepは<code>source:gitleaks</code>、
+          <code>source:osv</code
+          >、<code>source:trivy</code>、適用時<code>source:semgrep</code>。
+        </td>
+        <td>
+          snapshotとtool workspaceを解放する。既存Golden Path結果を
+          <code>scripts/scan-profile-qualification/fixtures/source-assurance.json</code>へ固定し、clean completionだけを成功とする。
+        </td>
+        <td><code>canonical-scan-profiles.ts</code>とrepository orchestrator。</td>
+      </tr>
+      <tr>
+        <td>
+          <code>dependency-supply-chain</code><br /><code
+            >offline-attestation</code
+          >
+        </td>
+        <td>
+          bundle/policy pathのsnapshot、subject digest一致、Cosign/OSV/Trivy
+          digestを必須とする。外部networkを許可しない。
+          stepは<code>deps:osv</code>、<code>sbom:trivy</code>、<code>attestation:cosign</code>。
+        </td>
+        <td>
+          snapshot、container、tool workspaceを解放する。signed/tampered/missing Cosignを
+          <code>scripts/scan-profile-qualification/fixtures/dependency-supply-chain.json</code>で検証する。
+        </td>
+        <td><code>canonical-scan-profiles.ts</code>のdependency/attestation definition。</td>
+      </tr>
+      <tr>
+        <td>
+          <code>release-artifact</code><br />
+          <code>filesystem-artifact</code> /
+          <code>image-ref</code> /
+          <code>image-tar</code>
+        </td>
+        <td>
+          filesystem/tarはhash一致、image-refはdigest pinとinspect成功を必須とする。filesystem
+          stepは
+          <code>artifact:gitleaks</code
+          >、<code>artifact:trivy</code>、image系は<code>image:trivy</code>。
+        </td>
+        <td>
+          copied artifact、loaded image、containerを解放する。3 variant、hash drift、unsupported
+          artifactを
+          <code>scripts/scan-profile-qualification/fixtures/release-artifact.json</code>で検証する。
+        </td>
+        <td>
+          <code>canonical-scan-profiles.ts</code>のfilesystem/image ref/image tar variant。
+        </td>
+      </tr>
+      <tr>
+        <td>
+          <code>dynamic-verification</code><br /><code
+            >builtin-test</code
+          >
+        </td>
+        <td>
+          built-in registryに存在し<code>dynamicKind="test"</code>、project
+          detector適用、qualified image/toolchainであることを必須とする。
+          stepは<code>dynamic:test:&lt;dynamicProfileId&gt;</code>。
+        </td>
+        <td>
+          container、network、workspace、processを解放する。既存
+          <code>scripts/scan-profile-qualification/fixtures/dynamic-verification.json</code>をV2へ移行する。
+        </td>
+        <td>
+          <code>api/routes/dynamic.route.ts</code>とdynamic runner。public runner/image
+          overrideは廃止。
+        </td>
+      </tr>
+      <tr>
+        <td>
+          <code>sanitizer-fuzz-lab</code><br /><code
+            >sanitizer</code
+          >
+          / <code>fuzz</code>
+        </td>
+        <td>
+          built-in
+          registryのkindがsanitizer/fuzzのいずれかで、対応言語detectorとtoolchainを満たすことを必須とする。
+          stepはkindに応じ<code>dynamic:sanitizer:&lt;id&gt;</code>または<code>dynamic:fuzz:&lt;id&gt;</code>。
+        </td>
+        <td>
+          container、network、workspace、process、crash corpus leaseを解放する。Go race、sanitizer
+          crash、fuzzer crash、timeoutを
+          <code>scripts/scan-profile-qualification/fixtures/sanitizer-fuzz-lab.json</code>で検証する。
+        </td>
+        <td>dynamic profile config/runner/evaluator。</td>
+      </tr>
+      <tr>
+        <td>
+          <code>custom-dynamic-lab</code><br /><code
+            >configured</code
+          >
+        </td>
+        <td>
+          同一projectのenabled config、revision hash、allow-listed runner
+          policyを必須とする。初期policyはnetworkなし。
+          stepは<code>dynamic:custom:&lt;dynamicConfigRef&gt;</code>。Start時のcommand/image
+          overrideは禁止する。
+        </td>
+        <td>
+          container、network、workspace、processを解放する。safe config、unsafe config、config
+          driftを
+          <code>scripts/scan-profile-qualification/fixtures/custom-dynamic-lab.json</code>で検証する。
+        </td>
+        <td>dynamic setup APIとdynamic runner。config作成はStartから分離。</td>
+      </tr>
+      <tr>
+        <td>
+          <code>runtime-passive</code><br /><code
+            >auto-project-runtime</code
+          >
+        </td>
+        <td>
+          project runtime recipeがちょうど1件、runtime/scanner/database image資格、port
+          lease可能を必須とする。stepは
+          <code>dast:web-passive-standard</code
+          >、<code>runtime:nuclei-safe</code>、<code>runtime:zap-baseline</code>。
+        </td>
+        <td>
+          runtime、scanner container、network、port、database、workspaceをすべて解放する。Golden
+          Path、image missing、全step failureを
+          <code>scripts/scan-profile-qualification/fixtures/runtime-passive.json</code>で検証する。
+        </td>
+        <td>
+          <code>runtime-web-safe</code> legacy definitionとauto-start/runtime
+          isolation。
+        </td>
+      </tr>
+      <tr>
+        <td>
+          <code>authenticated-web</code><br /><code
+            >configured-auth-readonly</code
+          >
+        </td>
+        <td>
+          enabled target、enabledかつ未失効auth context、hash一致、identity
+          role存在を必須とする。stepは
+          <code>auth:session</code
+          >、<code>dast:authenticated-readonly-standard</code>。GET/HEAD/OPTIONS以外を送信しない。
+        </td>
+        <td>
+          browser/session、scanner container、cookie/credential
+          handleを解放し、秘密値をeventへ出さない。既存
+          <code>scripts/scan-profile-qualification/fixtures/authenticated-web.json</code>をV2へ移行する。
+        </td>
+        <td>DAST target/auth setupとauthenticated DAST runner。Startによるsetup作成は禁止。</td>
+      </tr>
+      <tr>
+        <td>
+          <code>api-readonly</code><br /><code
+            >auto-schema</code
+          >
+          / <code>configured-schema</code>
+        </td>
+        <td>
+          auto discoveryでschemaが1件に確定するか、configured schema
+          hashが一致することを必須とする。operation policyは
+          GET/HEAD/OPTIONSだけ。stepは<code>api:schemathesis-readonly</code>。
+        </td>
+        <td>
+          auto runtime、scanner container、network、port、workspaceを解放する。既存
+          <code>scripts/scan-profile-qualification/fixtures/api-readonly.json</code>でread-only request countも検証する。
+        </td>
+        <td>API schema scan runnerとauto project runtime。</td>
+      </tr>
+      <tr>
+        <td>
+          <code>active-technical-lab</code><br />
+          <code>transaction</code> /
+          <code>authorization-matrix</code> /
+          <code>zap-active</code>
+        </td>
+        <td>
+          既存<code>RunActiveAssessmentRequest</code> unionを再利用し、active
+          engagement、未失効RoE、system-owned disposable target、 reset
+          plan、明示同意を必須とする。stepはrequest kindごとに
+          <code>active:transaction</code
+          >、<code>active:authorization-matrix</code>、<code>active:zap</code>。
+        </td>
+        <td>
+          target
+          reset、session、scanner、network、workspaceを解放する。reset失敗時はquarantineしてfailedとする。既存
+          <code>scripts/scan-profile-qualification/fixtures/active-technical-lab.json</code>をV2へ移行する。
+        </td>
+        <td>active assessment schemas/routes/runner。任意JSON formは作らない。</td>
+      </tr>
+      <tr>
+        <td>
+          <code>business-logic-lab</code><br /><code
+            >configured-scenario</code
+          >
+        </td>
+        <td>
+          scenario hash、active engagement、scenario内auth context、disposable target、reset
+          plan、同意を必須とする。 stepは<code>business:scenario:&lt;scenarioRef&gt;</code>。
+        </td>
+        <td>
+          scenario session、target reset、browser、networkを解放する。正常/違反/target drift/reset
+          failureを既存
+          <code>scripts/scan-profile-qualification/fixtures/business-logic-lab.json</code>で検証する。
+        </td>
+        <td>business scenario setupとrunner。Startによるscenario作成は禁止。</td>
+      </tr>
+      <tr>
+        <td>
+          <code>remediation-verification</code><br /><code
+            >reproduction-replay</code
+          >
+        </td>
+        <td>
+          findingとoriginal runが存在し、reproduction profileがfinding kindに対応し、original
+          binding hashが一致することを必須とする。
+          stepは<code>reproduction:&lt;reproductionProfileId&gt;</code>。元runより安全境界を緩和しない。
+        </td>
+        <td>
+          replay用workspace/containerを解放する。fixed/unfixed/unsupported/driftを既存
+          <code>scripts/scan-profile-qualification/fixtures/remediation-verification.json</code>で検証する。
+        </td>
+        <td>reproduction binding、profiles、route、runner。</td>
+      </tr>
+      <tr>
+        <td>
+          <code>professional-full</code><br /><code
+            >qualified-child-group</code
+          >
+        </td>
+        <td>
+          childが1件以上、重複なし、全child preview
+          bindingがcurrentかつready、子にprofessional-fullを含まないことを必須とする。 R3
+          childは<code>includeR3=true</code>と同意がある場合だけ許可する。stepは
+          <code>child:&lt;profileId&gt;:&lt;variantId&gt;</code>。
+        </td>
+        <td>
+          parent自身はchild resourceを所有せず、各child cleanup完了後に集約する。child
+          failure、partial coverage、R3除外、review pendingを
+          <code>scripts/scan-profile-qualification/fixtures/professional-full.json</code>で検証する。技術完了とhuman
+          review完了を別状態にする。
+        </td>
+        <td>
+          <code>api/modules/scans/execution/professional-run-group.ts</code>のimmutable parent
+          contractを再利用し、未実装のchild schedulerを追加。
+        </td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3 id="96-consumer-contract">9.6 Consumer launch contract</h3>
+  <table>
+    <caption>
+      9.6 全consumerが共有する起動経路
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Consumer</th>
+        <th scope="col">実装要件</th>
+        <th scope="col">禁止事項</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Web</td>
+        <td>
+          catalog schemaからformを描画し、Preview、setup導線、Startの順でcanonical APIを呼ぶ。
+        </td>
+        <td>profile ID dispatch、client plan生成、timerだけのprogress。</td>
+      </tr>
+      <tr>
+        <td>CLI</td>
+        <td>
+          <code>scan-profile --profile</code>のflagを同じrequest
+          schemaへ変換し、preview/start serviceを呼ぶ。
+        </td>
+        <td>runner、image、commandを直接選び、run rowを直接作ること。</td>
+      </tr>
+      <tr>
+        <td>Oracle</td>
+        <td>
+          許可されたprofile/input subsetをschemaで検証し、service account actorで同じlaunch
+          serviceを呼ぶ。
+        </td>
+        <td>専用profile aliasからlegacy execution IDを直接実行すること。</td>
+      </tr>
+      <tr>
+        <td>NightWorkers</td>
+        <td>
+          保存済みschedule payloadをcurrent schemaへ再検証し、preview
+          bindingを取得してからStartする。
+        </td>
+        <td>古いreadiness hashの再利用、DB statusの直接更新。</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    各consumerのcontract testは、14
+    profileすべてについて「有効なrequestを同じengine/variantへ解決する」か、 consumer
+    policyで不許可なら具体的reasonで起動前拒否することを検証する。consumerごとの別runnerは作らない。
+  </p>
+
+  <h2 id="10-work-packages">10. Ordered work packages</h2>
+  <p>
+    packageは番号順に実施する。各packageのexit
+    gateを満たすまで後続familyへ進まない。期間見積りはbaseline test時間と1
+    familyの実測throughputを得た後に別途作成する。
+  </p>
+
+  <h3 id="wp-00">WP-00 — Baseline, freeze, and reachability inventory</h3>
+  <p>
+    <strong>目的:</strong> 実装開始時点の事実を固定し、表示されるが到達不能なprofileを増やさない。
+  </p>
+  <ul>
+    <li>HEAD、dirty tree、runtime settings、platform、Docker/image digestを記録する。</li>
+    <li>
+      14
+      profileについてcatalog、UI、resolver、route、driver、plan、progress、cleanup、E2Eの対応表を生成する。
+    </li>
+    <li>
+      到達不能または依存未資格のprofileは、削除せずreadinessをunavailable/blockedとして表示する。
+    </li>
+    <li>Golden Pathの成功・警告・失敗runからsafe baseline artifactを生成する。</li>
+  </ul>
+  <p>
+    <strong>Exit gate:</strong> 公開profile全件が対応表に存在し、未対応欄が空欄ではなくreason
+    codeを持つ。
+  </p>
+
+  <h3 id="wp-01">WP-01 — ProfileDefinition registry and invariants</h3>
+  <p><strong>目的:</strong> profile集合の正本を一つにする。</p>
+  <ul>
+    <li><code>profile-definition.ts</code>とengine registryを追加する。</li>
+    <li>既存catalogとexecution definitionをadapterで読み、初期段階では挙動を変えない。</li>
+    <li>API catalog、launch contract、qualification inventoryをregistryから生成する。</li>
+    <li>
+      <code>verify:scan-profile-architecture</code>と<code>qualify:scan-profile:all</code>を
+      <code>package.json</code
+      >へ追加し、script本体の直接実行と同じ結果になることをtestする。
+    </li>
+    <li>
+      全entryのdriver/input/readiness/plan/progress/cleanup/qualification完全性testを追加する。
+    </li>
+  </ul>
+  <p>
+    <strong>Exit gate:</strong> profile追加・削除・variant追加時に、契約不足がcompile/test
+    failureになる。 UIまたはE2Eだけから欠落するprofileを作れない。
+  </p>
+
+  <h3 id="wp-02">WP-02 — Launch Attempt and common lifecycle</h3>
+  <p><strong>目的:</strong> 起動前失敗からcleanupまでを同じ状態機械へ通す。</p>
+  <ul>
+    <li>launch attempt schema/repositoryを追加する。</li>
+    <li>common lifecycle serviceとengine driver interfaceを追加する。</li>
+    <li>run作成、plan保存、running遷移のtransaction順序を固定する。</li>
+    <li>step event、terminal event、cleanup receiptのinvariantを実装する。</li>
+    <li>process crashと期限切れleaseのreconciliation testを追加する。</li>
+  </ul>
+  <p>
+    <strong>Exit gate:</strong> preflight block、driver起動失敗、step
+    timeout、cleanup失敗を再現し、すべての attemptとterminal reasonをDBから説明できる。
+  </p>
+
+  <h3 id="wp-03a">WP-03A — Golden Path dependency manifests</h3>
+  <p>
+    <strong>目的:</strong> WP-03が未定義imageやhost
+    toolに依存せず、同じbindingで再現できるようにする。
+  </p>
+  <ul>
+    <li>
+      Gitleaks、OSV-Scanner、Trivy、Semgrep、Nuclei、ZAP、runtime/database
+      imageをmanifestへ登録する。
+    </li>
+    <li>
+      container imageをdigest pinし、daemon、inspect、entrypoint、adapter dry-runを資格確認する。
+    </li>
+    <li>artifact storeのwrite/read/deleteとruntime port leaseを資格確認する。</li>
+    <li>
+      current platformのreceiptを生成し、source-assurance/runtime-passiveのpreview
+      bindingへ結合する。
+    </li>
+  </ul>
+  <p>
+    <strong>Exit gate:</strong> Golden Pathに必要な全dependencyがqualifiedか、profile
+    previewで個別reason codeを持つ
+    <code>blocked_environment</code
+    >になり、実行中に初めて<code>docker_image_unavailable</code>にならない。
+  </p>
+
+  <h3 id="wp-03">WP-03 — Golden Path adapters</h3>
+  <p><strong>目的:</strong> 新しい共通契約を既存の2系統で証明する。</p>
+  <ul>
+    <li>source-assuranceを<code>repository</code> driverへ接続する。</li>
+    <li>runtime-passiveを<code>passive-runtime</code> driverへ接続する。</li>
+    <li>既存finding、summary、artifact、result policyとの互換性を比較する。</li>
+    <li>runtime-passiveのready後全step failureとtool run未生成をfailure fixtureとして固定する。</li>
+    <li>
+      両Golden PathでSection 9.4を満たすqualification successを3回連続実行し、resource
+      leakを検査する。
+    </li>
+  </ul>
+  <p>
+    <strong>Exit gate:</strong> vulnerable/fixed/failure fixtureでplan、event、tool
+    run、finding、cleanupが 期待どおり一致し、旧経路をfallbackにせず新経路を既定にできる。
+  </p>
+
+  <h3 id="wp-04">WP-04 — Dependency qualification</h3>
+  <p><strong>目的:</strong> Docker/image/host toolの不整合をprofile個別問題から環境状態へ移す。</p>
+  <ul>
+    <li>Dependency Manifest、probe、receipt cacheを追加する。</li>
+    <li>
+      WP-03Aのregistryを残りprofileへ拡張し、Schemathesis、Cosign、dynamic/R1/R3 imageを登録する。
+    </li>
+    <li>auto-configをmanifest resolverへ置換し、空値とmutable fallbackを拒否する。</li>
+    <li>current platform用のminimal adapter fixtureを実行する。</li>
+  </ul>
+  <p>
+    <strong>Exit gate:</strong>
+    imageなし、daemon停止、entrypoint不一致、binaryなし、未対応platformをそれぞれ 別reason
+    codeで起動前に判定できる。
+  </p>
+
+  <h3 id="wp-05">WP-05 — Unified consumer launch and progress</h3>
+  <p><strong>目的:</strong> Web/CLI/Oracle/NightWorkersの独自dispatchと独自進捗stateを除去する。</p>
+  <ul>
+    <li>catalog APIへreadiness、input schema、launch action、plan previewを追加する。</li>
+    <li>frontendのprofile ID条件分岐をschema-driven formと単一Start APIへ置換する。</li>
+    <li>
+      CLI flag、Oracle request、NightWorkers scheduleをSection 9.6のcanonical schema
+      adapterへ置換する。
+    </li>
+    <li>progressは保存済みplan/eventからだけ構築する。</li>
+    <li>ready以外の状態に、原因、必要入力、修復actionを表示する。</li>
+  </ul>
+  <p>
+    <strong>Exit gate:</strong>
+    catalogが公開する全profileで適切なreadinessが表示され、全consumerが同じengine/variantへ到達する。
+    到達不能profileがenabledになること、実行中に<code>0 / 0</code>となることがない。
+  </p>
+
+  <h3 id="wp-10">WP-10 — Remaining R0 engines</h3>
+  <p>
+    <code>change-gate</code>をrepository
+    engineへ、<code>dependency-supply-chain</code>と
+    <code>release-artifact</code>をsupply-artifact
+    engineへ移行する。Cosign、attestation、image/tar入力を typed dependency/input
+    contractへ接続する。variant、input、step、fixtureはSection 9.5の行をそのまま実装する。
+  </p>
+  <p><strong>Exit gate:</strong> R0全profileがlegacy execution IDを経由せず資格matrixを満たす。</p>
+
+  <h3 id="wp-20">WP-20 — Remaining passive R2 profiles</h3>
+  <p>
+    <code>api-readonly</code
+    >と<code>authenticated-web</code>をpassive-runtime engineのvariantとして
+    移行する。schema discovery、read-only operation policy、auth contextをSection 9.5のplan
+    inputに固定する。
+  </p>
+  <p>
+    <strong>Exit gate:</strong> runtime target、schema、auth
+    contextの不足が実行failureではなくreadinessで 判定され、全stepが共通progress contractを満たす。
+  </p>
+
+  <h3 id="wp-30">WP-30 — R1 isolated code profiles</h3>
+  <p>
+    R1 internal canaryを先にqualificationし、その後<code>dynamic-verification</code>、
+    <code>sanitizer-fuzz-lab</code
+    >、<code>custom-dynamic-lab</code>をisolated-code engineへ移行する。
+  </p>
+  <ul>
+    <li>parent runのcanonical profile IDとvariantを正しく認可する。</li>
+    <li>network、mount、resource、timeout、artifact出力をplanへ保存する。</li>
+    <li>
+      Go、Cargo、sanitizer、fuzzer等はdetectorとqualified
+      dependencyの両方を満たす場合だけreadyにする。
+    </li>
+    <li>built-inとcustom configの入力境界、step ID、fixtureをSection 9.5どおりに実装する。</li>
+  </ul>
+  <p>
+    <strong>Exit gate:</strong> 3 profileすべてにUI launch、escape negative test、cleanup
+    test、3回E2Eがある。
+  </p>
+
+  <h3 id="wp-40">WP-40 — R3 controlled active profiles</h3>
+  <p>
+    R3
+    canary完了後、<code>active-technical-lab</code>と<code>business-logic-lab</code>を
+    controlled-active engineへ移行する。system-owned disposable target、RoE、reset
+    plan、quarantineを 共通lease contractへ接続する。 active request unionとbusiness
+    scenario参照はSection 9.5から拡張しない。
+  </p>
+  <p>
+    <strong>Exit gate:</strong> reset成功、reset失敗、target
+    drift、同意不足、RoE期限切れをE2Eで検証し、 reset receiptなしで成功しない。
+  </p>
+
+  <h3 id="wp-50">WP-50 — Remediation replay</h3>
+  <p>
+    <code>remediation-verification</code
+    >を独自再実装ではなく、元runのprofile、variant、safety、input、 dependency
+    bindingを安全に再構成するreplay engineへ移行する。
+  </p>
+  <p>
+    <strong>Exit gate:</strong>
+    対応scanner/driverだけが再実行され、元runより安全境界が緩和されず、共通eventと cleanupを満たす。
+  </p>
+
+  <h3 id="wp-60">WP-60 — Professional run group</h3>
+  <p>
+    <code>professional-full</code>は単一profile driverにしない。project
+    readinessに基づき、qualifiedな child profileを選択し、run
+    groupとして実行・集約する。R3は明示同意と専用targetがある場合だけ別groupへ 含める。
+  </p>
+  <ul>
+    <li>
+      <code>api/modules/scans/execution/professional-run-group.ts</code>の既存immutable parent contractとcapability
+      mappingを再利用する。
+    </li>
+    <li>
+      不足しているchild schedulerをcommon launch service上に実装し、child preview
+      bindingを再検証する。
+    </li>
+    <li>parent step eventはchild run IDを参照し、childのstatusやresource leaseを複製しない。</li>
+    <li>技術run group完了とhuman review pending/approved/rejectedを別fieldで保持する。</li>
+  </ul>
+  <p>
+    <strong>Exit gate:</strong> child runごとのclaimとlimitationを保持し、未実行capabilityを包括的に
+    「診断済み」と表示しない。
+  </p>
+
+  <h3 id="wp-70">WP-70 — Legacy retirement</h3>
+  <ul>
+    <li>新規runがlegacy execution IDを保存しないことをusage evidenceで確認する。</li>
+    <li>legacy IDはread compatibility adapterへ限定する。</li>
+    <li>scanner E2E registryとstability inventoryをProfileDefinition registry由来へ変更する。</li>
+    <li>frontend/dedicated routeのprofile固有dispatchを削除する。</li>
+  </ul>
+  <p>
+    <strong>Exit gate:</strong> legacy定義をproduction execution surfaceから除いても全public
+    profileの qualification matrixが変化しない。
+  </p>
+
+  <h3 id="wp-80">WP-80 — Closeout and release claim</h3>
+  <ul>
+    <li>
+      <code>bun run qualify:scan-profile:all</code>でcurrent commitの全profile qualification
+      manifestを生成する。
+    </li>
+    <li>catalog、Web、CLI、Oracle、NightWorkersのcontract testを実行する。</li>
+    <li>
+      <code>bun run verify:scan-profile-architecture</code>でSection
+      9.5の14行とregistry/consumer/fixtureを照合する。
+    </li>
+    <li>active lease、orphan process/container、欠落artifactを検査する。</li>
+    <li>rollback rehearsalを実行し、旧read pathと新write pathの境界を確認する。</li>
+    <li>完了した旧計画の残項目を本書のpackageまたは別計画へ明示的に移管する。</li>
+  </ul>
+  <p><strong>Exit gate:</strong> Section 12のDefinition of Doneをすべて満たす。</p>
+
+  <h2 id="11-rollout-and-rollback">11. Rollout and rollback</h2>
+  <h3 id="111-rollout">11.1 Strangler rollout</h3>
+  <ol>
+    <li>registry adapterを追加し、既存レスポンスとのsnapshot比較を行う。</li>
+    <li>Golden Pathだけを新lifecycleへ切り替える。</li>
+    <li>engine familyごとに新write pathへ切り替える。</li>
+    <li>旧runはcompatibility readerで表示し続ける。</li>
+    <li>qualification完了後に旧write pathを削除する。</li>
+  </ol>
+
+  <h3 id="112-rollback">11.2 Rollback rules</h3>
+  <ul>
+    <li>schema migrationはadditiveにし、旧readerが未知fieldを無視できることをtestする。</li>
+    <li>family feature flagはserver側に置き、profile IDごとのfrontend flagを作らない。</li>
+    <li>rollback時も新形式のattempt、plan、eventを削除しない。</li>
+    <li>新engineで作成したresource leaseを旧engineへ引き継がず、reconcilerで解放する。</li>
+    <li>rollback後のavailability claimは対応するqualification manifestへ戻す。</li>
+  </ul>
+
+  <h2 id="12-definition-of-done">12. Definition of Done</h2>
+  <p>本計画は、次の条件をすべて満たした場合だけ完了とする。</p>
+  <ol>
+    <li>公開14 profileが単一registryに存在し、1つのengineまたはrun-groupへ解決される。</li>
+    <li>
+      Section 9.5の14行すべてが、一意なinput branch、variant、step ID、fixture manifestを持つ。
+    </li>
+    <li>
+      planned profileを除く全profileにreadiness、input schema、plan、progress、cleanupがある。
+    </li>
+    <li>
+      Web/CLI/Oracle/NightWorkersにprofile ID固有のrunner dispatchがなく、同じlaunch serviceを使う。
+    </li>
+    <li>Webが空のprofile stepsを生成せず、server plan previewを表示する。</li>
+    <li>全Start試行がlaunch attemptとして永続化される。</li>
+    <li><code>running</code>のrunには保存済みExecution Planがある。</li>
+    <li>全plan stepがstarted後に一度だけterminal eventを持つ。</li>
+    <li>必須cleanup receiptがないrunはcompletedにならない。</li>
+    <li>terminal runのactive resource leaseが0件である。</li>
+    <li>実行metadataにmutable image referenceがない。</li>
+    <li>stable profileにcurrent qualification manifestがある。</li>
+    <li>全public profile/variantが必須qualification matrixに登録される。</li>
+    <li>failure/N/A caseがrepeatabilityまたはpromotionの成功数へ算入されない。</li>
+    <li>
+      <code>completed_with_warnings</code>が許可listなしにqualification
+      successへ算入されない。
+    </li>
+    <li>対応platformごとにGolden Pathと各family canaryがSection 9.4を満たして3回連続成功する。</li>
+    <li>
+      professional-fullが全childをcommon launch serviceからscheduleし、child coverageとreview
+      stateを集約する。
+    </li>
+    <li>既存run、report、finding、artifactがcompatibility readerで参照できる。</li>
+    <li>
+      現在projectに対する各profileが<code>ready</code>、<code>needs_input</code>、
+      <code>needs_setup</code
+      >、<code>not_applicable</code>、<code>blocked_environment</code>、
+      <code>unavailable</code>のいずれかで説明され、generic errorだけを返さない。
+    </li>
+  </ol>
+
+  <h2 id="13-stop-gates">13. Stop gates</h2>
+  <p>次のいずれかが発生した場合、後続packageへ進まず、本書または該当contractを改訂する。</p>
+  <ul>
+    <li>Golden Pathの既存finding、result policy、safety境界が意図せず変化する。</li>
+    <li>新registryと公開catalogでprofile集合またはclaimが一致しない。</li>
+    <li>frontend分岐を残さないとprofileを起動できない。</li>
+    <li>preflight readyと実adapter probeが同じbindingへ結合できない。</li>
+    <li>cleanup failureをterminal stateへ安全に反映できない。</li>
+    <li>qualification fixtureが実scannerではなくmock結果だけで成功する。</li>
+    <li>dirty treeの利用者変更を上書きしないと移行できない。</li>
+  </ul>
+
+  <h2 id="14-verification-commands">14. Verification entry points</h2>
+  <p>
+    実装者は各packageで対象testを追加し、最終的に次の既存gateと新規profile architecture
+    gateを実行する。末尾2件はWP-01で追加するpackage scriptであり、名前を変更しない。
+  </p>
+  <pre><code class="language-bash">git rev-parse HEAD
+git status --short
+bun run docs:check
+bun run typecheck
+bun test
+bun run test:scanner-e2e
+bun run baseline:scan-profile-stability
+bun run verify:scan-profile-qualification
+bun run verify:scan-profile-architecture
+bun run qualify:scan-profile:all</code></pre>
+  <p>
+    全test成功だけで完了としない。current commit、catalog hash、driver hash、dependency
+    digest、platformを 含むqualification artifactと、terminal resource auditの両方をcloseout
+    evidenceへ保存する。
+  </p>
+
+  <h2 id="15-first-implementation-slice">15. First implementation slice</h2>
+  <p>
+    最初の実装PRまたは作業単位はWP-00、WP-01、WP-02、WP-03A、WP-03だけを対象とする。全profile移植、UI全面変更、R1/R3実装を
+    同じsliceへ含めない。
+  </p>
+  <ol>
+    <li>全14 profileのreachability inventoryを生成する。</li>
+    <li>ProfileDefinition registryと完全性testを追加する。</li>
+    <li>Launch Attempt/common lifecycleの最小contractを追加する。</li>
+    <li>Golden Path dependency manifestとcurrent platform receiptを追加する。</li>
+    <li>source-assuranceとruntime-passiveだけをadapter経由で実行する。</li>
+    <li>両profileのqualification success、failure observability、cleanup、進捗を比較する。</li>
+  </ol>
+  <h3 id="151-first-slice-pr-order">15.1 First-slice PR order</h3>
+  <ol>
+    <li>
+      <strong>PR-A Contract only:</strong> Section 5.5.4のshared schema、dependency manifest
+      skeleton、 <code>profile-definitions.ts</code>、engine registry、architecture
+      verifierとschema/registry testを追加する。 production
+      routeは切り替えない。exitは<code>bun run typecheck</code>、対象test、
+      <code>bun run verify:scan-profile-architecture</code>。
+    </li>
+    <li>
+      <strong>PR-B Lifecycle and observability:</strong> migration 0040、attempt
+      repository、readiness/launch service、 progress projector、canonical
+      routeを追加する。engineはtest fakeだけを登録し、既存routeは未切替。exitはSection
+      6.3全遷移、API status、progress reload、migration upのtest。
+    </li>
+    <li>
+      <strong>PR-C Golden dependencies:</strong> WP-03Aのdependency
+      entry/probe/receiptを実装し、現在platformでreceiptを生成する。 image missing、daemon
+      down、entrypoint mismatchを別reasonにできるまでPR-Dへ進まない。
+    </li>
+    <li>
+      <strong>PR-D Golden adapters:</strong> repository/passive-runtime driverを追加し、server-side
+      family flagで source-assurance/runtime-passiveだけを新write pathへ切り替える。Section
+      9.4の3回成功、failure observability、 progress、terminal lease auditをcloseout
+      evidenceとして保存する。
+    </li>
+  </ol>
+  <p>
+    このsliceの完了後に実測された変更量、test時間、migration問題を用いてWP-04以降を再見積りする。
+    それまでは全profileを一度に修正する実装計画へ戻さない。
+  </p>
+</article>

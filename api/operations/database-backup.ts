@@ -227,8 +227,7 @@ export function verifyBenchmarkDatabaseBackupContents(
 			)
 			.get(params.runId);
 		if (
-			!run ||
-			run.corpusId !== "owasp-benchmark-java" ||
+			run?.corpusId !== "owasp-benchmark-java" ||
 			run.corpusDigest !== params.corpusDigest ||
 			run.inputHash !== params.runInputHash ||
 			run.gitCommit !== params.releaseCommit ||

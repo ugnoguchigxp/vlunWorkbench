@@ -103,7 +103,29 @@ export type RuntimeSettingsResponse = {
 	dockerPidsLimit: number;
 	scannerStdoutLimitBytes: number;
 	scannerStderrLimitBytes: number;
+	webProcessConcurrency: number;
+	webScanQueueLimit: number;
+	webScanStepTimeoutMaxSec: number;
+	webScanWallClockTimeoutSec: number;
 	codexSdkTimeoutMs: number;
+	runtimeIsolation: {
+		qualificationVersion: 1 | 2;
+		namespaceOwnerImage: string;
+		nodeImage: string;
+		materializerImage: string;
+		registryProxyImage: string;
+		probeImage: string;
+		httpExecutorImage: string;
+		dockerDaemonIdentityHash: string;
+		qualificationHash: string;
+		postgresImage: string;
+		mysqlImage: string;
+		nucleiImage: string;
+		zapImage: string;
+		schemathesisImage: string;
+	};
+	runtimeIsolationConfigured: boolean;
+	runtimeIsolationMissingFields: string[];
 	dastAuthEncryptionKey: string;
 	dastAuthEncryptionKeyConfigured: boolean;
 	dastAuthEncryptionKeySource: "environment" | "settings" | "none";
@@ -115,6 +137,8 @@ export type RuntimeSettingsUpdate = Omit<
 	| "updatedAt"
 	| "dastAuthEncryptionKeyConfigured"
 	| "dastAuthEncryptionKeySource"
+	| "runtimeIsolationConfigured"
+	| "runtimeIsolationMissingFields"
 >;
 
 export type LlmProviderHealthResult = {

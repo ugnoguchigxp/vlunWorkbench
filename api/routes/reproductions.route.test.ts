@@ -76,6 +76,22 @@ describe("Reproductions Route", () => {
 			},
 		},
 	};
+	const mockScanRepository = {
+		findById: vi.fn().mockResolvedValue({
+			id: "s-1",
+			projectId: "p-1",
+			profile: "source-assurance",
+			metadata: {},
+		}),
+		createScanRun: vi.fn().mockResolvedValue({ id: "scan-verification-1" }),
+		updateScanRunStatus: vi.fn().mockResolvedValue({
+			id: "scan-verification-1",
+		}),
+	};
+	const mockLaunchAttemptRepository = {
+		create: vi.fn().mockResolvedValue({ id: "attempt-1" }),
+		admit: vi.fn().mockResolvedValue({ id: "attempt-1" }),
+	};
 
 	const app = new Hono();
 	app.use("*", async (c, next) => {
@@ -94,6 +110,8 @@ describe("Reproductions Route", () => {
 			db: mockDb as any,
 			findingRepository: mockFindingRepo as any,
 			projectRepository: mockProjectRepo as any,
+			scanRepository: mockScanRepository as any,
+			scanLaunchAttemptRepository: mockLaunchAttemptRepository as any,
 			reproductionProfiles: createReproductionProfiles({
 				includeOptionalSemgrep: true,
 			}),
@@ -159,11 +177,56 @@ describe("Reproductions Route", () => {
 		const body = await res.json();
 		expect(body.ok).toBe(true);
 		expect(body.reproductionRunId).toBe("run-new");
+		expect(body.scanRunId).toBe("scan-verification-1");
 		expect(body.outcome).toBe("reproduced");
+		expect(mockScanRepository.createScanRun).toHaveBeenCalledWith(
+			expect.objectContaining({
+				profile: "remediation-verification",
+				metadata: expect.objectContaining({
+					profileResolution: expect.objectContaining({
+						canonicalProfileId: "remediation-verification",
+						launchMode: "dedicated_flow",
+					}),
+					originalSafetyBoundary: {
+						canonicalProfileId: "source-assurance",
+						safetyClass: "R0",
+						scanRunId: "s-1",
+					},
+				}),
+			}),
+		);
+		expect(mockScanRepository.updateScanRunStatus).toHaveBeenLastCalledWith(
+			"scan-verification-1",
+			"completed",
+			expect.objectContaining({
+				profileOutcome: "completed_with_warnings",
+				metadata: expect.objectContaining({
+					reproductionRunId: "run-new",
+					reproductionOutcome: "reproduced",
+				}),
+			}),
+		);
 		expect(capturedArgs).toContain("api/cli/repro-finding.ts");
 		expect(capturedArgs).toContain("--finding-id");
 		expect(capturedArgs).toContain("f-1");
+		expect(capturedArgs).toContain("--scan-run-id");
+		expect(capturedArgs).toContain("scan-verification-1");
 		expect(capturedArgs).not.toContain("--command");
+	});
+
+	it("rejects a reproduction timeout above the fixed maximum", async () => {
+		const spawn = vi.spyOn(Bun, "spawn");
+		const res = await app.request("/findings/f-1/reproductions", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({
+				profileId: "semgrep-path-recheck",
+				timeoutSec: 901,
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		expect(spawn).not.toHaveBeenCalled();
 	});
 
 	it("rejects an unavailable project path before validating a reproduction", async () => {
@@ -221,6 +284,7 @@ describe("Reproductions Route", () => {
 		expect(body.reproductionRunId).toBe("run-failed");
 		expect(body.status).toBe("failed");
 		expect(body.outcome).toBe("error");
+		expect(body.scanRunId).toBe("scan-verification-1");
 	});
 
 	it("POST /findings/:findingId/reproductions fails if profile is not applicable", async () => {

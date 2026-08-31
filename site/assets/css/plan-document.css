@@ -1,0 +1,9 @@
+pre.mermaid:not([data-processed="true"])::before {
+	display: block;
+	margin-bottom: 0.75em;
+	color: var(--doc-muted);
+	content: "Mermaid source (diagram rendering disabled)";
+	font-family:
+		system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+	font-size: 0.8em;
+}

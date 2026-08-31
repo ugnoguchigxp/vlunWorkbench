@@ -4,7 +4,10 @@ import path from "node:path";
 import { eq } from "drizzle-orm";
 import type { AppDatabase } from "../../db";
 import { findings, projects } from "../../db/schema";
+import { ScanRepository } from "../scans/repositories";
+import { cleanupTemporaryPaths } from "../scans/execution/lifecycle/temporary-path-cleanup";
 import { runToolProcess } from "../scans/tools/tool-process-runner";
+import { finalizeTemporaryWorkspace } from "../scans/execution/lifecycle/temporary-workspace-cleanup";
 import {
 	getReproductionProfileById,
 	REPRODUCTION_PROFILES,
@@ -21,6 +24,7 @@ import {
 export interface RunReproductionOptions {
 	findingId: string;
 	profileId: string;
+	scanRunId?: string | null;
 	runner: "docker";
 	dockerImage?: string;
 	network?: "none" | "default";
@@ -56,6 +60,20 @@ export class ReproductionRunner {
 		});
 		if (!project) {
 			throw new Error(`Project not found: ${finding.projectId}`);
+		}
+		if (options.scanRunId) {
+			const scan = await new ScanRepository(this.db).findById(
+				options.scanRunId,
+			);
+			if (
+				!scan ||
+				scan.projectId !== project.id ||
+				scan.profile !== "remediation-verification"
+			) {
+				throw new Error(
+					"Reproduction parent scan is not a remediation verification run.",
+				);
+			}
 		}
 
 		const profile = getReproductionProfileById(
@@ -124,6 +142,20 @@ export class ReproductionRunner {
 		if (!project) {
 			throw new Error(`Project not found: ${finding.projectId}`);
 		}
+		if (options.scanRunId) {
+			const scan = await new ScanRepository(this.db).findById(
+				options.scanRunId,
+			);
+			if (
+				!scan ||
+				scan.projectId !== project.id ||
+				scan.profile !== "remediation-verification"
+			) {
+				throw new Error(
+					"Reproduction parent scan is not a remediation verification run.",
+				);
+			}
+		}
 
 		const profile = getReproductionProfileById(
 			options.profileId,
@@ -144,44 +176,62 @@ export class ReproductionRunner {
 		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "repro-run-"));
 		const tempJsonPath = path.join(tempDir, `repro-output-${Date.now()}.json`);
 
-		const cmd = profile.buildCommand({
-			repoPath: project.repoPath,
-			outputPath: tempJsonPath,
-			finding,
-		});
+		let cmd: ReturnType<ReproductionProfile["buildCommand"]>;
+		try {
+			cmd = profile.buildCommand({
+				repoPath: project.repoPath,
+				outputPath: tempJsonPath,
+				finding,
+			});
+		} catch (error) {
+			await cleanupTemporaryPaths(
+				[tempDir],
+				"reproduction_workspace_cleanup_failed",
+			);
+			throw error;
+		}
 
 		// 2. Create reproduction run record
-		const runRecord = await this.repo.createRun({
-			projectId: project.id,
-			scanRunId: finding.scanRunId,
-			findingId: finding.id,
-			profileId: profile.id,
-			status: "running",
-			runner: options.runner,
-			commandJson: [cmd.binaryName, ...cmd.args],
-			createdByUserId: options.createdByUserId,
-			metadata: {
-				profileVersion: 1,
-				timeoutSec: options.timeoutSec ?? profile.defaultTimeoutSec,
-				networkMode: options.network ?? profile.defaultNetworkMode ?? "none",
-				resourceLimits: {
-					memory: options.memory || null,
-					cpus: options.cpus || null,
-				},
-				runnerMetadata: {
-					runner: options.runner,
-					docker: {
-						image: options.dockerImage ?? "vuln-workbench-toolbox:local",
-						networkMode:
-							options.network ?? profile.defaultNetworkMode ?? "none",
-						mountMode: {
-							repo: "read-only",
-							output: "read-write",
+		let runRecord: Awaited<ReturnType<ReproductionRepository["createRun"]>>;
+		try {
+			runRecord = await this.repo.createRun({
+				projectId: project.id,
+				scanRunId: options.scanRunId ?? finding.scanRunId,
+				findingId: finding.id,
+				profileId: profile.id,
+				status: "running",
+				runner: options.runner,
+				commandJson: [cmd.binaryName, ...cmd.args],
+				createdByUserId: options.createdByUserId,
+				metadata: {
+					profileVersion: 1,
+					timeoutSec: options.timeoutSec ?? profile.defaultTimeoutSec,
+					networkMode: options.network ?? profile.defaultNetworkMode ?? "none",
+					resourceLimits: {
+						memory: options.memory || null,
+						cpus: options.cpus || null,
+					},
+					runnerMetadata: {
+						runner: options.runner,
+						docker: {
+							image: options.dockerImage ?? "vuln-workbench-toolbox:local",
+							networkMode:
+								options.network ?? profile.defaultNetworkMode ?? "none",
+							mountMode: {
+								repo: "read-only",
+								output: "read-write",
+							},
 						},
 					},
 				},
-			},
-		});
+			});
+		} catch (error) {
+			await cleanupTemporaryPaths(
+				[tempDir],
+				"reproduction_workspace_cleanup_failed",
+			);
+			throw error;
+		}
 
 		const runId = runRecord.id;
 
@@ -462,7 +512,13 @@ export class ReproductionRunner {
 			};
 		} finally {
 			// 10. Cleanup temp files
-			await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+			await finalizeTemporaryWorkspace({
+				remove: () => fs.rm(tempDir, { recursive: true, force: true }),
+				loadRun: () => this.repo.getRun(runId),
+				updateRun: (status, update) =>
+					this.repo.updateRunStatus(runId, status, update),
+				failureCode: "reproduction_workspace_cleanup_failed",
+			});
 		}
 	}
 }

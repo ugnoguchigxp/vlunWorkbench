@@ -15,15 +15,24 @@ import { emitNightworkersSecurityIntelligenceTelemetry } from "../modules/integr
 import { NightworkersWorkspaceTargetGrantRepository } from "../modules/integrations/nightworkers/nightworkers-workspace-target-grant.repository";
 import { NightworkersWorkspaceTargetGrantService } from "../modules/integrations/nightworkers/nightworkers-workspace-target-grant.service";
 import { FindingReviewRepository } from "../modules/reviews/finding-review-repository";
+import {
+	loadRuntimeIsolationProviderFactory,
+	runtimeIsolationSettingsFromAppEnv,
+} from "../modules/runtime-isolation/runtime-isolation-runtime-config";
 import { ArtifactStorage } from "../modules/scans/artifact-storage";
+import { ProjectDeletionService } from "../modules/scans/project-deletion-service";
 import { ScanReportRepository } from "../modules/scans/report-repository";
+import { ReportViewStateRepository } from "../modules/scans/report-view-state-repository";
 import {
 	ArtifactRepository,
 	FindingRepository,
 	ProjectRepository,
 	ScanRepository,
 } from "../modules/scans/repositories";
+import { ScanDeletionService } from "../modules/scans/scan-deletion-service";
+import { ScanLaunchAttemptRepository } from "../modules/scans/execution/scan-launch-attempt-repository";
 import { createAssessmentsRoute } from "../routes/assessments.route";
+import { createAssessmentCampaignsRoute } from "../routes/assessment-campaigns.route";
 import { createBusinessLogicRoute } from "../routes/business-logic.route";
 import { createDastRoute } from "../routes/dast.route";
 import { createDastAuthRoute } from "../routes/dast-auth.route";
@@ -35,6 +44,7 @@ import { createFindingsRoute } from "../routes/findings.route";
 import { createProjectsRoute } from "../routes/projects.route";
 import { createReproductionsRoute } from "../routes/reproductions.route";
 import { createScanProfilesRoute } from "../routes/scan-profiles.route";
+import { createScanLaunchesRoute } from "../routes/scan-launches.route";
 import { createScanReportsRoute } from "../routes/scan-reports.route";
 import { createScansRoute } from "../routes/scans.route";
 import { createStaticIntelligenceRoute } from "../routes/static-intelligence.route";
@@ -46,6 +56,9 @@ const distWebIndex = path.resolve(process.cwd(), "dist-web/index.html");
 export function registerScanRoutes(app: Hono, runtime: AppRuntime): void {
 	const projectRepository = new ProjectRepository(runtime.dbConnection.db);
 	const scanRepository = new ScanRepository(runtime.dbConnection.db);
+	const scanLaunchAttemptRepository = new ScanLaunchAttemptRepository(
+		runtime.dbConnection.db,
+	);
 	const artifactRepository = new ArtifactRepository(runtime.dbConnection.db);
 	const findingRepository = new FindingRepository(runtime.dbConnection.db);
 	const findingReviewRepository = new FindingReviewRepository(
@@ -58,6 +71,17 @@ export function registerScanRoutes(app: Hono, runtime: AppRuntime): void {
 		runtime.dbConnection.db,
 	);
 	const artifactStorage = new ArtifactStorage();
+	const projectDeletionService = new ProjectDeletionService({
+		db: runtime.dbConnection.db,
+		projectRepository,
+		cleanupRunner: runtime.projectArtifactCleanupRunner,
+	});
+	const scanDeletionService = new ScanDeletionService({
+		db: runtime.dbConnection.db,
+		projectRepository,
+		scanRepository,
+		cleanupRunner: runtime.projectArtifactCleanupRunner,
+	});
 	if (runtime.env.nightworkersIntegrationEnabled) {
 		const nightworkersRequestGuard = new NightworkersRequestGuard();
 		const nightworkersRepository = new NightworkersIntegrationRepository(
@@ -139,11 +163,33 @@ export function registerScanRoutes(app: Hono, runtime: AppRuntime): void {
 		createProjectsRoute({
 			projectRepository,
 			scanRepository,
+			scanLaunchAttemptRepository,
 			scanSupervisor: runtime.scanSupervisor,
+			processCapacity: runtime.webProcessCapacity,
 			env: runtime.env,
+			// Return a request-local snapshot. Reads must not mutate the shared
+			// bootstrap object because concurrent requests may resolve different
+			// persisted revisions in a different order.
+			resolveRuntimeEnv: async () =>
+				await runtime.settingsRepository.resolveAppEnv(runtime.env),
+			resolveRuntimeIsolationProviderFactory: (env) =>
+				loadRuntimeIsolationProviderFactory({
+					db: runtime.dbConnection.db,
+					settings: runtimeIsolationSettingsFromAppEnv(env),
+				}),
+			projectDeletionService,
 		}),
 	);
 	app.route("/api/scan-profiles", createScanProfilesRoute());
+	app.route("/api/assessment-campaigns", createAssessmentCampaignsRoute());
+	app.route(
+		"/api/projects",
+		createScanLaunchesRoute({
+			projectRepository,
+			resolveRuntimeEnv: async () =>
+				await runtime.settingsRepository.resolveAppEnv(runtime.env),
+		}),
+	);
 	app.route(
 		"/api/scans",
 		createScansRoute({
@@ -157,8 +203,10 @@ export function registerScanRoutes(app: Hono, runtime: AppRuntime): void {
 			db: runtime.dbConnection.db,
 			llmRouter: runtime.llmRouter,
 			scanSupervisor: runtime.scanSupervisor,
+			improvementRequestRunner: runtime.scanImprovementRequestRunner,
 			scanReportRunner: runtime.scanReportRunner,
 			scanDiagnosticRunner: runtime.scanDiagnosticRunner,
+			scanDeletionService,
 		}),
 	);
 	app.route(
@@ -170,6 +218,9 @@ export function registerScanRoutes(app: Hono, runtime: AppRuntime): void {
 			artifactRepository,
 			artifactStorage,
 			db: runtime.dbConnection.db,
+			reportViewStateRepository: new ReportViewStateRepository(
+				runtime.dbConnection.db,
+			),
 		}),
 	);
 	app.route(
@@ -207,6 +258,7 @@ export function registerScanRoutes(app: Hono, runtime: AppRuntime): void {
 			db: runtime.dbConnection.db,
 			findingRepository,
 			projectRepository,
+			processCapacity: runtime.webProcessCapacity,
 		}),
 	);
 	app.route(
@@ -215,6 +267,7 @@ export function registerScanRoutes(app: Hono, runtime: AppRuntime): void {
 			db: runtime.dbConnection.db,
 			findingRepository,
 			projectRepository,
+			processCapacity: runtime.webProcessCapacity,
 		}),
 	);
 	app.route(
@@ -225,6 +278,7 @@ export function registerScanRoutes(app: Hono, runtime: AppRuntime): void {
 			scanRepository,
 			activeAssessmentRunner: runtime.activeAssessmentRunner,
 			scanDiagnosticRunner: runtime.scanDiagnosticRunner,
+			processCapacity: runtime.webProcessCapacity,
 		}),
 	);
 	app.route(
@@ -250,6 +304,7 @@ export function registerScanRoutes(app: Hono, runtime: AppRuntime): void {
 			db: runtime.dbConnection.db,
 			projectRepository,
 			env: runtime.env,
+			processCapacity: runtime.webProcessCapacity,
 		}),
 	);
 	app.route(

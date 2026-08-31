@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 import { scannerDataManifestV2Schema } from "../../../../shared/schemas/security-capability.schema";
-import { canonicalJson } from "../diff-scan-plan";
+import { canonicalJson } from "../execution/diff/diff-scan-plan";
 import type { ToolExecutionConfig } from "./tool-process-runner";
 
 const scannerDataEntrySchema = z.object({
@@ -231,6 +231,10 @@ export async function resolveScannerProvenance(params: {
 }
 
 export async function hashTree(root: string): Promise<string> {
+	const rootStat = await fs.stat(root);
+	if (rootStat.isFile()) {
+		return hashValue(new Uint8Array(await fs.readFile(root)));
+	}
 	const entries: Array<{ path: string; bytes: Uint8Array }> = [];
 	await collectFiles(root, root, entries);
 	const hash = crypto.createHash("sha256");
@@ -249,7 +253,7 @@ export function computeScannerManifestHash(
 	return hashValue(canonicalJson(manifest));
 }
 
-function hashValue(value: string): string {
+function hashValue(value: string | Uint8Array): string {
 	return `sha256:${crypto.createHash("sha256").update(value).digest("hex")}`;
 }
 

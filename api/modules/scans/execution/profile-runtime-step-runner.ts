@@ -1,0 +1,328 @@
+import type { AppDatabase } from "../../../db";
+import {
+	type PreparedContainerTargetGateway,
+	prepareContainerTargetGateway,
+} from "../../dast/container-target-gateway";
+import {
+	NUCLEI_SAFE_POLICY_HASH,
+	NUCLEI_SAFE_POLICY_ID,
+} from "../../runtime-scans/command-contracts";
+import { RuntimeScannerRunner } from "../../runtime-scans/runtime-scanner-runner";
+import { ZapBaselineRunner } from "../../runtime-scans/zap-baseline-runner";
+import { ZAP_STABLE_IMAGE } from "../../runtime-scans/zap-image-policy";
+import { ScanArtifactSink } from "./lifecycle/artifact-sink";
+import type { ArtifactStorage } from "./lifecycle/artifact-storage";
+import { bindObservedToolProvenance } from "./profile-tool-provenance";
+import {
+	ArtifactRepository,
+	FindingRepository,
+	ScanRepository,
+} from "../repositories";
+import { resolveScannerProvenance } from "../tools/scanner-provenance";
+import type { ToolExecutionConfig } from "../tools/tool-process-runner";
+import { normalizeToolExecutionConfig } from "../tools/tool-process-runner";
+
+export async function runRuntimeScannerIntoExistingScan(params: {
+	db: AppDatabase;
+	projectId: string;
+	scanRunId: string;
+	adapter: "nuclei-safe" | "zap-baseline";
+	targetOrigin: string;
+	artifactStorage: ArtifactStorage;
+	timeoutSec?: number;
+	execution?: ToolExecutionConfig;
+	allowedPaths?: string[];
+	excludedPaths?: string[];
+	maxRequests?: number;
+	rateLimitPerSec?: number;
+	runtimeNamespaceOwnerId?: string;
+	runtimeImage?: string;
+}): Promise<{
+	toolRunId: string;
+	findingCount: number;
+	artifactIds: string[];
+	exitCode: number | null;
+	error?: string;
+	reasonCode?: string;
+	metadata?: Record<string, unknown>;
+}> {
+	const scanRepo = new ScanRepository(params.db);
+	const artifactRepo = new ArtifactRepository(params.db);
+	const findingRepo = new FindingRepository(params.db);
+	const runtimeExecution: ToolExecutionConfig | undefined =
+		params.runtimeNamespaceOwnerId
+			? {
+					...(params.execution ?? { runner: "docker" }),
+					runner: "docker",
+					docker: {
+						...(params.execution?.docker ?? {}),
+						runtimeNamespaceOwnerId: params.runtimeNamespaceOwnerId,
+						...(params.runtimeImage ? { image: params.runtimeImage } : {}),
+					},
+				}
+			: params.execution;
+	let provenance: Record<string, unknown> = await resolveScannerProvenance({
+		toolId: params.adapter,
+		execution: normalizeToolExecutionConfig(runtimeExecution),
+	});
+	const versionRunner = new RuntimeScannerRunner(
+		"nuclei-safe",
+		params.artifactStorage,
+		runtimeExecution,
+	);
+	const toolVersion =
+		params.adapter === "nuclei-safe"
+			? await versionRunner.checkVersion()
+			: null;
+	provenance = bindObservedToolProvenance(provenance, toolVersion);
+	const toolRun = await scanRepo.createToolRun({
+		scanRunId: params.scanRunId,
+		toolName: params.adapter,
+		toolVersion,
+		status: "running",
+		command: params.adapter,
+		metadata: {
+			adapter: params.adapter,
+			targetOrigin: params.targetOrigin,
+			policyId:
+				params.adapter === "nuclei-safe"
+					? NUCLEI_SAFE_POLICY_ID
+					: "zap-baseline-passive-v1",
+			policyHash:
+				params.adapter === "nuclei-safe" ? NUCLEI_SAFE_POLICY_HASH : null,
+			image: params.adapter === "zap-baseline" ? ZAP_STABLE_IMAGE : null,
+			provenance,
+		},
+	});
+	const scopedStorage = params.artifactStorage.forToolRun(
+		params.scanRunId,
+		toolRun.id,
+	);
+	const artifactSink = new ScanArtifactSink(
+		params.artifactStorage,
+		artifactRepo,
+		{ scanRunId: params.scanRunId, kind: "tool-run", id: toolRun.id },
+	);
+	const runner =
+		params.adapter === "zap-baseline"
+			? new ZapBaselineRunner(scopedStorage, runtimeExecution)
+			: new RuntimeScannerRunner(
+					"nuclei-safe",
+					scopedStorage,
+					runtimeExecution,
+				);
+	if (params.adapter === "nuclei-safe" && !toolVersion) {
+		await scanRepo.updateToolRunStatus(toolRun.id, "failed", {
+			exitCode: 127,
+			metadata: { reasonCode: "tool_unavailable", provenance },
+		});
+		return {
+			toolRunId: toolRun.id,
+			findingCount: 0,
+			artifactIds: [],
+			exitCode: 127,
+			error: "nuclei executable not found",
+			reasonCode: "tool_unavailable",
+		};
+	}
+	if (
+		params.adapter === "nuclei-safe" &&
+		provenance.identityCompatibility === "mismatch"
+	) {
+		await scanRepo.updateToolRunStatus(toolRun.id, "failed", {
+			exitCode: null,
+			metadata: { reasonCode: "scanner_version_mismatch", provenance },
+		});
+		return {
+			toolRunId: toolRun.id,
+			findingCount: 0,
+			artifactIds: [],
+			exitCode: null,
+			error: "nuclei scanner version changed after preflight",
+			reasonCode: "scanner_version_mismatch",
+		};
+	}
+	let nucleiGateway: PreparedContainerTargetGateway | null = null;
+	let result:
+		| Awaited<ReturnType<RuntimeScannerRunner["run"]>>
+		| Awaited<ReturnType<ZapBaselineRunner["run"]>>
+		| null = null;
+	let executionError: unknown = null;
+	try {
+		if (params.adapter === "nuclei-safe" && !params.runtimeNamespaceOwnerId) {
+			nucleiGateway = await prepareContainerTargetGateway({
+				upstreamOrigin: params.targetOrigin,
+				allowedPaths: params.allowedPaths ?? ["/"],
+				excludedPaths: params.excludedPaths ?? [],
+				maxRequests: params.maxRequests ?? 20,
+				rateLimitPerSec: params.rateLimitPerSec ?? 2,
+				dockerBin: runtimeExecution?.docker?.dockerBin,
+				containerAccess: runtimeExecution?.runner === "docker",
+			});
+		}
+		result =
+			params.adapter === "zap-baseline"
+				? await (runner as ZapBaselineRunner).run({
+						scanRunId: params.scanRunId,
+						upstreamOrigin: params.targetOrigin,
+						allowedPaths: params.allowedPaths ?? ["/"],
+						excludedPaths: params.excludedPaths ?? [],
+						maxRequests: params.maxRequests ?? 20,
+						rateLimitPerSec: params.rateLimitPerSec ?? 2,
+						timeoutSec: params.timeoutSec,
+					})
+				: await (runner as RuntimeScannerRunner).run({
+						scanRunId: params.scanRunId,
+						targetOrigin: params.runtimeNamespaceOwnerId
+							? params.targetOrigin
+							: runtimeExecution?.runner === "docker"
+								? (nucleiGateway as PreparedContainerTargetGateway)
+										.containerOrigin
+								: (nucleiGateway as PreparedContainerTargetGateway).hostOrigin,
+						timeoutSec: params.timeoutSec,
+					});
+		if (params.adapter === "nuclei-safe") {
+			result.executionMetadata = {
+				...(result.executionMetadata ?? {}),
+				gatewayMetrics: nucleiGateway?.metrics() ?? null,
+			};
+		}
+	} catch (error) {
+		executionError = error;
+	} finally {
+		try {
+			await nucleiGateway?.stop();
+		} catch {
+			executionError = new Error("runtime_gateway_cleanup_failed");
+		}
+	}
+	if (executionError || !result) {
+		const message =
+			executionError instanceof Error
+				? executionError.message
+				: "runtime_scanner_execution_failed";
+		try {
+			await scanRepo.updateToolRunStatus(toolRun.id, "failed", {
+				exitCode: 1,
+				metadata: {
+					provenance,
+					reasonCode: "execution_failed",
+					error: message,
+				},
+			});
+		} catch {
+			// The returned failure still prevents a successful parent profile.
+		}
+		return {
+			toolRunId: toolRun.id,
+			findingCount: 0,
+			artifactIds: [],
+			exitCode: 1,
+			error: message,
+			reasonCode: "execution_failed",
+		};
+	}
+	const artifactIds: string[] = [];
+	const rawArtifactId = result.rawArtifact
+		? (
+				await artifactSink.registerSaved({
+					role: "raw_result",
+					format: params.adapter === "nuclei-safe" ? "jsonl" : "json",
+					saved: result.rawArtifact,
+				})
+			).id
+		: null;
+	if (rawArtifactId) artifactIds.push(rawArtifactId);
+	const stderrArtifactId = result.stderrArtifact
+		? (
+				await artifactSink.registerSaved({
+					role: "stderr",
+					format: "text",
+					saved: result.stderrArtifact,
+				})
+			).id
+		: null;
+	if (stderrArtifactId) artifactIds.push(stderrArtifactId);
+	if (result.stdoutArtifact)
+		artifactIds.push(
+			(
+				await artifactSink.registerSaved({
+					role: "stdout",
+					format: "text",
+					saved: result.stdoutArtifact,
+				})
+			).id,
+		);
+	if (!result.ok) {
+		await scanRepo.updateToolRunStatus(toolRun.id, "failed", {
+			exitCode: result.exitCode ?? 1,
+			metadata: {
+				...result.executionMetadata,
+				provenance,
+				reasonCode: result.reasonCode,
+				error: result.error,
+				artifactIds,
+			},
+		});
+		return {
+			toolRunId: toolRun.id,
+			findingCount: 0,
+			artifactIds,
+			exitCode: result.exitCode,
+			error: result.error,
+			reasonCode: result.reasonCode,
+			metadata: result.executionMetadata,
+		};
+	}
+	let findingCount = 0;
+	for (const finding of result.findings) {
+		const created = await findingRepo.createFinding({
+			scanRunId: params.scanRunId,
+			projectId: params.projectId,
+			sourceTool: params.adapter,
+			ruleId: finding.ruleId,
+			title: finding.title,
+			description: finding.description,
+			severity: finding.severity,
+			confidence: finding.confidence,
+			status: finding.status,
+			primaryLocation: finding.primaryLocation,
+			fingerprint: finding.fingerprint,
+			metadata: finding.metadata,
+		});
+		findingCount++;
+		for (const evidence of finding.evidences)
+			await findingRepo.createEvidence({
+				findingId: created.id,
+				kind: evidence.kind,
+				title: evidence.title,
+				artifactId:
+					evidence.kind === "scan-log" ? stderrArtifactId : rawArtifactId,
+				location: evidence.location,
+				snippet: evidence.snippet,
+			});
+	}
+	await scanRepo.updateToolRunStatus(toolRun.id, "completed", {
+		exitCode: result.exitCode,
+		toolVersion:
+			typeof result.executionMetadata?.reportVersion === "string"
+				? result.executionMetadata.reportVersion
+				: null,
+		metadata: {
+			...result.executionMetadata,
+			provenance,
+			adapter: params.adapter,
+			targetOrigin: params.targetOrigin,
+			findingCount,
+			artifactIds,
+			elapsedMs: result.elapsedMs,
+		},
+	});
+	return {
+		toolRunId: toolRun.id,
+		findingCount,
+		artifactIds,
+		exitCode: result.exitCode,
+		metadata: result.executionMetadata,
+	};
+}

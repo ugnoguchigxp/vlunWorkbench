@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { scanCapabilityRequirementsSchema } from "./scan-capability.schema";
 import { scanTargetKindSchema } from "./scan-target.schema";
 
 export const profileToolFailurePolicySchema = z.enum([
@@ -32,6 +33,9 @@ export const profileToolEntrySchema = z.object({
 	toolId: z.string(),
 	displayName: z.string(),
 	required: z.boolean(),
+	requirement: z
+		.enum(["required_if_applicable", "advisory", "inventory"])
+		.optional(),
 	timeoutSec: z.number().int().positive().optional(),
 	options: z.record(z.string(), z.unknown()).optional(),
 	failurePolicy: profileToolFailurePolicySchema,
@@ -108,6 +112,7 @@ export type CoverageEffect = z.infer<typeof coverageEffectSchema>;
 const scannerStepBaseSchema = profileToolEntrySchema.pick({
 	displayName: true,
 	required: true,
+	requirement: true,
 	timeoutSec: true,
 	failurePolicy: true,
 });
@@ -176,6 +181,20 @@ export type ContainerImageScanStep = z.infer<
 	typeof containerImageScanStepSchema
 >;
 
+export const attestationVerifyStepSchema = z.discriminatedUnion("adapter", [
+	scannerStepBaseSchema.extend({
+		kind: z.literal("attestation_verify"),
+		adapter: z.literal("cosign"),
+		target: z.object({ mode: z.literal("repository_relative_files") }),
+	}),
+	scannerStepBaseSchema.extend({
+		kind: z.literal("attestation_verify"),
+		adapter: z.literal("slsa-verifier"),
+		target: z.object({ mode: z.literal("repository_relative_files") }),
+	}),
+]);
+export type AttestationVerifyStep = z.infer<typeof attestationVerifyStepSchema>;
+
 export const scanProfileStepSchema = z.discriminatedUnion("kind", [
 	staticToolProfileStepSchema,
 	dastProfileStepSchema,
@@ -183,6 +202,7 @@ export const scanProfileStepSchema = z.discriminatedUnion("kind", [
 	sbomExportStepSchema,
 	apiSchemaScanStepSchema,
 	containerImageScanStepSchema,
+	attestationVerifyStepSchema,
 ]);
 export type ScanProfileStep = z.infer<typeof scanProfileStepSchema>;
 
@@ -197,6 +217,13 @@ export const scanProfileSchema = z.object({
 	supportedTargets: z.array(scanTargetKindSchema).optional(),
 	tools: z.array(profileToolEntrySchema),
 	steps: z.array(scanProfileStepSchema).optional(),
+	/** Declared capability contract; absent for legacy profiles. */
+	capabilityRequirements: scanCapabilityRequirementsSchema.optional(),
 	coverageGaps: z.array(z.string().min(1).max(100)).max(20).optional(),
+	/**
+	 * Strict profiles are release-grade contracts: every applicable capability
+	 * must complete and an incomplete preflight must block execution.
+	 */
+	strictness: z.enum(["strict", "best_effort"]).optional(),
 });
 export type ScanProfile = z.infer<typeof scanProfileSchema>;

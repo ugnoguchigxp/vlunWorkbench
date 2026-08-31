@@ -3,7 +3,7 @@
 const args = process.argv.slice(2);
 
 if (args.includes("version")) {
-	console.log("gitleaks 1.0.0-e2e");
+	console.log("gitleaks 8.30.1");
 	process.exit(0);
 }
 

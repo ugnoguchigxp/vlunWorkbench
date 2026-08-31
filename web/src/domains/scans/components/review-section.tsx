@@ -1,60 +1,22 @@
-import {
-	AlertTriangle,
-	Brain,
-	Code,
-	Info,
-	RefreshCw,
-	Sparkles,
-} from "lucide-react";
-import { Button } from "../../../ui";
+import { AlertTriangle, Code, Info } from "lucide-react";
+import { classifyScanReviewFailure } from "../scan-improvement-request";
 import { formatScanOutcome } from "../scan-profile-display";
-import {
-	buildScanImprovementRequestView,
-	classifyScanReviewFailure,
-} from "../scan-improvement-request";
 import { useScans } from "../scans-context";
 import { formatDateTime, StatusIcon } from "../scans-utils";
-import { ScanImprovementRequestPanel } from "./scan-improvement-request-panel";
 
 export function ReviewSection() {
 	const c = useScans();
 	const review = c.selectedFindingDetails?.latestReview ?? null;
-	const latestScanReview = c.scanReviews.find(
-		(item) => item.status === "completed",
-	);
-	const handoffView = buildScanImprovementRequestView(c.scanReviews);
+	if (!review && !c.reviewError && c.allReviews.length === 0) return null;
 	return (
 		<div className="detail-section">
-			<ScanImprovementRequestPanel
-				view={handoffView}
-				completedAt={latestScanReview?.completedAt}
-				providerLabel={
-					latestScanReview
-						? `${latestScanReview.provider} / ${latestScanReview.model}`
-						: null
-				}
-			/>
 			<div className="finding-meta-row">
 				<div>
-					<h3 className="detail-section-title">LLM レビュー</h3>
+					<h3 className="detail-section-title">保存済み個別レビュー</h3>
 					<p className="scan-tool-purpose">
-						選択した finding
-						について、保存済み証跡から誤検知の可能性、証跡の強さ、影響、修正方針を自動レビューします。
+						この finding について過去に生成されたレビュー結果です。
 					</p>
 				</div>
-				<Button
-					type="button"
-					variant="primary"
-					onClick={() => void c.handleTriggerReview()}
-					disabled={c.busy || c.reviewLoading || review?.status === "running"}
-				>
-					{c.reviewLoading || review?.status === "running" ? (
-						<RefreshCw className="icon animate-spin" />
-					) : (
-						<Sparkles className="icon" />
-					)}
-					LLM レビューを実行
-				</Button>
 			</div>
 			{review ? (
 				<div className="detail-section">
@@ -84,12 +46,7 @@ export function ReviewSection() {
 					) : null}
 					{review.status === "completed" ? <CompletedReview /> : null}
 				</div>
-			) : (
-				<p>
-					<Brain className="icon text-teal-700" /> LLM
-					レビューはまだ実行されていません。
-				</p>
-			)}
+			) : null}
 			{c.reviewError ? (
 				<ScanReviewFailureMessage error={c.reviewError} />
 			) : null}

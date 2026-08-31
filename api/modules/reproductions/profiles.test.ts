@@ -9,7 +9,9 @@ import {
 
 describe("Reproduction Profiles Registry", () => {
 	it("keeps optional Semgrep out of the default profile list", () => {
-		const profiles = listReproductionProfiles();
+		const profiles = listReproductionProfiles(
+			createReproductionProfiles({ includeOptionalSemgrep: false }),
+		);
 		expect(profiles).toHaveLength(3);
 		const ids = profiles.map((p) => p.id);
 		expect(ids).not.toContain("semgrep-path-recheck");

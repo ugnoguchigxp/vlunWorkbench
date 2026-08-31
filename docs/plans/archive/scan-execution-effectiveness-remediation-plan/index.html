@@ -1,0 +1,2147 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex,follow">
+    <title>Scan Execution Effectiveness and Truthfulness Remediation Plan | vulnWorkbench</title>
+    <link rel="stylesheet" href="/vlunWorkbench/assets/css/spec-document.css">
+    <link rel="stylesheet" href="/vlunWorkbench/assets/css/plan-document.css">
+  </head>
+  <body>
+    <article lang="ja" data-spec-role="active-plan">
+  <h1 id="scan-execution-effectiveness-remediation-plan">
+    Scan Execution Effectiveness and Truthfulness Remediation Plan
+  </h1>
+  <p>Status: Planned — implementation-readiness review completed 2026-08-21</p>
+  <p>Parent plan: Phase 56 Slice 56.11</p>
+  <p>
+    Predecessor:
+    <code>spec/docs/backend-scanner-todolist-hardening-test-plan.html</code>
+  </p>
+  <p>Planning baseline commit: <code>a4212fd0</code></p>
+  <p>Planning baseline date: 2026-08-20</p>
+  <p>Baseline scan run: <code>a9a80eb9-c8d2-425a-bb00-d86f8150324a</code></p>
+  <p>Baseline target: <code>spec-html@e67d4167d5e5b742280447440add8d124ae1bd17</code></p>
+  <p>Owner: vulnWorkbench maintainers</p>
+  <p>Primary implementer: terra</p>
+  <p>
+    Target: scannerを起動した事実ではなく、対象に適合する診断が必要な前提を満たして実行され、
+    coverageを失わず、実行版と証跡が一致し、利用者が結果を誤解しない状態を作る。
+    <code>full-security-scan</code>では、既知のblockerを抱えたまま実行しない、
+    適用可能なstepを黙ってskipしない、0 requestを完了扱いしない、未実行をfinding 0へ混ぜない。
+  </p>
+
+  <h2 id="1-conclusion">1. 結論</h2>
+  <p>
+    現在の問題はscannerの数ではない。scan profile、project capability、preflight、runner、
+    outcome、diagnostic、reportが別々に妥当そうな判定を行い、その境界で情報が失われるため、
+    全体としては「実行したが確認できていない」runが生まれている。
+  </p>
+  <p>
+    改善の中心は、実行前に一つの<code>ScanExecutionPlan</code>を確定し、全componentが同じplanと
+    verdict
+    contractを参照することである。profileの配列を順番に回して後からwarningを集める方式をやめ、
+    applicability、readiness、coverage requirement、実行順、証跡要件を先に固定する。
+  </p>
+  <p>実装順は次で固定する。</p>
+  <ol>
+    <li>最新runを再現可能なcharacterization baselineとして固定する。</li>
+    <li>project別のapplicabilityとreadinessを持つexecution planを導入する。</li>
+    <li>
+      strict profileのpreflightをfail closedへ変更し、version/provenanceを実測値へ結び付ける。
+    </li>
+    <li>source SAST、runtime target、API schema、dependency scopeをproject適合型へ組み直す。</li>
+    <li>lifecycle、coverage、assessment verdictを分離し、UI/API/reportの表示を統一する。</li>
+    <li>diagnosticとLLM reviewをplan・preflight・実在commandに拘束し、reportを一つに確定する。</li>
+    <li>複数種類の実repositoryと障害注入でend-to-end gateを閉じる。</li>
+  </ol>
+  <p>
+    完了基準は「scanner processが終了した」ではない。strict profileでは、全applicable required
+    stepが
+    readyで、実行され、必要なartifactとcoverageを残し、最終reportがその事実を正しく表示した場合だけを
+    completeとする。
+  </p>
+  <p>
+    本計画自体の完了には、productionで提供するscanner/scan modeを一件ずつ通すreal E2Eを実装し、
+    後述する全caseが同一commitでpassすることを必須とする。unit test、mock executableを使うCLI
+    test、normalizer fixture test、runner直呼びtestだけではE2E合格と数えない。
+  </p>
+
+  <h2 id="2-position-and-boundary">2. 既存計画との関係</h2>
+  <p>
+    本計画はBackend Scanner Hardening and todolist Validation Planを置換しない。同計画で実装済みの
+    tool-run単位artifact、atomic metadata
+    update、<code>profile_outcome</code>、typed preflight、 isolated todolist
+    acceptanceを前提とし、productionの総合profileが実repositoryで完走するまでの残件を扱う。
+  </p>
+  <p>次の項目は再実装しない。</p>
+  <ul>
+    <li><code>ScanArtifactSink</code>によるartifact owner分離とSHA-256保存</li>
+    <li><code>scan_runs.profile_outcome</code>のcanonical field化</li>
+    <li>scan preflight check、binding、source revisionの保存</li>
+    <li>Schemathesisのrepository schema-first applicability判定</li>
+    <li>todolist acceptance用の一時DB、artifact root、isolated runtime target</li>
+  </ul>
+  <p>
+    Planning baseline時点のworktreeには、<code>RuntimeTargetProvider</code>、immutable
+    todolist source snapshot、 Docker image
+    identityに関する作業中差分がある。これらを破棄または上書きせず、最初のPRでtestを通して
+    本計画のruntime/evidence contractへ取り込む。
+  </p>
+
+  <h3 id="21-document-review-findings">2.1 文書・テスト計画レビューで閉じる曖昧さ</h3>
+  <table>
+    <caption>
+      2026-08-20 implementation-readiness review
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">ID</th>
+        <th scope="col">レビュー結果</th>
+        <th scope="col">本計画での確定事項</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>DR-01</td>
+        <td>
+          既存の<code>scan-*.e2e.test.ts</code>はmock executableを使い、process/DB
+          contract testとしては有効だがreal scanner E2Eではない。
+        </td>
+        <td>mock testは残し、別のreal-scanner gateを必須化する。</td>
+      </tr>
+      <tr>
+        <td>DR-02</td>
+        <td>
+          現行<code>todolist-scan-acceptance.ts</code>のruntime系はstep runnerを直接呼び、
+          execution plan、strict preflight、profile verdict、final reportを迂回する。
+        </td>
+        <td>
+          scanner別E2Eは全caseを<code>runProfileScan</code>または同じserviceを使うCLI経由に統一する。
+        </td>
+      </tr>
+      <tr>
+        <td>DR-03</td>
+        <td>現行acceptanceはartifact kindとintegrity中心で、実行量とcoverageの下限が弱い。</td>
+        <td>
+          scanner別にfile/package/rule/component/request/operationの観測値を必須assertionにする。
+        </td>
+      </tr>
+      <tr>
+        <td>DR-04</td>
+        <td>production scanner inventoryとE2E caseの全単射を検証する仕組みがない。</td>
+        <td>
+          scanner/adapter/mode追加時に対応caseがなければCIを失敗させるinventory gateを追加する。
+        </td>
+      </tr>
+      <tr>
+        <td>DR-05</td>
+        <td>既存A1-A10はproject横断の期待であり、どのscannerが何を満たせばpassか一意でない。</td>
+        <td>
+          scanner別case ID、fixture、entrypoint、artifact、観測下限、失敗case、担当sliceを固定する。
+        </td>
+      </tr>
+      <tr>
+        <td>DR-06</td>
+        <td>real tool/DockerがないCIをskip成功にできる余地がある。</td>
+        <td>
+          protected E2E
+          jobでは<code>skipped</code>、<code>not_run</code>、case欠落をすべて失敗とする。
+        </td>
+      </tr>
+      <tr>
+        <td>DR-07</td>
+        <td>E2E合格commitとproductionで実行するscanner/tool data/imageを結ぶcontractがない。</td>
+        <td>
+          全case合格からqualification manifestを生成し、buildとpreflightが同じdigestを要求する。
+        </td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2 id="3-baseline-verdict">3. 変更前baselineと判定</h2>
+  <h3 id="31-baseline-facts">3.1 Baseline facts</h3>
+  <table>
+    <caption>
+      2026-08-20最新runの実測
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">観点</th>
+        <th scope="col">実測</th>
+        <th scope="col">厳密判定</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Lifecycle</td>
+        <td>
+          <code>status=completed</code>、<code>profile_outcome=completed_with_warnings</code>
+        </td>
+        <td>processは終了したが診断は不完全</td>
+      </tr>
+      <tr>
+        <td>Preflight</td>
+        <td>
+          <code>status=blocked</code>、required blocker 2、optional blocker 5
+        </td>
+        <td>strict runを開始してはならない状態</td>
+      </tr>
+      <tr>
+        <td>Static source</td>
+        <td>TypeScript detected、Semgrep未実行、<code>source_sast_not_executed</code></td>
+        <td>source vulnerability coverageはgap</td>
+      </tr>
+      <tr>
+        <td>Runtime</td>
+        <td>DAST/Nuclei/ZAP失敗、Schemathesis N/A、request count 0</td>
+        <td>Web挙動は未確認</td>
+      </tr>
+      <tr>
+        <td>Trivy provenance</td>
+        <td>expected 0.72.0、observed 0.71.2、report上はreproducible</td>
+        <td>reproducibility claimが実測と不一致</td>
+      </tr>
+      <tr>
+        <td>Dependency scope</td>
+        <td>full deepだがTrivy/SBOMはdevelopment/test dependencyを除外</td>
+        <td>declared scopeとartifact scopeが不一致</td>
+      </tr>
+      <tr>
+        <td>Report</td>
+        <td>scanner直後の「最終」reportとdiagnostic後reportが別に存在</td>
+        <td>canonical final reportが曖昧</td>
+      </tr>
+      <tr>
+        <td>Automated review</td>
+        <td>存在しない<code>npm run dev/start</code>と不要なAPI schema追加を提案</td>
+        <td>project factsとpreflight blockerへの拘束不足</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    artifact fileはDB保存値とSHA-256が一致し、Gitleaks、OSV、Trivy processも実行されている。
+    したがって「何も実行していない」のではない。問題は、部分的に有効な静的結果へ
+    <code>full-security-scan</code>と<code>completed</code>の外観を与え、未確認領域を同じrunへ混ぜたことである。
+  </p>
+
+  <h3 id="32-characterization-sast">3.2 Characterization SAST</h3>
+  <p>
+    同梱TypeScript Semgrep rule 8個をbaseline targetへ手動適用すると、81 target
+    fileから6候補が出る。 内訳はDOM injection候補2、path traversal候補4である。現時点のspot
+    triageでは、前者はtrusted local HTML boundary、後者はcanonical path resolverまたはconfigured
+    integration pathにより、いずれも脆弱性確定ではない。
+  </p>
+  <p>
+    この6件を製品findingとして固定してはならない。一方で、source
+    SASTを実行すればreview対象が生まれるのに、 総合profileが0件として終了したcharacterization
+    evidenceとして保存する。raw Semgrep result、parser warning、 rule catalog digest、target
+    revisionを同じbaselineへ含める。
+  </p>
+
+  <h2 id="4-root-cause-map">4. Root cause map</h2>
+  <table>
+    <caption>
+      空回り・skip・誤表示を生む原因
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">ID</th>
+        <th scope="col">原因</th>
+        <th scope="col">現在の症状</th>
+        <th scope="col">是正方針</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>E-01</td>
+        <td>preflight defaultが<code>shadow</code></td>
+        <td>required blockerがあってもscannerを起動する</td>
+        <td>strict profileを常にenforcedにする</td>
+      </tr>
+      <tr>
+        <td>E-02</td>
+        <td>profile定義とproject applicabilityが別管理</td>
+        <td>APIでないprojectにもSchemathesisを並べ、後からskipする</td>
+        <td>実行前にproject-specific planへcompileする</td>
+      </tr>
+      <tr>
+        <td>E-03</td>
+        <td>Semgrep参加がenvironment opt-in</td>
+        <td>supported languageでもsource SASTを省略する</td>
+        <td>strict profileではapplicableならrequiredにする</td>
+      </tr>
+      <tr>
+        <td>E-04</td>
+        <td>runtime start planが標準script名中心</td>
+        <td>実行可能なCLI/server projectを起動不能と判定する</td>
+        <td>explicit config、plugin plan、safe N/Aを分離する</td>
+      </tr>
+      <tr>
+        <td>E-05</td>
+        <td>複数runtime stepが同じtarget blockerを個別に受ける</td>
+        <td>同じ起動失敗をDAST/Nuclei/ZAPへ重複記録する</td>
+        <td>target preparationを独立phaseにして一度だけ判定する</td>
+      </tr>
+      <tr>
+        <td>E-06</td>
+        <td>manifest provenanceとobserved binaryが分離</td>
+        <td>version mismatchでも<code>reproducible=true</code></td>
+        <td>observed identityを含むcompatibility verdictを必須化する</td>
+      </tr>
+      <tr>
+        <td>E-07</td>
+        <td>scope policyがrunner argumentへ完全に写像されない</td>
+        <td>full deepでもdev dependencyを除外する</td>
+        <td>scope-to-argument contractとartifact coverageを検証する</td>
+      </tr>
+      <tr>
+        <td>E-08</td>
+        <td>lifecycle statusをworkflow completionとして利用</td>
+        <td>coverage gapでも「scanner実行完了」と表示する</td>
+        <td>execution、coverage、assessmentを別verdictにする</td>
+      </tr>
+      <tr>
+        <td>E-09</td>
+        <td>diagnostic bundleがpreflight/source factsを十分に渡さない</td>
+        <td>実際のblockerを無視した改善案を生成する</td>
+        <td>deterministic factsとrecommendation validatorを追加する</td>
+      </tr>
+      <tr>
+        <td>E-10</td>
+        <td>reportをdiagnostic前後で別々にfinal扱いする</td>
+        <td>古いreportがreview missingのまま残る</td>
+        <td>preliminaryとcanonical finalを区別する</td>
+      </tr>
+      <tr>
+        <td>E-11</td>
+        <td>orchestrator/runtime build identityを保存しない</td>
+        <td>sourceと稼働processの実装差を後から証明できない</td>
+        <td>app commit/build digestとpipeline versionを保存する</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2 id="5-target-state">5. 目標状態と不変条件</h2>
+  <p>次の不変条件をproduction contractとする。</p>
+  <ol>
+    <li>
+      strict profileは、applicable required stepに既知blockerが一つでもあればscanner
+      processを一つも起動しない。
+    </li>
+    <li>
+      <code>not_applicable</code>は、project capability evidenceとstable reason
+      codeがある場合だけ成立する。 missing configuration、unknown、probe errorをN/Aへ落とさない。
+    </li>
+    <li>
+      applicable
+      stepの<code>failed</code>、<code>skipped</code>、0
+      request、artifact欠落はcompleteへ昇格しない。
+    </li>
+    <li>
+      supported source languageを検出したstrict profileでは、対応SAST
+      engineが実行されない限りcompleteにしない。
+    </li>
+    <li>
+      <code>reproducible=true</code>は、profile、target snapshot、rule/data
+      digest、actual binary/image identity、 sanitized
+      argumentsがすべて保存され、互換checkを通った場合だけ設定する。
+    </li>
+    <li>
+      scan scopeの宣言とrunner argument、raw artifactの対象集合が一致しない場合はcoverage
+      gapにする。
+    </li>
+    <li>finding 0、N/A、未実行、失敗を同じ数値へ畳み込まない。</li>
+    <li>
+      canonical final reportはdiagnostic終了後に一つだけ存在し、同じplan hashとevidence
+      snapshotを参照する。
+    </li>
+    <li>
+      protected CI、またはqualification admission controlを明示的に有効化したstrict
+      profileの全applicable scanner stepは、同一vulnWorkbench commit、toolbox/data/image lock、case
+      contractで合格したE2E qualificationへ結び付く。admission
+      control下ではqualification欠落・identity不一致でscanner processを
+      起動しない。通常の個別scanは、CI artifact未配置だけではblockしない。
+    </li>
+    <li>
+      LLMはdeterministic
+      verdictを上書きせず、存在しないcommand、対象外technology、未保存の証拠を提案へ使えない。
+    </li>
+    <li>target repository、target DB、original worktreeをscan実行とtest harnessが変更しない。</li>
+  </ol>
+
+  <figure>
+    <pre class="mermaid" data-spec-html-source="markdown">flowchart LR
+  A["Project snapshot"] --&gt; B["Capability analysis"]
+  B --&gt; C["ScanExecutionPlan"]
+  C --&gt; D{"Strict blockers?"}
+  D -- "yes" --&gt; E["BLOCKED / no scanner process"]
+  D -- "no" --&gt; F["Prepare shared runtime target if applicable"]
+  F --&gt; G["Execute applicable steps"]
+  G --&gt; H["Verify artifacts and coverage"]
+  H --&gt; I["Deterministic verdict"]
+  I --&gt; J["Evidence-constrained review"]
+  J --&gt; K["One canonical final report"]
+</pre>
+    <figcaption>新しいscan execution lifecycle</figcaption>
+  </figure>
+
+  <h2 id="6-scan-execution-plan-contract">6. ScanExecutionPlan contract</h2>
+  <h3 id="61-schema">6.1 Schema</h3>
+  <p>
+    <code>shared/schemas/scan-execution-plan.schema.ts</code>を追加し、少なくとも次をversioned schemaで持つ。
+  </p>
+  <ul>
+    <li>
+      <code>schemaVersion</code>、<code>planHash</code>、<code>createdAt</code>
+    </li>
+    <li>
+      <code>scanRunId</code>、<code>projectId</code>、<code>profileId</code>、<code>profileVersion</code>
+    </li>
+    <li>
+      <code>sourceRevision</code>、<code>sourceSnapshotDigest</code>、<code>sourceDirtyState</code>
+    </li>
+    <li>
+      <code>orchestratorVersion</code>、<code>orchestratorBuildDigest</code>、<code>runtimeInstanceId</code>
+    </li>
+    <li>
+      <code>resolvedProfileHash</code>、<code>scannerManifestHash</code>、<code>technologyRegistryDigest</code>
+    </li>
+    <li>
+      <code>scannerQualificationManifestHash</code>、<code>qualifiedOrchestratorCommit</code>、<code>qualifiedBuildDigest</code>
+    </li>
+    <li><code>strictness: strict | best_effort</code></li>
+    <li>
+      <code>steps[]</code>、<code>blockers[]</code>、<code>nonBlockingWarnings[]</code>
+    </li>
+  </ul>
+  <p>各stepは次を混ぜずに保持する。</p>
+  <table>
+    <caption>
+      Step planning fields
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Field</th>
+        <th scope="col">値</th>
+        <th scope="col">意味</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>applicability</code></td>
+        <td>applicable / not_applicable / unknown</td>
+        <td>projectに診断面が存在するか</td>
+      </tr>
+      <tr>
+        <td><code>readiness</code></td>
+        <td>ready / blocked / unchecked</td>
+        <td>現環境で安全に実行できるか</td>
+      </tr>
+      <tr>
+        <td><code>requirement</code></td>
+        <td>required_if_applicable / advisory / inventory</td>
+        <td>profile完了条件へ与える影響</td>
+      </tr>
+      <tr>
+        <td><code>coverageExpectation</code></td>
+        <td>artifact、request、target、rule set等のtyped object</td>
+        <td>実行後に何を確認すべきか</td>
+      </tr>
+      <tr>
+        <td><code>reasonCodes</code></td>
+        <td>stable code配列</td>
+        <td>N/A、blocked、warningの機械判定</td>
+      </tr>
+      <tr>
+        <td><code>evidenceRefs</code></td>
+        <td>manifest、file、plugin、config、probe参照</td>
+        <td>applicability/readinessの根拠</td>
+      </tr>
+      <tr>
+        <td><code>qualification</code></td>
+        <td>case ID、evidence digest、qualified tool/data/image identity</td>
+        <td>このbuildとscanner modeがreal E2E合格済みである根拠</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3 id="62-persistence">6.2 Persistence</h3>
+  <p>
+    次のmigration番号で<code>scan_execution_plans</code>を追加する。実装開始時に別migrationが先行した場合だけ
+    番号を繰り下げる。
+  </p>
+  <ul>
+    <li><code>&lt;next&gt;_scan_execution_plan_and_verdict.sql</code></li>
+    <li>scan runごとにpreview planとexecution planを区別する。</li>
+    <li>execution planはimmutableとし、scan開始後にupdateしない。</li>
+    <li>
+      previewからstartする場合は<code>expectedPlanHash</code>を必須にし、差分があれば<code>plan_changed</code>で停止する。
+    </li>
+    <li>legacy runはplanなしのまま保持し、推測でbackfillしない。</li>
+  </ul>
+  <p>
+    主要実装先は<code>api/modules/scans/scan-execution-plan-builder.ts</code>、
+    <code>api/modules/scans/scan-execution-plan-repository.ts</code>、
+    <code>api/modules/scans/profile-orchestrator.ts</code>、<code>api/routes/scan-profiles.route.ts</code>、
+    <code>api/routes/scans.route.ts</code>とする。
+  </p>
+
+  <h2 id="7-profile-policy">7. Profile policyの再設計</h2>
+  <h3 id="71-strict-and-best-effort">7.1 Strictとbest effortを分ける</h3>
+  <p>
+    現在の<code>full-security-scan</code>はstrict
+    profileへ変更する。部分結果を保存したい用途は別profile
+    <code>security-inventory-best-effort</code>へ分離し、同じ名称・色・完了表示を共有しない。
+  </p>
+  <ul>
+    <li>strict: applicable required stepが一つでもblockedならrunを開始しない。</li>
+    <li>
+      strict: 実行中にapplicable required
+      stepが失敗したらoutcomeは<code>incomplete</code>または<code>failed</code>。
+    </li>
+    <li>best effort: 実行できるstepを保存するが、coverage gapを常に前面表示する。</li>
+    <li>
+      <code>completed_with_warnings</code>はupdate
+      notice等、coverageを減らさないwarningだけに使う。
+    </li>
+  </ul>
+
+  <h3 id="72-capability-compiled-profile">7.2 Capability compiled profile</h3>
+  <p>
+    <code>profiles.ts</code>の固定step配列を直接実行せず、technology
+    pluginとproject factsを使ってplanへcompileする。
+  </p>
+  <ul>
+    <li>
+      TypeScript/JavaScript/Python/Go/Javaを検出し、対応rule
+      setがある場合はSemgrepをrequired-if-applicableにする。
+    </li>
+    <li>Semgrep adapterのenvironment opt-inをstrict profileの参加条件に使わない。</li>
+    <li>
+      API evidenceがないprojectではSchemathesisを証拠付きN/Aにし、coverage gapや改善要求にしない。
+    </li>
+    <li>
+      API
+      evidenceがあるのにschemaがない場合はN/Aではなく<code>api_schema_required_but_missing</code>でblockedにする。
+    </li>
+    <li>Web runtime evidenceがないlibrary/CLIではruntimeをN/Aにできる。</li>
+    <li>server capabilityがあるprojectでstart planがない場合はN/Aではなくblockedにする。</li>
+    <li>
+      project kindがunknownの場合は安全側の<code>applicability=unknown</code>とし、strict
+      runを止める。
+    </li>
+  </ul>
+  <p>
+    <code>technologyPlugins.capabilityPlan</code>と実際のprofile stepが矛盾しないことをassertする。
+    たとえばSemgrepがplan上coveredなのにtool runが存在しない状態をschema validationで拒否する。
+  </p>
+
+  <h3 id="73-requirement-matrix">7.3 Strict profile requirement matrix</h3>
+  <p>
+    <code>required</code>と<code>failurePolicy</code>を既存定数のまま流用せず、compiled planで次の
+    requirementへ確定する。applicableな行はすべて<code>required_if_applicable</code>であり、失敗・未実行・
+    artifact/coverage不足をwarningへ落とさない。
+  </p>
+  <table>
+    <caption>
+      Strict profileの必須scanner mode
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Profile</th>
+        <th scope="col">Condition</th>
+        <th scope="col">Required modes</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>full-security-scan</code></td>
+        <td>全project</td>
+        <td>gitleaks:source、osv:installed_tree、trivy:filesystem、semgrep:source、trivy:sbom</td>
+      </tr>
+      <tr>
+        <td><code>full-security-scan</code></td>
+        <td>Web runtime applicable</td>
+        <td>dast:web_passive_standard、nuclei:safe、zap:baseline</td>
+      </tr>
+      <tr>
+        <td><code>full-security-scan</code></td>
+        <td>API schema applicable</td>
+        <td>schemathesis:readonly</td>
+      </tr>
+      <tr>
+        <td><code>runtime-web-safe</code></td>
+        <td>Web runtime applicable</td>
+        <td>dast:web_passive_standard、nuclei:safe、zap:baseline</td>
+      </tr>
+      <tr>
+        <td><code>api-schema-readonly</code></td>
+        <td>API evidenceあり</td>
+        <td>schemathesis:readonly。API evidenceなしだけnot_applicableを許可</td>
+      </tr>
+      <tr>
+        <td><code>container-image-security</code></td>
+        <td>profile選択時</td>
+        <td>trivy:image。明示image入力なしはblocked</td>
+      </tr>
+      <tr>
+        <td><code>sbom-inventory</code></td>
+        <td>filesystem targetあり</td>
+        <td>trivy:sbom</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    現在<code>warn_and_continue</code>のDAST、Nuclei、ZAP、Schemathesis、image
+    stepも、上表のstrict
+    profileではoptionalのまま残さない。部分実行用途は<code>security-inventory-best-effort</code>へ移し、
+    strict profileと同じIDを共有しない。
+  </p>
+
+  <h2 id="8-preflight-and-provenance">8. Fail-closed preflightとprovenance</h2>
+  <h3 id="81-mode">8.1 Mode</h3>
+  <ul>
+    <li>
+      Web、CLI、integrationのstrict
+      profileは常に<code>enforced</code>を指定する。
+    </li>
+    <li>
+      環境変数未設定時のproduction
+      defaultを<code>enforced</code>へ変更する。
+    </li>
+    <li>
+      <code>shadow</code>はpreview、migration観測、明示best-effort
+      profileだけに限定する。
+    </li>
+    <li>UIはblocked checkとactionをstart前に表示し、strict run buttonを無効化する。</li>
+  </ul>
+
+  <h3 id="82-observed-tool-identity">8.2 Observed tool identity</h3>
+  <p>
+    <code>scanner-provenance.ts</code>のmanifest由来<code>reproducible</code>を廃止し、preflightとrunnerの実測を統合する。
+  </p>
+  <ul>
+    <li>
+      host runnerはresolved executable path、normalized version、可能ならbinary SHA-256を保存する。
+    </li>
+    <li>Docker runnerはimage ref、RepoDigest、image ID、platformを分けて保存する。</li>
+    <li>
+      expected/observed versionまたはdigest不一致は<code>compatible=false</code>。
+    </li>
+    <li>
+      runner開始直前にpreflight
+      bindingを再確認し、TOCTOU差分を<code>preflight_changed</code>で停止する。
+    </li>
+    <li>tool run metadataはexpected identityとobserved identityを両方保存する。</li>
+    <li>
+      scanner E2E qualificationはprotected CIのrelease
+      gateで必須とする。通常の個別プロジェクトscanを CI
+      artifact未配置だけで止めてはならない。regulated deploymentでのみ
+      <code>VULN_WORKBENCH_REQUIRE_SCANNER_E2E_QUALIFICATION=true</code>を設定し、 observed scanner
+      identityとの不一致を<code>scanner_e2e_qualification_mismatch</code>、manifest欠落を
+      <code>scanner_e2e_qualification_missing</code>としてpreflight blockerにする。
+    </li>
+    <li>
+      <code>scanPreflightCheckKindSchema</code>へ<code>scanner_e2e_qualification</code>、
+      <code>scanPreflightActionSchema</code>へ<code>run_scanner_e2e_qualification</code>を追加する。
+    </li>
+    <li>
+      reportは<code>reproducible</code>だけでなく、compatible
+      checkの内訳を表示する。
+    </li>
+  </ul>
+
+  <h3 id="83-orchestrator-identity">8.3 Orchestrator identity</h3>
+  <p>scannerだけでなく、scanを組み立てたvulnWorkbench runtimeのidentityを保存する。</p>
+  <ul>
+    <li>Git commitまたはrelease version</li>
+    <li>dirty state</li>
+    <li>server bundle/build digest</li>
+    <li>profile compiler version</li>
+    <li>normalizer versionとreport/diagnostic pipeline version</li>
+    <li>scanner E2E qualification manifest hashとqualified CI commit</li>
+  </ul>
+  <p>
+    identity不明のdevelopment runtimeはlocal
+    diagnosticとして実行できるが、authoritativeまたはreproducible claimに使わない。
+  </p>
+
+  <h2 id="9-runtime-target">9. Runtime target lifecycle</h2>
+  <h3 id="91-plan-precedence">9.1 Start planの優先順位</h3>
+  <ol>
+    <li>projectに保存された明示的・versionedなruntime target config</li>
+    <li>pinned container imageまたはimmutable source snapshotから作るsandbox plan</li>
+    <li>framework pluginが生成するsafe start plan</li>
+    <li>標準package scriptから生成するplan</li>
+    <li>根拠付きN/Aまたはblocked。任意commandの推測実行はしない。</li>
+  </ol>
+  <p>
+    project runtime configはcommand文字列をshellへ渡さず、executable、args、cwd、env
+    allowlist、port、 readiness path、sandbox policyをtyped fieldで保存する。host
+    executionは明示consentを要求し、可能な対象は containerまたはsandboxを優先する。
+  </p>
+
+  <h3 id="92-single-preparation-phase">9.2 Single preparation phase</h3>
+  <p>
+    DAST、Nuclei、ZAP、Schemathesisが個別にtargetを起動しない。<code>RuntimeTargetProvider</code>が一度だけ
+    prepare/start/readinessを実施し、全applicable runtime stepへ同じoriginとtarget identityを渡す。
+  </p>
+  <ul>
+    <li>target preparation失敗は一つのroot cause eventとして保存する。</li>
+    <li>
+      下流stepは<code>blocked_by_target_preparation</code>とし、同じerror messageを複製しない。
+    </li>
+    <li>request gateway metricsをstep別とaggregateで保存する。</li>
+    <li>applicable runtime stepのrequest count 0は必ずgapにする。</li>
+    <li>target stopとcleanupは成功・失敗・cancel・timeoutの全経路で一度だけ実行する。</li>
+  </ul>
+
+  <h3 id="93-spec-html-target">9.3 spec-htmlの扱い</h3>
+  <p>
+    <code>spec-html</code>へ診断都合の<code>dev</code>、<code>start</code>
+    scriptやAPI schemaを追加しない。 対象はlocal
+    viewer/CLIであり、runtime診断を行う場合は、immutable snapshotをbuildし、fixture
+    documentを指定して loopback上で起動する明示configをvulnWorkbench側に保存する。API
+    surfaceがないことはSchemathesis N/Aの根拠とする。
+  </p>
+
+  <h2 id="10-static-and-dependency-coverage">10. Static sourceとdependency coverage</h2>
+  <h3 id="101-source-sast">10.1 Source SAST</h3>
+  <ul>
+    <li>strict full profileではsupported languageのowned Semgrep rulesをrequiredにする。</li>
+    <li>
+      rule catalog digest、rule count、target file count、parsed line率、parse errors、ignored file
+      countをartifact metadataへ保存する。
+    </li>
+    <li>parse errorまたはignoreがcoverage thresholdを超えた場合はpartial/incompleteにする。</li>
+    <li>raw resultのcandidate countとnormalized finding countの差を理由付きで保存する。</li>
+    <li>false-positive triageはfinding reviewとして行い、ruleを無効化して0件へ合わせない。</li>
+  </ul>
+
+  <h3 id="102-dependency-scope">10.2 Dependency scope</h3>
+  <p><code>ScanScopePolicy</code>からrunner optionへの写像を一か所へ集約する。</p>
+  <ul>
+    <li>
+      <code>includeInstalledDependencies=true</code>ならTrivy
+      filesystemとSBOMへ<code>--include-dev-deps</code>を渡す。
+    </li>
+    <li>development、optional、peer、workspace dependencyのcoverageを別々に記録する。</li>
+    <li>OSV lockfile package setとSBOM component setをecosystem別に比較し、差分理由を保存する。</li>
+    <li>scannerが依存区分を表現できない場合は「covered」ではなくpartialにする。</li>
+    <li>
+      stderrにscope縮小noticeが出た場合はnon-blocking logへ埋めず、typed limitationへ変換する。
+    </li>
+  </ul>
+
+  <h2 id="11-outcome-and-ui">11. Outcome、API、UI</h2>
+  <h3 id="111-verdict-model">11.1 Verdict model</h3>
+  <p>次の三層を混ぜない。</p>
+  <table>
+    <caption>
+      Scan verdict layers
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">層</th>
+        <th scope="col">例</th>
+        <th scope="col">用途</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Lifecycle status</td>
+        <td>queued / running / terminal</td>
+        <td>process制御</td>
+      </tr>
+      <tr>
+        <td>Execution outcome</td>
+        <td>blocked / completed / incomplete / failed / cancelled / timed_out</td>
+        <td>planを実行できたか</td>
+      </tr>
+      <tr>
+        <td>Coverage verdict</td>
+        <td>covered / partial / gap / not_applicable</td>
+        <td>診断面を確認できたか</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    finding countはこの三層へ影響させない。finding 0でもcoverage
+    gapならincomplete、findingが存在しても全stepが 完走していればexecutionはcompletedである。
+  </p>
+  <p>
+    <code>profile_outcome</code>へ<code>blocked</code>と<code>incomplete</code>を追加し、legacy
+    <code>completed_with_warnings</code>を新規coverage gapへ使用しない。migrationとAPI
+    schemaを同じPRで更新する。
+  </p>
+
+  <h3 id="112-ui-rules">11.2 UI rules</h3>
+  <ul>
+    <li>profile選択時にapplicable、N/A、blocked、必要actionをpreviewする。</li>
+    <li>strict blockerがある場合はstart buttonを無効化し、修復導線を表示する。</li>
+    <li>
+      <code>blocked</code>と<code>incomplete</code>に成功色・check icon・「完了」を使わない。
+    </li>
+    <li>
+      finding 0の近くに、executed/applicable、request count、source SAST、dependency
+      scopeを表示する。
+    </li>
+    <li>workflow completionはterminal statusだけでscanner stepをcompleteにしない。</li>
+    <li>N/A stepは「skip」ではなく、理由とevidenceを持つ「対象外」として分母から除外する。</li>
+  </ul>
+  <p>
+    主要変更先は<code>web/src/domains/scans/workflow-completion.ts</code>、
+    <code>web/src/domains/scans/diagnostic-dashboard.ts</code>、
+    <code>web/src/domains/scans/scan-profile-display.ts</code>、profile preview/start UIとする。
+  </p>
+
+  <h2 id="12-diagnostic-and-report">12. Diagnostic、LLM review、report</h2>
+  <h3 id="121-bundle">12.1 Deterministic bundle</h3>
+  <p><code>ScanReviewBundle</code>へ次を追加する。</p>
+  <ul>
+    <li>execution plan summaryとplan hash</li>
+    <li>preflight summary、全limitation code、required/optional blocker</li>
+    <li>source SAST coverage、parser/ignore statistics</li>
+    <li>runtime target applicability、start plan、request metrics</li>
+    <li>dependency scopeとpackage class coverage</li>
+    <li>
+      project execution facts: project kind、存在するpackage scripts、schema evidence、allowed
+      verification commands
+    </li>
+    <li>orchestrator/scanner actual identityとcompatibility verdict</li>
+  </ul>
+  <p>
+    <code>collectBundleLimitations()</code>はruntimeだけでなく、preflight、source
+    SAST、dependency scope、 artifact integrity、orchestrator
+    identityを収集する。既知blockerをLLMが言及しなくてもdeterministic reportへ必ず出す。
+  </p>
+
+  <h3 id="122-recommendation-validator">12.2 Recommendation validator</h3>
+  <p><code>scan-review-output-validator.ts</code>へproject fact validationを追加する。</p>
+  <ul>
+    <li>
+      <code>verificationCommands</code>はbundleに保存したallowed
+      commandまたは製品標準commandだけを許可する。
+    </li>
+    <li>存在しないpackage scriptを参照したoutputをrejectする。</li>
+    <li>N/Aと確定したtechnologyの導入を、coverage修復として自動要求しない。</li>
+    <li>preflight blockerごとに少なくとも一つの対応taskまたは明示的非対応理由を要求する。</li>
+    <li>
+      scanner findingがない場合も、execution gap IDを改善taskへ参照できるtyped referenceを導入する。
+    </li>
+    <li>
+      LLMがdeterministic severity、applicability、readiness、coverage
+      verdictを変更できないようにする。
+    </li>
+  </ul>
+
+  <h3 id="123-single-final-report">12.3 Single canonical final report</h3>
+  <p>
+    scan直後に必要なら<code>preliminary</code>
+    reportを作れるが、<code>final</code>とは呼ばない。
+    diagnostic終了後にcanonical final reportを生成し、scanごとに一つだけcurrentにする。
+  </p>
+  <p>
+    <code>api/modules/scans/scan-finalization-service.ts</code>を追加し、deterministic diagnostic、 optional LLM
+    review、canonical final report transactionをこのserviceだけが所有する。
+    <code>runProfileScan</code>はscanner executionとpreliminary
+    reportまでに限定し、CLI、Web worker、 recovery job、E2E harnessはscan成功後に同じfinalization
+    serviceを呼ぶ。
+  </p>
+  <ul>
+    <li>
+      <code>scan_reports</code>へ<code>stage</code>と<code>supersedes_report_id</code>を追加する。
+    </li>
+    <li>current final reportのunique partial indexまたはguard付きtransactionを実装する。</li>
+    <li>
+      final reportはplan hash、diagnostic snapshot hash、review ID、pipeline versionを表示する。
+    </li>
+    <li>古いpreliminary reportは履歴として保持するが、UI default downloadにしない。</li>
+    <li>diagnostic/report failure時はfinal absentを明示し、preliminaryをfinalへ昇格しない。</li>
+  </ul>
+
+  <h2 id="13-implementation-slices">13. Implementation slices</h2>
+  <table>
+    <caption>
+      実装sliceとPR境界
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Slice</th>
+        <th scope="col">目的</th>
+        <th scope="col">主な変更</th>
+        <th scope="col">Merge gate</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>S0</td>
+        <td>Baseline固定</td>
+        <td>最新run、manual SAST、artifact/provenanceのmachine-readable evidence化</td>
+        <td>元runを変更せずverifierが全hashを再検証</td>
+      </tr>
+      <tr>
+        <td>S1</td>
+        <td>Execution plan</td>
+        <td>schema、repository、builder、preview/start hash binding</td>
+        <td>N/A/blocked/applicableを実行前に一意判定</td>
+      </tr>
+      <tr>
+        <td>S2</td>
+        <td>Strict preflight</td>
+        <td>enforced default、actual tool/app identity、runner recheck</td>
+        <td>version mismatchでtool process 0件</td>
+      </tr>
+      <tr>
+        <td>S3</td>
+        <td>Capability profile</td>
+        <td>Semgrep required-if-applicable、API/runtime applicability、best-effort分離</td>
+        <td>planとtool runに矛盾なし</td>
+      </tr>
+      <tr>
+        <td>S4</td>
+        <td>Runtime target</td>
+        <td>作業中RuntimeTargetProvider統合、explicit config、single preparation</td>
+        <td>共通targetでDAST/Nuclei/ZAP、cleanup 1回</td>
+      </tr>
+      <tr>
+        <td>S5</td>
+        <td>Scope fidelity</td>
+        <td>Trivy/SBOM dev deps、Semgrep coverage metadata、parity check</td>
+        <td>full deep宣言とraw artifactが一致</td>
+      </tr>
+      <tr>
+        <td>S6</td>
+        <td>VerdictとUI</td>
+        <td>blocked/incomplete、API/UI/workflow表示、preview blocker</td>
+        <td>gap runに成功表示なし</td>
+      </tr>
+      <tr>
+        <td>S7</td>
+        <td>Diagnostic/report</td>
+        <td>bundle拡張、recommendation validator、single final report</td>
+        <td>不正command/N/A提案拒否、final一つ</td>
+      </tr>
+      <tr>
+        <td>S8</td>
+        <td>E2E contractとharness</td>
+        <td>scanner inventory、case registry、evidence schema、production entrypoint化</td>
+        <td>inventoryとcaseが全単射、mock/runner直呼びをE2Eとして受理しない</td>
+      </tr>
+      <tr>
+        <td>S9</td>
+        <td>Static E2E gates</td>
+        <td>Gitleaks、OSV 2 mode、Trivy fs、Semgrep、SBOM</td>
+        <td>E2E-GL-01からE2E-SBOM-01がreal toolboxでpass</td>
+      </tr>
+      <tr>
+        <td>S10</td>
+        <td>Runtime/API/Image E2E gates</td>
+        <td>owned DAST、Nuclei、ZAP baseline、Schemathesis 2経路、Trivy image</td>
+        <td>E2E-DAST-01からE2E-TRIVY-IMAGE-01がpass</td>
+      </tr>
+      <tr>
+        <td>S11</td>
+        <td>Strict profile E2E</td>
+        <td>spec-html/todolist/libraryの総合run、single target、report、repeatability</td>
+        <td>A1-A10とfull profile連続2回がpass</td>
+      </tr>
+      <tr>
+        <td>S12</td>
+        <td>End-to-end closeout</td>
+        <td>fault injection、protected CI evidence、qualification manifest、release verifier</td>
+        <td>
+          全scanner caseとDoDを同一commitでpassし、protected CIのrelease
+          gateでqualificationを検証する
+        </td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3 id="131-s0-files">13.1 S0 — Baseline files</h3>
+  <ul>
+    <li><code>scripts/scan-execution-effectiveness-baseline.ts</code></li>
+    <li><code>scripts/scan-execution-effectiveness-baseline-lib.test.ts</code></li>
+    <li><code>spec/evidence/scan-execution-effectiveness-baseline.json</code></li>
+  </ul>
+  <p>
+    evidenceはscan DBからrun、event、tool run、preflight、coverage、report、reviewを抽出し、artifact
+    fileの SHA-256を再計算して作る。absolute path、user名、secret、LLM prompt本文は保存しない。
+  </p>
+
+  <h3 id="132-s1-s3-files">13.2 S1-S3 — Planning and policy files</h3>
+  <ul>
+    <li><code>shared/schemas/scan-execution-plan.schema.ts</code></li>
+    <li><code>api/modules/scans/scan-execution-plan-builder.ts</code></li>
+    <li><code>api/modules/scans/scan-execution-plan-repository.ts</code></li>
+    <li><code>api/modules/scans/scan-preflight.ts</code></li>
+    <li><code>api/modules/scans/tools/scanner-provenance.ts</code></li>
+    <li><code>api/modules/scans/profiles.ts</code></li>
+    <li><code>api/modules/scans/source-sast-coverage.ts</code></li>
+    <li><code>api/modules/project-capabilities/capability-plan-builder.ts</code></li>
+    <li><code>api/routes/scan-profiles.route.ts</code></li>
+    <li><code>api/routes/scans.route.ts</code></li>
+  </ul>
+
+  <h3 id="133-s4-s5-files">13.3 S4-S5 — Runtime and scanner files</h3>
+  <ul>
+    <li><code>api/modules/dast/runtime-target-provider.ts</code></li>
+    <li><code>api/modules/dast/target-preparer.ts</code></li>
+    <li><code>api/modules/scans/profile-step-orchestrator.ts</code></li>
+    <li><code>api/modules/scans/profile-runtime-step-runner.ts</code></li>
+    <li><code>api/modules/scans/profile-dast-step-runner.ts</code></li>
+    <li><code>api/modules/scans/tools/trivy-runner.ts</code></li>
+    <li><code>api/modules/scans/tools/semgrep-runner.ts</code></li>
+    <li><code>api/modules/scans/tools/osv-runner.ts</code></li>
+    <li><code>scripts/todolist-scan-acceptance.ts</code></li>
+  </ul>
+
+  <h3 id="134-s6-s7-files">13.4 S6-S7 — Verdict, review, report files</h3>
+  <ul>
+    <li><code>shared/schemas/scan.schema.ts</code></li>
+    <li><code>api/db/schema/schema-scans.ts</code></li>
+    <li><code>api/modules/scans/profile-orchestrator.ts</code></li>
+    <li><code>api/modules/scans/scan-review-bundle.ts</code></li>
+    <li><code>api/modules/scans/scan-diagnostic-helpers.ts</code></li>
+    <li><code>api/modules/scans/scan-review-output-validator.ts</code></li>
+    <li><code>api/modules/scans/scan-finalization-service.ts</code></li>
+    <li><code>api/modules/scans/report-builder-overview.ts</code></li>
+    <li><code>api/modules/scans/report-repository.ts</code></li>
+    <li><code>web/src/domains/scans/workflow-completion.ts</code></li>
+    <li><code>web/src/domains/scans/diagnostic-dashboard.ts</code></li>
+    <li><code>web/src/domains/scans/scan-profile-display.ts</code></li>
+  </ul>
+
+  <h3 id="135-s8-s12-files">13.5 S8-S12 — Scanner E2E files</h3>
+  <p>terraは次のfile名をそのまま使用し、同じ責務の別harnessを増やさない。</p>
+  <ul>
+    <li><code>shared/schemas/scanner-e2e-case.schema.ts</code>: reviewed case contractのschema</li>
+    <li><code>shared/schemas/scanner-e2e-evidence.schema.ts</code>: case resultとcloseout evidenceのschema</li>
+    <li><code>shared/schemas/scanner-e2e-qualification.schema.ts</code>: release/runtime qualificationのschema</li>
+    <li>
+      <code>spec/security-capability/scanner-e2e-cases.v1.json</code>: 12件のcase
+      ID、scanner、mode、profile、step、artifact role、verdictを固定するreviewed contract
+    </li>
+    <li>
+      <code>scripts/scanner-e2e-case-registry.ts</code>: production inventoryとcontractの全単射検証
+    </li>
+    <li>
+      <code>scripts/scanner-e2e.ts</code>: isolated DB/artifact
+      root/targetを作りcaseをproduction経路で実行
+    </li>
+    <li>
+      <code>scripts/verify-scanner-e2e-evidence.ts</code>: exact case set、contract
+      hash、artifact存在、pass verdictの事後検証
+    </li>
+    <li>
+      <code>scripts/build-scanner-e2e-qualification.ts</code>: verified evidenceからqualification
+      manifestを生成
+    </li>
+    <li>
+      <code>scripts/scanner-e2e-case-registry.test.ts</code>と <code>scripts/scanner-e2e-evidence.test.ts</code>:
+      registry/schemaのunit test
+    </li>
+    <li>
+      <code>scripts/todolist-scan-acceptance-lib.ts</code>: cleanなtodolist repositoryを確認し、
+      contractで固定したcommitを<code>git archive</code>してimmutable source
+      snapshotを作成し、12 caseの選択を保持
+    </li>
+  </ul>
+  <p>
+    既存<code>api/modules/scans/scan-gitleaks.e2e.test.ts</code>等はmock executable contract
+    testとしてrenameせず残すが、release
+    evidenceの<code>realScanner=true</code>へ数えない。新harnessは全scanner
+    caseで<code>runProfileScan</code>を呼び、success scenarioでは続けて
+    <code>scan-finalization-service.ts</code>を呼ぶ。CLI
+    serialization確認だけを別の薄いtestにし、
+    <code>runDastStepIntoExistingScan</code>、<code>runRuntimeScannerIntoExistingScan</code>、
+    <code>runSchemaScannerIntoExistingScan</code>の直接呼び出しをscanner E2Eに使わない。
+  </p>
+
+  <h2 id="14-scanner-e2e-gates">14. Scanner単位の必須real E2E gate</h2>
+  <h3 id="141-e2e-definition">14.1 この計画でE2Eと呼べる条件</h3>
+  <p>
+    scanner E2Eは、target入力からexecution plan、enforced preflight、real scanner
+    process、normalization、DB、artifact、coverage verdict、deterministic diagnostic、canonical
+    final
+    report、cleanupまでを一つのcaseで通す。全caseは<code>runProfileScan</code>を通り、success
+    scenarioは同じproduction finalization serviceで終了する。
+  </p>
+  <p>次の条件を一つでも外すtestはunitまたはintegrationであり、scanner E2E合格へ数えない。</p>
+  <ol>
+    <li>
+      scannerはlocked toolbox内のreal binaryまたはpinned Docker imageを使う。mock executable、
+      canned scanner stdout、normalizerへのfixture直投入は禁止する。
+    </li>
+    <li>
+      対象はversioned fixtureまたはpinned clean repositoryのimmutable snapshotで、caseごとに一時DB、
+      artifact root、target runtime、Docker resourceを分離する。
+    </li>
+    <li>
+      preflightのexpected identityとrunner直前のobserved identityが一致し、
+      <code>compatible=true</code>である。
+    </li>
+    <li>
+      plan上のstep ID、applicability、readiness、requirementと、実tool run/step
+      resultが一対一である。
+    </li>
+    <li>
+      raw artifactはDB owner、storage key、SHA-256、size、content typeを持ち、保存bytesを再読込して
+      scanner固有schemaでparseできる。
+    </li>
+    <li>
+      scanner固有のwork counterが下限を満たす。process起動だけ、空artifactだけ、request
+      0だけではpassしない。
+    </li>
+    <li>
+      case contractの期待artifact roleとverdictを照合する。tool/data更新時に実行結果から
+      contractを自動更新しない。
+    </li>
+    <li>
+      final reportを有効にし、deterministic diagnosticを通す。外部LLM transportだけは固定response
+      adapterを 注入できるが、scanner、target、gateway、normalizer、repositoryをmockしない。
+    </li>
+    <li>
+      case終了後にtarget repositoryのHEAD/status、temporary process、container、network、volume、DB
+      writer、 artifact handleが残っていないことを検証する。
+    </li>
+    <li>
+      protected CIではcase
+      resultが<code>passed</code>以外ならjobを失敗させる。
+      <code>skipped</code>、<code>blocked</code>、<code>not_run</code>は未合格である。
+    </li>
+  </ol>
+
+  <h3 id="142-inventory-contract">14.2 Scanner inventoryとcase registry</h3>
+  <p>
+    <code>scripts/scanner-e2e-case-registry.ts</code>は<code>buildScanProfiles()</code>のenabled
+    profileと<code>createStaticScannerAdapterRegistry()</code>から次のproduction inventoryを導出し、
+    <code>scanner-e2e-cases.v1.json</code>との全単射を検証する。
+  </p>
+  <ul>
+    <li>
+      登録済みstatic
+      adapterは<code>gitleaks</code>、<code>osv</code>、<code>trivy</code>、
+      <code>semgrep</code>の全4件であること。Semgrep
+      executableの有無はpreflightで判定し、adapterから除外しない。
+    </li>
+    <li>
+      <code>buildScanProfiles()</code>から到達できる全scanner-bearing
+      stepを、engine、input mode、安全性contract、artifact roleの組でcanonical modeへ変換した集合
+    </li>
+  </ul>
+  <p>
+    同じengineでも入力・安全性・artifact contractが異なるmodeは別caseにする。OSVのmanifestと
+    installed tree、Trivyのfilesystem/SBOM/image、SchemathesisのN/A/read-onlyは
+    それぞれ別gateである。case registry testは重複ID、未知scanner、未対応inventory、削除済みstep、
+    fixture path不存在を失敗させる。
+  </p>
+  <p>
+    standalone DAST API、disabled profile、active
+    assessmentは本計画のinventory外とする。それらをgeneric profileまたはdefault production
+    profileへ追加するPRは、追加と同時にscanner E2E caseを作らなければ inventory gateを通らない。
+  </p>
+  <p><code>productionScannerE2ECaseIds()</code>の出力は次の12個に固定する。</p>
+  <pre><code class="language-text">gitleaks:source
+osv:manifest
+osv:installed_tree
+trivy:filesystem
+semgrep:source
+trivy:sbom
+dast:web_passive_standard
+nuclei:safe
+zap:baseline
+schemathesis:not_applicable
+schemathesis:readonly
+trivy:image</code></pre>
+  <p>
+    同じmodeを使うprofile aliasは一caseへ集約できるが、scope差はA1-A10で検証する。 mode
+    keyの追加・削除はJSON contractとregistry testを同時に更新しない限りcompile/testを失敗させる。
+  </p>
+
+  <h3 id="143-case-contract">14.3 Case contract schema</h3>
+  <p>
+    <code>shared/schemas/scanner-e2e-case.schema.ts</code>で
+    <code>spec/security-capability/scanner-e2e-cases.v1.json</code>をparseする。現在のv1で各caseが必須とするfieldは次だけである。ここにないfieldをharnessごとに追加してはならず、必要ならschemaVersionを上げてcontract、verifier、fixture
+    testを同時に変更する。
+  </p>
+  <ul>
+    <li>
+      <code>id</code>、<code>scannerId</code>、<code>mode</code>、<code>profileId</code>、
+      <code>stepId</code>
+    </li>
+    <li>
+      <code>expectedArtifactRoles</code>と<code>expectedVerdict</code>。
+      Schemathesis no-schemaだけはartifact
+      roleなし・<code>not_applicable</code>、他の11件は<code>passed</code>である。
+    </li>
+  </ul>
+  <p>
+    Case IDの順序と集合はsharedの<code>SCANNER_E2E_CASE_IDS</code>（registry側では
+    <code>CANONICAL_SCANNER_E2E_CASE_IDS</code>として再export）で固定する。
+    <code>loadScannerE2ECaseRegistry()</code>はduplicate、欠落、置換、production
+    inventoryとの差、unknown scanner、 およびcontractのprofile/stepが実在production
+    stepへ結び付かない状態を失敗にする。
+  </p>
+  <p>work counter名は次の一覧以外を追加せず、runner metadataからevidenceへ写像する。</p>
+  <table>
+    <caption>
+      Canonical work counter
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Mode</th>
+        <th scope="col">Required counters</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>gitleaks:source</td>
+        <td><code>filesScanned</code></td>
+      </tr>
+      <tr>
+        <td>osv:manifest</td>
+        <td>
+          <code>manifestsScanned</code>、<code>packagesScanned</code>
+        </td>
+      </tr>
+      <tr>
+        <td>osv:installed_tree</td>
+        <td>
+          <code>packagesScanned</code>、<code>prodPackagesScanned</code>、<code>devPackagesScanned</code>
+        </td>
+      </tr>
+      <tr>
+        <td>trivy:filesystem</td>
+        <td>
+          <code>targetsScanned</code>、<code>resultsProduced</code>
+        </td>
+      </tr>
+      <tr>
+        <td>semgrep:source</td>
+        <td>
+          <code>rulesLoaded</code>、<code>filesScanned</code>、<code>parseErrors</code>、<code>candidates</code>
+        </td>
+      </tr>
+      <tr>
+        <td>trivy:sbom</td>
+        <td>
+          <code>components</code>、<code>dependencyRelationships</code>、<code>prodComponents</code>、
+          <code>devComponents</code>、<code>workspaceComponents</code>
+        </td>
+      </tr>
+      <tr>
+        <td>dast:web_passive_standard</td>
+        <td>
+          <code>requestsSent</code>、<code>eligibleRoutes</code>、<code>coveredRoutes</code>、
+          <code>mutationRequests</code>、<code>publicRequests</code>
+        </td>
+      </tr>
+      <tr>
+        <td>nuclei:safe</td>
+        <td>
+          <code>templatesLoaded</code>、<code>requestsSent</code>、<code>publicRequests</code>
+        </td>
+      </tr>
+      <tr>
+        <td>zap:baseline</td>
+        <td>
+          <code>requestsSent</code>、<code>alertsProduced</code>、<code>mutationRequests</code>
+        </td>
+      </tr>
+      <tr>
+        <td>schemathesis:not_applicable</td>
+        <td>counterなし。scanner/target process 0をassertする。</td>
+      </tr>
+      <tr>
+        <td>schemathesis:readonly</td>
+        <td>
+          <code>operationsSelected</code>、<code>requestsSent</code>、<code>writeOperations</code>
+        </td>
+      </tr>
+      <tr>
+        <td>trivy:image</td>
+        <td>
+          <code>targetsScanned</code>、<code>packagesScanned</code>
+        </td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3 id="144-evidence-contract">14.4 E2E evidence contract</h3>
+  <p>
+    現在の<code>shared/schemas/scanner-e2e-evidence.schema.ts</code>は一case一成功runを記録する。
+    必須fieldはcase/contract、scan run、<code>executionSurface=profile_orchestrator</code>、 execution
+    plan hash、preflight hash、target source revision、manifest/execution binding、case-scoped
+    <code>scannerIdentityHash</code>、tool version、image digest、artifact ID、
+    diagnostic run/status、canonical final report/artifact
+    IDである。<code>scripts/scanner-e2e.ts</code>は
+    <code>runProfileScan</code>の後にproduction
+    <code>ScanDiagnosticRunner</code>と
+    <code>finalizeScanAfterDiagnostic</code>を実行し、finalization失敗をcase失敗にする。browser-only passive DASTはscanner container
+    imageを持たないため<code>imageDigests</code>を空にできるが、browser
+    runtimeを含む<code>scannerIdentityHash</code>は必須とする。
+  </p>
+  <p>
+    以下のsuccess/fail-closed scenarioを一bundleへ拡張する案はv2の作業項目であり、v1 evidenceへ
+    任意fieldを足して互換性を壊してはならない。v2を開始する際はschema、verifier、qualification
+    builder、 case contractを同一変更で更新し、v1のqualificationを再利用しない。
+  </p>
+  <p class="muted">
+    top-levelに<code>scenarios</code>を持ち、<code>success</code>と<code>fail_closed</code>を
+    ちょうど一件ずつ要求する。scenarioは<code>executed_success</code>、
+    <code>not_applicable_success</code>、<code>preflight_blocked</code>、
+    <code>execution_incomplete</code>、<code>cleanup_failed</code>のdiscriminated unionとし、
+    適用不能fieldをnullableで埋めない。preflight blockedはartifact/reportを持たず、execution
+    incompleteは生成済みartifactとcurrent finalの有無をcase contractどおり検証する（v2設計）。
+  </p>
+  <table>
+    <caption>
+      ScannerE2eEvidenceの必須情報
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Object</th>
+        <th scope="col">Required fields</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>identity</td>
+        <td>
+          <code>schemaVersion</code>、<code>caseId</code>、<code>scannerId</code>、
+          <code>adapterId</code>、<code>mode</code>、<code>profileId</code>、<code>stepId</code>
+        </td>
+      </tr>
+      <tr>
+        <td>scenarios</td>
+        <td>
+          <code>kind: success | fail_closed</code>、<code>scenarioType</code>、expected result、actual
+          result。successとfail_closedを
+          それぞれ一件だけ持ち、両方passしなければcase全体をfailedにする。
+        </td>
+      </tr>
+      <tr>
+        <td>target</td>
+        <td>
+          <code>fixtureId</code>、source commitまたはfixture
+          digest、before/after HEAD、 before/after status、runtime/image identity
+        </td>
+      </tr>
+      <tr>
+        <td>plan</td>
+        <td>
+          <code>planHash</code>、<code>preflightHash</code>、applicability、readiness、requirement、
+          expected/observed scanner identity、compatibility
+        </td>
+      </tr>
+      <tr>
+        <td>execution</td>
+        <td>
+          scanner process count、exit code、step status、execution outcome、coverage verdict、reason
+          codes、 start/finish timestamps
+        </td>
+      </tr>
+      <tr>
+        <td>work</td>
+        <td>
+          file/package/rule/component/request/operation countのうちcase contractが指定したcounter、
+          mutation request count、candidate/normalized finding count
+        </td>
+      </tr>
+      <tr>
+        <td>artifacts</td>
+        <td>
+          artifact ID、owner kind/ID、kind、storage key、SHA-256、size、content type、schema
+          validation result
+        </td>
+      </tr>
+      <tr>
+        <td>report</td>
+        <td>
+          current final report ID、plan hash、evidence snapshot hash、同scanのcurrent final件数
+        </td>
+      </tr>
+      <tr>
+        <td>cleanup</td>
+        <td>
+          target stopped、container/network/volume/process残数、temp root cleanup、DB writer
+          closed、 target unchanged
+        </td>
+      </tr>
+      <tr>
+        <td>result</td>
+        <td>
+          <code>passed</code>と全assertion
+          ID。skipを表す成功値は定義しない。
+        </td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    command、absolute path、secret、raw credential、host
+    user名はevidenceへ保存しない。commandはsanitized argument digest、pathはfixture-relative
+    pathへ変換する。各caseのevidenceはprotected CI artifactへ保存し、
+    <code>verify-scanner-e2e-evidence.ts</code>がcase集合、schema、hash、owner、resultを再検証する。
+  </p>
+
+  <h3 id="145-scanner-case-matrix">14.5 Scanner別work packetと合格条件</h3>
+  <p>
+    下表の各行を一つの実装work packetとする。terraは上から順にcase
+    contract、fixture、production修正、 success run、fail-closed run、evidence
+    verifierを同じPRへ入れる。期待rule ID/countは最初の
+    characterizationでreviewし、<code>scanner-e2e-cases.v1.json</code>へ固定してからproduction修正を始める。
+  </p>
+  <table>
+    <caption>
+      必須scanner E2E case
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Case / production entry</th>
+        <th scope="col">Fixture and expected artifact</th>
+        <th scope="col">Pass gate</th>
+        <th scope="col">Fail-closed companion</th>
+        <th scope="col">Primary implementation files</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>
+          <code>E2E-GL-01</code><br>Gitleaks<br><code>baseline / gitleaks</code>
+        </td>
+        <td>
+          <code>tests/e2e/scanners/fixtures/gitleaks/{vulnerable,fixed}</code><br>
+          <code>raw_result</code>
+        </td>
+        <td>
+          <code>filesScanned &gt; 0</code>、vulnerableで<code>aws-access-key</code>、fixedで0、
+          finding/evidenceのcanaryはredacted、raw artifactはparseable
+        </td>
+        <td>binary missingまたはversion mismatchでprocess 0、strict outcome blocked</td>
+        <td>
+          <code>api/modules/scans/tools/gitleaks-runner.ts</code>、
+          <code>api/modules/scans/normalizers/gitleaks.ts</code>、
+          <code>api/modules/scans/profile-static-tool-runner.ts</code>
+        </td>
+      </tr>
+      <tr>
+        <td>
+          <code>E2E-OSV-MANIFEST-01</code><br>OSV manifest<br><code>baseline / osv</code>
+        </td>
+        <td>
+          <code>tests/security-capability/osv/npm/{vulnerable,fixed}</code><br>
+          <code>raw_result</code>
+        </td>
+        <td>
+          manifest count = 1、package count &gt;
+          0、vulnerableで<code>GHSA-35jh-r3h4-6jhm</code>、 fixedで同ID 0、offline
+          database digest一致
+        </td>
+        <td>
+          offline DB missing/stale/digest mismatchでprocess 0、<code>scanner_data_*</code>
+          blocker
+        </td>
+        <td>
+          <code>api/modules/scans/tools/osv-runner.ts</code>、
+          <code>api/modules/scans/normalizers/osv.ts</code>、
+          <code>scripts/scanner-data-lock.ts</code>
+        </td>
+      </tr>
+      <tr>
+        <td>
+          <code>E2E-OSV-INSTALLED-01</code><br>OSV installed tree<br>
+          <code>full-security-scan / osv</code>
+        </td>
+        <td>
+          <code>tests/e2e/scanners/fixtures/osv-installed-tree/{vulnerable,fixed}</code><br>
+          <code>raw_result</code>
+        </td>
+        <td>
+          metadata mode = <code>installed_tree</code>、prod/dev package
+          countを別記録、dev fixture packageを分母へ含め、 vulnerable/fixed ID差をcontractどおり保存
+        </td>
+        <td>installed treeが必要なのにmaterialize不能ならN/Aへ落とさずblocked</td>
+        <td>
+          <code>api/modules/scans/tools/osv-runner.ts</code>、
+          <code>api/modules/scans/target-scope.ts</code>、
+          <code>api/modules/scans/profile-static-tool-selection.ts</code>
+        </td>
+      </tr>
+      <tr>
+        <td>
+          <code>E2E-TRIVY-FS-01</code><br>Trivy filesystem<br>
+          <code>basic-security / trivy</code>
+        </td>
+        <td>
+          <code>tests/e2e/scanners/fixtures/trivy-fs/{vulnerable,fixed}</code><br>
+          <code>raw_result</code>
+        </td>
+        <td>
+          scanners = vuln/secret/misconfig、target/result count &gt; 0、contract rule IDs一致、
+          input digestとscope summaryを保存、fixedで対象rule ID 0
+        </td>
+        <td>expected/observed version不一致でprocess 0、reproducible false</td>
+        <td>
+          <code>api/modules/scans/tools/trivy-runner.ts</code>、
+          <code>api/modules/scans/normalizers/trivy.ts</code>、
+          <code>api/modules/scans/tools/scanner-provenance.ts</code>
+        </td>
+      </tr>
+      <tr>
+        <td>
+          <code>E2E-SEMGREP-01</code><br>Semgrep owned rules<br>
+          <code>full-security-scan / semgrep</code>
+        </td>
+        <td>
+          <code>tests/security-capability/semgrep/typescript/owned-core.ts</code>とfixed-only fixture<br>
+          <code>raw_result</code>
+        </td>
+        <td>
+          env opt-inなし、rule catalog digest/count一致、target file count &gt; 0、parse error 0、
+          owned rule 8個・vulnerable marker 16個とcandidate集合が一致、fixed-onlyで0
+        </td>
+        <td>
+          rule catalog missing/digest mismatchでprocess 0、source coverage gapをcompletedにしない
+        </td>
+        <td>
+          <code>api/modules/scans/tools/semgrep-runner.ts</code>、
+          <code>api/modules/scans/normalizers/semgrep.ts</code>、
+          <code>api/modules/scans/source-sast-coverage.ts</code>
+        </td>
+      </tr>
+      <tr>
+        <td>
+          <code>E2E-SBOM-01</code><br>Trivy CycloneDX<br><code>sbom-inventory / sbom_export:trivy</code>
+        </td>
+        <td>
+          <code>tests/e2e/scanners/fixtures/sbom-scope</code><br><code>sbom</code>
+        </td>
+        <td>
+          <code>bomFormat=CycloneDX</code>、component/dependency relationship count
+          &gt; 0、contractで指定した prod/dev/workspace componentを含む、findingを作らない、Trivy
+          FSと別storage key
+        </td>
+        <td>dev depsを要求したscopeでdev component欠落ならcoverage partial/incomplete</td>
+        <td>
+          <code>api/modules/scans/tools/trivy-runner.ts</code>、
+          <code>api/modules/scans/plugin-dependency-scope.ts</code>、
+          <code>api/modules/scans/artifact-sink.ts</code>
+        </td>
+      </tr>
+      <tr>
+        <td>
+          <code>E2E-DAST-01</code><br>Owned passive DAST<br>
+          <code>runtime-http-check / dast:web-passive-standard</code>
+        </td>
+        <td>
+          <code>tests/security-capability/dast-standard/app</code> vulnerable/fixed mode<br>
+          <code>dast_raw_result</code>
+        </td>
+        <td>
+          request count &gt; 0、required route coverage threshold達成、mutation/public request 0、
+          vulnerable ground truth検出、fixed false positive 0、scan/DAST artifact owner整合
+        </td>
+        <td>readiness timeoutまたはrequest 0でincomplete、target cleanup 1回</td>
+        <td>
+          <code>api/modules/scans/profile-dast-step-runner.ts</code>、
+          <code>api/modules/dast/dast-profile-executor.ts</code>、
+          <code>api/modules/dast/runtime-target-provider.ts</code>
+        </td>
+      </tr>
+      <tr>
+        <td>
+          <code>E2E-NUCLEI-01</code><br>Nuclei safe<br>
+          <code>runtime-web-safe / runtime_scanner:nuclei-safe</code>
+        </td>
+        <td>
+          local exposed-env/generic-200 server built from
+          <code>tests/security-capability/fixtures/nuclei</code><br><code>raw_result</code>
+        </td>
+        <td>
+          locked safe template digest一致、request count &gt; 0かつbudget内、exposed-envだけcontract
+          template ID <code>exposed-env-file</code>を検出、generic 200で0、public
+          request 0
+        </td>
+        <td>binary/template data missingでtarget起動前blocked、process 0</td>
+        <td>
+          <code>api/modules/runtime-scans/runtime-scanner-runner.ts</code>、
+          <code>api/modules/runtime-scans/nuclei-normalizer.ts</code>、
+          <code>api/modules/scans/profile-runtime-step-runner.ts</code>
+        </td>
+      </tr>
+      <tr>
+        <td>
+          <code>E2E-ZAP-BASELINE-01</code><br>ZAP baseline passive<br>
+          <code>runtime-zap-baseline / runtime_scanner:zap-baseline</code>
+        </td>
+        <td>
+          <code>tests/e2e/scanners/fixtures/zap-baseline-app</code> vulnerable/fixed mode<br>
+          <code>raw_result</code>
+        </td>
+        <td>
+          pinned image RepoDigest/platform一致、request count &gt; 0かつbudget内、passive mode、
+          vulnerableでalert ID <code>10021</code>、mutation/public request
+          0、fixedで同ID 0
+        </td>
+        <td>Docker/image mismatchまたはtimeoutでcompletedにせずcontainer/networkをcleanup</td>
+        <td>
+          <code>api/modules/runtime-scans/zap-baseline-runner.ts</code>、
+          <code>api/modules/runtime-scans/zap-image-policy.ts</code>、
+          <code>api/modules/scans/profile-runtime-step-runner.ts</code>
+        </td>
+      </tr>
+      <tr>
+        <td>
+          <code>E2E-SCHEMATHESIS-NA-01</code><br>Schema N/A<br><code>api-schema-readonly / api_schema_scan:schemathesis</code>
+        </td>
+        <td><code>tests/e2e/scanners/fixtures/no-api-library</code><br>artifactなし</td>
+        <td>
+          capability
+          evidence付き<code>not_applicable/schema_not_found</code>、scanner/target/gateway process
+          0、 coverage分母から除外、final reportはN/A理由を表示
+        </td>
+        <td>probe error、unknown、API evidenceありschema欠落をN/Aにするとtest失敗</td>
+        <td>
+          <code>api/modules/api-schema-fuzz/schema-discovery.ts</code>、
+          <code>api/modules/scans/profile-schema-step-runner.ts</code>、
+          <code>api/modules/scans/scan-execution-plan-builder.ts</code>
+        </td>
+      </tr>
+      <tr>
+        <td>
+          <code>E2E-SCHEMATHESIS-RO-01</code><br>Schemathesis read-only<br>
+          <code>api-schema-readonly / api_schema_scan:schemathesis</code>
+        </td>
+        <td>
+          <code>spec/security-capability/todolist-readonly-openapi.v1.yaml</code>とpinned todolist image<br>
+          <code>raw_result</code>
+        </td>
+        <td>
+          <code>operationsSelected=1</code>、operation ID
+          <code>getHealth</code>、request count &gt; 0、 GETのみ、mutation
+          count 0、5xxなし、schema digestとtarget identity一致、coverage covered
+        </td>
+        <td>schemaにwrite operationを混入するとpreflight/policyでprocess前blocked</td>
+        <td>
+          <code>api/modules/api-schema-fuzz/schemathesis-runner.ts</code>、
+          <code>api/modules/scans/profile-schema-step-runner.ts</code>、
+          <code>api/modules/api-schema-fuzz/schema-discovery.ts</code>
+        </td>
+      </tr>
+      <tr>
+        <td>
+          <code>E2E-TRIVY-IMAGE-01</code><br>Trivy existing image<br>
+          <code>container-image-security / container_image_scan:trivy</code>
+        </td>
+        <td>
+          harnessが事前build/saveした<code>tests/e2e/scanners/fixtures/trivy-image</code><br>
+          <code>raw_result</code>
+        </td>
+        <td>
+          production runnerはbuildせず明示tarだけをscan、image ID/digest/platform一致、package count
+          &gt; 0、 vulnerable/fixed contract ID差、artifact parseable
+        </td>
+        <td>image未指定/unreachable/platform mismatchでscanner process 0、stable reason code</td>
+        <td>
+          <code>api/modules/scans/tools/trivy-runner.ts</code>、
+          <code>api/modules/scans/profile-step-orchestrator.ts</code>、
+          <code>api/modules/scans/scan-preflight-probes.ts</code>
+        </td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p>
+    group割当は固定する。<code>static</code>はGL、OSV 2件、Trivy
+    FS、Semgrep、SBOM、
+    <code>runtime</code>はDAST、Nuclei、ZAP baseline、Schemathesis 2件、
+    <code>image</code>はTrivy
+    imageだけである。caseを複数groupへ重複登録しない。
+  </p>
+
+  <h3 id="146-common-case-assertions">14.6 Assertion catalogとcase別必須集合</h3>
+  <p>
+    verifierは文字列messageではなく、次のstable assertion IDを検証する。case contractは後述する
+    case種別ごとの必須集合をそのまま使い、任意にassertionを除外しない。
+  </p>
+  <ul>
+    <li>
+      <code>INV-01</code>: production inventoryとcase registryが全単射
+    </li>
+    <li><code>ENT-01</code>: production service entrypointを通過</li>
+    <li><code>PLAN-01</code>: plan stepと実step resultが一対一</li>
+    <li>
+      <code>PREF-01</code>: enforced preflightがsuccess
+      contractどおりreadyまたはnot_applicableで、 fail-closed scenarioではblocked、binding再確認済み
+    </li>
+    <li>
+      <code>PROV-01</code>: expected/observed identity一致、compatible true
+    </li>
+    <li><code>WORK-01</code>: scanner固有work counterがcontract下限以上</li>
+    <li>
+      <code>ART-01</code>:
+      必須artifactが存在し、owner/storage/SHA/size/schemaが有効
+    </li>
+    <li>
+      <code>NORM-01</code>: reviewed expected
+      finding/rule集合とnormalized結果が一致
+    </li>
+    <li>
+      <code>VERDICT-01</code>: execution outcomeとcoverage verdictがcase
+      contractどおり
+    </li>
+    <li>
+      <code>REPORT-01</code>: current canonical finalが一件でplan/evidence
+      hash一致。preflight_blockedではfinal 0件であることを検証する。
+    </li>
+    <li>
+      <code>SAFE-01</code>: public request、禁止method、credential
+      leakage、target mutationが0
+    </li>
+    <li>
+      <code>CLEAN-01</code>:
+      repository不変、process/container/network/volume残数0
+    </li>
+    <li>
+      <code>FAIL-01</code>: companion failureがstable reason codeでfail
+      closed
+    </li>
+  </ul>
+  <table>
+    <caption>
+      Case種別ごとの必須assertion
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Case種別</th>
+        <th scope="col">必須assertion</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Generic executed</td>
+        <td>
+          INV-01、ENT-01、PLAN-01、PREF-01、PROV-01、WORK-01、ART-01、NORM-01、VERDICT-01、
+          REPORT-01、SAFE-01、CLEAN-01、FAIL-01
+        </td>
+      </tr>
+      <tr>
+        <td>Schemathesis N/A</td>
+        <td>INV-01、ENT-01、PLAN-01、PREF-01、VERDICT-01、REPORT-01、SAFE-01、CLEAN-01、FAIL-01</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3 id="147-implementation-order">14.7 terra向け固定実装順</h3>
+  <ol>
+    <li>
+      S8でevidence schema、JSON contract、case registry、inventory test、evidence
+      verifierを先に追加する。 この時点ではproduction挙動を変更しない。
+    </li>
+    <li>
+      現行<code>todolist-scan-acceptance.ts</code>からscanner別処理を
+      <code>scripts/scanner-e2e.ts</code>へ移し、全generic
+      caseを<code>runProfileScan</code>経由にする。 aggregate
+      profile検証だけを元scriptに残す。
+    </li>
+    <li>
+      toolbox manifest、scanner data lock、ZAP image digestを検証し、real
+      toolが不足した時点でcaseを失敗させる。 自動downloadやpublic network fallbackは追加しない。
+    </li>
+    <li>
+      E2E-GL-01、E2E-OSV-MANIFEST-01、E2E-OSV-INSTALLED-01、E2E-TRIVY-FS-01、
+      E2E-SEMGREP-01、E2E-SBOM-01の順にS9を実装する。一caseがpassするまで次へ進まない。
+    </li>
+    <li>
+      RuntimeTargetProviderをproduction entrypointへ接続した後、E2E-DAST-01、E2E-NUCLEI-01、
+      E2E-ZAP-BASELINE-01を実装する。三caseでtarget preparation/start/stopが各profile
+      runにつき一回であることをassertする。
+    </li>
+    <li>E2E-SCHEMATHESIS-NA-01、E2E-SCHEMATHESIS-RO-01、E2E-TRIVY-IMAGE-01を実装する。</li>
+    <li>
+      全個別case合格後だけS11のspec-html/todolist/full
+      profileを実行し、A1-A10と連続2回の再現性を閉じる。
+    </li>
+    <li>
+      S12でprotected CI jobとrelease
+      verifierを必須checkへ登録する。job未実行、case欠落、evidence欠落をmerge可能にしない。
+    </li>
+  </ol>
+  <p>
+    各scannerのproduction codeを変更するPRは、対応E2E caseの追加または既存caseのpass
+    evidenceを同じPRへ含める。
+    「S12でまとめてE2Eを書く」は禁止する。fixtureの期待値を実装結果に合わせて弱める変更と、
+    production codeとbaselineを同時に無review更新する変更も禁止する。
+  </p>
+
+  <h3 id="148-package-commands">14.8 固定package command</h3>
+  <p>
+    <code>package.json</code>の実装済みcommandは次である。全12件は一つのevidence
+    bundleで実行するため、個別<code>--only</code>の出力をqualificationへ渡してはならない。
+  </p>
+  <pre><code class="language-text">test:scanner-e2e:contract = bun test scripts/scanner-e2e-case-registry.test.ts scripts/scanner-e2e-evidence.test.ts
+scanner-e2e:run = Semgrep toolboxをbuild後、全12件を artifacts/scanner-e2e/evidence.v1.json へ出力
+scanner-e2e:verify = 上記evidenceのexact 12-case setを検証
+scanner-e2e:qualify = verified evidenceから artifacts/scanner-e2e/qualification.v1.json を生成
+test:scanner-e2e = contract &amp;&amp; run &amp;&amp; verify &amp;&amp; qualify</code></pre>
+  <p>
+    個別調査は<code>bun run scripts/scanner-e2e.ts --toolbox-image vuln-workbench-toolbox-semgrep:local --only gitleaks --evidence /tmp/gitleaks-evidence.json</code>のようにinternal case IDを指定する。
+    partial bundleは<code>scanner-e2e:verify</code>で必ず拒否され、release
+    evidenceにならない。
+  </p>
+
+  <h3 id="149-qualification">14.9 E2E合格をrelease/runtime条件へ結ぶ</h3>
+  <p>
+    protected CI
+    collectorは<code>scanner-e2e:run</code>と<code>scanner-e2e:verify</code>が全12
+    caseを 成功させた後にだけ<code>scanner-e2e:qualify</code>を実行し、
+    <code>artifacts/scanner-e2e/qualification.v1.json</code>を生成する。schemaは
+    <code>shared/schemas/scanner-e2e-qualification.schema.ts</code>で固定する。
+  </p>
+  <p>qualification manifestは次を必須とする。</p>
+  <ul>
+    <li>case contract hash、qualification生成時刻、scanner manifest hash、execution hash</li>
+    <li>全12 case IDとcase evidence SHA-256</li>
+    <li>全caseが同じmanifest/execution bindingであること、およびcaseごとのscanner identity hash</li>
+  </ul>
+  <p>
+    qualification loaderは12件のcase ID、case evidence hash、case scanner identity
+    hashの集合がcanonical contractと 完全一致しないmanifestをrejectする。protected
+    CIは<code>scanner-e2e:verify</code>の成功後にだけmanifestを release
+    artifactとして発行し、deploymentはそのartifactをread-onlyで供給する。CI外で任意ファイルを配置できる
+    環境では暗号的なartifact attestationは別途deployment基盤で担保する（v1
+    loaderだけで署名検証を主張しない）。
+  </p>
+  <p>
+    protected CIはqualificationをrelease
+    artifactとして必ず検証する。ここで比較するidentityはcaseごとの scanner/tool data/image/browser
+    runtimeであり、利用者プロジェクトのsource revisionやtarget start planは
+    比較対象に含めない（それらはscanごとのpreflight
+    bindingで別途証跡化する）。通常のscanはqualification
+    artifactがローカルにないだけでblockedにしない。regulated deploymentだけは
+    <code>VULN_WORKBENCH_REQUIRE_SCANNER_E2E_QUALIFICATION=true</code>でこのadmission controlを有効にし、
+    entry欠落を<code>scanner_e2e_qualification_missing</code>、identity不一致を
+    <code>scanner_e2e_qualification_mismatch</code>としてrequired blockerにし、scanner
+    processを0件にする。
+  </p>
+
+  <h2 id="15-acceptance-matrix">15. Cross-project acceptance matrix</h2>
+  <p>
+    A1-A10はscanner別E2Eの代替ではない。第14章の全case合格後に、複数stepの合成、applicability、
+    report、repeatabilityが崩れないことを確認するaggregate gateである。
+  </p>
+  <table>
+    <caption>
+      必須targetと期待結果
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Case</th>
+        <th scope="col">Project shape</th>
+        <th scope="col">期待</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>A1</td>
+        <td><code>spec-html</code> pinned clean snapshot</td>
+        <td>Semgrep実行、runtimeは明示configでrequest &gt; 0、APIはevidence付きN/A</td>
+      </tr>
+      <tr>
+        <td>A2</td>
+        <td><code>todolist</code> pinned API/web target</td>
+        <td>source、dependency、DAST、Nuclei、ZAP、明示schema Schemathesisが完走</td>
+      </tr>
+      <tr>
+        <td>A3</td>
+        <td>TypeScript library fixture</td>
+        <td>source/dependencyは実行、runtime/APIは根拠付きN/A、warningなし</td>
+      </tr>
+      <tr>
+        <td>A4</td>
+        <td>API detected、schema missing fixture</td>
+        <td>strict previewがblocked、target/scanner process 0件</td>
+      </tr>
+      <tr>
+        <td>A5</td>
+        <td>Trivy version mismatch</td>
+        <td><code>scanner_version_mismatch</code>、reproducible false、tool process 0件</td>
+      </tr>
+      <tr>
+        <td>A6</td>
+        <td>Nuclei binary missing</td>
+        <td>runtime profile start前blocked、start plan修復だけを提案しない</td>
+      </tr>
+      <tr>
+        <td>A7</td>
+        <td>dev dependencyに既知fixture vulnerability</td>
+        <td>full deepのOSV/Trivy/SBOM coverageへ含まれる</td>
+      </tr>
+      <tr>
+        <td>A8</td>
+        <td>runtime 0 request</td>
+        <td>completedにせず<code>runtime_no_requests</code>でincomplete</td>
+      </tr>
+      <tr>
+        <td>A9</td>
+        <td>diagnostic前server restart</td>
+        <td>recovery後にcanonical final一つ、stale finalなし</td>
+      </tr>
+      <tr>
+        <td>A10</td>
+        <td>同一snapshot連続2回</td>
+        <td>plan hashとnormalized evidence hashが一致し、一時資源が残らない</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2 id="16-failure-injection">16. Failure injection</h2>
+  <ul>
+    <li>preview後のprofile/manifest/source revision変更</li>
+    <li>scanner binaryのmissing、version mismatch、実行直前差し替え</li>
+    <li>scanner data missing/stale/digest mismatch</li>
+    <li>Docker daemon unavailable、image digest/platform mismatch</li>
+    <li>runtime target start timeout、readiness timeout、途中停止</li>
+    <li>gateway request 0、budget exhaustion、response truncation</li>
+    <li>invalid JSON、partial parse、normalized finding/artifact count mismatch</li>
+    <li>artifact file missing、size/SHA mismatch、duplicate final report</li>
+    <li>LLM unavailable、invalid structured output、存在しないcommand提案</li>
+    <li>cancel、wall-clock timeout、server restart、diagnostic recovery</li>
+  </ul>
+  <p>
+    各caseは期待status、outcome、coverage、reason
+    code、event順、artifact数、外部process残存数をassertする。 error
+    textの部分一致だけを受け入れ条件にしない。
+  </p>
+  <p>
+    第14章の各scanner caseは最低一つのfail-closed companionを同じcase ID配下に持つ。
+    successだけ通るcase、失敗を<code>completed_with_warnings</code>へ落とすcase、scanner
+    processをmockして failure injectionを成立させるcaseは未合格とする。
+  </p>
+
+  <h2 id="17-verification-commands">17. Verification commands</h2>
+  <p>各sliceではfocused testを先に実行し、closeoutで次を同一commit上から実行する。</p>
+  <pre><code>bun test api/modules/scans/scan-preflight.test.ts
+bun test api/modules/scans/profile-runner.test.ts
+bun test api/modules/scans/runtime-assessment-coverage.test.ts
+bun test api/modules/scans/tools/scanner-provenance.test.ts
+bun test api/modules/scans/scan-diagnostic-runner.test.ts
+bun test api/modules/scans/scan-review-bundle.test.ts
+bun test api/modules/scans/report-builder.test.ts
+bun test web/src/domains/scans/workflow-completion.test.ts
+bun run test:technology-plugins
+bun run test:semgrep:catalog
+bun run test:osv:offline-fixtures
+bun run test:scanner-e2e:contract
+bun run scanner-e2e:run
+bun run scanner-e2e:verify
+bun run scanner-e2e:qualify
+bun run typecheck
+bun run lint
+bun run docs:check
+bun run verify:strict</code></pre>
+  <p>
+    real scannerとDockerを必要とするcaseはlocal diagnosticとprotected
+    CIを分ける。CIでtargetまたはtoolboxを取得できない場合は
+    skipで成功させず、jobをblockedまたはnot-runとしてcloseout未達にする。
+  </p>
+  <p>
+    protected CIの必須job名は<code>scanner-e2e-real</code>とする。再利用可能な
+    <code>.github/workflows/scanner-e2e-real.yml</code>は<code>target_repository</code>と
+    <code>target_ref</code>をrequired
+    inputとして受け、targetをworkspace内の<code>todolist</code>へcheckoutして
+    <code>VULN_WORKBENCH_TODOLIST_REPO_PATH</code>を渡す。caller workflowはこのjobをrequired
+    statusに設定し、 target
+    commitを<code>todolist-scan-target.v1.json</code>と同じSHAにする。private targetの場合は
+    <code>TODOLIST_READ_TOKEN</code>
+    secretを渡す。inputを供給できないcallerはjobを起動できず、skip成功にはならない。 matrix
+    shardを使ってもよいが、最終collectorは第14章の全case ID、全assertion ID、A1-A10、連続2回profile
+    evidenceがそろわない限りsuccessを返さない。localのtool不足もrelease evidenceには採用しない。
+  </p>
+
+  <h2 id="18-observability">18. Observabilityと品質指標</h2>
+  <p>scan単位とrolling windowで次を測る。</p>
+  <table>
+    <caption>
+      Production quality metrics
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Metric</th>
+        <th scope="col">Release threshold</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>known blockerがあるstrict runのscanner process開始率</td>
+        <td>0%</td>
+      </tr>
+      <tr>
+        <td>applicable required step execution率</td>
+        <td>100%</td>
+      </tr>
+      <tr>
+        <td>0 request runtime stepのcompleted率</td>
+        <td>0%</td>
+      </tr>
+      <tr>
+        <td>expected/observed mismatchでreproducible=trueとなる率</td>
+        <td>0%</td>
+      </tr>
+      <tr>
+        <td>supported languageのstrict source SAST実行率</td>
+        <td>100%</td>
+      </tr>
+      <tr>
+        <td>N/A stepのreason/evidence保有率</td>
+        <td>100%</td>
+      </tr>
+      <tr>
+        <td>scanごとのcurrent final report数</td>
+        <td>1</td>
+      </tr>
+      <tr>
+        <td>validatorを通過した不存在command提案</td>
+        <td>0件</td>
+      </tr>
+      <tr>
+        <td>artifact size/SHA verification率</td>
+        <td>100%</td>
+      </tr>
+      <tr>
+        <td>qualification欠落/identity不一致strict stepのscanner process開始率</td>
+        <td>0%</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    metricを達成するためにN/Aを増やす、required
+    stepをoptionalへ変える、scopeを狭める、warningを非表示にする変更は禁止する。
+  </p>
+
+  <h2 id="19-rollout">19. Rollout</h2>
+  <ol>
+    <li>execution planをshadow生成し、現行実行との差分だけを記録する。</li>
+    <li>focused profileでenforced planを有効化する。</li>
+    <li>第14章のscanner別real E2Eを一件ずつ有効化し、全caseを通す。</li>
+    <li>strict full profileを管理者・local環境でopt-inし、A1-A10を通す。</li>
+    <li>Web defaultのfull profileをstrictへ切り替える。</li>
+    <li>best-effort profileを別名・別表示で公開する。</li>
+    <li>
+      旧<code>completed_with_warnings</code>runは履歴表示のみとし、current
+      baseline選択から除外する。
+    </li>
+  </ol>
+  <p>
+    rollout中も、実測version mismatchをreproducibleと表示する既存bugと、存在しないverification
+    commandの生成は feature flagなしで先に修正する。これらは互換機能ではなくtruthfulness
+    defectである。
+  </p>
+
+  <h2 id="20-rollback">20. Rollback</h2>
+  <ul>
+    <li>schema migrationはadditiveにし、legacy readerを一release維持する。</li>
+    <li>
+      execution plan builder障害時に旧full profileへ自動fallbackしない。strict runをblockedにする。
+    </li>
+    <li>runtime providerの問題はruntime stepをN/Aへ偽装せず、blockedへ戻す。</li>
+    <li>LLM review障害時もdeterministic reportは生成するが、LLM review未完了を明示する。</li>
+    <li>UI rollback時もAPIのblocked/incomplete semanticsをcompletedへ変換しない。</li>
+    <li>historical artifact、report、review、decisionを削除または再解釈しない。</li>
+  </ul>
+
+  <h2 id="21-definition-of-done">21. Definition of Done</h2>
+  <p>次をすべて満たした時だけ本計画を完了とする。</p>
+  <ol>
+    <li>最新baseline runの問題E-01からE-11に対応するregression testがある。</li>
+    <li><code>full-security-scan</code>がstrict execution planを使う。</li>
+    <li>blocked required preflightでscanner processが一つも起動しない。</li>
+    <li>supported languageのsource SAST未実行runがcompleteにならない。</li>
+    <li>runtime applicable stepはrequest count &gt; 0またはincompleteになる。</li>
+    <li>API不在projectへAPI schema追加を要求せず、APIありschema欠落はblockedになる。</li>
+    <li>full deep dependency scanとSBOMがdevelopment/test dependencyを含む。</li>
+    <li>actual tool identity不一致をreproducibleと表示しない。</li>
+    <li>orchestrator、profile、normalizer、report pipelineのidentityをrunから追跡できる。</li>
+    <li>UI/API/reportがblocked、incomplete、N/A、finding 0を区別する。</li>
+    <li>canonical final reportがscanごとに一つで、diagnostic/reviewを含む。</li>
+    <li>
+      E2E-GL-01、E2E-OSV-MANIFEST-01、E2E-OSV-INSTALLED-01、E2E-TRIVY-FS-01、
+      E2E-SEMGREP-01、E2E-SBOM-01がreal toolboxでpassする。
+    </li>
+    <li>
+      E2E-DAST-01、E2E-NUCLEI-01、E2E-ZAP-BASELINE-01、E2E-SCHEMATHESIS-NA-01、
+      E2E-SCHEMATHESIS-RO-01、E2E-TRIVY-IMAGE-01がpassする。
+    </li>
+    <li>
+      全scanner E2Eがproduction service entrypointを通り、mock executableまたはstep runner直呼びを
+      <code>realScanner=true</code>としていない。
+    </li>
+    <li>
+      production scanner inventoryとcase registryが全単射で、全caseにreal success evidenceがある。
+      preflight blocker・partial bundle拒否・finalization拒否はunit/integrationのfail-closed
+      gateで検証する。
+    </li>
+    <li>
+      全case合格からqualification manifestを生成し、protected CIのrelease gateで同じscanner/tool
+      data/image identityを検証する。regulated deploymentでadmission
+      controlを有効にした場合だけ、同じidentityのstrict preflightをreadyにする。
+    </li>
+    <li>A1-A10とfailure injection matrixが同一commitでpassする。</li>
+    <li>2回連続runでplan/evidenceの再現性とcleanupを確認する。</li>
+    <li>
+      <code>typecheck</code>、<code>lint</code>、<code>docs:check</code>、<code>verify:strict</code>がpassする。
+    </li>
+    <li>
+      protected CI artifactへplan hash、target digest、scanner identities、result digest、final
+      reportを保存する。
+    </li>
+    <li>
+      必須CI check
+      <code>scanner-e2e-real</code>と<code>scanner-e2e:verify</code>が同じevidence bundleに対してpassする。
+    </li>
+  </ol>
+
+  <h2 id="22-stop-conditions">22. Stop conditions</h2>
+  <p>次のいずれかが発生したPRはmergeしない。</p>
+  <ul>
+    <li>strict blockerをwarningへ降格しないとtestが通らない。</li>
+    <li>N/Aを増やすことでcoverage率を上げている。</li>
+    <li>full profileからSemgrep、runtime、dependency classを黙って外している。</li>
+    <li>finding 0と未実行0件を同じ表示・API値へ戻している。</li>
+    <li>
+      version/digest mismatchを許容して<code>reproducible=true</code>としている。
+    </li>
+    <li>request 0のruntime stepをcompletedとしている。</li>
+    <li>LLM出力でdeterministic applicability、coverage、severityを変更している。</li>
+    <li>preliminary reportをfinalとしてdefault表示している。</li>
+    <li>target repositoryまたはoriginal worktreeをtest/scanが変更している。</li>
+    <li>baseline threshold、分母、expected resultを実装結果に合わせて弱めている。</li>
+    <li>
+      real scanner E2Eをmock executable、canned stdout、normalizer fixture直投入で代替している。
+    </li>
+    <li>runtime scanner E2Eがprofile orchestratorを迂回してstep runnerを直接呼んでいる。</li>
+    <li>scanner inventoryに対応caseがない、またはcaseがskip/not-runのまま必須CIを通している。</li>
+    <li>scanner変更PRが対応E2E evidenceなしでmergeされようとしている。</li>
+    <li>
+      qualification manifestがない、別commitである、またはidentity不一致なのにstrict
+      scanを起動する。
+    </li>
+  </ul>
+
+  <h2 id="23-non-goals">23. Non-goals</h2>
+  <ul>
+    <li>active attack、認証突破、production targetへの侵襲的診断</li>
+    <li>scanner数を増やすこと自体を成果とする変更</li>
+    <li>spec-htmlやtodolistの製品コードをscan都合で変更すること</li>
+    <li>APIのないprojectへOpenAPIを追加すること</li>
+    <li>manual SAST 6候補を未検証のまま脆弱性と断定すること</li>
+    <li>false-positiveを消すためにowned ruleを一括無効化すること</li>
+    <li>historical runを新contractへ推測変換すること</li>
+    <li>LLM reviewをexecution completenessの判定主体にすること</li>
+  </ul>
+</article>
+  </body>
+</html>

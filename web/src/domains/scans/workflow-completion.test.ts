@@ -70,6 +70,7 @@ const report = (): ScanReport => ({
 		includeUndecided: true,
 	},
 	status: "completed",
+	stage: "canonical_final",
 	errorMessage: null,
 	generatedByUserId: null,
 	createdAt: now,
@@ -202,6 +203,7 @@ describe("buildWorkflowCompletion", () => {
 			coverageSummary: {
 				scanRunId: "scan-1",
 				hasFindings: false,
+				sourceSast: null,
 				toolCoverage: [],
 				attackSurfaceCounts: {},
 				checkStatusCounts: {},
@@ -213,6 +215,36 @@ describe("buildWorkflowCompletion", () => {
 		expect(result.stage).toBe("report_generated");
 	});
 
+	it("does not treat a preliminary report as the current final report", () => {
+		const result = buildWorkflowCompletion({
+			scanRun: scanRun({ metadata: { automaticDiagnosticRequested: true } }),
+			findings: [],
+			reports: [{ ...report(), stage: "preliminary" }],
+			automatedDiagnostics: [diagnostic({ scanReportId: null })],
+		});
+		expect(result.stage).toBe("report_ready");
+	});
+
+	it("does not mark blocked or incomplete profiles as scanner-complete", () => {
+		const blocked = buildWorkflowCompletion({
+			scanRun: scanRun({
+				status: "failed",
+				metadata: { profileOutcome: "blocked" },
+			}),
+			findings: [],
+		});
+		expect(blocked.stage).toBe("scan_blocked");
+		expect(blocked.checklist[0]?.status).toBe("blocked");
+
+		const incomplete = buildWorkflowCompletion({
+			scanRun: scanRun({
+				metadata: { profileOutcome: "completed_with_warnings" },
+			}),
+			findings: [],
+		});
+		expect(incomplete.stage).toBe("scan_incomplete");
+	});
+
 	it("zero-finding scans use the same automatic pipeline", () => {
 		const result = buildWorkflowCompletion({
 			scanRun: scanRun({ metadata: { automaticDiagnosticRequested: true } }),
@@ -220,6 +252,7 @@ describe("buildWorkflowCompletion", () => {
 			coverageSummary: {
 				scanRunId: "scan-1",
 				hasFindings: false,
+				sourceSast: null,
 				toolCoverage: [],
 				attackSurfaceCounts: {},
 				checkStatusCounts: {},

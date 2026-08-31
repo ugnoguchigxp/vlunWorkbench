@@ -5,6 +5,7 @@ const port = 32_983;
 const baseURL = `http://127.0.0.1:${port}`;
 const e2eRoot = path.resolve(".tmp/e2e");
 const fixtureBinRoot = path.resolve("tests/e2e/fixtures/bin");
+const runtimeDigest = `sha256:${"a".repeat(64)}`;
 
 export default defineConfig({
 	testDir: "tests/e2e",
@@ -49,10 +50,22 @@ export default defineConfig({
 			AUTH_COOKIE_SECURE: "false",
 			SECURITY_HEADERS_MODE: "http",
 			CSP_MODE: "enforce",
-			TRUST_PROXY: "false",
+			TRUST_PROXY: "true",
+			TRUSTED_PROXY_CIDRS: "127.0.0.1/32,::1/128",
 			SCAN_EXECUTION_MODE: "host",
 			ALLOW_HOST_SCANNER_EXECUTION: "true",
 			VULN_WORKBENCH_OPTIONAL_SCANNER_ADAPTERS: "semgrep",
+			// The Maven/WAR acceptance case must reach project compatibility
+			// planning without depending on Docker being available in browser E2E.
+			// Planning blocks before any image inspection or container execution.
+			VULN_WORKBENCH_RUNTIME_NAMESPACE_OWNER_IMAGE: runtimeDigest,
+			VULN_WORKBENCH_RUNTIME_NODE_IMAGE: runtimeDigest,
+			VULN_WORKBENCH_RUNTIME_MATERIALIZER_IMAGE: runtimeDigest,
+			VULN_WORKBENCH_RUNTIME_REGISTRY_PROXY_IMAGE: runtimeDigest,
+			VULN_WORKBENCH_RUNTIME_PROBE_IMAGE: runtimeDigest,
+			VULN_WORKBENCH_RUNTIME_HTTP_EXECUTOR_IMAGE: runtimeDigest,
+			VULN_WORKBENCH_RUNTIME_DOCKER_DAEMON_IDENTITY_HASH: runtimeDigest,
+			VULN_WORKBENCH_RUNTIME_QUALIFICATION_HASH: runtimeDigest,
 			PATH: `${fixtureBinRoot}${path.delimiter}${process.env.PATH ?? ""}`,
 		},
 	},

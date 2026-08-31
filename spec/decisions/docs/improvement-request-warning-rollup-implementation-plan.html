@@ -1,0 +1,891 @@
+<article lang="ja" data-spec-role="active-plan">
+  <h1 id="improvement-request-warning-rollup-implementation-plan">
+    Improvement Request Warning Rollup and Prompt Budget Implementation Plan
+  </h1>
+  <p>Status: Planned</p>
+  <p>Planning baseline commit: <code>2ec87175d1f928905f82234fc17b6c64943ff9f8</code></p>
+  <p>Planning baseline date: 2026-08-25</p>
+  <p>Owner: vulnWorkbench maintainers</p>
+  <p>
+    Related archived plan:
+    <a href="./.archived/finding-deduplication-and-issue-grouping-implementation-plan.html"
+      >Finding Deduplication and Issue-grouped Handoff Implementation Plan</a
+    >
+  </p>
+  <p>
+    Target: 保存済みraw finding、evidence、既存issue grouping snapshotを変更せず、改修依頼生成時だけ
+    同種警告を親、検出場所を子としてまとめる。10件以上の同種警告を1つのwarning
+    groupとしてLLMへ渡し、 全issueとfindingへの追跡性をserver-side manifestで維持したまま、各prompt
+    messageを文字数予算内へ収める。
+  </p>
+
+  <h2 id="1-conclusion">1. 結論</h2>
+  <p>
+    実装は既存issue groupingを置き換えず、その後段へLLM handoff専用のrollup projectionを追加する。
+  </p>
+  <ol>
+    <li>
+      <code>finding-dedupe-v1</code
+      >のissueは、同一脆弱性の同一発生箇所を表す監査単位として維持する。
+      異なる場所のissueを同一rowへ統合せず、既存table、snapshot hash、UI/reportの意味を変更しない。
+    </li>
+    <li>
+      改修依頼bundleの構築時に、同じ修正方針で扱えるissueを<code>warning group</code>へ投影する。
+      10件以上のeligible issueが同じ決定論的keyを持つ場合だけ、親1件とlocation
+      child複数件へまとめる。 10件未満はsingleton warning groupとして扱う。
+    </li>
+    <li>
+      LLMは短い<code>warningGroupId</code>だけを返す。serverは保存済みmanifestからissue
+      ID、raw finding IDを
+      再計算し、現行<code>ScanImprovementRequest</code>のcoverage契約を満たす。LLMへraw
+      finding IDを渡さない。
+    </li>
+    <li>
+      50件固定chunkを廃止し、実際にrenderした<code>scans.improvementRequestInput</code>の文字数を使って
+      warning group単位でchunkする。targetは48,000文字、hard limitは60,000文字とし、既存64,000文字
+      guardへ到達する前にfail closedする。
+    </li>
+    <li>
+      LLMが作る改修本文へ、serverが決定論的なlocation
+      appendixを付与する。同じ警告の説明は1回だけ記載し、
+      子には場所と個別差分の最小情報だけを記載する。
+    </li>
+  </ol>
+
+  <h2 id="2-planning-baseline">2. Planning baseline</h2>
+  <p>
+    2026-08-25にscan <code>a2243557-2c2c-4eee-8aca-b3eb792fb599</code>の保存済みデータを
+    read-onlyで計測した。識別子は再現確認用のローカル監査情報であり、production test
+    fixtureへ複製しない。
+  </p>
+  <table>
+    <caption>
+      失敗時の入力規模
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">項目</th>
+        <th scope="col">実測</th>
+        <th scope="col">問題</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>raw finding</td>
+        <td>314件</td>
+        <td>全件が監査対象であり、削除または黙示的な除外はできない。</td>
+      </tr>
+      <tr>
+        <td>issue</td>
+        <td>314件</td>
+        <td>異なる場所は別issueになるため、既存dedupeだけでは入力を短縮できない。</td>
+      </tr>
+      <tr>
+        <td>evidence</td>
+        <td>942件</td>
+        <td>issueごとのsnippetとlocationの反復がpromptの主要部分を占める。</td>
+      </tr>
+      <tr>
+        <td>固定chunk</td>
+        <td>50 issue × 6 chunk、14 issue × 1 chunk</td>
+        <td>7 chunk中6 chunkが64,000文字を超えた。</td>
+      </tr>
+      <tr>
+        <td>最大prompt message</td>
+        <td>120,904文字</td>
+        <td><code>MAX_RENDERED_PROMPT_MESSAGE_CHARS = 64_000</code>で送信前に失敗する。</td>
+      </tr>
+      <tr>
+        <td>共通context</td>
+        <td>約12,000文字/chunk</td>
+        <td>scan metadata、summary、tools、artifactsが全chunkで反復する。</td>
+      </tr>
+      <tr>
+        <td>最大issues payload</td>
+        <td>約108,900文字/chunk</td>
+        <td>件数ではpayload sizeを予測できない。</td>
+      </tr>
+      <tr>
+        <td>最大の同種警告</td>
+        <td><code>gitleaks / generic-api-key</code> 130件、130場所</td>
+        <td>説明とevidenceを130回渡しているが、改修方針の判断は1つの親で行える。</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    現行<code>IMPROVEMENT_ISSUE_CHUNK_SIZE = 50</code>を25や10へ下げるだけでは、長いevidenceを持つ
+    issueの偏り、共通contextの反復、将来のfinding増加を解決できない。件数固定の調整は本計画の完了条件にしない。
+  </p>
+
+  <h2 id="3-scope">3. Scope</h2>
+  <h3 id="31-in-scope">3.1 In scope</h3>
+  <ul>
+    <li>改修依頼専用warning group contract、決定論的key、version、manifest</li>
+    <li>10件以上のeligible issueを親1件とlocation childへ投影するrollup builder</li>
+    <li>secret/source/IaC/dependency向けの保守的な同種判定</li>
+    <li>LLMへ渡す共通context、evidence、locationのcompact projection</li>
+    <li>rendered prompt文字数に基づくbudget-aware chunking</li>
+    <li>LLM responseのwarning group参照検証とissue/finding IDへのserver-side展開</li>
+    <li>改修依頼Markdownへ付与する親子形式のlocation appendix</li>
+    <li>prompt budget failureのtyped error、監査metadata、UI分類</li>
+    <li>unit、contract、runner、web、314件相当のsynthetic regression test</li>
+  </ul>
+
+  <h3 id="32-out-of-scope">3.2 Out of scope</h3>
+  <ul>
+    <li>
+      <code>findings</code
+      >、<code>finding_evidence</code>、finding grouping tableの変更またはmigration
+    </li>
+    <li>
+      <code>finding-dedupe-v1</code>のpair判定、asset境界、location重複条件の緩和
+    </li>
+    <li>UI issue一覧またはreportのdefault単位をwarning groupへ変更すること</li>
+    <li>10件未満の一般的な修正単位統合を、LLMやembeddingで自動判定すること</li>
+    <li>web/API/business logic/unknown issueのlocation横断rollup</li>
+    <li>scanner rule tuning、finding suppression、false positive判定</li>
+    <li>providerのcontext windowや既存64,000文字guardを拡大すること</li>
+    <li>過去にcompletedとなった改修依頼reviewの再生成またはbackfill</li>
+  </ul>
+
+  <h2 id="4-terms-and-boundaries">4. 用語と責務境界</h2>
+  <dl>
+    <dt><code>issue</code></dt>
+    <dd>
+      現行grouping snapshotに保存された監査単位。同一発生箇所に対するscanner間重複をまとめる。
+      warning rollupの入力であり、本計画では永続化内容を変更しない。
+    </dd>
+    <dt><code>warning group</code></dt>
+    <dd>
+      改修依頼生成時だけ作る派生単位。同じ決定論的warning keyを持つeligible
+      issueが閾値以上なら親となり、 それ以外はissue 1件のsingletonとなる。UI/reportのissue
+      groupとは別概念である。
+    </dd>
+    <dt><code>location child</code></dt>
+    <dd>
+      warning
+      group配下の検出場所。path、line/range、resource、必要な場合だけmethod/parameter、severityを持つ。
+      scanner snippet、raw secret、raw finding IDを持たない。
+    </dd>
+    <dt><code>warning group manifest</code></dt>
+    <dd>
+      warning group、issue、finding、evidence、locationの対応を保持するserver-side audit data。 LLM
+      promptからはissue/finding membershipを除外する。
+    </dd>
+    <dt><code>prompt projection</code></dt>
+    <dd>
+      LLMの判断に必要な親情報、compact child、共通contextだけを含むJSON。監査manifestとは分離する。
+    </dd>
+    <dt><code>location appendix</code></dt>
+    <dd>
+      LLM responseの受信後にserverまたはweb rendererが決定論的に生成する親子一覧。
+      LLMに場所一覧を再生成させない。
+    </dd>
+  </dl>
+
+  <h2 id="5-non-negotiable-invariants">5. Non-negotiable invariants</h2>
+  <ol>
+    <li>warning rollup前後でissue ID集合とraw finding ID集合が一致する。</li>
+    <li>1回の改修依頼生成内で、各issueは正確に1つのwarning groupへ所属する。</li>
+    <li>1つのwarning groupを複数LLM chunkへ分割しない。</li>
+    <li>10件未満のcandidate setはrollupせず、issueごとのsingleton warning groupにする。</li>
+    <li>eligibleでないissue kindは件数にかかわらずsingletonとする。</li>
+    <li>親severityはchild issueの最大severityと一致し、severity別件数を保持する。</li>
+    <li>LLMへraw finding ID、member issue ID一覧、raw secret、secret snippetを渡さない。</li>
+    <li>LLMが返したwarning group IDは保存済みmanifestだけで検証し、未知IDを拒否する。</li>
+    <li>LLM responseの全implementation taskを展開した結果が全issueをcoverする。</li>
+    <li>
+      同じsnapshotと同じalgorithm versionから、取得順に依存しない同じwarning group順序とhashを得る。
+    </li>
+    <li>各rendered user promptは60,000文字以下であり、通常経路は48,000文字以下を目標とする。</li>
+    <li>文字数を収めるためにissue、location、coverageを黙って削除しない。</li>
+    <li>過去reviewの<code>ScanImprovementRequest</code>とMarkdown表示を壊さない。</li>
+  </ol>
+
+  <h2 id="6-target-flow">6. Target flow</h2>
+  <pre><code class="language-text">completed scan
+  -&gt; current deterministic finding grouping snapshot (unchanged)
+  -&gt; issue prompt source projection
+  -&gt; buildWarningGroups(issue[])
+       -&gt; eligible kind + exact warning key + count &gt;= 10: parent + children
+       -&gt; otherwise: singleton warning group
+       -&gt; server-side warningGroupManifest
+  -&gt; build compact improvement-request context
+  -&gt; pack warning groups by rendered character budget
+       -&gt; target 48,000 chars
+       -&gt; hard limit 60,000 chars
+       -&gt; oversized parent: deterministic compression tiers
+  -&gt; LLM returns tasks with warningGroupIds
+  -&gt; validate group references and per-chunk coverage
+  -&gt; expand warningGroupIds -&gt; issueIds -&gt; findingIds
+  -&gt; merge chunk responses
+  -&gt; persist existing ScanImprovementRequest + coverage/audit metadata
+  -&gt; render task body once + deterministic location appendix
+</code></pre>
+  <p>
+    rollupとprompt budgetは同じpipelineで実行するが責務は分離する。rollup builderはLLMやprompt
+    templateを知らず、 budget packerは脆弱性の同種判定を行わない。
+  </p>
+
+  <h2 id="7-shared-contracts">7. Shared contracts</h2>
+  <h3 id="71-constants-and-version">7.1 Constants and version</h3>
+  <p><code>shared/schemas/finding-group.schema.ts</code>へ次の値を追加する。</p>
+  <pre><code class="language-typescript">export const IMPROVEMENT_WARNING_ROLLUP_VERSION = "improvement-warning-rollup-v1";
+export const IMPROVEMENT_WARNING_ROLLUP_THRESHOLD = 10;
+export const IMPROVEMENT_PROMPT_TARGET_CHARS = 48_000;
+export const IMPROVEMENT_PROMPT_HARD_CHARS = 60_000;
+export const MAX_WARNING_GROUP_EVIDENCE = 6;
+export const MAX_WARNING_LOCATION_SAMPLES = 20;
+</code></pre>
+  <p>
+    既存<code>MAX_RENDERED_PROMPT_MESSAGE_CHARS = 64_000</code>はsystem-wide guardとして維持する。
+    新しい60,000文字limitは改修依頼bundle固有のpreflightである。target超過は圧縮または次chunkへの移動を行い、
+    hard limit超過はproviderを呼ぶ前にtyped errorとする。
+  </p>
+
+  <h3 id="72-warning-group-key">7.2 Warning group key</h3>
+  <p>
+    warning
+    keyはlocationとseverityを除外し、修正内容を変える識別子を含める。title、descriptionの類似度は使用しない。
+  </p>
+  <table>
+    <caption>
+      version 1のeligible key
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">issue kind</th>
+        <th scope="col">key parts</th>
+        <th scope="col">location childへ移す値</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>secret</td>
+        <td><code>issueKind + sourceTool + ruleId + detectorFamily</code></td>
+        <td>path、line/column range、severity</td>
+      </tr>
+      <tr>
+        <td>source</td>
+        <td><code>issueKind + sourceTool + ruleId + sorted concrete familyKeys</code></td>
+        <td>path、line range、symbolが保存済みの場合だけsymbol</td>
+      </tr>
+      <tr>
+        <td>IaC</td>
+        <td><code>issueKind + sourceTool + ruleId + policy family</code></td>
+        <td>path、line range、resource</td>
+      </tr>
+      <tr>
+        <td>dependency</td>
+        <td><code>issueKind + ecosystem + package + installedVersion + sorted advisoryIds</code></td>
+        <td>manifest/lockfile/SBOM target path</td>
+      </tr>
+      <tr>
+        <td>web/API/business logic/unknown</td>
+        <td>version 1ではeligibleにしない</td>
+        <td>issueごとのsingletonを維持</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    key
+    partが不足するcandidateはsingletonへ倒す。dependencyでpackageまたはadvisoryが不明、sourceでconcrete
+    familyと tool-scoped
+    ruleの両方が不明な場合は、自動rollupしない。severityが異なるissueは同じ親へ所属できるが、親に
+    <code>severityCounts</code
+    >と最高severityを保存し、全件が同一severityであるように表現しない。
+  </p>
+
+  <h3 id="73-warning-group-contract">7.3 Warning group contract</h3>
+  <pre><code class="language-typescript">type ImprovementWarningGroup = {
+  warningGroupId: string;            // invocation-scoped compact ID: wg-000001
+  stableKey: `sha256:${string}`;      // server-side audit
+  kind: "rollup" | "singleton";
+  issueKind: FindingIssueKind;
+  title: string;
+  description: string;
+  severity: FindingSeverity;
+  severityCounts: Partial&lt;Record&lt;FindingSeverity, number&gt;&gt;;
+  occurrenceCount: number;           // issue count
+  rawFindingCount: number;
+  scannerSignals: Array&lt;{
+    sourceTool: string;
+    ruleId: string;
+    severity: FindingSeverity;
+  }&gt;;
+  familyKeys: string[];
+  representativeEvidence: Array&lt;{
+    id: string;
+    kind: string;
+    artifactId: string | null;
+    snippet: string | null;
+  }&gt;;
+  locations: ImprovementWarningLocation[];
+  locationSummary: {
+    total: number;
+    included: number;
+    omitted: number;
+    digest: `sha256:${string}`;
+  };
+};
+
+type ImprovementWarningLocation = {
+  ref: string;                        // canonical path:line or resource ref
+  path: string | null;
+  startLine: number | null;
+  endLine: number | null;
+  resource: string | null;
+  method: string | null;
+  parameter: string | null;
+  severity: FindingSeverity;
+};
+</code></pre>
+  <p>
+    <code>warningGroupId</code
+    >はscan-wideの安定sort後に付ける短いordinalで、同じ入力では同じ値になる。
+    永続的なidentityには使用せず、監査はfull <code>stableKey</code>、grouping
+    snapshot hash、manifest hashで行う。
+    ordinal衝突は構造上発生させず、重複IDを検出した場合はbundle構築を失敗させる。
+  </p>
+
+  <h3 id="74-server-side-manifest">7.4 Server-side manifest</h3>
+  <pre><code class="language-typescript">type ImprovementWarningGroupManifestEntry = {
+  warningGroupId: string;
+  stableKey: `sha256:${string}`;
+  issueIds: string[];
+  memberFindingIds: string[];
+  evidenceIds: string[];
+  locations: ImprovementWarningLocation[];
+};
+</code></pre>
+  <p>
+    manifestは<code>scan_reviews.input_bundle</code>に保存し、prompt binding前に除外する。
+    location childの完全一覧とissue/finding membershipはmanifestを正とする。既存JSON
+    columnを使用するためmigrationは不要である。
+  </p>
+
+  <h3 id="75-llm-only-response">7.5 LLM-only response</h3>
+  <p>
+    <code>llmIssueImprovementRequestSchema</code>を直接拡張せず、新しい
+    <code>llmWarningGroupImprovementRequestSchema</code>を追加する。priority planとimplementation taskは
+    <code>warningGroupIds</code>だけを返し、issue ID、finding IDを返さない。
+  </p>
+  <pre><code class="language-typescript">type LlmWarningGroupImprovementRequest = {
+  title: string;
+  objective: string;
+  scope: string[];
+  priorityPlan: Array&lt;{
+    priority: "critical" | "high" | "medium" | "low";
+    rationale: string;
+    warningGroupIds: string[];
+  }&gt;;
+  implementationTasks: Array&lt;{
+    title: string;
+    body: string;
+    warningGroupIds: string[];
+    evidenceRefs: string[];
+  }&gt;;
+  acceptanceCriteria: string[];
+  verificationCommands: string[];
+  constraints: string[];
+  nonGoals: string[];
+  handoffPrompt: string;
+};
+</code></pre>
+  <p>
+    response parse後、manifestで<code>warningGroupIds -&gt; issueIds -&gt; findingIds</code>を展開して既存
+    <code>ScanImprovementRequest</code>へ変換する。completed reviewのpublic
+    contractは維持し、warning group情報は review output metadataとlocation appendixへ追加する。
+    展開時にtask indexとwarning group
+    IDの対応を<code>taskWarningGroupBindings</code>として別途返し、
+    既存schemaが追加fieldをstripしてもUIの親子対応を失わないようにする。
+  </p>
+
+  <h2 id="8-rollup-algorithm">8. Rollup algorithm</h2>
+  <ol>
+    <li>
+      current completed deterministic grouping snapshotから全issueを取得し、既存sortを固定する。
+    </li>
+    <li>
+      representative findingからkind別warning key partを投影する。raw finding
+      metadataは書き換えない。
+    </li>
+    <li>eligible issueだけをfull warning keyでbucket化する。不完全keyはsingleton候補へ送る。</li>
+    <li>bucket sizeが10以上ならrollup parentを1件作る。1から9件なら各issueをsingletonに戻す。</li>
+    <li>
+      親title/descriptionは既存representative選択規則で決め、secretは固定redacted文言を使用する。
+    </li>
+    <li>severityは既存rankの最大値、scanner signalとfamily keyはcanonical sortして重複を除く。</li>
+    <li>location childはcanonical referenceを作り、同一refとseverityの重複を除いてsortする。</li>
+    <li>
+      evidenceは親全体でdedupeし、source-locationを優先して上限6件とする。childごとにsnippetを複製しない。
+    </li>
+    <li>secretでは全snippetをnullにし、locationにもcolumn以外の検出値を含めない。</li>
+    <li>
+      全warning groupをseverity、issue kind、stable keyでsortし、scan-wide ordinal IDを付ける。
+    </li>
+    <li>全issueが1回だけmanifestへ現れることをassertしてからprompt projectionを作る。</li>
+  </ol>
+  <p>
+    10という閾値はrollup表示のactivation thresholdであり、同種判定の証拠ではない。同種判定はwarning
+    keyだけで行う。
+    titleが似ている、説明文が同じ、severityが同じという理由だけでは同じbucketへ入れない。
+  </p>
+
+  <h2 id="9-prompt-projection-and-budget">9. Prompt projection and character budget</h2>
+  <h3 id="91-compact-shared-context">9.1 Compact shared context</h3>
+  <p>
+    <code>buildScanReviewBundle(maxFindings: 0)</code>の戻り値をそのまま全chunkへ複製しない。
+    改修依頼専用の<code>ImprovementRequestSharedContext</code>を作り、次だけを含める。
+  </p>
+  <ul>
+    <li>scan ID、profile、profile outcome、完了状態</li>
+    <li>project ID、name、default branch</li>
+    <li>severity/issue/findingの集計値</li>
+    <li>tool name、version、status、exit codeのcompact list</li>
+    <li>参照可能なartifact ID、kind、format</li>
+    <li>verificationの件数と保存済みoutcome。長いerror messageやscan execution planは含めない。</li>
+    <li>grouping run ID、snapshot hash、algorithm version、rollup version</li>
+  </ul>
+  <p>
+    現在約12,000文字ある共通contextは4,000文字以下を目標とする。削除した情報はaudit input
+    bundleには保持できるが、 LLMが修正方針を判断する根拠として使わない情報をpromptへ戻さない。
+  </p>
+
+  <h3 id="92-budget-aware-packing">9.2 Budget-aware packing</h3>
+  <ol>
+    <li>warning groupを確定sortし、空chunkへ1件ずつ追加する。</li>
+    <li>候補chunkを<code>bindImprovementRequestUserMessage()</code>で実際にrenderする。</li>
+    <li>48,000文字以下なら追加を確定する。</li>
+    <li>48,000文字を超えた場合、現在chunkを確定し、warning groupを次chunkの先頭へ移す。</li>
+    <li>warning group 1件だけで48,000文字を超える場合は、9.3の圧縮を適用する。</li>
+    <li>
+      全chunk確定後、実際のchunk
+      count/offsetを入れて再renderし、60,000文字以下であることをassertする。
+    </li>
+    <li>
+      60,000文字を超えたchunkは末尾groupを次chunkへ移して再計算する。1件chunkで超える場合はtyped
+      errorとする。
+    </li>
+    <li>
+      provider呼び出し直前にも既存<code>assertPromptInvocation</code>を通し、system-wide
+      64,000文字guardを残す。
+    </li>
+  </ol>
+  <p>
+    chunk countの桁数やJSON escapeを見積もりで処理せず、最終rendered textを計測する。 warning
+    group数やissue数から文字数を推測する実装は禁止する。
+  </p>
+
+  <h3 id="93-oversized-parent-compression">9.3 Oversized parent compression</h3>
+  <p>1親がtargetを超える場合、次の順に決定論的に圧縮する。</p>
+  <ol>
+    <li>
+      location childから重複するevidence IDとartifact IDを除き、canonical location refだけにする。
+    </li>
+    <li>同一pathの複数lineを<code>path: line1,line2,line3</code>形式へまとめる。</li>
+    <li>
+      親のrepresentative evidenceを6件から3件へ減らし、snippetを300文字から120文字へ短縮する。
+    </li>
+    <li>
+      全locationを入れるとtargetを超える場合、canonical先頭20件、path別件数、全件数、omitted件数、location
+      digestを promptへ入れる。完全一覧はserver-side manifestと最終location appendixへ残す。
+    </li>
+  </ol>
+  <p>
+    圧縮tierをprompt auditへ保存する。同じ親をlocation pageとして複数LLM callへ分割しない。
+    LLMは共通修正方針を作る役割であり、完全な場所一覧はserverが正確に付加する。
+  </p>
+
+  <h3 id="94-final-handoff-budget">9.4 Final handoff budget</h3>
+  <p>
+    コピー/Markdown出力される最終指示書も親子構造にする。task bodyはwarning
+    groupごとに1回だけ表示し、 「対象場所」節へcanonical
+    childを短いlistで付ける。最終Markdownは60,000文字を上限目標とする。
+    完全一覧が上限を超える場合はpath別件数と先頭sampleを本文へ載せ、同時に完全な
+    <code>warning-locations.json</code
+    >をdownloadできるようにする。このfallbackを導入する場合も、UI内の監査表示では
+    全locationへ到達できなければならない。
+  </p>
+
+  <h2 id="10-validation-and-merge">10. Validation and merge</h2>
+  <ol>
+    <li>
+      各chunk responseの全<code>warningGroupIds</code>がそのchunk
+      manifestに存在することを検証する。
+    </li>
+    <li>
+      各chunkのimplementation task全体が、そのchunkの全warning
+      groupを正確に1回coverすることを検証する。同じgroupを複数taskへ割り当てたresponseは拒否する。
+    </li>
+    <li>
+      evidence referenceは親のrepresentative
+      evidence、artifact、promptに含めたlocationだけを許可する。
+    </li>
+    <li>
+      warning group IDをmanifestからissue IDへ展開し、さらに既存manifestからfinding IDへ展開する。
+    </li>
+    <li>全chunk merge後にwarning group、issue、findingの3段階でcoverageを再検証する。</li>
+    <li>task truncationまたはfallback task生成後もIDを再展開し、coverage driftを許可しない。</li>
+    <li>priority planはchild severityの最大値を超えるpriorityを拒否または補正する。</li>
+    <li>
+      最終<code>ScanImprovementRequest</code>は既存schemaでparseし、過去consumerとの互換性を確認する。
+    </li>
+  </ol>
+  <p>
+    LLM responseがwarning groupを欠落させた場合、現在と同様にstructured validation failureとする。
+    server fallback taskは欠落groupを一括coverできるが、LLMの未知ID、別chunk
+    ID、架空evidenceは補正せず拒否する。
+  </p>
+
+  <h2 id="11-persistence-and-audit">11. Persistence and audit</h2>
+  <p><code>scan_reviews.input_bundle</code>へ次を追加する。</p>
+  <ul>
+    <li><code>rollup.version</code>、threshold、eligible kinds</li>
+    <li>warning group count、rollup parent count、singleton count、location child count</li>
+    <li>warning group manifestとmanifest SHA-256</li>
+    <li>source grouping run ID、finding set hash、snapshot hash</li>
+    <li>prompt target/hard/system limit</li>
+    <li>chunkごとのwarning group数、issue数、rendered chars、compression tier</li>
+  </ul>
+  <p><code>scan_reviews.output</code>へ次を追加する。</p>
+  <ul>
+    <li>
+      <code>coverage.totalWarningGroups</code>と<code>coveredWarningGroups</code>
+    </li>
+    <li>既存total/covered issues、total/covered findings</li>
+    <li>warning group、issue、finding ID集合の各digest</li>
+    <li>
+      task index、warning group ID、展開後issue IDの対応を持つ<code
+        >taskWarningGroupBindings</code
+      >
+    </li>
+    <li>location appendixのdigestとincluded/omitted count</li>
+    <li>既存prompt audit、response content digest</li>
+  </ul>
+  <p>
+    manifestとaudit metadataにraw secretまたはsnippet本文を保存しない。既存evidence
+    tableを参照するIDとredacted locationだけを使う。 JSON column追加だけで実装し、SQLite schema
+    migrationを作らない。
+  </p>
+
+  <h2 id="12-failure-contract-and-ui">12. Failure contract and UI</h2>
+  <h3 id="121-server-error">12.1 Server error</h3>
+  <p>次のtyped errorを追加する。</p>
+  <pre><code class="language-text">improvement_request_prompt_budget_exceeded:
+  chunk=&lt;index&gt;
+  renderedChars=&lt;number&gt;
+  hardLimit=60000
+  largestWarningGroupLocations=&lt;number&gt;
+  compressionTier=&lt;number&gt;
+</code></pre>
+  <p>
+    error metadataへprompt本文、path、snippet、secretを含めない。共通contextだけでhard
+    limitを超えた場合と、 単一warning groupを最終tierまで圧縮しても超えた場合を区別する。
+  </p>
+
+  <h3 id="122-web-failure-classification">12.2 Web failure classification</h3>
+  <p>
+    <code>classifyScanReviewFailure</code
+    >へ<code>prompt_budget_failure</code>を追加し、現在の 「不明なエラー / raw
+    errorを確認してください」を次へ置き換える。
+  </p>
+  <ul>
+    <li>label: <q>入力サイズ上限エラー</q></li>
+    <li>
+      next action:
+      <q
+        >検出結果の親子集約またはprompt圧縮に失敗しました。再試行で続く場合は保存済み診断値を確認してください。</q
+      >
+    </li>
+    <li>raw errorは詳細欄へ残すが、利用者向け主文にしない。</li>
+  </ul>
+  <p>
+    通常の314件ケースがこのerrorへ到達しないことをrelease条件にする。UI改善だけでbackend
+    failureを隠さない。
+  </p>
+
+  <h2 id="13-implementation-slices">13. Implementation slices</h2>
+  <p>WR-00からWR-06を順番に実装し、各sliceのacceptanceを満たしてから次へ進む。</p>
+
+  <h3 id="wr-00-contract-and-baseline">WR-00 Contract and baseline</h3>
+  <p>変更対象:</p>
+  <ul>
+    <li><code>shared/schemas/finding-group.schema.ts</code></li>
+    <li>新規<code>api/modules/scans/handoff/scan-improvement-warning-group.ts</code></li>
+    <li>新規同test file</li>
+  </ul>
+  <p>作業:</p>
+  <ol>
+    <li>version、threshold、budget constants、warning group/location/manifest typeを定義する。</li>
+    <li>canonical stable key、sort、compact ordinal IDのhelperを実装する。</li>
+    <li>9件、10件、異種key、不完全key、severity混在、取得順変化のunit fixtureを追加する。</li>
+  </ol>
+  <p>Acceptance: rollup判定とID/hashがLLMやDBに依存せず、同じ入力で安定する。</p>
+
+  <h3 id="wr-01-rollup-builder">WR-01 Rollup builder</h3>
+  <p>変更対象:</p>
+  <ul>
+    <li><code>api/modules/scans/handoff/scan-improvement-issue-bundle.ts</code></li>
+    <li><code>api/modules/scans/findings/finding-dedupe-identity.ts</code>はread-only helper再利用だけとする。</li>
+  </ul>
+  <p>作業:</p>
+  <ol>
+    <li>既存issue projectionの後にwarning group builderを呼ぶ。</li>
+    <li>親共通情報、location child、representative evidence、manifestを構築する。</li>
+    <li>secret redactionと全issue membership assertionを追加する。</li>
+    <li>
+      既存<code>issueManifest</code>をwarning group manifestの内部へ接続する。
+    </li>
+  </ol>
+  <p>
+    Acceptance: 130件の同一secret fixtureが1親・130 childとなり、130 issue/130 findingを保持する。
+  </p>
+
+  <h3 id="wr-02-prompt-budget">WR-02 Prompt projection and budget packer</h3>
+  <p>変更対象:</p>
+  <ul>
+    <li>新規<code>api/modules/scans/handoff/scan-improvement-prompt-budget.ts</code></li>
+    <li><code>api/modules/scans/handoff/scan-improvement-issue-bundle.ts</code></li>
+    <li><code>api/system-context/bindings.ts</code>の既存bindingを再利用する。</li>
+  </ul>
+  <p>作業:</p>
+  <ol>
+    <li>専用shared context projectionを作り、不要なscan metadataをpromptから外す。</li>
+    <li>実render文字数を使うgreedy packerと最終repackを実装する。</li>
+    <li>oversized parentの4段階compressionとtyped errorを実装する。</li>
+    <li>chunk size constantへの依存を削除し、auditへrendered charsを保存する。</li>
+  </ol>
+  <p>
+    Acceptance: synthetic 314 issue fixtureの全chunkが通常48,000文字以下、必ず60,000文字以下になる。
+  </p>
+
+  <h3 id="wr-03-llm-contract-and-expansion">WR-03 LLM contract and expansion</h3>
+  <p>変更対象:</p>
+  <ul>
+    <li><code>shared/schemas/scan.schema.ts</code></li>
+    <li><code>contexts/scans/improvementRequest.context.toml</code></li>
+    <li><code>contexts/scans/improvementRequestInput.context.toml</code></li>
+    <li><code>api/modules/scans/handoff/scan-improvement-request-builder.ts</code></li>
+    <li><code>api/modules/scans/handoff/scan-improvement-request-runner.ts</code></li>
+  </ul>
+  <p>作業:</p>
+  <ol>
+    <li>warning group ID専用のstrict LLM output schemaを追加する。</li>
+    <li>promptを親単位の修正方針、子の場所、全group coverageへ変更する。</li>
+    <li>group参照、evidence参照、chunk coverage validatorを実装する。</li>
+    <li>groupからissue、issueからfindingへ展開し、既存mergeとfallbackの入力へ渡す。</li>
+    <li>builder肥大化を避け、warning group parse/expansionを新規moduleへ分離する。</li>
+  </ol>
+  <p>
+    Acceptance: LLMはraw finding/issue
+    membershipを受け取らず、保存結果は全issue/findingをcoverする。
+  </p>
+
+  <h3 id="wr-04-location-appendix">WR-04 Location appendix and handoff rendering</h3>
+  <p>変更対象:</p>
+  <ul>
+    <li><code>web/src/domains/scans/handoff/scan-improvement-request.ts</code></li>
+    <li><code>web/src/domains/scans/handoff/scan-improvement-request-panel.tsx</code></li>
+    <li>対応するweb test</li>
+  </ul>
+  <p>作業:</p>
+  <ol>
+    <li>review outputからredacted warning group/location appendixを読む。</li>
+    <li>同じtask説明を繰り返さず、親見出し配下へ対象場所を表示する。</li>
+    <li>コピーとMarkdown downloadへ親子一覧を含める。</li>
+    <li>最終Markdownが60,000文字を超える場合のJSON appendix downloadを追加する。</li>
+    <li>過去reviewにappendixがない場合は現行表示へfallbackする。</li>
+  </ol>
+  <p>Acceptance: 利用者と実装担当LLMが、共通修正方針と全locationの対応を追跡できる。</p>
+
+  <h3 id="wr-05-errors-and-observability">WR-05 Errors and observability</h3>
+  <p>変更対象:</p>
+  <ul>
+    <li><code>api/modules/scans/handoff/scan-improvement-request-runner.ts</code></li>
+    <li><code>web/src/domains/scans/handoff/scan-improvement-request.ts</code></li>
+    <li><code>web/src/domains/scans/handoff/scan-improvement-request-generator.test.ts</code></li>
+  </ul>
+  <p>作業:</p>
+  <ol>
+    <li>budget failureをprovider/schema failureと区別して保存する。</li>
+    <li>chunk metric、compression tier、group countをprompt auditへ追加する。</li>
+    <li>UIにprompt budget categoryと利用者向けnext actionを追加する。</li>
+  </ol>
+  <p>Acceptance: budget failureが「不明なエラー」にならず、機密情報なしで原因を診断できる。</p>
+
+  <h3 id="wr-06-regression-qualification">WR-06 Regression and qualification</h3>
+  <p>変更対象:</p>
+  <ul>
+    <li><code>api/modules/scans/handoff/scan-improvement-request-runner.test.ts</code></li>
+    <li>新規warning group/prompt budget test</li>
+    <li><code>web/src/domains/scans/handoff/scan-improvement-request.test.ts</code></li>
+  </ul>
+  <p>作業:</p>
+  <ol>
+    <li>130同種 + 184異種のsynthetic 314 issue fixtureを追加する。</li>
+    <li>全prompt size、provider call count、3段階coverage、secret redactionを検証する。</li>
+    <li>保存済みローカルscanで再生成し、baseline failureが解消することを手動qualificationする。</li>
+    <li>対象unit/runner/web test、typecheck、lint、docs checkを実行する。</li>
+  </ol>
+  <p>
+    Acceptance: 314件ケースがcomplete reviewとなり、全coverageとprompt budgetの監査値を保存する。
+  </p>
+
+  <h2 id="14-test-matrix">14. Test matrix</h2>
+  <table>
+    <caption>
+      必須test cases
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">ID</th>
+        <th scope="col">入力</th>
+        <th scope="col">期待結果</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>WR-T01</td>
+        <td>同一eligible key 9 issue</td>
+        <td>9 singleton、rollup parent 0</td>
+      </tr>
+      <tr>
+        <td>WR-T02</td>
+        <td>同一eligible key 10 issue</td>
+        <td>1 parent、10 location child、全issue membership維持</td>
+      </tr>
+      <tr>
+        <td>WR-T03</td>
+        <td>同一ruleでpackage/advisoryが異なるdependency</td>
+        <td>別warning group</td>
+      </tr>
+      <tr>
+        <td>WR-T04</td>
+        <td>severity混在10 issue</td>
+        <td>1 parent、最大severity、正しいseverityCounts</td>
+      </tr>
+      <tr>
+        <td>WR-T05</td>
+        <td>generic secret 130 issue</td>
+        <td>1 parent、130 child、secret/snippet非露出</td>
+      </tr>
+      <tr>
+        <td>WR-T06</td>
+        <td>130同種 + 184異種、各3 evidence</td>
+        <td>全rendered prompt 60,000文字以下、issue/finding coverage 314/314</td>
+      </tr>
+      <tr>
+        <td>WR-T07</td>
+        <td>1親だけでtarget超過</td>
+        <td>compression tierを順に適用し、親を複数chunkへ分割しない</td>
+      </tr>
+      <tr>
+        <td>WR-T08</td>
+        <td>圧縮後もhard limit超過</td>
+        <td>provider未呼び出し、typed budget error、機密情報なし</td>
+      </tr>
+      <tr>
+        <td>WR-T09</td>
+        <td>LLMが未知warning group IDを返す</td>
+        <td>structured output validation failure</td>
+      </tr>
+      <tr>
+        <td>WR-T10</td>
+        <td>LLMが1 warning groupを欠落</td>
+        <td>chunk coverage failureまたは明示fallbackで最終coverage維持</td>
+      </tr>
+      <tr>
+        <td>WR-T11</td>
+        <td>同じ入力を異なるDB取得順で2回処理</td>
+        <td>同じgroup順、stable key、manifest digest、chunk assignment</td>
+      </tr>
+      <tr>
+        <td>WR-T12</td>
+        <td>過去のissue-first completed review</td>
+        <td>既存UI、copy、Markdown downloadが変わらず動く</td>
+      </tr>
+      <tr>
+        <td>WR-T13</td>
+        <td>prompt budget typed error</td>
+        <td>UI labelが入力サイズ上限エラーとなる</td>
+      </tr>
+      <tr>
+        <td>WR-T14</td>
+        <td>final Markdown 60,000文字超過</td>
+        <td>compact本文と完全location JSON appendixを取得できる</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2 id="15-verification-commands">15. Verification commands</h2>
+  <p>実装時に最低限、次を実行する。</p>
+  <pre><code class="language-bash">bun test \
+  api/modules/scans/handoff/scan-improvement-warning-group.test.ts \
+  api/modules/scans/handoff/scan-improvement-prompt-budget.test.ts \
+  api/modules/scans/handoff/scan-improvement-request-runner.test.ts
+
+bunx vitest run \
+  web/src/domains/scans/handoff/scan-improvement-request.test.ts \
+  web/src/domains/scans/handoff/scan-improvement-request-generator.test.ts
+
+bun run typecheck
+bun run lint
+bun run docs:check
+</code></pre>
+  <p>
+    source size policyとcritical coverage policyの対象fileを変更するため、実装完了前に
+    <code>bun run check:source-size</code
+    >と<code>bun run test:coverage:critical</code>も実行する。 全API
+    testは最終統合時に<code>bun run test:api</code>で確認する。
+  </p>
+
+  <h2 id="16-definition-of-done">16. Definition of Done</h2>
+  <ol>
+    <li>10件以上の同種eligible issueが親1件・location child複数件としてpromptへ入る。</li>
+    <li>10件未満、ineligible kind、不完全keyが誤ってrollupされない。</li>
+    <li>314件相当fixtureの全prompt messageが60,000文字以下である。</li>
+    <li>LLMへraw finding ID、member issue ID一覧、raw secretが送信されない。</li>
+    <li>server-side展開後のcovered warning group、issue、findingがそれぞれtotalと一致する。</li>
+    <li>同じ親が複数chunkまたは複数implementation taskへ重複して現れない。</li>
+    <li>コピー/Markdown出力で共通修正方針とlocation childを親子関係として確認できる。</li>
+    <li>過去completed reviewの表示とexportに回帰がない。</li>
+    <li>budget failureがtyped errorとして保存され、UIで不明なエラーに分類されない。</li>
+    <li>実測対象scanの改修依頼再生成がcompletedになり、coverage 314/314を保存する。</li>
+    <li>
+      対象unit、runner、web、typecheck、lint、docs、source size、critical coverage gateが通る。
+    </li>
+    <li>実装差分が本計画のscope内に限定され、scanner normalizerの同時変更を含まない。</li>
+  </ol>
+
+  <h2 id="17-rollback-and-compatibility">17. Rollback and compatibility</h2>
+  <ul>
+    <li>
+      DB migrationを行わないため、rollbackはproduction codeとprompt/schema変更のrevertだけで行える。
+    </li>
+    <li>
+      既存completed reviewは同じ<code>ScanImprovementRequest</code>を保持し、再保存しない。
+    </li>
+    <li>running reviewは現行runnerと同様、process restart時にinterrupted failureへ遷移させる。</li>
+    <li>
+      新しいinput/output metadataを知らないclientは既存fieldsだけを読み、追加fieldsを無視できる。
+    </li>
+    <li>rollback後に新形式のfailed reviewが残っても、completed review selectorを妨げない。</li>
+    <li>
+      warning rollup失敗時に旧50件chunkへ自動fallbackしない。再び64,000文字超過を起こすためである。
+    </li>
+  </ul>
+
+  <h2 id="18-implementation-handoff">18. Implementation handoff</h2>
+  <p>
+    実装担当はWR-00から開始し、warning keyとmanifest invariantをtestで固定してからbundleを変更する。
+    既存finding grouping engineを緩和して問題を解決しようとしてはいけない。prompt sizeはfixture
+    JSONの長さではなく、 実際の<code>bindImprovementRequestUserMessage(...).content.text.length</code>で検証する。
+  </p>
+  <p>
+    WR-03では既にsource size budget対象となっている
+    <code>scan-improvement-request-builder.ts</code>へrollup処理を追加し続けず、warning
+    groupのvalidationと展開を 別moduleへ分離する。各sliceの最後にissue/finding coverageとsecret
+    redactionを確認し、文字数だけを満たして 監査情報を失う変更を受け入れない。
+  </p>
+</article>

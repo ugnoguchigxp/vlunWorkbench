@@ -85,6 +85,7 @@ function report(overrides: Partial<ScanReport> = {}): ScanReport {
 			includeUndecided: true,
 		},
 		status: "completed",
+		stage: "canonical_final",
 		errorMessage: null,
 		generatedByUserId: null,
 		createdAt: now,

@@ -1,0 +1,1589 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex,follow">
+    <title>Phase 52: Plugin-Oriented Language, Build-System, and Framework Refactoring Plan | vulnWorkbench</title>
+    <link rel="stylesheet" href="/vlunWorkbench/assets/css/spec-document.css">
+    <link rel="stylesheet" href="/vlunWorkbench/assets/css/plan-document.css">
+  </head>
+  <body>
+    <article lang="ja">
+  <h1 id="phase-52-plugin-oriented-language-build-system-and-framework-refactoring-plan">
+    Phase 52: Plugin-Oriented Language, Build-System, and Framework Refactoring Plan
+  </h1>
+  <p>
+    Archive status: Superseded by <code>spec/phase-56-capability-product-completion-plan.md</code>. Remaining
+    sandbox、test、plugin registration work was transferred to Phase 56.
+  </p>
+  <p>
+    Status: Implementation in progress; Phase 51 local start gate satisfied. Slices
+    52.0–52.5、validated DAST start-plan generation、consent UI、post-scan technology reporting are
+    implemented in the working tree. Sandboxed Java target execution、pre-scan capability
+    UI、enforced rollout、legacy removal、same-commit release closeout remain pending.
+  </p>
+  <p>Predecessor: Phase 51 DAST Coverage, Depth, and Verdict Hardening（完了）</p>
+  <p>Implementation baseline commit: <code>aff18b530a8fddfdc67c2a7fc21a0b825712d9b6</code></p>
+  <p>Baseline date: 2026-07-31</p>
+  <p>Owner: vulnWorkbench maintainers</p>
+  <p>
+    Target: 初期の正式対応をTypeScript/npmと Java/Maven・Gradle/Springに限定し、scanner
+    execution、dependency scope、 diff applicability、project structure、Application Model、DAST
+    target start、 reportingを、後から言語・build system・frameworkを追加できる versioned plugin
+    contractへ段階移行する。
+  </p>
+  <p>Local implementation evidence:</p>
+  <ul>
+    <li><code>spec/evidence/phase-52-plugin-refactor-baseline.json</code></li>
+    <li><code>.artifacts/benchmark/phase-52-capability.json</code></li>
+    <li>built-in registry digest: <code>sha256:b2c655a3f3dea597c3e30704515902a563cfbfe74a8599b3d667baae733c3ede</code></li>
+    <li><code>bun run verify:phase-52-capability</code> successful</li>
+    <li>affected module regression: 532 tests passed</li>
+    <li>Phase 51 baseline and DAST capability gates successful after the refactor</li>
+    <li>
+      Maven/Gradle start plans fail closed with <code>project_code_execution_sandbox_required</code>;
+      unsandboxed Java project code is never spawned
+    </li>
+  </ul>
+  <p>
+    上記はlocal working treeの実装証跡であり、toolbox image digest、offline vulnerability
+    databaseを使った実scanner vulnerable/fixed gate、 same-commit clean checkoutを満たすrelease
+    claimではない。
+  </p>
+  <h2 id="1-結論">1. 結論</h2>
+  <p>
+    Phase 52では、言語ごとの条件分岐を既存moduleへ追加し続けない。 次の3種類を独立したbuilt-in
+    pluginとして扱う。
+  </p>
+  <ol>
+    <li>language plugin</li>
+    <li>build-system plugin</li>
+    <li>framework plugin</li>
+  </ol>
+  <p>初期の正式対応を次に固定する。</p>
+  <table>
+    <caption>
+      1. 結論
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Plugin kind</th>
+        <th scope="col">初期正式対応</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>language</td>
+        <td>TypeScript、Java</td>
+      </tr>
+      <tr>
+        <td>build system</td>
+        <td>npm、Maven、Gradle</td>
+      </tr>
+      <tr>
+        <td>framework</td>
+        <td>現行TypeScript Web framework adapter、Spring Boot / Spring MVC</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    JavaScript、Python、Go、PHP、Ruby、Rust、Kotlin、JAX-RS、Quarkus、 Micronaut、SBTは、既存scanner
+    dataや実装の一部が存在しても Phase 52の正式対応に含めない。
+  </p>
+  <p>
+    Phase 52の目的は、将来対象を実装することではなく、core変更なしに
+    独立pluginを追加できる境界を、TypeScriptとJavaの実運用で成立させることである。
+  </p>
+  <p>
+    初期loaderは任意のnpm packageやfilesystem上のJavaScriptを動的実行しない。 信頼済みbuilt-in
+    pluginを明示importするbuild-time registrationとする。 外部配布plugin、署名、sandboxed plugin
+    runtimeは後続phaseの対象とする。
+  </p>
+  <h2 id="2-phase-51完了待ちと着手ゲート">2. Phase 51完了待ちと着手ゲート</h2>
+  <h3 id="21-hard-start-gate">2.1 Hard start gate</h3>
+  <p>Slice 52.0より後のproduction code変更は、次をすべて満たすまで開始しない。</p>
+  <ol>
+    <li>
+      Phase 51のDAST詳細化コード、schema、migration、CLI、API、UIが intended integration
+      branchへ統合されている。
+    </li>
+    <li>
+      Phase 51計画書のstatusが、少なくとも
+      <code>local implementation complete</code>相当へ更新されている。
+    </li>
+    <li>次のlocal gateが同一commitで成功する。</li>
+  </ol>
+  <pre><code class="language-bash">bun run verify:phase-51-baseline
+bun run verify:dast-capability
+bun test api/modules/dast
+bun test api/modules/scans/profile-runner.test.ts
+bun test api/modules/scans/profiles-dast-budget.test.ts
+bun test api/modules/scans/runtime-assessment-coverage.test.ts
+</code></pre>
+  <ol start="4">
+    <li>
+      次のPhase 51 contractが凍結され、Phase 52から参照可能である。
+      <ul>
+        <li>DAST target preparation</li>
+        <li>shared runtime target lifecycle</li>
+        <li>runtime assessment coverage</li>
+        <li>profile step result</li>
+        <li>DAST verdict / limitation</li>
+      </ul>
+    </li>
+    <li>
+      DAST詳細化由来の未commit変更がない、またはPhase 52と重ならない状態へ 明示的に分離されている。
+    </li>
+    <li>
+      Slice 52.0でbaseline commit、scanner-data manifest hash、 Semgrep ruleset digest、toolbox
+      image digestを採取できる。
+    </li>
+  </ol>
+  <h3 id="22-phase-51-external-release-gateの扱い">2.2 Phase 51 external release gateの扱い</h3>
+  <p>
+    Linux real-ZAP、Juice Shop scenario、same-commit release evidenceなど、 Phase 51がrelease
+    environment gateとして残している項目は、Phase 52の implementation
+    start時に黙って合格扱いしない。
+  </p>
+  <ul>
+    <li>Phase 51由来の未完了release gateとして引き継ぐ。</li>
+    <li>Phase 52のlanguage plugin変更によりDAST結果が変わる場合は再測定する。</li>
+    <li>Phase 52を開始するためだけに、Phase 51の外部gateを削除または緩和しない。</li>
+  </ul>
+  <h3 id="23-gate未達時">2.3 Gate未達時</h3>
+  <p>hard start gate未達時に許可する作業は次だけである。</p>
+  <ul>
+    <li>計画書の更新</li>
+    <li>read-onlyなbaseline調査</li>
+    <li>fixture設計</li>
+    <li>plugin contractの非production prototype</li>
+  </ul>
+  <p>production module、schema、migration、profile、report、UIは変更しない。</p>
+  <h2 id="3-現行baselineと問題">3. 現行baselineと問題</h2>
+  <h3 id="31-dependency-scope">3.1 Dependency scope</h3>
+  <p>現行<code>DEPENDENCY_MANIFEST_SCOPE</code>はnpm系fileだけを含む。</p>
+  <pre><code class="language-text">package.json
+bun.lock
+bun.lockb
+package-lock.json
+npm-shrinkwrap.json
+yarn.lock
+pnpm-lock.yaml
+</code></pre>
+  <p>
+    この定義を通常OSV、dependency profile、diff applicabilityが共有するため、
+    <code>pom.xml</code>、<code>gradle.lockfile</code>、<code>buildscript-gradle.lockfile</code>、
+    <code>gradle/verification-metadata.xml</code>をdependency inputとして扱えない。
+  </p>
+  <h3 id="32-scanner能力と製品経路の不一致">3.2 Scanner能力と製品経路の不一致</h3>
+  <p>変更前調査では次を確認済みである。</p>
+  <ul>
+    <li>curated Semgrep rulesetにJava 13 ruleがある。</li>
+    <li>Java fixtureで13 rule、26 findingを検出できる。</li>
+    <li>OSVのMaven vulnerable/fixed fixtureはoffline scanで区別できる。</li>
+    <li>TrivyはMaven fixtureのvulnerabilityを検出できる。</li>
+    <li>Spring MVC endpoint extractorが存在する。</li>
+    <li>
+      しかしbaseline profileのOSV manifest
+      workspaceには<code>pom.xml</code>が 1件もcopyされず、scanが失敗する。
+    </li>
+  </ul>
+  <p>scanner単体の対応を、profile全体の正式対応として表示してはならない。</p>
+  <h3 id="33-project-structure">3.3 Project structure</h3>
+  <p>
+    project structure inventoryはTypeScript/JavaScriptをsourceとして分類するが、
+    <code>.java</code>をresourceとして扱う。このためJava
+    sourceが存在しても <code>analyzedFileCount=0</code>となり、module/reference/package
+    graphを作れない。
+  </p>
+  <p>
+    adapter未対応のfileを<code>resource</code>へ落として<code>completed</code>と表示することは、
+    coverageの誤表示である。
+  </p>
+  <h3 id="34-application-model">3.4 Application Model</h3>
+  <p>
+    endpoint extractorはTypeScript/JavaScript、Python、Java、Goを extension
+    switchで直接選択する。Spring対応自体は存在するが、 language/build-system/framework
+    detectionと独立している。
+  </p>
+  <p>
+    Java plugin導入後は、Spring extractorをframework contributionとして選択する。
+    <code>.java</code>であることだけを理由にSpringとして扱わない。
+  </p>
+  <h3 id="35-dast-auto-target">3.5 DAST auto target</h3>
+  <p>
+    現行auto targetは<code>package.json</code>から
+    <code>dast/dev/start/serve/preview</code> scriptを選択する。 Java/Maven/Gradle/Springのstart
+    planを表現できない。
+  </p>
+  <p>
+    Phase 52ではPhase 51のDAST runner、coverage、verdictを作り直さない。 pluginはvalidated start
+    planを返し、Phase 51で確定したcentral target lifecycleが
+    実行、readiness、停止、coverage記録を担当する。
+  </p>
+  <h3 id="36-capability-claim">3.6 Capability claim</h3>
+  <p>
+    reportにはSAST languageとoffline SCA ecosystemの宣言がhard-codeされている。 scanner
+    dataが存在することと、現在のprojectで適用・実行・検証されたことを 分離できない。
+  </p>
+  <p>
+    Phase 52では、plugin detection、step applicability、execution evidenceから claimを生成する。
+  </p>
+  <h2 id="4-scope">4. Scope</h2>
+  <h3 id="41-in-scope">4.1 In scope</h3>
+  <ul>
+    <li>versioned plugin contract</li>
+    <li>deterministic built-in plugin registry</li>
+    <li>language / build-system / framework dependency graph</li>
+    <li>TypeScript language plugin</li>
+    <li>npm build-system plugin</li>
+    <li>Java language plugin</li>
+    <li>Maven build-system plugin</li>
+    <li>Gradle build-system plugin</li>
+    <li>Spring Boot / Spring MVC framework plugin</li>
+    <li>plugin-driven project capability detection</li>
+    <li>plugin-driven dependency scope</li>
+    <li>plugin-driven diff applicability</li>
+    <li>plugin-selected Semgrep rule input</li>
+    <li>OSV / Trivy dependency input materialization</li>
+    <li>Java project structure classification and minimal analyzer</li>
+    <li>Spring endpoint extraction contribution</li>
+    <li>Maven / Gradle Spring DAST start plan</li>
+    <li>applicability、coverage、support tierの保存と表示</li>
+    <li>existing TypeScript behaviorの後方互換</li>
+    <li>shadow rolloutとlegacy rollback</li>
+    <li>fixture pluginによる拡張性contract test</li>
+  </ul>
+  <h3 id="42-non-goals">4.2 Non-goals</h3>
+  <ul>
+    <li>TypeScript、Java以外の正式対応</li>
+    <li>JavaScriptを独立した正式対応languageへ昇格すること</li>
+    <li>Python、Go、PHP、Ruby、Rust、Kotlin対応</li>
+    <li>JAX-RS、Quarkus、Micronaut、Play Framework、SBT対応</li>
+    <li>runtimeでの任意npm package loading</li>
+    <li>user-supplied JavaScript pluginの実行</li>
+    <li>remote plugin marketplace</li>
+    <li>pluginの自動downloadまたは自動update</li>
+    <li>unsigned binary plugin</li>
+    <li>scanner executableそのものをpluginが提供・実行すること</li>
+    <li>baseline scan中の<code>gradlew dependencies</code>自動実行</li>
+    <li>baseline scan中のMaven/Gradle dependency download</li>
+    <li>Gradle lockfileの自動生成・自動commit</li>
+    <li>target repositoryへの設定file追加</li>
+    <li>Phase 51 DAST verdict、crawler、auth、request budgetの再設計</li>
+    <li>target build scriptを同意なしに実行すること</li>
+  </ul>
+  <h2 id="5-support-tierと用語">5. Support tierと用語</h2>
+  <h3 id="51-plugin-availability">5.1 Plugin availability</h3>
+  <table>
+    <caption>
+      5.1 Plugin availability
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">状態</th>
+        <th scope="col">意味</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>registered</code></td>
+        <td>coreと互換なplugin manifestがregistryへ登録済み</td>
+      </tr>
+      <tr>
+        <td><code>detected</code></td>
+        <td>project evidenceによりpluginが対象と判定された</td>
+      </tr>
+      <tr>
+        <td><code>applicable</code></td>
+        <td>必要inputが存在し、stepを実行できる</td>
+      </tr>
+      <tr>
+        <td><code>executed</code></td>
+        <td>scannerまたはanalyzerが完了した</td>
+      </tr>
+      <tr>
+        <td><code>verified</code></td>
+        <td>vulnerable/fixed、positive/negative、profile E2E gateが通る</td>
+      </tr>
+    </tbody>
+  </table>
+  <p><code>registered</code>だけでsupported claimを生成しない。</p>
+  <h3 id="52-capability-support">5.2 Capability support</h3>
+  <table>
+    <caption>
+      5.2 Capability support
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Tier</th>
+        <th scope="col">意味</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>verified</code></td>
+        <td>current digestとfixtureでrelease gateを満たす</td>
+      </tr>
+      <tr>
+        <td><code>partial</code></td>
+        <td>一部input、direct dependency、framework surfaceのみ確認済み</td>
+      </tr>
+      <tr>
+        <td><code>unsupported</code></td>
+        <td>実行contractまたは検証証跡がない</td>
+      </tr>
+    </tbody>
+  </table>
+  <h3 id="53-coverage-rule">5.3 Coverage rule</h3>
+  <ul>
+    <li>finding 0件とcoverage完了を分離する。</li>
+    <li>plugin未登録をclean resultにしない。</li>
+    <li>
+      lockfile不足を<code>not_applicable</code>ではなく、projectが対象build
+      systemなら <code>gap</code>として扱う。
+    </li>
+    <li>
+      unsupported frameworkでDASTを自動起動できなくても、 static scanの成功まで失敗扱いにしない。
+    </li>
+    <li>
+      incidental scanner findingは捨てないが、正式対応範囲外なら
+      <code>supportTier: "unverified"</code>を付ける。
+    </li>
+  </ul>
+  <h2 id="6-目標アーキテクチャ">6. 目標アーキテクチャ</h2>
+  <figure>
+    <pre class="mermaid" data-spec-html-source="markdown">flowchart LR
+  I["Bounded project inventory"] --&gt; R["Built-in plugin registry"]
+  R --&gt; D["Detections with evidence"]
+  D --&gt; C["Project capability plan"]
+  C --&gt; S["Static scan input plan"]
+  C --&gt; P["Project structure analyzers"]
+  C --&gt; A["Application Model extractors"]
+  C --&gt; T["Validated DAST start plan"]
+  S --&gt; X["Central scanner executors"]
+  T --&gt; Y["Phase 51 target lifecycle"]
+  X --&gt; E["Evidence and coverage"]
+  P --&gt; E
+  A --&gt; E
+  Y --&gt; E
+  E --&gt; O["Report and UI support matrix"]
+</pre>
+    <figcaption>6. 目標アーキテクチャ</figcaption>
+  </figure>
+  <p>coreは次を所有する。</p>
+  <ul>
+    <li>filesystem boundary</li>
+    <li>bounded read</li>
+    <li>DB access</li>
+    <li>process execution</li>
+    <li>Docker execution</li>
+    <li>network policy</li>
+    <li>artifact storage</li>
+    <li>secret redaction</li>
+    <li>timeoutとresource budget</li>
+    <li>schema validation</li>
+    <li>event、coverage、report</li>
+  </ul>
+  <p>pluginは次だけを提供する。</p>
+  <ul>
+    <li>detection rule</li>
+    <li>manifest group</li>
+    <li>source analyzer</li>
+    <li>endpoint extractor</li>
+    <li>Semgrep rule reference</li>
+    <li>scan input plan</li>
+    <li>DAST start plan</li>
+  </ul>
+  <p>pluginはDB、network、process、credential、artifact storageへ直接accessしない。</p>
+  <h2 id="7-plugin-kind">7. Plugin kind</h2>
+  <h3 id="71-language-plugin">7.1 Language plugin</h3>
+  <p>責務:</p>
+  <ul>
+    <li>source extension</li>
+    <li>language detection</li>
+    <li>Semgrep rule contribution</li>
+    <li>project structure analyzer</li>
+    <li>source role hint</li>
+    <li>generic endpoint extractor contribution</li>
+  </ul>
+  <p>初期plugin:</p>
+  <pre><code class="language-text">language.typescript
+language.java
+</code></pre>
+  <h3 id="72-build-system-plugin">7.2 Build-system plugin</h3>
+  <p>責務:</p>
+  <ul>
+    <li>build system detection</li>
+    <li>primary manifest / lockfile</li>
+    <li>companion file</li>
+    <li>dependency ecosystem mapping</li>
+    <li>installed dependency directory</li>
+    <li>build output directory</li>
+    <li>dependency coverage semantics</li>
+    <li>OSV / Trivy scan input</li>
+  </ul>
+  <p>初期plugin:</p>
+  <pre><code class="language-text">build.npm
+build.maven
+build.gradle
+</code></pre>
+  <h3 id="73-framework-plugin">7.3 Framework plugin</h3>
+  <p>責務:</p>
+  <ul>
+    <li>framework detection</li>
+    <li>required language / build system</li>
+    <li>endpoint extraction</li>
+    <li>schema discovery hint</li>
+    <li>route seed</li>
+    <li>DAST start planner</li>
+    <li>framework-specific limitation</li>
+  </ul>
+  <p>初期plugin:</p>
+  <pre><code class="language-text">framework.typescript.hono
+framework.typescript.express
+framework.typescript.fastify
+framework.java.spring
+</code></pre>
+  <p>
+    framework plugin数は、Slice 52.0の現行TypeScript behavior inventoryで確定する。
+    既存で測定されていないTypeScript frameworkを、移行時についでに追加しない。
+  </p>
+  <h2 id="8-versioned-plugin-contract">8. Versioned plugin contract</h2>
+  <h3 id="81-manifest">8.1 Manifest</h3>
+  <pre><code class="language-ts">type TechnologyPluginManifestV1 = {
+  schemaVersion: 1;
+  pluginApiVersion: "1";
+  id: string;
+  version: string;
+  kind: "language" | "build_system" | "framework";
+  displayName: string;
+  requires: {
+    allOf: string[];
+    oneOf: string[];
+  };
+  declaredCapabilities: Array&lt;
+    | "source_detection"
+    | "sast"
+    | "dependency_detection"
+    | "dependency_scan"
+    | "project_structure"
+    | "endpoint_extraction"
+    | "schema_discovery"
+    | "dast_start"
+  &gt;;
+};
+</code></pre>
+  <p>
+    manifestは能力を宣言するが、<code>verified</code> statusは宣言しない。
+    verified statusはrelease evidenceから計算する。
+  </p>
+  <h3 id="82-runtime-contract">8.2 Runtime contract</h3>
+  <pre><code class="language-ts">type TechnologyPluginV1 = {
+  manifest: TechnologyPluginManifestV1;
+  detectors: readonly ProjectDetector[];
+  dependencyProviders: readonly DependencyProvider[];
+  sourceAnalyzers: readonly SourceAnalyzer[];
+  endpointExtractors: readonly EndpointExtractor[];
+  semgrepRules: readonly SemgrepRuleContribution[];
+  startPlanners: readonly StartPlanner[];
+};
+</code></pre>
+  <p>各hookはcoreから渡されたbounded valueだけを使用する。</p>
+  <pre><code class="language-ts">type PluginContext = {
+  inventory: readonly InventoryEntry[];
+  readText: (path: string) =&gt; Promise&lt;BoundedTextResult&gt;;
+  limits: {
+    maxFiles: number;
+    maxFileBytes: number;
+    maxTotalBytes: number;
+  };
+};
+</code></pre>
+  <p>absolute path、raw environment、DB handle、process runnerを渡さない。</p>
+  <h3 id="83-registration">8.3 Registration</h3>
+  <p>初期registrationは明示importとする。</p>
+  <pre><code class="language-ts">registerBuiltInPlugins([
+  typescriptLanguagePlugin,
+  npmBuildPlugin,
+  javaLanguagePlugin,
+  mavenBuildPlugin,
+  gradleBuildPlugin,
+  springFrameworkPlugin,
+]);
+</code></pre>
+  <p>
+    plugin directory scan、dynamic import、<code>require()</code>、remote
+    fetchは行わない。
+  </p>
+  <h3 id="84-validation">8.4 Validation</h3>
+  <p>registry construction時に次を拒否する。</p>
+  <ul>
+    <li>duplicate plugin ID</li>
+    <li>unsupported plugin API version</li>
+    <li>dependency cycle</li>
+    <li>missing required plugin</li>
+    <li>ambiguous exclusive detector</li>
+    <li>duplicate analyzer ownership</li>
+    <li>duplicate primary manifest claim</li>
+    <li>start planner ID collision</li>
+    <li>Semgrep rule contributionのmissing digest</li>
+    <li>path traversalを含むasset path</li>
+  </ul>
+  <p>
+    registry orderはregistration orderに依存させず、 dependency orderとplugin
+    IDで決定論的に解決する。
+  </p>
+  <h2 id="9-初期plugin-dependency-graph">9. 初期plugin dependency graph</h2>
+  <figure>
+    <pre class="mermaid" data-spec-html-source="markdown">flowchart TD
+  TS["language.typescript"]
+  NPM["build.npm"]
+  H["framework.typescript.hono"]
+  E["framework.typescript.express"]
+  F["framework.typescript.fastify"]
+  J["language.java"]
+  M["build.maven"]
+  G["build.gradle"]
+  S["framework.java.spring"]
+
+  H --&gt; TS
+  H --&gt; NPM
+  E --&gt; TS
+  E --&gt; NPM
+  F --&gt; TS
+  F --&gt; NPM
+  M --&gt; J
+  G --&gt; J
+  S --&gt; J
+  S --&gt; M
+  S --&gt; G
+</pre>
+    <figcaption>9. 初期plugin dependency graph</figcaption>
+  </figure>
+  <p>
+    <code>framework.java.spring</code>のdependencyは
+    <code>language.java</code> AND (<code>build.maven</code>
+    OR <code>build.gradle</code>)とする。
+    上図のMaven/Gradle両方を必須と解釈しない。
+  </p>
+  <h2 id="10-typescriptnpm-plugin">10. TypeScript/npm plugin</h2>
+  <h3 id="101-language">10.1 Language</h3>
+  <ul>
+    <li>
+      正式source extension:
+      <code>.ts</code>、<code>.tsx</code>、<code>.mts</code>、<code>.cts</code>
+    </li>
+    <li>existing TypeScript Semgrep ruleだけをselected rulesetへ含める</li>
+    <li>existing TypeScript/JavaScript structure analyzerをadapter経由で再利用する</li>
+    <li>
+      JavaScript互換入力はlegacy behaviorとして測定するが、 Phase 52の独立supported
+      claimには含めない
+    </li>
+  </ul>
+  <h3 id="102-npm">10.2 npm</h3>
+  <p>primary / lock input:</p>
+  <pre><code class="language-text">package-lock.json
+npm-shrinkwrap.json
+bun.lock
+bun.lockb
+yarn.lock
+pnpm-lock.yaml
+</code></pre>
+  <p>companion:</p>
+  <pre><code class="language-text">package.json
+pnpm-workspace.yaml
+</code></pre>
+  <p>installed/build directory:</p>
+  <pre><code class="language-text">node_modules/**
+dist/**
+dist-web/**
+.next/**
+.turbo/**
+</code></pre>
+  <h3 id="103-framework">10.3 Framework</h3>
+  <p>
+    現行Application ModelとDAST auto targetのbehaviorをplugin adapterへ移す。 移行時にroute
+    detection、port selection、readiness pathを変更しない。
+  </p>
+  <p>TypeScript behavior改善が必要な場合は、compatibility migration完了後の 独立sliceへ分ける。</p>
+  <h2 id="11-java-language-plugin">11. Java language plugin</h2>
+  <h3 id="111-detection">11.1 Detection</h3>
+  <p>正式source extension:</p>
+  <pre><code class="language-text">.java
+</code></pre>
+  <p>次はPhase 52ではJava sourceとして扱わない。</p>
+  <pre><code class="language-text">.kt
+.kts
+.groovy
+.scala
+</code></pre>
+  <h3 id="112-semgrep">11.2 Semgrep</h3>
+  <ul>
+    <li>curated rulesetのJava 13 ruleをplugin contributionとして登録する。</li>
+    <li>config root全体ではなく、検出済みlanguageのrule pathだけをSemgrepへ渡す。</li>
+    <li>positive/negative fixtureとrule metadata gateを維持する。</li>
+    <li>Java以外のexisting rulesを削除しないが、enforced modeでは選択しない。</li>
+  </ul>
+  <h3 id="113-project-structure">11.3 Project structure</h3>
+  <p>最小analyzerは次を抽出する。</p>
+  <ul>
+    <li><code>package</code></li>
+    <li><code>import</code></li>
+    <li>top-level class / interface / enum / record</li>
+    <li>annotation名</li>
+    <li>package間reference</li>
+    <li>Maven/Gradle module boundary</li>
+  </ul>
+  <p>Phase 52ではJava semantic type resolution、bytecode解析、call graphを実装しない。</p>
+  <p>
+    <code>.java</code>は<code>resource</code>ではなく<code>source</code>に分類する。
+    analyzer失敗または未対応syntaxは<code>partial</code>とdiagnosticを保存する。
+  </p>
+  <h2 id="12-maven-build-system-plugin">12. Maven build-system plugin</h2>
+  <h3 id="121-detectionとscope">12.1 Detectionとscope</h3>
+  <p>primary:</p>
+  <pre><code class="language-text">pom.xml
+**/pom.xml
+</code></pre>
+  <p>excluded build output:</p>
+  <pre><code class="language-text">target/**
+**/target/**
+</code></pre>
+  <p>
+    multi-module projectでは、root pomだけでなくscan scope内のchild pomを
+    同じworkspaceへmaterializeする。
+  </p>
+  <h3 id="122-dependency-coverage">12.2 Dependency coverage</h3>
+  <p>
+    現行offline
+    OSV実行は<code>--no-resolve</code>を使用するため、Mavenのtransitive
+    dependency resolutionを実行しない。
+  </p>
+  <p>Maven coverageを次に分ける。</p>
+  <table>
+    <caption>
+      12.2 Dependency coverage
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">状態</th>
+        <th scope="col">Coverage</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>pom.xml</code> direct dependencyを解析</td>
+        <td><code>partial: direct_dependencies</code></td>
+      </tr>
+      <tr>
+        <td>pinned SBOMまたは検証済みresolved graphあり</td>
+        <td><code>verified: resolved_dependencies</code></td>
+      </tr>
+      <tr>
+        <td>pom parse失敗</td>
+        <td><code>gap: dependency_manifest_invalid</code></td>
+      </tr>
+      <tr>
+        <td>network resolutionが必要だが禁止</td>
+        <td><code>gap: dependency_resolution_not_performed</code></td>
+      </tr>
+    </tbody>
+  </table>
+  <p>direct dependencyだけでJava SCA全体をcoveredと表示しない。</p>
+  <h3 id="123-spring-relation">12.3 Spring relation</h3>
+  <p>
+    Spring dependency、plugin、annotation evidenceは
+    <code>framework.java.spring</code> detectorへ渡す。 Maven
+    plugin自身はSpring固有判断を行わない。
+  </p>
+  <h2 id="13-gradle-build-system-plugin">13. Gradle build-system plugin</h2>
+  <h3 id="131-detection">13.1 Detection</h3>
+  <p>project marker:</p>
+  <pre><code class="language-text">build.gradle
+build.gradle.kts
+settings.gradle
+settings.gradle.kts
+gradlew
+gradlew.bat
+gradle/wrapper/gradle-wrapper.properties
+gradle/libs.versions.toml
+</code></pre>
+  <p>
+    markerはGradle project detectionに使用するが、 すべてをdependency version
+    evidenceとして扱わない。
+  </p>
+  <h3 id="132-正式sca-input">13.2 正式SCA input</h3>
+  <p>OSV / Trivyの初期正式input:</p>
+  <pre><code class="language-text">gradle.lockfile
+**/gradle.lockfile
+buildscript-gradle.lockfile
+**/buildscript-gradle.lockfile
+gradle/verification-metadata.xml
+**/gradle/verification-metadata.xml
+</code></pre>
+  <p>
+    Trivy向けに<code>*gradle.lockfile</code>を認識する場合も、OSVが同じbasenameを
+    解析可能かをfixtureで確認し、tool別applicabilityを分ける。
+  </p>
+  <h3 id="133-companion-input">13.3 Companion input</h3>
+  <p>構造解析、framework detection、module boundaryのため次をbounded readする。</p>
+  <pre><code class="language-text">build.gradle
+build.gradle.kts
+settings.gradle
+settings.gradle.kts
+gradle/libs.versions.toml
+</code></pre>
+  <p>version catalogやbuild scriptを、resolved dependency lockの代用にしない。</p>
+  <h3 id="134-coverage">13.4 Coverage</h3>
+  <table>
+    <caption>
+      13.4 Coverage
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">状態</th>
+        <th scope="col">Coverage</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Gradle project + lockfileあり</td>
+        <td><code>verified: locked_dependencies</code></td>
+      </tr>
+      <tr>
+        <td>verification metadataのみ</td>
+        <td><code>partial: verification_metadata</code></td>
+      </tr>
+      <tr>
+        <td>build fileのみ</td>
+        <td><code>gap: gradle_dependency_lock_missing</code></td>
+      </tr>
+      <tr>
+        <td>lockfile parse失敗</td>
+        <td><code>gap: dependency_lock_invalid</code></td>
+      </tr>
+      <tr>
+        <td>multi-project child lock未収集</td>
+        <td><code>partial: module_lock_coverage</code></td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    Gradle
+    projectでlockfileがない場合、OSVを<code>not_applicable</code>としてcleanにしない。
+  </p>
+  <h3 id="135-禁止する自動処理">13.5 禁止する自動処理</h3>
+  <p>baseline static scanでは次を実行しない。</p>
+  <pre><code class="language-text">./gradlew dependencies
+./gradlew --write-locks
+gradle dependencies
+</code></pre>
+  <p>理由:</p>
+  <ul>
+    <li>project build scriptは任意コードを実行できる。</li>
+    <li>dependency downloadがnetwork policyを破る。</li>
+    <li>target repositoryを変更し得る。</li>
+    <li>scan前後でdependency stateが変わる。</li>
+  </ul>
+  <p>lock生成はproject ownerの責務とし、gap remediationとして安全な説明だけを出す。</p>
+  <h3 id="136-exclude">13.6 Exclude</h3>
+  <pre><code class="language-text">.gradle/**
+**/.gradle/**
+build/**
+**/build/**
+</code></pre>
+  <p>
+    full-deep profileで含める場合も、installed cacheとfirst-party sourceを coverage上で区別する。
+  </p>
+  <h2 id="14-spring-framework-plugin">14. Spring framework plugin</h2>
+  <h3 id="141-initial-scope">14.1 Initial scope</h3>
+  <p>supported:</p>
+  <ul>
+    <li>Spring Boot</li>
+    <li>Spring MVC</li>
+    <li><code>@RequestMapping</code></li>
+    <li><code>@GetMapping</code></li>
+    <li><code>@PostMapping</code></li>
+    <li><code>@PutMapping</code></li>
+    <li><code>@PatchMapping</code></li>
+    <li><code>@DeleteMapping</code></li>
+    <li>class-level pathとmethod-level pathの結合</li>
+  </ul>
+  <p>initially unsupported:</p>
+  <ul>
+    <li>Spring WebFluxの完全semantic解析</li>
+    <li>functional routingの完全解析</li>
+    <li>Spring Security authorization policyの完全推論</li>
+    <li>JAX-RS</li>
+    <li>GraphQL subscription</li>
+    <li>messaging endpoint</li>
+  </ul>
+  <h3 id="142-detection">14.2 Detection</h3>
+  <p>複数evidenceを使用する。</p>
+  <ul>
+    <li>Maven dependency</li>
+    <li>Gradle build scriptまたはversion catalog</li>
+    <li>Spring annotation</li>
+    <li>Spring Boot plugin</li>
+    <li>application configuration</li>
+  </ul>
+  <p>1 annotationだけでframeworkを確定せず、confidenceとevidence refを保存する。</p>
+  <h3 id="143-endpoint-extraction">14.3 Endpoint extraction</h3>
+  <p>
+    既存Java endpoint extractorをframework contributionへ移す。 class-level mapping、method-level
+    mapping、HTTP method、path parameterを fixtureで検証する。
+  </p>
+  <p>source parserが未対応syntaxを含む場合、routeを推測で補わず coverage limitationを保存する。</p>
+  <h3 id="144-schema-hint">14.4 Schema hint</h3>
+  <p>次をOpenAPI discovery hintとして提供できる。</p>
+  <pre><code class="language-text">/v3/api-docs
+/v3/api-docs.yaml
+/swagger-ui/index.html
+</code></pre>
+  <p>hintはexposure findingではなく、Phase 51 route inventoryのseed候補とする。</p>
+  <h2 id="15-plugin-driven-scan-planning">15. Plugin-driven scan planning</h2>
+  <h3 id="151-detection-result">15.1 Detection result</h3>
+  <pre><code class="language-ts">type ProjectPluginDetection = {
+  pluginId: string;
+  detected: boolean;
+  confidence: "low" | "medium" | "high";
+  evidence: Array&lt;{
+    path: string;
+    kind: "extension" | "manifest" | "dependency" | "annotation" | "config";
+  }&gt;;
+  limitations: string[];
+};
+</code></pre>
+  <p>raw file bodyやabsolute pathをmetadataへ保存しない。</p>
+  <h3 id="152-capability-plan">15.2 Capability plan</h3>
+  <pre><code class="language-ts">type ProjectCapabilityPlanV1 = {
+  schemaVersion: 1;
+  registryDigest: `sha256:${string}`;
+  activePluginIds: string[];
+  languages: string[];
+  buildSystems: string[];
+  frameworks: string[];
+  steps: Array&lt;{
+    stepId: string;
+    pluginIds: string[];
+    applicability: "applicable" | "not_applicable";
+    reasonCode: string | null;
+    coverageEffect: "covered" | "partial" | "gap";
+  }&gt;;
+};
+</code></pre>
+  <p>
+    planをscan開始時に保存し、実行後にresultと比較する。 実行中にproject
+    detectionが変わった場合は、silentに別planへ切り替えない。
+  </p>
+  <h3 id="153-static-tool">15.3 Static tool</h3>
+  <ul>
+    <li>Semgrep: active language pluginのrule contributionだけを使用する。</li>
+    <li>Gitleaks: source scope全体へ適用し、language pluginに依存しない。</li>
+    <li>OSV: active build-system pluginがmaterializeしたdependency workspaceを使う。</li>
+    <li>Trivy vulnerability: dependency workspaceを使う。</li>
+    <li>Trivy secret/misconfig: source/config scopeを使う。</li>
+  </ul>
+  <p>Trivy vulnerabilityとsecret/misconfigを同一inputへ強制しない。</p>
+  <h2 id="16-diff-scan">16. Diff scan</h2>
+  <p>dependency change判定を固定npm globからplugin contributionへ変更する。</p>
+  <h3 id="161-rules">16.1 Rules</h3>
+  <ul>
+    <li>primaryまたはcompanion file変更でbuild-system pluginをapplicableにする。</li>
+    <li>Maven child pom変更時はfull Maven dependency stateを再評価する。</li>
+    <li>Gradle lockfile変更時は対象moduleとroot build evidenceをmaterializeする。</li>
+    <li>
+      <code>build.gradle</code>変更、lockfile未変更は
+      <code>partial: dependency_definition_changed_without_lock_update</code>とする。
+    </li>
+    <li>unsupported pluginのmanifestらしきfileをclean coverageにしない。</li>
+  </ul>
+  <h3 id="162-diff-evidence">16.2 Diff evidence</h3>
+  <p>diff manifestへ次を追加する。</p>
+  <pre><code class="language-ts">type PluginDiffContext = {
+  detectedPluginIds: string[];
+  affectedPluginIds: string[];
+  dependencyStateChanged: boolean;
+  lockStateChanged: boolean;
+  limitationCodes: string[];
+};
+</code></pre>
+  <p>existing digest、snapshot、path boundaryを維持する。</p>
+  <h2 id="17-dast-start-plan">17. DAST start plan</h2>
+  <h3 id="171-boundary">17.1 Boundary</h3>
+  <p>pluginはprocessをspawnしない。</p>
+  <pre><code class="language-ts">type DastStartPlanV1 = {
+  schemaVersion: 1;
+  pluginId: string;
+  executable: string;
+  args: string[];
+  cwd: string;
+  env: Record&lt;string, string&gt;;
+  readinessPaths: string[];
+  requiresProjectCodeConsent: boolean;
+  requestedNetwork: "none";
+};
+</code></pre>
+  <p>central validatorが次を確認する。</p>
+  <ul>
+    <li>executable allowlist</li>
+    <li>executable realpathがproject root内またはtrusted toolchain内</li>
+    <li>shell control character不使用</li>
+    <li>cwdがproject root内</li>
+    <li>environment key allowlist</li>
+    <li>loopback bind</li>
+    <li>allocated port</li>
+    <li>network policy</li>
+    <li>timeout</li>
+    <li>resource limit</li>
+    <li>user/project consent</li>
+  </ul>
+  <h3 id="172-typescript">17.2 TypeScript</h3>
+  <p>
+    既存package script planをadapter化する。 behavior変更は行わず、同じscript
+    priority、port、readiness pathを維持する。
+  </p>
+  <h3 id="173-maven-spring">17.3 Maven Spring</h3>
+  <p>候補:</p>
+  <pre><code class="language-text">./mvnw --offline spring-boot:run
+mvn --offline spring-boot:run
+</code></pre>
+  <p>
+    wrapperまたはbuild実行はproject code executionである。 明示同意とPhase 51で確定したsandbox
+    policyなしには実行しない。
+  </p>
+  <h3 id="174-gradle-spring">17.4 Gradle Spring</h3>
+  <p>候補:</p>
+  <pre><code class="language-text">./gradlew --offline --no-daemon bootRun
+gradle --offline --no-daemon bootRun
+</code></pre>
+  <p>
+    <code>--offline</code>はdependency downloadを許可しないための条件であり、
+    build scriptの任意コード実行を安全にするものではない。 project code consent、sandbox、resource
+    limitを必須とする。
+  </p>
+  <p>Springにはcentral envから次を渡す。</p>
+  <pre><code class="language-text">SERVER_ADDRESS=127.0.0.1
+SERVER_PORT=&lt;allocated&gt;
+</code></pre>
+  <p>host LLM credential、database credential、cloud credentialを渡さない。</p>
+  <h3 id="175-start-unsupported">17.5 Start unsupported</h3>
+  <p>safe start planを作れない場合:</p>
+  <ul>
+    <li>static scanは継続する。</li>
+    <li>DAST stepは<code>target_start_not_supported</code>とする。</li>
+    <li>coverageは<code>gap</code>とする。</li>
+    <li>finding 0件をDAST clean verdictにしない。</li>
+  </ul>
+  <h2 id="18-reportingとui">18. ReportingとUI</h2>
+  <h3 id="181-pre-scan-preview">18.1 Pre-scan preview</h3>
+  <p>表示:</p>
+  <ul>
+    <li>detected language</li>
+    <li>detected build system</li>
+    <li>detected framework</li>
+    <li>active plugin</li>
+    <li>tool applicability</li>
+    <li>dependency lock coverage</li>
+    <li>DAST start availability</li>
+    <li>limitation</li>
+  </ul>
+  <h3 id="182-post-scan">18.2 Post-scan</h3>
+  <p>reportに次を出力する。</p>
+  <pre><code class="language-markdown">## Technology coverage
+
+| Plugin | Detected | Executed | Support | Coverage | Limitation |
+| --- | --- | --- | --- | --- | --- |
+</code></pre>
+  <p>
+    hard-coded language/ecosystem claimを削除し、 current scanのcapability planとrelease
+    evidenceから生成する。
+  </p>
+  <h3 id="183-zero-finding">18.3 Zero finding</h3>
+  <p>次を明確に区別する。</p>
+  <ul>
+    <li>verified scopeでfinding 0件</li>
+    <li>direct dependencyだけ確認</li>
+    <li>Gradle lockfileなし</li>
+    <li>framework未検出</li>
+    <li>target start未対応</li>
+    <li>scanner execution失敗</li>
+  </ul>
+  <h2 id="19-data-model">19. Data model</h2>
+  <h3 id="191-initial-persistence">19.1 Initial persistence</h3>
+  <p>
+    初期実装では新しいDB tableを必須にしない。 versioned capability planとplugin execution
+    summaryをscan metadataへ保存する。
+  </p>
+  <pre><code class="language-ts">type PluginExecutionSummaryV1 = {
+  schemaVersion: 1;
+  registryDigest: string;
+  detections: ProjectPluginDetection[];
+  capabilityPlan: ProjectCapabilityPlanV1;
+  pluginResults: Array&lt;{
+    pluginId: string;
+    capability: string;
+    status: "completed" | "failed" | "skipped";
+    coverageEffect: "covered" | "partial" | "gap";
+    limitationCodes: string[];
+  }&gt;;
+};
+</code></pre>
+  <p>
+    metadata sizeとquery要件が既存limitを超える場合だけ、独立tableを 別migration
+    sliceとして提案する。
+  </p>
+  <h3 id="192-shared-schema">19.2 Shared schema</h3>
+  <p>追加候補:</p>
+  <pre><code class="language-text">shared/schemas/technology-plugin.schema.ts
+shared/schemas/project-capability-plan.schema.ts
+</code></pre>
+  <p>schemaVersionとpluginApiVersionを分離する。</p>
+  <h2 id="20-scanner-dataとprovenance">20. Scanner dataとprovenance</h2>
+  <h3 id="201-semgrep">20.1 Semgrep</h3>
+  <p>plugin contributionは次を持つ。</p>
+  <pre><code class="language-ts">type SemgrepRuleContribution = {
+  pluginId: string;
+  rulesetId: string;
+  path: string;
+  digest: `sha256:${string}`;
+  language: string;
+};
+</code></pre>
+  <p>scanner-data manifestと実file digestが一致しない場合はfail closedする。</p>
+  <h3 id="202-osv--trivy">20.2 OSV / Trivy</h3>
+  <p>
+    toolboxに他ecosystem DBが残っていてもよい。 正式support claimはactive plugin、applicable
+    input、fixture evidenceに限定する。
+  </p>
+  <h3 id="203-registry-digest">20.3 Registry digest</h3>
+  <p>
+    plugin manifest、declared dependency、ruleset digest、analyzer versionを
+    canonicalizeし、registry digestを生成する。
+  </p>
+  <p>scan artifact、report、release evidenceへregistry digestを保存する。</p>
+  <h2 id="21-fixtureとbenchmark">21. Fixtureとbenchmark</h2>
+  <h3 id="211-typescript">21.1 TypeScript</h3>
+  <ul>
+    <li>vulnerable/fixed Semgrep fixture</li>
+    <li>vulnerable/fixed npm dependency fixture</li>
+    <li>framework endpoint fixture</li>
+    <li>package-script DAST plan fixture</li>
+    <li>full profile E2E</li>
+    <li>diff profile E2E</li>
+  </ul>
+  <h3 id="212-java-maven-spring">21.2 Java Maven Spring</h3>
+  <ul>
+    <li>vulnerable/fixed Java SAST fixture</li>
+    <li>vulnerable/fixed <code>pom.xml</code></li>
+    <li>multi-module parent/child pom</li>
+    <li>Spring class/method mapping</li>
+    <li>Maven start plan</li>
+    <li>missing dependency resolution limitation</li>
+    <li>full profile E2E</li>
+    <li>diff profile E2E</li>
+  </ul>
+  <h3 id="213-java-gradle-spring">21.3 Java Gradle Spring</h3>
+  <ul>
+    <li>vulnerable/fixed <code>gradle.lockfile</code></li>
+    <li><code>buildscript-gradle.lockfile</code></li>
+    <li>verification metadata</li>
+    <li><code>build.gradle</code></li>
+    <li><code>build.gradle.kts</code></li>
+    <li><code>settings.gradle</code></li>
+    <li>multi-project child lock</li>
+    <li>version catalog detection</li>
+    <li>lockfile missing gap</li>
+    <li>lockfile stale indication</li>
+    <li>Gradle start plan</li>
+    <li>full profile E2E</li>
+    <li>diff profile E2E</li>
+  </ul>
+  <h3 id="214-extensibility-fixture">21.4 Extensibility fixture</h3>
+  <p>real languageを追加せず、test-only pluginを登録する。</p>
+  <p>確認事項:</p>
+  <ul>
+    <li>core file変更なしでplugin registrationできる。</li>
+    <li>custom extensionを検出できる。</li>
+    <li>custom manifestをdiff dependency changeとして扱える。</li>
+    <li>endpoint extractor contributionを呼べる。</li>
+    <li>duplicate IDとAPI mismatchを拒否できる。</li>
+  </ul>
+  <p>test-only pluginを正式support一覧へ表示しない。</p>
+  <h2 id="22-実装slice">22. 実装slice</h2>
+  <h3 id="221-slice-520-phase-51-closeout確認とbaseline">
+    22.1 Slice 52.0: Phase 51 closeout確認とbaseline
+  </h3>
+  <p>変更:</p>
+  <ul>
+    <li>Phase 51 hard start gateを検証する。</li>
+    <li>implementation baseline commitを計画書へ記録する。</li>
+    <li>current TypeScript / Java behavior inventoryを保存する。</li>
+    <li>current hard-coded extension、manifest、framework、start logicを列挙する。</li>
+  </ul>
+  <p>Artifact:</p>
+  <pre><code class="language-text">spec/evidence/phase-52-plugin-refactor-baseline.json
+</code></pre>
+  <p>完了条件:</p>
+  <ul>
+    <li>Phase 51 local gate成功</li>
+    <li>baseline commit固定</li>
+    <li>TypeScript/npm baseline成功</li>
+    <li>Java individual scanner baseline記録</li>
+    <li>known gap再現</li>
+  </ul>
+  <h3 id="222-slice-521-contractとregistry">22.2 Slice 52.1: Contractとregistry</h3>
+  <p>追加候補:</p>
+  <pre><code class="language-text">shared/schemas/technology-plugin.schema.ts
+shared/schemas/project-capability-plan.schema.ts
+api/modules/project-capabilities/plugin-contract.ts
+api/modules/project-capabilities/plugin-registry.ts
+api/modules/project-capabilities/plugin-detector.ts
+api/modules/project-capabilities/plugin-registry.test.ts
+</code></pre>
+  <p>完了条件:</p>
+  <ul>
+    <li>manifest validation</li>
+    <li>deterministic order</li>
+    <li>dependency resolution</li>
+    <li>collision rejection</li>
+    <li>test-only plugin成功</li>
+    <li>production behavior変更なし</li>
+  </ul>
+  <h3 id="223-slice-522-typescriptnpm-shadow-migration">
+    22.3 Slice 52.2: TypeScript/npm shadow migration
+  </h3>
+  <p>変更候補:</p>
+  <pre><code class="language-text">api/plugins/builtin/typescript/language.ts
+api/plugins/builtin/typescript/npm.ts
+api/modules/scans/profiles.ts
+api/modules/scans/target-scope.ts
+api/modules/scans/diff-scan-plan.ts
+api/modules/static-intelligence/project-structure/
+api/modules/threat-models/endpoint-extractors/
+api/modules/dast/target-preparer.ts
+</code></pre>
+  <p>shadow modeでlegacyとplugin planを比較する。</p>
+  <p>完了条件:</p>
+  <ul>
+    <li>TypeScript baseline result同値</li>
+    <li>npm dependency applicability同値</li>
+    <li>TypeScript project structure同値</li>
+    <li>DAST start plan同値</li>
+    <li>plan mismatch 0件</li>
+  </ul>
+  <h3 id="224-slice-523-javamaven-plugin">22.4 Slice 52.3: Java/Maven plugin</h3>
+  <p>変更:</p>
+  <ul>
+    <li>Java language detection</li>
+    <li>Java Semgrep rule selection</li>
+    <li>Java structure analyzer</li>
+    <li>Maven dependency scope</li>
+    <li>Maven diff applicability</li>
+    <li>direct/transitive coverage表示</li>
+  </ul>
+  <p>完了条件:</p>
+  <ul>
+    <li>Java SAST fixture pass</li>
+    <li>Maven vulnerable/fixed pass</li>
+    <li>multi-module scope pass</li>
+    <li>baseline profileでOSV workspaceがemptyにならない</li>
+    <li>direct-onlyをverified transitiveとして表示しない</li>
+  </ul>
+  <h3 id="225-slice-524-javagradle-plugin">22.5 Slice 52.4: Java/Gradle plugin</h3>
+  <p>変更:</p>
+  <ul>
+    <li>Gradle detection</li>
+    <li>Gradle lock materialization</li>
+    <li>Gradle tool applicability</li>
+    <li>multi-project coverage</li>
+    <li>lockfile missing gap</li>
+  </ul>
+  <p>完了条件:</p>
+  <ul>
+    <li>OSV supported Gradle input fixture pass</li>
+    <li>Trivy Gradle lock fixture pass</li>
+    <li>vulnerable/fixed distinction</li>
+    <li>diff lock change applicable</li>
+    <li>build script only caseはgap</li>
+    <li>baseline中のGradle execution 0回</li>
+    <li>network request 0回</li>
+    <li>target repository mutation 0件</li>
+  </ul>
+  <h3 id="226-slice-525-spring-framework-plugin">22.6 Slice 52.5: Spring framework plugin</h3>
+  <p>変更:</p>
+  <ul>
+    <li>Spring detection</li>
+    <li>endpoint extractor contribution</li>
+    <li>class/method mapping</li>
+    <li>schema discovery hints</li>
+    <li>application model evidence</li>
+  </ul>
+  <p>完了条件:</p>
+  <ul>
+    <li>Maven Spring fixture pass</li>
+    <li>Gradle Spring fixture pass</li>
+    <li>endpoint recall / precision gate pass</li>
+    <li>non-Spring Java false detection 0件</li>
+    <li>unsupported surface limitation保存</li>
+  </ul>
+  <h3 id="227-slice-526-dast-start-adapter">22.7 Slice 52.6: DAST start adapter</h3>
+  <p>Phase 51 contractへTypeScript、Maven Spring、Gradle Spring start planを接続する。</p>
+  <p>完了条件:</p>
+  <ul>
+    <li>pluginがprocessを直接spawnしない</li>
+    <li>consentなしのMaven/Gradle execution 0回</li>
+    <li>loopback / port enforcement</li>
+    <li>cleanup success</li>
+    <li>start unsupportedがfalse-passにならない</li>
+    <li>Phase 51 DAST gate回帰なし</li>
+  </ul>
+  <h3 id="228-slice-527-reportinguienforced-rollout">
+    22.8 Slice 52.7: Reporting、UI、enforced rollout
+  </h3>
+  <p>変更:</p>
+  <ul>
+    <li>capability preview</li>
+    <li>technology coverage</li>
+    <li>hard-coded claim除去</li>
+    <li>shadow mismatch resolution</li>
+    <li>enforced mode</li>
+  </ul>
+  <p>完了条件:</p>
+  <ul>
+    <li>TypeScript/npm claim正確</li>
+    <li>Java/Maven claim正確</li>
+    <li>Java/Gradle claim正確</li>
+    <li>Spring claim正確</li>
+    <li>unsupported languageをverified表示しない</li>
+    <li>zero findingとcoverage gapを分離</li>
+  </ul>
+  <h3 id="229-slice-528-legacy-removalとcloseout">22.9 Slice 52.8: Legacy removalとcloseout</h3>
+  <p>削除対象:</p>
+  <ul>
+    <li>fixed dependency manifest list</li>
+    <li>direct extension switch</li>
+    <li>direct framework switch</li>
+    <li>package.json専用start inferenceのcore ownership</li>
+    <li>hard-coded support claim</li>
+  </ul>
+  <p>完了条件:</p>
+  <ul>
+    <li>legacy rollback window終了</li>
+    <li>plugin registryがsingle source of truth</li>
+    <li>clean checkout strict gate pass</li>
+    <li>release evidence保存</li>
+  </ul>
+  <h2 id="23-verification-inventory">23. Verification inventory</h2>
+  <h3 id="231-existing-regression">23.1 Existing regression</h3>
+  <pre><code class="language-bash">bun run typecheck
+bun run lint
+bun test api/modules/scans
+bun test api/modules/static-intelligence
+bun test api/modules/threat-models
+bun test api/modules/dast
+bun run test:semgrep:catalog
+bun run test:osv:offline-fixtures
+bun run verify:phase-51-baseline
+bun run verify:dast-capability
+</code></pre>
+  <h3 id="232-new-focused-tests">23.2 New focused tests</h3>
+  <p>追加候補:</p>
+  <pre><code class="language-text">api/modules/project-capabilities/plugin-registry.test.ts
+api/modules/project-capabilities/plugin-detector.test.ts
+api/modules/scans/plugin-dependency-scope.test.ts
+api/modules/scans/plugin-diff-applicability.test.ts
+api/modules/static-intelligence/project-structure/java-analyzer.test.ts
+api/modules/threat-models/spring-plugin.test.ts
+api/modules/dast/plugin-start-planner.test.ts
+tests/security-capability/plugins/
+tests/security-capability/java-maven/
+tests/security-capability/java-gradle/
+</code></pre>
+  <h3 id="233-implemented-commands">23.3 Implemented commands</h3>
+  <pre><code class="language-json">{
+  "test:technology-plugins": "bun test api/modules/project-capabilities tests/security-capability/plugins",
+  "test:java-maven-capability": "bun test tests/security-capability/java-maven",
+  "test:java-gradle-capability": "bun test tests/security-capability/java-gradle",
+  "verify:phase-52-capability": "bun run test:technology-plugins &amp;&amp; bun run test:java-maven-capability &amp;&amp; bun run test:java-gradle-capability"
+}
+</code></pre>
+  <p>command名は実装時に既存package script namingと衝突しないことを確認する。</p>
+  <p>
+    実装済み<code>verify:phase-52-capability</code>は、上記focused testに加えてSemgrep
+    catalog、OSV offline fixture contract、registry/ruleset/fixture digestの検証と local
+    evidence生成を行う。
+  </p>
+  <h3 id="234-expected-results">23.4 Expected results</h3>
+  <ul>
+    <li>TypeScript/npm regression 0件</li>
+    <li>Java Semgrep positive recall 100%</li>
+    <li>Java Semgrep negative false positive 0件</li>
+    <li>Maven vulnerable detected / fixed excluded</li>
+    <li>Gradle vulnerable detected / fixed excluded</li>
+    <li>Gradle lock missing false-clean 0件</li>
+    <li>Maven direct-only false-verified 0件</li>
+    <li>plugin registry collisionを全件拒否</li>
+    <li>DAST start without consent 0件</li>
+    <li>scanner network request 0件</li>
+    <li>target repository mutation 0件</li>
+    <li>unsupported language verified claim 0件</li>
+  </ul>
+  <h2 id="24-rollout">24. Rollout</h2>
+  <h3 id="241-stages">24.1 Stages</h3>
+  <table>
+    <caption>
+      24.1 Stages
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Stage</th>
+        <th scope="col">Behavior</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>legacy</code></td>
+        <td>現行pathのみ実行</td>
+      </tr>
+      <tr>
+        <td><code>shadow</code></td>
+        <td>現行pathを実行し、plugin planとの差分を保存</td>
+      </tr>
+      <tr>
+        <td><code>enforced</code></td>
+        <td>plugin planがscope、applicability、adapterを決定</td>
+      </tr>
+    </tbody>
+  </table>
+  <h3 id="242-shadow-mismatch">24.2 Shadow mismatch</h3>
+  <p>次をmismatchとして保存する。</p>
+  <ul>
+    <li>active tool差</li>
+    <li>manifest file差</li>
+    <li>changed dependency判定差</li>
+    <li>endpoint差</li>
+    <li>start plan差</li>
+    <li>support claim差</li>
+  </ul>
+  <p>secret、source body、absolute home pathは保存しない。</p>
+  <h3 id="243-rollback">24.3 Rollback</h3>
+  <p>enforced rollout後も1 release windowはlegacy adapterを保持する。</p>
+  <p>rollback条件:</p>
+  <ul>
+    <li>TypeScript baseline finding loss</li>
+    <li>npm dependency finding loss</li>
+    <li>Java profile false success</li>
+    <li>Gradle lockfile見落とし</li>
+    <li>DAST target cleanup regression</li>
+    <li>plugin detection非決定性</li>
+    <li>registry digest不一致</li>
+    <li>report support過大表示</li>
+  </ul>
+  <p>rollbackではdata migrationを巻き戻さず、execution selectionをlegacyへ戻す。</p>
+  <h2 id="25-risk-register">25. Risk register</h2>
+  <table>
+    <caption>
+      25. Risk register
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Risk</th>
+        <th scope="col">Impact</th>
+        <th scope="col">Mitigation</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>plugin抽象化が過大</td>
+        <td>review困難、回帰</td>
+        <td>3 kindと初期6系統に限定</td>
+      </tr>
+      <tr>
+        <td>arbitrary plugin code</td>
+        <td>RCE、credential漏洩</td>
+        <td>built-in explicit registrationのみ</td>
+      </tr>
+      <tr>
+        <td>detector競合</td>
+        <td>誤ったadapter選択</td>
+        <td>evidence、priority、collision rejection</td>
+      </tr>
+      <tr>
+        <td>Gradle lockなし</td>
+        <td>dependency false-clean</td>
+        <td>gapとしてfail truthful</td>
+      </tr>
+      <tr>
+        <td>Maven transitive未解決</td>
+        <td>coverage過大表示</td>
+        <td>direct/transitiveを分離</td>
+      </tr>
+      <tr>
+        <td>build script実行</td>
+        <td>arbitrary code</td>
+        <td>static scanでは禁止、DASTはconsent+sandbox</td>
+      </tr>
+      <tr>
+        <td>TypeScript回帰</td>
+        <td>現行利用者影響</td>
+        <td>shadow comparison</td>
+      </tr>
+      <tr>
+        <td>DAST詳細化との競合</td>
+        <td>merge conflict、contract drift</td>
+        <td>Phase 51 hard start gate</td>
+      </tr>
+      <tr>
+        <td>scanner dataとplugin不一致</td>
+        <td>再現性喪失</td>
+        <td>digestとregistry hash</td>
+      </tr>
+      <tr>
+        <td>inactive言語finding</td>
+        <td>support claim混乱</td>
+        <td>unverified metadata</td>
+      </tr>
+      <tr>
+        <td>multi-module欠落</td>
+        <td>Java依存見落とし</td>
+        <td>parent/child fixtureとmodule coverage</td>
+      </tr>
+      <tr>
+        <td>report hard-code残存</td>
+        <td>過大claim</td>
+        <td>generated coverage、static audit</td>
+      </tr>
+    </tbody>
+  </table>
+  <h2 id="26-pr分割">26. PR分割</h2>
+  <table>
+    <caption>
+      26. PR分割
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">PR</th>
+        <th scope="col">内容</th>
+        <th scope="col">依存</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>52-A</td>
+        <td>baseline evidence、contract、registry</td>
+        <td>Phase 51 closeout</td>
+      </tr>
+      <tr>
+        <td>52-B</td>
+        <td>TypeScript/npm shadow adapter</td>
+        <td>52-A</td>
+      </tr>
+      <tr>
+        <td>52-C</td>
+        <td>Java language、Maven</td>
+        <td>52-B</td>
+      </tr>
+      <tr>
+        <td>52-D</td>
+        <td>Gradle</td>
+        <td>52-C</td>
+      </tr>
+      <tr>
+        <td>52-E</td>
+        <td>Spring structure/Application Model</td>
+        <td>52-C、52-D</td>
+      </tr>
+      <tr>
+        <td>52-F</td>
+        <td>DAST start adapter</td>
+        <td>Phase 51 frozen contract、52-E</td>
+      </tr>
+      <tr>
+        <td>52-G</td>
+        <td>report/UI、enforced rollout</td>
+        <td>52-B–52-F</td>
+      </tr>
+      <tr>
+        <td>52-H</td>
+        <td>legacy removal、release evidence</td>
+        <td>52-G</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>各PRは独立してrevert可能にする。 contractと全consumerを1つの巨大PRで置換しない。</p>
+  <h2 id="27-phase-52-definition-of-done">27. Phase 52 Definition of Done</h2>
+  <p>次をすべて満たした場合のみPhase 52完了とする。</p>
+  <ol>
+    <li>Phase 51 hard start gateの成功記録がある。</li>
+    <li>plugin API v1とschemaがversionedである。</li>
+    <li>built-in registryが決定論的である。</li>
+    <li>duplicate、cycle、missing dependency、API mismatchを拒否する。</li>
+    <li>TypeScript/npmがplugin経由で現行挙動を維持する。</li>
+    <li>Java SASTがplugin経由で実行される。</li>
+    <li>Maven <code>pom.xml</code>が通常・差分scanで認識される。</li>
+    <li>Maven direct/transitive coverageを区別する。</li>
+    <li>Gradle lockfileが通常・差分scanで認識される。</li>
+    <li>Gradle lockfileなしをclean resultにしない。</li>
+    <li>baseline scanがGradle buildを実行しない。</li>
+    <li>Spring Boot / MVC endpointをMaven/Gradle fixtureで抽出できる。</li>
+    <li>Java project structureが0 analyzed fileにならない。</li>
+    <li>TypeScript、Java以外を正式verified表示しない。</li>
+    <li>pluginはDB、network、processへ直接accessしない。</li>
+    <li>Maven/Gradle DAST startはconsentとsandboxを必須とする。</li>
+    <li>DAST start failureをpassedにしない。</li>
+    <li>reportとUIが実測coverageを表示する。</li>
+    <li>test-only pluginをcore consumer変更なしで登録できる。</li>
+    <li>TypeScript regression、Phase 51 DAST regressionが0件である。</li>
+    <li>scanner、ruleset、registry、fixture digestをrelease evidenceへ保存する。</li>
+    <li>clean checkout strict gateが通る。</li>
+  </ol>
+  <h2 id="28-実装開始時の再確認">28. 実装開始時の再確認</h2>
+  <p>Phase 52着手時は、計画書作成時点からのdriftを再確認する。</p>
+  <ul>
+    <li>Phase 51で変更されたDAST contract</li>
+    <li>profile step schema</li>
+    <li>target preparer</li>
+    <li>runtime assessment coverage</li>
+    <li>scanner-data manifest</li>
+    <li>Semgrep ruleset</li>
+    <li>OSV / Trivy version</li>
+    <li>current TypeScript framework inventory</li>
+    <li>current working tree</li>
+  </ul>
+  <p>driftがある場合、実装を推測で開始せず、Slice 52.0 baselineと該当sectionを更新する。</p>
+  <h2 id="29-公式仕様参照">29. 公式仕様参照</h2>
+  <ul>
+    <li>
+      OSV-Scanner Supported Artifacts and Manifests: <code>https://google.github.io/osv-scanner/supported-languages-and-lockfiles/</code>
+    </li>
+    <li>Trivy Java: <code>https://trivy.dev/docs/latest/coverage/language/java/</code></li>
+    <li>Gradle Dependency Locking: <code>https://docs.gradle.org/current/userguide/dependency_locking.html</code></li>
+    <li>Semgrep Rule Testing: <code>https://semgrep.dev/docs/writing-rules/testing-rules/</code></li>
+  </ul>
+  <p>
+    参照仕様が更新されても、scanner versionとfixtureを更新せずに supported inputを自動拡張しない。
+  </p>
+  <h2 id="30-参照するrepository-file">30. 参照するrepository file</h2>
+  <ul>
+    <li><code>api/modules/scans/profiles.ts</code></li>
+    <li><code>api/modules/scans/target-scope.ts</code></li>
+    <li><code>api/modules/scans/diff-scan-plan.ts</code></li>
+    <li><code>api/modules/scans/tools/osv-runner.ts</code></li>
+    <li><code>api/modules/scans/tools/trivy-runner.ts</code></li>
+    <li><code>api/modules/scans/tools/semgrep-runner.ts</code></li>
+    <li><code>api/modules/static-intelligence/project-structure/inventory-classification.ts</code></li>
+    <li><code>api/modules/static-intelligence/project-structure/analyzers/registry.ts</code></li>
+    <li><code>api/modules/threat-models/endpoint-extractors/index.ts</code></li>
+    <li><code>api/modules/threat-models/endpoint-extractors/java.ts</code></li>
+    <li><code>api/modules/dast/target-preparer.ts</code></li>
+    <li><code>api/modules/scans/profile-step-orchestrator.ts</code></li>
+    <li><code>api/modules/scans/report-builder-finalize.ts</code></li>
+    <li><code>docker/toolbox/scanner-data/scanner-data-manifest.json</code></li>
+    <li><code>docker/toolbox/scanner-data/semgrep-rules/catalog.json</code></li>
+  </ul>
+</article>
+  </body>
+</html>

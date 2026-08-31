@@ -5,12 +5,19 @@ import path from "node:path";
 import type { ScanScopePolicy } from "../../../../shared/schemas/scan-profile.schema";
 import { isSafeRelativePluginPath } from "../../project-capabilities/path-patterns";
 import type { SemgrepRuleContribution } from "../../project-capabilities/plugin-contract";
-import type { ArtifactSaveResult, ArtifactStorage } from "../artifact-storage";
 import {
 	normalizeScannerOutputText,
 	normalizeStructuredOutputPaths,
-} from "../diff-output-paths";
-import { redactJsonSecrets, redactSecrets } from "../normalizers/redaction";
+} from "../execution/diff/diff-output-paths";
+import type {
+	ArtifactSaveResult,
+	ArtifactStorage,
+} from "../execution/lifecycle/artifact-storage";
+import { cleanupTemporaryPaths } from "../execution/lifecycle/temporary-path-cleanup";
+import {
+	redactJsonSecrets,
+	redactSecrets,
+} from "../findings/normalizers/redaction";
 import { getScopeExcludeGlobs, getScopeIncludeGlobs } from "../target-scope";
 import { filterOwnedJavaTaintResults } from "./java-taint-precision-filter";
 import {
@@ -81,33 +88,11 @@ export class SemgrepRunner {
 			};
 		}
 
-		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "semgrep-run-"));
-		const tempJsonPath = path.join(tempDir, "semgrep-output.json");
-
-		const args = ["scan"];
-
 		const configs = await resolveSemgrepConfigs(
 			options.config,
 			options.ruleContributions,
 			this.execution,
 		);
-		for (const config of configs) args.push("--config", config);
-
-		args.push("--json");
-		args.push("--output", tempJsonPath);
-
-		if (options.maxTargetBytes !== undefined) {
-			args.push("--max-target-bytes", String(options.maxTargetBytes));
-		}
-		for (const includeGlob of getScopeIncludeGlobs(options.scope)) {
-			if (includeGlob !== "**/*") {
-				args.push("--include", includeGlob);
-			}
-		}
-		for (const excludeGlob of getScopeExcludeGlobs(options.scope)) {
-			args.push("--exclude", excludeGlob);
-		}
-
 		const targetPaths = options.targetPaths?.length
 			? options.targetPaths.map((relativePath) => {
 					const absolutePath = path.resolve(repoPath, relativePath);
@@ -122,15 +107,41 @@ export class SemgrepRunner {
 					return absolutePath;
 				})
 			: [repoPath];
+
+		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "semgrep-run-"));
+		const tempJsonPath = path.join(tempDir, "semgrep-output.json");
+		const args = ["scan"];
+		for (const config of configs) args.push("--config", config);
+		args.push("--json", "--output", tempJsonPath);
+		if (options.maxTargetBytes !== undefined) {
+			args.push("--max-target-bytes", String(options.maxTargetBytes));
+		}
+		for (const includeGlob of getScopeIncludeGlobs(options.scope)) {
+			if (includeGlob !== "**/*") {
+				args.push("--include", includeGlob);
+			}
+		}
+		for (const excludeGlob of getScopeExcludeGlobs(options.scope)) {
+			args.push("--exclude", excludeGlob);
+		}
 		args.push(...targetPaths);
 
-		const runResult = await runToolProcess("semgrep", args, {
-			timeoutSec: options.timeoutSec,
-			execution: this.execution,
-			repoPath,
-			outputPath: tempJsonPath,
-			onLifecycleEvent: options.onLifecycleEvent,
-		});
+		let runResult: Awaited<ReturnType<typeof runToolProcess>>;
+		try {
+			runResult = await runToolProcess("semgrep", args, {
+				timeoutSec: options.timeoutSec,
+				execution: this.execution,
+				repoPath,
+				outputPath: tempJsonPath,
+				onLifecycleEvent: options.onLifecycleEvent,
+			});
+		} catch (error) {
+			await cleanupTemporaryPaths(
+				[tempDir],
+				"semgrep_workspace_cleanup_failed",
+			);
+			throw error;
+		}
 		const {
 			exitCode,
 			stdout: rawStdout,
@@ -146,7 +157,10 @@ export class SemgrepRunner {
 			: rawStderr;
 
 		if (!runResult.ok) {
-			await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+			await cleanupTemporaryPaths(
+				[tempDir],
+				"semgrep_workspace_cleanup_failed",
+			);
 			return {
 				ok: false,
 				exitCode: runResult.exitCode,
@@ -187,12 +201,7 @@ export class SemgrepRunner {
 			// output was invalid or not found
 		}
 
-		// Clean up temporary path
-		try {
-			await fs.rm(tempDir, { recursive: true, force: true });
-		} catch {
-			// ignore cleanup error
-		}
+		await cleanupTemporaryPaths([tempDir], "semgrep_workspace_cleanup_failed");
 
 		const isCompleted = exitCode === 0 || (exitCode === 1 && jsonValid);
 
@@ -206,14 +215,20 @@ export class SemgrepRunner {
 					const tempOutDir = await fs.mkdtemp(
 						path.join(os.tmpdir(), "semgrep-invalid-"),
 					);
-					const finalTempPath = path.join(tempOutDir, "semgrep-result.json");
-					await fs.writeFile(finalTempPath, redactSecrets(rawJsonText));
-					rawJsonArtifact = await this.storage.saveRawArtifact(
-						scanRunId,
-						finalTempPath,
-						"semgrep-result.json",
-					);
-					await fs.rm(tempOutDir, { recursive: true, force: true });
+					try {
+						const finalTempPath = path.join(tempOutDir, "semgrep-result.json");
+						await fs.writeFile(finalTempPath, redactSecrets(rawJsonText));
+						rawJsonArtifact = await this.storage.saveRawArtifact(
+							scanRunId,
+							finalTempPath,
+							"semgrep-result.json",
+						);
+					} finally {
+						await cleanupTemporaryPaths(
+							[tempOutDir],
+							"semgrep_artifact_workspace_cleanup_failed",
+						);
+					}
 				}
 				if (stdout) {
 					stdoutArtifact = await this.storage.saveLog(
@@ -254,19 +269,24 @@ export class SemgrepRunner {
 			const tempOutDir = await fs.mkdtemp(
 				path.join(os.tmpdir(), "semgrep-final-"),
 			);
-			const finalTempPath = path.join(tempOutDir, "semgrep-result.json");
-			await fs.writeFile(
-				finalTempPath,
-				JSON.stringify(redactedRawJson, null, 2),
-			);
+			try {
+				const finalTempPath = path.join(tempOutDir, "semgrep-result.json");
+				await fs.writeFile(
+					finalTempPath,
+					JSON.stringify(redactedRawJson, null, 2),
+				);
 
-			rawJsonArtifact = await this.storage.saveRawArtifact(
-				scanRunId,
-				finalTempPath,
-				"semgrep-result.json",
-			);
-
-			await fs.rm(tempOutDir, { recursive: true, force: true });
+				rawJsonArtifact = await this.storage.saveRawArtifact(
+					scanRunId,
+					finalTempPath,
+					"semgrep-result.json",
+				);
+			} finally {
+				await cleanupTemporaryPaths(
+					[tempOutDir],
+					"semgrep_artifact_workspace_cleanup_failed",
+				);
+			}
 
 			if (stdout) {
 				stdoutArtifact = await this.storage.saveLog(

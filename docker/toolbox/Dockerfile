@@ -9,6 +9,12 @@ ARG OSV_SCANNER_SOURCE_SHA256=76d55cde9bbef2e3ecdb441dfe387d027937536432c1c78441
 ARG NUCLEI_VERSION=3.11.1
 ARG NUCLEI_SOURCE_COMMIT=a8c88feb4a1c8e961b7902534ce3af97e9d524a4
 ARG NUCLEI_SOURCE_SHA256=233fd559f0f2287310709ed0f19613a9e298dbff03ee7f9e0905a0709e8537e4
+ARG COSIGN_VERSION=3.1.3
+ARG COSIGN_SOURCE_COMMIT=11926fa5bbbbde47e88fc006b625a17769b743b2
+ARG COSIGN_SOURCE_SHA256=3a718446bac51466efff6853639e1ca108b456ecbf07cd92938f548715d22d6b
+ARG SLSA_VERIFIER_VERSION=2.7.1
+ARG SLSA_VERIFIER_SOURCE_COMMIT=ea584f4502babc6f60d9bc799dbbb13c1caa9ee6
+ARG SLSA_VERIFIER_SOURCE_SHA256=c1ed640d3f775d09549488d120f7d02694c1bbf5bf885c302a7916660c62056d
 
 ENV CGO_ENABLED=0 \
 	GOTOOLCHAIN=local
@@ -42,6 +48,26 @@ RUN mkdir -p /src/nuclei \
 	&& go get github.com/go-git/go-git/v5@v5.19.2 \
 	&& go build -trimpath -buildvcs=false -ldflags "-s -w" -o /out/nuclei ./cmd/nuclei
 
+RUN mkdir -p /src/cosign \
+	&& curl -fsSL --retry 5 --retry-all-errors --connect-timeout 15 --max-time 300 \
+		-o /tmp/cosign.tar.gz "https://codeload.github.com/sigstore/cosign/tar.gz/${COSIGN_SOURCE_COMMIT}" \
+	&& echo "${COSIGN_SOURCE_SHA256}  /tmp/cosign.tar.gz" | sha256sum -c - \
+	&& tar -xzf /tmp/cosign.tar.gz -C /src/cosign --strip-components=1 \
+	&& cd /src/cosign \
+	&& go build -trimpath -buildvcs=false \
+		-ldflags "-s -w -buildid= -X sigs.k8s.io/release-utils/version.gitVersion=v${COSIGN_VERSION} -X sigs.k8s.io/release-utils/version.gitCommit=${COSIGN_SOURCE_COMMIT} -X sigs.k8s.io/release-utils/version.gitTreeState=clean" \
+		-o /out/cosign ./cmd/cosign
+
+RUN mkdir -p /src/slsa-verifier \
+	&& curl -fsSL --retry 5 --retry-all-errors --connect-timeout 15 --max-time 300 \
+		-o /tmp/slsa-verifier.tar.gz "https://codeload.github.com/slsa-framework/slsa-verifier/tar.gz/${SLSA_VERIFIER_SOURCE_COMMIT}" \
+	&& echo "${SLSA_VERIFIER_SOURCE_SHA256}  /tmp/slsa-verifier.tar.gz" | sha256sum -c - \
+	&& tar -xzf /tmp/slsa-verifier.tar.gz -C /src/slsa-verifier --strip-components=1 \
+	&& cd /src/slsa-verifier \
+	&& go build -trimpath -buildvcs=false \
+		-ldflags "-s -w -buildid= -X sigs.k8s.io/release-utils/version.gitVersion=v${SLSA_VERIFIER_VERSION} -X sigs.k8s.io/release-utils/version.gitCommit=${SLSA_VERIFIER_SOURCE_COMMIT} -X sigs.k8s.io/release-utils/version.gitTreeState=clean" \
+		-o /out/slsa-verifier ./cli/slsa-verifier
+
 FROM golang:1.26.6-bookworm@sha256:116d58cbd88c1297624acc6e967a060012422bacf9930927e23fb719189c6f36 AS trivy-binary
 
 ARG TRIVY_VERSION=0.72.0
@@ -66,16 +92,45 @@ FROM python:3.12-slim-bookworm@sha256:a116514e19457bcb7af7efe9c3dd0b9b71e85b3176
 
 ARG TARGETARCH
 ARG SCHEMATHESIS_VERSION=4.24.2
+ARG ZIZMOR_VERSION=1.29.0
+ARG ZIZMOR_SOURCE_COMMIT=3c116961091b50bd1a08ffefe916469d4d90093c
+ARG ZIZMOR_SHA256_AMD64=dd96df044a6e8538d5f423790f453bdd03d49e5b2bcc38214acc41a2f1297839
+ARG ZIZMOR_SHA256_ARM64=415eaa7c0a06479a701b8e44a3e812c1047decc848ec4bede7bd6bbf49f22d20
+ARG ZIZMOR_LICENSE_SHA256=a6fd1bd18da7cec8284639d5b0d351b90934317be1b9f9ea94a077621c6f35af
 
 LABEL org.opencontainers.image.title="vulnWorkbench toolbox"
-LABEL org.opencontainers.image.description="Core toolbox image for Gitleaks, OSV-Scanner, Trivy, Nuclei, and Schemathesis"
+LABEL org.opencontainers.image.description="Core toolbox image for Gitleaks, OSV-Scanner, Trivy, zizmor, Nuclei, Schemathesis, Cosign, and slsa-verifier"
 LABEL vuln-workbench.toolbox.version="2"
+LABEL vuln-workbench.scanner.cosign.version="3.1.3"
+LABEL vuln-workbench.scanner.cosign.license="Apache-2.0"
+LABEL vuln-workbench.scanner.zizmor.version="1.29.0"
+LABEL vuln-workbench.scanner.zizmor.license="MIT"
+LABEL vuln-workbench.scanner.slsa-verifier.version="2.7.1"
+LABEL vuln-workbench.scanner.slsa-verifier.license="Apache-2.0"
 
 RUN apt-get update \
 	&& apt-get install -y --no-install-recommends ca-certificates curl git tar gzip unzip \
 	&& rm -rf /var/lib/apt/lists/*
 
-COPY --from=patched-tools /out/gitleaks /out/osv-scanner /out/nuclei /usr/local/bin/
+RUN case "${TARGETARCH}" in \
+		amd64) zizmor_arch="x86_64"; zizmor_sha="${ZIZMOR_SHA256_AMD64}" ;; \
+		arm64) zizmor_arch="aarch64"; zizmor_sha="${ZIZMOR_SHA256_ARM64}" ;; \
+		*) echo "Unsupported TARGETARCH for zizmor: ${TARGETARCH}" >&2; exit 1 ;; \
+	esac \
+	&& curl -fsSL --retry 5 --retry-all-errors --connect-timeout 15 --max-time 300 \
+		-o /tmp/zizmor.tar.gz "https://github.com/zizmorcore/zizmor/releases/download/v${ZIZMOR_VERSION}/zizmor-${zizmor_arch}-unknown-linux-gnu.tar.gz" \
+	&& echo "${zizmor_sha}  /tmp/zizmor.tar.gz" | sha256sum -c - \
+	&& tar -xzf /tmp/zizmor.tar.gz -C /usr/local/bin zizmor \
+	&& chmod 0755 /usr/local/bin/zizmor \
+	&& mkdir -p /usr/share/licenses/zizmor \
+	&& curl -fsSL --retry 5 --retry-all-errors --connect-timeout 15 --max-time 60 \
+		-o /usr/share/licenses/zizmor/LICENSE "https://raw.githubusercontent.com/zizmorcore/zizmor/${ZIZMOR_SOURCE_COMMIT}/LICENSE" \
+	&& echo "${ZIZMOR_LICENSE_SHA256}  /usr/share/licenses/zizmor/LICENSE" | sha256sum -c - \
+	&& rm -f /tmp/zizmor.tar.gz
+
+COPY --from=patched-tools /out/gitleaks /out/osv-scanner /out/nuclei /out/cosign /out/slsa-verifier /usr/local/bin/
+COPY --from=patched-tools /src/cosign/LICENSE /src/cosign/COPYRIGHT.txt /usr/share/licenses/cosign/
+COPY --from=patched-tools /src/slsa-verifier/LICENSE /usr/share/licenses/slsa-verifier/
 COPY --from=trivy-binary /trivy /usr/local/bin/trivy
 
 RUN python -m venv /opt/schemathesis \
@@ -83,13 +138,20 @@ RUN python -m venv /opt/schemathesis \
 	&& ln -s /opt/schemathesis/bin/st /usr/local/bin/st \
 	&& command -v st
 
+COPY docker/toolbox/schemathesis-readonly-gateway.py /usr/local/bin/vwb-schemathesis-readonly-gateway
+RUN chmod 0755 /usr/local/bin/vwb-schemathesis-readonly-gateway
+
 COPY docker/toolbox/nuclei-safe-templates /opt/vuln-workbench/nuclei-safe-templates
 COPY --from=scanner-data / /opt/vuln-workbench/scanner-data
 
+# Trivy persists its per-scan fanal cache beside the immutable offline DB. The
+# scanner remains uid 65532 under the Docker runner's constrained policy; this
+# only permits copy-on-write cache entries in the ephemeral container layer.
 RUN mkdir -p /workspace/repo /workspace/out /workspace/cache \
 	&& mkdir -p /workspace/cache/.cache \
 	&& ln -s /opt/vuln-workbench/scanner-data/osv/osv-scanner /workspace/cache/.cache/osv-scanner \
 	&& chmod -R a+rX /opt/vuln-workbench/scanner-data \
+	&& chmod -R a+rwX /opt/vuln-workbench/scanner-data/trivy \
 	&& chown -R 65532:65532 /workspace
 
 ENV HOME=/workspace/cache \

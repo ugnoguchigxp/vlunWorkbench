@@ -5,6 +5,8 @@ import {
 	verificationKindSchema,
 } from "./verification.schema";
 
+export const MAX_REPRODUCTION_TIMEOUT_SEC = 900;
+
 export const reproductionRunStatusSchema = z.enum([
 	"queued",
 	"running",
@@ -102,7 +104,12 @@ export const runReproductionRequestSchema = z.object({
 	runner: z.enum(["docker"]).default("docker"),
 	dockerImage: z.string().optional(),
 	network: z.enum(["none", "default"]).optional(),
-	timeoutSec: z.number().int().positive().optional(),
+	timeoutSec: z
+		.number()
+		.int()
+		.positive()
+		.max(MAX_REPRODUCTION_TIMEOUT_SEC)
+		.optional(),
 	memory: z.string().optional(),
 	cpus: z.string().optional(),
 });

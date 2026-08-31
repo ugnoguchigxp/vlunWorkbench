@@ -57,11 +57,15 @@ describe("dynamic run policy", () => {
 			"exceeds the profile",
 		);
 
-		expect(resolveDynamicNetworkMode("default")).toBe("default");
-		expect(resolveDynamicNetworkMode("default", "none")).toBe("none");
+		expect(() => resolveDynamicNetworkMode("default")).toThrow(
+			"qualified runtime bundle",
+		);
+		expect(() => resolveDynamicNetworkMode("default", "none")).toThrow(
+			"qualified runtime bundle",
+		);
 		expect(resolveDynamicNetworkMode("none")).toBe("none");
 		expect(() => resolveDynamicNetworkMode("none", "default")).toThrow(
-			"exceeds the profile network policy",
+			"qualified runtime bundle",
 		);
 	});
 

@@ -44,6 +44,10 @@ export function bindScanReviewSystemContext() {
 	return bindJapanese(PROMPT_KEYS.scanReview, {});
 }
 
+export function bindImprovementRequestSystemContext() {
+	return bindJapanese(PROMPT_KEYS.improvementRequest, {});
+}
+
 export function bindReportSummarySystemContext() {
 	return bindJapanese(PROMPT_KEYS.reportSummary, {});
 }
@@ -62,6 +66,14 @@ export function bindScanReviewUserMessage(
 	bundle: ScanReviewBundle,
 ): PromptInvocation<"scans.scanReviewInput", "user"> {
 	return bindJapanese(PROMPT_KEYS.scanReviewInput, {
+		bundle: toJsonValue(bundle),
+	});
+}
+
+export function bindImprovementRequestUserMessage(
+	bundle: unknown,
+): PromptInvocation<"scans.improvementRequestInput", "user"> {
+	return bindJapanese(PROMPT_KEYS.improvementRequestInput, {
 		bundle: toJsonValue(bundle),
 	});
 }

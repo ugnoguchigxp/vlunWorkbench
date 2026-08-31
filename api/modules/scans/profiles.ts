@@ -9,7 +9,10 @@ import {
 	applyDastStandardRollout,
 	assertRuntimeAssessmentBudget,
 } from "./dast-profile-rollout";
-import { isOptionalScannerAdapterEnabled } from "./optional-scanner-adapter-config";
+import {
+	type OptionalScannerSelection,
+	optionalScannerSelection,
+} from "./optional-scanner-adapter-config";
 import { buildPluginDependencyManifestScope } from "./plugin-dependency-scope";
 
 export {
@@ -17,6 +20,7 @@ export {
 	RUNTIME_ASSESSMENT_AGGREGATE_REQUEST_BUDGET,
 } from "./dast-profile-rollout";
 
+import { buildCanonicalScanProfiles } from "./canonical-scan-profiles";
 import { buildStaticScanProfiles } from "./static-scan-profiles";
 import { ZAP_ACTIVE_DEDICATED_PROFILES } from "./zap-active-profiles";
 
@@ -103,6 +107,11 @@ const NUCLEI_SAFE_STEP: ScanProfileStep = {
 		rateLimitPerSec: 2,
 	},
 };
+const REQUIRED_NUCLEI_SAFE_STEP: ScanProfileStep = {
+	...NUCLEI_SAFE_STEP,
+	required: true,
+	failurePolicy: "fail_profile",
+};
 const ZAP_BASELINE_STEP: ScanProfileStep = {
 	kind: "runtime_scanner",
 	adapter: "zap-baseline",
@@ -144,21 +153,102 @@ const SCHEMATHESIS_STEP: ScanProfileStep = {
 		rateLimitPerSec: 2,
 	},
 };
+const REQUIRED_SCHEMATHESIS_STEP: ScanProfileStep = {
+	...SCHEMATHESIS_STEP,
+	required: true,
+	failurePolicy: "fail_profile",
+};
 
 const OPTIONAL_SEMGREP_TOOL = {
 	toolId: "semgrep",
 	displayName: "Semgrep Static Analysis (optional engine)",
 	required: true,
 	failurePolicy: "fail_profile" as const,
+	timeoutSec: 1_800,
 	options: { config: "curated-sast-v1" },
+};
+
+const REQUIRED_ZIZMOR_TOOL = {
+	toolId: "zizmor",
+	displayName: "zizmor CI Workflow Security",
+	required: true,
+	requirement: "required_if_applicable" as const,
+	failurePolicy: "fail_profile" as const,
+};
+
+const SLSA_SUPPLY_CHAIN_PROFILE: ScanProfile = {
+	id: "dependency-supply-chain-slsa",
+	name: "依存関係・SLSA provenance保証",
+	description:
+		"OSV依存関係診断、Trivy CycloneDX SBOM生成、slsa-verifierによる成果物provenanceのsource・builder・ref検証を実行します。",
+	category: "focused",
+	enabled: true,
+	strictness: "strict",
+	defaultTimeoutSec: 900,
+	scope: DEPENDENCY_MANIFEST_SCOPE,
+	supportedTargets: ["full"],
+	tools: [
+		{
+			toolId: "osv",
+			displayName: "OSV Dependency Scanner",
+			required: true,
+			failurePolicy: "fail_profile",
+			options: { dependencyMode: "manifest" },
+		},
+	],
+	steps: [
+		{
+			kind: "static_tool",
+			toolId: "osv",
+			displayName: "OSV Dependency Scanner",
+			required: true,
+			failurePolicy: "fail_profile",
+			options: { dependencyMode: "manifest" },
+		},
+		SBOM_STEP,
+		{
+			kind: "attestation_verify",
+			adapter: "slsa-verifier",
+			displayName: "SLSA Provenance Policy Verification",
+			required: true,
+			failurePolicy: "fail_profile",
+			target: { mode: "repository_relative_files" },
+		},
+	],
+	capabilityRequirements: [
+		{ capabilityId: "sca", requirement: "required" },
+		{ capabilityId: "sbom", requirement: "required" },
+		{ capabilityId: "provenance_integrity", requirement: "required" },
+	],
+	coverageGaps: [],
 };
 
 export function buildScanProfiles(params?: {
 	optionalAdapterIds?: readonly string[];
 }): ScanProfile[] {
-	const semgrepEnabled = params?.optionalAdapterIds
-		? params.optionalAdapterIds.includes("semgrep")
-		: isOptionalScannerAdapterEnabled("semgrep");
+	const semgrepSelection: OptionalScannerSelection = params?.optionalAdapterIds
+		? optionalScannerSelection("semgrep", {
+				preferredIds: params.optionalAdapterIds,
+				requiredIds: [],
+			})
+		: optionalScannerSelection("semgrep");
+	const semgrepProfileEnabled = semgrepSelection !== "disabled";
+	const fullSecuritySemgrepTools = semgrepProfileEnabled
+		? [
+				{
+					...OPTIONAL_SEMGREP_TOOL,
+					required: semgrepSelection === "required",
+					requirement:
+						semgrepSelection === "required"
+							? ("required_if_applicable" as const)
+							: ("advisory" as const),
+					failurePolicy:
+						semgrepSelection === "required"
+							? ("fail_profile" as const)
+							: ("warn_and_continue" as const),
+				},
+			]
+		: [];
 	return [
 		...buildStaticScanProfiles({
 			SOURCE_BASELINE_SCOPE,
@@ -166,7 +256,7 @@ export function buildScanProfiles(params?: {
 			ARTIFACT_SCOPE,
 			FULL_DEEP_SCOPE,
 		}),
-		...(semgrepEnabled
+		...(semgrepProfileEnabled
 			? [buildOptionalSemgrepProfile(SOURCE_BASELINE_SCOPE)]
 			: []),
 		{
@@ -219,10 +309,15 @@ export function buildScanProfiles(params?: {
 				"自動起動したローカル対象にbounded passive DAST、Nuclei safe、ZAP baselineを実行します。",
 			category: "focused",
 			enabled: true,
+			strictness: "strict",
 			defaultTimeoutSec: 900,
 			scope: SOURCE_BASELINE_SCOPE,
 			tools: [],
-			steps: [AUTO_STANDARD_DAST_STEP, NUCLEI_SAFE_STEP, ZAP_BASELINE_STEP],
+			steps: [
+				REQUIRED_AUTO_STANDARD_DAST_STEP,
+				REQUIRED_NUCLEI_SAFE_STEP,
+				REQUIRED_ZAP_BASELINE_STEP,
+			],
 		},
 		{
 			id: "sbom-inventory",
@@ -231,6 +326,7 @@ export function buildScanProfiles(params?: {
 				"対象 filesystem から CycloneDX JSON SBOM を生成します。SBOM component は finding に変換しません。",
 			category: "focused",
 			enabled: true,
+			strictness: "strict",
 			defaultTimeoutSec: 600,
 			scope: SOURCE_BASELINE_SCOPE,
 			tools: [],
@@ -243,10 +339,11 @@ export function buildScanProfiles(params?: {
 				"自動起動したローカル対象の OpenAPI/GraphQL を検出し、読み取り専用 operation に限定して確認します。",
 			category: "focused",
 			enabled: true,
+			strictness: "strict",
 			defaultTimeoutSec: 600,
 			scope: SOURCE_BASELINE_SCOPE,
 			tools: [],
-			steps: [SCHEMATHESIS_STEP],
+			steps: [REQUIRED_SCHEMATHESIS_STEP],
 		},
 		{
 			id: "container-image-security",
@@ -255,6 +352,7 @@ export function buildScanProfiles(params?: {
 				"明示された既存 image ref または image tar だけを Trivy で診断します。自動 build は行いません。",
 			category: "focused",
 			enabled: true,
+			strictness: "strict",
 			defaultTimeoutSec: 600,
 			scope: SOURCE_BASELINE_SCOPE,
 			tools: [],
@@ -263,8 +361,8 @@ export function buildScanProfiles(params?: {
 					kind: "container_image_scan",
 					adapter: "trivy",
 					displayName: "Trivy Existing Image Scan",
-					required: false,
-					failurePolicy: "warn_and_continue",
+					required: true,
+					failurePolicy: "fail_profile",
 					target: { mode: "explicit_existing_image" },
 				},
 			],
@@ -276,6 +374,7 @@ export function buildScanProfiles(params?: {
 				"公式 ZAP image を Docker で実行し、bounded gateway 経由で自動起動したローカル対象を passive scan します。",
 			category: "detailed",
 			enabled: true,
+			strictness: "strict",
 			defaultTimeoutSec: 600,
 			scope: SOURCE_BASELINE_SCOPE,
 			tools: [],
@@ -288,6 +387,7 @@ export function buildScanProfiles(params?: {
 				"選択したプロジェクトを自動起動し、既知route coverageを伴うbounded passive DASTを実行します。",
 			category: "focused",
 			enabled: true,
+			strictness: "strict",
 			defaultTimeoutSec: 180,
 			tools: [],
 			steps: [REQUIRED_AUTO_STANDARD_DAST_STEP],
@@ -296,9 +396,10 @@ export function buildScanProfiles(params?: {
 			id: "full-security-scan",
 			name: "総合セキュリティ診断",
 			description:
-				"詳細な静的診断とbounded passive DASTを合わせて、Webアプリの広めの診断証跡を収集します。active attackは実行しません。",
+				"詳細な静的診断、GitHub Actions workflow保証、bounded passive DASTを合わせて、Webアプリの広めの診断証跡を収集します。active attackは実行しません。",
 			category: "detailed",
 			enabled: true,
+			strictness: "strict",
 			defaultTimeoutSec: 1200,
 			scope: FULL_DEEP_SCOPE,
 			tools: [
@@ -322,7 +423,8 @@ export function buildScanProfiles(params?: {
 					failurePolicy: "fail_profile",
 					options: { scanners: ["vuln", "secret", "misconfig"] },
 				},
-				...(semgrepEnabled ? [OPTIONAL_SEMGREP_TOOL] : []),
+				REQUIRED_ZIZMOR_TOOL,
+				...fullSecuritySemgrepTools,
 			],
 			steps: [
 				{
@@ -348,16 +450,83 @@ export function buildScanProfiles(params?: {
 					failurePolicy: "fail_profile",
 					options: { scanners: ["vuln", "secret", "misconfig"] },
 				},
-				...(semgrepEnabled
-					? [{ kind: "static_tool" as const, ...OPTIONAL_SEMGREP_TOOL }]
-					: []),
+				{ kind: "static_tool" as const, ...REQUIRED_ZIZMOR_TOOL },
+				...fullSecuritySemgrepTools.map((tool) => ({
+					kind: "static_tool" as const,
+					...tool,
+				})),
 				SBOM_STEP,
-				AUTO_STANDARD_DAST_STEP,
-				NUCLEI_SAFE_STEP,
-				ZAP_BASELINE_STEP,
-				SCHEMATHESIS_STEP,
+				REQUIRED_AUTO_STANDARD_DAST_STEP,
+				REQUIRED_NUCLEI_SAFE_STEP,
+				REQUIRED_ZAP_BASELINE_STEP,
+				REQUIRED_SCHEMATHESIS_STEP,
 			],
-			coverageGaps: semgrepEnabled ? [] : ["source_sast_not_executed"],
+			capabilityRequirements: [
+				{ capabilityId: "secret_detection", requirement: "required" },
+				{ capabilityId: "sca", requirement: "required" },
+				{ capabilityId: "iac_config", requirement: "required" },
+				{
+					capabilityId: "cicd_workflow_integrity",
+					requirement: "required_if_applicable",
+				},
+				{ capabilityId: "sbom", requirement: "required" },
+				{ capabilityId: "passive_dast", requirement: "required" },
+				{
+					capabilityId: "source_sast",
+					requirement:
+						semgrepSelection === "required" ? "required" : "advisory",
+				},
+				{
+					capabilityId: "api_schema_contract",
+					requirement: "required_if_applicable",
+				},
+				{ capabilityId: "provenance_integrity", requirement: "advisory" },
+				{ capabilityId: "artifact_container", requirement: "advisory" },
+				{ capabilityId: "dynamic_tests", requirement: "advisory" },
+				{ capabilityId: "sanitizer_fuzz", requirement: "advisory" },
+				{ capabilityId: "browser_client", requirement: "advisory" },
+				{ capabilityId: "authentication_session", requirement: "advisory" },
+				{ capabilityId: "authorization_matrix", requirement: "advisory" },
+				{ capabilityId: "active_dast", requirement: "advisory" },
+				{ capabilityId: "business_logic", requirement: "advisory" },
+				{ capabilityId: "remediation_retest", requirement: "advisory" },
+			],
+			coverageGaps: semgrepProfileEnabled
+				? []
+				: ["source_sast_adapter_not_available"],
+		},
+		{
+			id: "security-inventory-best-effort",
+			name: "セキュリティインベントリ（ベストエフォート）",
+			description:
+				"利用可能な静的スキャナと SBOM を収集します。未準備の scanner は coverage gap として明示します。リリース判定には使用しません。",
+			category: "focused",
+			enabled: true,
+			strictness: "best_effort",
+			defaultTimeoutSec: 900,
+			scope: SOURCE_BASELINE_SCOPE,
+			tools: [
+				{
+					toolId: "gitleaks",
+					displayName: "Gitleaks",
+					required: true,
+					failurePolicy: "fail_profile",
+				},
+				{
+					toolId: "osv",
+					displayName: "OSV",
+					required: false,
+					failurePolicy: "warn_and_continue",
+					options: { dependencyMode: "manifest" },
+				},
+				{
+					toolId: "trivy",
+					displayName: "Trivy",
+					required: false,
+					failurePolicy: "warn_and_continue",
+					options: { scanners: ["vuln", "secret", "misconfig"] },
+				},
+			],
 		},
 		{
 			id: "secrets-dependencies-runtime",
@@ -423,7 +592,28 @@ export function buildScanProfiles(params?: {
 
 export const SCAN_PROFILES: ScanProfile[] = buildScanProfiles();
 
+/** Canonical profiles are intentionally separate from the frozen legacy list. */
+export function getCanonicalProfileById(id: string): ScanProfile | undefined {
+	const profile = buildCanonicalScanProfiles({
+		sourceScope: SOURCE_BASELINE_SCOPE,
+		dependencyScope: DEPENDENCY_MANIFEST_SCOPE,
+	}).find((candidate) => candidate.id === id && candidate.enabled);
+	if (profile) assertRuntimeAssessmentBudget(profile);
+	return profile;
+}
+
+export function listCanonicalProfiles(): ScanProfile[] {
+	return buildCanonicalScanProfiles({
+		sourceScope: SOURCE_BASELINE_SCOPE,
+		dependencyScope: DEPENDENCY_MANIFEST_SCOPE,
+	}).map((profile) => {
+		assertRuntimeAssessmentBudget(profile);
+		return profile;
+	});
+}
+
 export function getProfileById(id: string): ScanProfile | undefined {
+	if (id === SLSA_SUPPLY_CHAIN_PROFILE.id) return SLSA_SUPPLY_CHAIN_PROFILE;
 	const profile = SCAN_PROFILES.find((p) => p.id === id && p.enabled);
 	const rolledOut = profile
 		? applyDastStandardRollout({

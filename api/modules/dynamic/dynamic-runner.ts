@@ -4,13 +4,27 @@ import path from "node:path";
 import { eq } from "drizzle-orm";
 import type { AppDatabase } from "../../db";
 import { projects } from "../../db/schema";
+import { materializeRuntimeSourceProjection } from "../runtime-isolation/runtime-source-projection";
+import { runGitCommand } from "../scans/execution/diff/git-command";
+import {
+	type FullSourceSnapshot,
+	materializeFullSourceSnapshot,
+} from "../scans/execution/lifecycle/full-source-snapshot";
+import { ScanResourceLeaseRepository } from "../scans/execution/lifecycle/scan-resource-lease-repository";
+import { finalizeTemporaryWorkspace } from "../scans/execution/lifecycle/temporary-workspace-cleanup";
+import { ScanRepository } from "../scans/repositories";
+import {
+	type ProcessOutputLimits,
+	resolveProcessOutputLimits,
+} from "../scans/tools/tool-process-runner";
 import { DynamicArtifactStorage } from "./dynamic-artifact-storage";
 import {
+	dynamicOutputVolumeName,
 	executeDynamicDockerRun,
 	resolveDynamicDockerLimits,
 } from "./dynamic-docker-executor";
-import { buildDynamicEvidenceDescriptor } from "./dynamic-evidence-builder";
 import { evaluateDynamicOutcome } from "./dynamic-evaluator";
+import { buildDynamicEvidenceDescriptor } from "./dynamic-evidence-builder";
 import { validateDynamicProfilePolicy } from "./dynamic-profiles";
 import { DynamicRepository } from "./dynamic-repository";
 import {
@@ -23,10 +37,6 @@ import {
 	resolveDynamicTimeoutSec,
 	walkDynamicArtifactFiles,
 } from "./dynamic-run-policy";
-import {
-	type ProcessOutputLimits,
-	resolveProcessOutputLimits,
-} from "../scans/tools/tool-process-runner";
 
 export interface RunDynamicOptions {
 	projectId: string;
@@ -43,6 +53,20 @@ export interface RunDynamicOptions {
 	createdByUserId?: string | null;
 }
 
+async function resolveImmutableHead(repositoryPath: string): Promise<string> {
+	const { stdout } = await runGitCommand({
+		cwd: repositoryPath,
+		args: ["rev-parse", "HEAD"],
+		timeoutMs: 30_000,
+		maxBufferBytes: 256,
+	});
+	const revision = stdout.toString("utf8").trim();
+	if (!/^[a-f0-9]{40,64}$/i.test(revision)) {
+		throw new Error("dynamic_source_revision_invalid");
+	}
+	return revision;
+}
+
 export class DynamicRunner {
 	private readonly repo: DynamicRepository;
 	private readonly storage: DynamicArtifactStorage;
@@ -51,6 +75,7 @@ export class DynamicRunner {
 		DynamicRunnerOptions["dockerDefaults"]
 	>;
 	private readonly artifactLimits: DynamicArtifactCollectionLimits;
+	private readonly qualifiedDynamicImage: string | null;
 
 	constructor(
 		private readonly db: AppDatabase,
@@ -65,6 +90,18 @@ export class DynamicRunner {
 			new DynamicArtifactStorage(undefined, {
 				maxFileBytes: this.artifactLimits.maxFileBytes,
 			});
+		this.qualifiedDynamicImage = options.qualifiedDynamicImage ?? null;
+	}
+
+	private resolveQualifiedDynamicImage(requestedImage?: string): string {
+		const configured = this.qualifiedDynamicImage;
+		if (!configured || !/.+@sha256:[a-f0-9]{64}$/.test(configured)) {
+			throw new Error("dynamic_image_not_qualified");
+		}
+		if (requestedImage && requestedImage !== configured) {
+			throw new Error("dynamic_image_override_rejected");
+		}
+		return configured;
 	}
 
 	async dryRun(options: RunDynamicOptions) {
@@ -102,7 +139,7 @@ export class DynamicRunner {
 			profileConfig.network ?? "none",
 			options.network,
 		);
-		const image = options.dockerImage ?? "vuln-workbench-dynamic:local";
+		const image = this.resolveQualifiedDynamicImage(options.dockerImage);
 		const resourceLimits = resolveDynamicDockerLimits({
 			profileMemory: profileConfig.memory,
 			profileCpus: profileConfig.cpus,
@@ -141,12 +178,27 @@ export class DynamicRunner {
 		};
 	}
 
-	async run(options: RunDynamicOptions) {
+	async run(options: RunDynamicOptions & { executionConsent: true }) {
+		if (options.executionConsent !== true) {
+			throw new Error("dynamic_execution_consent_required");
+		}
 		const project = await this.db.query.projects.findFirst({
 			where: eq(projects.id, options.projectId),
 		});
 		if (!project) {
 			throw new Error(`Project not found: ${options.projectId}`);
+		}
+		if (options.scanRunId) {
+			const parentScan = await new ScanRepository(this.db).findById(
+				options.scanRunId,
+			);
+			if (
+				!parentScan ||
+				parentScan.projectId !== project.id ||
+				parentScan.profile !== "dynamic-verification"
+			) {
+				throw new Error("dynamic_parent_scan_invalid");
+			}
 		}
 
 		const profileConfig = await this.repo.getConfigByProfileId(
@@ -176,7 +228,7 @@ export class DynamicRunner {
 			profileConfig.network ?? "none",
 			options.network,
 		);
-		const image = options.dockerImage ?? "vuln-workbench-dynamic:local";
+		const image = this.resolveQualifiedDynamicImage(options.dockerImage);
 		const resourceLimits = resolveDynamicDockerLimits({
 			profileMemory: profileConfig.memory,
 			profileCpus: profileConfig.cpus,
@@ -226,24 +278,55 @@ export class DynamicRunner {
 
 		const runId = runRecord.id;
 		let hostOutDir: string | null = null;
+		let runtimeProjection: Awaited<
+			ReturnType<typeof materializeRuntimeSourceProjection>
+		> | null = null;
+		let sourceSnapshot: FullSourceSnapshot | null = null;
+		let resourceLease: { id: string } | null = null;
 
 		try {
+			const sourceRevision = await resolveImmutableHead(project.repoPath);
+			sourceSnapshot = await materializeFullSourceSnapshot({
+				repositoryPath: project.repoPath,
+				sourceRevision,
+			});
+			runtimeProjection = await materializeRuntimeSourceProjection({
+				snapshot: {
+					projectPath: sourceSnapshot.projectPath,
+					snapshotDigest: sourceSnapshot.snapshotDigest,
+				},
+			});
 			// Setup the output mount only after every request-time policy check passes.
 			hostOutDir = await fs.mkdtemp(path.join(os.tmpdir(), "dynamic-run-out-"));
 			// 2. Coordinate and execute the container process
 			const containerName = `vuln-workbench-dyn-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
+			const outputVolumeName = dynamicOutputVolumeName(containerName);
+			if (options.scanRunId) {
+				resourceLease = await new ScanResourceLeaseRepository(this.db).acquire({
+					scanRunId: options.scanRunId,
+					stepId: "dynamic-verification",
+					resourceType: "dynamic_bundle",
+					provider: "docker-dynamic-isolation",
+					externalId: `dynamic:${runId}`,
+					receipt: { containerName, outputVolumeName },
+					leaseExpiresAt: new Date(Date.now() + (timeoutSec + 120) * 1_000),
+				});
+				if (!resourceLease)
+					throw new Error("dynamic_bundle_lease_acquisition_failed");
+			}
 			const dockerBin = process.env.VULN_WORKBENCH_DOCKER_BIN ?? "docker";
 
 			const runResult = await executeDynamicDockerRun({
 				dockerBin,
 				image,
 				containerName,
+				outputVolumeName,
 				networkMode,
 				memory: resourceLimits.memory,
 				cpus: resourceLimits.cpus,
 				pidsLimit: resourceLimits.pidsLimit,
 				outputLimits: this.outputLimits,
-				repoPath: project.repoPath,
+				repoPath: runtimeProjection.projectPath,
 				hostOutDir,
 				workingDirectory: profileConfig.workingDirectory,
 				command: profileConfig.commandJson,
@@ -254,6 +337,13 @@ export class DynamicRunner {
 
 			const runMetadata = {
 				...getDynamicRunMetadata(runRecord.metadata),
+				runtimeProjection: {
+					sourceRevision: sourceSnapshot.sourceRevision,
+					sourceSnapshotDigest: sourceSnapshot.snapshotDigest,
+					policyVersion: runtimeProjection.policyVersion,
+					projectionDigest: runtimeProjection.projectionDigest,
+					excludedCategoryCounts: runtimeProjection.excludedCategoryCounts,
+				},
 				elapsedMs: runResult.elapsedMs,
 				execution: runResult.executionMetadata,
 			};
@@ -485,10 +575,22 @@ export class DynamicRunner {
 			};
 		} finally {
 			// 9. Cleanup temp files on host
+			await runtimeProjection?.cleanup().catch(() => undefined);
+			await sourceSnapshot?.cleanup().catch(() => undefined);
+			if (resourceLease) {
+				await new ScanResourceLeaseRepository(this.db)
+					.release(resourceLease.id, { releasedAt: new Date().toISOString() })
+					.catch(() => undefined);
+			}
 			if (hostOutDir) {
-				await fs
-					.rm(hostOutDir, { recursive: true, force: true })
-					.catch(() => {});
+				const cleanupPath = hostOutDir;
+				await finalizeTemporaryWorkspace({
+					remove: () => fs.rm(cleanupPath, { recursive: true, force: true }),
+					loadRun: () => this.repo.getRun(runId),
+					updateRun: (status, update) =>
+						this.repo.updateRunStatus(runId, status, update),
+					failureCode: "dynamic_workspace_cleanup_failed",
+				});
 			}
 		}
 	}

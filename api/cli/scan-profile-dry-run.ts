@@ -1,6 +1,8 @@
+import type { ScanExecutionPlan } from "../../shared/schemas/scan-execution-plan.schema";
 import type { ScanPreflightResult } from "../../shared/schemas/scan-preflight.schema";
 import type { ScanProfile } from "../../shared/schemas/scan-profile.schema";
 import type { ScanTarget } from "../../shared/schemas/scan-target.schema";
+import type { ScanProfileResolution } from "../../shared/schemas/scan-profile-catalog.schema";
 import { hashResolvedProfile } from "../modules/scans/resolved-profile";
 import type { ToolRunnerKind } from "../modules/scans/tools/tool-process-runner";
 
@@ -16,6 +18,10 @@ export function buildScanProfileDryRun(params: {
 	imageTar?: string;
 	preflight?: ScanPreflightResult;
 	expectedPreflightBindingHash?: string;
+	expectedPlanHash?: string;
+	expectedCatalogEntryHash?: string;
+	profileResolution?: ScanProfileResolution;
+	executionPlan?: ScanExecutionPlan;
 }): Record<string, unknown> {
 	const allSteps = params.profile.steps ?? [];
 	const selectedSteps = params.stepId
@@ -40,12 +46,51 @@ export function buildScanProfileDryRun(params: {
 			preflight: params.preflight,
 		};
 	}
+	if (
+		params.expectedPlanHash &&
+		(!params.executionPlan ||
+			params.expectedPlanHash !== params.executionPlan.planHash)
+	) {
+		return {
+			ok: false,
+			status: "failed",
+			message: params.executionPlan
+				? "plan_changed: execution plan changed after preview"
+				: "plan_preview_unavailable: an execution plan requires a project target",
+			preflight: params.preflight ?? null,
+			executionPlan: params.executionPlan ?? null,
+		};
+	}
+	if (
+		params.expectedCatalogEntryHash &&
+		params.profileResolution &&
+		params.expectedCatalogEntryHash !==
+			params.profileResolution.catalogEntryHash
+	) {
+		return {
+			ok: false,
+			status: "failed",
+			message:
+				"catalog_entry_changed: profile catalog entry changed after preview",
+			profileResolution: params.profileResolution,
+		};
+	}
 	return {
 		dryRun: true,
 		profileId: params.profile.id,
+		...(params.profileResolution
+			? {
+					profileResolution: params.profileResolution,
+					canonicalProfileId: params.profileResolution.canonicalProfileId,
+					executionProfileId: params.profileResolution.executionProfileId,
+					resultPolicy: params.profileResolution.resultPolicy,
+				}
+			: {}),
 		resolvedProfileHash: hashResolvedProfile(params.profile),
-		coverageGaps: params.profile.coverageGaps ?? [],
+		coverageMeasurement: "not_measured" as const,
+		capabilityRequirements: params.profile.capabilityRequirements ?? [],
 		preflight: params.preflight ?? null,
+		executionPlan: params.executionPlan ?? null,
 		target: params.scanTarget,
 		runner: params.runner ?? "host",
 		finalReport: params.finalReportEnabled,

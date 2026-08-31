@@ -9,6 +9,11 @@ import type {
 	ScanProfileStep,
 } from "../../../../shared/schemas/scan-profile.schema";
 import { getProfileById, SCAN_PROFILES } from "../../scans/profiles";
+import {
+	normalizeProfileResolutionInput,
+	ProfileResolutionError,
+	resolveProfileSelection,
+} from "../../scans/profile-resolution";
 import { NightworkersIntegrationError } from "./nightworkers-integration.errors";
 
 type PresetTargetDefinition = {
@@ -230,14 +235,29 @@ export function resolveNightworkersProfile(params: {
 			"The requested scan profile is not allowed for this integration.",
 		);
 	}
-	const profile = resolveProfile(profileRef);
-	if (!supportedIntegrationTargets(profile).includes(params.targetKind)) {
-		throw new NightworkersIntegrationError(
-			"target_not_supported",
-			"The selected profile does not support this target.",
-		);
+	try {
+		return resolveProfileSelection({
+			requestedProfileId: profileRef,
+			surface: "nightworkers",
+			target:
+				params.targetKind === "full"
+					? { kind: "full" }
+					: { kind: "working_tree", includeUntracked: false },
+			providedInputKinds: normalizeProfileResolutionInput({
+				repoPath: "nightworkers-workspace-grant",
+			}),
+		}).executionProfile;
+	} catch (error) {
+		if (error instanceof ProfileResolutionError) {
+			throw new NightworkersIntegrationError(
+				error.code === "profile_target_not_supported"
+					? "target_not_supported"
+					: "profile_not_allowed",
+				error.message,
+			);
+		}
+		throw error;
 	}
-	return profile;
 }
 
 export function profileToolSteps(profile: ScanProfile) {

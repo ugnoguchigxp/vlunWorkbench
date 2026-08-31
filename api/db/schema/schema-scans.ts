@@ -2,12 +2,13 @@ import { sql } from "drizzle-orm";
 import {
 	index,
 	integer,
+	primaryKey,
 	sqliteTable,
 	text,
 	uniqueIndex,
 } from "drizzle-orm/sqlite-core";
 import { users } from "./schema-core";
-import { id, jsonObject, timestampMs } from "./schema-helpers";
+import { id, jsonArray, jsonObject, timestampMs } from "./schema-helpers";
 export const projects = sqliteTable(
 	"projects",
 	{
@@ -43,6 +44,7 @@ export const scanRuns = sqliteTable(
 			.references(() => projects.id, { onDelete: "cascade" }),
 		profile: text("profile").notNull().default("baseline"),
 		status: text("status").notNull(), // queued, running, completed, failed, cancelled
+		profileOutcome: text("profile_outcome").notNull().default("pending"),
 		startedAt: integer("started_at", { mode: "timestamp_ms" }),
 		completedAt: integer("completed_at", { mode: "timestamp_ms" }),
 		createdByUserId: text("created_by_user_id").references(() => users.id, {
@@ -57,6 +59,115 @@ export const scanRuns = sqliteTable(
 	(table) => ({
 		projectIdIdx: index("scan_runs_project_id_idx").on(table.projectId),
 		statusIdx: index("scan_runs_status_idx").on(table.status),
+	}),
+);
+
+/**
+ * Audit record for every authenticated, project-authorized canonical launch
+ * request. Rejected requests intentionally have no scan run.
+ */
+export const scanLaunchAttempts = sqliteTable(
+	"scan_launch_attempts",
+	{
+		id: id(),
+		projectId: text("project_id")
+			.notNull()
+			.references(() => projects.id, { onDelete: "cascade" }),
+		requestedProfileId: text("requested_profile_id").notNull(),
+		canonicalProfileId: text("canonical_profile_id"),
+		profileVariantId: text("profile_variant_id"),
+		engineId: text("engine_id"),
+		status: text("status").notNull(), // received, rejected, admitted
+		readinessStatus: text("readiness_status"),
+		reasonCodes: jsonArray("reason_codes").notNull().default([]),
+		sanitizedInputSummary: jsonObject("sanitized_input_summary")
+			.notNull()
+			.default({}),
+		catalogEntryHash: text("catalog_entry_hash"),
+		readinessHash: text("readiness_hash"),
+		planHash: text("plan_hash"),
+		dependencyQualificationHash: text("dependency_qualification_hash"),
+		scanRunId: text("scan_run_id").references(() => scanRuns.id, {
+			onDelete: "set null",
+		}),
+		createdByUserId: text("created_by_user_id").references(() => users.id, {
+			onDelete: "set null",
+		}),
+		resolvedAt: integer("resolved_at", { mode: "timestamp_ms" }),
+		admittedAt: integer("admitted_at", { mode: "timestamp_ms" }),
+		rejectedAt: integer("rejected_at", { mode: "timestamp_ms" }),
+		createdAt: timestampMs("created_at"),
+	},
+	(table) => ({
+		projectCreatedIdx: index("scan_launch_attempts_project_created_idx").on(
+			table.projectId,
+			table.createdAt,
+		),
+		statusCreatedIdx: index("scan_launch_attempts_status_created_idx").on(
+			table.status,
+			table.createdAt,
+		),
+	}),
+);
+
+/** Immutable execution decision captured immediately after preflight. */
+export const scanExecutionPlans = sqliteTable(
+	"scan_execution_plans",
+	{
+		id: id(),
+		scanRunId: text("scan_run_id")
+			.notNull()
+			.references(() => scanRuns.id, { onDelete: "cascade" }),
+		projectId: text("project_id")
+			.notNull()
+			.references(() => projects.id, { onDelete: "cascade" }),
+		profileId: text("profile_id").notNull(),
+		strictness: text("strictness").notNull(),
+		planHash: text("plan_hash").notNull(),
+		plan: jsonObject("plan"),
+		createdAt: timestampMs("created_at"),
+	},
+	(table) => ({
+		scanRunUniqueIdx: uniqueIndex(
+			"scan_execution_plans_scan_run_unique_idx",
+		).on(table.scanRunId),
+		projectIdx: index("scan_execution_plans_project_id_idx").on(
+			table.projectId,
+		),
+	}),
+);
+
+/**
+ * Durable ownership records for scan-created resources (containers, targets,
+ * and external sessions). Reapers use this table after a timeout or crash.
+ */
+export const scanResourceLeases = sqliteTable(
+	"scan_resource_leases",
+	{
+		id: id(),
+		scanRunId: text("scan_run_id")
+			.notNull()
+			.references(() => scanRuns.id, { onDelete: "cascade" }),
+		stepId: text("step_id").notNull(),
+		resourceType: text("resource_type").notNull(),
+		provider: text("provider").notNull(),
+		externalId: text("external_id").notNull(),
+		state: text("state").notNull(),
+		receipt: jsonObject("receipt"),
+		leaseExpiresAt: integer("lease_expires_at", { mode: "timestamp_ms" }),
+		releasedAt: integer("released_at", { mode: "timestamp_ms" }),
+		createdAt: timestampMs("created_at"),
+		updatedAt: timestampMs("updated_at"),
+	},
+	(table) => ({
+		scanRunIdx: index("scan_resource_leases_scan_run_idx").on(table.scanRunId),
+		activeIdx: index("scan_resource_leases_active_idx").on(
+			table.state,
+			table.leaseExpiresAt,
+		),
+		resourceUniqueIdx: uniqueIndex(
+			"scan_resource_leases_resource_unique_idx",
+		).on(table.provider, table.externalId),
 	}),
 );
 
@@ -154,6 +265,9 @@ export const scanArtifacts = sqliteTable(
 		kind: text("kind").notNull(), // raw_result, stdout, stderr, log, normalized_result, source_snippet, report
 		format: text("format").notNull(), // json, sarif, text, markdown
 		path: text("path").notNull(),
+		// Canonical storage identity. New writes use an owner-scoped path and
+		// must never share this key with another artifact row.
+		storageKey: text("storage_key"),
 		sha256: text("sha256").notNull(),
 		sizeBytes: integer("size_bytes").notNull(),
 		metadata: jsonObject("metadata"),
@@ -162,6 +276,9 @@ export const scanArtifacts = sqliteTable(
 	(table) => ({
 		scanRunIdIdx: index("scan_artifacts_scan_run_id_idx").on(table.scanRunId),
 		toolRunIdIdx: index("scan_artifacts_tool_run_id_idx").on(table.toolRunId),
+		storageKeyUniqueIdx: uniqueIndex("scan_artifacts_storage_key_unique_idx")
+			.on(table.storageKey)
+			.where(sql`${table.storageKey} IS NOT NULL`),
 	}),
 );
 
@@ -223,6 +340,165 @@ export const findingEvidences = sqliteTable(
 	},
 	(table) => ({
 		findingIdIdx: index("finding_evidence_finding_id_idx").on(table.findingId),
+	}),
+);
+
+/** Immutable deterministic (or shadow semantic) grouping snapshots for one scan. */
+export const findingGroupingRuns = sqliteTable(
+	"finding_grouping_runs",
+	{
+		id: id(),
+		scanRunId: text("scan_run_id")
+			.notNull()
+			.references(() => scanRuns.id, { onDelete: "cascade" }),
+		status: text("status").notNull(), // running, completed, failed
+		mode: text("mode").notNull(), // deterministic, semantic
+		algorithmVersion: text("algorithm_version").notNull(),
+		findingSetHash: text("finding_set_hash").notNull(),
+		semanticDecisionHash: text("semantic_decision_hash").notNull().default(""),
+		snapshotHash: text("snapshot_hash"),
+		rawFindingCount: integer("raw_finding_count").notNull().default(0),
+		issueCount: integer("issue_count").notNull().default(0),
+		suppressedCount: integer("suppressed_count").notNull().default(0),
+		ambiguousCount: integer("ambiguous_count").notNull().default(0),
+		provider: text("provider"),
+		model: text("model"),
+		promptSequenceHash: text("prompt_sequence_hash"),
+		limitations: jsonArray("limitations_json"),
+		error: text("error"),
+		startedAt: integer("started_at", { mode: "timestamp_ms" }),
+		completedAt: integer("completed_at", { mode: "timestamp_ms" }),
+		createdAt: timestampMs("created_at"),
+		updatedAt: timestampMs("updated_at"),
+	},
+	(table) => ({
+		scanRunIdx: index("finding_grouping_runs_scan_run_idx").on(table.scanRunId),
+		completedLookupIdx: index("finding_grouping_runs_completed_lookup_idx").on(
+			table.scanRunId,
+			table.mode,
+			table.algorithmVersion,
+			table.findingSetHash,
+			table.completedAt,
+		),
+		activeUniqueIdx: uniqueIndex("finding_grouping_runs_active_unique_idx")
+			.on(
+				table.scanRunId,
+				table.mode,
+				table.algorithmVersion,
+				table.findingSetHash,
+			)
+			.where(sql`${table.status} = 'running'`),
+		completedUniqueIdx: uniqueIndex(
+			"finding_grouping_runs_completed_unique_idx",
+		)
+			.on(
+				table.scanRunId,
+				table.mode,
+				table.algorithmVersion,
+				table.findingSetHash,
+				table.semanticDecisionHash,
+			)
+			.where(sql`${table.status} = 'completed'`),
+	}),
+);
+
+export const findingIssueGroups = sqliteTable(
+	"finding_issue_groups",
+	{
+		id: id(),
+		groupingRunId: text("grouping_run_id")
+			.notNull()
+			.references(() => findingGroupingRuns.id, { onDelete: "cascade" }),
+		stableKey: text("stable_key").notNull(),
+		representativeFindingId: text("representative_finding_id").references(
+			() => findings.id,
+			{ onDelete: "set null" },
+		),
+		issueKind: text("issue_kind").notNull(),
+		title: text("title").notNull(),
+		description: text("description").notNull(),
+		severity: text("severity").notNull(),
+		primaryLocation: jsonObject("primary_location_json"),
+		matchConfidence: text("match_confidence").notNull(),
+		sourceTools: jsonArray("source_tools_json"),
+		reasonCodes: jsonArray("reason_codes_json"),
+		metadata: jsonObject("metadata_json"),
+		createdAt: timestampMs("created_at"),
+	},
+	(table) => ({
+		runStableKeyUniqueIdx: uniqueIndex(
+			"finding_issue_groups_run_stable_key_unique_idx",
+		).on(table.groupingRunId, table.stableKey),
+		runIdx: index("finding_issue_groups_run_idx").on(table.groupingRunId),
+	}),
+);
+
+export const findingIssueGroupMembers = sqliteTable(
+	"finding_issue_group_members",
+	{
+		id: id(),
+		groupId: text("group_id")
+			.notNull()
+			.references(() => findingIssueGroups.id, { onDelete: "cascade" }),
+		groupingRunId: text("grouping_run_id")
+			.notNull()
+			.references(() => findingGroupingRuns.id, { onDelete: "cascade" }),
+		findingId: text("finding_id")
+			.notNull()
+			.references(() => findings.id, { onDelete: "cascade" }),
+		role: text("role").notNull(), // representative, supporting
+		matchMethod: text("match_method").notNull(), // deterministic, singleton, semantic
+		matchConfidence: text("match_confidence").notNull(),
+		reasonCodes: jsonArray("reason_codes_json"),
+		comparisonHash: text("comparison_hash"),
+		identity: jsonObject("identity_json"),
+		createdAt: timestampMs("created_at"),
+	},
+	(table) => ({
+		runFindingUniqueIdx: uniqueIndex(
+			"finding_issue_group_members_run_finding_unique_idx",
+		).on(table.groupingRunId, table.findingId),
+		groupIdx: index("finding_issue_group_members_group_idx").on(table.groupId),
+	}),
+);
+
+export const findingGroupingPairDecisions = sqliteTable(
+	"finding_grouping_pair_decisions",
+	{
+		id: id(),
+		groupingRunId: text("grouping_run_id")
+			.notNull()
+			.references(() => findingGroupingRuns.id, { onDelete: "cascade" }),
+		leftFindingId: text("left_finding_id")
+			.notNull()
+			.references(() => findings.id, { onDelete: "cascade" }),
+		rightFindingId: text("right_finding_id")
+			.notNull()
+			.references(() => findings.id, { onDelete: "cascade" }),
+		verdict: text("verdict").notNull(),
+		confidence: text("confidence").notNull(),
+		method: text("method").notNull(),
+		reasonCodes: jsonArray("reason_codes_json"),
+		rationale: text("rationale"),
+		comparisonHash: text("comparison_hash").notNull(),
+		provider: text("provider"),
+		model: text("model"),
+		promptSequenceHash: text("prompt_sequence_hash"),
+		responseContentSha256: text("response_content_sha256"),
+		createdAt: timestampMs("created_at"),
+	},
+	(table) => ({
+		runPairUniqueIdx: uniqueIndex(
+			"finding_grouping_pair_decisions_run_pair_unique_idx",
+		).on(table.groupingRunId, table.leftFindingId, table.rightFindingId),
+		semanticCacheIdx: index("finding_grouping_pair_decisions_cache_idx").on(
+			table.comparisonHash,
+			table.method,
+			table.provider,
+			table.model,
+			table.promptSequenceHash,
+			table.createdAt,
+		),
 	}),
 );
 
@@ -312,6 +588,8 @@ export const scanReports = sqliteTable(
 			onDelete: "set null",
 		}),
 		format: text("format").notNull(), // markdown
+		/** preliminary reports are historical; one canonical_final is current per scan. */
+		stage: text("stage").notNull().default("preliminary"),
 		title: text("title").notNull(),
 		summary: text("summary"),
 		options: jsonObject("options"),
@@ -323,6 +601,9 @@ export const scanReports = sqliteTable(
 		generatedByUserId: text("generated_by_user_id").references(() => users.id, {
 			onDelete: "set null",
 		}),
+		// Self-reference is enforced by the migration. Keeping the column plain
+		// avoids a circular Drizzle table initializer while preserving the FK in SQL.
+		supersedesReportId: text("supersedes_report_id"),
 		startedAt: integer("started_at", { mode: "timestamp_ms" }),
 		completedAt: integer("completed_at", { mode: "timestamp_ms" }),
 		createdAt: timestampMs("created_at"),
@@ -332,6 +613,73 @@ export const scanReports = sqliteTable(
 		scanRunIdIdx: index("scan_reports_scan_run_id_idx").on(table.scanRunId),
 		artifactIdIdx: index("scan_reports_artifact_id_idx").on(table.artifactId),
 		statusIdx: index("scan_reports_status_idx").on(table.status),
+		stageScanRunIdx: index("scan_reports_stage_scan_run_idx").on(
+			table.stage,
+			table.scanRunId,
+		),
+	}),
+);
+
+export type ProjectArtifactCleanupManifest = {
+	scanRunIds: string[];
+	dastRunIds: string[];
+	dynamicRunIds: string[];
+	reproductionRunIds: string[];
+};
+
+/**
+ * Durable server-owned artifact cleanup ledger.
+ * The legacy table name is retained because project and scan deletion share the
+ * same idempotent manifest runner and recovery lifecycle.
+ */
+export const projectDeletionCleanupJobs = sqliteTable(
+	"project_deletion_cleanup_jobs",
+	{
+		id: id(),
+		ownerUserId: text("owner_user_id").references(() => users.id, {
+			onDelete: "set null",
+		}),
+		// These remain audit values even after the owning project or scan is deleted.
+		projectId: text("project_id").notNull(),
+		projectName: text("project_name").notNull(),
+		manifest: text("manifest_json", { mode: "json" })
+			.$type<ProjectArtifactCleanupManifest>()
+			.notNull(),
+		status: text("status").notNull().default("pending"),
+		attemptCount: integer("attempt_count").notNull().default(0),
+		lastError: text("last_error"),
+		createdAt: timestampMs("created_at"),
+		updatedAt: timestampMs("updated_at"),
+		completedAt: integer("completed_at", { mode: "timestamp_ms" }),
+	},
+	(table) => ({
+		statusCreatedIdx: index(
+			"project_deletion_cleanup_jobs_status_created_idx",
+		).on(table.status, table.createdAt),
+	}),
+);
+
+export const scanReportUserViews = sqliteTable(
+	"scan_report_user_views",
+	{
+		reportId: text("report_id")
+			.notNull()
+			.references(() => scanReports.id, { onDelete: "cascade" }),
+		userId: text("user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		llmCommentSeenAt: integer("llm_comment_seen_at", {
+			mode: "timestamp_ms",
+		}),
+		createdAt: timestampMs("created_at"),
+		updatedAt: timestampMs("updated_at"),
+	},
+	(table) => ({
+		pk: primaryKey({ columns: [table.reportId, table.userId] }),
+		userUpdatedIdx: index("scan_report_user_views_user_updated_idx").on(
+			table.userId,
+			table.updatedAt,
+		),
 	}),
 );
 

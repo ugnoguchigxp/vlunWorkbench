@@ -225,6 +225,7 @@ describe("DAST route", () => {
 					scanRunId: "44444444-4444-4444-8444-444444444444",
 					status: "completed",
 					outcome: "passed",
+					coverageStatus: "covered",
 					artifactIds: [],
 					findingIds: [],
 					evidenceIds: [],
@@ -252,6 +253,146 @@ describe("DAST route", () => {
 		expect(args).toContain("--created-by-user-id");
 		expect(args).toContain(userId);
 		expect(args).not.toContain("http://127.0.0.1:3000");
+	});
+
+	it("records authenticated-web launches under the canonical scan profile", async () => {
+		const project = await projectRepo.createProject({
+			ownerUserId: userId,
+			name: "Authenticated Web Project",
+			repoPath: process.cwd(),
+		});
+		const target = await dastRepo.createTargetConfig({
+			projectId: project.id,
+			name: "local",
+			origin: "http://127.0.0.1:3000",
+		});
+		vi.spyOn(Bun, "spawn").mockReturnValue({
+			stdout: streamText(
+				JSON.stringify({
+					ok: true,
+					dastRunId: "33333333-3333-4333-8333-333333333333",
+					scanRunId: "44444444-4444-4444-8444-444444444444",
+					status: "completed",
+					outcome: "passed",
+					coverageStatus: "covered",
+				}),
+			),
+			stderr: streamText(""),
+			exited: Promise.resolve(0),
+		} as never);
+
+		const res = await app.request(`/api/projects/${project.id}/dast-runs`, {
+			method: "POST",
+			body: JSON.stringify({
+				targetConfigId: target.id,
+				profileId: "authenticated-readonly-standard",
+				catalogProfileId: "authenticated-web",
+				authContextId: "55555555-5555-4555-8555-555555555555",
+				identityRole: "test-user",
+				runner: "host",
+			}),
+			headers: { "content-type": "application/json" },
+		});
+
+		expect(res.status).toBe(200);
+		const body = await res.json();
+		const scan = await new ScanRepository(connection.db).findById(body.scanRunId);
+		expect(scan).toEqual(
+			expect.objectContaining({
+				projectId: project.id,
+				profile: "authenticated-web",
+				status: "completed",
+				profileOutcome: "completed",
+				metadata: expect.objectContaining({
+					profileResolution: expect.objectContaining({
+						canonicalProfileId: "authenticated-web",
+						launchMode: "dedicated_flow",
+					}),
+				}),
+			}),
+		);
+	});
+
+	it("fails the canonical authenticated-web row when the CLI cannot launch", async () => {
+		const project = await projectRepo.createProject({
+			ownerUserId: userId,
+			name: "Failed Authenticated Web Project",
+			repoPath: process.cwd(),
+		});
+		const target = await dastRepo.createTargetConfig({
+			projectId: project.id,
+			name: "local",
+			origin: "http://127.0.0.1:3000",
+		});
+		vi.spyOn(Bun, "spawn").mockImplementation(() => {
+			throw new Error("spawn failed");
+		});
+
+		const res = await app.request(`/api/projects/${project.id}/dast-runs`, {
+			method: "POST",
+			body: JSON.stringify({
+				targetConfigId: target.id,
+				profileId: "authenticated-readonly-standard",
+				catalogProfileId: "authenticated-web",
+				authContextId: "55555555-5555-4555-8555-555555555555",
+				identityRole: "test-user",
+				runner: "host",
+			}),
+			headers: { "content-type": "application/json" },
+		});
+
+		expect(res.status).toBe(500);
+		const scans = await new ScanRepository(connection.db).listScanRuns(project.id);
+		expect(scans).toHaveLength(1);
+		expect(scans[0]).toEqual(
+			expect.objectContaining({
+				profile: "authenticated-web",
+				status: "failed",
+				profileOutcome: "failed",
+			}),
+		);
+	});
+
+	it("rejects a canonical authenticated-web launch that downgrades its engine or omits authentication", async () => {
+		const project = await projectRepo.createProject({
+			ownerUserId: userId,
+			name: "Invalid Authenticated Web Project",
+			repoPath: process.cwd(),
+		});
+		const target = await dastRepo.createTargetConfig({
+			projectId: project.id,
+			name: "local",
+			origin: "http://127.0.0.1:3000",
+		});
+
+		for (const request of [
+			{
+				targetConfigId: target.id,
+				profileId: "http-baseline",
+				catalogProfileId: "authenticated-web",
+				authContextId: "55555555-5555-4555-8555-555555555555",
+				identityRole: "test-user",
+			},
+			{
+				targetConfigId: target.id,
+				profileId: "authenticated-readonly-standard",
+				catalogProfileId: "authenticated-web",
+			},
+		]) {
+			const response = await app.request(
+				`/api/projects/${project.id}/dast-runs`,
+				{
+					method: "POST",
+					body: JSON.stringify(request),
+					headers: { "content-type": "application/json" },
+				},
+			);
+			expect(response.status).toBe(400);
+		}
+
+		expect(
+			await new ScanRepository(connection.db).listScanRuns(project.id),
+		).toHaveLength(0);
 	});
 
 	it("launches auto-target DAST without requiring a saved target", async () => {

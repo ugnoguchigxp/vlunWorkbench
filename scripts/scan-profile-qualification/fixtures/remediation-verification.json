@@ -1,0 +1,18 @@
+{
+	"schemaVersion": 1,
+	"profileId": "remediation-verification",
+	"policyId": "remediation-verification-stable-v1",
+	"caseIds": [
+		"gitleaks:vulnerable",
+		"gitleaks:fixed",
+		"osv:vulnerable",
+		"osv:fixed",
+		"trivy:vulnerable",
+		"trivy:fixed",
+		"semgrep:vulnerable",
+		"semgrep:fixed",
+		"identity-mismatch",
+		"scanner-fault",
+		"legacy"
+	]
+}

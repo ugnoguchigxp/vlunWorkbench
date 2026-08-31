@@ -227,6 +227,7 @@ export const runDastRequestSchema = z
 		profileId: z.string().min(1),
 		profileConfigId: z.string().uuid().optional(),
 		scanRunId: z.string().uuid().optional(),
+		catalogProfileId: z.enum(["authenticated-web"]).optional(),
 		runner: z.enum(["host", "docker"]).optional().default("host"),
 		dockerImage: z.string().optional(),
 		timeoutSec: z.number().int().positive().max(120).optional(),
@@ -252,6 +253,30 @@ export const runDastRequestSchema = z
 				path: ["authContextId"],
 				message: "authContextId and identityRole must be provided together",
 			});
+		}
+		if (value.catalogProfileId === "authenticated-web") {
+			if (value.profileId !== "authenticated-readonly-standard") {
+				ctx.addIssue({
+					code: "custom",
+					path: ["profileId"],
+					message: "authenticated-web requires authenticated-readonly-standard",
+				});
+			}
+			if (!value.targetConfigId || value.autoTarget) {
+				ctx.addIssue({
+					code: "custom",
+					path: ["targetConfigId"],
+					message: "authenticated-web requires an explicit saved target",
+				});
+			}
+			if (!value.authContextId || !value.identityRole) {
+				ctx.addIssue({
+					code: "custom",
+					path: ["authContextId"],
+					message:
+						"authenticated-web requires an auth context and identity role",
+				});
+			}
 		}
 	});
 export type RunDastRequestInput = z.infer<typeof runDastRequestSchema>;

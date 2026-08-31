@@ -95,3 +95,13 @@ export async function fetchActiveAssessmentRuns(
 	);
 	return result.runs;
 }
+
+export async function triggerBusinessLogicScenario(
+	scenarioId: string,
+	params: { destructiveConsent: true },
+): Promise<{ result: { scanRunId: string; businessLogicRunId: string } }> {
+	return requestJson(
+		`/api/business-logic-scenarios/${encodeURIComponent(scenarioId)}/runs`,
+		{ method: "POST", body: params },
+	);
+}

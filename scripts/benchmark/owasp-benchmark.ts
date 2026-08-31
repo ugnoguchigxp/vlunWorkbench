@@ -5,6 +5,7 @@ import { createDbConnection } from "../../api/db";
 import { BenchmarkRepository } from "../../api/modules/benchmarks/benchmark-repository";
 import { scoreBenchmark } from "../../api/modules/benchmarks/metric-scorer";
 import {
+	buildOwaspCweCategoryMap,
 	mapSemgrepFindingToObservation,
 	parseOwaspExpectedResults,
 } from "../../api/modules/benchmarks/owasp-benchmark-adapter";
@@ -59,6 +60,7 @@ const findingsEvidencePath = repositoryRelativeEvidencePath(findingsPath);
 const expected = parseOwaspExpectedResults(
 	await readFile(expectedResultsPath, "utf8"),
 );
+const categoryByCwe = buildOwaspCweCategoryMap(expected);
 if (suppliedFindingsPath) {
 	if (!(await stat(findingsPath).catch(() => null)))
 		throw new Error("owasp_supplied_findings_missing");
@@ -73,7 +75,7 @@ const findings = JSON.parse(
 	await readFile(findingsPath, "utf8"),
 ) as FindingInput[];
 const observations = findings
-	.map(mapSemgrepFindingToObservation)
+	.map((finding) => mapSemgrepFindingToObservation(finding, categoryByCwe))
 	.filter((value) => value !== null);
 const score = scoreBenchmark(expected, observations);
 const outputPath = path.resolve(".artifacts/benchmark/owasp-metrics.json");
@@ -211,19 +213,28 @@ async function runSemgrepBenchmark(
 	});
 	const raw = sanitizeSemgrepEvidenceArtifact(filtered.output, corpusSource);
 	await Bun.write(rawPath, `${JSON.stringify(raw, null, 2)}\n`);
-	const categoryByTest = new Map(
-		expected.map((item) => [item.testId, item.category]),
-	);
 	const findings = (raw.results ?? []).flatMap((result) => {
-		const testId = result.path?.match(/BenchmarkTest\d{5}/)?.[0];
 		const cwes = Array.isArray(result.extra?.metadata?.cwe)
 			? result.extra?.metadata?.cwe
 			: result.extra?.metadata?.cwe
 				? [result.extra.metadata.cwe]
 				: [];
-		const category = testId ? categoryByTest.get(testId) : undefined;
-		if (!result.path || !category) return [];
-		return cwes.map((cwe) => ({ path: result.path as string, cwe, category }));
+		if (!result.path) return [];
+		return cwes.flatMap((cwe) => {
+			const observation = mapSemgrepFindingToObservation(
+				{ path: result.path as string, cwe },
+				categoryByCwe,
+			);
+			return observation
+				? [
+						{
+							path: result.path as string,
+							cwe: observation.cwe,
+							category: observation.category,
+						},
+					]
+				: [];
+		});
 	});
 	await Bun.write(outputPath, `${JSON.stringify(findings, null, 2)}\n`);
 }

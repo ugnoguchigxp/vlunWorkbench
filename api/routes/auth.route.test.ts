@@ -124,8 +124,7 @@ describe("auth route", () => {
 		it("should refresh tokens using refresh cookie", async () => {
 			mockAuthService.refresh.mockResolvedValue({
 				accessToken: "new-access-token",
-				refreshToken: "old-refresh-token",
-				refreshTokenRotated: false,
+				refreshToken: "new-refresh-token",
 				user: {
 					id: testUser.id,
 					email: testUser.email,
@@ -150,34 +149,22 @@ describe("auth route", () => {
 			const cookies = res.headers.getSetCookie();
 			expect(cookies.some((c) => c.includes("new-access-token"))).toBe(true);
 			expect(cookies.some((c) => c.includes(REFRESH_TOKEN_COOKIE_NAME))).toBe(
-				false,
+				true,
 			);
 		});
 
-		it("should set a refresh cookie when refresh token rotation occurs", async () => {
-			mockAuthService.refresh.mockResolvedValue({
-				accessToken: "new-access-token",
-				refreshToken: "new-refresh-token",
-				refreshTokenRotated: true,
-				user: {
-					id: testUser.id,
-					email: testUser.email,
-					displayName: testUser.displayName,
-					role: testUser.role,
-				},
-			});
-
+		it("does not clear cookies when a concurrent refresh loses the race", async () => {
+			mockAuthService.refresh.mockRejectedValue(
+				new HttpError(401, "Invalid refresh token."),
+			);
 			const res = await app.request("/auth/refresh", {
 				method: "POST",
 				headers: {
-					Cookie: `${REFRESH_TOKEN_COOKIE_NAME}=old-refresh-token`,
+					Cookie: `${REFRESH_TOKEN_COOKIE_NAME}=consumed-refresh-token`,
 				},
 			});
-
-			expect(res.status).toBe(200);
-			const cookies = res.headers.getSetCookie();
-			expect(cookies.some((c) => c.includes("new-access-token"))).toBe(true);
-			expect(cookies.some((c) => c.includes("new-refresh-token"))).toBe(true);
+			expect(res.status).toBe(401);
+			expect(res.headers.getSetCookie()).toEqual([]);
 		});
 
 		it("should throw HttpError 401 when no refresh token cookie is present", async () => {

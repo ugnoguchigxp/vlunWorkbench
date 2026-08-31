@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "dod": [
+    { "id": "RE-DOD-01", "requiredDisposition": "passed" },
+    { "id": "RE-DOD-02", "requiredDisposition": "passed" },
+    { "id": "RE-DOD-03", "requiredDisposition": "passed" },
+    { "id": "RE-DOD-04", "requiredDisposition": "passed" },
+    { "id": "RE-DOD-05", "requiredDisposition": "passed" },
+    { "id": "RE-DOD-06", "requiredDisposition": "passed" },
+    { "id": "RE-DOD-07", "requiredDisposition": "passed" },
+    { "id": "RE-DOD-08", "requiredDisposition": "passed" },
+    { "id": "RE-DOD-09", "requiredDisposition": "passed" },
+    { "id": "RE-DOD-10", "requiredDisposition": "passed" },
+    { "id": "RE-DOD-11", "requiredDisposition": "passed" },
+    { "id": "RE-DOD-12", "requiredDisposition": "passed" },
+    { "id": "RE-DOD-13", "requiredDisposition": "passed" },
+    { "id": "RE-DOD-14", "requiredDisposition": "passed" },
+    { "id": "RE-DOD-15", "requiredDisposition": "passed" },
+    { "id": "RE-DOD-16", "requiredDisposition": "passed" },
+    { "id": "RE-DOD-17", "requiredDisposition": "passed" },
+    { "id": "RE-DOD-18", "requiredDisposition": "passed" },
+    { "id": "RE-DOD-19", "requiredDisposition": "passed" },
+    { "id": "RE-DOD-20", "requiredDisposition": "passed" },
+    { "id": "RE-DOD-21", "requiredDisposition": "passed" }
+  ],
+  "cases": [
+    { "id": "A1", "requiredDisposition": "superseded", "reason": "real_scan_target_fixed_to_todolist", "successorContract": "spec/security-capability/todolist-scan-target.v1.json" },
+    { "id": "A2", "requiredDisposition": "passed", "reason": null, "successorContract": null },
+    { "id": "A3", "requiredDisposition": "superseded", "reason": "real_scan_target_fixed_to_todolist", "successorContract": "spec/security-capability/todolist-scan-target.v1.json" },
+    { "id": "A4", "requiredDisposition": "passed", "reason": null, "successorContract": null },
+    { "id": "A5", "requiredDisposition": "passed", "reason": null, "successorContract": null },
+    { "id": "A6", "requiredDisposition": "passed", "reason": null, "successorContract": null },
+    { "id": "A7", "requiredDisposition": "passed", "reason": null, "successorContract": null },
+    { "id": "A8", "requiredDisposition": "passed", "reason": null, "successorContract": null },
+    { "id": "A9", "requiredDisposition": "passed", "reason": null, "successorContract": null },
+    { "id": "A10", "requiredDisposition": "passed", "reason": null, "successorContract": null }
+  ]
+}

@@ -1,9 +1,18 @@
+import { execFileSync } from "node:child_process";
 import { readdirSync, readFileSync } from "node:fs";
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
+import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDbConnection, type DbConnection } from "../../db";
-import { findings, projects, scanRuns, users } from "../../db/schema";
+import {
+	findings,
+	projects,
+	scanResourceLeases,
+	scanRuns,
+	users,
+} from "../../db/schema";
 import { DynamicRepository } from "./dynamic-repository";
 import { DynamicRunner } from "./dynamic-runner";
 
@@ -16,6 +25,18 @@ function streamText(text: string) {
 	});
 }
 
+function mockDockerSpawn(implementation: (args: string[]) => unknown) {
+	const originalSpawn = Bun.spawn;
+	vi.spyOn(Bun, "spawn").mockImplementation((args: unknown, ...rest: any[]) => {
+		if (!Array.isArray(args) || args[0] !== "docker") {
+			return originalSpawn(args as never, ...rest) as never;
+		}
+		return implementation(args) as never;
+	});
+}
+
+const QUALIFIED_DYNAMIC_IMAGE = `example.invalid/dynamic@sha256:${"a".repeat(64)}`;
+
 describe("Dynamic Runner", () => {
 	let connection: DbConnection;
 	let runner: DynamicRunner;
@@ -24,6 +45,8 @@ describe("Dynamic Runner", () => {
 	let projectId: string;
 	let scanRunId: string;
 	let configId: string;
+	let tempDir: string;
+	let repoPath: string;
 
 	beforeEach(async () => {
 		connection = createDbConnection(":memory:");
@@ -40,8 +63,19 @@ describe("Dynamic Runner", () => {
 			connection.sqlite.exec(sqlText);
 		}
 
-		runner = new DynamicRunner(connection.db);
+		runner = new DynamicRunner(connection.db, {
+			qualifiedDynamicImage: QUALIFIED_DYNAMIC_IMAGE,
+		});
 		repo = new DynamicRepository(connection.db);
+		tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "dynamic-runner-test-"));
+		repoPath = path.join(tempDir, "repo");
+		await fs.mkdir(repoPath);
+		await fs.writeFile(path.join(repoPath, "package.json"), "{}");
+		await fs.writeFile(path.join(repoPath, "package-lock.json"), '{"lockfileVersion":3,"packages":{}}');
+		await fs.writeFile(path.join(repoPath, ".env"), "DATABASE_URL=host-db");
+		execFileSync("git", ["init"], { cwd: repoPath });
+		execFileSync("git", ["add", "."], { cwd: repoPath });
+		execFileSync("git", ["-c", "user.email=dynamic@example.invalid", "-c", "user.name=Dynamic Test", "commit", "-m", "fixture"], { cwd: repoPath });
 
 		// Seed a test user
 		const now = new Date();
@@ -65,7 +99,7 @@ describe("Dynamic Runner", () => {
 			.values({
 				ownerUserId: userId,
 				name: "Dynamic Test Project",
-				repoPath: "/valid/repo",
+				repoPath,
 				defaultBranch: "main",
 				createdAt: now,
 				updatedAt: now,
@@ -103,9 +137,53 @@ describe("Dynamic Runner", () => {
 		configId = config.id;
 	});
 
-	afterEach(() => {
+	afterEach(async () => {
 		connection.sqlite.close(false);
 		vi.restoreAllMocks();
+		await fs.rm(tempDir, { recursive: true, force: true });
+	});
+
+	it("requires explicit execution consent at the runner boundary", async () => {
+		await expect(
+			runner.run({
+				projectId,
+				profileId: "test-profile-1",
+				runner: "docker",
+				executionConsent: false as true,
+			}),
+		).rejects.toThrow("dynamic_execution_consent_required");
+	});
+
+	it("fails closed unless the Dynamic image is server-configured and digest-pinned", async () => {
+		const unconfiguredRunner = new DynamicRunner(connection.db);
+		await expect(
+			unconfiguredRunner.dryRun({
+				projectId,
+				profileId: "test-profile-1",
+				runner: "docker",
+			}),
+		).rejects.toThrow("dynamic_image_not_qualified");
+
+		await expect(
+			runner.dryRun({
+				projectId,
+				profileId: "test-profile-1",
+				runner: "docker",
+				dockerImage: "attacker.invalid/untrusted:latest",
+			}),
+		).rejects.toThrow("dynamic_image_override_rejected");
+	});
+
+	it("rejects a parent scan with the wrong canonical profile", async () => {
+		await expect(
+			runner.run({
+				projectId,
+				profileId: "test-profile-1",
+				scanRunId,
+				runner: "docker",
+				executionConsent: true,
+			}),
+		).rejects.toThrow("dynamic_parent_scan_invalid");
 	});
 
 	it("should perform dryRun successfully", async () => {
@@ -119,6 +197,7 @@ describe("Dynamic Runner", () => {
 		expect(dryResult.profileId).toBe("test-profile-1");
 		expect(dryResult.dynamicKind).toBe("test");
 		expect(dryResult.command).toEqual(["bun", "test"]);
+		expect(dryResult.timeoutSec).toBe(120);
 		expect(dryResult.writableWorkdir).toBe(true);
 	});
 
@@ -155,8 +234,8 @@ describe("Dynamic Runner", () => {
 
 	it("should run dynamic verification successfully and collect stdout/stderr", async () => {
 		let dockerArgs: string[] = [];
-		vi.spyOn(Bun, "spawn").mockImplementation((args: any) => {
-			dockerArgs = args;
+		mockDockerSpawn((args) => {
+			if (args.includes("run")) dockerArgs = args;
 			return {
 				exited: Promise.resolve(0),
 				stdout: streamText("test suite passed"),
@@ -169,6 +248,7 @@ describe("Dynamic Runner", () => {
 			projectId,
 			profileId: "test-profile-1",
 			runner: "docker",
+			executionConsent: true,
 			createdByUserId: userId,
 		});
 
@@ -182,12 +262,28 @@ describe("Dynamic Runner", () => {
 		expect(dockerArgs).toContain("--memory-swap");
 		expect(dockerArgs).toContain("--cpus");
 		expect(dockerArgs).toContain("--pids-limit");
+		expect(dockerArgs).not.toContain(
+			`${path.resolve(repoPath)}:/workspace/repo:ro`,
+		);
+		expect(dockerArgs).toContain("--mount");
+		expect(
+			dockerArgs.some((arg) =>
+				arg.startsWith("type=volume,src=vuln-workbench-dyn-"),
+			),
+		).toBe(true);
 
 		// Verify DB Run state
 		const dbRun = await repo.getRun(result.dynamicRunId!);
 		expect(dbRun).not.toBeNull();
 		expect(dbRun!.status).toBe("completed");
 		expect(dbRun!.outcome).toBe("passed");
+		expect(dbRun!.metadata.runtimeProjection).toEqual(
+			expect.objectContaining({
+				policyVersion: 1,
+				sourceRevision: expect.stringMatching(/^[a-f0-9]{40}$/),
+				sourceSnapshotDigest: expect.stringMatching(/^[a-f0-9]{64}$/),
+			}),
+		);
 
 		const artifacts = await repo.listArtifacts(result.dynamicRunId!);
 		expect(artifacts).toHaveLength(2);
@@ -200,12 +296,62 @@ describe("Dynamic Runner", () => {
 		expect(evidence[0].title).toContain("PASSED");
 	});
 
+	it("binds and releases a dynamic bundle lease under a valid parent scan", async () => {
+		const now = new Date();
+		const [parent] = await connection.db
+			.insert(scanRuns)
+			.values({
+				projectId,
+				profile: "dynamic-verification",
+				status: "running",
+				createdAt: now,
+				updatedAt: now,
+			})
+			.returning();
+		mockDockerSpawn(() => ({
+			exited: Promise.resolve(0),
+			stdout: streamText("passed"),
+			stderr: streamText(""),
+			kill: () => {},
+		}) as any);
+
+		const result = await runner.run({
+			projectId,
+			profileId: "test-profile-1",
+			scanRunId: parent!.id,
+			runner: "docker",
+			executionConsent: true,
+		});
+		expect(result.status).toBe("completed");
+		const [lease] = await connection.db
+			.select()
+			.from(scanResourceLeases)
+			.where(
+				eq(scanResourceLeases.scanRunId, parent!.id),
+			);
+		expect(lease).toMatchObject({
+			provider: "docker-dynamic-isolation",
+			resourceType: "dynamic_bundle",
+			state: "released",
+			receipt: expect.objectContaining({ releasedAt: expect.any(String) }),
+		});
+	});
+
 	it("fails closed and retains only bounded process output", async () => {
 		runner = new DynamicRunner(connection.db, {
+			qualifiedDynamicImage: QUALIFIED_DYNAMIC_IMAGE,
 			outputLimits: { stdoutBytes: 4, stderrBytes: 4 },
 		});
 		vi.spyOn(Bun, "spawnSync").mockImplementation(() => ({}) as never);
-		vi.spyOn(Bun, "spawn").mockImplementation(() => {
+		mockDockerSpawn((args) => {
+			if (!args.includes("run")) {
+				return {
+					exited: Promise.resolve(0),
+					stdout: streamText(""),
+					stderr: streamText(""),
+					kill: () => {},
+				} as any;
+			}
 			return {
 				exited: Promise.resolve(137),
 				stdout: streamText("12345"),
@@ -218,6 +364,7 @@ describe("Dynamic Runner", () => {
 			projectId,
 			profileId: "test-profile-1",
 			runner: "docker",
+			executionConsent: true,
 			createdByUserId: userId,
 		});
 
@@ -245,11 +392,11 @@ describe("Dynamic Runner", () => {
 			createdByUserId: userId,
 		});
 
-		vi.spyOn(Bun, "spawn").mockImplementation((args: any) => {
-			// Simulate container writing expected artifact inside hostOutDir mount
-			const mountArg = args.find((a: string) => a.includes(":/workspace/out:rw"));
-			if (mountArg) {
-				const hostDir = mountArg.split(":")[0];
+		mockDockerSpawn((args) => {
+			// The collector copies only from the server-owned output volume.
+			if (args.includes("cp")) {
+				const hostDir = args.at(-1);
+				if (!hostDir) throw new Error("missing_dynamic_output_directory");
 				const crashFileDir = path.join(hostDir, "crashes");
 				const fsSync = require("node:fs");
 				fsSync.mkdirSync(crashFileDir, { recursive: true });
@@ -272,6 +419,7 @@ describe("Dynamic Runner", () => {
 			projectId,
 			profileId: "test-profile-1",
 			runner: "docker",
+			executionConsent: true,
 			createdByUserId: userId,
 		});
 
@@ -287,7 +435,10 @@ describe("Dynamic Runner", () => {
 	});
 
 	it("should classify execution failures cleanly if docker fails to start or times out", async () => {
-		vi.spyOn(Bun, "spawn").mockImplementation(() => {
+		mockDockerSpawn((args) => {
+			if (!args.includes("run")) {
+				return { exited: Promise.resolve(0), stdout: streamText(""), stderr: streamText(""), kill: () => {} } as any;
+			}
 			return {
 				exited: Promise.resolve(125), // Docker CLI run error code
 				stdout: streamText(""),
@@ -300,6 +451,7 @@ describe("Dynamic Runner", () => {
 			projectId,
 			profileId: "test-profile-1",
 			runner: "docker",
+			executionConsent: true,
 			createdByUserId: userId,
 		});
 
@@ -317,14 +469,15 @@ describe("Dynamic Runner", () => {
 		"should preserve timeout as a dynamic outcome instead of a runner error",
 		async () => {
 			let resolveExit: (code: number | null) => void = () => {};
-			vi.spyOn(Bun, "spawn").mockImplementation(() => {
+			mockDockerSpawn((args) => {
+				if (!args.includes("run")) return { exited: Promise.resolve(0), stdout: streamText(""), stderr: streamText(""), kill: () => {} } as any;
 				return {
-					exited: new Promise<number | null>((resolve) => {
-						resolveExit = resolve;
-					}),
-					stdout: streamText("still running"),
-					stderr: streamText(""),
-					kill: () => resolveExit(null),
+						exited: new Promise<number | null>((resolve) => {
+							resolveExit = resolve;
+						}),
+						stdout: streamText("still running"),
+						stderr: streamText(""),
+						kill: () => resolveExit(null),
 				} as any;
 			});
 
@@ -332,6 +485,7 @@ describe("Dynamic Runner", () => {
 				projectId,
 				profileId: "test-profile-1",
 				runner: "docker",
+				executionConsent: true,
 				timeoutSec: 1,
 				createdByUserId: userId,
 			});
@@ -354,7 +508,7 @@ describe("Dynamic Runner", () => {
 				runner: "docker",
 				network: "default",
 			}),
-		).rejects.toThrow("network mode exceeds");
+		).rejects.toThrow("qualified runtime bundle");
 
 		await expect(
 			runner.dryRun({

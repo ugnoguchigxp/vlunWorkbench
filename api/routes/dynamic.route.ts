@@ -8,32 +8,62 @@ import type { AppDatabase } from "../db";
 import { getAuthContextUser } from "../modules/auth/context";
 import { HttpError } from "../modules/auth/errors";
 import { DynamicArtifactStorage } from "../modules/dynamic/dynamic-artifact-storage";
-import { validateDynamicProfilePolicy } from "../modules/dynamic/dynamic-profiles";
+import {
+	DYNAMIC_PROFILE_TEMPLATES,
+	validateDynamicProfilePolicy,
+} from "../modules/dynamic/dynamic-profiles";
 import { DynamicRepository } from "../modules/dynamic/dynamic-repository";
+import type { WebProcessCapacity } from "../modules/processes/web-process-capacity";
+import {
+	buildDedicatedProfileAdmissionMetadata,
+	createDedicatedLaunchAttempt,
+} from "../modules/scans/dedicated-profile-admission";
+import { ScanLaunchAttemptRepository } from "../modules/scans/execution/scan-launch-attempt-repository";
 import type {
 	FindingRepository,
 	ProjectRepository,
 } from "../modules/scans/repositories";
+import { ScanRepository } from "../modules/scans/repositories";
 import {
 	ProjectPathPolicyError,
 	resolveProjectPath,
 } from "../security/project-path-policy";
+import { parseCliJsonObject, runBoundedCliProcess } from "./cli-process-bridge";
+
+const DYNAMIC_CLI_OUTPUT_LIMIT_BYTES = 1024 * 1024;
+const DYNAMIC_CLI_TIMEOUT_MS = 12 * 60 * 1000;
+
+function canonicalDynamicProfileId(profileId: string) {
+	const template = DYNAMIC_PROFILE_TEMPLATES.find(
+		(entry) => entry.id === profileId,
+	);
+	if (!template) return "custom-dynamic-lab";
+	return template.dynamicKind === "test"
+		? "dynamic-verification"
+		: "sanitizer-fuzz-lab";
+}
 
 type DynamicRouteDeps = {
 	db: AppDatabase;
 	findingRepository: FindingRepository;
 	projectRepository: ProjectRepository;
+	processCapacity?: WebProcessCapacity;
+	scanRepository?: ScanRepository;
 };
 
 type DynamicCliBridgeResult = Record<string, unknown> & {
 	ok?: boolean;
 	dynamicRunId?: string;
+	status?: string;
+	outcome?: string;
 	message?: string;
 };
 
 export function createDynamicRoute(deps: DynamicRouteDeps) {
 	const { db, findingRepository, projectRepository } = deps;
 	const repo = new DynamicRepository(db);
+	const scanRepository = deps.scanRepository ?? new ScanRepository(db);
+	const scanLaunchAttempts = new ScanLaunchAttemptRepository(db);
 	const route = new Hono();
 	const assertExecutionPath = async (repoPath: string) => {
 		try {
@@ -57,8 +87,21 @@ export function createDynamicRoute(deps: DynamicRouteDeps) {
 		if (!project || project.ownerUserId !== authUser.userId) {
 			throw new HttpError(403, "Forbidden");
 		}
-		const configs = await repo.listConfigsForProject(projectId);
-		return c.json({ configs });
+		const [configs, applicability] = await Promise.all([
+			repo.listConfigsForProject(projectId),
+			Promise.all(
+				DYNAMIC_PROFILE_TEMPLATES.map(async (template) => ({
+					id: template.id,
+					displayName: template.displayName,
+					dynamicKind: template.dynamicKind,
+					applicable: await template.isApplicable(project.repoPath),
+				})),
+			),
+		]);
+		return c.json({
+			configs,
+			templates: applicability.filter((template) => template.applicable),
+		});
 	});
 
 	// Create project profile config
@@ -208,19 +251,95 @@ export function createDynamicRoute(deps: DynamicRouteDeps) {
 				.join("; ");
 			throw new HttpError(400, `Validation failed: ${message}`);
 		}
+		if (!parseResult.data.consentProjectCodeExecution) {
+			throw new HttpError(
+				400,
+				"Explicit consent is required for isolated project code execution.",
+			);
+		}
 
-		const cliResult = await executeDynamicRunCli({
+		await ensureBuiltinProfileConfig({
+			repository: repo,
 			projectId,
+			repoPath: project.repoPath,
 			profileId: parseResult.data.profileId,
-			runner: parseResult.data.runner,
-			dockerImage: parseResult.data.dockerImage,
-			network: parseResult.data.network,
-			timeoutSec: parseResult.data.timeoutSec,
-			memory: parseResult.data.memory,
-			cpus: parseResult.data.cpus,
+			createdByUserId: authUser.userId,
 		});
-
-		return c.json(cliResult);
+		const canonicalProfileId = canonicalDynamicProfileId(
+			parseResult.data.profileId,
+		);
+		const launchAttempt = await createDedicatedLaunchAttempt({
+			repository: scanLaunchAttempts,
+			projectId,
+			createdByUserId: authUser.userId,
+			canonicalProfileId,
+			providedInputKinds: ["source_target", "execution_consent"],
+			expectedLaunchDestination: "dynamic_workspace",
+			sanitizedInputSummary: { dynamicProfileId: parseResult.data.profileId },
+		});
+		const scan = await scanRepository.createScanRun({
+			projectId,
+			profile: canonicalProfileId,
+			status: "running",
+			createdByUserId: authUser.userId,
+			metadata: {
+				...buildDedicatedProfileAdmissionMetadata({
+					canonicalProfileId,
+					expectedLaunchDestination: "dynamic_workspace",
+					providedInputKinds: ["source_target", "execution_consent"],
+				}),
+				dynamicProfileId: parseResult.data.profileId,
+				safetyBoundary: "docker-isolated-readonly-source",
+				networkMode: parseResult.data.network ?? "none",
+			},
+		});
+		await scanLaunchAttempts.admit({
+			attemptId: launchAttempt.id,
+			scanRunId: scan.id,
+		});
+		try {
+			const cliResult = await executeDynamicRunCli({
+				projectId,
+				scanRunId: scan.id,
+				profileId: parseResult.data.profileId,
+				runner: parseResult.data.runner,
+				dockerImage: parseResult.data.dockerImage,
+				network: parseResult.data.network,
+				timeoutSec: parseResult.data.timeoutSec,
+				memory: parseResult.data.memory,
+				cpus: parseResult.data.cpus,
+				executionConsent: true,
+				processCapacity: deps.processCapacity,
+			});
+			const completed = cliResult.ok === true;
+			const profileOutcome = completed
+				? cliResult.outcome === "passed"
+					? "completed"
+					: "completed_with_warnings"
+				: "failed";
+			await scanRepository.updateScanRunStatus(
+				scan.id,
+				completed ? "completed" : "failed",
+				{
+					summary: completed
+						? `Isolated dynamic verification completed with outcome: ${cliResult.outcome ?? "unknown"}.`
+						: String(cliResult.message ?? "Dynamic verification failed."),
+					profileOutcome,
+					metadata: {
+						dynamicRunId: cliResult.dynamicRunId ?? null,
+						dynamicStatus: cliResult.status ?? null,
+						dynamicOutcome: cliResult.outcome ?? null,
+					},
+				},
+			);
+			return c.json({ ...cliResult, scanRunId: scan.id });
+		} catch (error) {
+			await scanRepository.updateScanRunStatus(scan.id, "failed", {
+				summary: error instanceof Error ? error.message : String(error),
+				profileOutcome: "failed",
+			});
+			throw error;
+		}
 	});
 
 	// List finding runs
@@ -272,20 +391,94 @@ export function createDynamicRoute(deps: DynamicRouteDeps) {
 				.join("; ");
 			throw new HttpError(400, `Validation failed: ${message}`);
 		}
-
-		const cliResult = await executeDynamicRunCli({
+		if (!parseResult.data.consentProjectCodeExecution) {
+			throw new HttpError(
+				400,
+				"Explicit consent is required for isolated project code execution.",
+			);
+		}
+		await ensureBuiltinProfileConfig({
+			repository: repo,
 			projectId: project.id,
-			findingId,
+			repoPath: project.repoPath,
 			profileId: parseResult.data.profileId,
-			runner: parseResult.data.runner,
-			dockerImage: parseResult.data.dockerImage,
-			network: parseResult.data.network,
-			timeoutSec: parseResult.data.timeoutSec,
-			memory: parseResult.data.memory,
-			cpus: parseResult.data.cpus,
+			createdByUserId: authUser.userId,
 		});
-
-		return c.json(cliResult);
+		const canonicalProfileId = canonicalDynamicProfileId(
+			parseResult.data.profileId,
+		);
+		const launchAttempt = await createDedicatedLaunchAttempt({
+			repository: scanLaunchAttempts,
+			projectId: project.id,
+			createdByUserId: authUser.userId,
+			canonicalProfileId,
+			providedInputKinds: ["source_target", "execution_consent"],
+			expectedLaunchDestination: "dynamic_workspace",
+			sanitizedInputSummary: {
+				dynamicProfileId: parseResult.data.profileId,
+				findingBound: true,
+			},
+		});
+		const scan = await scanRepository.createScanRun({
+			projectId: project.id,
+			profile: canonicalProfileId,
+			status: "running",
+			createdByUserId: authUser.userId,
+			metadata: {
+				...buildDedicatedProfileAdmissionMetadata({
+					canonicalProfileId,
+					expectedLaunchDestination: "dynamic_workspace",
+					providedInputKinds: ["source_target", "execution_consent"],
+				}),
+				findingId,
+				dynamicProfileId: parseResult.data.profileId,
+				safetyBoundary: "docker-isolated-readonly-source",
+				networkMode: parseResult.data.network ?? "none",
+			},
+		});
+		await scanLaunchAttempts.admit({
+			attemptId: launchAttempt.id,
+			scanRunId: scan.id,
+		});
+		try {
+			const cliResult = await executeDynamicRunCli({
+				projectId: project.id,
+				findingId,
+				scanRunId: scan.id,
+				profileId: parseResult.data.profileId,
+				runner: parseResult.data.runner,
+				dockerImage: parseResult.data.dockerImage,
+				network: parseResult.data.network,
+				timeoutSec: parseResult.data.timeoutSec,
+				memory: parseResult.data.memory,
+				cpus: parseResult.data.cpus,
+				executionConsent: true,
+				processCapacity: deps.processCapacity,
+			});
+			const completed = cliResult.ok === true;
+			await scanRepository.updateScanRunStatus(
+				scan.id,
+				completed ? "completed" : "failed",
+				{
+					summary: completed
+						? `Isolated dynamic verification completed with outcome: ${cliResult.outcome ?? "unknown"}.`
+						: String(cliResult.message ?? "Dynamic verification failed."),
+					profileOutcome: completed ? "completed" : "failed",
+					metadata: {
+						dynamicRunId: cliResult.dynamicRunId ?? null,
+						dynamicStatus: cliResult.status ?? null,
+						dynamicOutcome: cliResult.outcome ?? null,
+					},
+				},
+			);
+			return c.json({ ...cliResult, scanRunId: scan.id });
+		} catch (error) {
+			await scanRepository.updateScanRunStatus(scan.id, "failed", {
+				summary: error instanceof Error ? error.message : String(error),
+				profileOutcome: "failed",
+			});
+			throw error;
+		}
 	});
 
 	// Get specific run
@@ -368,6 +561,7 @@ export function createDynamicRoute(deps: DynamicRouteDeps) {
 // Subprocess execution wrapper to decouple api routes from docker details
 async function executeDynamicRunCli(params: {
 	projectId: string;
+	scanRunId?: string;
 	findingId?: string | null;
 	profileId: string;
 	runner: string;
@@ -376,6 +570,8 @@ async function executeDynamicRunCli(params: {
 	timeoutSec?: number;
 	memory?: string;
 	cpus?: string;
+	executionConsent: true;
+	processCapacity?: WebProcessCapacity;
 }) {
 	const args = [
 		"run",
@@ -387,7 +583,10 @@ async function executeDynamicRunCli(params: {
 		params.profileId,
 		"--runner",
 		params.runner,
+		"--consent-project-code-execution",
+		String(params.executionConsent),
 	];
+	if (params.scanRunId) args.push("--scan-run-id", params.scanRunId);
 
 	if (params.findingId) {
 		args.push("--finding-id", params.findingId);
@@ -408,32 +607,18 @@ async function executeDynamicRunCli(params: {
 		args.push("--cpus", params.cpus);
 	}
 
-	const proc = Bun.spawn(["bun", ...args], {
-		stdout: "pipe",
-		stderr: "pipe",
+	const processResult = await runBoundedCliProcess({
+		argv: ["bun", ...args],
+		processCapacity: params.processCapacity,
+		timeoutMs: DYNAMIC_CLI_TIMEOUT_MS,
+		outputLimitBytes: DYNAMIC_CLI_OUTPUT_LIMIT_BYTES,
+		label: "Dynamic CLI",
 	});
 
-	const [stdoutBuf, stderrBuf] = await Promise.all([
-		new Response(proc.stdout).arrayBuffer(),
-		new Response(proc.stderr).arrayBuffer(),
-	]);
-
-	const stdout = new TextDecoder().decode(stdoutBuf);
-	const stderr = new TextDecoder().decode(stderrBuf);
-	await proc.exited;
-
-	let cliResult: DynamicCliBridgeResult;
-	try {
-		const parsed = JSON.parse(stdout.trim());
-		if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-			throw new Error("CLI returned a non-object JSON payload");
-		}
-		cliResult = parsed as DynamicCliBridgeResult;
-	} catch (err: unknown) {
-		const message = err instanceof Error ? err.message : String(err);
-		console.error(`Dynamic run CLI bridge failed: ${stderr}`);
-		throw new HttpError(500, `CLI bridge parse failure: ${stderr || message}`);
-	}
+	const cliResult = parseCliJsonObject(
+		processResult,
+		"Dynamic CLI",
+	) as DynamicCliBridgeResult;
 
 	if (!cliResult.ok && !cliResult.dynamicRunId) {
 		throw new HttpError(
@@ -443,4 +628,44 @@ async function executeDynamicRunCli(params: {
 	}
 
 	return cliResult;
+}
+
+async function ensureBuiltinProfileConfig(params: {
+	repository: DynamicRepository;
+	projectId: string;
+	repoPath: string;
+	profileId: string;
+	createdByUserId: string;
+}) {
+	const existing = await params.repository.getConfigByProfileId(
+		params.projectId,
+		params.profileId,
+	);
+	if (existing) return existing;
+	const template = DYNAMIC_PROFILE_TEMPLATES.find(
+		(candidate) => candidate.id === params.profileId,
+	);
+	if (!template || !(await template.isApplicable(params.repoPath))) {
+		throw new HttpError(
+			400,
+			`Dynamic profile is not applicable: ${params.profileId}`,
+		);
+	}
+	return await params.repository.createConfig({
+		projectId: params.projectId,
+		profileId: template.id,
+		dynamicKind: template.dynamicKind,
+		displayName: template.displayName,
+		enabled: true,
+		commandJson: template.commandJson,
+		workingDirectory: "",
+		timeoutSec: template.timeoutSec,
+		network: template.network,
+		memory: null,
+		cpus: null,
+		writableWorkdir: template.writableWorkdir,
+		allowProjectScripts: template.allowProjectScripts,
+		expectedArtifactsJson: template.expectedArtifactsJson ?? [],
+		createdByUserId: params.createdByUserId,
+	});
 }

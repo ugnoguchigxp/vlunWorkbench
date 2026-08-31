@@ -1,4 +1,4 @@
-import { buildScansNavigationHandlers } from "./scans-derived-controller";
+import { buildScansNavigationHandlers } from "./scans-navigation-handlers";
 
 const DEFAULT_REPORT_OPTIONS = {
 	includeFalsePositives: true,

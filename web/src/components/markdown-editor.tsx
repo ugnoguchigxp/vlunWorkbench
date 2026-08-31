@@ -1,4 +1,3 @@
-import { marked } from "marked";
 import {
 	type ChangeEvent,
 	type MouseEvent,
@@ -6,6 +5,8 @@ import {
 	useMemo,
 	useRef,
 } from "react";
+import { MarkdownRenderer } from "./markdown-renderer";
+import { renderMarkdownToSafeHtml } from "./safe-markdown";
 
 type MarkdownEditorProps = {
 	value: string;
@@ -17,37 +18,7 @@ type MarkdownEditorProps = {
 	className?: string;
 };
 
-const markdownRenderer = new marked.Renderer();
-const renderSafeLink = markdownRenderer.link.bind(markdownRenderer);
-const isSafeLink = (href: string): boolean => {
-	if (href.includes("&") || href.startsWith("//")) return false;
-	try {
-		return ["http:", "https:", "mailto:"].includes(
-			new URL(href, "https://markdown.local/").protocol,
-		);
-	} catch {
-		return false;
-	}
-};
-markdownRenderer.html = () => "";
-markdownRenderer.image = () => "";
-markdownRenderer.link = (token) => {
-	const href = token.href.trim();
-	if (!isSafeLink(href)) {
-		return markdownRenderer.parser.parseInline(token.tokens);
-	}
-	return renderSafeLink(token);
-};
-
-export const renderMarkdownToSafeHtml = (markdown: string): string => {
-	const rendered = marked.parse(markdown, {
-		async: false,
-		breaks: false,
-		gfm: true,
-		renderer: markdownRenderer,
-	});
-	return typeof rendered === "string" ? rendered : "";
-};
+export { renderMarkdownToSafeHtml } from "./safe-markdown";
 
 const joinClassNames = (
 	...values: Array<string | false | null | undefined>
@@ -63,7 +34,10 @@ export function MarkdownEditor({
 	className,
 }: MarkdownEditorProps) {
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
-	const safeHtml = useMemo(() => renderMarkdownToSafeHtml(value), [value]);
+	const safeHtml = useMemo(
+		() => (editable ? renderMarkdownToSafeHtml(value) : ""),
+		[editable, value],
+	);
 
 	const updateValue = useCallback(
 		(nextValue: string) => {
@@ -103,15 +77,12 @@ export function MarkdownEditor({
 
 	if (!editable) {
 		return (
-			<div
+			<MarkdownRenderer
+				markdown={value}
 				className={joinClassNames(
-					"markdown-surface",
-					"markdown-surface-viewer",
 					autoHeight && "markdown-surface-auto-height",
 					className,
 				)}
-				// biome-ignore lint/security/noDangerouslySetInnerHtml: raw HTML and unsafe links are disabled by the Marked renderer.
-				dangerouslySetInnerHTML={{ __html: safeHtml }}
 			/>
 		);
 	}
@@ -193,7 +164,7 @@ export function MarkdownEditor({
 					/>
 				</label>
 				<section
-					className="markdown-preview"
+					className="markdown-preview markdown-document"
 					aria-label="Markdown preview"
 					// biome-ignore lint/security/noDangerouslySetInnerHtml: raw HTML and unsafe links are disabled by the Marked renderer.
 					dangerouslySetInnerHTML={{ __html: safeHtml }}

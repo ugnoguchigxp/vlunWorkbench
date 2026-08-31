@@ -25,7 +25,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 const args = process.argv.slice(2);
 if (args.includes("--version")) {
-	console.log("1.2.3");
+	console.log("1.171.0");
 	process.exit(0);
 }
 const outIdx = args.indexOf("--output");
@@ -59,7 +59,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 const args = process.argv.slice(2);
 if (args.includes("version")) {
-	console.log("8.18.0");
+	console.log("8.30.1");
 	process.exit(0);
 }
 const outIdx = args.indexOf("--report-path");
@@ -89,7 +89,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 const args = process.argv.slice(2);
 if (args.includes("--version")) {
-	console.log("1.5.0");
+	console.log("osv-scanner version: 2.4.0");
 	process.exit(0);
 }
 const outIdx = args.indexOf("--output-file");
@@ -206,7 +206,13 @@ describe("Security oracle CLI contract", () => {
 				profile: "agent-output",
 				findingCount: 0,
 				highOrCriticalCount: 0,
-				coverage: { completed: 2, skipped: 0, failed: 0, gaps: [] },
+				coverage: {
+					completed: 2,
+					skipped: 0,
+					failed: 0,
+					blocked: 0,
+					gaps: [],
+				},
 			},
 			review: {
 				status: "completed",

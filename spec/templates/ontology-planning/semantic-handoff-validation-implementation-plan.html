@@ -1,0 +1,2030 @@
+<article lang="ja" data-spec-role="template">
+  <h1 id="semantic-handoff-validation-implementation-plan">
+    Semantic Handoff Validation Implementation Plan
+  </h1>
+  <ul>
+    <li>Status: Parked reference plan; implementation not approved</li>
+    <li>Implementation status: Not started</li>
+    <li>Date: 2026-08-28</li>
+    <li>Last reviewed: 2026-08-31</li>
+    <li>
+      Review status: Paired value pilot GO alone does not reactivate this plan; a real handoff
+      inconsistency is also required
+    </li>
+    <li>
+      Priority: P0 candidate only after Stage 0 GO and an observed semantic handoff inconsistency
+    </li>
+    <li>GO requirement: 実装開始前にowner、observed inconsistency、rollout gateの承認が必要</li>
+    <li>
+      Planning catalog:
+      <a href="../../templates/ontology-planning/index.html">Ontology Planning Catalog</a>
+    </li>
+    <li>
+      Parent direction:
+      <a href="../../concepts/project-intelligence-ontology-evolution-roadmap.html"
+        >Project Intelligence and Ontology Evolution Roadmap</a
+      >
+    </li>
+  </ul>
+
+  <h2 id="1-purpose">1. Purpose</h2>
+  <p>
+    persisted Static Intelligence generationからontology handoffを公開する直前に、ZodによるJSON
+    shape validationだけでは検出できないgraph-wideな意味制約を検証する。検証結果を決定的な
+    machine-readable reportとしてAPI、knowledge source manifest、NightWorkers consumerへ渡し、
+    不正なhandoffをtask / run contextへ利用させない。
+  </p>
+  <p>
+    この計画はSemantic Handoff Validationだけを実装可能な粒度へ具体化する。claim provenance、
+    security vocabulary alignment、contract diff、competency question、rule
+    inferenceは本計画で設計・実装しない。
+  </p>
+
+  <h2 id="2-target-outcome">2. Target Outcome</h2>
+  <pre><code class="language-text">persisted generation
+  -&gt; build deterministic ontology handoff projection
+  -&gt; validate identity / graph / module / summary constraints
+  -&gt; emit structured validation report
+  -&gt; merge report into readiness
+  -&gt; publish diagnostic payload
+  -&gt; consumer activates only passed or passed_with_warnings payload
+</code></pre>
+  <ul>
+    <li>validなhandoffは既存と同じprojectionを返し、validation reportを追加する。</li>
+    <li>
+      warningだけの場合はhandoffを利用可能なまま、既存<code>available</code>を
+      <code>degraded</code>にする。既存<code
+        >stale</code
+      >
+      / <code>failed</code>は弱めない。
+    </li>
+    <li>
+      errorがある場合もgenerationとreportは保持するが、handoff
+      statusを<code>failed</code>にする。
+    </li>
+    <li>
+      NightWorkersは<code>failed</code> reportを受け取ってもmodule / task
+      contextへ取り込まない。
+    </li>
+    <li>同一generationから常に同じreport orderingと同じmanifest content hashを生成する。</li>
+  </ul>
+
+  <h2 id="3-current-baseline">3. Current Baseline</h2>
+  <table>
+    <caption>
+      現行実装とvalidation gap
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Surface</th>
+        <th scope="col">Current behavior</th>
+        <th scope="col">Gap</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>static-intelligence.schema.ts</code></td>
+        <td>node、edge、graphのfield shapeをZodで検証する。</td>
+        <td>ID一意性、endpoint実在、domain / range、cardinalityを検証しない。</td>
+      </tr>
+      <tr>
+        <td><code>evidence-graph.ts</code></td>
+        <td>
+          <code>Map</code>で新規生成時のnode /
+          edgeをdeduplicateし、ID順にsortする。
+        </td>
+        <td>persisted data読込時や将来builder変更時の意味整合性を再検証しない。</td>
+      </tr>
+      <tr>
+        <td><code>stored_as</code> edge</td>
+        <td>artifact row不在でもconfidence 0.5のedgeを生成できる。</td>
+        <td>参照未解決を意図したdegradationとして明示しない。</td>
+      </tr>
+      <tr>
+        <td><code>ontology-handoff.ts</code></td>
+        <td>module候補、graph summary、source ref、consumer boundaryを生成する。</td>
+        <td>projectionとgeneration / graphの対応を包括検証しない。</td>
+      </tr>
+      <tr>
+        <td><code>build-service.ts</code></td>
+        <td>review、structure、semantic stageからreadinessを組み立てる。</td>
+        <td>
+          ontology semantic validation stageがなく、evidence graphは常にbase readinessになる。
+        </td>
+      </tr>
+      <tr>
+        <td><code>read-model-resolver.ts</code></td>
+        <td>freshness、structure、semantic indexからreadinessを再計算する。</td>
+        <td>build-serviceと別実装で、どちらもgraph semantic validityを見ない。</td>
+      </tr>
+      <tr>
+        <td>knowledge source CLI</td>
+        <td>persisted generationからmanifestを生成するが、readinessを渡していない。</td>
+        <td>NightWorkersへsemantic validation結果が届かない。</td>
+      </tr>
+      <tr>
+        <td>NightWorkers</td>
+        <td>
+          strict manifest
+          schemaをparseし、成功すればhandoffを<code>available</code>にする。
+        </td>
+        <td>structurally validだがsemantically invalidなmanifestを拒否できない。</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3 id="31-current-test-evidence">3.1 Current Test Evidence</h3>
+  <p>2026-08-28に関連7 test fileを変更前baselineとして実行した。</p>
+  <ul>
+    <li>全体: 56 tests中49 pass、7 fail</li>
+    <li>knowledge source CLI単独: 7 tests中1 pass、6 fail。spawn結果のstdoutが空になる。</li>
+    <li>
+      build-service単独: 4 tests中3 pass、1 fail。dirty-state
+      fixtureが<code>git</code>ではなく
+      <code>tree_hash_only</code>になる。
+    </li>
+    <li>module candidate、manifest unit、read model、export、routeの残りはpassした。</li>
+  </ul>
+  <p>
+    これらは本計画作成前から再現するbaselineである。CLI contract
+    testの安定化は本計画の直接surfaceなので Slice 0で原因を切り分ける。dirty-state failureはsemantic
+    validationと無関係であり、同じ変更へ混ぜない。
+  </p>
+
+  <h2 id="4-fixed-decisions">4. Fixed Decisions</h2>
+  <ul>
+    <li>初期validatorはTypeScriptのpure functionとして実装する。</li>
+    <li>RDF変換、SHACL file生成、pySHACL、Semantica runtime dependencyを導入しない。</li>
+    <li>
+      validationはpersisted generationを削除または無効化せず、handoffの利用可否だけを制御する。
+    </li>
+    <li>validation reportは時刻を持たず、generationだけから決定的に生成する。</li>
+    <li>
+      <code>static-intelligence-ontology-handoff-v1</code>のrule集合とseverityはimmutableとし、
+      rule追加・削除・severity変更時は別profileを定義する。
+    </li>
+    <li>error / warningの判定はrule profileで固定し、consumerがmessage文字列を解析しない。</li>
+    <li>API / CLIの実行成功とontology conformanceを分離する。</li>
+    <li>
+      validator内部例外のraw errorをwireへ通さず、固定messageのfailed reportへ変換してfail
+      closedにする。
+    </li>
+    <li>
+      同じrequest / build内ではprojectionとreportを一度だけ評価し、readinessとwire
+      outputで共有する。
+    </li>
+    <li>
+      consumer-first migrationを採用し、NightWorkersがoptional reportを読める状態を先にreleaseする。
+    </li>
+    <li>
+      既存の<code>candidateOnly</code> semantic
+      queryはgraphへ投影されていないため、本計画のrule対象にしない。
+    </li>
+  </ul>
+
+  <h2 id="5-scope">5. Scope</h2>
+  <h3 id="51-in-scope">5.1 In Scope</h3>
+  <ul>
+    <li>validation reportのshared Zod schema</li>
+    <li>
+      generation identity、graph integrity、edge semantics、module projection、summaryのpure
+      validator
+    </li>
+    <li>validation結果とevidence graph / ontology handoff readinessの統合</li>
+    <li>ontology handoff API responseへのreport追加</li>
+    <li>knowledge source manifest / CLIへのreport追加</li>
+    <li>NightWorkersのoptional report parsingとfailed handoff拒否</li>
+    <li>unit、route、CLI、cross-repository contract fixture</li>
+    <li>段階release、rollback、baseline comparison</li>
+  </ul>
+
+  <h3 id="52-non-goals">5.2 Non-goals</h3>
+  <ul>
+    <li>node / edge / claim単位provenanceの新設</li>
+    <li>CWE / CVE / CAPEC / OWASP等のvocabulary mapping</li>
+    <li>ontology contract全体のsemantic versioning / diff engine</li>
+    <li>competency question evaluator</li>
+    <li>Datalog、forward chaining、LLM reasoning</li>
+    <li>RDF canonical storage、triple store、SPARQL endpoint</li>
+    <li>browser UI、validation editor、ontology visualization</li>
+    <li>scanner finding detection、review prompt、finding groupingの変更</li>
+    <li>既存dirty-state test failureの便乗修正</li>
+  </ul>
+
+  <h2 id="6-responsibility-boundary">6. Responsibility Boundary</h2>
+  <table>
+    <caption>
+      validationに関するowner
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Layer</th>
+        <th scope="col">Owns</th>
+        <th scope="col">Must not own</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>vulnWorkbench</td>
+        <td>producer graph rule、report生成、readiness、manifest emission</td>
+        <td>NightWorkers task policy、canonical ontology approval</td>
+      </tr>
+      <tr>
+        <td>NightWorkers</td>
+        <td>report parsing、handoff activation拒否、bounded diagnostic event</td>
+        <td>producer ruleの再実装、invalid graphの自動修復</td>
+      </tr>
+      <tr>
+        <td>Future Ontology Core</td>
+        <td>Stage 4以降のcanonical claim / conflict / approval</td>
+        <td>本計画の初期runtime dependency</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2 id="7-semantica-adoption-boundary">7. Semantica Adoption Boundary</h2>
+  <p>
+    参考実装は
+    <a
+      href="https://github.com/semantica-agi/semantica/tree/cce5ea177cbac29a526effa546219c48f8ec36f4"
+      >Semantica commit cce5ea1</a
+    >の<a
+      href="https://github.com/semantica-agi/semantica/blob/cce5ea177cbac29a526effa546219c48f8ec36f4/semantica/ontology/engine.py"
+      ><code>OntologyEngine.validate_graph</code></a
+    >と<a
+      href="https://github.com/semantica-agi/semantica/blob/cce5ea177cbac29a526effa546219c48f8ec36f4/semantica/ontology/ontology_validator.py"
+      ><code>SHACLValidationReport</code></a
+    >である。
+  </p>
+  <table>
+    <caption>
+      借りる設計と借りない実装
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Borrow</th>
+        <th scope="col">Do not borrow now</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>conforms</code>と構造化されたviolation / warning</td>
+        <td>RDF graphへの強制変換</td>
+      </tr>
+      <tr>
+        <td>focus node、path、constraint、severity、messageの分離</td>
+        <td>pySHACL / rdflib runtime dependency</td>
+      </tr>
+      <tr>
+        <td>LLMを使わない決定的な説明template</td>
+        <td>LLMが生成したontologyからshapeを自動生成する経路</td>
+      </tr>
+      <tr>
+        <td>warningとerrorを別に扱うconformance lifecycle</td>
+        <td>raw SHACL reportの保存と公開</td>
+      </tr>
+      <tr>
+        <td>validation profileを明示する考え方</td>
+        <td>reasoner、inference、ontology editor</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    Semantica / SHACLのconstraint
+    componentは、本contractではversionedな<code>code</code>へ写像する。
+    RDF IRIやraw shapeはwireへ持ち込まない。
+  </p>
+  <p>
+    report semanticsは
+    <a href="https://www.w3.org/TR/shacl/#validation-report">W3C SHACL Validation Report</a>
+    を参考にするが、JSON contractはvulnWorkbench consumerへ最適化する。
+  </p>
+  <p>
+    SHACL標準ではwarningを含むvalidation
+    resultが1件でも<code>sh:conforms=false</code>になり得るが、
+    本profileの<code>conforms</code>は「errorがなくconsumer利用可能」を意味する。したがってwarningだけなら
+    <code>conforms=true</code>とする明示的な差分がある。
+  </p>
+
+  <h2 id="8-contract">8. Validation Contract</h2>
+  <h3 id="81-shared-schema">8.1 Shared Schema</h3>
+  <pre><code class="language-typescript">const diagnosticRefSchema = z.string().min(1).max(256);
+const countSchema = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
+
+const ontologyValidationViolationSchema = z.object({
+  code: z.string().max(128).regex(/^ontology\.[a-z0-9_.]+$/),
+  severity: z.enum(["error", "warning"]),
+  focusRef: diagnosticRefSchema,
+  path: z.string().min(1).max(256).optional(),
+  message: z.string().min(1).max(512),
+  sourceRefCount: countSchema,
+  sourceRefsTruncated: z.boolean(),
+  sourceRefs: z.array(diagnosticRefSchema).max(20),
+}).strict();
+
+const ontologyValidationReportSchema = z.object({
+  version: z.literal("v1"),
+  profile: z.literal("static-intelligence-ontology-handoff-v1"),
+  generationId: z.string().min(1),
+  status: z.enum(["passed", "passed_with_warnings", "failed"]),
+  conforms: z.boolean(),
+  summary: z.object({
+    errorCount: countSchema,
+    warningCount: countSchema,
+    emittedCount: z.number().int().nonnegative().max(1000),
+    truncated: z.boolean(),
+  }).strict(),
+  violations: z.array(ontologyValidationViolationSchema).max(1000),
+}).strict();</code></pre>
+  <ul>
+    <li>
+      <code>code</code
+      >はforward-compatibleなstringとし、consumerは未知codeを安全に扱う。
+    </li>
+    <li>
+      <code>message</code>は人間向けであり、control flowには使用しない。
+    </li>
+    <li>
+      <code>message</code>はrule codeごとの固定文とし、node
+      label、path、metadata、exception textをinterpolateしない。対象はfocusRef / path /
+      sourceRefsで示す。
+    </li>
+    <li>
+      <code>focusRef</code>はnode / edge / module /
+      generationの安定IDを使う。
+    </li>
+    <li>
+      <code>path</code
+      >は<code>graph.edges.to</code>のような論理field名とし、array
+      indexへ依存しない。
+    </li>
+    <li>
+      <code>sourceRefs</code>へabsolute path、raw evidence
+      snippet、secretを含めない。
+    </li>
+    <li>
+      <code>sourceRefCount</code
+      >はdeduplicate後の総数、<code>sourceRefs</code>はその先頭20件、
+      <code>sourceRefsTruncated</code>は省略有無を表す。
+    </li>
+    <li>
+      code 128文字、focus / source ref 256文字、logical path 256文字、message 512文字をhard
+      limitとする。countはJavaScript safe integer以内とする。
+    </li>
+    <li>時刻fieldは持たせない。reportはgeneration contentだけから再生成可能にする。</li>
+    <li>
+      <code>errorCount</code> /
+      <code>warningCount</code
+      >は検出総数、<code>emittedCount</code>はviolations配列の件数を表す。
+    </li>
+  </ul>
+
+  <h3 id="82-derived-fields">8.2 Derived Field Invariants</h3>
+  <ul>
+    <li>
+      errorが1件以上なら<code>status=failed</code>、<code>conforms=false</code>。
+    </li>
+    <li>
+      errorが0件でwarningが1件以上なら<code>status=passed_with_warnings</code>、<code>conforms=true</code>。
+    </li>
+    <li>
+      error /
+      warningが0件なら<code>status=passed</code>、<code>conforms=true</code>。
+    </li>
+    <li>
+      summary countはcode / focusRef /
+      pathでdeduplicateした後、1,000件capを適用する前にvalidatorが算出し、
+      caller入力を受け取らない。
+    </li>
+    <li>
+      1,000件を超える場合も総数を数え、先頭1,000件だけをemitして<code>truncated=true</code>にする。
+    </li>
+    <li>
+      <code>emittedCount</code
+      >は<code>violations.length</code>と一致する。
+    </li>
+    <li>
+      schemaの<code>superRefine</code>で、<code>truncated=false</code>ならtotal
+      countとemit内訳の一致、
+      <code>truncated=true</code>ならtotal count &gt;
+      emittedCountかつemittedCount=1,000を検証する。
+    </li>
+    <li>status / conformsはemitされた一部ではなくtotal error / warning countから導出する。</li>
+    <li>violation orderingはerror優先、code、focusRef、path、sourceRefsの順で固定する。</li>
+    <li>
+      <code>sourceRefs</code>は各violation内でもdeduplicateしてlexicographic
+      sortする。
+    </li>
+    <li>
+      violationごとのsource refは全件を数えた後に先頭20件をemitする。 violation
+      schemaの<code>superRefine</code>で、非truncate時は
+      <code>sourceRefCount=sourceRefs.length</code>、truncate時は
+      <code>sourceRefCount&gt;20</code
+      >かつ<code>sourceRefs.length=20</code>を要求する。
+    </li>
+    <li>
+      profile
+      v1のrule集合、severity、参照正規化規則を変更しない。message修正だけではprofileを変えない。
+    </li>
+  </ul>
+
+  <h3 id="83-wire-placement">8.3 Wire Placement</h3>
+  <ul>
+    <li><code>StaticIntelligenceOntologyHandoff.validation</code>: producer APIの詳細report</li>
+    <li><code>StaticIntelligenceKnowledgeSourceManifest.ontologyValidation</code>: CLI consumer用report</li>
+    <li><code>StaticIntelligenceBuildResult.ontologyValidation</code>: build / refresh diagnostic</li>
+    <li>
+      manifest fieldはconsumer-first migrationのためschema上optional、producer emissionはpersisted
+      generationから作る経路で必須とする。
+    </li>
+    <li>
+      projectionを生成できた場合、ontology handoff builderが返すreportはproducer側で常に必須とする。
+    </li>
+  </ul>
+  <p>ontology handoff API responseは次のdiscriminated unionへ固定する。</p>
+  <pre><code class="language-typescript">type StaticIntelligenceOntologyHandoffResponse =
+  | { handoff: StaticIntelligenceOntologyHandoff }
+  | { handoff: null; status: "missing" }
+  | {
+      handoff: null;
+      status: "failed";
+      validation: OntologyValidationReport;
+    };</code></pre>
+  <ul>
+    <li>
+      semantic data violationでprojectionが存在する場合は、
+      <code>handoff.status=failed</code
+      >とhandoff内の<code>validation</code>を返す。
+    </li>
+    <li>
+      projection生成自体がunexpected exceptionで失敗した場合は、空のhandoffを捏造せず、 top-level
+      <code>status=failed</code>と
+      <code>ontology.validator.execution_failed</code> reportを返す。
+    </li>
+    <li>
+      generationが存在しない、またはpersisted generationのshapeをloadできない現行経路だけを
+      <code>status=missing</code>とする。validation failureをmissingへ変換しない。
+    </li>
+  </ul>
+
+  <h2 id="9-validation-profile">9. Validation Profile v1</h2>
+  <h3 id="91-id-and-reference-conventions">9.1 ID and Reference Conventions</h3>
+  <table>
+    <caption>
+      graph node kindとcanonical ID prefix
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Node kind</th>
+        <th scope="col">Canonical prefix</th>
+        <th scope="col">Canonical suffix</th>
+        <th scope="col">Required sourceId</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>project</td>
+        <td><code>project:</code></td>
+        <td>project ID</td>
+        <td>project ID。suffixと一致させる。</td>
+      </tr>
+      <tr>
+        <td>scan_run</td>
+        <td><code>scan_run:</code></td>
+        <td>scan run ID</td>
+        <td>scan run ID。suffixと一致させる。</td>
+      </tr>
+      <tr>
+        <td>scanner</td>
+        <td><code>scanner:</code></td>
+        <td>scan run IDとtool name</td>
+        <td>tool run IDまたはsource tool name。非空だけを要求する。</td>
+      </tr>
+      <tr>
+        <td>finding</td>
+        <td><code>finding:</code></td>
+        <td>finding ID</td>
+        <td>finding ID。suffixと一致させる。</td>
+      </tr>
+      <tr>
+        <td>evidence</td>
+        <td><code>evidence:</code></td>
+        <td>evidence ID</td>
+        <td>evidence ID。suffixと一致させる。</td>
+      </tr>
+      <tr>
+        <td>artifact</td>
+        <td><code>artifact:</code></td>
+        <td>artifact ID</td>
+        <td>artifact ID。suffixと一致させる。</td>
+      </tr>
+      <tr>
+        <td>file</td>
+        <td><code>file:</code></td>
+        <td>project-relative pathまたは<code>unknown</code></td>
+        <td>同じpath。suffixと一致させる。</td>
+      </tr>
+      <tr>
+        <td>review</td>
+        <td><code>review:</code></td>
+        <td>review ID</td>
+        <td>review ID。suffixと一致させる。</td>
+      </tr>
+      <tr>
+        <td>verification</td>
+        <td><code>verification:</code></td>
+        <td>scan run IDと1-based ordinal</td>
+        <td><code>verification_command:${ordinal}</code></td>
+      </tr>
+    </tbody>
+  </table>
+  <ul>
+    <li>
+      graph edgeの<code>evidenceRefs</code>は現行wireどおりraw evidence source
+      IDとし、validatorは
+      <code>evidence:${ref}</code>へ解決する。qualified
+      refや二重prefixを新規に許可しない。
+    </li>
+    <li>
+      <code>evidenced_by</code>はtarget evidenceのsource
+      ID、<code>stored_as</code>はsource evidenceのsource IDをexactly
+      1件持つ。<code>located_in</code>は同じfindingの<code
+        >evidenced_by</code
+      >
+      target集合と一致し、 その他のedge kindは空配列とする。
+    </li>
+    <li>
+      module <code>risk.findingIds</code>はraw finding source IDとし、validatorは
+      <code>finding:${id}</code>へ解決する。
+    </li>
+    <li>
+      handoff <code>sourceRefs</code>はqualified
+      refとし、<code>project:</code>、<code>scan:</code>、<code>snapshot:</code>、<code>file:</code>、
+      <code>finding:</code
+      >、<code>evidence:</code>をcurrent builderと同じ規則でexact
+      projectionする。
+    </li>
+    <li>
+      artifactとverificationはprofile v1のhandoff
+      <code>sourceRefs</code>へ含めない。追加する場合は新profileで扱う。
+    </li>
+    <li>
+      file pathは<code>unknown</code>または正規化済みproject-relative POSIX
+      pathだけを許可する。absolute path、URI、backslash、control character、空segment、
+      <code>.</code> /
+      <code>..</code> segmentを許可しない。
+    </li>
+    <li>
+      不正なfile pathをreportへ再掲しない。対象の<code>focusRef</code>は
+      <code>redacted_ref:sha256:${sha256Utf8(rawRef)}</code>とする。不正file node、そのincident
+      edge、不正file refを扱う全ruleで同じ変換を適用し、diagnostic
+      <code>sourceRefs</code>にもraw pathを入れない。
+    </li>
+    <li>
+      256文字を超えるdiagnostic refも同じSHA-256 refへ置換し、schema上限超過を内部例外へ変えない。
+    </li>
+    <li>node ID suffixが空の場合はshape validationまたはkind mismatch ruleでerrorにする。</li>
+  </ul>
+
+  <h3 id="92-edge-domain-range">9.2 Edge Domain / Range Matrix</h3>
+  <table>
+    <caption>
+      現行<code>evidence-graph.ts</code>が生成する唯一の許可組み合わせ
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Edge kind</th>
+        <th scope="col">From</th>
+        <th scope="col">To</th>
+        <th scope="col">Cardinality rule</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>has_scan</td>
+        <td>project</td>
+        <td>scan_run</td>
+        <td>expected pairがexactly 1</td>
+      </tr>
+      <tr>
+        <td>detected_by</td>
+        <td>finding</td>
+        <td>scanner</td>
+        <td>findingごとにexactly 1</td>
+      </tr>
+      <tr>
+        <td>evidenced_by</td>
+        <td>finding</td>
+        <td>evidence</td>
+        <td>evidenceごとにinbound exactly 1</td>
+      </tr>
+      <tr>
+        <td>located_in</td>
+        <td>finding</td>
+        <td>file</td>
+        <td>findingごとにexactly 1</td>
+      </tr>
+      <tr>
+        <td>stored_as</td>
+        <td>evidence</td>
+        <td>artifact</td>
+        <td>evidenceごとにoutbound 0..1</td>
+      </tr>
+      <tr>
+        <td>reviewed_by</td>
+        <td>scan_run</td>
+        <td>review</td>
+        <td>review nodeは全体で0..1、存在時はinbound exactly 1</td>
+      </tr>
+      <tr>
+        <td>verified_by</td>
+        <td>scan_run</td>
+        <td>verification</td>
+        <td>verification nodeごとにinbound exactly 1</td>
+      </tr>
+      <tr>
+        <td>related_to</td>
+        <td>review</td>
+        <td>verification</td>
+        <td>verification nodeごとにinbound exactly 1</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    <code>related_to</code>を将来generic relationへ拡張する場合はprofile
+    v1へ無断追加せず、rule変更として別判断する。
+  </p>
+  <p>
+    graph rootはexpected project nodeとexpected scan_run nodeを各1件だけ許可し、別project /
+    scanの追加nodeも
+    <code>ontology.graph.root_invalid</code>とする。
+  </p>
+
+  <h3 id="93-error-rules">9.3 Error Rules</h3>
+  <table>
+    <caption>
+      errorはhandoff利用を停止する
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Code</th>
+        <th scope="col">Condition</th>
+        <th scope="col">Focus</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>ontology.validator.execution_failed</code></td>
+        <td>validatorがunexpected exceptionによりprofile評価を完了できない。</td>
+        <td>generation ID</td>
+      </tr>
+      <tr>
+        <td><code>ontology.identity.project_mismatch</code></td>
+        <td>generation、export、handoffのproject IDが一致しない。</td>
+        <td>generation ID</td>
+      </tr>
+      <tr>
+        <td><code>ontology.identity.scan_mismatch</code></td>
+        <td>generation、export、handoffのscan run IDが一致しない。</td>
+        <td>generation ID</td>
+      </tr>
+      <tr>
+        <td><code>ontology.provenance.generation_mismatch</code></td>
+        <td>handoff generation IDがpersisted generationと一致しない。</td>
+        <td>generation ID</td>
+      </tr>
+      <tr>
+        <td><code>ontology.provenance.snapshot_mismatch</code></td>
+        <td>snapshot refがstructure metadataと一致しない。</td>
+        <td>generation ID</td>
+      </tr>
+      <tr>
+        <td><code>ontology.provenance.export_hash_mismatch</code></td>
+        <td>handoff export hashがpersisted export metadataと一致しない。</td>
+        <td>generation ID</td>
+      </tr>
+      <tr>
+        <td><code>ontology.provenance.source_tree_hash_mismatch</code></td>
+        <td>handoff source tree hashがstructure metadataと一致しない。</td>
+        <td>generation ID</td>
+      </tr>
+      <tr>
+        <td><code>ontology.graph.node_id_duplicate</code></td>
+        <td>同一node IDが複数存在する。</td>
+        <td>node ID</td>
+      </tr>
+      <tr>
+        <td><code>ontology.graph.node_id_kind_mismatch</code></td>
+        <td>node ID prefixがnode kindと一致しない。</td>
+        <td>node ID</td>
+      </tr>
+      <tr>
+        <td><code>ontology.graph.node_source_id_missing</code></td>
+        <td>producer graph nodeに非空sourceIdがない。</td>
+        <td>node ID</td>
+      </tr>
+      <tr>
+        <td><code>ontology.graph.node_source_id_mismatch</code></td>
+        <td>scanner以外のnodeで9.1のcanonical suffixとsourceIdの対応が一致しない。</td>
+        <td>node ID</td>
+      </tr>
+      <tr>
+        <td><code>ontology.graph.file_path_invalid</code></td>
+        <td>file node ID suffixまたはsourceIdが安全なproject-relative pathでない。</td>
+        <td>hashed redacted ref</td>
+      </tr>
+      <tr>
+        <td><code>ontology.graph.edge_id_duplicate</code></td>
+        <td>同一edge IDが複数存在する。</td>
+        <td>edge ID</td>
+      </tr>
+      <tr>
+        <td><code>ontology.graph.edge_id_noncanonical</code></td>
+        <td>edge IDが<code>${kind}:${from}:${to}</code>と一致しない。</td>
+        <td>edge ID</td>
+      </tr>
+      <tr>
+        <td><code>ontology.graph.edge_endpoint_missing</code></td>
+        <td>
+          <code>stored_as</code>の未解決artifact以外でfrom / to
+          nodeが存在しない。
+        </td>
+        <td>edge ID</td>
+      </tr>
+      <tr>
+        <td><code>ontology.graph.edge_domain_range_invalid</code></td>
+        <td>edge kindとfrom / to node kindがmatrixに違反する。</td>
+        <td>edge ID</td>
+      </tr>
+      <tr>
+        <td><code>ontology.graph.edge_confidence_mismatch</code></td>
+        <td>
+          <code>file:unknown</code
+          >への<code>located_in</code>は0、未解決<code>stored_as</code>は0.5、その他は1というproducer規則に一致しない。
+        </td>
+        <td>edge ID</td>
+      </tr>
+      <tr>
+        <td><code>ontology.graph.evidence_ref_missing</code></td>
+        <td>非空evidence refに対応するevidence nodeが存在しない。</td>
+        <td>edge ID</td>
+      </tr>
+      <tr>
+        <td><code>ontology.graph.evidence_ref_mismatch</code></td>
+        <td>edge kindごとのexpected evidence ref集合と実値が一致しない。</td>
+        <td>edge ID</td>
+      </tr>
+      <tr>
+        <td><code>ontology.graph.root_invalid</code></td>
+        <td>expected project / scan nodeまたは両者を結ぶhas_scan edgeがexactly 1でない。</td>
+        <td>projectまたはscan ref</td>
+      </tr>
+      <tr>
+        <td><code>ontology.graph.relation_cardinality_invalid</code></td>
+        <td>finding、evidence、review、verificationの必須relation cardinalityに違反する。</td>
+        <td>対象node ID</td>
+      </tr>
+      <tr>
+        <td><code>ontology.graph.verification_projection_mismatch</code></td>
+        <td>
+          verification nodeのID / metadata ordinal、sourceId、label、metadata command /
+          reviewIdがexport payload handoffのcommand配列とsole review nodeに一致しない。
+        </td>
+        <td>verification nodeまたはgeneration ID</td>
+      </tr>
+      <tr>
+        <td><code>ontology.handoff.graph_summary_mismatch</code></td>
+        <td>node / edge kind countがgraphSummaryと一致しない。</td>
+        <td>generation ID</td>
+      </tr>
+      <tr>
+        <td><code>ontology.handoff.source_ref_mismatch</code></td>
+        <td>sourceRefsがfileRiskIndexを含むexpected qualified projectionと一致しない。</td>
+        <td>generation ID</td>
+      </tr>
+      <tr>
+        <td><code>ontology.handoff.file_path_invalid</code></td>
+        <td>
+          code / project structure、fileRiskIndex、またはmoduleのpathPrefix / file / entrypoint /
+          dependency / risk file refに安全でないpathがある。
+        </td>
+        <td>generation ID</td>
+      </tr>
+      <tr>
+        <td><code>ontology.handoff.module_id_duplicate</code></td>
+        <td>module candidate IDまたはpath prefixが重複する。</td>
+        <td>module ID</td>
+      </tr>
+      <tr>
+        <td><code>ontology.handoff.module_projection_mismatch</code></td>
+        <td>
+          非空candidate集合のmodule ID / path prefixがproject structure module集合と一致しない。
+        </td>
+        <td>generation ID</td>
+      </tr>
+      <tr>
+        <td><code>ontology.handoff.module_order_mismatch</code></td>
+        <td>
+          candidate順がseverity rank降順、findingCount降順、pathPrefix昇順の優先順位と一致しない。
+        </td>
+        <td>generation ID</td>
+      </tr>
+      <tr>
+        <td><code>ontology.handoff.module_file_count_mismatch</code></td>
+        <td>candidate fileCountがproject structure moduleと一致しない。</td>
+        <td>module ID</td>
+      </tr>
+      <tr>
+        <td><code>ontology.handoff.module_structure_mismatch</code></td>
+        <td>
+          label、entrypointFiles、roleTags、exportedSymbols、dependency、confidence、reasonsがproject
+          structureからのexpected projectionと一致しない。
+        </td>
+        <td>module ID</td>
+      </tr>
+      <tr>
+        <td><code>ontology.handoff.module_file_ref_missing</code></td>
+        <td>entrypoint / risk file refがpersisted structureに存在しない。</td>
+        <td>module ID</td>
+      </tr>
+      <tr>
+        <td><code>ontology.handoff.module_finding_ref_missing</code></td>
+        <td>risk finding IDに対応するfinding nodeが存在しない。</td>
+        <td>module ID</td>
+      </tr>
+      <tr>
+        <td><code>ontology.handoff.module_risk_summary_mismatch</code></td>
+        <td>
+          findingCount、maxSeverity、evidenceQuality、fileRefs、findingIdsがfileRiskIndexのmodule集計と一致しない。
+        </td>
+        <td>module ID</td>
+      </tr>
+      <tr>
+        <td><code>ontology.handoff.verification_command_mismatch</code></td>
+        <td>verificationCommandsがexport payload handoffのcommand配列と一致しない。</td>
+        <td>generation ID</td>
+      </tr>
+      <tr>
+        <td><code>ontology.handoff.degraded_reasons_mismatch</code></td>
+        <td>
+          degradedReasonsがstructure metadataの理由とmodule
+          candidate状態から作るexpected集合に一致しない。
+        </td>
+        <td>generation ID</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3 id="94-warning-rules">9.4 Warning Rules</h3>
+  <table>
+    <caption>
+      warningはhandoffをdegradedにするが利用を停止しない
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Code</th>
+        <th scope="col">Condition</th>
+        <th scope="col">Reason</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>ontology.graph.artifact_reference_unresolved</code></td>
+        <td><code>stored_as</code> target artifact nodeが存在しない。</td>
+        <td>現行builderがconfidence 0.5で表す既知degradationを維持する。</td>
+      </tr>
+      <tr>
+        <td><code>ontology.handoff.module_candidates_empty</code></td>
+        <td>structure fileがあるのにmodule candidateが0件。</td>
+        <td>現行<code>module_candidates_missing</code>と整合する。</td>
+      </tr>
+      <tr>
+        <td><code>ontology.handoff.module_dependency_unresolved</code></td>
+        <td>internal dependency path prefixに対応するcandidateがない。</td>
+        <td>partial structure analysisを直ちにinvalidへしない。</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3 id="95-explicitly-valid-unknowns">9.5 Explicitly Valid Unknowns</h3>
+  <ul>
+    <li>
+      <code>file:unknown</code>とconfidence
+      0の<code>located_in</code>はinvalidにしない。
+    </li>
+    <li>findingが0件のgraphをinvalidにしない。</li>
+    <li>review / verification nodeが0件のgraphをinvalidにしない。</li>
+    <li>scanner / artifact nodeがfindingから未参照でも、source inventoryとして許可する。</li>
+    <li>semantic indexがmissing / staleでもontology graph validation自体は実行する。</li>
+  </ul>
+
+  <h3 id="96-rule-order-and-suppression">9.6 Rule Evaluation Order and Cascade Suppression</h3>
+  <ol>
+    <li>generation identity / provenanceを検証する。</li>
+    <li>node ID重複、kind prefix、sourceId対応を検証してnode indexを作る。</li>
+    <li>edge ID重複とcanonical IDを検証してedge indexを作る。</li>
+    <li>edge endpoint実在性を検証する。</li>
+    <li>endpointが確定したedgeだけdomain / range、confidence、evidence refを検証する。</li>
+    <li>参照が確定したnode / edgeだけrelation cardinalityを検証する。</li>
+    <li>
+      最後にverification projection、graph summary、source ref、module projection、degraded
+      reasonを検証する。
+    </li>
+  </ol>
+  <ul>
+    <li>
+      missingまたはduplicateでambiguousなendpointを持つedgeではdomain / range
+      errorを重ねて出さない。
+    </li>
+    <li>
+      endpoint kindがinvalidなedgeではconfidence ruleをskipする。未解決evidence
+      refを1件でも持つedgeでは evidence ref mismatchを重ねない。
+    </li>
+    <li>
+      未解決<code>stored_as</code> targetのresolution
+      warningは1件だけ出し、target kind checkをskipする。confidence 0.5 ruleは引き続き評価する。
+    </li>
+    <li>duplicate edgeはcode / focusRef / path単位で1件にまとめ、代表edgeだけを後続ruleへ渡す。</li>
+    <li>
+      duplicate module ID / path prefixは1件報告し、そのmoduleのdependent summary ruleをskipする。
+    </li>
+    <li>
+      node sourceIdがmissingなら同じnodeのsourceId mismatchを重ねない。module structure
+      mismatch時は同じmoduleのdependency warningを重ねない。
+    </li>
+    <li>
+      candidateが0件の場合は<code>module_candidates_empty</code>
+      warningだけを出し、module集合比較をskipする。 candidateが一部だけ欠落または余剰の場合は<code
+        >module_projection_mismatch</code
+      >
+      errorとする。
+    </li>
+    <li>module集合が一致しない場合はmodule order ruleをskipし、共通moduleだけをfield検証する。</li>
+    <li>
+      同じcode、focusRef、pathのviolationは1件へdeduplicateし、sourceRefsはunionしてからsort / count
+      / truncateする。messageはrule codeごとの固定templateを使う。
+    </li>
+  </ul>
+
+  <h3 id="97-comparison-semantics">9.7 Comparison Semantics</h3>
+  <ul>
+    <li>
+      validatorはactual arrayをsortしてから比較しない。独立に作ったcanonical expected
+      arrayとのsequence equalityで、duplicateと順序差も検出する。
+    </li>
+    <li>
+      <code>sourceRefs</code
+      >、<code>degradedReasons</code>、edge
+      <code>evidenceRefs</code>、moduleのrole / symbol / risk
+      refはdeduplicate後のlexicographic順をexpectedとする。
+    </li>
+    <li>
+      本書のlexicographic順はJavaScriptのUTF-16 code-unit比較
+      <code>a &lt; b ? -1 : a &gt; b ? 1 : 0</code>を意味する。
+      ICU依存の<code>localeCompare</code>はreport、handoff、module
+      candidateのcanonical orderingに使わない。
+    </li>
+    <li>
+      verification commands、entrypoint、dependency、confidence reasonはpersisted
+      sourceの順序を保持する。
+    </li>
+    <li>
+      module candidate自体はcritical、high、medium、low、info、unknownのseverity
+      rank降順、findingCount降順、pathPrefix昇順とする。
+    </li>
+    <li>graph node / edge配列の格納順は意味を持たず、validatorのindex作成前に順序へ依存しない。</li>
+    <li>
+      violation comparatorではoptional
+      <code>path</code>の未設定を空文字として比較する。
+    </li>
+  </ul>
+
+  <h2 id="10-validator-design">10. Validator Design</h2>
+  <h3 id="101-public-functions">10.1 Public Functions</h3>
+  <pre><code class="language-typescript">buildStaticIntelligenceOntologyHandoffProjection(generation)
+  -&gt; handoff fields without status and validation
+
+validateStaticIntelligenceOntologyHandoff({ generation, projection })
+  -&gt; OntologyValidationReport
+
+evaluateStaticIntelligenceOntologyHandoff(generation)
+  -&gt; { projection, validation }
+
+safeEvaluateStaticIntelligenceOntologyHandoff(generation)
+  -&gt; {
+    projection: OntologyHandoffProjection | null,
+    validation: OntologyValidationReport
+  }
+
+buildStaticIntelligenceOntologyHandoff({ generation, status?, evaluation })
+  -&gt; StaticIntelligenceOntologyHandoff | null
+
+applyOntologyValidationReadiness({ current, report, scope })
+  -&gt; IntelligenceCapabilityReadiness</code></pre>
+  <p>
+    projection生成とvalidationを分離し、testが意図的に壊したprojectionをvalidatorへ渡せるようにする。
+    product call siteは<code>safeEvaluateStaticIntelligenceOntologyHandoff</code>を一度だけ呼び、public API
+    builderはそのevaluationを必須で受け取る。projectionがnullならbuilderもnullを返し、API
+    envelopeまたはbuild / manifest diagnosticへfailed reportを渡す。unit testだけがraw
+    validatorを直接呼ぶ。
+  </p>
+
+  <h3 id="102-complexity">10.2 Complexity and Determinism</h3>
+  <ul>
+    <li>
+      node、edge、module、source refを先に<code>Map</code> /
+      <code>Set</code>へindexする。
+    </li>
+    <li>
+      project structureからfile path→moduleを一度作り、fileRiskIndexを1回だけ走査してmodule
+      riskを集計する。 structure fileのrole /
+      symbol集計も1回で行い、moduleごとの<code>filter</code>は行わない。
+    </li>
+    <li>rule traversalはO(nodes + edges + modules + sourceRefs)とする。</li>
+    <li>
+      入力要素数をI、violation数をVとすると、canonical array作成はO(I log I)、deterministic report
+      orderingはO(V log V)とする。profile v1では1要素あたりのrule数が固定なのでV=O(I)である。
+    </li>
+    <li>
+      working memoryはindexとdedup keyを含めO(I + V)、wire payloadは最大1,000 violationsとする。
+    </li>
+    <li>validation中にDB、filesystem、network、clock、LLMを呼ばない。</li>
+    <li>errorをthrowして最初の違反で止めず、全violationを収集する。</li>
+    <li>raw validatorはprogramming errorだけをthrowし、data violationはreportへ変換する。</li>
+    <li>
+      safe evaluatorはunexpected exceptionをcatchし、raw error textを含まない
+      <code>ontology.validator.execution_failed</code> reportへ変換する。
+    </li>
+    <li>
+      schema parse後にreportのUTF-8 byte lengthを検証し、8 MiB以上ならviolationsを破棄して単一の
+      <code>ontology.validator.execution_failed</code> reportへ置換する。
+    </li>
+    <li>
+      raw validatorだけが失敗した場合は生成済みprojectionを保持する。projection
+      builderが失敗した場合は<code>projection=null</code>とし、空moduleや空summaryを代替生成しない。
+    </li>
+  </ul>
+
+  <h3 id="103-call-site-evaluation-ownership">10.3 Call-site Evaluation Ownership</h3>
+  <table>
+    <caption>
+      1 request / buildにつき1 evaluationを共有する
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Call site</th>
+        <th scope="col">Evaluation owner</th>
+        <th scope="col">Consumers</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>build service</td>
+        <td>persist直後に一度評価する。</td>
+        <td>validation stage、build readiness、manifest、build result</td>
+      </tr>
+      <tr>
+        <td>project intelligence view</td>
+        <td>resolverがgeneration load後に一度評価する。</td>
+        <td>readiness、view manifest</td>
+      </tr>
+      <tr>
+        <td>ontology handoff API</td>
+        <td>routeがgeneration load直後に一度評価する。</td>
+        <td>readiness status、handoff response</td>
+      </tr>
+      <tr>
+        <td>knowledge source CLI</td>
+        <td>generation load後に一度評価する。</td>
+        <td>manifest</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    API
+    routeはload済み<code>generation</code>と<code>evaluation</code>をreadinessとhandoff
+    builderへ渡す。resolverのontology handoff
+    methodは<code>scanRunId / generationId</code>からgenerationを
+    再loadする現行signatureを廃止し、同一request内の二重load / 二重evaluationを防ぐ。
+  </p>
+
+  <h3 id="104-independent-expected-values">10.4 Independent Expected Values</h3>
+  <p>
+    validatorがprojection自身をexpected値として再利用すると自己検証になるため、expected値は次のsourceから独立に作る。
+  </p>
+  <ul>
+    <li>identity / provenance: persisted generation metadataとexport payload</li>
+    <li>graph node source mapping: 9.1のcanonical node ID suffixとverification ordinal</li>
+    <li>graph summary: export payloadのnode / edge配列</li>
+    <li>source refs: generation identityとfileRiskIndexから再構築したqualified ref集合</li>
+    <li>module集合、file、dependency: project structure snapshot</li>
+    <li>module risk: project structure module membershipとfileRiskIndexから再集計した値</li>
+    <li>
+      verification commands: export payload
+      <code>handoff.verificationCommands</code>。handoffがなければ空配列
+    </li>
+    <li>
+      degraded reasons: structure metadataのdegraded reasonと、module候補が空の場合の
+      <code>module_candidates_missing</code>をdeduplicate / sortした集合
+    </li>
+  </ul>
+  <p>
+    expected値の計算でcandidateの<code>graphSummary</code>、<code>sourceRefs</code>、
+    <code>verificationCommands</code
+    >、<code>degradedReasons</code>、module各fieldを読まない。
+    共通化するのはseverity比較などのprimitiveだけとし、projection builder全体をexpected
+    builderとして呼び直さない。
+  </p>
+
+  <h2 id="11-readiness-and-publish-policy">11. Readiness and Publish Policy</h2>
+  <h3 id="111-status-precedence">11.1 Status Precedence</h3>
+  <p>ontology handoff statusの優先順位を次で固定する。</p>
+  <pre><code class="language-text">existing failed condition or failed semantic validation
+  &gt; stale generation
+  &gt; existing missing condition
+  &gt; existing degraded condition or validation warning
+  &gt; available
+</code></pre>
+  <table>
+    <caption>
+      validation reportからreadinessへの写像
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Report</th>
+        <th scope="col">evidenceGraph</th>
+        <th scope="col">ontologyHandoff</th>
+        <th scope="col">Stable reason code</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>passed</td>
+        <td>現行statusを維持</td>
+        <td>現行statusを維持</td>
+        <td>追加なし</td>
+      </tr>
+      <tr>
+        <td>graph warning</td>
+        <td>warning impactをmerge</td>
+        <td>warning impactをmerge</td>
+        <td><code>ontology_semantic_validation_warning</code></td>
+      </tr>
+      <tr>
+        <td>handoff-only warning</td>
+        <td>現行statusを維持</td>
+        <td>warning impactをmerge</td>
+        <td><code>ontology_semantic_validation_warning</code></td>
+      </tr>
+      <tr>
+        <td>validator execution failed</td>
+        <td>failed</td>
+        <td>failed</td>
+        <td><code>ontology_semantic_validation_failed</code></td>
+      </tr>
+      <tr>
+        <td>graph error</td>
+        <td>failed</td>
+        <td>failed</td>
+        <td><code>ontology_semantic_validation_failed</code></td>
+      </tr>
+      <tr>
+        <td>handoff-only error</td>
+        <td>現行statusを維持</td>
+        <td>failed</td>
+        <td><code>ontology_semantic_validation_failed</code></td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    capability <code>reasonCodes</code>へ個々のviolation
+    codeを展開しない。詳細はreportを参照し、 readiness contractはboundedな2 reasonだけを使用する。
+  </p>
+  <p>
+    warning
+    impactは<code>available</code>だけを<code>degraded</code>へ変更し、既存の
+    <code>failed</code
+    >、<code>stale</code>、<code>missing</code>を弱めない。impact対象の
+    reason codeは既存reasonへ追加してdeduplicate / lexicographic sortする。
+  </p>
+
+  <h3 id="112-publish-semantics">11.2 Publish Semantics</h3>
+  <ul>
+    <li>buildはsemantic validation errorでもgeneration artifactsを保存する。</li>
+    <li>
+      build resultは<code>partial</code>となり、validation
+      stageとreportを返す。
+    </li>
+    <li>
+      <code>StaticIntelligenceBuildStage.name</code>へ
+      <code>validate_ontology_handoff</code>を追加する。reportがpassedならstage
+      <code>completed</code>、warning / error / execution failureならstage
+      <code>degraded</code>とし、 operational
+      stage型へ<code>failed</code>を追加しない。
+    </li>
+    <li>
+      <code>StaticIntelligenceBuildResult.ontologyValidation</code>は必須とする。reportがpassed以外なら、
+      他stageが成功していてもbuild resultを<code>partial</code>にする。
+    </li>
+    <li>
+      semantic error時もpersisted generation statusは書き換えず、readiness capabilityだけを
+      <code>failed</code>にする。
+    </li>
+    <li>
+      ontology handoff APIはHTTP 200でfailed reportを返し、diagnostic visibilityを維持する。
+      projectionがあればhandoff内、なければ8.3のtop-level failed envelopeへ載せる。
+    </li>
+    <li>knowledge source CLIもJSON生成に成功した場合はexit 0でreportを返す。</li>
+    <li>HTTP 200 / CLI exit 0はconformanceを意味しない。consumerはreport statusを確認する。</li>
+    <li>
+      unexpected validator exceptionも固定messageのfailed reportとして同じconsumer gateを通し、 raw
+      exceptionは既存のredaction policyを通したserver logだけへ記録する。
+    </li>
+    <li>CLIはunexpected exceptionのraw message / stackをstdoutまたはstderrへ出さない。</li>
+    <li>
+      CLI manifest result全体が10 MiB以上ならpublishせず、固定messageのfailure JSONとnon-zero
+      exitを返す。
+    </li>
+    <li>
+      NightWorkersはfailed reportを<code>unavailable</code>へ変換し、task
+      contextへactivateしない。
+    </li>
+  </ul>
+
+  <h2 id="12-manifest-and-hash-policy">12. Manifest and Hash Policy</h2>
+  <ul>
+    <li>
+      <code>ontologyValidation</code>をmanifest top-level optional
+      fieldとして追加する。
+    </li>
+    <li>producerはpersisted generationからmanifestを作るすべての経路で必ずreportを渡す。</li>
+    <li>
+      reportは<code>contentHashInput</code>へ含め、validation内容の差をcontent
+      hashへ反映する。
+    </li>
+    <li>reportは時刻を持たないため、同じgenerationのrebuildでcontent hashを変えない。</li>
+    <li>manifest builderはreport generation IDとgeneration IDの不一致をthrowする。</li>
+    <li>
+      <code>ontologyValidation</code>が存在する場合はmanifest
+      <code>generation</code>も必須とし、両方の generation ID一致をschema
+      <code>superRefine</code>でも検証する。
+    </li>
+    <li>readinessは従来どおりcontent hash対象外とし、validation reportとは区別する。</li>
+  </ul>
+
+  <h2 id="13-nightworkers-consumer-policy">13. NightWorkers Consumer Policy</h2>
+  <table>
+    <caption>
+      parsed manifestの分類
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">ontologyValidation</th>
+        <th scope="col">Handoff result</th>
+        <th scope="col">Behavior</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>absent</td>
+        <td>available / <code>validationStatus=not_reported</code></td>
+        <td>legacy producer互換。既存挙動を維持する。</td>
+      </tr>
+      <tr>
+        <td>passed</td>
+        <td>available / <code>validationStatus=passed</code></td>
+        <td>manifest artifactを保存して利用可能にする。</td>
+      </tr>
+      <tr>
+        <td>passed_with_warnings</td>
+        <td>available / <code>validationStatus=passed_with_warnings</code></td>
+        <td>利用可能。summaryだけをdiagnostic eventへ残す。</td>
+      </tr>
+      <tr>
+        <td>failed</td>
+        <td>
+          unavailable / <code>reason=semantic_validation_failed</code> /
+          <code>validationStatus=failed</code>
+        </td>
+        <td>
+          artifact作成前に分類し、module / task contextへ取り込まず、bounded summaryだけをwarning
+          eventへ残す。
+        </td>
+      </tr>
+      <tr>
+        <td>unknown profile</td>
+        <td>
+          unavailable / <code>reason=schema_invalid</code> /
+          <code>validationStatus=schema_invalid</code>
+        </td>
+        <td>新profileもconsumer-firstで追加するまでfail closedにする。</td>
+      </tr>
+      <tr>
+        <td>schema invalid</td>
+        <td>
+          unavailable / <code>reason=schema_invalid</code> /
+          <code>validationStatus=schema_invalid</code>
+        </td>
+        <td>現行挙動を維持する。</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    failed manifestのgraphやmoduleをNightWorkers側で修復しない。producer側のreportを診断として扱い、
+    Security Oracle evidenceの既存fallbackを維持する。
+  </p>
+  <p>
+    NightWorkers側のreport
+    schemaも<code>code</code>をstringとして受け、未知rule
+    codeを許可する。一方、
+    <code>profile</code>はv1 literalとし、未知profileは受け入れない。
+  </p>
+  <p>
+    NightWorkersのhandoff
+    eventには<code>generationId</code>と<code>validationStatus</code>を保存する。
+    semantic validation failureは同じNightWorkers run / scanではterminalとし、latest
+    generationへの自動retryや
+    暗黙切替を行わない。修復後のgenerationを使う場合は新しいrunで再収集する。
+  </p>
+  <p>
+    既存run eventの<code>ontologyHandoff</code> objectへ次を追加する。DB
+    migrationは不要である。
+  </p>
+  <pre><code class="language-typescript">type OntologyValidationEventFields = {
+  generationId: string | null;
+  validationStatus:
+    | "not_run"
+    | "not_reported"
+    | "passed"
+    | "passed_with_warnings"
+    | "failed"
+    | "schema_invalid";
+  validationSummary: null | {
+    profile: "static-intelligence-ontology-handoff-v1";
+    status: "passed" | "passed_with_warnings" | "failed";
+    errorCount: number;
+    warningCount: number;
+    reportTruncated: boolean;
+    emittedRuleCodeCount: number;
+    ruleCodes: string[]; // unique sorted first 10
+    ruleCodesTruncated: boolean;
+  };
+};</code></pre>
+  <ul>
+    <li>
+      report absentでは<code>generationId=manifest.generation?.generationId ?? null</code>、
+      <code>validationStatus=not_reported</code>とする。
+    </li>
+    <li>
+      report presentではgeneration ID一致をschemaで確認後に保存し、summaryはmessageやsource
+      refを含めない。
+    </li>
+    <li>
+      emitされたviolationのunique rule
+      code件数を<code>emittedRuleCodeCount</code>へ残し、先頭10件だけを
+      eventへ保存する。<code>ruleCodesTruncated</code>はunique
+      codeが10件超、または元reportがtruncate 済みならtrueとする。sortは9.7のUTF-16 code-unit
+      comparatorを使う。
+    </li>
+    <li>
+      manifest全体をparseできない場合は<code>generationId=null</code>、
+      <code>validationStatus=schema_invalid</code
+      >、<code>validationSummary=null</code>とする。
+    </li>
+    <li>
+      CLI timeout / process failureでは<code>generationId=null</code>、
+      <code>validationStatus=not_run</code
+      >、<code>validationSummary=null</code>とし、既存reason
+      <code>unavailable</code>を維持する。
+    </li>
+  </ul>
+
+  <h2 id="14-file-change-plan">14. File-by-file Change Plan</h2>
+  <h3 id="141-vulnworkbench">14.1 vulnWorkbench</h3>
+  <table>
+    <caption>
+      planned source changes
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">File</th>
+        <th scope="col">Change</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>shared/schemas/static-intelligence-ontology-validation.schema.ts</code></td>
+        <td>新規。violation / report / status schemaとtypeを定義する。</td>
+      </tr>
+      <tr>
+        <td><code>shared/schemas/static-intelligence-ontology-validation.schema.test.ts</code></td>
+        <td>
+          新規。strictness、derived invariant、report / source ref cap、unknown code、redaction-safe
+          fieldを検証する。
+        </td>
+      </tr>
+      <tr>
+        <td><code>shared/schemas/static-intelligence-module.schema.ts</code></td>
+        <td>ontology handoffへ必須<code>validation</code>を追加する。</td>
+      </tr>
+      <tr>
+        <td><code>shared/schemas/static-intelligence-module.schema.test.ts</code></td>
+        <td>handoffのvalidation必須性とvalid reportの受理を検証する。</td>
+      </tr>
+      <tr>
+        <td><code>shared/schemas/static-intelligence-knowledge-source.schema.ts</code></td>
+        <td>manifestへoptional <code>ontologyValidation</code>を追加する。</td>
+      </tr>
+      <tr>
+        <td><code>shared/schemas/static-intelligence-knowledge-source.schema.test.ts</code></td>
+        <td>
+          legacy field absent、report present、generation同時存在、generation ID一致を検証する。
+        </td>
+      </tr>
+      <tr>
+        <td><code>api/modules/static-intelligence/ontology-handoff-validator.ts</code></td>
+        <td>
+          新規。profile v1のpure validator、rule code、sorting、readiness impact helperを実装する。
+        </td>
+      </tr>
+      <tr>
+        <td><code>api/modules/static-intelligence/ontology-handoff-validator.test.ts</code></td>
+        <td>新規。各ruleのpositive / negative fixtureとdeterminismを検証する。</td>
+      </tr>
+      <tr>
+        <td><code>api/modules/static-intelligence/ontology-handoff.ts</code></td>
+        <td>
+          projection生成を分離し、validation、status precedence、UTF-16 code-unit
+          comparator、canonical graph summary key順を統合する。
+        </td>
+      </tr>
+      <tr>
+        <td><code>api/modules/static-intelligence/ontology-handoff.test.ts</code></td>
+        <td>新規。valid、warning、failed handoffのpublic builder contractを検証する。</td>
+      </tr>
+      <tr>
+        <td><code>api/modules/static-intelligence/module-candidates.ts</code></td>
+        <td>
+          module内のstring arrayとcandidate priority tie-breakをUTF-16 code-unit
+          comparatorへ固定する。
+        </td>
+      </tr>
+      <tr>
+        <td><code>api/modules/static-intelligence/module-candidates.test.ts</code></td>
+        <td>
+          非ASCIIを含むmodule path / string arrayでもcanonical orderがruntime
+          localeへ依存しないことを検証する。
+        </td>
+      </tr>
+      <tr>
+        <td><code>api/modules/static-intelligence/build-service.ts</code></td>
+        <td>
+          persist直後・manifest前に<code>validate_ontology_handoff</code>
+          stageを実行し、必須report、partial判定、readiness mergeを追加する。
+        </td>
+      </tr>
+      <tr>
+        <td><code>api/modules/static-intelligence/build-service.test.ts</code></td>
+        <td>
+          validation stageのcompleted / degradedと、partial /
+          failed-readinessの組み合わせを追加する。
+        </td>
+      </tr>
+      <tr>
+        <td><code>api/modules/static-intelligence/read-model-resolver.ts</code></td>
+        <td>
+          generationごとにevaluationを一度生成し、evidenceGraph / ontologyHandoff readiness、view
+          manifest、handoff builderへ共有する。ontology handoff
+          methodはload済みgenerationを受け取る。
+        </td>
+      </tr>
+      <tr>
+        <td><code>api/modules/static-intelligence/read-model-resolver.test.ts</code></td>
+        <td>graph error、handoff warning、stale precedenceを検証する。</td>
+      </tr>
+      <tr>
+        <td><code>api/modules/static-intelligence/knowledge-source-manifest.ts</code></td>
+        <td>report option、generation一致check、content hash反映を追加する。</td>
+      </tr>
+      <tr>
+        <td><code>api/modules/static-intelligence/knowledge-source-manifest.test.ts</code></td>
+        <td>report inclusion、hash determinism、mismatch rejectionを追加する。</td>
+      </tr>
+      <tr>
+        <td><code>api/cli/intelligence-knowledge-source.ts</code></td>
+        <td>persisted generationをvalidateし、report付きmanifestを出力する。</td>
+      </tr>
+      <tr>
+        <td><code>api/modules/static-intelligence/intelligence-knowledge-source-cli.test.ts</code></td>
+        <td>report emissionとredactionを追加し、空stdout baselineを先に安定化する。</td>
+      </tr>
+      <tr>
+        <td><code>api/routes/static-intelligence.route.ts</code></td>
+        <td>
+          ontology handoff
+          request内でgenerationを1回loadし、1つのevaluationをreadinessとresponseへ渡す。
+        </td>
+      </tr>
+      <tr>
+        <td><code>api/routes/static-intelligence.route.test.ts</code></td>
+        <td>
+          ontology handoff APIがpassed / semantic-failed / projection-failed / missingを
+          discriminated unionどおり返すcontract testを追加する。
+        </td>
+      </tr>
+      <tr>
+        <td><code>spec/fixtures/static-intelligence/ontology-validation/*.json</code></td>
+        <td>新規。legacy、passed、warning、failed manifestのsanitized fixtureを固定する。</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>DB migration、scanner、web frontendの変更はない。</p>
+
+  <h3 id="142-nightworkers">14.2 NightWorkers Coordinated Consumer Change</h3>
+  <table>
+    <caption>
+      NightWorkers側の最小変更
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">File</th>
+        <th scope="col">Change</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>shared/schemas/ontology-handoff.schema.ts</code></td>
+        <td>optional validation report schemaを追加し、legacy manifestを維持する。</td>
+      </tr>
+      <tr>
+        <td><code>api/modules/ontology/handoff/vulnworkbench-handoff.service.ts</code></td>
+        <td>
+          report分類をpure helperへ分離し、failedをartifact作成前にunavailableとし、generation
+          ID、validation status、bounded summaryをeventへ固定する。
+        </td>
+      </tr>
+      <tr>
+        <td><code>tests/ontology-vulnworkbench-handoff.test.ts</code></td>
+        <td>
+          legacy / passed / warning / failed / unknown code / same-run terminal
+          behaviorを新規検証する。
+        </td>
+      </tr>
+      <tr>
+        <td><code>tests/fixtures/vulnworkbench/ontology-validation/*.json</code></td>
+        <td>
+          producer fixtureとbyte-equivalentな4状態を固定し、SHA-256をtest evidenceへ記録する。
+        </td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    本計画書作成時点ではNightWorkers作業ツリーを変更しない。実装時はconsumer PRを先行releaseする。
+  </p>
+
+  <h2 id="15-implementation-slices">15. Implementation Slices</h2>
+  <h3 id="slice-0">Slice 0: Baseline and Fixture Lock</h3>
+  <p>Goal: 新しいvalidationを入れる前に、現行graphとtest harnessを固定する。</p>
+  <ol>
+    <li>
+      代表generation fixtureをzero finding、normal finding、missing artifactの3種類に固定する。
+    </li>
+    <li>現行builder出力に対してprofile v1想定ruleを手動実行し、error 0件であることを確認する。</li>
+    <li>missing artifactはwarningになることを確認する。</li>
+    <li>
+      knowledge source CLIの空stdout failureを再現し、contract
+      testを安定実行できる最小修正だけを行う。
+    </li>
+    <li>dirty-state failureは別baselineとして記録し、本sliceへ混ぜない。</li>
+  </ol>
+  <p>Exit: golden fixtureとbaseline pass / fail listがreview可能である。</p>
+
+  <h3 id="slice-1">Slice 1: Shared Contract and Pure Validator</h3>
+  <p>Goal: product pathへ接続せず、report contractと全ruleをunit testで完成させる。</p>
+  <ol>
+    <li>shared schemaを追加する。</li>
+    <li>projection builderを分離する。</li>
+    <li>identity、graph、module、summary ruleをpure validatorとして実装する。</li>
+    <li>ID / evidence / finding / source refの正規化規則を実装する。</li>
+    <li>
+      violation sorting、1,000件report cap、20件source ref cap、total count、derived
+      statusを実装する。
+    </li>
+    <li>safe evaluatorでunexpected exceptionを固定failed reportへ変換する。</li>
+    <li>各ruleへ最低1 positive / 1 negative testを追加する。</li>
+    <li>
+      10,000 nodes / 25,000 edges benchmark fixtureで10.2と19の計算量 / 時間budgetを確認する。
+    </li>
+  </ol>
+  <p>Exit: validatorだけを呼び出したunit suiteがgreenで、product outputはまだ変わらない。</p>
+
+  <h3 id="slice-2">Slice 2: NightWorkers Consumer Tolerance</h3>
+  <p>Goal: producerが新fieldを出す前にconsumerをforward-compatibleにする。</p>
+  <ol>
+    <li>NightWorkers schemaへoptional reportを追加する。</li>
+    <li>legacy / passed / warning / failed分類をpure helperにする。</li>
+    <li>failed reportをunavailableへ変換する。</li>
+    <li>
+      unknown violation codeでもschema parseでき、report statusどおり分類してbounded
+      summaryへ残せることを確認する。
+    </li>
+    <li>unknown profileはschema_invalidでfail closedになることを確認する。</li>
+    <li>producer / consumer fixtureのbyte equivalenceとSHA-256を確認する。</li>
+    <li>generation IDとvalidation statusをeventへ保存し、same-run failureをterminalにする。</li>
+    <li>consumer PRをreleaseし、legacy producerとの回帰がないことを確認する。</li>
+  </ol>
+  <p>Exit: NightWorkersがfield absent / presentの両方を安全に処理する。</p>
+
+  <h3 id="slice-3">Slice 3: Producer Handoff and Readiness Integration</h3>
+  <p>Goal: API / build resultへreportを追加し、readinessへ意味検証を反映する。</p>
+  <ol>
+    <li>
+      public ontology handoff builderへprojection存在時に必須となるreportを追加し、 projection
+      failureではnullを返す。
+    </li>
+    <li>build-serviceへvalidation stageを追加する。</li>
+    <li>read-model resolverへ同じreadiness impact helperを接続する。</li>
+    <li>build / view / ontology handoff APIの各経路でevaluationを1回だけ生成して共有する。</li>
+    <li>
+      errorでもgenerationを保持し、projectionがある場合はhandoff
+      status、全経路ではreadinessをfailedにする。
+    </li>
+    <li>
+      API transport testでsemantic failure、projection failure、missingが混同されず、 diagnostic
+      payloadが失われないことを確認する。
+    </li>
+  </ol>
+  <p>Exit: APIとrefresh resultが同一generationに対して同じreport statusを返す。</p>
+
+  <h3 id="slice-4">Slice 4: Manifest and CLI Emission</h3>
+  <p>Goal: NightWorkersが実際に使うCLI manifestへreportを載せる。</p>
+  <ol>
+    <li>manifest schema / builderへoptional fieldを追加する。</li>
+    <li>reportをcontent hashへ含める。</li>
+    <li>CLIがpersisted generationをpure validateしてreportを渡す。</li>
+    <li>
+      failed reportでもJSON commandは成功し、consumerがsemantic failureを判断できるようにする。
+    </li>
+    <li>redaction、hash stability、legacy consumer fixtureを検証する。</li>
+  </ol>
+  <p>Exit: NightWorkers integration fixtureでpassedはavailable、failedはunavailableになる。</p>
+
+  <h3 id="slice-5">Slice 5: Enforcement Qualification</h3>
+  <p>Goal: report emissionをproduction-readyなpublish gateとして認定する。</p>
+  <ol>
+    <li>
+      利用可能なsanitized persisted generationを全件評価する。20件未満の場合は全件にsynthetic
+      coverage fixtureを加え、評価総数と内訳を記録する。
+    </li>
+    <li>unexpected error 0件を確認する。warningはcode / count / sourceをreviewする。</li>
+    <li>API、CLI、build result、NightWorkers eventのstatus一致を確認する。</li>
+    <li>performance、payload size、content hash差分を記録する。</li>
+    <li>rollback rehearsalを実施する。</li>
+  </ol>
+  <p>Exit: Definition of Doneを満たし、実装計画をarchive可能なevidenceが揃う。</p>
+
+  <h2 id="16-migration-sequence">16. Migration Sequence</h2>
+  <ol>
+    <li>vulnWorkbench Slice 0 / 1をmergeする。wire outputは変更しない。</li>
+    <li>
+      NightWorkers Slice 2をmerge / releaseし、legacy fixtureとproducer fixture
+      hashがgreenである証跡を残す。
+    </li>
+    <li>vulnWorkbench Slice 3でAPI / readinessを更新する。</li>
+    <li>vulnWorkbench Slice 4でmanifest / CLI emissionを有効にする。</li>
+    <li>NightWorkers live-equivalent fixtureでfailed reportがactivateされないことを確認する。</li>
+    <li>Slice 5 evidenceが揃うまで新ruleを追加しない。</li>
+  </ol>
+  <p>
+    producerを先にreleaseするとNightWorkersのstrict schemaがunknown top-level fieldを拒否するため、
+    この順序を変更しない。
+  </p>
+
+  <h2 id="17-test-plan">17. Test Plan</h2>
+  <h3 id="171-rule-tests">17.1 Rule Matrix</h3>
+  <ul>
+    <li>
+      各error / warning codeにvalid fixture、single violation fixture、複合violation fixtureを持つ。
+    </li>
+    <li>各ruleのcode、severity、固定message template、focusRef、pathをsnapshotで固定する。</li>
+    <li>
+      graph node / edge配列とrule discovery順を入れ替えてもreportが同一になるproperty-style
+      testを持つ。順序がcontractのhandoff arrayは対象外とする。
+    </li>
+    <li>
+      ASCII大小文字と非ASCIIを含むref / module pathで、UTF-16 code-unit expected順を固定する。
+    </li>
+    <li>
+      POSIX / Windows absolute path、URI、backslash、control character、dot segmentをgraph /
+      fileRiskIndex / moduleへ注入し、path invalidを検出する。
+    </li>
+    <li>path invalid reportのserialized JSONにraw invalid pathが含まれず、同じhash refになる。</li>
+    <li>257文字以上のdiagnostic refをSHA-256 refへ置換し、report schemaがpassする。</li>
+    <li>
+      node prefix、node IDとsourceIdの対応、raw evidence ref、raw finding ref、qualified source
+      refを個別に検証する。
+    </li>
+    <li>edge kindごとのevidenceRefs exact setと、missing ref / extra refを検証する。</li>
+    <li>
+      missing endpoint、wrong kind、wrong confidence、duplicate ID、wrong summary、wrong module
+      refを個別に壊す。
+    </li>
+    <li>review nodeを2件に増やし、0..1 cardinality違反を検出する。</li>
+    <li>
+      nodeの空<code>sourceId</code>を個別に壊し、source ID欠落を検出する。
+    </li>
+    <li>missing artifactだけはwarningでconforms trueになることを固定する。</li>
+    <li>
+      module集合、module structure field、module risk summary、source ref exact projectionの不足 /
+      余剰を検出する。
+    </li>
+    <li>module候補のrisk優先順を崩し、module order mismatchを検出する。</li>
+    <li>verification commandの不足、余剰、順序差を検出する。</li>
+    <li>graph verification nodeのordinal、sourceId、label、metadata command差分を検出する。</li>
+    <li>degraded reasonの不足、余剰、重複、順序差を検出する。</li>
+    <li>
+      1,001件以上の違反でtotal count、emittedCount=1,000、truncated=true、安定orderingを検証する。
+    </li>
+    <li>
+      21件以上のviolation source refでsourceRefCount、20件cap、sourceRefsTruncatedを検証する。
+    </li>
+    <li>
+      field長と件数が上限のreportをUTF-8 serializeし8 MiB未満、CLI manifest resultを10
+      MiB未満に保てることを検証する。
+    </li>
+    <li>validator exceptionを注入し、固定messageのexecution_failed reportへ変換する。</li>
+    <li>ambiguous endpointでdependent ruleがcascadeしないことを検証する。</li>
+    <li>
+      <code>file:unknown</code>、zero finding、review
+      absentはpassedできることを固定する。
+    </li>
+  </ul>
+
+  <h3 id="172-producer-tests">17.2 Producer Contract Tests</h3>
+  <ul>
+    <li>projectionが存在する場合、handoff builderがreportを必ず返す。</li>
+    <li>
+      build reportがpassedならvalidation stage completed、warning / errorならstage degradedかつbuild
+      partialになる。
+    </li>
+    <li>build resultとread resolverが同一report status / reason codeを返す。</li>
+    <li>各request / buildでsafe evaluatorの呼び出し回数が1回である。</li>
+    <li>ontology handoff requestでgeneration repository loadが1回である。</li>
+    <li>failed reportでもgeneration repositoryから元generationをloadできる。</li>
+    <li>manifest content hashはreportが同じなら安定し、reportが変われば変化する。</li>
+    <li>manifest validation fieldとgenerationの同時存在、generation ID一致を検証する。</li>
+    <li>CLI stdoutはreport付きの単一JSON objectで、stderrへdataを漏らさない。</li>
+    <li>
+      projection builder exceptionでは
+      <code>{ handoff: null, status: "failed", validation }</code>を返し、空projectionを作らない。
+    </li>
+    <li>
+      generation未検出は<code>{ handoff: null, status: "missing" }</code>のままで、 projection
+      failureと区別できる。
+    </li>
+    <li>API ownership / project-scan boundaryは既存route behaviorを維持する。</li>
+  </ul>
+
+  <h3 id="173-consumer-tests">17.3 Consumer Contract Tests</h3>
+  <ul>
+    <li>legacy field absentをavailableとして受ける。</li>
+    <li>passed / warningをavailableとして受け、validation statusをeventへ残す。</li>
+    <li>failedをunavailableにし、artifact / task context activationを行わない。</li>
+    <li>unknown violation codeを受理し、messageへ依存しない。</li>
+    <li>unknown profileをschema_invalidとして拒否する。</li>
+    <li>failed reportではmanifest artifactを作成しない。</li>
+    <li>report generation ID不一致をschema_invalidとして拒否する。</li>
+    <li>same run / scanのfailed eventを再利用し、latest generationへ暗黙retryしない。</li>
+    <li>
+      11件以上のemit済みunique rule
+      codeでemittedRuleCodeCount、先頭10件、ruleCodesTruncatedを検証する。
+    </li>
+    <li>元reportがtruncatedならruleCodesTruncatedもtrueになる。</li>
+    <li>schema invalid eventではgenerationId / validationSummaryがnullになる。</li>
+    <li>CLI failure eventではvalidationStatus=not_runとなり、既存unavailable reasonを維持する。</li>
+    <li>malformed reportはschema_invalidとなる。</li>
+  </ul>
+
+  <h3 id="174-verification-commands">17.4 Verification Commands</h3>
+  <p>vulnWorkbench targeted verification:</p>
+  <pre><code class="language-bash">bun test shared/schemas/static-intelligence-ontology-validation.schema.test.ts
+bun test shared/schemas/static-intelligence-module.schema.test.ts
+bun test shared/schemas/static-intelligence-knowledge-source.schema.test.ts
+bun test api/modules/static-intelligence/ontology-handoff-validator.test.ts
+bun test api/modules/static-intelligence/ontology-handoff.test.ts
+bun test api/modules/static-intelligence/module-candidates.test.ts
+bun test api/modules/static-intelligence/build-service.test.ts
+bun test api/modules/static-intelligence/read-model-resolver.test.ts
+bun test api/modules/static-intelligence/knowledge-source-manifest.test.ts
+bun test api/modules/static-intelligence/intelligence-knowledge-source-cli.test.ts
+bun test api/routes/static-intelligence.route.test.ts
+bun run typecheck
+bun run lint
+bun run docs:check</code></pre>
+  <p>NightWorkers coordinated verification:</p>
+  <pre><code class="language-bash">bun run test -- run tests/ontology-vulnworkbench-handoff.test.ts
+bun run typecheck
+bun run lint</code></pre>
+  <p>
+    最終的なfull suiteは両repositoryで実行する。既知baseline failureは新規failureと混ぜず、before /
+    after countと個別test名をevidenceへ残す。
+  </p>
+
+  <h2 id="18-security-and-privacy">18. Security and Privacy</h2>
+  <ul>
+    <li>validation messageへraw node metadataをJSON stringifyしない。</li>
+    <li>file focus refはproject-relative pathだけを許可する。</li>
+    <li>unsafe file refを扱うviolationはraw値を決定的SHA-256 refへ置換する。</li>
+    <li>sourceRefsへraw artifact body、evidence snippet、review output、secretを含めない。</li>
+    <li>
+      NightWorkers eventはprofile、status、errorCount、warningCount、先頭10件のrule code、report /
+      rule code truncation状態だけを保存し、messageとsource refを保存しない。
+    </li>
+    <li>consumerはreport messageをcommand、path、promptとして実行しない。</li>
+    <li>exception loggingでgeneration payloadやraw node / edgeをserializeしない。</li>
+    <li>
+      validatorはnetwork / filesystem accessを持たないため、validation inputからside
+      effectを起こさない。
+    </li>
+  </ul>
+
+  <h2 id="19-performance-budget">19. Performance and Payload Budget</h2>
+  <ul>
+    <li>
+      rule traversalはO(N + E + M + R)、canonicalizationを含む全体はO(I log I + V log
+      V)を維持し、module単位のrisk全走査を禁止する。
+    </li>
+    <li>
+      reference machineでは10,000 nodes / 25,000 edges / 1,000 modulesで100ms以内、他環境では同一
+      machineのSlice 1 baselineの1.2倍以内をqualification targetとし、machine / runtime
+      versionをevidenceへ記録する。
+    </li>
+    <li>
+      同一violationの重複発行を防ぎ、violations配列はdeterministicな先頭1,000件、各
+      <code>sourceRefs</code>は先頭20件でtruncateする。
+    </li>
+    <li>
+      truncate時はsynthetic violationを追加せず、summaryのtotal
+      count、emittedCount、truncatedで表す。
+    </li>
+    <li>normal fixtureのreport追加payloadは10KB未満をtargetとする。</li>
+    <li>
+      UTF-8 serialized reportはhard limit 8 MiB、manifest result全体はNightWorkers
+      <code>maxBuffer</code>と同じ10 MiB未満とし、producer publish前にbyte
+      lengthを検証する。
+    </li>
+    <li>巨大なinvalid graphでもraw objectをviolationへ複製しない。</li>
+  </ul>
+
+  <h2 id="20-observability">20. Observability</h2>
+  <ul>
+    <li>build stageへduration、status、bounded reason codeを記録する。</li>
+    <li>refresh responseへreportを含め、error / warning countを確認可能にする。</li>
+    <li>readinessには詳細codeを展開せず、reportへの導線だけを保つ。</li>
+    <li>NightWorkers warning eventはvalidation summaryだけを保持する。</li>
+    <li>validation report専用DB tableやlong-term telemetryは本計画では追加しない。</li>
+  </ul>
+
+  <h2 id="21-rollback">21. Rollback Plan</h2>
+  <h3 id="211-trigger">21.1 Rollback Triggers</h3>
+  <ul>
+    <li>既存valid generationがunexpected errorとなる。</li>
+    <li>NightWorkersがlegacy manifestまたはnew manifestをschema_invalidにする。</li>
+    <li>content hashが同一generationの反復実行で変化する。</li>
+    <li>validationによりCLI timeout / payload limitを超える。</li>
+    <li>absolute path、raw evidence、secretがreportへ漏れる。</li>
+  </ul>
+
+  <h3 id="212-order">21.2 Rollback Order</h3>
+  <ol>
+    <li>
+      vulnWorkbench manifest
+      emitterから<code>ontologyValidation</code>出力を停止し、同じrevertでcontent hash
+      inputからも外す。
+    </li>
+    <li>
+      build resultの必須<code>ontologyValidation</code>、validation stage、build / read
+      readinessへのenforcementを同じrevertで外し、pure validatorとtestは残す。
+    </li>
+    <li>
+      ontology handoff APIを戻す場合は、required
+      <code>validation</code> schema、response union、builder
+      emissionを同じrevertで戻す。
+    </li>
+    <li>
+      rollback triggerがordering / hash差分なら、ontology handoffとmodule candidateのcanonical
+      comparator変更も同じproducer revertへ含める。
+    </li>
+    <li>NightWorkersのoptional parserはlegacy compatibilityのため残す。</li>
+    <li>persisted generationは削除・再生成しない。</li>
+  </ol>
+  <p>
+    rollbackでscanner、finding、artifact、review dataを変更しない。DB migrationがないためschema down
+    migrationも不要である。
+  </p>
+  <p>
+    既に保存されたNightWorkers run eventは書き換えない。failed eventを持つrunはterminalのままとし、
+    rollback後のproducerを使う場合も新しいrunで再収集する。
+  </p>
+
+  <h2 id="22-definition-of-done">22. Definition of Done</h2>
+  <ul>
+    <li>profile v1の全ruleとseverityがコードと本書で一致している。</li>
+    <li>各ruleにpositive / negative testがある。</li>
+    <li>
+      ID / sourceId対応、raw / qualified ref、source ref exact projectionがcontractどおりである。
+    </li>
+    <li>unsafe file pathをerrorにし、report / log / NightWorkers eventへraw値を出さない。</li>
+    <li>report上限時もtotal count、emitted count、truncated flagが正しい。</li>
+    <li>violation source ref上限時もtotal countとtruncated flagが正しい。</li>
+    <li>同一generationからreport orderingとmanifest content hashが決定的に生成される。</li>
+    <li>canonical orderingに<code>localeCompare</code>が残っていない。</li>
+    <li>同一request / build内でvalidation evaluationを重複実行しない。</li>
+    <li>APIがpassed / semantic-failed / projection-failed / missingを契約どおり区別する。</li>
+    <li>graph errorがevidenceGraph / ontologyHandoff readinessをfailedにする。</li>
+    <li>handoff-only errorがontologyHandoffだけをfailedにする。</li>
+    <li>warningはdegradedになるがconsumer利用を停止しない。</li>
+    <li>failed generation artifactsが診断用に保持される。</li>
+    <li>NightWorkers consumer-first migrationが完了し、legacy / new fixtureが両方greenである。</li>
+    <li>NightWorkersがfailed reportをtask contextへactivateしない。</li>
+    <li>
+      NightWorkersがfailed reportのmanifest artifactを作成せず、10 rule
+      code上限のsummaryだけを残す。
+    </li>
+    <li>
+      NightWorkers eventがgeneration IDを保持し、same-run failureから別generationへ暗黙切替しない。
+    </li>
+    <li>redaction、performance、payload budgetを満たす。</li>
+    <li>targeted verification、typecheck、lint、docs checkがpassする。</li>
+    <li>full suiteのbefore / after差分と既知baseline failureが記録される。</li>
+    <li>実装外のontology候補へscopeが広がっていない。</li>
+  </ul>
+
+  <h2 id="23-open-decisions">23. Open Decisions and Proposed Defaults</h2>
+  <table>
+    <caption>
+      実装開始時に確認する事項
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Question</th>
+        <th scope="col">Proposed default</th>
+        <th scope="col">Decision owner</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>profile v1 rule owner</td>
+        <td>vulnWorkbench static-intelligence maintainer</td>
+        <td>vulnWorkbench maintainer</td>
+      </tr>
+      <tr>
+        <td>failed API response code</td>
+        <td>
+          HTTP
+          200。projectionありは<code>handoff.status=failed</code>、projectionなしはtop-level
+          <code>status=failed</code>とreport
+        </td>
+        <td>API maintainer</td>
+      </tr>
+      <tr>
+        <td>failed CLI exit code</td>
+        <td>JSON生成成功なら0。conformanceはreportで判断する。</td>
+        <td>producer / consumer maintainers</td>
+      </tr>
+      <tr>
+        <td>legacy manifest support</td>
+        <td>field absentを継続受理し、削除時期は本計画で決めない。</td>
+        <td>NightWorkers maintainer</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2 id="24-go-no-go-gate">24. GO / NO-GO Gate</h2>
+  <h3 id="241-go">24.1 GO</h3>
+  <ul>
+    <li>NightWorkers consumer-first release順をownerが承認した。</li>
+    <li>profile v1 rule / severityに異論がない。</li>
+    <li>
+      利用可能なsanitized generation全件とsynthetic coverage fixtureでunexpected errorが0件である。
+    </li>
+    <li>CLI contract testを安定して実行できる。</li>
+    <li>scopeがSemantic Handoff Validationだけに限定されている。</li>
+  </ul>
+
+  <h3 id="242-no-go">24.2 NO-GO</h3>
+  <ul>
+    <li>consumer-first releaseを調整できない。</li>
+    <li>現行valid corpusでerror / warning境界を説明できない。</li>
+    <li>reportへsensitive dataを含めない設計を保証できない。</li>
+    <li>RDF / Semantica runtime導入が初期実装の前提になる。</li>
+    <li>他の5 ontology候補を同じPRへ含める必要が生じる。</li>
+  </ul>
+
+  <h2 id="25-implementation-handoff">25. Implementation Handoff</h2>
+  <p>
+    実装開始時はSlice 0だけを最初の作業単位とする。Slice 0のbaselineとfixtureがreviewされるまで、
+    shared schema、wire output、NightWorkers consumerを変更しない。各sliceは個別にtest
+    evidenceを残し、 後続sliceを先取りしてまとめて完了扱いにしない。
+  </p>
+</article>

@@ -1,6 +1,8 @@
 import path from "node:path";
+import { runBoundedProcess } from "../processes/bounded-process-runner";
 import { readBoundedProcessText } from "../scans/tools/bounded-process-output";
 import {
+	getCleanEnv,
 	normalizeToolExecutionConfig,
 	type ProcessOutputLimits,
 } from "../scans/tools/tool-process-runner";
@@ -22,6 +24,35 @@ export type DynamicDockerRunResult = {
 	error?: string;
 	executionMetadata: Record<string, unknown>;
 };
+
+/** Immutable command shapes for the server-owned dynamic artifact volume. */
+export function dynamicOutputVolumeName(containerName: string): string {
+	if (!/^vuln-workbench-dyn-[a-z0-9-]+$/i.test(containerName)) {
+		throw new Error("dynamic_container_name_invalid");
+	}
+	return `${containerName}-out`;
+}
+
+export function buildDynamicOutputVolumeCreateArgs(params: {
+	dockerBin: string;
+	volumeName: string;
+}): string[] {
+	return [
+		params.dockerBin,
+		"volume",
+		"create",
+		"--label",
+		"com.vuln-workbench.dynamic-output=true",
+		params.volumeName,
+	];
+}
+
+export function buildDynamicOutputVolumeRemoveArgs(params: {
+	dockerBin: string;
+	volumeName: string;
+}): string[] {
+	return [params.dockerBin, "volume", "rm", "-f", params.volumeName];
+}
 
 function dockerMemoryBytes(value: string): number {
 	const match = value.trim().match(/^(\d+(?:\.\d+)?)([kmgt])(?:i?b)?$/i);
@@ -103,6 +134,7 @@ export async function executeDynamicDockerRun(params: {
 	outputLimits: ProcessOutputLimits;
 	repoPath: string;
 	hostOutDir: string;
+	outputVolumeName?: string;
 	workingDirectory: string;
 	command: string[];
 	writableWorkdir: boolean;
@@ -116,9 +148,14 @@ export async function executeDynamicDockerRun(params: {
 	// Static shell wrapper only; profile-controlled values are passed via env.
 	const shellScript = `set +e
 RUN_ROOT="/workspace/repo"
-if [ -d "/workspace/workdir" ]; then
+if [ "$DYNAMIC_WRITABLE_WORKDIR" = "1" ]; then
   cp -a /workspace/repo/. /workspace/workdir/
   RUN_ROOT="/workspace/workdir"
+  # Dynamic toolchains (notably Go race) execute temporary test binaries.
+  # Use the writable workdir rather than the read-only/noexec container /tmp.
+  mkdir -p "$RUN_ROOT/.vuln-workbench-tmp"
+  export TMPDIR="$RUN_ROOT/.vuln-workbench-tmp"
+  export GOCACHE="$RUN_ROOT/.vuln-workbench-tmp/go-cache"
 fi
 cd "$RUN_ROOT/$DYNAMIC_WORKING_DIRECTORY"
 
@@ -143,7 +180,6 @@ exit $EXIT_CODE
 	const dockerArgs = [
 		params.dockerBin,
 		"run",
-		"--rm",
 		"--name",
 		params.containerName,
 		"--network",
@@ -173,16 +209,22 @@ exit $EXIT_CODE
 		`DYNAMIC_WORKING_DIRECTORY=${params.workingDirectory}`,
 		"--env",
 		`DYNAMIC_EXPECTED_ARTIFACTS=${cleanGlobs.join(":")}`,
+		"--env",
+		`DYNAMIC_WRITABLE_WORKDIR=${params.writableWorkdir ? "1" : "0"}`,
 		"-v",
 		`${path.resolve(params.repoPath)}:/workspace/repo:ro`,
-		"-v",
-		`${path.resolve(params.hostOutDir)}:/workspace/out:rw`,
+		...(params.outputVolumeName
+			? [
+					"--mount",
+					`type=volume,src=${params.outputVolumeName},dst=/workspace/out`,
+				]
+			: ["-v", `${path.resolve(params.hostOutDir)}:/workspace/out:rw`]),
 	];
 
 	if (params.writableWorkdir) {
 		dockerArgs.push(
 			"--tmpfs",
-			"/workspace/workdir:rw,nosuid,nodev,size=512m,uid=65532,gid=65532",
+			"/workspace/workdir:rw,exec,nosuid,nodev,size=512m,uid=65532,gid=65532",
 		);
 	}
 	dockerArgs.push(
@@ -205,12 +247,57 @@ exit $EXIT_CODE
 	let outputLimitExceeded = false;
 	let stdoutBytesRead = 0;
 	let stderrBytesRead = 0;
+	let terminalResult: DynamicDockerRunResult | null = null;
+	let cleanupFailed = false;
+	let outputCollectionFailed = false;
+	const outputVolumeName = params.outputVolumeName;
+
+	if (outputVolumeName) {
+		try {
+			const volume = await runBoundedProcess({
+				argv: buildDynamicOutputVolumeCreateArgs({
+					dockerBin: params.dockerBin,
+					volumeName: outputVolumeName,
+				}),
+				timeoutMs: 30_000,
+				outputLimitBytes: 64 * 1024,
+			});
+			if (volume.exitCode !== 0 || volume.terminationReason) {
+				return {
+					ok: false,
+					exitCode: volume.exitCode,
+					stdout: volume.stdout,
+					stderr: volume.stderr,
+					elapsedMs: 0,
+					timedOut: false,
+					error: "dynamic_output_volume_create_failed",
+					executionMetadata: {
+						terminationReason: "output_volume_create_failed",
+					},
+				};
+			}
+		} catch (error) {
+			return {
+				ok: false,
+				exitCode: null,
+				stdout: "",
+				stderr: "",
+				elapsedMs: 0,
+				timedOut: false,
+				error: "dynamic_output_volume_create_failed",
+				executionMetadata: {
+					terminationReason: "output_volume_create_failed",
+					errorName: error instanceof Error ? error.name : "UnknownError",
+				},
+			};
+		}
+	}
 
 	try {
 		proc = Bun.spawn(dockerArgs, {
 			stdout: "pipe",
 			stderr: "pipe",
-			env: process.env,
+			env: getCleanEnv(),
 		}) as unknown as PipeSubprocess;
 
 		timeoutId = setTimeout(() => {
@@ -243,7 +330,7 @@ exit $EXIT_CODE
 		stderrBytesRead = stderrResult.bytesRead;
 		if (stdoutResult.exceeded || stderrResult.exceeded) {
 			const stream = stdoutResult.exceeded ? "stdout" : "stderr";
-			return {
+			terminalResult = {
 				ok: false,
 				exitCode,
 				stdout,
@@ -259,9 +346,23 @@ exit $EXIT_CODE
 				},
 			};
 		}
+		if (outputVolumeName && exitCode === 0) {
+			const copy = await runBoundedProcess({
+				argv: [
+					params.dockerBin,
+					"cp",
+					`${params.containerName}:/workspace/out/.`,
+					params.hostOutDir,
+				],
+				timeoutMs: 30_000,
+				outputLimitBytes: 64 * 1024,
+			});
+			outputCollectionFailed =
+				copy.exitCode !== 0 || copy.terminationReason !== null;
+		}
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
-		return {
+		terminalResult = {
 			ok: false,
 			exitCode: null,
 			stdout,
@@ -280,14 +381,80 @@ exit $EXIT_CODE
 		};
 	} finally {
 		if (timeoutId) clearTimeout(timeoutId);
-		if (isKilled || outputLimitExceeded) {
+		if (proc && exitCode === null && !isKilled && !outputLimitExceeded) {
+			proc.kill("SIGKILL");
+		}
+		if (proc) {
 			try {
-				Bun.spawnSync([params.dockerBin, "rm", "-f", params.containerName]);
-			} catch {}
+				const cleanupResult = await runBoundedProcess({
+					argv: [params.dockerBin, "rm", "-f", params.containerName],
+					timeoutMs: 30_000,
+					outputLimitBytes: 64 * 1024,
+				});
+				cleanupFailed =
+					cleanupResult.terminationReason !== null ||
+					cleanupResult.exitCode !== 0;
+			} catch {
+				cleanupFailed = true;
+			}
+		}
+		if (outputVolumeName) {
+			try {
+				const removed = await runBoundedProcess({
+					argv: buildDynamicOutputVolumeRemoveArgs({
+						dockerBin: params.dockerBin,
+						volumeName: outputVolumeName,
+					}),
+					timeoutMs: 30_000,
+					outputLimitBytes: 64 * 1024,
+				});
+				cleanupFailed ||=
+					removed.exitCode !== 0 || removed.terminationReason !== null;
+			} catch {
+				cleanupFailed = true;
+			}
 		}
 	}
 
 	const elapsedMs = Date.now() - startTime;
+	if (cleanupFailed) {
+		return {
+			ok: false,
+			exitCode,
+			stdout,
+			stderr,
+			elapsedMs,
+			timedOut: isKilled,
+			error: "dynamic_container_cleanup_failed",
+			executionMetadata: {
+				terminationReason: "cleanup_failed",
+				priorTerminationReason:
+					terminalResult?.executionMetadata.terminationReason ??
+					(isKilled ? "timeout" : "output_limit_exceeded"),
+				outputLimits: params.outputLimits,
+				stdoutBytesRead,
+				stderrBytesRead,
+			},
+		};
+	}
+	if (outputCollectionFailed) {
+		return {
+			ok: false,
+			exitCode,
+			stdout,
+			stderr,
+			elapsedMs,
+			timedOut: false,
+			error: "dynamic_output_collection_failed",
+			executionMetadata: {
+				terminationReason: "output_collection_failed",
+				outputLimits: params.outputLimits,
+				stdoutBytesRead,
+				stderrBytesRead,
+			},
+		};
+	}
+	if (terminalResult) return terminalResult;
 	if (isKilled) {
 		return {
 			ok: false,

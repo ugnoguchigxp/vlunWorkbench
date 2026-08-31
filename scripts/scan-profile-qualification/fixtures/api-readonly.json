@@ -1,0 +1,23 @@
+{
+	"schemaVersion": 1,
+	"profileId": "api-readonly",
+	"policyId": "api-readonly-stable-v1",
+	"caseIds": [
+		"openapi-3.0:vulnerable",
+		"openapi-3.0:fixed",
+		"openapi-3.1:vulnerable",
+		"openapi-3.1:fixed",
+		"openapi-3.1-yaml:vulnerable",
+		"openapi-3.1-yaml:fixed",
+		"swagger-2.0:vulnerable",
+		"swagger-2.0:fixed",
+		"graphql-query:vulnerable",
+		"graphql-query:fixed",
+		"graphql-mutation-schema-rejected",
+		"auth-header-secret-redaction",
+		"operation-bypass",
+		"path-bypass",
+		"tool-fault",
+		"cleanup"
+	]
+}

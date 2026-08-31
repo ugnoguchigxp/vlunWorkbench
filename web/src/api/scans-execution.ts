@@ -1,3 +1,4 @@
+import type { ScanExecutionPlan } from "../../../shared/schemas/scan-execution-plan.schema";
 import type { ScanPreflightResult } from "../../../shared/schemas/scan-preflight.schema";
 import type {
 	DiffScanPreview,
@@ -5,6 +6,7 @@ import type {
 	ScanTargetKind,
 } from "../../../shared/schemas/scan-target.schema";
 import { requestJson } from "./core";
+import type { Finding, FindingEvidence } from "./scans";
 
 export type ScanProfileTool = {
 	toolId: string;
@@ -13,27 +15,25 @@ export type ScanProfileTool = {
 	timeoutSec?: number;
 };
 
-export type ScanProfileStep =
-	| {
-			kind: "static_tool";
-			toolId: string;
-			displayName: string;
-			required: boolean;
-			timeoutSec?: number;
-			failurePolicy: "fail_profile" | "warn_and_continue";
-	  }
-	| {
-			kind: "dast";
-			profileId:
-				| "http-baseline"
-				| "web-passive-standard"
-				| "authenticated-readonly-standard";
-			displayName: string;
-			required: boolean;
-			timeoutSec?: number;
-			failurePolicy: "fail_profile" | "warn_and_continue";
-			target: { mode: "auto_project_start" };
-	  };
+export type ScanProfileStep = {
+	stepId: string;
+	kind:
+		| "static_tool"
+		| "dast"
+		| "runtime_scanner"
+		| "sbom_export"
+		| "api_schema_scan"
+		| "container_image_scan"
+		| "attestation_verify";
+	adapter: string;
+	displayName: string;
+	required: boolean;
+	timeoutSec?: number;
+	failurePolicy: "fail_profile" | "warn_and_continue";
+	toolId?: string;
+	profileId?: string;
+	target?: { mode: "auto_project_start" };
+};
 
 export type ScanProfileScope = {
 	intent: "source" | "dependency_manifest" | "artifact" | "full_deep";
@@ -52,9 +52,58 @@ export type ScanProfile = {
 	supportedTargets?: ScanTargetKind[];
 	scope?: ScanProfileScope;
 	tools: ScanProfileTool[];
-	steps?: ScanProfileStep[];
-	coverageGaps?: string[];
+	steps: ScanProfileStep[];
+	/** Profile declarations are not runtime coverage results. */
+	coverageMeasurement?: "not_measured";
+	capabilityRequirements?: Array<{
+		capabilityId: string;
+		requirement: "required" | "required_if_applicable" | "advisory";
+	}>;
+	availability?: "stable" | "experimental" | "planned" | "deprecated";
+	safetyClass?: "R0" | "R1" | "R2" | "R3" | "mixed";
+	launchMode?: "profile_orchestrator" | "dedicated_flow" | "unavailable";
+	experienceKind?:
+		| "scanner_preset"
+		| "assessment_workflow"
+		| "lab"
+		| "advanced_runner";
+	requiredInputs?: Array<{
+		kind: string;
+		requirement: "required" | "required_if_applicable" | "advisory";
+	}>;
 };
+
+export type ScanProfileCatalogEntry = {
+	id: string;
+	displayName: string;
+	description: string;
+	experienceKind:
+		| "scanner_preset"
+		| "assessment_workflow"
+		| "lab"
+		| "advanced_runner";
+	availability: "stable" | "experimental" | "planned" | "deprecated";
+	safetyClass: "R0" | "R1" | "R2" | "R3" | "mixed";
+	launchMode: "profile_orchestrator" | "dedicated_flow" | "unavailable";
+	supportedTargets: ScanTargetKind[];
+	strictness: "best_effort" | "strict";
+	capabilityRequirements: NonNullable<ScanProfile["capabilityRequirements"]>;
+	requiredInputs: NonNullable<ScanProfile["requiredInputs"]>;
+	launchDestination?: string | null;
+	limitationCodes?: string[];
+};
+
+export type ScanProfileCatalogResponse = {
+	schemaVersion: number;
+	profiles: ScanProfile[];
+	catalogEntries: ScanProfileCatalogEntry[];
+	genericStartCatalogProfileIds: string[];
+	defaultProfileIds: Record<ScanTargetKind, string>;
+};
+
+export async function fetchScanProfileCatalog(): Promise<ScanProfileCatalogResponse> {
+	return requestJson<ScanProfileCatalogResponse>("/api/scan-profiles");
+}
 
 export type ToolSummary = {
 	toolId: string;
@@ -84,7 +133,8 @@ export type StepSummary = {
 		| "runtime_scanner"
 		| "sbom_export"
 		| "api_schema_scan"
-		| "container_image_scan";
+		| "container_image_scan"
+		| "attestation_verify";
 	id: string;
 	displayName: string;
 	status: string;
@@ -123,7 +173,8 @@ export type ScanStartCoverageStepResult = {
 		| "runtime_scanner"
 		| "sbom_export"
 		| "api_schema_scan"
-		| "container_image_scan";
+		| "container_image_scan"
+		| "attestation_verify";
 	stepId: string;
 	adapter: string;
 	required: boolean;
@@ -185,13 +236,33 @@ export type FindingGroup = {
 	id: string;
 	groupKey: string;
 	title: string;
+	description: string;
 	severity: string;
+	representativeFindingId: string;
 	findingIds: string[];
 	sourceTools: string[];
-	metadata: { strategy: string };
+	primaryLocation: Record<string, unknown>;
+	matchConfidence: "exact" | "high" | "singleton";
+	reasonCodes: string[];
+	metadata: { strategy: string; algorithmVersion: string };
 };
 
-export type GroupedFindingsResult = { groups: FindingGroup[] };
+export type GroupedFindingsResult = {
+	grouping?: {
+		runId: string | null;
+		runStatus: "completed" | null;
+		mode: "deterministic" | "singleton_fallback";
+		algorithmVersion: string;
+		findingSetHash: string | null;
+		snapshotHash: string | null;
+		rawFindingCount: number;
+		issueCount: number;
+		suppressedCount: number;
+		ambiguousCount: number;
+		limitations: string[];
+	};
+	groups: FindingGroup[];
+};
 
 export type AttackSurfaceItem = {
 	id: string;
@@ -252,10 +323,36 @@ export type DiagnosticReport = {
 };
 
 export async function fetchScanProfiles(): Promise<ScanProfile[]> {
-	const data = await requestJson<{ profiles: ScanProfile[] }>(
-		"/api/scan-profiles",
-	);
-	return data.profiles;
+	const data = await fetchScanProfileCatalog();
+	return toLaunchableScanProfiles(data);
+}
+
+export function toLaunchableScanProfiles(
+	data: ScanProfileCatalogResponse,
+): ScanProfile[] {
+	if (!data.catalogEntries) {
+		return data.profiles;
+	}
+	return data.catalogEntries
+		.filter((entry) => entry.launchMode !== "unavailable")
+		.map((entry) => ({
+			id: entry.id,
+			name: entry.displayName,
+			description: entry.description,
+			enabled: true,
+			strictness: entry.strictness,
+			defaultTimeoutSec: 600,
+			supportedTargets: entry.supportedTargets,
+			tools: [],
+			steps: [],
+			coverageMeasurement: "not_measured" as const,
+			capabilityRequirements: entry.capabilityRequirements,
+			availability: entry.availability,
+			safetyClass: entry.safetyClass,
+			launchMode: entry.launchMode,
+			experienceKind: entry.experienceKind,
+			requiredInputs: entry.requiredInputs,
+		}));
 }
 
 export async function startScan(
@@ -268,14 +365,27 @@ export async function startScan(
 		runner?: "host" | "docker";
 		imageRef?: string;
 		imageTar?: string;
+		attestationSubject?: string;
+		attestationBundle?: string;
+		trustPolicy?: string;
+		slsaProvenance?: string;
+		slsaPolicy?: string;
+		authContextId?: string;
+		identityRole?: string;
+		dependencyResolution?: { mode: "offline" | "registry" };
 		target?: ScanTarget;
 		expectedTargetDigest?: string;
 		expectedPreflightBindingHash?: string;
+		expectedPlanHash?: string;
+		expectedCatalogEntryHash?: string;
+		resultPolicy?: "advisory" | "gate";
+		allowExperimental?: boolean;
 	},
 ): Promise<{
 	scan: { id: string; status: string; profile: string };
 	runner?: "host" | "docker";
 	profileOutcome: string;
+	profileResolution?: Record<string, unknown>;
 	message?: string;
 	toolResults: ScanStartToolResult[];
 	stepResults?: ScanStartStepResult[];
@@ -290,16 +400,42 @@ export async function preflightScan(
 	projectId: string,
 	params: {
 		profile: string;
+		target?: ScanTarget;
+		resultPolicy?: "advisory" | "gate";
+		allowExperimental?: boolean;
 		stepId?: string;
 		consentProjectCodeExecution?: boolean;
 		runner?: "host" | "docker";
+		imageRef?: string;
+		imageTar?: string;
+		attestationSubject?: string;
+		attestationBundle?: string;
+		trustPolicy?: string;
+		slsaProvenance?: string;
+		slsaPolicy?: string;
+		authContextId?: string;
+		identityRole?: string;
+		dependencyResolution?: { mode: "offline" | "registry" };
 	},
-): Promise<ScanPreflightResult> {
-	const data = await requestJson<{ preflight: ScanPreflightResult }>(
-		`/api/projects/${projectId}/scans/preflight`,
-		{ method: "POST", body: params },
-	);
-	return data.preflight;
+): Promise<
+	ScanPreflightResult & {
+		executionPlan: ScanExecutionPlan;
+		profileResolution: { catalogEntryHash: string };
+	}
+> {
+	const data = await requestJson<{
+		preflight: ScanPreflightResult;
+		executionPlan: ScanExecutionPlan;
+		profileResolution: { catalogEntryHash: string };
+	}>(`/api/projects/${projectId}/scans/preflight`, {
+		method: "POST",
+		body: params,
+	});
+	return {
+		...data.preflight,
+		executionPlan: data.executionPlan,
+		profileResolution: data.profileResolution,
+	};
 }
 
 export async function previewScan(
@@ -308,7 +444,9 @@ export async function previewScan(
 		profile: string;
 		target: Exclude<ScanTarget, { kind: "full" }>;
 	},
-): Promise<DiffScanPreview> {
+): Promise<
+	DiffScanPreview & { profileResolution: { catalogEntryHash: string } }
+> {
 	return requestJson(`/api/projects/${projectId}/scans/preview`, {
 		method: "POST",
 		body: params,
@@ -328,6 +466,18 @@ export async function fetchScanGroups(
 	scanRunId: string,
 ): Promise<GroupedFindingsResult> {
 	return requestJson(`/api/scans/${scanRunId}/groups`);
+}
+
+export async function fetchScanGroupDetail(scanRunId: string, groupId: string) {
+	return requestJson<{
+		grouping: NonNullable<GroupedFindingsResult["grouping"]>;
+		group: FindingGroup;
+		members: Array<{
+			finding: Finding;
+			evidence: FindingEvidence[];
+			provenance: Record<string, unknown> | null;
+		}>;
+	}>(`/api/scans/${scanRunId}/groups/${groupId}`);
 }
 
 export async function fetchScanAttackSurface(

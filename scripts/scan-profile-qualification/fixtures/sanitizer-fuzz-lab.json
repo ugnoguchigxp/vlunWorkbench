@@ -1,0 +1,6 @@
+{
+	"schemaVersion": 1,
+	"profileId": "sanitizer-fuzz-lab",
+	"policyId": "sanitizer-fuzz-lab-v2",
+	"caseIds": ["sanitizer", "fuzz", "timeout", "cleanup"]
+}

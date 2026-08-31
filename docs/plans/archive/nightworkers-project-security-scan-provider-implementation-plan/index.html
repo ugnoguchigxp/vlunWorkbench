@@ -1,0 +1,1665 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex,follow">
+    <title>NightWorkers Project Security Scan Provider 実装計画 | vulnWorkbench</title>
+    <link rel="stylesheet" href="/vlunWorkbench/assets/css/spec-document.css">
+    <link rel="stylesheet" href="/vlunWorkbench/assets/css/plan-document.css">
+  </head>
+  <body>
+    <article lang="ja">
+  <h1 id="nightworkers-project-security-scan-provider-実装計画">
+    NightWorkers Project Security Scan Provider 実装計画
+  </h1>
+  <h2 id="0-文書ステータス">0. 文書ステータス</h2>
+  <ul>
+    <li>ステータス: Draft</li>
+    <li>対象リポジトリ: vulnWorkbench</li>
+    <li>基準ブランチ: <code>main</code></li>
+    <li>基準コミット: <code>21ac65967644543900d77312ccdd33e3f55a3bdc</code></li>
+    <li>作成日: 2026-07-30</li>
+    <li>
+      companion:
+      <ul>
+        <li>NightWorkers の <code>spec/project-detail-vulnerability-scan-vulnworkbench-consumer-implementation-plan.md</code></li>
+      </ul>
+    </li>
+    <li>
+      関連計画:
+      <ul>
+        <li><code>spec/git-diff-target-scan-implementation-plan.md</code></li>
+        <li><code>spec/static-intelligence-coding-agent-consumer-companion-plan.md</code></li>
+      </ul>
+    </li>
+    <li>
+      対象:
+      <ul>
+        <li>NightWorkers から利用する versioned service integration API</li>
+        <li>preset registry</li>
+        <li>scan / event / finding / report の非同期参照</li>
+        <li>scoped integration credential</li>
+      </ul>
+    </li>
+  </ul>
+  <h2 id="1-結論">1. 結論</h2>
+  <p>
+    vulnWorkbench は NightWorkers に対し、 <code>/api/integrations/nightworkers/v1</code> 配下の
+    provider API を提供する。
+  </p>
+  <p>
+    既存の user-facing Web API、CLI、scan runner、finding repository、report repository を 内部
+    application service として再利用するが、NightWorkers 連携では次を追加する。
+  </p>
+  <ol>
+    <li>browser cookie とは別の scoped integration credential</li>
+    <li>NightWorkers 向けの安定した preset registry</li>
+    <li>canonical project path から既存 project / scan context を安全に解決する adapter</li>
+    <li>end-to-end idempotent な scan / report start</li>
+    <li>sequence 付き event pagination</li>
+    <li>report start の完全非同期化と restart recovery</li>
+    <li>versioned response schema と structured error</li>
+  </ol>
+  <p>
+    vulnWorkbench が scan、finding、artifact、report の正本である。 NightWorkers に raw finding や
+    report Markdown の複製を要求しない。
+  </p>
+  <h2 id="2-現状">2. 現状</h2>
+  <h3 id="21-既存-scan-api">2.1 既存 scan API</h3>
+  <p>既存 API には概ね次がある。</p>
+  <ul>
+    <li><code>POST /api/projects/:projectId/scans</code></li>
+    <li><code>GET /api/scans?projectId=...</code></li>
+    <li><code>GET /api/scans/:scanRunId</code></li>
+    <li><code>GET /api/scans/:scanRunId/events</code></li>
+    <li>cancel</li>
+    <li>summary</li>
+    <li>findings / groups</li>
+    <li>reports</li>
+    <li>reviews</li>
+    <li>artifacts</li>
+  </ul>
+  <p>
+    scan start は <code>202</code> を返し、<code>ScanProcessSupervisor</code>
+    が child scan、queue、cancel、recovery を 所有している。この実行基盤は provider API
+    でも再利用する。
+  </p>
+  <p>
+    一方、現状の route は user JWT / cookie と内部
+    <code>projectId</code> を前提にする。 NightWorkers は browser user
+    session や vulnWorkbench project ID を持たないため、 既存 route を直接公開しない。
+  </p>
+  <h3 id="22-scan-event">2.2 scan event</h3>
+  <p>
+    <code>scan_events</code> は event ID と timestamp を持つが、run
+    内での単調増加 sequence と <code>after</code> pagination がない。
+  </p>
+  <p>
+    polling consumer が重複・欠落なく再開するため、provider API 公開前に run 単位 sequence を
+    追加する。
+  </p>
+  <h3 id="23-report">2.3 report</h3>
+  <p>
+    report route は running row を作成するものの、request 内で生成完了を待つ経路がある。
+    NightWorkers の long-running integration には不適切なため、enqueue と execution を分離する。
+  </p>
+  <p>
+    既存 <code>ScanReviewRunner.start()</code> の非同期 runner / recovery pattern を参考に、
+    <code>ScanReportRunner</code> を追加する。
+  </p>
+  <h3 id="24-profile">2.4 profile</h3>
+  <p>既存 profile には次が含まれる。</p>
+  <ul>
+    <li><code>source-baseline</code></li>
+    <li><code>diff-source-baseline</code></li>
+    <li><code>basic-security</code></li>
+    <li><code>detailed-security</code></li>
+    <li><code>full-security-scan</code></li>
+    <li>その他 focused profiles</li>
+  </ul>
+  <p>
+    NightWorkers が raw profile ID と tool 構成を固定すると、provider 内の改善が breaking change
+    になる。ユーザー向けの安定した preset と、実行 profile を分ける。
+  </p>
+  <h2 id="3-目的">3. 目的</h2>
+  <ol>
+    <li>NightWorkers が登録済み Repository に対して安全に scan を開始できる。</li>
+    <li>quick / standard / deep の意味を provider 側で安定管理できる。</li>
+    <li>scan start、status、events、cancel、summary、findings を非同期に提供できる。</li>
+    <li>completed scan から LLM report を非同期生成・参照できる。</li>
+    <li>retry や process restart で重複 scan / report を作らない。</li>
+    <li>path、owner、scope、rate、revision、idempotency を server-side で検証する。</li>
+    <li>provider schema の変更を contract version で管理できる。</li>
+  </ol>
+  <h2 id="4-固定する責務">4. 固定する責務</h2>
+  <table>
+    <caption>
+      4. 固定する責務
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">責務</th>
+        <th scope="col">provider での所有</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>profile 定義</td>
+        <td>vulnWorkbench</td>
+      </tr>
+      <tr>
+        <td>preset -&gt; profile 解決</td>
+        <td>vulnWorkbench</td>
+      </tr>
+      <tr>
+        <td>target preview / digest</td>
+        <td>vulnWorkbench</td>
+      </tr>
+      <tr>
+        <td>project path policy</td>
+        <td>vulnWorkbench</td>
+      </tr>
+      <tr>
+        <td>queue / process / cancel</td>
+        <td>vulnWorkbench</td>
+      </tr>
+      <tr>
+        <td>event ordering</td>
+        <td>vulnWorkbench</td>
+      </tr>
+      <tr>
+        <td>raw finding / artifact</td>
+        <td>vulnWorkbench</td>
+      </tr>
+      <tr>
+        <td>security outcome</td>
+        <td>vulnWorkbench</td>
+      </tr>
+      <tr>
+        <td>report generation / Markdown</td>
+        <td>vulnWorkbench</td>
+      </tr>
+      <tr>
+        <td>credential scope / revoke</td>
+        <td>vulnWorkbench</td>
+      </tr>
+      <tr>
+        <td>NightWorkers user authorization</td>
+        <td>NightWorkers</td>
+      </tr>
+      <tr>
+        <td>NightWorkers repository ID -&gt; path</td>
+        <td>NightWorkers</td>
+      </tr>
+      <tr>
+        <td>Project detail UI</td>
+        <td>NightWorkers</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    provider API は NightWorkers に「scanner の内部 DB を操作させる API」ではなく、 許可された use
+    case の application boundary とする。
+  </p>
+  <h2 id="5-スコープ">5. スコープ</h2>
+  <h3 id="51-mvp-に含める">5.1 MVP に含める</h3>
+  <ul>
+    <li>v1 integration routes</li>
+    <li>integration client の作成・一覧・失効 CLI</li>
+    <li>token hash / scope / owner 永続化</li>
+    <li>capability / preset registry</li>
+    <li>canonical project path 解決</li>
+    <li>working tree / full preview</li>
+    <li>idempotent scan start</li>
+    <li>run status / events / cancel</li>
+    <li>summary / cursor-paginated findings</li>
+    <li>async report start / status / Markdown content</li>
+    <li>structured errors</li>
+    <li>rate / concurrency limit</li>
+    <li>audit log</li>
+    <li>contract fixtures</li>
+  </ul>
+  <h3 id="52-mvp-に含めない">5.2 MVP に含めない</h3>
+  <ul>
+    <li>NightWorkers user ごとの vulnWorkbench browser session 発行</li>
+    <li>arbitrary command / tool / environment の受け付け</li>
+    <li>NightWorkers からの profile 作成・編集</li>
+    <li>finding triage / false-positive 更新</li>
+    <li>remediation / review / improvement request API</li>
+    <li>task 作成</li>
+    <li>scheduled scan</li>
+    <li>scan comparison</li>
+    <li>DAST environment の自動起動</li>
+    <li>Static Intelligence preparation との統合</li>
+  </ul>
+  <p>
+    full security scan と structure-only Static Intelligence prepare は別 lifecycle のまま維持する。
+  </p>
+  <h2 id="6-preset-registry">6. preset registry</h2>
+  <h3 id="61-安定-id">6.1 安定 ID</h3>
+  <p>provider が公開する preset ID は次の 3 つとする。</p>
+  <ul>
+    <li><code>quick</code></li>
+    <li><code>standard</code></li>
+    <li><code>deep</code></li>
+  </ul>
+  <p>
+    NightWorkers の <code>custom</code> は UI mode であり、provider preset
+    として登録しない。
+  </p>
+  <h3 id="62-初期-mapping">6.2 初期 mapping</h3>
+  <p>初期 mapping は次を推奨する。</p>
+  <table>
+    <caption>
+      6.2 初期 mapping
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">preset</th>
+        <th scope="col"><code>working_tree</code></th>
+        <th scope="col"><code>full</code></th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>quick</code></td>
+        <td><code>diff-source-baseline</code></td>
+        <td><code>source-baseline</code></td>
+      </tr>
+      <tr>
+        <td><code>standard</code></td>
+        <td><code>diff-basic-security</code>（新規）</td>
+        <td><code>basic-security</code></td>
+      </tr>
+      <tr>
+        <td><code>deep</code></td>
+        <td>未対応</td>
+        <td><code>detailed-security</code></td>
+      </tr>
+    </tbody>
+  </table>
+  <p>理由:</p>
+  <ul>
+    <li>current change は diff target 対応済み profile を利用する。</li>
+    <li>
+      <code>diff-basic-security</code> は
+      <code>diff-source-baseline</code> と同じ tool 種別を基本にしつつ、 OSV / Trivy も
+      required とする standard 用 profile として追加する。timeout は 900 秒、 target は commit /
+      range / working_tree を許可する。
+    </li>
+    <li>
+      standard/full は
+      <code>basic-security</code> で日常的な静的、secret、依存関係、filesystem
+      検査を行う。
+    </li>
+    <li>
+      deep/full は <code>detailed-security</code> を使い、runtime / DAST
+      前提を暗黙に持ち込まない。
+    </li>
+    <li>
+      <code>full-security-scan</code> は DAST、ZAP、Nuclei、Schemathesis 等の runtime
+      条件を伴うため、 MVP の deep へ自動 mapping しない。
+    </li>
+  </ul>
+  <p>
+    <code>full-security-scan</code> は custom profile として capability
+    が満たされる場合だけ選択可能にする。 将来、runtime target と environment readiness
+    を契約化した時点で deep の別 variant を検討する。
+  </p>
+  <h3 id="63-registry-schema">6.3 registry schema</h3>
+  <pre><code class="language-ts">type IntegrationScanPreset = {
+	id: "quick" | "standard" | "deep";
+	displayName: string;
+	description: string;
+	recommended: boolean;
+	targets: Array&lt;{
+		kind: "working_tree" | "full";
+		profileRef: string;
+		estimatedDurationSeconds: {
+			min: number;
+			max: number;
+		};
+		toolCategories: string[];
+		warnings: string[];
+	}&gt;;
+};
+</code></pre>
+  <p>
+    registry は version control 下の code / data とし、route 内へ分散した if 文にしない。 profile
+    registry に対する参照整合性 test を追加する。
+  </p>
+  <p>
+    表示文言を NightWorkers 側で固定し過ぎないよう display name、description、warning を返すが、
+    stable semantic ID は英字 enum とする。
+  </p>
+  <h3 id="64-selectable-custom-profiles">6.4 selectable custom profiles</h3>
+  <p>capabilities は integration policy で許可された profile だけを返す。</p>
+  <ul>
+    <li>internal / experimental profile は既定で非公開</li>
+    <li>target kind が非対応の profile は selector から除外または disabled reason を返す</li>
+    <li>runtime precondition を <code>requirements</code> として返す</li>
+    <li>profileRef は opaque string として扱わせる</li>
+    <li>NightWorkers request で渡された profileRef は allowlist に再照合する</li>
+  </ul>
+  <h2 id="7-integration-authentication">7. integration authentication</h2>
+  <h3 id="71-integration_clients">7.1 <code>integration_clients</code></h3>
+  <p>service credential は新規 table で管理する。</p>
+  <table>
+    <caption>
+      7.1 integration_clients
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">column</th>
+        <th scope="col">意味</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>id</code></td>
+        <td>integration client UUID</td>
+      </tr>
+      <tr>
+        <td><code>name</code></td>
+        <td>operator-facing name</td>
+      </tr>
+      <tr>
+        <td><code>owner_user_id</code></td>
+        <td>vulnWorkbench project owner と照合する user</td>
+      </tr>
+      <tr>
+        <td><code>token_prefix</code></td>
+        <td>operator 識別用の非秘密 prefix</td>
+      </tr>
+      <tr>
+        <td><code>token_hash</code></td>
+        <td>強い one-way hash</td>
+      </tr>
+      <tr>
+        <td><code>scopes_json</code></td>
+        <td>granted scopes</td>
+      </tr>
+      <tr>
+        <td><code>allowed_roots_json</code></td>
+        <td>optional client-specific root 制約</td>
+      </tr>
+      <tr>
+        <td><code>rate_limit_policy_json</code></td>
+        <td>bounded policy</td>
+      </tr>
+      <tr>
+        <td><code>active</code></td>
+        <td>revoke 状態</td>
+      </tr>
+      <tr>
+        <td><code>expires_at</code></td>
+        <td>optional expiry</td>
+      </tr>
+      <tr>
+        <td><code>last_used_at</code></td>
+        <td>audit</td>
+      </tr>
+      <tr>
+        <td>
+          <code>created_at</code> /
+          <code>updated_at</code>
+        </td>
+        <td>timestamp</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>推奨 scope:</p>
+  <ul>
+    <li><code>nightworkers:security-scan:read</code></li>
+    <li><code>nightworkers:security-scan:write</code></li>
+    <li><code>nightworkers:security-report:read</code></li>
+    <li><code>nightworkers:security-report:write</code></li>
+  </ul>
+  <p>read/write を分離し、report scope を scan scope から分離する。</p>
+  <h3 id="72-token-発行">7.2 token 発行</h3>
+  <p>CLI を追加する。</p>
+  <pre><code class="language-text">bun run api/cli/integration-client.ts create \
+  --name nightworkers-local \
+  --owner-user &lt;user-id&gt; \
+  --scope nightworkers:security-scan:read \
+  --scope nightworkers:security-scan:write \
+  --scope nightworkers:security-report:read \
+  --scope nightworkers:security-report:write
+</code></pre>
+  <ul>
+    <li>plaintext token は作成時に一度だけ表示する。</li>
+    <li>DB には hash だけ保存する。</li>
+    <li>list は prefix、scope、active、last used のみ表示する。</li>
+    <li>revoke / rotate を提供する。</li>
+    <li>CLI output と shell history への扱いを runbook に記載する。</li>
+    <li>NightWorkers は plaintext を OS secret store に保存する。</li>
+  </ul>
+  <h3 id="73-middleware">7.3 middleware</h3>
+  <p>integration route 専用 middleware は次を行う。</p>
+  <ol>
+    <li>bearer token parse</li>
+    <li>constant-time 相当の token hash verify</li>
+    <li>active / expiry verify</li>
+    <li>operation scope verify</li>
+    <li>rate limit</li>
+    <li>request ID</li>
+    <li>audit context</li>
+  </ol>
+  <p>既存 user cookie/JWT を service credential の代替にしない。</p>
+  <p>
+    global CSRF middleware は integration bearer route だけを明示的に除外する。 除外は path prefix
+    だけでなく、integration authentication が成立した route group に限定する。 通常の user-facing
+    <code>/api/*</code> の CSRF を弱めない。
+  </p>
+  <h2 id="8-project-path-と-owner-authorization">8. project path と owner authorization</h2>
+  <p>NightWorkers は登録 Repository の canonical path を送るが、provider 側でも検証する。</p>
+  <ol>
+    <li>
+      request の <code>projectPath</code> が absolute であることを検証する。
+    </li>
+    <li>filesystem の canonical path を取得する。</li>
+    <li>client-specific allowed roots が設定されている場合だけ、その scope を検証する。</li>
+    <li>
+      symlink / <code>..</code> による越境を canonical path
+      比較で拒否する。
+    </li>
+    <li>owner user が path に対応する vulnWorkbench project を利用可能か確認する。</li>
+    <li>既存 project がなければ integration policy に従って作成する。</li>
+  </ol>
+  <p>MVP の推奨 policy は次の通り。</p>
+  <ul>
+    <li>existing project があれば再利用</li>
+    <li>client owner と project owner が一致しなければ拒否</li>
+    <li>自動作成は明示 config が有効な場合だけ許可</li>
+    <li>
+      自動作成時も client-specific allowed roots（設定時）、real path、repository metadata を検証
+    </li>
+    <li>path だけで別 owner の project を横取りしない</li>
+  </ul>
+  <p>
+    request path を log / metric label に平文で残さない。必要なら hash または basename を用いる。
+  </p>
+  <h3 id="81-integration-resource-binding">8.1 integration resource binding</h3>
+  <p>
+    scan start 時に、scan run と integration client の構造的 provenance を保存する。 既存 scan row
+    に integration 固有 column を散らさない場合は、次の binding table を追加する。
+  </p>
+  <table>
+    <caption>
+      8.1 integration resource binding
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">column</th>
+        <th scope="col">意味</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>integration_client_id</code></td>
+        <td>resource を作成した client</td>
+      </tr>
+      <tr>
+        <td><code>resource_type</code></td>
+        <td>
+          <code>scan_run</code> /
+          <code>scan_report</code>
+        </td>
+      </tr>
+      <tr>
+        <td><code>resource_id</code></td>
+        <td>provider internal FK</td>
+      </tr>
+      <tr>
+        <td><code>project_id</code></td>
+        <td>解決済み project FK</td>
+      </tr>
+      <tr>
+        <td><code>owner_user_id</code></td>
+        <td>start 時に確定した owner</td>
+      </tr>
+      <tr>
+        <td><code>created_at</code></td>
+        <td>timestamp</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>unique:</p>
+  <pre><code class="language-text">(resource_type, resource_id)
+</code></pre>
+  <p>
+    run detail、events、cancel、findings、report の全 endpoint は、opaque ref の存在だけでなく
+    current integration client と resource binding の一致を検証する。別 client が同じ owner を
+    指していても、MVP では他 client が作成した resource を読めない。credential rotation は 同じ
+    integration client ID の token を更新するため、既存 binding を維持する。
+  </p>
+  <h2 id="9-versioned-api">9. versioned API</h2>
+  <p>base path:</p>
+  <pre><code class="language-text">/api/integrations/nightworkers/v1
+</code></pre>
+  <p>全 response envelope:</p>
+  <pre><code class="language-ts">type IntegrationEnvelope&lt;T&gt; = {
+	contractVersion: 1;
+	requestId: string;
+	data: T;
+};
+</code></pre>
+  <p>全 error envelope:</p>
+  <pre><code class="language-ts">type IntegrationErrorEnvelope = {
+	contractVersion: 1;
+	requestId: string;
+	error: {
+		code: string;
+		message: string;
+		retryable: boolean;
+		details?: Record&lt;string, unknown&gt;;
+	};
+};
+</code></pre>
+  <p>
+    <code>details</code> は allowlisted field に限定し、absolute
+    path、token、source、finding evidence、 tool stdout/stderr を含めない。
+  </p>
+  <h3 id="91-endpoint-一覧">9.1 endpoint 一覧</h3>
+  <table>
+    <caption>
+      9.1 endpoint 一覧
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Method</th>
+        <th scope="col">Path</th>
+        <th scope="col">scope</th>
+        <th scope="col">用途</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>POST</code></td>
+        <td><code>/capabilities</code></td>
+        <td><code>nightworkers:security-scan:read</code></td>
+        <td>path に対する preset / profile / target 能力</td>
+      </tr>
+      <tr>
+        <td><code>POST</code></td>
+        <td><code>/scans/preview</code></td>
+        <td><code>nightworkers:security-scan:read</code></td>
+        <td>target digest、profile 解決、warning</td>
+      </tr>
+      <tr>
+        <td><code>POST</code></td>
+        <td><code>/scans</code></td>
+        <td><code>nightworkers:security-scan:write</code></td>
+        <td>idempotent scan start</td>
+      </tr>
+      <tr>
+        <td><code>GET</code></td>
+        <td><code>/scans/:scanRunRef</code></td>
+        <td><code>nightworkers:security-scan:read</code></td>
+        <td>run status / summary</td>
+      </tr>
+      <tr>
+        <td><code>GET</code></td>
+        <td><code>/scans/:scanRunRef/events</code></td>
+        <td><code>nightworkers:security-scan:read</code></td>
+        <td>sequence pagination</td>
+      </tr>
+      <tr>
+        <td><code>POST</code></td>
+        <td><code>/scans/:scanRunRef/cancel</code></td>
+        <td><code>nightworkers:security-scan:write</code></td>
+        <td>cancel</td>
+      </tr>
+      <tr>
+        <td><code>GET</code></td>
+        <td><code>/scans/:scanRunRef/findings</code></td>
+        <td><code>nightworkers:security-scan:read</code></td>
+        <td>finding pagination / filter</td>
+      </tr>
+      <tr>
+        <td><code>GET</code></td>
+        <td><code>/scans/:scanRunRef/reports</code></td>
+        <td><code>nightworkers:security-report:read</code></td>
+        <td>report list</td>
+      </tr>
+      <tr>
+        <td><code>POST</code></td>
+        <td><code>/scans/:scanRunRef/reports</code></td>
+        <td><code>nightworkers:security-report:write</code></td>
+        <td>async report start</td>
+      </tr>
+      <tr>
+        <td><code>GET</code></td>
+        <td><code>/scans/:scanRunRef/reports/:reportRef</code></td>
+        <td><code>nightworkers:security-report:read</code></td>
+        <td>metadata</td>
+      </tr>
+      <tr>
+        <td><code>GET</code></td>
+        <td><code>/scans/:scanRunRef/reports/:reportRef/content</code></td>
+        <td><code>nightworkers:security-report:read</code></td>
+        <td>Markdown content</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    NightWorkers が開始した scan 履歴の正本は NightWorkers の binding から辿れるため、 project path
+    全 scan の list endpoint は MVP 必須にしない。将来追加する場合は、 別 client が開始した scan
+    の可視性と owner policy を先に定義する。
+  </p>
+  <h3 id="92-capabilities">9.2 capabilities</h3>
+  <p>request:</p>
+  <pre><code class="language-json">{
+  "projectPath": "/canonical/repository/path"
+}
+</code></pre>
+  <p>response data:</p>
+  <pre><code class="language-ts">type Capabilities = {
+	provider: { id: "vulnworkbench"; version: string };
+	project: { ref: string; displayName: string };
+	presets: IntegrationScanPreset[];
+	selectableProfiles: Array&lt;{
+		ref: string;
+		name: string;
+		description: string;
+		supportedTargets: Array&lt;"working_tree" | "full"&gt;;
+		requirements: string[];
+		warnings: string[];
+	}&gt;;
+	limits: {
+		maxConcurrentScansForClient: number;
+		maxFindingPageSize: number;
+		maxEventPageSize: number;
+		maxReportBytes: number;
+	};
+};
+</code></pre>
+  <h3 id="93-preview">9.3 preview</h3>
+  <p>request:</p>
+  <pre><code class="language-ts">type PreviewRequest = {
+	projectPath: string;
+	selection:
+		| { mode: "preset"; presetId: "quick" | "standard" | "deep" }
+		| { mode: "custom"; profileRef: string };
+	target: { kind: "working_tree" | "full" };
+};
+</code></pre>
+  <p>response data:</p>
+  <pre><code class="language-ts">type PreviewResponse = {
+	previewRef: string;
+	resolvedProfileRef: string;
+	target: {
+		kind: "working_tree" | "full";
+		digest: string;
+		sourceRevision: string | null;
+		fileCount: number | null;
+	};
+	estimatedDurationSeconds: { min: number; max: number };
+	toolSteps: Array&lt;{
+		id: string;
+		name: string;
+		category: string;
+		required: boolean;
+		availability: "available" | "unavailable" | "conditional";
+		reason?: string;
+	}&gt;;
+	warnings: string[];
+	expiresAt: string;
+};
+</code></pre>
+  <p>preview は side-effect free とし、scan row や project artifact を作らない。</p>
+  <h3 id="94-scan-start">9.4 scan start</h3>
+  <p>header:</p>
+  <pre><code class="language-text">Idempotency-Key: &lt;uuid&gt;
+</code></pre>
+  <p>request:</p>
+  <pre><code class="language-ts">type StartScanRequest = {
+	projectPath: string;
+	selection:
+		| { mode: "preset"; presetId: "quick" | "standard" | "deep" }
+		| { mode: "custom"; profileRef: string };
+	target: { kind: "working_tree" | "full" };
+	previewRef: string;
+	expectedTargetDigest: string;
+};
+</code></pre>
+  <p>response:</p>
+  <ul>
+    <li><code>202 Accepted</code></li>
+    <li>既存 idempotent result の replay は同じ run ref を返す。</li>
+  </ul>
+  <pre><code class="language-ts">type StartScanResponse = {
+	scanRunRef: string;
+	status: "queued" | "running" | "completed" | "failed" | "cancelled";
+	resolvedProfileRef: string;
+	target: {
+		kind: "working_tree" | "full";
+		digest: string;
+		sourceRevision: string | null;
+	};
+	createdAt: string;
+	replayed: boolean;
+};
+</code></pre>
+  <p>
+    preview の expiry、project、selection、target digest が start 時に一致することを検証する。
+    不一致は <code>target_digest_mismatch</code> または
+    <code>preview_expired</code> とし、scan を作らない。
+  </p>
+  <h3 id="95-run-detail">9.5 run detail</h3>
+  <pre><code class="language-ts">type ScanRunDetail = {
+	scanRunRef: string;
+	status: "queued" | "running" | "completed" | "failed" | "cancelled";
+	outcome:
+		| "findings_present"
+		| "no_findings"
+		| "inconclusive"
+		| "unavailable"
+		| null;
+	presetId: "quick" | "standard" | "deep" | null;
+	profileRef: string;
+	target: {
+		kind: "working_tree" | "full";
+		digest: string;
+		sourceRevision: string | null;
+	};
+	progress: {
+		completedSteps: number;
+		totalSteps: number;
+		currentStep: string | null;
+	};
+	summary: {
+		findingCount: number;
+		severityCounts: {
+			critical: number;
+			high: number;
+			medium: number;
+			low: number;
+			info: number;
+			unknown: number;
+		};
+		coverage: {
+			completed: number;
+			skipped: number;
+			failed: number;
+			gaps: Array&lt;{ code: string; message: string }&gt;;
+		};
+	} | null;
+	lastEventSeq: number;
+	createdAt: string;
+	startedAt: string | null;
+	completedAt: string | null;
+	error: {
+		code: string;
+		message: string;
+		retryable: boolean;
+	} | null;
+};
+</code></pre>
+  <p>
+    <code>no_findings</code> は全 required step
+    が十分に完了した場合でも「安全」を意味しない。 required step failure / skip があれば、finding 0
+    件でも <code>inconclusive</code> を優先する。
+  </p>
+  <h3 id="96-events">9.6 events</h3>
+  <pre><code class="language-text">GET .../events?afterSeq=42&amp;limit=100
+</code></pre>
+  <pre><code class="language-ts">type ScanEventPage = {
+	items: Array&lt;{
+		seq: number;
+		level: "debug" | "info" | "warning" | "error";
+		type: string;
+		message: string;
+		stepRef: string | null;
+		createdAt: string;
+	}&gt;;
+	nextAfterSeq: number;
+	hasMore: boolean;
+};
+</code></pre>
+  <ul>
+    <li><code>seq</code> は scan run 内で 1 から単調増加する。</li>
+    <li>同じ run 内で unique。</li>
+    <li>page は <code>seq ASC</code>。</li>
+    <li><code>afterSeq</code> は exclusive。</li>
+    <li>message / data は integration-safe projection にし、raw stdout/stderr を返さない。</li>
+  </ul>
+  <h3 id="97-findings">9.7 findings</h3>
+  <pre><code class="language-text">GET .../findings?cursor=...&amp;limit=100&amp;severity=high&amp;tool=semgrep
+</code></pre>
+  <pre><code class="language-ts">type FindingPage = {
+	items: Array&lt;{
+		ref: string;
+		severity:
+			| "critical"
+			| "high"
+			| "medium"
+			| "low"
+			| "info"
+			| "unknown";
+		title: string;
+		category: string | null;
+		tool: string;
+		ruleId: string | null;
+		location: {
+			path: string | null;
+			startLine: number | null;
+			endLine: number | null;
+		};
+		description: string | null;
+		evidence: string | null;
+		recommendation: string | null;
+		references: string[];
+	}&gt;;
+	nextCursor: string | null;
+};
+</code></pre>
+  <ul>
+    <li>cursor は opaque かつ tamper-evident にする。</li>
+    <li>page size に上限を設ける。</li>
+    <li>absolute path は repository-relative path に変換する。</li>
+    <li>raw secret finding の evidence は redact policy を通す。</li>
+    <li>references は safe URL scheme だけを返す。</li>
+  </ul>
+  <h3 id="98-cancel">9.8 cancel</h3>
+  <ul>
+    <li>terminal scan への cancel は current run detail を idempotent に返す。</li>
+    <li>queued は queue から除去し <code>cancelled</code> にする。</li>
+    <li>running は supervisor に signal し、runner が確定した terminal state を保存する。</li>
+    <li>cancel と completion の競合時は repository の monotonic transition を用いる。</li>
+  </ul>
+  <h3 id="99-report">9.9 report</h3>
+  <p>start request:</p>
+  <pre><code class="language-ts">type StartReportRequest = {
+	summaryMode: "deterministic_with_llm_summary";
+};
+</code></pre>
+  <p>
+    header に <code>Idempotency-Key</code> を必須とし、<code>202</code>
+    で直ちに返す。
+  </p>
+  <p>report metadata:</p>
+  <pre><code class="language-ts">type ReportDetail = {
+	reportRef: string;
+	scanRunRef: string;
+	status: "queued" | "running" | "completed" | "failed";
+	summaryMode: "deterministic_with_llm_summary";
+	title: string | null;
+	llm: {
+		provider: string;
+		model: string;
+	} | null;
+	createdAt: string;
+	startedAt: string | null;
+	completedAt: string | null;
+	content: {
+		mediaType: "text/markdown";
+		byteLength: number;
+		sha256: string;
+	} | null;
+	error: {
+		code: string;
+		message: string;
+		retryable: boolean;
+	} | null;
+};
+</code></pre>
+  <p>content endpoint:</p>
+  <ul>
+    <li>completed report だけ取得可能</li>
+    <li><code>Content-Type: text/markdown; charset=utf-8</code></li>
+    <li><code>Content-Disposition</code> の filename を sanitize</li>
+    <li>configured maximum bytes を超える場合は structured error</li>
+    <li>content hash を metadata と照合可能</li>
+  </ul>
+  <h2 id="10-idempotency">10. idempotency</h2>
+  <h3 id="101-永続化">10.1 永続化</h3>
+  <p>
+    <code>integration_idempotency_keys</code> を追加するか、scan / report row に client と key
+    を保存する。 正本として最低限次を持つ。
+  </p>
+  <table>
+    <caption>
+      10.1 永続化
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">column</th>
+        <th scope="col">意味</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>integration_client_id</code></td>
+        <td>credential owner</td>
+      </tr>
+      <tr>
+        <td><code>operation</code></td>
+        <td>scan_start / report_start</td>
+      </tr>
+      <tr>
+        <td><code>idempotency_key</code></td>
+        <td>UUID</td>
+      </tr>
+      <tr>
+        <td><code>request_hash</code></td>
+        <td>canonical request hash</td>
+      </tr>
+      <tr>
+        <td><code>resource_type</code></td>
+        <td>scan / report</td>
+      </tr>
+      <tr>
+        <td><code>resource_id</code></td>
+        <td>provider internal ID</td>
+      </tr>
+      <tr>
+        <td>
+          <code>created_at</code> /
+          <code>expires_at</code>
+        </td>
+        <td>retention</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>unique:</p>
+  <pre><code class="language-text">(integration_client_id, operation, idempotency_key)
+</code></pre>
+  <h3 id="102-規則">10.2 規則</h3>
+  <ul>
+    <li>同一 key、同一 canonical request は同じ resource を返す。</li>
+    <li>同一 key、異なる request hash は <code>idempotency_conflict</code>。</li>
+    <li>
+      HTTP response を送る前に idempotency row と resource 作成を同一 transaction で確定する。
+    </li>
+    <li>process crash 後も replay できる。</li>
+    <li>retention 中の row を cleanup しても、active resource の key は削除しない。</li>
+    <li>token rotation 後も同一 integration client ID なら replay 可能にする。</li>
+  </ul>
+  <h2 id="11-event-sequence-migration">11. event sequence migration</h2>
+  <h3 id="111-schema">11.1 schema</h3>
+  <p>
+    <code>scan_events</code> に
+    <code>seq</code> を追加する。
+  </p>
+  <ul>
+    <li>type: non-negative integer / bigint</li>
+    <li>unique: <code>(scan_run_id, seq)</code></li>
+    <li>index: <code>(scan_run_id, seq)</code></li>
+    <li>list ordering: <code>seq ASC</code></li>
+  </ul>
+  <p>
+    既存 row の backfill は scan ごとに deterministic order
+    <code>created_at ASC, id ASC</code> で 1 から採番する。
+  </p>
+  <h3 id="112-append">11.2 append</h3>
+  <p>event repository は transaction 内で次 sequence を割り当てる。</p>
+  <p>推奨:</p>
+  <ul>
+    <li>scan run row に <code>last_event_seq</code> を保持</li>
+    <li>row lock または DB の atomic increment</li>
+    <li>increment 結果を event insert に使う</li>
+  </ul>
+  <p><code>MAX(seq) + 1</code> の非同期 race に依存しない。</p>
+  <h3 id="113-compatibility">11.3 compatibility</h3>
+  <ul>
+    <li>
+      既存 user-facing event response は必要に応じて
+      <code>seq</code> を追加して backward compatible にする。
+    </li>
+    <li>migration 完了前は provider route を有効化しない。</li>
+    <li>duplicate / gap detection test を追加する。</li>
+  </ul>
+  <h2 id="12-async-report-runner">12. async report runner</h2>
+  <h3 id="121-lifecycle">12.1 lifecycle</h3>
+  <pre><code class="language-text">route
+  -&gt; validate scan / scope / idempotency
+  -&gt; create queued report
+  -&gt; enqueue
+  -&gt; 202
+
+ScanReportRunner
+  -&gt; claim queued report
+  -&gt; running
+  -&gt; build deterministic report
+  -&gt; optional LLM summary
+  -&gt; store content / metadata
+  -&gt; completed | failed
+</code></pre>
+  <h3 id="122-recovery">12.2 recovery</h3>
+  <ul>
+    <li>startup 時に stale <code>running</code> report を検出する。</li>
+    <li>retry-safe な段階なら queued に戻す。</li>
+    <li>external LLM call の完了有無が不明なら、request id / provider idempotency を利用する。</li>
+    <li>
+      安全に再開できない場合は <code>report_interrupted</code> で failed
+      にし、本文や元の provider response を 失わない。
+    </li>
+    <li>retryable な一時障害だけ bounded retry する。</li>
+    <li>shutdown で新規 claim を止め、実行中 job に bounded grace period を与える。</li>
+  </ul>
+  <h3 id="123-concurrency">12.3 concurrency</h3>
+  <ul>
+    <li>scan process と report generation の concurrency pool を分ける。</li>
+    <li>integration client / owner / global の上限を設ける。</li>
+    <li>queue position の厳密値を保証しない場合、API に虚偽の position を返さない。</li>
+  </ul>
+  <h2 id="13-security-outcome-と-coverage">13. security outcome と coverage</h2>
+  <p>provider が outcome を決定する。</p>
+  <table>
+    <caption>
+      13. security outcome と coverage
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">条件</th>
+        <th scope="col">outcome</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>required coverage が満たされ finding &gt; 0</td>
+        <td><code>findings_present</code></td>
+      </tr>
+      <tr>
+        <td>required coverage が満たされ finding = 0</td>
+        <td><code>no_findings</code></td>
+      </tr>
+      <tr>
+        <td>required tool failure / timeout / significant skip</td>
+        <td><code>inconclusive</code></td>
+      </tr>
+      <tr>
+        <td>result を復元・参照できない</td>
+        <td><code>unavailable</code></td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    execution <code>failed</code> と outcome
+    <code>inconclusive</code> は同義ではない。 一部 tool が失敗しても scan
+    lifecycle が <code>completed</code> となる設計なら、outcome
+    で不完全性を示す。
+  </p>
+  <p>coverage gap code は機械判定可能な安定値にする。</p>
+  <ul>
+    <li><code>tool_unavailable</code></li>
+    <li><code>tool_failed</code></li>
+    <li><code>tool_timed_out</code></li>
+    <li><code>target_unsupported</code></li>
+    <li><code>runtime_not_configured</code></li>
+    <li><code>result_incomplete</code></li>
+  </ul>
+  <p>人向け message だけを解析させない。</p>
+  <h2 id="14-schema-と-module-boundary">14. schema と module boundary</h2>
+  <p>canonical wire schema:</p>
+  <pre><code class="language-text">shared/schemas/nightworkers-security-scan-integration.schema.ts
+</code></pre>
+  <p>想定 module:</p>
+  <pre><code class="language-text">api/modules/integrations/nightworkers/
+  index.ts
+  nightworkers-integration.routes.ts
+  nightworkers-integration.service.ts
+  nightworkers-integration.schemas.ts
+  nightworkers-integration.errors.ts
+  nightworkers-integration-auth.middleware.ts
+  nightworkers-integration-project-resolver.ts
+  nightworkers-scan-preset-registry.ts
+  nightworkers-integration-projection.ts
+
+api/modules/integrationClients/
+  integration-client.repository.ts
+  integration-client.service.ts
+  integration-client-token.ts
+
+api/modules/reports/
+  scan-report-runner.ts
+</code></pre>
+  <p>
+    既存 scan / finding / report repository の内部 row を route から直接返さない。 integration
+    projection を通し、field allowlist、redaction、relative path 化を行う。
+  </p>
+  <p>
+    NightWorkers repository から runtime import しない。schema fixture は release artifact または
+    copy とし、contract version と fixture hash で互換性を検証する。
+  </p>
+  <h2 id="15-structured-error">15. structured error</h2>
+  <p>最低限次を安定 code とする。</p>
+  <table>
+    <caption>
+      15. structured error
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">code</th>
+        <th scope="col">HTTP</th>
+        <th scope="col">retryable</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>integration_unauthorized</code></td>
+        <td>401</td>
+        <td>false</td>
+      </tr>
+      <tr>
+        <td><code>integration_scope_denied</code></td>
+        <td>403</td>
+        <td>false</td>
+      </tr>
+      <tr>
+        <td><code>project_path_denied</code></td>
+        <td>403</td>
+        <td>false</td>
+      </tr>
+      <tr>
+        <td><code>project_not_found</code></td>
+        <td>404</td>
+        <td>false</td>
+      </tr>
+      <tr>
+        <td><code>project_owner_mismatch</code></td>
+        <td>403</td>
+        <td>false</td>
+      </tr>
+      <tr>
+        <td><code>preset_not_found</code></td>
+        <td>422</td>
+        <td>false</td>
+      </tr>
+      <tr>
+        <td><code>profile_not_allowed</code></td>
+        <td>422</td>
+        <td>false</td>
+      </tr>
+      <tr>
+        <td><code>target_not_supported</code></td>
+        <td>422</td>
+        <td>false</td>
+      </tr>
+      <tr>
+        <td><code>preview_expired</code></td>
+        <td>409</td>
+        <td>true</td>
+      </tr>
+      <tr>
+        <td><code>target_digest_mismatch</code></td>
+        <td>409</td>
+        <td>true</td>
+      </tr>
+      <tr>
+        <td><code>idempotency_conflict</code></td>
+        <td>409</td>
+        <td>false</td>
+      </tr>
+      <tr>
+        <td><code>scan_capacity_exceeded</code></td>
+        <td>429</td>
+        <td>true</td>
+      </tr>
+      <tr>
+        <td><code>scan_not_found</code></td>
+        <td>404</td>
+        <td>false</td>
+      </tr>
+      <tr>
+        <td><code>scan_not_reportable</code></td>
+        <td>422</td>
+        <td>false</td>
+      </tr>
+      <tr>
+        <td><code>report_too_large</code></td>
+        <td>413</td>
+        <td>false</td>
+      </tr>
+      <tr>
+        <td><code>provider_temporarily_unavailable</code></td>
+        <td>503</td>
+        <td>true</td>
+      </tr>
+      <tr>
+        <td><code>internal_error</code></td>
+        <td>500</td>
+        <td>depends</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>予期しない error の stack、SQL、path、tool output を response に含めない。</p>
+  <h2 id="16-audit-と-observability">16. audit と observability</h2>
+  <h3 id="161-audit">16.1 audit</h3>
+  <p>side effect operation で次を残す。</p>
+  <ul>
+    <li>timestamp</li>
+    <li>integration client ID</li>
+    <li>owner user ID</li>
+    <li>scope</li>
+    <li>operation</li>
+    <li>request ID</li>
+    <li>project ref</li>
+    <li>path hash</li>
+    <li>idempotency key hash</li>
+    <li>resource ref</li>
+    <li>outcome / error code</li>
+  </ul>
+  <p>token、source、finding evidence、report Markdown は残さない。</p>
+  <h3 id="162-metrics">16.2 metrics</h3>
+  <ul>
+    <li>integration request count / latency / status</li>
+    <li>auth / scope denial</li>
+    <li>path policy denial</li>
+    <li>idempotency replay / conflict</li>
+    <li>scan queue / running / duration</li>
+    <li>event append / duplicate failure</li>
+    <li>finding page latency / size</li>
+    <li>report queue / duration / retry / failure</li>
+    <li>rate / concurrency rejection</li>
+  </ul>
+  <p>
+    client name、profile、target kind 程度の bounded dimension に限定する。 project path や
+    arbitrary error message を label にしない。
+  </p>
+  <h2 id="17-実装ゲート">17. 実装ゲート</h2>
+  <h3 id="v0-contract-と-fixture">V0. contract と fixture</h3>
+  <ul>
+    <li>v1 schema、enum、error、example fixture を追加する。</li>
+    <li>NightWorkers companion plan と mapping を review する。</li>
+    <li>integration routes feature flag を追加する。</li>
+  </ul>
+  <p>完了条件:</p>
+  <ul>
+    <li>schema parse test がある。</li>
+    <li>success / error / unknown enum / large payload fixture がある。</li>
+    <li>feature off で既存 API が変わらない。</li>
+  </ul>
+  <h3 id="v1-integration-credential">V1. integration credential</h3>
+  <ul>
+    <li>table / migration、hash、scope、expiry、revoke を実装する。</li>
+    <li>create / list / revoke / rotate CLI を実装する。</li>
+    <li>dedicated auth middleware と audit context を実装する。</li>
+  </ul>
+  <p>完了条件:</p>
+  <ul>
+    <li>plaintext token は作成時以外に取得できない。</li>
+    <li>scope 不足を route ごとに拒否する。</li>
+    <li>通常 user API の CSRF / auth が弱まらない。</li>
+  </ul>
+  <h3 id="v2-project-resolver-と-capability">V2. project resolver と capability</h3>
+  <ul>
+    <li>client-specific allowed roots / realpath / owner resolver を実装する。</li>
+    <li>preset registry と custom profile allowlist を実装する。</li>
+    <li>
+      standard + working_tree 用の <code>diff-basic-security</code> profile と profile
+      test を追加する。
+    </li>
+    <li>capabilities route を実装する。</li>
+  </ul>
+  <p>完了条件:</p>
+  <ul>
+    <li>
+      symlink、<code>..</code>、別 owner、root prefix collision
+      を拒否する。
+    </li>
+    <li>registry の全 profile ref が存在する。</li>
+    <li>
+      <code>diff-basic-security</code> が OSV / Trivy を required とし、diff target
+      だけを受け付ける。
+    </li>
+    <li>deep + working_tree を unsupported として返す。</li>
+  </ul>
+  <h3 id="v3-preview-と-idempotent-scan-start">V3. preview と idempotent scan start</h3>
+  <ul>
+    <li>side-effect-free preview、digest、expiry を実装する。</li>
+    <li>integration idempotency persistence を実装する。</li>
+    <li>existing scan application service を経由して start する。</li>
+  </ul>
+  <p>完了条件:</p>
+  <ul>
+    <li>preview は scan / artifact row を作らない。</li>
+    <li>digest mismatch 時に scan を作らない。</li>
+    <li>concurrent duplicate request が一つの scan になる。</li>
+  </ul>
+  <h3 id="v4-run-projectionevent-sequencecancel">V4. run projection、event sequence、cancel</h3>
+  <ul>
+    <li>run detail projection を実装する。</li>
+    <li>event sequence migration / append / pagination を実装する。</li>
+    <li>integration-safe event projection を実装する。</li>
+    <li>idempotent cancel を実装する。</li>
+  </ul>
+  <p>完了条件:</p>
+  <ul>
+    <li>event に duplicate sequence と polling gap がない。</li>
+    <li>raw stdout/stderr を integration response に返さない。</li>
+    <li>cancel / completion race が terminal state を巻き戻さない。</li>
+  </ul>
+  <h3 id="v5-findings-と-outcome">V5. findings と outcome</h3>
+  <ul>
+    <li>outcome / coverage policy を実装する。</li>
+    <li>cursor-paginated finding projection と filter を実装する。</li>
+    <li>relative path / secret evidence / URL sanitization を実装する。</li>
+  </ul>
+  <p>完了条件:</p>
+  <ul>
+    <li>0 finding + tool failure が <code>no_findings</code> にならない。</li>
+    <li>large result を bounded page で取得できる。</li>
+    <li>cursor 改ざんを拒否する。</li>
+  </ul>
+  <h3 id="v6-async-report">V6. async report</h3>
+  <ul>
+    <li><code>ScanReportRunner</code>、queue、claim、recovery を実装する。</li>
+    <li>report idempotency を実装する。</li>
+    <li>metadata / content route を実装する。</li>
+    <li>summary mode を <code>deterministic_with_llm_summary</code> に閉じる。</li>
+  </ul>
+  <p>完了条件:</p>
+  <ul>
+    <li>report start が LLM 完了を待たず <code>202</code> を返す。</li>
+    <li>restart 後に running report が recovery policy に従う。</li>
+    <li>content hash / byte length が一致する。</li>
+  </ul>
+  <h3 id="v7-hardening">V7. hardening</h3>
+  <ul>
+    <li>rate / concurrency limit</li>
+    <li>request / response size limit</li>
+    <li>audit / metrics</li>
+    <li>load / security / failure injection test</li>
+    <li>runbook</li>
+  </ul>
+  <p>完了条件:</p>
+  <ul>
+    <li>slow consumer、provider restart、LLM timeout で resource leak がない。</li>
+    <li>token revoke が新規 request に即時反映される。</li>
+  </ul>
+  <h3 id="v8-canary-と公開">V8. canary と公開</h3>
+  <ul>
+    <li>local NightWorkers client を作成する。</li>
+    <li>internal project で quick / standard を canary する。</li>
+    <li>deep / custom、report を段階的に有効化する。</li>
+    <li>compatibility matrix を release notes に記載する。</li>
+  </ul>
+  <p>完了条件:</p>
+  <ul>
+    <li>duplicate scan、event lag、report failure、resource usage が許容範囲。</li>
+    <li>rollback / credential revoke drill を完了する。</li>
+  </ul>
+  <h2 id="18-検証計画">18. 検証計画</h2>
+  <h3 id="181-schema--contract">18.1 schema / contract</h3>
+  <ul>
+    <li>request / response parse</li>
+    <li>required field</li>
+    <li>unknown enum</li>
+    <li>contract version</li>
+    <li>timestamp / count bounds</li>
+    <li>error details allowlist</li>
+    <li>fixture compatibility with NightWorkers</li>
+  </ul>
+  <h3 id="182-authentication--authorization">18.2 authentication / authorization</h3>
+  <ul>
+    <li>missing / malformed / invalid / expired / revoked token</li>
+    <li>wrong scope</li>
+    <li>token rotation</li>
+    <li>別 integration client の scan / report ref</li>
+    <li>owner mismatch</li>
+    <li>client-specific allowed root scope</li>
+    <li>symlink escape</li>
+    <li>
+      prefix collision (<code>/repo/a</code> と
+      <code>/repo/ab</code>)
+    </li>
+    <li>CSRF bypass が integration group 外へ波及しない</li>
+  </ul>
+  <h3 id="183-idempotency--concurrency">18.3 idempotency / concurrency</h3>
+  <ul>
+    <li>sequential replay</li>
+    <li>concurrent replay</li>
+    <li>same key / different request</li>
+    <li>response disconnect 後の replay</li>
+    <li>process restart 後の replay</li>
+    <li>token rotation 後の replay</li>
+    <li>scan / report operation namespace 分離</li>
+  </ul>
+  <h3 id="184-target">18.4 target</h3>
+  <ul>
+    <li>clean working tree</li>
+    <li>staged / unstaged / untracked</li>
+    <li>binary / deleted / renamed file</li>
+    <li>digest mismatch</li>
+    <li>preview expiry</li>
+    <li>full snapshot revision</li>
+    <li>unsupported preset / target</li>
+    <li>runtime-dependent custom profile requirement</li>
+  </ul>
+  <h3 id="185-events">18.5 events</h3>
+  <ul>
+    <li>concurrent append</li>
+    <li>backfill ordering</li>
+    <li><code>afterSeq</code> exclusive</li>
+    <li>limit</li>
+    <li>no duplicate / no gap</li>
+    <li>empty page</li>
+    <li>terminal event</li>
+    <li>raw output redaction</li>
+  </ul>
+  <h3 id="186-findings">18.6 findings</h3>
+  <ul>
+    <li>severity / tool filter</li>
+    <li>stable cursor pagination</li>
+    <li>large result</li>
+    <li>path relative projection</li>
+    <li>secret evidence redaction</li>
+    <li>unsafe reference URL</li>
+    <li>unavailable / partial result</li>
+    <li>outcome / coverage matrix</li>
+  </ul>
+  <h3 id="187-reports">18.7 reports</h3>
+  <ul>
+    <li>async 202</li>
+    <li>queued / running / completed / failed</li>
+    <li>duplicate start</li>
+    <li>LLM timeout / rate limit / malformed response</li>
+    <li>runner restart recovery</li>
+    <li>large content rejection</li>
+    <li>media type / filename</li>
+    <li>hash / byte length</li>
+    <li>no report before reportable scan state</li>
+  </ul>
+  <h3 id="188-non-regression">18.8 non-regression</h3>
+  <ul>
+    <li>existing Web scan screen</li>
+    <li>existing scan CLI</li>
+    <li><code>ScanProcessSupervisor</code></li>
+    <li>current user auth / CSRF</li>
+    <li>reports / reviews / artifacts</li>
+    <li>git diff target behavior</li>
+    <li>Static Intelligence endpoints</li>
+  </ul>
+  <h2 id="19-end-to-end-acceptance-scenario">19. end-to-end acceptance scenario</h2>
+  <ol>
+    <li>operator が NightWorkers 用 integration client を作成する。</li>
+    <li>token を NightWorkers OS secret store に登録する。</li>
+    <li>NightWorkers が capabilities を取得する。</li>
+    <li>
+      <code>standard</code> + <code>working_tree</code> を
+      preview する。
+    </li>
+    <li>provider が <code>diff-basic-security</code>、digest、warning を返す。</li>
+    <li>同じ digest と idempotency key で scan を start する。</li>
+    <li>NightWorkers が events を <code>afterSeq</code> で追跡する。</li>
+    <li>scan 完了後、outcome、severity、coverage、findings を取得する。</li>
+    <li>report を start し、即時 <code>202</code> を受ける。</li>
+    <li>report 完了後、metadata と Markdown content を取得する。</li>
+    <li>両 process を restart し、同じ refs から結果を復元する。</li>
+    <li>token を revoke し、新規 request が拒否されることを確認する。</li>
+  </ol>
+  <h2 id="20-rollout-と-rollback">20. rollout と rollback</h2>
+  <h3 id="201-rollout">20.1 rollout</h3>
+  <ol>
+    <li>DB migration を適用する。</li>
+    <li>integration route feature flag off で deploy する。</li>
+    <li>event sequence backfill と invariant check を行う。</li>
+    <li>integration client を発行し、capabilities / preview の read-only canary を行う。</li>
+    <li>quick / standard scan write scope を有効化する。</li>
+    <li>deep / custom を有効化する。</li>
+    <li>report read/write scope を有効化する。</li>
+    <li>metrics と audit を確認し一般利用へ進める。</li>
+  </ol>
+  <h3 id="202-rollback">20.2 rollback</h3>
+  <ul>
+    <li>route feature flag を off にする。</li>
+    <li>integration token を revoke する。</li>
+    <li>active scan は既存 vulnWorkbench UI / supervisor から管理可能にする。</li>
+    <li>
+      event <code>seq</code> と integration table は旧 binary
+      が無視できる additive schema とする。
+    </li>
+    <li>
+      report runner を止める場合、queued / running row を削除せず recovery 対象として保持する。
+    </li>
+    <li>rollback のために finding / report content を削除しない。</li>
+  </ul>
+  <h2 id="21-リスクと対策">21. リスクと対策</h2>
+  <table>
+    <caption>
+      21. リスクと対策
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">リスク</th>
+        <th scope="col">対策</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>service token が user 権限を迂回</td>
+        <td>owner user、scope、allowed roots、audit を必須化</td>
+      </tr>
+      <tr>
+        <td>CSRF 除外が広すぎる</td>
+        <td>dedicated authenticated route group だけ除外</td>
+      </tr>
+      <tr>
+        <td>path による project 横取り</td>
+        <td>realpath、allowed roots、owner 一致</td>
+      </tr>
+      <tr>
+        <td>preset mapping が暗黙に変化</td>
+        <td>registry version control、capability fixture、release note</td>
+      </tr>
+      <tr>
+        <td>deep が DAST を実行し環境へ影響</td>
+        <td>MVP は detailed-security、full-security-scan は custom + requirements</td>
+      </tr>
+      <tr>
+        <td>retry で scan / LLM cost が重複</td>
+        <td>persistent idempotency と request hash</td>
+      </tr>
+      <tr>
+        <td>event polling の欠落</td>
+        <td>transactionally assigned sequence</td>
+      </tr>
+      <tr>
+        <td>report request が長時間 block</td>
+        <td>dedicated async runner</td>
+      </tr>
+      <tr>
+        <td>0 finding を安全と誤認</td>
+        <td>outcome / coverage policy</td>
+      </tr>
+      <tr>
+        <td>finding で secret が流出</td>
+        <td>integration projection と evidence redaction</td>
+      </tr>
+      <tr>
+        <td>consumer が内部 DB field に依存</td>
+        <td>versioned allowlisted schema</td>
+      </tr>
+      <tr>
+        <td>NightWorkers 障害が scan を壊す</td>
+        <td>provider が lifecycle と正本を所有</td>
+      </tr>
+    </tbody>
+  </table>
+  <h2 id="22-pr-分割案">22. PR 分割案</h2>
+  <ol>
+    <li><code>feat(integrations): define NightWorkers security scan v1 contract</code></li>
+    <li><code>feat(integrations): add scoped integration clients</code></li>
+    <li><code>feat(integrations): resolve NightWorkers projects and expose capabilities</code></li>
+    <li><code>feat(integrations): add preview and idempotent scan start</code></li>
+    <li><code>feat(scans): add ordered event sequence and integration projection</code></li>
+    <li><code>feat(integrations): expose paginated findings and security outcome</code></li>
+    <li><code>feat(reports): run scan reports asynchronously</code></li>
+    <li><code>feat(integrations): expose report metadata and Markdown content</code></li>
+    <li><code>docs(integrations): add NightWorkers setup, rotation, and rollback runbook</code></li>
+  </ol>
+  <p>NightWorkers 側 PR には対応する contract fixture version / commit を渡す。</p>
+  <h2 id="23-definition-of-done">23. Definition of Done</h2>
+  <ul>
+    <li>
+      <input disabled="" type="checkbox"> <code>/api/integrations/nightworkers/v1</code> が feature
+      flag 下で提供される。
+    </li>
+    <li>
+      <input disabled="" type="checkbox"> integration token は hash
+      保存され、scope、owner、expiry、revoke を持つ。
+    </li>
+    <li><input disabled="" type="checkbox"> 通常 user API の auth / CSRF が弱まっていない。</li>
+    <li>
+      <input disabled="" type="checkbox"> canonical path、allowed roots、symlink、owner
+      を検証する。
+    </li>
+    <li>
+      <input disabled="" type="checkbox"> quick / standard / deep と target ごとの mapping が
+      registry に一元化される。
+    </li>
+    <li>
+      <input disabled="" type="checkbox"> <code>full-security-scan</code> を deep
+      へ暗黙 mapping しない。
+    </li>
+    <li>
+      <input disabled="" type="checkbox"> custom profile は allowlist と requirements を検証する。
+    </li>
+    <li><input disabled="" type="checkbox"> preview は side effect を作らない。</li>
+    <li>
+      <input disabled="" type="checkbox"> scan / report start は restart をまたいで idempotent
+      である。
+    </li>
+    <li>
+      <input disabled="" type="checkbox"> scan と report は
+      <code>202</code> で非同期実行される。
+    </li>
+    <li><input disabled="" type="checkbox"> event は run 内で sequence 順に再開可能である。</li>
+    <li>
+      <input disabled="" type="checkbox"> cancel / completion race で terminal state
+      が巻き戻らない。
+    </li>
+    <li>
+      <input disabled="" type="checkbox"> execution status と security outcome が分離される。
+    </li>
+    <li>
+      <input disabled="" type="checkbox"> coverage 不足時に
+      <code>no_findings</code> と断定しない。
+    </li>
+    <li>
+      <input disabled="" type="checkbox"> finding は bounded cursor pagination と redaction
+      を通る。
+    </li>
+    <li>
+      <input disabled="" type="checkbox"> report Markdown の media type、size、hash が検証できる。
+    </li>
+    <li>
+      <input disabled="" type="checkbox"> raw internal row、stdout/stderr、token、absolute path を
+      response / log に漏らさない。
+    </li>
+    <li>
+      <input disabled="" type="checkbox"> existing Web / CLI / scan / report / Static Intelligence
+      の non-regression test が通る。
+    </li>
+    <li><input disabled="" type="checkbox"> NightWorkers fixture との contract test が通る。</li>
+    <li>
+      <input disabled="" type="checkbox"> canary、monitoring、rollback、token rotation / revoke
+      手順が文書化される。
+    </li>
+  </ul>
+</article>
+  </body>
+</html>

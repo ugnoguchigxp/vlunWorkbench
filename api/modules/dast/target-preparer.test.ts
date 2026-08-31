@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { recordScannerE2EFailureObservation } from "../../testing/scanner-e2e-failure-observation";
 import {
 	inferDastTargetStartPlan,
 	prepareDastTargetWorkspace,
@@ -288,6 +289,10 @@ describe("Dast Target Preparer", () => {
 
 			// Verify it cleaned up the process
 			expect(killedWithSignal).toBe("SIGTERM");
+			recordScannerE2EFailureObservation("FI-07", {
+				profileOutcome: "blocked",
+				reasonCodes: ["target_start_timeout"],
+			});
 		});
 
 		it("falls back to SIGKILL if process does not exit in 3 seconds", async () => {

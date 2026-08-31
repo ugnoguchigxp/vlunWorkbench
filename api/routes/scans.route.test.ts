@@ -1,9 +1,13 @@
-import { describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
-import { createScansRoute } from "./scans.route";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { HttpError } from "../modules/auth/errors";
+import { createScansRoute } from "./scans.route";
 
 describe("Scans Route", () => {
+	afterEach(() => {
+		vi.restoreAllMocks();
+	});
+
 	const mockProjectRepo = {
 		findById: vi.fn().mockImplementation(async (id: string) => {
 			if (id === "p-1") {
@@ -16,7 +20,15 @@ describe("Scans Route", () => {
 	const mockScanRepo = {
 		findById: vi.fn().mockImplementation(async (id: string) => {
 			if (id === "s-1") {
-				return { id: "s-1", projectId: "p-1", status: "completed" };
+				return {
+					id: "s-1",
+					projectId: "p-1",
+					profile: "baseline",
+					status: "completed",
+					startedAt: new Date("2026-08-28T00:00:00.000Z"),
+					completedAt: new Date("2026-08-28T00:01:00.000Z"),
+					createdAt: new Date("2026-08-28T00:00:00.000Z"),
+				};
 			}
 			return null;
 		}),
@@ -26,6 +38,10 @@ describe("Scans Route", () => {
 
 	const mockArtifactRepo = {
 		listArtifacts: vi.fn().mockResolvedValue([{ id: "a-1", kind: "raw_result" }]),
+	};
+	const mockArtifactStorage = {
+		verifyArtifact: vi.fn().mockResolvedValue(true),
+		readTextArtifact: vi.fn().mockResolvedValue('{"ok":true}'),
 	};
 
 	const mockFindingRepo = {
@@ -95,6 +111,13 @@ describe("Scans Route", () => {
 			completion: new Promise(() => {}),
 		}),
 	};
+	const mockImprovementRequestRunner = {
+		start: vi.fn().mockResolvedValue({
+			reviewId: "scan-review-1",
+			status: "running",
+			completion: new Promise(() => {}),
+		}),
+	};
 	const mockScanDiagnosticRepo = {
 		listForScan: vi.fn().mockResolvedValue([
 			{
@@ -131,6 +154,13 @@ describe("Scans Route", () => {
 	const mockScanSupervisor = {
 		cancel: vi.fn().mockResolvedValue({ cancelled: true }),
 	};
+	const mockScanDeletionService = {
+		deleteOwnedScan: vi.fn().mockResolvedValue({
+			deletedScanRunId: "s-1",
+			deletedAt: new Date("2026-08-20T00:00:00.000Z"),
+			artifactCleanup: "queued",
+		}),
+	};
 
 	const app = new Hono();
 	app.use("*", async (c, next) => {
@@ -157,11 +187,13 @@ describe("Scans Route", () => {
 			scanDiagnosticRepository: mockScanDiagnosticRepo as any,
 			assessmentRepository: mockAssessmentRepository as any,
 			scanReviewRunner: mockScanReviewRunner as any,
+			improvementRequestRunner: mockImprovementRequestRunner as any,
 			scanReportRunner: mockScanReportRunner as any,
 			scanDiagnosticRunner: mockScanDiagnosticRunner as any,
-			artifactStorage: {} as any,
+			artifactStorage: mockArtifactStorage as any,
 			db: {} as any,
 			scanSupervisor: mockScanSupervisor as any,
+			scanDeletionService: mockScanDeletionService,
 		}),
 	);
 
@@ -177,6 +209,21 @@ describe("Scans Route", () => {
 		expect(res.status).toBe(200);
 		const body = await res.json();
 		expect(body.scan.id).toBe("s-1");
+	});
+
+	it("DELETE /:scanRunId delegates deletion with the authenticated owner", async () => {
+		mockScanDeletionService.deleteOwnedScan.mockClear();
+		const res = await app.request("/s-1", { method: "DELETE" });
+
+		expect(res.status).toBe(200);
+		expect(mockScanDeletionService.deleteOwnedScan).toHaveBeenCalledWith({
+			scanRunId: "s-1",
+			userId: "user-123",
+		});
+		expect(await res.json()).toMatchObject({
+			deletedScanRunId: "s-1",
+			artifactCleanup: "queued",
+		});
 	});
 
 	it("GET /:scanRunId/events returns events list", async () => {
@@ -199,6 +246,32 @@ describe("Scans Route", () => {
 		expect(body.artifacts.length).toBe(1);
 	});
 
+	it("downloads through storageKey rather than the legacy display path", async () => {
+		mockArtifactRepo.listArtifacts.mockResolvedValueOnce([
+			{
+				id: "a-download",
+				kind: "raw_result",
+				format: "json",
+				path: "legacy/result.json",
+				storageKey: "s-1/owners/tool-run/t-1/raw/result.json",
+				sha256: "a".repeat(64),
+				sizeBytes: 11,
+			},
+		]);
+		mockArtifactStorage.verifyArtifact.mockClear();
+		mockArtifactStorage.readTextArtifact.mockClear();
+		const res = await app.request("/s-1/artifacts/a-download/download");
+		expect(res.status).toBe(200);
+		expect(mockArtifactStorage.verifyArtifact).toHaveBeenCalledWith(
+			"s-1/owners/tool-run/t-1/raw/result.json",
+			expect.anything(),
+			expect.anything(),
+		);
+		expect(mockArtifactStorage.readTextArtifact).toHaveBeenCalledWith(
+			"s-1/owners/tool-run/t-1/raw/result.json",
+		);
+	});
+
 	it("GET /:scanRunId/findings returns findings list", async () => {
 		const res = await app.request("/s-1/findings");
 		expect(res.status).toBe(200);
@@ -215,6 +288,81 @@ describe("Scans Route", () => {
 		expect(mockFindingReviewRepo.findLatestReviewsForFindings).toHaveBeenCalledWith([
 			"f-1",
 		]);
+	});
+
+	it("downloads every stored finding as one TOML-like text attachment", async () => {
+		mockFindingRepo.listFindingsPage.mockClear();
+		mockFindingRepo.listFindingsPage
+			.mockResolvedValueOnce({
+				items: [
+					{
+						id: "f-1",
+						sourceTool: "Semgrep",
+						ruleId: "rule-1",
+						title: "First finding",
+						description: "Scanner output one",
+						severity: "high",
+						confidence: "static",
+						status: "open",
+						primaryLocation: { path: "src/one.ts", startLine: 10 },
+						fingerprint: "fingerprint-1",
+						metadata: { scanner: "semgrep" },
+						createdAt: new Date("2026-08-28T00:00:05.000Z"),
+						updatedAt: new Date("2026-08-28T00:00:05.000Z"),
+					},
+				],
+				nextCursor: "f-1",
+			})
+			.mockResolvedValueOnce({
+				items: [
+					{
+						id: "f-2",
+						sourceTool: "Trivy",
+						ruleId: "CVE-2026-0001",
+						title: "Second finding",
+						description: "Scanner output two",
+						severity: "critical",
+						confidence: "static",
+						status: "open",
+						primaryLocation: null,
+						fingerprint: "fingerprint-2",
+						metadata: {},
+						createdAt: new Date("2026-08-28T00:00:06.000Z"),
+						updatedAt: new Date("2026-08-28T00:00:06.000Z"),
+					},
+				],
+				nextCursor: null,
+			});
+
+		const res = await app.request("/s-1/findings/download");
+		const text = await res.text();
+
+		expect(res.status).toBe(200);
+		expect(res.headers.get("content-type")).toBe("text/plain; charset=utf-8");
+		expect(res.headers.get("content-disposition")).toBe(
+			'attachment; filename="scan-results-s-1.txt"',
+		);
+		expect(text).toContain("finding_count = 2");
+		expect(text.match(/\[\[findings\]\]/g)).toHaveLength(2);
+		expect(text).toContain('source_tool = "Semgrep"');
+		expect(text).toContain('source_tool = "Trivy"');
+		expect(text).not.toContain("latestDecision");
+		expect(text).not.toContain("latestReview");
+		expect(mockFindingRepo.listFindingsPage).toHaveBeenNthCalledWith(1, "s-1", {
+			limit: 100,
+		});
+		expect(mockFindingRepo.listFindingsPage).toHaveBeenNthCalledWith(2, "s-1", {
+			limit: 100,
+			cursor: "f-1",
+		});
+	});
+
+	it("checks scan ownership before exporting findings", async () => {
+		mockFindingRepo.listFindingsPage.mockClear();
+		const res = await app.request("/missing/findings/download");
+
+		expect(res.status).toBe(404);
+		expect(mockFindingRepo.listFindingsPage).not.toHaveBeenCalled();
 	});
 
 	it("GET /:scanRunId/findings rejects an invalid pagination cursor", async () => {
@@ -275,6 +423,26 @@ describe("Scans Route", () => {
 				findingFilter: "all",
 			}),
 		);
+		expect(await res.json()).toMatchObject({
+			review: { id: "scan-review-1", status: "running" },
+			result: {
+				ok: true,
+				reviewId: "scan-review-1",
+				status: "running",
+			},
+		});
+	});
+
+	it("POST /:scanRunId/improvement-requests starts an all-finding instruction job", async () => {
+		mockImprovementRequestRunner.start.mockClear();
+		const res = await app.request("/s-1/improvement-requests", {
+			method: "POST",
+		});
+
+		expect(res.status).toBe(202);
+		expect(mockImprovementRequestRunner.start).toHaveBeenCalledWith("s-1", {
+			createdByUserId: "user-123",
+		});
 		expect(await res.json()).toMatchObject({
 			review: { id: "scan-review-1", status: "running" },
 			result: {

@@ -1,0 +1,6 @@
+{
+	"schemaVersion": 1,
+	"profileId": "custom-dynamic-lab",
+	"policyId": "custom-dynamic-lab-v2",
+	"caseIds": ["safe-config", "unsafe-config", "config-drift", "cleanup"]
+}

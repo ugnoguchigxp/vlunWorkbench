@@ -1,0 +1,938 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex,follow">
+    <title>Project Intelligence Foundation Hardening Implementation Plan | vulnWorkbench</title>
+    <link rel="stylesheet" href="/vlunWorkbench/assets/css/spec-document.css">
+    <link rel="stylesheet" href="/vlunWorkbench/assets/css/plan-document.css">
+  </head>
+  <body>
+    <article lang="ja">
+  <h1 id="project-intelligence-foundation-hardening-implementation-plan">
+    Project Intelligence Foundation Hardening Implementation Plan
+  </h1>
+  <ul>
+    <li>
+      Status: Implementation complete through the rollout gate — Slices 0-5 implemented; Slice 6
+      decided <code>INSUFFICIENT_EVIDENCE</code>; Slice 7 not authorized by the gate
+    </li>
+    <li>Date: 2026-08-09</li>
+    <li>
+      Scope: <code>vulnWorkbench</code> producer +
+      <code>NightWorkers</code> consumer
+    </li>
+    <li>
+      Follow-up:
+      <a href="https://github.com/ugnoguchigxp/vlunWorkbench/blob/main/spec/docs/.archived/project-intelligence-ontology-evolution-roadmap.md">Project Intelligence and Ontology Evolution Roadmap</a>
+    </li>
+  </ul>
+  <h2 id="implementation-progress-2026-08-09">Implementation progress (2026-08-09)</h2>
+  <table>
+    <caption>
+      Implementation progress (2026-08-09)
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Slice</th>
+        <th scope="col">Status</th>
+        <th scope="col">Evidence</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>0. Baseline and contract freeze</td>
+        <td>Implemented</td>
+        <td>producer / consumerの同一Catalog V2 JSON fixtureとschema parse testを追加</td>
+      </tr>
+      <tr>
+        <td>1. vulnWorkbench V2 catalog projection</td>
+        <td>Implemented</td>
+        <td>
+          path-first catalogをProject Structure V2へ切替え、TS/JS・Java・Python・Go、V2 module
+          ID、resolved reference、budget、determinismをtest
+        </td>
+      </tr>
+      <tr>
+        <td>2. Producer readiness and revision</td>
+        <td>Implemented</td>
+        <td>
+          ready statusとcatalogへ同じpersisted generation由来のsource revision、snapshot ref、typed
+          readiness / coverageを追加
+        </td>
+      </tr>
+      <tr>
+        <td>3. NightWorkers revision guard</td>
+        <td>Implemented</td>
+        <td>
+          prepare完了時とcatalog利用時にGit HEADをexpected
+          HEADと照合し、tree-hash-only・unusable・schema不正をfail-open
+        </td>
+      </tr>
+      <tr>
+        <td>4. MCP boundary and conditional exposure</td>
+        <td>Implemented</td>
+        <td>
+          generic MCP bridgeで専用3 toolをexact-name拒否し、eligible runでのみworker tool
+          definitionを公開
+        </td>
+      </tr>
+      <tr>
+        <td>5. Readiness and observability</td>
+        <td>Implemented</td>
+        <td>
+          degraded usable reason / coverageをrun pinとmodel-safe resultへ保持し、既存measurementをV2
+          model projectionへ対応
+        </td>
+      </tr>
+      <tr>
+        <td>6. Controlled paired pilot</td>
+        <td>Executed; insufficient evidence</td>
+        <td>
+          <a href="https://github.com/ugnoguchigxp/vlunWorkbench/blob/main/spec/docs/.archived/evidence/project-intelligence-paired-pilot-2026-08-09.json">5 complete pair + partial/warm-up evidence</a>を保存。provider capacity、competing process、run lossにより10 pair未達
+        </td>
+      </tr>
+      <tr>
+        <td>7. Namespace cleanup</td>
+        <td>Not executed by gate</td>
+        <td>
+          <a href="https://github.com/ugnoguchigxp/vlunWorkbench/blob/main/spec/docs/.archived/project-intelligence-rollout-decision-2026-08-09.md">rollout decision</a>が<code>INSUFFICIENT_EVIDENCE</code>のため、責務移動を行わない
+        </td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    feature flagはOFFへ復元済みである。Slice 6のGO判断がないためdefault
+    ONやnamespace移動を行わない。
+  </p>
+  <h3 id="slice-6-outcome">Slice 6 outcome</h3>
+  <p>
+    2026-08-09に固定task setとresumable paired pilot runnerを追加し、warm-up 1 pair、正式5 complete
+    pair、partial 1 pairを実行した。全formal catalog pinはProject Structure V2、同一Git
+    revision、<code>degraded_usable</code> readinessで成功し、wrong revision / wrong
+    project / unsafe path incidentは0件だった。
+  </p>
+  <p>
+    一方、formal catalog runは5/5件で専用toolを呼ぶ前にlocal provider capacity
+    failureとなり、baseline/catalogともcompletion・verification
+    evidenceを得られなかった。さらに常駐NightWorkers API processとのpilot DB競合によりrun
+    interruptionとrun record lossが発生したため、安全上追加投入を中止した。
+  </p>
+  <p>
+    判定は<code>INSUFFICIENT_EVIDENCE</code>であり、性能gateの失敗を意味する<code>NO-GO</code>とは区別する。runnerにはclean
+    consumer、単一NightWorkers process、provider cooldownのpreflight
+    guardを追加済みである。再pilot条件とnamespace判断は<a href="https://github.com/ugnoguchigxp/vlunWorkbench/blob/main/spec/docs/.archived/project-intelligence-rollout-decision-2026-08-09.md">rollout decision</a>を正本とする。
+  </p>
+  <h2 id="1-purpose">1. Purpose</h2>
+  <p>
+    この計画は、既に実装されている Project Structure Scanner、path-first MCP、NightWorkers の
+    run-scoped catalog adapter を作り直さず、Project Exploration MVP
+    として安全に評価できる状態まで整備するための cross-repository 実装計画である。
+  </p>
+  <p>今回の目的は Ontology 製品を作ることではない。次の一つの価値仮説を検証可能にする。</p>
+  <blockquote>
+    <p>
+      同じ repository revision に対する構造解析を一度だけ行い、coding agent が実装前に繰り返す
+      <code>list_dir</code>、<code>search_files</code>、<code>rg</code>、無関係な
+      source read の一部を、一回の bounded catalog query へ置き換えられる。
+    </p>
+  </blockquote>
+  <p>
+    本計画の完了は「コードが存在すること」ではなく、revision 安全性、consumer
+    境界、readiness、paired runtime evidence がすべて確認された状態を指す。
+  </p>
+  <h3 id="document-precedence">Document precedence</h3>
+  <ul>
+    <li>本書は、Project Exploration MVPの現行実装に対する差分計画の正本である。</li>
+    <li><code>project-scan-exploration-reduction-mcp-concept.md</code>の価値仮説とmetricは維持する。</li>
+    <li>
+      <code>static-intelligence-coding-agent-consumer-companion-plan.md</code>のうち、internal ID
+      pinningやNightWorkersがcanonical Project
+      Ontologyを所有するという記述は本書の責務境界で置き換える。
+    </li>
+    <li>
+      NightWorkersの<code>project-path-first-vulnworkbench-integration-implementation-plan.md</code>は既存path-first実装の根拠として維持し、本書はその未完了のcorrectness
+      hardeningとpaired rolloutを追加する。
+    </li>
+    <li>
+      実コードと文書が矛盾した場合、完了宣言ではなく実コードと再現可能なtestをbaselineとする。
+    </li>
+  </ul>
+  <h2 id="2-executive-decision">2. Executive Decision</h2>
+  <ol>
+    <li>
+      <code>vulnWorkbench</code> は task 非依存の Project Structure facts と
+      bounded projection を所有する。
+    </li>
+    <li>
+      <code>NightWorkers</code> は run、worktree、expected revision、worker
+      tool、fallback、利用計測を所有する。
+    </li>
+    <li>
+      <code>.agent-ontology</code> は repository-owned execution contract
+      として維持するが、本計画では拡張しない。
+    </li>
+    <li>
+      <code>vulnWorkbench</code> の Project Structure Snapshot V2 を catalog
+      の正本にする。
+    </li>
+    <li>
+      path-first active pilot は新しい catalog V2 contract を使用し、legacy ID-based catalog V1
+      は互換読取のため残す。
+    </li>
+    <li>NightWorkers は catalog 応答の source revision と run の expected HEAD を必ず照合する。</li>
+    <li>
+      Project Intelligence 専用 MCP tool は generic model-facing MCP bridge
+      から呼び出せないようにする。
+    </li>
+    <li>feature flag は既定 OFF、native API implementation lane 限定を維持する。</li>
+    <li>paired run で探索削減と品質非劣化が確認できるまで default ON にしない。</li>
+    <li>
+      <code>scanRun</code> を再利用する現在の内部永続化は MVP
+      では変更しない。
+    </li>
+  </ol>
+  <h2 id="3-responsibility-boundary">3. Responsibility Boundary</h2>
+  <table>
+    <caption>
+      3. Responsibility Boundary
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Concern</th>
+        <th scope="col">vulnWorkbench</th>
+        <th scope="col">NightWorkers</th>
+        <th scope="col">Target repository / future Ontology Core</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>source inventory / parsing</td>
+        <td>owns</td>
+        <td>does not reimplement</td>
+        <td>supplies source</td>
+      </tr>
+      <tr>
+        <td>symbol / reference / module facts</td>
+        <td>owns</td>
+        <td>consumes bounded projection</td>
+        <td>may declare semantic mapping later</td>
+      </tr>
+      <tr>
+        <td>structure generation lifecycle</td>
+        <td>owns</td>
+        <td>explicitly requests preparation</td>
+        <td>does not control</td>
+      </tr>
+      <tr>
+        <td>task / run / worktree</td>
+        <td>does not own</td>
+        <td>owns</td>
+        <td>does not own</td>
+      </tr>
+      <tr>
+        <td>expected revision binding</td>
+        <td>returns observed revision</td>
+        <td>validates against run HEAD</td>
+        <td>Git is source of revision</td>
+      </tr>
+      <tr>
+        <td>catalog ranking</td>
+        <td>owns deterministic task-neutral rules</td>
+        <td>supplies task focus</td>
+        <td>does not own</td>
+      </tr>
+      <tr>
+        <td>worker tool exposure</td>
+        <td>does not own</td>
+        <td>owns</td>
+        <td>does not own</td>
+      </tr>
+      <tr>
+        <td>fallback to normal exploration</td>
+        <td>reports failure/readiness</td>
+        <td>owns</td>
+        <td>does not own</td>
+      </tr>
+      <tr>
+        <td>canonical domain / invariant</td>
+        <td>candidate-only</td>
+        <td>applies run contract</td>
+        <td>repository declaration is authoritative</td>
+      </tr>
+      <tr>
+        <td>usage / completion measurement</td>
+        <td>aggregate producer telemetry only</td>
+        <td>owns paired runtime measurement</td>
+        <td>provides task acceptance criteria</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>判定規則は次とする。</p>
+  <ul>
+    <li>
+      同じ revision なら task が変わっても変わらない事実は
+      <code>vulnWorkbench</code> に置く。
+    </li>
+    <li>
+      task、run、worktree によって変わる選択は <code>NightWorkers</code> に置く。
+    </li>
+    <li>
+      「何であるべきか」「誰が所有するか」という規範は repository declaration または将来の Ontology
+      Core に置く。
+    </li>
+  </ul>
+  <h2 id="4-verified-baseline">4. Verified Baseline</h2>
+  <h3 id="41-vulnworkbench">4.1 vulnWorkbench</h3>
+  <p>実装済み:</p>
+  <ul>
+    <li>Project Structure Scanner V2</li>
+    <li>TypeScript / JavaScript、Java、Python、Go analyzer</li>
+    <li>inventory、typed references、module inference、coverage、diagnostics</li>
+    <li>
+      Project Structure V2 + Code Structure V1 + Static Intelligence Export の generation 永続化
+    </li>
+    <li>source fingerprint、prepare job dedupe、lease、restart recovery</li>
+    <li><code>vuln_prepare_project_intelligence</code></li>
+    <li><code>vuln_get_project_intelligence_status</code></li>
+    <li><code>vuln_get_project_exploration_catalog</code></li>
+    <li>allowed root、canonical path、symlink alias rejection</li>
+    <li>structure-only preparation</li>
+    <li>source change 中の generation publish 拒否</li>
+    <li>bounded catalog response と secret/path redaction</li>
+  </ul>
+  <p>確認済み focused test:</p>
+  <pre><code class="language-bash">bun test \
+  api/modules/static-intelligence/project-path-mcp.test.ts \
+  api/modules/static-intelligence/exploration-catalog.test.ts \
+  api/modules/static-intelligence/project-structure/builder.test.ts \
+  api/modules/static-intelligence/module-candidates.test.ts \
+  api/modules/static-intelligence/static-intelligence-mcp-server-cli.test.ts
+</code></pre>
+  <p>2026-08-09 baseline: 40 tests passed, 0 failed.</p>
+  <h3 id="42-nightworkers">4.2 NightWorkers</h3>
+  <p>実装済み:</p>
+  <ul>
+    <li>repository feature flag、既定 OFF</li>
+    <li>native API implementation lane eligibility</li>
+    <li>server-side prepare coordinator</li>
+    <li>bounded status polling と timeout fail-open</li>
+    <li>registered root / execution worktree / expected HEAD の確認</li>
+    <li>internal-ID-free availability snapshot V2</li>
+    <li>focus-only <code>project_exploration_catalog</code> worker tool</li>
+    <li>model-safe catalog projectionと audit payload の分離</li>
+    <li>stale、workspace mismatch、source mutation 時の fail-open</li>
+    <li>
+      catalog call、探索回数、source read、token、time-to-mutation、completion、verification、replan
+      の計測
+    </li>
+    <li>baseline / catalog pair summarizer</li>
+  </ul>
+  <p>確認済み focused test:</p>
+  <pre><code class="language-bash">node scripts/run-vitest.mjs run \
+  tests/project-exploration-source.service.test.ts \
+  tests/project-exploration-catalog-tool.test.ts \
+  tests/project-exploration-measurement.test.ts \
+  tests/project-exploration-run-pinning.test.ts \
+  tests/project-exploration-settings.service.test.ts
+</code></pre>
+  <p>2026-08-09 baseline: 5 files / 33 tests passed, 0 failed.</p>
+  <h3 id="43-agent-ontology">4.3 Agent Ontology</h3>
+  <p>
+    <code>.agent-ontology</code> には module manifest、owned
+    path、invariant、cross-module policy、verification plan があり、validator、goal
+    classification、context compilation、boundary audit が実装されている。
+  </p>
+  <pre><code class="language-bash">node scripts/agent-ontology/validate-manifests.mjs
+node scripts/agent-ontology/smoke-mcp-contract.mjs
+</code></pre>
+  <p>2026-08-09 baseline: validation and smoke passed.</p>
+  <p>これは本計画の入力条件であり、Project Exploration の一部として変更しない。</p>
+  <h2 id="5-confirmed-gaps">5. Confirmed Gaps</h2>
+  <h3 id="g1-catalog-is-backed-by-the-v1-projection">G1. Catalog is backed by the V1 projection</h3>
+  <p>
+    現在の catalog は <code>CodeStructureSnapshot</code> V1 を読み、V1 projector は
+    TypeScript / JavaScript analyzer の file だけを残す。そのため V2 では解析済みの Java、Python、Go
+    が catalog 候補にならない。
+  </p>
+  <p>
+    また、V2 module ID と V1 path grouping module ID が異なるため、V2 snapshot / ontology handoff
+    から得た module ID を catalog focus に使うと一致しない。
+  </p>
+  <h3 id="g2-run-revision-and-returned-generation-revision-are-not-compared">
+    G2. Run revision and returned generation revision are not compared
+  </h3>
+  <p>
+    NightWorkers は execution worktree が expected HEAD かを検査するが、catalog 応答に含まれる
+    <code>sourceRevision</code> を expected HEAD と比較していない。path-first query
+    が provider 側の別 source state を選んだ場合、run と異なる revision の clue
+    を受け入れる余地がある。
+  </p>
+  <h3 id="g3-dedicated-tool-boundary-can-be-bypassed-through-generic-mcp">
+    G3. Dedicated tool boundary can be bypassed through generic MCP
+  </h3>
+  <p>
+    generic <code>mcp_call_tool</code> は
+    <code>readOnlyHint !== false</code> の tool を呼べるため、model は専用 adapter を通さず
+    status / catalog を直接呼び出せる。これにより NightWorkers が固定注入する registered project
+    path 境界を迂回できる。
+  </p>
+  <h3 id="g4-readiness-is-not-transported-end-to-end">
+    G4. Readiness is not transported end-to-end
+  </h3>
+  <p>
+    NightWorkers の availability snapshot は
+    <code>codeStructure: available</code> を固定値として保存している。producer の
+    inventory、analysis、resolution、module inference coverage が run preparation
+    時に伝達されないため、usable degraded と unusable を分けられない。
+  </p>
+  <h3 id="g5-tool-definition-is-exposed-when-unavailable">
+    G5. Tool definition is exposed when unavailable
+  </h3>
+  <p>
+    native API tool registry は profile input を無視して全 tool を返す。dispatcher
+    では失敗するが、無効 run でも schema token を消費し、誤呼び出しが可能になる。
+  </p>
+  <h3 id="g6-runtime-value-evidence-is-absent">G6. Runtime value evidence is absent</h3>
+  <p>
+    offline ranking fixture と計測コードは存在するが、同じ base revision / task / model 条件で行った
+    baseline / catalog paired run evidence は保存されていない。従って default activation
+    の価値判断は未完了である。
+  </p>
+  <h2 id="6-target-contracts">6. Target Contracts</h2>
+  <h3 id="61-producer-path-first-preparation">6.1 Producer path-first preparation</h3>
+  <pre><code class="language-ts">vuln_prepare_project_intelligence({ projectPath })
+vuln_get_project_intelligence_status({ projectPath })
+</code></pre>
+  <p>原則:</p>
+  <ul>
+    <li>prepare だけが side effect を持つ。</li>
+    <li>status は read-only で、暗黙 prepare を行わない。</li>
+    <li>同一 source fingerprint + pipeline version は再利用する。</li>
+    <li>external security scanner を開始しない。</li>
+    <li>
+      <code>scanRun</code> は内部 provenance であり consumer key にしない。
+    </li>
+  </ul>
+  <h3 id="62-path-first-catalog-v2">6.2 Path-first catalog V2</h3>
+  <pre><code class="language-ts">vuln_get_project_exploration_catalog({
+  projectPath,
+  focus: { paths?, modules?, terms? },
+  limits?
+})
+</code></pre>
+  <p>V2 response の必須意味:</p>
+  <pre><code class="language-ts">type ProjectExplorationCatalogV2 = {
+  ok: true;
+  status: "completed" | "degraded";
+  version: "v2";
+  freshness: { status: "fresh" | "stale" };
+  source: {
+    structureSchemaVersion: "project-structure-v2";
+    snapshotRef: string;
+    revision: {
+      kind: "git" | "tree_hash_only";
+      head?: string;
+      value: string;
+    };
+  };
+  readiness: {
+    usability: "usable" | "degraded_usable" | "unusable";
+    reasonCodes: string[];
+    coverage: {
+      inventoriedFiles: number;
+      analyzedFiles: number;
+      resolvedReferences: number;
+      unresolvedReferences: number;
+      inferredModules: number;
+    };
+  };
+  focusResolution: unknown;
+  likelyFiles: unknown[];
+  relatedTests: unknown[];
+  verificationCandidates: unknown[];
+  truncation: unknown;
+  degradedReasons: string[];
+};
+</code></pre>
+  <p>制約:</p>
+  <ul>
+    <li>source body / snippet を返さない。</li>
+    <li>absolute project pathを model projectionへ含めない。</li>
+    <li>internal project / scan / generation ID を model projectionへ含めない。</li>
+    <li>candidate-only verification command を実行済み evidence と表現しない。</li>
+    <li>response hard cap を維持する。</li>
+  </ul>
+  <h3 id="63-consumer-worker-tool">6.3 Consumer worker tool</h3>
+  <pre><code class="language-ts">project_exploration_catalog({
+  focus: { paths?, modules?, terms? }
+})
+</code></pre>
+  <p>NightWorkers adapter が固定注入するもの:</p>
+  <ul>
+    <li>MCP server ID</li>
+    <li>registered repository path</li>
+    <li>execution worktree path</li>
+    <li>expected run HEAD</li>
+  </ul>
+  <p>model が入力できないもの:</p>
+  <ul>
+    <li>absolute project path</li>
+    <li>MCP internal IDs</li>
+    <li>scan / generation ID</li>
+    <li>source revision override</li>
+  </ul>
+  <h2 id="7-implementation-slices">7. Implementation Slices</h2>
+  <h3 id="slice-0-baseline-and-contract-freeze">Slice 0: Baseline and contract freeze</h3>
+  <p>Owner: both repositories</p>
+  <p>Changes:</p>
+  <ol>
+    <li>本計画を implementation source of truth とする。</li>
+    <li>既存 focused test と現在の offline ranking evidence を保存する。</li>
+    <li>
+      path-first V2 schema の fixture を producer / consumer で同じ JSON contract として固定する。
+    </li>
+    <li>historical V1 run snapshot と legacy ID-based catalog の保持期間を明記する。</li>
+  </ol>
+  <p>Do not change:</p>
+  <ul>
+    <li>ranking weight</li>
+    <li>Agent Ontology behavior</li>
+    <li>security scan workflow</li>
+  </ul>
+  <p>Verification:</p>
+  <ul>
+    <li>4.1、4.2、4.3 の baseline command が成功する。</li>
+    <li>producer fixture を NightWorkers schema が parse できる。</li>
+  </ul>
+  <p>Failure handling:</p>
+  <ul>
+    <li>baseline failureがある場合は既存不具合として分離し、V2変更へ進まない。</li>
+  </ul>
+  <h3 id="slice-1-vulnworkbench-v2-catalog-projection">
+    Slice 1: vulnWorkbench V2 catalog projection
+  </h3>
+  <p>Owner: <code>vulnWorkbench</code></p>
+  <p>Primary files:</p>
+  <ul>
+    <li><code>api/modules/static-intelligence/exploration-catalog.ts</code></li>
+    <li><code>api/modules/static-intelligence/exploration-catalog-policy.ts</code></li>
+    <li><code>api/modules/static-intelligence/mcp-path-tools.ts</code></li>
+    <li><code>shared/schemas/static-intelligence-exploration-catalog.schema.ts</code></li>
+    <li><code>shared/schemas/project-structure.schema.ts</code></li>
+    <li>catalog / path-first / multi-language tests</li>
+  </ul>
+  <p>Changes:</p>
+  <ol>
+    <li>
+      catalog builder の primary input を <code>ProjectStructureSnapshotV2</code> にする。
+    </li>
+    <li>
+      resolved <code>code_module</code> reference から direct dependency /
+      importer を作る。
+    </li>
+    <li>
+      V2 file tags、exported symbols、identifiers、module membership を ranking source にする。
+    </li>
+    <li>Java、Python、Goの file / relation / test候補を同じ出力へ含める。</li>
+    <li>module focus は V2 module ID または exact path prefix を受け付ける。</li>
+    <li>V2 module IDを応答・source refの正本にする。</li>
+    <li>readiness、coverage、source revision をV2 schemaへ追加する。</li>
+    <li>V2 response の deterministic ordering と response budget を維持する。</li>
+    <li>path-first endpoint はV2を返す。</li>
+    <li>legacy generation-ID endpoint / evaluator に必要なV1 adapterは互換読取として残す。</li>
+  </ol>
+  <p>Usability policy:</p>
+  <ul>
+    <li>
+      <code>usable</code>: inventory / analysis
+      が利用可能で、候補fileが一件以上ある。
+    </li>
+    <li>
+      <code>degraded_usable</code>: coverage
+      gapまたは未解決referenceがあるが、候補と根拠を返せる。
+    </li>
+    <li>
+      <code>unusable</code>:
+      inventory失敗、schema不正、候補fileゼロ、source不一致のいずれか。
+    </li>
+    <li>resolution degradationだけを理由に全catalogをunusableにしない。</li>
+  </ul>
+  <p>Verification:</p>
+  <pre><code class="language-bash">bun test \
+  api/modules/static-intelligence/exploration-catalog.test.ts \
+  api/modules/static-intelligence/project-path-mcp.test.ts \
+  api/modules/static-intelligence/project-structure/builder.test.ts \
+  api/modules/static-intelligence/project-structure/python-go-analyzer.test.ts \
+  api/modules/static-intelligence/project-structure/java-analyzer.test.ts
+bun run typecheck
+</code></pre>
+  <p>Required new cases:</p>
+  <ul>
+    <li>TS/JS direct import and importer</li>
+    <li>Java package/import relation</li>
+    <li>Python relative/absolute import relation</li>
+    <li>Go module import relation</li>
+    <li>V2 module ID focus</li>
+    <li>degraded usable catalog</li>
+    <li>unusable readiness</li>
+    <li>reversed input ordering determinism</li>
+    <li>response hard cap</li>
+  </ul>
+  <p>Failure handling:</p>
+  <ul>
+    <li>
+      V2 ranking regression の原因を schema、focus resolution、reference resolution、ranking
+      に分ける。
+    </li>
+    <li>offline changed-file recallだけを理由にV1へ戻さない。</li>
+    <li>response budget超過時は候補を決定論的に切り詰め、JSONをbyte sliceしない。</li>
+  </ul>
+  <h3 id="slice-2-producer-readiness-and-revision-contract">
+    Slice 2: Producer readiness and revision contract
+  </h3>
+  <p>Owner: <code>vulnWorkbench</code></p>
+  <p>Changes:</p>
+  <ol>
+    <li>
+      status <code>ready</code> responseへ source revision と構造readiness
+      summaryを追加する。
+    </li>
+    <li>catalog response の revision は実際に選んだ persisted generation から返す。</li>
+    <li>
+      path facade の <code>freshness: fresh</code> と generation revision
+      の組み合わせをtestする。
+    </li>
+    <li>source変更中は fresh responseをpublishしない。</li>
+    <li>provenance internal IDs と model-facing source metadata を別fieldとして扱う。</li>
+  </ol>
+  <p>Do not change:</p>
+  <ul>
+    <li>consumerからexpected revisionを渡すAPIにはしない。</li>
+    <li>NightWorkersへgeneration IDを再導入しない。</li>
+    <li>query内で暗黙prepareしない。</li>
+  </ul>
+  <p>Verification:</p>
+  <pre><code class="language-bash">bun test \
+  api/modules/static-intelligence/project-path-mcp.test.ts \
+  api/modules/static-intelligence/mcp-tools.test.ts \
+  api/modules/static-intelligence/generation-repository.test.ts
+</code></pre>
+  <p>Required assertions:</p>
+  <ul>
+    <li>ready statusとcatalogのrevisionが同じ。</li>
+    <li>stale generationは<code>fresh</code>にならない。</li>
+    <li>prepare中source変更時にgenerationをpublishしない。</li>
+    <li>model-safe contractにinternal IDがない。</li>
+  </ul>
+  <h3 id="slice-3-nightworkers-run-revision-guard">Slice 3: NightWorkers run revision guard</h3>
+  <p>Owner: <code>NightWorkers</code></p>
+  <p>Primary files:</p>
+  <ul>
+    <li><code>shared/schemas/project-exploration-catalog.schema.ts</code></li>
+    <li><code>api/modules/ontology/exploration/project-exploration-source.service.ts</code></li>
+    <li><code>api/modules/ontology/exploration/project-exploration-catalog-tool.ts</code></li>
+    <li><code>api/modules/ontology/exploration/project-intelligence-contract.ts</code></li>
+    <li>source / catalog tool tests</li>
+  </ul>
+  <p>Changes:</p>
+  <ol>
+    <li>
+      path-first catalog V2 schemaで<code>source.revision</code>を必須化する。
+    </li>
+    <li>Git eligible runでは <code>catalog.source.revision.head === expectedHead</code> を必須にする。</li>
+    <li>tree-hash-only support は別feature gateまでunavailableとする。</li>
+    <li>catalog call前後のexecution source検査を維持する。</li>
+    <li>revision mismatchは<code>PROJECT_EXPLORATION_STALE</code>としてfail-openする。</li>
+    <li>raw responseとrevision mismatch理由をauditへ残すがmodelへは返さない。</li>
+    <li>
+      readiness
+      usabilityが<code>unusable</code>ならtool結果を通常探索へfail-openする。
+    </li>
+    <li><code>degraded_usable</code>はreason codeを保持したまま候補を返す。</li>
+  </ol>
+  <p>Verification:</p>
+  <pre><code class="language-bash">node scripts/run-vitest.mjs run \
+  tests/project-exploration-source.service.test.ts \
+  tests/project-exploration-catalog-tool.test.ts \
+  tests/project-exploration-run-pinning.test.ts
+</code></pre>
+  <p>Required new cases:</p>
+  <ul>
+    <li>expected HEAD一致</li>
+    <li>providerが別HEADのfresh catalogを返す</li>
+    <li>call中にexecution worktreeがdirtyになる</li>
+    <li>degraded usable</li>
+    <li>unusable</li>
+    <li>revision field missing / malformed</li>
+  </ul>
+  <p>Failure handling:</p>
+  <ul>
+    <li>schema不一致、revision不一致、unusableはrun failureにせず通常探索へ戻す。</li>
+    <li>wrong-revision clueを一件でもmodelへ返した場合はpilot flagをOFFにする。</li>
+  </ul>
+  <h3 id="slice-4-nightworkers-mcp-boundary-hardening">
+    Slice 4: NightWorkers MCP boundary hardening
+  </h3>
+  <p>Owner: <code>NightWorkers</code></p>
+  <p>Primary files:</p>
+  <ul>
+    <li><code>api/services/worker-tools/mcp-call-tool.ts</code></li>
+    <li><code>api/modules/codingAgent/runtime/native-api-runner/native-api-tool-registry.ts</code></li>
+    <li><code>api/modules/codingAgent/runtime/native-api-runner/native-api-tool-manifest.ts</code></li>
+    <li>generic MCP bridge / LLM contract tests</li>
+  </ul>
+  <p>Changes:</p>
+  <ol>
+    <li>
+      generic model-facing MCP bridgeから次を明示拒否する。
+      <ul>
+        <li><code>vuln_prepare_project_intelligence</code></li>
+        <li><code>vuln_get_project_intelligence_status</code></li>
+        <li><code>vuln_get_project_exploration_catalog</code></li>
+      </ul>
+    </li>
+    <li>拒否判定はserver descriptionやmodel promptではなくexact tool name policyで行う。</li>
+    <li>dedicated adapterだけがcatalogを呼び出せることをtestする。</li>
+    <li><code>projectExplorationCatalogEnabled</code>をtool registryで実際に使用する。</li>
+    <li>
+      unavailable runでは<code>project_exploration_catalog</code>
+      definitionをproviderへ送らない。
+    </li>
+    <li>available runではfocus-only schemaだけを公開する。</li>
+    <li>existing contextStill / unrelated MCP read-only toolsは変更しない。</li>
+  </ol>
+  <p>Verification:</p>
+  <pre><code class="language-bash">node scripts/run-vitest.mjs run \
+  tests/services.mcp-tool-bridge.test.ts \
+  tests/services.native-api-runner.test.ts \
+  tests/project-exploration-catalog-tool.test.ts \
+  tests/worker-tool-dispatcher-extra-coverage.test.ts
+</code></pre>
+  <p>Required assertions:</p>
+  <ul>
+    <li>generic bridgeでprepare/status/catalogが拒否される。</li>
+    <li>dedicated toolはregistered pathを固定注入する。</li>
+    <li>unavailable runのprovider tool listにcatalogがない。</li>
+    <li>available runのtool inputにproject path / internal IDがない。</li>
+  </ul>
+  <h3 id="slice-5-readiness-observability-and-fail-open-semantics">
+    Slice 5: Readiness, observability, and fail-open semantics
+  </h3>
+  <p>Owner: both repositories</p>
+  <p>Changes:</p>
+  <ol>
+    <li>
+      producer status / catalog と NightWorkers availability snapshot のreason code
+      vocabularyを対応づける。
+    </li>
+    <li>preparation、catalog、fallbackを別metricとして保持する。</li>
+    <li>catalog未使用、catalog失敗、catalog後のbroad explorationを区別する。</li>
+    <li>wrong revision、unsafe path、contract invalidを一般的なno-dataへ畳み込まない。</li>
+    <li>model-visible resultには候補と利用上の制約だけを返す。</li>
+    <li>auditにはserver、provenance、response bytes、failure categoryを残す。</li>
+  </ol>
+  <p>Verification:</p>
+  <pre><code class="language-bash">node scripts/run-vitest.mjs run \
+  tests/project-exploration-measurement.test.ts \
+  tests/project-exploration-source.service.test.ts \
+  tests/project-exploration-catalog-tool.test.ts
+</code></pre>
+  <p>Failure handling:</p>
+  <ul>
+    <li>measurement parse failureでrunを失敗させない。</li>
+    <li>telemetry欠損runは価値評価sampleから除外し、成功sampleとして補完しない。</li>
+  </ul>
+  <h3 id="slice-6-controlled-paired-pilot">Slice 6: Controlled paired pilot</h3>
+  <p>
+    Owner: <code>NightWorkers</code> rollout,
+    <code>vulnWorkbench</code> producer support
+  </p>
+  <p>Preconditions:</p>
+  <ul>
+    <li>Slice 0-5がgreen。</li>
+    <li>NightWorkersの対象branch / worktreeがclean。</li>
+    <li><code>STATIC_INTELLIGENCE_ALLOWED_PROJECT_ROOTS</code>が最小範囲で設定済み。</li>
+    <li>pilot repositoryだけfeature flagを切り替えられる。</li>
+    <li>producer / consumer contract versionをrun evidenceに記録できる。</li>
+  </ul>
+  <p>Protocol:</p>
+  <ol>
+    <li>代表taskを事前に固定する。</li>
+    <li>
+      baseline / catalogを同じbase commit、task prompt、provider、model、reasoning effort、runtime
+      laneで実行する。
+    </li>
+    <li>各pairは独立worktreeで開始する。</li>
+    <li>baselineはfeature flag OFF、catalogはONとする。</li>
+    <li>変更前探索、最初のmutation、verification、completionまで記録する。</li>
+    <li>最低10 pairを集め、task種別が一種類へ偏らないようにする。</li>
+    <li>failed / timed-out runを都合よく除外しない。</li>
+  </ol>
+  <p>Primary metrics:</p>
+  <ul>
+    <li>pre-mutation exploratory tool calls</li>
+    <li>pre-mutation unique files read</li>
+    <li>non-cached input tokens</li>
+    <li>cached input tokens</li>
+    <li>time to first mutation</li>
+    <li>catalog response bytes</li>
+    <li>catalog-before-broad-exploration rate</li>
+    <li>completion</li>
+    <li>verification pass</li>
+    <li>replan count</li>
+    <li>fallback reason</li>
+  </ul>
+  <p>GO gates:</p>
+  <ul>
+    <li>
+      median pre-mutation exploratory tool callsが20%以上減る、またはそれと同等の明確なtool
+      round-trip削減がある。
+    </li>
+    <li>median pre-mutation input tokensが15%以上減る。</li>
+    <li>completion率がbaselineより悪化しない。</li>
+    <li>verification pass率がbaselineより悪化しない。</li>
+    <li>wrong revision / wrong project / unsafe path incidentが0件。</li>
+    <li>catalog由来のrework増加がない。</li>
+    <li>catalog failureがrun failureへ波及した件数が0件。</li>
+  </ul>
+  <p>Decision:</p>
+  <ul>
+    <li>
+      <code>GO</code>:
+      gateを満たし、対象repositoryまたはtask種別を段階的に拡大する。
+    </li>
+    <li>
+      <code>NO-GO</code>:
+      catalogが探索に追加されるだけ、または品質が悪化する。flagをOFFにしてranking/activationを再評価する。
+    </li>
+    <li>
+      <code>INSUFFICIENT_EVIDENCE</code>: sample数、token telemetry、verification
+      evidenceが不足。default判断を保留する。
+    </li>
+  </ul>
+  <p>Offline changed-file recallはranking診断として使い、production gateにはしない。</p>
+  <h3 id="slice-7-namespace-cleanup-after-pilot">Slice 7: Namespace cleanup after pilot</h3>
+  <p>Owner: <code>NightWorkers</code></p>
+  <p>
+    このsliceはbehavioral
+    gateではない。NightWorkersの既存未コミット変更が解消し、pilot経路が安定した後に行う。
+  </p>
+  <p>Target structure:</p>
+  <pre><code class="language-text">api/modules/project-intelligence/
+  exploration/
+  runtime/
+  settings/
+  measurement/
+
+api/modules/ontology/
+  core/
+  runtime/
+  handoff/
+  debug/
+</code></pre>
+  <p>Changes:</p>
+  <ul>
+    <li>
+      <code>api/modules/ontology/exploration</code>を<code>api/modules/project-intelligence</code>へ移す。
+    </li>
+    <li>HTTP path <code>/settings/project-exploration</code>は互換維持する。</li>
+    <li>historical importsが必要なら一releaseだけre-exportを置く。</li>
+    <li>
+      <code>.agent-ontology</code>、ontology runtime snapshot、boundary
+      auditは移動しない。
+    </li>
+    <li>
+      Project ExplorationをSecurity Oracle / ontology eligibilityから独立したfeatureとして維持する。
+    </li>
+  </ul>
+  <p>Verification:</p>
+  <ul>
+    <li>import boundary check</li>
+    <li>focused exploration tests</li>
+    <li>ontology validation / smoke</li>
+    <li>existing HTTP contract tests</li>
+  </ul>
+  <h2 id="8-cross-repository-change-order">8. Cross-Repository Change Order</h2>
+  <pre><code class="language-text">PR 1  vulnWorkbench: V2 catalog schema + fixtures
+  -&gt; PR 2  vulnWorkbench: path-first revision/readiness
+  -&gt; PR 3  NightWorkers: V2 consumer + revision guard
+  -&gt; PR 4  NightWorkers: generic MCP boundary + conditional tool exposure
+  -&gt; PR 5  paired pilot evidence only
+  -&gt; PR 6  namespace cleanup
+</code></pre>
+  <p>Rules:</p>
+  <ul>
+    <li>producer contractがmergeされる前にconsumerを有効化しない。</li>
+    <li>cross-repository変更を一つのcommitへ混ぜない。</li>
+    <li>schema fixtureとfocused testを各PRへ含める。</li>
+    <li>NightWorkersの既存working tree変更を上書きしない。</li>
+    <li>migration中もfeature flag OFFをrollback手段として維持する。</li>
+  </ul>
+  <h2 id="9-out-of-scope">9. Out of Scope</h2>
+  <ul>
+    <li>independent Ontology Core</li>
+    <li>canonical domain / capability generation</li>
+    <li><code>.agent-ontology</code> schema redesign</li>
+    <li>Security Oracle / 50,000 LOC eligibility redesign</li>
+    <li><code>scanRun</code> tableからのProject Structure永続化分離</li>
+    <li>graph database</li>
+    <li>embedding search</li>
+    <li>full call graph</li>
+    <li>source body / snippet export</li>
+    <li>task generation from catalog</li>
+    <li>Codex SDK / planning / review lane rollout</li>
+    <li>cross-repository dependency graph</li>
+    <li>automatic ontology mutation from worker success</li>
+  </ul>
+  <p>
+    これらは <code>spec/project-intelligence-ontology-evolution-roadmap.md</code> の移行条件を満たした場合だけ別計画化する。
+  </p>
+  <h2 id="10-rollback">10. Rollback</h2>
+  <p>第一のrollbackはNightWorkers feature flag OFFである。</p>
+  <p>Immediate rollback conditions:</p>
+  <ul>
+    <li>wrong project / wrong revision clueを一件でもmodelへ返す。</li>
+    <li>generic MCP bridgeから専用catalogを呼べる。</li>
+    <li>absolute path / internal ID / secretがmodel payloadへ漏れる。</li>
+    <li>catalog failureがrun failureへ波及する。</li>
+    <li>completion / verificationがbaselineより悪化する。</li>
+    <li>prepare latencyが運用上許容できない。</li>
+  </ul>
+  <p>
+    Rollback時もprepare job、generation、run audit、paired
+    measurementは削除しない。原因を修正し、focused testとshadow preparationから再開する。
+  </p>
+  <h2 id="11-definition-of-done">11. Definition of Done</h2>
+  <p>次をすべて満たしたときだけFoundation Hardeningを完了とする。</p>
+  <ol>
+    <li>path-first catalogはProject Structure V2を正本としている。</li>
+    <li>TS/JS、Java、Python、Goのrepresentative fixtureが同じV2 contractを通る。</li>
+    <li>NightWorkersはcatalog source revisionとrun expected HEADを照合する。</li>
+    <li>generic model-facing MCP bridgeは専用Project Intelligence toolを拒否する。</li>
+    <li>unavailable runではcatalog tool definitionをproviderへ送らない。</li>
+    <li>readiness / coverage / degraded reasonがproducerからrun auditまで保持される。</li>
+    <li>wrong revision、unsafe path、unusable catalogは通常探索へfail-openする。</li>
+    <li>focused tests、typecheck、contract fixtureがgreenである。</li>
+    <li>controlled paired pilot evidenceが保存されている。</li>
+    <li>GO / NO-GO / INSUFFICIENT_EVIDENCEの判断がmetric付きで記録されている。</li>
+    <li>default ONはGO判断後に別の明示変更として行われる。</li>
+    <li>canonical OntologyやAgent Ontologyの責務を本計画へ混ぜていない。</li>
+  </ol>
+  <h2 id="12-deliverables">12. Deliverables</h2>
+  <ul>
+    <li>Project Exploration Catalog V2 schema</li>
+    <li>producer / consumer shared fixture</li>
+    <li>V2-backed deterministic catalog builder</li>
+    <li>revision-safe NightWorkers adapter</li>
+    <li>generic MCP dedicated-tool deny policy</li>
+    <li>typed readiness and coverage audit</li>
+    <li>conditional worker tool exposure</li>
+    <li>focused cross-repository tests</li>
+    <li>paired pilot result artifact</li>
+    <li>rollout decision record</li>
+  </ul>
+</article>
+  </body>
+</html>

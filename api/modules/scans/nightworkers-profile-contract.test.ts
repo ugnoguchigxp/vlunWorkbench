@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { getProfileById, listProfiles } from "./profiles";
+import { buildScanProfiles, getProfileById, listProfiles } from "./profiles";
 
 describe("NightWorkers scan profile contract", () => {
 	it("defines the standard working-tree profile with required dependency checks", () => {
@@ -29,11 +29,25 @@ describe("NightWorkers scan profile contract", () => {
 		expect(new Set(identifiers).size).toBe(identifiers.length);
 	});
 
-	it("keeps optional Semgrep out of every standard profile", () => {
-		for (const profile of listProfiles()) {
-			expect(profile.tools.some((tool) => tool.toolId === "semgrep")).toBe(
-				false,
-			);
-		}
+	it("adds preferred Semgrep without making it a core full-profile blocker", () => {
+		const withoutSemgrep = buildScanProfiles({
+			optionalAdapterIds: [],
+		}).find((profile) => profile.id === "full-security-scan")!;
+		const withSemgrep = buildScanProfiles({
+			optionalAdapterIds: ["semgrep"],
+		}).find((profile) => profile.id === "full-security-scan")!;
+
+		expect(
+			withoutSemgrep.tools.find((tool) => tool.toolId === "semgrep"),
+		).toBeUndefined();
+		expect(withoutSemgrep.coverageGaps).toContain(
+			"source_sast_adapter_not_available",
+		);
+		expect(
+			withSemgrep.tools.find((tool) => tool.toolId === "semgrep"),
+		).toMatchObject({
+			required: false,
+			failurePolicy: "warn_and_continue",
+		});
 	});
 });

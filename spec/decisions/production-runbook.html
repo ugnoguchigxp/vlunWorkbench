@@ -1,0 +1,280 @@
+<article lang="en" data-spec-role="decision-contract">
+  <h1 id="production-runbook">Production runbook</h1>
+  <h2 id="pre-deploy">Pre-deploy</h2>
+  <ol>
+    <li>
+      <p>
+        Run <code>bun install --frozen-lockfile</code>,
+        <code>bun run bootstrap:check -- --skip-port</code>, and
+        <code>bun run verify:strict</code>.
+      </p>
+    </li>
+    <li>
+      <p>
+        <code>verify:strict</code> includes the fast verification pipeline,
+        Web/critical coverage, browser E2E, dependency audit, artifact tracking, and the bundle
+        budget.
+      </p>
+    </li>
+    <li>
+      <p>
+        After the release commit exists, run <code>bun run verify:clean-checkout -- HEAD</code> to repeat
+        frozen installation and the strict gate from a detached temporary worktree.
+      </p>
+    </li>
+    <li>
+      <p>
+        Set trusted proxy CIDRs (when applicable), the LLM host allowlist, and the LLM settings
+        encryption key. For authenticated DAST, either set
+        <code>DAST_AUTH_ENCRYPTION_KEY</code> or generate the key under
+        <strong>Settings &gt; Runtime Settings</strong> after the first administrator signs in. Keep
+        <code>VULN_WORKBENCH_DAST_STANDARD_V2_ENABLED=true</code> and
+        <code>VULN_WORKBENCH_DAST_STANDARD_V2_DEFAULT=true</code> for the coverage-aware standard. Setting both
+        to <code>false</code> is the supported legacy-smoke rollback; it
+        does not restore the old false-pass verdict behavior.
+      </p>
+    </li>
+    <li>
+      <p>
+        For a scanner-capability release, build the toolbox and run the actual network-disabled
+        matrix:
+      </p>
+      <pre><code class="language-bash">bun run docker:toolbox:build
+bun run verify:security-capability
+</code></pre>
+      <p>
+        Keep <code>.artifacts/offline-toolbox-matrix.json</code> with the release evidence. The core gate
+        must show OSV-Scanner and Trivy JSON output, the image digest, scanner-data manifest hash,
+        <code>networkMode=none</code>, and the enforced memory/CPU/PID limits. Then
+        run the pinned external capability gates:
+      </p>
+      <pre><code class="language-bash">bun run security-corpora:verify
+OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY=.cache/scanner-data/phase-50/osv \
+  bun run benchmark:all
+OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY=.cache/scanner-data/phase-50/osv \
+  bun run verify:professional-capability
+</code></pre>
+      <p>
+        Do not publish a <code>met</code> claim unless the generated
+        report has every gate set to true and references a persisted passing benchmark run from the
+        same release inputs. A successful command with below-threshold metrics is a completed
+        measurement, not a passing capability. Also verify the Phase 51 baseline and owned runtime
+        DAST gate:
+      </p>
+      <pre><code class="language-bash">bun run verify:phase-51-baseline
+bun run verify:dast-capability
+</code></pre>
+      <p>
+        The DAST artifact must reference the current commit and current policy, ground-truth,
+        fixture, and implementation hashes. Do not claim real ZAP, Nuclei, Schemathesis, or Juice
+        Shop coverage from the owned crawler benchmark alone.
+      </p>
+    </li>
+    <li>
+      <p>Create and verify a backup:</p>
+      <pre><code class="language-bash">bun run backup:create -- --output /secure/backups/pre-deploy.sqlite
+bun run backup:verify -- --input /secure/backups/pre-deploy.sqlite
+</code></pre>
+    </li>
+  </ol>
+  <p>
+    The backup command is serialized by the SQLite Writer and uses
+    <code>VACUUM INTO</code>; it does not copy a live WAL database file. Store
+    the matching <code>LLM_SETTINGS_ENCRYPTION_KEY</code> in a separate protected secret backup.
+  </p>
+  <p>Legacy LLM plaintext cleanup also requires an already-unused backup output path:</p>
+  <pre><code class="language-bash">bun run llm-secrets:migrate -- --backup-output /secure/backups/pre-secret-migration.sqlite
+</code></pre>
+  <p>
+    The command verifies encryption for every row, creates and verifies the backup, then updates
+    every legacy row in one Writer transaction.
+  </p>
+  <h2 id="scanner-resource-boundaries">Scanner resource boundaries</h2>
+  <p>
+    Production Docker scans always include <code>--memory</code>, equal
+    <code>--memory-swap</code>, <code>--cpus</code>, and
+    <code>--pids-limit</code> values. Defaults are 4 GiB, 2 CPUs, and 512 PIDs.
+    Override them only within the validated ranges documented in the README.
+  </p>
+  <p>
+    Scanner stdout, stderr, and structured result files are bounded before parsing. An overflow
+    fails the tool run with <code>tool_output_limit_exceeded</code> (or
+    <code>tool_stderr_limit_exceeded</code>), records the termination reason in execution
+    metadata, and force-cleans a Docker container when necessary. Do not raise the hard limits to
+    make a noisy or adversarial target pass; investigate the tool configuration and target scope
+    first.
+  </p>
+  <p>
+    Dynamic verification uses the same validated Docker defaults and hard ranges. Every run applies
+    memory, equal memory-swap, CPU, and PID limits, and request options may only tighten the saved
+    profile limits. Dynamic stdout/stderr use the scanner byte limits and fail closed as
+    <code>dynamic_output_limit_exceeded</code>. Collected dynamic artifacts are also bounded to 16
+    MiB per file, 64 MiB total, 128 files, 16 directory levels, and 2,048 visited entries. An
+    artifact overflow fails closed as <code>dynamic_artifact_limit_exceeded</code>; reduce the
+    profile output instead of broadening these collection limits.
+  </p>
+  <h2 id="scanner-data-update">Scanner data update</h2>
+  <p>
+    Scanner rules and vulnerability databases never update during a scan. Refresh them only in an
+    explicit build/update job:
+  </p>
+  <pre><code class="language-bash">bun run scanner-data:refresh-lock
+bun run verify:toolbox-provenance
+bun run docker:toolbox:build
+bun run verify:security-capability
+</code></pre>
+  <p>
+    The preparation job downloads the official OSV archives for npm, PyPI, Go, Maven, crates.io,
+    NuGet, Packagist, and RubyGems plus the Trivy vulnerability database. It validates bounded
+    archive paths and sampled ecosystem records, copies the owned optional-adapter Semgrep rules,
+    hashes each bundle, and atomically emits <code>scanner-data-manifest.json</code> with
+    source references, record counts, generation times, freshness limits, and coverage. Review all
+    manifest and capability-result diffs before replacing a release image. A missing, stale, or
+    digest-mismatched ecosystem is <code>not_tested</code>; never fall back to
+    an online OSV update during a scan. The refresh command normalizes Trivy&#39;s
+    download-time-only metadata before hashing, converts image-only bundle paths to repository lock
+    paths, recomputes the manifest hash, and atomically replaces only the committed manifest.
+  </p>
+  <p>
+    Do not copy an unverified host cache into a release image. If data is stale or missing, keep the
+    affected scanner unavailable or mark report readiness
+    <code>ready_with_limitations</code>; never silently fall back to a network update.
+  </p>
+  <h2 id="authenticated-dast-credential-rotation">Authenticated DAST credential rotation</h2>
+  <p>
+    The standard passive profile records a verdict and coverage independently.
+    <code>no_findings_observed/covered</code> means only that the declared bounded scope
+    completed without an observed finding. A transport error, authentication failure, response
+    truncation, scanner gateway budget block, or an unexecuted route must remain
+    <code>inconclusive</code>, <code>not_tested</code>,
+    <code>partial</code>, or <code>gap</code> in
+    the UI, diagnostic pipeline, and report.
+  </p>
+  <p>
+    The full runtime profile allocates at most 100 requests to the owned crawler, 20 to Nuclei safe,
+    100 to ZAP baseline, and 30 to Schemathesis. Nuclei, ZAP, and Schemathesis are routed through
+    read-only gateways with response byte limits. A gateway budget block is not a clean completion.
+    Review <code>runtimeAssessmentCoverage</code> and the DAST route inventory before
+    accepting a zero-finding result.
+  </p>
+  <p>
+    Authenticated DAST uses an encrypted auth-context reference. API responses, plans, events, logs,
+    and artifacts contain only redacted metadata. The secret is decrypted immediately before request
+    injection and is bound by AES-256-GCM AAD to the project, target, identity role, and auth kind.
+  </p>
+  <p>
+    Rotate a context through its project-scoped rotate endpoint, verify one read-only run, and then
+    revoke the old credential at the upstream identity provider. Revoked or expired contexts fail
+    before a request is sent. When rotating an environment-managed encryption key, deploy the new
+    <code>DAST_AUTH_ENCRYPTION_KEY</code> with the old key in
+    <code>DAST_AUTH_PREVIOUS_ENCRYPTION_KEYS</code>. A key generated or replaced in Runtime Settings
+    retains prior DAST keys automatically. In either case, rotate every stored context and verify
+    the credential-canary suite before retiring old keys. Runtime Settings wraps the DAST key with a
+    key derived from <code>JWT_SECRET</code>; keep that secret stable and
+    include it in the protected backup/restore procedure.
+  </p>
+  <p>
+    If a credential may have leaked, revoke it upstream first, revoke the stored context, preserve
+    only redacted audit metadata, and quarantine affected artifacts. Do not paste credentials into
+    <code>defaultHeadersJson</code>, scan options, or incident notes.
+  </p>
+  <h2 id="rules-of-engagement-and-active-lab-incidents">
+    Rules of Engagement and active-lab incidents
+  </h2>
+  <p>
+    State-changing checks are not part of the default scan. They require an active, unexpired
+    engagement for the same project, a <code>local</code>,
+    <code>ephemeral</code>, or
+    <code>staging</code> environment, a non-public target, and explicit
+    path, method, request, rate, and cleanup contracts. Production and public targets fail closed.
+    LLM output cannot create or broaden this authorization.
+  </p>
+  <p>
+    The service enforces the active-lab preconditions rather than relying on a review checklist.
+    Activation is one-way and requires a complete, time-bounded Rules of Engagement record. Every
+    request must be inside the engagement scope, Rules of Engagement, and target scope. Transaction
+    plans reserve enough cumulative engagement and target request budget for seed, operation, and
+    all cleanup requests before the first request is sent. Auth contexts are encrypted and bound to
+    the same project, target, identity role, and target cookie/storage origin. Same-project active
+    runs are serialized.
+  </p>
+  <p>
+    ZAP active is additionally limited to <code>local</code> or
+    <code>ephemeral</code> internal targets, an explicit
+    <code>runtime-zap-active-lab</code> or
+    <code>api-zap-active-lab</code> request, and
+    <code>VULN_WORKBENCH_ZAP_ACTIVE_ENABLED=true</code>. It runs only on a Linux Docker host where an
+    internal bridge can isolate the ZAP container from every destination except the bounded gateway.
+    The active policy starts with every rule disabled and enables only the versioned nine-rule
+    catalog at low strength/medium threshold. Browser login, CSRF/token refresh, public targets,
+    shared staging, and production targets fail closed.
+  </p>
+  <p>
+    Authorization matrices are read-only (<code>GET</code>,
+    <code>HEAD</code>, or <code>OPTIONS</code>)
+    until a matrix-level seed and cleanup contract exists. Only 2xx responses count as allowed; 401,
+    403, and 404 count as denied; redirects and all other responses are persisted as
+    <code>inconclusive</code>.
+  </p>
+  <p>
+    Cleanup runs even if seed or test requests fail. A cleanup error must leave the run as
+    <code>failed_cleanup</code>; an operation error with successful cleanup is
+    <code>inconclusive</code>. For either state, stop further active runs,
+    snapshot the target, reconcile seeded object IDs, run the documented cleanup/restore procedure,
+    and record the residual target state. Never relabel the run
+    <code>completed</code> merely because the diagnostic report was generated.
+  </p>
+  <p>
+    On startup, an interrupted state-changing transaction is persisted as
+    <code>failed_cleanup</code> with <code>interrupted_cleanup_state_unknown</code>;
+    an interrupted read-only matrix is persisted as <code>inconclusive</code>. The
+    related scan is failed in both cases so automated reports cannot present an interrupted run as
+    complete. Interrupted business-logic runs are likewise closed as
+    <code>failed_cleanup</code>; the project remains blocked from new business-logic
+    execution until the target state is reconciled. Automatically generated state-changing scenarios
+    require an explicit cleanup method and path, and irreversible external side effects must be
+    represented as <code>not_tested</code>.
+  </p>
+  <h2 id="automated-diagnostic-recovery">Automated diagnostic recovery</h2>
+  <p>
+    Every completed scan starts deterministic report generation and, when a route is configured,
+    evidence-constrained scan-level LLM review. Missing or invalid LLM output must still produce a
+    deterministic report with <code>ready_with_limitations</code> and a machine-readable
+    limitation code. Human decision, peer approval, and manual finding review are not completion
+    gates.
+  </p>
+  <p>
+    Use <code>POST /api/scans/:scanRunId/diagnostics/retry</code> only for a failed or limited LLM/report stage.
+    Retry is idempotent for the same scan snapshot and preserves the input hash, scanner-provenance
+    hash, attempt count, prior report revisions, and prior review records. First verify the LLM
+    route and outbound host policy; do not delete the deterministic report or scanner evidence to
+    force a retry.
+  </p>
+  <h2 id="upgrade">Upgrade</h2>
+  <p>
+    Stop application processes, allow the SQLite Writer to drain, deploy the new application, run
+    <code>bun run db:migrate</code>, then start the application and verify liveness at
+    <code>/api/health</code> and readiness at
+    <code>/api/health/ready</code>. Writer protocol upgrades require every old process
+    and Writer instance to be restarted together.
+  </p>
+  <h2 id="rollback">Rollback</h2>
+  <p>
+    Do not roll back across an incompatible migration or after plaintext secret cleanup unless the
+    previous application supports the current schema and the database/key backup pair has passed
+    verification. Restore into an isolated temporary location first, run
+    <code>backup:verify</code>, then point the stopped application at the restored
+    database.
+  </p>
+  <h2 id="retention-and-incident-handling">Retention and incident handling</h2>
+  <p>
+    Keep application logs, scan artifacts, and database backups according to the deployment&#39;s
+    data classification and retention policy. Never place them in Git. Rotate credentials before
+    history remediation. Preserve security event metadata without logging authorization headers,
+    cookies, API keys, source snippets, or unnecessary absolute paths.
+  </p>
+  <p>
+    The SQLite Writer transport is supported on Unix-like platforms. Windows named pipe transport is
+    not currently supported.
+  </p>
+</article>

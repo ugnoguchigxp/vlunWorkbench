@@ -160,6 +160,7 @@ export type DynamicEvidence = z.infer<typeof dynamicEvidenceSchema>;
 
 export const runDynamicRequestSchema = z.object({
 	profileId: z.string().min(1),
+	consentProjectCodeExecution: z.boolean().optional().default(false),
 	runner: z.enum(["docker"]).default("docker"),
 	dockerImage: z.string().optional(),
 	network: z.enum(["none", "default"]).optional(),

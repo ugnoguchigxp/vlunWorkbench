@@ -1,0 +1,89 @@
+<article lang="en" data-spec-role="decision-contract">
+  <h1 id="maintainership">Maintainership</h1>
+  <p>
+    Ownership is recorded as accountable roles because this repository does not yet have a verified
+    second maintainer. <code>unassigned</code> is intentional evidence of the
+    current bus-factor risk, not an approval placeholder.
+  </p>
+  <table>
+    <caption>
+      Maintainership
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Domain</th>
+        <th scope="col">Primary role</th>
+        <th scope="col">Backup role</th>
+        <th scope="col">Required review path</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Authentication, authorization, outbound network, secret crypto</td>
+        <td>Security maintainer</td>
+        <td>unassigned</td>
+        <td>Focused boundary tests, critical coverage, strict gate</td>
+      </tr>
+      <tr>
+        <td>SQLite schema, Writer, backup and migration</td>
+        <td>Database maintainer</td>
+        <td>unassigned</td>
+        <td>Fresh/upgrade fixture, Writer tests, verified backup/restore</td>
+      </tr>
+      <tr>
+        <td>Scanner runtime, Docker isolation, artifact cleanup</td>
+        <td>Scanner-runtime maintainer</td>
+        <td>unassigned</td>
+        <td>Invocation snapshot, cleanup failure tests, container security</td>
+      </tr>
+      <tr>
+        <td>Benchmark policy and professional capability evidence</td>
+        <td>Release-evidence maintainer</td>
+        <td>unassigned</td>
+        <td>Corpus hashes, raw/normalized hashes, claim-integrity verifier</td>
+      </tr>
+      <tr>
+        <td>Web orchestration and browser workflows</td>
+        <td>Web maintainer</td>
+        <td>unassigned</td>
+        <td>Selected Web coverage plus linked Playwright test IDs</td>
+      </tr>
+      <tr>
+        <td>Release tag, changelog, package and support policy</td>
+        <td>Release maintainer</td>
+        <td>unassigned</td>
+        <td>Same-commit clean-checkout report before immutable tag</td>
+      </tr>
+    </tbody>
+  </table>
+  <h2 id="onboarding-path">Onboarding path</h2>
+  <ol>
+    <li>
+      Read <code>README.md</code>, <code>spec/decisions/production-runbook.html</code>,
+      the security boundary, and the local runtime support boundary.
+    </li>
+    <li>
+      Run <code>bun run bootstrap:check -- --skip-port</code> and
+      <code>bun run coverage:inventory</code>.
+    </li>
+    <li>Pick one domain and run its smallest focused test before changing code.</li>
+    <li>
+      Run <code>bun run verify</code> for normal changes and
+      <code>bun run verify:strict</code> for a release candidate.
+    </li>
+    <li>Practice the release drill below without creating or moving a tag.</li>
+  </ol>
+  <h2 id="backup-maintainer-release-drill">Backup maintainer release drill</h2>
+  <p>The drill is complete only when a real backup maintainer independently:</p>
+  <ol>
+    <li>creates and verifies a Writer-consistent backup;</li>
+    <li>restores it to an isolated path and passes <code>PRAGMA integrity_check</code>;</li>
+    <li>runs fresh and one-version-behind migration readiness;</li>
+    <li>runs the strict and clean-checkout gates on the same commit;</li>
+    <li>verifies that package version, changelog, release evidence and tag agree.</li>
+  </ol>
+  <p>
+    No backup role has completed this drill as of 2026-08-15. Therefore the bus factor remains one
+    and every backup role above stays <code>unassigned</code>.
+  </p>
+</article>

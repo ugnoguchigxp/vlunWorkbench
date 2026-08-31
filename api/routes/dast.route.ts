@@ -20,7 +20,16 @@ import {
 	isPathAllowed,
 	validateDastTargetConfig,
 } from "../modules/dast/target-validator";
-import type { ProjectRepository } from "../modules/scans/repositories";
+import type { WebProcessCapacity } from "../modules/processes/web-process-capacity";
+import {
+	type ProjectRepository,
+	ScanRepository,
+} from "../modules/scans/repositories";
+import {
+	buildDedicatedProfileAdmissionMetadata,
+	createDedicatedLaunchAttempt,
+} from "../modules/scans/dedicated-profile-admission";
+import { ScanLaunchAttemptRepository } from "../modules/scans/execution/scan-launch-attempt-repository";
 import {
 	ProjectPathPolicyError,
 	resolveProjectPath,
@@ -31,10 +40,13 @@ type DastRouteDeps = {
 	db: AppDatabase;
 	projectRepository: ProjectRepository;
 	env?: AppEnv;
+	processCapacity?: WebProcessCapacity;
 };
 
 export function createDastRoute(deps: DastRouteDeps) {
 	const repo = new DastRepository(deps.db);
+	const scanRepository = new ScanRepository(deps.db);
+	const scanLaunchAttempts = new ScanLaunchAttemptRepository(deps.db);
 	const route = new Hono();
 
 	async function assertProjectOwner(projectId: string, userId: string) {
@@ -226,12 +238,90 @@ export function createDastRoute(deps: DastRouteDeps) {
 				throw new HttpError(400, validation.message);
 			}
 		}
-		const cliResult = await executeDastCli({
-			projectId,
-			...parsed.data,
-			createdByUserId: authUser.userId,
-		});
-		return c.json(cliResult);
+		const launchAttempt = parsed.data.catalogProfileId
+			? await createDedicatedLaunchAttempt({
+					repository: scanLaunchAttempts,
+					projectId,
+					createdByUserId: authUser.userId,
+					canonicalProfileId: parsed.data.catalogProfileId,
+					providedInputKinds: ["runtime_target", "auth_context_ref"],
+					expectedLaunchDestination: "dast_workspace",
+					sanitizedInputSummary: { dastProfileId: parsed.data.profileId },
+				})
+			: null;
+		const scanRunId = parsed.data.catalogProfileId
+			? (
+					await scanRepository.createScanRun({
+						projectId,
+						profile: parsed.data.catalogProfileId,
+						status: "running",
+						createdByUserId: authUser.userId,
+						metadata: {
+							...buildDedicatedProfileAdmissionMetadata({
+								canonicalProfileId: "authenticated-web",
+								expectedLaunchDestination: "dast_workspace",
+								providedInputKinds: ["runtime_target", "auth_context_ref"],
+							}),
+							dastProfileId: parsed.data.profileId,
+							safetyBoundary: "bounded-readonly-http",
+						},
+					})
+				).id
+			: parsed.data.scanRunId;
+		if (launchAttempt && scanRunId) {
+			await scanLaunchAttempts.admit({
+				attemptId: launchAttempt.id,
+				scanRunId,
+			});
+		}
+		const { catalogProfileId: _catalogProfileId, ...runInput } = parsed.data;
+		try {
+			const cliResult = await executeDastCli({
+				projectId,
+				...runInput,
+				scanRunId,
+				createdByUserId: authUser.userId,
+				processCapacity: deps.processCapacity,
+			});
+			if (parsed.data.catalogProfileId && scanRunId) {
+				const completed = cliResult.ok === true;
+				await scanRepository.updateScanRunStatus(
+					scanRunId,
+					completed ? "completed" : "failed",
+					{
+						profileOutcome: completed
+							? cliResult.coverageStatus === "covered"
+								? "completed"
+								: "incomplete"
+							: "failed",
+						summary: completed
+							? `Authenticated Web scan completed with coverage: ${cliResult.coverageStatus ?? "unknown"}.`
+							: (cliResult.message ?? "Authenticated Web scan failed."),
+						metadata: {
+							dastRunId: cliResult.dastRunId ?? null,
+							dastStatus: cliResult.status ?? null,
+							dastOutcome: cliResult.outcome ?? null,
+							dastCoverageStatus: cliResult.coverageStatus ?? null,
+						},
+					},
+				);
+			}
+			return c.json(
+				parsed.data.catalogProfileId ? { ...cliResult, scanRunId } : cliResult,
+			);
+		} catch (error) {
+			if (parsed.data.catalogProfileId && scanRunId) {
+				await scanRepository.updateScanRunStatus(scanRunId, "failed", {
+					profileOutcome: "failed",
+					summary:
+						error instanceof Error
+							? error.message
+							: "Authenticated Web scan failed to start.",
+					metadata: { dastLaunchFailed: true },
+				});
+			}
+			throw error;
+		}
 	});
 
 	route.get("/dast-runs/:dastRunId", async (c) => {

@@ -1,0 +1,93 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {
+      "id": "FI-01",
+      "injection": "required scanner executable resolver returns unavailable",
+      "productionEntryPoint": "runScanPreflight",
+      "testFile": "api/modules/scans/execution/scan-preflight.test.ts",
+      "testNamePattern": "blocks before execution when a required scanner binary is unavailable",
+      "expected": { "profileOutcome": "blocked", "reasonCodes": ["scanner_binary_unavailable"], "scannerProcessCount": 0, "toolRunCount": 0, "requestCount": 0, "artifactCount": 0, "canonicalFinalReportCount": 0, "terminalRowCount": 1, "cleanupCount": 0, "existingBytesUnchanged": true, "covered": false, "automaticDownloadCount": 0 }
+    },
+    {
+      "id": "FI-02",
+      "injection": "observed scanner version differs from the manifest",
+      "productionEntryPoint": "resolveProfileToolProvenance",
+      "testFile": "api/modules/scans/execution/profile-tool-provenance.test.ts",
+      "testNamePattern": "withdraws reproducibility when the observed scanner version differs",
+      "expected": { "profileOutcome": "blocked", "reasonCodes": ["scanner_binary_version_mismatch"], "scannerProcessCount": 0, "toolRunCount": 0, "requestCount": 0, "artifactCount": 0, "canonicalFinalReportCount": 0, "terminalRowCount": 1, "cleanupCount": 0, "existingBytesUnchanged": true, "covered": false, "automaticDownloadCount": 0 }
+    },
+    {
+      "id": "FI-03",
+      "injection": "scanner data probe reports missing and stale states",
+      "productionEntryPoint": "runScanPreflight",
+      "testFile": "api/modules/scans/execution/scan-preflight.test.ts",
+      "testNamePattern": "blocks a required OSV step before execution when its database is missing|keeps optional preflight failures as enforceable coverage gaps",
+      "expected": { "profileOutcome": "blocked", "reasonCodes": ["scanner_data_missing", "scanner_data_stale"], "scannerProcessCount": 0, "toolRunCount": 0, "requestCount": 0, "artifactCount": 0, "canonicalFinalReportCount": 0, "terminalRowCount": 1, "cleanupCount": 0, "existingBytesUnchanged": true, "covered": false, "automaticDownloadCount": 0 }
+    },
+    {
+      "id": "FI-04",
+      "injection": "scanner exits zero with malformed structured output",
+      "productionEntryPoint": "ZapBaselineRunner.run",
+      "testFile": "api/modules/runtime-scans/zap-baseline-runner.test.ts",
+      "testNamePattern": "rejects execution failures and structurally invalid reports",
+      "expected": { "profileOutcome": "failed", "reasonCodes": ["invalid_structured_output"], "scannerProcessCount": 1, "toolRunCount": 1, "requestCount": 0, "artifactCount": 1, "canonicalFinalReportCount": 0, "terminalRowCount": 1, "cleanupCount": 0, "existingBytesUnchanged": true, "covered": false, "automaticDownloadCount": 0 }
+    },
+    {
+      "id": "FI-05",
+      "injection": "child output exceeds its deterministic byte limit",
+      "productionEntryPoint": "runBoundedProcess",
+      "testFile": "api/modules/processes/bounded-process-runner.test.ts",
+      "testNamePattern": "terminates and truncates a child that exceeds its output limit",
+      "expected": { "profileOutcome": "failed", "reasonCodes": ["stdout_limit"], "scannerProcessCount": 1, "toolRunCount": 1, "requestCount": 0, "artifactCount": 0, "canonicalFinalReportCount": 0, "terminalRowCount": 1, "cleanupCount": 0, "existingBytesUnchanged": true, "covered": false, "automaticDownloadCount": 0 }
+    },
+    {
+      "id": "FI-06",
+      "injection": "same owner writes the same artifact key twice",
+      "productionEntryPoint": "ArtifactStorage.forToolRun",
+      "testFile": "api/modules/scans/execution/lifecycle/artifact-storage.test.ts",
+      "testNamePattern": "isolates concurrent tool outputs and rejects a duplicate owner write",
+      "expected": { "profileOutcome": "failed", "reasonCodes": ["artifact_key_conflict"], "scannerProcessCount": 0, "toolRunCount": 1, "requestCount": 0, "artifactCount": 1, "canonicalFinalReportCount": 0, "terminalRowCount": 1, "cleanupCount": 0, "existingBytesUnchanged": true, "covered": false, "automaticDownloadCount": 0 }
+    },
+    {
+      "id": "FI-07",
+      "injection": "runtime target readiness remains pending until the deadline",
+      "productionEntryPoint": "prepareDastTargetWorkspace",
+      "testFile": "api/modules/dast/target-preparer.test.ts",
+      "testNamePattern": "should clean up and throw error if readiness checks persistently fail",
+      "expected": { "profileOutcome": "blocked", "reasonCodes": ["target_start_timeout"], "scannerProcessCount": 0, "toolRunCount": 0, "requestCount": 0, "artifactCount": 0, "canonicalFinalReportCount": 0, "terminalRowCount": 1, "cleanupCount": 0, "existingBytesUnchanged": true, "covered": false, "automaticDownloadCount": 0 }
+    },
+    {
+      "id": "FI-08",
+      "injection": "runtime target stops after the first request",
+      "productionEntryPoint": "aggregateRuntimeAssessmentCoverage",
+      "testFile": "api/modules/scans/coverage/runtime-assessment-coverage.test.ts",
+      "testNamePattern": "treats a runtime target that stops during scanning as a coverage gap",
+      "expected": { "profileOutcome": "failed", "reasonCodes": ["runtime_target_stopped"], "scannerProcessCount": 1, "toolRunCount": 1, "requestCount": 1, "artifactCount": 0, "canonicalFinalReportCount": 0, "terminalRowCount": 1, "cleanupCount": 0, "existingBytesUnchanged": true, "covered": false, "automaticDownloadCount": 0 }
+    },
+    {
+      "id": "FI-09",
+      "injection": "gateway aggregate request budget is exhausted",
+      "productionEntryPoint": "prepareContainerTargetGateway",
+      "testFile": "api/modules/dast/container-target-gateway.test.ts",
+      "testNamePattern": "forwards safe methods, rewrites Host, strips secrets, and enforces budget",
+      "expected": { "profileOutcome": "incomplete", "reasonCodes": ["aggregate_request_budget_exceeded"], "scannerProcessCount": 1, "toolRunCount": 1, "requestCount": 1, "artifactCount": 0, "canonicalFinalReportCount": 0, "terminalRowCount": 1, "cleanupCount": 0, "existingBytesUnchanged": true, "covered": false, "automaticDownloadCount": 0 }
+    },
+    {
+      "id": "FI-10",
+      "injection": "source revision changes after preview and before execution",
+      "productionEntryPoint": "runProfileScan",
+      "testFile": "api/modules/scans/execution/profile-runner.test.ts",
+      "testNamePattern": "fails before starting a scanner when the preflight binding changed",
+      "expected": { "profileOutcome": "blocked", "reasonCodes": ["preflight_changed"], "scannerProcessCount": 0, "toolRunCount": 0, "requestCount": 0, "artifactCount": 0, "canonicalFinalReportCount": 0, "terminalRowCount": 1, "cleanupCount": 0, "existingBytesUnchanged": true, "covered": false, "automaticDownloadCount": 0 }
+    },
+    {
+      "id": "FI-11",
+      "injection": "two terminal transitions race from the same active state",
+      "productionEntryPoint": "ScanRepository.updateScanRunStatus",
+      "testFile": "api/modules/scans/repositories.test.ts",
+      "testNamePattern": "allows exactly one concurrent terminal transition and preserves metadata",
+      "expected": { "profileOutcome": "terminal", "reasonCodes": ["terminal_transition_conflict"], "scannerProcessCount": 0, "toolRunCount": 0, "requestCount": 0, "artifactCount": 0, "canonicalFinalReportCount": 0, "terminalRowCount": 1, "cleanupCount": 0, "existingBytesUnchanged": true, "covered": false, "automaticDownloadCount": 0 }
+    }
+  ]
+}

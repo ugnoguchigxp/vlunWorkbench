@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { ScanScopePolicy } from "../../../shared/schemas/scan-profile.schema";
@@ -144,20 +145,73 @@ export async function createScopedWorkspace(params: {
 	const repoRoot = path.resolve(params.repoPath);
 	let copiedFiles = 0;
 
-	await copyScopedEntries({
-		sourceRoot: repoRoot,
-		currentPath: repoRoot,
-		destinationRoot: workspaceRoot,
-		scope: withMandatoryExcludes(params.scope),
-		additionalScope: params.additionalScope
-			? withMandatoryExcludes(params.additionalScope)
-			: undefined,
-		onFileCopied: () => {
-			copiedFiles++;
-		},
-	});
+	try {
+		await copyScopedEntries({
+			sourceRoot: repoRoot,
+			currentPath: repoRoot,
+			destinationRoot: workspaceRoot,
+			scope: withMandatoryExcludes(params.scope),
+			additionalScope: params.additionalScope
+				? withMandatoryExcludes(params.additionalScope)
+				: undefined,
+			onFileCopied: () => {
+				copiedFiles++;
+			},
+		});
+	} catch (error) {
+		try {
+			await fs.rm(workspaceRoot, { recursive: true, force: true });
+		} catch {
+			throw new Error("scoped_workspace_cleanup_failed");
+		}
+		throw error;
+	}
 
 	return { path: workspaceRoot, copiedFiles };
+}
+
+export async function digestScopedFiles(params: {
+	repoPath: string;
+	scope?: ScanScopePolicy;
+}): Promise<string> {
+	return (await inspectScopedFiles(params)).digest;
+}
+
+export async function inspectScopedFiles(params: {
+	repoPath: string;
+	scope?: ScanScopePolicy;
+}): Promise<{ digest: string; fileCount: number }> {
+	const sourceRoot = await fs.realpath(params.repoPath);
+	const scope = withMandatoryExcludes(params.scope);
+	const hash = crypto.createHash("sha256");
+	let fileCount = 0;
+	const walk = async (currentPath: string): Promise<void> => {
+		const entries = await fs.readdir(currentPath, { withFileTypes: true });
+		for (const entry of entries.sort((left, right) =>
+			left.name.localeCompare(right.name),
+		)) {
+			const absolute = path.join(currentPath, entry.name);
+			const relative = toPosixPath(path.relative(sourceRoot, absolute));
+			if (
+				!relative ||
+				matchesAnyGlob(relative, scope.excludeGlobs) ||
+				(entry.isDirectory() &&
+					matchesAnyGlob(`${relative}/__scope_probe__`, scope.excludeGlobs))
+			)
+				continue;
+			if (entry.isSymbolicLink()) continue;
+			if (entry.isDirectory()) {
+				await walk(absolute);
+				continue;
+			}
+			if (!entry.isFile() || !matchesScopePath(relative, scope)) continue;
+			hash.update(`f:${relative}\0`);
+			hash.update(await fs.readFile(absolute));
+			fileCount++;
+		}
+	};
+	await walk(sourceRoot);
+	return { digest: hash.digest("hex"), fileCount };
 }
 
 function describeScope(scope: ScanScopePolicy): string {
@@ -181,9 +235,7 @@ async function copyScopedEntries(params: {
 	additionalScope?: ScanScopePolicy;
 	onFileCopied: () => void;
 }): Promise<void> {
-	const entries = await fs
-		.readdir(params.currentPath, { withFileTypes: true })
-		.catch(() => []);
+	const entries = await fs.readdir(params.currentPath, { withFileTypes: true });
 
 	for (const entry of entries) {
 		const sourcePath = path.join(params.currentPath, entry.name);
@@ -195,8 +247,18 @@ async function copyScopedEntries(params: {
 		}
 		if (
 			matchesAnyGlob(relativePath, params.scope.excludeGlobs) ||
+			(entry.isDirectory() &&
+				matchesAnyGlob(
+					`${relativePath}/__scope_probe__`,
+					params.scope.excludeGlobs,
+				)) ||
 			(params.additionalScope &&
-				matchesAnyGlob(relativePath, params.additionalScope.excludeGlobs))
+				(matchesAnyGlob(relativePath, params.additionalScope.excludeGlobs) ||
+					(entry.isDirectory() &&
+						matchesAnyGlob(
+							`${relativePath}/__scope_probe__`,
+							params.additionalScope.excludeGlobs,
+						))))
 		) {
 			continue;
 		}
@@ -230,11 +292,7 @@ async function copyScopedEntries(params: {
 }
 
 async function readTopLevelEntries(repoRoot: string) {
-	try {
-		return await fs.readdir(repoRoot, { withFileTypes: true });
-	} catch {
-		return [];
-	}
+	return await fs.readdir(repoRoot, { withFileTypes: true });
 }
 
 function matchesAnyGlob(relativePath: string, globs: string[]): boolean {

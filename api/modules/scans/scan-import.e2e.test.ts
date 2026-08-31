@@ -112,7 +112,13 @@ describe("Scan Import E2E", () => {
 		);
 		expect(rawArtifact?.toolRunId).toBe(result.toolRunId);
 		expect(rawArtifact?.path).toContain(
-			path.join("raw", "fixture-finding.json"),
+			path.join(
+				"owners",
+				"tool-run",
+				result.toolRunId,
+				"raw",
+				"raw_result.json",
+			),
 		);
 		await fs.access(path.resolve(artifactRoot, rawArtifact?.path ?? ""));
 		expect(result.diagnostic).toMatchObject({

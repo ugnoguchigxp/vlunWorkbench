@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { GIT_OBJECT_ID_PATTERN } from "../modules/sources/wiki/git-object-id";
 import type { SourceRepository } from "../modules/sources/source.repository";
 import type { WikiBlobSyncer } from "../modules/sources/wiki/blob-sync";
 import {
@@ -38,8 +39,12 @@ export const writeFolderSchema = z.object({
 });
 
 export const diffQuerySchema = z.object({
-	from: z.string().optional(),
-	to: z.string().optional(),
+	from: z
+		.string()
+		.regex(GIT_OBJECT_ID_PATTERN, "from must be a full Git object ID"),
+	to: z
+		.string()
+		.regex(GIT_OBJECT_ID_PATTERN, "to must be a full Git object ID"),
 });
 
 export const searchQuerySchema = z.object({

@@ -22,6 +22,13 @@ export type DynamicProfileConfig = {
 	updatedAt: string;
 };
 
+export type DynamicProfileTemplate = {
+	id: string;
+	displayName: string;
+	dynamicKind: "test" | "sanitizer" | "fuzz";
+	applicable: boolean;
+};
+
 export type DynamicRun = {
 	id: string;
 	projectId: string;
@@ -97,12 +104,14 @@ export type DynamicEvidence = {
 	createdAt: string;
 };
 
-export async function fetchProjectDynamicProfiles(
-	projectId: string,
-): Promise<{ configs: DynamicProfileConfig[] }> {
-	return requestJson<{ configs: DynamicProfileConfig[] }>(
-		`/api/projects/${projectId}/dynamic-profiles`,
-	);
+export async function fetchProjectDynamicProfiles(projectId: string): Promise<{
+	configs: DynamicProfileConfig[];
+	templates: DynamicProfileTemplate[];
+}> {
+	return requestJson<{
+		configs: DynamicProfileConfig[];
+		templates: DynamicProfileTemplate[];
+	}>(`/api/projects/${projectId}/dynamic-profiles`);
 }
 
 export async function saveProjectDynamicProfile(
@@ -149,6 +158,7 @@ export async function triggerProjectDynamicRun(
 	projectId: string,
 	params: {
 		profileId: string;
+		consentProjectCodeExecution: true;
 		runner?: "docker";
 		dockerImage?: string;
 		network?: "none" | "default";
@@ -156,14 +166,15 @@ export async function triggerProjectDynamicRun(
 		memory?: string;
 		cpus?: string;
 	},
-): Promise<Record<string, unknown> & { dynamicRunId?: string }> {
-	return requestJson<Record<string, unknown> & { dynamicRunId?: string }>(
-		`/api/projects/${projectId}/dynamic-runs`,
-		{
-			method: "POST",
-			body: params,
-		},
-	);
+): Promise<
+	Record<string, unknown> & { dynamicRunId?: string; scanRunId?: string }
+> {
+	return requestJson<
+		Record<string, unknown> & { dynamicRunId?: string; scanRunId?: string }
+	>(`/api/projects/${projectId}/dynamic-runs`, {
+		method: "POST",
+		body: params,
+	});
 }
 
 export async function fetchFindingDynamicRuns(
@@ -178,6 +189,7 @@ export async function triggerFindingDynamicRun(
 	findingId: string,
 	params: {
 		profileId: string;
+		consentProjectCodeExecution?: boolean;
 		runner?: "docker";
 		dockerImage?: string;
 		network?: "none" | "default";

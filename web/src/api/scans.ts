@@ -1,4 +1,4 @@
-import { requestJson } from "./core";
+import { requestJson, requestText } from "./core";
 
 export type Project = {
 	id: string;
@@ -32,6 +32,7 @@ export type ScanRun = {
 export type ScanEvent = {
 	id: string;
 	scanRunId: string;
+	seq: number;
 	level: "debug" | "info" | "warn" | "error";
 	eventType: string;
 	message: string;
@@ -140,6 +141,22 @@ export async function createProject(params: {
 	return data.project;
 }
 
+export type DeleteProjectResult = {
+	deletedProjectId: string;
+	deletedAt: string;
+	artifactCleanup: "queued";
+};
+
+export async function deleteProject(
+	projectId: string,
+	params: { confirmation: string },
+): Promise<DeleteProjectResult> {
+	return requestJson<DeleteProjectResult>(`/api/projects/${projectId}`, {
+		method: "DELETE",
+		body: params,
+	});
+}
+
 export async function browseProjectFolder(): Promise<{ path: string | null }> {
 	return requestJson<{ path: string | null }>("/api/projects/folder-picker", {
 		method: "POST",
@@ -174,6 +191,18 @@ export async function cancelScan(scanRunId: string): Promise<ScanRun> {
 		{ method: "POST" },
 	);
 	return data.scan;
+}
+
+export type DeleteScanResult = {
+	deletedScanRunId: string;
+	deletedAt: string;
+	artifactCleanup: "queued";
+};
+
+export async function deleteScan(scanRunId: string): Promise<DeleteScanResult> {
+	return requestJson<DeleteScanResult>(`/api/scans/${scanRunId}`, {
+		method: "DELETE",
+	});
 }
 
 export async function fetchScanArtifacts(
@@ -350,6 +379,7 @@ export type ScanReport = {
 		providerRouting?: Record<string, unknown>;
 	};
 	status: "queued" | "running" | "completed" | "failed";
+	stage: "preliminary" | "canonical_final";
 	errorMessage: string | null;
 	generatedByUserId: string | null;
 	createdAt: string;
@@ -393,6 +423,7 @@ export type ScanReview = {
 	recommendedNextActions: string[];
 	findingTriageHints: Array<Record<string, unknown>>;
 	confidenceNotes: string[];
+	inputBundle?: Record<string, unknown>;
 	output?: Record<string, unknown>;
 	errorMessage: string | null;
 	createdAt: string;
@@ -409,11 +440,15 @@ export type ScanImprovementRequest = {
 		priority: "critical" | "high" | "medium" | "low";
 		rationale: string;
 		findingIds: string[];
+		issueIds?: string[];
+		warningGroupIds?: string[];
 	}>;
 	implementationTasks: Array<{
 		title: string;
 		body: string;
 		findingIds: string[];
+		issueIds?: string[];
+		warningGroupIds?: string[];
 		evidenceRefs: string[];
 	}>;
 	acceptanceCriteria: string[];
@@ -431,9 +466,11 @@ export type ScanReviewFindingFilter =
 
 export async function fetchScanReviews(
 	scanRunId: string,
+	signal?: AbortSignal,
 ): Promise<ScanReview[]> {
 	const data = await requestJson<{ reviews: ScanReview[] }>(
 		`/api/scans/${scanRunId}/reviews`,
+		{ signal },
 	);
 	return [...data.reviews].sort(
 		(a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
@@ -463,6 +500,28 @@ export async function triggerScanReview(
 	}>(`/api/scans/${scanRunId}/reviews`, { method: "POST", body: input });
 }
 
+export async function triggerScanImprovementRequest(
+	scanRunId: string,
+): Promise<{
+	review: ScanReview | null;
+	result: {
+		ok: boolean;
+		reviewId: string;
+		status: "running" | "failed";
+		error?: string;
+	};
+}> {
+	return requestJson<{
+		review: ScanReview | null;
+		result: {
+			ok: boolean;
+			reviewId: string;
+			status: "running" | "failed";
+			error?: string;
+		};
+	}>(`/api/scans/${scanRunId}/improvement-requests`, { method: "POST" });
+}
+
 export async function fetchScanReports(
 	scanRunId: string,
 ): Promise<ScanReport[]> {
@@ -478,6 +537,35 @@ export async function fetchScanReport(
 	reportId: string,
 ): Promise<{ report: ScanReport }> {
 	return requestJson<{ report: ScanReport }>(`/api/scan-reports/${reportId}`);
+}
+
+export type ScanReportViewerState = {
+	llmCommentSeenAt: string | null;
+};
+
+export async function fetchScanReportViewerState(
+	reportId: string,
+): Promise<ScanReportViewerState> {
+	const data = await requestJson<{ viewerState: ScanReportViewerState }>(
+		`/api/scan-reports/${reportId}/viewer-state`,
+	);
+	return data.viewerState;
+}
+
+export async function markScanReportLlmCommentSeen(
+	reportId: string,
+): Promise<ScanReportViewerState> {
+	const data = await requestJson<{ viewerState: ScanReportViewerState }>(
+		`/api/scan-reports/${reportId}/viewer-state`,
+		{ method: "PUT", body: { llmCommentSeen: true } },
+	);
+	return data.viewerState;
+}
+
+export async function downloadScanReportMarkdown(
+	reportId: string,
+): Promise<string> {
+	return await requestText(`/api/scan-reports/${reportId}/download`);
 }
 
 export * from "./scans-execution";

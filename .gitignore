@@ -44,6 +44,14 @@ Thumbs.db
 /test-results
 /.tmp
 /.cache
+/.preview
+/reports
+
+# Ruby / Jekyll build cache
+/.bundle
+/.jekyll-cache
+/.sass-cache
+/vendor
 
 # generated scan/reproduction outputs
 /artifacts

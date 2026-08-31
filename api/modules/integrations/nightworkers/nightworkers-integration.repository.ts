@@ -24,10 +24,7 @@ import { isIntegrationScanCapacityConstraint } from "./nightworkers-integration-
 
 type MutationQuery = {
 	toSQL(): { sql: string; params: unknown[] };
-	then(
-		onfulfilled?: (value: unknown) => unknown,
-		onrejected?: (reason: unknown) => unknown,
-	): PromiseLike<unknown>;
+	run(): unknown;
 };
 
 type IdempotentResult = {
@@ -78,9 +75,9 @@ export class NightworkersIntegrationRepository {
 			await writer.atomicDrizzleBatch(build(this.db));
 			return;
 		}
-		await runInProcessDbTransaction(this.db, async (transaction) => {
+		runInProcessDbTransaction(this.db, (transaction) => {
 			for (const query of build(transaction as AppDatabase)) {
-				await query;
+				query.run();
 			}
 		});
 	}

@@ -5,6 +5,9 @@ import type { AppDatabase } from "../../db";
 import { AssessmentRepository } from "../assessments/assessment-repository";
 import { ZapActiveAssessmentCoordinator } from "../runtime-scans/zap-active-assessment-coordinator";
 import type { ArtifactStorage } from "../scans/artifact-storage";
+import { buildDedicatedProfileAdmissionMetadata } from "../scans/dedicated-profile-admission";
+import { createDedicatedLaunchAttempt } from "../scans/dedicated-profile-admission";
+import { ScanLaunchAttemptRepository } from "../scans/execution/scan-launch-attempt-repository";
 import { FindingRepository, ScanRepository } from "../scans/repositories";
 import { ActiveAssessmentRepository } from "./active-assessment-repository";
 import {
@@ -23,6 +26,7 @@ export class ActiveAssessmentRunner {
 	private readonly activeRepository: ActiveAssessmentRepository;
 	private readonly dastRepository: DastRepository;
 	private readonly scanRepository: ScanRepository;
+	private readonly scanLaunchAttempts: ScanLaunchAttemptRepository;
 	private readonly findingRepository: FindingRepository;
 	private readonly zapActiveCoordinator: ZapActiveAssessmentCoordinator;
 	private readonly activeProjects = new Set<string>();
@@ -42,6 +46,7 @@ export class ActiveAssessmentRunner {
 		this.activeRepository = new ActiveAssessmentRepository(db);
 		this.dastRepository = new DastRepository(db);
 		this.scanRepository = new ScanRepository(db);
+		this.scanLaunchAttempts = new ScanLaunchAttemptRepository(db);
 		this.findingRepository = new FindingRepository(db);
 		this.zapActiveCoordinator = new ZapActiveAssessmentCoordinator(db, {
 			featureEnabled: deps.zapActiveEnabled === true,
@@ -54,8 +59,12 @@ export class ActiveAssessmentRunner {
 	async run(params: {
 		projectId: string;
 		createdByUserId: string;
+		executionConsent: true;
 		request: RunActiveAssessmentRequest;
 	}) {
+		if (params.executionConsent !== true) {
+			throw new Error("active_assessment_execution_consent_required");
+		}
 		if (this.shuttingDown) {
 			throw new Error("active_assessment_runner_shutting_down");
 		}
@@ -85,6 +94,7 @@ export class ActiveAssessmentRunner {
 	private async runClaimed(params: {
 		projectId: string;
 		createdByUserId: string;
+		executionConsent: true;
 		request: RunActiveAssessmentRequest;
 	}) {
 		const engagement = await this.assessmentRepository.findEngagement(
@@ -96,6 +106,12 @@ export class ActiveAssessmentRunner {
 			engagement.ownerUserId !== params.createdByUserId
 		) {
 			throw new Error("active_assessment_engagement_not_found");
+		}
+		if (
+			engagement.purpose !== "internal" ||
+			!["local", "ephemeral"].includes(engagement.environment)
+		) {
+			throw new Error("active_assessment_disposable_internal_target_required");
 		}
 		const target = await this.dastRepository.getTargetConfig(
 			params.request.targetConfigId,
@@ -126,20 +142,51 @@ export class ActiveAssessmentRunner {
 		if (plannedRequestCount > validatedTarget.maxRequests) {
 			throw new Error("target_request_budget_insufficient_for_plan");
 		}
+		const launchAttempt = await createDedicatedLaunchAttempt({
+			repository: this.scanLaunchAttempts,
+			projectId: params.projectId,
+			createdByUserId: params.createdByUserId,
+			canonicalProfileId: "active-technical-lab",
+			providedInputKinds: [
+				"disposable_target_ref",
+				"rules_of_engagement_ref",
+				"execution_consent",
+			],
+			expectedLaunchDestination: "dast_workspace",
+			sanitizedInputSummary: { requestKind: params.request.kind },
+		});
 		const scanRun = await this.scanRepository.createScanRun({
 			projectId: params.projectId,
-			profile:
-				params.request.kind === "zap_active"
-					? params.request.profileId
-					: `active-lab:${params.request.kind}`,
+			profile: "active-technical-lab",
 			status: "running",
 			createdByUserId: params.createdByUserId,
 			metadata: {
+				...buildDedicatedProfileAdmissionMetadata({
+					canonicalProfileId: "active-technical-lab",
+					expectedLaunchDestination: "dast_workspace",
+					providedInputKinds: [
+						"disposable_target_ref",
+						"rules_of_engagement_ref",
+						"execution_consent",
+					],
+				}),
 				engagementId: engagement.id,
 				targetConfigId: target.id,
 				activeAssessmentKind: params.request.kind,
+				activeEngineProfileId:
+					params.request.kind === "zap_active"
+						? params.request.profileId
+						: null,
 				automaticDiagnosticRequested: true,
+				executionConsent: {
+					granted: true,
+					scope: "state-changing-active-assessment",
+				},
 			},
+		});
+		await this.scanLaunchAttempts.admit({
+			attemptId: launchAttempt.id,
+			scanRunId: scanRun.id,
 		});
 		const activeRun = await this.activeRepository.createRun({
 			projectId: params.projectId,
@@ -203,6 +250,7 @@ export class ActiveAssessmentRunner {
 				activeScanStatus(result.run.status),
 				{
 					summary: result.run.summary,
+					profileOutcome: activeProfileOutcome(result.run.status),
 					metadata: {
 						activeAssessmentRunId: activeRun.id,
 						activeAssessmentStatus: result.run.status,
@@ -229,6 +277,7 @@ export class ActiveAssessmentRunner {
 			});
 			await this.scanRepository.updateScanRunStatus(scanRun.id, "failed", {
 				summary: message,
+				profileOutcome: "failed",
 				metadata: {
 					activeAssessmentRunId: activeRun.id,
 					activeAssessmentStatus: "failed",
@@ -422,6 +471,13 @@ export function activeScanStatus(status: string): "completed" | "failed" {
 	return status === "failed" || status === "failed_cleanup"
 		? "failed"
 		: "completed";
+}
+
+export function activeProfileOutcome(
+	status: string,
+): "completed" | "incomplete" | "failed" {
+	if (status === "failed" || status === "failed_cleanup") return "failed";
+	return status === "completed" ? "completed" : "incomplete";
 }
 
 function zapActivePlannedRequests(

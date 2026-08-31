@@ -10,23 +10,38 @@ import { BusinessLogicRunner } from "../modules/business-logic/business-logic-ru
 import { ActiveAssessmentRunner } from "../modules/dast/active-assessment-runner";
 import { DastAuthContextCrypto } from "../modules/dast/auth-context-crypto";
 import { DastAuthContextRepository } from "../modules/dast/auth-context-repository";
+import { DastArtifactStorage } from "../modules/dast/dast-artifact-storage";
+import { DynamicArtifactStorage } from "../modules/dynamic/dynamic-artifact-storage";
+import { DynamicBundleLeaseJanitor } from "../modules/dynamic/dynamic-bundle-lease-janitor";
 import { IntegrationClientService } from "../modules/integrationClients/integration-client.service";
 import { NightworkersWorkspaceTargetGrantRepository } from "../modules/integrations/nightworkers/nightworkers-workspace-target-grant.repository";
 import { NightworkersWorkspaceTargetGrantJanitor } from "../modules/integrations/nightworkers/nightworkers-workspace-target-grant-janitor";
 import { LlmSettingsRepository } from "../modules/llm-settings/llm-settings.repository";
+import { WebProcessCapacity } from "../modules/processes/web-process-capacity";
 import { SourceRetriever } from "../modules/rag/retriever";
 import { SearchEvidenceCollector } from "../modules/rag/search-evidence";
 import { ScanReportRunner } from "../modules/reports/scan-report-runner";
+import { ReproductionArtifactStorage } from "../modules/reproductions/reproduction-artifact-storage";
+import { RuntimeBundleLeaseJanitor } from "../modules/runtime-isolation/runtime-bundle-lease-janitor";
+import {
+	loadRuntimeIsolationProviderFactory,
+	runtimeIsolationSettingsFromAppEnv,
+} from "../modules/runtime-isolation/runtime-isolation-runtime-config";
 import { ArtifactStorage } from "../modules/scans/artifact-storage";
+import { ScanResourceLeaseRepository } from "../modules/scans/execution/lifecycle/scan-resource-lease-repository";
+import { ProjectArtifactCleanupRunner } from "../modules/scans/project-artifact-cleanup-runner";
+import { ProjectDeletionCleanupRepository } from "../modules/scans/project-deletion-cleanup-repository";
 import { ScanReportRepository } from "../modules/scans/report-repository";
 import {
 	ArtifactRepository,
 	ScanRepository,
 } from "../modules/scans/repositories";
 import { ScanDiagnosticRunner } from "../modules/scans/scan-diagnostic-runner";
+import { ScanImprovementRequestRunner } from "../modules/scans/scan-improvement-request-runner";
 import { ScanProcessSupervisor } from "../modules/scans/scan-process-supervisor";
 import { ScanReviewRepository } from "../modules/scans/scan-review-repository";
 import { ScanReviewRunner } from "../modules/scans/scan-review-runner";
+import { finalizeWebScanAfterDiagnostic } from "../modules/scans/web-scan-post-processing";
 import { SettingsRepository } from "../modules/settings/settings.repository";
 import { SourceRepository } from "../modules/sources/source.repository";
 import {
@@ -61,15 +76,22 @@ export type AppRuntime = {
 	llmRouter: LlmRouter;
 	wikiBlobSyncer: WikiBlobSyncer | null;
 	scanSupervisor: ScanProcessSupervisor;
+	webProcessCapacity: WebProcessCapacity;
 	scanReportRunner: ScanReportRunner;
 	scanDiagnosticRunner: ScanDiagnosticRunner;
+	scanImprovementRequestRunner: ScanImprovementRequestRunner;
 	activeAssessmentRunner: ActiveAssessmentRunner;
 	businessLogicRunner: BusinessLogicRunner;
 	integrationClientService: IntegrationClientService;
+	projectArtifactCleanupRunner: ProjectArtifactCleanupRunner;
 	workspaceTargetGrantJanitor: Pick<
 		NightworkersWorkspaceTargetGrantJanitor,
 		"stop"
 	>;
+	runtimeBundleLeaseJanitor: Pick<RuntimeBundleLeaseJanitor, "stop"> &
+		Partial<Pick<RuntimeBundleLeaseJanitor, "start">>;
+	dynamicBundleLeaseJanitor: Pick<DynamicBundleLeaseJanitor, "stop"> &
+		Partial<Pick<DynamicBundleLeaseJanitor, "start">>;
 	agenticSearchService: {
 		run(input: {
 			query: string;
@@ -124,13 +146,16 @@ declare global {
 	var __honoStandardRuntime__: Promise<unknown> | undefined;
 }
 
-function isRuntimeShape(value: unknown): value is AppRuntime {
+export function isRuntimeShape(value: unknown): value is AppRuntime {
 	if (!value || typeof value !== "object") return false;
 	const obj = value as Record<string, unknown>;
 	const settingsRepo = obj.settingsRepository as
 		| Record<string, unknown>
 		| undefined;
 	const agenticService = obj.agenticSearchService as
+		| Record<string, unknown>
+		| undefined;
+	const projectArtifactCleanupRunner = obj.projectArtifactCleanupRunner as
 		| Record<string, unknown>
 		| undefined;
 	return (
@@ -149,13 +174,23 @@ function isRuntimeShape(value: unknown): value is AppRuntime {
 		Boolean(obj.llmRouter) &&
 		Object.hasOwn(obj, "wikiBlobSyncer") &&
 		Boolean(obj.scanSupervisor) &&
+		Boolean(obj.webProcessCapacity) &&
 		Boolean(obj.scanReportRunner) &&
 		Boolean(obj.scanDiagnosticRunner) &&
+		Boolean(obj.scanImprovementRequestRunner) &&
 		Boolean(obj.activeAssessmentRunner) &&
 		Boolean(obj.businessLogicRunner) &&
 		Boolean(obj.integrationClientService) &&
+		typeof projectArtifactCleanupRunner?.enqueue === "function" &&
+		typeof projectArtifactCleanupRunner?.recover === "function" &&
 		typeof (
 			obj.workspaceTargetGrantJanitor as Record<string, unknown> | undefined
+		)?.stop === "function" &&
+		typeof (
+			obj.runtimeBundleLeaseJanitor as Record<string, unknown> | undefined
+		)?.stop === "function" &&
+		typeof (
+			obj.dynamicBundleLeaseJanitor as Record<string, unknown> | undefined
 		)?.stop === "function" &&
 		typeof settingsRepo?.getSystemContextForUser === "function" &&
 		typeof settingsRepo?.updateSystemContext === "function" &&
@@ -215,12 +250,27 @@ async function createRuntime(): Promise<AppRuntime> {
 		llmRouter,
 		reviewRepository: scanReviewRepository,
 	});
+	const scanImprovementRequestRunner = new ScanImprovementRequestRunner(
+		dbConnection.db,
+		{
+			llmRouter,
+			reviewRepository: scanReviewRepository,
+		},
+	);
 	const scanDiagnosticRunner = new ScanDiagnosticRunner(dbConnection.db, {
 		scanRepository,
 		reviewRepository: scanReviewRepository,
 		reportRepository: scanReportRepository,
 		reviewRunner: scanReviewRunner,
 		reportRunner: scanReportRunner,
+		onCompletedDiagnostic: async (scanRunId, diagnostic) => {
+			await finalizeWebScanAfterDiagnostic({
+				db: dbConnection.db,
+				scanRunId,
+				scanRepository,
+				diagnostic,
+			});
+		},
 	});
 	const dastAuthContextRepository = new DastAuthContextRepository(
 		dbConnection.db,
@@ -244,21 +294,32 @@ async function createRuntime(): Promise<AppRuntime> {
 	const businessLogicRunner = new BusinessLogicRunner(dbConnection.db, {
 		authContextRepository: dastAuthContextRepository,
 	});
+	const webProcessCapacity = new WebProcessCapacity(() => ({
+		concurrency: env.webProcessConcurrency,
+		queueLimit: env.webScanQueueLimit,
+	}));
 	const scanSupervisor = new ScanProcessSupervisor(scanRepository, {
+		processCapacity: webProcessCapacity,
+		wallClockTimeoutSec: () => env.webScanWallClockTimeoutSec,
 		onCompletedScan: async (scanRunId) => {
-			const started = await scanDiagnosticRunner.start(scanRunId);
-			void started.completion.catch((error) => {
-				console.error(
-					`Automated diagnostic ${started.diagnosticRunId} failed:`,
-					error,
-				);
-			});
+			await scanDiagnosticRunner.run(scanRunId);
 		},
 	});
+	const projectArtifactCleanupRunner = new ProjectArtifactCleanupRunner(
+		new ProjectDeletionCleanupRepository(dbConnection.db),
+		{
+			scanStorage: new ArtifactStorage(),
+			dastStorage: new DastArtifactStorage(),
+			dynamicStorage: new DynamicArtifactStorage(),
+			reproductionStorage: new ReproductionArtifactStorage(),
+		},
+	);
 	await scanSupervisor.recoverStaleWebScans();
+	await scanImprovementRequestRunner.recover();
 	await scanDiagnosticRunner.recover();
 	await activeAssessmentRunner.recover();
 	await businessLogicRunner.recover();
+	await projectArtifactCleanupRunner.recover();
 	const integrationClientService = new IntegrationClientService(
 		dbConnection.db,
 	);
@@ -329,6 +390,22 @@ async function createRuntime(): Promise<AppRuntime> {
 			new NightworkersWorkspaceTargetGrantRepository(dbConnection.db),
 		);
 	await workspaceTargetGrantJanitor.start();
+	const runtimeBundleLeaseJanitor = new RuntimeBundleLeaseJanitor(
+		new ScanResourceLeaseRepository(dbConnection.db),
+	);
+	const runtimeIsolationProviderFactory = loadRuntimeIsolationProviderFactory({
+		db: dbConnection.db,
+		settings: runtimeIsolationSettingsFromAppEnv(env),
+	});
+	if (runtimeIsolationProviderFactory) {
+		await runtimeBundleLeaseJanitor.start();
+	}
+	const dynamicBundleLeaseJanitor = new DynamicBundleLeaseJanitor(
+		new ScanResourceLeaseRepository(dbConnection.db),
+	);
+	if (runtimeIsolationProviderFactory) {
+		await dynamicBundleLeaseJanitor.start();
+	}
 
 	return {
 		env,
@@ -347,12 +424,17 @@ async function createRuntime(): Promise<AppRuntime> {
 		llmRouter,
 		wikiBlobSyncer,
 		scanSupervisor,
+		webProcessCapacity,
 		scanReportRunner,
 		scanDiagnosticRunner,
+		scanImprovementRequestRunner,
 		activeAssessmentRunner,
 		businessLogicRunner,
 		integrationClientService,
+		projectArtifactCleanupRunner,
 		workspaceTargetGrantJanitor,
+		runtimeBundleLeaseJanitor,
+		dynamicBundleLeaseJanitor,
 		agenticSearchService,
 	};
 }

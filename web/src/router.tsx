@@ -14,6 +14,8 @@ import {
 	parseOptionalIntelligenceViewId,
 	parseOptionalModuleId,
 } from "./domains/projects/project-intelligence-tab-model";
+import { parseScansSearch } from "./domains/scans/scans-route-search";
+import { parseSettingsSearch } from "./settings-route-search";
 import { DesignSystemProvider } from "./showcase-settings-context";
 import { parseShowcaseTableSearch } from "./showcase-table-search";
 
@@ -60,18 +62,14 @@ const searchRoute = createRoute({
 const settingsRoute = createRoute({
 	getParentRoute: () => rootRoute,
 	path: "/settings",
+	validateSearch: parseSettingsSearch,
 	component: renderAppView("settings"),
 });
 
 const scansRoute = createRoute({
 	getParentRoute: () => rootRoute,
 	path: "/scans",
-	validateSearch: (search: Record<string, unknown>) => ({
-		projectId:
-			typeof search.projectId === "string" ? search.projectId : undefined,
-		scanRunId:
-			typeof search.scanRunId === "string" ? search.scanRunId : undefined,
-	}),
+	validateSearch: parseScansSearch,
 	component: renderAppView("scans"),
 });
 

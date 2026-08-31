@@ -1,5 +1,8 @@
 import { z } from "zod";
+import { runtimeDatabaseModeSchema } from "./runtime-isolation.schema";
 import { sha256DigestSchema } from "./security-capability.schema";
+
+export const SCAN_PREFLIGHT_EVIDENCE_REF_LIMIT = 10;
 
 export const scanPreflightModeSchema = z.enum(["shadow", "enforced"]);
 export const scanPreflightCheckStatusSchema = z.enum([
@@ -21,12 +24,23 @@ export const scanPreflightCheckKindSchema = z.enum([
 	"target_start_plan",
 	"project_code_consent",
 	"sandbox_availability",
+	"scanner_applicability",
 	"api_schema_applicability",
 	"browser_runtime",
+	"scanner_e2e_qualification",
+	"source_revision",
+	"profile_input",
+	"runtime_source_projection",
+	"runtime_dependency_preparation",
+	"runtime_database_isolation",
+	"runtime_network_isolation",
+	"runtime_cleanup_capability",
 ]);
 export const scanPreflightActionSchema = z.enum([
 	"configure_scanner_adapter",
 	"build_toolbox_image",
+	"build_maven_resolver_image",
+	"use_docker_runner",
 	"prepare_scanner_database",
 	"start_docker_daemon",
 	"pull_pinned_image",
@@ -35,6 +49,13 @@ export const scanPreflightActionSchema = z.enum([
 	"configure_target_start_plan",
 	"configure_api_schema",
 	"configure_project_sandbox",
+	"run_scanner_e2e_qualification",
+	"commit_or_clean_worktree",
+	"provide_profile_input",
+	"create_runtime_recipe",
+	"use_supported_npm_lock",
+	"run_runtime_isolation_qualification",
+	"allow_slsa_trust_root_network",
 ]);
 
 export const scanPreflightCheckSchema = z.object({
@@ -57,7 +78,9 @@ export const scanPreflightCheckSchema = z.object({
 	observedPlatform: z.string().min(1).max(80).nullable().optional(),
 	dataState: z.enum(["ready", "missing", "stale", "external"]).nullable(),
 	dataGeneratedAt: z.string().datetime().nullable(),
-	evidenceRefs: z.array(z.string().min(1).max(200)).max(10),
+	evidenceRefs: z
+		.array(z.string().min(1).max(200))
+		.max(SCAN_PREFLIGHT_EVIDENCE_REF_LIMIT),
 });
 
 export const scanPreflightBindingSchema = z.object({
@@ -68,6 +91,7 @@ export const scanPreflightBindingSchema = z.object({
 	dockerImagesHash: sha256DigestSchema.nullable(),
 	targetPlanHash: sha256DigestSchema.nullable(),
 	sourceRevisionHash: sha256DigestSchema.nullable(),
+	profileInputsHash: sha256DigestSchema.nullable().optional(),
 });
 
 export const scanPreflightSummarySchema = z.object({
@@ -77,7 +101,7 @@ export const scanPreflightSummarySchema = z.object({
 	notApplicable: z.number().int().nonnegative(),
 });
 
-export const scanPreflightResultSchema = z.object({
+export const scanPreflightResultV1Schema = z.object({
 	schemaVersion: z.literal(1),
 	projectId: z.string().min(1).max(100).nullable(),
 	profileId: z.string().min(1).max(100),
@@ -85,6 +109,7 @@ export const scanPreflightResultSchema = z.object({
 		.string()
 		.regex(/^[a-f0-9]{40,64}$/)
 		.nullable(),
+	sourceState: z.enum(["clean", "dirty", "unknown"]),
 	mode: scanPreflightModeSchema,
 	status: scanPreflightStatusSchema,
 	createdAt: z.string().datetime(),
@@ -96,6 +121,57 @@ export const scanPreflightResultSchema = z.object({
 	preflightHash: sha256DigestSchema,
 });
 
+export const runtimeIsolationReadyPreflightBindingSchema = z
+	.object({
+		status: z.literal("ready"),
+		sourceSnapshotDigest: sha256DigestSchema,
+		runtimeProjectionDigest: sha256DigestSchema,
+		recipeHash: sha256DigestSchema,
+		dependencyLockDigest: sha256DigestSchema,
+		runtimeIsolationPlanHash: sha256DigestSchema,
+		runtimeIsolationQualificationHash: sha256DigestSchema,
+		dockerDaemonIdentityHash: sha256DigestSchema,
+		imageDigests: z.record(z.string().min(1).max(100), sha256DigestSchema),
+		databaseMode: runtimeDatabaseModeSchema,
+	})
+	.strict();
+
+export const runtimeIsolationBlockedPreflightBindingSchema = z
+	.object({
+		status: z.literal("blocked"),
+		reasonCode: z.string().min(1).max(100),
+	})
+	.strict();
+
+export const runtimeIsolationPreflightBindingSchema = z.discriminatedUnion(
+	"status",
+	[
+		runtimeIsolationReadyPreflightBindingSchema,
+		runtimeIsolationBlockedPreflightBindingSchema,
+	],
+);
+
+export const scanPreflightResultV2Schema = scanPreflightResultV1Schema.extend({
+	schemaVersion: z.literal(2),
+	binding: scanPreflightBindingSchema.extend({
+		runtimeIsolation: runtimeIsolationPreflightBindingSchema,
+	}),
+});
+
+/** Parses saved V1/V2 records without forcing callers to upgrade historic runs. */
+export const scanPreflightAnyResultSchema = z.discriminatedUnion(
+	"schemaVersion",
+	[scanPreflightResultV1Schema, scanPreflightResultV2Schema],
+);
+
+/** The established V1 writer remains available while runtime profiles move to V2. */
+export const scanPreflightResultSchema = scanPreflightResultV1Schema;
+
 export type ScanPreflightMode = z.infer<typeof scanPreflightModeSchema>;
 export type ScanPreflightCheck = z.infer<typeof scanPreflightCheckSchema>;
-export type ScanPreflightResult = z.infer<typeof scanPreflightResultSchema>;
+export type ScanPreflightResultV1 = z.infer<typeof scanPreflightResultV1Schema>;
+export type ScanPreflightResultV2 = z.infer<typeof scanPreflightResultV2Schema>;
+export type ScanPreflightResult = ScanPreflightResultV1 | ScanPreflightResultV2;
+export type AnyScanPreflightResult = z.infer<
+	typeof scanPreflightAnyResultSchema
+>;

@@ -1,10 +1,11 @@
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { Hono } from "hono";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDbConnection, type DbConnection } from "../db";
 import { users } from "../db/schema";
 import { HttpError } from "../modules/auth/errors";
+import { WebProcessCapacity } from "../modules/processes/web-process-capacity";
 import {
 	ProjectRepository,
 	ScanRepository,
@@ -191,5 +192,82 @@ describe("assessments route", () => {
 				limitations: expect.arrayContaining([expect.any(String)]),
 			}),
 		);
+	});
+
+	it("returns 429 before starting ZAP when Web process capacity is occupied", async () => {
+		const project = await projectRepository.createProject({
+			ownerUserId,
+			name: "Capacity fixture",
+			repoPath: "/tmp/assessment-capacity",
+		});
+		const capacity = new WebProcessCapacity(() => ({
+			concurrency: 1,
+			queueLimit: 1,
+		}));
+		const occupied = capacity.tryAcquire();
+		const activeAssessmentRunner = { run: vi.fn() };
+		const capacityApp = new Hono();
+		capacityApp.use("*", async (c, next) => {
+			c.set("authUser", {
+				userId: ownerUserId,
+				email: "assessment@example.com",
+				role: "member",
+			});
+			await next();
+		});
+		capacityApp.onError((error, c) =>
+			error instanceof HttpError
+				? c.json({ message: error.message }, error.status as never)
+				: c.json({ message: (error as Error).message }, 500),
+		);
+		capacityApp.route(
+			"/api",
+			createAssessmentsRoute({
+				db: connection.db,
+				projectRepository,
+				scanRepository: new ScanRepository(connection.db),
+				activeAssessmentRunner: activeAssessmentRunner as never,
+				processCapacity: capacity,
+			}),
+		);
+		const missingConsent = await capacityApp.request(
+			`/api/projects/${project.id}/active-assessment-runs`,
+			{
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ kind: "zap_active" }),
+			},
+		);
+		expect(missingConsent.status).toBe(400);
+		expect((await missingConsent.json()).message).toContain("Explicit consent");
+
+		const response = await capacityApp.request(
+			`/api/projects/${project.id}/active-assessment-runs`,
+			{
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({
+					destructiveConsent: true,
+					engagementId: "11111111-1111-4111-8111-111111111111",
+					targetConfigId: "22222222-2222-4222-8222-222222222222",
+					kind: "zap_active",
+					profileId: "runtime-zap-active-lab",
+					allowedMethods: ["GET"],
+					allowedPaths: ["/"],
+					requestBudget: 1,
+					durationSec: 60,
+					ruleIds: [10_021],
+					resetStrategy: {
+						kind: "container_recreate",
+						fixtureId: "fixture-1",
+						expectedBaselineHash: `sha256:${"a".repeat(64)}`,
+					},
+				}),
+			},
+		);
+
+		expect(response.status).toBe(429);
+		expect(activeAssessmentRunner.run).not.toHaveBeenCalled();
+		occupied?.();
 	});
 });

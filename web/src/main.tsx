@@ -3,6 +3,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { router } from "./router";
 import "./styles.css";
+import "./styles-settings.css";
 import "./styles-auth.css";
 import "./styles-content.css";
 import "./styles-admin.css";

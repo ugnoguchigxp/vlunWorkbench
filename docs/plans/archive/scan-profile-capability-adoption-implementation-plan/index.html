@@ -1,0 +1,1071 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex,follow">
+    <title>Scan Profile Capability Adoption and Optional Scanner Implementation Plan | vulnWorkbench</title>
+    <link rel="stylesheet" href="/vlunWorkbench/assets/css/spec-document.css">
+    <link rel="stylesheet" href="/vlunWorkbench/assets/css/plan-document.css">
+  </head>
+  <body>
+    <article lang="ja" data-spec-role="archived-plan">
+  <h1 id="scan-profile-capability-adoption-implementation-plan">
+    Scan Profile Capability Adoption and Optional Scanner Implementation Plan
+  </h1>
+  <p>
+    Status: Implemented and archived — launchable scan profile scope complete; professional campaign
+    remains planned/unavailable by design
+  </p>
+  <p>Planning baseline commit: <code>c0b399dc2d45268b04ac256227c2f02c38175d9e</code></p>
+  <p>Baseline date: 2026-08-24</p>
+  <p>Plan revision: 2</p>
+  <p>Implementation verification date: 2026-08-24</p>
+  <p>Owner: vulnWorkbench maintainers</p>
+  <p>
+    Target: 組み込み済みのGitleaks、OSV-Scanner、Trivyだけで基本profileを成立させたまま、
+    Semgrepなどの外部scannerを任意能力として安全に追加し、scanner preset、専用workflow、Lab、
+    campaignの境界を公開catalogと実行結果で一貫させる。
+  </p>
+
+  <aside data-type="note">
+    <strong>実装結果</strong>
+    <p>
+      公開scan catalogは13件へ整理し、<code>professional-full</code>は別のcampaign
+      catalogへ移した。campaignはschedulerやhuman reviewを未実装のまま
+      <code>planned / unavailable</code>として公開し、scan start APIでは拒否する。
+      これは未実装能力をscanとして見せないという本計画の判断に沿う。
+    </p>
+    <p>
+      Semgrepはcore toolboxへ同梱せず、disabled、preferred、requiredの契約を実装した。
+      Semgrep非搭載imageでGitleaks、OSV-Scanner、Trivyがnetworkなしで実行できることを確認した。 API
+      read-onlyはJSON/YAML OpenAPIとQuery-only GraphQL、任意の認証contextまで拡張し、
+      実Schemathesisを使ったcontainer qualificationを追加した。
+    </p>
+  </aside>
+
+  <aside data-type="warning">
+    <strong>最重要の非回帰条件</strong>
+    <p>
+      Semgrepが未導入、未設定、または実行不能でも、<code>change-gate</code>と
+      <code>source-assurance</code>はGitleaks、OSV-Scanner、Trivyで実行できなければならない。
+      Semgrepを明示的にmust-run指定した場合だけ、Semgrepの欠落を起動blockerにできる。
+    </p>
+  </aside>
+
+  <h2 id="0-document-authority">0. Document authority</h2>
+  <p>本書は、次の事項に関する実装計画の正本である。</p>
+  <ul>
+    <li>scanner dependencyの必須、条件付き、任意という意味とreadiness判定</li>
+    <li>Semgrepを本体の成立条件にしない任意統合</li>
+    <li>公開profileのproduct上の分類と表示</li>
+    <li>追加scannerの採用順序と採用gate</li>
+    <li>
+      <code>professional-full</code>をscan profileからcampaignへ移す段階的な移行
+    </li>
+  </ul>
+  <p>
+    共通Execution Plan、event ledger、engine driver、cleanup、qualificationの基盤設計は
+    <a href="/vlunWorkbench/plans/archive/?doc=scan-profile-execution-architecture-migration-plan">Scan Profile Execution Architecture Migration Plan</a>を引き続き正本とする。本書はその実行基盤を置き換えず、optional scannerとproduct分類の
+    要件を追加する。
+  </p>
+  <p>
+    <code>professional-full</code>については、本書の「公開scan
+    profileにはしない」という判断を優先する。 既存のrun-group contractは削除せず、campaign
+    catalogへ移すまで内部contractとして保持する。
+  </p>
+  <p>
+    planning時のworkspaceには利用者の未commit変更がある。実装開始時にはHEADとdirty file一覧を
+    evidenceへ記録し、reset、checkout、stash、上書きを行わない。
+  </p>
+
+  <h2 id="1-executive-decision">1. Executive decision</h2>
+  <ol>
+    <li>
+      <code>change-gate</code>と<code>source-assurance</code>の成立条件は、組み込み済みの
+      Gitleaks、OSV-Scanner、Trivyとする。Semgrep
+      SASTは追加coverageであり、既定では成立条件にしない。
+    </li>
+    <li>
+      外部scannerを追加できることと、すべてのprofileがscannerだけで自動化できることを同一視しない。
+      認証、active scan、business
+      logic、fuzzは対象側の設定またはscenarioを必要とする専用workflowとして残す。
+    </li>
+    <li>
+      実現できないclaimを削除する。実装済みの限定機能やLab基盤は、scanner
+      presetでないことを理由に削除しない。
+    </li>
+    <li>
+      <code>professional-full</code>は公開scan
+      selectorから除外し、複数runと人手reviewを束ねるcampaignへ移す。 campaign schedulerとreview
+      lifecycleが完成するまでlaunchableにしない。
+    </li>
+    <li>
+      新しいscannerは「インストール可能」という理由だけでは採用しない。既存coverageとの差、license、
+      structured output、offline性、安全境界、保守負担を満たしたものだけをadapter化する。
+    </li>
+  </ol>
+
+  <h3 id="11-target-outcomes">1.1 Target outcomes</h3>
+  <table>
+    <caption>
+      1.1 本計画の完了時に保証する状態
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">ID</th>
+        <th scope="col">Outcome</th>
+        <th scope="col">検証方法</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>O-01</td>
+        <td>
+          Semgrepなしで<code>change-gate</code>と<code>source-assurance</code>がreadyになり、core
+          scanを完了する。
+        </td>
+        <td>readiness unit testとSemgrep非搭載imageでのreal execution receipt</td>
+      </tr>
+      <tr>
+        <td>O-02</td>
+        <td>SemgrepありではSASTが追加され、結果から実施有無と失敗を識別できる。</td>
+        <td>preferred/required modeのplan、artifact、coverage ledger検証</td>
+      </tr>
+      <tr>
+        <td>O-03</td>
+        <td>公開画面でscanner preset、workflow、Lab、advanced runnerを区別できる。</td>
+        <td>catalog schema、API contract、Web component test</td>
+      </tr>
+      <tr>
+        <td>O-04</td>
+        <td>
+          <code>professional-full</code>がscanとして起動できず、campaignとしてのみ再導入可能になる。
+        </td>
+        <td>launch拒否test、catalog contract、legacy compatibility test</td>
+      </tr>
+      <tr>
+        <td>O-05</td>
+        <td>profileの説明が実際に実行した能力を超えて保証しない。</td>
+        <td>claim matrixとcurrent-commit qualification receipt</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2 id="2-planning-baseline">2. Planning baseline and confirmed gaps</h2>
+  <table>
+    <caption>
+      2.1 現行実装で確認済みの事実
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">ID</th>
+        <th scope="col">Current fact</th>
+        <th scope="col">Required change</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>BF-01</td>
+        <td>
+          dependency manifestでは<code>scanner.semgrep</code>が
+          <code>required_if_applicable</code>だが、readinessはprofileの全
+          <code>dependencyIds</code>を一律blockerとして扱う。
+        </td>
+        <td>manifest requirementと選択modeをreadinessへ反映する。</td>
+      </tr>
+      <tr>
+        <td>BF-02</td>
+        <td>
+          canonical source profileはSemgrep有効時にstepを
+          <code>required: true</code>、<code>fail_profile</code>として追加する。
+        </td>
+        <td>preferredとrequiredでstep failure policyを分ける。</td>
+      </tr>
+      <tr>
+        <td>BF-03</td>
+        <td>
+          <code>profile-definitions.ts</code>はSemgrepの有効・無効にかかわらず、source
+          profileの dependencyとstep IDへSemgrepを列挙する。
+        </td>
+        <td>variant解決時にdependency/step applicabilityを確定する。</td>
+      </tr>
+      <tr>
+        <td>BF-04</td>
+        <td>
+          planning baselineの公開catalogは14件を持つが、scanner preset、専用flow、Lab、run
+          groupが同じ一覧にある。
+        </td>
+        <td>product分類をschemaに追加し、consumerが分類を推測しないようにする。</td>
+      </tr>
+      <tr>
+        <td>BF-05</td>
+        <td>
+          <code>api-readonly</code>の実装は自己完結したJSON
+          OpenAPI/Swaggerが中心で、GraphQL claimと一致しない。
+        </td>
+        <td>先にclaimを縮小し、YAMLとGraphQL Query-onlyは個別qualification後に追加する。</td>
+      </tr>
+      <tr>
+        <td>BF-06</td>
+        <td>
+          <code>professional-full</code>はplanned/unavailableで、child
+          schedulingと人手reviewを統合した起動経路がない。
+        </td>
+        <td>scan catalogからcampaign catalogへ段階的に移す。</td>
+      </tr>
+      <tr>
+        <td>BF-07</td>
+        <td>
+          profile architectureとqualificationの一部はfixture inventoryの存在を主に確認している。
+        </td>
+        <td>current sourceと実scanner executionにbindされたreceiptをpromotion条件にする。</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2 id="3-product-model">3. Target product model</h2>
+  <p>
+    catalog
+    entryへ<code>experienceKind</code>を追加し、表示先と実行責務を明示する。
+    既存の<code>launchMode</code>は起動方式を表すため残し、product分類の代用にはしない。
+  </p>
+  <table>
+    <caption>
+      3.1 Product分類
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col"><code>experienceKind</code></th>
+        <th scope="col">意味</th>
+        <th scope="col">公開場所</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>scanner_preset</code></td>
+        <td>toolとpolicyを選ぶだけで自動実行できる診断</td>
+        <td>通常のscan selector</td>
+      </tr>
+      <tr>
+        <td><code>assessment_workflow</code></td>
+        <td>認証context、test command、findingなど追加入力を必要とする診断</td>
+        <td>目的別workspace</td>
+      </tr>
+      <tr>
+        <td><code>lab</code></td>
+        <td>RoE、隔離、reset、cleanupなど安全条件を必要とする診断</td>
+        <td>Lab section</td>
+      </tr>
+      <tr>
+        <td><code>advanced_runner</code></td>
+        <td>利用者がcommandや設定を管理する汎用実行基盤</td>
+        <td>Advanced settings</td>
+      </tr>
+      <tr>
+        <td><code>campaign</code></td>
+        <td>複数run、結果集約、人手reviewを束ねる上位概念</td>
+        <td>scan selector外のcampaign UI</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <table>
+    <caption>
+      3.2 Profile移行matrix
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Profile</th>
+        <th scope="col">Target kind</th>
+        <th scope="col">Action</th>
+        <th scope="col">Target claim</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>change-gate</code></td>
+        <td><code>scanner_preset</code></td>
+        <td>維持</td>
+        <td>Gitleaks、OSV、Trivyで成立。利用可能ならSemgrepを追加</td>
+      </tr>
+      <tr>
+        <td><code>source-assurance</code></td>
+        <td><code>scanner_preset</code></td>
+        <td>維持</td>
+        <td>Secret、SCA、設定診断で成立。SAST実施有無を別表示</td>
+      </tr>
+      <tr>
+        <td><code>dependency-supply-chain</code></td>
+        <td><code>scanner_preset</code></td>
+        <td>維持</td>
+        <td>SCA、SBOM、提供された署名付きSLSA provenanceの検証。署名生成は対象外</td>
+      </tr>
+      <tr>
+        <td><code>release-artifact</code></td>
+        <td><code>scanner_preset</code></td>
+        <td>維持</td>
+        <td>既存filesystem artifactまたはcontainer imageのscan。自動buildは対象外</td>
+      </tr>
+      <tr>
+        <td><code>runtime-passive</code></td>
+        <td><code>scanner_preset</code></td>
+        <td>維持</td>
+        <td>bounded passive DAST、Nuclei Safe、ZAP Baseline</td>
+      </tr>
+      <tr>
+        <td><code>api-readonly</code></td>
+        <td><code>scanner_preset</code></td>
+        <td>維持、claim修正</td>
+        <td>qualified済みschema形式とread-only operationだけを実行</td>
+      </tr>
+      <tr>
+        <td><code>dynamic-verification</code></td>
+        <td><code>assessment_workflow</code></td>
+        <td>移動</td>
+        <td>対象projectが許可した標準test commandの隔離実行</td>
+      </tr>
+      <tr>
+        <td><code>authenticated-web</code></td>
+        <td><code>assessment_workflow</code></td>
+        <td>移動</td>
+        <td>提供された認証contextを使うread-only Web診断。認証方式全般の保証ではない</td>
+      </tr>
+      <tr>
+        <td><code>remediation-verification</code></td>
+        <td><code>assessment_workflow</code></td>
+        <td>移動</td>
+        <td>元findingにbindされたscannerまたはscenarioの再実行</td>
+      </tr>
+      <tr>
+        <td><code>sanitizer-fuzz-lab</code></td>
+        <td><code>lab</code></td>
+        <td>維持</td>
+        <td>project側recipeまたはharnessがある場合だけ実行</td>
+      </tr>
+      <tr>
+        <td><code>active-technical-lab</code></td>
+        <td><code>lab</code></td>
+        <td>維持</td>
+        <td>RoE、budget、disposable target、reset、cleanupを満たすactive診断</td>
+      </tr>
+      <tr>
+        <td><code>business-logic-lab</code></td>
+        <td><code>lab</code></td>
+        <td>維持</td>
+        <td>利用者が定義したbounded scenarioの検証。汎用自動発見はclaimしない</td>
+      </tr>
+      <tr>
+        <td><code>custom-dynamic-lab</code></td>
+        <td><code>advanced_runner</code></td>
+        <td>通常selectorから移動</td>
+        <td>明示的なcommand、同意、隔離条件を持つ高度な実行</td>
+      </tr>
+      <tr>
+        <td><code>professional-full</code></td>
+        <td><code>campaign</code></td>
+        <td>scan catalogから段階的に分離</td>
+        <td>qualified child runと人手reviewを集約する上位workflow</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2 id="4-optional-scanner-contract">4. Optional scanner contract</h2>
+  <p>
+    optional
+    scannerの選択状態は<code>disabled</code>、<code>preferred</code>、
+    <code>required</code>の3値とする。既存の
+    <code>VULN_WORKBENCH_OPTIONAL_SCANNER_ADAPTERS=semgrep</code>は互換性のため
+    <code>preferred</code>へ解決する。
+  </p>
+  <table>
+    <caption>
+      4.1 Semgrep readinessと実行結果
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Selection</th>
+        <th scope="col">Semgrep readiness</th>
+        <th scope="col">Profile admission</th>
+        <th scope="col">Step policy</th>
+        <th scope="col">Coverage表示</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>disabled</code></td>
+        <td>probeしない</td>
+        <td>core dependencyだけで判定</td>
+        <td>planへ追加しない</td>
+        <td><code>source_sast: gap</code></td>
+      </tr>
+      <tr>
+        <td><code>preferred</code></td>
+        <td>unavailable</td>
+        <td>warning付きでready</td>
+        <td><code>skipped / capability_unavailable</code></td>
+        <td><code>source_sast: gap</code></td>
+      </tr>
+      <tr>
+        <td><code>preferred</code></td>
+        <td>ready</td>
+        <td>ready</td>
+        <td>
+          <code>required: false</code>、<code>warn_and_continue</code>
+        </td>
+        <td>
+          成功時<code>covered</code>、失敗時<code>gap</code>
+        </td>
+      </tr>
+      <tr>
+        <td><code>required</code></td>
+        <td>unavailable</td>
+        <td><code>blocked_environment</code></td>
+        <td>実行しない</td>
+        <td>must-run未充足</td>
+      </tr>
+      <tr>
+        <td><code>required</code></td>
+        <td>ready</td>
+        <td>ready</td>
+        <td>
+          <code>required: true</code>、<code>fail_profile</code>
+        </td>
+        <td>成功時のみ<code>covered</code></td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    profileのprocess statusとcapability coverageを分離する。core scannerが完了し、preferred
+    Semgrepが欠落または失敗したrunは、profile自体を<code>completed</code>にできるが、
+    <code>source_sast</code>をcoveredとしてはならない。UI、report、APIはこの二つを混ぜない。
+  </p>
+  <p>
+    optional scannerのbinary、container image、rule bundleは本体のcore distributionへ混在させない。
+    provenance、version、digest、rule
+    sourceは実行receiptへ保存する。外部licenseへの同意や別配布が必要な
+    scannerは、設定画面から明示的に有効化する。
+  </p>
+
+  <h2 id="5-scanner-adoption-portfolio">5. Scanner adoption portfolio</h2>
+  <table>
+    <caption>
+      5.1 導入候補と判断
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Scanner / capability</th>
+        <th scope="col">Priority</th>
+        <th scope="col">Plan</th>
+        <th scope="col">Adoption gate</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Semgrep</td>
+        <td>P0</td>
+        <td>既存adapterを任意契約へ修正。本体成立条件にはしない</td>
+        <td>off/preferred/requiredの5ケースがすべてqualificationを通ること</td>
+      </tr>
+      <tr>
+        <td>Schemathesis</td>
+        <td>P1</td>
+        <td>採用済み。OpenAPI YAML、認証context、GraphQL Query-onlyへ拡張</td>
+        <td>state-changing operationを生成しないnegative testがあること</td>
+      </tr>
+      <tr>
+        <td>testssl.sh</td>
+        <td>P1 candidate</td>
+        <td>
+          現時点では不採用。HTTPS targetとraw TLS connection
+          budgetを安全に提供できるまで再評価しない
+        </td>
+        <td>GPL配布判断、pinned image、JSON正規化、request budget、offline再現性</td>
+      </tr>
+      <tr>
+        <td>gosec / Bandit / Brakeman</td>
+        <td>P2 candidate</td>
+        <td>言語別の実測gapがある場合だけadapter化</td>
+        <td>Semgrepとの追加検出価値、誤検出、license、SARIF/JSON、dedupeを測定</td>
+      </tr>
+      <tr>
+        <td>Syft</td>
+        <td>採用保留</td>
+        <td>Trivy CycloneDXで不足するSBOM項目が確認されるまで追加しない</td>
+        <td>重複しない明確なSBOM gapがあること</td>
+      </tr>
+      <tr>
+        <td>CodeQL</td>
+        <td>標準採用しない</td>
+        <td>本体同梱や既定CI scannerにはしない</td>
+        <td>利用者側licenseとbuild環境を満たす外部integrationとしてのみ再評価</td>
+      </tr>
+      <tr>
+        <td>汎用fuzz engine</td>
+        <td>scanner preset化しない</td>
+        <td><code>sanitizer-fuzz-lab</code>のrecipeとして追加</td>
+        <td>対象projectにharness、seed、timeout、cleanupがあること</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2 id="6-work-packages">6. Work packages and implementation order</h2>
+  <p>各work packageは前段のexit gateを満たしてから開始する。P0完了前に新scannerを増やさない。</p>
+
+  <h3 id="sp-00">SP-00 — Baseline and contract freeze</h3>
+  <p>Purpose: 現在の挙動を再現可能な形で固定し、変更後の差分を判定できるようにする。</p>
+  <ol>
+    <li>
+      実装開始時のHEAD、dirty files、runtime platform、scanner version/image digestを記録する。
+    </li>
+    <li>Semgrep無効と有効の両方でcatalog、resolved profile、readiness、dry-run planを保存する。</li>
+    <li>
+      baseline時点の14 entryについてlaunchability、launch destination、required
+      input、実行engineをmatrix化する。
+    </li>
+    <li>
+      現在のstability baselineがcurrent sourceへbindされているか検証し、stale metadataを分離する。
+    </li>
+  </ol>
+  <p>
+    Exit gate: Semgrep欠落時にsource profileがblockされる現象を自動testで再現し、既存core scannerの
+    successful fixtureを保存していること。
+  </p>
+
+  <h3 id="sp-01">SP-01 — Dependency applicability and readiness</h3>
+  <p>Purpose: dependencyの欠落を一律blockerにする現在のreadinessを修正する。</p>
+  <ol>
+    <li>
+      dependency manifestの<code>requirement</code>とoptional scanner
+      selectionを結合し、
+      dependencyごとに<code>applicable</code>、<code>blocking</code>、probe結果を解決する。
+    </li>
+    <li>
+      readiness responseへblocking reasonとwarningを分けて返す。 preferred
+      scanner欠落はwarning、required dependency欠落だけをblockerにする。
+    </li>
+    <li>
+      readiness hashとplan
+      hashへselection、applicability、probe結果を含め、preview/start間の変更を検出する。
+    </li>
+    <li>filesystemやgenerated resourceの実probeを未実装のままready扱いしない。</li>
+  </ol>
+  <p>
+    Primary files: <code>shared/schemas/scan-profile-definition.schema.ts</code>、
+    <code>shared/schemas/scan-dependency-manifest.schema.ts</code>、 <code>shared/manifests/scan-dependencies.v1.json</code>、
+    <code>api/modules/scans/profile-definitions.ts</code>、 <code>api/modules/scans/execution/dependency-registry.ts</code>、
+    <code>api/modules/scans/execution/scan-readiness-service.ts</code>。
+  </p>
+  <p>
+    Exit gate: core dependencyがreadyなら、Semgrep無効またはpreferred/unavailableの
+    <code>change-gate</code>と<code>source-assurance</code>がreadyを返すこと。
+  </p>
+
+  <h3 id="sp-02">SP-02 — Optional Semgrep execution and reporting</h3>
+  <p>Purpose: readiness修正と実行・reportを同じoptional契約へ揃える。</p>
+  <ol>
+    <li>optional scanner設定を3値へ正規化する。既存env設定はpreferredとして後方互換を維持する。</li>
+    <li>
+      canonical profile builderがpreferredとrequiredで<code>required</code>と
+      <code>failurePolicy</code>を切り替えるようにする。
+    </li>
+    <li>
+      Semgrepを実行しない場合も、coverage ledgerへ<code>source_sast</code>のgap
+      reasonを保存する。
+    </li>
+    <li>summary、report、Webで「profile完了」と「SAST実施済み」を別の状態として表示する。</li>
+    <li>Semgrepのversion、rule digest、config source、network policyをreceiptへ保存する。</li>
+  </ol>
+  <p>
+    Primary files: <code>api/modules/scans/optional-scanner-adapter-config.ts</code>、
+    <code>api/modules/scans/canonical-scan-profiles.ts</code>、 <code>api/modules/scans/static-scanner-adapters.ts</code>、
+    <code>api/modules/scans/coverage/coverage-ledger.ts</code>、scan summary/report、Web result components。
+  </p>
+  <p>
+    Exit gate: Section 4.1の全caseでplan、run status、coverage status、artifactが一致し、 preferred
+    Semgrepの欠落・失敗がcore scannerの実行を止めないこと。
+  </p>
+
+  <h3 id="sp-03">SP-03 — Catalog classification and consumer migration</h3>
+  <p>Purpose: scannerでないflowを削除せず、利用者に正しい場所と前提を示す。</p>
+  <ol>
+    <li>
+      <code>experienceKind</code>をcatalog schemaへadditive fieldとして追加し、13
+      scan entryと1 campaign entryをSection 3.2へ固定する。
+    </li>
+    <li>catalog説明、limitation code、required inputを実装済み範囲へ合わせる。</li>
+    <li>
+      Web selectorをscanner preset、workflow、Lab、advancedへ分ける。consumer側のID
+      hard-codeを増やさない。
+    </li>
+    <li>CLIとintegrationにはkindとlaunch destinationを返すが、既存IDの互換解決は維持する。</li>
+    <li>
+      <code>professional-full</code>は現在の非表示・起動不可を維持する。campaign
+      catalog導入後に scan catalog entryを削除する。
+    </li>
+  </ol>
+  <p>
+    Primary files: <code>shared/schemas/scan-profile-catalog.schema.ts</code>、
+    <code>api/modules/scans/profile-catalog.ts</code>、scan profile API、
+    <code>web/src/api/scans-execution.ts</code>、<code>web/src/domains/scans/</code>、
+    NightWorkers capability response。
+  </p>
+  <p>
+    Exit gate:
+    UIに<code>professional-full</code>がscanとして表示されず、専用flowがgeneric
+    startへ 誤送信されず、legacy profile IDの保存・解決が変わらないこと。
+  </p>
+
+  <h3 id="sp-04">SP-04 — API read-only claim correction and expansion</h3>
+  <p>Purpose: 先に過大claimをなくし、安全にqualificationできたschema形式だけを追加する。</p>
+  <ol>
+    <li>現行catalogを「JSON OpenAPI/Swagger対応」へ修正し、未対応のGraphQL表記を削除する。</li>
+    <li>
+      repository内のYAML schema parseを追加し、外部参照、巨大schema、循環参照のbudgetを定義する。
+    </li>
+    <li>既存auth contextをSchemathesis起動入力へbindし、secretをargv、log、artifactへ残さない。</li>
+    <li>GraphQLはQuery-only variantとして追加し、Mutationとsubscriptionを明示的に拒否する。</li>
+    <li>各形式を別qualification caseにし、一つの成功fixtureで全形式をstable扱いしない。</li>
+  </ol>
+  <p>
+    Exit gate: JSON OpenAPI、YAML OpenAPI、GraphQL Query-onlyの各caseでread-only policyが通り、
+    Mutation、state-changing HTTP method、認証secret露出のnegative testが通ること。
+  </p>
+
+  <h3 id="sp-05">SP-05 — TLS scanner adoption spike</h3>
+  <p>
+    Purpose:
+    <code>testssl.sh</code>をruntime-passiveへ任意追加できるか判断する。
+  </p>
+  <ol>
+    <li>licenseと配布方式を<code>spec/decisions/third-party-scanners.html</code>へ記録する。</li>
+    <li>本体toolboxへ混在させず、pinned external imageまたは利用者指定binaryで検証する。</li>
+    <li>
+      JSON output normalizer、HTTPS applicability、timeout、connection
+      budget、redactionをprototype化する。
+    </li>
+    <li>Nuclei/ZAPと重複しないTLS protocol/cipher evidenceが得られるか測定する。</li>
+  </ol>
+  <p>
+    Exit gate: license、provenance、structured
+    output、安全budget、追加coverageの全項目が承認された場合だけ preferred optional
+    adapterとして採用する。一項目でも満たさなければ実装せず、spike結果だけを残す。
+  </p>
+  <p>
+    Result: 不採用。licenseとstructured JSONは確認できたが、現在の自動runtime targetはHTTPであり、
+    既存HTTP gatewayではraw TLS connection budgetを強制できない。したがって
+    <code>runtime-passive</code>へTLS coverageを追加せず、TLS診断をclaimしない。
+  </p>
+
+  <h3 id="sp-06">SP-06 — Campaign separation and legacy compatibility</h3>
+  <p>Purpose: <code>professional-full</code>をscan名ではなく上位campaignへ移す。</p>
+  <ol>
+    <li>campaign catalogとcampaign ID schemaをscan profile schemaから分離する。</li>
+    <li>
+      既存professional run-group contractはscan実行契約から切り離し、将来のcampaign
+      coordinator用contractとして保持する。
+    </li>
+    <li>
+      child preview、immutable binding、scheduler、result aggregation、human review gateが揃うまで、
+      campaignを<code>planned / unavailable</code>から昇格させない。
+    </li>
+    <li>
+      legacy <code>full-security-scan</code>は既存execution presetとして維持し、
+      professional campaignと同等だと表示しない。usage evidenceなしにredirectまたは削除しない。
+    </li>
+    <li>
+      <code>professional-full</code>をscan catalogとcanonical scan
+      IDから削除し、campaign catalogだけに置く。
+    </li>
+  </ol>
+  <p>
+    Exit gate: scan start APIがcampaign IDを拒否し、campaign catalogが未実装のschedulerやreviewを
+    launchableと表示せず、既存<code>full-security-scan</code>の実行内容が変わらないこと。campaignの
+    launchable昇格には、child runの成功、失敗、not-applicable、review未完了を集約する別実装と
+    qualificationを必要とする。
+  </p>
+
+  <h3 id="sp-07">SP-07 — Qualification, rollout, and closeout</h3>
+  <p>Purpose: schema整合性だけでなく、current source上の実行結果で完了を証明する。</p>
+  <ol>
+    <li>unit、contract、integration、real scanner qualificationをSection 8のmatrixで実行する。</li>
+    <li>
+      receiptをsource tree digest、catalog entry hash、execution definition hash、tool/image
+      digestへbindする。
+    </li>
+    <li>
+      同一caseを規定回数実行し、normalized result、cleanup、network requestの再現性を検証する。
+    </li>
+    <li>current HEADと異なる古いcommit metadataをstable根拠として再利用しない。</li>
+    <li>claim matrix、README、設定画面説明、運用runbookを実装結果へ合わせる。</li>
+  </ol>
+  <p>
+    Exit gate: Section 11のDefinition of Doneをすべて満たし、rollback rehearsalとmaintainer
+    reviewが完了していること。
+  </p>
+
+  <h2 id="7-file-level-change-map">7. File-level change map</h2>
+  <table>
+    <caption>
+      7.1 変更領域と責務
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Area</th>
+        <th scope="col">Primary paths</th>
+        <th scope="col">Change</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Schema</td>
+        <td>
+          <code>shared/schemas/scan-profile-*.ts</code>、<code>scan-launch.schema.ts</code>
+        </td>
+        <td>experience kind、optional selection、warning、campaign分離</td>
+      </tr>
+      <tr>
+        <td>Dependency</td>
+        <td>
+          <code>shared/manifests/scan-dependencies.v1.json</code>、<code>dependency-registry.ts</code>
+        </td>
+        <td>requirementとapplicabilityをprobe結果へ反映</td>
+      </tr>
+      <tr>
+        <td>Profile definition</td>
+        <td>
+          <code>profile-catalog.ts</code>、<code>profile-definitions.ts</code>、<code>canonical-scan-profiles.ts</code>
+        </td>
+        <td>分類、claim、variant dependency、Semgrep step policy</td>
+      </tr>
+      <tr>
+        <td>Admission</td>
+        <td><code>scan-readiness-service.ts</code>、preflight、preview/start binding</td>
+        <td>blockerとwarningを分離し、selectionをhashへbind</td>
+      </tr>
+      <tr>
+        <td>Execution</td>
+        <td>profile orchestrator、adapter registry、Semgrep runner、coverage ledger</td>
+        <td>preferred failureの継続とrequired failureの停止</td>
+      </tr>
+      <tr>
+        <td>API read-only</td>
+        <td><code>api/modules/api-schema-fuzz/</code>、auth context、Schemathesis adapter</td>
+        <td>claim修正、YAML、auth、GraphQL Query-only</td>
+      </tr>
+      <tr>
+        <td>Consumer</td>
+        <td>
+          <code>web/src/api/scans-execution.ts</code>、<code>web/src/domains/scans/</code>、CLI、NightWorkers
+        </td>
+        <td>分類表示、coverage表示、専用destination、互換維持</td>
+      </tr>
+      <tr>
+        <td>Qualification</td>
+        <td><code>scripts/scan-profile-qualification/</code>、stability baseline、scanner E2E</td>
+        <td>実scanner receiptとcurrent source binding</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2 id="8-test-and-acceptance-matrix">8. Test and acceptance matrix</h2>
+  <table>
+    <caption>
+      8.1 必須test case
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">ID</th>
+        <th scope="col">Scenario</th>
+        <th scope="col">Expected</th>
+        <th scope="col">Level</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>T-01</td>
+        <td>Semgrep disabled、core scanner ready</td>
+        <td>source profile ready、Semgrep stepなし、SAST gap</td>
+        <td>unit / contract / real run</td>
+      </tr>
+      <tr>
+        <td>T-02</td>
+        <td>Semgrep preferred、binaryなし</td>
+        <td>warning付きready、core run completed</td>
+        <td>unit / integration</td>
+      </tr>
+      <tr>
+        <td>T-03</td>
+        <td>Semgrep preferred、実行成功</td>
+        <td>coreとSASTが完了、source_sast covered</td>
+        <td>real scanner qualification</td>
+      </tr>
+      <tr>
+        <td>T-04</td>
+        <td>Semgrep preferred、実行失敗</td>
+        <td>core runはcompleted、Semgrep failed、source_sast gap</td>
+        <td>failure injection</td>
+      </tr>
+      <tr>
+        <td>T-05</td>
+        <td>Semgrep required、binaryなし</td>
+        <td>起動前にblocked、core runを部分開始しない</td>
+        <td>unit / integration</td>
+      </tr>
+      <tr>
+        <td>T-06</td>
+        <td>required core scannerなし</td>
+        <td>従来どおりblocked</td>
+        <td>regression</td>
+      </tr>
+      <tr>
+        <td>T-07</td>
+        <td>profile catalog取得</td>
+        <td>全entryにexperience kindがあり、consumer間で同じ分類</td>
+        <td>schema / API / Web</td>
+      </tr>
+      <tr>
+        <td>T-08</td>
+        <td>専用workflowをgeneric startへ送信</td>
+        <td>正しいdestinationを返すか明示拒否</td>
+        <td>API contract</td>
+      </tr>
+      <tr>
+        <td>T-09</td>
+        <td><code>professional-full</code>をscan startへ送信</td>
+        <td>起動不可。campaign API以外では受理しない</td>
+        <td>schema / route / Web</td>
+      </tr>
+      <tr>
+        <td>T-10</td>
+        <td>legacy <code>full-security-scan</code></td>
+        <td>保存IDと実行内容を維持し、professional claimを付けない</td>
+        <td>compatibility</td>
+      </tr>
+      <tr>
+        <td>T-11</td>
+        <td>GraphQL Mutationまたはstate-changing API operation</td>
+        <td>scan requestを送信せずpolicy rejectionを記録</td>
+        <td>negative security test</td>
+      </tr>
+      <tr>
+        <td>T-12</td>
+        <td>current-commit qualification</td>
+        <td>source/catalog/definition/tool digestが一致し、古いreceiptを拒否</td>
+        <td>qualification verifier</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2 id="9-rollout-migration-rollback">9. Rollout, migration, and rollback</h2>
+  <ol>
+    <li>
+      Stage A — shadow preview: 新readinessを旧readinessと並行計算し、差分をmetadataへ保存する。
+      admission結果はまだ変更しない。
+    </li>
+    <li>
+      Stage B — optional Semgrep: source profileだけ新readinessへ切り替える。Semgrepなしのreal
+      executionを 先に通し、その後preferred modeを有効化する。
+    </li>
+    <li>
+      Stage C — catalog classification: APIへadditive
+      fieldを出し、Web、CLI、integrationを順に移行する。 consumer移行完了前に旧fieldを削除しない。
+    </li>
+    <li>
+      Stage D — capability expansion: API YAML、認証、GraphQL
+      Query-onlyを個別qualification後に導入する。 TLS adapterは採用gate未達のため導入しない。
+    </li>
+    <li>
+      Stage E — campaign separation: professional entryをscan catalogから外し、planned/unavailableな
+      campaign catalogへ分離する。campaign APIとUIは実行機能を持つまでlaunchableにしない。
+    </li>
+  </ol>
+  <p>
+    rollback時は新しいoptional scanner selectionとexperience groupingを無効化し、core scanner
+    profileと legacy
+    ID解決を維持する。schemaやmetadataはadditiveに残してよいが、新しいreceiptを古い実行契約の stable
+    evidenceとして再利用しない。DB migrationを追加する場合はexpand/contractを分け、同一releaseで
+    column削除を行わない。
+  </p>
+
+  <h2 id="10-risks-and-controls">10. Risks and controls</h2>
+  <table>
+    <caption>
+      10.1 実装リスク
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Risk</th>
+        <th scope="col">Failure condition</th>
+        <th scope="col">Control</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Optionalが実質requiredになる</td>
+        <td>dependency listへ追加しただけでprofile全体がblockedになる</td>
+        <td>Section 4.1をschemaとtable-driven testへ固定</td>
+      </tr>
+      <tr>
+        <td>False assurance</td>
+        <td>Semgrep未実施でもSAST完了と表示する</td>
+        <td>process statusとcoverage statusを分離</td>
+      </tr>
+      <tr>
+        <td>Silent degradation</td>
+        <td>preferred scanner失敗が結果から見えない</td>
+        <td>warning、step result、gap reason、next actionを保存</td>
+      </tr>
+      <tr>
+        <td>License/distribution violation</td>
+        <td>外部scannerをcore imageへ無条件同梱する</td>
+        <td>外部分離adapter、license decision、明示的enable</td>
+      </tr>
+      <tr>
+        <td>Catalog互換破壊</td>
+        <td>consumer移行前にIDやfieldを削除する</td>
+        <td>additive schema、usage evidence、contract test、段階削除</td>
+      </tr>
+      <tr>
+        <td>Labの安全境界喪失</td>
+        <td>active/business/fuzzをgeneric scannerとして起動できる</td>
+        <td>dedicated destination、RoE、budget、reset、cleanupを維持</td>
+      </tr>
+      <tr>
+        <td>Qualification false pass</td>
+        <td>fixtureが存在するだけでstableと判定する</td>
+        <td>real execution receiptとsource/tool digest binding</td>
+      </tr>
+      <tr>
+        <td>既存作業の上書き</td>
+        <td>dirty workspaceのWeb/dynamic変更を実装sliceが置換する</td>
+        <td>SP-00でdirty fileを記録し、owner変更とrebaseしてから編集</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2 id="11-definition-of-done">11. Definition of Done</h2>
+  <table>
+    <caption>
+      11.1 Implementation closeout
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Work package</th>
+        <th scope="col">State</th>
+        <th scope="col">Evidence</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>SP-00〜SP-02</td>
+        <td>実装・検証済み</td>
+        <td>Semgrep選択契約、readiness、coverage test、Semgrep非搭載core image実行</td>
+      </tr>
+      <tr>
+        <td>SP-03</td>
+        <td>実装・検証済み</td>
+        <td>13 scan entryの分類、Web grouping、generic start境界</td>
+      </tr>
+      <tr>
+        <td>SP-04</td>
+        <td>実装・実container qualification済み</td>
+        <td>JSON/YAML OpenAPI、Query-only GraphQL、認証注入、Mutation拒否、secret非露出</td>
+      </tr>
+      <tr>
+        <td>SP-05</td>
+        <td>採否決定済み</td>
+        <td>testssl.shは安全なTLS budget未達のため不採用。TLS coverageをclaimしない</td>
+      </tr>
+      <tr>
+        <td>SP-06</td>
+        <td>scanからの分離完了</td>
+        <td>1 planned/unavailable campaign、scan start拒否、legacy preset互換</td>
+      </tr>
+      <tr>
+        <td>SP-07</td>
+        <td>implementation qualification完了</td>
+        <td>
+          unit、contract、typecheck、catalog/stability baseline、toolbox offline、実Schemathesis。
+          clean candidate commitへbindするpromotion receiptとmaintainer reviewはrelease時に実行する
+        </td>
+      </tr>
+    </tbody>
+  </table>
+  <aside data-type="note">
+    <p>
+      実装時のworkspaceには利用者の未commit変更が存在するため、本作業ではcommit、stash、resetを
+      行っていない。既存qualification schemaが要求するclean candidate commit receiptは、変更を
+      所有者がcommitした後のrelease promotion gateで生成する。これは実装能力の未完了を意味せず、
+      uncommitted sourceを別commitの証跡として誤認しないための境界である。
+    </p>
+  </aside>
+  <ul>
+    <li>
+      Semgrepなしの<code>change-gate</code>と<code>source-assurance</code>がcore
+      scanを完了する。
+    </li>
+    <li>
+      Semgrep preferred/requiredのreadiness、failure policy、coverage表示がSection 4.1と一致する。
+    </li>
+    <li>Gitleaks、OSV-Scanner、Trivyの必須性と既存gate挙動に回帰がない。</li>
+    <li>
+      13 scan entryと1 planned campaign entryにproduct分類、launch destination、安全境界、実装範囲の
+      正確なclaimがある。
+    </li>
+    <li>scanner presetでないflowが通常selectorから分離され、機能自体は失われていない。</li>
+    <li>
+      <code>professional-full</code>はscanとして起動できず、legacy
+      <code>full-security-scan</code>は互換維持される。
+    </li>
+    <li>
+      API read-onlyはqualification済みのschema形式だけをclaimし、state-changing requestを拒否する。
+    </li>
+    <li>
+      追加scannerはlicense、provenance、structured
+      output、安全budget、追加coverageの採用gateを通っている。
+    </li>
+    <li>
+      unit、contract、integration、real scanner、failure injection、rollback testが成功している。
+    </li>
+    <li>
+      qualification receiptがcurrent source、catalog、definition、scanner version/image
+      digestへbindされている。
+    </li>
+    <li>README、設定画面、catalog、reportの説明が同じ能力範囲を示している。</li>
+  </ul>
+
+  <h2 id="12-out-of-scope">12. Out of scope</h2>
+  <ul>
+    <li>Semgrepまたは第三者scannerのlicense条件を回避する同梱・再配布</li>
+    <li>任意scannerがない環境でSASTを実施済みとみなすfallback</li>
+    <li>OAuth/OIDC/MFA、business logic、fuzz harnessを設定なしで網羅するというclaim</li>
+    <li>release artifactの自動build、製品署名、provenance生成</li>
+    <li>既存scannerと重複するtoolの件数目的の追加</li>
+    <li>利用実績を確認しないlegacy profile IDの削除</li>
+  </ul>
+
+  <h2 id="13-references">13. References</h2>
+  <ul>
+    <li>
+      <a href="/vlunWorkbench/plans/archive/?doc=scan-profile-execution-architecture-migration-plan">Scan Profile Execution Architecture Migration Plan</a>
+    </li>
+    <li>
+      <a href="/vlunWorkbench/plans/archive/?doc=scan-profile-catalog-consolidation-implementation-plan">Scan Profile Catalog Consolidation Implementation Plan</a>
+    </li>
+    <li><a href="https://github.com/ugnoguchigxp/vlunWorkbench/blob/main/spec/decisions/scanner-adapters.html">Scanner Adapters</a></li>
+    <li>
+      <a href="https://github.com/ugnoguchigxp/vlunWorkbench/blob/main/spec/decisions/third-party-scanners.html">Third-party Scanner Distribution</a>
+    </li>
+    <li>
+      <a href="https://semgrep.dev/docs/contributing/semgrep-philosophy">Semgrep CE documentation</a>
+    </li>
+    <li>
+      <a href="https://schemathesis.readthedocs.io/en/stable/reference/cli/">Schemathesis CLI reference</a>
+    </li>
+    <li><a href="https://github.com/testssl/testssl.sh">testssl.sh</a></li>
+    <li><a href="https://llvm.org/docs/LibFuzzer.html">LLVM libFuzzer documentation</a></li>
+  </ul>
+</article>
+  </body>
+</html>

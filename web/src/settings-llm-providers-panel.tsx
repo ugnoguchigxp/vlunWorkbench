@@ -1,423 +1,319 @@
+import { Plus, RefreshCw, Save, Trash2 } from "lucide-react";
+import type { LlmProviderKind } from "./api";
+import type { SettingsPanelModel } from "./settings-panel";
 import {
-	CheckCircle2,
-	Plus,
-	RefreshCw,
-	Save,
-	Trash2,
-	XCircle,
-} from "lucide-react";
-import { fetchCodexStatus, type LlmProviderKind } from "./api";
-import { Button, SelectInput, TextArea, TextInput } from "./ui";
-import {
-	ensureCodexEndpoint,
+	deriveProviderStatus,
 	formatModelDisplayNames,
 	modelText,
+	PROVIDER_KINDS,
 	parseModelDisplayNames,
 	parseModels,
-	PROVIDER_KINDS,
 	providerKindLabels,
 } from "./settings-panel-model";
-import type { SettingsPanelModel } from "./settings-panel";
+import { Button, SelectInput, TextArea, TextInput } from "./ui";
 
 export function LlmProvidersPanel({ model }: { model: SettingsPanelModel }) {
-	const {
-		isAdmin,
-		llmLoading,
-		llmSettings,
-		codexStatus,
-		setCodexStatus,
-		setLlmSettings,
-		codexEndpoint,
-		genericEndpoints,
-		healthByEndpointId,
-		selectedEndpointId,
-		setSelectedEndpointId,
-		selectedEndpoint,
-		updateCodexEndpoint,
-		updateEndpoint,
-		handleAddEndpoint,
-		handleDeleteEndpoint,
-		handleSaveLlmSettings,
-		handleHealth,
-		healthCheckingId,
-		llmSaveDisabled,
-	} = model;
-	if (!isAdmin) return null;
+	if (!model.isAdmin) return null;
+	const selected = model.selectedProvider;
 	return (
-		// biome-ignore lint/complexity/noUselessFragments: Keeps the provider section isolated for future sibling panels.
-		<>
-			<section className="panel llm-settings-panel">
-				<div className="panel-header">
-					<h2>LLM Providers</h2>
-					<div className="actions">
-						<Button type="button" onClick={handleAddEndpoint}>
-							<Plus className="icon" />
-							<span>Add</span>
-						</Button>
-						<Button
-							type="button"
-							variant="primary"
-							onClick={() => void handleSaveLlmSettings()}
-							disabled={llmSaveDisabled}
-						>
-							<Save className="icon" />
-							<span>Save</span>
-						</Button>
-					</div>
+		<section className="panel llm-settings-panel">
+			<div className="panel-header">
+				<div>
+					<h2>AI・モデル</h2>
+					<small>
+						診断・レビューに使用するプロバイダーとモデルを管理します。
+					</small>
 				</div>
-
-				{llmLoading ? (
-					<div className="tree-info">Loading LLM settings...</div>
-				) : null}
-
-				{llmSettings ? (
-					<div className="llm-settings-grid">
-						<div className="codex-status-card">
-							<div className="codex-status-header">
-								<div>
-									<strong>Codex SDK</strong>
-									<small>{codexStatus?.codexHome ?? "-"}</small>
-								</div>
-								<div className="actions">
-									<Button
-										type="button"
-										onClick={async () => {
-											const next = await fetchCodexStatus();
-											setCodexStatus(next);
-											setLlmSettings((current) =>
-												current ? ensureCodexEndpoint(current, next) : current,
-											);
-										}}
-									>
-										<RefreshCw className="icon" />
-									</Button>
-									<Button
-										type="button"
-										variant="primary"
-										onClick={() => void handleSaveLlmSettings()}
-										disabled={llmSaveDisabled}
-									>
-										<Save className="icon" />
-										<span>Save</span>
-									</Button>
-								</div>
-							</div>
-							<div className="codex-status-values">
-								<span
-									className={
-										codexStatus?.authenticated ? "health-ok" : "health-fail"
-									}
+				<div className="actions">
+					<Button
+						type="button"
+						onClick={model.handleAddEndpoint}
+						disabled={!model.llmSettings || model.llmLoading}
+					>
+						<Plus className="icon" />
+						プロバイダーを追加
+					</Button>
+					<Button
+						type="button"
+						variant="primary"
+						onClick={() => void model.handleSaveLlmSettings()}
+						disabled={model.llmSaveDisabled}
+					>
+						<Save className="icon" />
+						変更を保存
+					</Button>
+				</div>
+			</div>
+			{model.llmLoading ? (
+				<div className="tree-info">設定を読み込んでいます…</div>
+			) : null}
+			{model.llmError ? <p className="status error">{model.llmError}</p> : null}
+			{model.llmSettings ? (
+				<div className="llm-settings-grid">
+					<section className="endpoint-list" aria-label="プロバイダー一覧">
+						{model.llmSettings.providerEndpoints.map((endpoint) => {
+							const status = deriveProviderStatus(
+								endpoint,
+								model.codexStatus,
+								model.healthByEndpointId[endpoint.id],
+							);
+							return (
+								<button
+									type="button"
+									key={endpoint.id}
+									className={[
+										"endpoint-row",
+										model.selectedProviderId === endpoint.id ? "active" : "",
+									]
+										.filter(Boolean)
+										.join(" ")}
+									onClick={() => model.setSelectedProviderId(endpoint.id)}
 								>
-									{codexStatus?.authSource ?? "unchecked"}
-								</span>
-								<span>{codexStatus?.modelSource ?? "-"}</span>
-								<span>
-									{codexStatus?.detectedModels.length
-										? `${codexStatus.detectedModels.length} models`
-										: "-"}
-								</span>
-								<span
-									className={
-										codexStatus?.executableAdapterAvailable
-											? "health-ok"
-											: "health-fail"
-									}
-								>
-									{codexStatus?.executableAdapterAvailable
-										? "adapter ready"
-										: "adapter unavailable"}
-								</span>
-							</div>
-							{codexEndpoint ? (
-								<div className="codex-settings-grid">
-									<div className="settings-form-field">
-										<label htmlFor="codex-enabled">Codex SDK</label>
-										<SelectInput
-											id="codex-enabled"
-											value={codexEndpoint.enabled ? "true" : "false"}
-											onChange={(event) =>
-												updateCodexEndpoint({
-													enabled: event.target.value === "true",
-												})
-											}
-										>
-											<option value="true">Enabled</option>
-											<option value="false">Disabled</option>
-										</SelectInput>
-									</div>
-									<div className="settings-form-field">
-										<label htmlFor="codex-token">Access Token Override</label>
-										<TextInput
-											id="codex-token"
-											type="password"
-											value={codexEndpoint.apiKey}
-											onChange={(event) =>
-												updateCodexEndpoint({
-													apiKey: event.target.value,
-												})
-											}
-										/>
-									</div>
-									<div className="settings-form-field settings-field-wide">
-										<label htmlFor="codex-models">Models</label>
-										<TextInput
-											id="codex-models"
-											value={modelText(codexEndpoint)}
-											onChange={(event) =>
-												updateCodexEndpoint({
-													models: parseModels(event.target.value),
-												})
-											}
-										/>
-									</div>
-								</div>
-							) : null}
-						</div>
-						<div className="endpoint-list">
-							{genericEndpoints.map((endpoint) => {
-								const health = healthByEndpointId[endpoint.id];
-								return (
-									<button
-										type="button"
-										key={endpoint.id}
-										className={[
-											"endpoint-row",
-											selectedEndpointId === endpoint.id ? "active" : "",
-										]
-											.filter(Boolean)
-											.join(" ")}
-										onClick={() => setSelectedEndpointId(endpoint.id)}
-									>
-										<span>
-											<strong>{endpoint.name}</strong>
-											<small>{endpoint.kind}</small>
-										</span>
-										{health ? (
-											health.ok ? (
-												<CheckCircle2 className="icon health-ok" />
-											) : (
-												<XCircle className="icon health-fail" />
-											)
-										) : null}
-									</button>
-								);
-							})}
-						</div>
+									<span>
+										<strong>{endpoint.name}</strong>
+										<small>{providerKindLabels[endpoint.kind]}</small>
+									</span>
+									<small className={`provider-status ${status.tone}`}>
+										{status.label}
+									</small>
+								</button>
+							);
+						})}
+					</section>
+					{selected ? <ProviderEditor model={model} /> : null}
+				</div>
+			) : null}
+			{model.validationErrors.length ? (
+				<div className="settings-validation">
+					{model.validationErrors.map((error) => (
+						<div key={error}>{error}</div>
+					))}
+				</div>
+			) : null}
+		</section>
+	);
+}
 
-						{selectedEndpoint ? (
-							<div className="endpoint-editor">
-								<div className="provider-editor-header">
-									<div className="settings-form-field">
-										<label htmlFor={`llm-name-${selectedEndpoint.id}`}>
-											Name
-										</label>
-										<TextInput
-											id={`llm-name-${selectedEndpoint.id}`}
-											value={selectedEndpoint.name}
-											onChange={(event) =>
-												updateEndpoint(selectedEndpoint.id, {
-													name: event.target.value,
-												})
-											}
-										/>
-									</div>
-									<div className="settings-form-field">
-										<label htmlFor={`llm-kind-${selectedEndpoint.id}`}>
-											Kind
-										</label>
-										<SelectInput
-											id={`llm-kind-${selectedEndpoint.id}`}
-											value={selectedEndpoint.kind}
-											onChange={(event) =>
-												updateEndpoint(selectedEndpoint.id, {
-													kind: event.target.value as LlmProviderKind,
-												})
-											}
-										>
-											{PROVIDER_KINDS.map((kind) => (
-												<option key={kind} value={kind}>
-													{providerKindLabels[kind]}
-												</option>
-											))}
-										</SelectInput>
-									</div>
-									<div className="settings-form-field settings-checkbox-field">
-										<span className="settings-field-label">Enabled</span>
-										<label
-											className="settings-check-button"
-											htmlFor={`llm-enabled-${selectedEndpoint.id}`}
-										>
-											<input
-												id={`llm-enabled-${selectedEndpoint.id}`}
-												type="checkbox"
-												checked={selectedEndpoint.enabled}
-												onChange={(event) =>
-													updateEndpoint(selectedEndpoint.id, {
-														enabled: event.target.checked,
-													})
-												}
-											/>
-											<span>
-												{selectedEndpoint.enabled ? "Enabled" : "Disabled"}
-											</span>
-										</label>
-									</div>
-								</div>
-								<div className="settings-form-grid">
-									{selectedEndpoint.kind === "azure" ? (
-										<>
-											<div className="settings-form-field">
-												<label htmlFor={`llm-endpoint-${selectedEndpoint.id}`}>
-													Endpoint
-												</label>
-												<TextInput
-													id={`llm-endpoint-${selectedEndpoint.id}`}
-													value={selectedEndpoint.endpoint ?? ""}
-													onChange={(event) =>
-														updateEndpoint(selectedEndpoint.id, {
-															endpoint: event.target.value,
-														})
-													}
-												/>
-											</div>
-											<div className="settings-form-field">
-												<label
-													htmlFor={`llm-api-version-${selectedEndpoint.id}`}
-												>
-													API Version
-												</label>
-												<TextInput
-													id={`llm-api-version-${selectedEndpoint.id}`}
-													value={selectedEndpoint.apiVersion ?? ""}
-													onChange={(event) =>
-														updateEndpoint(selectedEndpoint.id, {
-															apiVersion: event.target.value,
-														})
-													}
-												/>
-											</div>
-										</>
-									) : null}
-									{selectedEndpoint.kind === "bedrock" ? (
-										<div className="settings-form-field">
-											<label htmlFor={`llm-region-${selectedEndpoint.id}`}>
-												Region
-											</label>
-											<TextInput
-												id={`llm-region-${selectedEndpoint.id}`}
-												value={selectedEndpoint.region ?? ""}
-												onChange={(event) =>
-													updateEndpoint(selectedEndpoint.id, {
-														region: event.target.value,
-													})
-												}
-											/>
-										</div>
-									) : null}
-									{selectedEndpoint.kind === "openai" ||
-									selectedEndpoint.kind === "openai-compatible" ||
-									selectedEndpoint.kind === "local" ? (
-										<div className="settings-form-field">
-											<label htmlFor={`llm-base-url-${selectedEndpoint.id}`}>
-												Base URL
-											</label>
-											<TextInput
-												id={`llm-base-url-${selectedEndpoint.id}`}
-												value={selectedEndpoint.baseUrl ?? ""}
-												onChange={(event) =>
-													updateEndpoint(selectedEndpoint.id, {
-														baseUrl: event.target.value,
-													})
-												}
-											/>
-										</div>
-									) : null}
-									<div className="settings-form-field">
-										<label htmlFor={`llm-api-key-${selectedEndpoint.id}`}>
-											API Key
-										</label>
-										<TextInput
-											id={`llm-api-key-${selectedEndpoint.id}`}
-											type="password"
-											value={selectedEndpoint.apiKey}
-											onChange={(event) =>
-												updateEndpoint(selectedEndpoint.id, {
-													apiKey: event.target.value,
-												})
-											}
-										/>
-									</div>
-									<div className="settings-form-field settings-field-wide">
-										<label htmlFor={`llm-models-${selectedEndpoint.id}`}>
-											Models
-										</label>
-										<TextInput
-											id={`llm-models-${selectedEndpoint.id}`}
-											value={modelText(selectedEndpoint)}
-											onChange={(event) =>
-												updateEndpoint(selectedEndpoint.id, {
-													models: parseModels(event.target.value),
-												})
-											}
-										/>
-									</div>
-									<div className="settings-form-field settings-field-wide">
-										<label htmlFor={`llm-model-labels-${selectedEndpoint.id}`}>
-											Model Select Labels
-										</label>
-										<TextArea
-											id={`llm-model-labels-${selectedEndpoint.id}`}
-											value={formatModelDisplayNames(
-												selectedEndpoint.modelDisplayNames,
-											)}
-											onChange={(event) =>
-												updateEndpoint(selectedEndpoint.id, {
-													modelDisplayNames: parseModelDisplayNames(
-														event.target.value,
-													),
-												})
-											}
-											placeholder="gpt-4.1=Review JSON (Azure)"
-										/>
-									</div>
-								</div>
-								<div className="actions">
-									<Button
-										type="button"
-										onClick={() => void handleHealth(selectedEndpoint.id)}
-										disabled={healthCheckingId === selectedEndpoint.id}
-									>
-										<RefreshCw className="icon" />
-										<span>Health</span>
-									</Button>
-									<Button
-										type="button"
-										variant="primary"
-										onClick={() => void handleSaveLlmSettings()}
-										disabled={llmSaveDisabled}
-									>
-										<Save className="icon" />
-										<span>Save</span>
-									</Button>
-									<Button
-										type="button"
-										variant="destructive"
-										onClick={() => handleDeleteEndpoint(selectedEndpoint.id)}
-									>
-										<Trash2 className="icon" />
-										<span>Remove</span>
-									</Button>
-									{healthByEndpointId[selectedEndpoint.id]?.message ? (
-										<small>
-											{healthByEndpointId[selectedEndpoint.id]?.message}
-										</small>
-									) : null}
-								</div>
-							</div>
-						) : null}
-					</div>
+function ProviderEditor({ model }: { model: SettingsPanelModel }) {
+	const endpoint = model.selectedProvider;
+	if (!endpoint) return null;
+	const codex = endpoint.kind === "codex";
+	const status = deriveProviderStatus(
+		endpoint,
+		model.codexStatus,
+		model.healthByEndpointId[endpoint.id],
+	);
+	return (
+		<div className="endpoint-editor">
+			<div className="provider-editor-header">
+				<div>
+					<h3>{codex ? "Codex SDK" : endpoint.name}</h3>
+					<small className={`provider-status ${status.tone}`}>
+						{status.label}
+					</small>
+				</div>
+				{codex ? (
+					<Button type="button" onClick={() => void model.refreshCodexStatus()}>
+						<RefreshCw className="icon" />
+						状態を再取得
+					</Button>
 				) : null}
-			</section>
-		</>
+			</div>
+			{codex ? (
+				<div className="codex-status-values">
+					<span>{model.codexStatus?.authSource ?? "unchecked"}</span>
+					<span>{model.codexStatus?.modelSource ?? "-"}</span>
+					<span>
+						{model.codexStatus?.executableAdapterAvailable
+							? "adapter ready"
+							: "adapter unavailable"}
+					</span>
+				</div>
+			) : null}
+			<div className="settings-form-grid">
+				<div className="settings-form-field">
+					<label htmlFor={`llm-name-${endpoint.id}`}>名前</label>
+					<TextInput
+						id={`llm-name-${endpoint.id}`}
+						value={endpoint.name}
+						readOnly={codex}
+						onChange={(event) =>
+							model.updateEndpoint(endpoint.id, { name: event.target.value })
+						}
+					/>
+				</div>
+				<div className="settings-form-field">
+					<label htmlFor={`llm-kind-${endpoint.id}`}>種別</label>
+					{codex ? (
+						<TextInput
+							id={`llm-kind-${endpoint.id}`}
+							value="Codex SDK"
+							readOnly
+						/>
+					) : (
+						<SelectInput
+							id={`llm-kind-${endpoint.id}`}
+							value={endpoint.kind}
+							onChange={(event) =>
+								model.updateEndpoint(endpoint.id, {
+									kind: event.target.value as LlmProviderKind,
+								})
+							}
+						>
+							{PROVIDER_KINDS.map((kind) => (
+								<option key={kind} value={kind}>
+									{providerKindLabels[kind]}
+								</option>
+							))}
+						</SelectInput>
+					)}
+				</div>
+				<div className="settings-form-field settings-checkbox-field">
+					<span className="settings-field-label">有効</span>
+					<label
+						className="settings-check-button"
+						htmlFor={`llm-enabled-${endpoint.id}`}
+					>
+						<input
+							id={`llm-enabled-${endpoint.id}`}
+							type="checkbox"
+							checked={endpoint.enabled}
+							onChange={(event) =>
+								model.updateEndpoint(endpoint.id, {
+									enabled: event.target.checked,
+								})
+							}
+						/>
+						<span>{endpoint.enabled ? "Enabled" : "Disabled"}</span>
+					</label>
+				</div>
+				{endpoint.kind === "azure" ? (
+					<>
+						<TextField
+							id={`llm-endpoint-${endpoint.id}`}
+							label="Endpoint"
+							value={endpoint.endpoint ?? ""}
+							onChange={(endpointValue) =>
+								model.updateEndpoint(endpoint.id, { endpoint: endpointValue })
+							}
+						/>
+						<TextField
+							id={`llm-api-version-${endpoint.id}`}
+							label="API Version"
+							value={endpoint.apiVersion ?? ""}
+							onChange={(apiVersion) =>
+								model.updateEndpoint(endpoint.id, { apiVersion })
+							}
+						/>
+					</>
+				) : null}
+				{endpoint.kind === "bedrock" ? (
+					<TextField
+						id={`llm-region-${endpoint.id}`}
+						label="Region"
+						value={endpoint.region ?? ""}
+						onChange={(region) => model.updateEndpoint(endpoint.id, { region })}
+					/>
+				) : null}
+				{endpoint.kind === "openai" ||
+				endpoint.kind === "openai-compatible" ||
+				endpoint.kind === "local" ? (
+					<TextField
+						id={`llm-base-url-${endpoint.id}`}
+						label="Base URL"
+						value={endpoint.baseUrl ?? ""}
+						onChange={(baseUrl) =>
+							model.updateEndpoint(endpoint.id, { baseUrl })
+						}
+					/>
+				) : null}
+				<TextField
+					id={`llm-api-key-${endpoint.id}`}
+					label={codex ? "Access Token Override" : "API Key"}
+					type="password"
+					value={endpoint.apiKey}
+					onChange={(apiKey) => model.updateEndpoint(endpoint.id, { apiKey })}
+				/>
+				<div className="settings-form-field settings-field-wide">
+					<label htmlFor={`llm-models-${endpoint.id}`}>利用可能なモデル</label>
+					<TextInput
+						id={`llm-models-${endpoint.id}`}
+						value={modelText(endpoint)}
+						onChange={(event) =>
+							model.updateEndpoint(endpoint.id, {
+								models: parseModels(event.target.value),
+							})
+						}
+					/>
+					<small>カンマ区切りで入力</small>
+				</div>
+				{!codex ? (
+					<details className="settings-form-field settings-field-wide">
+						<summary>表示名の詳細設定</summary>
+						<TextArea
+							id={`llm-model-labels-${endpoint.id}`}
+							value={formatModelDisplayNames(endpoint.modelDisplayNames)}
+							onChange={(event) =>
+								model.updateEndpoint(endpoint.id, {
+									modelDisplayNames: parseModelDisplayNames(event.target.value),
+								})
+							}
+							placeholder="gpt-4.1=Review JSON (Azure)"
+						/>
+					</details>
+				) : null}
+			</div>
+			{!codex ? (
+				<div className="actions">
+					<Button
+						type="button"
+						onClick={() => void model.handleHealth(endpoint.id)}
+						disabled={
+							model.llmSaving ||
+							model.healthCheckingId === endpoint.id ||
+							model.llmProviderDirty
+						}
+					>
+						<RefreshCw className="icon" />
+						接続を確認
+					</Button>
+					{model.llmProviderDirty ? <small>保存後に確認できます</small> : null}
+					<Button
+						type="button"
+						variant="destructive"
+						onClick={() => model.handleDeleteEndpoint(endpoint.id)}
+					>
+						<Trash2 className="icon" />
+						削除
+					</Button>
+				</div>
+			) : null}
+		</div>
+	);
+}
+
+function TextField({
+	id,
+	label,
+	type,
+	value,
+	onChange,
+}: {
+	id: string;
+	label: string;
+	type?: string;
+	value: string;
+	onChange: (value: string) => void;
+}) {
+	return (
+		<div className="settings-form-field">
+			<label htmlFor={id}>{label}</label>
+			<TextInput
+				id={id}
+				type={type}
+				value={value}
+				onChange={(event) => onChange(event.target.value)}
+			/>
+		</div>
 	);
 }

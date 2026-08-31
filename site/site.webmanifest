@@ -1,0 +1,22 @@
+---
+layout: null
+permalink: /site.webmanifest
+---
+{
+  "name": "{{ site.title }}",
+  "short_name": "{{ site.title }}",
+  "description": "{{ site.description }}",
+  "lang": "{{ site.lang | default: 'ja' }}",
+  "start_url": "{{ '/' | relative_url }}",
+  "scope": "{{ '/' | relative_url }}",
+  "display": "standalone",
+  "background_color": "#f5f7f4",
+  "theme_color": "#0f5f58",
+  "icons": [
+    {
+      "src": "{{ '/assets/img/favicon.svg' | relative_url }}",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}

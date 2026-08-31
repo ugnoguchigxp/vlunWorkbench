@@ -208,7 +208,8 @@ export function deriveScanWorkState(input: ScanWorkStateInput): ScanWorkState {
 	const findingCount =
 		input.scanSummary?.totals.findingCount ?? input.findings.length;
 	const completedReports = input.reports?.filter(
-		(report) => report.status === "completed",
+		(report) =>
+			report.status === "completed" && report.stage === "canonical_final",
 	);
 	if (completedReports?.length) return "report_generated";
 
@@ -377,7 +378,8 @@ export function buildActionQueue(
 			});
 		} else if (scanState === "report_generated") {
 			const latestReport = input.reports?.find(
-				(report) => report.status === "completed",
+				(report) =>
+					report.status === "completed" && report.stage === "canonical_final",
 			);
 			items.push({
 				id: `report:${selectedScanRun.id}:report_generated`,

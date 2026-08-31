@@ -1,0 +1,115 @@
+<article lang="ja">
+  <h1 id="explainable-rule-inference-plan-template">Explainable Rule Inference Plan Skeleton</h1>
+  <ul>
+    <li>Status: Candidate plan skeleton / not approved for implementation</li>
+    <li>Priority candidate: P2</li>
+    <li>Primary owner candidate: NightWorkers task / run scoped consumer</li>
+    <li>Semantica clue: bounded forward / backward rules, Datalog-style inference, explanations</li>
+  </ul>
+
+  <h2 id="purpose">1. Purpose</h2>
+  <p>
+    validatedされたobserved factから、taskに必要な少数のderived claimだけを決定的に生成し、 rule
+    ID、premise、confidence、説明を返す。NightWorkersの既存boundary / verification選択を補助する。
+  </p>
+
+  <h2 id="current-evidence">2. Current Evidence</h2>
+  <ul>
+    <li>vulnWorkbenchはtask-neutralなobserved structure / security factのproducerである。</li>
+    <li>
+      NightWorkersは<code>.agent-ontology</code>とruntime
+      logicでmodule、boundary、verificationを決定的に扱う。
+    </li>
+    <li>
+      長期ロードマップはinferred claimにrule、input
+      refs、confidenceを要求し、declaredへの自動昇格を禁じる。
+    </li>
+    <li>Semanticaは豊富なreasonerを提供する一方、すべてをこの用途へ導入する根拠はまだない。</li>
+  </ul>
+
+  <h2 id="scope">3. Scope</h2>
+  <ul>
+    <li>allowlistされた少数のside-effect-free rule</li>
+    <li>rule version、premise refs、conclusion、confidence、human-readable explanation</li>
+    <li>task / run / repository revisionでboundedなevaluation</li>
+    <li>contradiction、unknown、not-ready、candidate inputの扱い</li>
+    <li>iteration / result count / latencyのhard limit</li>
+  </ul>
+  <h3 id="non-goals">3.1 Non-goals</h3>
+  <ul>
+    <li>Semantica runtimeや全reasonerを本番dependencyとして一括導入すること</li>
+    <li>inferred claimからcanonical declarationを自動更新すること</li>
+    <li>LLMにrule truthやpremise selectionを委ねること</li>
+    <li>vulnWorkbenchへtask policyを持ち込むこと</li>
+  </ul>
+
+  <h2 id="initial-rule-candidates">4. Initial Rule Candidates</h2>
+  <ul>
+    <li>
+      <code>affectsModule</code>: findingのlocated fileとmodule
+      membershipが揃う場合だけ導出する。
+    </li>
+    <li>
+      <code>artifactBacked</code>: findingからevidence /
+      artifactへの完全なtraceがある場合だけ導出する。
+    </li>
+    <li>
+      <code>requiresReview</code>: severity、evidence completeness、task
+      policyの明示条件から候補化する。
+    </li>
+  </ul>
+  <p>
+    現行graphの<code>verified_by</code>はscan
+    runからverificationへの関係であるため、 finding単位のverified
+    conclusionは対応contractが導入されるまでrule候補にしない。
+  </p>
+
+  <h2 id="contract-sketch">5. Contract Sketch</h2>
+  <pre><code class="language-typescript">type InferenceResult = {
+  conclusion: { subjectRef: string; predicate: string; objectRef: string };
+  ruleId: string;
+  ruleVersion: string;
+  premiseRefs: string[];
+  confidence?: number;
+  explanation: string;
+  status: "candidate";
+};</code></pre>
+
+  <h2 id="implementation-options">6. Implementation Options</h2>
+  <ol>
+    <li>
+      <strong>A:</strong>既存NightWorkers runtimeへtyped forward-chain rule evaluatorを追加する。
+    </li>
+    <li><strong>B:</strong>安全なDatalog subsetを定義し、declarative rule fileとして評価する。</li>
+    <li>
+      <strong>C:</strong>Semantica bridgeを実験adapterとして比較し、runtime dependencyにはしない。
+    </li>
+  </ol>
+  <p>Aで3 rule以下の価値を検証し、rule authoring需要が確認された場合だけBを評価する。</p>
+
+  <h2 id="verification">7. Verification and Exit Evidence</h2>
+  <ul>
+    <li>同一fact、rule version、task contextから同一result orderingが得られる。</li>
+    <li>すべてのresultに存在するpremise refsと説明がある。</li>
+    <li>semantic-only candidateをpremiseに使うruleは明示的opt-inとし、confirmedへ昇格しない。</li>
+    <li>max iteration、max result、timeoutにより停止性を保証する。</li>
+    <li>contradictionと欠落factを黙ってtrueにしない。</li>
+    <li>既存module / boundary / verification behaviorの非劣化をfixtureで確認する。</li>
+  </ul>
+
+  <h2 id="open-questions">8. Open Questions</h2>
+  <ul>
+    <li>最初のruleが実際に削減する探索または判断コストは何か。</li>
+    <li>rule repositoryとapproval ownerはNightWorkers内のどこか。</li>
+    <li>confidenceを計算する必要があるか、deterministic true / unknownで十分か。</li>
+    <li>derived claimをrun終了後に保持するか、再計算可能なcacheに留めるか。</li>
+  </ul>
+
+  <h2 id="next-discovery">9. Next Discovery Checklist</h2>
+  <ul>
+    <li>NightWorkersの現在のmodule / boundary / verification logicと候補ruleの重複を確認する。</li>
+    <li>1つのreal task fixtureで手動premise / conclusion traceを作る。</li>
+    <li>P0 validation / provenanceがrule premiseを十分に支えるか確認する。</li>
+    <li>Semantica比較は同一fixtureでの説明性と運用コストに限定する。</li>
+  </ul>
+</article>

@@ -314,6 +314,14 @@ export class DastRunner {
 			if (manageScanRunStatus) {
 				await this.scanRepo.updateScanRunStatus(scanRun.id, "completed", {
 					summary: normalized.summary,
+					...(scanRun.profile === "authenticated-web"
+						? {
+								profileOutcome:
+									normalized.coverageStatus === "covered"
+										? ("completed" as const)
+										: ("incomplete" as const),
+							}
+						: {}),
 					metadata: {
 						dastRunId: dastRun.id,
 						dastOutcome: normalized.outcome,
@@ -371,6 +379,9 @@ export class DastRunner {
 			if (manageScanRunStatus) {
 				await this.scanRepo.updateScanRunStatus(scanRun.id, "failed", {
 					summary: message,
+					...(scanRun.profile === "authenticated-web"
+						? { profileOutcome: "failed" as const }
+						: {}),
 					metadata: {
 						dastRunId: dastRun.id,
 						dastOutcome: "error",

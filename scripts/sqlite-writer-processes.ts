@@ -1,3 +1,5 @@
+import path from "node:path";
+
 const WRITER_ENTRYPOINT = "api/cli/sqlite-writer.ts";
 
 export type SqliteWriterProcess = {
@@ -24,7 +26,13 @@ export function parseSqliteWriterProcesses(
 
 export async function listSqliteWriterProcesses(): Promise<
 	SqliteWriterProcess[]
-> {
+>;
+export async function listSqliteWriterProcesses(options: {
+	repositoryRoot: string;
+}): Promise<SqliteWriterProcess[]>;
+export async function listSqliteWriterProcesses(options?: {
+	repositoryRoot?: string;
+}): Promise<SqliteWriterProcess[]> {
 	const proc = Bun.spawn(["ps", "-axo", "pid=,command="], {
 		stdout: "pipe",
 		stderr: "pipe",
@@ -39,7 +47,24 @@ export async function listSqliteWriterProcesses(): Promise<
 			`Failed to inspect SQLite Writer processes: ${stderr.trim()}`,
 		);
 	}
-	return parseSqliteWriterProcesses(stdout);
+	const processes = parseSqliteWriterProcesses(stdout);
+	return options?.repositoryRoot
+		? filterSqliteWriterProcessesForRepository(
+				processes,
+				options.repositoryRoot,
+			)
+		: processes;
+}
+
+export function filterSqliteWriterProcessesForRepository(
+	processes: readonly SqliteWriterProcess[],
+	repositoryRoot: string,
+): SqliteWriterProcess[] {
+	const entrypoint = path.join(
+		path.resolve(repositoryRoot),
+		...WRITER_ENTRYPOINT.split("/"),
+	);
+	return processes.filter((process) => process.command.includes(entrypoint));
 }
 
 const delay = async (milliseconds: number): Promise<void> => {
@@ -48,11 +73,17 @@ const delay = async (milliseconds: number): Promise<void> => {
 
 export async function waitForNewSqliteWriterProcessesToExit(
 	baselinePids: ReadonlySet<number>,
-	timeoutMs = 5_000,
+	options: { timeoutMs?: number; repositoryRoot?: string } = {},
 ): Promise<SqliteWriterProcess[]> {
+	const timeoutMs = options.timeoutMs ?? 5_000;
 	const deadline = Date.now() + timeoutMs;
 	while (true) {
-		const remaining = (await listSqliteWriterProcesses()).filter(
+		const processes = options.repositoryRoot
+			? await listSqliteWriterProcesses({
+					repositoryRoot: options.repositoryRoot,
+				})
+			: await listSqliteWriterProcesses();
+		const remaining = processes.filter(
 			(process) => !baselinePids.has(process.pid),
 		);
 		if (remaining.length === 0 || Date.now() >= deadline) return remaining;

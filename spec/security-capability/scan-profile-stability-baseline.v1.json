@@ -1,0 +1,411 @@
+{
+	"schemaVersion": 1,
+	"generatedAt": "2026-08-24T03:40:20.438Z",
+	"sourceRevision": "c0b399dc2d45268b04ac256227c2f02c38175d9e",
+	"catalogHash": "sha256:1ca79ed174604e6d934de27e59da17246bef3723a5d4ca43bfd362dee40b5154",
+	"entries": [
+		{
+			"id": "change-gate",
+			"availability": "stable",
+			"claim": {
+				"displayName": "変更差分セキュリティゲート",
+				"description": "変更範囲をGitleaks、OSV-Scanner、Trivy、zizmorと、有効化済みのSemgrepで確認します。zizmorはCI workflow変更時だけ適用します。",
+				"capabilityRequirements": [
+					{
+						"capabilityId": "secret_detection",
+						"requirement": "required"
+					},
+					{
+						"capabilityId": "sca",
+						"requirement": "required_if_applicable"
+					},
+					{
+						"capabilityId": "iac_config",
+						"requirement": "required_if_applicable"
+					},
+					{
+						"capabilityId": "source_sast",
+						"requirement": "required_if_applicable"
+					},
+					{
+						"capabilityId": "cicd_workflow_integrity",
+						"requirement": "required_if_applicable"
+					}
+				]
+			},
+			"launchDestination": "scan_workspace",
+			"safetyClass": "R0",
+			"entryHash": "sha256:9988b3b048e589f432816c0cfe21a5a1c5aad5b6f104b68876011d788b8e7ad6"
+		},
+		{
+			"id": "source-assurance",
+			"availability": "stable",
+			"claim": {
+				"displayName": "ソースセキュリティ保証",
+				"description": "リポジトリ全体をGitleaks、OSV-Scanner、Trivy、zizmorと、有効化済みのSemgrepで確認します。zizmorはCI workflowの権限・注入・参照固定を検査します。",
+				"capabilityRequirements": [
+					{
+						"capabilityId": "secret_detection",
+						"requirement": "required"
+					},
+					{
+						"capabilityId": "sca",
+						"requirement": "required"
+					},
+					{
+						"capabilityId": "iac_config",
+						"requirement": "required"
+					},
+					{
+						"capabilityId": "source_sast",
+						"requirement": "required_if_applicable"
+					},
+					{
+						"capabilityId": "cicd_workflow_integrity",
+						"requirement": "required_if_applicable"
+					}
+				]
+			},
+			"launchDestination": "scan_workspace",
+			"safetyClass": "R0",
+			"entryHash": "sha256:f2f73e674995b28d5d1339872c782fbe1c77ebd853545ffa31ba14ff7e499185"
+		},
+		{
+			"id": "dependency-supply-chain",
+			"availability": "stable",
+			"claim": {
+				"displayName": "依存関係・サプライチェーン保証",
+				"description": "OSV-Scannerで依存関係、TrivyでCycloneDX SBOMを確認し、Cosignのオフライン署名束検証またはslsa-verifierのsource・builder・ref検証を選択して実行します。",
+				"capabilityRequirements": [
+					{
+						"capabilityId": "sca",
+						"requirement": "required"
+					},
+					{
+						"capabilityId": "sbom",
+						"requirement": "required"
+					},
+					{
+						"capabilityId": "provenance_integrity",
+						"requirement": "required"
+					}
+				]
+			},
+			"launchDestination": "scan_workspace",
+			"safetyClass": "R0",
+			"entryHash": "sha256:30b546bb8fa041a7bcc58f19148d58a1efdca92ccc1ca10c31dc9f036fd18418"
+		},
+		{
+			"id": "release-artifact",
+			"availability": "stable",
+			"claim": {
+				"displayName": "リリース成果物・コンテナ診断",
+				"description": "Trivy等で既存のビルド成果物またはdigest固定済みコンテナイメージを確認します。",
+				"capabilityRequirements": [
+					{
+						"capabilityId": "artifact_container",
+						"requirement": "required"
+					},
+					{
+						"capabilityId": "secret_detection",
+						"requirement": "advisory"
+					},
+					{
+						"capabilityId": "iac_config",
+						"requirement": "advisory"
+					}
+				]
+			},
+			"launchDestination": "scan_workspace",
+			"safetyClass": "R0",
+			"entryHash": "sha256:9d9b2d3ea180b8901db0b3a977f27f506ff92f5f61163a3f296c5cfde41a42e2"
+		},
+		{
+			"id": "dynamic-verification",
+			"availability": "experimental",
+			"claim": {
+				"displayName": "動的テスト検証",
+				"description": "隔離されたworkspaceでproject承認済みの標準テストを実行します。sanitizer/fuzzは専用Labで扱います。",
+				"capabilityRequirements": [
+					{
+						"capabilityId": "dynamic_tests",
+						"requirement": "required"
+					}
+				]
+			},
+			"launchDestination": "dynamic_workspace",
+			"safetyClass": "R1",
+			"entryHash": "sha256:92101d60ebde483eacae6eb5737fe9b4d0fb8437fc85660bf5e2a9ee04ec3e0b"
+		},
+		{
+			"id": "sanitizer-fuzz-lab",
+			"availability": "experimental",
+			"claim": {
+				"displayName": "Sanitizer・ファズ診断ラボ",
+				"description": "組み込みsanitizer/fuzz recipeを実験的な隔離環境で実行します。",
+				"capabilityRequirements": [
+					{
+						"capabilityId": "sanitizer_fuzz",
+						"requirement": "required"
+					}
+				]
+			},
+			"launchDestination": "dynamic_workspace",
+			"safetyClass": "R1",
+			"entryHash": "sha256:7a924b01c98db5a894e225e8a18c2f9e6735771935cb5090ca494126fe2d8fdc"
+		},
+		{
+			"id": "custom-dynamic-lab",
+			"availability": "experimental",
+			"claim": {
+				"displayName": "任意動的実行ラボ",
+				"description": "保存済みcommand/configを実験的な隔離環境で実行します。",
+				"capabilityRequirements": [
+					{
+						"capabilityId": "dynamic_tests",
+						"requirement": "required"
+					}
+				]
+			},
+			"launchDestination": "dynamic_workspace",
+			"safetyClass": "R1",
+			"entryHash": "sha256:3d15f508de13e3054e6b46558889507480985cc6a036fa8b627a36ba002ea0de"
+		},
+		{
+			"id": "runtime-passive",
+			"availability": "stable",
+			"claim": {
+				"displayName": "安全な実行時Web診断",
+				"description": "自動起動したローカル対象へbounded passive DASTを実行します。",
+				"capabilityRequirements": [
+					{
+						"capabilityId": "passive_dast",
+						"requirement": "required"
+					},
+					{
+						"capabilityId": "browser_client",
+						"requirement": "advisory"
+					},
+					{
+						"capabilityId": "api_schema_contract",
+						"requirement": "advisory"
+					}
+				]
+			},
+			"launchDestination": "scan_workspace",
+			"safetyClass": "R2",
+			"entryHash": "sha256:e030e4d92a2117d45edc5a1d615afb598b9059bde6ebb2b9164345354bf8f828"
+		},
+		{
+			"id": "authenticated-web",
+			"availability": "experimental",
+			"claim": {
+				"displayName": "認証付きWeb診断",
+				"description": "認証contextを用いる専用DAST workflowです。",
+				"capabilityRequirements": [
+					{
+						"capabilityId": "authentication_session",
+						"requirement": "required"
+					},
+					{
+						"capabilityId": "passive_dast",
+						"requirement": "required"
+					},
+					{
+						"capabilityId": "browser_client",
+						"requirement": "required"
+					}
+				]
+			},
+			"launchDestination": "dast_workspace",
+			"safetyClass": "R2",
+			"entryHash": "sha256:53f0ca70c3c70b1b5e9b5a7c02c915022e236b97f6a34efe2c701582b93cde43"
+		},
+		{
+			"id": "api-readonly",
+			"availability": "experimental",
+			"claim": {
+				"displayName": "読み取り専用API診断",
+				"description": "qualification済みのOpenAPIまたはQuery-only GraphQL schemaを検出し、任意の認証contextをgateway境界で適用して読み取り専用operationに限定します。",
+				"capabilityRequirements": [
+					{
+						"capabilityId": "api_schema_contract",
+						"requirement": "required"
+					},
+					{
+						"capabilityId": "authentication_session",
+						"requirement": "advisory"
+					}
+				]
+			},
+			"launchDestination": "scan_workspace",
+			"safetyClass": "R2",
+			"entryHash": "sha256:a5b60b794f29cb77146403b6c370c689d6471054d729bec2024ccf68786b325b"
+		},
+		{
+			"id": "active-technical-lab",
+			"availability": "experimental",
+			"claim": {
+				"displayName": "Active技術診断ラボ",
+				"description": "RoEとreset可能な使い捨てtargetを必須とするactive DAST workflowです。",
+				"capabilityRequirements": [
+					{
+						"capabilityId": "active_dast",
+						"requirement": "required"
+					},
+					{
+						"capabilityId": "authentication_session",
+						"requirement": "advisory"
+					}
+				]
+			},
+			"launchDestination": "dast_workspace",
+			"safetyClass": "R3",
+			"entryHash": "sha256:cba98786b60169a09123030602dec7abde2526dedc059a17342cada554f962ae"
+		},
+		{
+			"id": "business-logic-lab",
+			"availability": "experimental",
+			"claim": {
+				"displayName": "ビジネスロジック診断ラボ",
+				"description": "シナリオと使い捨てtargetを使うビジネスロジック専用workflowです。",
+				"capabilityRequirements": [
+					{
+						"capabilityId": "business_logic",
+						"requirement": "required"
+					},
+					{
+						"capabilityId": "authentication_session",
+						"requirement": "advisory"
+					}
+				]
+			},
+			"launchDestination": "business_logic_workspace",
+			"safetyClass": "R3",
+			"entryHash": "sha256:bf541b05f0bf0145cabc755d5392920a046201432b6f1980505e536cfa2ffd9b"
+		},
+		{
+			"id": "remediation-verification",
+			"availability": "experimental",
+			"claim": {
+				"displayName": "修正確認",
+				"description": "findingと元の安全境界を引き継いで修正を再検証します。",
+				"capabilityRequirements": [
+					{
+						"capabilityId": "remediation_retest",
+						"requirement": "required"
+					}
+				]
+			},
+			"launchDestination": "finding_verification",
+			"safetyClass": "mixed",
+			"entryHash": "sha256:5cee12bbb14462687a7e9d872494fa435de07a7f9344b391fbabe74cf92071b4"
+		}
+	],
+	"experimentalInventory": [
+		{
+			"profileId": "dynamic-verification",
+			"executionEntry": "api/routes/dynamic.route.ts",
+			"executionDefinition": "api/modules/dynamic/dynamic-profiles.ts",
+			"testPath": "api/modules/dynamic/dynamic-runner.test.ts",
+			"benchmarkPath": null,
+			"knownLimitations": [
+				"experimental",
+				"isolated_workspace_required"
+			],
+			"evidence": {
+				"eligibility": "missing",
+				"path": null,
+				"commit": null,
+				"sha256": null
+			}
+		},
+		{
+			"profileId": "authenticated-web",
+			"executionEntry": "api/routes/dast-auth.route.ts",
+			"executionDefinition": "api/modules/dast/profiles.ts",
+			"testPath": "api/routes/dast-auth.route.test.ts",
+			"benchmarkPath": "scripts/benchmark/dast-standard.ts",
+			"knownLimitations": [
+				"experimental",
+				"auth_context_required"
+			],
+			"evidence": {
+				"eligibility": "reference_only",
+				"path": "spec/evidence/phase-51-dast-baseline.json",
+				"commit": "c0b399dc2d45268b04ac256227c2f02c38175d9e",
+				"sha256": "sha256:a469c551a2efd6fbe9ad40ebbb5211d48f70151097d729a293214825ea3b8e80"
+			}
+		},
+		{
+			"profileId": "api-readonly",
+			"executionEntry": "api/cli/scan-profile.ts",
+			"executionDefinition": "api/modules/api-schema-fuzz/schemathesis-runner.ts",
+			"testPath": "api/modules/api-schema-fuzz/schema-discovery.test.ts",
+			"benchmarkPath": "scripts/benchmark/dast-standard.ts",
+			"knownLimitations": [
+				"experimental",
+				"schema_required"
+			],
+			"evidence": {
+				"eligibility": "reference_only",
+				"path": "spec/evidence/phase-51-dast-baseline.json",
+				"commit": "c0b399dc2d45268b04ac256227c2f02c38175d9e",
+				"sha256": "sha256:a469c551a2efd6fbe9ad40ebbb5211d48f70151097d729a293214825ea3b8e80"
+			}
+		},
+		{
+			"profileId": "active-technical-lab",
+			"executionEntry": "api/routes/dast.route.ts",
+			"executionDefinition": "api/modules/runtime-scans/zap-active-runner.ts",
+			"testPath": "api/modules/runtime-scans/zap-active-runner.test.ts",
+			"benchmarkPath": "scripts/benchmark/dast-real-scanners.ts",
+			"knownLimitations": [
+				"experimental",
+				"disposable_target_required",
+				"roe_required"
+			],
+			"evidence": {
+				"eligibility": "reference_only",
+				"path": "spec/evidence/phase-50-zap-active-capability.json",
+				"commit": "c0b399dc2d45268b04ac256227c2f02c38175d9e",
+				"sha256": "sha256:503ed4c55736f55e521ffcb660a50d588bdecdeeeb1477e8d66a7b346dd0e39a"
+			}
+		},
+		{
+			"profileId": "business-logic-lab",
+			"executionEntry": "api/routes/business-logic.route.ts",
+			"executionDefinition": "api/modules/business-logic/business-logic-runner.ts",
+			"testPath": "api/modules/business-logic/business-logic-runner.test.ts",
+			"benchmarkPath": "scripts/benchmark/business-logic.ts",
+			"knownLimitations": [
+				"experimental",
+				"disposable_target_required",
+				"roe_required"
+			],
+			"evidence": {
+				"eligibility": "missing",
+				"path": null,
+				"commit": null,
+				"sha256": null
+			}
+		},
+		{
+			"profileId": "remediation-verification",
+			"executionEntry": "api/routes/reproductions.route.ts",
+			"executionDefinition": "api/modules/reproductions/reproduction-runner.ts",
+			"testPath": "api/modules/reproductions/reproduction-runner.test.ts",
+			"benchmarkPath": null,
+			"knownLimitations": [
+				"experimental",
+				"original_safety_boundary_required"
+			],
+			"evidence": {
+				"eligibility": "reference_only",
+				"path": "spec/security-capability/scan-execution-remediation-closeout.v1.json",
+				"commit": "c0b399dc2d45268b04ac256227c2f02c38175d9e",
+				"sha256": "sha256:9bd3a7d982e96bd1023c0a4a6353c1dc59e2bb15f640b08a0ad087a2f1a3907c"
+			}
+		}
+	]
+}

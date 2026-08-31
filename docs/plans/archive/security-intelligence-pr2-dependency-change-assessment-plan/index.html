@@ -1,0 +1,382 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex,follow">
+    <title>PR 2: Dependency Change Assessment Vertical Slice | vulnWorkbench</title>
+    <link rel="stylesheet" href="/vlunWorkbench/assets/css/spec-document.css">
+    <link rel="stylesheet" href="/vlunWorkbench/assets/css/plan-document.css">
+  </head>
+  <body>
+    <article lang="ja">
+  <h1 id="pr-2-dependency-change-assessment-vertical-slice">
+    PR 2: Dependency Change Assessment Vertical Slice
+  </h1>
+  <ul>
+    <li>Status: implemented and verified</li>
+    <li>Reviewed: 2026-08-15</li>
+    <li>Depends on: PR 1 commit <code>538866f</code></li>
+  </ul>
+  <h2 id="1-目的">1. 目的</h2>
+  <p>
+    保存済みscan runとartifactから、Dependency changeに限定したrevision-bound
+    assessmentを生成する。これはSecurity Intelligence構想で最初にend-to-endで動く縦切りである。
+  </p>
+  <p>
+    新しいdependency scannerは追加しない。既存のdiff planning、immutable snapshot、OSV/Trivy tool
+    resultを再利用する。
+  </p>
+  <h2 id="2-入出力">2. 入出力</h2>
+  <h3 id="input">Input</h3>
+  <ul>
+    <li>projectとownerで認可済みのscan run</li>
+    <li>scan runに保存されたresolved target</li>
+    <li><code>diff_manifest</code> artifact</li>
+    <li>tool applicabilityとtool run status</li>
+    <li>OSV/Trivy等のfinding、report、evidence metadata</li>
+  </ul>
+  <h3 id="output">Output</h3>
+  <ul>
+    <li>PR 1の<code>SecurityIntelligenceAssessmentV1</code></li>
+    <li>Dependency claimとverificationだけを含む</li>
+    <li>CLIではJSONをstdoutへ出力する</li>
+    <li>runtime stateやfindingを新規作成しないread model</li>
+  </ul>
+  <h2 id="3-trust-boundary">3. Trust boundary</h2>
+  <p>
+    assessment生成時に現在のworking
+    treeを再scan・再解析しない。scan実行時に保存されたtargetとartifactだけを使う。
+  </p>
+  <p>
+    次の一致を確認できない場合はassessmentを生成せず、typed
+    failureまたは<code>inconclusive</code>にする。
+  </p>
+  <ul>
+    <li>requested project/ownerとscan runのproject/owner</li>
+    <li>scan runの<code>targetDigest</code>とdiff manifestのtarget digest</li>
+    <li>scan run metadataのsource revisionとassessment target</li>
+    <li>evidence/tool runが属するscan run</li>
+    <li>artifact content digestと保存metadata</li>
+  </ul>
+  <h2 id="4-proposed-files">4. Proposed files</h2>
+  <table>
+    <caption>
+      4. Proposed files
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">種別</th>
+        <th scope="col">Path</th>
+        <th scope="col">内容</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>New</td>
+        <td><code>api/modules/security-intelligence/security-assessment-builder.ts</code></td>
+        <td>generic assessment組み立てとinvariant適用</td>
+      </tr>
+      <tr>
+        <td>New</td>
+        <td><code>api/modules/security-intelligence/security-assessment-builder.test.ts</code></td>
+        <td>outcome、evidence、sort、redaction test</td>
+      </tr>
+      <tr>
+        <td>New</td>
+        <td><code>api/modules/security-intelligence/dependency-change-observer.ts</code></td>
+        <td>diff manifestからDependency観測を作るpure function</td>
+      </tr>
+      <tr>
+        <td>New</td>
+        <td><code>api/modules/security-intelligence/dependency-change-observer.test.ts</code></td>
+        <td>ecosystem別、limitation別test</td>
+      </tr>
+      <tr>
+        <td>New</td>
+        <td><code>api/modules/security-intelligence/security-assessment-service.ts</code></td>
+        <td>persisted scan/artifactのloadとbinding validation</td>
+      </tr>
+      <tr>
+        <td>New</td>
+        <td><code>api/modules/security-intelligence/security-assessment-service.test.ts</code></td>
+        <td>wrong project/revision、artifact欠落test</td>
+      </tr>
+      <tr>
+        <td>New</td>
+        <td><code>api/modules/security-intelligence/security-assessment-integrity.ts</code></td>
+        <td>manifest、target、coverage、artifact digestの再検証</td>
+      </tr>
+      <tr>
+        <td>New</td>
+        <td><code>api/modules/security-intelligence/persisted-dependency-assessment.schema.ts</code></td>
+        <td>保存済みmetadataのruntime validationとtyped failure</td>
+      </tr>
+      <tr>
+        <td>New</td>
+        <td><code>api/cli/security-assessment.ts</code></td>
+        <td><code>--scan-run-id</code>からassessment JSONを生成</td>
+      </tr>
+      <tr>
+        <td>New</td>
+        <td><code>api/cli/security-assessment.test.ts</code></td>
+        <td>stdout/stderrとargument failureのCLI contract test</td>
+      </tr>
+      <tr>
+        <td>Change</td>
+        <td><code>api/modules/scans/artifact-storage.ts</code></td>
+        <td>bounded streaming hashによる参照artifact検証</td>
+      </tr>
+      <tr>
+        <td>Change</td>
+        <td><code>api/modules/scans/artifact-storage.test.ts</code></td>
+        <td>size limit、path traversal、symlink境界test</td>
+      </tr>
+      <tr>
+        <td>Change</td>
+        <td><code>package.json</code></td>
+        <td><code>security-intelligence:assess</code> script</td>
+      </tr>
+      <tr>
+        <td>New</td>
+        <td><code>spec/evidence/security-intelligence-dependency-baseline.json</code></td>
+        <td>fixture runの評価用output</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    DB migrationは行わない。assessmentは既存recordから決定的に再生成できるread
+    modelとする。生成costまたはaudit要件から永続化が必要と分かった場合は、別PRで判断する。
+  </p>
+  <h2 id="5-再利用する既存実装">5. 再利用する既存実装</h2>
+  <ul>
+    <li>
+      <code>api/modules/scans/diff-scan-plan.ts</code>
+      <ul>
+        <li><code>dependencyChanged</code></li>
+        <li><code>pluginContext.dependencyStateChanged</code></li>
+        <li><code>pluginContext.lockStateChanged</code></li>
+        <li><code>limitationCodes</code></li>
+        <li>tool applicability</li>
+      </ul>
+    </li>
+    <li>
+      <code>api/modules/project-capabilities/plugin-detector.ts</code>
+      <ul>
+        <li>manifest entryからdependency ecosystemとlock-stateを再導出する既存判定</li>
+      </ul>
+    </li>
+    <li>
+      <code>api/modules/scans/diff-snapshot.ts</code>
+      <ul>
+        <li>scan時のimmutable targetとdependency companion files</li>
+      </ul>
+    </li>
+    <li>
+      <code>api/modules/scans/profile-orchestrator.ts</code>
+      <ul>
+        <li><code>diff_manifest</code> artifactとscan run metadata</li>
+      </ul>
+    </li>
+    <li>
+      <code>api/modules/scans/profile-runner.ts</code>
+      <ul>
+        <li>findingとdiff relation</li>
+      </ul>
+    </li>
+    <li>existing OSV/Trivy findings and reports</li>
+  </ul>
+  <p>
+    observerがdependency manifest patternを再定義することは禁止する。observerは保存済みmanifest
+    entryへ既存のplugin detectorを適用し、改変可能なdenormalized
+    flagを肯定的claimの根拠にせず、Security Intelligence contractへ変換するadapterに留める。
+  </p>
+  <h2 id="6-dependency-observation-rules">6. Dependency observation rules</h2>
+  <h3 id="observedとして出せるもの">Observedとして出せるもの</h3>
+  <ul>
+    <li>dependency manifestまたはlock stateが変更された</li>
+    <li>どのecosystemがscan scopeに含まれたか</li>
+    <li>OSV/Trivy verificationが実行・skip・failureのどれだったか</li>
+    <li>toolがどのfinding/evidenceを生成したか</li>
+    <li>diff planningが報告したlimitation code</li>
+  </ul>
+  <h3 id="inferredとしてのみ出せるもの">Inferredとしてのみ出せるもの</h3>
+  <ul>
+    <li>dependency changeによってsupply-chain reviewが必要になった</li>
+    <li>lock file欠落等によりresolution completenessが低下した可能性</li>
+  </ul>
+  <h3 id="出してはいけないもの">出してはいけないもの</h3>
+  <ul>
+    <li>dependency changeだけを根拠にした特定CVEの存在</li>
+    <li>zero findingを根拠にした「依存関係は安全」</li>
+    <li>toolが対象外/失敗した範囲の<code>tested</code></li>
+    <li>現在のworking treeから推測したrevision情報</li>
+  </ul>
+  <h2 id="7-outcome-decision-table">7. Outcome decision table</h2>
+  <table>
+    <caption>
+      7. Outcome decision table
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">状態</th>
+        <th scope="col">Outcome</th>
+        <th scope="col">説明</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>required tool完了、1件以上finding</td>
+        <td><code>findings_observed</code></td>
+        <td>finding/evidence refs必須</td>
+      </tr>
+      <tr>
+        <td>required tool完了、0 finding、coverage明示</td>
+        <td><code>no_findings_observed</code></td>
+        <td>residual riskとgapを保持</td>
+      </tr>
+      <tr>
+        <td>required tool失敗/timeout、artifact欠落</td>
+        <td><code>inconclusive</code></td>
+        <td>failure reasonをlimitationへ残す</td>
+      </tr>
+      <tr>
+        <td>対象ecosystemをsupportできない</td>
+        <td>
+          <code>unavailable</code>または<code>inconclusive</code>
+        </td>
+        <td>applicabilityと理由で一意に決める</td>
+      </tr>
+      <tr>
+        <td>dependency changeなし</td>
+        <td>対象外のverification</td>
+        <td>「検査済み」にはしない</td>
+      </tr>
+      <tr>
+        <td>target/evidence mismatch</td>
+        <td>hard failure</td>
+        <td>assessment payloadを返さない</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    <code>inconclusive</code>とhard
+    failureの境界は、正しいtargetについて検査が失敗した場合を前者、target
+    identity自体を信頼できない場合を後者とする。
+  </p>
+  <h2 id="8-fixturetest-matrix">8. Fixture/test matrix</h2>
+  <ul>
+    <li>npm: <code>package.json</code>変更、lock変更あり/なし</li>
+    <li>Maven: <code>pom.xml</code>変更</li>
+    <li>Gradle: Groovy/Kotlin build file変更</li>
+    <li>Python: requirements/lockの既知pattern</li>
+    <li>
+      Go: <code>go.mod</code>/<code>go.sum</code>
+    </li>
+    <li>dependency file変更なし</li>
+    <li>OSV完了 + findingあり</li>
+    <li>OSV完了 + findingなし</li>
+    <li>OSV skip/not applicable</li>
+    <li>OSV failure/timeout</li>
+    <li>Trivy evidenceあり</li>
+    <li>diff manifest欠落・digest mismatch</li>
+    <li>scan targetとevidence targetのmismatch</li>
+    <li>private absolute pathとcredential-shaped stringのredaction</li>
+    <li>入力配列順が異なっても同じcanonical assessmentになること</li>
+  </ul>
+  <p>
+    既存<code>api/modules/scans/diff-scan-plan.test.ts</code>のfixtureを可能な範囲で再利用し、同じecosystem
+    fixtureを重複作成しない。
+  </p>
+  <h2 id="9-cli-behavior">9. CLI behavior</h2>
+  <p>想定command:</p>
+  <pre><code class="language-bash">bun run security-intelligence:assess --scan-run-id &lt;scan-run-id&gt; --format json
+</code></pre>
+  <ul>
+    <li>stdout: contract-validなassessment JSONだけ</li>
+    <li>stderr: progress、warning、typed failure</li>
+    <li>
+      exit 0:
+      assessment生成成功。outcomeが<code>inconclusive</code>でもpayloadが正しければ0
+    </li>
+    <li>exit non-zero: 認可、not found、target mismatch、schema violation</li>
+    <li><code>--write</code>は初期PRでは提供しない</li>
+  </ul>
+  <h2 id="10-実装順序">10. 実装順序</h2>
+  <ol>
+    <li><code>dependency-change-observer</code>をpure functionとして実装する。</li>
+    <li>PR 1 fixtureへ同じobserver出力を流すbuilder testを作る。</li>
+    <li>persisted scan/artifact readerとbinding validationをserviceへ追加する。</li>
+    <li>outcome decision tableをtable-driven testにする。</li>
+    <li>CLIを薄いadapterとして追加する。</li>
+    <li>real-like fixture scanでbaseline JSONを生成する。</li>
+    <li>同じscan runから2回生成し、canonical payloadが一致することを確認する。</li>
+  </ol>
+  <h2 id="11-acceptance-criteria">11. Acceptance criteria</h2>
+  <ul>
+    <li>npm/Maven/Gradle/Python/Goの既存Dependency差分caseをassessmentへ変換できる。</li>
+    <li>zero findingとtool failureを区別する。</li>
+    <li>wrong project、wrong revision、wrong digestをrejectする。</li>
+    <li>assessment内のすべてのevidence refを元scan runへ解決できる。</li>
+    <li>source本文、secret、絶対pathを出力しない。</li>
+    <li>
+      同じpersisted inputから同じsemantic
+      digestと<code>assessmentRef</code>を生成する。<code>generatedAt</code>だけは実生成時刻として差分を許す。
+    </li>
+    <li>scan execution、finding、report、DB schemaへ副作用を与えない。</li>
+  </ul>
+  <h2 id="12-verification-commands">12. Verification commands</h2>
+  <pre><code class="language-bash">bun test api/modules/security-intelligence/dependency-change-observer.test.ts
+bun test api/modules/security-intelligence/security-assessment-builder.test.ts
+bun test api/modules/security-intelligence/security-assessment-service.test.ts
+bun test api/cli/security-assessment.test.ts
+bun test api/modules/scans/artifact-storage.test.ts
+bun test api/modules/scans/diff-scan-plan.test.ts
+bun test api/modules/scans/nightworkers-profile-contract.test.ts
+bun run security-intelligence:assess --scan-run-id &lt;fixture-scan-run-id&gt; --format json
+bun run typecheck
+git diff --check
+</code></pre>
+  <p>
+    fixture scan runを作る既存test
+    helperがCLIから利用できない場合は、test専用importではなく明示的なfixture commandを追加する。
+  </p>
+  <h2 id="13-observability">13. Observability</h2>
+  <p>
+    初期CLIとserviceで次をstructured logへ出す。source content、raw path、credentialは出さない。
+  </p>
+  <ul>
+    <li>assessment contract version</li>
+    <li>project/scan/assessmentのopaque ref</li>
+    <li>target digestの短縮表示</li>
+    <li>outcome</li>
+    <li>verification countとstatus別count</li>
+    <li>coverage gap/limitation code</li>
+    <li>build duration</li>
+    <li>schema validation success/failure</li>
+  </ul>
+  <h2 id="14-failurerollbackstop-condition">14. Failure、rollback、stop condition</h2>
+  <ul>
+    <li>
+      persisted artifactだけでrevision
+      bindingできない場合、現在のtreeへfallbackしない。必要なmetadata追加を小さな先行commitとして同じPRに含めるか、PRを止める。
+    </li>
+    <li>
+      OSV/Trivyのraw result形式が安定していない場合、raw parserを増やさず既存finding/report
+      projectionを使う。
+    </li>
+    <li>
+      rollbackは新規module、CLI、script、baseline artifactのrevertで完了する。既存scan
+      pathは変更しない。
+    </li>
+    <li>wrong-revision assessmentが1件でも生成された場合、PR 4へ進まない。</li>
+  </ul>
+  <h2 id="15-merge-gate">15. Merge gate</h2>
+  <p>
+    保存済みfixture scan runに対し、evidence
+    refがすべて解決可能で、2回の生成結果が決定的であること。NightWorkersへの公開route追加はPR
+    4まで行わない。
+  </p>
+</article>
+  </body>
+</html>

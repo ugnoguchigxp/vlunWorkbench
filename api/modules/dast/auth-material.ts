@@ -36,6 +36,17 @@ export function authHeadersFor(
 	}
 }
 
+export function apiAuthHeadersFor(
+	secret: DastAuthSecretPayload | undefined,
+): Record<string, string> {
+	if (
+		secret?.kind === "cookie_set" ||
+		secret?.kind === "playwright_storage_state"
+	)
+		throw new Error("api_auth_kind_not_supported");
+	return authHeadersFor(secret);
+}
+
 export function secretFieldValue(
 	secret: DastAuthSecretPayload,
 	field: "token" | "username" | "password",
@@ -58,8 +69,23 @@ export function redactSecretText(
 	if (!secret) return value;
 	let redacted = value;
 	for (const candidate of secretValues(secret)) {
-		if (candidate.length > 0)
-			redacted = redacted.split(candidate).join("[REDACTED]");
+		if (candidate.length === 0) continue;
+		const variants = new Set([candidate]);
+		for (const encode of [encodeURIComponent, encodeURI]) {
+			try {
+				variants.add(encode(candidate));
+			} catch {
+				// Raw and JSON-escaped variants still redact malformed Unicode input.
+			}
+		}
+		let escaped = candidate;
+		for (let depth = 0; depth < 4; depth += 1) {
+			escaped = JSON.stringify(escaped).slice(1, -1);
+			variants.add(escaped);
+		}
+		for (const variant of variants) {
+			redacted = redacted.split(variant).join("[REDACTED]");
+		}
 	}
 	return redacted;
 }
@@ -95,21 +121,28 @@ export function redactDastEvidenceText(
 }
 
 function secretValues(secret: DastAuthSecretPayload): string[] {
+	let values: string[];
 	switch (secret.kind) {
 		case "bearer_token":
-			return [secret.token];
+			values = [secret.token];
+			break;
 		case "named_header":
-			return [secret.value];
+			values = [secret.value];
+			break;
 		case "basic_auth":
-			return [secret.username, secret.password];
+			values = [secret.username, secret.password];
+			break;
 		case "cookie_set":
-			return secret.cookies.map((cookie) => cookie.value);
+			values = secret.cookies.map((cookie) => cookie.value);
+			break;
 		case "playwright_storage_state":
-			return [
+			values = [
 				...secret.storageState.cookies.map((cookie) => cookie.value),
 				...secret.storageState.origins.flatMap((origin) =>
 					origin.localStorage.map((item) => item.value),
 				),
 			];
+			break;
 	}
+	return [...new Set([...values, ...Object.values(authHeadersFor(secret))])];
 }

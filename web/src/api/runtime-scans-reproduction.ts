@@ -91,14 +91,15 @@ export async function triggerFindingReproduction(
 		memory?: string;
 		cpus?: string;
 	},
-): Promise<Record<string, unknown> & { reproductionRunId?: string }> {
-	return requestJson<Record<string, unknown> & { reproductionRunId?: string }>(
-		`/api/findings/${findingId}/reproductions`,
-		{
-			method: "POST",
-			body: params,
-		},
-	);
+): Promise<
+	Record<string, unknown> & { reproductionRunId?: string; scanRunId?: string }
+> {
+	return requestJson<
+		Record<string, unknown> & { reproductionRunId?: string; scanRunId?: string }
+	>(`/api/findings/${findingId}/reproductions`, {
+		method: "POST",
+		body: params,
+	});
 }
 
 export async function fetchReproductionRun(

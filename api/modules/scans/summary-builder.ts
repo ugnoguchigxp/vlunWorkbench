@@ -1,4 +1,5 @@
 import { eq, inArray } from "drizzle-orm";
+import { scanProfileResolutionSchema } from "../../../shared/schemas/scan-profile-catalog.schema";
 import type { AppDatabase } from "../../db";
 import {
 	dastRuns,
@@ -40,7 +41,8 @@ export interface StepSummary {
 		| "runtime_scanner"
 		| "sbom_export"
 		| "api_schema_scan"
-		| "container_image_scan";
+		| "container_image_scan"
+		| "attestation_verify";
 	id: string;
 	displayName: string;
 	status: string;
@@ -62,6 +64,10 @@ export interface StepSummary {
 export interface ScanRunSummary {
 	scanRunId: string;
 	profileId: string;
+	canonicalProfileId?: string;
+	executionProfileId?: string;
+	resultPolicy?: "advisory" | "gate";
+	gateDecision?: "not_requested" | "pass" | "fail" | "blocked";
 	profileOutcome: string;
 	tools: ToolSummary[];
 	steps?: StepSummary[];
@@ -238,8 +244,27 @@ export async function buildScanRunSummary(
 		}
 	}
 
+	const metadataProfileOutcome = scanRun.metadata?.profileOutcome;
+	const profileResolution = scanProfileResolutionSchema.safeParse(
+		scanRun.metadata?.profileResolution,
+	);
+	const gateDecision =
+		scanRun.metadata?.gateEvaluation &&
+		typeof scanRun.metadata.gateEvaluation === "object" &&
+		["not_requested", "pass", "fail", "blocked"].includes(
+			String(
+				(scanRun.metadata.gateEvaluation as Record<string, unknown>)
+					.gateDecision,
+			),
+		)
+			? ((scanRun.metadata.gateEvaluation as Record<string, unknown>)
+					.gateDecision as ScanRunSummary["gateDecision"])
+			: undefined;
 	const profileOutcome =
-		(scanRun.metadata?.profileOutcome as string) ||
+		(scanRun.profileOutcome !== "pending" && scanRun.profileOutcome) ||
+		(typeof metadataProfileOutcome === "string"
+			? metadataProfileOutcome
+			: null) ||
 		(scanRun.status === "failed" ? "failed" : "completed");
 	const steps: StepSummary[] =
 		profileSteps.length > 0
@@ -401,6 +426,15 @@ export async function buildScanRunSummary(
 	return {
 		scanRunId,
 		profileId: scanRun.profile,
+		...(profileResolution.success
+			? {
+					canonicalProfileId: profileResolution.data.canonicalProfileId,
+					executionProfileId:
+						profileResolution.data.executionProfileId ?? undefined,
+					resultPolicy: profileResolution.data.resultPolicy,
+				}
+			: {}),
+		...(gateDecision ? { gateDecision } : {}),
 		profileOutcome,
 		tools,
 		steps,

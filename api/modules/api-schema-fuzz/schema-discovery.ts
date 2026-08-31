@@ -1,25 +1,206 @@
+import { createHash } from "node:crypto";
+import type { Dirent } from "node:fs";
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
+import { cleanupTemporaryPaths } from "../scans/execution/lifecycle/temporary-path-cleanup";
+import { readApiSchemaDocument } from "./api-schema-document";
+import { parseGraphqlReadonlySchema } from "./graphql-readonly-policy";
+import { parseOpenApiDocument } from "./openapi-document";
+import {
+	MAX_STRICT_JSON_BYTES,
+	parseStrictJsonDocument,
+	readStrictJsonDocumentBytes,
+} from "./strict-json-document";
 
 const FILE_CANDIDATES = [
 	"openapi.json",
-	"openapi.yaml",
-	"openapi.yml",
 	"swagger.json",
-	"swagger.yaml",
-	"swagger.yml",
 	"api/openapi.json",
 	"docs/openapi.json",
 ];
+const YAML_FILE_CANDIDATES = [
+	"openapi.yaml",
+	"openapi.yml",
+	"swagger.yaml",
+	"swagger.yml",
+];
+const GRAPHQL_FILE_CANDIDATES = [
+	"schema.graphql",
+	"graphql/schema.graphql",
+	"api/schema.graphql",
+];
 const HTTP_CANDIDATES = ["/openapi.json", "/swagger.json", "/v3/api-docs"];
+const API_SOURCE_EXTENSIONS = new Set([
+	".js",
+	".cjs",
+	".mjs",
+	".ts",
+	".cts",
+	".mts",
+	".jsx",
+	".tsx",
+]);
+const IGNORED_SOURCE_DIRECTORIES = new Set([
+	".git",
+	"node_modules",
+	"dist",
+	"dist-web",
+	"build",
+	"coverage",
+	"artifacts",
+]);
+const MAX_API_EVIDENCE_FILES = 500;
+const MAX_API_EVIDENCE_BYTES = 256 * 1024;
+
+async function readBoundedUtf8File(
+	filePath: string,
+	maxBytes: number,
+): Promise<string | null> {
+	const handle = await fs.open(filePath, "r").catch(() => null);
+	if (!handle) return null;
+	try {
+		const stat = await handle.stat();
+		if (!stat.isFile() || stat.size > maxBytes) return null;
+		const bytes = Buffer.alloc(stat.size);
+		let offset = 0;
+		while (offset < bytes.length) {
+			const { bytesRead } = await handle.read(
+				bytes,
+				offset,
+				bytes.length - offset,
+				offset,
+			);
+			if (bytesRead === 0) return null;
+			offset += bytesRead;
+		}
+		const trailing = Buffer.alloc(1);
+		if ((await handle.read(trailing, 0, 1, bytes.length)).bytesRead > 0)
+			return null;
+		try {
+			return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+		} catch {
+			return null;
+		}
+	} finally {
+		await handle.close();
+	}
+}
+
+export async function readBoundedSchemaResponse(
+	response: Response,
+	maxBytes = MAX_STRICT_JSON_BYTES,
+): Promise<Uint8Array> {
+	const contentLength = response.headers.get("content-length");
+	if (
+		contentLength &&
+		/^\d+$/.test(contentLength) &&
+		Number(contentLength) > maxBytes
+	) {
+		await response.body?.cancel().catch(() => undefined);
+		throw new Error("api_schema_response_size_exceeded");
+	}
+	if (!response.body) return new Uint8Array();
+	const reader = response.body.getReader();
+	const chunks: Uint8Array[] = [];
+	let total = 0;
+	try {
+		while (true) {
+			const next = await reader.read();
+			if (next.done) break;
+			total += next.value.byteLength;
+			if (total > maxBytes)
+				throw new Error("api_schema_response_size_exceeded");
+			chunks.push(next.value);
+		}
+	} finally {
+		await reader.cancel().catch(() => undefined);
+	}
+	const result = new Uint8Array(total);
+	let offset = 0;
+	for (const chunk of chunks) {
+		result.set(chunk, offset);
+		offset += chunk.byteLength;
+	}
+	return result;
+}
+
+/**
+ * This is intentionally a conservative source-evidence probe, not framework
+ * detection. A package dependency alone is insufficient: the strict API
+ * profile is blocked only when a bounded first-party source file actually
+ * declares a conventional HTTP route or server bootstrap.
+ */
+const API_ROUTE_EVIDENCE =
+	/\b(?:app|router|server|api)\s*\.\s*(?:get|post|put|patch|delete|head|options|use|route)\s*\(|\b(?:express|fastify)\s*\(|\bnew\s+(?:Hono|Elysia)\s*\(/;
 
 export type SchemaDiscoveryResult = {
 	applicable: boolean;
+	/** A schema itself is API evidence; otherwise this comes from first-party route source. */
+	apiDetected: boolean;
+	apiEvidencePaths: string[];
 	schemaPath: string | null;
+	schemaKind: "openapi" | "graphql" | null;
+	schemaDigest?: string;
 	cleanupPath?: string;
 	source: "repository" | "target" | null;
-	reasonCode: "schema_not_found" | "authentication_required" | null;
+	reasonCode: string | null;
 };
+
+async function collectApiEvidencePaths(params: {
+	root: string;
+	directory?: string;
+	paths?: string[];
+	state?: { sourceFilesRead: number };
+}): Promise<string[]> {
+	const directory = params.directory ?? params.root;
+	const paths = params.paths ?? [];
+	const state = params.state ?? { sourceFilesRead: 0 };
+	if (state.sourceFilesRead >= MAX_API_EVIDENCE_FILES) return paths;
+	let entries: Dirent[];
+	try {
+		entries = await fs.readdir(directory, { withFileTypes: true });
+	} catch {
+		return paths;
+	}
+	for (const entry of entries.sort((left, right) =>
+		left.name.localeCompare(right.name),
+	)) {
+		if (state.sourceFilesRead >= MAX_API_EVIDENCE_FILES) break;
+		const entryPath = path.join(directory, entry.name);
+		if (entry.isDirectory()) {
+			if (!IGNORED_SOURCE_DIRECTORIES.has(entry.name)) {
+				await collectApiEvidencePaths({
+					root: params.root,
+					directory: entryPath,
+					paths,
+					state,
+				});
+			}
+			continue;
+		}
+		if (
+			!entry.isFile() ||
+			!API_SOURCE_EXTENSIONS.has(path.extname(entry.name))
+		) {
+			continue;
+		}
+		state.sourceFilesRead += 1;
+		const source = await readBoundedUtf8File(entryPath, MAX_API_EVIDENCE_BYTES);
+		if (source !== null && API_ROUTE_EVIDENCE.test(source)) {
+			paths.push(path.relative(params.root, entryPath));
+		}
+	}
+	return paths;
+}
+
+export async function detectRepositoryApiEvidence(repoPath: string): Promise<{
+	detected: boolean;
+	paths: string[];
+}> {
+	const paths = await collectApiEvidencePaths({ root: repoPath });
+	return { detected: paths.length > 0, paths };
+}
 
 function looksLikeApiSchema(value: unknown): boolean {
 	if (!value || typeof value !== "object" || Array.isArray(value)) return false;
@@ -32,71 +213,164 @@ function looksLikeApiSchema(value: unknown): boolean {
 	);
 }
 
+export async function discoverRepositoryApiSchema(
+	repoPath: string,
+	options: { includeAuthenticatedOperations?: boolean } = {},
+): Promise<SchemaDiscoveryResult> {
+	for (const candidate of [
+		...FILE_CANDIDATES,
+		...YAML_FILE_CANDIDATES,
+		...GRAPHQL_FILE_CANDIDATES,
+	]) {
+		const candidatePath = path.resolve(repoPath, candidate);
+		try {
+			const schemaKind = candidate.endsWith(".graphql")
+				? ("graphql" as const)
+				: ("openapi" as const);
+			let bytes: Uint8Array;
+			if (schemaKind === "graphql") {
+				bytes = await readStrictJsonDocumentBytes(candidatePath, repoPath);
+				parseGraphqlReadonlySchema(bytes);
+			} else {
+				const loaded = await readApiSchemaDocument(candidatePath, repoPath);
+				bytes = loaded.bytes;
+				parseOpenApiDocument(loaded.document, options);
+			}
+			return {
+				applicable: true,
+				apiDetected: true,
+				apiEvidencePaths: [candidate],
+				schemaPath: candidatePath,
+				schemaKind,
+				schemaDigest: `sha256:${createHash("sha256").update(bytes).digest("hex")}`,
+				source: "repository",
+				reasonCode: null,
+			};
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code !== "ENOENT")
+				return {
+					applicable: false,
+					apiDetected: true,
+					apiEvidencePaths: [candidate],
+					schemaPath: null,
+					schemaKind: null,
+					source: null,
+					reasonCode:
+						error instanceof Error
+							? error.message.split(":")[0]
+							: "openapi_schema_required",
+				};
+			// bounded candidate lookup intentionally ignores missing files
+		}
+	}
+	const apiEvidence = await detectRepositoryApiEvidence(repoPath);
+	return {
+		applicable: false,
+		apiDetected: apiEvidence.detected,
+		apiEvidencePaths: apiEvidence.paths,
+		schemaPath: null,
+		schemaKind: null,
+		source: null,
+		reasonCode: "schema_not_found",
+	};
+}
+
+export async function discoverTargetApiSchema(params: {
+	targetOrigin: string;
+	fetchImpl?: (input: URL, init?: RequestInit) => Promise<Response>;
+	includeAuthenticatedOperations?: boolean;
+}): Promise<SchemaDiscoveryResult> {
+	const fetchImpl = params.fetchImpl ?? fetch;
+	const authRequiredCandidates: string[] = [];
+	for (const candidate of HTTP_CANDIDATES) {
+		let tempRoot: string | null = null;
+		try {
+			const response = await fetchImpl(
+				new URL(candidate, params.targetOrigin),
+				{ method: "GET", redirect: "manual" },
+			);
+			if (response.status === 401 || response.status === 403) {
+				authRequiredCandidates.push(candidate);
+				await response.body?.cancel().catch(() => undefined);
+				continue;
+			}
+			if (!response.ok) {
+				await response.body?.cancel().catch(() => undefined);
+				continue;
+			}
+			const bytes = await readBoundedSchemaResponse(response);
+			let parsed: unknown;
+			try {
+				parsed = parseStrictJsonDocument(bytes);
+				parseOpenApiDocument(parsed, {
+					includeAuthenticatedOperations: params.includeAuthenticatedOperations,
+				});
+			} catch {
+				continue;
+			}
+			if (!looksLikeApiSchema(parsed)) continue;
+			tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "vuln-schema-"));
+			const tempPath = path.join(tempRoot, "openapi.json");
+			await fs.writeFile(tempPath, bytes);
+			return {
+				applicable: true,
+				apiDetected: true,
+				apiEvidencePaths: [candidate],
+				schemaPath: tempPath,
+				schemaKind: "openapi",
+				schemaDigest: `sha256:${createHash("sha256").update(bytes).digest("hex")}`,
+				cleanupPath: path.dirname(tempPath),
+				source: "target",
+				reasonCode: null,
+			};
+		} catch {
+			if (tempRoot) {
+				await cleanupTemporaryPaths(
+					[tempRoot],
+					"api_schema_discovery_cleanup_failed",
+				);
+			}
+			// bounded probe; the caller records a coverage gap if no candidate works
+		}
+	}
+	if (authRequiredCandidates.length > 0)
+		return {
+			applicable: false,
+			apiDetected: true,
+			apiEvidencePaths: authRequiredCandidates,
+			schemaPath: null,
+			schemaKind: null,
+			source: null,
+			reasonCode: "authentication_required",
+		};
+	return {
+		applicable: false,
+		apiDetected: false,
+		apiEvidencePaths: [],
+		schemaPath: null,
+		schemaKind: null,
+		source: null,
+		reasonCode: "schema_not_found",
+	};
+}
+
+/**
+ * Legacy discovery sequence. Profile execution intentionally uses the
+ * repository-only probe first, so it can declare N/A without starting a target.
+ */
 export async function discoverApiSchema(params: {
 	repoPath: string;
 	targetOrigin?: string;
 	fetchImpl?: (input: URL, init?: RequestInit) => Promise<Response>;
+	includeAuthenticatedOperations?: boolean;
 }): Promise<SchemaDiscoveryResult> {
-	for (const candidate of FILE_CANDIDATES) {
-		const candidatePath = path.resolve(params.repoPath, candidate);
-		try {
-			const stat = await fs.stat(candidatePath);
-			if (stat.isFile())
-				return {
-					applicable: true,
-					schemaPath: candidatePath,
-					source: "repository",
-					reasonCode: null,
-				};
-		} catch {
-			// bounded candidate lookup intentionally ignores missing files
-		}
-	}
-	if (params.targetOrigin) {
-		const fetchImpl = params.fetchImpl ?? fetch;
-		for (const candidate of HTTP_CANDIDATES) {
-			try {
-				const response = await fetchImpl(
-					new URL(candidate, params.targetOrigin),
-					{ method: "GET", redirect: "manual" },
-				);
-				if (response.status === 401 || response.status === 403)
-					return {
-						applicable: false,
-						schemaPath: null,
-						source: null,
-						reasonCode: "authentication_required",
-					};
-				if (!response.ok) continue;
-				const body = await response.text();
-				let parsed: unknown;
-				try {
-					parsed = JSON.parse(body);
-				} catch {
-					continue;
-				}
-				if (!looksLikeApiSchema(parsed)) continue;
-				const tempPath = path.join(
-					await fs.mkdtemp(path.join("/tmp", "vuln-schema-")),
-					"openapi.json",
-				);
-				await fs.writeFile(tempPath, body, "utf8");
-				return {
-					applicable: true,
-					schemaPath: tempPath,
-					cleanupPath: path.dirname(tempPath),
-					source: "target",
-					reasonCode: null,
-				};
-			} catch {
-				// bounded probe; the caller records a coverage gap if no candidate works
-			}
-		}
-	}
-	return {
-		applicable: false,
-		schemaPath: null,
-		source: null,
-		reasonCode: "schema_not_found",
-	};
+	const repository = await discoverRepositoryApiSchema(params.repoPath, {
+		includeAuthenticatedOperations: params.includeAuthenticatedOperations,
+	});
+	if (repository.applicable || !params.targetOrigin) return repository;
+	return await discoverTargetApiSchema({
+		targetOrigin: params.targetOrigin,
+		fetchImpl: params.fetchImpl,
+		includeAuthenticatedOperations: params.includeAuthenticatedOperations,
+	});
 }

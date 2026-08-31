@@ -1,0 +1,27 @@
+{
+	"schemaVersion": 1,
+	"profileId": "authenticated-web",
+	"policyId": "authenticated-web-stable-v1",
+	"caseIds": [
+		"cookie:valid",
+		"cookie:invalid",
+		"cookie:expired",
+		"bearer:valid",
+		"bearer:invalid",
+		"bearer:expired",
+		"basic:valid",
+		"basic:invalid",
+		"basic:expired",
+		"form:valid",
+		"form:invalid",
+		"form:expired",
+		"scripted:valid",
+		"scripted:invalid",
+		"scripted:expired",
+		"auth-differential",
+		"redirect-bypass",
+		"login-policy",
+		"auth-fault",
+		"cleanup"
+	]
+}
