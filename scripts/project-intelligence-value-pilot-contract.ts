@@ -83,6 +83,9 @@ export function assertSealedPilotRegistration(value: unknown): void {
 		"pilot registration",
 	);
 	safePilotId(registration.pilotId);
+	if (/(?:^|[._-])draft(?:[._-]|$)/i.test(registration.pilotId)) {
+		throw new Error("A SEALED pilot registration cannot use a DRAFT pilot ID.");
+	}
 	assertRegistrationCommits(
 		object(registration.commits, "registration commits"),
 	);

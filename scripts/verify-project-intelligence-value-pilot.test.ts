@@ -83,6 +83,12 @@ describe("project-intelligence value pilot evidence contract", () => {
 				},
 			}),
 		).toThrow("assigned approver");
+		expect(() =>
+			createSealedPilotRegistration({
+				...sealedRegistration(),
+				pilotId: "value-pilot-draft",
+			}),
+		).toThrow("DRAFT pilot ID");
 	});
 
 	test("sanitizes a complete GO report without retaining paths or internal IDs", () => {
