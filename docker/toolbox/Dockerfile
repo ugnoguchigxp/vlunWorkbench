@@ -1,4 +1,4 @@
-FROM golang:1.26.6-bookworm@sha256:116d58cbd88c1297624acc6e967a060012422bacf9930927e23fb719189c6f36 AS patched-tools
+FROM golang:1.27.0-bookworm@sha256:ded31c68586d2e49e760acc2e65a884b23d032e9bbbed0ae0c55abd3fcaf4452 AS patched-tools
 
 ARG GITLEAKS_VERSION=8.30.1
 ARG GITLEAKS_SOURCE_COMMIT=83d9cd684c87d95d656c1458ef04895a7f1cbd8e
@@ -68,7 +68,7 @@ RUN mkdir -p /src/slsa-verifier \
 		-ldflags "-s -w -buildid= -X sigs.k8s.io/release-utils/version.gitVersion=v${SLSA_VERIFIER_VERSION} -X sigs.k8s.io/release-utils/version.gitCommit=${SLSA_VERIFIER_SOURCE_COMMIT} -X sigs.k8s.io/release-utils/version.gitTreeState=clean" \
 		-o /out/slsa-verifier ./cli/slsa-verifier
 
-FROM golang:1.26.6-bookworm@sha256:116d58cbd88c1297624acc6e967a060012422bacf9930927e23fb719189c6f36 AS trivy-binary
+FROM golang:1.27.0-bookworm@sha256:ded31c68586d2e49e760acc2e65a884b23d032e9bbbed0ae0c55abd3fcaf4452 AS trivy-binary
 
 ARG TRIVY_VERSION=0.72.0
 ARG TRIVY_SOURCE_COMMIT=8a32853686209a428179bb3a1688802b25691564
@@ -88,7 +88,7 @@ RUN mkdir -p /src/trivy \
 		-ldflags "-s -w -X github.com/aquasecurity/trivy/pkg/version/app.ver=${TRIVY_VERSION}" \
 		-o /trivy ./cmd/trivy
 
-FROM python:3.12-slim-bookworm@sha256:a116514e19457bcb7af7efe9c3dd0b9b71e85b317694e7882a1c52aa15a78134
+FROM python:3.14-slim-bookworm@sha256:23c59390fc717bf09f9336908199a0ae75d9c4264bf296123f94ad772fea3b52
 
 ARG TARGETARCH
 ARG SCHEMATHESIS_VERSION=4.24.2
