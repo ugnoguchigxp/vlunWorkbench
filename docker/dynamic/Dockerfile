@@ -51,17 +51,23 @@ RUN npm install --global "npm@${NPM_VERSION}" \
     && mkdir -p /tmp/npm-security-fixes \
     && npm pack --ignore-scripts --pack-destination /tmp/npm-security-fixes "brace-expansion@5.0.9" \
     && npm pack --ignore-scripts --pack-destination /tmp/npm-security-fixes "ip-address@10.3.1" \
+    && npm pack --ignore-scripts --pack-destination /tmp/npm-security-fixes "tar@7.5.21" \
     && rm -rf \
         /usr/local/lib/node_modules/npm/node_modules/brace-expansion \
         /usr/local/lib/node_modules/npm/node_modules/ip-address \
+        /usr/local/lib/node_modules/npm/node_modules/tar \
     && mkdir -p \
         /usr/local/lib/node_modules/npm/node_modules/brace-expansion \
         /usr/local/lib/node_modules/npm/node_modules/ip-address \
+        /usr/local/lib/node_modules/npm/node_modules/tar \
     && tar -xzf /tmp/npm-security-fixes/brace-expansion-5.0.9.tgz \
         -C /usr/local/lib/node_modules/npm/node_modules/brace-expansion \
         --strip-components=1 \
     && tar -xzf /tmp/npm-security-fixes/ip-address-10.3.1.tgz \
         -C /usr/local/lib/node_modules/npm/node_modules/ip-address \
+        --strip-components=1 \
+    && tar -xzf /tmp/npm-security-fixes/tar-7.5.21.tgz \
+        -C /usr/local/lib/node_modules/npm/node_modules/tar \
         --strip-components=1 \
     && rm -rf /tmp/npm-security-fixes \
     && npm cache clean --force
