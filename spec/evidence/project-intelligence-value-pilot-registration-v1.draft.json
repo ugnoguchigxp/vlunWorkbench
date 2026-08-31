@@ -1,0 +1,43 @@
+{
+  "schemaVersion": "project-intelligence-value-pilot-registration-v1",
+  "protocolVersion": 1,
+  "status": "DRAFT",
+  "pilotId": "project-intelligence-value-2026-08-31-draft",
+  "commits": {
+    "producer": "e33dc4711dcc4bc1fe2f48f3c0116b98ffb528cb",
+    "consumer": "2b3eaf4d57c07ef4bd987773d6bc9d637126309b",
+    "target": "d87bfdd9f29aa64e484a0c4d1ad02956136dc6b0"
+  },
+  "fingerprints": {
+    "taskSet": "sha256:6bf07784b43d3e68609a5fbf6b34924200f8022e7c0fb44b0c0bb0388e5b7f73",
+    "evaluatorSet": "sha256:be8fc167cc8e55dda23db1077358dd63d6d466bd1a8397d70e97cc3ed7dea30f",
+    "route": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "settings": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "systemPrompt": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "toolManifest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "schedule": {
+    "cooldownSeconds": 30,
+    "maxAttemptsPerTask": 2,
+    "maxPairAttempts": 14,
+    "pairs": [
+      { "taskId": "p01", "order": ["baseline", "catalog"] },
+      { "taskId": "p02", "order": ["catalog", "baseline"] },
+      { "taskId": "p03", "order": ["baseline", "catalog"] },
+      { "taskId": "p04", "order": ["catalog", "baseline"] },
+      { "taskId": "p05", "order": ["baseline", "catalog"] },
+      { "taskId": "p06", "order": ["catalog", "baseline"] },
+      { "taskId": "p07", "order": ["baseline", "catalog"] },
+      { "taskId": "p08", "order": ["catalog", "baseline"] },
+      { "taskId": "p09", "order": ["baseline", "catalog"] },
+      { "taskId": "p10", "order": ["catalog", "baseline"] }
+    ]
+  },
+  "retention": {
+    "rawEvidenceDeleteAfter": "UNSET_PENDING_OWNER_APPROVAL"
+  },
+  "approvals": {
+    "nightworkersRolloutOwner": "UNASSIGNED",
+    "vulnWorkbenchEvidenceReviewer": "UNASSIGNED"
+  }
+}
