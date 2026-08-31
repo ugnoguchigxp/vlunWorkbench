@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
 	assertSealedPilotRegistration,
+	createSealedPilotRegistration,
 	decideValuePilot,
 	hashText,
 	parseStrictJson,
@@ -60,6 +61,28 @@ describe("project-intelligence value pilot evidence contract", () => {
 		expect(() => assertSealedPilotRegistration(registration)).toThrow(
 			"forbidden field",
 		);
+	});
+
+	test("constructs the fixed sealed schedule without accepting placeholders", () => {
+		const registration = createSealedPilotRegistration(
+			sealedRegistration(),
+		);
+		expect(registration).toMatchObject({ status: "SEALED" });
+		expect(registration.schedule.pairs).toHaveLength(10);
+		expect(registration.schedule.pairs[0]).toEqual({
+			taskId: "p01",
+			order: ["baseline", "catalog"],
+		});
+
+		expect(() =>
+			createSealedPilotRegistration({
+				...sealedRegistration(),
+				approvals: {
+					...sealedRegistration().approvals,
+					vulnWorkbenchEvidenceReviewer: "UNASSIGNED",
+				},
+			}),
+		).toThrow("assigned approver");
 	});
 
 	test("sanitizes a complete GO report without retaining paths or internal IDs", () => {

@@ -83,13 +83,73 @@ export function assertSealedPilotRegistration(value: unknown): void {
 		"pilot registration",
 	);
 	safePilotId(registration.pilotId);
-	assertRegistrationCommits(object(registration.commits, "registration commits"));
+	assertRegistrationCommits(
+		object(registration.commits, "registration commits"),
+	);
 	assertRegistrationFingerprints(
 		object(registration.fingerprints, "registration fingerprints"),
 	);
-	assertRegistrationSchedule(object(registration.schedule, "registration schedule"));
-	assertRegistrationRetention(object(registration.retention, "registration retention"));
-	assertRegistrationApprovals(object(registration.approvals, "registration approvals"));
+	assertRegistrationSchedule(
+		object(registration.schedule, "registration schedule"),
+	);
+	assertRegistrationRetention(
+		object(registration.retention, "registration retention"),
+	);
+	assertRegistrationApprovals(
+		object(registration.approvals, "registration approvals"),
+	);
+}
+
+export type SealedPilotRegistrationInput = {
+	pilotId: string;
+	commits: { producer: string; consumer: string; target: string };
+	fingerprints: {
+		taskSet: string;
+		evaluatorSet: string;
+		route: string;
+		settings: string;
+		promptContract: string;
+		toolManifest: string;
+	};
+	retention: { rawEvidenceDeleteAfter: string };
+	approvals: {
+		nightworkersRolloutOwner: string;
+		vulnWorkbenchEvidenceReviewer: string;
+	};
+};
+
+/**
+ * Builds the only registration shape accepted by the formal pilot. The caller
+ * must supply observed control values; this helper never copies the DRAFT
+ * scaffold or fills missing approval / retention values.
+ */
+export function createSealedPilotRegistration(
+	input: SealedPilotRegistrationInput,
+) {
+	const registration = {
+		schemaVersion: "project-intelligence-value-pilot-registration-v1",
+		protocolVersion: 1,
+		status: "SEALED",
+		pilotId: input.pilotId,
+		commits: input.commits,
+		fingerprints: input.fingerprints,
+		schedule: {
+			cooldownSeconds: 30,
+			maxAttemptsPerTask: 2,
+			maxPairAttempts: 14,
+			pairs: Array.from({ length: 10 }, (_, index) => ({
+				taskId: `p${String(index + 1).padStart(2, "0")}`,
+				order:
+					index % 2 === 0
+						? (["baseline", "catalog"] as const)
+						: (["catalog", "baseline"] as const),
+			})),
+		},
+		retention: input.retention,
+		approvals: input.approvals,
+	};
+	assertSealedPilotRegistration(registration);
+	return registration;
 }
 
 function assertRegistrationCommits(value: Record<string, unknown>) {
@@ -112,7 +172,9 @@ function assertRegistrationFingerprints(value: Record<string, unknown>) {
 	for (const name of names) {
 		const fingerprint = sha(value[name], `registration fingerprints.${name}`);
 		if (fingerprint === `sha256:${"0".repeat(64)}`) {
-			throw new Error(`registration fingerprints.${name} must not be a zero placeholder.`);
+			throw new Error(
+				`registration fingerprints.${name} must not be a zero placeholder.`,
+			);
 		}
 	}
 }
@@ -123,9 +185,14 @@ function assertRegistrationSchedule(value: Record<string, unknown>) {
 		["cooldownSeconds", "maxAttemptsPerTask", "maxPairAttempts", "pairs"],
 		"registration schedule",
 	);
-	nonNegativeInteger(value.cooldownSeconds, "registration schedule.cooldownSeconds");
+	nonNegativeInteger(
+		value.cooldownSeconds,
+		"registration schedule.cooldownSeconds",
+	);
 	if (value.maxAttemptsPerTask !== 2 || value.maxPairAttempts !== 14) {
-		throw new Error("Registration schedule does not match the fixed attempt limits.");
+		throw new Error(
+			"Registration schedule does not match the fixed attempt limits.",
+		);
 	}
 	const pairs = array(value.pairs, "registration schedule.pairs");
 	if (pairs.length !== 10) {
@@ -133,29 +200,52 @@ function assertRegistrationSchedule(value: Record<string, unknown>) {
 	}
 	for (const [index, entry] of pairs.entries()) {
 		const pair = object(entry, `registration schedule.pairs[${index}]`);
-		assertKeys(pair, ["taskId", "order"], `registration schedule.pairs[${index}]`);
+		assertKeys(
+			pair,
+			["taskId", "order"],
+			`registration schedule.pairs[${index}]`,
+		);
 		const expectedTaskId = `p${String(index + 1).padStart(2, "0")}`;
 		if (pair.taskId !== expectedTaskId) {
 			throw new Error("Registration schedule has a non-canonical task order.");
 		}
-		const order = array(pair.order, `registration schedule.pairs[${index}].order`);
+		const order = array(
+			pair.order,
+			`registration schedule.pairs[${index}].order`,
+		);
 		const expectedOrder =
 			index % 2 === 0 ? ["baseline", "catalog"] : ["catalog", "baseline"];
-		if (order.length !== 2 || order[0] !== expectedOrder[0] || order[1] !== expectedOrder[1]) {
-			throw new Error("Registration schedule has a non-counterbalanced arm order.");
+		if (
+			order.length !== 2 ||
+			order[0] !== expectedOrder[0] ||
+			order[1] !== expectedOrder[1]
+		) {
+			throw new Error(
+				"Registration schedule has a non-counterbalanced arm order.",
+			);
 		}
 	}
 }
 
 function assertRegistrationRetention(value: Record<string, unknown>) {
 	assertKeys(value, ["rawEvidenceDeleteAfter"], "registration retention");
-	const date = code(value.rawEvidenceDeleteAfter, "registration retention.rawEvidenceDeleteAfter");
+	const date = code(
+		value.rawEvidenceDeleteAfter,
+		"registration retention.rawEvidenceDeleteAfter",
+	);
 	if (!/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(date)) {
-		throw new Error("registration retention.rawEvidenceDeleteAfter must be an ISO calendar date.");
+		throw new Error(
+			"registration retention.rawEvidenceDeleteAfter must be an ISO calendar date.",
+		);
 	}
 	const parsed = new Date(`${date}T00:00:00.000Z`);
-	if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== date) {
-		throw new Error("registration retention.rawEvidenceDeleteAfter must be a real calendar date.");
+	if (
+		Number.isNaN(parsed.getTime()) ||
+		parsed.toISOString().slice(0, 10) !== date
+	) {
+		throw new Error(
+			"registration retention.rawEvidenceDeleteAfter must be a real calendar date.",
+		);
 	}
 }
 
@@ -168,7 +258,9 @@ function assertRegistrationApprovals(value: Record<string, unknown>) {
 			`registration approvals.${name}`,
 		);
 		if (/^(?:UNASSIGNED|UNSET(?:_.+)?)$/i.test(approval)) {
-			throw new Error(`registration approvals.${name} must name an assigned approver.`);
+			throw new Error(
+				`registration approvals.${name} must name an assigned approver.`,
+			);
 		}
 	}
 }
@@ -391,20 +483,12 @@ function sanitizeAttempt(value: Record<string, unknown>) {
 	const controls = object(value.controls, "attempt.controls");
 	assertKeys(
 		controls,
-		[
-			"sameBaseRef",
-			"sameTaskPrompt",
-			"sameRoute",
-			"independentWorktrees",
-		],
+		["sameBaseRef", "sameTaskPrompt", "sameRoute", "independentWorktrees"],
 		"attempt.controls",
 	);
 	const promptDigest = sha(value.promptDigest, "attempt.promptDigest");
 	const sanitizedControls = {
-		sameBaseRef: boolean(
-			controls.sameBaseRef,
-			"attempt.controls.sameBaseRef",
-		),
+		sameBaseRef: boolean(controls.sameBaseRef, "attempt.controls.sameBaseRef"),
 		sameTaskPrompt: boolean(
 			controls.sameTaskPrompt,
 			"attempt.controls.sameTaskPrompt",
@@ -419,19 +503,23 @@ function sanitizeAttempt(value: Record<string, unknown>) {
 		object(value.baseline, "attempt.baseline"),
 		"baseline",
 	);
-	const catalog = sanitizeArm(object(value.catalog, "attempt.catalog"), "catalog");
+	const catalog = sanitizeArm(
+		object(value.catalog, "attempt.catalog"),
+		"catalog",
+	);
 	if (
 		sanitizedControls.sameTaskPrompt &&
 		(baseline.taskPromptFingerprint !== promptDigest ||
 			catalog.taskPromptFingerprint !== promptDigest)
 	) {
-		throw new Error("Attempt claims the same task prompt but its arm evidence disagrees.");
+		throw new Error(
+			"Attempt claims the same task prompt but its arm evidence disagrees.",
+		);
 	}
-	if (
-		sanitizedControls.sameBaseRef &&
-		baseline.baseRef !== catalog.baseRef
-	) {
-		throw new Error("Attempt claims the same base ref but its arm evidence disagrees.");
+	if (sanitizedControls.sameBaseRef && baseline.baseRef !== catalog.baseRef) {
+		throw new Error(
+			"Attempt claims the same base ref but its arm evidence disagrees.",
+		);
 	}
 	return {
 		taskId: task,
