@@ -17,9 +17,7 @@ async function main() {
 			"settings-fingerprint": { type: "string" },
 			"prompt-contract-fingerprint": { type: "string" },
 			"tool-manifest-fingerprint": { type: "string" },
-			"raw-evidence-delete-after": { type: "string" },
-			"nightworkers-rollout-owner": { type: "string" },
-			"vulnworkbench-evidence-reviewer": { type: "string" },
+			"pilot-owner": { type: "string" },
 			output: { type: "string" },
 		},
 		strict: true,
@@ -57,21 +55,9 @@ async function main() {
 				values["tool-manifest-fingerprint"],
 			),
 		},
-		retention: {
-			rawEvidenceDeleteAfter: required(
-				"--raw-evidence-delete-after",
-				values["raw-evidence-delete-after"],
-			),
-		},
+		retention: { rawEvidencePolicy: "LOCAL_OWNER_RETAINED" },
 		approvals: {
-			nightworkersRolloutOwner: required(
-				"--nightworkers-rollout-owner",
-				values["nightworkers-rollout-owner"],
-			),
-			vulnWorkbenchEvidenceReviewer: required(
-				"--vulnworkbench-evidence-reviewer",
-				values["vulnworkbench-evidence-reviewer"],
-			),
+			pilotOwner: required("--pilot-owner", values["pilot-owner"]),
 		},
 	});
 	await writeAtomicJson(output, registration);

@@ -59,7 +59,7 @@ export function assertSealedPilotRegistration(value: unknown): void {
 	const registration = object(value, "pilot registration");
 	if (
 		registration.schemaVersion !==
-			"project-intelligence-value-pilot-registration-v1" ||
+			"project-intelligence-value-pilot-registration-v2" ||
 		registration.protocolVersion !== 1 ||
 		registration.status !== "SEALED"
 	) {
@@ -114,11 +114,8 @@ export type SealedPilotRegistrationInput = {
 		promptContract: string;
 		toolManifest: string;
 	};
-	retention: { rawEvidenceDeleteAfter: string };
-	approvals: {
-		nightworkersRolloutOwner: string;
-		vulnWorkbenchEvidenceReviewer: string;
-	};
+	retention: { rawEvidencePolicy: "LOCAL_OWNER_RETAINED" };
+	approvals: { pilotOwner: string };
 };
 
 /**
@@ -130,7 +127,7 @@ export function createSealedPilotRegistration(
 	input: SealedPilotRegistrationInput,
 ) {
 	const registration = {
-		schemaVersion: "project-intelligence-value-pilot-registration-v1",
+		schemaVersion: "project-intelligence-value-pilot-registration-v2",
 		protocolVersion: 1,
 		status: "SEALED",
 		pilotId: input.pilotId,
@@ -231,29 +228,16 @@ function assertRegistrationSchedule(value: Record<string, unknown>) {
 }
 
 function assertRegistrationRetention(value: Record<string, unknown>) {
-	assertKeys(value, ["rawEvidenceDeleteAfter"], "registration retention");
-	const date = code(
-		value.rawEvidenceDeleteAfter,
-		"registration retention.rawEvidenceDeleteAfter",
-	);
-	if (!/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(date)) {
+	assertKeys(value, ["rawEvidencePolicy"], "registration retention");
+	if (value.rawEvidencePolicy !== "LOCAL_OWNER_RETAINED") {
 		throw new Error(
-			"registration retention.rawEvidenceDeleteAfter must be an ISO calendar date.",
-		);
-	}
-	const parsed = new Date(`${date}T00:00:00.000Z`);
-	if (
-		Number.isNaN(parsed.getTime()) ||
-		parsed.toISOString().slice(0, 10) !== date
-	) {
-		throw new Error(
-			"registration retention.rawEvidenceDeleteAfter must be a real calendar date.",
+			"registration retention.rawEvidencePolicy must be LOCAL_OWNER_RETAINED.",
 		);
 	}
 }
 
 function assertRegistrationApprovals(value: Record<string, unknown>) {
-	const names = ["nightworkersRolloutOwner", "vulnWorkbenchEvidenceReviewer"];
+	const names = ["pilotOwner"];
 	assertKeys(value, names, "registration approvals");
 	for (const name of names) {
 		const approval = nonEmptyText(

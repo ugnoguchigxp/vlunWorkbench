@@ -33,7 +33,7 @@ describe("project-intelligence value pilot evidence contract", () => {
 	test("does not accept a draft registration as decision evidence", () => {
 		expect(() =>
 			assertSealedPilotRegistration({
-				schemaVersion: "project-intelligence-value-pilot-registration-v1",
+				schemaVersion: "project-intelligence-value-pilot-registration-v2",
 				protocolVersion: 1,
 				status: "DRAFT",
 				pilotId: "value-pilot-v1",
@@ -45,12 +45,12 @@ describe("project-intelligence value pilot evidence contract", () => {
 		const registration = sealedRegistration();
 		expect(() => assertSealedPilotRegistration(registration)).not.toThrow();
 
-		registration.approvals.nightworkersRolloutOwner = "UNASSIGNED";
+		registration.approvals.pilotOwner = "UNASSIGNED";
 		expect(() => assertSealedPilotRegistration(registration)).toThrow(
 			"assigned approver",
 		);
 
-		registration.approvals.nightworkersRolloutOwner = "rollout-owner";
+		registration.approvals.pilotOwner = "pilot-owner";
 		registration.fingerprints.route = `sha256:${"0".repeat(64)}`;
 		expect(() => assertSealedPilotRegistration(registration)).toThrow(
 			"zero placeholder",
@@ -77,10 +77,7 @@ describe("project-intelligence value pilot evidence contract", () => {
 		expect(() =>
 			createSealedPilotRegistration({
 				...sealedRegistration(),
-				approvals: {
-					...sealedRegistration().approvals,
-					vulnWorkbenchEvidenceReviewer: "UNASSIGNED",
-				},
+				approvals: { pilotOwner: "UNASSIGNED" },
 			}),
 		).toThrow("assigned approver");
 		expect(() =>
@@ -300,7 +297,7 @@ function taskId(index: number) {
 
 function sealedRegistration() {
 	return {
-		schemaVersion: "project-intelligence-value-pilot-registration-v1",
+		schemaVersion: "project-intelligence-value-pilot-registration-v2",
 		protocolVersion: 1,
 		status: "SEALED",
 		pilotId: "value-pilot-v1",
@@ -325,10 +322,7 @@ function sealedRegistration() {
 						: (["catalog", "baseline"] as const),
 			})),
 		},
-		retention: { rawEvidenceDeleteAfter: "2026-12-31" },
-		approvals: {
-			nightworkersRolloutOwner: "rollout-owner",
-			vulnWorkbenchEvidenceReviewer: "evidence-reviewer",
-		},
+		retention: { rawEvidencePolicy: "LOCAL_OWNER_RETAINED" },
+		approvals: { pilotOwner: "pilot-owner" },
 	};
 }
