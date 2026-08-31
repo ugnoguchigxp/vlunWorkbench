@@ -47,7 +47,9 @@ export async function loadMavenResolutionConfig(
 		// application (and persisted in its SQLite state), never discovered from
 		// a .vuln-workbench file under the target tree.
 		const serialized = JSON.stringify(configuredValue ?? { schemaVersion: 1 });
-		if (Buffer.byteLength(serialized, "utf8") > MAVEN_RESOLUTION_CONFIG_MAX_BYTES) {
+		if (
+			Buffer.byteLength(serialized, "utf8") > MAVEN_RESOLUTION_CONFIG_MAX_BYTES
+		) {
 			throw new MavenResolutionConfigError(
 				"maven_resolution_config_invalid",
 				`Maven resolution configuration exceeds ${MAVEN_RESOLUTION_CONFIG_MAX_BYTES} bytes.`,

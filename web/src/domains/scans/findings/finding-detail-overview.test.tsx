@@ -11,7 +11,10 @@ const model = (
 	description: "A wildcard content security policy was detected.",
 	severity: "medium",
 	location: { kind: "web", path: "/account", method: "GET" },
-	observation: { text: "Content-Security-Policy: default-src *", truncated: false },
+	observation: {
+		text: "Content-Security-Policy: default-src *",
+		truncated: false,
+	},
 	technical: {
 		sourceTool: "zap-baseline",
 		ruleId: "10055",
@@ -40,7 +43,9 @@ describe("FindingDetailOverview", () => {
 		expect(markup).toContain("検出した事実");
 		expect(markup).toContain("技術詳細");
 		expect(markup.indexOf("検出内容")).toBeLessThan(markup.indexOf("検出位置"));
-		expect(markup.indexOf("検出位置")).toBeLessThan(markup.indexOf("検出した事実"));
+		expect(markup.indexOf("検出位置")).toBeLessThan(
+			markup.indexOf("検出した事実"),
+		);
 		expect(markup).toContain("GET");
 		expect(markup).toContain("/account");
 		expect(markup).toContain("ZAP raw result");

@@ -102,7 +102,8 @@ const normalizeRelativeHttpPath = (value: string): string | null => {
 const sortedEvidence = (evidence: readonly FindingEvidence[]) =>
 	[...evidence].sort(
 		(left, right) =>
-			left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id),
+			left.createdAt.localeCompare(right.createdAt) ||
+			left.id.localeCompare(right.id),
 	);
 
 const normalizeMethod = (value: unknown): string | null => {
@@ -130,7 +131,8 @@ const readAbsoluteHttpPath = (value: unknown): string | null => {
 	if (!raw) return null;
 	try {
 		const parsed = new URL(raw);
-		if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null;
+		if (parsed.protocol !== "http:" && parsed.protocol !== "https:")
+			return null;
 		return normalizeRelativeHttpPath(parsed.pathname || "/");
 	} catch {
 		return null;
@@ -140,7 +142,8 @@ const readAbsoluteHttpPath = (value: unknown): string | null => {
 const readWebPathFromRecord = (record: UnknownRecord): string | null => {
 	const urlPath = readAbsoluteHttpPath(record.url);
 	if (urlPath) return urlPath;
-	const isStructuredUrl = record.kind === "url" || asNonEmptyString(record.origin);
+	const isStructuredUrl =
+		record.kind === "url" || asNonEmptyString(record.origin);
 	if (isStructuredUrl) return readRelativeHttpPath(record.path);
 	return null;
 };
@@ -177,7 +180,9 @@ const normalizeSourcePath = (
 	const normalized = normalizeFilesystemPath(fromUri);
 	if (!normalized) return null;
 	if (isAbsoluteFilesystemPath(normalized)) {
-		const root = projectRoot ? normalizeFilesystemPath(projectRoot.trim()) : null;
+		const root = projectRoot
+			? normalizeFilesystemPath(projectRoot.trim())
+			: null;
 		if (!root) return null;
 		const normalizedRoot = root.replace(/\/$/, "");
 		if (!normalizedRoot || normalized === normalizedRoot) return null;
@@ -204,7 +209,8 @@ const readSourceLocation = (
 		return {
 			kind: "source",
 			path,
-			line: asPositiveInteger(record.startLine) ?? asPositiveInteger(record.line),
+			line:
+				asPositiveInteger(record.startLine) ?? asPositiveInteger(record.line),
 		};
 	}
 	return null;
@@ -227,7 +233,9 @@ const readLocation = (input: {
 			return {
 				kind: "web",
 				path,
-				method: normalizeMethod(record.method) ?? normalizeMethod(input.finding.metadata.method),
+				method:
+					normalizeMethod(record.method) ??
+					normalizeMethod(input.finding.metadata.method),
 			};
 		}
 	}
@@ -237,7 +245,9 @@ const readLocation = (input: {
 			return {
 				kind: "web",
 				path,
-				method: normalizeMethod(record.method) ?? normalizeMethod(input.finding.metadata.method),
+				method:
+					normalizeMethod(record.method) ??
+					normalizeMethod(input.finding.metadata.method),
 			};
 		}
 	}
@@ -247,7 +257,9 @@ const readLocation = (input: {
 			return {
 				kind: "web",
 				path: absolutePath,
-				method: normalizeMethod(primary.method) ?? normalizeMethod(input.finding.metadata.method),
+				method:
+					normalizeMethod(primary.method) ??
+					normalizeMethod(input.finding.metadata.method),
 			};
 		}
 		if (WEB_FINDING_TOOLS.has(input.finding.sourceTool.toLowerCase())) {
@@ -277,12 +289,17 @@ const readLocation = (input: {
 };
 
 const splitZapSolution = (finding: Finding): string => {
-	if (!new Set(["zap-baseline", "zap-active"]).has(finding.sourceTool.toLowerCase())) {
+	if (
+		!new Set(["zap-baseline", "zap-active"]).has(
+			finding.sourceTool.toLowerCase(),
+		)
+	) {
 		return finding.description;
 	}
 	const separator = "\n\nSolution:";
 	const index = finding.description.indexOf(separator);
-	const description = index >= 0 ? finding.description.slice(0, index).trim() : "";
+	const description =
+		index >= 0 ? finding.description.slice(0, index).trim() : "";
 	return description || finding.description;
 };
 
@@ -335,7 +352,10 @@ const appendIdentifier = (values: string[], value: unknown) => {
 	if (identifier && !values.includes(identifier)) values.push(identifier);
 };
 
-const readTechnicalDetails = (finding: Finding, evidence: readonly FindingEvidence[]) => {
+const readTechnicalDetails = (
+	finding: Finding,
+	evidence: readonly FindingEvidence[],
+) => {
 	const cweIds: string[] = [];
 	const wascIds: string[] = [];
 	appendIdentifier(cweIds, finding.metadata.cweId);
@@ -352,7 +372,9 @@ const readTechnicalDetails = (finding: Finding, evidence: readonly FindingEviden
 		seenArtifactIds.add(item.artifactId);
 		artifacts.push({
 			id: item.artifactId,
-			label: asNonEmptyString(item.title) ?? `artifact ${item.artifactId.slice(0, 8)}`,
+			label:
+				asNonEmptyString(item.title) ??
+				`artifact ${item.artifactId.slice(0, 8)}`,
 			href: `/api/scans/${encodeURIComponent(finding.scanRunId)}/artifacts/${encodeURIComponent(item.artifactId)}/download`,
 		});
 	}
