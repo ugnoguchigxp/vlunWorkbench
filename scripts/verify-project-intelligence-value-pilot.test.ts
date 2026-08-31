@@ -95,6 +95,19 @@ describe("project-intelligence value pilot evidence contract", () => {
 		).toThrow("does not match the recomputed decision");
 	});
 
+	test("rejects a claimed shared task prompt whose arm evidence disagrees", () => {
+		const preRegistrationHash = hashText('{"registration":"sealed"}');
+		const raw = completeRawReport(preRegistrationHash);
+		raw.attempts[0].catalog.taskPromptFingerprint = `sha256:${"c".repeat(64)}`;
+
+		expect(() =>
+			sanitizeProjectIntelligenceValuePilot({
+				rawText: JSON.stringify(raw),
+				preRegistrationHash,
+			}),
+		).toThrow("same task prompt");
+	});
+
 	test("recomputes incomplete evidence when cleanup controls are not proven", () => {
 		const preRegistrationHash = hashText('{"registration":"sealed"}');
 		const raw = completeRawReport(preRegistrationHash);
@@ -134,7 +147,7 @@ function completeRawReport(preRegistrationHash: string) {
 		classificationReasonCodes: [],
 		controls: {
 			sameBaseRef: true,
-			samePrompt: true,
+			sameTaskPrompt: true,
 			sameRoute: true,
 			independentWorktrees: true,
 		},
@@ -168,7 +181,7 @@ function completeRawReport(preRegistrationHash: string) {
 			activePilotRunCount: 0,
 			routeFingerprint: HASH,
 			settingsFingerprint: HASH,
-			systemPromptFingerprint: HASH,
+			promptContractFingerprint: HASH,
 			toolManifestFingerprint: HASH,
 			evaluatorSetFingerprint: HASH,
 		},
@@ -208,6 +221,7 @@ function arm(mode: "baseline" | "catalog") {
 			evaluatorMutatedWorktree: false,
 		},
 		route: {},
+		taskPromptFingerprint: HASH,
 		systemPromptFingerprint: HASH,
 	};
 }
@@ -267,7 +281,7 @@ function sealedRegistration() {
 			evaluatorSet: HASH,
 			route: HASH,
 			settings: HASH,
-			systemPrompt: HASH,
+			promptContract: HASH,
 			toolManifest: HASH,
 		},
 		schedule: {

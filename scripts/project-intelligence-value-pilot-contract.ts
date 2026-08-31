@@ -105,7 +105,7 @@ function assertRegistrationFingerprints(value: Record<string, unknown>) {
 		"evaluatorSet",
 		"route",
 		"settings",
-		"systemPrompt",
+		"promptContract",
 		"toolManifest",
 	];
 	assertKeys(value, names, "registration fingerprints");
@@ -288,7 +288,7 @@ function sanitizeControls(value: Record<string, unknown>) {
 			"activePilotRunCount",
 			"routeFingerprint",
 			"settingsFingerprint",
-			"systemPromptFingerprint",
+			"promptContractFingerprint",
 			"toolManifestFingerprint",
 			"evaluatorSetFingerprint",
 		],
@@ -322,9 +322,9 @@ function sanitizeControls(value: Record<string, unknown>) {
 			value.settingsFingerprint,
 			"controls.settingsFingerprint",
 		),
-		systemPromptFingerprint: sha(
-			value.systemPromptFingerprint,
-			"controls.systemPromptFingerprint",
+		promptContractFingerprint: sha(
+			value.promptContractFingerprint,
+			"controls.promptContractFingerprint",
 		),
 		toolManifestFingerprint: sha(
 			value.toolManifestFingerprint,
@@ -391,9 +391,48 @@ function sanitizeAttempt(value: Record<string, unknown>) {
 	const controls = object(value.controls, "attempt.controls");
 	assertKeys(
 		controls,
-		["sameBaseRef", "samePrompt", "sameRoute", "independentWorktrees"],
+		[
+			"sameBaseRef",
+			"sameTaskPrompt",
+			"sameRoute",
+			"independentWorktrees",
+		],
 		"attempt.controls",
 	);
+	const promptDigest = sha(value.promptDigest, "attempt.promptDigest");
+	const sanitizedControls = {
+		sameBaseRef: boolean(
+			controls.sameBaseRef,
+			"attempt.controls.sameBaseRef",
+		),
+		sameTaskPrompt: boolean(
+			controls.sameTaskPrompt,
+			"attempt.controls.sameTaskPrompt",
+		),
+		sameRoute: boolean(controls.sameRoute, "attempt.controls.sameRoute"),
+		independentWorktrees: boolean(
+			controls.independentWorktrees,
+			"attempt.controls.independentWorktrees",
+		),
+	};
+	const baseline = sanitizeArm(
+		object(value.baseline, "attempt.baseline"),
+		"baseline",
+	);
+	const catalog = sanitizeArm(object(value.catalog, "attempt.catalog"), "catalog");
+	if (
+		sanitizedControls.sameTaskPrompt &&
+		(baseline.taskPromptFingerprint !== promptDigest ||
+			catalog.taskPromptFingerprint !== promptDigest)
+	) {
+		throw new Error("Attempt claims the same task prompt but its arm evidence disagrees.");
+	}
+	if (
+		sanitizedControls.sameBaseRef &&
+		baseline.baseRef !== catalog.baseRef
+	) {
+		throw new Error("Attempt claims the same base ref but its arm evidence disagrees.");
+	}
 	return {
 		taskId: task,
 		attemptNumber: positiveInteger(
@@ -404,29 +443,15 @@ function sanitizeAttempt(value: Record<string, unknown>) {
 			"baseline" | "catalog",
 			"baseline" | "catalog",
 		],
-		promptDigest: sha(value.promptDigest, "attempt.promptDigest"),
+		promptDigest,
 		classification,
 		classificationReasonCodes: stringArray(
 			value.classificationReasonCodes,
 			"attempt.classificationReasonCodes",
 		),
-		controls: {
-			sameBaseRef: boolean(
-				controls.sameBaseRef,
-				"attempt.controls.sameBaseRef",
-			),
-			samePrompt: boolean(controls.samePrompt, "attempt.controls.samePrompt"),
-			sameRoute: boolean(controls.sameRoute, "attempt.controls.sameRoute"),
-			independentWorktrees: boolean(
-				controls.independentWorktrees,
-				"attempt.controls.independentWorktrees",
-			),
-		},
-		baseline: sanitizeArm(
-			object(value.baseline, "attempt.baseline"),
-			"baseline",
-		),
-		catalog: sanitizeArm(object(value.catalog, "attempt.catalog"), "catalog"),
+		controls: sanitizedControls,
+		baseline,
+		catalog,
 	};
 }
 
@@ -442,6 +467,7 @@ function sanitizeArm(
 			"status",
 			"baseRef",
 			"worktreePath",
+			"taskPromptFingerprint",
 			"measurement",
 			"evaluation",
 			"route",
@@ -470,6 +496,10 @@ function sanitizeArm(
 	return {
 		status: code(value.status, `attempt.${expectedMode}.status`),
 		baseRef: gitSha(value.baseRef, `attempt.${expectedMode}.baseRef`),
+		taskPromptFingerprint: sha(
+			value.taskPromptFingerprint,
+			`attempt.${expectedMode}.taskPromptFingerprint`,
+		),
 		systemPromptFingerprint: sha(
 			value.systemPromptFingerprint,
 			`attempt.${expectedMode}.systemPromptFingerprint`,
