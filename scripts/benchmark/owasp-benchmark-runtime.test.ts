@@ -90,9 +90,11 @@ describe("OWASP benchmark runtime", () => {
 				],
 				vulnWorkbenchSuppressed: [
 					{
+						findingId: `sha256:${"a".repeat(64)}`,
 						checkId: "owned.sql-injection",
 						path: "/home/runner/corpus/src/BenchmarkTest00002.java",
 						line: 12,
+						sourceHash: `sha256:${"b".repeat(64)}`,
 						reason: "constant_branch",
 					},
 				],
@@ -108,6 +110,12 @@ describe("OWASP benchmark runtime", () => {
 		);
 		expect(sanitized.vulnWorkbenchSuppressed[0]?.path).toBe(
 			"corpus/src/BenchmarkTest00002.java",
+		);
+		expect(sanitized.vulnWorkbenchSuppressed[0]).toEqual(
+			expect.objectContaining({
+				findingId: `sha256:${"a".repeat(64)}`,
+				sourceHash: `sha256:${"b".repeat(64)}`,
+			}),
 		);
 		expect(() =>
 			sanitizedSemgrepEvidenceArtifactSchema.parse({

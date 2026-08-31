@@ -3,8 +3,12 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { ScanScopePolicy } from "../../../../shared/schemas/scan-profile.schema";
-import type { SemgrepRuleContribution } from "../../project-capabilities/plugin-contract";
 import { isSafeRelativePluginPath } from "../../project-capabilities/path-patterns";
+import type { SemgrepRuleContribution } from "../../project-capabilities/plugin-contract";
+import {
+	normalizeScannerOutputText,
+	normalizeStructuredOutputPaths,
+} from "../execution/diff/diff-output-paths";
 import type {
 	ArtifactSaveResult,
 	ArtifactStorage,
@@ -14,18 +18,14 @@ import {
 	redactJsonSecrets,
 	redactSecrets,
 } from "../findings/normalizers/redaction";
-import {
-	normalizeScannerOutputText,
-	normalizeStructuredOutputPaths,
-} from "../execution/diff/diff-output-paths";
 import { getScopeExcludeGlobs, getScopeIncludeGlobs } from "../target-scope";
+import { filterOwnedJavaTaintResults } from "./java-taint-precision-filter";
 import {
 	checkToolVersion,
 	runToolProcess,
 	type ToolExecutionConfig,
 	type ToolLifecycleEvent,
 } from "./tool-process-runner";
-import { filterOwnedJavaTaintResults } from "./java-taint-precision-filter";
 
 export interface SemgrepRunResult {
 	ok: boolean;
@@ -182,7 +182,9 @@ export class SemgrepRunner {
 		try {
 			rawJsonText = await fs.readFile(tempJsonPath, "utf8");
 			rawJson = JSON.parse(rawJsonText);
-			const precisionFiltered = await filterOwnedJavaTaintResults(rawJson);
+			const precisionFiltered = await filterOwnedJavaTaintResults(rawJson, {
+				projectRoot: repoPath,
+			});
 			rawJson = precisionFiltered.output;
 			javaTaintPrecisionSuppressionCount =
 				precisionFiltered.suppressions.length;

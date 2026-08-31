@@ -173,10 +173,26 @@ describe("owned Java taint precision filter", () => {
 		).toHaveLength(2);
 		expect(result.suppressions).toEqual([
 			expect.objectContaining({
+				findingId: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
 				checkId: "vuln-workbench.java.sql-injection",
 				reason: "constant_branch",
+				sourceHash: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
 			}),
 		]);
+		const repeated = await filterOwnedJavaTaintResults(
+			{
+				results: [
+					finding("vuln-workbench.java.sql-injection", "Safe.java"),
+				],
+			},
+			{ readSource: async () => safeSource },
+		);
+		expect(repeated.suppressions[0]?.findingId).toBe(
+			result.suppressions[0]?.findingId,
+		);
+		expect(repeated.suppressions[0]?.sourceHash).toBe(
+			result.suppressions[0]?.sourceHash,
+		);
 	});
 
 	test("does not suppress an unsafe finding because another method is safe", async () => {
@@ -260,6 +276,85 @@ describe("owned Java taint precision filter", () => {
 		);
 		expect((result.output as { results: unknown[] }).results).toHaveLength(1);
 		expect(result.suppressions).toEqual([]);
+	});
+
+	test("keeps only configured digest findings resolved to a weak algorithm", async () => {
+		const configuredSource = `class ConfiguredHash {
+			void run() throws Exception {
+				java.util.Properties properties = new java.util.Properties();
+				properties.load(getClass().getClassLoader().getResourceAsStream("application.properties"));
+				String algorithm = properties.getProperty("security.digest", "SHA-256");
+				java.security.MessageDigest.getInstance(algorithm);
+			}
+		}`;
+		const input = {
+			results: [
+				finding(
+					"vuln-workbench.java.configured-weak-hash",
+					"ConfiguredHash.java",
+					6,
+				),
+			],
+		};
+		const strong = await filterOwnedJavaTaintResults(input, {
+			readSource: async () => configuredSource,
+			projectRoot: "/repo",
+			resolveProjectProperty: async () => ({
+				status: "resolved",
+				value: "SHA-256",
+			}),
+		});
+		expect((strong.output as { results: unknown[] }).results).toHaveLength(0);
+		expect(strong.suppressions[0]?.reason).toBe(
+			"configured_algorithm_strong",
+		);
+		const weak = await filterOwnedJavaTaintResults(input, {
+			readSource: async () => configuredSource,
+			projectRoot: "/repo",
+			resolveProjectProperty: async () => ({
+				status: "resolved",
+				value: "MD5",
+			}),
+		});
+		expect((weak.output as { results: unknown[] }).results).toHaveLength(1);
+		expect(weak.suppressions).toEqual([]);
+		const unresolved = await filterOwnedJavaTaintResults(input, {
+			readSource: async () => configuredSource,
+		});
+		expect((unresolved.output as { results: unknown[] }).results).toHaveLength(0);
+		expect(unresolved.suppressions[0]?.reason).toBe(
+			"configured_algorithm_unresolved",
+		);
+	});
+
+	test("applies XSS safety proofs to the parameter-name output variant", async () => {
+		const safeSource = `class ParameterNameOutput {
+			void run(String param) {
+				String bar;
+				int num = 86;
+				if ((7 * 42) - num > 200) bar = "safe"; else bar = param;
+				sink(bar);
+			}
+		}`;
+		const result = await filterOwnedJavaTaintResults(
+			{
+				results: [
+					finding(
+						"vuln-workbench.java.xss-parameter-name-output",
+						"ParameterNameOutput.java",
+						6,
+					),
+				],
+			},
+			{ readSource: async () => safeSource },
+		);
+		expect((result.output as { results: unknown[] }).results).toHaveLength(0);
+		expect(result.suppressions[0]).toEqual(
+			expect.objectContaining({
+				checkId: "vuln-workbench.java.xss-parameter-name-output",
+				reason: "constant_branch",
+			}),
+		);
 	});
 });
 

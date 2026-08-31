@@ -1,4 +1,9 @@
+import crypto from "node:crypto";
 import { readFile } from "node:fs/promises";
+import {
+	evaluateConfiguredHashFlow,
+	type ProjectPropertyResolution,
+} from "./java-configured-hash-evaluator";
 
 const OWNED_JAVA_TAINT_RULES = new Set([
 	"command-injection",
@@ -13,26 +18,38 @@ const OWNED_JAVA_TAINT_RULES = new Set([
 type SemgrepResult = {
 	check_id?: string;
 	path?: string;
-	start?: { line?: number };
+	start?: { line?: number; col?: number };
 	extra?: { metadata?: Record<string, unknown> };
 };
 
 export type JavaTaintSuppression = {
+	findingId: string;
 	checkId: string;
 	path: string;
 	line: number | null;
+	sourceHash: string;
 	reason:
 		| "contextual_output_encoding"
 		| "constant_branch"
 		| "constant_switch"
 		| "collection_overwrite"
-		| "constant_interprocedural_flow";
+		| "constant_interprocedural_flow"
+		| "configured_algorithm_strong"
+		| "configured_algorithm_unresolved"
+		| "configured_algorithm_ambiguous";
 };
 
 export async function filterOwnedJavaTaintResults(
 	input: unknown,
 	options: {
 		readSource?: (filePath: string) => Promise<string>;
+		projectRoot?: string;
+		resolveProjectProperty?: (params: {
+			projectRoot: string;
+			resourceName: string;
+			key: string;
+			fallback: string;
+		}) => Promise<ProjectPropertyResolution>;
 	} = {},
 ): Promise<{
 	output: unknown;
@@ -53,7 +70,8 @@ export async function filterOwnedJavaTaintResults(
 		}
 		const result = rawResult as SemgrepResult;
 		const rule = ownedJavaTaintRule(result.check_id);
-		if (!rule || !result.path?.endsWith(".java")) {
+		const configuredHashRule = isConfiguredHashRule(result.check_id);
+		if ((!rule && !configuredHashRule) || !result.path?.endsWith(".java")) {
 			kept.push(rawResult);
 			continue;
 		}
@@ -69,17 +87,26 @@ export async function filterOwnedJavaTaintResults(
 			kept.push(rawResult);
 			continue;
 		}
-		const reason =
-			proveOwnedJavaTaintFindingSafe(findingScope, rule) ??
-			proveCalledHelperSafe(sourceText, findingScope, rule);
+		const reason = configuredHashRule
+			? await configuredHashSuppressionReason({
+					findingScope,
+					projectRoot: options.projectRoot,
+					resolveProjectProperty: options.resolveProjectProperty,
+				})
+			: rule
+				? (proveOwnedJavaTaintFindingSafe(findingScope, rule) ??
+					proveCalledHelperSafe(sourceText, findingScope, rule))
+				: null;
 		if (!reason) {
 			kept.push(rawResult);
 			continue;
 		}
 		suppressions.push({
-			checkId: result.check_id ?? rule,
+			findingId: suppressionFindingId(result, sourceText),
+			checkId: result.check_id ?? rule ?? "configured-weak-hash",
 			path: result.path,
 			line: result.start?.line ?? null,
+			sourceHash: sha256(sourceText),
 			reason,
 		});
 	}
@@ -94,6 +121,46 @@ export async function filterOwnedJavaTaintResults(
 					},
 		suppressions,
 	};
+}
+
+async function configuredHashSuppressionReason(params: {
+	findingScope: string;
+	projectRoot?: string;
+	resolveProjectProperty?: (params: {
+		projectRoot: string;
+		resourceName: string;
+		key: string;
+		fallback: string;
+	}) => Promise<ProjectPropertyResolution>;
+}): Promise<JavaTaintSuppression["reason"] | null> {
+	const evaluation = await evaluateConfiguredHashFlow({
+		methodSource: params.findingScope,
+		projectRoot: params.projectRoot,
+		resolveProjectProperty: params.resolveProjectProperty,
+	});
+	if (evaluation === "strong") return "configured_algorithm_strong";
+	if (evaluation === "unresolved") return "configured_algorithm_unresolved";
+	if (evaluation === "ambiguous") return "configured_algorithm_ambiguous";
+	return null;
+}
+
+function isConfiguredHashRule(checkId: string | undefined): boolean {
+	return checkId?.split(".").at(-1) === "configured-weak-hash";
+}
+
+function suppressionFindingId(result: SemgrepResult, source: string): string {
+	return sha256(
+		[
+			result.check_id ?? "unknown-rule",
+			sha256(source),
+			String(result.start?.line ?? 0),
+			String(result.start?.col ?? 0),
+		].join("\0"),
+	);
+}
+
+function sha256(value: string): string {
+	return `sha256:${crypto.createHash("sha256").update(value).digest("hex")}`;
 }
 
 export function proveOwnedJavaTaintFindingSafe(
@@ -134,6 +201,7 @@ function ownedJavaTaintRule(
 	| null {
 	if (!checkId?.includes("vuln-workbench.java.")) return null;
 	const suffix = checkId.split(".").at(-1) ?? "";
+	if (suffix === "xss-parameter-name-output") return "xss-response-writer";
 	return OWNED_JAVA_TAINT_RULES.has(suffix)
 		? (suffix as ReturnType<typeof ownedJavaTaintRule>)
 		: null;
