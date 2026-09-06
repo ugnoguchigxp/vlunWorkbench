@@ -65,7 +65,7 @@ RUN mkdir -p /src/slsa-verifier \
 	&& echo "${SLSA_VERIFIER_SOURCE_SHA256}  /tmp/slsa-verifier.tar.gz" | sha256sum -c - \
 	&& tar -xzf /tmp/slsa-verifier.tar.gz -C /src/slsa-verifier --strip-components=1 \
 	&& cd /src/slsa-verifier \
-	&& go get github.com/docker/cli@v29.2.0+incompatible github.com/go-jose/go-jose/v4@v4.1.4 github.com/sigstore/cosign/v2@${COSIGN_SOURCE_COMMIT} github.com/sigstore/fulcio@v1.8.6 github.com/sigstore/rekor@v1.5.2 google.golang.org/grpc@v1.83.1 golang.org/x/crypto@v0.55.0 golang.org/x/mod@v0.40.0 golang.org/x/net@v0.58.0 golang.org/x/text@v0.41.0 \
+	&& go get github.com/docker/cli@v29.2.0+incompatible github.com/go-jose/go-jose/v4@v4.1.4 github.com/sigstore/cosign/v2@v2.6.5 github.com/sigstore/fulcio@v1.8.6 github.com/sigstore/rekor@v1.5.2 google.golang.org/grpc@v1.83.1 golang.org/x/crypto@v0.55.0 golang.org/x/mod@v0.40.0 golang.org/x/net@v0.58.0 golang.org/x/text@v0.41.0 \
 	&& go mod tidy \
 	&& go build -trimpath -buildvcs=false \
 		-ldflags "-s -w -buildid= -X sigs.k8s.io/release-utils/version.gitVersion=v${SLSA_VERIFIER_VERSION} -X sigs.k8s.io/release-utils/version.gitCommit=${SLSA_VERIFIER_SOURCE_COMMIT} -X sigs.k8s.io/release-utils/version.gitTreeState=clean" \
