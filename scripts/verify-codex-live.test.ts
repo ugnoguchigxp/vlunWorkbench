@@ -97,7 +97,11 @@ describe("verifyCodexLive", () => {
 			});
 			await expect(fs.access(filePath)).rejects.toThrow();
 		} finally {
-			await fs.rm(filePath, { force: true });
+			try {
+				await fs.unlink(filePath);
+			} catch (error) {
+				if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+			}
 		}
 	});
 
