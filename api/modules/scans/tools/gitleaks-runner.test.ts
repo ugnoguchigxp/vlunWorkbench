@@ -428,6 +428,7 @@ describe("GitleaksRunner", () => {
 			"[extend]\nuseDefault = true\n",
 		);
 		let dockerArgs: string[] = [];
+		let outputMode: number | null = null;
 		vi.spyOn(Bun, "spawn").mockImplementation((args) => {
 			dockerArgs = [...(args as string[])];
 			const isVersion = dockerArgs.includes("version");
@@ -435,10 +436,17 @@ describe("GitleaksRunner", () => {
 				(arg) => arg.includes(":/workspace/out:rw"),
 			);
 			const outputDirectory = outputMount?.split(":/workspace/out:rw")[0];
-			const writePromise =
-				!isVersion && outputDirectory
-					? fs.writeFile(path.join(outputDirectory, "gitleaks-output.json"), "[]")
-					: Promise.resolve();
+			const writePromise = !isVersion && outputDirectory
+				? fs
+						.stat(path.join(outputDirectory, "gitleaks-output.json"))
+						.then((stat) => {
+							outputMode = stat.mode & 0o777;
+							return fs.writeFile(
+								path.join(outputDirectory, "gitleaks-output.json"),
+								"[]",
+							);
+						})
+				: Promise.resolve();
 			return {
 				exited: writePromise.then(() => 0),
 				stdout: new Response(isVersion ? "8.30.1\n" : "").body,
@@ -452,6 +460,7 @@ describe("GitleaksRunner", () => {
 		}).run("scan-docker", tempDir, { preScoped: true });
 
 		expect(result.ok).toBe(true);
+		expect(outputMode).toBe(0o666);
 		expect(dockerArgs).toContain("--workdir");
 		expect(dockerArgs).toContain("/workspace/repo");
 		expect(dockerArgs).toContain("GIT_CONFIG_COUNT=1");

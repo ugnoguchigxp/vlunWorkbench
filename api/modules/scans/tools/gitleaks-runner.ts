@@ -82,6 +82,15 @@ export class GitleaksRunner {
 			ReturnType<typeof createScopedWorkspace>
 		> | null = null;
 		try {
+			if (this.execution?.runner === "docker") {
+				// The toolbox runs as a fixed non-root UID. On native Linux bind mounts,
+				// a report created by that UID can be unreadable by the host runner when
+				// the daemon applies a restrictive umask. Create an invalid empty
+				// sentinel as the host user, then make only this isolated output writable
+				// for the container. Gitleaks truncates the existing file on success.
+				await fs.writeFile(tempJsonPath, "", { flag: "wx", mode: 0o600 });
+				await fs.chmod(tempJsonPath, 0o666);
+			}
 			if (
 				!options.preScoped &&
 				options.scope?.intent &&
@@ -148,6 +157,10 @@ export class GitleaksRunner {
 				"gitleaks_workspace_cleanup_failed",
 			);
 			throw error;
+		} finally {
+			if (this.execution?.runner === "docker") {
+				await fs.chmod(tempJsonPath, 0o600).catch(() => {});
+			}
 		}
 		const stdout = options.normalizePathsRelativeTo
 			? normalizeScannerOutputText(
