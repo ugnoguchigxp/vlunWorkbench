@@ -11,7 +11,7 @@ describe("repository scanner data lock", () => {
 			manifestHash: `sha256:${"0".repeat(64)}`,
 			tools: {
 				trivy: tool("trivy-db-v2", "trivy"),
-				osv: tool("osv-npm", "osv/osv-scanner/npm/all.zip"),
+				osv: tool("osv-npm", "osv/osv-scanner/npm/all.zip", "npm"),
 				"nuclei-safe": tool(
 					"nuclei-safe-owned-v1",
 					"nuclei-safe-templates",
@@ -26,6 +26,17 @@ describe("repository scanner data lock", () => {
 		).toBe("../nuclei-safe-templates");
 		const { manifestHash, ...hashInput } = manifest;
 		expect(manifestHash).toBe(computeScannerManifestHash(hashInput));
+	});
+
+	test("requires every OSV archive source to name an immutable GCS generation", () => {
+		expect(() =>
+			buildRepositoryScannerDataLock({
+				version: 2,
+				generatedAt: "2026-08-15T00:00:00.000Z",
+				manifestHash: `sha256:${"0".repeat(64)}`,
+				tools: { osv: tool("osv-npm", "osv/npm/all.zip") },
+			}),
+		).toThrow("osv_snapshot_source_not_allowed");
 	});
 
 	test("pins the Trivy database to an immutable allowed OCI manifest", async () => {
@@ -59,7 +70,7 @@ describe("repository scanner data lock", () => {
 	});
 });
 
-function tool(id: string, path: string) {
+function tool(id: string, path: string, osvEcosystem?: string) {
 	return {
 		version: "1.0.0",
 		binaryDigest: null,
@@ -69,13 +80,15 @@ function tool(id: string, path: string) {
 			{
 				id,
 				kind: "vulnerability-db",
-				sourceRef: "https://example.test/data",
+				sourceRef: osvEcosystem
+					? `https://osv-vulnerabilities.storage.googleapis.com/${osvEcosystem}/all.zip?generation=1788665539029532`
+					: "https://example.test/data",
 				sourceCommit: null,
 				license: "Apache-2.0",
 				generatedAt: "2026-08-15T00:00:00.000Z",
 				maxAgeHours: 168,
 				digest: `sha256:${"1".repeat(64)}`,
-				coverage: ["fixture"],
+				coverage: [osvEcosystem ?? "fixture"],
 				path,
 			},
 		],

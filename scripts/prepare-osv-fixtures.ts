@@ -2,6 +2,7 @@ import { mkdir, rename, rm } from "node:fs/promises";
 import path from "node:path";
 import { loadScannerDataManifest } from "../api/modules/scans/tools/scanner-provenance";
 import { sha256File } from "./benchmark/benchmark-input-provenance";
+import { assertPinnedOsvSnapshotSource } from "./osv-snapshot-source";
 
 const root = path.resolve(process.argv[2] ?? ".cache/scanner-data/current/osv");
 const manifest = await loadScannerDataManifest();
@@ -15,24 +16,22 @@ for (const bundle of manifest.tools.osv.dataBundles ?? []) {
 	const ecosystem = bundle.coverage[0];
 	if (!ecosystem || !/^[A-Za-z0-9._-]+$/.test(ecosystem))
 		throw new Error("osv_fixture_ecosystem_invalid");
+	const source = assertPinnedOsvSnapshotSource(bundle.sourceRef, ecosystem);
 	const destination = path.join(root, "osv-scanner", ecosystem, "all.zip");
 	if ((await sha256File(destination).catch(() => null)) === bundle.digest)
 		continue;
-	const source = new URL(bundle.sourceRef);
-	if (
-		source.protocol !== "https:" ||
-		source.hostname !== "osv-vulnerabilities.storage.googleapis.com"
-	)
-		throw new Error("osv_fixture_source_not_allowed");
 	await mkdir(path.dirname(destination), { recursive: true });
 	const temporary = `${destination}.${crypto.randomUUID()}.tmp`;
 	try {
-		const response = await fetch(source, {
+		const response = await fetch(source.url, {
 			redirect: "error",
 			signal: AbortSignal.timeout(600_000),
 		});
 		if (!response.ok || !response.body)
 			throw new Error(`osv_fixture_download_failed:${response.status}`);
+		if (response.headers.get("x-goog-generation") !== source.generation) {
+			throw new Error("osv_fixture_generation_mismatch");
+		}
 		const writer = Bun.file(temporary).writer();
 		const reader = response.body.getReader();
 		let bytes = 0;

@@ -15,6 +15,12 @@ import {
 	hashTree,
 } from "../api/modules/scans/tools/scanner-provenance";
 import { scannerDataManifestV2Schema } from "../shared/schemas/security-capability.schema";
+import {
+	assertAllowedOsvSnapshotSource,
+	assertPinnedOsvSnapshotSource,
+	latestOsvSnapshotSource,
+	pinOsvSnapshotSource,
+} from "./osv-snapshot-source";
 import { normalizeTrivyDatabaseMetadata } from "./scanner-data-metadata";
 
 const OSV_ECOSYSTEMS = [
@@ -82,31 +88,46 @@ try {
 		const ecosystemRoot = path.join(osvRoot, ecosystem);
 		await mkdir(ecosystemRoot, { recursive: true });
 		const archivePath = path.join(ecosystemRoot, "all.zip");
+		const lockedBundle = template.tools.osv.dataBundles.find(
+			(bundle) =>
+				bundle.coverage.length === 1 && bundle.coverage[0] === ecosystem,
+		);
+		if (!allowRefresh && !lockedBundle) {
+			throw new Error(`scanner_data_lock_missing:${ecosystem}`);
+		}
+		const sourceRef = allowRefresh
+			? latestOsvSnapshotSource(ecosystem)
+			: assertPinnedOsvSnapshotSource(
+					lockedBundle?.sourceRef ?? "",
+					ecosystem,
+				).url.toString();
+		const cacheIdentity = allowRefresh
+			? "refresh"
+			: (lockedBundle?.digest.replace(/^sha256:/, "") ?? "missing");
 		const cachedArchivePath = path.join(
 			downloadCacheRoot,
-			`${ecosystem.replace(/[^A-Za-z0-9._-]/g, "_")}-all.zip`,
+			`${ecosystem.replace(/[^A-Za-z0-9._-]/g, "_")}-${cacheIdentity}.zip`,
 		);
-		const sourceRef = `https://osv-vulnerabilities.storage.googleapis.com/${encodeURIComponent(ecosystem)}/all.zip`;
 		let recordCount = allowRefresh
 			? null
 			: await validateOsvArchive(cachedArchivePath, ecosystem).catch(
 					() => null,
 				);
+		let resolvedSourceRef = sourceRef;
 		if (recordCount === null) {
 			await rm(cachedArchivePath, { force: true });
-			await downloadBounded(
+			const generation = await downloadBounded(
 				sourceRef,
 				cachedArchivePath,
 				2 * 1024 * 1024 * 1024,
 			);
+			if (allowRefresh) {
+				resolvedSourceRef = pinOsvSnapshotSource(sourceRef, generation);
+			}
 			recordCount = await validateOsvArchive(cachedArchivePath, ecosystem);
 		}
 		await cp(cachedArchivePath, archivePath);
 		const archiveDigest = await sha256File(archivePath);
-		const lockedBundle = template.tools.osv.dataBundles.find(
-			(bundle) =>
-				bundle.coverage.length === 1 && bundle.coverage[0] === ecosystem,
-		);
 		if (
 			template.tools.osv.state === "ready" &&
 			lockedBundle &&
@@ -119,7 +140,7 @@ try {
 		osvBundles.push({
 			id: `osv-${ecosystem}`,
 			kind: "vulnerability-db" as const,
-			sourceRef,
+			sourceRef: resolvedSourceRef,
 			sourceCommit: null,
 			license: "CC-BY-4.0",
 			generatedAt,
@@ -312,17 +333,21 @@ async function downloadBounded(
 	url: string,
 	outputPath: string,
 	maxBytes: number,
-): Promise<void> {
-	const parsed = new URL(url);
-	if (
-		parsed.protocol !== "https:" ||
-		parsed.hostname !== "osv-vulnerabilities.storage.googleapis.com"
-	) {
-		throw new Error(`scanner_data_source_not_allowed:${parsed.origin}`);
-	}
-	const response = await fetch(parsed);
+): Promise<string> {
+	const source = assertAllowedOsvSnapshotSource(url);
+	const response = await fetch(source.url, {
+		redirect: "error",
+		signal: AbortSignal.timeout(600_000),
+	});
 	if (!response.ok || !response.body)
 		throw new Error(`scanner_data_download_failed:${response.status}`);
+	const generation = response.headers.get("x-goog-generation") ?? "";
+	if (!/^[1-9][0-9]{5,}$/.test(generation)) {
+		throw new Error("scanner_data_generation_missing");
+	}
+	if (source.generation !== null && source.generation !== generation) {
+		throw new Error("scanner_data_generation_mismatch");
+	}
 	const file = Bun.file(outputPath);
 	const writer = file.writer();
 	let total = 0;
@@ -343,6 +368,7 @@ async function downloadBounded(
 	}
 	if ((await stat(outputPath)).size !== total)
 		throw new Error("scanner_data_archive_write_incomplete");
+	return generation;
 }
 
 async function validateOsvArchive(
