@@ -423,6 +423,7 @@ describe("GitleaksRunner", () => {
 	});
 
 	it("uses the mounted repository as the Docker working directory", async () => {
+		await fs.mkdir(path.join(tempDir, ".git"));
 		await fs.writeFile(
 			path.join(tempDir, ".gitleaks.toml"),
 			"[extend]\nuseDefault = true\n",
@@ -457,7 +458,7 @@ describe("GitleaksRunner", () => {
 		const result = await new GitleaksRunner(storage, {
 			runner: "docker",
 			docker: { image: "toolbox:test", networkMode: "none" },
-		}).run("scan-docker", tempDir, { preScoped: true });
+		}).run("scan-docker", tempDir);
 
 		expect(result.ok).toBe(true);
 		expect(outputMode).toBe(0o666);
@@ -468,6 +469,69 @@ describe("GitleaksRunner", () => {
 		expect(dockerArgs).toContain("GIT_CONFIG_VALUE_0=/workspace/repo");
 		expect(dockerArgs).toContain(".");
 		expect(dockerArgs).toContain("/workspace/repo/.gitleaks.toml");
+		expect(dockerArgs).not.toContain("--no-git");
+	});
+
+	it("uses filesystem mode for a Docker snapshot without Git metadata", async () => {
+		let scanArgs: string[] = [];
+		vi.spyOn(Bun, "spawn").mockImplementation((args) => {
+			const dockerArgs = [...(args as string[])];
+			const isVersion = dockerArgs.includes("version");
+			if (!isVersion) scanArgs = dockerArgs;
+			const outputMount = dockerArgs.find((arg) =>
+				arg.includes(":/workspace/out:rw"),
+			);
+			const outputDirectory = outputMount?.split(":/workspace/out:rw")[0];
+			const writePromise =
+				!isVersion && outputDirectory
+					? fs.writeFile(path.join(outputDirectory, "gitleaks-output.json"), "[]")
+					: Promise.resolve();
+			return {
+				exited: writePromise.then(() => 0),
+				stdout: new Response(isVersion ? "8.30.1\n" : "").body,
+				stderr: new Response("").body,
+			} as any;
+		});
+
+		const result = await new GitleaksRunner(storage, {
+			runner: "docker",
+			docker: { image: "toolbox:test", networkMode: "none" },
+		}).run("scan-snapshot", tempDir);
+
+		expect(result.ok).toBe(true);
+		expect(scanArgs).toContain("--no-git");
+		expect(result.executionMetadata?.scanMode).toBe("filesystem");
+	});
+
+	it("rejects a Git fatal even when Gitleaks exits zero with empty JSON", async () => {
+		await fs.mkdir(path.join(tempDir, ".git"));
+		vi.spyOn(Bun, "spawn").mockImplementation((args) => {
+			if (args[0] === "gitleaks" && args[1] === "version") {
+				return {
+					exited: Promise.resolve(0),
+					stdout: new Response("8.30.1\n").body,
+					stderr: new Response("").body,
+				} as any;
+			}
+			const outputIdx = args.indexOf("--report-path");
+			const writePromise = fs.writeFile(args[outputIdx + 1], "[]");
+			return {
+				exited: writePromise.then(() => 0),
+				stdout: new Response("").body,
+				stderr: new Response(
+					"[git] fatal: detected dubious ownership in repository\n",
+				).body,
+			} as any;
+		});
+
+		const result = await new GitleaksRunner(storage).run(
+			"scan-git-fatal",
+			tempDir,
+		);
+
+		expect(result.ok).toBe(false);
+		expect(result.error).toContain("dubious ownership");
+		expect(result.executionMetadata?.scanMode).toBe("git_history");
 	});
 
 	it("mounts an immutable config beside a pre-scoped diff workspace", async () => {

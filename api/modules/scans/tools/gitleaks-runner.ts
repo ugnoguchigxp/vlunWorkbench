@@ -135,7 +135,15 @@ export class GitleaksRunner {
 			// explicitly so scoped and direct scans apply the same rules.
 			args.push("--config", resolvedConfigPath);
 		}
-		if (scopedWorkspace || options.preScoped) args.push("--no-git");
+		const gitHistoryAvailable = await hasUsableGitMetadata(
+			scanPath,
+			this.execution?.runner === "docker",
+		);
+		const scanMode =
+			scopedWorkspace || options.preScoped || !gitHistoryAvailable
+				? "filesystem"
+				: "git_history";
+		if (scanMode === "filesystem") args.push("--no-git");
 
 		const startTime = Date.now();
 		let runResult: Awaited<ReturnType<typeof runToolProcess>>;
@@ -177,6 +185,7 @@ export class GitleaksRunner {
 		const elapsedMs = Date.now() - startTime;
 		const executionMetadata = {
 			...(runResult.executionMetadata ?? {}),
+			scanMode,
 			scopeWorkspace: scopedWorkspace
 				? { applied: true, copiedFiles: scopedWorkspace.copiedFiles }
 				: { applied: false },
@@ -223,8 +232,14 @@ export class GitleaksRunner {
 		);
 
 		// Gitleaks exit code 0 = no leaks, 1 = leaks found (both completed scans)
+		// A Git fatal accompanied by an empty report used to look like a clean
+		// scan because some Gitleaks releases still exit 0. Never accept that as
+		// evidence from history mode.
+		const gitHistoryFailed =
+			scanMode === "git_history" && hasFatalGitDiagnostic(stderr);
 		const isCompleted =
-			runResult.exitCode === 0 || (runResult.exitCode === 1 && jsonValid);
+			!gitHistoryFailed &&
+			(runResult.exitCode === 0 || (runResult.exitCode === 1 && jsonValid));
 
 		if (!isCompleted) {
 			let rawJsonArtifact: ArtifactSaveResult | undefined;
@@ -267,6 +282,7 @@ export class GitleaksRunner {
 				}
 			}
 
+			const diagnostic = compactDiagnostic(stderr);
 			return {
 				ok: false,
 				exitCode: runResult.exitCode,
@@ -276,7 +292,7 @@ export class GitleaksRunner {
 				rawJsonArtifact,
 				stdoutArtifact,
 				stderrArtifact,
-				error: `Gitleaks exited with code ${runResult.exitCode}`,
+				error: `Gitleaks exited with code ${runResult.exitCode}${diagnostic ? `: ${diagnostic}` : ""}`,
 				executionMetadata,
 			};
 		}
@@ -347,4 +363,42 @@ async function isRegularFile(filePath: string): Promise<boolean> {
 	} catch {
 		return false;
 	}
+}
+
+async function hasUsableGitMetadata(
+	repoPath: string,
+	dockerRunner: boolean,
+): Promise<boolean> {
+	try {
+		const metadata = await fs.lstat(path.join(repoPath, ".git"));
+		if (metadata.isDirectory()) return true;
+		// A linked worktree's .git file points outside the repository mount and
+		// cannot be followed by the isolated Docker scanner.
+		return metadata.isFile() && !dockerRunner;
+	} catch {
+		return false;
+	}
+}
+
+function hasFatalGitDiagnostic(stderr: string): boolean {
+	const plain = stderr.replace(
+		new RegExp(`${String.fromCharCode(27)}\\[[0-?]*[ -/]*[@-~]`, "g"),
+		"",
+	);
+	return (
+		/\[git\].*\bfatal:/i.test(plain) ||
+		/not a git repository/i.test(plain) ||
+		/dubious ownership in repository/i.test(plain)
+	);
+}
+
+function compactDiagnostic(stderr: string): string {
+	return redactSecrets(stderr)
+		.replace(
+			new RegExp(`${String.fromCharCode(27)}\\[[0-?]*[ -/]*[@-~]`, "g"),
+			"",
+		)
+		.replace(/\s+/g, " ")
+		.trim()
+		.slice(0, 512);
 }
