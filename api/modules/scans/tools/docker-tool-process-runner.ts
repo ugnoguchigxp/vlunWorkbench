@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { readBoundedProcessText } from "./bounded-process-output";
+import { acquireDockerRepoAccess } from "./docker-repo-access";
 import { cleanupDockerContainer } from "./docker-tool-cleanup";
 import {
 	assertAllowedDockerInvocation,
@@ -144,6 +145,9 @@ export async function runDockerToolProcess(
 			networkMode,
 		}),
 	});
+	const repoAccessLease = options.repoPath
+		? await acquireDockerRepoAccess(options.repoPath)
+		: null;
 	const dockerMetadata = {
 		image,
 		containerName,
@@ -155,6 +159,12 @@ export async function runDockerToolProcess(
 			cache: cacheDir ? "read-write" : "none",
 			inputs: inputPaths.length > 0 ? "read-only" : "none",
 		},
+		repoDirectoryMode: repoAccessLease
+			? {
+					original: repoAccessLease.originalMode,
+					execution: repoAccessLease.executionMode,
+				}
+			: null,
 		resourceLimits: {
 			memory: docker.memory,
 			memorySwap: docker.memory,
@@ -260,10 +270,14 @@ export async function runDockerToolProcess(
 			},
 		};
 	} finally {
-		if (timeoutId) clearTimeout(timeoutId);
-		if (killAfterTerminationId) clearTimeout(killAfterTerminationId);
-		if (proc && (terminationReason || exitCode === null)) {
-			await cleanupDockerContainer(dockerBin, containerName, emit);
+		try {
+			if (timeoutId) clearTimeout(timeoutId);
+			if (killAfterTerminationId) clearTimeout(killAfterTerminationId);
+			if (proc && (terminationReason || exitCode === null)) {
+				await cleanupDockerContainer(dockerBin, containerName, emit);
+			}
+		} finally {
+			await repoAccessLease?.release();
 		}
 	}
 

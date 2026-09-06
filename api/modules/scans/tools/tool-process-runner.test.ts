@@ -19,6 +19,14 @@ function streamText(text: string) {
 	});
 }
 
+async function waitForCondition(condition: () => boolean): Promise<void> {
+	for (let attempt = 0; attempt < 100; attempt++) {
+		if (condition()) return;
+		await Bun.sleep(1);
+	}
+	throw new Error("condition_not_reached");
+}
+
 beforeAll(() => {
 	createStaticScannerAdapterRegistry({ optionalAdapterIds: ["semgrep"] });
 });
@@ -106,6 +114,89 @@ describe("Tool process runner Docker backend", () => {
 		]);
 
 		await fs.rm(tempDir, { recursive: true, force: true });
+	});
+
+	it("temporarily makes a private repository root readable by the fixed container uid", async () => {
+		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "docker-private-"));
+		const repoPath = path.join(tempDir, "repo");
+		await fs.mkdir(repoPath, { mode: 0o700 });
+		await fs.chmod(repoPath, 0o700);
+		let modeDuringExecution: number | null = null;
+
+		vi.spyOn(Bun, "spawn").mockImplementation(() => {
+			const exited = fs.stat(repoPath).then((stat) => {
+				modeDuringExecution = stat.mode & 0o777;
+				return 0;
+			});
+			return {
+				exited,
+				stdout: streamText("[]"),
+				stderr: streamText(""),
+			} as any;
+		});
+
+		try {
+			const result = await runToolProcess("semgrep", ["scan", "--json", repoPath], {
+				repoPath,
+				execution: { runner: "docker" },
+			});
+
+			expect(result).toMatchObject({ ok: true, exitCode: 0 });
+			expect(modeDuringExecution).toBe(0o705);
+			expect((await fs.stat(repoPath)).mode & 0o777).toBe(0o700);
+			expect(result.executionMetadata?.docker).toMatchObject({
+				repoDirectoryMode: { original: 0o700, execution: 0o705 },
+			});
+		} finally {
+			await fs.rm(tempDir, { recursive: true, force: true });
+		}
+	});
+
+	it("keeps repository access until concurrent Docker scans release their leases", async () => {
+		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "docker-leases-"));
+		const repoPath = path.join(tempDir, "repo");
+		await fs.mkdir(repoPath, { mode: 0o700 });
+		await fs.chmod(repoPath, 0o700);
+		let releaseFirst: () => void = () => undefined;
+		let releaseSecond: () => void = () => undefined;
+		let spawnCount = 0;
+
+		vi.spyOn(Bun, "spawn").mockImplementation(() => {
+			spawnCount++;
+			const exited = new Promise<number>((resolve) => {
+				if (spawnCount === 1) releaseFirst = () => resolve(0);
+				else releaseSecond = () => resolve(0);
+			});
+			return {
+				exited,
+				stdout: streamText("[]"),
+				stderr: streamText(""),
+			} as any;
+		});
+
+		try {
+			const first = runToolProcess("semgrep", ["scan", "--json", repoPath], {
+				repoPath,
+				execution: { runner: "docker" },
+			});
+			await waitForCondition(() => spawnCount === 1);
+			const second = runToolProcess("semgrep", ["scan", "--json", repoPath], {
+				repoPath,
+				execution: { runner: "docker" },
+			});
+			await waitForCondition(() => spawnCount === 2);
+
+			releaseFirst();
+			await first;
+			expect((await fs.stat(repoPath)).mode & 0o777).toBe(0o705);
+			releaseSecond();
+			await second;
+			expect((await fs.stat(repoPath)).mode & 0o777).toBe(0o700);
+		} finally {
+			releaseFirst();
+			releaseSecond();
+			await fs.rm(tempDir, { recursive: true, force: true });
+		}
 	});
 
 	it("permits only Trivy's ephemeral image cache to use its container root filesystem", async () => {
