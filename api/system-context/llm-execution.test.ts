@@ -66,6 +66,17 @@ describe("executeLlmCompletion", () => {
 			},
 			evidences: [],
 			sourceSnippet: "line 1\nline 2",
+			sourceSnapshot: {
+				status: "available",
+				evidenceId: "evidence-1",
+				artifactId: null,
+				artifactSha256: null,
+				executionPlanId: "plan-1",
+				planHash: "b".repeat(64),
+				sourceRevision: "c".repeat(40),
+				sourceSnapshotDigest: "d".repeat(64),
+				capturedAt: "2026-09-06T00:00:00.000Z",
+			},
 		});
 
 		const result = await executePromptCompletion({

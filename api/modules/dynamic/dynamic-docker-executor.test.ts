@@ -11,6 +11,9 @@ import {
 
 describe("executeDynamicDockerRun cleanup", () => {
 	test("names and labels a server-owned dynamic output volume", () => {
+		expect(() => dynamicOutputVolumeName("unowned-container")).toThrow(
+			"dynamic_container_name_invalid",
+		);
 		const volumeName = dynamicOutputVolumeName("vuln-workbench-dyn-test-1");
 		expect(volumeName).toBe("vuln-workbench-dyn-test-1-out");
 		expect(
@@ -26,6 +29,52 @@ describe("executeDynamicDockerRun cleanup", () => {
 		expect(
 			buildDynamicOutputVolumeRemoveArgs({ dockerBin: "docker", volumeName }),
 		).toEqual(["docker", "volume", "rm", "-f", volumeName]);
+	});
+
+	test("reports a failed artifact copy after cleaning the container and volume", async () => {
+		const root = await fs.mkdtemp(path.join(os.tmpdir(), "dynamic-copy-"));
+		const dockerBin = path.join(root, "fake-docker");
+		const outDir = path.join(root, "out");
+		await fs.mkdir(outDir);
+		await fs.writeFile(
+			dockerBin,
+			`#!/bin/sh
+if [ "$1" = "cp" ]; then
+  exit 9
+fi
+exit 0
+`,
+		);
+		await fs.chmod(dockerBin, 0o755);
+
+		try {
+			const result = await executeDynamicDockerRun({
+				dockerBin,
+				image: "example.invalid/dynamic@sha256:test",
+				containerName: "vuln-workbench-dyn-copy-test",
+				outputVolumeName: "vuln-workbench-dyn-copy-test-out",
+				networkMode: "none",
+				memory: "128m",
+				cpus: "1",
+				pidsLimit: 64,
+				outputLimits: { stdoutBytes: 1024, stderrBytes: 1024 },
+				repoPath: root,
+				hostOutDir: outDir,
+				workingDirectory: ".",
+				command: ["true"],
+				writableWorkdir: false,
+				expectedArtifacts: ["result.json"],
+				timeoutSec: 1,
+			});
+
+			expect(result).toMatchObject({
+				ok: false,
+				error: "dynamic_output_collection_failed",
+				executionMetadata: { terminationReason: "output_collection_failed" },
+			});
+		} finally {
+			await fs.rm(root, { recursive: true, force: true });
+		}
 	});
 
 	test("does not expose unrelated application secrets to the Docker CLI", async () => {

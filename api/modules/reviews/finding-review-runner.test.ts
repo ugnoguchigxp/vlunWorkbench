@@ -4,7 +4,16 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDbConnection, type DbConnection } from "../../db";
-import { findingEvidences, findings, projects, scanRuns, users } from "../../db/schema";
+import {
+	findingEvidences,
+	findings,
+	projects,
+	scanArtifacts,
+	scanExecutionPlans,
+	scanRuns,
+	toolRuns,
+	users,
+} from "../../db/schema";
 import { closeTestDbConnection } from "../../db/testing/connection";
 import type { LlmRouter } from "../../providers/llmRouter";
 import type { LlmProvider } from "../../providers/types";
@@ -107,6 +116,53 @@ describe("FindingReviewRunner", () => {
 			.returning();
 		findingId = finding.id;
 
+		await connection.db.insert(toolRuns).values({
+			scanRunId,
+			toolName: "gitleaks",
+			toolVersion: "8.24.0",
+			command: "gitleaks detect",
+			status: "completed",
+			createdAt: now,
+			updatedAt: now,
+		});
+		const [semgrepRun] = await connection.db
+			.insert(toolRuns)
+			.values({
+				scanRunId,
+				toolName: "semgrep",
+				toolVersion: "1.132.0",
+				command: "semgrep scan --config local",
+				status: "completed",
+				createdAt: now,
+				updatedAt: now,
+			})
+			.returning();
+		const [semgrepArtifact] = await connection.db
+			.insert(scanArtifacts)
+			.values({
+				scanRunId,
+				toolRunId: semgrepRun.id,
+				kind: "normalized_result",
+				format: "json",
+				path: "artifacts/semgrep.json",
+				sha256: "a".repeat(64),
+				sizeBytes: 128,
+				createdAt: now,
+			})
+			.returning();
+		await connection.db.insert(scanExecutionPlans).values({
+			scanRunId,
+			projectId,
+			profileId: "baseline",
+			strictness: "strict",
+			planHash: "d".repeat(64),
+			plan: {
+				sourceRevision: "b".repeat(40),
+				sourceSnapshotDigest: "c".repeat(64),
+			},
+			createdAt: now,
+		});
+
 		// Seed evidence
 		await connection.db
 			.insert(findingEvidences)
@@ -119,7 +175,8 @@ describe("FindingReviewRunner", () => {
 					startLine: 2,
 					endLine: 2,
 				},
-				snippet: `const slack = "${["xoxb", "12345678901", "abcdef"].join("-")}";`,
+				snippet: 'const captured = "persisted scan evidence";',
+				artifactId: semgrepArtifact.id,
 				createdAt: now,
 			});
 	});
@@ -177,10 +234,10 @@ describe("FindingReviewRunner", () => {
 	});
 
 	describe("buildReviewBundle", () => {
-		it("should build input bundle correctly", async () => {
+		it("binds the finding to its artifact tool run and persisted source", async () => {
 			const filePath = path.join(repoPath, "src/auth.ts");
 			await fs.mkdir(path.dirname(filePath), { recursive: true });
-			await fs.writeFile(filePath, "// line 1\nconst a = 1;");
+			await fs.writeFile(filePath, "// line 1\nconst editedAfterScan = true;");
 
 			const dbFinding = await connection.db.query.findings.findFirst({
 				where: (fields, { eq }) => eq(fields.id, findingId),
@@ -190,8 +247,26 @@ describe("FindingReviewRunner", () => {
 			const bundle = await buildReviewBundle(connection.db, dbFinding!, repoPath);
 			expect(bundle.finding.id).toBe(findingId);
 			expect(bundle.scanContext.scanRunId).toBe(scanRunId);
+			expect(bundle.scanContext).toMatchObject({
+				toolName: "semgrep",
+				toolVersion: "1.132.0",
+				command: "semgrep scan --config local",
+			});
 			expect(bundle.evidences).toHaveLength(1);
-			expect(bundle.sourceSnippet).toBe("const a = 1;");
+			expect(bundle.evidences[0]?.artifact?.toolRunId).toBeTruthy();
+			expect(bundle.sourceSnippet).toBe(
+				'const captured = "persisted scan evidence";',
+			);
+			expect(bundle.sourceSnippet).not.toContain("editedAfterScan");
+			expect(bundle.sourceSnapshot).toMatchObject({
+				status: "available",
+				evidenceId: bundle.evidences[0]?.id,
+				artifactId: bundle.evidences[0]?.artifact?.id,
+				artifactSha256: "a".repeat(64),
+				planHash: "d".repeat(64),
+				sourceRevision: "b".repeat(40),
+				sourceSnapshotDigest: "c".repeat(64),
+			});
 		});
 	});
 

@@ -1,0 +1,54 @@
+name: scanner-data-refresh
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: scanner-data-refresh
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.3.14
+      - run: bun install --frozen-lockfile
+      - name: Refresh locked scanner data
+        run: bun run scanner-data:refresh-lock
+      - name: Verify dependency and scanner-data policy
+        run: |
+          bun run check:audit
+          bun run test:semgrep:catalog
+          bun run verify:toolbox-provenance
+      - name: Create or update the refresh pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if git diff --quiet; then
+            echo "Scanner data is already current."
+            exit 0
+          fi
+          branch="automation/scanner-data-refresh"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B "$branch"
+          git add docker/toolbox/scanner-data/scanner-data-manifest.json
+          git commit -m "chore: refresh scanner data lock"
+          git push --force-with-lease origin "$branch"
+          if gh pr view "$branch" >/dev/null 2>&1; then
+            gh pr edit "$branch" --title "chore: refresh scanner data lock" --body "Refreshes the pinned offline scanner-data manifest and verifies its provenance."
+          else
+            gh pr create --base main --head "$branch" --title "chore: refresh scanner data lock" --body "Refreshes the pinned offline scanner-data manifest and verifies its provenance."
+          fi

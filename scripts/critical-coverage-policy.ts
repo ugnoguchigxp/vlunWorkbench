@@ -3,7 +3,7 @@ export type CriticalCoverageTarget = {
 	minimum: number;
 };
 
-export const criticalCoverageTargetBaseline = 31;
+export const criticalCoverageTargetBaseline = 33;
 
 export const criticalCoverageTargets: readonly CriticalCoverageTarget[] = [
 	{ path: "api/middleware/auth.ts", minimum: 95 },
@@ -12,6 +12,14 @@ export const criticalCoverageTargets: readonly CriticalCoverageTarget[] = [
 	{ path: "api/security/project-path-policy.ts", minimum: 95 },
 	{ path: "api/security/secret-crypto.ts", minimum: 95 },
 	{ path: "api/modules/dast/active-assessment-runner.ts", minimum: 90 },
+	{
+		path: "api/modules/dynamic/dynamic-bundle-lease-cleanup.ts",
+		minimum: 90,
+	},
+	{
+		path: "api/modules/dynamic/dynamic-bundle-lease-janitor.ts",
+		minimum: 90,
+	},
 	{ path: "api/modules/dynamic/dynamic-artifact-storage.ts", minimum: 75 },
 	{ path: "api/modules/dynamic/dynamic-docker-executor.ts", minimum: 85 },
 	{ path: "api/modules/dynamic/dynamic-evidence-builder.ts", minimum: 90 },
@@ -94,7 +102,10 @@ export const criticalCoverageTests = [
 	"api/security/project-path-policy.test.ts",
 	"api/security/secret-crypto.test.ts",
 	"api/modules/dast/active-assessment-runner.test.ts",
+	"api/modules/dynamic/dynamic-bundle-lease-cleanup.test.ts",
+	"api/modules/dynamic/dynamic-bundle-lease-janitor.test.ts",
 	"api/modules/dynamic/dynamic-artifact-storage.test.ts",
+	"api/modules/dynamic/dynamic-docker-executor.test.ts",
 	"api/modules/dynamic/dynamic-evidence-builder.test.ts",
 	"api/modules/dynamic/dynamic-profiles.test.ts",
 	"api/modules/dynamic/dynamic-run-policy.test.ts",
@@ -108,8 +119,10 @@ export const criticalCoverageTests = [
 	"api/modules/integrations/nightworkers/nightworkers-workspace-target-state.test.ts",
 	"api/modules/reproductions/reproduction-runner.test.ts",
 	"api/modules/scans/handoff/scan-diagnostic-runner.test.ts",
+	"api/modules/scans/handoff/scan-improvement-request-builder.test.ts",
 	"api/modules/scans/handoff/scan-improvement-request-runner.test.ts",
 	"api/modules/scans/execution/scan-process-supervisor.test.ts",
 	"api/modules/scans/execution/web-scan-post-processing.test.ts",
 	"api/modules/scans/tools/tool-process-runner.test.ts",
+	"api/modules/scans/tools/docker-tool-invocation-policy.test.ts",
 ];

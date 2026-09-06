@@ -44,6 +44,7 @@ export function ScanOverviewTab({
 	const scanFailure = buildScanFailureDisplay(view.selectedScan);
 	const scanNotStarted = scanFailure?.noScannerExecution === true;
 	const scanIncomplete = scanFailure !== null;
+	const coverageUnverified = !view.selectedScan || scanIncomplete;
 	const scanResultsUnavailable = scanIncomplete && findings.length === 0;
 	return (
 		<div className="workspace-overview" role="tabpanel">
@@ -55,12 +56,14 @@ export function ScanOverviewTab({
 				<div className="workspace-results-summary-heading">
 					<h2 id="workspace-latest-results">最新の結果</h2>
 					<div
-						className={`workspace-coverage-status ${scanIncomplete ? "unknown" : view.coverageGaps === 0 ? "complete" : "attention"}`}
+						className={`workspace-coverage-status ${coverageUnverified ? "unknown" : view.coverageGaps === 0 ? "complete" : "attention"}`}
 					>
 						<span>カバレッジ</span>
 						<strong>
-							{scanIncomplete
-								? "未確定"
+							{coverageUnverified
+								? view.selectedScan
+									? "未確定"
+									: "未確認"
 								: view.coverageGaps === 0
 									? "確認済み"
 									: `${view.coverageGaps} 件の確認待ち`}
@@ -148,6 +151,10 @@ export function ScanOverviewTab({
 							</button>
 						))}
 					</div>
+				) : !view.selectedScan ? (
+					<p className="workspace-empty">
+						スキャンを選択すると検出結果を確認できます。
+					</p>
 				) : scanActive ? (
 					<p className="workspace-empty" role="status">
 						スキャン中です。収集済みの検出結果を随時更新します。

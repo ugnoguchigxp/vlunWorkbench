@@ -26,6 +26,7 @@ export interface ReviewEvidenceInfo {
 	snippet: string | null;
 	artifact: {
 		id: string | null;
+		toolRunId: string | null;
 		kind: string | null;
 		format: string | null;
 		sha256: string | null;
@@ -33,9 +34,22 @@ export interface ReviewEvidenceInfo {
 	} | null;
 }
 
+export interface ReviewSourceSnapshot {
+	status: "available" | "unavailable";
+	evidenceId: string | null;
+	artifactId: string | null;
+	artifactSha256: string | null;
+	executionPlanId: string | null;
+	planHash: string | null;
+	sourceRevision: string | null;
+	sourceSnapshotDigest: string | null;
+	capturedAt: string | null;
+}
+
 export interface ReviewInputBundle {
 	finding: ReviewFindingInfo;
 	scanContext: ReviewScanContext;
 	evidences: ReviewEvidenceInfo[];
 	sourceSnippet: string;
+	sourceSnapshot: ReviewSourceSnapshot;
 }

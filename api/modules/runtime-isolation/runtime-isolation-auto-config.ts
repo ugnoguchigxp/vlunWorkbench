@@ -1,15 +1,19 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import path from "node:path";
 import {
 	RUNTIME_SETTINGS_DEFAULTS,
 	type RuntimeIsolationSettings,
 	RuntimeIsolationSettingsSchema,
 } from "../../config/runtime-settings";
+import type { BoundedProcessResult } from "../processes/bounded-process-runner";
 import {
-	type BoundedProcessResult,
-	runBoundedProcess,
-} from "../processes/bounded-process-runner";
-import { getCleanEnv } from "../scans/tools/process-runner-shared";
+	bunAdapterQualificationScript,
+	checkedCommand,
+	cleanupCommand,
+	defaultRunner,
+	inspectBaseImage,
+	sha256,
+} from "./runtime-isolation-auto-config-commands";
 
 const BASE_IMAGE_TAG = "node:22-bookworm-slim";
 const BUN_IMAGE_TAG = "oven/bun:1.3.14";
@@ -25,7 +29,6 @@ const SCANNER_IMAGE_TAGS = {
 	zap: "zaproxy/zap-stable:latest",
 	schemathesis: "schemathesis/schemathesis:stable",
 } as const;
-const OUTPUT_LIMIT_BYTES = 4 * 1024 * 1024;
 const SHA256_PATTERN = /^sha256:[a-f0-9]{64}$/;
 const OFFICIAL_NODE_IMAGE_PATTERN =
 	/^(?:(?:docker\.io\/)?library\/)?node@sha256:[a-f0-9]{64}$/;
@@ -583,125 +586,4 @@ async function prepareRuntimeScannerImages(
 		schemathesisImage:
 			images.find(([role]) => role === "schemathesis")?.[1] ?? "",
 	};
-}
-
-function bunAdapterQualificationScript(registryUrl: string): string {
-	const packageJson = JSON.stringify({
-		name: "vwb-bun-qualification",
-		dependencies: { "is-number": "7.0.0" },
-	});
-	const bunLock = JSON.stringify({
-		lockfileVersion: 1,
-		workspaces: {
-			"": {
-				name: "vwb-bun-qualification",
-				dependencies: { "is-number": "7.0.0" },
-			},
-		},
-		packages: {
-			"is-number": [
-				"is-number@7.0.0",
-				"",
-				{},
-				"sha512-41Cifkg6e8TylSpdtTpeLVMqvSBEVzTttHvERD741+pnZ8ANv0004MRL43QKPDlK9cGvNp6NZWZUBlbGXYxxng==",
-			],
-		},
-	});
-	return [
-		`printf '%s' '${packageJson}' > package.json`,
-		`printf '%s' '${bunLock}' > bun.lock`,
-		`bun install --frozen-lockfile --ignore-scripts --no-progress --no-save --backend=copyfile --registry '${registryUrl}'`,
-		"test -f node_modules/is-number/index.js",
-	].join("; ");
-}
-
-async function inspectBaseImage(
-	runner: RuntimeIsolationAutoConfigRunner,
-	dockerBin: string,
-	imageTag: string,
-	allowedDigestPattern: RegExp,
-): Promise<string | null> {
-	let result: BoundedProcessResult;
-	try {
-		result = await runner(
-			[
-				dockerBin,
-				"image",
-				"inspect",
-				"--format",
-				"{{json .RepoDigests}}",
-				imageTag,
-			],
-			{ timeoutMs: 30_000, outputLimitBytes: OUTPUT_LIMIT_BYTES },
-		);
-	} catch {
-		return null;
-	}
-	if (result.exitCode !== 0 || result.terminationReason) return null;
-	try {
-		const digests = JSON.parse(result.stdout.trim());
-		if (!Array.isArray(digests)) return null;
-		return (
-			digests.find(
-				(value): value is string =>
-					typeof value === "string" && allowedDigestPattern.test(value),
-			) ?? null
-		);
-	} catch {
-		return null;
-	}
-}
-
-async function checkedCommand(
-	runner: RuntimeIsolationAutoConfigRunner,
-	argv: string[],
-	timeoutMs: number,
-	code: string,
-	message: string,
-	status: 409 | 503 = 409,
-): Promise<BoundedProcessResult> {
-	let result: BoundedProcessResult;
-	try {
-		result = await runner(argv, {
-			timeoutMs,
-			outputLimitBytes: OUTPUT_LIMIT_BYTES,
-		});
-	} catch {
-		throw new RuntimeIsolationAutoConfigError(code, message, status);
-	}
-	if (result.exitCode !== 0 || result.terminationReason) {
-		throw new RuntimeIsolationAutoConfigError(code, message, status);
-	}
-	return result;
-}
-
-async function cleanupCommand(
-	runner: RuntimeIsolationAutoConfigRunner,
-	argv: string[],
-): Promise<boolean> {
-	try {
-		const result = await runner(argv, {
-			timeoutMs: 30_000,
-			outputLimitBytes: OUTPUT_LIMIT_BYTES,
-		});
-		return result.exitCode === 0 && result.terminationReason === null;
-	} catch {
-		// Qualification cleanup must not replace the original actionable error.
-		return false;
-	}
-}
-
-async function defaultRunner(
-	argv: string[],
-	options: { timeoutMs: number; outputLimitBytes: number },
-): Promise<BoundedProcessResult> {
-	return await runBoundedProcess({
-		argv,
-		...options,
-		env: getCleanEnv(),
-	});
-}
-
-function sha256(value: string): `sha256:${string}` {
-	return `sha256:${createHash("sha256").update(value).digest("hex")}`;
 }

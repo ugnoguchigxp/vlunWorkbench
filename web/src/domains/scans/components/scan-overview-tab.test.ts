@@ -43,7 +43,35 @@ function render(status: ScanRun["status"], overrides: Partial<ScanRun> = {}) {
 	);
 }
 
+function renderWithoutScan() {
+	return renderToStaticMarkup(
+		createElement(ScanOverviewTab, {
+			findings: [],
+			scanRuns: [],
+			selectedScanRunId: "",
+			coverageGaps: 0,
+			selectedFindingId: "",
+			scanReviews: [],
+			generatingImprovementRequest: false,
+			onSelectFinding: () => undefined,
+			onCloseFinding: () => undefined,
+			onGenerateImprovementRequest: () => undefined,
+		}),
+	);
+}
+
 describe("ScanOverviewTab", () => {
+	it("keeps coverage unverified until a scan is selected", () => {
+		const markup = renderWithoutScan();
+
+		expect(markup).toContain(
+			'workspace-coverage-status unknown"><span>カバレッジ</span><strong>未確認',
+		);
+		expect(markup).toContain("スキャンを選択すると検出結果を確認できます。");
+		expect(markup).not.toContain("確認済み");
+		expect(markup).not.toContain("検出結果はありません。");
+	});
+
 	it.each(["queued", "running"] as const)(
 		"shows pending results while the scan is %s",
 		(status) => {

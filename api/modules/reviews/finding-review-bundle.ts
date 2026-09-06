@@ -6,14 +6,68 @@ import type {
 	ReviewFindingInfo,
 	ReviewScanContext,
 	ReviewEvidenceInfo,
+	ReviewSourceSnapshot,
 } from "./finding-review-types";
 import type { AppDatabase } from "../../db";
 import { eq } from "drizzle-orm";
-import { scanRuns, toolRuns, scanArtifacts } from "../../db/schema";
+import {
+	scanArtifacts,
+	scanExecutionPlans,
+	scanRuns,
+	toolRuns,
+} from "../../db/schema";
 
 export interface ExtractSnippetOptions {
 	maxLines?: number;
 	maxFileBytes?: number;
+}
+
+type ToolRunRow = typeof toolRuns.$inferSelect;
+
+function normalizedToolName(value: string): string {
+	return value.trim().toLowerCase();
+}
+
+function optionalString(value: unknown): string | null {
+	return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function selectFindingToolRun(
+	findingSourceTool: string,
+	scanToolRuns: ToolRunRow[],
+	evidenceToolRunIds: Set<string>,
+): ToolRunRow | null {
+	const sourceTool = normalizedToolName(findingSourceTool);
+	const evidenceRuns = scanToolRuns.filter((run) =>
+		evidenceToolRunIds.has(run.id),
+	);
+	const evidenceMatches = evidenceRuns.filter(
+		(run) => normalizedToolName(run.toolName) === sourceTool,
+	);
+	if (evidenceMatches.length === 1) return evidenceMatches[0] ?? null;
+
+	const scanMatches = scanToolRuns.filter(
+		(run) => normalizedToolName(run.toolName) === sourceTool,
+	);
+	return scanMatches.length === 1 ? (scanMatches[0] ?? null) : null;
+}
+
+function locationMatches(
+	left: Record<string, unknown> | null,
+	right: Record<string, unknown> | null,
+): boolean {
+	if (!left || !right || typeof left.path !== "string") return false;
+	if (left.path !== right.path) return false;
+	for (const key of ["startLine", "endLine"] as const) {
+		if (
+			typeof left[key] === "number" &&
+			typeof right[key] === "number" &&
+			left[key] !== right[key]
+		) {
+			return false;
+		}
+	}
+	return true;
 }
 
 export async function extractSourceSnippet(
@@ -111,6 +165,10 @@ export async function buildReviewBundle(
 	repoPath: string,
 	options: ExtractSnippetOptions = {},
 ): Promise<ReviewInputBundle> {
+	// Kept in the public signature for callers that also use extractSourceSnippet.
+	// Review evidence itself is deliberately independent of the current worktree.
+	void repoPath;
+	void options;
 	// 1. Fetch scan context
 	const [scanRun] = await db
 		.select()
@@ -121,19 +179,14 @@ export async function buildReviewBundle(
 		throw new Error(`Scan run not found: ${finding.scanRunId}`);
 	}
 
-	// Fetch tool run if it exists
-	const [toolRun] = await db
+	const scanToolRuns = await db
 		.select()
 		.from(toolRuns)
 		.where(eq(toolRuns.scanRunId, finding.scanRunId));
-
-	const scanContext: ReviewScanContext = {
-		scanRunId: scanRun.id,
-		profile: scanRun.profile,
-		toolName: toolRun?.toolName ?? finding.sourceTool,
-		toolVersion: toolRun?.toolVersion ?? null,
-		command: toolRun?.command ? redactSecrets(toolRun.command) : null,
-	};
+	const [savedExecutionPlan] = await db
+		.select()
+		.from(scanExecutionPlans)
+		.where(eq(scanExecutionPlans.scanRunId, finding.scanRunId));
 
 	// 2. Fetch evidence list
 	const rawEvidences = await db.query.findingEvidences.findMany({
@@ -141,6 +194,7 @@ export async function buildReviewBundle(
 	});
 
 	const evidences: ReviewEvidenceInfo[] = [];
+	const evidenceToolRunIds = new Set<string>();
 
 	for (const rev of rawEvidences) {
 		let artifactInfo: ReviewEvidenceInfo["artifact"] = null;
@@ -151,8 +205,10 @@ export async function buildReviewBundle(
 				.from(scanArtifacts)
 				.where(eq(scanArtifacts.id, rev.artifactId));
 			if (art) {
+				if (art.toolRunId) evidenceToolRunIds.add(art.toolRunId);
 				artifactInfo = {
 					id: art.id,
+					toolRunId: art.toolRunId,
 					kind: art.kind,
 					format: art.format,
 					sha256: art.sha256,
@@ -171,26 +227,63 @@ export async function buildReviewBundle(
 		});
 	}
 
-	// 3. Extract source snippet
-	let sourceSnippet = "";
-	const location = finding.primaryLocation;
-	if (location && typeof location.path === "string") {
-		const startLine =
-			typeof location.startLine === "number" ? location.startLine : 1;
-		const endLine =
-			typeof location.endLine === "number" ? location.endLine : startLine;
+	const toolRun = selectFindingToolRun(
+		finding.sourceTool,
+		scanToolRuns,
+		evidenceToolRunIds,
+	);
+	const scanContext: ReviewScanContext = {
+		scanRunId: scanRun.id,
+		profile: scanRun.profile,
+		toolName: toolRun?.toolName ?? finding.sourceTool,
+		toolVersion: toolRun?.toolVersion ?? null,
+		command: toolRun?.command ? redactSecrets(toolRun.command) : null,
+	};
 
-		sourceSnippet = await extractSourceSnippet(
-			repoPath,
-			location.path,
-			startLine,
-			endLine,
-			options,
-		);
-	} else {
-		sourceSnippet =
-			"snippetUnavailable: Finding contains no primary location path.";
-	}
+	// 3. Use only the persisted source evidence captured with the finding.
+	const persistedSource = rawEvidences.find(
+		(evidence) =>
+			evidence.kind === "source-location" &&
+			Boolean(evidence.snippet) &&
+			locationMatches(
+				(evidence.location as Record<string, unknown>) ?? null,
+				finding.primaryLocation,
+			),
+	);
+	const persistedSourceArtifact = persistedSource?.artifactId
+		? (evidences.find((evidence) => evidence.id === persistedSource.id)
+				?.artifact ?? null)
+		: null;
+	const sourceSnippet = persistedSource?.snippet
+		? redactSecrets(persistedSource.snippet)
+		: "snippetUnavailable: No persisted source snapshot matches the finding location.";
+	const executionPlan = savedExecutionPlan?.plan ?? {};
+	const sourceIdentity = {
+		executionPlanId: savedExecutionPlan?.id ?? null,
+		planHash: savedExecutionPlan?.planHash ?? null,
+		sourceRevision: optionalString(executionPlan.sourceRevision),
+		sourceSnapshotDigest: optionalString(executionPlan.sourceSnapshotDigest),
+	};
+	const sourceSnapshot: ReviewSourceSnapshot = persistedSource
+		? {
+				status: "available",
+				evidenceId: persistedSource.id,
+				artifactId: persistedSourceArtifact?.id ?? null,
+				artifactSha256: persistedSourceArtifact?.sha256 ?? null,
+				...sourceIdentity,
+				capturedAt:
+					persistedSource.createdAt instanceof Date
+						? persistedSource.createdAt.toISOString()
+						: String(persistedSource.createdAt),
+			}
+		: {
+				status: "unavailable",
+				evidenceId: null,
+				artifactId: null,
+				artifactSha256: null,
+				...sourceIdentity,
+				capturedAt: null,
+			};
 
 	const findingInfo: ReviewFindingInfo = {
 		id: finding.id,
@@ -210,5 +303,6 @@ export async function buildReviewBundle(
 		scanContext,
 		evidences,
 		sourceSnippet,
+		sourceSnapshot,
 	};
 }

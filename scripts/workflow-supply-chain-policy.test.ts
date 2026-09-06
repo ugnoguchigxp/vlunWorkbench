@@ -66,6 +66,27 @@ describe("workflow supply-chain policy", () => {
 		expect(workflow).not.toContain("trivyignores:");
 	});
 
+	test("refreshes dependency and offline scanner data on a bounded schedule", async () => {
+		const [dependabot, refresh] = await Promise.all([
+			readRepositoryFile(".github/dependabot.yml"),
+			readRepositoryFile(".github/workflows/scanner-data-refresh.yml"),
+		]);
+		expect(dependabot).toMatch(
+			/package-ecosystem: npm[\s\S]*?directory: \/[\s\S]*?interval: daily[\s\S]*?open-pull-requests-limit: 10/,
+		);
+		expect(refresh).toContain('cron: "17 3 * * *"');
+		expect(refresh).toContain("timeout-minutes: 30");
+		expect(refresh).toContain("bun install --frozen-lockfile");
+		expect(refresh).toContain("bun run scanner-data:refresh-lock");
+		expect(refresh).toContain("bun run verify:toolbox-provenance");
+		expect(refresh).toContain(
+			"git add docker/toolbox/scanner-data/scanner-data-manifest.json",
+		);
+		for (const action of refresh.matchAll(/uses: ([^\s]+)/g)) {
+			expect(action[1]).toMatch(/@[a-f0-9]{40}$/);
+		}
+	});
+
 	test("builds the patched Cosign release into the core toolbox", async () => {
 		const [toolbox, semgrepPlugin] = await Promise.all([
 			readRepositoryFile("docker/toolbox/Dockerfile"),

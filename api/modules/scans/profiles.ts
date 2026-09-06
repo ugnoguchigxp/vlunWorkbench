@@ -2,74 +2,33 @@ import type {
 	DastProfileStep,
 	ScanProfile,
 	ScanProfileStep,
-	ScanScopePolicy,
 } from "../../../shared/schemas/scan-profile.schema";
 import { buildOptionalSemgrepProfile } from "../../plugins/scanners/semgrep-profile";
-import {
-	applyDastStandardRollout,
-	assertRuntimeAssessmentBudget,
-} from "./dast-profile-rollout";
 import {
 	type OptionalScannerSelection,
 	optionalScannerSelection,
 } from "./optional-scanner-adapter-config";
-import { buildPluginDependencyManifestScope } from "./plugin-dependency-scope";
+import {
+	ARTIFACT_SCOPE,
+	DEPENDENCY_MANIFEST_SCOPE,
+	FULL_DEEP_SCOPE,
+	SOURCE_BASELINE_SCOPE,
+} from "./scan-profile-scopes";
+
+export {
+	ARTIFACT_SCOPE,
+	DEPENDENCY_MANIFEST_SCOPE,
+	FULL_DEEP_SCOPE,
+	SOURCE_BASELINE_SCOPE,
+} from "./scan-profile-scopes";
 
 export {
 	plannedRuntimeAssessmentRequests,
 	RUNTIME_ASSESSMENT_AGGREGATE_REQUEST_BUDGET,
 } from "./dast-profile-rollout";
 
-import { buildCanonicalScanProfiles } from "./canonical-scan-profiles";
 import { buildStaticScanProfiles } from "./static-scan-profiles";
 import { ZAP_ACTIVE_DEDICATED_PROFILES } from "./zap-active-profiles";
-
-export const SOURCE_BASELINE_SCOPE: ScanScopePolicy = {
-	intent: "source",
-	includeGlobs: ["**/*"],
-	excludeGlobs: [
-		"node_modules/**",
-		"dist/**",
-		"dist-web/**",
-		"build/**",
-		"coverage/**",
-		"artifacts/**",
-	],
-	includeGenerated: false,
-	includeInstalledDependencies: false,
-	includeVendoredDependencies: false,
-	notes:
-		"Scans first-party source, configuration, manifests, and lockfiles while excluding generated output and installed dependencies.",
-};
-
-export const DEPENDENCY_MANIFEST_SCOPE: ScanScopePolicy =
-	buildPluginDependencyManifestScope();
-
-export const ARTIFACT_SCOPE: ScanScopePolicy = {
-	intent: "artifact",
-	includeGlobs: ["dist/**", "dist-web/**", "build/**", "*.map", "**/*.map"],
-	excludeGlobs: ["node_modules/**", "artifacts/**"],
-	includeGenerated: true,
-	includeInstalledDependencies: false,
-	includeVendoredDependencies: false,
-	notes:
-		"Scans deployable build output and source maps without treating node_modules as part of the artifact by default.",
-};
-
-export const FULL_DEEP_SCOPE: ScanScopePolicy = {
-	intent: "full_deep",
-	includeGlobs: ["**/*"],
-	excludeGlobs: ["artifacts/**"],
-	includeGenerated: true,
-	includeInstalledDependencies: true,
-	includeVendoredDependencies: true,
-	notes:
-		"Broad audit profile for generated output, vendored code, and installed dependency trees.",
-};
-
-function staticSteps(profile: Pick<ScanProfile, "tools">): ScanProfileStep[] {
-	return profile.tools.map((tool) => ({ kind: "static_tool", ...tool }));
-}
 
 const AUTO_STANDARD_DAST_STEP: DastProfileStep = {
 	kind: "dast",
@@ -176,7 +135,7 @@ const REQUIRED_ZIZMOR_TOOL = {
 	failurePolicy: "fail_profile" as const,
 };
 
-const SLSA_SUPPLY_CHAIN_PROFILE: ScanProfile = {
+export const SLSA_SUPPLY_CHAIN_PROFILE: ScanProfile = {
 	id: "dependency-supply-chain-slsa",
 	name: "依存関係・SLSA provenance保証",
 	description:
@@ -592,45 +551,4 @@ export function buildScanProfiles(params?: {
 
 export const SCAN_PROFILES: ScanProfile[] = buildScanProfiles();
 
-/** Canonical profiles are intentionally separate from the frozen legacy list. */
-export function getCanonicalProfileById(id: string): ScanProfile | undefined {
-	const profile = buildCanonicalScanProfiles({
-		sourceScope: SOURCE_BASELINE_SCOPE,
-		dependencyScope: DEPENDENCY_MANIFEST_SCOPE,
-	}).find((candidate) => candidate.id === id && candidate.enabled);
-	if (profile) assertRuntimeAssessmentBudget(profile);
-	return profile;
-}
-
-export function listCanonicalProfiles(): ScanProfile[] {
-	return buildCanonicalScanProfiles({
-		sourceScope: SOURCE_BASELINE_SCOPE,
-		dependencyScope: DEPENDENCY_MANIFEST_SCOPE,
-	}).map((profile) => {
-		assertRuntimeAssessmentBudget(profile);
-		return profile;
-	});
-}
-
-export function getProfileById(id: string): ScanProfile | undefined {
-	if (id === SLSA_SUPPLY_CHAIN_PROFILE.id) return SLSA_SUPPLY_CHAIN_PROFILE;
-	const profile = SCAN_PROFILES.find((p) => p.id === id && p.enabled);
-	const rolledOut = profile
-		? applyDastStandardRollout({
-				...profile,
-				steps: profile.steps ?? staticSteps(profile),
-			})
-		: undefined;
-	if (rolledOut) assertRuntimeAssessmentBudget(rolledOut);
-	return rolledOut;
-}
-export function listProfiles(): ScanProfile[] {
-	return SCAN_PROFILES.filter((p) => p.enabled).map((profile) => {
-		const rolledOut = applyDastStandardRollout({
-			...profile,
-			steps: profile.steps ?? staticSteps(profile),
-		});
-		assertRuntimeAssessmentBudget(rolledOut);
-		return rolledOut;
-	});
-}
+export * from "./scan-profile-queries";
