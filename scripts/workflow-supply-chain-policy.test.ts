@@ -112,6 +112,14 @@ describe("workflow supply-chain policy", () => {
 		);
 		expect(toolbox).not.toContain("semgrep==");
 		expect(semgrepPlugin).toContain("semgrep==${SEMGREP_VERSION}");
+		for (const requirement of [
+			'"setuptools==80.9.0"',
+			'"mcp==1.28.1"',
+			'"msgpack==1.2.1"',
+		])
+			expect(semgrepPlugin).toContain(requirement);
+		expect(semgrepPlugin).toContain("patch-wheel-mcp.py");
+		expect(semgrepPlugin).toContain("/opt/semgrep/bin/pip check");
 		expect(toolbox).toContain("github.com/sigstore/cosign/v2@v2.6.5");
 		expect(toolbox).toContain(
 			"git apply --check /tmp/slsa-verifier-sigstore-go-v1.patch",

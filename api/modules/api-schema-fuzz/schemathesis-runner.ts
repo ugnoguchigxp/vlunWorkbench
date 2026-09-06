@@ -246,6 +246,7 @@ export async function runSchemathesisReadonly(params: {
 		fs.mkdir(outputDir, { mode: 0o700 }),
 	]);
 	const outputPath = path.join(outputDir, "schemathesis.ndjson");
+	const sanitizedOutputPath = path.join(dir, "sanitized-schemathesis.ndjson");
 	try {
 		const command = isGraphqlOperationPolicy(operationPolicy)
 			? buildSchemathesisGraphqlReadonlyCommand(
@@ -332,10 +333,16 @@ export async function runSchemathesisReadonly(params: {
 				error: "invalid_structured_output",
 			};
 		}
-		await fs.writeFile(outputPath, sanitizedOutput, "utf8");
+		// Docker writes the mounted result as the fixed non-root container UID.
+		// Persist the redacted copy in the host-owned 0700 workspace instead of
+		// relying on platform-specific bind-mount ownership to rewrite it in place.
+		await fs.writeFile(sanitizedOutputPath, sanitizedOutput, {
+			encoding: "utf8",
+			mode: 0o600,
+		});
 		const rawArtifact = await params.storage.saveRawArtifact(
 			params.scanRunId,
-			outputPath,
+			sanitizedOutputPath,
 			"schemathesis.ndjson",
 		);
 		let raw: unknown = [];
