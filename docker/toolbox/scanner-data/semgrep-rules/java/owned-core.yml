@@ -10,6 +10,7 @@ rules:
           - pattern: $REQ.getParameter(...)
           - pattern: $REQ.getParameterValues(...)
           - pattern: $REQ.getParameterMap()
+          - pattern: $REQ.getParameterNames()
           - pattern: $REQ.getQueryString()
           - pattern: $REQ.getHeader(...)
           - pattern: $REQ.getHeaders(...)
@@ -20,6 +21,16 @@ rules:
           - pattern: $REQ.getPart(...)
           - pattern: $REQ.getParts()
           - pattern: $REQ.getSession().getAttribute(...)
+    pattern-propagators: &collection-propagators
+      - pattern: $COLLECTION.add($VALUE)
+        from: $VALUE
+        to: $COLLECTION
+      - pattern: $COLLECTION.add($INDEX, $VALUE)
+        from: $VALUE
+        to: $COLLECTION
+      - pattern: $MAP.put($KEY, $VALUE)
+        from: $VALUE
+        to: $MAP
     pattern-sinks:
       - pattern-either:
           - pattern: Runtime.getRuntime().exec(...)
@@ -30,7 +41,7 @@ rules:
     message: Servlet-controlled data reaches a dynamic SQL API.
     severity: ERROR
     languages: [java]
-    metadata: { cwe: CWE-89, owasp: ["A03:2021"], security-family: sql-nosql-ldap-xpath-injection, confidence: high, source-kind: owned-core, source-ref: "repo:java/owned-core.yml", license: MIT, rule-version: "3", supported-frameworks: [jdbc, spring-jdbc], remediation: "Use a fixed prepared statement and bind every value." }
+    metadata: { cwe: CWE-89, owasp: ["A03:2021"], security-family: sql-nosql-ldap-xpath-injection, confidence: high, source-kind: owned-core, source-ref: "repo:java/owned-core.yml", license: MIT, rule-version: "4", supported-frameworks: [jdbc, spring-jdbc], remediation: "Use a fixed prepared statement and bind every value." }
     mode: taint
     pattern-sources:
       - pattern-either:
@@ -49,18 +60,30 @@ rules:
           - pattern: $REQ.getPart(...)
           - pattern: $REQ.getParts()
           - pattern: $REQ.getSession().getAttribute(...)
+    pattern-propagators: *collection-propagators
     pattern-sinks:
-      - pattern-either:
-          - pattern: $CONNECTION.prepareStatement(...)
-          - pattern: $CONNECTION.prepareCall(...)
-          - pattern: $STMT.execute(...)
-          - pattern: $STMT.executeQuery(...)
-          - pattern: $STMT.executeUpdate(...)
-          - pattern: $ENTITY.createNativeQuery(...)
-          - pattern: $SESSION.createQuery(...)
-          - pattern: $JDBC.query(...)
-          - pattern: $JDBC.queryForLong(...)
-          - pattern: $JDBC.batchUpdate(...)
+      - patterns:
+          - pattern-either:
+              - pattern: $CONNECTION.prepareStatement($SQL, ...)
+              - pattern: $CONNECTION.prepareCall($SQL, ...)
+              - pattern: $STMT.execute($SQL, ...)
+              - pattern: $STMT.executeQuery($SQL, ...)
+              - pattern: $STMT.executeUpdate($SQL, ...)
+              - pattern: $STMT.addBatch($SQL)
+              - pattern: $ENTITY.createNativeQuery($SQL, ...)
+              - pattern: $SESSION.createQuery($SQL, ...)
+              - pattern: $JDBC.query($SQL, ...)
+              - pattern: $JDBC.queryForLong($SQL, ...)
+              - pattern: $JDBC.queryForInt($SQL, ...)
+              - pattern: $JDBC.queryForRowSet($SQL, ...)
+              - pattern: $JDBC.queryForMap($SQL, ...)
+              - pattern: $JDBC.queryForList($SQL, ...)
+              - pattern: $JDBC.queryForObject($SQL, ...)
+              - pattern: (org.springframework.jdbc.core.JdbcTemplate $JDBC).update($SQL, ...)
+              - pattern: (org.springframework.jdbc.core.JdbcOperations $JDBC).update($SQL, ...)
+              - pattern: (org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate $JDBC).update($SQL, ...)
+              - pattern: $JDBC.batchUpdate($SQL, ...)
+          - focus-metavariable: $SQL
   - id: vuln-workbench.java.xss-response-writer
     message: Servlet-controlled data is written directly to an HTTP response.
     severity: WARNING
@@ -72,6 +95,7 @@ rules:
           - pattern: $REQ.getParameter(...)
           - pattern: $REQ.getParameterValues(...)
           - pattern: $REQ.getParameterMap()
+          - pattern: $REQ.getParameterNames()
           - pattern: $REQ.getQueryString()
           - pattern: $REQ.getHeader(...)
           - pattern: $REQ.getHeaders(...)
@@ -82,6 +106,7 @@ rules:
           - pattern: $REQ.getPart(...)
           - pattern: $REQ.getParts()
           - pattern: $REQ.getSession().getAttribute(...)
+    pattern-propagators: *collection-propagators
     pattern-sinks:
       - pattern-either:
           - pattern: $RESP.getWriter().write(...)
@@ -94,7 +119,6 @@ rules:
       - pattern-either:
           - pattern: $ENCODER.encodeForHTML(...)
           - pattern: $ENCODER.encodeForHTMLAttribute(...)
-          - pattern: $ENCODER.encodeForJavaScript(...)
           - pattern: $ESCAPER.escapeHtml(...)
           - pattern: $ESCAPER.escapeHtml4(...)
           - pattern: $CONTEXT.search(...)
@@ -122,6 +146,7 @@ rules:
           - pattern: $REQ.getParameter(...)
           - pattern: $REQ.getParameterValues(...)
           - pattern: $REQ.getParameterMap()
+          - pattern: $REQ.getParameterNames()
           - pattern: $REQ.getQueryString()
           - pattern: $REQ.getHeader(...)
           - pattern: $REQ.getHeaders(...)
@@ -132,6 +157,7 @@ rules:
           - pattern: $REQ.getPart(...)
           - pattern: $REQ.getParts()
           - pattern: $REQ.getSession().getAttribute(...)
+    pattern-propagators: *collection-propagators
     pattern-sinks:
       - pattern-either:
           - pattern: new File(...)
@@ -144,10 +170,6 @@ rules:
           - pattern: new java.io.RandomAccessFile(...)
           - pattern: Paths.get(...)
           - pattern: java.nio.file.Paths.get(...)
-    pattern-sanitizers:
-      - pattern-either:
-          - pattern: $FILE.getCanonicalPath()
-          - pattern: $FILE.toRealPath(...)
   - id: vuln-workbench.java.unsafe-deserialization
     message: Java native object deserialization is used.
     severity: ERROR
@@ -169,6 +191,21 @@ rules:
       - metavariable-regex:
           metavariable: $ALGORITHM
           regex: (?i)"(?:MD5|SHA-?1)"
+  - id: vuln-workbench.java.configured-weak-hash
+    message: A digest algorithm is selected from a properties resource; the workbench resolves the resource before reporting a weak algorithm.
+    severity: WARNING
+    languages: [java]
+    metadata: { cwe: CWE-328, owasp: ["A02:2021"], security-family: weak-cryptography-hash-randomness, confidence: medium, source-kind: owned-core, source-ref: "repo:java/owned-core.yml", license: MIT, rule-version: "1", supported-frameworks: [generic], remediation: "Select SHA-256 or a stronger digest in the deployed properties resource." }
+    patterns:
+      - pattern-inside: |
+          $TYPE $METHOD(...) {
+            ...
+            $PROPS.load(...);
+            ...
+            String $ALGORITHM = $PROPS.getProperty("...", "...");
+            ...
+          }
+      - pattern: java.security.MessageDigest.getInstance($ALGORITHM, ...)
   - id: vuln-workbench.java.weak-random
     message: java.util.Random is not suitable for secrets.
     severity: WARNING
@@ -202,6 +239,7 @@ rules:
           - pattern: $REQ.getParameter(...)
           - pattern: $REQ.getParameterValues(...)
           - pattern: $REQ.getParameterMap()
+          - pattern: $REQ.getParameterNames()
           - pattern: $REQ.getQueryString()
           - pattern: $REQ.getHeader(...)
           - pattern: $REQ.getHeaders(...)
@@ -212,6 +250,7 @@ rules:
           - pattern: $REQ.getPart(...)
           - pattern: $REQ.getParts()
           - pattern: $REQ.getSession().getAttribute(...)
+    pattern-propagators: *collection-propagators
     pattern-sinks:
       - pattern: $CONTEXT.search($BASE, $FILTER, ...)
     pattern-sanitizers:
@@ -229,6 +268,7 @@ rules:
           - pattern: $REQ.getParameter(...)
           - pattern: $REQ.getParameterValues(...)
           - pattern: $REQ.getParameterMap()
+          - pattern: $REQ.getParameterNames()
           - pattern: $REQ.getQueryString()
           - pattern: $REQ.getHeader(...)
           - pattern: $REQ.getHeaders(...)
@@ -239,6 +279,7 @@ rules:
           - pattern: $REQ.getPart(...)
           - pattern: $REQ.getParts()
           - pattern: $REQ.getSession().getAttribute(...)
+    pattern-propagators: *collection-propagators
     pattern-sinks:
       - pattern-either:
           - pattern: $XPATH.evaluate($EXPRESSION, ...)
@@ -274,6 +315,7 @@ rules:
           - pattern: $REQ.getPart(...)
           - pattern: $REQ.getParts()
           - pattern: $REQ.getSession().getAttribute(...)
+    pattern-propagators: *collection-propagators
     pattern-sinks:
       - pattern-either:
           - pattern: $SESSION.setAttribute(...)

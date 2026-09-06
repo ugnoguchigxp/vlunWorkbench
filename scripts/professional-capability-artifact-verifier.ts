@@ -30,6 +30,7 @@ import {
 	validateJuiceShopCatalogAgainstUpstream,
 } from "./benchmark/juice-shop-playbooks";
 import { assessJuiceShopMeasurement } from "./benchmark/measurement-status";
+import { OWASP_IMPLEMENTATION_PATHS } from "./benchmark/owasp-benchmark-input";
 import { sanitizedSemgrepEvidenceArtifactSchema } from "./benchmark/owasp-benchmark-runtime";
 
 export type Metric = {
@@ -262,17 +263,7 @@ export async function verifyOwaspArtifactIntegrity(params: {
 		sha256(await readFile(expectedFindingsPath)),
 		readFile(rawScannerArtifactPath),
 		sha256File("spec/security-capability/benchmark-policy.v1.json"),
-		sha256Tree([
-			"docker/toolbox/scanner-data/semgrep-rules/java",
-			"scripts/benchmark/owasp-benchmark.ts",
-			"scripts/benchmark/owasp-benchmark-input.ts",
-			"scripts/benchmark/owasp-benchmark-runtime.ts",
-			"scripts/benchmark/owasp-release-policy.ts",
-			"api/modules/benchmarks/metric-scorer.ts",
-			"api/modules/benchmarks/owasp-benchmark-adapter.ts",
-			"api/modules/scans/tools/java-taint-precision-filter.ts",
-			"scripts/benchmark/benchmark-input-provenance.ts",
-		]),
+		sha256Tree(OWASP_IMPLEMENTATION_PATHS),
 		benchmarkGitCommit(),
 	]);
 	const rawScannerArtifactHash = sha256(rawScannerArtifactBytes);

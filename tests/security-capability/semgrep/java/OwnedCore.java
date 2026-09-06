@@ -46,6 +46,8 @@ class OwnedCore {
     // ruleid: vuln-workbench.java.sql-injection
     statement.executeQuery(tainted);
     // ruleid: vuln-workbench.java.sql-injection
+    statement.addBatch("DELETE FROM users WHERE name='" + tainted + "'");
+    // ruleid: vuln-workbench.java.sql-injection
     jdbc.query("SELECT * FROM users WHERE name='" + wrappedTainted + "'", null);
     // ruleid: vuln-workbench.java.sql-injection
     jdbc.queryForLong("SELECT count(*) FROM users WHERE name='" + parameterName + "'");
@@ -105,6 +107,72 @@ class OwnedCore {
     session.putValue(parameterName, "value");
   }
 
+  void collectionFlows(HttpServletRequest request, HttpServletResponse response,
+      JdbcOperations jdbc) throws Exception {
+    String supplied = request.getParameter("name");
+    java.util.List<String> arguments = new java.util.ArrayList<>();
+    arguments.add("sh");
+    arguments.add("-c");
+    arguments.add(supplied);
+    // ruleid: vuln-workbench.java.command-injection
+    new ProcessBuilder(arguments);
+    ProcessBuilder builder = new ProcessBuilder();
+    // ruleid: vuln-workbench.java.command-injection
+    builder.command(arguments);
+    java.util.Map<String, String> values = new java.util.HashMap<>();
+    values.put("selected", supplied);
+    // ruleid: vuln-workbench.java.xss-response-writer
+    response.getWriter().print(values.get("selected"));
+    // ruleid: vuln-workbench.java.sql-injection
+    jdbc.queryForRowSet("SELECT * FROM users WHERE name='" + supplied + "'");
+    // ruleid: vuln-workbench.java.sql-injection
+    jdbc.queryForMap("SELECT * FROM users WHERE name='" + supplied + "'");
+    // ruleid: vuln-workbench.java.sql-injection
+    jdbc.queryForObject("SELECT name FROM users WHERE name='" + supplied + "'", String.class);
+    // ok: vuln-workbench.java.sql-injection
+    jdbc.queryForRowSet("SELECT * FROM users WHERE name=?", supplied);
+    // ok: vuln-workbench.java.sql-injection
+    jdbc.queryForObject("SELECT name FROM users WHERE name=?", String.class, supplied);
+    // ok: vuln-workbench.java.sql-injection
+    jdbc.update("UPDATE users SET name=?", supplied);
+    String name = request.getParameterNames().nextElement();
+    // ruleid: vuln-workbench.java.xss-response-writer
+    response.getWriter().print(name);
+    // ruleid: vuln-workbench.java.command-injection
+    Runtime.getRuntime().exec(name);
+    // ruleid: vuln-workbench.java.path-traversal-file
+    new java.io.FileInputStream(java.nio.file.Paths.get(supplied).toRealPath());
+    // ruleid: vuln-workbench.java.path-traversal-file
+    new java.io.FileInputStream(new File(supplied).getCanonicalPath());
+    // ok: vuln-workbench.java.command-injection
+    new ProcessBuilder(java.util.List.of("/usr/bin/id", "-u"));
+    // ok: vuln-workbench.java.xss-response-writer
+    response.getWriter().print(org.owasp.encoder.Encode.forHtml("constant"));
+  }
+
+  void configuredDigestOne() throws Exception {
+    java.util.Properties settings = new java.util.Properties();
+    settings.load(getClass().getClassLoader().getResourceAsStream("digests.properties"));
+    String algorithm = settings.getProperty("legacy", "SHA-256");
+    // ruleid: vuln-workbench.java.configured-weak-hash
+    java.security.MessageDigest.getInstance(algorithm);
+  }
+
+  void configuredDigestTwo() throws Exception {
+    java.util.Properties settings = new java.util.Properties();
+    settings.load(getClass().getClassLoader().getResourceAsStream("digests.properties"));
+    String digest = settings.getProperty("legacySecond", "SHA-512");
+    // ruleid: vuln-workbench.java.configured-weak-hash
+    java.security.MessageDigest.getInstance(digest, "SUN");
+  }
+
+  void explicitStrongDigests() throws Exception {
+    // ok: vuln-workbench.java.configured-weak-hash
+    java.security.MessageDigest.getInstance("SHA-256");
+    // ok: vuln-workbench.java.configured-weak-hash
+    java.security.MessageDigest.getInstance("SHA-512", "SUN");
+  }
+
   void fixed(
       PreparedStatement statement,
       JdbcOperations jdbc,
@@ -118,6 +186,8 @@ class OwnedCore {
     Runtime.getRuntime().exec("date");
     // ok: vuln-workbench.java.sql-injection
     statement.execute();
+    // ok: vuln-workbench.java.sql-injection
+    statement.addBatch();
     // ok: vuln-workbench.java.sql-injection
     statement.setString(1, "value");
     // ok: vuln-workbench.java.sql-injection

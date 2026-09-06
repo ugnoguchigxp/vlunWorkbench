@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import crypto from "node:crypto";
 import { lstat, readdir, readFile } from "node:fs/promises";
 import path from "node:path";
@@ -27,12 +28,10 @@ export async function sha256Tree(inputPaths: string[]): Promise<string> {
 }
 
 export async function gitCommit(): Promise<string> {
-	const child = Bun.spawn(["git", "rev-parse", "HEAD"], {
-		stdout: "pipe",
-		stderr: "pipe",
-	});
-	if ((await child.exited) !== 0) throw new Error("git_commit_unavailable");
-	const value = (await new Response(child.stdout).text()).trim();
+	const value = execFileSync("git", ["rev-parse", "HEAD"], {
+		encoding: "utf8",
+		timeout: 10_000,
+	}).trim();
 	if (!/^[a-f0-9]{40}$/.test(value)) throw new Error("git_commit_invalid");
 	return value;
 }

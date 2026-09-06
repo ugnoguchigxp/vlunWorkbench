@@ -120,7 +120,8 @@ jobs:
     env:
       VULN_WORKBENCH_OWASP_SEMGREP_IMAGE: docker.io/semgrep/semgrep@sha256:bdf7013b2c3634a487671158da77c554f531742326b543a9464d2adf6c433ac8
       VULN_WORKBENCH_TOOLBOX_IMAGE_DIGEST: sha256:bdf7013b2c3634a487671158da77c554f531742326b543a9464d2adf6c433ac8
-      VULN_WORKBENCH_PHASE54_REGRESSION_VERIFIED_COMMIT: ${{ github.sha }}
+      VULN_WORKBENCH_OSV_FIXTURE_IMAGE: ghcr.io/google/osv-scanner@sha256:5116601dedc01c1c580eb92371883ec052fc4c13c3fbc109d621a63ac416d475
+      VULN_WORKBENCH_OSV_FIXTURE_DB: ${{ github.workspace }}/.cache/scanner-data/current/osv
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -135,21 +136,22 @@ jobs:
         run: docker pull "$VULN_WORKBENCH_OWASP_SEMGREP_IMAGE"
       - name: Preload pinned Juice Shop image
         run: docker pull docker.io/bkimminich/juice-shop@sha256:cd58d79c5cb4d82f22fbaf616f9ff43bbd04ba630cd6b448a9ed99cf652fcebf
-      - name: Create isolated benchmark database
-        env:
-          DATABASE_URL: file:${{ runner.temp }}/phase-54-closeout.sqlite
-        run: bun run db:migrate
-      - name: Run authoritative Phase 54 closeout and strict Phase 55 entry
-        env:
-          DATABASE_URL: file:${{ runner.temp }}/phase-54-closeout.sqlite
-          VULN_WORKBENCH_BENCHMARK_DATABASE_URL: file:${{ runner.temp }}/phase-54-closeout.sqlite
-          VULN_WORKBENCH_BENCHMARK_DATABASE_BACKUP_PATH: ${{ runner.temp }}/phase-54-closeout-backup.sqlite
-        run: bun run verify:phase-55-entry
+      - name: Preload pinned OSV scanner
+        run: docker pull "$VULN_WORKBENCH_OSV_FIXTURE_IMAGE"
+      - name: Restore the exact offline database snapshot
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: .cache/scanner-data/current/osv
+          key: osv-snapshot-${{ hashFiles('docker/toolbox/scanner-data/scanner-data-manifest.json') }}
+      - name: Verify or prepare locked OSV data
+        run: bun run osv-fixtures:prepare
+      - name: Run all capability benchmarks and verify persisted evidence
+        run: bun run verify:capability:full
       - name: Upload closeout evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: phase-54-same-commit-closeout
+          name: capability-benchmarks-${{ github.sha }}
           path: |
             .artifacts/benchmark/owasp-findings.json
             .artifacts/benchmark/owasp-metrics.json
@@ -162,5 +164,11 @@ jobs:
             .artifacts/phase-54-closeout/
             .artifacts/phase-55-entry/
             .artifacts/professional-capability-release-report.json
-            ${{ runner.temp }}/phase-54-closeout-backup.sqlite
+            .artifacts/benchmark/all.json
+            .artifacts/benchmark/osv-offline-fixtures.json
+            .artifacts/benchmark/semgrep-catalog.json
+            .artifacts/benchmark/business-logic-metrics.json
+            .artifacts/benchmark/endpoint-discovery-metrics.json
+            .artifacts/benchmark/dast-standard-metrics.json
+            .artifacts/capability/
           if-no-files-found: error

@@ -1,4 +1,4 @@
-import { mkdir, readFile, readdir } from "node:fs/promises";
+import { mkdir, readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 import { buildPinnedSemgrepRepositoryCommand } from "./benchmark/owasp-benchmark-runtime";
@@ -39,6 +39,10 @@ const yamlText = (
 const fixtureFiles = (
 	await walkFixtures(path.resolve("tests/security-capability/semgrep"))
 ).sort();
+for (const match of yamlText.matchAll(/^\s+- id: ([^\s]+)$/gm)) {
+	if (!ids.includes(match[1]))
+		errors.push(`YAML rule is missing from catalog: ${match[1]}`);
+}
 const fixtureText = (
 	await Promise.all(fixtureFiles.map((filePath) => readFile(filePath, "utf8")))
 ).join("\n");

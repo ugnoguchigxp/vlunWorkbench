@@ -1,7 +1,7 @@
 {
   "version": 2,
-  "generatedAt": "2026-08-20T15:54:47.022Z",
-  "manifestHash": "sha256:083e5b1fc55bd2eac620af5785a138a2746690fd07093ce537767b2a729400c2",
+  "generatedAt": "2026-09-06T01:13:44.089Z",
+  "manifestHash": "sha256:b42a244e53035ad0432d876abcda1873a7b5031f83f696debcee3e36b3c6a3b4",
   "tools": {
     "semgrep": {
       "version": "1.171.0",
@@ -15,9 +15,9 @@
           "sourceRef": "repo:docker/toolbox/scanner-data/semgrep-rules",
           "sourceCommit": null,
           "license": "MIT",
-          "generatedAt": "2026-08-20T15:54:47.022Z",
+          "generatedAt": "2026-09-06T01:13:44.089Z",
           "maxAgeHours": 8760,
-          "digest": "sha256:c623415a5fdd50b9fb1a62a0c0ed9b44a316cd7fc20d8ba39d89121c9179e22d",
+          "digest": "sha256:2e380ba38c895872bcf04ca327cb560e3920ebfb61fd18e6a884d895fbd3080e",
           "coverage": [
             "javascript:8-rules",
             "typescript:8-rules",
@@ -33,7 +33,7 @@
           "sourceRef": "repo:spec/security-capability/semgrep-rule-sources.lock.json",
           "sourceCommit": null,
           "license": "MIT",
-          "generatedAt": "2026-08-20T15:54:47.022Z",
+          "generatedAt": "2026-09-06T01:13:44.089Z",
           "maxAgeHours": 8760,
           "digest": "sha256:e8540a4fdc8ccc2720b29245e775acf295b80b3eabc264322a21aaeb4ba55cfa",
           "coverage": [
@@ -101,13 +101,13 @@
           "sourceRef": "https://osv-vulnerabilities.storage.googleapis.com/npm/all.zip",
           "sourceCommit": null,
           "license": "CC-BY-4.0",
-          "generatedAt": "2026-08-20T15:54:47.022Z",
+          "generatedAt": "2026-09-06T01:13:44.089Z",
           "maxAgeHours": 168,
-          "digest": "sha256:d956137befb8162541330b218e20cc0d89798cc86e35f0841dbc86375a20d258",
+          "digest": "sha256:2b91963d5260533f103ff8d688cd8da4774d2007ecb2a4ab2d44ca2f5d2bed09",
           "coverage": [
             "npm"
           ],
-          "recordCount": 227124,
+          "recordCount": 228684,
           "path": null
         },
         {
@@ -116,13 +116,13 @@
           "sourceRef": "https://osv-vulnerabilities.storage.googleapis.com/PyPI/all.zip",
           "sourceCommit": null,
           "license": "CC-BY-4.0",
-          "generatedAt": "2026-08-20T15:54:47.022Z",
+          "generatedAt": "2026-09-06T01:13:44.089Z",
           "maxAgeHours": 168,
-          "digest": "sha256:0d95293afabae9e5d354c0ab51b433d7c1b2eebfa6e39dab593004a7f22112dc",
+          "digest": "sha256:d66fb51fe82990f778454176919419942dc7f53238e3efa716550d200ad3cdef",
           "coverage": [
             "PyPI"
           ],
-          "recordCount": 24979,
+          "recordCount": 25300,
           "path": null
         },
         {
@@ -131,13 +131,13 @@
           "sourceRef": "https://osv-vulnerabilities.storage.googleapis.com/Go/all.zip",
           "sourceCommit": null,
           "license": "CC-BY-4.0",
-          "generatedAt": "2026-08-20T15:54:47.022Z",
+          "generatedAt": "2026-09-06T01:13:44.089Z",
           "maxAgeHours": 168,
-          "digest": "sha256:22a8548482210256121a024b715a1710ad7195186c74334afc984683c9342c1a",
+          "digest": "sha256:956c4cd0b58cf577ec531d0143503daca79abbe55efa945aeeb5275b251a2c62",
           "coverage": [
             "Go"
           ],
-          "recordCount": 8863,
+          "recordCount": 9113,
           "path": null
         },
         {
@@ -146,13 +146,13 @@
           "sourceRef": "https://osv-vulnerabilities.storage.googleapis.com/Maven/all.zip",
           "sourceCommit": null,
           "license": "CC-BY-4.0",
-          "generatedAt": "2026-08-20T15:54:47.022Z",
+          "generatedAt": "2026-09-06T01:13:44.089Z",
           "maxAgeHours": 168,
-          "digest": "sha256:bec80df3151fe762e269fd94689fc7d44ba4b2591dfc94a3ebe658553f232f3f",
+          "digest": "sha256:bc2546e64b47af11125e1c35a07ef66afa28716de2cf48f28bf50aa66a0fcf7d",
           "coverage": [
             "Maven"
           ],
-          "recordCount": 6961,
+          "recordCount": 7065,
           "path": null
         },
         {
@@ -161,13 +161,13 @@
           "sourceRef": "https://osv-vulnerabilities.storage.googleapis.com/crates.io/all.zip",
           "sourceCommit": null,
           "license": "CC-BY-4.0",
-          "generatedAt": "2026-08-20T15:54:47.022Z",
+          "generatedAt": "2026-09-06T01:13:44.089Z",
           "maxAgeHours": 168,
-          "digest": "sha256:f65833914e8870775814126074edc70637bf399b92f85734fb2c371d78e96fe4",
+          "digest": "sha256:03f56153d83125941b4b6990be1fb767b968dc97e73459f933464c832362882c",
           "coverage": [
             "crates.io"
           ],
-          "recordCount": 2730,
+          "recordCount": 2811,
           "path": null
         },
         {
@@ -176,13 +176,13 @@
           "sourceRef": "https://osv-vulnerabilities.storage.googleapis.com/NuGet/all.zip",
           "sourceCommit": null,
           "license": "CC-BY-4.0",
-          "generatedAt": "2026-08-20T15:54:47.022Z",
+          "generatedAt": "2026-09-06T01:13:44.089Z",
           "maxAgeHours": 168,
-          "digest": "sha256:83383e0b78863a8a3a6eee06cfb343f8153c186c0343d39f1cac32b592631f3b",
+          "digest": "sha256:b8591b2ea7316202c105b378957bce9df888fdf63655155fb3118c5df4986078",
           "coverage": [
             "NuGet"
           ],
-          "recordCount": 1877,
+          "recordCount": 1878,
           "path": null
         },
         {
@@ -191,13 +191,13 @@
           "sourceRef": "https://osv-vulnerabilities.storage.googleapis.com/Packagist/all.zip",
           "sourceCommit": null,
           "license": "CC-BY-4.0",
-          "generatedAt": "2026-08-20T15:54:47.022Z",
+          "generatedAt": "2026-09-06T01:13:44.089Z",
           "maxAgeHours": 168,
-          "digest": "sha256:b36635c19cec20090bfe1b5ef6e46a4dae1394914a01b6540771808a123e9773",
+          "digest": "sha256:cb4a7db9bd2a49a9adf5cc9684ec499de1af4882e137a2d78bb0ea9f6322915a",
           "coverage": [
             "Packagist"
           ],
-          "recordCount": 6958,
+          "recordCount": 7092,
           "path": null
         },
         {
@@ -206,13 +206,13 @@
           "sourceRef": "https://osv-vulnerabilities.storage.googleapis.com/RubyGems/all.zip",
           "sourceCommit": null,
           "license": "CC-BY-4.0",
-          "generatedAt": "2026-08-20T15:54:47.022Z",
+          "generatedAt": "2026-09-06T01:13:44.089Z",
           "maxAgeHours": 168,
-          "digest": "sha256:fc8b0b07c5c6e74e14e3601ed2690da512845ba540b57d3880554307774d842b",
+          "digest": "sha256:f80b8f73f60ef49258b66dd60efa29548743aee55236c39565c415ce3feccd71",
           "coverage": [
             "RubyGems"
           ],
-          "recordCount": 4657,
+          "recordCount": 4776,
           "path": null
         }
       ]
@@ -229,7 +229,7 @@
           "sourceRef": "ghcr.io/aquasecurity/trivy-db@sha256:a63f34335e4869a3565d36c699152107a3676075fafa689ef052bb9579d64fd7",
           "sourceCommit": null,
           "license": "Apache-2.0",
-          "generatedAt": "2026-08-20T15:54:47.022Z",
+          "generatedAt": "2026-09-06T01:13:44.089Z",
           "maxAgeHours": 168,
           "digest": "sha256:7e58d80b54e0e0e20c1a2ffe48457398a9f6543a980a7e70a7212e11f858d54c",
           "coverage": [

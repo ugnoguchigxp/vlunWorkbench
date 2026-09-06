@@ -8,9 +8,12 @@ const manifestPath = path.resolve(
 	repositoryRoot,
 	"docker/toolbox/scanner-data/scanner-data-manifest.json",
 );
-const outputRoot = await mkdtemp(
-	path.join(os.tmpdir(), "vuln-workbench-scanner-lock-refresh-"),
-);
+const retainedOutput = process.argv[2];
+const outputRoot = retainedOutput
+	? path.resolve(retainedOutput)
+	: await mkdtemp(
+			path.join(os.tmpdir(), "vuln-workbench-scanner-lock-refresh-"),
+		);
 const temporaryManifestPath = `${manifestPath}.refresh-${process.pid}`;
 
 try {
@@ -43,9 +46,12 @@ try {
 			manifestPath: path.relative(repositoryRoot, manifestPath),
 			manifestHash: lock.manifestHash,
 			generatedAt: lock.generatedAt,
+			bundleRoot: retainedOutput
+				? path.relative(repositoryRoot, outputRoot)
+				: null,
 		}),
 	);
 } finally {
 	await rm(temporaryManifestPath, { force: true });
-	await rm(outputRoot, { recursive: true, force: true });
+	if (!retainedOutput) await rm(outputRoot, { recursive: true, force: true });
 }

@@ -1,5 +1,20 @@
-import { access, mkdir, readFile, readdir, rm } from "node:fs/promises";
+import {
+	access,
+	mkdir,
+	mkdtemp,
+	readdir,
+	readFile,
+	rm,
+} from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
+import { loadScannerDataManifest } from "../api/modules/scans/tools/scanner-provenance";
+import {
+	gitCommit,
+	sha256File,
+	sha256Tree,
+} from "./benchmark/benchmark-input-provenance";
+import { buildOsvFixtureCommand } from "./osv-fixture-runtime";
 
 type Expected = {
 	ecosystem: string;
@@ -10,6 +25,8 @@ type Expected = {
 };
 
 const fixturesRoot = path.resolve("tests/security-capability/osv");
+const image = process.env.VULN_WORKBENCH_OSV_FIXTURE_IMAGE;
+const manifest = await loadScannerDataManifest();
 const configuredDatabaseRoot =
 	process.env.VULN_WORKBENCH_OSV_FIXTURE_DB ??
 	process.env.OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY;
@@ -71,6 +88,15 @@ for (const ecosystem of ecosystems) {
 		errors.push(`missing offline database: ${databasePath}`),
 	);
 	if (errors.at(-1)?.includes(databasePath)) continue;
+	const expectedDigest = manifest.tools.osv?.dataBundles?.find((bundle) =>
+		bundle.coverage.includes(expected.ecosystem),
+	)?.digest;
+	if ((await sha256File(databasePath)) !== expectedDigest) {
+		errors.push(
+			`${ecosystem} offline database does not match the scanner manifest`,
+		);
+		continue;
+	}
 	const vulnerableIds = await scanFixture(
 		path.join(root, "vulnerable"),
 		databaseRoot,
@@ -92,8 +118,19 @@ for (const ecosystem of ecosystems) {
 if (ecosystems.length !== 9)
 	errors.push(`expected 9 ecosystem fixtures, found ${ecosystems.length}`);
 const result = {
+	schemaVersion: 2,
+	generatedAt: new Date().toISOString(),
+	gitCommit: await gitCommit(),
+	scannerManifestHash: manifest.manifestHash,
+	fixtureHash: await sha256Tree(["tests/security-capability/osv"]),
+	implementationHash: await sha256Tree([
+		"scripts/test-osv-offline-fixtures.ts",
+		"scripts/osv-fixture-runtime.ts",
+	]),
+	scannerImage: image ?? null,
+	networkIsolation: image ? "docker_network_none" : "not_enforced",
 	ok: errors.length === 0,
-	networkRequests: 0,
+	networkRequests: image ? 0 : null,
 	databaseSupplied: databaseRoot !== null,
 	matrix,
 	errors,
@@ -110,25 +147,18 @@ async function scanFixture(
 	fixturePath: string,
 	cacheDirectory: string,
 ): Promise<Set<string>> {
-	const outputPath = path.join(
-		process.env.TMPDIR ?? "/tmp",
-		`vuln-workbench-osv-${crypto.randomUUID()}.json`,
+	const outputRoot = await mkdtemp(
+		path.join(os.tmpdir(), "vuln-workbench-osv-"),
 	);
+	const outputPath = path.join(outputRoot, "result.json");
 	try {
 		const proc = Bun.spawn(
-			[
-				"osv-scanner",
-				"scan",
-				"source",
-				"--offline",
-				"--no-resolve",
-				"--format",
-				"json",
-				"--output-file",
-				outputPath,
-				"--recursive",
+			buildOsvFixtureCommand({
 				fixturePath,
-			],
+				databaseRoot: cacheDirectory,
+				outputPath,
+				image,
+			}),
 			{
 				stdout: "ignore",
 				stderr: "pipe",
@@ -147,7 +177,7 @@ async function scanFixture(
 		collectIds(parsed, ids);
 		return ids;
 	} finally {
-		await rm(outputPath, { force: true });
+		await rm(outputRoot, { recursive: true, force: true });
 	}
 }
 

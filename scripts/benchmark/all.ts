@@ -91,9 +91,10 @@ await Bun.write(
 		2,
 	)}\n`,
 );
-console.log(JSON.stringify({ ok: true, outputPath, results }));
-if (results.some((item) => ["failed", "failed_cleanup"].includes(item.status)))
-	process.exitCode = 1;
+console.log(
+	JSON.stringify({ ok: completed === results.length, outputPath, results }),
+);
+if (completed !== results.length) process.exitCode = 1;
 
 async function exists(filePath: string): Promise<boolean> {
 	return Boolean(await stat(filePath).catch(() => null));

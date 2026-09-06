@@ -19,7 +19,10 @@ import {
 	sha256File as provenanceSha256File,
 	sha256Tree,
 } from "./benchmark-input-provenance";
-import { owaspBenchmarkInputHash } from "./owasp-benchmark-input";
+import {
+	OWASP_IMPLEMENTATION_PATHS,
+	owaspBenchmarkInputHash,
+} from "./owasp-benchmark-input";
 import {
 	buildPinnedSemgrepDockerCommand,
 	containerCorpusPathToHost,
@@ -93,17 +96,7 @@ const [
 	sha256File(findingsPath),
 	currentGitCommit(),
 	provenanceSha256File("spec/security-capability/benchmark-policy.v1.json"),
-	sha256Tree([
-		"docker/toolbox/scanner-data/semgrep-rules/java",
-		"scripts/benchmark/owasp-benchmark.ts",
-		"scripts/benchmark/owasp-benchmark-input.ts",
-		"scripts/benchmark/owasp-benchmark-runtime.ts",
-		"scripts/benchmark/owasp-release-policy.ts",
-		"api/modules/benchmarks/metric-scorer.ts",
-		"api/modules/benchmarks/owasp-benchmark-adapter.ts",
-		"api/modules/scans/tools/java-taint-precision-filter.ts",
-		"scripts/benchmark/benchmark-input-provenance.ts",
-	]),
+	sha256Tree(OWASP_IMPLEMENTATION_PATHS),
 ]);
 const rawArtifactPath = path.resolve(
 	".artifacts/benchmark/owasp-semgrep-raw.json",

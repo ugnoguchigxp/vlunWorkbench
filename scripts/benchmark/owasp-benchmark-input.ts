@@ -1,6 +1,22 @@
 import { canonicalJson } from "../../api/modules/scans/diff-scan-plan";
 import { sha256 } from "./benchmark-input-provenance";
 
+// The producer and verifier must bind every detector, postprocessor and scorer
+// to the same implementation. In particular, properties resolution changes
+// whether a configured digest candidate becomes a finding.
+export const OWASP_IMPLEMENTATION_PATHS = [
+	"docker/toolbox/scanner-data/semgrep-rules/java",
+	"scripts/benchmark/owasp-benchmark.ts",
+	"scripts/benchmark/owasp-benchmark-input.ts",
+	"scripts/benchmark/owasp-benchmark-runtime.ts",
+	"scripts/benchmark/owasp-release-policy.ts",
+	"api/modules/benchmarks/metric-scorer.ts",
+	"api/modules/benchmarks/owasp-benchmark-adapter.ts",
+	"api/modules/scans/tools/java-taint-precision-filter.ts",
+	"api/modules/scans/tools/java-configured-hash-evaluator.ts",
+	"scripts/benchmark/benchmark-input-provenance.ts",
+];
+
 export type OwaspBenchmarkInputEvidence = {
 	corpusDigest?: string;
 	expectedResultsHash?: string;

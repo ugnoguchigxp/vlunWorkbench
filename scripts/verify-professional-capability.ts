@@ -5,7 +5,12 @@ import { z } from "zod";
 import { verifyPersistedBenchmarkRun } from "../api/db/benchmark-run-verifier";
 import { loadScannerDataManifest } from "../api/modules/scans/tools/scanner-provenance";
 import { measuredCapabilityClaimSchema } from "../shared/schemas/security-capability.schema";
+import { sha256Tree } from "./benchmark/benchmark-input-provenance";
 import { owaspBenchmarkInputHash } from "./benchmark/owasp-benchmark-input";
+import {
+	assertOwaspMetricsPassReleasePolicy,
+	owaspReleasePolicySchema,
+} from "./benchmark/owasp-release-policy";
 import {
 	assertMetricArtifactIntegrity,
 	isAuthoritativeJuiceShopReleaseRun,
@@ -125,25 +130,31 @@ const osvGate = assessOsvEvidence({
 	matrix: osvEvidence?.matrix,
 	minimumEcosystems: minimums.osvSupportedEcosystems,
 	networkRequests: osvEvidence?.networkRequests,
+	expectedEcosystems: osvBundles.flatMap((item) => item.coverage),
+	provenance: {
+		actual: osvEvidence,
+		gitCommit: releaseCommit,
+		scannerManifestHash: manifest.manifestHash,
+		fixtureHash: await sha256Tree(["tests/security-capability/osv"]),
+		implementationHash: await sha256Tree([
+			"scripts/test-osv-offline-fixtures.ts",
+			"scripts/osv-fixture-runtime.ts",
+		]),
+	},
 });
 const owaspOverall = overall(owasp);
 const juiceOverall = overall(juice);
 const businessOverall = overall(business);
-const applicableOwaspCategories = new Set(
-	(policy.applicability as Record<string, string[]>).semgrep,
-);
-const owaspCategoryGate =
-	owasp?.metrics
-		.filter(
-			(metric) =>
-				metric.category !== "overall" &&
-				applicableOwaspCategories.has(metric.category) &&
-				metric.truePositive + metric.falseNegative >=
-					minimums.owaspCategoryGroundTruthMinimum,
-		)
-		.every(
-			(metric) => (metric.recall ?? -1) >= minimums.owaspCategoryRecall,
-		) === true;
+let owaspCategoryGate = false;
+try {
+	assertOwaspMetricsPassReleasePolicy(
+		owasp?.metrics ?? [],
+		owaspReleasePolicySchema.parse(policy),
+	);
+	owaspCategoryGate = true;
+} catch {
+	owaspCategoryGate = false;
+}
 const externalGates = {
 	owasp:
 		Boolean(owaspOverall) &&
@@ -169,6 +180,8 @@ const externalGates = {
 		(juiceOverall?.precision ?? -1) >= minimums.juiceShopPrecision,
 	businessLogic:
 		Boolean(businessOverall) &&
+		business?.measurementStatus === "completed" &&
+		business.gitCommit === releaseCommit &&
 		(businessOverall?.recall ?? -1) >= minimums.businessLogicRecall &&
 		(businessOverall?.precision ?? -1) >= minimums.businessLogicPrecision,
 	endpointDiscovery:

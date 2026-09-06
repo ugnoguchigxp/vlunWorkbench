@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "rulesetId": "curated-sast-v1",
-  "rulesetVersion": "1.0.0",
+  "rulesetVersion": "1.1.0",
   "rules": [
     { "id": "vuln-workbench.javascript.command-injection", "language": "javascript", "cwe": "CWE-78", "family": "command-injection", "sourceKind": "owned-core", "license": "MIT" },
     { "id": "vuln-workbench.javascript.code-injection", "language": "javascript", "cwe": "CWE-95", "family": "dangerous-process-execution", "sourceKind": "owned-core", "license": "MIT" },
@@ -47,7 +47,8 @@
     { "id": "vuln-workbench.go.path-traversal-open", "language": "go", "cwe": "CWE-22", "family": "path-traversal-file-access", "sourceKind": "owned-core", "license": "MIT" },
     { "id": "vuln-workbench.go.unsafe-gob-decode", "language": "go", "cwe": "CWE-502", "family": "unsafe-deserialization", "sourceKind": "owned-core", "license": "MIT" },
     { "id": "vuln-workbench.go.weak-hash", "language": "go", "cwe": "CWE-328", "family": "weak-cryptography-hash-randomness", "sourceKind": "owned-core", "license": "MIT" },
-    { "id": "vuln-workbench.go.weak-random", "language": "go", "cwe": "CWE-338", "family": "weak-cryptography-hash-randomness", "sourceKind": "owned-core", "license": "MIT" }
+    { "id": "vuln-workbench.go.weak-random", "language": "go", "cwe": "CWE-338", "family": "weak-cryptography-hash-randomness", "sourceKind": "owned-core", "license": "MIT" },
+    {"id": "vuln-workbench.java.configured-weak-hash", "language": "java", "cwe": "CWE-328", "family": "weak-cryptography-hash-randomness", "sourceKind": "owned-core", "license": "MIT"}
   ],
   "notApplicable": [
     { "language": "javascript", "family": "insecure-temporary-file-permission", "reason": "No stable generic owned rule in v1." },

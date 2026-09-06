@@ -1,4 +1,4 @@
-import { lstat, readFile, readdir } from "node:fs/promises";
+import { lstat, readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 import type { Phase54CloseoutSnapshot } from "../shared/schemas/release-evidence.schema";
@@ -8,22 +8,11 @@ import {
 	sha256File,
 	sha256Tree,
 } from "./benchmark/benchmark-input-provenance";
+import { OWASP_IMPLEMENTATION_PATHS as owaspImplementationPaths } from "./benchmark/owasp-benchmark-input";
 import { assertEvidencePrivacy } from "./phase-54-baseline-lib";
 
 const MAX_CLOSEOUT_EVIDENCE_FILE_BYTES = 16 * 1024 * 1024;
 const MAX_CLOSEOUT_EVIDENCE_TOTAL_BYTES = 64 * 1024 * 1024;
-
-const owaspImplementationPaths = [
-	"docker/toolbox/scanner-data/semgrep-rules/java",
-	"scripts/benchmark/owasp-benchmark.ts",
-	"scripts/benchmark/owasp-benchmark-input.ts",
-	"scripts/benchmark/owasp-benchmark-runtime.ts",
-	"scripts/benchmark/owasp-release-policy.ts",
-	"api/modules/benchmarks/metric-scorer.ts",
-	"api/modules/benchmarks/owasp-benchmark-adapter.ts",
-	"api/modules/scans/tools/java-taint-precision-filter.ts",
-	"scripts/benchmark/benchmark-input-provenance.ts",
-];
 
 const juiceShopImplementationPaths = [
 	"api/modules/benchmarks/metric-scorer.ts",
