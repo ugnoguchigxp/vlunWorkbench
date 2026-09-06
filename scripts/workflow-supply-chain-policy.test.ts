@@ -190,10 +190,15 @@ describe("workflow supply-chain policy", () => {
 	});
 
 	test("binds the real scanner and API-confirmed closeout receipt to the caller commit", async () => {
-		const [workflow, scannerWorkflow] = await Promise.all([
+		const [workflow, scannerWorkflow, zapImagePolicy] = await Promise.all([
 			readRepositoryFile(".github/workflows/verify.yml"),
 			readRepositoryFile(".github/workflows/scanner-e2e-real.yml"),
+			readRepositoryFile("api/modules/runtime-scans/zap-image-policy.ts"),
 		]);
+		const zapImage = zapImagePolicy.match(
+			/"(zaproxy\/zap-stable@sha256:[a-f0-9]{64})"/,
+		)?.[1];
+		expect(zapImage).toBeDefined();
 		expect(workflow.match(/^  scanner-hardening-receipt:$/gm)).toHaveLength(1);
 		const scanner = jobBlock(workflow, "scanner-e2e-real");
 		const receipt = jobBlock(workflow, "scanner-hardening-receipt");
@@ -213,6 +218,7 @@ describe("workflow supply-chain policy", () => {
 			'[[ "$TARGET_REF" == "d87bfdd9f29aa64e484a0c4d1ad02956136dc6b0" ]]',
 		);
 		expect(scannerWorkflow).toContain("bun run scanner-e2e:failure:verify");
+		expect(scannerWorkflow).toContain(`docker pull ${zapImage}`);
 	});
 
 	test("builds the Semgrep toolbox prerequisite in clean E2E runners", async () => {
