@@ -327,6 +327,14 @@ export async function runScanPreflight(
 	const stepIsApplicable = (step: ScanProfileStep) =>
 		staticApplicabilityByStepId.get(scanStepId(step))?.applicability !==
 		"not_applicable";
+	const isolatedStepFallsBackToToolbox = (step: ScanProfileStep) =>
+		isolatedRuntime &&
+		((step.kind === "runtime_scanner" &&
+			step.adapter === "nuclei-safe" &&
+			!params.runtimeScannerImages?.["nuclei-safe"]) ||
+			(step.kind === "api_schema_scan" &&
+				repositorySchemas.get(scanStepId(step))?.schemaPresent === true &&
+				!params.runtimeScannerImages?.schemathesis));
 	const needsToolboxDocker =
 		params.execution.runner === "docker" &&
 		params.steps.some(
@@ -337,13 +345,14 @@ export async function runScanPreflight(
 					step.kind === "static_tool" ||
 					step.kind === "sbom_export" ||
 					step.kind === "container_image_scan" ||
-					step.kind === "attestation_verify"),
+					step.kind === "attestation_verify" ||
+					isolatedStepFallsBackToToolbox(step)),
 		);
 	const zapSteps = params.steps.filter(
 		(step) =>
-			!isolatedRuntime &&
 			step.kind === "runtime_scanner" &&
-			step.adapter === "zap-baseline",
+			step.adapter === "zap-baseline" &&
+			(!isolatedRuntime || !params.runtimeScannerImages?.["zap-baseline"]),
 	);
 	const runtimeDockerImages = (params.runtimeDockerImages ?? []).filter(
 		(image) =>

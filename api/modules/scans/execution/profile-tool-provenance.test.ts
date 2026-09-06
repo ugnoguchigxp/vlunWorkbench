@@ -31,6 +31,18 @@ describe("tool provenance observation", () => {
 		});
 	});
 
+	it("finds the scanner version after unrelated runtime warnings", () => {
+		expect(
+			bindObservedToolProvenance(
+				{ toolVersion: "3.11.1", reproducible: true },
+				"warning: supports go1.17 through go1.26\nNuclei Engine Version: v3.11.1",
+			),
+		).toMatchObject({
+			identityCompatibility: "compatible",
+			reproducible: true,
+		});
+	});
+
 	it("marks an adapter without an expected identity as unverified", () => {
 		expect(
 			bindObservedToolProvenance(

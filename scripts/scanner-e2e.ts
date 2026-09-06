@@ -490,16 +490,29 @@ async function main() {
 		const snapshot = await createTodolistSourceSnapshot(target, root);
 		const targetImage = `vwb-scanner-e2e-todolist:${target.commit.slice(0, 12)}`;
 		const imageBuild = await command(
-			["docker", "build", "-t", targetImage, snapshot.sourcePath],
+			[
+				"docker",
+				"build",
+				"--provenance=false",
+				"-t",
+				targetImage,
+				snapshot.sourcePath,
+			],
 			env,
 		);
 		if (imageBuild.exitCode !== 0)
 			throw new Error(
 				`scanner_e2e_target_image_build_failed:${imageBuild.stderr}`,
 			);
-		const imageTar = path.join(root, "todolist-image.tar");
+		const imageTar = ".vuln-workbench-inputs/todolist-image.tar";
+		const imageTarPath = path.join(snapshot.sourcePath, imageTar);
+		await fs.mkdir(path.dirname(imageTarPath), { recursive: true });
+		await fs.appendFile(
+			path.join(snapshot.sourcePath, ".git", "info", "exclude"),
+			"\n/.vuln-workbench-inputs/\n",
+		);
 		const imageSave = await command(
-			["docker", "save", "--output", imageTar, targetImage],
+			["docker", "save", "--output", imageTarPath, targetImage],
 			env,
 		);
 		if (imageSave.exitCode !== 0)
@@ -608,6 +621,7 @@ async function main() {
 					},
 					imageTar: selectedCase.id === "trivy-image" ? imageTar : undefined,
 					sourceSnapshotDigest,
+					consentProjectCodeExecution: true,
 					runtimeTargetProvider: runtime,
 				});
 				const [scan] = await connection.db
@@ -698,7 +712,11 @@ async function main() {
 							),
 					),
 				].sort();
-				if (imageDigests.length === 0 && canonical !== "passive-dast") {
+				if (
+					imageDigests.length === 0 &&
+					canonical !== "passive-dast" &&
+					contract.expectedVerdict !== "not_applicable"
+				) {
 					throw new Error(
 						`scanner_e2e_image_identity_missing:${selectedCase.id}`,
 					);
@@ -796,6 +814,7 @@ async function main() {
 					},
 					imageTar: selectedCase.id === "trivy-image" ? imageTar : undefined,
 					sourceSnapshotDigest,
+					consentProjectCodeExecution: true,
 					runtimeTargetProvider: runtime,
 				});
 				const [failureTools, failureArtifacts, failureReports] =
@@ -1025,6 +1044,7 @@ async function runFullProfileRepeatE2E(params: {
 				},
 			},
 			sourceSnapshotDigest: params.sourceSnapshotDigest,
+			consentProjectCodeExecution: true,
 			runtimeTargetProvider,
 		});
 		if (
@@ -1284,6 +1304,7 @@ async function runApiWithoutSchemaBlockedE2E(params: {
 			},
 		},
 		sourceSnapshotDigest: params.sourceSnapshotDigest,
+		consentProjectCodeExecution: true,
 		runtimeTargetProvider: {
 			plan: baseTargetProvider.plan,
 			prepare: async () => {

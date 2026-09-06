@@ -57,7 +57,9 @@ export const TODOLIST_ACCEPTANCE_PROFILES = [
 		id: "schemathesis-no-schema",
 		profile: "api-schema-readonly",
 		step: "api_schema_scan:schemathesis",
-		requiresTarget: false,
+		// Admission still requires an isolated provider. The missing-schema path
+		// must prove that the available provider is never started.
+		requiresTarget: true,
 		expectedArtifactKinds: [],
 		expectedNotApplicableReason: "schema_not_found",
 		expectedProfileOutcome: "completed",

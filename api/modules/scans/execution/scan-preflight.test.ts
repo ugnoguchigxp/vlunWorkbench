@@ -4,6 +4,7 @@ import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import type { ScanProfile } from "../../../../shared/schemas/scan-profile.schema";
 import { recordScannerE2EFailureObservation } from "../../../testing/scanner-e2e-failure-observation";
+import { ZAP_STABLE_IMAGE } from "../../runtime-scans/zap-image-policy";
 import { buildScanProfiles } from "../profiles";
 import type { ScannerDataManifest } from "../tools/scanner-provenance";
 import { buildScanExecutionPlan } from "./scan-execution-plan-builder";
@@ -755,6 +756,112 @@ describe("scan preflight", () => {
 				(item) => item.id === "api_schema_scan:schemathesis:binary-version",
 			),
 		).toBe(false);
+	});
+
+	it("binds the toolbox image when an injected target has no Nuclei image", async () => {
+		const selected = profile("runtime-web-safe");
+		const nucleiStep = selected.steps?.find(
+			(step) =>
+				step.kind === "runtime_scanner" && step.adapter === "nuclei-safe",
+		);
+		expect(nucleiStep).toBeDefined();
+		const probeDockerImage = vi.fn(dependencies().probeDockerImage);
+
+		const result = await runScanPreflight({
+			profile: selected,
+			steps: [nucleiStep!],
+			repoPath: "/redacted/project",
+			execution: {
+				runner: "docker",
+				docker: { image: "toolbox:local" },
+			},
+			mode: "enforced",
+			consentProjectCodeExecution: true,
+			isolatedRuntimeProviderAvailable: true,
+			dependencies: dependencies({ probeDockerImage }),
+		});
+
+		expect(probeDockerImage).toHaveBeenCalledWith("docker", "toolbox:local");
+		expect(result.checks).toContainEqual(
+			expect.objectContaining({
+				id: "runtime:docker-image:toolbox",
+				status: "ready",
+			}),
+		);
+	});
+
+	it("binds the toolbox image when an injected target has no Schemathesis image", async () => {
+		const selected = profile("api-schema-readonly");
+		const schemaStep = selected.steps?.find(
+			(step) => step.kind === "api_schema_scan",
+		);
+		expect(schemaStep).toBeDefined();
+		const probeDockerImage = vi.fn(dependencies().probeDockerImage);
+
+		const result = await runScanPreflight({
+			profile: selected,
+			steps: [schemaStep!],
+			repoPath: "/redacted/project",
+			execution: {
+				runner: "docker",
+				docker: { image: "toolbox:local" },
+			},
+			mode: "enforced",
+			consentProjectCodeExecution: true,
+			isolatedRuntimeProviderAvailable: true,
+			dependencies: dependencies({
+				discoverRepositorySchema: async () => true,
+				probeDockerImage,
+			}),
+		});
+
+		expect(result.status).toBe("ready");
+		expect(probeDockerImage).toHaveBeenCalledWith("docker", "toolbox:local");
+		expect(result.checks).toContainEqual(
+			expect.objectContaining({
+				id: "runtime:docker-image:toolbox",
+				status: "ready",
+			}),
+		);
+	});
+
+	it("binds the stable ZAP image when an injected target has no scanner image", async () => {
+		const selected = profile("runtime-web-safe");
+		const zapStep = selected.steps?.find(
+			(step) =>
+				step.kind === "runtime_scanner" && step.adapter === "zap-baseline",
+		);
+		expect(zapStep).toBeDefined();
+		const zapDigest = ZAP_STABLE_IMAGE.split("@", 2)[1]!;
+		const probeDockerImage = vi.fn(async () => ({
+			ready: true,
+			digest: zapDigest,
+			imageId: zapDigest,
+			platform: "linux/amd64",
+			reasonCode: null,
+		}));
+
+		const result = await runScanPreflight({
+			profile: selected,
+			steps: [zapStep!],
+			repoPath: "/redacted/project",
+			execution: {
+				runner: "docker",
+				docker: { image: "toolbox:local" },
+			},
+			mode: "enforced",
+			consentProjectCodeExecution: true,
+			isolatedRuntimeProviderAvailable: true,
+			dependencies: dependencies({ probeDockerImage }),
+		});
+
+		expect(probeDockerImage).toHaveBeenCalledWith("docker", ZAP_STABLE_IMAGE);
+		expect(result.checks).toContainEqual(
+			expect.objectContaining({
+				id: "runtime:docker-image:zap-baseline",
+				status: "ready",
+			}),
+		);
 	});
 
 	it("does not fall back to a host scanner when an isolated image is missing", async () => {

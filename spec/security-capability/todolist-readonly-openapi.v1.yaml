@@ -3,7 +3,7 @@ info:
   title: todolist acceptance read-only API
   version: 1.0.0
 servers:
-  - url: http://127.0.0.1
+  - url: /
 paths:
   /api/health:
     get:

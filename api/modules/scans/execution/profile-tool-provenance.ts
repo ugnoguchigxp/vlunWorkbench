@@ -59,11 +59,11 @@ export function bindObservedToolProvenance(
 ): Record<string, unknown> {
 	const expectedVersion = readString(provenance.toolVersion);
 	const expected = normalizedVersion(expectedVersion);
-	const observed = normalizedVersion(observedVersion);
+	const observed = normalizedVersions(observedVersion);
 	const compatibility =
-		expected === null || observed === null
+		expected === null || observed.length === 0
 			? "unverified"
-			: expected === observed
+			: observed.includes(expected)
 				? "compatible"
 				: "mismatch";
 	return {
@@ -81,13 +81,17 @@ function readString(value: unknown): string | null {
 }
 
 function normalizedVersion(value: string | null): string | null {
-	if (!value) return null;
+	return normalizedVersions(value)[0] ?? null;
+}
+
+function normalizedVersions(value: string | null): string[] {
+	if (!value) return [];
 	// biome-ignore lint/complexity/useRegexLiterals: a raw string avoids a control-character regex literal.
 	const ansiEscape = new RegExp(String.raw`\x1b\[[0-?]*[ -/]*[@-~]`, "g");
 	const plain = value.replace(ansiEscape, " ");
-	return (
-		plain.match(
-			/(?:^|[^0-9a-z])v?(\d+(?:\.\d+){1,3}(?:[-+][0-9a-z.-]+)?)(?![0-9a-z.])/i,
-		)?.[1] ?? null
-	);
+	return [
+		...plain.matchAll(
+			/(?:^|[^0-9a-z])v?(\d+(?:\.\d+){1,3}(?:[-+][0-9a-z.-]+)?)(?![0-9a-z.])/gi,
+		),
+	].flatMap((match) => (match[1] ? [match[1]] : []));
 }

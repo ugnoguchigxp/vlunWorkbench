@@ -10,9 +10,6 @@ import {
 import { RuntimeScannerRunner } from "../../runtime-scans/runtime-scanner-runner";
 import { ZapBaselineRunner } from "../../runtime-scans/zap-baseline-runner";
 import { ZAP_STABLE_IMAGE } from "../../runtime-scans/zap-image-policy";
-import { ScanArtifactSink } from "./lifecycle/artifact-sink";
-import type { ArtifactStorage } from "./lifecycle/artifact-storage";
-import { bindObservedToolProvenance } from "./profile-tool-provenance";
 import {
 	ArtifactRepository,
 	FindingRepository,
@@ -21,6 +18,9 @@ import {
 import { resolveScannerProvenance } from "../tools/scanner-provenance";
 import type { ToolExecutionConfig } from "../tools/tool-process-runner";
 import { normalizeToolExecutionConfig } from "../tools/tool-process-runner";
+import { ScanArtifactSink } from "./lifecycle/artifact-sink";
+import type { ArtifactStorage } from "./lifecycle/artifact-storage";
+import { bindObservedToolProvenance } from "./profile-tool-provenance";
 
 export async function runRuntimeScannerIntoExistingScan(params: {
 	db: AppDatabase;
@@ -49,7 +49,7 @@ export async function runRuntimeScannerIntoExistingScan(params: {
 	const scanRepo = new ScanRepository(params.db);
 	const artifactRepo = new ArtifactRepository(params.db);
 	const findingRepo = new FindingRepository(params.db);
-	const runtimeExecution: ToolExecutionConfig | undefined =
+	const baseRuntimeExecution: ToolExecutionConfig | undefined =
 		params.runtimeNamespaceOwnerId
 			? {
 					...(params.execution ?? { runner: "docker" }),
@@ -61,6 +61,19 @@ export async function runRuntimeScannerIntoExistingScan(params: {
 					},
 				}
 			: params.execution;
+	// ZAP always runs from its reviewed, digest-pinned image. The profile's
+	// toolbox image is only a default for scanners that are shipped in toolbox.
+	const runtimeExecution: ToolExecutionConfig | undefined =
+		params.adapter === "zap-baseline"
+			? {
+					...(baseRuntimeExecution ?? { runner: "docker" as const }),
+					runner: "docker",
+					docker: {
+						...(baseRuntimeExecution?.docker ?? {}),
+						image: params.runtimeImage ?? ZAP_STABLE_IMAGE,
+					},
+				}
+			: baseRuntimeExecution;
 	let provenance: Record<string, unknown> = await resolveScannerProvenance({
 		toolId: params.adapter,
 		execution: normalizeToolExecutionConfig(runtimeExecution),
