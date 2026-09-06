@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "rulesetId": "curated-sast-v1",
-  "rulesetVersion": "1.2.0",
+  "rulesetVersion": "1.2.1",
   "rules": [
     { "id": "vuln-workbench.java.xss-encoding-context", "language": "java", "cwe": "CWE-79", "family": "xss-template-injection", "sourceKind": "owned-core", "license": "MIT" },
     { "id": "vuln-workbench.javascript.command-injection", "language": "javascript", "cwe": "CWE-78", "family": "command-injection", "sourceKind": "owned-core", "license": "MIT" },

@@ -25,6 +25,7 @@ import {
 	parseJavaExpression,
 	tokens,
 } from "./java-source-analysis";
+import { javaStandardMethod } from "./java-standard-values";
 export class ConstantFlow extends JavaFlowControl {
 	expression(node: JavaNode | undefined, env: Environment): Value {
 		if (!node || --this.budget.remaining < 0) return UNKNOWN;
@@ -46,7 +47,7 @@ export class ConstantFlow extends JavaFlowControl {
 				text,
 			)
 		)
-			return safe();
+			return { ...safe(), javaType: "locale" };
 		if (/^[a-z][\w$.]*\.[A-Z][\w$]*\.[\w$]+$/.test(text) && !text.includes("("))
 			return this.field(text);
 		if (node.name === "conditionalExpression" && node.children.QuestionMark) {
@@ -136,6 +137,21 @@ export class ConstantFlow extends JavaFlowControl {
 	private primary(node: JavaNode, env: Environment): Value {
 		const prefix = first(node, "primaryPrefix");
 		const text = javaText(node);
+		const arrayAccess = first(
+			nodes(node, "primarySuffix").at(-1),
+			"arrayAccessSuffix",
+		);
+		if (arrayAccess) {
+			const receiverText = tokens(node)
+				.filter((token) => token.endOffset < arrayAccess.location.startOffset)
+				.map((token) => token.image)
+				.join("");
+			const receiver = this.expression(parseJavaExpression(receiverText), env);
+			const index = this.expression(first(arrayAccess, "expression"), env);
+			return receiver.kind === "list" && receiver.flavor !== "string-builder"
+				? collectionCall(receiver, "get", [index])
+				: UNKNOWN;
+		}
 		if (javaText(prefix).startsWith("new")) {
 			const initializer = descendants(prefix, "arrayInitializer")[0];
 			if (initializer && !nodes(node, "primarySuffix").length)
@@ -152,6 +168,16 @@ export class ConstantFlow extends JavaFlowControl {
 				"expression",
 			).map((arg) => this.expression(arg, env));
 			const suffixes = nodes(node, "primarySuffix");
+			if (
+				!suffixes.length &&
+				isJavaType(this.program, className, "java.lang.StringBuilder") &&
+				args.length <= 1
+			)
+				return {
+					kind: "list",
+					flavor: "string-builder",
+					items: [args[0] ?? safe("")],
+				};
 			if (
 				isJavaType(this.program, className, "java.lang.StringBuilder") &&
 				args.length === 1 &&
@@ -286,70 +312,21 @@ export class ConstantFlow extends JavaFlowControl {
 		if (before === "this.getClass().getClassLoader" && args.length === 0)
 			return { ...safe(), javaType: "class-loader" };
 		const standardMethod = before.match(
-			/^(.*)\.(toCharArray|getBytes|length|replace|substring|getPath|toURI|getFD|getResource|getAbsolutePath)$/,
+			/^(.*)\.(toCharArray|getBytes|length|replace|substring|split|toString|getPath|toURI|getFD|getResource|getAbsolutePath)$/,
 		);
 		if (standardMethod) {
 			const receiver = this.expression(
 				parseJavaExpression(standardMethod[1] ?? ""),
 				env,
 			);
-			const name = standardMethod[2];
-			if (receiver.kind === "html" && name === "toCharArray" && !args.length)
-				return receiver;
-			if (known(receiver) && args.every(known)) {
-				if (
-					name === "getResource" &&
-					receiver.javaType === "class-loader" &&
-					args.length === 1
-				)
-					return { ...safe(), javaType: "url" };
-				if (
-					receiver.javaType === "url" &&
-					/^(?:toURI|getPath)$/.test(name ?? "") &&
-					!args.length
-				)
-					return { ...safe(), javaType: "url" };
-				if (
-					receiver.javaType === "file-descriptor" &&
-					name === "getFD" &&
-					!args.length
-				)
-					return receiver;
-				if (
-					receiver.javaType === "file" &&
-					/^(?:getPath|getAbsolutePath)$/.test(name ?? "") &&
-					!args.length
-				)
-					return safe();
-				if (
-					!receiver.javaType &&
-					[
-						"toCharArray",
-						"getBytes",
-						"length",
-						"replace",
-						"substring",
-					].includes(name ?? "")
-				) {
-					if (name === "length")
-						return safe(
-							typeof receiver.value === "string"
-								? receiver.value.length
-								: undefined,
-						);
-					if (name === "getBytes") return { kind: "list", items: [safe()] };
-					if (name === "toCharArray")
-						return {
-							kind: "list",
-							items:
-								typeof receiver.value === "string"
-									? [...receiver.value].map((value) => safe(value))
-									: [safe()],
-						};
-					return safe();
-				}
-			}
+			const result = javaStandardMethod(
+				receiver,
+				standardMethod[2] ?? "",
+				args,
+			);
+			if (result) return result;
 		}
+
 		const simple = before.match(/^([\w$]+)\.([\w$]+)$/);
 		if (simple) {
 			const receiver = env.get(simple[1] ?? "") ?? UNKNOWN;

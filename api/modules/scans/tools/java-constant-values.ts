@@ -8,7 +8,13 @@ export type Scalar = {
 	kind: "scalar";
 	value?: string | number | boolean | null;
 	reason: JavaProofReason;
-	javaType?: "file" | "file-descriptor" | "class-loader" | "url";
+	javaType?:
+		| "file"
+		| "file-descriptor"
+		| "class-loader"
+		| "url"
+		| "number"
+		| "locale";
 };
 export type Value =
 	| Scalar
@@ -16,7 +22,12 @@ export type Value =
 	| { kind: "html" }
 	| { kind: "instance"; owner: string }
 	| { kind: "factory"; key: string }
-	| { kind: "list"; items: Value[]; invalid?: boolean }
+	| {
+			kind: "list";
+			items: Value[];
+			invalid?: boolean;
+			flavor?: "string-builder" | "unknown-length";
+	  }
 	| { kind: "map"; items: Map<string, Value>; invalid?: boolean };
 export type Environment = Map<string, Value>;
 export const UNKNOWN: Value = { kind: "unknown" };
@@ -39,6 +50,36 @@ export function collectionCall(
 	args: Value[],
 ): Value {
 	if (receiver.invalid) return UNKNOWN;
+	if (receiver.kind === "list" && receiver.flavor === "string-builder") {
+		if ((name === "toString" || name === "length") && !args.length)
+			return name === "length"
+				? { ...safe(), javaType: "number" }
+				: isSafe(receiver)
+					? safe()
+					: UNKNOWN;
+		if (
+			/^(?:append|replace|insert|delete|deleteCharAt|setCharAt|reverse)$/.test(
+				name,
+			) &&
+			args.every(isSafe)
+		)
+			return receiver;
+		receiver.invalid = true;
+		return UNKNOWN;
+	}
+	if (receiver.kind === "list" && receiver.flavor === "unknown-length") {
+		if (
+			name === "get" &&
+			args.length === 1 &&
+			known(args[0] ?? UNKNOWN) &&
+			typeof (args[0] as Scalar).value === "number" &&
+			Number.isInteger((args[0] as Scalar).value) &&
+			Number((args[0] as Scalar).value) >= 0
+		)
+			return safe();
+		receiver.invalid = true;
+		return UNKNOWN;
+	}
 	if (receiver.kind === "list") {
 		const index = known(args[0] ?? UNKNOWN)
 			? (args[0] as Scalar).value
@@ -119,12 +160,23 @@ export function mergeValue(left: Value, right: Value): Value {
 	if (
 		left.kind === "list" &&
 		right.kind === "list" &&
+		left.flavor === right.flavor &&
+		isSafe(left) &&
+		isSafe(right) &&
+		left.items.length !== right.items.length
+	)
+		return { kind: "list", flavor: "unknown-length", items: [safe()] };
+	if (
+		left.kind === "list" &&
+		right.kind === "list" &&
 		!left.invalid &&
 		!right.invalid &&
+		left.flavor === right.flavor &&
 		left.items.length === right.items.length
 	)
 		return {
 			kind: "list",
+			flavor: left.flavor,
 			items: left.items.map((value, index) =>
 				mergeValue(value, right.items[index] ?? UNKNOWN),
 			),

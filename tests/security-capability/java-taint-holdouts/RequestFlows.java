@@ -83,6 +83,45 @@ class RequestFlows {
     // reject: xss-response-writer
     response.getWriter().print(value);
   }
+  void builderMutation(HttpServletRequest request, Statement statement) throws Exception {
+    StringBuilder builder=new StringBuilder("fixed");builder.append(request.getParameter("q"));
+    // expect: sql-injection
+    statement.execute(builder.toString());
+  }
+  void builderInsert(HttpServletRequest request, Statement statement) throws Exception {
+    StringBuilder builder=new StringBuilder("fixed");builder.insert(0,request.getParameter("q"));
+    // expect: sql-injection
+    statement.execute(builder.toString());
+  }
+  void builderCharacter(HttpServletRequest request, Statement statement) throws Exception {
+    StringBuilder builder=new StringBuilder("fixed");builder.setCharAt(0,request.getParameter("q").charAt(0));
+    // expect: sql-injection
+    statement.execute(builder.toString());
+  }
+  void safeBuilder(HttpServletRequest request, Statement statement) throws Exception {
+    UserInput input=new UserInput(request);
+    StringBuilder builder=new StringBuilder(input.constant("q"));builder.append("suffix");
+    // reject: sql-injection
+    statement.execute(builder.toString());
+  }
+  void splitMutation(HttpServletRequest request, Statement statement) throws Exception {
+    String[] values="fixed words".split(" ");values[0]=request.getParameter("q");
+    // expect: sql-injection
+    statement.execute(values[0]);
+  }
+  void safeSplit(HttpServletRequest request, Statement statement) throws Exception {
+    UserInput input=new UserInput(request);String value=input.constant("q").split(" ")[0];
+    // reject: sql-injection
+    statement.execute(value);
+  }
+  void unknownFormat(HttpServletRequest request, HttpServletResponse response) throws Exception {
+    response.setContentType("text/html");StringBuilder format=new StringBuilder("<script>");format.append("%s</script>");
+    String value=org.springframework.web.util.HtmlUtils.htmlEscape(request.getParameter("q"));
+    // expect: xss-response-writer
+    response.getWriter().printf(format.toString(),value);
+    // expect: xss-response-writer
+    response.getWriter().printf("%cscript>%s%c/script>",60,value,60);
+  }
   void fixedQuery(HttpServletRequest request, Statement statement) throws Exception {
     String input=request.getParameter("q");
     // reject: sql-injection

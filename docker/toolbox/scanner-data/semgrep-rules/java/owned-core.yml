@@ -24,6 +24,15 @@ rules:
           - pattern: $REQ.getParts()
           - pattern: $REQ.getSession().getAttribute(...)
     pattern-propagators: &collection-propagators
+      - pattern: $BUILDER.append($VALUE, ...)
+        from: $VALUE
+        to: $BUILDER
+      - pattern: $BUILDER.insert($INDEX, $VALUE, ...)
+        from: $VALUE
+        to: $BUILDER
+      - pattern: $BUILDER.setCharAt($INDEX, $VALUE)
+        from: $VALUE
+        to: $BUILDER
       - pattern: $COLLECTION.add($VALUE)
         from: $VALUE
         to: $COLLECTION

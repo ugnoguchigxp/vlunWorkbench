@@ -103,8 +103,8 @@ const outputPath = path.resolve(
 		});
 	}
 	const ok =
-		cases.filter((test) => test.expected).length >= 12 &&
-		cases.filter((test) => !test.expected).length >= 8 &&
+		cases.filter((test) => test.expected).length >= 18 &&
+		cases.filter((test) => !test.expected).length >= 10 &&
 		cases.every((test) => test.passed);
 	const report = {
 		schemaVersion: 1,
@@ -118,6 +118,7 @@ const outputPath = path.resolve(
 			"api/modules/scans/tools/java-taint-precision-filter.ts",
 			"api/modules/scans/tools/java-flow-control.ts",
 			"api/modules/scans/tools/java-helper-resolution.ts",
+			"api/modules/scans/tools/java-standard-values.ts",
 			"api/modules/scans/tools/java-constant-values.ts",
 			"api/modules/scans/tools/java-sink-proof.ts",
 			"api/modules/scans/tools/java-reflection-summary.ts",

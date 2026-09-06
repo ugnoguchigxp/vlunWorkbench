@@ -98,6 +98,11 @@ function safeHtmlBodyContext(
 	start: number,
 	values: Value[],
 ): boolean {
+	const sink = allNodes(method.body, "primary").find(
+		(node) =>
+			contains(node, start) && /\.(?:printf|format)\(/.test(javaText(node)),
+	);
+	if (sink && !safeHtmlFormat(values)) return false;
 	const flattened: Value[] = [];
 	const flatten = (value: Value) => {
 		if (value.kind === "list" && !value.invalid) value.items.forEach(flatten);
@@ -109,7 +114,14 @@ function safeHtmlBodyContext(
 		!flattened.every(
 			(v) =>
 				v.kind === "html" ||
-				(known(v) && (typeof v.value !== "string" || !v.value.includes("<"))),
+				(known(v) &&
+					(typeof v.value === "string"
+						? !v.value.includes("<")
+						: typeof v.value === "number" ||
+							typeof v.value === "boolean" ||
+							v.value === null ||
+							v.javaType === "number" ||
+							v.javaType === "locale")),
 		)
 	)
 		return false;
@@ -258,4 +270,24 @@ function exitsBeforeSink(
 				return /^return(?:;|[\s\S]*;)$/.test(javaText(last));
 			}),
 	);
+}
+
+function safeHtmlFormat(values: Value[]): boolean {
+	const format =
+		values[
+			known(values[0] ?? { kind: "unknown" }) &&
+			(values[0] as { javaType?: string }).javaType === "locale"
+				? 1
+				: 0
+		];
+	if (!format || !known(format) || typeof format.value !== "string")
+		return false;
+	// Character and date conversions can construct markup from numeric values.
+	// Only conversions that preserve encoded text or emit plain numbers/booleans
+	// and whitespace are proven here; unsupported format strings retain warnings.
+	const remainder = format.value.replace(
+		/%(?:(?:[1-9][0-9]*\$)?[-#+ 0,(<]*[0-9]*(?:\.[0-9]+)?[sSbBdD]|%|n)/g,
+		"",
+	);
+	return !remainder.includes("%");
 }

@@ -18,6 +18,7 @@ export const OWASP_IMPLEMENTATION_PATHS = [
 	"api/modules/scans/tools/java-constant-values.ts",
 	"api/modules/scans/tools/java-flow-control.ts",
 	"api/modules/scans/tools/java-helper-resolution.ts",
+	"api/modules/scans/tools/java-standard-values.ts",
 	"api/modules/scans/tools/java-source-analysis.ts",
 	"api/modules/scans/tools/java-sink-proof.ts",
 	"api/modules/scans/tools/java-project-model.ts",
