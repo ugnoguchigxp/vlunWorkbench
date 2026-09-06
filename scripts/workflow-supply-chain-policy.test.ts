@@ -224,5 +224,21 @@ describe("workflow supply-chain policy", () => {
 		expect(build!.indexOf("bun run docker:toolbox:build")).toBeLessThan(
 			build!.indexOf("docker build -f docker/plugins/semgrep/Dockerfile"),
 		);
+		const scannerInvocation = "bun run scripts/scanner-e2e.ts";
+		const requiredScannerInvocation =
+			`VULN_WORKBENCH_REQUIRED_SCANNER_ADAPTERS=semgrep ${scannerInvocation}`;
+		for (const scriptName of [
+			"scanner-e2e:run",
+			"scanner-e2e:repeat",
+			"scanner-e2e:full-profile",
+			"test:scanner-e2e",
+		]) {
+			const script = packageJson.scripts[scriptName];
+			expect(script).toBeDefined();
+			expect(script).toContain(requiredScannerInvocation);
+			expect(script!.replaceAll(requiredScannerInvocation, "")).not.toContain(
+				scannerInvocation,
+			);
+		}
 	});
 });
