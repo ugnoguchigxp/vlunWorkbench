@@ -259,7 +259,7 @@
 		"@vitejs/plugin-react": "6.0.2",
 		"@vitest/coverage-v8": "4.1.11",
 		"drizzle-kit": "0.31.10",
-		"mermaid": "11.16.1",
+		"mermaid": "11.17.2",
 		"s11tnext-cli": "0.1.2",
 		"spec-html": "0.1.6",
 		"tailwindcss": "^4.3.1",
