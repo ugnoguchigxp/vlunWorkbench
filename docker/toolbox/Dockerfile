@@ -25,7 +25,7 @@ RUN mkdir -p /out /src/gitleaks \
 	&& echo "${GITLEAKS_SOURCE_SHA256}  /tmp/gitleaks.tar.gz" | sha256sum -c - \
 	&& tar -xzf /tmp/gitleaks.tar.gz -C /src/gitleaks --strip-components=1 \
 	&& cd /src/gitleaks \
-	&& go get golang.org/x/crypto@v0.55.0 golang.org/x/text@v0.39.0 \
+	&& go get golang.org/x/crypto@v0.55.0 golang.org/x/text@v0.41.0 \
 	&& go build -trimpath -buildvcs=false \
 		-ldflags "-s -w -X=github.com/zricethezav/gitleaks/v8/version.Version=${GITLEAKS_VERSION}" \
 		-o /out/gitleaks .
@@ -36,7 +36,7 @@ RUN mkdir -p /src/osv-scanner \
 	&& echo "${OSV_SCANNER_SOURCE_SHA256}  /tmp/osv-scanner.tar.gz" | sha256sum -c - \
 	&& tar -xzf /tmp/osv-scanner.tar.gz -C /src/osv-scanner --strip-components=1 \
 	&& cd /src/osv-scanner \
-	&& go get google.golang.org/grpc@v1.83.1 github.com/go-git/go-git/v5@v5.19.2 golang.org/x/crypto@v0.55.0 golang.org/x/mod@v0.40.0 golang.org/x/net@v0.56.0 golang.org/x/text@v0.39.0 \
+	&& go get google.golang.org/grpc@v1.83.1 github.com/go-git/go-git/v5@v5.19.2 golang.org/x/crypto@v0.55.0 golang.org/x/mod@v0.40.0 golang.org/x/net@v0.58.0 golang.org/x/text@v0.41.0 \
 	&& go build -trimpath -buildvcs=false -ldflags "-s -w" -o /out/osv-scanner ./cmd/osv-scanner
 
 RUN mkdir -p /src/nuclei \
@@ -45,7 +45,7 @@ RUN mkdir -p /src/nuclei \
 	&& echo "${NUCLEI_SOURCE_SHA256}  /tmp/nuclei.tar.gz" | sha256sum -c - \
 	&& tar -xzf /tmp/nuclei.tar.gz -C /src/nuclei --strip-components=1 \
 	&& cd /src/nuclei \
-	&& go get github.com/go-git/go-git/v5@v5.19.2 google.golang.org/grpc@v1.83.1 golang.org/x/crypto@v0.55.0 golang.org/x/mod@v0.40.0 golang.org/x/net@v0.56.0 golang.org/x/text@v0.39.0 \
+	&& go get github.com/go-git/go-git/v5@v5.19.2 google.golang.org/grpc@v1.83.1 golang.org/x/crypto@v0.55.0 golang.org/x/mod@v0.40.0 golang.org/x/net@v0.58.0 golang.org/x/text@v0.41.0 \
 	&& go build -trimpath -buildvcs=false -ldflags "-s -w" -o /out/nuclei ./cmd/nuclei
 
 RUN mkdir -p /src/cosign \
@@ -54,7 +54,7 @@ RUN mkdir -p /src/cosign \
 	&& echo "${COSIGN_SOURCE_SHA256}  /tmp/cosign.tar.gz" | sha256sum -c - \
 	&& tar -xzf /tmp/cosign.tar.gz -C /src/cosign --strip-components=1 \
 	&& cd /src/cosign \
-	&& go get google.golang.org/grpc@v1.83.1 golang.org/x/crypto@v0.55.0 golang.org/x/mod@v0.40.0 golang.org/x/net@v0.56.0 golang.org/x/text@v0.39.0 \
+	&& go get google.golang.org/grpc@v1.83.1 golang.org/x/crypto@v0.55.0 golang.org/x/mod@v0.40.0 golang.org/x/net@v0.58.0 golang.org/x/text@v0.41.0 \
 	&& go build -trimpath -buildvcs=false \
 		-ldflags "-s -w -buildid= -X sigs.k8s.io/release-utils/version.gitVersion=v${COSIGN_VERSION} -X sigs.k8s.io/release-utils/version.gitCommit=${COSIGN_SOURCE_COMMIT} -X sigs.k8s.io/release-utils/version.gitTreeState=clean" \
 		-o /out/cosign ./cmd/cosign
@@ -65,7 +65,7 @@ RUN mkdir -p /src/slsa-verifier \
 	&& echo "${SLSA_VERIFIER_SOURCE_SHA256}  /tmp/slsa-verifier.tar.gz" | sha256sum -c - \
 	&& tar -xzf /tmp/slsa-verifier.tar.gz -C /src/slsa-verifier --strip-components=1 \
 	&& cd /src/slsa-verifier \
-	&& go get github.com/docker/cli@v29.2.0+incompatible github.com/go-jose/go-jose/v4@v4.1.4 github.com/sigstore/cosign/v2@${COSIGN_SOURCE_COMMIT} github.com/sigstore/fulcio@v1.8.6 github.com/sigstore/rekor@v1.5.2 google.golang.org/grpc@v1.83.1 golang.org/x/crypto@v0.55.0 golang.org/x/mod@v0.40.0 golang.org/x/net@v0.56.0 golang.org/x/text@v0.39.0 \
+	&& go get github.com/docker/cli@v29.2.0+incompatible github.com/go-jose/go-jose/v4@v4.1.4 github.com/sigstore/cosign/v2@${COSIGN_SOURCE_COMMIT} github.com/sigstore/fulcio@v1.8.6 github.com/sigstore/rekor@v1.5.2 google.golang.org/grpc@v1.83.1 golang.org/x/crypto@v0.55.0 golang.org/x/mod@v0.40.0 golang.org/x/net@v0.58.0 golang.org/x/text@v0.41.0 \
 	&& go mod tidy \
 	&& go build -trimpath -buildvcs=false \
 		-ldflags "-s -w -buildid= -X sigs.k8s.io/release-utils/version.gitVersion=v${SLSA_VERIFIER_VERSION} -X sigs.k8s.io/release-utils/version.gitCommit=${SLSA_VERIFIER_SOURCE_COMMIT} -X sigs.k8s.io/release-utils/version.gitTreeState=clean" \
@@ -86,7 +86,7 @@ RUN mkdir -p /src/trivy \
 	&& echo "${TRIVY_SOURCE_SHA256}  /tmp/trivy.tar.gz" | sha256sum -c - \
 	&& tar -xzf /tmp/trivy.tar.gz -C /src/trivy --strip-components=1 \
 	&& cd /src/trivy \
-	&& go get github.com/containerd/containerd/v2@v2.3.2 github.com/go-git/go-git/v5@v5.19.2 google.golang.org/grpc@v1.83.1 golang.org/x/crypto@v0.55.0 golang.org/x/mod@v0.40.0 golang.org/x/net@v0.56.0 golang.org/x/text@v0.39.0 oras.land/oras-go/v2@v2.6.2 \
+	&& go get github.com/containerd/containerd/v2@v2.3.2 github.com/go-git/go-git/v5@v5.19.2 google.golang.org/grpc@v1.83.1 golang.org/x/crypto@v0.55.0 golang.org/x/mod@v0.40.0 golang.org/x/net@v0.58.0 golang.org/x/text@v0.41.0 oras.land/oras-go/v2@v2.6.2 \
 	&& GOEXPERIMENT=jsonv2 go build -trimpath -buildvcs=false \
 		-ldflags "-s -w -X github.com/aquasecurity/trivy/pkg/version/app.ver=${TRIVY_VERSION}" \
 		-o /trivy ./cmd/trivy

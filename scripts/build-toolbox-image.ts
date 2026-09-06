@@ -201,8 +201,8 @@ try {
 		"google.golang.org/grpc@v1.83.1",
 		"golang.org/x/crypto@v0.55.0",
 		"golang.org/x/mod@v0.40.0",
-		"golang.org/x/net@v0.56.0",
-		"golang.org/x/text@v0.39.0",
+		"golang.org/x/net@v0.58.0",
+		"golang.org/x/text@v0.41.0",
 		"oras.land/oras-go/v2@v2.6.2",
 	];
 	const goOptions = { cwd: sourceRoot, env: goEnv };
