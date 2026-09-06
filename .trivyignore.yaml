@@ -12,36 +12,3 @@ vulnerabilities:
       vulnWorkbench never mounts or exposes a Docker socket to the toolbox,
       and OSV-Scanner is invoked only for filesystem dependency analysis.
       Reassess on the next OSV-Scanner release or before the expiry date.
-  - id: CVE-2026-52869
-    paths:
-      - "opt/semgrep/lib/python3.12/site-packages/mcp-1.23.3.dist-info/METADATA"
-    purls:
-      - "pkg:pypi/mcp@1.23.3"
-    expired_at: 2026-10-24
-    statement: >-
-      This issue affects authenticated SSE and stateful Streamable HTTP MCP
-      server sessions. The toolbox exposes only the Semgrep scanning CLI;
-      it does not start an MCP server or accept inbound network sessions.
-      Reassess when Semgrep supports MCP Python SDK 1.28.1 or later.
-  - id: CVE-2026-52870
-    paths:
-      - "opt/semgrep/lib/python3.12/site-packages/mcp-1.23.3.dist-info/METADATA"
-    purls:
-      - "pkg:pypi/mcp@1.23.3"
-    expired_at: 2026-10-24
-    statement: >-
-      This issue affects experimental MCP task handlers enabled by an MCP
-      server. The toolbox exposes only the Semgrep scanning CLI and never
-      enables MCP tasks. Reassess when Semgrep supports MCP Python SDK 1.28.1
-      or later.
-  - id: CVE-2026-59950
-    paths:
-      - "opt/semgrep/lib/python3.12/site-packages/mcp-1.23.3.dist-info/METADATA"
-    purls:
-      - "pkg:pypi/mcp@1.23.3"
-    expired_at: 2026-10-24
-    statement: >-
-      This issue affects the deprecated MCP WebSocket server transport. The
-      toolbox exposes only the Semgrep scanning CLI; it does not start that
-      transport or accept inbound network sessions. Reassess when Semgrep
-      supports MCP Python SDK 1.28.1 or later.

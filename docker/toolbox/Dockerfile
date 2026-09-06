@@ -143,7 +143,11 @@ COPY --from=trivy-binary /trivy /usr/local/bin/trivy
 RUN python -m venv /opt/schemathesis \
 	&& /opt/schemathesis/bin/pip install --no-cache-dir "schemathesis==${SCHEMATHESIS_VERSION}" \
 	&& ln -s /opt/schemathesis/bin/st /usr/local/bin/st \
-	&& command -v st
+	&& command -v st \
+	# pip's bundled bom.cdx.json describes its build environment rather than
+	# this runtime filesystem. Let the image-level Trivy SBOM remain authoritative.
+	&& find /usr/local/lib/python3.14/site-packages /opt/schemathesis/lib/python3.14/site-packages \
+		-type f -path '*/pip/_vendor/bom.cdx.json' -delete
 
 COPY docker/toolbox/schemathesis-readonly-gateway.py /usr/local/bin/vwb-schemathesis-readonly-gateway
 RUN chmod 0755 /usr/local/bin/vwb-schemathesis-readonly-gateway

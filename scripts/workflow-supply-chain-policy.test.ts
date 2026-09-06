@@ -120,6 +120,13 @@ describe("workflow supply-chain policy", () => {
 			expect(semgrepPlugin).toContain(requirement);
 		expect(semgrepPlugin).toContain("patch-wheel-mcp.py");
 		expect(semgrepPlugin).toContain("/opt/semgrep/bin/pip check");
+		expect(semgrepPlugin).toContain("ARG JARACO_CONTEXT_VERSION=6.1.0");
+		expect(semgrepPlugin).toContain("ARG WHEEL_VERSION=0.46.2");
+		expect(semgrepPlugin).toContain("setuptools._vendor.jaraco");
+		for (const dockerfile of [toolbox, semgrepPlugin]) {
+			expect(dockerfile).toContain("pip/_vendor/bom.cdx.json");
+			expect(dockerfile).toContain("-delete");
+		}
 		expect(toolbox).toContain("github.com/sigstore/cosign/v2@v2.6.5");
 		expect(toolbox).toContain(
 			"git apply --check /tmp/slsa-verifier-sigstore-go-v1.patch",
