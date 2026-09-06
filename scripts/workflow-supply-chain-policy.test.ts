@@ -92,10 +92,13 @@ describe("workflow supply-chain policy", () => {
 		}
 	});
 
-	test("builds the patched Cosign release into the core toolbox", async () => {
-		const [toolbox, semgrepPlugin] = await Promise.all([
+	test("builds patched Cosign and the compatible SLSA verifier into the core toolbox", async () => {
+		const [toolbox, semgrepPlugin, slsaPatch] = await Promise.all([
 			readRepositoryFile("docker/toolbox/Dockerfile"),
 			readRepositoryFile("docker/plugins/semgrep/Dockerfile"),
+			readRepositoryFile(
+				"docker/toolbox/patches/slsa-verifier-sigstore-go-v1.patch",
+			),
 		]);
 		expect(toolbox).toContain("ARG COSIGN_VERSION=3.1.3");
 		expect(toolbox).toContain(
@@ -109,6 +112,16 @@ describe("workflow supply-chain policy", () => {
 		);
 		expect(toolbox).not.toContain("semgrep==");
 		expect(semgrepPlugin).toContain("semgrep==${SEMGREP_VERSION}");
+		expect(toolbox).toContain("github.com/sigstore/cosign/v2@v2.6.5");
+		expect(toolbox).toContain(
+			"git apply --check /tmp/slsa-verifier-sigstore-go-v1.patch",
+		);
+		expect(slsaPatch).toContain(
+			"chains, err := sigstoreVerify.VerifyLeafCertificate",
+		);
+		expect(slsaPatch).toContain(
+			"sigstoreVerify.VerifySignedCertificateTimestamp(chains, 1, trustedRoot)",
+		);
 	});
 
 	test("runs fresh capability measurements with pinned scanners and persisted evidence", async () => {

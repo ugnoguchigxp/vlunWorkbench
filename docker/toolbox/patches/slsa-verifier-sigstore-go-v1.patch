@@ -1,0 +1,20 @@
+diff --git a/verifiers/internal/gha/rekor.go b/verifiers/internal/gha/rekor.go
+index a0eb99f..d5aeb54 100644
+--- a/verifiers/internal/gha/rekor.go
++++ b/verifiers/internal/gha/rekor.go
+@@ -389,12 +389,13 @@ func verifySignedAttestation(signedAtt *SignedAttestation, trustedRoot *sigstore
+ 	signatureTimestamp := time.Unix(*signedAtt.RekorEntry.IntegratedTime, 0)
+ 
+ 	// Verify the certificate chain, and that the certificate was valid at the time of signing.
+-	if err := sigstoreVerify.VerifyLeafCertificate(signatureTimestamp, cert, trustedRoot); err != nil {
++	chains, err := sigstoreVerify.VerifyLeafCertificate(signatureTimestamp, cert, trustedRoot)
++	if err != nil {
+ 		return fmt.Errorf("%w: %s", serrors.ErrorInvalidCertificate, err)
+ 	}
+ 
+ 	// Verify the Signed Certificate Timestamps (SCTs).
+-	if err := sigstoreVerify.VerifySignedCertificateTimestamp(cert, 1, trustedRoot); err != nil {
++	if err := sigstoreVerify.VerifySignedCertificateTimestamp(chains, 1, trustedRoot); err != nil {
+ 		return fmt.Errorf("%w: %s", serrors.ErrorInvalidCertificate, err)
+ 	}
+ 

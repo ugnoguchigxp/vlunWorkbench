@@ -40,6 +40,11 @@ slsa-verifier checks a local artifact and local provenance against explicit
 source, builder, and ref expectations. It also does not require CI, but its
 Sigstore TUF trust-root refresh requires the SLSA profile's explicit Docker
 `--network default` exception. Other toolbox scans remain network-disabled.
+The image applies the reviewed
+`patches/slsa-verifier-sigstore-go-v1.patch` compatibility change before
+building slsa-verifier 2.7.1. It passes the certificate chains returned by the
+current sigstore-go API into SCT verification, allowing the verifier to use
+Cosign 2.6.5 and the patched Sigstore dependency graph.
 The image pins its base digest and verifies every downloaded release asset
 against the upstream checksum manifest. Both `linux/amd64` and `linux/arm64`
 are supported.

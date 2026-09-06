@@ -19,6 +19,8 @@ ARG SLSA_VERIFIER_SOURCE_SHA256=c1ed640d3f775d09549488d120f7d02694c1bbf5bf885c30
 ENV CGO_ENABLED=0 \
 	GOTOOLCHAIN=local
 
+COPY docker/toolbox/patches/slsa-verifier-sigstore-go-v1.patch /tmp/slsa-verifier-sigstore-go-v1.patch
+
 RUN mkdir -p /out /src/gitleaks \
 	&& curl -fsSL --retry 5 --retry-all-errors --connect-timeout 15 --max-time 300 \
 		-o /tmp/gitleaks.tar.gz "https://codeload.github.com/gitleaks/gitleaks/tar.gz/${GITLEAKS_SOURCE_COMMIT}" \
@@ -65,6 +67,8 @@ RUN mkdir -p /src/slsa-verifier \
 	&& echo "${SLSA_VERIFIER_SOURCE_SHA256}  /tmp/slsa-verifier.tar.gz" | sha256sum -c - \
 	&& tar -xzf /tmp/slsa-verifier.tar.gz -C /src/slsa-verifier --strip-components=1 \
 	&& cd /src/slsa-verifier \
+	&& git apply --check /tmp/slsa-verifier-sigstore-go-v1.patch \
+	&& git apply /tmp/slsa-verifier-sigstore-go-v1.patch \
 	&& go get github.com/docker/cli@v29.5.3+incompatible github.com/go-jose/go-jose/v4@v4.1.4 github.com/sigstore/cosign/v2@v2.6.5 github.com/sigstore/fulcio@v1.8.6 github.com/sigstore/rekor@v1.5.2 google.golang.org/grpc@v1.83.1 golang.org/x/crypto@v0.55.0 golang.org/x/mod@v0.40.0 golang.org/x/net@v0.58.0 golang.org/x/text@v0.41.0 \
 	&& go mod tidy \
 	&& go build -trimpath -buildvcs=false \
