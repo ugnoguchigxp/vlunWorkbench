@@ -219,6 +219,10 @@ describe("workflow supply-chain policy", () => {
 		);
 		expect(scannerWorkflow).toContain("bun run scanner-e2e:failure:verify");
 		expect(scannerWorkflow).toContain(`docker pull ${zapImage}`);
+		expect(scannerWorkflow).toContain("set -o pipefail");
+		expect(scannerWorkflow).toContain(
+		"tee artifacts/scanner-e2e/release-gate.log",
+	);
 	});
 
 	test("builds the Semgrep toolbox prerequisite in clean E2E runners", async () => {

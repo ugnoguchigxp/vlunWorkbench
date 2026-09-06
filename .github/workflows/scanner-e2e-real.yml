@@ -71,11 +71,15 @@ jobs:
         env:
           VULN_WORKBENCH_TODOLIST_REPO_PATH: ${{ github.workspace }}/todolist
         run: |
-          bun run test:scanner-e2e
-          bun run scanner-e2e:failure
-          bun run scanner-e2e:failure:verify
-          bun run scanner-hardening:baseline:verify
-          bun run scanner-hardening:dod:verify
+          mkdir -p artifacts/scanner-e2e
+          set -o pipefail
+          {
+            bun run test:scanner-e2e
+            bun run scanner-e2e:failure
+            bun run scanner-e2e:failure:verify
+            bun run scanner-hardening:baseline:verify
+            bun run scanner-hardening:dod:verify
+          } 2>&1 | tee artifacts/scanner-e2e/release-gate.log
       - name: Upload scanner E2E evidence and qualification
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
