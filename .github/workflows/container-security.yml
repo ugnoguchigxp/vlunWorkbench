@@ -47,6 +47,7 @@ on:
       - "tests/security-capability/go-race/**"
       - "package.json"
       - "bun.lock"
+      - ".github/workflows/container-security.yml"
 
 permissions:
   contents: read
