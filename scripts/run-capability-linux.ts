@@ -84,7 +84,7 @@ try {
 		"--env",
 		`GIT_CONFIG_VALUE_0=${root}`,
 		"--env",
-		`TMPDIR=${tempRoot}`,
+		`VULN_WORKBENCH_BENCHMARK_TMP_ROOT=${tempRoot}`,
 		"--env",
 		`VULN_WORKBENCH_OWASP_SEMGREP_IMAGE=${semgrepImage}`,
 		"--env",

@@ -148,7 +148,10 @@ async function scanFixture(
 	cacheDirectory: string,
 ): Promise<Set<string>> {
 	const outputRoot = await mkdtemp(
-		path.join(os.tmpdir(), "vuln-workbench-osv-"),
+		path.join(
+			process.env.VULN_WORKBENCH_BENCHMARK_TMP_ROOT ?? os.tmpdir(),
+			"vuln-workbench-osv-",
+		),
 	);
 	const outputPath = path.join(outputRoot, "result.json");
 	try {
