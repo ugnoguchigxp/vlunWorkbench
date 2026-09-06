@@ -130,6 +130,31 @@ describe("Java standard mutable value models", () => {
 			),
 		).toBe(0);
 	});
+	test("accepts encoded formats only with proven text arguments", async () => {
+		const body =
+			'response.setContentType("text/html");String value=org.springframework.web.util.HtmlUtils.htmlEscape(input);';
+		expect(
+			await retained(
+				body,
+				'response.getWriter().format(value,new Object[]{"a","b"})',
+				"xss-response-writer",
+			),
+		).toBe(0);
+		expect(
+			await retained(
+				body,
+				'response.getWriter().format(value,new Object[]{60,"text"})',
+				"xss-response-writer",
+			),
+		).toBe(1);
+		expect(
+			await retained(
+				body,
+				'response.getWriter().format(value,new Object[]{"<script>","text"})',
+				"xss-response-writer",
+			),
+		).toBe(1);
+	});
 	test("HTML character counts do not carry markup", async () => {
 		expect(
 			await retained(

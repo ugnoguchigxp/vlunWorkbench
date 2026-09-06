@@ -103,8 +103,8 @@ const outputPath = path.resolve(
 		});
 	}
 	const ok =
-		cases.filter((test) => test.expected).length >= 18 &&
-		cases.filter((test) => !test.expected).length >= 10 &&
+		cases.filter((test) => test.expected).length >= 19 &&
+		cases.filter((test) => !test.expected).length >= 11 &&
 		cases.every((test) => test.passed);
 	const report = {
 		schemaVersion: 1,

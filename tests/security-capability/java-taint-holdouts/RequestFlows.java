@@ -122,6 +122,16 @@ class RequestFlows {
     // expect: xss-response-writer
     response.getWriter().printf("%cscript>%s%c/script>",60,value,60);
   }
+  void encodedFormat(HttpServletRequest request, HttpServletResponse response) throws Exception {
+    response.setContentType("text/html");String value=org.springframework.web.util.HtmlUtils.htmlEscape(request.getParameter("q"));
+    // reject: xss-response-writer
+    response.getWriter().format(value,new Object[]{"a","b"});
+  }
+  void encodedNumericFormat(HttpServletRequest request, HttpServletResponse response) throws Exception {
+    response.setContentType("text/html");String value=org.springframework.web.util.HtmlUtils.htmlEscape(request.getParameter("q"));
+    // expect: xss-response-writer
+    response.getWriter().format(value,new Object[]{60,"alert(1)",60});
+  }
   void fixedQuery(HttpServletRequest request, Statement statement) throws Exception {
     String input=request.getParameter("q");
     // reject: sql-injection

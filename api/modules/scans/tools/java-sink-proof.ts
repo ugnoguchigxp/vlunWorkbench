@@ -273,13 +273,25 @@ function exitsBeforeSink(
 }
 
 function safeHtmlFormat(values: Value[]): boolean {
-	const format =
-		values[
-			known(values[0] ?? { kind: "unknown" }) &&
-			(values[0] as { javaType?: string }).javaType === "locale"
-				? 1
-				: 0
-		];
+	const index =
+		known(values[0] ?? { kind: "unknown" }) &&
+		(values[0] as { javaType?: string }).javaType === "locale"
+			? 1
+			: 0;
+	const format = values[index];
+	if (format?.kind === "html") {
+		const safeString = (value: Value): boolean =>
+			value.kind === "html" ||
+			(known(value) &&
+				typeof value.value === "string" &&
+				!value.value.includes("<")) ||
+			(value.kind === "list" &&
+				!value.invalid &&
+				value.items.every(safeString));
+		// An encoded format and string-only arguments cannot synthesize '<'.
+		// Numeric/character-code conversions remain unproven for other arguments.
+		return values.slice(index + 1).every(safeString);
+	}
 	if (!format || !known(format) || typeof format.value !== "string")
 		return false;
 	// Character and date conversions can construct markup from numeric values.
