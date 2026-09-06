@@ -7,7 +7,10 @@ import {
 	assertAllowedDockerInvocation,
 	dockerEntrypointFor,
 } from "./docker-tool-invocation-policy";
-import { acquireDockerRepoAccess } from "./docker-tool-repo-access";
+import {
+	acquireDockerInputAccess,
+	acquireDockerRepoAccess,
+} from "./docker-tool-repo-access";
 
 export { registerDockerToolInvocationPolicy } from "./docker-tool-invocation-policy";
 
@@ -148,6 +151,9 @@ export async function runDockerToolProcess(
 	const repoAccessLease = options.repoPath
 		? await acquireDockerRepoAccess(options.repoPath)
 		: null;
+	const inputAccessLeases = await Promise.all(
+		inputPaths.map((inputPath) => acquireDockerInputAccess(inputPath)),
+	);
 	const dockerMetadata = {
 		image,
 		containerName,
@@ -277,7 +283,10 @@ export async function runDockerToolProcess(
 				await cleanupDockerContainer(dockerBin, containerName, emit);
 			}
 		} finally {
-			await repoAccessLease?.release();
+			await Promise.all([
+				repoAccessLease?.release(),
+				...inputAccessLeases.map((lease) => lease.release()),
+			]);
 		}
 	}
 
