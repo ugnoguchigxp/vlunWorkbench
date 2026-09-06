@@ -293,31 +293,6 @@ export async function runSchemathesisReadonly(params: {
 				],
 			},
 		);
-		let raw: unknown = [];
-		try {
-			const sanitizedOutput = sanitizeSchemathesisOutput(
-				await fs.readFile(outputPath, "utf8"),
-				params.sanitizeOutput,
-			);
-			await fs.writeFile(outputPath, sanitizedOutput, "utf8");
-			raw = sanitizedOutput
-				.split("\n")
-				.filter(Boolean)
-				.map((line) => JSON.parse(line));
-		} catch {
-			return {
-				ok: false,
-				toolVersion: version,
-				findings: [],
-				exitCode: result.exitCode,
-				error: "invalid_structured_output",
-			};
-		}
-		const rawArtifact = await params.storage.saveRawArtifact(
-			params.scanRunId,
-			outputPath,
-			"schemathesis.ndjson",
-		);
 		const sanitizedStdout = sanitizeSchemathesisOutput(
 			result.stdout,
 			params.sanitizeOutput,
@@ -340,6 +315,47 @@ export async function runSchemathesisReadonly(params: {
 					sanitizedStderr,
 				)
 			: undefined;
+		let sanitizedOutput: string;
+		try {
+			sanitizedOutput = sanitizeSchemathesisOutput(
+				await fs.readFile(outputPath, "utf8"),
+				params.sanitizeOutput,
+			);
+		} catch {
+			return {
+				ok: false,
+				toolVersion: version,
+				findings: [],
+				stdoutArtifact,
+				stderrArtifact,
+				exitCode: result.exitCode,
+				error: "invalid_structured_output",
+			};
+		}
+		await fs.writeFile(outputPath, sanitizedOutput, "utf8");
+		const rawArtifact = await params.storage.saveRawArtifact(
+			params.scanRunId,
+			outputPath,
+			"schemathesis.ndjson",
+		);
+		let raw: unknown = [];
+		try {
+			raw = sanitizedOutput
+				.split("\n")
+				.filter(Boolean)
+				.map((line) => JSON.parse(line));
+		} catch {
+			return {
+				ok: false,
+				toolVersion: version,
+				findings: [],
+				rawArtifact,
+				stdoutArtifact,
+				stderrArtifact,
+				exitCode: result.exitCode,
+				error: "invalid_structured_output",
+			};
+		}
 		return {
 			ok: result.ok && (result.exitCode === 0 || result.exitCode === 1),
 			toolVersion: version,

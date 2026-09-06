@@ -186,4 +186,15 @@ describe("workflow supply-chain policy", () => {
 		);
 		expect(scannerWorkflow).toContain("bun run scanner-e2e:failure:verify");
 	});
+
+	test("builds the Semgrep toolbox prerequisite in clean E2E runners", async () => {
+		const packageJson = JSON.parse(await readRepositoryFile("package.json")) as {
+			scripts: Record<string, string>;
+		};
+		const build = packageJson.scripts["docker:plugin:semgrep:build"];
+		expect(build).toBeDefined();
+		expect(build!.indexOf("bun run docker:toolbox:build")).toBeLessThan(
+			build!.indexOf("docker build -f docker/plugins/semgrep/Dockerfile"),
+		);
+	});
 });

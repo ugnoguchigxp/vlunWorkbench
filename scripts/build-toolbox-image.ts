@@ -37,6 +37,19 @@ async function run(
 	}
 }
 
+async function succeeds(
+	command: string[],
+	options: { cwd?: string; env?: Record<string, string | undefined> } = {},
+) {
+	const proc = Bun.spawn(command, {
+		cwd: options.cwd,
+		env: options.env ?? process.env,
+		stdout: "inherit",
+		stderr: "inherit",
+	});
+	return (await proc.exited) === 0;
+}
+
 async function sha256(filePath: string) {
 	const hash = createHash("sha256");
 	hash.update(await readFile(filePath));
@@ -180,19 +193,30 @@ try {
 		GOCACHE: path.join(workRoot, "go-build"),
 		GOMODCACHE: path.join(cacheRoot, "go-mod"),
 	};
-	await run(
-		[
-			goBinary,
-			"get",
-			"github.com/containerd/containerd/v2@v2.3.2",
-			"github.com/go-git/go-git/v5@v5.19.2",
-			"google.golang.org/grpc@v1.82.1",
-			"golang.org/x/net@v0.56.0",
-			"golang.org/x/text@v0.39.0",
-			"oras.land/oras-go/v2@v2.6.2",
-		],
-		{ cwd: sourceRoot, env: goEnv },
-	);
+	const goGetCommand = [
+		goBinary,
+		"get",
+		"github.com/containerd/containerd/v2@v2.3.2",
+		"github.com/go-git/go-git/v5@v5.19.2",
+		"google.golang.org/grpc@v1.83.1",
+		"golang.org/x/crypto@v0.55.0",
+		"golang.org/x/mod@v0.40.0",
+		"golang.org/x/net@v0.56.0",
+		"golang.org/x/text@v0.39.0",
+		"oras.land/oras-go/v2@v2.6.2",
+	];
+	const goOptions = { cwd: sourceRoot, env: goEnv };
+	const cacheIsComplete =
+		(await succeeds(goGetCommand, goOptions)) &&
+		(await succeeds([goBinary, "mod", "verify"], goOptions));
+	if (!cacheIsComplete) {
+		// Interrupted extraction can leave read-only module directories with
+		// missing files. Go treats those directories as cached, so verify and
+		// rebuild the cache before compiling the scanner.
+		await run([goBinary, "clean", "-modcache"], goOptions);
+		await run(goGetCommand, goOptions);
+		await run([goBinary, "mod", "verify"], goOptions);
+	}
 	await run(
 		[
 			goBinary,

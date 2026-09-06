@@ -118,7 +118,17 @@ try {
 		await schemaGateway.stop();
 	}
 	if (!schemaResult.ok) {
-		throw new Error(`real_schemathesis_failed:${schemaResult.error}`);
+		throw new Error(
+			`real_schemathesis_failed:${schemaResult.error}:exit=${schemaResult.exitCode}:artifacts=${
+				[
+					schemaResult.rawArtifact?.path,
+					schemaResult.stdoutArtifact?.path,
+					schemaResult.stderrArtifact?.path,
+				]
+					.filter(Boolean)
+					.join(",") || "none"
+			}`,
+		);
 	}
 	progress("schemathesis.completed");
 
