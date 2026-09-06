@@ -5,7 +5,7 @@
     reviews them monthly and removes an override once every direct consumer naturally resolves to
     the same or a newer patched version.
   </p>
-  <p>Owner: vulnWorkbench maintainers Next review: 2026-08-24 Maximum review interval: 31 days</p>
+  <p>Owner: vulnWorkbench maintainers Next review: 2026-10-06 Maximum review interval: 31 days</p>
   <table>
     <caption>
       Dependency override policy
@@ -35,7 +35,7 @@
       </tr>
       <tr>
         <td><code>fast-uri</code></td>
-        <td><code>3.1.5</code></td>
+        <td><code>3.1.6</code></td>
         <td>Exclude vulnerable JSON-schema resolver versions.</td>
       </tr>
       <tr>
@@ -91,6 +91,9 @@
         <td><code>8.21.0</code></td>
         <td>Exclude vulnerable WebSocket transitive versions.</td>
       </tr>
+      <tr><td><code>lodash</code></td><td><code>4.18.1</code></td><td>Patch the Java parser dependency without changing its major version.</td></tr>
+      <tr><td><code>lodash-es</code></td><td><code>4.18.1</code></td><td>Keep the Chevrotain parser dependencies on the patched release.</td></tr>
+      <tr><td><code>qs</code></td><td><code>6.16.0</code></td><td>Exclude the denial-of-service advisory affecting the previous transitive release.</td></tr>
     </tbody>
   </table>
   <p>

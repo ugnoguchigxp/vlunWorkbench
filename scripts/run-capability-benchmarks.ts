@@ -75,6 +75,8 @@ const artifactPaths = [
 	".artifacts/benchmark/juice-shop-metrics.json",
 	".artifacts/benchmark/juice-shop-observations.json",
 	".artifacts/benchmark/semgrep-catalog.json",
+	".artifacts/benchmark/java-taint-holdouts.json",
+	".artifacts/benchmark/java-taint-holdouts-raw.json",
 	".artifacts/benchmark/osv-offline-fixtures.json",
 	".artifacts/benchmark/business-logic-metrics.json",
 	".artifacts/benchmark/endpoint-discovery-metrics.json",

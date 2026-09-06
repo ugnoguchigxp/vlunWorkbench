@@ -244,4 +244,18 @@ class OwnedCore {
     // ok: vuln-workbench.java.trust-boundary
     session.putValue("userId", "system");
   }
+  void encodedScript(HttpServletRequest request, HttpServletResponse response) throws Exception {
+    String value = org.owasp.esapi.ESAPI.encoder().encodeForHTML(request.getParameter("q"));
+    // ruleid: vuln-workbench.java.xss-encoding-context
+    response.getWriter().print("<script>const x='" + value);
+    // ruleid: vuln-workbench.java.xss-encoding-context
+    response.getWriter().printf("<a href='%s'>link</a>", value);
+  }
+  void encodedBody(HttpServletRequest request, HttpServletResponse response) throws Exception {
+    String value = org.owasp.esapi.ESAPI.encoder().encodeForHTML(request.getParameter("q"));
+    // ok: vuln-workbench.java.xss-encoding-context
+    response.getWriter().print(value);
+    // ok: vuln-workbench.java.xss-encoding-context
+    response.getWriter().print("<p>" + value);
+  }
 }

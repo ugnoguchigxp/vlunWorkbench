@@ -13,6 +13,72 @@ afterEach(async () => {
 });
 
 describe("configured Java hash evaluator", () => {
+	test("keeps mutations, aliases and alternative callsites unresolved", async () => {
+		const base = configuredMethod("digest", "SHA-256");
+		for (const source of [
+			base.replace(
+				"String algorithm",
+				'benchmarkprops.setProperty("digest","MD5"); String algorithm',
+			),
+			base.replace(
+				"String algorithm",
+				'java.util.Properties alias=benchmarkprops; alias.put("digest","MD5"); String algorithm',
+			),
+			base.replace(
+				"java.security.MessageDigest.getInstance",
+				'algorithm="MD5"; java.security.MessageDigest.getInstance',
+			),
+			base.replace("benchmarkprops.load", "if(condition) benchmarkprops.load"),
+			base.replace(
+				"getInstance(algorithm)",
+				'getInstance(algorithm); String different="MD5"; java.security.MessageDigest.getInstance(different)',
+			),
+		]) {
+			const result = await evaluateConfiguredHashFlow({
+				methodSource: source,
+				projectRoot: "/repo",
+				resolveProjectProperty: async () => ({
+					status: "resolved",
+					value: "SHA-256",
+				}),
+			});
+			expect(result).not.toBe("strong");
+		}
+	});
+	test("does not discard findings when a resolver fails", async () => {
+		expect(
+			await evaluateConfiguredHashFlow({
+				methodSource: configuredMethod("digest", "SHA-256"),
+				projectRoot: "/repo",
+				resolveProjectProperty: async () => {
+					throw new Error("unreadable resource");
+				},
+			}),
+		).toBe("ambiguous");
+	});
+	test("recognizes escaped weak algorithms and fails on incomplete resource searches", async () => {
+		const root = await mkdtemp(path.join(os.tmpdir(), "java-hash-bounds-"));
+		roots.push(root);
+		await writeFile(
+			path.join(root, "benchmark.properties"),
+			"hashAlg1 \\u004d\\\n D5\n",
+		);
+		expect(
+			await evaluateConfiguredHashFlow({
+				methodSource: configuredMethod("hashAlg1", "SHA-256"),
+				projectRoot: root,
+			}),
+		).toBe("weak");
+		let deep = root;
+		for (let n = 0; n < 14; n++) deep = path.join(deep, "nested");
+		await mkdir(deep, { recursive: true });
+		expect(
+			await evaluateConfiguredHashFlow({
+				methodSource: configuredMethod("hashAlg1", "SHA-256"),
+				projectRoot: root,
+			}),
+		).toBe("ambiguous");
+	});
 	test("joins a digest callsite to bounded Java properties resources", async () => {
 		const root = await mkdtemp(path.join(os.tmpdir(), "java-hash-config-"));
 		roots.push(root);

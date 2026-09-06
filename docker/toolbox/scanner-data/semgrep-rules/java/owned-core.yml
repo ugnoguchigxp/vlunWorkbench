@@ -7,6 +7,8 @@ rules:
     mode: taint
     pattern-sources: &servlet-input-sources
       - pattern-either:
+          - pattern: new $WRAPPER((javax.servlet.http.HttpServletRequest $REQ))
+          - pattern: new $WRAPPER((jakarta.servlet.http.HttpServletRequest $REQ))
           - pattern: $REQ.getParameter(...)
           - pattern: $REQ.getParameterValues(...)
           - pattern: $REQ.getParameterMap()
@@ -31,6 +33,24 @@ rules:
       - pattern: $MAP.put($KEY, $VALUE)
         from: $VALUE
         to: $MAP
+      - pattern: $COLLECTION.set($INDEX, $VALUE)
+        from: $VALUE
+        to: $COLLECTION
+      - pattern: $COLLECTION.addAll($VALUES)
+        from: $VALUES
+        to: $COLLECTION
+      - pattern: $MAP.putAll($VALUES)
+        from: $VALUES
+        to: $MAP
+      - pattern: $MAP.replace($KEY, $VALUE)
+        from: $VALUE
+        to: $MAP
+      - pattern: $MAP.replace($KEY, $OLD, $VALUE)
+        from: $VALUE
+        to: $MAP
+      - pattern: $MAP.putIfAbsent($KEY, $VALUE)
+        from: $VALUE
+        to: $MAP
     pattern-sinks:
       - pattern-either:
           - pattern: Runtime.getRuntime().exec(...)
@@ -45,11 +65,12 @@ rules:
     mode: taint
     pattern-sources:
       - pattern-either:
+          - pattern: new $WRAPPER((javax.servlet.http.HttpServletRequest $REQ))
+          - pattern: new $WRAPPER((jakarta.servlet.http.HttpServletRequest $REQ))
           - pattern: $REQ.getParameter(...)
           - pattern: $REQ.getParameterValues(...)
           - pattern: $REQ.getParameterMap()
           - pattern: $REQ.getParameterNames()
-          - pattern: $SOURCE.getTheParameter(...)
           - pattern: $REQ.getQueryString()
           - pattern: $REQ.getHeader(...)
           - pattern: $REQ.getHeaders(...)
@@ -92,6 +113,8 @@ rules:
     mode: taint
     pattern-sources:
       - pattern-either:
+          - pattern: new $WRAPPER((javax.servlet.http.HttpServletRequest $REQ))
+          - pattern: new $WRAPPER((jakarta.servlet.http.HttpServletRequest $REQ))
           - pattern: $REQ.getParameter(...)
           - pattern: $REQ.getParameterValues(...)
           - pattern: $REQ.getParameterMap()
@@ -115,6 +138,17 @@ rules:
           - pattern: $RESP.getWriter().printf(...)
           - pattern: $RESP.getWriter().format(...)
           - pattern: $RESP.getWriter().append(...)
+      - patterns:
+          - pattern-inside: |
+              $WRITER = $RESP.getWriter();
+              ...
+          - pattern-either:
+              - pattern: $WRITER.write(...)
+              - pattern: $WRITER.print(...)
+              - pattern: $WRITER.println(...)
+              - pattern: $WRITER.printf(...)
+              - pattern: $WRITER.format(...)
+              - pattern: $WRITER.append(...)
     pattern-sanitizers:
       - pattern-either:
           - pattern: $ENCODER.encodeForHTML(...)
@@ -143,6 +177,8 @@ rules:
     mode: taint
     pattern-sources:
       - pattern-either:
+          - pattern: new $WRAPPER((javax.servlet.http.HttpServletRequest $REQ))
+          - pattern: new $WRAPPER((jakarta.servlet.http.HttpServletRequest $REQ))
           - pattern: $REQ.getParameter(...)
           - pattern: $REQ.getParameterValues(...)
           - pattern: $REQ.getParameterMap()
@@ -192,7 +228,7 @@ rules:
           metavariable: $ALGORITHM
           regex: (?i)"(?:MD5|SHA-?1)"
   - id: vuln-workbench.java.configured-weak-hash
-    message: A digest algorithm is selected from a properties resource; the workbench resolves the resource before reporting a weak algorithm.
+    message: A digest algorithm is selected from configuration; verify that the resolved algorithm is strong.
     severity: WARNING
     languages: [java]
     metadata: { cwe: CWE-328, owasp: ["A02:2021"], security-family: weak-cryptography-hash-randomness, confidence: medium, source-kind: owned-core, source-ref: "repo:java/owned-core.yml", license: MIT, rule-version: "1", supported-frameworks: [generic], remediation: "Select SHA-256 or a stronger digest in the deployed properties resource." }
@@ -236,6 +272,8 @@ rules:
     mode: taint
     pattern-sources:
       - pattern-either:
+          - pattern: new $WRAPPER((javax.servlet.http.HttpServletRequest $REQ))
+          - pattern: new $WRAPPER((jakarta.servlet.http.HttpServletRequest $REQ))
           - pattern: $REQ.getParameter(...)
           - pattern: $REQ.getParameterValues(...)
           - pattern: $REQ.getParameterMap()
@@ -252,7 +290,9 @@ rules:
           - pattern: $REQ.getSession().getAttribute(...)
     pattern-propagators: *collection-propagators
     pattern-sinks:
-      - pattern: $CONTEXT.search($BASE, $FILTER, ...)
+      - patterns:
+          - pattern: $CONTEXT.search($BASE, $FILTER, ...)
+          - focus-metavariable: $FILTER
     pattern-sanitizers:
       - pattern-either:
           - pattern: $ENCODER.encodeForLDAP(...)
@@ -265,6 +305,8 @@ rules:
     mode: taint
     pattern-sources:
       - pattern-either:
+          - pattern: new $WRAPPER((javax.servlet.http.HttpServletRequest $REQ))
+          - pattern: new $WRAPPER((jakarta.servlet.http.HttpServletRequest $REQ))
           - pattern: $REQ.getParameter(...)
           - pattern: $REQ.getParameterValues(...)
           - pattern: $REQ.getParameterMap()
@@ -281,9 +323,11 @@ rules:
           - pattern: $REQ.getSession().getAttribute(...)
     pattern-propagators: *collection-propagators
     pattern-sinks:
-      - pattern-either:
-          - pattern: $XPATH.evaluate($EXPRESSION, ...)
-          - pattern: $XPATH.compile($EXPRESSION)
+      - patterns:
+          - pattern-either:
+              - pattern: $XPATH.evaluate($EXPRESSION, ...)
+              - pattern: $XPATH.compile($EXPRESSION)
+          - focus-metavariable: $EXPRESSION
   - id: vuln-workbench.java.insecure-cookie
     message: A cookie is explicitly transmitted without a security attribute.
     severity: WARNING
@@ -300,11 +344,12 @@ rules:
     mode: taint
     pattern-sources:
       - pattern-either:
+          - pattern: new $WRAPPER((javax.servlet.http.HttpServletRequest $REQ))
+          - pattern: new $WRAPPER((jakarta.servlet.http.HttpServletRequest $REQ))
           - pattern: $REQ.getParameter(...)
           - pattern: $REQ.getParameterValues(...)
           - pattern: $REQ.getParameterMap()
           - pattern: $REQ.getParameterNames()
-          - pattern: $SOURCE.getTheParameter(...)
           - pattern: $REQ.getQueryString()
           - pattern: $REQ.getHeader(...)
           - pattern: $REQ.getHeaders(...)
@@ -320,3 +365,36 @@ rules:
       - pattern-either:
           - pattern: $SESSION.setAttribute(...)
           - pattern: $SESSION.putValue(...)
+  - id: vuln-workbench.java.xss-encoding-context
+    message: HTML encoding does not make servlet input safe in JavaScript, CSS, event-handler or URL contexts.
+    severity: ERROR
+    languages: [java]
+    metadata: { cwe: CWE-79, owasp: ["A03:2021"], security-family: xss-template-injection, confidence: high, source-kind: owned-core, source-ref: "repo:java/owned-core.yml", license: MIT, rule-version: "1", supported-frameworks: [servlet], remediation: "Avoid inserting untrusted values into executable contexts; validate URLs and use an encoder specific to the final output context." }
+    mode: taint
+    pattern-sources: *servlet-input-sources
+    pattern-propagators: *collection-propagators
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: $RESP.getWriter().$OUTPUT($PREFIX + $VALUE)
+              - pattern: $RESP.getWriter().$OUTPUT($PREFIX, ...)
+          - metavariable-regex:
+              metavariable: $OUTPUT
+              regex: '^(?:write|print|println|printf|format|append)$'
+          - metavariable-regex:
+              metavariable: $PREFIX
+              regex: '(?is).*(?:<\s*(?:script|style)\b|\b(?:on\w+|href|src|style)\s*=)'
+      - patterns:
+          - pattern-inside: |
+              $RESP.getWriter().$OPEN($PREFIX);
+              ...
+          - pattern: $RESP.getWriter().$OUTPUT(...)
+          - metavariable-regex:
+              metavariable: $OPEN
+              regex: '^(?:write|print|println|append)$'
+          - metavariable-regex:
+              metavariable: $OUTPUT
+              regex: '^(?:write|print|println|printf|format|append)$'
+          - metavariable-regex:
+              metavariable: $PREFIX
+              regex: '(?is).*(?:<\s*(?:script|style)\b|\b(?:on\w+|href|src|style)\s*=)'

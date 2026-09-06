@@ -127,6 +127,19 @@ const metricArtifact = {
 	...score,
 };
 await Bun.write(outputPath, `${JSON.stringify(metricArtifact, null, 2)}\n`);
+// Standalone and aggregate benchmark commands enforce the same policy as
+// persisted release runs; a completed measurement is not automatically a pass.
+assertOwaspMetricsPassReleasePolicy(
+	score.metrics,
+	owaspReleasePolicySchema.parse(
+		JSON.parse(
+			await readFile(
+				"spec/security-capability/benchmark-policy.v1.json",
+				"utf8",
+			),
+		),
+	),
+);
 const benchmarkRunId = await persistBenchmarkRunIfConfigured({
 	metricArtifact,
 	metrics: score.metrics,

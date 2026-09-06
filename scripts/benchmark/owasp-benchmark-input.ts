@@ -14,6 +14,16 @@ export const OWASP_IMPLEMENTATION_PATHS = [
 	"api/modules/benchmarks/owasp-benchmark-adapter.ts",
 	"api/modules/scans/tools/java-taint-precision-filter.ts",
 	"api/modules/scans/tools/java-configured-hash-evaluator.ts",
+	"api/modules/scans/tools/java-constant-flow.ts",
+	"api/modules/scans/tools/java-constant-values.ts",
+	"api/modules/scans/tools/java-flow-control.ts",
+	"api/modules/scans/tools/java-helper-resolution.ts",
+	"api/modules/scans/tools/java-source-analysis.ts",
+	"api/modules/scans/tools/java-sink-proof.ts",
+	"api/modules/scans/tools/java-project-model.ts",
+	"api/modules/scans/tools/java-reflection-summary.ts",
+	"api/modules/scans/tools/java-properties.ts",
+	"bun.lock",
 	"scripts/benchmark/benchmark-input-provenance.ts",
 ];
 

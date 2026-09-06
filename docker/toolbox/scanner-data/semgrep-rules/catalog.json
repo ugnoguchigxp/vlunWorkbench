@@ -1,8 +1,9 @@
 {
   "schemaVersion": 1,
   "rulesetId": "curated-sast-v1",
-  "rulesetVersion": "1.1.0",
+  "rulesetVersion": "1.2.0",
   "rules": [
+    { "id": "vuln-workbench.java.xss-encoding-context", "language": "java", "cwe": "CWE-79", "family": "xss-template-injection", "sourceKind": "owned-core", "license": "MIT" },
     { "id": "vuln-workbench.javascript.command-injection", "language": "javascript", "cwe": "CWE-78", "family": "command-injection", "sourceKind": "owned-core", "license": "MIT" },
     { "id": "vuln-workbench.javascript.code-injection", "language": "javascript", "cwe": "CWE-95", "family": "dangerous-process-execution", "sourceKind": "owned-core", "license": "MIT" },
     { "id": "vuln-workbench.javascript.dom-xss", "language": "javascript", "cwe": "CWE-79", "family": "xss-template-injection", "sourceKind": "owned-core", "license": "MIT" },

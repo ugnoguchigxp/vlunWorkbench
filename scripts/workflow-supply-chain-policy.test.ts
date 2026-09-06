@@ -85,42 +85,54 @@ describe("workflow supply-chain policy", () => {
 		expect(semgrepPlugin).toContain("semgrep==${SEMGREP_VERSION}");
 	});
 
-	test("runs the strict Phase 55 entry with pinned benchmark images and persisted evidence", async () => {
-		const [workflow, phase55Entry] = await Promise.all([
+	test("runs fresh capability measurements with pinned scanners and persisted evidence", async () => {
+		const [workflow, runner] = await Promise.all([
 			readRepositoryFile(".github/workflows/verify.yml"),
-			readRepositoryFile("scripts/verify-phase-55-entry.ts"),
+			readRepositoryFile("scripts/run-capability-benchmarks.ts"),
 		]);
 		const closeout = jobBlock(workflow, "juice-shop-benchmark");
 		expect(closeout).toContain("needs: [verify, secret-scan]");
 		expect(closeout).toContain("fetch-depth: 0");
-		expect(closeout).toContain(
-			"VULN_WORKBENCH_OWASP_SEMGREP_IMAGE: docker.io/semgrep/semgrep@sha256:",
-		);
-		expect(closeout).toContain(
-			'docker pull "$VULN_WORKBENCH_OWASP_SEMGREP_IMAGE"',
-		);
+		for (const variable of [
+			"VULN_WORKBENCH_OWASP_SEMGREP_IMAGE",
+			"VULN_WORKBENCH_OSV_FIXTURE_IMAGE",
+		]) {
+			expect(closeout).toMatch(
+				new RegExp(`${variable}: .*@sha256:[a-f0-9]{64}`),
+			);
+			expect(closeout).toContain(`docker pull "$${variable}"`);
+		}
 		expect(closeout).toContain(
 			"docker pull docker.io/bkimminich/juice-shop@sha256:",
 		);
-		expect(closeout).toContain("bun run db:migrate");
-		expect(closeout).toContain("bun run verify:phase-55-entry");
-		expect(phase55Entry).toContain(
-			'["bun", "run", "verify:phase-55-baseline"]',
+		expect(closeout).toContain("bun run osv-fixtures:prepare");
+		expect(closeout).toContain("bun run verify:capability:full");
+		expect(closeout).toContain(".artifacts/capability/");
+		expect(closeout).toContain("if-no-files-found: error");
+		expect(runner).toContain('path.join(runRoot, "benchmark.sqlite")');
+		expect(runner).toContain("capability_benchmarks_require_fresh_scan");
+		expect(runner).toContain("capability_benchmarks_source_changed");
+		expect(runner).toContain("receipt.gitCommit !== releaseCommit");
+		expect(runner).toContain('flag: "wx"');
+		const lifecycle = [
+			'["bun", "run", "db:migrate"]',
+			'["bun", "run", "benchmark:all"]',
+			'["bun", "run", "verify:professional-capability"]',
+		];
+		for (const command of lifecycle) expect(runner).toContain(command);
+		expect(runner.indexOf(lifecycle[0]!)).toBeLessThan(
+			runner.indexOf(lifecycle[1]!),
 		);
-		expect(phase55Entry).toContain('["bun", "run", "phase-54:closeout"]');
-		expect(closeout).toContain("phase-54-closeout-backup.sqlite");
-		expect(closeout).toContain("phase-54-same-commit-closeout");
-		expect(closeout).toContain(".artifacts/phase-55-entry/");
-		expect(closeout).toContain(
-			"VULN_WORKBENCH_PHASE54_REGRESSION_VERIFIED_COMMIT: ${{ github.sha }}",
+		expect(runner.indexOf(lifecycle[1]!)).toBeLessThan(
+			runner.indexOf(lifecycle[2]!),
 		);
-		expect(closeout).toContain(
-			".artifacts/benchmark/owasp-semgrep-raw.json",
-		);
-		expect(closeout).not.toMatch(/^\s+\.artifacts\/benchmark\/$/m);
-		expect(closeout.indexOf("bun run db:migrate")).toBeLessThan(
-			closeout.indexOf("bun run verify:phase-55-entry"),
-		);
+		for (const artifact of [
+			"owasp-semgrep-raw.json",
+			"java-taint-holdouts.json",
+			"java-taint-holdouts-raw.json",
+			"osv-offline-fixtures.json",
+		])
+			expect(runner).toContain(artifact);
 	});
 
 	test("binds the real scanner and API-confirmed closeout receipt to the caller commit", async () => {
@@ -139,9 +151,7 @@ describe("workflow supply-chain policy", () => {
 			"target_ref: d87bfdd9f29aa64e484a0c4d1ad02956136dc6b0",
 		);
 		expect(receipt).toContain("needs: [verify, scanner-e2e-real]");
-		expect(receipt).toContain(
-			"capture-scanner-hardening-branch-protection.ts",
-		);
+		expect(receipt).toContain("capture-scanner-hardening-branch-protection.ts");
 		expect(receipt).toContain("github.ref_protected");
 		expect(receipt).toContain("--require-protected");
 		expect(receipt).not.toContain("VWB_BRANCH_PROTECTION_CONFIRMED");

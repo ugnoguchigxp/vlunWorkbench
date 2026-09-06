@@ -1,369 +1,332 @@
 import { describe, expect, test } from "bun:test";
-import {
-	filterOwnedJavaTaintResults,
-	proveOwnedJavaTaintFindingSafe,
-} from "./java-taint-precision-filter";
+import { filterOwnedJavaTaintResults } from "./java-taint-precision-filter";
 
-describe("owned Java taint precision filter", () => {
-	test("proves only the reachable side of constant branches safe", () => {
-		const safeIf = `
-			String bar;
-			int num = 86;
-			if ((7 * 42) - num > 200) bar = "safe"; else bar = param;
-		`;
-		const unsafeIf = safeIf.replace("86", "106");
-		const safeTernary = `
-			String bar;
-			int num = 106;
-			bar = (7 * 18) + num > 200 ? "safe" : param;
-		`;
-		const unsafeTernary = safeTernary.replace("106", "10");
-		expect(proveOwnedJavaTaintFindingSafe(safeIf, "sql-injection")).toBe(
-			"constant_branch",
-		);
-		expect(proveOwnedJavaTaintFindingSafe(unsafeIf, "sql-injection")).toBeNull();
-		expect(
-			proveOwnedJavaTaintFindingSafe(
-				`${safeIf}\nbar = param;`,
-				"sql-injection",
-			),
-		).toBeNull();
-		expect(proveOwnedJavaTaintFindingSafe(safeTernary, "sql-injection")).toBe(
-			"constant_branch",
-		);
-		expect(
-			proveOwnedJavaTaintFindingSafe(unsafeTernary, "sql-injection"),
-		).toBeNull();
-	});
-
-	test("simulates constant switch and collection overwrite flows", () => {
-		const safeSwitch = `
-			String bar;
-			String guess = "ABC";
-			char switchTarget = guess.charAt(1);
-			switch (switchTarget) {
-				case 'A': bar = param; break;
-				case 'B': bar = "safe"; break;
-				default: bar = param;
-			}
-		`;
-		expect(
-			proveOwnedJavaTaintFindingSafe(safeSwitch, "path-traversal-file"),
-		).toBe("constant_switch");
-		expect(
-			proveOwnedJavaTaintFindingSafe(
-				safeSwitch.replace('"ABC"', '"AAC"'),
-				"path-traversal-file",
-			),
-		).toBeNull();
-
-		const safeList = `
-			String bar = "safe";
-			java.util.List<String> values = new java.util.ArrayList<String>();
-			values.add("first");
-			values.add(param);
-			values.add("last");
-			values.remove(0);
-			bar = values.get(1);
-		`;
-		expect(
-			proveOwnedJavaTaintFindingSafe(safeList, "command-injection"),
-		).toBe("collection_overwrite");
-		expect(
-			proveOwnedJavaTaintFindingSafe(
-				safeList.replace("get(1)", "get(0)"),
-				"command-injection",
-			),
-		).toBeNull();
-		expect(
-			proveOwnedJavaTaintFindingSafe(
-				`java.util.List<String> values = new java.util.ArrayList<String>();
-				values.add(param);
-				String bar = values.get(0);
-				values.remove(0);
-				values.add("safe-after-read");`,
-				"command-injection",
-			),
-		).toBeNull();
-
-		const safeMap = `
-			String bar = "safe";
-			java.util.HashMap<String,Object> values = new java.util.HashMap<String,Object>();
-			values.put("tainted", param);
-			values.put("safe", "constant");
-			bar = (String)values.get("tainted");
-			bar = (String)values.get("safe");
-		`;
-		expect(proveOwnedJavaTaintFindingSafe(safeMap, "ldap-injection")).toBe(
-			"collection_overwrite",
-		);
-		expect(
-			proveOwnedJavaTaintFindingSafe(
-				safeMap.replace(
-					'bar = (String)values.get("safe");',
-					"",
-				),
-				"ldap-injection",
-			),
-		).toBeNull();
-		expect(
-			proveOwnedJavaTaintFindingSafe(
-				`java.util.HashMap<String,Object> values = new java.util.HashMap<String,Object>();
-				values.put("selected", param);
-				String bar = (String)values.get("selected");
-				values.put("selected", "safe-after-read");`,
-				"ldap-injection",
-			),
-		).toBeNull();
-	});
-
-	test("keeps contextual encoding specific to XSS and static callees generic", () => {
-		const encoded =
-			"String bar = org.springframework.web.util.HtmlUtils.htmlEscape(param);";
-		expect(
-			proveOwnedJavaTaintFindingSafe(encoded, "xss-response-writer"),
-		).toBe("contextual_output_encoding");
-		expect(
-			proveOwnedJavaTaintFindingSafe(encoded, "trust-boundary"),
-		).toBeNull();
-		expect(
-			proveOwnedJavaTaintFindingSafe(
-				`${encoded}\nbar = param;`,
-				"xss-response-writer",
-			),
-		).toBeNull();
-		const staticCall = `
-			String ignored = param;
-			String g123 = "constant";
-			String bar = thing.doSomething(g123);
-			return bar;
-		`;
-		expect(
-			proveOwnedJavaTaintFindingSafe(staticCall, "xpath-injection"),
-		).toBe("constant_interprocedural_flow");
-		expect(
-			proveOwnedJavaTaintFindingSafe(
-				staticCall.replace("g123);", "param);"),
-				"xpath-injection",
-			),
-		).toBeNull();
-	});
-
-	test("filters only owned Java taint findings and records audit data", async () => {
-		const safeSource = `class Safe {
-			void run(String param) {
-				String bar;
-				int num = 86;
-				if ((7 * 42) - num > 200) bar = "safe"; else bar = param;
-				sink(bar);
-			}
-		}`;
-		const result = await filterOwnedJavaTaintResults(
-			{
-				results: [
-					finding("vuln-workbench.java.sql-injection", "Safe.java"),
-					finding("community.java.sql-injection", "Safe.java"),
-					finding("vuln-workbench.java.weak-hash", "Safe.java"),
-				],
-			},
-			{ readSource: async () => safeSource },
-		);
-		expect(
-			(result.output as { results: unknown[] }).results,
-		).toHaveLength(2);
-		expect(result.suppressions).toEqual([
-			expect.objectContaining({
-				findingId: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
-				checkId: "vuln-workbench.java.sql-injection",
-				reason: "constant_branch",
-				sourceHash: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
-			}),
-		]);
-		const repeated = await filterOwnedJavaTaintResults(
-			{
-				results: [
-					finding("vuln-workbench.java.sql-injection", "Safe.java"),
-				],
-			},
-			{ readSource: async () => safeSource },
-		);
-		expect(repeated.suppressions[0]?.findingId).toBe(
-			result.suppressions[0]?.findingId,
-		);
-		expect(repeated.suppressions[0]?.sourceHash).toBe(
-			result.suppressions[0]?.sourceHash,
-		);
-	});
-
-	test("does not suppress an unsafe finding because another method is safe", async () => {
-		const mixedSource = `class Mixed {
-			void safe(String param) {
-				String bar = org.springframework.web.util.HtmlUtils.htmlEscape(param);
-				sink(bar);
-			}
-			void unsafe(String param) {
-				sink(param);
-			}
-		}`;
-		const result = await filterOwnedJavaTaintResults(
-			{
-				results: [
-					finding("vuln-workbench.java.xss-response-writer", "Mixed.java", 4),
-					finding("vuln-workbench.java.xss-response-writer", "Mixed.java", 7),
-				],
-			},
-			{ readSource: async () => mixedSource },
-		);
-		expect((result.output as { results: unknown[] }).results).toHaveLength(1);
-		expect(result.suppressions).toHaveLength(1);
-		expect(result.suppressions[0]?.line).toBe(4);
-	});
-
-	test("suppresses a finding only when its unique in-file helper proves safe", async () => {
-		const helperSource = `class HelperFlow {
-			void run(String param) {
-				String bar = new Helper().transform(param);
-				sink(bar);
-			}
-			String transform(String param) {
-				String bar;
-				int num = 86;
-				if ((7 * 42) - num > 200) bar = "safe"; else bar = param;
-				return bar;
-			}
-		}`;
-		const result = await filterOwnedJavaTaintResults(
-			{
-				results: [
-					finding("vuln-workbench.java.sql-injection", "HelperFlow.java", 4),
-				],
-			},
-			{ readSource: async () => helperSource },
-		);
-		expect((result.output as { results: unknown[] }).results).toHaveLength(0);
-		expect(result.suppressions[0]?.reason).toBe("constant_branch");
-	});
-
-	test("does not use an unrelated safe helper to suppress the value reaching the sink", async () => {
-		const helperSource = `class MixedHelperFlow {
-			void run(String param) {
-				safeTransform(param);
-				String bar = unsafeTransform(param);
-				sink(bar);
-			}
-			String safeTransform(String param) {
-				String bar;
-				int num = 86;
-				if ((7 * 42) - num > 200) bar = "safe"; else bar = param;
-				return bar;
-			}
-			String unsafeTransform(String param) {
-				String bar = param;
-				return bar;
-			}
-		}`;
-		const result = await filterOwnedJavaTaintResults(
-			{
-				results: [
-					finding(
-						"vuln-workbench.java.sql-injection",
-						"MixedHelperFlow.java",
-						5,
-					),
-				],
-			},
-			{ readSource: async () => helperSource },
-		);
-		expect((result.output as { results: unknown[] }).results).toHaveLength(1);
-		expect(result.suppressions).toEqual([]);
-	});
-
-	test("keeps only configured digest findings resolved to a weak algorithm", async () => {
-		const configuredSource = `class ConfiguredHash {
-			void run() throws Exception {
-				java.util.Properties properties = new java.util.Properties();
-				properties.load(getClass().getClassLoader().getResourceAsStream("application.properties"));
-				String algorithm = properties.getProperty("security.digest", "SHA-256");
-				java.security.MessageDigest.getInstance(algorithm);
-			}
-		}`;
-		const input = {
-			results: [
-				finding(
-					"vuln-workbench.java.configured-weak-hash",
-					"ConfiguredHash.java",
-					6,
-				),
-			],
-		};
-		const strong = await filterOwnedJavaTaintResults(input, {
-			readSource: async () => configuredSource,
-			projectRoot: "/repo",
-			resolveProjectProperty: async () => ({
-				status: "resolved",
-				value: "SHA-256",
-			}),
-		});
-		expect((strong.output as { results: unknown[] }).results).toHaveLength(0);
-		expect(strong.suppressions[0]?.reason).toBe(
-			"configured_algorithm_strong",
-		);
-		const weak = await filterOwnedJavaTaintResults(input, {
-			readSource: async () => configuredSource,
-			projectRoot: "/repo",
-			resolveProjectProperty: async () => ({
-				status: "resolved",
-				value: "MD5",
-			}),
-		});
-		expect((weak.output as { results: unknown[] }).results).toHaveLength(1);
-		expect(weak.suppressions).toEqual([]);
-		const unresolved = await filterOwnedJavaTaintResults(input, {
-			readSource: async () => configuredSource,
-		});
-		expect((unresolved.output as { results: unknown[] }).results).toHaveLength(0);
-		expect(unresolved.suppressions[0]?.reason).toBe(
-			"configured_algorithm_unresolved",
-		);
-	});
-
-	test("applies XSS safety proofs to the parameter-name output variant", async () => {
-		const safeSource = `class ParameterNameOutput {
-			void run(String param) {
-				String bar;
-				int num = 86;
-				if ((7 * 42) - num > 200) bar = "safe"; else bar = param;
-				sink(bar);
-			}
-		}`;
-		const result = await filterOwnedJavaTaintResults(
-			{
-				results: [
-					finding(
-						"vuln-workbench.java.xss-parameter-name-output",
-						"ParameterNameOutput.java",
-						6,
-					),
-				],
-			},
-			{ readSource: async () => safeSource },
-		);
-		expect((result.output as { results: unknown[] }).results).toHaveLength(0);
-		expect(result.suppressions[0]).toEqual(
-			expect.objectContaining({
-				checkId: "vuln-workbench.java.xss-parameter-name-output",
-				reason: "constant_branch",
-			}),
-		);
-	});
-});
-
-function finding(checkId: string, path: string, line = 5) {
+function finding(source: string, target: string, rule = "sql-injection") {
+	const offset = source.indexOf(target),
+		prefix = source.slice(0, offset);
+	const line = prefix.split("\n").length,
+		col = Buffer.byteLength(prefix.slice(prefix.lastIndexOf("\n") + 1)) + 1;
 	return {
-		check_id: checkId,
-		path,
-		start: { line, col: 1 },
-		end: { line, col: 2 },
+		check_id: `vuln-workbench.java.${rule}`,
+		path: "Example.java",
+		start: { line, col },
+		end: { line, col: col + Buffer.byteLength(target) },
 		extra: { metadata: { cwe: "CWE-89" } },
 	};
 }
+async function filter(source: string, target: string, rule = "sql-injection") {
+	const input = { results: [finding(source, target, rule)] };
+	const result = await filterOwnedJavaTaintResults(input, {
+		readSource: async () => source,
+	});
+	return { ...result, results: (result.output as typeof input).results };
+}
+const method = (body: string) =>
+	`class Example { void run(String incoming, boolean condition) { ${body} } }`;
+const suffix = "statement.execute(selected);";
+
+describe("owned Java taint precision filter", () => {
+	for (const [name, body] of [
+		[
+			"constant branch with renamed variables",
+			'String selected; int threshold=40; if (threshold*3>100) selected="safe"; else selected=incoming;',
+		],
+		[
+			"constant ternary",
+			'int number=20; String selected=number/2==10?"safe":incoming;',
+		],
+		[
+			"safe paths at a branch join",
+			'String selected; if(condition) selected="one"; else selected="two";',
+		],
+		[
+			"constant switch",
+			'String selector="xyz"; char choice=selector.charAt(1); String selected; switch(choice){case \'y\': selected="safe";break;default:selected=incoming;}',
+		],
+		[
+			"list overwrite",
+			'java.util.List<String> values=new java.util.ArrayList<String>(); values.add("first");values.add(incoming);values.add("last");values.remove(0);String selected=values.get(1);',
+		],
+		[
+			"map overwrite",
+			'java.util.HashMap<String,Object> values=new java.util.HashMap<String,Object>(); values.put("key",incoming);values.put("key","constant");String selected=(String)values.get("key");',
+		],
+		[
+			"safe collection read through an alias",
+			'java.util.List<String> values=new java.util.ArrayList<String>(); values.add("constant");java.util.List<String> alias=values;String selected=alias.get(0);',
+		],
+	] as const)
+		test(`proves ${name}`, async () => {
+			// Use the actual argument range instead of a synthetic whole-method line.
+			const input = finding(method(`${body}${suffix}`), "selected);");
+			input.end.col -= 2;
+			const checked = await filterOwnedJavaTaintResults(
+				{ results: [input] },
+				{ readSource: async () => method(`${body}${suffix}`) },
+			);
+			expect((checked.output as { results: unknown[] }).results).toHaveLength(
+				0,
+			);
+			expect(checked.suppressions).toHaveLength(1);
+		});
+	test("binds the proof to the exact occurrence on a line", async () => {
+		const source = method(
+			'String selected=incoming;statement.execute(selected);selected="safe";statement.execute(selected);',
+		);
+		const first = finding(source, "statement.execute(selected)");
+		const offset = source.lastIndexOf("statement.execute(selected)");
+		const second = {
+			...first,
+			start: { line: 1, col: offset + 1 },
+			end: { line: 1, col: offset + 1 + "statement.execute(selected)".length },
+		};
+		const result = await filterOwnedJavaTaintResults(
+			{ results: [first, second] },
+			{ readSource: async () => source },
+		);
+		expect((result.output as { results: unknown[] }).results).toHaveLength(1);
+		expect(result.suppressions).toHaveLength(1);
+	});
+	test("keeps unowned rules and hashes the source for every proof", async () => {
+		const source = method(
+			'String selected=incoming; selected="safe"; statement.execute(selected);',
+		);
+		const owned = finding(source, "statement.execute(selected)");
+		const result = await filterOwnedJavaTaintResults(
+			{
+				results: [
+					owned,
+					{ ...owned, check_id: "community.java.sql-injection" },
+				],
+			},
+			{ readSource: async () => source },
+		);
+		expect((result.output as { results: unknown[] }).results).toHaveLength(1);
+		expect(result.suppressions[0]).toEqual(
+			expect.objectContaining({
+				findingId: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
+				sourceHash: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
+			}),
+		);
+	});
+	test("follows a private helper in the correct class", async () => {
+		const source =
+			'class Example { void run(String incoming) { String selected=transform(incoming); statement.execute(selected); } private static String transform(String input) {int threshold=3; return threshold>2?"safe":input;} }';
+		expect(
+			(await filter(source, "statement.execute(selected)")).results,
+		).toHaveLength(0);
+	});
+	test("does not resolve a same-named helper on an unrelated receiver", async () => {
+		const source =
+			'class Example { void run(String incoming) { String selected=remote.transform(incoming); statement.execute(selected); } private static String transform(String input) {return "safe";} }';
+		expect(
+			(await filter(source, "statement.execute(selected)")).results,
+		).toHaveLength(1);
+	});
+	test("does not treat an unknown callee with a constant argument as pure", async () => {
+		const source = method(
+			'String selected=remote.transform("constant");statement.execute(selected);',
+		);
+		expect(
+			(await filter(source, "statement.execute(selected)")).results,
+		).toHaveLength(1);
+	});
+	test("requires an unambiguous helper overload", async () => {
+		const source =
+			'class Example { void run(String incoming) { String selected=transform(incoming); statement.execute(selected); } private static String transform(String input) {return "safe";} private static String transform(Object input) {return input.toString();} }';
+		expect(
+			(await filter(source, "statement.execute(selected)")).results,
+		).toHaveLength(1);
+	});
+	test("keeps inherited overload dispatch ambiguous", async () => {
+		const source =
+			'class Example extends Parent { void run(Object incoming) { String selected=transform(incoming); statement.execute(selected); } private String transform(String input) {return "safe";} }';
+		expect(
+			(await filter(source, "statement.execute(selected)")).results,
+		).toHaveLength(1);
+		expect(
+			(
+				await filter(
+					source.replace("run(Object incoming)", "run(String incoming)"),
+					"statement.execute(selected)",
+				)
+			).results,
+		).toHaveLength(0);
+	});
+	test("keeps output context unknown after a response or writer escapes", async () => {
+		for (const prefix of [
+			"render(response);",
+			"java.io.PrintWriter writer=response.getWriter();render(writer);",
+		]) {
+			const source = method(
+				'response.setContentType("text/html");' +
+					prefix +
+					"String selected=org.springframework.web.util.HtmlUtils.htmlEscape(incoming);response.getWriter().print(selected);",
+			);
+			expect(
+				(
+					await filter(
+						source,
+						"response.getWriter().print(selected)",
+						"xss-response-writer",
+					)
+				).results,
+			).toHaveLength(1);
+		}
+	});
+	test("does not use another method as proof", async () => {
+		const source =
+			'class Example { void safe(String incoming) {String selected="safe";statement.execute(selected);} void unsafe(String incoming) {statement.execute(incoming);} }';
+		expect(
+			(await filter(source, "statement.execute(incoming)")).results,
+		).toHaveLength(1);
+	});
+	test("uses HTML encoding only in a proven HTML text write", async () => {
+		const source = method(
+			'response.setContentType("text/html");String selected=org.springframework.web.util.HtmlUtils.htmlEscape(incoming);response.getWriter().print(selected);',
+		);
+		expect(
+			(
+				await filter(
+					source,
+					"response.getWriter().print(selected)",
+					"xss-response-writer",
+				)
+			).results,
+		).toHaveLength(0);
+		expect(
+			(
+				await filter(
+					source.replace(
+						"response.getWriter().print(selected);",
+						'response.getWriter().print("<script>");response.getWriter().print(selected);',
+					),
+					"response.getWriter().print(selected)",
+					"xss-response-writer",
+				)
+			).results,
+		).toHaveLength(1);
+		expect(
+			(
+				await filter(
+					source.replace('"text/html"', '"application/javascript"'),
+					"response.getWriter().print(selected)",
+					"xss-response-writer",
+				)
+			).results,
+		).toHaveLength(1);
+	});
+	test("excludes only output paths that return before the sink", async () => {
+		const source = method(
+			'response.setContentType("text/html");if(condition){response.getWriter().print("<script>");return;}String selected=org.springframework.web.util.HtmlUtils.htmlEscape(incoming);response.getWriter().print(selected);',
+		);
+		expect(
+			(
+				await filter(
+					source,
+					"response.getWriter().print(selected)",
+					"xss-response-writer",
+				)
+			).results,
+		).toHaveLength(0);
+		expect(
+			(
+				await filter(
+					source.replace("return;", ""),
+					"response.getWriter().print(selected)",
+					"xss-response-writer",
+				)
+			).results,
+		).toHaveLength(1);
+	});
+	test("checks every URI constructor component", async () => {
+		const source = method(
+			'java.net.URI uri=new java.net.URI("file",null,"/tmp/"+incoming,null,null);new java.io.File(uri);',
+		);
+		expect(
+			(await filter(source, "new java.io.File(uri)", "path-traversal-file"))
+				.results,
+		).toHaveLength(1);
+		expect(
+			(
+				await filter(
+					source.replace('"/tmp/"+incoming', '"/tmp/fixed"'),
+					"new java.io.File(uri)",
+					"path-traversal-file",
+				)
+			).results,
+		).toHaveLength(0);
+	});
+	test("keeps missing positions, invalid Java and Unicode preprocessing ambiguous", async () => {
+		for (const source of [
+			method("statement.execute(incoming);"),
+			method('String selected="safe";statement.execute(selected);').replace(
+				'"safe"',
+				'"\\u0073afe"',
+			),
+			"invalid {",
+		]) {
+			const result = await filterOwnedJavaTaintResults(
+				{
+					results: [
+						{
+							check_id: "vuln-workbench.java.sql-injection",
+							path: "Example.java",
+							start: { line: 1, col: 1 },
+						},
+					],
+				},
+				{ readSource: async () => source },
+			);
+			expect(result.suppressions).toEqual([]);
+		}
+	});
+	test("suppresses only a configured digest proven strong at this callsite", async () => {
+		const source = method(
+			'java.util.Properties properties=new java.util.Properties();properties.load(getClass().getClassLoader().getResourceAsStream("app.properties"));String algorithm=properties.getProperty("digest","SHA-256");java.security.MessageDigest.getInstance(algorithm);',
+		);
+		const item = finding(
+			source,
+			"java.security.MessageDigest.getInstance(algorithm)",
+			"configured-weak-hash",
+		);
+		for (const value of ["MD5", "SHA-256", "unknown"]) {
+			const result = await filterOwnedJavaTaintResults(
+				{ results: [item] },
+				{
+					readSource: async () => source,
+					projectRoot: "/nonexistent",
+					resolveProjectProperty: async () => ({ status: "resolved", value }),
+				},
+			);
+			expect((result.output as { results: unknown[] }).results).toHaveLength(
+				value === "SHA-256" ? 0 : 1,
+			);
+		}
+		for (const status of ["resource_missing", "ambiguous"] as const) {
+			const result = await filterOwnedJavaTaintResults(
+				{ results: [item] },
+				{
+					readSource: async () => source,
+					projectRoot: "/nonexistent",
+					resolveProjectProperty: async () => ({ status }),
+				},
+			);
+			expect(result.suppressions).toEqual([]);
+		}
+		const result = await filterOwnedJavaTaintResults(
+			{
+				results: [{ ...item, check_id: "community.java.configured-weak-hash" }],
+			},
+			{
+				readSource: async () => source,
+				projectRoot: "/nonexistent",
+				resolveProjectProperty: async () => ({
+					status: "resolved",
+					value: "SHA-256",
+				}),
+			},
+		);
+		expect(result.suppressions).toEqual([]);
+	});
+});

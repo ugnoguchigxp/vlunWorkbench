@@ -86,6 +86,7 @@ export const sanitizedSemgrepEvidenceArtifactSchema = z
 					path: corpusEvidencePathSchema,
 					line: z.number().int().nonnegative().nullable(),
 					sourceHash: z.string().regex(digestPattern),
+					proofInputHash: z.string().regex(digestPattern).optional(),
 					reason: z.enum([
 						"contextual_output_encoding",
 						"constant_branch",
@@ -388,6 +389,7 @@ export function sanitizeSemgrepEvidenceArtifact(
 							? rawSuppression.line
 							: null,
 					sourceHash: rawSuppression.sourceHash,
+					proofInputHash: rawSuppression.proofInputHash,
 					reason: rawSuppression.reason,
 				};
 			})

@@ -172,7 +172,7 @@
 		"test:zap-active:contract": "bun test api/modules/runtime-scans/zap-active-runner.test.ts api/modules/runtime-scans/zap-active-policy.test.ts api/modules/runtime-scans/zap-automation-plan.test.ts api/modules/runtime-scans/container-fixture-reset.test.ts api/modules/dast/active-container-target-gateway.test.ts",
 		"test:threat-model": "bun test api/modules/threat-models",
 		"test:business-logic": "bun test api/modules/business-logic tests/security-capability/business-logic",
-		"test:detection-effectiveness": "bun test api/modules/dast/security-probe-detector.test.ts api/modules/scans/tools/java-configured-hash-evaluator.test.ts api/modules/scans/tools/java-taint-precision-filter.test.ts api/modules/scans/tools/semgrep-runner.test.ts api/modules/runtime-scans/container-fixture-reset.test.ts scripts/benchmark/juice-shop-observations.test.ts scripts/benchmark/juice-shop-playbooks.test.ts scripts/benchmark/juice-shop-runner.test.ts scripts/benchmark/measurement-status.test.ts scripts/benchmark/owasp-benchmark-input.test.ts scripts/benchmark/owasp-benchmark-runtime.test.ts scripts/benchmark/owasp-failure-analysis-lib.test.ts scripts/benchmark/owasp-release-policy.test.ts scripts/phase-54-closeout-lib.test.ts scripts/professional-capability-artifact-verifier.test.ts scripts/osv-fixture-runtime.test.ts scripts/professional-capability-gates.test.ts scripts/benchmark/business-logic-measurement.test.ts",
+		"test:detection-effectiveness": "bun test api/modules/dast/security-probe-detector.test.ts api/modules/scans/tools/java-configured-hash-evaluator.test.ts api/modules/scans/tools/java-taint-precision-filter.test.ts api/modules/scans/tools/semgrep-runner.test.ts api/modules/runtime-scans/container-fixture-reset.test.ts scripts/benchmark/juice-shop-observations.test.ts scripts/benchmark/juice-shop-playbooks.test.ts scripts/benchmark/juice-shop-runner.test.ts scripts/benchmark/measurement-status.test.ts scripts/benchmark/owasp-benchmark-input.test.ts scripts/benchmark/owasp-benchmark-runtime.test.ts scripts/benchmark/owasp-failure-analysis-lib.test.ts scripts/benchmark/owasp-release-policy.test.ts scripts/phase-54-closeout-lib.test.ts scripts/professional-capability-artifact-verifier.test.ts scripts/osv-fixture-runtime.test.ts scripts/professional-capability-gates.test.ts scripts/benchmark/business-logic-measurement.test.ts api/modules/scans/tools/java-taint-soundness.test.ts api/modules/scans/tools/java-properties.test.ts api/modules/scans/tools/java-project-model.test.ts",
 		"benchmark:owasp": "bun run scripts/benchmark/owasp-benchmark.ts",
 		"benchmark:owasp:analyze": "bun run scripts/benchmark/owasp-failure-analysis.ts",
 		"benchmark:juice-shop": "bun run scripts/benchmark/juice-shop.ts",
@@ -203,7 +203,8 @@
 		"runtime-isolation:auto-configure": "bun run api/cli/runtime-isolation-auto-configure.ts",
 		"verify": "bun scripts/verify.ts",
 		"verify:strict": "bun run scripts/verify-strict.ts",
-		"verify:clean-checkout": "bun run scripts/verify-clean-checkout.ts"
+		"verify:clean-checkout": "bun run scripts/verify-clean-checkout.ts",
+		"test:semgrep:java-holdouts": "bun run scripts/test-semgrep-java-holdouts.ts"
 	},
 	"files": [
 		"dist-web",
@@ -228,6 +229,7 @@
 		"graphql": "16.14.0",
 		"gray-matter": "4.0.3",
 		"hono": "4.12.34",
+		"java-parser": "3.0.1",
 		"jose": "6.2.3",
 		"jsdom": "^30.0.1",
 		"lucide-react": "1.18.0",
@@ -237,7 +239,7 @@
 		"react-dom": "19.2.7",
 		"react-hook-form": "^7.79.0",
 		"s11tnext": "0.1.2",
-		"sanitize-html": "^2.17.4",
+		"sanitize-html": "^2.17.7",
 		"sqlite-vec": "^0.1.9",
 		"tailwind-merge": "^3.6.0",
 		"zod": "4.4.3"
@@ -269,7 +271,7 @@
 		"@hono/node-server": "2.0.10",
 		"brace-expansion": "5.0.9",
 		"esbuild": "0.28.1",
-		"fast-uri": "3.1.5",
+		"fast-uri": "3.1.6",
 		"hono": "4.12.34",
 		"minimatch": "10.2.5",
 		"nanoid": "3.3.18",
@@ -279,6 +281,9 @@
 		"undici": "7.29.0",
 		"js-yaml": "3.15.1",
 		"vite": "8.0.16",
-		"ws": "8.21.0"
+		"ws": "8.21.0",
+		"lodash": "4.18.1",
+		"lodash-es": "4.18.1",
+		"qs": "6.16.0"
 	}
 }

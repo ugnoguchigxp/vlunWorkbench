@@ -1,5 +1,12 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { parseJavaProperties } from "./java-properties";
+import {
+	descendants,
+	javaText,
+	parseJavaSource,
+	tokens,
+} from "./java-source-analysis";
 
 const MAX_DIRECTORY_ENTRIES = 10_000;
 const MAX_DIRECTORY_DEPTH = 12;
@@ -29,6 +36,7 @@ export type ConfiguredHashEvaluation =
 
 export async function evaluateConfiguredHashFlow(params: {
 	methodSource: string;
+	sinkOffset?: number;
 	projectRoot?: string;
 	resolveProjectProperty?: (params: {
 		projectRoot: string;
@@ -37,29 +45,104 @@ export async function evaluateConfiguredHashFlow(params: {
 		fallback: string;
 	}) => Promise<ProjectPropertyResolution>;
 }): Promise<ConfiguredHashEvaluation | null> {
-	const assignment = params.methodSource.match(
-		/String\s+(\w+)\s*=\s*(\w+)\.getProperty\(\s*"([^"]+)"\s*,\s*"([^"]+)"\s*\)\s*;/,
+	const wrapped = `class Configuration { void run() {${params.methodSource}\n} }`;
+	const program = parseJavaSource(wrapped);
+	if (!program) return "unresolved";
+	const prefixLength = "class Configuration { void run() {".length;
+	const sinkCalls = descendants(program.root, "primary").filter((node) =>
+		/^(?:java\.security\.)?MessageDigest\.getInstance\(/.test(javaText(node)),
 	);
-	const algorithmVariable = assignment?.[1];
-	const propertiesVariable = assignment?.[2];
-	const key = assignment?.[3];
-	const fallback = assignment?.[4];
-	if (
-		!algorithmVariable ||
-		!propertiesVariable ||
-		!key ||
-		fallback === undefined
-	) {
-		return null;
+	const sink =
+		params.sinkOffset === undefined
+			? sinkCalls.length === 1
+				? sinkCalls[0]
+				: undefined
+			: sinkCalls.find(
+					(node) =>
+						node.location.startOffset ===
+						prefixLength + (params.sinkOffset ?? 0),
+				);
+	if (!sink) return sinkCalls.length ? "ambiguous" : null;
+	const sinkText = javaText(sink);
+	const algorithmVariable = sinkText.match(/getInstance\((\w+)[,)]/)?.[1];
+	if (!algorithmVariable) return null;
+	const priorTokens = tokens(program.methods[0]?.body).filter(
+		(token) =>
+			token.startOffset < sink.location.startOffset && token.image !== "{",
+	);
+	const prior = priorTokens.map((token) => token.image).join(" ");
+	const assignmentPattern = new RegExp(
+		`String\\s+${escapeRegex(algorithmVariable)}\\s*=\\s*(\\w+)\\s*\\.\\s*getProperty\\s*\\(\\s*("(?:[^"\\\\]|\\\\.)*")\\s*,\\s*("(?:[^"\\\\]|\\\\.)*")\\s*\\)\\s*;`,
+		"g",
+	);
+	const assignments = [...prior.matchAll(assignmentPattern)];
+	if (assignments.length === 0) return null;
+	if (assignments.length !== 1) return "unresolved";
+	const assignment = assignments[0];
+	const propertiesVariable = assignment?.[1];
+	let key: string, fallback: string;
+	try {
+		key = JSON.parse(assignment?.[2] ?? "");
+		fallback = JSON.parse(assignment?.[3] ?? "");
+	} catch {
+		return "unresolved";
 	}
-	const sinkPattern = new RegExp(
-		`(?:[\\w$.]+\\.)?getInstance\\(\\s*${escapeRegex(algorithmVariable)}\\s*(?:,|\\))`,
+	if (!assignment || !propertiesVariable) return "unresolved";
+	const beforeAssignment = prior.slice(0, assignment.index);
+	const afterAssignment = prior.slice(
+		(assignment.index ?? 0) + assignment[0].length,
 	);
-	if (!sinkPattern.test(params.methodSource)) return null;
-	const loadPattern = new RegExp(
-		`${escapeRegex(propertiesVariable)}\\.load\\([\\s\\S]*?getResourceAsStream\\(\\s*"([^"]+)"\\s*\\)[\\s\\S]*?\\)\\s*;`,
+	if (
+		new RegExp(`\\b${escapeRegex(algorithmVariable)}\\b`).test(afterAssignment)
+	)
+		return "unresolved";
+	const loads = [
+		...beforeAssignment.matchAll(
+			new RegExp(
+				`\\b${escapeRegex(propertiesVariable)}\\s*\\.\\s*load\\s*\\(([^;]+)\\)\\s*;`,
+				"g",
+			),
+		),
+	];
+	if (loads.length !== 1) return "unresolved";
+	const load = loads[0];
+	const loadExpression = load?.[1]?.replace(
+		/\s+(?=(?:[^"\\]*(?:\\.[^"\\]*)*"[^"\\]*(?:\\.[^"\\]*)*")*[^"\\]*$)/g,
+		"",
 	);
-	const resourceName = params.methodSource.match(loadPattern)?.[1];
+	if (
+		!loadExpression ||
+		!/^(?:(?:this\.)?getClass\(\)|[\w$.]+\.class)\.getClassLoader\(\)\.getResourceAsStream\("(?:[^"\\]|\\.)*"\)$/.test(
+			loadExpression,
+		)
+	)
+		return "unresolved";
+	const resourceLiteral = load?.[1]?.match(
+		/getResourceAsStream\s*\(\s*("(?:[^"\\]|\\.)*")\s*\)/,
+	)?.[1];
+	let resourceName: string | undefined;
+	try {
+		resourceName = resourceLiteral ? JSON.parse(resourceLiteral) : undefined;
+	} catch {
+		return "unresolved";
+	}
+	// Only a fresh Properties object followed by one unconditional load and read
+	// is proven. Aliasing, setProperty/put, additional loads, and branches need review.
+	const construction = new RegExp(
+		`(?:java\\s*\\.\\s*util\\s*\\.\\s*)?Properties\\s+${escapeRegex(propertiesVariable)}\\s*=\\s*new\\s+(?:java\\s*\\.\\s*util\\s*\\.\\s*)?Properties\\s*\\(\\s*\\)\\s*;`,
+	);
+	const constructed = beforeAssignment.match(construction);
+	const proofWindow = prior.slice(constructed?.index ?? 0);
+	const remainder = beforeAssignment
+		.slice(constructed?.index ?? 0)
+		.replace(construction, "")
+		.replace(load?.[0] ?? "", "");
+	if (
+		!construction.test(beforeAssignment) ||
+		new RegExp(`\\b${escapeRegex(propertiesVariable)}\\b`).test(remainder) ||
+		/\b(?:if|for|while|switch|catch|finally|return|throw)\b/.test(proofWindow)
+	)
+		return "unresolved";
 	if (!resourceName || !params.projectRoot) return "unresolved";
 	const resolve = params.resolveProjectProperty ?? resolveProjectProperty;
 	const resolution = await resolve({
@@ -67,10 +150,15 @@ export async function evaluateConfiguredHashFlow(params: {
 		resourceName,
 		key,
 		fallback,
-	});
+	}).catch((): ProjectPropertyResolution => ({ status: "ambiguous" }));
 	if (resolution.status === "ambiguous") return "ambiguous";
 	if (resolution.status === "resource_missing") return "unresolved";
-	return isWeakDigestAlgorithm(resolution.value) ? "weak" : "strong";
+	if (isWeakDigestAlgorithm(resolution.value)) return "weak";
+	return /^(?:SHA-?(?:224|256|384|512)(?:\/(?:224|256))?|SHA3-(?:224|256|384|512))$/i.test(
+		resolution.value,
+	)
+		? "strong"
+		: "unresolved";
 }
 
 export async function resolveProjectProperty(params: {
@@ -88,7 +176,9 @@ export async function resolveProjectProperty(params: {
 	) {
 		return { status: "resource_missing" };
 	}
-	const candidates = await findResourceCandidates(root, normalizedResource);
+	const search = await findResourceCandidates(root, normalizedResource);
+	if (!search.complete) return { status: "ambiguous" };
+	const candidates = search.paths;
 	if (candidates.length === 0) return { status: "resource_missing" };
 	const values = new Set<string>();
 	for (const candidate of candidates) {
@@ -97,8 +187,9 @@ export async function resolveProjectProperty(params: {
 		const size = await fs.stat(candidatePath).then((entry) => entry.size);
 		if (size > MAX_RESOURCE_BYTES) return { status: "ambiguous" };
 		const properties = parseJavaProperties(
-			await fs.readFile(candidatePath, "utf8"),
+			await fs.readFile(candidatePath, "latin1"),
 		);
+		if (!properties) return { status: "ambiguous" };
 		values.add(properties.get(params.key) ?? params.fallback);
 	}
 	if (values.size !== 1) return { status: "ambiguous" };
@@ -106,33 +197,43 @@ export async function resolveProjectProperty(params: {
 }
 
 function isWeakDigestAlgorithm(value: string): boolean {
-	return /^(?:MD5|SHA-?1)$/i.test(value.trim());
+	return /^(?:MD2|MD4|MD5|SHA|SHA-?1)$/i.test(value);
 }
 
 async function findResourceCandidates(
 	root: string,
 	resourceName: string,
-): Promise<string[]> {
+): Promise<{ paths: string[]; complete: boolean }> {
 	const matches: string[] = [];
 	let visited = 0;
+	let complete = true;
 	const visit = async (directory: string, depth: number): Promise<void> => {
 		if (
 			depth > MAX_DIRECTORY_DEPTH ||
 			visited >= MAX_DIRECTORY_ENTRIES ||
 			matches.length >= MAX_RESOURCE_CANDIDATES
 		) {
+			complete = false;
 			return;
 		}
 		const entries = await fs
 			.readdir(directory, { withFileTypes: true })
-			.catch(() => []);
+			.catch(() => {
+				complete = false;
+				return [];
+			});
 		for (const entry of entries) {
-			if (++visited > MAX_DIRECTORY_ENTRIES) return;
+			if (++visited > MAX_DIRECTORY_ENTRIES) {
+				complete = false;
+				return;
+			}
 			const entryPath = path.join(directory, entry.name);
 			if (entry.isDirectory()) {
 				if (!SKIPPED_DIRECTORIES.has(entry.name)) {
 					await visit(entryPath, depth + 1);
 				}
+			} else if (entry.isSymbolicLink()) {
+				complete = false;
 			} else if (entry.isFile()) {
 				const relative = path
 					.relative(root, entryPath)
@@ -145,24 +246,14 @@ async function findResourceCandidates(
 					matches.push(entryPath);
 				}
 			}
-			if (matches.length >= MAX_RESOURCE_CANDIDATES) return;
+			if (matches.length >= MAX_RESOURCE_CANDIDATES) {
+				complete = false;
+				return;
+			}
 		}
 	};
 	await visit(root, 0);
-	return matches.sort();
-}
-
-function parseJavaProperties(source: string): Map<string, string> {
-	const properties = new Map<string, string>();
-	for (const rawLine of source.split(/\r?\n/)) {
-		const line = rawLine.trim();
-		if (!line || line.startsWith("#") || line.startsWith("!")) continue;
-		const match = line.match(/^([^:=\s]+)\s*(?:=|:)\s*(.*)$/);
-		if (match?.[1] !== undefined && match[2] !== undefined) {
-			properties.set(match[1], match[2].trim());
-		}
-	}
-	return properties;
+	return { paths: matches.sort(), complete };
 }
 
 function isPathInside(candidate: string, root: string): boolean {

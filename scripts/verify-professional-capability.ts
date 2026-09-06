@@ -29,6 +29,7 @@ const reportOnly = cliArguments.includes("--report-only");
 const contracts = [
 	["bun", "run", "test:detection-effectiveness"],
 	["bun", "run", "test:semgrep:catalog"],
+	["bun", "run", "test:semgrep:java-holdouts"],
 	["bun", "run", "test:osv:offline-fixtures"],
 	["bun", "run", "test:zap-active:contract"],
 	["bun", "run", "test:threat-model"],
@@ -74,6 +75,9 @@ const semgrepRules = semgrepCatalog.rules as Array<{
 const semgrepEvidence = await readJsonIfExists(
 	".artifacts/benchmark/semgrep-catalog.json",
 );
+const semgrepHoldouts = await readJsonIfExists(
+	".artifacts/benchmark/java-taint-holdouts.json",
+);
 const semgrepGate =
 	semgrepRules.length >= minimums.semgrepRuleCount &&
 	new Set(semgrepRules.map((item) => item.language)).size === 5 &&
@@ -88,6 +92,7 @@ const semgrepGate =
 	semgrepEvidence?.positiveRecall === minimums.semgrepPositiveRecall &&
 	semgrepEvidence?.negativeFalsePositive ===
 		minimums.semgrepNegativeFalsePositive &&
+	semgrepHoldouts?.ok === true &&
 	semgrepEvidence?.networkRequests === minimums.offlineNetworkRequests;
 const osvBundles = manifest.tools.osv?.dataBundles ?? [];
 const owasp = await readMetricArtifact(
