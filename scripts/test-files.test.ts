@@ -2,7 +2,11 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { discoverTestFiles, isVitestFile } from "./test-files";
+import {
+	bunTestTimeoutMs,
+	discoverTestFiles,
+	isVitestFile,
+} from "./test-files";
 
 const roots: string[] = [];
 
@@ -37,6 +41,17 @@ describe("test file discovery", () => {
 			isVitestFile("api/modules/dast/playwright-browser-adapter.test.ts"),
 		).toBe(true);
 		expect(isVitestFile("api/modules/scans/execution/profile-runner.test.ts")).toBe(false);
+	});
+
+	test("extends only the fixture-heavy CLI test timeout", () => {
+		expect(
+			bunTestTimeoutMs(
+				"api/modules/static-intelligence/intelligence-agent-query-cli.test.ts",
+			),
+		).toBe(20_000);
+		expect(
+			bunTestTimeoutMs("api/modules/scans/execution/profile-runner.test.ts"),
+		).toBeNull();
 	});
 });
 

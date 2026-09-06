@@ -5,6 +5,13 @@ import { afterEach, describe, expect, it } from "vitest";
 import { executeDynamicDockerRun } from "./dynamic-docker-executor";
 
 const roots: string[] = [];
+const describeWithDynamicImage =
+	process.env.VULN_WORKBENCH_DYNAMIC_INTEGRATION === "1"
+		? describe
+		: describe.skip;
+const dynamicImage =
+	process.env.VULN_WORKBENCH_DYNAMIC_TEST_IMAGE ??
+	"vuln-workbench-dynamic:local";
 afterEach(async () => {
 	await Promise.all(roots.splice(0).map((root) => fs.rm(root, { recursive: true, force: true })));
 });
@@ -31,7 +38,7 @@ async function runGoSecurityRecipe(params: {
 	await fs.chmod(out, 0o777);
 	return await executeDynamicDockerRun({
 		dockerBin: "docker",
-		image: "vuln-workbench-dynamic:local",
+		image: dynamicImage,
 		containerName: `vwb-go-race-${crypto.randomUUID().slice(0, 8)}`,
 		networkMode: "none",
 		memory: "1g",
@@ -53,7 +60,7 @@ async function runGoSecurityRecipe(params: {
 	});
 }
 
-describe("tier-1 Go race recipe", () => {
+describeWithDynamicImage("tier-1 Go race recipe", () => {
 	it("detects the vulnerable fixture and accepts the fixed fixture in the isolated dynamic image", async () => {
 		const vulnerable = await runGoRace("vulnerable");
 		expect(vulnerable.exitCode).not.toBe(0);
@@ -65,7 +72,7 @@ describe("tier-1 Go race recipe", () => {
 	}, 120_000);
 });
 
-describe("bounded Go fuzz recipe", () => {
+describeWithDynamicImage("bounded Go fuzz recipe", () => {
 	it("detects the seeded crash and completes against the fixed fixture within its budget", async () => {
 		const vulnerable = await runGoFuzz("vulnerable");
 		expect(vulnerable.exitCode).not.toBe(0);

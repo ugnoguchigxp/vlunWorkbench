@@ -64,6 +64,11 @@ describe("workflow supply-chain policy", () => {
 		expect(workflow).toContain("severity: HIGH,CRITICAL");
 		expect(workflow).toContain("TRIVY_IGNOREFILE: .trivyignore.yaml");
 		expect(workflow).not.toContain("trivyignores:");
+		expect(workflow).toContain('VULN_WORKBENCH_DYNAMIC_INTEGRATION: "1"');
+		expect(workflow).toContain(
+			"bun test api/modules/dynamic/dynamic-security-recipe.integration.test.ts",
+		);
+		expect(workflow).toContain('- "api/modules/dynamic/**"');
 	});
 
 	test("refreshes dependency and offline scanner data on a bounded schedule", async () => {

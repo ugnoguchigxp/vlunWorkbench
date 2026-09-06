@@ -1,7 +1,7 @@
+import { describe, expect, test } from "bun:test";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { describe, expect, test } from "bun:test";
 import {
 	buildDynamicOutputVolumeCreateArgs,
 	buildDynamicOutputVolumeRemoveArgs,
@@ -140,7 +140,7 @@ exit 0
 if [ "$1" = "rm" ]; then
   exit 9
 fi
-sleep 10
+exec sleep 10
 `,
 		);
 		await fs.chmod(dockerBin, 0o755);

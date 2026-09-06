@@ -6,7 +6,11 @@ import {
 	discoverProductionFiles,
 	loadCoverageScopePolicy,
 } from "./coverage-scope-inventory-lib";
-import { discoverTestFiles, isVitestFile } from "./test-files";
+import {
+	bunTestTimeoutMs,
+	discoverTestFiles,
+	isVitestFile,
+} from "./test-files";
 
 type LineCoverage = { hit: number; total: number };
 
@@ -66,6 +70,7 @@ async function collectBunCoverage(
 				const index = nextIndex++;
 				const test = tests[index];
 				if (!test) return;
+				const timeoutMs = bunTestTimeoutMs(test);
 				const testDirectory = path.join(directory, String(index));
 				await mkdir(testDirectory, { recursive: true });
 				const child = Bun.spawn(
@@ -75,6 +80,7 @@ async function collectBunCoverage(
 						"--no-orphans",
 						"--preload",
 						"./scripts/bun-test-lifecycle.ts",
+						...(timeoutMs ? [`--timeout=${timeoutMs}`] : []),
 						"--coverage",
 						"--coverage-reporter=lcov",
 						`--coverage-dir=${testDirectory}`,

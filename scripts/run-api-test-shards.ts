@@ -2,7 +2,11 @@ import {
 	listSqliteWriterProcesses,
 	waitForNewSqliteWriterProcessesToExit,
 } from "./sqlite-writer-processes";
-import { discoverTestFiles, isVitestFile } from "./test-files";
+import {
+	bunTestTimeoutMs,
+	discoverTestFiles,
+	isVitestFile,
+} from "./test-files";
 
 const concurrency = Math.max(
 	1,
@@ -23,6 +27,7 @@ async function worker(): Promise<void> {
 		const index = nextIndex++;
 		const file = files[index];
 		if (!file) return;
+		const timeoutMs = bunTestTimeoutMs(file);
 		const proc = Bun.spawn(
 			[
 				"bun",
@@ -30,6 +35,7 @@ async function worker(): Promise<void> {
 				"--no-orphans",
 				"--preload",
 				"./scripts/bun-test-lifecycle.ts",
+				...(timeoutMs ? [`--timeout=${timeoutMs}`] : []),
 				file,
 			],
 			{

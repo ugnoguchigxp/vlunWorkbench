@@ -127,10 +127,10 @@ function targetContractPath() {
 	);
 }
 
-async function loadTargetContract(): Promise<TodolistTargetContract> {
-	const parsed: unknown = JSON.parse(
-		await fs.readFile(targetContractPath(), "utf8"),
-	);
+async function loadTargetContract(
+	contractPath = targetContractPath(),
+): Promise<TodolistTargetContract> {
+	const parsed: unknown = JSON.parse(await fs.readFile(contractPath, "utf8"));
 	if (
 		!parsed ||
 		typeof parsed !== "object" ||
@@ -158,6 +158,7 @@ function runGit(repoPath: string, args: string[]): string {
 export async function resolveTodolistAcceptanceTarget(
 	repoPath = process.env.VULN_WORKBENCH_TODOLIST_REPO_PATH ??
 		path.resolve(process.cwd(), "..", "todolist"),
+	options: { contractPath?: string } = {},
 ): Promise<TodolistAcceptanceTarget> {
 	const resolved = path.resolve(repoPath);
 	if (path.basename(resolved) !== "todolist") {
@@ -169,7 +170,7 @@ export async function resolveTodolistAcceptanceTarget(
 	]);
 	void packageJson;
 	void dockerfile;
-	const contract = await loadTargetContract();
+	const contract = await loadTargetContract(options.contractPath);
 	const status = runGit(resolved, [
 		"status",
 		"--porcelain=v1",

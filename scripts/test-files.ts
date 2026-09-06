@@ -23,6 +23,17 @@ export const nodeVitestFiles = [
 	"api/modules/static-intelligence/static-intelligence-mcp-stdio.test.ts",
 ] as const;
 
+const extendedTimeoutBunTestFiles = new Set([
+	"api/modules/static-intelligence/intelligence-agent-query-cli.test.ts",
+	"api/modules/static-intelligence/intelligence-exploration-catalog-cli.test.ts",
+	"api/modules/static-intelligence/intelligence-export-cli.test.ts",
+	"api/modules/static-intelligence/intelligence-guardrail-material-cli.test.ts",
+	"api/modules/static-intelligence/intelligence-knowledge-source-cli.test.ts",
+]);
+
+export const bunTestTimeoutMs = (file: string): number | null =>
+	extendedTimeoutBunTestFiles.has(file) ? 20_000 : null;
+
 async function walk(directory: string, root: string): Promise<string[]> {
 	const entries = await fs.readdir(directory, { withFileTypes: true });
 	const files: string[] = [];
