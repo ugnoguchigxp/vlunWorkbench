@@ -673,8 +673,12 @@ async function main() {
 									reasonCode: check.reasonCode ?? null,
 								}))
 						: [];
+					const failureDiagnostics = await readFailureStderrArtifacts(
+						artifactRoot,
+						artifacts,
+					);
 					throw new Error(
-						`scanner_e2e_case_failed:${selectedCase.id}:${result.message ?? "unknown"}:${JSON.stringify({ stepFailureSummary, blockedPreflight })}`,
+						`scanner_e2e_case_failed:${selectedCase.id}:${result.message ?? "unknown"}:${JSON.stringify({ stepFailureSummary, blockedPreflight, failureDiagnostics })}`,
 					);
 				}
 				for (const expectedKind of contract.expectedArtifactRoles) {
@@ -1551,4 +1555,26 @@ function assertFailClosedContract(params: {
 	) {
 		throw new Error(`scanner_e2e_v2_fail_closed_invalid:${params.caseId}`);
 	}
+}
+
+async function readFailureStderrArtifacts(
+	artifactRoot: string,
+	artifacts: Array<{ kind: string; path: string; sizeBytes: number }>,
+) {
+	return await Promise.all(
+		artifacts
+			.filter((artifact) => artifact.kind === "stderr")
+			.map(async (artifact) => {
+				const text = await fs
+					.readFile(path.resolve(artifactRoot, artifact.path), "utf8")
+					.catch(() => "stderr_artifact_unreadable");
+				return {
+					path: artifact.path,
+					sizeBytes: artifact.sizeBytes,
+					// Scanner runners redact log artifacts before storage. Keep this
+					// bounded so a failed qualification remains readable in CI logs.
+					excerpt: text.slice(-4_096),
+				};
+			}),
+	);
 }
