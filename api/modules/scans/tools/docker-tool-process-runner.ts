@@ -408,6 +408,18 @@ function buildDockerRunArgs(params: {
 		"HOME=/tmp",
 		"--env",
 		"PATH=/usr/local/bin:/usr/bin:/bin",
+		// Gitleaks invokes Git for history scans. Native Linux bind mounts retain
+		// the host UID, so trust only the fixed, read-only repository mount.
+		...(params.binaryName === "gitleaks" && params.repoPath
+			? [
+					"--env",
+					"GIT_CONFIG_COUNT=1",
+					"--env",
+					"GIT_CONFIG_KEY_0=safe.directory",
+					"--env",
+					`GIT_CONFIG_VALUE_0=${CONTAINER_REPO_PATH}`,
+				]
+			: []),
 		...(params.binaryName === "vwb-schemathesis-readonly-gateway"
 			? ["--workdir", "/tmp"]
 			: params.binaryName === "gitleaks" && params.repoPath

@@ -454,6 +454,9 @@ describe("GitleaksRunner", () => {
 		expect(result.ok).toBe(true);
 		expect(dockerArgs).toContain("--workdir");
 		expect(dockerArgs).toContain("/workspace/repo");
+		expect(dockerArgs).toContain("GIT_CONFIG_COUNT=1");
+		expect(dockerArgs).toContain("GIT_CONFIG_KEY_0=safe.directory");
+		expect(dockerArgs).toContain("GIT_CONFIG_VALUE_0=/workspace/repo");
 		expect(dockerArgs).toContain(".");
 		expect(dockerArgs).toContain("/workspace/repo/.gitleaks.toml");
 	});
