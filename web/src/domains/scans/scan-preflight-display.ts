@@ -154,6 +154,16 @@ const actionDisplays: Partial<
 		"管理者が安全な隔離実行環境を設定してから再実行してください。",
 };
 
+const targetCompatibilityReasons = new Set([
+	"runtime_dependency_adapter_unqualified",
+	"runtime_dependency_lock_unsupported",
+	"runtime_database_provider_unqualified",
+	"runtime_database_recipe_required",
+	"runtime_database_mode_ambiguous",
+	"runtime_recipe_invalid",
+	"runtime_target_start_unavailable",
+]);
+
 export function describeScanPreflightReason(
 	reasonCode: string | null | undefined,
 	action?: ScanPreflightCheck["action"],
@@ -186,6 +196,13 @@ export function formatScanPreflightFailure(
 		return `スキャンを開始できませんでした。${display.cause}${display.nextAction}${reasonCode ? `（原因コード: ${reasonCode}）` : ""}`;
 	}
 	const primary =
+		blocked.find(
+			(check) =>
+				check.required &&
+				Boolean(
+					check.reasonCode && targetCompatibilityReasons.has(check.reasonCode),
+				),
+		) ??
 		blocked.find(
 			(check) =>
 				check.required &&

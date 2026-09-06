@@ -46,6 +46,12 @@ describe("scan preflight display", () => {
 				{
 					required: true,
 					status: "blocked",
+					reasonCode: "docker_image_unavailable",
+					action: "build_toolbox_image",
+				},
+				{
+					required: true,
+					status: "blocked",
 					reasonCode: "target_start_plan_unavailable",
 					action: "configure_target_start_plan",
 				},
@@ -66,6 +72,7 @@ describe("scan preflight display", () => {
 		expect(message).toContain("ソースセキュリティ保証");
 		expect(message).toContain("runtime_dependency_adapter_unqualified");
 		expect(message).not.toContain("target_start_plan_unavailable");
+		expect(message).not.toContain("docker_image_unavailable");
 	});
 
 	it("reads the persisted server-owned preflight result", () => {
