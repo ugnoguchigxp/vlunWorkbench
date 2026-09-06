@@ -34,6 +34,7 @@ import {
 	scannerE2EPinnedTag,
 } from "./docker-image-retention";
 import { canonicalJson, sha256 } from "./scanner-e2e-case-registry";
+import { cleanupScannerE2ETemporaryRoot } from "./scanner-e2e-cleanup";
 import { normalizedFullProfileRun } from "./scanner-e2e-full-profile-lib";
 import { loadScannerE2ECaseRegistryV2 } from "./scanner-e2e-v2-case-registry";
 import { observeScannerE2EWork } from "./scanner-e2e-v2-work";
@@ -466,6 +467,7 @@ async function main() {
 	);
 	const target = await resolveTodolistAcceptanceTarget(args["repo-path"]);
 	const requestedToolboxImage = args["toolbox-image"] ?? TOOLBOX_IMAGE;
+	let cleanupToolboxImage = requestedToolboxImage;
 	const root = await fs.mkdtemp(path.join(os.tmpdir(), "vwb-scanner-e2e-"));
 	const dbPath = path.join(root, "e2e.sqlite");
 	const artifactRoot = path.join(root, "artifacts");
@@ -476,12 +478,15 @@ async function main() {
 		DATABASE_URL: `file:${dbPath}`,
 		SCAN_ARTIFACT_ROOT: artifactRoot,
 	};
-	try {
+	let primaryError: unknown;
+	let cleanupError: unknown;
+	const run = async () => {
 		const resolvedToolbox = await resolveImmutableDockerImage({
 			image: requestedToolboxImage,
 			env,
 		});
 		const toolboxImage = resolvedToolbox.reference;
+		cleanupToolboxImage = toolboxImage;
 		const toolboxImageDigest = resolvedToolbox.digest;
 		const applicationCommit = await resolveApplicationCommit();
 		const migrate = await command(["bun", "run", "api/cli/migrate.ts"], env);
@@ -960,14 +965,32 @@ async function main() {
 		} finally {
 			connection.sqlite.close();
 		}
+	};
+	try {
+		await run();
+	} catch (error) {
+		primaryError = error;
 	} finally {
-		await fs.rm(root, { recursive: true, force: true });
+		try {
+			await cleanupScannerE2ETemporaryRoot({
+				root,
+				toolCacheDir,
+				toolboxImage: cleanupToolboxImage,
+			});
+		} catch (error) {
+			cleanupError = error;
+		}
 		if (previousArtifactRoot === undefined) {
 			delete process.env.SCAN_ARTIFACT_ROOT;
 		} else {
 			process.env.SCAN_ARTIFACT_ROOT = previousArtifactRoot;
 		}
+		if (cleanupError !== undefined && primaryError !== undefined) {
+			console.error("scanner_e2e_secondary_cleanup_failed", cleanupError);
+		}
 	}
+	if (primaryError !== undefined) throw primaryError;
+	if (cleanupError !== undefined) throw cleanupError;
 }
 
 /**
