@@ -1,5 +1,6 @@
 import { readdirSync, readFileSync } from "node:fs";
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDbConnection, type DbConnection } from "../../db";
@@ -25,9 +26,13 @@ describe("Reproduction Runner", () => {
 	let projectId: string;
 	let scanRunId: string;
 	let findingId: string;
+	let projectPath: string;
 
 	beforeEach(async () => {
 		connection = createDbConnection(":memory:");
+		projectPath = await fs.mkdtemp(
+			path.join(os.tmpdir(), "reproduction-runner-test-"),
+		);
 
 		// Apply Drizzle migrations manually to in-memory SQLite
 		const migrationsDir = path.resolve(process.cwd(), "drizzle");
@@ -69,7 +74,7 @@ describe("Reproduction Runner", () => {
 			.values({
 				ownerUserId: userId,
 				name: "Test Project",
-				repoPath: "/valid/path",
+				repoPath: projectPath,
 				defaultBranch: "main",
 				createdAt: now,
 				updatedAt: now,
@@ -114,9 +119,10 @@ describe("Reproduction Runner", () => {
 		findingId = find.id;
 	});
 
-	afterEach(() => {
+	afterEach(async () => {
 		connection.sqlite.close(false);
 		vi.restoreAllMocks();
+		await fs.rm(projectPath, { recursive: true, force: true });
 	});
 
 	it("rejects an explicit parent scan that is not remediation verification", async () => {
@@ -144,7 +150,7 @@ describe("Reproduction Runner", () => {
 		expect(dryResult.isApplicable).toBe(true);
 		expect(dryResult.command.binaryName).toBe("semgrep");
 		expect(dryResult.command.args).toContain("scan");
-		expect(dryResult.command.args).toContain("/valid/path");
+		expect(dryResult.command.args).toContain(projectPath);
 	});
 
 	it("should run reproduction and detect reproduced outcome", async () => {
