@@ -3,7 +3,7 @@ export type CriticalCoverageTarget = {
 	minimum: number;
 };
 
-export const criticalCoverageTargetBaseline = 33;
+export const criticalCoverageTargetBaseline = 34;
 
 export const criticalCoverageTargets: readonly CriticalCoverageTarget[] = [
 	{ path: "api/middleware/auth.ts", minimum: 95 },
@@ -83,6 +83,7 @@ export const criticalCoverageTargets: readonly CriticalCoverageTarget[] = [
 		minimum: 90,
 	},
 	{ path: "api/modules/scans/tools/docker-tool-cleanup.ts", minimum: 80 },
+	{ path: "api/modules/scans/tools/docker-tool-repo-access.ts", minimum: 90 },
 	{
 		path: "api/modules/scans/tools/docker-tool-invocation-policy.ts",
 		minimum: 80,

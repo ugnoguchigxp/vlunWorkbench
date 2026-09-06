@@ -2,12 +2,12 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { readBoundedProcessText } from "./bounded-process-output";
-import { acquireDockerRepoAccess } from "./docker-repo-access";
 import { cleanupDockerContainer } from "./docker-tool-cleanup";
 import {
 	assertAllowedDockerInvocation,
 	dockerEntrypointFor,
 } from "./docker-tool-invocation-policy";
+import { acquireDockerRepoAccess } from "./docker-tool-repo-access";
 
 export { registerDockerToolInvocationPolicy } from "./docker-tool-invocation-policy";
 
