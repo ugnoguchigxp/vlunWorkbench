@@ -34,7 +34,6 @@ const extendedTimeoutBunTestFiles = new Set([
 	"api/modules/static-intelligence/intelligence-export-cli.test.ts",
 	"api/modules/static-intelligence/intelligence-guardrail-material-cli.test.ts",
 	"api/modules/static-intelligence/intelligence-knowledge-source-cli.test.ts",
-	"api/modules/integrations/nightworkers/nightworkers-workspace-target-state.test.ts",
 	"api/modules/integrations/nightworkers/nightworkers-workspace-target-grant-cli.test.ts",
 	"api/modules/integrations/nightworkers/nightworkers-integration.service.test.ts",
 ]);

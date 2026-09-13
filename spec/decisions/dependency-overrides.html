@@ -126,4 +126,13 @@
     <a href="https://github.com/advisories/GHSA-7w5x-hrqm-74c2">smol-toml advisory</a>. Application
     exploitability is not inferred solely from the package advisory.
   </p>
+  <p>
+    Audit transport: bun audit has a 30-second limit. If it fails, public npm lockfile entries are
+    checked with curl against the same
+    <a href="https://docs.npmjs.com/cli/audit/">npm Bulk Advisory endpoint</a>. curl has a 10-second
+    connection limit and a 30-second total limit. Custom registry configuration or unsupported
+    lockfile resolutions prevent this fallback. Missing or invalid responses and transport failures
+    fail the check; they are never treated as zero findings. curl must be available when Bun cannot
+    reach the registry. No temporary registry configuration or running relay is required.
+  </p>
 </article>

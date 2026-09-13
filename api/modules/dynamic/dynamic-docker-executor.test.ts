@@ -64,7 +64,8 @@ exit 0
 				command: ["true"],
 				writableWorkdir: false,
 				expectedArtifacts: ["result.json"],
-				timeoutSec: 1,
+				// This case checks output/environment behavior, not deadline enforcement.
+				timeoutSec: 5,
 			});
 
 			expect(result).toMatchObject({
@@ -115,11 +116,15 @@ exit 0
 				command: ["true"],
 				writableWorkdir: false,
 				expectedArtifacts: [],
-				timeoutSec: 1,
+				// This case checks output/environment behavior, not deadline enforcement.
+				timeoutSec: 5,
 			});
 
-			expect(result.ok).toBe(true);
-			expect(result.exitCode).toBe(0);
+			expect(result).toMatchObject({
+				ok: true,
+				exitCode: 0,
+				executionMetadata: { terminationReason: "completed" },
+			});
 		} finally {
 			for (const [key, value] of Object.entries(originalEnv)) {
 				if (value === undefined) delete process.env[key];

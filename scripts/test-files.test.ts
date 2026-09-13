@@ -43,7 +43,7 @@ describe("test file discovery", () => {
 		expect(isVitestFile("api/modules/scans/execution/profile-runner.test.ts")).toBe(false);
 	});
 
-	test("extends only the fixture-heavy CLI test timeout", () => {
+	test("extends subprocess-heavy fixture timeouts and keeps ordinary tests at the default", () => {
 		expect(
 			bunTestTimeoutMs(
 				"api/modules/static-intelligence/intelligence-agent-query-cli.test.ts",
@@ -51,6 +51,14 @@ describe("test file discovery", () => {
 		).toBe(20_000);
 		expect(
 			bunTestTimeoutMs("api/modules/scans/execution/profile-runner.test.ts"),
+		).toBe(20_000);
+		expect(
+			bunTestTimeoutMs(
+				"api/modules/integrations/nightworkers/nightworkers-workspace-target-state.test.ts",
+			),
+		).toBe(20_000);
+		expect(
+			bunTestTimeoutMs("api/modules/scans/execution/scan-result-policy.test.ts"),
 		).toBeNull();
 	});
 });

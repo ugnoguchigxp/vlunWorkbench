@@ -1,0 +1,66 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-09-13T01:33:54.855853+00:00",
+  "baseCommit": "dc5482e3dad6d603b4a27e9ba9bc93a9ca53f43a",
+  "workingTreeDirty": true,
+  "platform": "darwin",
+  "command": "bun run verify",
+  "exitCode": 0,
+  "oneShotVerifyPassed": true,
+  "steps": [
+    "OK sqlite-write-boundary",
+    "OK s11tnext",
+    "OK typecheck",
+    "OK lint",
+    "OK format",
+    "OK source-size-budget",
+    "OK dependency-override-docs",
+    "OK security-capability-docs",
+    "OK spec-docs",
+    "OK test",
+    "OK build",
+    "OK bundle-budget",
+    "OK dependency-audit",
+    "OK artifact-tracking",
+    "OK verify complete"
+  ],
+  "testInventory": {
+    "total": 521,
+    "vitest": 94,
+    "bun": 427,
+    "duplicates": []
+  },
+  "fixes": [
+    "Align timeout policy regression assertions with subprocess-heavy fixtures; remove a duplicate entry.",
+    "Bound Bun audit to 30 seconds, validate responses and exit status, drain stderr, and fall back to the official npm bulk endpoint via bounded curl for public npm resolutions only.",
+    "Give non-deadline Docker fixture cases a 5-second execution budget; preserve the intentional timeout case and expose termination details in assertions."
+  ],
+  "targetedTests": {
+    "auditAndDiscovery": {
+      "passed": 9,
+      "failed": 0
+    },
+    "dynamicExecutorRepeatedFiveTimes": {
+      "passed": 20,
+      "failed": 0
+    }
+  },
+  "audit": {
+    "total": 0,
+    "blocking": [],
+    "fallbackTransport": "curl-npm-bulk"
+  },
+  "verifyLog": {
+    "text": "$ bun scripts/verify.ts\nOK sqlite-write-boundary\nOK s11tnext\nOK typecheck\nOK lint\nOK format\nOK source-size-budget\nOK dependency-override-docs\nOK security-capability-docs\nOK spec-docs\nOK test\nOK build\nOK bundle-budget\nOK dependency-audit\nOK artifact-tracking\nOK verify complete\n",
+    "sha256": "2518aff29932da4aa58a10b1b3f90e3a86a8d25f2a9f6949c6d96a396c637650"
+  },
+  "verifiedSourceHashes": {
+    "scripts/check-audit-policy.ts": "f96e755afbc3be6f100dffc5682dcc2860de0986ba361843c7e6321c5c3e83c6",
+    "scripts/audit-policy.ts": "c8715ec1c7449109f37cf7271946ad47ffecea57bd8fcd270e5c4d93d7c361eb",
+    "scripts/audit-policy.test.ts": "43a1f61ef9c3430169bec6414b6f07c6d4a04b26606ac8f7e826b0cd1fde44af",
+    "scripts/test-files.ts": "6d5e4936b9a3d9ac226e25459cfac3dda44eab2dd6e76c8799a7dd5ff0376345",
+    "scripts/test-files.test.ts": "1d2b1acbeb37310c5c5e8657b23090c0584f9621df1be7e6373a7020e428c96a",
+    "api/modules/dynamic/dynamic-docker-executor.test.ts": "1c21bd247f1243cf548331574639d7216da1ff26caad6d9d22a628acf6f1ffda"
+  },
+  "scope": "Local verify only; no CI/CD changes and no new Linux capability or Java detection measurement."
+}
